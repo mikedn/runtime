@@ -1890,6 +1890,15 @@ ValueNum ValueNumStore::VNForFunc(var_types typ, VNFunc func, ValueNum arg0VN)
     return resultVN;
 }
 
+ValueNum ValueNumStore::HasFunc(var_types type, VNFunc func, ValueNum arg0VN)
+{
+    assert(func != VNF_MemOpaque);
+    assert(arg0VN == VNNormalValue(arg0VN)); // Arguments don't carry exceptions.
+
+    ValueNum* funcVN = GetVNFunc1Map()->LookupPointer({func, arg0VN});
+    return funcVN == nullptr ? NoVN : *funcVN;
+}
+
 //----------------------------------------------------------------------------------------
 //  VNForFunc  - Returns the ValueNum associated with 'func'('arg0VN','arg1VN')
 //               There is a one-to-one relationship between the ValueNum
