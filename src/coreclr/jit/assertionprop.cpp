@@ -488,7 +488,7 @@ enum ApOp1Kind : uint8_t
     O1K_LCLVAR,
     O1K_BOUND_OPER_BND,
     O1K_BOUND_LOOP_BND,
-    O1K_SUBTYPE,
+    O1K_INSTANCE_OF,
     O1K_VALUE_NUMBER
 };
 
@@ -1599,7 +1599,7 @@ private:
             AssertionDsc assertion;
 
             assertion.kind     = (assertionKind == OAK_EQUAL) ? OAK_NOT_EQUAL : OAK_EQUAL;
-            assertion.op1.kind = O1K_SUBTYPE;
+            assertion.op1.kind = O1K_INSTANCE_OF;
             assertion.op1.vn   = objVN;
             assertion.op2.kind = O2K_VALUE_NUMBER;
             assertion.op2.vn   = mtVN;
@@ -2338,7 +2338,7 @@ private:
         return call;
     }
 
-    const AssertionDsc* FindSubtypeAssertion(const ASSERT_TP assertions, ValueNum objVN, ValueNum mtVN)
+    const AssertionDsc* FindInstanceOfAssertion(const ASSERT_TP assertions, ValueNum objVN, ValueNum mtVN)
     {
         ValueNum objMTVN = vnStore->HasFunc(TYP_I_IMPL, VNF_ObjMT, objVN);
 
@@ -2347,7 +2347,7 @@ private:
             const AssertionDsc& assertion = GetAssertion(GetAssertionIndex(en.Current()));
 
             if ((assertion.kind == OAK_EQUAL) && (assertion.op2.vn == mtVN) &&
-                (((assertion.op1.kind == O1K_SUBTYPE) && (assertion.op1.vn == objVN)) ||
+                (((assertion.op1.kind == O1K_INSTANCE_OF) && (assertion.op1.vn == objVN)) ||
                  ((assertion.op1.kind == O1K_VALUE_NUMBER) && (assertion.op1.vn == objMTVN))))
             {
                 return &assertion;
@@ -2390,7 +2390,7 @@ private:
         ValueNum objectVN      = objectArg->GetConservativeVN();
         ValueNum methodTableVN = vnStore->VNNormalValue(call->GetArgNodeByArgNum(0)->GetConservativeVN());
 
-        const AssertionDsc* assertion = FindSubtypeAssertion(assertions, objectVN, methodTableVN);
+        const AssertionDsc* assertion = FindInstanceOfAssertion(assertions, objectVN, methodTableVN);
 
         if (assertion == nullptr)
         {
@@ -2687,7 +2687,7 @@ private:
             return;
         }
 
-        if ((assertion.kind == OAK_EQUAL) && (assertion.op1.kind == O1K_SUBTYPE))
+        if ((assertion.kind == OAK_EQUAL) && (assertion.op1.kind == O1K_INSTANCE_OF))
         {
             AddTypeImpliedNotNullAssertions(assertion, assertions);
             return;
@@ -2700,7 +2700,7 @@ private:
 
     void AddTypeImpliedNotNullAssertions(const AssertionDsc& typeAssertion, ASSERT_TP& assertions)
     {
-        assert((typeAssertion.kind == OAK_EQUAL) && (typeAssertion.op1.kind == O1K_SUBTYPE));
+        assert((typeAssertion.kind == OAK_EQUAL) && (typeAssertion.op1.kind == O1K_INSTANCE_OF));
 
         const ASSERT_TP vnAssertions = GetVNAssertions(typeAssertion.op1.vn);
 
@@ -3930,7 +3930,7 @@ private:
             return;
         }
 
-        if (op1.kind == O1K_SUBTYPE)
+        if (op1.kind == O1K_INSTANCE_OF)
         {
             assert(vnStore->TypeOfVN(op1.vn) == TYP_REF);
             assert(op2.kind == O2K_VALUE_NUMBER);
@@ -4013,7 +4013,7 @@ void Compiler::apDumpAssertion(const AssertionDsc& assertion, unsigned index)
         return;
     }
 
-    if (op1.kind == O1K_SUBTYPE)
+    if (op1.kind == O1K_INSTANCE_OF)
     {
         printf("Type assertion A%02u: MT(" FMT_VN ") %s " FMT_VN, index, op1.vn, (kind == OAK_EQUAL) ? "IS" : "IS NOT",
                op2.vn);
