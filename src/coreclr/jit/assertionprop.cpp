@@ -1042,54 +1042,38 @@ private:
         return AddEqualityAssertions(assertion);
     }
 
-    AssertionIndex CreateExactTypeAssertion(ValueNum objVN, GenTree* mt, ApKind kind)
+    AssertionIndex CreateExactTypeAssertion(ValueNum objVN, ValueNum mtVN, ApKind kind)
     {
         assert(vnStore->TypeOfVN(objVN) == TYP_REF);
-        assert(mt->TypeIs(TYP_I_IMPL));
+        assert(vnStore->TypeOfVN(mtVN) == TYP_I_IMPL);
         assert((kind == OAK_EQUAL) || (kind == OAK_NOT_EQUAL));
         assert(!compiler->opts.IsReadyToRun());
 
         AssertionDsc assertion;
 
-        ValueNum mtVN = vnStore->VNNormalValue(mt->GetConservativeVN());
-
-        if (!vnStore->IsVNIntegralConstant(mtVN, &assertion.op2.intCon.value, &assertion.op2.intCon.flags))
-        {
-            return NO_ASSERTION_INDEX;
-        }
-
-        assert((assertion.op2.intCon.flags & ~GTF_ICON_HDL_MASK) == 0);
-
         assertion.kind     = kind;
         assertion.op1.kind = O1K_EXACT_TYPE;
         assertion.op1.vn   = objVN;
-        assertion.op2.kind = O2K_CONST_INT;
+        assertion.op2.kind = O2K_VALUE_NUMBER;
         assertion.op2.vn   = mtVN;
 
         return AddEqualityAssertions(assertion);
     }
 
-    AssertionIndex CreateSubtypeAssertion(ValueNum objVN, GenTree* mt, ApKind kind)
+    AssertionIndex CreateSubtypeAssertion(ValueNum objVN, ValueNum mtVN, ApKind kind)
     {
         assert(vnStore->TypeOfVN(objVN) == TYP_REF);
-        assert(mt->TypeIs(TYP_I_IMPL));
+        assert(vnStore->TypeOfVN(mtVN) == TYP_I_IMPL);
         assert((kind == OAK_EQUAL) || (kind == OAK_NOT_EQUAL));
         assert(!compiler->opts.IsReadyToRun());
 
-        if (!mt->IsIntCon() || (mt->GetConservativeVN() == NoVN))
-        {
-            return NO_ASSERTION_INDEX;
-        }
-
         AssertionDsc assertion;
 
-        assertion.kind             = kind;
-        assertion.op1.kind         = O1K_SUBTYPE;
-        assertion.op1.vn           = objVN;
-        assertion.op2.kind         = O2K_CONST_INT;
-        assertion.op2.vn           = mt->GetConservativeVN();
-        assertion.op2.intCon.value = mt->AsIntCon()->GetValue();
-        assertion.op2.intCon.flags = mt->AsIntCon()->GetHandleKind();
+        assertion.kind     = kind;
+        assertion.op1.kind = O1K_SUBTYPE;
+        assertion.op1.vn   = objVN;
+        assertion.op2.kind = O2K_VALUE_NUMBER;
+        assertion.op2.vn   = mtVN;
 
         return AddEqualityAssertions(assertion);
     }
@@ -1579,7 +1563,14 @@ private:
                 return NO_ASSERTION_INDEX;
             }
 
-            return CreateExactTypeAssertion(addr->GetConservativeVN(), op2, assertionKind);
+            ValueNum mtVN = vnStore->VNNormalValue(op2->GetConservativeVN());
+
+            if (mtVN == NoVN)
+            {
+                return NO_ASSERTION_INDEX;
+            }
+
+            return CreateExactTypeAssertion(addr->GetConservativeVN(), mtVN, assertionKind);
         }
 
         if (op1->IsCall() || op2->IsCall())
@@ -1621,10 +1612,17 @@ private:
                 return NO_ASSERTION_INDEX;
             }
 
+            ValueNum mtVN = vnStore->VNNormalValue(methodTableArg->GetConservativeVN());
+
+            if (mtVN == NoVN)
+            {
+                return NO_ASSERTION_INDEX;
+            }
+
             // Reverse the assertion
             assertionKind = (assertionKind == OAK_EQUAL) ? OAK_NOT_EQUAL : OAK_EQUAL;
 
-            return CreateSubtypeAssertion(objectArg->GetConservativeVN(), methodTableArg, assertionKind);
+            return CreateSubtypeAssertion(objectArg->GetConservativeVN(), mtVN, assertionKind);
         }
 
         return NO_ASSERTION_INDEX;
@@ -3972,8 +3970,7 @@ private:
         if ((op1.kind == O1K_EXACT_TYPE) || (op1.kind == O1K_SUBTYPE))
         {
             assert(vnStore->TypeOfVN(op1.vn) == TYP_REF);
-            assert((op2.kind == O2K_CONST_INT) || (op2.kind == O2K_VALUE_NUMBER));
-            assert(op2.intCon.flags != GTF_EMPTY);
+            assert(op2.kind == O2K_VALUE_NUMBER);
             assert(vnStore->TypeOfVN(op2.vn) == TYP_I_IMPL);
 
             return;
@@ -4067,11 +4064,6 @@ void Compiler::apDumpAssertion(const AssertionDsc& assertion, unsigned index)
         }
 
         printf("Type assertion A%02u: MT(" FMT_VN ") %s " FMT_VN, index, op1.vn, oper, op2.vn);
-
-        if (op2.kind == O2K_CONST_INT)
-        {
-            printf(" (0x%p)", dspPtr(op2.intCon.value));
-        }
 
         return;
     }
