@@ -150,6 +150,8 @@ ValueNumFuncDef(LazyStrCns, 2, false, true, false)  // lazy-initialized string l
 ValueNumFuncDef(NonNullIndirect, 1, false, true, false)  // this indirect is expected to always return a non-null value
 ValueNumFuncDef(Unbox, 2, false, true, false)
 
+ValueNumFuncDef(ObjMT, 1, false, true, false)
+
 ValueNumFuncDef(LT_UN, 2, false, false, false)      // unsigned or unordered comparisons
 ValueNumFuncDef(LE_UN, 2, false, false, false)
 ValueNumFuncDef(GE_UN, 2, false, false, false)

@@ -524,6 +524,7 @@ public:
     // VNForFunc: We have five overloads, for arities 0, 1, 2, 3 and 4
     ValueNum VNForFunc(var_types typ, VNFunc func);
     ValueNum VNForFunc(var_types typ, VNFunc func, ValueNum opVNwx);
+    ValueNum HasFunc(var_types typ, VNFunc func, ValueNum arg0VN);
     // This must not be used for VNF_MapSelect applications; instead use VNForMapSelect, below.
     ValueNum VNForFunc(var_types typ, VNFunc func, ValueNum op1VNwx, ValueNum op2VNwx);
     ValueNum VNForFunc(var_types typ, VNFunc func, ValueNum op1VNwx, ValueNum op2VNwx, ValueNum op3VNwx);

@@ -488,15 +488,13 @@ enum ApOp1Kind : uint8_t
     O1K_LCLVAR,
     O1K_BOUND_OPER_BND,
     O1K_BOUND_LOOP_BND,
-    O1K_EXACT_TYPE,
-    O1K_SUBTYPE,
+    O1K_INSTANCE_OF,
     O1K_VALUE_NUMBER
 };
 
 enum ApOp2Kind : uint8_t
 {
     O2K_INVALID,
-    O2K_IND_CNS_INT,
     O2K_CONST_INT,
 #ifndef TARGET_64BIT
     O2K_CONST_LONG,
@@ -611,7 +609,6 @@ struct AssertionDsc
 
         switch (op2.kind)
         {
-            case O2K_IND_CNS_INT:
             case O2K_CONST_INT:
                 return op2.intCon == that.op2.intCon;
 #ifndef TARGET_64BIT
@@ -1044,117 +1041,6 @@ private:
         return AddEqualityAssertions(assertion);
     }
 
-    AssertionIndex CreateExactTypeAssertion(GenTreeIndir* op1, GenTree* op2, ApKind kind)
-    {
-        assert((op1 != nullptr) && (op2 != nullptr));
-        assert(op1->OperIs(GT_IND));
-        assert((kind == OAK_EQUAL) || (kind == OAK_NOT_EQUAL));
-
-        GenTreeLclVar* addr = op1->GetAddr()->AsLclVar();
-        assert(addr->OperIs(GT_LCL_VAR) && addr->TypeIs(TYP_REF));
-
-        // TODO: only copy assertions rely on valid SSA number so we could generate more assertions here
-        if (addr->GetSsaNum() == SsaConfig::RESERVED_SSA_NUM)
-        {
-            return NO_ASSERTION_INDEX;
-        }
-
-        unsigned   lclNum = addr->GetLclNum();
-        LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
-
-        assert(lcl->IsInSsa());
-
-        AssertionDsc assertion;
-
-        // Ngen case
-        if (op2->OperIs(GT_IND))
-        {
-            op2 = op2->AsIndir()->GetAddr();
-
-            assertion.op2.kind = O2K_IND_CNS_INT;
-        }
-        // JIT case
-        else
-        {
-            assertion.op2.kind = O2K_CONST_INT;
-        }
-
-        ValueNum vn1 = addr->GetConservativeVN();
-        ValueNum vn2 = vnStore->VNNormalValue(op2->GetConservativeVN());
-
-        if ((vn1 == NoVN) || (vn2 == NoVN))
-        {
-            return NO_ASSERTION_INDEX;
-        }
-
-        if (!vnStore->IsVNIntegralConstant(vn2, &assertion.op2.intCon.value, &assertion.op2.intCon.flags))
-        {
-            return NO_ASSERTION_INDEX;
-        }
-
-        assert((assertion.op2.intCon.flags & ~GTF_ICON_HDL_MASK) == 0);
-
-        assertion.kind     = kind;
-        assertion.op1.kind = O1K_EXACT_TYPE;
-        assertion.op1.vn   = vn1;
-        assertion.op2.vn   = vn2;
-
-        return AddEqualityAssertions(assertion);
-    }
-
-    AssertionIndex CreateSubtypeAssertion(GenTreeLclVar* op1, GenTree* op2, ApKind kind)
-    {
-        assert((op1 != nullptr) && (op2 != nullptr));
-        assert(op1->OperIs(GT_LCL_VAR));
-        assert((kind == OAK_EQUAL) || (kind == OAK_NOT_EQUAL));
-
-        // TODO: only copy assertions rely on valid SSA number so we could generate more assertions here
-        if (op1->GetSsaNum() == SsaConfig::RESERVED_SSA_NUM)
-        {
-            return NO_ASSERTION_INDEX;
-        }
-
-        if (compiler->lvaGetDesc(op1)->IsAddressExposed())
-        {
-            return NO_ASSERTION_INDEX;
-        }
-
-        AssertionDsc assertion;
-
-        if (op2->OperIs(GT_IND))
-        {
-            op2 = op2->AsIndir()->GetAddr();
-
-            assertion.op2.kind = O2K_IND_CNS_INT;
-        }
-        else
-        {
-            assertion.op2.kind = O2K_CONST_INT;
-        }
-
-        if (!op2->IsIntCon())
-        {
-            return NO_ASSERTION_INDEX;
-        }
-
-        ValueNum vn1 = op1->GetConservativeVN();
-        ValueNum vn2 = vnStore->VNNormalValue(op2->GetConservativeVN());
-
-        if ((vn1 == NoVN) || (vn2 == NoVN))
-        {
-            return NO_ASSERTION_INDEX;
-        }
-
-        assertion.kind             = kind;
-        assertion.op1.kind         = O1K_SUBTYPE;
-        assertion.op1.vn           = vn1;
-        assertion.op2.vn           = vn2;
-        assertion.op2.intCon.value = op2->AsIntCon()->GetValue();
-        assertion.op2.intCon.flags = op2->GetIconHandleFlag();
-
-        return AddEqualityAssertions(assertion);
-    }
-
     AssertionIndex AddAssertion(const AssertionDsc& assertion)
     {
         assert((assertion.kind == OAK_EQUAL) || (assertion.kind == OAK_NOT_EQUAL));
@@ -1578,11 +1464,54 @@ private:
             }
         }
 
-        return GenerateJTrueTypeAssertions(op1, op2, assertionKind);
+        if (compiler->opts.IsReadyToRun())
+        {
+            return GenerateJTrueReadyToRunTypeAssertions(op1, op2, assertionKind);
+        }
+        else
+        {
+            return GenerateJTrueTypeAssertions(op1, op2, assertionKind);
+        }
+    }
+
+    AssertionIndex GenerateJTrueReadyToRunTypeAssertions(GenTree* op1, GenTree* op2, ApKind assertionKind)
+    {
+        assert(compiler->opts.IsReadyToRun());
+
+        if (!op1->OperIs(GT_IND) || !op2->OperIs(GT_IND))
+        {
+            return NO_ASSERTION_INDEX;
+        }
+
+        GenTree* addr = op1->AsIndir()->GetAddr();
+
+        if (!addr->TypeIs(TYP_REF) || !addr->OperIs(GT_LCL_VAR) ||
+            compiler->lvaGetDesc(addr->AsLclVar())->IsAddressExposed())
+        {
+            return NO_ASSERTION_INDEX;
+        }
+
+        if ((op1->GetConservativeVN() == NoVN) || (op2->GetConservativeVN() == NoVN))
+        {
+            return NO_ASSERTION_INDEX;
+        }
+
+        AssertionDsc assertion;
+
+        assertion.kind     = assertionKind;
+        assertion.op1.kind = O1K_VALUE_NUMBER;
+        assertion.op1.vn   = vnStore->VNNormalValue(op1->GetConservativeVN());
+        assertion.op2.kind = O2K_VALUE_NUMBER;
+        assertion.op2.vn   = vnStore->VNNormalValue(op2->GetConservativeVN());
+
+        return AddEqualityAssertions(assertion);
     }
 
     AssertionIndex GenerateJTrueTypeAssertions(GenTree* op1, GenTree* op2, ApKind assertionKind)
     {
+        assert((assertionKind == OAK_EQUAL) || (assertionKind == OAK_NOT_EQUAL));
+        assert(!compiler->opts.IsReadyToRun());
+
         if (op1->OperIs(GT_IND) || op2->OperIs(GT_IND))
         {
             if (!op1->OperIs(GT_IND))
@@ -1592,12 +1521,29 @@ private:
 
             GenTree* addr = op1->AsIndir()->GetAddr();
 
-            if (!addr->TypeIs(TYP_REF) || !addr->OperIs(GT_LCL_VAR))
+            if (!addr->TypeIs(TYP_REF) || !addr->OperIs(GT_LCL_VAR) ||
+                compiler->lvaGetDesc(addr->AsLclVar())->IsAddressExposed() || (addr->GetConservativeVN() == NoVN))
             {
                 return NO_ASSERTION_INDEX;
             }
 
-            return CreateExactTypeAssertion(op1->AsIndir(), op2, assertionKind);
+            ValueNum objMTVN = vnStore->VNNormalValue(op1->GetConservativeVN());
+            ValueNum mtVN    = vnStore->VNNormalValue(op2->GetConservativeVN());
+
+            if ((objMTVN == NoVN) || (mtVN == NoVN))
+            {
+                return NO_ASSERTION_INDEX;
+            }
+
+            AssertionDsc assertion;
+
+            assertion.kind     = assertionKind;
+            assertion.op1.kind = O1K_VALUE_NUMBER;
+            assertion.op1.vn   = objMTVN;
+            assertion.op2.kind = O2K_VALUE_NUMBER;
+            assertion.op2.vn   = mtVN;
+
+            return AddEqualityAssertions(assertion);
         }
 
         if (op1->IsCall() || op2->IsCall())
@@ -1621,23 +1567,44 @@ private:
             // Also note The CASTCLASS helpers won't appear in predicates as they throw on failure.
             // So the helper list here is smaller than the one in PropagateCall.
 
-            if ((helper == CORINFO_HELP_ISINSTANCEOFINTERFACE) || (helper == CORINFO_HELP_ISINSTANCEOFARRAY) ||
-                (helper == CORINFO_HELP_ISINSTANCEOFCLASS) || (helper == CORINFO_HELP_ISINSTANCEOFANY))
+            if ((helper != CORINFO_HELP_ISINSTANCEOFINTERFACE) && (helper != CORINFO_HELP_ISINSTANCEOFARRAY) &&
+                (helper != CORINFO_HELP_ISINSTANCEOFCLASS) && (helper != CORINFO_HELP_ISINSTANCEOFANY))
             {
-                GenTree* objectArg      = call->GetArgNodeByArgNum(1);
-                GenTree* methodTableArg = call->GetArgNodeByArgNum(0);
-
-                assert(objectArg->TypeIs(TYP_REF));
-                assert(methodTableArg->TypeIs(TYP_I_IMPL));
-
-                if (objectArg->OperIs(GT_LCL_VAR))
-                {
-                    // Reverse the assertion
-                    assertionKind = (assertionKind == OAK_EQUAL) ? OAK_NOT_EQUAL : OAK_EQUAL;
-
-                    return CreateSubtypeAssertion(objectArg->AsLclVar(), methodTableArg, assertionKind);
-                }
+                return NO_ASSERTION_INDEX;
             }
+
+            GenTree* objectArg = call->GetArgNodeByArgNum(1);
+            GenTree* mtArg     = call->GetArgNodeByArgNum(0);
+
+            assert(objectArg->TypeIs(TYP_REF));
+            assert(mtArg->TypeIs(TYP_I_IMPL));
+
+            if (!objectArg->OperIs(GT_LCL_VAR) || compiler->lvaGetDesc(objectArg->AsLclVar())->IsAddressExposed() ||
+                (objectArg->GetConservativeVN() == NoVN))
+            {
+                return NO_ASSERTION_INDEX;
+            }
+
+            ValueNum objVN = objectArg->GetConservativeVN();
+            ValueNum mtVN  = vnStore->VNNormalValue(mtArg->GetConservativeVN());
+
+            if ((objVN == NoVN) || (mtVN == NoVN))
+            {
+                return NO_ASSERTION_INDEX;
+            }
+
+            assert(vnStore->TypeOfVN(objVN) == TYP_REF);
+            assert(vnStore->TypeOfVN(mtVN) == TYP_I_IMPL);
+
+            AssertionDsc assertion;
+
+            assertion.kind     = (assertionKind == OAK_EQUAL) ? OAK_NOT_EQUAL : OAK_EQUAL;
+            assertion.op1.kind = O1K_INSTANCE_OF;
+            assertion.op1.vn   = objVN;
+            assertion.op2.kind = O2K_VALUE_NUMBER;
+            assertion.op2.vn   = mtVN;
+
+            return AddEqualityAssertions(assertion);
         }
 
         return NO_ASSERTION_INDEX;
@@ -1890,31 +1857,10 @@ private:
         {
             const AssertionDsc& assertion = GetAssertion(GetAssertionIndex(en.Current()));
 
-            if ((assertion.kind != OAK_EQUAL) && (assertion.kind != OAK_NOT_EQUAL))
-            {
-                continue;
-            }
-
-            if (assertion.op2.vn != vn2)
-            {
-                continue;
-            }
-
-            if (assertion.op1.vn == vn1)
+            if (((assertion.kind == OAK_EQUAL) || (assertion.kind == OAK_NOT_EQUAL)) && (assertion.op1.vn == vn1) &&
+                (assertion.op2.vn == vn2))
             {
                 return &assertion;
-            }
-
-            // Look for matching exact type assertions based on vtable accesses.
-            if ((assertion.kind == OAK_EQUAL) && (assertion.op1.kind == O1K_EXACT_TYPE) && op1->OperIs(GT_IND))
-            {
-                GenTree* addr = op1->AsIndir()->GetAddr();
-
-                if (addr->OperIs(GT_LCL_VAR) && addr->TypeIs(TYP_REF) &&
-                    (assertion.op1.vn == addr->GetConservativeVN()))
-                {
-                    return &assertion;
-                }
             }
         }
 
@@ -2392,50 +2338,17 @@ private:
         return call;
     }
 
-    const AssertionDsc* FindSubtypeAssertion(const ASSERT_TP assertions, ValueNum vn, GenTree* methodTable)
+    const AssertionDsc* FindInstanceOfAssertion(const ASSERT_TP assertions, ValueNum objVN, ValueNum mtVN)
     {
+        ValueNum objMTVN = vnStore->HasFunc(TYP_I_IMPL, VNF_ObjMT, objVN);
+
         for (BitVecOps::Enumerator en(&countTraits, assertions); en.MoveNext();)
         {
             const AssertionDsc& assertion = GetAssertion(GetAssertionIndex(en.Current()));
 
-            if ((assertion.kind != OAK_EQUAL) ||
-                ((assertion.op1.kind != O1K_SUBTYPE) && (assertion.op1.kind != O1K_EXACT_TYPE)))
-            {
-                continue;
-            }
-
-            if (assertion.op1.vn != vn)
-            {
-                continue;
-            }
-
-            ValueNum methodTableVN;
-
-            if (assertion.op2.kind == O2K_IND_CNS_INT)
-            {
-                if (!methodTable->OperIs(GT_IND))
-                {
-                    continue;
-                }
-
-                methodTableVN = methodTable->AsIndir()->GetAddr()->GetConservativeVN();
-            }
-            else if (assertion.op2.kind == O2K_CONST_INT)
-            {
-                methodTableVN = methodTable->GetConservativeVN();
-            }
-            else
-            {
-                continue;
-            }
-
-            methodTableVN = vnStore->VNNormalValue(methodTableVN);
-
-            ssize_t      iconVal   = 0;
-            GenTreeFlags iconFlags = GTF_EMPTY;
-
-            if (vnStore->IsVNIntegralConstant(methodTableVN, &iconVal, &iconFlags) &&
-                (assertion.op2.intCon.value == iconVal))
+            if ((assertion.kind == OAK_EQUAL) && (assertion.op2.vn == mtVN) &&
+                (((assertion.op1.kind == O1K_INSTANCE_OF) && (assertion.op1.vn == objVN)) ||
+                 ((assertion.op1.kind == O1K_VALUE_NUMBER) && (assertion.op1.vn == objMTVN))))
             {
                 return &assertion;
             }
@@ -2451,7 +2364,7 @@ private:
             return UpdateTree(call, call, stmt);
         }
 
-        if (!call->IsHelperCall())
+        if (compiler->opts.IsReadyToRun() || !call->IsHelperCall())
         {
             return nullptr;
         }
@@ -2474,8 +2387,10 @@ private:
             return nullptr;
         }
 
-        ValueNum            objectVN  = objectArg->GetConservativeVN();
-        const AssertionDsc* assertion = FindSubtypeAssertion(assertions, objectVN, call->GetArgNodeByArgNum(0));
+        ValueNum objectVN      = objectArg->GetConservativeVN();
+        ValueNum methodTableVN = vnStore->VNNormalValue(call->GetArgNodeByArgNum(0)->GetConservativeVN());
+
+        const AssertionDsc* assertion = FindInstanceOfAssertion(assertions, objectVN, methodTableVN);
 
         if (assertion == nullptr)
         {
@@ -2772,8 +2687,7 @@ private:
             return;
         }
 
-        if ((assertion.kind == OAK_EQUAL) &&
-            ((assertion.op1.kind == O1K_SUBTYPE) || (assertion.op1.kind == O1K_EXACT_TYPE)))
+        if ((assertion.kind == OAK_EQUAL) && (assertion.op1.kind == O1K_INSTANCE_OF))
         {
             AddTypeImpliedNotNullAssertions(assertion, assertions);
             return;
@@ -2786,8 +2700,7 @@ private:
 
     void AddTypeImpliedNotNullAssertions(const AssertionDsc& typeAssertion, ASSERT_TP& assertions)
     {
-        assert(typeAssertion.kind == OAK_EQUAL);
-        assert((typeAssertion.op1.kind == O1K_SUBTYPE) || (typeAssertion.op1.kind == O1K_EXACT_TYPE));
+        assert((typeAssertion.kind == OAK_EQUAL) && (typeAssertion.op1.kind == O1K_INSTANCE_OF));
 
         const ASSERT_TP vnAssertions = GetVNAssertions(typeAssertion.op1.vn);
 
@@ -2814,9 +2727,8 @@ private:
 
                 if (BitVecOps::TryAddElemD(&countTraits, assertions, en.Current()))
                 {
-                    JITDUMP("%s A%02d implies A%02d\n",
-                            (typeAssertion.op1.kind == O1K_SUBTYPE) ? "Subtype" : "Exact-type",
-                            &typeAssertion - assertionTable, &notNullAssertion - assertionTable);
+                    JITDUMP("Assertion A%02d implies A%02d\n", &typeAssertion - assertionTable,
+                            &notNullAssertion - assertionTable);
                 }
 
                 // There is at most one not null assertion that is implied by a type assertion.
@@ -4018,11 +3930,10 @@ private:
             return;
         }
 
-        if ((op1.kind == O1K_EXACT_TYPE) || (op1.kind == O1K_SUBTYPE))
+        if (op1.kind == O1K_INSTANCE_OF)
         {
             assert(vnStore->TypeOfVN(op1.vn) == TYP_REF);
-            assert((op2.kind == O2K_CONST_INT) || (op2.kind == O2K_IND_CNS_INT));
-            assert(op2.intCon.flags != GTF_EMPTY);
+            assert(op2.kind == O2K_VALUE_NUMBER);
             assert(vnStore->TypeOfVN(op2.vn) == TYP_I_IMPL);
 
             return;
@@ -4102,24 +4013,10 @@ void Compiler::apDumpAssertion(const AssertionDsc& assertion, unsigned index)
         return;
     }
 
-    if ((op1.kind == O1K_EXACT_TYPE) || (op1.kind == O1K_SUBTYPE))
+    if (op1.kind == O1K_INSTANCE_OF)
     {
-        const char* oper;
-
-        if (op1.kind == O1K_SUBTYPE)
-        {
-            oper = (kind == OAK_EQUAL) ? "IS" : "IS NOT";
-        }
-        else
-        {
-            oper = (kind == OAK_EQUAL) ? "EQ" : "NE";
-        }
-
-        const char* addr = (op2.kind == O2K_IND_CNS_INT) ? "[\0]\0" : "\0\0";
-
-        printf("Type assertion A%02u: MT(" FMT_VN ") %s " FMT_VN " (%s0x%p%s)", index, op1.vn, oper, op2.vn, addr,
-               dspPtr(op2.intCon.value), addr + 2);
-
+        printf("Type assertion A%02u: MT(" FMT_VN ") %s " FMT_VN, index, op1.vn, (kind == OAK_EQUAL) ? "IS" : "IS NOT",
+               op2.vn);
         return;
     }
 
