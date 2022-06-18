@@ -1041,24 +1041,6 @@ private:
         return AddEqualityAssertions(assertion);
     }
 
-    AssertionIndex CreateSubtypeAssertion(ValueNum objVN, ValueNum mtVN, ApKind kind)
-    {
-        assert(vnStore->TypeOfVN(objVN) == TYP_REF);
-        assert(vnStore->TypeOfVN(mtVN) == TYP_I_IMPL);
-        assert((kind == OAK_EQUAL) || (kind == OAK_NOT_EQUAL));
-        assert(!compiler->opts.IsReadyToRun());
-
-        AssertionDsc assertion;
-
-        assertion.kind     = kind;
-        assertion.op1.kind = O1K_SUBTYPE;
-        assertion.op1.vn   = objVN;
-        assertion.op2.kind = O2K_VALUE_NUMBER;
-        assertion.op2.vn   = mtVN;
-
-        return AddEqualityAssertions(assertion);
-    }
-
     AssertionIndex AddAssertion(const AssertionDsc& assertion)
     {
         assert((assertion.kind == OAK_EQUAL) || (assertion.kind == OAK_NOT_EQUAL));
@@ -1527,6 +1509,7 @@ private:
 
     AssertionIndex GenerateJTrueTypeAssertions(GenTree* op1, GenTree* op2, ApKind assertionKind)
     {
+        assert((assertionKind == OAK_EQUAL) || (assertionKind == OAK_NOT_EQUAL));
         assert(!compiler->opts.IsReadyToRun());
 
         if (op1->OperIs(GT_IND) || op2->OperIs(GT_IND))
@@ -1544,10 +1527,10 @@ private:
                 return NO_ASSERTION_INDEX;
             }
 
-            ValueNum objVN = vnStore->VNNormalValue(op1->GetConservativeVN());
-            ValueNum mtVN  = vnStore->VNNormalValue(op2->GetConservativeVN());
+            ValueNum objMTVN = vnStore->VNNormalValue(op1->GetConservativeVN());
+            ValueNum mtVN    = vnStore->VNNormalValue(op2->GetConservativeVN());
 
-            if ((objVN == NoVN) || (mtVN == NoVN))
+            if ((objMTVN == NoVN) || (mtVN == NoVN))
             {
                 return NO_ASSERTION_INDEX;
             }
@@ -1556,7 +1539,7 @@ private:
 
             assertion.kind     = assertionKind;
             assertion.op1.kind = O1K_VALUE_NUMBER;
-            assertion.op1.vn   = objVN;
+            assertion.op1.vn   = objMTVN;
             assertion.op2.kind = O2K_VALUE_NUMBER;
             assertion.op2.vn   = mtVN;
 
@@ -1590,11 +1573,11 @@ private:
                 return NO_ASSERTION_INDEX;
             }
 
-            GenTree* objectArg      = call->GetArgNodeByArgNum(1);
-            GenTree* methodTableArg = call->GetArgNodeByArgNum(0);
+            GenTree* objectArg = call->GetArgNodeByArgNum(1);
+            GenTree* mtArg     = call->GetArgNodeByArgNum(0);
 
             assert(objectArg->TypeIs(TYP_REF));
-            assert(methodTableArg->TypeIs(TYP_I_IMPL));
+            assert(mtArg->TypeIs(TYP_I_IMPL));
 
             if (!objectArg->OperIs(GT_LCL_VAR) || compiler->lvaGetDesc(objectArg->AsLclVar())->IsAddressExposed() ||
                 (objectArg->GetConservativeVN() == NoVN))
@@ -1602,17 +1585,26 @@ private:
                 return NO_ASSERTION_INDEX;
             }
 
-            ValueNum mtVN = vnStore->VNNormalValue(methodTableArg->GetConservativeVN());
+            ValueNum objVN = objectArg->GetConservativeVN();
+            ValueNum mtVN  = vnStore->VNNormalValue(mtArg->GetConservativeVN());
 
-            if (mtVN == NoVN)
+            if ((objVN == NoVN) || (mtVN == NoVN))
             {
                 return NO_ASSERTION_INDEX;
             }
 
-            // Reverse the assertion
-            assertionKind = (assertionKind == OAK_EQUAL) ? OAK_NOT_EQUAL : OAK_EQUAL;
+            assert(vnStore->TypeOfVN(objVN) == TYP_REF);
+            assert(vnStore->TypeOfVN(mtVN) == TYP_I_IMPL);
 
-            return CreateSubtypeAssertion(objectArg->GetConservativeVN(), mtVN, assertionKind);
+            AssertionDsc assertion;
+
+            assertion.kind     = (assertionKind == OAK_EQUAL) ? OAK_NOT_EQUAL : OAK_EQUAL;
+            assertion.op1.kind = O1K_SUBTYPE;
+            assertion.op1.vn   = objVN;
+            assertion.op2.kind = O2K_VALUE_NUMBER;
+            assertion.op2.vn   = mtVN;
+
+            return AddEqualityAssertions(assertion);
         }
 
         return NO_ASSERTION_INDEX;
