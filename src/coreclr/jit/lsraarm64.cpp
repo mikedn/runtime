@@ -220,20 +220,12 @@ int LinearScan::BuildNode(GenTree* tree)
             assert(dstCount == 0);
             break;
 
+        case GT_FADD:
+        case GT_FSUB:
+        case GT_FMUL:
+        case GT_FDIV:
         case GT_ADD:
         case GT_SUB:
-            if (varTypeIsFloating(tree->TypeGet()))
-            {
-                // overflow operations aren't supported on float/double types.
-                assert(!tree->gtOverflow());
-
-                // No implicit conversions at this stage as the expectation is that
-                // everything is made explicit by adding casts.
-                assert(tree->gtGetOp1()->TypeGet() == tree->gtGetOp2()->TypeGet());
-            }
-
-            FALLTHROUGH;
-
         case GT_AND:
         case GT_OR:
         case GT_XOR:
@@ -241,8 +233,9 @@ int LinearScan::BuildNode(GenTree* tree)
         case GT_RSH:
         case GT_RSZ:
         case GT_ROR:
-            srcCount = BuildBinaryUses(tree->AsOp());
             assert(dstCount == 1);
+            srcCount = BuildBinaryUses(tree->AsOp());
+            assert(srcCount == (tree->AsOp()->GetOp(1)->isContained() ? 1 : 2));
             BuildDef(tree);
             break;
 
@@ -270,17 +263,14 @@ int LinearScan::BuildNode(GenTree* tree)
                 setInternalRegsDelayFree = true;
             }
             FALLTHROUGH;
-
         case GT_DIV:
         case GT_MULHI:
         case GT_UDIV:
-        {
             srcCount = BuildBinaryUses(tree->AsOp());
             buildInternalRegisterUses();
             assert(dstCount == 1);
             BuildDef(tree);
-        }
-        break;
+            break;
 
         case GT_INTRINSIC:
         {
@@ -313,6 +303,7 @@ int LinearScan::BuildNode(GenTree* tree)
             srcCount = BuildCast(tree->AsCast());
             break;
 
+        case GT_FNEG:
         case GT_NEG:
         case GT_NOT:
             BuildUse(tree->gtGetOp1());

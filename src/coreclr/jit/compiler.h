@@ -6949,7 +6949,6 @@ public:
 
         bool compProcedureSplitting; // Separate cold code from hot code
 
-        bool genFPorder; // Preserve FP order (operations are non-commutative)
         bool genFPopt;   // Can we do frame-pointer-omission optimization?
         bool altJit;     // True if we are an altjit and are compiling this method
 
@@ -8558,6 +8557,7 @@ public:
                 FALLTHROUGH;
             case GT_NOT:
             case GT_NEG:
+            case GT_FNEG:
             case GT_BSWAP:
             case GT_BSWAP16:
             case GT_COPY:

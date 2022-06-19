@@ -7395,6 +7395,11 @@ inline bool GenTree::RequiresNonNullOp2(genTreeOps oper)
 {
     switch (oper)
     {
+        case GT_FADD:
+        case GT_FSUB:
+        case GT_FMUL:
+        case GT_FDIV:
+        case GT_FMOD:
         case GT_ADD:
         case GT_SUB:
         case GT_MUL:

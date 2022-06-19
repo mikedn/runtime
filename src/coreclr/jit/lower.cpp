@@ -109,6 +109,17 @@ GenTree* Lowering::LowerNode(GenTree* node)
             break;
 
 #ifdef TARGET_ARM64
+        case GT_FNEG:
+            LowerFloatNegate(node->AsUnOp());
+            break;
+
+        case GT_FADD:
+        case GT_FSUB:
+        case GT_FMUL:
+        case GT_FDIV:
+            LowerFloatArithmetic(node->AsOp());
+            break;
+
         case GT_NOT:
             LowerNot(node->AsUnOp());
             break;
@@ -144,6 +155,16 @@ GenTree* Lowering::LowerNode(GenTree* node)
         case GT_CMP:
             return LowerRelop(node->AsOp());
 #else // TARGET_ARM64
+
+#ifdef TARGET_XARCH
+        case GT_FADD:
+        case GT_FSUB:
+        case GT_FMUL:
+        case GT_FDIV:
+            ContainCheckFloatBinary(node->AsOp());
+            break;
+#endif
+
         case GT_ADD:
         {
             GenTree* next = LowerAdd(node->AsOp());
@@ -194,6 +215,7 @@ GenTree* Lowering::LowerNode(GenTree* node)
             return LowerCompare(node->AsOp());
 #endif // !TARGET_ARM64
 
+#ifndef USE_HELPERS_FOR_INT_DIV
         case GT_UDIV:
         case GT_UMOD:
             if (!LowerUnsignedDivOrMod(node->AsOp()))
@@ -201,6 +223,7 @@ GenTree* Lowering::LowerNode(GenTree* node)
                 ContainCheckDivOrMod(node->AsOp());
             }
             break;
+#endif
 
         case GT_DIV:
         case GT_MOD:
@@ -3880,60 +3903,60 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
 //
 GenTree* Lowering::LowerAdd(GenTreeOp* node)
 {
-    if (varTypeIsIntegralOrI(node->TypeGet()))
+    assert(node->OperIs(GT_ADD) && varTypeIsIntegralOrI(node->GetType()));
+
+    GenTree* op1 = node->GetOp(0);
+    GenTree* op2 = node->GetOp(1);
+    LIR::Use use;
+
+    // It is not the best place to do such simple arithmetic optimizations,
+    // but it allows us to avoid `LEA(addr, 0)` nodes and doing that in morph
+    // requires more changes. Delete that part if we get an expression optimizer.
+    if (op2->IsIntegralConst(0))
     {
-        GenTree* op1 = node->gtGetOp1();
-        GenTree* op2 = node->gtGetOp2();
-        LIR::Use use;
-
-        // It is not the best place to do such simple arithmetic optimizations,
-        // but it allows us to avoid `LEA(addr, 0)` nodes and doing that in morph
-        // requires more changes. Delete that part if we get an expression optimizer.
-        if (op2->IsIntegralConst(0))
-        {
-            JITDUMP("Lower: optimize val + 0: ");
-            DISPNODE(node);
-            JITDUMP("Replaced with: ");
-            DISPNODE(op1);
-            if (BlockRange().TryGetUse(node, &use))
-            {
-                use.ReplaceWith(comp, op1);
-            }
-            else
-            {
-                op1->SetUnusedValue();
-            }
-            GenTree* next = node->gtNext;
-            BlockRange().Remove(op2);
-            BlockRange().Remove(node);
-            JITDUMP("Remove [%06u], [%06u]\n", op2->gtTreeID, node->gtTreeID);
-            return next;
-        }
-
-#ifdef TARGET_XARCH
+        JITDUMP("Lower: optimize val + 0: ");
+        DISPNODE(node);
+        JITDUMP("Replaced with: ");
+        DISPNODE(op1);
         if (BlockRange().TryGetUse(node, &use))
         {
-            // If this is a child of an indir, let the parent handle it.
-            // If there is a chain of adds, only look at the topmost one.
-            GenTree* parent = use.User();
-            if (!parent->OperIsIndir() && !parent->OperIs(GT_ADD))
-            {
-                TryCreateAddrMode(node, false);
-            }
+            use.ReplaceWith(comp, op1);
         }
+        else
+        {
+            op1->SetUnusedValue();
+        }
+        GenTree* next = node->gtNext;
+        BlockRange().Remove(op2);
+        BlockRange().Remove(node);
+        JITDUMP("Remove [%06u], [%06u]\n", op2->gtTreeID, node->gtTreeID);
+        return next;
+    }
+
+#ifdef TARGET_XARCH
+    if (BlockRange().TryGetUse(node, &use))
+    {
+        // If this is a child of an indir, let the parent handle it.
+        // If there is a chain of adds, only look at the topmost one.
+        GenTree* parent = use.User();
+        if (!parent->OperIsIndir() && !parent->OperIs(GT_ADD))
+        {
+            TryCreateAddrMode(node, false);
+        }
+    }
 #endif
 #ifdef TARGET_ARM
-        if (node->gtOverflow())
-        {
-            node->gtFlags |= GTF_SET_FLAGS;
-        }
-#endif
+    if (node->gtOverflow())
+    {
+        node->gtFlags |= GTF_SET_FLAGS;
     }
+#endif
 
     if (node->OperIs(GT_ADD))
     {
         ContainCheckBinary(node);
     }
+
     return nullptr;
 }
 
@@ -3951,21 +3974,13 @@ GenTree* Lowering::LowerAdd(GenTreeOp* node)
 //    - Transform UDIV by constant >= 2^(N-1) into GE
 //    - Transform UDIV/UMOD by constant >= 3 into "magic division"
 //
-
 bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
 {
-    assert(divMod->OperIs(GT_UDIV, GT_UMOD));
-
-#if defined(USE_HELPERS_FOR_INT_DIV)
-    if (!varTypeIsIntegral(divMod->TypeGet()))
-    {
-        assert(!"unreachable: integral GT_UDIV/GT_UMOD should get morphed into helper calls");
-    }
-    assert(varTypeIsFloating(divMod->TypeGet()));
-#endif // USE_HELPERS_FOR_INT_DIV
-#if defined(TARGET_ARM64)
-    assert(divMod->OperGet() != GT_UMOD);
-#endif // TARGET_ARM64
+#ifdef TARGET_ARM64
+    assert(divMod->OperIs(GT_UDIV) && varTypeIsIntegral(divMod->GetType()));
+#else
+    assert(divMod->OperIs(GT_UDIV, GT_UMOD) && varTypeIsIntegral(divMod->GetType()));
+#endif
 
     GenTree* dividend = divMod->gtGetOp1();
     GenTree* divisor  = divMod->gtGetOp2();
@@ -4491,18 +4506,21 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
 //
 GenTree* Lowering::LowerSignedDivOrMod(GenTree* node)
 {
-    assert((node->OperGet() == GT_DIV) || (node->OperGet() == GT_MOD));
+#ifdef TARGET_ARM64
+    assert(node->OperIs(GT_DIV) && varTypeIsIntegral(node->GetType()));
+#else
+    assert(node->OperIs(GT_DIV, GT_MOD) && varTypeIsIntegral(node->GetType()));
+#endif
+
     GenTree* next = node->gtNext;
 
-    if (varTypeIsIntegral(node->TypeGet()))
+    // LowerConstIntDivOrMod will return nullptr if it doesn't transform the node.
+    GenTree* newNode = LowerConstIntDivOrMod(node);
+    if (newNode != nullptr)
     {
-        // LowerConstIntDivOrMod will return nullptr if it doesn't transform the node.
-        GenTree* newNode = LowerConstIntDivOrMod(node);
-        if (newNode != nullptr)
-        {
-            return newNode;
-        }
+        return newNode;
     }
+
     ContainCheckDivOrMod(node->AsOp());
 
     return next;
@@ -5208,6 +5226,15 @@ void Lowering::ContainCheckNode(GenTree* node)
         case GT_JTRUE:
             ContainCheckJTrue(node->AsUnOp());
             break;
+
+#ifdef TARGET_XARCH
+        case GT_FADD:
+        case GT_FSUB:
+        case GT_FMUL:
+        case GT_FDIV:
+            ContainCheckFloatBinary(node->AsOp());
+            break;
+#endif
 
         case GT_ADD:
         case GT_SUB:

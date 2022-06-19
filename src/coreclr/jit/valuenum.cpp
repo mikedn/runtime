@@ -327,9 +327,10 @@ VNFunc GetVNFuncForNode(GenTree* node)
         case GT_ADD:
         case GT_SUB:
         case GT_MUL:
-            if (varTypeIsIntegralOrI(node->gtGetOp1()) && node->gtOverflow())
+            assert(varTypeIsIntegralOrI(node->gtGetOp1()));
+            assert(varTypeIsIntegralOrI(node->gtGetOp2()));
+            if (node->gtOverflow())
             {
-                assert(varTypeIsIntegralOrI(node->gtGetOp2()));
                 if (node->IsUnsigned())
                 {
                     return binopUnOvfFuncs[node->OperGet() - GT_ADD];
@@ -485,7 +486,7 @@ T ValueNumStore::EvalOp(VNFunc vnf, T v0)
     switch (oper)
     {
         case GT_NEG:
-            // Note that GT_NEG is the only valid unary floating point operation
+        case GT_FNEG:
             return -v0;
 
         default:
@@ -594,15 +595,15 @@ double ValueNumStore::EvalOpSpecialized<double>(VNFunc vnf, double v0, double v1
         // Here we handle
         switch (oper)
         {
-            case GT_ADD:
+            case GT_FADD:
                 return FpAdd<double, DoubleTraits>(v0, v1);
-            case GT_SUB:
+            case GT_FSUB:
                 return FpSub<double, DoubleTraits>(v0, v1);
-            case GT_MUL:
+            case GT_FMUL:
                 return FpMul<double, DoubleTraits>(v0, v1);
-            case GT_DIV:
+            case GT_FDIV:
                 return FpDiv<double, DoubleTraits>(v0, v1);
-            case GT_MOD:
+            case GT_FMOD:
                 return FpRem<double, DoubleTraits>(v0, v1);
 
             default:
@@ -626,15 +627,15 @@ float ValueNumStore::EvalOpSpecialized<float>(VNFunc vnf, float v0, float v1)
         // Here we handle
         switch (oper)
         {
-            case GT_ADD:
+            case GT_FADD:
                 return FpAdd<float, FloatTraits>(v0, v1);
-            case GT_SUB:
+            case GT_FSUB:
                 return FpSub<float, FloatTraits>(v0, v1);
-            case GT_MUL:
+            case GT_FMUL:
                 return FpMul<float, FloatTraits>(v0, v1);
-            case GT_DIV:
+            case GT_FDIV:
                 return FpDiv<float, FloatTraits>(v0, v1);
-            case GT_MOD:
+            case GT_FMOD:
                 return FpRem<float, FloatTraits>(v0, v1);
 
             default:
@@ -3076,6 +3077,14 @@ bool ValueNumStore::CanEvalForConstantArgs(VNFunc vnf)
             case GT_ROL:
             case GT_ROR:
 
+            // Float ops
+            case GT_FADD:
+            case GT_FSUB:
+            case GT_FMUL:
+            case GT_FDIV:
+            case GT_FMOD:
+            case GT_FNEG:
+
             // Equality Ops
             case GT_EQ:
             case GT_NE:
@@ -3384,18 +3393,22 @@ ValueNum ValueNumStore::EvalUsingMathIdentity(var_types typ, VNFunc func, ValueN
         switch (genTreeOps(func))
         {
             case GT_ADD:
+            case GT_FADD:
                 resultVN = identityForAddition();
                 break;
 
             case GT_SUB:
+            case GT_FSUB:
                 resultVN = identityForSubtraction();
                 break;
 
             case GT_MUL:
+            case GT_FMUL:
                 resultVN = identityForMultiplication();
                 break;
 
             case GT_DIV:
+            case GT_FDIV:
             case GT_UDIV:
                 // (x / 1) == x
                 // This identity does not apply for floating point
@@ -8923,10 +8936,10 @@ VNFunc Compiler::fgValueNumberJitHelperMethodVNFunc(CorInfoHelpFunc helpFunc)
             vnf = VNF_Dbl2ULng;
             break;
         case CORINFO_HELP_FLTREM:
-            vnf = VNFunc(GT_MOD);
+            vnf = VNFunc(GT_FMOD);
             break;
         case CORINFO_HELP_DBLREM:
-            vnf = VNFunc(GT_MOD);
+            vnf = VNFunc(GT_FMOD);
             break;
         case CORINFO_HELP_FLTROUND:
             vnf = VNF_FltRound;

@@ -2667,6 +2667,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 
                 case GT_NOT:
                 case GT_NEG:
+                case GT_FNEG:
                     // We need to ensure that -x is evaluated before x or else
                     // we get burned while adjusting genFPstkLevel in x*-x where
                     // the rhs x is the last use of the enregistered x.
@@ -2839,75 +2840,55 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 
             case GT_DIV:
             case GT_UDIV:
-
-                if (isflt)
-                {
-                    /* fp division is very expensive to execute */
-                    costEx = 36; // TYP_DOUBLE
-                    costSz += 3;
-                }
-                else
-                {
-                    /* integer division is also very expensive */
-                    costEx = 20;
-                    costSz += 2;
-
-                    // Encourage the first operand to be evaluated (into EAX/EDX) first */
-                    lvlb -= 3;
-                }
+                costEx += 19;
+                costSz += 2;
+                // Encourage the first operand to be evaluated (into EAX/EDX) first
+                lvlb -= 3;
                 break;
 
             case GT_MUL:
+                costEx += 3;
+                costSz += 2;
 
-                if (isflt)
+                if (tree->gtOverflow())
                 {
-                    /* FP multiplication instructions are more expensive */
-                    costEx += 4;
+                    /* Overflow check are more expensive */
+                    costEx += 3;
                     costSz += 3;
                 }
-                else
-                {
-                    /* Integer multiplication instructions are more expensive */
-                    costEx += 3;
-                    costSz += 2;
-
-                    if (tree->gtOverflow())
-                    {
-                        /* Overflow check are more expensive */
-                        costEx += 3;
-                        costSz += 3;
-                    }
 
 #ifdef TARGET_X86
-                    if ((tree->gtType == TYP_LONG) || tree->gtOverflow())
-                    {
-                        /* We use imulEAX for TYP_LONG and overflow multiplications */
-                        // Encourage the first operand to be evaluated (into EAX/EDX) first */
-                        lvlb -= 4;
+                if ((tree->gtType == TYP_LONG) || tree->gtOverflow())
+                {
+                    /* We use imulEAX for TYP_LONG and overflow multiplications */
+                    // Encourage the first operand to be evaluated (into EAX/EDX) first */
+                    lvlb -= 4;
 
-                        /* The 64-bit imul instruction costs more */
-                        costEx += 4;
-                    }
-#endif //  TARGET_X86
+                    /* The 64-bit imul instruction costs more */
+                    costEx += 4;
                 }
+#endif //  TARGET_X86
                 break;
 
             case GT_ADD:
             case GT_SUB:
-                if (isflt)
-                {
-                    /* FP instructions are a bit more expensive */
-                    costEx += 4;
-                    costSz += 3;
-                    break;
-                }
-
-                /* Overflow check are more expensive */
                 if (tree->gtOverflow())
                 {
                     costEx += 3;
                     costSz += 3;
                 }
+                break;
+
+            case GT_FADD:
+            case GT_FSUB:
+            case GT_FMUL:
+                costEx += 4;
+                costSz += 3;
+                break;
+
+            case GT_FDIV:
+                costEx += 35;
+                costSz += 3;
                 break;
 
             case GT_COMMA:
@@ -3195,6 +3176,9 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                         }
 
                         FALLTHROUGH;
+
+                    case GT_FADD:
+                    case GT_FMUL:
 
                     case GT_ADD:
                     case GT_MUL:
@@ -3830,11 +3814,6 @@ bool GenTree::OperMayThrow(Compiler* comp)
             /* Division with a non-zero, non-minus-one constant does not throw an exception */
 
             op = AsOp()->gtOp2;
-
-            if (varTypeIsFloating(op->TypeGet()))
-            {
-                return false; // Floating point division does not throw.
-            }
 
             // For integers only division by 0 or by -1 can throw
             if (op->IsIntegralConst() && !op->IsIntegralConst(0) && !op->IsIntegralConst(-1))
@@ -5337,6 +5316,12 @@ GenTree* Compiler::gtCloneExpr(
                 }
                 break;
 
+            case GT_FMOD:
+                // This is always converted to a helper call.
+                copy = new (this, GT_CALL)
+                    GenTreeOp(GT_FMOD, tree->GetType(), tree->AsOp()->GetOp(0), tree->AsOp()->GetOp(1));
+                break;
+
             case GT_CAST:
                 copy = new (this, LargeOpOpcode())
                     GenTreeCast(tree->TypeGet(), tree->AsCast()->CastOp(), tree->IsUnsigned(),
@@ -6090,6 +6075,7 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
         case GT_STORE_LCL_FLD:
         case GT_NOT:
         case GT_NEG:
+        case GT_FNEG:
         case GT_COPY:
         case GT_RELOAD:
         case GT_ARR_LENGTH:
@@ -10683,7 +10669,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 
                 switch (tree->OperGet())
                 {
-                    case GT_NEG:
+                    case GT_FNEG:
                         d1 = -d1;
                         break;
 
@@ -11317,18 +11303,10 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 
         case TYP_FLOAT:
         case TYP_DOUBLE:
+            assert(!tree->gtOverflowEx());
 
-            if (tree->gtOverflowEx())
-            {
-                return tree;
-            }
-
-            assert(op1->OperIs(GT_CNS_DBL));
-            d1 = op1->AsDblCon()->gtDconVal;
-
-            assert(varTypeIsFloating(op2->TypeGet()));
-            assert(op2->OperIs(GT_CNS_DBL));
-            d2 = op2->AsDblCon()->gtDconVal;
+            d1 = op1->AsDblCon()->GetValue();
+            d2 = op2->AsDblCon()->GetValue();
 
             // Special case - check if we have NaN operands.
             // For comparisons if not an unordered operation always return 0.
@@ -11390,7 +11368,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                 // float b = a*a;   This will produce +inf in single precision and 1.1579207543382391e+077 in double
                 //                  precision.
                 // flaot c = b/b;   This will produce NaN in single precision and 1 in double precision.
-                case GT_ADD:
+                case GT_FADD:
                     if (op1->TypeIs(TYP_FLOAT))
                     {
                         f1 = forceCastToFloat(d1);
@@ -11403,7 +11381,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                     }
                     break;
 
-                case GT_SUB:
+                case GT_FSUB:
                     if (op1->TypeIs(TYP_FLOAT))
                     {
                         f1 = forceCastToFloat(d1);
@@ -11416,7 +11394,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                     }
                     break;
 
-                case GT_MUL:
+                case GT_FMUL:
                     if (op1->TypeIs(TYP_FLOAT))
                     {
                         f1 = forceCastToFloat(d1);
@@ -11429,7 +11407,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                     }
                     break;
 
-                case GT_DIV:
+                case GT_FDIV:
                     // We do not fold division by zero, even for floating point.
                     // This is because the result will be platform-dependent for an expression like 0d / 0d.
                     if (d2 == 0)

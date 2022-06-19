@@ -911,16 +911,10 @@ bool CanEncodeArithmeticImm(ssize_t imm, emitAttr size, unsigned* encodedArithIm
 
 void Lowering::LowerNegate(GenTreeUnOp* neg)
 {
-    assert(neg->OperIs(GT_NEG));
+    assert(neg->OperIs(GT_NEG) && varTypeIsIntegral(neg->GetType()));
 
     GenTree* op1  = neg->GetOp(0);
     emitAttr size = emitActualTypeSize(neg->GetType());
-
-    if (varTypeIsFloating(neg->GetType()))
-    {
-        MakeInstr(neg, INS_fneg, size, op1);
-        return;
-    }
 
     if (GenTreeInstr* mul = IsInstr(op1, INS_mul, size, 2))
     {
@@ -959,18 +953,11 @@ void Lowering::LowerNegate(GenTreeUnOp* neg)
 
 void Lowering::LowerArithmetic(GenTreeOp* arith)
 {
-    assert(arith->OperIs(GT_ADD, GT_SUB));
+    assert(arith->OperIs(GT_ADD, GT_SUB) && varTypeIsIntegralOrI(arith->GetType()));
 
     GenTree* op1  = arith->GetOp(0);
     GenTree* op2  = arith->GetOp(1);
     emitAttr size = emitActualTypeSize(arith->GetType());
-
-    if (varTypeIsFloating(arith->GetType()))
-    {
-        instruction ins = arith->OperIs(GT_ADD) ? INS_fadd : INS_fsub;
-        MakeInstr(arith, ins, size, op1, op2);
-        return;
-    }
 
     if (arith->gtOverflow())
     {
@@ -1157,7 +1144,7 @@ GenTreeCast* IsIntToLongCast(GenTree* node)
 
 void Lowering::LowerMultiply(GenTreeOp* mul)
 {
-    assert(mul->OperIs(GT_MUL, GT_MULHI));
+    assert(mul->OperIs(GT_MUL, GT_MULHI) && varTypeIsIntegral(mul->GetType()));
 
     if (mul->OperIs(GT_MUL) && mul->gtOverflow())
     {
@@ -1167,12 +1154,6 @@ void Lowering::LowerMultiply(GenTreeOp* mul)
     GenTree* op1  = mul->GetOp(0);
     GenTree* op2  = mul->GetOp(1);
     emitAttr size = emitActualTypeSize(mul->GetType());
-
-    if (varTypeIsFloating(mul->GetType()))
-    {
-        MakeInstr(mul, INS_fmul, size, op1, op2);
-        return;
-    }
 
     if (mul->OperIs(GT_MULHI))
     {
@@ -1587,6 +1568,33 @@ GenTree* Lowering::LowerJTrue(GenTreeUnOp* jtrue)
 
     assert(jtrue->gtNext == nullptr);
     return nullptr;
+}
+
+void Lowering::LowerFloatNegate(GenTreeUnOp* neg)
+{
+    assert(neg->OperIs(GT_FNEG) && varTypeIsFloating(neg->GetType()));
+
+    GenTree* op1  = neg->GetOp(0);
+    emitAttr size = emitTypeSize(neg->GetType());
+
+    MakeInstr(neg, INS_fneg, size, op1);
+}
+
+void Lowering::LowerFloatArithmetic(GenTreeOp* arith)
+{
+    assert(arith->OperIs(GT_FADD, GT_FSUB, GT_FMUL, GT_FDIV) && varTypeIsFloating(arith->GetType()));
+
+    static_assert_no_msg(GT_FSUB - GT_FADD == 1);
+    static_assert_no_msg(GT_FMUL - GT_FADD == 2);
+    static_assert_no_msg(GT_FDIV - GT_FADD == 3);
+    static constexpr instruction insMap[]{INS_fadd, INS_fsub, INS_fmul, INS_fdiv};
+
+    GenTree*    op1  = arith->GetOp(0);
+    GenTree*    op2  = arith->GetOp(1);
+    emitAttr    size = emitTypeSize(arith->GetType());
+    instruction ins  = insMap[arith->GetOper() - GT_FADD];
+
+    MakeInstr(arith, ins, size, op1, op2);
 }
 
 #ifdef DEBUG

@@ -785,16 +785,13 @@ regMaskTP LinearScan::getKillSetForMul(GenTreeOp* mulNode)
 //
 regMaskTP LinearScan::getKillSetForModDiv(GenTreeOp* node)
 {
-    regMaskTP killMask = RBM_NONE;
+    assert(node->OperIs(GT_MOD, GT_DIV, GT_UMOD, GT_UDIV) && varTypeIsIntegral(node->GetType()));
+
 #ifdef TARGET_XARCH
-    assert(node->OperIs(GT_MOD, GT_DIV, GT_UMOD, GT_UDIV));
-    if (!varTypeIsFloating(node->TypeGet()))
-    {
-        // Both RAX and RDX are killed by the operation
-        killMask = RBM_RAX | RBM_RDX;
-    }
-#endif // TARGET_XARCH
-    return killMask;
+    return RBM_RAX | RBM_RDX;
+#else
+    return RBM_NONE;
+#endif
 }
 
 //------------------------------------------------------------------------

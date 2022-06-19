@@ -445,7 +445,7 @@ void Lowering::LowerHWIntrinsicFusedMultiplyAddScalar(GenTreeHWIntrinsic* node)
             GenTreeHWIntrinsic* createVector64 = op->AsHWIntrinsic();
             GenTree*            valueOp        = createVector64->GetOp(0);
 
-            if (valueOp->OperIs(GT_NEG))
+            if (valueOp->OperIs(GT_FNEG))
             {
                 createVector64->SetOp(0, valueOp->AsUnOp()->GetOp(0));
                 BlockRange().Remove(valueOp);

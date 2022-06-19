@@ -44,7 +44,7 @@ private:
 #if defined(TARGET_XARCH)
     // Bit masks used in negating a float or double number.
     // This is to avoid creating more than one data constant for these bitmasks when a
-    // method has more than one GT_NEG operation on floating point values.
+    // method has more than one GT_FNEG operation on floating point values.
     CORINFO_FIELD_HANDLE negBitmaskFlt;
     CORINFO_FIELD_HANDLE negBitmaskDbl;
 
@@ -56,8 +56,7 @@ private:
     CORINFO_FIELD_HANDLE u8ToDblBitmask;
     CORINFO_FIELD_HANDLE u8ToFltBitmask;
 
-    // Generates SSE2 code for the given tree as "Operand BitWiseOp BitMask"
-    void genSSE2BitwiseOp(GenTreeUnOp* node);
+    void GenFloatAbs(GenTreeIntrinsic* node);
 
     // Generates SSE41 code for the given tree as a round operation
     void genSSE41RoundOp(GenTreeUnOp* node);
@@ -786,13 +785,17 @@ protected:
     void genSetRegToConst(regNumber targetReg, var_types targetType, GenTree* tree);
     void genCodeForTreeNode(GenTree* treeNode);
     void genCodeForBinary(GenTreeOp* treeNode);
-    void GenFloatBinaryOp(GenTreeOp* treeNode);
+    void GenFloatNegate(GenTreeUnOp* node);
+    void GenFloatBinaryOp(GenTreeOp* node);
 
-#if defined(TARGET_X86)
+#ifdef TARGET_X86
     void genCodeForLongUMod(GenTreeOp* node);
-#endif // TARGET_X86
+#endif
 
+#if defined(TARGET_ARM64) || defined(TARGET_XARCH)
     void genCodeForDivMod(GenTreeOp* treeNode);
+#endif
+
     void genCodeForMul(GenTreeOp* treeNode);
     void genCodeForIncSaturate(GenTree* treeNode);
     void genCodeForMulHi(GenTreeOp* treeNode);
@@ -1204,7 +1207,7 @@ protected:
     void genTableBasedSwitch(GenTreeOp* tree);
     void genCodeForArrIndex(GenTreeArrIndex* treeNode);
     void genCodeForArrOffset(GenTreeArrOffs* treeNode);
-    instruction genGetInsForOper(genTreeOps oper, var_types type);
+    instruction genGetInsForOper(genTreeOps oper);
     bool genEmitOptimizedGCWriteBarrier(GCInfo::WriteBarrierForm writeBarrierForm, GenTree* addr, GenTree* data);
     void genCallInstruction(GenTreeCall* call);
     void genJmpMethod(GenTree* jmp);
@@ -1399,7 +1402,6 @@ public:
 
     instruction ins_Copy(var_types dstType);
     instruction ins_Copy(regNumber srcReg, var_types dstType);
-    instruction ins_MathOp(genTreeOps oper, var_types type);
 #ifdef TARGET_XARCH
     instruction ins_FloatCompare(var_types type);
     instruction ins_FloatSqrt(var_types type);

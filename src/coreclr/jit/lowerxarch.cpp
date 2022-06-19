@@ -1073,14 +1073,14 @@ void Lowering::LowerHWIntrinsicCC(GenTreeHWIntrinsic* node, NamedIntrinsic newIn
 
 //----------------------------------------------------------------------------------------------
 // LowerFusedMultiplyAdd: Changes NI_FMA_MultiplyAddScalar produced by Math(F).FusedMultiplyAdd
-//     to a better FMA intrinsics if there are GT_NEG around in order to eliminate them.
+//     to a better FMA intrinsics if there are GT_FNEG around in order to eliminate them.
 //
 //  Arguments:
 //     node - The hardware intrinsic node
 //
 //  Notes:
 //     Math(F).FusedMultiplyAdd is expanded into NI_FMA_MultiplyAddScalar and
-//     depending on additional GT_NEG nodes around it can be:
+//     depending on additional GT_FNEG nodes around it can be:
 //
 //      x *  y + z -> NI_FMA_MultiplyAddScalar
 //      x * -y + z -> NI_FMA_MultiplyAddNegatedScalar
@@ -1116,18 +1116,18 @@ void Lowering::LowerFusedMultiplyAdd(GenTreeHWIntrinsic* node)
     GenTree* argY = uses[1]->GetNode();
     GenTree* argZ = uses[2]->GetNode();
 
-    const bool negMul = argX->OperIs(GT_NEG) != argY->OperIs(GT_NEG);
-    if (argX->OperIs(GT_NEG))
+    const bool negMul = argX->OperIs(GT_FNEG) != argY->OperIs(GT_FNEG);
+    if (argX->OperIs(GT_FNEG))
     {
         uses[0]->SetNode(argX->gtGetOp1());
         BlockRange().Remove(argX);
     }
-    if (argY->OperIs(GT_NEG))
+    if (argY->OperIs(GT_FNEG))
     {
         uses[1]->SetNode(argY->gtGetOp1());
         BlockRange().Remove(argY);
     }
-    if (argZ->OperIs(GT_NEG))
+    if (argZ->OperIs(GT_FNEG))
     {
         uses[2]->SetNode(argZ->gtGetOp1());
         BlockRange().Remove(argZ);
@@ -3379,16 +3379,10 @@ void Lowering::ContainCheckMul(GenTreeOp* node)
 #else
     assert(node->OperIs(GT_MUL, GT_MULHI));
 #endif
+    assert(varTypeIsIntegral(node->GetType()));
 
-    // Case of float/double mul.
-    if (varTypeIsFloating(node->TypeGet()))
-    {
-        ContainCheckFloatBinary(node);
-        return;
-    }
-
-    GenTree* op1 = node->AsOp()->gtOp1;
-    GenTree* op2 = node->AsOp()->gtOp2;
+    GenTree* op1 = node->GetOp(0);
+    GenTree* op2 = node->GetOp(1);
 
     bool isSafeToContainOp1 = true;
     bool isSafeToContainOp2 = true;
@@ -3542,15 +3536,9 @@ void Lowering::ContainCheckMul(GenTreeOp* node)
 //
 void Lowering::ContainCheckDivOrMod(GenTreeOp* node)
 {
-    assert(node->OperIs(GT_DIV, GT_MOD, GT_UDIV, GT_UMOD));
+    assert(node->OperIs(GT_DIV, GT_MOD, GT_UDIV, GT_UMOD) && varTypeIsIntegral(node->GetType()));
 
-    if (varTypeIsFloating(node->TypeGet()))
-    {
-        ContainCheckFloatBinary(node);
-        return;
-    }
-
-    GenTree* divisor = node->gtGetOp2();
+    GenTree* divisor = node->GetOp(1);
 
     bool divisorCanBeRegOptional = true;
 #ifdef TARGET_X86
@@ -4032,14 +4020,7 @@ void Lowering::LowerStoreIndRMW(GenTreeStoreInd* store)
 
 void Lowering::ContainCheckBinary(GenTreeOp* node)
 {
-    assert(node->OperIsBinary());
-
-    if (varTypeIsFloating(node))
-    {
-        assert(node->OperIs(GT_ADD, GT_SUB));
-        ContainCheckFloatBinary(node);
-        return;
-    }
+    assert(node->OperIsBinary() && varTypeIsIntegralOrI(node->GetType()));
 
     GenTree* op1 = node->GetOp(0);
     GenTree* op2 = node->GetOp(1);
@@ -5177,17 +5158,14 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 //
 void Lowering::ContainCheckFloatBinary(GenTreeOp* node)
 {
-    assert(node->OperIs(GT_ADD, GT_SUB, GT_MUL, GT_DIV) && varTypeIsFloating(node));
+    assert(node->OperIs(GT_FADD, GT_FSUB, GT_FMUL, GT_FDIV) && varTypeIsFloating(node->GetType()));
 
-    // overflow operations aren't supported on float/double types.
-    assert(!node->gtOverflowEx());
-
-    GenTree* op1 = node->gtGetOp1();
-    GenTree* op2 = node->gtGetOp2();
+    GenTree* op1 = node->GetOp(0);
+    GenTree* op2 = node->GetOp(1);
 
     // No implicit conversions at this stage as the expectation is that
     // everything is made explicit by adding casts.
-    assert(op1->TypeGet() == op2->TypeGet());
+    assert(op1->GetType() == op2->GetType());
 
     bool isSafeToContainOp1 = true;
     bool isSafeToContainOp2 = true;

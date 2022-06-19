@@ -3467,6 +3467,11 @@ bool Compiler::optIsCSEcandidate(GenTree* tree)
             // a DNER local may be useful...
             return false; // Can't CSE a volatile LCL_VAR
 
+        case GT_FNEG:
+        case GT_FADD:
+        case GT_FSUB:
+        case GT_FMUL:
+        case GT_FDIV:
         case GT_ARR_ELEM:
         case GT_ARR_LENGTH:
         case GT_LCL_FLD:

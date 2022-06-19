@@ -190,42 +190,46 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             genProduceReg(treeNode);
             break;
 
+        case GT_FNEG:
+            GenFloatNegate(treeNode->AsUnOp());
+            break;
+
+        case GT_FADD:
+        case GT_FSUB:
+        case GT_FMUL:
+        case GT_FDIV:
+            GenFloatBinaryOp(treeNode->AsOp());
+            break;
+
         case GT_NOT:
         case GT_NEG:
             genCodeForNegNot(treeNode->AsUnOp());
             break;
 
-#if defined(TARGET_ARM64)
+#ifdef TARGET_ARM64
         case GT_BSWAP:
         case GT_BSWAP16:
             genCodeForBswap(treeNode);
             break;
-#endif // defined(TARGET_ARM64)
 
-        case GT_MOD:
-        case GT_UMOD:
         case GT_DIV:
         case GT_UDIV:
             genCodeForDivMod(treeNode->AsOp());
             break;
+#endif
 
         case GT_OR:
         case GT_XOR:
         case GT_AND:
-            assert(varTypeIsIntegralOrI(treeNode));
-
-            FALLTHROUGH;
-
-#if !defined(TARGET_64BIT)
+        case GT_ADD:
+        case GT_SUB:
+        case GT_MUL:
+#ifndef TARGET_64BIT
         case GT_ADD_LO:
         case GT_ADD_HI:
         case GT_SUB_LO:
         case GT_SUB_HI:
-#endif // !defined(TARGET_64BIT)
-
-        case GT_ADD:
-        case GT_SUB:
-        case GT_MUL:
+#endif
             genCodeForBinary(treeNode->AsOp());
             break;
 
@@ -1381,7 +1385,7 @@ void CodeGen::genCodeForShift(GenTreeOp* tree)
 {
     var_types   targetType = tree->TypeGet();
     genTreeOps  oper       = tree->OperGet();
-    instruction ins        = genGetInsForOper(oper, targetType);
+    instruction ins        = genGetInsForOper(oper);
     emitAttr    size       = emitActualTypeSize(tree);
 
     GenTree* value   = tree->GetOp(0);
@@ -4216,6 +4220,65 @@ void CodeGen::genPushCalleeSavedRegisters()
 
     assert(offset == totalFrameSize);
 #endif // TARGET_ARM64
+}
+
+void CodeGen::GenFloatNegate(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_FNEG) && varTypeIsFloating(node->GetType()));
+    assert(node->GetOp(0)->GetType() == node->GetType());
+    assert(node->GetRegNum() != REG_NA);
+
+    regNumber reg = UseReg(node->GetOp(0));
+
+#ifdef TARGET_ARM64
+    GetEmitter()->emitIns_R_R(INS_fneg, emitTypeSize(node->GetType()), node->GetRegNum(), reg);
+#else
+    GetEmitter()->emitIns_R_R(INS_vneg, emitTypeSize(node->GetType()), node->GetRegNum(), reg);
+#endif
+
+    DefReg(node);
+}
+
+void CodeGen::GenFloatBinaryOp(GenTreeOp* node)
+{
+    assert(node->OperIs(GT_FADD, GT_FSUB, GT_FMUL, GT_FDIV) && varTypeIsFloating(node->GetType()));
+    assert((node->GetOp(0)->GetType() == node->GetType()) && (node->GetOp(1)->GetType() == node->GetType()));
+    assert(node->GetRegNum() != REG_NA);
+
+    static_assert_no_msg(GT_FSUB - GT_FADD == 1);
+    static_assert_no_msg(GT_FMUL - GT_FADD == 2);
+    static_assert_no_msg(GT_FDIV - GT_FADD == 3);
+#ifdef TARGET_ARM64
+    static constexpr instruction insMap[]{INS_fadd, INS_fsub, INS_fmul, INS_fdiv};
+#else
+    static constexpr instruction insMap[]{INS_vadd, INS_vsub, INS_vmul, INS_vdiv};
+#endif
+
+    instruction ins  = insMap[node->GetOper() - GT_FADD];
+    regNumber   reg1 = UseReg(node->GetOp(0));
+    regNumber   reg2 = UseReg(node->GetOp(1));
+
+    GetEmitter()->emitIns_R_R_R(ins, emitTypeSize(node->GetType()), node->GetRegNum(), reg1, reg2);
+
+    DefReg(node);
+}
+
+void CodeGen::genCodeForNegNot(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_NEG, GT_NOT) && varTypeIsIntegral(node->GetType()));
+    assert(node->GetRegNum() != REG_NA);
+
+    regNumber reg = UseReg(node->GetOp(0));
+
+#ifdef TARGET_ARM64
+    instruction ins = node->OperIs(GT_NEG) ? INS_neg : INS_mvn;
+    GetEmitter()->emitIns_R_R(ins, emitActualTypeSize(node->GetType()), node->GetRegNum(), reg);
+#else
+    instruction                  ins = node->OperIs(GT_NEG) ? INS_rsb : INS_mvn;
+    GetEmitter()->emitIns_R_R_I(ins, emitTypeSize(node->GetType()), node->GetRegNum(), reg, 0, INS_FLAGS_SET);
+#endif
+
+    DefReg(node);
 }
 
 #endif // TARGET_ARMARCH

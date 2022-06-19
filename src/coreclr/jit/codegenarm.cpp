@@ -287,6 +287,8 @@ void CodeGen::genSetRegToConst(regNumber targetReg, var_types targetType, GenTre
 
 void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
 {
+    assert(varTypeIsIntegralOrI(treeNode->GetType()));
+
     const genTreeOps oper       = treeNode->OperGet();
     regNumber        targetReg  = treeNode->GetRegNum();
     var_types        targetType = treeNode->TypeGet();
@@ -311,7 +313,7 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
     assert(IsValidSourceType(targetType, op1->GetType()));
     assert(IsValidSourceType(targetType, op2->GetType()));
 
-    instruction ins = genGetInsForOper(oper, targetType);
+    instruction ins = genGetInsForOper(oper);
 
     // The arithmetic node must be sitting in a register (since it's not contained)
     noway_assert(targetReg != REG_NA);
@@ -645,32 +647,8 @@ void CodeGen::genJumpTable(GenTree* treeNode)
     genProduceReg(treeNode);
 }
 
-instruction CodeGen::ins_MathOp(genTreeOps oper, var_types type)
+instruction CodeGen::genGetInsForOper(genTreeOps oper)
 {
-    switch (oper)
-    {
-        case GT_ADD:
-            return INS_vadd;
-        case GT_SUB:
-            return INS_vsub;
-        case GT_MUL:
-            return INS_vmul;
-        case GT_DIV:
-            return INS_vdiv;
-        case GT_NEG:
-            return INS_vneg;
-        default:
-            unreached();
-    }
-}
-
-instruction CodeGen::genGetInsForOper(genTreeOps oper, var_types type)
-{
-    if (varTypeIsFloating(type))
-    {
-        return ins_MathOp(oper, type);
-    }
-
     switch (oper)
     {
         case GT_ADD:
@@ -679,7 +657,7 @@ instruction CodeGen::genGetInsForOper(genTreeOps oper, var_types type)
             return INS_and;
         case GT_MUL:
             return INS_mul;
-#if !defined(USE_HELPERS_FOR_INT_DIV)
+#ifndef USE_HELPERS_FOR_INT_DIV
         case GT_DIV:
             return INS_sdiv;
 #endif
@@ -719,45 +697,6 @@ instruction CodeGen::genGetInsForOper(genTreeOps oper, var_types type)
 }
 
 //------------------------------------------------------------------------
-// genCodeForNegNot: Produce code for a GT_NEG/GT_NOT node.
-//
-// Arguments:
-//    tree - the node
-//
-void CodeGen::genCodeForNegNot(GenTreeUnOp* tree)
-{
-    assert(tree->OperIs(GT_NEG, GT_NOT));
-
-    var_types targetType = tree->TypeGet();
-
-    assert(!tree->OperIs(GT_NOT) || !varTypeIsFloating(targetType));
-
-    regNumber   targetReg = tree->GetRegNum();
-    instruction ins       = genGetInsForOper(tree->OperGet(), targetType);
-
-    // The arithmetic node must be sitting in a register (since it's not contained)
-    assert(!tree->isContained());
-    // The dst can only be a register.
-    assert(targetReg != REG_NA);
-
-    GenTree* operand = tree->gtGetOp1();
-    assert(!operand->isContained());
-    // The src must be a register.
-    regNumber operandReg = genConsumeReg(operand);
-
-    if (ins == INS_vneg)
-    {
-        GetEmitter()->emitIns_R_R(ins, emitTypeSize(tree), targetReg, operandReg);
-    }
-    else
-    {
-        GetEmitter()->emitIns_R_R_I(ins, emitTypeSize(tree), targetReg, operandReg, 0, INS_FLAGS_SET);
-    }
-
-    genProduceReg(tree);
-}
-
-//------------------------------------------------------------------------
 // genCodeForShiftLong: Generates the code sequence for a GenTree node that
 // represents a three operand bit shift or rotate operation (<<Hi, >>Lo).
 //
@@ -785,7 +724,7 @@ void CodeGen::genCodeForShiftLong(GenTree* tree)
     regNumber dstReg = tree->GetRegNum();
 
     var_types   targetType = tree->TypeGet();
-    instruction ins        = genGetInsForOper(oper, targetType);
+    instruction ins        = genGetInsForOper(oper);
 
     GenTree* shiftBy = tree->gtGetOp2();
 
@@ -939,35 +878,6 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
     GetEmitter()->emitIns_Mov(ins_Copy(lclRegType), emitActualTypeSize(lclRegType), dstReg, srcReg, /*canSkip*/ true);
 
     DefLclVarReg(store);
-}
-
-//------------------------------------------------------------------------
-// genCodeForDivMod: Produce code for a GT_DIV/GT_UDIV/GT_MOD/GT_UMOD node.
-//
-// Arguments:
-//    tree - the node
-//
-void CodeGen::genCodeForDivMod(GenTreeOp* tree)
-{
-    // Only floating point division is supported, integer division must
-    // use helpers (USE_HELPERS_FOR_INT_DIV). In addition to the fact
-    // that integer division instructions are not always available this
-    // code does not check for division by zero and overflow cases.
-    noway_assert(tree->OperIs(GT_DIV) && varTypeIsFloating(tree->GetType()));
-
-    var_types targetType = tree->TypeGet();
-    emitter*  emit       = GetEmitter();
-
-    regNumber srcReg1 = UseReg(tree->GetOp(0));
-    regNumber srcReg2 = UseReg(tree->GetOp(1));
-    regNumber dstReg  = tree->GetRegNum();
-
-    instruction ins  = genGetInsForOper(tree->OperGet(), targetType);
-    emitAttr    attr = emitTypeSize(tree);
-
-    emit->emitIns_R_R_R(ins, attr, dstReg, srcReg1, srcReg2);
-
-    DefReg(tree);
 }
 
 //------------------------------------------------------------------------
@@ -1833,49 +1743,40 @@ regNumber CodeGen::emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, 
 {
     // dst can only be a reg
     assert(!dst->isContained());
+    assert(varTypeIsIntegralOrI(dst->GetType()));
 
     // find immed (if any) - it cannot be a dst
     // Only one src can be an int.
     GenTreeIntConCommon* intConst  = nullptr;
     GenTree*             nonIntReg = nullptr;
 
-    if (varTypeIsFloating(dst))
+    // src2 can be immed or reg
+    assert(!src2->isContained() || src2->isContainedIntOrIImmed());
+
+    // Check src2 first as we can always allow it to be a contained immediate
+    if (src2->isContainedIntOrIImmed())
+    {
+        intConst  = src2->AsIntConCommon();
+        nonIntReg = src1;
+    }
+    // Only for commutative operations do we check src1 and allow it to be a contained immediate
+    else if (dst->OperIsCommutative())
+    {
+        // src1 can be immed or reg
+        assert(!src1->isContained() || src1->isContainedIntOrIImmed());
+
+        // Check src1 and allow it to be a contained immediate
+        if (src1->isContainedIntOrIImmed())
+        {
+            assert(!src2->isContainedIntOrIImmed());
+            intConst  = src1->AsIntConCommon();
+            nonIntReg = src2;
+        }
+    }
+    else
     {
         // src1 can only be a reg
         assert(!src1->isContained());
-        // src2 can only be a reg
-        assert(!src2->isContained());
-    }
-    else // not floating point
-    {
-        // src2 can be immed or reg
-        assert(!src2->isContained() || src2->isContainedIntOrIImmed());
-
-        // Check src2 first as we can always allow it to be a contained immediate
-        if (src2->isContainedIntOrIImmed())
-        {
-            intConst  = src2->AsIntConCommon();
-            nonIntReg = src1;
-        }
-        // Only for commutative operations do we check src1 and allow it to be a contained immediate
-        else if (dst->OperIsCommutative())
-        {
-            // src1 can be immed or reg
-            assert(!src1->isContained() || src1->isContainedIntOrIImmed());
-
-            // Check src1 and allow it to be a contained immediate
-            if (src1->isContainedIntOrIImmed())
-            {
-                assert(!src2->isContainedIntOrIImmed());
-                intConst  = src1->AsIntConCommon();
-                nonIntReg = src2;
-            }
-        }
-        else
-        {
-            // src1 can only be a reg
-            assert(!src1->isContained());
-        }
     }
 
     insFlags flags         = INS_FLAGS_DONT_CARE;

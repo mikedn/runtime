@@ -487,37 +487,19 @@ void CodeGen::genSetRegToConst(regNumber targetReg, var_types targetType, GenTre
     }
 }
 
-//------------------------------------------------------------------------
-// genCodeForNegNot: Produce code for a GT_NEG/GT_NOT node.
-//
-// Arguments:
-//    tree - the node
-//
-void CodeGen::genCodeForNegNot(GenTreeUnOp* tree)
+void CodeGen::genCodeForNegNot(GenTreeUnOp* node)
 {
-    assert(tree->OperIs(GT_NEG, GT_NOT));
+    assert(node->OperIs(GT_NEG, GT_NOT) && varTypeIsIntegral(node->GetType()));
 
-    regNumber targetReg  = tree->GetRegNum();
-    var_types targetType = tree->TypeGet();
+    instruction ins    = node->OperIs(GT_NEG) ? INS_neg : INS_not;
+    var_types   type   = node->GetType();
+    regNumber   dstReg = node->GetRegNum();
+    regNumber   srcReg = UseReg(node->GetOp(0));
 
-    if (varTypeIsFloating(targetType))
-    {
-        assert(tree->gtOper == GT_NEG);
-        genSSE2BitwiseOp(tree);
-    }
-    else
-    {
-        GenTree* operand = tree->gtGetOp1();
-        assert(operand->isUsedFromReg());
-        regNumber operandReg = genConsumeReg(operand);
+    inst_Mov(type, dstReg, srcReg, /* canSkip */ true);
+    GetEmitter()->emitIns_R(ins, emitActualTypeSize(type), dstReg);
 
-        inst_Mov(targetType, targetReg, operandReg, /* canSkip */ true);
-
-        instruction ins = genGetInsForOper(tree->OperGet(), targetType);
-        inst_RV(ins, targetReg, targetType);
-    }
-
-    genProduceReg(tree);
+    DefReg(node);
 }
 
 //------------------------------------------------------------------------
@@ -885,7 +867,7 @@ void CodeGen::genCodeForBinary(GenTreeOp* node)
         }
     }
 
-    emitInsBinary(genGetInsForOper(node->GetOper(), node->GetType()), attr, dst, src);
+    emitInsBinary(genGetInsForOper(node->GetOper()), attr, dst, src);
 
     if (node->gtOverflowEx())
     {
@@ -901,17 +883,73 @@ void CodeGen::genCodeForBinary(GenTreeOp* node)
     DefReg(node);
 }
 
+void CodeGen::GenFloatAbs(GenTreeIntrinsic* node)
+{
+    assert((node->GetIntrinsic() == NI_System_Math_Abs) && varTypeIsFloating(node->GetType()));
+    assert(node->GetOp(0)->GetType() == node->GetType());
+    assert(node->GetRegNum() != REG_NA);
+
+    CORINFO_FIELD_HANDLE& maskField = node->TypeIs(TYP_FLOAT) ? absBitmaskFlt : absBitmaskDbl;
+
+    if (maskField == nullptr)
+    {
+        uint64_t mask = node->TypeIs(TYP_FLOAT) ? 0x7fffffff7fffffffUL : 0x7fffffffffffffffUL;
+        uint64_t maskPack[]{mask, mask};
+
+        maskField = GetEmitter()->emitBlkConst(&maskPack, 16, 16, node->GetType());
+    }
+
+    regNumber dstReg = node->GetRegNum();
+    regNumber srcReg = UseReg(node->GetOp(0));
+
+    // TODO-MIKE-Review: The size should be EA_16BYTE but using that results in diffs!?!
+    GetEmitter()->emitIns_SIMD_R_R_C(INS_andps, emitTypeSize(node->GetType()), dstReg, srcReg, maskField);
+}
+
+void CodeGen::GenFloatNegate(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_FNEG) && varTypeIsFloating(node->GetType()));
+    assert(node->GetOp(0)->GetType() == node->GetType());
+    assert(node->GetRegNum() != REG_NA);
+
+    CORINFO_FIELD_HANDLE& maskField = node->TypeIs(TYP_FLOAT) ? negBitmaskFlt : negBitmaskDbl;
+
+    if (maskField == nullptr)
+    {
+        uint64_t mask = node->TypeIs(TYP_FLOAT) ? 0x8000000080000000UL : 0x8000000000000000UL;
+        uint64_t maskPack[]{mask, mask};
+
+        maskField = GetEmitter()->emitBlkConst(&maskPack, 16, 16, node->GetType());
+    }
+
+    regNumber dstReg = node->GetRegNum();
+    regNumber srcReg = UseReg(node->GetOp(0));
+
+    // TODO-MIKE-Review: The size should be EA_16BYTE but using that results in diffs!?!
+    GetEmitter()->emitIns_SIMD_R_R_C(INS_xorps, emitTypeSize(node->GetType()), dstReg, srcReg, maskField);
+
+    DefReg(node);
+}
+
 void CodeGen::GenFloatBinaryOp(GenTreeOp* node)
 {
-    assert(node->OperIs(GT_ADD, GT_SUB, GT_MUL, GT_DIV));
-    assert(varTypeIsFloating(node->GetType()));
+    assert(node->OperIs(GT_FADD, GT_FSUB, GT_FMUL, GT_FDIV) && varTypeIsFloating(node->GetType()));
+    assert((node->GetOp(0)->GetType() == node->GetType()) && (node->GetOp(1)->GetType() == node->GetType()));
     assert(node->GetRegNum() != REG_NA);
+
+    static_assert_no_msg(TYP_DOUBLE - TYP_FLOAT == 1);
+    static_assert_no_msg(GT_FSUB - GT_FADD == 1);
+    static_assert_no_msg(GT_FMUL - GT_FADD == 2);
+    static_assert_no_msg(GT_FDIV - GT_FADD == 3);
+    static constexpr instruction insMap[4][2]{{INS_addss, INS_addsd},
+                                              {INS_subss, INS_subsd},
+                                              {INS_mulss, INS_mulsd},
+                                              {INS_divss, INS_divsd}};
+
+    instruction ins = insMap[node->GetOper() - GT_FADD][node->GetType() - TYP_FLOAT];
 
     GenTree* op1 = node->GetOp(0);
     GenTree* op2 = node->GetOp(1);
-
-    assert(node->GetType() == op1->GetType());
-    assert(node->GetType() == op2->GetType());
 
     regNumber op1Reg;
 
@@ -922,7 +960,7 @@ void CodeGen::GenFloatBinaryOp(GenTreeOp* node)
     }
     else
     {
-        assert(node->OperIs(GT_ADD, GT_SUB, GT_MUL));
+        assert(node->OperIs(GT_FADD, GT_FSUB, GT_FMUL));
         assert(op2->isUsedFromReg());
 
         genConsumeRegs(op1);
@@ -930,10 +968,7 @@ void CodeGen::GenFloatBinaryOp(GenTreeOp* node)
         op2    = op1;
     }
 
-    instruction ins   = genGetInsForOper(node->GetOper(), node->GetType());
-    bool        isRMW = !compiler->canUseVexEncoding();
-
-    inst_RV_RV_TT(ins, emitTypeSize(node->GetType()), node->GetRegNum(), op1Reg, op2, isRMW);
+    inst_RV_RV_TT(ins, emitTypeSize(node->GetType()), node->GetRegNum(), op1Reg, op2, !compiler->canUseVexEncoding());
 
     DefReg(node);
 }
@@ -946,7 +981,7 @@ void CodeGen::GenFloatBinaryOp(GenTreeOp* node)
 //
 void CodeGen::genCodeForMul(GenTreeOp* treeNode)
 {
-    assert(treeNode->OperIs(GT_MUL));
+    assert(treeNode->OperIs(GT_MUL) && varTypeIsIntegral(treeNode->GetType()));
 
     regNumber targetReg  = treeNode->GetRegNum();
     var_types targetType = treeNode->TypeGet();
@@ -1065,9 +1100,6 @@ void CodeGen::genCodeForMul(GenTreeOp* treeNode)
 
     if (requiresOverflowCheck)
     {
-        // Overflow checking is only used for non-floating point types
-        noway_assert(!varTypeIsFloating(treeNode));
-
         genCheckOverflow(treeNode);
     }
 
@@ -1373,6 +1405,17 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             genProduceReg(treeNode);
             break;
 
+        case GT_FNEG:
+            GenFloatNegate(treeNode->AsUnOp());
+            break;
+
+        case GT_FADD:
+        case GT_FSUB:
+        case GT_FMUL:
+        case GT_FDIV:
+            GenFloatBinaryOp(treeNode->AsOp());
+            break;
+
         case GT_NOT:
         case GT_NEG:
             genCodeForNegNot(treeNode->AsUnOp());
@@ -1384,21 +1427,10 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_MUL:
-            if (varTypeIsFloating(treeNode->GetType()))
-            {
-                GenFloatBinaryOp(treeNode->AsOp());
-                break;
-            }
             genCodeForMul(treeNode->AsOp());
             break;
 
         case GT_DIV:
-            if (varTypeIsFloating(treeNode->GetType()))
-            {
-                GenFloatBinaryOp(treeNode->AsOp());
-                break;
-            }
-            FALLTHROUGH;
         case GT_MOD:
         case GT_UMOD:
         case GT_UDIV:
@@ -1407,12 +1439,6 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
 
         case GT_ADD:
         case GT_SUB:
-            if (varTypeIsFloating(treeNode->GetType()))
-            {
-                GenFloatBinaryOp(treeNode->AsOp());
-                break;
-            }
-            FALLTHROUGH;
         case GT_OR:
         case GT_XOR:
         case GT_AND:
@@ -3644,33 +3670,8 @@ instruction CodeGen::ins_FloatSqrt(var_types type)
     return (type == TYP_FLOAT) ? INS_sqrtss : INS_sqrtsd;
 }
 
-instruction CodeGen::ins_MathOp(genTreeOps oper, var_types type)
+instruction CodeGen::genGetInsForOper(genTreeOps oper)
 {
-    switch (oper)
-    {
-        case GT_ADD:
-            return type == TYP_DOUBLE ? INS_addsd : INS_addss;
-        case GT_SUB:
-            return type == TYP_DOUBLE ? INS_subsd : INS_subss;
-        case GT_MUL:
-            return type == TYP_DOUBLE ? INS_mulsd : INS_mulss;
-        case GT_DIV:
-            return type == TYP_DOUBLE ? INS_divsd : INS_divss;
-        default:
-            unreached();
-    }
-}
-
-instruction CodeGen::genGetInsForOper(genTreeOps oper, var_types type)
-{
-    // Operations on SIMD vectors shouldn't come this path
-    assert(!varTypeIsSIMD(type));
-
-    if (varTypeIsFloating(type))
-    {
-        return ins_MathOp(oper, type);
-    }
-
     switch (oper)
     {
         case GT_ADD:
@@ -3737,7 +3738,7 @@ void CodeGen::genCodeForShift(GenTreeOp* tree)
     assert(tree->OperIsShiftOrRotate());
 
     var_types   targetType = tree->TypeGet();
-    instruction ins        = genGetInsForOper(tree->OperGet(), targetType);
+    instruction ins        = genGetInsForOper(tree->OperGet());
 
     GenTree* operand = tree->GetOp(0);
     GenTree* shiftBy = tree->GetOp(1);
@@ -3840,7 +3841,7 @@ void CodeGen::genCodeForShiftLong(GenTree* tree)
     regNumber dstReg = tree->GetRegNum();
 
     var_types   targetType = tree->TypeGet();
-    instruction ins        = genGetInsForOper(oper, targetType);
+    instruction ins        = genGetInsForOper(oper);
 
     GenTree* shiftBy = tree->gtGetOp2();
 
@@ -4252,7 +4253,7 @@ void CodeGen::GenStoreLclRMW(var_types type, unsigned lclNum, unsigned lclOffs, 
     assert(src->OperIsRMWMemOp());
     assert(varTypeIsIntegral(type));
 
-    instruction ins  = genGetInsForOper(src->GetOper(), TYP_INT);
+    instruction ins  = genGetInsForOper(src->GetOper());
     emitAttr    attr = emitTypeSize(type);
 
     if (src->OperIsUnary())
@@ -4498,7 +4499,7 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* store)
         INDEBUG(GenTreeIndir* load = value->AsUnOp()->GetOp(0)->AsIndir());
         assert(load->isUsedFromMemory() && load->isContained());
 
-        GetEmitter()->emitInsRMW_A(genGetInsForOper(value->GetOper(), value->GetType()), attr, addr);
+        GetEmitter()->emitInsRMW_A(genGetInsForOper(value->GetOper()), attr, addr);
 
         return;
     }
@@ -4526,17 +4527,17 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* store)
     }
     else if (GenTreeIntCon* imm = src->IsContainedIntCon())
     {
-        emit->emitInsRMW_A_I(genGetInsForOper(value->GetOper(), value->GetType()), attr, addr, imm->GetInt32Value());
+        emit->emitInsRMW_A_I(genGetInsForOper(value->GetOper()), attr, addr, imm->GetInt32Value());
     }
     else
     {
-        emit->emitInsRMW_A_R(genGetInsForOper(value->GetOper(), value->GetType()), attr, addr, src->GetRegNum());
+        emit->emitInsRMW_A_R(genGetInsForOper(value->GetOper()), attr, addr, src->GetRegNum());
     }
 }
 
 void CodeGen::GenStoreIndRMWShift(GenTree* addr, GenTreeOp* shift, GenTree* shiftBy)
 {
-    instruction ins  = genGetInsForOper(shift->GetOper(), shift->GetType());
+    instruction ins  = genGetInsForOper(shift->GetOper());
     emitAttr    attr = emitTypeSize(shift->GetType());
     emitter*    emit = GetEmitter();
 
@@ -6461,65 +6462,6 @@ int CodeGenInterface::genCallerSPtoInitialSPdelta() const
 #endif // TARGET_AMD64
 
 //-----------------------------------------------------------------------------------------
-// genSSE2BitwiseOp - generate SSE2 code for the given oper as "Operand BitWiseOp BitMask"
-//
-// Arguments:
-//    treeNode  - tree node
-//
-// Return shift:
-//    None
-//
-// Assumptions:
-//     i) tree oper is one of GT_NEG or GT_INTRINSIC Abs()
-//    ii) tree type is floating point type.
-//   iii) caller of this routine needs to call genProduceReg()
-void CodeGen::genSSE2BitwiseOp(GenTreeUnOp* treeNode)
-{
-    regNumber targetReg  = treeNode->GetRegNum();
-    regNumber operandReg = UseReg(treeNode->GetOp(0));
-    emitAttr  size       = emitTypeSize(treeNode);
-
-    assert(varTypeIsFloating(treeNode->TypeGet()));
-    assert(treeNode->gtGetOp1()->isUsedFromReg());
-
-    CORINFO_FIELD_HANDLE* maskFld = nullptr;
-    UINT64                mask    = 0;
-    instruction           ins     = INS_invalid;
-
-    if (treeNode->OperIs(GT_NEG))
-    {
-        // Neg(x) = flip the sign bit.
-        // Neg(f) = f ^ 0x80000000 x4 (packed)
-        // Neg(d) = d ^ 0x8000000000000000 x2 (packed)
-        ins     = INS_xorps;
-        mask    = treeNode->TypeIs(TYP_FLOAT) ? 0x8000000080000000UL : 0x8000000000000000UL;
-        maskFld = treeNode->TypeIs(TYP_FLOAT) ? &negBitmaskFlt : &negBitmaskDbl;
-    }
-    else if (treeNode->OperIs(GT_INTRINSIC))
-    {
-        assert(treeNode->AsIntrinsic()->gtIntrinsicName == NI_System_Math_Abs);
-        // Abs(x) = set sign-bit to zero
-        // Abs(f) = f & 0x7fffffff x4 (packed)
-        // Abs(d) = d & 0x7fffffffffffffff x2 (packed)
-        ins     = INS_andps;
-        mask    = treeNode->TypeIs(TYP_FLOAT) ? 0x7fffffff7fffffffUL : 0x7fffffffffffffffUL;
-        maskFld = treeNode->TypeIs(TYP_FLOAT) ? &absBitmaskFlt : &absBitmaskDbl;
-    }
-    else
-    {
-        assert(!"genSSE2BitwiseOp: unsupported oper");
-    }
-
-    if (*maskFld == nullptr)
-    {
-        UINT64 maskPack[] = {mask, mask};
-        *maskFld          = GetEmitter()->emitBlkConst(&maskPack, 16, 16, treeNode->TypeGet());
-    }
-
-    GetEmitter()->emitIns_SIMD_R_R_C(ins, size, targetReg, operandReg, *maskFld);
-}
-
-//-----------------------------------------------------------------------------------------
 // genSSE41RoundOp - generate SSE41 code for the given tree as a round operation
 //
 // Arguments:
@@ -6601,7 +6543,7 @@ void CodeGen::genIntrinsic(GenTreeIntrinsic* node)
     switch (node->GetIntrinsic())
     {
         case NI_System_Math_Abs:
-            genSSE2BitwiseOp(node);
+            GenFloatAbs(node);
             break;
 
         case NI_System_Math_Ceiling:
