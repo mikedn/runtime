@@ -542,8 +542,6 @@ void Compiler::compStartup()
 
     /* Initialize the table of tree node sizes */
 
-    GenTree::InitNodeSize();
-
 #ifdef JIT32_GCENCODER
     // Initialize the GC encoder lookup table
 

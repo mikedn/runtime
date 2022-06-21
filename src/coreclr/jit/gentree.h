@@ -1734,8 +1734,6 @@ public:
 
     bool OperMayThrow(Compiler* comp);
 
-    static void InitNodeSize();
-
     size_t GetNodeSize() const;
 
     void ReplaceWith(GenTree* src, Compiler* comp);
