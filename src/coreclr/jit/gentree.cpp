@@ -5281,9 +5281,8 @@ GenTree* Compiler::gtCloneExpr(
                 break;
 
             case GT_CAST:
-                // Some casts are converted to helper calls.
-                copy = new (this, GT_CALL) GenTreeCast(tree->GetType(), tree->AsCast()->GetOp(0), tree->IsUnsigned(),
-                                                       tree->AsCast()->GetCastType() DEBUGARG(/*largeNode*/ true));
+                copy = new (this, GT_CAST) GenTreeCast(tree->GetType(), tree->AsCast()->GetOp(0), tree->IsUnsigned(),
+                                                       tree->AsCast()->GetCastType());
                 break;
 
             case GT_FIELD_ADDR:
