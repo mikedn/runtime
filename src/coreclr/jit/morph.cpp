@@ -9846,57 +9846,6 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
     return asgFieldCommaTree;
 }
 
-// insert conversions and normalize to make tree amenable to register
-// FP architectures
-GenTree* Compiler::fgMorphForRegisterFP(GenTree* tree)
-{
-    if (tree->OperIs(GT_FADD, GT_FSUB, GT_FMUL, GT_FDIV, GT_FMOD))
-    {
-        assert(varTypeIsFloating(tree->GetType()));
-
-        GenTree* op1 = tree->AsOp()->GetOp(0);
-        GenTree* op2 = tree->AsOp()->GetOp(1);
-
-        assert(varTypeIsFloating(op1->TypeGet()) && varTypeIsFloating(op2->TypeGet()));
-
-        if (op1->TypeGet() != tree->TypeGet())
-        {
-            tree->AsOp()->gtOp1 = gtNewCastNode(tree->TypeGet(), op1, false, tree->TypeGet());
-        }
-        if (op2->TypeGet() != tree->TypeGet())
-        {
-            tree->AsOp()->gtOp2 = gtNewCastNode(tree->TypeGet(), op2, false, tree->TypeGet());
-        }
-    }
-    else if (tree->OperIsCompare())
-    {
-        GenTree* op1 = tree->AsOp()->gtOp1;
-
-        if (varTypeIsFloating(op1))
-        {
-            GenTree* op2 = tree->gtGetOp2();
-            assert(varTypeIsFloating(op2));
-
-            if (op1->TypeGet() != op2->TypeGet())
-            {
-                // both had better be floating, just one bigger than other
-                if (op1->TypeGet() == TYP_FLOAT)
-                {
-                    assert(op2->TypeGet() == TYP_DOUBLE);
-                    tree->AsOp()->gtOp1 = gtNewCastNode(TYP_DOUBLE, op1, false, TYP_DOUBLE);
-                }
-                else if (op2->TypeGet() == TYP_FLOAT)
-                {
-                    assert(op1->TypeGet() == TYP_DOUBLE);
-                    tree->AsOp()->gtOp2 = gtNewCastNode(TYP_DOUBLE, op2, false, TYP_DOUBLE);
-                }
-            }
-        }
-    }
-
-    return tree;
-}
-
 //------------------------------------------------------------------------------
 // fgMorphAssociative : Try to simplify "(X op C1) op C2" to "X op C3"
 //                      for associative operators.
@@ -10160,11 +10109,6 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
        o Perform required postorder morphing
        o Perform optional postorder morphing if optimizing
      */
-
-    if (fgGlobalMorph)
-    {
-        tree = fgMorphForRegisterFP(tree);
-    }
 
     genTreeOps oper = tree->OperGet();
     var_types  typ  = tree->TypeGet();
