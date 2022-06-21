@@ -11016,10 +11016,34 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     std::swap(op1, op2);
                 }
 
+                // We can generate an compare of different sized floating point op1 and op2
+                // We insert a cast
+                //
+                if (varTypeIsFloating(op1->TypeGet()))
+                {
+                    if (op1->TypeGet() != op2->TypeGet())
+                    {
+                        assert(varTypeIsFloating(op2->TypeGet()));
+
+                        // say op1=double, op2=float. To avoid loss of precision
+                        // while comparing, op2 is converted to double and double
+                        // comparison is done.
+                        if (op1->TypeGet() == TYP_DOUBLE)
+                        {
+                            // We insert a cast of op2 to TYP_DOUBLE
+                            op2 = gtNewCastNode(TYP_DOUBLE, op2, false, TYP_DOUBLE);
+                        }
+                        else if (op2->TypeGet() == TYP_DOUBLE)
+                        {
+                            // We insert a cast of op1 to TYP_DOUBLE
+                            op1 = gtNewCastNode(TYP_DOUBLE, op1, false, TYP_DOUBLE);
+                        }
+                    }
+                }
 #ifdef TARGET_64BIT
                 // TODO-Casts: create a helper that upcasts int32 -> native int when necessary.
                 // See also identical code in impGetByRefResultType and STSFLD import.
-                if (varTypeIsI(op1) && (varActualType(op2->GetType()) == TYP_INT))
+                else if (varTypeIsI(op1) && (varActualType(op2->GetType()) == TYP_INT))
                 {
                     op2 = gtNewCastNode(TYP_I_IMPL, op2, uns, TYP_I_IMPL);
                 }
