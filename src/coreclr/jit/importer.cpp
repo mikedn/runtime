@@ -9204,6 +9204,33 @@ var_types Compiler::impGetNumericBinaryOpType(genTreeOps oper, bool fUnsigned, G
     return varActualType(op1->GetType());
 }
 
+void Compiler::impAddCompareOpImplicitCasts(bool isUnsigned, GenTree*& op1, GenTree*& op2)
+{
+    if (varTypeIsFloating(op1->GetType()))
+    {
+        assert(varTypeIsFloating(op2->TypeGet()));
+
+        if (op1->TypeIs(TYP_DOUBLE))
+        {
+            op2 = gtNewCastNode(TYP_DOUBLE, op2, false, TYP_DOUBLE);
+        }
+        else if (op2->TypeIs(TYP_DOUBLE))
+        {
+            op1 = gtNewCastNode(TYP_DOUBLE, op1, false, TYP_DOUBLE);
+        }
+    }
+#ifdef TARGET_64BIT
+    else if (varTypeIsI(op1->GetType()) && varActualTypeIsInt(op2->GetType()))
+    {
+        op2 = gtNewCastNode(TYP_I_IMPL, op2, isUnsigned, TYP_I_IMPL);
+    }
+    else if (varTypeIsI(op2->GetType()) && varActualTypeIsInt(op1->GetType()))
+    {
+        op1 = gtNewCastNode(TYP_I_IMPL, op1, isUnsigned, TYP_I_IMPL);
+    }
+#endif
+}
+
 //------------------------------------------------------------------------
 // impOptimizeCastClassOrIsInst: attempt to resolve a cast when jitting
 //
@@ -11016,47 +11043,13 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     std::swap(op1, op2);
                 }
 
-                // We can generate an compare of different sized floating point op1 and op2
-                // We insert a cast
-                //
-                if (varTypeIsFloating(op1->TypeGet()))
+                if (op1->GetType() != op2->GetType())
                 {
-                    if (op1->TypeGet() != op2->TypeGet())
-                    {
-                        assert(varTypeIsFloating(op2->TypeGet()));
+                    impAddCompareOpImplicitCasts(uns, op1, op2);
 
-                        // say op1=double, op2=float. To avoid loss of precision
-                        // while comparing, op2 is converted to double and double
-                        // comparison is done.
-                        if (op1->TypeGet() == TYP_DOUBLE)
-                        {
-                            // We insert a cast of op2 to TYP_DOUBLE
-                            op2 = gtNewCastNode(TYP_DOUBLE, op2, false, TYP_DOUBLE);
-                        }
-                        else if (op2->TypeGet() == TYP_DOUBLE)
-                        {
-                            // We insert a cast of op1 to TYP_DOUBLE
-                            op1 = gtNewCastNode(TYP_DOUBLE, op1, false, TYP_DOUBLE);
-                        }
-                    }
+                    assertImp((varActualType(op1->GetType()) == varActualType(op2->GetType())) ||
+                              (varTypeIsI(op1) == varTypeIsI(op2)));
                 }
-#ifdef TARGET_64BIT
-                // TODO-Casts: create a helper that upcasts int32 -> native int when necessary.
-                // See also identical code in impGetByRefResultType and STSFLD import.
-                else if (varTypeIsI(op1) && (varActualType(op2->GetType()) == TYP_INT))
-                {
-                    op2 = gtNewCastNode(TYP_I_IMPL, op2, uns, TYP_I_IMPL);
-                }
-                else if (varTypeIsI(op2) && (varActualType(op1->GetType()) == TYP_INT))
-                {
-                    op1 = gtNewCastNode(TYP_I_IMPL, op1, uns, TYP_I_IMPL);
-                }
-#endif // TARGET_64BIT
-
-                assertImp(varActualType(op1->GetType()) == varActualType(op2->GetType()) ||
-                          (varTypeIsI(op1) && varTypeIsI(op2)) || (varTypeIsFloating(op1) && varTypeIsFloating(op2)));
-
-                // Create the comparison node.
 
                 op1 = gtNewOperNode(oper, TYP_INT, op1, op2);
 
@@ -11166,47 +11159,13 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     std::swap(op1, op2);
                 }
 
-#ifdef TARGET_64BIT
-                if ((op1->TypeGet() == TYP_I_IMPL) && (genActualType(op2->TypeGet()) == TYP_INT))
+                if (op1->GetType() != op2->GetType())
                 {
-                    op2 = gtNewCastNode(TYP_I_IMPL, op2, uns, uns ? TYP_U_IMPL : TYP_I_IMPL);
+                    impAddCompareOpImplicitCasts(uns, op1, op2);
+
+                    assertImp((varActualType(op1->GetType()) == varActualType(op2->GetType())) ||
+                              (varTypeIsI(op1) == varTypeIsI(op2)));
                 }
-                else if ((op2->TypeGet() == TYP_I_IMPL) && (genActualType(op1->TypeGet()) == TYP_INT))
-                {
-                    op1 = gtNewCastNode(TYP_I_IMPL, op1, uns, uns ? TYP_U_IMPL : TYP_I_IMPL);
-                }
-#endif // TARGET_64BIT
-
-                assertImp(genActualType(op1->TypeGet()) == genActualType(op2->TypeGet()) ||
-                          (varTypeIsI(op1->TypeGet()) && varTypeIsI(op2->TypeGet())) ||
-                          (varTypeIsFloating(op1->gtType) && varTypeIsFloating(op2->gtType)));
-
-                // We can generate an compare of different sized floating point op1 and op2
-                // We insert a cast
-                //
-                if (varTypeIsFloating(op1->TypeGet()))
-                {
-                    if (op1->TypeGet() != op2->TypeGet())
-                    {
-                        assert(varTypeIsFloating(op2->TypeGet()));
-
-                        // say op1=double, op2=float. To avoid loss of precision
-                        // while comparing, op2 is converted to double and double
-                        // comparison is done.
-                        if (op1->TypeGet() == TYP_DOUBLE)
-                        {
-                            // We insert a cast of op2 to TYP_DOUBLE
-                            op2 = gtNewCastNode(TYP_DOUBLE, op2, false, TYP_DOUBLE);
-                        }
-                        else if (op2->TypeGet() == TYP_DOUBLE)
-                        {
-                            // We insert a cast of op1 to TYP_DOUBLE
-                            op1 = gtNewCastNode(TYP_DOUBLE, op1, false, TYP_DOUBLE);
-                        }
-                    }
-                }
-
-                /* Create and append the operator */
 
                 op1 = gtNewOperNode(oper, TYP_INT, op1, op2);
 
