@@ -11110,6 +11110,32 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 op2 = impPopStack().val;
                 op1 = impPopStack().val;
 
+                if (opts.OptimizationEnabled() && (block->bbJumpDest == block->bbNext))
+                {
+                    block->bbJumpKind = BBJ_NONE;
+
+                    if (op1->gtFlags & GTF_GLOB_EFFECT)
+                    {
+                        impSpillSideEffects(GTF_SIDE_EFFECT,
+                                            CHECK_SPILL_ALL DEBUGARG("Branch to next Optimization, op1 side effect"));
+                        impAppendTree(gtUnusedValNode(op1), CHECK_SPILL_NONE, impCurStmtOffs);
+                    }
+                    if (op2->gtFlags & GTF_GLOB_EFFECT)
+                    {
+                        impSpillSideEffects(GTF_SIDE_EFFECT,
+                                            CHECK_SPILL_ALL DEBUGARG("Branch to next Optimization, op2 side effect"));
+                        impAppendTree(gtUnusedValNode(op2), CHECK_SPILL_NONE, impCurStmtOffs);
+                    }
+
+#ifdef DEBUG
+                    if ((op1->gtFlags | op2->gtFlags) & GTF_GLOB_EFFECT)
+                    {
+                        impNoteLastILoffs();
+                    }
+#endif
+                    break;
+                }
+
                 if (op1->OperIs(GT_CNS_INT, GT_CNS_LNG, GT_CNS_DBL) && !op2->OperIs(GT_CNS_INT, GT_CNS_LNG, GT_CNS_DBL))
                 {
                     oper = GenTree::SwapRelop(oper);
@@ -11130,32 +11156,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 assertImp(genActualType(op1->TypeGet()) == genActualType(op2->TypeGet()) ||
                           (varTypeIsI(op1->TypeGet()) && varTypeIsI(op2->TypeGet())) ||
                           (varTypeIsFloating(op1->gtType) && varTypeIsFloating(op2->gtType)));
-
-                if (opts.OptimizationEnabled() && (block->bbJumpDest == block->bbNext))
-                {
-                    block->bbJumpKind = BBJ_NONE;
-
-                    if (op1->gtFlags & GTF_GLOB_EFFECT)
-                    {
-                        impSpillSideEffects(GTF_SIDE_EFFECT,
-                                            CHECK_SPILL_ALL DEBUGARG("Branch to next Optimization, op1 side effect"));
-                        impAppendTree(gtUnusedValNode(op1), CHECK_SPILL_NONE, impCurStmtOffs);
-                    }
-                    if (op2->gtFlags & GTF_GLOB_EFFECT)
-                    {
-                        impSpillSideEffects(GTF_SIDE_EFFECT,
-                                            CHECK_SPILL_ALL DEBUGARG("Branch to next Optimization, value side effect"));
-                        impAppendTree(gtUnusedValNode(op2), CHECK_SPILL_NONE, impCurStmtOffs);
-                    }
-
-#ifdef DEBUG
-                    if ((op1->gtFlags | op2->gtFlags) & GTF_GLOB_EFFECT)
-                    {
-                        impNoteLastILoffs();
-                    }
-#endif
-                    break;
-                }
 
                 // We can generate an compare of different sized floating point op1 and op2
                 // We insert a cast
