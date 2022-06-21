@@ -3320,6 +3320,7 @@ private:
 
     var_types impGetNumericBinaryOpType(genTreeOps oper, bool fUnsigned, GenTree** pOp1, GenTree** pOp2);
     void impAddCompareOpImplicitCasts(bool isUnsigned, GenTree*& op1, GenTree*& op2);
+    void impBranchToNextBlock(BasicBlock* block, GenTree* op1, GenTree* op2);
 
     void impImportBlock(BasicBlock* block);
     bool impSpillStackAtBlockEnd(BasicBlock* block);

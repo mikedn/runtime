@@ -9231,6 +9231,31 @@ void Compiler::impAddCompareOpImplicitCasts(bool isUnsigned, GenTree*& op1, GenT
 #endif
 }
 
+void Compiler::impBranchToNextBlock(BasicBlock* block, GenTree* op1, GenTree* op2)
+{
+    assert(opts.OptimizationEnabled() && (block->bbJumpDest == block->bbNext));
+
+    block->bbJumpKind = BBJ_NONE;
+
+    if (op1->gtFlags & GTF_GLOB_EFFECT)
+    {
+        impSpillSideEffects(GTF_SIDE_EFFECT, CHECK_SPILL_ALL DEBUGARG("Branch to next Optimization, op1 side effect"));
+        impAppendTree(gtUnusedValNode(op1), CHECK_SPILL_NONE, impCurStmtOffs);
+    }
+    if (op2->gtFlags & GTF_GLOB_EFFECT)
+    {
+        impSpillSideEffects(GTF_SIDE_EFFECT, CHECK_SPILL_ALL DEBUGARG("Branch to next Optimization, op2 side effect"));
+        impAppendTree(gtUnusedValNode(op2), CHECK_SPILL_NONE, impCurStmtOffs);
+    }
+
+#ifdef DEBUG
+    if ((op1->gtFlags | op2->gtFlags) & GTF_GLOB_EFFECT)
+    {
+        impNoteLastILoffs();
+    }
+#endif
+}
+
 //------------------------------------------------------------------------
 // impOptimizeCastClassOrIsInst: attempt to resolve a cast when jitting
 //
@@ -11129,27 +11154,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                 if (opts.OptimizationEnabled() && (block->bbJumpDest == block->bbNext))
                 {
-                    block->bbJumpKind = BBJ_NONE;
-
-                    if (op1->gtFlags & GTF_GLOB_EFFECT)
-                    {
-                        impSpillSideEffects(GTF_SIDE_EFFECT,
-                                            CHECK_SPILL_ALL DEBUGARG("Branch to next Optimization, op1 side effect"));
-                        impAppendTree(gtUnusedValNode(op1), CHECK_SPILL_NONE, impCurStmtOffs);
-                    }
-                    if (op2->gtFlags & GTF_GLOB_EFFECT)
-                    {
-                        impSpillSideEffects(GTF_SIDE_EFFECT,
-                                            CHECK_SPILL_ALL DEBUGARG("Branch to next Optimization, op2 side effect"));
-                        impAppendTree(gtUnusedValNode(op2), CHECK_SPILL_NONE, impCurStmtOffs);
-                    }
-
-#ifdef DEBUG
-                    if ((op1->gtFlags | op2->gtFlags) & GTF_GLOB_EFFECT)
-                    {
-                        impNoteLastILoffs();
-                    }
-#endif
+                    impBranchToNextBlock(block, op1, op2);
                     break;
                 }
 
