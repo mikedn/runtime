@@ -5305,14 +5305,7 @@ GenTree* Compiler::gtCloneExpr(
                 }
                 else // Always a large tree
                 {
-                    if (tree->OperIsBinary())
-                    {
-                        copy = gtNewOperNode(oper, tree->TypeGet(), tree->AsOp()->gtOp1, tree->AsOp()->gtOp2);
-                    }
-                    else
-                    {
-                        copy = gtNewOperNode(oper, tree->TypeGet(), tree->AsOp()->gtOp1);
-                    }
+                    copy = gtNewOperNode(oper, tree->TypeGet(), tree->AsOp()->gtOp1, tree->AsOp()->gtOp2);
                 }
                 break;
 
