@@ -9855,7 +9855,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
             CORINFO_SIG_INFO     sig;
             IL_OFFSET            jmpAddr;
-            bool                 ovfl, unordered, callNode;
+            bool                 ovfl, callNode;
             CORINFO_CLASS_HANDLE tokenType;
 
             union {
@@ -11068,12 +11068,12 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     std::swap(op1, op2);
                 }
 
-                if (op1->GetType() != op2->GetType())
+                if (varActualType(op1->GetType()) != varActualType(op2->GetType()))
                 {
                     impAddCompareOpImplicitCasts(uns, op1, op2);
 
                     assertImp((varActualType(op1->GetType()) == varActualType(op2->GetType())) ||
-                              (varTypeIsI(op1) == varTypeIsI(op2)));
+                              (varTypeIsI(op1->GetType()) == varTypeIsI(op2->GetType())));
                 }
 
                 op1 = gtNewOperNode(oper, TYP_INT, op1, op2);
@@ -11094,60 +11094,50 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             case CEE_BEQ:
                 oper = GT_EQ;
                 goto CMP_2_OPs_AND_BR;
-
             case CEE_BGE_S:
             case CEE_BGE:
                 oper = GT_GE;
                 goto CMP_2_OPs_AND_BR;
-
             case CEE_BGE_UN_S:
             case CEE_BGE_UN:
                 oper = GT_GE;
                 goto CMP_2_OPs_AND_BR_UN;
-
             case CEE_BGT_S:
             case CEE_BGT:
                 oper = GT_GT;
                 goto CMP_2_OPs_AND_BR;
-
             case CEE_BGT_UN_S:
             case CEE_BGT_UN:
                 oper = GT_GT;
                 goto CMP_2_OPs_AND_BR_UN;
-
             case CEE_BLE_S:
             case CEE_BLE:
                 oper = GT_LE;
                 goto CMP_2_OPs_AND_BR;
-
             case CEE_BLE_UN_S:
             case CEE_BLE_UN:
                 oper = GT_LE;
                 goto CMP_2_OPs_AND_BR_UN;
-
             case CEE_BLT_S:
             case CEE_BLT:
                 oper = GT_LT;
                 goto CMP_2_OPs_AND_BR;
-
             case CEE_BLT_UN_S:
             case CEE_BLT_UN:
                 oper = GT_LT;
                 goto CMP_2_OPs_AND_BR_UN;
-
             case CEE_BNE_UN_S:
             case CEE_BNE_UN:
                 oper = GT_NE;
                 goto CMP_2_OPs_AND_BR_UN;
 
             CMP_2_OPs_AND_BR_UN:
-                uns       = true;
-                unordered = true;
+                uns = true;
                 goto CMP_2_OPs_AND_BR_ALL;
             CMP_2_OPs_AND_BR:
-                uns       = false;
-                unordered = false;
+                uns = false;
                 goto CMP_2_OPs_AND_BR_ALL;
+
             CMP_2_OPs_AND_BR_ALL:
                 op2 = impPopStack().val;
                 op1 = impPopStack().val;
@@ -11164,24 +11154,20 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     std::swap(op1, op2);
                 }
 
-                if (op1->GetType() != op2->GetType())
+                if (varActualType(op1->GetType()) != varActualType(op2->GetType()))
                 {
                     impAddCompareOpImplicitCasts(uns, op1, op2);
 
                     assertImp((varActualType(op1->GetType()) == varActualType(op2->GetType())) ||
-                              (varTypeIsI(op1) == varTypeIsI(op2)));
+                              (varTypeIsI(op1->GetType()) == varTypeIsI(op2->GetType())));
                 }
 
                 op1 = gtNewOperNode(oper, TYP_INT, op1, op2);
 
+                // TODO: setting both flags when only one is appropriate.
                 if (uns)
                 {
-                    op1->gtFlags |= GTF_UNSIGNED;
-                }
-
-                if (unordered)
-                {
-                    op1->gtFlags |= GTF_RELOP_NAN_UN;
+                    op1->gtFlags |= GTF_RELOP_NAN_UN | GTF_UNSIGNED;
                 }
 
                 goto COND_JUMP;
