@@ -54,7 +54,7 @@ GenTree* Compiler::fgMorphCastIntoHelper(GenTreeCast* cast, int helper)
     // cast nodes somehow combine into one and one is large and the other small then the
     // combining code would need to be careful to preserve the large node, not the small
     // node. Cast morphing code is convoluted enough as it is.
-    GenTree* call = new (this, LargeOpOpcode())
+    GenTree* call = new (this, GT_CALL)
         GenTreeCast(cast->GetType(), src, cast->IsUnsigned(), cast->GetCastType() DEBUGARG(/*largeNode*/ true));
     INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
     return fgMorphIntoHelperCall(call, helper, gtNewCallArgs(src));

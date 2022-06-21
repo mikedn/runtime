@@ -5276,39 +5276,10 @@ GenTree* Compiler::gtCloneExpr(
         }
     }
 
-    /* Is it a 'simple' unary/binary operator? */
-
     if (kind & GTK_SMPOP)
     {
-        /* If necessary, make sure we allocate a "fat" tree node */
-        CLANG_FORMAT_COMMENT_ANCHOR;
-
         switch (oper)
         {
-            /* These nodes sometimes get bashed to "fat" ones */
-
-            case GT_MUL:
-            case GT_DIV:
-            case GT_MOD:
-
-            case GT_UDIV:
-            case GT_UMOD:
-
-                //  In the implementation of gtNewLargeOperNode you have
-                //  to give an oper that will create a small node,
-                //  otherwise it asserts.
-                //
-                if (GenTree::s_gtNodeSizes[oper] == TREE_NODE_SZ_SMALL)
-                {
-                    copy = gtNewLargeOperNode(oper, tree->TypeGet(), tree->AsOp()->gtOp1,
-                                              tree->OperIsBinary() ? tree->AsOp()->gtOp2 : nullptr);
-                }
-                else // Always a large tree
-                {
-                    copy = gtNewOperNode(oper, tree->TypeGet(), tree->AsOp()->gtOp1, tree->AsOp()->gtOp2);
-                }
-                break;
-
             case GT_FMOD:
                 // This is always converted to a helper call.
                 copy = new (this, GT_CALL)
@@ -5316,12 +5287,10 @@ GenTree* Compiler::gtCloneExpr(
                 break;
 
             case GT_CAST:
-                copy = new (this, LargeOpOpcode())
-                    GenTreeCast(tree->TypeGet(), tree->AsCast()->CastOp(), tree->IsUnsigned(),
-                                tree->AsCast()->gtCastType DEBUGARG(/*largeNode*/ TRUE));
+                // Some casts are converted to helper calls.
+                copy = new (this, GT_CALL) GenTreeCast(tree->GetType(), tree->AsCast()->GetOp(0), tree->IsUnsigned(),
+                                                       tree->AsCast()->GetCastType() DEBUGARG(/*largeNode*/ true));
                 break;
-
-            // The nodes below this are not bashed, so they can be allocated at their individual sizes.
 
             case GT_FIELD_ADDR:
                 copy = new (this, GT_FIELD_ADDR) GenTreeFieldAddr(tree->AsFieldAddr());
@@ -5405,17 +5374,30 @@ GenTree* Compiler::gtCloneExpr(
 
             case GT_COPY:
             case GT_RELOAD:
-            {
-                copy = new (this, oper) GenTreeCopyOrReload(oper, tree->TypeGet(), tree->gtGetOp1());
-            }
-            break;
+                copy = new (this, oper) GenTreeCopyOrReload(oper, tree->GetType(), tree->AsUnOp()->GetOp(0));
+                break;
 
+#ifndef TARGET_64BIT
+            case GT_MUL:
+            case GT_DIV:
+            case GT_MOD:
+            case GT_UDIV:
+            case GT_UMOD:
+                if (tree->TypeIs(TYP_LONG))
+                {
+                    // LONG multiplication/division usually requires helper calls on 32 bit targets.
+                    copy = new (this, GT_CALL) GenTreeOp(oper, tree->GetType(), tree->AsOp()->GetOp(0),
+                                                         tree->AsOp()->GetOp(1) DEBUGARG(/*largeNode*/ true));
+                    break;
+                }
+                FALLTHROUGH;
+#endif
             default:
                 assert(!GenTree::IsExOp(tree->OperKind()) && tree->OperIsSimple());
                 // We're in the SimpleOp case, so it's always unary or binary.
                 if (GenTree::OperIsUnary(tree->OperGet()))
                 {
-                    copy = gtNewOperNode(oper, tree->TypeGet(), tree->AsOp()->gtOp1, /*doSimplifications*/ false);
+                    copy = gtNewOperNode(oper, tree->TypeGet(), tree->AsOp()->gtOp1);
                 }
                 else
                 {

@@ -9855,7 +9855,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
             CORINFO_SIG_INFO     sig;
             IL_OFFSET            jmpAddr;
-            bool                 ovfl, callNode;
+            bool                 ovfl;
             CORINFO_CLASS_HANDLE tokenType;
 
             union {
@@ -10687,37 +10687,26 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 impSpillAllAppendTree(op1);
                 break;
 
-            case CEE_ADD:
-                oper = GT_ADD;
-                goto MATH_OP2;
             case CEE_ADD_OVF:
                 uns = false;
                 goto ADD_OVF;
             case CEE_ADD_OVF_UN:
                 uns = true;
             ADD_OVF:
-                ovfl     = true;
-                callNode = false;
-                oper     = GT_ADD;
-                goto MATH_OP2_FLAGS;
-
-            case CEE_SUB:
-                oper = GT_SUB;
+                ovfl = true;
+                oper = GT_ADD;
                 goto MATH_OP2;
+
             case CEE_SUB_OVF:
                 uns = false;
                 goto SUB_OVF;
             case CEE_SUB_OVF_UN:
                 uns = true;
             SUB_OVF:
-                ovfl     = true;
-                callNode = false;
-                oper     = GT_SUB;
-                goto MATH_OP2_FLAGS;
+                ovfl = true;
+                oper = GT_SUB;
+                goto MATH_OP2;
 
-            case CEE_MUL:
-                oper = GT_MUL;
-                goto MATH_MAYBE_CALL_NO_OVF;
             case CEE_MUL_OVF:
                 uns = false;
                 goto MUL_OVF;
@@ -10726,46 +10715,41 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             MUL_OVF:
                 ovfl = true;
                 oper = GT_MUL;
-                goto MATH_MAYBE_CALL_OVF;
+                goto MATH_OP2;
 
-            // Other binary math operations
-
+            case CEE_ADD:
+                oper = GT_ADD;
+                goto MATH_OP2_NO_OVF;
+            case CEE_SUB:
+                oper = GT_SUB;
+                goto MATH_OP2_NO_OVF;
+            case CEE_MUL:
+                oper = GT_MUL;
+                goto MATH_OP2_NO_OVF;
             case CEE_DIV:
                 oper = GT_DIV;
-                goto MATH_MAYBE_CALL_NO_OVF;
+                goto MATH_OP2_NO_OVF;
             case CEE_DIV_UN:
                 oper = GT_UDIV;
-                goto MATH_MAYBE_CALL_NO_OVF;
+                goto MATH_OP2_NO_OVF;
             case CEE_REM:
                 oper = GT_MOD;
-                goto MATH_MAYBE_CALL_NO_OVF;
+                goto MATH_OP2_NO_OVF;
             case CEE_REM_UN:
                 oper = GT_UMOD;
-            MATH_MAYBE_CALL_NO_OVF:
-                ovfl = false;
-            MATH_MAYBE_CALL_OVF:
-                // Morpher has some complex logic about when to turn different
-                // typed nodes on different platforms into helper calls. We
-                // need to either duplicate that logic here, or just
-                // pessimistically make all the nodes large enough to become
-                // call nodes.  Since call nodes aren't that much larger and
-                // these opcodes are infrequent enough I chose the latter.
-                callNode = true;
-                goto MATH_OP2_FLAGS;
-
+                goto MATH_OP2_NO_OVF;
             case CEE_AND:
                 oper = GT_AND;
-                goto MATH_OP2;
+                goto MATH_OP2_NO_OVF;
             case CEE_OR:
                 oper = GT_OR;
-                goto MATH_OP2;
+                goto MATH_OP2_NO_OVF;
             case CEE_XOR:
                 oper = GT_XOR;
-            MATH_OP2: // For default values of 'ovfl' and 'callNode'
-                ovfl     = false;
-                callNode = false;
+            MATH_OP2_NO_OVF:
+                ovfl = false;
 
-            MATH_OP2_FLAGS: // If 'ovfl' and 'callNode' have already been set
+            MATH_OP2:
                 op2 = impPopStack().val;
                 op1 = impPopStack().val;
 
@@ -10809,27 +10793,15 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                         }
                     }
 
-                    if (callNode)
+#ifndef TARGET_64BIT
+                    if ((type == TYP_LONG) && ((oper == GT_MUL) || (oper == GT_DIV) || (oper == GT_UDIV) ||
+                                               (oper == GT_MOD) || (oper == GT_UMOD)))
                     {
-                        /* These operators can later be transformed into 'GT_CALL' */
-
-                        assert(GenTree::s_gtNodeSizes[GT_CALL] > GenTree::s_gtNodeSizes[GT_MUL]);
-#ifndef TARGET_ARM
-                        assert(GenTree::s_gtNodeSizes[GT_CALL] > GenTree::s_gtNodeSizes[GT_DIV]);
-                        assert(GenTree::s_gtNodeSizes[GT_CALL] > GenTree::s_gtNodeSizes[GT_UDIV]);
-                        assert(GenTree::s_gtNodeSizes[GT_CALL] > GenTree::s_gtNodeSizes[GT_MOD]);
-                        assert(GenTree::s_gtNodeSizes[GT_CALL] > GenTree::s_gtNodeSizes[GT_UMOD]);
-#endif
-                        // It's tempting to use LargeOpOpcode() here, but this logic is *not* saying
-                        // that we'll need to transform into a general large node, but rather specifically
-                        // to a call: by doing it this way, things keep working if there are multiple sizes,
-                        // and a CALL is no longer the largest.
-                        // That said, as of now it *is* a large node, so we'll do this with an assert rather
-                        // than an "if".
-                        assert(GenTree::s_gtNodeSizes[GT_CALL] == TREE_NODE_SZ_LARGE);
+                        // LONG multiplication/division usually requires helper calls on 32 bit targets.
                         op1 = new (this, GT_CALL) GenTreeOp(oper, type, op1, op2 DEBUGARG(/*largeNode*/ true));
                     }
                     else
+#endif
                     {
                         op1 = gtNewOperNode(oper, type, op1, op2);
                     }

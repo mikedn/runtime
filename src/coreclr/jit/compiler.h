@@ -1945,7 +1945,8 @@ public:
     Statement* gtNewStmt(GenTree* expr = nullptr, IL_OFFSETX offset = BAD_IL_OFFSET);
 
     // For unary opers.
-    GenTree* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, bool doSimplifications = true);
+    // TODO-MIKE-Cleanup: Remove stupid dummy param.
+    GenTree* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, bool dummy = false);
 
     // For binary opers.
     GenTreeOp* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2);
@@ -6951,8 +6952,8 @@ public:
 
         bool compProcedureSplitting; // Separate cold code from hot code
 
-        bool genFPopt;   // Can we do frame-pointer-omission optimization?
-        bool altJit;     // True if we are an altjit and are compiling this method
+        bool genFPopt; // Can we do frame-pointer-omission optimization?
+        bool altJit;   // True if we are an altjit and are compiling this method
 
 #ifdef OPT_CONFIG
         bool optRepeat; // Repeat optimizer phases k times
