@@ -54,7 +54,7 @@ GenTree* Compiler::fgMorphCastIntoHelper(GenTreeCast* cast, int helper)
     // cast nodes somehow combine into one and one is large and the other small then the
     // combining code would need to be careful to preserve the large node, not the small
     // node. Cast morphing code is convoluted enough as it is.
-    GenTree* call = new (this, LargeOpOpcode())
+    GenTree* call = new (this, GT_CALL)
         GenTreeCast(cast->GetType(), src, cast->IsUnsigned(), cast->GetCastType() DEBUGARG(/*largeNode*/ true));
     INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
     return fgMorphIntoHelperCall(call, helper, gtNewCallArgs(src));
@@ -5146,9 +5146,7 @@ void Compiler::fgMoveOpsLeft(GenTree* tree)
         op2  = tree->AsOp()->gtOp2;
         oper = tree->OperGet();
 
-        noway_assert(GenTree::OperIsCommutative(oper));
         noway_assert(oper == GT_ADD || oper == GT_XOR || oper == GT_OR || oper == GT_AND || oper == GT_MUL);
-        noway_assert(!varTypeIsFloating(tree->TypeGet()) || !opts.genFPorder);
         noway_assert(oper == op2->gtOper);
 
         // Commutativity doesn't hold if overflow checks are needed
@@ -9848,58 +9846,6 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
     return asgFieldCommaTree;
 }
 
-// insert conversions and normalize to make tree amenable to register
-// FP architectures
-GenTree* Compiler::fgMorphForRegisterFP(GenTree* tree)
-{
-    if (tree->OperIs(GT_ADD, GT_SUB, GT_MUL, GT_DIV, GT_MOD))
-    {
-        if (varTypeIsFloating(tree))
-        {
-            GenTree* op1 = tree->AsOp()->gtOp1;
-            GenTree* op2 = tree->gtGetOp2();
-
-            assert(varTypeIsFloating(op1->TypeGet()) && varTypeIsFloating(op2->TypeGet()));
-
-            if (op1->TypeGet() != tree->TypeGet())
-            {
-                tree->AsOp()->gtOp1 = gtNewCastNode(tree->TypeGet(), op1, false, tree->TypeGet());
-            }
-            if (op2->TypeGet() != tree->TypeGet())
-            {
-                tree->AsOp()->gtOp2 = gtNewCastNode(tree->TypeGet(), op2, false, tree->TypeGet());
-            }
-        }
-    }
-    else if (tree->OperIsCompare())
-    {
-        GenTree* op1 = tree->AsOp()->gtOp1;
-
-        if (varTypeIsFloating(op1))
-        {
-            GenTree* op2 = tree->gtGetOp2();
-            assert(varTypeIsFloating(op2));
-
-            if (op1->TypeGet() != op2->TypeGet())
-            {
-                // both had better be floating, just one bigger than other
-                if (op1->TypeGet() == TYP_FLOAT)
-                {
-                    assert(op2->TypeGet() == TYP_DOUBLE);
-                    tree->AsOp()->gtOp1 = gtNewCastNode(TYP_DOUBLE, op1, false, TYP_DOUBLE);
-                }
-                else if (op2->TypeGet() == TYP_FLOAT)
-                {
-                    assert(op1->TypeGet() == TYP_DOUBLE);
-                    tree->AsOp()->gtOp2 = gtNewCastNode(TYP_DOUBLE, op2, false, TYP_DOUBLE);
-                }
-            }
-        }
-    }
-
-    return tree;
-}
-
 //------------------------------------------------------------------------------
 // fgMorphAssociative : Try to simplify "(X op C1) op C2" to "X op C3"
 //                      for associative operators.
@@ -10164,11 +10110,6 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
        o Perform optional postorder morphing if optimizing
      */
 
-    if (fgGlobalMorph)
-    {
-        tree = fgMorphForRegisterFP(tree);
-    }
-
     genTreeOps oper = tree->OperGet();
     var_types  typ  = tree->TypeGet();
     GenTree*   op1  = tree->AsOp()->gtOp1;
@@ -10322,21 +10263,6 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             break;
 
         case GT_DIV:
-            // Replace "val / dcon" with "val * (1.0 / dcon)" if dcon is a power of two.
-            // Powers of two within range are always exactly represented,
-            // so multiplication by the reciprocal is safe in this scenario
-            if (fgGlobalMorph && op2->IsCnsFltOrDbl())
-            {
-                double divisor = op2->AsDblCon()->gtDconVal;
-                if (((typ == TYP_DOUBLE) && FloatingPointUtils::hasPreciseReciprocal(divisor)) ||
-                    ((typ == TYP_FLOAT) && FloatingPointUtils::hasPreciseReciprocal(forceCastToFloat(divisor))))
-                {
-                    oper = GT_MUL;
-                    tree->ChangeOper(oper);
-                    op2->AsDblCon()->gtDconVal = 1.0 / divisor;
-                }
-            }
-
             // array.Length is always positive so GT_DIV can be changed to GT_UDIV
             // if op2 is a positive cns
             if (op1->OperIs(GT_ARR_LENGTH) && op2->IsIntegralConst() &&
@@ -10401,29 +10327,6 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             break;
 
         case GT_MOD:
-
-            if (varTypeIsFloating(typ))
-            {
-                helper = CORINFO_HELP_DBLREM;
-                noway_assert(op2);
-                if (op1->TypeGet() == TYP_FLOAT)
-                {
-                    if (op2->TypeGet() == TYP_FLOAT)
-                    {
-                        helper = CORINFO_HELP_FLTREM;
-                    }
-                    else
-                    {
-                        tree->AsOp()->gtOp1 = op1 = gtNewCastNode(TYP_DOUBLE, op1, false, TYP_DOUBLE);
-                    }
-                }
-                else if (op2->TypeGet() == TYP_FLOAT)
-                {
-                    tree->AsOp()->gtOp2 = op2 = gtNewCastNode(TYP_DOUBLE, op2, false, TYP_DOUBLE);
-                }
-                goto USE_HELPER_FOR_ARITH;
-            }
-
             // array.Length is always positive so GT_DIV can be changed to GT_UDIV
             // if op2 is a positive cns
             if (op1->OperIs(GT_ARR_LENGTH) && op2->IsIntegralConst() &&
@@ -10575,7 +10478,47 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 #endif // !TARGET_ARM64
             break;
 
+        case GT_FDIV:
+            // Replace "val / C" with "val * (1.0 / C)" if C is a power of two.
+            // Powers of two within range are always exactly represented,
+            // so multiplication by the reciprocal is safe in this scenario
+            if (fgGlobalMorph && op2->IsDblCon())
+            {
+                double divisor = op2->AsDblCon()->GetValue();
+
+                if (((typ == TYP_DOUBLE) && FloatingPointUtils::hasPreciseReciprocal(divisor)) ||
+                    ((typ == TYP_FLOAT) && FloatingPointUtils::hasPreciseReciprocal(forceCastToFloat(divisor))))
+                {
+                    oper = GT_FMUL;
+                    tree->ChangeOper(oper);
+                    op2->AsDblCon()->SetValue(1.0 / divisor);
+                }
+            }
+            break;
+
+        case GT_FMOD:
+            helper = CORINFO_HELP_DBLREM;
+            if (op1->TypeIs(TYP_FLOAT))
+            {
+                if (op2->TypeIs(TYP_FLOAT))
+                {
+                    helper = CORINFO_HELP_FLTREM;
+                }
+                else
+                {
+                    op1 = gtNewCastNode(TYP_DOUBLE, op1, false, TYP_DOUBLE);
+                    tree->AsOp()->SetOp(0, op1);
+                }
+            }
+            else if (op2->TypeIs(TYP_FLOAT))
+            {
+                op2 = gtNewCastNode(TYP_DOUBLE, op2, false, TYP_DOUBLE);
+                tree->AsOp()->SetOp(1, op2);
+            }
+
+#ifndef TARGET_64BIT
         USE_HELPER_FOR_ARITH:
+#endif
         {
             // TODO: this comment is wrong now, do an appropriate fix.
             /* We have to morph these arithmetic operations into helper calls
@@ -11405,17 +11348,137 @@ DONE_MORPHING_CHILDREN:
             }
             break;
 
-        case GT_MUL:
-#ifndef TARGET_64BIT
-            assert(typ != TYP_LONG);
+        case GT_FADD:
+            if (op1->IsDblCon())
+            {
+                std::swap(op1, op2);
+
+                tree->AsOp()->SetOp(0, op1);
+                tree->AsOp()->SetOp(1, op2);
+            }
+
+            // ADD(op1, NEG(a)) => SUB(op1, a)
+            // ADD(NEG(a), op2) => SUB(op2, a)
+            if (opts.OptimizationEnabled() && fgGlobalMorph)
+            {
+                if (op2->OperIs(GT_FNEG))
+                {
+                    GenTree* a = op2->AsOp()->GetOp(0);
+
+                    oper = GT_FSUB;
+                    tree->SetOper(oper);
+                    tree->AsOp()->SetOp(1, a);
+
+                    DEBUG_DESTROY_NODE(op2);
+
+                    op2 = a;
+                }
+                else if (op1->OperIs(GT_FNEG) && gtCanSwapOrder(op1, op2))
+                {
+                    GenTree* a = op1->AsOp()->GetOp(0);
+
+                    oper = GT_FSUB;
+                    tree->SetOper(oper);
+                    tree->AsOp()->SetOp(0, op2);
+                    tree->AsOp()->SetOp(1, a);
+
+                    DEBUG_DESTROY_NODE(op1);
+
+                    op1 = op2;
+                    op2 = a;
+                }
+            }
+            break;
+
+        case GT_FSUB:
+            // SUB(op1, NEG(b)) => ADD(op1, b)
+            // SUB(NEG(a), NEG(b)) => SUB(b, a)
+            if (opts.OptimizationEnabled() && fgGlobalMorph && op2->OperIs(GT_FNEG))
+            {
+                GenTree* b = op2->AsUnOp()->GetOp(0);
+
+                if (!op1->OperIs(GT_FNEG))
+                {
+                    oper = GT_FADD;
+                    tree->SetOper(oper);
+                    tree->AsOp()->SetOp(1, b);
+
+                    DEBUG_DESTROY_NODE(op2);
+
+                    op2 = b;
+                }
+                else if (gtCanSwapOrder(op1, op2))
+                {
+                    GenTree* a = op1->AsUnOp()->GetOp(0);
+
+                    tree->AsOp()->SetOp(0, b);
+                    tree->AsOp()->SetOp(1, a);
+
+                    DEBUG_DESTROY_NODE(op1);
+                    DEBUG_DESTROY_NODE(op2);
+
+                    op1 = b;
+                    op2 = a;
+                }
+            }
+            break;
+
+        case GT_FMUL:
+            if (op1->IsDblCon())
+            {
+                std::swap(op1, op2);
+
+                tree->AsOp()->SetOp(0, op1);
+                tree->AsOp()->SetOp(1, op2);
+            }
+
+            if (opts.OptimizationEnabled() && !op1->IsDblCon())
+            {
+                if (GenTreeDblCon* con = op2->IsDblCon())
+                {
+                    if (con->GetValue() == 2.0)
+                    {
+                        bool needsComma = !op1->OperIsLeaf() && !op1->IsLocal();
+                        // if op1 is not a leaf/local we have to introduce a temp via GT_COMMA.
+                        // Unfortunately, it's not optHoistLoopCode-friendly yet so let's do it later.
+                        if (!needsComma || (fgOrder == FGOrderLinear))
+                        {
+                            // Fold "x*2.0" to "x+x"
+                            op2  = fgMakeMultiUse(&tree->AsOp()->gtOp1);
+                            op1  = tree->AsOp()->GetOp(0);
+                            oper = GT_FADD;
+                            tree = gtNewOperNode(oper, tree->GetType(), op1, op2);
+                            INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
+                        }
+                    }
+                    else if (con->GetValue() == 1.0)
+                    {
+                        // Fold "x*1.0" to "x"
+                        DEBUG_DESTROY_NODE(op2);
+                        DEBUG_DESTROY_NODE(tree);
+                        return op1;
+                    }
+                }
+            }
+            break;
+
+#ifdef TARGET_ARM64
+        case GT_DIV:
+            // Codegen for this instruction needs to be able to throw two exceptions:
+            fgAddCodeRef(compCurBB, bbThrowIndex(compCurBB), SCK_OVERFLOW);
+            fgAddCodeRef(compCurBB, bbThrowIndex(compCurBB), SCK_DIV_BY_ZERO);
+            break;
+        case GT_UDIV:
+            // Codegen for this instruction needs to be able to throw one exception:
+            fgAddCodeRef(compCurBB, bbThrowIndex(compCurBB), SCK_DIV_BY_ZERO);
+            break;
 #endif
-            goto CM_OVF_OP;
 
         case GT_SUB:
-
             if (tree->gtOverflow())
             {
-                goto CM_OVF_OP;
+                fgAddCodeRef(compCurBB, bbThrowIndex(compCurBB), SCK_OVERFLOW);
+                break;
             }
 
             // TODO #4104: there are a lot of other places where
@@ -11439,10 +11502,8 @@ DONE_MORPHING_CHILDREN:
                 /* Check for "cns1 - op2" , we change it to "(cns1 + (-op2))" */
 
                 noway_assert(op1);
-                if (op1->IsCnsIntOrI())
+                if (op1->IsIntCon())
                 {
-                    noway_assert(varTypeIsIntOrI(tree));
-
                     // The type of the new GT_NEG node cannot just be op2->TypeGet().
                     // Otherwise we may sign-extend incorrectly in cases where the GT_NEG
                     // node ends up feeding directly into a cast, for example in
@@ -11505,48 +11566,28 @@ DONE_MORPHING_CHILDREN:
                     op2 = op1Child;
                 }
             }
-
             break;
 
-#ifdef TARGET_ARM64
-        case GT_DIV:
-            if (!varTypeIsFloating(tree->gtType))
-            {
-                // Codegen for this instruction needs to be able to throw two exceptions:
-                fgAddCodeRef(compCurBB, bbThrowIndex(compCurBB), SCK_OVERFLOW);
-                fgAddCodeRef(compCurBB, bbThrowIndex(compCurBB), SCK_DIV_BY_ZERO);
-            }
-            break;
-        case GT_UDIV:
-            // Codegen for this instruction needs to be able to throw one exception:
-            fgAddCodeRef(compCurBB, bbThrowIndex(compCurBB), SCK_DIV_BY_ZERO);
-            break;
+        case GT_MUL:
+#ifndef TARGET_64BIT
+            assert(typ != TYP_LONG);
 #endif
-
+            FALLTHROUGH;
         case GT_ADD:
-
-        CM_OVF_OP:
             if (tree->gtOverflow())
             {
-                // Add the excptn-throwing basic block to jump to on overflow
                 fgAddCodeRef(compCurBB, bbThrowIndex(compCurBB), SCK_OVERFLOW);
-
-                // We can't do any commutative morphing for overflow instructions
-
                 break;
             }
-
         CM_ADD_OP:
-
             FALLTHROUGH;
-
         case GT_OR:
         case GT_XOR:
         case GT_AND:
-
-            /* Commute any non-REF constants to the right */
-
+            // Commute any non-REF constants to the right
             noway_assert(op1);
+            assert(varTypeIsIntegralOrI(tree->GetType()));
+
             if (op1->OperIsConst() && (op1->gtType != TYP_REF))
             {
                 // TODO-Review: We used to assert here that
@@ -11571,37 +11612,7 @@ DONE_MORPHING_CHILDREN:
                 return op1;
             }
 
-            // See if we can fold floating point operations (can regress minopts mode)
-            if (opts.OptimizationEnabled() && varTypeIsFloating(tree->TypeGet()))
-            {
-                if ((oper == GT_MUL) && !op1->IsCnsFltOrDbl() && op2->IsCnsFltOrDbl())
-                {
-                    if (op2->AsDblCon()->gtDconVal == 2.0)
-                    {
-                        bool needsComma = !op1->OperIsLeaf() && !op1->IsLocal();
-                        // if op1 is not a leaf/local we have to introduce a temp via GT_COMMA.
-                        // Unfortunately, it's not optHoistLoopCode-friendly yet so let's do it later.
-                        if (!needsComma || (fgOrder == FGOrderLinear))
-                        {
-                            // Fold "x*2.0" to "x+x"
-                            op2  = fgMakeMultiUse(&tree->AsOp()->gtOp1);
-                            op1  = tree->AsOp()->gtOp1;
-                            oper = GT_ADD;
-                            tree = gtNewOperNode(oper, tree->TypeGet(), op1, op2);
-                            INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
-                        }
-                    }
-                    else if (op2->AsDblCon()->gtDconVal == 1.0)
-                    {
-                        // Fold "x*1.0" to "x"
-                        DEBUG_DESTROY_NODE(op2);
-                        DEBUG_DESTROY_NODE(tree);
-                        return op1;
-                    }
-                }
-            }
-
-            if (varTypeIsIntegralOrI(tree->TypeGet()) && tree->OperIs(GT_ADD, GT_MUL, GT_AND, GT_OR, GT_XOR))
+            if (tree->OperIs(GT_ADD, GT_MUL, GT_AND, GT_OR, GT_XOR))
             {
                 GenTree* foldedTree = fgMorphAssociative(tree->AsOp());
                 if (foldedTree != nullptr)
@@ -11652,7 +11663,7 @@ DONE_MORPHING_CHILDREN:
                     }
                 }
 
-                if (op2->IsCnsIntOrI() && varTypeIsIntegralOrI(typ))
+                if (op2->IsIntCon())
                 {
                     CLANG_FORMAT_COMMENT_ANCHOR;
 
@@ -11853,24 +11864,9 @@ DONE_MORPHING_CHILDREN:
             }
             break;
 
-        case GT_NOT:
         case GT_NEG:
-            // Remove double negation/not.
-            // Note: this is not a safe tranformation if "tree" is a CSE candidate.
-            // Consider for example the following expression: NEG(NEG(OP)), where any
-            // NEG is a CSE candidate. Were we to morph this to just OP, CSE would fail to find
-            // the original NEG in the statement.
-            if (op1->OperIs(oper) && opts.OptimizationEnabled())
-            {
-                JITDUMP("Remove double negation/not\n")
-                GenTree* op1op1 = op1->gtGetOp1();
-                DEBUG_DESTROY_NODE(tree);
-                DEBUG_DESTROY_NODE(op1);
-                return op1op1;
-            }
-
-            // Distribute negation over simple multiplication/division expressions
-            if (opts.OptimizationEnabled() && tree->OperIs(GT_NEG) && op1->OperIs(GT_MUL, GT_DIV))
+            // Distribute integer negation over simple multiplication/division expressions
+            if (opts.OptimizationEnabled() && op1->OperIs(GT_MUL, GT_DIV))
             {
                 GenTreeOp* mulOrDiv = op1->AsOp();
                 GenTree*   op1op1   = mulOrDiv->gtGetOp1();
@@ -11896,9 +11892,18 @@ DONE_MORPHING_CHILDREN:
                     }
                 }
             }
-
-            /* Any constant cases should have been folded earlier */
-            noway_assert(!op1->OperIsConst() || !opts.OptEnabled(CLFLG_CONSTANTFOLD));
+            FALLTHROUGH;
+        case GT_FNEG:
+        case GT_NOT:
+            // Remove double negation/not.
+            if (op1->OperIs(oper) && opts.OptimizationEnabled())
+            {
+                JITDUMP("Remove double negation/not\n")
+                GenTree* op1op1 = op1->gtGetOp1();
+                DEBUG_DESTROY_NODE(tree);
+                DEBUG_DESTROY_NODE(op1);
+                return op1op1;
+            }
             break;
 
         case GT_CKFINITE:
@@ -12461,21 +12466,16 @@ GenTree* Compiler::fgMorphSmpOpOptional(GenTreeOp* tree)
             tree->gtFlags &= ~GTF_REVERSE_OPS;
         }
 
-        if (oper == op2->gtOper)
+        if (tree->OperIs(GT_ADD, GT_XOR, GT_OR, GT_AND, GT_MUL) && (op2->GetOper() == oper))
         {
             /*  Reorder nested operators at the same precedence level to be
                 left-recursive. For example, change "(a+(b+c))" to the
                 equivalent expression "((a+b)+c)".
              */
 
-            /* Things are handled differently for floating-point operators */
-
-            if (!varTypeIsFloating(tree->TypeGet()))
-            {
-                fgMoveOpsLeft(tree);
-                op1 = tree->gtOp1;
-                op2 = tree->gtOp2;
-            }
+            fgMoveOpsLeft(tree);
+            op1 = tree->gtOp1;
+            op2 = tree->gtOp2;
         }
     }
 

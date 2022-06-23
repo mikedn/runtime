@@ -1776,7 +1776,7 @@ void CodeGen::genCodeForIncSaturate(GenTree* tree)
 // Generate code to get the high N bits of a N*N=2N bit multiplication result
 void CodeGen::genCodeForMulHi(GenTreeOp* treeNode)
 {
-    assert(!treeNode->gtOverflowEx());
+    assert(!treeNode->gtOverflowEx() && varTypeIsIntegral(treeNode->GetType()));
 
     var_types targetType = treeNode->TypeGet();
     emitter*  emit       = GetEmitter();
@@ -1786,8 +1786,6 @@ void CodeGen::genCodeForMulHi(GenTreeOp* treeNode)
     regNumber srcReg1 = UseReg(treeNode->GetOp(0));
     regNumber srcReg2 = UseReg(treeNode->GetOp(1));
     regNumber dstReg  = treeNode->GetRegNum();
-
-    assert(!varTypeIsFloating(targetType));
 
     if (EA_SIZE(attr) == EA_8BYTE)
     {
@@ -1810,6 +1808,8 @@ void CodeGen::genCodeForMulHi(GenTreeOp* treeNode)
 
 void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
 {
+    assert(varTypeIsIntegralOrI(treeNode->GetType()));
+
     const genTreeOps oper       = treeNode->OperGet();
     regNumber        targetReg  = treeNode->GetRegNum();
     var_types        targetType = treeNode->TypeGet();
@@ -1820,7 +1820,7 @@ void CodeGen::genCodeForBinary(GenTreeOp* treeNode)
 
     GenTree*    op1 = treeNode->gtGetOp1();
     GenTree*    op2 = treeNode->gtGetOp2();
-    instruction ins = genGetInsForOper(treeNode->OperGet(), targetType);
+    instruction ins = genGetInsForOper(treeNode->OperGet());
 
     if (op1->isUsedFromReg())
     {
@@ -2399,38 +2399,6 @@ BAILOUT:
 }
 
 //------------------------------------------------------------------------
-// genCodeForNegNot: Produce code for a GT_NEG/GT_NOT node.
-//
-// Arguments:
-//    tree - the node
-//
-void CodeGen::genCodeForNegNot(GenTreeUnOp* tree)
-{
-    assert(tree->OperIs(GT_NEG, GT_NOT));
-
-    var_types targetType = tree->TypeGet();
-
-    assert(!tree->OperIs(GT_NOT) || !varTypeIsFloating(targetType));
-
-    regNumber   targetReg = tree->GetRegNum();
-    instruction ins       = genGetInsForOper(tree->OperGet(), targetType);
-
-    // The arithmetic node must be sitting in a register (since it's not contained)
-    assert(!tree->isContained());
-    // The dst can only be a register.
-    assert(targetReg != REG_NA);
-
-    GenTree* operand = tree->gtGetOp1();
-    assert(!operand->isContained());
-    // The src must be a register.
-    regNumber operandReg = genConsumeReg(operand);
-
-    GetEmitter()->emitIns_R_R(ins, emitActualTypeSize(tree), targetReg, operandReg);
-
-    genProduceReg(tree);
-}
-
-//------------------------------------------------------------------------
 // genCodeForBswap: Produce code for a GT_BSWAP / GT_BSWAP16 node.
 //
 // Arguments:
@@ -2461,7 +2429,7 @@ void CodeGen::genCodeForBswap(GenTree* tree)
 
 void CodeGen::genCodeForDivMod(GenTreeOp* div)
 {
-    assert(div->OperIs(GT_DIV, GT_UDIV));
+    assert(div->OperIs(GT_DIV, GT_UDIV) && varTypeIsIntegral(div->GetType()));
 
     GenTree* dividend = div->GetOp(0);
     GenTree* divisor  = div->GetOp(1);
@@ -2473,11 +2441,7 @@ void CodeGen::genCodeForDivMod(GenTreeOp* div)
     emitAttr attr = emitActualTypeSize(div->GetType());
     emitter* emit = GetEmitter();
 
-    if (varTypeIsFloating(div->GetType()))
-    {
-        emit->emitIns_R_R_R(INS_fdiv, attr, dstReg, dividendReg, divisorReg);
-    }
-    else if (divisor->IsIntegralConst(0))
+    if (divisor->IsIntegralConst(0))
     {
         genJumpToThrowHlpBlk(EJ_jmp, SCK_DIV_BY_ZERO);
     }
@@ -2832,90 +2796,41 @@ void CodeGen::genCodeForCmpXchg(GenTreeCmpXchg* treeNode)
     genProduceReg(treeNode);
 }
 
-instruction CodeGen::genGetInsForOper(genTreeOps oper, var_types type)
+instruction CodeGen::genGetInsForOper(genTreeOps oper)
 {
-    instruction ins = INS_brk;
-
-    if (varTypeIsFloating(type))
+    switch (oper)
     {
-        switch (oper)
-        {
-            case GT_ADD:
-                ins = INS_fadd;
-                break;
-            case GT_SUB:
-                ins = INS_fsub;
-                break;
-            case GT_MUL:
-                ins = INS_fmul;
-                break;
-            case GT_DIV:
-                ins = INS_fdiv;
-                break;
-            case GT_NEG:
-                ins = INS_fneg;
-                break;
-
-            default:
-                NYI("Unhandled oper in genGetInsForOper() - float");
-                unreached();
-                break;
-        }
+        case GT_ADD:
+            return INS_add;
+        case GT_AND:
+            return INS_and;
+        case GT_DIV:
+            return INS_sdiv;
+        case GT_UDIV:
+            return INS_udiv;
+        case GT_MUL:
+            return INS_mul;
+        case GT_LSH:
+            return INS_lsl;
+        case GT_NEG:
+            return INS_neg;
+        case GT_NOT:
+            return INS_mvn;
+        case GT_OR:
+            return INS_orr;
+        case GT_ROR:
+            return INS_ror;
+        case GT_RSH:
+            return INS_asr;
+        case GT_RSZ:
+            return INS_lsr;
+        case GT_SUB:
+            return INS_sub;
+        case GT_XOR:
+            return INS_eor;
+        default:
+            unreached();
     }
-    else
-    {
-        switch (oper)
-        {
-            case GT_ADD:
-                ins = INS_add;
-                break;
-            case GT_AND:
-                ins = INS_and;
-                break;
-            case GT_DIV:
-                ins = INS_sdiv;
-                break;
-            case GT_UDIV:
-                ins = INS_udiv;
-                break;
-            case GT_MUL:
-                ins = INS_mul;
-                break;
-            case GT_LSH:
-                ins = INS_lsl;
-                break;
-            case GT_NEG:
-                ins = INS_neg;
-                break;
-            case GT_NOT:
-                ins = INS_mvn;
-                break;
-            case GT_OR:
-                ins = INS_orr;
-                break;
-            case GT_ROR:
-                ins = INS_ror;
-                break;
-            case GT_RSH:
-                ins = INS_asr;
-                break;
-            case GT_RSZ:
-                ins = INS_lsr;
-                break;
-            case GT_SUB:
-                ins = INS_sub;
-                break;
-            case GT_XOR:
-                ins = INS_eor;
-                break;
-
-            default:
-                NYI("Unhandled oper in genGetInsForOper() - integer");
-                unreached();
-                break;
-        }
-    }
-    return ins;
 }
 
 //------------------------------------------------------------------------
@@ -8891,49 +8806,40 @@ regNumber CodeGen::emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, 
 {
     // dst can only be a reg
     assert(!dst->isContained());
+    assert(varTypeIsIntegralOrI(dst->GetType()));
 
     // find immed (if any) - it cannot be a dst
     // Only one src can be an int.
     GenTreeIntConCommon* intConst  = nullptr;
     GenTree*             nonIntReg = nullptr;
 
-    if (varTypeIsFloating(dst))
+    // src2 can be immed or reg
+    assert(!src2->isContained() || src2->isContainedIntOrIImmed());
+
+    // Check src2 first as we can always allow it to be a contained immediate
+    if (src2->isContainedIntOrIImmed())
+    {
+        intConst  = src2->AsIntConCommon();
+        nonIntReg = src1;
+    }
+    // Only for commutative operations do we check src1 and allow it to be a contained immediate
+    else if (dst->OperIsCommutative())
+    {
+        // src1 can be immed or reg
+        assert(!src1->isContained() || src1->isContainedIntOrIImmed());
+
+        // Check src1 and allow it to be a contained immediate
+        if (src1->isContainedIntOrIImmed())
+        {
+            assert(!src2->isContainedIntOrIImmed());
+            intConst  = src1->AsIntConCommon();
+            nonIntReg = src2;
+        }
+    }
+    else
     {
         // src1 can only be a reg
         assert(!src1->isContained());
-        // src2 can only be a reg
-        assert(!src2->isContained());
-    }
-    else // not floating point
-    {
-        // src2 can be immed or reg
-        assert(!src2->isContained() || src2->isContainedIntOrIImmed());
-
-        // Check src2 first as we can always allow it to be a contained immediate
-        if (src2->isContainedIntOrIImmed())
-        {
-            intConst  = src2->AsIntConCommon();
-            nonIntReg = src1;
-        }
-        // Only for commutative operations do we check src1 and allow it to be a contained immediate
-        else if (dst->OperIsCommutative())
-        {
-            // src1 can be immed or reg
-            assert(!src1->isContained() || src1->isContainedIntOrIImmed());
-
-            // Check src1 and allow it to be a contained immediate
-            if (src1->isContainedIntOrIImmed())
-            {
-                assert(!src2->isContainedIntOrIImmed());
-                intConst  = src1->AsIntConCommon();
-                nonIntReg = src2;
-            }
-        }
-        else
-        {
-            // src1 can only be a reg
-            assert(!src1->isContained());
-        }
     }
 
     bool isMulOverflow = false;
@@ -9032,7 +8938,6 @@ regNumber CodeGen::emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, 
 
     if (dst->gtOverflowEx())
     {
-        assert(!varTypeIsFloating(dst));
         genCheckOverflow(dst);
     }
 

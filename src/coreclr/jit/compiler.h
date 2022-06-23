@@ -1945,7 +1945,8 @@ public:
     Statement* gtNewStmt(GenTree* expr = nullptr, IL_OFFSETX offset = BAD_IL_OFFSET);
 
     // For unary opers.
-    GenTree* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, bool doSimplifications = true);
+    // TODO-MIKE-Cleanup: Remove stupid dummy param.
+    GenTree* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, bool dummy = false);
 
     // For binary opers.
     GenTreeOp* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2);
@@ -3319,6 +3320,8 @@ private:
     BasicBlock* impPopPendingBlock();
 
     var_types impGetNumericBinaryOpType(genTreeOps oper, bool fUnsigned, GenTree** pOp1, GenTree** pOp2);
+    void impAddCompareOpImplicitCasts(bool isUnsigned, GenTree*& op1, GenTree*& op2);
+    void impBranchToNextBlock(BasicBlock* block, GenTree* op1, GenTree* op2);
 
     void impImportBlock(BasicBlock* block);
     bool impSpillStackAtBlockEnd(BasicBlock* block);
@@ -4829,7 +4832,6 @@ private:
     GenTree* fgMorphDynBlk(GenTreeDynBlk* dynBlk);
     GenTree* fgMorphBlockAssignment(GenTreeOp* asg);
     GenTree* fgMorphCopyStruct(GenTreeOp* asg);
-    GenTree* fgMorphForRegisterFP(GenTree* tree);
     GenTree* fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac = nullptr);
     GenTree* fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac = nullptr);
     GenTree* fgMorphModToSubMulDiv(GenTreeOp* tree);
@@ -6949,9 +6951,8 @@ public:
 
         bool compProcedureSplitting; // Separate cold code from hot code
 
-        bool genFPorder; // Preserve FP order (operations are non-commutative)
-        bool genFPopt;   // Can we do frame-pointer-omission optimization?
-        bool altJit;     // True if we are an altjit and are compiling this method
+        bool genFPopt; // Can we do frame-pointer-omission optimization?
+        bool altJit;   // True if we are an altjit and are compiling this method
 
 #ifdef OPT_CONFIG
         bool optRepeat; // Repeat optimizer phases k times
@@ -8558,6 +8559,7 @@ public:
                 FALLTHROUGH;
             case GT_NOT:
             case GT_NEG:
+            case GT_FNEG:
             case GT_BSWAP:
             case GT_BSWAP16:
             case GT_COPY:

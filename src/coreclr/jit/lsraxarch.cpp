@@ -249,7 +249,11 @@ int LinearScan::BuildNode(GenTree* tree)
         }
         break;
 
-#if !defined(TARGET_64BIT)
+        case GT_FADD:
+        case GT_FSUB:
+        case GT_FMUL:
+        case GT_FDIV:
+#ifndef TARGET_64BIT
         case GT_ADD_LO:
         case GT_ADD_HI:
         case GT_SUB_LO:
@@ -260,8 +264,8 @@ int LinearScan::BuildNode(GenTree* tree)
         case GT_AND:
         case GT_OR:
         case GT_XOR:
-            srcCount = BuildBinaryUses(tree->AsOp());
             assert(dstCount == 1);
+            srcCount = BuildBinaryUses(tree->AsOp());
             BuildDef(tree);
             break;
 
@@ -324,37 +328,15 @@ int LinearScan::BuildNode(GenTree* tree)
             BuildDef(tree);
             break;
 
-        case GT_NEG:
-            // TODO-XArch-CQ:
-            // SSE instruction set doesn't have an instruction to negate a number.
-            // The recommended way is to xor the float/double number with a bitmask.
-            // The only way to xor is using xorps or xorpd both of which operate on
-            // 128-bit operands.  To hold the bit-mask we would need another xmm
-            // register or a 16-byte aligned 128-bit data constant. Right now emitter
-            // lacks the support for emitting such constants or instruction with mem
-            // addressing mode referring to a 128-bit operand. For now we use an
-            // internal xmm register to load 32/64-bit bitmask from data section.
-            // Note that by trading additional data section memory (128-bit) we can
-            // save on the need for an internal register and also a memory-to-reg
-            // move.
-            //
-            // Note: another option to avoid internal register requirement is by
-            // lowering as GT_SUB(0, src).  This will generate code different from
-            // Jit64 and could possibly result in compat issues (?).
-            if (varTypeIsFloating(tree))
-            {
-
-                RefPosition* internalDef = buildInternalFloatRegisterDefForNode(tree, internalFloatRegCandidates());
-                srcCount                 = BuildOperandUses(tree->gtGetOp1());
-                buildInternalRegisterUses();
-            }
-            else
-            {
-                srcCount = BuildOperandUses(tree->gtGetOp1());
-            }
+        case GT_FNEG:
+            // TODO-MIKE-Review: Where is this internal reg used???
+            BuildInternalFloatDef(tree, internalFloatRegCandidates());
+            srcCount = BuildOperandUses(tree->AsUnOp()->GetOp(0));
+            BuildInternalUses();
             BuildDef(tree);
             break;
 
+        case GT_NEG:
         case GT_NOT:
             srcCount = BuildOperandUses(tree->gtGetOp1());
             BuildDef(tree);
@@ -720,19 +702,16 @@ bool LinearScan::isRMWRegOper(GenTree* tree)
         case GT_ADD:
         case GT_SUB:
         case GT_DIV:
-        {
-            return !varTypeIsFloating(tree->TypeGet()) || !compiler->canUseVexEncoding();
-        }
+            return true;
 
-        // x86/x64 does support a three op multiply when op2|op1 is a contained immediate
         case GT_MUL:
-        {
-            if (varTypeIsFloating(tree->TypeGet()))
-            {
-                return !compiler->canUseVexEncoding();
-            }
             return (!tree->gtGetOp2()->isContainedIntOrIImmed() && !tree->gtGetOp1()->isContainedIntOrIImmed());
-        }
+
+        case GT_FADD:
+        case GT_FSUB:
+        case GT_FMUL:
+        case GT_FDIV:
+            return !compiler->canUseVexEncoding();
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
@@ -1741,15 +1720,12 @@ int LinearScan::BuildLclHeap(GenTree* tree)
 //
 int LinearScan::BuildModDiv(GenTree* tree)
 {
+    assert(tree->OperIs(GT_DIV, GT_MOD, GT_UDIV, GT_UMOD) && varTypeIsIntegral(tree->GetType()));
+
     GenTree*  op1           = tree->gtGetOp1();
     GenTree*  op2           = tree->gtGetOp2();
     regMaskTP dstCandidates = RBM_NONE;
     int       srcCount      = 0;
-
-    if (varTypeIsFloating(tree->TypeGet()))
-    {
-        return BuildSimple(tree);
-    }
 
     // Amd64 Div/Idiv instruction:
     //    Dividend in RAX:RDX  and computes
@@ -1826,18 +1802,7 @@ int LinearScan::BuildIntrinsic(GenTree* tree)
     switch (tree->AsIntrinsic()->gtIntrinsicName)
     {
         case NI_System_Math_Abs:
-            // Abs(float x) = x & 0x7fffffff
-            // Abs(double x) = x & 0x7ffffff ffffffff
-
-            // In case of Abs we need an internal register to hold mask.
-
-            // TODO-XArch-CQ: avoid using an internal register for the mask.
-            // Andps or andpd both will operate on 128-bit operands.
-            // The data section constant to hold the mask is a 64-bit size.
-            // Therefore, we need both the operand and mask to be in
-            // xmm register. When we add support in emitter to emit 128-bit
-            // data constants and instructions that operate on 128-bit
-            // memory operands we can avoid the need for an internal register.
+            // TODO-MIKE-Review: Where is this internal reg used???
             internalFloatDef = buildInternalFloatRegisterDefForNode(tree, internalFloatRegCandidates());
             break;
 
@@ -2459,26 +2424,12 @@ int LinearScan::BuildStoreInd(GenTreeIndir* store)
     return srcCount;
 }
 
-//------------------------------------------------------------------------
-// BuildMul: Set the NodeInfo for a multiply.
-//
-// Arguments:
-//    tree      - The node of interest
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
-int LinearScan::BuildMul(GenTree* tree)
+int LinearScan::BuildMul(GenTreeOp* tree)
 {
-    assert(tree->OperIsMul());
-    GenTree* op1 = tree->gtGetOp1();
-    GenTree* op2 = tree->gtGetOp2();
+    assert(tree->OperIsMul() && varTypeIsIntegral(tree->GetType()));
 
-    // Only non-floating point mul has special requirements
-    if (varTypeIsFloating(tree->TypeGet()))
-    {
-        return BuildSimple(tree);
-    }
+    GenTree* op1 = tree->GetOp(0);
+    GenTree* op2 = tree->GetOp(1);
 
     int srcCount = BuildBinaryUses(tree->AsOp());
 

@@ -47,6 +47,7 @@ GTNODE(CNS_STR          , GenTreeStrCon      ,0,GTK_LEAF)
 GTNODE(NOT              , GenTreeOp          ,0,GTK_UNOP)
 GTNODE(NOP              , GenTree            ,0,(GTK_UNOP|GTK_NOCONTAIN))
 GTNODE(NEG              , GenTreeOp          ,0,GTK_UNOP)
+GTNODE(FNEG             , GenTreeOp          ,0,GTK_UNOP)
 GTNODE(COPY             , GenTreeCopyOrReload,0,GTK_UNOP)               // Copies a variable from its current location to a register that satisfies
                                                                         // code generation constraints.  The child is the actual lclVar node.
 GTNODE(RELOAD           , GenTreeCopyOrReload,0,GTK_UNOP)
@@ -100,6 +101,12 @@ GTNODE(BSWAP16          , GenTreeOp          ,0,GTK_UNOP)               // Byte 
 //-----------------------------------------------------------------------------
 //  Binary operators (2 operands):
 //-----------------------------------------------------------------------------
+
+GTNODE(FADD             , GenTreeOp          ,1,GTK_BINOP)
+GTNODE(FSUB             , GenTreeOp          ,0,GTK_BINOP)
+GTNODE(FMUL             , GenTreeOp          ,1,GTK_BINOP)
+GTNODE(FDIV             , GenTreeOp          ,0,GTK_BINOP)
+GTNODE(FMOD             , GenTreeOp          ,0,GTK_BINOP)
 
 GTNODE(ADD              , GenTreeOp          ,1,GTK_BINOP)
 GTNODE(SUB              , GenTreeOp          ,0,GTK_BINOP)

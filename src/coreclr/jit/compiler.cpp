@@ -542,8 +542,6 @@ void Compiler::compStartup()
 
     /* Initialize the table of tree node sizes */
 
-    GenTree::InitNodeSize();
-
 #ifdef JIT32_GCENCODER
     // Initialize the GC encoder lookup table
 
@@ -1871,8 +1869,7 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
     opts.compTailCallLoopOpt = true;
 #endif // FEATURE_TAILCALL_OPT
 
-    opts.genFPorder = true;
-    opts.genFPopt   = true;
+    opts.genFPopt = true;
 
     opts.instrCount = 0;
     opts.lvRefCount = 0;

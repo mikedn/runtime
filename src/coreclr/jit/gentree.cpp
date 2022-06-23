@@ -231,62 +231,56 @@ const uint8_t GenTree::s_gtTrueSizes[GT_COUNT + 1]{
 LONG GenTree::s_gtNodeCounts[GT_COUNT + 1] = {0};
 #endif // COUNT_AST_OPERS
 
-/* static */
-void GenTree::InitNodeSize()
-{
-    // clang-format off
-    assert(GenTree::s_gtNodeSizes[GT_RETURN] == GenTree::s_gtNodeSizes[GT_ASG]);
-
-    static_assert_no_msg(sizeof(GenTree)             <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeUnOp)         <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeOp)           <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeVal)          <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeIntConCommon) <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreePhysReg)      <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeIntCon)       <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeLngCon)       <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeDblCon)       <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeStrCon)       <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeLclVarCommon) <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeLclVar)       <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeLclFld)       <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeCC)           <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeCast)         <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeBox)          <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeFieldAddr)    <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeFieldList)    <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeCall)         <= TREE_NODE_SZ_LARGE); // *** large node
-    static_assert_no_msg(sizeof(GenTreeCmpXchg)      <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeFptrVal)      <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeQmark)        <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeIntrinsic)    <= TREE_NODE_SZ_LARGE); // *** large node
-    static_assert_no_msg(sizeof(GenTreeIndexAddr)    <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeArrLen)       <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeBoundsChk)    <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeArrElem)      <= TREE_NODE_SZ_LARGE); // *** large node
-    static_assert_no_msg(sizeof(GenTreeArrIndex)     <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeArrOffs)      <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeIndir)        <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeStoreInd)     <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeAddrMode)     <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeObj)          <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeBlk)          <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeDynBlk)       <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeRetExpr)      <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeILOffset)     <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeClsVar)       <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreePhiArg)       <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreeAllocObj)     <= TREE_NODE_SZ_LARGE); // *** large node
-    static_assert_no_msg(sizeof(GenTreeInstr)        <= TREE_NODE_SZ_SMALL);
-    static_assert_no_msg(sizeof(GenTreePutArgStk)    <= TREE_NODE_SZ_SMALL);
-#if FEATURE_ARG_SPLIT
-    static_assert_no_msg(sizeof(GenTreePutArgSplit)  <= TREE_NODE_SZ_LARGE);
-#endif
+// clang-format off
+static_assert_no_msg(sizeof(GenTree)             <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeUnOp)         <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeOp)           <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeVal)          <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeIntConCommon) <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreePhysReg)      <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeIntCon)       <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeLngCon)       <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeDblCon)       <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeStrCon)       <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeLclVarCommon) <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeLclVar)       <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeLclFld)       <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeCC)           <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeCast)         <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeBox)          <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeFieldAddr)    <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeFieldList)    <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeCmpXchg)      <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeFptrVal)      <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeQmark)        <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeIndexAddr)    <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeArrLen)       <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeBoundsChk)    <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeArrIndex)     <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeArrOffs)      <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeIndir)        <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeStoreInd)     <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeAddrMode)     <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeObj)          <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeBlk)          <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeDynBlk)       <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeRetExpr)      <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeILOffset)     <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeClsVar)       <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreePhiArg)       <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeInstr)        <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreePutArgStk)    <= TREE_NODE_SZ_SMALL);
 #ifdef FEATURE_HW_INTRINSICS
-    static_assert_no_msg(sizeof(GenTreeHWIntrinsic)  <= TREE_NODE_SZ_SMALL);
-#endif // FEATURE_HW_INTRINSICS
-    // clang-format on
-}
+static_assert_no_msg(sizeof(GenTreeHWIntrinsic)  <= TREE_NODE_SZ_SMALL);
+#endif
+static_assert_no_msg(sizeof(GenTreeCall)         <= TREE_NODE_SZ_LARGE); // *** large node
+static_assert_no_msg(sizeof(GenTreeIntrinsic)    <= TREE_NODE_SZ_LARGE); // *** large node
+static_assert_no_msg(sizeof(GenTreeArrElem)      <= TREE_NODE_SZ_LARGE); // *** large node
+static_assert_no_msg(sizeof(GenTreeAllocObj)     <= TREE_NODE_SZ_LARGE); // *** large node
+#if FEATURE_ARG_SPLIT
+static_assert_no_msg(sizeof(GenTreePutArgSplit)  <= TREE_NODE_SZ_LARGE); // *** large node
+#endif
+// clang-format on
 
 size_t GenTree::GetNodeSize() const
 {
@@ -2667,6 +2661,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 
                 case GT_NOT:
                 case GT_NEG:
+                case GT_FNEG:
                     // We need to ensure that -x is evaluated before x or else
                     // we get burned while adjusting genFPstkLevel in x*-x where
                     // the rhs x is the last use of the enregistered x.
@@ -2839,75 +2834,55 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 
             case GT_DIV:
             case GT_UDIV:
-
-                if (isflt)
-                {
-                    /* fp division is very expensive to execute */
-                    costEx = 36; // TYP_DOUBLE
-                    costSz += 3;
-                }
-                else
-                {
-                    /* integer division is also very expensive */
-                    costEx = 20;
-                    costSz += 2;
-
-                    // Encourage the first operand to be evaluated (into EAX/EDX) first */
-                    lvlb -= 3;
-                }
+                costEx += 19;
+                costSz += 2;
+                // Encourage the first operand to be evaluated (into EAX/EDX) first
+                lvlb -= 3;
                 break;
 
             case GT_MUL:
+                costEx += 3;
+                costSz += 2;
 
-                if (isflt)
+                if (tree->gtOverflow())
                 {
-                    /* FP multiplication instructions are more expensive */
-                    costEx += 4;
+                    /* Overflow check are more expensive */
+                    costEx += 3;
                     costSz += 3;
                 }
-                else
-                {
-                    /* Integer multiplication instructions are more expensive */
-                    costEx += 3;
-                    costSz += 2;
-
-                    if (tree->gtOverflow())
-                    {
-                        /* Overflow check are more expensive */
-                        costEx += 3;
-                        costSz += 3;
-                    }
 
 #ifdef TARGET_X86
-                    if ((tree->gtType == TYP_LONG) || tree->gtOverflow())
-                    {
-                        /* We use imulEAX for TYP_LONG and overflow multiplications */
-                        // Encourage the first operand to be evaluated (into EAX/EDX) first */
-                        lvlb -= 4;
+                if ((tree->gtType == TYP_LONG) || tree->gtOverflow())
+                {
+                    /* We use imulEAX for TYP_LONG and overflow multiplications */
+                    // Encourage the first operand to be evaluated (into EAX/EDX) first */
+                    lvlb -= 4;
 
-                        /* The 64-bit imul instruction costs more */
-                        costEx += 4;
-                    }
-#endif //  TARGET_X86
+                    /* The 64-bit imul instruction costs more */
+                    costEx += 4;
                 }
+#endif //  TARGET_X86
                 break;
 
             case GT_ADD:
             case GT_SUB:
-                if (isflt)
-                {
-                    /* FP instructions are a bit more expensive */
-                    costEx += 4;
-                    costSz += 3;
-                    break;
-                }
-
-                /* Overflow check are more expensive */
                 if (tree->gtOverflow())
                 {
                     costEx += 3;
                     costSz += 3;
                 }
+                break;
+
+            case GT_FADD:
+            case GT_FSUB:
+            case GT_FMUL:
+                costEx += 4;
+                costSz += 3;
+                break;
+
+            case GT_FDIV:
+                costEx += 35;
+                costSz += 3;
                 break;
 
             case GT_COMMA:
@@ -3195,6 +3170,9 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                         }
 
                         FALLTHROUGH;
+
+                    case GT_FADD:
+                    case GT_FMUL:
 
                     case GT_ADD:
                     case GT_MUL:
@@ -3830,11 +3808,6 @@ bool GenTree::OperMayThrow(Compiler* comp)
             /* Division with a non-zero, non-minus-one constant does not throw an exception */
 
             op = AsOp()->gtOp2;
-
-            if (varTypeIsFloating(op->TypeGet()))
-            {
-                return false; // Floating point division does not throw.
-            }
 
             // For integers only division by 0 or by -1 can throw
             if (op->IsIntegralConst() && !op->IsIntegralConst(0) && !op->IsIntegralConst(-1))
@@ -5297,53 +5270,20 @@ GenTree* Compiler::gtCloneExpr(
         }
     }
 
-    /* Is it a 'simple' unary/binary operator? */
-
     if (kind & GTK_SMPOP)
     {
-        /* If necessary, make sure we allocate a "fat" tree node */
-        CLANG_FORMAT_COMMENT_ANCHOR;
-
         switch (oper)
         {
-            /* These nodes sometimes get bashed to "fat" ones */
-
-            case GT_MUL:
-            case GT_DIV:
-            case GT_MOD:
-
-            case GT_UDIV:
-            case GT_UMOD:
-
-                //  In the implementation of gtNewLargeOperNode you have
-                //  to give an oper that will create a small node,
-                //  otherwise it asserts.
-                //
-                if (GenTree::s_gtNodeSizes[oper] == TREE_NODE_SZ_SMALL)
-                {
-                    copy = gtNewLargeOperNode(oper, tree->TypeGet(), tree->AsOp()->gtOp1,
-                                              tree->OperIsBinary() ? tree->AsOp()->gtOp2 : nullptr);
-                }
-                else // Always a large tree
-                {
-                    if (tree->OperIsBinary())
-                    {
-                        copy = gtNewOperNode(oper, tree->TypeGet(), tree->AsOp()->gtOp1, tree->AsOp()->gtOp2);
-                    }
-                    else
-                    {
-                        copy = gtNewOperNode(oper, tree->TypeGet(), tree->AsOp()->gtOp1);
-                    }
-                }
+            case GT_FMOD:
+                // This is always converted to a helper call.
+                copy = new (this, GT_CALL)
+                    GenTreeOp(GT_FMOD, tree->GetType(), tree->AsOp()->GetOp(0), tree->AsOp()->GetOp(1));
                 break;
 
             case GT_CAST:
-                copy = new (this, LargeOpOpcode())
-                    GenTreeCast(tree->TypeGet(), tree->AsCast()->CastOp(), tree->IsUnsigned(),
-                                tree->AsCast()->gtCastType DEBUGARG(/*largeNode*/ TRUE));
+                copy = new (this, GT_CAST) GenTreeCast(tree->GetType(), tree->AsCast()->GetOp(0), tree->IsUnsigned(),
+                                                       tree->AsCast()->GetCastType());
                 break;
-
-            // The nodes below this are not bashed, so they can be allocated at their individual sizes.
 
             case GT_FIELD_ADDR:
                 copy = new (this, GT_FIELD_ADDR) GenTreeFieldAddr(tree->AsFieldAddr());
@@ -5427,17 +5367,30 @@ GenTree* Compiler::gtCloneExpr(
 
             case GT_COPY:
             case GT_RELOAD:
-            {
-                copy = new (this, oper) GenTreeCopyOrReload(oper, tree->TypeGet(), tree->gtGetOp1());
-            }
-            break;
+                copy = new (this, oper) GenTreeCopyOrReload(oper, tree->GetType(), tree->AsUnOp()->GetOp(0));
+                break;
 
+#ifndef TARGET_64BIT
+            case GT_MUL:
+            case GT_DIV:
+            case GT_MOD:
+            case GT_UDIV:
+            case GT_UMOD:
+                if (tree->TypeIs(TYP_LONG))
+                {
+                    // LONG multiplication/division usually requires helper calls on 32 bit targets.
+                    copy = new (this, GT_CALL) GenTreeOp(oper, tree->GetType(), tree->AsOp()->GetOp(0),
+                                                         tree->AsOp()->GetOp(1) DEBUGARG(/*largeNode*/ true));
+                    break;
+                }
+                FALLTHROUGH;
+#endif
             default:
                 assert(!GenTree::IsExOp(tree->OperKind()) && tree->OperIsSimple());
                 // We're in the SimpleOp case, so it's always unary or binary.
                 if (GenTree::OperIsUnary(tree->OperGet()))
                 {
-                    copy = gtNewOperNode(oper, tree->TypeGet(), tree->AsOp()->gtOp1, /*doSimplifications*/ false);
+                    copy = gtNewOperNode(oper, tree->TypeGet(), tree->AsOp()->gtOp1);
                 }
                 else
                 {
@@ -6090,6 +6043,7 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
         case GT_STORE_LCL_FLD:
         case GT_NOT:
         case GT_NEG:
+        case GT_FNEG:
         case GT_COPY:
         case GT_RELOAD:
         case GT_ARR_LENGTH:
@@ -10683,7 +10637,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 
                 switch (tree->OperGet())
                 {
-                    case GT_NEG:
+                    case GT_FNEG:
                         d1 = -d1;
                         break;
 
@@ -11317,18 +11271,10 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 
         case TYP_FLOAT:
         case TYP_DOUBLE:
+            assert(!tree->gtOverflowEx());
 
-            if (tree->gtOverflowEx())
-            {
-                return tree;
-            }
-
-            assert(op1->OperIs(GT_CNS_DBL));
-            d1 = op1->AsDblCon()->gtDconVal;
-
-            assert(varTypeIsFloating(op2->TypeGet()));
-            assert(op2->OperIs(GT_CNS_DBL));
-            d2 = op2->AsDblCon()->gtDconVal;
+            d1 = op1->AsDblCon()->GetValue();
+            d2 = op2->AsDblCon()->GetValue();
 
             // Special case - check if we have NaN operands.
             // For comparisons if not an unordered operation always return 0.
@@ -11390,7 +11336,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                 // float b = a*a;   This will produce +inf in single precision and 1.1579207543382391e+077 in double
                 //                  precision.
                 // flaot c = b/b;   This will produce NaN in single precision and 1 in double precision.
-                case GT_ADD:
+                case GT_FADD:
                     if (op1->TypeIs(TYP_FLOAT))
                     {
                         f1 = forceCastToFloat(d1);
@@ -11403,7 +11349,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                     }
                     break;
 
-                case GT_SUB:
+                case GT_FSUB:
                     if (op1->TypeIs(TYP_FLOAT))
                     {
                         f1 = forceCastToFloat(d1);
@@ -11416,7 +11362,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                     }
                     break;
 
-                case GT_MUL:
+                case GT_FMUL:
                     if (op1->TypeIs(TYP_FLOAT))
                     {
                         f1 = forceCastToFloat(d1);
@@ -11429,7 +11375,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                     }
                     break;
 
-                case GT_DIV:
+                case GT_FDIV:
                     // We do not fold division by zero, even for floating point.
                     // This is because the result will be platform-dependent for an expression like 0d / 0d.
                     if (d2 == 0)

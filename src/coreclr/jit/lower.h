@@ -245,6 +245,8 @@ private:
     void CombineNot(GenTreeInstr* instr);
     void LowerLogical(GenTreeOp* logical);
     void LowerNegate(GenTreeUnOp* neg);
+    void LowerFloatNegate(GenTreeUnOp* neg);
+    void LowerFloatArithmetic(GenTreeOp* arith);
     void LowerArithmetic(GenTreeOp* arith);
     void LowerMultiply(GenTreeOp* mul);
     void LowerShiftImmediate(GenTreeOp* shift);

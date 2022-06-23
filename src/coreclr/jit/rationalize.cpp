@@ -305,12 +305,9 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
         case GT_UDIV:
         case GT_MOD:
         case GT_UMOD:
-            if (!varTypeIsFloating(node->GetType()))
-            {
-                node->SetSideEffects(node->GetSideEffects() & GTF_EXCEPT);
-                break;
-            }
-            FALLTHROUGH;
+            node->SetSideEffects(node->GetSideEffects() & GTF_EXCEPT);
+            break;
+
         case GT_AND:
         case GT_OR:
         case GT_XOR:
@@ -330,6 +327,11 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
         case GT_LE:
         case GT_GT:
         case GT_GE:
+        case GT_FADD:
+        case GT_FSUB:
+        case GT_FMUL:
+        case GT_FDIV:
+        case GT_FNEG:
             node->SetSideEffects(GTF_EMPTY);
             break;
 

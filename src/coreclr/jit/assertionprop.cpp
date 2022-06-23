@@ -3549,6 +3549,11 @@ private:
                 case GT_CAST:
                 case GT_BITCAST:
                 case GT_INTRINSIC:
+                case GT_FADD:
+                case GT_FSUB:
+                case GT_FMUL:
+                case GT_FDIV:
+                case GT_FNEG:
                     // Normally these nodes should not have small int type. If they do, it's either due
                     // to bogus JIT code or due to BOOL optimizations that "infect" AND/OR (though that
                     // is still more or less due to bogus desig/code). The former case is best ignored,
@@ -3560,6 +3565,9 @@ private:
                         return Compiler::WALK_CONTINUE;
                     }
                     break;
+
+                // TODO-MIKE-CQ: This doesn't handle some helper calls that can be evaluated to
+                // constants, like CORINFO_HELP_FLTREM and CORINFO_HELP_DBLREM.
 
                 default:
                     return Compiler::WALK_CONTINUE;

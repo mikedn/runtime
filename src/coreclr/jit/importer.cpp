@@ -9204,6 +9204,58 @@ var_types Compiler::impGetNumericBinaryOpType(genTreeOps oper, bool fUnsigned, G
     return varActualType(op1->GetType());
 }
 
+void Compiler::impAddCompareOpImplicitCasts(bool isUnsigned, GenTree*& op1, GenTree*& op2)
+{
+    if (varTypeIsFloating(op1->GetType()))
+    {
+        assert(varTypeIsFloating(op2->TypeGet()));
+
+        if (op1->TypeIs(TYP_DOUBLE))
+        {
+            op2 = gtNewCastNode(TYP_DOUBLE, op2, false, TYP_DOUBLE);
+        }
+        else if (op2->TypeIs(TYP_DOUBLE))
+        {
+            op1 = gtNewCastNode(TYP_DOUBLE, op1, false, TYP_DOUBLE);
+        }
+    }
+#ifdef TARGET_64BIT
+    else if (varTypeIsI(op1->GetType()) && varActualTypeIsInt(op2->GetType()))
+    {
+        op2 = gtNewCastNode(TYP_I_IMPL, op2, isUnsigned, TYP_I_IMPL);
+    }
+    else if (varTypeIsI(op2->GetType()) && varActualTypeIsInt(op1->GetType()))
+    {
+        op1 = gtNewCastNode(TYP_I_IMPL, op1, isUnsigned, TYP_I_IMPL);
+    }
+#endif
+}
+
+void Compiler::impBranchToNextBlock(BasicBlock* block, GenTree* op1, GenTree* op2)
+{
+    assert(opts.OptimizationEnabled() && (block->bbJumpDest == block->bbNext));
+
+    block->bbJumpKind = BBJ_NONE;
+
+    if (op1->gtFlags & GTF_GLOB_EFFECT)
+    {
+        impSpillSideEffects(GTF_SIDE_EFFECT, CHECK_SPILL_ALL DEBUGARG("Branch to next Optimization, op1 side effect"));
+        impAppendTree(gtUnusedValNode(op1), CHECK_SPILL_NONE, impCurStmtOffs);
+    }
+    if (op2->gtFlags & GTF_GLOB_EFFECT)
+    {
+        impSpillSideEffects(GTF_SIDE_EFFECT, CHECK_SPILL_ALL DEBUGARG("Branch to next Optimization, op2 side effect"));
+        impAppendTree(gtUnusedValNode(op2), CHECK_SPILL_NONE, impCurStmtOffs);
+    }
+
+#ifdef DEBUG
+    if ((op1->gtFlags | op2->gtFlags) & GTF_GLOB_EFFECT)
+    {
+        impNoteLastILoffs();
+    }
+#endif
+}
+
 //------------------------------------------------------------------------
 // impOptimizeCastClassOrIsInst: attempt to resolve a cast when jitting
 //
@@ -9803,7 +9855,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
             CORINFO_SIG_INFO     sig;
             IL_OFFSET            jmpAddr;
-            bool                 ovfl, unordered, callNode;
+            bool                 ovfl;
             CORINFO_CLASS_HANDLE tokenType;
 
             union {
@@ -10635,37 +10687,26 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 impSpillAllAppendTree(op1);
                 break;
 
-            case CEE_ADD:
-                oper = GT_ADD;
-                goto MATH_OP2;
             case CEE_ADD_OVF:
                 uns = false;
                 goto ADD_OVF;
             case CEE_ADD_OVF_UN:
                 uns = true;
             ADD_OVF:
-                ovfl     = true;
-                callNode = false;
-                oper     = GT_ADD;
-                goto MATH_OP2_FLAGS;
-
-            case CEE_SUB:
-                oper = GT_SUB;
+                ovfl = true;
+                oper = GT_ADD;
                 goto MATH_OP2;
+
             case CEE_SUB_OVF:
                 uns = false;
                 goto SUB_OVF;
             case CEE_SUB_OVF_UN:
                 uns = true;
             SUB_OVF:
-                ovfl     = true;
-                callNode = false;
-                oper     = GT_SUB;
-                goto MATH_OP2_FLAGS;
+                ovfl = true;
+                oper = GT_SUB;
+                goto MATH_OP2;
 
-            case CEE_MUL:
-                oper = GT_MUL;
-                goto MATH_MAYBE_CALL_NO_OVF;
             case CEE_MUL_OVF:
                 uns = false;
                 goto MUL_OVF;
@@ -10674,128 +10715,119 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             MUL_OVF:
                 ovfl = true;
                 oper = GT_MUL;
-                goto MATH_MAYBE_CALL_OVF;
+                goto MATH_OP2;
 
-            // Other binary math operations
-
+            case CEE_ADD:
+                oper = GT_ADD;
+                goto MATH_OP2_NO_OVF;
+            case CEE_SUB:
+                oper = GT_SUB;
+                goto MATH_OP2_NO_OVF;
+            case CEE_MUL:
+                oper = GT_MUL;
+                goto MATH_OP2_NO_OVF;
             case CEE_DIV:
                 oper = GT_DIV;
-                goto MATH_MAYBE_CALL_NO_OVF;
+                goto MATH_OP2_NO_OVF;
             case CEE_DIV_UN:
                 oper = GT_UDIV;
-                goto MATH_MAYBE_CALL_NO_OVF;
+                goto MATH_OP2_NO_OVF;
             case CEE_REM:
                 oper = GT_MOD;
-                goto MATH_MAYBE_CALL_NO_OVF;
+                goto MATH_OP2_NO_OVF;
             case CEE_REM_UN:
                 oper = GT_UMOD;
-            MATH_MAYBE_CALL_NO_OVF:
-                ovfl = false;
-            MATH_MAYBE_CALL_OVF:
-                // Morpher has some complex logic about when to turn different
-                // typed nodes on different platforms into helper calls. We
-                // need to either duplicate that logic here, or just
-                // pessimistically make all the nodes large enough to become
-                // call nodes.  Since call nodes aren't that much larger and
-                // these opcodes are infrequent enough I chose the latter.
-                callNode = true;
-                goto MATH_OP2_FLAGS;
-
+                goto MATH_OP2_NO_OVF;
             case CEE_AND:
                 oper = GT_AND;
-                goto MATH_OP2;
+                goto MATH_OP2_NO_OVF;
             case CEE_OR:
                 oper = GT_OR;
-                goto MATH_OP2;
+                goto MATH_OP2_NO_OVF;
             case CEE_XOR:
                 oper = GT_XOR;
-            MATH_OP2: // For default values of 'ovfl' and 'callNode'
-                ovfl     = false;
-                callNode = false;
+            MATH_OP2_NO_OVF:
+                ovfl = false;
 
-            MATH_OP2_FLAGS: // If 'ovfl' and 'callNode' have already been set
+            MATH_OP2:
                 op2 = impPopStack().val;
                 op1 = impPopStack().val;
 
                 type = impGetNumericBinaryOpType(oper, uns, &op1, &op2);
 
-                assert(!ovfl || !varTypeIsFloating(type));
-
-                if ((op2->IsIntegralConst(0) && (oper == GT_ADD || oper == GT_SUB)) ||
-                    (op2->IsIntegralConst(1) && (oper == GT_MUL || oper == GT_DIV)))
+                if (varTypeIsFloating(type))
                 {
-                    impPushOnStack(op1, typeInfo());
-                    break;
+                    oper = static_cast<genTreeOps>(oper - (GT_ADD - GT_FADD));
+
+                    op1 = new (this, oper == GT_FMOD ? GT_CALL : oper)
+                        GenTreeOp(oper, type, op1, op2 DEBUGARG(/*largeNode*/ true));
                 }
-
-                if ((oper == GT_MUL) && !ovfl && ((type == TYP_INT) || (type == TYP_LONG)))
+                else
                 {
-                    GenTreeIntCon* i1 = op1->IsIntCon();
-                    GenTreeIntCon* i2 = op2->IsIntCon();
-
-                    // In general IL generated by Rosly (and hopefully any other sane compiler)
-                    // doesn't generate constant expressions. However, it does happen sometimes,
-                    // due to the use of sizeof or when stackalloc is used, for unclear reasons.
-                    // Fold it now to avoid interfering with local address expression recognition.
-
-                    if ((i1 != nullptr) && (i2 != nullptr))
+                    if ((op2->IsIntegralConst(0) && (oper == GT_ADD || oper == GT_SUB)) ||
+                        (op2->IsIntegralConst(1) && (oper == GT_MUL || oper == GT_DIV)))
                     {
-                        assert(i1->TypeIs(TYP_INT, TYP_LONG));
-                        assert(i2->TypeIs(TYP_INT, TYP_LONG));
-
-                        i1->SetValue(type, i1->GetValue() * i2->GetValue());
-
-                        impPushOnStack(i1, typeInfo());
+                        impPushOnStack(op1, typeInfo());
                         break;
                     }
-                }
 
-                if (callNode)
-                {
-                    /* These operators can later be transformed into 'GT_CALL' */
+                    if ((oper == GT_MUL) && !ovfl && ((type == TYP_INT) || (type == TYP_LONG)))
+                    {
+                        GenTreeIntCon* i1 = op1->IsIntCon();
+                        GenTreeIntCon* i2 = op2->IsIntCon();
 
-                    assert(GenTree::s_gtNodeSizes[GT_CALL] > GenTree::s_gtNodeSizes[GT_MUL]);
-#ifndef TARGET_ARM
-                    assert(GenTree::s_gtNodeSizes[GT_CALL] > GenTree::s_gtNodeSizes[GT_DIV]);
-                    assert(GenTree::s_gtNodeSizes[GT_CALL] > GenTree::s_gtNodeSizes[GT_UDIV]);
-                    assert(GenTree::s_gtNodeSizes[GT_CALL] > GenTree::s_gtNodeSizes[GT_MOD]);
-                    assert(GenTree::s_gtNodeSizes[GT_CALL] > GenTree::s_gtNodeSizes[GT_UMOD]);
+                        // In general IL generated by Rosly (and hopefully any other sane compiler)
+                        // doesn't generate constant expressions. However, it does happen sometimes,
+                        // due to the use of sizeof or when stackalloc is used, for unclear reasons.
+                        // Fold it now to avoid interfering with local address expression recognition.
+
+                        if ((i1 != nullptr) && (i2 != nullptr))
+                        {
+                            assert(i1->TypeIs(TYP_INT, TYP_LONG));
+                            assert(i2->TypeIs(TYP_INT, TYP_LONG));
+
+                            i1->SetValue(type, i1->GetValue() * i2->GetValue());
+
+                            impPushOnStack(i1, typeInfo());
+                            break;
+                        }
+                    }
+
+#ifndef TARGET_64BIT
+                    if ((type == TYP_LONG) && ((oper == GT_MUL) || (oper == GT_DIV) || (oper == GT_UDIV) ||
+                                               (oper == GT_MOD) || (oper == GT_UMOD)))
+                    {
+                        // LONG multiplication/division usually requires helper calls on 32 bit targets.
+                        op1 = new (this, GT_CALL) GenTreeOp(oper, type, op1, op2 DEBUGARG(/*largeNode*/ true));
+                    }
+                    else
 #endif
-                    // It's tempting to use LargeOpOpcode() here, but this logic is *not* saying
-                    // that we'll need to transform into a general large node, but rather specifically
-                    // to a call: by doing it this way, things keep working if there are multiple sizes,
-                    // and a CALL is no longer the largest.
-                    // That said, as of now it *is* a large node, so we'll do this with an assert rather
-                    // than an "if".
-                    assert(GenTree::s_gtNodeSizes[GT_CALL] == TREE_NODE_SZ_LARGE);
-                    op1 = new (this, GT_CALL) GenTreeOp(oper, type, op1, op2 DEBUGARG(/*largeNode*/ true));
-                }
-                else
-                {
-                    op1 = gtNewOperNode(oper, type, op1, op2);
-                }
-
-                if (ovfl)
-                {
-                    assert(op1->OperIs(GT_ADD, GT_SUB, GT_MUL));
-
-                    op1->gtFlags |= (GTF_EXCEPT | GTF_OVERFLOW);
-
-                    if (uns)
                     {
-                        op1->gtFlags |= GTF_UNSIGNED;
+                        op1 = gtNewOperNode(oper, type, op1, op2);
                     }
-                }
-                else if (varTypeIsIntegral(op1->GetType()) && op1->OperIs(GT_DIV, GT_UDIV, GT_MOD, GT_UMOD))
-                {
-                    if (op1->OperMayThrow(this))
+
+                    if (ovfl)
                     {
-                        op1->gtFlags |= GTF_EXCEPT;
+                        assert(op1->OperIs(GT_ADD, GT_SUB, GT_MUL));
+
+                        op1->gtFlags |= (GTF_EXCEPT | GTF_OVERFLOW);
+
+                        if (uns)
+                        {
+                            op1->gtFlags |= GTF_UNSIGNED;
+                        }
                     }
-                }
-                else
-                {
-                    assert(!op1->OperMayThrow(this));
+                    else if (varTypeIsIntegral(op1->GetType()) && op1->OperIs(GT_DIV, GT_UDIV, GT_MOD, GT_UMOD))
+                    {
+                        if (op1->OperMayThrow(this))
+                        {
+                            op1->gtFlags |= GTF_EXCEPT;
+                        }
+                    }
+                    else
+                    {
+                        assert(!op1->OperMayThrow(this));
+                    }
                 }
 
                 impPushOnStack(op1, typeInfo());
@@ -11008,23 +11040,13 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     std::swap(op1, op2);
                 }
 
-#ifdef TARGET_64BIT
-                // TODO-Casts: create a helper that upcasts int32 -> native int when necessary.
-                // See also identical code in impGetByRefResultType and STSFLD import.
-                if (varTypeIsI(op1) && (varActualType(op2->GetType()) == TYP_INT))
+                if (varActualType(op1->GetType()) != varActualType(op2->GetType()))
                 {
-                    op2 = gtNewCastNode(TYP_I_IMPL, op2, uns, TYP_I_IMPL);
-                }
-                else if (varTypeIsI(op2) && (varActualType(op1->GetType()) == TYP_INT))
-                {
-                    op1 = gtNewCastNode(TYP_I_IMPL, op1, uns, TYP_I_IMPL);
-                }
-#endif // TARGET_64BIT
+                    impAddCompareOpImplicitCasts(uns, op1, op2);
 
-                assertImp(varActualType(op1->GetType()) == varActualType(op2->GetType()) ||
-                          (varTypeIsI(op1) && varTypeIsI(op2)) || (varTypeIsFloating(op1) && varTypeIsFloating(op2)));
-
-                // Create the comparison node.
+                    assertImp((varActualType(op1->GetType()) == varActualType(op2->GetType())) ||
+                              (varTypeIsI(op1->GetType()) == varTypeIsI(op2->GetType())));
+                }
 
                 op1 = gtNewOperNode(oper, TYP_INT, op1, op2);
 
@@ -11044,63 +11066,59 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             case CEE_BEQ:
                 oper = GT_EQ;
                 goto CMP_2_OPs_AND_BR;
-
             case CEE_BGE_S:
             case CEE_BGE:
                 oper = GT_GE;
                 goto CMP_2_OPs_AND_BR;
-
             case CEE_BGE_UN_S:
             case CEE_BGE_UN:
                 oper = GT_GE;
                 goto CMP_2_OPs_AND_BR_UN;
-
             case CEE_BGT_S:
             case CEE_BGT:
                 oper = GT_GT;
                 goto CMP_2_OPs_AND_BR;
-
             case CEE_BGT_UN_S:
             case CEE_BGT_UN:
                 oper = GT_GT;
                 goto CMP_2_OPs_AND_BR_UN;
-
             case CEE_BLE_S:
             case CEE_BLE:
                 oper = GT_LE;
                 goto CMP_2_OPs_AND_BR;
-
             case CEE_BLE_UN_S:
             case CEE_BLE_UN:
                 oper = GT_LE;
                 goto CMP_2_OPs_AND_BR_UN;
-
             case CEE_BLT_S:
             case CEE_BLT:
                 oper = GT_LT;
                 goto CMP_2_OPs_AND_BR;
-
             case CEE_BLT_UN_S:
             case CEE_BLT_UN:
                 oper = GT_LT;
                 goto CMP_2_OPs_AND_BR_UN;
-
             case CEE_BNE_UN_S:
             case CEE_BNE_UN:
                 oper = GT_NE;
                 goto CMP_2_OPs_AND_BR_UN;
 
             CMP_2_OPs_AND_BR_UN:
-                uns       = true;
-                unordered = true;
+                uns = true;
                 goto CMP_2_OPs_AND_BR_ALL;
             CMP_2_OPs_AND_BR:
-                uns       = false;
-                unordered = false;
+                uns = false;
                 goto CMP_2_OPs_AND_BR_ALL;
+
             CMP_2_OPs_AND_BR_ALL:
                 op2 = impPopStack().val;
                 op1 = impPopStack().val;
+
+                if (opts.OptimizationEnabled() && (block->bbJumpDest == block->bbNext))
+                {
+                    impBranchToNextBlock(block, op1, op2);
+                    break;
+                }
 
                 if (op1->OperIs(GT_CNS_INT, GT_CNS_LNG, GT_CNS_DBL) && !op2->OperIs(GT_CNS_INT, GT_CNS_LNG, GT_CNS_DBL))
                 {
@@ -11108,84 +11126,20 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     std::swap(op1, op2);
                 }
 
-#ifdef TARGET_64BIT
-                if ((op1->TypeGet() == TYP_I_IMPL) && (genActualType(op2->TypeGet()) == TYP_INT))
+                if (varActualType(op1->GetType()) != varActualType(op2->GetType()))
                 {
-                    op2 = gtNewCastNode(TYP_I_IMPL, op2, uns, uns ? TYP_U_IMPL : TYP_I_IMPL);
+                    impAddCompareOpImplicitCasts(uns, op1, op2);
+
+                    assertImp((varActualType(op1->GetType()) == varActualType(op2->GetType())) ||
+                              (varTypeIsI(op1->GetType()) == varTypeIsI(op2->GetType())));
                 }
-                else if ((op2->TypeGet() == TYP_I_IMPL) && (genActualType(op1->TypeGet()) == TYP_INT))
-                {
-                    op1 = gtNewCastNode(TYP_I_IMPL, op1, uns, uns ? TYP_U_IMPL : TYP_I_IMPL);
-                }
-#endif // TARGET_64BIT
-
-                assertImp(genActualType(op1->TypeGet()) == genActualType(op2->TypeGet()) ||
-                          (varTypeIsI(op1->TypeGet()) && varTypeIsI(op2->TypeGet())) ||
-                          (varTypeIsFloating(op1->gtType) && varTypeIsFloating(op2->gtType)));
-
-                if (opts.OptimizationEnabled() && (block->bbJumpDest == block->bbNext))
-                {
-                    block->bbJumpKind = BBJ_NONE;
-
-                    if (op1->gtFlags & GTF_GLOB_EFFECT)
-                    {
-                        impSpillSideEffects(GTF_SIDE_EFFECT,
-                                            CHECK_SPILL_ALL DEBUGARG("Branch to next Optimization, op1 side effect"));
-                        impAppendTree(gtUnusedValNode(op1), CHECK_SPILL_NONE, impCurStmtOffs);
-                    }
-                    if (op2->gtFlags & GTF_GLOB_EFFECT)
-                    {
-                        impSpillSideEffects(GTF_SIDE_EFFECT,
-                                            CHECK_SPILL_ALL DEBUGARG("Branch to next Optimization, value side effect"));
-                        impAppendTree(gtUnusedValNode(op2), CHECK_SPILL_NONE, impCurStmtOffs);
-                    }
-
-#ifdef DEBUG
-                    if ((op1->gtFlags | op2->gtFlags) & GTF_GLOB_EFFECT)
-                    {
-                        impNoteLastILoffs();
-                    }
-#endif
-                    break;
-                }
-
-                // We can generate an compare of different sized floating point op1 and op2
-                // We insert a cast
-                //
-                if (varTypeIsFloating(op1->TypeGet()))
-                {
-                    if (op1->TypeGet() != op2->TypeGet())
-                    {
-                        assert(varTypeIsFloating(op2->TypeGet()));
-
-                        // say op1=double, op2=float. To avoid loss of precision
-                        // while comparing, op2 is converted to double and double
-                        // comparison is done.
-                        if (op1->TypeGet() == TYP_DOUBLE)
-                        {
-                            // We insert a cast of op2 to TYP_DOUBLE
-                            op2 = gtNewCastNode(TYP_DOUBLE, op2, false, TYP_DOUBLE);
-                        }
-                        else if (op2->TypeGet() == TYP_DOUBLE)
-                        {
-                            // We insert a cast of op1 to TYP_DOUBLE
-                            op1 = gtNewCastNode(TYP_DOUBLE, op1, false, TYP_DOUBLE);
-                        }
-                    }
-                }
-
-                /* Create and append the operator */
 
                 op1 = gtNewOperNode(oper, TYP_INT, op1, op2);
 
+                // TODO: setting both flags when only one is appropriate.
                 if (uns)
                 {
-                    op1->gtFlags |= GTF_UNSIGNED;
-                }
-
-                if (unordered)
-                {
-                    op1->gtFlags |= GTF_RELOP_NAN_UN;
+                    op1->gtFlags |= GTF_RELOP_NAN_UN | GTF_UNSIGNED;
                 }
 
                 goto COND_JUMP;
@@ -11425,9 +11379,19 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_NEG:
-                op1 = impPopStack().val;
-                impBashVarAddrsToI(op1, nullptr);
-                impPushOnStack(gtNewOperNode(GT_NEG, genActualType(op1->gtType), op1), typeInfo());
+                op1  = impPopStack().val;
+                type = op1->GetType();
+                if (varTypeIsFloating(type))
+                {
+                    oper = GT_FNEG;
+                }
+                else
+                {
+                    impBashVarAddrsToI(op1, nullptr);
+                    type = varActualType(type);
+                    oper = GT_NEG;
+                }
+                impPushOnStack(gtNewOperNode(oper, type, op1), typeInfo());
                 break;
 
             case CEE_POP:
