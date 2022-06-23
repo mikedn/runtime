@@ -3566,6 +3566,9 @@ private:
                     }
                     break;
 
+                // TODO-MIKE-CQ: This doesn't handle some helper calls that can be evaluated to
+                // constants, like CORINFO_HELP_FLTREM and CORINFO_HELP_DBLREM.
+
                 default:
                     return Compiler::WALK_CONTINUE;
             }
