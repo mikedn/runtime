@@ -17,7 +17,7 @@
 
 class EarlyProp
 {
-    static const int optEarlyPropRecurBound = 5;
+    static const int RecursionLimit = 5;
 
     typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, GenTree*> LocalNumberToNullCheckTreeMap;
 
@@ -30,11 +30,11 @@ public:
 
     void Run()
     {
-        optEarlyProp();
+        DoEarlyProp();
     }
 
 private:
-    bool optDoEarlyPropForFunc()
+    bool DoEarlyPropForFunc()
     {
         bool propArrayLen =
             (compiler->optMethodFlags & OMF_HAS_NEWARRAY) && (compiler->optMethodFlags & OMF_HAS_ARRAYREF);
@@ -42,7 +42,7 @@ private:
         return propArrayLen || propNullCheck;
     }
 
-    bool optDoEarlyPropForBlock(BasicBlock* block)
+    bool DoEarlyPropForBlock(BasicBlock* block)
     {
         bool bbHasArrayRef  = (block->bbFlags & BBF_HAS_IDX_LEN) != 0;
         bool bbHasNullCheck = (block->bbFlags & BBF_HAS_NULLCHECK) != 0;
@@ -50,7 +50,7 @@ private:
     }
 
     //------------------------------------------------------------------------------
-    // getArrayLengthFromAllocation: Return the array length for an array allocation
+    // GetArrayLengthFromAllocation: Return the array length for an array allocation
     //                               helper call.
     //
     // Arguments:
@@ -60,7 +60,7 @@ private:
     // Return Value:
     //    Return the array length node.
 
-    GenTree* getArrayLengthFromAllocation(GenTree* tree DEBUGARG(BasicBlock* block))
+    GenTree* GetArrayLengthFromAllocation(GenTree* tree DEBUGARG(BasicBlock* block))
     {
         assert(tree != nullptr);
 
@@ -90,8 +90,8 @@ private:
 #ifdef DEBUG
                 if (arrayLength != nullptr)
                 {
-                    optCheckFlagsAreSet(OMF_HAS_NEWARRAY, "OMF_HAS_NEWARRAY", BBF_HAS_NEWARRAY, "BBF_HAS_NEWARRAY",
-                                        tree, block);
+                    CheckFlagsAreSet(OMF_HAS_NEWARRAY, "OMF_HAS_NEWARRAY", BBF_HAS_NEWARRAY, "BBF_HAS_NEWARRAY", tree,
+                                     block);
                 }
 #endif
             }
@@ -102,7 +102,7 @@ private:
 
 #ifdef DEBUG
     //-----------------------------------------------------------------------------
-    // optCheckFlagsAreSet: Check that the method flag and the basic block flag are set.
+    // CheckFlagsAreSet: Check that the method flag and the basic block flag are set.
     //
     // Arguments:
     //    methodFlag           - The method flag to check.
@@ -112,12 +112,12 @@ private:
     //    tree                 - Tree that makes the flags required.
     //    basicBlock           - The basic block to check the flag on.
 
-    void optCheckFlagsAreSet(unsigned    methodFlag,
-                             const char* methodFlagStr,
-                             unsigned    bbFlag,
-                             const char* bbFlagStr,
-                             GenTree*    tree,
-                             BasicBlock* basicBlock)
+    void CheckFlagsAreSet(unsigned    methodFlag,
+                          const char* methodFlagStr,
+                          unsigned    bbFlag,
+                          const char* bbFlagStr,
+                          GenTree*    tree,
+                          BasicBlock* basicBlock)
     {
         if ((compiler->optMethodFlags & methodFlag) == 0)
         {
@@ -137,7 +137,7 @@ private:
 #endif
 
     //------------------------------------------------------------------------------------------
-    // optEarlyProp: The entry point of the early value propagation.
+    // DoEarlyProp: The entry point of the early value propagation.
     //
     // Notes:
     //    This phase performs an SSA-based value propagation, including
@@ -161,15 +161,15 @@ private:
     //    Null check folding tries to find GT_INDIR(obj + const) that GT_NULLCHECK(obj) can be folded into
     //    and removed. Currently, the algorithm only matches GT_INDIR and GT_NULLCHECK in the same basic block.
 
-    void optEarlyProp()
+    void DoEarlyProp()
     {
 #ifdef DEBUG
         if (compiler->verbose)
         {
-            printf("*************** In optEarlyProp()\n");
+            printf("*************** In DoEarlyProp()\n");
         }
 #else
-        if (!optDoEarlyPropForFunc())
+        if (!DoEarlyPropForFunc())
         {
             return;
         }
@@ -180,7 +180,7 @@ private:
         for (BasicBlock* const block : compiler->Blocks())
         {
 #ifndef DEBUG
-            if (!optDoEarlyPropForBlock(block))
+            if (!DoEarlyPropForBlock(block))
             {
                 continue;
             }
@@ -203,7 +203,7 @@ private:
                 bool isRewritten = false;
                 for (GenTree* tree = stmt->GetTreeList(); tree != nullptr; tree = tree->gtNext)
                 {
-                    GenTree* rewrittenTree = optEarlyPropRewriteTree(tree, &nullCheckMap);
+                    GenTree* rewrittenTree = RewriteTree(tree, &nullCheckMap);
                     if (rewrittenTree != nullptr)
                     {
                         compiler->gtUpdateSideEffects(stmt, rewrittenTree);
@@ -216,7 +216,7 @@ private:
                 if (isRewritten)
                 {
                     // Make sure the transformation happens in debug, check, and release build.
-                    assert(optDoEarlyPropForFunc() && optDoEarlyPropForBlock(block));
+                    assert(DoEarlyPropForFunc() && DoEarlyPropForBlock(block));
                     compiler->gtSetStmtInfo(stmt);
                     compiler->fgSetStmtSeq(stmt);
                 }
@@ -228,7 +228,7 @@ private:
 #ifdef DEBUG
         if (compiler->verbose)
         {
-            JITDUMP("\nAfter optEarlyProp:\n");
+            JITDUMP("\nAfter DoEarlyProp:\n");
             compiler->fgDispBasicBlocks(/*dumpTrees*/ true);
         }
 #endif
@@ -245,15 +245,15 @@ private:
     //    Return a new tree if the original tree was successfully rewritten.
     //    The containing tree links are updated.
     //
-    GenTree* optEarlyPropRewriteTree(GenTree* tree, LocalNumberToNullCheckTreeMap* nullCheckMap)
+    GenTree* RewriteTree(GenTree* tree, LocalNumberToNullCheckTreeMap* nullCheckMap)
     {
         if (!tree->OperIsIndirOrArrLength())
         {
             return nullptr;
         }
 
-        // optFoldNullCheck takes care of updating statement info if a null check is removed.
-        optFoldNullCheck(tree, nullCheckMap);
+        // FoldNullCheck takes care of updating statement info if a null check is removed.
+        FoldNullCheck(tree, nullCheckMap);
 
         if (tree->OperGet() != GT_ARR_LENGTH)
         {
@@ -267,10 +267,10 @@ private:
             return nullptr;
         }
 
-        INDEBUG(optCheckFlagsAreSet(OMF_HAS_ARRAYREF, "OMF_HAS_ARRAYREF", BBF_HAS_IDX_LEN, "BBF_HAS_IDX_LEN", tree,
-                                    compiler->compCurBB));
+        INDEBUG(CheckFlagsAreSet(OMF_HAS_ARRAYREF, "OMF_HAS_ARRAYREF", BBF_HAS_IDX_LEN, "BBF_HAS_IDX_LEN", tree,
+                                 compiler->compCurBB));
 
-        GenTree* actualVal = optPropGetValue(objectRefPtr->AsLclVar());
+        GenTree* actualVal = GetValue(objectRefPtr->AsLclVar());
 
         if (actualVal == nullptr)
         {
@@ -329,7 +329,7 @@ private:
 #ifdef DEBUG
         if (compiler->verbose)
         {
-            printf("optEarlyProp Rewriting " FMT_BB "\n", compiler->compCurBB->bbNum);
+            printf("DoEarlyProp Rewriting " FMT_BB "\n", compiler->compCurBB->bbNum);
             compiler->gtDispStmt(compiler->compCurStmt);
             printf("\n");
         }
@@ -367,12 +367,12 @@ private:
         return tree;
     }
 
-    GenTree* optPropGetValue(GenTreeLclVar* lclVar)
+    GenTree* GetValue(GenTreeLclVar* lclVar)
     {
-        return optPropGetValueRec(lclVar, 0);
+        return GetValueRec(lclVar, 0);
     }
 
-    GenTree* optPropGetValueRec(GenTreeLclVar* lclVar, int walkDepth)
+    GenTree* GetValueRec(GenTreeLclVar* lclVar, int walkDepth)
     {
         unsigned ssaNum = lclVar->GetSsaNum();
 
@@ -382,7 +382,7 @@ private:
         }
 
         // Bound the recursion with a hard limit.
-        if (walkDepth > optEarlyPropRecurBound)
+        if (walkDepth > RecursionLimit)
         {
             return nullptr;
         }
@@ -406,10 +406,10 @@ private:
         if (treeRhs->OperIs(GT_LCL_VAR) && compiler->lvaInSsa(treeRhs->AsLclVar()->GetLclNum()) &&
             treeRhs->AsLclVar()->HasSsaName())
         {
-            return optPropGetValueRec(treeRhs->AsLclVar(), walkDepth + 1);
+            return GetValueRec(treeRhs->AsLclVar(), walkDepth + 1);
         }
 
-        GenTree* value = getArrayLengthFromAllocation(treeRhs DEBUGARG(ssaVarDsc->GetBlock()));
+        GenTree* value = GetArrayLengthFromAllocation(treeRhs DEBUGARG(ssaVarDsc->GetBlock()));
         if ((value != nullptr) && !value->IsCnsIntOrI())
         {
             // Leave out non-constant-sized array
@@ -434,13 +434,13 @@ private:
     //    The indir will cause a NullReferenceException if and only if GT_NULLCHECK will cause the same
     //    NullReferenceException.
 
-    void optFoldNullCheck(GenTree* tree, LocalNumberToNullCheckTreeMap* nullCheckMap)
+    void FoldNullCheck(GenTree* tree, LocalNumberToNullCheckTreeMap* nullCheckMap)
     {
 #ifdef DEBUG
         if (tree->OperGet() == GT_NULLCHECK)
         {
-            optCheckFlagsAreSet(OMF_HAS_NULLCHECK, "OMF_HAS_NULLCHECK", BBF_HAS_NULLCHECK, "BBF_HAS_NULLCHECK", tree,
-                                compiler->compCurBB);
+            CheckFlagsAreSet(OMF_HAS_NULLCHECK, "OMF_HAS_NULLCHECK", BBF_HAS_NULLCHECK, "BBF_HAS_NULLCHECK", tree,
+                             compiler->compCurBB);
         }
 #else
         if ((compiler->compCurBB->bbFlags & BBF_HAS_NULLCHECK) == 0)
@@ -449,19 +449,19 @@ private:
         }
 #endif
 
-        GenTree*   nullCheckTree   = optFindNullCheckToFold(tree, nullCheckMap);
+        GenTree*   nullCheckTree   = FindNullCheckToFold(tree, nullCheckMap);
         GenTree*   nullCheckParent = nullptr;
         Statement* nullCheckStmt   = nullptr;
         if ((nullCheckTree != nullptr) &&
-            optIsNullCheckFoldingLegal(tree, nullCheckTree, &nullCheckParent, &nullCheckStmt))
+            IsNullCheckFoldingLegal(tree, nullCheckTree, &nullCheckParent, &nullCheckStmt))
         {
 #ifdef DEBUG
             // Make sure the transformation happens in debug, check, and release build.
-            assert(optDoEarlyPropForFunc() && optDoEarlyPropForBlock(compiler->compCurBB) &&
+            assert(DoEarlyPropForFunc() && DoEarlyPropForBlock(compiler->compCurBB) &&
                    (compiler->compCurBB->bbFlags & BBF_HAS_NULLCHECK) != 0);
             if (compiler->verbose)
             {
-                printf("optEarlyProp Marking a null check for removal\n");
+                printf("DoEarlyProp Marking a null check for removal\n");
                 compiler->gtDispTree(nullCheckTree);
                 printf("\n");
             }
@@ -482,7 +482,7 @@ private:
 
             // Re-morph the statement.
             Statement* curStmt = compiler->compCurStmt;
-            compiler->fgMorphBlockStmt(compiler->compCurBB, nullCheckStmt DEBUGARG("optFoldNullCheck"));
+            compiler->fgMorphBlockStmt(compiler->compCurBB, nullCheckStmt DEBUGARG("FoldNullCheck"));
             compiler->compCurStmt = curStmt;
         }
 
@@ -494,7 +494,7 @@ private:
     }
 
     //----------------------------------------------------------------
-    // optFindNullCheckToFold: Try to find a GT_NULLCHECK node that can be folded into the indirection node.
+    // FindNullCheckToFold: Try to find a GT_NULLCHECK node that can be folded into the indirection node.
     //
     // Arguments:
     //    tree           - The input indirection tree.
@@ -518,7 +518,7 @@ private:
     //
     //     2.  const1 + const2 if sufficiently small.
 
-    GenTree* optFindNullCheckToFold(GenTree* tree, LocalNumberToNullCheckTreeMap* nullCheckMap)
+    GenTree* FindNullCheckToFold(GenTree* tree, LocalNumberToNullCheckTreeMap* nullCheckMap)
     {
         assert(tree->OperIsIndirOrArrLength());
 
@@ -622,7 +622,7 @@ private:
     }
 
     //----------------------------------------------------------------
-    // optIsNullCheckFoldingLegal: Check the nodes between the GT_NULLCHECK node and the indirection to determine
+    // IsNullCheckFoldingLegal: Check the nodes between the GT_NULLCHECK node and the indirection to determine
     //                             if null check folding is legal.
     //
     // Arguments:
@@ -631,10 +631,10 @@ private:
     //    nullCheckParent     - The parent of the GT_NULLCHECK tree that is a candidate for removal (out-parameter).
     //    nullCheckStatement  - The statement of the GT_NULLCHECK tree that is a candidate for removal (out-parameter).
 
-    bool optIsNullCheckFoldingLegal(GenTree*    tree,
-                                    GenTree*    nullCheckTree,
-                                    GenTree**   nullCheckParent,
-                                    Statement** nullCheckStmt)
+    bool IsNullCheckFoldingLegal(GenTree*    tree,
+                                 GenTree*    nullCheckTree,
+                                 GenTree**   nullCheckParent,
+                                 Statement** nullCheckStmt)
     {
         // Check all nodes between the GT_NULLCHECK and the indirection to see
         // if any nodes have unsafe side effects.
@@ -656,7 +656,7 @@ private:
             }
             const bool checkExceptionSummary = false;
             if ((nodesWalked++ > maxNodesWalked) ||
-                !optCanMoveNullCheckPastTree(currentTree, nullCheckLclNum, isInsideTry, checkExceptionSummary))
+                !CanMoveNullCheckPastTree(currentTree, nullCheckLclNum, isInsideTry, checkExceptionSummary))
             {
                 canRemoveNullCheck = false;
             }
@@ -684,7 +684,7 @@ private:
             {
                 const bool checkExceptionSummary = false;
                 if ((nodesWalked++ > maxNodesWalked) ||
-                    !optCanMoveNullCheckPastTree(currentTree, nullCheckLclNum, isInsideTry, checkExceptionSummary))
+                    !CanMoveNullCheckPastTree(currentTree, nullCheckLclNum, isInsideTry, checkExceptionSummary))
                 {
                     canRemoveNullCheck = false;
                 }
@@ -703,7 +703,7 @@ private:
             {
                 const bool checkExceptionSummary = true;
                 if ((nodesWalked++ > maxNodesWalked) ||
-                    !optCanMoveNullCheckPastTree(currentTree, nullCheckLclNum, isInsideTry, checkExceptionSummary))
+                    !CanMoveNullCheckPastTree(currentTree, nullCheckLclNum, isInsideTry, checkExceptionSummary))
                 {
                     canRemoveNullCheck = false;
                 }
@@ -725,7 +725,7 @@ private:
     }
 
     //----------------------------------------------------------------
-    // optCanMoveNullCheckPastTree: Check if a nullcheck node that is before `tree`
+    // CanMoveNullCheckPastTree: Check if a nullcheck node that is before `tree`
     //                              in execution order may be folded into an indirection node that
     //                              is after `tree` is execution order.
     //
@@ -740,10 +740,10 @@ private:
     //    True if nullcheck may be folded into a node that is after tree in execution order,
     //    false otherwise.
 
-    bool optCanMoveNullCheckPastTree(GenTree* tree,
-                                     unsigned nullCheckLclNum,
-                                     bool     isInsideTry,
-                                     bool     checkSideEffectSummary)
+    bool CanMoveNullCheckPastTree(GenTree* tree,
+                                  unsigned nullCheckLclNum,
+                                  bool     isInsideTry,
+                                  bool     checkSideEffectSummary)
     {
         bool result = true;
 
