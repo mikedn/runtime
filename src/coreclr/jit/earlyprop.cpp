@@ -17,7 +17,7 @@
 
 class EarlyProp
 {
-    static const int RecursionLimit = 5;
+    static const int SsaChaseLimit = 5;
 
     typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, GenTree*> LocalNumberToNullCheckTreeMap;
 
@@ -49,53 +49,34 @@ private:
         return bbHasArrayRef || bbHasNullCheck;
     }
 
-    //------------------------------------------------------------------------------
-    // GetArrayLengthFromAllocation: Return the array length for an array allocation
-    //                               helper call.
-    //
-    // Arguments:
-    //    tree           - The array allocation helper call.
-    //    block          - tree's basic block.
-    //
-    // Return Value:
-    //    Return the array length node.
-
-    GenTree* GetArrayLengthFromAllocation(GenTree* tree DEBUGARG(BasicBlock* block))
+    GenTree* GetArrayLengthFromAllocation(GenTreeCall* call DEBUGARG(BasicBlock* block))
     {
-        assert(tree != nullptr);
+        assert(call->IsHelperCall());
 
         GenTree* arrayLength = nullptr;
 
-        if (tree->OperGet() == GT_CALL)
+        if (call->gtCallMethHnd == Compiler::eeFindHelper(CORINFO_HELP_NEWARR_1_DIRECT) ||
+            call->gtCallMethHnd == Compiler::eeFindHelper(CORINFO_HELP_NEWARR_1_OBJ) ||
+            call->gtCallMethHnd == Compiler::eeFindHelper(CORINFO_HELP_NEWARR_1_VC) ||
+            call->gtCallMethHnd == Compiler::eeFindHelper(CORINFO_HELP_NEWARR_1_ALIGN8))
         {
-            GenTreeCall* call = tree->AsCall();
-
-            if (call->gtCallType == CT_HELPER)
-            {
-                if (call->gtCallMethHnd == Compiler::eeFindHelper(CORINFO_HELP_NEWARR_1_DIRECT) ||
-                    call->gtCallMethHnd == Compiler::eeFindHelper(CORINFO_HELP_NEWARR_1_OBJ) ||
-                    call->gtCallMethHnd == Compiler::eeFindHelper(CORINFO_HELP_NEWARR_1_VC) ||
-                    call->gtCallMethHnd == Compiler::eeFindHelper(CORINFO_HELP_NEWARR_1_ALIGN8))
-                {
-                    // This is an array allocation site. Grab the array length node.
-                    arrayLength = call->GetArgNodeByArgNum(1);
-                }
-                else if (call->gtCallMethHnd == Compiler::eeFindHelper(CORINFO_HELP_READYTORUN_NEWARR_1))
-                {
-                    // On arm when compiling on certain platforms for ready to run, a handle will be
-                    // inserted before the length. To handle this case, we will grab the last argument
-                    // as that's always the length. See fgInitArgInfo for where the handle is inserted.
-                    arrayLength = call->GetArgNodeByArgNum(call->GetInfo()->GetArgCount() - 1);
-                }
-#ifdef DEBUG
-                if (arrayLength != nullptr)
-                {
-                    CheckFlagsAreSet(OMF_HAS_NEWARRAY, "OMF_HAS_NEWARRAY", BBF_HAS_NEWARRAY, "BBF_HAS_NEWARRAY", tree,
-                                     block);
-                }
-#endif
-            }
+            // This is an array allocation site. Grab the array length node.
+            arrayLength = call->GetArgNodeByArgNum(1);
         }
+        else if (call->gtCallMethHnd == Compiler::eeFindHelper(CORINFO_HELP_READYTORUN_NEWARR_1))
+        {
+            // On arm when compiling on certain platforms for ready to run, a handle will be
+            // inserted before the length. To handle this case, we will grab the last argument
+            // as that's always the length. See fgInitArgInfo for where the handle is inserted.
+            arrayLength = call->GetArgNodeByArgNum(call->GetInfo()->GetArgCount() - 1);
+        }
+
+#ifdef DEBUG
+        if (arrayLength != nullptr)
+        {
+            CheckFlagsAreSet(OMF_HAS_NEWARRAY, "OMF_HAS_NEWARRAY", BBF_HAS_NEWARRAY, "BBF_HAS_NEWARRAY", call, block);
+        }
+#endif
 
         return arrayLength;
     }
@@ -265,9 +246,9 @@ private:
         INDEBUG(CheckFlagsAreSet(OMF_HAS_ARRAYREF, "OMF_HAS_ARRAYREF", BBF_HAS_IDX_LEN, "BBF_HAS_IDX_LEN", tree,
                                  compiler->compCurBB));
 
-        GenTree* actualVal = GetValue(objectRefPtr->AsLclVar());
+        GenTree* actualVal = GetArrayLength(objectRefPtr->AsLclVar());
 
-        if (actualVal == nullptr)
+        if (actualVal == nullptr || !actualVal->IsIntCon())
         {
             return nullptr;
         }
@@ -362,56 +343,43 @@ private:
         return tree;
     }
 
-    GenTree* GetValue(GenTreeLclVar* lclVar)
+    GenTree* GetArrayLength(GenTreeLclVar* lclVar)
     {
-        return GetValueRec(lclVar, 0);
+        INDEBUG(BasicBlock* defBlock = nullptr;)
+        GenTree* value = GetSsaValue(lclVar DEBUGARG(&defBlock));
+        return value->IsHelperCall() ? GetArrayLengthFromAllocation(value->AsCall() DEBUGARG(defBlock)) : nullptr;
     }
 
-    GenTree* GetValueRec(GenTreeLclVar* lclVar, int walkDepth)
+    GenTree* GetSsaValue(GenTreeLclVar* use DEBUGARG(BasicBlock** defBlock))
     {
-        unsigned ssaNum = lclVar->GetSsaNum();
-
-        if (ssaNum == SsaConfig::RESERVED_SSA_NUM)
+        for (unsigned i = 0; (i < SsaChaseLimit) && (use->GetSsaNum() != SsaConfig::RESERVED_SSA_NUM); i++)
         {
-            return nullptr;
+            LclSsaVarDsc* ssaDef = compiler->lvaGetSsaDesc(use);
+            GenTreeOp*    asg    = ssaDef->GetAssignment();
+
+            INDEBUG(*defBlock = ssaDef->GetBlock());
+
+            if (asg == nullptr)
+            {
+                // Parameters have no definition assignments.
+                assert(use->GetSsaNum() == SsaConfig::FIRST_SSA_NUM);
+
+                break;
+            }
+
+            assert(asg->OperIs(GT_ASG));
+
+            GenTree* value = asg->GetOp(1);
+
+            if (!value->OperIs(GT_LCL_VAR))
+            {
+                return value;
+            }
+
+            use = value->AsLclVar();
         }
 
-        // Bound the recursion with a hard limit.
-        if (walkDepth > RecursionLimit)
-        {
-            return nullptr;
-        }
-
-        // Track along the use-def chain to get the array length
-        LclSsaVarDsc* ssaVarDsc = compiler->lvaGetDesc(lclVar)->GetPerSsaData(ssaNum);
-        GenTreeOp*    ssaDefAsg = ssaVarDsc->GetAssignment();
-
-        if (ssaDefAsg == nullptr)
-        {
-            // Incoming parameters or live-in variables don't have actual definition tree node
-            // for their FIRST_SSA_NUM. See SsaBuilder::RenameVariables.
-            assert(ssaNum == SsaConfig::FIRST_SSA_NUM);
-            return nullptr;
-        }
-
-        assert(ssaDefAsg->OperIs(GT_ASG));
-
-        GenTree* treeRhs = ssaDefAsg->gtGetOp2();
-
-        if (treeRhs->OperIs(GT_LCL_VAR) && compiler->lvaInSsa(treeRhs->AsLclVar()->GetLclNum()) &&
-            treeRhs->AsLclVar()->HasSsaName())
-        {
-            return GetValueRec(treeRhs->AsLclVar(), walkDepth + 1);
-        }
-
-        GenTree* value = GetArrayLengthFromAllocation(treeRhs DEBUGARG(ssaVarDsc->GetBlock()));
-        if ((value != nullptr) && !value->IsCnsIntOrI())
-        {
-            // Leave out non-constant-sized array
-            value = nullptr;
-        }
-
-        return value;
+        return use;
     }
 
     //----------------------------------------------------------------
