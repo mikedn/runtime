@@ -253,10 +253,15 @@ private:
             return nullptr;
         }
 
-        assert(actualVal->IsCnsIntOrI() && !actualVal->AsIntCon()->IsIconHandle());
+        return PropagateConstArrayLength(tree->AsArrLen(), actualVal->AsIntCon());
+    }
+
+    GenTree* PropagateConstArrayLength(GenTreeArrLen* tree, GenTreeIntCon* actualVal)
+    {
+        assert(!actualVal->IsIconHandle());
         assert(actualVal->GetNodeSize() == TREE_NODE_SZ_SMALL);
 
-        ssize_t actualConstVal = actualVal->AsIntCon()->IconValue();
+        ssize_t actualConstVal = actualVal->IconValue();
 
         if ((actualConstVal < 0) || (actualConstVal > INT32_MAX))
         {
