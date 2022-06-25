@@ -163,12 +163,7 @@ private:
 
     void DoEarlyProp()
     {
-#ifdef DEBUG
-        if (compiler->verbose)
-        {
-            printf("*************** In DoEarlyProp()\n");
-        }
-#else
+#ifndef DEBUG
         if (!DoEarlyPropForFunc())
         {
             return;
