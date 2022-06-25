@@ -224,46 +224,44 @@ private:
         return PropagateConstArrayLength(tree->AsArrLen(), actualVal->AsIntCon());
     }
 
-    GenTree* PropagateConstArrayLength(GenTreeArrLen* tree, GenTreeIntCon* actualVal)
+    GenTree* PropagateConstArrayLength(GenTreeArrLen* arrLen, GenTreeIntCon* constLen)
     {
-        assert(!actualVal->IsIconHandle());
-        assert(actualVal->GetNodeSize() == TREE_NODE_SZ_SMALL);
+        ssize_t constVal = constLen->GetValue();
 
-        ssize_t actualConstVal = actualVal->IconValue();
-
-        if ((actualConstVal < 0) || (actualConstVal > INT32_MAX))
+        if ((constVal < 0) || (constVal > INT32_MAX))
         {
-            // Don't propagate array lengths that are beyond the maximum value of a GT_ARR_LENGTH or negative.
-            // node. CORINFO_HELP_NEWARR_1_OBJ helper call allows to take a long integer as the
-            // array length argument, but the type of GT_ARR_LENGTH is always INT32.
+            // Don't propagate array lengths that are beyond the maximum value of a ARR_LENGTH node
+            // or negative. CORINFO_HELP_NEWARR_1_OBJ helper call allows a LONG as the array length
+            // argument, but the type of ARR_LENGTH is always INT.
             return nullptr;
         }
 
-        // When replacing GT_ARR_LENGTH nodes with constants we can end up with GT_ARR_BOUNDS_CHECK
-        // nodes that have constant operands and thus can be trivially proved to be useless. It's
-        // better to remove these range checks here, otherwise they'll pass through assertion prop
-        // (creating useless (c1 < c2)-like assertions) and reach RangeCheck where they are finally
-        // removed. Common patterns like new int[] { x, y, z } benefit from this.
+        // When replacing ARR_LENGTH nodes with constants we can end up with ARR_BOUNDS_CHECK nodes
+        // that have constant operands and thus can be trivially proved to be useless. It's better
+        // to remove these range checks here, otherwise they'll reach assertion prop (creating
+        // useless (c1 < c2)-like assertions) and reach RangeCheck where they are finally removed.
+        // Common patterns like new int[] { x, y, z } benefit from this.
 
-        if ((tree->gtNext != nullptr) && tree->gtNext->OperIs(GT_ARR_BOUNDS_CHECK))
+        if ((arrLen->gtNext != nullptr) && arrLen->gtNext->OperIs(GT_ARR_BOUNDS_CHECK))
         {
-            GenTreeBoundsChk* check = tree->gtNext->AsBoundsChk();
+            GenTreeBoundsChk* check = arrLen->gtNext->AsBoundsChk();
 
-            if ((check->gtArrLen == tree) && check->gtIndex->IsCnsIntOrI())
+            if ((check->GetLength() == arrLen) && check->GetIndex()->IsIntCon())
             {
-                ssize_t checkConstVal = check->gtIndex->AsIntCon()->IconValue();
-                if ((checkConstVal >= 0) && (checkConstVal < actualConstVal))
+                ssize_t checkConstVal = check->gtIndex->AsIntCon()->GetValue();
+
+                if ((checkConstVal >= 0) && (checkConstVal < constVal))
                 {
                     GenTree* comma = check->FindUser();
 
                     // We should never see cases other than these in the IR,
                     // as the check node does not produce a value.
                     assert(((comma != nullptr) && comma->OperIs(GT_COMMA) &&
-                            (comma->gtGetOp1() == check || comma->TypeIs(TYP_VOID))) ||
+                            (comma->AsOp()->GetOp(0) == check || comma->TypeIs(TYP_VOID))) ||
                            (check == compiler->compCurStmt->GetRootNode()));
 
                     // Still, we guard here so that release builds do not try to optimize trees we don't understand.
-                    if (((comma != nullptr) && comma->OperIs(GT_COMMA) && (comma->gtGetOp1() == check)) ||
+                    if (((comma != nullptr) && comma->OperIs(GT_COMMA) && (comma->AsOp()->GetOp(0) == check)) ||
                         (check == compiler->compCurStmt->GetRootNode()))
                     {
                         // Both `tree` and `check` have been removed from the statement.
@@ -278,31 +276,30 @@ private:
 #ifdef DEBUG
         if (compiler->verbose)
         {
-            printf("DoEarlyProp Rewriting " FMT_BB "\n", compiler->compCurBB->bbNum);
+            printf("PropagateConstArrayLength rewriting\n");
             compiler->gtDispStmt(compiler->compCurStmt);
             printf("\n");
         }
 #endif
 
-        GenTree* actualValClone = compiler->gtCloneExpr(actualVal);
+        GenTree* constLenClone = compiler->gtCloneExpr(constLen);
 
-        if (actualValClone->gtType != tree->gtType)
+        if (constLenClone->GetType() != arrLen->GetType())
         {
-            assert(actualValClone->gtType == TYP_LONG);
-            assert(tree->gtType == TYP_INT);
-            assert((actualConstVal >= 0) && (actualConstVal <= INT32_MAX));
-            actualValClone->gtType = tree->gtType;
+            assert(constLenClone->TypeIs(TYP_LONG));
+            assert(arrLen->TypeIs(TYP_INT));
+
+            constLenClone->SetType(arrLen->GetType());
         }
 
-        // actualValClone has small tree node size, it is safe to use CopyFrom here.
-        tree->ReplaceWith(actualValClone, compiler);
+        // constLenClone has small tree node size, it is safe to use ReplaceWith here.
+        arrLen->ReplaceWith(constLenClone, compiler);
 
         // Propagating a constant may create an opportunity to use a division by constant optimization
-        //
-        if ((tree->gtNext != nullptr) && tree->gtNext->OperIsBinary())
+        if ((arrLen->gtNext != nullptr) && arrLen->gtNext->OperIs(GT_DIV, GT_MOD, GT_UDIV, GT_UMOD))
         {
             // We need to mark the parent divide/mod operation when this occurs
-            tree->gtNext->AsOp()->CheckDivideByConstOptimized(compiler);
+            arrLen->gtNext->AsOp()->CheckDivideByConstOptimized(compiler);
         }
 
 #ifdef DEBUG
@@ -313,7 +310,8 @@ private:
             printf("\n");
         }
 #endif
-        return tree;
+
+        return arrLen;
     }
 
     GenTree* GetArrayLength(GenTreeLclVar* lclVar)
