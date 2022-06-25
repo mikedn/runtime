@@ -49,38 +49,6 @@ private:
         return bbHasArrayRef || bbHasNullCheck;
     }
 
-    GenTree* GetArrayLengthFromAllocation(GenTreeCall* call DEBUGARG(BasicBlock* block))
-    {
-        assert(call->IsHelperCall());
-
-        GenTree* arrayLength = nullptr;
-
-        if (call->gtCallMethHnd == Compiler::eeFindHelper(CORINFO_HELP_NEWARR_1_DIRECT) ||
-            call->gtCallMethHnd == Compiler::eeFindHelper(CORINFO_HELP_NEWARR_1_OBJ) ||
-            call->gtCallMethHnd == Compiler::eeFindHelper(CORINFO_HELP_NEWARR_1_VC) ||
-            call->gtCallMethHnd == Compiler::eeFindHelper(CORINFO_HELP_NEWARR_1_ALIGN8))
-        {
-            // This is an array allocation site. Grab the array length node.
-            arrayLength = call->GetArgNodeByArgNum(1);
-        }
-        else if (call->gtCallMethHnd == Compiler::eeFindHelper(CORINFO_HELP_READYTORUN_NEWARR_1))
-        {
-            // On arm when compiling on certain platforms for ready to run, a handle will be
-            // inserted before the length. To handle this case, we will grab the last argument
-            // as that's always the length. See fgInitArgInfo for where the handle is inserted.
-            arrayLength = call->GetArgNodeByArgNum(call->GetInfo()->GetArgCount() - 1);
-        }
-
-#ifdef DEBUG
-        if (arrayLength != nullptr)
-        {
-            CheckFlagsAreSet(OMF_HAS_NEWARRAY, "OMF_HAS_NEWARRAY", BBF_HAS_NEWARRAY, "BBF_HAS_NEWARRAY", call, block);
-        }
-#endif
-
-        return arrayLength;
-    }
-
 #ifdef DEBUG
     //-----------------------------------------------------------------------------
     // CheckFlagsAreSet: Check that the method flag and the basic block flag are set.
@@ -353,6 +321,38 @@ private:
         INDEBUG(BasicBlock* defBlock = nullptr;)
         GenTree* value = GetSsaValue(lclVar DEBUGARG(&defBlock));
         return value->IsHelperCall() ? GetArrayLengthFromAllocation(value->AsCall() DEBUGARG(defBlock)) : nullptr;
+    }
+
+    GenTree* GetArrayLengthFromAllocation(GenTreeCall* call DEBUGARG(BasicBlock* block))
+    {
+        assert(call->IsHelperCall());
+
+        GenTree* arrayLength = nullptr;
+
+        if (call->gtCallMethHnd == Compiler::eeFindHelper(CORINFO_HELP_NEWARR_1_DIRECT) ||
+            call->gtCallMethHnd == Compiler::eeFindHelper(CORINFO_HELP_NEWARR_1_OBJ) ||
+            call->gtCallMethHnd == Compiler::eeFindHelper(CORINFO_HELP_NEWARR_1_VC) ||
+            call->gtCallMethHnd == Compiler::eeFindHelper(CORINFO_HELP_NEWARR_1_ALIGN8))
+        {
+            // This is an array allocation site. Grab the array length node.
+            arrayLength = call->GetArgNodeByArgNum(1);
+        }
+        else if (call->gtCallMethHnd == Compiler::eeFindHelper(CORINFO_HELP_READYTORUN_NEWARR_1))
+        {
+            // On arm when compiling on certain platforms for ready to run, a handle will be
+            // inserted before the length. To handle this case, we will grab the last argument
+            // as that's always the length. See fgInitArgInfo for where the handle is inserted.
+            arrayLength = call->GetArgNodeByArgNum(call->GetInfo()->GetArgCount() - 1);
+        }
+
+#ifdef DEBUG
+        if (arrayLength != nullptr)
+        {
+            CheckFlagsAreSet(OMF_HAS_NEWARRAY, "OMF_HAS_NEWARRAY", BBF_HAS_NEWARRAY, "BBF_HAS_NEWARRAY", call, block);
+        }
+#endif
+
+        return arrayLength;
     }
 
     GenTree* GetSsaValue(GenTreeLclVar* use DEBUGARG(BasicBlock** defBlock))
