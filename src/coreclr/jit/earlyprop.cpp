@@ -320,29 +320,31 @@ private:
     {
         INDEBUG(BasicBlock* defBlock = nullptr;)
         GenTree* value = GetSsaValue(lclVar DEBUGARG(&defBlock));
-        return value->IsHelperCall() ? GetArrayLengthFromAllocation(value->AsCall() DEBUGARG(defBlock)) : nullptr;
+        return value->IsHelperCall() ? GetArrayLengthFromNewHelperCall(value->AsCall() DEBUGARG(defBlock)) : nullptr;
     }
 
-    GenTree* GetArrayLengthFromAllocation(GenTreeCall* call DEBUGARG(BasicBlock* block))
+    GenTree* GetArrayLengthFromNewHelperCall(GenTreeCall* call DEBUGARG(BasicBlock* block))
     {
         assert(call->IsHelperCall());
 
         GenTree* arrayLength = nullptr;
 
-        if (call->gtCallMethHnd == Compiler::eeFindHelper(CORINFO_HELP_NEWARR_1_DIRECT) ||
-            call->gtCallMethHnd == Compiler::eeFindHelper(CORINFO_HELP_NEWARR_1_OBJ) ||
-            call->gtCallMethHnd == Compiler::eeFindHelper(CORINFO_HELP_NEWARR_1_VC) ||
-            call->gtCallMethHnd == Compiler::eeFindHelper(CORINFO_HELP_NEWARR_1_ALIGN8))
+        switch (Compiler::eeGetHelperNum(call->GetMethodHandle()))
         {
-            // This is an array allocation site. Grab the array length node.
-            arrayLength = call->GetArgNodeByArgNum(1);
-        }
-        else if (call->gtCallMethHnd == Compiler::eeFindHelper(CORINFO_HELP_READYTORUN_NEWARR_1))
-        {
-            // On arm when compiling on certain platforms for ready to run, a handle will be
-            // inserted before the length. To handle this case, we will grab the last argument
-            // as that's always the length. See fgInitArgInfo for where the handle is inserted.
-            arrayLength = call->GetArgNodeByArgNum(call->GetInfo()->GetArgCount() - 1);
+            case CORINFO_HELP_NEWARR_1_DIRECT:
+            case CORINFO_HELP_NEWARR_1_OBJ:
+            case CORINFO_HELP_NEWARR_1_VC:
+            case CORINFO_HELP_NEWARR_1_ALIGN8:
+                arrayLength = call->GetArgNodeByArgNum(1);
+                break;
+            case CORINFO_HELP_READYTORUN_NEWARR_1:
+                // On arm when compiling on certain platforms for ready to run, a handle will be
+                // inserted before the length. To handle this case, we will grab the last argument
+                // as that's always the length. See fgInitArgInfo for where the handle is inserted.
+                arrayLength = call->GetArgNodeByArgNum(call->GetInfo()->GetArgCount() - 1);
+                break;
+            default:
+                break;
         }
 
 #ifdef DEBUG
