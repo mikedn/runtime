@@ -21,10 +21,11 @@ class EarlyProp
 
     typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, GenTree*> LocalNumberToNullCheckTreeMap;
 
-    Compiler* compiler;
+    Compiler*                     compiler;
+    LocalNumberToNullCheckTreeMap nullCheckMap;
 
 public:
-    EarlyProp(Compiler* compiler) : compiler(compiler)
+    EarlyProp(Compiler* compiler) : compiler(compiler), nullCheckMap(compiler->getAllocator(CMK_EarlyProp))
     {
     }
 
@@ -131,9 +132,7 @@ private:
 #endif
 
             compiler->compCurBB = block;
-
-            CompAllocator                 allocator(compiler->getAllocator(CMK_EarlyProp));
-            LocalNumberToNullCheckTreeMap nullCheckMap(allocator);
+            nullCheckMap.RemoveAll();
 
             for (Statement* stmt = block->firstStmt(); stmt != nullptr;)
             {
@@ -147,7 +146,7 @@ private:
                 bool isRewritten = false;
                 for (GenTree* tree = stmt->GetTreeList(); tree != nullptr; tree = tree->gtNext)
                 {
-                    GenTree* rewrittenTree = RewriteTree(tree, &nullCheckMap);
+                    GenTree* rewrittenTree = RewriteTree(tree);
                     if (rewrittenTree != nullptr)
                     {
                         compiler->gtUpdateSideEffects(stmt, rewrittenTree);
@@ -181,15 +180,11 @@ private:
     //----------------------------------------------------------------
     // optEarlyPropRewriteValue: Rewrite a tree to the actual value.
     //
-    // Arguments:
-    //    tree           - The input tree node to be rewritten.
-    //    nullCheckMap   - Map of the local numbers to the latest NULLCHECKs on those locals in the current basic block.
-    //
     // Return Value:
     //    Return a new tree if the original tree was successfully rewritten.
     //    The containing tree links are updated.
     //
-    GenTree* RewriteTree(GenTree* tree, LocalNumberToNullCheckTreeMap* nullCheckMap)
+    GenTree* RewriteTree(GenTree* tree)
     {
         if (!tree->OperIsIndirOrArrLength())
         {
@@ -197,7 +192,7 @@ private:
         }
 
         // FoldNullCheck takes care of updating statement info if a null check is removed.
-        FoldNullCheck(tree, nullCheckMap);
+        FoldNullCheck(tree);
 
         if (tree->OperGet() != GT_ARR_LENGTH)
         {
@@ -392,17 +387,13 @@ private:
     // removal
     // if possible.
     //
-    // Arguments:
-    //    tree           - The input indirection tree.
-    //    nullCheckMap   - Map of the local numbers to the latest NULLCHECKs on those locals in the current basic block
-    //
     // Notes:
     //    If a GT_NULLCHECK node is post-dominated by an indirection node on the same local and the trees between
     //    the GT_NULLCHECK and the indirection don't have unsafe side effects, the GT_NULLCHECK can be removed.
     //    The indir will cause a NullReferenceException if and only if GT_NULLCHECK will cause the same
     //    NullReferenceException.
 
-    void FoldNullCheck(GenTree* tree, LocalNumberToNullCheckTreeMap* nullCheckMap)
+    void FoldNullCheck(GenTree* tree)
     {
 #ifdef DEBUG
         if (tree->OperGet() == GT_NULLCHECK)
@@ -417,7 +408,7 @@ private:
         }
 #endif
 
-        GenTree*   nullCheckTree   = FindNullCheckToFold(tree, nullCheckMap);
+        GenTree*   nullCheckTree   = FindNullCheckToFold(tree);
         GenTree*   nullCheckParent = nullptr;
         Statement* nullCheckStmt   = nullptr;
         if ((nullCheckTree != nullptr) &&
@@ -446,7 +437,7 @@ private:
                 nullCheckParent->gtFlags &= ~GTF_DONT_CSE;
             }
 
-            nullCheckMap->Remove(nullCheckTree->gtGetOp1()->AsLclVarCommon()->GetLclNum());
+            nullCheckMap.Remove(nullCheckTree->gtGetOp1()->AsLclVarCommon()->GetLclNum());
 
             // Re-morph the statement.
             Statement* curStmt = compiler->compCurStmt;
@@ -456,17 +447,13 @@ private:
 
         if ((tree->OperGet() == GT_NULLCHECK) && (tree->gtGetOp1()->OperGet() == GT_LCL_VAR))
         {
-            nullCheckMap->Set(tree->gtGetOp1()->AsLclVarCommon()->GetLclNum(), tree,
-                              LocalNumberToNullCheckTreeMap::SetKind::Overwrite);
+            nullCheckMap.Set(tree->gtGetOp1()->AsLclVarCommon()->GetLclNum(), tree,
+                             LocalNumberToNullCheckTreeMap::SetKind::Overwrite);
         }
     }
 
     //----------------------------------------------------------------
     // FindNullCheckToFold: Try to find a GT_NULLCHECK node that can be folded into the indirection node.
-    //
-    // Arguments:
-    //    tree           - The input indirection tree.
-    //    nullCheckMap   - Map of the local numbers to the latest NULLCHECKs on those locals in the current basic block
     //
     // Notes:
     //    Check for cases where
@@ -486,7 +473,7 @@ private:
     //
     //     2.  const1 + const2 if sufficiently small.
 
-    GenTree* FindNullCheckToFold(GenTree* tree, LocalNumberToNullCheckTreeMap* nullCheckMap)
+    GenTree* FindNullCheckToFold(GenTree* tree)
     {
         assert(tree->OperIsIndirOrArrLength());
 
@@ -519,7 +506,7 @@ private:
 
         // Check if we saw a nullcheck on this local in this basic block
         // This corresponds to nullcheck(x) tree in the header comment.
-        if (nullCheckMap->Lookup(lclNum, &nullCheckTree))
+        if (nullCheckMap.Lookup(lclNum, &nullCheckTree))
         {
             GenTree* nullCheckAddr = nullCheckTree->AsIndir()->Addr();
             if ((nullCheckAddr->OperGet() != GT_LCL_VAR) || (nullCheckAddr->AsLclVarCommon()->GetSsaNum() != ssaNum))
