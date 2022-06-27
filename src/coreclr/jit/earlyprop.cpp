@@ -608,9 +608,7 @@ private:
             {
                 *nullCheckParent = currentTree;
             }
-            const bool checkExceptionSummary = false;
-            if ((nodesWalked++ > maxNodesWalked) ||
-                !CanMoveNullCheckPastTree(currentTree, isInsideTry, checkExceptionSummary))
+            if ((nodesWalked++ > maxNodesWalked) || !CanMoveNullCheckPastNode(currentTree, isInsideTry))
             {
                 canRemoveNullCheck = false;
             }
@@ -636,9 +634,7 @@ private:
             currentTree                     = tree->gtPrev;
             while (canRemoveNullCheck && (currentTree != nullptr))
             {
-                const bool checkExceptionSummary = false;
-                if ((nodesWalked++ > maxNodesWalked) ||
-                    !CanMoveNullCheckPastTree(currentTree, isInsideTry, checkExceptionSummary))
+                if ((nodesWalked++ > maxNodesWalked) || !CanMoveNullCheckPastNode(currentTree, isInsideTry))
                 {
                     canRemoveNullCheck = false;
                 }
@@ -652,19 +648,15 @@ private:
             // until we get to the statement containing the null check.
             // We only check the side effects at the root of each statement.
             Statement* curStmt = compiler->compCurStmt->GetPrevStmt();
-            currentTree        = curStmt->GetRootNode();
-            while (canRemoveNullCheck && (currentTree != nullCheckStatementRoot))
+            while (canRemoveNullCheck && (curStmt->GetRootNode() != nullCheckStatementRoot))
             {
-                const bool checkExceptionSummary = true;
-                if ((nodesWalked++ > maxNodesWalked) ||
-                    !CanMoveNullCheckPastTree(currentTree, isInsideTry, checkExceptionSummary))
+                if ((nodesWalked++ > maxNodesWalked) || !CanMoveNullCheckPastStmt(curStmt, isInsideTry))
                 {
                     canRemoveNullCheck = false;
                 }
                 else
                 {
-                    curStmt     = curStmt->GetPrevStmt();
-                    currentTree = curStmt->GetRootNode();
+                    curStmt = curStmt->GetPrevStmt();
                 }
             }
             *nullCheckStmt = curStmt;
@@ -693,26 +685,26 @@ private:
     //    True if nullcheck may be folded into a node that is after tree in execution order,
     //    false otherwise.
 
-    bool CanMoveNullCheckPastTree(GenTree* tree, bool isInsideTry, bool checkSideEffectSummary)
+    bool CanMoveNullCheckPastNode(GenTree* node, bool isInsideTry, bool checkSideEffectSummary = false)
     {
         bool result = true;
 
-        if ((tree->gtFlags & GTF_CALL) != 0)
+        if ((node->gtFlags & GTF_CALL) != 0)
         {
-            result = !checkSideEffectSummary && !tree->OperRequiresCallFlag(compiler);
+            result = !checkSideEffectSummary && !node->OperRequiresCallFlag(compiler);
         }
 
-        if (result && (tree->gtFlags & GTF_EXCEPT) != 0)
+        if (result && (node->gtFlags & GTF_EXCEPT) != 0)
         {
-            result = !checkSideEffectSummary && !tree->OperMayThrow(compiler);
+            result = !checkSideEffectSummary && !node->OperMayThrow(compiler);
         }
 
-        if (result && ((tree->gtFlags & GTF_ASG) != 0))
+        if (result && ((node->gtFlags & GTF_ASG) != 0))
         {
-            if (tree->OperGet() == GT_ASG)
+            if (node->OperGet() == GT_ASG)
             {
-                GenTree* lhs = tree->gtGetOp1();
-                GenTree* rhs = tree->gtGetOp2();
+                GenTree* lhs = node->gtGetOp1();
+                GenTree* rhs = node->gtGetOp2();
                 if (checkSideEffectSummary && ((rhs->gtFlags & GTF_ASG) != 0))
                 {
                     result = false;
@@ -730,11 +722,60 @@ private:
             }
             else if (checkSideEffectSummary)
             {
-                result = !isInsideTry && ((tree->gtFlags & GTF_GLOB_REF) == 0);
+                result = !isInsideTry && ((node->gtFlags & GTF_GLOB_REF) == 0);
             }
             else
             {
-                result = !isInsideTry && (!tree->OperRequiresAsgFlag() || ((tree->gtFlags & GTF_GLOB_REF) == 0));
+                result = !isInsideTry && (!node->OperRequiresAsgFlag() || ((node->gtFlags & GTF_GLOB_REF) == 0));
+            }
+        }
+
+        return result;
+    }
+
+    bool CanMoveNullCheckPastStmt(Statement* stmt, bool isInsideTry, bool checkSideEffectSummary = true)
+    {
+        GenTree* node   = stmt->GetRootNode();
+        bool     result = true;
+
+        if ((node->gtFlags & GTF_CALL) != 0)
+        {
+            result = !checkSideEffectSummary && !node->OperRequiresCallFlag(compiler);
+        }
+
+        if (result && (node->gtFlags & GTF_EXCEPT) != 0)
+        {
+            result = !checkSideEffectSummary && !node->OperMayThrow(compiler);
+        }
+
+        if (result && ((node->gtFlags & GTF_ASG) != 0))
+        {
+            if (node->OperGet() == GT_ASG)
+            {
+                GenTree* lhs = node->gtGetOp1();
+                GenTree* rhs = node->gtGetOp2();
+                if (checkSideEffectSummary && ((rhs->gtFlags & GTF_ASG) != 0))
+                {
+                    result = false;
+                }
+                else if (isInsideTry)
+                {
+                    // Inside try we allow only assignments to locals not live in handlers.
+                    result = lhs->OperIs(GT_LCL_VAR) && !compiler->lvaGetDesc(lhs->AsLclVar())->lvEHLive;
+                }
+                else
+                {
+                    // We disallow only assignments to global memory.
+                    result = ((lhs->gtFlags & GTF_GLOB_REF) == 0);
+                }
+            }
+            else if (checkSideEffectSummary)
+            {
+                result = !isInsideTry && ((node->gtFlags & GTF_GLOB_REF) == 0);
+            }
+            else
+            {
+                result = !isInsideTry && (!node->OperRequiresAsgFlag() || ((node->gtFlags & GTF_GLOB_REF) == 0));
             }
         }
 
