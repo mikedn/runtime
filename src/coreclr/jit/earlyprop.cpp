@@ -593,7 +593,6 @@ private:
     {
         // Check all nodes between the GT_NULLCHECK and the indirection to see
         // if any nodes have unsafe side effects.
-        unsigned       nullCheckLclNum    = nullCheckTree->gtGetOp1()->AsLclVarCommon()->GetLclNum();
         bool           isInsideTry        = compiler->compCurBB->hasTryIndex();
         bool           canRemoveNullCheck = true;
         const unsigned maxNodesWalked     = 50;
@@ -611,7 +610,7 @@ private:
             }
             const bool checkExceptionSummary = false;
             if ((nodesWalked++ > maxNodesWalked) ||
-                !CanMoveNullCheckPastTree(currentTree, nullCheckLclNum, isInsideTry, checkExceptionSummary))
+                !CanMoveNullCheckPastTree(currentTree, isInsideTry, checkExceptionSummary))
             {
                 canRemoveNullCheck = false;
             }
@@ -639,7 +638,7 @@ private:
             {
                 const bool checkExceptionSummary = false;
                 if ((nodesWalked++ > maxNodesWalked) ||
-                    !CanMoveNullCheckPastTree(currentTree, nullCheckLclNum, isInsideTry, checkExceptionSummary))
+                    !CanMoveNullCheckPastTree(currentTree, isInsideTry, checkExceptionSummary))
                 {
                     canRemoveNullCheck = false;
                 }
@@ -658,7 +657,7 @@ private:
             {
                 const bool checkExceptionSummary = true;
                 if ((nodesWalked++ > maxNodesWalked) ||
-                    !CanMoveNullCheckPastTree(currentTree, nullCheckLclNum, isInsideTry, checkExceptionSummary))
+                    !CanMoveNullCheckPastTree(currentTree, isInsideTry, checkExceptionSummary))
                 {
                     canRemoveNullCheck = false;
                 }
@@ -686,7 +685,6 @@ private:
     //
     // Arguments:
     //    tree                  - The tree to check.
-    //    nullCheckLclNum       - The local variable that GT_NULLCHECK checks.
     //    isInsideTry           - True if tree is inside try, false otherwise.
     //    checkSideEffectSummary -If true, check side effect summary flags only,
     //                            otherwise check the side effects of the operation itself.
@@ -695,10 +693,7 @@ private:
     //    True if nullcheck may be folded into a node that is after tree in execution order,
     //    false otherwise.
 
-    bool CanMoveNullCheckPastTree(GenTree* tree,
-                                  unsigned nullCheckLclNum,
-                                  bool     isInsideTry,
-                                  bool     checkSideEffectSummary)
+    bool CanMoveNullCheckPastTree(GenTree* tree, bool isInsideTry, bool checkSideEffectSummary)
     {
         bool result = true;
 
