@@ -678,108 +678,85 @@ private:
     // Arguments:
     //    tree                  - The tree to check.
     //    isInsideTry           - True if tree is inside try, false otherwise.
-    //    checkSideEffectSummary -If true, check side effect summary flags only,
-    //                            otherwise check the side effects of the operation itself.
     //
     // Return Value:
     //    True if nullcheck may be folded into a node that is after tree in execution order,
     //    false otherwise.
 
-    bool CanMoveNullCheckPastNode(GenTree* node, bool isInsideTry, bool checkSideEffectSummary = false)
+    bool CanMoveNullCheckPastNode(GenTree* node, bool isInsideTry)
     {
-        bool result = true;
-
-        if ((node->gtFlags & GTF_CALL) != 0)
+        if (((node->gtFlags & GTF_CALL) != 0) && node->OperRequiresCallFlag(compiler))
         {
-            result = !checkSideEffectSummary && !node->OperRequiresCallFlag(compiler);
+            return false;
         }
 
-        if (result && (node->gtFlags & GTF_EXCEPT) != 0)
+        if (((node->gtFlags & GTF_EXCEPT) != 0) && node->OperMayThrow(compiler))
         {
-            result = !checkSideEffectSummary && !node->OperMayThrow(compiler);
+            return false;
         }
 
-        if (result && ((node->gtFlags & GTF_ASG) != 0))
+        if ((node->gtFlags & GTF_ASG) == 0)
         {
-            if (node->OperGet() == GT_ASG)
+            return true;
+        }
+
+        if (node->OperGet() == GT_ASG)
+        {
+            GenTree* lhs = node->gtGetOp1();
+            GenTree* rhs = node->gtGetOp2();
+
+            if (isInsideTry)
             {
-                GenTree* lhs = node->gtGetOp1();
-                GenTree* rhs = node->gtGetOp2();
-                if (checkSideEffectSummary && ((rhs->gtFlags & GTF_ASG) != 0))
-                {
-                    result = false;
-                }
-                else if (isInsideTry)
-                {
-                    // Inside try we allow only assignments to locals not live in handlers.
-                    result = lhs->OperIs(GT_LCL_VAR) && !compiler->lvaGetDesc(lhs->AsLclVar())->lvEHLive;
-                }
-                else
-                {
-                    // We disallow only assignments to global memory.
-                    result = ((lhs->gtFlags & GTF_GLOB_REF) == 0);
-                }
-            }
-            else if (checkSideEffectSummary)
-            {
-                result = !isInsideTry && ((node->gtFlags & GTF_GLOB_REF) == 0);
+                // Inside try we allow only assignments to locals not live in handlers.
+                return lhs->OperIs(GT_LCL_VAR) && !compiler->lvaGetDesc(lhs->AsLclVar())->lvEHLive;
             }
             else
             {
-                result = !isInsideTry && (!node->OperRequiresAsgFlag() || ((node->gtFlags & GTF_GLOB_REF) == 0));
+                // We disallow only assignments to global memory.
+                return (lhs->gtFlags & GTF_GLOB_REF) == 0;
             }
         }
 
-        return result;
+        return !isInsideTry && (!node->OperRequiresAsgFlag() || ((node->gtFlags & GTF_GLOB_REF) == 0));
     }
 
-    bool CanMoveNullCheckPastStmt(Statement* stmt, bool isInsideTry, bool checkSideEffectSummary = true)
+    bool CanMoveNullCheckPastStmt(Statement* stmt, bool isInsideTry)
     {
-        GenTree* node   = stmt->GetRootNode();
-        bool     result = true;
+        GenTree* node = stmt->GetRootNode();
 
-        if ((node->gtFlags & GTF_CALL) != 0)
+        if ((node->gtFlags & (GTF_CALL | GTF_EXCEPT)) != 0)
         {
-            result = !checkSideEffectSummary && !node->OperRequiresCallFlag(compiler);
+            return false;
         }
 
-        if (result && (node->gtFlags & GTF_EXCEPT) != 0)
+        if ((node->gtFlags & GTF_ASG) == 0)
         {
-            result = !checkSideEffectSummary && !node->OperMayThrow(compiler);
+            return true;
         }
 
-        if (result && ((node->gtFlags & GTF_ASG) != 0))
+        if (node->OperGet() == GT_ASG)
         {
-            if (node->OperGet() == GT_ASG)
+            GenTree* lhs = node->gtGetOp1();
+            GenTree* rhs = node->gtGetOp2();
+
+            if ((rhs->gtFlags & GTF_ASG) != 0)
             {
-                GenTree* lhs = node->gtGetOp1();
-                GenTree* rhs = node->gtGetOp2();
-                if (checkSideEffectSummary && ((rhs->gtFlags & GTF_ASG) != 0))
-                {
-                    result = false;
-                }
-                else if (isInsideTry)
-                {
-                    // Inside try we allow only assignments to locals not live in handlers.
-                    result = lhs->OperIs(GT_LCL_VAR) && !compiler->lvaGetDesc(lhs->AsLclVar())->lvEHLive;
-                }
-                else
-                {
-                    // We disallow only assignments to global memory.
-                    result = ((lhs->gtFlags & GTF_GLOB_REF) == 0);
-                }
+                return false;
             }
-            else if (checkSideEffectSummary)
+
+            if (isInsideTry)
             {
-                result = !isInsideTry && ((node->gtFlags & GTF_GLOB_REF) == 0);
+                // Inside try we allow only assignments to locals not live in handlers.
+                return lhs->OperIs(GT_LCL_VAR) && !compiler->lvaGetDesc(lhs->AsLclVar())->lvEHLive;
             }
             else
             {
-                result = !isInsideTry && (!node->OperRequiresAsgFlag() || ((node->gtFlags & GTF_GLOB_REF) == 0));
+                // We disallow only assignments to global memory.
+                return (lhs->gtFlags & GTF_GLOB_REF) == 0;
             }
         }
 
-        return result;
+        return !isInsideTry && ((node->gtFlags & GTF_GLOB_REF) == 0);
     }
 };
 
