@@ -412,7 +412,7 @@ private:
         GenTree*   nullCheckParent = nullptr;
         Statement* nullCheckStmt   = nullptr;
         if ((nullCheckTree != nullptr) &&
-            IsNullCheckFoldingLegal(tree, nullCheckTree, &nullCheckParent, &nullCheckStmt))
+            IsNullCheckFoldingLegal(nullCheckTree, tree, &nullCheckParent, &nullCheckStmt))
         {
 #ifdef DEBUG
             // Make sure the transformation happens in debug, check, and release build.
@@ -576,98 +576,74 @@ private:
         }
     }
 
-    //----------------------------------------------------------------
-    // IsNullCheckFoldingLegal: Check the nodes between the GT_NULLCHECK node and the indirection to determine
-    //                             if null check folding is legal.
-    //
-    // Arguments:
-    //    tree                - The input indirection tree.
-    //    nullCheckTree       - The GT_NULLCHECK tree that is a candidate for removal.
-    //    nullCheckParent     - The parent of the GT_NULLCHECK tree that is a candidate for removal (out-parameter).
-    //    nullCheckStatement  - The statement of the GT_NULLCHECK tree that is a candidate for removal (out-parameter).
-
-    bool IsNullCheckFoldingLegal(GenTree*    tree,
-                                 GenTree*    nullCheckTree,
-                                 GenTree**   nullCheckParent,
-                                 Statement** nullCheckStmt)
+    // We can eliminate a NULLCHECK only if there are no interfering side effects between
+    // the NULLCHECK node and the indir. For example, we can't eliminate the NULLCHECK if
+    // there is an assignment to a memory location between it and the indir.
+    bool IsNullCheckFoldingLegal(GenTree* nullCheck, GenTree* indir, GenTree** nullCheckUser, Statement** nullCheckStmt)
     {
-        // Check all nodes between the GT_NULLCHECK and the indirection to see
-        // if any nodes have unsafe side effects.
-        bool           isInsideTry        = compiler->compCurBB->hasTryIndex();
-        bool           canRemoveNullCheck = true;
-        const unsigned maxNodesWalked     = 50;
-        unsigned       nodesWalked        = 0;
+        assert(nullCheck->OperIs(GT_NULLCHECK));
+        assert(indir->OperIsIndirOrArrLength());
 
-        // First walk the nodes in the statement containing the GT_NULLCHECK in forward execution order
-        // until we get to the indirection or process the statement root.
-        GenTree* previousTree = nullCheckTree;
-        GenTree* currentTree  = nullCheckTree->gtNext;
-        while (canRemoveNullCheck && (currentTree != tree) && (currentTree != nullptr))
+        // Usually we can ignore assignments to any locals that are not address exposed,
+        // but in try regions we also need to ignore assignemtns to locals that are live
+        // in exception handlers.
+        bool isInsideTry = compiler->compCurBB->hasTryIndex();
+
+        const unsigned maxNodesWalked = 50;
+        unsigned       nodesWalked    = 0;
+
+        Statement* indirStatement         = compiler->compCurStmt;
+        GenTree*   nullCheckStatementRoot = nullCheck;
+
+        for (GenTree* node = nullCheck->gtNext; node != nullptr; node = node->gtNext)
         {
-            if ((*nullCheckParent == nullptr) && (currentTree->FindUse(nullCheckTree) != nullptr))
+            if (node == indir)
             {
-                *nullCheckParent = currentTree;
+                *nullCheckStmt = indirStatement;
+
+                // We may have reached the indir before NULLCHECK's user.
+                if (*nullCheckUser == nullptr)
+                {
+                    *nullCheckUser = nullCheck->FindUser();
+                }
+
+                return true;
             }
-            if ((nodesWalked++ > maxNodesWalked) || !CanMoveNullCheckPastNode(currentTree, isInsideTry))
+
+            if ((*nullCheckUser == nullptr) && node->HasUse(nullCheck))
             {
-                canRemoveNullCheck = false;
+                *nullCheckUser = node;
             }
-            else
+
+            if ((nodesWalked++ > maxNodesWalked) || !CanMoveNullCheckPastNode(node, isInsideTry))
             {
-                previousTree = currentTree;
-                currentTree  = currentTree->gtNext;
+                return false;
+            }
+
+            nullCheckStatementRoot = node;
+        }
+
+        for (GenTree* node = indir->gtPrev; node != nullptr; node = node->gtPrev)
+        {
+            if ((nodesWalked++ > maxNodesWalked) || !CanMoveNullCheckPastNode(node, isInsideTry))
+            {
+                return false;
             }
         }
 
-        if (currentTree == tree)
+        Statement* stmt = indirStatement->GetPrevStmt();
+
+        for (; stmt->GetRootNode() != nullCheckStatementRoot; stmt = stmt->GetPrevStmt())
         {
-            // The GT_NULLCHECK and the indirection are in the same statements.
-            *nullCheckStmt = compiler->compCurStmt;
-        }
-        else
-        {
-            // The GT_NULLCHECK and the indirection are in different statements.
-            // Walk the nodes in the statement containing the indirection
-            // in reverse execution order starting with the indirection's
-            // predecessor.
-            GenTree* nullCheckStatementRoot = previousTree;
-            currentTree                     = tree->gtPrev;
-            while (canRemoveNullCheck && (currentTree != nullptr))
+            if ((nodesWalked++ > maxNodesWalked) || !CanMoveNullCheckPastStmt(stmt, isInsideTry))
             {
-                if ((nodesWalked++ > maxNodesWalked) || !CanMoveNullCheckPastNode(currentTree, isInsideTry))
-                {
-                    canRemoveNullCheck = false;
-                }
-                else
-                {
-                    currentTree = currentTree->gtPrev;
-                }
+                return false;
             }
-
-            // Finally, walk the statement list in reverse execution order
-            // until we get to the statement containing the null check.
-            // We only check the side effects at the root of each statement.
-            Statement* curStmt = compiler->compCurStmt->GetPrevStmt();
-            while (canRemoveNullCheck && (curStmt->GetRootNode() != nullCheckStatementRoot))
-            {
-                if ((nodesWalked++ > maxNodesWalked) || !CanMoveNullCheckPastStmt(curStmt, isInsideTry))
-                {
-                    canRemoveNullCheck = false;
-                }
-                else
-                {
-                    curStmt = curStmt->GetPrevStmt();
-                }
-            }
-            *nullCheckStmt = curStmt;
         }
 
-        if (canRemoveNullCheck && (*nullCheckParent == nullptr))
-        {
-            *nullCheckParent = nullCheckTree->FindUser();
-        }
+        *nullCheckStmt = stmt;
 
-        return canRemoveNullCheck;
+        return true;
     }
 
     //----------------------------------------------------------------
