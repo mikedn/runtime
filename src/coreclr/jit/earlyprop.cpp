@@ -382,23 +382,18 @@ private:
         return use;
     }
 
-    //----------------------------------------------------------------
-    // optFoldNullChecks: Try to find a GT_NULLCHECK node that can be folded into the indirection node mark it for
-    // removal
-    // if possible.
-    //
-    // Notes:
-    //    If a GT_NULLCHECK node is post-dominated by an indirection node on the same local and the trees between
-    //    the GT_NULLCHECK and the indirection don't have unsafe side effects, the GT_NULLCHECK can be removed.
-    //    The indir will cause a NullReferenceException if and only if GT_NULLCHECK will cause the same
-    //    NullReferenceException.
-
-    void FoldNullCheck(GenTree* tree)
+    // If NULLCHECK node is post-dominated by an indirection node on the same local and the nodes between
+    // the NULLCHECK and the indirection don't have unsafe side effects, the NULLCHECK can be removed.
+    // The indir will cause a NullReferenceException if and only if GT_NULLCHECK will cause the same
+    // NullReferenceException.
+    void FoldNullCheck(GenTree* indir)
     {
+        assert(indir->OperIsIndirOrArrLength());
+
 #ifdef DEBUG
-        if (tree->OperGet() == GT_NULLCHECK)
+        if (indir->OperIs(GT_NULLCHECK))
         {
-            CheckFlagsAreSet(OMF_HAS_NULLCHECK, "OMF_HAS_NULLCHECK", BBF_HAS_NULLCHECK, "BBF_HAS_NULLCHECK", tree,
+            CheckFlagsAreSet(OMF_HAS_NULLCHECK, "OMF_HAS_NULLCHECK", BBF_HAS_NULLCHECK, "BBF_HAS_NULLCHECK", indir,
                              compiler->compCurBB);
         }
 #else
@@ -408,46 +403,44 @@ private:
         }
 #endif
 
-        GenTree*   nullCheckTree   = FindNullCheckToFold(tree);
-        GenTree*   nullCheckParent = nullptr;
-        Statement* nullCheckStmt   = nullptr;
-        if ((nullCheckTree != nullptr) &&
-            IsNullCheckFoldingLegal(nullCheckTree, tree, &nullCheckParent, &nullCheckStmt))
+        GenTreeIndir* nullCheck     = FindNullCheckToFold(indir);
+        GenTree*      nullCheckUser = nullptr;
+        Statement*    nullCheckStmt = nullptr;
+
+        if ((nullCheck != nullptr) && IsNullCheckFoldingLegal(nullCheck, indir, &nullCheckUser, &nullCheckStmt))
         {
 #ifdef DEBUG
             // Make sure the transformation happens in debug, check, and release build.
             assert(DoEarlyPropForFunc() && DoEarlyPropForBlock(compiler->compCurBB) &&
                    (compiler->compCurBB->bbFlags & BBF_HAS_NULLCHECK) != 0);
-            if (compiler->verbose)
-            {
-                printf("DoEarlyProp Marking a null check for removal\n");
-                compiler->gtDispTree(nullCheckTree);
-                printf("\n");
-            }
+
+            JITDUMPTREE(nullCheck, "FoldNullCheck marking a NULLCHECK for removal\n");
 #endif
-            // Remove the null check
-            nullCheckTree->gtFlags &= ~(GTF_EXCEPT | GTF_DONT_CSE);
 
-            // Set this flag to prevent reordering
-            nullCheckTree->gtFlags |= GTF_ORDER_SIDEEFF;
-            nullCheckTree->gtFlags |= GTF_IND_NONFAULTING;
+            nullCheck->gtFlags |= GTF_IND_NONFAULTING;
+            nullCheck->gtFlags &= ~(GTF_EXCEPT | GTF_DONT_CSE);
 
-            if (nullCheckParent != nullptr)
+            // TODO-MIKE-Review: This is dubios, the NULLCHECK node will be removed
+            // and then GTF_ORDER_SIDEEFF probably needs to be set on its ancestores.
+            nullCheck->gtFlags |= GTF_ORDER_SIDEEFF;
+
+            // TODO-MIKE-Cleanup: This mostly deals with spurious GTF_DONT_CSE added
+            // by fgMorphFieldAddr to reduce diffs.
+            if (nullCheckUser != nullptr)
             {
-                nullCheckParent->gtFlags &= ~GTF_DONT_CSE;
+                nullCheckUser->gtFlags &= ~GTF_DONT_CSE;
             }
 
-            nullCheckMap.Remove(nullCheckTree->gtGetOp1()->AsLclVarCommon()->GetLclNum());
+            nullCheckMap.Remove(nullCheck->GetAddr()->AsLclVar()->GetLclNum());
 
-            // Re-morph the statement.
-            Statement* curStmt = compiler->compCurStmt;
+            Statement* stmt = compiler->compCurStmt;
             compiler->fgMorphBlockStmt(compiler->compCurBB, nullCheckStmt DEBUGARG("FoldNullCheck"));
-            compiler->compCurStmt = curStmt;
+            compiler->compCurStmt = stmt;
         }
 
-        if ((tree->OperGet() == GT_NULLCHECK) && (tree->gtGetOp1()->OperGet() == GT_LCL_VAR))
+        if (indir->OperIs(GT_NULLCHECK) && indir->AsIndir()->GetAddr()->OperIs(GT_LCL_VAR))
         {
-            nullCheckMap.Set(tree->gtGetOp1()->AsLclVarCommon()->GetLclNum(), tree,
+            nullCheckMap.Set(indir->AsIndir()->GetAddr()->AsLclVar()->GetLclNum(), indir,
                              LocalNumberToNullCheckTreeMap::SetKind::Overwrite);
         }
     }
@@ -473,7 +466,7 @@ private:
     //
     //     2.  const1 + const2 if sufficiently small.
 
-    GenTree* FindNullCheckToFold(GenTree* tree)
+    GenTreeIndir* FindNullCheckToFold(GenTree* tree)
     {
         assert(tree->OperIsIndirOrArrLength());
 
@@ -572,7 +565,7 @@ private:
         }
         else
         {
-            return nullCheckTree;
+            return nullCheckTree->AsIndir();
         }
     }
 
