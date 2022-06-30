@@ -146,7 +146,13 @@ private:
                 bool isRewritten = false;
                 for (GenTree* tree = stmt->GetTreeList(); tree != nullptr; tree = tree->gtNext)
                 {
-                    GenTree* rewrittenTree = RewriteTree(tree);
+                    if (!tree->OperIsIndirOrArrLength())
+                    {
+                        continue;
+                    }
+
+                    GenTree* rewrittenTree = PropagateNode(tree);
+
                     if (rewrittenTree != nullptr)
                     {
                         compiler->gtUpdateSideEffects(stmt, rewrittenTree);
@@ -177,46 +183,45 @@ private:
 #endif
     }
 
-    //----------------------------------------------------------------
-    // optEarlyPropRewriteValue: Rewrite a tree to the actual value.
-    //
-    // Return Value:
-    //    Return a new tree if the original tree was successfully rewritten.
-    //    The containing tree links are updated.
-    //
-    GenTree* RewriteTree(GenTree* tree)
+    GenTree* PropagateNode(GenTree* node)
     {
-        if (!tree->OperIsIndirOrArrLength())
+        assert(node->OperIsIndirOrArrLength());
+
+        if (GenTreeArrLen* arrLen = node->IsArrLen())
+        {
+            GenTree* newNode = PropagateArrayLength(arrLen);
+
+            if (newNode != nullptr)
+            {
+                return newNode;
+            }
+        }
+
+        FoldNullCheck(node);
+
+        return nullptr;
+    }
+
+    GenTree* PropagateArrayLength(GenTreeArrLen* arrLen)
+    {
+        GenTree* array = arrLen->GetArray();
+
+        if (!array->OperIs(GT_LCL_VAR) || !compiler->lvaInSsa(array->AsLclVar()->GetLclNum()))
         {
             return nullptr;
         }
 
-        // FoldNullCheck takes care of updating statement info if a null check is removed.
-        FoldNullCheck(tree);
-
-        if (tree->OperGet() != GT_ARR_LENGTH)
-        {
-            return nullptr;
-        }
-
-        GenTree* objectRefPtr = tree->AsOp()->gtOp1;
-
-        if (!objectRefPtr->OperIs(GT_LCL_VAR) || !compiler->lvaInSsa(objectRefPtr->AsLclVar()->GetLclNum()))
-        {
-            return nullptr;
-        }
-
-        INDEBUG(CheckFlagsAreSet(OMF_HAS_ARRAYREF, "OMF_HAS_ARRAYREF", BBF_HAS_IDX_LEN, "BBF_HAS_IDX_LEN", tree,
+        INDEBUG(CheckFlagsAreSet(OMF_HAS_ARRAYREF, "OMF_HAS_ARRAYREF", BBF_HAS_IDX_LEN, "BBF_HAS_IDX_LEN", arrLen,
                                  compiler->compCurBB));
 
-        GenTree* actualVal = GetArrayLength(objectRefPtr->AsLclVar());
+        GenTree* length = GetArrayLength(array->AsLclVar());
 
-        if (actualVal == nullptr || !actualVal->IsIntCon())
+        if ((length == nullptr) || !length->IsIntCon())
         {
             return nullptr;
         }
 
-        return PropagateConstArrayLength(tree->AsArrLen(), actualVal->AsIntCon());
+        return PropagateConstArrayLength(arrLen, length->AsIntCon());
     }
 
     GenTree* PropagateConstArrayLength(GenTreeArrLen* arrLen, GenTreeIntCon* constLen)
