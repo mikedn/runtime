@@ -19,7 +19,7 @@ class EarlyProp
 {
     static const int SsaChaseLimit = 5;
 
-    typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, GenTree*> LocalNumberToNullCheckTreeMap;
+    typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, GenTreeIndir*> LocalNumberToNullCheckTreeMap;
 
     Compiler*                     compiler;
     LocalNumberToNullCheckTreeMap nullCheckMap;
@@ -388,8 +388,6 @@ private:
     // NullReferenceException.
     void FoldNullCheck(GenTree* indir)
     {
-        assert(indir->OperIsIndirOrArrLength());
-
 #ifdef DEBUG
         if (indir->OperIs(GT_NULLCHECK))
         {
@@ -403,7 +401,9 @@ private:
         }
 #endif
 
-        GenTreeIndir* nullCheck     = FindNullCheckToFold(indir);
+        GenTree* addr = indir->IsArrLen() ? indir->AsArrLen()->GetArray() : indir->AsIndir()->GetAddr();
+
+        GenTreeIndir* nullCheck     = FindNullCheckToFold(addr);
         GenTree*      nullCheckUser = nullptr;
         Statement*    nullCheckStmt = nullptr;
 
@@ -440,133 +440,107 @@ private:
 
         if (indir->OperIs(GT_NULLCHECK) && indir->AsIndir()->GetAddr()->OperIs(GT_LCL_VAR))
         {
-            nullCheckMap.Set(indir->AsIndir()->GetAddr()->AsLclVar()->GetLclNum(), indir,
+            nullCheckMap.Set(indir->AsIndir()->GetAddr()->AsLclVar()->GetLclNum(), indir->AsIndir(),
                              LocalNumberToNullCheckTreeMap::SetKind::Overwrite);
         }
     }
 
-    //----------------------------------------------------------------
-    // FindNullCheckToFold: Try to find a GT_NULLCHECK node that can be folded into the indirection node.
+    // Try to find a NULLCHECK node that is post-dominated in the same basic block by
+    // an indir that will produce the same exception, making the NULLCHECK redundant.
+    //   - NULLCHECK(addr + offset1)
+    //     any code that does not interfere with the NULLCHECK thrown exception
+    //     IND(addr)
     //
-    // Notes:
-    //    Check for cases where
-    //    1. One of the following trees
+    //   - ASG(x, COMMA(NULLCHECK(y), ADD(y, offset1)))
+    //     any code that does not interfere with the NULLCHECK thrown exception
+    //     IND(ADD(x, offset2))
     //
-    //       nullcheck(x)
-    //       or
-    //       x = comma(nullcheck(y), add(y, const1))
-    //
-    //       is post-dominated in the same basic block by one of the following trees
-    //
-    //       indir(x)
-    //       or
-    //       indir(add(x, const2))
-    //
-    //       (indir is any node for which OperIsIndirOrArrLength() is true.)
-    //
-    //     2.  const1 + const2 if sufficiently small.
-
-    GenTreeIndir* FindNullCheckToFold(GenTree* tree)
+    GenTreeIndir* FindNullCheckToFold(GenTree* addr)
     {
-        assert(tree->OperIsIndirOrArrLength());
+        assert(varTypeIsI(addr->GetType()));
 
-        GenTree* addr = tree->IsArrLen() ? tree->AsArrLen()->GetArray() : tree->AsIndir()->GetAddr();
+        ssize_t offset = 0;
 
-        ssize_t offsetValue = 0;
-
-        if ((addr->OperGet() == GT_ADD) && addr->gtGetOp2()->IsCnsIntOrI())
+        if (addr->OperIs(GT_ADD) && addr->AsOp()->GetOp(1)->IsIntCon())
         {
-            offsetValue += addr->gtGetOp2()->AsIntConCommon()->IconValue();
-            addr = addr->gtGetOp1();
+            offset += addr->AsOp()->GetOp(1)->AsIntCon()->GetValue();
+            addr = addr->AsOp()->GetOp(0);
         }
 
-        if (addr->OperGet() != GT_LCL_VAR)
+        if (!addr->OperIs(GT_LCL_VAR))
         {
             return nullptr;
         }
 
-        GenTreeLclVarCommon* const lclVarNode = addr->AsLclVarCommon();
-        const unsigned             ssaNum     = lclVarNode->GetSsaNum();
+        GenTreeLclVar* addrLclVar = addr->AsLclVar();
 
-        if (ssaNum == SsaConfig::RESERVED_SSA_NUM)
+        if (addrLclVar->GetSsaNum() == SsaConfig::RESERVED_SSA_NUM)
         {
             return nullptr;
         }
 
-        const unsigned lclNum          = lclVarNode->GetLclNum();
-        GenTree*       nullCheckTree   = nullptr;
-        unsigned       nullCheckLclNum = BAD_VAR_NUM;
+        GenTreeIndir* nullCheck = nullptr;
 
-        // Check if we saw a nullcheck on this local in this basic block
-        // This corresponds to nullcheck(x) tree in the header comment.
-        if (nullCheckMap.Lookup(lclNum, &nullCheckTree))
+        if (nullCheckMap.Lookup(addrLclVar->GetLclNum(), &nullCheck))
         {
-            GenTree* nullCheckAddr = nullCheckTree->AsIndir()->Addr();
-            if ((nullCheckAddr->OperGet() != GT_LCL_VAR) || (nullCheckAddr->AsLclVarCommon()->GetSsaNum() != ssaNum))
+            if (nullCheck->GetAddr()->AsLclVar()->GetSsaNum() != addrLclVar->GetSsaNum())
             {
-                nullCheckTree = nullptr;
-            }
-            else
-            {
-                nullCheckLclNum = nullCheckAddr->AsLclVarCommon()->GetLclNum();
+                nullCheck = nullptr;
             }
         }
 
-        if (nullCheckTree == nullptr)
+        if (nullCheck == nullptr)
         {
-            // Check if we have x = comma(nullcheck(y), add(y, const1)) pattern.
+            LclSsaVarDsc* ssaDef = compiler->lvaGetSsaDesc(addrLclVar);
 
-            // Find the definition of the indirected local ('x' in the pattern above).
-            LclSsaVarDsc* defLoc = compiler->lvaTable[lclNum].GetPerSsaData(ssaNum);
-
-            if (compiler->compCurBB != defLoc->GetBlock())
+            // We can only check for NULLCHECK exception interference if the
+            // NULLCHECK is in the same block as the indir.
+            if (compiler->compCurBB != ssaDef->GetBlock())
             {
                 return nullptr;
             }
 
-            GenTree* defRHS = defLoc->GetAssignment()->gtGetOp2();
+            GenTree* ssaDefValue = ssaDef->GetAssignment()->GetOp(1);
 
-            if (defRHS->OperGet() != GT_COMMA)
+            if (!ssaDefValue->OperIs(GT_COMMA))
             {
                 return nullptr;
             }
 
-            GenTree* commaOp1EffectiveValue = defRHS->gtGetOp1()->SkipComma();
+            GenTree* commaOp1 = ssaDefValue->AsOp()->GetOp(0)->SkipComma();
+            GenTree* commaOp2 = ssaDefValue->AsOp()->GetOp(1);
 
-            if (commaOp1EffectiveValue->OperGet() != GT_NULLCHECK)
+            if (!commaOp1->OperIs(GT_NULLCHECK))
             {
                 return nullptr;
             }
 
-            GenTree* nullCheckAddress = commaOp1EffectiveValue->gtGetOp1();
+            nullCheck = commaOp1->AsIndir();
 
-            if ((nullCheckAddress->OperGet() != GT_LCL_VAR) || (defRHS->gtGetOp2()->OperGet() != GT_ADD))
+            GenTree* nullCheckAddr = nullCheck->GetAddr();
+
+            if (!nullCheckAddr->OperIs(GT_LCL_VAR) || !commaOp2->OperIs(GT_ADD))
             {
                 return nullptr;
             }
 
-            // We found a candidate for 'y' in the pattern above.
+            GenTreeOp* add = commaOp2->AsOp();
 
-            GenTree* additionNode = defRHS->gtGetOp2();
-            GenTree* additionOp1  = additionNode->gtGetOp1();
-            GenTree* additionOp2  = additionNode->gtGetOp2();
-            if ((additionOp1->OperGet() == GT_LCL_VAR) &&
-                (additionOp1->AsLclVarCommon()->GetLclNum() == nullCheckAddress->AsLclVarCommon()->GetLclNum()) &&
-                (additionOp2->IsCnsIntOrI()))
+            if (!add->GetOp(0)->OperIs(GT_LCL_VAR) ||
+                (add->GetOp(0)->AsLclVar()->GetLclNum() != nullCheckAddr->AsLclVar()->GetLclNum()))
             {
-                offsetValue += additionOp2->AsIntConCommon()->IconValue();
-                nullCheckTree = commaOp1EffectiveValue;
+                return nullptr;
             }
+
+            if (!add->GetOp(1)->IsIntCon())
+            {
+                return nullptr;
+            }
+
+            offset += add->GetOp(1)->AsIntCon()->GetValue();
         }
 
-        if (compiler->fgIsBigOffset(offsetValue))
-        {
-            return nullptr;
-        }
-        else
-        {
-            return nullCheckTree->AsIndir();
-        }
+        return compiler->fgIsBigOffset(offset) ? nullptr : nullCheck;
     }
 
     // We can eliminate a NULLCHECK only if there are no interfering side effects between
