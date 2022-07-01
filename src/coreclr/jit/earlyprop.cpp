@@ -94,41 +94,33 @@ private:
             nullCheckMap.RemoveAll();
             currentBlock = block;
 
-            for (Statement* stmt = block->firstStmt(); stmt != nullptr;)
+            for (Statement *stmt = block->firstStmt(), *next; stmt != nullptr; stmt = next)
             {
-                // Preserve the next link before the propagation and morph.
-                Statement* next = stmt->GetNextStmt();
+                currentStatement  = stmt;
+                next              = stmt->GetNextStmt();
+                bool stmtModified = false;
 
-                currentStatement = stmt;
-
-                // Walk the stmt tree in linear order to rewrite any array length reference with a
-                // constant array length.
-                bool isRewritten = false;
-                for (GenTree* tree = stmt->GetTreeList(); tree != nullptr; tree = tree->gtNext)
+                for (GenTree* node = stmt->GetNodeList(); node != nullptr; node = node->gtNext)
                 {
-                    if (!tree->OperIsIndirOrArrLength())
+                    if (!node->OperIsIndirOrArrLength())
                     {
                         continue;
                     }
 
-                    GenTree* rewrittenTree = PropagateNode(tree);
+                    GenTree* newNode = PropagateNode(node);
 
-                    if (rewrittenTree != nullptr)
+                    if (newNode != nullptr)
                     {
-                        compiler->gtUpdateTreeAncestorsSideEffects(rewrittenTree);
-                        isRewritten = true;
-                        tree        = rewrittenTree;
+                        compiler->gtUpdateTreeAncestorsSideEffects(newNode);
+                        stmtModified = true;
                     }
                 }
 
-                // Update the evaluation order and the statement info if the stmt has been rewritten.
-                if (isRewritten)
+                if (stmtModified)
                 {
                     compiler->gtSetStmtInfo(stmt);
                     compiler->fgSetStmtSeq(stmt);
                 }
-
-                stmt = next;
             }
         }
 
