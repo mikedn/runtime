@@ -1,19 +1,35 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-//
-//                                    Early Value Propagation
-//
-// This phase performs an SSA-based value propagation optimization that currently only applies to array
-// lengths and explicit null checks. An SSA-based backwards tracking of local variables
-// is performed at each point of interest, e.g., an array length reference site, a method table reference site, or
-// an indirection.
-// The tracking continues until an interesting value is encountered. The value is then used to rewrite
-// the source site or the value.
-//
-///////////////////////////////////////////////////////////////////////////////////////
 
 #include "jitpch.h"
 #include "ssabuilder.h"
+
+// This phase performs an SSA-based value propagation optimization that currently only
+// applies to array lengths and explicit null checks.
+//
+// For array length propagation, a demand-driven SSA-based backwards tracking of constant
+// array lengths is performed at each array length reference site which is in form of an
+// ARR_LENGTH node. When a ARR_LENGTH node is seen, the array ref pointer is tracked.
+// The tracking is along SSA use-def chain and stops at the original array allocation site
+// where we can grab the array length. The ARR_LENGTH node will then be rewritten to a
+// CNS_INT node if the array length is constant.
+//
+// Null check folding tries to find NULLCHECK nodes followed by indirections that would
+// throw the same NullReferenceException, making NULLCHECKs redundant.
+//
+//   - NULLCHECK(addr + offset1)
+//     any code that does not interfere with the NULLCHECK thrown exception
+//     IND(addr)
+//
+//   - ASG(x, COMMA(NULLCHECK(y), ADD(y, offset1)))
+//     any code that does not interfere with the NULLCHECK thrown exception
+//     IND(ADD(x, offset2))
+//
+// We can eliminate a NULLCHECK only if there are no interfering side effects between
+// the NULLCHECK node and the indir. For example, we can't eliminate the NULLCHECK if
+// there is an assignment to a memory location between it and the indir. Because of
+// this NULLCHECKs are eliminated only when the indirections are in the same block,
+// to avoid potentially costly intereference checks across blocks.
 
 class EarlyProp
 {
@@ -56,31 +72,6 @@ private:
 
         return hasArrayLength || hasNullCheck;
     }
-
-    //------------------------------------------------------------------------------------------
-    // DoEarlyProp: The entry point of the early value propagation.
-    //
-    // Notes:
-    //    This phase performs an SSA-based value propagation, including
-    //      1. Array length propagation.
-    //      2. Runtime type handle propagation.
-    //      3. Null check folding.
-    //
-    //    For array length propagation, a demand-driven SSA-based backwards tracking of constant
-    //    array lengths is performed at each array length reference site which is in form of a
-    //    GT_ARR_LENGTH node. When a GT_ARR_LENGTH node is seen, the array ref pointer which is
-    //    the only child node of the GT_ARR_LENGTH is tracked. This is only done for array ref
-    //    pointers that have valid SSA forms.The tracking is along SSA use-def chain and stops
-    //    at the original array allocation site where we can grab the array length. The
-    //    GT_ARR_LENGTH node will then be rewritten to a GT_CNS_INT node if the array length is
-    //    constant.
-    //
-    //    Similarly, the same algorithm also applies to rewriting a method table (also known as
-    //    vtable) reference site which is in form of GT_INDIR node. The base pointer, which is
-    //    an object reference pointer, is treated in the same way as an array reference pointer.
-    //
-    //    Null check folding tries to find GT_INDIR(obj + const) that GT_NULLCHECK(obj) can be folded into
-    //    and removed. Currently, the algorithm only matches GT_INDIR and GT_NULLCHECK in the same basic block.
 
     void DoEarlyProp()
     {
@@ -307,10 +298,6 @@ private:
         return use;
     }
 
-    // If NULLCHECK node is post-dominated by an indirection node on the same local and the nodes between
-    // the NULLCHECK and the indirection don't have unsafe side effects, the NULLCHECK can be removed.
-    // The indir will cause a NullReferenceException if and only if GT_NULLCHECK will cause the same
-    // NullReferenceException.
     void FoldNullCheck(GenTree* indir)
     {
         GenTree* addr = indir->IsArrLen() ? indir->AsArrLen()->GetArray() : indir->AsIndir()->GetAddr();
@@ -349,16 +336,6 @@ private:
         }
     }
 
-    // Try to find a NULLCHECK node that is post-dominated in the same basic block by
-    // an indir that will produce the same exception, making the NULLCHECK redundant.
-    //   - NULLCHECK(addr + offset1)
-    //     any code that does not interfere with the NULLCHECK thrown exception
-    //     IND(addr)
-    //
-    //   - ASG(x, COMMA(NULLCHECK(y), ADD(y, offset1)))
-    //     any code that does not interfere with the NULLCHECK thrown exception
-    //     IND(ADD(x, offset2))
-    //
     GenTreeIndir* FindNullCheckToFold(GenTree* addr)
     {
         assert(varTypeIsI(addr->GetType()));
@@ -447,9 +424,6 @@ private:
         return compiler->fgIsBigOffset(offset) ? nullptr : nullCheck;
     }
 
-    // We can eliminate a NULLCHECK only if there are no interfering side effects between
-    // the NULLCHECK node and the indir. For example, we can't eliminate the NULLCHECK if
-    // there is an assignment to a memory location between it and the indir.
     bool IsNullCheckFoldingLegal(GenTree* nullCheck, GenTree* indir, GenTree** nullCheckUser, Statement** nullCheckStmt)
     {
         assert(nullCheck->OperIs(GT_NULLCHECK));
