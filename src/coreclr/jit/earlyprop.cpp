@@ -517,19 +517,6 @@ private:
         return true;
     }
 
-    //----------------------------------------------------------------
-    // CanMoveNullCheckPastTree: Check if a nullcheck node that is before `tree`
-    //                              in execution order may be folded into an indirection node that
-    //                              is after `tree` is execution order.
-    //
-    // Arguments:
-    //    tree                  - The tree to check.
-    //    isInsideTry           - True if tree is inside try, false otherwise.
-    //
-    // Return Value:
-    //    True if nullcheck may be folded into a node that is after tree in execution order,
-    //    false otherwise.
-
     bool CanMoveNullCheckPastNode(GenTree* node, bool isInsideTry)
     {
         if (((node->gtFlags & GTF_CALL) != 0) && node->OperRequiresCallFlag(compiler))
@@ -547,20 +534,20 @@ private:
             return true;
         }
 
-        if (node->OperGet() == GT_ASG)
+        if (node->OperIs(GT_ASG))
         {
-            GenTree* lhs = node->gtGetOp1();
-            GenTree* rhs = node->gtGetOp2();
+            GenTree* dst = node->AsOp()->GetOp(0);
 
             if (isInsideTry)
             {
                 // Inside try we allow only assignments to locals not live in handlers.
-                return lhs->OperIs(GT_LCL_VAR) && !compiler->lvaGetDesc(lhs->AsLclVar())->lvEHLive;
+                // TODO-MIKE-Review: This should probably check AX too.
+                return dst->OperIs(GT_LCL_VAR) && !compiler->lvaGetDesc(dst->AsLclVar())->lvEHLive;
             }
             else
             {
                 // We disallow only assignments to global memory.
-                return (lhs->gtFlags & GTF_GLOB_REF) == 0;
+                return (dst->gtFlags & GTF_GLOB_REF) == 0;
             }
         }
 
@@ -581,25 +568,25 @@ private:
             return true;
         }
 
-        if (node->OperGet() == GT_ASG)
+        if (node->OperIs(GT_ASG))
         {
-            GenTree* lhs = node->gtGetOp1();
-            GenTree* rhs = node->gtGetOp2();
-
-            if ((rhs->gtFlags & GTF_ASG) != 0)
+            if ((node->AsOp()->GetOp(1)->gtFlags & GTF_ASG) != 0)
             {
                 return false;
             }
 
+            GenTree* dst = node->AsOp()->GetOp(0);
+
             if (isInsideTry)
             {
                 // Inside try we allow only assignments to locals not live in handlers.
-                return lhs->OperIs(GT_LCL_VAR) && !compiler->lvaGetDesc(lhs->AsLclVar())->lvEHLive;
+                // TODO-MIKE-Review: This should probably check AX too.
+                return dst->OperIs(GT_LCL_VAR) && !compiler->lvaGetDesc(dst->AsLclVar())->lvEHLive;
             }
             else
             {
                 // We disallow only assignments to global memory.
-                return (lhs->gtFlags & GTF_GLOB_REF) == 0;
+                return (dst->gtFlags & GTF_GLOB_REF) == 0;
             }
         }
 
