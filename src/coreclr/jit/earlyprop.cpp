@@ -22,6 +22,8 @@ class EarlyProp
     typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, GenTreeIndir*> LocalNumberToNullCheckTreeMap;
 
     Compiler*                     compiler;
+    BasicBlock*                   currentBlock;
+    Statement*                    currentStatement;
     LocalNumberToNullCheckTreeMap nullCheckMap;
 
 public:
@@ -89,15 +91,15 @@ private:
                 continue;
             }
 
-            compiler->compCurBB = block;
             nullCheckMap.RemoveAll();
+            currentBlock = block;
 
             for (Statement* stmt = block->firstStmt(); stmt != nullptr;)
             {
                 // Preserve the next link before the propagation and morph.
                 Statement* next = stmt->GetNextStmt();
 
-                compiler->compCurStmt = stmt;
+                currentStatement = stmt;
 
                 // Walk the stmt tree in linear order to rewrite any array length reference with a
                 // constant array length.
@@ -113,7 +115,7 @@ private:
 
                     if (rewrittenTree != nullptr)
                     {
-                        compiler->gtUpdateSideEffects(stmt, rewrittenTree);
+                        compiler->gtUpdateTreeAncestorsSideEffects(rewrittenTree);
                         isRewritten = true;
                         tree        = rewrittenTree;
                     }
@@ -153,7 +155,10 @@ private:
             }
         }
 
-        FoldNullCheck(node);
+        if ((currentBlock->bbFlags & BBF_HAS_NULLCHECK) != 0)
+        {
+            FoldNullCheck(node);
+        }
 
         return nullptr;
     }
@@ -211,29 +216,22 @@ private:
                     // as the check node does not produce a value.
                     assert(((comma != nullptr) && comma->OperIs(GT_COMMA) &&
                             (comma->AsOp()->GetOp(0) == check || comma->TypeIs(TYP_VOID))) ||
-                           (check == compiler->compCurStmt->GetRootNode()));
+                           (check == currentStatement->GetRootNode()));
 
                     // Still, we guard here so that release builds do not try to optimize trees we don't understand.
                     if (((comma != nullptr) && comma->OperIs(GT_COMMA) && (comma->AsOp()->GetOp(0) == check)) ||
-                        (check == compiler->compCurStmt->GetRootNode()))
+                        (check == currentStatement->GetRootNode()))
                     {
                         // Both `tree` and `check` have been removed from the statement.
                         // 'tree' was replaced with 'nop' or side effect list under 'comma'.
                         // optRemoveRangeCheck returns this modified tree.
-                        return compiler->optRemoveRangeCheck(check, comma, compiler->compCurStmt);
+                        return compiler->optRemoveRangeCheck(check, comma, currentStatement);
                     }
                 }
             }
         }
 
-#ifdef DEBUG
-        if (compiler->verbose)
-        {
-            printf("PropagateConstArrayLength rewriting\n");
-            compiler->gtDispStmt(compiler->compCurStmt);
-            printf("\n");
-        }
-#endif
+        JITDUMPTREE(currentStatement->GetRootNode(), "PropagateConstArrayLength rewriting\n");
 
         GenTree* constLenClone = compiler->gtCloneExpr(constLen);
 
@@ -255,14 +253,7 @@ private:
             arrLen->gtNext->AsOp()->CheckDivideByConstOptimized(compiler);
         }
 
-#ifdef DEBUG
-        if (compiler->verbose)
-        {
-            printf("to\n");
-            compiler->gtDispStmt(compiler->compCurStmt);
-            printf("\n");
-        }
-#endif
+        JITDUMPTREE(currentStatement->GetRootNode(), "to\n");
 
         return arrLen;
     }
@@ -339,11 +330,6 @@ private:
     // NullReferenceException.
     void FoldNullCheck(GenTree* indir)
     {
-        if ((compiler->compCurBB->bbFlags & BBF_HAS_NULLCHECK) == 0)
-        {
-            return;
-        }
-
         GenTree* addr = indir->IsArrLen() ? indir->AsArrLen()->GetArray() : indir->AsIndir()->GetAddr();
 
         GenTreeIndir* nullCheck     = FindNullCheckToFold(addr);
@@ -370,9 +356,7 @@ private:
 
             nullCheckMap.Remove(nullCheck->GetAddr()->AsLclVar()->GetLclNum());
 
-            Statement* stmt = compiler->compCurStmt;
-            compiler->fgMorphBlockStmt(compiler->compCurBB, nullCheckStmt DEBUGARG("FoldNullCheck"));
-            compiler->compCurStmt = stmt;
+            compiler->fgMorphBlockStmt(currentBlock, nullCheckStmt DEBUGARG("FoldNullCheck"));
         }
 
         if (indir->OperIs(GT_NULLCHECK) && indir->AsIndir()->GetAddr()->OperIs(GT_LCL_VAR))
@@ -432,7 +416,7 @@ private:
 
             // We can only check for NULLCHECK exception interference if the
             // NULLCHECK is in the same block as the indir.
-            if (compiler->compCurBB != ssaDef->GetBlock())
+            if (currentBlock != ssaDef->GetBlock())
             {
                 return nullptr;
             }
@@ -491,12 +475,12 @@ private:
         // Usually we can ignore assignments to any locals that are not address exposed,
         // but in try regions we also need to ignore assignemtns to locals that are live
         // in exception handlers.
-        bool isInsideTry = compiler->compCurBB->hasTryIndex();
+        bool isInsideTry = currentBlock->hasTryIndex();
 
         const unsigned maxNodesWalked = 50;
         unsigned       nodesWalked    = 0;
 
-        Statement* indirStatement         = compiler->compCurStmt;
+        Statement* indirStatement         = currentStatement;
         GenTree*   nullCheckStatementRoot = nullCheck;
 
         for (GenTree* node = nullCheck->gtNext; node != nullptr; node = node->gtNext)
