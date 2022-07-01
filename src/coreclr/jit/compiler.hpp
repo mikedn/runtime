@@ -1219,6 +1219,7 @@ inline GenTreeIntCon* GenTree::ChangeToIntCon(ssize_t value)
     GenTreeIntCon* intCon = AsIntCon();
     intCon->SetValue(value);
     intCon->gtCompileTimeHandle = 0;
+    INDEBUG(intCon->gtTargetHandle = 0);
     return intCon;
 }
 

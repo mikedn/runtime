@@ -225,18 +225,9 @@ private:
 
         JITDUMPTREE(currentStatement->GetRootNode(), "PropagateConstArrayLength rewriting\n");
 
-        GenTree* constLenClone = compiler->gtCloneExpr(constLen);
-
-        if (constLenClone->GetType() != arrLen->GetType())
-        {
-            assert(constLenClone->TypeIs(TYP_LONG));
-            assert(arrLen->TypeIs(TYP_INT));
-
-            constLenClone->SetType(arrLen->GetType());
-        }
-
-        // constLenClone has small tree node size, it is safe to use ReplaceWith here.
-        arrLen->ReplaceWith(constLenClone, compiler);
+        assert(arrLen->TypeIs(TYP_INT));
+        arrLen->ChangeToIntCon(TYP_INT, constVal);
+        arrLen->gtFlags = constLen->gtFlags;
 
         // Propagating a constant may create an opportunity to use a division by constant optimization
         if ((arrLen->gtNext != nullptr) && arrLen->gtNext->OperIs(GT_DIV, GT_MOD, GT_UDIV, GT_UMOD))
