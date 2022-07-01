@@ -31,60 +31,29 @@ public:
 
     void Run()
     {
-        DoEarlyProp();
+        if (DoEarlyPropForFunc())
+        {
+            DoEarlyProp();
+        }
     }
 
 private:
     bool DoEarlyPropForFunc()
     {
-        bool propArrayLen =
-            (compiler->optMethodFlags & OMF_HAS_NEWARRAY) && (compiler->optMethodFlags & OMF_HAS_ARRAYREF);
-        bool propNullCheck = (compiler->optMethodFlags & OMF_HAS_NULLCHECK) != 0;
-        return propArrayLen || propNullCheck;
+        bool hasNewArray    = (compiler->optMethodFlags & OMF_HAS_NEWARRAY) != 0;
+        bool hasArrayLength = (compiler->optMethodFlags & OMF_HAS_ARRAYREF) != 0;
+        bool hasNullCheck   = (compiler->optMethodFlags & OMF_HAS_NULLCHECK) != 0;
+
+        return (hasArrayLength && hasNewArray) || hasNullCheck;
     }
 
     bool DoEarlyPropForBlock(BasicBlock* block)
     {
-        bool bbHasArrayRef  = (block->bbFlags & BBF_HAS_IDX_LEN) != 0;
-        bool bbHasNullCheck = (block->bbFlags & BBF_HAS_NULLCHECK) != 0;
-        return bbHasArrayRef || bbHasNullCheck;
+        bool hasArrayLength = (block->bbFlags & BBF_HAS_IDX_LEN) != 0;
+        bool hasNullCheck   = (block->bbFlags & BBF_HAS_NULLCHECK) != 0;
+
+        return hasArrayLength || hasNullCheck;
     }
-
-#ifdef DEBUG
-    //-----------------------------------------------------------------------------
-    // CheckFlagsAreSet: Check that the method flag and the basic block flag are set.
-    //
-    // Arguments:
-    //    methodFlag           - The method flag to check.
-    //    methodFlagStr        - String representation of the method flag.
-    //    bbFlag               - The basic block flag to check.
-    //    bbFlagStr            - String representation of the basic block flag.
-    //    tree                 - Tree that makes the flags required.
-    //    basicBlock           - The basic block to check the flag on.
-
-    void CheckFlagsAreSet(unsigned    methodFlag,
-                          const char* methodFlagStr,
-                          unsigned    bbFlag,
-                          const char* bbFlagStr,
-                          GenTree*    tree,
-                          BasicBlock* basicBlock)
-    {
-        if ((compiler->optMethodFlags & methodFlag) == 0)
-        {
-            printf("%s is not set on optMethodFlags but is required because of the following tree\n", methodFlagStr);
-            compiler->gtDispTree(tree);
-            assert(false);
-        }
-
-        if ((basicBlock->bbFlags & bbFlag) == 0)
-        {
-            printf("%s is not set on " FMT_BB " but is required because of the following tree \n", bbFlagStr,
-                   compiler->compCurBB->bbNum);
-            compiler->gtDispTree(tree);
-            assert(false);
-        }
-    }
-#endif
 
     //------------------------------------------------------------------------------------------
     // DoEarlyProp: The entry point of the early value propagation.
@@ -113,23 +82,12 @@ private:
 
     void DoEarlyProp()
     {
-#ifndef DEBUG
-        if (!DoEarlyPropForFunc())
-        {
-            return;
-        }
-#endif
-
-        assert(compiler->ssaForm);
-
         for (BasicBlock* const block : compiler->Blocks())
         {
-#ifndef DEBUG
             if (!DoEarlyPropForBlock(block))
             {
                 continue;
             }
-#endif
 
             compiler->compCurBB = block;
             nullCheckMap.RemoveAll();
@@ -164,8 +122,6 @@ private:
                 // Update the evaluation order and the statement info if the stmt has been rewritten.
                 if (isRewritten)
                 {
-                    // Make sure the transformation happens in debug, check, and release build.
-                    assert(DoEarlyPropForFunc() && DoEarlyPropForBlock(block));
                     compiler->gtSetStmtInfo(stmt);
                     compiler->fgSetStmtSeq(stmt);
                 }
@@ -210,9 +166,6 @@ private:
         {
             return nullptr;
         }
-
-        INDEBUG(CheckFlagsAreSet(OMF_HAS_ARRAYREF, "OMF_HAS_ARRAYREF", BBF_HAS_IDX_LEN, "BBF_HAS_IDX_LEN", arrLen,
-                                 compiler->compCurBB));
 
         GenTree* length = GetArrayLength(array->AsLclVar());
 
@@ -345,13 +298,6 @@ private:
                 break;
         }
 
-#ifdef DEBUG
-        if (arrayLength != nullptr)
-        {
-            CheckFlagsAreSet(OMF_HAS_NEWARRAY, "OMF_HAS_NEWARRAY", BBF_HAS_NEWARRAY, "BBF_HAS_NEWARRAY", call, block);
-        }
-#endif
-
         return arrayLength;
     }
 
@@ -393,18 +339,10 @@ private:
     // NullReferenceException.
     void FoldNullCheck(GenTree* indir)
     {
-#ifdef DEBUG
-        if (indir->OperIs(GT_NULLCHECK))
-        {
-            CheckFlagsAreSet(OMF_HAS_NULLCHECK, "OMF_HAS_NULLCHECK", BBF_HAS_NULLCHECK, "BBF_HAS_NULLCHECK", indir,
-                             compiler->compCurBB);
-        }
-#else
         if ((compiler->compCurBB->bbFlags & BBF_HAS_NULLCHECK) == 0)
         {
             return;
         }
-#endif
 
         GenTree* addr = indir->IsArrLen() ? indir->AsArrLen()->GetArray() : indir->AsIndir()->GetAddr();
 
@@ -414,13 +352,7 @@ private:
 
         if ((nullCheck != nullptr) && IsNullCheckFoldingLegal(nullCheck, indir, &nullCheckUser, &nullCheckStmt))
         {
-#ifdef DEBUG
-            // Make sure the transformation happens in debug, check, and release build.
-            assert(DoEarlyPropForFunc() && DoEarlyPropForBlock(compiler->compCurBB) &&
-                   (compiler->compCurBB->bbFlags & BBF_HAS_NULLCHECK) != 0);
-
             JITDUMPTREE(nullCheck, "FoldNullCheck marking a NULLCHECK for removal\n");
-#endif
 
             nullCheck->gtFlags |= GTF_IND_NONFAULTING;
             nullCheck->gtFlags &= ~(GTF_EXCEPT | GTF_DONT_CSE);
@@ -710,6 +642,8 @@ private:
 
 void Compiler::optEarlyProp()
 {
+    assert(ssaForm);
+
     EarlyProp prop(this);
     prop.Run();
 }

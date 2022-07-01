@@ -1020,15 +1020,8 @@ inline GenTreeIndir* Compiler::gtNewIndexIndir(var_types type, GenTreeIndexAddr*
     return indir;
 }
 
-inline GenTreeArrLen* Compiler::gtNewArrLen(GenTree* arr, uint8_t lenOffs, BasicBlock* block)
+inline GenTreeArrLen* Compiler::gtNewArrLen(GenTree* arr, uint8_t lenOffs)
 {
-    if (block != nullptr)
-    {
-        block->bbFlags |= BBF_HAS_IDX_LEN;
-    }
-
-    optMethodFlags |= OMF_HAS_ARRAYREF;
-
     GenTreeArrLen* arrLen = new (this, GT_ARR_LENGTH) GenTreeArrLen(arr, lenOffs);
     arrLen->SetIndirExceptionFlags(this);
     return arrLen;
@@ -1071,8 +1064,6 @@ inline GenTree* Compiler::gtNewNullCheck(GenTree* addr, BasicBlock* basicBlock)
     assert(fgAddrCouldBeNull(addr));
     GenTree* nullCheck = gtNewOperNode(GT_NULLCHECK, TYP_BYTE, addr);
     nullCheck->gtFlags |= GTF_EXCEPT;
-    basicBlock->bbFlags |= BBF_HAS_NULLCHECK;
-    optMethodFlags |= OMF_HAS_NULLCHECK;
     return nullCheck;
 }
 

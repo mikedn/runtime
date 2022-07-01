@@ -510,10 +510,17 @@ enum BasicBlockFlags : uint64_t
 
     BBF_LOOP_FLAGS = BBF_LOOP_PREHEADER | BBF_LOOP_HEAD | BBF_LOOP_CALL0 | BBF_LOOP_CALL1,
 
+    // Flags that record the presence of certain IR patterns in the block. If the block is split,
+    // the new block should "inherit" these flags from the existing block, unless the IR in the
+    // new block is known not to contain these patterns.
+    // Likewise, when moving statements between blocks, these flags should be copied to the destination
+    // block if the statements may contain these patterns.
+    // Adding unnecessary flags may be a throughput issue but is not a correctness issue.
+    BBF_IR_SUMMARY = BBF_HAS_NEWOBJ | BBF_HAS_IDX_LEN | BBF_HAS_NEWARRAY | BBF_HAS_NULLCHECK,
+
     // Flags to update when two blocks are compacted
 
-    BBF_COMPACT_UPD = BBF_GC_SAFE_POINT | BBF_HAS_JMP | BBF_HAS_IDX_LEN | BBF_BACKWARD_JUMP | BBF_HAS_NEWARRAY | \
-                      BBF_HAS_NEWOBJ | BBF_HAS_NULLCHECK,
+    BBF_COMPACT_UPD = BBF_GC_SAFE_POINT | BBF_HAS_JMP | BBF_IR_SUMMARY | BBF_BACKWARD_JUMP,
 
     // Flags a block should not have had before it is split.
 
@@ -525,14 +532,6 @@ enum BasicBlockFlags : uint64_t
     // but we assume it does not have BBF_GC_SAFE_POINT any more.
 
     BBF_SPLIT_LOST = BBF_GC_SAFE_POINT | BBF_HAS_JMP | BBF_KEEP_BBJ_ALWAYS | BBF_CLONED_FINALLY_END,
-
-    // Flags that record the presence of certain IR patterns in the block. If the block is split,
-    // the new block should "inherit" these flags from the existing block, unless the IR in the
-    // new block is known not to contain these patterns.
-    // Likewise, when moving statements between blocks, these flags should be copied to the destination
-    // block if the statements may contain these patterns.
-    // Adding unnecessary flags may be a throughput issue but is not a correctness issue.
-    BBF_IR_SUMMARY = BBF_HAS_NEWOBJ | BBF_HAS_IDX_LEN | BBF_HAS_NEWARRAY | BBF_HAS_NULLCHECK,
 
     // Flags gained by the bottom block when a block is split.
     // Note, this is a conservative guess.

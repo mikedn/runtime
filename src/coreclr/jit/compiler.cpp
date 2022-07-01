@@ -540,7 +540,7 @@ void Compiler::compStartup()
     grossVMsize = grossNCsize = totalNCsize = 0;
 #endif // DISPLAY_SIZES
 
-    /* Initialize the table of tree node sizes */
+/* Initialize the table of tree node sizes */
 
 #ifdef JIT32_GCENCODER
     // Initialize the GC encoder lookup table
@@ -7845,8 +7845,6 @@ void Compiler::gtChangeOperToNullCheck(GenTree* tree, BasicBlock* block)
 
     tree->ChangeOper(GT_NULLCHECK);
     tree->SetType(TYP_INT);
-    block->bbFlags |= BBF_HAS_NULLCHECK;
-    optMethodFlags |= OMF_HAS_NULLCHECK;
 }
 
 #if defined(DEBUG)

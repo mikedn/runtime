@@ -3262,7 +3262,7 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
                             break;
                         }
                     }
-                    op1 = gtNewArrLen(op1, OFFSETOF__CORINFO_String__stringLen, compCurBB);
+                    op1 = gtNewArrLen(op1, OFFSETOF__CORINFO_String__stringLen);
                 }
                 else
                 {
@@ -10525,18 +10525,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 }
 
                 op1 = impCheckForNullPointer(op1);
-
-                /* Mark the block as containing an index expression */
-
-                if (op1->gtOper == GT_LCL_VAR)
-                {
-                    if (op2->gtOper == GT_LCL_VAR || op2->gtOper == GT_CNS_INT || op2->gtOper == GT_ADD)
-                    {
-                        block->bbFlags |= BBF_HAS_IDX_LEN;
-                        optMethodFlags |= OMF_HAS_ARRAYREF;
-                    }
-                }
-
                 op1 = gtNewArrayIndexAddr(op1, op2, lclTyp);
 
                 if (lclTyp == TYP_STRUCT)
@@ -10646,18 +10634,6 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 assertImp(op3->TypeIs(TYP_REF));
 
                 op3 = impCheckForNullPointer(op3);
-
-                // Mark the block as containing an index expression
-
-                if (op3->gtOper == GT_LCL_VAR)
-                {
-                    if (op1->gtOper == GT_LCL_VAR || op1->gtOper == GT_CNS_INT || op1->gtOper == GT_ADD)
-                    {
-                        block->bbFlags |= BBF_HAS_IDX_LEN;
-                        optMethodFlags |= OMF_HAS_ARRAYREF;
-                    }
-                }
-
                 op1 = gtNewArrayIndexAddr(op3, op1, lclTyp);
 
                 if (lclTyp == TYP_STRUCT)
@@ -13518,7 +13494,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 op1 = impPopStack().val;
                 if (opts.OptimizationEnabled())
                 {
-                    op1 = gtNewArrLen(op1, OFFSETOF__CORINFO_Array__length, block);
+                    op1 = gtNewArrLen(op1, OFFSETOF__CORINFO_Array__length);
                 }
                 else
                 {

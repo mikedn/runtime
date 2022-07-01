@@ -1689,7 +1689,8 @@ public:
     // Find the use of a node within this node.
     GenTree** FindUse(GenTree* def);
 
-    bool HasUse(GenTree* def) {
+    bool HasUse(GenTree* def)
+    {
         return FindUse(def) != nullptr;
     }
 
