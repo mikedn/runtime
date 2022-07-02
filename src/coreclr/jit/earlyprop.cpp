@@ -98,12 +98,21 @@ private:
                         continue;
                     }
 
-                    GenTree* newNode = PropagateNode(node);
-
-                    if (newNode != nullptr)
+                    if (GenTreeArrLen* arrLen = node->IsArrLen())
                     {
-                        compiler->gtUpdateTreeAncestorsSideEffects(newNode);
-                        stmtModified = true;
+                        GenTree* newNode = PropagateArrayLength(arrLen);
+
+                        if (newNode != nullptr)
+                        {
+                            compiler->gtUpdateTreeAncestorsSideEffects(newNode);
+                            stmtModified = true;
+                            continue;
+                        }
+                    }
+
+                    if ((currentBlock->bbFlags & BBF_HAS_NULLCHECK) != 0)
+                    {
+                        FoldNullCheck(node);
                     }
                 }
 
@@ -122,28 +131,6 @@ private:
             compiler->fgDispBasicBlocks(/*dumpTrees*/ true);
         }
 #endif
-    }
-
-    GenTree* PropagateNode(GenTree* node)
-    {
-        assert(node->OperIsIndirOrArrLength());
-
-        if (GenTreeArrLen* arrLen = node->IsArrLen())
-        {
-            GenTree* newNode = PropagateArrayLength(arrLen);
-
-            if (newNode != nullptr)
-            {
-                return newNode;
-            }
-        }
-
-        if ((currentBlock->bbFlags & BBF_HAS_NULLCHECK) != 0)
-        {
-            FoldNullCheck(node);
-        }
-
-        return nullptr;
     }
 
     GenTree* PropagateArrayLength(GenTreeArrLen* arrLen)
