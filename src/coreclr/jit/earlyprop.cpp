@@ -154,9 +154,9 @@ private:
 
     GenTree* PropagateConstArrayLength(GenTreeArrLen* arrLen, GenTreeIntCon* constLen)
     {
-        ssize_t constVal = constLen->GetValue();
+        ssize_t lengthValue = constLen->GetValue();
 
-        if ((constVal < 0) || (constVal > INT32_MAX))
+        if ((lengthValue < 0) || (lengthValue > INT32_MAX))
         {
             // Don't propagate array lengths that are beyond the maximum value of a ARR_LENGTH node
             // or negative. CORINFO_HELP_NEWARR_1_OBJ helper call allows a LONG as the array length
@@ -176,27 +176,22 @@ private:
 
             if ((check->GetLength() == arrLen) && check->GetIndex()->IsIntCon())
             {
-                ssize_t checkConstVal = check->gtIndex->AsIntCon()->GetValue();
+                ssize_t indexValue = check->GetIndex()->AsIntCon()->GetValue();
 
-                if ((checkConstVal >= 0) && (checkConstVal < constVal))
+                if ((indexValue >= 0) && (indexValue < lengthValue))
                 {
+                    check->ChangeToNothingNode();
+
                     GenTree* comma = check->FindUser();
 
-                    // We should never see cases other than these in the IR,
-                    // as the check node does not produce a value.
-                    assert(((comma != nullptr) && comma->OperIs(GT_COMMA) &&
-                            (comma->AsOp()->GetOp(0) == check || comma->TypeIs(TYP_VOID))) ||
-                           (check == currentStatement->GetRootNode()));
-
-                    // Still, we guard here so that release builds do not try to optimize trees we don't understand.
-                    if (((comma != nullptr) && comma->OperIs(GT_COMMA) && (comma->AsOp()->GetOp(0) == check)) ||
-                        (check == currentStatement->GetRootNode()))
+                    // TODO-MIKE-Cleanup: It looks like GTF_DONT_CSE is needed because CSE is dumb
+                    // and CSEs COMMA(NOP, x) because it has the same VN as x...
+                    if ((comma != nullptr) && comma->OperIs(GT_COMMA) && (comma->AsOp()->GetOp(0) == check))
                     {
-                        // Both `tree` and `check` have been removed from the statement.
-                        // 'tree' was replaced with 'nop' or side effect list under 'comma'.
-                        // optRemoveRangeCheck returns this modified tree.
-                        return compiler->optRemoveRangeCheck(check, comma, currentStatement);
+                        comma->gtFlags |= GTF_DONT_CSE;
                     }
+
+                    return check;
                 }
             }
         }
@@ -204,7 +199,7 @@ private:
         JITDUMPTREE(currentStatement->GetRootNode(), "PropagateConstArrayLength rewriting\n");
 
         assert(arrLen->TypeIs(TYP_INT));
-        arrLen->ChangeToIntCon(TYP_INT, constVal);
+        arrLen->ChangeToIntCon(TYP_INT, lengthValue);
         arrLen->gtFlags = constLen->gtFlags;
 
         // Propagating a constant may create an opportunity to use a division by constant optimization
