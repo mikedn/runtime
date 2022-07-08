@@ -292,23 +292,36 @@ private:
         {
             JITDUMPTREE(nullCheck, "FoldNullCheck marking a NULLCHECK for removal\n");
 
-            nullCheck->gtFlags |= GTF_IND_NONFAULTING;
-            nullCheck->gtFlags &= ~(GTF_EXCEPT | GTF_DONT_CSE);
-
-            // TODO-MIKE-Review: This is dubios, the NULLCHECK node will be removed
-            // and then GTF_ORDER_SIDEEFF probably needs to be set on its ancestores.
-            nullCheck->gtFlags |= GTF_ORDER_SIDEEFF;
-
-            // TODO-MIKE-Cleanup: This mostly deals with spurious GTF_DONT_CSE added
-            // by fgMorphFieldAddr to reduce diffs.
-            if (nullCheckUser != nullptr)
-            {
-                nullCheckUser->gtFlags &= ~GTF_DONT_CSE;
-            }
-
             nullCheckMap.Remove(nullCheck->GetAddr()->AsLclVar()->GetLclNum());
 
-            compiler->fgMorphBlockStmt(currentBlock, nullCheckStmt DEBUGARG("FoldNullCheck"));
+            // TODO-MIKE-Review: Check if this is really needed. After the null check is removed
+            // the remaining subtree either has other side effects that will prevent reordering,
+            // or it has no other side effects and then reordering isn't an issue. Someone likely
+            // confused this with another situation that does require GTF_ORDER_SIDEEFF - an indir
+            // dominated by another indir may be made "non faulting" and then we do need to prevent
+            // the "non faulting" indir to be reordered in front of the dominating faulting indir.
+            nullCheck->gtFlags |= GTF_ORDER_SIDEEFF;
+
+            nullCheck->ChangeToNothingNode();
+            compiler->gtUpdateTreeAncestorsSideEffects(nullCheck);
+
+            if (nullCheckUser == nullptr)
+            {
+                assert(nullCheck == nullCheckStmt->GetRootNode());
+            }
+            else if (nullCheckUser->OperIs(GT_COMMA) && (nullCheckUser->AsOp()->GetOp(0) == nullCheck))
+            {
+                GenTree** use;
+                GenTree*  commaUser = nullCheckUser->FindUser(&use);
+
+                if (commaUser != nullptr)
+                {
+                    *use = nullCheckUser->AsOp()->GetOp(1);
+                }
+            }
+
+            compiler->gtSetStmtInfo(nullCheckStmt);
+            compiler->fgSetStmtSeq(nullCheckStmt);
         }
 
         if (indir->OperIs(GT_NULLCHECK) && indir->AsIndir()->GetAddr()->OperIs(GT_LCL_VAR))
