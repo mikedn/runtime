@@ -180,15 +180,26 @@ private:
 
                 if ((indexValue >= 0) && (indexValue < lengthValue))
                 {
-                    check->ChangeToNothingNode();
-
                     GenTree* comma = check->FindUser();
 
-                    // TODO-MIKE-Cleanup: It looks like GTF_DONT_CSE is needed because CSE is dumb
-                    // and CSEs COMMA(NOP, x) because it has the same VN as x...
+                    check->ChangeToNothingNode();
+
                     if ((comma != nullptr) && comma->OperIs(GT_COMMA) && (comma->AsOp()->GetOp(0) == check))
                     {
-                        comma->gtFlags |= GTF_DONT_CSE;
+                        GenTree** use;
+                        GenTree*  user = comma->FindUser(&use);
+
+                        if (user != nullptr)
+                        {
+                            *use = comma->AsOp()->GetOp(1);
+
+                            // COMMA and ARR_LEN remain in the statment until we finish traversing the statement,
+                            // remove all side effects so they don't interfere with null check folding.
+                            comma->ChangeToNothingNode();
+                            arrLen->ChangeToNothingNode();
+
+                            return user;
+                        }
                     }
 
                     return check;
