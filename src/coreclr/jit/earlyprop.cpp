@@ -294,29 +294,33 @@ private:
 
             nullCheckMap.Remove(nullCheck->GetAddr()->AsLclVar()->GetLclNum());
 
-            // TODO-MIKE-Review: Check if this is really needed. After the null check is removed
-            // the remaining subtree either has other side effects that will prevent reordering,
-            // or it has no other side effects and then reordering isn't an issue. Someone likely
-            // confused this with another situation that does require GTF_ORDER_SIDEEFF - an indir
-            // dominated by another indir may be made "non faulting" and then we do need to prevent
-            // the "non faulting" indir to be reordered in front of the dominating faulting indir.
-            nullCheck->gtFlags |= GTF_ORDER_SIDEEFF;
-
             nullCheck->ChangeToNothingNode();
-            compiler->gtUpdateTreeAncestorsSideEffects(nullCheck);
 
             if (nullCheckUser == nullptr)
             {
                 assert(nullCheck == nullCheckStmt->GetRootNode());
             }
-            else if (nullCheckUser->OperIs(GT_COMMA) && (nullCheckUser->AsOp()->GetOp(0) == nullCheck))
+            else
             {
-                GenTree** use;
-                GenTree*  commaUser = nullCheckUser->FindUser(&use);
+                // TODO-MIKE-Review: Check if this is really needed. After the null check is removed
+                // the remaining subtree either has other side effects that will prevent reordering,
+                // or it has no other side effects and then reordering isn't an issue. Someone likely
+                // confused this with another situation that does require GTF_ORDER_SIDEEFF - an indir
+                // dominated by another indir may be made "non faulting" and then we do need to prevent
+                // the "non faulting" indir to be reordered in front of the dominating faulting indir.
+                nullCheck->gtFlags |= GTF_ORDER_SIDEEFF;
 
-                if (commaUser != nullptr)
+                compiler->gtUpdateTreeAncestorsSideEffects(nullCheck);
+
+                if (nullCheckUser->OperIs(GT_COMMA) && (nullCheckUser->AsOp()->GetOp(0) == nullCheck))
                 {
-                    *use = nullCheckUser->AsOp()->GetOp(1);
+                    GenTree** use;
+                    GenTree*  commaUser = nullCheckUser->FindUser(&use);
+
+                    if (commaUser != nullptr)
+                    {
+                        *use = nullCheckUser->AsOp()->GetOp(1);
+                    }
                 }
             }
 
