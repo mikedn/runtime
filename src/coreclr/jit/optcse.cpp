@@ -16,6 +16,83 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #pragma hdrstop
 #endif
 
+/* Generic list of nodes - used by the CSE logic */
+
+struct treeStmtLst
+{
+    treeStmtLst* tslNext;
+    GenTree*     tslTree;  // tree node
+    Statement*   tslStmt;  // statement containing the tree
+    BasicBlock*  tslBlock; // block containing the statement
+
+    treeStmtLst(GenTree* tree, Statement* stmt, BasicBlock* block)
+        : tslNext(nullptr), tslTree(tree), tslStmt(stmt), tslBlock(block)
+    {
+    }
+};
+
+// The following logic keeps track of expressions via a simple hash table.
+
+struct CSEdsc
+{
+    CSEdsc*  csdNextInBucket;  // used by the hash table
+    size_t   csdHashKey;       // the orginal hashkey
+    ssize_t  csdConstDefValue; // When we CSE similar constants, this is the value that we use as the def
+    ValueNum csdConstDefVN;    // When we CSE similar constants, this is the ValueNumber that we use for the LclVar
+    // assignment
+    unsigned csdIndex;         // 1..optCSECandidateCount
+    bool     csdIsSharedConst; // true if this CSE is a shared const
+    bool     csdLiveAcrossCall;
+
+    unsigned short csdDefCount; // definition   count
+    unsigned short csdUseCount; // use          count  (excluding the implicit uses at defs)
+
+    BasicBlock::weight_t csdDefWtCnt; // weighted def count
+    BasicBlock::weight_t csdUseWtCnt; // weighted use count  (excluding the implicit uses at defs)
+
+    GenTree*    csdTree;  // treenode containing the 1st occurrence
+    Statement*  csdStmt;  // stmt containing the 1st occurrence
+    BasicBlock* csdBlock; // block containing the 1st occurrence
+
+    treeStmtLst* csdTreeList; // list of matching tree nodes: head
+    treeStmtLst* csdTreeLast; // list of matching tree nodes: tail
+
+    ClassLayout* csdLayout; // Layout needed to create struct typed CSE temps.
+
+    ValueNum defExcSetPromise; // The exception set that is now required for all defs of this CSE.
+    // This will be set to NoVN if we decide to abandon this CSE
+
+    ValueNum defExcSetCurrent; // The set of exceptions we currently can use for CSE uses.
+
+    ValueNum defConservNormVN; // if all def occurrences share the same conservative normal value
+    // number, this will reflect it; otherwise, NoVN.
+    // not used for shared const CSE's
+
+    CSEdsc(size_t hashKey, GenTree* tree, Statement* stmt, BasicBlock* block)
+        : csdNextInBucket(nullptr)
+        , csdHashKey(hashKey)
+        , csdConstDefValue(0)
+        , csdConstDefVN(ValueNumStore::VNForNull())
+        , csdIndex(0)
+        , csdIsSharedConst(false)
+        , csdLiveAcrossCall(false)
+        , csdDefCount(0)
+        , csdUseCount(0)
+        , csdDefWtCnt(0)
+        , csdUseWtCnt(0)
+        , csdTree(tree)
+        , csdStmt(stmt)
+        , csdBlock(block)
+        , csdTreeList(nullptr)
+        , csdTreeLast(nullptr)
+        , csdLayout(nullptr)
+        , defExcSetPromise(ValueNumStore::VNForEmptyExcSet())
+        , defExcSetCurrent(ValueNumStore::VNForNull())
+        , defConservNormVN(ValueNumStore::VNForNull())
+    {
+    }
+};
+
 /* static */
 const size_t Compiler::s_optCSEhashSizeInitial  = EXPSET_SZ * 2;
 const size_t Compiler::s_optCSEhashGrowthFactor = 2;
@@ -67,7 +144,7 @@ void Compiler::optCSEstop()
  *  Return the descriptor for the CSE with the given index.
  */
 
-inline Compiler::CSEdsc* Compiler::optCSEfindDsc(unsigned index)
+inline CSEdsc* Compiler::optCSEfindDsc(unsigned index)
 {
     noway_assert(index);
     noway_assert(index <= optCSECandidateCount);
@@ -1661,7 +1738,7 @@ class CSE_Heuristic
     bool                   largeFrame;
     bool                   hugeFrame;
     Compiler::codeOptimize codeOptKind;
-    Compiler::CSEdsc**     sortTab;
+    CSEdsc**               sortTab;
     size_t                 sortSiz;
 #ifdef DEBUG
     CLRRandom m_cseRNG;
@@ -1930,7 +2007,7 @@ public:
     void SortCandidates()
     {
         /* Create an expression table sorted by decreasing cost */
-        sortTab = new (m_pCompiler, CMK_CSE) Compiler::CSEdsc*[m_pCompiler->optCSECandidateCount];
+        sortTab = new (m_pCompiler, CMK_CSE) CSEdsc*[m_pCompiler->optCSECandidateCount];
 
         sortSiz = m_pCompiler->optCSECandidateCount * sizeof(*sortTab);
         memcpy(sortTab, m_pCompiler->optCSEtab, sortSiz);
@@ -1951,8 +2028,8 @@ public:
             /* Print out the CSE candidates */
             for (unsigned cnt = 0; cnt < m_pCompiler->optCSECandidateCount; cnt++)
             {
-                Compiler::CSEdsc* dsc  = sortTab[cnt];
-                GenTree*          expr = dsc->csdTree;
+                CSEdsc*  dsc  = sortTab[cnt];
+                GenTree* expr = dsc->csdTree;
 
                 BasicBlock::weight_t def;
                 BasicBlock::weight_t use;
@@ -2000,8 +2077,8 @@ public:
     //
     class CSE_Candidate
     {
-        CSE_Heuristic*    m_context;
-        Compiler::CSEdsc* m_CseDsc;
+        CSE_Heuristic* m_context;
+        CSEdsc*        m_CseDsc;
 
         unsigned             m_cseIndex;
         BasicBlock::weight_t m_defCount;
@@ -2034,7 +2111,7 @@ public:
         bool m_StressCSE;
 
     public:
-        CSE_Candidate(CSE_Heuristic* context, Compiler::CSEdsc* cseDsc)
+        CSE_Candidate(CSE_Heuristic* context, CSEdsc* cseDsc)
             : m_context(context)
             , m_CseDsc(cseDsc)
             , m_cseIndex(m_CseDsc->csdIndex)
@@ -2049,7 +2126,7 @@ public:
         {
         }
 
-        Compiler::CSEdsc* CseDsc()
+        CSEdsc* CseDsc()
         {
             return m_CseDsc;
         }
@@ -2604,8 +2681,8 @@ public:
         // estimate the cost from lost codesize reduction if we do not perform the CSE
         if (candidate->Size() > cse_use_cost)
         {
-            Compiler::CSEdsc* dsc = candidate->CseDsc(); // We need to retrieve the actual use count, not the
-                                                         // weighted count
+            CSEdsc* dsc = candidate->CseDsc(); // We need to retrieve the actual use count, not the
+                                               // weighted count
             extra_no_cost = candidate->Size() - cse_use_cost;
             extra_no_cost = extra_no_cost * dsc->csdUseCount * 2;
         }
@@ -2762,7 +2839,7 @@ public:
         //
         //  Later we will unmark any nested CSE's for the CSE uses.
         //
-        Compiler::CSEdsc* dsc = successfulCandidate->CseDsc();
+        CSEdsc* dsc = successfulCandidate->CseDsc();
 
         // If there's just a single def for the CSE, we'll put this
         // CSE into SSA form on the fly. We won't need any PHIs.
@@ -2780,13 +2857,13 @@ public:
         // Verify that all of the ValueNumbers in this list are correct as
         // Morph will change them when it performs a mutating operation.
         //
-        bool                   setRefCnt      = true;
-        bool                   allSame        = true;
-        bool                   isSharedConst  = successfulCandidate->IsSharedConst();
-        ValueNum               bestVN         = ValueNumStore::NoVN;
-        bool                   bestIsDef      = false;
-        ssize_t                bestConstValue = 0;
-        Compiler::treeStmtLst* lst            = dsc->csdTreeList;
+        bool         setRefCnt      = true;
+        bool         allSame        = true;
+        bool         isSharedConst  = successfulCandidate->IsSharedConst();
+        ValueNum     bestVN         = ValueNumStore::NoVN;
+        bool         bestIsDef      = false;
+        ssize_t      bestConstValue = 0;
+        treeStmtLst* lst            = dsc->csdTreeList;
 
         while (lst != nullptr)
         {
@@ -3243,12 +3320,12 @@ public:
     void ConsiderCandidates()
     {
         /* Consider each CSE candidate, in order of decreasing cost */
-        unsigned           cnt = m_pCompiler->optCSECandidateCount;
-        Compiler::CSEdsc** ptr = sortTab;
+        unsigned cnt = m_pCompiler->optCSECandidateCount;
+        CSEdsc** ptr = sortTab;
         for (; (cnt > 0); cnt--, ptr++)
         {
-            Compiler::CSEdsc* dsc = *ptr;
-            CSE_Candidate     candidate(this, dsc);
+            CSEdsc*       dsc = *ptr;
+            CSE_Candidate candidate(this, dsc);
 
             if (dsc->defExcSetPromise == ValueNumStore::NoVN)
             {

@@ -1538,6 +1538,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
 struct HWIntrinsicInfo;
+struct CSEdsc;
 
 class Compiler
 {
@@ -5469,83 +5470,6 @@ protected:
     void optPrintCSEDataFlowSet(EXPSET_VALARG_TP cseDataFlowSet, bool includeBits = true);
 
     EXPSET_TP cseCallKillsMask; // Computed once - A mask that is used to kill available CSEs at callsites
-
-    /* Generic list of nodes - used by the CSE logic */
-
-    struct treeStmtLst
-    {
-        treeStmtLst* tslNext;
-        GenTree*     tslTree;  // tree node
-        Statement*   tslStmt;  // statement containing the tree
-        BasicBlock*  tslBlock; // block containing the statement
-
-        treeStmtLst(GenTree* tree, Statement* stmt, BasicBlock* block)
-            : tslNext(nullptr), tslTree(tree), tslStmt(stmt), tslBlock(block)
-        {
-        }
-    };
-
-    // The following logic keeps track of expressions via a simple hash table.
-
-    struct CSEdsc
-    {
-        CSEdsc*  csdNextInBucket;  // used by the hash table
-        size_t   csdHashKey;       // the orginal hashkey
-        ssize_t  csdConstDefValue; // When we CSE similar constants, this is the value that we use as the def
-        ValueNum csdConstDefVN;    // When we CSE similar constants, this is the ValueNumber that we use for the LclVar
-                                   // assignment
-        unsigned csdIndex;         // 1..optCSECandidateCount
-        bool     csdIsSharedConst; // true if this CSE is a shared const
-        bool     csdLiveAcrossCall;
-
-        unsigned short csdDefCount; // definition   count
-        unsigned short csdUseCount; // use          count  (excluding the implicit uses at defs)
-
-        BasicBlock::weight_t csdDefWtCnt; // weighted def count
-        BasicBlock::weight_t csdUseWtCnt; // weighted use count  (excluding the implicit uses at defs)
-
-        GenTree*    csdTree;  // treenode containing the 1st occurrence
-        Statement*  csdStmt;  // stmt containing the 1st occurrence
-        BasicBlock* csdBlock; // block containing the 1st occurrence
-
-        treeStmtLst* csdTreeList; // list of matching tree nodes: head
-        treeStmtLst* csdTreeLast; // list of matching tree nodes: tail
-
-        ClassLayout* csdLayout; // Layout needed to create struct typed CSE temps.
-
-        ValueNum defExcSetPromise; // The exception set that is now required for all defs of this CSE.
-                                   // This will be set to NoVN if we decide to abandon this CSE
-
-        ValueNum defExcSetCurrent; // The set of exceptions we currently can use for CSE uses.
-
-        ValueNum defConservNormVN; // if all def occurrences share the same conservative normal value
-                                   // number, this will reflect it; otherwise, NoVN.
-                                   // not used for shared const CSE's
-
-        CSEdsc(size_t hashKey, GenTree* tree, Statement* stmt, BasicBlock* block)
-            : csdNextInBucket(nullptr)
-            , csdHashKey(hashKey)
-            , csdConstDefValue(0)
-            , csdConstDefVN(ValueNumStore::VNForNull())
-            , csdIndex(0)
-            , csdIsSharedConst(false)
-            , csdLiveAcrossCall(false)
-            , csdDefCount(0)
-            , csdUseCount(0)
-            , csdDefWtCnt(0)
-            , csdUseWtCnt(0)
-            , csdTree(tree)
-            , csdStmt(stmt)
-            , csdBlock(block)
-            , csdTreeList(nullptr)
-            , csdTreeLast(nullptr)
-            , csdLayout(nullptr)
-            , defExcSetPromise(ValueNumStore::VNForEmptyExcSet())
-            , defExcSetCurrent(ValueNumStore::VNForNull())
-            , defConservNormVN(ValueNumStore::VNForNull())
-        {
-        }
-    };
 
     static const size_t s_optCSEhashSizeInitial;
     static const size_t s_optCSEhashGrowthFactor;
