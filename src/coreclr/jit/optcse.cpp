@@ -404,27 +404,6 @@ bool Compiler::optCSE_canSwap(GenTree* op1, GenTree* op2)
     return canSwap;
 }
 
-//------------------------------------------------------------------------
-// optCSE_canSwap: Determine if the execution order of a node's operands can be swapped.
-//
-// Arguments:
-//    tree - The node of interest
-//
-// Return Value:
-//    Return true iff it safe to swap the execution order of the operands of 'tree',
-//    considering only the locations of the CSE defs and uses.
-//
-bool Compiler::optCSE_canSwap(GenTree* tree)
-{
-    // We must have a binary treenode with non-null op1 and op2
-    assert((tree->OperKind() & GTK_SMPOP) != 0);
-
-    GenTree* op1 = tree->AsOp()->gtOp1;
-    GenTree* op2 = tree->gtGetOp2();
-
-    return optCSE_canSwap(op1, op2);
-}
-
 /*****************************************************************************
  *
  *  Compare function passed to jitstd::sort() by CSE_Heuristic::SortCandidates

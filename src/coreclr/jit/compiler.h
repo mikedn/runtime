@@ -5453,7 +5453,6 @@ public:
 
     // Given a binary tree node return true if it is safe to swap the order of evaluation for op1 and op2.
     bool optCSE_canSwap(GenTree* firstNode, GenTree* secondNode);
-    bool optCSE_canSwap(GenTree* tree);
 
 #ifdef DEBUG
     void optEnsureClearCSEInfo();
