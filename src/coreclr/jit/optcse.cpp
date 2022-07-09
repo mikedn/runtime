@@ -142,12 +142,14 @@ static size_t Encode_Shared_Const_CSE_Value(size_t key)
     return TARGET_SIGN_BIT | (key >> CSE_CONST_SHARED_LOW_BITS);
 }
 
+#ifdef DEBUG
 // returns the orginal key
 static size_t Decode_Shared_Const_CSE_Value(size_t enckey)
 {
     assert(Is_Shared_Const_CSE(enckey));
     return (enckey & ~TARGET_SIGN_BIT) << CSE_CONST_SHARED_LOW_BITS;
 }
+#endif
 
 class Cse
 {
