@@ -1539,6 +1539,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 struct HWIntrinsicInfo;
 struct CSEdsc;
+struct optCSE_MaskData;
 
 enum CallInterf : uint8_t
 {
@@ -5451,13 +5452,6 @@ public:
 
     CSEdsc* optCSEfindDsc(unsigned index);
     bool optUnmarkCSE(GenTree* tree);
-
-    // user defined callback data for the tree walk function optCSE_MaskHelper()
-    struct optCSE_MaskData
-    {
-        EXPSET_TP CSE_defMask;
-        EXPSET_TP CSE_useMask;
-    };
 
     // Treewalk helper for optCSE_DefMask and optCSE_UseMask
     static fgWalkPreFn optCSE_MaskHelper;

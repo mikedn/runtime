@@ -285,6 +285,13 @@ bool Compiler::optUnmarkCSE(GenTree* tree)
     }
 }
 
+// user defined callback data for the tree walk function optCSE_MaskHelper()
+struct optCSE_MaskData
+{
+    EXPSET_TP CSE_defMask;
+    EXPSET_TP CSE_useMask;
+};
+
 Compiler::fgWalkResult Compiler::optCSE_MaskHelper(GenTree** pTree, fgWalkData* walkData)
 {
     GenTree*         tree      = *pTree;
