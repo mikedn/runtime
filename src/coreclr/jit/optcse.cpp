@@ -149,14 +149,34 @@ static size_t Decode_Shared_Const_CSE_Value(size_t enckey)
     return (enckey & ~TARGET_SIGN_BIT) << CSE_CONST_SHARED_LOW_BITS;
 }
 
+class Cse
+{
+    Compiler*      compiler;
+    ValueNumStore* vnStore;
+
+public:
+    Cse(Compiler* compiler) : compiler(compiler), vnStore(compiler->vnStore)
+    {
+    }
+
+    void     optValnumCSE_Init();
+    unsigned optValnumCSE_Index(GenTree* tree, Statement* stmt);
+    bool optValnumCSE_Locate();
+    void optValnumCSE_InitDataFlow();
+    void optValnumCSE_DataFlow();
+    void optValnumCSE_Availablity();
+    void optValnumCSE_Heuristic();
+    void optCSEstop();
+};
+
 /*****************************************************************************
  *
  *  We've found all the candidates, build the index for easy access.
  */
 
-void Compiler::optCSEstop()
+void Cse::optCSEstop()
 {
-    if (optCSECandidateCount == 0)
+    if (compiler->optCSECandidateCount == 0)
     {
         return;
     }
@@ -165,27 +185,27 @@ void Compiler::optCSEstop()
     CSEdsc** ptr;
     size_t   cnt;
 
-    optCSEtab = new (this, CMK_CSE) CSEdsc*[optCSECandidateCount]();
+    compiler->optCSEtab = new (compiler, CMK_CSE) CSEdsc*[compiler->optCSECandidateCount]();
 
-    for (cnt = optCSEhashSize, ptr = optCSEhash; cnt; cnt--, ptr++)
+    for (cnt = compiler->optCSEhashSize, ptr = compiler->optCSEhash; cnt; cnt--, ptr++)
     {
         for (dsc = *ptr; dsc; dsc = dsc->csdNextInBucket)
         {
             if (dsc->csdIndex)
             {
-                noway_assert((unsigned)dsc->csdIndex <= optCSECandidateCount);
-                if (optCSEtab[dsc->csdIndex - 1] == nullptr)
+                noway_assert((unsigned)dsc->csdIndex <= compiler->optCSECandidateCount);
+                if (compiler->optCSEtab[dsc->csdIndex - 1] == nullptr)
                 {
-                    optCSEtab[dsc->csdIndex - 1] = dsc;
+                    compiler->optCSEtab[dsc->csdIndex - 1] = dsc;
                 }
             }
         }
     }
 
 #ifdef DEBUG
-    for (cnt = 0; cnt < optCSECandidateCount; cnt++)
+    for (cnt = 0; cnt < compiler->optCSECandidateCount; cnt++)
     {
-        noway_assert(optCSEtab[cnt] != nullptr);
+        noway_assert(compiler->optCSEtab[cnt] != nullptr);
     }
 #endif
 }
@@ -478,25 +498,6 @@ struct optCSEcostCmpSz
  *
  *  Initialize the Value Number CSE tracking logic.
  */
-
-class Cse
-{
-    Compiler*      compiler;
-    ValueNumStore* vnStore;
-
-public:
-    Cse(Compiler* compiler) : compiler(compiler), vnStore(compiler->vnStore)
-    {
-    }
-
-    void     optValnumCSE_Init();
-    unsigned optValnumCSE_Index(GenTree* tree, Statement* stmt);
-    bool optValnumCSE_Locate();
-    void optValnumCSE_InitDataFlow();
-    void optValnumCSE_DataFlow();
-    void optValnumCSE_Availablity();
-    void optValnumCSE_Heuristic();
-};
 
 void Cse::optValnumCSE_Init()
 {
@@ -970,7 +971,7 @@ bool Cse::optValnumCSE_Locate()
 
     /* We're finished building the expression lookup table */
 
-    compiler->optCSEstop();
+    optCSEstop();
 
     return true;
 }

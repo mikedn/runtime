@@ -5448,8 +5448,6 @@ public:
     // Given a compare, look for a cse candidate checked bound feeding it and add a map entry if found.
     void optCseUpdateCheckedBoundMap(GenTree* compare);
 
-    void optCSEstop();
-
     CSEdsc* optCSEfindDsc(unsigned index);
     bool optUnmarkCSE(GenTree* tree);
 
