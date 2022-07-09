@@ -1540,6 +1540,15 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 struct HWIntrinsicInfo;
 struct CSEdsc;
 
+enum CallInterf : uint8_t
+{
+    CALLINT_NONE,       // no interference                               (most helpers)
+    CALLINT_REF_INDIRS, // kills GC ref indirections                     (SETFIELD OBJ)
+    CALLINT_SCL_INDIRS, // kills non GC ref indirections                 (SETFIELD non-OBJ)
+    CALLINT_ALL_INDIRS, // kills both GC ref and non GC ref indirections (SETFIELD STRUCT)
+    CALLINT_ALL,        // kills everything                              (normal method call)
+};
+
 class Compiler
 {
     friend class emitter;
@@ -5113,19 +5122,6 @@ public:
     PhaseStatus optUnrollLoops(); // Unrolls loops (needs to have cost info)
     void        optRemoveRedundantZeroInits();
 
-protected:
-    // This enumeration describes what is killed by a call.
-
-    enum callInterf : uint8_t
-    {
-        CALLINT_NONE,       // no interference                               (most helpers)
-        CALLINT_REF_INDIRS, // kills GC ref indirections                     (SETFIELD OBJ)
-        CALLINT_SCL_INDIRS, // kills non GC ref indirections                 (SETFIELD non-OBJ)
-        CALLINT_ALL_INDIRS, // kills both GC ref and non GC ref indirections (SETFIELD STRUCT)
-        CALLINT_ALL,        // kills everything                              (normal method call)
-    };
-
-public:
     // A "LoopDsc" describes a ("natural") loop.  We (currently) require the body of a loop to be a contiguous (in
     // bbNext order) sequence of basic blocks.  (At times, we may require the blocks in a loop to be "properly numbered"
     // in bbNext order; we use comparisons on the bbNum to decide order.)
@@ -5146,7 +5142,7 @@ public:
         BasicBlock* lpExit;   // if a single exit loop this is the EXIT (in most cases BOTTOM)
 
         ALLVARSET_TP lpAsgVars; // set of vars assigned within the loop (all vars, not just tracked)
-        callInterf   lpAsgCall; // "callInterf" for calls in the loop
+        CallInterf   lpAsgCall; // "callInterf" for calls in the loop
         varRefKinds  lpAsgInds; // set of inds modified within the loop
 
         LoopFlags lpFlags;
@@ -5566,21 +5562,6 @@ protected:
 #endif
 
     void optOptimizeCSEs();
-
-    struct isVarAssgDsc
-    {
-        GenTree*     ivaSkip;
-        ALLVARSET_TP ivaMaskVal; // Set of variables assigned to.  This is a set of all vars, not tracked vars.
-#ifdef DEBUG
-        void* ivaSelf;
-#endif
-        unsigned    ivaVar;            // Variable we are interested in, or -1
-        varRefKinds ivaMaskInd;        // What kind of indirect assignments are there?
-        callInterf  ivaMaskCall;       // What kind of calls are there?
-        bool        ivaMaskIncomplete; // Variables not representable in ivaMaskVal were assigned to.
-    };
-
-    static callInterf optCallInterf(GenTreeCall* call);
 
 public:
     void optVnCopyProp();

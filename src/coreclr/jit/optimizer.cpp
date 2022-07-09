@@ -4735,7 +4735,7 @@ PhaseStatus Compiler::optFindLoops()
  *  Determine the kind of interference for the call.
  */
 
-/* static */ inline Compiler::callInterf Compiler::optCallInterf(GenTreeCall* call)
+CallInterf optCallInterf(GenTreeCall* call)
 {
     // if not a helper, kills everything
     if (call->gtCallType != CT_HELPER)
@@ -4744,14 +4744,13 @@ PhaseStatus Compiler::optFindLoops()
     }
 
     // setfield and array address store kill all indirections
-    switch (eeGetHelperNum(call->gtCallMethHnd))
+    switch (Compiler::eeGetHelperNum(call->GetMethodHandle()))
     {
         case CORINFO_HELP_ASSIGN_REF:         // Not strictly needed as we don't make a GT_CALL with this
         case CORINFO_HELP_CHECKED_ASSIGN_REF: // Not strictly needed as we don't make a GT_CALL with this
         case CORINFO_HELP_ASSIGN_BYREF:       // Not strictly needed as we don't make a GT_CALL with this
         case CORINFO_HELP_SETFIELDOBJ:
         case CORINFO_HELP_ARRADDR_ST:
-
             return CALLINT_REF_INDIRS;
 
         case CORINFO_HELP_SETFIELDFLOAT:
@@ -4760,23 +4759,31 @@ PhaseStatus Compiler::optFindLoops()
         case CORINFO_HELP_SETFIELD16:
         case CORINFO_HELP_SETFIELD32:
         case CORINFO_HELP_SETFIELD64:
-
             return CALLINT_SCL_INDIRS;
 
         case CORINFO_HELP_ASSIGN_STRUCT: // Not strictly needed as we don't use this
         case CORINFO_HELP_MEMSET:        // Not strictly needed as we don't make a GT_CALL with this
         case CORINFO_HELP_MEMCPY:        // Not strictly needed as we don't make a GT_CALL with this
         case CORINFO_HELP_SETFIELDSTRUCT:
-
             return CALLINT_ALL_INDIRS;
 
         default:
-            break;
+            return CALLINT_NONE;
     }
-
-    // other helpers kill nothing
-    return CALLINT_NONE;
 }
+
+struct isVarAssgDsc
+{
+    GenTree*     ivaSkip;
+    ALLVARSET_TP ivaMaskVal; // Set of variables assigned to.  This is a set of all vars, not tracked vars.
+#ifdef DEBUG
+    void* ivaSelf;
+#endif
+    unsigned    ivaVar;            // Variable we are interested in, or -1
+    varRefKinds ivaMaskInd;        // What kind of indirect assignments are there?
+    CallInterf  ivaMaskCall;       // What kind of calls are there?
+    bool        ivaMaskIncomplete; // Variables not representable in ivaMaskVal were assigned to.
+};
 
 /*****************************************************************************
  *
