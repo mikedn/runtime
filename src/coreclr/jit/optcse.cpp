@@ -104,14 +104,14 @@ constexpr CseIndex ToCseDefIndex(CseIndex index)
     return static_cast<CseIndex>(-index);
 }
 
-constexpr size_t s_optCSEhashSizeInitial  = EXPSET_SZ * 2;
-constexpr size_t s_optCSEhashGrowthFactor = 2;
-constexpr size_t s_optCSEhashBucketSize   = 4;
-
 //  The following is the upper limit on how many expressions we'll keep track
 //  of for the CSE analysis.
 //
-constexpr unsigned MAX_CSE_CNT = EXPSET_SZ;
+constexpr unsigned MAX_CSE_CNT = 64;
+
+constexpr size_t s_optCSEhashSizeInitial  = MAX_CSE_CNT * 2;
+constexpr size_t s_optCSEhashGrowthFactor = 2;
+constexpr size_t s_optCSEhashBucketSize   = 4;
 
 //-----------------------------------------------------------------------------------------------------------------
 // getCSEnum2bit: Return the normalized index to use in the EXPSET_TP for the CSE with the given CSE index.

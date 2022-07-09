@@ -33,12 +33,6 @@ typedef BitVec          EXPSET_TP;
 typedef BitVec_ValArg_T EXPSET_VALARG_TP;
 typedef BitVec_ValRet_T EXPSET_VALRET_TP;
 
-#if LARGE_EXPSET
-#define EXPSET_SZ 64
-#else
-#define EXPSET_SZ 32
-#endif
-
 typedef BitVec          ASSERT_TP;
 typedef BitVec_ValArg_T ASSERT_VALARG_TP;
 typedef BitVec_ValRet_T ASSERT_VALRET_TP;
