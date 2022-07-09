@@ -170,6 +170,7 @@ public:
     void optValnumCSE_Heuristic();
     void optCSEstop();
     void optCseUpdateCheckedBoundMap(GenTree* compare);
+    INDEBUG(void optEnsureClearCSEInfo();)
 };
 
 /*****************************************************************************
@@ -504,6 +505,8 @@ struct optCSEcostCmpSz
 
 void Cse::optValnumCSE_Init()
 {
+    INDEBUG(optEnsureClearCSEInfo());
+
 #ifdef DEBUG
     compiler->optCSEtab = nullptr;
 #endif
@@ -3792,8 +3795,6 @@ void Compiler::optOptimizeCSEs()
     optCSECandidateCount = 0;
     optCSEstart          = lvaCount;
 
-    INDEBUG(optEnsureClearCSEInfo());
-
 #ifdef DEBUG
     if (optConfigDisableCSE())
     {
@@ -3826,9 +3827,9 @@ void Compiler::optOptimizeCSEs()
  *  before running a CSE phase. This is basically an assert that optCleanupCSEs() is not needed.
  */
 
-void Compiler::optEnsureClearCSEInfo()
+void Cse::optEnsureClearCSEInfo()
 {
-    for (BasicBlock* const block : Blocks())
+    for (BasicBlock* const block : compiler->Blocks())
     {
         assert((block->bbFlags & BBF_MARKED) == 0);
 
