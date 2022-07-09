@@ -167,6 +167,7 @@ public:
     void optValnumCSE_Availablity();
     void optValnumCSE_Heuristic();
     void optCSEstop();
+    void optCseUpdateCheckedBoundMap(GenTree* compare);
 };
 
 /*****************************************************************************
@@ -898,7 +899,7 @@ bool Cse::optValnumCSE_Locate()
                     // Check if this compare is a function of (one of) the checked
                     // bound candidate(s); we may want to update its value number.
                     // if the array length gets CSEd
-                    compiler->optCseUpdateCheckedBoundMap(tree);
+                    optCseUpdateCheckedBoundMap(tree);
                 }
 
                 // Don't allow CSE of constants if it is disabled
@@ -986,7 +987,7 @@ bool Cse::optValnumCSE_Locate()
 // Arguments:
 //    compare - The compare node to check
 //
-void Compiler::optCseUpdateCheckedBoundMap(GenTree* compare)
+void Cse::optCseUpdateCheckedBoundMap(GenTree* compare)
 {
     assert(compare->OperIsCompare());
 
@@ -1064,13 +1065,14 @@ void Compiler::optCseUpdateCheckedBoundMap(GenTree* compare)
             // record this in the map so we can update the compare VN if the bound
             // node gets CSEd.
 
-            if (optCseCheckedBoundMap == nullptr)
+            if (compiler->optCseCheckedBoundMap == nullptr)
             {
                 // Allocate map on first use.
-                optCseCheckedBoundMap = new (getAllocator(CMK_CSE)) NodeToNodeMap(getAllocator());
+                compiler->optCseCheckedBoundMap =
+                    new (compiler->getAllocator(CMK_CSE)) Compiler::NodeToNodeMap(compiler->getAllocator());
             }
 
-            optCseCheckedBoundMap->Set(bound, compare);
+            compiler->optCseCheckedBoundMap->Set(bound, compare);
         }
     }
 }
