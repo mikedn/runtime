@@ -5512,15 +5512,6 @@ protected:
     bool optCSE_canSwap(GenTree* firstNode, GenTree* secondNode);
     bool optCSE_canSwap(GenTree* tree);
 
-    struct optCSEcostCmpEx
-    {
-        bool operator()(const CSEdsc* op1, const CSEdsc* op2);
-    };
-    struct optCSEcostCmpSz
-    {
-        bool operator()(const CSEdsc* op1, const CSEdsc* op2);
-    };
-
     void optCleanupCSEs();
 
 #ifdef DEBUG

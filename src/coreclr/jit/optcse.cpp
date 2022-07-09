@@ -346,35 +346,37 @@ bool Compiler::optCSE_canSwap(GenTree* tree)
  *  when (CodeOptKind() != Compiler::SMALL_CODE)
  */
 
-/* static */
-bool Compiler::optCSEcostCmpEx::operator()(const CSEdsc* dsc1, const CSEdsc* dsc2)
+struct optCSEcostCmpEx
 {
-    GenTree* exp1 = dsc1->csdTree;
-    GenTree* exp2 = dsc2->csdTree;
-
-    auto expCost1 = exp1->GetCostEx();
-    auto expCost2 = exp2->GetCostEx();
-
-    if (expCost2 != expCost1)
+    bool operator()(const CSEdsc* dsc1, const CSEdsc* dsc2)
     {
-        return expCost2 < expCost1;
-    }
+        GenTree* exp1 = dsc1->csdTree;
+        GenTree* exp2 = dsc2->csdTree;
 
-    // Sort the higher Use Counts toward the top
-    if (dsc2->csdUseWtCnt != dsc1->csdUseWtCnt)
-    {
-        return dsc2->csdUseWtCnt < dsc1->csdUseWtCnt;
-    }
+        auto expCost1 = exp1->GetCostEx();
+        auto expCost2 = exp2->GetCostEx();
 
-    // With the same use count, Sort the lower Def Counts toward the top
-    if (dsc1->csdDefWtCnt != dsc2->csdDefWtCnt)
-    {
-        return dsc1->csdDefWtCnt < dsc2->csdDefWtCnt;
-    }
+        if (expCost2 != expCost1)
+        {
+            return expCost2 < expCost1;
+        }
 
-    // In order to ensure that we have a stable sort, we break ties using the csdIndex
-    return dsc1->csdIndex < dsc2->csdIndex;
-}
+        // Sort the higher Use Counts toward the top
+        if (dsc2->csdUseWtCnt != dsc1->csdUseWtCnt)
+        {
+            return dsc2->csdUseWtCnt < dsc1->csdUseWtCnt;
+        }
+
+        // With the same use count, Sort the lower Def Counts toward the top
+        if (dsc1->csdDefWtCnt != dsc2->csdDefWtCnt)
+        {
+            return dsc1->csdDefWtCnt < dsc2->csdDefWtCnt;
+        }
+
+        // In order to ensure that we have a stable sort, we break ties using the csdIndex
+        return dsc1->csdIndex < dsc2->csdIndex;
+    }
+};
 
 /*****************************************************************************
  *
@@ -382,35 +384,37 @@ bool Compiler::optCSEcostCmpEx::operator()(const CSEdsc* dsc1, const CSEdsc* dsc
  *  when (CodeOptKind() == Compiler::SMALL_CODE)
  */
 
-/* static */
-bool Compiler::optCSEcostCmpSz::operator()(const CSEdsc* dsc1, const CSEdsc* dsc2)
+struct optCSEcostCmpSz
 {
-    GenTree* exp1 = dsc1->csdTree;
-    GenTree* exp2 = dsc2->csdTree;
-
-    auto expCost1 = exp1->GetCostSz();
-    auto expCost2 = exp2->GetCostSz();
-
-    if (expCost2 != expCost1)
+    bool operator()(const CSEdsc* dsc1, const CSEdsc* dsc2)
     {
-        return expCost2 < expCost1;
-    }
+        GenTree* exp1 = dsc1->csdTree;
+        GenTree* exp2 = dsc2->csdTree;
 
-    // Sort the higher Use Counts toward the top
-    if (dsc2->csdUseCount != dsc1->csdUseCount)
-    {
-        return dsc2->csdUseCount < dsc1->csdUseCount;
-    }
+        auto expCost1 = exp1->GetCostSz();
+        auto expCost2 = exp2->GetCostSz();
 
-    // With the same use count, Sort the lower Def Counts toward the top
-    if (dsc1->csdDefCount != dsc2->csdDefCount)
-    {
-        return dsc1->csdDefCount < dsc2->csdDefCount;
-    }
+        if (expCost2 != expCost1)
+        {
+            return expCost2 < expCost1;
+        }
 
-    // In order to ensure that we have a stable sort, we break ties using the csdIndex
-    return dsc1->csdIndex < dsc2->csdIndex;
-}
+        // Sort the higher Use Counts toward the top
+        if (dsc2->csdUseCount != dsc1->csdUseCount)
+        {
+            return dsc2->csdUseCount < dsc1->csdUseCount;
+        }
+
+        // With the same use count, Sort the lower Def Counts toward the top
+        if (dsc1->csdDefCount != dsc2->csdDefCount)
+        {
+            return dsc1->csdDefCount < dsc2->csdDefCount;
+        }
+
+        // In order to ensure that we have a stable sort, we break ties using the csdIndex
+        return dsc1->csdIndex < dsc2->csdIndex;
+    }
+};
 
 /*****************************************************************************
  *
@@ -2014,11 +2018,11 @@ public:
 
         if (CodeOptKind() == Compiler::SMALL_CODE)
         {
-            jitstd::sort(sortTab, sortTab + m_pCompiler->optCSECandidateCount, Compiler::optCSEcostCmpSz());
+            jitstd::sort(sortTab, sortTab + m_pCompiler->optCSECandidateCount, optCSEcostCmpSz());
         }
         else
         {
-            jitstd::sort(sortTab, sortTab + m_pCompiler->optCSECandidateCount, Compiler::optCSEcostCmpEx());
+            jitstd::sort(sortTab, sortTab + m_pCompiler->optCSECandidateCount, optCSEcostCmpEx());
         }
 
 #ifdef DEBUG
