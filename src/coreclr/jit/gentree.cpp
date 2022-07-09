@@ -6838,9 +6838,9 @@ void Compiler::gtDispNodeHeader(GenTree* tree)
 
     if (optValnumCSE_phase)
     {
-        if (IS_CSE_INDEX(tree->gtCSEnum))
+        if (IsCseIndex(tree->gtCSEnum))
         {
-            printf(" " FMT_CSE " (%s)", GET_CSE_INDEX(tree->gtCSEnum), (IS_CSE_USE(tree->gtCSEnum) ? "use" : "def"));
+            printf(" " FMT_CSE " (%s)", GetCseIndex(tree->gtCSEnum), IsCseUse(tree->gtCSEnum) ? "use" : "def");
         }
         else
         {
@@ -11786,16 +11786,16 @@ void Compiler::gtExtractSideEffList(GenTree*  expr,
             if (m_compiler->optUnmarkCSE(node))
             {
                 // The call to optUnmarkCSE(node) should have cleared any CSE info.
-                assert(!IS_CSE_INDEX(node->gtCSEnum));
+                assert(!IsCseIndex(node->gtCSEnum));
                 return true;
             }
             else
             {
-                assert(IS_CSE_DEF(node->gtCSEnum));
+                assert(IsCseDef(node->gtCSEnum));
 #ifdef DEBUG
                 if (m_compiler->verbose)
                 {
-                    printf("Preserving the CSE def #%02d at ", GET_CSE_INDEX(node->gtCSEnum));
+                    printf("Preserving the CSE def #%02d at ", GetCseIndex(node->gtCSEnum));
                     m_compiler->printTreeID(node);
                 }
 #endif

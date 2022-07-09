@@ -4131,7 +4131,7 @@ void Compiler::ResetOptAnnotations()
             {
                 tree->ClearVN();
                 tree->ClearAssertion();
-                tree->gtCSEnum = NO_CSE;
+                tree->gtCSEnum = NoCse;
             }
         }
     }

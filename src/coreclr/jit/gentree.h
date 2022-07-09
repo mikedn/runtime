@@ -697,12 +697,30 @@ constexpr RegSpillSet GetRegSpilledSet(unsigned regIndex)
 
 #define FMT_TREEID "[%06u]"
 
-#define NO_CSE (0)
-#define IS_CSE_INDEX(x) ((x) != 0)
-#define IS_CSE_USE(x) ((x) > 0)
-#define IS_CSE_DEF(x) ((x) < 0)
-#define GET_CSE_INDEX(x) (((x) > 0) ? x : -(x))
-#define TO_CSE_DEF(x) (-(x))
+enum CseIndex : int8_t
+{
+    NoCse = 0
+};
+
+constexpr bool IsCseIndex(CseIndex index)
+{
+    return index != NoCse;
+}
+
+constexpr bool IsCseUse(CseIndex index)
+{
+    return index > 0;
+}
+
+constexpr bool IsCseDef(CseIndex index)
+{
+    return index < 0;
+}
+
+constexpr unsigned GetCseIndex(CseIndex index)
+{
+    return index > 0 ? index : -index;
+}
 
 #define MAX_COST UCHAR_MAX
 #define IND_COST_EX 3 // execution cost for an indirection
@@ -725,7 +743,7 @@ struct GenTree
 
     union {
         // Valid only during CSE, 0 or the CSE index (negated if it's a def).
-        signed char gtCSEnum = NO_CSE;
+        CseIndex gtCSEnum = NoCse;
         // Valid only during LSRA/CodeGen
         RegSpillSet m_defRegsSpillSet;
     };
