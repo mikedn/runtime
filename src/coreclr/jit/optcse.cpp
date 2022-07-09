@@ -2391,6 +2391,8 @@ public:
         // Indicate whether to perform CSE or not.
         return ret;
     }
+
+    bool optConfigDisableCSE2();
 #endif
 
     // Given a CSE candidate decide whether it passes or fails the profitability heuristic
@@ -2436,7 +2438,7 @@ public:
             }
         }
 
-        if (m_pCompiler->optConfigDisableCSE2())
+        if (optConfigDisableCSE2())
         {
             return false; // skip this CSE
         }
@@ -3738,7 +3740,7 @@ bool Compiler::optConfigDisableCSE()
 // If this method returns false then the CSE should be performed.
 // If the method returns true then the CSE should be skipped.
 //
-bool Compiler::optConfigDisableCSE2()
+bool CSE_Heuristic::optConfigDisableCSE2()
 {
     static unsigned totalCSEcount = 0;
 
@@ -3756,7 +3758,7 @@ bool Compiler::optConfigDisableCSE2()
 
             if (((totalCSEMask & bitsOne) == bitsOne) && ((~totalCSEMask & bitsZero) == bitsZero))
             {
-                if (verbose)
+                if (m_pCompiler->verbose)
                 {
                     printf(" Disabled by jitNoCSE2 Ones/Zeros mask\n");
                 }
@@ -3772,7 +3774,7 @@ bool Compiler::optConfigDisableCSE2()
 
             if (disableMask & 1)
             {
-                if (verbose)
+                if (m_pCompiler->verbose)
                 {
                     printf(" Disabled by jitNoCSE2 rotating disable mask\n");
                 }
@@ -3781,7 +3783,7 @@ bool Compiler::optConfigDisableCSE2()
         }
         else if (jitNoCSE2 <= totalCSEcount)
         {
-            if (verbose)
+            if (m_pCompiler->verbose)
             {
                 printf(" Disabled by jitNoCSE2 > totalCSEcount\n");
             }

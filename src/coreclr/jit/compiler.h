@@ -5493,7 +5493,6 @@ public:
 
 #ifdef DEBUG
     bool optConfigDisableCSE();
-    bool optConfigDisableCSE2();
 #endif
 
     void optOptimizeCSEs();
