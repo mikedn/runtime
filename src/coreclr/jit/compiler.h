@@ -5468,8 +5468,6 @@ public:
 // String to use for formatting CSE numbers. Note that this is the positive number, e.g., from GET_CSE_INDEX().
 #define FMT_CSE "CSE #%02u"
 
-    void optOptimizeValnumCSEs();
-
     bool                 optDoCSE;             // True when we have found a duplicate CSE tree
     bool                 optValnumCSE_phase;   // True when we are executing the optOptimizeValnumCSEs() phase
     unsigned             optCSECandidateCount; // Count of CSE's candidates

@@ -3516,37 +3516,6 @@ void Cse::optValnumCSE_Heuristic()
     cse_heuristic.Cleanup();
 }
 
-/*****************************************************************************
- *
- *  Perform common sub-expression elimination.
- */
-
-void Compiler::optOptimizeValnumCSEs()
-{
-#ifdef DEBUG
-    if (optConfigDisableCSE())
-    {
-        return; // Disabled by JitNoCSE
-    }
-#endif
-
-    optValnumCSE_phase = true;
-
-    Cse cse(this);
-
-    cse.optValnumCSE_Init();
-
-    if (cse.optValnumCSE_Locate())
-    {
-        cse.optValnumCSE_InitDataFlow();
-        cse.optValnumCSE_DataFlow();
-        cse.optValnumCSE_Availablity();
-        cse.optValnumCSE_Heuristic();
-    }
-
-    optValnumCSE_phase = false;
-}
-
 bool Compiler::optIsCSEcandidate(GenTree* tree)
 {
     if ((tree->gtFlags & (GTF_ASG | GTF_DONT_CSE)) != 0)
@@ -3822,7 +3791,29 @@ void Compiler::optOptimizeCSEs()
     optCSEstart          = lvaCount;
 
     INDEBUG(optEnsureClearCSEInfo());
-    optOptimizeValnumCSEs();
+
+#ifdef DEBUG
+    if (optConfigDisableCSE())
+    {
+        return; // Disabled by JitNoCSE
+    }
+#endif
+
+    optValnumCSE_phase = true;
+
+    Cse cse(this);
+
+    cse.optValnumCSE_Init();
+
+    if (cse.optValnumCSE_Locate())
+    {
+        cse.optValnumCSE_InitDataFlow();
+        cse.optValnumCSE_DataFlow();
+        cse.optValnumCSE_Availablity();
+        cse.optValnumCSE_Heuristic();
+    }
+
+    optValnumCSE_phase = false;
 }
 
 #ifdef DEBUG
