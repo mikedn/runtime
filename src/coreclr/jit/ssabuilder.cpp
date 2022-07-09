@@ -962,21 +962,76 @@ void SsaBuilder::BlockRenameVariables(BasicBlock* block)
         block->bbMemorySsaNumIn = m_renameStack.TopMemory();
     }
 
+    BasicBlockFlags earlyPropBlockSummary = BBF_EMPTY;
+
     // Walk the statements of the block and rename definitions and uses.
     for (Statement* const stmt : block->Statements())
     {
-        for (GenTree* const tree : stmt->TreeList())
+        for (GenTree* const tree : stmt->Nodes())
         {
             if (tree->OperIs(GT_ASG))
             {
                 RenameDef(tree->AsOp(), block);
             }
             // PHI_ARG nodes already have SSA numbers so we only need to check LCL_VAR and LCL_FLD nodes.
-            else if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD) && ((tree->gtFlags & GTF_VAR_DEF) == 0))
+            else if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
             {
-                RenameLclUse(tree->AsLclVarCommon());
+                if ((tree->gtFlags & GTF_VAR_DEF) == 0)
+                {
+                    RenameLclUse(tree->AsLclVarCommon());
+                }
+            }
+            else if (tree->OperIs(GT_NULLCHECK))
+            {
+                earlyPropBlockSummary |= BBF_HAS_NULLCHECK;
+            }
+            else if (tree->OperIs(GT_ARR_LENGTH))
+            {
+                earlyPropBlockSummary |= BBF_HAS_IDX_LEN;
+            }
+            else if (tree->IsHelperCall())
+            {
+                GenTreeCall*   call   = tree->AsCall();
+                GenTreeIntCon* length = nullptr;
+
+                switch (Compiler::eeGetHelperNum(call->GetMethodHandle()))
+                {
+                    case CORINFO_HELP_NEWARR_1_DIRECT:
+                    case CORINFO_HELP_NEWARR_1_OBJ:
+                    case CORINFO_HELP_NEWARR_1_VC:
+                    case CORINFO_HELP_NEWARR_1_ALIGN8:
+                        length = call->GetArgNodeByArgNum(1)->IsIntCon();
+                        break;
+                    case CORINFO_HELP_READYTORUN_NEWARR_1:
+                        length = call->GetArgNodeByArgNum(call->GetInfo()->GetArgCount() - 1)->IsIntCon();
+                        break;
+                    default:
+                        break;
+                }
+
+                if (length != nullptr)
+                {
+                    earlyPropBlockSummary |= BBF_HAS_NEWARRAY;
+                }
             }
         }
+    }
+
+    block->bbFlags |= earlyPropBlockSummary;
+
+    if ((earlyPropBlockSummary & BBF_HAS_NULLCHECK) != 0)
+    {
+        m_pCompiler->optMethodFlags |= OMF_HAS_NULLCHECK;
+    }
+
+    if ((earlyPropBlockSummary & BBF_HAS_IDX_LEN) != 0)
+    {
+        m_pCompiler->optMethodFlags |= OMF_HAS_ARRAYREF;
+    }
+
+    if ((earlyPropBlockSummary & BBF_HAS_NEWARRAY) != 0)
+    {
+        m_pCompiler->optMethodFlags |= OMF_HAS_NEWARRAY;
     }
 
     // Now handle the final memory state.
@@ -1247,11 +1302,17 @@ void SsaBuilder::RenameVariables()
     {
         SsaBuilder*     m_builder;
         SsaRenameState* m_renameStack;
+        BasicBlockFlags m_earlyPropBlockSummary;
 
     public:
         SsaRenameDomTreeVisitor(Compiler* compiler, SsaBuilder* builder, SsaRenameState* renameStack)
             : DomTreeVisitor(compiler, compiler->fgSsaDomTree), m_builder(builder), m_renameStack(renameStack)
         {
+        }
+
+        void Begin()
+        {
+            m_compiler->optMethodFlags &= ~(OMF_HAS_ARRAYREF | OMF_HAS_NEWARRAY | OMF_HAS_NULLCHECK);
         }
 
         void PreOrderVisit(BasicBlock* block)

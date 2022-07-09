@@ -2114,7 +2114,7 @@ public:
     GenTreeIndexAddr* gtNewStringIndexAddr(GenTree* arr, GenTree* ind);
     GenTreeIndir* gtNewIndexIndir(var_types type, GenTreeIndexAddr* indexAddr);
 
-    GenTreeArrLen* gtNewArrLen(GenTree* arr, uint8_t lenOffs, BasicBlock* block);
+    GenTreeArrLen* gtNewArrLen(GenTree* arr, uint8_t lenOffs);
     GenTreeBoundsChk* gtNewArrBoundsChk(GenTree* index, GenTree* length, SpecialCodeKind kind);
 
     GenTreeIndir* gtNewIndir(var_types typ, GenTree* addr);
@@ -4513,6 +4513,7 @@ public:
 
 protected:
     friend class SsaBuilder;
+    friend class EarlyProp;
     friend struct ValueNumberState;
 
     //--------------------- Detect the basic blocks ---------------------------
@@ -5800,37 +5801,7 @@ public:
 
     unsigned optNoReturnCallCount;
 
-    // Recursion bound controls how far we can go backwards tracking for a SSA value.
-    // No throughput diff was found with backward walk bound between 3-8.
-    static const int optEarlyPropRecurBound = 5;
-
-    typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, GenTree*> LocalNumberToNullCheckTreeMap;
-
-    GenTree* getArrayLengthFromAllocation(GenTree* tree DEBUGARG(BasicBlock* block));
-    GenTree* optPropGetValueRec(GenTreeLclVar* lclVar, int walkDepth);
-    GenTree* optPropGetValue(GenTreeLclVar* lclVar);
-    GenTree* optEarlyPropRewriteTree(GenTree* tree, LocalNumberToNullCheckTreeMap* nullCheckMap);
-    bool optDoEarlyPropForBlock(BasicBlock* block);
-    bool optDoEarlyPropForFunc();
     void optEarlyProp();
-    void optFoldNullCheck(GenTree* tree, LocalNumberToNullCheckTreeMap* nullCheckMap);
-    GenTree* optFindNullCheckToFold(GenTree* tree, LocalNumberToNullCheckTreeMap* nullCheckMap);
-    bool optIsNullCheckFoldingLegal(GenTree*    tree,
-                                    GenTree*    nullCheckTree,
-                                    GenTree**   nullCheckParent,
-                                    Statement** nullCheckStmt);
-    bool optCanMoveNullCheckPastTree(GenTree* tree,
-                                     unsigned nullCheckLclNum,
-                                     bool     isInsideTry,
-                                     bool     checkSideEffectSummary);
-#if DEBUG
-    void optCheckFlagsAreSet(unsigned    methodFlag,
-                             const char* methodFlagStr,
-                             unsigned    bbFlag,
-                             const char* bbFlagStr,
-                             GenTree*    tree,
-                             BasicBlock* basicBlock);
-#endif
 
     // Redundant branch opts
     //

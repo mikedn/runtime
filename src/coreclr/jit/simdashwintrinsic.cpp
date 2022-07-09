@@ -820,7 +820,7 @@ GenTree* Compiler::impGetArrayElementsAsVector(ClassLayout*    layout,
     array = arrayUses[0];
 
     GenTree* lastIndex = gtNewIconNode(layout->GetElementCount() - 1);
-    GenTree* arrLen    = gtNewArrLen(arrayUses[1], OFFSETOF__CORINFO_Array__length, compCurBB);
+    GenTree* arrLen    = gtNewArrLen(arrayUses[1], OFFSETOF__CORINFO_Array__length);
 
     if (index != nullptr)
     {
@@ -830,7 +830,7 @@ GenTree* Compiler::impGetArrayElementsAsVector(ClassLayout*    layout,
 
         lastIndex = gtNewOperNode(GT_ADD, TYP_INT, indexUses[1], lastIndex);
         array     = gtNewCommaNode(gtNewArrBoundsChk(lastIndex, arrLen, lastIndexThrowKind), array);
-        arrLen    = gtNewArrLen(arrayUses[2], OFFSETOF__CORINFO_Array__length, compCurBB);
+        arrLen    = gtNewArrLen(arrayUses[2], OFFSETOF__CORINFO_Array__length);
         array     = gtNewCommaNode(gtNewArrBoundsChk(indexUses[2], arrLen, indexThrowKind), array);
     }
     else
@@ -3008,9 +3008,8 @@ void Compiler::SIMDCoalescingBuffer::ChangeToSIMDMem(Compiler* compiler, GenTree
 
             unsigned simdElementCount = varTypeSize(simdType) / varTypeSize(TYP_FLOAT);
 
-            GenTree* lastIndex = compiler->gtNewIconNode(index + simdElementCount - 1, TYP_INT);
-            GenTree* arrLen    = compiler->gtNewArrLen(compiler->gtCloneExpr(array), OFFSETOF__CORINFO_Array__length,
-                                                    compiler->compCurBB);
+            GenTree* lastIndex  = compiler->gtNewIconNode(index + simdElementCount - 1, TYP_INT);
+            GenTree* arrLen     = compiler->gtNewArrLen(compiler->gtCloneExpr(array), OFFSETOF__CORINFO_Array__length);
             GenTree* arrBndsChk = compiler->gtNewArrBoundsChk(lastIndex, arrLen, SCK_RNGCHK_FAIL);
 
             addr   = compiler->gtNewCommaNode(arrBndsChk, array);

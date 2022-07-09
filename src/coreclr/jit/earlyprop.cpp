@@ -1,770 +1,592 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-//
-//                                    Early Value Propagation
-//
-// This phase performs an SSA-based value propagation optimization that currently only applies to array
-// lengths and explicit null checks. An SSA-based backwards tracking of local variables
-// is performed at each point of interest, e.g., an array length reference site, a method table reference site, or
-// an indirection.
-// The tracking continues until an interesting value is encountered. The value is then used to rewrite
-// the source site or the value.
-//
-///////////////////////////////////////////////////////////////////////////////////////
 
 #include "jitpch.h"
 #include "ssabuilder.h"
 
-bool Compiler::optDoEarlyPropForFunc()
-{
-    bool propArrayLen  = (optMethodFlags & OMF_HAS_NEWARRAY) && (optMethodFlags & OMF_HAS_ARRAYREF);
-    bool propNullCheck = (optMethodFlags & OMF_HAS_NULLCHECK) != 0;
-    return propArrayLen || propNullCheck;
-}
-
-bool Compiler::optDoEarlyPropForBlock(BasicBlock* block)
-{
-    bool bbHasArrayRef  = (block->bbFlags & BBF_HAS_IDX_LEN) != 0;
-    bool bbHasNullCheck = (block->bbFlags & BBF_HAS_NULLCHECK) != 0;
-    return bbHasArrayRef || bbHasNullCheck;
-}
-
-//------------------------------------------------------------------------------
-// getArrayLengthFromAllocation: Return the array length for an array allocation
-//                               helper call.
+// This phase performs an SSA-based value propagation optimization that currently only
+// applies to array lengths and explicit null checks.
 //
-// Arguments:
-//    tree           - The array allocation helper call.
-//    block          - tree's basic block.
+// For array length propagation, a demand-driven SSA-based backwards tracking of constant
+// array lengths is performed at each array length reference site which is in form of an
+// ARR_LENGTH node. When a ARR_LENGTH node is seen, the array ref pointer is tracked.
+// The tracking is along SSA use-def chain and stops at the original array allocation site
+// where we can grab the array length. The ARR_LENGTH node will then be rewritten to a
+// CNS_INT node if the array length is constant.
 //
-// Return Value:
-//    Return the array length node.
+// Null check folding tries to find NULLCHECK nodes followed by indirections that would
+// throw the same NullReferenceException, making NULLCHECKs redundant.
+//
+//   - NULLCHECK(addr + offset1)
+//     any code that does not interfere with the NULLCHECK thrown exception
+//     IND(addr)
+//
+//   - ASG(x, COMMA(NULLCHECK(y), ADD(y, offset1)))
+//     any code that does not interfere with the NULLCHECK thrown exception
+//     IND(ADD(x, offset2))
+//
+// We can eliminate a NULLCHECK only if there are no interfering side effects between
+// the NULLCHECK node and the indir. For example, we can't eliminate the NULLCHECK if
+// there is an assignment to a memory location between it and the indir. Because of
+// this NULLCHECKs are eliminated only when the indirections are in the same block,
+// to avoid potentially costly intereference checks across blocks.
 
-GenTree* Compiler::getArrayLengthFromAllocation(GenTree* tree DEBUGARG(BasicBlock* block))
+class EarlyProp
 {
-    assert(tree != nullptr);
+    static const int SsaChaseLimit = 5;
 
-    GenTree* arrayLength = nullptr;
+    typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, GenTreeIndir*> LocalNumberToNullCheckTreeMap;
 
-    if (tree->OperGet() == GT_CALL)
+    Compiler*                     compiler;
+    BasicBlock*                   currentBlock;
+    Statement*                    currentStatement;
+    LocalNumberToNullCheckTreeMap nullCheckMap;
+
+public:
+    EarlyProp(Compiler* compiler) : compiler(compiler), nullCheckMap(compiler->getAllocator(CMK_EarlyProp))
     {
-        GenTreeCall* call = tree->AsCall();
+    }
 
-        if (call->gtCallType == CT_HELPER)
+    void Run()
+    {
+        if (DoEarlyPropForFunc())
         {
-            if (call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_NEWARR_1_DIRECT) ||
-                call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_NEWARR_1_OBJ) ||
-                call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_NEWARR_1_VC) ||
-                call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_NEWARR_1_ALIGN8))
+            DoEarlyProp();
+        }
+    }
+
+private:
+    bool DoEarlyPropForFunc()
+    {
+        bool hasNewArray    = (compiler->optMethodFlags & OMF_HAS_NEWARRAY) != 0;
+        bool hasArrayLength = (compiler->optMethodFlags & OMF_HAS_ARRAYREF) != 0;
+        bool hasNullCheck   = (compiler->optMethodFlags & OMF_HAS_NULLCHECK) != 0;
+
+        return (hasArrayLength && hasNewArray) || hasNullCheck;
+    }
+
+    bool DoEarlyPropForBlock(BasicBlock* block)
+    {
+        bool hasArrayLength = (block->bbFlags & BBF_HAS_IDX_LEN) != 0;
+        bool hasNullCheck   = (block->bbFlags & BBF_HAS_NULLCHECK) != 0;
+
+        return hasArrayLength || hasNullCheck;
+    }
+
+    void DoEarlyProp()
+    {
+        for (BasicBlock* const block : compiler->Blocks())
+        {
+            if (!DoEarlyPropForBlock(block))
             {
-                // This is an array allocation site. Grab the array length node.
-                arrayLength = call->GetArgNodeByArgNum(1);
+                continue;
             }
-            else if (call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_READYTORUN_NEWARR_1))
+
+            nullCheckMap.RemoveAll();
+            currentBlock = block;
+
+            for (Statement *stmt = block->firstStmt(), *next; stmt != nullptr; stmt = next)
             {
+                currentStatement  = stmt;
+                next              = stmt->GetNextStmt();
+                bool stmtModified = false;
+
+                for (GenTree* node = stmt->GetNodeList(); node != nullptr; node = node->gtNext)
+                {
+                    if (!node->OperIsIndirOrArrLength())
+                    {
+                        continue;
+                    }
+
+                    if (GenTreeArrLen* arrLen = node->IsArrLen())
+                    {
+                        GenTree* newNode = PropagateArrayLength(arrLen);
+
+                        if (newNode != nullptr)
+                        {
+                            compiler->gtUpdateTreeAncestorsSideEffects(newNode);
+                            stmtModified = true;
+                            continue;
+                        }
+                    }
+
+                    if ((currentBlock->bbFlags & BBF_HAS_NULLCHECK) != 0)
+                    {
+                        FoldNullCheck(node);
+                    }
+                }
+
+                if (stmtModified)
+                {
+                    compiler->gtSetStmtInfo(stmt);
+                    compiler->fgSetStmtSeq(stmt);
+                }
+            }
+        }
+
+#ifdef DEBUG
+        if (compiler->verbose)
+        {
+            JITDUMP("\nAfter DoEarlyProp:\n");
+            compiler->fgDispBasicBlocks(/*dumpTrees*/ true);
+        }
+#endif
+    }
+
+    GenTree* PropagateArrayLength(GenTreeArrLen* arrLen)
+    {
+        GenTree* array = arrLen->GetArray();
+
+        if (!array->OperIs(GT_LCL_VAR) || !compiler->lvaInSsa(array->AsLclVar()->GetLclNum()))
+        {
+            return nullptr;
+        }
+
+        GenTree* length = GetArrayLength(array->AsLclVar());
+
+        if ((length == nullptr) || !length->IsIntCon())
+        {
+            return nullptr;
+        }
+
+        return PropagateConstArrayLength(arrLen, length->AsIntCon());
+    }
+
+    GenTree* PropagateConstArrayLength(GenTreeArrLen* arrLen, GenTreeIntCon* constLen)
+    {
+        ssize_t lengthValue = constLen->GetValue();
+
+        if ((lengthValue < 0) || (lengthValue > INT32_MAX))
+        {
+            // Don't propagate array lengths that are beyond the maximum value of a ARR_LENGTH node
+            // or negative. CORINFO_HELP_NEWARR_1_OBJ helper call allows a LONG as the array length
+            // argument, but the type of ARR_LENGTH is always INT.
+            return nullptr;
+        }
+
+        // When replacing ARR_LENGTH nodes with constants we can end up with ARR_BOUNDS_CHECK nodes
+        // that have constant operands and thus can be trivially proved to be useless. It's better
+        // to remove these range checks here, otherwise they'll reach assertion prop (creating
+        // useless (c1 < c2)-like assertions) and reach RangeCheck where they are finally removed.
+        // Common patterns like new int[] { x, y, z } benefit from this.
+
+        if ((arrLen->gtNext != nullptr) && arrLen->gtNext->OperIs(GT_ARR_BOUNDS_CHECK))
+        {
+            GenTreeBoundsChk* check = arrLen->gtNext->AsBoundsChk();
+
+            if ((check->GetLength() == arrLen) && check->GetIndex()->IsIntCon())
+            {
+                ssize_t indexValue = check->GetIndex()->AsIntCon()->GetValue();
+
+                if ((indexValue >= 0) && (indexValue < lengthValue))
+                {
+                    GenTree* comma = check->FindUser();
+
+                    check->ChangeToNothingNode();
+
+                    if ((comma != nullptr) && comma->OperIs(GT_COMMA) && (comma->AsOp()->GetOp(0) == check))
+                    {
+                        GenTree** use;
+                        GenTree*  user = comma->FindUser(&use);
+
+                        if (user != nullptr)
+                        {
+                            *use = comma->AsOp()->GetOp(1);
+
+                            // COMMA and ARR_LEN remain in the statment until we finish traversing the statement,
+                            // remove all side effects so they don't interfere with null check folding.
+                            comma->ChangeToNothingNode();
+                            arrLen->ChangeToNothingNode();
+
+                            return user;
+                        }
+                    }
+
+                    return check;
+                }
+            }
+        }
+
+        JITDUMPTREE(currentStatement->GetRootNode(), "PropagateConstArrayLength rewriting\n");
+
+        assert(arrLen->TypeIs(TYP_INT));
+        arrLen->ChangeToIntCon(TYP_INT, lengthValue);
+        arrLen->gtFlags = constLen->gtFlags;
+
+        // Propagating a constant may create an opportunity to use a division by constant optimization
+        if ((arrLen->gtNext != nullptr) && arrLen->gtNext->OperIs(GT_DIV, GT_MOD, GT_UDIV, GT_UMOD))
+        {
+            // We need to mark the parent divide/mod operation when this occurs
+            arrLen->gtNext->AsOp()->CheckDivideByConstOptimized(compiler);
+        }
+
+        JITDUMPTREE(currentStatement->GetRootNode(), "to\n");
+
+        return arrLen;
+    }
+
+    GenTree* GetArrayLength(GenTreeLclVar* lclVar)
+    {
+        INDEBUG(BasicBlock* defBlock = nullptr;)
+        GenTree* value = GetSsaValue(lclVar DEBUGARG(&defBlock));
+        return value->IsHelperCall() ? GetArrayLengthFromNewHelperCall(value->AsCall() DEBUGARG(defBlock)) : nullptr;
+    }
+
+    GenTree* GetArrayLengthFromNewHelperCall(GenTreeCall* call DEBUGARG(BasicBlock* block))
+    {
+        assert(call->IsHelperCall());
+
+        GenTree* arrayLength = nullptr;
+
+        switch (Compiler::eeGetHelperNum(call->GetMethodHandle()))
+        {
+            case CORINFO_HELP_NEWARR_1_DIRECT:
+            case CORINFO_HELP_NEWARR_1_OBJ:
+            case CORINFO_HELP_NEWARR_1_VC:
+            case CORINFO_HELP_NEWARR_1_ALIGN8:
+                arrayLength = call->GetArgNodeByArgNum(1);
+                break;
+            case CORINFO_HELP_READYTORUN_NEWARR_1:
                 // On arm when compiling on certain platforms for ready to run, a handle will be
                 // inserted before the length. To handle this case, we will grab the last argument
                 // as that's always the length. See fgInitArgInfo for where the handle is inserted.
                 arrayLength = call->GetArgNodeByArgNum(call->GetInfo()->GetArgCount() - 1);
-            }
-#ifdef DEBUG
-            if (arrayLength != nullptr)
-            {
-                optCheckFlagsAreSet(OMF_HAS_NEWARRAY, "OMF_HAS_NEWARRAY", BBF_HAS_NEWARRAY, "BBF_HAS_NEWARRAY", tree,
-                                    block);
-            }
-#endif
+                break;
+            default:
+                break;
         }
+
+        return arrayLength;
     }
 
-    return arrayLength;
-}
-
-#ifdef DEBUG
-//-----------------------------------------------------------------------------
-// optCheckFlagsAreSet: Check that the method flag and the basic block flag are set.
-//
-// Arguments:
-//    methodFlag           - The method flag to check.
-//    methodFlagStr        - String representation of the method flag.
-//    bbFlag               - The basic block flag to check.
-//    bbFlagStr            - String representation of the basic block flag.
-//    tree                 - Tree that makes the flags required.
-//    basicBlock           - The basic block to check the flag on.
-
-void Compiler::optCheckFlagsAreSet(unsigned    methodFlag,
-                                   const char* methodFlagStr,
-                                   unsigned    bbFlag,
-                                   const char* bbFlagStr,
-                                   GenTree*    tree,
-                                   BasicBlock* basicBlock)
-{
-    if ((optMethodFlags & methodFlag) == 0)
+    GenTree* GetSsaValue(GenTreeLclVar* use DEBUGARG(BasicBlock** defBlock))
     {
-        printf("%s is not set on optMethodFlags but is required because of the following tree\n", methodFlagStr);
-        gtDispTree(tree);
-        assert(false);
-    }
-
-    if ((basicBlock->bbFlags & bbFlag) == 0)
-    {
-        printf("%s is not set on " FMT_BB " but is required because of the following tree \n", bbFlagStr,
-               compCurBB->bbNum);
-        gtDispTree(tree);
-        assert(false);
-    }
-}
-#endif
-
-//------------------------------------------------------------------------------------------
-// optEarlyProp: The entry point of the early value propagation.
-//
-// Notes:
-//    This phase performs an SSA-based value propagation, including
-//      1. Array length propagation.
-//      2. Runtime type handle propagation.
-//      3. Null check folding.
-//
-//    For array length propagation, a demand-driven SSA-based backwards tracking of constant
-//    array lengths is performed at each array length reference site which is in form of a
-//    GT_ARR_LENGTH node. When a GT_ARR_LENGTH node is seen, the array ref pointer which is
-//    the only child node of the GT_ARR_LENGTH is tracked. This is only done for array ref
-//    pointers that have valid SSA forms.The tracking is along SSA use-def chain and stops
-//    at the original array allocation site where we can grab the array length. The
-//    GT_ARR_LENGTH node will then be rewritten to a GT_CNS_INT node if the array length is
-//    constant.
-//
-//    Similarly, the same algorithm also applies to rewriting a method table (also known as
-//    vtable) reference site which is in form of GT_INDIR node. The base pointer, which is
-//    an object reference pointer, is treated in the same way as an array reference pointer.
-//
-//    Null check folding tries to find GT_INDIR(obj + const) that GT_NULLCHECK(obj) can be folded into
-//    and removed. Currently, the algorithm only matches GT_INDIR and GT_NULLCHECK in the same basic block.
-
-void Compiler::optEarlyProp()
-{
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In optEarlyProp()\n");
-    }
-#else
-    if (!optDoEarlyPropForFunc())
-    {
-        return;
-    }
-#endif
-
-    assert(ssaForm);
-
-    for (BasicBlock* const block : Blocks())
-    {
-#ifndef DEBUG
-        if (!optDoEarlyPropForBlock(block))
+        for (unsigned i = 0; (i < SsaChaseLimit) && (use->GetSsaNum() != SsaConfig::RESERVED_SSA_NUM); i++)
         {
-            continue;
-        }
-#endif
+            LclSsaVarDsc* ssaDef = compiler->lvaGetSsaDesc(use);
+            GenTreeOp*    asg    = ssaDef->GetAssignment();
 
-        compCurBB = block;
+            INDEBUG(*defBlock = ssaDef->GetBlock());
 
-        CompAllocator                 allocator(getAllocator(CMK_EarlyProp));
-        LocalNumberToNullCheckTreeMap nullCheckMap(allocator);
-
-        for (Statement* stmt = block->firstStmt(); stmt != nullptr;)
-        {
-            // Preserve the next link before the propagation and morph.
-            Statement* next = stmt->GetNextStmt();
-
-            compCurStmt = stmt;
-
-            // Walk the stmt tree in linear order to rewrite any array length reference with a
-            // constant array length.
-            bool isRewritten = false;
-            for (GenTree* tree = stmt->GetTreeList(); tree != nullptr; tree = tree->gtNext)
+            if (asg == nullptr)
             {
-                GenTree* rewrittenTree = optEarlyPropRewriteTree(tree, &nullCheckMap);
-                if (rewrittenTree != nullptr)
-                {
-                    gtUpdateSideEffects(stmt, rewrittenTree);
-                    isRewritten = true;
-                    tree        = rewrittenTree;
-                }
+                // Parameters have no definition assignments.
+                assert(use->GetSsaNum() == SsaConfig::FIRST_SSA_NUM);
+
+                break;
             }
 
-            // Update the evaluation order and the statement info if the stmt has been rewritten.
-            if (isRewritten)
+            assert(asg->OperIs(GT_ASG));
+
+            GenTree* value = asg->GetOp(1);
+
+            if (!value->OperIs(GT_LCL_VAR))
             {
-                // Make sure the transformation happens in debug, check, and release build.
-                assert(optDoEarlyPropForFunc() && optDoEarlyPropForBlock(block));
-                gtSetStmtInfo(stmt);
-                fgSetStmtSeq(stmt);
+                return value;
             }
 
-            stmt = next;
+            use = value->AsLclVar();
         }
+
+        return use;
     }
 
-#ifdef DEBUG
-    if (verbose)
+    void FoldNullCheck(GenTree* indir)
     {
-        JITDUMP("\nAfter optEarlyProp:\n");
-        fgDispBasicBlocks(/*dumpTrees*/ true);
-    }
-#endif
-}
+        GenTree* addr = indir->IsArrLen() ? indir->AsArrLen()->GetArray() : indir->AsIndir()->GetAddr();
 
-//----------------------------------------------------------------
-// optEarlyPropRewriteValue: Rewrite a tree to the actual value.
-//
-// Arguments:
-//    tree           - The input tree node to be rewritten.
-//    nullCheckMap   - Map of the local numbers to the latest NULLCHECKs on those locals in the current basic block.
-//
-// Return Value:
-//    Return a new tree if the original tree was successfully rewritten.
-//    The containing tree links are updated.
-//
-GenTree* Compiler::optEarlyPropRewriteTree(GenTree* tree, LocalNumberToNullCheckTreeMap* nullCheckMap)
-{
-    if (!tree->OperIsIndirOrArrLength())
-    {
-        return nullptr;
-    }
+        GenTreeIndir* nullCheck     = FindNullCheckToFold(addr);
+        GenTree*      nullCheckUser = nullptr;
+        Statement*    nullCheckStmt = nullptr;
 
-    // optFoldNullCheck takes care of updating statement info if a null check is removed.
-    optFoldNullCheck(tree, nullCheckMap);
-
-    if (tree->OperGet() != GT_ARR_LENGTH)
-    {
-        return nullptr;
-    }
-
-    GenTree* objectRefPtr = tree->AsOp()->gtOp1;
-
-    if (!objectRefPtr->OperIs(GT_LCL_VAR) || !lvaInSsa(objectRefPtr->AsLclVar()->GetLclNum()))
-    {
-        return nullptr;
-    }
-
-    INDEBUG(
-        optCheckFlagsAreSet(OMF_HAS_ARRAYREF, "OMF_HAS_ARRAYREF", BBF_HAS_IDX_LEN, "BBF_HAS_IDX_LEN", tree, compCurBB));
-
-    GenTree* actualVal = optPropGetValue(objectRefPtr->AsLclVar());
-
-    if (actualVal == nullptr)
-    {
-        return nullptr;
-    }
-
-    assert(actualVal->IsCnsIntOrI() && !actualVal->AsIntCon()->IsIconHandle());
-    assert(actualVal->GetNodeSize() == TREE_NODE_SZ_SMALL);
-
-    ssize_t actualConstVal = actualVal->AsIntCon()->IconValue();
-
-    if ((actualConstVal < 0) || (actualConstVal > INT32_MAX))
-    {
-        // Don't propagate array lengths that are beyond the maximum value of a GT_ARR_LENGTH or negative.
-        // node. CORINFO_HELP_NEWARR_1_OBJ helper call allows to take a long integer as the
-        // array length argument, but the type of GT_ARR_LENGTH is always INT32.
-        return nullptr;
-    }
-
-    // When replacing GT_ARR_LENGTH nodes with constants we can end up with GT_ARR_BOUNDS_CHECK
-    // nodes that have constant operands and thus can be trivially proved to be useless. It's
-    // better to remove these range checks here, otherwise they'll pass through assertion prop
-    // (creating useless (c1 < c2)-like assertions) and reach RangeCheck where they are finally
-    // removed. Common patterns like new int[] { x, y, z } benefit from this.
-
-    if ((tree->gtNext != nullptr) && tree->gtNext->OperIs(GT_ARR_BOUNDS_CHECK))
-    {
-        GenTreeBoundsChk* check = tree->gtNext->AsBoundsChk();
-
-        if ((check->gtArrLen == tree) && check->gtIndex->IsCnsIntOrI())
+        if ((nullCheck != nullptr) && IsNullCheckFoldingLegal(nullCheck, indir, &nullCheckUser, &nullCheckStmt))
         {
-            ssize_t checkConstVal = check->gtIndex->AsIntCon()->IconValue();
-            if ((checkConstVal >= 0) && (checkConstVal < actualConstVal))
+            JITDUMPTREE(nullCheck, "FoldNullCheck marking a NULLCHECK for removal\n");
+
+            nullCheckMap.Remove(nullCheck->GetAddr()->AsLclVar()->GetLclNum());
+
+            nullCheck->ChangeToNothingNode();
+
+            if (nullCheckUser == nullptr)
             {
-                GenTree* comma = check->FindUser();
-
-                // We should never see cases other than these in the IR,
-                // as the check node does not produce a value.
-                assert(((comma != nullptr) && comma->OperIs(GT_COMMA) &&
-                        (comma->gtGetOp1() == check || comma->TypeIs(TYP_VOID))) ||
-                       (check == compCurStmt->GetRootNode()));
-
-                // Still, we guard here so that release builds do not try to optimize trees we don't understand.
-                if (((comma != nullptr) && comma->OperIs(GT_COMMA) && (comma->gtGetOp1() == check)) ||
-                    (check == compCurStmt->GetRootNode()))
-                {
-                    // Both `tree` and `check` have been removed from the statement.
-                    // 'tree' was replaced with 'nop' or side effect list under 'comma'.
-                    // optRemoveRangeCheck returns this modified tree.
-                    return optRemoveRangeCheck(check, comma, compCurStmt);
-                }
-            }
-        }
-    }
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("optEarlyProp Rewriting " FMT_BB "\n", compCurBB->bbNum);
-        gtDispStmt(compCurStmt);
-        printf("\n");
-    }
-#endif
-
-    GenTree* actualValClone = gtCloneExpr(actualVal);
-
-    if (actualValClone->gtType != tree->gtType)
-    {
-        assert(actualValClone->gtType == TYP_LONG);
-        assert(tree->gtType == TYP_INT);
-        assert((actualConstVal >= 0) && (actualConstVal <= INT32_MAX));
-        actualValClone->gtType = tree->gtType;
-    }
-
-    // actualValClone has small tree node size, it is safe to use CopyFrom here.
-    tree->ReplaceWith(actualValClone, this);
-
-    // Propagating a constant may create an opportunity to use a division by constant optimization
-    //
-    if ((tree->gtNext != nullptr) && tree->gtNext->OperIsBinary())
-    {
-        // We need to mark the parent divide/mod operation when this occurs
-        tree->gtNext->AsOp()->CheckDivideByConstOptimized(this);
-    }
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("to\n");
-        gtDispStmt(compCurStmt);
-        printf("\n");
-    }
-#endif
-    return tree;
-}
-
-GenTree* Compiler::optPropGetValue(GenTreeLclVar* lclVar)
-{
-    return optPropGetValueRec(lclVar, 0);
-}
-
-GenTree* Compiler::optPropGetValueRec(GenTreeLclVar* lclVar, int walkDepth)
-{
-    unsigned ssaNum = lclVar->GetSsaNum();
-
-    if (ssaNum == SsaConfig::RESERVED_SSA_NUM)
-    {
-        return nullptr;
-    }
-
-    // Bound the recursion with a hard limit.
-    if (walkDepth > optEarlyPropRecurBound)
-    {
-        return nullptr;
-    }
-
-    // Track along the use-def chain to get the array length
-    LclSsaVarDsc* ssaVarDsc = lvaGetDesc(lclVar)->GetPerSsaData(ssaNum);
-    GenTreeOp*    ssaDefAsg = ssaVarDsc->GetAssignment();
-
-    if (ssaDefAsg == nullptr)
-    {
-        // Incoming parameters or live-in variables don't have actual definition tree node
-        // for their FIRST_SSA_NUM. See SsaBuilder::RenameVariables.
-        assert(ssaNum == SsaConfig::FIRST_SSA_NUM);
-        return nullptr;
-    }
-
-    assert(ssaDefAsg->OperIs(GT_ASG));
-
-    GenTree* treeRhs = ssaDefAsg->gtGetOp2();
-
-    if (treeRhs->OperIs(GT_LCL_VAR) && lvaInSsa(treeRhs->AsLclVar()->GetLclNum()) && treeRhs->AsLclVar()->HasSsaName())
-    {
-        return optPropGetValueRec(treeRhs->AsLclVar(), walkDepth + 1);
-    }
-
-    GenTree* value = getArrayLengthFromAllocation(treeRhs DEBUGARG(ssaVarDsc->GetBlock()));
-    if ((value != nullptr) && !value->IsCnsIntOrI())
-    {
-        // Leave out non-constant-sized array
-        value = nullptr;
-    }
-
-    return value;
-}
-
-//----------------------------------------------------------------
-// optFoldNullChecks: Try to find a GT_NULLCHECK node that can be folded into the indirection node mark it for removal
-// if possible.
-//
-// Arguments:
-//    tree           - The input indirection tree.
-//    nullCheckMap   - Map of the local numbers to the latest NULLCHECKs on those locals in the current basic block
-//
-// Notes:
-//    If a GT_NULLCHECK node is post-dominated by an indirection node on the same local and the trees between
-//    the GT_NULLCHECK and the indirection don't have unsafe side effects, the GT_NULLCHECK can be removed.
-//    The indir will cause a NullReferenceException if and only if GT_NULLCHECK will cause the same
-//    NullReferenceException.
-
-void Compiler::optFoldNullCheck(GenTree* tree, LocalNumberToNullCheckTreeMap* nullCheckMap)
-{
-#ifdef DEBUG
-    if (tree->OperGet() == GT_NULLCHECK)
-    {
-        optCheckFlagsAreSet(OMF_HAS_NULLCHECK, "OMF_HAS_NULLCHECK", BBF_HAS_NULLCHECK, "BBF_HAS_NULLCHECK", tree,
-                            compCurBB);
-    }
-#else
-    if ((compCurBB->bbFlags & BBF_HAS_NULLCHECK) == 0)
-    {
-        return;
-    }
-#endif
-
-    GenTree*   nullCheckTree   = optFindNullCheckToFold(tree, nullCheckMap);
-    GenTree*   nullCheckParent = nullptr;
-    Statement* nullCheckStmt   = nullptr;
-    if ((nullCheckTree != nullptr) && optIsNullCheckFoldingLegal(tree, nullCheckTree, &nullCheckParent, &nullCheckStmt))
-    {
-#ifdef DEBUG
-        // Make sure the transformation happens in debug, check, and release build.
-        assert(optDoEarlyPropForFunc() && optDoEarlyPropForBlock(compCurBB) &&
-               (compCurBB->bbFlags & BBF_HAS_NULLCHECK) != 0);
-        if (verbose)
-        {
-            printf("optEarlyProp Marking a null check for removal\n");
-            gtDispTree(nullCheckTree);
-            printf("\n");
-        }
-#endif
-        // Remove the null check
-        nullCheckTree->gtFlags &= ~(GTF_EXCEPT | GTF_DONT_CSE);
-
-        // Set this flag to prevent reordering
-        nullCheckTree->gtFlags |= GTF_ORDER_SIDEEFF;
-        nullCheckTree->gtFlags |= GTF_IND_NONFAULTING;
-
-        if (nullCheckParent != nullptr)
-        {
-            nullCheckParent->gtFlags &= ~GTF_DONT_CSE;
-        }
-
-        nullCheckMap->Remove(nullCheckTree->gtGetOp1()->AsLclVarCommon()->GetLclNum());
-
-        // Re-morph the statement.
-        Statement* curStmt = compCurStmt;
-        fgMorphBlockStmt(compCurBB, nullCheckStmt DEBUGARG("optFoldNullCheck"));
-        compCurStmt = curStmt;
-    }
-
-    if ((tree->OperGet() == GT_NULLCHECK) && (tree->gtGetOp1()->OperGet() == GT_LCL_VAR))
-    {
-        nullCheckMap->Set(tree->gtGetOp1()->AsLclVarCommon()->GetLclNum(), tree,
-                          LocalNumberToNullCheckTreeMap::SetKind::Overwrite);
-    }
-}
-
-//----------------------------------------------------------------
-// optFindNullCheckToFold: Try to find a GT_NULLCHECK node that can be folded into the indirection node.
-//
-// Arguments:
-//    tree           - The input indirection tree.
-//    nullCheckMap   - Map of the local numbers to the latest NULLCHECKs on those locals in the current basic block
-//
-// Notes:
-//    Check for cases where
-//    1. One of the following trees
-//
-//       nullcheck(x)
-//       or
-//       x = comma(nullcheck(y), add(y, const1))
-//
-//       is post-dominated in the same basic block by one of the following trees
-//
-//       indir(x)
-//       or
-//       indir(add(x, const2))
-//
-//       (indir is any node for which OperIsIndirOrArrLength() is true.)
-//
-//     2.  const1 + const2 if sufficiently small.
-
-GenTree* Compiler::optFindNullCheckToFold(GenTree* tree, LocalNumberToNullCheckTreeMap* nullCheckMap)
-{
-    assert(tree->OperIsIndirOrArrLength());
-
-    GenTree* addr = tree->IsArrLen() ? tree->AsArrLen()->GetArray() : tree->AsIndir()->GetAddr();
-
-    ssize_t offsetValue = 0;
-
-    if ((addr->OperGet() == GT_ADD) && addr->gtGetOp2()->IsCnsIntOrI())
-    {
-        offsetValue += addr->gtGetOp2()->AsIntConCommon()->IconValue();
-        addr = addr->gtGetOp1();
-    }
-
-    if (addr->OperGet() != GT_LCL_VAR)
-    {
-        return nullptr;
-    }
-
-    GenTreeLclVarCommon* const lclVarNode = addr->AsLclVarCommon();
-    const unsigned             ssaNum     = lclVarNode->GetSsaNum();
-
-    if (ssaNum == SsaConfig::RESERVED_SSA_NUM)
-    {
-        return nullptr;
-    }
-
-    const unsigned lclNum          = lclVarNode->GetLclNum();
-    GenTree*       nullCheckTree   = nullptr;
-    unsigned       nullCheckLclNum = BAD_VAR_NUM;
-
-    // Check if we saw a nullcheck on this local in this basic block
-    // This corresponds to nullcheck(x) tree in the header comment.
-    if (nullCheckMap->Lookup(lclNum, &nullCheckTree))
-    {
-        GenTree* nullCheckAddr = nullCheckTree->AsIndir()->Addr();
-        if ((nullCheckAddr->OperGet() != GT_LCL_VAR) || (nullCheckAddr->AsLclVarCommon()->GetSsaNum() != ssaNum))
-        {
-            nullCheckTree = nullptr;
-        }
-        else
-        {
-            nullCheckLclNum = nullCheckAddr->AsLclVarCommon()->GetLclNum();
-        }
-    }
-
-    if (nullCheckTree == nullptr)
-    {
-        // Check if we have x = comma(nullcheck(y), add(y, const1)) pattern.
-
-        // Find the definition of the indirected local ('x' in the pattern above).
-        LclSsaVarDsc* defLoc = lvaTable[lclNum].GetPerSsaData(ssaNum);
-
-        if (compCurBB != defLoc->GetBlock())
-        {
-            return nullptr;
-        }
-
-        GenTree* defRHS = defLoc->GetAssignment()->gtGetOp2();
-
-        if (defRHS->OperGet() != GT_COMMA)
-        {
-            return nullptr;
-        }
-
-        GenTree* commaOp1EffectiveValue = defRHS->gtGetOp1()->SkipComma();
-
-        if (commaOp1EffectiveValue->OperGet() != GT_NULLCHECK)
-        {
-            return nullptr;
-        }
-
-        GenTree* nullCheckAddress = commaOp1EffectiveValue->gtGetOp1();
-
-        if ((nullCheckAddress->OperGet() != GT_LCL_VAR) || (defRHS->gtGetOp2()->OperGet() != GT_ADD))
-        {
-            return nullptr;
-        }
-
-        // We found a candidate for 'y' in the pattern above.
-
-        GenTree* additionNode = defRHS->gtGetOp2();
-        GenTree* additionOp1  = additionNode->gtGetOp1();
-        GenTree* additionOp2  = additionNode->gtGetOp2();
-        if ((additionOp1->OperGet() == GT_LCL_VAR) &&
-            (additionOp1->AsLclVarCommon()->GetLclNum() == nullCheckAddress->AsLclVarCommon()->GetLclNum()) &&
-            (additionOp2->IsCnsIntOrI()))
-        {
-            offsetValue += additionOp2->AsIntConCommon()->IconValue();
-            nullCheckTree = commaOp1EffectiveValue;
-        }
-    }
-
-    if (fgIsBigOffset(offsetValue))
-    {
-        return nullptr;
-    }
-    else
-    {
-        return nullCheckTree;
-    }
-}
-
-//----------------------------------------------------------------
-// optIsNullCheckFoldingLegal: Check the nodes between the GT_NULLCHECK node and the indirection to determine
-//                             if null check folding is legal.
-//
-// Arguments:
-//    tree                - The input indirection tree.
-//    nullCheckTree       - The GT_NULLCHECK tree that is a candidate for removal.
-//    nullCheckParent     - The parent of the GT_NULLCHECK tree that is a candidate for removal (out-parameter).
-//    nullCheckStatement  - The statement of the GT_NULLCHECK tree that is a candidate for removal (out-parameter).
-
-bool Compiler::optIsNullCheckFoldingLegal(GenTree*    tree,
-                                          GenTree*    nullCheckTree,
-                                          GenTree**   nullCheckParent,
-                                          Statement** nullCheckStmt)
-{
-    // Check all nodes between the GT_NULLCHECK and the indirection to see
-    // if any nodes have unsafe side effects.
-    unsigned       nullCheckLclNum    = nullCheckTree->gtGetOp1()->AsLclVarCommon()->GetLclNum();
-    bool           isInsideTry        = compCurBB->hasTryIndex();
-    bool           canRemoveNullCheck = true;
-    const unsigned maxNodesWalked     = 50;
-    unsigned       nodesWalked        = 0;
-
-    // First walk the nodes in the statement containing the GT_NULLCHECK in forward execution order
-    // until we get to the indirection or process the statement root.
-    GenTree* previousTree = nullCheckTree;
-    GenTree* currentTree  = nullCheckTree->gtNext;
-    assert(fgStmtListThreaded);
-    while (canRemoveNullCheck && (currentTree != tree) && (currentTree != nullptr))
-    {
-        if ((*nullCheckParent == nullptr) && (currentTree->FindUse(nullCheckTree) != nullptr))
-        {
-            *nullCheckParent = currentTree;
-        }
-        const bool checkExceptionSummary = false;
-        if ((nodesWalked++ > maxNodesWalked) ||
-            !optCanMoveNullCheckPastTree(currentTree, nullCheckLclNum, isInsideTry, checkExceptionSummary))
-        {
-            canRemoveNullCheck = false;
-        }
-        else
-        {
-            previousTree = currentTree;
-            currentTree  = currentTree->gtNext;
-        }
-    }
-
-    if (currentTree == tree)
-    {
-        // The GT_NULLCHECK and the indirection are in the same statements.
-        *nullCheckStmt = compCurStmt;
-    }
-    else
-    {
-        // The GT_NULLCHECK and the indirection are in different statements.
-        // Walk the nodes in the statement containing the indirection
-        // in reverse execution order starting with the indirection's
-        // predecessor.
-        GenTree* nullCheckStatementRoot = previousTree;
-        currentTree                     = tree->gtPrev;
-        while (canRemoveNullCheck && (currentTree != nullptr))
-        {
-            const bool checkExceptionSummary = false;
-            if ((nodesWalked++ > maxNodesWalked) ||
-                !optCanMoveNullCheckPastTree(currentTree, nullCheckLclNum, isInsideTry, checkExceptionSummary))
-            {
-                canRemoveNullCheck = false;
+                assert(nullCheck == nullCheckStmt->GetRootNode());
             }
             else
             {
-                currentTree = currentTree->gtPrev;
+                // TODO-MIKE-Review: Check if this is really needed. After the null check is removed
+                // the remaining subtree either has other side effects that will prevent reordering,
+                // or it has no other side effects and then reordering isn't an issue. Someone likely
+                // confused this with another situation that does require GTF_ORDER_SIDEEFF - an indir
+                // dominated by another indir may be made "non faulting" and then we do need to prevent
+                // the "non faulting" indir to be reordered in front of the dominating faulting indir.
+                nullCheck->gtFlags |= GTF_ORDER_SIDEEFF;
+
+                compiler->gtUpdateTreeAncestorsSideEffects(nullCheck);
+
+                if (nullCheckUser->OperIs(GT_COMMA) && (nullCheckUser->AsOp()->GetOp(0) == nullCheck))
+                {
+                    GenTree** use;
+                    GenTree*  commaUser = nullCheckUser->FindUser(&use);
+
+                    if (commaUser != nullptr)
+                    {
+                        *use = nullCheckUser->AsOp()->GetOp(1);
+                    }
+                }
+            }
+
+            compiler->gtSetStmtInfo(nullCheckStmt);
+            compiler->fgSetStmtSeq(nullCheckStmt);
+        }
+
+        if (indir->OperIs(GT_NULLCHECK) && indir->AsIndir()->GetAddr()->OperIs(GT_LCL_VAR))
+        {
+            nullCheckMap.Set(indir->AsIndir()->GetAddr()->AsLclVar()->GetLclNum(), indir->AsIndir(),
+                             LocalNumberToNullCheckTreeMap::SetKind::Overwrite);
+        }
+    }
+
+    GenTreeIndir* FindNullCheckToFold(GenTree* addr)
+    {
+        assert(varTypeIsI(addr->GetType()));
+
+        ssize_t offset = 0;
+
+        if (addr->OperIs(GT_ADD) && addr->AsOp()->GetOp(1)->IsIntCon())
+        {
+            offset += addr->AsOp()->GetOp(1)->AsIntCon()->GetValue();
+            addr = addr->AsOp()->GetOp(0);
+        }
+
+        if (!addr->OperIs(GT_LCL_VAR))
+        {
+            return nullptr;
+        }
+
+        GenTreeLclVar* addrLclVar = addr->AsLclVar();
+
+        if (addrLclVar->GetSsaNum() == SsaConfig::RESERVED_SSA_NUM)
+        {
+            return nullptr;
+        }
+
+        GenTreeIndir* nullCheck = nullptr;
+
+        if (nullCheckMap.Lookup(addrLclVar->GetLclNum(), &nullCheck))
+        {
+            if (nullCheck->GetAddr()->AsLclVar()->GetSsaNum() != addrLclVar->GetSsaNum())
+            {
+                nullCheck = nullptr;
             }
         }
 
-        // Finally, walk the statement list in reverse execution order
-        // until we get to the statement containing the null check.
-        // We only check the side effects at the root of each statement.
-        Statement* curStmt = compCurStmt->GetPrevStmt();
-        currentTree        = curStmt->GetRootNode();
-        while (canRemoveNullCheck && (currentTree != nullCheckStatementRoot))
+        if (nullCheck == nullptr)
         {
-            const bool checkExceptionSummary = true;
-            if ((nodesWalked++ > maxNodesWalked) ||
-                !optCanMoveNullCheckPastTree(currentTree, nullCheckLclNum, isInsideTry, checkExceptionSummary))
+            LclSsaVarDsc* ssaDef = compiler->lvaGetSsaDesc(addrLclVar);
+
+            // We can only check for NULLCHECK exception interference if the
+            // NULLCHECK is in the same block as the indir.
+            if (currentBlock != ssaDef->GetBlock())
             {
-                canRemoveNullCheck = false;
+                return nullptr;
             }
-            else
+
+            GenTree* ssaDefValue = ssaDef->GetAssignment()->GetOp(1);
+
+            if (!ssaDefValue->OperIs(GT_COMMA))
             {
-                curStmt     = curStmt->GetPrevStmt();
-                currentTree = curStmt->GetRootNode();
+                return nullptr;
+            }
+
+            GenTree* commaOp1 = ssaDefValue->AsOp()->GetOp(0)->SkipComma();
+            GenTree* commaOp2 = ssaDefValue->AsOp()->GetOp(1);
+
+            if (!commaOp1->OperIs(GT_NULLCHECK))
+            {
+                return nullptr;
+            }
+
+            nullCheck = commaOp1->AsIndir();
+
+            GenTree* nullCheckAddr = nullCheck->GetAddr();
+
+            if (!nullCheckAddr->OperIs(GT_LCL_VAR) || !commaOp2->OperIs(GT_ADD))
+            {
+                return nullptr;
+            }
+
+            GenTreeOp* add = commaOp2->AsOp();
+
+            if (!add->GetOp(0)->OperIs(GT_LCL_VAR) ||
+                (add->GetOp(0)->AsLclVar()->GetLclNum() != nullCheckAddr->AsLclVar()->GetLclNum()))
+            {
+                return nullptr;
+            }
+
+            if (!add->GetOp(1)->IsIntCon())
+            {
+                return nullptr;
+            }
+
+            offset += add->GetOp(1)->AsIntCon()->GetValue();
+        }
+
+        return compiler->fgIsBigOffset(offset) ? nullptr : nullCheck;
+    }
+
+    bool IsNullCheckFoldingLegal(GenTree* nullCheck, GenTree* indir, GenTree** nullCheckUser, Statement** nullCheckStmt)
+    {
+        assert(nullCheck->OperIs(GT_NULLCHECK));
+        assert(indir->OperIsIndirOrArrLength());
+
+        // Usually we can ignore assignments to any locals that are not address exposed,
+        // but in try regions we also need to ignore assignemtns to locals that are live
+        // in exception handlers.
+        bool isInsideTry = currentBlock->hasTryIndex();
+
+        const unsigned maxNodesWalked = 50;
+        unsigned       nodesWalked    = 0;
+
+        Statement* indirStatement         = currentStatement;
+        GenTree*   nullCheckStatementRoot = nullCheck;
+
+        // TODO-MIKE-Review: Could we simply remove null checks from the map as we traverse
+        // the block and entirely avoid this intereference check?
+
+        for (GenTree* node = nullCheck->gtNext; node != nullptr; node = node->gtNext)
+        {
+            if (node == indir)
+            {
+                *nullCheckStmt = indirStatement;
+
+                // We may have reached the indir before NULLCHECK's user.
+                if (*nullCheckUser == nullptr)
+                {
+                    *nullCheckUser = nullCheck->FindUser();
+                }
+
+                return true;
+            }
+
+            if ((*nullCheckUser == nullptr) && node->HasUse(nullCheck))
+            {
+                *nullCheckUser = node;
+            }
+
+            if ((nodesWalked++ > maxNodesWalked) || !CanMoveNullCheckPastNode(node, isInsideTry))
+            {
+                return false;
+            }
+
+            nullCheckStatementRoot = node;
+        }
+
+        for (GenTree* node = indir->gtPrev; node != nullptr; node = node->gtPrev)
+        {
+            if ((nodesWalked++ > maxNodesWalked) || !CanMoveNullCheckPastNode(node, isInsideTry))
+            {
+                return false;
             }
         }
-        *nullCheckStmt = curStmt;
-    }
 
-    if (canRemoveNullCheck && (*nullCheckParent == nullptr))
-    {
-        *nullCheckParent = nullCheckTree->FindUser();
-    }
+        Statement* stmt = indirStatement->GetPrevStmt();
 
-    return canRemoveNullCheck;
-}
-
-//----------------------------------------------------------------
-// optCanMoveNullCheckPastTree: Check if a nullcheck node that is before `tree`
-//                              in execution order may be folded into an indirection node that
-//                              is after `tree` is execution order.
-//
-// Arguments:
-//    tree                  - The tree to check.
-//    nullCheckLclNum       - The local variable that GT_NULLCHECK checks.
-//    isInsideTry           - True if tree is inside try, false otherwise.
-//    checkSideEffectSummary -If true, check side effect summary flags only,
-//                            otherwise check the side effects of the operation itself.
-//
-// Return Value:
-//    True if nullcheck may be folded into a node that is after tree in execution order,
-//    false otherwise.
-
-bool Compiler::optCanMoveNullCheckPastTree(GenTree* tree,
-                                           unsigned nullCheckLclNum,
-                                           bool     isInsideTry,
-                                           bool     checkSideEffectSummary)
-{
-    bool result = true;
-
-    if ((tree->gtFlags & GTF_CALL) != 0)
-    {
-        result = !checkSideEffectSummary && !tree->OperRequiresCallFlag(this);
-    }
-
-    if (result && (tree->gtFlags & GTF_EXCEPT) != 0)
-    {
-        result = !checkSideEffectSummary && !tree->OperMayThrow(this);
-    }
-
-    if (result && ((tree->gtFlags & GTF_ASG) != 0))
-    {
-        if (tree->OperGet() == GT_ASG)
+        for (; stmt->GetRootNode() != nullCheckStatementRoot; stmt = stmt->GetPrevStmt())
         {
-            GenTree* lhs = tree->gtGetOp1();
-            GenTree* rhs = tree->gtGetOp2();
-            if (checkSideEffectSummary && ((rhs->gtFlags & GTF_ASG) != 0))
+            if ((nodesWalked++ > maxNodesWalked) || !CanMoveNullCheckPastStmt(stmt, isInsideTry))
             {
-                result = false;
+                return false;
             }
-            else if (isInsideTry)
+        }
+
+        *nullCheckStmt = stmt;
+
+        return true;
+    }
+
+    bool CanMoveNullCheckPastNode(GenTree* node, bool isInsideTry)
+    {
+        if (((node->gtFlags & GTF_CALL) != 0) && node->OperRequiresCallFlag(compiler))
+        {
+            return false;
+        }
+
+        // TODO-MIKE-Review: Perhaps we can move a null check past another null check,
+        // they should always throw NullReferenceException.
+        if (((node->gtFlags & GTF_EXCEPT) != 0) && node->OperMayThrow(compiler))
+        {
+            return false;
+        }
+
+        if ((node->gtFlags & GTF_ASG) == 0)
+        {
+            return true;
+        }
+
+        if (node->OperIs(GT_ASG))
+        {
+            GenTree* dst = node->AsOp()->GetOp(0);
+
+            if (isInsideTry)
             {
                 // Inside try we allow only assignments to locals not live in handlers.
-                result = lhs->OperIs(GT_LCL_VAR) && !lvaGetDesc(lhs->AsLclVar())->lvEHLive;
+                // TODO-MIKE-Review: This should probably check AX too.
+                return dst->OperIs(GT_LCL_VAR) && !compiler->lvaGetDesc(dst->AsLclVar())->lvEHLive;
             }
             else
             {
                 // We disallow only assignments to global memory.
-                result = ((lhs->gtFlags & GTF_GLOB_REF) == 0);
+                return (dst->gtFlags & GTF_GLOB_REF) == 0;
             }
         }
-        else if (checkSideEffectSummary)
-        {
-            result = !isInsideTry && ((tree->gtFlags & GTF_GLOB_REF) == 0);
-        }
-        else
-        {
-            result = !isInsideTry && (!tree->OperRequiresAsgFlag() || ((tree->gtFlags & GTF_GLOB_REF) == 0));
-        }
+
+        return !isInsideTry && (!node->OperRequiresAsgFlag() || ((node->gtFlags & GTF_GLOB_REF) == 0));
     }
 
-    return result;
+    bool CanMoveNullCheckPastStmt(Statement* stmt, bool isInsideTry)
+    {
+        GenTree* node = stmt->GetRootNode();
+
+        if ((node->gtFlags & (GTF_CALL | GTF_EXCEPT)) != 0)
+        {
+            return false;
+        }
+
+        if ((node->gtFlags & GTF_ASG) == 0)
+        {
+            return true;
+        }
+
+        if (node->OperIs(GT_ASG))
+        {
+            if ((node->AsOp()->GetOp(1)->gtFlags & GTF_ASG) != 0)
+            {
+                return false;
+            }
+
+            GenTree* dst = node->AsOp()->GetOp(0);
+
+            if (isInsideTry)
+            {
+                // Inside try we allow only assignments to locals not live in handlers.
+                // TODO-MIKE-Review: This should probably check AX too.
+                return dst->OperIs(GT_LCL_VAR) && !compiler->lvaGetDesc(dst->AsLclVar())->lvEHLive;
+            }
+            else
+            {
+                // We disallow only assignments to global memory.
+                return (dst->gtFlags & GTF_GLOB_REF) == 0;
+            }
+        }
+
+        return !isInsideTry && ((node->gtFlags & GTF_GLOB_REF) == 0);
+    }
+};
+
+void Compiler::optEarlyProp()
+{
+    assert(ssaForm);
+
+    EarlyProp prop(this);
+    prop.Run();
 }

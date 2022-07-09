@@ -5345,7 +5345,7 @@ GenTree* Compiler::fgMorphIndexAddr(GenTreeIndexAddr* tree)
             noway_assert(array2 != nullptr);
         }
 
-        GenTree* arrLen = gtNewArrLen(array2, lenOffs, compCurBB);
+        GenTree* arrLen = gtNewArrLen(array2, lenOffs);
 
 #ifdef TARGET_64BIT
         // The CLI Spec allows an array to be indexed by either an int32 or a native int.  In the case
