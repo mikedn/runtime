@@ -5457,8 +5457,6 @@ public:
     bool optCSE_canSwap(GenTree* firstNode, GenTree* secondNode);
     bool optCSE_canSwap(GenTree* tree);
 
-    void optCleanupCSEs();
-
 #ifdef DEBUG
     void optEnsureClearCSEInfo();
 #endif // DEBUG

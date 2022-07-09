@@ -3825,27 +3825,6 @@ void Compiler::optOptimizeCSEs()
     optOptimizeValnumCSEs();
 }
 
-/*****************************************************************************
- *
- *  Cleanup after CSE to allow us to run more than once.
- */
-
-void Compiler::optCleanupCSEs()
-{
-    for (BasicBlock* const block : Blocks())
-    {
-        block->bbFlags &= ~BBF_MARKED;
-
-        for (Statement* const stmt : block->NonPhiStatements())
-        {
-            for (GenTree* tree = stmt->GetRootNode(); tree; tree = tree->gtPrev)
-            {
-                tree->gtCSEnum = NO_CSE;
-            }
-        }
-    }
-}
-
 #ifdef DEBUG
 
 /*****************************************************************************
