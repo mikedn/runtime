@@ -97,6 +97,11 @@ constexpr size_t s_optCSEhashSizeInitial  = EXPSET_SZ * 2;
 constexpr size_t s_optCSEhashGrowthFactor = 2;
 constexpr size_t s_optCSEhashBucketSize   = 4;
 
+//  The following is the upper limit on how many expressions we'll keep track
+//  of for the CSE analysis.
+//
+constexpr unsigned MAX_CSE_CNT = EXPSET_SZ;
+
 //-----------------------------------------------------------------------------------------------------------------
 // getCSEnum2bit: Return the normalized index to use in the EXPSET_TP for the CSE with the given CSE index.
 // Each GenTree has a `gtCSEnum` field. Zero is reserved to mean this node is not a CSE, positive values indicate
@@ -105,7 +110,7 @@ constexpr size_t s_optCSEhashBucketSize   = 4;
 //
 static unsigned genCSEnum2bit(unsigned CSEnum)
 {
-    assert((CSEnum > 0) && (CSEnum <= Compiler::MAX_CSE_CNT));
+    assert((CSEnum > 0) && (CSEnum <= MAX_CSE_CNT));
     return CSEnum - 1;
 }
 

@@ -5410,11 +5410,6 @@ protected:
     bool optAvoidIntMult(void);
 
 public:
-    //  The following is the upper limit on how many expressions we'll keep track
-    //  of for the CSE analysis.
-    //
-    static const unsigned MAX_CSE_CNT = EXPSET_SZ;
-
     static const int MIN_CSE_COST = 2;
 
     // BitVec trait information only used by the optCSE_canSwap() method, for the  CSE_defMask and CSE_useMask.
