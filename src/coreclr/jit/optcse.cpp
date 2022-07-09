@@ -330,7 +330,10 @@ struct optCSE_MaskData
     EXPSET_TP    CSE_defMask;
     EXPSET_TP    CSE_useMask;
 
-    optCSE_MaskData(Compiler* compiler) : cseMaskTraits(compiler->optCSECandidateCount, compiler)
+    optCSE_MaskData(Compiler* compiler)
+        : cseMaskTraits(compiler->optCSECandidateCount, compiler)
+        , CSE_defMask(BitVecOps::MakeEmpty(&cseMaskTraits))
+        , CSE_useMask(BitVecOps::MakeEmpty(&cseMaskTraits))
     {
     }
 };
@@ -359,16 +362,6 @@ Compiler::fgWalkResult optCSE_MaskHelper(GenTree** pTree, Compiler::fgWalkData* 
     return Compiler::WALK_CONTINUE;
 }
 
-// This functions walks all the node for an given tree
-// and return the mask of CSE defs and uses for the tree
-//
-void Compiler::optCSE_GetMaskData(GenTree* tree, optCSE_MaskData* pMaskData)
-{
-    pMaskData->CSE_defMask = BitVecOps::MakeEmpty(&pMaskData->cseMaskTraits);
-    pMaskData->CSE_useMask = BitVecOps::MakeEmpty(&pMaskData->cseMaskTraits);
-    fgWalkTreePre(&tree, optCSE_MaskHelper, (void*)pMaskData);
-}
-
 //------------------------------------------------------------------------
 // optCSE_canSwap: Determine if the execution order of two nodes can be swapped.
 //
@@ -394,8 +387,8 @@ bool Compiler::optCSE_canSwap(GenTree* op1, GenTree* op2)
     optCSE_MaskData op1MaskData(this);
     optCSE_MaskData op2MaskData(this);
 
-    optCSE_GetMaskData(op1, &op1MaskData);
-    optCSE_GetMaskData(op2, &op2MaskData);
+    fgWalkTreePre(&op1, optCSE_MaskHelper, &op1MaskData);
+    fgWalkTreePre(&op2, optCSE_MaskHelper, &op2MaskData);
 
     // We cannot swap if op1 contains a CSE def that is used by op2
     if (!BitVecOps::IsEmptyIntersection(&op1MaskData.cseMaskTraits, op1MaskData.CSE_defMask, op2MaskData.CSE_useMask))

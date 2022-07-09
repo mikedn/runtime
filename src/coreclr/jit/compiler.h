@@ -5442,11 +5442,6 @@ public:
     CSEdsc* optCSEfindDsc(unsigned index);
     bool optUnmarkCSE(GenTree* tree);
 
-    // This function walks all the node for an given tree
-    // and return the mask of CSE definitions and uses for the tree
-    //
-    void optCSE_GetMaskData(GenTree* tree, optCSE_MaskData* pMaskData);
-
     // Given a binary tree node return true if it is safe to swap the order of evaluation for op1 and op2.
     bool optCSE_canSwap(GenTree* firstNode, GenTree* secondNode);
 
