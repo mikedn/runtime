@@ -161,6 +161,8 @@ public:
     {
     }
 
+    void Run();
+
     void     optValnumCSE_Init();
     unsigned optValnumCSE_Index(GenTree* tree, Statement* stmt);
     bool optValnumCSE_Locate();
@@ -3792,31 +3794,35 @@ bool Compiler::optConfigDisableCSE2()
 
 void Compiler::optOptimizeCSEs()
 {
-    optCSECandidateCount = 0;
-    optCSEstart          = lvaCount;
+    Cse cse(this);
+    cse.Run();
+}
+
+void Cse::Run()
+{
+    compiler->optCSECandidateCount = 0;
+    compiler->optCSEstart          = compiler->lvaCount;
 
 #ifdef DEBUG
-    if (optConfigDisableCSE())
+    if (compiler->optConfigDisableCSE())
     {
         return; // Disabled by JitNoCSE
     }
 #endif
 
-    optValnumCSE_phase = true;
+    compiler->optValnumCSE_phase = true;
 
-    Cse cse(this);
+    optValnumCSE_Init();
 
-    cse.optValnumCSE_Init();
-
-    if (cse.optValnumCSE_Locate())
+    if (optValnumCSE_Locate())
     {
-        cse.optValnumCSE_InitDataFlow();
-        cse.optValnumCSE_DataFlow();
-        cse.optValnumCSE_Availablity();
-        cse.optValnumCSE_Heuristic();
+        optValnumCSE_InitDataFlow();
+        optValnumCSE_DataFlow();
+        optValnumCSE_Availablity();
+        optValnumCSE_Heuristic();
     }
 
-    optValnumCSE_phase = false;
+    compiler->optValnumCSE_phase = false;
 }
 
 #ifdef DEBUG
