@@ -5477,15 +5477,6 @@ public:
 
     void optOptimizeValnumCSEs();
 
-protected:
-    void     optValnumCSE_Init();
-    unsigned optValnumCSE_Index(GenTree* tree, Statement* stmt);
-    bool optValnumCSE_Locate();
-    void optValnumCSE_InitDataFlow();
-    void optValnumCSE_DataFlow();
-    void optValnumCSE_Availablity();
-    void optValnumCSE_Heuristic();
-
     bool                 optDoCSE;             // True when we have found a duplicate CSE tree
     bool                 optValnumCSE_phase;   // True when we are executing the optOptimizeValnumCSEs() phase
     unsigned             optCSECandidateCount; // Count of CSE's candidates

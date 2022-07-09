@@ -479,30 +479,49 @@ struct optCSEcostCmpSz
  *  Initialize the Value Number CSE tracking logic.
  */
 
-void Compiler::optValnumCSE_Init()
+class Cse
+{
+    Compiler*      compiler;
+    ValueNumStore* vnStore;
+
+public:
+    Cse(Compiler* compiler) : compiler(compiler), vnStore(compiler->vnStore)
+    {
+    }
+
+    void     optValnumCSE_Init();
+    unsigned optValnumCSE_Index(GenTree* tree, Statement* stmt);
+    bool optValnumCSE_Locate();
+    void optValnumCSE_InitDataFlow();
+    void optValnumCSE_DataFlow();
+    void optValnumCSE_Availablity();
+    void optValnumCSE_Heuristic();
+};
+
+void Cse::optValnumCSE_Init()
 {
 #ifdef DEBUG
-    optCSEtab = nullptr;
+    compiler->optCSEtab = nullptr;
 #endif
 
     // This gets set in optValnumCSE_InitDataFlow
-    cseLivenessTraits = nullptr;
+    compiler->cseLivenessTraits = nullptr;
 
     // Initialize when used by optCSE_canSwap()
-    cseMaskTraits = nullptr;
+    compiler->cseMaskTraits = nullptr;
 
     // Allocate and clear the hash bucket table
-    optCSEhash = new (this, CMK_CSE) CSEdsc*[s_optCSEhashSizeInitial]();
+    compiler->optCSEhash = new (compiler, CMK_CSE) CSEdsc*[s_optCSEhashSizeInitial]();
 
-    optCSEhashSize                 = s_optCSEhashSizeInitial;
-    optCSEhashMaxCountBeforeResize = optCSEhashSize * s_optCSEhashBucketSize;
-    optCSEhashCount                = 0;
+    compiler->optCSEhashSize                 = s_optCSEhashSizeInitial;
+    compiler->optCSEhashMaxCountBeforeResize = compiler->optCSEhashSize * s_optCSEhashBucketSize;
+    compiler->optCSEhashCount                = 0;
 
-    optCSECandidateCount = 0;
-    optDoCSE             = false; // Stays false until we find duplicate CSE tree
+    compiler->optCSECandidateCount = 0;
+    compiler->optDoCSE             = false; // Stays false until we find duplicate CSE tree
 
     // optCseCheckedBoundMap is unused in most functions, allocated only when used
-    optCseCheckedBoundMap = nullptr;
+    compiler->optCseCheckedBoundMap = nullptr;
 }
 
 unsigned optCSEKeyToHashIndex(size_t key, size_t optCSEhashSize)
@@ -536,7 +555,7 @@ unsigned optCSEKeyToHashIndex(size_t key, size_t optCSEhashSize)
 //          we return that index.  There currently is a limit on the number of CSEs
 //          that we can have of MAX_CSE_CNT (64)
 //
-unsigned Compiler::optValnumCSE_Index(GenTree* tree, Statement* stmt)
+unsigned Cse::optValnumCSE_Index(GenTree* tree, Statement* stmt)
 {
     size_t   key;
     unsigned hval;
@@ -618,7 +637,7 @@ unsigned Compiler::optValnumCSE_Index(GenTree* tree, Statement* stmt)
 
         // We don't share small offset constants when they require a reloc
         //
-        if (tree->IsLngCon() || !tree->AsIntCon()->ImmedValNeedsReloc(this))
+        if (tree->IsLngCon() || !tree->AsIntCon()->ImmedValNeedsReloc(compiler))
         {
             // Here we make constants that have the same upper bits use the same key
             //
@@ -650,13 +669,13 @@ unsigned Compiler::optValnumCSE_Index(GenTree* tree, Statement* stmt)
 
     // Compute the hash value for the expression
 
-    hval = optCSEKeyToHashIndex(key, optCSEhashSize);
+    hval = optCSEKeyToHashIndex(key, compiler->optCSEhashSize);
 
     /* Look for a matching index in the hash table */
 
     bool newCSE = false;
 
-    for (hashDsc = optCSEhash[hval]; hashDsc; hashDsc = hashDsc->csdNextInBucket)
+    for (hashDsc = compiler->optCSEhash[hval]; hashDsc; hashDsc = hashDsc->csdNextInBucket)
     {
         if (hashDsc->csdHashKey == key)
         {
@@ -671,7 +690,7 @@ unsigned Compiler::optValnumCSE_Index(GenTree* tree, Statement* stmt)
                 // Start the occurrence list now that we found a second occurrence.
 
                 treeStmtLst* occurrence =
-                    new (this, CMK_CSE) treeStmtLst(hashDsc->csdTree, hashDsc->csdStmt, hashDsc->csdBlock);
+                    new (compiler, CMK_CSE) treeStmtLst(hashDsc->csdTree, hashDsc->csdStmt, hashDsc->csdBlock);
 
                 hashDsc->csdTreeList      = occurrence;
                 hashDsc->csdTreeLast      = occurrence;
@@ -689,15 +708,15 @@ unsigned Compiler::optValnumCSE_Index(GenTree* tree, Statement* stmt)
                 // expression somehow have different layouts, as long as the layout SIMD type
                 // is the same.
 
-                hashDsc->csdLayout = typGetStructLayout(tree);
+                hashDsc->csdLayout = compiler->typGetStructLayout(tree);
             }
 
-            treeStmtLst* occurrence = new (this, CMK_CSE) treeStmtLst(tree, stmt, compCurBB);
+            treeStmtLst* occurrence = new (compiler, CMK_CSE) treeStmtLst(tree, stmt, compiler->compCurBB);
 
             hashDsc->csdTreeLast->tslNext = occurrence;
             hashDsc->csdTreeLast          = occurrence;
 
-            optDoCSE = true; // Found a duplicate CSE tree
+            compiler->optDoCSE = true; // Found a duplicate CSE tree
 
             if (hashDsc->csdIndex == 0)
             {
@@ -716,18 +735,18 @@ unsigned Compiler::optValnumCSE_Index(GenTree* tree, Statement* stmt)
     {
         // Not found, create a new entry (unless we have too many already)
 
-        if (optCSECandidateCount < MAX_CSE_CNT)
+        if (compiler->optCSECandidateCount < MAX_CSE_CNT)
         {
-            if (optCSEhashCount == optCSEhashMaxCountBeforeResize)
+            if (compiler->optCSEhashCount == compiler->optCSEhashMaxCountBeforeResize)
             {
-                size_t   newOptCSEhashSize = optCSEhashSize * s_optCSEhashGrowthFactor;
-                CSEdsc** newOptCSEhash     = new (this, CMK_CSE) CSEdsc*[newOptCSEhashSize]();
+                size_t   newOptCSEhashSize = compiler->optCSEhashSize * s_optCSEhashGrowthFactor;
+                CSEdsc** newOptCSEhash     = new (compiler, CMK_CSE) CSEdsc*[newOptCSEhashSize]();
 
                 // Iterate through each existing entry, moving to the new table
                 CSEdsc** ptr;
                 CSEdsc*  dsc;
                 size_t   cnt;
-                for (cnt = optCSEhashSize, ptr = optCSEhash; cnt; cnt--, ptr++)
+                for (cnt = compiler->optCSEhashSize, ptr = compiler->optCSEhash; cnt; cnt--, ptr++)
                 {
                     for (dsc = *ptr; dsc;)
                     {
@@ -743,24 +762,25 @@ unsigned Compiler::optValnumCSE_Index(GenTree* tree, Statement* stmt)
                     }
                 }
 
-                optCSEhash                     = newOptCSEhash;
-                optCSEhashSize                 = newOptCSEhashSize;
-                optCSEhashMaxCountBeforeResize = optCSEhashMaxCountBeforeResize * s_optCSEhashGrowthFactor;
+                compiler->optCSEhash     = newOptCSEhash;
+                compiler->optCSEhashSize = newOptCSEhashSize;
+                compiler->optCSEhashMaxCountBeforeResize =
+                    compiler->optCSEhashMaxCountBeforeResize * s_optCSEhashGrowthFactor;
             }
 
-            ++optCSEhashCount;
+            ++compiler->optCSEhashCount;
 
-            hashDsc = new (this, CMK_CSE) CSEdsc(key, tree, stmt, compCurBB);
+            hashDsc = new (compiler, CMK_CSE) CSEdsc(key, tree, stmt, compiler->compCurBB);
 
             if (varTypeIsStruct(tree->GetType()))
             {
-                hashDsc->csdLayout = typGetStructLayout(tree);
+                hashDsc->csdLayout = compiler->typGetStructLayout(tree);
                 assert((hashDsc->csdLayout != nullptr) || varTypeIsSIMD(tree->GetType()));
             }
 
             // Append the entry to the hash bucket
-            hashDsc->csdNextInBucket = optCSEhash[hval];
-            optCSEhash[hval]         = hashDsc;
+            hashDsc->csdNextInBucket   = compiler->optCSEhash[hval];
+            compiler->optCSEhash[hval] = hashDsc;
         }
         return 0;
     }
@@ -770,13 +790,13 @@ unsigned Compiler::optValnumCSE_Index(GenTree* tree, Statement* stmt)
 
         /* Create a new CSE (unless we have the maximum already) */
 
-        if (optCSECandidateCount == MAX_CSE_CNT)
+        if (compiler->optCSECandidateCount == MAX_CSE_CNT)
         {
 #ifdef DEBUG
-            if (verbose)
+            if (compiler->verbose)
             {
                 printf("Exceeded the MAX_CSE_CNT, not using tree:\n");
-                gtDispTree(tree);
+                compiler->gtDispTree(tree);
             }
 #endif // DEBUG
             return 0;
@@ -784,7 +804,7 @@ unsigned Compiler::optValnumCSE_Index(GenTree* tree, Statement* stmt)
 
         C_ASSERT((signed char)MAX_CSE_CNT == MAX_CSE_CNT);
 
-        unsigned CSEindex = ++optCSECandidateCount;
+        unsigned CSEindex = ++compiler->optCSECandidateCount;
 
         /* Record the new CSE index in the hashDsc */
         hashDsc->csdIndex = CSEindex;
@@ -799,12 +819,12 @@ unsigned Compiler::optValnumCSE_Index(GenTree* tree, Statement* stmt)
         tree->gtCSEnum = ((signed char)CSEindex);
 
 #ifdef DEBUG
-        if (verbose)
+        if (compiler->verbose)
         {
             printf("\nCSE candidate #%02u, key=", CSEindex);
             if (!Is_Shared_Const_CSE(key))
             {
-                vnPrint((unsigned)key, 0);
+                compiler->vnPrint((unsigned)key, 0);
             }
             else
             {
@@ -812,8 +832,9 @@ unsigned Compiler::optValnumCSE_Index(GenTree* tree, Statement* stmt)
                 printf("K_%p", dspPtr(kVal));
             }
 
-            printf(" in " FMT_BB ", [cost=%2u, size=%2u]: \n", compCurBB->bbNum, tree->GetCostEx(), tree->GetCostSz());
-            gtDispTree(tree);
+            printf(" in " FMT_BB ", [cost=%2u, size=%2u]: \n", compiler->compCurBB->bbNum, tree->GetCostEx(),
+                   tree->GetCostSz());
+            compiler->gtDispTree(tree);
         }
 #endif // DEBUG
 
@@ -827,7 +848,7 @@ unsigned Compiler::optValnumCSE_Index(GenTree* tree, Statement* stmt)
 // Returns:
 //    true if there are any CSE candidates, false otherwise
 //
-bool Compiler::optValnumCSE_Locate()
+bool Cse::optValnumCSE_Locate()
 {
     bool enableConstCSE = true;
 
@@ -852,11 +873,11 @@ bool Compiler::optValnumCSE_Locate()
     }
 #endif
 
-    for (BasicBlock* const block : Blocks())
+    for (BasicBlock* const block : compiler->Blocks())
     {
         /* Make the block publicly available */
 
-        compCurBB = block;
+        compiler->compCurBB = block;
 
         /* Ensure that the BBF_MARKED flag is clear */
         /* Everyone who uses this flag are required to clear afterwards */
@@ -876,7 +897,7 @@ bool Compiler::optValnumCSE_Locate()
                     // Check if this compare is a function of (one of) the checked
                     // bound candidate(s); we may want to update its value number.
                     // if the array length gets CSEd
-                    optCseUpdateCheckedBoundMap(tree);
+                    compiler->optCseUpdateCheckedBoundMap(tree);
                 }
 
                 // Don't allow CSE of constants if it is disabled
@@ -898,7 +919,7 @@ bool Compiler::optValnumCSE_Locate()
                     continue;
                 }
 
-                if (!optIsCSEcandidate(tree))
+                if (!compiler->optIsCSEcandidate(tree))
                 {
                     continue;
                 }
@@ -942,14 +963,14 @@ bool Compiler::optValnumCSE_Locate()
 
     /* We're done if there were no interesting expressions */
 
-    if (!optDoCSE)
+    if (!compiler->optDoCSE)
     {
         return false;
     }
 
     /* We're finished building the expression lookup table */
 
-    optCSEstop();
+    compiler->optCSEstop();
 
     return true;
 }
@@ -1059,7 +1080,7 @@ void Compiler::optCseUpdateCheckedBoundMap(GenTree* compare)
  *  This is the bitset that represents the CSEs that are generated within the block
  *  Also initialize bbCseIn, bbCseOut and bbCseGen sets for all blocks
  */
-void Compiler::optValnumCSE_InitDataFlow()
+void Cse::optValnumCSE_InitDataFlow()
 {
     // BitVec trait information for computing CSE availability using the CSE_DataFlow algorithm.
     // Two bits are allocated per CSE candidate to compute CSE availability
@@ -1072,28 +1093,28 @@ void Compiler::optValnumCSE_InitDataFlow()
     //     00 - The CSE is not available
     //     01 - An illegal combination
     //
-    const unsigned bitCount = (optCSECandidateCount * 2) + 1;
+    const unsigned bitCount = (compiler->optCSECandidateCount * 2) + 1;
 
     // Init traits and cseCallKillsMask bitvectors.
-    cseLivenessTraits = new (getAllocator(CMK_CSE)) BitVecTraits(bitCount, this);
-    cseCallKillsMask  = BitVecOps::MakeEmpty(cseLivenessTraits);
-    for (unsigned inx = 1; inx <= optCSECandidateCount; inx++)
+    compiler->cseLivenessTraits = new (compiler->getAllocator(CMK_CSE)) BitVecTraits(bitCount, compiler);
+    compiler->cseCallKillsMask  = BitVecOps::MakeEmpty(compiler->cseLivenessTraits);
+    for (unsigned inx = 1; inx <= compiler->optCSECandidateCount; inx++)
     {
         unsigned cseAvailBit = getCSEAvailBit(inx);
 
         // a one preserves availability and a zero kills the availability
         // we generate this kind of bit pattern:  101010101010
         //
-        BitVecOps::AddElemD(cseLivenessTraits, cseCallKillsMask, cseAvailBit);
+        BitVecOps::AddElemD(compiler->cseLivenessTraits, compiler->cseCallKillsMask, cseAvailBit);
     }
 
-    for (BasicBlock* const block : Blocks())
+    for (BasicBlock* const block : compiler->Blocks())
     {
         /* Initialize the blocks's bbCseIn set */
 
         bool init_to_zero = false;
 
-        if (block == fgFirstBB)
+        if (block == compiler->fgFirstBB)
         {
             /* Clear bbCseIn for the entry block */
             init_to_zero = true;
@@ -1101,7 +1122,7 @@ void Compiler::optValnumCSE_InitDataFlow()
 #if !CSE_INTO_HANDLERS
         else
         {
-            if (bbIsHandlerBeg(block))
+            if (compiler->bbIsHandlerBeg(block))
             {
                 /* Clear everything on entry to filters or handlers */
                 init_to_zero = true;
@@ -1111,26 +1132,26 @@ void Compiler::optValnumCSE_InitDataFlow()
         if (init_to_zero)
         {
             /* Initialize to {ZERO} prior to dataflow */
-            block->bbCseIn = BitVecOps::MakeEmpty(cseLivenessTraits);
+            block->bbCseIn = BitVecOps::MakeEmpty(compiler->cseLivenessTraits);
         }
         else
         {
             /* Initialize to {ALL} prior to dataflow */
-            block->bbCseIn = BitVecOps::MakeFull(cseLivenessTraits);
+            block->bbCseIn = BitVecOps::MakeFull(compiler->cseLivenessTraits);
         }
 
-        block->bbCseOut = BitVecOps::MakeFull(cseLivenessTraits);
+        block->bbCseOut = BitVecOps::MakeFull(compiler->cseLivenessTraits);
 
         /* Initialize to {ZERO} prior to locating the CSE candidates */
-        block->bbCseGen = BitVecOps::MakeEmpty(cseLivenessTraits);
+        block->bbCseGen = BitVecOps::MakeEmpty(compiler->cseLivenessTraits);
     }
 
     // We walk the set of CSE candidates and set the bit corresponding to the CSEindex
     // in the block's bbCseGen bitset
     //
-    for (unsigned inx = 0; inx < optCSECandidateCount; inx++)
+    for (unsigned inx = 0; inx < compiler->optCSECandidateCount; inx++)
     {
-        CSEdsc*      dsc      = optCSEtab[inx];
+        CSEdsc*      dsc      = compiler->optCSEtab[inx];
         unsigned     CSEindex = dsc->csdIndex;
         treeStmtLst* lst      = dsc->csdTreeList;
         noway_assert(lst);
@@ -1147,16 +1168,16 @@ void Compiler::optValnumCSE_InitDataFlow()
             // If we have a call in this block then in the loop below we walk the trees
             // backwards to find any CSEs that are generated after the last call in the block.
             //
-            BitVecOps::AddElemD(cseLivenessTraits, block->bbCseGen, cseAvailBit);
+            BitVecOps::AddElemD(compiler->cseLivenessTraits, block->bbCseGen, cseAvailBit);
             if ((block->bbFlags & BBF_HAS_CALL) == 0)
             {
-                BitVecOps::AddElemD(cseLivenessTraits, block->bbCseGen, cseAvailCrossCallBit);
+                BitVecOps::AddElemD(compiler->cseLivenessTraits, block->bbCseGen, cseAvailCrossCallBit);
             }
             lst = lst->tslNext;
         }
     }
 
-    for (BasicBlock* const block : Blocks())
+    for (BasicBlock* const block : compiler->Blocks())
     {
         // If the block doesn't contains a call then skip it...
         //
@@ -1167,7 +1188,7 @@ void Compiler::optValnumCSE_InitDataFlow()
 
         // We only need to examine blocks that generate CSEs
         //
-        if (BitVecOps::IsEmpty(cseLivenessTraits, block->bbCseGen))
+        if (BitVecOps::IsEmpty(compiler->cseLivenessTraits, block->bbCseGen))
         {
             continue;
         }
@@ -1192,7 +1213,7 @@ void Compiler::optValnumCSE_InitDataFlow()
                 {
                     unsigned CSEnum               = GET_CSE_INDEX(tree->gtCSEnum);
                     unsigned cseAvailCrossCallBit = getCSEAvailCrossCallBit(CSEnum);
-                    BitVecOps::AddElemD(cseLivenessTraits, block->bbCseGen, cseAvailCrossCallBit);
+                    BitVecOps::AddElemD(compiler->cseLivenessTraits, block->bbCseGen, cseAvailCrossCallBit);
                 }
                 if (tree->OperGet() == GT_CALL)
                 {
@@ -1215,12 +1236,12 @@ void Compiler::optValnumCSE_InitDataFlow()
 #ifdef DEBUG
     // Dump out the bbCseGen information that we just created
     //
-    if (verbose)
+    if (compiler->verbose)
     {
         bool headerPrinted = false;
-        for (BasicBlock* const block : Blocks())
+        for (BasicBlock* const block : compiler->Blocks())
         {
-            if (!BitVecOps::IsEmpty(cseLivenessTraits, block->bbCseGen))
+            if (!BitVecOps::IsEmpty(compiler->cseLivenessTraits, block->bbCseGen))
             {
                 if (!headerPrinted)
                 {
@@ -1228,13 +1249,13 @@ void Compiler::optValnumCSE_InitDataFlow()
                     headerPrinted = true;
                 }
                 printf(FMT_BB " cseGen = ", block->bbNum);
-                optPrintCSEDataFlowSet(block->bbCseGen);
+                compiler->optPrintCSEDataFlowSet(block->bbCseGen);
                 printf("\n");
             }
         }
     }
 
-    fgDebugCheckLinks();
+    compiler->fgDebugCheckLinks();
 
 #endif // DEBUG
 }
@@ -1393,31 +1414,31 @@ public:
  *      bbCseOut  - Computed CSEs that are available at exit to the block
  */
 
-void Compiler::optValnumCSE_DataFlow()
+void Cse::optValnumCSE_DataFlow()
 {
 
 #ifdef DEBUG
-    if (verbose)
+    if (compiler->verbose)
     {
         printf("\nPerforming DataFlow for ValnumCSE's\n");
     }
 #endif // DEBUG
 
-    ForwardDataFlow(CSE_DataFlow(this), this);
+    ForwardDataFlow(CSE_DataFlow(compiler), compiler);
 
 #ifdef DEBUG
-    if (verbose)
+    if (compiler->verbose)
     {
         printf("\nAfter performing DataFlow for ValnumCSE's\n");
 
-        for (BasicBlock* const block : Blocks())
+        for (BasicBlock* const block : compiler->Blocks())
         {
             printf(FMT_BB " in gen out\n", block->bbNum);
-            optPrintCSEDataFlowSet(block->bbCseIn);
+            compiler->optPrintCSEDataFlowSet(block->bbCseIn);
             printf("\n");
-            optPrintCSEDataFlowSet(block->bbCseGen);
+            compiler->optPrintCSEDataFlowSet(block->bbCseGen);
             printf("\n");
-            optPrintCSEDataFlowSet(block->bbCseOut);
+            compiler->optPrintCSEDataFlowSet(block->bbCseOut);
             printf("\n");
         }
 
@@ -1460,25 +1481,25 @@ void Compiler::optValnumCSE_DataFlow()
 //             e1 = (m.a + q.b)  :: e1 and e2 have different exception sets.
 //             e2 = (p.a + q.b)     but both compute the same normal value
 //
-void Compiler::optValnumCSE_Availablity()
+void Cse::optValnumCSE_Availablity()
 {
 #ifdef DEBUG
-    if (verbose)
+    if (compiler->verbose)
     {
         printf("Labeling the CSEs with Use/Def information\n");
     }
 #endif
-    EXPSET_TP available_cses = BitVecOps::MakeEmpty(cseLivenessTraits);
+    EXPSET_TP available_cses = BitVecOps::MakeEmpty(compiler->cseLivenessTraits);
 
-    for (BasicBlock* const block : Blocks())
+    for (BasicBlock* const block : compiler->Blocks())
     {
         // Make the block publicly available
 
-        compCurBB = block;
+        compiler->compCurBB = block;
 
         // Retrieve the available CSE's at the start of this block
 
-        BitVecOps::Assign(cseLivenessTraits, available_cses, block->bbCseIn);
+        BitVecOps::Assign(compiler->cseLivenessTraits, available_cses, block->bbCseIn);
 
         // Walk the statement trees in this basic block
 
@@ -1496,10 +1517,10 @@ void Compiler::optValnumCSE_Availablity()
                     unsigned             CSEnum               = GET_CSE_INDEX(tree->gtCSEnum);
                     unsigned             cseAvailBit          = getCSEAvailBit(CSEnum);
                     unsigned             cseAvailCrossCallBit = getCSEAvailCrossCallBit(CSEnum);
-                    CSEdsc*              desc                 = optCSEfindDsc(CSEnum);
-                    BasicBlock::weight_t stmw                 = block->getBBWeight(this);
+                    CSEdsc*              desc                 = compiler->optCSEfindDsc(CSEnum);
+                    BasicBlock::weight_t stmw                 = block->getBBWeight(compiler);
 
-                    isUse = BitVecOps::IsMember(cseLivenessTraits, available_cses, cseAvailBit);
+                    isUse = BitVecOps::IsMember(compiler->cseLivenessTraits, available_cses, cseAvailBit);
                     isDef = !isUse; // If is isn't a CSE use, it is a CSE def
 
                     // Is this a "use", that we haven't yet marked as live across a call
@@ -1508,7 +1529,7 @@ void Compiler::optValnumCSE_Availablity()
                     //
                     bool madeLiveAcrossCall = false;
                     if (isUse && !desc->csdLiveAcrossCall &&
-                        !BitVecOps::IsMember(cseLivenessTraits, available_cses, cseAvailCrossCallBit))
+                        !BitVecOps::IsMember(compiler->cseLivenessTraits, available_cses, cseAvailCrossCallBit))
                     {
                         desc->csdLiveAcrossCall = true;
                         madeLiveAcrossCall      = true;
@@ -1521,13 +1542,13 @@ void Compiler::optValnumCSE_Availablity()
                     //
                     if (isDef)
                     {
-                        assert(!BitVecOps::IsMember(cseLivenessTraits, available_cses, cseAvailCrossCallBit));
+                        assert(!BitVecOps::IsMember(compiler->cseLivenessTraits, available_cses, cseAvailCrossCallBit));
                     }
 
-                    if (verbose)
+                    if (compiler->verbose)
                     {
                         printf(FMT_BB " ", block->bbNum);
-                        printTreeID(tree);
+                        Compiler::printTreeID(tree);
 
                         printf(" %s of " FMT_CSE " [weight=%s]%s\n", isUse ? "Use" : "Def", CSEnum, refCntWtd2str(stmw),
                                madeLiveAcrossCall ? " *** Now Live Across Call ***" : "");
@@ -1587,18 +1608,18 @@ void Compiler::optValnumCSE_Availablity()
                                     ValueNum intersectionExcSet =
                                         vnStore->VNExcSetIntersection(desc->defExcSetCurrent, theLiberalExcSet);
 #ifdef DEBUG
-                                    if (this->verbose)
+                                    if (compiler->verbose)
                                     {
                                         VNFuncApp excSeq;
 
                                         vnStore->GetVNFunc(desc->defExcSetCurrent, &excSeq);
                                         printf(">>> defExcSetCurrent is ");
-                                        vnStore->vnDumpExcSeq(this, &excSeq, true);
+                                        vnStore->vnDumpExcSeq(compiler, &excSeq, true);
                                         printf("\n");
 
                                         vnStore->GetVNFunc(theLiberalExcSet, &excSeq);
                                         printf(">>> theLiberalExcSet is ");
-                                        vnStore->vnDumpExcSeq(this, &excSeq, true);
+                                        vnStore->vnDumpExcSeq(compiler, &excSeq, true);
                                         printf("\n");
 
                                         if (intersectionExcSet == vnStore->VNForEmptyExcSet())
@@ -1609,7 +1630,7 @@ void Compiler::optValnumCSE_Availablity()
                                         {
                                             vnStore->GetVNFunc(intersectionExcSet, &excSeq);
                                             printf(">>> the intersectionExcSet is ");
-                                            vnStore->vnDumpExcSeq(this, &excSeq, true);
+                                            vnStore->vnDumpExcSeq(compiler, &excSeq, true);
                                             printf("\n");
                                         }
                                     }
@@ -1672,8 +1693,8 @@ void Compiler::optValnumCSE_Availablity()
                         tree->gtCSEnum = TO_CSE_DEF(tree->gtCSEnum);
 
                         // This CSE becomes available after this def
-                        BitVecOps::AddElemD(cseLivenessTraits, available_cses, cseAvailBit);
-                        BitVecOps::AddElemD(cseLivenessTraits, available_cses, cseAvailCrossCallBit);
+                        BitVecOps::AddElemD(compiler->cseLivenessTraits, available_cses, cseAvailBit);
+                        BitVecOps::AddElemD(compiler->cseLivenessTraits, available_cses, cseAvailCrossCallBit);
                     }
                     else // We are visiting a CSE use
                     {
@@ -1750,7 +1771,7 @@ void Compiler::optValnumCSE_Availablity()
                     // Check for the common case of an already empty available_cses set
                     // and thus nothing needs to be killed
                     //
-                    if (!(BitVecOps::IsEmpty(cseLivenessTraits, available_cses)))
+                    if (!(BitVecOps::IsEmpty(compiler->cseLivenessTraits, available_cses)))
                     {
                         if (isUse)
                         {
@@ -1761,7 +1782,8 @@ void Compiler::optValnumCSE_Availablity()
                         {
                             // partially kill any cse's that are currently alive (using the cseCallKillsMask set)
                             //
-                            BitVecOps::IntersectionD(cseLivenessTraits, available_cses, cseCallKillsMask);
+                            BitVecOps::IntersectionD(compiler->cseLivenessTraits, available_cses,
+                                                     compiler->cseCallKillsMask);
 
                             if (isDef)
                             {
@@ -1775,7 +1797,7 @@ void Compiler::optValnumCSE_Availablity()
                                 unsigned CSEnum               = GET_CSE_INDEX(tree->gtCSEnum);
                                 unsigned cseAvailCrossCallBit = getCSEAvailCrossCallBit(CSEnum);
 
-                                BitVecOps::AddElemD(cseLivenessTraits, available_cses, cseAvailCrossCallBit);
+                                BitVecOps::AddElemD(compiler->cseLivenessTraits, available_cses, cseAvailCrossCallBit);
                             }
                         }
                     }
@@ -3472,18 +3494,18 @@ public:
  *  Routine for performing the Value Number based CSE using our heuristics
  */
 
-void Compiler::optValnumCSE_Heuristic()
+void Cse::optValnumCSE_Heuristic()
 {
 #ifdef DEBUG
-    if (verbose)
+    if (compiler->verbose)
     {
         printf("\n************ Trees at start of optValnumCSE_Heuristic()\n");
-        fgDumpTrees(fgFirstBB, nullptr);
+        compiler->fgDumpTrees(compiler->fgFirstBB, nullptr);
         printf("\n");
     }
 #endif // DEBUG
 
-    CSE_Heuristic cse_heuristic(this);
+    CSE_Heuristic cse_heuristic(compiler);
 
     cse_heuristic.Initialize();
     cse_heuristic.SortCandidates();
@@ -3507,14 +3529,16 @@ void Compiler::optOptimizeValnumCSEs()
 
     optValnumCSE_phase = true;
 
-    optValnumCSE_Init();
+    Cse cse(this);
 
-    if (optValnumCSE_Locate())
+    cse.optValnumCSE_Init();
+
+    if (cse.optValnumCSE_Locate())
     {
-        optValnumCSE_InitDataFlow();
-        optValnumCSE_DataFlow();
-        optValnumCSE_Availablity();
-        optValnumCSE_Heuristic();
+        cse.optValnumCSE_InitDataFlow();
+        cse.optValnumCSE_DataFlow();
+        cse.optValnumCSE_Availablity();
+        cse.optValnumCSE_Heuristic();
     }
 
     optValnumCSE_phase = false;
