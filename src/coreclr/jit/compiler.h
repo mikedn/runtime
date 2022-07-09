@@ -5430,8 +5430,6 @@ public:
     //
     BitVecTraits* cseLivenessTraits;
 
-    void optPrintCSEDataFlowSet(EXPSET_VALARG_TP cseDataFlowSet, bool includeBits = true);
-
     EXPSET_TP cseCallKillsMask; // Computed once - A mask that is used to kill available CSEs at callsites
 
     size_t   optCSEhashSize;                 // The current size of hashtable

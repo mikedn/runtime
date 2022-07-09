@@ -172,6 +172,7 @@ public:
     void optValnumCSE_Heuristic();
     void optCSEstop();
     void optCseUpdateCheckedBoundMap(GenTree* compare);
+    void optPrintCSEDataFlowSet(EXPSET_VALARG_TP cseDataFlowSet, bool includeBits = true);
     INDEBUG(void optEnsureClearCSEInfo();)
 };
 
@@ -1259,7 +1260,7 @@ void Cse::optValnumCSE_InitDataFlow()
                     headerPrinted = true;
                 }
                 printf(FMT_BB " cseGen = ", block->bbNum);
-                compiler->optPrintCSEDataFlowSet(block->bbCseGen);
+                optPrintCSEDataFlowSet(block->bbCseGen);
                 printf("\n");
             }
         }
@@ -1444,11 +1445,11 @@ void Cse::optValnumCSE_DataFlow()
         for (BasicBlock* const block : compiler->Blocks())
         {
             printf(FMT_BB " in gen out\n", block->bbNum);
-            compiler->optPrintCSEDataFlowSet(block->bbCseIn);
+            optPrintCSEDataFlowSet(block->bbCseIn);
             printf("\n");
-            compiler->optPrintCSEDataFlowSet(block->bbCseGen);
+            optPrintCSEDataFlowSet(block->bbCseGen);
             printf("\n");
-            compiler->optPrintCSEDataFlowSet(block->bbCseOut);
+            optPrintCSEDataFlowSet(block->bbCseOut);
             printf("\n");
         }
 
@@ -3859,26 +3860,27 @@ void Cse::optEnsureClearCSEInfo()
 //    cseDataFlowSet - One of the dataflow sets to display
 //    includeBits    - Display the actual bits of the set as well
 //
-void Compiler::optPrintCSEDataFlowSet(EXPSET_VALARG_TP cseDataFlowSet, bool includeBits /* = true */)
+void Cse::optPrintCSEDataFlowSet(EXPSET_VALARG_TP cseDataFlowSet, bool includeBits /* = true */)
 {
     if (includeBits)
     {
-        printf("%s ", genES2str(cseLivenessTraits, cseDataFlowSet));
+        printf("%s ", genES2str(compiler->cseLivenessTraits, cseDataFlowSet));
     }
 
     bool first = true;
-    for (unsigned cseIndex = 1; cseIndex <= optCSECandidateCount; cseIndex++)
+    for (unsigned cseIndex = 1; cseIndex <= compiler->optCSECandidateCount; cseIndex++)
     {
         unsigned cseAvailBit          = getCSEAvailBit(cseIndex);
         unsigned cseAvailCrossCallBit = getCSEAvailCrossCallBit(cseIndex);
 
-        if (BitVecOps::IsMember(cseLivenessTraits, cseDataFlowSet, cseAvailBit))
+        if (BitVecOps::IsMember(compiler->cseLivenessTraits, cseDataFlowSet, cseAvailBit))
         {
             if (!first)
             {
                 printf(", ");
             }
-            const bool isAvailCrossCall = BitVecOps::IsMember(cseLivenessTraits, cseDataFlowSet, cseAvailCrossCallBit);
+            const bool isAvailCrossCall =
+                BitVecOps::IsMember(compiler->cseLivenessTraits, cseDataFlowSet, cseAvailCrossCallBit);
             printf(FMT_CSE "%s", cseIndex, isAvailCrossCall ? ".c" : "");
             first = false;
         }
