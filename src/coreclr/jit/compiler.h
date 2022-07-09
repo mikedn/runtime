@@ -5413,10 +5413,6 @@ protected:
 public:
     static const int MIN_CSE_COST = 2;
 
-    // BitVec trait information only used by the optCSE_canSwap() method, for the  CSE_defMask and CSE_useMask.
-    // This BitVec uses one bit per CSE candidate
-    BitVecTraits* cseMaskTraits; // one bit per CSE candidate
-
     // BitVec trait information for computing CSE availability using the CSE_DataFlow algorithm.
     // Two bits are allocated per CSE candidate to compute CSE availability
     // plus an extra bit to handle the initial unvisited case.

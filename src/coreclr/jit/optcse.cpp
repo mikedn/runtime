@@ -326,8 +326,13 @@ bool Compiler::optUnmarkCSE(GenTree* tree)
 // user defined callback data for the tree walk function optCSE_MaskHelper()
 struct optCSE_MaskData
 {
-    EXPSET_TP CSE_defMask;
-    EXPSET_TP CSE_useMask;
+    BitVecTraits cseMaskTraits;
+    EXPSET_TP    CSE_defMask;
+    EXPSET_TP    CSE_useMask;
+
+    optCSE_MaskData(Compiler* compiler) : cseMaskTraits(compiler->optCSECandidateCount, compiler)
+    {
+    }
 };
 
 Compiler::fgWalkResult optCSE_MaskHelper(GenTree** pTree, Compiler::fgWalkData* walkData)
@@ -343,11 +348,11 @@ Compiler::fgWalkResult optCSE_MaskHelper(GenTree** pTree, Compiler::fgWalkData* 
         unsigned cseBit = genCSEnum2bit(cseIndex);
         if (IsCseDef(tree->gtCSEnum))
         {
-            BitVecOps::AddElemD(comp->cseMaskTraits, pUserData->CSE_defMask, cseBit);
+            BitVecOps::AddElemD(&pUserData->cseMaskTraits, pUserData->CSE_defMask, cseBit);
         }
         else
         {
-            BitVecOps::AddElemD(comp->cseMaskTraits, pUserData->CSE_useMask, cseBit);
+            BitVecOps::AddElemD(&pUserData->cseMaskTraits, pUserData->CSE_useMask, cseBit);
         }
     }
 
@@ -359,8 +364,8 @@ Compiler::fgWalkResult optCSE_MaskHelper(GenTree** pTree, Compiler::fgWalkData* 
 //
 void Compiler::optCSE_GetMaskData(GenTree* tree, optCSE_MaskData* pMaskData)
 {
-    pMaskData->CSE_defMask = BitVecOps::MakeEmpty(cseMaskTraits);
-    pMaskData->CSE_useMask = BitVecOps::MakeEmpty(cseMaskTraits);
+    pMaskData->CSE_defMask = BitVecOps::MakeEmpty(&pMaskData->cseMaskTraits);
+    pMaskData->CSE_useMask = BitVecOps::MakeEmpty(&pMaskData->cseMaskTraits);
     fgWalkTreePre(&tree, optCSE_MaskHelper, (void*)pMaskData);
 }
 
@@ -386,27 +391,22 @@ bool Compiler::optCSE_canSwap(GenTree* op1, GenTree* op2)
 
     bool canSwap = true; // the default result unless proven otherwise.
 
-    // If we haven't setup cseMaskTraits, do it now
-    if (cseMaskTraits == nullptr)
-    {
-        cseMaskTraits = new (getAllocator(CMK_CSE)) BitVecTraits(optCSECandidateCount, this);
-    }
-
-    optCSE_MaskData op1MaskData;
-    optCSE_MaskData op2MaskData;
+    optCSE_MaskData op1MaskData(this);
+    optCSE_MaskData op2MaskData(this);
 
     optCSE_GetMaskData(op1, &op1MaskData);
     optCSE_GetMaskData(op2, &op2MaskData);
 
     // We cannot swap if op1 contains a CSE def that is used by op2
-    if (!BitVecOps::IsEmptyIntersection(cseMaskTraits, op1MaskData.CSE_defMask, op2MaskData.CSE_useMask))
+    if (!BitVecOps::IsEmptyIntersection(&op1MaskData.cseMaskTraits, op1MaskData.CSE_defMask, op2MaskData.CSE_useMask))
     {
         canSwap = false;
     }
     else
     {
         // We also cannot swap if op2 contains a CSE def that is used by op1.
-        if (!BitVecOps::IsEmptyIntersection(cseMaskTraits, op2MaskData.CSE_defMask, op1MaskData.CSE_useMask))
+        if (!BitVecOps::IsEmptyIntersection(&op1MaskData.cseMaskTraits, op2MaskData.CSE_defMask,
+                                            op1MaskData.CSE_useMask))
         {
             canSwap = false;
         }
@@ -506,9 +506,6 @@ void Cse::optValnumCSE_Init()
 
     // This gets set in optValnumCSE_InitDataFlow
     compiler->cseLivenessTraits = nullptr;
-
-    // Initialize when used by optCSE_canSwap()
-    compiler->cseMaskTraits = nullptr;
 
     // Allocate and clear the hash bucket table
     compiler->optCSEhash = new (compiler, CMK_CSE) CSEdsc*[s_optCSEhashSizeInitial]();
