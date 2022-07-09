@@ -292,7 +292,7 @@ struct optCSE_MaskData
     EXPSET_TP CSE_useMask;
 };
 
-Compiler::fgWalkResult Compiler::optCSE_MaskHelper(GenTree** pTree, fgWalkData* walkData)
+Compiler::fgWalkResult optCSE_MaskHelper(GenTree** pTree, Compiler::fgWalkData* walkData)
 {
     GenTree*         tree      = *pTree;
     Compiler*        comp      = walkData->compiler;
@@ -313,7 +313,7 @@ Compiler::fgWalkResult Compiler::optCSE_MaskHelper(GenTree** pTree, fgWalkData* 
         }
     }
 
-    return WALK_CONTINUE;
+    return Compiler::WALK_CONTINUE;
 }
 
 // This functions walks all the node for an given tree

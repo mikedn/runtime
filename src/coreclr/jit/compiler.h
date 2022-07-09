@@ -5453,9 +5453,6 @@ public:
     CSEdsc* optCSEfindDsc(unsigned index);
     bool optUnmarkCSE(GenTree* tree);
 
-    // Treewalk helper for optCSE_DefMask and optCSE_UseMask
-    static fgWalkPreFn optCSE_MaskHelper;
-
     // This function walks all the node for an given tree
     // and return the mask of CSE definitions and uses for the tree
     //
