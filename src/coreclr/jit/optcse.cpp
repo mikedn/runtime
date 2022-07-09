@@ -97,6 +97,35 @@ constexpr size_t s_optCSEhashSizeInitial  = EXPSET_SZ * 2;
 constexpr size_t s_optCSEhashGrowthFactor = 2;
 constexpr size_t s_optCSEhashBucketSize   = 4;
 
+//-----------------------------------------------------------------------------------------------------------------
+// getCSEnum2bit: Return the normalized index to use in the EXPSET_TP for the CSE with the given CSE index.
+// Each GenTree has a `gtCSEnum` field. Zero is reserved to mean this node is not a CSE, positive values indicate
+// CSE uses, and negative values indicate CSE defs. The caller must pass a non-zero positive value, as from
+// GET_CSE_INDEX().
+//
+static unsigned genCSEnum2bit(unsigned CSEnum)
+{
+    assert((CSEnum > 0) && (CSEnum <= Compiler::MAX_CSE_CNT));
+    return CSEnum - 1;
+}
+
+//-----------------------------------------------------------------------------------------------------------------
+// getCSEAvailBit: Return the bit used by CSE dataflow sets (bbCseGen, etc.) for the availability bit for a CSE.
+//
+static unsigned getCSEAvailBit(unsigned CSEnum)
+{
+    return genCSEnum2bit(CSEnum) * 2;
+}
+
+//-----------------------------------------------------------------------------------------------------------------
+// getCSEAvailCrossCallBit: Return the bit used by CSE dataflow sets (bbCseGen, etc.) for the availability bit
+// for a CSE considering calls as killing availability bit (see description above).
+//
+static unsigned getCSEAvailCrossCallBit(unsigned CSEnum)
+{
+    return getCSEAvailBit(CSEnum) + 1;
+}
+
 static bool Is_Shared_Const_CSE(size_t key)
 {
     return ((key & TARGET_SIGN_BIT) != 0);
