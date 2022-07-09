@@ -93,10 +93,9 @@ struct CSEdsc
     }
 };
 
-/* static */
-const size_t Compiler::s_optCSEhashSizeInitial  = EXPSET_SZ * 2;
-const size_t Compiler::s_optCSEhashGrowthFactor = 2;
-const size_t Compiler::s_optCSEhashBucketSize   = 4;
+constexpr size_t s_optCSEhashSizeInitial  = EXPSET_SZ * 2;
+constexpr size_t s_optCSEhashGrowthFactor = 2;
+constexpr size_t s_optCSEhashBucketSize   = 4;
 
 static bool Is_Shared_Const_CSE(size_t key)
 {

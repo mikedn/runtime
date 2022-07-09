@@ -5467,14 +5467,11 @@ protected:
 
     EXPSET_TP cseCallKillsMask; // Computed once - A mask that is used to kill available CSEs at callsites
 
-    static const size_t s_optCSEhashSizeInitial;
-    static const size_t s_optCSEhashGrowthFactor;
-    static const size_t s_optCSEhashBucketSize;
-    size_t              optCSEhashSize;                 // The current size of hashtable
-    size_t              optCSEhashCount;                // Number of entries in hashtable
-    size_t              optCSEhashMaxCountBeforeResize; // Number of entries before resize
-    CSEdsc**            optCSEhash;
-    CSEdsc**            optCSEtab;
+    size_t   optCSEhashSize;                 // The current size of hashtable
+    size_t   optCSEhashCount;                // Number of entries in hashtable
+    size_t   optCSEhashMaxCountBeforeResize; // Number of entries before resize
+    CSEdsc** optCSEhash;
+    CSEdsc** optCSEtab;
 
     typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, GenTree*> NodeToNodeMap;
 
