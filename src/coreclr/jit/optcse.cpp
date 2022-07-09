@@ -98,6 +98,24 @@ const size_t Compiler::s_optCSEhashSizeInitial  = EXPSET_SZ * 2;
 const size_t Compiler::s_optCSEhashGrowthFactor = 2;
 const size_t Compiler::s_optCSEhashBucketSize   = 4;
 
+static bool Is_Shared_Const_CSE(size_t key)
+{
+    return ((key & TARGET_SIGN_BIT) != 0);
+}
+
+// returns the encoded key
+static size_t Encode_Shared_Const_CSE_Value(size_t key)
+{
+    return TARGET_SIGN_BIT | (key >> CSE_CONST_SHARED_LOW_BITS);
+}
+
+// returns the orginal key
+static size_t Decode_Shared_Const_CSE_Value(size_t enckey)
+{
+    assert(Is_Shared_Const_CSE(enckey));
+    return (enckey & ~TARGET_SIGN_BIT) << CSE_CONST_SHARED_LOW_BITS;
+}
+
 /*****************************************************************************
  *
  *  We've found all the candidates, build the index for easy access.
@@ -744,13 +762,13 @@ unsigned Compiler::optValnumCSE_Index(GenTree* tree, Statement* stmt)
         if (verbose)
         {
             printf("\nCSE candidate #%02u, key=", CSEindex);
-            if (!Compiler::Is_Shared_Const_CSE(key))
+            if (!Is_Shared_Const_CSE(key))
             {
                 vnPrint((unsigned)key, 0);
             }
             else
             {
-                size_t kVal = Compiler::Decode_Shared_Const_CSE_Value(key);
+                size_t kVal = Decode_Shared_Const_CSE_Value(key);
                 printf("K_%p", dspPtr(kVal));
             }
 
@@ -2052,7 +2070,7 @@ public:
                     cost = dsc->csdTree->GetCostEx();
                 }
 
-                if (!Compiler::Is_Shared_Const_CSE(dsc->csdHashKey))
+                if (!Is_Shared_Const_CSE(dsc->csdHashKey))
                 {
                     printf(FMT_CSE ", {$%-3x, $%-3x} useCnt=%d: [def=%3f, use=%3f, cost=%3u%s]\n        :: ",
                            dsc->csdIndex, dsc->csdHashKey, dsc->defExcSetPromise, dsc->csdUseCount, def, use, cost,
@@ -2060,7 +2078,7 @@ public:
                 }
                 else
                 {
-                    size_t kVal = Compiler::Decode_Shared_Const_CSE_Value(dsc->csdHashKey);
+                    size_t kVal = Decode_Shared_Const_CSE_Value(dsc->csdHashKey);
                     printf(FMT_CSE ", {K_%p} useCnt=%d: [def=%3f, use=%3f, cost=%3u%s]\n        :: ", dsc->csdIndex,
                            dspPtr(kVal), dsc->csdUseCount, def, use, cost,
                            dsc->csdLiveAcrossCall ? ", call" : "      ");
@@ -3348,7 +3366,7 @@ public:
 #ifdef DEBUG
             if (m_pCompiler->verbose)
             {
-                if (!Compiler::Is_Shared_Const_CSE(dsc->csdHashKey))
+                if (!Is_Shared_Const_CSE(dsc->csdHashKey))
                 {
                     printf("\nConsidering " FMT_CSE " {$%-3x, $%-3x} [def=%3f, use=%3f, cost=%3u%s]\n",
                            candidate.CseIndex(), dsc->csdHashKey, dsc->defExcSetPromise, candidate.DefCount(),
@@ -3356,7 +3374,7 @@ public:
                 }
                 else
                 {
-                    size_t kVal = Compiler::Decode_Shared_Const_CSE_Value(dsc->csdHashKey);
+                    size_t kVal = Decode_Shared_Const_CSE_Value(dsc->csdHashKey);
                     printf("\nConsidering " FMT_CSE " {K_%p} [def=%3f, use=%3f, cost=%3u%s]\n", candidate.CseIndex(),
                            dspPtr(kVal), candidate.DefCount(), candidate.UseCount(), candidate.Cost(),
                            dsc->csdLiveAcrossCall ? ", call" : "      ");
