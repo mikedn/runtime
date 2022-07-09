@@ -450,6 +450,9 @@ private:
         Statement* indirStatement         = currentStatement;
         GenTree*   nullCheckStatementRoot = nullCheck;
 
+        // TODO-MIKE-Review: Could we simply remove null checks from the map as we traverse
+        // the block and entirely avoid this intereference check?
+
         for (GenTree* node = nullCheck->gtNext; node != nullptr; node = node->gtNext)
         {
             if (node == indir)
@@ -508,6 +511,8 @@ private:
             return false;
         }
 
+        // TODO-MIKE-Review: Perhaps we can move a null check past another null check,
+        // they should always throw NullReferenceException.
         if (((node->gtFlags & GTF_EXCEPT) != 0) && node->OperMayThrow(compiler))
         {
             return false;
