@@ -455,6 +455,8 @@ class Cse
 
     EXPSET_TP callKillsMask; // Computed once - A mask that is used to kill available CSEs at callsites
 
+    bool doCSE; // True when we have found a duplicate CSE tree
+
 public:
     Cse(Compiler* compiler) : compiler(compiler), vnStore(compiler->vnStore)
     {
@@ -616,7 +618,7 @@ void Cse::Init()
     hashCount                = 0;
 
     compiler->optCSECandidateCount = 0;
-    compiler->optDoCSE             = false; // Stays false until we find duplicate CSE tree
+    doCSE                          = false; // Stays false until we find duplicate CSE tree
 
     // optCseCheckedBoundMap is unused in most functions, allocated only when used
     compiler->optCseCheckedBoundMap = nullptr;
@@ -814,7 +816,7 @@ unsigned Cse::Index(GenTree* tree, Statement* stmt)
             hashDsc->treeLast->next = occurrence;
             hashDsc->treeLast       = occurrence;
 
-            compiler->optDoCSE = true; // Found a duplicate CSE tree
+            doCSE = true; // Found a duplicate CSE tree
 
             if (hashDsc->index == 0)
             {
@@ -1057,7 +1059,7 @@ bool Cse::Locate()
 
     /* We're done if there were no interesting expressions */
 
-    if (!compiler->optDoCSE)
+    if (!doCSE)
     {
         return false;
     }
