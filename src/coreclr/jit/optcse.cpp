@@ -488,51 +488,47 @@ public:
     void DataFlow();
     void Availablity();
     void Heuristic();
-    void Stop();
+    void BuildCseTable();
     void UpdateCheckedBoundMap(GenTree* compare);
     void DumpDataFlowSet(EXPSET_VALARG_TP set, bool includeBits = true);
     INDEBUG(void EnsureClearCseNum();)
 };
 
-/*****************************************************************************
- *
- *  We've found all the candidates, build the index for easy access.
- */
-
-void Cse::Stop()
+void Cse::BuildCseTable()
 {
-    if (compiler->cseCandidateCount == 0)
+    unsigned candidateCount = compiler->cseCandidateCount;
+
+    if (candidateCount == 0)
     {
         return;
     }
 
-    CseDesc*  dsc;
-    CseDesc** ptr;
-    size_t    cnt;
+    CseDesc** table = new (compiler, CMK_CSE) CseDesc*[candidateCount]();
 
-    compiler->cseTable = new (compiler, CMK_CSE) CseDesc*[compiler->cseCandidateCount]();
-
-    for (cnt = hashSize, ptr = hashBuckets; cnt; cnt--, ptr++)
+    for (size_t i = 0; i != hashSize; i++)
     {
-        for (dsc = *ptr; dsc; dsc = dsc->nextInBucket)
+        for (CseDesc* desc = hashBuckets[i]; desc != nullptr; desc = desc->nextInBucket)
         {
-            if (dsc->index)
+            if (desc->index != 0)
             {
-                noway_assert((unsigned)dsc->index <= compiler->cseCandidateCount);
-                if (compiler->cseTable[dsc->index - 1] == nullptr)
+                noway_assert(desc->index <= candidateCount);
+
+                if (table[desc->index - 1] == nullptr)
                 {
-                    compiler->cseTable[dsc->index - 1] = dsc;
+                    table[desc->index - 1] = desc;
                 }
             }
         }
     }
 
 #ifdef DEBUG
-    for (cnt = 0; cnt < compiler->cseCandidateCount; cnt++)
+    for (unsigned i = 0; i < candidateCount; i++)
     {
-        noway_assert(compiler->cseTable[cnt] != nullptr);
+        noway_assert(table[i] != nullptr);
     }
 #endif
+
+    compiler->cseTable = table;
 }
 
 /*****************************************************************************
@@ -1051,9 +1047,7 @@ bool Cse::Locate()
         return false;
     }
 
-    /* We're finished building the expression lookup table */
-
-    Stop();
+    BuildCseTable();
 
     return true;
 }
