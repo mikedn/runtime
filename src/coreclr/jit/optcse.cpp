@@ -431,12 +431,29 @@ static size_t Decode_Shared_Const_CSE_Value(size_t enckey)
 
 class Cse
 {
+    friend class CseDataFlow;
+
     Compiler*      compiler;
     ValueNumStore* vnStore;
     size_t         hashSize;                 // The current size of hashtable
     size_t         hashCount;                // Number of entries in hashtable
     size_t         hashMaxCountBeforeResize; // Number of entries before resize
     CseDesc**      hashBuckets;
+
+    // BitVec trait information for computing CSE availability using the CseDataFlow algorithm.
+    // Two bits are allocated per CSE candidate to compute CSE availability
+    // plus an extra bit to handle the initial unvisited case.
+    // (See CseDataFlow::EndMerge for an explanation of why this is necessary.)
+    //
+    // The two bits per CSE candidate have the following meanings:
+    //     11 - The CSE is available, and is also available when considering calls as killing availability.
+    //     10 - The CSE is available, but is not available when considering calls as killing availability.
+    //     00 - The CSE is not available
+    //     01 - An illegal combination
+    //
+    BitVecTraits* dataFlowTraits;
+
+    EXPSET_TP callKillsMask; // Computed once - A mask that is used to kill available CSEs at callsites
 
 public:
     Cse(Compiler* compiler) : compiler(compiler), vnStore(compiler->vnStore)
@@ -589,7 +606,7 @@ void Cse::Init()
 #endif
 
     // This gets set in InitDataFlow
-    compiler->cseLivenessTraits = nullptr;
+    dataFlowTraits = nullptr;
 
     // Allocate and clear the hash bucket table
     hashBuckets = new (compiler, CMK_CSE) CseDesc*[s_optCSEhashSizeInitial]();
@@ -1174,8 +1191,8 @@ void Cse::InitDataFlow()
     const unsigned bitCount = (compiler->optCSECandidateCount * 2) + 1;
 
     // Init traits and cseCallKillsMask bitvectors.
-    compiler->cseLivenessTraits = new (compiler->getAllocator(CMK_CSE)) BitVecTraits(bitCount, compiler);
-    compiler->cseCallKillsMask  = BitVecOps::MakeEmpty(compiler->cseLivenessTraits);
+    dataFlowTraits = new (compiler->getAllocator(CMK_CSE)) BitVecTraits(bitCount, compiler);
+    callKillsMask  = BitVecOps::MakeEmpty(dataFlowTraits);
     for (unsigned inx = 1; inx <= compiler->optCSECandidateCount; inx++)
     {
         unsigned cseAvailBit = getCSEAvailBit(inx);
@@ -1183,7 +1200,7 @@ void Cse::InitDataFlow()
         // a one preserves availability and a zero kills the availability
         // we generate this kind of bit pattern:  101010101010
         //
-        BitVecOps::AddElemD(compiler->cseLivenessTraits, compiler->cseCallKillsMask, cseAvailBit);
+        BitVecOps::AddElemD(dataFlowTraits, callKillsMask, cseAvailBit);
     }
 
     for (BasicBlock* const block : compiler->Blocks())
@@ -1210,18 +1227,18 @@ void Cse::InitDataFlow()
         if (init_to_zero)
         {
             /* Initialize to {ZERO} prior to dataflow */
-            block->bbCseIn = BitVecOps::MakeEmpty(compiler->cseLivenessTraits);
+            block->bbCseIn = BitVecOps::MakeEmpty(dataFlowTraits);
         }
         else
         {
             /* Initialize to {ALL} prior to dataflow */
-            block->bbCseIn = BitVecOps::MakeFull(compiler->cseLivenessTraits);
+            block->bbCseIn = BitVecOps::MakeFull(dataFlowTraits);
         }
 
-        block->bbCseOut = BitVecOps::MakeFull(compiler->cseLivenessTraits);
+        block->bbCseOut = BitVecOps::MakeFull(dataFlowTraits);
 
         /* Initialize to {ZERO} prior to locating the CSE candidates */
-        block->bbCseGen = BitVecOps::MakeEmpty(compiler->cseLivenessTraits);
+        block->bbCseGen = BitVecOps::MakeEmpty(dataFlowTraits);
     }
 
     // We walk the set of CSE candidates and set the bit corresponding to the CSEindex
@@ -1246,10 +1263,10 @@ void Cse::InitDataFlow()
             // If we have a call in this block then in the loop below we walk the trees
             // backwards to find any CSEs that are generated after the last call in the block.
             //
-            BitVecOps::AddElemD(compiler->cseLivenessTraits, block->bbCseGen, cseAvailBit);
+            BitVecOps::AddElemD(dataFlowTraits, block->bbCseGen, cseAvailBit);
             if ((block->bbFlags & BBF_HAS_CALL) == 0)
             {
-                BitVecOps::AddElemD(compiler->cseLivenessTraits, block->bbCseGen, cseAvailCrossCallBit);
+                BitVecOps::AddElemD(dataFlowTraits, block->bbCseGen, cseAvailCrossCallBit);
             }
             lst = lst->next;
         }
@@ -1266,7 +1283,7 @@ void Cse::InitDataFlow()
 
         // We only need to examine blocks that generate CSEs
         //
-        if (BitVecOps::IsEmpty(compiler->cseLivenessTraits, block->bbCseGen))
+        if (BitVecOps::IsEmpty(dataFlowTraits, block->bbCseGen))
         {
             continue;
         }
@@ -1291,7 +1308,7 @@ void Cse::InitDataFlow()
                 {
                     unsigned CSEnum               = GetCseIndex(tree->gtCSEnum);
                     unsigned cseAvailCrossCallBit = getCSEAvailCrossCallBit(CSEnum);
-                    BitVecOps::AddElemD(compiler->cseLivenessTraits, block->bbCseGen, cseAvailCrossCallBit);
+                    BitVecOps::AddElemD(dataFlowTraits, block->bbCseGen, cseAvailCrossCallBit);
                 }
                 if (tree->OperGet() == GT_CALL)
                 {
@@ -1319,7 +1336,7 @@ void Cse::InitDataFlow()
         bool headerPrinted = false;
         for (BasicBlock* const block : compiler->Blocks())
         {
-            if (!BitVecOps::IsEmpty(compiler->cseLivenessTraits, block->bbCseGen))
+            if (!BitVecOps::IsEmpty(dataFlowTraits, block->bbCseGen))
             {
                 if (!headerPrinted)
                 {
@@ -1346,10 +1363,11 @@ void Cse::InitDataFlow()
 class CseDataFlow
 {
     Compiler* m_comp;
+    Cse&      cse;
     EXPSET_TP m_preMergeOut;
 
 public:
-    CseDataFlow(Compiler* pCompiler) : m_comp(pCompiler), m_preMergeOut(BitVecOps::UninitVal())
+    CseDataFlow(Compiler* pCompiler, Cse& cse) : m_comp(pCompiler), cse(cse), m_preMergeOut(BitVecOps::UninitVal())
     {
     }
 
@@ -1360,14 +1378,14 @@ public:
         // It is used in EndMerge() to control the termination of the DataFlow algorithm.
         // Note that the first time we visit a block, the value of bbCseOut is MakeFull()
         //
-        BitVecOps::Assign(m_comp->cseLivenessTraits, m_preMergeOut, block->bbCseOut);
+        BitVecOps::Assign(cse.dataFlowTraits, m_preMergeOut, block->bbCseOut);
 
 #if 0
 #ifdef DEBUG
         if (m_comp->verbose)
         {
             printf("StartMerge " FMT_BB "\n", block->bbNum);
-            printf("  :: cseOut    = %s\n", genES2str(m_comp->cseLivenessTraits, block->bbCseOut));
+            printf("  :: cseOut    = %s\n", genES2str(cse.dataFlowTraits, block->bbCseOut));
         }
 #endif // DEBUG
 #endif // 0
@@ -1381,19 +1399,19 @@ public:
         if (m_comp->verbose)
         {
             printf("Merge " FMT_BB " and " FMT_BB "\n", block->bbNum, predBlock->bbNum);
-            printf("  :: cseIn     = %s\n", genES2str(m_comp->cseLivenessTraits, block->bbCseIn));
-            printf("  :: cseOut    = %s\n", genES2str(m_comp->cseLivenessTraits, block->bbCseOut));
+            printf("  :: cseIn     = %s\n", genES2str(cse.dataFlowTraits, block->bbCseIn));
+            printf("  :: cseOut    = %s\n", genES2str(cse.dataFlowTraits, block->bbCseOut));
         }
 #endif // DEBUG
 #endif // 0
 
-        BitVecOps::IntersectionD(m_comp->cseLivenessTraits, block->bbCseIn, predBlock->bbCseOut);
+        BitVecOps::IntersectionD(cse.dataFlowTraits, block->bbCseIn, predBlock->bbCseOut);
 
 #if 0
 #ifdef DEBUG
         if (m_comp->verbose)
         {
-            printf("  => cseIn     = %s\n", genES2str(m_comp->cseLivenessTraits, block->bbCseIn));
+            printf("  => cseIn     = %s\n", genES2str(cse.dataFlowTraits, block->bbCseIn));
         }
 #endif // DEBUG
 #endif // 0
@@ -1423,11 +1441,11 @@ public:
         // We can skip the calls kill step when our block doesn't have a callsite
         // or we don't have any available CSEs in our bbCseIn
         //
-        if (((block->bbFlags & BBF_HAS_CALL) == 0) || BitVecOps::IsEmpty(m_comp->cseLivenessTraits, block->bbCseIn))
+        if (((block->bbFlags & BBF_HAS_CALL) == 0) || BitVecOps::IsEmpty(cse.dataFlowTraits, block->bbCseIn))
         {
             // No callsite in 'block' or 'block->bbCseIn was empty, so we can use bbCseIn directly
             //
-            BitVecOps::DataFlowD(m_comp->cseLivenessTraits, block->bbCseOut, block->bbCseGen, block->bbCseIn);
+            BitVecOps::DataFlowD(cse.dataFlowTraits, block->bbCseOut, block->bbCseGen, block->bbCseIn);
         }
         else
         {
@@ -1437,12 +1455,12 @@ public:
 
             // cseIn_withCallsKill is set to (bbCseIn AND cseCallKillsMask)
             //
-            BitVecOps::Assign(m_comp->cseLivenessTraits, cseIn_withCallsKill, block->bbCseIn);
-            BitVecOps::IntersectionD(m_comp->cseLivenessTraits, cseIn_withCallsKill, m_comp->cseCallKillsMask);
+            BitVecOps::Assign(cse.dataFlowTraits, cseIn_withCallsKill, block->bbCseIn);
+            BitVecOps::IntersectionD(cse.dataFlowTraits, cseIn_withCallsKill, cse.callKillsMask);
 
             // Call DataFlowD with the modified BitVec: (bbCseIn AND cseCallKillsMask)
             //
-            BitVecOps::DataFlowD(m_comp->cseLivenessTraits, block->bbCseOut, block->bbCseGen, cseIn_withCallsKill);
+            BitVecOps::DataFlowD(cse.dataFlowTraits, block->bbCseOut, block->bbCseGen, cseIn_withCallsKill);
         }
 
         // The bool 'notDone' is our terminating condition.
@@ -1454,22 +1472,22 @@ public:
         // that we visit a block we have a bit set in m_preMergeOut that won't be set when we compute
         // the new value of bbCseOut.
         //
-        bool notDone = !BitVecOps::Equal(m_comp->cseLivenessTraits, block->bbCseOut, m_preMergeOut);
+        bool notDone = !BitVecOps::Equal(cse.dataFlowTraits, block->bbCseOut, m_preMergeOut);
 
 #if 0
 #ifdef DEBUG
         if (m_comp->verbose)
         {
             printf("EndMerge " FMT_BB "\n", block->bbNum);
-            printf("  :: cseIn     = %s\n", genES2str(m_comp->cseLivenessTraits, block->bbCseIn));
+            printf("  :: cseIn     = %s\n", genES2str(cse.dataFlowTraits, block->bbCseIn));
             if (((block->bbFlags & BBF_HAS_CALL) != 0) &&
-                !BitVecOps::IsEmpty(m_comp->cseLivenessTraits, block->bbCseIn))
+                !BitVecOps::IsEmpty(cse.dataFlowTraits, block->bbCseIn))
             {
-                printf("  -- cseKill   = %s\n", genES2str(m_comp->cseLivenessTraits, m_comp->cseCallKillsMask));
+                printf("  -- cseKill   = %s\n", genES2str(cse.dataFlowTraits, m_comp->cseCallKillsMask));
             }
-            printf("  :: cseGen    = %s\n", genES2str(m_comp->cseLivenessTraits, block->bbCseGen));
-            printf("  => cseOut    = %s\n", genES2str(m_comp->cseLivenessTraits, block->bbCseOut));
-            printf("  != preMerge  = %s, => %s\n", genES2str(m_comp->cseLivenessTraits, m_preMergeOut),
+            printf("  :: cseGen    = %s\n", genES2str(cse.dataFlowTraits, block->bbCseGen));
+            printf("  => cseOut    = %s\n", genES2str(cse.dataFlowTraits, block->bbCseOut));
+            printf("  != preMerge  = %s, => %s\n", genES2str(cse.dataFlowTraits, m_preMergeOut),
                    notDone ? "true" : "false");
         }
 #endif // DEBUG
@@ -1501,7 +1519,7 @@ void Cse::DataFlow()
     }
 #endif // DEBUG
 
-    ForwardDataFlow(CseDataFlow(compiler), compiler);
+    ForwardDataFlow(CseDataFlow(compiler, *this), compiler);
 
 #ifdef DEBUG
     if (compiler->verbose)
@@ -1566,7 +1584,7 @@ void Cse::Availablity()
         printf("Labeling the CSEs with Use/Def information\n");
     }
 #endif
-    EXPSET_TP available_cses = BitVecOps::MakeEmpty(compiler->cseLivenessTraits);
+    EXPSET_TP available_cses = BitVecOps::MakeEmpty(dataFlowTraits);
 
     for (BasicBlock* const block : compiler->Blocks())
     {
@@ -1576,7 +1594,7 @@ void Cse::Availablity()
 
         // Retrieve the available CSE's at the start of this block
 
-        BitVecOps::Assign(compiler->cseLivenessTraits, available_cses, block->bbCseIn);
+        BitVecOps::Assign(dataFlowTraits, available_cses, block->bbCseIn);
 
         // Walk the statement trees in this basic block
 
@@ -1597,7 +1615,7 @@ void Cse::Availablity()
                     CseDesc*             desc                 = compiler->cseGetDesc(CSEnum);
                     BasicBlock::weight_t stmw                 = block->getBBWeight(compiler);
 
-                    isUse = BitVecOps::IsMember(compiler->cseLivenessTraits, available_cses, cseAvailBit);
+                    isUse = BitVecOps::IsMember(dataFlowTraits, available_cses, cseAvailBit);
                     isDef = !isUse; // If is isn't a CSE use, it is a CSE def
 
                     // Is this a "use", that we haven't yet marked as live across a call
@@ -1606,7 +1624,7 @@ void Cse::Availablity()
                     //
                     bool madeLiveAcrossCall = false;
                     if (isUse && !desc->isLiveAcrossCall &&
-                        !BitVecOps::IsMember(compiler->cseLivenessTraits, available_cses, cseAvailCrossCallBit))
+                        !BitVecOps::IsMember(dataFlowTraits, available_cses, cseAvailCrossCallBit))
                     {
                         desc->isLiveAcrossCall = true;
                         madeLiveAcrossCall     = true;
@@ -1619,7 +1637,7 @@ void Cse::Availablity()
                     //
                     if (isDef)
                     {
-                        assert(!BitVecOps::IsMember(compiler->cseLivenessTraits, available_cses, cseAvailCrossCallBit));
+                        assert(!BitVecOps::IsMember(dataFlowTraits, available_cses, cseAvailCrossCallBit));
                     }
 
                     if (compiler->verbose)
@@ -1770,8 +1788,8 @@ void Cse::Availablity()
                         tree->gtCSEnum = ToCseDefIndex(tree->gtCSEnum);
 
                         // This CSE becomes available after this def
-                        BitVecOps::AddElemD(compiler->cseLivenessTraits, available_cses, cseAvailBit);
-                        BitVecOps::AddElemD(compiler->cseLivenessTraits, available_cses, cseAvailCrossCallBit);
+                        BitVecOps::AddElemD(dataFlowTraits, available_cses, cseAvailBit);
+                        BitVecOps::AddElemD(dataFlowTraits, available_cses, cseAvailCrossCallBit);
                     }
                     else // We are visiting a CSE use
                     {
@@ -1848,7 +1866,7 @@ void Cse::Availablity()
                     // Check for the common case of an already empty available_cses set
                     // and thus nothing needs to be killed
                     //
-                    if (!(BitVecOps::IsEmpty(compiler->cseLivenessTraits, available_cses)))
+                    if (!(BitVecOps::IsEmpty(dataFlowTraits, available_cses)))
                     {
                         if (isUse)
                         {
@@ -1859,8 +1877,7 @@ void Cse::Availablity()
                         {
                             // partially kill any cse's that are currently alive (using the cseCallKillsMask set)
                             //
-                            BitVecOps::IntersectionD(compiler->cseLivenessTraits, available_cses,
-                                                     compiler->cseCallKillsMask);
+                            BitVecOps::IntersectionD(dataFlowTraits, available_cses, callKillsMask);
 
                             if (isDef)
                             {
@@ -1874,7 +1891,7 @@ void Cse::Availablity()
                                 unsigned CSEnum               = GetCseIndex(tree->gtCSEnum);
                                 unsigned cseAvailCrossCallBit = getCSEAvailCrossCallBit(CSEnum);
 
-                                BitVecOps::AddElemD(compiler->cseLivenessTraits, available_cses, cseAvailCrossCallBit);
+                                BitVecOps::AddElemD(dataFlowTraits, available_cses, cseAvailCrossCallBit);
                             }
                         }
                     }
@@ -3702,7 +3719,7 @@ void Cse::DumpDataFlowSet(EXPSET_VALARG_TP set, bool includeBits)
 {
     if (includeBits)
     {
-        printf("%s ", genES2str(compiler->cseLivenessTraits, set));
+        printf("%s ", genES2str(dataFlowTraits, set));
     }
 
     bool first = true;
@@ -3711,13 +3728,13 @@ void Cse::DumpDataFlowSet(EXPSET_VALARG_TP set, bool includeBits)
         unsigned cseAvailBit          = getCSEAvailBit(cseIndex);
         unsigned cseAvailCrossCallBit = getCSEAvailCrossCallBit(cseIndex);
 
-        if (BitVecOps::IsMember(compiler->cseLivenessTraits, set, cseAvailBit))
+        if (BitVecOps::IsMember(dataFlowTraits, set, cseAvailBit))
         {
             if (!first)
             {
                 printf(", ");
             }
-            const bool isAvailCrossCall = BitVecOps::IsMember(compiler->cseLivenessTraits, set, cseAvailCrossCallBit);
+            const bool isAvailCrossCall = BitVecOps::IsMember(dataFlowTraits, set, cseAvailCrossCallBit);
             printf(FMT_CSE "%s", cseIndex, isAvailCrossCall ? ".c" : "");
             first = false;
         }
