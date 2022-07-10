@@ -5462,7 +5462,7 @@ public:
     unsigned             optCSEcount;          // The total count of CSE's introduced.
     BasicBlock::weight_t optCSEweight;         // The weight of the current block when we are doing PerformCSE
 
-    bool optIsCSEcandidate(GenTree* tree);
+    bool cseIsCandidate(GenTree* tree);
 
     // lclNumIsTrueCSE returns true if the LclVar was introduced by the CSE phase of the compiler
     //

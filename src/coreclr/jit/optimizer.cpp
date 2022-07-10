@@ -5778,7 +5778,7 @@ void Compiler::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* blo
 
         bool IsNodeHoistable(GenTree* node)
         {
-            // TODO-CQ: This is a more restrictive version of a check that optIsCSEcandidate already does - it allows
+            // TODO-CQ: This is a more restrictive version of a check that cseIsCandidate already does - it allows
             // a struct typed node if a class handle can be recovered from it.
             if (node->TypeGet() == TYP_STRUCT)
             {
@@ -5786,7 +5786,7 @@ void Compiler::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* blo
             }
 
             // Tree must be a suitable CSE candidate for us to be able to hoist it.
-            return m_compiler->optIsCSEcandidate(node);
+            return m_compiler->cseIsCandidate(node);
         }
 
         bool IsTreeVNInvariant(GenTree* tree)
@@ -5941,7 +5941,7 @@ void Compiler::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* blo
             // truly dependent on the cctor.  So a more precise approach would be to separately propagate
             // isCctorDependent and isAddressWhoseDereferenceWouldBeCctorDependent, but we don't for
             // simplicity/throughput; the constant itself would be considered non-hoistable anyway, since
-            // optIsCSEcandidate returns false for constants.
+            // cseIsCandidate returns false for constants.
             bool treeIsCctorDependent =
                 (tree->OperIs(GT_CLS_VAR_ADDR) && ((tree->gtFlags & GTF_CLS_VAR_INITCLASS) != 0)) ||
                 (tree->OperIs(GT_CNS_INT) && ((tree->gtFlags & GTF_ICON_INITCLASS) != 0));

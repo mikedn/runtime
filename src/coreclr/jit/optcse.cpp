@@ -16,6 +16,169 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #pragma hdrstop
 #endif
 
+bool Compiler::cseIsCandidate(GenTree* node)
+{
+    if ((node->gtFlags & (GTF_ASG | GTF_DONT_CSE)) != 0)
+    {
+        return false;
+    }
+
+    if (((compCodeOpt() == SMALL_CODE) ? node->GetCostSz() : node->GetCostEx()) < MIN_CSE_COST)
+    {
+        return false;
+    }
+
+    if (node->TypeIs(TYP_VOID))
+    {
+        return false;
+    }
+
+    if (node->TypeIs(TYP_STRUCT) && !node->IsCall())
+    {
+        // Don't attempt to CSE expressions having non-enregistrable types (STRUCT),
+        // unless they're calls (some helper calls can be CSEed and do return structs
+        // - CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE).
+
+        // TODO-MIKE-CQ: It may be useful to CSE a small STRUCT load (OBJ), doing so may
+        // may shorten the live range of the address and thus decrease register pressure.
+        // But it gets complicated if the code also contains loads from struct's fields.
+        // It does not make sense to CSE those independently from the struct load itself
+        // so we'd need to use the CSE temp created for the struct load. And for that to
+        // work well we'd need to promote that temp, otherwise it would be in memory and
+        // CSEed field loads would also be done from memory.
+        return false;
+    }
+
+    switch (node->GetOper())
+    {
+        case GT_CALL:
+            // TODO-MIKE-Review: How could 2 allocator helper calls get the same VN
+            // so CSEing would be a possibility to begin with?!?
+            // Maybe it happens with CORINFO_HELP_STRCNS but then that doesn't sound
+            // like "allocation"...
+
+            // Don't mark calls to allocation helpers as CSE candidates.
+            // Marking them as CSE candidates usually blocks CSEs rather than enables them.
+            // A typical case is:
+            // [1] GT_IND(x) = GT_CALL ALLOC_HELPER
+            // ...
+            // [2] y = GT_IND(x)
+            // ...
+            // [3] z = GT_IND(x)
+            // If we mark CALL ALLOC_HELPER as a CSE candidate, we later discover
+            // that it can't be a CSE def because GT_INDs in [2] and [3] can cause
+            // more exceptions (NullRef) so we abandon this CSE.
+            // If we don't mark CALL ALLOC_HELPER as a CSE candidate, we are able
+            // to use GT_IND(x) in [2] as a CSE def.
+            if (node->IsHelperCall() &&
+                s_helperCallProperties.IsAllocator(eeGetHelperNum(node->AsCall()->GetMethodHandle())))
+            {
+                return false;
+            }
+
+            // If we have a simple helper call with no other persistent side-effects
+            // then we allow this tree to be a CSE candidate.
+            return !gtTreeHasSideEffects(node, GTF_PERSISTENT_SIDE_EFFECTS | GTF_IS_IN_CSE);
+
+        case GT_IND:
+            // TODO-MIKE-Review: This comment doesn't make a lot of sense, it should
+            // be possible to CSE both IND and ARR_ELEM...
+
+            // We try to CSE GT_ARR_ELEM nodes instead of GT_IND(GT_ARR_ELEM).
+            // Doing the first allows CSE to also kick in for code like
+            // "GT_IND(GT_ARR_ELEM) = GT_IND(GT_ARR_ELEM) + xyz", whereas doing
+            // the second would not allow it
+            return !node->AsIndir()->GetAddr()->OperIs(GT_ARR_ELEM);
+
+        case GT_ADD:
+        case GT_LSH:
+        case GT_MUL:
+        case GT_COMMA:
+            return (node->gtFlags & GTF_ADDRMODE_NO_CSE) == 0;
+
+        case GT_LCL_VAR:
+            // TODO-MIKE-Review: Huh? What volatile LCL_VAR?!?
+            // In general it doesn't make sense to CSE a LCL_VAR. Though CSEing
+            // a DNER local may be useful...
+            // P.S. Probably this was referring to the lvVolatileHint crap...
+            return false; // Can't CSE a volatile LCL_VAR
+
+        case GT_FNEG:
+        case GT_FADD:
+        case GT_FSUB:
+        case GT_FMUL:
+        case GT_FDIV:
+        case GT_ARR_ELEM:
+        case GT_ARR_LENGTH:
+        case GT_LCL_FLD:
+        case GT_NEG:
+        case GT_NOT:
+        case GT_BSWAP:
+        case GT_BSWAP16:
+        case GT_CAST:
+        case GT_BITCAST:
+        case GT_SUB:
+        case GT_DIV:
+        case GT_MOD:
+        case GT_UDIV:
+        case GT_UMOD:
+        case GT_OR:
+        case GT_AND:
+        case GT_XOR:
+        case GT_RSH:
+        case GT_RSZ:
+        case GT_ROL:
+        case GT_ROR:
+        case GT_EQ:
+        case GT_NE:
+        case GT_LT:
+        case GT_LE:
+        case GT_GE:
+        case GT_GT:
+        case GT_INTRINSIC:
+        case GT_OBJ:
+#if CSE_CONSTS
+#ifdef TARGET_64BIT
+        case GT_CNS_LNG:
+#endif
+        case GT_CNS_INT:
+        case GT_CNS_DBL:
+        case GT_CNS_STR:
+#endif // CSE_CONSTS
+            // TODO-MIKE-CQ: Might want to add CLS_VAR_ADDR to this, especially on ARM.
+            return true;
+
+#ifdef FEATURE_HW_INTRINSICS
+        case GT_HWINTRINSIC:
+            switch (HWIntrinsicInfo::lookupCategory(node->AsHWIntrinsic()->GetIntrinsic()))
+            {
+#ifdef TARGET_XARCH
+                case HW_Category_SimpleSIMD:
+                case HW_Category_IMM:
+                case HW_Category_SIMDScalar:
+#elif defined(TARGET_ARM64)
+                case HW_Category_SIMD:
+                case HW_Category_SIMDByIndexedElement:
+                case HW_Category_ShiftLeftByImmediate:
+                case HW_Category_ShiftRightByImmediate:
+#endif
+                case HW_Category_Scalar:
+                case HW_Category_Helper:
+                    return true;
+
+                case HW_Category_MemoryLoad:
+                case HW_Category_MemoryStore:
+                case HW_Category_Special:
+                default:
+                    return false;
+            }
+#endif // FEATURE_HW_INTRINSICS
+
+        default:
+            return false;
+    }
+}
+
 // The following is the upper limit on how many expressions we'll keep track
 // of for the CSE analysis.
 constexpr unsigned MAX_CSE_CNT = 64;
@@ -835,7 +998,7 @@ bool Cse::optValnumCSE_Locate()
                     continue;
                 }
 
-                if (!compiler->optIsCSEcandidate(tree))
+                if (!compiler->cseIsCandidate(tree))
                 {
                     continue;
                 }
@@ -3430,168 +3593,6 @@ void Cse::optValnumCSE_Heuristic()
     cse_heuristic.SortCandidates();
     cse_heuristic.ConsiderCandidates();
     cse_heuristic.Cleanup();
-}
-
-bool Compiler::optIsCSEcandidate(GenTree* tree)
-{
-    if ((tree->gtFlags & (GTF_ASG | GTF_DONT_CSE)) != 0)
-    {
-        return false;
-    }
-
-    if (((compCodeOpt() == SMALL_CODE) ? tree->GetCostSz() : tree->GetCostEx()) < MIN_CSE_COST)
-    {
-        return false;
-    }
-
-    if (tree->TypeIs(TYP_VOID))
-    {
-        return false;
-    }
-
-    if (tree->TypeIs(TYP_STRUCT) && !tree->IsCall())
-    {
-        // Don't attempt to CSE expressions having non-enregistrable types (STRUCT),
-        // unless they're calls (some helper calls can be CSEed and do return structs
-        // - CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE).
-
-        // TODO-MIKE-CQ: It may be useful to CSE a small STRUCT load (OBJ), doing so may
-        // may shorten the live range of the address and thus decrease register pressure.
-        // But it gets complicated if the code also contains loads from struct's fields.
-        // It does not make sense to CSE those independently from the struct load itself
-        // so we'd need to use the CSE temp created for the struct load. And for that to
-        // work well we'd need to promote that temp, otherwise it would be in memory and
-        // CSEed field loads would also be done from memory.
-        return false;
-    }
-
-    switch (tree->GetOper())
-    {
-        case GT_CALL:
-            // TODO-MIKE-Review: How could 2 allocator helper calls get the same VN
-            // so CSEing would be a possibility to begin with?!?
-            // Maybe it happens with CORINFO_HELP_STRCNS but then that doesn't sound
-            // like "allocation"...
-
-            // Don't mark calls to allocation helpers as CSE candidates.
-            // Marking them as CSE candidates usually blocks CSEs rather than enables them.
-            // A typical case is:
-            // [1] GT_IND(x) = GT_CALL ALLOC_HELPER
-            // ...
-            // [2] y = GT_IND(x)
-            // ...
-            // [3] z = GT_IND(x)
-            // If we mark CALL ALLOC_HELPER as a CSE candidate, we later discover
-            // that it can't be a CSE def because GT_INDs in [2] and [3] can cause
-            // more exceptions (NullRef) so we abandon this CSE.
-            // If we don't mark CALL ALLOC_HELPER as a CSE candidate, we are able
-            // to use GT_IND(x) in [2] as a CSE def.
-            if ((tree->AsCall()->gtCallType == CT_HELPER) &&
-                s_helperCallProperties.IsAllocator(eeGetHelperNum(tree->AsCall()->gtCallMethHnd)))
-            {
-                return false;
-            }
-
-            // If we have a simple helper call with no other persistent side-effects
-            // then we allow this tree to be a CSE candidate.
-            return !gtTreeHasSideEffects(tree, GTF_PERSISTENT_SIDE_EFFECTS | GTF_IS_IN_CSE);
-
-        case GT_IND:
-            // TODO-MIKE-Review: This comment doesn't make a lot of sense, it should
-            // be possible to CSE both IND and ARR_ELEM...
-
-            // We try to CSE GT_ARR_ELEM nodes instead of GT_IND(GT_ARR_ELEM).
-            // Doing the first allows CSE to also kick in for code like
-            // "GT_IND(GT_ARR_ELEM) = GT_IND(GT_ARR_ELEM) + xyz", whereas doing
-            // the second would not allow it
-            return !tree->AsIndir()->GetAddr()->OperIs(GT_ARR_ELEM);
-
-        case GT_ADD:
-        case GT_LSH:
-        case GT_MUL:
-        case GT_COMMA:
-            return (tree->gtFlags & GTF_ADDRMODE_NO_CSE) == 0;
-
-        case GT_LCL_VAR:
-            // TODO-MIKE-Review: Huh? What volatile LCL_VAR?!?
-            // In general it doesn't make sense to CSE a LCL_VAR. Though CSEing
-            // a DNER local may be useful...
-            return false; // Can't CSE a volatile LCL_VAR
-
-        case GT_FNEG:
-        case GT_FADD:
-        case GT_FSUB:
-        case GT_FMUL:
-        case GT_FDIV:
-        case GT_ARR_ELEM:
-        case GT_ARR_LENGTH:
-        case GT_LCL_FLD:
-        case GT_NEG:
-        case GT_NOT:
-        case GT_BSWAP:
-        case GT_BSWAP16:
-        case GT_CAST:
-        case GT_BITCAST:
-        case GT_SUB:
-        case GT_DIV:
-        case GT_MOD:
-        case GT_UDIV:
-        case GT_UMOD:
-        case GT_OR:
-        case GT_AND:
-        case GT_XOR:
-        case GT_RSH:
-        case GT_RSZ:
-        case GT_ROL:
-        case GT_ROR:
-        case GT_EQ:
-        case GT_NE:
-        case GT_LT:
-        case GT_LE:
-        case GT_GE:
-        case GT_GT:
-        case GT_INTRINSIC:
-        case GT_OBJ:
-#if CSE_CONSTS
-#ifdef TARGET_64BIT
-        case GT_CNS_LNG:
-#endif
-        case GT_CNS_INT:
-        case GT_CNS_DBL:
-        case GT_CNS_STR:
-#endif // CSE_CONSTS
-            // TODO-MIKE-CQ: Might want to add CLS_VAR_ADDR to this, especially on ARM.
-            return true;
-
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HWINTRINSIC:
-            switch (HWIntrinsicInfo::lookupCategory(tree->AsHWIntrinsic()->GetIntrinsic()))
-            {
-#ifdef TARGET_XARCH
-                case HW_Category_SimpleSIMD:
-                case HW_Category_IMM:
-                case HW_Category_SIMDScalar:
-#elif defined(TARGET_ARM64)
-                case HW_Category_SIMD:
-                case HW_Category_SIMDByIndexedElement:
-                case HW_Category_ShiftLeftByImmediate:
-                case HW_Category_ShiftRightByImmediate:
-#endif
-                case HW_Category_Scalar:
-                case HW_Category_Helper:
-                    return true;
-
-                case HW_Category_MemoryLoad:
-                case HW_Category_MemoryStore:
-                case HW_Category_Special:
-                default:
-                    return false;
-            }
-#endif // FEATURE_HW_INTRINSICS
-
-        default:
-            return false;
-    }
 }
 
 #ifdef DEBUG
