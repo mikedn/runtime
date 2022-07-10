@@ -3657,14 +3657,6 @@ bool CSE_Heuristic::optConfigDisableCSE2()
 }
 #endif
 
-void Compiler::optOptimizeCSEs()
-{
-    assert(ssaForm && (vnStore != nullptr));
-
-    Cse cse(this);
-    cse.Run();
-}
-
 void Cse::Run()
 {
     compiler->optCSECandidateCount = 0;
@@ -3744,3 +3736,11 @@ void Cse::optPrintCSEDataFlowSet(EXPSET_VALARG_TP cseDataFlowSet, bool includeBi
 }
 
 #endif // DEBUG
+
+void Compiler::cseMain()
+{
+    assert(ssaForm && (vnStore != nullptr));
+
+    Cse cse(this);
+    cse.Run();
+}

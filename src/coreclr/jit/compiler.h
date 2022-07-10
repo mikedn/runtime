@@ -5478,7 +5478,7 @@ public:
         return lvaTable[lclNum].lvIsCSE;
     }
 
-    void optOptimizeCSEs();
+    void cseMain();
 
 public:
     void optVnCopyProp();

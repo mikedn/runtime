@@ -3837,7 +3837,7 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
             {
                 // Remove common sub-expressions
                 //
-                DoPhase(this, PHASE_OPTIMIZE_VALNUM_CSES, &Compiler::optOptimizeCSEs);
+                DoPhase(this, PHASE_OPTIMIZE_VALNUM_CSES, &Compiler::cseMain);
             }
 
 #if ASSERTION_PROP
