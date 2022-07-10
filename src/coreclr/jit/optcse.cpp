@@ -433,6 +433,10 @@ class Cse
 {
     Compiler*      compiler;
     ValueNumStore* vnStore;
+    size_t         hashSize;                 // The current size of hashtable
+    size_t         hashCount;                // Number of entries in hashtable
+    size_t         hashMaxCountBeforeResize; // Number of entries before resize
+    CseDesc**      hashBuckets;
 
 public:
     Cse(Compiler* compiler) : compiler(compiler), vnStore(compiler->vnStore)
@@ -472,7 +476,7 @@ void Cse::Stop()
 
     compiler->optCSEtab = new (compiler, CMK_CSE) CseDesc*[compiler->optCSECandidateCount]();
 
-    for (cnt = compiler->optCSEhashSize, ptr = compiler->optCSEhash; cnt; cnt--, ptr++)
+    for (cnt = hashSize, ptr = hashBuckets; cnt; cnt--, ptr++)
     {
         for (dsc = *ptr; dsc; dsc = dsc->nextInBucket)
         {
@@ -588,11 +592,11 @@ void Cse::Init()
     compiler->cseLivenessTraits = nullptr;
 
     // Allocate and clear the hash bucket table
-    compiler->optCSEhash = new (compiler, CMK_CSE) CseDesc*[s_optCSEhashSizeInitial]();
+    hashBuckets = new (compiler, CMK_CSE) CseDesc*[s_optCSEhashSizeInitial]();
 
-    compiler->optCSEhashSize                 = s_optCSEhashSizeInitial;
-    compiler->optCSEhashMaxCountBeforeResize = compiler->optCSEhashSize * s_optCSEhashBucketSize;
-    compiler->optCSEhashCount                = 0;
+    hashSize                 = s_optCSEhashSizeInitial;
+    hashMaxCountBeforeResize = hashSize * s_optCSEhashBucketSize;
+    hashCount                = 0;
 
     compiler->optCSECandidateCount = 0;
     compiler->optDoCSE             = false; // Stays false until we find duplicate CSE tree
@@ -746,13 +750,13 @@ unsigned Cse::Index(GenTree* tree, Statement* stmt)
 
     // Compute the hash value for the expression
 
-    hval = optCSEKeyToHashIndex(key, compiler->optCSEhashSize);
+    hval = optCSEKeyToHashIndex(key, hashSize);
 
     /* Look for a matching index in the hash table */
 
     bool newCSE = false;
 
-    for (hashDsc = compiler->optCSEhash[hval]; hashDsc; hashDsc = hashDsc->nextInBucket)
+    for (hashDsc = hashBuckets[hval]; hashDsc; hashDsc = hashDsc->nextInBucket)
     {
         if (hashDsc->hashKey == key)
         {
@@ -813,16 +817,16 @@ unsigned Cse::Index(GenTree* tree, Statement* stmt)
 
         if (compiler->optCSECandidateCount < MAX_CSE_CNT)
         {
-            if (compiler->optCSEhashCount == compiler->optCSEhashMaxCountBeforeResize)
+            if (hashCount == hashMaxCountBeforeResize)
             {
-                size_t    newOptCSEhashSize = compiler->optCSEhashSize * s_optCSEhashGrowthFactor;
+                size_t    newOptCSEhashSize = hashSize * s_optCSEhashGrowthFactor;
                 CseDesc** newOptCSEhash     = new (compiler, CMK_CSE) CseDesc*[newOptCSEhashSize]();
 
                 // Iterate through each existing entry, moving to the new table
                 CseDesc** ptr;
                 CseDesc*  dsc;
                 size_t    cnt;
-                for (cnt = compiler->optCSEhashSize, ptr = compiler->optCSEhash; cnt; cnt--, ptr++)
+                for (cnt = hashSize, ptr = hashBuckets; cnt; cnt--, ptr++)
                 {
                     for (dsc = *ptr; dsc;)
                     {
@@ -838,13 +842,12 @@ unsigned Cse::Index(GenTree* tree, Statement* stmt)
                     }
                 }
 
-                compiler->optCSEhash     = newOptCSEhash;
-                compiler->optCSEhashSize = newOptCSEhashSize;
-                compiler->optCSEhashMaxCountBeforeResize =
-                    compiler->optCSEhashMaxCountBeforeResize * s_optCSEhashGrowthFactor;
+                hashBuckets              = newOptCSEhash;
+                hashSize                 = newOptCSEhashSize;
+                hashMaxCountBeforeResize = hashMaxCountBeforeResize * s_optCSEhashGrowthFactor;
             }
 
-            ++compiler->optCSEhashCount;
+            ++hashCount;
 
             hashDsc = new (compiler, CMK_CSE) CseDesc(key, tree, stmt, compiler->compCurBB);
 
@@ -855,8 +858,8 @@ unsigned Cse::Index(GenTree* tree, Statement* stmt)
             }
 
             // Append the entry to the hash bucket
-            hashDsc->nextInBucket      = compiler->optCSEhash[hval];
-            compiler->optCSEhash[hval] = hashDsc;
+            hashDsc->nextInBucket = hashBuckets[hval];
+            hashBuckets[hval]     = hashDsc;
         }
         return 0;
     }

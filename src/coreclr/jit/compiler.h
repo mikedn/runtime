@@ -72,7 +72,7 @@ struct InitVarDscInfo;     // defined in register_arg_convention.h
 class FgStack;             // defined in fgbasic.cpp
 class Instrumentor;        // defined in fgprofile.cpp
 class SpanningTreeVisitor; // defined in fgprofile.cpp
-class CseDataFlow;        // defined in OptCSE.cpp
+class CseDataFlow;         // defined in OptCSE.cpp
 class OptBoolsDsc;         // defined in optimizer.cpp
 #ifdef DEBUG
 struct IndentStack;
@@ -5428,10 +5428,6 @@ public:
 
     EXPSET_TP cseCallKillsMask; // Computed once - A mask that is used to kill available CSEs at callsites
 
-    size_t   optCSEhashSize;                 // The current size of hashtable
-    size_t   optCSEhashCount;                // Number of entries in hashtable
-    size_t   optCSEhashMaxCountBeforeResize; // Number of entries before resize
-    CseDesc** optCSEhash;
     CseDesc** optCSEtab;
 
     typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, GenTree*> NodeToNodeMap;
