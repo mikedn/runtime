@@ -2197,52 +2197,54 @@ public:
             jitstd::sort(sortTab, sortTab + m_pCompiler->cseCandidateCount, CostCompareSpeed());
         }
 
-#ifdef DEBUG
-        if (m_pCompiler->verbose)
-        {
-            printf("\nSorted CSE candidates:\n");
-            /* Print out the CSE candidates */
-            for (unsigned cnt = 0; cnt < m_pCompiler->cseCandidateCount; cnt++)
-            {
-                CseDesc* dsc  = sortTab[cnt];
-                GenTree* expr = dsc->tree;
-
-                BasicBlock::weight_t def;
-                BasicBlock::weight_t use;
-                unsigned             cost;
-
-                if (codeOptKind == Compiler::SMALL_CODE)
-                {
-                    def  = dsc->defCount; // def count
-                    use  = dsc->useCount; // use count (excluding the implicit uses at defs)
-                    cost = dsc->tree->GetCostSz();
-                }
-                else
-                {
-                    def  = dsc->defWeight; // weighted def count
-                    use  = dsc->useWeight; // weighted use count (excluding the implicit uses at defs)
-                    cost = dsc->tree->GetCostEx();
-                }
-
-                if (!Is_Shared_Const_CSE(dsc->hashKey))
-                {
-                    printf(FMT_CSE ", {$%-3x, $%-3x} useCnt=%d: [def=%3f, use=%3f, cost=%3u%s]\n        :: ",
-                           dsc->index, dsc->hashKey, dsc->defExcSetPromise, dsc->useCount, def, use, cost,
-                           dsc->isLiveAcrossCall ? ", call" : "      ");
-                }
-                else
-                {
-                    size_t kVal = Decode_Shared_Const_CSE_Value(dsc->hashKey);
-                    printf(FMT_CSE ", {K_%p} useCnt=%d: [def=%3f, use=%3f, cost=%3u%s]\n        :: ", dsc->index,
-                           dspPtr(kVal), dsc->useCount, def, use, cost, dsc->isLiveAcrossCall ? ", call" : "      ");
-                }
-
-                m_pCompiler->gtDispTree(expr, nullptr, nullptr, true);
-            }
-            printf("\n");
-        }
-#endif // DEBUG
+        DBEXEC(m_pCompiler->verbose, DumpSortedCandidates());
     }
+
+#ifdef DEBUG
+    void DumpSortedCandidates()
+    {
+        printf("\nSorted CSE candidates:\n");
+        /* Print out the CSE candidates */
+        for (unsigned cnt = 0; cnt < m_pCompiler->cseCandidateCount; cnt++)
+        {
+            CseDesc* dsc  = sortTab[cnt];
+            GenTree* expr = dsc->tree;
+
+            BasicBlock::weight_t def;
+            BasicBlock::weight_t use;
+            unsigned             cost;
+
+            if (codeOptKind == Compiler::SMALL_CODE)
+            {
+                def  = dsc->defCount; // def count
+                use  = dsc->useCount; // use count (excluding the implicit uses at defs)
+                cost = dsc->tree->GetCostSz();
+            }
+            else
+            {
+                def  = dsc->defWeight; // weighted def count
+                use  = dsc->useWeight; // weighted use count (excluding the implicit uses at defs)
+                cost = dsc->tree->GetCostEx();
+            }
+
+            if (!Is_Shared_Const_CSE(dsc->hashKey))
+            {
+                printf(FMT_CSE ", {$%-3x, $%-3x} useCnt=%d: [def=%3f, use=%3f, cost=%3u%s]\n        :: ", dsc->index,
+                       dsc->hashKey, dsc->defExcSetPromise, dsc->useCount, def, use, cost,
+                       dsc->isLiveAcrossCall ? ", call" : "      ");
+            }
+            else
+            {
+                size_t kVal = Decode_Shared_Const_CSE_Value(dsc->hashKey);
+                printf(FMT_CSE ", {K_%p} useCnt=%d: [def=%3f, use=%3f, cost=%3u%s]\n        :: ", dsc->index,
+                       dspPtr(kVal), dsc->useCount, def, use, cost, dsc->isLiveAcrossCall ? ", call" : "      ");
+            }
+
+            m_pCompiler->gtDispTree(expr, nullptr, nullptr, true);
+        }
+        printf("\n");
+    }
+#endif // DEBUG
 
     //  The following class nested within CseHeuristic encapsulates the information
     //  about the current CSE candidate that is under consideration
