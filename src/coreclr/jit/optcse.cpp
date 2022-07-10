@@ -249,14 +249,14 @@ bool Compiler::cseCanSwapOrder(GenTree* tree1, GenTree* tree2)
            BitVecOps::IsEmptyIntersection(&defUse1.traits, defUse2.def, defUse1.use);
 }
 
-struct treeStmtLst
+struct CseOccurence
 {
-    treeStmtLst* next = nullptr;
-    GenTree*     tree;
-    Statement*   stmt;
-    BasicBlock*  block;
+    CseOccurence* next = nullptr;
+    GenTree*      tree;
+    Statement*    stmt;
+    BasicBlock*   block;
 
-    treeStmtLst(GenTree* tree, Statement* stmt, BasicBlock* block) : tree(tree), stmt(stmt), block(block)
+    CseOccurence(GenTree* tree, Statement* stmt, BasicBlock* block) : tree(tree), stmt(stmt), block(block)
     {
     }
 };
@@ -284,8 +284,8 @@ struct CseDesc
     Statement*  stmt;  // stmt containing the 1st occurrence
     BasicBlock* block; // block containing the 1st occurrence
 
-    treeStmtLst* treeList; // list of matching tree nodes: head
-    treeStmtLst* treeLast; // list of matching tree nodes: tail
+    CseOccurence* treeList; // list of matching tree nodes: head
+    CseOccurence* treeLast; // list of matching tree nodes: tail
 
     ClassLayout* layout;
 
@@ -766,8 +766,8 @@ unsigned Cse::Index(GenTree* tree, Statement* stmt)
             {
                 // Start the occurrence list now that we found a second occurrence.
 
-                treeStmtLst* occurrence =
-                    new (compiler, CMK_CSE) treeStmtLst(hashDsc->tree, hashDsc->stmt, hashDsc->block);
+                CseOccurence* occurrence =
+                    new (compiler, CMK_CSE) CseOccurence(hashDsc->tree, hashDsc->stmt, hashDsc->block);
 
                 hashDsc->treeList      = occurrence;
                 hashDsc->treeLast      = occurrence;
@@ -788,7 +788,7 @@ unsigned Cse::Index(GenTree* tree, Statement* stmt)
                 hashDsc->layout = compiler->typGetStructLayout(tree);
             }
 
-            treeStmtLst* occurrence = new (compiler, CMK_CSE) treeStmtLst(tree, stmt, compiler->compCurBB);
+            CseOccurence* occurrence = new (compiler, CMK_CSE) CseOccurence(tree, stmt, compiler->compCurBB);
 
             hashDsc->treeLast->next = occurrence;
             hashDsc->treeLast       = occurrence;
@@ -1226,9 +1226,9 @@ void Cse::InitDataFlow()
     //
     for (unsigned inx = 0; inx < compiler->optCSECandidateCount; inx++)
     {
-        CseDesc*     dsc      = compiler->optCSEtab[inx];
-        unsigned     CSEindex = dsc->index;
-        treeStmtLst* lst      = dsc->treeList;
+        CseDesc*      dsc      = compiler->optCSEtab[inx];
+        unsigned      CSEindex = dsc->index;
+        CseOccurence* lst      = dsc->treeList;
         noway_assert(lst);
 
         while (lst != nullptr)
@@ -3072,13 +3072,13 @@ public:
         // Verify that all of the ValueNumbers in this list are correct as
         // Morph will change them when it performs a mutating operation.
         //
-        bool         setRefCnt      = true;
-        bool         allSame        = true;
-        bool         isSharedConst  = successfulCandidate->IsSharedConst();
-        ValueNum     bestVN         = ValueNumStore::NoVN;
-        bool         bestIsDef      = false;
-        ssize_t      bestConstValue = 0;
-        treeStmtLst* lst            = dsc->treeList;
+        bool          setRefCnt      = true;
+        bool          allSame        = true;
+        bool          isSharedConst  = successfulCandidate->IsSharedConst();
+        ValueNum      bestVN         = ValueNumStore::NoVN;
+        bool          bestIsDef      = false;
+        ssize_t       bestConstValue = 0;
+        CseOccurence* lst            = dsc->treeList;
 
         while (lst != nullptr)
         {
