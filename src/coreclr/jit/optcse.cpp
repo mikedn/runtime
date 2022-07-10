@@ -3661,21 +3661,15 @@ void Cse::Run()
 
 #ifdef DEBUG
 
-/*****************************************************************************
- *
- *  Ensure that all the CSE information in the IR is initialized the way we expect it,
- *  before running a CSE phase. This is basically an assert that optCleanupCSEs() is not needed.
- */
-
 void Cse::EnsureClearCseNum()
 {
-    for (BasicBlock* const block : compiler->Blocks())
+    for (BasicBlock* block : compiler->Blocks())
     {
-        for (Statement* const stmt : block->NonPhiStatements())
+        for (Statement* stmt : block->Statements())
         {
-            for (GenTree* tree = stmt->GetRootNode(); tree; tree = tree->gtPrev)
+            for (GenTree* node : stmt->Nodes())
             {
-                assert(tree->gtCSEnum == NoCse);
+                assert(node->gtCSEnum == NoCse);
             }
         }
     }
