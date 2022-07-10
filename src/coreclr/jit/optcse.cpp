@@ -841,13 +841,7 @@ public:
 
             if (compiler->cseCandidateCount == MAX_CSE_CNT)
             {
-#ifdef DEBUG
-                if (compiler->verbose)
-                {
-                    printf("Exceeded the MAX_CSE_CNT, not using tree:\n");
-                    compiler->gtDispTree(tree);
-                }
-#endif // DEBUG
+                JITDUMPTREE(tree, "Exceeded the MAX_CSE_CNT, not using tree:\n");
                 return 0;
             }
 
@@ -1326,40 +1320,25 @@ public:
             BitVecOps::Assign(&cse.dataFlowTraits, m_preMergeOut, block->bbCseOut);
 
 #if 0
-#ifdef DEBUG
-        if (m_comp->verbose)
-        {
-            printf("StartMerge " FMT_BB "\n", block->bbNum);
-            printf("  :: cseOut    = %s\n", genES2str(&cse.dataFlowTraits, block->bbCseOut));
-        }
-#endif // DEBUG
-#endif // 0
+            JITDUMP("StartMerge " FMT_BB "\n", block->bbNum);
+            JITDUMP("  :: cseOut    = %s\n", genES2str(&cse.dataFlowTraits, block->bbCseOut));
+#endif
         }
 
         // Merge: perform the merging of each of the predecessor's liveness values (since this is a forward analysis)
         void Merge(BasicBlock* block, BasicBlock* predBlock, unsigned dupCount)
         {
 #if 0
-#ifdef DEBUG
-        if (m_comp->verbose)
-        {
-            printf("Merge " FMT_BB " and " FMT_BB "\n", block->bbNum, predBlock->bbNum);
-            printf("  :: cseIn     = %s\n", genES2str(&cse.dataFlowTraits, block->bbCseIn));
-            printf("  :: cseOut    = %s\n", genES2str(&cse.dataFlowTraits, block->bbCseOut));
-        }
-#endif // DEBUG
-#endif // 0
+            JITDUMP("Merge " FMT_BB " and " FMT_BB "\n", block->bbNum, predBlock->bbNum);
+            JITDUMP("  :: cseIn     = %s\n", genES2str(&cse.dataFlowTraits, block->bbCseIn));
+            JITDUMP("  :: cseOut    = %s\n", genES2str(&cse.dataFlowTraits, block->bbCseOut));
+#endif
 
             BitVecOps::IntersectionD(&cse.dataFlowTraits, block->bbCseIn, predBlock->bbCseOut);
 
 #if 0
-#ifdef DEBUG
-        if (m_comp->verbose)
-        {
-            printf("  => cseIn     = %s\n", genES2str(&cse.dataFlowTraits, block->bbCseIn));
-        }
-#endif // DEBUG
-#endif // 0
+            JITDUMP("  => cseIn     = %s\n", genES2str(&cse.dataFlowTraits, block->bbCseIn));
+#endif
         }
 
         //------------------------------------------------------------------------
@@ -1457,12 +1436,7 @@ public:
 
     void DataFlow()
     {
-#ifdef DEBUG
-        if (compiler->verbose)
-        {
-            printf("\nPerforming DataFlow for ValnumCSE's\n");
-        }
-#endif // DEBUG
+        JITDUMP("\nPerforming DataFlow for ValnumCSE's\n");
 
         ForwardDataFlow(CseDataFlow(compiler, *this), compiler);
 
@@ -1523,12 +1497,8 @@ public:
     //
     void Availablity()
     {
-#ifdef DEBUG
-        if (compiler->verbose)
-        {
-            printf("Labeling the CSEs with Use/Def information\n");
-        }
-#endif
+        JITDUMP("Labeling the CSEs with Use/Def information\n");
+
         EXPSET_TP available_cses = BitVecOps::MakeEmpty(&dataFlowTraits);
 
         for (BasicBlock* const block : compiler->Blocks())
@@ -1586,14 +1556,9 @@ public:
                             assert(!BitVecOps::IsMember(&dataFlowTraits, available_cses, cseAvailCrossCallBit));
                         }
 
-                        if (compiler->verbose)
-                        {
-                            printf(FMT_BB " ", block->bbNum);
-                            Compiler::printTreeID(tree);
-
-                            printf(" %s of " FMT_CSE " [weight=%s]%s\n", isUse ? "Use" : "Def", CSEnum,
-                                   refCntWtd2str(stmw), madeLiveAcrossCall ? " *** Now Live Across Call ***" : "");
-                        }
+                        JITDUMP(FMT_BB " [%06u] %s of " FMT_CSE " [weight=%s]%s\n", block->bbNum, tree->GetID(),
+                                isUse ? "use" : "def", CSEnum, refCntWtd2str(stmw),
+                                madeLiveAcrossCall ? " *** Now Live Across Call ***" : "");
 #endif // DEBUG
 
                         // Have we decided to abandon work on this CSE?
@@ -2480,16 +2445,13 @@ public:
         unsigned gen = m_cseRNG.Next(100);
         int      ret = (gen < bias) ? 1 : -1;
 
-        if (m_pCompiler->verbose)
+        if (ret < 0)
         {
-            if (ret < 0)
-            {
-                printf("No CSE because gen=%d >= bias=%d\n", gen, bias);
-            }
-            else
-            {
-                printf("Promoting CSE because gen=%d < bias=%d\n", gen, bias);
-            }
+            JITDUMP("No CSE because gen=%d >= bias=%d\n", gen, bias);
+        }
+        else
+        {
+            JITDUMP("Promoting CSE because gen=%d < bias=%d\n", gen, bias);
         }
 
         // Indicate whether to perform CSE or not.
@@ -2520,10 +2482,7 @@ public:
 
                 if (((totalCSEMask & bitsOne) == bitsOne) && ((~totalCSEMask & bitsZero) == bitsZero))
                 {
-                    if (m_pCompiler->verbose)
-                    {
-                        printf(" Disabled by jitNoCSE2 Ones/Zeros mask\n");
-                    }
+                    JITDUMP(" Disabled by jitNoCSE2 Ones/Zeros mask\n");
                     return true;
                 }
             }
@@ -2536,19 +2495,13 @@ public:
 
                 if (disableMask & 1)
                 {
-                    if (m_pCompiler->verbose)
-                    {
-                        printf(" Disabled by jitNoCSE2 rotating disable mask\n");
-                    }
+                    JITDUMP(" Disabled by jitNoCSE2 rotating disable mask\n");
                     return true;
                 }
             }
             else if (jitNoCSE2 <= totalCSEcount)
             {
-                if (m_pCompiler->verbose)
-                {
-                    printf(" Disabled by jitNoCSE2 > totalCSEcount\n");
-                }
+                JITDUMP(" Disabled by jitNoCSE2 > totalCSEcount\n");
                 return true;
             }
         }
@@ -2676,12 +2629,7 @@ public:
                 // Record that we are choosing to use the aggressive promotion rules
                 //
                 candidate->SetAggressive();
-#ifdef DEBUG
-                if (m_pCompiler->verbose)
-                {
-                    printf("Aggressive CSE Promotion (%f >= %f)\n", cseRefCnt, aggressiveRefCnt);
-                }
-#endif
+                JITDUMP("Aggressive CSE Promotion (%f >= %f)\n", cseRefCnt, aggressiveRefCnt);
                 // With aggressive promotion we expect that the candidate will be enregistered
                 // so we set the use and def costs to their miniumum values
                 //
@@ -2713,12 +2661,8 @@ public:
                 candidate->SetConservative();
                 if (largeFrame)
                 {
-#ifdef DEBUG
-                    if (m_pCompiler->verbose)
-                    {
-                        printf("Codesize CSE Promotion (%s frame)\n", hugeFrame ? "huge" : "large");
-                    }
-#endif
+                    JITDUMP("Codesize CSE Promotion (%s frame)\n", hugeFrame ? "huge" : "large");
+
 #ifdef TARGET_XARCH
                     /* The following formula is good choice when optimizing CSE for SMALL_CODE */
                     cse_def_cost = 6; // mov [EBP-0x00001FC],reg
@@ -2738,12 +2682,8 @@ public:
                 }
                 else // small frame
                 {
-#ifdef DEBUG
-                    if (m_pCompiler->verbose)
-                    {
-                        printf("Codesize CSE Promotion (small frame)\n");
-                    }
-#endif
+                    JITDUMP("Codesize CSE Promotion (small frame)\n");
+
 #ifdef TARGET_XARCH
                     /* The following formula is good choice when optimizing CSE for SMALL_CODE */
                     cse_def_cost = 3; // mov [EBP-1C],reg
@@ -2775,12 +2715,9 @@ public:
                 // Record that we are choosing to use the aggressive promotion rules
                 //
                 candidate->SetAggressive();
-#ifdef DEBUG
-                if (m_pCompiler->verbose)
-                {
-                    printf("Aggressive CSE Promotion (%f >= %f)\n", cseRefCnt, aggressiveRefCnt);
-                }
-#endif
+
+                JITDUMP("Aggressive CSE Promotion (%f >= %f)\n", cseRefCnt, aggressiveRefCnt);
+
                 // With aggressive promotion we expect that the candidate will be enregistered
                 // so we set the use and def costs to their miniumum values
                 //
@@ -2794,26 +2731,17 @@ public:
                 candidate->SetModerate();
                 if (!candidate->LiveAcrossCall() && canEnregister)
                 {
-#ifdef DEBUG
-                    if (m_pCompiler->verbose)
-                    {
-                        printf("Moderate CSE Promotion (CSE never live at call) (%f >= %f)\n", cseRefCnt,
-                               moderateRefCnt);
-                    }
-#endif
+                    JITDUMP("Moderate CSE Promotion (CSE never live at call) (%f >= %f)\n", cseRefCnt, moderateRefCnt);
+
                     cse_def_cost = 2;
                     cse_use_cost = 1;
                 }
                 else // candidate is live across call or not enregisterable.
                 {
-#ifdef DEBUG
-                    if (m_pCompiler->verbose)
-                    {
-                        printf("Moderate CSE Promotion (%s) (%f >= %f)\n",
-                               candidate->LiveAcrossCall() ? "CSE is live across a call" : "not enregisterable",
-                               cseRefCnt, moderateRefCnt);
-                    }
-#endif
+                    JITDUMP("Moderate CSE Promotion (%s) (%f >= %f)\n",
+                            candidate->LiveAcrossCall() ? "CSE is live across a call" : "not enregisterable", cseRefCnt,
+                            moderateRefCnt);
+
                     cse_def_cost = 2;
                     if (canEnregister)
                     {
@@ -2839,25 +2767,17 @@ public:
                 candidate->SetConservative();
                 if (!candidate->LiveAcrossCall() && canEnregister)
                 {
-#ifdef DEBUG
-                    if (m_pCompiler->verbose)
-                    {
-                        printf("Conservative CSE Promotion (%s) (%f < %f)\n",
-                               candidate->LiveAcrossCall() ? "CSE is live across a call" : "not enregisterable",
-                               cseRefCnt, moderateRefCnt);
-                    }
-#endif
+                    JITDUMP("Conservative CSE Promotion (%s) (%f < %f)\n",
+                            candidate->LiveAcrossCall() ? "CSE is live across a call" : "not enregisterable", cseRefCnt,
+                            moderateRefCnt);
+
                     cse_def_cost = 2;
                     cse_use_cost = 2;
                 }
                 else // candidate is live across call
                 {
-#ifdef DEBUG
-                    if (m_pCompiler->verbose)
-                    {
-                        printf("Conservative CSE Promotion (%f < %f)\n", cseRefCnt, moderateRefCnt);
-                    }
-#endif
+                    JITDUMP("Conservative CSE Promotion (%f < %f)\n", cseRefCnt, moderateRefCnt);
+
                     cse_def_cost = 2;
                     cse_use_cost = 3;
                 }
@@ -3277,14 +3197,9 @@ public:
             {
                 /* This is a use of the CSE */
                 isDef = false;
-#ifdef DEBUG
-                if (m_pCompiler->verbose)
-                {
-                    printf("\nWorking on the replacement of the " FMT_CSE " use at ", exp->gtCSEnum);
-                    Compiler::printTreeID(exp);
-                    printf(" in " FMT_BB "\n", blk->bbNum);
-                }
-#endif // DEBUG
+
+                JITDUMP("\nWorking on the replacement of the " FMT_CSE " use at [%06u] in " FMT_BB "\n", exp->gtCSEnum,
+                        exp->GetID(), blk->bbNum);
 
                 // We will replace the CSE ref with a new tree
                 // this is typically just a simple use of the new CSE LclVar
@@ -3395,14 +3310,8 @@ public:
                 //
                 if (sideEffList != nullptr)
                 {
-#ifdef DEBUG
-                    if (m_pCompiler->verbose)
-                    {
-                        printf("\nThis CSE use has side effects and/or nested CSE defs. The sideEffectList:\n");
-                        m_pCompiler->gtDispTree(sideEffList);
-                        printf("\n");
-                    }
-#endif
+                    JITDUMPTREE(sideEffList,
+                                "\nThis CSE use has side effects and/or nested CSE defs. The sideEffectList:\n");
 
                     GenTree*     cseVal         = cse;
                     GenTree*     curSideEff     = sideEffList;
@@ -3449,14 +3358,9 @@ public:
             {
                 /* This is a def of the CSE */
                 isDef = true;
-#ifdef DEBUG
-                if (m_pCompiler->verbose)
-                {
-                    printf("\n" FMT_CSE " def at ", GetCseIndex(exp->gtCSEnum));
-                    Compiler::printTreeID(exp);
-                    printf(" replaced in " FMT_BB " with def of V%02u\n", blk->bbNum, cseLclVarNum);
-                }
-#endif // DEBUG
+
+                JITDUMP("\n" FMT_CSE " def at [%06u] replaced in " FMT_BB " with def of V%02u\n",
+                        GetCseIndex(exp->gtCSEnum), exp->GetID(), blk->bbNum, cseLclVarNum);
 
                 exp->gtCSEnum = NoCse; // clear the gtCSEnum field
 
@@ -3596,27 +3500,21 @@ public:
                 continue;
             }
 
-#ifdef DEBUG
-            if (m_pCompiler->verbose)
+            if (!Is_Shared_Const_CSE(dsc->hashKey))
             {
-                if (!Is_Shared_Const_CSE(dsc->hashKey))
-                {
-                    printf("\nConsidering " FMT_CSE " {$%-3x, $%-3x} [def=%3f, use=%3f, cost=%3u%s]\n",
-                           candidate.CseIndex(), dsc->hashKey, dsc->defExcSetPromise, candidate.DefCount(),
-                           candidate.UseCount(), candidate.Cost(), dsc->isLiveAcrossCall ? ", call" : "      ");
-                }
-                else
-                {
-                    size_t kVal = Decode_Shared_Const_CSE_Value(dsc->hashKey);
-                    printf("\nConsidering " FMT_CSE " {K_%p} [def=%3f, use=%3f, cost=%3u%s]\n", candidate.CseIndex(),
-                           dspPtr(kVal), candidate.DefCount(), candidate.UseCount(), candidate.Cost(),
-                           dsc->isLiveAcrossCall ? ", call" : "      ");
-                }
-                printf("CSE Expression : \n");
-                m_pCompiler->gtDispTree(candidate.Expr());
-                printf("\n");
+                JITDUMP("\nConsidering " FMT_CSE " {$%-3x, $%-3x} [def=%3f, use=%3f, cost=%3u%s]\n",
+                        candidate.CseIndex(), dsc->hashKey, dsc->defExcSetPromise, candidate.DefCount(),
+                        candidate.UseCount(), candidate.Cost(), dsc->isLiveAcrossCall ? ", call" : "      ");
             }
-#endif // DEBUG
+            else
+            {
+                size_t kVal = Decode_Shared_Const_CSE_Value(dsc->hashKey);
+                JITDUMP("\nConsidering " FMT_CSE " {K_%p} [def=%3f, use=%3f, cost=%3u%s]\n", candidate.CseIndex(),
+                        dspPtr(kVal), candidate.DefCount(), candidate.UseCount(), candidate.Cost(),
+                        dsc->isLiveAcrossCall ? ", call" : "      ");
+            }
+
+            JITDUMPTREE(candidate.Expr(), "CSE Expression : \n");
 
             if ((dsc->defCount <= 0) || (dsc->useCount == 0))
             {
@@ -3631,19 +3529,14 @@ public:
 
             bool doCSE = PromotionCheck(&candidate);
 
-#ifdef DEBUG
-            if (m_pCompiler->verbose)
+            if (doCSE)
             {
-                if (doCSE)
-                {
-                    printf("\nPromoting CSE:\n");
-                }
-                else
-                {
-                    printf("Did Not promote this CSE\n");
-                }
+                JITDUMP("\nPromoting CSE:\n");
             }
-#endif // DEBUG
+            else
+            {
+                JITDUMP("Did Not promote this CSE\n");
+            }
 
             if (doCSE)
             {
@@ -3660,14 +3553,8 @@ public:
 
 void Cse::Heuristic()
 {
-#ifdef DEBUG
-    if (compiler->verbose)
-    {
-        printf("\n************ Trees at start of Heuristic()\n");
-        compiler->fgDumpTrees(compiler->fgFirstBB, nullptr);
-        printf("\n");
-    }
-#endif // DEBUG
+    JITDUMP("\n************ Trees at start of Heuristic()\n");
+    DBEXEC(compiler->verbose, compiler->fgDumpTrees(compiler->fgFirstBB, nullptr));
 
     CseHeuristic heuristic(compiler, *this);
 
