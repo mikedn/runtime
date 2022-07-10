@@ -3769,6 +3769,7 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
         bool doLoopHoisting  = true;
         bool doCopyProp      = true;
         bool doBranchOpt     = true;
+        bool doCse           = true;
         bool doAssertionProp = true;
         bool doRangeAnalysis = true;
         int  iterations      = 1;
@@ -3780,6 +3781,7 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
         doLoopHoisting  = doValueNum && (JitConfig.JitDoLoopHoisting() != 0);
         doCopyProp      = doValueNum && (JitConfig.JitDoCopyProp() != 0);
         doBranchOpt     = doValueNum && (JitConfig.JitDoRedundantBranchOpts() != 0);
+        doCse           = doValueNum && (JitConfig.JitNoCSE() == 0);
         doAssertionProp = doValueNum && (JitConfig.JitDoAssertionProp() != 0);
         doRangeAnalysis = doAssertionProp && (JitConfig.JitDoRangeAnalysis() != 0);
 
@@ -3831,7 +3833,7 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
                 DoPhase(this, PHASE_OPTIMIZE_BRANCHES, &Compiler::optRedundantBranches);
             }
 
-            if (doValueNum)
+            if (doCse)
             {
                 // Remove common sub-expressions
                 //

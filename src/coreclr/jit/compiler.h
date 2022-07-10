@@ -5478,10 +5478,6 @@ public:
         return lvaTable[lclNum].lvIsCSE;
     }
 
-#ifdef DEBUG
-    bool optConfigDisableCSE();
-#endif
-
     void optOptimizeCSEs();
 
 public:

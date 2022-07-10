@@ -3596,51 +3596,6 @@ bool Compiler::optIsCSEcandidate(GenTree* tree)
 
 #ifdef DEBUG
 //
-// A Debug only method that allows you to control whether the CSE logic is enabled for this method.
-//
-// If this method returns false then the CSE phase should be performed.
-// If the method returns true then the CSE phase should be skipped.
-//
-bool Compiler::optConfigDisableCSE()
-{
-    // Next check if COMPlus_JitNoCSE is set and applies to this method
-    //
-    unsigned jitNoCSE = JitConfig.JitNoCSE();
-
-    if (jitNoCSE > 0)
-    {
-        unsigned methodCount = Compiler::jitTotalMethodCompiled;
-        if ((jitNoCSE & 0xF000000) == 0xF000000)
-        {
-            unsigned methodCountMask = methodCount & 0xFFF;
-            unsigned bitsZero        = (jitNoCSE >> 12) & 0xFFF;
-            unsigned bitsOne         = (jitNoCSE >> 0) & 0xFFF;
-
-            if (((methodCountMask & bitsOne) == bitsOne) && ((~methodCountMask & bitsZero) == bitsZero))
-            {
-                if (verbose)
-                {
-                    printf(" Disabled by JitNoCSE methodCountMask\n");
-                }
-
-                return true; // The CSE phase for this method is disabled
-            }
-        }
-        else if (jitNoCSE <= (methodCount + 1))
-        {
-            if (verbose)
-            {
-                printf(" Disabled by JitNoCSE > methodCount\n");
-            }
-
-            return true; // The CSE phase for this method is disabled
-        }
-    }
-
-    return false;
-}
-
-//
 // A Debug only method that allows you to control whether the CSE logic is enabled for
 // a particular CSE in a method
 //
@@ -3703,6 +3658,8 @@ bool CSE_Heuristic::optConfigDisableCSE2()
 
 void Compiler::optOptimizeCSEs()
 {
+    assert(ssaForm && (vnStore != nullptr));
+
     Cse cse(this);
     cse.Run();
 }
@@ -3711,15 +3668,7 @@ void Cse::Run()
 {
     compiler->optCSECandidateCount = 0;
     compiler->optCSEstart          = compiler->lvaCount;
-
-#ifdef DEBUG
-    if (compiler->optConfigDisableCSE())
-    {
-        return; // Disabled by JitNoCSE
-    }
-#endif
-
-    compiler->optValnumCSE_phase = true;
+    compiler->optValnumCSE_phase   = true;
 
     optValnumCSE_Init();
 
