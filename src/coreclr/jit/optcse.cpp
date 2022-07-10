@@ -561,82 +561,6 @@ public:
     void DumpDataFlowSet(EXPSET_VALARG_TP set, bool includeBits = true);
 };
 
-/*****************************************************************************
- *
- *  Compare function passed to jitstd::sort() by CseHeuristic::SortCandidates
- *  when (CodeOptKind() != Compiler::SMALL_CODE)
- */
-
-struct CseCostCompareSpeed
-{
-    bool operator()(const CseDesc* dsc1, const CseDesc* dsc2)
-    {
-        GenTree* exp1 = dsc1->tree;
-        GenTree* exp2 = dsc2->tree;
-
-        auto expCost1 = exp1->GetCostEx();
-        auto expCost2 = exp2->GetCostEx();
-
-        if (expCost2 != expCost1)
-        {
-            return expCost2 < expCost1;
-        }
-
-        // Sort the higher Use Counts toward the top
-        if (dsc2->useWeight != dsc1->useWeight)
-        {
-            return dsc2->useWeight < dsc1->useWeight;
-        }
-
-        // With the same use count, Sort the lower Def Counts toward the top
-        if (dsc1->defWeight != dsc2->defWeight)
-        {
-            return dsc1->defWeight < dsc2->defWeight;
-        }
-
-        // In order to ensure that we have a stable sort, we break ties using the index
-        return dsc1->index < dsc2->index;
-    }
-};
-
-/*****************************************************************************
- *
- *  Compare function passed to jitstd::sort() by CseHeuristic::SortCandidates
- *  when (CodeOptKind() == Compiler::SMALL_CODE)
- */
-
-struct CseCostCompareSize
-{
-    bool operator()(const CseDesc* dsc1, const CseDesc* dsc2)
-    {
-        GenTree* exp1 = dsc1->tree;
-        GenTree* exp2 = dsc2->tree;
-
-        auto expCost1 = exp1->GetCostSz();
-        auto expCost2 = exp2->GetCostSz();
-
-        if (expCost2 != expCost1)
-        {
-            return expCost2 < expCost1;
-        }
-
-        // Sort the higher Use Counts toward the top
-        if (dsc2->useCount != dsc1->useCount)
-        {
-            return dsc2->useCount < dsc1->useCount;
-        }
-
-        // With the same use count, Sort the lower Def Counts toward the top
-        if (dsc1->defCount != dsc2->defCount)
-        {
-            return dsc1->defCount < dsc2->defCount;
-        }
-
-        // In order to ensure that we have a stable sort, we break ties using the index
-        return dsc1->index < dsc2->index;
-    }
-};
-
 unsigned optCSEKeyToHashIndex(size_t key, size_t optCSEhashSize)
 {
     unsigned hash;
@@ -2189,6 +2113,82 @@ public:
 #endif
     }
 
+    /*****************************************************************************
+ *
+ *  Compare function passed to jitstd::sort() by CseHeuristic::SortCandidates
+ *  when (CodeOptKind() != Compiler::SMALL_CODE)
+ */
+
+    struct CostCompareSpeed
+    {
+        bool operator()(const CseDesc* dsc1, const CseDesc* dsc2)
+        {
+            GenTree* exp1 = dsc1->tree;
+            GenTree* exp2 = dsc2->tree;
+
+            auto expCost1 = exp1->GetCostEx();
+            auto expCost2 = exp2->GetCostEx();
+
+            if (expCost2 != expCost1)
+            {
+                return expCost2 < expCost1;
+            }
+
+            // Sort the higher Use Counts toward the top
+            if (dsc2->useWeight != dsc1->useWeight)
+            {
+                return dsc2->useWeight < dsc1->useWeight;
+            }
+
+            // With the same use count, Sort the lower Def Counts toward the top
+            if (dsc1->defWeight != dsc2->defWeight)
+            {
+                return dsc1->defWeight < dsc2->defWeight;
+            }
+
+            // In order to ensure that we have a stable sort, we break ties using the index
+            return dsc1->index < dsc2->index;
+        }
+    };
+
+    /*****************************************************************************
+     *
+     *  Compare function passed to jitstd::sort() by CseHeuristic::SortCandidates
+     *  when (CodeOptKind() == Compiler::SMALL_CODE)
+     */
+
+    struct CostCompareSize
+    {
+        bool operator()(const CseDesc* dsc1, const CseDesc* dsc2)
+        {
+            GenTree* exp1 = dsc1->tree;
+            GenTree* exp2 = dsc2->tree;
+
+            auto expCost1 = exp1->GetCostSz();
+            auto expCost2 = exp2->GetCostSz();
+
+            if (expCost2 != expCost1)
+            {
+                return expCost2 < expCost1;
+            }
+
+            // Sort the higher Use Counts toward the top
+            if (dsc2->useCount != dsc1->useCount)
+            {
+                return dsc2->useCount < dsc1->useCount;
+            }
+
+            // With the same use count, Sort the lower Def Counts toward the top
+            if (dsc1->defCount != dsc2->defCount)
+            {
+                return dsc1->defCount < dsc2->defCount;
+            }
+
+            // In order to ensure that we have a stable sort, we break ties using the index
+            return dsc1->index < dsc2->index;
+        }
+    };
+
     void SortCandidates()
     {
         /* Create an expression table sorted by decreasing cost */
@@ -2199,11 +2199,11 @@ public:
 
         if (CodeOptKind() == Compiler::SMALL_CODE)
         {
-            jitstd::sort(sortTab, sortTab + m_pCompiler->cseCandidateCount, CseCostCompareSize());
+            jitstd::sort(sortTab, sortTab + m_pCompiler->cseCandidateCount, CostCompareSize());
         }
         else
         {
-            jitstd::sort(sortTab, sortTab + m_pCompiler->cseCandidateCount, CseCostCompareSpeed());
+            jitstd::sort(sortTab, sortTab + m_pCompiler->cseCandidateCount, CostCompareSpeed());
         }
 
 #ifdef DEBUG
