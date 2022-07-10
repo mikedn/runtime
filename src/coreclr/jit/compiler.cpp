@@ -4735,7 +4735,7 @@ void Compiler::compCompileFinish()
         else
         {
             printf(" %3d |", apAssertionCount);
-            printf(" %3d |", optCSEcount);
+            printf(" %3d |", cseCount);
         }
 
         if (info.compPerfScore < 9999.995)

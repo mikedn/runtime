@@ -1930,7 +1930,7 @@ bool Compiler::gtCanSwapOrder(GenTree* firstNode, GenTree* secondNode)
 
     bool canSwap = true;
 
-    if (optValnumCSE_phase)
+    if (csePhase)
     {
         canSwap = cseCanSwapOrder(firstNode, secondNode);
     }
@@ -2953,7 +2953,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
     DONE_OP1_AFTER_COST:
 
         bool bReverseInAssignment = false;
-        if (oper == GT_ASG && (!optValnumCSE_phase || cseCanSwapOrder(op1, op2)))
+        if (oper == GT_ASG && (!csePhase || cseCanSwapOrder(op1, op2)))
         {
             GenTree* op1Val = op1;
 
@@ -6836,7 +6836,7 @@ void Compiler::gtDispNodeHeader(GenTree* tree)
         }
     }
 
-    if (optValnumCSE_phase)
+    if (csePhase)
     {
         if (IsCseIndex(tree->gtCSEnum))
         {
@@ -7227,14 +7227,14 @@ void Compiler::gtGetLclVarNameInfo(unsigned lclNum, const char** ilKindOut, cons
         if (lclNumIsTrueCSE(lclNum))
         {
             ilKind = "cse";
-            ilNum  = lclNum - optCSEstart;
+            ilNum  = lclNum - cseFirstLclNum;
         }
-        else if (lclNum >= optCSEstart)
+        else if (lclNum >= cseFirstLclNum)
         {
             // Currently any new LclVar's introduced after the CSE phase
             // are believed to be created by the "rationalizer" that is what is meant by the "rat" prefix.
             ilKind = "rat";
-            ilNum  = lclNum - (optCSEstart + optCSEcount);
+            ilNum  = lclNum - (cseFirstLclNum + cseCount);
         }
         else
         {
@@ -8830,7 +8830,7 @@ GenTree* Compiler::gtFoldExpr(GenTree* tree)
     // If we're in CSE, it's not safe to perform tree
     // folding given that it can will potentially
     // change considered CSE candidates.
-    if (optValnumCSE_phase)
+    if (csePhase)
     {
         return tree;
     }
@@ -11781,7 +11781,7 @@ void Compiler::gtExtractSideEffList(GenTree*  expr,
     private:
         bool UnmarkCSE(GenTree* node)
         {
-            assert(m_compiler->optValnumCSE_phase);
+            assert(m_compiler->csePhase);
 
             if (m_compiler->cseUnmarkNode(node))
             {

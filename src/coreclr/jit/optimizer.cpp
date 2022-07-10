@@ -37,8 +37,8 @@ void Compiler::optInit()
     optIndirectCallCount = 0;
     optNativeCallCount   = 0;
     apAssertionCount     = 0;
-    optCSEstart          = UINT_MAX;
-    optCSEcount          = 0;
+    cseFirstLclNum       = BAD_VAR_NUM;
+    cseCount             = 0;
 }
 
 //------------------------------------------------------------------------

@@ -5413,15 +5413,14 @@ protected:
 public:
     static const int MIN_CSE_COST = 2;
 
-    CseDesc** optCSEtab;
-
     typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, GenTree*> NodeToNodeMap;
 
     NodeToNodeMap* optCseCheckedBoundMap; // Maps bound nodes to ancestor compares that should be
                                           // re-numbered with the bound to improve range check elimination
 
+    bool cseIsCandidate(GenTree* tree);
     CseDesc* cseGetDesc(unsigned index);
-    bool cseUnmarkNode(GenTree* tree);
+    bool cseUnmarkNode(GenTree* node);
     bool cseCanSwapOrder(GenTree* tree1, GenTree* tree2);
 
 /**************************************************************************
@@ -5431,19 +5430,18 @@ public:
 // String to use for formatting CSE numbers. Note that this is the positive number, e.g., from GET_CSE_INDEX().
 #define FMT_CSE "CSE #%02u"
 
-    bool                 optValnumCSE_phase;   // True when we are executing the optOptimizeValnumCSEs() phase
-    unsigned             optCSECandidateCount; // Count of CSE's candidates
-    unsigned             optCSEstart;          // The first local variable number that is a CSE
-    unsigned             optCSEcount;          // The total count of CSE's introduced.
-    BasicBlock::weight_t optCSEweight;         // The weight of the current block when we are doing PerformCSE
-
-    bool cseIsCandidate(GenTree* tree);
+    bool                 csePhase;          // True when we are executing the optOptimizeValnumCSEs() phase
+    unsigned             cseCandidateCount; // Count of CSE's candidates
+    unsigned             cseFirstLclNum;    // The first local variable number that is a CSE
+    unsigned             cseCount;          // The total count of CSE's introduced.
+    BasicBlock::weight_t cseBlockWeight;    // The weight of the current block when we are doing PerformCSE
+    CseDesc**            cseTable;
 
     // lclNumIsTrueCSE returns true if the LclVar was introduced by the CSE phase of the compiler
     //
     bool lclNumIsTrueCSE(unsigned lclNum) const
     {
-        return ((optCSEcount > 0) && (lclNum >= optCSEstart) && (lclNum < optCSEstart + optCSEcount));
+        return ((cseCount > 0) && (lclNum >= cseFirstLclNum) && (lclNum < cseFirstLclNum + cseCount));
     }
 
     //  lclNumIsCSE returns true if the LclVar should be treated like a CSE with regards to constant prop.

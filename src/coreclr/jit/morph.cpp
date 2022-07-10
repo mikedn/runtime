@@ -9951,7 +9951,7 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
 {
     ALLOCA_CHECK();
     assert(fgGlobalMorph);
-    assert(!optValnumCSE_phase);
+    assert(!csePhase);
 
     GenTree* condExpr = qmark->GetCondition();
     GenTree* thenExpr = qmark->GetThen();
@@ -10446,7 +10446,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
                 if (doMorphModToSubMulDiv)
                 {
-                    assert(!optValnumCSE_phase);
+                    assert(!csePhase);
 
                     tree = fgMorphModToSubMulDiv(tree->AsOp());
                     op1  = tree->AsOp()->gtOp1;
@@ -13278,7 +13278,7 @@ void Compiler::fgMorphClearDebugNodeMorphed(GenTree* tree)
 GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 {
     assert(tree != nullptr);
-    assert(!optValnumCSE_phase);
+    assert(!csePhase);
 
 #ifdef DEBUG
     if (verbose)
@@ -14050,7 +14050,7 @@ bool Compiler::fgMorphBlockStmt(BasicBlock* block, Statement* stmt DEBUGARG(cons
 {
     assert(block != nullptr);
     assert(stmt != nullptr);
-    assert(!optValnumCSE_phase);
+    assert(!csePhase);
 
     // Reset some ambient state
     fgRemoveRestOfBlock = false;

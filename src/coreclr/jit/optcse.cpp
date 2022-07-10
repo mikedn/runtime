@@ -202,7 +202,7 @@ static unsigned genCSEnum2bit(unsigned CSEnum)
 // TODO-MIKE-Review: See if we can update linear order after CSE is done to avoid this.
 bool Compiler::cseCanSwapOrder(GenTree* tree1, GenTree* tree2)
 {
-    assert(optValnumCSE_phase);
+    assert(csePhase);
 
     struct CseDefUse
     {
@@ -211,7 +211,7 @@ bool Compiler::cseCanSwapOrder(GenTree* tree1, GenTree* tree2)
         BitVec       use;
 
         CseDefUse(Compiler* compiler)
-            : traits(compiler->optCSECandidateCount, compiler)
+            : traits(compiler->cseCandidateCount, compiler)
             , def(BitVecOps::MakeEmpty(&traits))
             , use(BitVecOps::MakeEmpty(&traits))
         {
@@ -269,7 +269,7 @@ struct CseDesc
     ssize_t  constDefValue; // When we CSE similar constants, this is the value that we use as the def
     ValueNum constDefVN;    // When we CSE similar constants, this is the VN that we use for the LclVar assignment
 
-    unsigned index; // 1..optCSECandidateCount
+    unsigned index; // 1..cseCandidateCount
 
     bool isSharedConst;
     bool isLiveAcrossCall;
@@ -323,10 +323,10 @@ struct CseDesc
 
 CseDesc* Compiler::cseGetDesc(unsigned index)
 {
-    noway_assert((0 < index) && (index <= optCSECandidateCount));
-    noway_assert(optCSEtab[index - 1]);
+    noway_assert((0 < index) && (index <= cseCandidateCount));
+    noway_assert(cseTable[index - 1]);
 
-    return optCSEtab[index - 1];
+    return cseTable[index - 1];
 }
 
 // When performing CSE we need to
@@ -337,14 +337,14 @@ CseDesc* Compiler::cseGetDesc(unsigned index)
 // thus making CSE defs appear as if they're side effects.
 bool Compiler::cseUnmarkNode(GenTree* node)
 {
-    assert(optValnumCSE_phase);
+    assert(csePhase);
 
     if (!IsCseIndex(node->gtCSEnum))
     {
         return true;
     }
 
-    noway_assert(optCSEweight <= BB_MAX_WEIGHT);
+    noway_assert(cseBlockWeight <= BB_MAX_WEIGHT);
 
     if (IsCseDef(node->gtCSEnum))
     {
@@ -362,13 +362,13 @@ bool Compiler::cseUnmarkNode(GenTree* node)
     {
         desc->useCount -= 1;
 
-        if (desc->useWeight < optCSEweight)
+        if (desc->useWeight < cseBlockWeight)
         {
             desc->useWeight = 0;
         }
         else
         {
-            desc->useWeight -= optCSEweight;
+            desc->useWeight -= cseBlockWeight;
         }
 
         JITDUMP("Updated CSE #%02u use count at [%06u]: %3d\n", index, node->GetID(), desc->useCount);
@@ -484,7 +484,7 @@ public:
 
 void Cse::Stop()
 {
-    if (compiler->optCSECandidateCount == 0)
+    if (compiler->cseCandidateCount == 0)
     {
         return;
     }
@@ -493,7 +493,7 @@ void Cse::Stop()
     CseDesc** ptr;
     size_t    cnt;
 
-    compiler->optCSEtab = new (compiler, CMK_CSE) CseDesc*[compiler->optCSECandidateCount]();
+    compiler->cseTable = new (compiler, CMK_CSE) CseDesc*[compiler->cseCandidateCount]();
 
     for (cnt = hashSize, ptr = hashBuckets; cnt; cnt--, ptr++)
     {
@@ -501,19 +501,19 @@ void Cse::Stop()
         {
             if (dsc->index)
             {
-                noway_assert((unsigned)dsc->index <= compiler->optCSECandidateCount);
-                if (compiler->optCSEtab[dsc->index - 1] == nullptr)
+                noway_assert((unsigned)dsc->index <= compiler->cseCandidateCount);
+                if (compiler->cseTable[dsc->index - 1] == nullptr)
                 {
-                    compiler->optCSEtab[dsc->index - 1] = dsc;
+                    compiler->cseTable[dsc->index - 1] = dsc;
                 }
             }
         }
     }
 
 #ifdef DEBUG
-    for (cnt = 0; cnt < compiler->optCSECandidateCount; cnt++)
+    for (cnt = 0; cnt < compiler->cseCandidateCount; cnt++)
     {
-        noway_assert(compiler->optCSEtab[cnt] != nullptr);
+        noway_assert(compiler->cseTable[cnt] != nullptr);
     }
 #endif
 }
@@ -604,7 +604,7 @@ void Cse::Init()
     INDEBUG(EnsureClearCseNum());
 
 #ifdef DEBUG
-    compiler->optCSEtab = nullptr;
+    compiler->cseTable = nullptr;
 #endif
 
     // This gets set in InitDataFlow
@@ -617,8 +617,8 @@ void Cse::Init()
     hashMaxCountBeforeResize = hashSize * s_optCSEhashBucketSize;
     hashCount                = 0;
 
-    compiler->optCSECandidateCount = 0;
-    doCSE                          = false; // Stays false until we find duplicate CSE tree
+    compiler->cseCandidateCount = 0;
+    doCSE                       = false; // Stays false until we find duplicate CSE tree
 
     // optCseCheckedBoundMap is unused in most functions, allocated only when used
     compiler->optCseCheckedBoundMap = nullptr;
@@ -834,7 +834,7 @@ unsigned Cse::Index(GenTree* tree, Statement* stmt)
     {
         // Not found, create a new entry (unless we have too many already)
 
-        if (compiler->optCSECandidateCount < MAX_CSE_CNT)
+        if (compiler->cseCandidateCount < MAX_CSE_CNT)
         {
             if (hashCount == hashMaxCountBeforeResize)
             {
@@ -888,7 +888,7 @@ unsigned Cse::Index(GenTree* tree, Statement* stmt)
 
         /* Create a new CSE (unless we have the maximum already) */
 
-        if (compiler->optCSECandidateCount == MAX_CSE_CNT)
+        if (compiler->cseCandidateCount == MAX_CSE_CNT)
         {
 #ifdef DEBUG
             if (compiler->verbose)
@@ -902,7 +902,7 @@ unsigned Cse::Index(GenTree* tree, Statement* stmt)
 
         C_ASSERT((signed char)MAX_CSE_CNT == MAX_CSE_CNT);
 
-        unsigned CSEindex = ++compiler->optCSECandidateCount;
+        unsigned CSEindex = ++compiler->cseCandidateCount;
 
         /* Record the new CSE index in the hashDsc */
         hashDsc->index = CSEindex;
@@ -1190,12 +1190,12 @@ void Cse::InitDataFlow()
     //     00 - The CSE is not available
     //     01 - An illegal combination
     //
-    const unsigned bitCount = (compiler->optCSECandidateCount * 2) + 1;
+    const unsigned bitCount = (compiler->cseCandidateCount * 2) + 1;
 
     // Init traits and cseCallKillsMask bitvectors.
     dataFlowTraits = new (compiler->getAllocator(CMK_CSE)) BitVecTraits(bitCount, compiler);
     callKillsMask  = BitVecOps::MakeEmpty(dataFlowTraits);
-    for (unsigned inx = 1; inx <= compiler->optCSECandidateCount; inx++)
+    for (unsigned inx = 1; inx <= compiler->cseCandidateCount; inx++)
     {
         unsigned cseAvailBit = getCSEAvailBit(inx);
 
@@ -1246,9 +1246,9 @@ void Cse::InitDataFlow()
     // We walk the set of CSE candidates and set the bit corresponding to the CSEindex
     // in the block's bbCseGen bitset
     //
-    for (unsigned inx = 0; inx < compiler->optCSECandidateCount; inx++)
+    for (unsigned inx = 0; inx < compiler->cseCandidateCount; inx++)
     {
-        CseDesc*      dsc      = compiler->optCSEtab[inx];
+        CseDesc*      dsc      = compiler->cseTable[inx];
         unsigned      CSEindex = dsc->index;
         CseOccurence* lst      = dsc->treeList;
         noway_assert(lst);
@@ -2187,18 +2187,18 @@ public:
     void SortCandidates()
     {
         /* Create an expression table sorted by decreasing cost */
-        sortTab = new (m_pCompiler, CMK_CSE) CseDesc*[m_pCompiler->optCSECandidateCount];
+        sortTab = new (m_pCompiler, CMK_CSE) CseDesc*[m_pCompiler->cseCandidateCount];
 
-        sortSiz = m_pCompiler->optCSECandidateCount * sizeof(*sortTab);
-        memcpy(sortTab, m_pCompiler->optCSEtab, sortSiz);
+        sortSiz = m_pCompiler->cseCandidateCount * sizeof(*sortTab);
+        memcpy(sortTab, m_pCompiler->cseTable, sortSiz);
 
         if (CodeOptKind() == Compiler::SMALL_CODE)
         {
-            jitstd::sort(sortTab, sortTab + m_pCompiler->optCSECandidateCount, CseCostCompareSize());
+            jitstd::sort(sortTab, sortTab + m_pCompiler->cseCandidateCount, CseCostCompareSize());
         }
         else
         {
-            jitstd::sort(sortTab, sortTab + m_pCompiler->optCSECandidateCount, CseCostCompareSpeed());
+            jitstd::sort(sortTab, sortTab + m_pCompiler->cseCandidateCount, CseCostCompareSpeed());
         }
 
 #ifdef DEBUG
@@ -2206,7 +2206,7 @@ public:
         {
             printf("\nSorted CSE candidates:\n");
             /* Print out the CSE candidates */
-            for (unsigned cnt = 0; cnt < m_pCompiler->optCSECandidateCount; cnt++)
+            for (unsigned cnt = 0; cnt < m_pCompiler->cseCandidateCount; cnt++)
             {
                 CseDesc* dsc  = sortTab[cnt];
                 GenTree* expr = dsc->tree;
@@ -3069,7 +3069,7 @@ public:
 
         // Record that we created a new LclVar for use as a CSE temp
         m_addCSEcount++;
-        m_pCompiler->optCSEcount++;
+        m_pCompiler->cseCount++;
 
         //  Walk all references to this CSE, adding an assignment
         //  to the CSE temp to all defs and changing all refs to
@@ -3236,7 +3236,7 @@ public:
             assert(exp->gtOper != GT_COUNT);
 
             /* Make sure we update the weighted ref count correctly */
-            m_pCompiler->optCSEweight = blk->getBBWeight(m_pCompiler);
+            m_pCompiler->cseBlockWeight = blk->getBBWeight(m_pCompiler);
 
             /* Figure out the actual type of the value */
             var_types expTyp = genActualType(exp->TypeGet());
@@ -3557,7 +3557,7 @@ public:
     void ConsiderCandidates()
     {
         /* Consider each CSE candidate, in order of decreasing cost */
-        unsigned  cnt = m_pCompiler->optCSECandidateCount;
+        unsigned  cnt = m_pCompiler->cseCandidateCount;
         CseDesc** ptr = sortTab;
         for (; (cnt > 0); cnt--, ptr++)
         {
@@ -3668,9 +3668,9 @@ void Cse::Heuristic()
 
 void Cse::Run()
 {
-    compiler->optCSECandidateCount = 0;
-    compiler->optCSEstart          = compiler->lvaCount;
-    compiler->optValnumCSE_phase   = true;
+    compiler->cseCandidateCount = 0;
+    compiler->cseFirstLclNum    = compiler->lvaCount;
+    compiler->csePhase          = true;
 
     Init();
 
@@ -3682,7 +3682,7 @@ void Cse::Run()
         Heuristic();
     }
 
-    compiler->optValnumCSE_phase = false;
+    compiler->csePhase = false;
 }
 
 #ifdef DEBUG
@@ -3725,7 +3725,7 @@ void Cse::DumpDataFlowSet(EXPSET_VALARG_TP set, bool includeBits)
     }
 
     bool first = true;
-    for (unsigned cseIndex = 1; cseIndex <= compiler->optCSECandidateCount; cseIndex++)
+    for (unsigned cseIndex = 1; cseIndex <= compiler->cseCandidateCount; cseIndex++)
     {
         unsigned cseAvailBit          = getCSEAvailBit(cseIndex);
         unsigned cseAvailCrossCallBit = getCSEAvailCrossCallBit(cseIndex);
