@@ -436,10 +436,14 @@ class Cse
 
     Compiler*      compiler;
     ValueNumStore* vnStore;
-    size_t         hashSize;                 // The current size of hashtable
-    size_t         hashCount;                // Number of entries in hashtable
-    size_t         hashMaxCountBeforeResize; // Number of entries before resize
-    CseDesc**      hashBuckets;
+
+    // The current size of hashtable
+    size_t hashSize = s_optCSEhashSizeInitial;
+    // Number of entries in hashtable
+    size_t hashCount = 0;
+    // Number of entries before resize
+    size_t    hashMaxCountBeforeResize = s_optCSEhashSizeInitial * s_optCSEhashBucketSize;
+    CseDesc** hashBuckets;
 
     typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, GenTree*> NodeToNodeMap;
 
@@ -458,21 +462,25 @@ class Cse
     //     00 - The CSE is not available
     //     01 - An illegal combination
     //
-    BitVecTraits* dataFlowTraits;
+    BitVecTraits* dataFlowTraits = nullptr;
 
     EXPSET_TP callKillsMask; // Computed once - A mask that is used to kill available CSEs at callsites
 
-    bool doCSE; // True when we have found a duplicate CSE tree
+    bool doCSE = false; // True when we have found a duplicate CSE tree
 
 public:
     Cse(Compiler* compiler)
-        : compiler(compiler), vnStore(compiler->vnStore), checkedBoundMap(compiler->getAllocator(CMK_CSE))
+        : compiler(compiler)
+        , vnStore(compiler->vnStore)
+        , hashBuckets(new (compiler, CMK_CSE) CseDesc*[s_optCSEhashSizeInitial]())
+        , checkedBoundMap(compiler->getAllocator(CMK_CSE))
     {
+        compiler->cseTable          = nullptr;
+        compiler->cseCandidateCount = 0;
     }
 
     void Run();
 
-    void     Init();
     unsigned Index(GenTree* tree, Statement* stmt);
     bool Locate();
     void InitDataFlow();
@@ -601,33 +609,6 @@ struct CseCostCompareSize
         return dsc1->index < dsc2->index;
     }
 };
-
-/*****************************************************************************
- *
- *  Initialize the Value Number CSE tracking logic.
- */
-
-void Cse::Init()
-{
-    INDEBUG(EnsureClearCseNum());
-
-#ifdef DEBUG
-    compiler->cseTable = nullptr;
-#endif
-
-    // This gets set in InitDataFlow
-    dataFlowTraits = nullptr;
-
-    // Allocate and clear the hash bucket table
-    hashBuckets = new (compiler, CMK_CSE) CseDesc*[s_optCSEhashSizeInitial]();
-
-    hashSize                 = s_optCSEhashSizeInitial;
-    hashMaxCountBeforeResize = hashSize * s_optCSEhashBucketSize;
-    hashCount                = 0;
-
-    compiler->cseCandidateCount = 0;
-    doCSE                       = false; // Stays false until we find duplicate CSE tree
-}
 
 unsigned optCSEKeyToHashIndex(size_t key, size_t optCSEhashSize)
 {
@@ -3670,7 +3651,7 @@ void Cse::Run()
     compiler->cseFirstLclNum    = compiler->lvaCount;
     compiler->csePhase          = true;
 
-    Init();
+    INDEBUG(EnsureClearCseNum());
 
     if (Locate())
     {
