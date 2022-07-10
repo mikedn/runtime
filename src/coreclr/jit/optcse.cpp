@@ -583,21 +583,21 @@ public:
         }
     }
 #endif // DEBUG
-};
 
-unsigned optCSEKeyToHashIndex(size_t key, size_t optCSEhashSize)
-{
-    unsigned hash;
+    static unsigned KeyToHashIndex(size_t key, size_t optCSEhashSize)
+    {
+        unsigned hash;
 
-    hash = (unsigned)key;
+        hash = (unsigned)key;
 #ifdef TARGET_64BIT
-    hash ^= (unsigned)(key >> 32);
+        hash ^= (unsigned)(key >> 32);
 #endif
-    hash *= (unsigned)(optCSEhashSize + 1);
-    hash >>= 7;
+        hash *= (unsigned)(optCSEhashSize + 1);
+        hash >>= 7;
 
-    return hash % optCSEhashSize;
-}
+        return hash % optCSEhashSize;
+    }
+};
 
 //---------------------------------------------------------------------------
 // Index:
@@ -730,7 +730,7 @@ unsigned Cse::Index(GenTree* tree, Statement* stmt)
 
     // Compute the hash value for the expression
 
-    hval = optCSEKeyToHashIndex(key, hashSize);
+    hval = KeyToHashIndex(key, hashSize);
 
     /* Look for a matching index in the hash table */
 
@@ -812,7 +812,7 @@ unsigned Cse::Index(GenTree* tree, Statement* stmt)
                     {
                         CseDesc* nextDsc = dsc->nextInBucket;
 
-                        size_t newHval = optCSEKeyToHashIndex(dsc->hashKey, newOptCSEhashSize);
+                        size_t newHval = KeyToHashIndex(dsc->hashKey, newOptCSEhashSize);
 
                         // Move CseDesc to bucket in enlarged table
                         dsc->nextInBucket      = newOptCSEhash[newHval];
