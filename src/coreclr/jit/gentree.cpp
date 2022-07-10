@@ -11783,9 +11783,9 @@ void Compiler::gtExtractSideEffList(GenTree*  expr,
         {
             assert(m_compiler->optValnumCSE_phase);
 
-            if (m_compiler->optUnmarkCSE(node))
+            if (m_compiler->cseUnmarkNode(node))
             {
-                // The call to optUnmarkCSE(node) should have cleared any CSE info.
+                // The call to cseUnmarkNode(node) should have cleared any CSE info.
                 assert(!IsCseIndex(node->gtCSEnum));
                 return true;
             }

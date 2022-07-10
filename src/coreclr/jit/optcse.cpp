@@ -163,6 +163,62 @@ struct CSEdsc
     }
 };
 
+CSEdsc* Compiler::cseGetDesc(unsigned index)
+{
+    noway_assert((0 < index) && (index <= optCSECandidateCount));
+    noway_assert(optCSEtab[index - 1]);
+
+    return optCSEtab[index - 1];
+}
+
+// When performing CSE we need to
+// - update the CSE use count and weight of other CSE uses that are
+//   present in the subtree
+// - preserve any CSE defs that are present in the subtree
+// This is done as part of side effect extraction (gtExtractSideEffList),
+// thus making CSE defs appear as if they're side effects.
+bool Compiler::cseUnmarkNode(GenTree* node)
+{
+    assert(optValnumCSE_phase);
+
+    if (!IsCseIndex(node->gtCSEnum))
+    {
+        return true;
+    }
+
+    noway_assert(optCSEweight <= BB_MAX_WEIGHT);
+
+    if (IsCseDef(node->gtCSEnum))
+    {
+        return false;
+    }
+
+    unsigned index = GetCseIndex(node->gtCSEnum);
+    node->gtCSEnum = NoCse;
+
+    CSEdsc* desc = cseGetDesc(index);
+
+    noway_assert(desc->csdUseCount > 0);
+
+    if (desc->csdUseCount > 0)
+    {
+        desc->csdUseCount -= 1;
+
+        if (desc->csdUseWtCnt < optCSEweight)
+        {
+            desc->csdUseWtCnt = 0;
+        }
+        else
+        {
+            desc->csdUseWtCnt -= optCSEweight;
+        }
+
+        JITDUMP("Updated CSE #%02u use count at [%06u]: %3d\n", index, node->GetID(), desc->csdUseCount);
+    }
+
+    return true;
+}
+
 constexpr CseIndex ToCseIndex(unsigned index)
 {
     assert(index < INT8_MAX);
@@ -279,101 +335,6 @@ void Cse::optCSEstop()
         noway_assert(compiler->optCSEtab[cnt] != nullptr);
     }
 #endif
-}
-
-/*****************************************************************************
- *
- *  Return the descriptor for the CSE with the given index.
- */
-
-inline CSEdsc* Compiler::optCSEfindDsc(unsigned index)
-{
-    noway_assert(index);
-    noway_assert(index <= optCSECandidateCount);
-    noway_assert(optCSEtab[index - 1]);
-
-    return optCSEtab[index - 1];
-}
-
-//------------------------------------------------------------------------
-// Compiler::optUnmarkCSE
-//
-// Arguments:
-//    tree  - A sub tree that originally was part of a CSE use
-//            that we are currently in the process of removing.
-//
-// Return Value:
-//    Returns true if we can safely remove the 'tree' node.
-//    Returns false if the node is a CSE def that the caller
-//    needs to extract and preserve.
-//
-// Notes:
-//    If 'tree' is a CSE use then we perform an unmark CSE operation
-//    so that the CSE used counts and weight are updated properly.
-//    The only caller for this method is optUnmarkCSEs which is a
-//    tree walker visitor function.  When we return false this method
-//    returns WALK_SKIP_SUBTREES so that we don't visit the remaining
-//    nodes of the CSE def.
-//
-bool Compiler::optUnmarkCSE(GenTree* tree)
-{
-    if (!IsCseIndex(tree->gtCSEnum))
-    {
-        // If this node isn't a CSE use or def we can safely remove this node.
-        //
-        return true;
-    }
-
-    // make sure it's been initialized
-    noway_assert(optCSEweight <= BB_MAX_WEIGHT);
-
-    // Is this a CSE use?
-    if (IsCseUse(tree->gtCSEnum))
-    {
-        unsigned CSEnum = GetCseIndex(tree->gtCSEnum);
-        CSEdsc*  desc   = optCSEfindDsc(CSEnum);
-
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("Unmark CSE use #%02d at ", CSEnum);
-            printTreeID(tree);
-            printf(": %3d -> %3d\n", desc->csdUseCount, desc->csdUseCount - 1);
-        }
-#endif // DEBUG
-
-        // Perform an unmark CSE operation
-
-        // 1. Reduce the nested CSE's 'use' count
-
-        noway_assert(desc->csdUseCount > 0);
-
-        if (desc->csdUseCount > 0)
-        {
-            desc->csdUseCount -= 1;
-
-            if (desc->csdUseWtCnt < optCSEweight)
-            {
-                desc->csdUseWtCnt = 0;
-            }
-            else
-            {
-                desc->csdUseWtCnt -= optCSEweight;
-            }
-        }
-
-        // 2. Unmark the CSE infomation in the node
-
-        tree->gtCSEnum = NoCse;
-        return true;
-    }
-    else
-    {
-        // It is not safe to remove this node, so we will return false
-        // and the caller must add this node to the side effect list
-        //
-        return false;
-    }
 }
 
 /*****************************************************************************
@@ -1473,7 +1434,7 @@ void Cse::optValnumCSE_Availablity()
                     unsigned             CSEnum               = GetCseIndex(tree->gtCSEnum);
                     unsigned             cseAvailBit          = getCSEAvailBit(CSEnum);
                     unsigned             cseAvailCrossCallBit = getCSEAvailCrossCallBit(CSEnum);
-                    CSEdsc*              desc                 = compiler->optCSEfindDsc(CSEnum);
+                    CSEdsc*              desc                 = compiler->cseGetDesc(CSEnum);
                     BasicBlock::weight_t stmw                 = block->getBBWeight(compiler);
 
                     isUse = BitVecOps::IsMember(compiler->cseLivenessTraits, available_cses, cseAvailBit);

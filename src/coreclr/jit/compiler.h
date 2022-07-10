@@ -5439,8 +5439,8 @@ public:
     NodeToNodeMap* optCseCheckedBoundMap; // Maps bound nodes to ancestor compares that should be
                                           // re-numbered with the bound to improve range check elimination
 
-    CSEdsc* optCSEfindDsc(unsigned index);
-    bool optUnmarkCSE(GenTree* tree);
+    CSEdsc* cseGetDesc(unsigned index);
+    bool cseUnmarkNode(GenTree* tree);
 
     bool cseCanSwapOrder(GenTree* tree1, GenTree* tree2);
 
