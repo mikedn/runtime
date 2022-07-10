@@ -480,7 +480,40 @@ public:
         compiler->cseCandidateCount = 0;
     }
 
-    void Run();
+    void Run()
+    {
+        compiler->cseCandidateCount = 0;
+        compiler->cseFirstLclNum    = compiler->lvaCount;
+        compiler->csePhase          = true;
+
+        INDEBUG(EnsureClearCseNum());
+
+        if (Locate())
+        {
+            InitDataFlow();
+            DataFlow();
+            Availablity();
+            Heuristic();
+        }
+
+        compiler->csePhase = false;
+    }
+
+#ifdef DEBUG
+    void EnsureClearCseNum()
+    {
+        for (BasicBlock* block : compiler->Blocks())
+        {
+            for (Statement* stmt : block->Statements())
+            {
+                for (GenTree* node : stmt->Nodes())
+                {
+                    assert(node->gtCSEnum == NoCse);
+                }
+            }
+        }
+    }
+#endif
 
     unsigned Index(GenTree* tree, Statement* stmt);
     bool Locate();
@@ -491,7 +524,6 @@ public:
     void BuildCseTable();
     void UpdateCheckedBoundMap(GenTree* compare);
     void DumpDataFlowSet(EXPSET_VALARG_TP set, bool includeBits = true);
-    INDEBUG(void EnsureClearCseNum();)
 };
 
 void Cse::BuildCseTable()
@@ -3640,40 +3672,7 @@ void Cse::Heuristic()
     heuristic.Cleanup();
 }
 
-void Cse::Run()
-{
-    compiler->cseCandidateCount = 0;
-    compiler->cseFirstLclNum    = compiler->lvaCount;
-    compiler->csePhase          = true;
-
-    INDEBUG(EnsureClearCseNum());
-
-    if (Locate())
-    {
-        InitDataFlow();
-        DataFlow();
-        Availablity();
-        Heuristic();
-    }
-
-    compiler->csePhase = false;
-}
-
 #ifdef DEBUG
-
-void Cse::EnsureClearCseNum()
-{
-    for (BasicBlock* block : compiler->Blocks())
-    {
-        for (Statement* stmt : block->Statements())
-        {
-            for (GenTree* node : stmt->Nodes())
-            {
-                assert(node->gtCSEnum == NoCse);
-            }
-        }
-    }
-}
 
 //------------------------------------------------------------------------
 // optPrintCSEDataFlowSet: Print out one of the CSE dataflow sets bbCseGen, bbCseIn, bbCseOut,
