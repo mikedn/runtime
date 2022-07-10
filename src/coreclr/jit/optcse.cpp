@@ -1848,7 +1848,6 @@ class CseHeuristic
     bool                   hugeFrame;
     Compiler::codeOptimize codeOptKind;
     CseDesc**              sortTab;
-    size_t                 sortSiz;
 #ifdef DEBUG
     CLRRandom m_cseRNG;
     unsigned  m_bias;
@@ -1877,7 +1876,6 @@ public:
         largeFrame       = false;
         hugeFrame        = false;
         sortTab          = nullptr;
-        sortSiz          = 0;
 
         unsigned   frameSize        = 0;
         unsigned   regAvailEstimate = ((CNT_CALLEE_ENREG * 3) + (CNT_CALLEE_TRASH * 2) + 1);
@@ -2188,9 +2186,7 @@ public:
     {
         /* Create an expression table sorted by decreasing cost */
         sortTab = new (m_pCompiler, CMK_CSE) CseDesc*[m_pCompiler->cseCandidateCount];
-
-        sortSiz = m_pCompiler->cseCandidateCount * sizeof(*sortTab);
-        memcpy(sortTab, m_pCompiler->cseTable, sortSiz);
+        memcpy(sortTab, m_pCompiler->cseTable, m_pCompiler->cseCandidateCount * sizeof(*sortTab));
 
         if (codeOptKind == Compiler::SMALL_CODE)
         {
