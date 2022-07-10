@@ -584,18 +584,15 @@ public:
     }
 #endif // DEBUG
 
-    static unsigned KeyToHashIndex(size_t key, size_t optCSEhashSize)
+    static unsigned KeyToHashIndex(size_t key, size_t bucketCount)
     {
-        unsigned hash;
-
-        hash = (unsigned)key;
+        unsigned hash = static_cast<unsigned>(key);
 #ifdef TARGET_64BIT
-        hash ^= (unsigned)(key >> 32);
+        hash ^= static_cast<unsigned>(key >> 32);
 #endif
-        hash *= (unsigned)(optCSEhashSize + 1);
+        hash *= static_cast<unsigned>(bucketCount + 1);
         hash >>= 7;
-
-        return hash % optCSEhashSize;
+        return hash % bucketCount;
     }
 };
 
