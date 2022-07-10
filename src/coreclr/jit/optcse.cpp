@@ -16,6 +16,76 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #pragma hdrstop
 #endif
 
+// The following is the upper limit on how many expressions we'll keep track
+// of for the CSE analysis.
+constexpr unsigned MAX_CSE_CNT = 64;
+
+//-----------------------------------------------------------------------------------------------------------------
+// getCSEnum2bit: Return the normalized index to use in the EXPSET_TP for the CSE with the given CSE index.
+// Each GenTree has a `gtCSEnum` field. Zero is reserved to mean this node is not a CSE, positive values indicate
+// CSE uses, and negative values indicate CSE defs. The caller must pass a non-zero positive value, as from
+// GET_CSE_INDEX().
+//
+static unsigned genCSEnum2bit(unsigned CSEnum)
+{
+    assert((CSEnum > 0) && (CSEnum <= MAX_CSE_CNT));
+    return CSEnum - 1;
+}
+
+// We're using gtSetEvalOrder during CSE to restore the linear order of a statement after
+// performing CSE. gtSetEvalOrder may attempt to swap the order of evaluation of subtrees
+// and that's not possible if we have CSE uses in a subtree that depend on CSE defs in
+// the other subtree.
+// TODO-MIKE-Review: See if we can update linear order after CSE is done to avoid this.
+bool Compiler::cseCanSwapOrder(GenTree* tree1, GenTree* tree2)
+{
+    assert(optValnumCSE_phase);
+
+    struct CseDefUse
+    {
+        BitVecTraits traits;
+        BitVec       def;
+        BitVec       use;
+
+        CseDefUse(Compiler* compiler)
+            : traits(compiler->optCSECandidateCount, compiler)
+            , def(BitVecOps::MakeEmpty(&traits))
+            , use(BitVecOps::MakeEmpty(&traits))
+        {
+        }
+    };
+
+    CseDefUse defUse1(this);
+    CseDefUse defUse2(this);
+
+    auto visitor = [](GenTree** use, Compiler::fgWalkData* walkData) {
+        GenTree*   node = *use;
+        CseDefUse* data = static_cast<CseDefUse*>(walkData->pCallbackData);
+
+        if (IsCseIndex(node->gtCSEnum))
+        {
+            unsigned cseBit = genCSEnum2bit(GetCseIndex(node->gtCSEnum));
+
+            if (IsCseDef(node->gtCSEnum))
+            {
+                BitVecOps::AddElemD(&data->traits, data->def, cseBit);
+            }
+            else
+            {
+                BitVecOps::AddElemD(&data->traits, data->use, cseBit);
+            }
+        }
+
+        return Compiler::WALK_CONTINUE;
+    };
+
+    fgWalkTreePre(&tree1, visitor, &defUse1);
+    fgWalkTreePre(&tree2, visitor, &defUse2);
+
+    return BitVecOps::IsEmptyIntersection(&defUse1.traits, defUse1.def, defUse2.use) &&
+           BitVecOps::IsEmptyIntersection(&defUse1.traits, defUse2.def, defUse1.use);
+}
+
 /* Generic list of nodes - used by the CSE logic */
 
 struct treeStmtLst
@@ -104,26 +174,9 @@ constexpr CseIndex ToCseDefIndex(CseIndex index)
     return static_cast<CseIndex>(-index);
 }
 
-//  The following is the upper limit on how many expressions we'll keep track
-//  of for the CSE analysis.
-//
-constexpr unsigned MAX_CSE_CNT = 64;
-
 constexpr size_t s_optCSEhashSizeInitial  = MAX_CSE_CNT * 2;
 constexpr size_t s_optCSEhashGrowthFactor = 2;
 constexpr size_t s_optCSEhashBucketSize   = 4;
-
-//-----------------------------------------------------------------------------------------------------------------
-// getCSEnum2bit: Return the normalized index to use in the EXPSET_TP for the CSE with the given CSE index.
-// Each GenTree has a `gtCSEnum` field. Zero is reserved to mean this node is not a CSE, positive values indicate
-// CSE uses, and negative values indicate CSE defs. The caller must pass a non-zero positive value, as from
-// GET_CSE_INDEX().
-//
-static unsigned genCSEnum2bit(unsigned CSEnum)
-{
-    assert((CSEnum > 0) && (CSEnum <= MAX_CSE_CNT));
-    return CSEnum - 1;
-}
 
 //-----------------------------------------------------------------------------------------------------------------
 // getCSEAvailBit: Return the bit used by CSE dataflow sets (bbCseGen, etc.) for the availability bit for a CSE.
@@ -321,91 +374,6 @@ bool Compiler::optUnmarkCSE(GenTree* tree)
         //
         return false;
     }
-}
-
-// user defined callback data for the tree walk function optCSE_MaskHelper()
-struct optCSE_MaskData
-{
-    BitVecTraits cseMaskTraits;
-    EXPSET_TP    CSE_defMask;
-    EXPSET_TP    CSE_useMask;
-
-    optCSE_MaskData(Compiler* compiler)
-        : cseMaskTraits(compiler->optCSECandidateCount, compiler)
-        , CSE_defMask(BitVecOps::MakeEmpty(&cseMaskTraits))
-        , CSE_useMask(BitVecOps::MakeEmpty(&cseMaskTraits))
-    {
-    }
-};
-
-Compiler::fgWalkResult optCSE_MaskHelper(GenTree** pTree, Compiler::fgWalkData* walkData)
-{
-    GenTree*         tree      = *pTree;
-    Compiler*        comp      = walkData->compiler;
-    optCSE_MaskData* pUserData = (optCSE_MaskData*)(walkData->pCallbackData);
-
-    if (IsCseIndex(tree->gtCSEnum))
-    {
-        unsigned cseIndex = GetCseIndex(tree->gtCSEnum);
-        // Note that we DO NOT use getCSEAvailBit() here, for the CSE_defMask/CSE_useMask
-        unsigned cseBit = genCSEnum2bit(cseIndex);
-        if (IsCseDef(tree->gtCSEnum))
-        {
-            BitVecOps::AddElemD(&pUserData->cseMaskTraits, pUserData->CSE_defMask, cseBit);
-        }
-        else
-        {
-            BitVecOps::AddElemD(&pUserData->cseMaskTraits, pUserData->CSE_useMask, cseBit);
-        }
-    }
-
-    return Compiler::WALK_CONTINUE;
-}
-
-//------------------------------------------------------------------------
-// optCSE_canSwap: Determine if the execution order of two nodes can be swapped.
-//
-// Arguments:
-//    op1 - The first node
-//    op2 - The second node
-//
-// Return Value:
-//    Return true iff it safe to swap the execution order of 'op1' and 'op2',
-//    considering only the locations of the CSE defs and uses.
-//
-// Assumptions:
-//    'op1' currently occurse before 'op2' in the execution order.
-//
-bool Compiler::optCSE_canSwap(GenTree* op1, GenTree* op2)
-{
-    // op1 and op2 must be non-null.
-    assert(op1 != nullptr);
-    assert(op2 != nullptr);
-
-    bool canSwap = true; // the default result unless proven otherwise.
-
-    optCSE_MaskData op1MaskData(this);
-    optCSE_MaskData op2MaskData(this);
-
-    fgWalkTreePre(&op1, optCSE_MaskHelper, &op1MaskData);
-    fgWalkTreePre(&op2, optCSE_MaskHelper, &op2MaskData);
-
-    // We cannot swap if op1 contains a CSE def that is used by op2
-    if (!BitVecOps::IsEmptyIntersection(&op1MaskData.cseMaskTraits, op1MaskData.CSE_defMask, op2MaskData.CSE_useMask))
-    {
-        canSwap = false;
-    }
-    else
-    {
-        // We also cannot swap if op2 contains a CSE def that is used by op1.
-        if (!BitVecOps::IsEmptyIntersection(&op1MaskData.cseMaskTraits, op2MaskData.CSE_defMask,
-                                            op1MaskData.CSE_useMask))
-        {
-            canSwap = false;
-        }
-    }
-
-    return canSwap;
 }
 
 /*****************************************************************************

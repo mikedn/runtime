@@ -1932,7 +1932,7 @@ bool Compiler::gtCanSwapOrder(GenTree* firstNode, GenTree* secondNode)
 
     if (optValnumCSE_phase)
     {
-        canSwap = optCSE_canSwap(firstNode, secondNode);
+        canSwap = cseCanSwapOrder(firstNode, secondNode);
     }
 
     // We cannot swap in the presence of special side effects such as GT_CATCH_ARG.
@@ -2953,7 +2953,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
     DONE_OP1_AFTER_COST:
 
         bool bReverseInAssignment = false;
-        if (oper == GT_ASG && (!optValnumCSE_phase || optCSE_canSwap(op1, op2)))
+        if (oper == GT_ASG && (!optValnumCSE_phase || cseCanSwapOrder(op1, op2)))
         {
             GenTree* op1Val = op1;
 
