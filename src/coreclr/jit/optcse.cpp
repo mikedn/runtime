@@ -445,7 +445,7 @@ class Cse
 
     // Maps bound nodes to ancestor compares that should be re-numbered
     // with the bound to improve range check elimination.
-    NodeToNodeMap* checkedBoundMap;
+    NodeToNodeMap checkedBoundMap;
 
     // BitVec trait information for computing CSE availability using the CseDataFlow algorithm.
     // Two bits are allocated per CSE candidate to compute CSE availability
@@ -465,7 +465,8 @@ class Cse
     bool doCSE; // True when we have found a duplicate CSE tree
 
 public:
-    Cse(Compiler* compiler) : compiler(compiler), vnStore(compiler->vnStore)
+    Cse(Compiler* compiler)
+        : compiler(compiler), vnStore(compiler->vnStore), checkedBoundMap(compiler->getAllocator(CMK_CSE))
     {
     }
 
@@ -626,9 +627,6 @@ void Cse::Init()
 
     compiler->cseCandidateCount = 0;
     doCSE                       = false; // Stays false until we find duplicate CSE tree
-
-    // checkedBoundMap is unused in most functions, allocated only when used
-    checkedBoundMap = nullptr;
 }
 
 unsigned optCSEKeyToHashIndex(size_t key, size_t optCSEhashSize)
@@ -1166,12 +1164,7 @@ void Cse::UpdateCheckedBoundMap(GenTree* compare)
             // record this in the map so we can update the compare VN if the bound
             // node gets CSEd.
 
-            if (checkedBoundMap == nullptr)
-            {
-                checkedBoundMap = new (compiler->getAllocator(CMK_CSE)) NodeToNodeMap(compiler->getAllocator());
-            }
-
-            checkedBoundMap->Set(bound, compare);
+            checkedBoundMap.Set(bound, compare);
         }
     }
 }
@@ -3325,7 +3318,7 @@ public:
                         }
 
                         GenTree* cmp;
-                        if ((m_cse.checkedBoundMap != nullptr) && (m_cse.checkedBoundMap->Lookup(exp, &cmp)))
+                        if (m_cse.checkedBoundMap.Lookup(exp, &cmp))
                         {
                             // Propagate the new value number to this compare node as well, since
                             // subsequent range check elimination will try to correlate it with
