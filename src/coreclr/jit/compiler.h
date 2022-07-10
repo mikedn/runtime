@@ -72,7 +72,7 @@ struct InitVarDscInfo;     // defined in register_arg_convention.h
 class FgStack;             // defined in fgbasic.cpp
 class Instrumentor;        // defined in fgprofile.cpp
 class SpanningTreeVisitor; // defined in fgprofile.cpp
-class CSE_DataFlow;        // defined in OptCSE.cpp
+class CseDataFlow;        // defined in OptCSE.cpp
 class OptBoolsDsc;         // defined in optimizer.cpp
 #ifdef DEBUG
 struct IndentStack;
@@ -1538,7 +1538,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
 struct HWIntrinsicInfo;
-struct CSEdsc;
+struct CseDesc;
 struct optCSE_MaskData;
 
 enum CallInterf : uint8_t
@@ -1562,8 +1562,8 @@ class Compiler
     friend class Rationalizer;
     friend class Phase;
     friend class Lowering;
-    friend class CSE_DataFlow;
-    friend class CSE_Heuristic;
+    friend class CseDataFlow;
+    friend class CseHeuristic;
     friend class CodeGenInterface;
     friend class CodeGen;
     friend class LclVarDsc;
@@ -5413,10 +5413,10 @@ protected:
 public:
     static const int MIN_CSE_COST = 2;
 
-    // BitVec trait information for computing CSE availability using the CSE_DataFlow algorithm.
+    // BitVec trait information for computing CSE availability using the CseDataFlow algorithm.
     // Two bits are allocated per CSE candidate to compute CSE availability
     // plus an extra bit to handle the initial unvisited case.
-    // (See CSE_DataFlow::EndMerge for an explanation of why this is necessary.)
+    // (See CseDataFlow::EndMerge for an explanation of why this is necessary.)
     //
     // The two bits per CSE candidate have the following meanings:
     //     11 - The CSE is available, and is also available when considering calls as killing availability.
@@ -5431,22 +5431,17 @@ public:
     size_t   optCSEhashSize;                 // The current size of hashtable
     size_t   optCSEhashCount;                // Number of entries in hashtable
     size_t   optCSEhashMaxCountBeforeResize; // Number of entries before resize
-    CSEdsc** optCSEhash;
-    CSEdsc** optCSEtab;
+    CseDesc** optCSEhash;
+    CseDesc** optCSEtab;
 
     typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, GenTree*> NodeToNodeMap;
 
     NodeToNodeMap* optCseCheckedBoundMap; // Maps bound nodes to ancestor compares that should be
                                           // re-numbered with the bound to improve range check elimination
 
-    CSEdsc* cseGetDesc(unsigned index);
+    CseDesc* cseGetDesc(unsigned index);
     bool cseUnmarkNode(GenTree* tree);
-
     bool cseCanSwapOrder(GenTree* tree1, GenTree* tree2);
-
-#ifdef DEBUG
-    void optEnsureClearCSEInfo();
-#endif // DEBUG
 
 /**************************************************************************
  *                   Value Number based CSEs
