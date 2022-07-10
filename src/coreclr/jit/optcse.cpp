@@ -1855,14 +1855,9 @@ class CseHeuristic
 #endif
 
 public:
-    CseHeuristic(Compiler* pCompiler, Cse& cse) : m_pCompiler(pCompiler), m_cse(cse)
+    CseHeuristic(Compiler* pCompiler, Cse& cse)
+        : m_pCompiler(pCompiler), m_cse(cse), codeOptKind(pCompiler->compCodeOpt())
     {
-        codeOptKind = m_pCompiler->compCodeOpt();
-    }
-
-    Compiler::codeOptimize CodeOptKind()
-    {
-        return codeOptKind;
     }
 
     // Perform the Initialization step for our CSE Heuristics
@@ -2066,7 +2061,7 @@ public:
             //
             if ((aggressiveRefCnt == 0) && (enregCount > aggressiveEnregNum))
             {
-                if (CodeOptKind() == Compiler::SMALL_CODE)
+                if (codeOptKind == Compiler::SMALL_CODE)
                 {
                     aggressiveRefCnt = static_cast<BasicBlock::weight_t>(varDsc->GetRefCount());
                 }
@@ -2078,7 +2073,7 @@ public:
             }
             if ((moderateRefCnt == 0) && (enregCount > ((CNT_CALLEE_ENREG * 3) + (CNT_CALLEE_TRASH * 2))))
             {
-                if (CodeOptKind() == Compiler::SMALL_CODE)
+                if (codeOptKind == Compiler::SMALL_CODE)
                 {
                     moderateRefCnt = static_cast<BasicBlock::weight_t>(varDsc->GetRefCount());
                 }
@@ -2197,7 +2192,7 @@ public:
         sortSiz = m_pCompiler->cseCandidateCount * sizeof(*sortTab);
         memcpy(sortTab, m_pCompiler->cseTable, sortSiz);
 
-        if (CodeOptKind() == Compiler::SMALL_CODE)
+        if (codeOptKind == Compiler::SMALL_CODE)
         {
             jitstd::sort(sortTab, sortTab + m_pCompiler->cseCandidateCount, CostCompareSize());
         }
@@ -2220,7 +2215,7 @@ public:
                 BasicBlock::weight_t use;
                 unsigned             cost;
 
-                if (CodeOptKind() == Compiler::SMALL_CODE)
+                if (codeOptKind == Compiler::SMALL_CODE)
                 {
                     def  = dsc->defCount; // def count
                     use  = dsc->useCount; // use count (excluding the implicit uses at defs)
@@ -2393,7 +2388,7 @@ public:
         void InitializeCounts()
         {
             m_Size = Expr()->GetCostSz(); // always the GetCostSz()
-            if (m_context->CodeOptKind() == Compiler::SMALL_CODE)
+            if (m_context->codeOptKind == Compiler::SMALL_CODE)
             {
                 m_Cost     = m_Size;             // the estimated code size
                 m_defCount = m_CseDsc->defCount; // def count
@@ -2650,7 +2645,7 @@ public:
         bool     canEnregister = true;
         unsigned slotCount     = 1;
 
-        if (CodeOptKind() == Compiler::SMALL_CODE)
+        if (codeOptKind == Compiler::SMALL_CODE)
         {
             // Note that when optimizing for SMALL_CODE we set the cse_def_cost/cse_use_cost based
             // upon the code size and we use unweighted ref counts instead of weighted ref counts.
