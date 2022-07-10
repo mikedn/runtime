@@ -2462,8 +2462,65 @@ public:
         return ret;
     }
 
-    bool optConfigDisableCSE2();
-#endif
+    // A Debug only method that allows you to control whether the CSE logic is enabled for
+    // a particular CSE in a method
+    //
+    // If this method returns false then the CSE should be performed.
+    // If the method returns true then the CSE should be skipped.
+    //
+    bool optConfigDisableCSE2()
+    {
+        static unsigned totalCSEcount = 0;
+
+        unsigned jitNoCSE2 = JitConfig.JitNoCSE2();
+
+        totalCSEcount++;
+
+        if (jitNoCSE2 > 0)
+        {
+            if ((jitNoCSE2 & 0xF000000) == 0xF000000)
+            {
+                unsigned totalCSEMask = totalCSEcount & 0xFFF;
+                unsigned bitsZero     = (jitNoCSE2 >> 12) & 0xFFF;
+                unsigned bitsOne      = (jitNoCSE2 >> 0) & 0xFFF;
+
+                if (((totalCSEMask & bitsOne) == bitsOne) && ((~totalCSEMask & bitsZero) == bitsZero))
+                {
+                    if (m_pCompiler->verbose)
+                    {
+                        printf(" Disabled by jitNoCSE2 Ones/Zeros mask\n");
+                    }
+                    return true;
+                }
+            }
+            else if ((jitNoCSE2 & 0xF000000) == 0xE000000)
+            {
+                unsigned totalCSEMask = totalCSEcount & 0xFFF;
+                unsigned disableMask  = jitNoCSE2 & 0xFFF;
+
+                disableMask >>= (totalCSEMask % 12);
+
+                if (disableMask & 1)
+                {
+                    if (m_pCompiler->verbose)
+                    {
+                        printf(" Disabled by jitNoCSE2 rotating disable mask\n");
+                    }
+                    return true;
+                }
+            }
+            else if (jitNoCSE2 <= totalCSEcount)
+            {
+                if (m_pCompiler->verbose)
+                {
+                    printf(" Disabled by jitNoCSE2 > totalCSEcount\n");
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+#endif // DEBUG
 
     // Given a CSE candidate decide whether it passes or fails the profitability heuristic
     // return true if we believe that it is profitable to promote this candidate to a CSE
@@ -3594,68 +3651,6 @@ void Cse::optValnumCSE_Heuristic()
     cse_heuristic.ConsiderCandidates();
     cse_heuristic.Cleanup();
 }
-
-#ifdef DEBUG
-//
-// A Debug only method that allows you to control whether the CSE logic is enabled for
-// a particular CSE in a method
-//
-// If this method returns false then the CSE should be performed.
-// If the method returns true then the CSE should be skipped.
-//
-bool CSE_Heuristic::optConfigDisableCSE2()
-{
-    static unsigned totalCSEcount = 0;
-
-    unsigned jitNoCSE2 = JitConfig.JitNoCSE2();
-
-    totalCSEcount++;
-
-    if (jitNoCSE2 > 0)
-    {
-        if ((jitNoCSE2 & 0xF000000) == 0xF000000)
-        {
-            unsigned totalCSEMask = totalCSEcount & 0xFFF;
-            unsigned bitsZero     = (jitNoCSE2 >> 12) & 0xFFF;
-            unsigned bitsOne      = (jitNoCSE2 >> 0) & 0xFFF;
-
-            if (((totalCSEMask & bitsOne) == bitsOne) && ((~totalCSEMask & bitsZero) == bitsZero))
-            {
-                if (m_pCompiler->verbose)
-                {
-                    printf(" Disabled by jitNoCSE2 Ones/Zeros mask\n");
-                }
-                return true;
-            }
-        }
-        else if ((jitNoCSE2 & 0xF000000) == 0xE000000)
-        {
-            unsigned totalCSEMask = totalCSEcount & 0xFFF;
-            unsigned disableMask  = jitNoCSE2 & 0xFFF;
-
-            disableMask >>= (totalCSEMask % 12);
-
-            if (disableMask & 1)
-            {
-                if (m_pCompiler->verbose)
-                {
-                    printf(" Disabled by jitNoCSE2 rotating disable mask\n");
-                }
-                return true;
-            }
-        }
-        else if (jitNoCSE2 <= totalCSEcount)
-        {
-            if (m_pCompiler->verbose)
-            {
-                printf(" Disabled by jitNoCSE2 > totalCSEcount\n");
-            }
-            return true;
-        }
-    }
-    return false;
-}
-#endif
 
 void Cse::Run()
 {
