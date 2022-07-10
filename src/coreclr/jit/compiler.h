@@ -5413,11 +5413,6 @@ protected:
 public:
     static const int MIN_CSE_COST = 2;
 
-    typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, GenTree*> NodeToNodeMap;
-
-    NodeToNodeMap* optCseCheckedBoundMap; // Maps bound nodes to ancestor compares that should be
-                                          // re-numbered with the bound to improve range check elimination
-
     bool cseIsCandidate(GenTree* tree);
     CseDesc* cseGetDesc(unsigned index);
     bool cseUnmarkNode(GenTree* node);

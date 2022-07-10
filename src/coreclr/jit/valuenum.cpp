@@ -5791,7 +5791,7 @@ bool ValueNumStore::IsVNCheckedBound(ValueNum vn)
         // Even if we haven't seen this VN in a bounds check, if it is an array length
         // VN then consider it a checked bound VN.  This facilitates better bounds check
         // removal by ensuring that compares against array lengths get put in the
-        // optCseCheckedBoundMap; such an array length might get CSEd with one that was
+        // Cse::checkedBoundMap; such an array length might get CSEd with one that was
         // directly used in a bounds check, and having the map entry will let us update
         // the compare's VN so that OptimizeRangeChecks can recognize such compares.
         return true;

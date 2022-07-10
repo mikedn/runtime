@@ -432,6 +432,7 @@ static size_t Decode_Shared_Const_CSE_Value(size_t enckey)
 class Cse
 {
     friend class CseDataFlow;
+    friend class CseHeuristic;
 
     Compiler*      compiler;
     ValueNumStore* vnStore;
@@ -439,6 +440,12 @@ class Cse
     size_t         hashCount;                // Number of entries in hashtable
     size_t         hashMaxCountBeforeResize; // Number of entries before resize
     CseDesc**      hashBuckets;
+
+    typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, GenTree*> NodeToNodeMap;
+
+    // Maps bound nodes to ancestor compares that should be re-numbered
+    // with the bound to improve range check elimination.
+    NodeToNodeMap* checkedBoundMap;
 
     // BitVec trait information for computing CSE availability using the CseDataFlow algorithm.
     // Two bits are allocated per CSE candidate to compute CSE availability
@@ -620,8 +627,8 @@ void Cse::Init()
     compiler->cseCandidateCount = 0;
     doCSE                       = false; // Stays false until we find duplicate CSE tree
 
-    // optCseCheckedBoundMap is unused in most functions, allocated only when used
-    compiler->optCseCheckedBoundMap = nullptr;
+    // checkedBoundMap is unused in most functions, allocated only when used
+    checkedBoundMap = nullptr;
 }
 
 unsigned optCSEKeyToHashIndex(size_t key, size_t optCSEhashSize)
@@ -1159,14 +1166,12 @@ void Cse::UpdateCheckedBoundMap(GenTree* compare)
             // record this in the map so we can update the compare VN if the bound
             // node gets CSEd.
 
-            if (compiler->optCseCheckedBoundMap == nullptr)
+            if (checkedBoundMap == nullptr)
             {
-                // Allocate map on first use.
-                compiler->optCseCheckedBoundMap =
-                    new (compiler->getAllocator(CMK_CSE)) Compiler::NodeToNodeMap(compiler->getAllocator());
+                checkedBoundMap = new (compiler->getAllocator(CMK_CSE)) NodeToNodeMap(compiler->getAllocator());
             }
 
-            compiler->optCseCheckedBoundMap->Set(bound, compare);
+            checkedBoundMap->Set(bound, compare);
         }
     }
 }
@@ -1910,6 +1915,7 @@ void Cse::Availablity()
 class CseHeuristic
 {
     Compiler* m_pCompiler;
+    Cse&      m_cse;
     unsigned  m_addCSEcount;
 
     BasicBlock::weight_t   aggressiveRefCnt;
@@ -1926,7 +1932,7 @@ class CseHeuristic
 #endif
 
 public:
-    CseHeuristic(Compiler* pCompiler) : m_pCompiler(pCompiler)
+    CseHeuristic(Compiler* pCompiler, Cse& cse) : m_pCompiler(pCompiler), m_cse(cse)
     {
         codeOptKind = m_pCompiler->compCodeOpt();
     }
@@ -3319,8 +3325,7 @@ public:
                         }
 
                         GenTree* cmp;
-                        if ((m_pCompiler->optCseCheckedBoundMap != nullptr) &&
-                            (m_pCompiler->optCseCheckedBoundMap->Lookup(exp, &cmp)))
+                        if ((m_cse.checkedBoundMap != nullptr) && (m_cse.checkedBoundMap->Lookup(exp, &cmp)))
                         {
                             // Propagate the new value number to this compare node as well, since
                             // subsequent range check elimination will try to correlate it with
@@ -3658,12 +3663,12 @@ void Cse::Heuristic()
     }
 #endif // DEBUG
 
-    CseHeuristic cse_heuristic(compiler);
+    CseHeuristic heuristic(compiler, *this);
 
-    cse_heuristic.Initialize();
-    cse_heuristic.SortCandidates();
-    cse_heuristic.ConsiderCandidates();
-    cse_heuristic.Cleanup();
+    heuristic.Initialize();
+    heuristic.SortCandidates();
+    heuristic.ConsiderCandidates();
+    heuristic.Cleanup();
 }
 
 void Cse::Run()
