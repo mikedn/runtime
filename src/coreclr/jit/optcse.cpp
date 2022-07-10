@@ -478,13 +478,12 @@ public:
     {
         compiler->cseTable          = nullptr;
         compiler->cseCandidateCount = 0;
+        compiler->cseFirstLclNum    = compiler->lvaCount;
     }
 
     void Run()
     {
-        compiler->cseCandidateCount = 0;
-        compiler->cseFirstLclNum    = compiler->lvaCount;
-        compiler->csePhase          = true;
+        compiler->csePhase = true;
 
         INDEBUG(EnsureClearCseNum());
 
