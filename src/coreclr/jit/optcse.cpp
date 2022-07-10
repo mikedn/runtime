@@ -388,10 +388,6 @@ constexpr CseIndex ToCseDefIndex(CseIndex index)
     return static_cast<CseIndex>(-index);
 }
 
-constexpr size_t s_optCSEhashSizeInitial  = MAX_CSE_CNT * 2;
-constexpr size_t s_optCSEhashGrowthFactor = 2;
-constexpr size_t s_optCSEhashBucketSize   = 4;
-
 //-----------------------------------------------------------------------------------------------------------------
 // getCSEAvailBit: Return the bit used by CSE dataflow sets (bbCseGen, etc.) for the availability bit for a CSE.
 //
@@ -431,6 +427,10 @@ static size_t Decode_Shared_Const_CSE_Value(size_t enckey)
 
 class Cse
 {
+    static constexpr size_t HashSizeInitial  = MAX_CSE_CNT * 2;
+    static constexpr size_t HashGrowthFactor = 2;
+    static constexpr size_t HashBucketSize   = 4;
+
     friend class CseDataFlow;
     friend class CseHeuristic;
 
@@ -438,11 +438,11 @@ class Cse
     ValueNumStore* vnStore;
 
     // The current size of hashtable
-    size_t hashSize = s_optCSEhashSizeInitial;
+    size_t hashSize = HashSizeInitial;
     // Number of entries in hashtable
     size_t hashCount = 0;
     // Number of entries before resize
-    size_t    hashMaxCountBeforeResize = s_optCSEhashSizeInitial * s_optCSEhashBucketSize;
+    size_t    hashMaxCountBeforeResize = HashSizeInitial * HashBucketSize;
     CseDesc** hashBuckets;
 
     typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, GenTree*> NodeToNodeMap;
@@ -472,7 +472,7 @@ public:
     Cse(Compiler* compiler)
         : compiler(compiler)
         , vnStore(compiler->vnStore)
-        , hashBuckets(new (compiler, CMK_CSE) CseDesc*[s_optCSEhashSizeInitial]())
+        , hashBuckets(new (compiler, CMK_CSE) CseDesc*[hashSize]())
         , checkedBoundMap(compiler->getAllocator(CMK_CSE))
         , dataFlowTraits(0, compiler)
     {
@@ -851,7 +851,7 @@ unsigned Cse::Index(GenTree* tree, Statement* stmt)
         {
             if (hashCount == hashMaxCountBeforeResize)
             {
-                size_t    newOptCSEhashSize = hashSize * s_optCSEhashGrowthFactor;
+                size_t    newOptCSEhashSize = hashSize * HashGrowthFactor;
                 CseDesc** newOptCSEhash     = new (compiler, CMK_CSE) CseDesc*[newOptCSEhashSize]();
 
                 // Iterate through each existing entry, moving to the new table
@@ -876,7 +876,7 @@ unsigned Cse::Index(GenTree* tree, Statement* stmt)
 
                 hashBuckets              = newOptCSEhash;
                 hashSize                 = newOptCSEhashSize;
-                hashMaxCountBeforeResize = hashMaxCountBeforeResize * s_optCSEhashGrowthFactor;
+                hashMaxCountBeforeResize = hashMaxCountBeforeResize * HashGrowthFactor;
             }
 
             ++hashCount;
