@@ -3671,8 +3671,6 @@ void Cse::EnsureClearCseNum()
 {
     for (BasicBlock* const block : compiler->Blocks())
     {
-        assert((block->bbFlags & BBF_MARKED) == 0);
-
         for (Statement* const stmt : block->NonPhiStatements())
         {
             for (GenTree* tree = stmt->GetRootNode(); tree; tree = tree->gtPrev)
