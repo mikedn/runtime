@@ -558,7 +558,31 @@ public:
     void Availablity();
     void Heuristic();
     void UpdateCheckedBoundMap(GenTree* compare);
-    void DumpDataFlowSet(EXPSET_VALARG_TP set, bool includeBits = true);
+
+#ifdef DEBUG
+    void DumpDataFlowSet(EXPSET_VALARG_TP set, bool includeBits = true)
+    {
+        if (includeBits)
+        {
+            printf("%s ", genES2str(&dataFlowTraits, set));
+        }
+
+        const char* prefix = "";
+        for (unsigned i = 1; i <= compiler->cseCandidateCount; i++)
+        {
+            unsigned availBit          = getCSEAvailBit(i);
+            unsigned availCrossCallBit = getCSEAvailCrossCallBit(i);
+
+            if (BitVecOps::IsMember(&dataFlowTraits, set, availBit))
+            {
+                const bool isAvailCrossCall = BitVecOps::IsMember(&dataFlowTraits, set, availCrossCallBit);
+
+                printf("%s" FMT_CSE "%s", prefix, i, isAvailCrossCall ? ".c" : "");
+                prefix = ", ";
+            }
+        }
+    }
+#endif // DEBUG
 };
 
 unsigned optCSEKeyToHashIndex(size_t key, size_t optCSEhashSize)
@@ -3662,44 +3686,6 @@ void Cse::Heuristic()
     heuristic.ConsiderCandidates();
     heuristic.Cleanup();
 }
-
-#ifdef DEBUG
-
-//------------------------------------------------------------------------
-// optPrintCSEDataFlowSet: Print out one of the CSE dataflow sets bbCseGen, bbCseIn, bbCseOut,
-// interpreting the bits in a more useful way for the dump.
-//
-// Arguments:
-//    set - One of the dataflow sets to display
-//    includeBits    - Display the actual bits of the set as well
-//
-void Cse::DumpDataFlowSet(EXPSET_VALARG_TP set, bool includeBits)
-{
-    if (includeBits)
-    {
-        printf("%s ", genES2str(&dataFlowTraits, set));
-    }
-
-    bool first = true;
-    for (unsigned cseIndex = 1; cseIndex <= compiler->cseCandidateCount; cseIndex++)
-    {
-        unsigned cseAvailBit          = getCSEAvailBit(cseIndex);
-        unsigned cseAvailCrossCallBit = getCSEAvailCrossCallBit(cseIndex);
-
-        if (BitVecOps::IsMember(&dataFlowTraits, set, cseAvailBit))
-        {
-            if (!first)
-            {
-                printf(", ");
-            }
-            const bool isAvailCrossCall = BitVecOps::IsMember(&dataFlowTraits, set, cseAvailCrossCallBit);
-            printf(FMT_CSE "%s", cseIndex, isAvailCrossCall ? ".c" : "");
-            first = false;
-        }
-    }
-}
-
-#endif // DEBUG
 
 void Compiler::cseMain()
 {
