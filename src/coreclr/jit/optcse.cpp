@@ -514,53 +514,52 @@ public:
     }
 #endif
 
+    void BuildCseTable()
+    {
+        unsigned candidateCount = compiler->cseCandidateCount;
+
+        if (candidateCount == 0)
+        {
+            return;
+        }
+
+        CseDesc** table = new (compiler, CMK_CSE) CseDesc*[candidateCount]();
+
+        for (size_t i = 0; i != hashSize; i++)
+        {
+            for (CseDesc* desc = hashBuckets[i]; desc != nullptr; desc = desc->nextInBucket)
+            {
+                if (desc->index != 0)
+                {
+                    noway_assert(desc->index <= candidateCount);
+
+                    if (table[desc->index - 1] == nullptr)
+                    {
+                        table[desc->index - 1] = desc;
+                    }
+                }
+            }
+        }
+
+#ifdef DEBUG
+        for (unsigned i = 0; i < candidateCount; i++)
+        {
+            noway_assert(table[i] != nullptr);
+        }
+#endif
+
+        compiler->cseTable = table;
+    }
+
     unsigned Index(GenTree* tree, Statement* stmt);
     bool Locate();
     void InitDataFlow();
     void DataFlow();
     void Availablity();
     void Heuristic();
-    void BuildCseTable();
     void UpdateCheckedBoundMap(GenTree* compare);
     void DumpDataFlowSet(EXPSET_VALARG_TP set, bool includeBits = true);
 };
-
-void Cse::BuildCseTable()
-{
-    unsigned candidateCount = compiler->cseCandidateCount;
-
-    if (candidateCount == 0)
-    {
-        return;
-    }
-
-    CseDesc** table = new (compiler, CMK_CSE) CseDesc*[candidateCount]();
-
-    for (size_t i = 0; i != hashSize; i++)
-    {
-        for (CseDesc* desc = hashBuckets[i]; desc != nullptr; desc = desc->nextInBucket)
-        {
-            if (desc->index != 0)
-            {
-                noway_assert(desc->index <= candidateCount);
-
-                if (table[desc->index - 1] == nullptr)
-                {
-                    table[desc->index - 1] = desc;
-                }
-            }
-        }
-    }
-
-#ifdef DEBUG
-    for (unsigned i = 0; i < candidateCount; i++)
-    {
-        noway_assert(table[i] != nullptr);
-    }
-#endif
-
-    compiler->cseTable = table;
-}
 
 /*****************************************************************************
  *
