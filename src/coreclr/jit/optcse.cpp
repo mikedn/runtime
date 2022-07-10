@@ -3654,13 +3654,6 @@ public:
             }
         }
     }
-
-    // Perform the necessary cleanup after our CSE heuristics have run
-    //
-    void Cleanup()
-    {
-        // Nothing to do, currently.
-    }
 };
 
 /*****************************************************************************
@@ -3684,7 +3677,6 @@ void Cse::Heuristic()
     heuristic.Initialize();
     heuristic.SortCandidates();
     heuristic.ConsiderCandidates();
-    heuristic.Cleanup();
 }
 
 void Compiler::cseMain()
