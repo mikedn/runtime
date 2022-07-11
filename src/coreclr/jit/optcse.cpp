@@ -2012,8 +2012,7 @@ public:
     // and needs to be reworked for the Value Number based implementation.
     class Candidate
     {
-        CseHeuristic* m_context;
-        CseDesc*      m_CseDsc;
+        CseDesc* m_CseDsc;
 
         unsigned             m_cseIndex;
         BasicBlock::weight_t m_defCount;
@@ -2046,9 +2045,8 @@ public:
         bool m_StressCSE;
 
     public:
-        Candidate(CseHeuristic* context, CseDesc* cseDsc)
-            : m_context(context)
-            , m_CseDsc(cseDsc)
+        Candidate(Compiler::codeOptimize codeOptKind, CseDesc* cseDsc)
+            : m_CseDsc(cseDsc)
             , m_cseIndex(m_CseDsc->index)
             , m_defCount(0)
             , m_useCount(0)
@@ -2061,7 +2059,7 @@ public:
         {
             m_Size = Expr()->GetCostSz();
 
-            if (m_context->codeOptKind == Compiler::SMALL_CODE)
+            if (codeOptKind == Compiler::SMALL_CODE)
             {
                 m_Cost     = m_Size;
                 m_defCount = m_CseDsc->defCount;
@@ -3183,7 +3181,7 @@ public:
                 continue;
             }
 
-            Candidate candidate(this, dsc);
+            Candidate candidate(codeOptKind, dsc);
 
             if (candidate.UseCount() == 0)
             {
