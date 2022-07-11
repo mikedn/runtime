@@ -174,16 +174,6 @@ bool Compiler::cseIsCandidate(GenTree* node)
 // of for the CSE analysis.
 constexpr unsigned MAX_CSE_CNT = 64;
 
-// Return the normalized index to use in the EXPSET_TP for the CSE with the given CSE index.
-// Each GenTree has a `gtCSEnum` field. Zero is reserved to mean this node is not a CSE,
-// positive values indicate CSE uses, and negative values indicate CSE defs. The caller must
-// pass a non-zero positive value, as from GetCseIndex().
-static unsigned genCSEnum2bit(unsigned CSEnum)
-{
-    assert((CSEnum > 0) && (CSEnum <= MAX_CSE_CNT));
-    return CSEnum - 1;
-}
-
 // We're using gtSetEvalOrder during CSE to restore the linear order of a statement after
 // performing CSE. gtSetEvalOrder may attempt to swap the order of evaluation of subtrees
 // and that's not possible if we have CSE uses in a subtree that depend on CSE defs in
@@ -216,15 +206,15 @@ bool Compiler::cseCanSwapOrder(GenTree* tree1, GenTree* tree2)
 
         if (IsCseIndex(node->gtCSEnum))
         {
-            unsigned cseBit = genCSEnum2bit(GetCseIndex(node->gtCSEnum));
+            unsigned index = GetCseZeroIndex(node->gtCSEnum);
 
             if (IsCseDef(node->gtCSEnum))
             {
-                BitVecOps::AddElemD(&data->traits, data->def, cseBit);
+                BitVecOps::AddElemD(&data->traits, data->def, index);
             }
             else
             {
-                BitVecOps::AddElemD(&data->traits, data->use, cseBit);
+                BitVecOps::AddElemD(&data->traits, data->use, index);
             }
         }
 
@@ -380,7 +370,9 @@ constexpr CseIndex ToCseDefIndex(CseIndex index)
 // Return the bit used by CSE dataflow sets (bbCseGen, etc.) for the availability bit for a CSE.
 static unsigned getCSEAvailBit(unsigned CSEnum)
 {
-    return genCSEnum2bit(CSEnum) * 2;
+    assert((CSEnum > 0) && (CSEnum <= MAX_CSE_CNT));
+
+    return (CSEnum - 1) * 2;
 }
 
 // Return the bit used by CSE dataflow sets (bbCseGen, etc.) for the availability bit

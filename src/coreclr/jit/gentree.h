@@ -722,6 +722,12 @@ constexpr unsigned GetCseIndex(CseIndex index)
     return index > 0 ? index : -index;
 }
 
+constexpr unsigned GetCseZeroIndex(CseIndex index)
+{
+    assert(index != 0);
+    return (index > 0 ? index : -index) - 1;
+}
+
 #define MAX_COST UCHAR_MAX
 #define IND_COST_EX 3 // execution cost for an indirection
 
