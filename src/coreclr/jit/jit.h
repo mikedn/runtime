@@ -326,8 +326,6 @@ typedef ptrdiff_t ssize_t;
 
 /*****************************************************************************/
 
-#define CSE_INTO_HANDLERS 0
-
 #define ASSERTION_PROP 1 // Enable value/assertion propagation
 
 #define LOCAL_ASSERTION_PROP 1 // Enable local assertion propagation

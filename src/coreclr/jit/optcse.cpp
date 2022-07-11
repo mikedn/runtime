@@ -1075,12 +1075,11 @@ public:
             {
                 initToZero = true;
             }
-#if !CSE_INTO_HANDLERS
+            // TODO-CQ: Add CSE for handler blocks.
             else if (compiler->bbIsHandlerBeg(block))
             {
                 initToZero = true;
             }
-#endif
 
             if (initToZero)
             {
@@ -1225,7 +1224,7 @@ public:
         // It means we can propagate only CSE that are valid for the whole try region.
         void MergeHandler(BasicBlock* block, BasicBlock* firstTryBlock, BasicBlock* lastTryBlock)
         {
-            // TODO CQ: add CSE for handler blocks, CSE_INTO_HANDLERS should be defined.
+            // TODO-CQ: Add CSE for handler blocks.
         }
 
         // At the end of the merge store results of the dataflow equations, in a postmerge state.
