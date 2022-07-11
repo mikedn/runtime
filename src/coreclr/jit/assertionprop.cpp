@@ -3514,7 +3514,7 @@ private:
                     }
 
                     // Don't undo constant CSEs.
-                    if (m_compiler->lclNumIsCSE(tree->AsLclVar()->GetLclNum()))
+                    if (m_compiler->lvaGetDesc(tree->AsLclVar())->lvIsCSE)
                     {
                         return Compiler::WALK_CONTINUE;
                     }

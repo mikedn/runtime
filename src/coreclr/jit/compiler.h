@@ -5439,13 +5439,6 @@ public:
     }
 #endif
 
-    //  lclNumIsCSE returns true if the LclVar should be treated like a CSE with regards to constant prop.
-    //
-    bool lclNumIsCSE(unsigned lclNum) const
-    {
-        return lvaTable[lclNum].lvIsCSE;
-    }
-
     void cseMain();
 
 public:

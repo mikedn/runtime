@@ -11035,47 +11035,45 @@ DONE_MORPHING_CHILDREN:
                         goto SKIP;
                     }
 
-                    /* The right side of the comma must be a LCL_VAR temp */
-                    if (lcl->gtOper != GT_LCL_VAR)
+                    // The right side of the comma must be a LCL_VAR temp
+                    if (!lcl->OperIs(GT_LCL_VAR))
                     {
                         goto SKIP;
                     }
 
-                    unsigned lclNum = lcl->AsLclVarCommon()->GetLclNum();
-                    noway_assert(lclNum < lvaCount);
+                    LclVarDsc* lclVar = lvaGetDesc(lcl->AsLclVar());
 
-                    /* If the LCL_VAR is not a temp then bail, a temp has a single def */
-                    if (!lvaTable[lclNum].lvIsTemp)
+                    // If the LCL_VAR is not a temp then bail, a temp has a single def
+                    if (!lclVar->lvIsTemp)
                     {
                         goto SKIP;
                     }
 
-                    /* If the LCL_VAR is a CSE temp then bail, it could have multiple defs/uses */
-                    // Fix 383856 X86/ARM ILGEN
-                    if (lclNumIsCSE(lclNum))
+                    // If the LCL_VAR is a CSE temp then bail, it could have multiple defs/uses
+                    if (lclVar->lvIsCSE)
                     {
                         goto SKIP;
                     }
 
-                    /* We also must be assigning the result of a RELOP */
+                    // We also must be assigning the result of a RELOP
                     if (asg->AsOp()->gtOp1->gtOper != GT_LCL_VAR)
                     {
                         goto SKIP;
                     }
 
-                    /* Both of the LCL_VAR must match */
-                    if (asg->AsOp()->gtOp1->AsLclVarCommon()->GetLclNum() != lclNum)
+                    // Both of the LCL_VAR must match
+                    if (asg->AsOp()->gtOp1->AsLclVar()->GetLclNum() != lcl->AsLclVar()->GetLclNum())
                     {
                         goto SKIP;
                     }
 
-                    /* If right side of asg is not a RELOP then skip */
+                    // If right side of asg is not a RELOP then skip
                     if (!asg->AsOp()->gtOp2->OperIsCompare())
                     {
                         goto SKIP;
                     }
 
-                    /* Set op1 to the right side of asg, (i.e. the RELOP) */
+                    // Set op1 to the right side of asg, (i.e. the RELOP)
                     op1 = asg->AsOp()->gtOp2;
 
                     DEBUG_DESTROY_NODE(asg->AsOp()->gtOp1);
