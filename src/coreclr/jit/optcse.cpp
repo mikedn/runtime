@@ -170,10 +170,6 @@ bool Compiler::cseIsCandidate(GenTree* node)
     }
 }
 
-// The following is the upper limit on how many expressions we'll keep track
-// of for the CSE analysis.
-constexpr unsigned MAX_CSE_CNT = 64;
-
 // We're using gtSetEvalOrder during CSE to restore the linear order of a statement after
 // performing CSE. gtSetEvalOrder may attempt to swap the order of evaluation of subtrees
 // and that's not possible if we have CSE uses in a subtree that depend on CSE defs in
@@ -356,52 +352,12 @@ bool Compiler::cseUnmarkNode(GenTree* node)
     return true;
 }
 
-constexpr CseIndex ToCseIndex(unsigned index)
-{
-    assert(index < INT8_MAX);
-    return static_cast<CseIndex>(index);
-}
-
-constexpr CseIndex ToCseDefIndex(CseIndex index)
-{
-    return static_cast<CseIndex>(-index);
-}
-
-// Return the bit used by CSE dataflow sets (bbCseGen, etc.) for the availability bit for a CSE.
-static unsigned getCSEAvailBit(unsigned CSEnum)
-{
-    assert((CSEnum > 0) && (CSEnum <= MAX_CSE_CNT));
-
-    return (CSEnum - 1) * 2;
-}
-
-// Return the bit used by CSE dataflow sets (bbCseGen, etc.) for the availability bit
-// for a CSE considering calls as killing availability bit (see description above).
-static unsigned getCSEAvailCrossCallBit(unsigned CSEnum)
-{
-    return getCSEAvailBit(CSEnum) + 1;
-}
-
-static bool Is_Shared_Const_CSE(size_t key)
-{
-    return ((key & TARGET_SIGN_BIT) != 0);
-}
-
-static size_t Encode_Shared_Const_CSE_Value(size_t key)
-{
-    return TARGET_SIGN_BIT | (key >> CSE_CONST_SHARED_LOW_BITS);
-}
-
-#ifdef DEBUG
-static size_t Decode_Shared_Const_CSE_Value(size_t enckey)
-{
-    assert(Is_Shared_Const_CSE(enckey));
-    return (enckey & ~TARGET_SIGN_BIT) << CSE_CONST_SHARED_LOW_BITS;
-}
-#endif
-
 class Cse
 {
+    // The following is the upper limit on how many expressions we'll keep track
+    // of for the CSE analysis.
+    static constexpr unsigned MAX_CSE_CNT = 64;
+
     static constexpr size_t HashSizeInitial  = MAX_CSE_CNT * 2;
     static constexpr size_t HashGrowthFactor = 2;
     static constexpr size_t HashBucketSize   = 4;
@@ -575,6 +531,50 @@ public:
         }
     }
 #endif // DEBUG
+
+    static CseIndex ToCseIndex(unsigned index)
+    {
+        assert(index < INT8_MAX);
+        return static_cast<CseIndex>(index);
+    }
+
+    static CseIndex ToCseDefIndex(CseIndex index)
+    {
+        return static_cast<CseIndex>(-index);
+    }
+
+    // Return the bit used by CSE dataflow sets (bbCseGen, etc.) for the availability bit for a CSE.
+    static unsigned getCSEAvailBit(unsigned CSEnum)
+    {
+        assert((CSEnum > 0) && (CSEnum <= MAX_CSE_CNT));
+
+        return (CSEnum - 1) * 2;
+    }
+
+    // Return the bit used by CSE dataflow sets (bbCseGen, etc.) for the availability bit
+    // for a CSE considering calls as killing availability bit (see description above).
+    static unsigned getCSEAvailCrossCallBit(unsigned CSEnum)
+    {
+        return getCSEAvailBit(CSEnum) + 1;
+    }
+
+    static bool Is_Shared_Const_CSE(size_t key)
+    {
+        return ((key & TARGET_SIGN_BIT) != 0);
+    }
+
+    static size_t Encode_Shared_Const_CSE_Value(size_t key)
+    {
+        return TARGET_SIGN_BIT | (key >> CSE_CONST_SHARED_LOW_BITS);
+    }
+
+#ifdef DEBUG
+    static size_t Decode_Shared_Const_CSE_Value(size_t enckey)
+    {
+        assert(Is_Shared_Const_CSE(enckey));
+        return (enckey & ~TARGET_SIGN_BIT) << CSE_CONST_SHARED_LOW_BITS;
+    }
+#endif
 
     static unsigned KeyToHashIndex(size_t key, size_t bucketCount)
     {
