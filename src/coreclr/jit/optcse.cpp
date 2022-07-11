@@ -1668,9 +1668,8 @@ class CseHeuristic
     // count of the number of predicted enregistered variables
     unsigned enregCount = 0;
 
-    bool      largeFrame = false;
-    bool      hugeFrame  = false;
-    CseDesc** sortTab    = nullptr;
+    bool largeFrame = false;
+    bool hugeFrame  = false;
 #ifdef DEBUG
     CLRRandom m_cseRNG;
     unsigned  m_bias;
@@ -1967,31 +1966,34 @@ public:
         }
     };
 
-    void SortCandidates()
+    CseDesc** SortCandidates()
     {
-        sortTab = new (m_pCompiler, CMK_CSE) CseDesc*[m_pCompiler->cseCandidateCount];
-        memcpy(sortTab, m_pCompiler->cseTable, m_pCompiler->cseCandidateCount * sizeof(*sortTab));
+        size_t    count  = m_pCompiler->cseCandidateCount;
+        CseDesc** sorted = new (m_pCompiler, CMK_CSE) CseDesc*[count];
+        memcpy(sorted, m_pCompiler->cseTable, count * sizeof(*sorted));
 
         if (codeOptKind == Compiler::SMALL_CODE)
         {
-            jitstd::sort(sortTab, sortTab + m_pCompiler->cseCandidateCount, CostCompareSize());
+            jitstd::sort(sorted, sorted + count, CostCompareSize());
         }
         else
         {
-            jitstd::sort(sortTab, sortTab + m_pCompiler->cseCandidateCount, CostCompareSpeed());
+            jitstd::sort(sorted, sorted + count, CostCompareSpeed());
         }
 
-        DBEXEC(m_pCompiler->verbose, DumpSortedCandidates());
+        DBEXEC(m_pCompiler->verbose, DumpSortedCandidates(sorted, count));
+
+        return sorted;
     }
 
 #ifdef DEBUG
-    void DumpSortedCandidates()
+    void DumpSortedCandidates(CseDesc** candidates, size_t count)
     {
         printf("\nSorted CSE candidates:\n");
 
-        for (unsigned cnt = 0; cnt < m_pCompiler->cseCandidateCount; cnt++)
+        for (unsigned cnt = 0; cnt < count; cnt++)
         {
-            CseDesc* dsc  = sortTab[cnt];
+            CseDesc* dsc  = candidates[cnt];
             GenTree* expr = dsc->tree;
 
             BasicBlock::weight_t def;
@@ -3211,10 +3213,10 @@ public:
 
     // Consider each of the CSE candidates and if the CSE passes
     // the PromotionCheck then transform the CSE by calling PerformCSE
-    void ConsiderCandidates()
+    void ConsiderCandidates(CseDesc** candidates)
     {
         unsigned  cnt = m_pCompiler->cseCandidateCount;
-        CseDesc** ptr = sortTab;
+        CseDesc** ptr = candidates;
 
         for (; (cnt > 0); cnt--, ptr++)
         {
@@ -3289,8 +3291,7 @@ void Cse::Heuristic()
     CseHeuristic heuristic(compiler, *this);
 
     heuristic.Initialize();
-    heuristic.SortCandidates();
-    heuristic.ConsiderCandidates();
+    heuristic.ConsiderCandidates(heuristic.SortCandidates());
 }
 
 void Compiler::cseMain()
