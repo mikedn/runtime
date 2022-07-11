@@ -38,7 +38,7 @@ void Compiler::optInit()
     optNativeCallCount   = 0;
 
     INDEBUG(cseFirstLclNum = BAD_VAR_NUM);
-    cseCount = 0;
+    INDEBUG(cseCount = 0);
 
     apAssertionCount = 0;
 }

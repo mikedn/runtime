@@ -5426,12 +5426,12 @@ public:
 
     bool                 csePhase;          // True when we are executing the optOptimizeValnumCSEs() phase
     unsigned             cseCandidateCount; // Count of CSE's candidates
-    unsigned             cseCount;          // The total count of CSE's introduced.
     BasicBlock::weight_t cseBlockWeight;    // The weight of the current block when we are doing PerformCSE
     CseDesc**            cseTable;
 
 #ifdef DEBUG
     unsigned cseFirstLclNum; // The first local variable number that is a CSE
+    unsigned cseCount;       // The total count of CSE temp locals introduced.
 
     // Returns true if the LclVar was introduced by the CSE phase of the compiler.
     bool lclNumIsTrueCSE(unsigned lclNum) const

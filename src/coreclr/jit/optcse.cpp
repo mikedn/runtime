@@ -2610,8 +2610,7 @@ public:
 
         cseLcl->lvIsCSE = true;
 
-        // Record that we created a new LclVar for use as a CSE temp
-        compiler->cseCount++;
+        INDEBUG(compiler->cseCount++);
 
         // Walk all references to this CSE, adding an assignment
         // to the CSE temp to all defs and changing all refs to
