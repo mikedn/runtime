@@ -2658,25 +2658,10 @@ public:
         return result;
     }
 
-    bool IsCompatibleType(var_types cseLclVarTyp, var_types expTyp)
+    static bool IsCompatibleType(var_types lclType, var_types exprType)
     {
-        if (cseLclVarTyp == expTyp)
-        {
-            return true;
-        }
-
-        // We also allow TYP_BYREF and TYP_I_IMPL as compatible types.
-        if ((cseLclVarTyp == TYP_BYREF) && (expTyp == TYP_I_IMPL))
-        {
-            return true;
-        }
-
-        if ((cseLclVarTyp == TYP_I_IMPL) && (expTyp == TYP_BYREF))
-        {
-            return true;
-        }
-
-        return false;
+        return (lclType == exprType) || ((lclType == TYP_BYREF) && (exprType == TYP_I_IMPL)) ||
+               ((lclType == TYP_I_IMPL) && (exprType == TYP_BYREF));
     }
 
     // PerformCSE() takes a successful candidate and performs  the appropriate replacements:
