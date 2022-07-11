@@ -224,11 +224,11 @@ bool Compiler::cseCanSwapOrder(GenTree* tree1, GenTree* tree2)
 struct CseOccurence
 {
     CseOccurence* next = nullptr;
-    GenTree*      tree;
+    GenTree*      expr;
     Statement*    stmt;
     BasicBlock*   block;
 
-    CseOccurence(GenTree* tree, Statement* stmt, BasicBlock* block) : tree(tree), stmt(stmt), block(block)
+    CseOccurence(GenTree* expr, Statement* stmt, BasicBlock* block) : expr(expr), stmt(stmt), block(block)
     {
     }
 };
@@ -252,12 +252,8 @@ struct CseDesc
     BasicBlock::weight_t defWeight; // weighted def count
     BasicBlock::weight_t useWeight; // weighted use count (excluding the implicit uses at defs)
 
-    GenTree*    tree;  // treenode containing the 1st occurrence
-    Statement*  stmt;  // stmt containing the 1st occurrence
-    BasicBlock* block; // block containing the 1st occurrence
-
-    CseOccurence* treeList; // list of matching tree nodes: head
-    CseOccurence* treeLast; // list of matching tree nodes: tail
+    CseOccurence  firstOccurence;
+    CseOccurence* lastOccurence;
 
     ClassLayout* layout;
 
@@ -268,7 +264,7 @@ struct CseDesc
     // number, this will reflect it; otherwise, NoVN.
     // not used for shared const CSE's
 
-    CseDesc(size_t hashKey, GenTree* tree, Statement* stmt, BasicBlock* block)
+    CseDesc(size_t hashKey, GenTree* expr, Statement* stmt, BasicBlock* block)
         : nextInBucket(nullptr)
         , hashKey(hashKey)
         , constDefValue(0)
@@ -280,11 +276,8 @@ struct CseDesc
         , useCount(0)
         , defWeight(0)
         , useWeight(0)
-        , tree(tree)
-        , stmt(stmt)
-        , block(block)
-        , treeList(nullptr)
-        , treeLast(nullptr)
+        , firstOccurence(expr, stmt, block)
+        , lastOccurence(&firstOccurence)
         , layout(nullptr)
         , defExcSetPromise(ValueNumStore::VNForEmptyExcSet())
         , defExcSetCurrent(ValueNumStore::VNForNull())
@@ -698,7 +691,7 @@ public:
                 continue;
             }
 
-            if (expr->OperIs(GT_CNS_INT) && (expr->GetType() != desc->tree->GetType()))
+            if (expr->OperIs(GT_CNS_INT) && (expr->GetType() != desc->firstOccurence.expr->GetType()))
             {
                 continue;
             }
@@ -710,17 +703,6 @@ public:
         if (found != nullptr)
         {
             foundCandidates = true;
-
-            if (found->treeList == nullptr)
-            {
-                // Start the occurrence list now that we found a second occurrence.
-
-                CseOccurence* occurrence = new (allocator) CseOccurence(found->tree, found->stmt, found->block);
-
-                found->treeList      = occurrence;
-                found->treeLast      = occurrence;
-                found->isSharedConst = isSharedConst;
-            }
 
             if (varTypeIsSIMD(expr->GetType()) && (found->layout == nullptr))
             {
@@ -736,10 +718,9 @@ public:
                 found->layout = compiler->typGetStructLayout(expr);
             }
 
-            CseOccurence* occurrence = new (allocator) CseOccurence(expr, stmt, block);
-
-            found->treeLast->next = occurrence;
-            found->treeLast       = occurrence;
+            CseOccurence* occurrence   = new (allocator) CseOccurence(expr, stmt, block);
+            found->lastOccurence->next = occurrence;
+            found->lastOccurence       = occurrence;
 
             if (found->index != 0)
             {
@@ -758,13 +739,13 @@ public:
 
         if (found != nullptr)
         {
-            noway_assert(found->treeList->tree->gtCSEnum == NoCse);
+            noway_assert(found->firstOccurence.expr->gtCSEnum == NoCse);
 
             unsigned index = ++descCount;
 
-            found->index                    = index;
-            found->treeList->tree->gtCSEnum = ToCseIndex(index);
-            expr->gtCSEnum                  = static_cast<CseIndex>(index);
+            found->index                         = index;
+            found->firstOccurence.expr->gtCSEnum = ToCseIndex(index);
+            expr->gtCSEnum                       = static_cast<CseIndex>(index);
 
 #ifdef DEBUG
             if (compiler->verbose)
@@ -794,7 +775,8 @@ public:
             ResizeHashTable();
         }
 
-        CseDesc* desc = new (allocator) CseDesc(key, expr, stmt, block);
+        CseDesc* desc       = new (allocator) CseDesc(key, expr, stmt, block);
+        desc->isSharedConst = isSharedConst;
 
         if (varTypeIsStruct(expr->GetType()))
         {
@@ -1058,7 +1040,7 @@ public:
             unsigned availBit          = GetAvailBitIndex(desc->index);
             unsigned availCrossCallBit = GetAvailCrossCallBitIndex(desc->index);
 
-            for (CseOccurence* occurence = desc->treeList; occurence != nullptr; occurence = occurence->next)
+            for (CseOccurence* occurence = &desc->firstOccurence; occurence != nullptr; occurence = occurence->next)
             {
                 BitVecOps::AddElemD(&dataFlowTraits, occurence->block->bbCseGen, availBit);
 
@@ -1791,8 +1773,8 @@ public:
     {
         bool operator()(const CseDesc* dsc1, const CseDesc* dsc2)
         {
-            GenTree* exp1 = dsc1->tree;
-            GenTree* exp2 = dsc2->tree;
+            GenTree* exp1 = dsc1->firstOccurence.expr;
+            GenTree* exp2 = dsc2->firstOccurence.expr;
 
             auto expCost1 = exp1->GetCostEx();
             auto expCost2 = exp2->GetCostEx();
@@ -1821,8 +1803,8 @@ public:
     {
         bool operator()(const CseDesc* dsc1, const CseDesc* dsc2)
         {
-            GenTree* exp1 = dsc1->tree;
-            GenTree* exp2 = dsc2->tree;
+            GenTree* exp1 = dsc1->firstOccurence.expr;
+            GenTree* exp2 = dsc2->firstOccurence.expr;
 
             auto expCost1 = exp1->GetCostSz();
             auto expCost2 = exp2->GetCostSz();
@@ -1874,7 +1856,7 @@ public:
         for (unsigned cnt = 0; cnt < descCount; cnt++)
         {
             CseDesc* dsc  = sorted[cnt];
-            GenTree* expr = dsc->tree;
+            GenTree* expr = dsc->firstOccurence.expr;
 
             BasicBlock::weight_t def;
             BasicBlock::weight_t use;
@@ -1884,13 +1866,13 @@ public:
             {
                 def  = dsc->defCount;
                 use  = dsc->useCount;
-                cost = dsc->tree->GetCostSz();
+                cost = dsc->firstOccurence.expr->GetCostSz();
             }
             else
             {
                 def  = dsc->defWeight;
                 use  = dsc->useWeight;
-                cost = dsc->tree->GetCostEx();
+                cost = dsc->firstOccurence.expr->GetCostEx();
             }
 
             if (!Is_Shared_Const_CSE(dsc->hashKey))
@@ -1938,10 +1920,10 @@ public:
 
         Candidate(Compiler::codeOptimize codeOptKind, CseDesc* desc)
             : desc(desc)
-            , expr(desc->tree)
+            , expr(desc->firstOccurence.expr)
             , index(desc->index)
-            , size(desc->tree->GetCostSz())
-            , cost(codeOptKind == Compiler::SMALL_CODE ? size : desc->tree->GetCostEx())
+            , size(desc->firstOccurence.expr->GetCostSz())
+            , cost(codeOptKind == Compiler::SMALL_CODE ? size : desc->firstOccurence.expr->GetCostEx())
             , defWeight(codeOptKind == Compiler::SMALL_CODE ? desc->defCount : desc->defWeight)
             , useWeight(codeOptKind == Compiler::SMALL_CODE ? desc->useCount : desc->useWeight)
             , isLiveAcrossCall(desc->isLiveAcrossCall)
@@ -2555,18 +2537,18 @@ public:
         bool     bestIsDef      = false;
         ssize_t  bestConstValue = 0;
 
-        for (CseOccurence* lst = dsc->treeList; lst != nullptr; lst = lst->next)
+        for (CseOccurence* lst = &dsc->firstOccurence; lst != nullptr; lst = lst->next)
         {
-            if (!IsCseIndex(lst->tree->gtCSEnum))
+            if (!IsCseIndex(lst->expr->gtCSEnum))
             {
                 continue;
             }
 
-            ValueNum currVN = compiler->vnStore->VNLiberalNormalValue(lst->tree->gtVNPair);
+            ValueNum currVN = compiler->vnStore->VNLiberalNormalValue(lst->expr->gtVNPair);
             assert(currVN != ValueNumStore::NoVN);
             ssize_t curConstValue = isSharedConst ? compiler->vnStore->CoercedConstantValue<ssize_t>(currVN) : 0;
 
-            GenTree* exp   = lst->tree;
+            GenTree* exp   = lst->expr;
             bool     isDef = IsCseDef(exp->gtCSEnum);
 
             if (bestVN == ValueNumStore::NoVN)
@@ -2639,17 +2621,17 @@ public:
                 }
                 else
                 {
-                    GenTree* firstTree = dsc->treeList->tree;
+                    GenTree* firstTree = dsc->firstOccurence.expr;
                     printf("In %s, CSE (oper = %s, type = %s) has differing VNs: ", compiler->info.compFullName,
                            GenTree::OpName(firstTree->OperGet()), varTypeName(firstTree->TypeGet()));
 
-                    for (CseOccurence* lst = dsc->treeList; lst != nullptr; lst = lst->next)
+                    for (CseOccurence* lst = &dsc->firstOccurence; lst != nullptr; lst = lst->next)
                     {
-                        if (IsCseIndex(lst->tree->gtCSEnum))
+                        if (IsCseIndex(lst->expr->gtCSEnum))
                         {
-                            ValueNum currVN = compiler->vnStore->VNLiberalNormalValue(lst->tree->gtVNPair);
-                            printf("[%06d](%s " FMT_VN ") ", compiler->dspTreeID(lst->tree),
-                                   IsCseUse(lst->tree->gtCSEnum) ? "use" : "def", currVN);
+                            ValueNum currVN = compiler->vnStore->VNLiberalNormalValue(lst->expr->gtVNPair);
+                            printf("[%06d](%s " FMT_VN ") ", compiler->dspTreeID(lst->expr),
+                                   IsCseUse(lst->expr->gtCSEnum) ? "use" : "def", currVN);
                         }
                     }
 
@@ -2659,9 +2641,9 @@ public:
         }
 #endif // DEBUG
 
-        for (CseOccurence* lst = dsc->treeList; lst != nullptr; lst = lst->next)
+        for (CseOccurence* lst = &dsc->firstOccurence; lst != nullptr; lst = lst->next)
         {
-            GenTree*    exp  = lst->tree;
+            GenTree*    exp  = lst->expr;
             Statement*  stmt = lst->stmt;
             BasicBlock* blk  = lst->block;
 
