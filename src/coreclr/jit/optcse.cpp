@@ -378,10 +378,10 @@ class Cse
     // with the bound to improve range check elimination.
     NodeToNodeMap checkedBoundMap;
 
-    // BitVec trait information for computing CSE availability using the CseDataFlow algorithm.
+    // BitVec trait information for computing CSE availability using the DataFlowCallback algorithm.
     // Two bits are allocated per CSE candidate to compute CSE availability
     // plus an extra bit to handle the initial unvisited case.
-    // (See CseDataFlow::EndMerge for an explanation of why this is necessary.)
+    // (See DataFlowCallback::EndMerge for an explanation of why this is necessary.)
     //
     // The two bits per CSE candidate have the following meanings:
     //     11 - The CSE is available, and is also available when considering calls as killing availability.
@@ -1066,7 +1066,7 @@ public:
     {
         // Two bits are allocated per CSE candidate to compute CSE availability
         // plus an extra bit to handle the initial unvisited case.
-        // (See CseDataFlow::EndMerge for an explaination of why this is necessary)
+        // (See DataFlowCallback::EndMerge for an explaination of why this is necessary)
         //
         // The two bits per CSE candidate have the following meanings:
         //     11 - The CSE is available, and is also available when considering calls as killing availability.
@@ -1194,14 +1194,23 @@ public:
 #endif // DEBUG
     }
 
-    class CseDataFlow
+    class DataFlowCallback
     {
-        Compiler* m_comp;
-        Cse&      cse;
-        BitVec    m_preMergeOut;
+        BitVecTraits traits;
+        BitVec const callKillsMask;
+        BitVec       cseInWithCallsKill;
+        BitVec       preMergeOut;
+        INDEBUG(bool const verbose;)
 
     public:
-        CseDataFlow(Compiler* pCompiler, Cse& cse) : m_comp(pCompiler), cse(cse), m_preMergeOut(BitVecOps::UninitVal())
+        DataFlowCallback(Compiler* compiler, Cse& cse)
+            : traits(cse.dataFlowTraits)
+            , callKillsMask(cse.callKillsMask)
+            , cseInWithCallsKill(BitVecOps::UninitVal())
+            , preMergeOut(BitVecOps::UninitVal())
+#ifdef DEBUG
+            , verbose(compiler->verbose)
+#endif
         {
         }
 
@@ -1211,11 +1220,11 @@ public:
             // Record the initial value of block->bbCseOut in m_preMergeOut.
             // It is used in EndMerge() to control the termination of the DataFlow algorithm.
             // Note that the first time we visit a block, the value of bbCseOut is MakeFull()
-            BitVecOps::Assign(&cse.dataFlowTraits, m_preMergeOut, block->bbCseOut);
+            BitVecOps::Assign(&traits, preMergeOut, block->bbCseOut);
 
 #if 0
             JITDUMP("StartMerge " FMT_BB "\n", block->bbNum);
-            JITDUMP("  :: cseOut    = %s\n", genES2str(&cse.dataFlowTraits, block->bbCseOut));
+            JITDUMP("  :: cseOut    = %s\n", genES2str(&traits, block->bbCseOut));
 #endif
         }
 
@@ -1224,14 +1233,14 @@ public:
         {
 #if 0
             JITDUMP("Merge " FMT_BB " and " FMT_BB "\n", block->bbNum, predBlock->bbNum);
-            JITDUMP("  :: cseIn     = %s\n", genES2str(&cse.dataFlowTraits, block->bbCseIn));
-            JITDUMP("  :: cseOut    = %s\n", genES2str(&cse.dataFlowTraits, block->bbCseOut));
+            JITDUMP("  :: cseIn     = %s\n", genES2str(&traits, block->bbCseIn));
+            JITDUMP("  :: cseOut    = %s\n", genES2str(&traits, block->bbCseOut));
 #endif
 
-            BitVecOps::IntersectionD(&cse.dataFlowTraits, block->bbCseIn, predBlock->bbCseOut);
+            BitVecOps::IntersectionD(&traits, block->bbCseIn, predBlock->bbCseOut);
 
 #if 0
-            JITDUMP("  => cseIn     = %s\n", genES2str(&cse.dataFlowTraits, block->bbCseIn));
+            JITDUMP("  => cseIn     = %s\n", genES2str(&traits, block->bbCseIn));
 #endif
         }
 
@@ -1249,49 +1258,39 @@ public:
         {
             // We can skip the calls kill step when our block doesn't have a callsite
             // or we don't have any available CSEs in our bbCseIn
-            if (((block->bbFlags & BBF_HAS_CALL) == 0) || BitVecOps::IsEmpty(&cse.dataFlowTraits, block->bbCseIn))
+            if (((block->bbFlags & BBF_HAS_CALL) == 0) || BitVecOps::IsEmpty(&traits, block->bbCseIn))
             {
                 // No callsite in 'block' or 'block->bbCseIn was empty, so we can use bbCseIn directly
-                BitVecOps::DataFlowD(&cse.dataFlowTraits, block->bbCseOut, block->bbCseGen, block->bbCseIn);
+                BitVecOps::DataFlowD(&traits, block->bbCseOut, block->bbCseGen, block->bbCseIn);
             }
             else
             {
-                // We will create a temporary BitVec to pass to DataFlowD()
-                BitVec cseIn_withCallsKill = BitVecOps::UninitVal();
-
-                // cseIn_withCallsKill is set to (bbCseIn AND cseCallKillsMask)
-                BitVecOps::Assign(&cse.dataFlowTraits, cseIn_withCallsKill, block->bbCseIn);
-                BitVecOps::IntersectionD(&cse.dataFlowTraits, cseIn_withCallsKill, cse.callKillsMask);
-
-                // Call DataFlowD with the modified BitVec: (bbCseIn AND cseCallKillsMask)
-                BitVecOps::DataFlowD(&cse.dataFlowTraits, block->bbCseOut, block->bbCseGen, cseIn_withCallsKill);
+                BitVecOps::Assign(&traits, cseInWithCallsKill, block->bbCseIn);
+                BitVecOps::IntersectionD(&traits, cseInWithCallsKill, callKillsMask);
+                BitVecOps::DataFlowD(&traits, block->bbCseOut, block->bbCseGen, cseInWithCallsKill);
             }
 
-            // The bool 'notDone' is our terminating condition.
-            // If it is 'true' then the initial value of m_preMergeOut was different than the final value that
-            // we computed for bbCseOut.  When it is true we will visit every the successor of 'block'
-            //
-            // This is also why we need to allocate an extra bit in our cseLivenessTrair BitVecs.
+            // This is why we need to allocate an extra bit in our BitVecs.
             // We always need to visit our successor blocks once, thus we require that that the first time
-            // that we visit a block we have a bit set in m_preMergeOut that won't be set when we compute
+            // that we visit a block we have a bit set in preMergeOut that won't be set when we compute
             // the new value of bbCseOut.
-            bool notDone = !BitVecOps::Equal(&cse.dataFlowTraits, block->bbCseOut, m_preMergeOut);
+            bool notDone = !BitVecOps::Equal(&traits, block->bbCseOut, preMergeOut);
 
 #if 0
 #ifdef DEBUG
-        if (m_comp->verbose)
+        if (verbose)
         {
             printf("EndMerge " FMT_BB "\n", block->bbNum);
-            printf("  :: cseIn     = %s\n", genES2str(&cse.dataFlowTraits, block->bbCseIn));
-            if (((block->bbFlags & BBF_HAS_CALL) != 0) &&
-                !BitVecOps::IsEmpty(&cse.dataFlowTraits, block->bbCseIn))
+            printf("  :: cseIn     = %s\n", genES2str(&traits, block->bbCseIn));
+
+            if (((block->bbFlags & BBF_HAS_CALL) != 0) && !BitVecOps::IsEmpty(&traits, block->bbCseIn))
             {
-                printf("  -- cseKill   = %s\n", genES2str(&cse.dataFlowTraits, m_comp->cseCallKillsMask));
+                printf("  -- cseKill   = %s\n", genES2str(&traits, m_comp->cseCallKillsMask));
             }
-            printf("  :: cseGen    = %s\n", genES2str(&cse.dataFlowTraits, block->bbCseGen));
-            printf("  => cseOut    = %s\n", genES2str(&cse.dataFlowTraits, block->bbCseOut));
-            printf("  != preMerge  = %s, => %s\n", genES2str(&cse.dataFlowTraits, m_preMergeOut),
-                notDone ? "true" : "false");
+
+            printf("  :: cseGen    = %s\n", genES2str(&traits, block->bbCseGen));
+            printf("  => cseOut    = %s\n", genES2str(&traits, block->bbCseOut));
+            printf("  != preMerge  = %s, => %s\n", genES2str(&traits, m_preMergeOut), notDone ? "true" : "false");
         }
 #endif // DEBUG
 #endif // 0
@@ -1313,7 +1312,7 @@ public:
     {
         JITDUMP("\nPerforming DataFlow for ValnumCSE's\n");
 
-        ForwardDataFlow(CseDataFlow(compiler, *this), compiler);
+        ForwardDataFlow(DataFlowCallback(compiler, *this), compiler);
 
 #ifdef DEBUG
         if (compiler->verbose)
@@ -1336,7 +1335,7 @@ public:
 #endif // DEBUG
     }
 
-    // Using the information computed by CseDataFlow determine for each
+    // Using the information computed by DataFlowCallback determine for each
     // CSE whether the CSE is a definition (if the CSE was not available)
     // or if the CSE is a use (if the CSE was previously made available).
     // The implementation iterates over all blocks setting 'available_cses'
