@@ -363,11 +363,11 @@ class Cse
     ValueNumStore* vnStore;
 
     // The current size of hashtable
-    size_t hashSize = HashSizeInitial;
+    size_t hashBucketCount = HashSizeInitial;
     // Number of entries in hashtable
     size_t hashCount = 0;
     // Number of entries before resize
-    size_t    hashMaxCountBeforeResize = HashSizeInitial * HashBucketSize;
+    size_t    hashResizeCount = HashSizeInitial * HashBucketSize;
     CseDesc** hashBuckets;
     CseDesc** descTable;
     unsigned  descCount;
@@ -393,7 +393,9 @@ class Cse
 
     BitVec callKillsMask; // Computed once - A mask that is used to kill available CSEs at callsites
 
-    bool doCSE = false; // True when we have found a duplicate CSE tree
+    bool enableConstCse       = false;
+    bool enableSharedConstCse = false;
+    bool foundCandidates      = false;
 
     Compiler::codeOptimize codeOptKind;
 
@@ -413,7 +415,7 @@ public:
     Cse(Compiler* compiler)
         : compiler(compiler)
         , vnStore(compiler->vnStore)
-        , hashBuckets(new (compiler, CMK_CSE) CseDesc*[hashSize]())
+        , hashBuckets(new (compiler, CMK_CSE) CseDesc*[hashBucketCount]())
         , descTable(nullptr)
         , descCount(0)
         , checkedBoundMap(compiler->getAllocator(CMK_CSE))
@@ -432,7 +434,10 @@ public:
 
         INDEBUG(EnsureClearCseNum());
 
-        if (Locate())
+        Configure();
+        Locate();
+
+        if (foundCandidates)
         {
             BuildCseTable();
             InitDataFlow();
@@ -448,6 +453,27 @@ public:
         }
 
         compiler->csePhase = false;
+    }
+
+    void Configure()
+    {
+        int constCse = JitConfig.JitConstCSE();
+
+#ifdef TARGET_ARM64
+        enableConstCse = (constCse != CONST_CSE_DISABLE_ALL);
+
+        if ((constCse != CONST_CSE_ENABLE_ARM64_NO_SHARING) && (constCse != CONST_CSE_ENABLE_ALL_NO_SHARING))
+        {
+            enableSharedConstCse = true;
+        }
+#else
+        enableConstCse = (constCse == CONST_CSE_ENABLE_ALL) || (constCse == CONST_CSE_ENABLE_ALL_NO_SHARING);
+#endif
+
+        if (constCse == CONST_CSE_ENABLE_ALL)
+        {
+            enableSharedConstCse = true;
+        }
     }
 
 #ifdef DEBUG
@@ -475,7 +501,7 @@ public:
 
         CseDesc** table = new (compiler, CMK_CSE) CseDesc*[descCount]();
 
-        for (size_t i = 0; i != hashSize; i++)
+        for (size_t i = 0; i != hashBucketCount; i++)
         {
             for (CseDesc* desc = hashBuckets[i]; desc != nullptr; desc = desc->nextInBucket)
             {
@@ -571,7 +597,7 @@ public:
     }
 #endif
 
-    static unsigned KeyToHashIndex(size_t key, size_t bucketCount)
+    static unsigned KeyToBucketIndex(size_t key, size_t bucketCount)
     {
         unsigned hash = static_cast<unsigned>(key);
 #ifdef TARGET_64BIT
@@ -588,275 +614,223 @@ public:
     // Whenever we see a duplicate expression we have a CSE candidate. If it is the first time seeing
     // the duplicate we allocate a new CSE index. If we have already allocated a CSE index we return
     // that index. There currently is a limit on the number of CSEs that we can have of MAX_CSE_CNT.
-    unsigned Index(GenTree* tree, Statement* stmt, BasicBlock* block)
+    unsigned Index(GenTree* expr, Statement* stmt, BasicBlock* block)
     {
-        size_t   key;
-        unsigned hval;
-        CseDesc* hashDsc;
-        bool     enableSharedConstCSE = false;
-        bool     isSharedConst        = false;
-        int      configValue          = JitConfig.JitConstCSE();
-
-#if defined(TARGET_ARM64)
-        // ARM64 - allow to combine with nearby offsets, when config is not 2 or 4
-        if ((configValue != CONST_CSE_ENABLE_ARM64_NO_SHARING) && (configValue != CONST_CSE_ENABLE_ALL_NO_SHARING))
-        {
-            enableSharedConstCSE = true;
-        }
-#endif // TARGET_ARM64
-
-        // All Platforms - also allow to combine with nearby offsets, when config is 3
-        if (configValue == CONST_CSE_ENABLE_ALL)
-        {
-            enableSharedConstCSE = true;
-        }
-
-        ValueNum vnLib     = tree->GetVN(VNK_Liberal);
-        ValueNum vnLibNorm = vnStore->VNNormalValue(vnLib);
-
         // We use the normal value number because we want the CSE candidate to
         // represent all expressions that produce the same normal value number.
         // We will handle the case where we have different exception sets when
         // promoting the candidates.
         //
-        // We do this because a GT_IND will usually have a NullPtrExc entry in its
-        // exc set, but we may have cleared the GTF_EXCEPT flag and if so, it won't
-        // have an NullPtrExc, or we may have assigned the value of an GT_IND
+        // We do this because a IND will usually have a NullPtrExc entry in its
+        // exc set, but we may have cleared the GTF_EXCEPT flag and if so, it
+        // won't have an NullPtrExc, or we may have assigned the value of an IND
         // into a LCL_VAR and then read it back later.
         //
-        // When we are promoting the CSE candidates we ensure that any CSE
-        // uses that we promote have an exc set that is the same as the CSE defs
-        // or have an empty set.  And that all of the CSE defs produced the required
+        // When we are promoting the CSE candidates we ensure that any CSE uses
+        // that we promote have an exc set that is the same as the CSE defs or
+        // have an empty set. And that all of the CSE defs produced the required
         // set of exceptions for the CSE uses.
 
-        // We assign either vnLib or vnLibNorm as the hash key
+        // We use either exprVN or exprValueVN as the hash key.
         //
-        // The only exception to using the normal value is for the GT_COMMA nodes.
-        // Here we check to see if we have a GT_COMMA with a different value number
-        // than the one from its op2.  For this case we want to create two different
-        // CSE candidates. This allows us to CSE the GT_COMMA separately from its value.
+        // The only exception to using the normal value is for COMMA nodes.
+        // Here we check to see if we have a COMMA with a different value number
+        // than the one from its op2. For this case we want to create two different
+        // CSE candidates. This allows us to CSE the COMMA separately from its value.
 
-        if (tree->OperGet() == GT_COMMA)
+        ValueNum exprVN        = expr->GetLiberalVN();
+        ValueNum exprValueVN   = vnStore->VNNormalValue(exprVN);
+        bool     isSharedConst = false;
+        size_t   key           = exprValueVN;
+
+        if (expr->OperIs(GT_COMMA))
         {
-            GenTree* op2      = tree->AsOp()->gtOp2;
-            ValueNum vnOp2Lib = op2->GetVN(VNK_Liberal);
+            GenTree* op2   = expr->AsOp()->GetOp(1);
+            ValueNum op2VN = op2->GetLiberalVN();
 
-            // If the value number for op2 and tree are different, then some new
+            // If the value number for op2 and expr are different, then some new
             // exceptions were produced by op1. For that case we will NOT use the
             // normal value. This allows us to CSE commas with an op1 that is
             // an ARR_BOUNDS_CHECK.
-            if (vnOp2Lib != vnLib)
+            if (op2VN != exprVN)
             {
-                key = vnLib; // include the exc set in the hash key
-            }
-            else
-            {
-                key = vnLibNorm;
+                key = exprVN;
             }
 
             // If we didn't do the above we would have op1 as the CSE def
             // and the parent comma as the CSE use (but with a different exc set)
             // This would prevent us from making any CSE with the comma
-            assert(vnLibNorm == vnStore->VNNormalValue(vnOp2Lib));
+            assert(exprValueVN == vnStore->VNNormalValue(op2VN));
         }
-        else if (enableSharedConstCSE && tree->IsIntegralConst())
+        else if (enableSharedConstCse && expr->IsIntegralConst())
         {
-            assert(vnStore->IsVNConstant(vnLibNorm));
+            assert(vnStore->IsVNConstant(exprValueVN));
 
             // We don't share small offset constants when they require a reloc
-            if (tree->IsLngCon() || !tree->AsIntCon()->ImmedValNeedsReloc(compiler))
+            if (expr->IsLngCon() || !expr->AsIntCon()->ImmedValNeedsReloc(compiler))
             {
-                // Here we make constants that have the same upper bits use the same key
-                //
+                // Here we make constants that have the same upper bits use the same key.
                 // We create a key that encodes just the upper bits of the constant by
-                // shifting out some of the low bits, (12 or 16 bits)
-                //
-                // This is the only case where the hash key is not a ValueNumber
+                // shifting out some of the low bits, (12 or 16 bits).
+                // This is the only case where the hash key is not a value number.
 
-                size_t constVal = vnStore->CoercedConstantValue<size_t>(vnLibNorm);
+                size_t constVal = vnStore->CoercedConstantValue<size_t>(exprValueVN);
                 key             = Encode_Shared_Const_CSE_Value(constVal);
                 isSharedConst   = true;
             }
-            else
-            {
-                // Use the vnLibNorm value as the key
-                key = vnLibNorm;
-            }
-        }
-        else
-        {
-            key = vnLibNorm;
         }
 
         // Make sure that the result of Is_Shared_Const_CSE(key) matches isSharedConst.
-        // Note that when isSharedConst is true then we require that the TARGET_SIGN_BIT is set in the key
-        // and otherwise we require that we never create a ValueNumber with the TARGET_SIGN_BIT set.
+        // Note that when isSharedConst is true then we require that the TARGET_SIGN_BIT
+        // is set in the key and otherwise we require that we never create a value number
+        // with the TARGET_SIGN_BIT set.
         assert(isSharedConst == Is_Shared_Const_CSE(key));
 
-        hval = KeyToHashIndex(key, hashSize);
+        unsigned bucketIndex = KeyToBucketIndex(key, hashBucketCount);
+        CseDesc* found       = nullptr;
 
-        bool newCSE = false;
-
-        for (hashDsc = hashBuckets[hval]; hashDsc; hashDsc = hashDsc->nextInBucket)
+        for (CseDesc* desc = hashBuckets[bucketIndex]; desc != nullptr; desc = desc->nextInBucket)
         {
-            if (hashDsc->hashKey == key)
+            if (desc->hashKey != key)
             {
-                if (tree->OperIs(GT_CNS_INT) && (tree->GetType() != hashDsc->tree->GetType()))
-                {
-                    continue;
-                }
+                continue;
+            }
 
-                if (hashDsc->treeList == nullptr)
-                {
-                    // Start the occurrence list now that we found a second occurrence.
+            if (expr->OperIs(GT_CNS_INT) && (expr->GetType() != desc->tree->GetType()))
+            {
+                continue;
+            }
 
-                    CseOccurence* occurrence =
-                        new (compiler, CMK_CSE) CseOccurence(hashDsc->tree, hashDsc->stmt, hashDsc->block);
+            found = desc;
+            break;
+        }
 
-                    hashDsc->treeList      = occurrence;
-                    hashDsc->treeLast      = occurrence;
-                    hashDsc->isSharedConst = isSharedConst;
-                }
+        if (found != nullptr)
+        {
+            foundCandidates = true;
 
-                if (varTypeIsSIMD(tree->GetType()) && (hashDsc->layout == nullptr))
-                {
-                    // If we haven't yet obtained the SIMD layout try again, maybe we get lucky.
-                    // Mostly for the sake of consistency. Otherwise it doesn't really matter.
-                    // If we decide to CSE this expression we'll try to get an approximate layout.
-                    // The SIMD base type and the kind of vector that's associated with this SIMD
-                    // expression is ultimately irrelevant, we just need a layout that has the
-                    // same SIMD type as the expression. It also doesn't matter if 2 equivalent
-                    // expression somehow have different layouts, as long as the layout SIMD type
-                    // is the same.
+            if (found->treeList == nullptr)
+            {
+                // Start the occurrence list now that we found a second occurrence.
 
-                    hashDsc->layout = compiler->typGetStructLayout(tree);
-                }
+                CseOccurence* occurrence = new (compiler, CMK_CSE) CseOccurence(found->tree, found->stmt, found->block);
 
-                CseOccurence* occurrence = new (compiler, CMK_CSE) CseOccurence(tree, stmt, block);
+                found->treeList      = occurrence;
+                found->treeLast      = occurrence;
+                found->isSharedConst = isSharedConst;
+            }
 
-                hashDsc->treeLast->next = occurrence;
-                hashDsc->treeLast       = occurrence;
+            if (varTypeIsSIMD(expr->GetType()) && (found->layout == nullptr))
+            {
+                // If we haven't yet obtained the SIMD layout try again, maybe we get lucky.
+                // Mostly for the sake of consistency. Otherwise it doesn't really matter.
+                // If we decide to CSE this expression we'll try to get an approximate layout.
+                // The SIMD base type and the kind of vector that's associated with this SIMD
+                // expression is ultimately irrelevant, we just need a layout that has the
+                // same SIMD type as the expression. It also doesn't matter if 2 equivalent
+                // expression somehow have different layouts, as long as the layout SIMD type
+                // is the same.
 
-                doCSE = true; // Found a duplicate CSE tree
+                found->layout = compiler->typGetStructLayout(expr);
+            }
 
-                if (hashDsc->index == 0)
-                {
-                    newCSE = true;
-                    break;
-                }
+            CseOccurence* occurrence = new (compiler, CMK_CSE) CseOccurence(expr, stmt, block);
 
-                tree->gtCSEnum = ToCseIndex(hashDsc->index);
+            found->treeLast->next = occurrence;
+            found->treeLast       = occurrence;
 
-                return hashDsc->index;
+            if (found->index != 0)
+            {
+                expr->gtCSEnum = ToCseIndex(found->index);
+
+                return found->index;
             }
         }
 
-        if (!newCSE)
+        if (descCount == MAX_CSE_CNT)
         {
-            // Not found, create a new entry (unless we have too many already)
+            JITDUMPTREE(expr, "Exceeded MAX_CSE_CNT, not using expression:\n");
 
-            if (descCount < MAX_CSE_CNT)
-            {
-                if (hashCount == hashMaxCountBeforeResize)
-                {
-                    size_t    newOptCSEhashSize = hashSize * HashGrowthFactor;
-                    CseDesc** newOptCSEhash     = new (compiler, CMK_CSE) CseDesc*[newOptCSEhashSize]();
-
-                    CseDesc** ptr;
-                    CseDesc*  dsc;
-                    size_t    cnt;
-                    for (cnt = hashSize, ptr = hashBuckets; cnt; cnt--, ptr++)
-                    {
-                        for (dsc = *ptr; dsc;)
-                        {
-                            CseDesc* nextDsc = dsc->nextInBucket;
-
-                            size_t newHval = KeyToHashIndex(dsc->hashKey, newOptCSEhashSize);
-
-                            // Move CseDesc to bucket in enlarged table
-                            dsc->nextInBucket      = newOptCSEhash[newHval];
-                            newOptCSEhash[newHval] = dsc;
-
-                            dsc = nextDsc;
-                        }
-                    }
-
-                    hashBuckets              = newOptCSEhash;
-                    hashSize                 = newOptCSEhashSize;
-                    hashMaxCountBeforeResize = hashMaxCountBeforeResize * HashGrowthFactor;
-                }
-
-                ++hashCount;
-
-                hashDsc = new (compiler, CMK_CSE) CseDesc(key, tree, stmt, block);
-
-                if (varTypeIsStruct(tree->GetType()))
-                {
-                    hashDsc->layout = compiler->typGetStructLayout(tree);
-                    assert((hashDsc->layout != nullptr) || varTypeIsSIMD(tree->GetType()));
-                }
-
-                hashDsc->nextInBucket = hashBuckets[hval];
-                hashBuckets[hval]     = hashDsc;
-            }
             return 0;
         }
-        else
+
+        if (found != nullptr)
         {
-            // Create a new CSE (unless we have the maximum already)
+            noway_assert(found->treeList->tree->gtCSEnum == NoCse);
 
-            if (descCount == MAX_CSE_CNT)
-            {
-                JITDUMPTREE(tree, "Exceeded the MAX_CSE_CNT, not using node:\n");
-                return 0;
-            }
+            unsigned index = ++descCount;
 
-            C_ASSERT((signed char)MAX_CSE_CNT == MAX_CSE_CNT);
-
-            unsigned CSEindex = ++descCount;
-
-            hashDsc->index = CSEindex;
-
-            noway_assert(hashDsc->treeList->tree->gtCSEnum == NoCse);
-
-            hashDsc->treeList->tree->gtCSEnum = ToCseIndex(CSEindex);
-
-            tree->gtCSEnum = static_cast<CseIndex>(CSEindex);
+            found->index                    = index;
+            found->treeList->tree->gtCSEnum = ToCseIndex(index);
+            expr->gtCSEnum                  = static_cast<CseIndex>(index);
 
 #ifdef DEBUG
             if (compiler->verbose)
             {
-                printf("\nCSE candidate #%02u, key=", CSEindex);
+                printf("\nCSE candidate #%02u, key=", index);
+
                 if (!Is_Shared_Const_CSE(key))
                 {
-                    compiler->vnPrint((unsigned)key, 0);
+                    compiler->vnPrint(static_cast<ValueNum>(key), 0);
                 }
                 else
                 {
-                    size_t kVal = Decode_Shared_Const_CSE_Value(key);
-                    printf("K_%p", dspPtr(kVal));
+                    printf("K_%p", dspPtr(Decode_Shared_Const_CSE_Value(key)));
                 }
 
-                printf(" in " FMT_BB ", [cost=%2u, size=%2u]: \n", block->bbNum, tree->GetCostEx(), tree->GetCostSz());
-                compiler->gtDispTree(tree);
+                printf(" in " FMT_BB ", [cost=%2u, size=%2u]: \n", block->bbNum, expr->GetCostEx(), expr->GetCostSz());
+
+                compiler->gtDispTree(expr);
             }
 #endif // DEBUG
 
-            return CSEindex;
+            return index;
         }
+
+        if (hashCount == hashResizeCount)
+        {
+            ResizeHashTable();
+        }
+
+        CseDesc* desc = new (compiler, CMK_CSE) CseDesc(key, expr, stmt, block);
+
+        if (varTypeIsStruct(expr->GetType()))
+        {
+            desc->layout = compiler->typGetStructLayout(expr);
+            assert((desc->layout != nullptr) || varTypeIsSIMD(expr->GetType()));
+        }
+
+        desc->nextInBucket       = hashBuckets[bucketIndex];
+        hashBuckets[bucketIndex] = desc;
+        hashCount++;
+
+        return 0;
     }
 
-    bool Locate()
+    void ResizeHashTable()
     {
-        bool enableConstCse;
+        size_t    newBucketCount = hashBucketCount * HashGrowthFactor;
+        CseDesc** newBuckets     = new (compiler, CMK_CSE) CseDesc*[newBucketCount]();
 
-        int constCse = JitConfig.JitConstCSE();
-#ifdef TARGET_ARM64
-        enableConstCse = (constCse != CONST_CSE_DISABLE_ALL);
-#else
-        enableConstCse = (constCse == CONST_CSE_ENABLE_ALL) || (constCse == CONST_CSE_ENABLE_ALL_NO_SHARING);
-#endif
+        for (size_t i = 0; i < hashBucketCount; i++)
+        {
+            for (CseDesc *d = hashBuckets[i], *next; d != nullptr; d = next)
+            {
+                next = d->nextInBucket;
 
+                size_t newBucketIndex      = KeyToBucketIndex(d->hashKey, newBucketCount);
+                d->nextInBucket            = newBuckets[newBucketIndex];
+                newBuckets[newBucketIndex] = d;
+            }
+        }
+
+        hashBuckets     = newBuckets;
+        hashBucketCount = newBucketCount;
+        hashResizeCount = hashResizeCount * HashGrowthFactor;
+    }
+
+    void Locate()
+    {
         for (BasicBlock* block : compiler->Blocks())
         {
             for (Statement* stmt : block->NonPhiStatements())
@@ -916,8 +890,6 @@ public:
                 }
             }
         }
-
-        return doCSE;
     }
 
     // Check if this compare is a tractable function of a checked bound that is
