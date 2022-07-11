@@ -2059,6 +2059,20 @@ public:
             , m_Conservative(false)
             , m_StressCSE(false)
         {
+            m_Size = Expr()->GetCostSz();
+
+            if (m_context->codeOptKind == Compiler::SMALL_CODE)
+            {
+                m_Cost     = m_Size;
+                m_defCount = m_CseDsc->defCount;
+                m_useCount = m_CseDsc->useCount;
+            }
+            else
+            {
+                m_Cost     = Expr()->GetCostEx();
+                m_defCount = m_CseDsc->defWeight;
+                m_useCount = m_CseDsc->useWeight;
+            }
         }
 
         CseDesc* CseDsc()
@@ -2139,24 +2153,6 @@ public:
         bool IsStressCSE()
         {
             return m_StressCSE;
-        }
-
-        void InitializeCounts()
-        {
-            m_Size = Expr()->GetCostSz();
-
-            if (m_context->codeOptKind == Compiler::SMALL_CODE)
-            {
-                m_Cost     = m_Size;
-                m_defCount = m_CseDsc->defCount;
-                m_useCount = m_CseDsc->useCount;
-            }
-            else
-            {
-                m_Cost     = Expr()->GetCostEx();
-                m_defCount = m_CseDsc->defWeight;
-                m_useCount = m_CseDsc->useWeight;
-            }
         }
     };
 
@@ -3194,16 +3190,15 @@ public:
 
         for (; (cnt > 0); cnt--, ptr++)
         {
-            CseDesc*  dsc = *ptr;
-            Candidate candidate(this, dsc);
+            CseDesc* dsc = *ptr;
 
             if (dsc->defExcSetPromise == ValueNumStore::NoVN)
             {
-                JITDUMP("Abandoned " FMT_CSE " because we had defs with different Exc sets\n", candidate.CseIndex());
+                JITDUMP("Abandoned " FMT_CSE " because we had defs with different Exc sets\n", dsc->index);
                 continue;
             }
 
-            candidate.InitializeCounts();
+            Candidate candidate(this, dsc);
 
             if (candidate.UseCount() == 0)
             {
