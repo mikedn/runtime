@@ -391,7 +391,7 @@ class Cse
     //
     BitVecTraits dataFlowTraits;
 
-    EXPSET_TP callKillsMask; // Computed once - A mask that is used to kill available CSEs at callsites
+    BitVec callKillsMask; // Computed once - A mask that is used to kill available CSEs at callsites
 
     bool doCSE = false; // True when we have found a duplicate CSE tree
 
@@ -502,7 +502,7 @@ public:
     }
 
 #ifdef DEBUG
-    static const char* genES2str(BitVecTraits* traits, EXPSET_TP set)
+    static const char* genES2str(BitVecTraits* traits, const BitVec set)
     {
         const int    bufSize = 65; // Supports a BitVec of up to 256 bits
         static char  num1[bufSize];
@@ -518,7 +518,7 @@ public:
         return temp;
     }
 
-    void DumpDataFlowSet(EXPSET_VALARG_TP set, bool includeBits = true)
+    void DumpDataFlowSet(const BitVec set, bool includeBits = true)
     {
         if (includeBits)
         {
@@ -1198,7 +1198,7 @@ public:
     {
         Compiler* m_comp;
         Cse&      cse;
-        EXPSET_TP m_preMergeOut;
+        BitVec    m_preMergeOut;
 
     public:
         CseDataFlow(Compiler* pCompiler, Cse& cse) : m_comp(pCompiler), cse(cse), m_preMergeOut(BitVecOps::UninitVal())
@@ -1257,7 +1257,7 @@ public:
             else
             {
                 // We will create a temporary BitVec to pass to DataFlowD()
-                EXPSET_TP cseIn_withCallsKill = BitVecOps::UninitVal();
+                BitVec cseIn_withCallsKill = BitVecOps::UninitVal();
 
                 // cseIn_withCallsKill is set to (bbCseIn AND cseCallKillsMask)
                 BitVecOps::Assign(&cse.dataFlowTraits, cseIn_withCallsKill, block->bbCseIn);
@@ -1371,7 +1371,7 @@ public:
     {
         JITDUMP("Labeling the CSEs with Use/Def information\n");
 
-        EXPSET_TP available_cses = BitVecOps::MakeEmpty(&dataFlowTraits);
+        BitVec available_cses = BitVecOps::MakeEmpty(&dataFlowTraits);
 
         for (BasicBlock* const block : compiler->Blocks())
         {
