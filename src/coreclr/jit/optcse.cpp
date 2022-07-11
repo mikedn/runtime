@@ -367,10 +367,11 @@ class Cse
     // Number of entries in hashtable
     size_t hashCount = 0;
     // Number of entries before resize
-    size_t    hashMaxCountBeforeResize = HashSizeInitial * HashBucketSize;
-    CseDesc** hashBuckets;
-    CseDesc** descTable;
-    unsigned  descCount;
+    size_t      hashMaxCountBeforeResize = HashSizeInitial * HashBucketSize;
+    CseDesc**   hashBuckets;
+    CseDesc**   descTable;
+    unsigned    descCount;
+    BasicBlock* currentBlock;
 
     typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, GenTree*> NodeToNodeMap;
 
@@ -732,7 +733,7 @@ public:
                     hashDsc->layout = compiler->typGetStructLayout(tree);
                 }
 
-                CseOccurence* occurrence = new (compiler, CMK_CSE) CseOccurence(tree, stmt, compiler->compCurBB);
+                CseOccurence* occurrence = new (compiler, CMK_CSE) CseOccurence(tree, stmt, currentBlock);
 
                 hashDsc->treeLast->next = occurrence;
                 hashDsc->treeLast       = occurrence;
@@ -788,7 +789,7 @@ public:
 
                 ++hashCount;
 
-                hashDsc = new (compiler, CMK_CSE) CseDesc(key, tree, stmt, compiler->compCurBB);
+                hashDsc = new (compiler, CMK_CSE) CseDesc(key, tree, stmt, currentBlock);
 
                 if (varTypeIsStruct(tree->GetType()))
                 {
@@ -837,7 +838,7 @@ public:
                     printf("K_%p", dspPtr(kVal));
                 }
 
-                printf(" in " FMT_BB ", [cost=%2u, size=%2u]: \n", compiler->compCurBB->bbNum, tree->GetCostEx(),
+                printf(" in " FMT_BB ", [cost=%2u, size=%2u]: \n", currentBlock->bbNum, tree->GetCostEx(),
                        tree->GetCostSz());
                 compiler->gtDispTree(tree);
             }
@@ -874,7 +875,7 @@ public:
 
         for (BasicBlock* const block : compiler->Blocks())
         {
-            compiler->compCurBB = block;
+            currentBlock = block;
 
             for (Statement* const stmt : block->NonPhiStatements())
             {
@@ -1374,7 +1375,7 @@ public:
 
         for (BasicBlock* const block : compiler->Blocks())
         {
-            compiler->compCurBB = block;
+            currentBlock = block;
 
             BitVecOps::Assign(&dataFlowTraits, available_cses, block->bbCseIn);
 
