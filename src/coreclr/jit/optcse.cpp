@@ -2739,80 +2739,80 @@ public:
         // Verify that all of the ValueNumbers in this list are correct as
         // Morph will change them when it performs a mutating operation.
 
-        bool          setRefCnt      = true;
-        bool          allSame        = true;
-        bool          isSharedConst  = dsc->isSharedConst;
-        ValueNum      bestVN         = ValueNumStore::NoVN;
-        bool          bestIsDef      = false;
-        ssize_t       bestConstValue = 0;
-        CseOccurence* lst            = dsc->treeList;
+        bool     setRefCnt      = true;
+        bool     allSame        = true;
+        bool     isSharedConst  = dsc->isSharedConst;
+        ValueNum bestVN         = ValueNumStore::NoVN;
+        bool     bestIsDef      = false;
+        ssize_t  bestConstValue = 0;
 
-        while (lst != nullptr)
+        for (CseOccurence* lst = dsc->treeList; lst != nullptr; lst = lst->next)
         {
-            if (IsCseIndex(lst->tree->gtCSEnum))
+            if (!IsCseIndex(lst->tree->gtCSEnum))
             {
-                ValueNum currVN = compiler->vnStore->VNLiberalNormalValue(lst->tree->gtVNPair);
-                assert(currVN != ValueNumStore::NoVN);
-                ssize_t curConstValue = isSharedConst ? compiler->vnStore->CoercedConstantValue<ssize_t>(currVN) : 0;
+                continue;
+            }
 
-                GenTree* exp   = lst->tree;
-                bool     isDef = IsCseDef(exp->gtCSEnum);
+            ValueNum currVN = compiler->vnStore->VNLiberalNormalValue(lst->tree->gtVNPair);
+            assert(currVN != ValueNumStore::NoVN);
+            ssize_t curConstValue = isSharedConst ? compiler->vnStore->CoercedConstantValue<ssize_t>(currVN) : 0;
 
-                if (bestVN == ValueNumStore::NoVN)
+            GenTree* exp   = lst->tree;
+            bool     isDef = IsCseDef(exp->gtCSEnum);
+
+            if (bestVN == ValueNumStore::NoVN)
+            {
+                // First entry, set bestVN
+                bestVN = currVN;
+
+                if (isSharedConst)
                 {
-                    // First entry, set bestVN
-                    bestVN = currVN;
-
-                    if (isSharedConst)
-                    {
-                        // set bestConstValue and bestIsDef
-                        bestConstValue = curConstValue;
-                        bestIsDef      = isDef;
-                    }
-                }
-                else if (currVN != bestVN)
-                {
-                    assert(isSharedConst); // Must be true when we have differing VNs
-
-                    // subsequent entry
-                    // clear allSame and check for a lower constant
-                    allSame = false;
-
-                    ssize_t diff = curConstValue - bestConstValue;
-
-                    // The ARM addressing modes allow for a subtraction of up to 255
-                    // so we will allow the diff to be up to -255 before replacing a CSE def
-                    // This will minimize the number of extra subtract instructions.
-                    if ((bestIsDef && (diff < -255)) || (!bestIsDef && (diff < 0)))
-                    {
-                        // set new bestVN, bestConstValue and bestIsDef
-                        bestVN         = currVN;
-                        bestConstValue = curConstValue;
-                        bestIsDef      = isDef;
-                    }
-                }
-
-                BasicBlock*          blk       = lst->block;
-                BasicBlock::weight_t curWeight = blk->getBBWeight(compiler);
-
-                if (setRefCnt)
-                {
-                    cseLcl->SetRefCount(1);
-                    cseLcl->SetRefWeight(curWeight);
-                    setRefCnt = false;
-                }
-                else
-                {
-                    compiler->lvaAddRef(cseLcl, curWeight);
-                }
-
-                // A CSE Def references the LclVar twice
-                if (isDef)
-                {
-                    compiler->lvaAddRef(cseLcl, curWeight);
+                    // set bestConstValue and bestIsDef
+                    bestConstValue = curConstValue;
+                    bestIsDef      = isDef;
                 }
             }
-            lst = lst->next;
+            else if (currVN != bestVN)
+            {
+                assert(isSharedConst); // Must be true when we have differing VNs
+
+                // subsequent entry
+                // clear allSame and check for a lower constant
+                allSame = false;
+
+                ssize_t diff = curConstValue - bestConstValue;
+
+                // The ARM addressing modes allow for a subtraction of up to 255
+                // so we will allow the diff to be up to -255 before replacing a CSE def
+                // This will minimize the number of extra subtract instructions.
+                if ((bestIsDef && (diff < -255)) || (!bestIsDef && (diff < 0)))
+                {
+                    // set new bestVN, bestConstValue and bestIsDef
+                    bestVN         = currVN;
+                    bestConstValue = curConstValue;
+                    bestIsDef      = isDef;
+                }
+            }
+
+            BasicBlock*          blk       = lst->block;
+            BasicBlock::weight_t curWeight = blk->getBBWeight(compiler);
+
+            if (setRefCnt)
+            {
+                cseLcl->SetRefCount(1);
+                cseLcl->SetRefWeight(curWeight);
+                setRefCnt = false;
+            }
+            else
+            {
+                compiler->lvaAddRef(cseLcl, curWeight);
+            }
+
+            // A CSE Def references the LclVar twice
+            if (isDef)
+            {
+                compiler->lvaAddRef(cseLcl, curWeight);
+            }
         }
 
         dsc->constDefValue = bestConstValue;
@@ -2830,11 +2830,11 @@ public:
                 }
                 else
                 {
-                    lst                = dsc->treeList;
-                    GenTree* firstTree = lst->tree;
+                    GenTree* firstTree = dsc->treeList->tree;
                     printf("In %s, CSE (oper = %s, type = %s) has differing VNs: ", compiler->info.compFullName,
                            GenTree::OpName(firstTree->OperGet()), varTypeName(firstTree->TypeGet()));
-                    while (lst != nullptr)
+
+                    for (CseOccurence* lst = dsc->treeList; lst != nullptr; lst = lst->next)
                     {
                         if (IsCseIndex(lst->tree->gtCSEnum))
                         {
@@ -2842,24 +2842,19 @@ public:
                             printf("[%06d](%s " FMT_VN ") ", compiler->dspTreeID(lst->tree),
                                    IsCseUse(lst->tree->gtCSEnum) ? "use" : "def", currVN);
                         }
-                        lst = lst->next;
                     }
+
                     printf("\n");
                 }
             }
         }
 #endif // DEBUG
 
-        lst = dsc->treeList;
-        noway_assert(lst);
-
-        do
+        for (CseOccurence* lst = dsc->treeList; lst != nullptr; lst = lst->next)
         {
             GenTree*    exp  = lst->tree;
             Statement*  stmt = lst->stmt;
             BasicBlock* blk  = lst->block;
-
-            lst = lst->next;
 
             // We may have cleared this CSE in optValuenumCSE_Availablity
             // due to different exception sets.
@@ -3149,8 +3144,7 @@ public:
 
             compiler->gtSetStmtInfo(stmt);
             compiler->fgSetStmtSeq(stmt);
-
-        } while (lst != nullptr);
+        }
     }
 
     // Consider each of the CSE candidates and if the CSE passes
