@@ -1662,8 +1662,6 @@ class CseHeuristic
     Cse&                   m_cse;
     Compiler::codeOptimize codeOptKind;
 
-    // Count of the number of LclVars for CSEs that we added
-    unsigned m_addCSEcount = 0;
     // Record the weighted ref count of the last "for sure" callee saved LclVar
     BasicBlock::weight_t aggressiveRefCnt = 0;
     BasicBlock::weight_t moderateRefCnt   = 0;
@@ -2774,7 +2772,6 @@ public:
         cseLcl->lvIsCSE = true;
 
         // Record that we created a new LclVar for use as a CSE temp
-        m_addCSEcount++;
         m_pCompiler->cseCount++;
 
         // Walk all references to this CSE, adding an assignment
