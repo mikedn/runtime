@@ -1998,146 +1998,44 @@ public:
     }
 #endif // DEBUG
 
-    // The following class nested within CseHeuristic encapsulates the information about
-    // the current CSE candidate that is under consideration.
-    // TODO-Cleanup: This is still very much based upon the old Lexical CSE implementation
-    // and needs to be reworked for the Value Number based implementation.
-    class Candidate
+    struct Candidate
     {
-        CseDesc* m_CseDsc;
+        CseDesc* const desc;
+        GenTree* const expr;
+        unsigned const index;
+        unsigned const size;
+        unsigned const cost;
+        float const    defWeight;
+        float const    useWeight;
+        bool const     isLiveAcrossCall;
 
-        unsigned             m_cseIndex;
-        BasicBlock::weight_t m_defCount;
-        BasicBlock::weight_t m_useCount;
-        unsigned             m_Cost;
-        unsigned             m_Size;
+        // We believe that the CSE is very valuable in terms of weight,
+        // such that it would always be enregistered by the register allocator.
+        bool isAggressive;
+        // We believe that the CSE is moderately valuable in terms of weight,
+        // such that it is more likely than not to be enregistered by the register allocator
+        bool isModerate;
+        // It's neither aggressive nor moderate.
+        // Such candidates typically are expensive to compute and thus are
+        // always profitable to promote even when they aren't enregistered.
+        bool isConservative;
+        // Candidate is only being promoted because of a Stress mode.
+        bool isStress;
 
-        // When this Candidate is successfully promoted to a CSE we record
-        // the following information about what category was used when promoting it.
-        //
-        //  We will set m_Aggressive:
-        //    When we believe that the CSE very valuable in terms of weighted ref counts,
-        //    such that it would always be enregistered by the register allocator.
-        //
-        //  We will set m_Moderate:
-        //    When we believe that the CSE is moderately valuable in terms of weighted ref counts,
-        //    such that it is more likely than not to be enregistered by the register allocator
-        //
-        //  We will set m_Conservative:
-        //    When we didn't set m_Aggressive or  m_Moderate.
-        //    Such candidates typically are expensive to compute and thus are
-        //    always profitable to promote even when they aren't enregistered.
-        //
-        //  We will set  m_StressCSE:
-        //    When the candidate is only being promoted because of a Stress mode.
-        //
-        bool m_Aggressive;
-        bool m_Moderate;
-        bool m_Conservative;
-        bool m_StressCSE;
-
-    public:
-        Candidate(Compiler::codeOptimize codeOptKind, CseDesc* cseDsc)
-            : m_CseDsc(cseDsc)
-            , m_cseIndex(m_CseDsc->index)
-            , m_defCount(0)
-            , m_useCount(0)
-            , m_Cost(0)
-            , m_Size(0)
-            , m_Aggressive(false)
-            , m_Moderate(false)
-            , m_Conservative(false)
-            , m_StressCSE(false)
+        Candidate(Compiler::codeOptimize codeOptKind, CseDesc* desc)
+            : desc(desc)
+            , expr(desc->tree)
+            , index(desc->index)
+            , size(desc->tree->GetCostSz())
+            , cost(codeOptKind == Compiler::SMALL_CODE ? size : desc->tree->GetCostEx())
+            , defWeight(codeOptKind == Compiler::SMALL_CODE ? desc->defCount : desc->defWeight)
+            , useWeight(codeOptKind == Compiler::SMALL_CODE ? desc->useCount : desc->useWeight)
+            , isLiveAcrossCall(desc->isLiveAcrossCall)
+            , isAggressive(false)
+            , isModerate(false)
+            , isConservative(false)
+            , isStress(false)
         {
-            m_Size = Expr()->GetCostSz();
-
-            if (codeOptKind == Compiler::SMALL_CODE)
-            {
-                m_Cost     = m_Size;
-                m_defCount = m_CseDsc->defCount;
-                m_useCount = m_CseDsc->useCount;
-            }
-            else
-            {
-                m_Cost     = Expr()->GetCostEx();
-                m_defCount = m_CseDsc->defWeight;
-                m_useCount = m_CseDsc->useWeight;
-            }
-        }
-
-        CseDesc* CseDsc()
-        {
-            return m_CseDsc;
-        }
-        unsigned CseIndex()
-        {
-            return m_cseIndex;
-        }
-        BasicBlock::weight_t DefCount()
-        {
-            return m_defCount;
-        }
-        BasicBlock::weight_t UseCount()
-        {
-            return m_useCount;
-        }
-        // TODO-CQ: With ValNum CSE's the Expr and its cost can vary.
-        GenTree* Expr()
-        {
-            return m_CseDsc->tree;
-        }
-        unsigned Cost()
-        {
-            return m_Cost;
-        }
-        unsigned Size()
-        {
-            return m_Size;
-        }
-
-        bool LiveAcrossCall()
-        {
-            return m_CseDsc->isLiveAcrossCall;
-        }
-
-        void SetAggressive()
-        {
-            m_Aggressive = true;
-        }
-
-        bool IsAggressive()
-        {
-            return m_Aggressive;
-        }
-
-        void SetModerate()
-        {
-            m_Moderate = true;
-        }
-
-        bool IsModerate()
-        {
-            return m_Moderate;
-        }
-
-        void SetConservative()
-        {
-            m_Conservative = true;
-        }
-
-        bool IsConservative()
-        {
-            return m_Conservative;
-        }
-
-        void SetStressCSE()
-        {
-            m_StressCSE = true;
-        }
-
-        bool IsStressCSE()
-        {
-            return m_StressCSE;
         }
     };
 
@@ -2263,11 +2161,11 @@ public:
 
     // Given a CSE candidate decide whether it passes or fails the profitability heuristic
     // return true if we believe that it is profitable to promote this candidate to a CSE.
-    bool PromotionCheck(Candidate* candidate)
+    bool PromotionCheck(Candidate& candidate)
     {
-        var_types cseLclVarTyp = varActualType(candidate->Expr()->GetType());
+        var_types cseLclVarTyp = varActualType(candidate.expr->GetType());
 
-        if (varTypeIsSIMD(cseLclVarTyp) && (candidate->CseDsc()->layout == nullptr))
+        if (varTypeIsSIMD(cseLclVarTyp) && (candidate.desc->layout == nullptr))
         {
             // If we haven't found an exact layout yet then use any layout that happens
             // to have the same SIMD type as the expression. Even so, it's possible to
@@ -2279,14 +2177,14 @@ public:
             // TODO-MIKE-Cleanup: Do we really need this? There are other places that
             // create SIMD temps without layout so why bother at all here?
 
-            ClassLayout* layout = compiler->typGetVectorLayout(candidate->Expr());
+            ClassLayout* layout = compiler->typGetVectorLayout(candidate.expr);
 
             if (layout == nullptr)
             {
                 return false;
             }
 
-            candidate->CseDsc()->layout = layout;
+            candidate.desc->layout = layout;
         }
 
         bool result = false;
@@ -2298,7 +2196,7 @@ public:
             // Stress is enabled. Check whether to perform CSE or not.
             if (stressResult > 0)
             {
-                candidate->SetStressCSE();
+                candidate.isStress = true;
                 return true;
             }
         }
@@ -2360,7 +2258,7 @@ public:
 
         // The 'cseRefCnt' is the RefCnt that we will have if we promote this CSE into a new LclVar
         // Each CSE Def will contain two Refs and each CSE Use will have one Ref of this new LclVar
-        BasicBlock::weight_t cseRefCnt = (candidate->DefCount() * 2) + candidate->UseCount();
+        BasicBlock::weight_t cseRefCnt = (candidate.defWeight * 2) + candidate.useWeight;
 
         bool     canEnregister = true;
         unsigned slotCount     = 1;
@@ -2374,7 +2272,7 @@ public:
             if (cseRefCnt >= aggressiveWeight)
             {
                 // Record that we are choosing to use the aggressive promotion rules
-                candidate->SetAggressive();
+                candidate.isAggressive = true;
                 JITDUMP("Aggressive CSE Promotion (%f >= %f)\n", cseRefCnt, aggressiveWeight);
                 // With aggressive promotion we expect that the candidate will be enregistered
                 // so we set the use and def costs to their miniumum values
@@ -2382,7 +2280,7 @@ public:
                 cse_use_cost = 1;
 
                 // Check if this candidate is likely to live on the stack
-                if (candidate->LiveAcrossCall() || !canEnregister)
+                if (candidate.isLiveAcrossCall || !canEnregister)
                 {
                     // Increase the costs when we have a large or huge frame
                     if (largeFrame)
@@ -2400,7 +2298,7 @@ public:
             else // not aggressiveWeight
             {
                 // Record that we are choosing to use the conservative promotion rules
-                candidate->SetConservative();
+                candidate.isConservative = true;
                 if (largeFrame)
                 {
                     JITDUMP("Codesize CSE Promotion (%s frame)\n", hugeFrame ? "huge" : "large");
@@ -2439,7 +2337,7 @@ public:
                 }
             }
 #ifdef TARGET_AMD64
-            if (varTypeIsFloating(candidate->Expr()->TypeGet()))
+            if (varTypeIsFloating(candidate.expr->GetType()))
             {
                 // floating point loads/store encode larger
                 cse_def_cost += 2;
@@ -2455,7 +2353,7 @@ public:
             {
                 // Record that we are choosing to use the aggressive promotion rules
                 //
-                candidate->SetAggressive();
+                candidate.isAggressive = true;
 
                 JITDUMP("Aggressive CSE Promotion (%f >= %f)\n", cseRefCnt, aggressiveWeight);
 
@@ -2467,8 +2365,8 @@ public:
             else if (cseRefCnt >= moderateWeight)
             {
                 // Record that we are choosing to use the moderate promotion rules
-                candidate->SetModerate();
-                if (!candidate->LiveAcrossCall() && canEnregister)
+                candidate.isModerate = true;
+                if (!candidate.isLiveAcrossCall && canEnregister)
                 {
                     JITDUMP("Moderate CSE Promotion (CSE never live at call) (%f >= %f)\n", cseRefCnt, moderateWeight);
 
@@ -2478,7 +2376,7 @@ public:
                 else // candidate is live across call or not enregisterable.
                 {
                     JITDUMP("Moderate CSE Promotion (%s) (%f >= %f)\n",
-                            candidate->LiveAcrossCall() ? "CSE is live across a call" : "not enregisterable", cseRefCnt,
+                            candidate.isLiveAcrossCall ? "CSE is live across a call" : "not enregisterable", cseRefCnt,
                             moderateWeight);
 
                     cse_def_cost = 2;
@@ -2502,11 +2400,11 @@ public:
             else // Conservative CSE promotion
             {
                 // Record that we are choosing to use the conservative promotion rules
-                candidate->SetConservative();
-                if (!candidate->LiveAcrossCall() && canEnregister)
+                candidate.isConservative = true;
+                if (!candidate.isLiveAcrossCall && canEnregister)
                 {
                     JITDUMP("Conservative CSE Promotion (%s) (%f < %f)\n",
-                            candidate->LiveAcrossCall() ? "CSE is live across a call" : "not enregisterable", cseRefCnt,
+                            candidate.isLiveAcrossCall ? "CSE is live across a call" : "not enregisterable", cseRefCnt,
                             moderateWeight);
 
                     cse_def_cost = 2;
@@ -2536,10 +2434,9 @@ public:
         }
 
         // If this CSE is live across a call then we may need to spill an additional caller save register
-        if (candidate->LiveAcrossCall())
+        if (candidate.isLiveAcrossCall)
         {
-            if (candidate->Expr()->IsCnsFltOrDbl() && (CNT_CALLEE_SAVED_FLOAT == 0) &&
-                (candidate->CseDsc()->useWeight <= 4))
+            if (candidate.expr->IsCnsFltOrDbl() && (CNT_CALLEE_SAVED_FLOAT == 0) && (candidate.desc->useWeight <= 4))
             {
                 // Floating point constants are expected to be contained, so unless there are more than 4 uses
                 // we better not to CSE them, especially on platforms without callee-saved registers
@@ -2549,7 +2446,7 @@ public:
 
             // If we don't have a lot of variables to enregister or we have a floating point type
             // then we will likely need to spill an additional caller save register.
-            if ((enregCount < (CNT_CALLEE_ENREG * 3 / 2)) || varTypeIsFloating(candidate->Expr()))
+            if ((enregCount < (CNT_CALLEE_ENREG * 3 / 2)) || varTypeIsFloating(candidate.expr))
             {
                 // Extra cost in case we have to spill/restore a caller saved register
                 extra_yes_cost = BB_UNITY_WEIGHT_UNSIGNED;
@@ -2562,7 +2459,7 @@ public:
 
 #ifdef FEATURE_SIMD
             // SIMD types may cause a SIMD register to be spilled/restored in the prolog and epilog.
-            if (varTypeIsSIMD(candidate->Expr()->TypeGet()))
+            if (varTypeIsSIMD(candidate.expr->GetType()))
             {
                 // We don't have complete information about when these extra spilled/restore will be needed.
                 // Instead we are conservative and assume that each SIMD CSE that is live across a call
@@ -2571,7 +2468,7 @@ public:
 
                 // If we have a SIMD32 that is live across a call we have even higher spill costs
                 //
-                if (candidate->Expr()->TypeGet() == TYP_SIMD32)
+                if (candidate.expr->TypeIs(TYP_SIMD32))
                 {
                     // Additionally for a simd32 CSE candidate we assume that and second spilled/restore will be needed.
                     // (to hold the upper half of the simd32 register that isn't preserved across the call)
@@ -2588,19 +2485,18 @@ public:
         }
 
         // estimate the cost from lost codesize reduction if we do not perform the CSE
-        if (candidate->Size() > cse_use_cost)
+        if (candidate.size > cse_use_cost)
         {
-            CseDesc* dsc = candidate->CseDsc(); // We need to retrieve the actual use count, not the
-                                                // weighted count
-            extra_no_cost = candidate->Size() - cse_use_cost;
-            extra_no_cost = extra_no_cost * dsc->useCount * 2;
+            // We need to retrieve the actual use count, not the weight.
+            extra_no_cost = candidate.size - cse_use_cost;
+            extra_no_cost = extra_no_cost * candidate.desc->useCount * 2;
         }
 
         // no_cse_cost  is the cost estimate when we decide not to make a CSE
         // yes_cse_cost is the cost estimate when we decide to make a CSE
 
-        no_cse_cost  = candidate->UseCount() * candidate->Cost();
-        yes_cse_cost = (candidate->DefCount() * cse_def_cost) + (candidate->UseCount() * cse_use_cost);
+        no_cse_cost  = candidate.useWeight * candidate.cost;
+        yes_cse_cost = (candidate.defWeight * cse_def_cost) + (candidate.useWeight * cse_use_cost);
 
         no_cse_cost += extra_no_cost;
         yes_cse_cost += extra_yes_cost;
@@ -2610,8 +2506,8 @@ public:
         {
             printf("cseRefCnt=%f, aggressiveWeight=%f, moderateWeight=%f\n", cseRefCnt, aggressiveWeight,
                    moderateWeight);
-            printf("defCnt=%f, useCnt=%f, cost=%d, size=%d%s\n", candidate->DefCount(), candidate->UseCount(),
-                   candidate->Cost(), candidate->Size(), candidate->LiveAcrossCall() ? ", LiveAcrossCall" : "");
+            printf("defCnt=%f, useCnt=%f, cost=%d, size=%d%s\n", candidate.defWeight, candidate.useWeight,
+                   candidate.cost, candidate.size, candidate.isLiveAcrossCall ? ", LiveAcrossCall" : "");
             printf("def_cost=%d, use_cost=%d, extra_no_cost=%d, extra_yes_cost=%d\n", cse_def_cost, cse_use_cost,
                    extra_no_cost, extra_yes_cost);
 
@@ -2655,13 +2551,13 @@ public:
     // and will replace all of the CSE uses with reads of the "cse0" LclVar
     //
     // It will also put cse0 into SSA if there is just one def.
-    void PerformCSE(Candidate* successfulCandidate)
+    void PerformCSE(const Candidate& candidate)
     {
         JITDUMP("\nPromoting CSE:\n");
 
-        BasicBlock::weight_t cseRefCnt = (successfulCandidate->DefCount() * 2) + successfulCandidate->UseCount();
+        BasicBlock::weight_t cseRefCnt = (candidate.defWeight * 2) + candidate.useWeight;
 
-        if (successfulCandidate->LiveAcrossCall() != 0)
+        if (candidate.isLiveAcrossCall != 0)
         {
             // As we introduce new LclVars for these CSE we slightly
             // increase the cutoffs for aggressive and moderate CSE's
@@ -2681,31 +2577,31 @@ public:
 #ifdef DEBUG
         const char* grabTempMessage = "CSE - unknown";
 
-        if (successfulCandidate->IsAggressive())
+        if (candidate.isAggressive)
         {
             grabTempMessage = "CSE - aggressive";
         }
-        else if (successfulCandidate->IsModerate())
+        else if (candidate.isModerate)
         {
             grabTempMessage = "CSE - moderate";
         }
-        else if (successfulCandidate->IsConservative())
+        else if (candidate.isConservative)
         {
             grabTempMessage = "CSE - conservative";
         }
-        else if (successfulCandidate->IsStressCSE())
+        else if (candidate.isStress)
         {
             grabTempMessage = "CSE - stress mode";
         }
 #endif // DEBUG
 
         unsigned   cseLclVarNum = compiler->lvaGrabTemp(false DEBUGARG(grabTempMessage));
-        var_types  cseLclVarTyp = varActualType(successfulCandidate->Expr()->GetType());
+        var_types  cseLclVarTyp = varActualType(candidate.expr->GetType());
         LclVarDsc* cseLcl       = compiler->lvaGetDesc(cseLclVarNum);
 
         if (varTypeIsStruct(cseLclVarTyp))
         {
-            compiler->lvaSetStruct(cseLclVarNum, successfulCandidate->CseDsc()->layout, false);
+            compiler->lvaSetStruct(cseLclVarNum, candidate.desc->layout, false);
             assert(cseLcl->GetType() == cseLclVarTyp);
         }
         else
@@ -2722,7 +2618,7 @@ public:
         // to the CSE temp to all defs and changing all refs to
         // a simple use of the CSE temp.
         // Later we will unmark any nested CSE's for the CSE uses.
-        CseDesc* dsc = successfulCandidate->CseDsc();
+        CseDesc* dsc = candidate.desc;
 
         // If there's just a single def for the CSE, we'll put this
         // CSE into SSA form on the fly. We won't need any PHIs.
@@ -2920,7 +2816,7 @@ public:
                 // and they do not use theConservativeVN
                 if (!isSharedConst)
                 {
-                    ValueNum theConservativeVN = successfulCandidate->CseDsc()->defConservNormVN;
+                    ValueNum theConservativeVN = candidate.desc->defConservNormVN;
 
                     if (theConservativeVN != ValueNumStore::NoVN)
                     {
@@ -3173,7 +3069,7 @@ public:
 
             Candidate candidate(codeOptKind, desc);
 
-            if (candidate.UseCount() == 0)
+            if (candidate.useWeight == 0)
             {
                 JITDUMP("Skipped " FMT_CSE " because use count is 0\n", desc->index);
                 continue;
@@ -3183,27 +3079,27 @@ public:
             if (!Is_Shared_Const_CSE(desc->hashKey))
             {
                 JITDUMP("\nConsidering " FMT_CSE " {$%-3x, $%-3x} [def=%3f, use=%3f, cost=%3u%s]\n", desc->index,
-                        desc->hashKey, desc->defExcSetPromise, candidate.DefCount(), candidate.UseCount(),
-                        candidate.Cost(), desc->isLiveAcrossCall ? ", call" : "      ");
+                        desc->hashKey, desc->defExcSetPromise, candidate.defWeight, candidate.useWeight, candidate.cost,
+                        desc->isLiveAcrossCall ? ", call" : "      ");
             }
             else
             {
                 size_t constVal = Decode_Shared_Const_CSE_Value(desc->hashKey);
                 JITDUMP("\nConsidering " FMT_CSE " {K_%p} [def=%3f, use=%3f, cost=%3u%s]\n", desc->index,
-                        dspPtr(constVal), candidate.DefCount(), candidate.UseCount(), candidate.Cost(),
+                        dspPtr(constVal), candidate.defWeight, candidate.useWeight, candidate.cost,
                         desc->isLiveAcrossCall ? ", call" : "      ");
             }
 
-            JITDUMPTREE(candidate.Expr(), "CSE Expression:\n");
+            JITDUMPTREE(candidate.expr, "CSE Expression:\n");
 #endif
 
-            if (!PromotionCheck(&candidate))
+            if (!PromotionCheck(candidate))
             {
                 JITDUMP("Did Not promote this CSE\n");
                 continue;
             }
 
-            PerformCSE(&candidate);
+            PerformCSE(candidate);
         }
     }
 };
