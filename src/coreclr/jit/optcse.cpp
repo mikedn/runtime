@@ -491,7 +491,13 @@ public:
             InitDataFlow();
             DataFlow();
             Availablity();
-            Heuristic();
+
+            JITDUMP("\n************ Trees at start of Heuristic()\n");
+            DBEXEC(compiler->verbose, compiler->fgDumpTrees(compiler->fgFirstBB, nullptr));
+
+            EstimateFrameSize();
+            EstimateCutOffWeights();
+            ConsiderCandidates(SortCandidates());
         }
 
         compiler->csePhase = false;
@@ -549,8 +555,6 @@ public:
 
         compiler->cseTable = table;
     }
-
-    void Heuristic();
 
 #ifdef DEBUG
     void DumpDataFlowSet(EXPSET_VALARG_TP set, bool includeBits = true)
@@ -3222,16 +3226,6 @@ public:
         }
     }
 };
-
-void Cse::Heuristic()
-{
-    JITDUMP("\n************ Trees at start of Heuristic()\n");
-    DBEXEC(compiler->verbose, compiler->fgDumpTrees(compiler->fgFirstBB, nullptr));
-
-    EstimateFrameSize();
-    EstimateCutOffWeights();
-    ConsiderCandidates(SortCandidates());
-}
 
 void Compiler::cseMain()
 {
