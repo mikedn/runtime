@@ -360,6 +360,7 @@ class Cse
     static constexpr size_t HashBucketSize   = 4;
 
     Compiler*      compiler;
+    CompAllocator  allocator;
     ValueNumStore* vnStore;
 
     // The current size of hashtable
@@ -414,11 +415,12 @@ class Cse
 public:
     Cse(Compiler* compiler)
         : compiler(compiler)
+        , allocator(compiler->getAllocator(CMK_CSE))
         , vnStore(compiler->vnStore)
-        , hashBuckets(new (compiler, CMK_CSE) CseDesc*[hashBucketCount]())
+        , hashBuckets(new (allocator) CseDesc*[hashBucketCount]())
         , descTable(nullptr)
         , descCount(0)
-        , checkedBoundMap(compiler->getAllocator(CMK_CSE))
+        , checkedBoundMap(allocator)
         , dataFlowTraits(0, compiler)
         , codeOptKind(compiler->compCodeOpt())
     {
@@ -499,7 +501,7 @@ public:
             return;
         }
 
-        CseDesc** table = new (compiler, CMK_CSE) CseDesc*[descCount]();
+        CseDesc** table = new (allocator) CseDesc*[descCount]();
 
         for (size_t i = 0; i != hashBucketCount; i++)
         {
@@ -713,7 +715,7 @@ public:
             {
                 // Start the occurrence list now that we found a second occurrence.
 
-                CseOccurence* occurrence = new (compiler, CMK_CSE) CseOccurence(found->tree, found->stmt, found->block);
+                CseOccurence* occurrence = new (allocator) CseOccurence(found->tree, found->stmt, found->block);
 
                 found->treeList      = occurrence;
                 found->treeLast      = occurrence;
@@ -734,7 +736,7 @@ public:
                 found->layout = compiler->typGetStructLayout(expr);
             }
 
-            CseOccurence* occurrence = new (compiler, CMK_CSE) CseOccurence(expr, stmt, block);
+            CseOccurence* occurrence = new (allocator) CseOccurence(expr, stmt, block);
 
             found->treeLast->next = occurrence;
             found->treeLast       = occurrence;
@@ -792,7 +794,7 @@ public:
             ResizeHashTable();
         }
 
-        CseDesc* desc = new (compiler, CMK_CSE) CseDesc(key, expr, stmt, block);
+        CseDesc* desc = new (allocator) CseDesc(key, expr, stmt, block);
 
         if (varTypeIsStruct(expr->GetType()))
         {
@@ -810,7 +812,7 @@ public:
     void ResizeHashTable()
     {
         size_t    newBucketCount = hashBucketCount * HashGrowthFactor;
-        CseDesc** newBuckets     = new (compiler, CMK_CSE) CseDesc*[newBucketCount]();
+        CseDesc** newBuckets     = new (allocator) CseDesc*[newBucketCount]();
 
         for (size_t i = 0; i < hashBucketCount; i++)
         {
@@ -1847,7 +1849,7 @@ public:
 
     CseDesc** SortCandidates()
     {
-        CseDesc** sorted = new (compiler, CMK_CSE) CseDesc*[descCount];
+        CseDesc** sorted = new (allocator) CseDesc*[descCount];
         memcpy(sorted, descTable, descCount * sizeof(*sorted));
 
         if (codeOptKind == Compiler::SMALL_CODE)
