@@ -476,7 +476,8 @@ public:
     {
         compiler->cseTable          = nullptr;
         compiler->cseCandidateCount = 0;
-        compiler->cseFirstLclNum    = compiler->lvaCount;
+
+        INDEBUG(compiler->cseFirstLclNum = compiler->lvaCount);
     }
 
     void Run()
