@@ -367,11 +367,10 @@ class Cse
     // Number of entries in hashtable
     size_t hashCount = 0;
     // Number of entries before resize
-    size_t      hashMaxCountBeforeResize = HashSizeInitial * HashBucketSize;
-    CseDesc**   hashBuckets;
-    CseDesc**   descTable;
-    unsigned    descCount;
-    BasicBlock* currentBlock;
+    size_t    hashMaxCountBeforeResize = HashSizeInitial * HashBucketSize;
+    CseDesc** hashBuckets;
+    CseDesc** descTable;
+    unsigned  descCount;
 
     typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, GenTree*> NodeToNodeMap;
 
@@ -589,7 +588,7 @@ public:
     // Whenever we see a duplicate expression we have a CSE candidate. If it is the first time seeing
     // the duplicate we allocate a new CSE index. If we have already allocated a CSE index we return
     // that index. There currently is a limit on the number of CSEs that we can have of MAX_CSE_CNT.
-    unsigned Index(GenTree* tree, Statement* stmt)
+    unsigned Index(GenTree* tree, Statement* stmt, BasicBlock* block)
     {
         size_t   key;
         unsigned hval;
@@ -733,7 +732,7 @@ public:
                     hashDsc->layout = compiler->typGetStructLayout(tree);
                 }
 
-                CseOccurence* occurrence = new (compiler, CMK_CSE) CseOccurence(tree, stmt, currentBlock);
+                CseOccurence* occurrence = new (compiler, CMK_CSE) CseOccurence(tree, stmt, block);
 
                 hashDsc->treeLast->next = occurrence;
                 hashDsc->treeLast       = occurrence;
@@ -789,7 +788,7 @@ public:
 
                 ++hashCount;
 
-                hashDsc = new (compiler, CMK_CSE) CseDesc(key, tree, stmt, currentBlock);
+                hashDsc = new (compiler, CMK_CSE) CseDesc(key, tree, stmt, block);
 
                 if (varTypeIsStruct(tree->GetType()))
                 {
@@ -838,8 +837,7 @@ public:
                     printf("K_%p", dspPtr(kVal));
                 }
 
-                printf(" in " FMT_BB ", [cost=%2u, size=%2u]: \n", currentBlock->bbNum, tree->GetCostEx(),
-                       tree->GetCostSz());
+                printf(" in " FMT_BB ", [cost=%2u, size=%2u]: \n", block->bbNum, tree->GetCostEx(), tree->GetCostSz());
                 compiler->gtDispTree(tree);
             }
 #endif // DEBUG
@@ -848,103 +846,72 @@ public:
         }
     }
 
-    // Locate CSE candidates and assign them indices.
-    // Returns true if there are any CSE candidates, false otherwise.
     bool Locate()
     {
-        bool enableConstCSE = true;
+        bool enableConstCse;
 
-        int configValue = JitConfig.JitConstCSE();
-
-        // all platforms - disable CSE of constant values when config is 1
-        if (configValue == CONST_CSE_DISABLE_ALL)
-        {
-            enableConstCSE = false;
-        }
-
-#if !defined(TARGET_ARM64)
-        // non-ARM64 platforms - disable by default
-        enableConstCSE = false;
-
-        // Check for the two enable cases for all platforms
-        if ((configValue == CONST_CSE_ENABLE_ALL) || (configValue == CONST_CSE_ENABLE_ALL_NO_SHARING))
-        {
-            enableConstCSE = true;
-        }
+        int constCse = JitConfig.JitConstCSE();
+#ifdef TARGET_ARM64
+        enableConstCse = (constCse != CONST_CSE_DISABLE_ALL);
+#else
+        enableConstCse = (constCse == CONST_CSE_ENABLE_ALL) || (constCse == CONST_CSE_ENABLE_ALL_NO_SHARING);
 #endif
 
-        for (BasicBlock* const block : compiler->Blocks())
+        for (BasicBlock* block : compiler->Blocks())
         {
-            currentBlock = block;
-
-            for (Statement* const stmt : block->NonPhiStatements())
+            for (Statement* stmt : block->NonPhiStatements())
             {
-                const bool isReturn = stmt->GetRootNode()->OperIs(GT_RETURN);
+                bool isReturnStmt              = stmt->GetRootNode()->OperIs(GT_RETURN);
+                bool stmtHasArrLengthCandidate = false;
 
-                bool stmtHasArrLenCandidate = false;
-                for (GenTree* const tree : stmt->TreeList())
+                for (GenTree* node : stmt->Nodes())
                 {
-                    if (tree->OperIsCompare() && stmtHasArrLenCandidate)
+                    if (node->OperIsCompare() && stmtHasArrLengthCandidate)
                     {
-                        // Check if this compare is a function of (one of) the checked
-                        // bound candidate(s); we may want to update its value number.
-                        // if the array length gets CSEd
-                        UpdateCheckedBoundMap(tree);
+                        UpdateCheckedBoundMap(node->AsOp());
                     }
 
-                    // Don't allow CSE of constants if it is disabled
-                    if (tree->IsIntegralConst())
+                    if (node->IsIntegralConst() && !enableConstCse)
                     {
-                        if (!enableConstCSE)
-                        {
-                            continue;
-                        }
+                        continue;
                     }
 
                     // Don't allow non-SIMD struct CSEs under a return; we don't fully
                     // re-morph these if we introduce a CSE assignment, and so may create
                     // IR that lower is not yet prepared to handle.
-                    if (isReturn && varTypeIsStruct(tree->gtType) && !varTypeIsSIMD(tree->gtType))
+                    // TODO-MIKE-Cleanup: Remove this crap.
+                    if (isReturnStmt && varTypeIsStruct(node->GetType()) && !varTypeIsSIMD(node->GetType()))
                     {
                         continue;
                     }
 
-                    if (!compiler->cseIsCandidate(tree))
+                    if (!compiler->cseIsCandidate(node))
                     {
                         continue;
                     }
 
-                    if (ValueNumStore::isReservedVN(tree->GetVN(VNK_Liberal)))
+                    if (ValueNumStore::isReservedVN(node->GetLiberalVN()))
                     {
                         continue;
                     }
 
-                    // We want to CSE simple constant leaf nodes, but we don't want to
-                    // CSE non-leaf trees that compute CSE constant values.
-                    // Instead we let the Value Number based Assertion Prop phase handle them.
-                    //
-                    // Here, unlike the rest of optCSE, we use the conservative value number
-                    // rather than the liberal one, since the conservative one
-                    // is what the Value Number based Assertion Prop will use
-                    // and the point is to avoid optimizing cases that it will
-                    // handle.
+                    // We want to CSE simple constant leaf nodes, but we don't want to CSE non-leaf
+                    // trees that compute CSE constant values. Instead we let assertion prop phase
+                    // handle them.
+                    // Here, unlike the rest of CSE, we use the conservative value number rather
+                    // than the liberal one, since the conservative one is what assertion prop will
+                    // use and the point is to avoid optimizing cases that it will handle.
 
-                    if (!tree->OperIsLeaf() &&
-                        vnStore->IsVNConstant(vnStore->VNConservativeNormalValue(tree->gtVNPair)))
+                    if (!node->OperIsLeaf() && vnStore->IsVNConstant(vnStore->VNNormalValue(node->GetConservativeVN())))
                     {
                         continue;
                     }
 
-                    unsigned CSEindex = Index(tree, stmt);
+                    unsigned index = Index(node, stmt, block);
 
-                    if (CSEindex != 0)
+                    if ((index != 0) && node->OperIs(GT_ARR_LENGTH))
                     {
-                        noway_assert(((unsigned)tree->gtCSEnum) == CSEindex);
-
-                        if (tree->OperIs(GT_ARR_LENGTH))
-                        {
-                            stmtHasArrLenCandidate = true;
-                        }
+                        stmtHasArrLengthCandidate = true;
                     }
                 }
             }
@@ -957,7 +924,7 @@ public:
     // a CSE candidate, and insert an entry in the optCseCheckedBoundMap if so.
     // This facilitates subsequently updating the compare's value number if
     // the bound gets CSEd.
-    void UpdateCheckedBoundMap(GenTree* compare)
+    void UpdateCheckedBoundMap(GenTreeOp* compare)
     {
         assert(compare->OperIsCompare());
 
@@ -1375,8 +1342,6 @@ public:
 
         for (BasicBlock* const block : compiler->Blocks())
         {
-            currentBlock = block;
-
             BitVecOps::Assign(&dataFlowTraits, available_cses, block->bbCseIn);
 
             for (Statement* const stmt : block->NonPhiStatements())
