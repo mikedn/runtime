@@ -359,9 +359,6 @@ class Cse
     static constexpr size_t HashGrowthFactor = 2;
     static constexpr size_t HashBucketSize   = 4;
 
-    friend class CseDataFlow;
-    friend class CseHeuristic;
-
     Compiler*      compiler;
     ValueNumStore* vnStore;
 
