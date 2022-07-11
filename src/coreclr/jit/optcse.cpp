@@ -3,9 +3,6 @@
 
 #include "jitpch.h"
 #include "jitstd/algorithm.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
 
 bool Compiler::cseIsCandidate(GenTree* node)
 {
