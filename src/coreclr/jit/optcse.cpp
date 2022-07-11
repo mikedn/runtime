@@ -1658,17 +1658,21 @@ public:
 // rules to determine if it is likely to be profitable to perform this CSE.
 class CseHeuristic
 {
-    Compiler* m_pCompiler;
-    Cse&      m_cse;
-    unsigned  m_addCSEcount;
-
-    BasicBlock::weight_t   aggressiveRefCnt;
-    BasicBlock::weight_t   moderateRefCnt;
-    unsigned               enregCount; // count of the number of predicted enregistered variables
-    bool                   largeFrame;
-    bool                   hugeFrame;
+    Compiler*              m_pCompiler;
+    Cse&                   m_cse;
     Compiler::codeOptimize codeOptKind;
-    CseDesc**              sortTab;
+
+    // Count of the number of LclVars for CSEs that we added
+    unsigned m_addCSEcount = 0;
+    // Record the weighted ref count of the last "for sure" callee saved LclVar
+    BasicBlock::weight_t aggressiveRefCnt = 0;
+    BasicBlock::weight_t moderateRefCnt   = 0;
+    // count of the number of predicted enregistered variables
+    unsigned enregCount = 0;
+
+    bool      largeFrame = false;
+    bool      hugeFrame  = false;
+    CseDesc** sortTab    = nullptr;
 #ifdef DEBUG
     CLRRandom m_cseRNG;
     unsigned  m_bias;
@@ -1687,16 +1691,6 @@ public:
     // determine if the method has a large or huge stack frame.
     void Initialize()
     {
-        m_addCSEcount = 0; // Count of the number of LclVars for CSEs that we added
-
-        // Record the weighted ref count of the last "for sure" callee saved LclVar
-        aggressiveRefCnt = 0;
-        moderateRefCnt   = 0;
-        enregCount       = 0;
-        largeFrame       = false;
-        hugeFrame        = false;
-        sortTab          = nullptr;
-
         unsigned   frameSize        = 0;
         unsigned   regAvailEstimate = ((CNT_CALLEE_ENREG * 3) + (CNT_CALLEE_TRASH * 2) + 1);
         unsigned   lclNum;
