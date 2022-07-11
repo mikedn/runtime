@@ -512,8 +512,8 @@ public:
         const char* prefix = "";
         for (unsigned i = 1; i <= descCount; i++)
         {
-            unsigned availBit          = getCSEAvailBit(i);
-            unsigned availCrossCallBit = getCSEAvailCrossCallBit(i);
+            unsigned availBit          = GetAvailBitIndex(i);
+            unsigned availCrossCallBit = GetAvailCrossCallBitIndex(i);
 
             if (BitVecOps::IsMember(&dataFlowTraits, set, availBit))
             {
@@ -535,21 +535,6 @@ public:
     static CseIndex ToCseDefIndex(CseIndex index)
     {
         return static_cast<CseIndex>(-index);
-    }
-
-    // Return the bit used by CSE dataflow sets (bbCseGen, etc.) for the availability bit for a CSE.
-    static unsigned getCSEAvailBit(unsigned CSEnum)
-    {
-        assert((CSEnum > 0) && (CSEnum <= MAX_CSE_CNT));
-
-        return (CSEnum - 1) * 2;
-    }
-
-    // Return the bit used by CSE dataflow sets (bbCseGen, etc.) for the availability bit
-    // for a CSE considering calls as killing availability bit (see description above).
-    static unsigned getCSEAvailCrossCallBit(unsigned CSEnum)
-    {
-        return getCSEAvailBit(CSEnum) + 1;
     }
 
     static bool Is_Shared_Const_CSE(size_t key)
@@ -806,7 +791,7 @@ public:
 
             if (descCount == MAX_CSE_CNT)
             {
-                JITDUMPTREE(tree, "Exceeded the MAX_CSE_CNT, not using tree:\n");
+                JITDUMPTREE(tree, "Exceeded the MAX_CSE_CNT, not using node:\n");
                 return 0;
             }
 
@@ -1046,12 +1031,23 @@ public:
         return descTable[index - 1];
     }
 
-    // Compute each blocks bbCseGen
-    // This is the bitset that represents the CSEs that are generated within the block
-    // Also initialize bbCseIn, bbCseOut and bbCseGen sets for all blocks
+    // Return the bit used by CSE dataflow sets (bbCseGen, etc.) for the availability bit for a CSE.
+    static unsigned GetAvailBitIndex(unsigned cseNum)
+    {
+        assert((cseNum > 0) && (cseNum <= MAX_CSE_CNT));
+
+        return (cseNum - 1) * 2;
+    }
+
+    // Return the bit used by CSE dataflow sets (bbCseGen, etc.) for the availability bit
+    // for a CSE considering calls as killing availability bit (see description above).
+    static unsigned GetAvailCrossCallBitIndex(unsigned cseNum)
+    {
+        return GetAvailBitIndex(cseNum) + 1;
+    }
+
     void InitDataFlow()
     {
-        // BitVec trait information for computing CSE availability using the CseDataFlow algorithm.
         // Two bits are allocated per CSE candidate to compute CSE availability
         // plus an extra bit to handle the initial unvisited case.
         // (See CseDataFlow::EndMerge for an explaination of why this is necessary)
@@ -1062,38 +1058,31 @@ public:
         //     00 - The CSE is not available
         //     01 - An illegal combination
 
-        const unsigned bitCount = (descCount * 2) + 1;
+        dataFlowTraits = BitVecTraits((descCount * 2) + 1, compiler);
 
-        // Init traits and cseCallKillsMask bitvectors.
-        dataFlowTraits = BitVecTraits(bitCount, compiler);
-        callKillsMask  = BitVecOps::MakeEmpty(&dataFlowTraits);
-        for (unsigned inx = 1; inx <= descCount; inx++)
+        callKillsMask = BitVecOps::MakeEmpty(&dataFlowTraits);
+
+        for (unsigned cseNum = 1; cseNum <= descCount; cseNum++)
         {
-            unsigned cseAvailBit = getCSEAvailBit(inx);
-
-            // a one preserves availability and a zero kills the availability
-            // we generate this kind of bit pattern:  101010101010
-            BitVecOps::AddElemD(&dataFlowTraits, callKillsMask, cseAvailBit);
+            BitVecOps::AddElemD(&dataFlowTraits, callKillsMask, GetAvailBitIndex(cseNum));
         }
 
-        for (BasicBlock* const block : compiler->Blocks())
+        for (BasicBlock* block : compiler->Blocks())
         {
-            bool init_to_zero = false;
+            bool initToZero = false;
 
             if (block == compiler->fgFirstBB)
             {
-                init_to_zero = true;
+                initToZero = true;
             }
 #if !CSE_INTO_HANDLERS
-            else
+            else if (compiler->bbIsHandlerBeg(block))
             {
-                if (compiler->bbIsHandlerBeg(block))
-                {
-                    init_to_zero = true;
-                }
+                initToZero = true;
             }
 #endif
-            if (init_to_zero)
+
+            if (initToZero)
             {
                 block->bbCseIn = BitVecOps::MakeEmpty(&dataFlowTraits);
             }
@@ -1106,95 +1095,70 @@ public:
             block->bbCseGen = BitVecOps::MakeEmpty(&dataFlowTraits);
         }
 
-        // We walk the set of CSE candidates and set the bit corresponding to the CSEindex
-        // in the block's bbCseGen bitset.
-        for (unsigned inx = 0; inx < descCount; inx++)
+        for (unsigned i = 0; i < descCount; i++)
         {
-            CseDesc*      dsc      = descTable[inx];
-            unsigned      CSEindex = dsc->index;
-            CseOccurence* lst      = dsc->treeList;
-            noway_assert(lst);
+            CseDesc* desc              = descTable[i];
+            unsigned availBit          = GetAvailBitIndex(desc->index);
+            unsigned availCrossCallBit = GetAvailCrossCallBitIndex(desc->index);
 
-            while (lst != nullptr)
+            for (CseOccurence* occurence = desc->treeList; occurence != nullptr; occurence = occurence->next)
             {
-                BasicBlock* block                = lst->block;
-                unsigned    cseAvailBit          = getCSEAvailBit(CSEindex);
-                unsigned    cseAvailCrossCallBit = getCSEAvailCrossCallBit(CSEindex);
+                BitVecOps::AddElemD(&dataFlowTraits, occurence->block->bbCseGen, availBit);
 
-                // This CSE is generated in 'block', we always set the cseAvailBit
-                // If this block does not contain a call, we also set cseAvailCrossCallBit
-                //
-                // If we have a call in this block then in the loop below we walk the trees
-                // backwards to find any CSEs that are generated after the last call in the block.
-
-                BitVecOps::AddElemD(&dataFlowTraits, block->bbCseGen, cseAvailBit);
-                if ((block->bbFlags & BBF_HAS_CALL) == 0)
+                if ((occurence->block->bbFlags & BBF_HAS_CALL) == 0)
                 {
-                    BitVecOps::AddElemD(&dataFlowTraits, block->bbCseGen, cseAvailCrossCallBit);
+                    BitVecOps::AddElemD(&dataFlowTraits, occurence->block->bbCseGen, availCrossCallBit);
                 }
-                lst = lst->next;
             }
         }
 
-        for (BasicBlock* const block : compiler->Blocks())
+        // If a block contains a call and generates CSEs, we may need to update the
+        // bbCseGen set as we may generate some CSEs after the last call in the block.
+
+        for (BasicBlock* block : compiler->Blocks())
         {
-            // If the block doesn't contains a call then skip it.
             if ((block->bbFlags & BBF_HAS_CALL) == 0)
             {
                 continue;
             }
 
-            // We only need to examine blocks that generate CSEs
             if (BitVecOps::IsEmpty(&dataFlowTraits, block->bbCseGen))
             {
                 continue;
             }
 
-            // If the block contains a call and generates CSEs, we may need to update
-            // the bbCseGen set as we may generate some CSEs after the last call in the block.
-            //
-            // We walk the statements in this basic block starting at the end and walking backwards,
-            // until we reach the first call
-
-            Statement* stmt      = block->lastStmt();
-            bool       foundCall = false;
-            while (!foundCall)
+            for (Statement* stmt = block->lastStmt(); stmt != nullptr; stmt = stmt->GetPrevStmt())
             {
-                // Also walk the tree in the backwards direction (bottom up)
-                // looking for CSE's and updating block->bbCseGen
-                // When we reach a call node, we can exit the for loop
+                GenTree* node;
 
-                for (GenTree* tree = stmt->GetRootNode(); tree != nullptr; tree = tree->gtPrev)
+                for (node = stmt->GetRootNode(); node != nullptr; node = node->gtPrev)
                 {
-                    if (IsCseIndex(tree->gtCSEnum))
+                    if (IsCseIndex(node->gtCSEnum))
                     {
-                        unsigned CSEnum               = GetCseIndex(tree->gtCSEnum);
-                        unsigned cseAvailCrossCallBit = getCSEAvailCrossCallBit(CSEnum);
-                        BitVecOps::AddElemD(&dataFlowTraits, block->bbCseGen, cseAvailCrossCallBit);
+                        unsigned availCrossCallBit = GetAvailCrossCallBitIndex(GetCseIndex(node->gtCSEnum));
+
+                        BitVecOps::AddElemD(&dataFlowTraits, block->bbCseGen, availCrossCallBit);
                     }
-                    if (tree->OperGet() == GT_CALL)
+
+                    if (node->IsCall())
                     {
-                        // Any cse's that we haven't placed in the block->bbCseGen set
-                        // aren't currently alive (using cseAvailCrossCallBit)
-                        foundCall = true;
                         break;
                     }
                 }
-                // The JIT can sometimes remove the only call in the block
-                if (stmt == block->firstStmt())
+
+                if ((stmt == block->firstStmt()) || (node != nullptr))
                 {
                     break;
                 }
-                stmt = stmt->GetPrevStmt();
             }
         }
 
 #ifdef DEBUG
-        // Dump out the bbCseGen information that we just created
         if (compiler->verbose)
         {
             bool headerPrinted = false;
-            for (BasicBlock* const block : compiler->Blocks())
+
+            for (BasicBlock* block : compiler->Blocks())
             {
                 if (!BitVecOps::IsEmpty(&dataFlowTraits, block->bbCseGen))
                 {
@@ -1203,6 +1167,7 @@ public:
                         printf("\nBlocks that generate CSE def/uses\n");
                         headerPrinted = true;
                     }
+
                     printf(FMT_BB " cseGen = ", block->bbNum);
                     DumpDataFlowSet(block->bbCseGen);
                     printf("\n");
@@ -1211,7 +1176,6 @@ public:
         }
 
         compiler->fgDebugCheckLinks();
-
 #endif // DEBUG
     }
 
@@ -1410,8 +1374,8 @@ public:
                     if (IsCseIndex(tree->gtCSEnum))
                     {
                         unsigned             CSEnum               = GetCseIndex(tree->gtCSEnum);
-                        unsigned             cseAvailBit          = getCSEAvailBit(CSEnum);
-                        unsigned             cseAvailCrossCallBit = getCSEAvailCrossCallBit(CSEnum);
+                        unsigned             cseAvailBit          = GetAvailBitIndex(CSEnum);
+                        unsigned             cseAvailCrossCallBit = GetAvailCrossCallBitIndex(CSEnum);
                         CseDesc*             desc                 = GetDesc(CSEnum);
                         BasicBlock::weight_t stmw                 = block->getBBWeight(compiler);
 
@@ -1657,7 +1621,7 @@ public:
                                     // available_cses
 
                                     unsigned CSEnum               = GetCseIndex(tree->gtCSEnum);
-                                    unsigned cseAvailCrossCallBit = getCSEAvailCrossCallBit(CSEnum);
+                                    unsigned cseAvailCrossCallBit = GetAvailCrossCallBitIndex(CSEnum);
 
                                     BitVecOps::AddElemD(&dataFlowTraits, available_cses, cseAvailCrossCallBit);
                                 }
