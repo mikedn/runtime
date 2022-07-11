@@ -5431,12 +5431,13 @@ public:
     BasicBlock::weight_t cseBlockWeight;    // The weight of the current block when we are doing PerformCSE
     CseDesc**            cseTable;
 
-    // lclNumIsTrueCSE returns true if the LclVar was introduced by the CSE phase of the compiler
-    //
+#ifdef DEBUG
+    // Returns true if the LclVar was introduced by the CSE phase of the compiler.
     bool lclNumIsTrueCSE(unsigned lclNum) const
     {
         return ((cseCount > 0) && (lclNum >= cseFirstLclNum) && (lclNum < cseFirstLclNum + cseCount));
     }
+#endif
 
     //  lclNumIsCSE returns true if the LclVar should be treated like a CSE with regards to constant prop.
     //
