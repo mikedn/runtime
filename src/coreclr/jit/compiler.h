@@ -1562,8 +1562,7 @@ class Compiler
     friend class Rationalizer;
     friend class Phase;
     friend class Lowering;
-    friend class CseDataFlow;
-    friend class CseHeuristic;
+    friend class Cse;
     friend class CodeGenInterface;
     friend class CodeGen;
     friend class LclVarDsc;

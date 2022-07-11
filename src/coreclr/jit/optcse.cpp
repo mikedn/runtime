@@ -451,6 +451,20 @@ class Cse
 
     bool doCSE = false; // True when we have found a duplicate CSE tree
 
+    Compiler::codeOptimize codeOptKind;
+
+    // Record the weight of the last "for sure" callee saved local
+    BasicBlock::weight_t aggressiveWeight = 0;
+    BasicBlock::weight_t moderateWeight   = 0;
+    // count of the number of predicted enregistered variables
+    unsigned enregCount = 0;
+    bool     largeFrame = false;
+    bool     hugeFrame  = false;
+#ifdef DEBUG
+    CLRRandom m_cseRNG;
+    unsigned  m_bias;
+#endif
+
 public:
     Cse(Compiler* compiler)
         : compiler(compiler)
@@ -458,6 +472,7 @@ public:
         , hashBuckets(new (compiler, CMK_CSE) CseDesc*[hashSize]())
         , checkedBoundMap(compiler->getAllocator(CMK_CSE))
         , dataFlowTraits(0, compiler)
+        , codeOptKind(compiler->compCodeOpt())
     {
         compiler->cseTable          = nullptr;
         compiler->cseCandidateCount = 0;
@@ -1652,42 +1667,15 @@ public:
             }
         }
     }
-};
-
-// The following class handles the CSE heuristics we use a complex set of heuristic
-// rules to determine if it is likely to be profitable to perform this CSE.
-class CseHeuristic
-{
-    Compiler*              m_pCompiler;
-    Cse&                   m_cse;
-    Compiler::codeOptimize codeOptKind;
-
-    // Record the weight of the last "for sure" callee saved local
-    BasicBlock::weight_t aggressiveWeight = 0;
-    BasicBlock::weight_t moderateWeight   = 0;
-    // count of the number of predicted enregistered variables
-    unsigned enregCount = 0;
-    bool     largeFrame = false;
-    bool     hugeFrame  = false;
-#ifdef DEBUG
-    CLRRandom m_cseRNG;
-    unsigned  m_bias;
-#endif
-
-public:
-    CseHeuristic(Compiler* pCompiler, Cse& cse)
-        : m_pCompiler(pCompiler), m_cse(cse), codeOptKind(pCompiler->compCodeOpt())
-    {
-    }
 
     void EstimateFrameSize()
     {
         unsigned frameSize        = 0;
         unsigned regAvailEstimate = (CNT_CALLEE_ENREG * 3) + (CNT_CALLEE_TRASH * 2) + 1;
 
-        for (unsigned lclNum = 0; lclNum < m_pCompiler->lvaCount; lclNum++)
+        for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
         {
-            LclVarDsc* lcl = m_pCompiler->lvaGetDesc(lclNum);
+            LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
 
             // Locals with no references don't use any local stack frame slots
             if (lcl->GetRefCount() == 0)
@@ -1707,9 +1695,9 @@ public:
             // may affect them from the stack pointer).
             // TODO-MIKE-Cleanup: This is likely pointless, lvaOutgoingArgSpaceVar should
             // have ref count 0 at this point so we skip it anyway above.
-            noway_assert(m_pCompiler->lvaOutgoingArgSpaceVar != BAD_VAR_NUM);
+            noway_assert(compiler->lvaOutgoingArgSpaceVar != BAD_VAR_NUM);
 
-            if (lclNum == m_pCompiler->lvaOutgoingArgSpaceVar)
+            if (lclNum == compiler->lvaOutgoingArgSpaceVar)
             {
                 continue;
             }
@@ -1751,7 +1739,7 @@ public:
                 continue;
             }
 
-            frameSize += m_pCompiler->lvaLclSize(lclNum);
+            frameSize += compiler->lvaLclSize(lclNum);
 
 #ifdef TARGET_XARCH
             if (frameSize > 128)
@@ -1813,9 +1801,9 @@ public:
         // assumes that the highest weight local swill be enregistered and that the lowest weight
         // locals are likely be allocated in the stack frame.
         // The value of enregCount is incremented when we visit a local that can be enregistered.
-        for (unsigned trackedIndex = 0; trackedIndex < m_pCompiler->lvaTrackedCount; trackedIndex++)
+        for (unsigned trackedIndex = 0; trackedIndex < compiler->lvaTrackedCount; trackedIndex++)
         {
-            LclVarDsc* lcl = m_pCompiler->lvaGetDescByTrackedIndex(trackedIndex);
+            LclVarDsc* lcl = compiler->lvaGetDescByTrackedIndex(trackedIndex);
 
             if (lcl->GetRefCount() == 0)
             {
@@ -1942,9 +1930,9 @@ public:
 
     CseDesc** SortCandidates()
     {
-        size_t    count  = m_pCompiler->cseCandidateCount;
-        CseDesc** sorted = new (m_pCompiler, CMK_CSE) CseDesc*[count];
-        memcpy(sorted, m_pCompiler->cseTable, count * sizeof(*sorted));
+        size_t    count  = compiler->cseCandidateCount;
+        CseDesc** sorted = new (compiler, CMK_CSE) CseDesc*[count];
+        memcpy(sorted, compiler->cseTable, count * sizeof(*sorted));
 
         if (codeOptKind == Compiler::SMALL_CODE)
         {
@@ -1955,7 +1943,7 @@ public:
             jitstd::sort(sorted, sorted + count, CostCompareSpeed());
         }
 
-        DBEXEC(m_pCompiler->verbose, DumpSortedCandidates(sorted, count));
+        DBEXEC(compiler->verbose, DumpSortedCandidates(sorted, count));
 
         return sorted;
     }
@@ -2000,7 +1988,7 @@ public:
                        dspPtr(kVal), dsc->useCount, def, use, cost, dsc->isLiveAcrossCall ? ", call" : "      ");
             }
 
-            m_pCompiler->gtDispTree(expr, nullptr, nullptr, true);
+            compiler->gtDispTree(expr, nullptr, nullptr, true);
         }
         printf("\n");
     }
@@ -2186,7 +2174,7 @@ public:
         // Seed the PRNG, if never done before.
         if (!m_cseRNG.IsInitialized())
         {
-            m_cseRNG.Init(m_pCompiler->info.compMethodHash());
+            m_cseRNG.Init(compiler->info.compMethodHash());
             m_bias = m_cseRNG.Next(100);
         }
 
@@ -2196,7 +2184,7 @@ public:
         // Invalid value, check if JitStress is ON.
         if (bias > 100)
         {
-            if (!m_pCompiler->compStressCompile(Compiler::STRESS_MAKE_CSE, MAX_STRESS_WEIGHT))
+            if (!compiler->compStressCompile(Compiler::STRESS_MAKE_CSE, MAX_STRESS_WEIGHT))
             {
                 // JitStress is OFF for CSE, nothing to do.
                 return 0;
@@ -2292,7 +2280,7 @@ public:
             // TODO-MIKE-Cleanup: Do we really need this? There are other places that
             // create SIMD temps without layout so why bother at all here?
 
-            ClassLayout* layout = m_pCompiler->typGetVectorLayout(candidate->Expr());
+            ClassLayout* layout = compiler->typGetVectorLayout(candidate->Expr());
 
             if (layout == nullptr)
             {
@@ -2534,7 +2522,7 @@ public:
                 }
 
                 // If we have maxed out lvaTrackedCount then this CSE may end up as an untracked variable
-                if (m_pCompiler->lvaTrackedCount == (unsigned)JitConfig.JitMaxLocalsToTrack())
+                if (compiler->lvaTrackedCount == (unsigned)JitConfig.JitMaxLocalsToTrack())
                 {
                     cse_def_cost += 1;
                     cse_use_cost += 1;
@@ -2619,7 +2607,7 @@ public:
         yes_cse_cost += extra_yes_cost;
 
 #ifdef DEBUG
-        if (m_pCompiler->verbose)
+        if (compiler->verbose)
         {
             printf("cseRefCnt=%f, aggressiveWeight=%f, moderateWeight=%f\n", cseRefCnt, aggressiveWeight,
                    moderateWeight);
@@ -2646,7 +2634,7 @@ public:
             {
                 int percentage = (int)((no_cse_cost * 100) / yes_cse_cost);
 
-                if (m_pCompiler->compStressCompile(Compiler::STRESS_MAKE_CSE, percentage))
+                if (compiler->compStressCompile(Compiler::STRESS_MAKE_CSE, percentage))
                 {
                     result = true;
                 }
@@ -2710,13 +2698,13 @@ public:
         }
 #endif // DEBUG
 
-        unsigned   cseLclVarNum = m_pCompiler->lvaGrabTemp(false DEBUGARG(grabTempMessage));
+        unsigned   cseLclVarNum = compiler->lvaGrabTemp(false DEBUGARG(grabTempMessage));
         var_types  cseLclVarTyp = varActualType(successfulCandidate->Expr()->GetType());
-        LclVarDsc* cseLcl       = m_pCompiler->lvaGetDesc(cseLclVarNum);
+        LclVarDsc* cseLcl       = compiler->lvaGetDesc(cseLclVarNum);
 
         if (varTypeIsStruct(cseLclVarTyp))
         {
-            m_pCompiler->lvaSetStruct(cseLclVarNum, successfulCandidate->CseDsc()->layout, false);
+            compiler->lvaSetStruct(cseLclVarNum, successfulCandidate->CseDsc()->layout, false);
             assert(cseLcl->GetType() == cseLclVarTyp);
         }
         else
@@ -2727,7 +2715,7 @@ public:
         cseLcl->lvIsCSE = true;
 
         // Record that we created a new LclVar for use as a CSE temp
-        m_pCompiler->cseCount++;
+        compiler->cseCount++;
 
         // Walk all references to this CSE, adding an assignment
         // to the CSE temp to all defs and changing all refs to
@@ -2744,7 +2732,7 @@ public:
             JITDUMP(FMT_CSE " is single-def, so associated CSE temp V%02u will be in SSA\n", dsc->index, cseLclVarNum);
             cseLcl->lvInSsa = true;
 
-            cseSsaNum = cseLcl->lvPerSsaData.AllocSsaNum(m_pCompiler->getAllocator(CMK_SSA));
+            cseSsaNum = cseLcl->lvPerSsaData.AllocSsaNum(compiler->getAllocator(CMK_SSA));
         }
 
         // Verify that all of the ValueNumbers in this list are correct as
@@ -2762,9 +2750,9 @@ public:
         {
             if (IsCseIndex(lst->tree->gtCSEnum))
             {
-                ValueNum currVN = m_pCompiler->vnStore->VNLiberalNormalValue(lst->tree->gtVNPair);
+                ValueNum currVN = compiler->vnStore->VNLiberalNormalValue(lst->tree->gtVNPair);
                 assert(currVN != ValueNumStore::NoVN);
-                ssize_t curConstValue = isSharedConst ? m_pCompiler->vnStore->CoercedConstantValue<ssize_t>(currVN) : 0;
+                ssize_t curConstValue = isSharedConst ? compiler->vnStore->CoercedConstantValue<ssize_t>(currVN) : 0;
 
                 GenTree* exp   = lst->tree;
                 bool     isDef = IsCseDef(exp->gtCSEnum);
@@ -2804,7 +2792,7 @@ public:
                 }
 
                 BasicBlock*          blk       = lst->block;
-                BasicBlock::weight_t curWeight = blk->getBBWeight(m_pCompiler);
+                BasicBlock::weight_t curWeight = blk->getBBWeight(compiler);
 
                 if (setRefCnt)
                 {
@@ -2814,13 +2802,13 @@ public:
                 }
                 else
                 {
-                    m_pCompiler->lvaAddRef(cseLcl, curWeight);
+                    compiler->lvaAddRef(cseLcl, curWeight);
                 }
 
                 // A CSE Def references the LclVar twice
                 if (isDef)
                 {
-                    m_pCompiler->lvaAddRef(cseLcl, curWeight);
+                    compiler->lvaAddRef(cseLcl, curWeight);
                 }
             }
             lst = lst->next;
@@ -2830,7 +2818,7 @@ public:
         dsc->constDefVN    = bestVN;
 
 #ifdef DEBUG
-        if (m_pCompiler->verbose)
+        if (compiler->verbose)
         {
             if (!allSame)
             {
@@ -2843,14 +2831,14 @@ public:
                 {
                     lst                = dsc->treeList;
                     GenTree* firstTree = lst->tree;
-                    printf("In %s, CSE (oper = %s, type = %s) has differing VNs: ", m_pCompiler->info.compFullName,
+                    printf("In %s, CSE (oper = %s, type = %s) has differing VNs: ", compiler->info.compFullName,
                            GenTree::OpName(firstTree->OperGet()), varTypeName(firstTree->TypeGet()));
                     while (lst != nullptr)
                     {
                         if (IsCseIndex(lst->tree->gtCSEnum))
                         {
-                            ValueNum currVN = m_pCompiler->vnStore->VNLiberalNormalValue(lst->tree->gtVNPair);
-                            printf("[%06d](%s " FMT_VN ") ", m_pCompiler->dspTreeID(lst->tree),
+                            ValueNum currVN = compiler->vnStore->VNLiberalNormalValue(lst->tree->gtVNPair);
+                            printf("[%06d](%s " FMT_VN ") ", compiler->dspTreeID(lst->tree),
                                    IsCseUse(lst->tree->gtCSEnum) ? "use" : "def", currVN);
                         }
                         lst = lst->next;
@@ -2882,20 +2870,20 @@ public:
 
             assert(exp->gtOper != GT_COUNT);
 
-            m_pCompiler->cseBlockWeight = blk->getBBWeight(m_pCompiler);
+            compiler->cseBlockWeight = blk->getBBWeight(compiler);
 
             // Figure out the actual type of the value
             var_types expTyp = genActualType(exp->TypeGet());
 
             // The cseLclVarType must be a compatible with expTyp
-            ValueNumStore* vnStore = m_pCompiler->vnStore;
+            ValueNumStore* vnStore = compiler->vnStore;
             noway_assert(IsCompatibleType(cseLclVarTyp, expTyp) || (dsc->constDefVN != vnStore->VNForNull()));
 
             // This will contain the replacement tree for exp
             GenTree*      cse = nullptr;
             bool          isDef;
             GenTree*      effectiveExp = exp->SkipComma();
-            FieldSeqNode* fieldSeq     = m_pCompiler->GetZeroOffsetFieldSeq(effectiveExp);
+            FieldSeqNode* fieldSeq     = compiler->GetZeroOffsetFieldSeq(effectiveExp);
 
             if (IsCseUse(exp->gtCSEnum))
             {
@@ -2908,7 +2896,7 @@ public:
                 // this is typically just a simple use of the new CSE LclVar
                 // Create a reference to the CSE temp.
 
-                GenTree* cseLclVar = m_pCompiler->gtNewLclvNode(cseLclVarNum, cseLclVarTyp);
+                GenTree* cseLclVar = compiler->gtNewLclvNode(cseLclVarNum, cseLclVarTyp);
                 cseLclVar->gtVNPair.SetBoth(dsc->constDefVN);
 
                 // Assign the ssa num for the lclvar use. Note it may be the reserved num.
@@ -2917,13 +2905,13 @@ public:
                 cse = cseLclVar;
                 if (isSharedConst)
                 {
-                    ValueNum currVN   = m_pCompiler->vnStore->VNLiberalNormalValue(exp->gtVNPair);
-                    ssize_t  curValue = m_pCompiler->vnStore->CoercedConstantValue<ssize_t>(currVN);
+                    ValueNum currVN   = compiler->vnStore->VNLiberalNormalValue(exp->gtVNPair);
+                    ssize_t  curValue = compiler->vnStore->CoercedConstantValue<ssize_t>(currVN);
                     ssize_t  delta    = curValue - dsc->constDefValue;
                     if (delta != 0)
                     {
-                        GenTree* deltaNode = m_pCompiler->gtNewIconNode(delta, cseLclVarTyp);
-                        cse                = m_pCompiler->gtNewOperNode(GT_ADD, cseLclVarTyp, cseLclVar, deltaNode);
+                        GenTree* deltaNode = compiler->gtNewIconNode(delta, cseLclVarTyp);
+                        cse                = compiler->gtNewOperNode(GT_ADD, cseLclVarTyp, cseLclVar, deltaNode);
                         cse->SetDoNotCSE();
                     }
                 }
@@ -2954,7 +2942,7 @@ public:
                         }
 
                         GenTree* cmp;
-                        if (m_cse.checkedBoundMap.Lookup(exp, &cmp))
+                        if (checkedBoundMap.Lookup(exp, &cmp))
                         {
                             // Propagate the new value number to this compare node as well, since
                             // subsequent range check elimination will try to correlate it with
@@ -3004,7 +2992,7 @@ public:
                 exp->gtCSEnum = NoCse;
 
                 GenTree* sideEffList = nullptr;
-                m_pCompiler->gtExtractSideEffList(exp, &sideEffList, GTF_PERSISTENT_SIDE_EFFECTS | GTF_IS_IN_CSE);
+                compiler->gtExtractSideEffList(exp, &sideEffList, GTF_PERSISTENT_SIDE_EFFECTS | GTF_IS_IN_CSE);
 
                 if (sideEffList != nullptr)
                 {
@@ -3048,7 +3036,7 @@ public:
                     exceptions_vnp = vnStore->VNPExcSetUnion(exceptions_vnp, op2Xvnp);
 
                     // Create a comma node with the sideEffList as op1
-                    cse           = m_pCompiler->gtNewCommaNode(sideEffList, cseVal, expTyp);
+                    cse           = compiler->gtNewCommaNode(sideEffList, cseVal, expTyp);
                     cse->gtVNPair = vnStore->VNPWithExc(op2vnp, exceptions_vnp);
                 }
             }
@@ -3064,12 +3052,12 @@ public:
                 GenTree* val = exp;
                 if (isSharedConst)
                 {
-                    ValueNum currVN   = m_pCompiler->vnStore->VNLiberalNormalValue(exp->gtVNPair);
-                    ssize_t  curValue = m_pCompiler->vnStore->CoercedConstantValue<ssize_t>(currVN);
+                    ValueNum currVN   = compiler->vnStore->VNLiberalNormalValue(exp->gtVNPair);
+                    ssize_t  curValue = compiler->vnStore->CoercedConstantValue<ssize_t>(currVN);
                     ssize_t  delta    = curValue - dsc->constDefValue;
                     if (delta != 0)
                     {
-                        val = m_pCompiler->gtNewIconNode(dsc->constDefValue, cseLclVarTyp);
+                        val = compiler->gtNewIconNode(dsc->constDefValue, cseLclVarTyp);
                         val->gtVNPair.SetBoth(dsc->constDefVN);
                     }
                 }
@@ -3077,16 +3065,16 @@ public:
                 assert((cseLclVarTyp != TYP_STRUCT) ||
                        (val->IsCall() && (val->AsCall()->GetRetDesc()->GetRegCount() == 1)));
 
-                GenTreeLclVar* dstLclNode = m_pCompiler->gtNewLclvNode(cseLclVarNum, cseLclVarTyp);
+                GenTreeLclVar* dstLclNode = compiler->gtNewLclvNode(cseLclVarNum, cseLclVarTyp);
                 dstLclNode->SetVNP(val->gtVNPair);
                 dstLclNode->SetSsaNum(cseSsaNum);
 
-                GenTreeOp* asg = m_pCompiler->gtNewAssignNode(dstLclNode, val);
+                GenTreeOp* asg = compiler->gtNewAssignNode(dstLclNode, val);
                 asg->gtVNPair.SetBoth(ValueNumStore::VNForVoid());
 
                 if (cseSsaNum != SsaConfig::RESERVED_SSA_NUM)
                 {
-                    LclSsaVarDsc* ssaVarDsc = m_pCompiler->lvaTable[cseLclVarNum].GetPerSsaData(cseSsaNum);
+                    LclSsaVarDsc* ssaVarDsc = compiler->lvaTable[cseLclVarNum].GetPerSsaData(cseSsaNum);
 
                     // These should not have been set yet, since this is the first and
                     // only def for this CSE.
@@ -3098,31 +3086,31 @@ public:
                     ssaVarDsc->SetAssignment(asg->AsOp());
                 }
 
-                GenTreeLclVar* cseLclVar = m_pCompiler->gtNewLclvNode(cseLclVarNum, cseLclVarTyp);
+                GenTreeLclVar* cseLclVar = compiler->gtNewLclvNode(cseLclVarNum, cseLclVarTyp);
                 cseLclVar->gtVNPair.SetBoth(dsc->constDefVN);
                 cseLclVar->SetSsaNum(cseSsaNum);
 
                 GenTree* cseUse = cseLclVar;
                 if (isSharedConst)
                 {
-                    ValueNum currVN   = m_pCompiler->vnStore->VNLiberalNormalValue(exp->gtVNPair);
-                    ssize_t  curValue = m_pCompiler->vnStore->CoercedConstantValue<ssize_t>(currVN);
+                    ValueNum currVN   = compiler->vnStore->VNLiberalNormalValue(exp->gtVNPair);
+                    ssize_t  curValue = compiler->vnStore->CoercedConstantValue<ssize_t>(currVN);
                     ssize_t  delta    = curValue - dsc->constDefValue;
                     if (delta != 0)
                     {
-                        GenTree* deltaNode = m_pCompiler->gtNewIconNode(delta, cseLclVarTyp);
-                        cseUse             = m_pCompiler->gtNewOperNode(GT_ADD, cseLclVarTyp, cseLclVar, deltaNode);
+                        GenTree* deltaNode = compiler->gtNewIconNode(delta, cseLclVarTyp);
+                        cseUse             = compiler->gtNewOperNode(GT_ADD, cseLclVarTyp, cseLclVar, deltaNode);
                         cseUse->SetDoNotCSE();
                     }
                 }
                 cseUse->gtVNPair = val->gtVNPair;
 
-                cse = m_pCompiler->gtNewCommaNode(asg, cseUse, expTyp);
+                cse = compiler->gtNewCommaNode(asg, cseUse, expTyp);
                 // COMMA's VN is the same the original expression VN because assignment does not add any exceptions.
                 cse->gtVNPair = cseUse->gtVNPair;
             }
 
-            Compiler::FindLinkData linkData = m_pCompiler->gtFindLink(stmt, exp);
+            Compiler::FindLinkData linkData = compiler->gtFindLink(stmt, exp);
             GenTree**              link     = linkData.useEdge;
 
 #ifdef DEBUG
@@ -3134,10 +3122,10 @@ public:
                 Compiler::printTreeID(exp);
                 printf("\n");
                 printf("stm =");
-                m_pCompiler->gtDispStmt(stmt);
+                compiler->gtDispStmt(stmt);
                 printf("\n");
                 printf("exp =");
-                m_pCompiler->gtDispTree(exp);
+                compiler->gtDispTree(exp);
                 printf("\n");
             }
 #endif // DEBUG
@@ -3148,18 +3136,18 @@ public:
 
             if (fieldSeq != nullptr)
             {
-                m_pCompiler->AddZeroOffsetFieldSeq(cse, fieldSeq);
+                compiler->AddZeroOffsetFieldSeq(cse, fieldSeq);
             }
 
-            assert(m_pCompiler->fgRemoveRestOfBlock == false);
+            assert(compiler->fgRemoveRestOfBlock == false);
 
             if (linkData.user != nullptr)
             {
-                m_pCompiler->gtUpdateTreeAncestorsSideEffects(linkData.user);
+                compiler->gtUpdateTreeAncestorsSideEffects(linkData.user);
             }
 
-            m_pCompiler->gtSetStmtInfo(stmt);
-            m_pCompiler->fgSetStmtSeq(stmt);
+            compiler->gtSetStmtInfo(stmt);
+            compiler->fgSetStmtSeq(stmt);
 
         } while (lst != nullptr);
     }
@@ -3168,7 +3156,7 @@ public:
     // the PromotionCheck then transform the CSE by calling PerformCSE
     void ConsiderCandidates(CseDesc** candidates)
     {
-        unsigned  cnt = m_pCompiler->cseCandidateCount;
+        unsigned  cnt = compiler->cseCandidateCount;
         CseDesc** ptr = candidates;
 
         for (; (cnt > 0); cnt--, ptr++)
@@ -3240,11 +3228,9 @@ void Cse::Heuristic()
     JITDUMP("\n************ Trees at start of Heuristic()\n");
     DBEXEC(compiler->verbose, compiler->fgDumpTrees(compiler->fgFirstBB, nullptr));
 
-    CseHeuristic heuristic(compiler, *this);
-
-    heuristic.EstimateFrameSize();
-    heuristic.EstimateCutOffWeights();
-    heuristic.ConsiderCandidates(heuristic.SortCandidates());
+    EstimateFrameSize();
+    EstimateCutOffWeights();
+    ConsiderCandidates(SortCandidates());
 }
 
 void Compiler::cseMain()
