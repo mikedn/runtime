@@ -472,6 +472,7 @@ public:
 
         if (Locate())
         {
+            BuildCseTable();
             InitDataFlow();
             DataFlow();
             Availablity();
@@ -939,14 +940,7 @@ public:
             }
         }
 
-        if (!doCSE)
-        {
-            return false;
-        }
-
-        BuildCseTable();
-
-        return true;
+        return doCSE;
     }
 
     // Check if this compare is a tractable function of a checked bound that is
