@@ -623,7 +623,6 @@ inline double getR8LittleEndian(const BYTE* ptr)
 }
 
 #ifdef DEBUG
-const char* genES2str(BitVecTraits* traits, EXPSET_TP set);
 const char* refCntWtd2str(BasicBlock::weight_t refCntWtd);
 #endif
 
