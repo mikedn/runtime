@@ -447,7 +447,7 @@ public:
 
             EstimateFrameSize();
             EstimateCutOffWeights();
-            ConsiderCandidates(SortCandidates());
+            ConsiderCandidates();
         }
 
         compiler->csePhase = false;
@@ -3041,13 +3041,13 @@ public:
         }
     }
 
-    // Consider each of the CSE candidates and if the CSE passes
-    // the PromotionCheck then transform the CSE by calling PerformCSE
-    void ConsiderCandidates(CseDesc** sorted)
+    void ConsiderCandidates()
     {
         // cseCanSwapOrder and cseUnmarkNode need the CSE table.
         compiler->cseTable          = descTable;
         compiler->cseCandidateCount = descCount;
+
+        CseDesc** sorted = SortCandidates();
 
         for (unsigned i = 0; i < descCount; i++)
         {
