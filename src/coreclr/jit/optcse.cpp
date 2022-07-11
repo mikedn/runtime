@@ -497,7 +497,7 @@ public:
 
             EstimateFrameSize();
             EstimateCutOffWeights();
-            ConsiderCandidates(SortCandidates());
+            ConsiderCandidates(SortCandidates(), compiler->cseCandidateCount);
         }
 
         compiler->csePhase = false;
@@ -2662,6 +2662,8 @@ public:
     // It will also put cse0 into SSA if there is just one def.
     void PerformCSE(Candidate* successfulCandidate)
     {
+        JITDUMP("\nPromoting CSE:\n");
+
         BasicBlock::weight_t cseRefCnt = (successfulCandidate->DefCount() * 2) + successfulCandidate->UseCount();
 
         if (successfulCandidate->LiveAcrossCall() != 0)
@@ -3158,71 +3160,61 @@ public:
 
     // Consider each of the CSE candidates and if the CSE passes
     // the PromotionCheck then transform the CSE by calling PerformCSE
-    void ConsiderCandidates(CseDesc** candidates)
+    void ConsiderCandidates(CseDesc** candidates, size_t count)
     {
-        unsigned  cnt = compiler->cseCandidateCount;
-        CseDesc** ptr = candidates;
-
-        for (; (cnt > 0); cnt--, ptr++)
+        for (unsigned i = 0; i < count; i++)
         {
-            CseDesc* dsc = *ptr;
+            CseDesc* desc = candidates[i];
 
-            if (dsc->defExcSetPromise == ValueNumStore::NoVN)
+            if ((desc->defCount == 0) || (desc->useCount == 0))
             {
-                JITDUMP("Abandoned " FMT_CSE " because we had defs with different Exc sets\n", dsc->index);
+                // If we reach this point, then the CSE def was incorrectly marked or the
+                // block with this use is unreachable.
+                // The problem is if there is sub-graph that is not reachable from the
+                // entry point, the CSE flags propagated, would be incorrect for it.
+                JITDUMP("Skipped " FMT_CSE " because def/use count is 0\n", desc->index);
                 continue;
             }
 
-            Candidate candidate(codeOptKind, dsc);
+            if (desc->defExcSetPromise == ValueNumStore::NoVN)
+            {
+                JITDUMP("Abandoned " FMT_CSE " because we had defs with different Exc sets\n", desc->index);
+                continue;
+            }
+
+            Candidate candidate(codeOptKind, desc);
 
             if (candidate.UseCount() == 0)
             {
-                JITDUMP("Skipped " FMT_CSE " because use count is 0\n", candidate.CseIndex());
+                JITDUMP("Skipped " FMT_CSE " because use count is 0\n", desc->index);
                 continue;
             }
 
-            if (!Is_Shared_Const_CSE(dsc->hashKey))
+#ifdef DEBUG
+            if (!Is_Shared_Const_CSE(desc->hashKey))
             {
-                JITDUMP("\nConsidering " FMT_CSE " {$%-3x, $%-3x} [def=%3f, use=%3f, cost=%3u%s]\n",
-                        candidate.CseIndex(), dsc->hashKey, dsc->defExcSetPromise, candidate.DefCount(),
-                        candidate.UseCount(), candidate.Cost(), dsc->isLiveAcrossCall ? ", call" : "      ");
+                JITDUMP("\nConsidering " FMT_CSE " {$%-3x, $%-3x} [def=%3f, use=%3f, cost=%3u%s]\n", desc->index,
+                        desc->hashKey, desc->defExcSetPromise, candidate.DefCount(), candidate.UseCount(),
+                        candidate.Cost(), desc->isLiveAcrossCall ? ", call" : "      ");
             }
             else
             {
-                size_t kVal = Decode_Shared_Const_CSE_Value(dsc->hashKey);
-                JITDUMP("\nConsidering " FMT_CSE " {K_%p} [def=%3f, use=%3f, cost=%3u%s]\n", candidate.CseIndex(),
-                        dspPtr(kVal), candidate.DefCount(), candidate.UseCount(), candidate.Cost(),
-                        dsc->isLiveAcrossCall ? ", call" : "      ");
+                size_t constVal = Decode_Shared_Const_CSE_Value(desc->hashKey);
+                JITDUMP("\nConsidering " FMT_CSE " {K_%p} [def=%3f, use=%3f, cost=%3u%s]\n", desc->index,
+                        dspPtr(constVal), candidate.DefCount(), candidate.UseCount(), candidate.Cost(),
+                        desc->isLiveAcrossCall ? ", call" : "      ");
             }
 
-            JITDUMPTREE(candidate.Expr(), "CSE Expression : \n");
+            JITDUMPTREE(candidate.Expr(), "CSE Expression:\n");
+#endif
 
-            if ((dsc->defCount <= 0) || (dsc->useCount == 0))
-            {
-                // If we reach this point, then the CSE def was incorrectly marked or the
-                // block with this use is unreachable. So skip and go to the next CSE.
-                // Without the "continue", we'd generate bad code in retail.
-                // Commented out a noway_assert(false) here due to bug: 3290124.
-                // The problem is if there is sub-graph that is not reachable from the
-                // entry point, the CSE flags propagated, would be incorrect for it.
-                continue;
-            }
-
-            bool doCSE = PromotionCheck(&candidate);
-
-            if (doCSE)
-            {
-                JITDUMP("\nPromoting CSE:\n");
-            }
-            else
+            if (!PromotionCheck(&candidate))
             {
                 JITDUMP("Did Not promote this CSE\n");
+                continue;
             }
 
-            if (doCSE)
-            {
-                PerformCSE(&candidate);
-            }
+            PerformCSE(&candidate);
         }
     }
 };
