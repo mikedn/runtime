@@ -258,7 +258,7 @@ struct CseDesc
     ssize_t  constDefValue; // When we CSE similar constants, this is the value that we use as the def
     ValueNum constDefVN;    // When we CSE similar constants, this is the VN that we use for the LclVar assignment
 
-    unsigned index; // 1..cseCandidateCount
+    unsigned index; // 1..descCount
 
     bool isSharedConst;
     bool isLiveAcrossCall;
@@ -427,6 +427,8 @@ class Cse
     // Number of entries before resize
     size_t    hashMaxCountBeforeResize = HashSizeInitial * HashBucketSize;
     CseDesc** hashBuckets;
+    CseDesc** descTable;
+    unsigned  descCount;
 
     typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, GenTree*> NodeToNodeMap;
 
@@ -470,6 +472,8 @@ public:
         : compiler(compiler)
         , vnStore(compiler->vnStore)
         , hashBuckets(new (compiler, CMK_CSE) CseDesc*[hashSize]())
+        , descTable(nullptr)
+        , descCount(0)
         , checkedBoundMap(compiler->getAllocator(CMK_CSE))
         , dataFlowTraits(0, compiler)
         , codeOptKind(compiler->compCodeOpt())
@@ -498,7 +502,7 @@ public:
 
             EstimateFrameSize();
             EstimateCutOffWeights();
-            ConsiderCandidates(SortCandidates(), compiler->cseCandidateCount);
+            ConsiderCandidates(SortCandidates());
         }
 
         compiler->csePhase = false;
@@ -522,14 +526,12 @@ public:
 
     void BuildCseTable()
     {
-        unsigned candidateCount = compiler->cseCandidateCount;
-
-        if (candidateCount == 0)
+        if (descCount == 0)
         {
             return;
         }
 
-        CseDesc** table = new (compiler, CMK_CSE) CseDesc*[candidateCount]();
+        CseDesc** table = new (compiler, CMK_CSE) CseDesc*[descCount]();
 
         for (size_t i = 0; i != hashSize; i++)
         {
@@ -537,7 +539,7 @@ public:
             {
                 if (desc->index != 0)
                 {
-                    noway_assert(desc->index <= candidateCount);
+                    noway_assert(desc->index <= descCount);
 
                     if (table[desc->index - 1] == nullptr)
                     {
@@ -548,13 +550,13 @@ public:
         }
 
 #ifdef DEBUG
-        for (unsigned i = 0; i < candidateCount; i++)
+        for (unsigned i = 0; i < descCount; i++)
         {
             noway_assert(table[i] != nullptr);
         }
 #endif
 
-        compiler->cseTable = table;
+        descTable = table;
     }
 
 #ifdef DEBUG
@@ -566,7 +568,7 @@ public:
         }
 
         const char* prefix = "";
-        for (unsigned i = 1; i <= compiler->cseCandidateCount; i++)
+        for (unsigned i = 1; i <= descCount; i++)
         {
             unsigned availBit          = getCSEAvailBit(i);
             unsigned availCrossCallBit = getCSEAvailCrossCallBit(i);
@@ -766,7 +768,7 @@ public:
         {
             // Not found, create a new entry (unless we have too many already)
 
-            if (compiler->cseCandidateCount < MAX_CSE_CNT)
+            if (descCount < MAX_CSE_CNT)
             {
                 if (hashCount == hashMaxCountBeforeResize)
                 {
@@ -816,7 +818,7 @@ public:
         {
             // Create a new CSE (unless we have the maximum already)
 
-            if (compiler->cseCandidateCount == MAX_CSE_CNT)
+            if (descCount == MAX_CSE_CNT)
             {
                 JITDUMPTREE(tree, "Exceeded the MAX_CSE_CNT, not using tree:\n");
                 return 0;
@@ -824,7 +826,7 @@ public:
 
             C_ASSERT((signed char)MAX_CSE_CNT == MAX_CSE_CNT);
 
-            unsigned CSEindex = ++compiler->cseCandidateCount;
+            unsigned CSEindex = ++descCount;
 
             hashDsc->index = CSEindex;
 
@@ -1050,6 +1052,14 @@ public:
         }
     }
 
+    CseDesc* GetDesc(unsigned index) const
+    {
+        noway_assert((0 < index) && (index <= descCount));
+        noway_assert(descTable[index - 1]);
+
+        return descTable[index - 1];
+    }
+
     // Compute each blocks bbCseGen
     // This is the bitset that represents the CSEs that are generated within the block
     // Also initialize bbCseIn, bbCseOut and bbCseGen sets for all blocks
@@ -1066,12 +1076,12 @@ public:
         //     00 - The CSE is not available
         //     01 - An illegal combination
 
-        const unsigned bitCount = (compiler->cseCandidateCount * 2) + 1;
+        const unsigned bitCount = (descCount * 2) + 1;
 
         // Init traits and cseCallKillsMask bitvectors.
         dataFlowTraits = BitVecTraits(bitCount, compiler);
         callKillsMask  = BitVecOps::MakeEmpty(&dataFlowTraits);
-        for (unsigned inx = 1; inx <= compiler->cseCandidateCount; inx++)
+        for (unsigned inx = 1; inx <= descCount; inx++)
         {
             unsigned cseAvailBit = getCSEAvailBit(inx);
 
@@ -1112,9 +1122,9 @@ public:
 
         // We walk the set of CSE candidates and set the bit corresponding to the CSEindex
         // in the block's bbCseGen bitset.
-        for (unsigned inx = 0; inx < compiler->cseCandidateCount; inx++)
+        for (unsigned inx = 0; inx < descCount; inx++)
         {
-            CseDesc*      dsc      = compiler->cseTable[inx];
+            CseDesc*      dsc      = descTable[inx];
             unsigned      CSEindex = dsc->index;
             CseOccurence* lst      = dsc->treeList;
             noway_assert(lst);
@@ -1416,7 +1426,7 @@ public:
                         unsigned             CSEnum               = GetCseIndex(tree->gtCSEnum);
                         unsigned             cseAvailBit          = getCSEAvailBit(CSEnum);
                         unsigned             cseAvailCrossCallBit = getCSEAvailCrossCallBit(CSEnum);
-                        CseDesc*             desc                 = compiler->cseGetDesc(CSEnum);
+                        CseDesc*             desc                 = GetDesc(CSEnum);
                         BasicBlock::weight_t stmw                 = block->getBBWeight(compiler);
 
                         isUse = BitVecOps::IsMember(&dataFlowTraits, available_cses, cseAvailBit);
@@ -1935,32 +1945,31 @@ public:
 
     CseDesc** SortCandidates()
     {
-        size_t    count  = compiler->cseCandidateCount;
-        CseDesc** sorted = new (compiler, CMK_CSE) CseDesc*[count];
-        memcpy(sorted, compiler->cseTable, count * sizeof(*sorted));
+        CseDesc** sorted = new (compiler, CMK_CSE) CseDesc*[descCount];
+        memcpy(sorted, descTable, descCount * sizeof(*sorted));
 
         if (codeOptKind == Compiler::SMALL_CODE)
         {
-            jitstd::sort(sorted, sorted + count, CostCompareSize());
+            jitstd::sort(sorted, sorted + descCount, CostCompareSize());
         }
         else
         {
-            jitstd::sort(sorted, sorted + count, CostCompareSpeed());
+            jitstd::sort(sorted, sorted + descCount, CostCompareSpeed());
         }
 
-        DBEXEC(compiler->verbose, DumpSortedCandidates(sorted, count));
+        DBEXEC(compiler->verbose, DumpSortedCandidates(sorted));
 
         return sorted;
     }
 
 #ifdef DEBUG
-    void DumpSortedCandidates(CseDesc** candidates, size_t count)
+    void DumpSortedCandidates(CseDesc** sorted)
     {
         printf("\nSorted CSE candidates:\n");
 
-        for (unsigned cnt = 0; cnt < count; cnt++)
+        for (unsigned cnt = 0; cnt < descCount; cnt++)
         {
-            CseDesc* dsc  = candidates[cnt];
+            CseDesc* dsc  = sorted[cnt];
             GenTree* expr = dsc->tree;
 
             BasicBlock::weight_t def;
@@ -3046,11 +3055,15 @@ public:
 
     // Consider each of the CSE candidates and if the CSE passes
     // the PromotionCheck then transform the CSE by calling PerformCSE
-    void ConsiderCandidates(CseDesc** candidates, size_t count)
+    void ConsiderCandidates(CseDesc** sorted)
     {
-        for (unsigned i = 0; i < count; i++)
+        // cseCanSwapOrder and cseUnmarkNode need the CSE table.
+        compiler->cseTable          = descTable;
+        compiler->cseCandidateCount = descCount;
+
+        for (unsigned i = 0; i < descCount; i++)
         {
-            CseDesc* desc = candidates[i];
+            CseDesc* desc = sorted[i];
 
             if ((desc->defCount == 0) || (desc->useCount == 0))
             {
