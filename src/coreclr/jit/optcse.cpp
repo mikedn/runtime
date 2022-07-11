@@ -1662,14 +1662,13 @@ class CseHeuristic
     Cse&                   m_cse;
     Compiler::codeOptimize codeOptKind;
 
-    // Record the weighted ref count of the last "for sure" callee saved LclVar
-    BasicBlock::weight_t aggressiveRefCnt = 0;
-    BasicBlock::weight_t moderateRefCnt   = 0;
+    // Record the weight of the last "for sure" callee saved local
+    BasicBlock::weight_t aggressiveWeight = 0;
+    BasicBlock::weight_t moderateWeight   = 0;
     // count of the number of predicted enregistered variables
     unsigned enregCount = 0;
-
-    bool largeFrame = false;
-    bool hugeFrame  = false;
+    bool     largeFrame = false;
+    bool     hugeFrame  = false;
 #ifdef DEBUG
     CLRRandom m_cseRNG;
     unsigned  m_bias;
@@ -1681,229 +1680,204 @@ public:
     {
     }
 
-    // Perform the Initialization step for our CSE Heuristics
-    // determine the various cut off values to use for
-    // the aggressive, moderate and conservative CSE promotions
-    // count the number of enregisterable variables
-    // determine if the method has a large or huge stack frame.
-    void Initialize()
+    void EstimateFrameSize()
     {
-        unsigned   frameSize        = 0;
-        unsigned   regAvailEstimate = ((CNT_CALLEE_ENREG * 3) + (CNT_CALLEE_TRASH * 2) + 1);
-        unsigned   lclNum;
-        LclVarDsc* varDsc;
+        unsigned frameSize        = 0;
+        unsigned regAvailEstimate = (CNT_CALLEE_ENREG * 3) + (CNT_CALLEE_TRASH * 2) + 1;
 
-        for (lclNum = 0, varDsc = m_pCompiler->lvaTable; lclNum < m_pCompiler->lvaCount; lclNum++, varDsc++)
+        for (unsigned lclNum = 0; lclNum < m_pCompiler->lvaCount; lclNum++)
         {
+            LclVarDsc* lcl = m_pCompiler->lvaGetDesc(lclNum);
+
             // Locals with no references don't use any local stack frame slots
-            if (varDsc->lvRefCnt() == 0)
+            if (lcl->GetRefCount() == 0)
             {
                 continue;
             }
 
             // Incoming stack arguments don't use any local stack frame slots
-            if (varDsc->lvIsParam && !varDsc->lvIsRegArg)
+            if (lcl->IsParam() && !lcl->IsRegParam())
             {
                 continue;
             }
 
 #if FEATURE_FIXED_OUT_ARGS
-            // Skip the OutgoingArgArea in computing frame size, since
-            // its size is not yet known and it doesn't affect local
-            // offsets from the frame pointer (though it may affect
-            // them from the stack pointer).
+            // Skip the OutgoingArgArea in computing frame size, since its size is not yet
+            // known and it doesn't affect local offsets from the frame pointer (though it
+            // may affect them from the stack pointer).
+            // TODO-MIKE-Cleanup: This is likely pointless, lvaOutgoingArgSpaceVar should
+            // have ref count 0 at this point so we skip it anyway above.
             noway_assert(m_pCompiler->lvaOutgoingArgSpaceVar != BAD_VAR_NUM);
+
             if (lclNum == m_pCompiler->lvaOutgoingArgSpaceVar)
             {
                 continue;
             }
 #endif // FEATURE_FIXED_OUT_ARGS
 
-            bool onStack = (regAvailEstimate == 0); // true when it is likely that this LclVar will have a stack home
-
-            // Some LclVars always have stack homes
-            if ((varDsc->lvDoNotEnregister) || (varDsc->lvType == TYP_BLK))
-            {
-                onStack = true;
-            }
+            // true when it is likely that this local will have a stack home.
+            // TODO-MIKE-Review: Should we check lvTracked too?
+            bool onStack = lcl->lvDoNotEnregister || lcl->TypeIs(TYP_BLK) || (regAvailEstimate == 0);
 
 #ifdef TARGET_X86
             // Treat floating point and 64 bit integers as always on the stack
-            if (varTypeIsFloating(varDsc->TypeGet()) || varTypeIsLong(varDsc->TypeGet()))
+            // TODO-MIKE-Review: What the crap does FP has to do with X86?
+            // And LONG locals can get promoted and thus enregistered, this is nonsense.
+            if (varTypeIsFloating(lcl->GetType()) || varTypeIsLong(lcl->GetType()))
             {
                 onStack = true;
             }
 #endif
 
-            if (onStack)
+            if (!onStack)
             {
-                frameSize += m_pCompiler->lvaLclSize(lclNum);
-            }
-            else
-            {
-                // For the purposes of estimating the frameSize we
-                // will consider this LclVar as being enregistered.
-                // Now we reduce the remaining regAvailEstimate by
-                // an appropriate amount.
-                if (varDsc->lvRefCnt() <= 2)
+                // For the purposes of estimating the frameSize we will consider this local
+                // as being enregistered. Now we reduce the remaining regAvailEstimate by an
+                // appropriate amount.
+
+                if (lcl->GetRefCount() <= 2)
                 {
-                    // a single use single def LclVar only uses 1
                     regAvailEstimate -= 1;
                 }
+                else if (regAvailEstimate >= 2)
+                {
+                    regAvailEstimate -= 2;
+                }
                 else
                 {
-                    // a LclVar with multiple uses and defs uses 2
-                    if (regAvailEstimate >= 2)
-                    {
-                        regAvailEstimate -= 2;
-                    }
-                    else
-                    {
-                        // Don't try to subtract when regAvailEstimate is 1
-                        regAvailEstimate = 0;
-                    }
+                    regAvailEstimate = 0;
                 }
+
+                continue;
             }
+
+            frameSize += m_pCompiler->lvaLclSize(lclNum);
+
 #ifdef TARGET_XARCH
-            if (frameSize > 0x080)
+            if (frameSize > 128)
             {
-                // We likely have a large stack frame.
-                //
-                // On XARCH stack frame displacements can either use a 1-byte or a 4-byte displacement
-                // with a large franme we will need to use some 4-byte displacements.
+                // On XARCH stack frame displacements can either use a 1-byte or a 4-byte displacement.
+                // With a large franme we will need to use some 4-byte displacements.
                 largeFrame = true;
-                break; // early out,  we don't need to keep increasing frameSize
+                break;
             }
 #elif defined(TARGET_ARM)
-            if (frameSize > 0x0400)
+            if (frameSize > 1024)
             {
-                // We likely have a large stack frame.
-                //
-                // Thus we might need to use large displacements when loading or storing
-                // to CSE LclVars that are not enregistered
-                // On ARM32 this means using rsGetRsvdReg() to hold the large displacement
+                // We might need to use large displacements when loading or storing to CSE
+                // locals that are not enregistered. On ARM32 this means using rsGetRsvdReg()
+                // to hold the large displacement.
                 largeFrame = true;
-            }
-            if (frameSize > 0x10000)
-            {
-                hugeFrame = true;
-                break; // early out,  we don't need to keep increasing frameSize
+
+                if (frameSize > 65536)
+                {
+                    hugeFrame = true;
+                    break;
+                }
             }
 #elif defined(TARGET_ARM64)
-            if (frameSize > 0x1000)
+            if (frameSize > 4096)
             {
-                // We likely have a large stack frame.
-                //
                 // Thus we might need to use large displacements when loading or storing
-                // to CSE LclVars that are not enregistered
-                // On ARM64 this means using rsGetRsvdReg() to hold the large displacement
+                // to CSE local that are not enregistered.
+                // On ARM64 this means using rsGetRsvdReg() to hold the large displacement.
                 largeFrame = true;
-                break; // early out,  we don't need to keep increasing frameSize
+                break;
             }
 #endif
         }
+
+        JITDUMP("Framesize estimate is %u (%s)\n", frameSize, hugeFrame ? "huge" : (largeFrame ? "large" : "small"));
+    }
+
+    void EstimateCutOffWeights()
+    {
+        // Set the cut off values to use for deciding when we want to use aggressive or
+        // moderate weight.
+        //
+        // The value of aggressiveWeight and moderateWeight start off as zero and when
+        // enregCount reaches a certain value we assign the current local weight to
+        // aggressiveWeight or moderateWeight.
+        //
+        // On Windows x64 this yeilds aggressiveEnregNum == 12 and moderateEnregNum == 38
+        // thus we will typically set the cutoff values for
+        //   aggressiveWeight based upon the weight of the 13th tracked local
+        //   moderateWeight based upon the weight of the 39th tracked local
+        // For other architecture and platforms these values dynamically change
+        // based upon the number of callee saved and callee scratch registers.
+        const unsigned aggressiveEnregNum = CNT_CALLEE_ENREG * 3 / 2;
+        const unsigned moderateEnregNum   = (CNT_CALLEE_ENREG * 3) + (CNT_CALLEE_TRASH * 2);
 
         // Iterate over the sorted list of tracked local variables these are the register candidates
-        // for LSRA. We normally vist the LclVar in order of their weighted ref counts and our
-        // hueristic assumes that the highest weighted ref count LclVars will be enregistered and
-        // that the lowest weighted ref count are likely be allocated in the stack frame.
-        // The value of enregCount is incremented when we visit a LclVar that can be enregistered.
+        // for LSRA. We normally vist locals in order of their weighted ref counts and our heuristic
+        // assumes that the highest weight local swill be enregistered and that the lowest weight
+        // locals are likely be allocated in the stack frame.
+        // The value of enregCount is incremented when we visit a local that can be enregistered.
         for (unsigned trackedIndex = 0; trackedIndex < m_pCompiler->lvaTrackedCount; trackedIndex++)
         {
-            LclVarDsc* varDsc = m_pCompiler->lvaGetDescByTrackedIndex(trackedIndex);
-            var_types  varTyp = varDsc->TypeGet();
+            LclVarDsc* lcl = m_pCompiler->lvaGetDescByTrackedIndex(trackedIndex);
 
-            // Locals with no references aren't enregistered
-            if (varDsc->lvRefCnt() == 0)
+            if (lcl->GetRefCount() == 0)
             {
                 continue;
             }
 
-            // Some LclVars always have stack homes
-            if ((varDsc->lvDoNotEnregister) || (varDsc->lvType == TYP_BLK))
+            if (lcl->lvDoNotEnregister || lcl->TypeIs(TYP_BLK))
             {
                 continue;
             }
 
-            // The enregCount only tracks the uses of integer registers
-            //
-            // We could track floating point register usage seperately
-            // but it isn't worth the additional complexity as floating point CSEs
-            // are rare and we typically have plenty of floating point register available.
-            if (!varTypeIsFloating(varTyp))
+            // The enregCount only tracks the uses of integer registers.
+            // We could track floating point register usage seperately but it isn't worth
+            // the additional complexity as floating point CSEs are rare and we typically
+            // have plenty of floating point register available.
+            if (!varTypeIsFloating(lcl->GetType()))
             {
-                enregCount++; // The primitive types, including TYP_SIMD types use one register
+                enregCount++;
 
 #ifndef TARGET_64BIT
-                if (varTyp == TYP_LONG)
+                if (lcl->TypeIs(TYP_LONG))
                 {
-                    enregCount++; // on 32-bit targets longs use two registers
+                    enregCount++;
                 }
 #endif
             }
 
-            // Set the cut off values to use for deciding when we want to use aggressive, moderate or conservative
-            //
-            // The value of aggressiveRefCnt and moderateRefCnt start off as zero and
-            // when enregCount reached a certain value we assign the current LclVar
-            // (weighted) ref count to aggressiveRefCnt or moderateRefCnt.
-            const unsigned aggressiveEnregNum = (CNT_CALLEE_ENREG * 3 / 2);
-            const unsigned moderateEnregNum   = ((CNT_CALLEE_ENREG * 3) + (CNT_CALLEE_TRASH * 2));
-
-            // On Windows x64 this yeilds:
-            // aggressiveEnregNum == 12 and moderateEnregNum == 38
-            // Thus we will typically set the cutoff values for
-            //   aggressiveRefCnt based upon the weight of T13 (the 13th tracked LclVar)
-            //   moderateRefCnt based upon the weight of T39 (the 39th tracked LclVar)
-            //
-            // For other architecture and platforms these values dynamically change
-            // based upon the number of callee saved and callee scratch registers.
-
-            if ((aggressiveRefCnt == 0) && (enregCount > aggressiveEnregNum))
+            if ((aggressiveWeight == 0) && (enregCount > aggressiveEnregNum))
             {
                 if (codeOptKind == Compiler::SMALL_CODE)
                 {
-                    aggressiveRefCnt = static_cast<BasicBlock::weight_t>(varDsc->GetRefCount());
+                    aggressiveWeight = static_cast<BasicBlock::weight_t>(lcl->GetRefCount());
                 }
                 else
                 {
-                    aggressiveRefCnt = varDsc->lvRefCntWtd();
+                    aggressiveWeight = lcl->GetRefWeight();
                 }
-                aggressiveRefCnt += BB_UNITY_WEIGHT;
+
+                aggressiveWeight += BB_UNITY_WEIGHT;
             }
-            if ((moderateRefCnt == 0) && (enregCount > ((CNT_CALLEE_ENREG * 3) + (CNT_CALLEE_TRASH * 2))))
+
+            if ((moderateWeight == 0) && (enregCount > moderateEnregNum))
             {
                 if (codeOptKind == Compiler::SMALL_CODE)
                 {
-                    moderateRefCnt = static_cast<BasicBlock::weight_t>(varDsc->GetRefCount());
+                    moderateWeight = static_cast<BasicBlock::weight_t>(lcl->GetRefCount());
                 }
                 else
                 {
-                    moderateRefCnt = varDsc->lvRefCntWtd();
+                    moderateWeight = lcl->GetRefWeight();
                 }
-                moderateRefCnt += (BB_UNITY_WEIGHT / 2);
+
+                moderateWeight += (BB_UNITY_WEIGHT / 2);
             }
         }
 
-        // The minumum value that we want to use for aggressiveRefCnt is BB_UNITY_WEIGHT * 2
-        // so increase it when we are below that value
-        aggressiveRefCnt = max(BB_UNITY_WEIGHT * 2, aggressiveRefCnt);
+        aggressiveWeight = max(BB_UNITY_WEIGHT * 2, aggressiveWeight);
+        moderateWeight   = max(BB_UNITY_WEIGHT, moderateWeight);
 
-        // The minumum value that we want to use for moderateRefCnt is BB_UNITY_WEIGHT
-        // so increase it when we are below that value
-        moderateRefCnt = max(BB_UNITY_WEIGHT, moderateRefCnt);
-
-#ifdef DEBUG
-        if (m_pCompiler->verbose)
-        {
-            printf("\n");
-            printf("Aggressive CSE Promotion cutoff is %f\n", aggressiveRefCnt);
-            printf("Moderate CSE Promotion cutoff is %f\n", moderateRefCnt);
-            printf("enregCount is %u\n", enregCount);
-            printf("Framesize estimate is 0x%04X\n", frameSize);
-            printf("We have a %s frame\n", hugeFrame ? "huge" : (largeFrame ? "large" : "small"));
-        }
-#endif
+        JITDUMP("Aggressive CSE Promotion cutoff is %f\n", aggressiveWeight);
+        JITDUMP("Moderate CSE Promotion cutoff is %f\n", moderateWeight);
+        JITDUMP("EnregCount is %u\n", enregCount);
     }
 
     struct CostCompareSpeed
@@ -2416,11 +2390,11 @@ public:
             // upon the code size and we use unweighted ref counts instead of weighted ref counts.
             // Also note that optimizing for SMALL_CODE is rare, we typically only optimize this way
             // for class constructors, because we know that they will only run once.
-            if (cseRefCnt >= aggressiveRefCnt)
+            if (cseRefCnt >= aggressiveWeight)
             {
                 // Record that we are choosing to use the aggressive promotion rules
                 candidate->SetAggressive();
-                JITDUMP("Aggressive CSE Promotion (%f >= %f)\n", cseRefCnt, aggressiveRefCnt);
+                JITDUMP("Aggressive CSE Promotion (%f >= %f)\n", cseRefCnt, aggressiveWeight);
                 // With aggressive promotion we expect that the candidate will be enregistered
                 // so we set the use and def costs to their miniumum values
                 cse_def_cost = 1;
@@ -2442,7 +2416,7 @@ public:
                     }
                 }
             }
-            else // not aggressiveRefCnt
+            else // not aggressiveWeight
             {
                 // Record that we are choosing to use the conservative promotion rules
                 candidate->SetConservative();
@@ -2496,26 +2470,26 @@ public:
         {
             // Note that when optimizing for BLENDED_CODE or FAST_CODE we set cse_def_cost/cse_use_cost
             // based upon the execution costs of the code and we use weighted ref counts.
-            if ((cseRefCnt >= aggressiveRefCnt) && canEnregister)
+            if ((cseRefCnt >= aggressiveWeight) && canEnregister)
             {
                 // Record that we are choosing to use the aggressive promotion rules
                 //
                 candidate->SetAggressive();
 
-                JITDUMP("Aggressive CSE Promotion (%f >= %f)\n", cseRefCnt, aggressiveRefCnt);
+                JITDUMP("Aggressive CSE Promotion (%f >= %f)\n", cseRefCnt, aggressiveWeight);
 
                 // With aggressive promotion we expect that the candidate will be enregistered
                 // so we set the use and def costs to their miniumum values
                 cse_def_cost = 1;
                 cse_use_cost = 1;
             }
-            else if (cseRefCnt >= moderateRefCnt)
+            else if (cseRefCnt >= moderateWeight)
             {
                 // Record that we are choosing to use the moderate promotion rules
                 candidate->SetModerate();
                 if (!candidate->LiveAcrossCall() && canEnregister)
                 {
-                    JITDUMP("Moderate CSE Promotion (CSE never live at call) (%f >= %f)\n", cseRefCnt, moderateRefCnt);
+                    JITDUMP("Moderate CSE Promotion (CSE never live at call) (%f >= %f)\n", cseRefCnt, moderateWeight);
 
                     cse_def_cost = 2;
                     cse_use_cost = 1;
@@ -2524,7 +2498,7 @@ public:
                 {
                     JITDUMP("Moderate CSE Promotion (%s) (%f >= %f)\n",
                             candidate->LiveAcrossCall() ? "CSE is live across a call" : "not enregisterable", cseRefCnt,
-                            moderateRefCnt);
+                            moderateWeight);
 
                     cse_def_cost = 2;
                     if (canEnregister)
@@ -2552,14 +2526,14 @@ public:
                 {
                     JITDUMP("Conservative CSE Promotion (%s) (%f < %f)\n",
                             candidate->LiveAcrossCall() ? "CSE is live across a call" : "not enregisterable", cseRefCnt,
-                            moderateRefCnt);
+                            moderateWeight);
 
                     cse_def_cost = 2;
                     cse_use_cost = 2;
                 }
                 else // candidate is live across call
                 {
-                    JITDUMP("Conservative CSE Promotion (%f < %f)\n", cseRefCnt, moderateRefCnt);
+                    JITDUMP("Conservative CSE Promotion (%f < %f)\n", cseRefCnt, moderateWeight);
 
                     cse_def_cost = 2;
                     cse_use_cost = 3;
@@ -2599,7 +2573,7 @@ public:
                 // Extra cost in case we have to spill/restore a caller saved register
                 extra_yes_cost = BB_UNITY_WEIGHT_UNSIGNED;
 
-                if (cseRefCnt < moderateRefCnt) // If Conservative CSE promotion
+                if (cseRefCnt < moderateWeight) // If Conservative CSE promotion
                 {
                     extra_yes_cost *= 2; // full cost if we are being Conservative
                 }
@@ -2653,8 +2627,8 @@ public:
 #ifdef DEBUG
         if (m_pCompiler->verbose)
         {
-            printf("cseRefCnt=%f, aggressiveRefCnt=%f, moderateRefCnt=%f\n", cseRefCnt, aggressiveRefCnt,
-                   moderateRefCnt);
+            printf("cseRefCnt=%f, aggressiveWeight=%f, moderateWeight=%f\n", cseRefCnt, aggressiveWeight,
+                   moderateWeight);
             printf("defCnt=%f, useCnt=%f, cost=%d, size=%d%s\n", candidate->DefCount(), candidate->UseCount(),
                    candidate->Cost(), candidate->Size(), candidate->LiveAcrossCall() ? ", LiveAcrossCall" : "");
             printf("def_cost=%d, use_cost=%d, extra_no_cost=%d, extra_yes_cost=%d\n", cse_def_cost, cse_use_cost,
@@ -2725,14 +2699,14 @@ public:
             // increase the cutoffs for aggressive and moderate CSE's
             BasicBlock::weight_t incr = BB_UNITY_WEIGHT;
 
-            if (cseRefCnt > aggressiveRefCnt)
+            if (cseRefCnt > aggressiveWeight)
             {
-                aggressiveRefCnt += incr;
+                aggressiveWeight += incr;
             }
 
-            if (cseRefCnt > moderateRefCnt)
+            if (cseRefCnt > moderateWeight)
             {
-                moderateRefCnt += (incr / 2);
+                moderateWeight += (incr / 2);
             }
         }
 
@@ -3290,7 +3264,8 @@ void Cse::Heuristic()
 
     CseHeuristic heuristic(compiler, *this);
 
-    heuristic.Initialize();
+    heuristic.EstimateFrameSize();
+    heuristic.EstimateCutOffWeights();
     heuristic.ConsiderCandidates(heuristic.SortCandidates());
 }
 
