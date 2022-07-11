@@ -2095,11 +2095,6 @@ public:
             return m_Size;
         }
 
-        bool IsSharedConst()
-        {
-            return m_CseDsc->isSharedConst;
-        }
-
         bool LiveAcrossCall()
         {
             return m_CseDsc->isLiveAcrossCall;
@@ -2746,7 +2741,7 @@ public:
 
         bool          setRefCnt      = true;
         bool          allSame        = true;
-        bool          isSharedConst  = successfulCandidate->IsSharedConst();
+        bool          isSharedConst  = dsc->isSharedConst;
         ValueNum      bestVN         = ValueNumStore::NoVN;
         bool          bestIsDef      = false;
         ssize_t       bestConstValue = 0;
