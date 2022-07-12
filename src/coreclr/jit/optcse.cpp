@@ -2539,9 +2539,9 @@ public:
                 continue;
             }
 
-            ValueNum currVN = compiler->vnStore->VNLiberalNormalValue(lst->expr->gtVNPair);
+            ValueNum currVN = vnStore->VNLiberalNormalValue(lst->expr->gtVNPair);
             assert(currVN != ValueNumStore::NoVN);
-            ssize_t curConstValue = isSharedConst ? compiler->vnStore->CoercedConstantValue<ssize_t>(currVN) : 0;
+            ssize_t curConstValue = isSharedConst ? vnStore->CoercedConstantValue<ssize_t>(currVN) : 0;
 
             GenTree* exp   = lst->expr;
             bool     isDef = IsCseDef(exp->gtCSEnum);
@@ -2624,7 +2624,7 @@ public:
                     {
                         if (IsCseIndex(lst->expr->gtCSEnum))
                         {
-                            ValueNum currVN = compiler->vnStore->VNLiberalNormalValue(lst->expr->gtVNPair);
+                            ValueNum currVN = vnStore->VNLiberalNormalValue(lst->expr->gtVNPair);
                             printf("[%06d](%s " FMT_VN ") ", compiler->dspTreeID(lst->expr),
                                    IsCseUse(lst->expr->gtCSEnum) ? "use" : "def", currVN);
                         }
@@ -2658,7 +2658,6 @@ public:
             var_types expTyp = genActualType(exp->TypeGet());
 
             // The cseLclVarType must be a compatible with expTyp
-            ValueNumStore* vnStore = compiler->vnStore;
             noway_assert(IsCompatibleType(cseLclVarTyp, expTyp) || (constDefVN != vnStore->VNForNull()));
 
             // This will contain the replacement tree for exp
@@ -2687,8 +2686,8 @@ public:
                 cse = cseLclVar;
                 if (isSharedConst)
                 {
-                    ValueNum currVN   = compiler->vnStore->VNLiberalNormalValue(exp->gtVNPair);
-                    ssize_t  curValue = compiler->vnStore->CoercedConstantValue<ssize_t>(currVN);
+                    ValueNum currVN   = vnStore->VNLiberalNormalValue(exp->gtVNPair);
+                    ssize_t  curValue = vnStore->CoercedConstantValue<ssize_t>(currVN);
                     ssize_t  delta    = curValue - constDefValue;
                     if (delta != 0)
                     {
@@ -2834,8 +2833,8 @@ public:
                 GenTree* val = exp;
                 if (isSharedConst)
                 {
-                    ValueNum currVN   = compiler->vnStore->VNLiberalNormalValue(exp->gtVNPair);
-                    ssize_t  curValue = compiler->vnStore->CoercedConstantValue<ssize_t>(currVN);
+                    ValueNum currVN   = vnStore->VNLiberalNormalValue(exp->gtVNPair);
+                    ssize_t  curValue = vnStore->CoercedConstantValue<ssize_t>(currVN);
                     ssize_t  delta    = curValue - constDefValue;
                     if (delta != 0)
                     {
@@ -2875,8 +2874,8 @@ public:
                 GenTree* cseUse = cseLclVar;
                 if (isSharedConst)
                 {
-                    ValueNum currVN   = compiler->vnStore->VNLiberalNormalValue(exp->gtVNPair);
-                    ssize_t  curValue = compiler->vnStore->CoercedConstantValue<ssize_t>(currVN);
+                    ValueNum currVN   = vnStore->VNLiberalNormalValue(exp->gtVNPair);
+                    ssize_t  curValue = vnStore->CoercedConstantValue<ssize_t>(currVN);
                     ssize_t  delta    = curValue - constDefValue;
                     if (delta != 0)
                     {
