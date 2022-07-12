@@ -2054,9 +2054,7 @@ public:
     // return true if we believe that it is profitable to promote this candidate to a CSE.
     bool PromotionCheck(Candidate& candidate)
     {
-        var_types cseLclVarTyp = varActualType(candidate.expr->GetType());
-
-        if (varTypeIsSIMD(cseLclVarTyp) && (candidate.desc->layout == nullptr))
+        if (varTypeIsSIMD(candidate.expr->GetType()) && (candidate.desc->layout == nullptr))
         {
             // If we haven't found an exact layout yet then use any layout that happens
             // to have the same SIMD type as the expression. Even so, it's possible to
@@ -2078,23 +2076,16 @@ public:
             candidate.desc->layout = layout;
         }
 
-        bool result = false;
-
 #ifdef DEBUG
-        int stressResult = ConfigBiasedCse();
-        if (stressResult != 0)
+        if (ConfigBiasedCse() > 0)
         {
-            // Stress is enabled. Check whether to perform CSE or not.
-            if (stressResult > 0)
-            {
-                candidate.isStress = true;
-                return true;
-            }
+            candidate.isStress = true;
+            return true;
         }
 
         if (ConfigDisableCse2())
         {
-            return false; // skip this CSE
+            return false;
         }
 #endif
 
@@ -2139,20 +2130,11 @@ public:
         //
         // otherwise we choose the conservative use def costs.
 
-        unsigned cse_def_cost;
-        unsigned cse_use_cost;
-
-        BasicBlock::weight_t no_cse_cost    = 0;
-        BasicBlock::weight_t yes_cse_cost   = 0;
-        unsigned             extra_yes_cost = 0;
-        unsigned             extra_no_cost  = 0;
-
         // The 'cseRefCnt' is the RefCnt that we will have if we promote this CSE into a new LclVar
         // Each CSE Def will contain two Refs and each CSE Use will have one Ref of this new LclVar
         BasicBlock::weight_t cseRefCnt = (candidate.defWeight * 2) + candidate.useWeight;
-
-        bool     canEnregister = true;
-        unsigned slotCount     = 1;
+        unsigned             cse_def_cost;
+        unsigned             cse_use_cost;
 
         if (codeOptKind == Compiler::SMALL_CODE)
         {
@@ -2162,23 +2144,23 @@ public:
             // for class constructors, because we know that they will only run once.
             if (cseRefCnt >= aggressiveWeight)
             {
-                // Record that we are choosing to use the aggressive promotion rules
-                candidate.isAggressive = true;
                 JITDUMP("Aggressive CSE Promotion (%f >= %f)\n", cseRefCnt, aggressiveWeight);
+
+                candidate.isAggressive = true;
+
                 // With aggressive promotion we expect that the candidate will be enregistered
-                // so we set the use and def costs to their miniumum values
+                // so we set the use and def costs to their minimum values.
                 cse_def_cost = 1;
                 cse_use_cost = 1;
 
-                // Check if this candidate is likely to live on the stack
-                if (candidate.isLiveAcrossCall || !canEnregister)
+                if (candidate.isLiveAcrossCall)
                 {
-                    // Increase the costs when we have a large or huge frame
                     if (largeFrame)
                     {
                         cse_def_cost++;
                         cse_use_cost++;
                     }
+
                     if (hugeFrame)
                     {
                         cse_def_cost++;
@@ -2186,19 +2168,18 @@ public:
                     }
                 }
             }
-            else // not aggressiveWeight
+            else
             {
-                // Record that we are choosing to use the conservative promotion rules
                 candidate.isConservative = true;
+
                 if (largeFrame)
                 {
                     JITDUMP("Codesize CSE Promotion (%s frame)\n", hugeFrame ? "huge" : "large");
 
 #ifdef TARGET_XARCH
-                    // The following formula is good choice when optimizing CSE for SMALL_CODE
-                    cse_def_cost = 6; // mov [EBP-0x00001FC],reg
+                    cse_def_cost = 6; // mov [EBP-0x00001FC], reg
                     cse_use_cost = 5; //     [EBP-0x00001FC]
-#else                                 // TARGET_ARM
+#else
                     if (hugeFrame)
                     {
                         cse_def_cost = 10 + 2; // movw/movt r10 and str reg,[sp+r10]
@@ -2211,22 +2192,20 @@ public:
                     }
 #endif
                 }
-                else // small frame
+                else
                 {
                     JITDUMP("Codesize CSE Promotion (small frame)\n");
 
 #ifdef TARGET_XARCH
-                    // The following formula is good choice when optimizing CSE for SMALL_CODE
-                    cse_def_cost = 3; // mov [EBP-1C],reg
+                    cse_def_cost = 3; // mov [EBP-1C], reg
                     cse_use_cost = 2; //     [EBP-1C]
-
-#else // TARGET_ARM
-
-                    cse_def_cost = 2; // str reg,[sp+0x9c]
-                    cse_use_cost = 2; // ldr reg,[sp+0x9c]
+#else
+                    cse_def_cost = 2; // str reg, [sp+0x9c]
+                    cse_use_cost = 2; // ldr reg, [sp+0x9c]
 #endif
                 }
             }
+
 #ifdef TARGET_AMD64
             if (varTypeIsFloating(candidate.expr->GetType()))
             {
@@ -2234,16 +2213,15 @@ public:
                 cse_def_cost += 2;
                 cse_use_cost += 1;
             }
-#endif // TARGET_AMD64
+#endif
         }
-        else // not SMALL_CODE ...
+        else
         {
             // Note that when optimizing for BLENDED_CODE or FAST_CODE we set cse_def_cost/cse_use_cost
             // based upon the execution costs of the code and we use weighted ref counts.
-            if ((cseRefCnt >= aggressiveWeight) && canEnregister)
+
+            if (cseRefCnt >= aggressiveWeight)
             {
-                // Record that we are choosing to use the aggressive promotion rules
-                //
                 candidate.isAggressive = true;
 
                 JITDUMP("Aggressive CSE Promotion (%f >= %f)\n", cseRefCnt, aggressiveWeight);
@@ -2255,53 +2233,43 @@ public:
             }
             else if (cseRefCnt >= moderateWeight)
             {
-                // Record that we are choosing to use the moderate promotion rules
                 candidate.isModerate = true;
-                if (!candidate.isLiveAcrossCall && canEnregister)
+
+                if (!candidate.isLiveAcrossCall)
                 {
-                    JITDUMP("Moderate CSE Promotion (CSE never live at call) (%f >= %f)\n", cseRefCnt, moderateWeight);
+                    JITDUMP("Moderate CSE Promotion (never live at call) (%f >= %f)\n", cseRefCnt, moderateWeight);
 
                     cse_def_cost = 2;
                     cse_use_cost = 1;
                 }
-                else // candidate is live across call or not enregisterable.
+                else
                 {
-                    JITDUMP("Moderate CSE Promotion (%s) (%f >= %f)\n",
-                            candidate.isLiveAcrossCall ? "CSE is live across a call" : "not enregisterable", cseRefCnt,
-                            moderateWeight);
+                    JITDUMP("Moderate CSE Promotion (live across a call) (%f >= %f)\n", cseRefCnt, moderateWeight);
 
                     cse_def_cost = 2;
-                    if (canEnregister)
+
+                    if (enregCount < (CNT_CALLEE_ENREG * 3 / 2))
                     {
-                        if (enregCount < (CNT_CALLEE_ENREG * 3 / 2))
-                        {
-                            cse_use_cost = 1;
-                        }
-                        else
-                        {
-                            cse_use_cost = 2;
-                        }
+                        cse_use_cost = 1;
                     }
                     else
                     {
-                        cse_use_cost = 3;
+                        cse_use_cost = 2;
                     }
                 }
             }
-            else // Conservative CSE promotion
+            else
             {
-                // Record that we are choosing to use the conservative promotion rules
                 candidate.isConservative = true;
-                if (!candidate.isLiveAcrossCall && canEnregister)
+
+                if (!candidate.isLiveAcrossCall)
                 {
-                    JITDUMP("Conservative CSE Promotion (%s) (%f < %f)\n",
-                            candidate.isLiveAcrossCall ? "CSE is live across a call" : "not enregisterable", cseRefCnt,
-                            moderateWeight);
+                    JITDUMP("Conservative CSE Promotion (not enregisterable) (%f < %f)\n", cseRefCnt, moderateWeight);
 
                     cse_def_cost = 2;
                     cse_use_cost = 2;
                 }
-                else // candidate is live across call
+                else
                 {
                     JITDUMP("Conservative CSE Promotion (%f < %f)\n", cseRefCnt, moderateWeight);
 
@@ -2318,11 +2286,7 @@ public:
             }
         }
 
-        if (slotCount > 1)
-        {
-            cse_def_cost *= slotCount;
-            cse_use_cost *= slotCount;
-        }
+        unsigned extra_yes_cost = 0;
 
         // If this CSE is live across a call then we may need to spill an additional caller save register
         if (candidate.isLiveAcrossCall)
@@ -2375,22 +2339,20 @@ public:
 #endif // FEATURE_SIMD
         }
 
+        unsigned extra_no_cost = 0;
+
         // estimate the cost from lost codesize reduction if we do not perform the CSE
         if (candidate.size > cse_use_cost)
         {
             // We need to retrieve the actual use count, not the weight.
-            extra_no_cost = candidate.size - cse_use_cost;
-            extra_no_cost = extra_no_cost * candidate.desc->useCount * 2;
+            extra_no_cost = (candidate.size - cse_use_cost) * candidate.desc->useCount * 2;
         }
 
         // no_cse_cost  is the cost estimate when we decide not to make a CSE
         // yes_cse_cost is the cost estimate when we decide to make a CSE
-
-        no_cse_cost  = candidate.useWeight * candidate.cost;
-        yes_cse_cost = (candidate.defWeight * cse_def_cost) + (candidate.useWeight * cse_use_cost);
-
-        no_cse_cost += extra_no_cost;
-        yes_cse_cost += extra_yes_cost;
+        float no_cse_cost = candidate.useWeight * candidate.cost + extra_no_cost;
+        float yes_cse_cost =
+            (candidate.defWeight * cse_def_cost) + (candidate.useWeight * cse_use_cost) + extra_yes_cost;
 
 #ifdef DEBUG
         if (compiler->verbose)
@@ -2407,27 +2369,24 @@ public:
         }
 #endif // DEBUG
 
-        // Should we make this candidate into a CSE?
-        // Is the yes cost less than the no cost
         if (yes_cse_cost <= no_cse_cost)
         {
-            result = true;
+            return true;
         }
-        else
-        {
-            // In stress mode we will make some extra CSEs
-            if (no_cse_cost > 0)
-            {
-                int percentage = (int)((no_cse_cost * 100) / yes_cse_cost);
 
-                if (compiler->compStressCompile(Compiler::STRESS_MAKE_CSE, percentage))
-                {
-                    result = true;
-                }
+#ifdef DEBUG
+        if (no_cse_cost > 0)
+        {
+            int percentage = (int)((no_cse_cost * 100) / yes_cse_cost);
+
+            if (compiler->compStressCompile(Compiler::STRESS_MAKE_CSE, percentage))
+            {
+                return true;
             }
         }
+#endif
 
-        return result;
+        return false;
     }
 
     static bool IsCompatibleType(var_types lclType, var_types exprType)
