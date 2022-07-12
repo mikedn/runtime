@@ -1294,6 +1294,7 @@ public:
         for (BasicBlock* const block : compiler->Blocks())
         {
             BitVecOps::Assign(&dataFlowTraits, available_cses, block->bbCseIn);
+            BasicBlock::weight_t blockWeight = block->getBBWeight(compiler);
 
             for (Statement* const stmt : block->NonPhiStatements())
             {
@@ -1304,11 +1305,10 @@ public:
 
                     if (IsCseIndex(tree->gtCSEnum))
                     {
-                        unsigned             CSEnum               = GetCseIndex(tree->gtCSEnum);
-                        unsigned             cseAvailBit          = GetAvailBitIndex(CSEnum);
-                        unsigned             cseAvailCrossCallBit = GetAvailCrossCallBitIndex(CSEnum);
-                        CseDesc*             desc                 = GetDesc(CSEnum);
-                        BasicBlock::weight_t stmw                 = block->getBBWeight(compiler);
+                        unsigned CSEnum               = GetCseIndex(tree->gtCSEnum);
+                        unsigned cseAvailBit          = GetAvailBitIndex(CSEnum);
+                        unsigned cseAvailCrossCallBit = GetAvailCrossCallBitIndex(CSEnum);
+                        CseDesc* desc                 = GetDesc(CSEnum);
 
                         isUse = BitVecOps::IsMember(&dataFlowTraits, available_cses, cseAvailBit);
                         isDef = !isUse; // If is isn't a CSE use, it is a CSE def
@@ -1333,7 +1333,7 @@ public:
                         }
 
                         JITDUMP(FMT_BB " [%06u] %s of " FMT_CSE " [weight=%s]%s\n", block->bbNum, tree->GetID(),
-                                isUse ? "use" : "def", CSEnum, refCntWtd2str(stmw),
+                                isUse ? "use" : "def", CSEnum, refCntWtd2str(blockWeight),
                                 madeLiveAcrossCall ? " *** Now Live Across Call ***" : "");
 #endif // DEBUG
 
@@ -1452,7 +1452,7 @@ public:
                             // If we get here we have accepted this node as a valid CSE def
 
                             desc->defCount += 1;
-                            desc->defWeight += stmw;
+                            desc->defWeight += blockWeight;
 
                             // Mark the node as a CSE definition
 
@@ -1519,7 +1519,7 @@ public:
                             // When we get here we have accepted this node as a valid CSE use
 
                             desc->useCount += 1;
-                            desc->useWeight += stmw;
+                            desc->useWeight += blockWeight;
                         }
                     }
 
