@@ -238,9 +238,6 @@ struct CseDesc
     CseDesc* nextInBucket;
     size_t   hashKey;
 
-    ssize_t  constDefValue; // When we CSE similar constants, this is the value that we use as the def
-    ValueNum constDefVN;    // When we CSE similar constants, this is the VN that we use for the LclVar assignment
-
     unsigned index; // 1..descCount
 
     bool isSharedConst;
@@ -267,8 +264,6 @@ struct CseDesc
     CseDesc(size_t hashKey, GenTree* expr, Statement* stmt, BasicBlock* block)
         : nextInBucket(nullptr)
         , hashKey(hashKey)
-        , constDefValue(0)
-        , constDefVN(ValueNumStore::VNForNull())
         , index(0)
         , isSharedConst(false)
         , isLiveAcrossCall(false)
@@ -2606,8 +2601,8 @@ public:
             }
         }
 
-        dsc->constDefValue = bestConstValue;
-        dsc->constDefVN    = bestVN;
+        const ssize_t  constDefValue = bestConstValue;
+        const ValueNum constDefVN    = bestVN;
 
 #ifdef DEBUG
         if (compiler->verbose)
@@ -2617,7 +2612,7 @@ public:
                 if (isSharedConst)
                 {
                     printf("\nWe have shared Const CSE's and selected " FMT_VN " with a value of 0x%p as the base.\n",
-                           dsc->constDefVN, dspPtr(dsc->constDefValue));
+                           constDefVN, dspPtr(constDefValue));
                 }
                 else
                 {
@@ -2664,7 +2659,7 @@ public:
 
             // The cseLclVarType must be a compatible with expTyp
             ValueNumStore* vnStore = compiler->vnStore;
-            noway_assert(IsCompatibleType(cseLclVarTyp, expTyp) || (dsc->constDefVN != vnStore->VNForNull()));
+            noway_assert(IsCompatibleType(cseLclVarTyp, expTyp) || (constDefVN != vnStore->VNForNull()));
 
             // This will contain the replacement tree for exp
             GenTree*      cse = nullptr;
@@ -2684,7 +2679,7 @@ public:
                 // Create a reference to the CSE temp.
 
                 GenTree* cseLclVar = compiler->gtNewLclvNode(cseLclVarNum, cseLclVarTyp);
-                cseLclVar->gtVNPair.SetBoth(dsc->constDefVN);
+                cseLclVar->gtVNPair.SetBoth(constDefVN);
 
                 // Assign the ssa num for the lclvar use. Note it may be the reserved num.
                 cseLclVar->AsLclVarCommon()->SetSsaNum(cseSsaNum);
@@ -2694,7 +2689,7 @@ public:
                 {
                     ValueNum currVN   = compiler->vnStore->VNLiberalNormalValue(exp->gtVNPair);
                     ssize_t  curValue = compiler->vnStore->CoercedConstantValue<ssize_t>(currVN);
-                    ssize_t  delta    = curValue - dsc->constDefValue;
+                    ssize_t  delta    = curValue - constDefValue;
                     if (delta != 0)
                     {
                         GenTree* deltaNode = compiler->gtNewIconNode(delta, cseLclVarTyp);
@@ -2841,11 +2836,11 @@ public:
                 {
                     ValueNum currVN   = compiler->vnStore->VNLiberalNormalValue(exp->gtVNPair);
                     ssize_t  curValue = compiler->vnStore->CoercedConstantValue<ssize_t>(currVN);
-                    ssize_t  delta    = curValue - dsc->constDefValue;
+                    ssize_t  delta    = curValue - constDefValue;
                     if (delta != 0)
                     {
-                        val = compiler->gtNewIconNode(dsc->constDefValue, cseLclVarTyp);
-                        val->gtVNPair.SetBoth(dsc->constDefVN);
+                        val = compiler->gtNewIconNode(constDefValue, cseLclVarTyp);
+                        val->gtVNPair.SetBoth(constDefVN);
                     }
                 }
 
@@ -2874,7 +2869,7 @@ public:
                 }
 
                 GenTreeLclVar* cseLclVar = compiler->gtNewLclvNode(cseLclVarNum, cseLclVarTyp);
-                cseLclVar->gtVNPair.SetBoth(dsc->constDefVN);
+                cseLclVar->gtVNPair.SetBoth(constDefVN);
                 cseLclVar->SetSsaNum(cseSsaNum);
 
                 GenTree* cseUse = cseLclVar;
@@ -2882,7 +2877,7 @@ public:
                 {
                     ValueNum currVN   = compiler->vnStore->VNLiberalNormalValue(exp->gtVNPair);
                     ssize_t  curValue = compiler->vnStore->CoercedConstantValue<ssize_t>(currVN);
-                    ssize_t  delta    = curValue - dsc->constDefValue;
+                    ssize_t  delta    = curValue - constDefValue;
                     if (delta != 0)
                     {
                         GenTree* deltaNode = compiler->gtNewIconNode(delta, cseLclVarTyp);
