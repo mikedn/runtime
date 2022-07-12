@@ -2050,8 +2050,6 @@ public:
     }
 #endif // DEBUG
 
-    // Given a CSE candidate decide whether it passes or fails the profitability heuristic
-    // return true if we believe that it is profitable to promote this candidate to a CSE.
     bool PromotionCheck(Candidate& candidate)
     {
         if (varTypeIsSIMD(candidate.expr->GetType()) && (candidate.desc->layout == nullptr))
@@ -2120,7 +2118,7 @@ public:
         // If we want to be aggressive we use 1 as the values for both
         // cse-def-cost and cse-use-cost.
         //
-        // If we believe that the CSE very valuable in terms of weighted ref counts
+        // If we believe that the CSE very valuable in terms of weight ref counts
         // such that it would always be enregistered by the register allocator we choose
         // the aggressive use def costs.
         //
@@ -2130,41 +2128,40 @@ public:
         //
         // otherwise we choose the conservative use def costs.
 
-        // The 'cseRefCnt' is the RefCnt that we will have if we promote this CSE into a new LclVar
-        // Each CSE Def will contain two Refs and each CSE Use will have one Ref of this new LclVar
-        BasicBlock::weight_t cseRefCnt = (candidate.defWeight * 2) + candidate.useWeight;
-        unsigned             cse_def_cost;
-        unsigned             cse_use_cost;
+        // The estimated weight of the temp local we create for this CSE.
+        // The def also implies a use so we consider it twice.
+        float lclWeight = (candidate.defWeight * 2) + candidate.useWeight;
+
+        unsigned defCost;
+        unsigned useCost;
 
         if (codeOptKind == Compiler::SMALL_CODE)
         {
-            // Note that when optimizing for SMALL_CODE we set the cse_def_cost/cse_use_cost based
-            // upon the code size and we use unweighted ref counts instead of weighted ref counts.
-            // Also note that optimizing for SMALL_CODE is rare, we typically only optimize this way
-            // for class constructors, because we know that they will only run once.
-            if (cseRefCnt >= aggressiveWeight)
+            // When optimizing for small code we set the costs based upon
+            // the code size and we use ref counts instead of weights.
+
+            if (lclWeight >= aggressiveWeight)
             {
-                JITDUMP("Aggressive CSE Promotion (%f >= %f)\n", cseRefCnt, aggressiveWeight);
+                JITDUMP("Aggressive CSE Promotion (%f >= %f)\n", lclWeight, aggressiveWeight);
 
                 candidate.isAggressive = true;
 
-                // With aggressive promotion we expect that the candidate will be enregistered
-                // so we set the use and def costs to their minimum values.
-                cse_def_cost = 1;
-                cse_use_cost = 1;
+                // We expect that the candidate will be enregistered so we have minimum costs.
+                defCost = 1;
+                useCost = 1;
 
                 if (candidate.isLiveAcrossCall)
                 {
                     if (largeFrame)
                     {
-                        cse_def_cost++;
-                        cse_use_cost++;
+                        defCost++;
+                        useCost++;
                     }
 
                     if (hugeFrame)
                     {
-                        cse_def_cost++;
-                        cse_use_cost++;
+                        defCost++;
+                        useCost++;
                     }
                 }
             }
@@ -2177,18 +2174,18 @@ public:
                     JITDUMP("Codesize CSE Promotion (%s frame)\n", hugeFrame ? "huge" : "large");
 
 #ifdef TARGET_XARCH
-                    cse_def_cost = 6; // mov [EBP-0x00001FC], reg
-                    cse_use_cost = 5; //     [EBP-0x00001FC]
+                    defCost = 6; // mov [EBP-0x00001FC], reg
+                    useCost = 5; //     [EBP-0x00001FC]
 #else
                     if (hugeFrame)
                     {
-                        cse_def_cost = 10 + 2; // movw/movt r10 and str reg,[sp+r10]
-                        cse_use_cost = 10 + 2;
+                        defCost = 10 + 2; // movw/movt r10 and str reg,[sp+r10]
+                        useCost = 10 + 2;
                     }
                     else
                     {
-                        cse_def_cost = 6 + 2; // movw r10 and str reg,[sp+r10]
-                        cse_use_cost = 6 + 2;
+                        defCost = 6 + 2; // movw r10 and str reg,[sp+r10]
+                        useCost = 6 + 2;
                     }
 #endif
                 }
@@ -2197,11 +2194,11 @@ public:
                     JITDUMP("Codesize CSE Promotion (small frame)\n");
 
 #ifdef TARGET_XARCH
-                    cse_def_cost = 3; // mov [EBP-1C], reg
-                    cse_use_cost = 2; //     [EBP-1C]
+                    defCost = 3; // mov [EBP-1C], reg
+                    useCost = 2; //     [EBP-1C]
 #else
-                    cse_def_cost = 2; // str reg, [sp+0x9c]
-                    cse_use_cost = 2; // ldr reg, [sp+0x9c]
+                    defCost = 2; // str reg, [sp+0x9c]
+                    useCost = 2; // ldr reg, [sp+0x9c]
 #endif
                 }
             }
@@ -2209,52 +2206,52 @@ public:
 #ifdef TARGET_AMD64
             if (varTypeIsFloating(candidate.expr->GetType()))
             {
-                // floating point loads/store encode larger
-                cse_def_cost += 2;
-                cse_use_cost += 1;
+                // Floating point loads/store have larger encodings.
+                // TODO-MIKE-Review: This should also apply to vector types (varTypeUsesFloatReg).
+                defCost += 2;
+                useCost += 1;
             }
 #endif
         }
         else
         {
-            // Note that when optimizing for BLENDED_CODE or FAST_CODE we set cse_def_cost/cse_use_cost
-            // based upon the execution costs of the code and we use weighted ref counts.
+            // When optimizing for blended/fast code we set costs based upon the
+            // execution costs of the code and we use weights instead of ref counts.
 
-            if (cseRefCnt >= aggressiveWeight)
+            if (lclWeight >= aggressiveWeight)
             {
                 candidate.isAggressive = true;
 
-                JITDUMP("Aggressive CSE Promotion (%f >= %f)\n", cseRefCnt, aggressiveWeight);
+                JITDUMP("Aggressive CSE Promotion (%f >= %f)\n", lclWeight, aggressiveWeight);
 
-                // With aggressive promotion we expect that the candidate will be enregistered
-                // so we set the use and def costs to their miniumum values
-                cse_def_cost = 1;
-                cse_use_cost = 1;
+                // We expect that the candidate will be enregistered so we have minimum costs.
+                defCost = 1;
+                useCost = 1;
             }
-            else if (cseRefCnt >= moderateWeight)
+            else if (lclWeight >= moderateWeight)
             {
                 candidate.isModerate = true;
 
                 if (!candidate.isLiveAcrossCall)
                 {
-                    JITDUMP("Moderate CSE Promotion (never live at call) (%f >= %f)\n", cseRefCnt, moderateWeight);
+                    JITDUMP("Moderate CSE Promotion (never live at call) (%f >= %f)\n", lclWeight, moderateWeight);
 
-                    cse_def_cost = 2;
-                    cse_use_cost = 1;
+                    defCost = 2;
+                    useCost = 1;
                 }
                 else
                 {
-                    JITDUMP("Moderate CSE Promotion (live across a call) (%f >= %f)\n", cseRefCnt, moderateWeight);
+                    JITDUMP("Moderate CSE Promotion (live across a call) (%f >= %f)\n", lclWeight, moderateWeight);
 
-                    cse_def_cost = 2;
+                    defCost = 2;
 
                     if (enregCount < (CNT_CALLEE_ENREG * 3 / 2))
                     {
-                        cse_use_cost = 1;
+                        useCost = 1;
                     }
                     else
                     {
-                        cse_use_cost = 2;
+                        useCost = 2;
                     }
                 }
             }
@@ -2264,120 +2261,116 @@ public:
 
                 if (!candidate.isLiveAcrossCall)
                 {
-                    JITDUMP("Conservative CSE Promotion (not enregisterable) (%f < %f)\n", cseRefCnt, moderateWeight);
+                    JITDUMP("Conservative CSE Promotion (not enregisterable) (%f < %f)\n", lclWeight, moderateWeight);
 
-                    cse_def_cost = 2;
-                    cse_use_cost = 2;
+                    defCost = 2;
+                    useCost = 2;
                 }
                 else
                 {
-                    JITDUMP("Conservative CSE Promotion (%f < %f)\n", cseRefCnt, moderateWeight);
+                    JITDUMP("Conservative CSE Promotion (%f < %f)\n", lclWeight, moderateWeight);
 
-                    cse_def_cost = 2;
-                    cse_use_cost = 3;
+                    defCost = 2;
+                    useCost = 3;
                 }
 
                 // If we have maxed out lvaTrackedCount then this CSE may end up as an untracked variable
-                if (compiler->lvaTrackedCount == (unsigned)JitConfig.JitMaxLocalsToTrack())
+                if (compiler->lvaTrackedCount == static_cast<unsigned>(JitConfig.JitMaxLocalsToTrack()))
                 {
-                    cse_def_cost += 1;
-                    cse_use_cost += 1;
+                    defCost += 1;
+                    useCost += 1;
                 }
             }
         }
 
-        unsigned extra_yes_cost = 0;
+        unsigned extraYesCost = 0;
 
-        // If this CSE is live across a call then we may need to spill an additional caller save register
+        // If this CSE is live across a call then we may need to spill an additional caller save register.
         if (candidate.isLiveAcrossCall)
         {
-            if (candidate.expr->IsCnsFltOrDbl() && (CNT_CALLEE_SAVED_FLOAT == 0) && (candidate.desc->useWeight <= 4))
+            if (candidate.expr->IsDblCon() && (CNT_CALLEE_SAVED_FLOAT == 0) && (candidate.desc->useWeight <= 4))
             {
-                // Floating point constants are expected to be contained, so unless there are more than 4 uses
-                // we better not to CSE them, especially on platforms without callee-saved registers
-                // for values living across calls
+                // Floating point constants are expected to be contained, so unless there are
+                // more than 4 uses we better not to CSE them, especially on platforms without
+                // callee-saved registers for values living across calls
                 return false;
             }
 
             // If we don't have a lot of variables to enregister or we have a floating point type
             // then we will likely need to spill an additional caller save register.
-            if ((enregCount < (CNT_CALLEE_ENREG * 3 / 2)) || varTypeIsFloating(candidate.expr))
+            if ((enregCount < (CNT_CALLEE_ENREG * 3 / 2)) || varTypeIsFloating(candidate.expr->GetType()))
             {
                 // Extra cost in case we have to spill/restore a caller saved register
-                extra_yes_cost = BB_UNITY_WEIGHT_UNSIGNED;
+                extraYesCost = BB_UNITY_WEIGHT_UNSIGNED;
 
-                if (cseRefCnt < moderateWeight) // If Conservative CSE promotion
+                if (lclWeight < moderateWeight)
                 {
-                    extra_yes_cost *= 2; // full cost if we are being Conservative
+                    extraYesCost *= 2;
                 }
             }
 
 #ifdef FEATURE_SIMD
-            // SIMD types may cause a SIMD register to be spilled/restored in the prolog and epilog.
+            // Vector types may cause a vector register to be spilled/restored in the prolog and epilog.
             if (varTypeIsSIMD(candidate.expr->GetType()))
             {
                 // We don't have complete information about when these extra spilled/restore will be needed.
-                // Instead we are conservative and assume that each SIMD CSE that is live across a call
+                // Instead we are conservative and assume that each vector CSE that is live across a call
                 // will cause an additional spill/restore in the prolog and epilog.
-                int spillSimdRegInProlog = 1;
+                int spillVectorRegInProlog = 1;
 
-                // If we have a SIMD32 that is live across a call we have even higher spill costs
-                //
                 if (candidate.expr->TypeIs(TYP_SIMD32))
                 {
-                    // Additionally for a simd32 CSE candidate we assume that and second spilled/restore will be needed.
-                    // (to hold the upper half of the simd32 register that isn't preserved across the call)
-                    spillSimdRegInProlog++;
+                    // Additionally, for a SIMD32 CSE candidate we assume that a second spill/restore is
+                    // needed, to hold the upper half of the SIMD32 register that isn't preserved across
+                    // the call.
+                    spillVectorRegInProlog++;
 
                     // We also increase the CSE use cost here to because we may have to generate instructions
-                    // to move the upper half of the simd32 before and after a call.
-                    cse_use_cost += 2;
+                    // to move the upper half of the SIMD32 before and after a call.
+                    useCost += 2;
                 }
 
-                extra_yes_cost = (BB_UNITY_WEIGHT_UNSIGNED * spillSimdRegInProlog) * 3;
+                extraYesCost = (BB_UNITY_WEIGHT_UNSIGNED * spillVectorRegInProlog) * 3;
             }
 #endif // FEATURE_SIMD
         }
 
-        unsigned extra_no_cost = 0;
+        unsigned extraNoCost = 0;
 
-        // estimate the cost from lost codesize reduction if we do not perform the CSE
-        if (candidate.size > cse_use_cost)
+        // Estimate the cost from lost code size reduction if we do not perform the CSE.
+        if (candidate.size > useCost)
         {
-            // We need to retrieve the actual use count, not the weight.
-            extra_no_cost = (candidate.size - cse_use_cost) * candidate.desc->useCount * 2;
+            extraNoCost = (candidate.size - useCost) * candidate.desc->useCount * 2;
         }
 
-        // no_cse_cost  is the cost estimate when we decide not to make a CSE
-        // yes_cse_cost is the cost estimate when we decide to make a CSE
-        float no_cse_cost = candidate.useWeight * candidate.cost + extra_no_cost;
-        float yes_cse_cost =
-            (candidate.defWeight * cse_def_cost) + (candidate.useWeight * cse_use_cost) + extra_yes_cost;
+        // Cost estimate when we decide not to make a CSE.
+        float noCseCost = candidate.useWeight * candidate.cost + extraNoCost;
+        // Cost estimate when we decide to make a CSE.
+        float yesCseCost = (candidate.defWeight * defCost) + (candidate.useWeight * useCost) + extraYesCost;
 
 #ifdef DEBUG
         if (compiler->verbose)
         {
-            printf("cseRefCnt=%f, aggressiveWeight=%f, moderateWeight=%f\n", cseRefCnt, aggressiveWeight,
+            printf("lclWeight=%f, aggressiveWeight=%f, moderateWeight=%f\n", lclWeight, aggressiveWeight,
                    moderateWeight);
             printf("defCnt=%f, useCnt=%f, cost=%d, size=%d%s\n", candidate.defWeight, candidate.useWeight,
                    candidate.cost, candidate.size, candidate.isLiveAcrossCall ? ", LiveAcrossCall" : "");
-            printf("def_cost=%d, use_cost=%d, extra_no_cost=%d, extra_yes_cost=%d\n", cse_def_cost, cse_use_cost,
-                   extra_no_cost, extra_yes_cost);
-
-            printf("CSE cost savings check (%f >= %f) %s\n", no_cse_cost, yes_cse_cost,
-                   (no_cse_cost >= yes_cse_cost) ? "passes" : "fails");
+            printf("defCost=%d, useCost=%d, extraNoCost=%d, extraYesCost=%d\n", defCost, useCost, extraNoCost,
+                   extraYesCost);
+            printf("CSE cost savings check (%f >= %f) %s\n", noCseCost, yesCseCost,
+                   noCseCost >= yesCseCost ? "passes" : "fails");
         }
-#endif // DEBUG
+#endif
 
-        if (yes_cse_cost <= no_cse_cost)
+        if (yesCseCost <= noCseCost)
         {
             return true;
         }
 
 #ifdef DEBUG
-        if (no_cse_cost > 0)
+        if (noCseCost > 0)
         {
-            int percentage = (int)((no_cse_cost * 100) / yes_cse_cost);
+            int percentage = static_cast<int>((noCseCost * 100) / yesCseCost);
 
             if (compiler->compStressCompile(Compiler::STRESS_MAKE_CSE, percentage))
             {
