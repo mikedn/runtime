@@ -2362,6 +2362,56 @@ public:
                ((lclType == TYP_I_IMPL) && (exprType == TYP_BYREF));
     }
 
+    ssize_t GetSharedConstBaseValue(const CseDesc* desc, ValueNum* outBaseConstVN)
+    {
+        assert(desc->isSharedConst);
+
+        bool     baseConstIsDef = false;
+        ssize_t  baseConstVal   = 0;
+        ValueNum baseConstVN    = NoVN;
+
+        for (const CseOccurence* occurence = &desc->firstOccurence; occurence != nullptr; occurence = occurence->next)
+        {
+            GenTree* expr = occurence->expr;
+
+            if (!IsCseIndex(expr->gtCSEnum))
+            {
+                continue;
+            }
+
+            bool isDef = IsCseDef(expr->gtCSEnum);
+
+            ValueNum exprConstVN    = expr->GetLiberalVN();
+            ssize_t  exprConstValue = expr->AsIntCon()->GetValue();
+
+            if (baseConstVN == NoVN)
+            {
+                baseConstVN    = exprConstVN;
+                baseConstVal   = exprConstValue;
+                baseConstIsDef = isDef;
+            }
+            else if (exprConstVN != baseConstVN)
+            {
+                ssize_t delta = exprConstValue - baseConstVal;
+
+                // The ARM addressing modes allow for a subtraction of up to 255 so we
+                // will allow the delta to be up to -255 before replacing a CSE def.
+                // This will minimize the number of extra subtract instructions.
+                if ((baseConstIsDef && (delta < -255)) || (!baseConstIsDef && (delta < 0)))
+                {
+                    baseConstVN    = exprConstVN;
+                    baseConstVal   = exprConstValue;
+                    baseConstIsDef = isDef;
+                }
+            }
+        }
+
+        JITDUMP("Using 0x%p (" FMT_VN ") as the base value for shared const CSE.\n", dspPtr(baseConstVal), baseConstVN);
+
+        *outBaseConstVN = baseConstVN;
+        return baseConstVal;
+    }
+
     // PerformCSE() takes a successful candidate and performs  the appropriate replacements:
     //
     // It will replace all of the CSE defs with assignments to a new "cse0" LclVar
@@ -2371,6 +2421,16 @@ public:
     void PerformCSE(const Candidate& candidate)
     {
         JITDUMP("\nPromoting CSE:\n");
+
+        CseDesc* dsc           = candidate.desc;
+        bool     isSharedConst = dsc->isSharedConst;
+        ssize_t  baseConstVal  = 0;
+        ValueNum baseConstVN   = NoVN;
+
+        if (isSharedConst)
+        {
+            baseConstVal = GetSharedConstBaseValue(dsc, &baseConstVN);
+        }
 
         BasicBlock::weight_t cseRefCnt = (candidate.defWeight * 2) + candidate.useWeight;
 
@@ -2434,7 +2494,6 @@ public:
         // to the CSE temp to all defs and changing all refs to
         // a simple use of the CSE temp.
         // Later we will unmark any nested CSE's for the CSE uses.
-        CseDesc* dsc = candidate.desc;
 
         // If there's just a single def for the CSE, we'll put this
         // CSE into SSA form on the fly. We won't need any PHIs.
@@ -2446,63 +2505,6 @@ public:
             cseLcl->lvInSsa = true;
 
             cseSsaNum = cseLcl->lvPerSsaData.AllocSsaNum(compiler->getAllocator(CMK_SSA));
-        }
-
-        bool     isSharedConst  = dsc->isSharedConst;
-        bool     isSameConst    = true;
-        bool     baseConstIsDef = false;
-        ssize_t  baseConstVal   = 0;
-        ValueNum baseConstVN    = NoVN;
-
-        for (CseOccurence* lst = &dsc->firstOccurence; lst != nullptr; lst = lst->next)
-        {
-            GenTree* expr = lst->expr;
-
-            if (!IsCseIndex(expr->gtCSEnum))
-            {
-                continue;
-            }
-
-            bool isDef = IsCseDef(expr->gtCSEnum);
-
-            if (isSharedConst)
-            {
-                ValueNum exprConstVN    = expr->GetLiberalVN();
-                ssize_t  exprConstValue = expr->AsIntCon()->GetValue();
-
-                if (baseConstVN == ValueNumStore::NoVN)
-                {
-                    baseConstVN = exprConstVN;
-
-                    if (isSharedConst)
-                    {
-                        baseConstVal   = exprConstValue;
-                        baseConstIsDef = isDef;
-                    }
-                }
-                else if (exprConstVN != baseConstVN)
-                {
-                    isSameConst = false;
-
-                    ssize_t delta = exprConstValue - baseConstVal;
-
-                    // The ARM addressing modes allow for a subtraction of up to 255 so we
-                    // will allow the delta to be up to -255 before replacing a CSE def.
-                    // This will minimize the number of extra subtract instructions.
-                    if ((baseConstIsDef && (delta < -255)) || (!baseConstIsDef && (delta < 0)))
-                    {
-                        baseConstVN    = exprConstVN;
-                        baseConstVal   = exprConstValue;
-                        baseConstIsDef = isDef;
-                    }
-                }
-            }
-        }
-
-        if (isSharedConst)
-        {
-            JITDUMP("Using 0x%p (" FMT_VN ") as the base value for shared const CSE.\n", dspPtr(baseConstVal),
-                    baseConstVN);
         }
 
         for (CseOccurence* lst = &dsc->firstOccurence; lst != nullptr; lst = lst->next)
