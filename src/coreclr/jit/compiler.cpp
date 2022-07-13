@@ -4133,7 +4133,7 @@ void Compiler::ResetOptAnnotations()
             {
                 tree->ClearVN();
                 tree->ClearAssertion();
-                tree->gtCSEnum = NoCse;
+                tree->ClearCseInfo();
             }
         }
     }

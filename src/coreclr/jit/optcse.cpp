@@ -194,11 +194,11 @@ bool Compiler::cseCanSwapOrder(GenTree* tree1, GenTree* tree2)
         GenTree*   node = *use;
         CseDefUse* data = static_cast<CseDefUse*>(walkData->pCallbackData);
 
-        if (IsCseIndex(node->gtCSEnum))
+        if (node->HasCseInfo())
         {
-            unsigned index = GetCseZeroIndex(node->gtCSEnum);
+            unsigned index = GetCseZeroIndex(node->GetCseInfo());
 
-            if (IsCseDef(node->gtCSEnum))
+            if (IsCseDef(node->GetCseInfo()))
             {
                 BitVecOps::AddElemD(&data->traits, data->def, index);
             }
@@ -296,20 +296,20 @@ bool Compiler::cseUnmarkNode(GenTree* node)
 {
     assert(csePhase);
 
-    if (!IsCseIndex(node->gtCSEnum))
+    if (!node->HasCseInfo())
     {
         return true;
     }
 
     noway_assert(cseBlockWeight <= BB_MAX_WEIGHT);
 
-    if (IsCseDef(node->gtCSEnum))
+    if (IsCseDef(node->GetCseInfo()))
     {
         return false;
     }
 
-    unsigned index = GetCseIndex(node->gtCSEnum);
-    node->gtCSEnum = NoCse;
+    unsigned index = GetCseIndex(node->GetCseInfo());
+    node->ClearCseInfo();
 
     CseDesc* desc = cseGetDesc(index);
 
@@ -473,7 +473,7 @@ public:
             {
                 for (GenTree* node : stmt->Nodes())
                 {
-                    assert(node->gtCSEnum == NoCse);
+                    assert(!node->HasCseInfo());
                 }
             }
         }
@@ -556,15 +556,15 @@ public:
     }
 #endif // DEBUG
 
-    static CseIndex ToCseIndex(unsigned index)
+    static CseInfo ToCseIndex(unsigned index)
     {
         assert(index < INT8_MAX);
-        return static_cast<CseIndex>(index);
+        return static_cast<CseInfo>(index);
     }
 
-    static CseIndex ToCseDefIndex(CseIndex index)
+    static CseInfo ToCseDefIndex(CseInfo index)
     {
-        return static_cast<CseIndex>(-index);
+        return static_cast<CseInfo>(-index);
     }
 
     static ssize_t GetSharedConstValue(ssize_t value)
@@ -705,7 +705,7 @@ public:
 
             if (found->index != 0)
             {
-                expr->gtCSEnum = ToCseIndex(found->index);
+                expr->SetCseInfo(ToCseIndex(found->index));
 
                 return found->index;
             }
@@ -720,13 +720,13 @@ public:
 
         if (found != nullptr)
         {
-            noway_assert(found->firstOccurence.expr->gtCSEnum == NoCse);
+            noway_assert(!found->firstOccurence.expr->HasCseInfo());
 
             unsigned index = ++descCount;
 
-            found->index                         = index;
-            found->firstOccurence.expr->gtCSEnum = ToCseIndex(index);
-            expr->gtCSEnum                       = static_cast<CseIndex>(index);
+            found->index = index;
+            found->firstOccurence.expr->SetCseInfo(ToCseIndex(index));
+            expr->SetCseInfo(ToCseIndex(index));
 
 #ifdef DEBUG
             if (compiler->verbose)
@@ -911,14 +911,14 @@ public:
             // conservative value number matches the one from the compare VN.
 
             GenTree* child1 = boundParent->gtGetOp1();
-            if ((info.vnBound == child1->gtVNPair.GetConservative()) && IsCseIndex(child1->gtCSEnum))
+            if ((info.vnBound == child1->gtVNPair.GetConservative()) && child1->HasCseInfo())
             {
                 bound = child1;
             }
             else
             {
                 GenTree* child2 = boundParent->gtGetOp2();
-                if ((info.vnBound == child2->gtVNPair.GetConservative()) && IsCseIndex(child2->gtCSEnum))
+                if ((info.vnBound == child2->gtVNPair.GetConservative()) && child2->HasCseInfo())
                 {
                     bound = child2;
                 }
@@ -1044,9 +1044,9 @@ public:
 
                 for (node = stmt->GetRootNode(); node != nullptr; node = node->gtPrev)
                 {
-                    if (IsCseIndex(node->gtCSEnum))
+                    if (node->HasCseInfo())
                     {
-                        unsigned availCrossCallBit = GetAvailCrossCallBitIndex(GetCseIndex(node->gtCSEnum));
+                        unsigned availCrossCallBit = GetAvailCrossCallBitIndex(GetCseIndex(node->GetCseInfo()));
 
                         BitVecOps::AddElemD(&dataFlowTraits, block->bbCseGen, availCrossCallBit);
                     }
@@ -1280,9 +1280,9 @@ public:
                     bool isUse = false;
                     bool isDef = false;
 
-                    if (IsCseIndex(tree->gtCSEnum))
+                    if (tree->HasCseInfo())
                     {
-                        unsigned CSEnum               = GetCseIndex(tree->gtCSEnum);
+                        unsigned CSEnum               = GetCseIndex(tree->GetCseInfo());
                         unsigned cseAvailBit          = GetAvailBitIndex(CSEnum);
                         unsigned cseAvailCrossCallBit = GetAvailCrossCallBitIndex(CSEnum);
                         CseDesc* desc                 = GetDesc(CSEnum);
@@ -1319,7 +1319,7 @@ public:
                         {
                             // This candidate had defs with differing liberal exc set VNs
                             // We have abandoned CSE promotion for this candidate
-                            tree->gtCSEnum = NoCse;
+                            tree->ClearCseInfo();
 
                             JITDUMP(" Abandoned - CSE candidate has defs with different exception sets!\n");
                             continue;
@@ -1395,7 +1395,7 @@ public:
                                     // We use the marker value of NoVN to indicate that we should abandon this CSE
                                     // candidate.
                                     desc->defExcSetPromise = ValueNumStore::NoVN;
-                                    tree->gtCSEnum         = NoCse;
+                                    tree->ClearCseInfo();
 
                                     JITDUMP(" Abandon - CSE candidate has defs with exception sets that do not satisfy "
                                             "some CSE use\n");
@@ -1433,7 +1433,7 @@ public:
 
                             // Mark the node as a CSE definition
 
-                            tree->gtCSEnum = ToCseDefIndex(tree->gtCSEnum);
+                            tree->SetCseInfo(ToCseDefIndex(tree->GetCseInfo()));
 
                             // This CSE becomes available after this def
                             BitVecOps::AddElemD(&dataFlowTraits, available_cses, cseAvailBit);
@@ -1484,7 +1484,7 @@ public:
                                     // the other uses and defs can still participate in the CSE optimization.
 
                                     // So this can't be a CSE use
-                                    tree->gtCSEnum = NoCse;
+                                    tree->ClearCseInfo();
 
                                     JITDUMP(" NO_CSE - This use has an exception set item that isn't contained in the "
                                             "defs!\n");
@@ -1528,7 +1528,7 @@ public:
                                     // The CSE becomes available after the call, so set the cseAvailCrossCallBit bit in
                                     // available_cses
 
-                                    unsigned CSEnum               = GetCseIndex(tree->gtCSEnum);
+                                    unsigned CSEnum               = GetCseIndex(tree->GetCseInfo());
                                     unsigned cseAvailCrossCallBit = GetAvailCrossCallBitIndex(CSEnum);
 
                                     BitVecOps::AddElemD(&dataFlowTraits, available_cses, cseAvailCrossCallBit);
@@ -2374,12 +2374,12 @@ public:
         {
             GenTree* expr = occurence->expr;
 
-            if (!IsCseIndex(expr->gtCSEnum))
+            if (!expr->HasCseInfo())
             {
                 continue;
             }
 
-            bool isDef = IsCseDef(expr->gtCSEnum);
+            bool isDef = IsCseDef(expr->GetCseInfo());
 
             ValueNum exprConstVN    = expr->GetLiberalVN();
             ssize_t  exprConstValue = expr->AsIntCon()->GetValue();
@@ -2513,10 +2513,7 @@ public:
             Statement*  stmt = lst->stmt;
             BasicBlock* blk  = lst->block;
 
-            // We may have cleared this CSE in optValuenumCSE_Availablity
-            // due to different exception sets.
-            // Ignore this node if the gtCSEnum value has been cleared.
-            if (!IsCseIndex(expr->gtCSEnum))
+            if (!expr->HasCseInfo())
             {
                 continue;
             }
@@ -2534,7 +2531,7 @@ public:
             // This will contain the replacement tree for exp
             GenTree*      cse      = nullptr;
             FieldSeqNode* fieldSeq = compiler->GetZeroOffsetFieldSeq(expr->SkipComma());
-            bool          isDef    = IsCseDef(expr->gtCSEnum);
+            bool          isDef    = IsCseDef(expr->GetCseInfo());
 
             GenTreeLclVar* lclUse = compiler->gtNewLclvNode(cseLclVarNum, cseLclVarTyp);
             lclUse->SetSsaNum(cseSsaNum);
@@ -2573,8 +2570,8 @@ public:
 
             if (!isDef)
             {
-                JITDUMP("\nWorking on the replacement of the " FMT_CSE " use at [%06u] in " FMT_BB "\n", expr->gtCSEnum,
-                        expr->GetID(), blk->bbNum);
+                JITDUMP("\nWorking on the replacement of the " FMT_CSE " use at [%06u] in " FMT_BB "\n",
+                        expr->GetCseInfo(), expr->GetID(), blk->bbNum);
 
                 cse = newExpr;
 
@@ -2648,7 +2645,7 @@ public:
 
                 // Afterwards the set of nodes in the 'sideEffectList' are preserved and
                 // all other nodes are removed.
-                expr->gtCSEnum = NoCse;
+                expr->ClearCseInfo();
 
                 // While doing this we also need to update use weights so we need to
                 // stash the block weight somewhere for cseUnmarkNode, sigh.
@@ -2705,9 +2702,9 @@ public:
             else
             {
                 JITDUMP("\n" FMT_CSE " def at [%06u] replaced in " FMT_BB " with def of V%02u\n",
-                        GetCseIndex(expr->gtCSEnum), expr->GetID(), blk->bbNum, cseLclVarNum);
+                        GetCseIndex(expr->GetCseInfo()), expr->GetID(), blk->bbNum, cseLclVarNum);
 
-                expr->gtCSEnum = NoCse;
+                expr->ClearCseInfo();
 
                 assert((cseLclVarTyp != TYP_STRUCT) ||
                        (defExpr->IsCall() && (defExpr->AsCall()->GetRetDesc()->GetRegCount() == 1)));

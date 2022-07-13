@@ -6838,9 +6838,9 @@ void Compiler::gtDispNodeHeader(GenTree* tree)
 
     if (csePhase)
     {
-        if (IsCseIndex(tree->gtCSEnum))
+        if (tree->HasCseInfo())
         {
-            printf(" " FMT_CSE " (%s)", GetCseIndex(tree->gtCSEnum), IsCseUse(tree->gtCSEnum) ? "use" : "def");
+            printf(" " FMT_CSE " (%s)", GetCseIndex(tree->GetCseInfo()), IsCseUse(tree->GetCseInfo()) ? "use" : "def");
         }
         else
         {
@@ -11786,16 +11786,16 @@ void Compiler::gtExtractSideEffList(GenTree*  expr,
             if (m_compiler->cseUnmarkNode(node))
             {
                 // The call to cseUnmarkNode(node) should have cleared any CSE info.
-                assert(!IsCseIndex(node->gtCSEnum));
+                assert(!node->HasCseInfo());
                 return true;
             }
             else
             {
-                assert(IsCseDef(node->gtCSEnum));
+                assert(IsCseDef(node->GetCseInfo()));
 #ifdef DEBUG
                 if (m_compiler->verbose)
                 {
-                    printf("Preserving the CSE def #%02d at ", GetCseIndex(node->gtCSEnum));
+                    printf("Preserving the CSE def #%02d at ", GetCseIndex(node->GetCseInfo()));
                     m_compiler->printTreeID(node);
                 }
 #endif

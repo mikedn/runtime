@@ -697,35 +697,30 @@ constexpr RegSpillSet GetRegSpilledSet(unsigned regIndex)
 
 #define FMT_TREEID "[%06u]"
 
-enum CseIndex : int8_t
+enum CseInfo : int8_t
 {
     NoCse = 0
 };
 
-constexpr bool IsCseIndex(CseIndex index)
+constexpr bool IsCseUse(CseInfo info)
 {
-    return index != NoCse;
+    return info > 0;
 }
 
-constexpr bool IsCseUse(CseIndex index)
+constexpr bool IsCseDef(CseInfo info)
 {
-    return index > 0;
+    return info < 0;
 }
 
-constexpr bool IsCseDef(CseIndex index)
+constexpr unsigned GetCseIndex(CseInfo info)
 {
-    return index < 0;
+    return info > 0 ? info : -info;
 }
 
-constexpr unsigned GetCseIndex(CseIndex index)
+constexpr unsigned GetCseZeroIndex(CseInfo info)
 {
-    return index > 0 ? index : -index;
-}
-
-constexpr unsigned GetCseZeroIndex(CseIndex index)
-{
-    assert(index != 0);
-    return (index > 0 ? index : -index) - 1;
+    assert(info != 0);
+    return (info > 0 ? info : -info) - 1;
 }
 
 #define MAX_COST UCHAR_MAX
@@ -747,14 +742,14 @@ struct GenTree
     // Only used to save gtOper when we destroy a node, to aid debugging.
     INDEBUG(genTreeOps gtOperSave = GT_NONE;)
 
+private:
     union {
         // Valid only during CSE, 0 or the CSE index (negated if it's a def).
-        CseIndex gtCSEnum = NoCse;
+        CseInfo m_cseInfo = NoCse;
         // Valid only during LSRA/CodeGen
         RegSpillSet m_defRegsSpillSet;
     };
 
-private:
     // Used for nodes that are in LIR. See LIR::Flags in lir.h for the various flags.
     uint8_t m_LIRFlags = 0;
 #if ASSERTION_PROP
@@ -858,6 +853,26 @@ public:
     {
         assert(((TYP_UNDEF < type) && (type < TYP_UNKNOWN)) && (type != TYP_UINT) && (type != TYP_ULONG));
         gtType = type;
+    }
+
+    CseInfo GetCseInfo() const
+    {
+        return m_cseInfo;
+    }
+
+    bool HasCseInfo() const
+    {
+        return m_cseInfo != NoCse;
+    }
+
+    void SetCseInfo(CseInfo num)
+    {
+        m_cseInfo = num;
+    }
+
+    void ClearCseInfo()
+    {
+        m_cseInfo = NoCse;
     }
 
 #if ASSERTION_PROP
