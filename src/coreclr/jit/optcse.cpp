@@ -2674,16 +2674,6 @@ public:
                         curSideEff     = op2;
                     }
 
-                    // We may have inserted a narrowing cast during a previous remorph
-                    // and it will not have a value number.
-                    if ((curSideEff->OperGet() == GT_CAST) && !curSideEff->gtVNPair.BothDefined())
-                    {
-                        // The inserted cast will have no exceptional effects
-                        assert(curSideEff->gtOverflow() == false);
-                        // Process the exception effects from the cast's operand.
-                        curSideEff = curSideEff->AsOp()->gtOp1;
-                    }
-
                     ValueNumPair op2vnp;
                     ValueNumPair op2Xvnp = ValueNumStore::VNPForEmptyExcSet();
                     vnStore->VNPUnpackExc(curSideEff->gtVNPair, &op2vnp, &op2Xvnp);
