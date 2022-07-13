@@ -2509,66 +2509,74 @@ public:
 
         for (CseOccurence* lst = &dsc->firstOccurence; lst != nullptr; lst = lst->next)
         {
-            GenTree*    exp  = lst->expr;
+            GenTree*    expr = lst->expr;
             Statement*  stmt = lst->stmt;
             BasicBlock* blk  = lst->block;
 
             // We may have cleared this CSE in optValuenumCSE_Availablity
             // due to different exception sets.
             // Ignore this node if the gtCSEnum value has been cleared.
-            if (!IsCseIndex(exp->gtCSEnum))
+            if (!IsCseIndex(expr->gtCSEnum))
             {
                 continue;
             }
 
-            assert(exp->gtOper != GT_COUNT);
+            assert(expr->gtOper != GT_COUNT);
 
             float blockWeight = blk->getBBWeight(compiler);
 
             // Figure out the actual type of the value
-            var_types expTyp = genActualType(exp->TypeGet());
+            var_types expTyp = genActualType(expr->TypeGet());
 
             // The cseLclVarType must be a compatible with expTyp
             noway_assert(IsCompatibleType(cseLclVarTyp, expTyp) || (baseConstVN != vnStore->VNForNull()));
 
             // This will contain the replacement tree for exp
-            GenTree*      cse          = nullptr;
-            GenTree*      effectiveExp = exp->SkipComma();
-            FieldSeqNode* fieldSeq     = compiler->GetZeroOffsetFieldSeq(effectiveExp);
+            GenTree*      cse      = nullptr;
+            FieldSeqNode* fieldSeq = compiler->GetZeroOffsetFieldSeq(expr->SkipComma());
+            bool          isDef    = IsCseDef(expr->gtCSEnum);
 
-            if (IsCseUse(exp->gtCSEnum))
+            GenTreeLclVar* lclUse = compiler->gtNewLclvNode(cseLclVarNum, cseLclVarTyp);
+            lclUse->SetSsaNum(cseSsaNum);
+            compiler->lvaAddRef(cseLcl, blockWeight);
+
+            GenTree* newExpr = lclUse;
+            GenTree* defExpr = expr;
+
+            if (isSharedConst)
             {
-                JITDUMP("\nWorking on the replacement of the " FMT_CSE " use at [%06u] in " FMT_BB "\n", exp->gtCSEnum,
-                        exp->GetID(), blk->bbNum);
+                newExpr->SetVNP(ValueNumPair(baseConstVN));
 
-                // We will replace the CSE ref with a new tree
-                // this is typically just a simple use of the new CSE LclVar
-                // Create a reference to the CSE temp.
+                ssize_t exprConsVal = expr->AsIntCon()->GetValue();
+                ssize_t delta       = exprConsVal - baseConstVal;
 
-                GenTree* cseLclVar = compiler->gtNewLclvNode(cseLclVarNum, cseLclVarTyp);
-                cseLclVar->AsLclVar()->SetSsaNum(cseSsaNum);
-                compiler->lvaAddRef(cseLcl, blockWeight);
-
-                cse = cseLclVar;
-
-                if (isSharedConst)
+                if (delta != 0)
                 {
-                    ssize_t exprConsVal = exp->AsIntCon()->GetValue();
-                    ssize_t delta       = exprConsVal - baseConstVal;
+                    GenTree* deltaNode = compiler->gtNewIconNode(delta, cseLclVarTyp);
+                    compiler->fgValueNumberTreeConst(deltaNode);
+                    newExpr = compiler->gtNewOperNode(GT_ADD, cseLclVarTyp, newExpr, deltaNode);
+                    newExpr->SetDoNotCSE(); // GTF_DONT_CSE also blocks VN const propagation.
+                    newExpr->SetVNP(expr->GetVNP());
 
-                    if (delta != 0)
+                    if (isDef)
                     {
-                        cseLclVar->SetVNP(ValueNumPair(baseConstVN));
-
-                        GenTree* deltaNode = compiler->gtNewIconNode(delta, cseLclVarTyp);
-                        compiler->fgValueNumberTreeConst(deltaNode);
-                        cse = compiler->gtNewOperNode(GT_ADD, cseLclVarTyp, cseLclVar, deltaNode);
-                        cse->SetDoNotCSE();
+                        defExpr = compiler->gtNewIconNode(baseConstVal, cseLclVarTyp);
+                        defExpr->SetVNP(ValueNumPair(baseConstVN));
                     }
                 }
+            }
+            else
+            {
+                // The new expression is a local so it doesn't have the exception set of the original value.
+                newExpr->SetVNP(vnStore->VNPNormalPair(expr->GetVNP()));
+            }
 
-                // assign the proper ValueNumber, A CSE use discards any exceptions
-                cse->gtVNPair = vnStore->VNPNormalPair(exp->gtVNPair);
+            if (!isDef)
+            {
+                JITDUMP("\nWorking on the replacement of the " FMT_CSE " use at [%06u] in " FMT_BB "\n", expr->gtCSEnum,
+                        expr->GetID(), blk->bbNum);
+
+                cse = newExpr;
 
                 // shared const CSE has the correct value number assigned
                 // and both liberal and conservative are identical
@@ -2586,14 +2594,14 @@ public:
 
                         // If the old VN was flagged as a checked bound, propagate that to the new VN
                         // to make sure assertion prop will pay attention to this VN.
-                        ValueNum oldVN = exp->gtVNPair.GetConservative();
+                        ValueNum oldVN = expr->gtVNPair.GetConservative();
                         if (!vnStore->IsVNConstant(theConservativeVN) && vnStore->IsVNCheckedBound(oldVN))
                         {
                             vnStore->SetVNIsCheckedBound(theConservativeVN);
                         }
 
                         GenTree* cmp;
-                        if (checkedBoundMap.Lookup(exp, &cmp))
+                        if (checkedBoundMap.Lookup(expr, &cmp))
                         {
                             // Propagate the new value number to this compare node as well, since
                             // subsequent range check elimination will try to correlate it with
@@ -2640,13 +2648,13 @@ public:
 
                 // Afterwards the set of nodes in the 'sideEffectList' are preserved and
                 // all other nodes are removed.
-                exp->gtCSEnum = NoCse;
+                expr->gtCSEnum = NoCse;
 
                 // While doing this we also need to update use weights so we need to
                 // stash the block weight somewhere for cseUnmarkNode, sigh.
                 compiler->cseBlockWeight = blockWeight;
                 GenTree* sideEffList     = nullptr;
-                compiler->gtExtractSideEffList(exp, &sideEffList, GTF_PERSISTENT_SIDE_EFFECTS | GTF_IS_IN_CSE);
+                compiler->gtExtractSideEffList(expr, &sideEffList, GTF_PERSISTENT_SIDE_EFFECTS | GTF_IS_IN_CSE);
 
                 if (sideEffList != nullptr)
                 {
@@ -2697,33 +2705,19 @@ public:
             else
             {
                 JITDUMP("\n" FMT_CSE " def at [%06u] replaced in " FMT_BB " with def of V%02u\n",
-                        GetCseIndex(exp->gtCSEnum), exp->GetID(), blk->bbNum, cseLclVarNum);
+                        GetCseIndex(expr->gtCSEnum), expr->GetID(), blk->bbNum, cseLclVarNum);
 
-                exp->gtCSEnum = NoCse;
-
-                GenTree* val = exp;
-
-                if (isSharedConst)
-                {
-                    ssize_t exprConstVal = exp->AsIntCon()->GetValue();
-                    ssize_t delta        = exprConstVal - baseConstVal;
-
-                    if (delta != 0)
-                    {
-                        val = compiler->gtNewIconNode(baseConstVal, cseLclVarTyp);
-                        val->SetVNP(ValueNumPair(baseConstVN));
-                    }
-                }
+                expr->gtCSEnum = NoCse;
 
                 assert((cseLclVarTyp != TYP_STRUCT) ||
-                       (val->IsCall() && (val->AsCall()->GetRetDesc()->GetRegCount() == 1)));
+                       (defExpr->IsCall() && (defExpr->AsCall()->GetRetDesc()->GetRegCount() == 1)));
 
                 GenTreeLclVar* dstLclNode = compiler->gtNewLclvNode(cseLclVarNum, cseLclVarTyp);
-                dstLclNode->SetVNP(val->gtVNPair);
+                dstLclNode->SetVNP(defExpr->gtVNPair);
                 dstLclNode->SetSsaNum(cseSsaNum);
                 compiler->lvaAddRef(cseLcl, blockWeight);
 
-                GenTreeOp* asg = compiler->gtNewAssignNode(dstLclNode, val);
+                GenTreeOp* asg = compiler->gtNewAssignNode(dstLclNode, defExpr);
                 asg->gtVNPair.SetBoth(ValueNumStore::VNForVoid());
 
                 if (cseSsaNum != SsaConfig::RESERVED_SSA_NUM)
@@ -2735,41 +2729,17 @@ public:
                     assert(ssaVarDsc->GetBlock() == nullptr);
                     assert(ssaVarDsc->GetAssignment() == nullptr);
 
-                    ssaVarDsc->m_vnPair = val->gtVNPair;
+                    ssaVarDsc->m_vnPair = defExpr->gtVNPair;
                     ssaVarDsc->SetBlock(blk);
                     ssaVarDsc->SetAssignment(asg->AsOp());
                 }
 
-                GenTreeLclVar* cseLclVar = compiler->gtNewLclvNode(cseLclVarNum, cseLclVarTyp);
-                cseLclVar->SetSsaNum(cseSsaNum);
-                compiler->lvaAddRef(cseLcl, blockWeight);
-
-                GenTree* cseUse = cseLclVar;
-
-                if (isSharedConst)
-                {
-                    ssize_t exprConstVal = exp->AsIntCon()->GetValue();
-                    ssize_t delta        = exprConstVal - baseConstVal;
-
-                    if (delta != 0)
-                    {
-                        cseLclVar->SetVNP(ValueNumPair(baseConstVN));
-
-                        GenTree* deltaNode = compiler->gtNewIconNode(delta, cseLclVarTyp);
-                        compiler->fgValueNumberTreeConst(deltaNode);
-                        cseUse = compiler->gtNewOperNode(GT_ADD, cseLclVarTyp, cseLclVar, deltaNode);
-                        cseUse->SetDoNotCSE();
-                    }
-                }
-
-                cseUse->gtVNPair = val->gtVNPair;
-
-                cse = compiler->gtNewCommaNode(asg, cseUse, expTyp);
+                cse = compiler->gtNewCommaNode(asg, newExpr, expTyp);
                 // COMMA's VN is the same the original expression VN because assignment does not add any exceptions.
-                cse->gtVNPair = cseUse->gtVNPair;
+                cse->gtVNPair = expr->gtVNPair;
             }
 
-            Compiler::FindLinkData linkData = compiler->gtFindLink(stmt, exp);
+            Compiler::FindLinkData linkData = compiler->gtFindLink(stmt, expr);
             GenTree**              link     = linkData.useEdge;
 
 #ifdef DEBUG
@@ -2778,13 +2748,13 @@ public:
                 printf("\ngtFindLink failed: stm=");
                 Compiler::printStmtID(stmt);
                 printf(", expr=");
-                Compiler::printTreeID(exp);
+                Compiler::printTreeID(expr);
                 printf("\n");
                 printf("stm =");
                 compiler->gtDispStmt(stmt);
                 printf("\n");
                 printf("expr =");
-                compiler->gtDispTree(exp);
+                compiler->gtDispTree(expr);
                 printf("\n");
             }
 #endif // DEBUG
