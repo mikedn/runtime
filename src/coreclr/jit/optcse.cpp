@@ -2529,9 +2529,8 @@ public:
             noway_assert(IsCompatibleType(cseLclVarTyp, expTyp) || (baseConstVN != vnStore->VNForNull()));
 
             // This will contain the replacement tree for exp
-            GenTree*      cse      = nullptr;
-            FieldSeqNode* fieldSeq = compiler->GetZeroOffsetFieldSeq(expr->SkipComma());
-            bool          isDef    = IsCseDef(expr->GetCseInfo());
+            GenTree* cse   = nullptr;
+            bool     isDef = IsCseDef(expr->GetCseInfo());
 
             GenTreeLclVar* lclUse = compiler->gtNewLclvNode(cseLclVarNum, cseLclVarTyp);
             lclUse->SetSsaNum(cseSsaNum);
@@ -2760,10 +2759,7 @@ public:
 
             *link = cse;
 
-            if (fieldSeq != nullptr)
-            {
-                compiler->AddZeroOffsetFieldSeq(cse, fieldSeq);
-            }
+            compiler->CopyZeroOffsetFieldSeq(expr->SkipComma(), cse);
 
             assert(compiler->fgRemoveRestOfBlock == false);
 
