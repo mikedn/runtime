@@ -2448,7 +2448,6 @@ public:
             cseSsaNum = cseLcl->lvPerSsaData.AllocSsaNum(compiler->getAllocator(CMK_SSA));
         }
 
-        bool     setRefCnt      = true;
         bool     isSharedConst  = dsc->isSharedConst;
         bool     isSameConst    = true;
         bool     baseConstIsDef = false;
@@ -2498,26 +2497,6 @@ public:
                     }
                 }
             }
-
-            BasicBlock*          blk       = lst->block;
-            BasicBlock::weight_t curWeight = blk->getBBWeight(compiler);
-
-            if (setRefCnt)
-            {
-                cseLcl->SetRefCount(1);
-                cseLcl->SetRefWeight(curWeight);
-                setRefCnt = false;
-            }
-            else
-            {
-                compiler->lvaAddRef(cseLcl, curWeight);
-            }
-
-            // A CSE Def references the LclVar twice
-            if (isDef)
-            {
-                compiler->lvaAddRef(cseLcl, curWeight);
-            }
         }
 
         if (isSharedConst)
@@ -2542,7 +2521,7 @@ public:
 
             assert(exp->gtOper != GT_COUNT);
 
-            compiler->cseBlockWeight = blk->getBBWeight(compiler);
+            float blockWeight = blk->getBBWeight(compiler);
 
             // Figure out the actual type of the value
             var_types expTyp = genActualType(exp->TypeGet());
@@ -2568,9 +2547,8 @@ public:
                 // Create a reference to the CSE temp.
 
                 GenTree* cseLclVar = compiler->gtNewLclvNode(cseLclVarNum, cseLclVarTyp);
-
-                // Assign the ssa num for the lclvar use. Note it may be the reserved num.
-                cseLclVar->AsLclVarCommon()->SetSsaNum(cseSsaNum);
+                cseLclVar->AsLclVar()->SetSsaNum(cseSsaNum);
+                compiler->lvaAddRef(cseLcl, blockWeight);
 
                 cse = cseLclVar;
 
@@ -2665,7 +2643,10 @@ public:
                 // all other nodes are removed.
                 exp->gtCSEnum = NoCse;
 
-                GenTree* sideEffList = nullptr;
+                // While doing this we also need to update use weights so we need to
+                // stash the block weight somewhere for cseUnmarkNode, sigh.
+                compiler->cseBlockWeight = blockWeight;
+                GenTree* sideEffList     = nullptr;
                 compiler->gtExtractSideEffList(exp, &sideEffList, GTF_PERSISTENT_SIDE_EFFECTS | GTF_IS_IN_CSE);
 
                 if (sideEffList != nullptr)
@@ -2743,6 +2724,7 @@ public:
                 GenTreeLclVar* dstLclNode = compiler->gtNewLclvNode(cseLclVarNum, cseLclVarTyp);
                 dstLclNode->SetVNP(val->gtVNPair);
                 dstLclNode->SetSsaNum(cseSsaNum);
+                compiler->lvaAddRef(cseLcl, blockWeight);
 
                 GenTreeOp* asg = compiler->gtNewAssignNode(dstLclNode, val);
                 asg->gtVNPair.SetBoth(ValueNumStore::VNForVoid());
@@ -2763,6 +2745,7 @@ public:
 
                 GenTreeLclVar* cseLclVar = compiler->gtNewLclvNode(cseLclVarNum, cseLclVarTyp);
                 cseLclVar->SetSsaNum(cseSsaNum);
+                compiler->lvaAddRef(cseLcl, blockWeight);
 
                 GenTree* cseUse = cseLclVar;
 
