@@ -5421,7 +5421,7 @@ public:
  *************************************************************************/
 
 // String to use for formatting CSE numbers. Note that this is the positive number, e.g., from GET_CSE_INDEX().
-#define FMT_CSE "CSE #%02u"
+#define FMT_CSE "CSE%02u"
 
     bool                 csePhase;          // True when we are executing the optOptimizeValnumCSEs() phase
     unsigned             cseCandidateCount; // Count of CSE's candidates

@@ -125,14 +125,11 @@ bool Compiler::cseIsCandidate(GenTree* node)
         case GT_GT:
         case GT_INTRINSIC:
         case GT_OBJ:
-#if CSE_CONSTS
 #ifdef TARGET_64BIT
         case GT_CNS_LNG:
 #endif
         case GT_CNS_INT:
         case GT_CNS_DBL:
-        case GT_CNS_STR:
-#endif // CSE_CONSTS
             // TODO-MIKE-CQ: Might want to add CLS_VAR_ADDR to this, especially on ARM.
             return true;
 
@@ -236,7 +233,7 @@ struct CseOccurence
 struct CseDesc
 {
     CseDesc* nextInBucket;
-    size_t   hashKey;
+    ValueNum hashVN;
 
     unsigned index; // 1..descCount
 
@@ -261,9 +258,9 @@ struct CseDesc
     // number, this will reflect it; otherwise, NoVN.
     // not used for shared const CSE's
 
-    CseDesc(size_t hashKey, GenTree* expr, Statement* stmt, BasicBlock* block)
+    CseDesc(ValueNum hashVN, GenTree* expr, Statement* stmt, BasicBlock* block)
         : nextInBucket(nullptr)
-        , hashKey(hashKey)
+        , hashVN(hashVN)
         , index(0)
         , isSharedConst(false)
         , isLiveAcrossCall(false)
@@ -447,23 +444,24 @@ public:
 
     void Configure()
     {
-        int constCse = JitConfig.JitConstCSE();
+        enum ConstCseConfig
+        {
+            EnableArm64          = 0,
+            DisableAll           = 1,
+            EnableArm64NoSharing = 2,
+            EnableAll            = 3,
+            EnableAllNoSharing   = 4
+        };
+
+        ConstCseConfig constCse = static_cast<ConstCseConfig>(JitConfig.JitConstCSE());
 
 #ifdef TARGET_ARM64
-        enableConstCse = (constCse != CONST_CSE_DISABLE_ALL);
-
-        if ((constCse != CONST_CSE_ENABLE_ARM64_NO_SHARING) && (constCse != CONST_CSE_ENABLE_ALL_NO_SHARING))
-        {
-            enableSharedConstCse = true;
-        }
+        enableConstCse       = (constCse != DisableAll);
+        enableSharedConstCse = (constCse != EnableArm64NoSharing) && (constCse != EnableAllNoSharing);
 #else
-        enableConstCse = (constCse == CONST_CSE_ENABLE_ALL) || (constCse == CONST_CSE_ENABLE_ALL_NO_SHARING);
+        enableConstCse              = (constCse == EnableAll) || (constCse == EnableAllNoSharing);
+        enableSharedConstCse        = (constCse == EnableAll);
 #endif
-
-        if (constCse == CONST_CSE_ENABLE_ALL)
-        {
-            enableSharedConstCse = true;
-        }
     }
 
 #ifdef DEBUG
@@ -569,30 +567,22 @@ public:
         return static_cast<CseIndex>(-index);
     }
 
-    static bool Is_Shared_Const_CSE(size_t key)
+    static ssize_t GetSharedConstValue(ssize_t value)
     {
-        return ((key & TARGET_SIGN_BIT) != 0);
-    }
-
-    static size_t Encode_Shared_Const_CSE_Value(size_t key)
-    {
-        return TARGET_SIGN_BIT | (key >> CSE_CONST_SHARED_LOW_BITS);
-    }
-
-#ifdef DEBUG
-    static size_t Decode_Shared_Const_CSE_Value(size_t enckey)
-    {
-        assert(Is_Shared_Const_CSE(enckey));
-        return (enckey & ~TARGET_SIGN_BIT) << CSE_CONST_SHARED_LOW_BITS;
-    }
+#if defined(TARGET_XARCH)
+        constexpr int SharedLowBits = 16;
+#elif defined(TARGET_ARMARCH)
+        constexpr int SharedLowBits = 12;
+#else
+#error Unsupported or unset target architecture
 #endif
 
-    static unsigned KeyToBucketIndex(size_t key, size_t bucketCount)
+        return value & ~((static_cast<ssize_t>(1) << SharedLowBits) - 1);
+    }
+
+    static unsigned KeyVNToBucketIndex(ValueNum hashVN, size_t bucketCount)
     {
-        unsigned hash = static_cast<unsigned>(key);
-#ifdef TARGET_64BIT
-        hash ^= static_cast<unsigned>(key >> 32);
-#endif
+        unsigned hash = hashVN;
         hash *= static_cast<unsigned>(bucketCount + 1);
         hash >>= 7;
         return hash % bucketCount;
@@ -630,8 +620,8 @@ public:
 
         ValueNum exprVN        = expr->GetLiberalVN();
         ValueNum exprValueVN   = vnStore->VNNormalValue(exprVN);
+        ValueNum hashVN        = exprValueVN;
         bool     isSharedConst = false;
-        size_t   key           = exprValueVN;
 
         if (expr->OperIs(GT_COMMA))
         {
@@ -644,7 +634,7 @@ public:
             // an ARR_BOUNDS_CHECK.
             if (op2VN != exprVN)
             {
-                key = exprVN;
+                hashVN = exprVN;
             }
 
             // If we didn't do the above we would have op1 as the CSE def
@@ -652,36 +642,25 @@ public:
             // This would prevent us from making any CSE with the comma
             assert(exprValueVN == vnStore->VNNormalValue(op2VN));
         }
-        else if (enableSharedConstCse && expr->IsIntegralConst())
+        else if (enableSharedConstCse && expr->IsIntCon() && !expr->AsIntCon()->ImmedValNeedsReloc(compiler))
         {
             assert(vnStore->IsVNConstant(exprValueVN));
 
-            // We don't share small offset constants when they require a reloc
-            if (expr->IsLngCon() || !expr->AsIntCon()->ImmedValNeedsReloc(compiler))
-            {
-                // Here we make constants that have the same upper bits use the same key.
-                // We create a key that encodes just the upper bits of the constant by
-                // shifting out some of the low bits, (12 or 16 bits).
-                // This is the only case where the hash key is not a value number.
+            // Create a VN that for a constant that has only the upper bits of the
+            // real constant by shifting out some of the low bits, (12 or 16 bits).
+            ssize_t sharedConstVal = GetSharedConstValue(expr->AsIntCon()->GetValue());
 
-                size_t constVal = vnStore->CoercedConstantValue<size_t>(exprValueVN);
-                key             = Encode_Shared_Const_CSE_Value(constVal);
-                isSharedConst   = true;
-            }
+            hashVN = varTypeSize(expr->GetType()) == 4 ? vnStore->VNForIntCon(static_cast<int32_t>(sharedConstVal))
+                                                       : vnStore->VNForLongCon(sharedConstVal);
+            isSharedConst = true;
         }
 
-        // Make sure that the result of Is_Shared_Const_CSE(key) matches isSharedConst.
-        // Note that when isSharedConst is true then we require that the TARGET_SIGN_BIT
-        // is set in the key and otherwise we require that we never create a value number
-        // with the TARGET_SIGN_BIT set.
-        assert(isSharedConst == Is_Shared_Const_CSE(key));
-
-        unsigned bucketIndex = KeyToBucketIndex(key, hashBucketCount);
+        unsigned bucketIndex = KeyVNToBucketIndex(hashVN, hashBucketCount);
         CseDesc* found       = nullptr;
 
         for (CseDesc* desc = hashBuckets[bucketIndex]; desc != nullptr; desc = desc->nextInBucket)
         {
-            if (desc->hashKey != key)
+            if (desc->hashVN != hashVN)
             {
                 continue;
             }
@@ -697,6 +676,13 @@ public:
 
         if (found != nullptr)
         {
+            // TODO-MIKE-Fix: Currently shared const code recognizes only constant nodes,
+            // not VN constants. Don't mix them for now as it's a rather case anyway.
+            if (found->isSharedConst != isSharedConst)
+            {
+                return 0;
+            }
+
             foundCandidates = true;
 
             if (varTypeIsSIMD(expr->GetType()) && (found->layout == nullptr))
@@ -746,16 +732,7 @@ public:
             if (compiler->verbose)
             {
                 printf("\nCSE candidate #%02u, key=", index);
-
-                if (!Is_Shared_Const_CSE(key))
-                {
-                    compiler->vnPrint(static_cast<ValueNum>(key), 0);
-                }
-                else
-                {
-                    printf("K_%p", dspPtr(Decode_Shared_Const_CSE_Value(key)));
-                }
-
+                compiler->vnPrint(static_cast<ValueNum>(hashVN), 0);
                 printf(" in " FMT_BB ", [cost=%2u, size=%2u]: \n", block->bbNum, expr->GetCostEx(), expr->GetCostSz());
 
                 compiler->gtDispTree(expr);
@@ -770,7 +747,7 @@ public:
             ResizeHashTable();
         }
 
-        CseDesc* desc       = new (allocator) CseDesc(key, expr, stmt, block);
+        CseDesc* desc       = new (allocator) CseDesc(hashVN, expr, stmt, block);
         desc->isSharedConst = isSharedConst;
 
         if (varTypeIsStruct(expr->GetType()))
@@ -797,7 +774,7 @@ public:
             {
                 next = d->nextInBucket;
 
-                size_t newBucketIndex      = KeyToBucketIndex(d->hashKey, newBucketCount);
+                size_t newBucketIndex      = KeyVNToBucketIndex(d->hashVN, newBucketCount);
                 d->nextInBucket            = newBuckets[newBucketIndex];
                 newBuckets[newBucketIndex] = d;
             }
@@ -1427,7 +1404,7 @@ public:
                             }
 
                             // For shared const CSE we don't set/use the defConservNormVN.
-                            if (!Is_Shared_Const_CSE(desc->hashKey))
+                            if (!desc->isSharedConst)
                             {
                                 // Record or update the value of desc->defConservNormVN.
                                 ValueNum theConservNormVN = vnStore->VNConservativeNormalValue(tree->gtVNPair);
@@ -1870,18 +1847,15 @@ public:
                 cost = dsc->firstOccurence.expr->GetCostEx();
             }
 
-            if (!Is_Shared_Const_CSE(dsc->hashKey))
+            printf(FMT_CSE " {" FMT_VN ", " FMT_VN "} useCount %d def %3f use %3f cost %u%s", dsc->index, dsc->hashVN,
+                   dsc->defExcSetPromise, dsc->useCount, def, use, cost, dsc->isLiveAcrossCall ? " call" : "");
+
+            if (dsc->isSharedConst)
             {
-                printf(FMT_CSE ", {$%-3x, $%-3x} useCnt=%d: [def=%3f, use=%3f, cost=%3u%s]\n        :: ", dsc->index,
-                       dsc->hashKey, dsc->defExcSetPromise, dsc->useCount, def, use, cost,
-                       dsc->isLiveAcrossCall ? ", call" : "      ");
+                printf(" sharedConst %p", dspPtr(vnStore->CoercedConstantValue<size_t>(dsc->hashVN)));
             }
-            else
-            {
-                size_t kVal = Decode_Shared_Const_CSE_Value(dsc->hashKey);
-                printf(FMT_CSE ", {K_%p} useCnt=%d: [def=%3f, use=%3f, cost=%3u%s]\n        :: ", dsc->index,
-                       dspPtr(kVal), dsc->useCount, def, use, cost, dsc->isLiveAcrossCall ? ", call" : "      ");
-            }
+
+            printf("\n        ");
 
             compiler->gtDispTree(expr, nullptr, nullptr, true);
         }
@@ -2474,61 +2448,54 @@ public:
             cseSsaNum = cseLcl->lvPerSsaData.AllocSsaNum(compiler->getAllocator(CMK_SSA));
         }
 
-        // Verify that all of the ValueNumbers in this list are correct as
-        // Morph will change them when it performs a mutating operation.
-
         bool     setRefCnt      = true;
-        bool     allSame        = true;
         bool     isSharedConst  = dsc->isSharedConst;
-        ValueNum bestVN         = ValueNumStore::NoVN;
-        bool     bestIsDef      = false;
-        ssize_t  bestConstValue = 0;
+        bool     isSameConst    = true;
+        bool     baseConstIsDef = false;
+        ssize_t  baseConstVal   = 0;
+        ValueNum baseConstVN    = NoVN;
 
         for (CseOccurence* lst = &dsc->firstOccurence; lst != nullptr; lst = lst->next)
         {
-            if (!IsCseIndex(lst->expr->gtCSEnum))
+            GenTree* expr = lst->expr;
+
+            if (!IsCseIndex(expr->gtCSEnum))
             {
                 continue;
             }
 
-            ValueNum currVN = vnStore->VNLiberalNormalValue(lst->expr->gtVNPair);
-            assert(currVN != ValueNumStore::NoVN);
-            ssize_t curConstValue = isSharedConst ? vnStore->CoercedConstantValue<ssize_t>(currVN) : 0;
+            bool isDef = IsCseDef(expr->gtCSEnum);
 
-            GenTree* exp   = lst->expr;
-            bool     isDef = IsCseDef(exp->gtCSEnum);
-
-            if (bestVN == ValueNumStore::NoVN)
+            if (isSharedConst)
             {
-                // First entry, set bestVN
-                bestVN = currVN;
+                ValueNum exprConstVN    = expr->GetLiberalVN();
+                ssize_t  exprConstValue = expr->AsIntCon()->GetValue();
 
-                if (isSharedConst)
+                if (baseConstVN == ValueNumStore::NoVN)
                 {
-                    // set bestConstValue and bestIsDef
-                    bestConstValue = curConstValue;
-                    bestIsDef      = isDef;
+                    baseConstVN = exprConstVN;
+
+                    if (isSharedConst)
+                    {
+                        baseConstVal   = exprConstValue;
+                        baseConstIsDef = isDef;
+                    }
                 }
-            }
-            else if (currVN != bestVN)
-            {
-                assert(isSharedConst); // Must be true when we have differing VNs
-
-                // subsequent entry
-                // clear allSame and check for a lower constant
-                allSame = false;
-
-                ssize_t diff = curConstValue - bestConstValue;
-
-                // The ARM addressing modes allow for a subtraction of up to 255
-                // so we will allow the diff to be up to -255 before replacing a CSE def
-                // This will minimize the number of extra subtract instructions.
-                if ((bestIsDef && (diff < -255)) || (!bestIsDef && (diff < 0)))
+                else if (exprConstVN != baseConstVN)
                 {
-                    // set new bestVN, bestConstValue and bestIsDef
-                    bestVN         = currVN;
-                    bestConstValue = curConstValue;
-                    bestIsDef      = isDef;
+                    isSameConst = false;
+
+                    ssize_t delta = exprConstValue - baseConstVal;
+
+                    // The ARM addressing modes allow for a subtraction of up to 255 so we
+                    // will allow the delta to be up to -255 before replacing a CSE def.
+                    // This will minimize the number of extra subtract instructions.
+                    if ((baseConstIsDef && (delta < -255)) || (!baseConstIsDef && (delta < 0)))
+                    {
+                        baseConstVN    = exprConstVN;
+                        baseConstVal   = exprConstValue;
+                        baseConstIsDef = isDef;
+                    }
                 }
             }
 
@@ -2553,40 +2520,11 @@ public:
             }
         }
 
-        const ssize_t  constDefValue = bestConstValue;
-        const ValueNum constDefVN    = bestVN;
-
-#ifdef DEBUG
-        if (compiler->verbose)
+        if (isSharedConst)
         {
-            if (!allSame)
-            {
-                if (isSharedConst)
-                {
-                    printf("\nWe have shared Const CSE's and selected " FMT_VN " with a value of 0x%p as the base.\n",
-                           constDefVN, dspPtr(constDefValue));
-                }
-                else
-                {
-                    GenTree* firstTree = dsc->firstOccurence.expr;
-                    printf("In %s, CSE (oper = %s, type = %s) has differing VNs: ", compiler->info.compFullName,
-                           GenTree::OpName(firstTree->OperGet()), varTypeName(firstTree->TypeGet()));
-
-                    for (CseOccurence* lst = &dsc->firstOccurence; lst != nullptr; lst = lst->next)
-                    {
-                        if (IsCseIndex(lst->expr->gtCSEnum))
-                        {
-                            ValueNum currVN = vnStore->VNLiberalNormalValue(lst->expr->gtVNPair);
-                            printf("[%06d](%s " FMT_VN ") ", compiler->dspTreeID(lst->expr),
-                                   IsCseUse(lst->expr->gtCSEnum) ? "use" : "def", currVN);
-                        }
-                    }
-
-                    printf("\n");
-                }
-            }
+            JITDUMP("Using 0x%p (" FMT_VN ") as the base value for shared const CSE.\n", dspPtr(baseConstVal),
+                    baseConstVN);
         }
-#endif // DEBUG
 
         for (CseOccurence* lst = &dsc->firstOccurence; lst != nullptr; lst = lst->next)
         {
@@ -2610,7 +2548,7 @@ public:
             var_types expTyp = genActualType(exp->TypeGet());
 
             // The cseLclVarType must be a compatible with expTyp
-            noway_assert(IsCompatibleType(cseLclVarTyp, expTyp) || (constDefVN != vnStore->VNForNull()));
+            noway_assert(IsCompatibleType(cseLclVarTyp, expTyp) || (baseConstVN != vnStore->VNForNull()));
 
             // This will contain the replacement tree for exp
             GenTree*      cse = nullptr;
@@ -2630,21 +2568,24 @@ public:
                 // Create a reference to the CSE temp.
 
                 GenTree* cseLclVar = compiler->gtNewLclvNode(cseLclVarNum, cseLclVarTyp);
-                cseLclVar->gtVNPair.SetBoth(constDefVN);
 
                 // Assign the ssa num for the lclvar use. Note it may be the reserved num.
                 cseLclVar->AsLclVarCommon()->SetSsaNum(cseSsaNum);
 
                 cse = cseLclVar;
+
                 if (isSharedConst)
                 {
-                    ValueNum currVN   = vnStore->VNLiberalNormalValue(exp->gtVNPair);
-                    ssize_t  curValue = vnStore->CoercedConstantValue<ssize_t>(currVN);
-                    ssize_t  delta    = curValue - constDefValue;
+                    ssize_t exprConsVal = exp->AsIntCon()->GetValue();
+                    ssize_t delta       = exprConsVal - baseConstVal;
+
                     if (delta != 0)
                     {
+                        cseLclVar->SetVNP(ValueNumPair(baseConstVN));
+
                         GenTree* deltaNode = compiler->gtNewIconNode(delta, cseLclVarTyp);
-                        cse                = compiler->gtNewOperNode(GT_ADD, cseLclVarTyp, cseLclVar, deltaNode);
+                        compiler->fgValueNumberTreeConst(deltaNode);
+                        cse = compiler->gtNewOperNode(GT_ADD, cseLclVarTyp, cseLclVar, deltaNode);
                         cse->SetDoNotCSE();
                     }
                 }
@@ -2783,15 +2724,16 @@ public:
                 exp->gtCSEnum = NoCse;
 
                 GenTree* val = exp;
+
                 if (isSharedConst)
                 {
-                    ValueNum currVN   = vnStore->VNLiberalNormalValue(exp->gtVNPair);
-                    ssize_t  curValue = vnStore->CoercedConstantValue<ssize_t>(currVN);
-                    ssize_t  delta    = curValue - constDefValue;
+                    ssize_t exprConstVal = exp->AsIntCon()->GetValue();
+                    ssize_t delta        = exprConstVal - baseConstVal;
+
                     if (delta != 0)
                     {
-                        val = compiler->gtNewIconNode(constDefValue, cseLclVarTyp);
-                        val->gtVNPair.SetBoth(constDefVN);
+                        val = compiler->gtNewIconNode(baseConstVal, cseLclVarTyp);
+                        val->SetVNP(ValueNumPair(baseConstVN));
                     }
                 }
 
@@ -2820,22 +2762,26 @@ public:
                 }
 
                 GenTreeLclVar* cseLclVar = compiler->gtNewLclvNode(cseLclVarNum, cseLclVarTyp);
-                cseLclVar->gtVNPair.SetBoth(constDefVN);
                 cseLclVar->SetSsaNum(cseSsaNum);
 
                 GenTree* cseUse = cseLclVar;
+
                 if (isSharedConst)
                 {
-                    ValueNum currVN   = vnStore->VNLiberalNormalValue(exp->gtVNPair);
-                    ssize_t  curValue = vnStore->CoercedConstantValue<ssize_t>(currVN);
-                    ssize_t  delta    = curValue - constDefValue;
+                    ssize_t exprConstVal = exp->AsIntCon()->GetValue();
+                    ssize_t delta        = exprConstVal - baseConstVal;
+
                     if (delta != 0)
                     {
+                        cseLclVar->SetVNP(ValueNumPair(baseConstVN));
+
                         GenTree* deltaNode = compiler->gtNewIconNode(delta, cseLclVarTyp);
-                        cseUse             = compiler->gtNewOperNode(GT_ADD, cseLclVarTyp, cseLclVar, deltaNode);
+                        compiler->fgValueNumberTreeConst(deltaNode);
+                        cseUse = compiler->gtNewOperNode(GT_ADD, cseLclVarTyp, cseLclVar, deltaNode);
                         cseUse->SetDoNotCSE();
                     }
                 }
+
                 cseUse->gtVNPair = val->gtVNPair;
 
                 cse = compiler->gtNewCommaNode(asg, cseUse, expTyp);
@@ -2851,13 +2797,13 @@ public:
             {
                 printf("\ngtFindLink failed: stm=");
                 Compiler::printStmtID(stmt);
-                printf(", exp=");
+                printf(", expr=");
                 Compiler::printTreeID(exp);
                 printf("\n");
                 printf("stm =");
                 compiler->gtDispStmt(stmt);
                 printf("\n");
-                printf("exp =");
+                printf("expr =");
                 compiler->gtDispTree(exp);
                 printf("\n");
             }
@@ -2921,21 +2867,16 @@ public:
             }
 
 #ifdef DEBUG
-            if (!Is_Shared_Const_CSE(desc->hashKey))
+            JITDUMP(FMT_CSE " {" FMT_VN ", " FMT_VN "} def %3f use %3f cost %u%s", desc->index, desc->hashVN,
+                    desc->defExcSetPromise, candidate.defWeight, candidate.useWeight, candidate.cost,
+                    candidate.isLiveAcrossCall ? " call" : "");
+
+            if (desc->isSharedConst)
             {
-                JITDUMP("\nConsidering " FMT_CSE " {$%-3x, $%-3x} [def=%3f, use=%3f, cost=%3u%s]\n", desc->index,
-                        desc->hashKey, desc->defExcSetPromise, candidate.defWeight, candidate.useWeight, candidate.cost,
-                        desc->isLiveAcrossCall ? ", call" : "      ");
-            }
-            else
-            {
-                size_t constVal = Decode_Shared_Const_CSE_Value(desc->hashKey);
-                JITDUMP("\nConsidering " FMT_CSE " {K_%p} [def=%3f, use=%3f, cost=%3u%s]\n", desc->index,
-                        dspPtr(constVal), candidate.defWeight, candidate.useWeight, candidate.cost,
-                        desc->isLiveAcrossCall ? ", call" : "      ");
+                JITDUMP(" sharedConst %p", dspPtr(vnStore->CoercedConstantValue<size_t>(desc->hashVN)));
             }
 
-            JITDUMPTREE(candidate.expr, "CSE Expression:\n");
+            JITDUMPTREE(candidate.expr, "\nCSE Expression:\n");
 #endif
 
             if (!PromotionCheck(candidate))

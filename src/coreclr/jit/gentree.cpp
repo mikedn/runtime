@@ -6844,7 +6844,7 @@ void Compiler::gtDispNodeHeader(GenTree* tree)
         }
         else
         {
-            printf("              ");
+            printf("            ");
         }
     }
 }
