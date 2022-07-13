@@ -2530,15 +2530,12 @@ public:
             noway_assert(IsCompatibleType(cseLclVarTyp, expTyp) || (baseConstVN != vnStore->VNForNull()));
 
             // This will contain the replacement tree for exp
-            GenTree*      cse = nullptr;
-            bool          isDef;
+            GenTree*      cse          = nullptr;
             GenTree*      effectiveExp = exp->SkipComma();
             FieldSeqNode* fieldSeq     = compiler->GetZeroOffsetFieldSeq(effectiveExp);
 
             if (IsCseUse(exp->gtCSEnum))
             {
-                isDef = false;
-
                 JITDUMP("\nWorking on the replacement of the " FMT_CSE " use at [%06u] in " FMT_BB "\n", exp->gtCSEnum,
                         exp->GetID(), blk->bbNum);
 
@@ -2697,8 +2694,6 @@ public:
             }
             else
             {
-                isDef = true;
-
                 JITDUMP("\n" FMT_CSE " def at [%06u] replaced in " FMT_BB " with def of V%02u\n",
                         GetCseIndex(exp->gtCSEnum), exp->GetID(), blk->bbNum, cseLclVarNum);
 
