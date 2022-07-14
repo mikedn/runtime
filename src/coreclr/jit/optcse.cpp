@@ -2708,7 +2708,7 @@ public:
 
                 if (cseSsaNum != SsaConfig::RESERVED_SSA_NUM)
                 {
-                    LclSsaVarDsc* ssaVarDsc = compiler->lvaTable[cseLclVarNum].GetPerSsaData(cseSsaNum);
+                    LclSsaVarDsc* ssaVarDsc = cseLcl->GetPerSsaData(cseSsaNum);
 
                     // These should not have been set yet, since this is the first and
                     // only def for this CSE.
