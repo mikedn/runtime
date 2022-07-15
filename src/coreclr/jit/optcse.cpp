@@ -2507,6 +2507,37 @@ public:
             cseSsaNum = cseLcl->lvPerSsaData.AllocSsaNum(compiler->getAllocator(CMK_SSA));
         }
 
+        // TODO-MIKE-Cleanup: Ideally we would just add ref count and weight as we create
+        // local nodes in the next occurence loop. But local weight affect gtSetEvalOrder
+        // decisions so we need to it upfront. We should sequence changed statements only
+        // after all CSE changes are complete.
+        for (CseOccurence* lst = &dsc->firstOccurence; lst != nullptr; lst = lst->next)
+        {
+            GenTree* expr = lst->expr;
+
+            if (!expr->HasCseInfo())
+            {
+                continue;
+            }
+
+            float blockWeight = lst->block->getBBWeight(compiler);
+
+            if (lst == &dsc->firstOccurence)
+            {
+                cseLcl->SetRefCount(1);
+                cseLcl->SetRefWeight(blockWeight);
+            }
+            else
+            {
+                compiler->lvaAddRef(cseLcl, blockWeight);
+            }
+
+            if (IsCseDef(expr->GetCseInfo()))
+            {
+                compiler->lvaAddRef(cseLcl, blockWeight);
+            }
+        }
+
         for (CseOccurence* lst = &dsc->firstOccurence; lst != nullptr; lst = lst->next)
         {
             GenTree*    expr = lst->expr;
@@ -2520,8 +2551,6 @@ public:
 
             assert(expr->gtOper != GT_COUNT);
 
-            float blockWeight = blk->getBBWeight(compiler);
-
             // Figure out the actual type of the value
             var_types expTyp = genActualType(expr->TypeGet());
 
@@ -2534,7 +2563,6 @@ public:
 
             GenTreeLclVar* lclUse = compiler->gtNewLclvNode(cseLclVarNum, cseLclVarTyp);
             lclUse->SetSsaNum(cseSsaNum);
-            compiler->lvaAddRef(cseLcl, blockWeight);
 
             GenTree* newExpr = lclUse;
             GenTree* defExpr = expr;
@@ -2648,7 +2676,7 @@ public:
 
                 // While doing this we also need to update use weights so we need to
                 // stash the block weight somewhere for cseUnmarkNode, sigh.
-                compiler->cseBlockWeight = blockWeight;
+                compiler->cseBlockWeight = blk->getBBWeight(compiler);
                 GenTree* sideEffList     = nullptr;
                 compiler->gtExtractSideEffList(expr, &sideEffList, GTF_PERSISTENT_SIDE_EFFECTS | GTF_IS_IN_CSE);
 
@@ -2701,7 +2729,6 @@ public:
                 GenTreeLclVar* dstLclNode = compiler->gtNewLclvNode(cseLclVarNum, cseLclVarTyp);
                 dstLclNode->SetVNP(defExpr->gtVNPair);
                 dstLclNode->SetSsaNum(cseSsaNum);
-                compiler->lvaAddRef(cseLcl, blockWeight);
 
                 GenTreeOp* asg = compiler->gtNewAssignNode(dstLclNode, defExpr);
                 asg->gtVNPair.SetBoth(ValueNumStore::VNForVoid());
