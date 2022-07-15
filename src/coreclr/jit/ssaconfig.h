@@ -24,3 +24,5 @@ static const int FIRST_SSA_NUM = 1;
 static const int RESERVED_SSA_NUM = 0;
 
 } // end of namespace SsaConfig
+
+static constexpr int NoSsaNum = SsaConfig::RESERVED_SSA_NUM;

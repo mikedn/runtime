@@ -2412,81 +2412,74 @@ public:
         return baseConstVal;
     }
 
-    // PerformCSE() takes a successful candidate and performs  the appropriate replacements:
-    //
-    // It will replace all of the CSE defs with assignments to a new "cse0" LclVar
-    // and will replace all of the CSE uses with reads of the "cse0" LclVar
-    //
-    // It will also put cse0 into SSA if there is just one def.
     void PerformCSE(const Candidate& candidate)
     {
         JITDUMP("\nPromoting CSE:\n");
 
-        CseDesc* dsc           = candidate.desc;
-        bool     isSharedConst = dsc->isSharedConst;
+        if (candidate.isLiveAcrossCall)
+        {
+            // As we introduce new LclVars for these CSE we slightly
+            // increase the cutoffs for aggressive and moderate CSE's
+
+            float lclWeight = (candidate.defWeight * 2) + candidate.useWeight;
+
+            if (lclWeight > aggressiveWeight)
+            {
+                aggressiveWeight += BB_UNITY_WEIGHT;
+            }
+
+            if (lclWeight > moderateWeight)
+            {
+                moderateWeight += (BB_UNITY_WEIGHT / 2);
+            }
+        }
+
+        CseDesc* desc          = candidate.desc;
+        bool     isSharedConst = desc->isSharedConst;
         ssize_t  baseConstVal  = 0;
         ValueNum baseConstVN   = NoVN;
 
         if (isSharedConst)
         {
-            baseConstVal = GetSharedConstBaseValue(dsc, &baseConstVN);
-        }
-
-        BasicBlock::weight_t cseRefCnt = (candidate.defWeight * 2) + candidate.useWeight;
-
-        if (candidate.isLiveAcrossCall != 0)
-        {
-            // As we introduce new LclVars for these CSE we slightly
-            // increase the cutoffs for aggressive and moderate CSE's
-            BasicBlock::weight_t incr = BB_UNITY_WEIGHT;
-
-            if (cseRefCnt > aggressiveWeight)
-            {
-                aggressiveWeight += incr;
-            }
-
-            if (cseRefCnt > moderateWeight)
-            {
-                moderateWeight += (incr / 2);
-            }
+            baseConstVal = GetSharedConstBaseValue(desc, &baseConstVN);
         }
 
 #ifdef DEBUG
-        const char* grabTempMessage = "CSE - unknown";
+        const char* lclReason = "CSE - unknown";
 
         if (candidate.isAggressive)
         {
-            grabTempMessage = "CSE - aggressive";
+            lclReason = "CSE - aggressive";
         }
         else if (candidate.isModerate)
         {
-            grabTempMessage = "CSE - moderate";
+            lclReason = "CSE - moderate";
         }
         else if (candidate.isConservative)
         {
-            grabTempMessage = "CSE - conservative";
+            lclReason = "CSE - conservative";
         }
         else if (candidate.isStress)
         {
-            grabTempMessage = "CSE - stress mode";
+            lclReason = "CSE - stress mode";
         }
 #endif // DEBUG
 
-        unsigned   cseLclVarNum = compiler->lvaGrabTemp(false DEBUGARG(grabTempMessage));
-        var_types  cseLclVarTyp = varActualType(candidate.expr->GetType());
-        LclVarDsc* cseLcl       = compiler->lvaGetDesc(cseLclVarNum);
+        unsigned   lclNum  = compiler->lvaGrabTemp(false DEBUGARG(lclReason));
+        var_types  lclType = varActualType(candidate.expr->GetType());
+        LclVarDsc* lcl     = compiler->lvaGetDesc(lclNum);
 
-        if (varTypeIsStruct(cseLclVarTyp))
+        if (varTypeIsStruct(lclType))
         {
-            compiler->lvaSetStruct(cseLclVarNum, candidate.desc->layout, false);
-            assert(cseLcl->GetType() == cseLclVarTyp);
+            compiler->lvaSetStruct(lclNum, candidate.desc->layout, false);
+            assert(lcl->GetType() == lclType);
         }
         else
         {
-            cseLcl->SetType(cseLclVarTyp);
+            lcl->SetType(lclType);
         }
 
-        cseLcl->lvIsCSE = true;
+        lcl->lvIsCSE = true;
 
         INDEBUG(compiler->cseCount++);
 
@@ -2497,72 +2490,67 @@ public:
 
         // If there's just a single def for the CSE, we'll put this
         // CSE into SSA form on the fly. We won't need any PHIs.
-        unsigned cseSsaNum = SsaConfig::RESERVED_SSA_NUM;
+        unsigned ssaNum = NoSsaNum;
 
-        if (dsc->defCount == 1)
+        if (desc->defCount == 1)
         {
-            JITDUMP(FMT_CSE " is single-def, so associated CSE temp V%02u will be in SSA\n", dsc->index, cseLclVarNum);
-            cseLcl->lvInSsa = true;
+            JITDUMP(FMT_CSE " is single-def, so associated CSE temp V%02u will be in SSA\n", desc->index, lclNum);
+            lcl->lvInSsa = true;
 
-            cseSsaNum = cseLcl->lvPerSsaData.AllocSsaNum(compiler->getAllocator(CMK_SSA));
+            ssaNum = lcl->lvPerSsaData.AllocSsaNum(compiler->getAllocator(CMK_SSA));
         }
 
         // TODO-MIKE-Cleanup: Ideally we would just add ref count and weight as we create
         // local nodes in the next occurence loop. But local weight affect gtSetEvalOrder
         // decisions so we need to it upfront. We should sequence changed statements only
         // after all CSE changes are complete.
-        for (CseOccurence* lst = &dsc->firstOccurence; lst != nullptr; lst = lst->next)
+        for (CseOccurence* occurence = &desc->firstOccurence; occurence != nullptr; occurence = occurence->next)
         {
-            GenTree* expr = lst->expr;
+            GenTree* expr = occurence->expr;
 
             if (!expr->HasCseInfo())
             {
                 continue;
             }
 
-            float blockWeight = lst->block->getBBWeight(compiler);
+            float blockWeight = occurence->block->getBBWeight(compiler);
 
-            if (lst == &dsc->firstOccurence)
+            if (occurence == &desc->firstOccurence)
             {
-                cseLcl->SetRefCount(1);
-                cseLcl->SetRefWeight(blockWeight);
+                lcl->SetRefCount(1);
+                lcl->SetRefWeight(blockWeight);
             }
             else
             {
-                compiler->lvaAddRef(cseLcl, blockWeight);
+                compiler->lvaAddRef(lcl, blockWeight);
             }
 
             if (IsCseDef(expr->GetCseInfo()))
             {
-                compiler->lvaAddRef(cseLcl, blockWeight);
+                compiler->lvaAddRef(lcl, blockWeight);
             }
         }
 
-        for (CseOccurence* lst = &dsc->firstOccurence; lst != nullptr; lst = lst->next)
+        for (CseOccurence* occurence = &desc->firstOccurence; occurence != nullptr; occurence = occurence->next)
         {
-            GenTree*    expr = lst->expr;
-            Statement*  stmt = lst->stmt;
-            BasicBlock* blk  = lst->block;
+            GenTree* expr = occurence->expr;
 
             if (!expr->HasCseInfo())
             {
                 continue;
             }
 
-            assert(expr->gtOper != GT_COUNT);
+            bool isDef = IsCseDef(expr->GetCseInfo());
+            expr->ClearCseInfo();
 
-            // Figure out the actual type of the value
-            var_types expTyp = genActualType(expr->TypeGet());
+            JITDUMP("Replacing " FMT_CSE " %s [%06u] with V%02u\n", desc->index, isDef ? "def" : "use", expr->GetID(),
+                    lclNum);
 
-            // The cseLclVarType must be a compatible with expTyp
-            noway_assert(IsCompatibleType(cseLclVarTyp, expTyp) || (baseConstVN != vnStore->VNForNull()));
+            var_types exprType = varActualType(expr->GetType());
+            noway_assert(IsCompatibleType(lclType, exprType) || (baseConstVN != vnStore->VNForNull()));
 
-            // This will contain the replacement tree for exp
-            GenTree* cse   = nullptr;
-            bool     isDef = IsCseDef(expr->GetCseInfo());
-
-            GenTreeLclVar* lclUse = compiler->gtNewLclvNode(cseLclVarNum, cseLclVarTyp);
-            lclUse->SetSsaNum(cseSsaNum);
+            GenTreeLclVar* lclUse = compiler->gtNewLclvNode(lclNum, lclType);
+            lclUse->SetSsaNum(ssaNum);
 
             GenTree* newExpr = lclUse;
             GenTree* defExpr = expr;
@@ -2576,15 +2564,15 @@ public:
 
                 if (delta != 0)
                 {
-                    GenTree* deltaNode = compiler->gtNewIconNode(delta, cseLclVarTyp);
+                    GenTree* deltaNode = compiler->gtNewIconNode(delta, lclType);
                     compiler->fgValueNumberTreeConst(deltaNode);
-                    newExpr = compiler->gtNewOperNode(GT_ADD, cseLclVarTyp, newExpr, deltaNode);
+                    newExpr = compiler->gtNewOperNode(GT_ADD, lclType, newExpr, deltaNode);
                     newExpr->SetDoNotCSE(); // GTF_DONT_CSE also blocks VN const propagation.
                     newExpr->SetVNP(expr->GetVNP());
 
                     if (isDef)
                     {
-                        defExpr = compiler->gtNewIconNode(baseConstVal, cseLclVarTyp);
+                        defExpr = compiler->gtNewIconNode(baseConstVal, lclType);
                         defExpr->SetVNP(ValueNumPair(baseConstVN));
                     }
                 }
@@ -2595,199 +2583,177 @@ public:
                 newExpr->SetVNP(vnStore->VNPNormalPair(expr->GetVNP()));
             }
 
-            if (!isDef)
+            Statement*  stmt  = occurence->stmt;
+            BasicBlock* block = occurence->block;
+
+            if (isDef)
             {
-                JITDUMP("\nWorking on the replacement of the " FMT_CSE " use at [%06u] in " FMT_BB "\n",
-                        expr->GetCseInfo(), expr->GetID(), blk->bbNum);
+                assert((lclType != TYP_STRUCT) ||
+                       (defExpr->IsCall() && (defExpr->AsCall()->GetRetDesc()->GetRegCount() == 1)));
 
-                cse = newExpr;
+                GenTreeLclVar* lclDef = compiler->gtNewLclvNode(lclNum, lclType);
+                lclDef->SetVNP(defExpr->GetVNP());
+                lclDef->SetSsaNum(ssaNum);
 
-                // shared const CSE has the correct value number assigned
-                // and both liberal and conservative are identical
-                // and they do not use theConservativeVN
-                if (!isSharedConst)
+                GenTreeOp* asg = compiler->gtNewAssignNode(lclDef, defExpr);
+                asg->SetVNP(ValueNumStore::VNPForVoid());
+
+                if (ssaNum != NoSsaNum)
                 {
-                    ValueNum theConservativeVN = candidate.desc->defConservNormVN;
+                    LclSsaVarDsc* ssaDef = lcl->GetPerSsaData(ssaNum);
+                    // This is the first and only def for this CSE.
+                    assert(ssaDef->GetBlock() == nullptr);
+                    assert(ssaDef->GetAssignment() == nullptr);
 
-                    if (theConservativeVN != ValueNumStore::NoVN)
-                    {
-                        // All defs of this CSE share the same normal conservative VN, and we are rewriting this
-                        // use to fetch the same value with no reload, so we can safely propagate that
-                        // conservative VN to this use.  This can help range check elimination later on.
-                        cse->gtVNPair.SetConservative(theConservativeVN);
-
-                        // If the old VN was flagged as a checked bound, propagate that to the new VN
-                        // to make sure assertion prop will pay attention to this VN.
-                        ValueNum oldVN = expr->gtVNPair.GetConservative();
-                        if (!vnStore->IsVNConstant(theConservativeVN) && vnStore->IsVNCheckedBound(oldVN))
-                        {
-                            vnStore->SetVNIsCheckedBound(theConservativeVN);
-                        }
-
-                        GenTree* cmp;
-                        if (checkedBoundMap.Lookup(expr, &cmp))
-                        {
-                            // Propagate the new value number to this compare node as well, since
-                            // subsequent range check elimination will try to correlate it with
-                            // the other appearances that are getting CSEd.
-
-                            ValueNum oldCmpVN = cmp->gtVNPair.GetConservative();
-                            ValueNum newCmpArgVN;
-
-                            VNFuncApp oldFuncApp;
-
-                            if (vnStore->GetVNFunc(oldCmpVN, &oldFuncApp) &&
-                                ValueNumStore::IsVNCompareCheckedBoundRelop(oldFuncApp))
-                            {
-                                ValueNumStore::CompareCheckedBoundArithInfo info;
-
-                                if (vnStore->IsVNCompareCheckedBound(oldFuncApp))
-                                {
-                                    // Comparison is against the bound directly.
-
-                                    newCmpArgVN = theConservativeVN;
-                                    vnStore->GetCompareCheckedBound(oldFuncApp, &info);
-                                }
-                                else
-                                {
-                                    // Comparison is against the bound +/- some offset.
-
-                                    vnStore->GetCompareCheckedBoundArithInfo(oldFuncApp, &info);
-                                    newCmpArgVN =
-                                        vnStore->VNForFunc(vnStore->TypeOfVN(info.arrOp), (VNFunc)info.arrOper,
-                                                           info.arrOp, theConservativeVN);
-                                }
-
-                                ValueNum newCmpVN = vnStore->VNForFunc(vnStore->TypeOfVN(oldCmpVN),
-                                                                       (VNFunc)info.cmpOper, info.cmpOp, newCmpArgVN);
-                                cmp->gtVNPair.SetConservative(newCmpVN);
-                            }
-                        }
-                    }
+                    ssaDef->SetBlock(block);
+                    ssaDef->SetAssignment(asg);
+                    ssaDef->SetVNP(defExpr->GetVNP());
                 }
 
-                // Now we need to unmark any nested CSE's uses that are found in 'exp'
-                // As well we extract any nested CSE defs that are found in 'exp' and
-                // these are appended to the sideEffList
-
-                // Afterwards the set of nodes in the 'sideEffectList' are preserved and
-                // all other nodes are removed.
-                expr->ClearCseInfo();
-
-                // While doing this we also need to update use weights so we need to
-                // stash the block weight somewhere for cseUnmarkNode, sigh.
-                compiler->cseBlockWeight = blk->getBBWeight(compiler);
-                GenTree* sideEffList     = nullptr;
-                compiler->gtExtractSideEffList(expr, &sideEffList, GTF_PERSISTENT_SIDE_EFFECTS | GTF_IS_IN_CSE);
-
-                if (sideEffList != nullptr)
-                {
-                    JITDUMPTREE(sideEffList,
-                                "\nThis CSE use has side effects and/or nested CSE defs. The sideEffectList:\n");
-
-                    GenTree*     cseVal         = cse;
-                    GenTree*     curSideEff     = sideEffList;
-                    ValueNumPair exceptions_vnp = ValueNumStore::VNPForEmptyExcSet();
-
-                    while ((curSideEff->OperGet() == GT_COMMA) || (curSideEff->OperGet() == GT_ASG))
-                    {
-                        GenTree* op1 = curSideEff->AsOp()->gtOp1;
-                        GenTree* op2 = curSideEff->AsOp()->gtOp2;
-
-                        ValueNumPair op1vnp;
-                        ValueNumPair op1Xvnp = ValueNumStore::VNPForEmptyExcSet();
-                        vnStore->VNPUnpackExc(op1->gtVNPair, &op1vnp, &op1Xvnp);
-
-                        exceptions_vnp = vnStore->VNPExcSetUnion(exceptions_vnp, op1Xvnp);
-                        curSideEff     = op2;
-                    }
-
-                    ValueNumPair op2vnp;
-                    ValueNumPair op2Xvnp = ValueNumStore::VNPForEmptyExcSet();
-                    vnStore->VNPUnpackExc(curSideEff->gtVNPair, &op2vnp, &op2Xvnp);
-                    exceptions_vnp = vnStore->VNPExcSetUnion(exceptions_vnp, op2Xvnp);
-
-                    op2Xvnp = ValueNumStore::VNPForEmptyExcSet();
-                    vnStore->VNPUnpackExc(cseVal->gtVNPair, &op2vnp, &op2Xvnp);
-                    exceptions_vnp = vnStore->VNPExcSetUnion(exceptions_vnp, op2Xvnp);
-
-                    // Create a comma node with the sideEffList as op1
-                    cse           = compiler->gtNewCommaNode(sideEffList, cseVal, expTyp);
-                    cse->gtVNPair = vnStore->VNPWithExc(op2vnp, exceptions_vnp);
-                }
+                newExpr = compiler->gtNewCommaNode(asg, newExpr, exprType);
+                newExpr->SetVNP(expr->GetVNP());
             }
             else
             {
-                JITDUMP("\n" FMT_CSE " def at [%06u] replaced in " FMT_BB " with def of V%02u\n",
-                        GetCseIndex(expr->GetCseInfo()), expr->GetID(), blk->bbNum, cseLclVarNum);
-
-                expr->ClearCseInfo();
-
-                assert((cseLclVarTyp != TYP_STRUCT) ||
-                       (defExpr->IsCall() && (defExpr->AsCall()->GetRetDesc()->GetRegCount() == 1)));
-
-                GenTreeLclVar* dstLclNode = compiler->gtNewLclvNode(cseLclVarNum, cseLclVarTyp);
-                dstLclNode->SetVNP(defExpr->gtVNPair);
-                dstLclNode->SetSsaNum(cseSsaNum);
-
-                GenTreeOp* asg = compiler->gtNewAssignNode(dstLclNode, defExpr);
-                asg->gtVNPair.SetBoth(ValueNumStore::VNForVoid());
-
-                if (cseSsaNum != SsaConfig::RESERVED_SSA_NUM)
+                if (!isSharedConst && (desc->defConservNormVN != NoVN))
                 {
-                    LclSsaVarDsc* ssaVarDsc = cseLcl->GetPerSsaData(cseSsaNum);
-
-                    // These should not have been set yet, since this is the first and
-                    // only def for this CSE.
-                    assert(ssaVarDsc->GetBlock() == nullptr);
-                    assert(ssaVarDsc->GetAssignment() == nullptr);
-
-                    ssaVarDsc->m_vnPair = defExpr->gtVNPair;
-                    ssaVarDsc->SetBlock(blk);
-                    ssaVarDsc->SetAssignment(asg->AsOp());
+                    UpdateCheckedBoundCompareVN(desc, expr, newExpr);
                 }
 
-                cse = compiler->gtNewCommaNode(asg, newExpr, expTyp);
-                // COMMA's VN is the same the original expression VN because assignment does not add any exceptions.
-                cse->gtVNPair = expr->gtVNPair;
+                // Now we need to unmark any nested CSE's uses that are found in expr
+                // as well as extract any nested CSE defs that are found in expr and
+                // any other side effects.
+
+                if (GenTree* sideEffects = ExtractSideEffects(expr, block))
+                {
+                    newExpr = AddSideEffects(newExpr, sideEffects);
+                }
             }
 
-            Compiler::FindLinkData linkData = compiler->gtFindLink(stmt, expr);
-            GenTree**              link     = linkData.useEdge;
+            Compiler::FindLinkData use = compiler->gtFindLink(stmt, expr);
 
-#ifdef DEBUG
-            if (link == nullptr)
+            if (use.useEdge == nullptr)
             {
-                printf("\ngtFindLink failed: stm=");
-                Compiler::printStmtID(stmt);
-                printf(", expr=");
-                Compiler::printTreeID(expr);
-                printf("\n");
-                printf("stm =");
-                compiler->gtDispStmt(stmt);
-                printf("\n");
-                printf("expr =");
-                compiler->gtDispTree(expr);
-                printf("\n");
+                JITDUMPTREE(stmt->GetRootNode(), "Could not find user of [%06u] in\n", expr->GetID());
+                unreached();
             }
-#endif // DEBUG
 
-            noway_assert(link);
+            *use.useEdge = newExpr;
 
-            *link = cse;
+            compiler->CopyZeroOffsetFieldSeq(expr->SkipComma(), newExpr);
 
-            compiler->CopyZeroOffsetFieldSeq(expr->SkipComma(), cse);
-
-            assert(compiler->fgRemoveRestOfBlock == false);
-
-            if (linkData.user != nullptr)
+            if (use.user != nullptr)
             {
-                compiler->gtUpdateTreeAncestorsSideEffects(linkData.user);
+                compiler->gtUpdateTreeAncestorsSideEffects(use.user);
             }
 
             compiler->gtSetStmtInfo(stmt);
             compiler->fgSetStmtSeq(stmt);
         }
+    }
+
+    GenTree* ExtractSideEffects(GenTree* expr, BasicBlock* block)
+    {
+        // We also need to update use weights so we need to stash
+        // the block weight somewhere for cseUnmarkNode, sigh.
+        compiler->cseBlockWeight = block->getBBWeight(compiler);
+
+        GenTree* sideEffects = nullptr;
+        compiler->gtExtractSideEffList(expr, &sideEffects, GTF_PERSISTENT_SIDE_EFFECTS | GTF_IS_IN_CSE);
+
+        return sideEffects;
+    }
+
+    GenTree* AddSideEffects(GenTree* newExpr, GenTree* sideEffects)
+    {
+        JITDUMPTREE(sideEffects, "CSE use side effects and/or nested CSE defs:\n");
+
+        ValueNumPair exset          = ValueNumStore::VNPForEmptyExcSet();
+        GenTree*     sideEffectNode = sideEffects;
+
+        // TODO-MIKE-Review: We care about COMMA because they're created by
+        // gtExtractSideEffList and they don't have value numbers. But why
+        // do we care about ASG? Probably because VN messes up and doesn't
+        // include exceptions in the ASG VN.
+        while (sideEffectNode->OperIs(GT_COMMA, GT_ASG))
+        {
+            GenTree* op1 = sideEffectNode->AsOp()->GetOp(0);
+            GenTree* op2 = sideEffectNode->AsOp()->GetOp(1);
+
+            exset = vnStore->VNPExcSetUnion(exset, vnStore->VNPExceptionSet(op1->GetVNP()));
+
+            sideEffectNode = op2;
+        }
+
+        exset = vnStore->VNPExcSetUnion(exset, vnStore->VNPExceptionSet(sideEffectNode->GetVNP()));
+
+        ValueNumPair newExprVNP = vnStore->VNPWithExc(newExpr->GetVNP(), exset);
+
+        newExpr = compiler->gtNewCommaNode(sideEffects, newExpr, varActualType(newExpr->GetType()));
+        newExpr->SetVNP(newExprVNP);
+
+        return newExpr;
+    }
+
+    void UpdateCheckedBoundCompareVN(const CseDesc* desc, GenTree* expr, GenTree* newExpr)
+    {
+        ValueNum newExprVN = desc->defConservNormVN;
+        assert(newExprVN != NoVN);
+
+        // All defs of this CSE share the same normal conservative VN, and we are rewriting
+        // this use to fetch the same value with no reload, so we can safely propagate that
+        // conservative VN to this use. This can help range check elimination later on.
+        newExpr->SetConservativeVN(newExprVN);
+
+        // If the old VN was flagged as a checked bound, propagate that to the new VN
+        // to make sure assertion prop will pay attention to this VN.
+        ValueNum exprVN = expr->GetConservativeVN();
+
+        if (!vnStore->IsVNConstant(newExprVN) && vnStore->IsVNCheckedBound(exprVN))
+        {
+            vnStore->SetVNIsCheckedBound(newExprVN);
+        }
+
+        GenTree* cmp;
+
+        if (!checkedBoundMap.Lookup(expr, &cmp))
+        {
+            return;
+        }
+
+        // Propagate the new value number to this compare node as well, since
+        // subsequent range check elimination will try to correlate it with
+        // the other appearances that are getting CSEd.
+
+        ValueNum  cmpVN = cmp->GetConservativeVN();
+        VNFuncApp funcApp;
+
+        if (!vnStore->GetVNFunc(cmpVN, &funcApp) || !ValueNumStore::IsVNCompareCheckedBoundRelop(funcApp))
+        {
+            return;
+        }
+
+        ValueNumStore::CompareCheckedBoundArithInfo info;
+        ValueNum                                    newCmpArgVN;
+
+        if (vnStore->IsVNCompareCheckedBound(funcApp))
+        {
+            vnStore->GetCompareCheckedBound(funcApp, &info);
+
+            newCmpArgVN = newExprVN;
+        }
+        else
+        {
+            vnStore->GetCompareCheckedBoundArithInfo(funcApp, &info);
+
+            newCmpArgVN = vnStore->VNForFunc(vnStore->TypeOfVN(info.arrOp), static_cast<VNFunc>(info.arrOper),
+                                             info.arrOp, newExprVN);
+        }
+
+        ValueNum newCmpVN =
+            vnStore->VNForFunc(vnStore->TypeOfVN(cmpVN), static_cast<VNFunc>(info.cmpOper), info.cmpOp, newCmpArgVN);
+
+        cmp->SetConservativeVN(newCmpVN);
     }
 
     void ConsiderCandidates()
