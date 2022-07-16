@@ -341,20 +341,16 @@ class Cse
     // of for the CSE analysis.
     static constexpr unsigned MAX_CSE_CNT = 64;
 
-    static constexpr size_t HashSizeInitial  = MAX_CSE_CNT * 2;
-    static constexpr size_t HashGrowthFactor = 2;
-    static constexpr size_t HashBucketSize   = 4;
+    static constexpr size_t HashInitialBucketCount = MAX_CSE_CNT * 2;
+    static constexpr size_t HashBucketSize         = 4;
+    static constexpr size_t HashGrowthFactor       = 2;
 
     Compiler*      compiler;
     CompAllocator  allocator;
     ValueNumStore* vnStore;
 
-    // The current size of hashtable
-    size_t hashBucketCount = HashSizeInitial;
-    // Number of entries in hashtable
-    size_t hashCount = 0;
-    // Number of entries before resize
-    size_t    hashResizeCount = HashSizeInitial * HashBucketSize;
+    size_t    hashEntryCount  = 0;
+    size_t    hashBucketCount = HashInitialBucketCount;
     CseDesc** hashBuckets;
     CseDesc** descTable;
     unsigned  descCount;
@@ -743,7 +739,7 @@ public:
             return index;
         }
 
-        if (hashCount == hashResizeCount)
+        if (hashEntryCount == hashBucketCount * HashBucketSize)
         {
             ResizeHashTable();
         }
@@ -759,7 +755,7 @@ public:
 
         desc->nextInBucket       = hashBuckets[bucketIndex];
         hashBuckets[bucketIndex] = desc;
-        hashCount++;
+        hashEntryCount++;
 
         return 0;
     }
@@ -783,7 +779,6 @@ public:
 
         hashBuckets     = newBuckets;
         hashBucketCount = newBucketCount;
-        hashResizeCount = hashResizeCount * HashGrowthFactor;
     }
 
     void Locate()
