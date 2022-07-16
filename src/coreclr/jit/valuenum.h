@@ -453,7 +453,7 @@ public:
     // Returns true if every exeception singleton in the vnCandidateSet is also present
     // in the vnFullSet.
     // Both arguments must be either VNForEmptyExcSet() or applications of VNF_ExcSetCons.
-    bool VNExcIsSubset(ValueNum vnFullSet, ValueNum vnCandidateSet);
+    bool ExsetIsSubset(ValueNum vnCandidateSet, ValueNum vnFullSet);
 
     // Returns "true" iff "vn" is an application of "VNF_ValWithExc".
     bool VNHasExc(ValueNum vn)

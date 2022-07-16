@@ -1143,38 +1143,24 @@ ValueNumPair ValueNumStore::VNPExcSetIntersection(ValueNumPair xs0vnp, ValueNumP
                         VNExcSetIntersection(xs0vnp.GetConservative(), xs1vnp.GetConservative()));
 }
 
-//----------------------------------------------------------------------------------------
-// VNExcIsSubset     - Given two exception sets, returns true when vnCandidateSet is a
-//                     subset of vnFullSet
-//
-// Arguments:        - The arguments must be applications of VNF_ExcSetCons or the empty set
-//    vnFullSet      - The value number of the 'full' exception set
-//    vnCandidateSet - The value number of the 'candidate' exception set
-//
-// Return Value:     - Returns true if every singleton ExcSet value in the vnCandidateSet
-//                     is also present in the vnFullSet.
-//
-// Note: - Checks and relies upon the invariant that exceptions sets
-//          1. Have no duplicate values
-//          2. all elements in an exception set are in sorted order.
-//
-bool ValueNumStore::VNExcIsSubset(ValueNum vnFullSet, ValueNum vnCandidateSet)
+bool ValueNumStore::ExsetIsSubset(ValueNum subset, ValueNum set)
 {
-    if (vnCandidateSet == VNForEmptyExcSet())
+    if (subset == VNForEmptyExcSet())
     {
         return true;
     }
-    else if ((vnFullSet == VNForEmptyExcSet()) || (vnFullSet == ValueNumStore::NoVN))
+
+    if ((set == VNForEmptyExcSet()) || (set == NoVN))
     {
         return false;
     }
 
     VNFuncApp funcXsFull;
-    bool      b0 = GetVNFunc(vnFullSet, &funcXsFull);
-    assert(b0 && funcXsFull.m_func == VNF_ExcSetCons); // Precondition: vnFullSet is an exception set.
+    bool      b0 = GetVNFunc(set, &funcXsFull);
+    assert(b0 && funcXsFull.m_func == VNF_ExcSetCons); // Precondition: set is an exception set.
     VNFuncApp funcXsCand;
-    bool      b1 = GetVNFunc(vnCandidateSet, &funcXsCand);
-    assert(b1 && funcXsCand.m_func == VNF_ExcSetCons); // Precondition: vnCandidateSet is an exception set.
+    bool      b1 = GetVNFunc(subset, &funcXsCand);
+    assert(b1 && funcXsCand.m_func == VNF_ExcSetCons); // Precondition: subset is an exception set.
 
     ValueNum vnFullSetPrev = VNForNull();
     ValueNum vnCandSetPrev = VNForNull();
