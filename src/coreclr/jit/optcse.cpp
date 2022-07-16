@@ -1863,6 +1863,23 @@ public:
     }
 #endif // DEBUG
 
+    enum class PromotionKind
+    {
+        None,
+        // We believe that the CSE is very valuable in terms of weight,
+        // such that it would always be enregistered by the register allocator.
+        Aggresive,
+        // We believe that the CSE is moderately valuable in terms of weight,
+        // such that it is more likely than not to be enregistered by the register allocator
+        Moderate,
+        // It's neither aggressive nor moderate.
+        // Such candidates typically are expensive to compute and thus are
+        // always profitable to promote even when they aren't enregistered.
+        Conservative,
+        // Candidate is only being promoted because of a Stress mode.
+        INDEBUG(Stress)
+    };
+
     struct Candidate
     {
         CseDesc* const desc;
@@ -1874,19 +1891,6 @@ public:
         float const    useWeight;
         bool const     isLiveAcrossCall;
 
-        // We believe that the CSE is very valuable in terms of weight,
-        // such that it would always be enregistered by the register allocator.
-        bool isAggressive;
-        // We believe that the CSE is moderately valuable in terms of weight,
-        // such that it is more likely than not to be enregistered by the register allocator
-        bool isModerate;
-        // It's neither aggressive nor moderate.
-        // Such candidates typically are expensive to compute and thus are
-        // always profitable to promote even when they aren't enregistered.
-        bool isConservative;
-        // Candidate is only being promoted because of a Stress mode.
-        bool isStress;
-
         Candidate(Compiler::codeOptimize codeOptKind, CseDesc* desc)
             : desc(desc)
             , expr(desc->firstOccurence.expr)
@@ -1896,10 +1900,6 @@ public:
             , defWeight(codeOptKind == Compiler::SMALL_CODE ? desc->defCount : desc->defWeight)
             , useWeight(codeOptKind == Compiler::SMALL_CODE ? desc->useCount : desc->useWeight)
             , isLiveAcrossCall(desc->isLiveAcrossCall)
-            , isAggressive(false)
-            , isModerate(false)
-            , isConservative(false)
-            , isStress(false)
         {
         }
     };
@@ -2024,7 +2024,7 @@ public:
     }
 #endif // DEBUG
 
-    bool PromotionCheck(Candidate& candidate)
+    PromotionKind PromotionCheck(const Candidate& candidate)
     {
         if (varTypeIsSIMD(candidate.expr->GetType()) && (candidate.desc->layout == nullptr))
         {
@@ -2042,7 +2042,7 @@ public:
 
             if (layout == nullptr)
             {
-                return false;
+                return PromotionKind::None;
             }
 
             candidate.desc->layout = layout;
@@ -2051,13 +2051,12 @@ public:
 #ifdef DEBUG
         if (ConfigBiasedCse() > 0)
         {
-            candidate.isStress = true;
-            return true;
+            return PromotionKind::Stress;
         }
 
         if (ConfigDisableCse2())
         {
-            return false;
+            return PromotionKind::None;
         }
 #endif
 
@@ -2106,8 +2105,9 @@ public:
         // The def also implies a use so we consider it twice.
         float lclWeight = (candidate.defWeight * 2) + candidate.useWeight;
 
-        unsigned defCost;
-        unsigned useCost;
+        PromotionKind kind = PromotionKind::None;
+        unsigned      defCost;
+        unsigned      useCost;
 
         if (codeOptKind == Compiler::SMALL_CODE)
         {
@@ -2118,7 +2118,7 @@ public:
             {
                 JITDUMP("Aggressive CSE Promotion (%f >= %f)\n", lclWeight, aggressiveWeight);
 
-                candidate.isAggressive = true;
+                kind = PromotionKind::Aggresive;
 
                 // We expect that the candidate will be enregistered so we have minimum costs.
                 defCost = 1;
@@ -2141,7 +2141,7 @@ public:
             }
             else
             {
-                candidate.isConservative = true;
+                kind = PromotionKind::Conservative;
 
                 if (largeFrame)
                 {
@@ -2194,7 +2194,7 @@ public:
 
             if (lclWeight >= aggressiveWeight)
             {
-                candidate.isAggressive = true;
+                kind = PromotionKind::Aggresive;
 
                 JITDUMP("Aggressive CSE Promotion (%f >= %f)\n", lclWeight, aggressiveWeight);
 
@@ -2204,7 +2204,7 @@ public:
             }
             else if (lclWeight >= moderateWeight)
             {
-                candidate.isModerate = true;
+                kind = PromotionKind::Moderate;
 
                 if (!candidate.isLiveAcrossCall)
                 {
@@ -2231,7 +2231,7 @@ public:
             }
             else
             {
-                candidate.isConservative = true;
+                kind = PromotionKind::Conservative;
 
                 if (!candidate.isLiveAcrossCall)
                 {
@@ -2267,7 +2267,7 @@ public:
                 // Floating point constants are expected to be contained, so unless there are
                 // more than 4 uses we better not to CSE them, especially on platforms without
                 // callee-saved registers for values living across calls
-                return false;
+                return PromotionKind::None;
             }
 
             // If we don't have a lot of variables to enregister or we have a floating point type
@@ -2338,7 +2338,7 @@ public:
 
         if (yesCseCost <= noCseCost)
         {
-            return true;
+            return kind;
         }
 
 #ifdef DEBUG
@@ -2348,12 +2348,12 @@ public:
 
             if (compiler->compStressCompile(Compiler::STRESS_MAKE_CSE, percentage))
             {
-                return true;
+                return kind;
             }
         }
 #endif
 
-        return false;
+        return PromotionKind::None;
     }
 
     static bool IsCompatibleType(var_types lclType, var_types exprType)
@@ -2412,7 +2412,7 @@ public:
         return baseConstVal;
     }
 
-    void PerformCSE(const Candidate& candidate)
+    void PerformCSE(const Candidate& candidate DEBUGARG(PromotionKind kind))
     {
         JITDUMP("\nPromoting CSE:\n");
 
@@ -2445,23 +2445,25 @@ public:
         }
 
 #ifdef DEBUG
-        const char* lclReason = "CSE - unknown";
+        const char* lclReason;
 
-        if (candidate.isAggressive)
+        switch (kind)
         {
-            lclReason = "CSE - aggressive";
-        }
-        else if (candidate.isModerate)
-        {
-            lclReason = "CSE - moderate";
-        }
-        else if (candidate.isConservative)
-        {
-            lclReason = "CSE - conservative";
-        }
-        else if (candidate.isStress)
-        {
-            lclReason = "CSE - stress mode";
+            case Cse::PromotionKind::Aggresive:
+                lclReason = "CSE - aggressive";
+                break;
+            case Cse::PromotionKind::Moderate:
+                lclReason = "CSE - moderate";
+                break;
+            case Cse::PromotionKind::Conservative:
+                lclReason = "CSE - conservative";
+                break;
+            case Cse::PromotionKind::Stress:
+                lclReason = "CSE - stress mode";
+                break;
+            default:
+                lclReason = "CSE - unknown";
+                break;
         }
 #endif // DEBUG
 
@@ -2805,13 +2807,15 @@ public:
             JITDUMPTREE(candidate.expr, "\nCSE Expression:\n");
 #endif
 
-            if (!PromotionCheck(candidate))
+            PromotionKind kind = PromotionCheck(candidate);
+
+            if (kind == PromotionKind::None)
             {
                 JITDUMP("Did Not promote this CSE\n");
                 continue;
             }
 
-            PerformCSE(candidate);
+            PerformCSE(candidate DEBUGARG(kind));
         }
     }
 };
