@@ -1648,15 +1648,12 @@ public:
     {
         bool operator()(const CseDesc* dsc1, const CseDesc* dsc2)
         {
-            GenTree* exp1 = dsc1->firstOccurence.expr;
-            GenTree* exp2 = dsc2->firstOccurence.expr;
+            unsigned exprCost1 = dsc1->firstOccurence.expr->GetCostEx();
+            unsigned exprCost2 = dsc2->firstOccurence.expr->GetCostEx();
 
-            auto expCost1 = exp1->GetCostEx();
-            auto expCost2 = exp2->GetCostEx();
-
-            if (expCost2 != expCost1)
+            if (exprCost2 != exprCost1)
             {
-                return expCost2 < expCost1;
+                return exprCost2 < exprCost1;
             }
 
             if (dsc2->useWeight != dsc1->useWeight)
@@ -1678,15 +1675,12 @@ public:
     {
         bool operator()(const CseDesc* dsc1, const CseDesc* dsc2)
         {
-            GenTree* exp1 = dsc1->firstOccurence.expr;
-            GenTree* exp2 = dsc2->firstOccurence.expr;
+            unsigned exprCost1 = dsc1->firstOccurence.expr->GetCostSz();
+            unsigned exprCost2 = dsc2->firstOccurence.expr->GetCostSz();
 
-            auto expCost1 = exp1->GetCostSz();
-            auto expCost2 = exp2->GetCostSz();
-
-            if (expCost2 != expCost1)
+            if (exprCost2 != exprCost1)
             {
-                return expCost2 < expCost1;
+                return exprCost2 < exprCost1;
             }
 
             if (dsc2->useCount != dsc1->useCount)
