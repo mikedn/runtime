@@ -272,7 +272,7 @@ struct CseDesc
         , firstOccurence(expr, stmt, block)
         , lastOccurence(&firstOccurence)
         , layout(nullptr)
-        , defExset(ValueNumStore::VNForNull())
+        , defExset(NoVN)
         , useExset(ValueNumStore::VNForEmptyExcSet())
         , conservativeVN(ValueNumStore::VNForVoid())
     {
@@ -1323,13 +1323,17 @@ public:
 
                     if (isDef)
                     {
-                        if (desc->defExset == ValueNumStore::VNForNull())
+                        if (desc->defExset != exprExset)
                         {
-                            desc->defExset = exprExset;
-                        }
+                            if (desc->defExset == NoVN)
+                            {
+                                desc->defExset = exprExset;
+                            }
+                            else
+                            {
+                                desc->defExset = vnStore->VNExcSetIntersection(desc->defExset, exprExset);
+                            }
 
-                        if (desc->useExset != ValueNumStore::VNForEmptyExcSet())
-                        {
                             if (!vnStore->ExsetIsSubset(desc->useExset, exprExset))
                             {
                                 desc->useExset = NoVN;
@@ -1338,44 +1342,6 @@ public:
                                 JITDUMP("Abandon - CSE candidate has defs with exception sets that do not satisfy "
                                         "some CSE use.\n");
                                 continue;
-                            }
-
-                            if (desc->defExset != exprExset)
-                            {
-                                ValueNum newDefExset = vnStore->VNExcSetIntersection(desc->defExset, exprExset);
-
-#ifdef DEBUG
-                                if (compiler->verbose)
-                                {
-                                    VNFuncApp funcApp;
-
-                                    vnStore->GetVNFunc(desc->defExset, &funcApp);
-                                    printf(">>> defExset is ");
-                                    vnStore->vnDumpExcSeq(compiler, &funcApp, true);
-                                    printf("\n");
-
-                                    vnStore->GetVNFunc(exprExset, &funcApp);
-                                    printf(">>> exprSet is ");
-                                    vnStore->vnDumpExcSeq(compiler, &funcApp, true);
-                                    printf("\n");
-
-                                    if (newDefExset == vnStore->VNForEmptyExcSet())
-                                    {
-                                        printf(">>> newDefExset is empty\n");
-                                    }
-                                    else
-                                    {
-                                        vnStore->GetVNFunc(newDefExset, &funcApp);
-                                        printf(">>> newDefExset is ");
-                                        vnStore->vnDumpExcSeq(compiler, &funcApp, true);
-                                        printf("\n");
-                                    }
-                                }
-
-                                assert(vnStore->ExsetIsSubset(newDefExset, desc->defExset));
-#endif // DEBUG
-
-                                desc->defExset = newDefExset;
                             }
                         }
 
@@ -1404,13 +1370,7 @@ public:
                     {
                         if (exprExset != ValueNumStore::VNForEmptyExcSet())
                         {
-                            if ((desc->defExset == ValueNumStore::VNForNull()) ||
-                                vnStore->ExsetIsSubset(exprExset, desc->defExset))
-                            {
-                                desc->useExset = vnStore->VNExcSetUnion(desc->useExset, exprExset);
-                            }
-
-                            if (!vnStore->ExsetIsSubset(exprExset, desc->useExset))
+                            if ((desc->defExset != NoVN) && !vnStore->ExsetIsSubset(exprExset, desc->defExset))
                             {
                                 expr->ClearCseInfo();
 
@@ -1418,6 +1378,11 @@ public:
                                         "defs.\n");
 
                                 continue;
+                            }
+
+                            if (desc->useExset != exprExset)
+                            {
+                                desc->useExset = vnStore->VNExcSetUnion(desc->useExset, exprExset);
                             }
                         }
 
