@@ -11735,25 +11735,20 @@ void Compiler::gtExtractSideEffList(GenTree*  expr,
                 return Compiler::WALK_SKIP_SUBTREES;
             }
 
-            if (m_compiler->gtNodeHasSideEffects(node, m_flags))
-            {
-                m_sideEffects.Push(node);
-                if (node->OperIs(GT_OBJ, GT_BLK))
-                {
-                    JITDUMP("Replace an unused OBJ/BLK node [%06d] with a NULLCHECK\n", dspTreeID(node));
-                    m_compiler->gtChangeOperToNullCheck(node);
-                }
-                return Compiler::WALK_SKIP_SUBTREES;
-            }
-
-            // TODO-Cleanup: These have GTF_ASG set but for some reason gtNodeHasSideEffects ignores
+            // TODO-Cleanup: Atomics have GTF_ASG set but for some reason gtNodeHasSideEffects ignores
             // them. See the related gtNodeHasSideEffects comment as well.
             // Also, these nodes must always be preserved, no matter what side effect flags are passed
             // in. But then it should never be the case that gtExtractSideEffList gets called without
             // specifying GTF_ASG so there doesn't seem to be any reason to be inconsistent with
             // gtNodeHasSideEffects and make this check unconditionally.
-            if (node->OperIsAtomicOp())
+            if (m_compiler->gtNodeHasSideEffects(node, m_flags) || node->OperIsAtomicOp())
             {
+                if (node->OperIs(GT_OBJ, GT_BLK))
+                {
+                    JITDUMP("Replace an unused OBJ/BLK node [%06u] with a NULLCHECK\n", node->GetID());
+                    m_compiler->gtChangeOperToNullCheck(node);
+                }
+
                 m_sideEffects.Push(node);
                 return Compiler::WALK_SKIP_SUBTREES;
             }

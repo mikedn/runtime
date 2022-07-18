@@ -2482,7 +2482,10 @@ public:
 
             if (m_compiler->gtTreeHasSideEffects(node, GTF_PERSISTENT_SIDE_EFFECTS | GTF_IS_IN_CSE))
             {
-                if (m_compiler->gtNodeHasSideEffects(node, GTF_PERSISTENT_SIDE_EFFECTS | GTF_IS_IN_CSE))
+                // TODO-Cleanup: Atomics have GTF_ASG set but for some reason gtNodeHasSideEffects ignores
+                // them. See the related gtNodeHasSideEffects comment as well.
+                if (m_compiler->gtNodeHasSideEffects(node, GTF_PERSISTENT_SIDE_EFFECTS | GTF_IS_IN_CSE) ||
+                    node->OperIsAtomicOp())
                 {
                     if (node->OperIs(GT_OBJ, GT_BLK))
                     {
@@ -2494,18 +2497,9 @@ public:
                     return Compiler::WALK_SKIP_SUBTREES;
                 }
 
-                // TODO-Cleanup: These have GTF_ASG set but for some reason gtNodeHasSideEffects ignores
-                // them. See the related gtNodeHasSideEffects comment as well.
-                // Also, these nodes must always be preserved, no matter what side effect flags are passed
-                // in.
-                if (node->OperIsAtomicOp())
-                {
-                    m_sideEffects.Push(node);
-                    return Compiler::WALK_SKIP_SUBTREES;
-                }
-
                 // Generally all GT_CALL nodes are considered to have side-effects.
                 // So if we get here it must be a helper call that we decided it does
+                // not have side effects that we needed to keep.
                 // not have side effects that we needed to keep.
                 assert(!node->OperIs(GT_CALL) || (node->AsCall()->gtCallType == CT_HELPER));
             }
