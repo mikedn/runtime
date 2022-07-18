@@ -11706,6 +11706,9 @@ void Compiler::gtExtractSideEffList(GenTree*  expr,
                                     unsigned  flags /* = GTF_SIDE_EFFECT*/,
                                     bool      ignoreRoot /* = false */)
 {
+    assert(!csePhase);
+    assert((flags & GTF_IS_IN_CSE) == 0);
+
     class SideEffectExtractor final : public GenTreeVisitor<SideEffectExtractor>
     {
     public:
@@ -11727,80 +11730,40 @@ void Compiler::gtExtractSideEffList(GenTree*  expr,
         {
             GenTree* node = *use;
 
-            bool treeHasSideEffects = m_compiler->gtTreeHasSideEffects(node, m_flags);
-
-            if (treeHasSideEffects)
+            if (!m_compiler->gtTreeHasSideEffects(node, m_flags))
             {
-                if (m_compiler->gtNodeHasSideEffects(node, m_flags))
-                {
-                    m_sideEffects.Push(node);
-                    if (node->OperIs(GT_OBJ, GT_BLK))
-                    {
-                        JITDUMP("Replace an unused OBJ/BLK node [%06d] with a NULLCHECK\n", dspTreeID(node));
-                        m_compiler->gtChangeOperToNullCheck(node, m_compiler->compCurBB);
-                    }
-                    return Compiler::WALK_SKIP_SUBTREES;
-                }
-
-                // TODO-Cleanup: These have GTF_ASG set but for some reason gtNodeHasSideEffects ignores
-                // them. See the related gtNodeHasSideEffects comment as well.
-                // Also, these nodes must always be preserved, no matter what side effect flags are passed
-                // in. But then it should never be the case that gtExtractSideEffList gets called without
-                // specifying GTF_ASG so there doesn't seem to be any reason to be inconsistent with
-                // gtNodeHasSideEffects and make this check unconditionally.
-                if (node->OperIsAtomicOp())
-                {
-                    m_sideEffects.Push(node);
-                    return Compiler::WALK_SKIP_SUBTREES;
-                }
-
-                // Generally all GT_CALL nodes are considered to have side-effects.
-                // So if we get here it must be a helper call that we decided it does
-                // not have side effects that we needed to keep.
-                assert(!node->OperIs(GT_CALL) || (node->AsCall()->gtCallType == CT_HELPER));
+                return Compiler::WALK_SKIP_SUBTREES;
             }
 
-            if ((m_flags & GTF_IS_IN_CSE) != 0)
+            if (m_compiler->gtNodeHasSideEffects(node, m_flags))
             {
-                // If we're doing CSE then we also need to unmark CSE nodes. This will fail for CSE defs,
-                // those need to be extracted as if they're side effects.
-                if (!UnmarkCSE(node))
+                m_sideEffects.Push(node);
+                if (node->OperIs(GT_OBJ, GT_BLK))
                 {
-                    m_sideEffects.Push(node);
-                    return Compiler::WALK_SKIP_SUBTREES;
+                    JITDUMP("Replace an unused OBJ/BLK node [%06d] with a NULLCHECK\n", dspTreeID(node));
+                    m_compiler->gtChangeOperToNullCheck(node, m_compiler->compCurBB);
                 }
-
-                // The existence of CSE defs and uses is not propagated up the tree like side
-                // effects are. We need to continue visiting the tree as if it has side effects.
-                treeHasSideEffects = true;
+                return Compiler::WALK_SKIP_SUBTREES;
             }
 
-            return treeHasSideEffects ? Compiler::WALK_CONTINUE : Compiler::WALK_SKIP_SUBTREES;
-        }
-
-    private:
-        bool UnmarkCSE(GenTree* node)
-        {
-            assert(m_compiler->csePhase);
-
-            if (m_compiler->cseUnmarkNode(node))
+            // TODO-Cleanup: These have GTF_ASG set but for some reason gtNodeHasSideEffects ignores
+            // them. See the related gtNodeHasSideEffects comment as well.
+            // Also, these nodes must always be preserved, no matter what side effect flags are passed
+            // in. But then it should never be the case that gtExtractSideEffList gets called without
+            // specifying GTF_ASG so there doesn't seem to be any reason to be inconsistent with
+            // gtNodeHasSideEffects and make this check unconditionally.
+            if (node->OperIsAtomicOp())
             {
-                // The call to cseUnmarkNode(node) should have cleared any CSE info.
-                assert(!node->HasCseInfo());
-                return true;
+                m_sideEffects.Push(node);
+                return Compiler::WALK_SKIP_SUBTREES;
             }
-            else
-            {
-                assert(IsCseDef(node->GetCseInfo()));
-#ifdef DEBUG
-                if (m_compiler->verbose)
-                {
-                    printf("Preserving the CSE def #%02d at ", GetCseIndex(node->GetCseInfo()));
-                    m_compiler->printTreeID(node);
-                }
-#endif
-                return false;
-            }
+
+            // Generally all GT_CALL nodes are considered to have side-effects.
+            // So if we get here it must be a helper call that we decided it does
+            // not have side effects that we needed to keep.
+            assert(!node->OperIs(GT_CALL) || (node->AsCall()->gtCallType == CT_HELPER));
+
+            return Compiler::WALK_CONTINUE;
         }
     };
 

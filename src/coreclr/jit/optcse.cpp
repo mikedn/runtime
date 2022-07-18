@@ -2517,17 +2517,16 @@ public:
         compiler->cseBlockWeight = block->getBBWeight(compiler);
 
         GenTree* sideEffects = nullptr;
-        ExtractSideEffList(expr, &sideEffects, GTF_PERSISTENT_SIDE_EFFECTS | GTF_IS_IN_CSE);
+        ExtractSideEffList(expr, &sideEffects);
 
         return sideEffects;
     }
 
-    void ExtractSideEffList(GenTree* expr, GenTree** pList, unsigned flags, bool ignoreRoot = false)
+    void ExtractSideEffList(GenTree* expr, GenTree** pList)
     {
         class SideEffectExtractor final : public GenTreeVisitor<SideEffectExtractor>
         {
         public:
-            const unsigned       m_flags;
             ArrayStack<GenTree*> m_sideEffects;
 
             enum
@@ -2536,8 +2535,8 @@ public:
                 UseExecutionOrder = true
             };
 
-            SideEffectExtractor(Compiler* compiler, unsigned flags)
-                : GenTreeVisitor(compiler), m_flags(flags), m_sideEffects(compiler->getAllocator(CMK_SideEffects))
+            SideEffectExtractor(Compiler* compiler)
+                : GenTreeVisitor(compiler), m_sideEffects(compiler->getAllocator(CMK_SideEffects))
             {
             }
 
@@ -2545,11 +2544,9 @@ public:
             {
                 GenTree* node = *use;
 
-                bool treeHasSideEffects = m_compiler->gtTreeHasSideEffects(node, m_flags);
-
-                if (treeHasSideEffects)
+                if (m_compiler->gtTreeHasSideEffects(node, GTF_PERSISTENT_SIDE_EFFECTS | GTF_IS_IN_CSE))
                 {
-                    if (m_compiler->gtNodeHasSideEffects(node, m_flags))
+                    if (m_compiler->gtNodeHasSideEffects(node, GTF_PERSISTENT_SIDE_EFFECTS | GTF_IS_IN_CSE))
                     {
                         m_sideEffects.Push(node);
                         if (node->OperIs(GT_OBJ, GT_BLK))
@@ -2578,22 +2575,17 @@ public:
                     assert(!node->OperIs(GT_CALL) || (node->AsCall()->gtCallType == CT_HELPER));
                 }
 
-                if ((m_flags & GTF_IS_IN_CSE) != 0)
+                // If we're doing CSE then we also need to unmark CSE nodes. This will fail for CSE defs,
+                // those need to be extracted as if they're side effects.
+                if (!UnmarkCSE(node))
                 {
-                    // If we're doing CSE then we also need to unmark CSE nodes. This will fail for CSE defs,
-                    // those need to be extracted as if they're side effects.
-                    if (!UnmarkCSE(node))
-                    {
-                        m_sideEffects.Push(node);
-                        return Compiler::WALK_SKIP_SUBTREES;
-                    }
-
-                    // The existence of CSE defs and uses is not propagated up the tree like side
-                    // effects are. We need to continue visiting the tree as if it has side effects.
-                    treeHasSideEffects = true;
+                    m_sideEffects.Push(node);
+                    return Compiler::WALK_SKIP_SUBTREES;
                 }
 
-                return treeHasSideEffects ? Compiler::WALK_CONTINUE : Compiler::WALK_SKIP_SUBTREES;
+                // The existence of CSE defs and uses is not propagated up the tree like side
+                // effects are. We need to continue visiting the tree as if it has side effects.
+                return Compiler::WALK_CONTINUE;
             }
 
         private:
@@ -2622,19 +2614,8 @@ public:
             }
         };
 
-        SideEffectExtractor extractor(compiler, flags);
-
-        if (ignoreRoot)
-        {
-            for (GenTree* op : expr->Operands())
-            {
-                extractor.WalkTree(&op, nullptr);
-            }
-        }
-        else
-        {
-            extractor.WalkTree(&expr, nullptr);
-        }
+        SideEffectExtractor extractor(compiler);
+        extractor.WalkTree(&expr, nullptr);
 
         GenTree* list = *pList;
 
