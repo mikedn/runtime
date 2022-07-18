@@ -1474,7 +1474,7 @@ public:
         const unsigned aggressiveEnregNum = CNT_CALLEE_ENREG * 3 / 2;
         const unsigned moderateEnregNum   = (CNT_CALLEE_ENREG * 3) + (CNT_CALLEE_TRASH * 2);
 
-        // Iterate over the sorted list of tracked local variables these are the register candidates
+        // Iterate over the sorted sideEffects of tracked local variables these are the register candidates
         // for LSRA. We normally vist locals in order of their weighted ref counts and our heuristic
         // assumes that the highest weight local swill be enregistered and that the lowest weight
         // locals are likely be allocated in the stack frame.
@@ -2563,48 +2563,33 @@ public:
         SideEffectExtractor extractor(compiler, block, descTable, descCount);
         extractor.WalkTree(&expr, nullptr);
 
-        GenTree* list = nullptr;
+        GenTree* sideEffects = nullptr;
 
         // The extractor returns side effects in execution order but gtBuildCommaList prepends
-        // to the comma-based side effect list so we have to build the list in reverse order.
-        // This is also why the list cannot be built while traversing the tree.
+        // to the comma-based side effect sideEffects so we have to build the sideEffects in reverse order.
+        // This is also why the sideEffects cannot be built while traversing the tree.
         // The number of side effects is usually small (<= 4), less than the ArrayStack's
         // built-in size, so memory allocation is avoided.
         while (!extractor.m_sideEffects.Empty())
         {
-            list = compiler->gtBuildCommaList(list, extractor.m_sideEffects.Pop());
+            sideEffects = compiler->gtBuildCommaList(sideEffects, extractor.m_sideEffects.Pop());
         }
 
-        return list;
+        return sideEffects;
     }
 
     GenTree* AddSideEffects(GenTree* newExpr, GenTree* sideEffects)
     {
         JITDUMPTREE(sideEffects, "CSE use side effects and/or nested CSE defs:\n");
 
-        ValueNumPair exset          = ValueNumStore::VNPForEmptyExcSet();
-        GenTree*     sideEffectNode = sideEffects;
+        // newExpr is not expected to have exceptions, it's a local or a constant.
+        assert(vnStore->VNPExceptionSet(newExpr->GetVNP()) == ValueNumStore::VNPForEmptyExcSet());
 
-        // TODO-MIKE-Review: We care about COMMA because they're created by
-        // gtExtractSideEffList and they don't have value numbers. But why
-        // do we care about ASG? Probably because VN messes up and doesn't
-        // include exceptions in the ASG VN.
-        while (sideEffectNode->OperIs(GT_COMMA, GT_ASG))
-        {
-            GenTree* op1 = sideEffectNode->AsOp()->GetOp(0);
-            GenTree* op2 = sideEffectNode->AsOp()->GetOp(1);
-
-            exset = vnStore->VNPExcSetUnion(exset, vnStore->VNPExceptionSet(op1->GetVNP()));
-
-            sideEffectNode = op2;
-        }
-
-        exset = vnStore->VNPExcSetUnion(exset, vnStore->VNPExceptionSet(sideEffectNode->GetVNP()));
-
-        ValueNumPair newExprVNP = vnStore->VNPWithExc(newExpr->GetVNP(), exset);
+        ValueNumPair exset = vnStore->VNPExceptionSet(sideEffects->GetVNP());
+        ValueNumPair value = vnStore->VNPWithExc(newExpr->GetVNP(), exset);
 
         newExpr = compiler->gtNewCommaNode(sideEffects, newExpr, varActualType(newExpr->GetType()));
-        newExpr->SetVNP(newExprVNP);
+        newExpr->SetVNP(value);
 
         return newExpr;
     }
