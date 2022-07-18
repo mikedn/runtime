@@ -2487,7 +2487,7 @@ public:
                     if (node->OperIs(GT_OBJ, GT_BLK))
                     {
                         JITDUMP("Replace an unused OBJ/BLK node [%06d] with a NULLCHECK\n", node->GetID());
-                        m_compiler->gtChangeOperToNullCheck(node, m_compiler->compCurBB);
+                        m_compiler->gtChangeOperToNullCheck(node);
                     }
 
                     m_sideEffects.Push(node);

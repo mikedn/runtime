@@ -1048,17 +1048,7 @@ inline GenTreeIndir* Compiler::gtNewIndir(var_types typ, GenTree* addr)
     return indir->AsIndir();
 }
 
-//------------------------------------------------------------------------------
-// gtNewNullCheck : Helper to create a null check node.
-//
-// Arguments:
-//    addr        -  Address to null check
-//    basicBlock  -  Basic block of the node
-//
-// Return Value:
-//    New GT_NULLCHECK node
-
-inline GenTree* Compiler::gtNewNullCheck(GenTree* addr, BasicBlock* basicBlock)
+inline GenTree* Compiler::gtNewNullCheck(GenTree* addr)
 {
     assert(fgAddrCouldBeNull(addr));
     GenTree* nullCheck = gtNewOperNode(GT_NULLCHECK, TYP_BYTE, addr);

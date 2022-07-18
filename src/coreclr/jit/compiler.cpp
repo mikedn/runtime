@@ -7828,16 +7828,12 @@ bool Compiler::lvaIsOSRLocal(unsigned varNum)
 //------------------------------------------------------------------------------
 // gtChangeOperToNullCheck: helper to change tree oper to a NULLCHECK.
 //
-// Arguments:
-//    tree       - the node to change;
-//    basicBlock - basic block of the node.
-//
 // Notes:
 //    the function should not be called after lowering for platforms that do not support
 //    emitting NULLCHECK nodes, like arm32. Use `Lowering::TransformUnusedIndirection`
 //    that handles it and calls this function when appropriate.
 //
-void Compiler::gtChangeOperToNullCheck(GenTree* tree, BasicBlock* block)
+void Compiler::gtChangeOperToNullCheck(GenTree* tree)
 {
     assert(tree->OperIs(GT_FIELD_ADDR, GT_IND, GT_OBJ, GT_BLK));
 

@@ -5582,20 +5582,13 @@ void Lowering::LowerIndir(GenTreeIndir* ind)
 
         if (ind->OperIs(GT_NULLCHECK) || ind->IsUnusedValue())
         {
-            TransformUnusedIndirection(ind, comp, m_block);
+            TransformUnusedIndirection(ind);
         }
     }
 }
 
-//------------------------------------------------------------------------
-// TransformUnusedIndirection: change the opcode and the type of the unused indirection.
-//
-// Arguments:
-//    ind   - Indirection to transform.
-//    comp  - Compiler instance.
-//    block - Basic block of the indirection.
-//
-void Lowering::TransformUnusedIndirection(GenTreeIndir* ind, Compiler* comp, BasicBlock* block)
+// Change the opcode and the type of the unused indirection.
+void Lowering::TransformUnusedIndirection(GenTreeIndir* ind)
 {
     // A nullcheck is essentially the same as an indirection with no use.
     // The difference lies in whether a target register must be allocated.
@@ -5615,18 +5608,19 @@ void Lowering::TransformUnusedIndirection(GenTreeIndir* ind, Compiler* comp, Bas
     //
     assert(ind->OperIs(GT_NULLCHECK, GT_IND, GT_BLK, GT_OBJ));
 
-    ind->gtType = TYP_INT;
+    ind->SetType(TYP_INT);
+
 #ifdef TARGET_ARM64
     bool useNullCheck = true;
 #elif TARGET_ARM
     bool useNullCheck = false;
-#else  // TARGET_XARCH
-    bool useNullCheck = !ind->Addr()->isContained();
-#endif // !TARGET_XARCH
+#else
+    bool useNullCheck = !ind->GetAddr()->isContained();
+#endif
 
     if (useNullCheck && !ind->OperIs(GT_NULLCHECK))
     {
-        comp->gtChangeOperToNullCheck(ind, block);
+        ind->ChangeOper(GT_NULLCHECK);
         ind->ClearUnusedValue();
     }
     else if (!useNullCheck && !ind->OperIs(GT_IND))

@@ -2044,7 +2044,7 @@ Statement* Compiler::inlPrependStatements(InlineInfo* inlineInfo)
 
     if (nullCheckThisArg != nullptr)
     {
-        GenTree*   tree = gtNewNullCheck(nullCheckThisArg, inlineInfo->iciBlock);
+        GenTree*   tree = gtNewNullCheck(nullCheckThisArg);
         Statement* stmt = gtNewStmt(tree, inlineInfo->iciStmt->GetILOffsetX());
         fgInsertStmtAfter(inlineInfo->iciBlock, afterStmt, stmt);
         afterStmt = stmt;
@@ -2205,7 +2205,7 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
 
                     if (addrMayBeNull)
                     {
-                        gtChangeOperToNullCheck(field, inlineInfo->iciBlock);
+                        gtChangeOperToNullCheck(field);
                         argNode = field;
                     }
                     else
@@ -2223,7 +2223,7 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
 
                 if (fgAddrCouldBeNull(addr))
                 {
-                    sideEffects = gtNewNullCheck(addr, inlineInfo->iciBlock);
+                    sideEffects = gtNewNullCheck(addr);
                 }
                 else
                 {

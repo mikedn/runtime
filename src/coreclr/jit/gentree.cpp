@@ -9348,7 +9348,7 @@ GenTree* Compiler::gtFoldTypeCompare(GenTree* tree)
             {
                 // we still have to emit a null-check
                 // obj.GetType == typeof() -> (nullcheck) true/false
-                GenTree* nullcheck = gtNewNullCheck(objOp, compCurBB);
+                GenTree* nullcheck = gtNewNullCheck(objOp);
                 return gtNewCommaNode(nullcheck, compareResult);
             }
             else if (objOp->GetSideEffects() != 0)
@@ -10160,7 +10160,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
                 copySrc = field;
             }
 
-            gtChangeOperToNullCheck(copySrc, compCurBB);
+            gtChangeOperToNullCheck(copySrc);
             copyStmt->SetRootNode(copySrc);
         }
         else
@@ -11741,7 +11741,7 @@ void Compiler::gtExtractSideEffList(GenTree*  expr,
                 if (node->OperIs(GT_OBJ, GT_BLK))
                 {
                     JITDUMP("Replace an unused OBJ/BLK node [%06d] with a NULLCHECK\n", dspTreeID(node));
-                    m_compiler->gtChangeOperToNullCheck(node, m_compiler->compCurBB);
+                    m_compiler->gtChangeOperToNullCheck(node);
                 }
                 return Compiler::WALK_SKIP_SUBTREES;
             }

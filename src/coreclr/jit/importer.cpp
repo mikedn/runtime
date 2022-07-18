@@ -12949,7 +12949,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                                 GenTree* boxPayloadOffset = gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL);
                                 GenTree* boxPayloadAddress =
                                     gtNewOperNode(GT_ADD, TYP_BYREF, op1Uses[0], boxPayloadOffset);
-                                GenTree* nullcheck = gtNewNullCheck(op1Uses[1], block);
+                                GenTree* nullcheck = gtNewNullCheck(op1Uses[1]);
                                 GenTree* result    = gtNewCommaNode(nullcheck, boxPayloadAddress);
                                 impPushOnStack(result, typeInfo());
 
@@ -17174,7 +17174,7 @@ GenTree* Compiler::impImportPop(BasicBlock* block)
             }
             else
             {
-                gtChangeOperToNullCheck(op1, block);
+                gtChangeOperToNullCheck(op1);
                 op1->AsIndir()->SetAddr(addr);
             }
         }

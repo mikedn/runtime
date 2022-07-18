@@ -5617,7 +5617,7 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
             asg    = gtNewAssignNode(gtNewLclvNode(lclNum, addrType), addr);
         }
 
-        nullCheck = gtNewNullCheck(gtNewLclvNode(lclNum, addrType), compCurBB);
+        nullCheck = gtNewNullCheck(gtNewLclvNode(lclNum, addrType));
 
         if (asg != nullptr)
         {
@@ -6929,7 +6929,7 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
                 {
                     // COMMA(tmp = "this", deref(tmp))
                     GenTree* tmp          = gtNewLclvNode(lclNum, objp->TypeGet());
-                    GenTree* nullcheck    = gtNewNullCheck(tmp, compCurBB);
+                    GenTree* nullcheck    = gtNewNullCheck(tmp);
                     doBeforeStoreArgsStub = gtNewCommaNode(doBeforeStoreArgsStub, nullcheck);
                 }
 
@@ -6945,7 +6945,7 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
                 if (callNeedsNullCheck)
                 {
                     // deref("this")
-                    doBeforeStoreArgsStub = gtNewNullCheck(objp, compCurBB);
+                    doBeforeStoreArgsStub = gtNewNullCheck(objp);
 
                     if (stubNeedsThisPtr)
                     {
@@ -7541,14 +7541,14 @@ void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
 
                 // COMMA(tmp = "this", deref(tmp))
                 GenTree* tmp       = gtNewLclvNode(lclNum, vt);
-                GenTree* nullcheck = gtNewNullCheck(tmp, compCurBB);
+                GenTree* nullcheck = gtNewNullCheck(tmp);
                 asg                = gtNewCommaNode(asg, nullcheck);
                 thisPtr            = gtNewCommaNode(asg, gtNewLclvNode(lclNum, vt));
             }
             else
             {
                 // thisPtr = COMMA(deref("this"), "this")
-                GenTree* nullcheck = gtNewNullCheck(thisPtr, compCurBB);
+                GenTree* nullcheck = gtNewNullCheck(thisPtr);
                 thisPtr            = gtNewCommaNode(nullcheck, gtClone(objp, true));
             }
 
@@ -7971,7 +7971,7 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
 
         GenTree* thisPtr = call->gtCallArgs->GetNode();
 
-        GenTree* nullCheck = gtNewNullCheck(thisPtr, compCurBB);
+        GenTree* nullCheck = gtNewNullCheck(thisPtr);
 
         return fgMorphTree(nullCheck);
     }

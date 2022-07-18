@@ -2128,9 +2128,9 @@ public:
 
     GenTreeIndir* gtNewIndir(var_types typ, GenTree* addr);
 
-    GenTree* gtNewNullCheck(GenTree* addr, BasicBlock* basicBlock);
+    GenTree* gtNewNullCheck(GenTree* addr);
 
-    void gtChangeOperToNullCheck(GenTree* tree, BasicBlock* block);
+    void gtChangeOperToNullCheck(GenTree* tree);
 
     GenTreeOp* gtNewAssignNode(GenTree* dst, GenTree* src);
 
