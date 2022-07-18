@@ -2465,6 +2465,7 @@ public:
     class SideEffectExtractor final : public GenTreeVisitor<SideEffectExtractor>
     {
     public:
+        float                m_blockWeight;
         ArrayStack<GenTree*> m_sideEffects;
 
         enum
@@ -2473,10 +2474,11 @@ public:
             UseExecutionOrder = true
         };
 
-        SideEffectExtractor(Compiler* compiler)
-            : GenTreeVisitor(compiler), m_sideEffects(compiler->getAllocator(CMK_SideEffects))
+        SideEffectExtractor(Compiler* compiler, BasicBlock* block)
+            : GenTreeVisitor(compiler)
+            , m_blockWeight(block->getBBWeight(compiler))
+            , m_sideEffects(compiler->getAllocator(CMK_SideEffects))
         {
-            noway_assert(m_compiler->cseBlockWeight <= BB_MAX_WEIGHT);
         }
 
         fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
@@ -2545,13 +2547,13 @@ public:
             {
                 desc->useCount -= 1;
 
-                if (desc->useWeight < m_compiler->cseBlockWeight)
+                if (desc->useWeight < m_blockWeight)
                 {
                     desc->useWeight = 0;
                 }
                 else
                 {
-                    desc->useWeight -= m_compiler->cseBlockWeight;
+                    desc->useWeight -= m_blockWeight;
                 }
 
                 JITDUMP("Updated " FMT_CSE " use count at [%06u]: %3d\n", index, node->GetID(), desc->useCount);
@@ -2561,11 +2563,7 @@ public:
 
     GenTree* ExtractSideEffects(GenTree* expr, BasicBlock* block)
     {
-        // We also need to update use weights so we need to stash
-        // the block weight somewhere for UnmarkNode, sigh.
-        compiler->cseBlockWeight = block->getBBWeight(compiler);
-
-        SideEffectExtractor extractor(compiler);
+        SideEffectExtractor extractor(compiler, block);
         extractor.WalkTree(&expr, nullptr);
 
         GenTree* list = nullptr;

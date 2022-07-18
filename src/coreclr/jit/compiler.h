@@ -5422,10 +5422,9 @@ public:
 // String to use for formatting CSE numbers. Note that this is the positive number, e.g., from GET_CSE_INDEX().
 #define FMT_CSE "CSE%02u"
 
-    bool                 csePhase;          // True when we are executing the optOptimizeValnumCSEs() phase
-    unsigned             cseCandidateCount; // Count of CSE's candidates
-    BasicBlock::weight_t cseBlockWeight;    // The weight of the current block when we are doing PerformCSE
-    CseDesc**            cseTable;
+    bool      csePhase;          // True when we are executing the optOptimizeValnumCSEs() phase
+    unsigned  cseCandidateCount; // Count of CSE's candidates
+    CseDesc** cseTable;
 
 #ifdef DEBUG
     unsigned cseFirstLclNum; // The first local variable number that is a CSE
