@@ -2209,21 +2209,14 @@ void Compiler::fgRemoveConditionalJump(BasicBlock* block)
 
         GenTree* sideEffList = nullptr;
 
-        if (tree->gtFlags & GTF_SIDE_EFFECT)
+        if ((tree->gtFlags & GTF_SIDE_EFFECT) != 0)
         {
-            gtExtractSideEffList(tree, &sideEffList);
+            sideEffList = gtExtractSideEffList(tree);
 
-            if (sideEffList)
+            if (sideEffList != nullptr)
             {
-                noway_assert(sideEffList->gtFlags & GTF_SIDE_EFFECT);
-#ifdef DEBUG
-                if (verbose)
-                {
-                    printf("Extracted side effects list from condition...\n");
-                    gtDispTree(sideEffList);
-                    printf("\n");
-                }
-#endif
+                noway_assert((sideEffList->gtFlags & GTF_SIDE_EFFECT) != 0);
+                JITDUMPTREE(sideEffList, "Extracted side effects list from condition...\n");
             }
         }
 
@@ -2785,13 +2778,9 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block)
         }
         else
         {
-            /* check for SIDE_EFFECTS */
-            if (switchTree->gtFlags & GTF_SIDE_EFFECT)
+            if ((switchTree->gtFlags & GTF_SIDE_EFFECT) != 0)
             {
-                /* Extract the side effects from the conditional */
-                GenTree* sideEffList = nullptr;
-
-                gtExtractSideEffList(switchTree, &sideEffList);
+                GenTree* sideEffList = gtExtractSideEffList(switchTree);
 
                 if (sideEffList == nullptr)
                 {
@@ -3297,13 +3286,9 @@ bool Compiler::fgOptimizeBranchToNext(BasicBlock* block, BasicBlock* bNext, Basi
             GenTree*   cond     = condStmt->GetRootNode();
             noway_assert(cond->gtOper == GT_JTRUE);
 
-            /* check for SIDE_EFFECTS */
-            if (cond->gtFlags & GTF_SIDE_EFFECT)
+            if ((cond->gtFlags & GTF_SIDE_EFFECT) != 0)
             {
-                /* Extract the side effects from the conditional */
-                GenTree* sideEffList = nullptr;
-
-                gtExtractSideEffList(cond, &sideEffList);
+                GenTree* sideEffList = gtExtractSideEffList(cond);
 
                 if (sideEffList == nullptr)
                 {

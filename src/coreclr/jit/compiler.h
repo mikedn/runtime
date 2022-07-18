@@ -2234,10 +2234,7 @@ public:
     //    when 'list' is non-null a GT_COMMA node is used to insert 'expr'
     GenTree* gtBuildCommaList(GenTree* list, GenTree* expr);
 
-    void gtExtractSideEffList(GenTree*  expr,
-                              GenTree** pList,
-                              unsigned  flags      = GTF_SIDE_EFFECT,
-                              bool      ignoreRoot = false);
+    GenTree* gtExtractSideEffList(GenTree* expr, unsigned flags = GTF_SIDE_EFFECT, bool ignoreRoot = false);
 
     // Return true if call is a recursive call; return false otherwise.
     // Note when inlining, this looks for calls back to the root method.

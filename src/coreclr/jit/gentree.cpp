@@ -11637,53 +11637,47 @@ bool Compiler::gtTreeHasSideEffects(GenTree* tree, unsigned flags /* = GTF_SIDE_
 
 GenTree* Compiler::gtBuildCommaList(GenTree* list, GenTree* expr)
 {
-    // 'list' starts off as null,
-    //        and when it is null we haven't started the list yet.
-    //
-    if (list != nullptr)
+    if (list == nullptr)
     {
-        // Create a GT_COMMA that appends 'expr' in front of the remaining set of expressions in (*list)
-        GenTree* result = gtNewCommaNode(expr, list, TYP_VOID);
-
-        // Set the flags in the comma node
-        result->gtFlags |= (list->gtFlags & GTF_ALL_EFFECT);
-        result->gtFlags |= (expr->gtFlags & GTF_ALL_EFFECT);
-
-        // 'list' and 'expr' should have valuenumbers defined for both or for neither one (unless we are remorphing,
-        // in which case a prior transform involving either node may have discarded or otherwise invalidated the value
-        // numbers).
-        assert((list->gtVNPair.BothDefined() == expr->gtVNPair.BothDefined()) || !fgGlobalMorph);
-
-        // Set the ValueNumber 'gtVNPair' for the new GT_COMMA node
-        //
-        if (list->gtVNPair.BothDefined() && expr->gtVNPair.BothDefined())
-        {
-            // The result of a GT_COMMA node is op2, the normal value number is op2vnp
-            // But we also need to include the union of side effects from op1 and op2.
-            // we compute this value into exceptions_vnp.
-            ValueNumPair op1vnp;
-            ValueNumPair op1Xvnp = ValueNumStore::VNPForEmptyExcSet();
-            ValueNumPair op2vnp;
-            ValueNumPair op2Xvnp = ValueNumStore::VNPForEmptyExcSet();
-
-            vnStore->VNPUnpackExc(expr->gtVNPair, &op1vnp, &op1Xvnp);
-            vnStore->VNPUnpackExc(list->gtVNPair, &op2vnp, &op2Xvnp);
-
-            ValueNumPair exceptions_vnp = ValueNumStore::VNPForEmptyExcSet();
-
-            exceptions_vnp = vnStore->VNPExcSetUnion(exceptions_vnp, op1Xvnp);
-            exceptions_vnp = vnStore->VNPExcSetUnion(exceptions_vnp, op2Xvnp);
-
-            result->gtVNPair = vnStore->VNPWithExc(op2vnp, exceptions_vnp);
-        }
-
-        return result;
-    }
-    else
-    {
-        // The 'expr' will start the list of expressions
         return expr;
     }
+
+    // Create a GT_COMMA that appends 'expr' in front of the remaining set of expressions in (*list)
+    GenTree* result = gtNewCommaNode(expr, list, TYP_VOID);
+
+    // Set the flags in the comma node
+    result->gtFlags |= (list->gtFlags & GTF_ALL_EFFECT);
+    result->gtFlags |= (expr->gtFlags & GTF_ALL_EFFECT);
+
+    // 'list' and 'expr' should have valuenumbers defined for both or for neither one (unless we are remorphing,
+    // in which case a prior transform involving either node may have discarded or otherwise invalidated the value
+    // numbers).
+    assert((list->gtVNPair.BothDefined() == expr->gtVNPair.BothDefined()) || !fgGlobalMorph);
+
+    // Set the ValueNumber 'gtVNPair' for the new GT_COMMA node
+    //
+    if (list->gtVNPair.BothDefined() && expr->gtVNPair.BothDefined())
+    {
+        // The result of a GT_COMMA node is op2, the normal value number is op2vnp
+        // But we also need to include the union of side effects from op1 and op2.
+        // we compute this value into exceptions_vnp.
+        ValueNumPair op1vnp;
+        ValueNumPair op1Xvnp = ValueNumStore::VNPForEmptyExcSet();
+        ValueNumPair op2vnp;
+        ValueNumPair op2Xvnp = ValueNumStore::VNPForEmptyExcSet();
+
+        vnStore->VNPUnpackExc(expr->gtVNPair, &op1vnp, &op1Xvnp);
+        vnStore->VNPUnpackExc(list->gtVNPair, &op2vnp, &op2Xvnp);
+
+        ValueNumPair exceptions_vnp = ValueNumStore::VNPForEmptyExcSet();
+
+        exceptions_vnp = vnStore->VNPExcSetUnion(exceptions_vnp, op1Xvnp);
+        exceptions_vnp = vnStore->VNPExcSetUnion(exceptions_vnp, op2Xvnp);
+
+        result->gtVNPair = vnStore->VNPWithExc(op2vnp, exceptions_vnp);
+    }
+
+    return result;
 }
 
 //------------------------------------------------------------------------
@@ -11691,8 +11685,6 @@ GenTree* Compiler::gtBuildCommaList(GenTree* list, GenTree* expr)
 //
 // Arguments:
 //    expr       - the expression tree to extract side effects from
-//    pList      - pointer to a (possibly null) GT_COMMA list that
-//                 will contain the extracted side effects
 //    flags      - side effect flags to be considered
 //    ignoreRoot - ignore side effects on the expression root node
 //
@@ -11701,10 +11693,7 @@ GenTree* Compiler::gtBuildCommaList(GenTree* list, GenTree* expr)
 //    each comma node holds the side effect tree and op2 points to the
 //    next comma node. The original side effect execution order is preserved.
 //
-void Compiler::gtExtractSideEffList(GenTree*  expr,
-                                    GenTree** pList,
-                                    unsigned  flags /* = GTF_SIDE_EFFECT*/,
-                                    bool      ignoreRoot /* = false */)
+GenTree* Compiler::gtExtractSideEffList(GenTree* expr, unsigned flags, bool ignoreRoot)
 {
     assert(!csePhase);
     assert((flags & GTF_IS_IN_CSE) == 0);
@@ -11776,7 +11765,7 @@ void Compiler::gtExtractSideEffList(GenTree*  expr,
         extractor.WalkTree(&expr, nullptr);
     }
 
-    GenTree* list = *pList;
+    GenTree* list = nullptr;
 
     // The extractor returns side effects in execution order but gtBuildCommaList prepends
     // to the comma-based side effect list so we have to build the list in reverse order.
@@ -11788,7 +11777,7 @@ void Compiler::gtExtractSideEffList(GenTree*  expr,
         list = gtBuildCommaList(list, extractor.m_sideEffects.Pop());
     }
 
-    *pList = list;
+    return list;
 }
 
 /*****************************************************************************

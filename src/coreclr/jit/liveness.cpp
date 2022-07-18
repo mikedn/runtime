@@ -1237,7 +1237,7 @@ GenTree* Compiler::fgRemoveDeadStore(GenTreeOp* asgNode)
 
     if ((asgNode->GetOp(1)->gtFlags & GTF_SIDE_EFFECT) != 0)
     {
-        gtExtractSideEffList(asgNode->GetOp(1), &sideEffects);
+        sideEffects = gtExtractSideEffList(asgNode->GetOp(1));
 
         if (sideEffects != nullptr)
         {

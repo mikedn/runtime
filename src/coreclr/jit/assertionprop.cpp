@@ -2399,8 +2399,7 @@ private:
 
         DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
 
-        GenTree* sideEffects = nullptr;
-        compiler->gtExtractSideEffList(call, &sideEffects, GTF_SIDE_EFFECT, true);
+        GenTree* sideEffects = compiler->gtExtractSideEffList(call, GTF_SIDE_EFFECT, true);
 
         if (sideEffects != nullptr)
         {
@@ -3109,8 +3108,7 @@ private:
         // have GTF_EXCEPT set, even if it does not actually throw any exceptions).
         bool ignoreRoot = true;
 
-        GenTree* sideEffects = nullptr;
-        compiler->gtExtractSideEffList(tree, &sideEffects, GTF_SIDE_EFFECT, ignoreRoot);
+        GenTree* sideEffects = compiler->gtExtractSideEffList(tree, GTF_SIDE_EFFECT, ignoreRoot);
         JITDUMPTREE(sideEffects, "Extracted side effects from constant tree [%06u]:\n", tree->GetID());
         return sideEffects;
     }
@@ -3723,9 +3721,7 @@ private:
             // have GTF_EXCEPT set, even if it does not actually throw any exceptions).
             assert(m_vnStore->IsVNConstant(m_vnStore->VNConservativeNormalValue(tree->gtVNPair)));
 
-            GenTree* sideEffects = nullptr;
-            m_compiler->gtExtractSideEffList(tree, &sideEffects, GTF_SIDE_EFFECT, /* ignoreRoot */ true);
-            return sideEffects;
+            return m_compiler->gtExtractSideEffList(tree, GTF_SIDE_EFFECT, /* ignoreRoot */ true);
         }
 
         bool ChangeToLocalAddress(GenTree* node, const VNFuncApp& lclAddr)

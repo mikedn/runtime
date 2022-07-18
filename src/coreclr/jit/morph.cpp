@@ -12000,11 +12000,11 @@ DONE_MORPHING_CHILDREN:
                 // Extract the side effects from the left side of the comma.  Since they don't "go" anywhere, this
                 // is all we need.
 
-                GenTree* op1SideEffects = nullptr;
                 // The addition of "GTF_MAKE_CSE" below prevents us from throwing away (for example)
                 // hoisted expressions in loops.
-                gtExtractSideEffList(op1, &op1SideEffects, (GTF_SIDE_EFFECT | GTF_MAKE_CSE));
-                if (op1SideEffects)
+                GenTree* op1SideEffects = gtExtractSideEffList(op1, GTF_SIDE_EFFECT | GTF_MAKE_CSE);
+
+                if (op1SideEffects != nullptr)
                 {
                     // Replace the left hand side with the side effect list.
                     tree->AsOp()->gtOp1 = op1SideEffects;

@@ -3820,9 +3820,9 @@ PhaseStatus Compiler::optUnrollLoops()
 
                         Statement* testCopyStmt = newBlock->lastStmt();
                         GenTree*   testCopyExpr = testCopyStmt->GetRootNode();
-                        assert(testCopyExpr->gtOper == GT_JTRUE);
-                        GenTree* sideEffList = nullptr;
-                        gtExtractSideEffList(testCopyExpr, &sideEffList, GTF_SIDE_EFFECT | GTF_ORDER_SIDEEFF);
+                        assert(testCopyExpr->OperIs(GT_JTRUE));
+
+                        GenTree* sideEffList = gtExtractSideEffList(testCopyExpr, GTF_SIDE_EFFECT | GTF_ORDER_SIDEEFF);
                         if (sideEffList == nullptr)
                         {
                             fgRemoveStmt(newBlock, testCopyStmt);
@@ -6673,9 +6673,7 @@ GenTree* Compiler::optRemoveRangeCheck(GenTreeBoundsChk* check, GenTree* comma, 
     }
 #endif
 
-    // Extract side effects
-    GenTree* sideEffList = nullptr;
-    gtExtractSideEffList(check, &sideEffList, GTF_ASG);
+    GenTree* sideEffList = gtExtractSideEffList(check, GTF_ASG);
 
     if (sideEffList != nullptr)
     {
