@@ -11645,10 +11645,6 @@ GenTree* Compiler::gtBuildCommaList(GenTree* list, GenTree* expr)
     // Create a GT_COMMA that appends 'expr' in front of the remaining set of expressions in (*list)
     GenTree* result = gtNewCommaNode(expr, list, TYP_VOID);
 
-    // Set the flags in the comma node
-    result->gtFlags |= (list->gtFlags & GTF_ALL_EFFECT);
-    result->gtFlags |= (expr->gtFlags & GTF_ALL_EFFECT);
-
     // 'list' and 'expr' should have valuenumbers defined for both or for neither one (unless we are remorphing,
     // in which case a prior transform involving either node may have discarded or otherwise invalidated the value
     // numbers).
