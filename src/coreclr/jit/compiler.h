@@ -5412,7 +5412,6 @@ public:
     static const int MIN_CSE_COST = 2;
 
     bool cseIsCandidate(GenTree* tree);
-    CseDesc* cseGetDesc(unsigned index);
     bool cseCanSwapOrder(GenTree* tree1, GenTree* tree2);
 
 /**************************************************************************
@@ -5422,9 +5421,8 @@ public:
 // String to use for formatting CSE numbers. Note that this is the positive number, e.g., from GET_CSE_INDEX().
 #define FMT_CSE "CSE%02u"
 
-    bool      csePhase;          // True when we are executing the optOptimizeValnumCSEs() phase
-    unsigned  cseCandidateCount; // Count of CSE's candidates
-    CseDesc** cseTable;
+    bool     csePhase;          // True when we are executing the optOptimizeValnumCSEs() phase
+    unsigned cseCandidateCount; // Count of CSE's candidates
 
 #ifdef DEBUG
     unsigned cseFirstLclNum; // The first local variable number that is a CSE

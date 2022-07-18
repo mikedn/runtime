@@ -279,14 +279,6 @@ struct CseDesc
     }
 };
 
-CseDesc* Compiler::cseGetDesc(unsigned index)
-{
-    noway_assert((0 < index) && (index <= cseCandidateCount));
-    noway_assert(cseTable[index - 1]);
-
-    return cseTable[index - 1];
-}
-
 class Cse
 {
     // The following is the upper limit on how many expressions we'll keep track
@@ -358,7 +350,6 @@ public:
         , dataFlowTraits(0, compiler)
         , codeOptKind(compiler->compCodeOpt())
     {
-        compiler->cseTable          = nullptr;
         compiler->cseCandidateCount = 0;
 
         INDEBUG(compiler->cseFirstLclNum = compiler->lvaCount);
@@ -2466,6 +2457,8 @@ public:
     {
     public:
         float                m_blockWeight;
+        CseDesc**            m_descTable;
+        unsigned             m_descCount;
         ArrayStack<GenTree*> m_sideEffects;
 
         enum
@@ -2474,9 +2467,11 @@ public:
             UseExecutionOrder = true
         };
 
-        SideEffectExtractor(Compiler* compiler, BasicBlock* block)
+        SideEffectExtractor(Compiler* compiler, BasicBlock* block, CseDesc** descTable, unsigned descCount)
             : GenTreeVisitor(compiler)
             , m_blockWeight(block->getBBWeight(compiler))
+            , m_descTable(descTable)
+            , m_descCount(descCount)
             , m_sideEffects(compiler->getAllocator(CMK_SideEffects))
         {
         }
@@ -2532,6 +2527,14 @@ public:
         }
 
     private:
+        CseDesc* GetDesc(unsigned index) const
+        {
+            noway_assert((0 < index) && (index <= m_descCount));
+            noway_assert(m_descTable[index - 1]);
+
+            return m_descTable[index - 1];
+        }
+
         void UnmarkCseUse(GenTree* node)
         {
             assert(IsCseUse(node->GetCseInfo()));
@@ -2539,7 +2542,7 @@ public:
             unsigned index = GetCseIndex(node->GetCseInfo());
             node->ClearCseInfo();
 
-            CseDesc* desc = m_compiler->cseGetDesc(index);
+            CseDesc* desc = GetDesc(index);
 
             noway_assert(desc->useCount > 0);
 
@@ -2563,7 +2566,7 @@ public:
 
     GenTree* ExtractSideEffects(GenTree* expr, BasicBlock* block)
     {
-        SideEffectExtractor extractor(compiler, block);
+        SideEffectExtractor extractor(compiler, block, descTable, descCount);
         extractor.WalkTree(&expr, nullptr);
 
         GenTree* list = nullptr;
@@ -2675,8 +2678,7 @@ public:
 
     void ConsiderCandidates()
     {
-        // cseCanSwapOrder and UnmarkNode need the CSE table.
-        compiler->cseTable          = descTable;
+        // cseCanSwapOrder needs the CSE count.
         compiler->cseCandidateCount = descCount;
 
         CseDesc** sorted = SortCandidates();
