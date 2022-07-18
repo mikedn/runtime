@@ -287,54 +287,6 @@ CseDesc* Compiler::cseGetDesc(unsigned index)
     return cseTable[index - 1];
 }
 
-// When performing CSE we need to
-// - update the CSE use count and weight of other CSE uses that are
-//   present in the subtree
-// - preserve any CSE defs that are present in the subtree
-// This is done as part of side effect extraction (gtExtractSideEffList),
-// thus making CSE defs appear as if they're side effects.
-bool Compiler::cseUnmarkNode(GenTree* node)
-{
-    assert(csePhase);
-
-    if (!node->HasCseInfo())
-    {
-        return true;
-    }
-
-    noway_assert(cseBlockWeight <= BB_MAX_WEIGHT);
-
-    if (IsCseDef(node->GetCseInfo()))
-    {
-        return false;
-    }
-
-    unsigned index = GetCseIndex(node->GetCseInfo());
-    node->ClearCseInfo();
-
-    CseDesc* desc = cseGetDesc(index);
-
-    noway_assert(desc->useCount > 0);
-
-    if (desc->useCount > 0)
-    {
-        desc->useCount -= 1;
-
-        if (desc->useWeight < cseBlockWeight)
-        {
-            desc->useWeight = 0;
-        }
-        else
-        {
-            desc->useWeight -= cseBlockWeight;
-        }
-
-        JITDUMP("Updated CSE #%02u use count at [%06u]: %3d\n", index, node->GetID(), desc->useCount);
-    }
-
-    return true;
-}
-
 class Cse
 {
     // The following is the upper limit on how many expressions we'll keep track
@@ -2513,7 +2465,7 @@ public:
     GenTree* ExtractSideEffects(GenTree* expr, BasicBlock* block)
     {
         // We also need to update use weights so we need to stash
-        // the block weight somewhere for cseUnmarkNode, sigh.
+        // the block weight somewhere for UnmarkNode, sigh.
         compiler->cseBlockWeight = block->getBBWeight(compiler);
 
         GenTree* sideEffects = nullptr;
@@ -2593,9 +2545,9 @@ public:
             {
                 assert(m_compiler->csePhase);
 
-                if (m_compiler->cseUnmarkNode(node))
+                if (UnmarkNode(node))
                 {
-                    // The call to cseUnmarkNode(node) should have cleared any CSE info.
+                    // The call to UnmarkNode(node) should have cleared any CSE info.
                     assert(!node->HasCseInfo());
                     return true;
                 }
@@ -2611,6 +2563,46 @@ public:
 #endif
                     return false;
                 }
+            }
+
+            bool UnmarkNode(GenTree* node)
+            {
+                if (!node->HasCseInfo())
+                {
+                    return true;
+                }
+
+                noway_assert(m_compiler->cseBlockWeight <= BB_MAX_WEIGHT);
+
+                if (IsCseDef(node->GetCseInfo()))
+                {
+                    return false;
+                }
+
+                unsigned index = GetCseIndex(node->GetCseInfo());
+                node->ClearCseInfo();
+
+                CseDesc* desc = m_compiler->cseGetDesc(index);
+
+                noway_assert(desc->useCount > 0);
+
+                if (desc->useCount > 0)
+                {
+                    desc->useCount -= 1;
+
+                    if (desc->useWeight < m_compiler->cseBlockWeight)
+                    {
+                        desc->useWeight = 0;
+                    }
+                    else
+                    {
+                        desc->useWeight -= m_compiler->cseBlockWeight;
+                    }
+
+                    JITDUMP("Updated CSE #%02u use count at [%06u]: %3d\n", index, node->GetID(), desc->useCount);
+                }
+
+                return true;
             }
         };
 
@@ -2726,7 +2718,7 @@ public:
 
     void ConsiderCandidates()
     {
-        // cseCanSwapOrder and cseUnmarkNode need the CSE table.
+        // cseCanSwapOrder and UnmarkNode need the CSE table.
         compiler->cseTable          = descTable;
         compiler->cseCandidateCount = descCount;
 

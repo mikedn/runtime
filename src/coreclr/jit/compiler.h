@@ -5413,7 +5413,6 @@ public:
 
     bool cseIsCandidate(GenTree* tree);
     CseDesc* cseGetDesc(unsigned index);
-    bool cseUnmarkNode(GenTree* node);
     bool cseCanSwapOrder(GenTree* tree1, GenTree* tree2);
 
 /**************************************************************************
