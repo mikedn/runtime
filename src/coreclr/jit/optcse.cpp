@@ -1290,8 +1290,7 @@ public:
                     INDEBUG(bool madeLiveAcrossCall = false;)
                     CseDesc* desc = GetDesc(index);
 
-                    bool isUse = BitVecOps::IsMember(&dataFlowTraits, available, availBit);
-                    bool isDef = !isUse;
+                    bool isDef = !BitVecOps::IsMember(&dataFlowTraits, available, availBit);
 
                     if (isDef)
                     {
@@ -1308,7 +1307,7 @@ public:
                     }
 
                     JITDUMP(FMT_BB " [%06u] %s of " FMT_CSE " weight %s %s\n", block->bbNum, expr->GetID(),
-                            isUse ? "use" : "def", index, refCntWtd2str(blockWeight),
+                            isDef ? "def" : "use", index, refCntWtd2str(blockWeight),
                             madeLiveAcrossCall ? " becomes live across call" : "");
 
                     if (desc->useExset == NoVN)
