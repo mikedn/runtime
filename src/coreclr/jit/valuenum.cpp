@@ -1271,6 +1271,12 @@ ValueNum ValueNumStore::UnpackExset(ValueNum vn, ValueNum* exset)
     return vn;
 }
 
+ValueNumPair ValueNumStore::UnpackExset(ValueNumPair vnp, ValueNumPair* exset)
+{
+    return {UnpackExset(vnp.GetLiberal(), exset->GetLiberalAddr()),
+            UnpackExset(vnp.GetConservative(), exset->GetConservativeAddr())};
+}
+
 //-------------------------------------------------------------------------------------
 // VNPUnpackExc: - Given a ValueNumPair 'vnpWx, return via write back parameters
 //                 both the normal and the exception set components.

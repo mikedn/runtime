@@ -11642,35 +11642,20 @@ GenTree* Compiler::gtBuildCommaList(GenTree* list, GenTree* expr)
         return expr;
     }
 
-    // Create a GT_COMMA that appends 'expr' in front of the remaining set of expressions in (*list)
     GenTree* result = gtNewCommaNode(expr, list, TYP_VOID);
 
-    // 'list' and 'expr' should have valuenumbers defined for both or for neither one (unless we are remorphing,
+    // 'list' and 'expr' should have value numbers defined for both or for neither one (unless we are remorphing,
     // in which case a prior transform involving either node may have discarded or otherwise invalidated the value
     // numbers).
     assert((list->gtVNPair.BothDefined() == expr->gtVNPair.BothDefined()) || !fgGlobalMorph);
 
-    // Set the ValueNumber 'gtVNPair' for the new GT_COMMA node
-    //
     if (list->gtVNPair.BothDefined() && expr->gtVNPair.BothDefined())
     {
-        // The result of a GT_COMMA node is op2, the normal value number is op2vnp
-        // But we also need to include the union of side effects from op1 and op2.
-        // we compute this value into exceptions_vnp.
-        ValueNumPair op1vnp;
-        ValueNumPair op1Xvnp = ValueNumStore::VNPForEmptyExcSet();
-        ValueNumPair op2vnp;
-        ValueNumPair op2Xvnp = ValueNumStore::VNPForEmptyExcSet();
+        ValueNumPair exset1 = vnStore->VNPExceptionSet(expr->GetVNP());
+        ValueNumPair exset2;
+        ValueNumPair value = vnStore->UnpackExset(list->GetVNP(), &exset2);
 
-        vnStore->VNPUnpackExc(expr->gtVNPair, &op1vnp, &op1Xvnp);
-        vnStore->VNPUnpackExc(list->gtVNPair, &op2vnp, &op2Xvnp);
-
-        ValueNumPair exceptions_vnp = ValueNumStore::VNPForEmptyExcSet();
-
-        exceptions_vnp = vnStore->VNPExcSetUnion(exceptions_vnp, op1Xvnp);
-        exceptions_vnp = vnStore->VNPExcSetUnion(exceptions_vnp, op2Xvnp);
-
-        result->gtVNPair = vnStore->VNPWithExc(op2vnp, exceptions_vnp);
+        result->SetVNP(vnStore->VNPWithExc(value, vnStore->VNPExcSetUnion(exset1, exset2)));
     }
 
     return result;
