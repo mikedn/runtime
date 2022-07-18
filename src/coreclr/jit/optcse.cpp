@@ -2462,154 +2462,113 @@ public:
         }
     }
 
+    class SideEffectExtractor final : public GenTreeVisitor<SideEffectExtractor>
+    {
+    public:
+        ArrayStack<GenTree*> m_sideEffects;
+
+        enum
+        {
+            DoPreOrder        = true,
+            UseExecutionOrder = true
+        };
+
+        SideEffectExtractor(Compiler* compiler)
+            : GenTreeVisitor(compiler), m_sideEffects(compiler->getAllocator(CMK_SideEffects))
+        {
+            noway_assert(m_compiler->cseBlockWeight <= BB_MAX_WEIGHT);
+        }
+
+        fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
+        {
+            GenTree* node = *use;
+
+            if (m_compiler->gtTreeHasSideEffects(node, GTF_PERSISTENT_SIDE_EFFECTS | GTF_IS_IN_CSE))
+            {
+                if (m_compiler->gtNodeHasSideEffects(node, GTF_PERSISTENT_SIDE_EFFECTS | GTF_IS_IN_CSE))
+                {
+                    if (node->OperIs(GT_OBJ, GT_BLK))
+                    {
+                        JITDUMP("Replace an unused OBJ/BLK node [%06d] with a NULLCHECK\n", node->GetID());
+                        m_compiler->gtChangeOperToNullCheck(node, m_compiler->compCurBB);
+                    }
+
+                    m_sideEffects.Push(node);
+                    return Compiler::WALK_SKIP_SUBTREES;
+                }
+
+                // TODO-Cleanup: These have GTF_ASG set but for some reason gtNodeHasSideEffects ignores
+                // them. See the related gtNodeHasSideEffects comment as well.
+                // Also, these nodes must always be preserved, no matter what side effect flags are passed
+                // in.
+                if (node->OperIsAtomicOp())
+                {
+                    m_sideEffects.Push(node);
+                    return Compiler::WALK_SKIP_SUBTREES;
+                }
+
+                // Generally all GT_CALL nodes are considered to have side-effects.
+                // So if we get here it must be a helper call that we decided it does
+                // not have side effects that we needed to keep.
+                assert(!node->OperIs(GT_CALL) || (node->AsCall()->gtCallType == CT_HELPER));
+            }
+
+            if (node->HasCseInfo())
+            {
+                if (IsCseDef(node->GetCseInfo()))
+                {
+                    JITDUMP("Preserving " FMT_CSE " def [%06u]", GetCseIndex(node->GetCseInfo()), node->GetID());
+
+                    m_sideEffects.Push(node);
+                    return Compiler::WALK_SKIP_SUBTREES;
+                }
+
+                UnmarkCseUse(node);
+            }
+
+            return Compiler::WALK_CONTINUE;
+        }
+
+    private:
+        void UnmarkCseUse(GenTree* node)
+        {
+            assert(IsCseUse(node->GetCseInfo()));
+
+            unsigned index = GetCseIndex(node->GetCseInfo());
+            node->ClearCseInfo();
+
+            CseDesc* desc = m_compiler->cseGetDesc(index);
+
+            noway_assert(desc->useCount > 0);
+
+            if (desc->useCount > 0)
+            {
+                desc->useCount -= 1;
+
+                if (desc->useWeight < m_compiler->cseBlockWeight)
+                {
+                    desc->useWeight = 0;
+                }
+                else
+                {
+                    desc->useWeight -= m_compiler->cseBlockWeight;
+                }
+
+                JITDUMP("Updated " FMT_CSE " use count at [%06u]: %3d\n", index, node->GetID(), desc->useCount);
+            }
+        }
+    };
+
     GenTree* ExtractSideEffects(GenTree* expr, BasicBlock* block)
     {
         // We also need to update use weights so we need to stash
         // the block weight somewhere for UnmarkNode, sigh.
         compiler->cseBlockWeight = block->getBBWeight(compiler);
 
-        GenTree* sideEffects = nullptr;
-        ExtractSideEffList(expr, &sideEffects);
-
-        return sideEffects;
-    }
-
-    void ExtractSideEffList(GenTree* expr, GenTree** pList)
-    {
-        class SideEffectExtractor final : public GenTreeVisitor<SideEffectExtractor>
-        {
-        public:
-            ArrayStack<GenTree*> m_sideEffects;
-
-            enum
-            {
-                DoPreOrder        = true,
-                UseExecutionOrder = true
-            };
-
-            SideEffectExtractor(Compiler* compiler)
-                : GenTreeVisitor(compiler), m_sideEffects(compiler->getAllocator(CMK_SideEffects))
-            {
-            }
-
-            fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
-            {
-                GenTree* node = *use;
-
-                if (m_compiler->gtTreeHasSideEffects(node, GTF_PERSISTENT_SIDE_EFFECTS | GTF_IS_IN_CSE))
-                {
-                    if (m_compiler->gtNodeHasSideEffects(node, GTF_PERSISTENT_SIDE_EFFECTS | GTF_IS_IN_CSE))
-                    {
-                        m_sideEffects.Push(node);
-                        if (node->OperIs(GT_OBJ, GT_BLK))
-                        {
-                            JITDUMP("Replace an unused OBJ/BLK node [%06d] with a NULLCHECK\n", node->GetID());
-                            m_compiler->gtChangeOperToNullCheck(node, m_compiler->compCurBB);
-                        }
-                        return Compiler::WALK_SKIP_SUBTREES;
-                    }
-
-                    // TODO-Cleanup: These have GTF_ASG set but for some reason gtNodeHasSideEffects ignores
-                    // them. See the related gtNodeHasSideEffects comment as well.
-                    // Also, these nodes must always be preserved, no matter what side effect flags are passed
-                    // in. But then it should never be the case that gtExtractSideEffList gets called without
-                    // specifying GTF_ASG so there doesn't seem to be any reason to be inconsistent with
-                    // gtNodeHasSideEffects and make this check unconditionally.
-                    if (node->OperIsAtomicOp())
-                    {
-                        m_sideEffects.Push(node);
-                        return Compiler::WALK_SKIP_SUBTREES;
-                    }
-
-                    // Generally all GT_CALL nodes are considered to have side-effects.
-                    // So if we get here it must be a helper call that we decided it does
-                    // not have side effects that we needed to keep.
-                    assert(!node->OperIs(GT_CALL) || (node->AsCall()->gtCallType == CT_HELPER));
-                }
-
-                // If we're doing CSE then we also need to unmark CSE nodes. This will fail for CSE defs,
-                // those need to be extracted as if they're side effects.
-                if (!UnmarkCSE(node))
-                {
-                    m_sideEffects.Push(node);
-                    return Compiler::WALK_SKIP_SUBTREES;
-                }
-
-                // The existence of CSE defs and uses is not propagated up the tree like side
-                // effects are. We need to continue visiting the tree as if it has side effects.
-                return Compiler::WALK_CONTINUE;
-            }
-
-        private:
-            bool UnmarkCSE(GenTree* node)
-            {
-                assert(m_compiler->csePhase);
-
-                if (UnmarkNode(node))
-                {
-                    // The call to UnmarkNode(node) should have cleared any CSE info.
-                    assert(!node->HasCseInfo());
-                    return true;
-                }
-                else
-                {
-                    assert(IsCseDef(node->GetCseInfo()));
-#ifdef DEBUG
-                    if (m_compiler->verbose)
-                    {
-                        printf("Preserving the CSE def #%02d at ", GetCseIndex(node->GetCseInfo()));
-                        m_compiler->printTreeID(node);
-                    }
-#endif
-                    return false;
-                }
-            }
-
-            bool UnmarkNode(GenTree* node)
-            {
-                if (!node->HasCseInfo())
-                {
-                    return true;
-                }
-
-                noway_assert(m_compiler->cseBlockWeight <= BB_MAX_WEIGHT);
-
-                if (IsCseDef(node->GetCseInfo()))
-                {
-                    return false;
-                }
-
-                unsigned index = GetCseIndex(node->GetCseInfo());
-                node->ClearCseInfo();
-
-                CseDesc* desc = m_compiler->cseGetDesc(index);
-
-                noway_assert(desc->useCount > 0);
-
-                if (desc->useCount > 0)
-                {
-                    desc->useCount -= 1;
-
-                    if (desc->useWeight < m_compiler->cseBlockWeight)
-                    {
-                        desc->useWeight = 0;
-                    }
-                    else
-                    {
-                        desc->useWeight -= m_compiler->cseBlockWeight;
-                    }
-
-                    JITDUMP("Updated CSE #%02u use count at [%06u]: %3d\n", index, node->GetID(), desc->useCount);
-                }
-
-                return true;
-            }
-        };
-
         SideEffectExtractor extractor(compiler);
         extractor.WalkTree(&expr, nullptr);
 
-        GenTree* list = *pList;
+        GenTree* list = nullptr;
 
         // The extractor returns side effects in execution order but gtBuildCommaList prepends
         // to the comma-based side effect list so we have to build the list in reverse order.
@@ -2621,7 +2580,7 @@ public:
             list = compiler->gtBuildCommaList(list, extractor.m_sideEffects.Pop());
         }
 
-        *pList = list;
+        return list;
     }
 
     GenTree* AddSideEffects(GenTree* newExpr, GenTree* sideEffects)
