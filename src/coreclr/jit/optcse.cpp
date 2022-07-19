@@ -218,14 +218,14 @@ bool Compiler::cseCanSwapOrder(GenTree* tree1, GenTree* tree2)
            BitVecOps::IsEmptyIntersection(&defUse1.traits, defUse2.def, defUse1.use);
 }
 
-struct CseOccurence
+struct CseOccurrence
 {
-    CseOccurence* next = nullptr;
-    GenTree*      expr;
-    Statement*    stmt;
-    BasicBlock*   block;
+    CseOccurrence* next = nullptr;
+    GenTree*       expr;
+    Statement*     stmt;
+    BasicBlock*    block;
 
-    CseOccurence(GenTree* expr, Statement* stmt, BasicBlock* block) : expr(expr), stmt(stmt), block(block)
+    CseOccurrence(GenTree* expr, Statement* stmt, BasicBlock* block) : expr(expr), stmt(stmt), block(block)
     {
     }
 };
@@ -246,7 +246,7 @@ struct CseDesc
     BasicBlock::weight_t defWeight; // weighted def count
     BasicBlock::weight_t useWeight; // weighted use count (excluding the implicit uses at defs)
 
-    CseOccurence firstOccurence;
+    CseOccurrence firstOccurrence;
 
     ClassLayout* layout;
 
@@ -268,7 +268,7 @@ struct CseDesc
         , useCount(0)
         , defWeight(0)
         , useWeight(0)
-        , firstOccurence(expr, stmt, block)
+        , firstOccurrence(expr, stmt, block)
         , layout(nullptr)
         , defExset(NoVN)
         , useExset(ValueNumStore::VNForEmptyExcSet())
@@ -603,7 +603,7 @@ public:
                 continue;
             }
 
-            if (expr->OperIs(GT_CNS_INT) && (expr->GetType() != desc->firstOccurence.expr->GetType()))
+            if (expr->OperIs(GT_CNS_INT) && (expr->GetType() != desc->firstOccurrence.expr->GetType()))
             {
                 continue;
             }
@@ -637,9 +637,9 @@ public:
                 found->layout = compiler->typGetStructLayout(expr);
             }
 
-            CseOccurence* occurrence   = new (allocator) CseOccurence(expr, stmt, block);
-            occurrence->next           = found->firstOccurence.next;
-            found->firstOccurence.next = occurrence;
+            CseOccurrence* occurrence   = new (allocator) CseOccurrence(expr, stmt, block);
+            occurrence->next            = found->firstOccurrence.next;
+            found->firstOccurrence.next = occurrence;
 
             if (found->index != 0)
             {
@@ -658,12 +658,12 @@ public:
 
         if (found != nullptr)
         {
-            noway_assert(!found->firstOccurence.expr->HasCseInfo());
+            noway_assert(!found->firstOccurrence.expr->HasCseInfo());
 
             unsigned index = ++descCount;
 
             found->index = index;
-            found->firstOccurence.expr->SetCseInfo(ToCseIndex(index));
+            found->firstOccurrence.expr->SetCseInfo(ToCseIndex(index));
             expr->SetCseInfo(ToCseIndex(index));
 
 #ifdef DEBUG
@@ -949,13 +949,13 @@ public:
             unsigned availBit          = GetAvailBitIndex(desc->index);
             unsigned availCrossCallBit = GetAvailCrossCallBitIndex(desc->index);
 
-            for (CseOccurence* occurence = &desc->firstOccurence; occurence != nullptr; occurence = occurence->next)
+            for (const CseOccurrence* occ = &desc->firstOccurrence; occ != nullptr; occ = occ->next)
             {
-                BitVecOps::AddElemD(&dataFlowTraits, occurence->block->bbCseGen, availBit);
+                BitVecOps::AddElemD(&dataFlowTraits, occ->block->bbCseGen, availBit);
 
-                if ((occurence->block->bbFlags & BBF_HAS_CALL) == 0)
+                if ((occ->block->bbFlags & BBF_HAS_CALL) == 0)
                 {
-                    BitVecOps::AddElemD(&dataFlowTraits, occurence->block->bbCseGen, availCrossCallBit);
+                    BitVecOps::AddElemD(&dataFlowTraits, occ->block->bbCseGen, availCrossCallBit);
                 }
             }
         }
@@ -1548,8 +1548,8 @@ public:
     {
         bool operator()(const CseDesc* dsc1, const CseDesc* dsc2)
         {
-            unsigned exprCost1 = dsc1->firstOccurence.expr->GetCostEx();
-            unsigned exprCost2 = dsc2->firstOccurence.expr->GetCostEx();
+            unsigned exprCost1 = dsc1->firstOccurrence.expr->GetCostEx();
+            unsigned exprCost2 = dsc2->firstOccurrence.expr->GetCostEx();
 
             if (exprCost2 != exprCost1)
             {
@@ -1575,8 +1575,8 @@ public:
     {
         bool operator()(const CseDesc* dsc1, const CseDesc* dsc2)
         {
-            unsigned exprCost1 = dsc1->firstOccurence.expr->GetCostSz();
-            unsigned exprCost2 = dsc2->firstOccurence.expr->GetCostSz();
+            unsigned exprCost1 = dsc1->firstOccurrence.expr->GetCostSz();
+            unsigned exprCost2 = dsc2->firstOccurrence.expr->GetCostSz();
 
             if (exprCost2 != exprCost1)
             {
@@ -1625,7 +1625,7 @@ public:
         for (unsigned cnt = 0; cnt < descCount; cnt++)
         {
             CseDesc* dsc  = sorted[cnt];
-            GenTree* expr = dsc->firstOccurence.expr;
+            GenTree* expr = dsc->firstOccurrence.expr;
 
             BasicBlock::weight_t def;
             BasicBlock::weight_t use;
@@ -1635,13 +1635,13 @@ public:
             {
                 def  = dsc->defCount;
                 use  = dsc->useCount;
-                cost = dsc->firstOccurence.expr->GetCostSz();
+                cost = dsc->firstOccurrence.expr->GetCostSz();
             }
             else
             {
                 def  = dsc->defWeight;
                 use  = dsc->useWeight;
-                cost = dsc->firstOccurence.expr->GetCostEx();
+                cost = dsc->firstOccurrence.expr->GetCostEx();
             }
 
             printf(FMT_CSE " {" FMT_VN ", " FMT_VN "} useCount %d def %3f use %3f cost %u%s", dsc->index, dsc->hashVN,
@@ -1690,10 +1690,10 @@ public:
 
         Candidate(Compiler::codeOptimize codeOptKind, CseDesc* desc)
             : desc(desc)
-            , expr(desc->firstOccurence.expr)
+            , expr(desc->firstOccurrence.expr)
             , index(desc->index)
-            , size(desc->firstOccurence.expr->GetCostSz())
-            , cost(codeOptKind == Compiler::SMALL_CODE ? size : desc->firstOccurence.expr->GetCostEx())
+            , size(desc->firstOccurrence.expr->GetCostSz())
+            , cost(codeOptKind == Compiler::SMALL_CODE ? size : desc->firstOccurrence.expr->GetCostEx())
             , defWeight(codeOptKind == Compiler::SMALL_CODE ? desc->defCount : desc->defWeight)
             , useWeight(codeOptKind == Compiler::SMALL_CODE ? desc->useCount : desc->useWeight)
             , isLiveAcrossCall(desc->isLiveAcrossCall)
@@ -2167,9 +2167,9 @@ public:
         ssize_t  baseConstVal   = 0;
         ValueNum baseConstVN    = NoVN;
 
-        for (const CseOccurence* occurence = &desc->firstOccurence; occurence != nullptr; occurence = occurence->next)
+        for (const CseOccurrence* occ = &desc->firstOccurrence; occ != nullptr; occ = occ->next)
         {
-            GenTree* expr = occurence->expr;
+            GenTree* expr = occ->expr;
 
             if (!expr->HasCseInfo())
             {
@@ -2300,21 +2300,21 @@ public:
         }
 
         // TODO-MIKE-Cleanup: Ideally we would just add ref count and weight as we create
-        // local nodes in the next occurence loop. But local weight affect gtSetEvalOrder
+        // local nodes in the next occurrence loop. But local weight affect gtSetEvalOrder
         // decisions so we need to it upfront. We should sequence changed statements only
         // after all CSE changes are complete.
-        for (CseOccurence* occurence = &desc->firstOccurence; occurence != nullptr; occurence = occurence->next)
+        for (const CseOccurrence* occ = &desc->firstOccurrence; occ != nullptr; occ = occ->next)
         {
-            GenTree* expr = occurence->expr;
+            GenTree* expr = occ->expr;
 
             if (!expr->HasCseInfo())
             {
                 continue;
             }
 
-            float blockWeight = occurence->block->getBBWeight(compiler);
+            float blockWeight = occ->block->getBBWeight(compiler);
 
-            if (occurence == &desc->firstOccurence)
+            if (occ == &desc->firstOccurrence)
             {
                 lcl->SetRefCount(1);
                 lcl->SetRefWeight(blockWeight);
@@ -2330,9 +2330,9 @@ public:
             }
         }
 
-        for (CseOccurence* occurence = &desc->firstOccurence; occurence != nullptr; occurence = occurence->next)
+        for (const CseOccurrence* occ = &desc->firstOccurrence; occ != nullptr; occ = occ->next)
         {
-            GenTree* expr = occurence->expr;
+            GenTree* expr = occ->expr;
 
             if (!expr->HasCseInfo())
             {
@@ -2382,8 +2382,8 @@ public:
                 newExpr->SetVNP(vnStore->VNPNormalPair(expr->GetVNP()));
             }
 
-            Statement*  stmt  = occurence->stmt;
-            BasicBlock* block = occurence->block;
+            Statement*  stmt  = occ->stmt;
+            BasicBlock* block = occ->block;
 
             if (isDef)
             {
