@@ -193,7 +193,7 @@ bool Compiler::cseCanSwapOrder(GenTree* tree1, GenTree* tree2)
 
         if (node->HasCseInfo())
         {
-            unsigned index = GetCseZeroIndex(node->GetCseInfo());
+            unsigned index = GetCseIndex(node->GetCseInfo()) - 1;
 
             if (IsCseDef(node->GetCseInfo()))
             {
@@ -470,13 +470,13 @@ public:
     }
 #endif // DEBUG
 
-    static CseInfo ToCseIndex(unsigned index)
+    static CseInfo ToCseInfo(unsigned index)
     {
         assert(index < INT16_MAX);
         return static_cast<CseInfo>(index);
     }
 
-    static CseInfo ToCseDefIndex(CseInfo index)
+    static CseInfo ToCseDefInfo(CseInfo index)
     {
         return static_cast<CseInfo>(-index);
     }
@@ -619,7 +619,7 @@ public:
 
             if (found->index != 0)
             {
-                expr->SetCseInfo(ToCseIndex(found->index));
+                expr->SetCseInfo(ToCseInfo(found->index));
 
                 return found->index;
             }
@@ -639,8 +639,8 @@ public:
             unsigned index = ++descCount;
 
             found->index = index;
-            found->firstOccurrence.expr->SetCseInfo(ToCseIndex(index));
-            expr->SetCseInfo(ToCseIndex(index));
+            found->firstOccurrence.expr->SetCseInfo(ToCseInfo(index));
+            expr->SetCseInfo(ToCseInfo(index));
 
 #ifdef DEBUG
             if (compiler->verbose)
@@ -859,18 +859,18 @@ public:
     }
 
     // Return the bit used by CSE dataflow sets (bbCseGen, etc.) for the availability bit for a CSE.
-    static unsigned GetAvailBitIndex(unsigned cseNum)
+    static unsigned GetAvailBitIndex(unsigned index)
     {
-        assert((cseNum > 0) && (cseNum <= MAX_CSE_CNT));
+        assert((index > 0) && (index <= MAX_CSE_CNT));
 
-        return (cseNum - 1) * 2;
+        return (index - 1) * 2;
     }
 
     // Return the bit used by CSE dataflow sets (bbCseGen, etc.) for the availability bit
     // for a CSE considering calls as killing availability bit (see description above).
-    static unsigned GetAvailCrossCallBitIndex(unsigned cseNum)
+    static unsigned GetAvailCrossCallBitIndex(unsigned index)
     {
-        return GetAvailBitIndex(cseNum) + 1;
+        return GetAvailBitIndex(index) + 1;
     }
 
     void InitDataFlow()
@@ -889,9 +889,9 @@ public:
 
         callKillsMask = BitVecOps::MakeEmpty(&dataFlowTraits);
 
-        for (unsigned cseNum = 1; cseNum <= descCount; cseNum++)
+        for (unsigned index = 1; index <= descCount; index++)
         {
-            BitVecOps::AddElemD(&dataFlowTraits, callKillsMask, GetAvailBitIndex(cseNum));
+            BitVecOps::AddElemD(&dataFlowTraits, callKillsMask, GetAvailBitIndex(index));
         }
 
         for (BasicBlock* block : compiler->Blocks())
@@ -1265,7 +1265,7 @@ public:
 
                         desc->defCount++;
                         desc->defWeight += blockWeight;
-                        expr->SetCseInfo(ToCseDefIndex(expr->GetCseInfo()));
+                        expr->SetCseInfo(ToCseDefInfo(expr->GetCseInfo()));
 
                         BitVecOps::AddElemD(&dataFlowTraits, available, availBit);
                         BitVecOps::AddElemD(&dataFlowTraits, available, availCrossCallBit);
