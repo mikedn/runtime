@@ -195,14 +195,7 @@ bool Compiler::cseCanSwapOrder(GenTree* tree1, GenTree* tree2)
         {
             unsigned index = GetCseIndex(node->GetCseInfo()) - 1;
 
-            if (IsCseDef(node->GetCseInfo()))
-            {
-                BitVecOps::AddElemD(&data->traits, data->def, index);
-            }
-            else
-            {
-                BitVecOps::AddElemD(&data->traits, data->use, index);
-            }
+            BitVecOps::AddElemD(&data->traits, IsCseDef(node->GetCseInfo()) ? data->def : data->use, index);
         }
 
         return Compiler::WALK_CONTINUE;
