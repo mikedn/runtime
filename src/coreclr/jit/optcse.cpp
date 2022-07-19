@@ -1638,7 +1638,6 @@ public:
     {
         CseDesc* const desc;
         GenTree* const expr;
-        unsigned const index;
         unsigned const size;
         unsigned const cost;
         float const    defWeight;
@@ -1648,7 +1647,6 @@ public:
         Candidate(Compiler::codeOptimize codeOptKind, CseDesc* desc)
             : desc(desc)
             , expr(desc->firstOccurrence.expr)
-            , index(desc->index)
             , size(desc->firstOccurrence.expr->GetCostSz())
             , cost(codeOptKind == Compiler::SMALL_CODE ? size : desc->firstOccurrence.expr->GetCostEx())
             , defWeight(codeOptKind == Compiler::SMALL_CODE ? desc->defCount : desc->defWeight)
