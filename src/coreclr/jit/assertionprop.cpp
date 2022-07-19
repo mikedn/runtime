@@ -1631,7 +1631,7 @@ private:
 
     void GenerateNodeAssertions(GenTree* node)
     {
-        node->ClearAssertion();
+        node->ClearAssertionInfo();
 
         INDEBUG(currentNode = node);
 

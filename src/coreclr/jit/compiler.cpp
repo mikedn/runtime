@@ -4132,8 +4132,6 @@ void Compiler::ResetOptAnnotations()
             for (GenTree* const tree : stmt->TreeList())
             {
                 tree->ClearVN();
-                tree->ClearAssertion();
-                tree->ClearCseInfo();
             }
         }
     }

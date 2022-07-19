@@ -697,7 +697,7 @@ constexpr RegSpillSet GetRegSpilledSet(unsigned regIndex)
 
 #define FMT_TREEID "[%06u]"
 
-enum CseInfo : int8_t
+enum CseInfo : int16_t
 {
     NoCse = 0
 };
@@ -739,22 +739,21 @@ struct GenTree
 
     genTreeOps gtOper;
     var_types  gtType;
-    // Only used to save gtOper when we destroy a node, to aid debugging.
-    INDEBUG(genTreeOps gtOperSave = GT_NONE;)
 
 private:
     union {
         // Valid only during CSE, 0 or the CSE index (negated if it's a def).
         CseInfo m_cseInfo = NoCse;
+#if ASSERTION_PROP
+        // Valid only during global assertion propagation.
+        AssertionInfo m_assertionInfo;
+#endif
         // Valid only during LSRA/CodeGen
         RegSpillSet m_defRegsSpillSet;
     };
 
     // Used for nodes that are in LIR. See LIR::Flags in lir.h for the various flags.
     uint8_t m_LIRFlags = 0;
-#if ASSERTION_PROP
-    AssertionInfo m_assertionInfo;
-#endif
     uint8_t m_costEx; // estimate of expression execution cost
     uint8_t m_costSz; // estimate of expression code size cost
 
@@ -768,15 +767,16 @@ private:
 
 public:
     GenTreeFlags gtFlags = GTF_EMPTY;
-    INDEBUG(GenTreeDebugFlags gtDebugFlags = GTF_DEBUG_NONE;)
     ValueNumPair gtVNPair;
     regMaskSmall gtRsvdRegs; // set of fixed trashed  registers
     GenTree*     gtNext = nullptr;
     GenTree*     gtPrev = nullptr;
 #ifdef DEBUG
-    unsigned gtTreeID;
-    unsigned gtSeqNum = 0;  // liveness traversal order within the current statement
-    int      gtUseNum = -1; // use-ordered traversal within the function
+    GenTreeDebugFlags gtDebugFlags = GTF_DEBUG_NONE;
+    unsigned          gtTreeID;
+    unsigned          gtSeqNum   = 0;       // liveness traversal order within the current statement
+    int               gtUseNum   = -1;      // use-ordered traversal within the function
+    genTreeOps        gtOperSave = GT_NONE; // Only used to save gtOper when we destroy a node, to aid debugging.
 #endif
 
 // We use GT_STRUCT_0 only for the category of simple ops.
@@ -881,7 +881,7 @@ public:
         return m_assertionInfo.HasAssertion();
     }
 
-    void ClearAssertion()
+    void ClearAssertionInfo()
     {
         m_assertionInfo.Clear();
     }

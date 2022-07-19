@@ -351,8 +351,6 @@ public:
     {
         compiler->csePhase = true;
 
-        INDEBUG(EnsureClearCseNum());
-
         Configure();
         Locate();
 
@@ -395,22 +393,6 @@ public:
         enableSharedConstCse        = (constCse == EnableAll);
 #endif
     }
-
-#ifdef DEBUG
-    void EnsureClearCseNum()
-    {
-        for (BasicBlock* block : compiler->Blocks())
-        {
-            for (Statement* stmt : block->Statements())
-            {
-                for (GenTree* node : stmt->Nodes())
-                {
-                    assert(!node->HasCseInfo());
-                }
-            }
-        }
-    }
-#endif
 
     void BuildCseTable()
     {
@@ -490,7 +472,7 @@ public:
 
     static CseInfo ToCseIndex(unsigned index)
     {
-        assert(index < INT8_MAX);
+        assert(index < INT16_MAX);
         return static_cast<CseInfo>(index);
     }
 
@@ -727,6 +709,8 @@ public:
 
                 for (GenTree* node : stmt->Nodes())
                 {
+                    node->ClearCseInfo();
+
                     if (node->OperIsCompare() && stmtHasArrLengthCandidate)
                     {
                         UpdateCheckedBoundMap(node->AsOp());
