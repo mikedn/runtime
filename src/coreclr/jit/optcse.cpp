@@ -45,6 +45,9 @@ bool Compiler::cseIsCandidate(GenTree* node)
             // Maybe it happens with CORINFO_HELP_STRCNS but then that doesn't sound
             // like "allocation"...
 
+            // If we have a simple helper call with no other persistent side-effects
+            // then we allow this tree to be a CSE candidate.
+            //
             // Don't mark calls to allocation helpers as CSE candidates.
             // Marking them as CSE candidates usually blocks CSEs rather than enables them.
             // A typical case is:
@@ -58,15 +61,9 @@ bool Compiler::cseIsCandidate(GenTree* node)
             // more exceptions (NullRef) so we abandon this CSE.
             // If we don't mark CALL ALLOC_HELPER as a CSE candidate, we are able
             // to use GT_IND(x) in [2] as a CSE def.
-            if (node->IsHelperCall() &&
-                s_helperCallProperties.IsAllocator(eeGetHelperNum(node->AsCall()->GetMethodHandle())))
-            {
-                return false;
-            }
-
-            // If we have a simple helper call with no other persistent side-effects
-            // then we allow this tree to be a CSE candidate.
-            return !gtTreeHasSideEffects(node, GTF_PERSISTENT_SIDE_EFFECTS | GTF_IS_IN_CSE);
+            return node->IsHelperCall() &&
+                   !s_helperCallProperties.IsAllocator(eeGetHelperNum(node->AsCall()->GetMethodHandle())) &&
+                   !gtTreeHasSideEffects(node, GTF_PERSISTENT_SIDE_EFFECTS | GTF_IS_IN_CSE);
 
         case GT_IND:
             // TODO-MIKE-Review: This comment doesn't make a lot of sense, it should
