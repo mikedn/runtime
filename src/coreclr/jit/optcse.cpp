@@ -307,7 +307,6 @@ class Cse
 
     bool enableConstCse       = false;
     bool enableSharedConstCse = false;
-    bool foundCandidates      = false;
 
     Compiler::codeOptimize codeOptKind;
 
@@ -347,7 +346,7 @@ public:
         Configure();
         Locate();
 
-        if (foundCandidates)
+        if (descCount != 0)
         {
             BuildCseTable();
             InitDataFlow();
@@ -389,10 +388,7 @@ public:
 
     void BuildCseTable()
     {
-        if (descCount == 0)
-        {
-            return;
-        }
+        assert(descCount != 0);
 
         CseDesc** table = new (allocator) CseDesc*[descCount]();
 
@@ -589,8 +585,6 @@ public:
             {
                 return 0;
             }
-
-            foundCandidates = true;
 
             if (varTypeIsSIMD(expr->GetType()) && (found->layout == nullptr))
             {
