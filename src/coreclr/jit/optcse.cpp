@@ -246,8 +246,7 @@ struct CseDesc
     BasicBlock::weight_t defWeight; // weighted def count
     BasicBlock::weight_t useWeight; // weighted use count (excluding the implicit uses at defs)
 
-    CseOccurence  firstOccurence;
-    CseOccurence* lastOccurence;
+    CseOccurence firstOccurence;
 
     ClassLayout* layout;
 
@@ -270,7 +269,6 @@ struct CseDesc
         , defWeight(0)
         , useWeight(0)
         , firstOccurence(expr, stmt, block)
-        , lastOccurence(&firstOccurence)
         , layout(nullptr)
         , defExset(NoVN)
         , useExset(ValueNumStore::VNForEmptyExcSet())
@@ -640,8 +638,8 @@ public:
             }
 
             CseOccurence* occurrence   = new (allocator) CseOccurence(expr, stmt, block);
-            found->lastOccurence->next = occurrence;
-            found->lastOccurence       = occurrence;
+            occurrence->next           = found->firstOccurence.next;
+            found->firstOccurence.next = occurrence;
 
             if (found->index != 0)
             {
