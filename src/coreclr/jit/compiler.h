@@ -1537,8 +1537,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
 struct HWIntrinsicInfo;
-struct CseDesc;
-struct optCSE_MaskData;
 
 enum CallInterf : uint8_t
 {
@@ -5418,8 +5416,8 @@ public:
 // String to use for formatting CSE numbers. Note that this is the positive number, e.g., from GET_CSE_INDEX().
 #define FMT_CSE "CSE%02u"
 
-    bool     csePhase;          // True when we are executing the optOptimizeValnumCSEs() phase
-    unsigned cseCandidateCount; // Count of CSE's candidates
+    bool     csePhase;      // True when we are executing the CSE phase
+    unsigned cseValueCount; // Count of CSE values
 
 #ifdef DEBUG
     unsigned cseFirstLclNum; // The first local variable number that is a CSE
