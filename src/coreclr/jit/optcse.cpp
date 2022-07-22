@@ -1551,50 +1551,50 @@ public:
             jitstd::sort(sorted, sorted + valueCount, CostCompareSpeed());
         }
 
-        DBEXEC(compiler->verbose, DumpSortedCandidates(sorted));
-
         return sorted;
     }
 
 #ifdef DEBUG
-    void DumpSortedCandidates(Value** sorted)
+    void DumpCandidates(Value** values)
     {
-        printf("\nSorted CSE candidates:\n");
+        printf("\nCSE candidates:\n");
 
-        for (unsigned cnt = 0; cnt < valueCount; cnt++)
+        for (unsigned i = 0; i < valueCount; i++)
         {
-            Value*   dsc  = sorted[cnt];
-            GenTree* expr = dsc->firstOccurrence.expr;
+            Value*   value = values[i];
+            GenTree* expr  = value->firstOccurrence.expr;
 
-            BasicBlock::weight_t def;
-            BasicBlock::weight_t use;
-            unsigned             cost;
+            float    def;
+            float    use;
+            unsigned cost;
 
             if (codeOptKind == Compiler::SMALL_CODE)
             {
-                def  = dsc->defCount;
-                use  = dsc->useCount;
-                cost = dsc->firstOccurrence.expr->GetCostSz();
+                def  = value->defCount;
+                use  = value->useCount;
+                cost = expr->GetCostSz();
             }
             else
             {
-                def  = dsc->defWeight;
-                use  = dsc->useWeight;
-                cost = dsc->firstOccurrence.expr->GetCostEx();
+                def  = value->defWeight;
+                use  = value->useWeight;
+                cost = expr->GetCostEx();
             }
 
-            printf(FMT_CSE " {" FMT_VN ", " FMT_VN "} useCount %d def %3f use %3f cost %u%s", dsc->index, dsc->hashVN,
-                   dsc->useExset, dsc->useCount, def, use, cost, dsc->isLiveAcrossCall ? " call" : "");
+            printf(FMT_CSE " {" FMT_VN ", " FMT_VN "} useCount %d def %3f use %3f cost %u%s", value->index,
+                   value->hashVN, value->useExset, value->useCount, def, use, cost,
+                   value->isLiveAcrossCall ? " call" : "");
 
-            if (dsc->isSharedConst)
+            if (value->isSharedConst)
             {
-                printf(" sharedConst %p", dspPtr(vnStore->CoercedConstantValue<size_t>(dsc->hashVN)));
+                printf(" sharedConst %p", dspPtr(vnStore->CoercedConstantValue<size_t>(value->hashVN)));
             }
 
-            printf("\n        ");
+            printf("\n    ");
 
             compiler->gtDispTree(expr, nullptr, nullptr, true);
         }
+
         printf("\n");
     }
 #endif // DEBUG
@@ -2610,6 +2610,7 @@ public:
         compiler->cseValueCount = valueCount;
 
         Value** sorted = SortCandidates();
+        DBEXEC(compiler->verbose, DumpCandidates(sorted));
 
         for (unsigned i = 0; i < valueCount; i++)
         {
