@@ -63,7 +63,7 @@ bool Compiler::cseIsCandidate(GenTree* node)
             // to use GT_IND(x) in [2] as a CSE def.
             return node->IsHelperCall() &&
                    !s_helperCallProperties.IsAllocator(eeGetHelperNum(node->AsCall()->GetMethodHandle())) &&
-                   !gtTreeHasSideEffects(node, GTF_PERSISTENT_SIDE_EFFECTS | GTF_IS_IN_CSE);
+                   !gtTreeHasSideEffects(node, GTF_PERSISTENT_SIDE_EFFECTS, true);
 
         case GT_IND:
             // TODO-MIKE-Review: This comment doesn't make a lot of sense, it should
@@ -2431,12 +2431,11 @@ public:
         {
             GenTree* node = *use;
 
-            if (m_compiler->gtTreeHasSideEffects(node, GTF_PERSISTENT_SIDE_EFFECTS | GTF_IS_IN_CSE))
+            if (m_compiler->gtTreeHasSideEffects(node, GTF_PERSISTENT_SIDE_EFFECTS, true))
             {
                 // TODO-Cleanup: Atomics have GTF_ASG set but for some reason gtNodeHasSideEffects ignores
                 // them. See the related gtNodeHasSideEffects comment as well.
-                if (m_compiler->gtNodeHasSideEffects(node, GTF_PERSISTENT_SIDE_EFFECTS | GTF_IS_IN_CSE) ||
-                    node->OperIsAtomicOp())
+                if (m_compiler->gtNodeHasSideEffects(node, GTF_PERSISTENT_SIDE_EFFECTS, true) || node->OperIsAtomicOp())
                 {
                     if (node->OperIs(GT_OBJ, GT_BLK))
                     {

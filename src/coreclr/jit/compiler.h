@@ -2222,10 +2222,10 @@ public:
     void gtSetStmtInfo(Statement* stmt);
 
     // Returns "true" iff "node" has any of the side effects in "flags".
-    bool gtNodeHasSideEffects(GenTree* node, unsigned flags);
+    bool gtNodeHasSideEffects(GenTree* node, unsigned flags, bool ignoreCctors = false);
 
     // Returns "true" iff "tree" or its (transitive) children have any of the side effects in "flags".
-    bool gtTreeHasSideEffects(GenTree* tree, unsigned flags);
+    bool gtTreeHasSideEffects(GenTree* tree, unsigned flags, bool ignoreCctors = false);
 
     // Appends 'expr' in front of 'list'
     //    'list' will typically start off as 'nullptr'

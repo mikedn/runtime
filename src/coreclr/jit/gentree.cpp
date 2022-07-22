@@ -11509,7 +11509,7 @@ INTEGRAL_OVF:
  *  assignments too.
  */
 
-bool Compiler::gtNodeHasSideEffects(GenTree* tree, unsigned flags)
+bool Compiler::gtNodeHasSideEffects(GenTree* tree, unsigned flags, bool ignoreCctors)
 {
     if (flags & GTF_ASG)
     {
@@ -11533,13 +11533,12 @@ bool Compiler::gtNodeHasSideEffects(GenTree* tree, unsigned flags)
         {
             GenTreeCall* const call             = tree->AsCall();
             const bool         ignoreExceptions = (flags & GTF_EXCEPT) == 0;
-            const bool         ignoreCctors     = (flags & GTF_IS_IN_CSE) != 0; // We can CSE helpers that run cctors.
             if (!call->HasSideEffects(this, ignoreExceptions, ignoreCctors))
             {
                 // If this call is otherwise side effect free, check its arguments.
                 for (GenTreeCall::Use& use : call->Args())
                 {
-                    if (gtTreeHasSideEffects(use.GetNode(), flags))
+                    if (gtTreeHasSideEffects(use.GetNode(), flags, ignoreCctors))
                     {
                         return true;
                     }
@@ -11548,7 +11547,7 @@ bool Compiler::gtNodeHasSideEffects(GenTree* tree, unsigned flags)
                 // side effects...but better to be conservative for now.
                 for (GenTreeCall::Use& use : call->LateArgs())
                 {
-                    if (gtTreeHasSideEffects(use.GetNode(), flags))
+                    if (gtTreeHasSideEffects(use.GetNode(), flags, ignoreCctors))
                     {
                         return true;
                     }
@@ -11585,7 +11584,7 @@ bool Compiler::gtNodeHasSideEffects(GenTree* tree, unsigned flags)
  * Returns true if the expr tree has any side effects.
  */
 
-bool Compiler::gtTreeHasSideEffects(GenTree* tree, unsigned flags /* = GTF_SIDE_EFFECT*/)
+bool Compiler::gtTreeHasSideEffects(GenTree* tree, unsigned flags, bool ignoreCctors)
 {
     // These are the side effect flags that we care about for this tree
     unsigned sideEffectFlags = tree->gtFlags & flags;
@@ -11608,22 +11607,22 @@ bool Compiler::gtTreeHasSideEffects(GenTree* tree, unsigned flags /* = GTF_SIDE_
                 // If this node is a helper call we may not care about the side-effects.
                 // Note that gtNodeHasSideEffects checks the side effects of the helper itself
                 // as well as the side effects of its arguments.
-                return gtNodeHasSideEffects(tree, flags);
+                return gtNodeHasSideEffects(tree, flags, ignoreCctors);
             }
         }
         else if (tree->OperGet() == GT_INTRINSIC)
         {
-            if (gtNodeHasSideEffects(tree, flags))
+            if (gtNodeHasSideEffects(tree, flags, ignoreCctors))
             {
                 return true;
             }
 
-            if (gtNodeHasSideEffects(tree->AsOp()->gtOp1, flags))
+            if (gtNodeHasSideEffects(tree->AsOp()->gtOp1, flags, ignoreCctors))
             {
                 return true;
             }
 
-            if ((tree->AsOp()->gtOp2 != nullptr) && gtNodeHasSideEffects(tree->AsOp()->gtOp2, flags))
+            if ((tree->AsOp()->gtOp2 != nullptr) && gtNodeHasSideEffects(tree->AsOp()->gtOp2, flags, ignoreCctors))
             {
                 return true;
             }
@@ -11677,7 +11676,6 @@ GenTree* Compiler::gtBuildCommaList(GenTree* list, GenTree* expr)
 GenTree* Compiler::gtExtractSideEffList(GenTree* expr, unsigned flags, bool ignoreRoot)
 {
     assert(!csePhase);
-    assert((flags & GTF_IS_IN_CSE) == 0);
 
     class SideEffectExtractor final : public GenTreeVisitor<SideEffectExtractor>
     {
