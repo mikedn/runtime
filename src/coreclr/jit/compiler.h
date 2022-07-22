@@ -2222,17 +2222,17 @@ public:
     void gtSetStmtInfo(Statement* stmt);
 
     // Returns "true" iff "node" has any of the side effects in "flags".
-    bool gtNodeHasSideEffects(GenTree* node, unsigned flags, bool ignoreCctors = false);
+    bool gtNodeHasSideEffects(GenTree* node, GenTreeFlags flags, bool ignoreCctors = false);
 
     // Returns "true" iff "tree" or its (transitive) children have any of the side effects in "flags".
-    bool gtTreeHasSideEffects(GenTree* tree, unsigned flags, bool ignoreCctors = false);
+    bool gtTreeHasSideEffects(GenTree* tree, GenTreeFlags flags, bool ignoreCctors = false);
 
     // Appends 'expr' in front of 'list'
     //    'list' will typically start off as 'nullptr'
     //    when 'list' is non-null a GT_COMMA node is used to insert 'expr'
     GenTree* gtBuildCommaList(GenTree* list, GenTree* expr);
 
-    GenTree* gtExtractSideEffList(GenTree* expr, unsigned flags = GTF_SIDE_EFFECT, bool ignoreRoot = false);
+    GenTree* gtExtractSideEffList(GenTree* expr, GenTreeFlags flags = GTF_SIDE_EFFECT, bool ignoreRoot = false);
 
     // Return true if call is a recursive call; return false otherwise.
     // Note when inlining, this looks for calls back to the root method.
