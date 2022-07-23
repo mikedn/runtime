@@ -166,10 +166,15 @@ bool Compiler::cseIsCandidate(GenTree* node)
 // and that's not possible if we have CSE uses in a subtree that depend on CSE defs in
 // the other subtree.
 // TODO-MIKE-Review: See if we can update linear order after CSE is done to avoid this.
+// Or just remove this completely. The precise implementation wastes 0.15% in PIN and
+// yields practically no CQ improvements, just a few bytes here and there.
 bool Compiler::cseCanSwapOrder(GenTree* tree1, GenTree* tree2)
 {
     assert(csePhase);
 
+    return false;
+
+#if 0
     struct CseDefUse
     {
         BitVecTraits traits;
@@ -206,6 +211,7 @@ bool Compiler::cseCanSwapOrder(GenTree* tree1, GenTree* tree2)
 
     return BitVecOps::IsEmptyIntersection(&defUse1.traits, defUse1.def, defUse2.use) &&
            BitVecOps::IsEmptyIntersection(&defUse1.traits, defUse2.def, defUse1.use);
+#endif
 }
 
 class Cse
