@@ -382,7 +382,7 @@ public:
             {
                 if (value->index != 0)
                 {
-                    noway_assert(value->index <= valueCount);
+                    assert(value->index <= valueCount);
 
                     if (table[value->index - 1] == nullptr)
                     {
@@ -395,7 +395,7 @@ public:
 #ifdef DEBUG
         for (unsigned i = 0; i < valueCount; i++)
         {
-            noway_assert(table[i] != nullptr);
+            assert(table[i] != nullptr);
         }
 #endif
 
@@ -604,7 +604,7 @@ public:
 
         if (found != nullptr)
         {
-            noway_assert(!found->firstOccurrence.expr->HasCseInfo());
+            assert(!found->firstOccurrence.expr->HasCseInfo());
 
             unsigned index = ++valueCount;
 
@@ -822,8 +822,7 @@ public:
 
     Value* GetValue(unsigned index) const
     {
-        noway_assert((0 < index) && (index <= valueCount));
-        noway_assert(valueTable[index - 1]);
+        assert((0 < index) && (index <= valueCount));
 
         return valueTable[index - 1];
     }
@@ -1285,7 +1284,7 @@ public:
             // may affect them from the stack pointer).
             // TODO-MIKE-Cleanup: This is likely pointless, lvaOutgoingArgSpaceVar should
             // have ref count 0 at this point so we skip it anyway above.
-            noway_assert(compiler->lvaOutgoingArgSpaceVar != BAD_VAR_NUM);
+            assert(compiler->lvaOutgoingArgSpaceVar != BAD_VAR_NUM);
 
             if (lclNum == compiler->lvaOutgoingArgSpaceVar)
             {
@@ -2442,8 +2441,7 @@ public:
     private:
         Value* GetValue(unsigned index) const
         {
-            noway_assert((0 < index) && (index <= m_valueCount));
-            noway_assert(m_valueTable[index - 1]);
+            assert((0 < index) && (index <= m_valueCount));
 
             return m_valueTable[index - 1];
         }
@@ -2457,7 +2455,7 @@ public:
 
             Value* value = GetValue(index);
 
-            noway_assert(value->useCount > 0);
+            assert(value->useCount > 0);
 
             if (value->useCount > 0)
             {
