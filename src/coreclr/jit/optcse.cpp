@@ -2353,23 +2353,21 @@ public:
                 }
             }
 
-            Compiler::FindLinkData use = compiler->gtFindLink(stmt, expr);
+            GenTree** use;
+            GenTree*  user = expr->FindUser(&use);
 
-            if (use.useEdge == nullptr)
+            if (user == nullptr)
             {
-                JITDUMPTREE(stmt->GetRootNode(), "Could not find user of [%06u] in\n", expr->GetID());
-                unreached();
+                noway_assert(expr == stmt->GetRootNode());
+                stmt->SetRootNode(newExpr);
             }
-
-            *use.useEdge = newExpr;
+            else
+            {
+                *use = newExpr;
+                compiler->gtUpdateTreeAncestorsSideEffects(user);
+            }
 
             compiler->CopyZeroOffsetFieldSeq(expr->SkipComma(), newExpr);
-
-            if (use.user != nullptr)
-            {
-                compiler->gtUpdateTreeAncestorsSideEffects(use.user);
-            }
-
             compiler->gtSetStmtInfo(stmt);
             compiler->fgSetStmtSeq(stmt);
         }
