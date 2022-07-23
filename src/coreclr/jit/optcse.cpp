@@ -337,11 +337,7 @@ public:
         if (valueCount != 0)
         {
             BuildValueTable();
-            InitDataFlow();
-            DataFlow();
             Availability();
-            EstimateFrameSize();
-            EstimateCutOffWeights();
             ConsiderCandidates();
         }
 
@@ -1134,6 +1130,9 @@ public:
     //
     void Availability()
     {
+        InitDataFlow();
+        DataFlow();
+
         BitVec available = BitVecOps::MakeEmpty(&dataFlowTraits);
 
         for (BasicBlock* const block : compiler->Blocks())
@@ -2573,6 +2572,9 @@ public:
 
     void ConsiderCandidates()
     {
+        EstimateFrameSize();
+        EstimateCutOffWeights();
+
         // cseCanSwapOrder needs the CSE count.
         compiler->cseValueCount = valueCount;
 
