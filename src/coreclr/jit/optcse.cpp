@@ -340,10 +340,6 @@ public:
             InitDataFlow();
             DataFlow();
             Availability();
-
-            JITDUMP("\n************ Trees at start of Heuristic()\n");
-            DBEXEC(compiler->verbose, compiler->fgDumpTrees(compiler->fgFirstBB, nullptr));
-
             EstimateFrameSize();
             EstimateCutOffWeights();
             ConsiderCandidates();
@@ -423,12 +419,9 @@ public:
         return temp;
     }
 
-    void DumpDataFlowSet(const BitVec set, bool includeBits = true)
+    void DumpDataFlowSet(const BitVec set)
     {
-        if (includeBits)
-        {
-            printf("%s ", genES2str(&dataFlowTraits, set));
-        }
+        printf("= { ");
 
         const char* prefix = "";
         for (unsigned i = 1; i <= valueCount; i++)
@@ -444,6 +437,8 @@ public:
                 prefix = ", ";
             }
         }
+
+        printf(" }\n");
     }
 #endif // DEBUG
 
@@ -620,11 +615,11 @@ public:
 #ifdef DEBUG
             if (compiler->verbose)
             {
-                printf("\nCSE candidate #%02u, key=", index);
-                compiler->vnPrint(static_cast<ValueNum>(hashVN), 0);
-                printf(" in " FMT_BB ", [cost=%2u, size=%2u]: \n", block->bbNum, expr->GetCostEx(), expr->GetCostSz());
-
+                printf(FMT_CSE " in " FMT_BB " VN ", index, block->bbNum);
+                compiler->vnPrint(hashVN, 0);
+                printf("\n");
                 compiler->gtDispTree(expr);
+                printf("\n");
             }
 #endif // DEBUG
 
@@ -957,21 +952,12 @@ public:
 #ifdef DEBUG
         if (compiler->verbose)
         {
-            bool headerPrinted = false;
-
             for (BasicBlock* block : compiler->Blocks())
             {
                 if (!BitVecOps::IsEmpty(&dataFlowTraits, block->bbCseGen))
                 {
-                    if (!headerPrinted)
-                    {
-                        printf("\nBlocks that generate CSE def/uses\n");
-                        headerPrinted = true;
-                    }
-
-                    printf(FMT_BB " cseGen = ", block->bbNum);
+                    printf(FMT_BB " gen ", block->bbNum);
                     DumpDataFlowSet(block->bbCseGen);
-                    printf("\n");
                 }
             }
         }
@@ -1096,29 +1082,24 @@ public:
     //     bbCseOut  - Computed CSEs that are available at exit to the block
     void DataFlow()
     {
-        JITDUMP("\nPerforming DataFlow for ValnumCSE's\n");
-
         ForwardDataFlow(DataFlowCallback(compiler, *this), compiler);
 
 #ifdef DEBUG
         if (compiler->verbose)
         {
-            printf("\nAfter performing DataFlow for ValnumCSE's\n");
+            printf("\n");
 
             for (BasicBlock* const block : compiler->Blocks())
             {
-                printf(FMT_BB " in gen out\n", block->bbNum);
+                printf(FMT_BB " in ", block->bbNum);
                 DumpDataFlowSet(block->bbCseIn);
-                printf("\n");
-                DumpDataFlowSet(block->bbCseGen);
-                printf("\n");
+                printf(FMT_BB " out ", block->bbNum);
                 DumpDataFlowSet(block->bbCseOut);
-                printf("\n");
             }
 
             printf("\n");
         }
-#endif // DEBUG
+#endif
     }
 
     // Using the information computed by DataFlowCallback determine for each
@@ -1154,8 +1135,6 @@ public:
     //
     void Availability()
     {
-        JITDUMP("Labeling the CSEs with Use/Def information\n");
-
         BitVec available = BitVecOps::MakeEmpty(&dataFlowTraits);
 
         for (BasicBlock* const block : compiler->Blocks())
@@ -1181,10 +1160,11 @@ public:
                     unsigned index             = GetCseIndex(expr->GetCseInfo());
                     unsigned availBit          = GetAvailBitIndex(index);
                     unsigned availCrossCallBit = GetAvailCrossCallBitIndex(index);
-                    INDEBUG(bool madeLiveAcrossCall = false;)
-                    Value* value = GetValue(index);
+                    Value*   value             = GetValue(index);
 
                     bool isDef = !BitVecOps::IsMember(&dataFlowTraits, available, availBit);
+
+                    JITDUMP(FMT_CSE " %s [%06u]\n", index, isDef ? "def" : "use", expr->GetID());
 
                     if (isDef)
                     {
@@ -1196,17 +1176,13 @@ public:
                             !BitVecOps::IsMember(&dataFlowTraits, available, availCrossCallBit))
                         {
                             value->isLiveAcrossCall = true;
-                            INDEBUG(madeLiveAcrossCall = true;)
+                            JITDUMP("  Becomes live across call.\n");
                         }
                     }
 
-                    JITDUMP(FMT_BB " [%06u] %s of " FMT_CSE " weight %s %s\n", block->bbNum, expr->GetID(),
-                            isDef ? "def" : "use", index, refCntWtd2str(blockWeight),
-                            madeLiveAcrossCall ? " becomes live across call" : "");
-
                     if (value->useExset == NoVN)
                     {
-                        JITDUMP("Abandoned - CSE candidate has defs with different exception sets.\n");
+                        JITDUMP("  Has incompatible def/use exception sets.\n");
                         expr->ClearCseInfo();
 
                         continue;
@@ -1232,8 +1208,7 @@ public:
                                 value->useExset = NoVN;
                                 expr->ClearCseInfo();
 
-                                JITDUMP("Abandon - CSE candidate has defs with exception sets that do not satisfy "
-                                        "some CSE use.\n");
+                                JITDUMP("  Has incompatible def/use exception sets.\n");
                                 continue;
                             }
                         }
@@ -1253,9 +1228,7 @@ public:
                             {
                                 expr->ClearCseInfo();
 
-                                JITDUMP("This CSE use has an exception set item that isn't contained in the "
-                                        "defs.\n");
-
+                                JITDUMP("  Has incompatible def/use exception sets.\n");
                                 continue;
                             }
 
@@ -1281,6 +1254,8 @@ public:
                 }
             }
         }
+
+        DBEXEC(compiler->verbose, compiler->fgDumpTrees(compiler->fgFirstBB, nullptr));
     }
 
     void EstimateFrameSize()
@@ -1478,9 +1453,9 @@ public:
         aggressiveWeight = max(BB_UNITY_WEIGHT * 2, aggressiveWeight);
         moderateWeight   = max(BB_UNITY_WEIGHT, moderateWeight);
 
-        JITDUMP("Aggressive CSE Promotion cutoff is %f\n", aggressiveWeight);
-        JITDUMP("Moderate CSE Promotion cutoff is %f\n", moderateWeight);
-        JITDUMP("EnregCount is %u\n", enregCount);
+        JITDUMP("Aggressive promotion cutoff is %f\n", aggressiveWeight);
+        JITDUMP("Moderate promotion cutoff is %f\n", moderateWeight);
+        JITDUMP("Enregistrable local count is %u\n", enregCount);
     }
 
     struct CostCompareSpeed
@@ -1557,7 +1532,7 @@ public:
 #ifdef DEBUG
     void DumpCandidates(Value** values)
     {
-        printf("\nCSE candidates:\n");
+        printf("Candidates:\n");
 
         for (unsigned i = 0; i < valueCount; i++)
         {
@@ -1843,6 +1818,9 @@ public:
         unsigned      defCost;
         unsigned      useCost;
 
+        JITDUMP("defWeight %f useWeight %f weight %f aggressiveWeight %f moderateWeight %f\n", candidate.defWeight,
+                candidate.useWeight, lclWeight, aggressiveWeight, moderateWeight);
+
         if (codeOptKind == Compiler::SMALL_CODE)
         {
             // When optimizing for small code we set the costs based upon
@@ -1850,7 +1828,7 @@ public:
 
             if (lclWeight >= aggressiveWeight)
             {
-                JITDUMP("Aggressive CSE Promotion (%f >= %f)\n", lclWeight, aggressiveWeight);
+                JITDUMP("Aggressive promotion (%f >= %f)\n", lclWeight, aggressiveWeight);
 
                 kind = PromotionKind::Aggresive;
 
@@ -1879,7 +1857,7 @@ public:
 
                 if (largeFrame)
                 {
-                    JITDUMP("Codesize CSE Promotion (%s frame)\n", hugeFrame ? "huge" : "large");
+                    JITDUMP("Conservative size promotion (%s frame)\n", hugeFrame ? "huge" : "large");
 
 #ifdef TARGET_XARCH
                     defCost = 6; // mov [EBP-0x00001FC], reg
@@ -1899,7 +1877,7 @@ public:
                 }
                 else
                 {
-                    JITDUMP("Codesize CSE Promotion (small frame)\n");
+                    JITDUMP("Conservative size Promotion (small frame)\n");
 
 #ifdef TARGET_XARCH
                     defCost = 3; // mov [EBP-1C], reg
@@ -1930,7 +1908,7 @@ public:
             {
                 kind = PromotionKind::Aggresive;
 
-                JITDUMP("Aggressive CSE Promotion (%f >= %f)\n", lclWeight, aggressiveWeight);
+                JITDUMP("Aggressive promotion (%f >= %f)\n", lclWeight, aggressiveWeight);
 
                 // We expect that the candidate will be enregistered so we have minimum costs.
                 defCost = 1;
@@ -1942,14 +1920,14 @@ public:
 
                 if (!candidate.isLiveAcrossCall)
                 {
-                    JITDUMP("Moderate CSE Promotion (never live at call) (%f >= %f)\n", lclWeight, moderateWeight);
+                    JITDUMP("Moderate promotion (never live at call) (%f >= %f)\n", lclWeight, moderateWeight);
 
                     defCost = 2;
                     useCost = 1;
                 }
                 else
                 {
-                    JITDUMP("Moderate CSE Promotion (live across a call) (%f >= %f)\n", lclWeight, moderateWeight);
+                    JITDUMP("Moderate promotion (live across a call) (%f >= %f)\n", lclWeight, moderateWeight);
 
                     defCost = 2;
 
@@ -1969,14 +1947,14 @@ public:
 
                 if (!candidate.isLiveAcrossCall)
                 {
-                    JITDUMP("Conservative CSE Promotion (not enregisterable) (%f < %f)\n", lclWeight, moderateWeight);
+                    JITDUMP("Conservative promotion (not enregisterable) (%f < %f)\n", lclWeight, moderateWeight);
 
                     defCost = 2;
                     useCost = 2;
                 }
                 else
                 {
-                    JITDUMP("Conservative CSE Promotion (%f < %f)\n", lclWeight, moderateWeight);
+                    JITDUMP("Conservative promotion (%f < %f)\n", lclWeight, moderateWeight);
 
                     defCost = 2;
                     useCost = 3;
@@ -2056,19 +2034,8 @@ public:
         // Cost estimate when we decide to make a CSE.
         float yesCseCost = (candidate.defWeight * defCost) + (candidate.useWeight * useCost) + extraYesCost;
 
-#ifdef DEBUG
-        if (compiler->verbose)
-        {
-            printf("lclWeight=%f, aggressiveWeight=%f, moderateWeight=%f\n", lclWeight, aggressiveWeight,
-                   moderateWeight);
-            printf("defCnt=%f, useCnt=%f, cost=%d, size=%d%s\n", candidate.defWeight, candidate.useWeight,
-                   candidate.cost, candidate.size, candidate.isLiveAcrossCall ? ", LiveAcrossCall" : "");
-            printf("defCost=%d, useCost=%d, extraNoCost=%d, extraYesCost=%d\n", defCost, useCost, extraNoCost,
-                   extraYesCost);
-            printf("CSE cost savings check (%f >= %f) %s\n", noCseCost, yesCseCost,
-                   noCseCost >= yesCseCost ? "passes" : "fails");
-        }
-#endif
+        JITDUMP("defCost %u useCost %u extraNoCost %u extraYesCost %u\n", defCost, useCost, extraNoCost, extraYesCost);
+        JITDUMP("Cost check (%f >= %f) %s\n", noCseCost, yesCseCost, noCseCost >= yesCseCost ? "passes" : "fails");
 
         if (yesCseCost <= noCseCost)
         {
@@ -2140,7 +2107,7 @@ public:
             }
         }
 
-        JITDUMP("Using 0x%p (" FMT_VN ") as the base value for shared const CSE.\n", dspPtr(baseConstVal), baseConstVN);
+        JITDUMP("Using 0x%p (" FMT_VN ") as the base value for shared const.\n", dspPtr(baseConstVal), baseConstVN);
 
         *outBaseConstVN = baseConstVN;
         return baseConstVal;
@@ -2148,8 +2115,6 @@ public:
 
     void PerformCSE(const Candidate& candidate DEBUGARG(PromotionKind kind))
     {
-        JITDUMP("\nPromoting CSE:\n");
-
         if (candidate.isLiveAcrossCall)
         {
             // As we introduce new LclVars for these CSE we slightly
@@ -2230,7 +2195,7 @@ public:
 
         if (value->defCount == 1)
         {
-            JITDUMP(FMT_CSE " is single-def, so associated CSE temp V%02u will be in SSA\n", value->index, lclNum);
+            JITDUMP(FMT_CSE " is single-def, so associated temp V%02u will be in SSA\n", value->index, lclNum);
             lcl->lvInSsa = true;
 
             ssaNum = lcl->lvPerSsaData.AllocSsaNum(compiler->getAllocator(CMK_SSA));
@@ -2282,6 +2247,8 @@ public:
                 }
             }
         }
+
+        JITDUMP("\n");
 
         for (const Occurrence* occ = &value->firstOccurrence; occ != nullptr; occ = occ->next)
         {
@@ -2402,6 +2369,8 @@ public:
             compiler->gtSetStmtInfo(stmt);
             compiler->fgSetStmtSeq(stmt);
         }
+
+        JITDUMP("\n");
     }
 
     class SideEffectExtractor final : public GenTreeVisitor<SideEffectExtractor>
@@ -2503,7 +2472,7 @@ public:
                     value->useWeight -= m_blockWeight;
                 }
 
-                JITDUMP("Updated " FMT_CSE " use count at [%06u]: %3d\n", index, node->GetID(), value->useCount);
+                JITDUMP("Removing " FMT_CSE " use [%06u] (remaining uses %d)\n", index, node->GetID(), value->useCount);
             }
         }
     };
@@ -2622,13 +2591,13 @@ public:
                 // block with this use is unreachable.
                 // The problem is if there is sub-graph that is not reachable from the
                 // entry point, the CSE flags propagated, would be incorrect for it.
-                JITDUMP("Skipped " FMT_CSE " because def/use count is 0\n", value->index);
+                JITDUMP(FMT_CSE " has no defs/uses\n", value->index);
                 continue;
             }
 
             if (value->useExset == NoVN)
             {
-                JITDUMP("Abandoned " FMT_CSE " because we had defs with different Exc sets\n", value->index);
+                JITDUMP(FMT_CSE " has incompatible def/use exception sets\n", value->index);
                 continue;
             }
 
@@ -2636,13 +2605,13 @@ public:
 
             if (candidate.useWeight == 0)
             {
-                JITDUMP("Skipped " FMT_CSE " because use count is 0\n", value->index);
+                JITDUMP(FMT_CSE " has 0 weight\n", value->index);
                 continue;
             }
 
 #ifdef DEBUG
-            JITDUMP(FMT_CSE " {" FMT_VN ", " FMT_VN "} def %3f use %3f cost %u%s", value->index, value->hashVN,
-                    value->useExset, candidate.defWeight, candidate.useWeight, candidate.cost,
+            JITDUMP(FMT_CSE " {" FMT_VN ", " FMT_VN "} def %3f use %3f cost %u size %u%s", value->index, value->hashVN,
+                    value->useExset, candidate.defWeight, candidate.useWeight, candidate.cost, candidate.size,
                     candidate.isLiveAcrossCall ? " call" : "");
 
             if (value->isSharedConst)
@@ -2650,18 +2619,15 @@ public:
                 JITDUMP(" sharedConst %p", dspPtr(vnStore->CoercedConstantValue<size_t>(value->hashVN)));
             }
 
-            JITDUMPTREE(candidate.expr, "\nCSE Expression:\n");
+            JITDUMPTREE(candidate.expr, "\n");
 #endif
 
             PromotionKind kind = PromotionCheck(candidate);
 
-            if (kind == PromotionKind::None)
+            if (kind != PromotionKind::None)
             {
-                JITDUMP("Did Not promote this CSE\n");
-                continue;
+                PerformCSE(candidate DEBUGARG(kind));
             }
-
-            PerformCSE(candidate DEBUGARG(kind));
         }
     }
 };
