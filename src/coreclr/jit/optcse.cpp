@@ -2349,12 +2349,12 @@ public:
 
     class SideEffectExtractor final : public GenTreeVisitor<SideEffectExtractor>
     {
-    public:
         float                m_blockWeight;
         Value**              m_valueTable;
         unsigned             m_valueCount;
         ArrayStack<GenTree*> m_sideEffects;
 
+    public:
         enum
         {
             DoPreOrder        = true,
@@ -2413,6 +2413,11 @@ public:
             return Compiler::WALK_CONTINUE;
         }
 
+        ArrayStack<GenTree*>& GetSideEffects()
+        {
+            return m_sideEffects;
+        }
+
     private:
         Value* GetValue(unsigned index) const
         {
@@ -2462,9 +2467,9 @@ public:
         // This is also why the sideEffects cannot be built while traversing the tree.
         // The number of side effects is usually small (<= 4), less than the ArrayStack's
         // built-in size, so memory allocation is avoided.
-        while (!extractor.m_sideEffects.Empty())
+        while (!extractor.GetSideEffects().Empty())
         {
-            sideEffects = compiler->gtBuildCommaList(sideEffects, extractor.m_sideEffects.Pop());
+            sideEffects = compiler->gtBuildCommaList(sideEffects, extractor.GetSideEffects().Pop());
         }
 
         return sideEffects;
