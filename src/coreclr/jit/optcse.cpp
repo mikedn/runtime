@@ -323,7 +323,9 @@ public:
         , dataFlowTraits(0, compiler)
         , codeOptKind(compiler->compCodeOpt())
     {
+#if 0
         compiler->cseValueCount = 0;
+#endif
 
         INDEBUG(compiler->cseFirstLclNum = compiler->lvaCount);
     }
@@ -2590,8 +2592,10 @@ public:
         EstimateFrameSize();
         EstimateCutOffWeights();
 
+#if 0
         // cseCanSwapOrder needs the CSE count.
         compiler->cseValueCount = valueCount;
+#endif
 
         Value** sorted = SortCandidates();
         DBEXEC(compiler->verbose, DumpCandidates(sorted));
