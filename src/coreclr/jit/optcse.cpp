@@ -1465,55 +1465,55 @@ public:
 
     struct CostCompareSpeed
     {
-        bool operator()(const Value* dsc1, const Value* dsc2)
+        bool operator()(const Value* v1, const Value* v2)
         {
-            unsigned exprCost1 = dsc1->firstOccurrence.expr->GetCostEx();
-            unsigned exprCost2 = dsc2->firstOccurrence.expr->GetCostEx();
+            unsigned cost1 = v1->firstOccurrence.expr->GetCostEx();
+            unsigned cost2 = v2->firstOccurrence.expr->GetCostEx();
 
-            if (exprCost2 != exprCost1)
+            if (cost2 != cost1)
             {
-                return exprCost2 < exprCost1;
+                return cost2 < cost1;
             }
 
-            if (dsc2->useWeight != dsc1->useWeight)
+            if (v2->useWeight != v1->useWeight)
             {
-                return dsc2->useWeight < dsc1->useWeight;
+                return v2->useWeight < v1->useWeight;
             }
 
-            if (dsc1->defWeight != dsc2->defWeight)
+            if (v1->defWeight != v2->defWeight)
             {
-                return dsc1->defWeight < dsc2->defWeight;
+                return v1->defWeight < v2->defWeight;
             }
 
             // Ensure a stable sort order
-            return dsc1->index < dsc2->index;
+            return v1->index < v2->index;
         }
     };
 
     struct CostCompareSize
     {
-        bool operator()(const Value* dsc1, const Value* dsc2)
+        bool operator()(const Value* v1, const Value* v2)
         {
-            unsigned exprCost1 = dsc1->firstOccurrence.expr->GetCostSz();
-            unsigned exprCost2 = dsc2->firstOccurrence.expr->GetCostSz();
+            unsigned cost1 = v1->firstOccurrence.expr->GetCostSz();
+            unsigned cost2 = v2->firstOccurrence.expr->GetCostSz();
 
-            if (exprCost2 != exprCost1)
+            if (cost2 != cost1)
             {
-                return exprCost2 < exprCost1;
+                return cost2 < cost1;
             }
 
-            if (dsc2->useCount != dsc1->useCount)
+            if (v2->useCount != v1->useCount)
             {
-                return dsc2->useCount < dsc1->useCount;
+                return v2->useCount < v1->useCount;
             }
 
-            if (dsc1->defCount != dsc2->defCount)
+            if (v1->defCount != v2->defCount)
             {
-                return dsc1->defCount < dsc2->defCount;
+                return v1->defCount < v2->defCount;
             }
 
             // Ensure a stable sort order
-            return dsc1->index < dsc2->index;
+            return v1->index < v2->index;
         }
     };
 
