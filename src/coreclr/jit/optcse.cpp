@@ -284,20 +284,8 @@ class Cse
     // with the bound to improve range check elimination.
     NodeToNodeMap checkedBoundMap;
 
-    // BitVec trait information for computing CSE availability using the DataFlowCallback algorithm.
-    // Two bits are allocated per CSE candidate to compute CSE availability
-    // plus an extra bit to handle the initial unvisited case.
-    // (See DataFlowCallback::EndMerge for an explanation of why this is necessary.)
-    //
-    // The two bits per CSE candidate have the following meanings:
-    //     11 - The CSE is available, and is also available when considering calls as killing availability.
-    //     10 - The CSE is available, but is not available when considering calls as killing availability.
-    //     00 - The CSE is not available
-    //     01 - An illegal combination
-    //
     BitVecTraits dataFlowTraits;
-
-    BitVec callKillsMask; // Computed once - A mask that is used to kill available CSEs at callsites
+    BitVec       callKillsMask;
 
     bool enableConstCse       = false;
     bool enableSharedConstCse = false;
