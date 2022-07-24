@@ -1774,47 +1774,6 @@ public:
         }
 #endif
 
-        // Our calculation is based on the following cost estimate formula
-        //
-        // Existing costs are:
-        //
-        // (def + use) * cost
-        //
-        // If we introduce a CSE temp are each definition and
-        // replace the use with a CSE temp then our cost is:
-        //
-        // (def * (cost + cse-def-cost)) + (use * cse-use-cost)
-        //
-        // We must estimate the values to use for cse-def-cost and cse-use-cost
-        //
-        // If we are able to enregister the CSE then the cse-use-cost is one
-        // and cse-def-cost is either zero or one.  Zero in the case where
-        // we needed to evaluate the def into a register and we can use that
-        // register as the CSE temp as well.
-        //
-        // If we are unable to enregister the CSE then the cse-use-cost is IND_COST
-        // and the cse-def-cost is also IND_COST.
-        //
-        // If we want to be conservative we use IND_COST as the the value
-        // for both cse-def-cost and cse-use-cost and then we never introduce
-        // a CSE that could pessimize the execution time of the method.
-        //
-        // If we want to be more moderate we use (IND_COST_EX + 1) / 2 as the
-        // values for both cse-def-cost and cse-use-cost.
-        //
-        // If we want to be aggressive we use 1 as the values for both
-        // cse-def-cost and cse-use-cost.
-        //
-        // If we believe that the CSE very valuable in terms of weight ref counts
-        // such that it would always be enregistered by the register allocator we choose
-        // the aggressive use def costs.
-        //
-        // If we believe that the CSE is somewhat valuable in terms of weighted ref counts
-        // such that it could be likely be enregistered by the register allocator we choose
-        // the moderate use def costs.
-        //
-        // otherwise we choose the conservative use def costs.
-
         // The estimated weight of the temp local we create for this CSE.
         // The def also implies a use so we consider it twice.
         float lclWeight = (candidate.defWeight * 2) + candidate.useWeight;
