@@ -1463,60 +1463,6 @@ public:
         JITDUMP("Enregistrable local count is %u\n", enregCount);
     }
 
-    struct CostCompareSpeed
-    {
-        bool operator()(const Value* v1, const Value* v2)
-        {
-            unsigned cost1 = v1->firstOccurrence.expr->GetCostEx();
-            unsigned cost2 = v2->firstOccurrence.expr->GetCostEx();
-
-            if (cost2 != cost1)
-            {
-                return cost2 < cost1;
-            }
-
-            if (v2->useWeight != v1->useWeight)
-            {
-                return v2->useWeight < v1->useWeight;
-            }
-
-            if (v1->defWeight != v2->defWeight)
-            {
-                return v1->defWeight < v2->defWeight;
-            }
-
-            // Ensure a stable sort order
-            return v1->index < v2->index;
-        }
-    };
-
-    struct CostCompareSize
-    {
-        bool operator()(const Value* v1, const Value* v2)
-        {
-            unsigned cost1 = v1->firstOccurrence.expr->GetCostSz();
-            unsigned cost2 = v2->firstOccurrence.expr->GetCostSz();
-
-            if (cost2 != cost1)
-            {
-                return cost2 < cost1;
-            }
-
-            if (v2->useCount != v1->useCount)
-            {
-                return v2->useCount < v1->useCount;
-            }
-
-            if (v1->defCount != v2->defCount)
-            {
-                return v1->defCount < v2->defCount;
-            }
-
-            // Ensure a stable sort order
-            return v1->index < v2->index;
-        }
-    };
-
     Value** SortCandidates()
     {
         Value** sorted = new (allocator) Value*[valueCount];
@@ -1524,11 +1470,65 @@ public:
 
         if (codeOptKind == Compiler::SMALL_CODE)
         {
-            jitstd::sort(sorted, sorted + valueCount, CostCompareSize());
+            struct
+            {
+                bool operator()(const Value* v1, const Value* v2)
+                {
+                    unsigned cost1 = v1->firstOccurrence.expr->GetCostSz();
+                    unsigned cost2 = v2->firstOccurrence.expr->GetCostSz();
+
+                    if (cost2 != cost1)
+                    {
+                        return cost2 < cost1;
+                    }
+
+                    if (v2->useCount != v1->useCount)
+                    {
+                        return v2->useCount < v1->useCount;
+                    }
+
+                    if (v1->defCount != v2->defCount)
+                    {
+                        return v1->defCount < v2->defCount;
+                    }
+
+                    // Ensure a stable sort order
+                    return v1->index < v2->index;
+                }
+            } less;
+
+            jitstd::sort(sorted, sorted + valueCount, less);
         }
         else
         {
-            jitstd::sort(sorted, sorted + valueCount, CostCompareSpeed());
+            struct
+            {
+                bool operator()(const Value* v1, const Value* v2)
+                {
+                    unsigned cost1 = v1->firstOccurrence.expr->GetCostEx();
+                    unsigned cost2 = v2->firstOccurrence.expr->GetCostEx();
+
+                    if (cost2 != cost1)
+                    {
+                        return cost2 < cost1;
+                    }
+
+                    if (v2->useWeight != v1->useWeight)
+                    {
+                        return v2->useWeight < v1->useWeight;
+                    }
+
+                    if (v1->defWeight != v2->defWeight)
+                    {
+                        return v1->defWeight < v2->defWeight;
+                    }
+
+                    // Ensure a stable sort order
+                    return v1->index < v2->index;
+                }
+            } less;
+
+            jitstd::sort(sorted, sorted + valueCount, less);
         }
 
         return sorted;
