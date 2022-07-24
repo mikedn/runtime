@@ -235,7 +235,14 @@ class Cse
 
         unsigned index = 0; // 1..valueCount
 
-        bool isSharedConst    = false;
+        bool isSharedConst = false;
+
+        // TODO-MIKE-Review: "Cross call" availability is rather bizarre. We may have a def and
+        // an use that have nothing to do with any calls and then another use that occurs after
+        // a call. Is this other use that needs special costing, and possibly be ignored if it's
+        // to cheap to recompute instead of spilling and unspilling.
+        // Granted, it may be too costly throughput wise to track cross call availability per
+        // occurrence so it may be that this is as good as it gets.
         bool isLiveAcrossCall = false;
 
         uint16_t defCount = 0;
@@ -1401,6 +1408,10 @@ public:
             // We could track floating point register usage seperately but it isn't worth
             // the additional complexity as floating point CSEs are rare and we typically
             // have plenty of floating point register available.
+            //
+            // TODO-MIKE-Review: Yeah, this tracks only integer registers but then cutoff
+            // weights apply to both integer and FP expressions. This is dubious to say
+            // the least.
             if (!varTypeIsFloating(lcl->GetType()))
             {
                 enregCount++;
@@ -2258,6 +2269,10 @@ public:
                     lclNum);
 
             var_types exprType = varActualType(expr->GetType());
+            // TODO-MIKE-Review: This seems to be the wrong place to check this, types should
+            // be checked when occurrences are recorded. Anyway it's a bit pointless since
+            // all expressions have the same VN the types should be identical. But good luck
+            // trusting value numbering...
             noway_assert(IsCompatibleType(lclType, exprType) || (baseConstVN != vnStore->VNForNull()));
 
             GenTreeLclVar* lclUse = compiler->gtNewLclvNode(lclNum, lclType);
@@ -2356,6 +2371,14 @@ public:
             }
 
             compiler->CopyZeroOffsetFieldSeq(expr->SkipComma(), newExpr);
+
+            // TODO-MIKE-Review: We may end up sequencing a statement multiple times if it contains
+            // multiple CSEs. Ideally we'd first do all CSE replacements and then sequence affected
+            // statements. One drawback may be that without resequencing the linear order is broken
+            // and we can no longer use FindUser, instead we need to traverse the entire statement
+            // tree to find the user and that's more expensive.
+            // Another problem is that gtSetEvalOrder computes both costs and order and it's unlikely
+            // that we need costs post CSE...
             compiler->gtSetStmtInfo(stmt);
             compiler->fgSetStmtSeq(stmt);
         }
