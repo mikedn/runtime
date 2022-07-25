@@ -3769,6 +3769,7 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
         bool doLoopHoisting  = true;
         bool doCopyProp      = true;
         bool doBranchOpt     = true;
+        bool doCse           = true;
         bool doAssertionProp = true;
         bool doRangeAnalysis = true;
         int  iterations      = 1;
@@ -3780,6 +3781,7 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
         doLoopHoisting  = doValueNum && (JitConfig.JitDoLoopHoisting() != 0);
         doCopyProp      = doValueNum && (JitConfig.JitDoCopyProp() != 0);
         doBranchOpt     = doValueNum && (JitConfig.JitDoRedundantBranchOpts() != 0);
+        doCse           = doValueNum && (JitConfig.JitNoCSE() == 0);
         doAssertionProp = doValueNum && (JitConfig.JitDoAssertionProp() != 0);
         doRangeAnalysis = doAssertionProp && (JitConfig.JitDoRangeAnalysis() != 0);
 
@@ -3831,11 +3833,11 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
                 DoPhase(this, PHASE_OPTIMIZE_BRANCHES, &Compiler::optRedundantBranches);
             }
 
-            if (doValueNum)
+            if (doCse)
             {
                 // Remove common sub-expressions
                 //
-                DoPhase(this, PHASE_OPTIMIZE_VALNUM_CSES, &Compiler::optOptimizeCSEs);
+                DoPhase(this, PHASE_OPTIMIZE_VALNUM_CSES, &Compiler::cseMain);
             }
 
 #if ASSERTION_PROP
@@ -4130,8 +4132,6 @@ void Compiler::ResetOptAnnotations()
             for (GenTree* const tree : stmt->TreeList())
             {
                 tree->ClearVN();
-                tree->ClearAssertion();
-                tree->gtCSEnum = NO_CSE;
             }
         }
     }
@@ -4733,7 +4733,7 @@ void Compiler::compCompileFinish()
         else
         {
             printf(" %3d |", apAssertionCount);
-            printf(" %3d |", optCSEcount);
+            printf(" %3d |", cseCount);
         }
 
         if (info.compPerfScore < 9999.995)
@@ -7826,16 +7826,12 @@ bool Compiler::lvaIsOSRLocal(unsigned varNum)
 //------------------------------------------------------------------------------
 // gtChangeOperToNullCheck: helper to change tree oper to a NULLCHECK.
 //
-// Arguments:
-//    tree       - the node to change;
-//    basicBlock - basic block of the node.
-//
 // Notes:
 //    the function should not be called after lowering for platforms that do not support
 //    emitting NULLCHECK nodes, like arm32. Use `Lowering::TransformUnusedIndirection`
 //    that handles it and calls this function when appropriate.
 //
-void Compiler::gtChangeOperToNullCheck(GenTree* tree, BasicBlock* block)
+void Compiler::gtChangeOperToNullCheck(GenTree* tree)
 {
     assert(tree->OperIs(GT_FIELD_ADDR, GT_IND, GT_OBJ, GT_BLK));
 

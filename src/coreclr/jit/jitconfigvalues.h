@@ -336,14 +336,7 @@ CONFIG_INTEGER(JitSoftFP, W("JitSoftFP"), 0)
 // If 2, enable the CSE of Constants but don't combine with nearby offsets. (only for ARM64)
 // If 3, enable the CSE of Constants including nearby offsets. (all platforms)
 // If 4, enable the CSE of Constants but don't combine with nearby offsets. (all platforms)
-//
 CONFIG_INTEGER(JitConstCSE, W("JitConstCSE"), 0)
-
-#define CONST_CSE_ENABLE_ARM64 0
-#define CONST_CSE_DISABLE_ALL 1
-#define CONST_CSE_ENABLE_ARM64_NO_SHARING 2
-#define CONST_CSE_ENABLE_ALL 3
-#define CONST_CSE_ENABLE_ALL_NO_SHARING 4
 
 ///
 /// JIT

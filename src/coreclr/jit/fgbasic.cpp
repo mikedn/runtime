@@ -134,7 +134,7 @@ void Compiler::fgInit()
     fgNoStructPromotion = false;
     INDEBUG(fgNoStructParamPromotion = false;)
 
-    optValnumCSE_phase = false; // referenced in fgMorphSmpOp()
+    csePhase = false; // referenced in fgMorphSmpOp()
 
 #ifdef DEBUG
     fgNormalizeEHDone = false;

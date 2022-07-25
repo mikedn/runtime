@@ -1137,7 +1137,7 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
                     {
                         // IR doesn't expect dummy uses of `GT_OBJ/BLK`.
                         JITDUMP("Transform an unused OBJ/BLK node [%06u]\n", node->GetID());
-                        Lowering::TransformUnusedIndirection(node->AsIndir(), this, block);
+                        Lowering::TransformUnusedIndirection(node->AsIndir());
                     }
                     else
                     {
@@ -1237,7 +1237,7 @@ GenTree* Compiler::fgRemoveDeadStore(GenTreeOp* asgNode)
 
     if ((asgNode->GetOp(1)->gtFlags & GTF_SIDE_EFFECT) != 0)
     {
-        gtExtractSideEffList(asgNode->GetOp(1), &sideEffects);
+        sideEffects = gtExtractSideEffList(asgNode->GetOp(1));
 
         if (sideEffects != nullptr)
         {

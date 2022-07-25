@@ -481,7 +481,7 @@ void Compiler::fgRemoveStmt(BasicBlock* block, Statement* stmt DEBUGARG(bool dum
         stmt->GetNextStmt()->SetPrevStmt(prev);
     }
 
-    noway_assert(!optValnumCSE_phase);
+    noway_assert(!csePhase);
 
     fgStmtRemoved = true;
 

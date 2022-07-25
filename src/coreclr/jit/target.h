@@ -31,16 +31,10 @@
 // with static const members of Target
 #if defined(TARGET_XARCH)
 #define REGMASK_BITS 32
-#define CSE_CONST_SHARED_LOW_BITS 16
-
 #elif defined(TARGET_ARM)
 #define REGMASK_BITS 64
-#define CSE_CONST_SHARED_LOW_BITS 12
-
 #elif defined(TARGET_ARM64)
 #define REGMASK_BITS 64
-#define CSE_CONST_SHARED_LOW_BITS 12
-
 #else
 #error Unsupported or unset target architecture
 #endif

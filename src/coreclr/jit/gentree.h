@@ -426,15 +426,6 @@ enum GenTreeFlags : unsigned int
     GTF_UNSIGNED    = 0x00008000, // With GT_CAST:   the source operand is an unsigned type
                                   // With operators: the specified node is an unsigned operator
 
-// The extra flag GTF_IS_IN_CSE is used to tell the consumer of the side effect flags
-// that we are calling in the context of performing a CSE, thus we
-// should allow the run-once side effects of running a class constructor.
-//
-// The only requirement of this flag is that it not overlap any of the
-// side-effect flags. The actual bit used is otherwise arbitrary.
-
-    GTF_IS_IN_CSE   = GTF_BOOLEAN,
-
     GTF_COMMON_MASK = 0x0003FFFF, // mask of all the flags above
 
     GTF_REUSE_REG_VAL = 0x00800000, // This is set by the register allocator on nodes whose value already exists in the
@@ -697,12 +688,25 @@ constexpr RegSpillSet GetRegSpilledSet(unsigned regIndex)
 
 #define FMT_TREEID "[%06u]"
 
-#define NO_CSE (0)
-#define IS_CSE_INDEX(x) ((x) != 0)
-#define IS_CSE_USE(x) ((x) > 0)
-#define IS_CSE_DEF(x) ((x) < 0)
-#define GET_CSE_INDEX(x) (((x) > 0) ? x : -(x))
-#define TO_CSE_DEF(x) (-(x))
+enum CseInfo : int16_t
+{
+    NoCse = 0
+};
+
+constexpr bool IsCseUse(CseInfo info)
+{
+    return info > 0;
+}
+
+constexpr bool IsCseDef(CseInfo info)
+{
+    return info < 0;
+}
+
+constexpr unsigned GetCseIndex(CseInfo info)
+{
+    return info > 0 ? info : -info;
+}
 
 #define MAX_COST UCHAR_MAX
 #define IND_COST_EX 3 // execution cost for an indirection
@@ -720,22 +724,21 @@ struct GenTree
 
     genTreeOps gtOper;
     var_types  gtType;
-    // Only used to save gtOper when we destroy a node, to aid debugging.
-    INDEBUG(genTreeOps gtOperSave = GT_NONE;)
 
+private:
     union {
         // Valid only during CSE, 0 or the CSE index (negated if it's a def).
-        signed char gtCSEnum = NO_CSE;
+        CseInfo m_cseInfo = NoCse;
+#if ASSERTION_PROP
+        // Valid only during global assertion propagation.
+        AssertionInfo m_assertionInfo;
+#endif
         // Valid only during LSRA/CodeGen
         RegSpillSet m_defRegsSpillSet;
     };
 
-private:
     // Used for nodes that are in LIR. See LIR::Flags in lir.h for the various flags.
     uint8_t m_LIRFlags = 0;
-#if ASSERTION_PROP
-    AssertionInfo m_assertionInfo;
-#endif
     uint8_t m_costEx; // estimate of expression execution cost
     uint8_t m_costSz; // estimate of expression code size cost
 
@@ -749,15 +752,16 @@ private:
 
 public:
     GenTreeFlags gtFlags = GTF_EMPTY;
-    INDEBUG(GenTreeDebugFlags gtDebugFlags = GTF_DEBUG_NONE;)
     ValueNumPair gtVNPair;
     regMaskSmall gtRsvdRegs; // set of fixed trashed  registers
     GenTree*     gtNext = nullptr;
     GenTree*     gtPrev = nullptr;
 #ifdef DEBUG
-    unsigned gtTreeID;
-    unsigned gtSeqNum = 0;  // liveness traversal order within the current statement
-    int      gtUseNum = -1; // use-ordered traversal within the function
+    GenTreeDebugFlags gtDebugFlags = GTF_DEBUG_NONE;
+    unsigned          gtTreeID;
+    unsigned          gtSeqNum   = 0;       // liveness traversal order within the current statement
+    int               gtUseNum   = -1;      // use-ordered traversal within the function
+    genTreeOps        gtOperSave = GT_NONE; // Only used to save gtOper when we destroy a node, to aid debugging.
 #endif
 
 // We use GT_STRUCT_0 only for the category of simple ops.
@@ -836,13 +840,33 @@ public:
         gtType = type;
     }
 
+    CseInfo GetCseInfo() const
+    {
+        return m_cseInfo;
+    }
+
+    bool HasCseInfo() const
+    {
+        return m_cseInfo != NoCse;
+    }
+
+    void SetCseInfo(CseInfo num)
+    {
+        m_cseInfo = num;
+    }
+
+    void ClearCseInfo()
+    {
+        m_cseInfo = NoCse;
+    }
+
 #if ASSERTION_PROP
     bool GeneratesAssertion() const
     {
         return m_assertionInfo.HasAssertion();
     }
 
-    void ClearAssertion()
+    void ClearAssertionInfo()
     {
         m_assertionInfo.Clear();
     }

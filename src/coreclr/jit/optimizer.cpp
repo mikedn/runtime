@@ -36,9 +36,11 @@ void Compiler::optInit()
     optCallCount         = 0;
     optIndirectCallCount = 0;
     optNativeCallCount   = 0;
-    apAssertionCount     = 0;
-    optCSEstart          = UINT_MAX;
-    optCSEcount          = 0;
+
+    INDEBUG(cseFirstLclNum = BAD_VAR_NUM);
+    INDEBUG(cseCount = 0);
+
+    apAssertionCount = 0;
 }
 
 //------------------------------------------------------------------------
@@ -3818,9 +3820,9 @@ PhaseStatus Compiler::optUnrollLoops()
 
                         Statement* testCopyStmt = newBlock->lastStmt();
                         GenTree*   testCopyExpr = testCopyStmt->GetRootNode();
-                        assert(testCopyExpr->gtOper == GT_JTRUE);
-                        GenTree* sideEffList = nullptr;
-                        gtExtractSideEffList(testCopyExpr, &sideEffList, GTF_SIDE_EFFECT | GTF_ORDER_SIDEEFF);
+                        assert(testCopyExpr->OperIs(GT_JTRUE));
+
+                        GenTree* sideEffList = gtExtractSideEffList(testCopyExpr, GTF_SIDE_EFFECT | GTF_ORDER_SIDEEFF);
                         if (sideEffList == nullptr)
                         {
                             fgRemoveStmt(newBlock, testCopyStmt);
@@ -4735,7 +4737,7 @@ PhaseStatus Compiler::optFindLoops()
  *  Determine the kind of interference for the call.
  */
 
-/* static */ inline Compiler::callInterf Compiler::optCallInterf(GenTreeCall* call)
+CallInterf optCallInterf(GenTreeCall* call)
 {
     // if not a helper, kills everything
     if (call->gtCallType != CT_HELPER)
@@ -4744,14 +4746,13 @@ PhaseStatus Compiler::optFindLoops()
     }
 
     // setfield and array address store kill all indirections
-    switch (eeGetHelperNum(call->gtCallMethHnd))
+    switch (Compiler::eeGetHelperNum(call->GetMethodHandle()))
     {
         case CORINFO_HELP_ASSIGN_REF:         // Not strictly needed as we don't make a GT_CALL with this
         case CORINFO_HELP_CHECKED_ASSIGN_REF: // Not strictly needed as we don't make a GT_CALL with this
         case CORINFO_HELP_ASSIGN_BYREF:       // Not strictly needed as we don't make a GT_CALL with this
         case CORINFO_HELP_SETFIELDOBJ:
         case CORINFO_HELP_ARRADDR_ST:
-
             return CALLINT_REF_INDIRS;
 
         case CORINFO_HELP_SETFIELDFLOAT:
@@ -4760,23 +4761,31 @@ PhaseStatus Compiler::optFindLoops()
         case CORINFO_HELP_SETFIELD16:
         case CORINFO_HELP_SETFIELD32:
         case CORINFO_HELP_SETFIELD64:
-
             return CALLINT_SCL_INDIRS;
 
         case CORINFO_HELP_ASSIGN_STRUCT: // Not strictly needed as we don't use this
         case CORINFO_HELP_MEMSET:        // Not strictly needed as we don't make a GT_CALL with this
         case CORINFO_HELP_MEMCPY:        // Not strictly needed as we don't make a GT_CALL with this
         case CORINFO_HELP_SETFIELDSTRUCT:
-
             return CALLINT_ALL_INDIRS;
 
         default:
-            break;
+            return CALLINT_NONE;
     }
-
-    // other helpers kill nothing
-    return CALLINT_NONE;
 }
+
+struct isVarAssgDsc
+{
+    GenTree*     ivaSkip;
+    ALLVARSET_TP ivaMaskVal; // Set of variables assigned to.  This is a set of all vars, not tracked vars.
+#ifdef DEBUG
+    void* ivaSelf;
+#endif
+    unsigned    ivaVar;            // Variable we are interested in, or -1
+    varRefKinds ivaMaskInd;        // What kind of indirect assignments are there?
+    CallInterf  ivaMaskCall;       // What kind of calls are there?
+    bool        ivaMaskIncomplete; // Variables not representable in ivaMaskVal were assigned to.
+};
 
 /*****************************************************************************
  *
@@ -5771,7 +5780,7 @@ void Compiler::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* blo
 
         bool IsNodeHoistable(GenTree* node)
         {
-            // TODO-CQ: This is a more restrictive version of a check that optIsCSEcandidate already does - it allows
+            // TODO-CQ: This is a more restrictive version of a check that cseIsCandidate already does - it allows
             // a struct typed node if a class handle can be recovered from it.
             if (node->TypeGet() == TYP_STRUCT)
             {
@@ -5779,7 +5788,7 @@ void Compiler::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* blo
             }
 
             // Tree must be a suitable CSE candidate for us to be able to hoist it.
-            return m_compiler->optIsCSEcandidate(node);
+            return m_compiler->cseIsCandidate(node);
         }
 
         bool IsTreeVNInvariant(GenTree* tree)
@@ -5934,7 +5943,7 @@ void Compiler::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* blo
             // truly dependent on the cctor.  So a more precise approach would be to separately propagate
             // isCctorDependent and isAddressWhoseDereferenceWouldBeCctorDependent, but we don't for
             // simplicity/throughput; the constant itself would be considered non-hoistable anyway, since
-            // optIsCSEcandidate returns false for constants.
+            // cseIsCandidate returns false for constants.
             bool treeIsCctorDependent =
                 (tree->OperIs(GT_CLS_VAR_ADDR) && ((tree->gtFlags & GTF_CLS_VAR_INITCLASS) != 0)) ||
                 (tree->OperIs(GT_CNS_INT) && ((tree->gtFlags & GTF_ICON_INITCLASS) != 0));
@@ -6664,9 +6673,7 @@ GenTree* Compiler::optRemoveRangeCheck(GenTreeBoundsChk* check, GenTree* comma, 
     }
 #endif
 
-    // Extract side effects
-    GenTree* sideEffList = nullptr;
-    gtExtractSideEffList(check, &sideEffList, GTF_ASG);
+    GenTree* sideEffList = gtExtractSideEffList(check, GTF_ASG);
 
     if (sideEffList != nullptr)
     {

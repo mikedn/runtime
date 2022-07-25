@@ -1930,9 +1930,9 @@ bool Compiler::gtCanSwapOrder(GenTree* firstNode, GenTree* secondNode)
 
     bool canSwap = true;
 
-    if (optValnumCSE_phase)
+    if (csePhase)
     {
-        canSwap = optCSE_canSwap(firstNode, secondNode);
+        canSwap = cseCanSwapOrder(firstNode, secondNode);
     }
 
     // We cannot swap in the presence of special side effects such as GT_CATCH_ARG.
@@ -2953,7 +2953,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
     DONE_OP1_AFTER_COST:
 
         bool bReverseInAssignment = false;
-        if (oper == GT_ASG && (!optValnumCSE_phase || optCSE_canSwap(op1, op2)))
+        if (oper == GT_ASG && (!csePhase || cseCanSwapOrder(op1, op2)))
         {
             GenTree* op1Val = op1;
 
@@ -6836,15 +6836,15 @@ void Compiler::gtDispNodeHeader(GenTree* tree)
         }
     }
 
-    if (optValnumCSE_phase)
+    if (csePhase)
     {
-        if (IS_CSE_INDEX(tree->gtCSEnum))
+        if (tree->HasCseInfo())
         {
-            printf(" " FMT_CSE " (%s)", GET_CSE_INDEX(tree->gtCSEnum), (IS_CSE_USE(tree->gtCSEnum) ? "use" : "def"));
+            printf(" " FMT_CSE " (%s)", GetCseIndex(tree->GetCseInfo()), IsCseUse(tree->GetCseInfo()) ? "use" : "def");
         }
         else
         {
-            printf("              ");
+            printf("            ");
         }
     }
 }
@@ -7227,14 +7227,14 @@ void Compiler::gtGetLclVarNameInfo(unsigned lclNum, const char** ilKindOut, cons
         if (lclNumIsTrueCSE(lclNum))
         {
             ilKind = "cse";
-            ilNum  = lclNum - optCSEstart;
+            ilNum  = lclNum - cseFirstLclNum;
         }
-        else if (lclNum >= optCSEstart)
+        else if (lclNum >= cseFirstLclNum)
         {
             // Currently any new LclVar's introduced after the CSE phase
             // are believed to be created by the "rationalizer" that is what is meant by the "rat" prefix.
             ilKind = "rat";
-            ilNum  = lclNum - (optCSEstart + optCSEcount);
+            ilNum  = lclNum - (cseFirstLclNum + cseCount);
         }
         else
         {
@@ -8830,7 +8830,7 @@ GenTree* Compiler::gtFoldExpr(GenTree* tree)
     // If we're in CSE, it's not safe to perform tree
     // folding given that it can will potentially
     // change considered CSE candidates.
-    if (optValnumCSE_phase)
+    if (csePhase)
     {
         return tree;
     }
@@ -9348,7 +9348,7 @@ GenTree* Compiler::gtFoldTypeCompare(GenTree* tree)
             {
                 // we still have to emit a null-check
                 // obj.GetType == typeof() -> (nullcheck) true/false
-                GenTree* nullcheck = gtNewNullCheck(objOp, compCurBB);
+                GenTree* nullcheck = gtNewNullCheck(objOp);
                 return gtNewCommaNode(nullcheck, compareResult);
             }
             else if (objOp->GetSideEffects() != 0)
@@ -10160,7 +10160,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
                 copySrc = field;
             }
 
-            gtChangeOperToNullCheck(copySrc, compCurBB);
+            gtChangeOperToNullCheck(copySrc);
             copyStmt->SetRootNode(copySrc);
         }
         else
@@ -11499,81 +11499,59 @@ INTEGRAL_OVF:
 #pragma warning(pop)
 #endif
 
-/*****************************************************************************
- *
- *  Return true if the given node (excluding children trees) contains side effects.
- *  Note that it does not recurse, and children need to be handled separately.
- *  It may return false even if the node has GTF_SIDE_EFFECT (because of its children).
- *
- *  Similar to OperMayThrow() (but handles GT_CALLs specially), but considers
- *  assignments too.
- */
-
-bool Compiler::gtNodeHasSideEffects(GenTree* tree, unsigned flags)
+bool Compiler::gtNodeHasSideEffects(GenTree* node, GenTreeFlags flags, bool ignoreCctors)
 {
-    if (flags & GTF_ASG)
+    // TODO-Cleanup: This only checks for GT_ASG but according to OperRequiresAsgFlag there
+    // are many more opers that are considered to have an assignment side effect: atomic ops
+    // (GT_CMPXCHG & co.), GT_MEMORYBARRIER (not classified as an atomic op) and HW intrinsic
+    // memory stores. Atomic ops have special handling in gtExtractSideEffList but the others
+    // will simply be dropped is they are ever subject to an "extract side effects" operation.
+    // It is possible that the reason no bugs have yet been observed in this area is that the
+    // other nodes are likely to always be tree roots.
+    if (((flags & GTF_ASG) != 0) && node->OperIs(GT_ASG))
     {
-        // TODO-Cleanup: This only checks for GT_ASG but according to OperRequiresAsgFlag there
-        // are many more opers that are considered to have an assignment side effect: atomic ops
-        // (GT_CMPXCHG & co.), GT_MEMORYBARRIER (not classified as an atomic op) and HW intrinsic
-        // memory stores. Atomic ops have special handling in gtExtractSideEffList but the others
-        // will simply be dropped is they are ever subject to an "extract side effects" operation.
-        // It is possible that the reason no bugs have yet been observed in this area is that the
-        // other nodes are likely to always be tree roots.
-        if (tree->OperIs(GT_ASG))
-        {
-            return true;
-        }
+        return true;
     }
 
-    // Are there only GTF_CALL side effects remaining? (and no other side effect kinds)
-    if (flags & GTF_CALL)
+    if ((flags & GTF_CALL) != 0)
     {
-        if (tree->OperGet() == GT_CALL)
+        if (GenTreeCall* call = node->IsCall())
         {
-            GenTreeCall* const call             = tree->AsCall();
-            const bool         ignoreExceptions = (flags & GTF_EXCEPT) == 0;
-            const bool         ignoreCctors     = (flags & GTF_IS_IN_CSE) != 0; // We can CSE helpers that run cctors.
-            if (!call->HasSideEffects(this, ignoreExceptions, ignoreCctors))
+            if (call->HasSideEffects(this, (flags & GTF_EXCEPT) == 0, ignoreCctors))
             {
-                // If this call is otherwise side effect free, check its arguments.
-                for (GenTreeCall::Use& use : call->Args())
-                {
-                    if (gtTreeHasSideEffects(use.GetNode(), flags))
-                    {
-                        return true;
-                    }
-                }
-                // I'm a little worried that args that assign to temps that are late args will look like
-                // side effects...but better to be conservative for now.
-                for (GenTreeCall::Use& use : call->LateArgs())
-                {
-                    if (gtTreeHasSideEffects(use.GetNode(), flags))
-                    {
-                        return true;
-                    }
-                }
-
-                // Otherwise:
-                return false;
+                return true;
             }
 
-            // Otherwise the GT_CALL is considered to have side-effects.
-            return true;
+            for (GenTreeCall::Use& use : call->Args())
+            {
+                if (gtTreeHasSideEffects(use.GetNode(), flags, ignoreCctors))
+                {
+                    return true;
+                }
+            }
+
+            // I'm a little worried that args that assign to temps that are late args will look like
+            // side effects...but better to be conservative for now.
+            for (GenTreeCall::Use& use : call->LateArgs())
+            {
+                if (gtTreeHasSideEffects(use.GetNode(), flags, ignoreCctors))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
     }
 
-    if (flags & GTF_EXCEPT)
+    if (((flags & GTF_EXCEPT) != 0) && node->OperMayThrow(this))
     {
-        if (tree->OperMayThrow(this))
-        {
-            return true;
-        }
+        return true;
     }
 
     // Expressions declared as CSE by (e.g.) hoisting code are considered to have relevant side
     // effects (if we care about GTF_MAKE_CSE).
-    if ((flags & GTF_MAKE_CSE) && (tree->gtFlags & GTF_MAKE_CSE))
+    if (((flags & GTF_MAKE_CSE) != 0) && ((node->gtFlags & GTF_MAKE_CSE) != 0))
     {
         return true;
     }
@@ -11581,54 +11559,27 @@ bool Compiler::gtNodeHasSideEffects(GenTree* tree, unsigned flags)
     return false;
 }
 
-/*****************************************************************************
- * Returns true if the expr tree has any side effects.
- */
-
-bool Compiler::gtTreeHasSideEffects(GenTree* tree, unsigned flags /* = GTF_SIDE_EFFECT*/)
+bool Compiler::gtTreeHasSideEffects(GenTree* tree, GenTreeFlags flags, bool ignoreCctors)
 {
-    // These are the side effect flags that we care about for this tree
     unsigned sideEffectFlags = tree->gtFlags & flags;
 
-    // Does this tree have any Side-effect flags set that we care about?
     if (sideEffectFlags == 0)
     {
-        // no it doesn't..
         return false;
     }
 
     if (sideEffectFlags == GTF_CALL)
     {
-        if (tree->OperGet() == GT_CALL)
+        if (GenTreeCall* call = tree->IsCall())
         {
-            // Generally all trees that contain GT_CALL nodes are considered to have side-effects.
-            //
-            if (tree->AsCall()->gtCallType == CT_HELPER)
-            {
-                // If this node is a helper call we may not care about the side-effects.
-                // Note that gtNodeHasSideEffects checks the side effects of the helper itself
-                // as well as the side effects of its arguments.
-                return gtNodeHasSideEffects(tree, flags);
-            }
+            return !call->IsHelperCall() || gtNodeHasSideEffects(call, flags, ignoreCctors);
         }
-        else if (tree->OperGet() == GT_INTRINSIC)
+
+        if (GenTreeIntrinsic* intrinsic = tree->IsIntrinsic())
         {
-            if (gtNodeHasSideEffects(tree, flags))
-            {
-                return true;
-            }
-
-            if (gtNodeHasSideEffects(tree->AsOp()->gtOp1, flags))
-            {
-                return true;
-            }
-
-            if ((tree->AsOp()->gtOp2 != nullptr) && gtNodeHasSideEffects(tree->AsOp()->gtOp2, flags))
-            {
-                return true;
-            }
-
-            return false;
+            return gtNodeHasSideEffects(intrinsic, flags, ignoreCctors) ||
+                   gtNodeHasSideEffects(intrinsic->GetOp(0), flags, ignoreCctors) ||
+                   ((intrinsic->gtOp2 != nullptr) && gtNodeHasSideEffects(intrinsic->GetOp(1), flags, ignoreCctors));
         }
     }
 
@@ -11637,53 +11588,28 @@ bool Compiler::gtTreeHasSideEffects(GenTree* tree, unsigned flags /* = GTF_SIDE_
 
 GenTree* Compiler::gtBuildCommaList(GenTree* list, GenTree* expr)
 {
-    // 'list' starts off as null,
-    //        and when it is null we haven't started the list yet.
-    //
-    if (list != nullptr)
+    if (list == nullptr)
     {
-        // Create a GT_COMMA that appends 'expr' in front of the remaining set of expressions in (*list)
-        GenTree* result = gtNewCommaNode(expr, list, TYP_VOID);
-
-        // Set the flags in the comma node
-        result->gtFlags |= (list->gtFlags & GTF_ALL_EFFECT);
-        result->gtFlags |= (expr->gtFlags & GTF_ALL_EFFECT);
-
-        // 'list' and 'expr' should have valuenumbers defined for both or for neither one (unless we are remorphing,
-        // in which case a prior transform involving either node may have discarded or otherwise invalidated the value
-        // numbers).
-        assert((list->gtVNPair.BothDefined() == expr->gtVNPair.BothDefined()) || !fgGlobalMorph);
-
-        // Set the ValueNumber 'gtVNPair' for the new GT_COMMA node
-        //
-        if (list->gtVNPair.BothDefined() && expr->gtVNPair.BothDefined())
-        {
-            // The result of a GT_COMMA node is op2, the normal value number is op2vnp
-            // But we also need to include the union of side effects from op1 and op2.
-            // we compute this value into exceptions_vnp.
-            ValueNumPair op1vnp;
-            ValueNumPair op1Xvnp = ValueNumStore::VNPForEmptyExcSet();
-            ValueNumPair op2vnp;
-            ValueNumPair op2Xvnp = ValueNumStore::VNPForEmptyExcSet();
-
-            vnStore->VNPUnpackExc(expr->gtVNPair, &op1vnp, &op1Xvnp);
-            vnStore->VNPUnpackExc(list->gtVNPair, &op2vnp, &op2Xvnp);
-
-            ValueNumPair exceptions_vnp = ValueNumStore::VNPForEmptyExcSet();
-
-            exceptions_vnp = vnStore->VNPExcSetUnion(exceptions_vnp, op1Xvnp);
-            exceptions_vnp = vnStore->VNPExcSetUnion(exceptions_vnp, op2Xvnp);
-
-            result->gtVNPair = vnStore->VNPWithExc(op2vnp, exceptions_vnp);
-        }
-
-        return result;
-    }
-    else
-    {
-        // The 'expr' will start the list of expressions
         return expr;
     }
+
+    GenTree* result = gtNewCommaNode(expr, list, TYP_VOID);
+
+    // 'list' and 'expr' should have value numbers defined for both or for neither one (unless we are remorphing,
+    // in which case a prior transform involving either node may have discarded or otherwise invalidated the value
+    // numbers).
+    assert((list->gtVNPair.BothDefined() == expr->gtVNPair.BothDefined()) || !fgGlobalMorph);
+
+    if (list->gtVNPair.BothDefined() && expr->gtVNPair.BothDefined())
+    {
+        ValueNumPair exset1 = vnStore->VNPExceptionSet(expr->GetVNP());
+        ValueNumPair exset2;
+        ValueNumPair value = vnStore->UnpackExset(list->GetVNP(), &exset2);
+
+        result->SetVNP(vnStore->VNPWithExc(value, vnStore->VNPExcSetUnion(exset1, exset2)));
+    }
+
+    return result;
 }
 
 //------------------------------------------------------------------------
@@ -11691,8 +11617,6 @@ GenTree* Compiler::gtBuildCommaList(GenTree* list, GenTree* expr)
 //
 // Arguments:
 //    expr       - the expression tree to extract side effects from
-//    pList      - pointer to a (possibly null) GT_COMMA list that
-//                 will contain the extracted side effects
 //    flags      - side effect flags to be considered
 //    ignoreRoot - ignore side effects on the expression root node
 //
@@ -11701,15 +11625,14 @@ GenTree* Compiler::gtBuildCommaList(GenTree* list, GenTree* expr)
 //    each comma node holds the side effect tree and op2 points to the
 //    next comma node. The original side effect execution order is preserved.
 //
-void Compiler::gtExtractSideEffList(GenTree*  expr,
-                                    GenTree** pList,
-                                    unsigned  flags /* = GTF_SIDE_EFFECT*/,
-                                    bool      ignoreRoot /* = false */)
+GenTree* Compiler::gtExtractSideEffList(GenTree* expr, GenTreeFlags flags, bool ignoreRoot)
 {
+    assert(!csePhase);
+
     class SideEffectExtractor final : public GenTreeVisitor<SideEffectExtractor>
     {
     public:
-        const unsigned       m_flags;
+        const GenTreeFlags   m_flags;
         ArrayStack<GenTree*> m_sideEffects;
 
         enum
@@ -11718,7 +11641,7 @@ void Compiler::gtExtractSideEffList(GenTree*  expr,
             UseExecutionOrder = true
         };
 
-        SideEffectExtractor(Compiler* compiler, unsigned flags)
+        SideEffectExtractor(Compiler* compiler, GenTreeFlags flags)
             : GenTreeVisitor(compiler), m_flags(flags), m_sideEffects(compiler->getAllocator(CMK_SideEffects))
         {
         }
@@ -11727,80 +11650,35 @@ void Compiler::gtExtractSideEffList(GenTree*  expr,
         {
             GenTree* node = *use;
 
-            bool treeHasSideEffects = m_compiler->gtTreeHasSideEffects(node, m_flags);
-
-            if (treeHasSideEffects)
+            if (!m_compiler->gtTreeHasSideEffects(node, m_flags))
             {
-                if (m_compiler->gtNodeHasSideEffects(node, m_flags))
-                {
-                    m_sideEffects.Push(node);
-                    if (node->OperIs(GT_OBJ, GT_BLK))
-                    {
-                        JITDUMP("Replace an unused OBJ/BLK node [%06d] with a NULLCHECK\n", dspTreeID(node));
-                        m_compiler->gtChangeOperToNullCheck(node, m_compiler->compCurBB);
-                    }
-                    return Compiler::WALK_SKIP_SUBTREES;
-                }
-
-                // TODO-Cleanup: These have GTF_ASG set but for some reason gtNodeHasSideEffects ignores
-                // them. See the related gtNodeHasSideEffects comment as well.
-                // Also, these nodes must always be preserved, no matter what side effect flags are passed
-                // in. But then it should never be the case that gtExtractSideEffList gets called without
-                // specifying GTF_ASG so there doesn't seem to be any reason to be inconsistent with
-                // gtNodeHasSideEffects and make this check unconditionally.
-                if (node->OperIsAtomicOp())
-                {
-                    m_sideEffects.Push(node);
-                    return Compiler::WALK_SKIP_SUBTREES;
-                }
-
-                // Generally all GT_CALL nodes are considered to have side-effects.
-                // So if we get here it must be a helper call that we decided it does
-                // not have side effects that we needed to keep.
-                assert(!node->OperIs(GT_CALL) || (node->AsCall()->gtCallType == CT_HELPER));
+                return Compiler::WALK_SKIP_SUBTREES;
             }
 
-            if ((m_flags & GTF_IS_IN_CSE) != 0)
+            // TODO-Cleanup: Atomics have GTF_ASG set but for some reason gtNodeHasSideEffects ignores
+            // them. See the related gtNodeHasSideEffects comment as well.
+            // Also, these nodes must always be preserved, no matter what side effect flags are passed
+            // in. But then it should never be the case that gtExtractSideEffList gets called without
+            // specifying GTF_ASG so there doesn't seem to be any reason to be inconsistent with
+            // gtNodeHasSideEffects and make this check unconditionally.
+            if (m_compiler->gtNodeHasSideEffects(node, m_flags) || node->OperIsAtomicOp())
             {
-                // If we're doing CSE then we also need to unmark CSE nodes. This will fail for CSE defs,
-                // those need to be extracted as if they're side effects.
-                if (!UnmarkCSE(node))
+                if (node->OperIs(GT_OBJ, GT_BLK))
                 {
-                    m_sideEffects.Push(node);
-                    return Compiler::WALK_SKIP_SUBTREES;
+                    JITDUMP("Replace an unused OBJ/BLK node [%06u] with a NULLCHECK\n", node->GetID());
+                    m_compiler->gtChangeOperToNullCheck(node);
                 }
 
-                // The existence of CSE defs and uses is not propagated up the tree like side
-                // effects are. We need to continue visiting the tree as if it has side effects.
-                treeHasSideEffects = true;
+                m_sideEffects.Push(node);
+                return Compiler::WALK_SKIP_SUBTREES;
             }
 
-            return treeHasSideEffects ? Compiler::WALK_CONTINUE : Compiler::WALK_SKIP_SUBTREES;
-        }
+            // Generally all GT_CALL nodes are considered to have side-effects.
+            // So if we get here it must be a helper call that we decided it does
+            // not have side effects that we needed to keep.
+            assert(!node->OperIs(GT_CALL) || (node->AsCall()->gtCallType == CT_HELPER));
 
-    private:
-        bool UnmarkCSE(GenTree* node)
-        {
-            assert(m_compiler->optValnumCSE_phase);
-
-            if (m_compiler->optUnmarkCSE(node))
-            {
-                // The call to optUnmarkCSE(node) should have cleared any CSE info.
-                assert(!IS_CSE_INDEX(node->gtCSEnum));
-                return true;
-            }
-            else
-            {
-                assert(IS_CSE_DEF(node->gtCSEnum));
-#ifdef DEBUG
-                if (m_compiler->verbose)
-                {
-                    printf("Preserving the CSE def #%02d at ", GET_CSE_INDEX(node->gtCSEnum));
-                    m_compiler->printTreeID(node);
-                }
-#endif
-                return false;
-            }
+            return Compiler::WALK_CONTINUE;
         }
     };
 
@@ -11818,7 +11696,7 @@ void Compiler::gtExtractSideEffList(GenTree*  expr,
         extractor.WalkTree(&expr, nullptr);
     }
 
-    GenTree* list = *pList;
+    GenTree* list = nullptr;
 
     // The extractor returns side effects in execution order but gtBuildCommaList prepends
     // to the comma-based side effect list so we have to build the list in reverse order.
@@ -11830,7 +11708,7 @@ void Compiler::gtExtractSideEffList(GenTree*  expr,
         list = gtBuildCommaList(list, extractor.m_sideEffects.Pop());
     }
 
-    *pList = list;
+    return list;
 }
 
 /*****************************************************************************

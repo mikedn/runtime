@@ -5617,7 +5617,7 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
             asg    = gtNewAssignNode(gtNewLclvNode(lclNum, addrType), addr);
         }
 
-        nullCheck = gtNewNullCheck(gtNewLclvNode(lclNum, addrType), compCurBB);
+        nullCheck = gtNewNullCheck(gtNewLclvNode(lclNum, addrType));
 
         if (asg != nullptr)
         {
@@ -6929,7 +6929,7 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
                 {
                     // COMMA(tmp = "this", deref(tmp))
                     GenTree* tmp          = gtNewLclvNode(lclNum, objp->TypeGet());
-                    GenTree* nullcheck    = gtNewNullCheck(tmp, compCurBB);
+                    GenTree* nullcheck    = gtNewNullCheck(tmp);
                     doBeforeStoreArgsStub = gtNewCommaNode(doBeforeStoreArgsStub, nullcheck);
                 }
 
@@ -6945,7 +6945,7 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
                 if (callNeedsNullCheck)
                 {
                     // deref("this")
-                    doBeforeStoreArgsStub = gtNewNullCheck(objp, compCurBB);
+                    doBeforeStoreArgsStub = gtNewNullCheck(objp);
 
                     if (stubNeedsThisPtr)
                     {
@@ -7541,14 +7541,14 @@ void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
 
                 // COMMA(tmp = "this", deref(tmp))
                 GenTree* tmp       = gtNewLclvNode(lclNum, vt);
-                GenTree* nullcheck = gtNewNullCheck(tmp, compCurBB);
+                GenTree* nullcheck = gtNewNullCheck(tmp);
                 asg                = gtNewCommaNode(asg, nullcheck);
                 thisPtr            = gtNewCommaNode(asg, gtNewLclvNode(lclNum, vt));
             }
             else
             {
                 // thisPtr = COMMA(deref("this"), "this")
-                GenTree* nullcheck = gtNewNullCheck(thisPtr, compCurBB);
+                GenTree* nullcheck = gtNewNullCheck(thisPtr);
                 thisPtr            = gtNewCommaNode(nullcheck, gtClone(objp, true));
             }
 
@@ -7971,7 +7971,7 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
 
         GenTree* thisPtr = call->gtCallArgs->GetNode();
 
-        GenTree* nullCheck = gtNewNullCheck(thisPtr, compCurBB);
+        GenTree* nullCheck = gtNewNullCheck(thisPtr);
 
         return fgMorphTree(nullCheck);
     }
@@ -9951,7 +9951,7 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
 {
     ALLOCA_CHECK();
     assert(fgGlobalMorph);
-    assert(!optValnumCSE_phase);
+    assert(!csePhase);
 
     GenTree* condExpr = qmark->GetCondition();
     GenTree* thenExpr = qmark->GetThen();
@@ -10446,7 +10446,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
                 if (doMorphModToSubMulDiv)
                 {
-                    assert(!optValnumCSE_phase);
+                    assert(!csePhase);
 
                     tree = fgMorphModToSubMulDiv(tree->AsOp());
                     op1  = tree->AsOp()->gtOp1;
@@ -11035,47 +11035,45 @@ DONE_MORPHING_CHILDREN:
                         goto SKIP;
                     }
 
-                    /* The right side of the comma must be a LCL_VAR temp */
-                    if (lcl->gtOper != GT_LCL_VAR)
+                    // The right side of the comma must be a LCL_VAR temp
+                    if (!lcl->OperIs(GT_LCL_VAR))
                     {
                         goto SKIP;
                     }
 
-                    unsigned lclNum = lcl->AsLclVarCommon()->GetLclNum();
-                    noway_assert(lclNum < lvaCount);
+                    LclVarDsc* lclVar = lvaGetDesc(lcl->AsLclVar());
 
-                    /* If the LCL_VAR is not a temp then bail, a temp has a single def */
-                    if (!lvaTable[lclNum].lvIsTemp)
+                    // If the LCL_VAR is not a temp then bail, a temp has a single def
+                    if (!lclVar->lvIsTemp)
                     {
                         goto SKIP;
                     }
 
-                    /* If the LCL_VAR is a CSE temp then bail, it could have multiple defs/uses */
-                    // Fix 383856 X86/ARM ILGEN
-                    if (lclNumIsCSE(lclNum))
+                    // If the LCL_VAR is a CSE temp then bail, it could have multiple defs/uses
+                    if (lclVar->lvIsCSE)
                     {
                         goto SKIP;
                     }
 
-                    /* We also must be assigning the result of a RELOP */
+                    // We also must be assigning the result of a RELOP
                     if (asg->AsOp()->gtOp1->gtOper != GT_LCL_VAR)
                     {
                         goto SKIP;
                     }
 
-                    /* Both of the LCL_VAR must match */
-                    if (asg->AsOp()->gtOp1->AsLclVarCommon()->GetLclNum() != lclNum)
+                    // Both of the LCL_VAR must match
+                    if (asg->AsOp()->gtOp1->AsLclVar()->GetLclNum() != lcl->AsLclVar()->GetLclNum())
                     {
                         goto SKIP;
                     }
 
-                    /* If right side of asg is not a RELOP then skip */
+                    // If right side of asg is not a RELOP then skip
                     if (!asg->AsOp()->gtOp2->OperIsCompare())
                     {
                         goto SKIP;
                     }
 
-                    /* Set op1 to the right side of asg, (i.e. the RELOP) */
+                    // Set op1 to the right side of asg, (i.e. the RELOP)
                     op1 = asg->AsOp()->gtOp2;
 
                     DEBUG_DESTROY_NODE(asg->AsOp()->gtOp1);
@@ -12002,11 +12000,11 @@ DONE_MORPHING_CHILDREN:
                 // Extract the side effects from the left side of the comma.  Since they don't "go" anywhere, this
                 // is all we need.
 
-                GenTree* op1SideEffects = nullptr;
                 // The addition of "GTF_MAKE_CSE" below prevents us from throwing away (for example)
                 // hoisted expressions in loops.
-                gtExtractSideEffList(op1, &op1SideEffects, (GTF_SIDE_EFFECT | GTF_MAKE_CSE));
-                if (op1SideEffects)
+                GenTree* op1SideEffects = gtExtractSideEffList(op1, GTF_SIDE_EFFECT | GTF_MAKE_CSE);
+
+                if (op1SideEffects != nullptr)
                 {
                     // Replace the left hand side with the side effect list.
                     tree->AsOp()->gtOp1 = op1SideEffects;
@@ -13278,7 +13276,7 @@ void Compiler::fgMorphClearDebugNodeMorphed(GenTree* tree)
 GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 {
     assert(tree != nullptr);
-    assert(!optValnumCSE_phase);
+    assert(!csePhase);
 
 #ifdef DEBUG
     if (verbose)
@@ -14050,7 +14048,7 @@ bool Compiler::fgMorphBlockStmt(BasicBlock* block, Statement* stmt DEBUGARG(cons
 {
     assert(block != nullptr);
     assert(stmt != nullptr);
-    assert(!optValnumCSE_phase);
+    assert(!csePhase);
 
     // Reset some ambient state
     fgRemoveRestOfBlock = false;

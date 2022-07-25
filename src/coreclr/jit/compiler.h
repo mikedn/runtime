@@ -72,7 +72,6 @@ struct InitVarDscInfo;     // defined in register_arg_convention.h
 class FgStack;             // defined in fgbasic.cpp
 class Instrumentor;        // defined in fgprofile.cpp
 class SpanningTreeVisitor; // defined in fgprofile.cpp
-class CSE_DataFlow;        // defined in OptCSE.cpp
 class OptBoolsDsc;         // defined in optimizer.cpp
 #ifdef DEBUG
 struct IndentStack;
@@ -1539,6 +1538,15 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 struct HWIntrinsicInfo;
 
+enum CallInterf : uint8_t
+{
+    CALLINT_NONE,       // no interference                               (most helpers)
+    CALLINT_REF_INDIRS, // kills GC ref indirections                     (SETFIELD OBJ)
+    CALLINT_SCL_INDIRS, // kills non GC ref indirections                 (SETFIELD non-OBJ)
+    CALLINT_ALL_INDIRS, // kills both GC ref and non GC ref indirections (SETFIELD STRUCT)
+    CALLINT_ALL,        // kills everything                              (normal method call)
+};
+
 class Compiler
 {
     friend class emitter;
@@ -1551,8 +1559,7 @@ class Compiler
     friend class Rationalizer;
     friend class Phase;
     friend class Lowering;
-    friend class CSE_DataFlow;
-    friend class CSE_Heuristic;
+    friend class Cse;
     friend class CodeGenInterface;
     friend class CodeGen;
     friend class LclVarDsc;
@@ -2119,9 +2126,9 @@ public:
 
     GenTreeIndir* gtNewIndir(var_types typ, GenTree* addr);
 
-    GenTree* gtNewNullCheck(GenTree* addr, BasicBlock* basicBlock);
+    GenTree* gtNewNullCheck(GenTree* addr);
 
-    void gtChangeOperToNullCheck(GenTree* tree, BasicBlock* block);
+    void gtChangeOperToNullCheck(GenTree* tree);
 
     GenTreeOp* gtNewAssignNode(GenTree* dst, GenTree* src);
 
@@ -2215,20 +2222,17 @@ public:
     void gtSetStmtInfo(Statement* stmt);
 
     // Returns "true" iff "node" has any of the side effects in "flags".
-    bool gtNodeHasSideEffects(GenTree* node, unsigned flags);
+    bool gtNodeHasSideEffects(GenTree* node, GenTreeFlags flags, bool ignoreCctors = false);
 
     // Returns "true" iff "tree" or its (transitive) children have any of the side effects in "flags".
-    bool gtTreeHasSideEffects(GenTree* tree, unsigned flags);
+    bool gtTreeHasSideEffects(GenTree* tree, GenTreeFlags flags, bool ignoreCctors = false);
 
     // Appends 'expr' in front of 'list'
     //    'list' will typically start off as 'nullptr'
     //    when 'list' is non-null a GT_COMMA node is used to insert 'expr'
     GenTree* gtBuildCommaList(GenTree* list, GenTree* expr);
 
-    void gtExtractSideEffList(GenTree*  expr,
-                              GenTree** pList,
-                              unsigned  flags      = GTF_SIDE_EFFECT,
-                              bool      ignoreRoot = false);
+    GenTree* gtExtractSideEffList(GenTree* expr, GenTreeFlags flags = GTF_SIDE_EFFECT, bool ignoreRoot = false);
 
     // Return true if call is a recursive call; return false otherwise.
     // Note when inlining, this looks for calls back to the root method.
@@ -5112,19 +5116,6 @@ public:
     PhaseStatus optUnrollLoops(); // Unrolls loops (needs to have cost info)
     void        optRemoveRedundantZeroInits();
 
-protected:
-    // This enumeration describes what is killed by a call.
-
-    enum callInterf : uint8_t
-    {
-        CALLINT_NONE,       // no interference                               (most helpers)
-        CALLINT_REF_INDIRS, // kills GC ref indirections                     (SETFIELD OBJ)
-        CALLINT_SCL_INDIRS, // kills non GC ref indirections                 (SETFIELD non-OBJ)
-        CALLINT_ALL_INDIRS, // kills both GC ref and non GC ref indirections (SETFIELD STRUCT)
-        CALLINT_ALL,        // kills everything                              (normal method call)
-    };
-
-public:
     // A "LoopDsc" describes a ("natural") loop.  We (currently) require the body of a loop to be a contiguous (in
     // bbNext order) sequence of basic blocks.  (At times, we may require the blocks in a loop to be "properly numbered"
     // in bbNext order; we use comparisons on the bbNum to decide order.)
@@ -5145,7 +5136,7 @@ public:
         BasicBlock* lpExit;   // if a single exit loop this is the EXIT (in most cases BOTTOM)
 
         ALLVARSET_TP lpAsgVars; // set of vars assigned within the loop (all vars, not just tracked)
-        callInterf   lpAsgCall; // "callInterf" for calls in the loop
+        CallInterf   lpAsgCall; // "callInterf" for calls in the loop
         varRefKinds  lpAsgInds; // set of inds modified within the loop
 
         LoopFlags lpFlags;
@@ -5412,278 +5403,36 @@ protected:
 
     bool optAvoidIntMult(void);
 
-protected:
-    //  The following is the upper limit on how many expressions we'll keep track
-    //  of for the CSE analysis.
-    //
-    static const unsigned MAX_CSE_CNT = EXPSET_SZ;
-
+public:
     static const int MIN_CSE_COST = 2;
 
-    // BitVec trait information only used by the optCSE_canSwap() method, for the  CSE_defMask and CSE_useMask.
-    // This BitVec uses one bit per CSE candidate
-    BitVecTraits* cseMaskTraits; // one bit per CSE candidate
-
-    // BitVec trait information for computing CSE availability using the CSE_DataFlow algorithm.
-    // Two bits are allocated per CSE candidate to compute CSE availability
-    // plus an extra bit to handle the initial unvisited case.
-    // (See CSE_DataFlow::EndMerge for an explanation of why this is necessary.)
-    //
-    // The two bits per CSE candidate have the following meanings:
-    //     11 - The CSE is available, and is also available when considering calls as killing availability.
-    //     10 - The CSE is available, but is not available when considering calls as killing availability.
-    //     00 - The CSE is not available
-    //     01 - An illegal combination
-    //
-    BitVecTraits* cseLivenessTraits;
-
-    //-----------------------------------------------------------------------------------------------------------------
-    // getCSEnum2bit: Return the normalized index to use in the EXPSET_TP for the CSE with the given CSE index.
-    // Each GenTree has a `gtCSEnum` field. Zero is reserved to mean this node is not a CSE, positive values indicate
-    // CSE uses, and negative values indicate CSE defs. The caller must pass a non-zero positive value, as from
-    // GET_CSE_INDEX().
-    //
-    static unsigned genCSEnum2bit(unsigned CSEnum)
-    {
-        assert((CSEnum > 0) && (CSEnum <= MAX_CSE_CNT));
-        return CSEnum - 1;
-    }
-
-    //-----------------------------------------------------------------------------------------------------------------
-    // getCSEAvailBit: Return the bit used by CSE dataflow sets (bbCseGen, etc.) for the availability bit for a CSE.
-    //
-    static unsigned getCSEAvailBit(unsigned CSEnum)
-    {
-        return genCSEnum2bit(CSEnum) * 2;
-    }
-
-    //-----------------------------------------------------------------------------------------------------------------
-    // getCSEAvailCrossCallBit: Return the bit used by CSE dataflow sets (bbCseGen, etc.) for the availability bit
-    // for a CSE considering calls as killing availability bit (see description above).
-    //
-    static unsigned getCSEAvailCrossCallBit(unsigned CSEnum)
-    {
-        return getCSEAvailBit(CSEnum) + 1;
-    }
-
-    void optPrintCSEDataFlowSet(EXPSET_VALARG_TP cseDataFlowSet, bool includeBits = true);
-
-    EXPSET_TP cseCallKillsMask; // Computed once - A mask that is used to kill available CSEs at callsites
-
-    /* Generic list of nodes - used by the CSE logic */
-
-    struct treeStmtLst
-    {
-        treeStmtLst* tslNext;
-        GenTree*     tslTree;  // tree node
-        Statement*   tslStmt;  // statement containing the tree
-        BasicBlock*  tslBlock; // block containing the statement
-
-        treeStmtLst(GenTree* tree, Statement* stmt, BasicBlock* block)
-            : tslNext(nullptr), tslTree(tree), tslStmt(stmt), tslBlock(block)
-        {
-        }
-    };
-
-    // The following logic keeps track of expressions via a simple hash table.
-
-    struct CSEdsc
-    {
-        CSEdsc*  csdNextInBucket;  // used by the hash table
-        size_t   csdHashKey;       // the orginal hashkey
-        ssize_t  csdConstDefValue; // When we CSE similar constants, this is the value that we use as the def
-        ValueNum csdConstDefVN;    // When we CSE similar constants, this is the ValueNumber that we use for the LclVar
-                                   // assignment
-        unsigned csdIndex;         // 1..optCSECandidateCount
-        bool     csdIsSharedConst; // true if this CSE is a shared const
-        bool     csdLiveAcrossCall;
-
-        unsigned short csdDefCount; // definition   count
-        unsigned short csdUseCount; // use          count  (excluding the implicit uses at defs)
-
-        BasicBlock::weight_t csdDefWtCnt; // weighted def count
-        BasicBlock::weight_t csdUseWtCnt; // weighted use count  (excluding the implicit uses at defs)
-
-        GenTree*    csdTree;  // treenode containing the 1st occurrence
-        Statement*  csdStmt;  // stmt containing the 1st occurrence
-        BasicBlock* csdBlock; // block containing the 1st occurrence
-
-        treeStmtLst* csdTreeList; // list of matching tree nodes: head
-        treeStmtLst* csdTreeLast; // list of matching tree nodes: tail
-
-        ClassLayout* csdLayout; // Layout needed to create struct typed CSE temps.
-
-        ValueNum defExcSetPromise; // The exception set that is now required for all defs of this CSE.
-                                   // This will be set to NoVN if we decide to abandon this CSE
-
-        ValueNum defExcSetCurrent; // The set of exceptions we currently can use for CSE uses.
-
-        ValueNum defConservNormVN; // if all def occurrences share the same conservative normal value
-                                   // number, this will reflect it; otherwise, NoVN.
-                                   // not used for shared const CSE's
-
-        CSEdsc(size_t hashKey, GenTree* tree, Statement* stmt, BasicBlock* block)
-            : csdNextInBucket(nullptr)
-            , csdHashKey(hashKey)
-            , csdConstDefValue(0)
-            , csdConstDefVN(ValueNumStore::VNForNull())
-            , csdIndex(0)
-            , csdIsSharedConst(false)
-            , csdLiveAcrossCall(false)
-            , csdDefCount(0)
-            , csdUseCount(0)
-            , csdDefWtCnt(0)
-            , csdUseWtCnt(0)
-            , csdTree(tree)
-            , csdStmt(stmt)
-            , csdBlock(block)
-            , csdTreeList(nullptr)
-            , csdTreeLast(nullptr)
-            , csdLayout(nullptr)
-            , defExcSetPromise(ValueNumStore::VNForEmptyExcSet())
-            , defExcSetCurrent(ValueNumStore::VNForNull())
-            , defConservNormVN(ValueNumStore::VNForNull())
-        {
-        }
-    };
-
-    static const size_t s_optCSEhashSizeInitial;
-    static const size_t s_optCSEhashGrowthFactor;
-    static const size_t s_optCSEhashBucketSize;
-    size_t              optCSEhashSize;                 // The current size of hashtable
-    size_t              optCSEhashCount;                // Number of entries in hashtable
-    size_t              optCSEhashMaxCountBeforeResize; // Number of entries before resize
-    CSEdsc**            optCSEhash;
-    CSEdsc**            optCSEtab;
-
-    typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, GenTree*> NodeToNodeMap;
-
-    NodeToNodeMap* optCseCheckedBoundMap; // Maps bound nodes to ancestor compares that should be
-                                          // re-numbered with the bound to improve range check elimination
-
-    // Given a compare, look for a cse candidate checked bound feeding it and add a map entry if found.
-    void optCseUpdateCheckedBoundMap(GenTree* compare);
-
-    void optCSEstop();
-
-    CSEdsc* optCSEfindDsc(unsigned index);
-    bool optUnmarkCSE(GenTree* tree);
-
-    // user defined callback data for the tree walk function optCSE_MaskHelper()
-    struct optCSE_MaskData
-    {
-        EXPSET_TP CSE_defMask;
-        EXPSET_TP CSE_useMask;
-    };
-
-    // Treewalk helper for optCSE_DefMask and optCSE_UseMask
-    static fgWalkPreFn optCSE_MaskHelper;
-
-    // This function walks all the node for an given tree
-    // and return the mask of CSE definitions and uses for the tree
-    //
-    void optCSE_GetMaskData(GenTree* tree, optCSE_MaskData* pMaskData);
-
-    // Given a binary tree node return true if it is safe to swap the order of evaluation for op1 and op2.
-    bool optCSE_canSwap(GenTree* firstNode, GenTree* secondNode);
-    bool optCSE_canSwap(GenTree* tree);
-
-    struct optCSEcostCmpEx
-    {
-        bool operator()(const CSEdsc* op1, const CSEdsc* op2);
-    };
-    struct optCSEcostCmpSz
-    {
-        bool operator()(const CSEdsc* op1, const CSEdsc* op2);
-    };
-
-    void optCleanupCSEs();
-
-#ifdef DEBUG
-    void optEnsureClearCSEInfo();
-#endif // DEBUG
-
-    static bool Is_Shared_Const_CSE(size_t key)
-    {
-        return ((key & TARGET_SIGN_BIT) != 0);
-    }
-
-    // returns the encoded key
-    static size_t Encode_Shared_Const_CSE_Value(size_t key)
-    {
-        return TARGET_SIGN_BIT | (key >> CSE_CONST_SHARED_LOW_BITS);
-    }
-
-    // returns the orginal key
-    static size_t Decode_Shared_Const_CSE_Value(size_t enckey)
-    {
-        assert(Is_Shared_Const_CSE(enckey));
-        return (enckey & ~TARGET_SIGN_BIT) << CSE_CONST_SHARED_LOW_BITS;
-    }
+    bool cseIsCandidate(GenTree* tree);
+    bool cseCanSwapOrder(GenTree* tree1, GenTree* tree2);
 
 /**************************************************************************
  *                   Value Number based CSEs
  *************************************************************************/
 
 // String to use for formatting CSE numbers. Note that this is the positive number, e.g., from GET_CSE_INDEX().
-#define FMT_CSE "CSE #%02u"
+#define FMT_CSE "CSE%02u"
 
-public:
-    void optOptimizeValnumCSEs();
+    bool csePhase; // True when we are executing the CSE phase
+#if 0
+    unsigned cseValueCount; // Count of CSE values, currently unused, see cseCanSwapOrder.
+#endif
 
-protected:
-    void     optValnumCSE_Init();
-    unsigned optValnumCSE_Index(GenTree* tree, Statement* stmt);
-    bool optValnumCSE_Locate();
-    void optValnumCSE_InitDataFlow();
-    void optValnumCSE_DataFlow();
-    void optValnumCSE_Availablity();
-    void optValnumCSE_Heuristic();
+#ifdef DEBUG
+    unsigned cseFirstLclNum; // The first local variable number that is a CSE
+    unsigned cseCount;       // The total count of CSE temp locals introduced.
 
-    bool                 optDoCSE;             // True when we have found a duplicate CSE tree
-    bool                 optValnumCSE_phase;   // True when we are executing the optOptimizeValnumCSEs() phase
-    unsigned             optCSECandidateCount; // Count of CSE's candidates
-    unsigned             optCSEstart;          // The first local variable number that is a CSE
-    unsigned             optCSEcount;          // The total count of CSE's introduced.
-    BasicBlock::weight_t optCSEweight;         // The weight of the current block when we are doing PerformCSE
-
-    bool optIsCSEcandidate(GenTree* tree);
-
-    // lclNumIsTrueCSE returns true if the LclVar was introduced by the CSE phase of the compiler
-    //
+    // Returns true if the LclVar was introduced by the CSE phase of the compiler.
     bool lclNumIsTrueCSE(unsigned lclNum) const
     {
-        return ((optCSEcount > 0) && (lclNum >= optCSEstart) && (lclNum < optCSEstart + optCSEcount));
+        return ((cseCount > 0) && (lclNum >= cseFirstLclNum) && (lclNum < cseFirstLclNum + cseCount));
     }
-
-    //  lclNumIsCSE returns true if the LclVar should be treated like a CSE with regards to constant prop.
-    //
-    bool lclNumIsCSE(unsigned lclNum) const
-    {
-        return lvaTable[lclNum].lvIsCSE;
-    }
-
-#ifdef DEBUG
-    bool optConfigDisableCSE();
-    bool optConfigDisableCSE2();
 #endif
 
-    void optOptimizeCSEs();
-
-    struct isVarAssgDsc
-    {
-        GenTree*     ivaSkip;
-        ALLVARSET_TP ivaMaskVal; // Set of variables assigned to.  This is a set of all vars, not tracked vars.
-#ifdef DEBUG
-        void* ivaSelf;
-#endif
-        unsigned    ivaVar;            // Variable we are interested in, or -1
-        varRefKinds ivaMaskInd;        // What kind of indirect assignments are there?
-        callInterf  ivaMaskCall;       // What kind of calls are there?
-        bool        ivaMaskIncomplete; // Variables not representable in ivaMaskVal were assigned to.
-    };
-
-    static callInterf optCallInterf(GenTreeCall* call);
+    void cseMain();
 
 public:
     void optVnCopyProp();
