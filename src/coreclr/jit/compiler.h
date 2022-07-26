@@ -2019,11 +2019,11 @@ public:
     GenTreeCall::Use* gtPrependNewCallArg(GenTree* node, GenTreeCall::Use* args);
     GenTreeCall::Use* gtInsertNewCallArgAfter(GenTree* node, GenTreeCall::Use* after);
 
-    GenTreeCall* gtNewCallNode(gtCallTypes           callType,
-                               CORINFO_METHOD_HANDLE handle,
-                               var_types             type,
-                               GenTreeCall::Use*     args,
-                               IL_OFFSETX            ilOffset = BAD_IL_OFFSET);
+    GenTreeCall* gtNewCallNode(gtCallTypes       callType,
+                               void*             target,
+                               var_types         type,
+                               GenTreeCall::Use* args,
+                               IL_OFFSETX        ilOffset = BAD_IL_OFFSET);
 
     GenTreeCall* gtNewUserCallNode(CORINFO_METHOD_HANDLE handle,
                                    var_types             type,

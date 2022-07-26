@@ -4379,7 +4379,7 @@ GenTreeCall* Compiler::gtNewHelperCallNode(CorInfoHelpFunc helper, var_types typ
 
 GenTreeCall* Compiler::gtNewIndCallNode(GenTree* addr, var_types type, GenTreeCall::Use* args, IL_OFFSETX ilOffset)
 {
-    return gtNewCallNode(CT_INDIRECT, (CORINFO_METHOD_HANDLE)addr, type, args, ilOffset);
+    return gtNewCallNode(CT_INDIRECT, addr, type, args, ilOffset);
 }
 
 GenTreeCall* Compiler::gtNewUserCallNode(CORINFO_METHOD_HANDLE handle,
@@ -4391,20 +4391,21 @@ GenTreeCall* Compiler::gtNewUserCallNode(CORINFO_METHOD_HANDLE handle,
 }
 
 GenTreeCall* Compiler::gtNewCallNode(
-    gtCallTypes kind, CORINFO_METHOD_HANDLE callHnd, var_types type, GenTreeCall::Use* args, IL_OFFSETX ilOffset)
+    gtCallTypes kind, void* target, var_types type, GenTreeCall::Use* args, IL_OFFSETX ilOffset)
 {
     GenTreeCall* node = new (this, GT_CALL) GenTreeCall(type, kind, args);
 #ifdef UNIX_X86_ABI
     node->gtFlags |= GTF_CALL_POP_ARGS;
-#endif // UNIX_X86_ABI
-    node->gtCallMethHnd = callHnd;
+#endif
 
     if (kind == CT_INDIRECT)
     {
+        node->gtCallAddr   = static_cast<GenTree*>(target);
         node->gtCallCookie = nullptr;
     }
     else
     {
+        node->gtCallMethHnd         = static_cast<CORINFO_METHOD_HANDLE>(target);
         node->gtInlineCandidateInfo = nullptr;
     }
 
