@@ -4369,6 +4369,14 @@ GenTreeLclFld* Compiler::gtNewStoreLclFld(var_types type, unsigned lclNum, unsig
     return new (this, GT_STORE_LCL_FLD) GenTreeLclFld(type, lclNum, lclOffs, value);
 }
 
+GenTreeCall* Compiler::gtNewHelperCallNode(unsigned helper, var_types type, GenTreeCall::Use* args)
+{
+    GenTreeCall* call = gtNewCallNode(CT_HELPER, eeFindHelper(helper), type, args);
+    call->gtFlags |= s_helperCallProperties.NoThrow((CorInfoHelpFunc)helper) ? GTF_EMPTY : GTF_EXCEPT;
+    INDEBUG(call->gtInlineObservation = InlineObservation::CALLSITE_IS_CALL_TO_HELPER);
+    return call;
+}
+
 GenTreeCall* Compiler::gtNewIndCallNode(GenTree* addr, var_types type, GenTreeCall::Use* args, IL_OFFSETX ilOffset)
 {
     return gtNewCallNode(CT_INDIRECT, (CORINFO_METHOD_HANDLE)addr, type, args, ilOffset);
