@@ -156,7 +156,6 @@ private:
     void LowerStructCall(GenTreeCall* call);
     GenTree* SpillStructCall(GenTreeCall* call, GenTree* user);
     GenTree* LowerDelegateInvoke(GenTreeCall* call);
-    GenTree* LowerIndirectNonvirtCall(GenTreeCall* call);
     GenTree* LowerDirectCall(GenTreeCall* call);
     GenTree* LowerNonvirtPinvokeCall(GenTreeCall* call);
     GenTree* LowerTailCallViaJitHelper(GenTreeCall* callNode, GenTree* callTarget);
