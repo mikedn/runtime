@@ -1295,6 +1295,8 @@ void Lowering::LowerCall(GenTreeCall* call)
         }
     }
 
+    assert((call->gtCallType != CT_INDIRECT) || (controlExpr == nullptr));
+
     if (call->IsTailCallViaJitHelper())
     {
         // Either controlExpr or gtCallAddr must contain real call target.
@@ -1302,6 +1304,7 @@ void Lowering::LowerCall(GenTreeCall* call)
         {
             assert(call->gtCallType == CT_INDIRECT);
             assert(call->gtCallAddr != nullptr);
+
             controlExpr = call->gtCallAddr;
         }
 
@@ -2595,11 +2598,10 @@ GenTree* Lowering::SpillStructCall(GenTreeCall* call, GenTree* user)
 
 GenTree* Lowering::LowerDirectCall(GenTreeCall* call)
 {
-    noway_assert(call->gtCallType == CT_USER_FUNC || call->gtCallType == CT_HELPER);
-
+    noway_assert((call->gtCallType == CT_USER_FUNC) || (call->gtCallType == CT_HELPER));
     // Don't support tail calling helper methods.
     // But we might encounter tail calls dispatched via JIT helper appear as a tail call to helper.
-    noway_assert(!call->IsTailCall() || call->IsTailCallViaJitHelper() || call->gtCallType == CT_USER_FUNC);
+    noway_assert(!call->IsTailCall() || call->IsTailCallViaJitHelper() || (call->gtCallType == CT_USER_FUNC));
 
     // Non-virtual direct/indirect calls: Work out if the address of the
     // call is known at JIT time.  If not it is either an indirect call
@@ -2607,7 +2609,7 @@ GenTree* Lowering::LowerDirectCall(GenTreeCall* call)
 
     void*           addr;
     InfoAccessType  accessType;
-    CorInfoHelpFunc helperNum = comp->eeGetHelperNum(call->gtCallMethHnd);
+    CorInfoHelpFunc helperNum = Compiler::eeGetHelperNum(call->GetMethodHandle());
 
 #ifdef FEATURE_READYTORUN_COMPILER
     if (call->gtEntryPoint.addr != nullptr)
@@ -2656,7 +2658,6 @@ GenTree* Lowering::LowerDirectCall(GenTreeCall* call)
         addr       = addrInfo.addr;
     }
 
-    GenTree* result = nullptr;
     switch (accessType)
     {
         case IAT_VALUE:
@@ -2666,67 +2667,60 @@ GenTree* Lowering::LowerDirectCall(GenTreeCall* call)
             // it.
             if (!IsCallTargetInRange(addr) || call->IsTailCallViaJitHelper())
             {
-                result = comp->gtNewIconHandleNode(addr, GTF_ICON_FTN_ADDR);
+                return comp->gtNewIconHandleNode(addr, GTF_ICON_FTN_ADDR);
             }
-            else
-            {
-                // a direct call within range of hardware relative call instruction
-                // stash the address for codegen
-                call->gtDirectCallAddress = addr;
-            }
-            break;
+
+            // a direct call within range of hardware relative call instruction
+            // stash the address for codegen
+            call->gtDirectCallAddress = addr;
+
+            return nullptr;
 
         case IAT_PVALUE:
-        {
-            bool isR2RRelativeIndir = false;
+// Non-virtual direct calls to addresses accessed by a single indirection.
+
 #if defined(FEATURE_READYTORUN_COMPILER) && defined(TARGET_ARMARCH)
             // Skip inserting the indirection node to load the address that is already
             // computed in REG_R2R_INDIRECT_PARAM as a hidden parameter. Instead during the
             // codegen, just load the call target from REG_R2R_INDIRECT_PARAM.
-            isR2RRelativeIndir = call->IsR2RRelativeIndir();
-#endif // FEATURE_READYTORUN_COMPILER && TARGET_ARMARCH
-
-            if (!isR2RRelativeIndir)
+            if (call->IsR2RRelativeIndir())
             {
-                // Non-virtual direct calls to addresses accessed by a single indirection.
+                return nullptr;
+            }
+#endif
 
+            {
                 GenTreeIntCon* cellAddr = comp->gtNewIconHandleNode(addr, GTF_ICON_FTN_ADDR);
                 INDEBUG(cellAddr->gtTargetHandle = (size_t)call->gtCallMethHnd);
-
-                result = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, cellAddr);
+                return comp->gtNewOperNode(GT_IND, TYP_I_IMPL, cellAddr);
             }
-            break;
-        }
 
         case IAT_PPVALUE:
-            // Non-virtual direct calls to addresses accessed by
-            // a double indirection.
+            // Non-virtual direct calls to addresses accessed by a double indirection.
             // Expanding an IAT_PPVALUE here, will lose the opportunity
             // to Hoist/CSE the first indirection as it is an invariant load
             assert(!"IAT_PPVALUE case in LowerDirectCall");
             noway_assert(helperNum == CORINFO_HELP_UNDEF);
 
-            result = comp->gtNewIconHandleNode(addr, GTF_ICON_FTN_ADDR);
-            result = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, result);
-            result = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, result);
-            break;
+            {
+                GenTree* result = comp->gtNewIconHandleNode(addr, GTF_ICON_FTN_ADDR);
+                result          = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, result);
+                return comp->gtNewOperNode(GT_IND, TYP_I_IMPL, result);
+            }
 
         case IAT_RELPVALUE:
-        {
             // Non-virtual direct calls to addresses accessed by
             // a single relative indirection.
-            GenTree* cellAddr = comp->gtNewIconHandleNode(addr, GTF_ICON_FTN_ADDR);
-            GenTree* indir    = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, cellAddr);
-            result = comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, indir, comp->gtNewIconHandleNode(addr, GTF_ICON_FTN_ADDR));
-            break;
-        }
+            {
+                GenTree* cellAddr = comp->gtNewIconHandleNode(addr, GTF_ICON_FTN_ADDR);
+                GenTree* indir    = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, cellAddr);
+                GenTree* offset   = comp->gtNewIconHandleNode(addr, GTF_ICON_FTN_ADDR);
+                return comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, indir, offset);
+            }
 
         default:
-            noway_assert(!"Bad accessType");
-            break;
+            unreached();
     }
-
-    return result;
 }
 
 GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call)
@@ -3390,31 +3384,29 @@ GenTree* Lowering::LowerNonvirtPinvokeCall(GenTreeCall* call)
     // Note that the JIT_PINVOKE_{BEGIN.END} helpers currently use the default calling convention for the target
     // platform. They may be changed in the future such that they preserve all register values.
 
-    GenTree* result = nullptr;
-
     // All code generated by this function must not contain the randomly-inserted NOPs
     // that we insert to inhibit JIT spraying in partial trust scenarios.
     // The PINVOKE_PROLOG op signals this to the code generator/emitter.
 
-    GenTree* prolog = new (comp, GT_NOP) GenTree(GT_PINVOKE_PROLOG, TYP_VOID);
+    GenTree* prolog = new (comp, GT_PINVOKE_PROLOG) GenTree(GT_PINVOKE_PROLOG, TYP_VOID);
     BlockRange().InsertBefore(call, prolog);
 
     bool addPInvokePrologEpilog = !call->IsSuppressGCTransition();
+
     if (addPInvokePrologEpilog)
     {
         InsertPInvokeCallProlog(call);
     }
 
+    GenTree* controlExpr = nullptr;
+
     if (call->gtCallType != CT_INDIRECT)
     {
         noway_assert(call->gtCallType == CT_USER_FUNC);
-        CORINFO_METHOD_HANDLE methHnd = call->gtCallMethHnd;
 
-        CORINFO_CONST_LOOKUP lookup;
+        CORINFO_METHOD_HANDLE methHnd = call->GetMethodHandle();
+        CORINFO_CONST_LOOKUP  lookup;
         comp->info.compCompHnd->getAddressOfPInvokeTarget(methHnd, &lookup);
-
-        void*          addr = lookup.addr;
-        GenTreeIntCon* addrTree;
 
         switch (lookup.accessType)
         {
@@ -3424,15 +3416,15 @@ GenTree* Lowering::LowerNonvirtPinvokeCall(GenTreeCall* call)
                 // (e.g. kernel32.dll) the relative offset is unlikely to fit into int32 and we will have to
                 // turn fAllowRel32 off globally.
                 if ((call->IsSuppressGCTransition() && !comp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT)) ||
-                    !IsCallTargetInRange(addr))
+                    !IsCallTargetInRange(lookup.addr))
                 {
-                    result = comp->gtNewIconHandleNode(addr, GTF_ICON_FTN_ADDR);
+                    controlExpr = comp->gtNewIconHandleNode(lookup.addr, GTF_ICON_FTN_ADDR);
                 }
                 else
                 {
                     // a direct call within range of hardware relative call instruction
                     // stash the address for codegen
-                    call->gtDirectCallAddress = addr;
+                    call->gtDirectCallAddress = lookup.addr;
 #ifdef FEATURE_READYTORUN_COMPILER
                     call->gtEntryPoint.addr       = nullptr;
                     call->gtEntryPoint.accessType = IAT_VALUE;
@@ -3441,24 +3433,27 @@ GenTree* Lowering::LowerNonvirtPinvokeCall(GenTreeCall* call)
                 break;
 
             case IAT_PVALUE:
-                addrTree = comp->gtNewIconHandleNode(addr, GTF_ICON_FTN_ADDR);
-                INDEBUG(addrTree->gtTargetHandle = (size_t)methHnd);
-                result = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, addrTree);
-                break;
+            {
+                GenTreeIntCon* addr = comp->gtNewIconHandleNode(lookup.addr, GTF_ICON_FTN_ADDR);
+                INDEBUG(addr->gtTargetHandle = (size_t)methHnd);
+                controlExpr = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, addr);
+            }
+            break;
 
             case IAT_PPVALUE:
                 // ToDo:  Expanding an IAT_PPVALUE here, loses the opportunity
                 // to Hoist/CSE the first indirection as it is an invariant load
                 // This case currently occurs today when we make PInvoke calls in crossgen
                 // assert(!"IAT_PPVALUE in Lowering::LowerNonvirtPinvokeCall");
-
-                addrTree = comp->gtNewIconHandleNode(addr, GTF_ICON_FTN_ADDR);
-                INDEBUG(addrTree->gtTargetHandle = (size_t)methHnd);
-                result = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, addrTree);
-                result = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, result);
+                {
+                    GenTreeIntCon* addr = comp->gtNewIconHandleNode(lookup.addr, GTF_ICON_FTN_ADDR);
+                    INDEBUG(addr->gtTargetHandle = (size_t)methHnd);
+                    controlExpr = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, addr);
+                    controlExpr = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, controlExpr);
+                }
                 break;
 
-            case IAT_RELPVALUE:
+            default:
                 unreached();
         }
     }
@@ -3468,7 +3463,7 @@ GenTree* Lowering::LowerNonvirtPinvokeCall(GenTreeCall* call)
         InsertPInvokeCallEpilog(call);
     }
 
-    return result;
+    return controlExpr;
 }
 
 // Expand the code necessary to calculate the control target.
@@ -3578,8 +3573,6 @@ GenTree* Lowering::LowerVirtualStubCall(GenTreeCall* call)
     // THIS IS VERY TIGHTLY TIED TO THE PREDICATES IN
     // vm\i386\cGenCpu.h, esp. isCallRegisterIndirect.
 
-    GenTree* result = nullptr;
-
     // This is code to set up an indirect call to a stub address computed
     // via dictionary lookup.
     if (call->gtCallType == CT_INDIRECT)
@@ -3607,51 +3600,42 @@ GenTree* Lowering::LowerVirtualStubCall(GenTreeCall* call)
         ind->gtFlags |= GTF_IND_REQ_ADDR_IN_REG;
 
         ContainCheckIndir(ind->AsIndir());
+
+        return nullptr;
     }
-    else
+
+    // Direct stub call.
+    // Get stub addr. This will return NULL if virtual call stubs are not active
+    void* stubAddr = call->gtStubCallStubAddr;
+    noway_assert(stubAddr != nullptr);
+    // If not CT_INDIRECT, then it should always be relative indir call.
+    // This is ensured by VM.
+    noway_assert(call->IsVirtualStubRelativeIndir());
+
+    // On x86, for tailcall via helper, the JIT_TailCall helper takes the stubAddr as
+    // the target address, and we set a flag that it's a VSD call. The helper then
+    // handles any necessary indirection.
+    if (call->IsTailCallViaJitHelper())
     {
-        // Direct stub call.
-        // Get stub addr. This will return NULL if virtual call stubs are not active
-        void* stubAddr = call->gtStubCallStubAddr;
-        noway_assert(stubAddr != nullptr);
-
-        // If not CT_INDIRECT,  then it should always be relative indir call.
-        // This is ensured by VM.
-        noway_assert(call->IsVirtualStubRelativeIndir());
-
-        // Direct stub calls, though the stubAddr itself may still need to be
-        // accessed via an indirection.
-        GenTreeIntCon* addr = comp->gtNewIconHandleNode(stubAddr, GTF_ICON_FTN_ADDR);
-
-        // On x86, for tailcall via helper, the JIT_TailCall helper takes the stubAddr as
-        // the target address, and we set a flag that it's a VSD call. The helper then
-        // handles any necessary indirection.
-        if (call->IsTailCallViaJitHelper())
-        {
-            result = addr;
-        }
-        else
-        {
-
-            bool shouldOptimizeVirtualStubCall = false;
-#if defined(FEATURE_READYTORUN_COMPILER) && defined(TARGET_ARMARCH)
-            // Skip inserting the indirection node to load the address that is already
-            // computed in REG_R2R_INDIRECT_PARAM as a hidden parameter. Instead during the
-            // codegen, just load the call target from REG_R2R_INDIRECT_PARAM.
-            // However, for tail calls, the call target is always computed in RBM_FASTTAILCALL_TARGET
-            // and so do not optimize virtual stub calls for such cases.
-            shouldOptimizeVirtualStubCall = !call->IsTailCall();
-#endif // FEATURE_READYTORUN_COMPILER && TARGET_ARMARCH
-
-            if (!shouldOptimizeVirtualStubCall)
-            {
-                result = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, addr);
-            }
-        }
+        return comp->gtNewIconHandleNode(stubAddr, GTF_ICON_FTN_ADDR);
     }
+
+#if defined(FEATURE_READYTORUN_COMPILER) && defined(TARGET_ARMARCH)
+    // Skip inserting the indirection node to load the address that is already
+    // computed in REG_R2R_INDIRECT_PARAM as a hidden parameter. Instead during the
+    // codegen, just load the call target from REG_R2R_INDIRECT_PARAM.
+    // However, for tail calls, the call target is always computed in RBM_FASTTAILCALL_TARGET
+    // and so do not optimize virtual stub calls for such cases.
+    if (!call->IsTailCall())
+    {
+        return nullptr;
+    }
+#endif
 
     // TODO-Cleanup: start emitting random NOPS
-    return result;
+
+    GenTreeIntCon* addr = comp->gtNewIconHandleNode(stubAddr, GTF_ICON_FTN_ADDR);
+    return comp->gtNewOperNode(GT_IND, TYP_I_IMPL, addr);
 }
 
 //------------------------------------------------------------------------
