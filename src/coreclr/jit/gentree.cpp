@@ -4374,6 +4374,14 @@ GenTreeCall* Compiler::gtNewIndCallNode(GenTree* addr, var_types type, GenTreeCa
     return gtNewCallNode(CT_INDIRECT, (CORINFO_METHOD_HANDLE)addr, type, args, ilOffset);
 }
 
+GenTreeCall* Compiler::gtNewUserCallNode(CORINFO_METHOD_HANDLE handle,
+                                         var_types             type,
+                                         GenTreeCall::Use*     args,
+                                         IL_OFFSETX            ilOffset)
+{
+    return gtNewCallNode(CT_USER_FUNC, handle, type, args, ilOffset);
+}
+
 GenTreeCall* Compiler::gtNewCallNode(
     gtCallTypes kind, CORINFO_METHOD_HANDLE callHnd, var_types type, GenTreeCall::Use* args, IL_OFFSETX ilOffset)
 {

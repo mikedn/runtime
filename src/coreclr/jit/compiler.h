@@ -2025,6 +2025,11 @@ public:
                                GenTreeCall::Use*     args,
                                IL_OFFSETX            ilOffset = BAD_IL_OFFSET);
 
+    GenTreeCall* gtNewUserCallNode(CORINFO_METHOD_HANDLE handle,
+                                   var_types             type,
+                                   GenTreeCall::Use*     args,
+                                   IL_OFFSETX            ilOffset = BAD_IL_OFFSET);
+
     GenTreeCall* gtNewIndCallNode(GenTree*          addr,
                                   var_types         type,
                                   GenTreeCall::Use* args,

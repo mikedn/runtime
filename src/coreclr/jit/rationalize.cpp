@@ -18,7 +18,7 @@ void Rationalizer::RewriteNodeAsCall(GenTree**             use,
     BlockRange().Remove(treeFirstNode, tree);
 
     // Create the call node
-    GenTreeCall* call = comp->gtNewCallNode(CT_USER_FUNC, callHnd, tree->gtType, args);
+    GenTreeCall* call = comp->gtNewUserCallNode(callHnd, tree->GetType(), args);
 
 #if DEBUG
     CORINFO_SIG_INFO sig;
