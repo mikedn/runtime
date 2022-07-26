@@ -184,13 +184,6 @@ private:
         PopFrame
     };
     void InsertFrameLinkUpdate(LIR::Range& block, GenTree* before, FrameLinkAction action);
-    GenTree* AddrGen(ssize_t addr);
-    GenTree* AddrGen(void* addr);
-
-    GenTree* Ind(GenTree* tree, var_types type = TYP_I_IMPL)
-    {
-        return comp->gtNewOperNode(GT_IND, type, tree);
-    }
 
     // Replace the definition of the given use with a lclVar, allocating a new temp
     // if 'tempNum' is BAD_VAR_NUM. Returns the LclVar node.

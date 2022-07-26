@@ -1227,20 +1227,6 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
     InsertPutArg(call, argInfo);
 }
 
-// helper that create a node representing a relocatable physical address computation
-GenTree* Lowering::AddrGen(ssize_t addr)
-{
-    // this should end up in codegen as : instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, reg, addr)
-    GenTree* result = comp->gtNewIconHandleNode(addr, GTF_ICON_FTN_ADDR);
-    return result;
-}
-
-// variant that takes a void*
-GenTree* Lowering::AddrGen(void* addr)
-{
-    return AddrGen((ssize_t)addr);
-}
-
 void Lowering::LowerCall(GenTreeCall* call)
 {
     JITDUMP("lowering call (before):\n");
@@ -2680,7 +2666,7 @@ GenTree* Lowering::LowerDirectCall(GenTreeCall* call)
             // it.
             if (!IsCallTargetInRange(addr) || call->IsTailCallViaJitHelper())
             {
-                result = AddrGen(addr);
+                result = comp->gtNewIconHandleNode(addr, GTF_ICON_FTN_ADDR);
             }
             else
             {
@@ -2702,14 +2688,12 @@ GenTree* Lowering::LowerDirectCall(GenTreeCall* call)
 
             if (!isR2RRelativeIndir)
             {
-                // Non-virtual direct calls to addresses accessed by
-                // a single indirection.
-                GenTree* cellAddr = AddrGen(addr);
-#ifdef DEBUG
-                cellAddr->AsIntCon()->gtTargetHandle = (size_t)call->gtCallMethHnd;
-#endif
-                GenTree* indir = Ind(cellAddr);
-                result         = indir;
+                // Non-virtual direct calls to addresses accessed by a single indirection.
+
+                GenTreeIntCon* cellAddr = comp->gtNewIconHandleNode(addr, GTF_ICON_FTN_ADDR);
+                INDEBUG(cellAddr->gtTargetHandle = (size_t)call->gtCallMethHnd);
+
+                result = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, cellAddr);
             }
             break;
         }
@@ -2717,28 +2701,23 @@ GenTree* Lowering::LowerDirectCall(GenTreeCall* call)
         case IAT_PPVALUE:
             // Non-virtual direct calls to addresses accessed by
             // a double indirection.
-            //
-
             // Expanding an IAT_PPVALUE here, will lose the opportunity
             // to Hoist/CSE the first indirection as it is an invariant load
-            //
             assert(!"IAT_PPVALUE case in LowerDirectCall");
-
             noway_assert(helperNum == CORINFO_HELP_UNDEF);
-            result = AddrGen(addr);
-            // Double-indirection. Load the address into a register
-            // and call indirectly through the register
-            //
-            result = Ind(Ind(result));
+
+            result = comp->gtNewIconHandleNode(addr, GTF_ICON_FTN_ADDR);
+            result = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, result);
+            result = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, result);
             break;
 
         case IAT_RELPVALUE:
         {
             // Non-virtual direct calls to addresses accessed by
             // a single relative indirection.
-            GenTree* cellAddr = AddrGen(addr);
-            GenTree* indir    = Ind(cellAddr);
-            result            = comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, indir, AddrGen(addr));
+            GenTree* cellAddr = comp->gtNewIconHandleNode(addr, GTF_ICON_FTN_ADDR);
+            GenTree* indir    = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, cellAddr);
+            result = comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, indir, comp->gtNewIconHandleNode(addr, GTF_ICON_FTN_ADDR));
             break;
         }
 
@@ -2817,11 +2796,8 @@ GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call)
 
     unsigned targetOffs = comp->eeGetEEInfo()->offsetOfDelegateFirstTarget;
     GenTree* result     = new (comp, GT_LEA) GenTreeAddrMode(TYP_BYREF, base, nullptr, 0, targetOffs);
-    GenTree* callTarget = Ind(result);
 
-    // don't need to sequence and insert this tree, caller will do it
-
-    return callTarget;
+    return comp->gtNewOperNode(GT_IND, TYP_I_IMPL, result);
 }
 
 //------------------------------------------------------------------------
@@ -3437,8 +3413,9 @@ GenTree* Lowering::LowerNonvirtPinvokeCall(GenTreeCall* call)
         CORINFO_CONST_LOOKUP lookup;
         comp->info.compCompHnd->getAddressOfPInvokeTarget(methHnd, &lookup);
 
-        void*    addr = lookup.addr;
-        GenTree* addrTree;
+        void*          addr = lookup.addr;
+        GenTreeIntCon* addrTree;
+
         switch (lookup.accessType)
         {
             case IAT_VALUE:
@@ -3449,7 +3426,7 @@ GenTree* Lowering::LowerNonvirtPinvokeCall(GenTreeCall* call)
                 if ((call->IsSuppressGCTransition() && !comp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT)) ||
                     !IsCallTargetInRange(addr))
                 {
-                    result = AddrGen(addr);
+                    result = comp->gtNewIconHandleNode(addr, GTF_ICON_FTN_ADDR);
                 }
                 else
                 {
@@ -3464,29 +3441,21 @@ GenTree* Lowering::LowerNonvirtPinvokeCall(GenTreeCall* call)
                 break;
 
             case IAT_PVALUE:
-                addrTree = AddrGen(addr);
-#ifdef DEBUG
-                addrTree->AsIntCon()->gtTargetHandle = (size_t)methHnd;
-#endif
-                result = Ind(addrTree);
+                addrTree = comp->gtNewIconHandleNode(addr, GTF_ICON_FTN_ADDR);
+                INDEBUG(addrTree->gtTargetHandle = (size_t)methHnd);
+                result = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, addrTree);
                 break;
 
             case IAT_PPVALUE:
                 // ToDo:  Expanding an IAT_PPVALUE here, loses the opportunity
                 // to Hoist/CSE the first indirection as it is an invariant load
-                //
                 // This case currently occurs today when we make PInvoke calls in crossgen
-                //
                 // assert(!"IAT_PPVALUE in Lowering::LowerNonvirtPinvokeCall");
 
-                addrTree = AddrGen(addr);
-#ifdef DEBUG
-                addrTree->AsIntCon()->gtTargetHandle = (size_t)methHnd;
-#endif
-                // Double-indirection. Load the address into a register
-                // and call indirectly through the register
-                //
-                result = Ind(Ind(addrTree));
+                addrTree = comp->gtNewIconHandleNode(addr, GTF_ICON_FTN_ADDR);
+                INDEBUG(addrTree->gtTargetHandle = (size_t)methHnd);
+                result = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, addrTree);
+                result = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, result);
                 break;
 
             case IAT_RELPVALUE:
@@ -3626,7 +3595,7 @@ GenTree* Lowering::LowerVirtualStubCall(GenTreeCall* call)
         // fgMorphArgs will have created trees to pass the address in VirtualStubParam.reg.
         // All we have to do here is add an indirection to generate the actual call target.
 
-        GenTree* ind = Ind(call->gtCallAddr);
+        GenTree* ind = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, call->gtCallAddr);
         BlockRange().InsertAfter(call->gtCallAddr, ind);
         call->gtCallAddr = ind;
 
@@ -3652,7 +3621,7 @@ GenTree* Lowering::LowerVirtualStubCall(GenTreeCall* call)
 
         // Direct stub calls, though the stubAddr itself may still need to be
         // accessed via an indirection.
-        GenTree* addr = AddrGen(stubAddr);
+        GenTreeIntCon* addr = comp->gtNewIconHandleNode(stubAddr, GTF_ICON_FTN_ADDR);
 
         // On x86, for tailcall via helper, the JIT_TailCall helper takes the stubAddr as
         // the target address, and we set a flag that it's a VSD call. The helper then
@@ -3676,7 +3645,7 @@ GenTree* Lowering::LowerVirtualStubCall(GenTreeCall* call)
 
             if (!shouldOptimizeVirtualStubCall)
             {
-                result = Ind(addr);
+                result = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, addr);
             }
         }
     }
