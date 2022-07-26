@@ -1299,15 +1299,6 @@ void Lowering::LowerCall(GenTreeCall* call)
 
     if (call->IsTailCallViaJitHelper())
     {
-        // Either controlExpr or gtCallAddr must contain real call target.
-        if (controlExpr == nullptr)
-        {
-            assert(call->gtCallType == CT_INDIRECT);
-            assert(call->gtCallAddr != nullptr);
-
-            controlExpr = call->gtCallAddr;
-        }
-
         controlExpr = LowerTailCallViaJitHelper(call, controlExpr);
     }
 
@@ -1803,7 +1794,15 @@ GenTree* Lowering::LowerTailCallViaJitHelper(GenTreeCall* call, GenTree* callTar
 
     // We expect to see a call that meets the following conditions
     assert(call->IsTailCallViaJitHelper());
-    assert(callTarget != nullptr);
+
+    // Either controlExpr or gtCallAddr must contain real call target.
+    if (callTarget == nullptr)
+    {
+        assert(call->gtCallType == CT_INDIRECT);
+        assert(call->gtCallAddr != nullptr);
+
+        callTarget = call->gtCallAddr;
+    }
 
     // The TailCall helper call never returns to the caller and is not GC interruptible.
     // Therefore the block containing the tail call should be a GC safe point to avoid
