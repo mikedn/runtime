@@ -1312,7 +1312,6 @@ void Lowering::LowerCall(GenTreeCall* call)
     }
 
     // Check if we need to thread a newly created controlExpr into the LIR
-    //
     if ((controlExpr != nullptr) && !callWasExpandedEarly)
     {
         LIR::Range controlExprRange = LIR::SeqTree(comp, controlExpr);
@@ -1320,40 +1319,12 @@ void Lowering::LowerCall(GenTreeCall* call)
         JITDUMP("results of lowering call:\n");
         DISPRANGE(controlExprRange);
 
-        GenTree* insertionPoint = call;
-        if (!call->IsTailCallViaJitHelper())
-        {
-            // The controlExpr should go before the gtCallCookie and the gtCallAddr, if they exist
-            //
-            // TODO-LIR: find out what's really required here, as this is currently a tree order
-            // dependency.
-            if (call->gtCallType == CT_INDIRECT)
-            {
-                bool isClosed = false;
-                if (call->gtCallCookie != nullptr)
-                {
-#ifdef DEBUG
-                    GenTree* firstCallAddrNode = BlockRange().GetTreeRange(call->gtCallAddr, &isClosed).FirstNode();
-                    assert(isClosed);
-                    assert(call->gtCallCookie->Precedes(firstCallAddrNode));
-#endif // DEBUG
-
-                    insertionPoint = BlockRange().GetTreeRange(call->gtCallCookie, &isClosed).FirstNode();
-                    assert(isClosed);
-                }
-                else if (call->gtCallAddr != nullptr)
-                {
-                    insertionPoint = BlockRange().GetTreeRange(call->gtCallAddr, &isClosed).FirstNode();
-                    assert(isClosed);
-                }
-            }
-        }
-
         ContainCheckRange(controlExprRange);
-        BlockRange().InsertBefore(insertionPoint, std::move(controlExprRange));
+        BlockRange().InsertBefore(call, std::move(controlExprRange));
 
         call->gtControlExpr = controlExpr;
     }
+
     if (call->IsFastTailCall())
     {
         // Lower fast tail call can introduce new temps to set up args correctly for Callee.
