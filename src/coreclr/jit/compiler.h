@@ -5840,8 +5840,6 @@ public:
     // Gets the offset of a MDArray's first element
     unsigned eeGetMDArrayDataOffset(var_types type, unsigned rank);
 
-    GenTree* eeGetPInvokeCookie(CORINFO_SIG_INFO* szMetaSig);
-
     // Returns the page size for the target machine as reported by the EE.
     target_size_t eeGetPageSize()
     {

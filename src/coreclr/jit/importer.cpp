@@ -7377,23 +7377,20 @@ var_types Compiler::impImportCall(OPCODE                  opcode,
             return TYP_UNDEF;
         }
 
-        GenTree* cookie = eeGetPInvokeCookie(sig);
+        void* valueAddr;
+        void* value = info.compCompHnd->GetCookieForPInvokeCalliSig(sig, &valueAddr);
 
-        // This cookie is required to be either a simple GT_CNS_INT or
-        // an indirection of a GT_CNS_INT
-        //
-        GenTree* cookieConst = cookie;
-        if (cookie->gtOper == GT_IND)
+        GenTree* cookie = gtNewIconEmbHndNode(value, valueAddr, GTF_ICON_PINVKI_HDL, sig);
+        cookie->SetDoNotCSE();
+
+        if (cookie->OperIs(GT_IND))
         {
-            cookieConst = cookie->AsOp()->gtOp1;
+            cookie->AsIndir()->GetAddr()->AsIntCon()->SetDoNotCSE();
         }
-        assert(cookieConst->gtOper == GT_CNS_INT);
-
-        // Setting GTF_DONT_CSE on the GT_CNS_INT as well as on the GT_IND (if it exists) will ensure that
-        // we won't allow this tree to participate in any CSE logic
-        //
-        cookie->gtFlags |= GTF_DONT_CSE;
-        cookieConst->gtFlags |= GTF_DONT_CSE;
+        else
+        {
+            assert(cookie->IsIntCon());
+        }
 
         call->AsCall()->gtCallCookie = cookie;
 
