@@ -4256,7 +4256,7 @@ NamedIntrinsic Compiler::lookupNamedIntrinsic(CORINFO_METHOD_HANDLE method)
 // Return Value:
 //    a gtNewMustThrowException if mustExpand is true; otherwise, nullptr
 //
-GenTree* Compiler::impUnsupportedNamedIntrinsic(unsigned              helper,
+GenTree* Compiler::impUnsupportedNamedIntrinsic(CorInfoHelpFunc       helper,
                                                 CORINFO_METHOD_HANDLE method,
                                                 CORINFO_SIG_INFO*     sig,
                                                 bool                  mustExpand)

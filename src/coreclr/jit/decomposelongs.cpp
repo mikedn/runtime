@@ -1349,7 +1349,7 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
         Range().Remove(loOp1);
         Range().Remove(hiOp1);
 
-        unsigned helper;
+        CorInfoHelpFunc helper;
 
         switch (oper)
         {

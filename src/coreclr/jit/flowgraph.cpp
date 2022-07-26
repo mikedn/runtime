@@ -3384,34 +3384,26 @@ BasicBlock* Compiler::fgAddCodeRef(BasicBlock* srcBlk, unsigned refData, Special
 
     /* Now figure out what code to insert */
 
-    int helper = CORINFO_HELP_UNDEF;
+    CorInfoHelpFunc helper = CORINFO_HELP_UNDEF;
 
     switch (kind)
     {
         case SCK_RNGCHK_FAIL:
             helper = CORINFO_HELP_RNGCHKFAIL;
             break;
-
         case SCK_DIV_BY_ZERO:
             helper = CORINFO_HELP_THROWDIVZERO;
             break;
-
         case SCK_ARITH_EXCPN:
             helper = CORINFO_HELP_OVERFLOW;
             noway_assert(SCK_OVERFLOW == SCK_ARITH_EXCPN);
             break;
-
         case SCK_ARG_EXCPN:
             helper = CORINFO_HELP_THROW_ARGUMENTEXCEPTION;
             break;
-
         case SCK_ARG_RNG_EXCPN:
             helper = CORINFO_HELP_THROW_ARGUMENTOUTOFRANGEEXCEPTION;
             break;
-
-        // case SCK_PAUSE_EXEC:
-        //     noway_assert(!"add code to pause exec");
-
         default:
             noway_assert(!"unexpected code addition kind");
             return nullptr;
