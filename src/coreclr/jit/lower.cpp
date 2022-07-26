@@ -1795,15 +1795,6 @@ GenTree* Lowering::LowerTailCallViaJitHelper(GenTreeCall* call, GenTree* callTar
     // We expect to see a call that meets the following conditions
     assert(call->IsTailCallViaJitHelper());
 
-    // Either controlExpr or gtCallAddr must contain real call target.
-    if (callTarget == nullptr)
-    {
-        assert(call->gtCallType == CT_INDIRECT);
-        assert(call->gtCallAddr != nullptr);
-
-        callTarget = call->gtCallAddr;
-    }
-
     // The TailCall helper call never returns to the caller and is not GC interruptible.
     // Therefore the block containing the tail call should be a GC safe point to avoid
     // GC starvation. It is legal for the block to be unmarked iff the entry block is a
@@ -1827,6 +1818,8 @@ GenTree* Lowering::LowerTailCallViaJitHelper(GenTreeCall* call, GenTree* callTar
         assert(isClosed);
 
         BlockRange().Remove(std::move(callAddrRange));
+
+        callTarget = call->gtCallAddr;
     }
 
     // The callTarget tree needs to be sequenced.
