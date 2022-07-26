@@ -4117,9 +4117,10 @@ public:
 #endif
     {
         gtFlags |= (GTF_CALL | GTF_GLOB_REF);
+
         for (Use& use : UseList(args))
         {
-            gtFlags |= (use.GetNode()->gtFlags & GTF_ALL_EFFECT);
+            gtFlags |= use.GetNode()->GetSideEffects();
         }
     }
 

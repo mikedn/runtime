@@ -5590,11 +5590,7 @@ GenTreeCall* Compiler::impImportIndirectCall(CORINFO_SIG_INFO* sig, IL_OFFSETX i
     // See ILCodeStream::LowerOpcode
     assert(genActualType(fptr->gtType) == TYP_I_IMPL || genActualType(fptr->gtType) == TYP_INT);
 
-    GenTreeCall* call = gtNewIndCallNode(fptr, callRetTyp, nullptr, ilOffset);
-
-    call->gtFlags |= GTF_EXCEPT | (fptr->gtFlags & GTF_GLOB_EFFECT);
-
-    return call;
+    return gtNewIndCallNode(fptr, callRetTyp, nullptr, ilOffset);
 }
 
 /*****************************************************************************/
@@ -7008,8 +7004,6 @@ var_types Compiler::impImportCall(OPCODE                  opcode,
                            (sig->callConv & CORINFO_CALLCONV_MASK) != CORINFO_CALLCONV_NATIVEVARARG);
 
                     call = gtNewIndCallNode(stubAddr, callRetTyp, nullptr);
-
-                    call->gtFlags |= GTF_EXCEPT | (stubAddr->gtFlags & GTF_GLOB_EFFECT);
                     call->gtFlags |= GTF_CALL_VIRT_STUB;
 
 #ifdef TARGET_X86
@@ -7100,7 +7094,6 @@ var_types Compiler::impImportCall(OPCODE                  opcode,
 
                 call                          = gtNewIndCallNode(fptr, callRetTyp, args, ilOffset);
                 call->AsCall()->gtCallThisArg = gtNewCallArgs(thisPtrUses[1]);
-                call->gtFlags |= GTF_EXCEPT | (fptr->gtFlags & GTF_GLOB_EFFECT);
 
                 if ((sig->sigInst.methInstCount != 0) && IsTargetAbi(CORINFO_CORERT_ABI))
                 {
@@ -7174,7 +7167,7 @@ var_types Compiler::impImportCall(OPCODE                  opcode,
                 fptr = gtNewLclvNode(lclNum, TYP_I_IMPL);
 
                 call = gtNewIndCallNode(fptr, callRetTyp, nullptr, ilOffset);
-                call->gtFlags |= GTF_EXCEPT | (fptr->gtFlags & GTF_GLOB_EFFECT);
+
                 if (callInfo->nullInstanceCheck)
                 {
                     call->gtFlags |= GTF_CALL_NULLCHECK;

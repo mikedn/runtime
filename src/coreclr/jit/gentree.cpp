@@ -4379,7 +4379,9 @@ GenTreeCall* Compiler::gtNewHelperCallNode(CorInfoHelpFunc helper, var_types typ
 
 GenTreeCall* Compiler::gtNewIndCallNode(GenTree* addr, var_types type, GenTreeCall::Use* args, IL_OFFSETX ilOffset)
 {
-    return gtNewCallNode(CT_INDIRECT, addr, type, args, ilOffset);
+    GenTreeCall* call = gtNewCallNode(CT_INDIRECT, addr, type, args, ilOffset);
+    call->gtFlags |= GTF_EXCEPT | addr->GetSideEffects();
+    return call;
 }
 
 GenTreeCall* Compiler::gtNewUserCallNode(CORINFO_METHOD_HANDLE handle,
