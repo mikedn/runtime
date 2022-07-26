@@ -5568,29 +5568,26 @@ void Compiler::impCheckForPInvokeCall(
 
 GenTreeCall* Compiler::impImportIndirectCall(CORINFO_SIG_INFO* sig, IL_OFFSETX ilOffset)
 {
-    var_types callRetTyp = JITtype2varType(sig->retType);
-
-    /* The function pointer is on top of the stack - It may be a
-     * complex expression. As it is evaluated after the args,
-     * it may cause registered args to be spilled. Simply spill it.
-     */
+    // The function pointer is on top of the stack - it may be a
+    // complex expression. As it is evaluated after the args,
+    // it may cause registered args to be spilled. Simply spill it.
 
     // Ignore this trivial case.
-    if (impStackTop().val->gtOper != GT_LCL_VAR)
+    if (!impStackTop().val->OperIs(GT_LCL_VAR))
     {
         impSpillStackEntry(verCurrentState.esStackDepth - 1 DEBUGARG("impImportIndirectCall"));
     }
 
-    /* Get the function pointer */
+    GenTree* addr = impPopStack().val;
 
-    GenTree* fptr = impPopStack().val;
+    // The function pointer should have type TYP_I_IMPL. However, stubgen IL
+    // optimization can change LDC.I8 to LDC.I4, see ILCodeStream::LowerOpcode.
+    // TODO-MIKE-Review: If this really happens we should change the constant
+    // type to TYP_I_IMPL here. But then the above code spills anything other
+    // than LCL_VAR, which would be stupid if the addr is ever a constant.
+    assert(addr->TypeIs(TYP_I_IMPL, TYP_INT));
 
-    // The function pointer is typically a sized to match the target pointer size
-    // However, stubgen IL optimization can change LDC.I8 to LDC.I4
-    // See ILCodeStream::LowerOpcode
-    assert(genActualType(fptr->gtType) == TYP_I_IMPL || genActualType(fptr->gtType) == TYP_INT);
-
-    return gtNewIndCallNode(fptr, callRetTyp, nullptr, ilOffset);
+    return gtNewIndCallNode(addr, CorTypeToVarType(sig->retType), nullptr, ilOffset);
 }
 
 /*****************************************************************************/
