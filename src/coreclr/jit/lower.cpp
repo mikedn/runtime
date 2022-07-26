@@ -1270,51 +1270,42 @@ void Lowering::LowerCall(GenTreeCall* call)
     {
         controlExpr = LowerDelegateInvoke(call);
     }
+    else if (call->IsVirtualStub())
+    {
+        controlExpr = LowerVirtualStubCall(call);
+    }
+    else if (call->IsVirtualVtable())
+    {
+        if (!call->IsExpandedEarly())
+        {
+            assert(call->gtControlExpr == nullptr);
+            controlExpr = LowerVirtualVtableCall(call);
+        }
+        else
+        {
+            callWasExpandedEarly = true;
+            controlExpr          = call->gtControlExpr;
+        }
+    }
     else
     {
-        //  Virtual and interface calls
-        switch (call->gtFlags & GTF_CALL_VIRT_KIND_MASK)
+        noway_assert(!call->IsVirtual());
+
+        if (call->IsUnmanaged())
         {
-            case GTF_CALL_VIRT_STUB:
-                controlExpr = LowerVirtualStubCall(call);
-                break;
+            controlExpr = LowerNonvirtPinvokeCall(call);
+        }
+        else if (call->gtCallType == CT_INDIRECT)
+        {
+            // Indirect cookie calls gets transformed by fgMorphArgs as indirect call with
+            // non-standard args. Hence we should never see this type of call in lower.
+            noway_assert(call->gtCallCookie == nullptr);
 
-            case GTF_CALL_VIRT_VTABLE:
-                assert(call->IsVirtualVtable());
-                if (!call->IsExpandedEarly())
-                {
-                    assert(call->gtControlExpr == nullptr);
-                    controlExpr = LowerVirtualVtableCall(call);
-                }
-                else
-                {
-                    callWasExpandedEarly = true;
-                    controlExpr          = call->gtControlExpr;
-                }
-                break;
-
-            case GTF_CALL_NONVIRT:
-                if (call->IsUnmanaged())
-                {
-                    controlExpr = LowerNonvirtPinvokeCall(call);
-                }
-                else if (call->gtCallType == CT_INDIRECT)
-                {
-                    // Indirect cookie calls gets transformed by fgMorphArgs as indirect call with
-                    // non-standard args. Hence we should never see this type of call in lower.
-                    noway_assert(call->gtCallCookie == nullptr);
-
-                    controlExpr = nullptr;
-                }
-                else
-                {
-                    controlExpr = LowerDirectCall(call);
-                }
-                break;
-
-            default:
-                noway_assert(!"strange call type");
-                break;
+            controlExpr = nullptr;
+        }
+        else
+        {
+            controlExpr = LowerDirectCall(call);
         }
     }
 
