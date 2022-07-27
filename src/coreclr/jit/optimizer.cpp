@@ -5050,17 +5050,9 @@ int Compiler::optIsSetAssgLoop(unsigned lnum, ALLVARSET_VALARG_TP vars, varRefKi
 
 void Compiler::optPerformHoistExpr(GenTree* origExpr, unsigned lnum)
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("\nHoisting a copy of ");
-        printTreeID(origExpr);
-        printf(" into PreHeader for loop " FMT_LP " <" FMT_BB ".." FMT_BB ">:\n", lnum,
-               optLoopTable[lnum].lpFirst->bbNum, optLoopTable[lnum].lpBottom->bbNum);
-        gtDispTree(origExpr);
-        printf("\n");
-    }
-#endif
+    JITDUMPTREE(origExpr, "\nHoisting a copy of [%06u] into PreHeader for loop " FMT_LP " <" FMT_BB ".." FMT_BB ">:\n",
+                origExpr->GetID(), lnum, optLoopTable[lnum].lpFirst->bbNum, optLoopTable[lnum].lpBottom->bbNum);
+    JITDUMP("\n");
 
     // This loop has to be in a form that is approved for hoisting.
     assert(optLoopTable[lnum].lpFlags & LPFLG_HOISTABLE);

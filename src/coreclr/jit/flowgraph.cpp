@@ -2038,16 +2038,10 @@ private:
         // return block morhping will know to leave it alone.
         returnExpr->gtFlags |= GTF_RET_MERGED;
 
-#ifdef DEBUG
-        if (comp->verbose)
-        {
-            printf("\nmergeReturns statement tree ");
-            Compiler::printTreeID(returnExpr);
-            printf(" added to genReturnBB %s\n", newReturnBB->dspToString());
-            comp->gtDispTree(returnExpr);
-            printf("\n");
-        }
-#endif
+        JITDUMPTREE(returnExpr, "\nmergeReturns statement tree [%06u] added to genReturnBB %s\n", returnExpr->GetID(),
+                    newReturnBB->dspToString());
+        JITDUMP("\n");
+
         assert(index < maxReturns);
         returnBlocks[index] = newReturnBB;
         return newReturnBB;
@@ -2524,14 +2518,7 @@ void Compiler::fgAddInternal()
 
         fgNewStmtNearEnd(genReturnBB, tree);
 
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("\nSynchronized method - Add exit expression ");
-            printTreeID(tree);
-            printf("\n");
-        }
-#endif
+        JITDUMP("\nSynchronized method - Add exit expression [%06u]\n", tree->GetID());
 
         // Reset cookies used to track start and end of the protected region in synchronized methods
         syncStartEmitCookie = NULL;

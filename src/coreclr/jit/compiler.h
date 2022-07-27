@@ -6838,18 +6838,6 @@ public:
         printf(FMT_STMT, stmt->GetID());
     }
 
-    static void printTreeID(GenTree* tree)
-    {
-        if (tree == nullptr)
-        {
-            printf("[------]");
-        }
-        else
-        {
-            printf("[%06u]", dspTreeID(tree));
-        }
-    }
-
     const char* pgoSourceToString(ICorJitInfo::PgoSource p);
     const char* devirtualizationDetailToString(CORINFO_DEVIRTUALIZATION_DETAIL detail);
 

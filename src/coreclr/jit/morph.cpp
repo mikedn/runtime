@@ -6161,9 +6161,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
 #ifdef DEBUG
         if (verbose)
         {
-            printf("\nRejecting tail call in morph for call ");
-            printTreeID(call);
-            printf(": %s", reason);
+            printf("\nRejecting tail call in morph for call [%06u]: %s", call->GetID(), reason);
             if (lclNum != BAD_VAR_NUM)
             {
                 printf(" V%02u", lclNum);
@@ -6470,20 +6468,12 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
     call->gtCallMoreFlags &= ~GTF_CALL_M_IMPLICIT_TAILCALL;
 #endif
 
-#ifdef DEBUG
-    if (verbose)
+    JITDUMP("\nGTF_CALL_M_TAILCALL bit set for call [%06u]\n", call->GetID());
+
+    if (fastTailCallToLoop)
     {
-        printf("\nGTF_CALL_M_TAILCALL bit set for call ");
-        printTreeID(call);
-        printf("\n");
-        if (fastTailCallToLoop)
-        {
-            printf("\nGTF_CALL_M_TAILCALL_TO_LOOP bit set for call ");
-            printTreeID(call);
-            printf("\n");
-        }
+        JITDUMP("\nGTF_CALL_M_TAILCALL_TO_LOOP bit set for call [%06u]\n", call->GetID());
     }
-#endif
 
     // If this block has a flow successor, make suitable updates.
     //
