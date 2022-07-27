@@ -2382,19 +2382,11 @@ void CodeGen::GenStructStoreUnrollRegsWB(GenTreeObj* store)
 }
 #endif // TARGET_ARM64
 
-//------------------------------------------------------------------------
-// genCallInstruction: Produce code for a GT_CALL node
-//
 void CodeGen::genCallInstruction(GenTreeCall* call)
 {
-    gtCallTypes callType = (gtCallTypes)call->gtCallType;
+    // All virtuals should have been expanded into a control expression
+    assert(!call->IsVirtual() || (call->gtControlExpr != nullptr) || (call->gtCallAddr != nullptr));
 
-    IL_OFFSETX ilOffset = BAD_IL_OFFSET;
-
-    // all virtuals should have been expanded into a control expression
-    assert(!call->IsVirtual() || call->gtControlExpr || call->gtCallAddr);
-
-    // Consume all the arg regs
     for (GenTreeCall::Use& use : call->LateArgs())
     {
         GenTree* argNode = use.GetNode();
@@ -2487,48 +2479,35 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, tmpReg, regThis, 0);
 #elif defined(TARGET_ARM64)
         GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, REG_ZR, regThis, 0);
-#endif // TARGET*
+#endif
     }
 
-    // Either gtControlExpr != null or gtCallAddr != null or it is a direct non-virtual call to a user or helper
-    // method.
     CORINFO_METHOD_HANDLE methHnd;
-    GenTree*              target = call->gtControlExpr;
-    if (callType == CT_INDIRECT)
+    GenTree*              target;
+
+    if (call->IsIndirectCall())
     {
-        assert(target == nullptr);
-        target  = call->gtCallAddr;
+        assert(call->gtControlExpr == nullptr);
+
         methHnd = nullptr;
+        target  = call->gtCallAddr;
     }
     else
     {
-        methHnd = call->gtCallMethHnd;
+        methHnd = call->GetMethodHandle();
+        target  = call->gtControlExpr;
     }
-
-    CORINFO_SIG_INFO* sigInfo = nullptr;
-#ifdef DEBUG
-    // Pass the call signature information down into the emitter so the emitter can associate
-    // native call sites with the signatures they were generated from.
-    if (callType != CT_HELPER)
-    {
-        sigInfo = call->callSig;
-    }
-#endif // DEBUG
 
     // If fast tail call, then we are done.  In this case we setup the args (both reg args
     // and stack args in incoming arg area) and call target.  Epilog sequence would
     // generate "br <reg>".
     if (call->IsFastTailCall())
     {
-        // Don't support fast tail calling JIT helpers
-        assert(callType != CT_HELPER);
+        assert(!call->IsHelperCall());
 
         if (target != nullptr)
         {
-            // Indirect fast tail calls materialize call target either in gtControlExpr or in gtCallAddr.
             genConsumeReg(target);
-
-            // Use IP0 on ARM64 and R12 on ARM32 as the call target register.
             inst_Mov(TYP_I_IMPL, REG_FASTTAILCALL_TARGET, target->GetRegNum(), /* canSkip */ true);
         }
 
@@ -2571,6 +2550,8 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         }
     }
 
+    IL_OFFSETX ilOffset = BAD_IL_OFFSET;
+
     // We need to propagate the IL offset information to the call instruction, so we can emit
     // an IL to native mapping record for the call, to support managed return value debugging.
     // We don't want tail call helper calls that were converted from normal calls to get a record,
@@ -2599,7 +2580,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     else if (call->IsR2ROrVirtualStubRelativeIndir())
     {
         // Generate a direct call to a non-virtual user defined or helper method
-        assert(callType == CT_HELPER || callType == CT_USER_FUNC);
+        assert(call->IsHelperCall() || call->IsUserCall());
 #ifdef FEATURE_READYTORUN_COMPILER
         assert(((call->IsR2RRelativeIndir()) && (call->gtEntryPoint.accessType == IAT_PVALUE)) ||
                ((call->IsVirtualStubRelativeIndir()) && (call->gtEntryPoint.accessType == IAT_VALUE)));
@@ -2621,7 +2602,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     else
     {
         // Generate a direct call to a non-virtual user defined or helper method
-        assert(callType == CT_HELPER || callType == CT_USER_FUNC);
+        assert(call->IsHelperCall() || call->IsUserCall());
 
 #ifdef FEATURE_READYTORUN_COMPILER
         if (call->gtEntryPoint.addr != NULL)
@@ -2631,7 +2612,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         }
         else
 #endif // FEATURE_READYTORUN_COMPILER
-            if (callType == CT_HELPER)
+            if (call->IsHelperCall())
         {
             CorInfoHelpFunc helperNum = compiler->eeGetHelperNum(methHnd);
             noway_assert(helperNum != CORINFO_HELP_UNDEF);
@@ -2678,7 +2659,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     GetEmitter()->emitIns_Call(
         emitCallType,
         methHnd
-        DEBUGARG(sigInfo),
+        DEBUGARG(call->IsHelperCall() ? nullptr : call->callSig),
         callAddr,
         0,
         retSize

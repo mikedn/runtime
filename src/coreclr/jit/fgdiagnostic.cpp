@@ -3060,14 +3060,14 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                     }
                 }
 
-                if ((call->gtCallType == CT_INDIRECT) && (call->gtCallCookie != nullptr))
+                if (call->IsIndirectCall())
                 {
-                    fgDebugCheckFlags(call->gtCallCookie);
-                    chkFlags |= (call->gtCallCookie->gtFlags & GTF_SIDE_EFFECT);
-                }
+                    if (call->gtCallCookie != nullptr)
+                    {
+                        fgDebugCheckFlags(call->gtCallCookie);
+                        chkFlags |= (call->gtCallCookie->gtFlags & GTF_SIDE_EFFECT);
+                    }
 
-                if (call->gtCallType == CT_INDIRECT)
-                {
                     fgDebugCheckFlags(call->gtCallAddr);
                     chkFlags |= (call->gtCallAddr->gtFlags & GTF_SIDE_EFFECT);
                 }

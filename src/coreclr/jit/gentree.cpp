@@ -918,7 +918,14 @@ bool GenTreeCall::Equals(GenTreeCall* c1, GenTreeCall* c2)
         return false;
     }
 
-    if (c1->gtCallType != CT_INDIRECT)
+    if (c1->IsIndirectCall())
+    {
+        if (!Compare(c1->gtCallAddr, c2->gtCallAddr))
+        {
+            return false;
+        }
+    }
+    else
     {
         if (c1->gtCallMethHnd != c2->gtCallMethHnd)
         {
@@ -931,13 +938,6 @@ bool GenTreeCall::Equals(GenTreeCall* c1, GenTreeCall* c2)
             return false;
         }
 #endif
-    }
-    else
-    {
-        if (!Compare(c1->gtCallAddr, c2->gtCallAddr))
-        {
-            return false;
-        }
     }
 
     if ((c1->gtCallThisArg != nullptr) != (c2->gtCallThisArg != nullptr))
@@ -1389,8 +1389,6 @@ unsigned Compiler::gtHashValue(GenTree* tree)
 
     unsigned hash = 0;
 
-    GenTree* temp;
-
 AGAIN:
     assert(tree);
 
@@ -1617,11 +1615,9 @@ AGAIN:
                 hash = genTreeHashAdd(hash, gtHashValue(use.GetNode()));
             }
 
-            if (tree->AsCall()->gtCallType == CT_INDIRECT)
+            if (tree->AsCall()->IsIndirectCall())
             {
-                temp = tree->AsCall()->gtCallAddr;
-                assert(temp);
-                hash = genTreeHashAdd(hash, gtHashValue(temp));
+                hash = genTreeHashAdd(hash, gtHashValue(tree->AsCall()->gtCallAddr));
             }
             else
             {
@@ -3289,12 +3285,8 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                 }
             }
 
-            if (call->gtCallType == CT_INDIRECT)
+            if (call->IsIndirectCall())
             {
-                // pinvoke-calli cookie is a constant, or constant indirection
-                assert(call->gtCallCookie == nullptr || call->gtCallCookie->gtOper == GT_CNS_INT ||
-                       call->gtCallCookie->gtOper == GT_IND);
-
                 GenTree* indirect = call->gtCallAddr;
 
                 lvl2 = gtSetEvalOrder(indirect);
@@ -4393,7 +4385,7 @@ GenTreeCall* Compiler::gtNewUserCallNode(CORINFO_METHOD_HANDLE handle,
 }
 
 GenTreeCall* Compiler::gtNewCallNode(
-    gtCallTypes kind, void* target, var_types type, GenTreeCall::Use* args, IL_OFFSETX ilOffset)
+    CallKind kind, void* target, var_types type, GenTreeCall::Use* args, IL_OFFSETX ilOffset)
 {
     GenTreeCall* node = new (this, GT_CALL) GenTreeCall(type, kind, args);
 #ifdef UNIX_X86_ABI
@@ -5657,24 +5649,38 @@ GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall* tree,
     // a shallow copy suffices.
     copy->tailCallInfo = tree->tailCallInfo;
 
-    copy->gtControlExpr = gtCloneExpr(tree->gtControlExpr, addFlags, deepVarNum, deepVarVal);
+    if (tree->IsIndirectCall())
+    {
+        assert(tree->gtControlExpr == nullptr);
 
-    /* Copy the union */
-    if (tree->gtCallType == CT_INDIRECT)
-    {
-        copy->gtCallCookie =
-            tree->gtCallCookie ? gtCloneExpr(tree->gtCallCookie, addFlags, deepVarNum, deepVarVal) : nullptr;
-        copy->gtCallAddr = tree->gtCallAddr ? gtCloneExpr(tree->gtCallAddr, addFlags, deepVarNum, deepVarVal) : nullptr;
-    }
-    else if (tree->IsVirtualStub())
-    {
-        copy->gtCallMethHnd      = tree->gtCallMethHnd;
-        copy->gtStubCallStubAddr = tree->gtStubCallStubAddr;
+        if (tree->gtCallCookie == nullptr)
+        {
+            copy->gtCallCookie = nullptr;
+        }
+        else
+        {
+            copy->gtCallCookie = gtCloneExpr(tree->gtCallCookie, addFlags, deepVarNum, deepVarVal);
+        }
+
+        copy->gtCallAddr = gtCloneExpr(tree->gtCallAddr, addFlags, deepVarNum, deepVarVal);
     }
     else
     {
-        copy->gtCallMethHnd         = tree->gtCallMethHnd;
-        copy->gtInlineCandidateInfo = nullptr;
+        copy->gtCallMethHnd = tree->gtCallMethHnd;
+
+        if (tree->IsVirtualStub())
+        {
+            copy->gtStubCallStubAddr = tree->gtStubCallStubAddr;
+        }
+        else
+        {
+            copy->gtInlineCandidateInfo = nullptr;
+        }
+
+        if (tree->gtControlExpr != nullptr)
+        {
+            copy->gtControlExpr = gtCloneExpr(tree->gtControlExpr, addFlags, deepVarNum, deepVarVal);
+        }
     }
 
     if (tree->fgArgInfo != nullptr)
@@ -6445,7 +6451,7 @@ void          GenTreeUseEdgeIterator::AdvanceCall()
             FALLTHROUGH;
 
         case CALL_COOKIE:
-            assert(call->gtCallType == CT_INDIRECT);
+            assert(call->IsIndirectCall());
 
             m_advance = &GenTreeUseEdgeIterator::AdvanceCall<CALL_ADDRESS>;
             if (call->gtCallCookie != nullptr)
@@ -6456,13 +6462,10 @@ void          GenTreeUseEdgeIterator::AdvanceCall()
             FALLTHROUGH;
 
         case CALL_ADDRESS:
-            assert(call->gtCallType == CT_INDIRECT);
+            assert(call->IsIndirectCall() && (call->gtCallAddr != nullptr));
 
             m_advance = &GenTreeUseEdgeIterator::Terminate;
-            if (call->gtCallAddr != nullptr)
-            {
-                m_edge = &call->gtCallAddr;
-            }
+            m_edge    = &call->gtCallAddr;
             return;
 
         default:
@@ -8448,10 +8451,10 @@ void Compiler::gtDispTree(GenTree*     tree,
                     gtDispChild(use.GetNode(), indentStack, arcType, buf, false);
                 }
 
-                if (call->gtCallType == CT_INDIRECT)
+                if (call->IsIndirectCall())
                 {
                     gtDispChild(call->gtCallAddr, indentStack, (call->gtCallAddr == lastChild) ? IIArcBottom : IIArc,
-                                "calli tgt", false);
+                                "callAddr", false);
                 }
 
                 if (call->gtControlExpr != nullptr)
@@ -8800,7 +8803,7 @@ void Compiler::dmpNodeOperands(GenTree* node)
         {
             if (operand == call->gtCallAddr)
             {
-                displayOperand(operand, prefix, "calli tgt");
+                displayOperand(operand, prefix, "callAddr");
             }
             else if (operand == call->gtControlExpr)
             {

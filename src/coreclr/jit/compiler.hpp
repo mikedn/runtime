@@ -3615,21 +3615,24 @@ void GenTree::VisitOperands(TVisitor visitor)
                 }
             }
 
-            if (call->gtCallType == CT_INDIRECT)
+            if (call->IsIndirectCall())
             {
                 if ((call->gtCallCookie != nullptr) && (visitor(call->gtCallCookie) == VisitResult::Abort))
                 {
                     return;
                 }
-                if ((call->gtCallAddr != nullptr) && (visitor(call->gtCallAddr) == VisitResult::Abort))
+
+                if (visitor(call->gtCallAddr) == VisitResult::Abort)
                 {
                     return;
                 }
             }
+
             if ((call->gtControlExpr != nullptr))
             {
                 visitor(call->gtControlExpr);
             }
+
             return;
         }
 

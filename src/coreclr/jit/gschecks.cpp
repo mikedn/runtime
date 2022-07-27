@@ -209,7 +209,7 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** pTree, fgWa
                     comp->fgWalkTreePre(&use.NodeRef(), gsMarkPtrsAndAssignGroups, (void*)&newState);
                 }
 
-                if (tree->AsCall()->gtCallType == CT_INDIRECT)
+                if (tree->AsCall()->IsIndirectCall())
                 {
                     newState.isUnderIndir = true;
 

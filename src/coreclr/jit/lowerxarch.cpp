@@ -3240,27 +3240,17 @@ GenTree* Lowering::PreferredRegOptionalOperand(GenTree* tree)
 //
 void Lowering::ContainCheckCallOperands(GenTreeCall* call)
 {
-    GenTree* ctrlExpr = call->gtControlExpr;
-    if (call->gtCallType == CT_INDIRECT)
-    {
-        // either gtControlExpr != null or gtCallAddr != null.
-        // Both cannot be non-null at the same time.
-        assert(ctrlExpr == nullptr);
-        assert(call->gtCallAddr != nullptr);
-        ctrlExpr = call->gtCallAddr;
-
 #ifdef TARGET_X86
-        // Fast tail calls aren't currently supported on x86, but if they ever are, the code
-        // below that handles indirect VSD calls will need to be fixed.
-        assert(!call->IsFastTailCall() || !call->IsVirtualStub());
-#endif // TARGET_X86
-    }
+    // Fast tail calls aren't currently supported on x86, but if they ever are, the code
+    // below that handles indirect VSD calls will need to be fixed.
+    assert(!call->IsIndirectCall() || !call->IsFastTailCall() || !call->IsVirtualStub());
+#endif
 
-    // set reg requirements on call target represented as control sequence.
+    GenTree* ctrlExpr = call->IsIndirectCall() ? call->gtCallAddr : call->gtControlExpr;
+
     if (ctrlExpr != nullptr)
     {
-        // we should never see a gtControlExpr whose type is void.
-        assert(ctrlExpr->TypeGet() != TYP_VOID);
+        assert(ctrlExpr->TypeIs(TYP_I_IMPL));
 
         // In case of fast tail implemented as jmp, make sure that gtControlExpr is
         // computed into a register.

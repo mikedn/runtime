@@ -17361,13 +17361,13 @@ bool Compiler::impHasLclRef(GenTree* tree, unsigned lclNum)
             }
         }
 
-        if (call->gtCallType == CT_INDIRECT)
+        if (call->IsIndirectCall())
         {
             GenTree* cookie = call->gtCallCookie;
 
             // PInvoke-calli cookie is a constant, or constant address indirection.
-            assert((cookie == nullptr) || cookie->OperIs(GT_CNS_INT) ||
-                   (cookie->OperIs(GT_IND) && cookie->AsIndir()->GetAddr()->OperIs(GT_CNS_INT)));
+            assert((cookie == nullptr) || cookie->IsIntCon() ||
+                   (cookie->OperIs(GT_IND) && cookie->AsIndir()->GetAddr()->IsIntCon()));
 
             return impHasLclRef(call->gtCallAddr, lclNum);
         }

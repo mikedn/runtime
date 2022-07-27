@@ -4741,17 +4741,12 @@ bool CodeGen::genEmitOptimizedGCWriteBarrier(GCInfo::WriteBarrierForm writeBarri
 #endif // !defined(TARGET_X86) || !NOGC_WRITE_BARRIERS
 }
 
-// Produce code for a GT_CALL node
 void CodeGen::genCallInstruction(GenTreeCall* call)
 {
+    // All virtuals should have been expanded into a control expression
+    assert(!call->IsVirtual() || (call->gtControlExpr != nullptr) || (call->gtCallAddr != nullptr));
+
     genAlignStackBeforeCall(call);
-
-    gtCallTypes callType = (gtCallTypes)call->gtCallType;
-
-    IL_OFFSETX ilOffset = BAD_IL_OFFSET;
-
-    // all virtuals should have been expanded into a control expression
-    assert(!call->IsVirtual() || call->gtControlExpr || call->gtCallAddr);
 
     // Insert a GS check if necessary
     if (call->IsTailCallViaJitHelper())
@@ -4832,37 +4827,28 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         GetEmitter()->emitIns_AR_R(INS_cmp, EA_4BYTE, regThis, regThis, 0);
     }
 
-    // Either gtControlExpr != null or gtCallAddr != null or it is a direct non-virtual call to a user or helper method.
     CORINFO_METHOD_HANDLE methHnd;
-    GenTree*              target = call->gtControlExpr;
-    if (callType == CT_INDIRECT)
+    GenTree*              target;
+
+    if (call->IsIndirectCall())
     {
-        assert(target == nullptr);
-        target  = call->gtCallAddr;
+        assert(call->gtControlExpr == nullptr);
+
         methHnd = nullptr;
+        target  = call->gtCallAddr;
     }
     else
     {
-        methHnd = call->gtCallMethHnd;
+        methHnd = call->GetMethodHandle();
+        target  = call->gtControlExpr;
     }
-
-    CORINFO_SIG_INFO* sigInfo = nullptr;
-#ifdef DEBUG
-    // Pass the call signature information down into the emitter so the emitter can associate
-    // native call sites with the signatures they were generated from.
-    if (callType != CT_HELPER)
-    {
-        sigInfo = call->callSig;
-    }
-#endif // DEBUG
 
     // If fast tail call, then we are done.  In this case we setup the args (both reg args
     // and stack args in incoming arg area) and call target in rax.  Epilog sequence would
     // generate "jmp rax".
     if (call->IsFastTailCall())
     {
-        // Don't support fast tail calling JIT helpers
-        assert(callType != CT_HELPER);
+        assert(!call->IsHelperCall());
 
         // If this is indirect then we go through RAX with epilog sequence
         // generating "jmp rax". Otherwise epilog will try to generate a
@@ -4929,6 +4915,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 
     bool            fPossibleSyncHelperCall = false;
     CorInfoHelpFunc helperNum               = CORINFO_HELP_UNDEF;
+    IL_OFFSETX      ilOffset                = BAD_IL_OFFSET;
 
     // We need to propagate the IL offset information to the call instruction, so we can emit
     // an IL to native mapping record for the call, to support managed return shift debugging.
@@ -4967,7 +4954,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         instGen(INS_vzeroupper);
     }
 
-    if (callType == CT_HELPER && compiler->info.compFlags & CORINFO_FLG_SYNCH)
+    if (call->IsHelperCall() && ((compiler->info.compFlags & CORINFO_FLG_SYNCH) != 0))
     {
         fPossibleSyncHelperCall = true;
         helperNum               = compiler->eeGetHelperNum(methHnd);
@@ -4984,7 +4971,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     if (target != nullptr)
     {
 #ifdef TARGET_X86
-        if (call->IsVirtualStub() && (call->gtCallType == CT_INDIRECT))
+        if (call->IsVirtualStub() && call->IsIndirectCall())
         {
             // On x86, we need to generate a very specific pattern for indirect VSD calls:
             //
@@ -5073,9 +5060,8 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     else
     {
         // Generate a direct call to a non-virtual user defined or helper method
-        assert(callType == CT_HELPER || callType == CT_USER_FUNC);
 
-        if (callType == CT_HELPER)
+        if (call->IsHelperCall())
         {
             // Direct call to a helper method.
             helperNum = compiler->eeGetHelperNum(methHnd);
@@ -5087,6 +5073,8 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         }
         else
         {
+            assert(call->IsUserCall());
+
             // Direct call to a non-virtual user function.
             callAddr = call->gtDirectCallAddress;
         }
@@ -5102,7 +5090,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     GetEmitter()->emitIns_Call(
         emitCallType,
         methHnd
-        DEBUGARG(sigInfo),
+        DEBUGARG(call->IsHelperCall() ? nullptr : call->callSig),
         callAddr,
         argSizeForEmitter,
         retSize

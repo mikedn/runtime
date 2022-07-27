@@ -1809,17 +1809,15 @@ GenTree* Lowering::LowerTailCallViaJitHelper(GenTreeCall* call, GenTree* callTar
     }
 
     // Remove gtCallAddr from execution order if present.
-    if (call->gtCallType == CT_INDIRECT)
+    if (call->IsIndirectCall())
     {
-        assert(call->gtCallAddr != nullptr);
+        callTarget = call->gtCallAddr;
 
         bool               isClosed;
-        LIR::ReadOnlyRange callAddrRange = BlockRange().GetTreeRange(call->gtCallAddr, &isClosed);
+        LIR::ReadOnlyRange callAddrRange = BlockRange().GetTreeRange(callTarget, &isClosed);
         assert(isClosed);
 
         BlockRange().Remove(std::move(callAddrRange));
-
-        callTarget = call->gtCallAddr;
     }
 
     // The callTarget tree needs to be sequenced.
@@ -3089,7 +3087,8 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
     JITDUMP("======= Inserting PInvoke call prolog\n");
 
     GenTree* insertBefore = call;
-    if (call->gtCallType == CT_INDIRECT)
+
+    if (call->IsIndirectCall())
     {
         bool isClosed;
         insertBefore = BlockRange().GetTreeRange(call->gtCallAddr, &isClosed).FirstNode();
@@ -3097,8 +3096,6 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
     }
 
     const CORINFO_EE_INFO::InlinedCallFrameInfo& callFrameInfo = comp->eeGetEEInfo()->inlinedCallFrameInfo;
-
-    gtCallTypes callType = (gtCallTypes)call->gtCallType;
 
     noway_assert(comp->lvaInlinedPInvokeFrameVar != BAD_VAR_NUM);
 
@@ -3139,7 +3136,7 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
 
     GenTree* src = nullptr;
 
-    if (callType == CT_INDIRECT)
+    if (call->IsIndirectCall())
     {
 #if !defined(TARGET_64BIT)
         // On 32-bit targets, indirect calls need the size of the stack args in InlinedCallFrame.m_Datum.
@@ -3157,7 +3154,7 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
     }
     else
     {
-        assert(callType == CT_USER_FUNC);
+        assert(call->IsUserCall());
 
         void*                 pEmbedMethodHandle = nullptr;
         CORINFO_METHOD_HANDLE embedMethodHandle =
@@ -3538,7 +3535,7 @@ GenTree* Lowering::LowerVirtualStubCall(GenTreeCall* call)
 
     // This is code to set up an indirect call to a stub address computed
     // via dictionary lookup.
-    if (call->gtCallType == CT_INDIRECT)
+    if (call->IsIndirectCall())
     {
         // The importer decided we needed a stub call via a computed
         // stub dispatch address, i.e. an address which came from a dictionary lookup.

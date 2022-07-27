@@ -101,13 +101,11 @@ enum GenTreeKinds
 
 /*****************************************************************************/
 
-enum gtCallTypes : BYTE
+enum CallKind
 {
-    CT_USER_FUNC, // User function
-    CT_HELPER,    // Jit-helper
-    CT_INDIRECT,  // Indirect call
-
-    CT_COUNT // fake entry (must be last)
+    CT_USER_FUNC,
+    CT_HELPER,
+    CT_INDIRECT
 };
 
 #ifdef DEBUG
@@ -4082,8 +4080,8 @@ struct GenTreeCall final : public GenTree
 
     GenTreeCallFlags gtCallMoreFlags;
 
-    unsigned char gtCallType : 3;   // value from the gtCallTypes enumeration
-    unsigned char m_retSigType : 5; // Signature return type
+    uint8_t gtCallType : 3;   // value from the CallKind enumeration
+    uint8_t m_retSigType : 5; // Signature return type
 
     ReturnTypeDesc m_retDesc;
 
@@ -4100,7 +4098,7 @@ struct GenTreeCall final : public GenTree
     INDEBUG(CORINFO_SIG_INFO* callSig;)
 
 public:
-    GenTreeCall(var_types type, gtCallTypes kind, Use* args)
+    GenTreeCall(var_types type, CallKind kind, Use* args)
         : GenTree(GT_CALL, varActualType(type))
         , gtCallThisArg(nullptr)
         , gtCallArgs(args)
@@ -4110,7 +4108,7 @@ public:
         , tailCallInfo(nullptr)
         , m_retLayout(nullptr)
         , gtCallMoreFlags(GTF_CALL_M_EMPTY)
-        , gtCallType(kind)
+        , gtCallType(static_cast<uint8_t>(kind))
         , m_retSigType(type)
 #ifdef DEBUG
         , callSig(nullptr)
@@ -4129,6 +4127,7 @@ public:
         , gtCallThisArg(nullptr)
         , gtCallArgs(nullptr)
         , gtCallLateArgs(nullptr)
+        , gtControlExpr(nullptr)
         , fgArgInfo(nullptr)
         , m_retLayout(copyFrom->m_retLayout)
         , gtCallMoreFlags(copyFrom->gtCallMoreFlags)
@@ -4501,6 +4500,11 @@ public:
     bool IsHelperCall() const
     {
         return gtCallType == CT_HELPER;
+    }
+
+    bool IsIndirectCall() const
+    {
+        return gtCallType == CT_INDIRECT;
     }
 
     bool IsHelperCall(CORINFO_METHOD_HANDLE callMethHnd) const

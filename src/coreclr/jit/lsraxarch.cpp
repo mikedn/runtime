@@ -919,16 +919,6 @@ int LinearScan::BuildCall(GenTreeCall* call)
 {
     int srcCount = 0;
 
-    GenTree* ctrlExpr = call->gtControlExpr;
-    if (call->gtCallType == CT_INDIRECT)
-    {
-        ctrlExpr = call->gtCallAddr;
-    }
-
-// number of args to a call =
-// callRegArgs + (callargs - placeholders, setup, etc)
-// there is an explicit thisPtr but it is redundant
-
 #if FEATURE_VARARG
     bool varargsHasFloatRegArgs = false;
 
@@ -999,7 +989,8 @@ int LinearScan::BuildCall(GenTreeCall* call)
         srcCount++;
     }
 
-    // set reg requirements on call target represented as control sequence.
+    GenTree* ctrlExpr = call->IsIndirectCall() ? call->gtCallAddr : call->gtControlExpr;
+
     if (ctrlExpr != nullptr)
     {
         regMaskTP ctrlExprCandidates = RBM_NONE;

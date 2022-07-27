@@ -2228,40 +2228,35 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     }
     else
 #endif // !TARGET_X86
-    if (call->gtCallType == CT_INDIRECT && (call->gtCallCookie != nullptr))
+    if (call->IsIndirectCall() && (call->gtCallCookie != nullptr))
     {
         assert(!call->IsUnmanaged());
 
-        GenTree* arg = call->gtCallCookie;
-        noway_assert(arg != nullptr);
-        call->gtCallCookie = nullptr;
-
-#if defined(TARGET_X86)
+#ifdef TARGET_X86
         // x86 passes the cookie on the stack as the final argument to the call.
         GenTreeCall::Use** insertionPoint = &call->gtCallArgs;
         for (; *insertionPoint != nullptr; insertionPoint = &((*insertionPoint)->NextRef()))
         {
         }
-        *insertionPoint = gtNewCallArgs(arg);
-#else  // !defined(TARGET_X86)
+
+        *insertionPoint = gtNewCallArgs(call->gtCallCookie);
+#else
         // All other architectures pass the cookie in a register.
-        call->gtCallArgs = gtPrependNewCallArg(arg, call->gtCallArgs);
-#endif // defined(TARGET_X86)
+        call->gtCallArgs = gtPrependNewCallArg(call->gtCallCookie, call->gtCallArgs);
+#endif
+        nonStandardArgs.Add(call->gtCallCookie, REG_PINVOKE_COOKIE_PARAM);
+        numArgs++;
+        call->gtCallCookie = nullptr;
 
-        nonStandardArgs.Add(arg, REG_PINVOKE_COOKIE_PARAM);
+        GenTree* target  = gtClone(call->gtCallAddr, true);
+        call->gtCallArgs = gtPrependNewCallArg(target, call->gtCallArgs);
+        nonStandardArgs.Add(target, REG_PINVOKE_TARGET_PARAM);
         numArgs++;
 
-        // put destination into R10/EAX
-        arg              = gtClone(call->gtCallAddr, true);
-        call->gtCallArgs = gtPrependNewCallArg(arg, call->gtCallArgs);
-        numArgs++;
-
-        nonStandardArgs.Add(arg, REG_PINVOKE_TARGET_PARAM);
-
-        // finally change this call to a helper call
         call->gtCallType    = CT_HELPER;
         call->gtCallMethHnd = eeFindHelper(CORINFO_HELP_PINVOKE_CALLI);
     }
+
 #if defined(FEATURE_READYTORUN_COMPILER) && defined(TARGET_ARMARCH)
     // For arm, we dispatch code same as VSD using virtualStubParamInfo.GetRegNum()
     // for indirection cell address, which ZapIndirectHelperThunk expects.
@@ -3167,10 +3162,9 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
         call->fgArgInfo->ArgsComplete(this, call);
     }
 
-    if (call->gtCallType == CT_INDIRECT)
+    if (call->IsIndirectCall())
     {
         call->gtCallAddr = fgMorphTree(call->gtCallAddr);
-        // Const CSE may create an assignment node here
         argsSideEffects |= call->gtCallAddr->gtFlags;
     }
 
@@ -6982,12 +6976,14 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
     {
         JITDUMP("Adding target since VM requested it\n");
         GenTree* target;
+
         if (!virtualCall)
         {
-            if (call->gtCallType == CT_INDIRECT)
+            if (call->IsIndirectCall())
             {
-                noway_assert(call->gtCallAddr != nullptr);
                 target = call->gtCallAddr;
+
+                noway_assert(target != nullptr);
             }
             else
             {
@@ -7628,21 +7624,15 @@ void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
 GenTree* Compiler::fgGetStubAddrArg(GenTreeCall* call)
 {
     assert(call->IsVirtualStub());
-    GenTree* stubAddrArg;
-    if (call->gtCallType == CT_INDIRECT)
+
+    if (call->IsIndirectCall())
     {
-        stubAddrArg = gtClone(call->gtCallAddr, true);
+        return gtClone(call->gtCallAddr, true);
     }
-    else
-    {
-        assert(call->gtCallMoreFlags & GTF_CALL_M_VIRTSTUB_REL_INDIRECT);
-        ssize_t addr = ssize_t(call->gtStubCallStubAddr);
-        stubAddrArg  = gtNewIconHandleNode(addr, GTF_ICON_FTN_ADDR);
-#ifdef DEBUG
-        stubAddrArg->AsIntCon()->gtTargetHandle = (size_t)call->gtCallMethHnd;
-#endif
-    }
-    assert(stubAddrArg != nullptr);
+
+    assert(call->gtCallMoreFlags & GTF_CALL_M_VIRTSTUB_REL_INDIRECT);
+    GenTreeIntCon* stubAddrArg = gtNewIconHandleNode(call->gtStubCallStubAddr, GTF_ICON_FTN_ADDR);
+    INDEBUG(stubAddrArg->gtTargetHandle = (size_t)call->gtCallMethHnd);
     return stubAddrArg;
 }
 
