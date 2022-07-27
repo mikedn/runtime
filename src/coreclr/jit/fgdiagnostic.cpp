@@ -3072,7 +3072,7 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                     chkFlags |= (call->gtCallAddr->gtFlags & GTF_SIDE_EFFECT);
                 }
 
-                if ((call->gtControlExpr != nullptr) && call->IsExpandedEarly() && call->IsVirtualVtable())
+                if (call->gtControlExpr != nullptr)
                 {
                     fgDebugCheckFlags(call->gtControlExpr);
                     chkFlags |= (call->gtControlExpr->gtFlags & GTF_SIDE_EFFECT);

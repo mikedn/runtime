@@ -3421,7 +3421,7 @@ BasicBlock* Compiler::fgAddCodeRef(BasicBlock* srcBlk, unsigned refData, Special
         // There are no args here but fgMorphArgs has side effects
         // such as setting the outgoing arg area (which is necessary
         // on AMD if there are any calls).
-        tree = fgMorphArgs(tree);
+        fgMorphArgs(tree);
 
         fgInsertStmtAtEnd(newBlk, fgNewStmtFromTree(tree));
     }

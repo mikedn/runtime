@@ -66,7 +66,7 @@ GenTree* Compiler::fgMorphCastIntoHelper(GenTreeCast* cast, int helper)
  *  the given argument list.
  */
 
-GenTree* Compiler::fgMorphIntoHelperCall(GenTree* tree, int helper, GenTreeCall::Use* args, bool morphArgs)
+GenTreeCall* Compiler::fgMorphIntoHelperCall(GenTree* tree, int helper, GenTreeCall::Use* args, bool morphArgs)
 {
     // The helper call ought to be semantically equivalent to the original node, so preserve its VN.
     tree->ChangeOper(GT_CALL, GenTree::PRESERVE_VN);
@@ -86,15 +86,12 @@ GenTree* Compiler::fgMorphIntoHelperCall(GenTree* tree, int helper, GenTreeCall:
     call->gtControlExpr         = nullptr;
 #ifdef UNIX_X86_ABI
     call->gtFlags |= GTF_CALL_POP_ARGS;
-#endif // UNIX_X86_ABI
+#endif
 
 #if DEBUG
-    // Helper calls are never candidates.
     call->gtInlineObservation = InlineObservation::CALLSITE_IS_CALL_TO_HELPER;
-
-    call->callSig = nullptr;
-
-#endif // DEBUG
+    call->callSig             = nullptr;
+#endif
 
 #ifdef FEATURE_READYTORUN_COMPILER
     call->gtEntryPoint.addr       = nullptr;
@@ -113,29 +110,28 @@ GenTree* Compiler::fgMorphIntoHelperCall(GenTree* tree, int helper, GenTreeCall:
     call->ClearOtherRegs();
 #endif
 
-    if (tree->OperMayThrow(this))
+    if (call->OperMayThrow(this))
     {
-        tree->gtFlags |= GTF_EXCEPT;
+        call->gtFlags |= GTF_EXCEPT;
     }
     else
     {
-        tree->gtFlags &= ~GTF_EXCEPT;
+        call->gtFlags &= ~GTF_EXCEPT;
     }
-    tree->gtFlags |= GTF_CALL;
+
+    call->gtFlags |= GTF_CALL;
 
     for (GenTreeCall::Use& use : GenTreeCall::UseList(args))
     {
-        tree->gtFlags |= (use.GetNode()->gtFlags & GTF_ALL_EFFECT);
+        call->gtFlags |= use.GetNode()->GetSideEffects();
     }
-
-    /* Perform the morphing */
 
     if (morphArgs)
     {
-        tree = fgMorphArgs(call);
+        fgMorphArgs(call);
     }
 
-    return tree;
+    return call;
 }
 
 GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
@@ -2982,11 +2978,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 // Arguments:
 //    callNode - the call for which we are doing the argument morphing
 //
-// Return Value:
-//    Like most morph methods, this method returns the morphed node,
-//    though in this case there are currently no scenarios where the
-//    node itself is re-created.
-//
 // Notes:
 //    This calls fgInitArgInfo to create the 'fgArgInfo' for the call.
 //    If it has already been created, that method will simply return.
@@ -3013,7 +3004,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 //    otherwise need to be computed into a temp, it is moved to gtCallLateArgs and
 //    replaced in the "early" arg list (gtCallArgs) with a placeholder node.
 //
-GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
+void Compiler::fgMorphArgs(GenTreeCall* const call)
 {
     bool reMorphing = call->AreArgsComplete();
     fgInitArgInfo(call);
@@ -3193,8 +3184,6 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
         call->fgArgInfo->Dump();
     }
 #endif
-
-    return call;
 }
 
 bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
@@ -7929,11 +7918,6 @@ Statement* Compiler::fgAssignRecursiveCallArgToCallerParam(GenTree*       arg,
     return paramAssignStmt;
 }
 
-/*****************************************************************************
- *
- *  Transform the given GT_CALL tree for code generation.
- */
-
 GenTree* Compiler::fgMorphCall(GenTreeCall* call)
 {
     if (call->CanTailCall())
@@ -7960,26 +7944,22 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
 
         GenTree* thisPtr = call->gtCallArgs->GetNode();
 
-        GenTree* nullCheck = gtNewNullCheck(thisPtr);
-
-        return fgMorphTree(nullCheck);
+        return fgMorphTree(gtNewNullCheck(thisPtr));
     }
 
     noway_assert(call->gtOper == GT_CALL);
 
-    //
-    // Only count calls once (only in the global morph phase)
-    //
     if (fgGlobalMorph)
     {
-        if (call->gtCallType == CT_INDIRECT)
+        if (call->IsIndirectCall())
         {
             optCallCount++;
             optIndirectCallCount++;
         }
-        else if (call->gtCallType == CT_USER_FUNC)
+        else if (call->IsUserCall())
         {
             optCallCount++;
+
             if (call->IsVirtual())
             {
                 optIndirectCallCount++;
@@ -7987,14 +7967,10 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
         }
     }
 
-    // Couldn't inline - remember that this BB contains method calls
-
     // Mark the block as a GC safe point for the call if possible.
     // In the event the call indicates the block isn't a GC safe point
     // and the call is unmanaged with a GC transition suppression request
     // then insert a GC poll.
-    CLANG_FORMAT_COMMENT_ANCHOR;
-
     if (IsGcSafePoint(call))
     {
         compCurBB->bbFlags |= BBF_GC_SAFE_POINT;
@@ -8010,40 +7986,36 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
     }
 
     // Morph Type.op_Equality, Type.op_Inequality, and Enum.HasFlag
-    //
-    // We need to do these before the arguments are morphed
-    if ((call->gtCallMoreFlags & GTF_CALL_M_SPECIAL_INTRINSIC))
+    // We need to do these before the arguments are morphed.
+    if ((call->gtCallMoreFlags & GTF_CALL_M_SPECIAL_INTRINSIC) != 0)
     {
-        // See if this is foldable
         GenTree* optTree = gtFoldExprCall(call);
 
-        // If we optimized, morph the result
         if (optTree != call)
         {
             return fgMorphTree(optTree);
         }
     }
 
-    compCurBB->bbFlags |= BBF_HAS_CALL; // This block has a call
+    // TODO-MIKE-Cleanup: Only CSE needs this.
+    // Move this to SsaBuilder, where BBF_HAS_NULLCHECK and other similar flags are set.
+    // Note that there is code below that can remove the call, but we're still setting
+    // this flag here. Also note that INTRINSIC nodes may become calls but we don't set
+    // this flag for those, that may affect CSE.
+    compCurBB->bbFlags |= BBF_HAS_CALL;
 
-    /* Process the "normal" argument list */
-    call = fgMorphArgs(call);
-    noway_assert(call->gtOper == GT_CALL);
+    fgMorphArgs(call);
+    assert(call->OperIs(GT_CALL));
 
-    // Should we expand this virtual method call target early here?
-    //
     if (call->IsExpandedEarly() && call->IsVirtualVtable())
     {
-        // We only expand the Vtable Call target once in the global morph phase
         if (call->gtControlExpr == nullptr)
         {
             assert(fgGlobalMorph);
             call->gtControlExpr = fgExpandVirtualVtableCallTarget(call);
         }
-        // We always have to morph or re-morph the control expr
-        //
-        call->gtControlExpr = fgMorphTree(call->gtControlExpr);
 
+        call->gtControlExpr = fgMorphTree(call->gtControlExpr);
         call->AddSideEffects(call->gtControlExpr->GetSideEffects());
     }
 
@@ -8060,7 +8032,6 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
 
     if (call->IsNoReturn())
     {
-        //
         // If we know that the call does not return then we can set fgRemoveRestOfBlock
         // to remove all subsequent statements and change the call's basic block to BBJ_THROW.
         // As a result the compiler won't need to preserve live registers across the call.
@@ -8069,7 +8040,6 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
         // Besides, the tail call code is part of the epilog and converting the block to
         // BBJ_THROW would result in the tail call being dropped as the epilog is generated
         // only for BBJ_RETURN blocks.
-        //
 
         if (!call->IsTailCall())
         {

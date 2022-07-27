@@ -4717,7 +4717,7 @@ private:
 
     GenTree* fgMorphCastIntoHelper(GenTreeCast* cast, int helper);
 
-    GenTree* fgMorphIntoHelperCall(GenTree* tree, int helper, GenTreeCall::Use* args, bool morphArgs = true);
+    GenTreeCall* fgMorphIntoHelperCall(GenTree* tree, int helper, GenTreeCall::Use* args, bool morphArgs = true);
 
     // A "MorphAddrContext" carries information from the surrounding context.  If we are evaluating a byref address,
     // it is useful to know whether the address will be immediately dereferenced, or whether the address value will
@@ -4774,7 +4774,7 @@ private:
     GenTree* fgMorphStringIndexIndir(GenTreeIndexAddr* index);
     GenTree* fgMorphCast(GenTreeCast* cast);
     void fgInitArgInfo(GenTreeCall* call);
-    GenTreeCall* fgMorphArgs(GenTreeCall* call);
+    void fgMorphArgs(GenTreeCall* call);
 
     GenTree* fgMorphLclVar(GenTreeLclVar* lclVar);
 
