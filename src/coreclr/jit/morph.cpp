@@ -8049,71 +8049,12 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
 
     // Morph stelem.ref helper call to store a null value, into a store into an array without the helper.
     // This needs to be done after the arguments are morphed to ensure constant propagation has already taken place.
-    if (opts.OptimizationEnabled() && (call->gtCallType == CT_HELPER) &&
-        (call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_ARRADDR_ST)))
+    if (opts.OptimizationEnabled() && call->IsHelperCall(eeFindHelper(CORINFO_HELP_ARRADDR_ST)))
     {
         GenTree* value = call->GetArgNodeByArgNum(2);
         if (value->IsIntegralConst(0))
         {
-            assert(value->OperGet() == GT_CNS_INT);
-
-            GenTree* arr   = call->GetArgNodeByArgNum(0);
-            GenTree* index = call->GetArgNodeByArgNum(1);
-
-            // Either or both of the array and index arguments may have been spilled to temps by `fgMorphArgs`. Copy
-            // the spill trees as well if necessary.
-            GenTreeOp* argSetup = nullptr;
-            for (GenTreeCall::Use& use : call->Args())
-            {
-                GenTree* const arg = use.GetNode();
-                if (!arg->OperIs(GT_ASG))
-                {
-                    continue;
-                }
-
-                assert(arg != arr);
-                assert(arg != index);
-
-                GenTree* op1 = argSetup;
-                if (op1 == nullptr)
-                {
-                    op1 = gtNewNothingNode();
-                    INDEBUG(op1->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-                }
-
-                argSetup = gtNewCommaNode(op1, arg);
-                INDEBUG(argSetup->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-            }
-
-#ifdef DEBUG
-            auto resetMorphedFlag = [](GenTree** slot, fgWalkData* data) -> fgWalkResult {
-                (*slot)->gtDebugFlags &= ~GTF_DEBUG_NODE_MORPHED;
-                return WALK_CONTINUE;
-            };
-
-            fgWalkTreePost(&arr, resetMorphedFlag);
-            fgWalkTreePost(&index, resetMorphedFlag);
-            fgWalkTreePost(&value, resetMorphedFlag);
-#endif // DEBUG
-
-            GenTree*          nullCheckedArr = impCheckForNullPointer(arr);
-            GenTreeIndexAddr* addr           = gtNewArrayIndexAddr(nullCheckedArr, index, TYP_REF);
-            GenTreeIndir*     arrIndexNode   = gtNewIndexIndir(TYP_REF, addr);
-            if (!fgGlobalMorph && !opts.MinOpts())
-            {
-                arrIndexNode->SetAddr(fgMorphIndexAddr(addr));
-            }
-            GenTree* arrStore = gtNewAssignNode(arrIndexNode, value);
-            arrStore->gtFlags |= GTF_ASG;
-
-            GenTree* result = fgMorphTree(arrStore);
-            if (argSetup != nullptr)
-            {
-                result = gtNewCommaNode(argSetup, result);
-                INDEBUG(result->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-            }
-
-            return result;
+            return fgRemoveArrayStoreHelperCall(call, value);
         }
     }
 
@@ -8137,6 +8078,69 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
     }
 
     return call;
+}
+
+GenTree* Compiler::fgRemoveArrayStoreHelperCall(GenTreeCall* call, GenTree* value)
+{
+    assert((value == call->GetArgNodeByArgNum(2)) && (value->AsIntCon()->GetValue() == 0));
+
+    GenTree* arr   = call->GetArgNodeByArgNum(0);
+    GenTree* index = call->GetArgNodeByArgNum(1);
+
+    // Either or both of the array and index arguments may have been spilled to temps by `fgMorphArgs`. Copy
+    // the spill trees as well if necessary.
+    GenTreeOp* argSetup = nullptr;
+    for (GenTreeCall::Use& use : call->Args())
+    {
+        GenTree* const arg = use.GetNode();
+        if (!arg->OperIs(GT_ASG))
+        {
+            continue;
+        }
+
+        assert(arg != arr);
+        assert(arg != index);
+
+        GenTree* op1 = argSetup;
+        if (op1 == nullptr)
+        {
+            op1 = gtNewNothingNode();
+            INDEBUG(op1->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+        }
+
+        argSetup = gtNewCommaNode(op1, arg);
+        INDEBUG(argSetup->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+    }
+
+#ifdef DEBUG
+    auto resetMorphedFlag = [](GenTree** slot, fgWalkData* data) -> fgWalkResult {
+        (*slot)->gtDebugFlags &= ~GTF_DEBUG_NODE_MORPHED;
+        return WALK_CONTINUE;
+    };
+
+    fgWalkTreePost(&arr, resetMorphedFlag);
+    fgWalkTreePost(&index, resetMorphedFlag);
+    fgWalkTreePost(&value, resetMorphedFlag);
+#endif // DEBUG
+
+    GenTree*          nullCheckedArr = impCheckForNullPointer(arr);
+    GenTreeIndexAddr* addr           = gtNewArrayIndexAddr(nullCheckedArr, index, TYP_REF);
+    GenTreeIndir*     arrIndexNode   = gtNewIndexIndir(TYP_REF, addr);
+    if (!fgGlobalMorph && !opts.MinOpts())
+    {
+        arrIndexNode->SetAddr(fgMorphIndexAddr(addr));
+    }
+    GenTree* arrStore = gtNewAssignNode(arrIndexNode, value);
+    arrStore->gtFlags |= GTF_ASG;
+
+    GenTree* result = fgMorphTree(arrStore);
+    if (argSetup != nullptr)
+    {
+        result = gtNewCommaNode(argSetup, result);
+        INDEBUG(result->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+    }
+
+    return result;
 }
 
 /*****************************************************************************
