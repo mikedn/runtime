@@ -8044,8 +8044,7 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
         //
         call->gtControlExpr = fgMorphTree(call->gtControlExpr);
 
-        // Propogate any gtFlags into the call
-        call->gtFlags |= call->gtControlExpr->gtFlags;
+        call->AddSideEffects(call->gtControlExpr->GetSideEffects());
     }
 
     // Morph stelem.ref helper call to store a null value, into a store into an array without the helper.
