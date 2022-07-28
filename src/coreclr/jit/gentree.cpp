@@ -6619,69 +6619,7 @@ void Compiler::gtDispNodeName(GenTree* tree)
     char  buf[32];
     char* bufp = &buf[0];
 
-    if (tree->gtOper == GT_CALL)
-    {
-        const char* callType = "CALL";
-        const char* gtfType  = "";
-        const char* ctType   = "";
-        char        gtfTypeBuf[100];
-
-        if (tree->AsCall()->gtCallType == CT_USER_FUNC)
-        {
-            if (tree->AsCall()->IsVirtual())
-            {
-                callType = "CALLV";
-            }
-        }
-        else if (tree->AsCall()->gtCallType == CT_HELPER)
-        {
-            ctType = " help";
-        }
-        else if (tree->AsCall()->gtCallType == CT_INDIRECT)
-        {
-            ctType = " ind";
-        }
-        else
-        {
-            assert(!"Unknown gtCallType");
-        }
-
-        if (tree->gtFlags & GTF_CALL_NULLCHECK)
-        {
-            gtfType = " nullcheck";
-        }
-        if (tree->AsCall()->IsVirtualVtable())
-        {
-            gtfType = " vt-ind";
-        }
-        else if (tree->AsCall()->IsVirtualStub())
-        {
-            gtfType = " stub";
-        }
-#ifdef FEATURE_READYTORUN_COMPILER
-        else if (tree->AsCall()->IsR2RRelativeIndir())
-        {
-            gtfType = " r2r_ind";
-        }
-#endif // FEATURE_READYTORUN_COMPILER
-        else if (tree->gtFlags & GTF_CALL_UNMANAGED)
-        {
-            char* gtfTypeBufWalk = gtfTypeBuf;
-            gtfTypeBufWalk += SimpleSprintf_s(gtfTypeBufWalk, gtfTypeBuf, sizeof(gtfTypeBuf), " unman");
-            if (tree->gtFlags & GTF_CALL_POP_ARGS)
-            {
-                gtfTypeBufWalk += SimpleSprintf_s(gtfTypeBufWalk, gtfTypeBuf, sizeof(gtfTypeBuf), " popargs");
-            }
-            if (tree->AsCall()->gtCallMoreFlags & GTF_CALL_M_UNMGD_THISCALL)
-            {
-                gtfTypeBufWalk += SimpleSprintf_s(gtfTypeBufWalk, gtfTypeBuf, sizeof(gtfTypeBuf), " thiscall");
-            }
-            gtfType = gtfTypeBuf;
-        }
-
-        sprintf_s(bufp, sizeof(buf), "%s%s%s%c", callType, ctType, gtfType, 0);
-    }
-    else if (tree->gtOper == GT_ARR_ELEM)
+    if (tree->gtOper == GT_ARR_ELEM)
     {
         bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "%s[", name);
         for (unsigned rank = tree->AsArrElem()->gtArrRank - 1; rank; rank--)
@@ -8394,20 +8332,90 @@ void Compiler::gtDispTree(GenTree*     tree,
         {
             GenTreeCall* call = tree->AsCall();
 
-            if (call->gtCallType != CT_INDIRECT)
+            if (!call->IsIndirectCall())
             {
                 const char* methodName;
                 const char* className;
 
-                methodName = eeGetMethodName(call->gtCallMethHnd, &className);
+                methodName = eeGetMethodName(call->GetMethodHandle(), &className);
 
                 printf(" %s.%s", className, methodName);
             }
 
-            if (((call->gtFlags & GTF_CALL_INLINE_CANDIDATE) != 0) && (call->gtInlineCandidateInfo != nullptr) &&
+            const char* separator = " (";
+
+            if (call->IsHelperCall())
+            {
+                printf("%shelper", separator);
+                separator = ", ";
+            }
+            else if (call->IsIndirectCall())
+            {
+                printf("%sindirect", separator);
+                separator = ", ";
+            }
+            else
+            {
+                if (call->IsVirtualVtable())
+                {
+                    printf("%svtable", separator);
+                    separator = ", ";
+                }
+                else if (call->IsVirtualStub())
+                {
+                    printf("%svstub", separator);
+                    separator = ", ";
+                }
+            }
+
+            if (call->NeedsNullCheck())
+            {
+                printf("%snullcheck", separator);
+                separator = ", ";
+            }
+
+#ifdef FEATURE_READYTORUN_COMPILER
+            if (call->IsR2RRelativeIndir())
+            {
+                printf("%sr2rind", separator);
+                separator = ", ";
+            }
+#endif
+
+            if (call->IsUnmanaged())
+            {
+                printf("%sunmanaged", separator);
+                separator = ", ";
+
+                if (call->CallerPop())
+                {
+                    printf("%spopargs", separator);
+                    separator = ", ";
+                }
+
+                if ((call->gtCallMoreFlags & GTF_CALL_M_UNMGD_THISCALL) != 0)
+                {
+                    printf("%sthiscall", separator);
+                    separator = ", ";
+                }
+            }
+
+            if (call->IsTailCall())
+            {
+                printf("%stail", separator);
+                separator = ", ";
+            }
+
+            if (call->IsInlineCandidate() && (call->gtInlineCandidateInfo != nullptr) &&
                 (call->gtInlineCandidateInfo->exactContextHnd != nullptr))
             {
-                printf(" (exactContextHnd=0x%p)", dspPtr(call->gtInlineCandidateInfo->exactContextHnd));
+                printf("%sexactContextHnd=0x%p", separator, dspPtr(call->gtInlineCandidateInfo->exactContextHnd));
+                separator = ", ";
+            }
+
+            if (separator[0] == ',')
+            {
+                printf(")");
             }
 
             gtDispCommonEndLine(tree);
