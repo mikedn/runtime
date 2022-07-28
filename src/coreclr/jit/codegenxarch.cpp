@@ -5248,10 +5248,9 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     }
 #endif // !FEATURE_EH_FUNCLETS
 
+#ifdef TARGET_X86
     unsigned stackAdjustBias = 0;
 
-#ifdef TARGET_X86
-    // Is the caller supposed to pop the arguments?
     if (fCallerPop && (stackArgBytes != 0))
     {
         stackAdjustBias = stackArgBytes;
@@ -5265,9 +5264,9 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     //     instGen(INS_BREAKPOINT);
     //     return;
     // }
-#endif
 
     genRemoveAlignmentAfterCall(call, stackAdjustBias);
+#endif
 }
 
 // Produce code for a GT_JMP node.
@@ -6707,6 +6706,7 @@ void CodeGen::genAlignStackBeforeCall(GenTreeCall* call)
 #endif // UNIX_X86_ABI
 }
 
+#ifdef TARGET_X86
 //---------------------------------------------------------------------
 // genRemoveAlignmentAfterCall: After a call, remove the alignment
 // added before the call, if any.
@@ -6721,8 +6721,7 @@ void CodeGen::genAlignStackBeforeCall(GenTreeCall* call)
 //
 void CodeGen::genRemoveAlignmentAfterCall(GenTreeCall* call, unsigned bias)
 {
-#if defined(TARGET_X86)
-#if defined(UNIX_X86_ABI)
+#ifdef UNIX_X86_ABI
     // Put back the stack pointer if there was any padding for stack alignment
     unsigned padStkAlign  = call->GetInfo()->GetStkAlign();
     unsigned padStkAdjust = padStkAlign + bias;
@@ -6733,18 +6732,13 @@ void CodeGen::genRemoveAlignmentAfterCall(GenTreeCall* call, unsigned bias)
         SubtractStackLevel(padStkAlign);
         SubtractNestedAlignment(padStkAlign);
     }
-#else  // UNIX_X86_ABI
+#else
     if (bias != 0)
     {
         genAdjustSP(bias);
     }
-#endif // !UNIX_X86_ABI_
-#else  // TARGET_X86
-    assert(bias == 0);
-#endif // !TARGET_X86
+#endif
 }
-
-#ifdef TARGET_X86
 
 //---------------------------------------------------------------------
 // genPreAdjustStackForPutArgStk: Adjust the stack pointer before a non-push stack put arg

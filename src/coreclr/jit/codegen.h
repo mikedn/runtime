@@ -1126,7 +1126,9 @@ protected:
 
     void genAlignStackBeforeCall(GenTreePutArgStk* putArgStk);
     void genAlignStackBeforeCall(GenTreeCall* call);
-    void genRemoveAlignmentAfterCall(GenTreeCall* call, unsigned bias = 0);
+#ifdef TARGET_X86
+    void genRemoveAlignmentAfterCall(GenTreeCall* call, unsigned bias);
+#endif
 
 #if defined(UNIX_X86_ABI)
 
