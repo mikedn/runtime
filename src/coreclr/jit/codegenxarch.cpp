@@ -5258,6 +5258,13 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     }
 
     SubtractStackLevel(stackArgBytes);
+
+    // TODO-MIKE-Consider: Emit a breakpoint after CORINFO_HELP_TAILCALL since it never returns.
+    // if (call->IsTailCallViaJitHelper())
+    // {
+    //     instGen(INS_BREAKPOINT);
+    //     return;
+    // }
 #endif
 
     genRemoveAlignmentAfterCall(call, stackAdjustBias);
