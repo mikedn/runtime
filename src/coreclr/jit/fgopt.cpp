@@ -2540,8 +2540,6 @@ bool Compiler::fgOptimizeEmptyBlock(BasicBlock* block)
                         if (block->IsLIR())
                         {
                             LIR::AsRange(block).InsertAtEnd(nop);
-                            LIR::ReadOnlyRange range(nop, nop);
-                            m_pLowering->LowerRange(block, range);
                         }
                         else
                         {
@@ -2550,13 +2548,8 @@ bool Compiler::fgOptimizeEmptyBlock(BasicBlock* block)
                             gtSetStmtInfo(nopStmt);
                         }
 
-#ifdef DEBUG
-                        if (verbose)
-                        {
-                            printf("\nKeeping empty block " FMT_BB " - it is the target of a catch return\n",
-                                   block->bbNum);
-                        }
-#endif // DEBUG
+                        JITDUMP("\nKeeping empty block " FMT_BB " - it is the target of a catch return\n",
+                                block->bbNum);
 
                         break; // go to the next block
                     }
