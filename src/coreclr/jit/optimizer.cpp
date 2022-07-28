@@ -4584,10 +4584,9 @@ PhaseStatus Compiler::optOptimizeLayout()
     noway_assert(opts.OptimizationEnabled());
     noway_assert(fgModified == false);
 
-    bool       madeChanges          = false;
-    const bool allowTailDuplication = true;
+    bool madeChanges = false;
 
-    madeChanges |= fgUpdateFlowGraph(allowTailDuplication);
+    madeChanges |= fgUpdateFlowGraph(nullptr, /* doTailDup */ true);
     madeChanges |= fgReorderBlocks();
     madeChanges |= fgUpdateFlowGraph();
 

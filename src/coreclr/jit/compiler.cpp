@@ -3598,20 +3598,10 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
     DoPhase(this, PHASE_COMPUTE_PREDS, computePredsPhase);
 
     // Now that we have pred lists, do some flow-related optimizations
-    //
     if (opts.OptimizationEnabled())
     {
-        // Merge common throw blocks
-        //
         DoPhase(this, PHASE_MERGE_THROWS, &Compiler::fgTailMergeThrows);
-
-        // Run an early flow graph simplification pass
-        //
-        auto earlyUpdateFlowGraphPhase = [this]() {
-            const bool doTailDup = false;
-            fgUpdateFlowGraph(doTailDup);
-        };
-        DoPhase(this, PHASE_EARLY_UPDATE_FLOW_GRAPH, earlyUpdateFlowGraphPhase);
+        DoPhase(this, PHASE_EARLY_UPDATE_FLOW_GRAPH, [this]() { fgUpdateFlowGraph(nullptr, /* doTailDup */ false); });
     }
 
     DoPhase(this, PHASE_PROMOTE_STRUCTS, &Compiler::fgPromoteStructs);
@@ -3863,16 +3853,8 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
 
             if (fgModified)
             {
-                // update the flowgraph if we modified it during the optimization phase
-                //
-                auto optUpdateFlowGraphPhase = [this]() {
-                    const bool doTailDup = false;
-                    fgUpdateFlowGraph(doTailDup);
-                };
-                DoPhase(this, PHASE_OPT_UPDATE_FLOW_GRAPH, optUpdateFlowGraphPhase);
-
-                // Recompute the edge weight if we have modified the flow graph
-                //
+                DoPhase(this, PHASE_OPT_UPDATE_FLOW_GRAPH,
+                        [this]() { fgUpdateFlowGraph(nullptr, /* doTailDup */ false); });
                 DoPhase(this, PHASE_COMPUTE_EDGE_WEIGHTS2, &Compiler::fgComputeEdgeWeights);
             }
 

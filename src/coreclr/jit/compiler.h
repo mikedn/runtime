@@ -4375,7 +4375,7 @@ public:
 
     bool fgOptimizeBranch(BasicBlock* bJump);
 
-    bool fgOptimizeSwitchBranches(BasicBlock* block);
+    bool fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering);
 
     bool fgOptimizeBranchToNext(BasicBlock* block, BasicBlock* bNext, BasicBlock* bPrev);
 
@@ -4394,7 +4394,7 @@ public:
 
     bool fgIsForwardBranch(BasicBlock* bJump, BasicBlock* bSrc = nullptr);
 
-    bool fgUpdateFlowGraph(bool doTailDup = false);
+    bool fgUpdateFlowGraph(Lowering* lowering = nullptr, bool doTailDup = false);
 
     void fgFindOperOrder();
 

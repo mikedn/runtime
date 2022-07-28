@@ -41,16 +41,13 @@ public:
 
     virtual PhaseStatus DoPhase() override;
 
-    // This variant of LowerRange is called from outside of the main Lowering pass,
-    // so it creates its own instance of Lowering to do so.
     void LowerRange(BasicBlock* block, LIR::ReadOnlyRange& range)
     {
-        Lowering lowerer(comp);
-        lowerer.m_block = block;
+        m_block = block;
 
         for (GenTree* newNode : range)
         {
-            lowerer.LowerNode(newNode);
+            LowerNode(newNode);
         }
     }
 

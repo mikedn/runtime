@@ -4674,7 +4674,7 @@ PhaseStatus Lowering::DoPhase()
         // Liveness can delete code, which may create empty blocks.
         comp->optLoopsMarked = false;
 
-        if (comp->fgUpdateFlowGraph())
+        if (comp->fgUpdateFlowGraph(this))
         {
             JITDUMP("Flowgraph was modified, running liveness again\n");
             comp->fgLocalVarLiveness();
