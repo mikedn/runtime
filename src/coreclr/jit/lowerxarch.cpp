@@ -4361,7 +4361,10 @@ void Lowering::ContainCheckIntrinsic(GenTreeOp* node)
 // Return Value:
 //    true if 'node' is a containable hardware intrinsic node; otherwise, false.
 //
-bool Lowering::IsContainableHWIntrinsicOp(GenTreeHWIntrinsic* containingNode, GenTree* node, bool* supportsRegOptional)
+bool Lowering::IsContainableHWIntrinsicOp(Compiler*           comp,
+                                          GenTreeHWIntrinsic* containingNode,
+                                          GenTree*            node,
+                                          bool*               supportsRegOptional)
 {
     NamedIntrinsic      containingIntrinsicId = containingNode->GetIntrinsic();
     HWIntrinsicCategory category              = HWIntrinsicInfo::lookupCategory(containingIntrinsicId);
@@ -4662,7 +4665,7 @@ bool Lowering::IsContainableHWIntrinsicOp(GenTreeHWIntrinsic* containingNode, Ge
 
     if (!node->OperIsHWIntrinsic())
     {
-        return supportsGeneralLoads && IsContainableMemoryOp(node);
+        return supportsGeneralLoads && IsContainableMemoryOp(comp, node);
     }
 
     // TODO-XArch: Update this to be table driven, if possible.

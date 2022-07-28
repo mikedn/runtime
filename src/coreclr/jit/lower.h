@@ -331,13 +331,24 @@ public:
     //  for example small enough and non-relocatable
     bool IsContainableImmed(GenTree* parentNode, GenTree* childNode) const;
 
-    // Return true if 'node' is a containable memory op.
-    bool IsContainableMemoryOp(GenTree* node);
+    static bool IsContainableMemoryOp(Compiler* comp, GenTree* node);
+
+    bool IsContainableMemoryOp(GenTree* node)
+    {
+        return IsContainableMemoryOp(comp, node);
+    }
 
 #ifdef FEATURE_HW_INTRINSICS
-    // Return true if 'node' is a containable HWIntrinsic op.
-    bool IsContainableHWIntrinsicOp(GenTreeHWIntrinsic* containingNode, GenTree* node, bool* supportsRegOptional);
-#endif // FEATURE_HW_INTRINSICS
+    static bool IsContainableHWIntrinsicOp(Compiler*           comp,
+                                           GenTreeHWIntrinsic* containingNode,
+                                           GenTree*            node,
+                                           bool*               supportsRegOptional);
+
+    bool IsContainableHWIntrinsicOp(GenTreeHWIntrinsic* containingNode, GenTree* node, bool* supportsRegOptional)
+    {
+        return IsContainableHWIntrinsicOp(comp, containingNode, node, supportsRegOptional);
+    }
+#endif
 
     static void TransformUnusedIndirection(GenTreeIndir* ind);
 

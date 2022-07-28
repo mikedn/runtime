@@ -3929,8 +3929,8 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
     ///////////////////////////////////////////////////////////////////////////////
     fgDomsComputed = false;
 
-    m_pLowering = new (this, CMK_LSRA) Lowering(this);
-    m_pLowering->Run();
+    Lowering lowering(this);
+    lowering.Run();
 
 #if !defined(OSX_ARM64_ABI)
     // Set stack levels; this information is necessary for x86

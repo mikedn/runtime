@@ -5739,8 +5739,7 @@ protected:
     bool rpMustCreateEBPFrame(INDEBUG(const char** wbReason));
 
 private:
-    Lowering*            m_pLowering;   // Lowering; needed to Lower IR that's added or modified after Lowering.
-    LinearScanInterface* m_pLinearScan; // Linear Scan allocator
+    LinearScanInterface* m_pLinearScan;
 
     bool lvaIsX86VarargsStackParam(unsigned lclNum);
 
