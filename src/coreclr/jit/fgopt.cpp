@@ -2864,6 +2864,8 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
         eqNode->gtFlags |= GTF_RELOP_JMP_USED | GTF_DONT_CSE;
         switchTree->ChangeOper(GT_JTRUE);
         switchTree->AsUnOp()->SetOp(0, eqNode);
+        block->bbJumpDest = block->bbJumpSwt->bbsDstTab[0];
+        block->bbJumpKind = BBJ_COND;
 
         if (block->IsLIR())
         {
@@ -2877,11 +2879,9 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
             fgSetStmtSeq(switchStmt);
         }
 
-        block->bbJumpDest = block->bbJumpSwt->bbsDstTab[0];
-        block->bbJumpKind = BBJ_COND;
-
         return true;
     }
+
     return returnvalue;
 }
 
