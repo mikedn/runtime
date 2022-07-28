@@ -48,24 +48,13 @@ public:
         Lowering lowerer(comp);
         lowerer.m_block = block;
 
-        lowerer.LowerRange(range);
+        for (GenTree* newNode : range)
+        {
+            lowerer.LowerNode(newNode);
+        }
     }
 
 private:
-    // LowerRange handles new code that is introduced by or after Lowering.
-    void LowerRange(LIR::ReadOnlyRange& range)
-    {
-        for (GenTree* newNode : range)
-        {
-            LowerNode(newNode);
-        }
-    }
-    void LowerRange(GenTree* firstNode, GenTree* lastNode)
-    {
-        LIR::ReadOnlyRange range(firstNode, lastNode);
-        LowerRange(range);
-    }
-
     // ContainCheckRange handles new code that is introduced by or after Lowering,
     // and that is known to be already in Lowered form.
     void ContainCheckRange(LIR::ReadOnlyRange& range)
