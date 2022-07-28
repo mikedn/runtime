@@ -576,52 +576,41 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
 }
 
 #ifdef TARGET_X86
-//------------------------------------------------------------------------
-// LowerTailCallViaJitHelper: lower a call via the tailcall JIT helper. Morph
-// has already inserted tailcall helper special arguments. This function inserts
-// actual data for some placeholders. This function is only used on x86.
-//
-// Lower
-//      tail.call(<function args>, int numberOfOldStackArgs, int dummyNumberOfNewStackArgs, int flags, void* dummyArg)
-// as
-//      JIT_TailCall(<function args>, int numberOfOldStackArgsWords, int numberOfNewStackArgsWords, int flags, void*
-//      callTarget)
-// Note that the special arguments are on the stack, whereas the function arguments follow the normal convention.
-//
+// Lower a tail call to a helper call to CORINFO_HELP_TAILCALL.
+// Morph has already inserted helper special arguments. This function inserts
+// actual data for some placeholders.
+// Note that the special arguments are on the stack, whereas normal function
+// arguments follow the normal convention.
 // Also inserts PInvoke method epilog if required.
-//
 void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
 {
     assert(call->IsTailCallViaJitHelper());
+    assert(!call->IsUnmanaged());
+    assert((comp->info.compFlags & CORINFO_FLG_SYNCH) == 0);
+    assert(!comp->compLocallocUsed);
 
-    // Tail call restrictions i.e. conditions under which tail prefix is ignored.
-    // Most of these checks are already done by importer or fgMorphTailCall().
-    // This serves as a double sanity check.
-    assert((comp->info.compFlags & CORINFO_FLG_SYNCH) == 0); // tail calls from synchronized methods
-    assert(!call->IsUnmanaged());                            // tail calls to unamanaged methods
-    assert(!comp->compLocallocUsed);                         // tail call from methods that also do localloc
-
-    // The TailCall helper call never returns to the caller and is not GC interruptible.
+    // CORINFO_HELP_TAILCALL never returns to the caller and is not GC interruptible.
     // Therefore the block containing the tail call should be a GC safe point to avoid
     // GC starvation. It is legal for the block to be unmarked iff the entry block is a
     // GC safe point, as the entry block trivially dominates every reachable block.
-    assert((comp->compCurBB->bbFlags & BBF_GC_SAFE_POINT) || (comp->fgFirstBB->bbFlags & BBF_GC_SAFE_POINT));
+    assert(((comp->compCurBB->bbFlags & BBF_GC_SAFE_POINT) != 0) ||
+           ((comp->fgFirstBB->bbFlags & BBF_GC_SAFE_POINT) != 0));
 
-    GenTree* callTarget = nullptr;
+    GenTree* target = nullptr;
 
     if (call->IsDelegateInvoke())
     {
-        callTarget = LowerDelegateInvoke(call);
+        target = LowerDelegateInvoke(call);
     }
     else if (call->IsVirtualStub())
     {
-        callTarget = LowerVirtualStubCall(call);
+        target = LowerVirtualStubCall(call);
     }
     else if (call->IsVirtualVtable())
     {
         assert(!call->IsExpandedEarly() && (call->gtControlExpr == nullptr));
 
-        callTarget = LowerVirtualVtableCall(call);
+        target = LowerVirtualVtableCall(call);
     }
     else
     {
@@ -629,117 +618,86 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
 
         if (!call->IsIndirectCall())
         {
-            callTarget = LowerDirectCall(call);
+            target = LowerDirectCall(call);
         }
     }
 
-    // If PInvokes are in-lined, we have to remember to execute PInvoke method epilog anywhere that
-    // a method returns.  This is a case of caller method has both PInvokes and tail calls.
     if (comp->compMethodRequiresPInvokeFrame())
     {
         InsertPInvokeMethodEpilog(comp->compCurBB DEBUGARG(call));
     }
 
-    // Remove gtCallAddr from execution order if present.
-    if (call->IsIndirectCall())
-    {
-        callTarget = call->gtCallAddr;
-
-        bool               isClosed;
-        LIR::ReadOnlyRange callAddrRange = BlockRange().GetTreeRange(callTarget, &isClosed);
-        assert(isClosed);
-
-        BlockRange().Remove(std::move(callAddrRange));
-    }
-
-    // The callTarget tree needs to be sequenced.
-    LIR::Range callTargetRange = LIR::SeqTree(comp, callTarget);
+    CallInfo* callInfo = call->GetInfo();
 
     // Verify the special args are what we expect, and replace the dummy args with real values.
     // We need to figure out the size of the outgoing stack arguments, not including the special args.
     // The number of 4-byte words is passed to the helper for the incoming and outgoing argument sizes.
     // This number is exactly the next slot number in the call's argument info struct.
-    unsigned nNewStkArgsWords = call->fgArgInfo->GetNextSlotNum();
-    assert(nNewStkArgsWords >= 4); // There must be at least the four special stack args.
-    nNewStkArgsWords -= 4;
+    unsigned numNewStackSlots = callInfo->GetNextSlotNum();
+    assert(numNewStackSlots >= 4);
+    numNewStackSlots -= 4;
 
-    unsigned numArgs = call->fgArgInfo->GetArgCount();
+    unsigned          numArgs             = callInfo->GetArgCount();
+    GenTreePutArgStk* targetArg           = call->GetArgNodeByArgNum(numArgs - 1)->AsPutArgStk();
+    GenTreePutArgStk* flagsArg            = call->GetArgNodeByArgNum(numArgs - 2)->AsPutArgStk();
+    GenTreePutArgStk* numNewStackSlotsArg = call->GetArgNodeByArgNum(numArgs - 3)->AsPutArgStk();
+    INDEBUG(GenTreePutArgStk* numOldStackSlotsArg = call->GetArgNodeByArgNum(numArgs - 4)->AsPutArgStk());
 
-    fgArgTabEntry* argEntry;
-
-    // arg 0 == callTarget.
-    argEntry = call->GetArgInfoByArgNum(numArgs - 1);
-    assert(argEntry != nullptr);
-    GenTree* arg0 = argEntry->GetNode()->AsPutArgStk()->gtGetOp1();
-
-    ContainCheckRange(callTargetRange);
-    BlockRange().InsertAfter(arg0, std::move(callTargetRange));
-
+    // Remove dummy target arg added by morph.
     bool               isClosed;
-    LIR::ReadOnlyRange secondArgRange = BlockRange().GetTreeRange(arg0, &isClosed);
+    LIR::ReadOnlyRange oldTargetArgRange = BlockRange().GetTreeRange(targetArg->GetOp(0), &isClosed);
     assert(isClosed);
-    BlockRange().Remove(std::move(secondArgRange));
+    BlockRange().Remove(std::move(oldTargetArgRange));
 
-    argEntry->GetNode()->AsPutArgStk()->gtOp1 = callTarget;
+    // Remove gtCallAddr from execution order if present, we need to pass it as the
+    // first call argument so we need to move it before the corresponding PUTARG_STK.
+    if (call->IsIndirectCall())
+    {
+        target = call->gtCallAddr;
 
-    // arg 1 == flags
-    argEntry = call->GetArgInfoByArgNum(numArgs - 2);
-    assert(argEntry != nullptr);
-    GenTree* arg1 = argEntry->GetNode()->AsPutArgStk()->gtGetOp1();
-    assert(arg1->gtOper == GT_CNS_INT);
+        LIR::ReadOnlyRange callAddrRange = BlockRange().GetTreeRange(target, &isClosed);
+        assert(isClosed);
 
-    ssize_t tailCallHelperFlags = 1 |                                  // always restore EDI,ESI,EBX
-                                  (call->IsVirtualStub() ? 0x2 : 0x0); // Stub dispatch flag
-    arg1->AsIntCon()->gtIconVal = tailCallHelperFlags;
+        BlockRange().Remove(std::move(callAddrRange));
+    }
 
-    // arg 2 == numberOfNewStackArgsWords
-    argEntry = call->GetArgInfoByArgNum(numArgs - 3);
-    assert(argEntry != nullptr);
-    GenTree* arg2 = argEntry->GetNode()->AsPutArgStk()->gtGetOp1();
-    assert(arg2->gtOper == GT_CNS_INT);
+    // TODO-MIKE-Review: Do we need sequencing for indirect calls?
+    LIR::Range callTargetRange = LIR::SeqTree(comp, target);
+    ContainCheckRange(callTargetRange);
+    BlockRange().InsertBefore(targetArg, std::move(callTargetRange));
 
-    arg2->AsIntCon()->gtIconVal = nNewStkArgsWords;
+    targetArg->SetOp(0, target);
 
-#ifdef DEBUG
-    // arg 3 == numberOfOldStackArgsWords
-    argEntry = call->GetArgInfoByArgNum(numArgs - 4);
-    assert(argEntry != nullptr);
-    GenTree* arg3 = argEntry->GetNode()->AsPutArgStk()->gtGetOp1();
-    assert(arg3->gtOper == GT_CNS_INT);
-#endif // DEBUG
+    // Always restore EDI, ESI, EBX & Stub Dispatch flags
+    flagsArg->GetOp(0)->AsIntCon()->SetValue(0x01 | (call->IsVirtualStub() ? 0x2 : 0x0));
+    numNewStackSlotsArg->GetOp(0)->AsIntCon()->SetValue(numNewStackSlots);
+    assert(numOldStackSlotsArg->GetOp(0)->IsIntCon());
 
-    // Transform this call node into a call to Jit tail call helper.
+    // Transform this call node into a call to CORINFO_HELP_TAILCALL.
     call->gtCallType    = CT_HELPER;
-    call->gtCallMethHnd = comp->eeFindHelper(CORINFO_HELP_TAILCALL);
+    call->gtCallMethHnd = Compiler::eeFindHelper(CORINFO_HELP_TAILCALL);
     call->gtFlags &= ~GTF_CALL_VIRT_KIND_MASK;
 
-    // Lower this as if it were a pure helper call.
+    // Lower this as if it were a normal helper call.
     call->gtCallMoreFlags &= ~(GTF_CALL_M_TAILCALL | GTF_CALL_M_TAILCALL_VIA_JIT_HELPER);
-    GenTree* newControlExpr = LowerDirectCall(call);
-
+    GenTree* helperTarget = LowerDirectCall(call);
     // Now add back tail call flags for identifying this node as tail call dispatched via helper.
+    // CodeGen needs checks this in order to insert the GS cookie check (if required).
     call->gtCallMoreFlags |= GTF_CALL_M_TAILCALL | GTF_CALL_M_TAILCALL_VIA_JIT_HELPER;
 
 #ifdef PROFILING_SUPPORTED
-    // Insert profiler tail call hook if needed.
-    // Since we don't know the insertion point, pass null for second param.
     if (comp->compIsProfilerHookNeeded())
     {
         InsertProfTailCallHook(call, nullptr);
     }
-#endif // PROFILING_SUPPORTED
+#endif
 
-    if (newControlExpr != nullptr)
+    if (helperTarget != nullptr)
     {
-        LIR::Range controlExprRange = LIR::SeqTree(comp, newControlExpr);
-
-        JITDUMP("results of lowering call:\n");
-        DISPRANGE(controlExprRange);
-
-        ContainCheckRange(controlExprRange);
-        BlockRange().InsertBefore(call, std::move(controlExprRange));
-
-        call->gtControlExpr = newControlExpr;
+        LIR::Range helperTargetRange = LIR::SeqTree(comp, helperTarget);
+        ContainCheckRange(helperTargetRange);
+        BlockRange().InsertBefore(call, std::move(helperTargetRange));
+        call->gtControlExpr = helperTarget;
     }
 }
 #endif // TARGET_X86
