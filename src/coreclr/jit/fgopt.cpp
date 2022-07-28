@@ -2868,8 +2868,8 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
         if (block->IsLIR())
         {
             blockRange->InsertAfter(switchVal, zeroNode, eqNode);
-            LIR::ReadOnlyRange range(zeroNode, switchTree);
-            lowering->LowerRange(block, range);
+            lowering->LowerNode(block, eqNode);
+            lowering->LowerNode(block, switchTree);
         }
         else if (fgStmtListThreaded)
         {

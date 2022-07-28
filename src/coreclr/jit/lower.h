@@ -41,14 +41,10 @@ public:
 
     virtual PhaseStatus DoPhase() override;
 
-    void LowerRange(BasicBlock* block, LIR::ReadOnlyRange& range)
+    void LowerNode(BasicBlock* block, GenTree* node)
     {
         m_block = block;
-
-        for (GenTree* newNode : range)
-        {
-            LowerNode(newNode);
-        }
+        LowerNode(node);
     }
 
 private:
