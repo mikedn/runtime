@@ -141,7 +141,7 @@ private:
     GenTree* LowerDirectCall(GenTreeCall* call);
     GenTree* LowerNonvirtPinvokeCall(GenTreeCall* call);
 #ifdef TARGET_X86
-    GenTree* LowerTailCallViaJitHelper(GenTreeCall* call);
+    void LowerTailCallViaJitHelper(GenTreeCall* call);
 #endif
 #if FEATURE_FASTTAILCALL
     void LowerFastTailCall(GenTreeCall* callNode);

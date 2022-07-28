@@ -1254,7 +1254,7 @@ void Lowering::LowerCall(GenTreeCall* call)
 #ifdef TARGET_X86
     if (call->IsTailCallViaJitHelper())
     {
-        newControlExpr = LowerTailCallViaJitHelper(call);
+        LowerTailCallViaJitHelper(call);
     }
     else
 #endif

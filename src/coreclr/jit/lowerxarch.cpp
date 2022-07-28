@@ -590,14 +590,7 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
 //
 // Also inserts PInvoke method epilog if required.
 //
-// Arguments:
-//    call         -  The call node
-//    callTarget   -  The real call target. This is used to replace the dummyArg during lowering.
-//
-// Return Value:
-//    Returns control expression tree for making a call to helper Jit_TailCall.
-//
-GenTree* Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
+void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
 {
     assert(call->IsTailCallViaJitHelper());
 
@@ -722,7 +715,7 @@ GenTree* Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
 
     // Lower this as if it were a pure helper call.
     call->gtCallMoreFlags &= ~(GTF_CALL_M_TAILCALL | GTF_CALL_M_TAILCALL_VIA_JIT_HELPER);
-    GenTree* result = LowerDirectCall(call);
+    GenTree* newControlExpr = LowerDirectCall(call);
 
     // Now add back tail call flags for identifying this node as tail call dispatched via helper.
     call->gtCallMoreFlags |= GTF_CALL_M_TAILCALL | GTF_CALL_M_TAILCALL_VIA_JIT_HELPER;
@@ -736,7 +729,18 @@ GenTree* Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
     }
 #endif // PROFILING_SUPPORTED
 
-    return result;
+    if (newControlExpr != nullptr)
+    {
+        LIR::Range controlExprRange = LIR::SeqTree(comp, newControlExpr);
+
+        JITDUMP("results of lowering call:\n");
+        DISPRANGE(controlExprRange);
+
+        ContainCheckRange(controlExprRange);
+        BlockRange().InsertBefore(call, std::move(controlExprRange));
+
+        call->gtControlExpr = newControlExpr;
+    }
 }
 #endif // TARGET_X86
 
