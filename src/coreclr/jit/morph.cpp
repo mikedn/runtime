@@ -2176,7 +2176,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         assert(arg2 != nullptr);
         nonStandardArgs.Add(arg2, REG_LNGARG_HI);
     }
-#else  // !TARGET_X86
+#else // !TARGET_X86
     // TODO-X86-CQ: Currently RyuJIT/x86 passes args on the stack, so this is not needed.
     // If/when we change that, the following code needs to be changed to correctly support the (TBD) managed calling
     // convention for x86/SSE.
@@ -2205,7 +2205,16 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
     if (call->IsVirtualStub())
     {
-        if (!call->IsTailCallViaJitHelper())
+#ifdef TARGET_X86
+        if (call->IsTailCallViaJitHelper())
+        {
+            // If it is a VSD call getting dispatched via tail call helper,
+            // fgMorphTailCallViaJitHelper() would materialize stub addr as an additional
+            // parameter added to the original arg list and hence no need to
+            // add as a non-standard arg.
+        }
+        else
+#endif
         {
             GenTree* stubAddrArg = fgGetStubAddrArg(call);
             // And push the stub address onto the list of arguments
@@ -2213,13 +2222,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
             numArgs++;
             nonStandardArgs.Add(stubAddrArg, virtualStubParamInfo.GetRegNum());
-        }
-        else
-        {
-            // If it is a VSD call getting dispatched via tail call helper,
-            // fgMorphTailCallViaJitHelper() would materialize stub addr as an additional
-            // parameter added to the original arg list and hence no need to
-            // add as a non-standard arg.
         }
     }
     else
@@ -2725,6 +2727,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         {
             isRegArg = (nonStdRegNum != REG_STK);
         }
+#ifdef TARGET_X86
         else if (call->IsTailCallViaJitHelper())
         {
             // We have already (before calling fgMorphArgs()) appended the 4 special args
@@ -2736,6 +2739,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                 isRegArg = false;
             }
         }
+#endif
 
         // Now we know if the argument goes in registers or not and how big it is.
         CLANG_FORMAT_COMMENT_ANCHOR;
@@ -6317,7 +6321,10 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
     bool        canFastTailCall = fgCanFastTailCall(call, &failReason);
 
     CORINFO_TAILCALL_HELPERS tailCallHelpers;
-    bool                     tailCallViaJitHelper = false;
+#ifdef TARGET_X86
+    bool tailCallViaJitHelper = false;
+#endif
+
     if (!canFastTailCall)
     {
         if (call->IsImplicitTailCall())
@@ -6339,13 +6346,13 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
             return nullptr;
         }
 
-        // On x86 we have a faster mechanism than the general one which we use
-        // in almost all cases. See fgCanTailCallViaJitHelper for more information.
+#ifdef TARGET_X86
         if (fgCanTailCallViaJitHelper())
         {
             tailCallViaJitHelper = true;
         }
         else
+#endif
         {
             // Make sure we can get the helpers. We do this last as the runtime
             // will likely be required to generate these.
@@ -6448,10 +6455,13 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
     compTailCallUsed = true;
     // This will prevent inlining this call.
     call->gtCallMoreFlags |= GTF_CALL_M_TAILCALL;
+
+#ifdef TARGET_X86
     if (tailCallViaJitHelper)
     {
         call->gtCallMoreFlags |= GTF_CALL_M_TAILCALL_VIA_JIT_HELPER;
     }
+#endif
 
 #if FEATURE_TAILCALL_OPT
     if (fastTailCallToLoop)
@@ -6654,8 +6664,10 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
         assert(treeWithCall == call);
     }
 #endif
+
     GenTree* result;
-    if (!canFastTailCall && !tailCallViaJitHelper)
+
+    if (!canFastTailCall X86_ONLY(&&!tailCallViaJitHelper))
     {
         // For tailcall via CORINFO_TAILCALL_HELPERS we transform into regular
         // calls with (to the JIT) regular control flow so we do not need to do
@@ -6695,8 +6707,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
         call->SetRetLayout(nullptr);
         call->GetRetDesc()->Reset();
 
-        // Do some target-specific transformations (before we process the args,
-        // etc.) for the JIT helper case.
+#ifdef TARGET_X86
         if (tailCallViaJitHelper)
         {
             fgMorphTailCallViaJitHelper(call);
@@ -6705,6 +6716,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
             // argument list, invalidating the argInfo.
             call->fgArgInfo = nullptr;
         }
+#endif
 
         // Tail call via JIT helper: The VM can't use return address hijacking
         // if we're not going to return and the helper doesn't have enough info
@@ -7388,14 +7400,16 @@ GenTree* Compiler::getTokenHandleTree(CORINFO_RESOLVED_TOKEN* pResolvedToken, bo
     return result;
 }
 
-/*****************************************************************************
- *
- *  Transform the given GT_CALL tree for tail call via JIT helper.
- */
+#ifdef TARGET_X86
+bool Compiler::fgCanTailCallViaJitHelper()
+{
+    // The JIT helper does not properly handle the case where localloc was used.
+    return !compLocallocUsed;
+}
+
 void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
 {
-    JITDUMP("fgMorphTailCallViaJitHelper (before):\n");
-    DISPTREE(call);
+    JITDUMPTREE(call, "fgMorphTailCallViaJitHelper (before):\n");
 
     // The runtime requires that we perform a null check on the `this` argument before
     // tail calling  to a virtual dispatch stub. This requirement is a consequence of limitations
@@ -7437,15 +7451,9 @@ void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
     // The x86 tail call helper lives in VM\i386\jithelp.asm. See that function for more details
     // on the custom calling convention.
 
-    // Check for PInvoke call types that we don't handle in codegen yet.
     assert(!call->IsUnmanaged());
-    assert(call->IsVirtual() || (call->gtCallType != CT_INDIRECT) || (call->gtCallCookie == nullptr));
-
-    // Don't support tail calling helper methods
-    assert(call->gtCallType != CT_HELPER);
-
-    // We come this route only for tail prefixed calls that cannot be dispatched as
-    // fast tail calls
+    assert(!call->IsHelperCall());
+    assert(call->IsVirtual() || !call->IsIndirectCall() || (call->gtCallCookie == nullptr));
     assert(!call->IsImplicitTailCall());
 
     // We want to use the following assert, but it can modify the IR in some cases, so we
@@ -7586,6 +7594,7 @@ void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
     JITDUMP("fgMorphTailCallViaJitHelper (after):\n");
     DISPTREE(call);
 }
+#endif // TARGET_X86
 
 //------------------------------------------------------------------------
 // fgGetStubAddrArg: Return the virtual stub address for the given call.
@@ -14160,25 +14169,21 @@ void Compiler::fgMorphStmts(BasicBlock* block)
         {
             if (stmt->GetRootNode() != oldTree)
             {
-                /* This must be tailcall. Ignore 'morphedTree' and carry on with
-                the tail-call node */
-
+                // This must be tailcall. Ignore 'morphedTree' and carry on with
+                // the tail-call node
                 morphedTree = stmt->GetRootNode();
             }
             else
             {
-                /* This must be a tailcall that caused a GCPoll to get
-                injected. We haven't actually morphed the call yet
-                but the flag still got set, clear it here...  */
-                CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef DEBUG
-                morphedTree->gtDebugFlags &= ~GTF_DEBUG_NODE_MORPHED;
-#endif
+                // This must be a tailcall that caused a GCPoll to get
+                // injected. We haven't actually morphed the call yet
+                // but the flag still got set, clear it here...
+                INDEBUG(morphedTree->gtDebugFlags &= ~GTF_DEBUG_NODE_MORPHED);
             }
 
             noway_assert(compTailCallUsed);
-            noway_assert(morphedTree->gtOper == GT_CALL);
+            noway_assert(morphedTree->OperIs(GT_CALL));
+
             GenTreeCall* call = morphedTree->AsCall();
             // Could be
             //   - a fast call made as jmp in which case block will be ending with
@@ -14190,8 +14195,8 @@ void Compiler::fgMorphStmts(BasicBlock* block)
             //   with BBJ_RETURN (as normal control flow)
             noway_assert((call->IsFastTailCall() && (compCurBB->bbJumpKind == BBJ_RETURN) &&
                           ((compCurBB->bbFlags & BBF_HAS_JMP)) != 0) ||
-                         (call->IsTailCallViaJitHelper() && (compCurBB->bbJumpKind == BBJ_THROW)) ||
-                         (!call->IsTailCall() && (compCurBB->bbJumpKind == BBJ_RETURN)));
+                         X86_ONLY((call->IsTailCallViaJitHelper() && (compCurBB->bbJumpKind == BBJ_THROW)) ||)(
+                             !call->IsTailCall() && (compCurBB->bbJumpKind == BBJ_RETURN)));
         }
 
 #ifdef DEBUG
@@ -15432,27 +15437,6 @@ bool Compiler::fgCheckStmtAfterTailCall()
         }
     }
     return nextMorphStmt == nullptr;
-}
-
-//------------------------------------------------------------------------
-// fgCanTailCallViaJitHelper: check whether we can use the faster tailcall
-// JIT helper on x86.
-//
-// Return Value:
-//    'true' if we can; or 'false' if we should use the generic tailcall mechanism.
-//
-bool Compiler::fgCanTailCallViaJitHelper()
-{
-#ifndef TARGET_X86
-    // On anything except X86 we have no faster mechanism available.
-    return false;
-#else
-    // The JIT helper does not properly handle the case where localloc was used.
-    if (compLocallocUsed)
-        return false;
-
-    return true;
-#endif
 }
 
 #ifdef FEATURE_HW_INTRINSICS

@@ -2498,6 +2498,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         target  = call->gtControlExpr;
     }
 
+#if FEATURE_FASTTAILCALL
     // If fast tail call, then we are done.  In this case we setup the args (both reg args
     // and stack args in incoming arg area) and call target.  Epilog sequence would
     // generate "br <reg>".
@@ -2513,6 +2514,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 
         return;
     }
+#endif
 
     // For a pinvoke to unmanaged code we emit a label to clear
     // the GC pointer state before the callsite.

@@ -3264,7 +3264,7 @@ void Lowering::ContainCheckCallOperands(GenTreeCall* call)
             //
             // Where EAX is also used as an argument to the stub dispatch helper. Make
             // sure that the call target address is computed into EAX in this case.
-            if (call->IsVirtualStub() && (call->gtCallType == CT_INDIRECT))
+            if (call->IsVirtualStub() && call->IsIndirectCall())
             {
                 assert(ctrlExpr->OperIs(GT_IND));
                 MakeSrcContained(call, ctrlExpr);

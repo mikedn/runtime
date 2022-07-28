@@ -158,8 +158,12 @@ private:
     GenTree* LowerDelegateInvoke(GenTreeCall* call);
     GenTree* LowerDirectCall(GenTreeCall* call);
     GenTree* LowerNonvirtPinvokeCall(GenTreeCall* call);
-    GenTree* LowerTailCallViaJitHelper(GenTreeCall* callNode, GenTree* callTarget);
+#ifdef TARGET_X86
+    GenTree* LowerTailCallViaJitHelper(GenTreeCall* call);
+#endif
+#if FEATURE_FASTTAILCALL
     void LowerFastTailCall(GenTreeCall* callNode);
+#endif
     void RehomeParamForFastTailCall(unsigned paramLclNum,
                                     GenTree* insertTempBefore,
                                     GenTree* rangeStart,

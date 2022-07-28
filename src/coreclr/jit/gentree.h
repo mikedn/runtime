@@ -3704,7 +3704,9 @@ enum GenTreeCallFlags : unsigned int
     GTF_CALL_M_UNMGD_THISCALL          = 0x00000080, // "this" pointer (first argument) should be enregistered (only for GTF_CALL_UNMANAGED)
     GTF_CALL_M_VIRTSTUB_REL_INDIRECT   = 0x00000080, // the virtstub is indirected through a relative address (only for GTF_CALL_VIRT_STUB)
     GTF_CALL_M_NONVIRT_SAME_THIS       = 0x00000080, // callee "this" pointer is equal to caller this pointer (only for GTF_CALL_NONVIRT)
+#ifdef TARGET_X86
     GTF_CALL_M_TAILCALL_VIA_JIT_HELPER = 0x00000200, // call is a tail call dispatched via tail call JIT helper.
+#endif
 
 #if FEATURE_TAILCALL_OPT
     GTF_CALL_M_IMPLICIT_TAILCALL       = 0x00000400, // call is an opportunistic tail call and importer has performed tail call checks
@@ -4318,28 +4320,29 @@ public:
         return IsTailPrefixedCall() || IsImplicitTailCall();
     }
 
+#ifdef TARGET_X86
     // Check whether this is a tailcall dispatched via JIT helper. We only use
     // this mechanism on x86 as it is faster than our other more general
     // tailcall mechanism.
     bool IsTailCallViaJitHelper() const
     {
-#ifdef TARGET_X86
-        return IsTailCall() && (gtCallMoreFlags & GTF_CALL_M_TAILCALL_VIA_JIT_HELPER);
-#else
-        return false;
-#endif
+        return IsTailCall() && ((gtCallMoreFlags & GTF_CALL_M_TAILCALL_VIA_JIT_HELPER) != 0);
     }
 
     bool IsFastTailCall() const
     {
-#if !FEATURE_FASTTAILCALL
         return false;
-#elif defined(TARGET_X86)
-        return IsTailCall() && ((gtCallMoreFlags & GTF_CALL_M_TAILCALL_VIA_JIT_HELPER) == 0);
+    }
 #else
+    bool IsFastTailCall() const
+    {
+#if FEATURE_FASTTAILCALL
         return IsTailCall();
+#else
+        return false;
 #endif
     }
+#endif
 
     // Returns true if this is marked for opportunistic tail calling.
     // That is, can be tail called though not explicitly prefixed with "tail" prefix.

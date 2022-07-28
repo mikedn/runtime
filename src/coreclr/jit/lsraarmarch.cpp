@@ -142,6 +142,7 @@ int LinearScan::BuildCall(GenTreeCall* call)
 
         regMaskTP ctrlExprCandidates = RBM_NONE;
 
+#if FEATURE_FASTTAILCALL
         // In case of fast tail implemented as jmp, make sure that gtControlExpr is
         // computed into a register.
         if (call->IsFastTailCall())
@@ -150,6 +151,7 @@ int LinearScan::BuildCall(GenTreeCall* call)
             // so that epilog sequence can generate "br xip0/r12" to achieve fast tail call.
             ctrlExprCandidates = RBM_FASTTAILCALL_TARGET;
         }
+#endif
     }
     else if (call->IsR2ROrVirtualStubRelativeIndir())
     {

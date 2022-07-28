@@ -4748,23 +4748,12 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 
     genAlignStackBeforeCall(call);
 
-    // Insert a GS check if necessary
-    if (call->IsTailCallViaJitHelper())
+#ifdef TARGET_X86
+    if (call->IsTailCallViaJitHelper() && compiler->getNeedsGSSecurityCookie())
     {
-        if (compiler->getNeedsGSSecurityCookie())
-        {
-#if FEATURE_FIXED_OUT_ARGS
-            // If either of the conditions below is true, we will need a temporary register in order to perform the GS
-            // cookie check. When FEATURE_FIXED_OUT_ARGS is disabled, we save and restore the temporary register using
-            // push/pop. When FEATURE_FIXED_OUT_ARGS is enabled, however, we need an alternative solution. For now,
-            // though, the tail prefix is ignored on all platforms that use fixed out args, so we should never hit this
-            // case.
-            assert(compiler->gsGlobalSecurityCookieAddr == nullptr);
-            assert((int)compiler->gsGlobalSecurityCookieVal == (ssize_t)compiler->gsGlobalSecurityCookieVal);
-#endif
-            genEmitGSCookieCheck(true);
-        }
+        genEmitGSCookieCheck(true);
     }
+#endif
 
     // Consume all the arg regs
     for (GenTreeCall::Use& use : call->LateArgs())
@@ -4843,6 +4832,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         target  = call->gtControlExpr;
     }
 
+#if FEATURE_FASTTAILCALL
     // If fast tail call, then we are done.  In this case we setup the args (both reg args
     // and stack args in incoming arg area) and call target in rax.  Epilog sequence would
     // generate "jmp rax".
@@ -4861,6 +4851,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 
         return;
     }
+#endif
 
     // For a pinvoke to unmanged code we emit a label to clear
     // the GC pointer state before the callsite.
