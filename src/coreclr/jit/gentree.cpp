@@ -8406,6 +8406,12 @@ void Compiler::gtDispTree(GenTree*     tree,
                 separator = ", ";
             }
 
+            if (call->IsVarargs())
+            {
+                printf("%svarargs", separator);
+                separator = ", ";
+            }
+
             if (call->IsInlineCandidate() && (call->gtInlineCandidateInfo != nullptr) &&
                 (call->gtInlineCandidateInfo->exactContextHnd != nullptr))
             {

@@ -920,6 +920,7 @@ int LinearScan::BuildCall(GenTreeCall* call)
     int srcCount = 0;
 
 #if FEATURE_VARARG
+    // TODO-MIKE-Review: Why the crap is this code enabled on x86?!!
     bool varargsHasFloatRegArgs = false;
 
     if (call->IsVarargs())

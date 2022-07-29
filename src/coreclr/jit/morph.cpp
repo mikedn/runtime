@@ -7584,8 +7584,6 @@ void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
     GenTree* arg0 = gtNewIconNode(7, TYP_I_IMPL);
     *ppArg        = gtNewCallArgs(arg0);
 
-    // It is now a varargs tail call.
-    call->gtCallMoreFlags |= GTF_CALL_M_VARARGS;
     call->gtFlags &= ~GTF_CALL_POP_ARGS;
 
     // The function is responsible for doing explicit null check when it is necessary.
