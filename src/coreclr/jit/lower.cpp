@@ -2413,85 +2413,67 @@ GenTree* Lowering::LowerDirectCall(GenTreeCall* call)
     // But we might encounter tail calls dispatched via JIT helper appear as a tail call to helper.
     noway_assert(!call->IsTailCall() X86_ONLY(|| call->IsTailCallViaJitHelper()) || call->IsUserCall());
 
-    // Non-virtual direct/indirect calls: Work out if the address of the
-    // call is known at JIT time.  If not it is either an indirect call
-    // or the address must be accessed via an single/double indirection.
-
-    void*           addr;
-    InfoAccessType  accessType;
-    CorInfoHelpFunc helperNum = Compiler::eeGetHelperNum(call->GetMethodHandle());
+    CORINFO_CONST_LOOKUP entryPoint;
 
 #ifdef FEATURE_READYTORUN_COMPILER
     if (call->gtEntryPoint.addr != nullptr)
     {
-        accessType = call->gtEntryPoint.accessType;
-        addr       = call->gtEntryPoint.addr;
+        entryPoint = call->gtEntryPoint;
     }
     else
 #endif
-        if (call->gtCallType == CT_HELPER)
+        if (call->IsHelperCall())
     {
+        CorInfoHelpFunc helperNum = Compiler::eeGetHelperNum(call->GetMethodHandle());
         noway_assert(helperNum != CORINFO_HELP_UNDEF);
-
-        // the convention on getHelperFtn seems to be (it's not documented)
-        // that it returns an address or if it returns null, pAddr is set to
-        // another address, which requires an indirection
         void* pAddr;
-        addr = comp->info.compCompHnd->getHelperFtn(helperNum, (void**)&pAddr);
+        entryPoint.addr = comp->info.compCompHnd->getHelperFtn(helperNum, &pAddr);
 
-        if (addr != nullptr)
+        if (entryPoint.addr != nullptr)
         {
             assert(pAddr == nullptr);
-            accessType = IAT_VALUE;
+
+            entryPoint.accessType = IAT_VALUE;
         }
         else
         {
-            accessType = IAT_PVALUE;
-            addr       = pAddr;
+            entryPoint.accessType = IAT_PVALUE;
+            entryPoint.addr       = pAddr;
         }
     }
     else
     {
-        noway_assert(helperNum == CORINFO_HELP_UNDEF);
+        noway_assert(Compiler::eeGetHelperNum(call->GetMethodHandle()) == CORINFO_HELP_UNDEF);
 
-        CORINFO_ACCESS_FLAGS aflags = CORINFO_ACCESS_ANY;
+        CORINFO_ACCESS_FLAGS accessFlags = CORINFO_ACCESS_ANY;
 
         if (!call->NeedsNullCheck())
         {
-            aflags = (CORINFO_ACCESS_FLAGS)(aflags | CORINFO_ACCESS_NONNULL);
+            accessFlags = static_cast<CORINFO_ACCESS_FLAGS>(accessFlags | CORINFO_ACCESS_NONNULL);
         }
 
-        CORINFO_CONST_LOOKUP addrInfo;
-        comp->info.compCompHnd->getFunctionEntryPoint(call->gtCallMethHnd, &addrInfo, aflags);
-
-        accessType = addrInfo.accessType;
-        addr       = addrInfo.addr;
+        comp->info.compCompHnd->getFunctionEntryPoint(call->GetMethodHandle(), &entryPoint, accessFlags);
     }
 
-    switch (accessType)
+    switch (entryPoint.accessType)
     {
+        GenTreeIntCon* constAddr;
+        GenTree*       indir;
+
         case IAT_VALUE:
-            // Non-virtual direct call to known address.
-            // For JIT helper based tailcall (only used on x86) the target
-            // address is passed as an arg to the helper so we want a node for
-            // it.
-            if (!IsCallTargetInRange(addr) X86_ONLY(|| call->IsTailCallViaJitHelper()))
+            if (IsCallTargetInRange(entryPoint.addr) X86_ONLY(&&!call->IsTailCallViaJitHelper()))
             {
-                return comp->gtNewIconHandleNode(addr, GTF_ICON_FTN_ADDR);
+                call->gtDirectCallAddress = entryPoint.addr;
+
+                return nullptr;
             }
 
-            // a direct call within range of hardware relative call instruction
-            // stash the address for codegen
-            call->gtDirectCallAddress = addr;
-
-            return nullptr;
+            return comp->gtNewIconHandleNode(entryPoint.addr, GTF_ICON_FTN_ADDR);
 
         case IAT_PVALUE:
-// Non-virtual direct calls to addresses accessed by a single indirection.
-
 #if defined(FEATURE_READYTORUN_COMPILER) && defined(TARGET_ARMARCH)
             // Skip inserting the indirection node to load the address that is already
-            // computed in REG_R2R_INDIRECT_PARAM as a hidden parameter. Instead during the
+            // computed in REG_R2R_INDIRECT_PARAM as a hidden parameter. Instead during
             // codegen, just load the call target from REG_R2R_INDIRECT_PARAM.
             if (call->IsR2RRelativeIndir())
             {
@@ -2499,37 +2481,22 @@ GenTree* Lowering::LowerDirectCall(GenTreeCall* call)
             }
 #endif
 
-            {
-                GenTreeIntCon* cellAddr = comp->gtNewIconHandleNode(addr, GTF_ICON_FTN_ADDR);
-                INDEBUG(cellAddr->gtTargetHandle = (size_t)call->gtCallMethHnd);
-                return comp->gtNewOperNode(GT_IND, TYP_I_IMPL, cellAddr);
-            }
+            constAddr = comp->gtNewIconHandleNode(entryPoint.addr, GTF_ICON_FTN_ADDR);
+            INDEBUG(constAddr->gtTargetHandle = reinterpret_cast<size_t>(call->GetMethodHandle()));
+            return comp->gtNewOperNode(GT_IND, TYP_I_IMPL, constAddr);
 
         case IAT_PPVALUE:
-            // Non-virtual direct calls to addresses accessed by a double indirection.
-            // Expanding an IAT_PPVALUE here, will lose the opportunity
-            // to Hoist/CSE the first indirection as it is an invariant load
-            assert(!"IAT_PPVALUE case in LowerDirectCall");
-            noway_assert(helperNum == CORINFO_HELP_UNDEF);
-
-            {
-                GenTree* result = comp->gtNewIconHandleNode(addr, GTF_ICON_FTN_ADDR);
-                result          = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, result);
-                return comp->gtNewOperNode(GT_IND, TYP_I_IMPL, result);
-            }
-
-        case IAT_RELPVALUE:
-            // Non-virtual direct calls to addresses accessed by
-            // a single relative indirection.
-            {
-                GenTree* cellAddr = comp->gtNewIconHandleNode(addr, GTF_ICON_FTN_ADDR);
-                GenTree* indir    = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, cellAddr);
-                GenTree* offset   = comp->gtNewIconHandleNode(addr, GTF_ICON_FTN_ADDR);
-                return comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, indir, offset);
-            }
+            constAddr = comp->gtNewIconHandleNode(entryPoint.addr, GTF_ICON_FTN_ADDR);
+            indir     = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, constAddr);
+            return comp->gtNewOperNode(GT_IND, TYP_I_IMPL, indir);
 
         default:
-            unreached();
+            noway_assert(entryPoint.accessType == IAT_RELPVALUE);
+
+            constAddr = comp->gtNewIconHandleNode(entryPoint.addr, GTF_ICON_FTN_ADDR);
+            indir     = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, constAddr);
+            constAddr = comp->gtNewIconHandleNode(entryPoint.addr, GTF_ICON_FTN_ADDR);
+            return comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, indir, constAddr);
     }
 }
 
