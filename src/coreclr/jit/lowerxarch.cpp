@@ -610,7 +610,12 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
         }
         else
         {
-            target = LowerVirtualStubCall(call);
+            noway_assert(call->gtStubCallStubAddr != nullptr);
+            noway_assert(call->IsVirtualStubRelativeIndir());
+
+            // Normally we'd need an indirection to get the actual target address but
+            // the CORINFO_HELP_TAILCALL helper handles this if the VSD flag is set.
+            target = comp->gtNewIconHandleNode(call->gtStubCallStubAddr, GTF_ICON_FTN_ADDR);
         }
     }
     else if (call->IsVirtualVtable())

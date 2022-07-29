@@ -3399,7 +3399,7 @@ void Lowering::LowerVirtualStubCallIndirect(GenTreeCall* call)
 
 GenTree* Lowering::LowerVirtualStubCall(GenTreeCall* call)
 {
-    assert(call->IsVirtualStub() && !call->IsIndirectCall());
+    assert(call->IsVirtualStub() && !call->IsIndirectCall() X86_ONLY(&&!call->IsTailCallViaJitHelper()));
 
     // An x86 JIT which uses full stub dispatch must generate only
     // the following stub dispatch calls:
@@ -3418,16 +3418,6 @@ GenTree* Lowering::LowerVirtualStubCall(GenTreeCall* call)
     noway_assert(call->gtStubCallStubAddr != nullptr);
     // If not CT_INDIRECT, then it should always be relative indir call. This is ensured by VM.
     noway_assert(call->IsVirtualStubRelativeIndir());
-
-#ifdef TARGET_X86
-    // On x86, for tailcall via helper, the JIT_TailCall helper takes the stubAddr as
-    // the target address, and we set a flag that it's a VSD call. The helper then
-    // handles any necessary indirection.
-    if (call->IsTailCallViaJitHelper())
-    {
-        return comp->gtNewIconHandleNode(call->gtStubCallStubAddr, GTF_ICON_FTN_ADDR);
-    }
-#endif
 
 #if defined(FEATURE_READYTORUN_COMPILER) && defined(TARGET_ARMARCH)
     // Skip inserting the indirection node to load the address that is already
