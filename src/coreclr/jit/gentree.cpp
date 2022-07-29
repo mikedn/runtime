@@ -8404,6 +8404,12 @@ void Compiler::gtDispTree(GenTree*     tree,
                 separator = ", ";
             }
 
+            if (call->IsDelegateInvoke())
+            {
+                printf("%sinvoke", separator);
+                separator = ", ";
+            }
+
             if (call->IsVarargs())
             {
                 printf("%svarargs", separator);

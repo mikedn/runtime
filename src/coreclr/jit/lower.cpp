@@ -2537,7 +2537,7 @@ GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call)
 {
     noway_assert(call->IsUserCall());
 
-    assert((comp->info.compCompHnd->getMethodAttribs(call->gtCallMethHnd) &
+    assert((comp->info.compCompHnd->getMethodAttribs(call->GetMethodHandle()) &
             (CORINFO_FLG_DELEGATE_INVOKE | CORINFO_FLG_FINAL)) == (CORINFO_FLG_DELEGATE_INVOKE | CORINFO_FLG_FINAL));
 
     GenTree* thisArgNode;
@@ -2553,60 +2553,43 @@ GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call)
         thisArgNode = call->GetThisArg();
     }
 
-    assert(thisArgNode != nullptr);
-    assert(thisArgNode->gtOper == GT_PUTARG_REG);
-    GenTree* originalThisExpr = thisArgNode->AsOp()->gtOp1;
-    GenTree* thisExpr         = originalThisExpr;
+    assert(thisArgNode->OperIs(GT_PUTARG_REG));
 
-    // We're going to use the 'this' expression multiple times, so make a local to copy it.
+    GenTree* delegateThis = thisArgNode->AsUnOp()->GetOp(0);
+    assert(delegateThis->TypeIs(TYP_REF));
 
     unsigned lclNum;
 
 #ifdef TARGET_X86
-    if (call->IsTailCallViaJitHelper() && originalThisExpr->IsLocal())
+    if (call->IsTailCallViaJitHelper() && delegateThis->OperIs(GT_LCL_VAR))
     {
         // For ordering purposes for the special tailcall arguments on x86, we forced the
-        // 'this' pointer in this case to a local in Compiler::fgMorphTailCall().
-        // We could possibly use this case to remove copies for all architectures and non-tailcall
-        // calls by creating a new paramLcl var or paramLcl field reference, as is done in the
-        // LowerVirtualVtableCall() code.
-        assert(originalThisExpr->OperIs(GT_LCL_VAR));
-        lclNum = originalThisExpr->AsLclVar()->GetLclNum();
+        // 'this' pointer to a local in fgMorphTailCallViaJitHelper.
+
+        // TODO-MIKE-Review: Should the LCL_VAR be an assert instead? Old
+        // code had an assert but also checked for IsLocal, go figure...
+        lclNum = delegateThis->AsLclVar()->GetLclNum();
     }
     else
 #endif
     {
-        unsigned delegateInvokeTmp = comp->lvaGrabTemp(true DEBUGARG("delegate invoke call"));
+        lclNum = comp->lvaNewTemp(TYP_REF, true DEBUGARG("delegate invoke this"));
 
-        LIR::Use thisExprUse(BlockRange(), &thisArgNode->AsOp()->gtOp1, thisArgNode);
-        ReplaceWithLclVar(thisExprUse, delegateInvokeTmp);
-
-        thisExpr = thisExprUse.Def(); // it's changed; reload it.
-        lclNum   = delegateInvokeTmp;
+        LIR::Use use(BlockRange(), &thisArgNode->AsUnOp()->gtOp1, thisArgNode);
+        delegateThis = ReplaceWithLclVar(use, lclNum);
     }
 
-    // replace original expression feeding into thisPtr with
-    // [originalThis + offsetOfDelegateInstance]
+    const CORINFO_EE_INFO* eeInfo = comp->eeGetEEInfo();
 
-    GenTree* newThisAddr = new (comp, GT_LEA)
-        GenTreeAddrMode(TYP_BYREF, thisExpr, nullptr, 0, comp->eeGetEEInfo()->offsetOfDelegateInstance);
+    GenTree* targetThisAddr = new (comp, GT_LEA) GenTreeAddrMode(delegateThis, eeInfo->offsetOfDelegateInstance);
+    GenTree* targetThis     = comp->gtNewOperNode(GT_IND, TYP_REF, targetThisAddr);
+    BlockRange().InsertAfter(delegateThis, targetThisAddr, targetThis);
+    thisArgNode->AsUnOp()->SetOp(0, targetThis);
+    ContainCheckIndir(targetThis->AsIndir());
 
-    GenTree* newThis = comp->gtNewOperNode(GT_IND, TYP_REF, newThisAddr);
-
-    BlockRange().InsertAfter(thisExpr, newThisAddr, newThis);
-
-    thisArgNode->AsOp()->gtOp1 = newThis;
-    ContainCheckIndir(newThis->AsIndir());
-
-    // the control target is
-    // [originalThis + firstTgtOffs]
-
-    GenTree* base = new (comp, GT_LCL_VAR) GenTreeLclVar(GT_LCL_VAR, originalThisExpr->TypeGet(), lclNum);
-
-    unsigned targetOffs = comp->eeGetEEInfo()->offsetOfDelegateFirstTarget;
-    GenTree* result     = new (comp, GT_LEA) GenTreeAddrMode(TYP_BYREF, base, nullptr, 0, targetOffs);
-
-    return comp->gtNewOperNode(GT_IND, TYP_I_IMPL, result);
+    delegateThis        = comp->gtNewLclvNode(lclNum, TYP_REF);
+    GenTree* targetAddr = new (comp, GT_LEA) GenTreeAddrMode(delegateThis, eeInfo->offsetOfDelegateFirstTarget);
+    return comp->gtNewOperNode(GT_IND, TYP_I_IMPL, targetAddr);
 }
 
 //------------------------------------------------------------------------

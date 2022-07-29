@@ -7493,7 +7493,7 @@ void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
         if ((call->IsDelegateInvoke() || call->IsVirtualVtable()) && !objp->OperIs(GT_LCL_VAR))
         {
             // tmp = "this"
-            unsigned lclNum = lvaNewTemp(objp->GetType(), true DEBUGARG("tail call thisptr"));
+            unsigned lclNum = lvaNewTemp(objp->GetType(), true DEBUGARG("tail call this"));
             GenTree* asg    = gtNewAssignNode(gtNewLclvNode(lclNum, objp->GetType()), objp);
 
             // COMMA(tmp = "this", tmp)
@@ -7518,7 +7518,7 @@ void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
                 // create a temp if either "this" has side effects or "this" is too complex to clone.
 
                 // tmp = "this"
-                unsigned lclNum = lvaNewTemp(objp->GetType(), true DEBUGARG("tail call thisptr"));
+                unsigned lclNum = lvaNewTemp(objp->GetType(), true DEBUGARG("tail call this"));
                 GenTree* asg    = gtNewAssignNode(gtNewLclvNode(lclNum, objp->GetType()), objp);
 
                 // COMMA(tmp = "this", deref(tmp))
