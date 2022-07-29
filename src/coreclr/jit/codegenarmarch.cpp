@@ -2603,44 +2603,32 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     }
     else
     {
-        // Generate a direct call to a non-virtual user defined or helper method
         assert(call->IsHelperCall() || call->IsUserCall());
 
 #ifdef FEATURE_READYTORUN_COMPILER
         if (call->gtEntryPoint.addr != NULL)
         {
             assert(call->gtEntryPoint.accessType == IAT_VALUE);
+
             callAddr = call->gtEntryPoint.addr;
         }
         else
-#endif // FEATURE_READYTORUN_COMPILER
-            if (call->IsHelperCall())
+#endif
         {
-            CorInfoHelpFunc helperNum = compiler->eeGetHelperNum(methHnd);
-            noway_assert(helperNum != CORINFO_HELP_UNDEF);
-
-            void* pAddr = nullptr;
-            callAddr    = compiler->compGetHelperFtn(helperNum, (void**)&pAddr);
-            assert(pAddr == nullptr);
-        }
-        else
-        {
-            // Direct call to a non-virtual user function.
             callAddr = call->gtDirectCallAddress;
         }
 
         assert(callAddr != nullptr);
 
-// Non-virtual direct call to known addresses
 #ifdef TARGET_ARM
-        if (!validImmForBL((ssize_t)callAddr))
+        if (!validImmForBL(reinterpret_cast<ssize_t>(callAddr)))
         {
             emitCallType = emitter::EC_INDIR_R;
             callReg      = call->GetSingleTempReg();
-            instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, callReg, (ssize_t)callAddr);
+            instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, callReg, reinterpret_cast<ssize_t>(callAddr));
         }
         else
-#endif // TARGET_ARM
+#endif
         {
             emitCallType = emitter::EC_FUNC_TOKEN;
         }

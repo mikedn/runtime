@@ -5050,31 +5050,12 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 #endif
     else
     {
-        // Generate a direct call to a non-virtual user defined or helper method
-
-        if (call->IsHelperCall())
-        {
-            // Direct call to a helper method.
-            helperNum = compiler->eeGetHelperNum(methHnd);
-            noway_assert(helperNum != CORINFO_HELP_UNDEF);
-
-            void* pAddr = nullptr;
-            callAddr    = compiler->compGetHelperFtn(helperNum, (void**)&pAddr);
-            assert(pAddr == nullptr);
-        }
-        else
-        {
-            assert(call->IsUserCall());
-
-            // Direct call to a non-virtual user function.
-            callAddr = call->gtDirectCallAddress;
-        }
-
-        assert(callAddr != nullptr);
-
-        // Non-virtual direct calls to known addresses
+        assert(call->IsUserCall() || call->IsHelperCall());
 
         emitCallType = emitter::EC_FUNC_TOKEN;
+        callAddr     = call->gtDirectCallAddress;
+
+        assert(callAddr != nullptr);
     }
 
     // clang-format off
