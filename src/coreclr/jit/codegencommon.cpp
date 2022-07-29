@@ -1295,7 +1295,7 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind jumpKind, SpecialCodeKind codeKi
             inst_JMP(reverseJumpKind, tgtBlk);
         }
 
-        genEmitHelperCall(compiler->acdHelper(codeKind), 0, EA_UNKNOWN);
+        genEmitHelperCall(Compiler::acdHelper(codeKind), 0, EA_UNKNOWN);
 
         // Define the spot for the normal non-exception case to jump to.
         if (tgtBlk != nullptr)

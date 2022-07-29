@@ -3220,7 +3220,7 @@ EXIT:;
 }
 
 /* static */
-unsigned Compiler::acdHelper(SpecialCodeKind codeKind)
+CorInfoHelpFunc Compiler::acdHelper(SpecialCodeKind codeKind)
 {
     switch (codeKind)
     {
@@ -3236,7 +3236,7 @@ unsigned Compiler::acdHelper(SpecialCodeKind codeKind)
             return CORINFO_HELP_OVERFLOW;
         default:
             assert(!"Bad codeKind");
-            return 0;
+            return CORINFO_HELP_UNDEF;
     }
 }
 

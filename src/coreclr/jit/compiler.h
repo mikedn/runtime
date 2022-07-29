@@ -4910,7 +4910,7 @@ public:
     };
 
 private:
-    static unsigned acdHelper(SpecialCodeKind codeKind);
+    static CorInfoHelpFunc acdHelper(SpecialCodeKind codeKind);
 
     AddCodeDsc* fgAddCodeList;
     bool        fgAddCodeModf;

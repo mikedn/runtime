@@ -216,7 +216,7 @@ public:
     void SpillRegCandidateLclVar(GenTreeLclVar* node);
 
 protected:
-    void genEmitHelperCall(unsigned helper, int argSize, emitAttr retSize, regNumber callTarget = REG_NA);
+    void genEmitHelperCall(CorInfoHelpFunc helper, int argSize, emitAttr retSize, regNumber callTarget = REG_NA);
 
     void genGCWriteBarrier(GenTreeStoreInd* store, GCInfo::WriteBarrierForm wbf);
 
@@ -424,7 +424,7 @@ protected:
 
 #ifdef PROFILING_SUPPORTED
     void genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed);
-    void genProfilingLeaveCallback(unsigned helper);
+    void genProfilingLeaveCallback(CorInfoHelpFunc helper);
 #endif // PROFILING_SUPPORTED
 
 #if defined(TARGET_ARM)

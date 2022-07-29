@@ -4673,14 +4673,14 @@ bool CodeGen::genEmitOptimizedGCWriteBarrier(GCInfo::WriteBarrierForm writeBarri
         return false;
     }
 
-    const static int regToHelper[2][8] = {
+    const static CorInfoHelpFunc regToHelper[2][8] = {
         // If the target is known to be in managed memory
         {
             CORINFO_HELP_ASSIGN_REF_EAX, // EAX
             CORINFO_HELP_ASSIGN_REF_ECX, // ECX
-            -1,                          // EDX (always the target address)
+            CORINFO_HELP_UNDEF,          // EDX (always the target address)
             CORINFO_HELP_ASSIGN_REF_EBX, // EBX
-            -1,                          // ESP
+            CORINFO_HELP_UNDEF,          // ESP
             CORINFO_HELP_ASSIGN_REF_EBP, // EBP
             CORINFO_HELP_ASSIGN_REF_ESI, // ESI
             CORINFO_HELP_ASSIGN_REF_EDI, // EDI
@@ -4690,9 +4690,9 @@ bool CodeGen::genEmitOptimizedGCWriteBarrier(GCInfo::WriteBarrierForm writeBarri
         {
             CORINFO_HELP_CHECKED_ASSIGN_REF_EAX, // EAX
             CORINFO_HELP_CHECKED_ASSIGN_REF_ECX, // ECX
-            -1,                                  // EDX (always the target address)
+            CORINFO_HELP_UNDEF,                  // EDX (always the target address)
             CORINFO_HELP_CHECKED_ASSIGN_REF_EBX, // EBX
-            -1,                                  // ESP
+            CORINFO_HELP_UNDEF,                  // ESP
             CORINFO_HELP_CHECKED_ASSIGN_REF_EBP, // EBP
             CORINFO_HELP_CHECKED_ASSIGN_REF_ESI, // ESI
             CORINFO_HELP_CHECKED_ASSIGN_REF_EDI, // EDI
@@ -4702,7 +4702,7 @@ bool CodeGen::genEmitOptimizedGCWriteBarrier(GCInfo::WriteBarrierForm writeBarri
     noway_assert(regToHelper[0][REG_EAX] == CORINFO_HELP_ASSIGN_REF_EAX);
     noway_assert(regToHelper[0][REG_ECX] == CORINFO_HELP_ASSIGN_REF_ECX);
     noway_assert(regToHelper[0][REG_EBX] == CORINFO_HELP_ASSIGN_REF_EBX);
-    noway_assert(regToHelper[0][REG_ESP] == -1);
+    noway_assert(regToHelper[0][REG_ESP] == CORINFO_HELP_UNDEF);
     noway_assert(regToHelper[0][REG_EBP] == CORINFO_HELP_ASSIGN_REF_EBP);
     noway_assert(regToHelper[0][REG_ESI] == CORINFO_HELP_ASSIGN_REF_ESI);
     noway_assert(regToHelper[0][REG_EDI] == CORINFO_HELP_ASSIGN_REF_EDI);
@@ -4710,7 +4710,7 @@ bool CodeGen::genEmitOptimizedGCWriteBarrier(GCInfo::WriteBarrierForm writeBarri
     noway_assert(regToHelper[1][REG_EAX] == CORINFO_HELP_CHECKED_ASSIGN_REF_EAX);
     noway_assert(regToHelper[1][REG_ECX] == CORINFO_HELP_CHECKED_ASSIGN_REF_ECX);
     noway_assert(regToHelper[1][REG_EBX] == CORINFO_HELP_CHECKED_ASSIGN_REF_EBX);
-    noway_assert(regToHelper[1][REG_ESP] == -1);
+    noway_assert(regToHelper[1][REG_ESP] == CORINFO_HELP_UNDEF);
     noway_assert(regToHelper[1][REG_EBP] == CORINFO_HELP_CHECKED_ASSIGN_REF_EBP);
     noway_assert(regToHelper[1][REG_ESI] == CORINFO_HELP_CHECKED_ASSIGN_REF_ESI);
     noway_assert(regToHelper[1][REG_EDI] == CORINFO_HELP_CHECKED_ASSIGN_REF_EDI);
@@ -7884,20 +7884,15 @@ void CodeGen::genCreateAndStoreGCInfoX64(unsigned codeSize, unsigned prologSize 
 }
 #endif // !JIT32_GCENCODER
 
-/*****************************************************************************
- *  Emit a call to a helper function.
- *
- */
-
-void CodeGen::genEmitHelperCall(unsigned helper, int argSize, emitAttr retSize, regNumber callTargetReg)
+void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, int argSize, emitAttr retSize, regNumber callTargetReg)
 {
     void* addr  = nullptr;
     void* pAddr = nullptr;
 
     emitter::EmitCallType callType = emitter::EC_FUNC_TOKEN;
-    addr                           = compiler->compGetHelperFtn((CorInfoHelpFunc)helper, &pAddr);
+    addr                           = compiler->compGetHelperFtn(helper, &pAddr);
     regNumber callTarget           = REG_NA;
-    regMaskTP killMask             = compiler->compHelperCallKillSet((CorInfoHelpFunc)helper);
+    regMaskTP killMask             = compiler->compHelperCallKillSet(helper);
 
     if (!addr)
     {
@@ -7947,7 +7942,7 @@ void CodeGen::genEmitHelperCall(unsigned helper, int argSize, emitAttr retSize, 
 
     // clang-format off
     GetEmitter()->emitIns_Call(callType,
-                               compiler->eeFindHelper(helper)
+                               Compiler::eeFindHelper(helper)
                                DEBUGARG(nullptr), addr,
                                argSize,
                                retSize
@@ -8155,15 +8150,8 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
     SetStackLevel(saveStackLvl2);
 }
 
-//-----------------------------------------------------------------------------------
-// genProfilingLeaveCallback: Generate the profiling function leave or tailcall callback.
+// Generate the profiling function leave or tailcall callback.
 // Technically, this is not part of the epilog; it is called when we are generating code for a GT_RETURN node.
-//
-// Arguments:
-//     helper - which helper to call. Either CORINFO_HELP_PROF_FCN_LEAVE or CORINFO_HELP_PROF_FCN_TAILCALL
-//
-// Return Value:
-//     None
 //
 // Notes:
 // The x86 profile leave/tailcall helper has the following requirements (see ProfileLeaveNaked and
@@ -8180,7 +8168,7 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
 //    helper == CORINFO_HELP_PROF_FCN_TAILCALL: Only argument registers are preserved.
 // 5. The helper pops the FunctionIDOrClientID argument from the stack.
 //
-void CodeGen::genProfilingLeaveCallback(unsigned helper)
+void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 {
     assert((helper == CORINFO_HELP_PROF_FCN_LEAVE) || (helper == CORINFO_HELP_PROF_FCN_TAILCALL));
 
@@ -8447,7 +8435,7 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
 // Return Value:
 //     None
 //
-void CodeGen::genProfilingLeaveCallback(unsigned helper)
+void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 {
     assert((helper == CORINFO_HELP_PROF_FCN_LEAVE) || (helper == CORINFO_HELP_PROF_FCN_TAILCALL));
 
