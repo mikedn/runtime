@@ -8354,18 +8354,16 @@ void Compiler::gtDispTree(GenTree*     tree,
                 printf("%sindirect", separator);
                 separator = ", ";
             }
-            else
+
+            if (call->IsVirtualVtable())
             {
-                if (call->IsVirtualVtable())
-                {
-                    printf("%svtable", separator);
-                    separator = ", ";
-                }
-                else if (call->IsVirtualStub())
-                {
-                    printf("%svstub", separator);
-                    separator = ", ";
-                }
+                printf("%svtable", separator);
+                separator = ", ";
+            }
+            else if (call->IsVirtualStub())
+            {
+                printf("%svstub", separator);
+                separator = ", ";
             }
 
             if (call->NeedsNullCheck())

@@ -1264,7 +1264,14 @@ void Lowering::LowerCall(GenTreeCall* call)
     }
     else if (call->IsVirtualStub())
     {
-        newControlExpr = LowerVirtualStubCall(call);
+        if (call->IsIndirectCall())
+        {
+            LowerVirtualStubCallIndirect(call);
+        }
+        else
+        {
+            newControlExpr = LowerVirtualStubCall(call);
+        }
     }
     else if (call->IsVirtualVtable())
     {
@@ -3361,10 +3368,38 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call)
     return comp->gtNewOperNode(GT_IND, TYP_I_IMPL, slotAddr);
 }
 
-// Lower stub dispatched virtual calls.
+void Lowering::LowerVirtualStubCallIndirect(GenTreeCall* call)
+{
+    assert(call->IsVirtualStub() && call->IsIndirectCall());
+
+    // The importer decided we needed a stub call via a computed
+    // stub dispatch address, i.e. an address which came from a dictionary lookup.
+    //   - The dictionary lookup produces an indirected address, suitable for call
+    //     via "call [VirtualStubParam.reg]"
+    //
+    // This combination will only be generated for shared generic code and when
+    // stub dispatch is active.
+
+    // fgMorphArgs will have created trees to pass the address in VirtualStubParam.reg.
+    // All we have to do here is add an indirection to generate the actual call target.
+
+    GenTree* ind = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, call->gtCallAddr);
+    BlockRange().InsertAfter(call->gtCallAddr, ind);
+    call->gtCallAddr = ind;
+
+    // VM requires us to pass stub addr in VirtualStubParam.reg. For that reason
+    // we cannot mark such an addr as contained. Note that this is not an issue
+    // for indirect VSD calls since fgMorphArgs() is explicitly materializing
+    // hidden param as a non-standard argument.
+    // TODO-MIKE-Review: Hmm, so isn't this an indirect VSD call?!
+    ind->gtFlags |= GTF_IND_REQ_ADDR_IN_REG;
+
+    ContainCheckIndir(ind->AsIndir());
+}
+
 GenTree* Lowering::LowerVirtualStubCall(GenTreeCall* call)
 {
-    assert(call->IsVirtualStub());
+    assert(call->IsVirtualStub() && !call->IsIndirectCall());
 
     // An x86 JIT which uses full stub dispatch must generate only
     // the following stub dispatch calls:
@@ -3380,43 +3415,8 @@ GenTree* Lowering::LowerVirtualStubCall(GenTreeCall* call)
     // THIS IS VERY TIGHTLY TIED TO THE PREDICATES IN
     // vm\i386\cGenCpu.h, esp. isCallRegisterIndirect.
 
-    // This is code to set up an indirect call to a stub address computed
-    // via dictionary lookup.
-    if (call->IsIndirectCall())
-    {
-        // The importer decided we needed a stub call via a computed
-        // stub dispatch address, i.e. an address which came from a dictionary lookup.
-        //   - The dictionary lookup produces an indirected address, suitable for call
-        //     via "call [VirtualStubParam.reg]"
-        //
-        // This combination will only be generated for shared generic code and when
-        // stub dispatch is active.
-
-        // fgMorphArgs will have created trees to pass the address in VirtualStubParam.reg.
-        // All we have to do here is add an indirection to generate the actual call target.
-
-        GenTree* ind = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, call->gtCallAddr);
-        BlockRange().InsertAfter(call->gtCallAddr, ind);
-        call->gtCallAddr = ind;
-
-        // VM requires us to pass stub addr in VirtualStubParam.reg. For that reason
-        // we cannot mark such an addr as contained. Note that this is not an issue
-        // for indirect VSD calls since fgMorphArgs() is explicitly materializing
-        // hidden param as a non-standard argument.
-        // TODO-MIKE-Review: Hmm, so isn't this an indirect VSD call?!
-        ind->gtFlags |= GTF_IND_REQ_ADDR_IN_REG;
-
-        ContainCheckIndir(ind->AsIndir());
-
-        return nullptr;
-    }
-
-    // Direct stub call.
-    // Get stub addr. This will return NULL if virtual call stubs are not active
-    void* stubAddr = call->gtStubCallStubAddr;
-    noway_assert(stubAddr != nullptr);
-    // If not CT_INDIRECT, then it should always be relative indir call.
-    // This is ensured by VM.
+    noway_assert(call->gtStubCallStubAddr != nullptr);
+    // If not CT_INDIRECT, then it should always be relative indir call. This is ensured by VM.
     noway_assert(call->IsVirtualStubRelativeIndir());
 
 #ifdef TARGET_X86
@@ -3425,7 +3425,7 @@ GenTree* Lowering::LowerVirtualStubCall(GenTreeCall* call)
     // handles any necessary indirection.
     if (call->IsTailCallViaJitHelper())
     {
-        return comp->gtNewIconHandleNode(stubAddr, GTF_ICON_FTN_ADDR);
+        return comp->gtNewIconHandleNode(call->gtStubCallStubAddr, GTF_ICON_FTN_ADDR);
     }
 #endif
 
@@ -3443,7 +3443,7 @@ GenTree* Lowering::LowerVirtualStubCall(GenTreeCall* call)
 
     // TODO-Cleanup: start emitting random NOPS
 
-    GenTreeIntCon* addr = comp->gtNewIconHandleNode(stubAddr, GTF_ICON_FTN_ADDR);
+    GenTreeIntCon* addr = comp->gtNewIconHandleNode(call->gtStubCallStubAddr, GTF_ICON_FTN_ADDR);
     return comp->gtNewOperNode(GT_IND, TYP_I_IMPL, addr);
 }
 

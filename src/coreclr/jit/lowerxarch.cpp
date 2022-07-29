@@ -604,7 +604,14 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
     }
     else if (call->IsVirtualStub())
     {
-        target = LowerVirtualStubCall(call);
+        if (call->IsIndirectCall())
+        {
+            LowerVirtualStubCallIndirect(call);
+        }
+        else
+        {
+            target = LowerVirtualStubCall(call);
+        }
     }
     else if (call->IsVirtualVtable())
     {
