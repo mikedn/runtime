@@ -3236,16 +3236,10 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call)
     GenTree* mt     = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, mtAddr);
 
     // TODO-MIKE-Cleanup: This is dead code.
-    if (vtabOffsOfIndirection == CORINFO_VIRTUALCALL_NO_CHUNK)
-    {
-        assert(!isRelative);
-        GenTree* slotAddr = new (comp, GT_LEA) GenTreeAddrMode(mt, vtabOffsAfterIndirection);
-        return comp->gtNewOperNode(GT_IND, TYP_I_IMPL, slotAddr);
-    }
-
-    // TODO-MIKE-Cleanup: This is dead code.
     if (isRelative)
     {
+        assert(vtabOffsOfIndirection != CORINFO_VIRTUALCALL_NO_CHUNK);
+
         unsigned mtTempLclNum = comp->lvaNewTemp(TYP_I_IMPL, true DEBUGARG("vtbl call MT"));
         GenTree* mtTempStore  = comp->gtNewStoreLclVar(mtTempLclNum, TYP_I_IMPL, mt);
         BlockRange().InsertBefore(call, thisUse, mtAddr, mt, mtTempStore);
@@ -3269,12 +3263,19 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call)
         GenTree* slotAddrTempUse1 = comp->gtNewLclvNode(slotAddrTempLclNum, TYP_I_IMPL);
         GenTree* codeOffs         = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, slotAddrTempUse1);
         GenTree* slotAddrTempUse2 = comp->gtNewLclvNode(slotAddrTempLclNum, TYP_I_IMPL);
+
         return comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, codeOffs, slotAddrTempUse2);
     }
 
-    GenTree* chunkAddrAddr = new (comp, GT_LEA) GenTreeAddrMode(mt, vtabOffsOfIndirection);
-    GenTree* chunkAddr     = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, chunkAddrAddr);
-    GenTree* slotAddr      = new (comp, GT_LEA) GenTreeAddrMode(chunkAddr, vtabOffsAfterIndirection);
+    GenTree* slotAddr = mt;
+
+    if (vtabOffsOfIndirection != CORINFO_VIRTUALCALL_NO_CHUNK)
+    {
+        slotAddr = new (comp, GT_LEA) GenTreeAddrMode(slotAddr, vtabOffsOfIndirection);
+        slotAddr = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, slotAddr);
+    }
+
+    slotAddr = new (comp, GT_LEA) GenTreeAddrMode(slotAddr, vtabOffsAfterIndirection);
     return comp->gtNewOperNode(GT_IND, TYP_I_IMPL, slotAddr);
 }
 
