@@ -602,6 +602,10 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
     {
         target = LowerDelegateInvoke(call);
     }
+    else if (call->IsVirtualVtable())
+    {
+        target = LowerVirtualVtableCall(call);
+    }
     else if (call->IsVirtualStub())
     {
         if (call->IsIndirectCall())
@@ -617,12 +621,6 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
             // the CORINFO_HELP_TAILCALL helper handles this if the VSD flag is set.
             target = comp->gtNewIconHandleNode(call->gtStubCallStubAddr, GTF_ICON_FTN_ADDR);
         }
-    }
-    else if (call->IsVirtualVtable())
-    {
-        assert(!call->IsExpandedEarly() && (call->gtControlExpr == nullptr));
-
-        target = LowerVirtualVtableCall(call);
     }
     else
     {

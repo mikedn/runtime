@@ -1262,6 +1262,13 @@ void Lowering::LowerCall(GenTreeCall* call)
     {
         newControlExpr = LowerDelegateInvoke(call);
     }
+    else if (call->IsVirtualVtable())
+    {
+        if (!call->IsExpandedEarly())
+        {
+            newControlExpr = LowerVirtualVtableCall(call);
+        }
+    }
     else if (call->IsVirtualStub())
     {
         if (call->IsIndirectCall())
@@ -1271,14 +1278,6 @@ void Lowering::LowerCall(GenTreeCall* call)
         else
         {
             newControlExpr = LowerVirtualStubCall(call);
-        }
-    }
-    else if (call->IsVirtualVtable())
-    {
-        if (!call->IsExpandedEarly())
-        {
-            assert(call->gtControlExpr == nullptr);
-            newControlExpr = LowerVirtualVtableCall(call);
         }
     }
     else
@@ -3235,7 +3234,8 @@ GenTree* Lowering::LowerNonvirtPinvokeCall(GenTreeCall* call)
 // May insert embedded statements
 GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call)
 {
-    noway_assert(call->gtCallType == CT_USER_FUNC);
+    noway_assert(call->IsUserCall());
+    assert(!call->IsExpandedEarly() && (call->gtControlExpr == nullptr));
 
     // Get hold of the vtable offset (note: this might be expensive)
     unsigned vtabOffsOfIndirection;
