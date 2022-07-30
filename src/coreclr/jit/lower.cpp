@@ -1286,7 +1286,7 @@ void Lowering::LowerCall(GenTreeCall* call)
 
         if (call->IsUnmanaged())
         {
-            newControlExpr = LowerNonvirtPinvokeCall(call);
+            newControlExpr = LowerPInvokeCall(call);
         }
         else if (!call->IsIndirectCall())
         {
@@ -3086,17 +3086,10 @@ void Lowering::InsertPInvokeCallEpilog(GenTreeCall* call)
 #endif // TARGET_64BIT
 }
 
-//------------------------------------------------------------------------
-// LowerNonvirtPinvokeCall: Lower a non-virtual / indirect PInvoke call
-//
-// Arguments:
-//    call - The call to lower.
-//
-// Return Value:
-//    The lowered call tree.
-//
-GenTree* Lowering::LowerNonvirtPinvokeCall(GenTreeCall* call)
+GenTree* Lowering::LowerPInvokeCall(GenTreeCall* call)
 {
+    assert(call->IsUnmanaged());
+
     // PInvoke lowering varies depending on the flags passed in by the EE. By default,
     // GC transitions are generated inline; if CORJIT_FLAG_USE_PINVOKE_HELPERS is specified,
     // GC transitions are instead performed using helper calls. Examples of each case are given
@@ -3161,63 +3154,55 @@ GenTree* Lowering::LowerNonvirtPinvokeCall(GenTreeCall* call)
         InsertPInvokeCallProlog(call);
     }
 
-    GenTree* controlExpr = nullptr;
+    GenTree* target = nullptr;
 
-    if (call->gtCallType != CT_INDIRECT)
+    if (!call->IsIndirectCall())
     {
-        noway_assert(call->gtCallType == CT_USER_FUNC);
+        noway_assert(call->IsUserCall());
 
-        CORINFO_METHOD_HANDLE methHnd = call->GetMethodHandle();
-        CORINFO_CONST_LOOKUP  lookup;
-        comp->info.compCompHnd->getAddressOfPInvokeTarget(methHnd, &lookup);
+        CORINFO_CONST_LOOKUP entryPoint;
+        comp->info.compCompHnd->getAddressOfPInvokeTarget(call->GetMethodHandle(), &entryPoint);
 
-        switch (lookup.accessType)
+        switch (entryPoint.accessType)
         {
+            GenTreeIntCon* constAddr;
+
             case IAT_VALUE:
-                // IsCallTargetInRange always return true on x64. It wants to use rip-based addressing
-                // for this call. Unfortunately, in case of pinvokes (+suppressgctransition) to external libs
-                // (e.g. kernel32.dll) the relative offset is unlikely to fit into int32 and we will have to
-                // turn fAllowRel32 off globally.
-                if ((call->IsSuppressGCTransition() && !comp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT)) ||
-                    !IsCallTargetInRange(lookup.addr))
+                // IsCallTargetInRange always return true on x64. It wants to use rip-based addressing for
+                // this call. Unfortunately, in case of PInvokes (and SuppressGCTransition) to external libs
+                // (e.g. kernel32.dll) the relative offset is unlikely to fit into disp32 and we will have
+                // to turn fAllowRel32 off globally.
+                // TODO-MIKE-Review: Does this apply to x86?
+
+                if (IsCallTargetInRange(entryPoint.addr) &&
+                    (!call->IsSuppressGCTransition() || comp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT)))
                 {
-                    controlExpr = comp->gtNewIconHandleNode(lookup.addr, GTF_ICON_FTN_ADDR);
-                }
-                else
-                {
-                    // a direct call within range of hardware relative call instruction
-                    // stash the address for codegen
-                    call->gtDirectCallAddress = lookup.addr;
+                    call->gtDirectCallAddress = entryPoint.addr;
+
 #ifdef FEATURE_READYTORUN_COMPILER
                     call->gtEntryPoint.addr       = nullptr;
                     call->gtEntryPoint.accessType = IAT_VALUE;
 #endif
+                    break;
                 }
+
+                target = comp->gtNewIconHandleNode(entryPoint.addr, GTF_ICON_FTN_ADDR);
                 break;
 
             case IAT_PVALUE:
-            {
-                GenTreeIntCon* addr = comp->gtNewIconHandleNode(lookup.addr, GTF_ICON_FTN_ADDR);
-                INDEBUG(addr->gtTargetHandle = (size_t)methHnd);
-                controlExpr = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, addr);
-            }
-            break;
-
-            case IAT_PPVALUE:
-                // ToDo:  Expanding an IAT_PPVALUE here, loses the opportunity
-                // to Hoist/CSE the first indirection as it is an invariant load
-                // This case currently occurs today when we make PInvoke calls in crossgen
-                // assert(!"IAT_PPVALUE in Lowering::LowerNonvirtPinvokeCall");
-                {
-                    GenTreeIntCon* addr = comp->gtNewIconHandleNode(lookup.addr, GTF_ICON_FTN_ADDR);
-                    INDEBUG(addr->gtTargetHandle = (size_t)methHnd);
-                    controlExpr = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, addr);
-                    controlExpr = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, controlExpr);
-                }
+                constAddr = comp->gtNewIconHandleNode(entryPoint.addr, GTF_ICON_FTN_ADDR);
+                INDEBUG(constAddr->gtTargetHandle = reinterpret_cast<size_t>(call->GetMethodHandle()));
+                target = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, constAddr);
                 break;
 
             default:
-                unreached();
+                noway_assert(entryPoint.accessType == IAT_PPVALUE);
+                // TODO-CQ: Expanding earlier would allow CSEing of the first load which is invariant.
+                constAddr = comp->gtNewIconHandleNode(entryPoint.addr, GTF_ICON_FTN_ADDR);
+                INDEBUG(constAddr->gtTargetHandle = reinterpret_cast<size_t>(call->GetMethodHandle()));
+                target = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, constAddr);
+                target = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, target);
+                break;
         }
     }
 
@@ -3226,7 +3211,7 @@ GenTree* Lowering::LowerNonvirtPinvokeCall(GenTreeCall* call)
         InsertPInvokeCallEpilog(call);
     }
 
-    return controlExpr;
+    return target;
 }
 
 // Expand the code necessary to calculate the control target.

@@ -139,7 +139,7 @@ private:
     GenTree* SpillStructCall(GenTreeCall* call, GenTree* user);
     GenTree* LowerDelegateInvoke(GenTreeCall* call);
     GenTree* LowerDirectCall(GenTreeCall* call);
-    GenTree* LowerNonvirtPinvokeCall(GenTreeCall* call);
+    GenTree* LowerPInvokeCall(GenTreeCall* call);
 #ifdef TARGET_X86
     void LowerTailCallViaJitHelper(GenTreeCall* call);
 #endif
