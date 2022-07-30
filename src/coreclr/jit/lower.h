@@ -140,6 +140,7 @@ private:
     GenTree* LowerDelegateInvoke(GenTreeCall* call);
     GenTree* LowerDirectCall(GenTreeCall* call);
     GenTree* LowerPInvokeCall(GenTreeCall* call);
+    GenTree* ExpandConstLookupCallTarget(const CORINFO_CONST_LOOKUP& entryPoint DEBUGARG(GenTreeCall* call));
 #ifdef TARGET_X86
     void LowerTailCallViaJitHelper(GenTreeCall* call);
 #endif

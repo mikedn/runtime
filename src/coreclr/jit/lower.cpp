@@ -2454,49 +2454,25 @@ GenTree* Lowering::LowerDirectCall(GenTreeCall* call)
         comp->info.compCompHnd->getFunctionEntryPoint(call->GetMethodHandle(), &entryPoint, accessFlags);
     }
 
-    switch (entryPoint.accessType)
+    if ((entryPoint.accessType == IAT_VALUE) && IsCallTargetInRange(entryPoint.addr)
+                                                    X86_ONLY(&&!call->IsTailCallViaJitHelper()))
     {
-        GenTreeIntCon* constAddr;
-        GenTree*       indir;
+        call->gtDirectCallAddress = entryPoint.addr;
 
-        case IAT_VALUE:
-            if (IsCallTargetInRange(entryPoint.addr) X86_ONLY(&&!call->IsTailCallViaJitHelper()))
-            {
-                call->gtDirectCallAddress = entryPoint.addr;
+        return nullptr;
+    }
 
-                return nullptr;
-            }
-
-            return comp->gtNewIconHandleNode(entryPoint.addr, GTF_ICON_FTN_ADDR);
-
-        case IAT_PVALUE:
 #if defined(FEATURE_READYTORUN_COMPILER) && defined(TARGET_ARMARCH)
-            // Skip inserting the indirection node to load the address that is already
-            // computed in REG_R2R_INDIRECT_PARAM as a hidden parameter. Instead during
-            // codegen, just load the call target from REG_R2R_INDIRECT_PARAM.
-            if (call->IsR2RRelativeIndir())
-            {
-                return nullptr;
-            }
+    // Skip inserting the indirection node to load the address that is already
+    // computed in REG_R2R_INDIRECT_PARAM as a hidden parameter. Instead during
+    // codegen, just load the call target from REG_R2R_INDIRECT_PARAM.
+    if ((entryPoint.accessType == IAT_PVALUE) && call->IsR2RRelativeIndir())
+    {
+        return nullptr;
+    }
 #endif
 
-            constAddr = comp->gtNewIconHandleNode(entryPoint.addr, GTF_ICON_FTN_ADDR);
-            INDEBUG(constAddr->gtTargetHandle = reinterpret_cast<size_t>(call->GetMethodHandle()));
-            return comp->gtNewOperNode(GT_IND, TYP_I_IMPL, constAddr);
-
-        case IAT_PPVALUE:
-            constAddr = comp->gtNewIconHandleNode(entryPoint.addr, GTF_ICON_FTN_ADDR);
-            indir     = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, constAddr);
-            return comp->gtNewOperNode(GT_IND, TYP_I_IMPL, indir);
-
-        default:
-            noway_assert(entryPoint.accessType == IAT_RELPVALUE);
-
-            constAddr = comp->gtNewIconHandleNode(entryPoint.addr, GTF_ICON_FTN_ADDR);
-            indir     = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, constAddr);
-            constAddr = comp->gtNewIconHandleNode(entryPoint.addr, GTF_ICON_FTN_ADDR);
-            return comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, indir, constAddr);
-    }
+    return ExpandConstLookupCallTarget(entryPoint DEBUGARG(call));
 }
 
 GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call)
@@ -3163,46 +3139,24 @@ GenTree* Lowering::LowerPInvokeCall(GenTreeCall* call)
         CORINFO_CONST_LOOKUP entryPoint;
         comp->info.compCompHnd->getAddressOfPInvokeTarget(call->GetMethodHandle(), &entryPoint);
 
-        switch (entryPoint.accessType)
+        // IsCallTargetInRange always return true on x64. It wants to use rip-based addressing for
+        // this call. Unfortunately, in case of PInvokes (and SuppressGCTransition) to external libs
+        // (e.g. kernel32.dll) the relative offset is unlikely to fit into disp32 and we will have
+        // to turn fAllowRel32 off globally.
+        // TODO-MIKE-Review: Does this apply to x86?
+        if ((entryPoint.accessType == IAT_VALUE) && IsCallTargetInRange(entryPoint.addr) &&
+            (!call->IsSuppressGCTransition() || comp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT)))
         {
-            GenTreeIntCon* constAddr;
-
-            case IAT_VALUE:
-                // IsCallTargetInRange always return true on x64. It wants to use rip-based addressing for
-                // this call. Unfortunately, in case of PInvokes (and SuppressGCTransition) to external libs
-                // (e.g. kernel32.dll) the relative offset is unlikely to fit into disp32 and we will have
-                // to turn fAllowRel32 off globally.
-                // TODO-MIKE-Review: Does this apply to x86?
-
-                if (IsCallTargetInRange(entryPoint.addr) &&
-                    (!call->IsSuppressGCTransition() || comp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT)))
-                {
-                    call->gtDirectCallAddress = entryPoint.addr;
+            call->gtDirectCallAddress = entryPoint.addr;
 
 #ifdef FEATURE_READYTORUN_COMPILER
-                    call->gtEntryPoint.addr       = nullptr;
-                    call->gtEntryPoint.accessType = IAT_VALUE;
+            call->gtEntryPoint.addr       = nullptr;
+            call->gtEntryPoint.accessType = IAT_VALUE;
 #endif
-                    break;
-                }
-
-                target = comp->gtNewIconHandleNode(entryPoint.addr, GTF_ICON_FTN_ADDR);
-                break;
-
-            case IAT_PVALUE:
-                constAddr = comp->gtNewIconHandleNode(entryPoint.addr, GTF_ICON_FTN_ADDR);
-                INDEBUG(constAddr->gtTargetHandle = reinterpret_cast<size_t>(call->GetMethodHandle()));
-                target = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, constAddr);
-                break;
-
-            default:
-                noway_assert(entryPoint.accessType == IAT_PPVALUE);
-                // TODO-CQ: Expanding earlier would allow CSEing of the first load which is invariant.
-                constAddr = comp->gtNewIconHandleNode(entryPoint.addr, GTF_ICON_FTN_ADDR);
-                INDEBUG(constAddr->gtTargetHandle = reinterpret_cast<size_t>(call->GetMethodHandle()));
-                target = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, constAddr);
-                target = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, target);
-                break;
+        }
+        else
+        {
+            target = ExpandConstLookupCallTarget(entryPoint DEBUGARG(call));
         }
     }
 
@@ -3212,6 +3166,35 @@ GenTree* Lowering::LowerPInvokeCall(GenTreeCall* call)
     }
 
     return target;
+}
+
+GenTree* Lowering::ExpandConstLookupCallTarget(const CORINFO_CONST_LOOKUP& entryPoint DEBUGARG(GenTreeCall* call))
+{
+    GenTreeIntCon* addr = comp->gtNewIconHandleNode(entryPoint.addr, GTF_ICON_FTN_ADDR);
+    INDEBUG(addr->gtTargetHandle = reinterpret_cast<size_t>(call->GetMethodHandle()));
+
+    if (entryPoint.accessType == IAT_VALUE)
+    {
+        return addr;
+    }
+
+    GenTree* load = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, addr);
+
+    if (entryPoint.accessType == IAT_PVALUE)
+    {
+        return load;
+    }
+
+    if (entryPoint.accessType == IAT_PPVALUE)
+    {
+        // TODO-CQ: Expanding earlier would allow CSEing of the first load which is invariant.
+        return comp->gtNewOperNode(GT_IND, TYP_I_IMPL, load);
+    }
+
+    noway_assert(entryPoint.accessType == IAT_RELPVALUE);
+
+    addr = comp->gtNewIconHandleNode(entryPoint.addr, GTF_ICON_FTN_ADDR);
+    return comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, load, addr);
 }
 
 // Expand the code necessary to calculate the control target.
