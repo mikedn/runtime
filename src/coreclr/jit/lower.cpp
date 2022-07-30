@@ -1395,54 +1395,12 @@ void Lowering::LowerCall(GenTreeCall* call)
 void Lowering::InsertProfTailCallHook(GenTreeCall* call, GenTree* insertionPoint)
 {
     assert(call->IsTailCall());
-    assert(comp->compIsProfilerHookNeeded());
-
-#if defined(TARGET_X86)
-
-    if (insertionPoint == nullptr)
-    {
-        insertionPoint = call;
-    }
-
-#else // !defined(TARGET_X86)
-
-    if (insertionPoint == nullptr)
-    {
-        for (GenTreeCall::Use& use : call->Args())
-        {
-            assert(!use.GetNode()->OperIs(GT_PUTARG_REG)); // We don't expect to see these in gtCallArgs
-
-            if (use.GetNode()->OperIs(GT_PUTARG_STK))
-            {
-                // found it
-                insertionPoint = use.GetNode();
-                break;
-            }
-        }
-
-        if (insertionPoint == nullptr)
-        {
-            for (GenTreeCall::Use& use : call->LateArgs())
-            {
-                if (use.GetNode()->OperIs(GT_PUTARG_REG, GT_PUTARG_STK))
-                {
-                    // found it
-                    insertionPoint = use.GetNode();
-                    break;
-                }
-            }
-
-            // If there are no args, insert before the call node
-            if (insertionPoint == nullptr)
-            {
-                insertionPoint = call;
-            }
-        }
-    }
-
-#endif // !defined(TARGET_X86)
-
     assert(insertionPoint != nullptr);
+    assert(comp->compIsProfilerHookNeeded());
+#ifdef TARGET_X86
+    assert(call == insertionPoint);
+#endif
+
     GenTree* profHookNode = new (comp, GT_PROF_HOOK) GenTree(GT_PROF_HOOK, TYP_VOID);
     BlockRange().InsertBefore(insertionPoint, profHookNode);
 }
@@ -1514,13 +1472,13 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
     // of call is setup.  Note that once a stack arg is setup, it cannot have nested
     // calls subsequently in execution order to setup other args, because the nested
     // call could over-write the stack arg that is setup earlier.
-    ArrayStack<GenTree*> putargs(comp->getAllocator(CMK_ArrayStack));
+    ArrayStack<GenTreePutArgStk*> putargs(comp->getAllocator(CMK_ArrayStack));
 
     for (GenTreeCall::Use& use : call->Args())
     {
         if (use.GetNode()->OperIs(GT_PUTARG_STK))
         {
-            putargs.Push(use.GetNode());
+            putargs.Push(use.GetNode()->AsPutArgStk());
         }
     }
 
@@ -1528,17 +1486,18 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
     {
         if (use.GetNode()->OperIs(GT_PUTARG_STK))
         {
-            putargs.Push(use.GetNode());
+            putargs.Push(use.GetNode()->AsPutArgStk());
         }
     }
 
     GenTree* startNonGCNode = nullptr;
+
     if (!putargs.Empty())
     {
         // Get the earliest operand of the first PUTARG_STK node. We will make
         // the requred copies of args before this node.
         bool     unused;
-        GenTree* insertionPoint = BlockRange().GetTreeRange(putargs.Bottom(), &unused).FirstNode();
+        GenTree* insertionPoint = BlockRange().GetTreeRange(putargs.Get(0), &unused).FirstNode();
         // Insert GT_START_NONGC node before we evaluate the PUTARG_STK args.
         // Note that if there are no args to be setup on stack, no need to
         // insert GT_START_NONGC node.
@@ -1569,7 +1528,7 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
         // potentially may cause problems.
         for (unsigned i = 0; i < putargs.Size(); i++)
         {
-            GenTreePutArgStk* put = putargs.Bottom(i)->AsPutArgStk();
+            GenTreePutArgStk* put = putargs.Get(i);
 
             unsigned argStartOffset = put->GetSlotOffset();
             unsigned argEndOffset   = argStartOffset + put->GetArgSize();
@@ -1645,13 +1604,39 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
         }
     }
 
-    // Insert GT_PROF_HOOK node to emit profiler tail call hook. This should be
-    // inserted before the args are setup but after the side effects of args are
-    // computed. That is, GT_PROF_HOOK node needs to be inserted before GT_START_NONGC
-    // node if one exists.
+    // Insert PROF_HOOK node to emit profiler tail call hook. This should be
+    // inserted before the args are setup but after the side effects of args
+    // are computed. That is, PROF_HOOK node needs to be inserted before
+    // the START_NONGC node if we added one.
     if (comp->compIsProfilerHookNeeded())
     {
-        InsertProfTailCallHook(call, startNonGCNode);
+        GenTree* insertionPoint = startNonGCNode;
+
+        if (insertionPoint == nullptr)
+        {
+            for (GenTreeCall::Use& use : call->LateArgs())
+            {
+                // We would have already inserted a START_NONGC if we had a PUTARG_STK.
+                assert(!use.GetNode()->OperIs(GT_PUTARG_STK));
+                // TODO-MIKE-Review: What about PUTARG_SPLIT? Likely doesn't happen
+                // because ARM32 doesn't support fast tail calls and ARM64 only uses
+                // PUTARG_SPLIT for varargs on Windows, which probably also does not
+                // support fast tail calls.
+
+                if (use.GetNode()->OperIs(GT_PUTARG_REG))
+                {
+                    insertionPoint = use.GetNode();
+                    break;
+                }
+            }
+
+            if (insertionPoint == nullptr)
+            {
+                insertionPoint = call;
+            }
+        }
+
+        InsertProfTailCallHook(call, insertionPoint);
     }
 }
 #endif // FEATURE_FASTTAILCALL

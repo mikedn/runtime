@@ -698,7 +698,7 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
 #ifdef PROFILING_SUPPORTED
     if (comp->compIsProfilerHookNeeded())
     {
-        InsertProfTailCallHook(call, nullptr);
+        InsertProfTailCallHook(call, call);
     }
 #endif
 
