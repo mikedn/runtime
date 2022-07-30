@@ -8372,7 +8372,7 @@ void Compiler::gtDispTree(GenTree*     tree,
                 separator = ", ";
             }
 
-#ifdef FEATURE_READYTORUN_COMPILER
+#if defined(FEATURE_READYTORUN_COMPILER) && defined(TARGET_ARMARCH)
             if (call->IsR2RRelativeIndir())
             {
                 printf("%sr2rind", separator);

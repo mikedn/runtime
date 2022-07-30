@@ -3719,7 +3719,9 @@ enum GenTreeCallFlags : unsigned int
                                                      // a Pinvoke but not as an unmanaged call. See impCheckForPInvokeCall() to
                                                      // know when these flags are set.
 
+#if defined(FEATURE_READYTORUN_COMPILER) && defined(TARGET_ARMARCH)
     GTF_CALL_M_R2R_REL_INDIRECT        = 0x00002000, // ready to run call is indirected through a relative address
+#endif
     GTF_CALL_M_DOES_NOT_RETURN         = 0x00004000, // call does not return
     GTF_CALL_M_WRAPPER_DELEGATE_INV    = 0x00008000, // call is in wrapper delegate
     GTF_CALL_M_FAT_POINTER_CHECK       = 0x00010000, // CoreRT managed calli needs transformation, that checks
@@ -4247,16 +4249,6 @@ public:
         gtFlags &= ~GTF_CALL_INLINE_CANDIDATE;
     }
 
-    bool IsR2ROrVirtualStubRelativeIndir()
-    {
-#if defined(FEATURE_READYTORUN_COMPILER) && defined(TARGET_ARMARCH)
-        bool isVirtualStub = (gtFlags & GTF_CALL_VIRT_KIND_MASK) == GTF_CALL_VIRT_STUB;
-        return ((IsR2RRelativeIndir()) || (isVirtualStub && (IsVirtualStubRelativeIndir())));
-#else
-        return false;
-#endif // FEATURE_READYTORUN_COMPILER && TARGET_ARMARCH
-    }
-
     bool HasNonStandardAddedArgs(Compiler* compiler) const;
     int GetNonStandardAddedArgCount(Compiler* compiler) const;
 
@@ -4377,17 +4369,28 @@ public:
     }
 
 #ifdef FEATURE_READYTORUN_COMPILER
+#ifdef TARGET_ARMARCH
+    bool IsR2ROrVirtualStubRelativeIndir() const
+    {
+        return IsR2RRelativeIndir() || (IsVirtualStub() && IsVirtualStubRelativeIndir());
+    }
+
     bool IsR2RRelativeIndir() const
     {
         return (gtCallMoreFlags & GTF_CALL_M_R2R_REL_INDIRECT) != 0;
     }
+#endif
+
     void setEntryPoint(const CORINFO_CONST_LOOKUP& entryPoint)
     {
         gtEntryPoint = entryPoint;
+
+#ifdef TARGET_ARMARCH
         if (gtEntryPoint.accessType == IAT_PVALUE)
         {
             gtCallMoreFlags |= GTF_CALL_M_R2R_REL_INDIRECT;
         }
+#endif
     }
 #endif // FEATURE_READYTORUN_COMPILER
 

@@ -16362,9 +16362,10 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
         CORINFO_CALL_INFO derivedCallInfo;
         eeGetCallInfo(pDerivedResolvedToken, nullptr, CORINFO_CALLINFO_ALLOWINSTPARAM, &derivedCallInfo);
 
-        // Update the call.
         call->gtCallMoreFlags &= ~GTF_CALL_M_VIRTSTUB_REL_INDIRECT;
+#ifdef TARGET_ARMARCH
         call->gtCallMoreFlags &= ~GTF_CALL_M_R2R_REL_INDIRECT;
+#endif
         call->setEntryPoint(derivedCallInfo.codePointerLookup.constLookup);
     }
 #endif // FEATURE_READYTORUN_COMPILER

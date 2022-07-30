@@ -2579,14 +2579,13 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         emitCallType = emitter::EC_INDIR_R;
         callReg      = target->GetRegNum();
     }
+#ifdef FEATURE_READYTORUN_COMPILER
     else if (call->IsR2ROrVirtualStubRelativeIndir())
     {
         // Generate a direct call to a non-virtual user defined or helper method
         assert(call->IsHelperCall() || call->IsUserCall());
-#ifdef FEATURE_READYTORUN_COMPILER
         assert(((call->IsR2RRelativeIndir()) && (call->gtEntryPoint.accessType == IAT_PVALUE)) ||
                ((call->IsVirtualStubRelativeIndir()) && (call->gtEntryPoint.accessType == IAT_VALUE)));
-#endif // FEATURE_READYTORUN_COMPILER
         assert(call->gtControlExpr == nullptr);
         assert(!call->IsTailCall());
 
@@ -2601,6 +2600,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 
         emitCallType = emitter::EC_INDIR_R;
     }
+#endif // FEATURE_READYTORUN_COMPILER
     else
     {
         assert(call->IsHelperCall() || call->IsUserCall());
