@@ -3123,49 +3123,41 @@ GenTree* Lowering::LowerPInvokeCall(GenTreeCall* call)
     GenTree* prolog = new (comp, GT_PINVOKE_PROLOG) GenTree(GT_PINVOKE_PROLOG, TYP_VOID);
     BlockRange().InsertBefore(call, prolog);
 
-    bool addPInvokePrologEpilog = !call->IsSuppressGCTransition();
-
-    if (addPInvokePrologEpilog)
+    if (!call->IsSuppressGCTransition())
     {
         InsertPInvokeCallProlog(call);
-    }
-
-    GenTree* target = nullptr;
-
-    if (!call->IsIndirectCall())
-    {
-        noway_assert(call->IsUserCall());
-
-        CORINFO_CONST_LOOKUP entryPoint;
-        comp->info.compCompHnd->getAddressOfPInvokeTarget(call->GetMethodHandle(), &entryPoint);
-
-        // IsCallTargetInRange always return true on x64. It wants to use rip-based addressing for
-        // this call. Unfortunately, in case of PInvokes (and SuppressGCTransition) to external libs
-        // (e.g. kernel32.dll) the relative offset is unlikely to fit into disp32 and we will have
-        // to turn fAllowRel32 off globally.
-        // TODO-MIKE-Review: Does this apply to x86?
-        if ((entryPoint.accessType == IAT_VALUE) && IsCallTargetInRange(entryPoint.addr) &&
-            (!call->IsSuppressGCTransition() || comp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT)))
-        {
-            call->gtDirectCallAddress = entryPoint.addr;
-
-#ifdef FEATURE_READYTORUN_COMPILER
-            call->gtEntryPoint.addr       = nullptr;
-            call->gtEntryPoint.accessType = IAT_VALUE;
-#endif
-        }
-        else
-        {
-            target = ExpandConstLookupCallTarget(entryPoint DEBUGARG(call));
-        }
-    }
-
-    if (addPInvokePrologEpilog)
-    {
         InsertPInvokeCallEpilog(call);
     }
 
-    return target;
+    if (call->IsIndirectCall())
+    {
+        return nullptr;
+    }
+
+    noway_assert(call->IsUserCall());
+
+    CORINFO_CONST_LOOKUP entryPoint;
+    comp->info.compCompHnd->getAddressOfPInvokeTarget(call->GetMethodHandle(), &entryPoint);
+
+    // IsCallTargetInRange always return true on x64. It wants to use rip-based addressing for
+    // this call. Unfortunately, in case of PInvokes (and SuppressGCTransition) to external libs
+    // (e.g. kernel32.dll) the relative offset is unlikely to fit into disp32 and we will have
+    // to turn fAllowRel32 off globally.
+    // TODO-MIKE-Review: Does this apply to x86?
+    if ((entryPoint.accessType == IAT_VALUE) && IsCallTargetInRange(entryPoint.addr) &&
+        (!call->IsSuppressGCTransition() || comp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT)))
+    {
+        call->gtDirectCallAddress = entryPoint.addr;
+
+#ifdef FEATURE_READYTORUN_COMPILER
+        call->gtEntryPoint.addr       = nullptr;
+        call->gtEntryPoint.accessType = IAT_VALUE;
+#endif
+
+        return nullptr;
+    }
+
+    return ExpandConstLookupCallTarget(entryPoint DEBUGARG(call));
 }
 
 GenTree* Lowering::ExpandConstLookupCallTarget(const CORINFO_CONST_LOOKUP& entryPoint DEBUGARG(GenTreeCall* call))
