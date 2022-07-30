@@ -2462,10 +2462,12 @@ GenTree* Lowering::LowerDirectCall(GenTreeCall* call)
 
 GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call)
 {
-    noway_assert(call->IsUserCall());
+    noway_assert(call->IsUserCall() && call->IsDelegateInvoke());
 
     assert((comp->info.compCompHnd->getMethodAttribs(call->GetMethodHandle()) &
             (CORINFO_FLG_DELEGATE_INVOKE | CORINFO_FLG_FINAL)) == (CORINFO_FLG_DELEGATE_INVOKE | CORINFO_FLG_FINAL));
+
+    call->gtCallMoreFlags &= ~GTF_CALL_M_DELEGATE_INV;
 
     GenTree* thisArgNode;
 
