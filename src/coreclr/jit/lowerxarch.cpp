@@ -626,7 +626,7 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
     {
         if (call->IsVirtualStub())
         {
-            LowerVirtualStubCallIndirect(call);
+            LowerIndirectVirtualStubCall(call);
         }
 
         target = call->gtCallAddr;

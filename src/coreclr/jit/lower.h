@@ -154,7 +154,7 @@ private:
                                     GenTree* rangeEnd);
     void InsertProfTailCallHook(GenTreeCall* callNode, GenTree* insertionPoint);
     GenTree* LowerVirtualVtableCall(GenTreeCall* call X86_ARG(GenTree* insertBefore = nullptr));
-    void LowerVirtualStubCallIndirect(GenTreeCall* call);
+    void LowerIndirectVirtualStubCall(GenTreeCall* call);
     GenTree* LowerVirtualStubCall(GenTreeCall* call X86_ARG(GenTree* insertBefore = nullptr));
     void LowerCallArgs(GenTreeCall* call);
     GenTree* InsertPutArg(GenTreeCall* call, CallArgInfo* argInfo);
