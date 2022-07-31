@@ -1264,7 +1264,7 @@ void Lowering::LowerCall(GenTreeCall* call)
         }
         else if (call->IsUnmanaged())
         {
-            LowerPInvokeCall(call);
+            InsertPInvokeCallPrologAndEpilog(call);
         }
     }
     else if (call->IsDelegateInvoke())
@@ -1288,7 +1288,7 @@ void Lowering::LowerCall(GenTreeCall* call)
 
         if (call->IsUnmanaged())
         {
-            call->gtControlExpr = LowerPInvokeCall(call);
+            call->gtControlExpr = LowerDirectPInvokeCall(call);
         }
         else
         {
@@ -2380,7 +2380,7 @@ GenTree* Lowering::SpillStructCall(GenTreeCall* call, GenTree* user)
 
 GenTree* Lowering::LowerDirectCall(GenTreeCall* call X86_ARG(GenTree* insertBefore))
 {
-    noway_assert(call->IsUserCall() || call->IsHelperCall());
+    noway_assert((call->IsUserCall() || call->IsHelperCall()) && !call->IsUnmanaged());
 
     // Don't support tail calling helper methods.
     // But we might encounter tail calls dispatched via JIT helper appear as a tail call to helper.
@@ -3054,7 +3054,7 @@ void Lowering::InsertPInvokeCallEpilog(GenTreeCall* call)
 #endif // TARGET_64BIT
 }
 
-GenTree* Lowering::LowerPInvokeCall(GenTreeCall* call)
+void Lowering::InsertPInvokeCallPrologAndEpilog(GenTreeCall* call)
 {
     assert(call->IsUnmanaged() X86_ONLY(&&!call->IsTailCallViaJitHelper()));
 
@@ -3120,13 +3120,13 @@ GenTree* Lowering::LowerPInvokeCall(GenTreeCall* call)
         InsertPInvokeCallProlog(call);
         InsertPInvokeCallEpilog(call);
     }
+}
 
-    if (call->IsIndirectCall())
-    {
-        return nullptr;
-    }
+GenTree* Lowering::LowerDirectPInvokeCall(GenTreeCall* call)
+{
+    assert(call->IsUserCall());
 
-    noway_assert(call->IsUserCall());
+    InsertPInvokeCallPrologAndEpilog(call);
 
     CORINFO_CONST_LOOKUP entryPoint;
     comp->info.compCompHnd->getAddressOfPInvokeTarget(call->GetMethodHandle(), &entryPoint);

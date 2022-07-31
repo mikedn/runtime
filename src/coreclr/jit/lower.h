@@ -139,7 +139,7 @@ private:
     GenTree* SpillStructCall(GenTreeCall* call, GenTree* user);
     GenTree* LowerDelegateInvoke(GenTreeCall* call X86_ARG(GenTree* insertBefore = nullptr));
     GenTree* LowerDirectCall(GenTreeCall* call X86_ARG(GenTree* insertBefore = nullptr));
-    GenTree* LowerPInvokeCall(GenTreeCall* call);
+    GenTree* LowerDirectPInvokeCall(GenTreeCall* call);
     GenTree* ExpandConstLookupCallTarget(const CORINFO_CONST_LOOKUP& entryPoint,
                                          GenTree* insertBefore DEBUGARG(GenTreeCall* call));
 #ifdef TARGET_X86
@@ -161,6 +161,7 @@ private:
     GenTree* InsertPutArgReg(GenTree* arg, CallArgInfo* argInfo, unsigned regIndex);
     void LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo);
 
+    void InsertPInvokeCallPrologAndEpilog(GenTreeCall* call);
     void InsertPInvokeCallProlog(GenTreeCall* call);
     void InsertPInvokeCallEpilog(GenTreeCall* call);
     void InsertPInvokeMethodProlog();
