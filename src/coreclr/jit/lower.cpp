@@ -96,17 +96,15 @@ GenTreeLclVar* Lowering::ReplaceWithLclVar(LIR::Use& use, unsigned tempNum)
 
     GenTreeLclVar* store;
     use.ReplaceWithLclVar(comp, tempNum, &store);
-
-    GenTreeLclVar* newDef = use.Def()->AsLclVar();
-    ContainCheckStoreLcl(store);
+    GenTreeLclVar* load = use.Def()->AsLclVar();
 
     // TODO-MIKE-Cleanup: Move WidenSIMD12IfNecessary calls to LowerLcl functions.
     WidenSIMD12IfNecessary(store);
     LowerStoreLclVar(store);
-    WidenSIMD12IfNecessary(newDef);
-    LowerLclVar(newDef);
+    WidenSIMD12IfNecessary(load);
+    LowerLclVar(load);
 
-    return newDef;
+    return load;
 }
 
 //------------------------------------------------------------------------
