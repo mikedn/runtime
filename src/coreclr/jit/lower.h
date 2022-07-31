@@ -170,28 +170,7 @@ private:
 
     // Replace the definition of the given use with a lclVar, allocating a new temp
     // if 'tempNum' is BAD_VAR_NUM. Returns the LclVar node.
-    GenTreeLclVar* ReplaceWithLclVar(LIR::Use& use, unsigned tempNum = BAD_VAR_NUM)
-    {
-        GenTree* def = use.Def();
-
-        if (def->OperIs(GT_LCL_VAR) && (tempNum == BAD_VAR_NUM))
-        {
-            return def->AsLclVar();
-        }
-
-        GenTreeLclVar* store;
-        use.ReplaceWithLclVar(comp, tempNum, &store);
-
-        GenTreeLclVar* newDef = use.Def()->AsLclVar();
-        ContainCheckStoreLcl(store);
-
-        // We need to lower the LclVar and assignment since there may be certain
-        // types or scenarios, such as TYP_SIMD12, that need special handling
-        LowerNode(store);
-        LowerNode(newDef);
-
-        return newDef;
-    }
+    GenTreeLclVar* ReplaceWithLclVar(LIR::Use& use, unsigned tempNum = BAD_VAR_NUM);
 
     // return true if this call target is within range of a pc-rel call on the machine
     bool IsCallTargetInRange(void* addr);

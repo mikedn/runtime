@@ -85,6 +85,29 @@ bool Lowering::IsSafeToMoveForward(GenTree* move, GenTree* before)
     return true;
 }
 
+GenTreeLclVar* Lowering::ReplaceWithLclVar(LIR::Use& use, unsigned tempNum)
+{
+    GenTree* def = use.Def();
+
+    if (def->OperIs(GT_LCL_VAR) && (tempNum == BAD_VAR_NUM))
+    {
+        return def->AsLclVar();
+    }
+
+    GenTreeLclVar* store;
+    use.ReplaceWithLclVar(comp, tempNum, &store);
+
+    GenTreeLclVar* newDef = use.Def()->AsLclVar();
+    ContainCheckStoreLcl(store);
+
+    // We need to lower the LclVar and assignment since there may be certain
+    // types or scenarios, such as TYP_SIMD12, that need special handling
+    LowerNode(store);
+    LowerNode(newDef);
+
+    return newDef;
+}
+
 //------------------------------------------------------------------------
 // LowerNode: this is the main entry point for Lowering.
 //
