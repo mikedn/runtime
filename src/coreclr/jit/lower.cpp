@@ -100,10 +100,11 @@ GenTreeLclVar* Lowering::ReplaceWithLclVar(LIR::Use& use, unsigned tempNum)
     GenTreeLclVar* newDef = use.Def()->AsLclVar();
     ContainCheckStoreLcl(store);
 
-    // We need to lower the LclVar and assignment since there may be certain
-    // types or scenarios, such as TYP_SIMD12, that need special handling
-    LowerNode(store);
-    LowerNode(newDef);
+    // TODO-MIKE-Cleanup: Move WidenSIMD12IfNecessary calls to LowerLcl functions.
+    WidenSIMD12IfNecessary(store);
+    LowerStoreLclVar(store);
+    WidenSIMD12IfNecessary(newDef);
+    LowerLclVar(newDef);
 
     return newDef;
 }
