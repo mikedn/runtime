@@ -63,13 +63,6 @@ private:
         ContainCheckRange(range);
     }
 
-    void InsertTreeBeforeAndContainCheck(GenTree* insertionPoint, GenTree* tree)
-    {
-        LIR::Range range = LIR::SeqTree(comp, tree);
-        ContainCheckRange(range);
-        BlockRange().InsertBefore(insertionPoint, std::move(range));
-    }
-
     void ContainCheckNode(GenTree* node);
 
     void ContainCheckDivOrMod(GenTreeOp* node);

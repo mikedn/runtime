@@ -4158,8 +4158,10 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
     BlockRange().Remove(divisor);
     BlockRange().Remove(dividend);
 
-    // linearize and insert the new tree before the original divMod node
-    InsertTreeBeforeAndContainCheck(divMod, newDivMod);
+    LIR::Range range = LIR::SeqTree(comp, newDivMod);
+    ContainCheckRange(range);
+    BlockRange().InsertBefore(divMod, std::move(range));
+
     BlockRange().Remove(divMod);
 
     // replace the original divmod node with the new divmod tree
