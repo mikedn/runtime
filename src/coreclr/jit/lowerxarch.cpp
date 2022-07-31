@@ -624,10 +624,8 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
     // first call argument so we need to move it before the corresponding PUTARG_STK.
     if (call->IsIndirectCall())
     {
-        if (call->IsVirtualStub())
-        {
-            LowerIndirectVirtualStubCall(call);
-        }
+        // Indirect VSD calls are not supported (the importer blocks such tail calls).
+        noway_assert(!call->IsVirtualStub());
 
         target = call->gtCallAddr;
 

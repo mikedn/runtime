@@ -2411,7 +2411,7 @@ GenTree* Lowering::SpillStructCall(GenTreeCall* call, GenTree* user)
 
 void Lowering::LowerIndirectVirtualStubCall(GenTreeCall* call)
 {
-    assert(call->IsVirtualStub() && call->IsIndirectCall());
+    assert(call->IsVirtualStub() && call->IsIndirectCall() X86_ONLY(&&!call->IsTailCallViaJitHelper()));
 
     // The importer decided we needed a stub call via a computed
     // stub dispatch address, i.e. an address which came from a dictionary lookup.
