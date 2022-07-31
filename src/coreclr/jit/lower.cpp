@@ -1256,7 +1256,18 @@ void Lowering::LowerCall(GenTreeCall* call)
     }
     else
 #endif
-        if (call->IsDelegateInvoke())
+        if (call->IsIndirectCall())
+    {
+        if (call->IsVirtualStub())
+        {
+            LowerVirtualStubCallIndirect(call);
+        }
+        else if (call->IsUnmanaged())
+        {
+            LowerPInvokeCall(call);
+        }
+    }
+    else if (call->IsDelegateInvoke())
     {
         call->gtControlExpr = LowerDelegateInvoke(call);
     }
@@ -1269,14 +1280,7 @@ void Lowering::LowerCall(GenTreeCall* call)
     }
     else if (call->IsVirtualStub())
     {
-        if (call->IsIndirectCall())
-        {
-            LowerVirtualStubCallIndirect(call);
-        }
-        else
-        {
-            call->gtControlExpr = LowerVirtualStubCall(call);
-        }
+        call->gtControlExpr = LowerVirtualStubCall(call);
     }
     else
     {
@@ -1284,14 +1288,9 @@ void Lowering::LowerCall(GenTreeCall* call)
 
         if (call->IsUnmanaged())
         {
-            GenTree* target = LowerPInvokeCall(call);
-
-            if (!call->IsIndirectCall())
-            {
-                call->gtControlExpr = target;
-            }
+            call->gtControlExpr = LowerPInvokeCall(call);
         }
-        else if (!call->IsIndirectCall())
+        else
         {
             call->gtControlExpr = LowerDirectCall(call);
         }
