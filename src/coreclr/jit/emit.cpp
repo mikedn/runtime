@@ -2437,21 +2437,10 @@ emitter::instrDesc* emitter::emitNewInstrCnsDsp(emitAttr size, target_ssize_t cn
     }
 }
 
-//------------------------------------------------------------------------
-// emitNoGChelper: Returns true if garbage collection won't happen within the helper call.
-//
-// Notes:
-//  There is no need to record live pointers for such call sites.
-//
-// Arguments:
-//   helpFunc - a helper signature for the call, can be CORINFO_HELP_UNDEF, that means that the call is not a helper.
-//
-// Return value:
-//   true if GC can't happen within this call, false otherwise.
+// Returns true if garbage collection won't happen within the helper call.
+// There is no need to record live pointers for such call sites.
 bool emitter::emitNoGChelper(CorInfoHelpFunc helpFunc)
 {
-    // TODO-Throughput: Make this faster (maybe via a simple table of bools?)
-
     switch (helpFunc)
     {
         case CORINFO_HELP_UNDEF:
@@ -2501,17 +2490,6 @@ bool emitter::emitNoGChelper(CorInfoHelpFunc helpFunc)
     }
 }
 
-//------------------------------------------------------------------------
-// emitNoGChelper: Returns true if garbage collection won't happen within the helper call.
-//
-// Notes:
-//  There is no need to record live pointers for such call sites.
-//
-// Arguments:
-//   methHnd - a method handle for the call.
-//
-// Return value:
-//   true if GC can't happen within this call, false otherwise.
 bool emitter::emitNoGChelper(CORINFO_METHOD_HANDLE methHnd)
 {
     CorInfoHelpFunc helpFunc = Compiler::eeGetHelperNum(methHnd);
