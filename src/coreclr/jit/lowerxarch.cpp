@@ -610,7 +610,7 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
     GenTreePutArgStk* targetArg           = call->GetArgNodeByArgNum(numArgs - 1)->AsPutArgStk();
     GenTreePutArgStk* flagsArg            = call->GetArgNodeByArgNum(numArgs - 2)->AsPutArgStk();
     GenTreePutArgStk* numNewStackSlotsArg = call->GetArgNodeByArgNum(numArgs - 3)->AsPutArgStk();
-    INDEBUG(GenTreePutArgStk* numOldStackSlotsArg = call->GetArgNodeByArgNum(numArgs - 4)->AsPutArgStk());
+    GenTreePutArgStk* numOldStackSlotsArg = call->GetArgNodeByArgNum(numArgs - 4)->AsPutArgStk();
 
     // Remove dummy target arg added by morph.
     bool               isClosed;
