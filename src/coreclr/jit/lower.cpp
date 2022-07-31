@@ -1256,48 +1256,44 @@ void Lowering::LowerCall(GenTreeCall* call)
     }
     else
 #endif
-    {
-        GenTree* target = nullptr;
-
         if (call->IsDelegateInvoke())
+    {
+        call->gtControlExpr = LowerDelegateInvoke(call);
+    }
+    else if (call->IsVirtualVtable())
+    {
+        if (!call->IsExpandedEarly())
         {
-            target = LowerDelegateInvoke(call);
+            call->gtControlExpr = LowerVirtualVtableCall(call);
         }
-        else if (call->IsVirtualVtable())
+    }
+    else if (call->IsVirtualStub())
+    {
+        if (call->IsIndirectCall())
         {
-            if (!call->IsExpandedEarly())
-            {
-                target = LowerVirtualVtableCall(call);
-            }
-        }
-        else if (call->IsVirtualStub())
-        {
-            if (call->IsIndirectCall())
-            {
-                LowerVirtualStubCallIndirect(call);
-            }
-            else
-            {
-                target = LowerVirtualStubCall(call);
-            }
+            LowerVirtualStubCallIndirect(call);
         }
         else
         {
-            noway_assert(!call->IsVirtual());
+            call->gtControlExpr = LowerVirtualStubCall(call);
+        }
+    }
+    else
+    {
+        noway_assert(!call->IsVirtual());
 
-            if (call->IsUnmanaged())
+        if (call->IsUnmanaged())
+        {
+            GenTree* target = LowerPInvokeCall(call);
+
+            if (!call->IsIndirectCall())
             {
-                target = LowerPInvokeCall(call);
-            }
-            else if (!call->IsIndirectCall())
-            {
-                target = LowerDirectCall(call);
+                call->gtControlExpr = target;
             }
         }
-
-        if (target != nullptr)
+        else if (!call->IsIndirectCall())
         {
-            call->gtControlExpr = target;
+            call->gtControlExpr = LowerDirectCall(call);
         }
     }
 
