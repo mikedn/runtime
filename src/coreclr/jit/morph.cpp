@@ -7569,19 +7569,19 @@ void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
 
     // Inject a placeholder for the count of outgoing stack arguments that the Lowering phase will generate.
     // The constant will be replaced.
-    GenTree* arg2 = gtNewIconNode(9, TYP_I_IMPL);
+    GenTree* arg2 = gtNewIconNode(0, TYP_I_IMPL);
     *ppArg        = gtNewCallArgs(arg2); // numberOfNewStackArgs
     ppArg         = &((*ppArg)->NextRef());
 
     // Inject a placeholder for the flags.
     // The constant will be replaced.
-    GenTree* arg1 = gtNewIconNode(8, TYP_I_IMPL);
+    GenTree* arg1 = gtNewIconNode(0, TYP_I_IMPL);
     *ppArg        = gtNewCallArgs(arg1);
     ppArg         = &((*ppArg)->NextRef());
 
     // Inject a placeholder for the real call target that the Lowering phase will generate.
     // The constant will be replaced.
-    GenTree* arg0 = gtNewIconNode(7, TYP_I_IMPL);
+    GenTree* arg0 = gtNewIconNode(0, TYP_I_IMPL);
     *ppArg        = gtNewCallArgs(arg0);
 
     call->gtFlags &= ~GTF_CALL_POP_ARGS;
