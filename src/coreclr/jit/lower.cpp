@@ -98,10 +98,7 @@ GenTreeLclVar* Lowering::ReplaceWithLclVar(LIR::Use& use, unsigned tempNum)
     use.ReplaceWithLclVar(comp, tempNum, &store);
     GenTreeLclVar* load = use.Def()->AsLclVar();
 
-    // TODO-MIKE-Cleanup: Move WidenSIMD12IfNecessary calls to LowerLcl functions.
-    WidenSIMD12IfNecessary(store);
     LowerStoreLclVar(store);
-    WidenSIMD12IfNecessary(load);
     LowerLclVar(load);
 
     return load;
@@ -342,12 +339,10 @@ GenTree* Lowering::LowerNode(GenTree* node)
             break;
 
         case GT_LCL_VAR:
-            WidenSIMD12IfNecessary(node->AsLclVar());
             LowerLclVar(node->AsLclVar());
             break;
 
         case GT_STORE_LCL_VAR:
-            WidenSIMD12IfNecessary(node->AsLclVar());
             LowerStoreLclVar(node->AsLclVar());
             break;
 
@@ -2007,12 +2002,26 @@ void Lowering::LowerLclVar(GenTreeLclVar* lclVar)
     assert(lclVar->OperIs(GT_LCL_VAR));
     assert(!lclVar->IsMultiReg());
     assert(!comp->lvaGetDesc(lclVar)->IsIndependentPromoted());
+
+#ifdef FEATURE_SIMD
+    if (lclVar->TypeIs(TYP_SIMD12))
+    {
+        WidenSIMD12IfNecessary(lclVar);
+    }
+#endif
 }
 
 void Lowering::LowerStoreLclVar(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR));
     assert(!store->GetOp(0)->OperIs(GT_PHI));
+
+#ifdef FEATURE_SIMD
+    if (store->TypeIs(TYP_SIMD12))
+    {
+        WidenSIMD12IfNecessary(store);
+    }
+#endif
 
     GenTree*   src = store->GetOp(0);
     LclVarDsc* lcl = comp->lvaGetDesc(store);
@@ -4382,53 +4391,49 @@ void Lowering::LowerShift(GenTreeOp* shift)
 
 #endif // !TARGET_ARM64
 
-void Lowering::WidenSIMD12IfNecessary(GenTreeLclVarCommon* node)
-{
 #ifdef FEATURE_SIMD
-    if (node->TypeGet() == TYP_SIMD12)
+void Lowering::WidenSIMD12IfNecessary(GenTreeLclVar* node)
+{
+    assert(node->TypeIs(TYP_SIMD12));
+
+    // Assumption 1:
+    // RyuJit backend depends on the assumption that on 64-Bit targets Vector3 size is rounded off
+    // to TARGET_POINTER_SIZE and hence Vector3 locals on stack can be treated as TYP_SIMD16 for
+    // reading and writing purposes.
+    //
+    // Assumption 2:
+    // RyuJit backend is making another implicit assumption that Vector3 type args when passed in
+    // registers or on stack, the upper most 4-bytes will be zero.
+    //
+    // For P/Invoke return and Reverse P/Invoke argument passing, native compiler doesn't guarantee
+    // that upper 4-bytes of a Vector3 type struct is zero initialized and hence assumption 2 is
+    // invalid.
+    //
+    // RyuJIT x64 Windows: arguments are treated as passed by ref and hence read/written just 12
+    // bytes. In case of Vector3 returns, Caller allocates a zero initialized Vector3 local and
+    // passes it retBuf arg and Callee method writes only 12 bytes to retBuf. For this reason,
+    // there is no need to clear upper 4-bytes of Vector3 type args.
+    //
+    // RyuJIT x64 Unix: arguments are treated as passed by value and read/writen as if TYP_SIMD16.
+    // Vector3 return values are returned two return registers and Caller assembles them into a
+    // single xmm reg. Hence RyuJIT explicitly generates code to clears upper 4-bytes of Vector3
+    // type args in prolog and Vector3 type return value of a call
+    //
+    // RyuJIT x86 Windows: all non-param Vector3 local vars are allocated as 16 bytes. Vector3 arguments
+    // are pushed as 12 bytes. For return values, a 16-byte local is allocated and the address passed
+    // as a return buffer pointer. The callee doesn't write the high 4 bytes, and we don't need to clear
+    // it either.
+
+    if (comp->lvaMapSimd12ToSimd16(comp->lvaGetDesc(node)))
     {
-        // Assumption 1:
-        // RyuJit backend depends on the assumption that on 64-Bit targets Vector3 size is rounded off
-        // to TARGET_POINTER_SIZE and hence Vector3 locals on stack can be treated as TYP_SIMD16 for
-        // reading and writing purposes.
-        //
-        // Assumption 2:
-        // RyuJit backend is making another implicit assumption that Vector3 type args when passed in
-        // registers or on stack, the upper most 4-bytes will be zero.
-        //
-        // For P/Invoke return and Reverse P/Invoke argument passing, native compiler doesn't guarantee
-        // that upper 4-bytes of a Vector3 type struct is zero initialized and hence assumption 2 is
-        // invalid.
-        //
-        // RyuJIT x64 Windows: arguments are treated as passed by ref and hence read/written just 12
-        // bytes. In case of Vector3 returns, Caller allocates a zero initialized Vector3 local and
-        // passes it retBuf arg and Callee method writes only 12 bytes to retBuf. For this reason,
-        // there is no need to clear upper 4-bytes of Vector3 type args.
-        //
-        // RyuJIT x64 Unix: arguments are treated as passed by value and read/writen as if TYP_SIMD16.
-        // Vector3 return values are returned two return registers and Caller assembles them into a
-        // single xmm reg. Hence RyuJIT explicitly generates code to clears upper 4-bytes of Vector3
-        // type args in prolog and Vector3 type return value of a call
-        //
-        // RyuJIT x86 Windows: all non-param Vector3 local vars are allocated as 16 bytes. Vector3 arguments
-        // are pushed as 12 bytes. For return values, a 16-byte local is allocated and the address passed
-        // as a return buffer pointer. The callee doesn't write the high 4 bytes, and we don't need to clear
-        // it either.
+        JITDUMP("Mapping TYP_SIMD12 lclvar node to TYP_SIMD16:\n");
+        DISPNODE(node);
+        JITDUMP("============");
 
-        unsigned   varNum = node->AsLclVarCommon()->GetLclNum();
-        LclVarDsc* varDsc = &comp->lvaTable[varNum];
-
-        if (comp->lvaMapSimd12ToSimd16(varDsc))
-        {
-            JITDUMP("Mapping TYP_SIMD12 lclvar node to TYP_SIMD16:\n");
-            DISPNODE(node);
-            JITDUMP("============");
-
-            node->gtType = TYP_SIMD16;
-        }
+        node->SetType(TYP_SIMD16);
     }
-#endif // FEATURE_SIMD
 }
+#endif // FEATURE_SIMD
 
 //------------------------------------------------------------------------
 // LowerArrElem: Lower a GT_ARR_ELEM node

@@ -238,7 +238,9 @@ private:
 private:
 #endif
 
-    void WidenSIMD12IfNecessary(GenTreeLclVarCommon* node);
+#ifdef FEATURE_SIMD
+    void WidenSIMD12IfNecessary(GenTreeLclVar* node);
+#endif
 #if FEATURE_MULTIREG_RET
     void MakeMultiRegStoreLclVar(GenTreeLclVar* store, GenTree* value);
 #endif
