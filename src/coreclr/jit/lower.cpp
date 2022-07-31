@@ -3730,22 +3730,19 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
 
     if (isPow2(divisorValue))
     {
-        genTreeOps newOper;
-
         if (isDiv)
         {
-            newOper      = GT_RSZ;
-            divisorValue = genLog2(divisorValue);
+            divMod->SetOper(GT_RSZ);
+            divisor->AsIntCon()->SetValue(genLog2(divisorValue));
+            ContainCheckShiftRotate(divMod);
         }
         else
         {
-            newOper = GT_AND;
-            divisorValue -= 1;
+            divMod->SetOper(GT_AND);
+            divisor->AsIntCon()->SetValue(divisorValue - 1);
+            ContainCheckBinary(divMod);
         }
 
-        divMod->SetOper(newOper);
-        divisor->AsIntCon()->SetIconValue(divisorValue);
-        ContainCheckNode(divMod);
         return true;
     }
     if (isDiv)
@@ -3757,7 +3754,7 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
         {
             divMod->SetOper(GT_GE);
             divMod->gtFlags |= GTF_UNSIGNED;
-            ContainCheckNode(divMod);
+            ContainCheckCompare(divMod);
             return true;
         }
     }
