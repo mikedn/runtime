@@ -4107,7 +4107,10 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
     LIR::Use opDividend(BlockRange(), &divMod->AsOp()->gtOp1, divMod);
     dividend = ReplaceWithLclVar(opDividend);
 
-    GenTree* adjustment = comp->gtNewOperNode(GT_RSH, type, dividend, comp->gtNewIconNode(type == TYP_INT ? 31 : 63));
+    GenTree*   shiftBy    = comp->gtNewIconNode(type == TYP_INT ? 31 : 63);
+    GenTreeOp* adjustment = comp->gtNewOperNode(GT_RSH, type, dividend, shiftBy);
+    BlockRange().InsertAfter(dividend, shiftBy, adjustment);
+    ContainCheckShiftRotate(adjustment);
 
     if (absDivisorValue == 2)
     {
@@ -4117,14 +4120,21 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
     }
     else
     {
-        adjustment = comp->gtNewOperNode(GT_AND, type, adjustment, comp->gtNewIconNode(absDivisorValue - 1, type));
+        GenTree*   imm  = comp->gtNewIconNode(absDivisorValue - 1, type);
+        GenTreeOp* mask = comp->gtNewOperNode(GT_AND, type, adjustment, imm);
+        BlockRange().InsertAfter(adjustment, imm, mask);
+        ContainCheckBinary(mask);
+
+        adjustment = mask;
     }
 
-    GenTree* adjustedDividend =
-        comp->gtNewOperNode(GT_ADD, type, adjustment,
-                            comp->gtNewLclvNode(dividend->AsLclVar()->GetLclNum(), dividend->TypeGet()));
+    dividend                    = comp->gtNewLclvNode(dividend->AsLclVar()->GetLclNum(), dividend->GetType());
+    GenTreeOp* adjustedDividend = comp->gtNewOperNode(GT_ADD, type, adjustment, dividend);
+    BlockRange().InsertAfter(adjustment, dividend, adjustedDividend);
+    ContainCheckBinary(adjustedDividend);
 
     GenTree* newDivMod;
+    BlockRange().Remove(divisor);
 
     if (isDiv)
     {
@@ -4132,13 +4142,15 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
         divisor->AsIntCon()->SetIconValue(genLog2(absDivisorValue));
 
         newDivMod = comp->gtNewOperNode(GT_RSH, type, adjustedDividend, divisor);
+        BlockRange().InsertAfter(adjustedDividend, divisor, newDivMod);
         ContainCheckShiftRotate(newDivMod->AsOp());
 
         if (divisorValue < 0)
         {
             // negate the result if the divisor is negative
-            newDivMod = comp->gtNewOperNode(GT_NEG, type, newDivMod);
-            ContainCheckNode(newDivMod);
+            GenTree* neg = comp->gtNewOperNode(GT_NEG, type, newDivMod);
+            BlockRange().InsertAfter(newDivMod, neg);
+            newDivMod = neg;
         }
     }
     else
@@ -4148,24 +4160,16 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
         // which simply discards the low log2(divisor) bits, that's just dividend & ~(divisor - 1)
         divisor->AsIntCon()->SetIconValue(~(absDivisorValue - 1));
 
-        newDivMod = comp->gtNewOperNode(GT_SUB, type,
-                                        comp->gtNewLclvNode(dividend->AsLclVar()->GetLclNum(), dividend->TypeGet()),
-                                        comp->gtNewOperNode(GT_AND, type, adjustedDividend, divisor));
+        GenTreeOp* mask = comp->gtNewOperNode(GT_AND, type, adjustedDividend, divisor);
+        dividend        = comp->gtNewLclvNode(dividend->AsLclVar()->GetLclNum(), dividend->GetType());
+        newDivMod       = comp->gtNewOperNode(GT_SUB, type, dividend, mask);
+
+        BlockRange().InsertAfter(adjustedDividend, divisor, mask, dividend, newDivMod);
+        ContainCheckBinary(mask);
     }
 
-    // Remove the divisor and dividend nodes from the linear order,
-    // since we have reused them and will resequence the tree
-    BlockRange().Remove(divisor);
-    BlockRange().Remove(dividend);
-
-    LIR::Range range = LIR::SeqTree(comp, newDivMod);
-    ContainCheckRange(range);
-    BlockRange().InsertBefore(divMod, std::move(range));
-
-    BlockRange().Remove(divMod);
-
-    // replace the original divmod node with the new divmod tree
     use.ReplaceWith(comp, newDivMod);
+    BlockRange().Remove(divMod);
 
     return newDivMod->gtNext;
 }
