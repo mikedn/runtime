@@ -1249,8 +1249,6 @@ void Lowering::LowerCall(GenTreeCall* call)
     call->ClearOtherRegs();
     LowerCallArgs(call);
 
-    GenTree* newControlExpr = nullptr;
-
 #ifdef TARGET_X86
     if (call->IsTailCallViaJitHelper())
     {
@@ -1258,53 +1256,49 @@ void Lowering::LowerCall(GenTreeCall* call)
     }
     else
 #endif
+    {
+        GenTree* target = nullptr;
+
         if (call->IsDelegateInvoke())
-    {
-        newControlExpr = LowerDelegateInvoke(call);
-    }
-    else if (call->IsVirtualVtable())
-    {
-        if (!call->IsExpandedEarly())
         {
-            newControlExpr = LowerVirtualVtableCall(call);
+            target = LowerDelegateInvoke(call);
         }
-    }
-    else if (call->IsVirtualStub())
-    {
-        if (call->IsIndirectCall())
+        else if (call->IsVirtualVtable())
         {
-            LowerVirtualStubCallIndirect(call);
+            if (!call->IsExpandedEarly())
+            {
+                target = LowerVirtualVtableCall(call);
+            }
+        }
+        else if (call->IsVirtualStub())
+        {
+            if (call->IsIndirectCall())
+            {
+                LowerVirtualStubCallIndirect(call);
+            }
+            else
+            {
+                target = LowerVirtualStubCall(call);
+            }
         }
         else
         {
-            newControlExpr = LowerVirtualStubCall(call);
-        }
-    }
-    else
-    {
-        noway_assert(!call->IsVirtual());
+            noway_assert(!call->IsVirtual());
 
-        if (call->IsUnmanaged())
+            if (call->IsUnmanaged())
+            {
+                target = LowerPInvokeCall(call);
+            }
+            else if (!call->IsIndirectCall())
+            {
+                target = LowerDirectCall(call);
+            }
+        }
+
+        if (target != nullptr)
         {
-            newControlExpr = LowerPInvokeCall(call);
+            call->gtControlExpr = target;
         }
-        else if (!call->IsIndirectCall())
-        {
-            newControlExpr = LowerDirectCall(call);
-        }
-    }
-
-    if (newControlExpr != nullptr)
-    {
-        LIR::Range controlExprRange = LIR::SeqTree(comp, newControlExpr);
-
-        JITDUMP("results of lowering call:\n");
-        DISPRANGE(controlExprRange);
-
-        ContainCheckRange(controlExprRange);
-        BlockRange().InsertBefore(call, std::move(controlExprRange));
-
-        call->gtControlExpr = newControlExpr;
     }
 
 #if FEATURE_FASTTAILCALL
@@ -2389,7 +2383,7 @@ GenTree* Lowering::SpillStructCall(GenTreeCall* call, GenTree* user)
     return load;
 }
 
-GenTree* Lowering::LowerDirectCall(GenTreeCall* call)
+GenTree* Lowering::LowerDirectCall(GenTreeCall* call X86_ARG(GenTree* insertBefore))
 {
     noway_assert(call->IsUserCall() || call->IsHelperCall());
 
@@ -2457,10 +2451,16 @@ GenTree* Lowering::LowerDirectCall(GenTreeCall* call)
     }
 #endif
 
-    return ExpandConstLookupCallTarget(entryPoint DEBUGARG(call));
+#ifndef TARGET_X86
+    GenTree* insertBefore = call;
+#else
+    insertBefore               = insertBefore == nullptr ? call : insertBefore;
+#endif
+
+    return ExpandConstLookupCallTarget(entryPoint, insertBefore DEBUGARG(call));
 }
 
-GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call)
+GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call X86_ARG(GenTree* insertBefore))
 {
     noway_assert(call->IsUserCall() && call->IsDelegateInvoke());
 
@@ -2516,9 +2516,19 @@ GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call)
     thisArgNode->AsUnOp()->SetOp(0, targetThis);
     ContainCheckIndir(targetThis->AsIndir());
 
+#ifndef TARGET_X86
+    GenTree* insertBefore = call;
+#else
+    insertBefore               = insertBefore == nullptr ? call : insertBefore;
+#endif
+
     delegateThis        = comp->gtNewLclvNode(lclNum, TYP_REF);
     GenTree* targetAddr = new (comp, GT_LEA) GenTreeAddrMode(delegateThis, eeInfo->offsetOfDelegateFirstTarget);
-    return comp->gtNewOperNode(GT_IND, TYP_I_IMPL, targetAddr);
+    GenTree* target     = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, targetAddr);
+    BlockRange().InsertBefore(insertBefore, delegateThis, targetAddr, target);
+    ContainCheckIndir(target->AsIndir());
+
+    return target;
 }
 
 //------------------------------------------------------------------------
@@ -3051,7 +3061,7 @@ void Lowering::InsertPInvokeCallEpilog(GenTreeCall* call)
 
 GenTree* Lowering::LowerPInvokeCall(GenTreeCall* call)
 {
-    assert(call->IsUnmanaged());
+    assert(call->IsUnmanaged() X86_ONLY(&&!call->IsTailCallViaJitHelper()));
 
     // PInvoke lowering varies depending on the flags passed in by the EE. By default,
     // GC transitions are generated inline; if CORJIT_FLAG_USE_PINVOKE_HELPERS is specified,
@@ -3144,13 +3154,15 @@ GenTree* Lowering::LowerPInvokeCall(GenTreeCall* call)
         return nullptr;
     }
 
-    return ExpandConstLookupCallTarget(entryPoint DEBUGARG(call));
+    return ExpandConstLookupCallTarget(entryPoint, call DEBUGARG(call));
 }
 
-GenTree* Lowering::ExpandConstLookupCallTarget(const CORINFO_CONST_LOOKUP& entryPoint DEBUGARG(GenTreeCall* call))
+GenTree* Lowering::ExpandConstLookupCallTarget(const CORINFO_CONST_LOOKUP& entryPoint,
+                                               GenTree* insertBefore DEBUGARG(GenTreeCall* call))
 {
     GenTreeIntCon* addr = comp->gtNewIconHandleNode(entryPoint.addr, GTF_ICON_FTN_ADDR);
     INDEBUG(addr->gtTargetHandle = reinterpret_cast<size_t>(call->GetMethodHandle()));
+    BlockRange().InsertBefore(insertBefore, addr);
 
     if (entryPoint.accessType == IAT_VALUE)
     {
@@ -3158,6 +3170,8 @@ GenTree* Lowering::ExpandConstLookupCallTarget(const CORINFO_CONST_LOOKUP& entry
     }
 
     GenTree* load = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, addr);
+    BlockRange().InsertBefore(insertBefore, load);
+    ContainCheckIndir(load->AsIndir());
 
     if (entryPoint.accessType == IAT_PVALUE)
     {
@@ -3167,19 +3181,27 @@ GenTree* Lowering::ExpandConstLookupCallTarget(const CORINFO_CONST_LOOKUP& entry
     if (entryPoint.accessType == IAT_PPVALUE)
     {
         // TODO-CQ: Expanding earlier would allow CSEing of the first load which is invariant.
-        return comp->gtNewOperNode(GT_IND, TYP_I_IMPL, load);
+        load = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, load);
+        BlockRange().InsertBefore(insertBefore, load);
+        ContainCheckIndir(load->AsIndir());
+
+        return load;
     }
 
     noway_assert(entryPoint.accessType == IAT_RELPVALUE);
 
-    addr = comp->gtNewIconHandleNode(entryPoint.addr, GTF_ICON_FTN_ADDR);
-    return comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, load, addr);
+    addr            = comp->gtNewIconHandleNode(entryPoint.addr, GTF_ICON_FTN_ADDR);
+    GenTree* target = comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, load, addr);
+    BlockRange().InsertBefore(insertBefore, addr, target);
+    ContainCheckBinary(target->AsOp());
+
+    return target;
 }
 
 // Expand the code necessary to calculate the control target.
 // Returns: the expression needed to calculate the control target
 // May insert embedded statements
-GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call)
+GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call X86_ARG(GenTree* insertBefore))
 {
     noway_assert(call->IsUserCall());
     assert(!call->IsExpandedEarly() && (call->gtControlExpr == nullptr));
@@ -3219,8 +3241,16 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call)
         thisUse = comp->gtNewLclvNode(vtableCallTemp, thisPtr->GetType());
     }
 
+#ifndef TARGET_X86
+    GenTree* insertBefore = call;
+#else
+    insertBefore = insertBefore == nullptr ? call : insertBefore;
+#endif
+
     GenTree* mtAddr = new (comp, GT_LEA) GenTreeAddrMode(thisUse, VPTR_OFFS);
     GenTree* mt     = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, mtAddr);
+    BlockRange().InsertBefore(insertBefore, thisUse, mtAddr, mt);
+    ContainCheckIndir(mt->AsIndir());
 
     // TODO-MIKE-Cleanup: This is dead code.
     if (isRelative)
@@ -3229,41 +3259,54 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call)
 
         unsigned mtTempLclNum = comp->lvaNewTemp(TYP_I_IMPL, true DEBUGARG("vtbl call MT"));
         GenTree* mtTempStore  = comp->gtNewStoreLclVar(mtTempLclNum, TYP_I_IMPL, mt);
-        BlockRange().InsertBefore(call, thisUse, mtAddr, mt, mtTempStore);
+        BlockRange().InsertBefore(insertBefore, mtTempStore);
 
         GenTree* mtTempUse1    = comp->gtNewLclvNode(mtTempLclNum, TYP_I_IMPL);
         GenTree* chunkOffsAddr = new (comp, GT_LEA) GenTreeAddrMode(mtTempUse1, vtabOffsOfIndirection);
         GenTree* chunkOffs     = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, chunkOffsAddr, false);
-        BlockRange().InsertBefore(call, mtTempUse1, chunkOffsAddr, chunkOffs);
+        BlockRange().InsertBefore(insertBefore, mtTempUse1, chunkOffsAddr, chunkOffs);
         ContainCheckIndir(chunkOffs->AsIndir());
 
         GenTree* mtTempUse2    = comp->gtNewLclvNode(mtTempLclNum, TYP_I_IMPL);
         GenTree* offs          = comp->gtNewIconNode(vtabOffsOfIndirection + vtabOffsAfterIndirection, TYP_I_IMPL);
         GenTree* chunkBaseAddr = comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, mtTempUse2, offs);
         GenTree* slotAddr      = new (comp, GT_LEA) GenTreeAddrMode(TYP_I_IMPL, chunkBaseAddr, chunkOffs, 1, 0);
-        BlockRange().InsertBefore(call, mtTempUse2, offs, chunkBaseAddr, slotAddr);
+        BlockRange().InsertBefore(insertBefore, mtTempUse2, offs, chunkBaseAddr, slotAddr);
 
         unsigned slotAddrTempLclNum = comp->lvaNewTemp(TYP_I_IMPL, true DEBUGARG("vtbl call slot addr"));
         GenTree* slotAddrTempStore  = comp->gtNewStoreLclVar(slotAddrTempLclNum, TYP_I_IMPL, slotAddr);
-        BlockRange().InsertBefore(call, slotAddrTempStore);
+        BlockRange().InsertBefore(insertBefore, slotAddrTempStore);
 
         GenTree* slotAddrTempUse1 = comp->gtNewLclvNode(slotAddrTempLclNum, TYP_I_IMPL);
         GenTree* codeOffs         = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, slotAddrTempUse1);
         GenTree* slotAddrTempUse2 = comp->gtNewLclvNode(slotAddrTempLclNum, TYP_I_IMPL);
+        GenTree* target           = comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, codeOffs, slotAddrTempUse2);
+        BlockRange().InsertBefore(insertBefore, slotAddrTempUse1, codeOffs, slotAddrTempUse2, target);
+        ContainCheckIndir(codeOffs->AsIndir());
 
-        return comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, codeOffs, slotAddrTempUse2);
+        return target;
     }
 
-    GenTree* slotAddr = mt;
+    GenTree* chunkAddr;
 
-    if (vtabOffsOfIndirection != CORINFO_VIRTUALCALL_NO_CHUNK)
+    if (vtabOffsOfIndirection == CORINFO_VIRTUALCALL_NO_CHUNK)
     {
-        slotAddr = new (comp, GT_LEA) GenTreeAddrMode(slotAddr, vtabOffsOfIndirection);
-        slotAddr = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, slotAddr);
+        chunkAddr = mt;
+    }
+    else
+    {
+        GenTree* chunkAddrAddr = new (comp, GT_LEA) GenTreeAddrMode(mt, vtabOffsOfIndirection);
+        chunkAddr              = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, chunkAddrAddr);
+        BlockRange().InsertBefore(insertBefore, chunkAddrAddr, chunkAddr);
+        ContainCheckIndir(chunkAddr->AsIndir());
     }
 
-    slotAddr = new (comp, GT_LEA) GenTreeAddrMode(slotAddr, vtabOffsAfterIndirection);
-    return comp->gtNewOperNode(GT_IND, TYP_I_IMPL, slotAddr);
+    GenTree* slotAddr = new (comp, GT_LEA) GenTreeAddrMode(chunkAddr, vtabOffsAfterIndirection);
+    GenTree* target   = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, slotAddr);
+    BlockRange().InsertBefore(insertBefore, slotAddr, target);
+    ContainCheckIndir(target->AsIndir());
+
+    return target;
 }
 
 void Lowering::LowerVirtualStubCallIndirect(GenTreeCall* call)
@@ -3295,7 +3338,7 @@ void Lowering::LowerVirtualStubCallIndirect(GenTreeCall* call)
     ContainCheckIndir(ind->AsIndir());
 }
 
-GenTree* Lowering::LowerVirtualStubCall(GenTreeCall* call)
+GenTree* Lowering::LowerVirtualStubCall(GenTreeCall* call X86_ARG(GenTree* insertBefore))
 {
     assert(call->IsVirtualStub() && !call->IsIndirectCall() X86_ONLY(&&!call->IsTailCallViaJitHelper()));
 
@@ -3329,10 +3372,20 @@ GenTree* Lowering::LowerVirtualStubCall(GenTreeCall* call)
     }
 #endif
 
-    // TODO-Cleanup: start emitting random NOPS
+// TODO-Cleanup: start emitting random NOPS
 
-    GenTreeIntCon* addr = comp->gtNewIconHandleNode(call->gtStubCallStubAddr, GTF_ICON_FTN_ADDR);
-    return comp->gtNewOperNode(GT_IND, TYP_I_IMPL, addr);
+#ifndef TARGET_X86
+    GenTree* insertBefore = call;
+#else
+    insertBefore = insertBefore == nullptr ? call : insertBefore;
+#endif
+
+    GenTreeIntCon* addr   = comp->gtNewIconHandleNode(call->gtStubCallStubAddr, GTF_ICON_FTN_ADDR);
+    GenTree*       target = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, addr);
+    BlockRange().InsertBefore(insertBefore, addr, target);
+    ContainCheckIndir(target->AsIndir());
+
+    return target;
 }
 
 //------------------------------------------------------------------------

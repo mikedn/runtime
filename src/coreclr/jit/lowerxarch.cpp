@@ -596,47 +596,6 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
     assert(((comp->compCurBB->bbFlags & BBF_GC_SAFE_POINT) != 0) ||
            ((comp->fgFirstBB->bbFlags & BBF_GC_SAFE_POINT) != 0));
 
-    GenTree* target = nullptr;
-
-    if (call->IsDelegateInvoke())
-    {
-        target = LowerDelegateInvoke(call);
-    }
-    else if (call->IsVirtualVtable())
-    {
-        target = LowerVirtualVtableCall(call);
-    }
-    else if (call->IsVirtualStub())
-    {
-        if (call->IsIndirectCall())
-        {
-            LowerVirtualStubCallIndirect(call);
-        }
-        else
-        {
-            noway_assert(call->gtStubCallStubAddr != nullptr);
-            noway_assert(call->IsVirtualStubRelativeIndir());
-
-            // Normally we'd need an indirection to get the actual target address but
-            // the CORINFO_HELP_TAILCALL helper handles this if the VSD flag is set.
-            target = comp->gtNewIconHandleNode(call->gtStubCallStubAddr, GTF_ICON_FTN_ADDR);
-        }
-    }
-    else
-    {
-        noway_assert(!call->IsVirtual());
-
-        if (!call->IsIndirectCall())
-        {
-            target = LowerDirectCall(call);
-        }
-    }
-
-    if (comp->compMethodRequiresPInvokeFrame())
-    {
-        InsertPInvokeMethodEpilog(comp->compCurBB DEBUGARG(call));
-    }
-
     CallInfo* callInfo = call->GetInfo();
 
     // Verify the special args are what we expect, and replace the dummy args with real values.
@@ -659,22 +618,58 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
     assert(isClosed);
     BlockRange().Remove(std::move(oldTargetArgRange));
 
+    GenTree* target = nullptr;
+
     // Remove gtCallAddr from execution order if present, we need to pass it as the
     // first call argument so we need to move it before the corresponding PUTARG_STK.
     if (call->IsIndirectCall())
     {
+        if (call->IsVirtualStub())
+        {
+            LowerVirtualStubCallIndirect(call);
+        }
+
         target = call->gtCallAddr;
 
         LIR::ReadOnlyRange callAddrRange = BlockRange().GetTreeRange(target, &isClosed);
         assert(isClosed);
 
         BlockRange().Remove(std::move(callAddrRange));
+
+        // TODO-MIKE-Review: Do we need sequencing for indirect calls?
+        LIR::Range callTargetRange = LIR::SeqTree(comp, target);
+        ContainCheckRange(callTargetRange);
+        BlockRange().InsertBefore(targetArg, std::move(callTargetRange));
+    }
+    else if (call->IsDelegateInvoke())
+    {
+        target = LowerDelegateInvoke(call, targetArg);
+    }
+    else if (call->IsVirtualVtable())
+    {
+        target = LowerVirtualVtableCall(call, targetArg);
+    }
+    else if (call->IsVirtualStub())
+    {
+        noway_assert(call->gtStubCallStubAddr != nullptr);
+        noway_assert(call->IsVirtualStubRelativeIndir());
+
+        // Normally we'd need an indirection to get the actual target address but
+        // the CORINFO_HELP_TAILCALL helper handles this if the VSD flag is set.
+        target = comp->gtNewIconHandleNode(call->gtStubCallStubAddr, GTF_ICON_FTN_ADDR);
+        BlockRange().InsertBefore(targetArg, target);
+    }
+    else
+    {
+        noway_assert(!call->IsVirtual());
+
+        target = LowerDirectCall(call, targetArg);
     }
 
-    // TODO-MIKE-Review: Do we need sequencing for indirect calls?
-    LIR::Range callTargetRange = LIR::SeqTree(comp, target);
-    ContainCheckRange(callTargetRange);
-    BlockRange().InsertBefore(targetArg, std::move(callTargetRange));
+    if (comp->compMethodRequiresPInvokeFrame())
+    {
+        InsertPInvokeMethodEpilog(comp->compCurBB DEBUGARG(call));
+    }
 
     targetArg->SetOp(0, target);
 
@@ -690,7 +685,7 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
 
     // Lower this as if it were a normal helper call.
     call->gtCallMoreFlags &= ~(GTF_CALL_M_TAILCALL | GTF_CALL_M_TAILCALL_VIA_JIT_HELPER);
-    GenTree* helperTarget = LowerDirectCall(call);
+    call->gtControlExpr = LowerDirectCall(call);
     // Now add back tail call flags for identifying this node as tail call dispatched via helper.
     // CodeGen needs checks this in order to insert the GS cookie check (if required).
     call->gtCallMoreFlags |= GTF_CALL_M_TAILCALL | GTF_CALL_M_TAILCALL_VIA_JIT_HELPER;
@@ -701,14 +696,6 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
         InsertProfTailCallHook(call, call);
     }
 #endif
-
-    if (helperTarget != nullptr)
-    {
-        LIR::Range helperTargetRange = LIR::SeqTree(comp, helperTarget);
-        ContainCheckRange(helperTargetRange);
-        BlockRange().InsertBefore(call, std::move(helperTargetRange));
-        call->gtControlExpr = helperTarget;
-    }
 }
 #endif // TARGET_X86
 
