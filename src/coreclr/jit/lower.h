@@ -179,15 +179,15 @@ private:
             return def->AsLclVar();
         }
 
-        GenTree* assign;
-        use.ReplaceWithLclVar(comp, tempNum, &assign);
+        GenTreeLclVar* store;
+        use.ReplaceWithLclVar(comp, tempNum, &store);
 
         GenTreeLclVar* newDef = use.Def()->AsLclVar();
-        ContainCheckRange(def->gtNext, newDef);
+        ContainCheckStoreLcl(store);
 
         // We need to lower the LclVar and assignment since there may be certain
         // types or scenarios, such as TYP_SIMD12, that need special handling
-        LowerNode(assign);
+        LowerNode(store);
         LowerNode(newDef);
 
         return newDef;

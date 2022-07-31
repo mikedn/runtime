@@ -248,7 +248,7 @@ void LIR::Use::ReplaceWith(Compiler* compiler, GenTree* replacement)
 //
 // Return Value: The number of the local var used for temporary storage.
 //
-unsigned LIR::Use::ReplaceWithLclVar(Compiler* compiler, unsigned lclNum, GenTree** assign)
+unsigned LIR::Use::ReplaceWithLclVar(Compiler* compiler, unsigned lclNum, GenTreeLclVar** newStore)
 {
     assert(IsInitialized());
     assert(m_range->Contains(m_user));
@@ -297,8 +297,8 @@ unsigned LIR::Use::ReplaceWithLclVar(Compiler* compiler, unsigned lclNum, GenTre
         }
     }
 
-    GenTree* store = compiler->gtNewStoreLclVar(lclNum, type, def);
-    GenTree* load  = compiler->gtNewLclvNode(lclNum, type);
+    GenTreeLclVar* store = compiler->gtNewStoreLclVar(lclNum, type, def);
+    GenTreeLclVar* load  = compiler->gtNewLclvNode(lclNum, type);
     m_range->InsertAfter(def, store, load);
 
     ReplaceWith(compiler, load);
@@ -306,9 +306,9 @@ unsigned LIR::Use::ReplaceWithLclVar(Compiler* compiler, unsigned lclNum, GenTre
     JITDUMP("ReplaceWithLclVar created store :\n");
     DISPNODE(store);
 
-    if (assign != nullptr)
+    if (newStore != nullptr)
     {
-        *assign = store;
+        *newStore = store;
     }
     return lclNum;
 }
