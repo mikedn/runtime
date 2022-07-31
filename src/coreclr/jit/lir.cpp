@@ -1617,7 +1617,6 @@ LIR::Range LIR::SeqTree(Compiler* compiler, GenTree* tree)
     // threaded into an order, but I'm not sure that will be practical at this
     // point.
 
-    compiler->gtSetEvalOrder(tree);
     return Range(compiler->fgSetTreeSeq(tree, true), tree);
 }
 
