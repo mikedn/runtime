@@ -1588,39 +1588,6 @@ const LIR::Range& LIR::AsRange(const BasicBlock* block)
 }
 
 //------------------------------------------------------------------------
-// LIR::EmptyRange: Constructs and returns an empty range.
-//
-// static
-LIR::Range LIR::EmptyRange()
-{
-    return Range(nullptr, nullptr);
-}
-
-//------------------------------------------------------------------------
-// LIR::SeqTree:
-//    Given a newly created, unsequenced HIR tree, set the evaluation
-//    order (call gtSetEvalOrder) and sequence the tree (set gtNext/gtPrev
-//    pointers by calling fgSetTreeSeq), and return a Range representing
-//    the list of nodes. It is expected this will later be spliced into
-//    an LIR range.
-//
-// Arguments:
-//    compiler - The Compiler context.
-//    tree - The tree to sequence.
-//
-// Return Value: The newly constructed range.
-//
-// static
-LIR::Range LIR::SeqTree(Compiler* compiler, GenTree* tree)
-{
-    // TODO-LIR: it would be great to assert that the tree has not already been
-    // threaded into an order, but I'm not sure that will be practical at this
-    // point.
-
-    return Range(compiler->fgSetTreeSeq(tree, true), tree);
-}
-
-//------------------------------------------------------------------------
 // LIR::InsertBeforeTerminator:
 //    Insert an LIR range before the terminating instruction in the given
 //    basic block. If the basic block has no terminating instruction (i.e.

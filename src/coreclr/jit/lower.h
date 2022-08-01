@@ -48,23 +48,6 @@ public:
     }
 
 private:
-    // ContainCheckRange handles new code that is introduced by or after Lowering,
-    // and that is known to be already in Lowered form.
-    void ContainCheckRange(LIR::ReadOnlyRange& range)
-    {
-        for (GenTree* newNode : range)
-        {
-            ContainCheckNode(newNode);
-        }
-    }
-    void ContainCheckRange(GenTree* firstNode, GenTree* lastNode)
-    {
-        LIR::ReadOnlyRange range(firstNode, lastNode);
-        ContainCheckRange(range);
-    }
-
-    void ContainCheckNode(GenTree* node);
-
     void ContainCheckDivOrMod(GenTreeOp* node);
     void ContainCheckReturnTrap(GenTreeOp* node);
     void ContainCheckArrOffset(GenTreeArrOffs* node);
