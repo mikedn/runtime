@@ -4683,10 +4683,12 @@ void emitter::emitIns_Call(EmitCallType          callType,
 
         id->idAddr()->iiaAddr = (BYTE*)addr;
 
+#ifdef DEBUG
         if (callType == EC_FUNC_ADDR)
         {
             id->idSetIsCallAddr();
         }
+#endif
 
         if (emitComp->opts.compReloc)
         {

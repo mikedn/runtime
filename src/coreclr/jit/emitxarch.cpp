@@ -6126,10 +6126,12 @@ void emitter::emitIns_Call(EmitCallType          callType,
 
         id->idAddr()->iiaAddr = (BYTE*)addr;
 
+#ifdef DEBUG
         if (callType == EC_FUNC_ADDR)
         {
             id->idSetIsCallAddr();
         }
+#endif
 
         // Direct call to a method and no addr indirection is needed.
         if (codeGen->genCodeAddrNeedsReloc((size_t)addr))

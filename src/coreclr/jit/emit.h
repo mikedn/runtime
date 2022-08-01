@@ -671,10 +671,10 @@ protected:
         unsigned _idLargeDsp : 1;  // does a large displacement follow?
         unsigned _idLargeCall : 1; // large call descriptor used
 
-        unsigned _idBound : 1;      // jump target / frame offset bound
-        unsigned _idCallRegPtr : 1; // IL indirect calls: addr in reg
-        unsigned _idCallAddr : 1;   // IL indirect calls: can make a direct call to iiaAddr
-        unsigned _idNoGC : 1;       // Some helpers don't get recorded in GC tables
+        unsigned _idBound : 1;             // jump target / frame offset bound
+        unsigned _idCallRegPtr : 1;        // IL indirect calls: addr in reg
+        INDEBUG(unsigned _idCallAddr : 1;) // IL indirect calls: can make a direct call to iiaAddr
+        unsigned _idNoGC : 1;              // Some helpers don't get recorded in GC tables
 
 #ifdef TARGET_ARM64
         opSize   _idOpSize : 3; // operand size: 0=1 , 1=2 , 2=4 , 3=8, 4=16
@@ -1116,6 +1116,7 @@ protected:
             _idCallRegPtr = 1;
         }
 
+#ifdef DEBUG
         bool idIsCallAddr() const
         {
             return _idCallAddr != 0;
@@ -1124,6 +1125,7 @@ protected:
         {
             _idCallAddr = 1;
         }
+#endif
 
         // Only call instructions that call helper functions may be marked as "IsNoGC", indicating
         // that a thread executing such a call cannot be stopped for GC.  Thus, in partially-interruptible
