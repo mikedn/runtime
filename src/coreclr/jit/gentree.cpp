@@ -8469,6 +8469,12 @@ void Compiler::gtDispTree(GenTree*     tree,
 
                 if (call->IsIndirectCall())
                 {
+                    if (call->gtCallCookie != nullptr)
+                    {
+                        gtDispChild(call->gtCallCookie, indentStack,
+                                    (call->gtCallCookie == lastChild) ? IIArcBottom : IIArc, "cookie", false);
+                    }
+
                     gtDispChild(call->gtCallAddr, indentStack, (call->gtCallAddr == lastChild) ? IIArcBottom : IIArc,
                                 "callAddr", false);
                 }
