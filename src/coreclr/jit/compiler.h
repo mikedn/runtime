@@ -2313,12 +2313,9 @@ public:
     {
         IINone,
         IIArc,
-        IIArcTop,
-        IIArcBottom,
-        IIEmbedded,
-        IIError,
-        IndentInfoCount
+        IIArcBottom
     };
+
     void gtDispChild(GenTree*             child,
                      IndentStack*         indentStack,
                      IndentInfo           arcType,

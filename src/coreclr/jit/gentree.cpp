@@ -18,24 +18,13 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #pragma hdrstop
 #endif
 
-/*****************************************************************************/
-
 const unsigned short GenTree::gtOperKindTable[] = {
 #define GTNODE(en, st, cm, ok) (ok) + GTK_COMMUTE *cm,
 #include "gtlist.h"
 };
 
-/*****************************************************************************
- *
- *  The types of different GenTree nodes
- */
-
 #ifdef DEBUG
 
-#define INDENT_SIZE 3
-
-//--------------------------------------------
-//
 // IndentStack: This struct is used, along with its related enums and strings,
 //    to control both the indendtation and the printing of arcs.
 //
@@ -44,48 +33,35 @@ const unsigned short GenTree::gtOperKindTable[] = {
 //    Currently it only prints arcs when fgOrder == fgOrderLinear.
 //    The type of arc to print is specified by the IndentInfo enum, and is controlled
 //    by the caller of the Push() method.
-
-enum IndentChars
-{
-    ICVertical,
-    ICBottom,
-    ICTop,
-    ICMiddle,
-    ICDash,
-    ICTerminal,
-    ICError,
-    IndentCharCount
-};
-
-// clang-format off
-// Sets of strings for different dumping options            vert             bot             top             mid             dash       embedded    terminal    error
-static const char*  emptyIndents[IndentCharCount]   = {     " ",             " ",            " ",            " ",            " ",            "",        "?"  };
-static const char*  asciiIndents[IndentCharCount]   = {     "|",            "\\",            "/",            "+",            "-",            "*",       "?"  };
-static const char*  unicodeIndents[IndentCharCount] = { "\xe2\x94\x82", "\xe2\x94\x94", "\xe2\x94\x8c", "\xe2\x94\x9c", "\xe2\x94\x80", "\xe2\x96\x8c", "?"  };
-// clang-format on
-
 struct IndentStack
 {
+    enum IndentChars
+    {
+        ICVertical,
+        ICBottom,
+        ICMiddle,
+        ICDash,
+        ICTerminal
+    };
+
     ArrayStack<Compiler::IndentInfo> stack;
-    const char**                     indents;
+    const char* const*               indents;
 
     // Constructor for IndentStack.  Uses 'compiler' to determine the mode of printing.
     IndentStack(Compiler* compiler) : stack(compiler->getAllocator(CMK_DebugOnly))
     {
-        if (compiler->asciiTrees)
-        {
-            indents = asciiIndents;
-        }
-        else
-        {
-            indents = unicodeIndents;
-        }
+        // clang-format off
+        //                                             vertical        bottom          middle          dash            terminal
+        static constexpr const char* asciiIndents[]  { "|",            "\\",           "+",            "-",            "*", };
+        static constexpr const char* unicodeIndents[]{ "\xe2\x94\x82", "\xe2\x94\x94", "\xe2\x94\x9c", "\xe2\x94\x80", "\xe2\x96\x8c" };
+        // clang-format on
+
+        indents = compiler->asciiTrees ? asciiIndents : unicodeIndents;
     }
 
-    // Return the depth of the current indentation.
-    unsigned Depth()
+    unsigned Empty()
     {
-        return stack.Size();
+        return stack.Empty();
     }
 
     // Push a new indentation onto the stack, of the given type.
@@ -103,15 +79,11 @@ struct IndentStack
     // Print the current indentation and arcs.
     void print()
     {
-        unsigned indentCount = Depth();
-        for (unsigned i = 0; i < indentCount; i++)
+        for (unsigned i = 0, count = stack.Size(); i < count; i++)
         {
-            unsigned index = indentCount - 1 - i;
+            unsigned index = count - 1 - i;
             switch (stack.Top(index))
             {
-                case Compiler::IndentInfo::IINone:
-                    printf("   ");
-                    break;
                 case Compiler::IndentInfo::IIArc:
                     if (index == 0)
                     {
@@ -125,14 +97,9 @@ struct IndentStack
                 case Compiler::IndentInfo::IIArcBottom:
                     printf("%s%s%s", indents[ICBottom], indents[ICDash], indents[ICDash]);
                     break;
-                case Compiler::IndentInfo::IIArcTop:
-                    printf("%s%s%s", indents[ICTop], indents[ICDash], indents[ICDash]);
-                    break;
-                case Compiler::IndentInfo::IIError:
-                    printf("%s%s%s", indents[ICError], indents[ICDash], indents[ICDash]);
-                    break;
                 default:
-                    unreached();
+                    printf("   ");
+                    break;
             }
         }
         printf("%s", indents[ICTerminal]);
@@ -8040,7 +8007,7 @@ void Compiler::gtDispTree(GenTree*     tree,
     // Determine what kind of arc to propagate.
     IndentInfo myArc    = IINone;
     IndentInfo lowerArc = IINone;
-    if (indentStack->Depth() > 0)
+    if (!indentStack->Empty())
     {
         myArc = indentStack->Pop();
         switch (myArc)
@@ -8053,16 +8020,9 @@ void Compiler::gtDispTree(GenTree*     tree,
                 indentStack->Push(IIArc);
                 lowerArc = IIArc;
                 break;
-            case IIArcTop:
-                indentStack->Push(IINone);
-                lowerArc = IIArc;
-                break;
-            case IINone:
+            default:
                 indentStack->Push(IINone);
                 lowerArc = IINone;
-                break;
-            default:
-                unreached();
                 break;
         }
     }
@@ -8075,9 +8035,9 @@ void Compiler::gtDispTree(GenTree*     tree,
 
     gtDispNode(tree, indentStack, msg, isLIR);
 
-    if (indentStack->Depth() > 0)
+    if (!indentStack->Empty())
     {
-        (void)indentStack->Pop();
+        indentStack->Pop();
         indentStack->Push(lowerArc);
     }
 
