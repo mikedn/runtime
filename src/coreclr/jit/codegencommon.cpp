@@ -7146,7 +7146,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
                                        addr,
                                        0,          // argSize
                                        EA_UNKNOWN, // retSize
-#if defined(TARGET_ARM64)
+#ifdef TARGET_ARM64
                                        EA_UNKNOWN, // secondRetSize
 #endif
                                        gcInfo.gcVarPtrSetCur,
@@ -7154,9 +7154,11 @@ void CodeGen::genFnEpilog(BasicBlock* block)
                                        gcInfo.gcRegByrefSetCur,
                                        BAD_IL_OFFSET, // IL offset
                                        indCallReg,    // ireg
+#ifdef TARGET_XARCH
                                        REG_NA,        // xreg
                                        0,             // xmul
                                        0,             // disp
+#endif
                                        true);         // isJump
             // clang-format on
             CLANG_FORMAT_COMMENT_ANCHOR;
@@ -7192,9 +7194,11 @@ void CodeGen::genFnEpilog(BasicBlock* block)
                                            gcInfo.gcRegByrefSetCur,
                                            BAD_IL_OFFSET, // IL offset
                                            REG_NA,        // ireg
+#ifdef TARGET_XARCH
                                            REG_NA,        // xreg
                                            0,             // xmul
                                            0,             // disp
+#endif
                                            true);         // isJump
                 // clang-format on
             }

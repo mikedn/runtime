@@ -8321,28 +8321,16 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount)
     appendToCurIG(id);
 }
 
-/*****************************************************************************
- *
- *  Add a call instruction (direct or indirect).
- *      argSize<0 means that the caller will pop the arguments
- *
- * The other arguments are interpreted depending on callType as shown:
- * Unless otherwise specified, ireg,xreg,xmul,disp should have default values.
- *
- * EC_FUNC_TOKEN       : addr is the method address
- * EC_FUNC_ADDR        : addr is the absolute address of the function
- *
- * If callType is one of these emitCallTypes, addr has to be NULL.
- * EC_INDIR_R          : "call ireg".
- *
- * For ARM xreg, xmul and disp are never used and should always be 0/REG_NA.
- *
- *  Please consult the "debugger team notification" comment in genFnProlog().
- */
-
+// Add a call instruction (direct or indirect).
+//
+// EC_FUNC_TOKEN : addr is the method address
+// EC_FUNC_ADDR  : addr is the absolute address of the function
+// EC_INDIR_R    : call ireg (addr has to be null)
+//
+// Please consult the "debugger team notification" comment in genFnProlog().
+//
 void emitter::emitIns_Call(EmitCallType          callType,
-                           CORINFO_METHOD_HANDLE methHnd DEBUGARG(CORINFO_SIG_INFO* sigInfo), // used to report call
-                                                                                              // sites to the EE
+                           CORINFO_METHOD_HANDLE methHnd DEBUGARG(CORINFO_SIG_INFO* sigInfo),
                            void*            addr,
                            ssize_t          argSize,
                            emitAttr         retSize,
@@ -8352,21 +8340,11 @@ void emitter::emitIns_Call(EmitCallType          callType,
                            regMaskTP        byrefRegs,
                            IL_OFFSETX       ilOffset,
                            regNumber        ireg,
-                           regNumber        xreg,
-                           unsigned         xmul,
-                           ssize_t          disp,
                            bool             isJump)
 {
-    /* Sanity check the arguments depending on callType */
-
-    assert(callType < EC_COUNT);
-    assert((callType != EC_FUNC_TOKEN && callType != EC_FUNC_ADDR) ||
-           (ireg == REG_NA && xreg == REG_NA && xmul == 0 && disp == 0));
-    assert(callType < EC_INDIR_R || addr == NULL);
-    assert(callType != EC_INDIR_R || (ireg < REG_COUNT && xreg == REG_NA && xmul == 0 && disp == 0));
-
-    // ARM never uses these
-    assert(xreg == REG_NA && xmul == 0 && disp == 0);
+    assert((callType == EC_INDIR_R) || (ireg == REG_NA));
+    assert((callType != EC_INDIR_R) || (addr == nullptr));
+    assert((callType != EC_INDIR_R) || (ireg != REG_NA));
 
     // Our stack level should be always greater than the bytes of arguments we push. Just
     // a sanity test.
@@ -8408,20 +8386,13 @@ void emitter::emitIns_Call(EmitCallType          callType,
     assert(argSize % REGSIZE_BYTES == 0);
     int argCnt = (int)(argSize / (int)REGSIZE_BYTES);
 
-    if (callType >= EC_INDIR_R)
+    if (callType == EC_INDIR_R)
     {
-        /* Indirect call, virtual calls */
-
-        assert(callType == EC_INDIR_R);
-
-        id = emitNewInstrCallInd(argCnt, disp, ptrVars, gcrefRegs, byrefRegs, retSize, secondRetSize);
+        id = emitNewInstrCallInd(argCnt, 0, ptrVars, gcrefRegs, byrefRegs, retSize, secondRetSize);
     }
     else
     {
-        /* Helper/static/nonvirtual/function calls (direct or through handle),
-           and calls to an absolute addr. */
-
-        assert(callType == EC_FUNC_TOKEN || callType == EC_FUNC_ADDR);
+        assert((callType == EC_FUNC_TOKEN) || (callType == EC_FUNC_ADDR));
 
         id = emitNewInstrCallDir(argCnt, ptrVars, gcrefRegs, byrefRegs, retSize, secondRetSize);
     }
@@ -8440,44 +8411,27 @@ void emitter::emitIns_Call(EmitCallType          callType,
 
     /* Record the address: method, indirection, or funcptr */
 
-    if (callType > EC_FUNC_ADDR)
+    if (callType == EC_INDIR_R)
     {
-        /* This is an indirect call (either a virtual call or func ptr call) */
+        id->idSetIsCallRegPtr();
 
-        switch (callType)
+        if (isJump)
         {
-            case EC_INDIR_R: // the address is in a register
-
-                id->idSetIsCallRegPtr();
-
-                if (isJump)
-                {
-                    ins = INS_br_tail; // INS_br_tail  Reg
-                }
-                else
-                {
-                    ins = INS_blr; // INS_blr Reg
-                }
-                fmt = IF_BR_1B;
-
-                id->idIns(ins);
-                id->idInsFmt(fmt);
-
-                id->idReg3(ireg);
-                assert(xreg == REG_NA);
-                break;
-
-            default:
-                NO_WAY("unexpected instruction");
-                break;
+            ins = INS_br_tail; // INS_br_tail  Reg
         }
+        else
+        {
+            ins = INS_blr; // INS_blr Reg
+        }
+        fmt = IF_BR_1B;
+
+        id->idIns(ins);
+        id->idInsFmt(fmt);
+        id->idReg3(ireg);
     }
     else
     {
-        /* This is a simple direct call: "call helper/method/addr" */
-
-        assert(callType == EC_FUNC_TOKEN || callType == EC_FUNC_ADDR);
-
+        assert((callType == EC_FUNC_TOKEN) || (callType == EC_FUNC_ADDR));
         assert(addr != NULL);
 
         if (isJump)

@@ -1265,24 +1265,15 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper,
             regSet.verifyRegUsed(callTargetReg);
         }
 
-        GetEmitter()->emitIns_Call(emitter::EC_INDIR_R, Compiler::eeFindHelper(helper) DEBUGARG(nullptr),
-                                   nullptr, // addr
+        GetEmitter()->emitIns_Call(emitter::EC_INDIR_R, Compiler::eeFindHelper(helper) DEBUGARG(nullptr), nullptr,
                                    argSize, retSize, gcInfo.gcVarPtrSetCur, gcInfo.gcRegGCrefSetCur,
-                                   gcInfo.gcRegByrefSetCur,
-                                   BAD_IL_OFFSET, // ilOffset
-                                   callTargetReg, // ireg
-                                   REG_NA, 0, 0,  // xreg, xmul, disp
-                                   false          // isJump
-                                   );
+                                   gcInfo.gcRegByrefSetCur, BAD_IL_OFFSET, callTargetReg, false);
     }
     else
     {
         GetEmitter()->emitIns_Call(emitter::EC_FUNC_TOKEN, Compiler::eeFindHelper(helper) DEBUGARG(nullptr), addr,
                                    argSize, retSize, gcInfo.gcVarPtrSetCur, gcInfo.gcRegGCrefSetCur,
-                                   gcInfo.gcRegByrefSetCur, BAD_IL_OFFSET, REG_NA, REG_NA, 0,
-                                   0,    /* ilOffset, ireg, xreg, xmul, disp */
-                                   false /* isJump */
-                                   );
+                                   gcInfo.gcRegByrefSetCur, BAD_IL_OFFSET, REG_NA, false);
     }
 
     regSet.verifyRegistersUsed(RBM_CALLEE_TRASH);

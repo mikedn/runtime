@@ -5911,24 +5911,16 @@ void emitter::emitAdjustStackDepth(instruction ins, ssize_t val)
 
 #endif // EMIT_TRACK_STACK_DEPTH
 
-/*****************************************************************************
- *
- *  Add a call instruction (direct or indirect).
- *      argSize<0 means that the caller will pop the arguments
- *
- * The other arguments are interpreted depending on callType as shown:
- * Unless otherwise specified, ireg,xreg,xmul,disp should have default values.
- *
- * EC_FUNC_TOKEN       : addr is the method address
- * EC_FUNC_TOKEN_INDIR : addr is the indirect method address
- * EC_FUNC_ADDR        : addr is the absolute address of the function
- *
- * If callType is one of these emitCallTypes, addr has to be NULL.
- * EC_INDIR_R          : "call ireg".
- * EC_INDIR_ARD        : "call [ireg+xreg*xmul+disp]"
- *
- */
-
+// Add a call instruction (direct or indirect).
+//
+// argSize < 0 means that the caller will pop the arguments
+//
+// EC_FUNC_TOKEN       : addr is the method address
+// EC_FUNC_TOKEN_INDIR : addr is the indirect method address
+// EC_FUNC_ADDR        : addr is the absolute address of the function
+// EC_INDIR_R          : call ireg (addr has to be null)
+// EC_INDIR_ARD        : call [ireg + xreg * xmul + disp] (addr has to be null)
+//
 // clang-format off
 void emitter::emitIns_Call(EmitCallType          callType,
                            CORINFO_METHOD_HANDLE methHnd
@@ -5948,9 +5940,6 @@ void emitter::emitIns_Call(EmitCallType          callType,
                            bool                  isJump)
 // clang-format on
 {
-    /* Sanity check the arguments depending on callType */
-
-    assert(callType < EC_COUNT);
     assert((callType != EC_FUNC_TOKEN && callType != EC_FUNC_TOKEN_INDIR && callType != EC_FUNC_ADDR) ||
            (ireg == REG_NA && xreg == REG_NA && xmul == 0 && disp == 0));
     assert(callType < EC_INDIR_R || callType == EC_INDIR_ARD || addr == nullptr);
@@ -6005,18 +5994,13 @@ void emitter::emitIns_Call(EmitCallType          callType,
     assert(argSize % REGSIZE_BYTES == 0);
     int argCnt = (int)(argSize / (int)REGSIZE_BYTES); // we need a signed-divide
 
-    if (callType >= EC_INDIR_R)
+    if ((callType == EC_INDIR_R) || (callType == EC_INDIR_ARD))
     {
-        assert((callType == EC_INDIR_R) || (callType == EC_INDIR_ARD));
-
         id = emitNewInstrCallInd(argCnt, disp, ptrVars, gcrefRegs, byrefRegs,
                                  retSize MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize));
     }
     else
     {
-        // Helper/static/nonvirtual/function calls (direct or through handle),
-        // and calls to an absolute addr.
-
         assert(callType == EC_FUNC_TOKEN || callType == EC_FUNC_TOKEN_INDIR || callType == EC_FUNC_ADDR);
 
         id = emitNewInstrCallDir(argCnt, ptrVars, gcrefRegs, byrefRegs,
@@ -6035,6 +6019,7 @@ void emitter::emitIns_Call(EmitCallType          callType,
     if (isJump)
     {
         assert(callType == EC_FUNC_TOKEN || callType == EC_FUNC_TOKEN_INDIR || callType == EC_INDIR_ARD);
+
         if (callType == EC_FUNC_TOKEN)
         {
             ins = INS_l_jmp;
@@ -6044,17 +6029,15 @@ void emitter::emitIns_Call(EmitCallType          callType,
             ins = INS_i_jmp;
         }
     }
-    id->idIns(ins);
 
+    id->idIns(ins);
     id->idSetIsNoGC(emitNoGChelper(methHnd));
 
     unsigned sz;
 
     // Record the address: method, indirection, or funcptr
-    if (callType >= EC_INDIR_R)
+    if ((callType == EC_INDIR_R) || (callType == EC_INDIR_ARD))
     {
-        assert((callType == EC_INDIR_R) || (callType == EC_INDIR_ARD));
-
         if (callType == EC_INDIR_R)
         {
             id->idSetIsCallRegPtr();
@@ -6087,8 +6070,6 @@ void emitter::emitIns_Call(EmitCallType          callType,
     }
     else if (callType == EC_FUNC_TOKEN_INDIR)
     {
-        /* "call [method_addr]" */
-
         assert(addr != nullptr);
 
         id->idInsFmt(IF_METHPTR);
@@ -6115,10 +6096,7 @@ void emitter::emitIns_Call(EmitCallType          callType,
     }
     else
     {
-        /* This is a simple direct call: "call helper/method/addr" */
-
-        assert(callType == EC_FUNC_TOKEN || callType == EC_FUNC_ADDR);
-
+        assert((callType == EC_FUNC_TOKEN) || (callType == EC_FUNC_ADDR));
         assert(addr != nullptr);
 
         id->idInsFmt(IF_METHOD);

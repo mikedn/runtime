@@ -2659,9 +2659,6 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         gcInfo.gcRegByrefSetCur,
         ilOffset,
         callReg,
-        REG_NA,
-        0,
-        0,
         false);
     // clang-format on
 
