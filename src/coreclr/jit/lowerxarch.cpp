@@ -614,25 +614,16 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
 
     GenTree* target = nullptr;
 
-    // Remove gtCallAddr from execution order if present, we need to pass it as the
-    // first call argument so we need to move it before the corresponding PUTARG_STK.
     if (call->IsIndirectCall())
     {
         // Indirect VSD calls are not supported (the importer blocks such tail calls).
         noway_assert(!call->IsVirtualStub());
 
-        target = call->gtCallAddr;
-
-        bool isClosed;
-        LIR::ReadOnlyRange callAddrRange = BlockRange().GetTreeRange(target, &isClosed);
-        assert(isClosed);
-
-        BlockRange().Remove(std::move(callAddrRange));
-
-        // TODO-MIKE-Review: Do we need sequencing for indirect calls?
-        LIR::Range callTargetRange = LIR::SeqTree(comp, target);
-        ContainCheckRange(callTargetRange);
-        BlockRange().InsertBefore(targetArg, std::move(callTargetRange));
+        // Indirect calls already have the correct target arg, we just need to remove
+        // the dummy call address added during morph.
+        assert(call->gtCallAddr->IsIntegralConst(0));
+        BlockRange().Remove(call->gtCallAddr);
+        call->gtCallAddr = nullptr;
     }
     else if (call->IsDelegateInvoke())
     {
@@ -664,9 +655,12 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
         InsertPInvokeMethodEpilog(comp->compCurBB DEBUGARG(call));
     }
 
-    assert(targetArg->GetOp(0)->IsIntCon());
-    BlockRange().Remove(targetArg->GetOp(0));
-    targetArg->SetOp(0, target);
+    if (target != nullptr)
+    {
+        assert(targetArg->GetOp(0)->IsIntCon());
+        BlockRange().Remove(targetArg->GetOp(0));
+        targetArg->SetOp(0, target);
+    }
 
     // Always restore EDI, ESI, EBX & Stub Dispatch flags
     flagsArg->GetOp(0)->AsIntCon()->SetValue(0x01 | (call->IsVirtualStub() ? 0x2 : 0x0));

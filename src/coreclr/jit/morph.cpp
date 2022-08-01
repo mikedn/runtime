@@ -7522,9 +7522,23 @@ void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
     GenTree* numNewStackSlotsArg = gtNewIconNode(0);
     // TODO-MIKE-Review: Seems like we could set the real flags here, not in lowering.
     GenTree* flagsArg = gtNewIconNode(0);
-    // We haven't created the target expression yet (e.g. for vtable calls), lowering will change
-    // this as needed.
-    GenTree* targetArg = gtNewIconNode(0);
+    GenTree* targetArg;
+
+    if (call->IsIndirectCall())
+    {
+        // Use the indirect call target as target argument. Note that since that target argument is
+        // last this doesn't change eveluation order.
+        targetArg = call->gtCallAddr;
+        // Put a dummy 0 node so we can keep the call as indirect for now.
+        // TODO-MIKE-Review: Why not transform into the actual helper call here?
+        call->gtCallAddr = gtNewIconNode(0);
+    }
+    else
+    {
+        // We haven't created the target expression yet (e.g. for vtable calls), lowering will change
+        // this as needed.
+        targetArg = gtNewIconNode(0);
+    }
 
     GenTreeCall::Use* newArgs = gtNewCallArgs(numOldStackSlotsArg, numNewStackSlotsArg, flagsArg, targetArg);
     GenTreeCall::Use* lastArg = nullptr;
