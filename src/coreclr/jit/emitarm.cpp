@@ -4597,8 +4597,6 @@ void emitter::emitIns_Call(EmitCallType          callType,
 
     if (callType == EC_INDIR_R)
     {
-        id->idSetIsCallRegPtr();
-
         if (isJump)
         {
             ins = INS_bx; // INS_bx  Reg

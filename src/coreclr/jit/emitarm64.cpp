@@ -8413,8 +8413,6 @@ void emitter::emitIns_Call(EmitCallType          callType,
 
     if (callType == EC_INDIR_R)
     {
-        id->idSetIsCallRegPtr();
-
         if (isJump)
         {
             ins = INS_br_tail; // INS_br_tail  Reg
