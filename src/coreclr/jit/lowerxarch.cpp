@@ -612,12 +612,6 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
     GenTreePutArgStk* numNewStackSlotsArg = call->GetArgNodeByArgNum(numArgs - 3)->AsPutArgStk();
     GenTreePutArgStk* numOldStackSlotsArg = call->GetArgNodeByArgNum(numArgs - 4)->AsPutArgStk();
 
-    // Remove dummy target arg added by morph.
-    bool               isClosed;
-    LIR::ReadOnlyRange oldTargetArgRange = BlockRange().GetTreeRange(targetArg->GetOp(0), &isClosed);
-    assert(isClosed);
-    BlockRange().Remove(std::move(oldTargetArgRange));
-
     GenTree* target = nullptr;
 
     // Remove gtCallAddr from execution order if present, we need to pass it as the
@@ -629,6 +623,7 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
 
         target = call->gtCallAddr;
 
+        bool isClosed;
         LIR::ReadOnlyRange callAddrRange = BlockRange().GetTreeRange(target, &isClosed);
         assert(isClosed);
 
@@ -669,6 +664,8 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
         InsertPInvokeMethodEpilog(comp->compCurBB DEBUGARG(call));
     }
 
+    assert(targetArg->GetOp(0)->IsIntCon());
+    BlockRange().Remove(targetArg->GetOp(0));
     targetArg->SetOp(0, target);
 
     // Always restore EDI, ESI, EBX & Stub Dispatch flags
