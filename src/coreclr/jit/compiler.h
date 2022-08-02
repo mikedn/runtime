@@ -2019,18 +2019,20 @@ public:
     GenTreeCall::Use* gtPrependNewCallArg(GenTree* node, GenTreeCall::Use* args);
     GenTreeCall::Use* gtInsertNewCallArgAfter(GenTree* node, GenTreeCall::Use* after);
 
-    GenTreeCall* gtNewCallNode(gtCallTypes           callType,
-                               CORINFO_METHOD_HANDLE handle,
-                               var_types             type,
-                               GenTreeCall::Use*     args,
-                               IL_OFFSETX            ilOffset = BAD_IL_OFFSET);
+    GenTreeCall* gtNewCallNode(
+        CallKind kind, void* target, var_types type, GenTreeCall::Use* args, IL_OFFSETX ilOffset = BAD_IL_OFFSET);
+
+    GenTreeCall* gtNewUserCallNode(CORINFO_METHOD_HANDLE handle,
+                                   var_types             type,
+                                   GenTreeCall::Use*     args,
+                                   IL_OFFSETX            ilOffset = BAD_IL_OFFSET);
 
     GenTreeCall* gtNewIndCallNode(GenTree*          addr,
                                   var_types         type,
                                   GenTreeCall::Use* args,
                                   IL_OFFSETX        ilOffset = BAD_IL_OFFSET);
 
-    GenTreeCall* gtNewHelperCallNode(unsigned helper, var_types type, GenTreeCall::Use* args = nullptr);
+    GenTreeCall* gtNewHelperCallNode(CorInfoHelpFunc helper, var_types type, GenTreeCall::Use* args = nullptr);
 
     GenTreeCall* gtNewRuntimeLookupHelperCallNode(CORINFO_RUNTIME_LOOKUP* pRuntimeLookup,
                                                   GenTree*                ctxTree,
@@ -2311,12 +2313,9 @@ public:
     {
         IINone,
         IIArc,
-        IIArcTop,
-        IIArcBottom,
-        IIEmbedded,
-        IIError,
-        IndentInfoCount
+        IIArcBottom
     };
+
     void gtDispChild(GenTree*             child,
                      IndentStack*         indentStack,
                      IndentInfo           arcType,
@@ -2991,7 +2990,7 @@ protected:
                               NamedIntrinsic        intrinsicName,
                               bool                  tailCall);
     NamedIntrinsic lookupNamedIntrinsic(CORINFO_METHOD_HANDLE method);
-    GenTree* impUnsupportedNamedIntrinsic(unsigned              helper,
+    GenTree* impUnsupportedNamedIntrinsic(CorInfoHelpFunc       helper,
                                           CORINFO_METHOD_HANDLE method,
                                           CORINFO_SIG_INFO*     sig,
                                           bool                  mustExpand);
@@ -4373,7 +4372,7 @@ public:
 
     bool fgOptimizeBranch(BasicBlock* bJump);
 
-    bool fgOptimizeSwitchBranches(BasicBlock* block);
+    bool fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering);
 
     bool fgOptimizeBranchToNext(BasicBlock* block, BasicBlock* bNext, BasicBlock* bPrev);
 
@@ -4392,7 +4391,7 @@ public:
 
     bool fgIsForwardBranch(BasicBlock* bJump, BasicBlock* bSrc = nullptr);
 
-    bool fgUpdateFlowGraph(bool doTailDup = false);
+    bool fgUpdateFlowGraph(Lowering* lowering = nullptr, bool doTailDup = false);
 
     void fgFindOperOrder();
 
@@ -4715,7 +4714,7 @@ private:
 
     GenTree* fgMorphCastIntoHelper(GenTreeCast* cast, int helper);
 
-    GenTree* fgMorphIntoHelperCall(GenTree* tree, int helper, GenTreeCall::Use* args, bool morphArgs = true);
+    GenTreeCall* fgMorphIntoHelperCall(GenTree* tree, int helper, GenTreeCall::Use* args, bool morphArgs = true);
 
     // A "MorphAddrContext" carries information from the surrounding context.  If we are evaluating a byref address,
     // it is useful to know whether the address will be immediately dereferenced, or whether the address value will
@@ -4772,7 +4771,7 @@ private:
     GenTree* fgMorphStringIndexIndir(GenTreeIndexAddr* index);
     GenTree* fgMorphCast(GenTreeCast* cast);
     void fgInitArgInfo(GenTreeCall* call);
-    GenTreeCall* fgMorphArgs(GenTreeCall* call);
+    void fgMorphArgs(GenTreeCall* call);
 
     GenTree* fgMorphLclVar(GenTreeLclVar* lclVar);
 
@@ -4788,8 +4787,10 @@ private:
 #endif
     bool     fgCheckStmtAfterTailCall();
     GenTree* fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL_HELPERS& help);
+#ifdef TARGET_X86
     bool fgCanTailCallViaJitHelper();
     void fgMorphTailCallViaJitHelper(GenTreeCall* call);
+#endif
     GenTree* fgCreateCallDispatcherAndGetResult(GenTreeCall*          origCall,
                                                 CORINFO_METHOD_HANDLE callTargetStubHnd,
                                                 CORINFO_METHOD_HANDLE dispatcherHnd);
@@ -4815,6 +4816,7 @@ private:
                                                      Statement*     tmpAssignmentInsertionPoint,
                                                      Statement*     paramAssignmentInsertionPoint);
     GenTree* fgMorphCall(GenTreeCall* call);
+    GenTree* fgRemoveArrayStoreHelperCall(GenTreeCall* call, GenTree* value);
     GenTree* fgExpandVirtualVtableCallTarget(GenTreeCall* call);
 
     GenTree* fgOptimizeDelegateConstructor(GenTreeCall*            call,
@@ -4905,7 +4907,7 @@ public:
     };
 
 private:
-    static unsigned acdHelper(SpecialCodeKind codeKind);
+    static CorInfoHelpFunc acdHelper(SpecialCodeKind codeKind);
 
     AddCodeDsc* fgAddCodeList;
     bool        fgAddCodeModf;
@@ -5734,8 +5736,7 @@ protected:
     bool rpMustCreateEBPFrame(INDEBUG(const char** wbReason));
 
 private:
-    Lowering*            m_pLowering;   // Lowering; needed to Lower IR that's added or modified after Lowering.
-    LinearScanInterface* m_pLinearScan; // Linear Scan allocator
+    LinearScanInterface* m_pLinearScan;
 
     bool lvaIsX86VarargsStackParam(unsigned lclNum);
 
@@ -5839,8 +5840,6 @@ public:
     unsigned eeGetArrayDataOffset(var_types type);
     // Gets the offset of a MDArray's first element
     unsigned eeGetMDArrayDataOffset(var_types type, unsigned rank);
-
-    GenTree* eeGetPInvokeCookie(CORINFO_SIG_INFO* szMetaSig);
 
     // Returns the page size for the target machine as reported by the EE.
     target_size_t eeGetPageSize()
@@ -6835,18 +6834,6 @@ public:
     {
         assert(stmt != nullptr);
         printf(FMT_STMT, stmt->GetID());
-    }
-
-    static void printTreeID(GenTree* tree)
-    {
-        if (tree == nullptr)
-        {
-            printf("[------]");
-        }
-        else
-        {
-            printf("[%06u]", dspTreeID(tree));
-        }
     }
 
     const char* pgoSourceToString(ICorJitInfo::PgoSource p);
@@ -8471,7 +8458,7 @@ public:
                     }
                 }
 
-                if (call->gtCallType == CT_INDIRECT)
+                if (call->IsIndirectCall())
                 {
                     if (call->gtCallCookie != nullptr)
                     {

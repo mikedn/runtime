@@ -4673,14 +4673,14 @@ bool CodeGen::genEmitOptimizedGCWriteBarrier(GCInfo::WriteBarrierForm writeBarri
         return false;
     }
 
-    const static int regToHelper[2][8] = {
+    const static CorInfoHelpFunc regToHelper[2][8] = {
         // If the target is known to be in managed memory
         {
             CORINFO_HELP_ASSIGN_REF_EAX, // EAX
             CORINFO_HELP_ASSIGN_REF_ECX, // ECX
-            -1,                          // EDX (always the target address)
+            CORINFO_HELP_UNDEF,          // EDX (always the target address)
             CORINFO_HELP_ASSIGN_REF_EBX, // EBX
-            -1,                          // ESP
+            CORINFO_HELP_UNDEF,          // ESP
             CORINFO_HELP_ASSIGN_REF_EBP, // EBP
             CORINFO_HELP_ASSIGN_REF_ESI, // ESI
             CORINFO_HELP_ASSIGN_REF_EDI, // EDI
@@ -4690,9 +4690,9 @@ bool CodeGen::genEmitOptimizedGCWriteBarrier(GCInfo::WriteBarrierForm writeBarri
         {
             CORINFO_HELP_CHECKED_ASSIGN_REF_EAX, // EAX
             CORINFO_HELP_CHECKED_ASSIGN_REF_ECX, // ECX
-            -1,                                  // EDX (always the target address)
+            CORINFO_HELP_UNDEF,                  // EDX (always the target address)
             CORINFO_HELP_CHECKED_ASSIGN_REF_EBX, // EBX
-            -1,                                  // ESP
+            CORINFO_HELP_UNDEF,                  // ESP
             CORINFO_HELP_CHECKED_ASSIGN_REF_EBP, // EBP
             CORINFO_HELP_CHECKED_ASSIGN_REF_ESI, // ESI
             CORINFO_HELP_CHECKED_ASSIGN_REF_EDI, // EDI
@@ -4702,7 +4702,7 @@ bool CodeGen::genEmitOptimizedGCWriteBarrier(GCInfo::WriteBarrierForm writeBarri
     noway_assert(regToHelper[0][REG_EAX] == CORINFO_HELP_ASSIGN_REF_EAX);
     noway_assert(regToHelper[0][REG_ECX] == CORINFO_HELP_ASSIGN_REF_ECX);
     noway_assert(regToHelper[0][REG_EBX] == CORINFO_HELP_ASSIGN_REF_EBX);
-    noway_assert(regToHelper[0][REG_ESP] == -1);
+    noway_assert(regToHelper[0][REG_ESP] == CORINFO_HELP_UNDEF);
     noway_assert(regToHelper[0][REG_EBP] == CORINFO_HELP_ASSIGN_REF_EBP);
     noway_assert(regToHelper[0][REG_ESI] == CORINFO_HELP_ASSIGN_REF_ESI);
     noway_assert(regToHelper[0][REG_EDI] == CORINFO_HELP_ASSIGN_REF_EDI);
@@ -4710,7 +4710,7 @@ bool CodeGen::genEmitOptimizedGCWriteBarrier(GCInfo::WriteBarrierForm writeBarri
     noway_assert(regToHelper[1][REG_EAX] == CORINFO_HELP_CHECKED_ASSIGN_REF_EAX);
     noway_assert(regToHelper[1][REG_ECX] == CORINFO_HELP_CHECKED_ASSIGN_REF_ECX);
     noway_assert(regToHelper[1][REG_EBX] == CORINFO_HELP_CHECKED_ASSIGN_REF_EBX);
-    noway_assert(regToHelper[1][REG_ESP] == -1);
+    noway_assert(regToHelper[1][REG_ESP] == CORINFO_HELP_UNDEF);
     noway_assert(regToHelper[1][REG_EBP] == CORINFO_HELP_CHECKED_ASSIGN_REF_EBP);
     noway_assert(regToHelper[1][REG_ESI] == CORINFO_HELP_CHECKED_ASSIGN_REF_ESI);
     noway_assert(regToHelper[1][REG_EDI] == CORINFO_HELP_CHECKED_ASSIGN_REF_EDI);
@@ -4741,35 +4741,19 @@ bool CodeGen::genEmitOptimizedGCWriteBarrier(GCInfo::WriteBarrierForm writeBarri
 #endif // !defined(TARGET_X86) || !NOGC_WRITE_BARRIERS
 }
 
-// Produce code for a GT_CALL node
 void CodeGen::genCallInstruction(GenTreeCall* call)
 {
+    // All virtuals should have been expanded into a control expression
+    assert(!call->IsVirtual() || (call->gtControlExpr != nullptr) || (call->gtCallAddr != nullptr));
+
     genAlignStackBeforeCall(call);
 
-    gtCallTypes callType = (gtCallTypes)call->gtCallType;
-
-    IL_OFFSETX ilOffset = BAD_IL_OFFSET;
-
-    // all virtuals should have been expanded into a control expression
-    assert(!call->IsVirtual() || call->gtControlExpr || call->gtCallAddr);
-
-    // Insert a GS check if necessary
-    if (call->IsTailCallViaJitHelper())
+#ifdef TARGET_X86
+    if (call->IsTailCallViaJitHelper() && compiler->getNeedsGSSecurityCookie())
     {
-        if (compiler->getNeedsGSSecurityCookie())
-        {
-#if FEATURE_FIXED_OUT_ARGS
-            // If either of the conditions below is true, we will need a temporary register in order to perform the GS
-            // cookie check. When FEATURE_FIXED_OUT_ARGS is disabled, we save and restore the temporary register using
-            // push/pop. When FEATURE_FIXED_OUT_ARGS is enabled, however, we need an alternative solution. For now,
-            // though, the tail prefix is ignored on all platforms that use fixed out args, so we should never hit this
-            // case.
-            assert(compiler->gsGlobalSecurityCookieAddr == nullptr);
-            assert((int)compiler->gsGlobalSecurityCookieVal == (ssize_t)compiler->gsGlobalSecurityCookieVal);
-#endif
-            genEmitGSCookieCheck(true);
-        }
+        genEmitGSCookieCheck(true);
     }
+#endif
 
     // Consume all the arg regs
     for (GenTreeCall::Use& use : call->LateArgs())
@@ -4832,37 +4816,29 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         GetEmitter()->emitIns_AR_R(INS_cmp, EA_4BYTE, regThis, regThis, 0);
     }
 
-    // Either gtControlExpr != null or gtCallAddr != null or it is a direct non-virtual call to a user or helper method.
     CORINFO_METHOD_HANDLE methHnd;
-    GenTree*              target = call->gtControlExpr;
-    if (callType == CT_INDIRECT)
+    GenTree*              target;
+
+    if (call->IsIndirectCall())
     {
-        assert(target == nullptr);
-        target  = call->gtCallAddr;
+        assert(call->gtControlExpr == nullptr);
+
         methHnd = nullptr;
+        target  = call->gtCallAddr;
     }
     else
     {
-        methHnd = call->gtCallMethHnd;
+        methHnd = call->GetMethodHandle();
+        target  = call->gtControlExpr;
     }
 
-    CORINFO_SIG_INFO* sigInfo = nullptr;
-#ifdef DEBUG
-    // Pass the call signature information down into the emitter so the emitter can associate
-    // native call sites with the signatures they were generated from.
-    if (callType != CT_HELPER)
-    {
-        sigInfo = call->callSig;
-    }
-#endif // DEBUG
-
+#if FEATURE_FASTTAILCALL
     // If fast tail call, then we are done.  In this case we setup the args (both reg args
     // and stack args in incoming arg area) and call target in rax.  Epilog sequence would
     // generate "jmp rax".
     if (call->IsFastTailCall())
     {
-        // Don't support fast tail calling JIT helpers
-        assert(callType != CT_HELPER);
+        assert(!call->IsHelperCall());
 
         // If this is indirect then we go through RAX with epilog sequence
         // generating "jmp rax". Otherwise epilog will try to generate a
@@ -4875,6 +4851,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 
         return;
     }
+#endif
 
     // For a pinvoke to unmanged code we emit a label to clear
     // the GC pointer state before the callsite.
@@ -4929,6 +4906,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 
     bool            fPossibleSyncHelperCall = false;
     CorInfoHelpFunc helperNum               = CORINFO_HELP_UNDEF;
+    IL_OFFSETX      ilOffset                = BAD_IL_OFFSET;
 
     // We need to propagate the IL offset information to the call instruction, so we can emit
     // an IL to native mapping record for the call, to support managed return shift debugging.
@@ -4967,7 +4945,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         instGen(INS_vzeroupper);
     }
 
-    if (callType == CT_HELPER && compiler->info.compFlags & CORINFO_FLG_SYNCH)
+    if (call->IsHelperCall() && ((compiler->info.compFlags & CORINFO_FLG_SYNCH) != 0))
     {
         fPossibleSyncHelperCall = true;
         helperNum               = compiler->eeGetHelperNum(methHnd);
@@ -4984,7 +4962,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     if (target != nullptr)
     {
 #ifdef TARGET_X86
-        if (call->IsVirtualStub() && (call->gtCallType == CT_INDIRECT))
+        if (call->IsVirtualStub() && call->IsIndirectCall())
         {
             // On x86, we need to generate a very specific pattern for indirect VSD calls:
             //
@@ -5072,37 +5050,19 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 #endif
     else
     {
-        // Generate a direct call to a non-virtual user defined or helper method
-        assert(callType == CT_HELPER || callType == CT_USER_FUNC);
-
-        if (callType == CT_HELPER)
-        {
-            // Direct call to a helper method.
-            helperNum = compiler->eeGetHelperNum(methHnd);
-            noway_assert(helperNum != CORINFO_HELP_UNDEF);
-
-            void* pAddr = nullptr;
-            callAddr    = compiler->compGetHelperFtn(helperNum, (void**)&pAddr);
-            assert(pAddr == nullptr);
-        }
-        else
-        {
-            // Direct call to a non-virtual user function.
-            callAddr = call->gtDirectCallAddress;
-        }
-
-        assert(callAddr != nullptr);
-
-        // Non-virtual direct calls to known addresses
+        assert(call->IsUserCall() || call->IsHelperCall());
 
         emitCallType = emitter::EC_FUNC_TOKEN;
+        callAddr     = call->gtDirectCallAddress;
+
+        assert(callAddr != nullptr);
     }
 
     // clang-format off
     GetEmitter()->emitIns_Call(
         emitCallType,
         methHnd
-        DEBUGARG(sigInfo),
+        DEBUGARG(call->IsHelperCall() ? nullptr : call->callSig),
         callAddr,
         argSizeForEmitter,
         retSize
@@ -5269,19 +5229,25 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     }
 #endif // !FEATURE_EH_FUNCLETS
 
+#ifdef TARGET_X86
     unsigned stackAdjustBias = 0;
 
-#ifdef TARGET_X86
-    // Is the caller supposed to pop the arguments?
     if (fCallerPop && (stackArgBytes != 0))
     {
         stackAdjustBias = stackArgBytes;
     }
 
     SubtractStackLevel(stackArgBytes);
-#endif
+
+    // TODO-MIKE-Consider: Emit a breakpoint after CORINFO_HELP_TAILCALL since it never returns.
+    // if (call->IsTailCallViaJitHelper())
+    // {
+    //     instGen(INS_BREAKPOINT);
+    //     return;
+    // }
 
     genRemoveAlignmentAfterCall(call, stackAdjustBias);
+#endif
 }
 
 // Produce code for a GT_JMP node.
@@ -6721,6 +6687,7 @@ void CodeGen::genAlignStackBeforeCall(GenTreeCall* call)
 #endif // UNIX_X86_ABI
 }
 
+#ifdef TARGET_X86
 //---------------------------------------------------------------------
 // genRemoveAlignmentAfterCall: After a call, remove the alignment
 // added before the call, if any.
@@ -6735,8 +6702,7 @@ void CodeGen::genAlignStackBeforeCall(GenTreeCall* call)
 //
 void CodeGen::genRemoveAlignmentAfterCall(GenTreeCall* call, unsigned bias)
 {
-#if defined(TARGET_X86)
-#if defined(UNIX_X86_ABI)
+#ifdef UNIX_X86_ABI
     // Put back the stack pointer if there was any padding for stack alignment
     unsigned padStkAlign  = call->GetInfo()->GetStkAlign();
     unsigned padStkAdjust = padStkAlign + bias;
@@ -6747,18 +6713,13 @@ void CodeGen::genRemoveAlignmentAfterCall(GenTreeCall* call, unsigned bias)
         SubtractStackLevel(padStkAlign);
         SubtractNestedAlignment(padStkAlign);
     }
-#else  // UNIX_X86_ABI
+#else
     if (bias != 0)
     {
         genAdjustSP(bias);
     }
-#endif // !UNIX_X86_ABI_
-#else  // TARGET_X86
-    assert(bias == 0);
-#endif // !TARGET_X86
+#endif
 }
-
-#ifdef TARGET_X86
 
 //---------------------------------------------------------------------
 // genPreAdjustStackForPutArgStk: Adjust the stack pointer before a non-push stack put arg
@@ -7923,20 +7884,15 @@ void CodeGen::genCreateAndStoreGCInfoX64(unsigned codeSize, unsigned prologSize 
 }
 #endif // !JIT32_GCENCODER
 
-/*****************************************************************************
- *  Emit a call to a helper function.
- *
- */
-
-void CodeGen::genEmitHelperCall(unsigned helper, int argSize, emitAttr retSize, regNumber callTargetReg)
+void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, int argSize, emitAttr retSize, regNumber callTargetReg)
 {
     void* addr  = nullptr;
     void* pAddr = nullptr;
 
     emitter::EmitCallType callType = emitter::EC_FUNC_TOKEN;
-    addr                           = compiler->compGetHelperFtn((CorInfoHelpFunc)helper, &pAddr);
+    addr                           = compiler->compGetHelperFtn(helper, &pAddr);
     regNumber callTarget           = REG_NA;
-    regMaskTP killMask             = compiler->compHelperCallKillSet((CorInfoHelpFunc)helper);
+    regMaskTP killMask             = compiler->compHelperCallKillSet(helper);
 
     if (!addr)
     {
@@ -7986,7 +7942,7 @@ void CodeGen::genEmitHelperCall(unsigned helper, int argSize, emitAttr retSize, 
 
     // clang-format off
     GetEmitter()->emitIns_Call(callType,
-                               compiler->eeFindHelper(helper)
+                               Compiler::eeFindHelper(helper)
                                DEBUGARG(nullptr), addr,
                                argSize,
                                retSize
@@ -8194,15 +8150,8 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
     SetStackLevel(saveStackLvl2);
 }
 
-//-----------------------------------------------------------------------------------
-// genProfilingLeaveCallback: Generate the profiling function leave or tailcall callback.
+// Generate the profiling function leave or tailcall callback.
 // Technically, this is not part of the epilog; it is called when we are generating code for a GT_RETURN node.
-//
-// Arguments:
-//     helper - which helper to call. Either CORINFO_HELP_PROF_FCN_LEAVE or CORINFO_HELP_PROF_FCN_TAILCALL
-//
-// Return Value:
-//     None
 //
 // Notes:
 // The x86 profile leave/tailcall helper has the following requirements (see ProfileLeaveNaked and
@@ -8219,7 +8168,7 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
 //    helper == CORINFO_HELP_PROF_FCN_TAILCALL: Only argument registers are preserved.
 // 5. The helper pops the FunctionIDOrClientID argument from the stack.
 //
-void CodeGen::genProfilingLeaveCallback(unsigned helper)
+void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 {
     assert((helper == CORINFO_HELP_PROF_FCN_LEAVE) || (helper == CORINFO_HELP_PROF_FCN_TAILCALL));
 
@@ -8486,7 +8435,7 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
 // Return Value:
 //     None
 //
-void CodeGen::genProfilingLeaveCallback(unsigned helper)
+void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 {
     assert((helper == CORINFO_HELP_PROF_FCN_LEAVE) || (helper == CORINFO_HELP_PROF_FCN_TAILCALL));
 

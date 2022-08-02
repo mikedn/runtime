@@ -74,7 +74,9 @@ public:
         bool IsDummyUse() const;
 
         void ReplaceWith(Compiler* compiler, GenTree* replacement);
-        unsigned ReplaceWithLclVar(Compiler* compiler, unsigned lclNum = BAD_VAR_NUM, GenTree** assign = nullptr);
+        unsigned ReplaceWithLclVar(Compiler*       compiler,
+                                   unsigned        lclNum   = BAD_VAR_NUM,
+                                   GenTreeLclVar** newStore = nullptr);
     };
 
     //------------------------------------------------------------------------
@@ -299,14 +301,8 @@ public:
     static Range& AsRange(BasicBlock* block);
     static const LIR::Range& LIR::AsRange(const BasicBlock* block);
 
-    static Range EmptyRange();
-    static Range SeqTree(Compiler* compiler, GenTree* tree);
-
     static void InsertBeforeTerminator(BasicBlock* block, LIR::Range&& range);
-
-    static void InsertHelperCallBefore(Compiler* compiler, Range& range, GenTree* before, GenTreeCall* call
-
-                                       );
+    static void InsertHelperCallBefore(Compiler* compiler, Range& range, GenTree* before, GenTreeCall* call);
 };
 
 inline void GenTree::SetUnusedValue()

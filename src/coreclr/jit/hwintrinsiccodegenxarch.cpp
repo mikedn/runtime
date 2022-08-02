@@ -24,7 +24,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "gcinfoencoder.h"
 
 #if DEBUG
-static bool IsContainableHWIntrinsicOp(Lowering* lowering, GenTreeHWIntrinsic* node, GenTree* op)
+static bool IsContainableHWIntrinsicOp(Compiler* compiler, GenTreeHWIntrinsic* node, GenTree* op)
 {
     // The Lowering::IsContainableHWIntrinsicOp call is not quite right, since it follows pre-register allocation
     // logic. However, this check is still important due to the various containment rules that SIMD intrinsics follow.
@@ -37,7 +37,7 @@ static bool IsContainableHWIntrinsicOp(Lowering* lowering, GenTreeHWIntrinsic* n
     // in the first place).
 
     bool supportsRegOptional = false;
-    bool isContainable       = lowering->IsContainableHWIntrinsicOp(node, op, &supportsRegOptional);
+    bool isContainable       = Lowering::IsContainableHWIntrinsicOp(compiler, node, op, &supportsRegOptional);
     return isContainable || supportsRegOptional || op->OperIs(GT_IND);
 }
 #endif // DEBUG
@@ -419,7 +419,7 @@ void CodeGen::genHWIntrinsic_R_RM(
     if (rmOp->isContained() || rmOp->isUsedFromSpillTemp())
     {
         assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
-        assert(IsContainableHWIntrinsicOp(compiler->m_pLowering, node, rmOp));
+        assert(IsContainableHWIntrinsicOp(compiler, node, rmOp));
 
         unsigned             lclNum;
         unsigned             lclOffs;
@@ -477,7 +477,7 @@ void CodeGen::genHWIntrinsic_R_RM_I(GenTreeHWIntrinsic* node, instruction ins, i
     if (op1->isContained() || op1->isUsedFromSpillTemp())
     {
         assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
-        assert(IsContainableHWIntrinsicOp(compiler->m_pLowering, node, op1));
+        assert(IsContainableHWIntrinsicOp(compiler, node, op1));
     }
     inst_RV_TT_IV(ins, simdSize, targetReg, op1, ival);
 }
@@ -525,7 +525,7 @@ void CodeGen::genHWIntrinsic_R_R_RM(
     if (op2->isContained() || op2->isUsedFromSpillTemp())
     {
         assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
-        assert(IsContainableHWIntrinsicOp(compiler->m_pLowering, node, op2));
+        assert(IsContainableHWIntrinsicOp(compiler, node, op2));
     }
 
     bool isRMW = node->isRMWHWIntrinsic(compiler);
@@ -583,7 +583,7 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
         }
 
         assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
-        assert((ins == INS_insertps) || IsContainableHWIntrinsicOp(compiler->m_pLowering, node, op2));
+        assert((ins == INS_insertps) || IsContainableHWIntrinsicOp(compiler, node, op2));
 
         unsigned             lclNum;
         unsigned             lclOffs;
@@ -656,7 +656,7 @@ void CodeGen::genHWIntrinsic_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
     if (op2->isContained() || op2->isUsedFromSpillTemp())
     {
         assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
-        assert(IsContainableHWIntrinsicOp(compiler->m_pLowering, node, op2));
+        assert(IsContainableHWIntrinsicOp(compiler, node, op2));
 
         unsigned             lclNum;
         unsigned             lclOffs;

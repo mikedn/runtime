@@ -2038,16 +2038,10 @@ private:
         // return block morhping will know to leave it alone.
         returnExpr->gtFlags |= GTF_RET_MERGED;
 
-#ifdef DEBUG
-        if (comp->verbose)
-        {
-            printf("\nmergeReturns statement tree ");
-            Compiler::printTreeID(returnExpr);
-            printf(" added to genReturnBB %s\n", newReturnBB->dspToString());
-            comp->gtDispTree(returnExpr);
-            printf("\n");
-        }
-#endif
+        JITDUMPTREE(returnExpr, "\nmergeReturns statement tree [%06u] added to genReturnBB %s\n", returnExpr->GetID(),
+                    newReturnBB->dspToString());
+        JITDUMP("\n");
+
         assert(index < maxReturns);
         returnBlocks[index] = newReturnBB;
         return newReturnBB;
@@ -2524,14 +2518,7 @@ void Compiler::fgAddInternal()
 
         fgNewStmtNearEnd(genReturnBB, tree);
 
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("\nSynchronized method - Add exit expression ");
-            printTreeID(tree);
-            printf("\n");
-        }
-#endif
+        JITDUMP("\nSynchronized method - Add exit expression [%06u]\n", tree->GetID());
 
         // Reset cookies used to track start and end of the protected region in synchronized methods
         syncStartEmitCookie = NULL;
@@ -3233,7 +3220,7 @@ EXIT:;
 }
 
 /* static */
-unsigned Compiler::acdHelper(SpecialCodeKind codeKind)
+CorInfoHelpFunc Compiler::acdHelper(SpecialCodeKind codeKind)
 {
     switch (codeKind)
     {
@@ -3249,7 +3236,7 @@ unsigned Compiler::acdHelper(SpecialCodeKind codeKind)
             return CORINFO_HELP_OVERFLOW;
         default:
             assert(!"Bad codeKind");
-            return 0;
+            return CORINFO_HELP_UNDEF;
     }
 }
 
@@ -3384,34 +3371,26 @@ BasicBlock* Compiler::fgAddCodeRef(BasicBlock* srcBlk, unsigned refData, Special
 
     /* Now figure out what code to insert */
 
-    int helper = CORINFO_HELP_UNDEF;
+    CorInfoHelpFunc helper = CORINFO_HELP_UNDEF;
 
     switch (kind)
     {
         case SCK_RNGCHK_FAIL:
             helper = CORINFO_HELP_RNGCHKFAIL;
             break;
-
         case SCK_DIV_BY_ZERO:
             helper = CORINFO_HELP_THROWDIVZERO;
             break;
-
         case SCK_ARITH_EXCPN:
             helper = CORINFO_HELP_OVERFLOW;
             noway_assert(SCK_OVERFLOW == SCK_ARITH_EXCPN);
             break;
-
         case SCK_ARG_EXCPN:
             helper = CORINFO_HELP_THROW_ARGUMENTEXCEPTION;
             break;
-
         case SCK_ARG_RNG_EXCPN:
             helper = CORINFO_HELP_THROW_ARGUMENTOUTOFRANGEEXCEPTION;
             break;
-
-        // case SCK_PAUSE_EXEC:
-        //     noway_assert(!"add code to pause exec");
-
         default:
             noway_assert(!"unexpected code addition kind");
             return nullptr;
@@ -3429,7 +3408,7 @@ BasicBlock* Compiler::fgAddCodeRef(BasicBlock* srcBlk, unsigned refData, Special
         // There are no args here but fgMorphArgs has side effects
         // such as setting the outgoing arg area (which is necessary
         // on AMD if there are any calls).
-        tree = fgMorphArgs(tree);
+        fgMorphArgs(tree);
 
         fgInsertStmtAtEnd(newBlk, fgNewStmtFromTree(tree));
     }

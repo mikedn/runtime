@@ -101,13 +101,11 @@ enum GenTreeKinds
 
 /*****************************************************************************/
 
-enum gtCallTypes : BYTE
+enum CallKind
 {
-    CT_USER_FUNC, // User function
-    CT_HELPER,    // Jit-helper
-    CT_INDIRECT,  // Indirect call
-
-    CT_COUNT // fake entry (must be last)
+    CT_USER_FUNC,
+    CT_HELPER,
+    CT_INDIRECT
 };
 
 #ifdef DEBUG
@@ -3706,7 +3704,9 @@ enum GenTreeCallFlags : unsigned int
     GTF_CALL_M_UNMGD_THISCALL          = 0x00000080, // "this" pointer (first argument) should be enregistered (only for GTF_CALL_UNMANAGED)
     GTF_CALL_M_VIRTSTUB_REL_INDIRECT   = 0x00000080, // the virtstub is indirected through a relative address (only for GTF_CALL_VIRT_STUB)
     GTF_CALL_M_NONVIRT_SAME_THIS       = 0x00000080, // callee "this" pointer is equal to caller this pointer (only for GTF_CALL_NONVIRT)
+#ifdef TARGET_X86
     GTF_CALL_M_TAILCALL_VIA_JIT_HELPER = 0x00000200, // call is a tail call dispatched via tail call JIT helper.
+#endif
 
 #if FEATURE_TAILCALL_OPT
     GTF_CALL_M_IMPLICIT_TAILCALL       = 0x00000400, // call is an opportunistic tail call and importer has performed tail call checks
@@ -3719,7 +3719,9 @@ enum GenTreeCallFlags : unsigned int
                                                      // a Pinvoke but not as an unmanaged call. See impCheckForPInvokeCall() to
                                                      // know when these flags are set.
 
+#if defined(FEATURE_READYTORUN_COMPILER) && defined(TARGET_ARMARCH)
     GTF_CALL_M_R2R_REL_INDIRECT        = 0x00002000, // ready to run call is indirected through a relative address
+#endif
     GTF_CALL_M_DOES_NOT_RETURN         = 0x00004000, // call does not return
     GTF_CALL_M_WRAPPER_DELEGATE_INV    = 0x00008000, // call is in wrapper delegate
     GTF_CALL_M_FAT_POINTER_CHECK       = 0x00010000, // CoreRT managed calli needs transformation, that checks
@@ -4082,8 +4084,8 @@ struct GenTreeCall final : public GenTree
 
     GenTreeCallFlags gtCallMoreFlags;
 
-    unsigned char gtCallType : 3;   // value from the gtCallTypes enumeration
-    unsigned char m_retSigType : 5; // Signature return type
+    uint8_t gtCallType : 3;   // value from the CallKind enumeration
+    uint8_t m_retSigType : 5; // Signature return type
 
     ReturnTypeDesc m_retDesc;
 
@@ -4100,7 +4102,7 @@ struct GenTreeCall final : public GenTree
     INDEBUG(CORINFO_SIG_INFO* callSig;)
 
 public:
-    GenTreeCall(var_types type, gtCallTypes kind, Use* args)
+    GenTreeCall(var_types type, CallKind kind, Use* args)
         : GenTree(GT_CALL, varActualType(type))
         , gtCallThisArg(nullptr)
         , gtCallArgs(args)
@@ -4110,16 +4112,17 @@ public:
         , tailCallInfo(nullptr)
         , m_retLayout(nullptr)
         , gtCallMoreFlags(GTF_CALL_M_EMPTY)
-        , gtCallType(kind)
+        , gtCallType(static_cast<uint8_t>(kind))
         , m_retSigType(type)
 #ifdef DEBUG
         , callSig(nullptr)
 #endif
     {
         gtFlags |= (GTF_CALL | GTF_GLOB_REF);
+
         for (Use& use : UseList(args))
         {
-            gtFlags |= (use.GetNode()->gtFlags & GTF_ALL_EFFECT);
+            gtFlags |= use.GetNode()->GetSideEffects();
         }
     }
 
@@ -4128,6 +4131,7 @@ public:
         , gtCallThisArg(nullptr)
         , gtCallArgs(nullptr)
         , gtCallLateArgs(nullptr)
+        , gtControlExpr(nullptr)
         , fgArgInfo(nullptr)
         , m_retLayout(copyFrom->m_retLayout)
         , gtCallMoreFlags(copyFrom->gtCallMoreFlags)
@@ -4245,16 +4249,6 @@ public:
         gtFlags &= ~GTF_CALL_INLINE_CANDIDATE;
     }
 
-    bool IsR2ROrVirtualStubRelativeIndir()
-    {
-#if defined(FEATURE_READYTORUN_COMPILER) && defined(TARGET_ARMARCH)
-        bool isVirtualStub = (gtFlags & GTF_CALL_VIRT_KIND_MASK) == GTF_CALL_VIRT_STUB;
-        return ((IsR2RRelativeIndir()) || (isVirtualStub && (IsVirtualStubRelativeIndir())));
-#else
-        return false;
-#endif // FEATURE_READYTORUN_COMPILER && TARGET_ARMARCH
-    }
-
     bool HasNonStandardAddedArgs(Compiler* compiler) const;
     int GetNonStandardAddedArgCount(Compiler* compiler) const;
 
@@ -4318,28 +4312,29 @@ public:
         return IsTailPrefixedCall() || IsImplicitTailCall();
     }
 
+#ifdef TARGET_X86
     // Check whether this is a tailcall dispatched via JIT helper. We only use
     // this mechanism on x86 as it is faster than our other more general
     // tailcall mechanism.
     bool IsTailCallViaJitHelper() const
     {
-#ifdef TARGET_X86
-        return IsTailCall() && (gtCallMoreFlags & GTF_CALL_M_TAILCALL_VIA_JIT_HELPER);
-#else
-        return false;
-#endif
+        return IsTailCall() && ((gtCallMoreFlags & GTF_CALL_M_TAILCALL_VIA_JIT_HELPER) != 0);
     }
 
     bool IsFastTailCall() const
     {
-#if !FEATURE_FASTTAILCALL
         return false;
-#elif defined(TARGET_X86)
-        return IsTailCall() && ((gtCallMoreFlags & GTF_CALL_M_TAILCALL_VIA_JIT_HELPER) == 0);
+    }
 #else
+    bool IsFastTailCall() const
+    {
+#if FEATURE_FASTTAILCALL
         return IsTailCall();
+#else
+        return false;
 #endif
     }
+#endif
 
     // Returns true if this is marked for opportunistic tail calling.
     // That is, can be tail called though not explicitly prefixed with "tail" prefix.
@@ -4374,17 +4369,28 @@ public:
     }
 
 #ifdef FEATURE_READYTORUN_COMPILER
+#ifdef TARGET_ARMARCH
+    bool IsR2ROrVirtualStubRelativeIndir() const
+    {
+        return IsR2RRelativeIndir() || (IsVirtualStub() && IsVirtualStubRelativeIndir());
+    }
+
     bool IsR2RRelativeIndir() const
     {
         return (gtCallMoreFlags & GTF_CALL_M_R2R_REL_INDIRECT) != 0;
     }
+#endif
+
     void setEntryPoint(const CORINFO_CONST_LOOKUP& entryPoint)
     {
         gtEntryPoint = entryPoint;
+
+#ifdef TARGET_ARMARCH
         if (gtEntryPoint.accessType == IAT_PVALUE)
         {
             gtCallMoreFlags |= GTF_CALL_M_R2R_REL_INDIRECT;
         }
+#endif
     }
 #endif // FEATURE_READYTORUN_COMPILER
 
@@ -4500,6 +4506,11 @@ public:
     bool IsHelperCall() const
     {
         return gtCallType == CT_HELPER;
+    }
+
+    bool IsIndirectCall() const
+    {
+        return gtCallType == CT_INDIRECT;
     }
 
     bool IsHelperCall(CORINFO_METHOD_HANDLE callMethHnd) const

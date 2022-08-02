@@ -85,6 +85,25 @@ bool Lowering::IsSafeToMoveForward(GenTree* move, GenTree* before)
     return true;
 }
 
+GenTreeLclVar* Lowering::ReplaceWithLclVar(LIR::Use& use, unsigned tempNum)
+{
+    GenTree* def = use.Def();
+
+    if (def->OperIs(GT_LCL_VAR) && (tempNum == BAD_VAR_NUM))
+    {
+        return def->AsLclVar();
+    }
+
+    GenTreeLclVar* store;
+    use.ReplaceWithLclVar(comp, tempNum, &store);
+    GenTreeLclVar* load = use.Def()->AsLclVar();
+
+    LowerStoreLclVar(store);
+    LowerLclVar(load);
+
+    return load;
+}
+
 //------------------------------------------------------------------------
 // LowerNode: this is the main entry point for Lowering.
 //
@@ -320,12 +339,10 @@ GenTree* Lowering::LowerNode(GenTree* node)
             break;
 
         case GT_LCL_VAR:
-            WidenSIMD12IfNecessary(node->AsLclVar());
             LowerLclVar(node->AsLclVar());
             break;
 
         case GT_STORE_LCL_VAR:
-            WidenSIMD12IfNecessary(node->AsLclVar());
             LowerStoreLclVar(node->AsLclVar());
             break;
 
@@ -993,11 +1010,13 @@ GenTree* Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
     if (info->GetSlotCount() != 0)
     {
 #if FEATURE_ARG_SPLIT
+#if FEATURE_FASTTAILCALL
         // TODO: Need to check correctness for FastTailCall
         if (call->IsFastTailCall())
         {
             NYI_ARM("lower: struct argument by fast tail call");
         }
+#endif
 
         GenTreePutArgSplit* putArgSplit = new (comp, GT_PUTARG_SPLIT) GenTreePutArgSplit(arg, info, call);
         BlockRange().InsertAfter(arg, putArgSplit);
@@ -1227,20 +1246,6 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
     InsertPutArg(call, argInfo);
 }
 
-// helper that create a node representing a relocatable physical address computation
-GenTree* Lowering::AddrGen(ssize_t addr)
-{
-    // this should end up in codegen as : instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, reg, addr)
-    GenTree* result = comp->gtNewIconHandleNode(addr, GTF_ICON_FTN_ADDR);
-    return result;
-}
-
-// variant that takes a void*
-GenTree* Lowering::AddrGen(void* addr)
-{
-    return AddrGen((ssize_t)addr);
-}
-
 void Lowering::LowerCall(GenTreeCall* call)
 {
     JITDUMP("lowering call (before):\n");
@@ -1254,122 +1259,61 @@ void Lowering::LowerCall(GenTreeCall* call)
     }
 #endif
 
+    // Indirect cookie calls gets transformed by fgMorphArgs as indirect call with
+    // non-standard args. Hence we should never see this type of call in lower.
+    noway_assert(!call->IsIndirectCall() || (call->gtCallCookie == nullptr));
+
     call->ClearOtherRegs();
     LowerCallArgs(call);
 
-    // note that everything generated from this point on runs AFTER the outgoing args are placed
-    GenTree* controlExpr          = nullptr;
-    bool     callWasExpandedEarly = false;
-
-    // for x86, this is where we record ESP for checking later to make sure stack is balanced
-
-    // Check for Delegate.Invoke(). If so, we inline it. We get the
-    // target-object and target-function from the delegate-object, and do
-    // an indirect call.
-    if (call->IsDelegateInvoke())
+#ifdef TARGET_X86
+    if (call->IsTailCallViaJitHelper())
     {
-        controlExpr = LowerDelegateInvoke(call);
+        LowerTailCallViaJitHelper(call);
+    }
+    else
+#endif
+        if (call->IsIndirectCall())
+    {
+        if (call->IsVirtualStub())
+        {
+            LowerIndirectVirtualStubCall(call);
+        }
+        else if (call->IsUnmanaged())
+        {
+            InsertPInvokeCallPrologAndEpilog(call);
+        }
+    }
+    else if (call->IsDelegateInvoke())
+    {
+        call->gtControlExpr = LowerDelegateInvoke(call);
+    }
+    else if (call->IsVirtualVtable())
+    {
+        if (!call->IsExpandedEarly())
+        {
+            call->gtControlExpr = LowerVirtualVtableCall(call);
+        }
+    }
+    else if (call->IsVirtualStub())
+    {
+        call->gtControlExpr = LowerVirtualStubCall(call);
     }
     else
     {
-        //  Virtual and interface calls
-        switch (call->gtFlags & GTF_CALL_VIRT_KIND_MASK)
+        noway_assert(!call->IsVirtual());
+
+        if (call->IsUnmanaged())
         {
-            case GTF_CALL_VIRT_STUB:
-                controlExpr = LowerVirtualStubCall(call);
-                break;
-
-            case GTF_CALL_VIRT_VTABLE:
-                assert(call->IsVirtualVtable());
-                if (!call->IsExpandedEarly())
-                {
-                    assert(call->gtControlExpr == nullptr);
-                    controlExpr = LowerVirtualVtableCall(call);
-                }
-                else
-                {
-                    callWasExpandedEarly = true;
-                    controlExpr          = call->gtControlExpr;
-                }
-                break;
-
-            case GTF_CALL_NONVIRT:
-                if (call->IsUnmanaged())
-                {
-                    controlExpr = LowerNonvirtPinvokeCall(call);
-                }
-                else if (call->gtCallType == CT_INDIRECT)
-                {
-                    controlExpr = LowerIndirectNonvirtCall(call);
-                }
-                else
-                {
-                    controlExpr = LowerDirectCall(call);
-                }
-                break;
-
-            default:
-                noway_assert(!"strange call type");
-                break;
+            call->gtControlExpr = LowerDirectPInvokeCall(call);
+        }
+        else
+        {
+            call->gtControlExpr = LowerDirectCall(call);
         }
     }
 
-    if (call->IsTailCallViaJitHelper())
-    {
-        // Either controlExpr or gtCallAddr must contain real call target.
-        if (controlExpr == nullptr)
-        {
-            assert(call->gtCallType == CT_INDIRECT);
-            assert(call->gtCallAddr != nullptr);
-            controlExpr = call->gtCallAddr;
-        }
-
-        controlExpr = LowerTailCallViaJitHelper(call, controlExpr);
-    }
-
-    // Check if we need to thread a newly created controlExpr into the LIR
-    //
-    if ((controlExpr != nullptr) && !callWasExpandedEarly)
-    {
-        LIR::Range controlExprRange = LIR::SeqTree(comp, controlExpr);
-
-        JITDUMP("results of lowering call:\n");
-        DISPRANGE(controlExprRange);
-
-        GenTree* insertionPoint = call;
-        if (!call->IsTailCallViaJitHelper())
-        {
-            // The controlExpr should go before the gtCallCookie and the gtCallAddr, if they exist
-            //
-            // TODO-LIR: find out what's really required here, as this is currently a tree order
-            // dependency.
-            if (call->gtCallType == CT_INDIRECT)
-            {
-                bool isClosed = false;
-                if (call->gtCallCookie != nullptr)
-                {
-#ifdef DEBUG
-                    GenTree* firstCallAddrNode = BlockRange().GetTreeRange(call->gtCallAddr, &isClosed).FirstNode();
-                    assert(isClosed);
-                    assert(call->gtCallCookie->Precedes(firstCallAddrNode));
-#endif // DEBUG
-
-                    insertionPoint = BlockRange().GetTreeRange(call->gtCallCookie, &isClosed).FirstNode();
-                    assert(isClosed);
-                }
-                else if (call->gtCallAddr != nullptr)
-                {
-                    insertionPoint = BlockRange().GetTreeRange(call->gtCallAddr, &isClosed).FirstNode();
-                    assert(isClosed);
-                }
-            }
-        }
-
-        ContainCheckRange(controlExprRange);
-        BlockRange().InsertBefore(insertionPoint, std::move(controlExprRange));
-
-        call->gtControlExpr = controlExpr;
-    }
+#if FEATURE_FASTTAILCALL
     if (call->IsFastTailCall())
     {
         // Lower fast tail call can introduce new temps to set up args correctly for Callee.
@@ -1381,6 +1325,7 @@ void Lowering::LowerCall(GenTreeCall* call)
         // since LowerFastTailCall calls InsertPInvokeMethodEpilog.
         LowerFastTailCall(call);
     }
+#endif
 
     if (varTypeIsStruct(call->GetType()))
     {
@@ -1456,58 +1401,17 @@ void Lowering::LowerCall(GenTreeCall* call)
 void Lowering::InsertProfTailCallHook(GenTreeCall* call, GenTree* insertionPoint)
 {
     assert(call->IsTailCall());
-    assert(comp->compIsProfilerHookNeeded());
-
-#if defined(TARGET_X86)
-
-    if (insertionPoint == nullptr)
-    {
-        insertionPoint = call;
-    }
-
-#else // !defined(TARGET_X86)
-
-    if (insertionPoint == nullptr)
-    {
-        for (GenTreeCall::Use& use : call->Args())
-        {
-            assert(!use.GetNode()->OperIs(GT_PUTARG_REG)); // We don't expect to see these in gtCallArgs
-
-            if (use.GetNode()->OperIs(GT_PUTARG_STK))
-            {
-                // found it
-                insertionPoint = use.GetNode();
-                break;
-            }
-        }
-
-        if (insertionPoint == nullptr)
-        {
-            for (GenTreeCall::Use& use : call->LateArgs())
-            {
-                if (use.GetNode()->OperIs(GT_PUTARG_REG, GT_PUTARG_STK))
-                {
-                    // found it
-                    insertionPoint = use.GetNode();
-                    break;
-                }
-            }
-
-            // If there are no args, insert before the call node
-            if (insertionPoint == nullptr)
-            {
-                insertionPoint = call;
-            }
-        }
-    }
-
-#endif // !defined(TARGET_X86)
-
     assert(insertionPoint != nullptr);
+    assert(comp->compIsProfilerHookNeeded());
+#ifdef TARGET_X86
+    assert(call == insertionPoint);
+#endif
+
     GenTree* profHookNode = new (comp, GT_PROF_HOOK) GenTree(GT_PROF_HOOK, TYP_VOID);
     BlockRange().InsertBefore(insertionPoint, profHookNode);
 }
 
+#if FEATURE_FASTTAILCALL
 //------------------------------------------------------------------------
 // LowerFastTailCall: Lower a call node dispatched as a fast tailcall (epilog +
 // jmp).
@@ -1532,7 +1436,8 @@ void Lowering::InsertProfTailCallHook(GenTreeCall* call, GenTree* insertionPoint
 //     method epilogs in case there are inlined pinvokes.
 void Lowering::LowerFastTailCall(GenTreeCall* call)
 {
-#if FEATURE_FASTTAILCALL
+    assert(call->IsFastTailCall());
+
     // Tail call restrictions i.e. conditions under which tail prefix is ignored.
     // Most of these checks are already done by importer or fgMorphTailCall().
     // This serves as a double sanity check.
@@ -1544,9 +1449,6 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
 #ifdef TARGET_AMD64
     assert(!comp->getNeedsGSSecurityCookie()); // jit64 compat: tail calls from methods that need GS check
 #endif                                         // TARGET_AMD64
-
-    // We expect to see a call that meets the following conditions
-    assert(call->IsFastTailCall());
 
     // VM cannot use return address hijacking when A() and B() tail call each
     // other in mutual recursion.  Therefore, this block is reachable through
@@ -1576,13 +1478,13 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
     // of call is setup.  Note that once a stack arg is setup, it cannot have nested
     // calls subsequently in execution order to setup other args, because the nested
     // call could over-write the stack arg that is setup earlier.
-    ArrayStack<GenTree*> putargs(comp->getAllocator(CMK_ArrayStack));
+    ArrayStack<GenTreePutArgStk*> putargs(comp->getAllocator(CMK_ArrayStack));
 
     for (GenTreeCall::Use& use : call->Args())
     {
         if (use.GetNode()->OperIs(GT_PUTARG_STK))
         {
-            putargs.Push(use.GetNode());
+            putargs.Push(use.GetNode()->AsPutArgStk());
         }
     }
 
@@ -1590,17 +1492,18 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
     {
         if (use.GetNode()->OperIs(GT_PUTARG_STK))
         {
-            putargs.Push(use.GetNode());
+            putargs.Push(use.GetNode()->AsPutArgStk());
         }
     }
 
     GenTree* startNonGCNode = nullptr;
+
     if (!putargs.Empty())
     {
         // Get the earliest operand of the first PUTARG_STK node. We will make
         // the requred copies of args before this node.
         bool     unused;
-        GenTree* insertionPoint = BlockRange().GetTreeRange(putargs.Bottom(), &unused).FirstNode();
+        GenTree* insertionPoint = BlockRange().GetTreeRange(putargs.Get(0), &unused).FirstNode();
         // Insert GT_START_NONGC node before we evaluate the PUTARG_STK args.
         // Note that if there are no args to be setup on stack, no need to
         // insert GT_START_NONGC node.
@@ -1631,7 +1534,7 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
         // potentially may cause problems.
         for (unsigned i = 0; i < putargs.Size(); i++)
         {
-            GenTreePutArgStk* put = putargs.Bottom(i)->AsPutArgStk();
+            GenTreePutArgStk* put = putargs.Get(i);
 
             unsigned argStartOffset = put->GetSlotOffset();
             unsigned argEndOffset   = argStartOffset + put->GetArgSize();
@@ -1707,23 +1610,42 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
         }
     }
 
-    // Insert GT_PROF_HOOK node to emit profiler tail call hook. This should be
-    // inserted before the args are setup but after the side effects of args are
-    // computed. That is, GT_PROF_HOOK node needs to be inserted before GT_START_NONGC
-    // node if one exists.
+    // Insert PROF_HOOK node to emit profiler tail call hook. This should be
+    // inserted before the args are setup but after the side effects of args
+    // are computed. That is, PROF_HOOK node needs to be inserted before
+    // the START_NONGC node if we added one.
     if (comp->compIsProfilerHookNeeded())
     {
-        InsertProfTailCallHook(call, startNonGCNode);
+        GenTree* insertionPoint = startNonGCNode;
+
+        if (insertionPoint == nullptr)
+        {
+            for (GenTreeCall::Use& use : call->LateArgs())
+            {
+                // We would have already inserted a START_NONGC if we had a PUTARG_STK.
+                assert(!use.GetNode()->OperIs(GT_PUTARG_STK));
+                // TODO-MIKE-Review: What about PUTARG_SPLIT? Likely doesn't happen
+                // because ARM32 doesn't support fast tail calls and ARM64 only uses
+                // PUTARG_SPLIT for varargs on Windows, which probably also does not
+                // support fast tail calls.
+
+                if (use.GetNode()->OperIs(GT_PUTARG_REG))
+                {
+                    insertionPoint = use.GetNode();
+                    break;
+                }
+            }
+
+            if (insertionPoint == nullptr)
+            {
+                insertionPoint = call;
+            }
+        }
+
+        InsertProfTailCallHook(call, insertionPoint);
     }
-
-#else // !FEATURE_FASTTAILCALL
-
-    // Platform does not implement fast tail call mechanism. This cannot be
-    // reached because we always choose to do a tailcall via helper on those
-    // platforms (or no tailcall at all).
-    unreached();
-#endif
 }
+#endif // FEATURE_FASTTAILCALL
 
 // Scan the range of nodes [rangeStart, rangeEnd) and update all references
 // to the specified local to use a new temp instead. The temp is initialized
@@ -1814,145 +1736,6 @@ void Lowering::RehomeParamForFastTailCall(unsigned paramLclNum,
 
         node->AsLclVarCommon()->SetLclNum(tmpLclNum);
     }
-}
-
-//------------------------------------------------------------------------
-// LowerTailCallViaJitHelper: lower a call via the tailcall JIT helper. Morph
-// has already inserted tailcall helper special arguments. This function inserts
-// actual data for some placeholders. This function is only used on x86.
-//
-// Lower
-//      tail.call(<function args>, int numberOfOldStackArgs, int dummyNumberOfNewStackArgs, int flags, void* dummyArg)
-// as
-//      JIT_TailCall(<function args>, int numberOfOldStackArgsWords, int numberOfNewStackArgsWords, int flags, void*
-//      callTarget)
-// Note that the special arguments are on the stack, whereas the function arguments follow the normal convention.
-//
-// Also inserts PInvoke method epilog if required.
-//
-// Arguments:
-//    call         -  The call node
-//    callTarget   -  The real call target. This is used to replace the dummyArg during lowering.
-//
-// Return Value:
-//    Returns control expression tree for making a call to helper Jit_TailCall.
-//
-GenTree* Lowering::LowerTailCallViaJitHelper(GenTreeCall* call, GenTree* callTarget)
-{
-    // Tail call restrictions i.e. conditions under which tail prefix is ignored.
-    // Most of these checks are already done by importer or fgMorphTailCall().
-    // This serves as a double sanity check.
-    assert((comp->info.compFlags & CORINFO_FLG_SYNCH) == 0); // tail calls from synchronized methods
-    assert(!call->IsUnmanaged());                            // tail calls to unamanaged methods
-    assert(!comp->compLocallocUsed);                         // tail call from methods that also do localloc
-
-    // We expect to see a call that meets the following conditions
-    assert(call->IsTailCallViaJitHelper());
-    assert(callTarget != nullptr);
-
-    // The TailCall helper call never returns to the caller and is not GC interruptible.
-    // Therefore the block containing the tail call should be a GC safe point to avoid
-    // GC starvation. It is legal for the block to be unmarked iff the entry block is a
-    // GC safe point, as the entry block trivially dominates every reachable block.
-    assert((comp->compCurBB->bbFlags & BBF_GC_SAFE_POINT) || (comp->fgFirstBB->bbFlags & BBF_GC_SAFE_POINT));
-
-    // If PInvokes are in-lined, we have to remember to execute PInvoke method epilog anywhere that
-    // a method returns.  This is a case of caller method has both PInvokes and tail calls.
-    if (comp->compMethodRequiresPInvokeFrame())
-    {
-        InsertPInvokeMethodEpilog(comp->compCurBB DEBUGARG(call));
-    }
-
-    // Remove gtCallAddr from execution order if present.
-    if (call->gtCallType == CT_INDIRECT)
-    {
-        assert(call->gtCallAddr != nullptr);
-
-        bool               isClosed;
-        LIR::ReadOnlyRange callAddrRange = BlockRange().GetTreeRange(call->gtCallAddr, &isClosed);
-        assert(isClosed);
-
-        BlockRange().Remove(std::move(callAddrRange));
-    }
-
-    // The callTarget tree needs to be sequenced.
-    LIR::Range callTargetRange = LIR::SeqTree(comp, callTarget);
-
-    // Verify the special args are what we expect, and replace the dummy args with real values.
-    // We need to figure out the size of the outgoing stack arguments, not including the special args.
-    // The number of 4-byte words is passed to the helper for the incoming and outgoing argument sizes.
-    // This number is exactly the next slot number in the call's argument info struct.
-    unsigned nNewStkArgsWords = call->fgArgInfo->GetNextSlotNum();
-    assert(nNewStkArgsWords >= 4); // There must be at least the four special stack args.
-    nNewStkArgsWords -= 4;
-
-    unsigned numArgs = call->fgArgInfo->GetArgCount();
-
-    fgArgTabEntry* argEntry;
-
-    // arg 0 == callTarget.
-    argEntry = call->GetArgInfoByArgNum(numArgs - 1);
-    assert(argEntry != nullptr);
-    GenTree* arg0 = argEntry->GetNode()->AsPutArgStk()->gtGetOp1();
-
-    ContainCheckRange(callTargetRange);
-    BlockRange().InsertAfter(arg0, std::move(callTargetRange));
-
-    bool               isClosed;
-    LIR::ReadOnlyRange secondArgRange = BlockRange().GetTreeRange(arg0, &isClosed);
-    assert(isClosed);
-    BlockRange().Remove(std::move(secondArgRange));
-
-    argEntry->GetNode()->AsPutArgStk()->gtOp1 = callTarget;
-
-    // arg 1 == flags
-    argEntry = call->GetArgInfoByArgNum(numArgs - 2);
-    assert(argEntry != nullptr);
-    GenTree* arg1 = argEntry->GetNode()->AsPutArgStk()->gtGetOp1();
-    assert(arg1->gtOper == GT_CNS_INT);
-
-    ssize_t tailCallHelperFlags = 1 |                                  // always restore EDI,ESI,EBX
-                                  (call->IsVirtualStub() ? 0x2 : 0x0); // Stub dispatch flag
-    arg1->AsIntCon()->gtIconVal = tailCallHelperFlags;
-
-    // arg 2 == numberOfNewStackArgsWords
-    argEntry = call->GetArgInfoByArgNum(numArgs - 3);
-    assert(argEntry != nullptr);
-    GenTree* arg2 = argEntry->GetNode()->AsPutArgStk()->gtGetOp1();
-    assert(arg2->gtOper == GT_CNS_INT);
-
-    arg2->AsIntCon()->gtIconVal = nNewStkArgsWords;
-
-#ifdef DEBUG
-    // arg 3 == numberOfOldStackArgsWords
-    argEntry = call->GetArgInfoByArgNum(numArgs - 4);
-    assert(argEntry != nullptr);
-    GenTree* arg3 = argEntry->GetNode()->AsPutArgStk()->gtGetOp1();
-    assert(arg3->gtOper == GT_CNS_INT);
-#endif // DEBUG
-
-    // Transform this call node into a call to Jit tail call helper.
-    call->gtCallType    = CT_HELPER;
-    call->gtCallMethHnd = comp->eeFindHelper(CORINFO_HELP_TAILCALL);
-    call->gtFlags &= ~GTF_CALL_VIRT_KIND_MASK;
-
-    // Lower this as if it were a pure helper call.
-    call->gtCallMoreFlags &= ~(GTF_CALL_M_TAILCALL | GTF_CALL_M_TAILCALL_VIA_JIT_HELPER);
-    GenTree* result = LowerDirectCall(call);
-
-    // Now add back tail call flags for identifying this node as tail call dispatched via helper.
-    call->gtCallMoreFlags |= GTF_CALL_M_TAILCALL | GTF_CALL_M_TAILCALL_VIA_JIT_HELPER;
-
-#ifdef PROFILING_SUPPORTED
-    // Insert profiler tail call hook if needed.
-    // Since we don't know the insertion point, pass null for second param.
-    if (comp->compIsProfilerHookNeeded())
-    {
-        InsertProfTailCallHook(call, nullptr);
-    }
-#endif // PROFILING_SUPPORTED
-
-    return result;
 }
 
 #ifndef TARGET_64BIT
@@ -2219,12 +2002,26 @@ void Lowering::LowerLclVar(GenTreeLclVar* lclVar)
     assert(lclVar->OperIs(GT_LCL_VAR));
     assert(!lclVar->IsMultiReg());
     assert(!comp->lvaGetDesc(lclVar)->IsIndependentPromoted());
+
+#ifdef FEATURE_SIMD
+    if (lclVar->TypeIs(TYP_SIMD12))
+    {
+        WidenSIMD12IfNecessary(lclVar);
+    }
+#endif
 }
 
 void Lowering::LowerStoreLclVar(GenTreeLclVar* store)
 {
     assert(store->OperIs(GT_STORE_LCL_VAR));
     assert(!store->GetOp(0)->OperIs(GT_PHI));
+
+#ifdef FEATURE_SIMD
+    if (store->TypeIs(TYP_SIMD12))
+    {
+        WidenSIMD12IfNecessary(store);
+    }
+#endif
 
     GenTree*   src = store->GetOp(0);
     LclVarDsc* lcl = comp->lvaGetDesc(store);
@@ -2612,238 +2409,410 @@ GenTree* Lowering::SpillStructCall(GenTreeCall* call, GenTree* user)
     return load;
 }
 
-GenTree* Lowering::LowerDirectCall(GenTreeCall* call)
+void Lowering::LowerIndirectVirtualStubCall(GenTreeCall* call)
 {
-    noway_assert(call->gtCallType == CT_USER_FUNC || call->gtCallType == CT_HELPER);
+    assert(call->IsVirtualStub() && call->IsIndirectCall() X86_ONLY(&&!call->IsTailCallViaJitHelper()));
+
+    // The importer decided we needed a stub call via a computed
+    // stub dispatch address, i.e. an address which came from a dictionary lookup.
+    //   - The dictionary lookup produces an indirected address, suitable for call
+    //     via "call [VirtualStubParam.reg]"
+    //
+    // This combination will only be generated for shared generic code and when
+    // stub dispatch is active.
+
+    // fgMorphArgs will have created trees to pass the address in VirtualStubParam.reg.
+    // All we have to do here is add an indirection to generate the actual call target.
+
+    GenTree* ind = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, call->gtCallAddr);
+    BlockRange().InsertAfter(call->gtCallAddr, ind);
+    call->gtCallAddr = ind;
+
+    // VM requires us to pass stub addr in VirtualStubParam.reg. For that reason
+    // we cannot mark such an addr as contained. Note that this is not an issue
+    // for indirect VSD calls since fgMorphArgs() is explicitly materializing
+    // hidden param as a non-standard argument.
+    // TODO-MIKE-Review: Hmm, so isn't this an indirect VSD call?!
+    ind->gtFlags |= GTF_IND_REQ_ADDR_IN_REG;
+
+    ContainCheckIndir(ind->AsIndir());
+}
+
+GenTree* Lowering::LowerDirectCall(GenTreeCall* call X86_ARG(GenTree* insertBefore))
+{
+    noway_assert((call->IsUserCall() || call->IsHelperCall()) && !call->IsUnmanaged());
 
     // Don't support tail calling helper methods.
     // But we might encounter tail calls dispatched via JIT helper appear as a tail call to helper.
-    noway_assert(!call->IsTailCall() || call->IsTailCallViaJitHelper() || call->gtCallType == CT_USER_FUNC);
+    noway_assert(!call->IsTailCall() X86_ONLY(|| call->IsTailCallViaJitHelper()) || call->IsUserCall());
 
-    // Non-virtual direct/indirect calls: Work out if the address of the
-    // call is known at JIT time.  If not it is either an indirect call
-    // or the address must be accessed via an single/double indirection.
-
-    void*           addr;
-    InfoAccessType  accessType;
-    CorInfoHelpFunc helperNum = comp->eeGetHelperNum(call->gtCallMethHnd);
+    CORINFO_CONST_LOOKUP entryPoint;
 
 #ifdef FEATURE_READYTORUN_COMPILER
     if (call->gtEntryPoint.addr != nullptr)
     {
-        accessType = call->gtEntryPoint.accessType;
-        addr       = call->gtEntryPoint.addr;
+        entryPoint = call->gtEntryPoint;
     }
     else
 #endif
-        if (call->gtCallType == CT_HELPER)
+        if (call->IsHelperCall())
     {
+        CorInfoHelpFunc helperNum = Compiler::eeGetHelperNum(call->GetMethodHandle());
         noway_assert(helperNum != CORINFO_HELP_UNDEF);
-
-        // the convention on getHelperFtn seems to be (it's not documented)
-        // that it returns an address or if it returns null, pAddr is set to
-        // another address, which requires an indirection
         void* pAddr;
-        addr = comp->info.compCompHnd->getHelperFtn(helperNum, (void**)&pAddr);
+        entryPoint.addr = comp->info.compCompHnd->getHelperFtn(helperNum, &pAddr);
 
-        if (addr != nullptr)
+        if (entryPoint.addr != nullptr)
         {
             assert(pAddr == nullptr);
-            accessType = IAT_VALUE;
+
+            entryPoint.accessType = IAT_VALUE;
         }
         else
         {
-            accessType = IAT_PVALUE;
-            addr       = pAddr;
+            entryPoint.accessType = IAT_PVALUE;
+            entryPoint.addr       = pAddr;
         }
     }
     else
     {
-        noway_assert(helperNum == CORINFO_HELP_UNDEF);
+        noway_assert(Compiler::eeGetHelperNum(call->GetMethodHandle()) == CORINFO_HELP_UNDEF);
 
-        CORINFO_ACCESS_FLAGS aflags = CORINFO_ACCESS_ANY;
+        CORINFO_ACCESS_FLAGS accessFlags = CORINFO_ACCESS_ANY;
 
         if (!call->NeedsNullCheck())
         {
-            aflags = (CORINFO_ACCESS_FLAGS)(aflags | CORINFO_ACCESS_NONNULL);
+            accessFlags = static_cast<CORINFO_ACCESS_FLAGS>(accessFlags | CORINFO_ACCESS_NONNULL);
         }
 
-        CORINFO_CONST_LOOKUP addrInfo;
-        comp->info.compCompHnd->getFunctionEntryPoint(call->gtCallMethHnd, &addrInfo, aflags);
-
-        accessType = addrInfo.accessType;
-        addr       = addrInfo.addr;
+        comp->info.compCompHnd->getFunctionEntryPoint(call->GetMethodHandle(), &entryPoint, accessFlags);
     }
 
-    GenTree* result = nullptr;
-    switch (accessType)
+    if ((entryPoint.accessType == IAT_VALUE) && IsCallTargetInRange(entryPoint.addr)
+                                                    X86_ONLY(&&!call->IsTailCallViaJitHelper()))
     {
-        case IAT_VALUE:
-            // Non-virtual direct call to known address.
-            // For JIT helper based tailcall (only used on x86) the target
-            // address is passed as an arg to the helper so we want a node for
-            // it.
-            if (!IsCallTargetInRange(addr) || call->IsTailCallViaJitHelper())
-            {
-                result = AddrGen(addr);
-            }
-            else
-            {
-                // a direct call within range of hardware relative call instruction
-                // stash the address for codegen
-                call->gtDirectCallAddress = addr;
-            }
-            break;
+        call->gtDirectCallAddress = entryPoint.addr;
 
-        case IAT_PVALUE:
-        {
-            bool isR2RRelativeIndir = false;
-#if defined(FEATURE_READYTORUN_COMPILER) && defined(TARGET_ARMARCH)
-            // Skip inserting the indirection node to load the address that is already
-            // computed in REG_R2R_INDIRECT_PARAM as a hidden parameter. Instead during the
-            // codegen, just load the call target from REG_R2R_INDIRECT_PARAM.
-            isR2RRelativeIndir = call->IsR2RRelativeIndir();
-#endif // FEATURE_READYTORUN_COMPILER && TARGET_ARMARCH
-
-            if (!isR2RRelativeIndir)
-            {
-                // Non-virtual direct calls to addresses accessed by
-                // a single indirection.
-                GenTree* cellAddr = AddrGen(addr);
-#ifdef DEBUG
-                cellAddr->AsIntCon()->gtTargetHandle = (size_t)call->gtCallMethHnd;
-#endif
-                GenTree* indir = Ind(cellAddr);
-                result         = indir;
-            }
-            break;
-        }
-
-        case IAT_PPVALUE:
-            // Non-virtual direct calls to addresses accessed by
-            // a double indirection.
-            //
-
-            // Expanding an IAT_PPVALUE here, will lose the opportunity
-            // to Hoist/CSE the first indirection as it is an invariant load
-            //
-            assert(!"IAT_PPVALUE case in LowerDirectCall");
-
-            noway_assert(helperNum == CORINFO_HELP_UNDEF);
-            result = AddrGen(addr);
-            // Double-indirection. Load the address into a register
-            // and call indirectly through the register
-            //
-            result = Ind(Ind(result));
-            break;
-
-        case IAT_RELPVALUE:
-        {
-            // Non-virtual direct calls to addresses accessed by
-            // a single relative indirection.
-            GenTree* cellAddr = AddrGen(addr);
-            GenTree* indir    = Ind(cellAddr);
-            result            = comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, indir, AddrGen(addr));
-            break;
-        }
-
-        default:
-            noway_assert(!"Bad accessType");
-            break;
+        return nullptr;
     }
 
-    return result;
+#if defined(FEATURE_READYTORUN_COMPILER) && defined(TARGET_ARMARCH)
+    // Skip inserting the indirection node to load the address that is already
+    // computed in REG_R2R_INDIRECT_PARAM as a hidden parameter. Instead during
+    // codegen, just load the call target from REG_R2R_INDIRECT_PARAM.
+    if ((entryPoint.accessType == IAT_PVALUE) && call->IsR2RRelativeIndir())
+    {
+        return nullptr;
+    }
+#endif
+
+#ifndef TARGET_X86
+    GenTree* insertBefore = call;
+#else
+    insertBefore               = insertBefore == nullptr ? call : insertBefore;
+#endif
+
+    return ExpandConstLookupCallTarget(entryPoint, insertBefore DEBUGARG(call));
 }
 
-GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call)
+GenTree* Lowering::LowerDirectPInvokeCall(GenTreeCall* call)
 {
-    noway_assert(call->gtCallType == CT_USER_FUNC);
+    assert(call->IsUserCall());
 
-    assert((comp->info.compCompHnd->getMethodAttribs(call->gtCallMethHnd) &
+    InsertPInvokeCallPrologAndEpilog(call);
+
+    CORINFO_CONST_LOOKUP entryPoint;
+    comp->info.compCompHnd->getAddressOfPInvokeTarget(call->GetMethodHandle(), &entryPoint);
+
+    // IsCallTargetInRange always return true on x64. It wants to use rip-based addressing for
+    // this call. Unfortunately, in case of PInvokes (and SuppressGCTransition) to external libs
+    // (e.g. kernel32.dll) the relative offset is unlikely to fit into disp32 and we will have
+    // to turn fAllowRel32 off globally.
+    // TODO-MIKE-Review: Does this apply to x86?
+    if ((entryPoint.accessType == IAT_VALUE) && IsCallTargetInRange(entryPoint.addr) &&
+        (!call->IsSuppressGCTransition() || comp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT)))
+    {
+        call->gtDirectCallAddress = entryPoint.addr;
+
+#ifdef FEATURE_READYTORUN_COMPILER
+        call->gtEntryPoint.addr       = nullptr;
+        call->gtEntryPoint.accessType = IAT_VALUE;
+#endif
+
+        return nullptr;
+    }
+
+    return ExpandConstLookupCallTarget(entryPoint, call DEBUGARG(call));
+}
+
+GenTree* Lowering::ExpandConstLookupCallTarget(const CORINFO_CONST_LOOKUP& entryPoint,
+                                               GenTree* insertBefore DEBUGARG(GenTreeCall* call))
+{
+    GenTreeIntCon* addr = comp->gtNewIconHandleNode(entryPoint.addr, GTF_ICON_FTN_ADDR);
+    INDEBUG(addr->gtTargetHandle = reinterpret_cast<size_t>(call->GetMethodHandle()));
+    BlockRange().InsertBefore(insertBefore, addr);
+
+    if (entryPoint.accessType == IAT_VALUE)
+    {
+        return addr;
+    }
+
+    GenTree* load = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, addr);
+    BlockRange().InsertBefore(insertBefore, load);
+    ContainCheckIndir(load->AsIndir());
+
+    if (entryPoint.accessType == IAT_PVALUE)
+    {
+        return load;
+    }
+
+    if (entryPoint.accessType == IAT_PPVALUE)
+    {
+        // TODO-CQ: Expanding earlier would allow CSEing of the first load which is invariant.
+        load = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, load);
+        BlockRange().InsertBefore(insertBefore, load);
+        ContainCheckIndir(load->AsIndir());
+
+        return load;
+    }
+
+    noway_assert(entryPoint.accessType == IAT_RELPVALUE);
+
+    addr            = comp->gtNewIconHandleNode(entryPoint.addr, GTF_ICON_FTN_ADDR);
+    GenTree* target = comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, load, addr);
+    BlockRange().InsertBefore(insertBefore, addr, target);
+    ContainCheckBinary(target->AsOp());
+
+    return target;
+}
+
+GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call X86_ARG(GenTree* insertBefore))
+{
+    noway_assert(call->IsUserCall() && call->IsDelegateInvoke());
+
+    assert((comp->info.compCompHnd->getMethodAttribs(call->GetMethodHandle()) &
             (CORINFO_FLG_DELEGATE_INVOKE | CORINFO_FLG_FINAL)) == (CORINFO_FLG_DELEGATE_INVOKE | CORINFO_FLG_FINAL));
 
+    call->gtCallMoreFlags &= ~GTF_CALL_M_DELEGATE_INV;
+
     GenTree* thisArgNode;
+
+#ifdef TARGET_X86
     if (call->IsTailCallViaJitHelper())
     {
         thisArgNode = call->GetArgNodeByArgNum(0);
     }
     else
+#endif
     {
         thisArgNode = call->GetThisArg();
     }
 
-    assert(thisArgNode != nullptr);
-    assert(thisArgNode->gtOper == GT_PUTARG_REG);
-    GenTree* originalThisExpr = thisArgNode->AsOp()->gtOp1;
-    GenTree* thisExpr         = originalThisExpr;
+    assert(thisArgNode->OperIs(GT_PUTARG_REG));
 
-    // We're going to use the 'this' expression multiple times, so make a local to copy it.
+    GenTree* delegateThis = thisArgNode->AsUnOp()->GetOp(0);
+    assert(delegateThis->TypeIs(TYP_REF));
 
     unsigned lclNum;
 
-    if (call->IsTailCallViaJitHelper() && originalThisExpr->IsLocal())
+#ifdef TARGET_X86
+    if (call->IsTailCallViaJitHelper() && delegateThis->OperIs(GT_LCL_VAR))
     {
         // For ordering purposes for the special tailcall arguments on x86, we forced the
-        // 'this' pointer in this case to a local in Compiler::fgMorphTailCall().
-        // We could possibly use this case to remove copies for all architectures and non-tailcall
-        // calls by creating a new paramLcl var or paramLcl field reference, as is done in the
-        // LowerVirtualVtableCall() code.
-        assert(originalThisExpr->OperGet() == GT_LCL_VAR);
-        lclNum = originalThisExpr->AsLclVarCommon()->GetLclNum();
+        // 'this' pointer to a local in fgMorphTailCallViaJitHelper.
+
+        // TODO-MIKE-Review: Should the LCL_VAR be an assert instead? Old
+        // code had an assert but also checked for IsLocal, go figure...
+        lclNum = delegateThis->AsLclVar()->GetLclNum();
+    }
+    else
+#endif
+    {
+        lclNum = comp->lvaNewTemp(TYP_REF, true DEBUGARG("delegate invoke this"));
+
+        LIR::Use use(BlockRange(), &thisArgNode->AsUnOp()->gtOp1, thisArgNode);
+        delegateThis = ReplaceWithLclVar(use, lclNum);
+    }
+
+    const CORINFO_EE_INFO* eeInfo = comp->eeGetEEInfo();
+
+    GenTree* targetThisAddr = new (comp, GT_LEA) GenTreeAddrMode(delegateThis, eeInfo->offsetOfDelegateInstance);
+    GenTree* targetThis     = comp->gtNewOperNode(GT_IND, TYP_REF, targetThisAddr);
+    BlockRange().InsertAfter(delegateThis, targetThisAddr, targetThis);
+    thisArgNode->AsUnOp()->SetOp(0, targetThis);
+    ContainCheckIndir(targetThis->AsIndir());
+
+#ifndef TARGET_X86
+    GenTree* insertBefore = call;
+#else
+    insertBefore               = insertBefore == nullptr ? call : insertBefore;
+#endif
+
+    delegateThis        = comp->gtNewLclvNode(lclNum, TYP_REF);
+    GenTree* targetAddr = new (comp, GT_LEA) GenTreeAddrMode(delegateThis, eeInfo->offsetOfDelegateFirstTarget);
+    GenTree* target     = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, targetAddr);
+    BlockRange().InsertBefore(insertBefore, delegateThis, targetAddr, target);
+    ContainCheckIndir(target->AsIndir());
+
+    return target;
+}
+
+GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call X86_ARG(GenTree* insertBefore))
+{
+    noway_assert(call->IsUserCall());
+    assert(!call->IsExpandedEarly() && (call->gtControlExpr == nullptr));
+
+    // Get hold of the vtable offset (note: this might be expensive)
+    unsigned vtabOffsOfIndirection;
+    unsigned vtabOffsAfterIndirection;
+    bool     isRelative;
+    comp->info.compCompHnd->getMethodVTableOffset(call->GetMethodHandle(), &vtabOffsOfIndirection,
+                                                  &vtabOffsAfterIndirection, &isRelative);
+
+    CallArgInfo* thisArgInfo = call->GetArgInfoByArgNum(0);
+    assert(thisArgInfo->GetRegNum() == comp->codeGen->genGetThisArgReg(call));
+    assert(thisArgInfo->GetNode()->OperIs(GT_PUTARG_REG));
+    GenTree* thisPtr = thisArgInfo->GetNode()->AsUnOp()->GetOp(0);
+
+    GenTree* thisUse;
+
+    if (thisPtr->OperIs(GT_LCL_VAR))
+    {
+        thisUse = comp->gtNewLclvNode(thisPtr->AsLclVar()->GetLclNum(), thisPtr->GetType());
+    }
+    else if (thisPtr->OperIs(GT_LCL_FLD))
+    {
+        thisUse = comp->gtNewLclFldNode(thisPtr->AsLclFld()->GetLclNum(), thisPtr->GetType(),
+                                        thisPtr->AsLclFld()->GetLclOffs());
     }
     else
     {
-        unsigned delegateInvokeTmp = comp->lvaGrabTemp(true DEBUGARG("delegate invoke call"));
+        if (vtableCallTemp == BAD_VAR_NUM)
+        {
+            vtableCallTemp = comp->lvaGrabTemp(true DEBUGARG("virtual vtable call"));
+        }
 
-        LIR::Use thisExprUse(BlockRange(), &thisArgNode->AsOp()->gtOp1, thisArgNode);
-        ReplaceWithLclVar(thisExprUse, delegateInvokeTmp);
-
-        thisExpr = thisExprUse.Def(); // it's changed; reload it.
-        lclNum   = delegateInvokeTmp;
+        LIR::Use thisPtrUse(BlockRange(), &(thisArgInfo->GetNode()->AsUnOp()->gtOp1), thisArgInfo->GetNode());
+        ReplaceWithLclVar(thisPtrUse, vtableCallTemp);
+        thisUse = comp->gtNewLclvNode(vtableCallTemp, thisPtr->GetType());
     }
 
-    // replace original expression feeding into thisPtr with
-    // [originalThis + offsetOfDelegateInstance]
+#ifndef TARGET_X86
+    GenTree* insertBefore = call;
+#else
+    insertBefore               = insertBefore == nullptr ? call : insertBefore;
+#endif
 
-    GenTree* newThisAddr = new (comp, GT_LEA)
-        GenTreeAddrMode(TYP_BYREF, thisExpr, nullptr, 0, comp->eeGetEEInfo()->offsetOfDelegateInstance);
+    GenTree* mtAddr = new (comp, GT_LEA) GenTreeAddrMode(thisUse, VPTR_OFFS);
+    GenTree* mt     = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, mtAddr);
+    BlockRange().InsertBefore(insertBefore, thisUse, mtAddr, mt);
+    ContainCheckIndir(mt->AsIndir());
 
-    GenTree* newThis = comp->gtNewOperNode(GT_IND, TYP_REF, newThisAddr);
+    // TODO-MIKE-Cleanup: This is dead code.
+    if (isRelative)
+    {
+        assert(vtabOffsOfIndirection != CORINFO_VIRTUALCALL_NO_CHUNK);
 
-    BlockRange().InsertAfter(thisExpr, newThisAddr, newThis);
+        unsigned mtTempLclNum = comp->lvaNewTemp(TYP_I_IMPL, true DEBUGARG("vtbl call MT"));
+        GenTree* mtTempStore  = comp->gtNewStoreLclVar(mtTempLclNum, TYP_I_IMPL, mt);
+        BlockRange().InsertBefore(insertBefore, mtTempStore);
 
-    thisArgNode->AsOp()->gtOp1 = newThis;
-    ContainCheckIndir(newThis->AsIndir());
+        GenTree* mtTempUse1    = comp->gtNewLclvNode(mtTempLclNum, TYP_I_IMPL);
+        GenTree* chunkOffsAddr = new (comp, GT_LEA) GenTreeAddrMode(mtTempUse1, vtabOffsOfIndirection);
+        GenTree* chunkOffs     = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, chunkOffsAddr, false);
+        BlockRange().InsertBefore(insertBefore, mtTempUse1, chunkOffsAddr, chunkOffs);
+        ContainCheckIndir(chunkOffs->AsIndir());
 
-    // the control target is
-    // [originalThis + firstTgtOffs]
+        GenTree* mtTempUse2    = comp->gtNewLclvNode(mtTempLclNum, TYP_I_IMPL);
+        GenTree* offs          = comp->gtNewIconNode(vtabOffsOfIndirection + vtabOffsAfterIndirection, TYP_I_IMPL);
+        GenTree* chunkBaseAddr = comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, mtTempUse2, offs);
+        GenTree* slotAddr      = new (comp, GT_LEA) GenTreeAddrMode(TYP_I_IMPL, chunkBaseAddr, chunkOffs, 1, 0);
+        BlockRange().InsertBefore(insertBefore, mtTempUse2, offs, chunkBaseAddr, slotAddr);
 
-    GenTree* base = new (comp, GT_LCL_VAR) GenTreeLclVar(GT_LCL_VAR, originalThisExpr->TypeGet(), lclNum);
+        unsigned slotAddrTempLclNum = comp->lvaNewTemp(TYP_I_IMPL, true DEBUGARG("vtbl call slot addr"));
+        GenTree* slotAddrTempStore  = comp->gtNewStoreLclVar(slotAddrTempLclNum, TYP_I_IMPL, slotAddr);
+        BlockRange().InsertBefore(insertBefore, slotAddrTempStore);
 
-    unsigned targetOffs = comp->eeGetEEInfo()->offsetOfDelegateFirstTarget;
-    GenTree* result     = new (comp, GT_LEA) GenTreeAddrMode(TYP_BYREF, base, nullptr, 0, targetOffs);
-    GenTree* callTarget = Ind(result);
+        GenTree* slotAddrTempUse1 = comp->gtNewLclvNode(slotAddrTempLclNum, TYP_I_IMPL);
+        GenTree* codeOffs         = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, slotAddrTempUse1);
+        GenTree* slotAddrTempUse2 = comp->gtNewLclvNode(slotAddrTempLclNum, TYP_I_IMPL);
+        GenTree* target           = comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, codeOffs, slotAddrTempUse2);
+        BlockRange().InsertBefore(insertBefore, slotAddrTempUse1, codeOffs, slotAddrTempUse2, target);
+        ContainCheckIndir(codeOffs->AsIndir());
 
-    // don't need to sequence and insert this tree, caller will do it
+        return target;
+    }
 
-    return callTarget;
+    GenTree* chunkAddr;
+
+    if (vtabOffsOfIndirection == CORINFO_VIRTUALCALL_NO_CHUNK)
+    {
+        chunkAddr = mt;
+    }
+    else
+    {
+        GenTree* chunkAddrAddr = new (comp, GT_LEA) GenTreeAddrMode(mt, vtabOffsOfIndirection);
+        chunkAddr              = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, chunkAddrAddr);
+        BlockRange().InsertBefore(insertBefore, chunkAddrAddr, chunkAddr);
+        ContainCheckIndir(chunkAddr->AsIndir());
+    }
+
+    GenTree* slotAddr = new (comp, GT_LEA) GenTreeAddrMode(chunkAddr, vtabOffsAfterIndirection);
+    GenTree* target   = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, slotAddr);
+    BlockRange().InsertBefore(insertBefore, slotAddr, target);
+    ContainCheckIndir(target->AsIndir());
+
+    return target;
 }
 
-GenTree* Lowering::LowerIndirectNonvirtCall(GenTreeCall* call)
+GenTree* Lowering::LowerVirtualStubCall(GenTreeCall* call X86_ARG(GenTree* insertBefore))
 {
-#ifdef TARGET_X86
-    if (call->gtCallCookie != nullptr)
+    assert(call->IsVirtualStub() && !call->IsIndirectCall() X86_ONLY(&&!call->IsTailCallViaJitHelper()));
+
+    // An x86 JIT which uses full stub dispatch must generate only
+    // the following stub dispatch calls:
+    //
+    // (1) isCallRelativeIndirect:
+    //        call dword ptr [rel32]  ;  FF 15 ---rel32----
+    // (2) isCallRelative:
+    //        call abc                ;     E8 ---rel32----
+    // (3) isCallRegisterIndirect:
+    //     3-byte nop                 ;
+    //     call dword ptr [eax]       ;     FF 10
+    //
+    // THIS IS VERY TIGHTLY TIED TO THE PREDICATES IN
+    // vm\i386\cGenCpu.h, esp. isCallRegisterIndirect.
+
+    noway_assert(call->gtStubCallStubAddr != nullptr);
+    // If not CT_INDIRECT, then it should always be relative indir call. This is ensured by VM.
+    noway_assert(call->IsVirtualStubRelativeIndir());
+
+#if defined(FEATURE_READYTORUN_COMPILER) && defined(TARGET_ARMARCH)
+    // Skip inserting the indirection node to load the address that is already
+    // computed in REG_R2R_INDIRECT_PARAM as a hidden parameter. Instead during the
+    // codegen, just load the call target from REG_R2R_INDIRECT_PARAM.
+    // However, for tail calls, the call target is always computed in RBM_FASTTAILCALL_TARGET
+    // and so do not optimize virtual stub calls for such cases.
+    if (!call->IsTailCall())
     {
-        NYI_X86("Morphing indirect non-virtual call with non-standard args");
+        return nullptr;
     }
 #endif
 
-    // Indirect cookie calls gets transformed by fgMorphArgs as indirect call with non-standard args.
-    // Hence we should never see this type of call in lower.
+// TODO-Cleanup: start emitting random NOPS
 
-    noway_assert(call->gtCallCookie == nullptr);
+#ifndef TARGET_X86
+    GenTree* insertBefore = call;
+#else
+    insertBefore               = insertBefore == nullptr ? call : insertBefore;
+#endif
 
-    return nullptr;
+    GenTreeIntCon* addr   = comp->gtNewIconHandleNode(call->gtStubCallStubAddr, GTF_ICON_FTN_ADDR);
+    GenTree*       target = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, addr);
+    BlockRange().InsertBefore(insertBefore, addr, target);
+    ContainCheckIndir(target->AsIndir());
+
+    return target;
 }
 
 //------------------------------------------------------------------------
@@ -3178,7 +3147,8 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
     JITDUMP("======= Inserting PInvoke call prolog\n");
 
     GenTree* insertBefore = call;
-    if (call->gtCallType == CT_INDIRECT)
+
+    if (call->IsIndirectCall())
     {
         bool isClosed;
         insertBefore = BlockRange().GetTreeRange(call->gtCallAddr, &isClosed).FirstNode();
@@ -3186,8 +3156,6 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
     }
 
     const CORINFO_EE_INFO::InlinedCallFrameInfo& callFrameInfo = comp->eeGetEEInfo()->inlinedCallFrameInfo;
-
-    gtCallTypes callType = (gtCallTypes)call->gtCallType;
 
     noway_assert(comp->lvaInlinedPInvokeFrameVar != BAD_VAR_NUM);
 
@@ -3228,7 +3196,7 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
 
     GenTree* src = nullptr;
 
-    if (callType == CT_INDIRECT)
+    if (call->IsIndirectCall())
     {
 #if !defined(TARGET_64BIT)
         // On 32-bit targets, indirect calls need the size of the stack args in InlinedCallFrame.m_Datum.
@@ -3246,7 +3214,7 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
     }
     else
     {
-        assert(callType == CT_USER_FUNC);
+        assert(call->IsUserCall());
 
         void*                 pEmbedMethodHandle = nullptr;
         CORINFO_METHOD_HANDLE embedMethodHandle =
@@ -3375,17 +3343,10 @@ void Lowering::InsertPInvokeCallEpilog(GenTreeCall* call)
 #endif // TARGET_64BIT
 }
 
-//------------------------------------------------------------------------
-// LowerNonvirtPinvokeCall: Lower a non-virtual / indirect PInvoke call
-//
-// Arguments:
-//    call - The call to lower.
-//
-// Return Value:
-//    The lowered call tree.
-//
-GenTree* Lowering::LowerNonvirtPinvokeCall(GenTreeCall* call)
+void Lowering::InsertPInvokeCallPrologAndEpilog(GenTreeCall* call)
 {
+    assert(call->IsUnmanaged() X86_ONLY(&&!call->IsTailCallViaJitHelper()));
+
     // PInvoke lowering varies depending on the flags passed in by the EE. By default,
     // GC transitions are generated inline; if CORJIT_FLAG_USE_PINVOKE_HELPERS is specified,
     // GC transitions are instead performed using helper calls. Examples of each case are given
@@ -3436,275 +3397,18 @@ GenTree* Lowering::LowerNonvirtPinvokeCall(GenTreeCall* call)
     // Note that the JIT_PINVOKE_{BEGIN.END} helpers currently use the default calling convention for the target
     // platform. They may be changed in the future such that they preserve all register values.
 
-    GenTree* result = nullptr;
-
     // All code generated by this function must not contain the randomly-inserted NOPs
     // that we insert to inhibit JIT spraying in partial trust scenarios.
     // The PINVOKE_PROLOG op signals this to the code generator/emitter.
 
-    GenTree* prolog = new (comp, GT_NOP) GenTree(GT_PINVOKE_PROLOG, TYP_VOID);
+    GenTree* prolog = new (comp, GT_PINVOKE_PROLOG) GenTree(GT_PINVOKE_PROLOG, TYP_VOID);
     BlockRange().InsertBefore(call, prolog);
 
-    bool addPInvokePrologEpilog = !call->IsSuppressGCTransition();
-    if (addPInvokePrologEpilog)
+    if (!call->IsSuppressGCTransition())
     {
         InsertPInvokeCallProlog(call);
-    }
-
-    if (call->gtCallType != CT_INDIRECT)
-    {
-        noway_assert(call->gtCallType == CT_USER_FUNC);
-        CORINFO_METHOD_HANDLE methHnd = call->gtCallMethHnd;
-
-        CORINFO_CONST_LOOKUP lookup;
-        comp->info.compCompHnd->getAddressOfPInvokeTarget(methHnd, &lookup);
-
-        void*    addr = lookup.addr;
-        GenTree* addrTree;
-        switch (lookup.accessType)
-        {
-            case IAT_VALUE:
-                // IsCallTargetInRange always return true on x64. It wants to use rip-based addressing
-                // for this call. Unfortunately, in case of pinvokes (+suppressgctransition) to external libs
-                // (e.g. kernel32.dll) the relative offset is unlikely to fit into int32 and we will have to
-                // turn fAllowRel32 off globally.
-                if ((call->IsSuppressGCTransition() && !comp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT)) ||
-                    !IsCallTargetInRange(addr))
-                {
-                    result = AddrGen(addr);
-                }
-                else
-                {
-                    // a direct call within range of hardware relative call instruction
-                    // stash the address for codegen
-                    call->gtDirectCallAddress = addr;
-#ifdef FEATURE_READYTORUN_COMPILER
-                    call->gtEntryPoint.addr       = nullptr;
-                    call->gtEntryPoint.accessType = IAT_VALUE;
-#endif
-                }
-                break;
-
-            case IAT_PVALUE:
-                addrTree = AddrGen(addr);
-#ifdef DEBUG
-                addrTree->AsIntCon()->gtTargetHandle = (size_t)methHnd;
-#endif
-                result = Ind(addrTree);
-                break;
-
-            case IAT_PPVALUE:
-                // ToDo:  Expanding an IAT_PPVALUE here, loses the opportunity
-                // to Hoist/CSE the first indirection as it is an invariant load
-                //
-                // This case currently occurs today when we make PInvoke calls in crossgen
-                //
-                // assert(!"IAT_PPVALUE in Lowering::LowerNonvirtPinvokeCall");
-
-                addrTree = AddrGen(addr);
-#ifdef DEBUG
-                addrTree->AsIntCon()->gtTargetHandle = (size_t)methHnd;
-#endif
-                // Double-indirection. Load the address into a register
-                // and call indirectly through the register
-                //
-                result = Ind(Ind(addrTree));
-                break;
-
-            case IAT_RELPVALUE:
-                unreached();
-        }
-    }
-
-    if (addPInvokePrologEpilog)
-    {
         InsertPInvokeCallEpilog(call);
     }
-
-    return result;
-}
-
-// Expand the code necessary to calculate the control target.
-// Returns: the expression needed to calculate the control target
-// May insert embedded statements
-GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call)
-{
-    noway_assert(call->gtCallType == CT_USER_FUNC);
-
-    // Get hold of the vtable offset (note: this might be expensive)
-    unsigned vtabOffsOfIndirection;
-    unsigned vtabOffsAfterIndirection;
-    bool     isRelative;
-    comp->info.compCompHnd->getMethodVTableOffset(call->GetMethodHandle(), &vtabOffsOfIndirection,
-                                                  &vtabOffsAfterIndirection, &isRelative);
-
-    CallArgInfo* thisArgInfo = call->GetArgInfoByArgNum(0);
-    assert(thisArgInfo->GetRegNum() == comp->codeGen->genGetThisArgReg(call));
-    assert(thisArgInfo->GetNode()->OperIs(GT_PUTARG_REG));
-    GenTree* thisPtr = thisArgInfo->GetNode()->AsUnOp()->GetOp(0);
-
-    GenTree* thisUse;
-
-    if (thisPtr->OperIs(GT_LCL_VAR))
-    {
-        thisUse = comp->gtNewLclvNode(thisPtr->AsLclVar()->GetLclNum(), thisPtr->GetType());
-    }
-    else if (thisPtr->OperIs(GT_LCL_FLD))
-    {
-        thisUse = comp->gtNewLclFldNode(thisPtr->AsLclFld()->GetLclNum(), thisPtr->GetType(),
-                                        thisPtr->AsLclFld()->GetLclOffs());
-    }
-    else
-    {
-        if (vtableCallTemp == BAD_VAR_NUM)
-        {
-            vtableCallTemp = comp->lvaGrabTemp(true DEBUGARG("virtual vtable call"));
-        }
-
-        LIR::Use thisPtrUse(BlockRange(), &(thisArgInfo->GetNode()->AsUnOp()->gtOp1), thisArgInfo->GetNode());
-        ReplaceWithLclVar(thisPtrUse, vtableCallTemp);
-        thisUse = comp->gtNewLclvNode(vtableCallTemp, thisPtr->GetType());
-    }
-
-    GenTree* mtAddr = new (comp, GT_LEA) GenTreeAddrMode(thisUse, VPTR_OFFS);
-    GenTree* mt     = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, mtAddr);
-
-    // TODO-MIKE-Cleanup: This is dead code.
-    if (vtabOffsOfIndirection == CORINFO_VIRTUALCALL_NO_CHUNK)
-    {
-        assert(!isRelative);
-        GenTree* slotAddr = new (comp, GT_LEA) GenTreeAddrMode(mt, vtabOffsAfterIndirection);
-        return comp->gtNewOperNode(GT_IND, TYP_I_IMPL, slotAddr);
-    }
-
-    // TODO-MIKE-Cleanup: This is dead code.
-    if (isRelative)
-    {
-        unsigned mtTempLclNum = comp->lvaNewTemp(TYP_I_IMPL, true DEBUGARG("vtbl call MT"));
-        GenTree* mtTempStore  = comp->gtNewStoreLclVar(mtTempLclNum, TYP_I_IMPL, mt);
-        BlockRange().InsertBefore(call, thisUse, mtAddr, mt, mtTempStore);
-
-        GenTree* mtTempUse1    = comp->gtNewLclvNode(mtTempLclNum, TYP_I_IMPL);
-        GenTree* chunkOffsAddr = new (comp, GT_LEA) GenTreeAddrMode(mtTempUse1, vtabOffsOfIndirection);
-        GenTree* chunkOffs     = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, chunkOffsAddr, false);
-        BlockRange().InsertBefore(call, mtTempUse1, chunkOffsAddr, chunkOffs);
-        ContainCheckIndir(chunkOffs->AsIndir());
-
-        GenTree* mtTempUse2    = comp->gtNewLclvNode(mtTempLclNum, TYP_I_IMPL);
-        GenTree* offs          = comp->gtNewIconNode(vtabOffsOfIndirection + vtabOffsAfterIndirection, TYP_I_IMPL);
-        GenTree* chunkBaseAddr = comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, mtTempUse2, offs);
-        GenTree* slotAddr      = new (comp, GT_LEA) GenTreeAddrMode(TYP_I_IMPL, chunkBaseAddr, chunkOffs, 1, 0);
-        BlockRange().InsertBefore(call, mtTempUse2, offs, chunkBaseAddr, slotAddr);
-
-        unsigned slotAddrTempLclNum = comp->lvaNewTemp(TYP_I_IMPL, true DEBUGARG("vtbl call slot addr"));
-        GenTree* slotAddrTempStore  = comp->gtNewStoreLclVar(slotAddrTempLclNum, TYP_I_IMPL, slotAddr);
-        BlockRange().InsertBefore(call, slotAddrTempStore);
-
-        GenTree* slotAddrTempUse1 = comp->gtNewLclvNode(slotAddrTempLclNum, TYP_I_IMPL);
-        GenTree* codeOffs         = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, slotAddrTempUse1);
-        GenTree* slotAddrTempUse2 = comp->gtNewLclvNode(slotAddrTempLclNum, TYP_I_IMPL);
-        return comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, codeOffs, slotAddrTempUse2);
-    }
-
-    GenTree* chunkAddrAddr = new (comp, GT_LEA) GenTreeAddrMode(mt, vtabOffsOfIndirection);
-    GenTree* chunkAddr     = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, chunkAddrAddr);
-    GenTree* slotAddr      = new (comp, GT_LEA) GenTreeAddrMode(chunkAddr, vtabOffsAfterIndirection);
-    return comp->gtNewOperNode(GT_IND, TYP_I_IMPL, slotAddr);
-}
-
-// Lower stub dispatched virtual calls.
-GenTree* Lowering::LowerVirtualStubCall(GenTreeCall* call)
-{
-    assert(call->IsVirtualStub());
-
-    // An x86 JIT which uses full stub dispatch must generate only
-    // the following stub dispatch calls:
-    //
-    // (1) isCallRelativeIndirect:
-    //        call dword ptr [rel32]  ;  FF 15 ---rel32----
-    // (2) isCallRelative:
-    //        call abc                ;     E8 ---rel32----
-    // (3) isCallRegisterIndirect:
-    //     3-byte nop                 ;
-    //     call dword ptr [eax]       ;     FF 10
-    //
-    // THIS IS VERY TIGHTLY TIED TO THE PREDICATES IN
-    // vm\i386\cGenCpu.h, esp. isCallRegisterIndirect.
-
-    GenTree* result = nullptr;
-
-    // This is code to set up an indirect call to a stub address computed
-    // via dictionary lookup.
-    if (call->gtCallType == CT_INDIRECT)
-    {
-        // The importer decided we needed a stub call via a computed
-        // stub dispatch address, i.e. an address which came from a dictionary lookup.
-        //   - The dictionary lookup produces an indirected address, suitable for call
-        //     via "call [VirtualStubParam.reg]"
-        //
-        // This combination will only be generated for shared generic code and when
-        // stub dispatch is active.
-
-        // fgMorphArgs will have created trees to pass the address in VirtualStubParam.reg.
-        // All we have to do here is add an indirection to generate the actual call target.
-
-        GenTree* ind = Ind(call->gtCallAddr);
-        BlockRange().InsertAfter(call->gtCallAddr, ind);
-        call->gtCallAddr = ind;
-
-        // VM requires us to pass stub addr in VirtualStubParam.reg. For that reason
-        // we cannot mark such an addr as contained. Note that this is not an issue
-        // for indirect VSD calls since fgMorphArgs() is explicitly materializing
-        // hidden param as a non-standard argument.
-        // TODO-MIKE-Review: Hmm, so isn't this an indirect VSD call?!
-        ind->gtFlags |= GTF_IND_REQ_ADDR_IN_REG;
-
-        ContainCheckIndir(ind->AsIndir());
-    }
-    else
-    {
-        // Direct stub call.
-        // Get stub addr. This will return NULL if virtual call stubs are not active
-        void* stubAddr = call->gtStubCallStubAddr;
-        noway_assert(stubAddr != nullptr);
-
-        // If not CT_INDIRECT,  then it should always be relative indir call.
-        // This is ensured by VM.
-        noway_assert(call->IsVirtualStubRelativeIndir());
-
-        // Direct stub calls, though the stubAddr itself may still need to be
-        // accessed via an indirection.
-        GenTree* addr = AddrGen(stubAddr);
-
-        // On x86, for tailcall via helper, the JIT_TailCall helper takes the stubAddr as
-        // the target address, and we set a flag that it's a VSD call. The helper then
-        // handles any necessary indirection.
-        if (call->IsTailCallViaJitHelper())
-        {
-            result = addr;
-        }
-        else
-        {
-
-            bool shouldOptimizeVirtualStubCall = false;
-#if defined(FEATURE_READYTORUN_COMPILER) && defined(TARGET_ARMARCH)
-            // Skip inserting the indirection node to load the address that is already
-            // computed in REG_R2R_INDIRECT_PARAM as a hidden parameter. Instead during the
-            // codegen, just load the call target from REG_R2R_INDIRECT_PARAM.
-            // However, for tail calls, the call target is always computed in RBM_FASTTAILCALL_TARGET
-            // and so do not optimize virtual stub calls for such cases.
-            shouldOptimizeVirtualStubCall = !call->IsTailCall();
-#endif // FEATURE_READYTORUN_COMPILER && TARGET_ARMARCH
-
-            if (!shouldOptimizeVirtualStubCall)
-            {
-                result = Ind(addr);
-            }
-        }
-    }
-
-    // TODO-Cleanup: start emitting random NOPS
-    return result;
 }
 
 //------------------------------------------------------------------------
@@ -4026,22 +3730,19 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
 
     if (isPow2(divisorValue))
     {
-        genTreeOps newOper;
-
         if (isDiv)
         {
-            newOper      = GT_RSZ;
-            divisorValue = genLog2(divisorValue);
+            divMod->SetOper(GT_RSZ);
+            divisor->AsIntCon()->SetValue(genLog2(divisorValue));
+            ContainCheckShiftRotate(divMod);
         }
         else
         {
-            newOper = GT_AND;
-            divisorValue -= 1;
+            divMod->SetOper(GT_AND);
+            divisor->AsIntCon()->SetValue(divisorValue - 1);
+            ContainCheckBinary(divMod);
         }
 
-        divMod->SetOper(newOper);
-        divisor->AsIntCon()->SetIconValue(divisorValue);
-        ContainCheckNode(divMod);
         return true;
     }
     if (isDiv)
@@ -4053,7 +3754,7 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
         {
             divMod->SetOper(GT_GE);
             divMod->gtFlags |= GTF_UNSIGNED;
-            ContainCheckNode(divMod);
+            ContainCheckCompare(divMod);
             return true;
         }
     }
@@ -4113,7 +3814,6 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
             dividend = ReplaceWithLclVar(dividendUse);
         }
 
-        GenTree* firstNode        = nullptr;
         GenTree* adjustedDividend = dividend;
 
         // If "increment" flag is returned by GetUnsignedMagic we need to do Saturating Increment first
@@ -4121,7 +3821,6 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
         {
             adjustedDividend = comp->gtNewOperNode(GT_INC_SATURATE, type, adjustedDividend);
             BlockRange().InsertBefore(divMod, adjustedDividend);
-            firstNode = adjustedDividend;
             assert(!preShift);
         }
         // if "preShift" is required, then do a right shift before
@@ -4130,7 +3829,7 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
             GenTree* preShiftBy = comp->gtNewIconNode(preShift, TYP_INT);
             adjustedDividend    = comp->gtNewOperNode(GT_RSZ, type, adjustedDividend, preShiftBy);
             BlockRange().InsertBefore(divMod, preShiftBy, adjustedDividend);
-            firstNode = preShiftBy;
+            ContainCheckShiftRotate(adjustedDividend->AsOp());
         }
         else if (type != TYP_I_IMPL
 #ifdef TARGET_ARM64
@@ -4140,14 +3839,16 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
         {
             adjustedDividend = comp->gtNewCastNode(TYP_I_IMPL, adjustedDividend, true, TYP_U_IMPL);
             BlockRange().InsertBefore(divMod, adjustedDividend);
-            firstNode = adjustedDividend;
+            ContainCheckCast(adjustedDividend->AsCast());
         }
 
 #ifdef TARGET_XARCH
         // force input transformation to RAX because the following MULHI will kill RDX:RAX anyway and LSRA often causes
         // reduntant copies otherwise
-        if (firstNode && !simpleMul)
+        if ((adjustedDividend != dividend) && !simpleMul)
+        {
             adjustedDividend->SetRegNum(REG_RAX);
+        }
 #endif
 
         divisor->gtType = TYP_I_IMPL;
@@ -4166,6 +3867,7 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
             divMod->SetOper(GT_MULHI);
             divMod->gtOp1 = adjustedDividend;
             divMod->gtFlags |= GTF_UNSIGNED;
+            ContainCheckMul(divMod);
         }
         else
         {
@@ -4176,8 +3878,7 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
             GenTree* mulhi = comp->gtNewOperNode(simpleMul ? GT_MUL : GT_MULHI, TYP_I_IMPL, adjustedDividend, divisor);
             mulhi->gtFlags |= GTF_UNSIGNED;
             BlockRange().InsertBefore(divMod, mulhi);
-            if (!firstNode)
-                firstNode = mulhi;
+            ContainCheckMul(mulhi->AsOp());
 
             if (postShift)
             {
@@ -4189,11 +3890,13 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
                     divMod->SetOper(GT_RSZ);
                     divMod->gtOp1 = mulhi;
                     divMod->gtOp2 = shiftBy;
+                    ContainCheckShiftRotate(divMod);
                 }
                 else
                 {
                     mulhi = comp->gtNewOperNode(GT_RSZ, TYP_I_IMPL, mulhi, shiftBy);
                     BlockRange().InsertBefore(divMod, mulhi);
+                    ContainCheckShiftRotate(mulhi->AsOp());
                 }
             }
 
@@ -4209,6 +3912,8 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
                 divMod->gtOp2 = mul;
 
                 BlockRange().InsertBefore(divMod, divisor, mul, dividend);
+                ContainCheckMul(mul->AsOp());
+                ContainCheckBinary(divMod);
             }
             else if (type != TYP_I_IMPL)
             {
@@ -4224,8 +3929,6 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
             }
         }
 
-        if (firstNode)
-            ContainCheckRange(firstNode, divMod);
         return true;
     }
 #endif
@@ -4434,7 +4137,10 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
     LIR::Use opDividend(BlockRange(), &divMod->AsOp()->gtOp1, divMod);
     dividend = ReplaceWithLclVar(opDividend);
 
-    GenTree* adjustment = comp->gtNewOperNode(GT_RSH, type, dividend, comp->gtNewIconNode(type == TYP_INT ? 31 : 63));
+    GenTree*   shiftBy    = comp->gtNewIconNode(type == TYP_INT ? 31 : 63);
+    GenTreeOp* adjustment = comp->gtNewOperNode(GT_RSH, type, dividend, shiftBy);
+    BlockRange().InsertAfter(dividend, shiftBy, adjustment);
+    ContainCheckShiftRotate(adjustment);
 
     if (absDivisorValue == 2)
     {
@@ -4444,14 +4150,21 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
     }
     else
     {
-        adjustment = comp->gtNewOperNode(GT_AND, type, adjustment, comp->gtNewIconNode(absDivisorValue - 1, type));
+        GenTree*   imm  = comp->gtNewIconNode(absDivisorValue - 1, type);
+        GenTreeOp* mask = comp->gtNewOperNode(GT_AND, type, adjustment, imm);
+        BlockRange().InsertAfter(adjustment, imm, mask);
+        ContainCheckBinary(mask);
+
+        adjustment = mask;
     }
 
-    GenTree* adjustedDividend =
-        comp->gtNewOperNode(GT_ADD, type, adjustment,
-                            comp->gtNewLclvNode(dividend->AsLclVar()->GetLclNum(), dividend->TypeGet()));
+    dividend                    = comp->gtNewLclvNode(dividend->AsLclVar()->GetLclNum(), dividend->GetType());
+    GenTreeOp* adjustedDividend = comp->gtNewOperNode(GT_ADD, type, adjustment, dividend);
+    BlockRange().InsertAfter(adjustment, dividend, adjustedDividend);
+    ContainCheckBinary(adjustedDividend);
 
     GenTree* newDivMod;
+    BlockRange().Remove(divisor);
 
     if (isDiv)
     {
@@ -4459,13 +4172,15 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
         divisor->AsIntCon()->SetIconValue(genLog2(absDivisorValue));
 
         newDivMod = comp->gtNewOperNode(GT_RSH, type, adjustedDividend, divisor);
+        BlockRange().InsertAfter(adjustedDividend, divisor, newDivMod);
         ContainCheckShiftRotate(newDivMod->AsOp());
 
         if (divisorValue < 0)
         {
             // negate the result if the divisor is negative
-            newDivMod = comp->gtNewOperNode(GT_NEG, type, newDivMod);
-            ContainCheckNode(newDivMod);
+            GenTree* neg = comp->gtNewOperNode(GT_NEG, type, newDivMod);
+            BlockRange().InsertAfter(newDivMod, neg);
+            newDivMod = neg;
         }
     }
     else
@@ -4475,22 +4190,16 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
         // which simply discards the low log2(divisor) bits, that's just dividend & ~(divisor - 1)
         divisor->AsIntCon()->SetIconValue(~(absDivisorValue - 1));
 
-        newDivMod = comp->gtNewOperNode(GT_SUB, type,
-                                        comp->gtNewLclvNode(dividend->AsLclVar()->GetLclNum(), dividend->TypeGet()),
-                                        comp->gtNewOperNode(GT_AND, type, adjustedDividend, divisor));
+        GenTreeOp* mask = comp->gtNewOperNode(GT_AND, type, adjustedDividend, divisor);
+        dividend        = comp->gtNewLclvNode(dividend->AsLclVar()->GetLclNum(), dividend->GetType());
+        newDivMod       = comp->gtNewOperNode(GT_SUB, type, dividend, mask);
+
+        BlockRange().InsertAfter(adjustedDividend, divisor, mask, dividend, newDivMod);
+        ContainCheckBinary(mask);
     }
 
-    // Remove the divisor and dividend nodes from the linear order,
-    // since we have reused them and will resequence the tree
-    BlockRange().Remove(divisor);
-    BlockRange().Remove(dividend);
-
-    // linearize and insert the new tree before the original divMod node
-    InsertTreeBeforeAndContainCheck(divMod, newDivMod);
-    BlockRange().Remove(divMod);
-
-    // replace the original divmod node with the new divmod tree
     use.ReplaceWith(comp, newDivMod);
+    BlockRange().Remove(divMod);
 
     return newDivMod->gtNext;
 }
@@ -4679,53 +4388,49 @@ void Lowering::LowerShift(GenTreeOp* shift)
 
 #endif // !TARGET_ARM64
 
-void Lowering::WidenSIMD12IfNecessary(GenTreeLclVarCommon* node)
-{
 #ifdef FEATURE_SIMD
-    if (node->TypeGet() == TYP_SIMD12)
+void Lowering::WidenSIMD12IfNecessary(GenTreeLclVar* node)
+{
+    assert(node->TypeIs(TYP_SIMD12));
+
+    // Assumption 1:
+    // RyuJit backend depends on the assumption that on 64-Bit targets Vector3 size is rounded off
+    // to TARGET_POINTER_SIZE and hence Vector3 locals on stack can be treated as TYP_SIMD16 for
+    // reading and writing purposes.
+    //
+    // Assumption 2:
+    // RyuJit backend is making another implicit assumption that Vector3 type args when passed in
+    // registers or on stack, the upper most 4-bytes will be zero.
+    //
+    // For P/Invoke return and Reverse P/Invoke argument passing, native compiler doesn't guarantee
+    // that upper 4-bytes of a Vector3 type struct is zero initialized and hence assumption 2 is
+    // invalid.
+    //
+    // RyuJIT x64 Windows: arguments are treated as passed by ref and hence read/written just 12
+    // bytes. In case of Vector3 returns, Caller allocates a zero initialized Vector3 local and
+    // passes it retBuf arg and Callee method writes only 12 bytes to retBuf. For this reason,
+    // there is no need to clear upper 4-bytes of Vector3 type args.
+    //
+    // RyuJIT x64 Unix: arguments are treated as passed by value and read/writen as if TYP_SIMD16.
+    // Vector3 return values are returned two return registers and Caller assembles them into a
+    // single xmm reg. Hence RyuJIT explicitly generates code to clears upper 4-bytes of Vector3
+    // type args in prolog and Vector3 type return value of a call
+    //
+    // RyuJIT x86 Windows: all non-param Vector3 local vars are allocated as 16 bytes. Vector3 arguments
+    // are pushed as 12 bytes. For return values, a 16-byte local is allocated and the address passed
+    // as a return buffer pointer. The callee doesn't write the high 4 bytes, and we don't need to clear
+    // it either.
+
+    if (comp->lvaMapSimd12ToSimd16(comp->lvaGetDesc(node)))
     {
-        // Assumption 1:
-        // RyuJit backend depends on the assumption that on 64-Bit targets Vector3 size is rounded off
-        // to TARGET_POINTER_SIZE and hence Vector3 locals on stack can be treated as TYP_SIMD16 for
-        // reading and writing purposes.
-        //
-        // Assumption 2:
-        // RyuJit backend is making another implicit assumption that Vector3 type args when passed in
-        // registers or on stack, the upper most 4-bytes will be zero.
-        //
-        // For P/Invoke return and Reverse P/Invoke argument passing, native compiler doesn't guarantee
-        // that upper 4-bytes of a Vector3 type struct is zero initialized and hence assumption 2 is
-        // invalid.
-        //
-        // RyuJIT x64 Windows: arguments are treated as passed by ref and hence read/written just 12
-        // bytes. In case of Vector3 returns, Caller allocates a zero initialized Vector3 local and
-        // passes it retBuf arg and Callee method writes only 12 bytes to retBuf. For this reason,
-        // there is no need to clear upper 4-bytes of Vector3 type args.
-        //
-        // RyuJIT x64 Unix: arguments are treated as passed by value and read/writen as if TYP_SIMD16.
-        // Vector3 return values are returned two return registers and Caller assembles them into a
-        // single xmm reg. Hence RyuJIT explicitly generates code to clears upper 4-bytes of Vector3
-        // type args in prolog and Vector3 type return value of a call
-        //
-        // RyuJIT x86 Windows: all non-param Vector3 local vars are allocated as 16 bytes. Vector3 arguments
-        // are pushed as 12 bytes. For return values, a 16-byte local is allocated and the address passed
-        // as a return buffer pointer. The callee doesn't write the high 4 bytes, and we don't need to clear
-        // it either.
+        JITDUMP("Mapping TYP_SIMD12 lclvar node to TYP_SIMD16:\n");
+        DISPNODE(node);
+        JITDUMP("============");
 
-        unsigned   varNum = node->AsLclVarCommon()->GetLclNum();
-        LclVarDsc* varDsc = &comp->lvaTable[varNum];
-
-        if (comp->lvaMapSimd12ToSimd16(varDsc))
-        {
-            JITDUMP("Mapping TYP_SIMD12 lclvar node to TYP_SIMD16:\n");
-            DISPNODE(node);
-            JITDUMP("============");
-
-            node->gtType = TYP_SIMD16;
-        }
+        node->SetType(TYP_SIMD16);
     }
-#endif // FEATURE_SIMD
 }
+#endif // FEATURE_SIMD
 
 //------------------------------------------------------------------------
 // LowerArrElem: Lower a GT_ARR_ELEM node
@@ -4934,7 +4639,7 @@ PhaseStatus Lowering::DoPhase()
         // Liveness can delete code, which may create empty blocks.
         comp->optLoopsMarked = false;
 
-        if (comp->fgUpdateFlowGraph())
+        if (comp->fgUpdateFlowGraph(this))
         {
             JITDUMP("Flowgraph was modified, running liveness again\n");
             comp->fgLocalVarLiveness();
@@ -5197,123 +4902,6 @@ void Lowering::MakeMultiRegStoreLclVar(GenTreeLclVar* store, GenTree* value)
 }
 
 #endif // FEATURE_MULTIREG_RET
-
-//------------------------------------------------------------------------
-// Containment Analysis
-//------------------------------------------------------------------------
-void Lowering::ContainCheckNode(GenTree* node)
-{
-    switch (node->gtOper)
-    {
-        case GT_STORE_LCL_VAR:
-        case GT_STORE_LCL_FLD:
-            ContainCheckStoreLcl(node->AsLclVarCommon());
-            break;
-
-        case GT_EQ:
-        case GT_NE:
-        case GT_LT:
-        case GT_LE:
-        case GT_GE:
-        case GT_GT:
-        case GT_TEST_EQ:
-        case GT_TEST_NE:
-        case GT_CMP:
-        case GT_JCMP:
-            ContainCheckCompare(node->AsOp());
-            break;
-
-        case GT_JTRUE:
-            ContainCheckJTrue(node->AsUnOp());
-            break;
-
-#ifdef TARGET_XARCH
-        case GT_FADD:
-        case GT_FSUB:
-        case GT_FMUL:
-        case GT_FDIV:
-            ContainCheckFloatBinary(node->AsOp());
-            break;
-#endif
-
-        case GT_ADD:
-        case GT_SUB:
-#if !defined(TARGET_64BIT)
-        case GT_ADD_LO:
-        case GT_ADD_HI:
-        case GT_SUB_LO:
-        case GT_SUB_HI:
-#endif
-        case GT_AND:
-        case GT_OR:
-        case GT_XOR:
-            ContainCheckBinary(node->AsOp());
-            break;
-
-#if defined(TARGET_X86)
-        case GT_MUL_LONG:
-#endif
-        case GT_MUL:
-        case GT_MULHI:
-            ContainCheckMul(node->AsOp());
-            break;
-        case GT_DIV:
-        case GT_MOD:
-        case GT_UDIV:
-        case GT_UMOD:
-            ContainCheckDivOrMod(node->AsOp());
-            break;
-        case GT_LSH:
-        case GT_RSH:
-        case GT_RSZ:
-        case GT_ROL:
-        case GT_ROR:
-#ifndef TARGET_64BIT
-        case GT_LSH_HI:
-        case GT_RSH_LO:
-#endif
-            ContainCheckShiftRotate(node->AsOp());
-            break;
-        case GT_ARR_OFFSET:
-            ContainCheckArrOffset(node->AsArrOffs());
-            break;
-        case GT_LCLHEAP:
-            ContainCheckLclHeap(node->AsOp());
-            break;
-        case GT_RETURN:
-            ContainCheckRet(node->AsOp());
-            break;
-        case GT_RETURNTRAP:
-            ContainCheckReturnTrap(node->AsOp());
-            break;
-        case GT_STOREIND:
-            ContainCheckStoreIndir(node->AsStoreInd());
-            break;
-        case GT_IND:
-            ContainCheckIndir(node->AsIndir());
-            break;
-        case GT_PUTARG_REG:
-        case GT_PUTARG_STK:
-#if FEATURE_ARG_SPLIT
-        case GT_PUTARG_SPLIT:
-#endif // FEATURE_ARG_SPLIT
-            // The regNum must have been set by the lowering of the call.
-            assert(node->GetRegNum() != REG_NA);
-            break;
-#ifdef TARGET_XARCH
-        case GT_INTRINSIC:
-            ContainCheckIntrinsic(node->AsOp());
-            break;
-#endif // TARGET_XARCH
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HWINTRINSIC:
-            ContainCheckHWIntrinsic(node->AsHWIntrinsic());
-            break;
-#endif // FEATURE_HW_INTRINSICS
-        default:
-            break;
-    }
-}
 
 //------------------------------------------------------------------------
 // ContainCheckReturnTrap: determine whether the source of a RETURNTRAP should be contained.
@@ -6202,7 +5790,7 @@ bool Lowering::VectorConstant::Broadcast(GenTreeHWIntrinsic* create)
 }
 #endif
 
-bool Lowering::IsContainableMemoryOp(GenTree* node)
+bool Lowering::IsContainableMemoryOp(Compiler* comp, GenTree* node)
 {
     if (node->isMemoryOp())
     {

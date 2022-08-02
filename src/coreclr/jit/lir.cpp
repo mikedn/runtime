@@ -248,7 +248,7 @@ void LIR::Use::ReplaceWith(Compiler* compiler, GenTree* replacement)
 //
 // Return Value: The number of the local var used for temporary storage.
 //
-unsigned LIR::Use::ReplaceWithLclVar(Compiler* compiler, unsigned lclNum, GenTree** assign)
+unsigned LIR::Use::ReplaceWithLclVar(Compiler* compiler, unsigned lclNum, GenTreeLclVar** newStore)
 {
     assert(IsInitialized());
     assert(m_range->Contains(m_user));
@@ -297,8 +297,8 @@ unsigned LIR::Use::ReplaceWithLclVar(Compiler* compiler, unsigned lclNum, GenTre
         }
     }
 
-    GenTree* store = compiler->gtNewStoreLclVar(lclNum, type, def);
-    GenTree* load  = compiler->gtNewLclvNode(lclNum, type);
+    GenTreeLclVar* store = compiler->gtNewStoreLclVar(lclNum, type, def);
+    GenTreeLclVar* load  = compiler->gtNewLclvNode(lclNum, type);
     m_range->InsertAfter(def, store, load);
 
     ReplaceWith(compiler, load);
@@ -306,9 +306,9 @@ unsigned LIR::Use::ReplaceWithLclVar(Compiler* compiler, unsigned lclNum, GenTre
     JITDUMP("ReplaceWithLclVar created store :\n");
     DISPNODE(store);
 
-    if (assign != nullptr)
+    if (newStore != nullptr)
     {
-        *assign = store;
+        *newStore = store;
     }
     return lclNum;
 }
@@ -1585,40 +1585,6 @@ LIR::Range& LIR::AsRange(BasicBlock* block)
 const LIR::Range& LIR::AsRange(const BasicBlock* block)
 {
     return *static_cast<const Range*>(block);
-}
-
-//------------------------------------------------------------------------
-// LIR::EmptyRange: Constructs and returns an empty range.
-//
-// static
-LIR::Range LIR::EmptyRange()
-{
-    return Range(nullptr, nullptr);
-}
-
-//------------------------------------------------------------------------
-// LIR::SeqTree:
-//    Given a newly created, unsequenced HIR tree, set the evaluation
-//    order (call gtSetEvalOrder) and sequence the tree (set gtNext/gtPrev
-//    pointers by calling fgSetTreeSeq), and return a Range representing
-//    the list of nodes. It is expected this will later be spliced into
-//    an LIR range.
-//
-// Arguments:
-//    compiler - The Compiler context.
-//    tree - The tree to sequence.
-//
-// Return Value: The newly constructed range.
-//
-// static
-LIR::Range LIR::SeqTree(Compiler* compiler, GenTree* tree)
-{
-    // TODO-LIR: it would be great to assert that the tree has not already been
-    // threaded into an order, but I'm not sure that will be practical at this
-    // point.
-
-    compiler->gtSetEvalOrder(tree);
-    return Range(compiler->fgSetTreeSeq(tree, true), tree);
 }
 
 //------------------------------------------------------------------------

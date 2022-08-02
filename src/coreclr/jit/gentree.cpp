@@ -18,24 +18,13 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #pragma hdrstop
 #endif
 
-/*****************************************************************************/
-
 const unsigned short GenTree::gtOperKindTable[] = {
 #define GTNODE(en, st, cm, ok) (ok) + GTK_COMMUTE *cm,
 #include "gtlist.h"
 };
 
-/*****************************************************************************
- *
- *  The types of different GenTree nodes
- */
-
 #ifdef DEBUG
 
-#define INDENT_SIZE 3
-
-//--------------------------------------------
-//
 // IndentStack: This struct is used, along with its related enums and strings,
 //    to control both the indendtation and the printing of arcs.
 //
@@ -44,48 +33,35 @@ const unsigned short GenTree::gtOperKindTable[] = {
 //    Currently it only prints arcs when fgOrder == fgOrderLinear.
 //    The type of arc to print is specified by the IndentInfo enum, and is controlled
 //    by the caller of the Push() method.
-
-enum IndentChars
-{
-    ICVertical,
-    ICBottom,
-    ICTop,
-    ICMiddle,
-    ICDash,
-    ICTerminal,
-    ICError,
-    IndentCharCount
-};
-
-// clang-format off
-// Sets of strings for different dumping options            vert             bot             top             mid             dash       embedded    terminal    error
-static const char*  emptyIndents[IndentCharCount]   = {     " ",             " ",            " ",            " ",            " ",            "",        "?"  };
-static const char*  asciiIndents[IndentCharCount]   = {     "|",            "\\",            "/",            "+",            "-",            "*",       "?"  };
-static const char*  unicodeIndents[IndentCharCount] = { "\xe2\x94\x82", "\xe2\x94\x94", "\xe2\x94\x8c", "\xe2\x94\x9c", "\xe2\x94\x80", "\xe2\x96\x8c", "?"  };
-// clang-format on
-
 struct IndentStack
 {
+    enum IndentChars
+    {
+        ICVertical,
+        ICBottom,
+        ICMiddle,
+        ICDash,
+        ICTerminal
+    };
+
     ArrayStack<Compiler::IndentInfo> stack;
-    const char**                     indents;
+    const char* const*               indents;
 
     // Constructor for IndentStack.  Uses 'compiler' to determine the mode of printing.
     IndentStack(Compiler* compiler) : stack(compiler->getAllocator(CMK_DebugOnly))
     {
-        if (compiler->asciiTrees)
-        {
-            indents = asciiIndents;
-        }
-        else
-        {
-            indents = unicodeIndents;
-        }
+        // clang-format off
+        //                                             vertical        bottom          middle          dash            terminal
+        static constexpr const char* asciiIndents[]  { "|",            "\\",           "+",            "-",            "*", };
+        static constexpr const char* unicodeIndents[]{ "\xe2\x94\x82", "\xe2\x94\x94", "\xe2\x94\x9c", "\xe2\x94\x80", "\xe2\x96\x8c" };
+        // clang-format on
+
+        indents = compiler->asciiTrees ? asciiIndents : unicodeIndents;
     }
 
-    // Return the depth of the current indentation.
-    unsigned Depth()
+    unsigned Empty()
     {
-        return stack.Size();
+        return stack.Empty();
     }
 
     // Push a new indentation onto the stack, of the given type.
@@ -103,15 +79,11 @@ struct IndentStack
     // Print the current indentation and arcs.
     void print()
     {
-        unsigned indentCount = Depth();
-        for (unsigned i = 0; i < indentCount; i++)
+        for (unsigned i = 0, count = stack.Size(); i < count; i++)
         {
-            unsigned index = indentCount - 1 - i;
+            unsigned index = count - 1 - i;
             switch (stack.Top(index))
             {
-                case Compiler::IndentInfo::IINone:
-                    printf("   ");
-                    break;
                 case Compiler::IndentInfo::IIArc:
                     if (index == 0)
                     {
@@ -125,14 +97,9 @@ struct IndentStack
                 case Compiler::IndentInfo::IIArcBottom:
                     printf("%s%s%s", indents[ICBottom], indents[ICDash], indents[ICDash]);
                     break;
-                case Compiler::IndentInfo::IIArcTop:
-                    printf("%s%s%s", indents[ICTop], indents[ICDash], indents[ICDash]);
-                    break;
-                case Compiler::IndentInfo::IIError:
-                    printf("%s%s%s", indents[ICError], indents[ICDash], indents[ICDash]);
-                    break;
                 default:
-                    unreached();
+                    printf("   ");
+                    break;
             }
         }
         printf("%s", indents[ICTerminal]);
@@ -918,7 +885,14 @@ bool GenTreeCall::Equals(GenTreeCall* c1, GenTreeCall* c2)
         return false;
     }
 
-    if (c1->gtCallType != CT_INDIRECT)
+    if (c1->IsIndirectCall())
+    {
+        if (!Compare(c1->gtCallAddr, c2->gtCallAddr))
+        {
+            return false;
+        }
+    }
+    else
     {
         if (c1->gtCallMethHnd != c2->gtCallMethHnd)
         {
@@ -931,13 +905,6 @@ bool GenTreeCall::Equals(GenTreeCall* c1, GenTreeCall* c2)
             return false;
         }
 #endif
-    }
-    else
-    {
-        if (!Compare(c1->gtCallAddr, c2->gtCallAddr))
-        {
-            return false;
-        }
     }
 
     if ((c1->gtCallThisArg != nullptr) != (c2->gtCallThisArg != nullptr))
@@ -1389,8 +1356,6 @@ unsigned Compiler::gtHashValue(GenTree* tree)
 
     unsigned hash = 0;
 
-    GenTree* temp;
-
 AGAIN:
     assert(tree);
 
@@ -1617,11 +1582,9 @@ AGAIN:
                 hash = genTreeHashAdd(hash, gtHashValue(use.GetNode()));
             }
 
-            if (tree->AsCall()->gtCallType == CT_INDIRECT)
+            if (tree->AsCall()->IsIndirectCall())
             {
-                temp = tree->AsCall()->gtCallAddr;
-                assert(temp);
-                hash = genTreeHashAdd(hash, gtHashValue(temp));
+                hash = genTreeHashAdd(hash, gtHashValue(tree->AsCall()->gtCallAddr));
             }
             else
             {
@@ -3289,12 +3252,8 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                 }
             }
 
-            if (call->gtCallType == CT_INDIRECT)
+            if (call->IsIndirectCall())
             {
-                // pinvoke-calli cookie is a constant, or constant indirection
-                assert(call->gtCallCookie == nullptr || call->gtCallCookie->gtOper == GT_CNS_INT ||
-                       call->gtCallCookie->gtOper == GT_IND);
-
                 GenTree* indirect = call->gtCallAddr;
 
                 lvl2 = gtSetEvalOrder(indirect);
@@ -3832,10 +3791,8 @@ bool GenTree::OperMayThrow(Compiler* comp)
             break;
 
         case GT_CALL:
-
-            CorInfoHelpFunc helper;
-            helper = comp->eeGetHelperNum(this->AsCall()->gtCallMethHnd);
-            return ((helper == CORINFO_HELP_UNDEF) || !comp->s_helperCallProperties.NoThrow(helper));
+            return !AsCall()->IsHelperCall() ||
+                   !Compiler::s_helperCallProperties.NoThrow(Compiler::eeGetHelperNum(AsCall()->GetMethodHandle()));
 
         case GT_IND:
         case GT_BLK:
@@ -4369,26 +4326,45 @@ GenTreeLclFld* Compiler::gtNewStoreLclFld(var_types type, unsigned lclNum, unsig
     return new (this, GT_STORE_LCL_FLD) GenTreeLclFld(type, lclNum, lclOffs, value);
 }
 
+GenTreeCall* Compiler::gtNewHelperCallNode(CorInfoHelpFunc helper, var_types type, GenTreeCall::Use* args)
+{
+    GenTreeCall* call = gtNewCallNode(CT_HELPER, eeFindHelper(helper), type, args);
+    call->gtFlags |= s_helperCallProperties.NoThrow(helper) ? GTF_EMPTY : GTF_EXCEPT;
+    INDEBUG(call->gtInlineObservation = InlineObservation::CALLSITE_IS_CALL_TO_HELPER);
+    return call;
+}
+
 GenTreeCall* Compiler::gtNewIndCallNode(GenTree* addr, var_types type, GenTreeCall::Use* args, IL_OFFSETX ilOffset)
 {
-    return gtNewCallNode(CT_INDIRECT, (CORINFO_METHOD_HANDLE)addr, type, args, ilOffset);
+    GenTreeCall* call = gtNewCallNode(CT_INDIRECT, addr, type, args, ilOffset);
+    call->gtFlags |= GTF_EXCEPT | addr->GetSideEffects();
+    return call;
+}
+
+GenTreeCall* Compiler::gtNewUserCallNode(CORINFO_METHOD_HANDLE handle,
+                                         var_types             type,
+                                         GenTreeCall::Use*     args,
+                                         IL_OFFSETX            ilOffset)
+{
+    return gtNewCallNode(CT_USER_FUNC, handle, type, args, ilOffset);
 }
 
 GenTreeCall* Compiler::gtNewCallNode(
-    gtCallTypes kind, CORINFO_METHOD_HANDLE callHnd, var_types type, GenTreeCall::Use* args, IL_OFFSETX ilOffset)
+    CallKind kind, void* target, var_types type, GenTreeCall::Use* args, IL_OFFSETX ilOffset)
 {
     GenTreeCall* node = new (this, GT_CALL) GenTreeCall(type, kind, args);
 #ifdef UNIX_X86_ABI
     node->gtFlags |= GTF_CALL_POP_ARGS;
-#endif // UNIX_X86_ABI
-    node->gtCallMethHnd = callHnd;
+#endif
 
     if (kind == CT_INDIRECT)
     {
+        node->gtCallAddr   = static_cast<GenTree*>(target);
         node->gtCallCookie = nullptr;
     }
     else
     {
+        node->gtCallMethHnd         = static_cast<CORINFO_METHOD_HANDLE>(target);
         node->gtInlineCandidateInfo = nullptr;
     }
 
@@ -5638,24 +5614,38 @@ GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall* tree,
     // a shallow copy suffices.
     copy->tailCallInfo = tree->tailCallInfo;
 
-    copy->gtControlExpr = gtCloneExpr(tree->gtControlExpr, addFlags, deepVarNum, deepVarVal);
+    if (tree->IsIndirectCall())
+    {
+        assert(tree->gtControlExpr == nullptr);
 
-    /* Copy the union */
-    if (tree->gtCallType == CT_INDIRECT)
-    {
-        copy->gtCallCookie =
-            tree->gtCallCookie ? gtCloneExpr(tree->gtCallCookie, addFlags, deepVarNum, deepVarVal) : nullptr;
-        copy->gtCallAddr = tree->gtCallAddr ? gtCloneExpr(tree->gtCallAddr, addFlags, deepVarNum, deepVarVal) : nullptr;
-    }
-    else if (tree->IsVirtualStub())
-    {
-        copy->gtCallMethHnd      = tree->gtCallMethHnd;
-        copy->gtStubCallStubAddr = tree->gtStubCallStubAddr;
+        if (tree->gtCallCookie == nullptr)
+        {
+            copy->gtCallCookie = nullptr;
+        }
+        else
+        {
+            copy->gtCallCookie = gtCloneExpr(tree->gtCallCookie, addFlags, deepVarNum, deepVarVal);
+        }
+
+        copy->gtCallAddr = gtCloneExpr(tree->gtCallAddr, addFlags, deepVarNum, deepVarVal);
     }
     else
     {
-        copy->gtCallMethHnd         = tree->gtCallMethHnd;
-        copy->gtInlineCandidateInfo = nullptr;
+        copy->gtCallMethHnd = tree->gtCallMethHnd;
+
+        if (tree->IsVirtualStub())
+        {
+            copy->gtStubCallStubAddr = tree->gtStubCallStubAddr;
+        }
+        else
+        {
+            copy->gtInlineCandidateInfo = nullptr;
+        }
+
+        if (tree->gtControlExpr != nullptr)
+        {
+            copy->gtControlExpr = gtCloneExpr(tree->gtControlExpr, addFlags, deepVarNum, deepVarVal);
+        }
     }
 
     if (tree->fgArgInfo != nullptr)
@@ -6426,7 +6416,7 @@ void          GenTreeUseEdgeIterator::AdvanceCall()
             FALLTHROUGH;
 
         case CALL_COOKIE:
-            assert(call->gtCallType == CT_INDIRECT);
+            assert(call->IsIndirectCall());
 
             m_advance = &GenTreeUseEdgeIterator::AdvanceCall<CALL_ADDRESS>;
             if (call->gtCallCookie != nullptr)
@@ -6437,13 +6427,10 @@ void          GenTreeUseEdgeIterator::AdvanceCall()
             FALLTHROUGH;
 
         case CALL_ADDRESS:
-            assert(call->gtCallType == CT_INDIRECT);
+            assert(call->IsIndirectCall() && (call->gtCallAddr != nullptr));
 
             m_advance = &GenTreeUseEdgeIterator::Terminate;
-            if (call->gtCallAddr != nullptr)
-            {
-                m_edge = &call->gtCallAddr;
-            }
+            m_edge    = &call->gtCallAddr;
             return;
 
         default:
@@ -6597,69 +6584,7 @@ void Compiler::gtDispNodeName(GenTree* tree)
     char  buf[32];
     char* bufp = &buf[0];
 
-    if (tree->gtOper == GT_CALL)
-    {
-        const char* callType = "CALL";
-        const char* gtfType  = "";
-        const char* ctType   = "";
-        char        gtfTypeBuf[100];
-
-        if (tree->AsCall()->gtCallType == CT_USER_FUNC)
-        {
-            if (tree->AsCall()->IsVirtual())
-            {
-                callType = "CALLV";
-            }
-        }
-        else if (tree->AsCall()->gtCallType == CT_HELPER)
-        {
-            ctType = " help";
-        }
-        else if (tree->AsCall()->gtCallType == CT_INDIRECT)
-        {
-            ctType = " ind";
-        }
-        else
-        {
-            assert(!"Unknown gtCallType");
-        }
-
-        if (tree->gtFlags & GTF_CALL_NULLCHECK)
-        {
-            gtfType = " nullcheck";
-        }
-        if (tree->AsCall()->IsVirtualVtable())
-        {
-            gtfType = " vt-ind";
-        }
-        else if (tree->AsCall()->IsVirtualStub())
-        {
-            gtfType = " stub";
-        }
-#ifdef FEATURE_READYTORUN_COMPILER
-        else if (tree->AsCall()->IsR2RRelativeIndir())
-        {
-            gtfType = " r2r_ind";
-        }
-#endif // FEATURE_READYTORUN_COMPILER
-        else if (tree->gtFlags & GTF_CALL_UNMANAGED)
-        {
-            char* gtfTypeBufWalk = gtfTypeBuf;
-            gtfTypeBufWalk += SimpleSprintf_s(gtfTypeBufWalk, gtfTypeBuf, sizeof(gtfTypeBuf), " unman");
-            if (tree->gtFlags & GTF_CALL_POP_ARGS)
-            {
-                gtfTypeBufWalk += SimpleSprintf_s(gtfTypeBufWalk, gtfTypeBuf, sizeof(gtfTypeBuf), " popargs");
-            }
-            if (tree->AsCall()->gtCallMoreFlags & GTF_CALL_M_UNMGD_THISCALL)
-            {
-                gtfTypeBufWalk += SimpleSprintf_s(gtfTypeBufWalk, gtfTypeBuf, sizeof(gtfTypeBuf), " thiscall");
-            }
-            gtfType = gtfTypeBuf;
-        }
-
-        sprintf_s(bufp, sizeof(buf), "%s%s%s%c", callType, ctType, gtfType, 0);
-    }
-    else if (tree->gtOper == GT_ARR_ELEM)
+    if (tree->gtOper == GT_ARR_ELEM)
     {
         bufp += SimpleSprintf_s(bufp, buf, sizeof(buf), "%s[", name);
         for (unsigned rank = tree->AsArrElem()->gtArrRank - 1; rank; rank--)
@@ -8082,7 +8007,7 @@ void Compiler::gtDispTree(GenTree*     tree,
     // Determine what kind of arc to propagate.
     IndentInfo myArc    = IINone;
     IndentInfo lowerArc = IINone;
-    if (indentStack->Depth() > 0)
+    if (!indentStack->Empty())
     {
         myArc = indentStack->Pop();
         switch (myArc)
@@ -8095,16 +8020,9 @@ void Compiler::gtDispTree(GenTree*     tree,
                 indentStack->Push(IIArc);
                 lowerArc = IIArc;
                 break;
-            case IIArcTop:
-                indentStack->Push(IINone);
-                lowerArc = IIArc;
-                break;
-            case IINone:
+            default:
                 indentStack->Push(IINone);
                 lowerArc = IINone;
-                break;
-            default:
-                unreached();
                 break;
         }
     }
@@ -8117,9 +8035,9 @@ void Compiler::gtDispTree(GenTree*     tree,
 
     gtDispNode(tree, indentStack, msg, isLIR);
 
-    if (indentStack->Depth() > 0)
+    if (!indentStack->Empty())
     {
-        (void)indentStack->Pop();
+        indentStack->Pop();
         indentStack->Push(lowerArc);
     }
 
@@ -8372,20 +8290,100 @@ void Compiler::gtDispTree(GenTree*     tree,
         {
             GenTreeCall* call = tree->AsCall();
 
-            if (call->gtCallType != CT_INDIRECT)
+            if (!call->IsIndirectCall())
             {
                 const char* methodName;
                 const char* className;
 
-                methodName = eeGetMethodName(call->gtCallMethHnd, &className);
+                methodName = eeGetMethodName(call->GetMethodHandle(), &className);
 
                 printf(" %s.%s", className, methodName);
             }
 
-            if (((call->gtFlags & GTF_CALL_INLINE_CANDIDATE) != 0) && (call->gtInlineCandidateInfo != nullptr) &&
+            const char* separator = " (";
+
+            if (call->IsHelperCall())
+            {
+                printf("%shelper", separator);
+                separator = ", ";
+            }
+            else if (call->IsIndirectCall())
+            {
+                printf("%sindirect", separator);
+                separator = ", ";
+            }
+
+            if (call->IsVirtualVtable())
+            {
+                printf("%svtable", separator);
+                separator = ", ";
+            }
+            else if (call->IsVirtualStub())
+            {
+                printf("%svstub", separator);
+                separator = ", ";
+            }
+
+            if (call->NeedsNullCheck())
+            {
+                printf("%snullcheck", separator);
+                separator = ", ";
+            }
+
+#if defined(FEATURE_READYTORUN_COMPILER) && defined(TARGET_ARMARCH)
+            if (call->IsR2RRelativeIndir())
+            {
+                printf("%sr2rind", separator);
+                separator = ", ";
+            }
+#endif
+
+            if (call->IsUnmanaged())
+            {
+                printf("%sunmanaged", separator);
+                separator = ", ";
+
+                if (call->CallerPop())
+                {
+                    printf("%spopargs", separator);
+                    separator = ", ";
+                }
+
+                if ((call->gtCallMoreFlags & GTF_CALL_M_UNMGD_THISCALL) != 0)
+                {
+                    printf("%sthiscall", separator);
+                    separator = ", ";
+                }
+            }
+
+            if (call->IsTailCall())
+            {
+                printf("%stail", separator);
+                separator = ", ";
+            }
+
+            if (call->IsDelegateInvoke())
+            {
+                printf("%sinvoke", separator);
+                separator = ", ";
+            }
+
+            if (call->IsVarargs())
+            {
+                printf("%svarargs", separator);
+                separator = ", ";
+            }
+
+            if (call->IsInlineCandidate() && (call->gtInlineCandidateInfo != nullptr) &&
                 (call->gtInlineCandidateInfo->exactContextHnd != nullptr))
             {
-                printf(" (exactContextHnd=0x%p)", dspPtr(call->gtInlineCandidateInfo->exactContextHnd));
+                printf("%sexactContextHnd=0x%p", separator, dspPtr(call->gtInlineCandidateInfo->exactContextHnd));
+                separator = ", ";
+            }
+
+            if (separator[0] == ',')
+            {
+                printf(")");
             }
 
             gtDispCommonEndLine(tree);
@@ -8429,10 +8427,16 @@ void Compiler::gtDispTree(GenTree*     tree,
                     gtDispChild(use.GetNode(), indentStack, arcType, buf, false);
                 }
 
-                if (call->gtCallType == CT_INDIRECT)
+                if (call->IsIndirectCall())
                 {
+                    if (call->gtCallCookie != nullptr)
+                    {
+                        gtDispChild(call->gtCallCookie, indentStack,
+                                    (call->gtCallCookie == lastChild) ? IIArcBottom : IIArc, "cookie", false);
+                    }
+
                     gtDispChild(call->gtCallAddr, indentStack, (call->gtCallAddr == lastChild) ? IIArcBottom : IIArc,
-                                "calli tgt", false);
+                                "callAddr", false);
                 }
 
                 if (call->gtControlExpr != nullptr)
@@ -8781,7 +8785,7 @@ void Compiler::dmpNodeOperands(GenTree* node)
         {
             if (operand == call->gtCallAddr)
             {
-                displayOperand(operand, prefix, "calli tgt");
+                displayOperand(operand, prefix, "callAddr");
             }
             else if (operand == call->gtControlExpr)
             {

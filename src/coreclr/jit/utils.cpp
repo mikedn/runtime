@@ -1079,12 +1079,10 @@ void hexDump(FILE* dmpf, const char* name, BYTE* addr, size_t size)
 
 HelperCallProperties::HelperCallProperties()
 {
-    for (CorInfoHelpFunc helper = CORINFO_HELP_UNDEF; // initialize helper
-         (helper < CORINFO_HELP_COUNT);               // test helper for loop exit
-         helper = CorInfoHelpFunc(int(helper) + 1))   // update helper to next
+    for (CorInfoHelpFunc helper = CORINFO_HELP_UNDEF; helper < CORINFO_HELP_COUNT;
+         helper                 = static_cast<CorInfoHelpFunc>(helper + 1))
     {
         // Generally you want initialize these to their most typical/safest result
-        //
         bool isPure        = false; // true if the result only depends upon input args and not any global state
         bool noThrow       = false; // true if the helper will never throw
         bool alwaysThrow   = false; // true if the helper will always throw

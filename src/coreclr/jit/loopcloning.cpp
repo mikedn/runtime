@@ -40,7 +40,7 @@ void ArrIndex::PrintBoundsCheckNodes(unsigned dim /* = -1 */)
 {
     for (unsigned i = 0; i < ((dim == (unsigned)-1) ? rank : dim); ++i)
     {
-        Compiler::printTreeID(bndsChks.Get(i));
+        printf("[%06u]", bndsChks.Get(i)->GetID());
     }
 }
 
@@ -1326,8 +1326,7 @@ void Compiler::optPerformStaticOptimizations(unsigned loopNum, LoopCloneContext*
 #ifdef DEBUG
                     if (verbose)
                     {
-                        printf("Remove bounds check ");
-                        printTreeID(bndsChkNode->gtGetOp1());
+                        printf("Remove bounds check [%06u]", bndsChkNode->gtGetOp1()->GetID());
                         printf(" for " FMT_STMT ", dim% d, ", arrIndexInfo->stmt->GetID(), dim);
                         arrIndexInfo->arrIndex.Print();
                         printf(", bounds check nodes: ");
@@ -2261,9 +2260,8 @@ Compiler::fgWalkResult Compiler::optCanOptimizeByLoopCloning(GenTree* tree, Loop
 #ifdef DEBUG
         if (verbose)
         {
-            printf("Found ArrIndex at " FMT_BB " " FMT_STMT " tree ", arrIndex.useBlock->bbNum, info->stmt->GetID());
-            printTreeID(tree);
-            printf(" which is equivalent to: ");
+            printf("Found ArrIndex at " FMT_BB " " FMT_STMT " tree [%06u] which is equivalent to: ",
+                   arrIndex.useBlock->bbNum, info->stmt->GetID(), tree->GetID());
             arrIndex.Print();
             printf(", bounds check nodes: ");
             arrIndex.PrintBoundsCheckNodes();

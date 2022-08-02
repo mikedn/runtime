@@ -488,23 +488,17 @@ void emitIns_SIMD_R_R_S_R(
 
 enum EmitCallType
 {
-    EC_FUNC_TOKEN,       //   Direct call to a helper/static/nonvirtual/global method
+    EC_FUNC_TOKEN,       // Direct call to a helper/static/nonvirtual/global method
     EC_FUNC_TOKEN_INDIR, // Indirect call to a helper/static/nonvirtual/global method
     EC_FUNC_ADDR,        // Direct call to an absolute address
-
-    EC_FUNC_VIRTUAL, // Call to a virtual method (using the vtable)
-    EC_INDIR_R,      // Indirect call via register
-    EC_INDIR_SR,     // Indirect call via stack-reference (local var)
-    EC_INDIR_C,      // Indirect call via static class var
-    EC_INDIR_ARD,    // Indirect call via an addressing mode
-
-    EC_COUNT
+    EC_INDIR_R,          // Indirect call via register
+    EC_INDIR_ARD         // Indirect call via an addressing mode
 };
 
 // clang-format off
 void emitIns_Call(EmitCallType          callType,
                   CORINFO_METHOD_HANDLE methHnd
-                  DEBUGARG(CORINFO_SIG_INFO* sigInfo), // used to report call sites to the EE
+                  DEBUGARG(CORINFO_SIG_INFO* sigInfo), 
                   void*                 addr,
                   ssize_t               argSize,
                   emitAttr              retSize

@@ -4256,7 +4256,7 @@ NamedIntrinsic Compiler::lookupNamedIntrinsic(CORINFO_METHOD_HANDLE method)
 // Return Value:
 //    a gtNewMustThrowException if mustExpand is true; otherwise, nullptr
 //
-GenTree* Compiler::impUnsupportedNamedIntrinsic(unsigned              helper,
+GenTree* Compiler::impUnsupportedNamedIntrinsic(CorInfoHelpFunc       helper,
                                                 CORINFO_METHOD_HANDLE method,
                                                 CORINFO_SIG_INFO*     sig,
                                                 bool                  mustExpand)
@@ -5568,33 +5568,26 @@ void Compiler::impCheckForPInvokeCall(
 
 GenTreeCall* Compiler::impImportIndirectCall(CORINFO_SIG_INFO* sig, IL_OFFSETX ilOffset)
 {
-    var_types callRetTyp = JITtype2varType(sig->retType);
-
-    /* The function pointer is on top of the stack - It may be a
-     * complex expression. As it is evaluated after the args,
-     * it may cause registered args to be spilled. Simply spill it.
-     */
+    // The function pointer is on top of the stack - it may be a
+    // complex expression. As it is evaluated after the args,
+    // it may cause registered args to be spilled. Simply spill it.
 
     // Ignore this trivial case.
-    if (impStackTop().val->gtOper != GT_LCL_VAR)
+    if (!impStackTop().val->OperIs(GT_LCL_VAR))
     {
         impSpillStackEntry(verCurrentState.esStackDepth - 1 DEBUGARG("impImportIndirectCall"));
     }
 
-    /* Get the function pointer */
+    GenTree* addr = impPopStack().val;
 
-    GenTree* fptr = impPopStack().val;
+    // The function pointer should have type TYP_I_IMPL. However, stubgen IL
+    // optimization can change LDC.I8 to LDC.I4, see ILCodeStream::LowerOpcode.
+    // TODO-MIKE-Review: If this really happens we should change the constant
+    // type to TYP_I_IMPL here. But then the above code spills anything other
+    // than LCL_VAR, which would be stupid if the addr is ever a constant.
+    assert(addr->TypeIs(TYP_I_IMPL, TYP_INT));
 
-    // The function pointer is typically a sized to match the target pointer size
-    // However, stubgen IL optimization can change LDC.I8 to LDC.I4
-    // See ILCodeStream::LowerOpcode
-    assert(genActualType(fptr->gtType) == TYP_I_IMPL || genActualType(fptr->gtType) == TYP_INT);
-
-    GenTreeCall* call = gtNewIndCallNode(fptr, callRetTyp, nullptr, ilOffset);
-
-    call->gtFlags |= GTF_EXCEPT | (fptr->gtFlags & GTF_GLOB_EFFECT);
-
-    return call;
+    return gtNewIndCallNode(addr, CorTypeToVarType(sig->retType), nullptr, ilOffset);
 }
 
 /*****************************************************************************/
@@ -7008,8 +7001,6 @@ var_types Compiler::impImportCall(OPCODE                  opcode,
                            (sig->callConv & CORINFO_CALLCONV_MASK) != CORINFO_CALLCONV_NATIVEVARARG);
 
                     call = gtNewIndCallNode(stubAddr, callRetTyp, nullptr);
-
-                    call->gtFlags |= GTF_EXCEPT | (stubAddr->gtFlags & GTF_GLOB_EFFECT);
                     call->gtFlags |= GTF_CALL_VIRT_STUB;
 
 #ifdef TARGET_X86
@@ -7021,7 +7012,7 @@ var_types Compiler::impImportCall(OPCODE                  opcode,
                 else
                 {
                     // The stub address is known at compile time
-                    call = gtNewCallNode(CT_USER_FUNC, callInfo->hMethod, callRetTyp, nullptr, ilOffset);
+                    call = gtNewUserCallNode(callInfo->hMethod, callRetTyp, nullptr, ilOffset);
                     call->AsCall()->gtStubCallStubAddr = callInfo->stubLookup.constLookup.addr;
                     call->gtFlags |= GTF_CALL_VIRT_STUB;
                     assert(callInfo->stubLookup.constLookup.accessType != IAT_PPVALUE &&
@@ -7051,7 +7042,7 @@ var_types Compiler::impImportCall(OPCODE                  opcode,
             {
                 assert(!(mflags & CORINFO_FLG_STATIC)); // can't call a static method
                 assert(!(clsFlags & CORINFO_FLG_VALUECLASS));
-                call = gtNewCallNode(CT_USER_FUNC, callInfo->hMethod, callRetTyp, nullptr, ilOffset);
+                call = gtNewUserCallNode(callInfo->hMethod, callRetTyp, nullptr, ilOffset);
                 call->gtFlags |= GTF_CALL_VIRT_VTABLE;
 
                 // Should we expand virtual call targets early for this method?
@@ -7100,7 +7091,6 @@ var_types Compiler::impImportCall(OPCODE                  opcode,
 
                 call                          = gtNewIndCallNode(fptr, callRetTyp, args, ilOffset);
                 call->AsCall()->gtCallThisArg = gtNewCallArgs(thisPtrUses[1]);
-                call->gtFlags |= GTF_EXCEPT | (fptr->gtFlags & GTF_GLOB_EFFECT);
 
                 if ((sig->sigInst.methInstCount != 0) && IsTargetAbi(CORINFO_CORERT_ABI))
                 {
@@ -7125,7 +7115,7 @@ var_types Compiler::impImportCall(OPCODE                  opcode,
             case CORINFO_CALL:
             {
                 // This is for a non-virtual, non-interface etc. call
-                call = gtNewCallNode(CT_USER_FUNC, callInfo->hMethod, callRetTyp, nullptr, ilOffset);
+                call = gtNewUserCallNode(callInfo->hMethod, callRetTyp, nullptr, ilOffset);
 
                 // We remove the nullcheck for the GetType call intrinsic.
                 // TODO-CQ: JIT64 does not introduce the null check for many more helper calls
@@ -7174,7 +7164,7 @@ var_types Compiler::impImportCall(OPCODE                  opcode,
                 fptr = gtNewLclvNode(lclNum, TYP_I_IMPL);
 
                 call = gtNewIndCallNode(fptr, callRetTyp, nullptr, ilOffset);
-                call->gtFlags |= GTF_EXCEPT | (fptr->gtFlags & GTF_GLOB_EFFECT);
+
                 if (callInfo->nullInstanceCheck)
                 {
                     call->gtFlags |= GTF_CALL_NULLCHECK;
@@ -7377,23 +7367,20 @@ var_types Compiler::impImportCall(OPCODE                  opcode,
             return TYP_UNDEF;
         }
 
-        GenTree* cookie = eeGetPInvokeCookie(sig);
+        void* valueAddr;
+        void* value = info.compCompHnd->GetCookieForPInvokeCalliSig(sig, &valueAddr);
 
-        // This cookie is required to be either a simple GT_CNS_INT or
-        // an indirection of a GT_CNS_INT
-        //
-        GenTree* cookieConst = cookie;
-        if (cookie->gtOper == GT_IND)
+        GenTree* cookie = gtNewIconEmbHndNode(value, valueAddr, GTF_ICON_PINVKI_HDL, sig);
+        cookie->SetDoNotCSE();
+
+        if (cookie->OperIs(GT_IND))
         {
-            cookieConst = cookie->AsOp()->gtOp1;
+            cookie->AsIndir()->GetAddr()->AsIntCon()->SetDoNotCSE();
         }
-        assert(cookieConst->gtOper == GT_CNS_INT);
-
-        // Setting GTF_DONT_CSE on the GT_CNS_INT as well as on the GT_IND (if it exists) will ensure that
-        // we won't allow this tree to participate in any CSE logic
-        //
-        cookie->gtFlags |= GTF_DONT_CSE;
-        cookieConst->gtFlags |= GTF_DONT_CSE;
+        else
+        {
+            assert(cookie->IsIntCon());
+        }
 
         call->AsCall()->gtCallCookie = cookie;
 
@@ -16375,9 +16362,10 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
         CORINFO_CALL_INFO derivedCallInfo;
         eeGetCallInfo(pDerivedResolvedToken, nullptr, CORINFO_CALLINFO_ALLOWINSTPARAM, &derivedCallInfo);
 
-        // Update the call.
         call->gtCallMoreFlags &= ~GTF_CALL_M_VIRTSTUB_REL_INDIRECT;
+#ifdef TARGET_ARMARCH
         call->gtCallMoreFlags &= ~GTF_CALL_M_R2R_REL_INDIRECT;
+#endif
         call->setEntryPoint(derivedCallInfo.codePointerLookup.constLookup);
     }
 #endif // FEATURE_READYTORUN_COMPILER
@@ -17374,13 +17362,13 @@ bool Compiler::impHasLclRef(GenTree* tree, unsigned lclNum)
             }
         }
 
-        if (call->gtCallType == CT_INDIRECT)
+        if (call->IsIndirectCall())
         {
             GenTree* cookie = call->gtCallCookie;
 
             // PInvoke-calli cookie is a constant, or constant address indirection.
-            assert((cookie == nullptr) || cookie->OperIs(GT_CNS_INT) ||
-                   (cookie->OperIs(GT_IND) && cookie->AsIndir()->GetAddr()->OperIs(GT_CNS_INT)));
+            assert((cookie == nullptr) || cookie->IsIntCon() ||
+                   (cookie->OperIs(GT_IND) && cookie->AsIndir()->GetAddr()->IsIntCon()));
 
             return impHasLclRef(call->gtCallAddr, lclNum);
         }

@@ -1222,10 +1222,10 @@ void CodeGen::genFloatToIntCast(GenTreeCast* cast)
     genProduceReg(cast);
 }
 
-//------------------------------------------------------------------------
-// genEmitHelperCall: Emit a call to a helper function.
-//
-void CodeGen::genEmitHelperCall(unsigned helper, int argSize, emitAttr retSize, regNumber callTargetReg /*= REG_NA */)
+void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper,
+                                int             argSize,
+                                emitAttr        retSize,
+                                regNumber       callTargetReg /*= REG_NA */)
 {
     // Can we call the helper function directly
 
@@ -1242,7 +1242,7 @@ void CodeGen::genEmitHelperCall(unsigned helper, int argSize, emitAttr retSize, 
     else
 #endif
     {
-        addr = compiler->compGetHelperFtn((CorInfoHelpFunc)helper, (void**)&pAddr);
+        addr = compiler->compGetHelperFtn(helper, (void**)&pAddr);
     }
 
     if (!addr || !validImmForBL((ssize_t)addr))
@@ -1265,24 +1265,15 @@ void CodeGen::genEmitHelperCall(unsigned helper, int argSize, emitAttr retSize, 
             regSet.verifyRegUsed(callTargetReg);
         }
 
-        GetEmitter()->emitIns_Call(emitter::EC_INDIR_R, compiler->eeFindHelper(helper) DEBUGARG(nullptr),
-                                   nullptr, // addr
+        GetEmitter()->emitIns_Call(emitter::EC_INDIR_R, Compiler::eeFindHelper(helper) DEBUGARG(nullptr), nullptr,
                                    argSize, retSize, gcInfo.gcVarPtrSetCur, gcInfo.gcRegGCrefSetCur,
-                                   gcInfo.gcRegByrefSetCur,
-                                   BAD_IL_OFFSET, // ilOffset
-                                   callTargetReg, // ireg
-                                   REG_NA, 0, 0,  // xreg, xmul, disp
-                                   false          // isJump
-                                   );
+                                   gcInfo.gcRegByrefSetCur, BAD_IL_OFFSET, callTargetReg, false);
     }
     else
     {
-        GetEmitter()->emitIns_Call(emitter::EC_FUNC_TOKEN, compiler->eeFindHelper(helper) DEBUGARG(nullptr), addr,
+        GetEmitter()->emitIns_Call(emitter::EC_FUNC_TOKEN, Compiler::eeFindHelper(helper) DEBUGARG(nullptr), addr,
                                    argSize, retSize, gcInfo.gcVarPtrSetCur, gcInfo.gcRegGCrefSetCur,
-                                   gcInfo.gcRegByrefSetCur, BAD_IL_OFFSET, REG_NA, REG_NA, 0,
-                                   0,    /* ilOffset, ireg, xreg, xmul, disp */
-                                   false /* isJump */
-                                   );
+                                   gcInfo.gcRegByrefSetCur, BAD_IL_OFFSET, REG_NA, false);
     }
 
     regSet.verifyRegistersUsed(RBM_CALLEE_TRASH);
@@ -1379,17 +1370,9 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
     }
 }
 
-//-----------------------------------------------------------------------------------
-// genProfilingLeaveCallback: Generate the profiling function leave or tailcall callback.
+// Generate the profiling function leave or tailcall callback.
 // Technically, this is not part of the epilog; it is called when we are generating code for a GT_RETURN node.
-//
-// Arguments:
-//     helper - which helper to call. Either CORINFO_HELP_PROF_FCN_LEAVE or CORINFO_HELP_PROF_FCN_TAILCALL
-//
-// Return Value:
-//     None
-//
-void CodeGen::genProfilingLeaveCallback(unsigned helper)
+void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 {
     assert((helper == CORINFO_HELP_PROF_FCN_LEAVE) || (helper == CORINFO_HELP_PROF_FCN_TAILCALL));
 

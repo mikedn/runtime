@@ -501,17 +501,6 @@ unsigned Compiler::eeGetArgAlignment(var_types type, bool isFloatHfa)
 #endif
 }
 
-/*****************************************************************************/
-
-GenTree* Compiler::eeGetPInvokeCookie(CORINFO_SIG_INFO* szMetaSig)
-{
-    void *cookie, *pCookie;
-    cookie = info.compCompHnd->GetCookieForPInvokeCalliSig(szMetaSig, &pCookie);
-    assert((cookie == nullptr) != (pCookie == nullptr));
-
-    return gtNewIconEmbHndNode(cookie, pCookie, GTF_ICON_PINVKI_HDL, szMetaSig);
-}
-
 //------------------------------------------------------------------------
 // eeGetArrayDataOffset: Gets the offset of a SDArray's first element
 //

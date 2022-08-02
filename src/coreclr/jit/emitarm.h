@@ -295,13 +295,11 @@ enum EmitCallType
 {
     EC_FUNC_TOKEN, // Direct call to a helper/static/nonvirtual/global method
     EC_FUNC_ADDR,  // Direct call to an absolute address
-    EC_INDIR_R,    // Indirect call via register
-    EC_COUNT
+    EC_INDIR_R     // Indirect call via register
 };
 
 void emitIns_Call(EmitCallType          callType,
-                  CORINFO_METHOD_HANDLE methHnd        // used for pretty printing
-                  DEBUGARG(CORINFO_SIG_INFO* sigInfo), // used to report call sites to the EE
+                  CORINFO_METHOD_HANDLE methHnd DEBUGARG(CORINFO_SIG_INFO* sigInfo),
                   void*            addr,
                   int              argSize,
                   emitAttr         retSize,
@@ -310,9 +308,6 @@ void emitIns_Call(EmitCallType          callType,
                   regMaskTP        byrefRegs,
                   IL_OFFSETX       ilOffset = BAD_IL_OFFSET,
                   regNumber        ireg     = REG_NA,
-                  regNumber        xreg     = REG_NA,
-                  unsigned         xmul     = 0,
-                  ssize_t          disp     = 0,
                   bool             isJump   = false);
 
 /*****************************************************************************

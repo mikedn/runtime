@@ -1295,7 +1295,7 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind jumpKind, SpecialCodeKind codeKi
             inst_JMP(reverseJumpKind, tgtBlk);
         }
 
-        genEmitHelperCall(compiler->acdHelper(codeKind), 0, EA_UNKNOWN);
+        genEmitHelperCall(Compiler::acdHelper(codeKind), 0, EA_UNKNOWN);
 
         // Define the spot for the normal non-exception case to jump to.
         if (tgtBlk != nullptr)
@@ -7146,7 +7146,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
                                        addr,
                                        0,          // argSize
                                        EA_UNKNOWN, // retSize
-#if defined(TARGET_ARM64)
+#ifdef TARGET_ARM64
                                        EA_UNKNOWN, // secondRetSize
 #endif
                                        gcInfo.gcVarPtrSetCur,
@@ -7154,9 +7154,11 @@ void CodeGen::genFnEpilog(BasicBlock* block)
                                        gcInfo.gcRegByrefSetCur,
                                        BAD_IL_OFFSET, // IL offset
                                        indCallReg,    // ireg
+#ifdef TARGET_XARCH
                                        REG_NA,        // xreg
                                        0,             // xmul
                                        0,             // disp
+#endif
                                        true);         // isJump
             // clang-format on
             CLANG_FORMAT_COMMENT_ANCHOR;
@@ -7166,23 +7168,22 @@ void CodeGen::genFnEpilog(BasicBlock* block)
         else
         {
             // Fast tail call.
-            GenTreeCall* call     = jmpNode->AsCall();
-            gtCallTypes  callType = (gtCallTypes)call->gtCallType;
+            GenTreeCall* call = jmpNode->AsCall();
 
-            // Fast tail calls cannot happen to helpers.
-            assert((callType == CT_INDIRECT) || (callType == CT_USER_FUNC));
+            assert(!call->IsHelperCall());
 
             // Try to dispatch this as a direct branch; this is possible when the call is
             // truly direct. In this case, the control expression will be null and the direct
             // target address will be in gtDirectCallAddress. It is still possible that calls
             // to user funcs require indirection, in which case the control expression will
             // be non-null.
-            if ((callType == CT_USER_FUNC) && (call->gtControlExpr == nullptr))
+            if (call->IsUserCall() && (call->gtControlExpr == nullptr))
             {
-                assert(call->gtCallMethHnd != nullptr);
+                assert(call->GetMethodHandle() != nullptr);
+
                 // clang-format off
                 GetEmitter()->emitIns_Call(emitter::EC_FUNC_TOKEN,
-                                           call->gtCallMethHnd
+                                           call->GetMethodHandle()
                                            DEBUGARG(nullptr),
                                            call->gtDirectCallAddress,
                                            0,          // argSize
@@ -7193,9 +7194,11 @@ void CodeGen::genFnEpilog(BasicBlock* block)
                                            gcInfo.gcRegByrefSetCur,
                                            BAD_IL_OFFSET, // IL offset
                                            REG_NA,        // ireg
+#ifdef TARGET_XARCH
                                            REG_NA,        // xreg
                                            0,             // xmul
                                            0,             // disp
+#endif
                                            true);         // isJump
                 // clang-format on
             }
@@ -7203,7 +7206,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
             {
                 // Target requires indirection to obtain. genCallInstruction will have materialized
                 // it into REG_FASTTAILCALL_TARGET already, so just branch to it.
-                GetEmitter()->emitIns_R(INS_br, emitTypeSize(TYP_I_IMPL), REG_FASTTAILCALL_TARGET);
+                GetEmitter()->emitIns_R(INS_br, EA_PTRSIZE, REG_FASTTAILCALL_TARGET);
             }
         }
 #endif // FEATURE_FASTTAILCALL
@@ -7602,24 +7605,23 @@ void CodeGen::genFnEpilog(BasicBlock* block)
         {
 #ifdef TARGET_AMD64
             // Fast tail call.
-            GenTreeCall* call     = jmpNode->AsCall();
-            gtCallTypes  callType = (gtCallTypes)call->gtCallType;
+            GenTreeCall* call = jmpNode->AsCall();
 
-            // Fast tail calls cannot happen to helpers.
-            assert((callType == CT_INDIRECT) || (callType == CT_USER_FUNC));
+            assert(!call->IsHelperCall());
 
             // Calls to a user func can be dispatched as an RIP-relative jump when they are
             // truly direct; in this case, the control expression will be null and the direct
             // target address will be in gtDirectCallAddress. It is still possible that calls
             // to user funcs require indirection, in which case the control expression will
             // be non-null.
-            if ((callType == CT_USER_FUNC) && (call->gtControlExpr == nullptr))
+            if (call->IsUserCall() && (call->gtControlExpr == nullptr))
             {
-                assert(call->gtCallMethHnd != nullptr);
+                assert(call->GetMethodHandle() != nullptr);
+
                 // clang-format off
                 GetEmitter()->emitIns_Call(
                         emitter::EC_FUNC_TOKEN,
-                        call->gtCallMethHnd
+                        call->GetMethodHandle()
                         DEBUGARG(nullptr),
                         call->gtDirectCallAddress,
                         0,                                              // argSize
@@ -7638,7 +7640,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
                 // Target requires indirection to obtain. genCallInstruction will have materialized
                 // it into RAX already, so just jump to it. The stack walker requires that a register
                 // indirect tail call be rex.w prefixed.
-                GetEmitter()->emitIns_R(INS_rex_jmp, emitTypeSize(TYP_I_IMPL), REG_RAX);
+                GetEmitter()->emitIns_R(INS_rex_jmp, EA_PTRSIZE, REG_RAX);
             }
 
 #else

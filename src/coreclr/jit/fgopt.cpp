@@ -2540,8 +2540,6 @@ bool Compiler::fgOptimizeEmptyBlock(BasicBlock* block)
                         if (block->IsLIR())
                         {
                             LIR::AsRange(block).InsertAtEnd(nop);
-                            LIR::ReadOnlyRange range(nop, nop);
-                            m_pLowering->LowerRange(block, range);
                         }
                         else
                         {
@@ -2550,13 +2548,8 @@ bool Compiler::fgOptimizeEmptyBlock(BasicBlock* block)
                             gtSetStmtInfo(nopStmt);
                         }
 
-#ifdef DEBUG
-                        if (verbose)
-                        {
-                            printf("\nKeeping empty block " FMT_BB " - it is the target of a catch return\n",
-                                   block->bbNum);
-                        }
-#endif // DEBUG
+                        JITDUMP("\nKeeping empty block " FMT_BB " - it is the target of a catch return\n",
+                                block->bbNum);
 
                         break; // go to the next block
                     }
@@ -2627,7 +2620,7 @@ bool Compiler::fgOptimizeEmptyBlock(BasicBlock* block)
 //
 // Returns: true if changes were made
 //
-bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block)
+bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
 {
     assert(block->bbJumpKind == BBJ_SWITCH);
 
@@ -2861,28 +2854,24 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block)
         // replace it with a COMMA node.  In such a case we will end up with GT_JTRUE node pointing to
         // a COMMA node which results in noway asserts in fgMorphSmpOp(), optAssertionGen() and rpPredictTreeRegUse().
         // For the same reason fgMorphSmpOp() marks GT_JTRUE nodes with RELOP children as GTF_DONT_CSE.
-        CLANG_FORMAT_COMMENT_ANCHOR;
 
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("\nConverting a switch (" FMT_BB ") with only one significant clause besides a default target to a "
-                   "conditional branch\n",
-                   block->bbNum);
-        }
-#endif // DEBUG
+        JITDUMP("\nConverting a switch (" FMT_BB ") with only one significant clause besides a default target to a "
+                "conditional branch\n",
+                block->bbNum);
 
+        GenTree* zeroNode = gtNewZeroConNode(varActualType(switchVal->GetType()));
+        GenTree* eqNode   = gtNewOperNode(GT_EQ, TYP_INT, switchVal, zeroNode);
+        eqNode->gtFlags |= GTF_RELOP_JMP_USED | GTF_DONT_CSE;
         switchTree->ChangeOper(GT_JTRUE);
-        GenTree* zeroConstNode    = gtNewZeroConNode(genActualType(switchVal->TypeGet()));
-        GenTree* condNode         = gtNewOperNode(GT_EQ, TYP_INT, switchVal, zeroConstNode);
-        switchTree->AsOp()->gtOp1 = condNode;
-        switchTree->AsOp()->gtOp1->gtFlags |= (GTF_RELOP_JMP_USED | GTF_DONT_CSE);
+        switchTree->AsUnOp()->SetOp(0, eqNode);
+        block->bbJumpDest = block->bbJumpSwt->bbsDstTab[0];
+        block->bbJumpKind = BBJ_COND;
 
         if (block->IsLIR())
         {
-            blockRange->InsertAfter(switchVal, zeroConstNode, condNode);
-            LIR::ReadOnlyRange range(zeroConstNode, switchTree);
-            m_pLowering->LowerRange(block, range);
+            blockRange->InsertAfter(switchVal, zeroNode, eqNode);
+            lowering->LowerNode(block, eqNode);
+            lowering->LowerNode(block, switchTree);
         }
         else if (fgStmtListThreaded)
         {
@@ -2890,11 +2879,9 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block)
             fgSetStmtSeq(switchStmt);
         }
 
-        block->bbJumpDest = block->bbJumpSwt->bbsDstTab[0];
-        block->bbJumpKind = BBJ_COND;
-
         return true;
     }
+
     return returnvalue;
 }
 
@@ -5350,7 +5337,7 @@ bool Compiler::fgReorderBlocks()
 //    Debuggable code and Min Optimization JIT also introduces basic blocks
 //    but we do not optimize those!
 //
-bool Compiler::fgUpdateFlowGraph(bool doTailDuplication)
+bool Compiler::fgUpdateFlowGraph(Lowering* lowering, bool doTailDuplication)
 {
 #ifdef DEBUG
     if (verbose)
@@ -5704,7 +5691,7 @@ bool Compiler::fgUpdateFlowGraph(bool doTailDuplication)
             //
             if (block->bbJumpKind == BBJ_SWITCH)
             {
-                if (fgOptimizeSwitchBranches(block))
+                if (fgOptimizeSwitchBranches(block, lowering))
                 {
                     change   = true;
                     modified = true;

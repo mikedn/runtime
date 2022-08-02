@@ -919,17 +919,8 @@ int LinearScan::BuildCall(GenTreeCall* call)
 {
     int srcCount = 0;
 
-    GenTree* ctrlExpr = call->gtControlExpr;
-    if (call->gtCallType == CT_INDIRECT)
-    {
-        ctrlExpr = call->gtCallAddr;
-    }
-
-// number of args to a call =
-// callRegArgs + (callargs - placeholders, setup, etc)
-// there is an explicit thisPtr but it is redundant
-
 #if FEATURE_VARARG
+    // TODO-MIKE-Review: Why the crap is this code enabled on x86?!!
     bool varargsHasFloatRegArgs = false;
 
     if (call->IsVarargs())
@@ -999,7 +990,8 @@ int LinearScan::BuildCall(GenTreeCall* call)
         srcCount++;
     }
 
-    // set reg requirements on call target represented as control sequence.
+    GenTree* ctrlExpr = call->IsIndirectCall() ? call->gtCallAddr : call->gtControlExpr;
+
     if (ctrlExpr != nullptr)
     {
         regMaskTP ctrlExprCandidates = RBM_NONE;
@@ -1014,7 +1006,7 @@ int LinearScan::BuildCall(GenTreeCall* call)
             ctrlExprCandidates = RBM_RAX;
         }
 #ifdef TARGET_X86
-        else if (call->IsVirtualStub() && (call->gtCallType == CT_INDIRECT))
+        else if (call->IsVirtualStub() && call->IsIndirectCall())
         {
             // On x86, we need to generate a very specific pattern for indirect VSD calls:
             //

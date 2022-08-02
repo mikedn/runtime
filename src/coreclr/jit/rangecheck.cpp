@@ -72,14 +72,7 @@ int RangeCheck::GetArrLength(ValueNum vn)
 //
 bool RangeCheck::BetweenBounds(Range& range, GenTree* upper, int arrSize)
 {
-#ifdef DEBUG
-    if (m_pCompiler->verbose)
-    {
-        printf("%s BetweenBounds <%d, ", range.ToString(m_pCompiler->getAllocatorDebugOnly()), 0);
-        Compiler::printTreeID(upper);
-        printf(">\n");
-    }
-#endif // DEBUG
+    JITDUMP("%s BetweenBounds <%d, [%06u]>\n", range.ToString(m_pCompiler->getAllocatorDebugOnly()), 0, upper->GetID());
 
     ValueNumStore* vnStore = m_pCompiler->vnStore;
 
@@ -296,14 +289,7 @@ void RangeCheck::OptimizeRangeCheck(BasicBlock* block, Statement* stmt, GenTree*
 
 void RangeCheck::Widen(BasicBlock* block, GenTree* tree, Range* pRange)
 {
-#ifdef DEBUG
-    if (m_pCompiler->verbose)
-    {
-        printf("[RangeCheck::Widen] " FMT_BB ", \n", block->bbNum);
-        Compiler::printTreeID(tree);
-        printf("\n");
-    }
-#endif // DEBUG
+    JITDUMP("[RangeCheck::Widen]" FMT_BB ", [%06u]\n", block->bbNum, tree->GetID());
 
     Range& range = *pRange;
 
@@ -314,7 +300,7 @@ void RangeCheck::Widen(BasicBlock* block, GenTree* tree, Range* pRange)
         bool increasing = IsMonotonicallyIncreasing(tree, false);
         if (increasing)
         {
-            JITDUMP("[%06d] is monotonically increasing.\n", Compiler::dspTreeID(tree));
+            JITDUMP("[%06u] is monotonically increasing.\n", tree->GetID());
             GetRangeMap()->RemoveAll();
             *pRange = GetRange(block, tree, true DEBUGARG(0));
         }
@@ -328,8 +314,7 @@ bool RangeCheck::IsBinOpMonotonicallyIncreasing(GenTreeOp* binop)
     GenTree* op1 = binop->gtGetOp1();
     GenTree* op2 = binop->gtGetOp2();
 
-    JITDUMP("[RangeCheck::IsBinOpMonotonicallyIncreasing] [%06d], [%06d]\n", Compiler::dspTreeID(op1),
-            Compiler::dspTreeID(op2));
+    JITDUMP("[RangeCheck::IsBinOpMonotonicallyIncreasing] [%06u], [%06u]\n", op1->GetID(), op2->GetID());
     // Check if we have a var + const.
     if (op2->OperGet() == GT_LCL_VAR)
     {

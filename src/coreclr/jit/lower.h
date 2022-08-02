@@ -41,55 +41,13 @@ public:
 
     virtual PhaseStatus DoPhase() override;
 
-    // This variant of LowerRange is called from outside of the main Lowering pass,
-    // so it creates its own instance of Lowering to do so.
-    void LowerRange(BasicBlock* block, LIR::ReadOnlyRange& range)
+    void LowerNode(BasicBlock* block, GenTree* node)
     {
-        Lowering lowerer(comp);
-        lowerer.m_block = block;
-
-        lowerer.LowerRange(range);
+        m_block = block;
+        LowerNode(node);
     }
 
 private:
-    // LowerRange handles new code that is introduced by or after Lowering.
-    void LowerRange(LIR::ReadOnlyRange& range)
-    {
-        for (GenTree* newNode : range)
-        {
-            LowerNode(newNode);
-        }
-    }
-    void LowerRange(GenTree* firstNode, GenTree* lastNode)
-    {
-        LIR::ReadOnlyRange range(firstNode, lastNode);
-        LowerRange(range);
-    }
-
-    // ContainCheckRange handles new code that is introduced by or after Lowering,
-    // and that is known to be already in Lowered form.
-    void ContainCheckRange(LIR::ReadOnlyRange& range)
-    {
-        for (GenTree* newNode : range)
-        {
-            ContainCheckNode(newNode);
-        }
-    }
-    void ContainCheckRange(GenTree* firstNode, GenTree* lastNode)
-    {
-        LIR::ReadOnlyRange range(firstNode, lastNode);
-        ContainCheckRange(range);
-    }
-
-    void InsertTreeBeforeAndContainCheck(GenTree* insertionPoint, GenTree* tree)
-    {
-        LIR::Range range = LIR::SeqTree(comp, tree);
-        ContainCheckRange(range);
-        BlockRange().InsertBefore(insertionPoint, std::move(range));
-    }
-
-    void ContainCheckNode(GenTree* node);
-
     void ContainCheckDivOrMod(GenTreeOp* node);
     void ContainCheckReturnTrap(GenTreeOp* node);
     void ContainCheckArrOffset(GenTreeArrOffs* node);
@@ -155,24 +113,31 @@ private:
     void LowerRetSingleRegStructLclVar(GenTreeUnOp* ret);
     void LowerStructCall(GenTreeCall* call);
     GenTree* SpillStructCall(GenTreeCall* call, GenTree* user);
-    GenTree* LowerDelegateInvoke(GenTreeCall* call);
-    GenTree* LowerIndirectNonvirtCall(GenTreeCall* call);
-    GenTree* LowerDirectCall(GenTreeCall* call);
-    GenTree* LowerNonvirtPinvokeCall(GenTreeCall* call);
-    GenTree* LowerTailCallViaJitHelper(GenTreeCall* callNode, GenTree* callTarget);
+    GenTree* LowerDelegateInvoke(GenTreeCall* call X86_ARG(GenTree* insertBefore = nullptr));
+    GenTree* LowerDirectCall(GenTreeCall* call X86_ARG(GenTree* insertBefore = nullptr));
+    GenTree* LowerDirectPInvokeCall(GenTreeCall* call);
+    GenTree* ExpandConstLookupCallTarget(const CORINFO_CONST_LOOKUP& entryPoint,
+                                         GenTree* insertBefore DEBUGARG(GenTreeCall* call));
+#ifdef TARGET_X86
+    void LowerTailCallViaJitHelper(GenTreeCall* call);
+#endif
+#if FEATURE_FASTTAILCALL
     void LowerFastTailCall(GenTreeCall* callNode);
+#endif
     void RehomeParamForFastTailCall(unsigned paramLclNum,
                                     GenTree* insertTempBefore,
                                     GenTree* rangeStart,
                                     GenTree* rangeEnd);
     void InsertProfTailCallHook(GenTreeCall* callNode, GenTree* insertionPoint);
-    GenTree* LowerVirtualVtableCall(GenTreeCall* call);
-    GenTree* LowerVirtualStubCall(GenTreeCall* call);
+    GenTree* LowerVirtualVtableCall(GenTreeCall* call X86_ARG(GenTree* insertBefore = nullptr));
+    void LowerIndirectVirtualStubCall(GenTreeCall* call);
+    GenTree* LowerVirtualStubCall(GenTreeCall* call X86_ARG(GenTree* insertBefore = nullptr));
     void LowerCallArgs(GenTreeCall* call);
     GenTree* InsertPutArg(GenTreeCall* call, CallArgInfo* argInfo);
     GenTree* InsertPutArgReg(GenTree* arg, CallArgInfo* argInfo, unsigned regIndex);
     void LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo);
 
+    void InsertPInvokeCallPrologAndEpilog(GenTreeCall* call);
     void InsertPInvokeCallProlog(GenTreeCall* call);
     void InsertPInvokeCallEpilog(GenTreeCall* call);
     void InsertPInvokeMethodProlog();
@@ -185,38 +150,10 @@ private:
         PopFrame
     };
     void InsertFrameLinkUpdate(LIR::Range& block, GenTree* before, FrameLinkAction action);
-    GenTree* AddrGen(ssize_t addr);
-    GenTree* AddrGen(void* addr);
-
-    GenTree* Ind(GenTree* tree, var_types type = TYP_I_IMPL)
-    {
-        return comp->gtNewOperNode(GT_IND, type, tree);
-    }
 
     // Replace the definition of the given use with a lclVar, allocating a new temp
     // if 'tempNum' is BAD_VAR_NUM. Returns the LclVar node.
-    GenTreeLclVar* ReplaceWithLclVar(LIR::Use& use, unsigned tempNum = BAD_VAR_NUM)
-    {
-        GenTree* def = use.Def();
-
-        if (def->OperIs(GT_LCL_VAR) && (tempNum == BAD_VAR_NUM))
-        {
-            return def->AsLclVar();
-        }
-
-        GenTree* assign;
-        use.ReplaceWithLclVar(comp, tempNum, &assign);
-
-        GenTreeLclVar* newDef = use.Def()->AsLclVar();
-        ContainCheckRange(def->gtNext, newDef);
-
-        // We need to lower the LclVar and assignment since there may be certain
-        // types or scenarios, such as TYP_SIMD12, that need special handling
-        LowerNode(assign);
-        LowerNode(newDef);
-
-        return newDef;
-    }
+    GenTreeLclVar* ReplaceWithLclVar(LIR::Use& use, unsigned tempNum = BAD_VAR_NUM);
 
     // return true if this call target is within range of a pc-rel call on the machine
     bool IsCallTargetInRange(void* addr);
@@ -284,7 +221,9 @@ private:
 private:
 #endif
 
-    void WidenSIMD12IfNecessary(GenTreeLclVarCommon* node);
+#ifdef FEATURE_SIMD
+    void WidenSIMD12IfNecessary(GenTreeLclVar* node);
+#endif
 #if FEATURE_MULTIREG_RET
     void MakeMultiRegStoreLclVar(GenTreeLclVar* store, GenTree* value);
 #endif
@@ -349,13 +288,24 @@ public:
     //  for example small enough and non-relocatable
     bool IsContainableImmed(GenTree* parentNode, GenTree* childNode) const;
 
-    // Return true if 'node' is a containable memory op.
-    bool IsContainableMemoryOp(GenTree* node);
+    static bool IsContainableMemoryOp(Compiler* comp, GenTree* node);
+
+    bool IsContainableMemoryOp(GenTree* node)
+    {
+        return IsContainableMemoryOp(comp, node);
+    }
 
 #ifdef FEATURE_HW_INTRINSICS
-    // Return true if 'node' is a containable HWIntrinsic op.
-    bool IsContainableHWIntrinsicOp(GenTreeHWIntrinsic* containingNode, GenTree* node, bool* supportsRegOptional);
-#endif // FEATURE_HW_INTRINSICS
+    static bool IsContainableHWIntrinsicOp(Compiler*           comp,
+                                           GenTreeHWIntrinsic* containingNode,
+                                           GenTree*            node,
+                                           bool*               supportsRegOptional);
+
+    bool IsContainableHWIntrinsicOp(GenTreeHWIntrinsic* containingNode, GenTree* node, bool* supportsRegOptional)
+    {
+        return IsContainableHWIntrinsicOp(comp, containingNode, node, supportsRegOptional);
+    }
+#endif
 
     static void TransformUnusedIndirection(GenTreeIndir* ind);
 

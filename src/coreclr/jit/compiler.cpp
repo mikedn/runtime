@@ -3598,20 +3598,10 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
     DoPhase(this, PHASE_COMPUTE_PREDS, computePredsPhase);
 
     // Now that we have pred lists, do some flow-related optimizations
-    //
     if (opts.OptimizationEnabled())
     {
-        // Merge common throw blocks
-        //
         DoPhase(this, PHASE_MERGE_THROWS, &Compiler::fgTailMergeThrows);
-
-        // Run an early flow graph simplification pass
-        //
-        auto earlyUpdateFlowGraphPhase = [this]() {
-            const bool doTailDup = false;
-            fgUpdateFlowGraph(doTailDup);
-        };
-        DoPhase(this, PHASE_EARLY_UPDATE_FLOW_GRAPH, earlyUpdateFlowGraphPhase);
+        DoPhase(this, PHASE_EARLY_UPDATE_FLOW_GRAPH, [this]() { fgUpdateFlowGraph(nullptr, /* doTailDup */ false); });
     }
 
     DoPhase(this, PHASE_PROMOTE_STRUCTS, &Compiler::fgPromoteStructs);
@@ -3863,16 +3853,8 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
 
             if (fgModified)
             {
-                // update the flowgraph if we modified it during the optimization phase
-                //
-                auto optUpdateFlowGraphPhase = [this]() {
-                    const bool doTailDup = false;
-                    fgUpdateFlowGraph(doTailDup);
-                };
-                DoPhase(this, PHASE_OPT_UPDATE_FLOW_GRAPH, optUpdateFlowGraphPhase);
-
-                // Recompute the edge weight if we have modified the flow graph
-                //
+                DoPhase(this, PHASE_OPT_UPDATE_FLOW_GRAPH,
+                        [this]() { fgUpdateFlowGraph(nullptr, /* doTailDup */ false); });
                 DoPhase(this, PHASE_COMPUTE_EDGE_WEIGHTS2, &Compiler::fgComputeEdgeWeights);
             }
 
@@ -3947,8 +3929,8 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
     ///////////////////////////////////////////////////////////////////////////////
     fgDomsComputed = false;
 
-    m_pLowering = new (this, CMK_LSRA) Lowering(this);
-    m_pLowering->Run();
+    Lowering lowering(this);
+    lowering.Run();
 
 #if !defined(OSX_ARM64_ABI)
     // Set stack levels; this information is necessary for x86
@@ -7614,10 +7596,12 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                         }
                     }
 
+#ifdef TARGET_X86
                     if (call->gtCallMoreFlags & GTF_CALL_M_TAILCALL_VIA_JIT_HELPER)
                     {
                         chars += printf("[CALL_M_TAILCALL_VIA_JIT_HELPER]");
                     }
+#endif
 #if FEATURE_TAILCALL_OPT
                     if (call->gtCallMoreFlags & GTF_CALL_M_IMPLICIT_TAILCALL)
                     {

@@ -3425,18 +3425,16 @@ bool CodeGen::IsSaveFpLrWithAllCalleeSavedRegisters() const
     return genSaveFpLrWithAllCalleeSavedRegisters;
 }
 
-/*****************************************************************************
- *  Emit a call to a helper function.
- *
- */
-
-void CodeGen::genEmitHelperCall(unsigned helper, int argSize, emitAttr retSize, regNumber callTargetReg /*= REG_NA */)
+void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper,
+                                int             argSize,
+                                emitAttr        retSize,
+                                regNumber       callTargetReg /*= REG_NA */)
 {
     void* addr  = nullptr;
     void* pAddr = nullptr;
 
     emitter::EmitCallType callType = emitter::EC_FUNC_TOKEN;
-    addr                           = compiler->compGetHelperFtn((CorInfoHelpFunc)helper, &pAddr);
+    addr                           = compiler->compGetHelperFtn(helper, &pAddr);
     regNumber callTarget           = REG_NA;
 
     if (addr == nullptr)
@@ -3455,7 +3453,7 @@ void CodeGen::genEmitHelperCall(unsigned helper, int argSize, emitAttr retSize, 
         }
 
         regMaskTP callTargetMask = genRegMask(callTargetReg);
-        regMaskTP callKillSet    = compiler->compHelperCallKillSet((CorInfoHelpFunc)helper);
+        regMaskTP callKillSet    = compiler->compHelperCallKillSet(helper);
 
         // assert that all registers in callTargetMask are in the callKillSet
         noway_assert((callTargetMask & callKillSet) == callTargetMask);
@@ -3464,21 +3462,17 @@ void CodeGen::genEmitHelperCall(unsigned helper, int argSize, emitAttr retSize, 
 
         // adrp + add with relocations will be emitted
         GetEmitter()->emitIns_R_AI(INS_adrp, EA_PTR_DSP_RELOC, callTarget,
-                                   (ssize_t)pAddr DEBUGARG((size_t)compiler->eeFindHelper(helper))
+                                   (ssize_t)pAddr DEBUGARG((size_t)Compiler::eeFindHelper(helper))
                                        DEBUGARG(GTF_ICON_METHOD_HDL));
         GetEmitter()->emitIns_R_R(INS_ldr, EA_PTRSIZE, callTarget, callTarget);
         callType = emitter::EC_INDIR_R;
     }
 
-    GetEmitter()->emitIns_Call(callType, compiler->eeFindHelper(helper) DEBUGARG(nullptr), addr, argSize, retSize,
+    GetEmitter()->emitIns_Call(callType, Compiler::eeFindHelper(helper) DEBUGARG(nullptr), addr, argSize, retSize,
                                EA_UNKNOWN, gcInfo.gcVarPtrSetCur, gcInfo.gcRegGCrefSetCur, gcInfo.gcRegByrefSetCur,
-                               BAD_IL_OFFSET, /* IL offset */
-                               callTarget,    /* ireg */
-                               REG_NA, 0, 0,  /* xreg, xmul, disp */
-                               false          /* isJump */
-                               );
+                               BAD_IL_OFFSET, callTarget, false);
 
-    regMaskTP killMask = compiler->compHelperCallKillSet((CorInfoHelpFunc)helper);
+    regMaskTP killMask = compiler->compHelperCallKillSet(helper);
     regSet.verifyRegistersUsed(killMask);
 }
 
@@ -3635,17 +3629,9 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
     }
 }
 
-//-----------------------------------------------------------------------------------
-// genProfilingLeaveCallback: Generate the profiling function leave or tailcall callback.
+// Generate the profiling function leave or tailcall callback.
 // Technically, this is not part of the epilog; it is called when we are generating code for a GT_RETURN node.
-//
-// Arguments:
-//     helper - which helper to call. Either CORINFO_HELP_PROF_FCN_LEAVE or CORINFO_HELP_PROF_FCN_TAILCALL
-//
-// Return Value:
-//     None
-//
-void CodeGen::genProfilingLeaveCallback(unsigned helper)
+void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 {
     assert((helper == CORINFO_HELP_PROF_FCN_LEAVE) || (helper == CORINFO_HELP_PROF_FCN_TAILCALL));
 

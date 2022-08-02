@@ -66,7 +66,7 @@ GenTree* Compiler::fgMorphCastIntoHelper(GenTreeCast* cast, int helper)
  *  the given argument list.
  */
 
-GenTree* Compiler::fgMorphIntoHelperCall(GenTree* tree, int helper, GenTreeCall::Use* args, bool morphArgs)
+GenTreeCall* Compiler::fgMorphIntoHelperCall(GenTree* tree, int helper, GenTreeCall::Use* args, bool morphArgs)
 {
     // The helper call ought to be semantically equivalent to the original node, so preserve its VN.
     tree->ChangeOper(GT_CALL, GenTree::PRESERVE_VN);
@@ -86,15 +86,12 @@ GenTree* Compiler::fgMorphIntoHelperCall(GenTree* tree, int helper, GenTreeCall:
     call->gtControlExpr         = nullptr;
 #ifdef UNIX_X86_ABI
     call->gtFlags |= GTF_CALL_POP_ARGS;
-#endif // UNIX_X86_ABI
+#endif
 
 #if DEBUG
-    // Helper calls are never candidates.
     call->gtInlineObservation = InlineObservation::CALLSITE_IS_CALL_TO_HELPER;
-
-    call->callSig = nullptr;
-
-#endif // DEBUG
+    call->callSig             = nullptr;
+#endif
 
 #ifdef FEATURE_READYTORUN_COMPILER
     call->gtEntryPoint.addr       = nullptr;
@@ -113,29 +110,28 @@ GenTree* Compiler::fgMorphIntoHelperCall(GenTree* tree, int helper, GenTreeCall:
     call->ClearOtherRegs();
 #endif
 
-    if (tree->OperMayThrow(this))
+    if (call->OperMayThrow(this))
     {
-        tree->gtFlags |= GTF_EXCEPT;
+        call->gtFlags |= GTF_EXCEPT;
     }
     else
     {
-        tree->gtFlags &= ~GTF_EXCEPT;
+        call->gtFlags &= ~GTF_EXCEPT;
     }
-    tree->gtFlags |= GTF_CALL;
+
+    call->gtFlags |= GTF_CALL;
 
     for (GenTreeCall::Use& use : GenTreeCall::UseList(args))
     {
-        tree->gtFlags |= (use.GetNode()->gtFlags & GTF_ALL_EFFECT);
+        call->gtFlags |= use.GetNode()->GetSideEffects();
     }
-
-    /* Perform the morphing */
 
     if (morphArgs)
     {
-        tree = fgMorphArgs(call);
+        fgMorphArgs(call);
     }
 
-    return tree;
+    return call;
 }
 
 GenTree* Compiler::fgMorphCast(GenTreeCast* cast)
@@ -2175,12 +2171,12 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         assert(arg1 != nullptr);
         nonStandardArgs.Add(arg1, REG_LNGARG_LO);
 
-        args          = args->GetNext();
-        GenTree* arg2 = args->GetNode();
-        assert(arg2 != nullptr);
-        nonStandardArgs.Add(arg2, REG_LNGARG_HI);
+        args                         = args->GetNext();
+        GenTree* numNewStackSlotsArg = args->GetNode();
+        assert(numNewStackSlotsArg != nullptr);
+        nonStandardArgs.Add(numNewStackSlotsArg, REG_LNGARG_HI);
     }
-#else  // !TARGET_X86
+#else // !TARGET_X86
     // TODO-X86-CQ: Currently RyuJIT/x86 passes args on the stack, so this is not needed.
     // If/when we change that, the following code needs to be changed to correctly support the (TBD) managed calling
     // convention for x86/SSE.
@@ -2209,7 +2205,16 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
     if (call->IsVirtualStub())
     {
-        if (!call->IsTailCallViaJitHelper())
+#ifdef TARGET_X86
+        if (call->IsTailCallViaJitHelper())
+        {
+            // If it is a VSD call getting dispatched via tail call helper,
+            // fgMorphTailCallViaJitHelper() would materialize stub addr as an additional
+            // parameter added to the original arg list and hence no need to
+            // add as a non-standard arg.
+        }
+        else
+#endif
         {
             GenTree* stubAddrArg = fgGetStubAddrArg(call);
             // And push the stub address onto the list of arguments
@@ -2218,50 +2223,38 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             numArgs++;
             nonStandardArgs.Add(stubAddrArg, virtualStubParamInfo.GetRegNum());
         }
-        else
-        {
-            // If it is a VSD call getting dispatched via tail call helper,
-            // fgMorphTailCallViaJitHelper() would materialize stub addr as an additional
-            // parameter added to the original arg list and hence no need to
-            // add as a non-standard arg.
-        }
     }
     else
 #endif // !TARGET_X86
-    if (call->gtCallType == CT_INDIRECT && (call->gtCallCookie != nullptr))
+    if (call->IsIndirectCall() && (call->gtCallCookie != nullptr))
     {
         assert(!call->IsUnmanaged());
 
-        GenTree* arg = call->gtCallCookie;
-        noway_assert(arg != nullptr);
-        call->gtCallCookie = nullptr;
-
-#if defined(TARGET_X86)
+#ifdef TARGET_X86
         // x86 passes the cookie on the stack as the final argument to the call.
         GenTreeCall::Use** insertionPoint = &call->gtCallArgs;
         for (; *insertionPoint != nullptr; insertionPoint = &((*insertionPoint)->NextRef()))
         {
         }
-        *insertionPoint = gtNewCallArgs(arg);
-#else  // !defined(TARGET_X86)
+
+        *insertionPoint = gtNewCallArgs(call->gtCallCookie);
+#else
         // All other architectures pass the cookie in a register.
-        call->gtCallArgs = gtPrependNewCallArg(arg, call->gtCallArgs);
-#endif // defined(TARGET_X86)
+        call->gtCallArgs = gtPrependNewCallArg(call->gtCallCookie, call->gtCallArgs);
+#endif
+        nonStandardArgs.Add(call->gtCallCookie, REG_PINVOKE_COOKIE_PARAM);
+        numArgs++;
+        call->gtCallCookie = nullptr;
 
-        nonStandardArgs.Add(arg, REG_PINVOKE_COOKIE_PARAM);
+        GenTree* target  = gtClone(call->gtCallAddr, true);
+        call->gtCallArgs = gtPrependNewCallArg(target, call->gtCallArgs);
+        nonStandardArgs.Add(target, REG_PINVOKE_TARGET_PARAM);
         numArgs++;
 
-        // put destination into R10/EAX
-        arg              = gtClone(call->gtCallAddr, true);
-        call->gtCallArgs = gtPrependNewCallArg(arg, call->gtCallArgs);
-        numArgs++;
-
-        nonStandardArgs.Add(arg, REG_PINVOKE_TARGET_PARAM);
-
-        // finally change this call to a helper call
         call->gtCallType    = CT_HELPER;
         call->gtCallMethHnd = eeFindHelper(CORINFO_HELP_PINVOKE_CALLI);
     }
+
 #if defined(FEATURE_READYTORUN_COMPILER) && defined(TARGET_ARMARCH)
     // For arm, we dispatch code same as VSD using virtualStubParamInfo.GetRegNum()
     // for indirection cell address, which ZapIndirectHelperThunk expects.
@@ -2734,6 +2727,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         {
             isRegArg = (nonStdRegNum != REG_STK);
         }
+#ifdef TARGET_X86
         else if (call->IsTailCallViaJitHelper())
         {
             // We have already (before calling fgMorphArgs()) appended the 4 special args
@@ -2745,6 +2739,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                 isRegArg = false;
             }
         }
+#endif
 
         // Now we know if the argument goes in registers or not and how big it is.
         CLANG_FORMAT_COMMENT_ANCHOR;
@@ -2987,11 +2982,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 // Arguments:
 //    callNode - the call for which we are doing the argument morphing
 //
-// Return Value:
-//    Like most morph methods, this method returns the morphed node,
-//    though in this case there are currently no scenarios where the
-//    node itself is re-created.
-//
 // Notes:
 //    This calls fgInitArgInfo to create the 'fgArgInfo' for the call.
 //    If it has already been created, that method will simply return.
@@ -3018,7 +3008,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 //    otherwise need to be computed into a temp, it is moved to gtCallLateArgs and
 //    replaced in the "early" arg list (gtCallArgs) with a placeholder node.
 //
-GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
+void Compiler::fgMorphArgs(GenTreeCall* const call)
 {
     bool reMorphing = call->AreArgsComplete();
     fgInitArgInfo(call);
@@ -3167,10 +3157,9 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
         call->fgArgInfo->ArgsComplete(this, call);
     }
 
-    if (call->gtCallType == CT_INDIRECT)
+    if (call->IsIndirectCall())
     {
         call->gtCallAddr = fgMorphTree(call->gtCallAddr);
-        // Const CSE may create an assignment node here
         argsSideEffects |= call->gtCallAddr->gtFlags;
     }
 
@@ -3199,8 +3188,6 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
         call->fgArgInfo->Dump();
     }
 #endif
-
-    return call;
 }
 
 bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
@@ -6178,9 +6165,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
 #ifdef DEBUG
         if (verbose)
         {
-            printf("\nRejecting tail call in morph for call ");
-            printTreeID(call);
-            printf(": %s", reason);
+            printf("\nRejecting tail call in morph for call [%06u]: %s", call->GetID(), reason);
             if (lclNum != BAD_VAR_NUM)
             {
                 printf(" V%02u", lclNum);
@@ -6336,7 +6321,10 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
     bool        canFastTailCall = fgCanFastTailCall(call, &failReason);
 
     CORINFO_TAILCALL_HELPERS tailCallHelpers;
-    bool                     tailCallViaJitHelper = false;
+#ifdef TARGET_X86
+    bool tailCallViaJitHelper = false;
+#endif
+
     if (!canFastTailCall)
     {
         if (call->IsImplicitTailCall())
@@ -6358,13 +6346,13 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
             return nullptr;
         }
 
-        // On x86 we have a faster mechanism than the general one which we use
-        // in almost all cases. See fgCanTailCallViaJitHelper for more information.
+#ifdef TARGET_X86
         if (fgCanTailCallViaJitHelper())
         {
             tailCallViaJitHelper = true;
         }
         else
+#endif
         {
             // Make sure we can get the helpers. We do this last as the runtime
             // will likely be required to generate these.
@@ -6467,10 +6455,13 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
     compTailCallUsed = true;
     // This will prevent inlining this call.
     call->gtCallMoreFlags |= GTF_CALL_M_TAILCALL;
+
+#ifdef TARGET_X86
     if (tailCallViaJitHelper)
     {
         call->gtCallMoreFlags |= GTF_CALL_M_TAILCALL_VIA_JIT_HELPER;
     }
+#endif
 
 #if FEATURE_TAILCALL_OPT
     if (fastTailCallToLoop)
@@ -6487,20 +6478,12 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
     call->gtCallMoreFlags &= ~GTF_CALL_M_IMPLICIT_TAILCALL;
 #endif
 
-#ifdef DEBUG
-    if (verbose)
+    JITDUMP("\nGTF_CALL_M_TAILCALL bit set for call [%06u]\n", call->GetID());
+
+    if (fastTailCallToLoop)
     {
-        printf("\nGTF_CALL_M_TAILCALL bit set for call ");
-        printTreeID(call);
-        printf("\n");
-        if (fastTailCallToLoop)
-        {
-            printf("\nGTF_CALL_M_TAILCALL_TO_LOOP bit set for call ");
-            printTreeID(call);
-            printf("\n");
-        }
+        JITDUMP("\nGTF_CALL_M_TAILCALL_TO_LOOP bit set for call [%06u]\n", call->GetID());
     }
-#endif
 
     // If this block has a flow successor, make suitable updates.
     //
@@ -6681,8 +6664,10 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
         assert(treeWithCall == call);
     }
 #endif
+
     GenTree* result;
-    if (!canFastTailCall && !tailCallViaJitHelper)
+
+    if (!canFastTailCall X86_ONLY(&&!tailCallViaJitHelper))
     {
         // For tailcall via CORINFO_TAILCALL_HELPERS we transform into regular
         // calls with (to the JIT) regular control flow so we do not need to do
@@ -6722,8 +6707,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
         call->SetRetLayout(nullptr);
         call->GetRetDesc()->Reset();
 
-        // Do some target-specific transformations (before we process the args,
-        // etc.) for the JIT helper case.
+#ifdef TARGET_X86
         if (tailCallViaJitHelper)
         {
             fgMorphTailCallViaJitHelper(call);
@@ -6732,6 +6716,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
             // argument list, invalidating the argInfo.
             call->fgArgInfo = nullptr;
         }
+#endif
 
         // Tail call via JIT helper: The VM can't use return address hijacking
         // if we're not going to return and the helper doesn't have enough info
@@ -6982,12 +6967,14 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
     {
         JITDUMP("Adding target since VM requested it\n");
         GenTree* target;
+
         if (!virtualCall)
         {
-            if (call->gtCallType == CT_INDIRECT)
+            if (call->IsIndirectCall())
             {
-                noway_assert(call->gtCallAddr != nullptr);
                 target = call->gtCallAddr;
+
+                noway_assert(target != nullptr);
             }
             else
             {
@@ -7091,8 +7078,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
                                                       CORINFO_METHOD_HANDLE callTargetStubHnd,
                                                       CORINFO_METHOD_HANDLE dispatcherHnd)
 {
-    GenTreeCall* callDispatcherNode =
-        gtNewCallNode(CT_USER_FUNC, dispatcherHnd, TYP_VOID, nullptr, fgMorphStmt->GetILOffsetX());
+    GenTreeCall* callDispatcherNode = gtNewUserCallNode(dispatcherHnd, TYP_VOID, nullptr, fgMorphStmt->GetILOffsetX());
     // The dispatcher has signature
     // void DispatchTailCalls(void* callersRetAddrSlot, void* callTarget, void* retValue)
 
@@ -7414,31 +7400,99 @@ GenTree* Compiler::getTokenHandleTree(CORINFO_RESOLVED_TOKEN* pResolvedToken, bo
     return result;
 }
 
-/*****************************************************************************
- *
- *  Transform the given GT_CALL tree for tail call via JIT helper.
- */
+#ifdef TARGET_X86
+bool Compiler::fgCanTailCallViaJitHelper()
+{
+    // The JIT helper does not properly handle the case where localloc was used.
+    return !compLocallocUsed;
+}
+
 void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
 {
-    JITDUMP("fgMorphTailCallViaJitHelper (before):\n");
-    DISPTREE(call);
+    JITDUMPTREE(call, "fgMorphTailCallViaJitHelper (before):\n");
 
-    // The runtime requires that we perform a null check on the `this` argument before
-    // tail calling  to a virtual dispatch stub. This requirement is a consequence of limitations
-    // in the runtime's ability to map an AV to a NullReferenceException if
-    // the AV occurs in a dispatch stub that has unmanaged caller.
-    if (call->IsVirtualStub())
+    assert(!call->IsUnmanaged());
+    assert(!call->IsHelperCall());
+    assert(call->IsVirtual() || !call->IsIndirectCall() || (call->gtCallCookie == nullptr));
+    assert(!call->IsImplicitTailCall());
+
+    // The call will be transformed into a helper call so it can no longer have a special
+    // `this` arg, we need to change it to a normal (first) argument. This may result in
+    // an ordering problem
+    //   - the first argument is passed in a register and will become a late arg
+    //   - the target argument is passed on stack so it will be evaluated before late args
+    //   - the target expression may depend on `this` (e.g. virtual vtable call)
+    // So we need to ensure that the value of `this` is available for target's expression.
+    // We do this by spilling `this` to a temp, if it's not already a local.
+    if (call->gtCallThisArg != nullptr)
     {
-        call->gtFlags |= GTF_CALL_NULLCHECK;
+        GenTree* thisArg    = call->gtCallThisArg->GetNode();
+        call->gtCallThisArg = nullptr;
+
+        GenTree* newThisArg = nullptr;
+
+        // TODO-MIKE-Review: Not adding a temp if `this` is LCL_VAR is dubious, what if some
+        // other argument expression modifies it?
+        if ((call->IsDelegateInvoke() || call->IsVirtualVtable()) && !thisArg->OperIs(GT_LCL_VAR))
+        {
+            unsigned lclNum = lvaNewTemp(thisArg->GetType(), true DEBUGARG("tail call target this temp"));
+
+            // TODO-MIKE-Review: fgMorphArgs freaks out when it sees side effects and adds
+            // another temp for this argument...
+            // What we probably want is to have fgMorphArgs deal with this.
+            GenTree* asg = gtNewAssignNode(gtNewLclvNode(lclNum, thisArg->GetType()), thisArg);
+            newThisArg   = gtNewCommaNode(asg, gtNewLclvNode(lclNum, thisArg->GetType()));
+
+            thisArg = newThisArg;
+        }
+
+        // The runtime requires that we perform a null check on the `this` argument before tail
+        // calling to a virtual dispatch stub. This requirement is a consequence of limitations
+        // in the runtime's ability to map an AV to a NullReferenceException if the AV occurs
+        // in a dispatch stub that has unmanaged caller.
+        if (call->IsVirtualStub())
+        {
+            call->gtFlags |= GTF_CALL_NULLCHECK;
+        }
+
+        if (call->NeedsNullCheck())
+        {
+            if ((newThisArg == nullptr) && ((thisArg->gtFlags & GTF_SIDE_EFFECT) == 0))
+            {
+                newThisArg = gtClone(thisArg, true);
+            }
+
+            if (newThisArg == nullptr)
+            {
+                unsigned lclNum = lvaNewTemp(thisArg->GetType(), true DEBUGARG("tail call nullcheck this temp"));
+
+                // TODO-MIKE-Review: The NULLCHECK gets added in the wrong place, in the first
+                // argument tree. This means it happens before other arguments are evaluated,
+                // instead of happening after, right before the call.
+                GenTree* asg = gtNewAssignNode(gtNewLclvNode(lclNum, thisArg->GetType()), thisArg);
+                newThisArg   = gtNewCommaNode(asg, gtNewNullCheck(gtNewLclvNode(lclNum, thisArg->GetType())));
+                newThisArg   = gtNewCommaNode(newThisArg, gtNewLclvNode(lclNum, thisArg->GetType()));
+            }
+            else
+            {
+                newThisArg = gtNewCommaNode(gtNewNullCheck(newThisArg), gtClone(thisArg, true));
+            }
+
+            call->gtFlags &= ~GTF_CALL_NULLCHECK;
+        }
+        else
+        {
+            newThisArg = thisArg;
+        }
+
+        // TODO-Cleanup: We leave it as a virtual stub call to use logic in LowerVirtualStubCall,
+        // clear GTF_CALL_VIRT_KIND_MASK here and change LowerCall to recognize it as a direct call.
+
+        call->gtCallArgs = gtPrependNewCallArg(newThisArg, call->gtCallArgs);
     }
 
-    // For the helper-assisted tail calls, we need to push all the arguments
-    // into a single list, and then add a few extra at the beginning or end.
-    //
-    // For x86, the tailcall helper is defined as:
-    //
-    //      JIT_TailCall(<function args>, int numberOfOldStackArgsWords, int numberOfNewStackArgsWords, int flags, void*
-    //      callTarget)
+    // The tailcall helper has 4 extra arguments:
+    //   JIT_TailCall(<function args>, int numOldStackSlots, int numNewStackSlots, int flags, void* target)
     //
     // Note that the special arguments are on the stack, whereas the function arguments follow
     // the normal convention: there might be register arguments in ECX and EDX. The stack will
@@ -7446,172 +7500,70 @@ void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
     //      first normal stack argument
     //      ...
     //      last normal stack argument
-    //      numberOfOldStackArgs
-    //      numberOfNewStackArgs
+    //      numOldStackSlots - the number of stack slots used by caller parameters
+    //      numNewStackSlots - the number of stack slots needed for callee parameters
     //      flags
-    //      callTarget
-    //
-    // Each special arg is 4 bytes.
+    //      target
     //
     // 'flags' is a bitmask where:
-    //      1 == restore callee-save registers (EDI,ESI,EBX). The JIT always saves all
+    //      1 - restore callee-save registers (EDI, ESI, EBX). The JIT always saves all
     //          callee-saved registers for tailcall functions. Note that the helper assumes
     //          that the callee-saved registers live immediately below EBP, and must have been
     //          pushed in this order: EDI, ESI, EBX.
-    //      2 == call target is a virtual stub dispatch.
+    //      2 - call target is a virtual stub dispatch.
     //
-    // The x86 tail call helper lives in VM\i386\jithelp.asm. See that function for more details
+    // The tail call helper lives in vm\i386\jithelp.asm. See that function for more details
     // on the custom calling convention.
 
-    // Check for PInvoke call types that we don't handle in codegen yet.
-    assert(!call->IsUnmanaged());
-    assert(call->IsVirtual() || (call->gtCallType != CT_INDIRECT) || (call->gtCallCookie == nullptr));
+    GenTree* numOldStackSlotsArg = gtNewIconNode(
+        static_cast<int>((compArgSize - (codeGen->intRegState.rsCalleeRegArgCount * REGSIZE_BYTES)) / REGSIZE_BYTES));
+    // We haven't yet morphed the args so we don't know the number of stack slots this call uses.
+    // Lowering will change this to the correct value.
+    GenTree* numNewStackSlotsArg = gtNewIconNode(0);
+    // TODO-MIKE-Review: Seems like we could set the real flags here, not in lowering.
+    GenTree* flagsArg = gtNewIconNode(0);
+    GenTree* targetArg;
 
-    // Don't support tail calling helper methods
-    assert(call->gtCallType != CT_HELPER);
-
-    // We come this route only for tail prefixed calls that cannot be dispatched as
-    // fast tail calls
-    assert(!call->IsImplicitTailCall());
-
-    // We want to use the following assert, but it can modify the IR in some cases, so we
-    // can't do that in an assert.
-    // assert(!fgCanFastTailCall(call, nullptr));
-
-    // First move the 'this' pointer (if any) onto the regular arg list. We do this because
-    // we are going to prepend special arguments onto the argument list (for non-x86 platforms),
-    // and thus shift where the 'this' pointer will be passed to a later argument slot. In
-    // addition, for all platforms, we are going to change the call into a helper call. Our code
-    // generation code for handling calls to helpers does not handle 'this' pointers. So, when we
-    // do this transformation, we must explicitly create a null 'this' pointer check, if required,
-    // since special 'this' pointer handling will no longer kick in.
-    //
-    // Some call types, such as virtual vtable calls, require creating a call address expression
-    // that involves the "this" pointer. Lowering will sometimes create an embedded statement
-    // to create a temporary that is assigned to the "this" pointer expression, and then use
-    // that temp to create the call address expression. This temp creation embedded statement
-    // will occur immediately before the "this" pointer argument, and then will be used for both
-    // the "this" pointer argument as well as the call address expression. In the normal ordering,
-    // the embedded statement establishing the "this" pointer temp will execute before both uses
-    // of the temp. However, for tail calls via a helper, we move the "this" pointer onto the
-    // normal call argument list, and insert a placeholder which will hold the call address
-    // expression. For non-x86, things are ok, because the order of execution of these is not
-    // altered. However, for x86, the call address expression is inserted as the *last* argument
-    // in the argument list, *after* the "this" pointer. It will be put on the stack, and be
-    // evaluated first. To ensure we don't end up with out-of-order temp definition and use,
-    // for those cases where call lowering creates an embedded form temp of "this", we will
-    // create a temp here, early, that will later get morphed correctly.
-
-    if (call->gtCallThisArg != nullptr)
+    if (call->IsIndirectCall())
     {
-        GenTree* thisPtr    = nullptr;
-        GenTree* objp       = call->gtCallThisArg->GetNode();
-        call->gtCallThisArg = nullptr;
-
-        if ((call->IsDelegateInvoke() || call->IsVirtualVtable()) && !objp->OperIs(GT_LCL_VAR))
-        {
-            // tmp = "this"
-            unsigned lclNum = lvaNewTemp(objp->GetType(), true DEBUGARG("tail call thisptr"));
-            GenTree* asg    = gtNewAssignNode(gtNewLclvNode(lclNum, objp->GetType()), objp);
-
-            // COMMA(tmp = "this", tmp)
-            var_types vt  = objp->TypeGet();
-            GenTree*  tmp = gtNewLclvNode(lclNum, vt);
-            thisPtr       = gtNewCommaNode(asg, tmp);
-
-            objp = thisPtr;
-        }
-
-        if (call->NeedsNullCheck())
-        {
-            // clone "this" if "this" has no side effects.
-            if ((thisPtr == nullptr) && !(objp->gtFlags & GTF_SIDE_EFFECT))
-            {
-                thisPtr = gtClone(objp, true);
-            }
-
-            var_types vt = objp->TypeGet();
-            if (thisPtr == nullptr)
-            {
-                // create a temp if either "this" has side effects or "this" is too complex to clone.
-
-                // tmp = "this"
-                unsigned lclNum = lvaNewTemp(objp->GetType(), true DEBUGARG("tail call thisptr"));
-                GenTree* asg    = gtNewAssignNode(gtNewLclvNode(lclNum, objp->GetType()), objp);
-
-                // COMMA(tmp = "this", deref(tmp))
-                GenTree* tmp       = gtNewLclvNode(lclNum, vt);
-                GenTree* nullcheck = gtNewNullCheck(tmp);
-                asg                = gtNewCommaNode(asg, nullcheck);
-                thisPtr            = gtNewCommaNode(asg, gtNewLclvNode(lclNum, vt));
-            }
-            else
-            {
-                // thisPtr = COMMA(deref("this"), "this")
-                GenTree* nullcheck = gtNewNullCheck(thisPtr);
-                thisPtr            = gtNewCommaNode(nullcheck, gtClone(objp, true));
-            }
-
-            call->gtFlags &= ~GTF_CALL_NULLCHECK;
-        }
-        else
-        {
-            thisPtr = objp;
-        }
-
-        // TODO-Cleanup: we leave it as a virtual stub call to
-        // use logic in `LowerVirtualStubCall`, clear GTF_CALL_VIRT_KIND_MASK here
-        // and change `LowerCall` to recognize it as a direct call.
-
-        // During rationalization tmp="this" and null check will
-        // materialize as embedded stmts in right execution order.
-        assert(thisPtr != nullptr);
-        call->gtCallArgs = gtPrependNewCallArg(thisPtr, call->gtCallArgs);
+        // Use the indirect call target as target argument. Note that since that target argument is
+        // last this doesn't change eveluation order.
+        targetArg = call->gtCallAddr;
+        // Put a dummy 0 node so we can keep the call as indirect for now.
+        // TODO-MIKE-Review: Why not transform into the actual helper call here?
+        call->gtCallAddr = gtNewIconNode(0);
+    }
+    else
+    {
+        // We haven't created the target expression yet (e.g. for vtable calls), lowering will change
+        // this as needed.
+        targetArg = gtNewIconNode(0);
     }
 
-    // Find the end of the argument list. ppArg will point at the last pointer; setting *ppArg will
-    // append to the list.
-    GenTreeCall::Use** ppArg = &call->gtCallArgs;
+    GenTreeCall::Use* newArgs = gtNewCallArgs(numOldStackSlotsArg, numNewStackSlotsArg, flagsArg, targetArg);
+    GenTreeCall::Use* lastArg = nullptr;
+
     for (GenTreeCall::Use& use : call->Args())
     {
-        ppArg = &use.NextRef();
+        lastArg = &use;
     }
-    assert(ppArg != nullptr);
-    assert(*ppArg == nullptr);
 
-    unsigned nOldStkArgsWords =
-        (compArgSize - (codeGen->intRegState.rsCalleeRegArgCount * REGSIZE_BYTES)) / REGSIZE_BYTES;
-    GenTree* arg3 = gtNewIconNode((ssize_t)nOldStkArgsWords, TYP_I_IMPL);
-    *ppArg        = gtNewCallArgs(arg3); // numberOfOldStackArgs
-    ppArg         = &((*ppArg)->NextRef());
+    if (lastArg == nullptr)
+    {
+        call->gtCallArgs = newArgs;
+    }
+    else
+    {
+        lastArg->SetNext(newArgs);
+    }
 
-    // Inject a placeholder for the count of outgoing stack arguments that the Lowering phase will generate.
-    // The constant will be replaced.
-    GenTree* arg2 = gtNewIconNode(9, TYP_I_IMPL);
-    *ppArg        = gtNewCallArgs(arg2); // numberOfNewStackArgs
-    ppArg         = &((*ppArg)->NextRef());
-
-    // Inject a placeholder for the flags.
-    // The constant will be replaced.
-    GenTree* arg1 = gtNewIconNode(8, TYP_I_IMPL);
-    *ppArg        = gtNewCallArgs(arg1);
-    ppArg         = &((*ppArg)->NextRef());
-
-    // Inject a placeholder for the real call target that the Lowering phase will generate.
-    // The constant will be replaced.
-    GenTree* arg0 = gtNewIconNode(7, TYP_I_IMPL);
-    *ppArg        = gtNewCallArgs(arg0);
-
-    // It is now a varargs tail call.
-    call->gtCallMoreFlags |= GTF_CALL_M_VARARGS;
     call->gtFlags &= ~GTF_CALL_POP_ARGS;
 
-    // The function is responsible for doing explicit null check when it is necessary.
     assert(!call->NeedsNullCheck());
 
-    JITDUMP("fgMorphTailCallViaJitHelper (after):\n");
-    DISPTREE(call);
+    JITDUMPTREE(call, "fgMorphTailCallViaJitHelper (after):\n");
 }
+#endif // TARGET_X86
 
 //------------------------------------------------------------------------
 // fgGetStubAddrArg: Return the virtual stub address for the given call.
@@ -7629,21 +7581,15 @@ void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
 GenTree* Compiler::fgGetStubAddrArg(GenTreeCall* call)
 {
     assert(call->IsVirtualStub());
-    GenTree* stubAddrArg;
-    if (call->gtCallType == CT_INDIRECT)
+
+    if (call->IsIndirectCall())
     {
-        stubAddrArg = gtClone(call->gtCallAddr, true);
+        return gtClone(call->gtCallAddr, true);
     }
-    else
-    {
-        assert(call->gtCallMoreFlags & GTF_CALL_M_VIRTSTUB_REL_INDIRECT);
-        ssize_t addr = ssize_t(call->gtStubCallStubAddr);
-        stubAddrArg  = gtNewIconHandleNode(addr, GTF_ICON_FTN_ADDR);
-#ifdef DEBUG
-        stubAddrArg->AsIntCon()->gtTargetHandle = (size_t)call->gtCallMethHnd;
-#endif
-    }
-    assert(stubAddrArg != nullptr);
+
+    assert(call->gtCallMoreFlags & GTF_CALL_M_VIRTSTUB_REL_INDIRECT);
+    GenTreeIntCon* stubAddrArg = gtNewIconHandleNode(call->gtStubCallStubAddr, GTF_ICON_FTN_ADDR);
+    INDEBUG(stubAddrArg->gtTargetHandle = (size_t)call->gtCallMethHnd);
     return stubAddrArg;
 }
 
@@ -7940,11 +7886,6 @@ Statement* Compiler::fgAssignRecursiveCallArgToCallerParam(GenTree*       arg,
     return paramAssignStmt;
 }
 
-/*****************************************************************************
- *
- *  Transform the given GT_CALL tree for code generation.
- */
-
 GenTree* Compiler::fgMorphCall(GenTreeCall* call)
 {
     if (call->CanTailCall())
@@ -7971,26 +7912,22 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
 
         GenTree* thisPtr = call->gtCallArgs->GetNode();
 
-        GenTree* nullCheck = gtNewNullCheck(thisPtr);
-
-        return fgMorphTree(nullCheck);
+        return fgMorphTree(gtNewNullCheck(thisPtr));
     }
 
     noway_assert(call->gtOper == GT_CALL);
 
-    //
-    // Only count calls once (only in the global morph phase)
-    //
     if (fgGlobalMorph)
     {
-        if (call->gtCallType == CT_INDIRECT)
+        if (call->IsIndirectCall())
         {
             optCallCount++;
             optIndirectCallCount++;
         }
-        else if (call->gtCallType == CT_USER_FUNC)
+        else if (call->IsUserCall())
         {
             optCallCount++;
+
             if (call->IsVirtual())
             {
                 optIndirectCallCount++;
@@ -7998,14 +7935,10 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
         }
     }
 
-    // Couldn't inline - remember that this BB contains method calls
-
     // Mark the block as a GC safe point for the call if possible.
     // In the event the call indicates the block isn't a GC safe point
     // and the call is unmanaged with a GC transition suppression request
     // then insert a GC poll.
-    CLANG_FORMAT_COMMENT_ANCHOR;
-
     if (IsGcSafePoint(call))
     {
         compCurBB->bbFlags |= BBF_GC_SAFE_POINT;
@@ -8021,117 +7954,52 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
     }
 
     // Morph Type.op_Equality, Type.op_Inequality, and Enum.HasFlag
-    //
-    // We need to do these before the arguments are morphed
-    if ((call->gtCallMoreFlags & GTF_CALL_M_SPECIAL_INTRINSIC))
+    // We need to do these before the arguments are morphed.
+    if ((call->gtCallMoreFlags & GTF_CALL_M_SPECIAL_INTRINSIC) != 0)
     {
-        // See if this is foldable
         GenTree* optTree = gtFoldExprCall(call);
 
-        // If we optimized, morph the result
         if (optTree != call)
         {
             return fgMorphTree(optTree);
         }
     }
 
-    compCurBB->bbFlags |= BBF_HAS_CALL; // This block has a call
+    // TODO-MIKE-Cleanup: Only CSE needs this.
+    // Move this to SsaBuilder, where BBF_HAS_NULLCHECK and other similar flags are set.
+    // Note that there is code below that can remove the call, but we're still setting
+    // this flag here. Also note that INTRINSIC nodes may become calls but we don't set
+    // this flag for those, that may affect CSE.
+    compCurBB->bbFlags |= BBF_HAS_CALL;
 
-    /* Process the "normal" argument list */
-    call = fgMorphArgs(call);
-    noway_assert(call->gtOper == GT_CALL);
+    fgMorphArgs(call);
+    assert(call->OperIs(GT_CALL));
 
-    // Should we expand this virtual method call target early here?
-    //
     if (call->IsExpandedEarly() && call->IsVirtualVtable())
     {
-        // We only expand the Vtable Call target once in the global morph phase
         if (call->gtControlExpr == nullptr)
         {
             assert(fgGlobalMorph);
             call->gtControlExpr = fgExpandVirtualVtableCallTarget(call);
         }
-        // We always have to morph or re-morph the control expr
-        //
-        call->gtControlExpr = fgMorphTree(call->gtControlExpr);
 
-        // Propogate any gtFlags into the call
-        call->gtFlags |= call->gtControlExpr->gtFlags;
+        call->gtControlExpr = fgMorphTree(call->gtControlExpr);
+        call->AddSideEffects(call->gtControlExpr->GetSideEffects());
     }
 
     // Morph stelem.ref helper call to store a null value, into a store into an array without the helper.
     // This needs to be done after the arguments are morphed to ensure constant propagation has already taken place.
-    if (opts.OptimizationEnabled() && (call->gtCallType == CT_HELPER) &&
-        (call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_ARRADDR_ST)))
+    if (opts.OptimizationEnabled() && call->IsHelperCall(eeFindHelper(CORINFO_HELP_ARRADDR_ST)))
     {
         GenTree* value = call->GetArgNodeByArgNum(2);
         if (value->IsIntegralConst(0))
         {
-            assert(value->OperGet() == GT_CNS_INT);
-
-            GenTree* arr   = call->GetArgNodeByArgNum(0);
-            GenTree* index = call->GetArgNodeByArgNum(1);
-
-            // Either or both of the array and index arguments may have been spilled to temps by `fgMorphArgs`. Copy
-            // the spill trees as well if necessary.
-            GenTreeOp* argSetup = nullptr;
-            for (GenTreeCall::Use& use : call->Args())
-            {
-                GenTree* const arg = use.GetNode();
-                if (!arg->OperIs(GT_ASG))
-                {
-                    continue;
-                }
-
-                assert(arg != arr);
-                assert(arg != index);
-
-                GenTree* op1 = argSetup;
-                if (op1 == nullptr)
-                {
-                    op1 = gtNewNothingNode();
-                    INDEBUG(op1->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-                }
-
-                argSetup = gtNewCommaNode(op1, arg);
-                INDEBUG(argSetup->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-            }
-
-#ifdef DEBUG
-            auto resetMorphedFlag = [](GenTree** slot, fgWalkData* data) -> fgWalkResult {
-                (*slot)->gtDebugFlags &= ~GTF_DEBUG_NODE_MORPHED;
-                return WALK_CONTINUE;
-            };
-
-            fgWalkTreePost(&arr, resetMorphedFlag);
-            fgWalkTreePost(&index, resetMorphedFlag);
-            fgWalkTreePost(&value, resetMorphedFlag);
-#endif // DEBUG
-
-            GenTree*          nullCheckedArr = impCheckForNullPointer(arr);
-            GenTreeIndexAddr* addr           = gtNewArrayIndexAddr(nullCheckedArr, index, TYP_REF);
-            GenTreeIndir*     arrIndexNode   = gtNewIndexIndir(TYP_REF, addr);
-            if (!fgGlobalMorph && !opts.MinOpts())
-            {
-                arrIndexNode->SetAddr(fgMorphIndexAddr(addr));
-            }
-            GenTree* arrStore = gtNewAssignNode(arrIndexNode, value);
-            arrStore->gtFlags |= GTF_ASG;
-
-            GenTree* result = fgMorphTree(arrStore);
-            if (argSetup != nullptr)
-            {
-                result = gtNewCommaNode(argSetup, result);
-                INDEBUG(result->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-            }
-
-            return result;
+            return fgRemoveArrayStoreHelperCall(call, value);
         }
     }
 
     if (call->IsNoReturn())
     {
-        //
         // If we know that the call does not return then we can set fgRemoveRestOfBlock
         // to remove all subsequent statements and change the call's basic block to BBJ_THROW.
         // As a result the compiler won't need to preserve live registers across the call.
@@ -8140,7 +8008,6 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
         // Besides, the tail call code is part of the epilog and converting the block to
         // BBJ_THROW would result in the tail call being dropped as the epilog is generated
         // only for BBJ_RETURN blocks.
-        //
 
         if (!call->IsTailCall())
         {
@@ -8149,6 +8016,69 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
     }
 
     return call;
+}
+
+GenTree* Compiler::fgRemoveArrayStoreHelperCall(GenTreeCall* call, GenTree* value)
+{
+    assert((value == call->GetArgNodeByArgNum(2)) && (value->AsIntCon()->GetValue() == 0));
+
+    GenTree* arr   = call->GetArgNodeByArgNum(0);
+    GenTree* index = call->GetArgNodeByArgNum(1);
+
+    // Either or both of the array and index arguments may have been spilled to temps by `fgMorphArgs`. Copy
+    // the spill trees as well if necessary.
+    GenTreeOp* argSetup = nullptr;
+    for (GenTreeCall::Use& use : call->Args())
+    {
+        GenTree* const arg = use.GetNode();
+        if (!arg->OperIs(GT_ASG))
+        {
+            continue;
+        }
+
+        assert(arg != arr);
+        assert(arg != index);
+
+        GenTree* op1 = argSetup;
+        if (op1 == nullptr)
+        {
+            op1 = gtNewNothingNode();
+            INDEBUG(op1->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+        }
+
+        argSetup = gtNewCommaNode(op1, arg);
+        INDEBUG(argSetup->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+    }
+
+#ifdef DEBUG
+    auto resetMorphedFlag = [](GenTree** slot, fgWalkData* data) -> fgWalkResult {
+        (*slot)->gtDebugFlags &= ~GTF_DEBUG_NODE_MORPHED;
+        return WALK_CONTINUE;
+    };
+
+    fgWalkTreePost(&arr, resetMorphedFlag);
+    fgWalkTreePost(&index, resetMorphedFlag);
+    fgWalkTreePost(&value, resetMorphedFlag);
+#endif // DEBUG
+
+    GenTree*          nullCheckedArr = impCheckForNullPointer(arr);
+    GenTreeIndexAddr* addr           = gtNewArrayIndexAddr(nullCheckedArr, index, TYP_REF);
+    GenTreeIndir*     arrIndexNode   = gtNewIndexIndir(TYP_REF, addr);
+    if (!fgGlobalMorph && !opts.MinOpts())
+    {
+        arrIndexNode->SetAddr(fgMorphIndexAddr(addr));
+    }
+    GenTree* arrStore = gtNewAssignNode(arrIndexNode, value);
+    arrStore->gtFlags |= GTF_ASG;
+
+    GenTree* result = fgMorphTree(arrStore);
+    if (argSetup != nullptr)
+    {
+        result = gtNewCommaNode(argSetup, result);
+        INDEBUG(result->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+    }
+
+    return result;
 }
 
 /*****************************************************************************
@@ -14208,25 +14138,21 @@ void Compiler::fgMorphStmts(BasicBlock* block)
         {
             if (stmt->GetRootNode() != oldTree)
             {
-                /* This must be tailcall. Ignore 'morphedTree' and carry on with
-                the tail-call node */
-
+                // This must be tailcall. Ignore 'morphedTree' and carry on with
+                // the tail-call node
                 morphedTree = stmt->GetRootNode();
             }
             else
             {
-                /* This must be a tailcall that caused a GCPoll to get
-                injected. We haven't actually morphed the call yet
-                but the flag still got set, clear it here...  */
-                CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef DEBUG
-                morphedTree->gtDebugFlags &= ~GTF_DEBUG_NODE_MORPHED;
-#endif
+                // This must be a tailcall that caused a GCPoll to get
+                // injected. We haven't actually morphed the call yet
+                // but the flag still got set, clear it here...
+                INDEBUG(morphedTree->gtDebugFlags &= ~GTF_DEBUG_NODE_MORPHED);
             }
 
             noway_assert(compTailCallUsed);
-            noway_assert(morphedTree->gtOper == GT_CALL);
+            noway_assert(morphedTree->OperIs(GT_CALL));
+
             GenTreeCall* call = morphedTree->AsCall();
             // Could be
             //   - a fast call made as jmp in which case block will be ending with
@@ -14238,8 +14164,8 @@ void Compiler::fgMorphStmts(BasicBlock* block)
             //   with BBJ_RETURN (as normal control flow)
             noway_assert((call->IsFastTailCall() && (compCurBB->bbJumpKind == BBJ_RETURN) &&
                           ((compCurBB->bbFlags & BBF_HAS_JMP)) != 0) ||
-                         (call->IsTailCallViaJitHelper() && (compCurBB->bbJumpKind == BBJ_THROW)) ||
-                         (!call->IsTailCall() && (compCurBB->bbJumpKind == BBJ_RETURN)));
+                         X86_ONLY((call->IsTailCallViaJitHelper() && (compCurBB->bbJumpKind == BBJ_THROW)) ||)(
+                             !call->IsTailCall() && (compCurBB->bbJumpKind == BBJ_RETURN)));
         }
 
 #ifdef DEBUG
@@ -15480,27 +15406,6 @@ bool Compiler::fgCheckStmtAfterTailCall()
         }
     }
     return nextMorphStmt == nullptr;
-}
-
-//------------------------------------------------------------------------
-// fgCanTailCallViaJitHelper: check whether we can use the faster tailcall
-// JIT helper on x86.
-//
-// Return Value:
-//    'true' if we can; or 'false' if we should use the generic tailcall mechanism.
-//
-bool Compiler::fgCanTailCallViaJitHelper()
-{
-#ifndef TARGET_X86
-    // On anything except X86 we have no faster mechanism available.
-    return false;
-#else
-    // The JIT helper does not properly handle the case where localloc was used.
-    if (compLocallocUsed)
-        return false;
-
-    return true;
-#endif
 }
 
 #ifdef FEATURE_HW_INTRINSICS

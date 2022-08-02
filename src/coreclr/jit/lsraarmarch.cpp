@@ -134,26 +134,15 @@ int LinearScan::BuildIndir(GenTreeIndir* indirTree)
 
 int LinearScan::BuildCall(GenTreeCall* call)
 {
-    int srcCount = 0;
+    GenTree* ctrlExpr = call->IsIndirectCall() ? call->gtCallAddr : call->gtControlExpr;
 
-    GenTree* ctrlExpr = call->gtControlExpr;
-    if (call->gtCallType == CT_INDIRECT)
-    {
-        // either gtControlExpr != null or gtCallAddr != null.
-        // Both cannot be non-null at the same time.
-        assert(ctrlExpr == nullptr);
-        assert(call->gtCallAddr != nullptr);
-        ctrlExpr = call->gtCallAddr;
-    }
-
-    // set reg requirements on call target represented as control sequence.
     if (ctrlExpr != nullptr)
     {
+        assert(ctrlExpr->TypeIs(TYP_I_IMPL));
+
         regMaskTP ctrlExprCandidates = RBM_NONE;
 
-        // we should never see a gtControlExpr whose type is void.
-        assert(ctrlExpr->TypeGet() != TYP_VOID);
-
+#if FEATURE_FASTTAILCALL
         // In case of fast tail implemented as jmp, make sure that gtControlExpr is
         // computed into a register.
         if (call->IsFastTailCall())
@@ -162,11 +151,14 @@ int LinearScan::BuildCall(GenTreeCall* call)
             // so that epilog sequence can generate "br xip0/r12" to achieve fast tail call.
             ctrlExprCandidates = RBM_FASTTAILCALL_TARGET;
         }
+#endif
     }
+#ifdef FEATURE_READYTORUN_COMPILER
     else if (call->IsR2ROrVirtualStubRelativeIndir())
     {
         buildInternalIntRegisterDefForNode(call);
     }
+#endif
 #ifdef TARGET_ARM
     else
     {
@@ -179,6 +171,8 @@ int LinearScan::BuildCall(GenTreeCall* call)
     }
 
 #endif // TARGET_ARM
+
+    int srcCount = 0;
 
     for (GenTreeCall::Use& arg : call->LateArgs())
     {

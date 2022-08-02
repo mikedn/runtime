@@ -5911,27 +5911,16 @@ void emitter::emitAdjustStackDepth(instruction ins, ssize_t val)
 
 #endif // EMIT_TRACK_STACK_DEPTH
 
-/*****************************************************************************
- *
- *  Add a call instruction (direct or indirect).
- *      argSize<0 means that the caller will pop the arguments
- *
- * The other arguments are interpreted depending on callType as shown:
- * Unless otherwise specified, ireg,xreg,xmul,disp should have default values.
- *
- * EC_FUNC_TOKEN       : addr is the method address
- * EC_FUNC_TOKEN_INDIR : addr is the indirect method address
- * EC_FUNC_ADDR        : addr is the absolute address of the function
- * EC_FUNC_VIRTUAL     : "call [ireg+disp]"
- *
- * If callType is one of these emitCallTypes, addr has to be NULL.
- * EC_INDIR_R          : "call ireg".
- * EC_INDIR_SR         : "call lcl<disp>" (eg. call [ebp-8]).
- * EC_INDIR_C          : "call clsVar<disp>" (eg. call [clsVarAddr])
- * EC_INDIR_ARD        : "call [ireg+xreg*xmul+disp]"
- *
- */
-
+// Add a call instruction (direct or indirect).
+//
+// argSize < 0 means that the caller will pop the arguments
+//
+// EC_FUNC_TOKEN       : addr is the method address
+// EC_FUNC_TOKEN_INDIR : addr is the indirect method address
+// EC_FUNC_ADDR        : addr is the absolute address of the function
+// EC_INDIR_R          : call ireg (addr has to be null)
+// EC_INDIR_ARD        : call [ireg + xreg * xmul + disp] (addr has to be null)
+//
 // clang-format off
 void emitter::emitIns_Call(EmitCallType          callType,
                            CORINFO_METHOD_HANDLE methHnd
@@ -5951,17 +5940,10 @@ void emitter::emitIns_Call(EmitCallType          callType,
                            bool                  isJump)
 // clang-format on
 {
-    /* Sanity check the arguments depending on callType */
-
-    assert(callType < EC_COUNT);
     assert((callType != EC_FUNC_TOKEN && callType != EC_FUNC_TOKEN_INDIR && callType != EC_FUNC_ADDR) ||
            (ireg == REG_NA && xreg == REG_NA && xmul == 0 && disp == 0));
-    assert(callType != EC_FUNC_VIRTUAL || (ireg < REG_COUNT && xreg == REG_NA && xmul == 0));
-    assert(callType < EC_INDIR_R || callType == EC_INDIR_ARD || callType == EC_INDIR_C || addr == nullptr);
+    assert(callType < EC_INDIR_R || callType == EC_INDIR_ARD || addr == nullptr);
     assert(callType != EC_INDIR_R || (ireg < REG_COUNT && xreg == REG_NA && xmul == 0 && disp == 0));
-    assert(callType != EC_INDIR_SR ||
-           (ireg == REG_NA && xreg == REG_NA && xmul == 0 && disp < (int)emitComp->lvaCount));
-    assert(callType != EC_INDIR_C || (ireg == REG_NA && xreg == REG_NA && xmul == 0 && disp != 0));
 
     // Our stack level should be always greater than the bytes of arguments we push. Just
     // a sanity test.
@@ -6012,21 +5994,13 @@ void emitter::emitIns_Call(EmitCallType          callType,
     assert(argSize % REGSIZE_BYTES == 0);
     int argCnt = (int)(argSize / (int)REGSIZE_BYTES); // we need a signed-divide
 
-    if (callType >= EC_FUNC_VIRTUAL)
+    if ((callType == EC_INDIR_R) || (callType == EC_INDIR_ARD))
     {
-        /* Indirect call, virtual calls */
-
-        assert(callType == EC_FUNC_VIRTUAL || callType == EC_INDIR_R || callType == EC_INDIR_SR ||
-               callType == EC_INDIR_C || callType == EC_INDIR_ARD);
-
         id = emitNewInstrCallInd(argCnt, disp, ptrVars, gcrefRegs, byrefRegs,
                                  retSize MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize));
     }
     else
     {
-        // Helper/static/nonvirtual/function calls (direct or through handle),
-        // and calls to an absolute addr.
-
         assert(callType == EC_FUNC_TOKEN || callType == EC_FUNC_TOKEN_INDIR || callType == EC_FUNC_ADDR);
 
         id = emitNewInstrCallDir(argCnt, ptrVars, gcrefRegs, byrefRegs,
@@ -6045,6 +6019,7 @@ void emitter::emitIns_Call(EmitCallType          callType,
     if (isJump)
     {
         assert(callType == EC_FUNC_TOKEN || callType == EC_FUNC_TOKEN_INDIR || callType == EC_INDIR_ARD);
+
         if (callType == EC_FUNC_TOKEN)
         {
             ins = INS_l_jmp;
@@ -6054,91 +6029,47 @@ void emitter::emitIns_Call(EmitCallType          callType,
             ins = INS_i_jmp;
         }
     }
-    id->idIns(ins);
 
+    id->idIns(ins);
     id->idSetIsNoGC(emitNoGChelper(methHnd));
 
     unsigned sz;
 
     // Record the address: method, indirection, or funcptr
-    if (callType >= EC_FUNC_VIRTUAL)
+    if ((callType == EC_INDIR_R) || (callType == EC_INDIR_ARD))
     {
-        // This is an indirect call (either a virtual call or func ptr call)
-
-        switch (callType)
+        if (callType == EC_INDIR_R)
         {
-            case EC_INDIR_C:
-                // Indirect call using an absolute code address.
-                // Must be marked as relocatable and is done at the
-                // branch target location.
-                goto CALL_ADDR_MODE;
+            id->idSetIsCallRegPtr();
+        }
 
-            case EC_INDIR_R: // the address is in a register
+        id->idInsFmt(IF_ARD);
+        id->idAddr()->iiaAddrMode.amBaseReg = ireg;
+        id->idAddr()->iiaAddrMode.amIndxReg = xreg;
+        id->idAddr()->iiaAddrMode.amScale   = xmul ? emitEncodeScale(xmul) : emitter::OPSZ1;
 
-                id->idSetIsCallRegPtr();
+        sz = emitInsSizeAM(id, insCodeMR(INS_call));
 
-                FALLTHROUGH;
-
-            case EC_INDIR_ARD: // the address is an indirection
-
-                goto CALL_ADDR_MODE;
-
-            case EC_INDIR_SR: // the address is in a lcl var
-
-                id->idInsFmt(IF_SRD);
-                // disp is really a lclVarNum
-                noway_assert((unsigned)disp == (size_t)disp);
-                id->idAddr()->iiaLclVar.initLclVarAddr((unsigned)disp, 0);
-                sz = emitInsSizeSV(id, insCodeMR(INS_call), (unsigned)disp, 0);
-
-                break;
-
-            case EC_FUNC_VIRTUAL:
-
-            CALL_ADDR_MODE:
-
-                // fall-through
-
-                // The function is "ireg" if id->idIsCallRegPtr(),
-                // else [ireg+xmul*xreg+disp]
-
-                id->idInsFmt(IF_ARD);
-
-                id->idAddr()->iiaAddrMode.amBaseReg = ireg;
-                id->idAddr()->iiaAddrMode.amIndxReg = xreg;
-                id->idAddr()->iiaAddrMode.amScale   = xmul ? emitEncodeScale(xmul) : emitter::OPSZ1;
-
-                sz = emitInsSizeAM(id, insCodeMR(INS_call));
-
-                if (ireg == REG_NA && xreg == REG_NA)
-                {
-                    if (codeGen->genCodeIndirAddrNeedsReloc(disp))
-                    {
-                        id->idSetIsDspReloc();
-                    }
+        if ((ireg == REG_NA) && (xreg == REG_NA))
+        {
+            if (codeGen->genCodeIndirAddrNeedsReloc(disp))
+            {
+                id->idSetIsDspReloc();
+            }
 #ifdef TARGET_AMD64
-                    else
-                    {
-                        // An absolute indir address that doesn't need reloc should fit within 32-bits
-                        // to be encoded as offset relative to zero.  This addr mode requires an extra
-                        // SIB byte
-                        noway_assert(static_cast<int>(reinterpret_cast<intptr_t>(addr)) == (size_t)addr);
-                        sz++;
-                    }
-#endif // TARGET_AMD64
-                }
-
-                break;
-
-            default:
-                NO_WAY("unexpected instruction");
-                break;
+            else
+            {
+                // An absolute indir address that doesn't need reloc should fit within 32-bits
+                // to be encoded as offset relative to zero.  This addr mode requires an extra
+                // SIB byte
+                noway_assert(static_cast<int>(reinterpret_cast<intptr_t>(addr)) == (size_t)addr);
+                sz++;
+            }
+#endif
         }
     }
     else if (callType == EC_FUNC_TOKEN_INDIR)
     {
-        /* "call [method_addr]" */
-
         assert(addr != nullptr);
 
         id->idInsFmt(IF_METHPTR);
@@ -6165,10 +6096,7 @@ void emitter::emitIns_Call(EmitCallType          callType,
     }
     else
     {
-        /* This is a simple direct call: "call helper/method/addr" */
-
-        assert(callType == EC_FUNC_TOKEN || callType == EC_FUNC_ADDR);
-
+        assert((callType == EC_FUNC_TOKEN) || (callType == EC_FUNC_ADDR));
         assert(addr != nullptr);
 
         id->idInsFmt(IF_METHOD);
@@ -6176,10 +6104,12 @@ void emitter::emitIns_Call(EmitCallType          callType,
 
         id->idAddr()->iiaAddr = (BYTE*)addr;
 
+#ifdef DEBUG
         if (callType == EC_FUNC_ADDR)
         {
             id->idSetIsCallAddr();
         }
+#endif
 
         // Direct call to a method and no addr indirection is needed.
         if (codeGen->genCodeAddrNeedsReloc((size_t)addr))
@@ -6193,7 +6123,7 @@ void emitter::emitIns_Call(EmitCallType          callType,
     {
         if (id->idIsLargeCall())
         {
-            if (callType >= EC_FUNC_VIRTUAL)
+            if (callType >= EC_INDIR_R)
             {
                 printf("[%02u] Rec call GC vars = %s\n", id->idDebugOnlyInfo()->idNum,
                        VarSetOps::ToString(emitComp, ((instrDescCGCA*)id)->idcGCvars));

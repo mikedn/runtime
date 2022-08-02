@@ -575,6 +575,119 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
 #endif
 }
 
+#ifdef TARGET_X86
+// Lower a tail call to a helper call to CORINFO_HELP_TAILCALL.
+// Morph has already inserted helper special arguments. This function inserts
+// actual data for some placeholders.
+// Note that the special arguments are on the stack, whereas normal function
+// arguments follow the normal convention.
+// Also inserts PInvoke method epilog if required.
+void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
+{
+    assert(call->IsTailCallViaJitHelper());
+    assert(!call->IsUnmanaged());
+    assert((comp->info.compFlags & CORINFO_FLG_SYNCH) == 0);
+    assert(!comp->compLocallocUsed);
+
+    // CORINFO_HELP_TAILCALL never returns to the caller and is not GC interruptible.
+    // Therefore the block containing the tail call should be a GC safe point to avoid
+    // GC starvation. It is legal for the block to be unmarked iff the entry block is a
+    // GC safe point, as the entry block trivially dominates every reachable block.
+    assert(((comp->compCurBB->bbFlags & BBF_GC_SAFE_POINT) != 0) ||
+           ((comp->fgFirstBB->bbFlags & BBF_GC_SAFE_POINT) != 0));
+
+    CallInfo* callInfo = call->GetInfo();
+
+    // Verify the special args are what we expect, and replace the dummy args with real values.
+    // We need to figure out the size of the outgoing stack arguments, not including the special args.
+    // The number of 4-byte words is passed to the helper for the incoming and outgoing argument sizes.
+    // This number is exactly the next slot number in the call's argument info struct.
+    unsigned numNewStackSlots = callInfo->GetNextSlotNum();
+    assert(numNewStackSlots >= 4);
+    numNewStackSlots -= 4;
+
+    unsigned          numArgs             = callInfo->GetArgCount();
+    GenTreePutArgStk* targetArg           = call->GetArgNodeByArgNum(numArgs - 1)->AsPutArgStk();
+    GenTreePutArgStk* flagsArg            = call->GetArgNodeByArgNum(numArgs - 2)->AsPutArgStk();
+    GenTreePutArgStk* numNewStackSlotsArg = call->GetArgNodeByArgNum(numArgs - 3)->AsPutArgStk();
+    GenTreePutArgStk* numOldStackSlotsArg = call->GetArgNodeByArgNum(numArgs - 4)->AsPutArgStk();
+
+    GenTree* target = nullptr;
+
+    if (call->IsIndirectCall())
+    {
+        // Indirect VSD calls are not supported (the importer blocks such tail calls).
+        noway_assert(!call->IsVirtualStub());
+
+        // Indirect calls already have the correct target arg, we just need to remove
+        // the dummy call address added during morph.
+        assert(call->gtCallAddr->IsIntegralConst(0));
+        BlockRange().Remove(call->gtCallAddr);
+        call->gtCallAddr = nullptr;
+    }
+    else if (call->IsDelegateInvoke())
+    {
+        target = LowerDelegateInvoke(call, targetArg);
+    }
+    else if (call->IsVirtualVtable())
+    {
+        target = LowerVirtualVtableCall(call, targetArg);
+    }
+    else if (call->IsVirtualStub())
+    {
+        noway_assert(call->gtStubCallStubAddr != nullptr);
+        noway_assert(call->IsVirtualStubRelativeIndir());
+
+        // Normally we'd need an indirection to get the actual target address but
+        // the CORINFO_HELP_TAILCALL helper handles this if the VSD flag is set.
+        target = comp->gtNewIconHandleNode(call->gtStubCallStubAddr, GTF_ICON_FTN_ADDR);
+        BlockRange().InsertBefore(targetArg, target);
+    }
+    else
+    {
+        noway_assert(!call->IsVirtual());
+
+        target = LowerDirectCall(call, targetArg);
+    }
+
+    if (comp->compMethodRequiresPInvokeFrame())
+    {
+        InsertPInvokeMethodEpilog(comp->compCurBB DEBUGARG(call));
+    }
+
+    if (target != nullptr)
+    {
+        assert(targetArg->GetOp(0)->IsIntCon());
+        BlockRange().Remove(targetArg->GetOp(0));
+        targetArg->SetOp(0, target);
+    }
+
+    // Always restore EDI, ESI, EBX & Stub Dispatch flags
+    flagsArg->GetOp(0)->AsIntCon()->SetValue(0x01 | (call->IsVirtualStub() ? 0x2 : 0x0));
+    numNewStackSlotsArg->GetOp(0)->AsIntCon()->SetValue(numNewStackSlots);
+    assert(numOldStackSlotsArg->GetOp(0)->IsIntCon());
+
+    // Transform this call node into a call to CORINFO_HELP_TAILCALL.
+    call->gtCallType    = CT_HELPER;
+    call->gtCallMethHnd = Compiler::eeFindHelper(CORINFO_HELP_TAILCALL);
+    call->gtFlags &= ~GTF_CALL_VIRT_KIND_MASK;
+
+    // Lower this as if it were a normal helper call.
+    call->gtCallMoreFlags &= ~(GTF_CALL_M_TAILCALL | GTF_CALL_M_TAILCALL_VIA_JIT_HELPER);
+    call->gtControlExpr = LowerDirectCall(call);
+    // Now add back tail call flags for identifying this node as tail call dispatched via helper.
+    // CodeGen needs checks this in order to insert the GS cookie check (if required).
+    call->gtCallMoreFlags |= GTF_CALL_M_TAILCALL | GTF_CALL_M_TAILCALL_VIA_JIT_HELPER;
+
+#ifdef PROFILING_SUPPORTED
+    if (comp->compIsProfilerHookNeeded())
+    {
+        InsertProfTailCallHook(call, call);
+    }
+#endif
+}
+#endif // TARGET_X86
+
 //------------------------------------------------------------------------
 // Lowering::OptimizeConstCompare: Performs various "compare with const" optimizations.
 //
@@ -3240,27 +3353,17 @@ GenTree* Lowering::PreferredRegOptionalOperand(GenTree* tree)
 //
 void Lowering::ContainCheckCallOperands(GenTreeCall* call)
 {
-    GenTree* ctrlExpr = call->gtControlExpr;
-    if (call->gtCallType == CT_INDIRECT)
-    {
-        // either gtControlExpr != null or gtCallAddr != null.
-        // Both cannot be non-null at the same time.
-        assert(ctrlExpr == nullptr);
-        assert(call->gtCallAddr != nullptr);
-        ctrlExpr = call->gtCallAddr;
-
 #ifdef TARGET_X86
-        // Fast tail calls aren't currently supported on x86, but if they ever are, the code
-        // below that handles indirect VSD calls will need to be fixed.
-        assert(!call->IsFastTailCall() || !call->IsVirtualStub());
-#endif // TARGET_X86
-    }
+    // Fast tail calls aren't currently supported on x86, but if they ever are, the code
+    // below that handles indirect VSD calls will need to be fixed.
+    assert(!call->IsIndirectCall() || !call->IsFastTailCall() || !call->IsVirtualStub());
+#endif
 
-    // set reg requirements on call target represented as control sequence.
+    GenTree* ctrlExpr = call->IsIndirectCall() ? call->gtCallAddr : call->gtControlExpr;
+
     if (ctrlExpr != nullptr)
     {
-        // we should never see a gtControlExpr whose type is void.
-        assert(ctrlExpr->TypeGet() != TYP_VOID);
+        assert(ctrlExpr->TypeIs(TYP_I_IMPL));
 
         // In case of fast tail implemented as jmp, make sure that gtControlExpr is
         // computed into a register.
@@ -3274,7 +3377,7 @@ void Lowering::ContainCheckCallOperands(GenTreeCall* call)
             //
             // Where EAX is also used as an argument to the stub dispatch helper. Make
             // sure that the call target address is computed into EAX in this case.
-            if (call->IsVirtualStub() && (call->gtCallType == CT_INDIRECT))
+            if (call->IsVirtualStub() && call->IsIndirectCall())
             {
                 assert(ctrlExpr->OperIs(GT_IND));
                 MakeSrcContained(call, ctrlExpr);
@@ -4206,7 +4309,10 @@ void Lowering::ContainCheckIntrinsic(GenTreeOp* node)
 // Return Value:
 //    true if 'node' is a containable hardware intrinsic node; otherwise, false.
 //
-bool Lowering::IsContainableHWIntrinsicOp(GenTreeHWIntrinsic* containingNode, GenTree* node, bool* supportsRegOptional)
+bool Lowering::IsContainableHWIntrinsicOp(Compiler*           comp,
+                                          GenTreeHWIntrinsic* containingNode,
+                                          GenTree*            node,
+                                          bool*               supportsRegOptional)
 {
     NamedIntrinsic      containingIntrinsicId = containingNode->GetIntrinsic();
     HWIntrinsicCategory category              = HWIntrinsicInfo::lookupCategory(containingIntrinsicId);
@@ -4507,7 +4613,7 @@ bool Lowering::IsContainableHWIntrinsicOp(GenTreeHWIntrinsic* containingNode, Ge
 
     if (!node->OperIsHWIntrinsic())
     {
-        return supportsGeneralLoads && IsContainableMemoryOp(node);
+        return supportsGeneralLoads && IsContainableMemoryOp(comp, node);
     }
 
     // TODO-XArch: Update this to be table driven, if possible.
