@@ -2667,17 +2667,12 @@ void Compiler::compInitDebuggingInfo()
 
 void Compiler::compSetOptimizationLevel()
 {
-    bool theMinOptsValue;
+    assert(!compIsForInlining());
+
 #pragma warning(suppress : 4101)
     unsigned jitMinOpts;
 
-    if (compIsForInlining())
-    {
-        theMinOptsValue = impInlineInfo->InlinerCompiler->opts.MinOpts();
-        goto _SetMinOpts;
-    }
-
-    theMinOptsValue = false;
+    bool theMinOptsValue = false;
 
     if (opts.optFlags == CLFLG_MINOPT)
     {
@@ -2857,40 +2852,38 @@ void Compiler::compSetOptimizationLevel()
 #ifdef DEBUG
     if (!theMinOptsValue)
     {
-    unsigned methHash = info.compMethodHash();
-    char* lostr = getenv("opthashlo");
-    unsigned methHashLo = 0;
-    if (lostr != NULL)
-    {
-        sscanf_s(lostr, "%x", &methHashLo);
-        // methHashLo = (unsigned(atoi(lostr)) << 2);  // So we don't have to use negative numbers.
-    }
-    char* histr = getenv("opthashhi");
-    unsigned methHashHi = UINT32_MAX;
-    if (histr != NULL)
-    {
-        sscanf_s(histr, "%x", &methHashHi);
-        // methHashHi = (unsigned(atoi(histr)) << 2);  // So we don't have to use negative numbers.
-    }
-    if (methHash < methHashLo || methHash > methHashHi)
-    {
-        theMinOptsValue = true;
-    }
-    else
-    {
-        printf("Doing optimization in  in %s (0x%x).\n", info.compFullName, methHash);
-    }
+        unsigned methHash = info.compMethodHash();
+        char* lostr = getenv("opthashlo");
+        unsigned methHashLo = 0;
+        if (lostr != NULL)
+        {
+            sscanf_s(lostr, "%x", &methHashLo);
+            // methHashLo = (unsigned(atoi(lostr)) << 2);  // So we don't have to use negative numbers.
+        }
+        char* histr = getenv("opthashhi");
+        unsigned methHashHi = UINT32_MAX;
+        if (histr != NULL)
+        {
+            sscanf_s(histr, "%x", &methHashHi);
+            // methHashHi = (unsigned(atoi(histr)) << 2);  // So we don't have to use negative numbers.
+        }
+        if (methHash < methHashLo || methHash > methHashHi)
+        {
+            theMinOptsValue = true;
+        }
+        else
+        {
+            printf("Doing optimization in  in %s (0x%x).\n", info.compFullName, methHash);
+        }
     }
 #endif
 #endif
-
-_SetMinOpts:
 
     // Set the MinOpts value
     opts.SetMinOpts(theMinOptsValue);
 
     // Notify the VM if MinOpts is being used when not requested
-    if (theMinOptsValue && !compIsForInlining() && !opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER0) &&
+    if (theMinOptsValue && !opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER0) &&
         !opts.jitFlags->IsSet(JitFlags::JIT_FLAG_MIN_OPT) && !opts.compDbgCode)
     {
         info.compCompHnd->setMethodAttribs(info.compMethodHnd, CORINFO_FLG_SWITCHED_TO_MIN_OPT);
@@ -2898,55 +2891,48 @@ _SetMinOpts:
         compSwitchedToMinOpts = true;
     }
 
-#ifdef DEBUG
-    if (verbose && !compIsForInlining())
-    {
-        printf("OPTIONS: opts.MinOpts() == %s\n", opts.MinOpts() ? "true" : "false");
-    }
-#endif
+    JITDUMP("OPTIONS: opts.MinOpts() == %s\n", opts.MinOpts() ? "true" : "false");
 
     if (opts.OptimizationDisabled())
     {
         opts.optFlags = CLFLG_MINOPT;
     }
 
-    if (!compIsForInlining())
-    {
-        codeGen->setFramePointerRequired(false);
-        codeGen->setFrameRequired(false);
+    codeGen->setFramePointerRequired(false);
+    codeGen->setFrameRequired(false);
 
-        if (opts.OptimizationDisabled())
-        {
-            codeGen->setFrameRequired(true);
-        }
+    if (opts.OptimizationDisabled())
+    {
+        codeGen->setFrameRequired(true);
+    }
 
 #if !defined(TARGET_AMD64)
-        // The VM sets JitFlags::JIT_FLAG_FRAMED for two reasons: (1) the COMPlus_JitFramed variable is set, or
-        // (2) the function is marked "noinline". The reason for #2 is that people mark functions
-        // noinline to ensure the show up on in a stack walk. But for AMD64, we don't need a frame
-        // pointer for the frame to show up in stack walk.
-        if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_FRAMED))
-            codeGen->setFrameRequired(true);
+    // The VM sets JitFlags::JIT_FLAG_FRAMED for two reasons: (1) the COMPlus_JitFramed variable is set, or
+    // (2) the function is marked "noinline". The reason for #2 is that people mark functions
+    // noinline to ensure the show up on in a stack walk. But for AMD64, we don't need a frame
+    // pointer for the frame to show up in stack walk.
+    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_FRAMED))
+    {
+        codeGen->setFrameRequired(true);
+    }
 #endif
 
-        if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
-        {
-            // The JIT doesn't currently support loop alignment for prejitted images.
-            // (The JIT doesn't know the final address of the code, hence
-            // it can't align code based on unknown addresses.)
+    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
+    {
+        // The JIT doesn't currently support loop alignment for prejitted images.
+        // (The JIT doesn't know the final address of the code, hence
+        // it can't align code based on unknown addresses.)
 
-            codeGen->SetAlignLoops(false); // loop alignment not supported for prejitted code
-        }
-        else
-        {
-            codeGen->SetAlignLoops(JitConfig.JitAlignLoops() == 1);
-        }
+        codeGen->SetAlignLoops(false); // loop alignment not supported for prejitted code
+    }
+    else
+    {
+        codeGen->SetAlignLoops(JitConfig.JitAlignLoops() == 1);
     }
 
 #if TARGET_ARM
     // A single JitStress=1 Linux ARM32 test fails when we expand virtual calls early
     // JIT\HardwareIntrinsics\General\Vector128_1\Vector128_1_ro
-    //
     opts.compExpandCallsEarly = (JitConfig.JitExpandCallsEarly() == 2);
 #else
     opts.compExpandCallsEarly = (JitConfig.JitExpandCallsEarly() != 0);

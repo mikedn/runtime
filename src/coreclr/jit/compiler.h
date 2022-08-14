@@ -5777,6 +5777,7 @@ public:
                       ICorJitInfo*          jitInfo,
                       CORINFO_METHOD_INFO*  methodInfo,
                       JitFlags*             compileFlags);
+    void inlSetOptimizationLevel();
     void inlImportInlinee();
     void inlPostInlineFailureCleanup(const InlineInfo* inlineInfo);
     void inlAnalyzeInlineeReturn(InlineInfo* inlineInfo, unsigned returnBlockCount);

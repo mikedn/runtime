@@ -748,7 +748,7 @@ void Compiler::inlMainHelper(CORINFO_MODULE_HANDLE module,
 
     if (!compDonotInline())
     {
-        compSetOptimizationLevel();
+        inlSetOptimizationLevel();
 
 #if COUNT_BASIC_BLOCKS
         bbCntTable.record(fgBBcount);
@@ -799,6 +799,30 @@ void Compiler::inlMainHelper(CORINFO_MODULE_HANDLE module,
     {
         assert(impInlineInfo->inlineResult == compInlineResult);
     }
+}
+
+void Compiler::inlSetOptimizationLevel()
+{
+    assert(!compDonotInline());
+
+    // TODO-MIKE-Review: This is likely pointless, since we're inlining we're not doing minopts...
+    opts.SetMinOpts(impInlineInfo->InlinerCompiler->opts.MinOpts());
+
+    if (opts.OptimizationDisabled())
+    {
+        opts.optFlags = CLFLG_MINOPT;
+    }
+
+// TODO-MIKE-Cleanup: We should just use the value from the root compiler...
+#if TARGET_ARM
+    // A single JitStress=1 Linux ARM32 test fails when we expand virtual calls early
+    // JIT\HardwareIntrinsics\General\Vector128_1\Vector128_1_ro
+    opts.compExpandCallsEarly = (JitConfig.JitExpandCallsEarly() == 2);
+#else
+    opts.compExpandCallsEarly = (JitConfig.JitExpandCallsEarly() != 0);
+#endif
+
+    fgCanRelocateEHRegions = true;
 }
 
 void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, InlineResult* inlineResult)
@@ -1315,7 +1339,7 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
 #if USER_ARGS_COME_LAST
         typeCtxtArgNum = argNum;
 #else
-        typeCtxtArgNum = inlineInfo->ilArgCount;
+        typeCtxtArgNum        = inlineInfo->ilArgCount;
 #endif
     }
 
