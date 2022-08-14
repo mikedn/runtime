@@ -4269,6 +4269,31 @@ int Compiler::compCompile(CORINFO_MODULE_HANDLE module,
     }
 #endif // DEBUG
 
+    info.compCode                               = info.compMethodInfo->ILCode;
+    info.compILCodeSize                         = info.compMethodInfo->ILCodeSize;
+    info.compILImportSize                       = 0;
+    info.compNativeCodeSize                     = 0;
+    info.compTotalHotCodeSize                   = 0;
+    info.compTotalColdCodeSize                  = 0;
+    info.compClassProbeCount                    = 0;
+    info.compHasNextCallRetAddr                 = false;
+    info.compUnmanagedCallCountWithGCTransition = 0;
+    info.compIsVarArgs                          = false;
+
+    compHndBBtab            = nullptr;
+    compHndBBtabCount       = 0;
+    compHndBBtabAllocCount  = 0;
+    compHasBackwardJump     = false;
+    compSwitchedToOptimized = false;
+    compSwitchedToMinOpts   = false;
+#ifdef DEBUG
+    compCurBB        = nullptr;
+    lvaTable         = nullptr;
+    compGenTreeID    = 0;
+    compStatementID  = 0;
+    compBasicBlockID = 0;
+#endif
+
     struct Param
     {
         Compiler*             compiler;
@@ -4690,10 +4715,6 @@ int Compiler::compCompileHelper(CORINFO_MODULE_HANDLE classPtr,
 
     CORINFO_METHOD_HANDLE methodHnd = info.compMethodHnd;
 
-    info.compCode         = methodInfo->ILCode;
-    info.compILCodeSize   = methodInfo->ILCodeSize;
-    info.compILImportSize = 0;
-
     if (info.compILCodeSize == 0)
     {
         BADCODE("code size is zero");
@@ -4703,9 +4724,6 @@ int Compiler::compCompileHelper(CORINFO_MODULE_HANDLE classPtr,
 #ifdef PSEUDORANDOM_NOP_INSERTION
     info.compChecksum = getMethodBodyChecksum((char*)methodInfo->ILCode, methodInfo->ILCodeSize);
 #endif
-
-    compSwitchedToOptimized = false;
-    compSwitchedToMinOpts   = false;
 
     compInitOptions(compileFlags);
 
@@ -4741,31 +4759,12 @@ int Compiler::compCompileHelper(CORINFO_MODULE_HANDLE classPtr,
     }
 #endif
 
-    info.compScopeHnd                           = classPtr;
-    info.compXcptnsCount                        = methodInfo->EHcount;
-    info.compMaxStack                           = methodInfo->maxStack;
-    info.compNativeCodeSize                     = 0;
-    info.compTotalHotCodeSize                   = 0;
-    info.compTotalColdCodeSize                  = 0;
-    info.compClassProbeCount                    = 0;
-    info.compIsStatic                           = (info.compFlags & CORINFO_FLG_STATIC) != 0;
-    info.compInitMem                            = (methodInfo->options & CORINFO_OPT_INIT_LOCALS) != 0;
-    info.compPublishStubParam                   = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PUBLISH_SECRET_PARAM);
-    info.compHasNextCallRetAddr                 = false;
-    info.compUnmanagedCallCountWithGCTransition = 0;
-
-    compHndBBtab           = nullptr;
-    compHndBBtabCount      = 0;
-    compHndBBtabAllocCount = 0;
-    compHasBackwardJump    = false;
-
-#ifdef DEBUG
-    compCurBB        = nullptr;
-    lvaTable         = nullptr;
-    compGenTreeID    = 0;
-    compStatementID  = 0;
-    compBasicBlockID = 0;
-#endif
+    info.compScopeHnd         = classPtr;
+    info.compXcptnsCount      = methodInfo->EHcount;
+    info.compMaxStack         = methodInfo->maxStack;
+    info.compIsStatic         = (info.compFlags & CORINFO_FLG_STATIC) != 0;
+    info.compInitMem          = (methodInfo->options & CORINFO_OPT_INIT_LOCALS) != 0;
+    info.compPublishStubParam = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PUBLISH_SECRET_PARAM);
 
     if (opts.IsReversePInvoke())
     {
@@ -4778,8 +4777,6 @@ int Compiler::compCompileHelper(CORINFO_MODULE_HANDLE classPtr,
         info.compCallConv = CorInfoCallConvExtension::Managed;
         info.compArgOrder = Target::g_tgtArgOrder;
     }
-
-    info.compIsVarArgs = false;
 
     switch (methodInfo->args.getCallConv())
     {
