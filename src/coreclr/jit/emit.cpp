@@ -6857,7 +6857,7 @@ CORINFO_FIELD_HANDLE emitter::emitFltOrDblConst(double constValue, emitAttr attr
     unsigned cnsAlign = cnsSize;
 
 #ifdef TARGET_XARCH
-    if (emitComp->compCodeOpt() == Compiler::SMALL_CODE)
+    if (emitComp->compCodeOpt() == SMALL_CODE)
     {
         // Some platforms don't require doubles to be aligned and so
         // we can use a smaller alignment to help with smaller code

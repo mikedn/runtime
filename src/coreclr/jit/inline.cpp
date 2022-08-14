@@ -1440,7 +1440,7 @@ void InlineStrategy::DumpDataEnsurePolicyIsSet()
 {
     // Cache references to compiler substructures.
     const CompiledMethodInfo& info = m_Compiler->info;
-    const Compiler::Options&  opts = m_Compiler->opts;
+    const CompilerOptions&    opts = m_Compiler->opts;
 
     // If there weren't any successful inlines, we won't have a
     // successful policy, so fake one up.
@@ -1585,7 +1585,7 @@ void InlineStrategy::DumpXml(FILE* file, unsigned indent)
 
     // Cache references to compiler substructures.
     const CompiledMethodInfo& info = m_Compiler->info;
-    const Compiler::Options&  opts = m_Compiler->opts;
+    const CompilerOptions&    opts = m_Compiler->opts;
 
     const bool isPrejitRoot = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT);
 

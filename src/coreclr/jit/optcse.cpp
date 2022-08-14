@@ -297,7 +297,7 @@ class Cse
     bool enableConstCse       = false;
     bool enableSharedConstCse = false;
 
-    Compiler::codeOptimize codeOptKind;
+    codeOptimize codeOptKind;
 
     // Record the weight of the last "for sure" callee saved local
     BasicBlock::weight_t aggressiveWeight = 0;
@@ -1428,7 +1428,7 @@ public:
 
             if ((aggressiveWeight == 0) && (enregCount > aggressiveEnregNum))
             {
-                if (codeOptKind == Compiler::SMALL_CODE)
+                if (codeOptKind == SMALL_CODE)
                 {
                     aggressiveWeight = static_cast<BasicBlock::weight_t>(lcl->GetRefCount());
                 }
@@ -1442,7 +1442,7 @@ public:
 
             if ((moderateWeight == 0) && (enregCount > moderateEnregNum))
             {
-                if (codeOptKind == Compiler::SMALL_CODE)
+                if (codeOptKind == SMALL_CODE)
                 {
                     moderateWeight = static_cast<BasicBlock::weight_t>(lcl->GetRefCount());
                 }
@@ -1468,7 +1468,7 @@ public:
         Value** sorted = new (allocator) Value*[valueCount];
         memcpy(sorted, valueTable, valueCount * sizeof(*sorted));
 
-        if (codeOptKind == Compiler::SMALL_CODE)
+        if (codeOptKind == SMALL_CODE)
         {
             struct
             {
@@ -1548,7 +1548,7 @@ public:
             float    use;
             unsigned cost;
 
-            if (codeOptKind == Compiler::SMALL_CODE)
+            if (codeOptKind == SMALL_CODE)
             {
                 def  = value->defCount;
                 use  = value->useCount;
@@ -1606,13 +1606,13 @@ public:
         float const    useWeight;
         bool const     isLiveAcrossCall;
 
-        Candidate(Compiler::codeOptimize codeOptKind, Value* value)
+        Candidate(codeOptimize codeOptKind, Value* value)
             : value(value)
             , expr(value->firstOccurrence.expr)
             , size(value->firstOccurrence.expr->GetCostSz())
-            , cost(codeOptKind == Compiler::SMALL_CODE ? size : value->firstOccurrence.expr->GetCostEx())
-            , defWeight(codeOptKind == Compiler::SMALL_CODE ? value->defCount : value->defWeight)
-            , useWeight(codeOptKind == Compiler::SMALL_CODE ? value->useCount : value->useWeight)
+            , cost(codeOptKind == SMALL_CODE ? size : value->firstOccurrence.expr->GetCostEx())
+            , defWeight(codeOptKind == SMALL_CODE ? value->defCount : value->defWeight)
+            , useWeight(codeOptKind == SMALL_CODE ? value->useCount : value->useWeight)
             , isLiveAcrossCall(value->isLiveAcrossCall)
         {
         }
@@ -1785,7 +1785,7 @@ public:
         JITDUMP("defWeight %f useWeight %f weight %f aggressiveWeight %f moderateWeight %f\n", candidate.defWeight,
                 candidate.useWeight, lclWeight, aggressiveWeight, moderateWeight);
 
-        if (codeOptKind == Compiler::SMALL_CODE)
+        if (codeOptKind == SMALL_CODE)
         {
             // When optimizing for small code we set the costs based upon
             // the code size and we use ref counts instead of weights.

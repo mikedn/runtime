@@ -1495,11 +1495,11 @@ void CodeGen::genGenerateMachineCode()
 
         printf("; Emitting ");
 
-        if (compiler->compCodeOpt() == Compiler::SMALL_CODE)
+        if (compiler->compCodeOpt() == SMALL_CODE)
         {
             printf("SMALL_CODE");
         }
-        else if (compiler->compCodeOpt() == Compiler::FAST_CODE)
+        else if (compiler->compCodeOpt() == FAST_CODE)
         {
             printf("FAST_CODE");
         }
@@ -1647,7 +1647,7 @@ void CodeGen::genGenerateMachineCode()
     GetEmitter()->emitBegFN(isFramePointerUsed()
 #if defined(DEBUG)
                                 ,
-                            (compiler->compCodeOpt() != Compiler::SMALL_CODE) &&
+                            (compiler->compCodeOpt() != SMALL_CODE) &&
                                 !compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT)
 #endif
                                 ,
