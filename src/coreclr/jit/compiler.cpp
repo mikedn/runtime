@@ -4169,6 +4169,8 @@ int Compiler::compCompile(CORINFO_MODULE_HANDLE module,
     assert(compileFlags->IsSet(JitFlags::JIT_FLAG_SKIP_VERIFICATION));
     assert(!compileFlags->IsSet(JitFlags::JIT_FLAG_IMPORT_ONLY));
 
+    assert(!compIsForInlining());
+
 #ifdef FEATURE_JIT_METHOD_PERF
     static bool checkedForJitTimeLog = false;
 
@@ -4195,7 +4197,7 @@ int Compiler::compCompile(CORINFO_MODULE_HANDLE module,
 #endif // FEATURE_JIT_METHOD_PERF
 
     // Set this early so we can use it without relying on random memory values
-    INDEBUG(verbose = compIsForInlining() ? impInlineInfo->InlinerCompiler->verbose : false);
+    INDEBUG(verbose = false);
 
 #if FUNC_INFO_LOGGING
     LPCWSTR tmpJitFuncInfoFilename = JitConfig.JitFuncInfoFile();
@@ -4220,14 +4222,7 @@ int Compiler::compCompile(CORINFO_MODULE_HANDLE module,
     }
 #endif // FUNC_INFO_LOGGING
 
-    if (compIsForInlining())
-    {
-        compileFlags->Clear(JitFlags::JIT_FLAG_OSR);
-
-        info.compILEntry        = 0;
-        info.compPatchpointInfo = nullptr;
-    }
-    else if (compileFlags->IsSet(JitFlags::JIT_FLAG_OSR))
+    if (compileFlags->IsSet(JitFlags::JIT_FLAG_OSR))
     {
         info.compPatchpointInfo = info.compCompHnd->getOSRInfo(&info.compILEntry);
 
@@ -4271,23 +4266,10 @@ int Compiler::compCompile(CORINFO_MODULE_HANDLE module,
     info.compProfilerCallback = false; // Assume false until we are told to hook this method.
 
     // Set the context for token lookup.
-    if (compIsForInlining())
-    {
-        impTokenLookupContextHandle = impInlineInfo->inlineCandidateInfo->exactContextHnd;
+    impTokenLookupContextHandle = METHOD_BEING_COMPILED_CONTEXT();
 
-        assert(impInlineInfo->inlineCandidateInfo->clsHandle == info.compCompHnd->getMethodClass(info.compMethodHnd));
-        info.compClassHnd = impInlineInfo->inlineCandidateInfo->clsHandle;
-
-        assert(impInlineInfo->inlineCandidateInfo->clsAttr == info.compCompHnd->getClassAttribs(info.compClassHnd));
-        info.compClassAttr = impInlineInfo->inlineCandidateInfo->clsAttr;
-    }
-    else
-    {
-        impTokenLookupContextHandle = METHOD_BEING_COMPILED_CONTEXT();
-
-        info.compClassHnd  = info.compCompHnd->getMethodClass(info.compMethodHnd);
-        info.compClassAttr = info.compCompHnd->getClassAttribs(info.compClassHnd);
-    }
+    info.compClassHnd  = info.compCompHnd->getMethodClass(info.compMethodHnd);
+    info.compClassAttr = info.compCompHnd->getClassAttribs(info.compClassHnd);
 
 #ifdef DEBUG
     if (JitConfig.EnableExtraSuperPmiQueries())
@@ -4318,18 +4300,8 @@ int Compiler::compCompile(CORINFO_MODULE_HANDLE module,
         }
     }
 
-    if (!compIsForInlining())
-    {
-        JitTls::GetLogEnv()->setCompiler(this);
-    }
-
     if (skipMethod())
     {
-        if (compIsForInlining())
-        {
-            compInlineResult->NoteFatal(InlineObservation::CALLEE_MARKED_AS_SKIPPED);
-        }
-
         return CORJIT_SKIPPED;
     }
 #endif // DEBUG

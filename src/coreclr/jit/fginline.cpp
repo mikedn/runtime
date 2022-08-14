@@ -540,11 +540,11 @@ void jitInlineCode(InlineInfo* inlineInfo)
             compileFlags.Clear(JitFlags::JIT_FLAG_REVERSE_PINVOKE);
             compileFlags.Clear(JitFlags::JIT_FLAG_TRACK_TRANSITIONS);
             compileFlags.Clear(JitFlags::JIT_FLAG_PUBLISH_SECRET_PARAM);
+            compileFlags.Clear(JitFlags::JIT_FLAG_OSR);
 
             compileFlags.Set(JitFlags::JIT_FLAG_SKIP_VERIFICATION);
 
-            pParam->result = inlineeCompiler->compCompile(inlineInfo->inlineCandidateInfo->methInfo.scope, nullptr,
-                                                          nullptr, &compileFlags);
+            pParam->result = inlineeCompiler->inlMain(inlineInfo->inlineCandidateInfo->methInfo.scope, &compileFlags);
         }
         finallyErrorTrap()
         {
@@ -566,6 +566,84 @@ void jitInlineCode(InlineInfo* inlineInfo)
     {
         inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLSITE_COMPILATION_FAILURE);
     }
+}
+
+int Compiler::inlMain(CORINFO_MODULE_HANDLE module, JitFlags* compileFlags)
+{
+    // compInit should have set these already.
+    noway_assert(info.compMethodInfo != nullptr);
+    noway_assert(info.compCompHnd != nullptr);
+    noway_assert(info.compMethodHnd != nullptr);
+
+    assert(compIsForInlining());
+
+#ifdef FEATURE_JIT_METHOD_PERF
+    // TODO-MIKE-Review: Is this used when inlining?
+    pCompJitTimer = nullptr;
+
+    if ((Compiler::compJitTimeLogFilename != nullptr) || (JitTimeLogCsv() != nullptr))
+    {
+        pCompJitTimer = JitTimer::Create(this, info.compMethodInfo->ILCodeSize);
+    }
+#endif // FEATURE_JIT_METHOD_PERF
+
+    // Set this early so we can use it without relying on random memory values
+    INDEBUG(verbose = impInlineInfo->InlinerCompiler->verbose);
+
+    compMaxUncheckedOffsetForNullObject = eeGetEEInfo()->maxUncheckedOffsetForNullObject;
+
+    info.compILEntry          = 0;
+    info.compPatchpointInfo   = nullptr;
+    info.compProfilerCallback = false;
+    info.compMatchedVM        = impInlineInfo->InlinerCompiler->info.compMatchedVM;
+
+    // Set the context for token lookup.
+    impTokenLookupContextHandle = impInlineInfo->inlineCandidateInfo->exactContextHnd;
+
+    assert(impInlineInfo->inlineCandidateInfo->clsHandle == info.compCompHnd->getMethodClass(info.compMethodHnd));
+    info.compClassHnd = impInlineInfo->inlineCandidateInfo->clsHandle;
+
+    assert(impInlineInfo->inlineCandidateInfo->clsAttr == info.compCompHnd->getClassAttribs(info.compClassHnd));
+    info.compClassAttr = impInlineInfo->inlineCandidateInfo->clsAttr;
+
+#ifdef DEBUG
+    if (skipMethod())
+    {
+        compInlineResult->NoteFatal(InlineObservation::CALLEE_MARKED_AS_SKIPPED);
+
+        return CORJIT_SKIPPED;
+    }
+#endif
+
+    struct Param
+    {
+        Compiler*             compiler;
+        CORINFO_MODULE_HANDLE module;
+        ICorJitInfo*          jitInfo;
+        CORINFO_METHOD_INFO*  methodInfo;
+        JitFlags*             compileFlags;
+        int                   result;
+    } param;
+
+    param.compiler     = this;
+    param.module       = module;
+    param.jitInfo      = info.compCompHnd;
+    param.methodInfo   = info.compMethodInfo;
+    param.compileFlags = compileFlags;
+    param.result       = CORJIT_INTERNALERROR;
+
+    setErrorTrap(info.compCompHnd, Param*, pParam, &param)
+    {
+        pParam->result = pParam->compiler->compCompileHelper(pParam->module, pParam->jitInfo, pParam->methodInfo,
+                                                             nullptr, nullptr, pParam->compileFlags);
+    }
+    finallyErrorTrap()
+    {
+        compDone();
+    }
+    endErrorTrap()
+
+        return param.result;
 }
 
 void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, InlineResult* inlineResult)
