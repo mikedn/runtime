@@ -3757,8 +3757,6 @@ private:
         impInlineRoot()->impPendingBlockMembers.Set(blk->bbInd(), val);
     }
 
-    bool impCanReimport;
-
     void impSpillStackEntry(unsigned level DEBUGARG(const char* reason));
 
     void impSpillStackEnsure(bool spillLeaves = false);
@@ -7039,7 +7037,6 @@ public:
         STRESS_MODE(FORCE_INLINE) /* Treat every method as AggressiveInlining */                \
         STRESS_MODE(CHK_FLOW_UPDATE)                                                            \
         STRESS_MODE(EMITTER)                                                                    \
-        STRESS_MODE(CHK_REIMPORT)                                                               \
         STRESS_MODE(FLATFP)                                                                     \
         STRESS_MODE(GENERIC_CHECK)                                                              \
         STRESS_MODE(COUNT)
