@@ -3242,10 +3242,7 @@ const char* Compiler::compGetStressMessage() const
 void Compiler::compFunctionTraceStart()
 {
 #ifdef DEBUG
-    if (compIsForInlining())
-    {
-        return;
-    }
+    assert(!compIsForInlining());
 
     if ((JitConfig.JitFunctionTrace() != 0) && !opts.disDiffable)
     {
@@ -3345,10 +3342,8 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
 {
     if (compIsForInlining())
     {
-        DoPhase(this, PHASE_PRE_IMPORT, [this]() {
-            // Notify root instance that an inline attempt is about to import IL
-            impInlineRoot()->m_inlineStrategy->NoteImport();
-        });
+        inlImportInlinee();
+        return;
     }
 
     compFunctionTraceStart();
@@ -3386,34 +3381,6 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
     // Expand any patchpoints
     //
     DoPhase(this, PHASE_PATCHPOINTS, &Compiler::fgTransformPatchpoints);
-
-    if (compIsForInlining())
-    {
-        if (!compInlineResult->IsFailure())
-        {
-            DoPhase(this, PHASE_POST_IMPORT, [this]() {
-                fgRemoveEmptyBlocks();
-                inlUpdateRetSpillTempClass(impInlineInfo);
-            });
-        }
-
-#ifdef FEATURE_JIT_METHOD_PERF
-        if (pCompJitTimer != nullptr)
-        {
-#if MEASURE_CLRAPI_CALLS
-            EndPhase(PHASE_CLR_API);
-#endif
-            pCompJitTimer->Terminate(this, CompTimeSummaryInfo::s_compTimeSummary, false);
-        }
-#endif
-
-        return;
-    }
-
-    // At this point in the phase list, all the inlinee phases have
-    // been run, and inlinee compiles have exited, so we should only
-    // get this far if we are jitting the root method.
-    noway_assert(!compIsForInlining());
 
 #if !FEATURE_EH
     // If we aren't yet supporting EH in a compiler bring-up, remove as many EH handlers as possible, so

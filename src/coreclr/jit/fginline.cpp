@@ -682,6 +682,34 @@ void Compiler::inlPostInlineFailureCleanup(const InlineInfo* inlineInfo)
     }
 }
 
+void Compiler::inlImportInlinee()
+{
+    assert(compIsForInlining());
+
+    DoPhase(this, PHASE_PRE_IMPORT, [this]() { impInlineRoot()->m_inlineStrategy->NoteImport(); });
+    DoPhase(this, PHASE_INCPROFILE, &Compiler::fgIncorporateProfileData);
+    DoPhase(this, PHASE_IMPORTATION, &Compiler::fgImport);
+    DoPhase(this, PHASE_INDXCALL, &Compiler::fgTransformIndirectCalls);
+
+    if (!compInlineResult->IsFailure())
+    {
+        DoPhase(this, PHASE_POST_IMPORT, [this]() {
+            fgRemoveEmptyBlocks();
+            inlUpdateRetSpillTempClass(impInlineInfo);
+        });
+    }
+
+#ifdef FEATURE_JIT_METHOD_PERF
+    if (pCompJitTimer != nullptr)
+    {
+#if MEASURE_CLRAPI_CALLS
+        EndPhase(PHASE_CLR_API);
+#endif
+        pCompJitTimer->Terminate(this, CompTimeSummaryInfo::s_compTimeSummary, false);
+    }
+#endif
+}
+
 void Compiler::inlAnalyzeInlineeReturn(InlineInfo* inlineInfo, unsigned returnBlockCount)
 {
     if (info.GetRetSigType() == TYP_VOID)
