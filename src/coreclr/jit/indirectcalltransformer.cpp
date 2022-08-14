@@ -674,10 +674,7 @@ private:
                     // path returns. So we have to stick with the current type for B as the
                     // return type.
                     //
-                    // Note local vars always live in the root method's symbol table. So we
-                    // need to use the root compiler for lookup here.
-                    //
-                    LclVarDsc* const returnTempLcl = compiler->impInlineRoot()->lvaGetDesc(returnTemp);
+                    LclVarDsc* const returnTempLcl = compiler->lvaGetDesc(returnTemp);
 
                     if (returnTempLcl->lvSingleDef == 1)
                     {
