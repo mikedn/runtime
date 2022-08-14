@@ -7658,10 +7658,7 @@ public:
     // These should fail by asserting.
     INDEBUG(void compDoComponentUnitTestsOnce();)
 
-    int compCompile(CORINFO_MODULE_HANDLE classPtr,
-                    void**                methodCodePtr,
-                    uint32_t*             methodCodeSize,
-                    JitFlags*             compileFlags);
+    int compCompile(CORINFO_MODULE_HANDLE module, void** methodCode, uint32_t* methodCodeSize, JitFlags* compileFlags);
     void compCompileFinish();
     int compCompileHelper(CORINFO_MODULE_HANDLE classPtr,
                           COMP_HANDLE           compHnd,

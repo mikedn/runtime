@@ -4121,7 +4121,6 @@ void Compiler::ProcessShutdownWork(ICorStaticInfo* statInfo)
 /*****************************************************************************/
 
 #ifdef DEBUG
-void* forceFrameJIT; // used to force to frame &useful for fastchecked debugging
 
 bool Compiler::skipMethod()
 {
@@ -4156,10 +4155,8 @@ bool Compiler::skipMethod()
 
 #endif
 
-/*****************************************************************************/
-
-int Compiler::compCompile(CORINFO_MODULE_HANDLE classPtr,
-                          void**                methodCodePtr,
+int Compiler::compCompile(CORINFO_MODULE_HANDLE module,
+                          void**                methodCode,
                           uint32_t*             methodCodeSize,
                           JitFlags*             compileFlags)
 {
@@ -4167,6 +4164,10 @@ int Compiler::compCompile(CORINFO_MODULE_HANDLE classPtr,
     noway_assert(info.compMethodInfo != nullptr);
     noway_assert(info.compCompHnd != nullptr);
     noway_assert(info.compMethodHnd != nullptr);
+
+    // Verification isn't supported
+    assert(compileFlags->IsSet(JitFlags::JIT_FLAG_SKIP_VERIFICATION));
+    assert(!compileFlags->IsSet(JitFlags::JIT_FLAG_IMPORT_ONLY));
 
 #ifdef FEATURE_JIT_METHOD_PERF
     static bool checkedForJitTimeLog = false;
@@ -4186,18 +4187,15 @@ int Compiler::compCompile(CORINFO_MODULE_HANDLE classPtr,
 
         checkedForJitTimeLog = true;
     }
+
     if ((Compiler::compJitTimeLogFilename != nullptr) || (JitTimeLogCsv() != nullptr))
     {
         pCompJitTimer = JitTimer::Create(this, info.compMethodInfo->ILCodeSize);
     }
 #endif // FEATURE_JIT_METHOD_PERF
 
-#ifdef DEBUG
-    Compiler* me  = this;
-    forceFrameJIT = (void*)&me; // let us see the this pointer in fastchecked build
-    // set this early so we can use it without relying on random memory values
-    verbose = compIsForInlining() ? impInlineInfo->InlinerCompiler->verbose : false;
-#endif
+    // Set this early so we can use it without relying on random memory values
+    INDEBUG(verbose = compIsForInlining() ? impInlineInfo->InlinerCompiler->verbose : false);
 
 #if FUNC_INFO_LOGGING
     LPCWSTR tmpJitFuncInfoFilename = JitConfig.JitFuncInfoFile();
@@ -4205,52 +4203,41 @@ int Compiler::compCompile(CORINFO_MODULE_HANDLE classPtr,
     if (tmpJitFuncInfoFilename != nullptr)
     {
         LPCWSTR oldFuncInfoFileName =
-            InterlockedCompareExchangeT(&compJitFuncInfoFilename, tmpJitFuncInfoFilename, NULL);
+            InterlockedCompareExchangeT(&compJitFuncInfoFilename, tmpJitFuncInfoFilename, nullptr);
+
         if (oldFuncInfoFileName == nullptr)
         {
             assert(compJitFuncInfoFile == nullptr);
             compJitFuncInfoFile = _wfopen(compJitFuncInfoFilename, W("a"));
+
             if (compJitFuncInfoFile == nullptr)
             {
 #if defined(DEBUG) && !defined(HOST_UNIX) // no 'perror' in the PAL
                 perror("Failed to open JitFuncInfoLogFile");
-#endif // defined(DEBUG) && !defined(HOST_UNIX)
+#endif
             }
         }
     }
 #endif // FUNC_INFO_LOGGING
 
-    // if (s_compMethodsCount==0) setvbuf(jitstdout, NULL, _IONBF, 0);
-
     if (compIsForInlining())
     {
         compileFlags->Clear(JitFlags::JIT_FLAG_OSR);
+
         info.compILEntry        = 0;
         info.compPatchpointInfo = nullptr;
     }
     else if (compileFlags->IsSet(JitFlags::JIT_FLAG_OSR))
     {
-        // Fetch OSR info from the runtime
         info.compPatchpointInfo = info.compCompHnd->getOSRInfo(&info.compILEntry);
+
         assert(info.compPatchpointInfo != nullptr);
     }
 
     new (&virtualStubParamInfo) VirtualStubParamInfo(IsTargetAbi(CORINFO_CORERT_ABI));
 
-    // compMatchedVM is set to true if both CPU/ABI and OS are matching the execution engine requirements
-    //
-    // Do we have a matched VM? Or are we "abusing" the VM to help us do JIT work (such as using an x86 native VM
-    // with an ARM-targeting "altjit").
-    // Match CPU/ABI for compMatchedVM
-    info.compMatchedVM = IMAGE_FILE_MACHINE_TARGET == info.compCompHnd->getExpectedTargetArchitecture();
-
-    // Match OS for compMatchedVM
-    CORINFO_EE_INFO* eeInfo = eeGetEEInfo();
-#ifdef TARGET_UNIX
-    info.compMatchedVM = info.compMatchedVM && (eeInfo->osType == CORINFO_UNIX);
-#else
-    info.compMatchedVM        = info.compMatchedVM && (eeInfo->osType == CORINFO_WINNT);
-#endif
+    info.compMatchedVM = (info.compCompHnd->getExpectedTargetArchitecture() == IMAGE_FILE_MACHINE_TARGET) &&
+                         (eeGetEEInfo()->osType == CORINFO_OS_TARGET);
 
     // If we are not compiling for a matched VM, then we are getting JIT flags that don't match our target
     // architecture. The two main examples here are an ARM targeting altjit hosted on x86 and an ARM64
@@ -4263,27 +4250,25 @@ int Compiler::compCompile(CORINFO_MODULE_HANDLE classPtr,
 
     if (!info.compMatchedVM)
     {
-#if defined(TARGET_ARM)
+#ifdef TARGET_ARM
+// Currently there are no ARM flags that conflict with other flags.
+#endif
 
-// Currently nothing needs to be done. There are no ARM flags that conflict with other flags.
-
-#endif // defined(TARGET_ARM)
-
-#if defined(TARGET_ARM64)
-
+#ifdef TARGET_ARM64
         // The x86/x64 architecture capabilities flags overlap with the ARM64 ones. Set a reasonable architecture
         // target default. Currently this is disabling all ARM64 architecture features except FP and SIMD, but this
         // should be altered to possibly enable all of them, when they are known to all work.
-
         CORINFO_InstructionSetFlags defaultArm64Flags;
         defaultArm64Flags.AddInstructionSet(InstructionSet_ArmBase);
         defaultArm64Flags.AddInstructionSet(InstructionSet_AdvSimd);
         defaultArm64Flags.Set64BitInstructionSetVariants();
         compileFlags->SetInstructionSetFlags(defaultArm64Flags);
-#endif // defined(TARGET_ARM64)
+#endif
     }
 
     compMaxUncheckedOffsetForNullObject = eeGetEEInfo()->maxUncheckedOffsetForNullObject;
+
+    info.compProfilerCallback = false; // Assume false until we are told to hook this method.
 
     // Set the context for token lookup.
     if (compIsForInlining())
@@ -4294,8 +4279,6 @@ int Compiler::compCompile(CORINFO_MODULE_HANDLE classPtr,
         info.compClassHnd = impInlineInfo->inlineCandidateInfo->clsHandle;
 
         assert(impInlineInfo->inlineCandidateInfo->clsAttr == info.compCompHnd->getClassAttribs(info.compClassHnd));
-        // printf("%x != %x\n", impInlineInfo->inlineCandidateInfo->clsAttr,
-        // info.compCompHnd->getClassAttribs(info.compClassHnd));
         info.compClassAttr = impInlineInfo->inlineCandidateInfo->clsAttr;
     }
     else
@@ -4309,115 +4292,80 @@ int Compiler::compCompile(CORINFO_MODULE_HANDLE classPtr,
 #ifdef DEBUG
     if (JitConfig.EnableExtraSuperPmiQueries())
     {
-        // This call to getClassModule/getModuleAssembly/getAssemblyName fails in crossgen2 due to these
-        // APIs being unimplemented. So disable this extra info for pre-jit mode. See
-        // https://github.com/dotnet/runtime/issues/48888.
-        //
-        // Ditto for some of the class name queries for generic params.
-        //
+        // This call to getClassModule/getModuleAssembly/getAssemblyName fails in crossgen2 due
+        // to these APIs being unimplemented. So disable this extra info for pre-jit mode.
+        // See https://github.com/dotnet/runtime/issues/48888.
+
         if (!compileFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
         {
-            // Get the assembly name, to aid finding any particular SuperPMI method context function
-            (void)info.compCompHnd->getAssemblyName(
+            // Get the assembly name, to aid finding any particular SuperPMI method context function.
+            info.compCompHnd->getAssemblyName(
                 info.compCompHnd->getModuleAssembly(info.compCompHnd->getClassModule(info.compClassHnd)));
 
             // Fetch class names for the method's generic parameters.
-            //
             CORINFO_SIG_INFO sig;
             info.compCompHnd->getMethodSig(info.compMethodHnd, &sig, nullptr);
 
-            const unsigned classInst = sig.sigInst.classInstCount;
-            if (classInst > 0)
+            for (unsigned i = 0; i < sig.sigInst.classInstCount; i++)
             {
-                for (unsigned i = 0; i < classInst; i++)
-                {
-                    eeGetClassName(sig.sigInst.classInst[i]);
-                }
+                eeGetClassName(sig.sigInst.classInst[i]);
             }
 
-            const unsigned methodInst = sig.sigInst.methInstCount;
-            if (methodInst > 0)
+            for (unsigned i = 0; i < sig.sigInst.methInstCount; i++)
             {
-                for (unsigned i = 0; i < methodInst; i++)
-                {
-                    eeGetClassName(sig.sigInst.methInst[i]);
-                }
+                eeGetClassName(sig.sigInst.methInst[i]);
             }
         }
     }
-#endif // DEBUG
 
-    info.compProfilerCallback = false; // Assume false until we are told to hook this method.
-
-#ifdef DEBUG
     if (!compIsForInlining())
     {
         JitTls::GetLogEnv()->setCompiler(this);
     }
 
-    // Have we been told to be more selective in our Jitting?
     if (skipMethod())
     {
         if (compIsForInlining())
         {
             compInlineResult->NoteFatal(InlineObservation::CALLEE_MARKED_AS_SKIPPED);
         }
+
         return CORJIT_SKIPPED;
     }
-
 #endif // DEBUG
-
-    // Verification isn't supported
-    assert(compileFlags->IsSet(JitFlags::JIT_FLAG_SKIP_VERIFICATION));
-    assert(!compileFlags->IsSet(JitFlags::JIT_FLAG_IMPORT_ONLY));
-
-    /* Setup an error trap */
 
     struct Param
     {
-        Compiler* pThis;
-
-        CORINFO_MODULE_HANDLE classPtr;
-        COMP_HANDLE           compHnd;
+        Compiler*             compiler;
+        CORINFO_MODULE_HANDLE module;
+        ICorJitInfo*          jitInfo;
         CORINFO_METHOD_INFO*  methodInfo;
-        void**                methodCodePtr;
+        void**                methodCode;
         uint32_t*             methodCodeSize;
         JitFlags*             compileFlags;
-
-        int result;
+        int                   result;
     } param;
-    param.pThis          = this;
-    param.classPtr       = classPtr;
-    param.compHnd        = info.compCompHnd;
+
+    param.compiler       = this;
+    param.module         = module;
+    param.jitInfo        = info.compCompHnd;
     param.methodInfo     = info.compMethodInfo;
-    param.methodCodePtr  = methodCodePtr;
+    param.methodCode     = methodCode;
     param.methodCodeSize = methodCodeSize;
     param.compileFlags   = compileFlags;
     param.result         = CORJIT_INTERNALERROR;
 
-    setErrorTrap(info.compCompHnd, Param*, pParam, &param) // ERROR TRAP: Start normal block
+    setErrorTrap(info.compCompHnd, Param*, pParam, &param)
     {
         pParam->result =
-            pParam->pThis->compCompileHelper(pParam->classPtr, pParam->compHnd, pParam->methodInfo,
-                                             pParam->methodCodePtr, pParam->methodCodeSize, pParam->compileFlags);
+            pParam->compiler->compCompileHelper(pParam->module, pParam->jitInfo, pParam->methodInfo, pParam->methodCode,
+                                                pParam->methodCodeSize, pParam->compileFlags);
     }
-    finallyErrorTrap() // ERROR TRAP: The following block handles errors
+    finallyErrorTrap()
     {
-        /* Cleanup  */
-
-        if (compIsForInlining())
-        {
-            goto DoneCleanUp;
-        }
-
-        /* Tell the emitter that we're done with this function */
-
-        GetEmitter()->emitEndCG();
-
-    DoneCleanUp:
         compDone();
     }
-    endErrorTrap() // ERROR TRAP: End
+    endErrorTrap()
 
         return param.result;
 }

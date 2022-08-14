@@ -167,6 +167,12 @@
 #error Unsupported or unset target architecture
 #endif
 
+#ifdef TARGET_UNIX
+#define CORINFO_OS_TARGET CORINFO_UNIX
+#else
+#define CORINFO_OS_TARGET CORINFO_WINNT
+#endif
+
 // Include the AMD64 unwind codes when appropriate.
 #if defined(TARGET_AMD64)
 #include "win64unwind.h"

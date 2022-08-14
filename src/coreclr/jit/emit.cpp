@@ -638,10 +638,6 @@ void emitter::emitBegCG(Compiler* comp, COMP_HANDLE cmpHandle)
     emitCmpHandle = cmpHandle;
 }
 
-void emitter::emitEndCG()
-{
-}
-
 /*****************************************************************************
  *
  *  Prepare the given IG for emission of code.
