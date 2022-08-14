@@ -7649,7 +7649,6 @@ public:
                   COMP_HANDLE           compHnd,
                   CORINFO_METHOD_INFO*  methodInfo,
                   InlineInfo*           inlineInfo = nullptr);
-    void compDone();
 
     static void compDisplayStaticSizes(FILE* fout);
 

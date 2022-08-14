@@ -1139,15 +1139,6 @@ void Compiler::compInit(ArenaAllocator*       pAlloc,
     compUsesThrowHelper = false;
 }
 
-/*****************************************************************************
- *
- *  Destructor
- */
-
-void Compiler::compDone()
-{
-}
-
 void* Compiler::compGetHelperFtn(CorInfoHelpFunc ftnNum,        /* IN  */
                                  void**          ppIndirection) /* OUT */
 {
@@ -4314,7 +4305,6 @@ int Compiler::compCompile(CORINFO_MODULE_HANDLE module,
     }
     finallyErrorTrap()
     {
-        compDone();
     }
     endErrorTrap()
 

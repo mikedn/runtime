@@ -636,7 +636,6 @@ int Compiler::inlMain(CORINFO_MODULE_HANDLE module, JitFlags* compileFlags)
     }
     finallyErrorTrap()
     {
-        compDone();
     }
     endErrorTrap()
 
