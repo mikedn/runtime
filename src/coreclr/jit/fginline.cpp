@@ -591,11 +591,37 @@ int Compiler::inlMain(CORINFO_MODULE_HANDLE module, JitFlags* compileFlags)
     INDEBUG(verbose = impInlineInfo->InlinerCompiler->verbose);
 
     compMaxUncheckedOffsetForNullObject = eeGetEEInfo()->maxUncheckedOffsetForNullObject;
+    compSwitchedToOptimized             = false;
+    compSwitchedToMinOpts               = false;
+    compHndBBtab                        = nullptr;
+    compHndBBtabCount                   = 0;
+    compHndBBtabAllocCount              = 0;
+    compHasBackwardJump                 = false;
+#ifdef DEBUG
+    compCurBB        = nullptr;
+    lvaTable         = nullptr;
+    compGenTreeID    = 0;
+    compStatementID  = 0;
+    compBasicBlockID = 0;
+#endif
 
-    info.compILEntry          = 0;
-    info.compPatchpointInfo   = nullptr;
-    info.compProfilerCallback = false;
-    info.compMatchedVM        = impInlineInfo->InlinerCompiler->info.compMatchedVM;
+    info.compCode                               = info.compMethodInfo->ILCode;
+    info.compILCodeSize                         = info.compMethodInfo->ILCodeSize;
+    info.compILEntry                            = 0;
+    info.compPatchpointInfo                     = nullptr;
+    info.compProfilerCallback                   = false;
+    info.compILImportSize                       = 0;
+    info.compNativeCodeSize                     = 0;
+    info.compTotalHotCodeSize                   = 0;
+    info.compTotalColdCodeSize                  = 0;
+    info.compClassProbeCount                    = 0;
+    info.compPublishStubParam                   = false;
+    info.compHasNextCallRetAddr                 = false;
+    info.compCallConv                           = CorInfoCallConvExtension::Managed;
+    info.compArgOrder                           = Target::g_tgtArgOrder;
+    info.compIsVarArgs                          = false;
+    info.compUnmanagedCallCountWithGCTransition = 0;
+    info.compMatchedVM                          = impInlineInfo->InlinerCompiler->info.compMatchedVM;
 
     // Set the context for token lookup.
     impTokenLookupContextHandle = impInlineInfo->inlineCandidateInfo->exactContextHnd;
@@ -647,28 +673,19 @@ void Compiler::inlMainHelper(CORINFO_MODULE_HANDLE module,
                              CORINFO_METHOD_INFO*  methodInfo,
                              JitFlags*             compileFlags)
 {
-    CORINFO_METHOD_HANDLE methodHnd = info.compMethodHnd;
-
-    info.compCode         = methodInfo->ILCode;
-    info.compILCodeSize   = methodInfo->ILCodeSize;
-    info.compILImportSize = 0;
-
     if (info.compILCodeSize == 0)
     {
         BADCODE("code size is zero");
     }
 
 #ifdef DEBUG
-    unsigned methAttr_Old  = impInlineInfo->inlineCandidateInfo->methAttr;
-    unsigned methAttr_New  = info.compCompHnd->getMethodAttribs(info.compMethodHnd);
+    unsigned methAttrOld   = impInlineInfo->inlineCandidateInfo->methAttr;
+    unsigned methAttrNew   = info.compCompHnd->getMethodAttribs(info.compMethodHnd);
     unsigned flagsToIgnore = CORINFO_FLG_DONT_INLINE | CORINFO_FLG_FORCEINLINE;
-    assert((methAttr_Old & (~flagsToIgnore)) == (methAttr_New & (~flagsToIgnore)));
+    assert((methAttrOld & (~flagsToIgnore)) == (methAttrNew & (~flagsToIgnore)));
 #endif
 
     info.compFlags = impInlineInfo->inlineCandidateInfo->methAttr;
-
-    compSwitchedToOptimized = false;
-    compSwitchedToMinOpts   = false;
 
     compInitOptions(compileFlags);
 
@@ -700,21 +717,11 @@ void Compiler::inlMainHelper(CORINFO_MODULE_HANDLE module,
             eeGetMethodFullName(info.compMethodHnd), dspPtr(impTokenLookupContextHandle)));
 #endif
 
-    info.compScopeHnd                           = module;
-    info.compXcptnsCount                        = methodInfo->EHcount;
-    info.compMaxStack                           = methodInfo->maxStack;
-    info.compNativeCodeSize                     = 0;
-    info.compTotalHotCodeSize                   = 0;
-    info.compTotalColdCodeSize                  = 0;
-    info.compClassProbeCount                    = 0;
-    info.compIsStatic                           = (info.compFlags & CORINFO_FLG_STATIC) != 0;
-    info.compPublishStubParam                   = false;
-    info.compHasNextCallRetAddr                 = false;
-    info.compCallConv                           = CorInfoCallConvExtension::Managed;
-    info.compArgOrder                           = Target::g_tgtArgOrder;
-    info.compIsVarArgs                          = false;
-    info.compUnmanagedCallCountWithGCTransition = 0;
-    info.compInitMem                            = (methodInfo->options & CORINFO_OPT_INIT_LOCALS) != 0;
+    info.compScopeHnd    = module;
+    info.compXcptnsCount = methodInfo->EHcount;
+    info.compMaxStack    = methodInfo->maxStack;
+    info.compIsStatic    = (info.compFlags & CORINFO_FLG_STATIC) != 0;
+    info.compInitMem     = (methodInfo->options & CORINFO_OPT_INIT_LOCALS) != 0;
 
     // TODO-MIKE-Review: Does inlining need this?
     switch (methodInfo->args.getCallConv())
@@ -726,18 +733,6 @@ void Compiler::inlMainHelper(CORINFO_MODULE_HANDLE module,
         default:
             break;
     }
-
-    compHndBBtab           = nullptr;
-    compHndBBtabCount      = 0;
-    compHndBBtabAllocCount = 0;
-    compHasBackwardJump    = false;
-#ifdef DEBUG
-    compCurBB        = nullptr;
-    lvaTable         = nullptr;
-    compGenTreeID    = 0;
-    compStatementID  = 0;
-    compBasicBlockID = 0;
-#endif
 
     lvaInitTypeRef();
 
