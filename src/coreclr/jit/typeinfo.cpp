@@ -37,7 +37,7 @@ const ti_types g_ti_types_map[CORINFO_TYPE_COUNT] = {
 
 #ifdef DEBUG
 
-typeInfo Compiler::verMakeTypeInfo(CorInfoType ciType, CORINFO_CLASS_HANDLE clsHnd)
+typeInfo Importer::verMakeTypeInfo(CorInfoType ciType, CORINFO_CLASS_HANDLE clsHnd)
 {
     assert(ciType < CORINFO_TYPE_COUNT);
 
@@ -107,7 +107,7 @@ typeInfo Compiler::verMakeTypeInfo(CorInfoType ciType, CORINFO_CLASS_HANDLE clsH
     return tiResult;
 }
 
-typeInfo Compiler::verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd)
+typeInfo Importer::verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd)
 {
     if (clsHnd == nullptr)
     {
@@ -192,7 +192,7 @@ bool typeInfo::AreEquivalent(const typeInfo& li, const typeInfo& ti)
     return li.m_cls == ti.m_cls;
 }
 
-bool Compiler::tiCompatibleWith(const typeInfo& child, const typeInfo& parent) const
+bool Importer::tiCompatibleWith(const typeInfo& child, const typeInfo& parent) const
 {
     return typeInfo::tiCompatibleWith(info.compCompHnd, child, parent);
 }

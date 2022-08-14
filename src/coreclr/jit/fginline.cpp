@@ -651,7 +651,7 @@ void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, Inli
             eeGetMethodFullName(inlineInfo.iciCall->GetMethodHandle()),
             inlineInfo.inlineCandidateInfo->methInfo.ILCodeSize, inlineDepth, inlineResult->ReasonString());
 
-    INDEBUG(impInlinedCodeSize += inlineInfo.inlineCandidateInfo->methInfo.ILCodeSize;)
+    INDEBUG(m_importer.impInlinedCodeSize += inlineInfo.inlineCandidateInfo->methInfo.ILCodeSize;)
 
     inlineResult->NoteSuccess();
 }
@@ -882,7 +882,7 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO
         // lack of optimizations caused by address exposed.
         // No FX diffs if done so it's probably very rare so not worth the trouble now.
 
-        retExpr = impSpillPseudoReturnBufferCall(retExpr->AsCall());
+        retExpr = m_importer.impSpillPseudoReturnBufferCall(retExpr->AsCall());
     }
 
     if (inlineInfo->retSpillTempLclNum != BAD_VAR_NUM)
@@ -894,14 +894,14 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO
 
         if (varTypeIsStruct(retExpr->GetType()))
         {
-            asg = impAssignStruct(dest, retExpr, CHECK_SPILL_NONE);
+            asg = m_importer.impAssignStruct(dest, retExpr, Importer::CHECK_SPILL_NONE);
         }
         else
         {
             asg = gtNewAssignNode(dest, retExpr);
         }
 
-        impAppendTree(asg, CHECK_SPILL_NONE, impCurStmtOffs);
+        m_importer.impAppendTree(asg, Importer::CHECK_SPILL_NONE, m_importer.impCurStmtOffs);
 
         if (inlineInfo->retExpr == nullptr)
         {
@@ -930,7 +930,7 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO
             GenTree* retBufAddr  = gtCloneExpr(inlineInfo->iciCall->gtCallArgs->GetNode());
             GenTree* retBufIndir = gtNewObjNode(typGetObjLayout(retExprClass), retBufAddr);
 
-            retExpr = impAssignStruct(retBufIndir, retExpr, CHECK_SPILL_ALL);
+            retExpr = m_importer.impAssignStruct(retBufIndir, retExpr, Importer::CHECK_SPILL_ALL);
         }
 
         JITDUMPTREE(retExpr, "Inliner return expression:\n");
@@ -2132,7 +2132,7 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
 
                 assert(!argNode->OperIs(GT_MKREFANY));
 
-                asg = impAssignStruct(dst, argNode, CHECK_SPILL_NONE);
+                asg = m_importer.impAssignStruct(dst, argNode, Importer::CHECK_SPILL_NONE);
             }
 
             Statement* stmt = gtNewStmt(asg, inlineInfo->iciStmt->GetILOffsetX());

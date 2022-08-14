@@ -1044,8 +1044,8 @@ void Compiler::compInit(ArenaAllocator*       pAlloc,
 
         // If this method were a real constructor for Compiler, these would
         // become method initializations.
-        impPendingBlockMembers = JitExpandArray<bool>(getAllocator());
-        impSpillCliqueMembers  = JitExpandArray<uint8_t>(getAllocator());
+        m_importer.impPendingBlockMembers = JitExpandArray<bool>(getAllocator());
+        m_importer.impSpillCliqueMembers  = JitExpandArray<uint8_t>(getAllocator());
 
         lvMemoryPerSsaData = SsaDefArray<SsaMemDef>();
 
@@ -4551,10 +4551,10 @@ void Compiler::compCompileFinish()
     if ((info.compILCodeSize <= 32) &&     // Is it a reasonably small method?
         (info.compNativeCodeSize < 512) && // Some trivial methods generate huge native code. eg. pushing a single huge
                                            // struct
-        (impInlinedCodeSize <= 128) &&     // Is the the inlining reasonably bounded?
-                                           // Small methods cannot meaningfully have a big number of locals
-                                           // or arguments. We always track arguments at the start of
-                                           // the prolog which requires memory
+        (m_importer.impInlinedCodeSize <= 128) && // Is the the inlining reasonably bounded?
+                                                  // Small methods cannot meaningfully have a big number of locals
+                                                  // or arguments. We always track arguments at the start of
+                                                  // the prolog which requires memory
         (info.compLocalsCount <= 32) && (!opts.MinOpts()) && // We may have too many local variables, etc
         (getJitStressLevel() == 0) &&                        // We need extra memory for stress
         !opts.optRepeat &&                                   // We need extra memory to repeat opts

@@ -10,7 +10,7 @@
 
 void Compiler::fgInit()
 {
-    impInit();
+    m_importer.impInit();
 
     /* Initialization for fgWalkTreePre() and fgWalkTreePost() */
 
@@ -1019,7 +1019,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
             {
                 if (makeInlineObservations)
                 {
-                    int toSkip = impBoxPatternMatch(nullptr, codeAddr + sz, codeEndp, true);
+                    int toSkip = m_importer.impBoxPatternMatch(nullptr, codeAddr + sz, codeEndp, true);
                     if (toSkip > 0)
                     {
                         // toSkip > 0 means we most likely will hit a pattern (e.g. box+isinst+brtrue) that
@@ -1075,7 +1075,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
 
                 if (resolveTokens)
                 {
-                    impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
+                    m_importer.impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
                     methodHnd      = resolvedToken.hMethod;
                     isJitIntrinsic = info.compCompHnd->isJitIntrinsic(methodHnd);
                 }
@@ -1670,11 +1670,11 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
             case CEE_UNALIGNED:
             {
                 noway_assert(sz == sizeof(__int8));
-                prefixFlags |= PREFIX_UNALIGNED;
+                prefixFlags |= Importer::PREFIX_UNALIGNED;
 
                 codeAddr += sizeof(__int8);
 
-                impValidateMemoryAccessOpcode(codeAddr, codeEndp, false);
+                m_importer.impValidateMemoryAccessOpcode(codeAddr, codeEndp, false);
                 handled = true;
                 goto OBSERVE_OPCODE;
             }
@@ -1682,12 +1682,12 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
             case CEE_CONSTRAINED:
             {
                 noway_assert(sz == sizeof(unsigned));
-                prefixFlags |= PREFIX_CONSTRAINED;
+                prefixFlags |= Importer::PREFIX_CONSTRAINED;
 
                 codeAddr += sizeof(unsigned);
 
                 {
-                    OPCODE actualOpcode = impGetNonPrefixOpcode(codeAddr, codeEndp);
+                    OPCODE actualOpcode = m_importer.impGetNonPrefixOpcode(codeAddr, codeEndp);
 
                     if (actualOpcode != CEE_CALLVIRT && actualOpcode != CEE_CALL && actualOpcode != CEE_LDFTN)
                     {
@@ -1701,12 +1701,12 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
             case CEE_READONLY:
             {
                 noway_assert(sz == 0);
-                prefixFlags |= PREFIX_READONLY;
+                prefixFlags |= Importer::PREFIX_READONLY;
 
                 {
-                    OPCODE actualOpcode = impGetNonPrefixOpcode(codeAddr, codeEndp);
+                    OPCODE actualOpcode = m_importer.impGetNonPrefixOpcode(codeAddr, codeEndp);
 
-                    if ((actualOpcode != CEE_LDELEMA) && !impOpcodeIsCallOpcode(actualOpcode))
+                    if ((actualOpcode != CEE_LDELEMA) && !m_importer.impOpcodeIsCallOpcode(actualOpcode))
                     {
                         BADCODE("readonly. has to be followed by ldelema or call");
                     }
@@ -1718,9 +1718,9 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
             case CEE_VOLATILE:
             {
                 noway_assert(sz == 0);
-                prefixFlags |= PREFIX_VOLATILE;
+                prefixFlags |= Importer::PREFIX_VOLATILE;
 
-                impValidateMemoryAccessOpcode(codeAddr, codeEndp, true);
+                m_importer.impValidateMemoryAccessOpcode(codeAddr, codeEndp, true);
                 handled = true;
                 goto OBSERVE_OPCODE;
             }
@@ -1728,12 +1728,12 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
             case CEE_TAILCALL:
             {
                 noway_assert(sz == 0);
-                prefixFlags |= PREFIX_TAILCALL_EXPLICIT;
+                prefixFlags |= Importer::PREFIX_TAILCALL_EXPLICIT;
 
                 {
-                    OPCODE actualOpcode = impGetNonPrefixOpcode(codeAddr, codeEndp);
+                    OPCODE actualOpcode = m_importer.impGetNonPrefixOpcode(codeAddr, codeEndp);
 
-                    if (!impOpcodeIsCallOpcode(actualOpcode))
+                    if (!m_importer.impOpcodeIsCallOpcode(actualOpcode))
                     {
                         BADCODE("tailcall. has to be followed by call, callvirt or calli");
                     }
@@ -1911,7 +1911,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                     const bool notLastInstr = (codeAddr < codeEndp - sz);
                     const bool notDebugCode = !opts.compDbgCode;
 
-                    if (notStruct && notLastInstr && notDebugCode && impILConsumesAddr(codeAddr + sz))
+                    if (notStruct && notLastInstr && notDebugCode && m_importer.impILConsumesAddr(codeAddr + sz))
                     {
                         // We can skip the addrtaken, as next IL instruction consumes
                         // the address.
@@ -2078,7 +2078,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
         {
             // Make some callsite specific observations that will feed
             // into the profitability model.
-            impMakeDiscretionaryInlineObservations(impInlineInfo, compInlineResult);
+            m_importer.impMakeDiscretionaryInlineObservations(impInlineInfo, compInlineResult);
 
             // None of those observations should have changed the
             // inline's viability.
@@ -2677,7 +2677,7 @@ unsigned Compiler::fgMakeBasicBlocks(const BYTE* codeAddr, IL_OFFSET codeSize, F
                     // false. This will only affect explicit tail calls when IL verification is not needed for the
                     // method.
                     bool isRecursive = false;
-                    if (!impIsTailCallILPattern(tailCall, opcode, codeAddr + sz, codeEndp, isRecursive))
+                    if (!m_importer.impIsTailCallILPattern(tailCall, opcode, codeAddr + sz, codeEndp, isRecursive))
                     {
                         BADCODE3("tail call not followed by ret", " at offset %04X", (IL_OFFSET)(codeAddr - codeBegp));
                     }

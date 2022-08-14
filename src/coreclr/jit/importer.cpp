@@ -17,7 +17,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #pragma hdrstop
 #endif
 
-void Compiler::impInit()
+void Importer::impInit()
 {
     impStmtList = impLastStmt = nullptr;
 #ifdef DEBUG
@@ -30,7 +30,7 @@ void Compiler::impInit()
  *  Pushes the given tree on the stack.
  */
 
-void Compiler::impPushOnStack(GenTree* tree, typeInfo ti)
+void Importer::impPushOnStack(GenTree* tree, typeInfo ti)
 {
     /* Check for overflow. If inlining, we may be using a bigger stack */
 
@@ -59,7 +59,7 @@ void Compiler::impPushOnStack(GenTree* tree, typeInfo ti)
     }
 }
 
-typeInfo Compiler::impMakeTypeInfo(CorInfoType type, CORINFO_CLASS_HANDLE classHandle)
+typeInfo Importer::impMakeTypeInfo(CorInfoType type, CORINFO_CLASS_HANDLE classHandle)
 {
     assert((type != CORINFO_TYPE_UNDEF) && (type != CORINFO_TYPE_VOID) && (type != CORINFO_TYPE_VAR));
     assert(classHandle != NO_CLASS_HANDLE);
@@ -107,7 +107,7 @@ typeInfo Compiler::impMakeTypeInfo(CorInfoType type, CORINFO_CLASS_HANDLE classH
 // helper function that will tell us if the IL instruction at the addr passed
 // by param consumes an address at the top of the stack. We use it to save
 // us lvAddrTaken
-bool Compiler::impILConsumesAddr(const BYTE* codeAddr)
+bool Importer::impILConsumesAddr(const BYTE* codeAddr)
 {
     assert(!compIsForInlining());
 
@@ -159,7 +159,7 @@ bool Compiler::impILConsumesAddr(const BYTE* codeAddr)
     return false;
 }
 
-void Compiler::impResolveToken(const BYTE* addr, CORINFO_RESOLVED_TOKEN* pResolvedToken, CorInfoTokenKind kind)
+void Importer::impResolveToken(const BYTE* addr, CORINFO_RESOLVED_TOKEN* pResolvedToken, CorInfoTokenKind kind)
 {
     pResolvedToken->tokenContext = impTokenLookupContextHandle;
     pResolvedToken->tokenScope   = info.compScopeHnd;
@@ -174,7 +174,7 @@ void Compiler::impResolveToken(const BYTE* addr, CORINFO_RESOLVED_TOKEN* pResolv
  *  Pop one tree from the stack.
  */
 
-StackEntry Compiler::impPopStack()
+StackEntry Importer::impPopStack()
 {
     if (verCurrentState.esStackDepth == 0)
     {
@@ -184,7 +184,7 @@ StackEntry Compiler::impPopStack()
     return verCurrentState.esStack[--verCurrentState.esStackDepth];
 }
 
-GenTree* Compiler::impPopStackCoerceArg(var_types signatureType)
+GenTree* Importer::impPopStackCoerceArg(var_types signatureType)
 {
     // Not currently supported for structs (it would need to check the struct handle).
     assert(!varTypeIsStruct(signatureType));
@@ -232,7 +232,7 @@ GenTree* Compiler::impPopStackCoerceArg(var_types signatureType)
 
 #ifdef FEATURE_SIMD
 
-GenTree* Compiler::impSIMDPopStack(var_types type)
+GenTree* Importer::impSIMDPopStack(var_types type)
 {
     assert(varTypeIsSIMD(type));
 
@@ -261,7 +261,7 @@ GenTree* Compiler::impSIMDPopStack(var_types type)
  *  Peep at n'th (0-based) tree on the top of the stack.
  */
 
-StackEntry& Compiler::impStackTop(unsigned n)
+StackEntry& Importer::impStackTop(unsigned n)
 {
     if (verCurrentState.esStackDepth <= n)
     {
@@ -271,17 +271,17 @@ StackEntry& Compiler::impStackTop(unsigned n)
     return verCurrentState.esStack[verCurrentState.esStackDepth - n - 1];
 }
 
-unsigned Compiler::impStackHeight()
+unsigned Importer::impStackHeight()
 {
     return verCurrentState.esStackDepth;
 }
 
-void Compiler::impStmtListBegin()
+void Importer::impStmtListBegin()
 {
     assert(impStmtList == nullptr && impLastStmt == nullptr);
 }
 
-void Compiler::impStmtListAppend(Statement* stmt)
+void Importer::impStmtListAppend(Statement* stmt)
 {
     if (impStmtList == nullptr)
     {
@@ -296,7 +296,7 @@ void Compiler::impStmtListAppend(Statement* stmt)
     impLastStmt = stmt;
 }
 
-Statement* Compiler::impStmtListRemoveLast()
+Statement* Importer::impStmtListRemoveLast()
 {
     assert(impLastStmt != nullptr);
 
@@ -311,7 +311,7 @@ Statement* Compiler::impStmtListRemoveLast()
     return stmt;
 }
 
-void Compiler::impStmtListInsertBefore(Statement* stmt, Statement* stmtBefore)
+void Importer::impStmtListInsertBefore(Statement* stmt, Statement* stmtBefore)
 {
     assert(stmt != nullptr);
     assert(stmtBefore != nullptr);
@@ -331,7 +331,7 @@ void Compiler::impStmtListInsertBefore(Statement* stmt, Statement* stmtBefore)
     stmtBefore->SetPrevStmt(stmt);
 }
 
-void Compiler::impStmtListEnd(BasicBlock* block)
+void Importer::impStmtListEnd(BasicBlock* block)
 {
     impSetBlockStmtList(block, impStmtList, impLastStmt);
 
@@ -347,7 +347,7 @@ void Compiler::impStmtListEnd(BasicBlock* block)
 #endif
 }
 
-void Compiler::impSetBlockStmtList(BasicBlock* block, Statement* firstStmt, Statement* lastStmt)
+void Importer::impSetBlockStmtList(BasicBlock* block, Statement* firstStmt, Statement* lastStmt)
 {
     if (firstStmt != nullptr)
     {
@@ -364,7 +364,7 @@ void Compiler::impSetBlockStmtList(BasicBlock* block, Statement* firstStmt, Stat
 
 #ifdef DEBUG
 
-void Compiler::impAppendStmtCheck(Statement* stmt, unsigned chkLevel)
+void Importer::impAppendStmtCheck(Statement* stmt, unsigned chkLevel)
 {
     if (chkLevel == CHECK_SPILL_ALL)
     {
@@ -429,7 +429,7 @@ void Compiler::impAppendStmtCheck(Statement* stmt, unsigned chkLevel)
 // Append the given statement to the current block's tree list.
 // [0..spillDepth) is the portion of the stack which we will check
 // for interference with stmt and spill if needed.
-void Compiler::impAppendStmt(Statement* stmt, unsigned spillDepth)
+void Importer::impAppendStmt(Statement* stmt, unsigned spillDepth)
 {
     if ((spillDepth != 0) && (verCurrentState.esStackDepth != 0))
     {
@@ -512,7 +512,7 @@ void Compiler::impAppendStmt(Statement* stmt, unsigned spillDepth)
 #ifdef FEATURE_SIMD
     if (opts.OptimizationEnabled() && featureSIMD)
     {
-        m_impSIMDCoalescingBuffer.Mark(this, stmt);
+        m_impSIMDCoalescingBuffer.Mark(comp, stmt);
     }
 #endif
 
@@ -538,7 +538,7 @@ void Compiler::impAppendStmt(Statement* stmt, unsigned spillDepth)
 #endif
 }
 
-Statement* Compiler::impAppendTree(GenTree* tree, unsigned spillDepth, IL_OFFSETX offset)
+Statement* Importer::impAppendTree(GenTree* tree, unsigned spillDepth, IL_OFFSETX offset)
 {
     assert(tree != nullptr);
 
@@ -547,13 +547,13 @@ Statement* Compiler::impAppendTree(GenTree* tree, unsigned spillDepth, IL_OFFSET
     return stmt;
 }
 
-void Compiler::impSpillAllAppendTree(GenTree* op1)
+void Importer::impSpillAllAppendTree(GenTree* op1)
 {
     impAppendTree(op1, CHECK_SPILL_ALL, impCurStmtOffs);
     INDEBUG(impNoteLastILoffs();)
 }
 
-void Compiler::impSpillNoneAppendTree(GenTree* op1)
+void Importer::impSpillNoneAppendTree(GenTree* op1)
 {
     impAppendTree(op1, CHECK_SPILL_NONE, impCurStmtOffs);
     INDEBUG(impNoteLastILoffs();)
@@ -565,7 +565,7 @@ void Compiler::impSpillNoneAppendTree(GenTree* op1)
  *  curLevel is the stack level for which the spill to the temp is being done.
  */
 
-void Compiler::impAppendTempAssign(unsigned lclNum, GenTree* val, unsigned curLevel)
+void Importer::impAppendTempAssign(unsigned lclNum, GenTree* val, unsigned curLevel)
 {
     assert(!varTypeIsStruct(val->GetType()));
 
@@ -579,7 +579,7 @@ void Compiler::impAppendTempAssign(unsigned lclNum, GenTree* val, unsigned curLe
     impAppendTree(asg, curLevel, impCurStmtOffs);
 }
 
-void Compiler::impAppendTempAssign(unsigned lclNum, GenTree* val, CORINFO_CLASS_HANDLE structType, unsigned curLevel)
+void Importer::impAppendTempAssign(unsigned lclNum, GenTree* val, CORINFO_CLASS_HANDLE structType, unsigned curLevel)
 {
     if (!varTypeIsStruct(val->GetType()))
     {
@@ -590,7 +590,7 @@ void Compiler::impAppendTempAssign(unsigned lclNum, GenTree* val, CORINFO_CLASS_
     impAppendTempAssign(lclNum, val, typGetObjLayout(structType), curLevel);
 }
 
-void Compiler::impAppendTempAssign(unsigned lclNum, GenTree* val, ClassLayout* layout, unsigned curLevel)
+void Importer::impAppendTempAssign(unsigned lclNum, GenTree* val, ClassLayout* layout, unsigned curLevel)
 {
     if (!varTypeIsStruct(val->GetType()))
     {
@@ -628,7 +628,7 @@ void Compiler::impAppendTempAssign(unsigned lclNum, GenTree* val, ClassLayout* l
  *  prefixTree at the head of the list.
  */
 
-GenTreeCall::Use* Compiler::impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig, GenTreeCall::Use* prefixArgs)
+GenTreeCall::Use* Importer::impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig, GenTreeCall::Use* prefixArgs)
 {
     assert(sig == nullptr || count == sig->numArgs);
 
@@ -785,7 +785,7 @@ static bool TypeIs(var_types type1, var_types type2, T... rest)
 //   - it can't check long -> native int case on 64-bit platforms,
 //      so the behavior is different depending on the target bitness.
 //
-bool Compiler::impCheckImplicitArgumentCoercion(var_types sigType, var_types nodeType) const
+bool Importer::impCheckImplicitArgumentCoercion(var_types sigType, var_types nodeType) const
 {
     if (sigType == nodeType)
     {
@@ -868,7 +868,7 @@ bool Compiler::impCheckImplicitArgumentCoercion(var_types sigType, var_types nod
  *  The first "skipReverseCount" items are not reversed.
  */
 
-GenTreeCall::Use* Compiler::impPopReverseCallArgs(unsigned count, CORINFO_SIG_INFO* sig, unsigned skipReverseCount)
+GenTreeCall::Use* Importer::impPopReverseCallArgs(unsigned count, CORINFO_SIG_INFO* sig, unsigned skipReverseCount)
 {
     assert(skipReverseCount <= count);
 
@@ -921,7 +921,7 @@ GenTreeCall::Use* Compiler::impPopReverseCallArgs(unsigned count, CORINFO_SIG_IN
     }
 }
 
-void Compiler::impAssignCallWithRetBuf(GenTree* dest, GenTreeCall* call)
+void Importer::impAssignCallWithRetBuf(GenTree* dest, GenTreeCall* call)
 {
     assert(varTypeIsStruct(dest->GetType()) && dest->OperIs(GT_LCL_VAR, GT_OBJ, GT_IND));
     assert(call->TreatAsHasRetBufArg());
@@ -1011,7 +1011,7 @@ void Compiler::impAssignCallWithRetBuf(GenTree* dest, GenTreeCall* call)
     call->SetType(TYP_VOID);
 }
 
-GenTree* Compiler::impAssignMkRefAny(GenTree* dest, GenTreeOp* mkRefAny, unsigned curLevel)
+GenTree* Importer::impAssignMkRefAny(GenTree* dest, GenTreeOp* mkRefAny, unsigned curLevel)
 {
     assert(dest->TypeIs(TYP_STRUCT) && dest->OperIs(GT_LCL_VAR, GT_OBJ));
     assert(mkRefAny->OperIs(GT_MKREFANY));
@@ -1041,7 +1041,7 @@ GenTree* Compiler::impAssignMkRefAny(GenTree* dest, GenTreeOp* mkRefAny, unsigne
     return gtNewAssignNode(typeField, mkRefAny->GetOp(1));
 }
 
-GenTree* Compiler::impAssignStruct(GenTree* dest, GenTree* src, unsigned curLevel)
+GenTree* Importer::impAssignStruct(GenTree* dest, GenTree* src, unsigned curLevel)
 {
     assert(
         (src->TypeIs(TYP_STRUCT) && src->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_OBJ, GT_CALL, GT_MKREFANY, GT_RET_EXPR)) ||
@@ -1132,7 +1132,7 @@ GenTree* Compiler::impAssignStruct(GenTree* dest, GenTree* src, unsigned curLeve
     return asgNode;
 }
 
-GenTree* Compiler::impGetStructAddr(GenTree*             value,
+GenTree* Importer::impGetStructAddr(GenTree*             value,
                                     CORINFO_CLASS_HANDLE structHnd,
                                     unsigned             curLevel,
                                     bool                 willDereference)
@@ -1157,7 +1157,7 @@ GenTree* Compiler::impGetStructAddr(GenTree*             value,
     return gtNewLclVarAddrNode(tmpNum, TYP_BYREF);
 }
 
-GenTree* Compiler::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLayout, unsigned curLevel)
+GenTree* Importer::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLayout, unsigned curLevel)
 {
     assert(arg->GetType() == typGetStructType(argLayout));
 
@@ -1245,8 +1245,9 @@ GenTree* Compiler::impTokenToHandle(CORINFO_RESOLVED_TOKEN* pResolvedToken,
     }
 
     // Generate the full lookup tree. May be null if we're abandoning an inline attempt.
-    GenTree* result = impLookupToTree(pResolvedToken, &embedInfo.lookup, gtTokenToIconFlags(pResolvedToken->token),
-                                      embedInfo.compileTimeHandle);
+    GenTree* result =
+        m_importer.impLookupToTree(pResolvedToken, &embedInfo.lookup, gtTokenToIconFlags(pResolvedToken->token),
+                                   embedInfo.compileTimeHandle);
 
     // If we have a result and it requires runtime lookup, wrap it in a runtime lookup node.
     if ((result != nullptr) && embedInfo.lookup.lookupKind.needsRuntimeLookup)
@@ -1257,7 +1258,7 @@ GenTree* Compiler::impTokenToHandle(CORINFO_RESOLVED_TOKEN* pResolvedToken,
     return result;
 }
 
-GenTree* Compiler::impLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
+GenTree* Importer::impLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
                                    CORINFO_LOOKUP*         pLookup,
                                    GenTreeFlags            handleFlags,
                                    void*                   compileTimeHandle)
@@ -1319,7 +1320,7 @@ GenTree* Compiler::impLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
 }
 
 #ifdef FEATURE_READYTORUN_COMPILER
-GenTree* Compiler::impReadyToRunLookupToTree(CORINFO_CONST_LOOKUP* pLookup,
+GenTree* Importer::impReadyToRunLookupToTree(CORINFO_CONST_LOOKUP* pLookup,
                                              GenTreeFlags          handleFlags,
                                              void*                 compileTimeHandle)
 {
@@ -1371,14 +1372,14 @@ GenTreeCall* Compiler::impReadyToRunHelperToTree(
 }
 #endif
 
-GenTree* Compiler::impMethodPointer(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORINFO_CALL_INFO* pCallInfo)
+GenTree* Importer::impMethodPointer(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORINFO_CALL_INFO* pCallInfo)
 {
     GenTree* op1 = nullptr;
 
     switch (pCallInfo->kind)
     {
         case CORINFO_CALL:
-            op1 = new (this, GT_FTN_ADDR) GenTreeFptrVal(TYP_I_IMPL, pCallInfo->hMethod);
+            op1 = new (comp, GT_FTN_ADDR) GenTreeFptrVal(TYP_I_IMPL, pCallInfo->hMethod);
 
 #ifdef FEATURE_READYTORUN_COMPILER
             if (opts.IsReadyToRun())
@@ -1461,7 +1462,7 @@ GenTree* Compiler::getRuntimeContextTree(CORINFO_RUNTIME_LOOKUP_KIND kind)
           to lookup the handle.
  */
 
-GenTree* Compiler::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
+GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
                                           CORINFO_LOOKUP*         pLookup,
                                           void*                   compileTimeHandle)
 {
@@ -1638,7 +1639,7 @@ GenTree* Compiler::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
     return gtNewLclvNode(tmp, TYP_I_IMPL);
 }
 
-void Compiler::impImportDup()
+void Importer::impImportDup()
 {
     // If the expression to dup is simple, just clone it.
     // Otherwise spill it to a temp, and reload the temp twice.
@@ -1687,7 +1688,7 @@ void Compiler::impImportDup()
 }
 
 // Spills the stack at verCurrentState.esStack[level] and replaces it with a temp.
-void Compiler::impSpillStackEntry(unsigned level DEBUGARG(const char* reason))
+void Importer::impSpillStackEntry(unsigned level DEBUGARG(const char* reason))
 {
     StackEntry& se   = verCurrentState.esStack[level];
     GenTree*    tree = se.val;
@@ -1723,7 +1724,7 @@ void Compiler::impSpillStackEntry(unsigned level DEBUGARG(const char* reason))
  *  Ensure that the stack has only spilled values
  */
 
-void Compiler::impSpillStackEnsure(bool spillLeaves)
+void Importer::impSpillStackEnsure(bool spillLeaves)
 {
     assert(!spillLeaves || opts.compDbgCode);
 
@@ -1757,7 +1758,7 @@ void Compiler::impSpillStackEnsure(bool spillLeaves)
 // If the stack contains any trees with side effects in them, assign those trees
 // to temps and replace them on the stack with LCL_VARs referencing those temps.
 // [0..spillDepth) is the portion of the stack which will be checked and spilled.
-void Compiler::impSpillSideEffects(GenTreeFlags spillSideEffects, unsigned spillDepth DEBUGARG(const char* reason))
+void Importer::impSpillSideEffects(GenTreeFlags spillSideEffects, unsigned spillDepth DEBUGARG(const char* reason))
 {
     impSpillCatchArg();
 
@@ -1793,7 +1794,7 @@ void Compiler::impSpillSideEffects(GenTreeFlags spillSideEffects, unsigned spill
 }
 
 // Spill all trees containing CATCH_ARG nodes.
-void Compiler::impSpillCatchArg()
+void Importer::impSpillCatchArg()
 {
     // CATCH_ARG may only appear in catch blocks
     if (!compCurBB->bbCatchTyp)
@@ -1810,7 +1811,7 @@ void Compiler::impSpillCatchArg()
         GenTree* tree = verCurrentState.esStack[level].val;
 
         // CATCH_ARG should have GTF_ORDER_SIDEEFF so we can avoid tree walking if that's not present.
-        if (((tree->gtFlags & GTF_ORDER_SIDEEFF) != 0) && (fgWalkTreePre(&tree, visitor) == WALK_ABORT))
+        if (((tree->gtFlags & GTF_ORDER_SIDEEFF) != 0) && (comp->fgWalkTreePre(&tree, visitor) == Compiler::WALK_ABORT))
         {
             impSpillStackEntry(level DEBUGARG("catch arg spill temp"));
         }
@@ -1818,7 +1819,7 @@ void Compiler::impSpillCatchArg()
 }
 
 // Spill all trees containing references to the specified local.
-void Compiler::impSpillLclReferences(unsigned lclNum)
+void Importer::impSpillLclReferences(unsigned lclNum)
 {
     impSpillCatchArg();
 
@@ -1857,7 +1858,7 @@ void Compiler::impSpillLclReferences(unsigned lclNum)
  *  Returns the basic block of the actual handler.
  */
 
-BasicBlock* Compiler::impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_HANDLE clsHnd, bool isSingleBlockFilter)
+BasicBlock* Importer::impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_HANDLE clsHnd, bool isSingleBlockFilter)
 {
     // Do not inject the basic block twice on reimport. This should be
     // hit only under JIT stress. See if the block is the one we injected.
@@ -1889,15 +1890,15 @@ BasicBlock* Compiler::impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_H
     }
 
 #if defined(JIT32_GCENCODER)
-    const bool forceInsertNewBlock = isSingleBlockFilter || compStressCompile(STRESS_CATCH_ARG, 5);
+    const bool forceInsertNewBlock = isSingleBlockFilter || comp->compStressCompile(Compiler::STRESS_CATCH_ARG, 5);
 #else
-    const bool forceInsertNewBlock = compStressCompile(STRESS_CATCH_ARG, 5);
+    const bool forceInsertNewBlock = comp->compStressCompile(Compiler::STRESS_CATCH_ARG, 5);
 #endif // defined(JIT32_GCENCODER)
 
     // Spill GT_CATCH_ARG to a temp if there are jumps to the beginning of the handler
     if ((hndBlk->bbRefs <= 1) && !forceInsertNewBlock)
     {
-        hndBlk->bbEntryState = new (this, CMK_ImpStack) ImportSpillCliqueState(clsHnd);
+        hndBlk->bbEntryState = new (comp, CMK_ImpStack) ImportSpillCliqueState(clsHnd);
     }
     else
     {
@@ -1911,7 +1912,7 @@ BasicBlock* Compiler::impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_H
         newBlk->bbFlags |= BBF_IMPORTED | BBF_DONT_REMOVE;
         newBlk->inheritWeight(hndBlk);
         newBlk->bbCodeOffs   = hndBlk->bbCodeOffs;
-        newBlk->bbEntryState = new (this, CMK_ImpStack) ImportSpillCliqueState(clsHnd);
+        newBlk->bbEntryState = new (comp, CMK_ImpStack) ImportSpillCliqueState(clsHnd);
 
         /* Account for the new link we are about to create */
         hndBlk->bbRefs++;
@@ -1940,15 +1941,15 @@ BasicBlock* Compiler::impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_H
             fgAddCheapPred(hndBlk, newBlk);
         }
 
-        impSetSpillCliqueState(newBlk, new (this, CMK_ImpStack) ImportSpillCliqueState(tempNum, 1));
+        impSetSpillCliqueState(newBlk, new (comp, CMK_ImpStack) ImportSpillCliqueState(tempNum, 1));
     }
 
     return hndBlk;
 }
 
-GenTree* Compiler::impNewCatchArg()
+GenTree* Importer::impNewCatchArg()
 {
-    GenTree* arg = new (this, GT_CATCH_ARG) GenTree(GT_CATCH_ARG, TYP_REF);
+    GenTree* arg = new (comp, GT_CATCH_ARG) GenTree(GT_CATCH_ARG, TYP_REF);
     // GT_CATCH_ARG cannot be moved around since it uses a fixed register on x86 (EAX).
     arg->gtFlags |= GTF_ORDER_SIDEEFF;
     return arg;
@@ -1958,7 +1959,7 @@ GenTree* Compiler::impNewCatchArg()
 // Returns the original tree if the cloning was easy,
 // else returns the temp to which the tree had to be spilled to.
 // If the tree has side-effects, it will be spilled to a temp.
-GenTree* Compiler::impCloneExpr(GenTree* tree, GenTree** clone, unsigned spillCheckLevel DEBUGARG(const char* reason))
+GenTree* Importer::impCloneExpr(GenTree* tree, GenTree** clone, unsigned spillCheckLevel DEBUGARG(const char* reason))
 {
     GenTree* uses[2];
     impMakeMultiUse(tree, 2, uses, spillCheckLevel DEBUGARG(reason));
@@ -1966,7 +1967,7 @@ GenTree* Compiler::impCloneExpr(GenTree* tree, GenTree** clone, unsigned spillCh
     return uses[0];
 }
 
-GenTree* Compiler::impCloneExpr(GenTree*     tree,
+GenTree* Importer::impCloneExpr(GenTree*     tree,
                                 GenTree**    clone,
                                 ClassLayout* layout,
                                 unsigned spillCheckLevel DEBUGARG(const char* reason))
@@ -1977,7 +1978,7 @@ GenTree* Compiler::impCloneExpr(GenTree*     tree,
     return uses[0];
 }
 
-void Compiler::impMakeMultiUse(GenTree*  tree,
+void Importer::impMakeMultiUse(GenTree*  tree,
                                unsigned  useCount,
                                GenTree** uses,
                                unsigned spillCheckLevel DEBUGARG(const char* reason))
@@ -2010,7 +2011,7 @@ void Compiler::impMakeMultiUse(GenTree*  tree,
     }
 }
 
-void Compiler::impMakeMultiUse(GenTree*     tree,
+void Importer::impMakeMultiUse(GenTree*     tree,
                                unsigned     useCount,
                                GenTree**    uses,
                                ClassLayout* layout,
@@ -2049,7 +2050,7 @@ void Compiler::impMakeMultiUse(GenTree*     tree,
  * generate now.
  */
 
-void Compiler::impCurStmtOffsSet(IL_OFFSET offs)
+void Importer::impCurStmtOffsSet(IL_OFFSET offs)
 {
     if (compIsForInlining())
     {
@@ -2067,7 +2068,7 @@ void Compiler::impCurStmtOffsSet(IL_OFFSET offs)
 /*****************************************************************************
  * Returns current IL offset with stack-empty and call-instruction info incorporated
  */
-IL_OFFSETX Compiler::impCurILOffset(IL_OFFSET offs, bool callInstruction)
+IL_OFFSETX Importer::impCurILOffset(IL_OFFSET offs, bool callInstruction)
 {
     if (compIsForInlining())
     {
@@ -2090,7 +2091,7 @@ IL_OFFSETX Compiler::impCurILOffset(IL_OFFSET offs, bool callInstruction)
 //
 // Return Value:
 //    true if it is legal, false if it could be a sequence that we do not want to divide.
-bool Compiler::impCanSpillNow(OPCODE prevOpcode)
+bool Importer::impCanSpillNow(OPCODE prevOpcode)
 {
     // Don't spill after ldtoken, newarr and newobj, because it could be a part of the InitializeArray sequence.
     // Avoid breaking up to guarantee that impInitializeArrayIntrinsic can succeed.
@@ -2113,7 +2114,7 @@ bool Compiler::impCanSpillNow(OPCODE prevOpcode)
 
 #ifdef DEBUG
 
-void Compiler::impNoteLastILoffs()
+void Importer::impNoteLastILoffs()
 {
     if (impLastILoffsStmt == nullptr)
     {
@@ -2139,7 +2140,7 @@ void Compiler::impNoteLastILoffs()
  * the IL offset in gtStmt.gtStmtOffs. So append an empty statement.
  */
 
-void Compiler::impNoteBranchOffs()
+void Importer::impNoteBranchOffs()
 {
     if (opts.compDbgCode)
     {
@@ -2154,7 +2155,7 @@ void Compiler::impNoteBranchOffs()
  * Returns the next stmt boundary (after the start of the block)
  */
 
-unsigned Compiler::impInitBlockLineInfo()
+unsigned Importer::impInitBlockLineInfo()
 {
     /* Assume the block does not correspond with any IL offset. This prevents
        us from reporting extra offsets. Extra mappings can cause confusing
@@ -2242,7 +2243,7 @@ unsigned Compiler::impInitBlockLineInfo()
 
 /*****************************************************************************/
 
-bool Compiler::impOpcodeIsCallOpcode(OPCODE opcode)
+bool Importer::impOpcodeIsCallOpcode(OPCODE opcode)
 {
     switch (opcode)
     {
@@ -2317,7 +2318,7 @@ CORINFO_CLASS_HANDLE Compiler::impGetObjectClass()
 }
 
 /* static */
-void Compiler::impBashVarAddrsToI(GenTree* tree1, GenTree* tree2 /* = nullptr */)
+void Importer::impBashVarAddrsToI(GenTree* tree1, GenTree* tree2 /* = nullptr */)
 {
     // "&local" can be used either as TYP_BYREF or TYP_I_IMPL, but we
     // set its type to TYP_BYREF when we create it. We know if it can
@@ -2342,7 +2343,7 @@ void Compiler::impBashVarAddrsToI(GenTree* tree1, GenTree* tree2 /* = nullptr */
  *  We also allow an implicit conversion of a ldnull into a TYP_I_IMPL(0)
  */
 
-GenTree* Compiler::impImplicitIorI4Cast(GenTree* tree, var_types dstTyp)
+GenTree* Importer::impImplicitIorI4Cast(GenTree* tree, var_types dstTyp)
 {
     var_types currType   = genActualType(tree->gtType);
     var_types wantedType = genActualType(dstTyp);
@@ -2380,7 +2381,7 @@ GenTree* Compiler::impImplicitIorI4Cast(GenTree* tree, var_types dstTyp)
  *  that exist in the IL are turned into explicit casts here.
  */
 
-GenTree* Compiler::impImplicitR4orR8Cast(GenTree* tree, var_types dstTyp)
+GenTree* Importer::impImplicitR4orR8Cast(GenTree* tree, var_types dstTyp)
 {
     if (varTypeIsFloating(tree) && varTypeIsFloating(dstTyp) && (dstTyp != tree->gtType))
     {
@@ -2412,7 +2413,7 @@ GenTree* Compiler::impImplicitR4orR8Cast(GenTree* tree, var_types dstTyp)
 //    The function recognizes all kinds of arrays thus enabling a small runtime
 //    such as CoreRT to skip providing an implementation for InitializeArray.
 
-GenTree* Compiler::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
+GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
 {
     assert(sig->numArgs == 2);
 
@@ -2746,9 +2747,9 @@ GenTree* Compiler::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
     }
 
     GenTree*    dstAddr = gtNewOperNode(GT_ADD, TYP_BYREF, arrayLocalNode, gtNewIconNode(dataOffset, TYP_I_IMPL));
-    GenTreeBlk* dst     = new (this, GT_BLK) GenTreeBlk(dstAddr, typGetBlkLayout(blkSize));
+    GenTreeBlk* dst     = new (comp, GT_BLK) GenTreeBlk(dstAddr, typGetBlkLayout(blkSize));
     GenTree*    srcAddr = gtNewIconHandleNode(reinterpret_cast<size_t>(initData), GTF_ICON_CONST_PTR);
-    GenTreeBlk* src     = new (this, GT_BLK) GenTreeBlk(srcAddr, dst->GetLayout());
+    GenTreeBlk* src     = new (comp, GT_BLK) GenTreeBlk(srcAddr, dst->GetLayout());
 
     dst->gtFlags &= ~GTF_EXCEPT;
     dst->gtFlags |= GTF_IND_NONFAULTING;
@@ -2807,7 +2808,7 @@ GenTree* Compiler::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
 //    own method bodies.
 //
 
-GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
+GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
                                 CORINFO_CLASS_HANDLE    clsHnd,
                                 CORINFO_METHOD_HANDLE   method,
                                 CORINFO_SIG_INFO*       sig,
@@ -2918,7 +2919,7 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
         // wanted to by trying to match which call is the one we need to get
         // the return address of.
         info.compHasNextCallRetAddr = true;
-        return new (this, GT_LABEL) GenTree(GT_LABEL, TYP_I_IMPL);
+        return new (comp, GT_LABEL) GenTree(GT_LABEL, TYP_I_IMPL);
     }
 
     GenTree* retNode = nullptr;
@@ -2996,7 +2997,7 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
 
             assert(sig->numArgs == 0);
 
-            op1 = new (this, GT_MEMORYBARRIER) GenTree(GT_MEMORYBARRIER, TYP_VOID);
+            op1 = new (comp, GT_MEMORYBARRIER) GenTree(GT_MEMORYBARRIER, TYP_VOID);
             op1->gtFlags |= GTF_GLOB_REF | GTF_ASG;
 
             // On XARCH `CORINFO_INTRINSIC_MemoryBarrierLoad` fences need not be emitted.
@@ -3025,7 +3026,7 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
             op2 = impPopStack().val; // value
             op1 = impPopStack().val; // location address
 
-            retNode = new (this, GT_CMPXCHG) GenTreeCmpXchg(genActualType(callType), op1, op2, op3);
+            retNode = new (comp, GT_CMPXCHG) GenTreeCmpXchg(genActualType(callType), op1, op2, op3);
             break;
         }
 #endif // defined(TARGET_XARCH) || defined(TARGET_ARM64)
@@ -3077,7 +3078,8 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
 
                 // Try and clean up the box. Obtain the handle we
                 // were going to pass to the newobj.
-                GenTree* boxTypeHandle = gtTryRemoveBoxUpstreamEffects(box, BR_REMOVE_AND_NARROW_WANT_TYPE_HANDLE);
+                GenTree* boxTypeHandle =
+                    comp->gtTryRemoveBoxUpstreamEffects(box, Compiler::BR_REMOVE_AND_NARROW_WANT_TYPE_HANDLE);
 
                 if (boxTypeHandle != nullptr)
                 {
@@ -3140,7 +3142,7 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
             {
                 JITDUMP("Expanding as special intrinsic\n");
                 impPopStack();
-                op1 = new (this, GT_INTRINSIC) GenTreeIntrinsic(genActualType(callType), op1, intrinsicID, ni, method);
+                op1 = new (comp, GT_INTRINSIC) GenTreeIntrinsic(genActualType(callType), op1, intrinsicID, ni, method);
 
                 // Set the CALL flag to indicate that the operator is implemented by a call.
                 // Set also the EXCEPTION flag because the native implementation of
@@ -3487,7 +3489,7 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
                         {
                             // drop get_CurrentThread() call
                             impPopStack();
-                            call->ReplaceWith(gtNewNothingNode(), this);
+                            call->ReplaceWith(gtNewNothingNode(), comp);
                             retNode = gtNewHelperCallNode(CORINFO_HELP_GETCURRENTMANAGEDTHREADID, TYP_INT);
                         }
                     }
@@ -3725,7 +3727,7 @@ GenTree* Compiler::impIntrinsic(GenTree*                newobjThis,
     return retNode;
 }
 
-GenTree* Compiler::impTypeIsAssignable(GenTree* typeTo, GenTree* typeFrom)
+GenTree* Importer::impTypeIsAssignable(GenTree* typeTo, GenTree* typeFrom)
 {
     // Optimize patterns like:
     //
@@ -3769,7 +3771,7 @@ GenTree* Compiler::impTypeIsAssignable(GenTree* typeTo, GenTree* typeFrom)
     return nullptr;
 }
 
-GenTree* Compiler::impMathIntrinsic(CORINFO_METHOD_HANDLE method,
+GenTree* Importer::impMathIntrinsic(CORINFO_METHOD_HANDLE method,
                                     CORINFO_SIG_INFO*     sig,
                                     var_types             callType,
                                     NamedIntrinsic        intrinsicName,
@@ -3817,7 +3819,7 @@ GenTree* Compiler::impMathIntrinsic(CORINFO_METHOD_HANDLE method,
                     op1 = gtNewCastNode(callType, op1, false, callType);
                 }
 
-                op1 = new (this, GT_INTRINSIC)
+                op1 = new (comp, GT_INTRINSIC)
                     GenTreeIntrinsic(genActualType(callType), op1, CORINFO_INTRINSIC_Illegal, intrinsicName, method);
                 break;
 
@@ -3843,7 +3845,7 @@ GenTree* Compiler::impMathIntrinsic(CORINFO_METHOD_HANDLE method,
                     op2 = gtNewCastNode(callType, op2, false, callType);
                 }
 
-                op1 = new (this, GT_INTRINSIC) GenTreeIntrinsic(genActualType(callType), op1, op2,
+                op1 = new (comp, GT_INTRINSIC) GenTreeIntrinsic(genActualType(callType), op1, op2,
                                                                 CORINFO_INTRINSIC_Illegal, intrinsicName, method);
                 break;
 
@@ -4256,7 +4258,7 @@ NamedIntrinsic Compiler::lookupNamedIntrinsic(CORINFO_METHOD_HANDLE method)
 // Return Value:
 //    a gtNewMustThrowException if mustExpand is true; otherwise, nullptr
 //
-GenTree* Compiler::impUnsupportedNamedIntrinsic(CorInfoHelpFunc       helper,
+GenTree* Importer::impUnsupportedNamedIntrinsic(CorInfoHelpFunc       helper,
                                                 CORINFO_METHOD_HANDLE method,
                                                 CORINFO_SIG_INFO*     sig,
                                                 bool                  mustExpand)
@@ -4318,7 +4320,7 @@ GenTree* Compiler::impUnsupportedNamedIntrinsic(CorInfoHelpFunc       helper,
 
 /*****************************************************************************/
 
-GenTree* Compiler::impArrayAccessIntrinsic(
+GenTree* Importer::impArrayAccessIntrinsic(
     CORINFO_CLASS_HANDLE clsHnd, CORINFO_SIG_INFO* sig, int memberRef, bool readonlyCall, CorInfoIntrinsics intrinsicID)
 {
     /* If we are generating SMALL_CODE, we don't want to use intrinsics for
@@ -4430,7 +4432,7 @@ GenTree* Compiler::impArrayAccessIntrinsic(
     GenTree* arr = impPopStack().val;
     assert(arr->gtType == TYP_REF);
 
-    GenTree* arrElem = new (this, GT_ARR_ELEM) GenTreeArrElem(TYP_BYREF, arr, static_cast<unsigned char>(rank),
+    GenTree* arrElem = new (comp, GT_ARR_ELEM) GenTreeArrElem(TYP_BYREF, arr, static_cast<unsigned char>(rank),
                                                               static_cast<unsigned char>(elemSize), elemType, &inds[0]);
 
     if (intrinsicID != CORINFO_INTRINSIC_Array_Address)
@@ -4458,7 +4460,7 @@ GenTree* Compiler::impArrayAccessIntrinsic(
 
 #ifdef DEBUG
 
-bool Compiler::verCheckTailCallConstraint(OPCODE                  opcode,
+bool Importer::verCheckTailCallConstraint(OPCODE                  opcode,
                                           CORINFO_RESOLVED_TOKEN* pResolvedToken,
                                           CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken // Is this a "constrained."
                                                                                             // call on a type parameter?
@@ -4602,7 +4604,7 @@ bool Compiler::verCheckTailCallConstraint(OPCODE                  opcode,
 }
 #endif // DEBUG
 
-GenTree* Compiler::impImportLdvirtftn(GenTree*                thisPtr,
+GenTree* Importer::impImportLdvirtftn(GenTree*                thisPtr,
                                       CORINFO_RESOLVED_TOKEN* pResolvedToken,
                                       CORINFO_CALL_INFO*      pCallInfo)
 {
@@ -4683,7 +4685,7 @@ GenTree* Compiler::impImportLdvirtftn(GenTree*                thisPtr,
 //   pResolvedToken is known to be a value type; ref type boxing
 //   is handled in the CEE_BOX clause.
 
-int Compiler::impBoxPatternMatch(CORINFO_RESOLVED_TOKEN* pResolvedToken,
+int Importer::impBoxPatternMatch(CORINFO_RESOLVED_TOKEN* pResolvedToken,
                                  const BYTE*             codeAddr,
                                  const BYTE*             codeEndp,
                                  bool                    makeInlineObservation)
@@ -4923,7 +4925,7 @@ int Compiler::impBoxPatternMatch(CORINFO_RESOLVED_TOKEN* pResolvedToken,
 //   strategy may need to peek ahead and see if it is easy to tell how
 //   the box is being used. For now, we defer.
 
-void Compiler::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
+void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
 {
     // Spill any special side effects
     impSpillCatchArg();
@@ -5078,7 +5080,7 @@ void Compiler::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
         op1 = gtNewLclvNode(impBoxTemp, TYP_REF);
 
         // Record that this is a "box" node and keep track of the matching parts.
-        op1 = new (this, GT_BOX) GenTreeBox(TYP_REF, op1, asgStmt, copyStmt);
+        op1 = new (comp, GT_BOX) GenTreeBox(TYP_REF, op1, asgStmt, copyStmt);
 
         // If it is a value class, mark the "box" node.  We can use this information
         // to optimise several cases:
@@ -5129,7 +5131,7 @@ void Compiler::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
 //    Multi-dimensional array constructors are imported as calls to a JIT
 //    helper, not as regular calls.
 
-void Compiler::impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORINFO_CALL_INFO* pCallInfo)
+void Importer::impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORINFO_CALL_INFO* pCallInfo)
 {
     GenTree* classHandle = impParentClassTokenToHandle(pResolvedToken);
     if (classHandle == nullptr)
@@ -5257,7 +5259,7 @@ void Compiler::impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORI
     impPushOnStack(node, typeInfo(TI_REF, pResolvedToken->hClass));
 }
 
-GenTree* Compiler::impTransformThis(GenTree*                thisPtr,
+GenTree* Importer::impTransformThis(GenTree*                thisPtr,
                                     CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken,
                                     CORINFO_THIS_TRANSFORM  transform)
 {
@@ -5339,7 +5341,7 @@ GenTree* Compiler::impTransformThis(GenTree*                thisPtr,
 // Notes:
 //    Checks a number of ambient conditions where we could pinvoke but choose not to
 
-bool Compiler::impCanPInvokeInline()
+bool Importer::impCanPInvokeInline()
 {
     return getInlinePInvokeEnabled() && (!opts.compDbgCode) && (compCodeOpt() != SMALL_CODE) &&
            (!opts.compNoPInvokeInlineCB) // profiler is preventing inline pinvoke
@@ -5374,7 +5376,7 @@ bool Compiler::impCanPInvokeInline()
 //    These restrictions are currently also in place for CoreCLR but
 //    can be relaxed when coreclr/#8459 is addressed.
 
-bool Compiler::impCanPInvokeInlineCallSite(BasicBlock* block)
+bool Importer::impCanPInvokeInlineCallSite(BasicBlock* block)
 {
     if (block->hasHndIndex())
     {
@@ -5448,7 +5450,7 @@ bool Compiler::impCanPInvokeInlineCallSite(BasicBlock* block)
 //
 //   If GTF_CALL_UNMANAGED is set, increments info.compUnmanagedCallCountWithGCTransition
 
-void Compiler::impCheckForPInvokeCall(
+void Importer::impCheckForPInvokeCall(
     GenTreeCall* call, CORINFO_METHOD_HANDLE methHnd, CORINFO_SIG_INFO* sig, unsigned mflags, BasicBlock* block)
 {
     CorInfoCallConvExtension unmanagedCallConv;
@@ -5566,7 +5568,7 @@ void Compiler::impCheckForPInvokeCall(
     }
 }
 
-GenTreeCall* Compiler::impImportIndirectCall(CORINFO_SIG_INFO* sig, IL_OFFSETX ilOffset)
+GenTreeCall* Importer::impImportIndirectCall(CORINFO_SIG_INFO* sig, IL_OFFSETX ilOffset)
 {
     // The function pointer is on top of the stack - it may be a
     // complex expression. As it is evaluated after the args,
@@ -5592,7 +5594,7 @@ GenTreeCall* Compiler::impImportIndirectCall(CORINFO_SIG_INFO* sig, IL_OFFSETX i
 
 /*****************************************************************************/
 
-void Compiler::impPopArgsForUnmanagedCall(GenTree* call, CORINFO_SIG_INFO* sig)
+void Importer::impPopArgsForUnmanagedCall(GenTree* call, CORINFO_SIG_INFO* sig)
 {
     assert(call->gtFlags & GTF_CALL_UNMANAGED);
 
@@ -5699,7 +5701,7 @@ void Compiler::impPopArgsForUnmanagedCall(GenTree* call, CORINFO_SIG_INFO* sig)
 //               initializtion.  Otherwise, nullptr.
 //
 
-GenTree* Compiler::impInitClass(CORINFO_RESOLVED_TOKEN* pResolvedToken)
+GenTree* Importer::impInitClass(CORINFO_RESOLVED_TOKEN* pResolvedToken)
 {
     CorInfoInitClassResult initClassResult =
         info.compCompHnd->initClass(pResolvedToken->hField, info.compMethodHnd, impTokenLookupContextHandle);
@@ -5731,7 +5733,7 @@ GenTree* Compiler::impInitClass(CORINFO_RESOLVED_TOKEN* pResolvedToken)
     return node;
 }
 
-GenTree* Compiler::impImportStaticReadOnlyField(void* addr, var_types type)
+GenTree* Importer::impImportStaticReadOnlyField(void* addr, var_types type)
 {
 #if defined(DEBUG)
     // If we're replaying under SuperPMI, we're going to read the data stored by SuperPMI and use it
@@ -5791,7 +5793,7 @@ GenTree* Compiler::impImportStaticReadOnlyField(void* addr, var_types type)
     }
 }
 
-GenTreeFieldAddr* Compiler::impImportFieldAddr(GenTree*                      addr,
+GenTreeFieldAddr* Importer::impImportFieldAddr(GenTree*                      addr,
                                                const CORINFO_RESOLVED_TOKEN& resolvedToken,
                                                const CORINFO_FIELD_INFO&     fieldInfo)
 {
@@ -5843,7 +5845,7 @@ GenTreeFieldAddr* Compiler::impImportFieldAddr(GenTree*                      add
     return field;
 }
 
-GenTree* Compiler::impImportFieldInstanceAddrHelper(OPCODE                    opcode,
+GenTree* Importer::impImportFieldInstanceAddrHelper(OPCODE                    opcode,
                                                     GenTree*                  objPtr,
                                                     CORINFO_RESOLVED_TOKEN*   resolvedToken,
                                                     const CORINFO_FIELD_INFO& fieldInfo,
@@ -5880,7 +5882,7 @@ GenTree* Compiler::impImportFieldInstanceAddrHelper(OPCODE                    op
     return indir;
 }
 
-GenTree* Compiler::impImportStaticFieldAddressHelper(OPCODE                    opcode,
+GenTree* Importer::impImportStaticFieldAddressHelper(OPCODE                    opcode,
                                                      CORINFO_RESOLVED_TOKEN*   resolvedToken,
                                                      const CORINFO_FIELD_INFO& fieldInfo)
 {
@@ -5978,20 +5980,20 @@ GenTree* Compiler::impImportStaticFieldAddressHelper(OPCODE                    o
         fieldSeq = GetFieldSeqStore()->Append(fieldSeq, GetFieldSeqStore()->GetBoxedValuePseudoField());
     }
 
-    addr = new (this, GT_FIELD_ADDR) GenTreeFieldAddr(addr->GetType(), addr, fieldSeq, fieldInfo.offset);
+    addr = new (comp, GT_FIELD_ADDR) GenTreeFieldAddr(addr->GetType(), addr, fieldSeq, fieldInfo.offset);
 
     if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP) != 0)
     {
         addr = gtNewOperNode(GT_IND, TYP_REF, addr);
         addr->gtFlags |= GTF_IND_NONFAULTING;
         fieldSeq = GetFieldSeqStore()->GetBoxedValuePseudoField();
-        addr     = new (this, GT_FIELD_ADDR) GenTreeFieldAddr(TYP_BYREF, addr, fieldSeq, TARGET_POINTER_SIZE);
+        addr     = new (comp, GT_FIELD_ADDR) GenTreeFieldAddr(TYP_BYREF, addr, fieldSeq, TARGET_POINTER_SIZE);
     }
 
     return addr;
 }
 
-GenTree* Compiler::impImportLdSFld(OPCODE                    opcode,
+GenTree* Importer::impImportLdSFld(OPCODE                    opcode,
                                    CORINFO_RESOLVED_TOKEN*   resolvedToken,
                                    const CORINFO_FIELD_INFO& fieldInfo,
                                    unsigned                  prefixFlags)
@@ -6157,7 +6159,7 @@ GenTree* Compiler::impImportLdSFld(OPCODE                    opcode,
     return field;
 }
 
-GenTree* Compiler::impImportStSFld(GenTree*                  value,
+GenTree* Importer::impImportStSFld(GenTree*                  value,
                                    CORINFO_CLASS_HANDLE      valueStructType,
                                    CORINFO_RESOLVED_TOKEN*   resolvedToken,
                                    const CORINFO_FIELD_INFO& fieldInfo,
@@ -6245,7 +6247,7 @@ GenTree* Compiler::impImportStSFld(GenTree*                  value,
     return field;
 }
 
-GenTree* Compiler::impImportStaticFieldAccess(OPCODE                    opcode,
+GenTree* Importer::impImportStaticFieldAccess(OPCODE                    opcode,
                                               CORINFO_RESOLVED_TOKEN*   resolvedToken,
                                               const CORINFO_FIELD_INFO& fieldInfo)
 {
@@ -6377,7 +6379,7 @@ GenTree* Compiler::impImportStaticFieldAccess(OPCODE                    opcode,
 #endif
 
             fieldSeq = GetFieldSeqStore()->GetBoxedValuePseudoField();
-            addr     = new (this, GT_FIELD_ADDR) GenTreeFieldAddr(TYP_BYREF, addr, fieldSeq, TARGET_POINTER_SIZE);
+            addr     = new (comp, GT_FIELD_ADDR) GenTreeFieldAddr(TYP_BYREF, addr, fieldSeq, TARGET_POINTER_SIZE);
 
             if (layout != nullptr)
             {
@@ -6392,7 +6394,7 @@ GenTree* Compiler::impImportStaticFieldAccess(OPCODE                    opcode,
 
     if (addr == nullptr)
     {
-        addr = new (this, GT_CLS_VAR_ADDR) GenTreeClsVar(resolvedToken->hField, fieldSeq);
+        addr = new (comp, GT_CLS_VAR_ADDR) GenTreeClsVar(resolvedToken->hField, fieldSeq);
 
         if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_INITCLASS) != 0)
         {
@@ -6423,7 +6425,7 @@ GenTree* Compiler::impImportStaticFieldAccess(OPCODE                    opcode,
         addr = indir;
 
         fieldSeq = GetFieldSeqStore()->GetBoxedValuePseudoField();
-        addr     = new (this, GT_FIELD_ADDR) GenTreeFieldAddr(TYP_BYREF, addr, fieldSeq, TARGET_POINTER_SIZE);
+        addr     = new (comp, GT_FIELD_ADDR) GenTreeFieldAddr(TYP_BYREF, addr, fieldSeq, TARGET_POINTER_SIZE);
 
         if (layout != nullptr)
         {
@@ -6445,7 +6447,7 @@ GenTree* Compiler::impImportStaticFieldAccess(OPCODE                    opcode,
     return indir;
 }
 
-GenTree* Compiler::impConvertFieldStoreValue(var_types storeType, GenTree* value)
+GenTree* Importer::impConvertFieldStoreValue(var_types storeType, GenTree* value)
 {
     if (varActualType(storeType) == varActualType(value->GetType()))
     {
@@ -6503,7 +6505,7 @@ GenTree* Compiler::impConvertFieldStoreValue(var_types storeType, GenTree* value
     return value;
 }
 
-void Compiler::impHandleAccessAllowed(CorInfoIsAccessAllowedResult result, const CORINFO_HELPER_DESC& helperCall)
+void Importer::impHandleAccessAllowed(CorInfoIsAccessAllowedResult result, const CORINFO_HELPER_DESC& helperCall)
 {
     if (result == CORINFO_ACCESS_ILLEGAL)
     {
@@ -6511,7 +6513,7 @@ void Compiler::impHandleAccessAllowed(CorInfoIsAccessAllowedResult result, const
     }
 }
 
-void Compiler::impInsertHelperCall(const CORINFO_HELPER_DESC& helperInfo)
+void Importer::impInsertHelperCall(const CORINFO_HELPER_DESC& helperInfo)
 {
     // Construct the argument list
     GenTreeCall::Use* args = nullptr;
@@ -6616,7 +6618,7 @@ bool Compiler::impTailCallRetTypeCompatible(GenTreeCall* call, bool allowWidenin
  * to a supported tail call IL pattern.
  *
  */
-bool Compiler::impIsTailCallILPattern(
+bool Importer::impIsTailCallILPattern(
     bool tailPrefixed, OPCODE curOpcode, const BYTE* codeAddrOfNextOpcode, const BYTE* codeEnd, bool isRecursive)
 {
     // Bail out if the current opcode is not a call.
@@ -6652,7 +6654,7 @@ bool Compiler::impIsTailCallILPattern(
  * Determine whether the call could be converted to an implicit tail call
  *
  */
-bool Compiler::impIsImplicitTailCallCandidate(
+bool Importer::impIsImplicitTailCallCandidate(
     OPCODE opcode, const BYTE* codeAddrOfNextOpcode, const BYTE* codeEnd, int prefixFlags, bool isRecursive)
 {
 
@@ -6722,7 +6724,7 @@ bool Compiler::impIsImplicitTailCallCandidate(
 #pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
 #endif
 
-var_types Compiler::impImportCall(OPCODE                  opcode,
+var_types Importer::impImportCall(OPCODE                  opcode,
                                   CORINFO_RESOLVED_TOKEN* pResolvedToken,
                                   CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken,
                                   GenTree*                newobjThis,
@@ -7700,7 +7702,7 @@ DONE:
 #ifdef DEBUG
     // In debug we want to be able to register callsites with the EE.
     assert(call->AsCall()->callSig == nullptr);
-    call->AsCall()->callSig  = new (this, CMK_Generic) CORINFO_SIG_INFO;
+    call->AsCall()->callSig  = new (comp, CMK_Generic) CORINFO_SIG_INFO;
     *call->AsCall()->callSig = *sig;
 #endif
 
@@ -7753,7 +7755,7 @@ DONE:
         // managed calling convention dictates that the callee widens the value. For explicit tailcalls we don't
         // want to require this detail of the calling convention to bubble up to the tailcall helpers
         bool allowWidening = isImplicitTailCall;
-        if (canTailCall && !impTailCallRetTypeCompatible(call->AsCall(), allowWidening))
+        if (canTailCall && !comp->impTailCallRetTypeCompatible(call->AsCall(), allowWidening))
         {
             canTailCall             = false;
             szCanTailCallFailReason = "Return types are not tail call compatible";
@@ -7819,7 +7821,7 @@ DONE:
                 if (isExplicitTailCall)
                 {
                     assert(call->AsCall()->tailCallInfo == nullptr);
-                    call->AsCall()->tailCallInfo = new (this, CMK_CorTailCallInfo) TailCallSiteInfo;
+                    call->AsCall()->tailCallInfo = new (comp, CMK_CorTailCallInfo) TailCallSiteInfo;
                     switch (opcode)
                     {
                         case CEE_CALLI:
@@ -7880,7 +7882,7 @@ DONE:
         JITDUMP("\nFound tail recursive call in the method. Mark " FMT_BB " to " FMT_BB
                 " as having a backward branch.\n",
                 loopHead->bbNum, compCurBB->bbNum);
-        fgMarkBackwardJump(loopHead, compCurBB);
+        comp->fgMarkBackwardJump(loopHead, compCurBB);
     }
 
     // Note: we assume that small return types are already normalized by the managed callee
@@ -8049,7 +8051,7 @@ DONE_INTRINSIC:
 #pragma warning(pop)
 #endif
 
-void Compiler::impInitializeStructCall(GenTreeCall* call, CORINFO_CLASS_HANDLE retClass)
+void Importer::impInitializeStructCall(GenTreeCall* call, CORINFO_CLASS_HANDLE retClass)
 {
     assert(call->GetType() == TYP_STRUCT);
     assert(call->GetRetSigType() == TYP_STRUCT);
@@ -8074,7 +8076,7 @@ void Compiler::impInitializeStructCall(GenTreeCall* call, CORINFO_CLASS_HANDLE r
     {
         assert(retKind.type == TYP_STRUCT);
 
-        retDesc->InitializeStruct(this, layout);
+        retDesc->InitializeStruct(comp, layout);
     }
 #endif
     else
@@ -8092,7 +8094,7 @@ void Compiler::impInitializeStructCall(GenTreeCall* call, CORINFO_CLASS_HANDLE r
 
 #if FEATURE_MULTIREG_RET
 
-GenTree* Compiler::impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CLASS_HANDLE retClass)
+GenTree* Importer::impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CLASS_HANDLE retClass)
 {
     assert(varTypeIsStruct(info.compRetType));
     assert(info.compRetBuffArg == BAD_VAR_NUM);
@@ -8154,7 +8156,7 @@ GenTree* Compiler::impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CL
 
 #endif // FEATURE_MULTIREG_RET
 
-GenTree* Compiler::impSpillPseudoReturnBufferCall(GenTreeCall* call)
+GenTree* Importer::impSpillPseudoReturnBufferCall(GenTreeCall* call)
 {
     assert(call->TreatAsHasRetBufArg());
     assert(call->TypeIs(TYP_STRUCT));
@@ -8190,7 +8192,7 @@ GenTree* Compiler::impSpillPseudoReturnBufferCall(GenTreeCall* call)
 
 #if !defined(FEATURE_EH_FUNCLETS)
 
-void Compiler::impImportLeave(BasicBlock* block)
+void Importer::impImportLeave(BasicBlock* block)
 {
 #ifdef DEBUG
     if (verbose)
@@ -8355,7 +8357,7 @@ void Compiler::impImportLeave(BasicBlock* block)
             assert(finallyNesting <= compHndBBtabCount);
 
             callBlock->bbJumpDest = HBtab->ebdHndBeg; // This callBlock will call the "finally" handler.
-            GenTree* endLFin      = new (this, GT_END_LFIN) GenTreeVal(GT_END_LFIN, TYP_VOID, finallyNesting);
+            GenTree* endLFin      = new (comp, GT_END_LFIN) GenTreeVal(GT_END_LFIN, TYP_VOID, finallyNesting);
             endLFinStmt           = gtNewStmt(endLFin);
             endCatches            = NULL;
 
@@ -8457,7 +8459,7 @@ void Compiler::impImportLeave(BasicBlock* block)
 
 #else // FEATURE_EH_FUNCLETS
 
-void Compiler::impImportLeave(BasicBlock* block)
+void Importer::impImportLeave(BasicBlock* block)
 {
 #ifdef DEBUG
     if (verbose)
@@ -8907,7 +8909,7 @@ void Compiler::impImportLeave(BasicBlock* block)
 // This is called when reimporting a leave block. It resets the JumpKind,
 // JumpDest, and bbNext to the original values
 
-void Compiler::impResetLeaveBlock(BasicBlock* block, unsigned jmpAddr)
+void Importer::impResetLeaveBlock(BasicBlock* block, unsigned jmpAddr)
 {
 #if defined(FEATURE_EH_FUNCLETS)
     // With EH Funclets, while importing leave opcode we create another block ending with BBJ_ALWAYS (call it B1)
@@ -8978,7 +8980,7 @@ void Compiler::impResetLeaveBlock(BasicBlock* block, unsigned jmpAddr)
 // Get the first non-prefix opcode. Used for verification of valid combinations
 // of prefixes and actual opcodes.
 
-OPCODE Compiler::impGetNonPrefixOpcode(const BYTE* codeAddr, const BYTE* codeEndp)
+OPCODE Importer::impGetNonPrefixOpcode(const BYTE* codeAddr, const BYTE* codeEndp)
 {
     while (codeAddr < codeEndp)
     {
@@ -9016,7 +9018,7 @@ OPCODE Compiler::impGetNonPrefixOpcode(const BYTE* codeAddr, const BYTE* codeEnd
 /*****************************************************************************/
 // Checks whether the opcode is a valid opcode for volatile. and unaligned. prefixes
 
-void Compiler::impValidateMemoryAccessOpcode(const BYTE* codeAddr, const BYTE* codeEndp, bool volatilePrefix)
+void Importer::impValidateMemoryAccessOpcode(const BYTE* codeAddr, const BYTE* codeEndp, bool volatilePrefix)
 {
     OPCODE opcode = impGetNonPrefixOpcode(codeAddr, codeEndp);
 
@@ -9032,7 +9034,7 @@ void Compiler::impValidateMemoryAccessOpcode(const BYTE* codeAddr, const BYTE* c
     }
 }
 
-var_types Compiler::impGetNumericBinaryOpType(genTreeOps oper, bool fUnsigned, GenTree** pOp1, GenTree** pOp2)
+var_types Importer::impGetNumericBinaryOpType(genTreeOps oper, bool fUnsigned, GenTree** pOp1, GenTree** pOp2)
 {
     GenTree* op1 = *pOp1;
     GenTree* op2 = *pOp2;
@@ -9191,7 +9193,7 @@ var_types Compiler::impGetNumericBinaryOpType(genTreeOps oper, bool fUnsigned, G
     return varActualType(op1->GetType());
 }
 
-void Compiler::impAddCompareOpImplicitCasts(bool isUnsigned, GenTree*& op1, GenTree*& op2)
+void Importer::impAddCompareOpImplicitCasts(bool isUnsigned, GenTree*& op1, GenTree*& op2)
 {
     if (varTypeIsFloating(op1->GetType()))
     {
@@ -9218,7 +9220,7 @@ void Compiler::impAddCompareOpImplicitCasts(bool isUnsigned, GenTree*& op1, GenT
 #endif
 }
 
-void Compiler::impBranchToNextBlock(BasicBlock* block, GenTree* op1, GenTree* op2)
+void Importer::impBranchToNextBlock(BasicBlock* block, GenTree* op1, GenTree* op2)
 {
     assert(opts.OptimizationEnabled() && (block->bbJumpDest == block->bbNext));
 
@@ -9254,7 +9256,7 @@ void Compiler::impBranchToNextBlock(BasicBlock* block, GenTree* op1, GenTree* op
 // Return Value:
 //   tree representing optimized cast, or null if no optimization possible
 
-GenTree* Compiler::impOptimizeCastClassOrIsInst(GenTree* op1, CORINFO_RESOLVED_TOKEN* pResolvedToken, bool isCastClass)
+GenTree* Importer::impOptimizeCastClassOrIsInst(GenTree* op1, CORINFO_RESOLVED_TOKEN* pResolvedToken, bool isCastClass)
 {
     assert(op1->TypeGet() == TYP_REF);
 
@@ -9305,7 +9307,7 @@ GenTree* Compiler::impOptimizeCastClassOrIsInst(GenTree* op1, CORINFO_RESOLVED_T
                 if (GenTreeBox* box = op1->IsBox())
                 {
                     JITDUMP("Also removing upstream box\n");
-                    gtTryRemoveBoxUpstreamEffects(box);
+                    comp->gtTryRemoveBoxUpstreamEffects(box);
                 }
 
                 return result;
@@ -9347,7 +9349,7 @@ GenTree* Compiler::impOptimizeCastClassOrIsInst(GenTree* op1, CORINFO_RESOLVED_T
 // Notes:
 //   May expand into a series of runtime checks or a helper call.
 
-GenTree* Compiler::impCastClassOrIsInstToTree(GenTree*                op1,
+GenTree* Importer::impCastClassOrIsInstToTree(GenTree*                op1,
                                               GenTree*                op2,
                                               CORINFO_RESOLVED_TOKEN* pResolvedToken,
                                               bool                    isCastClass)
@@ -9535,7 +9537,7 @@ GenTree* Compiler::impCastClassOrIsInstToTree(GenTree*                op1,
 //    Conservatively correct; may return true for some blocks that are
 //    not actually in loops.
 //
-bool Compiler::impBlockIsInALoop(BasicBlock* block)
+bool Importer::impBlockIsInALoop(BasicBlock* block)
 {
     return (compIsForInlining() && ((impInlineInfo->iciBlock->bbFlags & BBF_BACKWARD_JUMP) != 0)) ||
            ((block->bbFlags & BBF_BACKWARD_JUMP) != 0);
@@ -9548,7 +9550,7 @@ bool Compiler::impBlockIsInALoop(BasicBlock* block)
 /*****************************************************************************
  *  Import the instr for the given basic block
  */
-void Compiler::impImportBlockCode(BasicBlock* block)
+void Importer::impImportBlockCode(BasicBlock* block)
 {
 #ifdef DEBUG
     if (verbose)
@@ -9585,7 +9587,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             if (block->bbFlags & BBF_BACKWARD_JUMP_TARGET && (verCurrentState.esStackDepth == 0))
             {
                 block->bbFlags |= BBF_PATCHPOINT;
-                setMethodHasPatchpoint();
+                comp->setMethodHasPatchpoint();
             }
         }
     }
@@ -9693,7 +9695,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 
                     if (impCurStmtOffs != BAD_IL_OFFSET && opts.compDbgCode)
                     {
-                        GenTree* placeHolder = new (this, GT_NO_OP) GenTree(GT_NO_OP, TYP_VOID);
+                        GenTree* placeHolder = new (comp, GT_NO_OP) GenTree(GT_NO_OP, TYP_VOID);
                         impAppendTree(placeHolder, CHECK_SPILL_NONE, impCurStmtOffs);
 
                         assert(impCurStmtOffs == BAD_IL_OFFSET);
@@ -10408,7 +10410,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 // Probably they messed up arg passing...
                 fgNoStructPromotion = true;
 
-                impSpillNoneAppendTree(new (this, GT_JMP) GenTreeVal(GT_JMP, TYP_VOID, (size_t)resolvedToken.hMethod));
+                impSpillNoneAppendTree(new (comp, GT_JMP) GenTreeVal(GT_JMP, TYP_VOID, (size_t)resolvedToken.hMethod));
                 break;
 
             case CEE_LDELEMA:
@@ -10722,7 +10724,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                 {
                     oper = static_cast<genTreeOps>(oper - (GT_ADD - GT_FADD));
 
-                    op1 = new (this, oper == GT_FMOD ? GT_CALL : oper)
+                    op1 = new (comp, oper == GT_FMOD ? GT_CALL : oper)
                         GenTreeOp(oper, type, op1, op2 DEBUGARG(/*largeNode*/ true));
                 }
                 else
@@ -10761,7 +10763,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                                                (oper == GT_MOD) || (oper == GT_UMOD)))
                     {
                         // LONG multiplication/division usually requires helper calls on 32 bit targets.
-                        op1 = new (this, GT_CALL) GenTreeOp(oper, type, op1, op2 DEBUGARG(/*largeNode*/ true));
+                        op1 = new (comp, GT_CALL) GenTreeOp(oper, type, op1, op2 DEBUGARG(/*largeNode*/ true));
                     }
                     else
 #endif
@@ -10782,14 +10784,14 @@ void Compiler::impImportBlockCode(BasicBlock* block)
                     }
                     else if (varTypeIsIntegral(op1->GetType()) && op1->OperIs(GT_DIV, GT_UDIV, GT_MOD, GT_UMOD))
                     {
-                        if (op1->OperMayThrow(this))
+                        if (op1->OperMayThrow(comp))
                         {
                             op1->gtFlags |= GTF_EXCEPT;
                         }
                     }
                     else
                     {
-                        assert(!op1->OperMayThrow(this));
+                        assert(!op1->OperMayThrow(comp));
                     }
                 }
 
@@ -13500,7 +13502,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
             case CEE_NOP:
                 if (opts.compDbgCode)
                 {
-                    impSpillAllAppendTree(new (this, GT_NO_OP) GenTree(GT_NO_OP, TYP_VOID));
+                    impSpillAllAppendTree(new (comp, GT_NO_OP) GenTree(GT_NO_OP, TYP_VOID));
                 }
                 break;
 
@@ -13537,7 +13539,7 @@ void Compiler::impImportBlockCode(BasicBlock* block)
 // Shared by the various CEE_LDARG opcodes
 // ilArgNum is the argument index as specified in IL.
 // It will be mapped to the correct lvaTable index
-void Compiler::impLoadArg(unsigned ilArgNum, IL_OFFSET offset)
+void Importer::impLoadArg(unsigned ilArgNum, IL_OFFSET offset)
 {
     if (compIsForInlining())
     {
@@ -13571,7 +13573,7 @@ void Compiler::impLoadArg(unsigned ilArgNum, IL_OFFSET offset)
 // Shared by the various CEE_LDLOC opcodes
 // ilLocNum is the local index as specified in IL.
 // It will be mapped to the correct lvaTable index
-void Compiler::impLoadLoc(unsigned ilLocNum, IL_OFFSET offset)
+void Importer::impLoadLoc(unsigned ilLocNum, IL_OFFSET offset)
 {
     unsigned lclNum;
 
@@ -13601,7 +13603,7 @@ void Compiler::impLoadLoc(unsigned ilLocNum, IL_OFFSET offset)
 
 // Load a local/argument on the operand stack
 // lclNum is an index into lvaTable *NOT* the arg/lcl index in the IL
-void Compiler::impPushLclVar(unsigned lclNum, IL_OFFSET offset)
+void Importer::impPushLclVar(unsigned lclNum, IL_OFFSET offset)
 {
     LclVarDsc* lcl  = lvaGetDesc(lclNum);
     var_types  type = lcl->GetType();
@@ -13620,7 +13622,7 @@ void Compiler::impPushLclVar(unsigned lclNum, IL_OFFSET offset)
 // Returns:
 //     True if import was successful (may fail for some inlinees)
 //
-bool Compiler::impInlineReturnInstruction()
+bool Importer::impInlineReturnInstruction()
 {
     assert(compIsForInlining());
 
@@ -13639,7 +13641,7 @@ bool Compiler::impInlineReturnInstruction()
     return inlImportReturn(impInlineInfo, op2, retClsHnd);
 }
 
-void Compiler::impReturnInstruction(int prefixFlags, OPCODE* opcode)
+void Importer::impReturnInstruction(int prefixFlags, OPCODE* opcode)
 {
     assert(!compIsForInlining());
 
@@ -13649,7 +13651,7 @@ void Compiler::impReturnInstruction(int prefixFlags, OPCODE* opcode)
     {
         assert(info.retDesc.GetRegCount() == 0);
 
-        ret = new (this, GT_RETURN) GenTreeOp(GT_RETURN, TYP_VOID);
+        ret = new (comp, GT_RETURN) GenTreeOp(GT_RETURN, TYP_VOID);
     }
     else
     {
@@ -13702,7 +13704,7 @@ void Compiler::impReturnInstruction(int prefixFlags, OPCODE* opcode)
 
             if (info.retDesc.GetRegCount() == 0)
             {
-                ret = new (this, GT_RETURN) GenTreeOp(GT_RETURN, TYP_VOID);
+                ret = new (comp, GT_RETURN) GenTreeOp(GT_RETURN, TYP_VOID);
             }
             else
             {
@@ -13751,7 +13753,7 @@ void Compiler::impReturnInstruction(int prefixFlags, OPCODE* opcode)
     impSpillNoneAppendTree(ret);
 }
 
-void Compiler::impAddPendingEHSuccessors(BasicBlock* block)
+void Importer::impAddPendingEHSuccessors(BasicBlock* block)
 {
     assert(!compIsForInlining());
 
@@ -13822,7 +13824,7 @@ void Compiler::impAddPendingEHSuccessors(BasicBlock* block)
     }
 }
 
-void Compiler::impImportBlock(BasicBlock* block)
+void Importer::impImportBlock(BasicBlock* block)
 {
     // BBF_INTERNAL blocks only exist during importation due to EH canonicalization. We need to
     // handle them specially. In particular, there is no IL to import for them, but we do need
@@ -13899,7 +13901,7 @@ void Compiler::impImportBlock(BasicBlock* block)
     }
 }
 
-bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
+bool Importer::impSpillStackAtBlockEnd(BasicBlock* block)
 {
     JITDUMP("\nSpilling %u stack entries at the end of " FMT_BB "\n", verCurrentState.esStackDepth, block->bbNum);
 
@@ -13943,7 +13945,7 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
     {
         unsigned spillTempBaseLclNum = lvaGrabTemps(verCurrentState.esStackDepth DEBUGARG("spill clique temp"));
 
-        state = new (this, CMK_ImpStack) ImportSpillCliqueState(spillTempBaseLclNum, verCurrentState.esStackDepth);
+        state = new (comp, CMK_ImpStack) ImportSpillCliqueState(spillTempBaseLclNum, verCurrentState.esStackDepth);
 
         impSetSpillCliqueState(block, state);
 
@@ -14123,7 +14125,7 @@ bool Compiler::impSpillStackAtBlockEnd(BasicBlock* block)
     return reimportSpillClique;
 }
 
-void Compiler::impImportBlockPending(BasicBlock* block)
+void Importer::impImportBlockPending(BasicBlock* block)
 {
     if (((block->bbFlags & BBF_IMPORTED) == 0) && !impIsPendingBlockMember(block))
     {
@@ -14133,7 +14135,7 @@ void Compiler::impImportBlockPending(BasicBlock* block)
     }
 }
 
-void Compiler::impPushPendingBlock(BasicBlock* block)
+void Importer::impPushPendingBlock(BasicBlock* block)
 {
     assert((block->bbFlags & BBF_IMPORTED) == 0);
     assert(!impIsPendingBlockMember(block));
@@ -14143,7 +14145,7 @@ void Compiler::impPushPendingBlock(BasicBlock* block)
     impSetPendingBlockMember(block, true);
 }
 
-BasicBlock* Compiler::impPopPendingBlock()
+BasicBlock* Importer::impPopPendingBlock()
 {
     BlockListNode* node = impPendingBlockStack;
 
@@ -14159,27 +14161,27 @@ BasicBlock* Compiler::impPopPendingBlock()
     return block;
 }
 
-void* Compiler::BlockListNode::operator new(size_t sz, Compiler* comp)
+void* Importer::BlockListNode::operator new(size_t sz, Importer* importer)
 {
-    if (comp->impBlockListNodeFreeList == nullptr)
+    if (importer->impBlockListNodeFreeList == nullptr)
     {
-        return comp->getAllocator(CMK_BasicBlock).allocate<BlockListNode>(1);
+        return importer->comp->getAllocator(CMK_BasicBlock).allocate<BlockListNode>(1);
     }
     else
     {
-        BlockListNode* res             = comp->impBlockListNodeFreeList;
-        comp->impBlockListNodeFreeList = res->m_next;
+        BlockListNode* res                 = importer->impBlockListNodeFreeList;
+        importer->impBlockListNodeFreeList = res->m_next;
         return res;
     }
 }
 
-void Compiler::FreeBlockListNode(Compiler::BlockListNode* node)
+void Importer::FreeBlockListNode(Importer::BlockListNode* node)
 {
     node->m_next             = impBlockListNodeFreeList;
     impBlockListNodeFreeList = node;
 }
 
-void Compiler::impWalkSpillCliqueFromPred(BasicBlock* block, SpillCliqueWalker* callback)
+void Importer::impWalkSpillCliqueFromPred(BasicBlock* block, SpillCliqueWalker* callback)
 {
     bool toDo = true;
 
@@ -14243,7 +14245,7 @@ void Compiler::impWalkSpillCliqueFromPred(BasicBlock* block, SpillCliqueWalker* 
     assert(impIsSpillCliqueMember(SpillCliquePred, block));
 }
 
-void Compiler::impSetSpillCliqueState(BasicBlock* block, ImportSpillCliqueState* state)
+void Importer::impSetSpillCliqueState(BasicBlock* block, ImportSpillCliqueState* state)
 {
     class SetSpillCliqueState : public SpillCliqueWalker
     {
@@ -14277,16 +14279,16 @@ void Compiler::impSetSpillCliqueState(BasicBlock* block, ImportSpillCliqueState*
     impWalkSpillCliqueFromPred(block, &callback);
 }
 
-void Compiler::impReimportSpillClique(BasicBlock* block)
+void Importer::impReimportSpillClique(BasicBlock* block)
 {
     class ReimportSpillClique : public SpillCliqueWalker
     {
-        Compiler*   m_compiler;
+        Importer*   m_importer;
         BasicBlock* m_currentBlock;
 
     public:
-        ReimportSpillClique(Compiler* compiler, BasicBlock* currentBlock)
-            : m_compiler(compiler), m_currentBlock(currentBlock)
+        ReimportSpillClique(Importer* importer, BasicBlock* currentBlock)
+            : m_importer(importer), m_currentBlock(currentBlock)
         {
         }
 
@@ -14299,7 +14301,7 @@ void Compiler::impReimportSpillClique(BasicBlock* block)
             }
 
             // If it's already imported it cannot be pending.
-            assert(!m_compiler->impIsPendingBlockMember(block));
+            assert(!m_importer->impIsPendingBlockMember(block));
 
             if ((block == m_currentBlock) && (dir == SpillCliquePred))
             {
@@ -14313,7 +14315,7 @@ void Compiler::impReimportSpillClique(BasicBlock* block)
             JITDUMP(FMT_BB " will be reimported\n", block->bbNum);
 
             block->bbFlags &= ~BBF_IMPORTED;
-            m_compiler->impPushPendingBlock(block);
+            m_importer->impPushPendingBlock(block);
         }
     } callback(this, block);
 
@@ -14322,13 +14324,13 @@ void Compiler::impReimportSpillClique(BasicBlock* block)
     // block has an outgoing live stack slot of type native int.
     // We need to reset these before traversal because they have already been set
     // by the previous walk to determine all the members of the spill clique.
-    impInlineRoot()->impSpillCliqueMembers.Reset();
+    impInlineRoot()->m_importer.impSpillCliqueMembers.Reset();
 
     impWalkSpillCliqueFromPred(block, &callback);
 }
 
 // Set the current state to the state at the start of the basic block
-void Compiler::impSetCurrentState(BasicBlock* block)
+void Importer::impSetCurrentState(BasicBlock* block)
 {
     if (block->bbEntryState == nullptr)
     {
@@ -14366,17 +14368,17 @@ Compiler* Compiler::impInlineRoot()
     return (impInlineInfo == nullptr) ? this : impInlineInfo->InlinerCompiler;
 }
 
-bool Compiler::impIsSpillCliqueMember(SpillCliqueDir dir, BasicBlock* block)
+bool Importer::impIsSpillCliqueMember(SpillCliqueDir dir, BasicBlock* block)
 {
-    uint8_t state = impInlineRoot()->impSpillCliqueMembers.Get(block->bbInd());
+    uint8_t state = impInlineRoot()->m_importer.impSpillCliqueMembers.Get(block->bbInd());
     uint8_t bit   = 1 << dir;
 
     return (state & bit) != 0;
 }
 
-bool Compiler::impAddSpillCliqueMember(SpillCliqueDir dir, BasicBlock* block)
+bool Importer::impAddSpillCliqueMember(SpillCliqueDir dir, BasicBlock* block)
 {
-    uint8_t& state = impInlineRoot()->impSpillCliqueMembers.GetRef(block->bbInd());
+    uint8_t& state = impInlineRoot()->m_importer.impSpillCliqueMembers.GetRef(block->bbInd());
     uint8_t  bit   = 1 << dir;
 
     if ((state & bit) != 0)
@@ -14394,7 +14396,7 @@ bool Compiler::impAddSpillCliqueMember(SpillCliqueDir dir, BasicBlock* block)
  *  basic flowgraph has already been constructed and is passed in.
  */
 
-void Compiler::impImport()
+void Importer::impImport()
 {
 #ifdef DEBUG
     if (verbose)
@@ -14416,35 +14418,35 @@ void Compiler::impImport()
 
     verCurrentState.esStackDepth = 0;
 
-    if (this == inlineRoot)
+    if (comp == inlineRoot)
     {
         // Allocate the stack contents
-        verCurrentState.esStack = new (this, CMK_ImpStack) StackEntry[impStkSize];
+        verCurrentState.esStack = new (comp, CMK_ImpStack) StackEntry[impStkSize];
     }
     else
     {
         // This is the inlinee compiler, steal the stack from the inliner compiler
         // (after ensuring that it is large enough).
-        if (inlineRoot->impStkSize < impStkSize)
+        if (inlineRoot->m_importer.impStkSize < impStkSize)
         {
-            inlineRoot->impStkSize              = impStkSize;
-            inlineRoot->verCurrentState.esStack = new (this, CMK_ImpStack) StackEntry[impStkSize];
+            inlineRoot->m_importer.impStkSize              = impStkSize;
+            inlineRoot->m_importer.verCurrentState.esStack = new (comp, CMK_ImpStack) StackEntry[impStkSize];
         }
 
-        verCurrentState.esStack = inlineRoot->verCurrentState.esStack;
+        verCurrentState.esStack = inlineRoot->m_importer.verCurrentState.esStack;
     }
 
     assert(fgFirstBB->bbEntryState == nullptr);
 
     // Initialize stuff related to figuring "spill cliques" (see spec comment for impGetSpillTmpBase).
-    if (this == inlineRoot) // These are only used on the root of the inlining tree.
+    if (comp == inlineRoot) // These are only used on the root of the inlining tree.
     {
         // We have initialized these previously, but to size 0.  Make them larger.
         impPendingBlockMembers.Init(getAllocator(), fgBBNumMax * 2);
         impSpillCliqueMembers.Init(getAllocator(), fgBBNumMax * 2);
     }
-    inlineRoot->impPendingBlockMembers.Reset(fgBBNumMax * 2);
-    inlineRoot->impSpillCliqueMembers.Reset(fgBBNumMax * 2);
+    inlineRoot->m_importer.impPendingBlockMembers.Reset(fgBBNumMax * 2);
+    inlineRoot->m_importer.impSpillCliqueMembers.Reset(fgBBNumMax * 2);
     impBlockListNodeFreeList = nullptr;
     INDEBUG(impLastILoffsStmt = nullptr;)
     impBoxTemp           = BAD_VAR_NUM;
@@ -14587,7 +14589,7 @@ GenTreeLclVarCommon* Compiler::impIsLocalAddrExpr(GenTree* node)
 //    various observations about the method that factor into inline
 //    decisions. It sets `compNativeSizeEstimate` as a side effect.
 
-void Compiler::impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, InlineResult* inlineResult)
+void Importer::impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, InlineResult* inlineResult)
 {
     assert((pInlineInfo != nullptr && compIsForInlining()) || // Perform the actual inlining.
            (pInlineInfo == nullptr && !compIsForInlining())   // Calculate the static inlining hint for ngen.
@@ -14722,7 +14724,7 @@ void Compiler::impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, I
     // Note if the callee's class is a promotable struct
     if ((info.compClassAttr & CORINFO_FLG_VALUECLASS) != 0)
     {
-        CORINFO_CLASS_HANDLE* cache = impPromotableStructTypeCache;
+        CORINFO_CLASS_HANDLE* cache = comp->impPromotableStructTypeCache;
 
         if (pInlineInfo != nullptr)
         {
@@ -14741,7 +14743,7 @@ void Compiler::impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, I
         }
         else
         {
-            StructPromotionHelper helper(this);
+            StructPromotionHelper helper(comp);
             promotable        = helper.CanPromoteStructType(info.compClassHnd);
             cache[promotable] = info.compClassHnd;
         }
@@ -15038,7 +15040,7 @@ void Compiler::impCheckCanInline(GenTreeCall*           call,
                 GenTree* thisArg = pParam->call->gtCallThisArg->GetNode();
                 assert(thisArg);
 
-                if (!pParam->pThis->impIsThis(thisArg))
+                if (!pParam->pThis->m_importer.impIsThis(thisArg))
                 {
                     pParam->result->NoteFatal(InlineObservation::CALLSITE_REQUIRES_SAME_THIS);
                     return;
@@ -15130,7 +15132,7 @@ void Compiler::impCheckCanInline(GenTreeCall*           call,
 //    statement list and have to be checked for side effects may be provided via
 //    additionalTree and additionalCallArgs.
 //
-bool Compiler::impInlineIsGuaranteedThisDerefBeforeAnySideEffects(GenTree*          additionalTree,
+bool Importer::impInlineIsGuaranteedThisDerefBeforeAnySideEffects(GenTree*          additionalTree,
                                                                   GenTreeCall::Use* additionalCallArgs,
                                                                   GenTree*          dereferencedAddress)
 {
@@ -15197,7 +15199,7 @@ bool Compiler::impInlineIsGuaranteedThisDerefBeforeAnySideEffects(GenTree*      
 //    guarded devirtualization for virtual calls where the method we'd
 //    devirtualize to cannot be inlined.
 
-void Compiler::impMarkInlineCandidate(GenTreeCall*           call,
+void Importer::impMarkInlineCandidate(GenTreeCall*           call,
                                       CORINFO_CONTEXT_HANDLE exactContextHnd,
                                       bool                   exactContextNeedsRuntimeLookup,
                                       CORINFO_CALL_INFO*     callInfo)
@@ -15254,7 +15256,7 @@ void Compiler::impMarkInlineCandidate(GenTreeCall*           call,
 //    method may be marked as "noinline" to short-circuit any
 //    future assessments of calls to this method.
 
-void Compiler::impMarkInlineCandidateHelper(GenTreeCall*           call,
+void Importer::impMarkInlineCandidateHelper(GenTreeCall*           call,
                                             CORINFO_CONTEXT_HANDLE exactContextHnd,
                                             bool                   exactContextNeedsRuntimeLookup,
                                             CORINFO_CALL_INFO*     callInfo)
@@ -15274,7 +15276,7 @@ void Compiler::impMarkInlineCandidateHelper(GenTreeCall*           call,
         return;
     }
 
-    InlineResult inlineResult(this, call, nullptr, "impMarkInlineCandidate");
+    InlineResult inlineResult(comp, call, nullptr, "impMarkInlineCandidate");
 
     // Don't inline if not optimizing root method
     if (opts.compDbgCode)
@@ -15377,7 +15379,7 @@ void Compiler::impMarkInlineCandidateHelper(GenTreeCall*           call,
     }
 
 #ifdef DEBUG
-    if (compStressCompile(STRESS_FORCE_INLINE, 0))
+    if (comp->compStressCompile(Compiler::STRESS_FORCE_INLINE, 0))
     {
         methAttr |= CORINFO_FLG_FORCEINLINE;
     }
@@ -16466,7 +16468,7 @@ CORINFO_CLASS_HANDLE Compiler::impGetSpecialIntrinsicExactReturnType(CORINFO_MET
 //
 // Return Value:
 //    pointer to token into jit-allocated memory.
-CORINFO_RESOLVED_TOKEN* Compiler::impAllocateToken(const CORINFO_RESOLVED_TOKEN& token)
+CORINFO_RESOLVED_TOKEN* Importer::impAllocateToken(const CORINFO_RESOLVED_TOKEN& token)
 {
     CORINFO_RESOLVED_TOKEN* memory = getAllocator(CMK_Unknown).allocate<CORINFO_RESOLVED_TOKEN>(1);
     *memory                        = token;
@@ -16525,7 +16527,7 @@ public:
 
         unsigned tmp = m_compiler->lvaGrabTemp(true DEBUGARG("RET_EXPR temp"));
         JITDUMP("Storing return expression [%06u] to a local var V%02u.\n", retExpr->GetID(), tmp);
-        m_compiler->impAppendTempAssign(tmp, retExpr, retExpr->GetLayout(), Compiler::CHECK_SPILL_NONE);
+        m_compiler->m_importer.impAppendTempAssign(tmp, retExpr, retExpr->GetLayout(), Importer::CHECK_SPILL_NONE);
         *use = m_compiler->gtNewLclvNode(tmp, retExpr->GetType());
 
         if (retExpr->TypeIs(TYP_REF))
@@ -16818,7 +16820,7 @@ void Compiler::addGuardedDevirtualizationCandidate(GenTreeCall*          call,
     call->gtGuardedDevirtualizationCandidateInfo = pInfo;
 }
 
-void Compiler::addExpRuntimeLookupCandidate(GenTreeCall* call)
+void Importer::addExpRuntimeLookupCandidate(GenTreeCall* call)
 {
     setMethodHasExpRuntimeLookup();
     call->SetExpRuntimeLookup();
@@ -16871,7 +16873,7 @@ bool Compiler::impIsClassExact(CORINFO_CLASS_HANDLE classHnd)
 // Returns:
 //    true if the store does not require a covariance check.
 //
-bool Compiler::impCanSkipCovariantStoreCheck(GenTree* value, GenTree* array)
+bool Importer::impCanSkipCovariantStoreCheck(GenTree* value, GenTree* array)
 {
     // We should only call this when optimizing.
     assert(opts.OptimizationEnabled());
@@ -16962,7 +16964,7 @@ bool Compiler::impCanSkipCovariantStoreCheck(GenTree* value, GenTree* array)
     return false;
 }
 
-void Compiler::impImportInitObj(GenTree* dstAddr, ClassLayout* layout)
+void Importer::impImportInitObj(GenTree* dstAddr, ClassLayout* layout)
 {
     GenTree* dst = nullptr;
 
@@ -17005,7 +17007,7 @@ void Compiler::impImportInitObj(GenTree* dstAddr, ClassLayout* layout)
     impSpillNoneAppendTree(gtNewAssignNode(dst, initValue));
 }
 
-void Compiler::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayout* layout)
+void Importer::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayout* layout)
 {
     GenTree* dst = nullptr;
 
@@ -17055,7 +17057,7 @@ void Compiler::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayout* l
     impSpillNoneAppendTree(asg);
 }
 
-void Compiler::impImportInitBlk(unsigned prefixFlags)
+void Importer::impImportInitBlk(unsigned prefixFlags)
 {
     // TODO-MIKE-Review: Currently INITBLK ignores the unaligned prefix.
 
@@ -17068,13 +17070,13 @@ void Compiler::impImportInitBlk(unsigned prefixFlags)
 
     if ((sizeIntCon == nullptr) || (sizeIntCon->GetUInt32Value() == 0))
     {
-        init = new (this, GT_INIT_BLK) GenTreeDynBlk(GT_INIT_BLK, dstAddr, initValue, size);
+        init = new (comp, GT_INIT_BLK) GenTreeDynBlk(GT_INIT_BLK, dstAddr, initValue, size);
         init->AsDynBlk()->SetVolatile((prefixFlags & PREFIX_VOLATILE) != 0);
     }
     else
     {
         ClassLayout* layout = typGetBlkLayout(sizeIntCon->GetUInt32Value());
-        GenTreeBlk*  dst    = new (this, GT_BLK) GenTreeBlk(dstAddr, layout);
+        GenTreeBlk*  dst    = new (comp, GT_BLK) GenTreeBlk(dstAddr, layout);
 
         if ((prefixFlags & PREFIX_VOLATILE) != 0)
         {
@@ -17093,7 +17095,7 @@ void Compiler::impImportInitBlk(unsigned prefixFlags)
     impSpillNoneAppendTree(init);
 }
 
-void Compiler::impImportCpBlk(unsigned prefixFlags)
+void Importer::impImportCpBlk(unsigned prefixFlags)
 {
     // TODO-MIKE-Review: Currently CPBLK ignores the unaligned prefix.
 
@@ -17106,14 +17108,14 @@ void Compiler::impImportCpBlk(unsigned prefixFlags)
 
     if ((sizeIntCon == nullptr) || (sizeIntCon->GetUInt32Value() == 0))
     {
-        copy = new (this, GT_COPY_BLK) GenTreeDynBlk(GT_COPY_BLK, dstAddr, srcAddr, size);
+        copy = new (comp, GT_COPY_BLK) GenTreeDynBlk(GT_COPY_BLK, dstAddr, srcAddr, size);
         copy->AsDynBlk()->SetVolatile((prefixFlags & PREFIX_VOLATILE) != 0);
     }
     else
     {
         ClassLayout* layout = typGetBlkLayout(sizeIntCon->GetUInt32Value());
-        GenTreeBlk*  dst    = new (this, GT_BLK) GenTreeBlk(dstAddr, layout);
-        GenTreeBlk*  src    = new (this, GT_BLK) GenTreeBlk(srcAddr, layout);
+        GenTreeBlk*  dst    = new (comp, GT_BLK) GenTreeBlk(dstAddr, layout);
+        GenTreeBlk*  src    = new (comp, GT_BLK) GenTreeBlk(srcAddr, layout);
 
         if ((prefixFlags & PREFIX_VOLATILE) != 0)
         {
@@ -17128,7 +17130,7 @@ void Compiler::impImportCpBlk(unsigned prefixFlags)
     impSpillNoneAppendTree(copy);
 }
 
-GenTree* Compiler::impImportPop(BasicBlock* block)
+GenTree* Importer::impImportPop(BasicBlock* block)
 {
     StackEntry           se     = impPopStack();
     CORINFO_CLASS_HANDLE clsHnd = se.seTypeInfo.GetClassHandle();
@@ -17201,7 +17203,7 @@ GenTree* Compiler::impImportPop(BasicBlock* block)
     return op1;
 }
 
-GenTree* Compiler::impImportTlsFieldAccess(OPCODE                    opcode,
+GenTree* Importer::impImportTlsFieldAccess(OPCODE                    opcode,
                                            CORINFO_RESOLVED_TOKEN*   resolvedToken,
                                            const CORINFO_FIELD_INFO& fieldInfo)
 {
@@ -17445,7 +17447,7 @@ bool Compiler::impHasAddressTakenLocals(GenTree* tree)
  *  We simply grab a temp and assign 0 to it and use it in place of the NULL.
  */
 
-GenTree* Compiler::impCheckForNullPointer(GenTree* obj)
+GenTree* Importer::impCheckForNullPointer(GenTree* obj)
 {
     /* If it is not a GC type, we will be able to fold it.
        So don't need to do anything */
@@ -17495,11 +17497,11 @@ GenTree* Compiler::impCheckForNullPointer(GenTree* obj)
  *  even if we might have created the copy of 'this' pointer in lvaArg0Var.
  */
 
-bool Compiler::impIsThis(GenTree* obj)
+bool Importer::impIsThis(GenTree* obj)
 {
     if (compIsForInlining())
     {
-        return impInlineInfo->InlinerCompiler->impIsThis(obj);
+        return impInlineInfo->InlinerCompiler->m_importer.impIsThis(obj);
     }
     else
     {
@@ -17508,7 +17510,1215 @@ bool Compiler::impIsThis(GenTree* obj)
     }
 }
 
-bool Compiler::impIsPrimitive(CorInfoType jitType)
+bool Importer::impIsPrimitive(CorInfoType jitType)
 {
     return ((CORINFO_TYPE_BOOL <= jitType && jitType <= CORINFO_TYPE_DOUBLE) || jitType == CORINFO_TYPE_PTR);
+}
+
+// Return the byte for "b" (allocating/extending impPendingBlockMembers if necessary.)
+// Operates on the map in the top-level ancestor.
+bool Importer::impIsPendingBlockMember(BasicBlock* blk)
+{
+    return impInlineRoot()->m_importer.impPendingBlockMembers.Get(blk->bbInd());
+}
+
+// Set the byte for "b" to "val" (allocating/extending impPendingBlockMembers if necessary.)
+// Operates on the map in the top-level ancestor.
+void Importer::impSetPendingBlockMember(BasicBlock* blk, bool val)
+{
+    impInlineRoot()->m_importer.impPendingBlockMembers.Set(blk->bbInd(), val);
+}
+
+Importer::Importer(Compiler* comp)
+    : comp(comp)
+#ifdef DEBUG
+    , verbose(comp->verbose)
+#endif
+    , opts(comp->opts)
+    , info(comp->info)
+    , impTokenLookupContextHandle(comp->impTokenLookupContextHandle)
+    , optMethodFlags(comp->optMethodFlags)
+    , fgBBs(comp->fgBBs)
+    , fgFirstBB(comp->fgFirstBB)
+    , fgEntryBB(comp->fgEntryBB)
+    , fgBBNumMax(comp->fgBBNumMax)
+    , compHndBBtab(comp->compHndBBtab)
+    , compHndBBtabCount(comp->compHndBBtabCount)
+    , lvaTable(comp->lvaTable)
+    , lvaArg0Var(comp->lvaArg0Var)
+    , impInlineInfo(comp->impInlineInfo)
+    , compInlineResult(comp->compInlineResult)
+    , fgComputePredsDone(comp->fgComputePredsDone)
+    , fgCheapPredsValid(comp->fgCheapPredsValid)
+    , compDoAggressiveInlining(comp->compDoAggressiveInlining)
+    , compFloatingPointUsed(comp->compFloatingPointUsed)
+    , compLongUsed(comp->compLongUsed)
+    , compJmpOpUsed(comp->compJmpOpUsed)
+    , compLocallocUsed(comp->compLocallocUsed)
+    , compLocallocOptimized(comp->compLocallocOptimized)
+    , compGSReorderStackLayout(comp->compGSReorderStackLayout)
+    , compSuppressedZeroInit(comp->compSuppressedZeroInit)
+    , compHasBackwardJump(comp->compHasBackwardJump)
+    , fgNoStructPromotion(comp->fgNoStructPromotion)
+    , impBoxTempInUse(comp->impBoxTempInUse)
+    , impBoxTemp(comp->impBoxTemp)
+    , compCurBB(comp->compCurBB)
+    , lvaStubArgumentVar(comp->lvaStubArgumentVar)
+    , lvaNewObjArrayArgs(comp->lvaNewObjArrayArgs)
+    , lvaVarargsHandleArg(comp->lvaVarargsHandleArg)
+#ifdef FEATURE_SIMD
+    , featureSIMD(comp->featureSIMD)
+#endif
+    , optNativeCallCount(comp->optNativeCallCount)
+    , impPendingBlockMembers(comp->getAllocator())
+    , impSpillCliqueMembers(comp->getAllocator())
+{
+}
+
+CompAllocator Importer::getAllocator(CompMemKind kind)
+{
+    return comp->getAllocator(kind);
+}
+
+codeOptimize Importer::compCodeOpt()
+{
+    return comp->compCodeOpt();
+}
+
+bool Importer::IsTargetAbi(CORINFO_RUNTIME_ABI abi)
+{
+    return comp->IsTargetAbi(abi);
+}
+
+bool Importer::compIsForInlining()
+{
+    return comp->compIsForInlining();
+}
+
+bool Importer::compDonotInline()
+{
+    return comp->compDonotInline();
+}
+
+Compiler* Importer::impInlineRoot()
+{
+    return comp->impInlineRoot();
+}
+
+#ifdef FEATURE_SIMD
+bool Importer::supportSIMDTypes()
+{
+    return comp->supportSIMDTypes();
+}
+#endif
+
+bool Importer::IsBaselineSimdIsaSupported()
+{
+    return comp->IsBaselineSimdIsaSupported();
+}
+
+bool Importer::compExactlyDependsOn(CORINFO_InstructionSet isa)
+{
+    return comp->compExactlyDependsOn(isa);
+}
+
+bool Importer::compOpportunisticallyDependsOn(CORINFO_InstructionSet isa)
+{
+    return comp->compOpportunisticallyDependsOn(isa);
+}
+
+bool Importer::IsIntrinsicImplementedByUserCall(NamedIntrinsic intrinsicName)
+{
+    return comp->IsIntrinsicImplementedByUserCall(intrinsicName);
+}
+
+bool Importer::IsMathIntrinsic(NamedIntrinsic intrinsicName)
+{
+    return comp->IsMathIntrinsic(intrinsicName);
+}
+
+bool Importer::IsMathIntrinsic(GenTree* tree)
+{
+    return comp->IsMathIntrinsic(tree);
+}
+
+bool Importer::doesMethodHaveFrozenString()
+{
+    return comp->doesMethodHaveFrozenString();
+}
+
+void Importer::setMethodHasExpRuntimeLookup()
+{
+    comp->setMethodHasExpRuntimeLookup();
+}
+
+#ifdef DEBUG
+bool Importer::compTailCallStress()
+{
+    return comp->compTailCallStress();
+}
+#endif
+
+NamedIntrinsic Importer::lookupNamedIntrinsic(CORINFO_METHOD_HANDLE method)
+{
+    return comp->lookupNamedIntrinsic(method);
+}
+
+#ifdef FEATURE_HW_INTRINSICS
+NamedIntrinsic Importer::impFindSysNumSimdIntrinsic(CORINFO_METHOD_HANDLE method,
+                                                    const char*           className,
+                                                    const char*           methodName,
+                                                    const char*           enclosingClassName)
+{
+    return comp->impFindSysNumSimdIntrinsic(method, className, methodName, enclosingClassName);
+}
+#endif
+
+void Importer::fgInitBBLookup()
+{
+    comp->fgInitBBLookup();
+}
+
+BasicBlock* Importer::fgLookupBB(unsigned addr)
+{
+    return comp->fgLookupBB(addr);
+}
+
+BasicBlock* Importer::bbNewBasicBlock(BBjumpKinds jumpKind)
+{
+    return comp->bbNewBasicBlock(jumpKind);
+}
+
+BasicBlock* Importer::fgNewBBbefore(BBjumpKinds jumpKind, BasicBlock* block, bool extendRegion)
+{
+    return comp->fgNewBBbefore(jumpKind, block, extendRegion);
+}
+
+BasicBlock* Importer::fgNewBBafter(BBjumpKinds jumpKind, BasicBlock* block, bool extendRegion)
+{
+    return comp->fgNewBBafter(jumpKind, block, extendRegion);
+}
+
+BasicBlock* Importer::fgNewBBinRegion(BBjumpKinds jumpKind,
+                                      unsigned    tryIndex,
+                                      unsigned    hndIndex,
+                                      BasicBlock* nearBlk,
+                                      bool        putInFilter,
+                                      bool        runRarely,
+                                      bool        insertAtEnd)
+{
+    return comp->fgNewBBinRegion(jumpKind, tryIndex, hndIndex, nearBlk, putInFilter, runRarely, insertAtEnd);
+}
+
+BasicBlock* Importer::fgNewBBinRegion(BBjumpKinds jumpKind, BasicBlock* srcBlk, bool runRarely, bool insertAtEnd)
+{
+    return comp->fgNewBBinRegion(jumpKind, srcBlk, runRarely, insertAtEnd);
+}
+
+BasicBlock* Importer::fgNewBBinRegion(BBjumpKinds jumpKind)
+{
+    return comp->fgNewBBinRegion(jumpKind);
+}
+
+void Importer::fgInsertBBafter(BasicBlock* insertAfter, BasicBlock* block)
+{
+    comp->fgInsertBBafter(insertAfter, block);
+}
+
+void Importer::fgAddCheapPred(BasicBlock* block, BasicBlock* blockPred)
+{
+    comp->fgAddCheapPred(block, blockPred);
+}
+
+void Importer::fgInsertStmtAtEnd(BasicBlock* block, Statement* stmt)
+{
+    comp->fgInsertStmtAtEnd(block, stmt);
+}
+
+bool Importer::ehBlockHasExnFlowDsc(BasicBlock* block)
+{
+    return comp->ehBlockHasExnFlowDsc(block);
+}
+
+EHblkDsc* Importer::ehGetDsc(unsigned regionIndex)
+{
+    return comp->ehGetDsc(regionIndex);
+}
+
+bool Importer::bbInCatchHandlerILRange(BasicBlock* block)
+{
+    return comp->bbInCatchHandlerILRange(block);
+}
+
+bool Importer::bbInFilterILRange(BasicBlock* block)
+{
+    return comp->bbInFilterILRange(block);
+}
+
+uint16_t Importer::bbFindInnermostCommonTryRegion(BasicBlock* block1, BasicBlock* block2)
+{
+    return comp->bbFindInnermostCommonTryRegion(block1, block2);
+}
+
+#ifdef DEBUG
+void Importer::fgVerifyHandlerTab()
+{
+    comp->fgVerifyHandlerTab();
+}
+#endif
+
+void Importer::fgComputeCheapPreds()
+{
+    comp->fgComputeCheapPreds();
+}
+
+void Importer::fgRemovePreds()
+{
+    comp->fgRemovePreds();
+}
+
+void Importer::setNeedsGSSecurityCookie()
+{
+    comp->setNeedsGSSecurityCookie();
+}
+
+void Importer::addFatPointerCandidate(GenTreeCall* call)
+{
+    comp->addFatPointerCandidate(call);
+}
+
+FieldSeqStore* Importer::GetFieldSeqStore()
+{
+    return comp->GetFieldSeqStore();
+}
+
+FieldSeqNode* Importer::GetRefanyTypeField()
+{
+    return comp->GetRefanyTypeField();
+}
+
+FieldSeqNode* Importer::GetRefanyValueField()
+{
+    return comp->GetRefanyValueField();
+}
+
+FieldSeqNode* Importer::GetByReferenceValueField(CORINFO_FIELD_HANDLE byRefFieldHandle)
+{
+    return comp->GetByReferenceValueField(byRefFieldHandle);
+}
+
+bool Importer::jitIsBetween(unsigned value, unsigned start, unsigned end)
+{
+    return Compiler::jitIsBetween(value, start, end);
+}
+
+#ifdef DEBUG
+
+void Importer::fgDispBasicBlocks(BasicBlock* firstBlock, BasicBlock* lastBlock, bool dumpTrees)
+{
+    comp->fgDispBasicBlocks(firstBlock, lastBlock, dumpTrees);
+}
+
+void Importer::fgDispBasicBlocks(bool dumpTrees)
+{
+    comp->fgDispBasicBlocks(dumpTrees);
+}
+
+void Importer::fgDispHandlerTab()
+{
+    comp->fgDispHandlerTab();
+}
+
+void Importer::gtDispStmt(Statement* stmt)
+{
+    comp->gtDispStmt(stmt);
+}
+
+void Importer::gtDispTree(GenTree* tree)
+{
+    return comp->gtDispTree(tree);
+}
+
+int Importer::dspTreeID(GenTree* tree)
+{
+    return Compiler::dspTreeID(tree);
+}
+
+void Importer::JitLogEE(unsigned level, const char* fmt, ...)
+{
+    va_list args;
+
+    if (verbose)
+    {
+        va_start(args, fmt);
+        vflogf(jitstdout, fmt, args);
+        va_end(args);
+    }
+
+    va_start(args, fmt);
+    vlogf(level, fmt, args);
+    va_end(args);
+}
+
+#endif // DEBUG
+
+void Importer::eeGetCallInfo(CORINFO_RESOLVED_TOKEN* resolvedToken,
+                             CORINFO_RESOLVED_TOKEN* constrainedToken,
+                             CORINFO_CALLINFO_FLAGS  flags,
+                             CORINFO_CALL_INFO*      result)
+{
+    return comp->eeGetCallInfo(resolvedToken, constrainedToken, flags, result);
+}
+
+void Importer::eeGetSig(unsigned               sigTok,
+                        CORINFO_MODULE_HANDLE  scope,
+                        CORINFO_CONTEXT_HANDLE context,
+                        CORINFO_SIG_INFO*      retSig)
+{
+    comp->eeGetSig(sigTok, scope, context, retSig);
+}
+
+void Importer::eeGetCallSiteSig(unsigned               sigTok,
+                                CORINFO_MODULE_HANDLE  scope,
+                                CORINFO_CONTEXT_HANDLE context,
+                                CORINFO_SIG_INFO*      retSig)
+{
+    comp->eeGetCallSiteSig(sigTok, scope, context, retSig);
+}
+
+void Importer::eeGetMethodSig(CORINFO_METHOD_HANDLE methHnd, CORINFO_SIG_INFO* retSig, CORINFO_CLASS_HANDLE owner)
+{
+    comp->eeGetMethodSig(methHnd, retSig, owner);
+}
+
+void Importer::eeGetFieldInfo(CORINFO_RESOLVED_TOKEN* resolvedToken,
+                              CORINFO_ACCESS_FLAGS    flags,
+                              CORINFO_FIELD_INFO*     result)
+{
+    return comp->eeGetFieldInfo(resolvedToken, flags, result);
+}
+
+bool Importer::eeIsValueClass(CORINFO_CLASS_HANDLE clsHnd)
+{
+    return comp->eeIsValueClass(clsHnd);
+}
+
+const char* Importer::eeGetFieldName(CORINFO_FIELD_HANDLE field, const char** className)
+{
+    return comp->eeGetFieldName(field, className);
+}
+
+const char* Importer::eeGetClassName(CORINFO_CLASS_HANDLE clsHnd)
+{
+    return comp->eeGetClassName(clsHnd);
+}
+
+uint16_t Importer::eeGetRelocTypeHint(void* target)
+{
+    return comp->eeGetRelocTypeHint(target);
+}
+
+CORINFO_CLASS_HANDLE Importer::eeGetClassFromContext(CORINFO_CONTEXT_HANDLE context)
+{
+    return comp->eeGetClassFromContext(context);
+}
+
+CORINFO_METHOD_HANDLE Importer::eeFindHelper(unsigned helper)
+{
+    return Compiler::eeFindHelper(helper);
+}
+
+unsigned Importer::eeGetArrayDataOffset(var_types type)
+{
+    return Compiler::eeGetArrayDataOffset(type);
+}
+
+unsigned Importer::eeGetMDArrayDataOffset(var_types type, unsigned rank)
+{
+    return Compiler::eeGetMDArrayDataOffset(type, rank);
+}
+
+bool Importer::impIsClassExact(CORINFO_CLASS_HANDLE classHnd)
+{
+    return comp->impIsClassExact(classHnd);
+}
+
+GenTree* Importer::impTokenToHandle(CORINFO_RESOLVED_TOKEN* resolvedToken,
+                                    bool*                   runtimeLookup,
+                                    bool                    mustRestoreHandle,
+                                    bool                    importParent)
+{
+    return comp->impTokenToHandle(resolvedToken, runtimeLookup, mustRestoreHandle, importParent);
+}
+
+GenTree* Importer::impParentClassTokenToHandle(CORINFO_RESOLVED_TOKEN* resolvedToken,
+                                               bool*                   runtimeLookup,
+                                               bool                    mustRestoreHandle)
+{
+    return comp->impParentClassTokenToHandle(resolvedToken, runtimeLookup, mustRestoreHandle);
+}
+
+GenTreeCall* Importer::impReadyToRunHelperToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
+                                                 CorInfoHelpFunc         helper,
+                                                 var_types               type,
+                                                 GenTreeCall::Use*       args,
+                                                 CORINFO_LOOKUP_KIND*    genericLookupKind)
+{
+    return comp->impReadyToRunHelperToTree(resolvedToken, helper, type, args, genericLookupKind);
+}
+
+GenTree* Importer::getRuntimeContextTree(CORINFO_RUNTIME_LOOKUP_KIND kind)
+{
+    return comp->getRuntimeContextTree(kind);
+}
+
+GenTreeCall* Importer::fgGetStaticsCCtorHelper(CORINFO_CLASS_HANDLE cls, CorInfoHelpFunc helper)
+{
+    return comp->fgGetStaticsCCtorHelper(cls, helper);
+}
+
+GenTreeCall* Importer::fgGetSharedCCtor(CORINFO_CLASS_HANDLE cls)
+{
+    return comp->fgGetSharedCCtor(cls);
+}
+
+CORINFO_CLASS_HANDLE Importer::impGetRefAnyClass()
+{
+    return comp->impGetRefAnyClass();
+}
+
+CORINFO_CLASS_HANDLE Importer::impGetObjectClass()
+{
+    return comp->impGetObjectClass();
+}
+
+CORINFO_CLASS_HANDLE Importer::impGetTypeHandleClass()
+{
+    return comp->impGetTypeHandleClass();
+}
+
+var_types Importer::GetRuntimeHandleUnderlyingType()
+{
+    return comp->GetRuntimeHandleUnderlyingType();
+}
+
+CORINFO_CLASS_HANDLE Importer::gtGetClassHandle(GenTree* tree, bool* isExact, bool* isNonNull)
+{
+    return comp->gtGetClassHandle(tree, isExact, isNonNull);
+}
+
+ClassLayout* Importer::typGetObjLayout(CORINFO_CLASS_HANDLE classHandle)
+{
+    return comp->typGetObjLayout(classHandle);
+}
+
+unsigned Importer::typGetObjLayoutNum(CORINFO_CLASS_HANDLE classHandle)
+{
+    return comp->typGetObjLayoutNum(classHandle);
+}
+
+var_types Importer::typGetStructType(ClassLayout* layout)
+{
+    return comp->typGetStructType(layout);
+}
+
+var_types Importer::typGetStructType(CORINFO_CLASS_HANDLE classHandle, var_types* elementType)
+{
+    return comp->typGetStructType(classHandle, elementType);
+}
+
+ClassLayout* Importer::typGetBlkLayout(unsigned blockSize)
+{
+    return comp->typGetBlkLayout(blockSize);
+}
+
+unsigned Importer::typGetLayoutNum(ClassLayout* layout)
+{
+    return comp->typGetLayoutNum(layout);
+}
+
+ClassLayout* Importer::typGetLayoutByNum(unsigned layoutNum)
+{
+    return comp->typGetLayoutByNum(layoutNum);
+}
+
+StructPassing Importer::abiGetStructReturnType(ClassLayout* layout, CorInfoCallConvExtension callConv, bool isVarArgs)
+{
+    return comp->abiGetStructReturnType(layout, callConv, isVarArgs);
+}
+
+unsigned Importer::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason))
+{
+    return comp->lvaGrabTemp(shortLifetime DEBUGARG(reason));
+}
+
+unsigned Importer::lvaGrabTemps(unsigned count DEBUGARG(const char* reason))
+{
+    return comp->lvaGrabTemps(count DEBUGARG(reason));
+}
+
+unsigned Importer::lvaNewTemp(var_types type, bool shortLifetime DEBUGARG(const char* reason))
+{
+    return comp->lvaNewTemp(type, shortLifetime DEBUGARG(reason));
+}
+
+unsigned Importer::lvaNewTemp(ClassLayout* layout, bool shortLifetime DEBUGARG(const char* reason))
+{
+    return comp->lvaNewTemp(layout, shortLifetime DEBUGARG(reason));
+}
+
+unsigned Importer::lvaNewTemp(CORINFO_CLASS_HANDLE classHandle, bool shortLifetime DEBUGARG(const char* reason))
+{
+    return comp->lvaNewTemp(classHandle, shortLifetime DEBUGARG(reason));
+}
+
+unsigned Importer::lvaNewTemp(GenTree* tree, bool shortLifetime DEBUGARG(const char* reason))
+{
+    return comp->lvaNewTemp(tree, shortLifetime DEBUGARG(reason));
+}
+
+void Importer::lvaSetAddressExposed(unsigned lclNum)
+{
+    comp->lvaSetAddressExposed(lclNum);
+}
+
+void Importer::lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsafeBuffer)
+{
+    comp->lvaSetStruct(lclNum, layout, checkUnsafeBuffer);
+}
+
+void Importer::lvaSetStruct(unsigned lclNum, CORINFO_CLASS_HANDLE classHandle, bool checkUnsafeBuffer)
+{
+    comp->lvaSetStruct(lclNum, classHandle, checkUnsafeBuffer);
+}
+
+void Importer::lvaSetClass(unsigned lclNum, CORINFO_CLASS_HANDLE clsHnd, bool isExact)
+{
+    return comp->lvaSetClass(lclNum, clsHnd, isExact);
+}
+
+void Importer::lvaSetClass(unsigned lclNum, GenTree* tree, CORINFO_CLASS_HANDLE stackHandle)
+{
+    return comp->lvaSetClass(lclNum, tree, stackHandle);
+}
+
+void Importer::lvaUpdateClass(unsigned lclNum, CORINFO_CLASS_HANDLE clsHnd, bool isExact)
+{
+    comp->lvaUpdateClass(lclNum, clsHnd, isExact);
+}
+
+void Importer::lvaUpdateClass(unsigned lclNum, GenTree* tree, CORINFO_CLASS_HANDLE stackHandle)
+{
+    comp->lvaUpdateClass(lclNum, tree, stackHandle);
+}
+
+LclVarDsc* Importer::lvaGetDesc(unsigned lclNum)
+{
+    return comp->lvaGetDesc(lclNum);
+}
+
+LclVarDsc* Importer::lvaGetDesc(GenTreeLclVarCommon* lclNode)
+{
+    return comp->lvaGetDesc(lclNode);
+}
+
+bool Importer::lvaIsOriginalThisArg(unsigned lclNum)
+{
+    return comp->lvaIsOriginalThisArg(lclNum);
+}
+
+bool Importer::lvaHaveManyLocals()
+{
+    return comp->lvaHaveManyLocals();
+}
+
+bool Importer::fgVarNeedsExplicitZeroInit(unsigned lclNum, bool blockIsInLoop, bool blockIsReturn)
+{
+    return comp->fgVarNeedsExplicitZeroInit(lclNum, blockIsInLoop, blockIsReturn);
+}
+
+unsigned Importer::compMapILargNum(unsigned ilArgNum)
+{
+    return comp->compMapILargNum(ilArgNum);
+}
+
+Statement* Importer::gtNewStmt(GenTree* expr, IL_OFFSETX offset)
+{
+    return comp->gtNewStmt(expr, offset);
+}
+
+GenTreeLclVar* Importer::gtNewLclvNode(unsigned lclNum, var_types type DEBUGARG(IL_OFFSETX ILoffs))
+{
+    return comp->gtNewLclvNode(lclNum, type DEBUGARG(ILoffs));
+}
+
+GenTreeLclVar* Importer::gtNewLclVarAddrNode(unsigned lclNum, var_types type)
+{
+    return comp->gtNewLclVarAddrNode(lclNum, type);
+}
+
+GenTreeLclFld* Importer::gtNewLclFldNode(unsigned lclNum, var_types type, unsigned offset)
+{
+    return comp->gtNewLclFldNode(lclNum, type, offset);
+}
+
+GenTreeIntCon* Importer::gtNewIconNode(ssize_t value, var_types type)
+{
+    return comp->gtNewIconNode(value, type);
+}
+
+GenTreeIntCon* Importer::gtNewIconNode(unsigned fieldOffset, FieldSeqNode* fieldSeq)
+{
+    return comp->gtNewIconNode(fieldOffset, fieldSeq);
+}
+
+GenTree* Importer::gtNewLconNode(int64_t value)
+{
+    return comp->gtNewLconNode(value);
+}
+
+GenTreeIntCon* Importer::gtNewIconHandleNode(void* value, GenTreeFlags flags, FieldSeqNode* fields)
+{
+    return comp->gtNewIconHandleNode(value, flags, fields);
+}
+
+GenTreeIntCon* Importer::gtNewIconHandleNode(size_t value, GenTreeFlags flags, FieldSeqNode* fields)
+{
+    return comp->gtNewIconHandleNode(value, flags, fields);
+}
+
+GenTree* Importer::gtNewIconEmbHndNode(void* value, void* pValue, GenTreeFlags flags, void* compileTimeHandle)
+{
+    return comp->gtNewIconEmbHndNode(value, pValue, flags, compileTimeHandle);
+}
+
+GenTree* Importer::gtNewIconEmbScpHndNode(CORINFO_MODULE_HANDLE scpHnd)
+{
+    return comp->gtNewIconEmbScpHndNode(scpHnd);
+}
+
+GenTree* Importer::gtNewIconEmbClsHndNode(CORINFO_CLASS_HANDLE clsHnd)
+{
+    return comp->gtNewIconEmbClsHndNode(clsHnd);
+}
+
+GenTree* Importer::gtNewIconEmbMethHndNode(CORINFO_METHOD_HANDLE methHnd)
+{
+    return comp->gtNewIconEmbMethHndNode(methHnd);
+}
+
+GenTree* Importer::gtNewIconEmbFldHndNode(CORINFO_FIELD_HANDLE fldHnd)
+{
+    return comp->gtNewIconEmbFldHndNode(fldHnd);
+}
+
+GenTree* Importer::gtNewIndOfIconHandleNode(var_types type, size_t value, GenTreeFlags iconFlags, bool isInvariant)
+{
+    return comp->gtNewIndOfIconHandleNode(type, value, iconFlags, isInvariant);
+}
+
+GenTree* Importer::gtNewZeroConNode(var_types type)
+{
+    return comp->gtNewZeroConNode(type);
+}
+
+GenTree* Importer::gtNewOneConNode(var_types type)
+{
+    return comp->gtNewOneConNode(type);
+}
+
+GenTree* Importer::gtNewDconNode(double value, var_types type)
+{
+    return comp->gtNewDconNode(value, type);
+}
+
+GenTree* Importer::gtNewSconNode(int cpx, CORINFO_MODULE_HANDLE module)
+{
+    return comp->gtNewSconNode(cpx, module);
+}
+
+GenTree* Importer::gtNewNothingNode()
+{
+    return comp->gtNewNothingNode();
+}
+
+GenTree* Importer::gtUnusedValNode(GenTree* expr)
+{
+    return comp->gtUnusedValNode(expr);
+}
+
+GenTreeRetExpr* Importer::gtNewRetExpr(GenTreeCall* call, var_types type)
+{
+    return comp->gtNewRetExpr(call, type);
+}
+
+GenTree* Importer::gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, bool dummy)
+{
+    return comp->gtNewOperNode(oper, type, op1, dummy);
+}
+
+GenTree* Importer::gtNewNullCheck(GenTree* addr)
+{
+    return comp->gtNewNullCheck(addr);
+}
+
+GenTreeCast* Importer::gtNewCastNode(var_types type, GenTree* op1, bool fromUnsigned, var_types castType)
+{
+    return comp->gtNewCastNode(type, op1, fromUnsigned, castType);
+}
+
+GenTreeFieldAddr* Importer::gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset)
+{
+    return comp->gtNewFieldAddr(addr, handle, offset);
+}
+
+GenTreeFieldAddr* Importer::gtNewFieldAddr(GenTree* addr, FieldSeqNode* fieldSeq, unsigned offset)
+{
+    return comp->gtNewFieldAddr(addr, fieldSeq, offset);
+}
+
+GenTreeIndir* Importer::gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldAddr)
+{
+    return comp->gtNewFieldIndir(type, fieldAddr);
+}
+
+GenTreeIndir* Importer::gtNewIndir(var_types type, GenTree* addr)
+{
+    return comp->gtNewIndir(type, addr);
+}
+
+GenTreeObj* Importer::gtNewObjNode(CORINFO_CLASS_HANDLE structHnd, GenTree* addr)
+{
+    return comp->gtNewObjNode(structHnd, addr);
+}
+
+GenTreeObj* Importer::gtNewObjNode(ClassLayout* layout, GenTree* addr)
+{
+    return comp->gtNewObjNode(layout, addr);
+}
+
+GenTreeObj* Importer::gtNewObjNode(var_types type, ClassLayout* layout, GenTree* addr)
+{
+    return comp->gtNewObjNode(type, layout, addr);
+}
+
+GenTreeArrLen* Importer::gtNewArrLen(GenTree* arr, uint8_t lenOffs)
+{
+    return comp->gtNewArrLen(arr, lenOffs);
+}
+
+GenTree* Importer::gtNewStringLiteralNode(InfoAccessType iat, void* value)
+{
+    return comp->gtNewStringLiteralNode(iat, value);
+}
+
+GenTreeIntCon* Importer::gtNewStringLiteralLength(GenTreeStrCon* node)
+{
+    return comp->gtNewStringLiteralLength(node);
+}
+
+GenTreeAllocObj* Importer::gtNewAllocObjNode(
+    unsigned helper, bool helperHasSideEffects, CORINFO_CLASS_HANDLE clsHnd, var_types type, GenTree* op1)
+{
+    return comp->gtNewAllocObjNode(helper, helperHasSideEffects, clsHnd, type, op1);
+}
+
+GenTreeAllocObj* Importer::gtNewAllocObjNode(CORINFO_RESOLVED_TOKEN* resolvedToken, bool useParent)
+{
+    return comp->gtNewAllocObjNode(resolvedToken, useParent);
+}
+
+GenTreeIndir* Importer::gtNewMethodTableLookup(GenTree* obj)
+{
+    return comp->gtNewMethodTableLookup(obj);
+}
+
+GenTreeOp* Importer::gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2)
+{
+    return comp->gtNewOperNode(oper, type, op1, op2);
+}
+
+GenTreeOp* Importer::gtNewCommaNode(GenTree* op1, GenTree* op2, var_types type)
+{
+    return comp->gtNewCommaNode(op1, op2, type);
+}
+
+GenTreeQmark* Importer::gtNewQmarkNode(var_types type, GenTree* cond, GenTree* op1, GenTree* op2)
+{
+    return comp->gtNewQmarkNode(type, cond, op1, op2);
+}
+
+GenTreeOp* Importer::gtNewAssignNode(GenTree* dst, GenTree* src)
+{
+    return comp->gtNewAssignNode(dst, src);
+}
+
+GenTreeBoundsChk* Importer::gtNewArrBoundsChk(GenTree* index, GenTree* length, SpecialCodeKind kind)
+{
+    return comp->gtNewArrBoundsChk(index, length, kind);
+}
+
+GenTreeIndexAddr* Importer::gtNewArrayIndexAddr(GenTree* arr, GenTree* ind, var_types elemType)
+{
+    return comp->gtNewArrayIndexAddr(arr, ind, elemType);
+}
+
+GenTreeIndexAddr* Importer::gtNewStringIndexAddr(GenTree* arr, GenTree* ind)
+{
+    return comp->gtNewStringIndexAddr(arr, ind);
+}
+
+GenTreeIndir* Importer::gtNewIndexIndir(var_types type, GenTreeIndexAddr* indexAddr)
+{
+    return comp->gtNewIndexIndir(type, indexAddr);
+}
+
+GenTreeCall::Use* Importer::gtNewCallArgs(GenTree* node)
+{
+    return comp->gtNewCallArgs(node);
+}
+
+GenTreeCall::Use* Importer::gtNewCallArgs(GenTree* node1, GenTree* node2)
+{
+    return comp->gtNewCallArgs(node1, node2);
+}
+
+GenTreeCall::Use* Importer::gtNewCallArgs(GenTree* node1, GenTree* node2, GenTree* node3)
+{
+    return comp->gtNewCallArgs(node1, node2, node3);
+}
+
+GenTreeCall::Use* Importer::gtNewCallArgs(GenTree* node1, GenTree* node2, GenTree* node3, GenTree* node4)
+{
+    return comp->gtNewCallArgs(node1, node2, node3, node4);
+}
+
+GenTreeCall::Use* Importer::gtPrependNewCallArg(GenTree* node, GenTreeCall::Use* args)
+{
+    return comp->gtPrependNewCallArg(node, args);
+}
+
+GenTreeCall::Use* Importer::gtInsertNewCallArgAfter(GenTree* node, GenTreeCall::Use* after)
+{
+    return comp->gtInsertNewCallArgAfter(node, after);
+}
+
+GenTreeCall* Importer::gtNewHelperCallNode(CorInfoHelpFunc helper, var_types type, GenTreeCall::Use* args)
+{
+    return comp->gtNewHelperCallNode(helper, type, args);
+}
+
+GenTreeCall* Importer::gtNewRuntimeLookupHelperCallNode(CORINFO_RUNTIME_LOOKUP* runtimeLookup,
+                                                        GenTree*                context,
+                                                        void*                   compileTimeHandle)
+{
+    return comp->gtNewRuntimeLookupHelperCallNode(runtimeLookup, context, compileTimeHandle);
+}
+
+GenTreeCall* Importer::gtNewUserCallNode(CORINFO_METHOD_HANDLE handle,
+                                         var_types             type,
+                                         GenTreeCall::Use*     args,
+                                         IL_OFFSETX            ilOffset)
+{
+    return comp->gtNewUserCallNode(handle, type, args, ilOffset);
+}
+
+GenTreeCall* Importer::gtNewIndCallNode(GenTree* addr, var_types type, GenTreeCall::Use* args, IL_OFFSETX ilOffset)
+{
+    return comp->gtNewIndCallNode(addr, type, args, ilOffset);
+}
+
+#ifdef FEATURE_HW_INTRINSICS
+
+GenTreeHWIntrinsic* Importer::gtNewSimdHWIntrinsicNode(var_types      type,
+                                                       NamedIntrinsic hwIntrinsicID,
+                                                       var_types      baseType,
+                                                       unsigned       size)
+{
+    return comp->gtNewSimdHWIntrinsicNode(type, hwIntrinsicID, baseType, size);
+}
+
+GenTreeHWIntrinsic* Importer::gtNewSimdHWIntrinsicNode(
+    var_types type, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size, GenTree* op1)
+{
+    return comp->gtNewSimdHWIntrinsicNode(type, hwIntrinsicID, baseType, size, op1);
+}
+
+GenTreeHWIntrinsic* Importer::gtNewSimdHWIntrinsicNode(
+    var_types type, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size, GenTree* op1, GenTree* op2)
+{
+    return comp->gtNewSimdHWIntrinsicNode(type, hwIntrinsicID, baseType, size, op1, op2);
+}
+
+GenTreeHWIntrinsic* Importer::gtNewSimdHWIntrinsicNode(var_types      type,
+                                                       NamedIntrinsic hwIntrinsicID,
+                                                       var_types      baseType,
+                                                       unsigned       size,
+                                                       GenTree*       op1,
+                                                       GenTree*       op2,
+                                                       GenTree*       op3)
+{
+    return comp->gtNewSimdHWIntrinsicNode(type, hwIntrinsicID, baseType, size, op1, op2, op3);
+}
+
+GenTreeHWIntrinsic* Importer::gtNewSimdHWIntrinsicNode(var_types      type,
+                                                       NamedIntrinsic hwIntrinsicID,
+                                                       var_types      baseType,
+                                                       unsigned       size,
+                                                       GenTree*       op1,
+                                                       GenTree*       op2,
+                                                       GenTree*       op3,
+                                                       GenTree*       op4)
+{
+    return comp->gtNewSimdHWIntrinsicNode(type, hwIntrinsicID, baseType, size, op1, op2, op3, op4);
+}
+
+GenTreeHWIntrinsic* Importer::gtNewSimdHWIntrinsicNode(var_types      type,
+                                                       NamedIntrinsic hwIntrinsicID,
+                                                       var_types      baseType,
+                                                       unsigned       size,
+                                                       GenTree*       op1,
+                                                       GenTree*       op2,
+                                                       GenTree*       op3,
+                                                       GenTree*       op4,
+                                                       GenTree*       op5)
+{
+    return comp->gtNewSimdHWIntrinsicNode(type, hwIntrinsicID, baseType, size, op1, op2, op3, op4, op5);
+}
+
+GenTreeHWIntrinsic* Importer::gtNewSimdHWIntrinsicNode(
+    var_types type, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size, unsigned numOps, GenTree** ops)
+{
+    return comp->gtNewSimdHWIntrinsicNode(type, hwIntrinsicID, baseType, size, numOps, ops);
+}
+
+GenTreeHWIntrinsic* Importer::gtNewZeroSimdHWIntrinsicNode(ClassLayout* layout)
+{
+    return comp->gtNewZeroSimdHWIntrinsicNode(layout);
+}
+
+GenTreeHWIntrinsic* Importer::gtNewZeroSimdHWIntrinsicNode(var_types type, var_types baseType)
+{
+    return comp->gtNewZeroSimdHWIntrinsicNode(type, baseType);
+}
+
+GenTreeHWIntrinsic* Importer::gtNewSimdGetElementNode(var_types simdType,
+                                                      var_types elementType,
+                                                      GenTree*  value,
+                                                      GenTree*  index)
+{
+    return comp->gtNewSimdGetElementNode(simdType, elementType, value, index);
+}
+
+GenTreeHWIntrinsic* Importer::gtNewSimdWithElementNode(
+    var_types type, var_types eltType, GenTree* vec, GenTreeIntCon* idx, GenTree* elt)
+{
+    return comp->gtNewSimdWithElementNode(type, eltType, vec, idx, elt);
+}
+
+GenTreeHWIntrinsic* Importer::gtNewScalarHWIntrinsicNode(var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1)
+{
+    return comp->gtNewScalarHWIntrinsicNode(type, hwIntrinsicID, op1);
+}
+
+GenTreeHWIntrinsic* Importer::gtNewScalarHWIntrinsicNode(var_types      type,
+                                                         NamedIntrinsic hwIntrinsicID,
+                                                         GenTree*       op1,
+                                                         GenTree*       op2)
+{
+    return comp->gtNewScalarHWIntrinsicNode(type, hwIntrinsicID, op1, op2);
+}
+
+GenTreeHWIntrinsic* Importer::gtNewScalarHWIntrinsicNode(
+    var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1, GenTree* op2, GenTree* op3)
+{
+    return comp->gtNewScalarHWIntrinsicNode(type, hwIntrinsicID, op1, op2, op3);
+}
+
+void Importer::lvaRecordSimdIntrinsicUse(GenTree* op)
+{
+    comp->lvaRecordSimdIntrinsicUse(op);
+}
+
+void Importer::lvaRecordSimdIntrinsicUse(GenTreeLclVar* lclVar)
+{
+    comp->lvaRecordSimdIntrinsicUse(lclVar);
+}
+
+void Importer::lvaRecordSimdIntrinsicUse(unsigned lclNum)
+{
+    comp->lvaRecordSimdIntrinsicUse(lclNum);
+}
+
+void Importer::lvaRecordSimdIntrinsicDef(GenTreeLclVar* lclVar, GenTreeHWIntrinsic* src)
+{
+    comp->lvaRecordSimdIntrinsicDef(lclVar, src);
+}
+
+void Importer::lvaRecordSimdIntrinsicDef(unsigned lclNum, GenTreeHWIntrinsic* src)
+{
+    comp->lvaRecordSimdIntrinsicDef(lclNum, src);
+}
+
+#endif // FEATURE_HW_INTRINSICS
+
+GenTreeLclVar* Importer::impIsAddressInLocal(GenTree* tree)
+{
+    return Compiler::impIsAddressInLocal(tree);
+}
+
+GenTreeLclVarCommon* Importer::impIsLocalAddrExpr(GenTree* node)
+{
+    return Compiler::impIsLocalAddrExpr(node);
+}
+
+bool Importer::impHasLclRef(GenTree* tree, unsigned lclNum)
+{
+    return comp->impHasLclRef(tree, lclNum);
+}
+
+bool Importer::impHasAddressTakenLocals(GenTree* tree)
+{
+    return comp->impHasAddressTakenLocals(tree);
+}
+
+void Importer::impDevirtualizeCall(GenTreeCall*            call,
+                                   CORINFO_RESOLVED_TOKEN* resolvedToken,
+                                   CORINFO_METHOD_HANDLE*  method,
+                                   unsigned*               methodFlags,
+                                   CORINFO_CONTEXT_HANDLE* contextHandle,
+                                   CORINFO_CONTEXT_HANDLE* exactContextHandle,
+                                   bool                    isLateDevirtualization,
+                                   bool                    isExplicitTailCall,
+                                   IL_OFFSETX              ilOffset)
+{
+    comp->impDevirtualizeCall(call, resolvedToken, method, methodFlags, contextHandle, exactContextHandle,
+                              isLateDevirtualization, isExplicitTailCall, ilOffset);
+}
+
+GenTree* Importer::gtClone(GenTree* tree, bool complexOK)
+{
+    return comp->gtClone(tree, complexOK);
+}
+
+GenTree* Importer::gtCloneExpr(GenTree* tree)
+{
+    return comp->gtCloneExpr(tree);
+}
+
+bool Importer::gtCanSwapOrder(GenTree* op1, GenTree* op2)
+{
+    return comp->gtCanSwapOrder(op1, op2);
+}
+
+void Importer::gtInitStructCopyAsg(GenTreeOp* asg)
+{
+    comp->gtInitStructCopyAsg(asg);
+}
+
+GenTree* Importer::gtFoldExpr(GenTree* tree)
+{
+    return comp->gtFoldExpr(tree);
+}
+
+GenTree* Importer::gtFoldExprConst(GenTree* tree)
+{
+    return comp->gtFoldExprConst(tree);
+}
+
+GenTree* Importer::fgInsertCommaFormTemp(GenTree** use)
+{
+    return comp->fgInsertCommaFormTemp(use);
+}
+
+void Importer::gtChangeOperToNullCheck(GenTree* tree)
+{
+    comp->gtChangeOperToNullCheck(tree);
+}
+
+bool Importer::gtIsRecursiveCall(GenTreeCall* call)
+{
+    return comp->gtIsRecursiveCall(call);
+}
+
+bool Importer::gtIsRecursiveCall(CORINFO_METHOD_HANDLE callMethodHandle)
+{
+    return comp->gtIsRecursiveCall(callMethodHandle);
+}
+
+bool Importer::gtIsTypeHandleToRuntimeTypeHelper(GenTreeCall* call)
+{
+    return comp->gtIsTypeHandleToRuntimeTypeHelper(call);
+}
+
+bool Importer::gtIsTypeHandleToRuntimeTypeHandleHelper(GenTreeCall* call, CorInfoHelpFunc* helper)
+{
+    return comp->gtIsTypeHandleToRuntimeTypeHandleHelper(call, helper);
+}
+
+GenTreeFlags Importer::gtTokenToIconFlags(unsigned token)
+{
+    return comp->gtTokenToIconFlags(token);
+}
+
+GenTree* Importer::gtFoldTypeCompare(GenTree* tree)
+{
+    return comp->gtFoldTypeCompare(tree);
+}
+
+GenTree* Importer::gtFoldTypeEqualityCall(bool isEq, GenTree* op1, GenTree* op2)
+{
+    return comp->gtFoldTypeEqualityCall(isEq, op1, op2);
+}
+
+GenTree* Importer::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
+{
+    return comp->gtOptimizeEnumHasFlag(thisOp, flagOp);
+}
+
+CORINFO_CLASS_HANDLE Importer::gtGetHelperArgClassHandle(GenTree* array)
+{
+    return comp->gtGetHelperArgClassHandle(array);
+}
+
+GenTree* Importer::gtReverseCond(GenTree* tree)
+{
+    return comp->gtReverseCond(tree);
+}
+
+GenTree* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            call,
+                                                 CORINFO_CONTEXT_HANDLE* exactContextHnd,
+                                                 CORINFO_RESOLVED_TOKEN* ldftnToken)
+{
+    return comp->fgOptimizeDelegateConstructor(call, exactContextHnd, ldftnToken);
+}
+
+bool Importer::fgAddrCouldBeNull(GenTree* addr)
+{
+    return comp->fgAddrCouldBeNull(addr);
+}
+
+void Importer::impCheckCanInline(GenTreeCall*           call,
+                                 CORINFO_METHOD_HANDLE  methodHandle,
+                                 unsigned               methodAttrs,
+                                 CORINFO_CONTEXT_HANDLE exactContextHnd,
+                                 InlineCandidateInfo**  inlineCandidateInfo,
+                                 InlineResult*          inlineResult)
+{
+    comp->impCheckCanInline(call, methodHandle, methodAttrs, exactContextHnd, inlineCandidateInfo, inlineResult);
+}
+
+unsigned Importer::inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum)
+{
+    return comp->inlGetInlineeLocal(inlineInfo, ilLocNum);
+}
+
+GenTree* Importer::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
+{
+    return comp->inlUseArg(inlineInfo, ilArgNum);
+}
+
+bool Importer::inlImportReturn(InlineInfo* inlineInfo, GenTree* op, CORINFO_CLASS_HANDLE retClsHnd)
+{
+    return comp->inlImportReturn(inlineInfo, op, retClsHnd);
 }

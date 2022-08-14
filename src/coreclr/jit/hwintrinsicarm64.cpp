@@ -281,12 +281,12 @@ void HWIntrinsicInfo::lookupImmBounds(
 // Return Value:
 //     return the IR of semantic alternative on non-const imm-arg
 //
-GenTree* Compiler::impNonConstFallback(NamedIntrinsic intrinsic, var_types simdType, var_types baseType)
+GenTree* Importer::impNonConstFallback(NamedIntrinsic intrinsic, var_types simdType, var_types baseType)
 {
     return nullptr;
 }
 
-GenTree* Compiler::impSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
+GenTree* Importer::impSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
 {
     assert(!sig.hasThisParam);
 

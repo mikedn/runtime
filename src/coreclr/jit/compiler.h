@@ -1991,14 +1991,988 @@ struct CompilerOptions
     }
 };
 
-class Importer
+#ifdef FEATURE_SIMD
+class SIMDCoalescingBuffer
 {
-    Compiler* compiler;
+    Statement* m_firstStmt;
+    Statement* m_lastStmt;
+    unsigned   m_lclNum;
+    unsigned   m_index;
+
+    unsigned IsSimdLocalField(GenTree* node, Compiler* compiler);
+    unsigned IsSimdLocalExtract(GenTree* node);
+
+    bool Add(Compiler* compiler, Statement* stmt, GenTreeOp* asg, unsigned simdLclNum);
 
 public:
-    Importer(Compiler* compiler) : compiler(compiler)
+    SIMDCoalescingBuffer() : m_index(0)
     {
     }
+
+    static bool AreContiguousMemoryLocations(GenTree* l1, GenTree* l2);
+    static void ChangeToSIMDMem(Compiler* compiler, GenTree* tree, var_types simdType);
+
+    void Mark(Compiler* compiler, Statement* stmt);
+    bool Add(Compiler* compiler, Statement* stmt);
+    void Coalesce(Compiler* compiler, BasicBlock* block);
+
+    void Clear()
+    {
+        m_index = 0;
+    }
+};
+#endif // FEATURE_SIMD
+
+struct Importer
+{
+    // For prefixFlags
+    enum
+    {
+        PREFIX_TAILCALL_EXPLICIT = 0x00000001, // call has "tail" IL prefix
+        PREFIX_TAILCALL_IMPLICIT =
+            0x00000010, // call is treated as having "tail" prefix even though there is no "tail" IL prefix
+        PREFIX_TAILCALL_STRESS =
+            0x00000100, // call doesn't "tail" IL prefix but is treated as explicit because of tail call stress
+        PREFIX_TAILCALL    = (PREFIX_TAILCALL_EXPLICIT | PREFIX_TAILCALL_IMPLICIT | PREFIX_TAILCALL_STRESS),
+        PREFIX_VOLATILE    = 0x00001000,
+        PREFIX_UNALIGNED   = 0x00010000,
+        PREFIX_CONSTRAINED = 0x00100000,
+        PREFIX_READONLY    = 0x01000000
+    };
+
+    Compiler* comp;
+#ifdef DEBUG
+    bool& verbose;
+#endif
+    CompilerOptions&        opts;
+    CompiledMethodInfo&     info;
+    CORINFO_CONTEXT_HANDLE& impTokenLookupContextHandle;
+    unsigned&               optMethodFlags;
+    BasicBlock**&           fgBBs;
+    BasicBlock*&            fgFirstBB;
+    BasicBlock*&            fgEntryBB;
+    unsigned&               fgBBNumMax;
+    EHblkDsc*&              compHndBBtab;
+    unsigned&               compHndBBtabCount;
+    LclVarDsc*&             lvaTable;
+    unsigned&               lvaArg0Var;
+    InlineInfo*&            impInlineInfo;
+    InlineResult*&          compInlineResult;
+    bool&                   fgComputePredsDone;
+    bool&                   fgCheapPredsValid;
+    bool&                   compDoAggressiveInlining;
+    bool&                   compFloatingPointUsed;
+    bool&                   compLongUsed;
+    bool&                   compJmpOpUsed;
+    bool&                   compLocallocUsed;
+    bool&                   compLocallocOptimized;
+    bool&                   compGSReorderStackLayout;
+    bool&                   compSuppressedZeroInit;
+    bool&                   compHasBackwardJump;
+    bool&                   fgNoStructPromotion;
+    bool&                   impBoxTempInUse;
+    unsigned&               impBoxTemp;
+    BasicBlock*&            compCurBB;
+    unsigned&               lvaStubArgumentVar;
+    unsigned&               lvaNewObjArrayArgs;
+    unsigned&               lvaVarargsHandleArg;
+#ifdef FEATURE_SIMD
+    bool& featureSIMD;
+#endif
+    unsigned& optNativeCallCount;
+
+    Statement* impStmtList; // Statements for the BB being imported.
+    Statement* impLastStmt; // The last statement for the current BB.
+
+    // We keep a byte-per-block map (dynamically extended) in the top-level Compiler object of a compilation.
+    JitExpandArray<bool> impPendingBlockMembers;
+    // When we compute a "spill clique" (see above) these byte-maps are allocated to have a byte per basic
+    // block, and represent the predecessor and successor members of the clique currently being computed.
+    JitExpandArray<uint8_t> impSpillCliqueMembers;
+
+#ifdef DEBUG
+    unsigned impInlinedCodeSize;
+
+    unsigned    impCurOpcOffs;
+    const char* impCurOpcName;
+
+    // For displaying instrs with generated native code (-n:B)
+    Statement* impLastILoffsStmt; // oldest stmt added for which we did not call SetLastILOffset().
+    void       impNoteLastILoffs();
+#endif
+
+    // IL offset of the stmt currently being imported. It gets set to
+    // BAD_IL_OFFSET after it has been set in the appended trees. Then it gets
+    // updated at IL offsets for which we have to report mapping info.
+    // It also includes flag bits, so use jitGetILoffs()
+    // to get the actual IL offset value.
+    IL_OFFSETX impCurStmtOffs;
+
+    unsigned impStkSize; // Size of the full stack
+
+#define SMALL_STACK_SIZE 16 // number of elements in impSmallStack
+
+    // A free list of linked list nodes used to represent to-do stacks of basic blocks.
+    struct BlockListNode
+    {
+        BasicBlock*    m_blk;
+        BlockListNode* m_next;
+        BlockListNode(BasicBlock* blk, BlockListNode* next = nullptr) : m_blk(blk), m_next(next)
+        {
+        }
+        void* operator new(size_t sz, Importer* importer);
+    };
+
+    BlockListNode* impBlockListNodeFreeList;
+    BlockListNode* impPendingBlockStack;
+
+    // dynamic state info needed for verification
+    EntryState verCurrentState;
+
+#ifdef FEATURE_SIMD
+    SIMDCoalescingBuffer m_impSIMDCoalescingBuffer;
+#endif
+
+    static constexpr unsigned CHECK_SPILL_ALL  = UINT32_MAX;
+    static constexpr unsigned CHECK_SPILL_NONE = 0;
+
+    Importer(Compiler* compiler);
+
+    CompAllocator getAllocator(CompMemKind kind = CMK_Generic);
+
+    codeOptimize compCodeOpt();
+    bool IsTargetAbi(CORINFO_RUNTIME_ABI abi);
+    bool      compIsForInlining();
+    bool      compDonotInline();
+    Compiler* impInlineRoot();
+    bool      supportSIMDTypes();
+    bool      IsBaselineSimdIsaSupported();
+    bool compExactlyDependsOn(CORINFO_InstructionSet isa);
+    bool compOpportunisticallyDependsOn(CORINFO_InstructionSet isa);
+    bool IsIntrinsicImplementedByUserCall(NamedIntrinsic intrinsicName);
+    bool IsMathIntrinsic(NamedIntrinsic intrinsicName);
+    bool IsMathIntrinsic(GenTree* tree);
+    bool doesMethodHaveFrozenString();
+    void setMethodHasExpRuntimeLookup();
+    INDEBUG(bool compTailCallStress();)
+
+    NamedIntrinsic lookupNamedIntrinsic(CORINFO_METHOD_HANDLE method);
+#ifdef FEATURE_HW_INTRINSICS
+    NamedIntrinsic impFindSysNumSimdIntrinsic(CORINFO_METHOD_HANDLE method,
+                                              const char*           className,
+                                              const char*           methodName,
+                                              const char*           enclosingClassName);
+#endif
+
+    FieldSeqStore* GetFieldSeqStore();
+    FieldSeqNode*  GetRefanyTypeField();
+    FieldSeqNode*  GetRefanyValueField();
+    FieldSeqNode* GetByReferenceValueField(CORINFO_FIELD_HANDLE byRefFieldHandle);
+
+    static bool jitIsBetween(unsigned value, unsigned start, unsigned end);
+
+    void        fgInitBBLookup();
+    BasicBlock* fgLookupBB(unsigned addr);
+
+    BasicBlock* bbNewBasicBlock(BBjumpKinds jumpKind);
+    BasicBlock* fgNewBBbefore(BBjumpKinds jumpKind, BasicBlock* block, bool extendRegion);
+    BasicBlock* fgNewBBafter(BBjumpKinds jumpKind, BasicBlock* block, bool extendRegion);
+    BasicBlock* fgNewBBinRegion(BBjumpKinds jumpKind,
+                                unsigned    tryIndex,
+                                unsigned    hndIndex,
+                                BasicBlock* nearBlk,
+                                bool        putInFilter = false,
+                                bool        runRarely   = false,
+                                bool        insertAtEnd = false);
+    BasicBlock* fgNewBBinRegion(BBjumpKinds jumpKind,
+                                BasicBlock* srcBlk,
+                                bool        runRarely   = false,
+                                bool        insertAtEnd = false);
+    BasicBlock* fgNewBBinRegion(BBjumpKinds jumpKind);
+
+    void fgInsertBBafter(BasicBlock* insertAfter, BasicBlock* block);
+    void fgAddCheapPred(BasicBlock* block, BasicBlock* blockPred);
+    void fgInsertStmtAtEnd(BasicBlock* block, Statement* stmt);
+
+    bool ehBlockHasExnFlowDsc(BasicBlock* block);
+    EHblkDsc* ehGetDsc(unsigned regionIndex);
+    bool bbInCatchHandlerILRange(BasicBlock* block);
+    bool bbInFilterILRange(BasicBlock* block);
+    uint16_t bbFindInnermostCommonTryRegion(BasicBlock* block1, BasicBlock* block2);
+    INDEBUG(void fgVerifyHandlerTab();)
+
+    void fgComputeCheapPreds();
+    void fgRemovePreds();
+
+    void setNeedsGSSecurityCookie();
+
+    bool tiCompatibleWith(const typeInfo& child, const typeInfo& parent) const;
+
+    void addFatPointerCandidate(GenTreeCall* call);
+
+#ifdef DEBUG
+    typeInfo verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd);
+    typeInfo verMakeTypeInfo(CorInfoType ciType, CORINFO_CLASS_HANDLE clsHnd);
+
+    bool verCheckTailCallConstraint(OPCODE                  opcode,
+                                    CORINFO_RESOLVED_TOKEN* pResolvedToken,
+                                    CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken // Is this a "constrained." call
+                                    // on a type parameter?
+                                    );
+#endif
+
+    void impInit();
+    void impImport();
+
+    static void impValidateMemoryAccessOpcode(const BYTE* codeAddr, const BYTE* codeEndp, bool volatilePrefix);
+    static OPCODE impGetNonPrefixOpcode(const BYTE* codeAddr, const BYTE* codeEndp);
+    static bool impOpcodeIsCallOpcode(OPCODE opcode);
+
+    void impStmtListBegin();
+    void impStmtListAppend(Statement* stmt);
+    void impStmtListInsertBefore(Statement* stmt, Statement* stmtBefore);
+    Statement* impStmtListRemoveLast();
+    void impStmtListEnd(BasicBlock* block);
+    void impSetBlockStmtList(BasicBlock* block, Statement* firstStmt, Statement* lastStmt);
+
+    void impSetCurrentState(BasicBlock* block);
+
+    INDEBUG(void impAppendStmtCheck(Statement* stmt, unsigned chkLevel);)
+    void impAppendStmt(Statement* stmt, unsigned chkLevel);
+    Statement* impAppendTree(GenTree* tree, unsigned chkLevel, IL_OFFSETX offset);
+    void impSpillAllAppendTree(GenTree* tree);
+    void impSpillNoneAppendTree(GenTree* tree);
+    void impAppendTempAssign(unsigned lclNum, GenTree* val, unsigned curLevel);
+    void impAppendTempAssign(unsigned lclNum, GenTree* val, ClassLayout* layout, unsigned curLevel);
+    void impAppendTempAssign(unsigned lclNum, GenTree* val, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
+
+    GenTree* impCloneExpr(GenTree* tree, GenTree** clone, unsigned spillCheckLevel DEBUGARG(const char* reason));
+    GenTree* impCloneExpr(GenTree*     tree,
+                          GenTree**    clone,
+                          ClassLayout* layout,
+                          unsigned spillCheckLevel DEBUGARG(const char* reason));
+
+    void impMakeMultiUse(GenTree*  tree,
+                         unsigned  useCount,
+                         GenTree** uses,
+                         unsigned spillCheckLevel DEBUGARG(const char* reason));
+
+    template <unsigned useCount>
+    void impMakeMultiUse(GenTree* tree,
+                         GenTree* (&uses)[useCount],
+                         unsigned spillCheckLevel DEBUGARG(const char* reason))
+    {
+        impMakeMultiUse(tree, useCount, uses, spillCheckLevel DEBUGARG(reason));
+    }
+
+    void impMakeMultiUse(GenTree*     tree,
+                         unsigned     useCount,
+                         GenTree**    uses,
+                         ClassLayout* layout,
+                         unsigned spillCheckLevel DEBUGARG(const char* reason));
+
+    template <unsigned useCount>
+    void impMakeMultiUse(GenTree* tree,
+                         GenTree* (&uses)[useCount],
+                         ClassLayout* layout,
+                         unsigned spillCheckLevel DEBUGARG(const char* reason))
+    {
+        impMakeMultiUse(tree, useCount, uses, layout, spillCheckLevel DEBUGARG(reason));
+    }
+
+    void impAssignCallWithRetBuf(GenTree* dest, GenTreeCall* call);
+    GenTree* impAssignMkRefAny(GenTree* dest, GenTreeOp* mkRefAny, unsigned curLevel);
+    GenTree* impAssignStruct(GenTree* dest, GenTree* src, unsigned curLevel);
+
+    GenTree* impGetStructAddr(GenTree* structVal, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel, bool willDeref);
+
+    GenTree* impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLayout, unsigned curLevel);
+
+    GenTree* impLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
+                             CORINFO_LOOKUP*         pLookup,
+                             GenTreeFlags            flags,
+                             void*                   compileTimeHandle);
+
+    GenTree* impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
+                                    CORINFO_LOOKUP*         pLookup,
+                                    void*                   compileTimeHandle);
+
+    GenTree* impReadyToRunLookupToTree(CORINFO_CONST_LOOKUP* pLookup, GenTreeFlags flags, void* compileTimeHandle);
+
+    GenTree* impCastClassOrIsInstToTree(GenTree*                op1,
+                                        GenTree*                op2,
+                                        CORINFO_RESOLVED_TOKEN* pResolvedToken,
+                                        bool                    isCastClass);
+
+    GenTree* impOptimizeCastClassOrIsInst(GenTree* op1, CORINFO_RESOLVED_TOKEN* pResolvedToken, bool isCastClass);
+
+    void impCurStmtOffsSet(IL_OFFSET offs);
+
+    void impNoteBranchOffs();
+
+    unsigned impInitBlockLineInfo();
+
+    GenTree* impCheckForNullPointer(GenTree* obj);
+    bool impIsThis(GenTree* obj);
+    bool impIsAnySTLOC(OPCODE opcode)
+    {
+        return ((opcode == CEE_STLOC) || (opcode == CEE_STLOC_S) ||
+                ((opcode >= CEE_STLOC_0) && (opcode <= CEE_STLOC_3)));
+    }
+
+    GenTreeCall::Use* impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig, GenTreeCall::Use* prefixArgs = nullptr);
+
+    bool impCheckImplicitArgumentCoercion(var_types sigType, var_types nodeType) const;
+
+    GenTreeCall::Use* impPopReverseCallArgs(unsigned count, CORINFO_SIG_INFO* sig, unsigned skipReverseCount = 0);
+
+    /*
+     * Get current IL offset with stack-empty info incoporated
+     */
+    IL_OFFSETX impCurILOffset(IL_OFFSET offs, bool callInstruction = false);
+
+    //---------------- Spilling the importer stack ----------------------------
+
+    // The maximum number of bytes of IL processed without clean stack state.
+    // It allows to limit the maximum tree size and depth.
+    static const unsigned MAX_TREE_SIZE = 200;
+    bool impCanSpillNow(OPCODE prevOpcode);
+
+    // Return the byte for "b" (allocating/extending impPendingBlockMembers if necessary.)
+    // Operates on the map in the top-level ancestor.
+    bool impIsPendingBlockMember(BasicBlock* blk);
+    // Set the byte for "b" to "val" (allocating/extending impPendingBlockMembers if necessary.)
+    // Operates on the map in the top-level ancestor.
+    void impSetPendingBlockMember(BasicBlock* blk, bool val);
+
+    void impSpillStackEntry(unsigned level DEBUGARG(const char* reason));
+
+    void impSpillStackEnsure(bool spillLeaves = false);
+    void impSpillCatchArg();
+    void impSpillSideEffects(GenTreeFlags spillSideEffects, unsigned chkLevel DEBUGARG(const char* reason));
+    void impSpillLclReferences(unsigned lclNum);
+
+    BasicBlock* impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_HANDLE clsHnd, bool isSingleBlockFilter);
+    GenTree* impNewCatchArg();
+
+    bool impBlockIsInALoop(BasicBlock* block);
+    void impImportBlockCode(BasicBlock* block);
+
+    void impAddPendingEHSuccessors(BasicBlock* block);
+
+    void impImportBlockPending(BasicBlock* block);
+    void impPushPendingBlock(BasicBlock* block);
+    BasicBlock* impPopPendingBlock();
+
+    var_types impGetNumericBinaryOpType(genTreeOps oper, bool fUnsigned, GenTree** pOp1, GenTree** pOp2);
+    void impAddCompareOpImplicitCasts(bool isUnsigned, GenTree*& op1, GenTree*& op2);
+    void impBranchToNextBlock(BasicBlock* block, GenTree* op1, GenTree* op2);
+
+    void impImportBlock(BasicBlock* block);
+    bool impSpillStackAtBlockEnd(BasicBlock* block);
+
+    // Assumes that "block" is a basic block that completes with a non-empty stack. We will assign the values
+    // on the stack to local variables (the "spill temp" variables). The successor blocks will assume that
+    // its incoming stack contents are in those locals. This requires "block" and its successors to agree on
+    // the variables that will be used -- and for all the predecessors of those successors, and the
+    // successors of those predecessors, etc. Call such a set of blocks closed under alternating
+    // successor/predecessor edges a "spill clique." A block is a "predecessor" or "successor" member of the
+    // clique (or, conceivably, both). Each block has a specified sequence of incoming and outgoing spill
+    // temps. If "block" already has its outgoing spill temps assigned (they are always a contiguous series
+    // of local variable numbers, so we represent them with the base local variable number), returns that.
+    // Otherwise, picks a set of spill temps, and propagates this choice to all blocks in the spill clique of
+    // which "block" is a member (asserting, in debug mode, that no block in this clique had its spill temps
+    // chosen already. More precisely, that the incoming or outgoing spill temps are not chosen, depending
+    // on which kind of member of the clique the block is).
+    void impSetSpillCliqueState(BasicBlock* block, ImportSpillCliqueState* state);
+
+    // Assumes that "block" is a basic block that completes with a non-empty stack. We have previously
+    // assigned the values on the stack to local variables (the "spill temp" variables). The successor blocks
+    // will assume that its incoming stack contents are in those locals. This requires "block" and its
+    // successors to agree on the variables and their types that will be used.  The CLI spec allows implicit
+    // conversions between 'int' and 'native int' or 'float' and 'double' stack types. So one predecessor can
+    // push an int and another can push a native int.  For 64-bit we have chosen to implement this by typing
+    // the "spill temp" as native int, and then importing (or re-importing as needed) so that all the
+    // predecessors in the "spill clique" push a native int (sign-extending if needed), and all the
+    // successors receive a native int. Similarly float and double are unified to double.
+    // This routine is called after a type-mismatch is detected, and it will walk the spill clique to mark
+    // blocks for re-importation as appropriate (both successors, so they get the right incoming type, and
+    // predecessors, so they insert an upcast if needed).
+    void impReimportSpillClique(BasicBlock* block);
+
+    enum SpillCliqueDir
+    {
+        SpillCliquePred,
+        SpillCliqueSucc
+    };
+
+    // Abstract class for receiving a callback while walking a spill clique
+    class SpillCliqueWalker
+    {
+    public:
+        virtual void Visit(SpillCliqueDir predOrSucc, BasicBlock* blk) = 0;
+    };
+
+    // This is the heart of the algorithm for walking spill cliques. It invokes callback->Visit for each
+    // predecessor or successor within the spill clique
+    void impWalkSpillCliqueFromPred(BasicBlock* pred, SpillCliqueWalker* callback);
+
+    bool impIsSpillCliqueMember(SpillCliqueDir predOrSucc, BasicBlock* block);
+    bool impAddSpillCliqueMember(SpillCliqueDir predOrSucc, BasicBlock* block);
+
+    void impPushLclVar(unsigned lclNum, IL_OFFSET offset);
+    GenTreeLclVar* impCreateLocalNode(unsigned lclNum DEBUGARG(IL_OFFSET offset));
+    void impLoadArg(unsigned ilArgNum, IL_OFFSET offset);
+    void impLoadLoc(unsigned ilLclNum, IL_OFFSET offset);
+    bool impInlineReturnInstruction();
+    void impReturnInstruction(int prefixFlags, OPCODE* opcode);
+
+    void FreeBlockListNode(BlockListNode* node);
+
+#ifdef FEATURE_HW_INTRINSICS
+    GenTree* impSIMDPopStack(var_types type);
+    GenTree* impPopStackAddrAsVector(var_types type);
+
+    GenTree* impHWIntrinsic(NamedIntrinsic        intrinsic,
+                            CORINFO_CLASS_HANDLE  clsHnd,
+                            CORINFO_METHOD_HANDLE method,
+                            CORINFO_SIG_INFO*     sig,
+                            bool                  mustExpand);
+
+    GenTree* impVectorGetElement(ClassLayout* layout, GenTree* op1, GenTree* op2);
+
+    GenTree* impImportSysNumSimdIntrinsic(NamedIntrinsic        intrinsic,
+                                          CORINFO_CLASS_HANDLE  clsHnd,
+                                          CORINFO_METHOD_HANDLE method,
+                                          CORINFO_SIG_INFO*     sig,
+                                          bool                  isNewObj);
+
+    GenTree* impVector234TOne(const HWIntrinsicSignature& sig);
+    GenTree* impVectorTCount(const HWIntrinsicSignature& sig, ClassLayout* layout);
+    GenTree* impVector234TSpecial(NamedIntrinsic              intrinsic,
+                                  const HWIntrinsicSignature& sig,
+                                  ClassLayout*                layout,
+                                  bool                        isNewObj);
+    GenTree* impVector234TCreateBroadcast(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
+    GenTree* impVector234Create(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
+    GenTree* impVector234CreateExtend(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
+    GenTree* impVectorTFromArray(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
+    GenTree* impAssignSIMDAddr(GenTree* destAddr, GenTree* src);
+    GenTree* impGetArrayElementsAsVector(ClassLayout*    layout,
+                                         GenTree*        array,
+                                         GenTree*        index,
+                                         SpecialCodeKind indexThrowKind,
+                                         SpecialCodeKind lastIndexThrowKind);
+    GenTree* impVector234TCopyTo(const HWIntrinsicSignature& sig, ClassLayout* layout);
+    GenTree* impVectorTGetItem(const HWIntrinsicSignature& sig, ClassLayout* layout);
+    GenTree* impVectorTMultiply(const HWIntrinsicSignature& sig);
+    GenTree* impVector234TInstanceEquals(const HWIntrinsicSignature& sig);
+    GenTree* impVector234Dot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
+#ifdef TARGET_ARM64
+    GenTree* impVector234TEquals(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool notEqual = false);
+    GenTree* impVectorT128ConditionalSelect(const HWIntrinsicSignature& sig, GenTree* mask, GenTree* op1, GenTree* op2);
+    GenTree* impVectorT128Sum(const HWIntrinsicSignature& sig, GenTree* op1);
+    GenTree* impVectorT128Dot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
+    GenTree* impVectorT128Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
+    GenTree* impVectorT128Widen(const HWIntrinsicSignature& sig);
+    GenTree* impVectorT128MinMax(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool isMax);
+#endif
+#ifdef TARGET_XARCH
+    var_types impVectorTUnsignedCompareAdjust(ClassLayout* layout, var_types eltType, GenTree** op1, GenTree** op2);
+    GenTree* impVectorT128LongGreaterThanSse2(ClassLayout* layout, GenTree* op1, GenTree* op2, bool lessThan = false);
+    GenTree* impVectorT128ULongGreaterThanSse2(ClassLayout* layout, GenTree* op1, GenTree* op2, bool lessThan = false);
+    GenTree* impVector234T128Abs(const HWIntrinsicSignature& sig, GenTree* op1);
+    GenTree* impVectorT256Abs(const HWIntrinsicSignature& sig, GenTree* op1);
+    GenTree* impVectorTAndNot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
+    GenTree* impVectorT128LongEquals(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
+    GenTree* impVectorT128Compare(const HWIntrinsicSignature& sig,
+                                  NamedIntrinsic              intrinsic,
+                                  GenTree*                    op1,
+                                  GenTree*                    op2);
+    GenTree* impVectorT256Compare(const HWIntrinsicSignature& sig,
+                                  NamedIntrinsic              intrinsic,
+                                  GenTree*                    op1,
+                                  GenTree*                    op2);
+    GenTree* impVectorT128ConvertUInt32ToSingle(const HWIntrinsicSignature& sig, GenTree* op1);
+    GenTree* impVectorT256ConvertUInt32ToSingle(const HWIntrinsicSignature& sig, GenTree* op1);
+    GenTree* impVectorT128ConvertInt64ToDouble(const HWIntrinsicSignature& sig, GenTree* op1);
+    GenTree* impVectorT256ConvertInt64ToDouble(const HWIntrinsicSignature& sig, GenTree* op1);
+    GenTree* impVectorT128ConvertUInt64ToDouble(const HWIntrinsicSignature& sig, GenTree* op1);
+    GenTree* impVectorT256ConvertUInt64ToDouble(const HWIntrinsicSignature& sig, GenTree* op1);
+    GenTree* impVectorT128ConvertDoubleToInt64(const HWIntrinsicSignature& sig);
+    GenTree* impVectorT256ConvertDoubleToInt64(const HWIntrinsicSignature& sig);
+    GenTree* impVector23Division(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
+    GenTree* impVectorT128Sum(const HWIntrinsicSignature& sig);
+    GenTree* impVectorT128Sum(GenTree* vec, var_types eltType, var_types retType);
+    GenTree* impVectorT256Sum(const HWIntrinsicSignature& sig);
+    GenTree* impVectorT128Dot(const HWIntrinsicSignature& sig);
+    GenTree* impVectorT256Dot(const HWIntrinsicSignature& sig);
+    GenTree* impVectorTMultiplyAddAdjacentByte(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
+    GenTree* impVectorTMultiplyLong(ClassLayout* layout, GenTree* op1, GenTree* op2);
+    GenTree* impVectorTMultiplyByte(ClassLayout* layout, GenTree* op1, GenTree* op2);
+    GenTree* impVector234TEquals(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool notEqual = false);
+    GenTree* impVectorT128MinMax(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool isMax);
+    GenTree* impVectorT256MinMax(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool isMax);
+    GenTree* impVectorT128Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
+    GenTree* impVectorT256Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
+    GenTree* impVectorT128ConditionalSelect(const HWIntrinsicSignature& sig, GenTree* mask, GenTree* op1, GenTree* op2);
+    GenTree* impVectorT256ConditionalSelect(const HWIntrinsicSignature& sig, GenTree* mask, GenTree* op1, GenTree* op2);
+    GenTree* impVectorT128Widen(const HWIntrinsicSignature& sig);
+    GenTree* impVectorT256Widen(const HWIntrinsicSignature& sig);
+#endif // TARGET_XARCH
+
+    GenTree* impSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
+
+    GenTree* impPopArgForHWIntrinsic(var_types paramType, ClassLayout* paramLayout);
+    GenTree* impNonConstFallback(NamedIntrinsic intrinsic, var_types simdType, var_types baseType);
+    GenTree* addRangeCheckIfNeeded(
+        NamedIntrinsic intrinsic, GenTree* immOp, bool mustExpand, int immLowerBound, int immUpperBound);
+    GenTree* addRangeCheckForHWIntrinsic(GenTree* immOp, int immLowerBound, int immUpperBound);
+
+#ifdef TARGET_XARCH
+    GenTree* impBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
+    GenTree* impSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
+    GenTree* impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
+    GenTree* impBMI1OrBMI2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
+#endif // TARGET_XARCH
+#endif // FEATURE_HW_INTRINSICS
+    GenTree* impArrayAccessIntrinsic(CORINFO_CLASS_HANDLE clsHnd,
+                                     CORINFO_SIG_INFO*    sig,
+                                     int                  memberRef,
+                                     bool                 readonlyCall,
+                                     CorInfoIntrinsics    intrinsicID);
+    GenTree* impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig);
+
+    GenTree* impMethodPointer(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORINFO_CALL_INFO* pCallInfo);
+
+    GenTree* impTransformThis(GenTree*                thisPtr,
+                              CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken,
+                              CORINFO_THIS_TRANSFORM  transform);
+
+    GenTree* impTypeIsAssignable(GenTree* typeTo, GenTree* typeFrom);
+    GenTree* impIntrinsic(GenTree*                newobjThis,
+                          CORINFO_CLASS_HANDLE    clsHnd,
+                          CORINFO_METHOD_HANDLE   method,
+                          CORINFO_SIG_INFO*       sig,
+                          unsigned                methodFlags,
+                          int                     memberRef,
+                          bool                    readonlyCall,
+                          bool                    tailCall,
+                          CORINFO_RESOLVED_TOKEN* pContstrainedResolvedToken,
+                          CORINFO_THIS_TRANSFORM  constraintCallThisTransform,
+                          CorInfoIntrinsics*      pIntrinsicID,
+                          bool*                   isSpecialIntrinsic = nullptr);
+    GenTree* impMathIntrinsic(CORINFO_METHOD_HANDLE method,
+                              CORINFO_SIG_INFO*     sig,
+                              var_types             callType,
+                              NamedIntrinsic        intrinsicName,
+                              bool                  tailCall);
+
+    bool impIsPrimitive(CorInfoType type);
+    bool impILConsumesAddr(const BYTE* codeAddr);
+
+    void impResolveToken(const BYTE* addr, CORINFO_RESOLVED_TOKEN* pResolvedToken, CorInfoTokenKind kind);
+
+    void impPushOnStack(GenTree* tree, typeInfo ti);
+    StackEntry impPopStack();
+    GenTree* impPopStackCoerceArg(var_types signatureType);
+    StackEntry& impStackTop(unsigned n = 0);
+    unsigned impStackHeight();
+
+    typeInfo impMakeTypeInfo(CorInfoType type, CORINFO_CLASS_HANDLE classHandle);
+
+    GenTree* impImportLdvirtftn(GenTree* thisPtr, CORINFO_RESOLVED_TOKEN* pResolvedToken, CORINFO_CALL_INFO* pCallInfo);
+
+    int impBoxPatternMatch(CORINFO_RESOLVED_TOKEN* pResolvedToken,
+                           const BYTE*             codeAddr,
+                           const BYTE*             codeEndp,
+                           bool                    makeInlineObservation = false);
+    void impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken);
+
+    void impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORINFO_CALL_INFO* pCallInfo);
+
+    bool impCanPInvokeInline();
+    bool impCanPInvokeInlineCallSite(BasicBlock* block);
+    void impCheckForPInvokeCall(
+        GenTreeCall* call, CORINFO_METHOD_HANDLE methHnd, CORINFO_SIG_INFO* sig, unsigned mflags, BasicBlock* block);
+    GenTreeCall* impImportIndirectCall(CORINFO_SIG_INFO* sig, IL_OFFSETX ilOffset = BAD_IL_OFFSET);
+    void impPopArgsForUnmanagedCall(GenTree* call, CORINFO_SIG_INFO* sig);
+
+    void impInsertHelperCall(const CORINFO_HELPER_DESC& helperCall);
+    void impHandleAccessAllowed(CorInfoIsAccessAllowedResult result, const CORINFO_HELPER_DESC& helperCall);
+
+    var_types impImportCall(OPCODE                  opcode,
+                            CORINFO_RESOLVED_TOKEN* pResolvedToken,
+                            CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken, // Is this a "constrained." call on a
+                            // type parameter?
+                            GenTree*           newobjThis,
+                            int                prefixFlags,
+                            CORINFO_CALL_INFO* callInfo,
+                            IL_OFFSET          rawILOffset);
+
+    void addExpRuntimeLookupCandidate(GenTreeCall* call);
+
+    void impInitializeStructCall(GenTreeCall* call, CORINFO_CLASS_HANDLE retClass);
+#if FEATURE_MULTIREG_RET
+    GenTree* impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CLASS_HANDLE retClass);
+#endif
+    GenTree* impSpillPseudoReturnBufferCall(GenTreeCall* call);
+    GenTree* impInitClass(CORINFO_RESOLVED_TOKEN* pResolvedToken);
+    GenTree* impImportStaticReadOnlyField(void* fldAddr, var_types lclTyp);
+    GenTreeFieldAddr* impImportFieldAddr(GenTree*                      addr,
+                                         const CORINFO_RESOLVED_TOKEN& resolvedToken,
+                                         const CORINFO_FIELD_INFO&     fieldInfo);
+    GenTree* impImportFieldInstanceAddrHelper(OPCODE                    opcode,
+                                              GenTree*                  objPtr,
+                                              CORINFO_RESOLVED_TOKEN*   resolvedToken,
+                                              const CORINFO_FIELD_INFO& fieldInfo,
+                                              var_types                 type,
+                                              CORINFO_CLASS_HANDLE      structType);
+    GenTree* impImportStaticFieldAddressHelper(OPCODE                    opcode,
+                                               CORINFO_RESOLVED_TOKEN*   resolvedToken,
+                                               const CORINFO_FIELD_INFO& fieldInfo);
+    GenTree* impImportLdSFld(OPCODE                    opcode,
+                             CORINFO_RESOLVED_TOKEN*   resolvedToken,
+                             const CORINFO_FIELD_INFO& fieldInfo,
+                             unsigned                  prefixFlags);
+
+    GenTree* impImportStSFld(GenTree*                  value,
+                             CORINFO_CLASS_HANDLE      valueStructType,
+                             CORINFO_RESOLVED_TOKEN*   resolvedToken,
+                             const CORINFO_FIELD_INFO& fieldInfo,
+                             unsigned                  prefixFlags);
+
+    GenTree* impImportStaticFieldAccess(OPCODE                    opcode,
+                                        CORINFO_RESOLVED_TOKEN*   resolvedToken,
+                                        const CORINFO_FIELD_INFO& fieldInfo);
+
+    GenTree* impConvertFieldStoreValue(var_types storeType, GenTree* value);
+
+    static void impBashVarAddrsToI(GenTree* tree1, GenTree* tree2 = nullptr);
+
+    GenTree* impImplicitIorI4Cast(GenTree* tree, var_types dstTyp);
+
+    GenTree* impImplicitR4orR8Cast(GenTree* tree, var_types dstTyp);
+
+    void impImportLeave(BasicBlock* block);
+    void impResetLeaveBlock(BasicBlock* block, unsigned jmpAddr);
+    GenTree* impUnsupportedNamedIntrinsic(CorInfoHelpFunc       helper,
+                                          CORINFO_METHOD_HANDLE method,
+                                          CORINFO_SIG_INFO*     sig,
+                                          bool                  mustExpand);
+
+    void impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, InlineResult* inlineResult);
+
+    bool impInlineIsGuaranteedThisDerefBeforeAnySideEffects(GenTree*          additionalTree,
+                                                            GenTreeCall::Use* additionalCallArgs,
+                                                            GenTree*          dereferencedAddress);
+
+    void impMarkInlineCandidate(GenTreeCall*           call,
+                                CORINFO_CONTEXT_HANDLE exactContextHnd,
+                                bool                   exactContextNeedsRuntimeLookup,
+                                CORINFO_CALL_INFO*     callInfo);
+
+    void impMarkInlineCandidateHelper(GenTreeCall*           call,
+                                      CORINFO_CONTEXT_HANDLE exactContextHnd,
+                                      bool                   exactContextNeedsRuntimeLookup,
+                                      CORINFO_CALL_INFO*     callInfo);
+
+    bool impIsTailCallILPattern(
+        bool tailPrefixed, OPCODE curOpcode, const BYTE* codeAddrOfNextOpcode, const BYTE* codeEnd, bool isRecursive);
+
+    bool impIsImplicitTailCallCandidate(
+        OPCODE curOpcode, const BYTE* codeAddrOfNextOpcode, const BYTE* codeEnd, int prefixFlags, bool isRecursive);
+
+    bool impCanSkipCovariantStoreCheck(GenTree* value, GenTree* array);
+
+    CORINFO_RESOLVED_TOKEN* impAllocateToken(const CORINFO_RESOLVED_TOKEN& token);
+
+    void impImportInitObj(GenTree* dstAddr, ClassLayout* layout);
+    void impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayout* layout);
+    void impImportInitBlk(unsigned prefixFlags);
+    void impImportCpBlk(unsigned prefixFlags);
+
+    GenTree* impImportPop(BasicBlock* block);
+
+    void impImportDup();
+
+    GenTree* impImportTlsFieldAccess(OPCODE                    opcode,
+                                     CORINFO_RESOLVED_TOKEN*   resolvedToken,
+                                     const CORINFO_FIELD_INFO& fieldInfo);
+
+#ifdef DEBUG
+    void fgDispBasicBlocks(BasicBlock* firstBlock, BasicBlock* lastBlock, bool dumpTrees);
+    void fgDispBasicBlocks(bool dumpTrees = false);
+    void fgDispHandlerTab();
+    void gtDispStmt(Statement* stmt);
+    void gtDispTree(GenTree* tree);
+    static int dspTreeID(GenTree* tree);
+    void JitLogEE(unsigned level, const char* fmt, ...);
+#endif
+
+    void eeGetCallInfo(CORINFO_RESOLVED_TOKEN* resolvedToken,
+                       CORINFO_RESOLVED_TOKEN* constrainedToken,
+                       CORINFO_CALLINFO_FLAGS  flags,
+                       CORINFO_CALL_INFO*      result);
+    void eeGetSig(unsigned               sigTok,
+                  CORINFO_MODULE_HANDLE  scope,
+                  CORINFO_CONTEXT_HANDLE context,
+                  CORINFO_SIG_INFO*      retSig);
+    void eeGetCallSiteSig(unsigned               sigTok,
+                          CORINFO_MODULE_HANDLE  scope,
+                          CORINFO_CONTEXT_HANDLE context,
+                          CORINFO_SIG_INFO*      retSig);
+    void eeGetMethodSig(CORINFO_METHOD_HANDLE methHnd, CORINFO_SIG_INFO* retSig, CORINFO_CLASS_HANDLE owner = nullptr);
+    void eeGetFieldInfo(CORINFO_RESOLVED_TOKEN* resolvedToken, CORINFO_ACCESS_FLAGS flags, CORINFO_FIELD_INFO* result);
+    bool eeIsValueClass(CORINFO_CLASS_HANDLE clsHnd);
+    const char* eeGetFieldName(CORINFO_FIELD_HANDLE field, const char** className = nullptr);
+    const char* eeGetClassName(CORINFO_CLASS_HANDLE clsHnd);
+    uint16_t eeGetRelocTypeHint(void* target);
+    CORINFO_CLASS_HANDLE eeGetClassFromContext(CORINFO_CONTEXT_HANDLE context);
+    static CORINFO_METHOD_HANDLE eeFindHelper(unsigned helper);
+    static unsigned eeGetArrayDataOffset(var_types type);
+    static unsigned eeGetMDArrayDataOffset(var_types type, unsigned rank);
+
+    bool impIsClassExact(CORINFO_CLASS_HANDLE classHnd);
+
+    GenTree* impTokenToHandle(CORINFO_RESOLVED_TOKEN* resolvedToken,
+                              bool*                   runtimeLookup     = nullptr,
+                              bool                    mustRestoreHandle = false,
+                              bool                    importParent      = false);
+
+    GenTree* impParentClassTokenToHandle(CORINFO_RESOLVED_TOKEN* resolvedToken,
+                                         bool*                   runtimeLookup     = nullptr,
+                                         bool                    mustRestoreHandle = false);
+
+    GenTreeCall* impReadyToRunHelperToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
+                                           CorInfoHelpFunc         helper,
+                                           var_types               type,
+                                           GenTreeCall::Use*       args              = nullptr,
+                                           CORINFO_LOOKUP_KIND*    genericLookupKind = nullptr);
+
+    GenTree* getRuntimeContextTree(CORINFO_RUNTIME_LOOKUP_KIND kind);
+
+    GenTreeCall* fgGetStaticsCCtorHelper(CORINFO_CLASS_HANDLE cls, CorInfoHelpFunc helper);
+    GenTreeCall* fgGetSharedCCtor(CORINFO_CLASS_HANDLE cls);
+
+    CORINFO_CLASS_HANDLE impGetRefAnyClass();
+    CORINFO_CLASS_HANDLE impGetObjectClass();
+    CORINFO_CLASS_HANDLE impGetTypeHandleClass();
+    var_types            GetRuntimeHandleUnderlyingType();
+
+    CORINFO_CLASS_HANDLE gtGetClassHandle(GenTree* tree, bool* isExact, bool* isNonNull);
+
+    ClassLayout* typGetObjLayout(CORINFO_CLASS_HANDLE classHandle);
+    unsigned typGetObjLayoutNum(CORINFO_CLASS_HANDLE classHandle);
+    var_types typGetStructType(ClassLayout* layout);
+    var_types typGetStructType(CORINFO_CLASS_HANDLE classHandle, var_types* elementType);
+    ClassLayout* typGetBlkLayout(unsigned blockSize);
+    unsigned typGetLayoutNum(ClassLayout* layout);
+    ClassLayout* typGetLayoutByNum(unsigned layoutNum);
+
+    StructPassing abiGetStructReturnType(ClassLayout* layout, CorInfoCallConvExtension callConv, bool isVarArgs);
+
+    unsigned lvaGrabTemp(bool shortLifetime DEBUGARG(const char* reason));
+    unsigned lvaGrabTemps(unsigned count DEBUGARG(const char* reason));
+    unsigned lvaNewTemp(var_types type, bool shortLifetime DEBUGARG(const char* reason));
+    unsigned lvaNewTemp(ClassLayout* layout, bool shortLifetime DEBUGARG(const char* reason));
+    unsigned lvaNewTemp(CORINFO_CLASS_HANDLE classHandle, bool shortLifetime DEBUGARG(const char* reason));
+    unsigned lvaNewTemp(GenTree* tree, bool shortLifetime DEBUGARG(const char* reason));
+    void lvaSetAddressExposed(unsigned lclNum);
+    void lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsafeBuffer);
+    void lvaSetStruct(unsigned lclNum, CORINFO_CLASS_HANDLE classHandle, bool checkUnsafeBuffer);
+    void lvaSetClass(unsigned lclNum, CORINFO_CLASS_HANDLE clsHnd, bool isExact = false);
+    void lvaSetClass(unsigned lclNum, GenTree* tree, CORINFO_CLASS_HANDLE stackHandle = nullptr);
+    void lvaUpdateClass(unsigned lclNum, CORINFO_CLASS_HANDLE clsHnd, bool isExact = false);
+    void lvaUpdateClass(unsigned lclNum, GenTree* tree, CORINFO_CLASS_HANDLE stackHandle = nullptr);
+    LclVarDsc* lvaGetDesc(unsigned lclNum);
+    LclVarDsc* lvaGetDesc(GenTreeLclVarCommon* lclNode);
+    bool lvaIsOriginalThisArg(unsigned lclNum);
+    bool lvaHaveManyLocals();
+    bool fgVarNeedsExplicitZeroInit(unsigned lclNum, bool blockIsInLoop, bool blockIsReturn);
+    unsigned compMapILargNum(unsigned ilArgNum);
+
+    Statement* gtNewStmt(GenTree* expr = nullptr, IL_OFFSETX offset = BAD_IL_OFFSET);
+
+    GenTreeLclVar* gtNewLclvNode(unsigned lclNum, var_types type DEBUGARG(IL_OFFSETX ILoffs = BAD_IL_OFFSET));
+    GenTreeLclVar* gtNewLclVarAddrNode(unsigned lclNum, var_types type = TYP_I_IMPL);
+    GenTreeLclFld* gtNewLclFldNode(unsigned lclNum, var_types type, unsigned offset);
+    GenTreeIntCon* gtNewIconNode(ssize_t value, var_types type = TYP_INT);
+    GenTreeIntCon* gtNewIconNode(unsigned fieldOffset, FieldSeqNode* fieldSeq);
+    GenTree* gtNewLconNode(int64_t value);
+    GenTreeIntCon* gtNewIconHandleNode(void* value, GenTreeFlags flags, FieldSeqNode* fields = nullptr);
+    GenTreeIntCon* gtNewIconHandleNode(size_t value, GenTreeFlags flags, FieldSeqNode* fields = nullptr);
+    GenTree* gtNewIconEmbHndNode(void* value, void* pValue, GenTreeFlags flags, void* compileTimeHandle);
+    GenTree* gtNewIconEmbScpHndNode(CORINFO_MODULE_HANDLE scpHnd);
+    GenTree* gtNewIconEmbClsHndNode(CORINFO_CLASS_HANDLE clsHnd);
+    GenTree* gtNewIconEmbMethHndNode(CORINFO_METHOD_HANDLE methHnd);
+    GenTree* gtNewIconEmbFldHndNode(CORINFO_FIELD_HANDLE fldHnd);
+    GenTree* gtNewIndOfIconHandleNode(var_types type, size_t value, GenTreeFlags iconFlags, bool isInvariant);
+    GenTree* gtNewZeroConNode(var_types type);
+    GenTree* gtNewOneConNode(var_types type);
+    GenTree* gtNewDconNode(double value, var_types type = TYP_DOUBLE);
+    GenTree* gtNewSconNode(int cpx, CORINFO_MODULE_HANDLE module);
+    GenTree* gtNewNothingNode();
+    GenTree* gtUnusedValNode(GenTree* expr);
+    GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call, var_types type);
+    // TODO-MIKE-Cleanup: Remove stupid dummy param.
+    GenTree* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, bool dummy = false);
+    GenTree* gtNewNullCheck(GenTree* addr);
+    GenTreeCast* gtNewCastNode(var_types type, GenTree* op1, bool fromUnsigned, var_types castType);
+    GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset);
+    GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, FieldSeqNode* fieldSeq, unsigned offset);
+    GenTreeIndir* gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldAddr);
+    GenTreeIndir* gtNewIndir(var_types type, GenTree* addr);
+    GenTreeObj* gtNewObjNode(CORINFO_CLASS_HANDLE structHnd, GenTree* addr);
+    GenTreeObj* gtNewObjNode(ClassLayout* layout, GenTree* addr);
+    GenTreeObj* gtNewObjNode(var_types type, ClassLayout* layout, GenTree* addr);
+    GenTreeArrLen* gtNewArrLen(GenTree* arr, uint8_t lenOffs);
+    GenTreeIntCon* gtNewStringLiteralLength(GenTreeStrCon* node);
+    GenTree* gtNewStringLiteralNode(InfoAccessType iat, void* value);
+    GenTreeAllocObj* gtNewAllocObjNode(
+        unsigned helper, bool helperHasSideEffects, CORINFO_CLASS_HANDLE clsHnd, var_types type, GenTree* op1);
+    GenTreeAllocObj* gtNewAllocObjNode(CORINFO_RESOLVED_TOKEN* resolvedToken, bool useParent);
+    GenTreeIndir* gtNewMethodTableLookup(GenTree* obj);
+    GenTreeOp* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2);
+    GenTreeOp* gtNewCommaNode(GenTree* op1, GenTree* op2, var_types type = TYP_UNDEF);
+    GenTreeQmark* gtNewQmarkNode(var_types type, GenTree* cond, GenTree* op1, GenTree* op2);
+    GenTreeOp* gtNewAssignNode(GenTree* dst, GenTree* src);
+    GenTreeBoundsChk* gtNewArrBoundsChk(GenTree* index, GenTree* length, SpecialCodeKind kind);
+    GenTreeIndexAddr* gtNewArrayIndexAddr(GenTree* arr, GenTree* ind, var_types elemType);
+    GenTreeIndexAddr* gtNewStringIndexAddr(GenTree* arr, GenTree* ind);
+    GenTreeIndir* gtNewIndexIndir(var_types type, GenTreeIndexAddr* indexAddr);
+    GenTreeCall::Use* gtNewCallArgs(GenTree* node);
+    GenTreeCall::Use* gtNewCallArgs(GenTree* node1, GenTree* node2);
+    GenTreeCall::Use* gtNewCallArgs(GenTree* node1, GenTree* node2, GenTree* node3);
+    GenTreeCall::Use* gtNewCallArgs(GenTree* node1, GenTree* node2, GenTree* node3, GenTree* node4);
+    GenTreeCall::Use* gtPrependNewCallArg(GenTree* node, GenTreeCall::Use* args);
+    GenTreeCall::Use* gtInsertNewCallArgAfter(GenTree* node, GenTreeCall::Use* after);
+    GenTreeCall* gtNewHelperCallNode(CorInfoHelpFunc helper, var_types type, GenTreeCall::Use* args = nullptr);
+    GenTreeCall* gtNewRuntimeLookupHelperCallNode(CORINFO_RUNTIME_LOOKUP* runtimeLookup,
+                                                  GenTree*                context,
+                                                  void*                   compileTimeHandle);
+    GenTreeCall* gtNewUserCallNode(CORINFO_METHOD_HANDLE handle,
+                                   var_types             type,
+                                   GenTreeCall::Use*     args,
+                                   IL_OFFSETX            ilOffset = BAD_IL_OFFSET);
+    GenTreeCall* gtNewIndCallNode(GenTree*          addr,
+                                  var_types         type,
+                                  GenTreeCall::Use* args,
+                                  IL_OFFSETX        ilOffset = BAD_IL_OFFSET);
+
+#ifdef FEATURE_HW_INTRINSICS
+    GenTreeHWIntrinsic* gtNewSimdHWIntrinsicNode(var_types      type,
+                                                 NamedIntrinsic hwIntrinsicID,
+                                                 var_types      baseType,
+                                                 unsigned       size);
+    GenTreeHWIntrinsic* gtNewSimdHWIntrinsicNode(
+        var_types type, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size, GenTree* op1);
+    GenTreeHWIntrinsic* gtNewSimdHWIntrinsicNode(
+        var_types type, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size, GenTree* op1, GenTree* op2);
+    GenTreeHWIntrinsic* gtNewSimdHWIntrinsicNode(var_types      type,
+                                                 NamedIntrinsic hwIntrinsicID,
+                                                 var_types      baseType,
+                                                 unsigned       size,
+                                                 GenTree*       op1,
+                                                 GenTree*       op2,
+                                                 GenTree*       op3);
+    GenTreeHWIntrinsic* gtNewSimdHWIntrinsicNode(var_types      type,
+                                                 NamedIntrinsic hwIntrinsicID,
+                                                 var_types      baseType,
+                                                 unsigned       size,
+                                                 GenTree*       op1,
+                                                 GenTree*       op2,
+                                                 GenTree*       op3,
+                                                 GenTree*       op4);
+    GenTreeHWIntrinsic* gtNewSimdHWIntrinsicNode(var_types      type,
+                                                 NamedIntrinsic hwIntrinsicID,
+                                                 var_types      baseType,
+                                                 unsigned       size,
+                                                 GenTree*       op1,
+                                                 GenTree*       op2,
+                                                 GenTree*       op3,
+                                                 GenTree*       op4,
+                                                 GenTree*       op5);
+    GenTreeHWIntrinsic* gtNewSimdHWIntrinsicNode(var_types      type,
+                                                 NamedIntrinsic hwIntrinsicID,
+                                                 var_types      baseType,
+                                                 unsigned       size,
+                                                 unsigned       numOps,
+                                                 GenTree**      ops);
+    GenTreeHWIntrinsic* gtNewZeroSimdHWIntrinsicNode(ClassLayout* layout);
+    GenTreeHWIntrinsic* gtNewZeroSimdHWIntrinsicNode(var_types type, var_types baseType);
+    GenTreeHWIntrinsic* gtNewSimdGetElementNode(var_types simdType,
+                                                var_types elementType,
+                                                GenTree*  value,
+                                                GenTree*  index);
+    GenTreeHWIntrinsic* gtNewSimdWithElementNode(
+        var_types type, var_types eltType, GenTree* vec, GenTreeIntCon* idx, GenTree* elt);
+    GenTreeHWIntrinsic* gtNewScalarHWIntrinsicNode(var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1);
+    GenTreeHWIntrinsic* gtNewScalarHWIntrinsicNode(var_types      type,
+                                                   NamedIntrinsic hwIntrinsicID,
+                                                   GenTree*       op1,
+                                                   GenTree*       op2);
+    GenTreeHWIntrinsic* gtNewScalarHWIntrinsicNode(
+        var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1, GenTree* op2, GenTree* op3);
+    var_types impGetHWIntrinsicBaseTypeFromArg(NamedIntrinsic    intrinsic,
+                                               CORINFO_SIG_INFO* sig,
+                                               var_types         baseType,
+                                               ClassLayout**     argLayout);
+
+    void lvaRecordSimdIntrinsicUse(GenTree* op);
+    void lvaRecordSimdIntrinsicUse(GenTreeLclVar* lclVar);
+    void lvaRecordSimdIntrinsicUse(unsigned lclNum);
+    void lvaRecordSimdIntrinsicDef(GenTreeLclVar* lclVar, GenTreeHWIntrinsic* src);
+    void lvaRecordSimdIntrinsicDef(unsigned lclNum, GenTreeHWIntrinsic* src);
+#endif // FEATURE_HW_INTRINSICS
+
+    static GenTreeLclVar* impIsAddressInLocal(GenTree* tree);
+    static GenTreeLclVarCommon* impIsLocalAddrExpr(GenTree* node);
+    bool impHasLclRef(GenTree* tree, unsigned lclNum);
+    bool impHasAddressTakenLocals(GenTree* tree);
+
+    void impDevirtualizeCall(GenTreeCall*            call,
+                             CORINFO_RESOLVED_TOKEN* resolvedToken,
+                             CORINFO_METHOD_HANDLE*  method,
+                             unsigned*               methodFlags,
+                             CORINFO_CONTEXT_HANDLE* contextHandle,
+                             CORINFO_CONTEXT_HANDLE* exactContextHandle,
+                             bool                    isLateDevirtualization,
+                             bool                    isExplicitTailCall,
+                             IL_OFFSETX              ilOffset = BAD_IL_OFFSET);
+
+    GenTree* gtClone(GenTree* tree, bool complexOK = false);
+    GenTree* gtCloneExpr(GenTree* tree);
+    bool gtCanSwapOrder(GenTree* op1, GenTree* op2);
+    void gtInitStructCopyAsg(GenTreeOp* asg);
+    GenTree* gtFoldExpr(GenTree* tree);
+    GenTree* gtFoldExprConst(GenTree* tree);
+    GenTree* fgInsertCommaFormTemp(GenTree** use);
+    void gtChangeOperToNullCheck(GenTree* tree);
+    bool gtIsRecursiveCall(GenTreeCall* call);
+    bool gtIsRecursiveCall(CORINFO_METHOD_HANDLE callMethodHandle);
+    bool gtIsTypeHandleToRuntimeTypeHelper(GenTreeCall* call);
+    bool gtIsTypeHandleToRuntimeTypeHandleHelper(GenTreeCall* call, CorInfoHelpFunc* helper = nullptr);
+    GenTreeFlags gtTokenToIconFlags(unsigned token);
+    GenTree* gtFoldTypeCompare(GenTree* tree);
+    GenTree* gtFoldTypeEqualityCall(bool isEq, GenTree* op1, GenTree* op2);
+    GenTree* gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp);
+    CORINFO_CLASS_HANDLE gtGetHelperArgClassHandle(GenTree* array);
+    GenTree* gtReverseCond(GenTree* tree);
+    GenTree* fgOptimizeDelegateConstructor(GenTreeCall*            call,
+                                           CORINFO_CONTEXT_HANDLE* exactContextHnd,
+                                           CORINFO_RESOLVED_TOKEN* ldftnToken);
+    bool fgAddrCouldBeNull(GenTree* addr);
+
+    void impCheckCanInline(GenTreeCall*           call,
+                           CORINFO_METHOD_HANDLE  methodHandle,
+                           unsigned               methodAttrs,
+                           CORINFO_CONTEXT_HANDLE exactContextHnd,
+                           InlineCandidateInfo**  inlineCandidateInfo,
+                           InlineResult*          inlineResult);
+    unsigned inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum);
+    GenTree* inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum);
+    bool inlImportReturn(InlineInfo* inlineInfo, GenTree* op, CORINFO_CLASS_HANDLE retClsHnd);
 };
 
 class Compiler
@@ -2026,6 +3000,8 @@ class Compiler
     friend class VNConstPropVisitor;
     friend class StructPromotionHelper;
     friend class AssertionProp;
+    friend struct Importer;
+    friend class SIMDCoalescingBuffer;
 
 #ifdef FEATURE_HW_INTRINSICS
     friend struct HWIntrinsicInfo;
@@ -2560,10 +3536,6 @@ public:
                                                    GenTree*       op2);
     GenTreeHWIntrinsic* gtNewScalarHWIntrinsicNode(
         var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1, GenTree* op2, GenTree* op3);
-    var_types impGetHWIntrinsicBaseTypeFromArg(NamedIntrinsic    intrinsic,
-                                               CORINFO_SIG_INFO* sig,
-                                               var_types         baseType,
-                                               ClassLayout**     argLayout);
 #endif // FEATURE_HW_INTRINSICS
 
     GenTreeLclFld* gtNewLclFldNode(unsigned lnum, var_types type, unsigned offset);
@@ -3274,30 +4246,6 @@ public:
 
     Importer m_importer;
 
-private:
-    // For prefixFlags
-    enum
-    {
-        PREFIX_TAILCALL_EXPLICIT = 0x00000001, // call has "tail" IL prefix
-        PREFIX_TAILCALL_IMPLICIT =
-            0x00000010, // call is treated as having "tail" prefix even though there is no "tail" IL prefix
-        PREFIX_TAILCALL_STRESS =
-            0x00000100, // call doesn't "tail" IL prefix but is treated as explicit because of tail call stress
-        PREFIX_TAILCALL    = (PREFIX_TAILCALL_EXPLICIT | PREFIX_TAILCALL_IMPLICIT | PREFIX_TAILCALL_STRESS),
-        PREFIX_VOLATILE    = 0x00001000,
-        PREFIX_UNALIGNED   = 0x00010000,
-        PREFIX_CONSTRAINED = 0x00100000,
-        PREFIX_READONLY    = 0x01000000
-    };
-
-    static void impValidateMemoryAccessOpcode(const BYTE* codeAddr, const BYTE* codeEndp, bool volatilePrefix);
-    static OPCODE impGetNonPrefixOpcode(const BYTE* codeAddr, const BYTE* codeEndp);
-    static bool impOpcodeIsCallOpcode(OPCODE opcode);
-
-public:
-    void impInit();
-    void impImport();
-
     CORINFO_CLASS_HANDLE impGetRefAnyClass();
     CORINFO_CLASS_HANDLE impGetRuntimeArgumentHandle();
     CORINFO_CLASS_HANDLE impGetTypeHandleClass();
@@ -3328,321 +4276,18 @@ public:
     //=========================================================================
 
 protected:
-    //-------------------- Stack manipulation ---------------------------------
-
-    unsigned impStkSize; // Size of the full stack
-
-#define SMALL_STACK_SIZE 16 // number of elements in impSmallStack
-
-    bool impIsPrimitive(CorInfoType type);
-    bool impILConsumesAddr(const BYTE* codeAddr);
-
-    void impResolveToken(const BYTE* addr, CORINFO_RESOLVED_TOKEN* pResolvedToken, CorInfoTokenKind kind);
-
-    void impPushOnStack(GenTree* tree, typeInfo ti);
-    StackEntry impPopStack();
-    GenTree* impPopStackCoerceArg(var_types signatureType);
-    StackEntry& impStackTop(unsigned n = 0);
-    unsigned impStackHeight();
-
-    typeInfo impMakeTypeInfo(CorInfoType type, CORINFO_CLASS_HANDLE classHandle);
-
-    GenTree* impImportLdvirtftn(GenTree* thisPtr, CORINFO_RESOLVED_TOKEN* pResolvedToken, CORINFO_CALL_INFO* pCallInfo);
-
-    int impBoxPatternMatch(CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                           const BYTE*             codeAddr,
-                           const BYTE*             codeEndp,
-                           bool                    makeInlineObservation = false);
-    void impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken);
-
-    void impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORINFO_CALL_INFO* pCallInfo);
-
-    bool impCanPInvokeInline();
-    bool impCanPInvokeInlineCallSite(BasicBlock* block);
-    void impCheckForPInvokeCall(
-        GenTreeCall* call, CORINFO_METHOD_HANDLE methHnd, CORINFO_SIG_INFO* sig, unsigned mflags, BasicBlock* block);
-    GenTreeCall* impImportIndirectCall(CORINFO_SIG_INFO* sig, IL_OFFSETX ilOffset = BAD_IL_OFFSET);
-    void impPopArgsForUnmanagedCall(GenTree* call, CORINFO_SIG_INFO* sig);
-
-    void impInsertHelperCall(const CORINFO_HELPER_DESC& helperCall);
-    void impHandleAccessAllowed(CorInfoIsAccessAllowedResult result, const CORINFO_HELPER_DESC& helperCall);
-
-    var_types impImportCall(OPCODE                  opcode,
-                            CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                            CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken, // Is this a "constrained." call on a
-                                                                               // type parameter?
-                            GenTree*           newobjThis,
-                            int                prefixFlags,
-                            CORINFO_CALL_INFO* callInfo,
-                            IL_OFFSET          rawILOffset);
-
     CORINFO_CLASS_HANDLE impGetSpecialIntrinsicExactReturnType(CORINFO_METHOD_HANDLE specialIntrinsicHandle);
 
-    void impInitializeStructCall(GenTreeCall* call, CORINFO_CLASS_HANDLE retClass);
-#if FEATURE_MULTIREG_RET
-    GenTree* impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CLASS_HANDLE retClass);
-#endif
-    GenTree* impSpillPseudoReturnBufferCall(GenTreeCall* call);
-
-    GenTree* impInitClass(CORINFO_RESOLVED_TOKEN* pResolvedToken);
-
-    GenTree* impImportStaticReadOnlyField(void* fldAddr, var_types lclTyp);
-
-    GenTreeFieldAddr* impImportFieldAddr(GenTree*                      addr,
-                                         const CORINFO_RESOLVED_TOKEN& resolvedToken,
-                                         const CORINFO_FIELD_INFO&     fieldInfo);
-    GenTree* impImportFieldInstanceAddrHelper(OPCODE                    opcode,
-                                              GenTree*                  objPtr,
-                                              CORINFO_RESOLVED_TOKEN*   resolvedToken,
-                                              const CORINFO_FIELD_INFO& fieldInfo,
-                                              var_types                 type,
-                                              CORINFO_CLASS_HANDLE      structType);
-
-    GenTree* impImportStaticFieldAddressHelper(OPCODE                    opcode,
-                                               CORINFO_RESOLVED_TOKEN*   resolvedToken,
-                                               const CORINFO_FIELD_INFO& fieldInfo);
-
-    GenTree* impImportLdSFld(OPCODE                    opcode,
-                             CORINFO_RESOLVED_TOKEN*   resolvedToken,
-                             const CORINFO_FIELD_INFO& fieldInfo,
-                             unsigned                  prefixFlags);
-
-    GenTree* impImportStSFld(GenTree*                  value,
-                             CORINFO_CLASS_HANDLE      valueStructType,
-                             CORINFO_RESOLVED_TOKEN*   resolvedToken,
-                             const CORINFO_FIELD_INFO& fieldInfo,
-                             unsigned                  prefixFlags);
-
-    GenTree* impImportStaticFieldAccess(OPCODE                    opcode,
-                                        CORINFO_RESOLVED_TOKEN*   resolvedToken,
-                                        const CORINFO_FIELD_INFO& fieldInfo);
-
-    GenTree* impConvertFieldStoreValue(var_types storeType, GenTree* value);
-
-    static void impBashVarAddrsToI(GenTree* tree1, GenTree* tree2 = nullptr);
-
-    GenTree* impImplicitIorI4Cast(GenTree* tree, var_types dstTyp);
-
-    GenTree* impImplicitR4orR8Cast(GenTree* tree, var_types dstTyp);
-
-    void impImportLeave(BasicBlock* block);
-    void impResetLeaveBlock(BasicBlock* block, unsigned jmpAddr);
-    GenTree* impTypeIsAssignable(GenTree* typeTo, GenTree* typeFrom);
-    GenTree* impIntrinsic(GenTree*                newobjThis,
-                          CORINFO_CLASS_HANDLE    clsHnd,
-                          CORINFO_METHOD_HANDLE   method,
-                          CORINFO_SIG_INFO*       sig,
-                          unsigned                methodFlags,
-                          int                     memberRef,
-                          bool                    readonlyCall,
-                          bool                    tailCall,
-                          CORINFO_RESOLVED_TOKEN* pContstrainedResolvedToken,
-                          CORINFO_THIS_TRANSFORM  constraintCallThisTransform,
-                          CorInfoIntrinsics*      pIntrinsicID,
-                          bool*                   isSpecialIntrinsic = nullptr);
-    GenTree* impMathIntrinsic(CORINFO_METHOD_HANDLE method,
-                              CORINFO_SIG_INFO*     sig,
-                              var_types             callType,
-                              NamedIntrinsic        intrinsicName,
-                              bool                  tailCall);
     NamedIntrinsic lookupNamedIntrinsic(CORINFO_METHOD_HANDLE method);
-    GenTree* impUnsupportedNamedIntrinsic(CorInfoHelpFunc       helper,
-                                          CORINFO_METHOD_HANDLE method,
-                                          CORINFO_SIG_INFO*     sig,
-                                          bool                  mustExpand);
-
-#ifdef FEATURE_HW_INTRINSICS
-    GenTree* impHWIntrinsic(NamedIntrinsic        intrinsic,
-                            CORINFO_CLASS_HANDLE  clsHnd,
-                            CORINFO_METHOD_HANDLE method,
-                            CORINFO_SIG_INFO*     sig,
-                            bool                  mustExpand);
-
-    GenTree* impVectorGetElement(ClassLayout* layout, GenTree* op1, GenTree* op2);
 
     NamedIntrinsic impFindSysNumSimdIntrinsic(CORINFO_METHOD_HANDLE method,
                                               const char*           className,
                                               const char*           methodName,
                                               const char*           enclosingClassName);
 
-    GenTree* impImportSysNumSimdIntrinsic(NamedIntrinsic        intrinsic,
-                                          CORINFO_CLASS_HANDLE  clsHnd,
-                                          CORINFO_METHOD_HANDLE method,
-                                          CORINFO_SIG_INFO*     sig,
-                                          bool                  isNewObj);
-
-protected:
     bool compSupportsHWIntrinsic(CORINFO_InstructionSet isa);
 
-    GenTree* impVector234TOne(const HWIntrinsicSignature& sig);
-    GenTree* impVectorTCount(const HWIntrinsicSignature& sig, ClassLayout* layout);
-    GenTree* impVector234TSpecial(NamedIntrinsic              intrinsic,
-                                  const HWIntrinsicSignature& sig,
-                                  ClassLayout*                layout,
-                                  bool                        isNewObj);
-    GenTree* impVector234TCreateBroadcast(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
-    GenTree* impVector234Create(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
-    GenTree* impVector234CreateExtend(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
-    GenTree* impVectorTFromArray(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
-    GenTree* impAssignSIMDAddr(GenTree* destAddr, GenTree* src);
-    GenTree* impGetArrayElementsAsVector(ClassLayout*    layout,
-                                         GenTree*        array,
-                                         GenTree*        index,
-                                         SpecialCodeKind indexThrowKind,
-                                         SpecialCodeKind lastIndexThrowKind);
-    GenTree* impVector234TCopyTo(const HWIntrinsicSignature& sig, ClassLayout* layout);
-    GenTree* impVectorTGetItem(const HWIntrinsicSignature& sig, ClassLayout* layout);
-    GenTree* impVectorTMultiply(const HWIntrinsicSignature& sig);
-    GenTree* impVector234TInstanceEquals(const HWIntrinsicSignature& sig);
-    GenTree* impVector234Dot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
-#ifdef TARGET_ARM64
-    GenTree* impVector234TEquals(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool notEqual = false);
-    GenTree* impVectorT128ConditionalSelect(const HWIntrinsicSignature& sig, GenTree* mask, GenTree* op1, GenTree* op2);
-    GenTree* impVectorT128Sum(const HWIntrinsicSignature& sig, GenTree* op1);
-    GenTree* impVectorT128Dot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
-    GenTree* impVectorT128Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
-    GenTree* impVectorT128Widen(const HWIntrinsicSignature& sig);
-    GenTree* impVectorT128MinMax(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool isMax);
-#endif
-#ifdef TARGET_XARCH
-    var_types impVectorTUnsignedCompareAdjust(ClassLayout* layout, var_types eltType, GenTree** op1, GenTree** op2);
-    GenTree* impVectorT128LongGreaterThanSse2(ClassLayout* layout, GenTree* op1, GenTree* op2, bool lessThan = false);
-    GenTree* impVectorT128ULongGreaterThanSse2(ClassLayout* layout, GenTree* op1, GenTree* op2, bool lessThan = false);
-    GenTree* impVector234T128Abs(const HWIntrinsicSignature& sig, GenTree* op1);
-    GenTree* impVectorT256Abs(const HWIntrinsicSignature& sig, GenTree* op1);
-    GenTree* impVectorTAndNot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
-    GenTree* impVectorT128LongEquals(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
-    GenTree* impVectorT128Compare(const HWIntrinsicSignature& sig,
-                                  NamedIntrinsic              intrinsic,
-                                  GenTree*                    op1,
-                                  GenTree*                    op2);
-    GenTree* impVectorT256Compare(const HWIntrinsicSignature& sig,
-                                  NamedIntrinsic              intrinsic,
-                                  GenTree*                    op1,
-                                  GenTree*                    op2);
-    GenTree* impVectorT128ConvertUInt32ToSingle(const HWIntrinsicSignature& sig, GenTree* op1);
-    GenTree* impVectorT256ConvertUInt32ToSingle(const HWIntrinsicSignature& sig, GenTree* op1);
-    GenTree* impVectorT128ConvertInt64ToDouble(const HWIntrinsicSignature& sig, GenTree* op1);
-    GenTree* impVectorT256ConvertInt64ToDouble(const HWIntrinsicSignature& sig, GenTree* op1);
-    GenTree* impVectorT128ConvertUInt64ToDouble(const HWIntrinsicSignature& sig, GenTree* op1);
-    GenTree* impVectorT256ConvertUInt64ToDouble(const HWIntrinsicSignature& sig, GenTree* op1);
-    GenTree* impVectorT128ConvertDoubleToInt64(const HWIntrinsicSignature& sig);
-    GenTree* impVectorT256ConvertDoubleToInt64(const HWIntrinsicSignature& sig);
-    GenTree* impVector23Division(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
-    GenTree* impVectorT128Sum(const HWIntrinsicSignature& sig);
-    GenTree* impVectorT128Sum(GenTree* vec, var_types eltType, var_types retType);
-    GenTree* impVectorT256Sum(const HWIntrinsicSignature& sig);
-    GenTree* impVectorT128Dot(const HWIntrinsicSignature& sig);
-    GenTree* impVectorT256Dot(const HWIntrinsicSignature& sig);
-    GenTree* impVectorTMultiplyAddAdjacentByte(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
-    GenTree* impVectorTMultiplyLong(ClassLayout* layout, GenTree* op1, GenTree* op2);
-    GenTree* impVectorTMultiplyByte(ClassLayout* layout, GenTree* op1, GenTree* op2);
-    GenTree* impVector234TEquals(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool notEqual = false);
-    GenTree* impVectorT128MinMax(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool isMax);
-    GenTree* impVectorT256MinMax(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool isMax);
-    GenTree* impVectorT128Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
-    GenTree* impVectorT256Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
-    GenTree* impVectorT128ConditionalSelect(const HWIntrinsicSignature& sig, GenTree* mask, GenTree* op1, GenTree* op2);
-    GenTree* impVectorT256ConditionalSelect(const HWIntrinsicSignature& sig, GenTree* mask, GenTree* op1, GenTree* op2);
-    GenTree* impVectorT128Widen(const HWIntrinsicSignature& sig);
-    GenTree* impVectorT256Widen(const HWIntrinsicSignature& sig);
-#endif // TARGET_XARCH
-
-    GenTree* impSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
-
-    GenTree* impPopArgForHWIntrinsic(var_types paramType, ClassLayout* paramLayout);
-    GenTree* impNonConstFallback(NamedIntrinsic intrinsic, var_types simdType, var_types baseType);
-    GenTree* addRangeCheckIfNeeded(
-        NamedIntrinsic intrinsic, GenTree* immOp, bool mustExpand, int immLowerBound, int immUpperBound);
-    GenTree* addRangeCheckForHWIntrinsic(GenTree* immOp, int immLowerBound, int immUpperBound);
-
-#ifdef TARGET_XARCH
-    GenTree* impBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
-    GenTree* impSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
-    GenTree* impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
-    GenTree* impBMI1OrBMI2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
-#endif // TARGET_XARCH
-#endif // FEATURE_HW_INTRINSICS
-    GenTree* impArrayAccessIntrinsic(CORINFO_CLASS_HANDLE clsHnd,
-                                     CORINFO_SIG_INFO*    sig,
-                                     int                  memberRef,
-                                     bool                 readonlyCall,
-                                     CorInfoIntrinsics    intrinsicID);
-    GenTree* impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig);
-
-    GenTree* impMethodPointer(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORINFO_CALL_INFO* pCallInfo);
-
-    GenTree* impTransformThis(GenTree*                thisPtr,
-                              CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken,
-                              CORINFO_THIS_TRANSFORM  transform);
-
-    //----------------- Manipulating the trees and stmts ----------------------
-
-    Statement* impStmtList; // Statements for the BB being imported.
-    Statement* impLastStmt; // The last statement for the current BB.
-
 public:
-    static constexpr unsigned CHECK_SPILL_ALL  = UINT32_MAX;
-    static constexpr unsigned CHECK_SPILL_NONE = 0;
-
-    void impStmtListBegin();
-    void impStmtListAppend(Statement* stmt);
-    void impStmtListInsertBefore(Statement* stmt, Statement* stmtBefore);
-    Statement* impStmtListRemoveLast();
-    void impStmtListEnd(BasicBlock* block);
-    void impSetBlockStmtList(BasicBlock* block, Statement* firstStmt, Statement* lastStmt);
-
-    INDEBUG(void impAppendStmtCheck(Statement* stmt, unsigned chkLevel);)
-    void impAppendStmt(Statement* stmt, unsigned chkLevel);
-    Statement* impAppendTree(GenTree* tree, unsigned chkLevel, IL_OFFSETX offset);
-    void impSpillAllAppendTree(GenTree* tree);
-    void impSpillNoneAppendTree(GenTree* tree);
-    void impAppendTempAssign(unsigned lclNum, GenTree* val, unsigned curLevel);
-    void impAppendTempAssign(unsigned lclNum, GenTree* val, ClassLayout* layout, unsigned curLevel);
-    void impAppendTempAssign(unsigned lclNum, GenTree* val, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel);
-
-    GenTree* impCloneExpr(GenTree* tree, GenTree** clone, unsigned spillCheckLevel DEBUGARG(const char* reason));
-    GenTree* impCloneExpr(GenTree*     tree,
-                          GenTree**    clone,
-                          ClassLayout* layout,
-                          unsigned spillCheckLevel DEBUGARG(const char* reason));
-
-    void impMakeMultiUse(GenTree*  tree,
-                         unsigned  useCount,
-                         GenTree** uses,
-                         unsigned spillCheckLevel DEBUGARG(const char* reason));
-
-    template <unsigned useCount>
-    void impMakeMultiUse(GenTree* tree,
-                         GenTree* (&uses)[useCount],
-                         unsigned spillCheckLevel DEBUGARG(const char* reason))
-    {
-        impMakeMultiUse(tree, useCount, uses, spillCheckLevel DEBUGARG(reason));
-    }
-
-    void impMakeMultiUse(GenTree*     tree,
-                         unsigned     useCount,
-                         GenTree**    uses,
-                         ClassLayout* layout,
-                         unsigned spillCheckLevel DEBUGARG(const char* reason));
-
-    template <unsigned useCount>
-    void impMakeMultiUse(GenTree* tree,
-                         GenTree* (&uses)[useCount],
-                         ClassLayout* layout,
-                         unsigned spillCheckLevel DEBUGARG(const char* reason))
-    {
-        impMakeMultiUse(tree, useCount, uses, layout, spillCheckLevel DEBUGARG(reason));
-    }
-
-    void impAssignCallWithRetBuf(GenTree* dest, GenTreeCall* call);
-    GenTree* impAssignMkRefAny(GenTree* dest, GenTreeOp* mkRefAny, unsigned curLevel);
-    GenTree* impAssignStruct(GenTree* dest, GenTree* src, unsigned curLevel);
-
-    GenTree* impGetStructAddr(GenTree* structVal, CORINFO_CLASS_HANDLE structHnd, unsigned curLevel, bool willDeref);
-
-    GenTree* impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLayout, unsigned curLevel);
-
     GenTree* impTokenToHandle(CORINFO_RESOLVED_TOKEN* pResolvedToken,
                               bool*                   pRuntimeLookup    = nullptr,
                               bool                    mustRestoreHandle = false,
@@ -3655,31 +4300,13 @@ public:
         return impTokenToHandle(pResolvedToken, pRuntimeLookup, mustRestoreHandle, true);
     }
 
-    GenTree* impLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                             CORINFO_LOOKUP*         pLookup,
-                             GenTreeFlags            flags,
-                             void*                   compileTimeHandle);
-
     GenTree* getRuntimeContextTree(CORINFO_RUNTIME_LOOKUP_KIND kind);
-
-    GenTree* impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                    CORINFO_LOOKUP*         pLookup,
-                                    void*                   compileTimeHandle);
-
-    GenTree* impReadyToRunLookupToTree(CORINFO_CONST_LOOKUP* pLookup, GenTreeFlags flags, void* compileTimeHandle);
 
     GenTreeCall* impReadyToRunHelperToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
                                            CorInfoHelpFunc         helper,
                                            var_types               type,
                                            GenTreeCall::Use*       args               = nullptr,
                                            CORINFO_LOOKUP_KIND*    pGenericLookupKind = nullptr);
-
-    GenTree* impCastClassOrIsInstToTree(GenTree*                op1,
-                                        GenTree*                op2,
-                                        CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                        bool                    isCastClass);
-
-    GenTree* impOptimizeCastClassOrIsInst(GenTree* op1, CORINFO_RESOLVED_TOKEN* pResolvedToken, bool isCastClass);
 
     bool IsIntrinsicImplementedByUserCall(NamedIntrinsic intrinsicName);
     bool IsTargetIntrinsic(NamedIntrinsic intrinsicName);
@@ -3690,174 +4317,6 @@ private:
     //----------------- Importing the method ----------------------------------
 
     CORINFO_CONTEXT_HANDLE impTokenLookupContextHandle; // The context used for looking up tokens.
-
-#ifdef DEBUG
-    unsigned    impCurOpcOffs;
-    const char* impCurOpcName;
-
-    // For displaying instrs with generated native code (-n:B)
-    Statement* impLastILoffsStmt; // oldest stmt added for which we did not call SetLastILOffset().
-    void       impNoteLastILoffs();
-#endif
-
-    /* IL offset of the stmt currently being imported. It gets set to
-       BAD_IL_OFFSET after it has been set in the appended trees. Then it gets
-       updated at IL offsets for which we have to report mapping info.
-       It also includes flag bits, so use jitGetILoffs()
-       to get the actual IL offset value.
-    */
-
-    IL_OFFSETX impCurStmtOffs;
-    void impCurStmtOffsSet(IL_OFFSET offs);
-
-    void impNoteBranchOffs();
-
-    unsigned impInitBlockLineInfo();
-
-    GenTree* impCheckForNullPointer(GenTree* obj);
-    bool impIsThis(GenTree* obj);
-    bool impIsAnySTLOC(OPCODE opcode)
-    {
-        return ((opcode == CEE_STLOC) || (opcode == CEE_STLOC_S) ||
-                ((opcode >= CEE_STLOC_0) && (opcode <= CEE_STLOC_3)));
-    }
-
-    GenTreeCall::Use* impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig, GenTreeCall::Use* prefixArgs = nullptr);
-
-    bool impCheckImplicitArgumentCoercion(var_types sigType, var_types nodeType) const;
-
-    GenTreeCall::Use* impPopReverseCallArgs(unsigned count, CORINFO_SIG_INFO* sig, unsigned skipReverseCount = 0);
-
-    /*
-     * Get current IL offset with stack-empty info incoporated
-     */
-    IL_OFFSETX impCurILOffset(IL_OFFSET offs, bool callInstruction = false);
-
-    //---------------- Spilling the importer stack ----------------------------
-
-    // The maximum number of bytes of IL processed without clean stack state.
-    // It allows to limit the maximum tree size and depth.
-    static const unsigned MAX_TREE_SIZE = 200;
-    bool impCanSpillNow(OPCODE prevOpcode);
-
-    // We keep a byte-per-block map (dynamically extended) in the top-level Compiler object of a compilation.
-    JitExpandArray<bool> impPendingBlockMembers;
-
-    // Return the byte for "b" (allocating/extending impPendingBlockMembers if necessary.)
-    // Operates on the map in the top-level ancestor.
-    bool impIsPendingBlockMember(BasicBlock* blk)
-    {
-        return impInlineRoot()->impPendingBlockMembers.Get(blk->bbInd());
-    }
-
-    // Set the byte for "b" to "val" (allocating/extending impPendingBlockMembers if necessary.)
-    // Operates on the map in the top-level ancestor.
-    void impSetPendingBlockMember(BasicBlock* blk, bool val)
-    {
-        impInlineRoot()->impPendingBlockMembers.Set(blk->bbInd(), val);
-    }
-
-    void impSpillStackEntry(unsigned level DEBUGARG(const char* reason));
-
-    void impSpillStackEnsure(bool spillLeaves = false);
-    void impSpillCatchArg();
-    void impSpillSideEffects(GenTreeFlags spillSideEffects, unsigned chkLevel DEBUGARG(const char* reason));
-    void impSpillLclReferences(unsigned lclNum);
-
-    BasicBlock* impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_HANDLE clsHnd, bool isSingleBlockFilter);
-    GenTree* impNewCatchArg();
-
-    bool impBlockIsInALoop(BasicBlock* block);
-    void impImportBlockCode(BasicBlock* block);
-
-    void impAddPendingEHSuccessors(BasicBlock* block);
-
-    void impImportBlockPending(BasicBlock* block);
-    void impPushPendingBlock(BasicBlock* block);
-    BasicBlock* impPopPendingBlock();
-
-    var_types impGetNumericBinaryOpType(genTreeOps oper, bool fUnsigned, GenTree** pOp1, GenTree** pOp2);
-    void impAddCompareOpImplicitCasts(bool isUnsigned, GenTree*& op1, GenTree*& op2);
-    void impBranchToNextBlock(BasicBlock* block, GenTree* op1, GenTree* op2);
-
-    void impImportBlock(BasicBlock* block);
-    bool impSpillStackAtBlockEnd(BasicBlock* block);
-
-    // Assumes that "block" is a basic block that completes with a non-empty stack. We will assign the values
-    // on the stack to local variables (the "spill temp" variables). The successor blocks will assume that
-    // its incoming stack contents are in those locals. This requires "block" and its successors to agree on
-    // the variables that will be used -- and for all the predecessors of those successors, and the
-    // successors of those predecessors, etc. Call such a set of blocks closed under alternating
-    // successor/predecessor edges a "spill clique." A block is a "predecessor" or "successor" member of the
-    // clique (or, conceivably, both). Each block has a specified sequence of incoming and outgoing spill
-    // temps. If "block" already has its outgoing spill temps assigned (they are always a contiguous series
-    // of local variable numbers, so we represent them with the base local variable number), returns that.
-    // Otherwise, picks a set of spill temps, and propagates this choice to all blocks in the spill clique of
-    // which "block" is a member (asserting, in debug mode, that no block in this clique had its spill temps
-    // chosen already. More precisely, that the incoming or outgoing spill temps are not chosen, depending
-    // on which kind of member of the clique the block is).
-    void impSetSpillCliqueState(BasicBlock* block, ImportSpillCliqueState* state);
-
-    // Assumes that "block" is a basic block that completes with a non-empty stack. We have previously
-    // assigned the values on the stack to local variables (the "spill temp" variables). The successor blocks
-    // will assume that its incoming stack contents are in those locals. This requires "block" and its
-    // successors to agree on the variables and their types that will be used.  The CLI spec allows implicit
-    // conversions between 'int' and 'native int' or 'float' and 'double' stack types. So one predecessor can
-    // push an int and another can push a native int.  For 64-bit we have chosen to implement this by typing
-    // the "spill temp" as native int, and then importing (or re-importing as needed) so that all the
-    // predecessors in the "spill clique" push a native int (sign-extending if needed), and all the
-    // successors receive a native int. Similarly float and double are unified to double.
-    // This routine is called after a type-mismatch is detected, and it will walk the spill clique to mark
-    // blocks for re-importation as appropriate (both successors, so they get the right incoming type, and
-    // predecessors, so they insert an upcast if needed).
-    void impReimportSpillClique(BasicBlock* block);
-
-    // When we compute a "spill clique" (see above) these byte-maps are allocated to have a byte per basic
-    // block, and represent the predecessor and successor members of the clique currently being computed.
-    // *** Access to these will need to be locked in a parallel compiler.
-    JitExpandArray<uint8_t> impSpillCliqueMembers;
-
-    enum SpillCliqueDir
-    {
-        SpillCliquePred,
-        SpillCliqueSucc
-    };
-
-    // Abstract class for receiving a callback while walking a spill clique
-    class SpillCliqueWalker
-    {
-    public:
-        virtual void Visit(SpillCliqueDir predOrSucc, BasicBlock* blk) = 0;
-    };
-
-    // This is the heart of the algorithm for walking spill cliques. It invokes callback->Visit for each
-    // predecessor or successor within the spill clique
-    void impWalkSpillCliqueFromPred(BasicBlock* pred, SpillCliqueWalker* callback);
-
-    bool impIsSpillCliqueMember(SpillCliqueDir predOrSucc, BasicBlock* block);
-    bool impAddSpillCliqueMember(SpillCliqueDir predOrSucc, BasicBlock* block);
-
-    void impPushLclVar(unsigned lclNum, IL_OFFSET offset);
-    GenTreeLclVar* impCreateLocalNode(unsigned lclNum DEBUGARG(IL_OFFSET offset));
-    void impLoadArg(unsigned ilArgNum, IL_OFFSET offset);
-    void impLoadLoc(unsigned ilLclNum, IL_OFFSET offset);
-    bool impInlineReturnInstruction();
-    void impReturnInstruction(int prefixFlags, OPCODE* opcode);
-
-    // A free list of linked list nodes used to represent to-do stacks of basic blocks.
-    struct BlockListNode
-    {
-        BasicBlock*    m_blk;
-        BlockListNode* m_next;
-        BlockListNode(BasicBlock* blk, BlockListNode* next = nullptr) : m_blk(blk), m_next(next)
-        {
-        }
-        void* operator new(size_t sz, Compiler* comp);
-    };
-    BlockListNode* impBlockListNodeFreeList;
-    BlockListNode* impPendingBlockStack;
-
-    void FreeBlockListNode(BlockListNode* node);
 
     var_types mangleVarArgsType(var_types type);
 
@@ -3879,8 +4338,6 @@ private:
     bool impHasLclRef(GenTree* tree, unsigned lclNum);
     bool impHasAddressTakenLocals(GenTree* tree);
 
-    void impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, InlineResult* inlineResult);
-
     // STATIC inlining decision based on the IL code.
     void impCanInlineIL(CORINFO_METHOD_HANDLE fncHandle,
                         CORINFO_METHOD_INFO*  methInfo,
@@ -3894,45 +4351,9 @@ private:
                            InlineCandidateInfo**  ppInlineCandidateInfo,
                            InlineResult*          inlineResult);
 
-    bool impInlineIsGuaranteedThisDerefBeforeAnySideEffects(GenTree*          additionalTree,
-                                                            GenTreeCall::Use* additionalCallArgs,
-                                                            GenTree*          dereferencedAddress);
-
-    void impMarkInlineCandidate(GenTreeCall*           call,
-                                CORINFO_CONTEXT_HANDLE exactContextHnd,
-                                bool                   exactContextNeedsRuntimeLookup,
-                                CORINFO_CALL_INFO*     callInfo);
-
-    void impMarkInlineCandidateHelper(GenTreeCall*           call,
-                                      CORINFO_CONTEXT_HANDLE exactContextHnd,
-                                      bool                   exactContextNeedsRuntimeLookup,
-                                      CORINFO_CALL_INFO*     callInfo);
-
     bool impTailCallRetTypeCompatible(GenTreeCall* call, bool allowWidening);
 
-    bool impIsTailCallILPattern(
-        bool tailPrefixed, OPCODE curOpcode, const BYTE* codeAddrOfNextOpcode, const BYTE* codeEnd, bool isRecursive);
-
-    bool impIsImplicitTailCallCandidate(
-        OPCODE curOpcode, const BYTE* codeAddrOfNextOpcode, const BYTE* codeEnd, int prefixFlags, bool isRecursive);
-
     bool impIsClassExact(CORINFO_CLASS_HANDLE classHnd);
-    bool impCanSkipCovariantStoreCheck(GenTree* value, GenTree* array);
-
-    CORINFO_RESOLVED_TOKEN* impAllocateToken(const CORINFO_RESOLVED_TOKEN& token);
-
-    void impImportInitObj(GenTree* dstAddr, ClassLayout* layout);
-    void impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayout* layout);
-    void impImportInitBlk(unsigned prefixFlags);
-    void impImportCpBlk(unsigned prefixFlags);
-
-    GenTree* impImportPop(BasicBlock* block);
-
-    void impImportDup();
-
-    GenTree* impImportTlsFieldAccess(OPCODE                    opcode,
-                                     CORINFO_RESOLVED_TOKEN*   resolvedToken,
-                                     const CORINFO_FIELD_INFO& fieldInfo);
 
     /*
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -4152,8 +4573,7 @@ public:
 #endif
 
 #if defined(DEBUG)
-    unsigned impInlinedCodeSize;
-    bool     fgPrintInlinedMethods;
+    bool fgPrintInlinedMethods;
 #endif
 
     jitstd::vector<flowList*>* fgPredListSortVector;
@@ -5188,40 +5608,6 @@ private:
         }
     };
 
-#ifdef FEATURE_SIMD
-    class SIMDCoalescingBuffer
-    {
-        Statement* m_firstStmt;
-        Statement* m_lastStmt;
-        unsigned   m_lclNum;
-        unsigned   m_index;
-
-        unsigned IsSimdLocalField(GenTree* node, Compiler* compiler);
-        unsigned IsSimdLocalExtract(GenTree* node);
-
-        bool Add(Compiler* compiler, Statement* stmt, GenTreeOp* asg, unsigned simdLclNum);
-
-    public:
-        SIMDCoalescingBuffer() : m_index(0)
-        {
-        }
-
-        static bool AreContiguousMemoryLocations(GenTree* l1, GenTree* l2);
-        static void ChangeToSIMDMem(Compiler* compiler, GenTree* tree, var_types simdType);
-
-        void Mark(Compiler* compiler, Statement* stmt);
-        bool Add(Compiler* compiler, Statement* stmt);
-        void Coalesce(Compiler* compiler, BasicBlock* block);
-
-        void Clear()
-        {
-            m_index = 0;
-        }
-    };
-
-    SIMDCoalescingBuffer m_impSIMDCoalescingBuffer;
-#endif // FEATURE_SIMD
-
     GenTree* fgMorphStringIndexIndir(GenTreeIndexAddr* index);
     GenTree* fgMorphCast(GenTreeCast* cast);
     void fgInitArgInfo(GenTreeCall* call);
@@ -5980,8 +6366,6 @@ public:
         optMethodFlags &= ~OMF_HAS_EXPRUNTIMELOOKUP;
     }
 
-    void addExpRuntimeLookupCandidate(GenTreeCall* call);
-
     bool doesMethodHavePatchpoints()
     {
         return (optMethodFlags & OMF_HAS_PATCHPOINT) != 0;
@@ -6291,9 +6675,9 @@ public:
     CORINFO_EE_INFO* eeGetEEInfo();
 
     // Gets the offset of a SDArray's first element
-    unsigned eeGetArrayDataOffset(var_types type);
+    static unsigned eeGetArrayDataOffset(var_types type);
     // Gets the offset of a MDArray's first element
-    unsigned eeGetMDArrayDataOffset(var_types type, unsigned rank);
+    static unsigned eeGetMDArrayDataOffset(var_types type, unsigned rank);
 
     // Returns the page size for the target machine as reported by the EE.
     target_size_t eeGetPageSize()
@@ -6780,9 +7164,6 @@ private:
         return featureSIMD;
 #endif
     }
-
-    GenTree* impSIMDPopStack(var_types type);
-    GenTree* impPopStackAddrAsVector(var_types type);
 
     void lvaRecordSimdIntrinsicUse(GenTree* op);
     void lvaRecordSimdIntrinsicUse(GenTreeLclVar* lclVar);
@@ -7465,27 +7846,10 @@ public:
 #endif // DEBUG
 
 public:
-    // Returns TRUE if child is equal to or a subtype of parent.
-    INDEBUG(bool tiCompatibleWith(const typeInfo& pChild, const typeInfo& pParent) const;)
-
-    // The following is used to track liveness of local variables, initialization
-    // of valueclass constructors, and type safe use of IL instructions.
-
-    // dynamic state info needed for verification
-    EntryState verCurrentState;
-
-    void impSetCurrentState(BasicBlock* block);
+// The following is used to track liveness of local variables, initialization
+// of valueclass constructors, and type safe use of IL instructions.
 
 #ifdef DEBUG
-    typeInfo verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd);
-    typeInfo verMakeTypeInfo(CorInfoType ciType, CORINFO_CLASS_HANDLE clsHnd);
-
-    bool verCheckTailCallConstraint(OPCODE                  opcode,
-                                    CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                    CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken // Is this a "constrained." call
-                                                                                      // on a type parameter?
-                                    );
-
     // One line log function. Default level is 0. Increasing it gives you
     // more log information
 
