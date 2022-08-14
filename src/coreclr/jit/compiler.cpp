@@ -3340,11 +3340,7 @@ void Compiler::EndPhase(Phases phase)
 //
 void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFlags* compileFlags)
 {
-    if (compIsForInlining())
-    {
-        inlImportInlinee();
-        return;
-    }
+    assert(!compIsForInlining());
 
     compFunctionTraceStart();
 
@@ -4724,6 +4720,8 @@ int Compiler::compCompileHelper(CORINFO_MODULE_HANDLE classPtr,
                                 uint32_t*             methodCodeSize,
                                 JitFlags*             compileFlags)
 {
+    assert(!compIsForInlining());
+
     CORINFO_METHOD_HANDLE methodHnd = info.compMethodHnd;
 
     info.compCode         = methodInfo->ILCode;
@@ -4735,33 +4733,17 @@ int Compiler::compCompileHelper(CORINFO_MODULE_HANDLE classPtr,
         BADCODE("code size is zero");
     }
 
-    if (compIsForInlining())
-    {
-#ifdef DEBUG
-        unsigned methAttr_Old  = impInlineInfo->inlineCandidateInfo->methAttr;
-        unsigned methAttr_New  = info.compCompHnd->getMethodAttribs(info.compMethodHnd);
-        unsigned flagsToIgnore = CORINFO_FLG_DONT_INLINE | CORINFO_FLG_FORCEINLINE;
-        assert((methAttr_Old & (~flagsToIgnore)) == (methAttr_New & (~flagsToIgnore)));
-#endif
-
-        info.compFlags = impInlineInfo->inlineCandidateInfo->methAttr;
-    }
-    else
-    {
-        info.compFlags = info.compCompHnd->getMethodAttribs(info.compMethodHnd);
+    info.compFlags = info.compCompHnd->getMethodAttribs(info.compMethodHnd);
 #ifdef PSEUDORANDOM_NOP_INSERTION
-        info.compChecksum = getMethodBodyChecksum((char*)methodInfo->ILCode, methodInfo->ILCodeSize);
+    info.compChecksum = getMethodBodyChecksum((char*)methodInfo->ILCode, methodInfo->ILCodeSize);
 #endif
-    }
 
     compSwitchedToOptimized = false;
     compSwitchedToMinOpts   = false;
 
-    // compInitOptions will set the correct verbose flag.
-
     compInitOptions(compileFlags);
 
-    if (!compIsForInlining() && !opts.altJit && opts.jitFlags->IsSet(JitFlags::JIT_FLAG_ALT_JIT))
+    if (!opts.altJit && opts.jitFlags->IsSet(JitFlags::JIT_FLAG_ALT_JIT))
     {
         // We're an altjit, but the COMPlus_AltJit configuration did not say to compile this method,
         // so skip it.
@@ -4769,16 +4751,13 @@ int Compiler::compCompileHelper(CORINFO_MODULE_HANDLE classPtr,
     }
 
 #ifdef DEBUG
-
     if (verbose)
     {
         printf("IL to import:\n");
         dumpILRange(info.compCode, info.compILCodeSize);
     }
-
 #endif
 
-    // Check for COMPlus_AggressiveInlining
     if (JitConfig.JitAggressiveInlining())
     {
         compDoAggressiveInlining = true;
@@ -4790,58 +4769,37 @@ int Compiler::compCompileHelper(CORINFO_MODULE_HANDLE classPtr,
     }
 
 #ifdef DEBUG
-
-    // Check for ForceInline stress.
     if (compStressCompile(STRESS_FORCE_INLINE, 0))
     {
         info.compFlags |= CORINFO_FLG_FORCEINLINE;
     }
+#endif
 
-    if (compIsForInlining())
-    {
-        JITLOG((LL_INFO100000, "\nINLINER impTokenLookupContextHandle for %s is 0x%p.\n",
-                eeGetMethodFullName(info.compMethodHnd), dspPtr(impTokenLookupContextHandle)));
-    }
-#endif // DEBUG
+    info.compScopeHnd                           = classPtr;
+    info.compXcptnsCount                        = methodInfo->EHcount;
+    info.compMaxStack                           = methodInfo->maxStack;
+    info.compNativeCodeSize                     = 0;
+    info.compTotalHotCodeSize                   = 0;
+    info.compTotalColdCodeSize                  = 0;
+    info.compClassProbeCount                    = 0;
+    info.compIsStatic                           = (info.compFlags & CORINFO_FLG_STATIC) != 0;
+    info.compInitMem                            = (methodInfo->options & CORINFO_OPT_INIT_LOCALS) != 0;
+    info.compPublishStubParam                   = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PUBLISH_SECRET_PARAM);
+    info.compHasNextCallRetAddr                 = false;
+    info.compUnmanagedCallCountWithGCTransition = 0;
 
-    /* Initialize set a bunch of global values */
-
-    info.compScopeHnd      = classPtr;
-    info.compXcptnsCount   = methodInfo->EHcount;
-    info.compMaxStack      = methodInfo->maxStack;
     compHndBBtab           = nullptr;
     compHndBBtabCount      = 0;
     compHndBBtabAllocCount = 0;
-
-    info.compNativeCodeSize    = 0;
-    info.compTotalHotCodeSize  = 0;
-    info.compTotalColdCodeSize = 0;
-    info.compClassProbeCount   = 0;
-
-    compHasBackwardJump = false;
+    compHasBackwardJump    = false;
 
 #ifdef DEBUG
-    compCurBB = nullptr;
-    lvaTable  = nullptr;
-
-    // Reset node and block ID counter
+    compCurBB        = nullptr;
+    lvaTable         = nullptr;
     compGenTreeID    = 0;
     compStatementID  = 0;
     compBasicBlockID = 0;
 #endif
-
-    /* Initialize emitter */
-
-    if (!compIsForInlining())
-    {
-        codeGen->GetEmitter()->emitBegCG(this, compHnd);
-    }
-
-    info.compIsStatic = (info.compFlags & CORINFO_FLG_STATIC) != 0;
-
-    info.compPublishStubParam = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PUBLISH_SECRET_PARAM);
-
-    info.compHasNextCallRetAddr = false;
 
     if (opts.IsReversePInvoke())
     {
@@ -4867,29 +4825,16 @@ int Compiler::compCompileHelper(CORINFO_MODULE_HANDLE classPtr,
             break;
     }
 
-    info.compUnmanagedCallCountWithGCTransition = 0;
-
-    info.compInitMem = ((methodInfo->options & CORINFO_OPT_INIT_LOCALS) != 0);
-
-    /* Allocate the local variable table */
-
+    codeGen->GetEmitter()->emitBegCG(this, compHnd);
     lvaInitTypeRef();
+    compInitDebuggingInfo();
 
-    if (!compIsForInlining())
+    if (!opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
     {
-        compInitDebuggingInfo();
+        // We are jitting the root method.
+        fgFindBasicBlocks();
     }
-
-#ifdef DEBUG
-    if (compIsForInlining())
-    {
-        compBasicBlockID = impInlineInfo->InlinerCompiler->compBasicBlockID;
-    }
-#endif
-
-    const bool forceInline = !!(info.compFlags & CORINFO_FLG_FORCEINLINE);
-
-    if (!compIsForInlining() && opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
+    else
     {
         // We're prejitting the root method. We also will analyze it as
         // a potential inline candidate.
@@ -4899,7 +4844,7 @@ int Compiler::compCompileHelper(CORINFO_MODULE_HANDLE classPtr,
         prejitResult.NoteBool(InlineObservation::CALLSITE_HAS_PROFILE, fgHaveSufficientProfileData());
 
         // Do the initial inline screen.
-        impCanInlineIL(methodHnd, methodInfo, forceInline, &prejitResult);
+        impCanInlineIL(methodHnd, methodInfo, (info.compFlags & CORINFO_FLG_FORCEINLINE) != 0, &prejitResult);
 
         // Temporarily install the prejitResult as the
         // compInlineResult so it's available to fgFindJumpTargets
@@ -4953,17 +4898,6 @@ int Compiler::compCompileHelper(CORINFO_MODULE_HANDLE classPtr,
             prejitResult.SetReported();
         }
     }
-    else
-    {
-        // We are jitting the root method, or inlining.
-        fgFindBasicBlocks();
-    }
-
-    // If we're inlining and the candidate is bad, bail out.
-    if (compDonotInline())
-    {
-        goto _Next;
-    }
 
     if (compHasBackwardJump && (info.compFlags & CORINFO_FLG_DISABLE_TIER0_FOR_LOOPS) != 0 && fgCanSwitchToOptimized())
     {
@@ -4988,10 +4922,6 @@ int Compiler::compCompileHelper(CORINFO_MODULE_HANDLE classPtr,
         printf("Basic block list for '%s'\n", info.compFullName);
         fgDispBasicBlocks();
     }
-#endif
-
-#ifdef DEBUG
-    /* Give the function a unique number */
 
     if (opts.disAsm || verbose)
     {
@@ -5001,72 +4931,33 @@ int Compiler::compCompileHelper(CORINFO_MODULE_HANDLE classPtr,
     {
         compMethodID = InterlockedIncrement(&s_compMethodsCount);
     }
-#endif
 
-    if (compIsForInlining())
-    {
-        compInlineResult->NoteInt(InlineObservation::CALLEE_NUMBER_OF_BASIC_BLOCKS, fgBBcount);
-
-        if (compInlineResult->IsFailure())
-        {
-            goto _Next;
-        }
-    }
-
-#ifdef DEBUG
-    if ((JitConfig.DumpJittedMethods() == 1) && !compIsForInlining())
+    if (JitConfig.DumpJittedMethods() == 1)
     {
         printf("Compiling %4d %s::%s, IL size = %u, hash=0x%08x %s%s%s\n", Compiler::jitTotalMethodCompiled,
                info.compClassName, info.compMethodName, info.compILCodeSize, info.compMethodHash(),
                compGetTieringName(), opts.IsOSR() ? " OSR" : "", compGetStressMessage());
     }
-    if (compIsForInlining())
-    {
-        compGenTreeID   = impInlineInfo->InlinerCompiler->compGenTreeID;
-        compStatementID = impInlineInfo->InlinerCompiler->compStatementID;
-    }
 #endif
 
     compCompile(methodCodePtr, methodCodeSize, compileFlags);
+    compCompileFinish();
+
+    // Did we just compile for a target architecture that the VM isn't expecting? If so, the VM
+    // can't used the generated code (and we better be an AltJit!).
+
+    if (!info.compMatchedVM)
+    {
+        return CORJIT_SKIPPED;
+    }
 
 #ifdef DEBUG
-    if (compIsForInlining())
+    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_ALT_JIT) && (JitConfig.RunAltJitCode() == 0))
     {
-        impInlineInfo->InlinerCompiler->compGenTreeID    = compGenTreeID;
-        impInlineInfo->InlinerCompiler->compStatementID  = compStatementID;
-        impInlineInfo->InlinerCompiler->compBasicBlockID = compBasicBlockID;
+        return CORJIT_SKIPPED;
     }
 #endif
 
-_Next:
-
-    if (compDonotInline())
-    {
-        // Verify we have only one inline result in play.
-        assert(impInlineInfo->inlineResult == compInlineResult);
-    }
-
-    if (!compIsForInlining())
-    {
-        compCompileFinish();
-
-        // Did we just compile for a target architecture that the VM isn't expecting? If so, the VM
-        // can't used the generated code (and we better be an AltJit!).
-
-        if (!info.compMatchedVM)
-        {
-            return CORJIT_SKIPPED;
-        }
-
-#ifdef DEBUG
-        if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_ALT_JIT) && JitConfig.RunAltJitCode() == 0)
-        {
-            return CORJIT_SKIPPED;
-        }
-#endif // DEBUG
-    }
-
-    /* Success! */
     return CORJIT_OK;
 }
 

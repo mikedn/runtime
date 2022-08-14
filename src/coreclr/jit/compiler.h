@@ -5773,6 +5773,10 @@ public:
     bool inlInlineCall(Statement* stmt, GenTreeCall* call);
     void inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, InlineResult* result);
     int inlMain(CORINFO_MODULE_HANDLE module, JitFlags* compileFlags);
+    void inlMainHelper(CORINFO_MODULE_HANDLE module,
+                      ICorJitInfo*          jitInfo,
+                      CORINFO_METHOD_INFO*  methodInfo,
+                      JitFlags*             compileFlags);
     void inlImportInlinee();
     void inlPostInlineFailureCleanup(const InlineInfo* inlineInfo);
     void inlAnalyzeInlineeReturn(InlineInfo* inlineInfo, unsigned returnBlockCount);

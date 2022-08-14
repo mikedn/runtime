@@ -622,7 +622,6 @@ int Compiler::inlMain(CORINFO_MODULE_HANDLE module, JitFlags* compileFlags)
         ICorJitInfo*          jitInfo;
         CORINFO_METHOD_INFO*  methodInfo;
         JitFlags*             compileFlags;
-        int                   result;
     } param;
 
     param.compiler     = this;
@@ -630,12 +629,10 @@ int Compiler::inlMain(CORINFO_MODULE_HANDLE module, JitFlags* compileFlags)
     param.jitInfo      = info.compCompHnd;
     param.methodInfo   = info.compMethodInfo;
     param.compileFlags = compileFlags;
-    param.result       = CORJIT_INTERNALERROR;
 
     setErrorTrap(info.compCompHnd, Param*, pParam, &param)
     {
-        pParam->result = pParam->compiler->compCompileHelper(pParam->module, pParam->jitInfo, pParam->methodInfo,
-                                                             nullptr, nullptr, pParam->compileFlags);
+        pParam->compiler->inlMainHelper(pParam->module, pParam->jitInfo, pParam->methodInfo, pParam->compileFlags);
     }
     finallyErrorTrap()
     {
@@ -643,7 +640,165 @@ int Compiler::inlMain(CORINFO_MODULE_HANDLE module, JitFlags* compileFlags)
     }
     endErrorTrap()
 
-        return param.result;
+        return CORJIT_OK;
+}
+
+void Compiler::inlMainHelper(CORINFO_MODULE_HANDLE module,
+                             ICorJitInfo*          jitInfo,
+                             CORINFO_METHOD_INFO*  methodInfo,
+                             JitFlags*             compileFlags)
+{
+    CORINFO_METHOD_HANDLE methodHnd = info.compMethodHnd;
+
+    info.compCode         = methodInfo->ILCode;
+    info.compILCodeSize   = methodInfo->ILCodeSize;
+    info.compILImportSize = 0;
+
+    if (info.compILCodeSize == 0)
+    {
+        BADCODE("code size is zero");
+    }
+
+#ifdef DEBUG
+    unsigned methAttr_Old  = impInlineInfo->inlineCandidateInfo->methAttr;
+    unsigned methAttr_New  = info.compCompHnd->getMethodAttribs(info.compMethodHnd);
+    unsigned flagsToIgnore = CORINFO_FLG_DONT_INLINE | CORINFO_FLG_FORCEINLINE;
+    assert((methAttr_Old & (~flagsToIgnore)) == (methAttr_New & (~flagsToIgnore)));
+#endif
+
+    info.compFlags = impInlineInfo->inlineCandidateInfo->methAttr;
+
+    compSwitchedToOptimized = false;
+    compSwitchedToMinOpts   = false;
+
+    compInitOptions(compileFlags);
+
+#ifdef DEBUG
+    if (verbose)
+    {
+        printf("IL to import:\n");
+        dumpILRange(info.compCode, info.compILCodeSize);
+    }
+#endif
+
+    if (JitConfig.JitAggressiveInlining())
+    {
+        compDoAggressiveInlining = true;
+    }
+
+    if (compDoAggressiveInlining)
+    {
+        info.compFlags |= CORINFO_FLG_FORCEINLINE;
+    }
+
+#ifdef DEBUG
+    if (compStressCompile(STRESS_FORCE_INLINE, 0))
+    {
+        info.compFlags |= CORINFO_FLG_FORCEINLINE;
+    }
+
+    JITLOG((LL_INFO100000, "\nINLINER impTokenLookupContextHandle for %s is 0x%p.\n",
+            eeGetMethodFullName(info.compMethodHnd), dspPtr(impTokenLookupContextHandle)));
+#endif
+
+    info.compScopeHnd                           = module;
+    info.compXcptnsCount                        = methodInfo->EHcount;
+    info.compMaxStack                           = methodInfo->maxStack;
+    info.compNativeCodeSize                     = 0;
+    info.compTotalHotCodeSize                   = 0;
+    info.compTotalColdCodeSize                  = 0;
+    info.compClassProbeCount                    = 0;
+    info.compIsStatic                           = (info.compFlags & CORINFO_FLG_STATIC) != 0;
+    info.compPublishStubParam                   = false;
+    info.compHasNextCallRetAddr                 = false;
+    info.compCallConv                           = CorInfoCallConvExtension::Managed;
+    info.compArgOrder                           = Target::g_tgtArgOrder;
+    info.compIsVarArgs                          = false;
+    info.compUnmanagedCallCountWithGCTransition = 0;
+    info.compInitMem                            = (methodInfo->options & CORINFO_OPT_INIT_LOCALS) != 0;
+
+    // TODO-MIKE-Review: Does inlining need this?
+    switch (methodInfo->args.getCallConv())
+    {
+        case CORINFO_CALLCONV_NATIVEVARARG:
+        case CORINFO_CALLCONV_VARARG:
+            info.compIsVarArgs = true;
+            break;
+        default:
+            break;
+    }
+
+    compHndBBtab           = nullptr;
+    compHndBBtabCount      = 0;
+    compHndBBtabAllocCount = 0;
+    compHasBackwardJump    = false;
+#ifdef DEBUG
+    compCurBB        = nullptr;
+    lvaTable         = nullptr;
+    compGenTreeID    = 0;
+    compStatementID  = 0;
+    compBasicBlockID = 0;
+#endif
+
+    lvaInitTypeRef();
+
+    INDEBUG(compBasicBlockID = impInlineInfo->InlinerCompiler->compBasicBlockID);
+
+    fgFindBasicBlocks();
+
+    if (!compDonotInline())
+    {
+        compSetOptimizationLevel();
+
+#if COUNT_BASIC_BLOCKS
+        bbCntTable.record(fgBBcount);
+
+        if (fgBBcount == 1)
+        {
+            bbOneBBSizeTable.record(methodInfo->ILCodeSize);
+        }
+#endif
+
+#ifdef DEBUG
+        if (verbose)
+        {
+            printf("Basic block list for '%s'\n", info.compFullName);
+            fgDispBasicBlocks();
+        }
+
+        if (opts.disAsm || verbose)
+        {
+            compMethodID = ~info.compMethodHash() & 0xffff;
+        }
+        else
+        {
+            compMethodID = InterlockedIncrement(&s_compMethodsCount);
+        }
+#endif
+
+        compInlineResult->NoteInt(InlineObservation::CALLEE_NUMBER_OF_BASIC_BLOCKS, fgBBcount);
+
+        if (!compInlineResult->IsFailure())
+        {
+#ifdef DEBUG
+            compGenTreeID   = impInlineInfo->InlinerCompiler->compGenTreeID;
+            compStatementID = impInlineInfo->InlinerCompiler->compStatementID;
+#endif
+
+            inlImportInlinee();
+
+#ifdef DEBUG
+            impInlineInfo->InlinerCompiler->compGenTreeID    = compGenTreeID;
+            impInlineInfo->InlinerCompiler->compStatementID  = compStatementID;
+            impInlineInfo->InlinerCompiler->compBasicBlockID = compBasicBlockID;
+#endif
+        }
+    }
+
+    if (compDonotInline())
+    {
+        assert(impInlineInfo->inlineResult == compInlineResult);
+    }
 }
 
 void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, InlineResult* inlineResult)
