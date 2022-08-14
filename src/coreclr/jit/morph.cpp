@@ -8061,17 +8061,25 @@ GenTree* Compiler::fgRemoveArrayStoreHelperCall(GenTreeCall* call, GenTree* valu
     fgWalkTreePost(&value, resetMorphedFlag);
 #endif // DEBUG
 
-    GenTree*          nullCheckedArr = impCheckForNullPointer(arr);
-    GenTreeIndexAddr* addr           = gtNewArrayIndexAddr(nullCheckedArr, index, TYP_REF);
-    GenTreeIndir*     arrIndexNode   = gtNewIndexIndir(TYP_REF, addr);
-    if (!fgGlobalMorph && !opts.MinOpts())
-    {
-        arrIndexNode->SetAddr(fgMorphIndexAddr(addr));
-    }
-    GenTree* arrStore = gtNewAssignNode(arrIndexNode, value);
-    arrStore->gtFlags |= GTF_ASG;
+    GenTree* result;
 
-    GenTree* result = fgMorphTree(arrStore);
+    if (arr->IsIntegralConst(0))
+    {
+        result = gtNewOperNode(GT_IND, TYP_I_IMPL, arr);
+    }
+    else
+    {
+        GenTreeIndexAddr* addr         = gtNewArrayIndexAddr(arr, index, TYP_REF);
+        GenTreeIndir*     arrIndexNode = gtNewIndexIndir(TYP_REF, addr);
+        if (!fgGlobalMorph && !opts.MinOpts())
+        {
+            arrIndexNode->SetAddr(fgMorphIndexAddr(addr));
+        }
+        result = gtNewAssignNode(arrIndexNode, value);
+    }
+
+    result = fgMorphTree(result);
+
     if (argSetup != nullptr)
     {
         result = gtNewCommaNode(argSetup, result);
