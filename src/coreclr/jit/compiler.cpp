@@ -4462,7 +4462,7 @@ int Compiler::compCompile(CORINFO_MODULE_HANDLE classPtr,
 // Returns:
 //    Hash based on method's full name
 //
-unsigned Compiler::Info::compMethodHash() const
+unsigned CompiledMethodInfo::compMethodHash() const
 {
     if (compMethodHashPrivate == 0)
     {

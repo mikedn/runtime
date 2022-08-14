@@ -461,8 +461,8 @@ void BlockCountInstrumentor::Instrument(BasicBlock* block, Schema& schema, BYTE*
 //
 void BlockCountInstrumentor::InstrumentMethodEntry(Schema& schema, BYTE* profileMemory)
 {
-    Compiler::Options& opts = m_comp->opts;
-    Compiler::Info&    info = m_comp->info;
+    Compiler::Options&  opts = m_comp->opts;
+    CompiledMethodInfo& info = m_comp->info;
 
     // Nothing to do, if not prejitting.
     //

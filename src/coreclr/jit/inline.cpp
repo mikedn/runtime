@@ -1439,8 +1439,8 @@ void InlineStrategy::DumpData()
 void InlineStrategy::DumpDataEnsurePolicyIsSet()
 {
     // Cache references to compiler substructures.
-    const Compiler::Info&    info = m_Compiler->info;
-    const Compiler::Options& opts = m_Compiler->opts;
+    const CompiledMethodInfo& info = m_Compiler->info;
+    const Compiler::Options&  opts = m_Compiler->opts;
 
     // If there weren't any successful inlines, we won't have a
     // successful policy, so fake one up.
@@ -1495,7 +1495,7 @@ void InlineStrategy::DumpDataContents(FILE* file)
     DumpDataEnsurePolicyIsSet();
 
     // Cache references to compiler substructures.
-    const Compiler::Info& info = m_Compiler->info;
+    const CompiledMethodInfo& info = m_Compiler->info;
 
     // We'd really like the method identifier to be unique and
     // durable across crossgen invocations. Not clear how to
@@ -1584,8 +1584,8 @@ void InlineStrategy::DumpXml(FILE* file, unsigned indent)
     }
 
     // Cache references to compiler substructures.
-    const Compiler::Info&    info = m_Compiler->info;
-    const Compiler::Options& opts = m_Compiler->opts;
+    const CompiledMethodInfo& info = m_Compiler->info;
+    const Compiler::Options&  opts = m_Compiler->opts;
 
     const bool isPrejitRoot = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT);
 

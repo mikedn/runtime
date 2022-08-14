@@ -1196,7 +1196,7 @@ const char* jitHlpFuncTable[CORINFO_HELP_COUNT] = {
 struct FilterSuperPMIExceptionsParam_ee_il
 {
     Compiler*             pThis;
-    Compiler::Info*       pJitInfo;
+    CompiledMethodInfo*   pJitInfo;
     CORINFO_FIELD_HANDLE  field;
     CORINFO_METHOD_HANDLE method;
     CORINFO_CLASS_HANDLE  clazz;

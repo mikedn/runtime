@@ -1547,6 +1547,145 @@ enum CallInterf : uint8_t
     CALLINT_ALL,        // kills everything                              (normal method call)
 };
 
+struct CompiledMethodInfo
+{
+    COMP_HANDLE           compCompHnd;
+    CORINFO_MODULE_HANDLE compScopeHnd;
+    CORINFO_CLASS_HANDLE  compClassHnd;
+    CORINFO_METHOD_HANDLE compMethodHnd;
+    CORINFO_METHOD_INFO*  compMethodInfo;
+
+    bool hasCircularClassConstraints;
+    bool hasCircularMethodConstraints;
+
+#if defined(DEBUG) || defined(LATE_DISASM) || DUMP_FLOWGRAPHS
+
+    const char* compMethodName;
+    const char* compClassName;
+    const char* compFullName;
+    double      compPerfScore;
+    int         compMethodSuperPMIIndex; // useful when debugging under SuperPMI
+
+#endif // defined(DEBUG) || defined(LATE_DISASM) || DUMP_FLOWGRAPHS
+
+#if defined(DEBUG) || defined(INLINE_DATA)
+    // Method hash is logically const, but computed
+    // on first demand.
+    mutable unsigned compMethodHashPrivate;
+    unsigned         compMethodHash() const;
+#endif // defined(DEBUG) || defined(INLINE_DATA)
+
+#ifdef PSEUDORANDOM_NOP_INSERTION
+    // things for pseudorandom nop insertion
+    unsigned  compChecksum;
+    CLRRandom compRNG;
+#endif
+
+    // The following holds the FLG_xxxx flags for the method we're compiling.
+    unsigned compFlags;
+
+    // The following holds the class attributes for the method we're compiling.
+    unsigned compClassAttr;
+
+    const BYTE*     compCode;
+    IL_OFFSET       compILCodeSize;     // The IL code size
+    IL_OFFSET       compILImportSize;   // Estimated amount of IL actually imported
+    IL_OFFSET       compILEntry;        // The IL entry point (normally 0)
+    PatchpointInfo* compPatchpointInfo; // Patchpoint data for OSR (normally nullptr)
+    UNATIVE_OFFSET  compNativeCodeSize; // The native code size, after instructions are issued. This
+    // is less than (compTotalHotCodeSize + compTotalColdCodeSize) only if:
+    // (1) the code is not hot/cold split, and we issued less code than we expected, or
+    // (2) the code is hot/cold split, and we issued less code than we expected
+    // in the cold section (the hot section will always be padded out to compTotalHotCodeSize).
+
+    bool compIsStatic : 1;           // Is the method static (no 'this' pointer)?
+    bool compIsVarArgs : 1;          // Does the method have varargs parameters?
+    bool compInitMem : 1;            // Is the CORINFO_OPT_INIT_LOCALS bit set in the method info options?
+    bool compProfilerCallback : 1;   // JIT inserted a profiler Enter callback
+    bool compPublishStubParam : 1;   // EAX captured in prolog will be available through an intrinsic
+    bool compHasNextCallRetAddr : 1; // The NextCallReturnAddress intrinsic is used.
+
+    var_types      compRetType; // Return type of the method as declared in IL
+    ReturnTypeDesc retDesc;
+    ClassLayout*   retLayout;
+
+    var_types GetRetSigType() const
+    {
+        return compRetType;
+    }
+
+    ClassLayout* GetRetLayout() const
+    {
+        assert(varTypeIsStruct(compRetType));
+        return retLayout;
+    }
+
+    unsigned compILargsCount; // Number of arguments (incl. implicit but not hidden)
+    unsigned compArgsCount;   // Number of arguments (incl. implicit and     hidden)
+
+    unsigned GetParamCount() const
+    {
+        return compArgsCount;
+    }
+
+#if FEATURE_FASTTAILCALL
+    unsigned compArgStackSize; // Incoming argument stack size in bytes
+#endif                         // FEATURE_FASTTAILCALL
+
+    unsigned compRetBuffArg;  // position of hidden return param var (0, 1) (BAD_VAR_NUM means not present);
+    int      compTypeCtxtArg; // position of hidden param for type context for generic code (CORINFO_CALLCONV_PARAMTYPE)
+    unsigned compThisArg;     // position of implicit this pointer param (not to be confused with lvaArg0Var)
+    unsigned compILlocalsCount; // Number of vars : args + locals (incl. implicit but not hidden)
+    unsigned compLocalsCount;   // Number of vars : args + locals (incl. implicit and     hidden)
+    unsigned compMaxStack;
+    UNATIVE_OFFSET compTotalHotCodeSize;  // Total number of bytes of Hot Code in the method
+    UNATIVE_OFFSET compTotalColdCodeSize; // Total number of bytes of Cold Code in the method
+
+    unsigned compUnmanagedCallCountWithGCTransition; // count of unmanaged calls with GC transition.
+
+    CorInfoCallConvExtension compCallConv; // The entry-point calling convention for this method.
+
+    unsigned compXcptnsCount; // Number of exception-handling clauses read in the method's IL.
+    // You should generally use compHndBBtabCount instead: it is the
+    // current number of EH clauses (after additions like synchronized
+    // methods and funclets, and removals like unreachable code deletion).
+
+    Target::ArgOrder compArgOrder;
+
+    bool compMatchedVM; // true if the VM is "matched": either the JIT is a cross-compiler
+                        // and the VM expects that, or the JIT is a "self-host" compiler
+                        // (e.g., x86 hosted targeting x86) and the VM expects that.
+
+    /*  The following holds IL scope information about local variables.
+     */
+
+    unsigned     compVarScopesCount;
+    VarScopeDsc* compVarScopes;
+
+    /* The following holds information about instr offsets for
+     * which we need to report IP-mappings
+     */
+
+    IL_OFFSET*                   compStmtOffsets; // sorted
+    unsigned                     compStmtOffsetsCount;
+    ICorDebugInfo::BoundaryTypes compStmtOffsetsImplicit;
+
+#define CPU_X86 0x0100 // The generic X86 CPU
+#define CPU_X86_PENTIUM_4 0x0110
+
+#define CPU_X64 0x0200       // The generic x64 CPU
+#define CPU_AMD_X64 0x0210   // AMD x64 CPU
+#define CPU_INTEL_X64 0x0240 // Intel x64 CPU
+
+#define CPU_ARM 0x0300   // The generic ARM CPU
+#define CPU_ARM64 0x0400 // The generic ARM64 CPU
+
+    unsigned genCPU; // What CPU are we running on
+
+    // Number of class profile probes in this method
+    unsigned compClassProbeCount;
+};
+
 class Importer
 {
     Compiler* compiler;
@@ -6973,145 +7112,7 @@ public:
 
     //--------------------- Info about the procedure --------------------------
 
-    struct Info
-    {
-        COMP_HANDLE           compCompHnd;
-        CORINFO_MODULE_HANDLE compScopeHnd;
-        CORINFO_CLASS_HANDLE  compClassHnd;
-        CORINFO_METHOD_HANDLE compMethodHnd;
-        CORINFO_METHOD_INFO*  compMethodInfo;
-
-        bool hasCircularClassConstraints;
-        bool hasCircularMethodConstraints;
-
-#if defined(DEBUG) || defined(LATE_DISASM) || DUMP_FLOWGRAPHS
-
-        const char* compMethodName;
-        const char* compClassName;
-        const char* compFullName;
-        double      compPerfScore;
-        int         compMethodSuperPMIIndex; // useful when debugging under SuperPMI
-
-#endif // defined(DEBUG) || defined(LATE_DISASM) || DUMP_FLOWGRAPHS
-
-#if defined(DEBUG) || defined(INLINE_DATA)
-        // Method hash is logically const, but computed
-        // on first demand.
-        mutable unsigned compMethodHashPrivate;
-        unsigned         compMethodHash() const;
-#endif // defined(DEBUG) || defined(INLINE_DATA)
-
-#ifdef PSEUDORANDOM_NOP_INSERTION
-        // things for pseudorandom nop insertion
-        unsigned  compChecksum;
-        CLRRandom compRNG;
-#endif
-
-        // The following holds the FLG_xxxx flags for the method we're compiling.
-        unsigned compFlags;
-
-        // The following holds the class attributes for the method we're compiling.
-        unsigned compClassAttr;
-
-        const BYTE*     compCode;
-        IL_OFFSET       compILCodeSize;     // The IL code size
-        IL_OFFSET       compILImportSize;   // Estimated amount of IL actually imported
-        IL_OFFSET       compILEntry;        // The IL entry point (normally 0)
-        PatchpointInfo* compPatchpointInfo; // Patchpoint data for OSR (normally nullptr)
-        UNATIVE_OFFSET  compNativeCodeSize; // The native code size, after instructions are issued. This
-        // is less than (compTotalHotCodeSize + compTotalColdCodeSize) only if:
-        // (1) the code is not hot/cold split, and we issued less code than we expected, or
-        // (2) the code is hot/cold split, and we issued less code than we expected
-        // in the cold section (the hot section will always be padded out to compTotalHotCodeSize).
-
-        bool compIsStatic : 1;           // Is the method static (no 'this' pointer)?
-        bool compIsVarArgs : 1;          // Does the method have varargs parameters?
-        bool compInitMem : 1;            // Is the CORINFO_OPT_INIT_LOCALS bit set in the method info options?
-        bool compProfilerCallback : 1;   // JIT inserted a profiler Enter callback
-        bool compPublishStubParam : 1;   // EAX captured in prolog will be available through an intrinsic
-        bool compHasNextCallRetAddr : 1; // The NextCallReturnAddress intrinsic is used.
-
-        var_types      compRetType; // Return type of the method as declared in IL
-        ReturnTypeDesc retDesc;
-        ClassLayout*   retLayout;
-
-        var_types GetRetSigType() const
-        {
-            return compRetType;
-        }
-
-        ClassLayout* GetRetLayout() const
-        {
-            assert(varTypeIsStruct(compRetType));
-            return retLayout;
-        }
-
-        unsigned compILargsCount; // Number of arguments (incl. implicit but not hidden)
-        unsigned compArgsCount;   // Number of arguments (incl. implicit and     hidden)
-
-        unsigned GetParamCount() const
-        {
-            return compArgsCount;
-        }
-
-#if FEATURE_FASTTAILCALL
-        unsigned compArgStackSize; // Incoming argument stack size in bytes
-#endif                             // FEATURE_FASTTAILCALL
-
-        unsigned compRetBuffArg; // position of hidden return param var (0, 1) (BAD_VAR_NUM means not present);
-        int compTypeCtxtArg; // position of hidden param for type context for generic code (CORINFO_CALLCONV_PARAMTYPE)
-        unsigned       compThisArg; // position of implicit this pointer param (not to be confused with lvaArg0Var)
-        unsigned       compILlocalsCount; // Number of vars : args + locals (incl. implicit but not hidden)
-        unsigned       compLocalsCount;   // Number of vars : args + locals (incl. implicit and     hidden)
-        unsigned       compMaxStack;
-        UNATIVE_OFFSET compTotalHotCodeSize;  // Total number of bytes of Hot Code in the method
-        UNATIVE_OFFSET compTotalColdCodeSize; // Total number of bytes of Cold Code in the method
-
-        unsigned compUnmanagedCallCountWithGCTransition; // count of unmanaged calls with GC transition.
-
-        CorInfoCallConvExtension compCallConv; // The entry-point calling convention for this method.
-
-        unsigned compXcptnsCount; // Number of exception-handling clauses read in the method's IL.
-                                  // You should generally use compHndBBtabCount instead: it is the
-                                  // current number of EH clauses (after additions like synchronized
-        // methods and funclets, and removals like unreachable code deletion).
-
-        Target::ArgOrder compArgOrder;
-
-        bool compMatchedVM; // true if the VM is "matched": either the JIT is a cross-compiler
-                            // and the VM expects that, or the JIT is a "self-host" compiler
-                            // (e.g., x86 hosted targeting x86) and the VM expects that.
-
-        /*  The following holds IL scope information about local variables.
-         */
-
-        unsigned     compVarScopesCount;
-        VarScopeDsc* compVarScopes;
-
-        /* The following holds information about instr offsets for
-         * which we need to report IP-mappings
-         */
-
-        IL_OFFSET*                   compStmtOffsets; // sorted
-        unsigned                     compStmtOffsetsCount;
-        ICorDebugInfo::BoundaryTypes compStmtOffsetsImplicit;
-
-#define CPU_X86 0x0100 // The generic X86 CPU
-#define CPU_X86_PENTIUM_4 0x0110
-
-#define CPU_X64 0x0200       // The generic x64 CPU
-#define CPU_AMD_X64 0x0210   // AMD x64 CPU
-#define CPU_INTEL_X64 0x0240 // Intel x64 CPU
-
-#define CPU_ARM 0x0300   // The generic ARM CPU
-#define CPU_ARM64 0x0400 // The generic ARM64 CPU
-
-        unsigned genCPU; // What CPU are we running on
-
-        // Number of class profile probes in this method
-        unsigned compClassProbeCount;
-
-    } info;
+    CompiledMethodInfo info;
 
     bool compEnregLocals()
     {
