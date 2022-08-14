@@ -940,6 +940,8 @@ void Compiler::compInit(ArenaAllocator*       pAlloc,
     assert(pAlloc);
     compArenaAllocator = pAlloc;
 
+    new (&m_importer) Importer(this);
+
     // Inlinee Compile object will only be allocated when needed for the 1st time.
     InlineeCompiler = nullptr;
 

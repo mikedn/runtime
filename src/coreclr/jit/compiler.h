@@ -1547,6 +1547,16 @@ enum CallInterf : uint8_t
     CALLINT_ALL,        // kills everything                              (normal method call)
 };
 
+class Importer
+{
+    Compiler* compiler;
+
+public:
+    Importer(Compiler* compiler) : compiler(compiler)
+    {
+    }
+};
+
 class Compiler
 {
     friend class emitter;
@@ -2817,6 +2827,8 @@ public:
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     */
+
+    Importer m_importer;
 
 private:
     // For prefixFlags
