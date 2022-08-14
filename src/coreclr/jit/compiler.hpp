@@ -3041,20 +3041,6 @@ inline bool Compiler::IsGcSafePoint(GenTree* tree)
     return false;
 }
 
-#if defined(DEBUG) || defined(FEATURE_JIT_METHOD_PERF) || defined(FEATURE_SIMD) || defined(FEATURE_TRACELOGGING)
-
-inline bool Compiler::eeIsNativeMethod(CORINFO_METHOD_HANDLE method)
-{
-    return ((((size_t)method) & 0x2) == 0x2);
-}
-
-inline CORINFO_METHOD_HANDLE Compiler::eeGetMethodHandleForNative(CORINFO_METHOD_HANDLE method)
-{
-    assert((((size_t)method) & 0x3) == 0x2);
-    return (CORINFO_METHOD_HANDLE)(((size_t)method) & ~0x3);
-}
-#endif
-
 /*
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -3614,17 +3600,6 @@ inline void* __cdecl operator new[](size_t sz, Compiler* compiler, CompMemKind c
 {
     return compiler->getAllocator(cmk).allocate<char>(sz);
 }
-
-/*****************************************************************************/
-
-#ifdef DEBUG
-
-inline void printRegMaskInt(regMaskTP mask)
-{
-    printf(REG_MASK_INT_FMT, (mask & RBM_ALLINT));
-}
-
-#endif // DEBUG
 
 inline static bool StructHasOverlappingFields(DWORD attribs)
 {

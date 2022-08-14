@@ -1205,6 +1205,21 @@ struct FilterSuperPMIExceptionsParam_ee_il
     EXCEPTION_POINTERS    exceptionPointers;
 };
 
+#if defined(DEBUG) || defined(FEATURE_JIT_METHOD_PERF) || defined(FEATURE_SIMD) || defined(FEATURE_TRACELOGGING)
+
+bool Compiler::eeIsNativeMethod(CORINFO_METHOD_HANDLE method)
+{
+    return ((((size_t)method) & 0x2) == 0x2);
+}
+
+CORINFO_METHOD_HANDLE Compiler::eeGetMethodHandleForNative(CORINFO_METHOD_HANDLE method)
+{
+    assert((((size_t)method) & 0x3) == 0x2);
+    return (CORINFO_METHOD_HANDLE)(((size_t)method) & ~0x3);
+}
+
+#endif
+
 const char* Compiler::eeGetMethodName(CORINFO_METHOD_HANDLE method, const char** classNamePtr)
 {
     if (eeGetHelperNum(method) != CORINFO_HELP_UNDEF)

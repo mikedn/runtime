@@ -44,7 +44,14 @@ void emitterStats(FILE* fout);
 void emitterStaticStats(FILE* fout); // Static stats about the emitter (data structure offsets, sizes, etc.)
 #endif
 
-void printRegMaskInt(regMaskTP mask);
+#ifdef DEBUG
+
+inline void printRegMaskInt(regMaskTP mask)
+{
+    printf(REG_MASK_INT_FMT, (mask & RBM_ALLINT));
+}
+
+#endif // DEBUG
 
 /*****************************************************************************/
 /* Forward declarations */
