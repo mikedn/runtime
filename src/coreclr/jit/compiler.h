@@ -7823,9 +7823,6 @@ protected:
 #endif
 
 public:
-    // Assumes called as part of process shutdown; does any compiler-specific work associated with that.
-    static void ProcessShutdownWork(ICorStaticInfo* statInfo);
-
     CompAllocator getAllocator(CompMemKind cmk = CMK_Generic)
     {
         return CompAllocator(compArenaAllocator, cmk);

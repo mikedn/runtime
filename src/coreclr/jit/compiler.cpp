@@ -4083,13 +4083,6 @@ void Compiler::RecomputeLoopInfo()
     optFindLoops();
 }
 
-/*****************************************************************************/
-void Compiler::ProcessShutdownWork(ICorStaticInfo* statInfo)
-{
-}
-
-/*****************************************************************************/
-
 #ifdef DEBUG
 
 bool Compiler::skipMethod()

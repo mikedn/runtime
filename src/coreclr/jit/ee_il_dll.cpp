@@ -296,8 +296,6 @@ CorJitResult CILJit::compileMethod(ICorJitInfo*         compHnd,
 void CILJit::ProcessShutdownWork(ICorStaticInfo* statInfo)
 {
     jitShutdown(false);
-
-    Compiler::ProcessShutdownWork(statInfo);
 }
 
 /*****************************************************************************
