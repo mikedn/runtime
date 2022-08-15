@@ -1237,10 +1237,7 @@ void Compiler::compSetProcessor()
 #elif defined(TARGET_AMD64)
     info.genCPU = CPU_X64;
 #elif defined(TARGET_X86)
-    if (jitFlags.IsSet(JitFlags::JIT_FLAG_TARGET_P4))
-        info.genCPU = CPU_X86_PENTIUM_4;
-    else
-        info.genCPU = CPU_X86;
+    info.genCPU = CPU_X86;
 #endif
 
     //

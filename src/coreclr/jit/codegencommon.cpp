@@ -1514,10 +1514,6 @@ void CodeGen::genGenerateMachineCode()
         {
             printf("generic X86 CPU");
         }
-        else if (compiler->info.genCPU == CPU_X86_PENTIUM_4)
-        {
-            printf("Pentium 4");
-        }
         else if (compiler->info.genCPU == CPU_X64)
         {
             if (compiler->canUseVexEncoding())

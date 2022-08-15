@@ -1670,9 +1670,7 @@ struct CompiledMethodInfo
     unsigned                     compStmtOffsetsCount;
     ICorDebugInfo::BoundaryTypes compStmtOffsetsImplicit;
 
-#define CPU_X86 0x0100 // The generic X86 CPU
-#define CPU_X86_PENTIUM_4 0x0110
-
+#define CPU_X86 0x0100       // The generic X86 CPU
 #define CPU_X64 0x0200       // The generic x64 CPU
 #define CPU_AMD_X64 0x0210   // AMD x64 CPU
 #define CPU_INTEL_X64 0x0240 // Intel x64 CPU
