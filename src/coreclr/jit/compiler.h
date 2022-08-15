@@ -7799,7 +7799,7 @@ protected:
 
     void compInitOptions(JitFlags* compileFlags);
     void compInitPgo(JitFlags* compileFlags);
-    void compInitOptions2(JitFlags* compileFlags, bool altJitConfig, bool verboseDump);
+    void compInitOptions2(JitFlags* compileFlags DEBUGARG(bool altJitConfig) DEBUGARG(bool verboseDump));
 
     void compSetProcessor();
     void compInitDebuggingInfo();

@@ -1776,7 +1776,7 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
 
     if (!compIsForInlining())
     {
-        compInitOptions2(jitFlags, altJitConfig, verboseDump);
+        compInitOptions2(jitFlags DEBUGARG(altJitConfig) DEBUGARG(verboseDump));
     }
 }
 
@@ -1858,7 +1858,7 @@ void Compiler::compInitPgo(JitFlags* jitFlags)
     }
 }
 
-void Compiler::compInitOptions2(JitFlags* jitFlags, bool altJitConfig, bool verboseDump)
+void Compiler::compInitOptions2(JitFlags* jitFlags DEBUGARG(bool altJitConfig) DEBUGARG(bool verboseDump))
 {
     assert(!compIsForInlining());
 
