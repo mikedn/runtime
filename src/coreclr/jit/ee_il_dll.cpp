@@ -252,42 +252,33 @@ void JitTls::SetCompiler(Compiler* compiler)
 
 #endif // !defined(DEBUG)
 
-//****************************************************************************
-// The main JIT function for the 32 bit JIT.  See code:ICorJitCompiler#EEToJitInterface for more on the EE-JIT
-// interface. Things really don't get going inside the JIT until the code:Compiler::compCompile#Phases
-// method.  Usually that is where you want to go.
-
 CorJitResult CILJit::compileMethod(ICorJitInfo*         jitInfo,
                                    CORINFO_METHOD_INFO* methodInfo,
                                    unsigned             flags,
                                    uint8_t**            entryAddress,
-                                   uint32_t*            nativeSizeOfCode)
+                                   uint32_t*            nativeCodeSize)
 {
-    JitFlags jitFlags;
-
     assert(flags == CORJIT_FLAGS::CORJIT_FLAG_CALL_GETJITFLAGS);
+    assert(methodInfo->ILCode != nullptr);
+
+    JitTls jitTls(jitInfo);
+
     CORJIT_FLAGS corJitFlags;
-    DWORD        jitFlagsSize = jitInfo->getJitFlags(&corJitFlags, sizeof(corJitFlags));
-    assert(jitFlagsSize == sizeof(corJitFlags));
+    uint32_t     corJitFlagsSize = jitInfo->getJitFlags(&corJitFlags, sizeof(corJitFlags));
+    assert(corJitFlagsSize == sizeof(corJitFlags));
+    JitFlags jitFlags;
     jitFlags.SetFromFlags(corJitFlags);
 
-    int                   result;
-    void*                 methodCodePtr = nullptr;
-    CORINFO_METHOD_HANDLE methodHandle  = methodInfo->ftn;
-
-    JitTls jitTls(jitInfo); // Initialize any necessary thread-local state
-
-    assert(methodInfo->ILCode);
-
-    result = jitNativeCode(methodHandle, methodInfo->scope, jitInfo, methodInfo, &methodCodePtr, nativeSizeOfCode,
-                           &jitFlags);
+    void* nativeCode = nullptr;
+    int   result =
+        jitNativeCode(methodInfo->ftn, methodInfo->scope, jitInfo, methodInfo, &nativeCode, nativeCodeSize, &jitFlags);
 
     if (result == CORJIT_OK)
     {
-        *entryAddress = (BYTE*)methodCodePtr;
+        *entryAddress = static_cast<BYTE*>(nativeCode);
     }
 
-    return CorJitResult(result);
+    return static_cast<CorJitResult>(result);
 }
 
 void CILJit::ProcessShutdownWork(ICorStaticInfo* statInfo)
