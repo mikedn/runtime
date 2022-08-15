@@ -498,7 +498,9 @@ void BlockCountInstrumentor::InstrumentMethodEntry(Schema& schema, BYTE* profile
 
         info.compCompHnd->resolveToken(&resolvedToken);
 
-        arg = m_comp->impTokenToHandle(&resolvedToken);
+        // TODO-MIKE-Review: impTokenToHandle may call impAppendTree in some cases,
+        // that wouldn't make a lot of sense as we're done importing at this point.
+        arg = m_comp->m_importer.impTokenToHandle(&resolvedToken);
     }
     else
 #endif

@@ -4295,11 +4295,6 @@ protected:
 public:
     void impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, InlineResult* inlineResult);
 
-    GenTree* impTokenToHandle(CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                              bool*                   pRuntimeLookup    = nullptr,
-                              bool                    mustRestoreHandle = false,
-                              bool                    importParent      = false);
-
     GenTree* getRuntimeContextTree(CORINFO_RUNTIME_LOOKUP_KIND kind);
 
     GenTreeCall* impReadyToRunHelperToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,

@@ -1199,12 +1199,12 @@ GenTree* Importer::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
 // and the token refers to formal type parameters whose instantiation is not known
 // at compile-time.
 //
-GenTree* Compiler::impTokenToHandle(CORINFO_RESOLVED_TOKEN* pResolvedToken,
+GenTree* Importer::impTokenToHandle(CORINFO_RESOLVED_TOKEN* pResolvedToken,
                                     bool*                   pRuntimeLookup /* = NULL */,
                                     bool                    mustRestoreHandle /* = false */,
                                     bool                    importParent /* = false */)
 {
-    assert(!fgGlobalMorph);
+    assert(!comp->fgGlobalMorph);
 
     CORINFO_GENERICHANDLE_RESULT embedInfo;
     info.compCompHnd->embedGenericHandle(pResolvedToken, importParent, &embedInfo);
@@ -1237,14 +1237,13 @@ GenTree* Compiler::impTokenToHandle(CORINFO_RESOLVED_TOKEN* pResolvedToken,
     }
 
     // Generate the full lookup tree. May be null if we're abandoning an inline attempt.
-    GenTree* result =
-        m_importer.impLookupToTree(pResolvedToken, &embedInfo.lookup, gtTokenToIconFlags(pResolvedToken->token),
-                                   embedInfo.compileTimeHandle);
+    GenTree* result = impLookupToTree(pResolvedToken, &embedInfo.lookup, gtTokenToIconFlags(pResolvedToken->token),
+                                      embedInfo.compileTimeHandle);
 
     // If we have a result and it requires runtime lookup, wrap it in a runtime lookup node.
     if ((result != nullptr) && embedInfo.lookup.lookupKind.needsRuntimeLookup)
     {
-        result = gtNewRuntimeLookup(embedInfo.compileTimeHandle, embedInfo.handleType, result);
+        result = comp->gtNewRuntimeLookup(embedInfo.compileTimeHandle, embedInfo.handleType, result);
     }
 
     return result;
@@ -17912,19 +17911,11 @@ bool Importer::impIsClassExact(CORINFO_CLASS_HANDLE classHnd)
     return comp->impIsClassExact(classHnd);
 }
 
-GenTree* Importer::impTokenToHandle(CORINFO_RESOLVED_TOKEN* resolvedToken,
-                                    bool*                   runtimeLookup,
-                                    bool                    mustRestoreHandle,
-                                    bool                    importParent)
-{
-    return comp->impTokenToHandle(resolvedToken, runtimeLookup, mustRestoreHandle, importParent);
-}
-
 GenTree* Importer::impParentClassTokenToHandle(CORINFO_RESOLVED_TOKEN* resolvedToken,
                                                bool*                   runtimeLookup,
                                                bool                    mustRestoreHandle)
 {
-    return comp->impTokenToHandle(resolvedToken, runtimeLookup, mustRestoreHandle, true);
+    return impTokenToHandle(resolvedToken, runtimeLookup, mustRestoreHandle, true);
 }
 
 GenTreeCall* Importer::impReadyToRunHelperToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
