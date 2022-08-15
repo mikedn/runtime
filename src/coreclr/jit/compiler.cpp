@@ -1042,8 +1042,6 @@ void Compiler::compInit(ArenaAllocator*       alloc,
 
     if (!compIsForInlining())
     {
-        lvMemoryPerSsaData = SsaDefArray<SsaMemDef>();
-
         optInit();
 
         codeGen = getCodeGenerator(this);

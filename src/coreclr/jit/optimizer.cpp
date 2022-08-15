@@ -20,6 +20,8 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 void Compiler::optInit()
 {
+    lvMemoryPerSsaData = SsaDefArray<SsaMemDef>();
+
     optLoopsCloned = 0;
 
 #if LOOP_HOIST_STATS
