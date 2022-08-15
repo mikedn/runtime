@@ -587,8 +587,14 @@ int Compiler::inlMain(CORINFO_MODULE_HANDLE module, JitFlags* jitFlags)
     }
 #endif // FEATURE_JIT_METHOD_PERF
 
+    Compiler* inliner = impInlineRoot();
+
+#ifdef DEBUG
     // Set this early so we can use it without relying on random memory values
-    INDEBUG(verbose = impInlineInfo->InlinerCompiler->verbose);
+    verbose      = inliner->verbose;
+    verboseTrees = inliner->verboseTrees;
+    asciiTrees   = inliner->asciiTrees;
+#endif
 
     compMaxUncheckedOffsetForNullObject = eeGetEEInfo()->maxUncheckedOffsetForNullObject;
     compSwitchedToOptimized             = false;
@@ -621,7 +627,7 @@ int Compiler::inlMain(CORINFO_MODULE_HANDLE module, JitFlags* jitFlags)
     info.compArgOrder                           = Target::g_tgtArgOrder;
     info.compIsVarArgs                          = false;
     info.compUnmanagedCallCountWithGCTransition = 0;
-    info.compMatchedVM                          = impInlineInfo->InlinerCompiler->info.compMatchedVM;
+    info.compMatchedVM                          = inliner->info.compMatchedVM;
 
     // Set the context for token lookup.
     impTokenLookupContextHandle = impInlineInfo->inlineCandidateInfo->exactContextHnd;
@@ -816,11 +822,6 @@ void Compiler::inlInitOptions(JitFlags* jitFlags)
 
 #ifdef FEATURE_SIMD
     featureSIMD = inliner->featureSIMD;
-#endif
-#ifdef DEBUG
-    verbose      = inliner->verbose;
-    verboseTrees = inliner->verboseTrees;
-    asciiTrees   = inliner->asciiTrees;
 #endif
 
     opts.optFlags    = inliner->opts.optFlags;
