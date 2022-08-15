@@ -4018,11 +4018,6 @@ bool Compiler::skipMethod()
 
 int Compiler::compCompileMain(void** methodCode, uint32_t* methodCodeSize, JitFlags* compileFlags)
 {
-    // compInit should have set these already.
-    noway_assert(info.compMethodInfo != nullptr);
-    noway_assert(info.compCompHnd != nullptr);
-    noway_assert(info.compMethodHnd != nullptr);
-
     // Verification isn't supported
     assert(compileFlags->IsSet(JitFlags::JIT_FLAG_SKIP_VERIFICATION));
     assert(!compileFlags->IsSet(JitFlags::JIT_FLAG_IMPORT_ONLY));

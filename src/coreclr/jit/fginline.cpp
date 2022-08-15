@@ -556,11 +556,6 @@ void jitInlineCode(InlineInfo* inlineInfo)
 
 int Compiler::inlMain()
 {
-    // compInit should have set these already.
-    noway_assert(info.compMethodInfo != nullptr);
-    noway_assert(info.compCompHnd != nullptr);
-    noway_assert(info.compMethodHnd != nullptr);
-
     assert(compIsForInlining());
 
 #ifdef FEATURE_JIT_METHOD_PERF
