@@ -695,32 +695,28 @@ void Compiler::inlMainHelper(CORINFO_MODULE_HANDLE module,
 
     inlInitOptions(jitFlags);
 
+    Compiler* inliner = impInlineRoot();
+
+    compDoAggressiveInlining = inliner->compDoAggressiveInlining;
+
+    if (compDoAggressiveInlining
 #ifdef DEBUG
-    if (verbose)
-    {
-        printf("IL to import:\n");
-        dumpILRange(info.compCode, info.compILCodeSize);
-    }
+        || compStressCompile(STRESS_FORCE_INLINE, 0)
 #endif
-
-    if (JitConfig.JitAggressiveInlining())
-    {
-        compDoAggressiveInlining = true;
-    }
-
-    if (compDoAggressiveInlining)
-    {
-        info.compFlags |= CORINFO_FLG_FORCEINLINE;
-    }
-
-#ifdef DEBUG
-    if (compStressCompile(STRESS_FORCE_INLINE, 0))
+            )
     {
         info.compFlags |= CORINFO_FLG_FORCEINLINE;
     }
 
     JITLOG((LL_INFO100000, "\nINLINER impTokenLookupContextHandle for %s is 0x%p.\n",
             eeGetMethodFullName(info.compMethodHnd), dspPtr(impTokenLookupContextHandle)));
+
+#ifdef DEBUG
+    if (verbose)
+    {
+        printf("IL to import:\n");
+        dumpILRange(info.compCode, info.compILCodeSize);
+    }
 #endif
 
     info.compScopeHnd    = module;
@@ -742,7 +738,7 @@ void Compiler::inlMainHelper(CORINFO_MODULE_HANDLE module,
 
     lvaInitTypeRef();
 
-    INDEBUG(compBasicBlockID = impInlineInfo->InlinerCompiler->compBasicBlockID);
+    INDEBUG(compBasicBlockID = inliner->compBasicBlockID);
 
     fgFindBasicBlocks();
 
@@ -781,16 +777,16 @@ void Compiler::inlMainHelper(CORINFO_MODULE_HANDLE module,
         if (!compInlineResult->IsFailure())
         {
 #ifdef DEBUG
-            compGenTreeID   = impInlineInfo->InlinerCompiler->compGenTreeID;
-            compStatementID = impInlineInfo->InlinerCompiler->compStatementID;
+            compGenTreeID   = inliner->compGenTreeID;
+            compStatementID = inliner->compStatementID;
 #endif
 
             inlImportInlinee();
 
 #ifdef DEBUG
-            impInlineInfo->InlinerCompiler->compGenTreeID    = compGenTreeID;
-            impInlineInfo->InlinerCompiler->compStatementID  = compStatementID;
-            impInlineInfo->InlinerCompiler->compBasicBlockID = compBasicBlockID;
+            inliner->compGenTreeID    = compGenTreeID;
+            inliner->compStatementID  = compStatementID;
+            inliner->compBasicBlockID = compBasicBlockID;
 #endif
         }
     }
