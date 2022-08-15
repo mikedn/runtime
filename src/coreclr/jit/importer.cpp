@@ -151,14 +151,14 @@ bool Importer::impILConsumesAddr(const BYTE* codeAddr)
     return false;
 }
 
-void Importer::impResolveToken(const BYTE* addr, CORINFO_RESOLVED_TOKEN* pResolvedToken, CorInfoTokenKind kind)
+void Compiler::impResolveToken(const BYTE* addr, CORINFO_RESOLVED_TOKEN* resolvedToken, CorInfoTokenKind kind)
 {
-    pResolvedToken->tokenContext = impTokenLookupContextHandle;
-    pResolvedToken->tokenScope   = info.compScopeHnd;
-    pResolvedToken->token        = getU4LittleEndian(addr);
-    pResolvedToken->tokenType    = kind;
+    resolvedToken->tokenContext = impTokenLookupContextHandle;
+    resolvedToken->tokenScope   = info.compScopeHnd;
+    resolvedToken->token        = getU4LittleEndian(addr);
+    resolvedToken->tokenType    = kind;
 
-    info.compCompHnd->resolveToken(pResolvedToken);
+    info.compCompHnd->resolveToken(resolvedToken);
 }
 
 /*****************************************************************************
@@ -18711,4 +18711,9 @@ GenTree* Importer::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
 bool Importer::inlImportReturn(InlineInfo* inlineInfo, GenTree* op, CORINFO_CLASS_HANDLE retClsHnd)
 {
     return comp->inlImportReturn(*this, inlineInfo, op, retClsHnd);
+}
+
+void Importer::impResolveToken(const BYTE* addr, CORINFO_RESOLVED_TOKEN* resolvedToken, CorInfoTokenKind kind)
+{
+    comp->impResolveToken(addr, resolvedToken, kind);
 }

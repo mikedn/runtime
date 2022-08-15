@@ -2564,7 +2564,7 @@ struct Importer
     bool impIsPrimitive(CorInfoType type);
     bool impILConsumesAddr(const BYTE* codeAddr);
 
-    void impResolveToken(const BYTE* addr, CORINFO_RESOLVED_TOKEN* pResolvedToken, CorInfoTokenKind kind);
+    void impResolveToken(const BYTE* addr, CORINFO_RESOLVED_TOKEN* resolvedToken, CorInfoTokenKind kind);
 
     void impPushOnStack(GenTree* tree, typeInfo ti);
     StackEntry impPopStack();
@@ -4247,6 +4247,8 @@ public:
         // RuntimeTypeHandle is backed by raw pointer on CoreRT and by object reference on other runtimes
         return IsTargetAbi(CORINFO_CORERT_ABI) ? TYP_I_IMPL : TYP_REF;
     }
+
+    void impResolveToken(const BYTE* addr, CORINFO_RESOLVED_TOKEN* resolvedToken, CorInfoTokenKind kind);
 
     void impDevirtualizeCall(GenTreeCall*            call,
                              CORINFO_RESOLVED_TOKEN* pResolvedToken,
