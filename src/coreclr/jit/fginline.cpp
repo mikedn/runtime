@@ -530,21 +530,21 @@ void jitInlineCode(InlineInfo* inlineInfo)
                                       inlinerCompiler->info.compCompHnd, &inlineInfo->inlineCandidateInfo->methInfo,
                                       inlineInfo);
 
-            JitFlags compileFlags = *inlinerCompiler->opts.jitFlags;
+            JitFlags jitFlags = *inlinerCompiler->opts.jitFlags;
             // The following flags are lost when inlining.
             // (This is checked in Compiler::compInitOptions().)
-            compileFlags.Clear(JitFlags::JIT_FLAG_BBINSTR);
-            compileFlags.Clear(JitFlags::JIT_FLAG_PROF_ENTERLEAVE);
-            compileFlags.Clear(JitFlags::JIT_FLAG_DEBUG_EnC);
-            compileFlags.Clear(JitFlags::JIT_FLAG_DEBUG_INFO);
-            compileFlags.Clear(JitFlags::JIT_FLAG_REVERSE_PINVOKE);
-            compileFlags.Clear(JitFlags::JIT_FLAG_TRACK_TRANSITIONS);
-            compileFlags.Clear(JitFlags::JIT_FLAG_PUBLISH_SECRET_PARAM);
-            compileFlags.Clear(JitFlags::JIT_FLAG_OSR);
+            jitFlags.Clear(JitFlags::JIT_FLAG_BBINSTR);
+            jitFlags.Clear(JitFlags::JIT_FLAG_PROF_ENTERLEAVE);
+            jitFlags.Clear(JitFlags::JIT_FLAG_DEBUG_EnC);
+            jitFlags.Clear(JitFlags::JIT_FLAG_DEBUG_INFO);
+            jitFlags.Clear(JitFlags::JIT_FLAG_REVERSE_PINVOKE);
+            jitFlags.Clear(JitFlags::JIT_FLAG_TRACK_TRANSITIONS);
+            jitFlags.Clear(JitFlags::JIT_FLAG_PUBLISH_SECRET_PARAM);
+            jitFlags.Clear(JitFlags::JIT_FLAG_OSR);
 
-            compileFlags.Set(JitFlags::JIT_FLAG_SKIP_VERIFICATION);
+            jitFlags.Set(JitFlags::JIT_FLAG_SKIP_VERIFICATION);
 
-            pParam->result = inlineeCompiler->inlMain(inlineInfo->inlineCandidateInfo->methInfo.scope, &compileFlags);
+            pParam->result = inlineeCompiler->inlMain(inlineInfo->inlineCandidateInfo->methInfo.scope, &jitFlags);
         }
         finallyErrorTrap()
         {
@@ -568,7 +568,7 @@ void jitInlineCode(InlineInfo* inlineInfo)
     }
 }
 
-int Compiler::inlMain(CORINFO_MODULE_HANDLE module, JitFlags* compileFlags)
+int Compiler::inlMain(CORINFO_MODULE_HANDLE module, JitFlags* jitFlags)
 {
     // compInit should have set these already.
     noway_assert(info.compMethodInfo != nullptr);
@@ -647,18 +647,18 @@ int Compiler::inlMain(CORINFO_MODULE_HANDLE module, JitFlags* compileFlags)
         CORINFO_MODULE_HANDLE module;
         ICorJitInfo*          jitInfo;
         CORINFO_METHOD_INFO*  methodInfo;
-        JitFlags*             compileFlags;
+        JitFlags*             jitFlags;
     } param;
 
-    param.compiler     = this;
-    param.module       = module;
-    param.jitInfo      = info.compCompHnd;
-    param.methodInfo   = info.compMethodInfo;
-    param.compileFlags = compileFlags;
+    param.compiler   = this;
+    param.module     = module;
+    param.jitInfo    = info.compCompHnd;
+    param.methodInfo = info.compMethodInfo;
+    param.jitFlags   = jitFlags;
 
     setErrorTrap(info.compCompHnd, Param*, pParam, &param)
     {
-        pParam->compiler->inlMainHelper(pParam->module, pParam->jitInfo, pParam->methodInfo, pParam->compileFlags);
+        pParam->compiler->inlMainHelper(pParam->module, pParam->jitInfo, pParam->methodInfo, pParam->jitFlags);
     }
     finallyErrorTrap()
     {
@@ -671,7 +671,7 @@ int Compiler::inlMain(CORINFO_MODULE_HANDLE module, JitFlags* compileFlags)
 void Compiler::inlMainHelper(CORINFO_MODULE_HANDLE module,
                              ICorJitInfo*          jitInfo,
                              CORINFO_METHOD_INFO*  methodInfo,
-                             JitFlags*             compileFlags)
+                             JitFlags*             jitFlags)
 {
     if (info.compILCodeSize == 0)
     {
@@ -687,7 +687,7 @@ void Compiler::inlMainHelper(CORINFO_MODULE_HANDLE module,
 
     info.compFlags = impInlineInfo->inlineCandidateInfo->methAttr;
 
-    inlInitOptions(compileFlags);
+    inlInitOptions(jitFlags);
 
 #ifdef DEBUG
     if (verbose)
@@ -840,11 +840,11 @@ void Compiler::inlInitOptions(JitFlags* jitFlags)
     opts.compFastTailCalls = inliner->opts.compFastTailCalls;
 #endif
 
-    inlSetProcessor(*jitFlags);
+    inlSetProcessor();
     compInitPgo(jitFlags);
 }
 
-void Compiler::inlSetProcessor(const JitFlags& jitFlags)
+void Compiler::inlSetProcessor()
 {
     assert(compIsForInlining());
 

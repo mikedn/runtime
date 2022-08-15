@@ -5769,13 +5769,13 @@ public:
     void inlFoldJTrue(BasicBlock* block);
     bool inlInlineCall(Statement* stmt, GenTreeCall* call);
     void inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, InlineResult* result);
-    int inlMain(CORINFO_MODULE_HANDLE module, JitFlags* compileFlags);
+    int inlMain(CORINFO_MODULE_HANDLE module, JitFlags* jitFlags);
     void inlMainHelper(CORINFO_MODULE_HANDLE module,
                        ICorJitInfo*          jitInfo,
                        CORINFO_METHOD_INFO*  methodInfo,
-                       JitFlags*             compileFlags);
-    void inlInitOptions(JitFlags* compileFlags);
-    void inlSetProcessor(const JitFlags& jitFlags);
+                       JitFlags*             jitFlags);
+    void inlInitOptions(JitFlags* jitFlags);
+    void inlSetProcessor();
     void inlSetOptimizationLevel();
     void inlImportInlinee();
     void inlPostInlineFailureCleanup(const InlineInfo* inlineInfo);
