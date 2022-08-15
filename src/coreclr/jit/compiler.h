@@ -2654,8 +2654,6 @@ struct Importer
                                           CORINFO_SIG_INFO*     sig,
                                           bool                  mustExpand);
 
-    void impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, InlineResult* inlineResult);
-
     bool impInlineIsGuaranteedThisDerefBeforeAnySideEffects(GenTree*          additionalTree,
                                                             GenTreeCall::Use* additionalCallArgs,
                                                             GenTree*          dereferencedAddress);
@@ -4282,6 +4280,8 @@ protected:
     bool compSupportsHWIntrinsic(CORINFO_InstructionSet isa);
 
 public:
+    void impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, InlineResult* inlineResult);
+
     GenTree* impTokenToHandle(CORINFO_RESOLVED_TOKEN* pResolvedToken,
                               bool*                   pRuntimeLookup    = nullptr,
                               bool                    mustRestoreHandle = false,

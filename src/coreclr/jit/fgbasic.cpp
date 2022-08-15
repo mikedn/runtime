@@ -2012,7 +2012,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
         {
             // Make some callsite specific observations that will feed
             // into the profitability model.
-            m_importer.impMakeDiscretionaryInlineObservations(impInlineInfo, compInlineResult);
+            impMakeDiscretionaryInlineObservations(impInlineInfo, compInlineResult);
 
             // None of those observations should have changed the
             // inline's viability.

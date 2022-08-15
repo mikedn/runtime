@@ -14577,7 +14577,7 @@ GenTreeLclVarCommon* Compiler::impIsLocalAddrExpr(GenTree* node)
 //    various observations about the method that factor into inline
 //    decisions. It sets `compNativeSizeEstimate` as a side effect.
 
-void Importer::impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, InlineResult* inlineResult)
+void Compiler::impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, InlineResult* inlineResult)
 {
     assert((pInlineInfo != nullptr && compIsForInlining()) || // Perform the actual inlining.
            (pInlineInfo == nullptr && !compIsForInlining())   // Calculate the static inlining hint for ngen.
@@ -14627,7 +14627,7 @@ void Importer::impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, I
         {
             GenTree* thisArg = pInlineInfo->iciCall->AsCall()->gtCallThisArg->GetNode();
             assert(thisArg);
-            bool isSameThis = impIsThis(thisArg);
+            bool isSameThis = m_importer.impIsThis(thisArg);
             inlineResult->NoteBool(InlineObservation::CALLSITE_IS_SAME_THIS, isSameThis);
         }
     }
@@ -14712,7 +14712,7 @@ void Importer::impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, I
     // Note if the callee's class is a promotable struct
     if ((info.compClassAttr & CORINFO_FLG_VALUECLASS) != 0)
     {
-        CORINFO_CLASS_HANDLE* cache = comp->impPromotableStructTypeCache;
+        CORINFO_CLASS_HANDLE* cache = impPromotableStructTypeCache;
 
         if (pInlineInfo != nullptr)
         {
@@ -14731,7 +14731,7 @@ void Importer::impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, I
         }
         else
         {
-            StructPromotionHelper helper(comp);
+            StructPromotionHelper helper(this);
             promotable        = helper.CanPromoteStructType(info.compClassHnd);
             cache[promotable] = info.compClassHnd;
         }
