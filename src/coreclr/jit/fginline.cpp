@@ -693,9 +693,31 @@ void Compiler::inlMainHelper(CORINFO_MODULE_HANDLE module,
 
     info.compFlags = impInlineInfo->inlineCandidateInfo->methAttr;
 
-    inlInitOptions(jitFlags);
+    memset(&opts, 0, sizeof(opts));
+
+    opts.jitFlags = jitFlags;
 
     Compiler* inliner = impInlineRoot();
+
+#ifdef FEATURE_SIMD
+    featureSIMD = inliner->featureSIMD;
+#endif
+    opts.compSupportsISA = inliner->opts.compSupportsISA;
+
+    opts.optFlags    = inliner->opts.optFlags;
+    opts.compCodeOpt = inliner->opts.compCodeOpt;
+    opts.compDbgCode = inliner->opts.compDbgCode;
+#ifdef DEBUG
+    opts.dspDiffable = inliner->opts.dspDiffable;
+#endif
+#if FEATURE_TAILCALL_OPT
+    opts.compTailCallOpt = inliner->opts.compTailCallOpt;
+#endif
+#if FEATURE_FASTTAILCALL
+    opts.compFastTailCalls = inliner->opts.compFastTailCalls;
+#endif
+
+    compInitPgo(jitFlags);
 
     compDoAggressiveInlining = inliner->compDoAggressiveInlining;
 
@@ -786,37 +808,6 @@ void Compiler::inlMainHelper(CORINFO_MODULE_HANDLE module,
     {
         assert(impInlineInfo->inlineResult == compInlineResult);
     }
-}
-
-void Compiler::inlInitOptions(JitFlags* jitFlags)
-{
-    assert(compIsForInlining());
-
-    memset(&opts, 0, sizeof(opts));
-
-    opts.jitFlags = jitFlags;
-
-    Compiler* inliner = impInlineRoot();
-
-#ifdef FEATURE_SIMD
-    featureSIMD = inliner->featureSIMD;
-#endif
-    opts.compSupportsISA = inliner->opts.compSupportsISA;
-
-    opts.optFlags    = inliner->opts.optFlags;
-    opts.compCodeOpt = inliner->opts.compCodeOpt;
-    opts.compDbgCode = inliner->opts.compDbgCode;
-#ifdef DEBUG
-    opts.dspDiffable = inliner->opts.dspDiffable;
-#endif
-#if FEATURE_TAILCALL_OPT
-    opts.compTailCallOpt = inliner->opts.compTailCallOpt;
-#endif
-#if FEATURE_FASTTAILCALL
-    opts.compFastTailCalls = inliner->opts.compFastTailCalls;
-#endif
-
-    compInitPgo(jitFlags);
 }
 
 void Compiler::inlSetOptimizationLevel()

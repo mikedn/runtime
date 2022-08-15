@@ -5774,7 +5774,6 @@ public:
                        ICorJitInfo*          jitInfo,
                        CORINFO_METHOD_INFO*  methodInfo,
                        JitFlags*             jitFlags);
-    void inlInitOptions(JitFlags* jitFlags);
     void inlSetOptimizationLevel();
     void inlImportInlinee();
     void inlPostInlineFailureCleanup(const InlineInfo* inlineInfo);
