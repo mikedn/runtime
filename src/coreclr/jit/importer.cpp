@@ -18292,11 +18292,6 @@ GenTreeAllocObj* Importer::gtNewAllocObjNode(
     return comp->gtNewAllocObjNode(helper, helperHasSideEffects, clsHnd, type, op1);
 }
 
-GenTreeAllocObj* Importer::gtNewAllocObjNode(CORINFO_RESOLVED_TOKEN* resolvedToken, bool useParent)
-{
-    return comp->gtNewAllocObjNode(resolvedToken, useParent);
-}
-
 GenTreeIndir* Importer::gtNewMethodTableLookup(GenTree* obj)
 {
     return comp->gtNewMethodTableLookup(obj);
