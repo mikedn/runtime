@@ -8,8 +8,6 @@
 
 void Compiler::fgInit()
 {
-    new (&m_importer) Importer(this);
-
     fgFirstBBScratch             = nullptr;
     fgComputePredsDone           = false;
     fgCheapPredsValid            = false;

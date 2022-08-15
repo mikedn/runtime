@@ -1045,6 +1045,8 @@ void Compiler::compInit(ArenaAllocator*       alloc,
         genNodeSizeStatsPerFunc.Init();
 #endif
     }
+
+    new (&m_importer) Importer(this);
 }
 
 void* Compiler::compGetHelperFtn(CorInfoHelpFunc ftnNum,        /* IN  */
