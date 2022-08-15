@@ -4011,10 +4011,7 @@ bool Compiler::skipMethod()
 
 #endif
 
-int Compiler::compCompile(CORINFO_MODULE_HANDLE module,
-                          void**                methodCode,
-                          uint32_t*             methodCodeSize,
-                          JitFlags*             compileFlags)
+int Compiler::compCompileMain(void** methodCode, uint32_t* methodCodeSize, JitFlags* compileFlags)
 {
     // compInit should have set these already.
     noway_assert(info.compMethodInfo != nullptr);
@@ -4167,7 +4164,6 @@ int Compiler::compCompile(CORINFO_MODULE_HANDLE module,
     }
 #endif // DEBUG
 
-    info.compScopeHnd    = module;
     info.compCode        = info.compMethodInfo->ILCode;
     info.compILCodeSize  = info.compMethodInfo->ILCodeSize;
     info.compXcptnsCount = info.compMethodInfo->EHcount;
@@ -5238,9 +5234,10 @@ START:
 
             pParam->compiler->compInit(&pParam->allocator, pParam->methodHnd, pParam->compHnd, pParam->methodInfo);
             INDEBUG(pParam->compiler->jitFallbackCompile = pParam->jitFallbackCompile;)
+            pParam->compiler->info.compScopeHnd = pParam->classPtr;
 
-            pParam->result = pParam->compiler->compCompile(pParam->classPtr, pParam->methodCodePtr,
-                                                           pParam->methodCodeSize, pParam->compileFlags);
+            pParam->result =
+                pParam->compiler->compCompileMain(pParam->methodCodePtr, pParam->methodCodeSize, pParam->compileFlags);
         }
         finallyErrorTrap()
         {

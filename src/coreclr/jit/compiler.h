@@ -7654,7 +7654,8 @@ public:
     // These should fail by asserting.
     INDEBUG(void compDoComponentUnitTestsOnce();)
 
-    int compCompile(CORINFO_MODULE_HANDLE module, void** methodCode, uint32_t* methodCodeSize, JitFlags* compileFlags);
+    int compCompileMain(void** methodCode, uint32_t* methodCodeSize, JitFlags* compileFlags);
+    void compCompile(void** methodCode, uint32_t* methodCodeSize, JitFlags* compileFlags);
     void compCompileFinish();
     int compCompileHelper(void** methodCode, uint32_t* methodCodeSize, JitFlags* jitFlags);
 
@@ -7794,7 +7795,6 @@ protected:
 #ifdef TARGET_ARMARCH
     bool compRsvdRegCheck(FrameLayoutState curState);
 #endif
-    void compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFlags* compileFlags);
 
     // Clear annotations produced during optimizations; to be used between iterations when repeating opts.
     void ResetOptAnnotations();
