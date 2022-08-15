@@ -531,8 +531,8 @@ void jitInlineCode(InlineInfo* inlineInfo)
                                       inlineInfo);
 
             JitFlags jitFlags = *inlinerCompiler->opts.jitFlags;
+
             // The following flags are lost when inlining.
-            // (This is checked in Compiler::compInitOptions().)
             jitFlags.Clear(JitFlags::JIT_FLAG_BBINSTR);
             jitFlags.Clear(JitFlags::JIT_FLAG_PROF_ENTERLEAVE);
             jitFlags.Clear(JitFlags::JIT_FLAG_DEBUG_EnC);
@@ -793,15 +793,6 @@ void Compiler::inlInitOptions(JitFlags* jitFlags)
     assert(compIsForInlining());
 
     memset(&opts, 0, sizeof(opts));
-
-    // The following flags are lost when inlining (hey are removed in inlInvokeInlineeCompiler).
-    assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_BBINSTR));
-    assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_PROF_ENTERLEAVE));
-    assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_DEBUG_EnC));
-    assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_DEBUG_INFO));
-    assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_REVERSE_PINVOKE));
-    assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_TRACK_TRANSITIONS));
-    assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_PUBLISH_SECRET_PARAM));
 
     opts.jitFlags = jitFlags;
 
