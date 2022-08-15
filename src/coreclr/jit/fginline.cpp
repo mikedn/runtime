@@ -716,6 +716,7 @@ void Compiler::inlMainHelper(CORINFO_MODULE_HANDLE module,
 #if FEATURE_FASTTAILCALL
     opts.compFastTailCalls = inliner->opts.compFastTailCalls;
 #endif
+    opts.compExpandCallsEarly = inliner->opts.compExpandCallsEarly;
 
     compInitPgo(jitFlags);
 
@@ -766,7 +767,15 @@ void Compiler::inlMainHelper(CORINFO_MODULE_HANDLE module,
 
     if (!compDonotInline())
     {
-        inlSetOptimizationLevel();
+        // TODO-MIKE-Review: This is likely pointless, since we're inlining we're not doing minopts...
+        opts.SetMinOpts(inliner->opts.MinOpts());
+
+        if (opts.OptimizationDisabled())
+        {
+            opts.optFlags = CLFLG_MINOPT;
+        }
+
+        fgCanRelocateEHRegions = true;
 
 #if COUNT_BASIC_BLOCKS
         bbCntTable.record(fgBBcount);
@@ -808,25 +817,6 @@ void Compiler::inlMainHelper(CORINFO_MODULE_HANDLE module,
     {
         assert(impInlineInfo->inlineResult == compInlineResult);
     }
-}
-
-void Compiler::inlSetOptimizationLevel()
-{
-    assert(!compDonotInline());
-
-    Compiler* inliner = impInlineRoot();
-
-    // TODO-MIKE-Review: This is likely pointless, since we're inlining we're not doing minopts...
-    opts.SetMinOpts(inliner->opts.MinOpts());
-
-    if (opts.OptimizationDisabled())
-    {
-        opts.optFlags = CLFLG_MINOPT;
-    }
-
-    opts.compExpandCallsEarly = inliner->opts.compExpandCallsEarly;
-
-    fgCanRelocateEHRegions = true;
 }
 
 void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, InlineResult* inlineResult)
