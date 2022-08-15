@@ -7609,7 +7609,7 @@ var_types Importer::impImportCall(OPCODE                  opcode,
                                 rawILOffset);
         }
 
-        if (impIsThis(obj))
+        if (comp->impIsThis(obj))
         {
             call->AsCall()->gtCallMoreFlags |= GTF_CALL_M_NONVIRT_SAME_THIS;
         }
@@ -14627,7 +14627,7 @@ void Compiler::impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, I
         {
             GenTree* thisArg = pInlineInfo->iciCall->AsCall()->gtCallThisArg->GetNode();
             assert(thisArg);
-            bool isSameThis = m_importer.impIsThis(thisArg);
+            bool isSameThis = impIsThis(thisArg);
             inlineResult->NoteBool(InlineObservation::CALLSITE_IS_SAME_THIS, isSameThis);
         }
     }
@@ -15028,7 +15028,7 @@ void Compiler::impCheckCanInline(GenTreeCall*           call,
                 GenTree* thisArg = pParam->call->gtCallThisArg->GetNode();
                 assert(thisArg);
 
-                if (!pParam->pThis->m_importer.impIsThis(thisArg))
+                if (!pParam->pThis->impIsThis(thisArg))
                 {
                     pParam->result->NoteFatal(InlineObservation::CALLSITE_REQUIRES_SAME_THIS);
                     return;
@@ -17485,11 +17485,11 @@ GenTree* Importer::impCheckForNullPointer(GenTree* obj)
  *  even if we might have created the copy of 'this' pointer in lvaArg0Var.
  */
 
-bool Importer::impIsThis(GenTree* obj)
+bool Compiler::impIsThis(GenTree* obj)
 {
     if (compIsForInlining())
     {
-        return impInlineInfo->InlinerCompiler->m_importer.impIsThis(obj);
+        return impInlineInfo->InlinerCompiler->impIsThis(obj);
     }
     else
     {

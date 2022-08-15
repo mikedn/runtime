@@ -2306,7 +2306,6 @@ struct Importer
     unsigned impInitBlockLineInfo();
 
     GenTree* impCheckForNullPointer(GenTree* obj);
-    bool impIsThis(GenTree* obj);
     bool impIsAnySTLOC(OPCODE opcode)
     {
         return ((opcode == CEE_STLOC) || (opcode == CEE_STLOC_S) ||
@@ -4246,6 +4245,8 @@ public:
         // RuntimeTypeHandle is backed by raw pointer on CoreRT and by object reference on other runtimes
         return IsTargetAbi(CORINFO_CORERT_ABI) ? TYP_I_IMPL : TYP_REF;
     }
+
+    bool impIsThis(GenTree* obj);
 
     bool impILConsumesAddr(const BYTE* codeAddr);
 
