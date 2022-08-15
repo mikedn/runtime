@@ -589,13 +589,6 @@ int Compiler::inlMain(CORINFO_MODULE_HANDLE module, JitFlags* jitFlags)
 
     Compiler* inliner = impInlineRoot();
 
-#ifdef DEBUG
-    // Set this early so we can use it without relying on random memory values
-    verbose      = inliner->verbose;
-    verboseTrees = inliner->verboseTrees;
-    asciiTrees   = inliner->asciiTrees;
-#endif
-
     compMaxUncheckedOffsetForNullObject = eeGetEEInfo()->maxUncheckedOffsetForNullObject;
     compSwitchedToOptimized             = false;
     compSwitchedToMinOpts               = false;
@@ -603,7 +596,14 @@ int Compiler::inlMain(CORINFO_MODULE_HANDLE module, JitFlags* jitFlags)
     compHndBBtabCount                   = 0;
     compHndBBtabAllocCount              = 0;
     compHasBackwardJump                 = false;
+    compDoAggressiveInlining            = inliner->compDoAggressiveInlining;
+#ifdef FEATURE_SIMD
+    featureSIMD = inliner->featureSIMD;
+#endif
 #ifdef DEBUG
+    verbose          = inliner->verbose;
+    verboseTrees     = inliner->verboseTrees;
+    asciiTrees       = inliner->asciiTrees;
     compCurBB        = nullptr;
     lvaTable         = nullptr;
     compGenTreeID    = 0;
@@ -611,6 +611,11 @@ int Compiler::inlMain(CORINFO_MODULE_HANDLE module, JitFlags* jitFlags)
     compBasicBlockID = 0;
 #endif
 
+    info.compScopeHnd                           = module;
+    info.compXcptnsCount                        = info.compMethodInfo->EHcount;
+    info.compMaxStack                           = info.compMethodInfo->maxStack;
+    info.compIsStatic                           = (info.compFlags & CORINFO_FLG_STATIC) != 0;
+    info.compInitMem                            = (info.compMethodInfo->options & CORINFO_OPT_INIT_LOCALS) != 0;
     info.compCode                               = info.compMethodInfo->ILCode;
     info.compILCodeSize                         = info.compMethodInfo->ILCodeSize;
     info.compILEntry                            = 0;
@@ -629,6 +634,17 @@ int Compiler::inlMain(CORINFO_MODULE_HANDLE module, JitFlags* jitFlags)
     info.compUnmanagedCallCountWithGCTransition = 0;
     info.compMatchedVM                          = inliner->info.compMatchedVM;
 
+    // TODO-MIKE-Review: Does inlining need this?
+    switch (info.compMethodInfo->args.getCallConv())
+    {
+        case CORINFO_CALLCONV_NATIVEVARARG:
+        case CORINFO_CALLCONV_VARARG:
+            info.compIsVarArgs = true;
+            break;
+        default:
+            break;
+    }
+
     // Set the context for token lookup.
     impTokenLookupContextHandle = impInlineInfo->inlineCandidateInfo->exactContextHnd;
 
@@ -637,6 +653,23 @@ int Compiler::inlMain(CORINFO_MODULE_HANDLE module, JitFlags* jitFlags)
 
     assert(impInlineInfo->inlineCandidateInfo->clsAttr == info.compCompHnd->getClassAttribs(info.compClassHnd));
     info.compClassAttr = impInlineInfo->inlineCandidateInfo->clsAttr;
+
+    memset(&opts, 0, sizeof(opts));
+    opts.jitFlags        = jitFlags;
+    opts.compSupportsISA = inliner->opts.compSupportsISA;
+    opts.optFlags        = inliner->opts.optFlags;
+    opts.compCodeOpt     = inliner->opts.compCodeOpt;
+    opts.compDbgCode     = inliner->opts.compDbgCode;
+#ifdef DEBUG
+    opts.dspDiffable = inliner->opts.dspDiffable;
+#endif
+#if FEATURE_TAILCALL_OPT
+    opts.compTailCallOpt = inliner->opts.compTailCallOpt;
+#endif
+#if FEATURE_FASTTAILCALL
+    opts.compFastTailCalls = inliner->opts.compFastTailCalls;
+#endif
+    opts.compExpandCallsEarly = inliner->opts.compExpandCallsEarly;
 
 #ifdef DEBUG
     if (skipMethod())
@@ -693,34 +726,7 @@ void Compiler::inlMainHelper(CORINFO_MODULE_HANDLE module,
 
     info.compFlags = impInlineInfo->inlineCandidateInfo->methAttr;
 
-    memset(&opts, 0, sizeof(opts));
-
-    opts.jitFlags = jitFlags;
-
-    Compiler* inliner = impInlineRoot();
-
-#ifdef FEATURE_SIMD
-    featureSIMD = inliner->featureSIMD;
-#endif
-    opts.compSupportsISA = inliner->opts.compSupportsISA;
-
-    opts.optFlags    = inliner->opts.optFlags;
-    opts.compCodeOpt = inliner->opts.compCodeOpt;
-    opts.compDbgCode = inliner->opts.compDbgCode;
-#ifdef DEBUG
-    opts.dspDiffable = inliner->opts.dspDiffable;
-#endif
-#if FEATURE_TAILCALL_OPT
-    opts.compTailCallOpt = inliner->opts.compTailCallOpt;
-#endif
-#if FEATURE_FASTTAILCALL
-    opts.compFastTailCalls = inliner->opts.compFastTailCalls;
-#endif
-    opts.compExpandCallsEarly = inliner->opts.compExpandCallsEarly;
-
     compInitPgo(jitFlags);
-
-    compDoAggressiveInlining = inliner->compDoAggressiveInlining;
 
     if (compDoAggressiveInlining
 #ifdef DEBUG
@@ -742,25 +748,9 @@ void Compiler::inlMainHelper(CORINFO_MODULE_HANDLE module,
     }
 #endif
 
-    info.compScopeHnd    = module;
-    info.compXcptnsCount = methodInfo->EHcount;
-    info.compMaxStack    = methodInfo->maxStack;
-    info.compIsStatic    = (info.compFlags & CORINFO_FLG_STATIC) != 0;
-    info.compInitMem     = (methodInfo->options & CORINFO_OPT_INIT_LOCALS) != 0;
-
-    // TODO-MIKE-Review: Does inlining need this?
-    switch (methodInfo->args.getCallConv())
-    {
-        case CORINFO_CALLCONV_NATIVEVARARG:
-        case CORINFO_CALLCONV_VARARG:
-            info.compIsVarArgs = true;
-            break;
-        default:
-            break;
-    }
-
     lvaInitTypeRef();
 
+    Compiler* inliner = impInlineRoot();
     INDEBUG(compBasicBlockID = inliner->compBasicBlockID);
 
     fgFindBasicBlocks();
