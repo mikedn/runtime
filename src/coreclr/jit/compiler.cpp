@@ -1746,11 +1746,11 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
     opts.compFastTailCalls = true;
 #endif // FEATURE_FASTTAILCALL
 
-    compInitPgo(jitFlags);
+    compInitPgo();
     compInitOptions2(jitFlags DEBUGARG(altJitConfig) DEBUGARG(verboseDump));
 }
 
-void Compiler::compInitPgo(JitFlags* jitFlags)
+void Compiler::compInitPgo()
 {
     // Profile data
     //
@@ -1761,7 +1761,7 @@ void Compiler::compInitPgo(JitFlags* jitFlags)
     fgPgoFailReason  = nullptr;
     fgPgoSource      = ICorJitInfo::PgoSource::Unknown;
 
-    if (jitFlags->IsSet(JitFlags::JIT_FLAG_BBOPT))
+    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_BBOPT))
     {
         fgPgoQueryResult = info.compCompHnd->getPgoInstrumentationResults(info.compMethodHnd, &fgPgoSchema,
                                                                           &fgPgoSchemaCount, &fgPgoData, &fgPgoSource);

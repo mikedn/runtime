@@ -682,22 +682,12 @@ int Compiler::inlMain(CORINFO_MODULE_HANDLE module, JitFlags* jitFlags)
 
     struct Param
     {
-        Compiler*             compiler;
-        CORINFO_MODULE_HANDLE module;
-        ICorJitInfo*          jitInfo;
-        CORINFO_METHOD_INFO*  methodInfo;
-        JitFlags*             jitFlags;
-    } param;
-
-    param.compiler   = this;
-    param.module     = module;
-    param.jitInfo    = info.compCompHnd;
-    param.methodInfo = info.compMethodInfo;
-    param.jitFlags   = jitFlags;
+        Compiler* compiler;
+    } param{this};
 
     setErrorTrap(info.compCompHnd, Param*, pParam, &param)
     {
-        pParam->compiler->inlMainHelper(pParam->module, pParam->jitInfo, pParam->methodInfo, pParam->jitFlags);
+        pParam->compiler->inlMainHelper();
     }
     finallyErrorTrap()
     {
@@ -707,10 +697,7 @@ int Compiler::inlMain(CORINFO_MODULE_HANDLE module, JitFlags* jitFlags)
         return CORJIT_OK;
 }
 
-void Compiler::inlMainHelper(CORINFO_MODULE_HANDLE module,
-                             ICorJitInfo*          jitInfo,
-                             CORINFO_METHOD_INFO*  methodInfo,
-                             JitFlags*             jitFlags)
+void Compiler::inlMainHelper()
 {
     if (info.compILCodeSize == 0)
     {
@@ -726,7 +713,7 @@ void Compiler::inlMainHelper(CORINFO_MODULE_HANDLE module,
 
     info.compFlags = impInlineInfo->inlineCandidateInfo->methAttr;
 
-    compInitPgo(jitFlags);
+    compInitPgo();
 
     if (compDoAggressiveInlining
 #ifdef DEBUG
