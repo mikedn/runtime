@@ -16522,12 +16522,12 @@ public:
 // Arguments:
 //    call - fat calli candidate
 //
-void Compiler::addFatPointerCandidate(GenTreeCall* call)
+void Importer::addFatPointerCandidate(GenTreeCall* call)
 {
     JITDUMP("Marking call [%06u] as fat pointer candidate\n", dspTreeID(call));
-    setMethodHasFatPointer();
+    comp->setMethodHasFatPointer();
     call->SetFatPointerCandidate();
-    SpillRetExprHelper helper(this);
+    SpillRetExprHelper helper(comp);
     helper.StoreRetExprResultsInArgs(call);
 }
 
@@ -17748,11 +17748,6 @@ void Importer::fgRemovePreds()
 void Importer::setNeedsGSSecurityCookie()
 {
     comp->setNeedsGSSecurityCookie();
-}
-
-void Importer::addFatPointerCandidate(GenTreeCall* call)
-{
-    comp->addFatPointerCandidate(call);
 }
 
 FieldSeqStore* Importer::GetFieldSeqStore()

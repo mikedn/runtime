@@ -6306,8 +6306,6 @@ public:
         optMethodFlags &= ~OMF_HAS_FATPOINTER;
     }
 
-    void addFatPointerCandidate(GenTreeCall* call);
-
     bool doesMethodHaveFrozenString() const
     {
         return (optMethodFlags & OMF_HAS_FROZEN_STRING) != 0;
