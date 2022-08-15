@@ -17924,7 +17924,7 @@ GenTree* Importer::impParentClassTokenToHandle(CORINFO_RESOLVED_TOKEN* resolvedT
                                                bool*                   runtimeLookup,
                                                bool                    mustRestoreHandle)
 {
-    return comp->impParentClassTokenToHandle(resolvedToken, runtimeLookup, mustRestoreHandle);
+    return comp->impTokenToHandle(resolvedToken, runtimeLookup, mustRestoreHandle, true);
 }
 
 GenTreeCall* Importer::impReadyToRunHelperToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,

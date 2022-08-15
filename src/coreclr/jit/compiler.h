@@ -4302,13 +4302,6 @@ public:
                               bool                    mustRestoreHandle = false,
                               bool                    importParent      = false);
 
-    GenTree* impParentClassTokenToHandle(CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                         bool*                   pRuntimeLookup    = nullptr,
-                                         bool                    mustRestoreHandle = false)
-    {
-        return impTokenToHandle(pResolvedToken, pRuntimeLookup, mustRestoreHandle, true);
-    }
-
     GenTree* getRuntimeContextTree(CORINFO_RUNTIME_LOOKUP_KIND kind);
 
     GenTreeCall* impReadyToRunHelperToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
