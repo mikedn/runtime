@@ -10,6 +10,7 @@
 
 void Compiler::fgInit()
 {
+    new (&m_importer) Importer(this);
     m_importer.impInit();
 
     /* Initialization for fgWalkTreePre() and fgWalkTreePost() */

@@ -1032,8 +1032,6 @@ void Compiler::compInit(ArenaAllocator*       alloc,
         m_inlineStrategy = new (this, CMK_Inlining) InlineStrategy(this);
     }
 
-    new (&m_importer) Importer(this);
-
     fgInit();
     lvaInit();
 
