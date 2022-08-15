@@ -1042,11 +1042,6 @@ void Compiler::compInit(ArenaAllocator*       alloc,
 
     if (!compIsForInlining())
     {
-        // If this method were a real constructor for Compiler, these would
-        // become method initializations.
-        m_importer.impPendingBlockMembers = JitExpandArray<bool>(getAllocator());
-        m_importer.impSpillCliqueMembers  = JitExpandArray<uint8_t>(getAllocator());
-
         lvMemoryPerSsaData = SsaDefArray<SsaMemDef>();
 
         optInit();
