@@ -823,6 +823,7 @@ void Compiler::inlInitOptions(JitFlags* jitFlags)
 #ifdef FEATURE_SIMD
     featureSIMD = inliner->featureSIMD;
 #endif
+    opts.compSupportsISA = inliner->opts.compSupportsISA;
 
     opts.optFlags    = inliner->opts.optFlags;
     opts.compCodeOpt = inliner->opts.compCodeOpt;
@@ -837,17 +838,7 @@ void Compiler::inlInitOptions(JitFlags* jitFlags)
     opts.compFastTailCalls = inliner->opts.compFastTailCalls;
 #endif
 
-    inlSetProcessor();
     compInitPgo(jitFlags);
-}
-
-void Compiler::inlSetProcessor()
-{
-    assert(compIsForInlining());
-
-    Compiler* inliner = impInlineRoot();
-
-    opts.compSupportsISA = inliner->opts.compSupportsISA;
 }
 
 void Compiler::inlSetOptimizationLevel()
