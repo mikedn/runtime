@@ -604,11 +604,11 @@ int Compiler::inlMain(CORINFO_MODULE_HANDLE module, JitFlags* jitFlags)
     verbose          = inliner->verbose;
     verboseTrees     = inliner->verboseTrees;
     asciiTrees       = inliner->asciiTrees;
+    compGenTreeID    = inliner->compGenTreeID;
+    compStatementID  = inliner->compStatementID;
+    compBasicBlockID = inliner->compBasicBlockID;
     compCurBB        = nullptr;
     lvaTable         = nullptr;
-    compGenTreeID    = 0;
-    compStatementID  = 0;
-    compBasicBlockID = 0;
 #endif
 
     info.compScopeHnd                           = module;
@@ -738,7 +738,6 @@ void Compiler::inlMainHelper()
     lvaInitTypeRef();
 
     Compiler* inliner = impInlineRoot();
-    INDEBUG(compBasicBlockID = inliner->compBasicBlockID);
 
     fgFindBasicBlocks();
 
@@ -773,11 +772,6 @@ void Compiler::inlMainHelper()
 
         if (!compInlineResult->IsFailure())
         {
-#ifdef DEBUG
-            compGenTreeID   = inliner->compGenTreeID;
-            compStatementID = inliner->compStatementID;
-#endif
-
             inlImportInlinee();
 
 #ifdef DEBUG
