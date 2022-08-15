@@ -2744,7 +2744,7 @@ struct Importer
                                            GenTreeCall::Use*       args              = nullptr,
                                            CORINFO_LOOKUP_KIND*    genericLookupKind = nullptr);
 
-    GenTree* getRuntimeContextTree(CORINFO_RUNTIME_LOOKUP_KIND kind);
+    GenTree* gtNewRuntimeContextTree(CORINFO_RUNTIME_LOOKUP_KIND kind);
 
     GenTreeCall* fgGetStaticsCCtorHelper(CORINFO_CLASS_HANDLE cls, CorInfoHelpFunc helper);
     GenTreeCall* fgGetSharedCCtor(CORINFO_CLASS_HANDLE cls);
@@ -4296,7 +4296,7 @@ protected:
 public:
     void impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, InlineResult* inlineResult);
 
-    GenTree* getRuntimeContextTree(CORINFO_RUNTIME_LOOKUP_KIND kind);
+    GenTree* gtNewRuntimeContextTree(CORINFO_RUNTIME_LOOKUP_KIND kind);
 
     GenTreeCall* impReadyToRunHelperToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
                                            CorInfoHelpFunc         helper,
