@@ -2215,7 +2215,6 @@ struct Importer
                                     );
 #endif
 
-    void impInit();
     void impImport();
 
     static void impValidateMemoryAccessOpcode(const BYTE* codeAddr, const BYTE* codeEndp, bool volatilePrefix);

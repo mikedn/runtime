@@ -17,11 +17,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #pragma hdrstop
 #endif
 
-void Importer::impInit()
-{
-    impStmtList = impLastStmt = nullptr;
-}
-
 /*****************************************************************************
  *
  *  Pushes the given tree on the stack.
@@ -17567,6 +17562,8 @@ Importer::Importer(Compiler* comp)
     , featureSIMD(comp->featureSIMD)
 #endif
     , optNativeCallCount(comp->optNativeCallCount)
+    , impStmtList(nullptr)
+    , impLastStmt(nullptr)
     , impPendingBlockMembers(comp->getAllocator())
     , impSpillCliqueMembers(comp->getAllocator())
 {
