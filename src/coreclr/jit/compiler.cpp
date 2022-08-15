@@ -927,18 +927,19 @@ void Compiler::compDisplayStaticSizes(FILE* fout)
 #endif
 }
 
+INDEBUG(ConfigMethodRange fJitStressRange;)
+
 /*****************************************************************************
  *
  *  Constructor
  */
-void Compiler::compInit(ArenaAllocator*       pAlloc,
+void Compiler::compInit(ArenaAllocator*       alloc,
                         CORINFO_METHOD_HANDLE methodHnd,
                         COMP_HANDLE           compHnd,
                         CORINFO_METHOD_INFO*  methodInfo,
                         InlineInfo*           inlineInfo)
 {
-    assert(pAlloc);
-    compArenaAllocator = pAlloc;
+    compArenaAllocator = alloc;
 
     new (&m_importer) Importer(this);
 
@@ -950,10 +951,6 @@ void Compiler::compInit(ArenaAllocator*       pAlloc,
     info.compCompHnd    = compHnd;
     info.compMethodHnd  = methodHnd;
     info.compMethodInfo = methodInfo;
-
-#ifdef DEBUG
-    bRangeAllowStress = false;
-#endif
 
 #if defined(DEBUG) || defined(LATE_DISASM) || DUMP_FLOWGRAPHS
     // Initialize the method name and related info, as it is used early in determining whether to
@@ -967,12 +964,10 @@ void Compiler::compInit(ArenaAllocator*       pAlloc,
     info.compFullName   = nullptr;
 
     const char* classNamePtr;
-    const char* methodName;
-
-    methodName          = eeGetMethodName(methodHnd, &classNamePtr);
-    unsigned len        = (unsigned)roundUp(strlen(classNamePtr) + 1);
-    info.compClassName  = getAllocator(CMK_DebugOnly).allocate<char>(len);
-    info.compMethodName = methodName;
+    const char* methodName = eeGetMethodName(methodHnd, &classNamePtr);
+    unsigned    len        = (unsigned)roundUp(strlen(classNamePtr) + 1);
+    info.compClassName     = getAllocator(CMK_DebugOnly).allocate<char>(len);
+    info.compMethodName    = methodName;
     strcpy_s((char*)info.compClassName, len, classNamePtr);
 
     info.compFullName  = eeGetMethodFullName(methodHnd);
@@ -983,18 +978,13 @@ void Compiler::compInit(ArenaAllocator*       pAlloc,
 
 #if defined(DEBUG) || defined(INLINE_DATA)
     info.compMethodHashPrivate = 0;
-#endif // defined(DEBUG) || defined(INLINE_DATA)
+#endif
 
-#ifdef DEBUG
     // Opt-in to jit stress based on method hash ranges.
-    //
     // Note the default (with JitStressRange not set) is that all
     // methods will be subject to stress.
-    static ConfigMethodRange fJitStressRange;
-    fJitStressRange.EnsureInit(JitConfig.JitStressRange());
     assert(!fJitStressRange.Error());
-    bRangeAllowStress = fJitStressRange.Contains(info.compMethodHash());
-#endif // DEBUG
+    INDEBUG(bRangeAllowStress = fJitStressRange.Contains(info.compMethodHash()));
 
     eeInfoInitialized = false;
 
@@ -1110,22 +1100,10 @@ void Compiler::compInit(ArenaAllocator*       pAlloc,
 
     m_memorySsaMap = nullptr;
 
-#ifdef DEBUG
-    if (!compIsForInlining())
-    {
-        compDoComponentUnitTestsOnce();
-    }
-#endif // DEBUG
-
     ssaForm                    = false;
     vnStore                    = nullptr;
     m_partialSsaDefMap         = nullptr;
     m_nodeToLoopMemoryBlockMap = nullptr;
-
-    // check that HelperCallProperties are initialized
-
-    assert(s_helperCallProperties.IsPure(CORINFO_HELP_GETSHARED_GCSTATIC_BASE));
-    assert(!s_helperCallProperties.IsPure(CORINFO_HELP_GETFIELDOBJ)); // quick sanity check
 
     // We start with the flow graph in tree-order
     fgOrder = FGOrderTree;
@@ -4114,6 +4092,11 @@ int Compiler::compCompile(CORINFO_MODULE_HANDLE module,
     assert(!compileFlags->IsSet(JitFlags::JIT_FLAG_IMPORT_ONLY));
 
     assert(!compIsForInlining());
+
+    assert(s_helperCallProperties.IsPure(CORINFO_HELP_GETSHARED_GCSTATIC_BASE));
+    assert(!s_helperCallProperties.IsPure(CORINFO_HELP_GETFIELDOBJ)); // quick sanity check
+
+    INDEBUG(compDoComponentUnitTestsOnce());
 
 #ifdef FEATURE_JIT_METHOD_PERF
     static bool checkedForJitTimeLog = false;

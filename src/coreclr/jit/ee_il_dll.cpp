@@ -37,6 +37,8 @@ ICorJitHost*   g_jitHost        = nullptr;
 static CILJit* ILJitter         = nullptr; // The one and only JITTER I return
 bool           g_jitInitialized = false;
 
+INDEBUG(extern ConfigMethodRange fJitStressRange;)
+
 /*****************************************************************************/
 
 extern "C" DLLEXPORT void jitStartup(ICorJitHost* jitHost)
@@ -72,6 +74,8 @@ extern "C" DLLEXPORT void jitStartup(ICorJitHost* jitHost)
 
     assert(!JitConfig.isInitialized());
     JitConfig.initialize(jitHost);
+
+    INDEBUG(fJitStressRange.EnsureInit(JitConfig.JitStressRange()));
 
 #ifdef DEBUG
     const WCHAR* jitStdOutFile = JitConfig.JitStdOutFile();
