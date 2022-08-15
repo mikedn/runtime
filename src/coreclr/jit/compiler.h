@@ -2947,7 +2947,7 @@ struct Importer
     bool gtIsRecursiveCall(CORINFO_METHOD_HANDLE callMethodHandle);
     bool gtIsTypeHandleToRuntimeTypeHelper(GenTreeCall* call);
     bool gtIsTypeHandleToRuntimeTypeHandleHelper(GenTreeCall* call, CorInfoHelpFunc* helper = nullptr);
-    GenTreeFlags gtTokenToIconFlags(unsigned token);
+    static GenTreeFlags gtTokenToIconFlags(unsigned token);
     GenTree* gtFoldTypeCompare(GenTree* tree);
     GenTree* gtFoldTypeEqualityCall(bool isEq, GenTree* op1, GenTree* op2);
     GenTree* gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp);
@@ -3404,7 +3404,7 @@ public:
     GenTreeIntCon* gtNewIconHandleNode(void* value, GenTreeFlags flags, FieldSeqNode* fields = nullptr);
     GenTreeIntCon* gtNewIconHandleNode(size_t value, GenTreeFlags flags, FieldSeqNode* fields = nullptr);
 
-    GenTreeFlags gtTokenToIconFlags(unsigned token);
+    static GenTreeFlags gtTokenToIconFlags(unsigned token);
 
     GenTree* gtNewIconEmbHndNode(void* value, void* pValue, GenTreeFlags flags, void* compileTimeHandle);
 

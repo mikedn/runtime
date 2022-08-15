@@ -18590,7 +18590,7 @@ bool Importer::gtIsTypeHandleToRuntimeTypeHandleHelper(GenTreeCall* call, CorInf
 
 GenTreeFlags Importer::gtTokenToIconFlags(unsigned token)
 {
-    return comp->gtTokenToIconFlags(token);
+    return Compiler::gtTokenToIconFlags(token);
 }
 
 GenTree* Importer::gtFoldTypeCompare(GenTree* tree)

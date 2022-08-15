@@ -4045,39 +4045,24 @@ GenTree* Compiler::gtNewJmpTableNode()
     return new (this, GT_JMPTABLE) GenTree(GT_JMPTABLE, TYP_I_IMPL);
 }
 
-/*****************************************************************************
- *
- *  Converts an annotated token into an icon flags (so that we will later be
- *  able to tell the type of the handle that will be embedded in the icon
- *  node)
- */
-
+// Converts an annotated token into an icon flags (so that we will later be
+// able to tell the type of the handle that will be embedded in the icon
+// node).
 GenTreeFlags Compiler::gtTokenToIconFlags(unsigned token)
 {
-    GenTreeFlags flags = GTF_EMPTY;
-
     switch (TypeFromToken(token))
     {
         case mdtTypeRef:
         case mdtTypeDef:
         case mdtTypeSpec:
-            flags = GTF_ICON_CLASS_HDL;
-            break;
-
+            return GTF_ICON_CLASS_HDL;
         case mdtMethodDef:
-            flags = GTF_ICON_METHOD_HDL;
-            break;
-
+            return GTF_ICON_METHOD_HDL;
         case mdtFieldDef:
-            flags = GTF_ICON_FIELD_HDL;
-            break;
-
+            return GTF_ICON_FIELD_HDL;
         default:
-            flags = GTF_ICON_TOKEN_HDL;
-            break;
+            return GTF_ICON_TOKEN_HDL;
     }
-
-    return flags;
 }
 
 //-----------------------------------------------------------------------------------------
