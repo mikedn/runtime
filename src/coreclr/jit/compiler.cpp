@@ -5226,6 +5226,7 @@ START:
 
             pParam->prevCompiler = JitTls::GetCompiler();
             JitTls::SetCompiler(pParam->compiler);
+            INDEBUG(JitTls::GetLogEnv()->setCompiler(pParam->compiler));
 
             pParam->compiler->compInit(&pParam->allocator, pParam->module, pParam->methodHnd, pParam->jitInfo,
                                        pParam->methodInfo);
