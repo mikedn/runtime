@@ -2611,7 +2611,7 @@ unsigned Compiler::fgMakeBasicBlocks(const BYTE* codeAddr, IL_OFFSET codeSize, F
                     // false. This will only affect explicit tail calls when IL verification is not needed for the
                     // method.
                     bool isRecursive = false;
-                    if (!m_importer.impIsTailCallILPattern(tailCall, opcode, codeAddr + sz, codeEndp, isRecursive))
+                    if (!impIsTailCallILPattern(tailCall, opcode, codeAddr + sz, codeEndp, isRecursive))
                     {
                         BADCODE3("tail call not followed by ret", " at offset %04X", (IL_OFFSET)(codeAddr - codeBegp));
                     }

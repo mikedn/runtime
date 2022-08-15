@@ -2670,9 +2670,6 @@ struct Importer
                                       bool                   exactContextNeedsRuntimeLookup,
                                       CORINFO_CALL_INFO*     callInfo);
 
-    bool impIsTailCallILPattern(
-        bool tailPrefixed, OPCODE curOpcode, const BYTE* codeAddrOfNextOpcode, const BYTE* codeEnd, bool isRecursive);
-
     bool impIsImplicitTailCallCandidate(
         OPCODE curOpcode, const BYTE* codeAddrOfNextOpcode, const BYTE* codeEnd, int prefixFlags, bool isRecursive);
 
@@ -4264,6 +4261,9 @@ public:
                              IL_OFFSETX              ilOffset = BAD_IL_OFFSET);
 
     void impLateDevirtualizeCall(GenTreeCall* call);
+
+    bool impIsTailCallILPattern(
+        bool tailPrefixed, OPCODE curOpcode, const BYTE* codeAddrOfNextOpcode, const BYTE* codeEnd, bool isRecursive);
 
     //=========================================================================
     //                          PROTECTED
