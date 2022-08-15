@@ -4946,10 +4946,9 @@ GenTreeUnOp* Compiler::gtNewBitCastNode(var_types type, GenTree* arg)
 GenTreeAllocObj* Importer::gtNewAllocObjNode(CORINFO_RESOLVED_TOKEN* pResolvedToken, bool useParent)
 {
     const bool      mustRestoreHandle     = true;
-    bool* const     pRuntimeLookup        = nullptr;
     bool            usingReadyToRunHelper = false;
     CorInfoHelpFunc helper                = CORINFO_HELP_UNDEF;
-    GenTree*        opHandle = impTokenToHandle(pResolvedToken, pRuntimeLookup, mustRestoreHandle, useParent);
+    GenTree*        opHandle              = impTokenToHandle(pResolvedToken, mustRestoreHandle, useParent);
 
 #ifdef FEATURE_READYTORUN_COMPILER
     CORINFO_CONST_LOOKUP lookup = {};

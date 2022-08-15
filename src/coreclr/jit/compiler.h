@@ -2730,13 +2730,13 @@ struct Importer
     bool impIsClassExact(CORINFO_CLASS_HANDLE classHnd);
 
     GenTree* impTokenToHandle(CORINFO_RESOLVED_TOKEN* resolvedToken,
-                              bool*                   runtimeLookup     = nullptr,
                               bool                    mustRestoreHandle = false,
-                              bool                    importParent      = false);
+                              bool                    importParent      = false,
+                              bool*                   runtimeLookup     = nullptr);
 
     GenTree* impParentClassTokenToHandle(CORINFO_RESOLVED_TOKEN* resolvedToken,
-                                         bool*                   runtimeLookup     = nullptr,
-                                         bool                    mustRestoreHandle = false);
+                                         bool                    mustRestoreHandle = false,
+                                         bool*                   runtimeLookup     = nullptr);
 
     GenTreeCall* impReadyToRunHelperToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
                                            CorInfoHelpFunc         helper,

@@ -1199,19 +1199,19 @@ GenTree* Importer::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
 // and the token refers to formal type parameters whose instantiation is not known
 // at compile-time.
 //
-GenTree* Importer::impTokenToHandle(CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                    bool*                   pRuntimeLookup /* = NULL */,
-                                    bool                    mustRestoreHandle /* = false */,
-                                    bool                    importParent /* = false */)
+GenTree* Importer::impTokenToHandle(CORINFO_RESOLVED_TOKEN* resolvedToken,
+                                    bool                    mustRestoreHandle,
+                                    bool                    importParent,
+                                    bool*                   runtimeLookup)
 {
     assert(!comp->fgGlobalMorph);
 
     CORINFO_GENERICHANDLE_RESULT embedInfo;
-    info.compCompHnd->embedGenericHandle(pResolvedToken, importParent, &embedInfo);
+    info.compCompHnd->embedGenericHandle(resolvedToken, importParent, &embedInfo);
 
-    if (pRuntimeLookup)
+    if (runtimeLookup != nullptr)
     {
-        *pRuntimeLookup = embedInfo.lookup.lookupKind.needsRuntimeLookup;
+        *runtimeLookup = embedInfo.lookup.lookupKind.needsRuntimeLookup;
     }
 
     if (mustRestoreHandle && !embedInfo.lookup.lookupKind.needsRuntimeLookup)
@@ -1237,7 +1237,7 @@ GenTree* Importer::impTokenToHandle(CORINFO_RESOLVED_TOKEN* pResolvedToken,
     }
 
     // Generate the full lookup tree. May be null if we're abandoning an inline attempt.
-    GenTree* result = impLookupToTree(pResolvedToken, &embedInfo.lookup, gtTokenToIconFlags(pResolvedToken->token),
+    GenTree* result = impLookupToTree(resolvedToken, &embedInfo.lookup, gtTokenToIconFlags(resolvedToken->token),
                                       embedInfo.compileTimeHandle);
 
     // If we have a result and it requires runtime lookup, wrap it in a runtime lookup node.
@@ -3084,8 +3084,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
                 {
                     JITDUMP("Optimizing constrained box-this obj.getType() to direct type construction\n");
                     impPopStack();
-                    GenTree* typeHandleOp =
-                        impTokenToHandle(pConstrainedResolvedToken, nullptr, true /* mustRestoreHandle */);
+                    GenTree* typeHandleOp = impTokenToHandle(pConstrainedResolvedToken, /* mustRestoreHandle */ true);
                     if (typeHandleOp == nullptr)
                     {
                         assert(compDonotInline());
@@ -5072,7 +5071,7 @@ void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
         assert(operCls != nullptr);
 
         // Ensure that the value class is restored
-        op2 = impTokenToHandle(pResolvedToken, nullptr, true /* mustRestoreHandle */);
+        op2 = impTokenToHandle(pResolvedToken, /* mustRestoreHandle */ true);
         if (op2 == nullptr)
         {
             // We must be backing out of an inline.
@@ -5685,9 +5684,9 @@ GenTree* Importer::impInitClass(CORINFO_RESOLVED_TOKEN* pResolvedToken)
     {
         return nullptr;
     }
-    bool runtimeLookup;
 
-    GenTree* node = impParentClassTokenToHandle(pResolvedToken, &runtimeLookup);
+    bool     runtimeLookup;
+    GenTree* node = impParentClassTokenToHandle(pResolvedToken, /* mustRestoreHandle */ false, &runtimeLookup);
 
     if (node == nullptr)
     {
@@ -7418,7 +7417,6 @@ var_types Importer::impImportCall(OPCODE                  opcode,
         assert(opcode != CEE_CALLI);
 
         GenTree* instParam;
-        bool     runtimeLookup;
 
         // Instantiated generic method
         if (((SIZE_T)exactContextHnd & CORINFO_CONTEXTFLAGS_MASK) == CORINFO_CONTEXTFLAGS_METHOD)
@@ -7450,7 +7448,7 @@ var_types Importer::impImportCall(OPCODE                  opcode,
             }
             else
             {
-                instParam = impTokenToHandle(pResolvedToken, &runtimeLookup, true /*mustRestoreHandle*/);
+                instParam = impTokenToHandle(pResolvedToken, /* mustRestoreHandle */ true);
                 if (instParam == nullptr)
                 {
                     assert(compDonotInline());
@@ -7505,12 +7503,12 @@ var_types Importer::impImportCall(OPCODE                  opcode,
                 // because pResolvedToken is an interface method and interface types make a poor generic context.
                 if (pConstrainedResolvedToken)
                 {
-                    instParam = impTokenToHandle(pConstrainedResolvedToken, &runtimeLookup, true /*mustRestoreHandle*/,
-                                                 false /* importParent */);
+                    instParam = impTokenToHandle(pConstrainedResolvedToken, /* mustRestoreHandle */ true,
+                                                 /* importParent */ false);
                 }
                 else
                 {
-                    instParam = impParentClassTokenToHandle(pResolvedToken, &runtimeLookup, true /*mustRestoreHandle*/);
+                    instParam = impParentClassTokenToHandle(pResolvedToken, /* mustRestoreHandle */ true);
                 }
 
                 if (instParam == nullptr)
@@ -12475,7 +12473,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 if (!opts.IsReadyToRun())
                 {
                     // Need to restore array classes before creating array objects on the heap
-                    op1 = impTokenToHandle(&resolvedToken, nullptr, true /*mustRestoreHandle*/);
+                    op1 = impTokenToHandle(&resolvedToken, /* mustRestoreHandle */ true);
                     if (op1 == nullptr)
                     { // compDonotInline()
                         return;
@@ -12524,7 +12522,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                         // Reason: performance (today, we'll always use the slow helper for the R2R generics case)
 
                         // Need to restore array classes before creating array objects on the heap
-                        op1 = impTokenToHandle(&resolvedToken, nullptr, true /*mustRestoreHandle*/);
+                        op1 = impTokenToHandle(&resolvedToken, /* mustRestoreHandle */ true);
                         if (op1 == nullptr)
                         { // compDonotInline()
                             return;
@@ -12668,7 +12666,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if (!opts.IsReadyToRun())
                 {
-                    op2 = impTokenToHandle(&resolvedToken, nullptr, false);
+                    op2 = impTokenToHandle(&resolvedToken);
                     if (op2 == nullptr)
                     {
                         return;
@@ -12708,7 +12706,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                         //      3) Perform the 'is instance' check on the input object
                         // Reason: performance (today, we'll always use the slow helper for the R2R generics case)
 
-                        op2 = impTokenToHandle(&resolvedToken, nullptr, false);
+                        op2 = impTokenToHandle(&resolvedToken);
                         if (op2 == nullptr)
                         {
                             return;
@@ -12817,9 +12815,11 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Ldtoken);
                 tokenType = info.compCompHnd->getTokenTypeAsHandle(&resolvedToken);
 
-                op1 = impTokenToHandle(&resolvedToken, nullptr, true);
+                op1 = impTokenToHandle(&resolvedToken, /* mustRestoreHandle */ true);
+
                 if (op1 == nullptr)
-                { // compDonotInline()
+                {
+                    assert(compDonotInline());
                     return;
                 }
 
@@ -12852,8 +12852,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
-                bool runtimeLookup;
-                op2 = impTokenToHandle(&resolvedToken, &runtimeLookup);
+                op2 = impTokenToHandle(&resolvedToken);
                 if (op2 == nullptr)
                 {
                     assert(compDonotInline());
@@ -13122,7 +13121,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if (!opts.IsReadyToRun())
                 {
-                    op2 = impTokenToHandle(&resolvedToken, nullptr, false);
+                    op2 = impTokenToHandle(&resolvedToken);
                     if (op2 == nullptr)
                     { // compDonotInline()
                         return;
@@ -13169,7 +13168,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                             //      3) Check the object on the stack for the type-cast
                             // Reason: performance (today, we'll always use the slow helper for the R2R generics case)
 
-                            op2 = impTokenToHandle(&resolvedToken, nullptr, false);
+                            op2 = impTokenToHandle(&resolvedToken);
                             if (op2 == nullptr)
                             {
                                 return;
@@ -13362,7 +13361,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
-                op2 = impTokenToHandle(&resolvedToken, nullptr, true);
+                op2 = impTokenToHandle(&resolvedToken, /* mustRestoreHandle */ true);
                 if (op2 == nullptr)
                 {
                     return;
@@ -17890,10 +17889,10 @@ bool Importer::impIsClassExact(CORINFO_CLASS_HANDLE classHnd)
 }
 
 GenTree* Importer::impParentClassTokenToHandle(CORINFO_RESOLVED_TOKEN* resolvedToken,
-                                               bool*                   runtimeLookup,
-                                               bool                    mustRestoreHandle)
+                                               bool                    mustRestoreHandle,
+                                               bool*                   runtimeLookup)
 {
-    return impTokenToHandle(resolvedToken, runtimeLookup, mustRestoreHandle, true);
+    return impTokenToHandle(resolvedToken, mustRestoreHandle, /* importParent */ true, runtimeLookup);
 }
 
 GenTreeCall* Importer::impReadyToRunHelperToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
