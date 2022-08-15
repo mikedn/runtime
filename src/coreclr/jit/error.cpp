@@ -124,42 +124,40 @@ void NOINLINE noWayAssertBodyConditional()
 /*****************************************************************************/
 void notYetImplemented(const char* msg, const char* filename, unsigned line)
 {
-    Compiler* pCompiler = JitTls::GetCompiler();
-    if ((pCompiler == nullptr) || (pCompiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_ALT_JIT)))
+    Compiler* compiler = JitTls::GetCompiler();
+
+    if ((compiler == nullptr) || (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_ALT_JIT)))
     {
         NOWAY_MSG_FILE_AND_LINE(msg, filename, line);
         return;
     }
+
 #if FUNC_INFO_LOGGING
 #ifdef DEBUG
-    LogEnv* env = JitTls::GetLogEnv();
-    if (env != nullptr)
+    Compiler* logCompiler = JitTls::GetLogCompiler();
+
+    if ((logCompiler != nullptr) && logCompiler->verbose)
     {
-        const Compiler* const pCompiler = env->compiler;
-        if (pCompiler->verbose)
-        {
-            printf("\n\n%s - NYI (%s:%d - %s)\n", pCompiler->info.compFullName, filename, line, msg);
-        }
+        printf("\n\n%s - NYI (%s:%d - %s)\n", logCompiler->info.compFullName, filename, line, msg);
     }
+#endif
+
     if (Compiler::compJitFuncInfoFile != nullptr)
     {
+#ifdef DEBUG
         fprintf(Compiler::compJitFuncInfoFile, "%s - NYI (%s:%d - %s)\n",
-                (env == nullptr) ? "UNKNOWN" : env->compiler->info.compFullName, filename, line, msg);
-        fflush(Compiler::compJitFuncInfoFile);
-    }
-#else  // !DEBUG
-    if (Compiler::compJitFuncInfoFile != nullptr)
-    {
+                (logCompiler == nullptr) ? "UNKNOWN" : logCompiler->info.compFullName, filename, line, msg);
+#else
         fprintf(Compiler::compJitFuncInfoFile, "NYI (%s:%d - %s)\n", filename, line, msg);
+#endif
         fflush(Compiler::compJitFuncInfoFile);
     }
-#endif // !DEBUG
 #endif // FUNC_INFO_LOGGING
 
 #ifdef DEBUG
     // Assume we're within a compFunctionTrace boundary, which might not be true.
-    pCompiler->compFunctionTraceEnd(nullptr, 0, true);
-#endif // DEBUG
+    compiler->compFunctionTraceEnd(nullptr, 0, true);
+#endif
 
     DWORD value = JitConfig.AltJitAssertOnNYI();
 
@@ -231,10 +229,10 @@ void debugError(const char* msg, const char* file, unsigned line)
         tail = file;
     }
 
-    LogEnv* env = JitTls::GetLogEnv();
+    Compiler* logCompiler = JitTls::GetLogCompiler();
 
     logf(LL_ERROR, "COMPILATION FAILED: file: %s:%d compiling method %s reason %s\n", tail, line,
-         env->compiler->info.compFullName, msg);
+         logCompiler->info.compFullName, msg);
 
     // We now only assert when user explicitly set ComPlus_JitRequired=1
     // If ComPlus_JitRequired is 0 or is not set, we will not assert.
@@ -246,45 +244,41 @@ void debugError(const char* msg, const char* file, unsigned line)
     BreakIfDebuggerPresent();
 }
 
-/*****************************************************************************/
-LogEnv::LogEnv(ICorJitInfo* aCompHnd) : compHnd(aCompHnd), compiler(nullptr)
-{
-}
-
-/*****************************************************************************/
 extern "C" void __cdecl assertAbort(const char* why, const char* file, unsigned line)
 {
-    const char* msg       = why;
-    LogEnv*     env       = JitTls::GetLogEnv();
-    const int   BUFF_SIZE = 8192;
-    char*       buff      = (char*)alloca(BUFF_SIZE);
-    const char* phaseName = "unknown phase";
-    if (env->compiler)
+    const char* msg         = why;
+    Compiler*   logCompiler = JitTls::GetLogCompiler();
+    const int   BUFF_SIZE   = 8192;
+    char*       buff        = (char*)alloca(BUFF_SIZE);
+    const char* phaseName   = "unknown phase";
+
+    if (logCompiler != nullptr)
     {
-        phaseName = PhaseNames[env->compiler->mostRecentlyActivePhase];
+        phaseName = PhaseNames[logCompiler->mostRecentlyActivePhase];
         _snprintf_s(buff, BUFF_SIZE, _TRUNCATE, "Assertion failed '%s' in '%s' (%x) during '%s' (IL size %d)\n", why,
-                    env->compiler->info.compFullName, env->compiler->info.compMethodHash(), phaseName,
-                    env->compiler->info.compILCodeSize);
+                    logCompiler->info.compFullName, logCompiler->info.compMethodHash(), phaseName,
+                    logCompiler->info.compILCodeSize);
         msg = buff;
     }
+
     printf(""); // null string means flush
 
 #if FUNC_INFO_LOGGING
     if (Compiler::compJitFuncInfoFile != nullptr)
     {
         fprintf(Compiler::compJitFuncInfoFile, "%s - Assertion failed (%s:%d - %s) during %s\n",
-                (env == nullptr) ? "UNKNOWN" : env->compiler->info.compFullName, file, line, why, phaseName);
+                (logCompiler == nullptr) ? "UNKNOWN" : logCompiler->info.compFullName, file, line, why, phaseName);
     }
 #endif // FUNC_INFO_LOGGING
 
-    if (env->compHnd->doAssert(file, line, msg))
+    if (JitTls::GetJitInfo()->doAssert(file, line, msg))
     {
         DebugBreak();
     }
 
     Compiler* comp = JitTls::GetCompiler();
 
-    if (comp != nullptr && comp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_ALT_JIT))
+    if ((comp != nullptr) && comp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_ALT_JIT))
     {
         // If we hit an assert, and we got here, it's either because the user hit "ignore" on the
         // dialog pop-up, or they set COMPlus_ContinueOnAssert=1 to not emit a pop-up, but just continue.
@@ -301,10 +295,9 @@ extern "C" void __cdecl assertAbort(const char* why, const char* file, unsigned 
     }
 }
 
-/*********************************************************************/
 bool vlogf(unsigned level, const char* fmt, va_list args)
 {
-    return JitTls::GetLogEnv()->compHnd->logMsg(level, fmt, args);
+    return JitTls::GetJitInfo()->logMsg(level, fmt, args);
 }
 
 int vflogf(FILE* file, const char* fmt, va_list args)

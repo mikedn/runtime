@@ -679,9 +679,10 @@ class Compiler;
 class JitTls
 {
 #ifdef DEBUG
-    Compiler* m_compiler;
-    LogEnv    m_logEnv;
-    JitTls*   m_next;
+    Compiler*    m_compiler;
+    Compiler*    m_logCompiler;
+    ICorJitInfo* m_jitInfo;
+    JitTls*      m_next;
 #endif
 
 public:
@@ -689,7 +690,9 @@ public:
     ~JitTls();
 
 #ifdef DEBUG
-    static LogEnv* GetLogEnv();
+    static Compiler* GetLogCompiler();
+    static void SetLogCompiler(Compiler* compiler);
+    static ICorJitInfo* GetJitInfo();
 #endif
 
     static Compiler* GetCompiler();

@@ -193,7 +193,8 @@ void SetJitTls(JitTls* value)
     gJitTls = value;
 }
 
-JitTls::JitTls(ICorJitInfo* jitInfo) : m_compiler(nullptr), m_logEnv(jitInfo), m_next(GetJitTls())
+JitTls::JitTls(ICorJitInfo* jitInfo)
+    : m_compiler(nullptr), m_logCompiler(nullptr), m_jitInfo(jitInfo), m_next(GetJitTls())
 {
     SetJitTls(this);
 }
@@ -203,9 +204,19 @@ JitTls::~JitTls()
     SetJitTls(m_next);
 }
 
-LogEnv* JitTls::GetLogEnv()
+ICorJitInfo* JitTls::GetJitInfo()
 {
-    return &GetJitTls()->m_logEnv;
+    return GetJitTls()->m_jitInfo;
+}
+
+Compiler* JitTls::GetLogCompiler()
+{
+    return GetJitTls()->m_logCompiler;
+}
+
+void JitTls::SetLogCompiler(Compiler* compiler)
+{
+    GetJitTls()->m_logCompiler = compiler;
 }
 
 Compiler* JitTls::GetCompiler()
