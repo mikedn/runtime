@@ -7635,7 +7635,8 @@ public:
     static void compStartup();  // One-time initialization
     static void compShutdown(); // One-time finalization
 
-    void compInit(ArenaAllocator*       pAlloc,
+    void compInit(ArenaAllocator*       alloc,
+                  CORINFO_MODULE_HANDLE module,
                   CORINFO_METHOD_HANDLE methodHnd,
                   ICorJitInfo*          jitInfo,
                   CORINFO_METHOD_INFO*  methodInfo,

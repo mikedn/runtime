@@ -257,7 +257,7 @@ void JitTls::SetCompiler(Compiler* compiler)
 // interface. Things really don't get going inside the JIT until the code:Compiler::compCompile#Phases
 // method.  Usually that is where you want to go.
 
-CorJitResult CILJit::compileMethod(ICorJitInfo*         compHnd,
+CorJitResult CILJit::compileMethod(ICorJitInfo*         jitInfo,
                                    CORINFO_METHOD_INFO* methodInfo,
                                    unsigned             flags,
                                    uint8_t**            entryAddress,
@@ -267,7 +267,7 @@ CorJitResult CILJit::compileMethod(ICorJitInfo*         compHnd,
 
     assert(flags == CORJIT_FLAGS::CORJIT_FLAG_CALL_GETJITFLAGS);
     CORJIT_FLAGS corJitFlags;
-    DWORD        jitFlagsSize = compHnd->getJitFlags(&corJitFlags, sizeof(corJitFlags));
+    DWORD        jitFlagsSize = jitInfo->getJitFlags(&corJitFlags, sizeof(corJitFlags));
     assert(jitFlagsSize == sizeof(corJitFlags));
     jitFlags.SetFromFlags(corJitFlags);
 
@@ -275,11 +275,11 @@ CorJitResult CILJit::compileMethod(ICorJitInfo*         compHnd,
     void*                 methodCodePtr = nullptr;
     CORINFO_METHOD_HANDLE methodHandle  = methodInfo->ftn;
 
-    JitTls jitTls(compHnd); // Initialize any necessary thread-local state
+    JitTls jitTls(jitInfo); // Initialize any necessary thread-local state
 
     assert(methodInfo->ILCode);
 
-    result = jitNativeCode(methodHandle, methodInfo->scope, compHnd, methodInfo, &methodCodePtr, nativeSizeOfCode,
+    result = jitNativeCode(methodHandle, methodInfo->scope, jitInfo, methodInfo, &methodCodePtr, nativeSizeOfCode,
                            &jitFlags);
 
     if (result == CORJIT_OK)

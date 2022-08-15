@@ -661,8 +661,8 @@ extern void dumpILRange(const BYTE* const codeAddr, unsigned codeSize); // in by
 /*****************************************************************************/
 
 extern int jitNativeCode(CORINFO_METHOD_HANDLE methodHnd,
-                         CORINFO_MODULE_HANDLE classHnd,
-                         COMP_HANDLE           compHnd,
+                         CORINFO_MODULE_HANDLE module,
+                         ICorJitInfo*          jitInfo,
                          CORINFO_METHOD_INFO*  methodInfo,
                          void**                methodCodePtr,
                          uint32_t*             methodCodeSize,

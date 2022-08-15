@@ -929,16 +929,22 @@ void Compiler::compDisplayStaticSizes(FILE* fout)
 INDEBUG(ConfigMethodRange fJitStressRange;)
 
 void Compiler::compInit(ArenaAllocator*       alloc,
+                        CORINFO_MODULE_HANDLE module,
                         CORINFO_METHOD_HANDLE methodHnd,
                         ICorJitInfo*          jitInfo,
                         CORINFO_METHOD_INFO*  methodInfo,
                         InlineInfo*           inlineInfo)
 {
-    compArenaAllocator  = alloc;
-    info.compMethodHnd  = methodHnd;
-    info.compCompHnd    = jitInfo;
-    info.compMethodInfo = methodInfo;
-    impInlineInfo       = inlineInfo;
+    compArenaAllocator   = alloc;
+    info.compScopeHnd    = module;
+    info.compMethodHnd   = methodHnd;
+    info.compCompHnd     = jitInfo;
+    info.compMethodInfo  = methodInfo;
+    info.compCode        = methodInfo->ILCode;
+    info.compILCodeSize  = methodInfo->ILCodeSize;
+    info.compXcptnsCount = methodInfo->EHcount;
+    info.compMaxStack    = methodInfo->maxStack;
+    impInlineInfo        = inlineInfo;
 
     InlineeCompiler            = nullptr;
     eeInfoInitialized          = false;
@@ -1001,7 +1007,6 @@ void Compiler::compInit(ArenaAllocator*       alloc,
 
     memset(&opts, 0, sizeof(opts));
 
-    info.compILCodeSize                         = 0;
     info.compILImportSize                       = 0;
     info.compNativeCodeSize                     = 0;
     info.compTotalHotCodeSize                   = 0;
@@ -4164,11 +4169,6 @@ int Compiler::compCompileMain(void** methodCode, uint32_t* methodCodeSize, JitFl
     }
 #endif // DEBUG
 
-    info.compCode        = info.compMethodInfo->ILCode;
-    info.compILCodeSize  = info.compMethodInfo->ILCodeSize;
-    info.compXcptnsCount = info.compMethodInfo->EHcount;
-    info.compMaxStack    = info.compMethodInfo->maxStack;
-
     struct Param
     {
         Compiler* compiler;
@@ -5178,8 +5178,8 @@ public:
 // Compile a single method
 
 int jitNativeCode(CORINFO_METHOD_HANDLE methodHnd,
-                  CORINFO_MODULE_HANDLE classPtr,
-                  COMP_HANDLE           compHnd,
+                  CORINFO_MODULE_HANDLE module,
+                  ICorJitInfo*          jitInfo,
                   CORINFO_METHOD_INFO*  methodInfo,
                   void**                methodCodePtr,
                   uint32_t*             methodCodeSize,
@@ -5195,8 +5195,8 @@ START:
         Compiler*             prevCompiler;
         bool                  jitFallbackCompile;
         CORINFO_METHOD_HANDLE methodHnd;
-        CORINFO_MODULE_HANDLE classPtr;
-        COMP_HANDLE           compHnd;
+        CORINFO_MODULE_HANDLE module;
+        ICorJitInfo*          jitInfo;
         CORINFO_METHOD_INFO*  methodInfo;
         void**                methodCodePtr;
         uint32_t*             methodCodeSize;
@@ -5208,15 +5208,15 @@ START:
     param.prevCompiler       = nullptr;
     param.jitFallbackCompile = jitFallbackCompile;
     param.methodHnd          = methodHnd;
-    param.classPtr           = classPtr;
-    param.compHnd            = compHnd;
+    param.module             = module;
+    param.jitInfo            = jitInfo;
     param.methodInfo         = methodInfo;
     param.methodCodePtr      = methodCodePtr;
     param.methodCodeSize     = methodCodeSize;
     param.compileFlags       = compileFlags;
     param.result             = CORJIT_INTERNALERROR;
 
-    setErrorTrap(compHnd, Param*, pParamOuter, &param)
+    setErrorTrap(jitInfo, Param*, pParamOuter, &param)
     {
         setErrorTrap(nullptr, Param*, pParam, pParamOuter)
         {
@@ -5232,9 +5232,10 @@ START:
             pParam->prevCompiler = JitTls::GetCompiler();
             JitTls::SetCompiler(pParam->compiler);
 
-            pParam->compiler->compInit(&pParam->allocator, pParam->methodHnd, pParam->compHnd, pParam->methodInfo);
+            pParam->compiler->compInit(&pParam->allocator, pParam->module, pParam->methodHnd, pParam->jitInfo,
+                                       pParam->methodInfo);
+
             INDEBUG(pParam->compiler->jitFallbackCompile = pParam->jitFallbackCompile;)
-            pParam->compiler->info.compScopeHnd = pParam->classPtr;
 
             pParam->result =
                 pParam->compiler->compCompileMain(pParam->methodCodePtr, pParam->methodCodeSize, pParam->compileFlags);

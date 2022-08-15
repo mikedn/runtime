@@ -526,15 +526,9 @@ void jitInlineCode(InlineInfo* inlineInfo)
 
             JitTls::SetCompiler(inlineeCompiler);
 
-            inlineeCompiler->compInit(allocator, inlineInfo->iciCall->GetMethodHandle(),
-                                      inlinerCompiler->info.compCompHnd, &inlineInfo->inlineCandidateInfo->methInfo,
-                                      inlineInfo);
-
-            inlineeCompiler->info.compScopeHnd    = inlineInfo->inlineCandidateInfo->methInfo.scope;
-            inlineeCompiler->info.compCode        = inlineeCompiler->info.compMethodInfo->ILCode;
-            inlineeCompiler->info.compILCodeSize  = inlineeCompiler->info.compMethodInfo->ILCodeSize;
-            inlineeCompiler->info.compXcptnsCount = inlineeCompiler->info.compMethodInfo->EHcount;
-            inlineeCompiler->info.compMaxStack    = inlineeCompiler->info.compMethodInfo->maxStack;
+            inlineeCompiler->compInit(allocator, inlineInfo->inlineCandidateInfo->methInfo.scope,
+                                      inlineInfo->iciCall->GetMethodHandle(), inlinerCompiler->info.compCompHnd,
+                                      &inlineInfo->inlineCandidateInfo->methInfo, inlineInfo);
 
             pParam->result = inlineeCompiler->inlMain();
         }
