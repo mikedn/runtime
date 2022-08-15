@@ -1005,7 +1005,7 @@ void Compiler::compInit(ArenaAllocator*       alloc,
 
     const char* classNamePtr;
     const char* methodName = eeGetMethodName(methodHnd, &classNamePtr);
-    unsigned    len        = static_cast<unsigned>(roundUp(strlen(classNamePtr) + 1));
+    size_t      len        = strlen(classNamePtr) + 1;
     char*       className  = getAllocator(CMK_DebugOnly).allocate<char>(len);
     strcpy_s(className, len, classNamePtr);
 
