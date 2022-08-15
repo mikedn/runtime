@@ -18710,5 +18710,5 @@ GenTree* Importer::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
 
 bool Importer::inlImportReturn(InlineInfo* inlineInfo, GenTree* op, CORINFO_CLASS_HANDLE retClsHnd)
 {
-    return comp->inlImportReturn(inlineInfo, op, retClsHnd);
+    return comp->inlImportReturn(*this, inlineInfo, op, retClsHnd);
 }

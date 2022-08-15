@@ -987,7 +987,10 @@ void Compiler::inlAnalyzeInlineeReturn(InlineInfo* inlineInfo, unsigned returnBl
     inlineInfo->retSpillTempLclNum = spillLclNum;
 }
 
-bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO_CLASS_HANDLE retExprClass)
+bool Compiler::inlImportReturn(Importer&            importer,
+                               InlineInfo*          inlineInfo,
+                               GenTree*             retExpr,
+                               CORINFO_CLASS_HANDLE retExprClass)
 {
     JITDUMPTREE(retExpr, "\nInlinee return expression:\n");
 
@@ -1104,7 +1107,7 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO
         // lack of optimizations caused by address exposed.
         // No FX diffs if done so it's probably very rare so not worth the trouble now.
 
-        retExpr = m_importer.impSpillPseudoReturnBufferCall(retExpr->AsCall());
+        retExpr = importer.impSpillPseudoReturnBufferCall(retExpr->AsCall());
     }
 
     if (inlineInfo->retSpillTempLclNum != BAD_VAR_NUM)
@@ -1116,14 +1119,14 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO
 
         if (varTypeIsStruct(retExpr->GetType()))
         {
-            asg = m_importer.impAssignStruct(dest, retExpr, Importer::CHECK_SPILL_NONE);
+            asg = importer.impAssignStruct(dest, retExpr, Importer::CHECK_SPILL_NONE);
         }
         else
         {
             asg = gtNewAssignNode(dest, retExpr);
         }
 
-        m_importer.impAppendTree(asg, Importer::CHECK_SPILL_NONE, m_importer.impCurStmtOffs);
+        importer.impAppendTree(asg, Importer::CHECK_SPILL_NONE, importer.impCurStmtOffs);
 
         if (inlineInfo->retExpr == nullptr)
         {
@@ -1152,7 +1155,7 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO
             GenTree* retBufAddr  = gtCloneExpr(inlineInfo->iciCall->gtCallArgs->GetNode());
             GenTree* retBufIndir = gtNewObjNode(typGetObjLayout(retExprClass), retBufAddr);
 
-            retExpr = m_importer.impAssignStruct(retBufIndir, retExpr, Importer::CHECK_SPILL_ALL);
+            retExpr = importer.impAssignStruct(retBufIndir, retExpr, Importer::CHECK_SPILL_ALL);
         }
 
         JITDUMPTREE(retExpr, "Inliner return expression:\n");

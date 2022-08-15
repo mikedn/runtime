@@ -5770,7 +5770,7 @@ public:
     void inlImportInlinee();
     void inlPostInlineFailureCleanup(const InlineInfo* inlineInfo);
     void inlAnalyzeInlineeReturn(InlineInfo* inlineInfo, unsigned returnBlockCount);
-    bool inlImportReturn(InlineInfo* inlineInfo, GenTree* op2, CORINFO_CLASS_HANDLE retClsHnd);
+    bool inlImportReturn(Importer& importer, InlineInfo* inlineInfo, GenTree* op2, CORINFO_CLASS_HANDLE retClsHnd);
     void inlUpdateRetSpillTempClass(InlineInfo* inlineInfo);
     unsigned inlCheckInlineDepthAndRecursion(const InlineInfo* inlineInfo);
     bool inlIsSysNumOrSysRtIntrinsicClass(CORINFO_CLASS_HANDLE clsHnd);
