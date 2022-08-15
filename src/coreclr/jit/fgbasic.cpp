@@ -1608,7 +1608,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
 
                 codeAddr += sizeof(__int8);
 
-                m_importer.impValidateMemoryAccessOpcode(codeAddr, codeEndp, false);
+                Importer::impValidateMemoryAccessOpcode(codeAddr, codeEndp, false);
                 handled = true;
                 goto OBSERVE_OPCODE;
             }
@@ -1621,7 +1621,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                 codeAddr += sizeof(unsigned);
 
                 {
-                    OPCODE actualOpcode = m_importer.impGetNonPrefixOpcode(codeAddr, codeEndp);
+                    OPCODE actualOpcode = Importer::impGetNonPrefixOpcode(codeAddr, codeEndp);
 
                     if (actualOpcode != CEE_CALLVIRT && actualOpcode != CEE_CALL && actualOpcode != CEE_LDFTN)
                     {
@@ -1638,9 +1638,9 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                 prefixFlags |= Importer::PREFIX_READONLY;
 
                 {
-                    OPCODE actualOpcode = m_importer.impGetNonPrefixOpcode(codeAddr, codeEndp);
+                    OPCODE actualOpcode = Importer::impGetNonPrefixOpcode(codeAddr, codeEndp);
 
-                    if ((actualOpcode != CEE_LDELEMA) && !m_importer.impOpcodeIsCallOpcode(actualOpcode))
+                    if ((actualOpcode != CEE_LDELEMA) && !Importer::impOpcodeIsCallOpcode(actualOpcode))
                     {
                         BADCODE("readonly. has to be followed by ldelema or call");
                     }
@@ -1654,7 +1654,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                 noway_assert(sz == 0);
                 prefixFlags |= Importer::PREFIX_VOLATILE;
 
-                m_importer.impValidateMemoryAccessOpcode(codeAddr, codeEndp, true);
+                Importer::impValidateMemoryAccessOpcode(codeAddr, codeEndp, true);
                 handled = true;
                 goto OBSERVE_OPCODE;
             }
@@ -1665,9 +1665,9 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                 prefixFlags |= Importer::PREFIX_TAILCALL_EXPLICIT;
 
                 {
-                    OPCODE actualOpcode = m_importer.impGetNonPrefixOpcode(codeAddr, codeEndp);
+                    OPCODE actualOpcode = Importer::impGetNonPrefixOpcode(codeAddr, codeEndp);
 
-                    if (!m_importer.impOpcodeIsCallOpcode(actualOpcode))
+                    if (!Importer::impOpcodeIsCallOpcode(actualOpcode))
                     {
                         BADCODE("tailcall. has to be followed by call, callvirt or calli");
                     }
