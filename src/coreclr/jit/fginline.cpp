@@ -2335,8 +2335,8 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
 
         if (argInfo.paramHasLcl)
         {
-            GenTree* dst = gtNewLclvNode(argInfo.paramLclNum, argInfo.paramType);
-            GenTree* asg;
+            GenTreeLclVar* dst = gtNewLclvNode(argInfo.paramLclNum, argInfo.paramType);
+            GenTree*       asg;
 
             if (argInfo.paramType != TYP_STRUCT)
             {
@@ -2351,13 +2351,11 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
             {
                 // The argument cannot be MKREFANY because TypedReference parameters block
                 // inlining. That's probably an unnecessary limitation but who cares about
-                // TypedReference?
-                // This means that impAssignStruct won't have to add new statements, it
-                // cannot do that since we're not actually importing IL.
+                // TypedReference? inlAssignStruct does not support MKREFANY.
 
                 assert(!argNode->OperIs(GT_MKREFANY));
 
-                asg = m_importer.impAssignStruct(dst, argNode, Importer::CHECK_SPILL_NONE);
+                asg = inlAssignStruct(dst, argNode);
             }
 
             Statement* stmt = gtNewStmt(asg, inlineInfo->iciStmt->GetILOffsetX());
@@ -2494,6 +2492,86 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
     }
 
     return afterStmt;
+}
+
+GenTree* Compiler::inlAssignStruct(GenTreeLclVar* dest, GenTree* src)
+{
+    assert(dest->OperIs(GT_LCL_VAR));
+    assert((src->TypeIs(TYP_STRUCT) && src->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_OBJ, GT_CALL, GT_RET_EXPR)) ||
+           varTypeIsSIMD(src->GetType()));
+
+    // TODO-MIKE-Cleanup: Share code with impAssignStruct, the main difference is that
+    // impAssignStruct supports MKREFANY by appending a separate assignment statement
+    // for one of refany's field. We could probably just generate a COMMA with the 2
+    // assignements instead.
+    // On the other hand, can we get calls with return buffer here? If not, then there's
+    // not much left in this function, only the lvIsMultiRegRet that may be also redundant.
+
+    // Handle calls that return structs by reference - the destination address
+    // is passed to the call as the return buffer address and no assignment is
+    // generated.
+
+    if (GenTreeCall* call = src->IsCall())
+    {
+        if (call->TreatAsHasRetBufArg())
+        {
+            impAssignCallWithRetBuf(dest, call);
+
+            return call;
+        }
+    }
+    else if (GenTreeRetExpr* retExpr = src->IsRetExpr())
+    {
+        GenTreeCall* call = retExpr->GetCall();
+
+        assert(retExpr->GetRetExpr() == call);
+
+        if (call->TreatAsHasRetBufArg())
+        {
+            impAssignCallWithRetBuf(dest, call);
+            retExpr->SetType(TYP_VOID);
+
+            return retExpr;
+        }
+    }
+
+    // In all other cases we create and return a struct assignment node.
+
+    LclVarDsc* lcl = lvaGetDesc(dest);
+
+#if FEATURE_MULTIREG_RET
+#ifdef UNIX_AMD64_ABI
+    if (src->OperIs(GT_CALL))
+#else
+    if (src->OperIs(GT_CALL) && src->AsCall()->HasMultiRegRetVal())
+#endif
+    {
+        // If the struct is returned in multiple registers we need to set lvIsMultiRegRet
+        // on the destination local variable.
+
+        // TODO-1stClassStructs: Eliminate this pessimization when we can more generally
+        // handle multireg returns.
+
+        // TODO-MIKE-Cleanup: Why is lvIsMultiRegRet set unconditionally
+        // for UNIX_AMD64_ABI?!
+        // Well, because MultiRegRet doesn't really have much to do with
+        // multiple registers. The problem is that returning a struct in
+        // one or multiple registers results in dependent promotion if
+        // registers and promoted fields do not match. So it makes sense
+        // to block promotion if the struct is returned in a single reg
+        // but it has more than one field.
+        // At the same time, this shouldn't be needed if the struct is
+        // returned in a single register and has a single field.
+        // But what about ARMARCH?!
+        // Oh well, the usual mess.
+
+        lcl->lvIsMultiRegRet = true;
+    }
+#endif
+
+    GenTreeOp* asgNode = gtNewAssignNode(dest, src);
+    gtInitStructCopyAsg(asgNode);
+    return asgNode;
 }
 
 bool Compiler::inlCanDiscardArgSideEffects(GenTree* argNode)

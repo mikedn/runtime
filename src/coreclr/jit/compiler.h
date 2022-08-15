@@ -5786,6 +5786,7 @@ public:
     Statement* inlInsertSingleBlockInlineeStatements(const InlineInfo* inlineInfo, Statement* stmtAfter);
     Statement* inlPrependStatements(InlineInfo* inlineInfo);
     Statement* inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement* afterStmt);
+    GenTree* inlAssignStruct(GenTreeLclVar* dest, GenTree* src);
     bool inlCanDiscardArgSideEffects(GenTree* argNode);
     Statement* inlInitInlineeLocals(const InlineInfo* inlineInfo, Statement* afterStmt);
     void inlNullOutInlineeGCLocals(const InlineInfo* inlineInfo, Statement* stmt);
