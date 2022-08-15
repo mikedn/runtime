@@ -4167,21 +4167,22 @@ int Compiler::compCompile(CORINFO_MODULE_HANDLE module,
     }
 #endif // DEBUG
 
-    info.compCode       = info.compMethodInfo->ILCode;
-    info.compILCodeSize = info.compMethodInfo->ILCodeSize;
+    info.compScopeHnd    = module;
+    info.compCode        = info.compMethodInfo->ILCode;
+    info.compILCodeSize  = info.compMethodInfo->ILCodeSize;
+    info.compXcptnsCount = info.compMethodInfo->EHcount;
+    info.compMaxStack    = info.compMethodInfo->maxStack;
 
     struct Param
     {
-        Compiler*             compiler;
-        CORINFO_MODULE_HANDLE module;
-        void**                methodCode;
-        uint32_t*             methodCodeSize;
-        JitFlags*             jitFlags;
-        int                   result;
+        Compiler* compiler;
+        void**    methodCode;
+        uint32_t* methodCodeSize;
+        JitFlags* jitFlags;
+        int       result;
     } param;
 
     param.compiler       = this;
-    param.module         = module;
     param.methodCode     = methodCode;
     param.methodCodeSize = methodCodeSize;
     param.jitFlags       = compileFlags;
@@ -4189,8 +4190,8 @@ int Compiler::compCompile(CORINFO_MODULE_HANDLE module,
 
     setErrorTrap(info.compCompHnd, Param*, pParam, &param)
     {
-        pParam->result = pParam->compiler->compCompileHelper(pParam->module, pParam->methodCode, pParam->methodCodeSize,
-                                                             pParam->jitFlags);
+        pParam->result =
+            pParam->compiler->compCompileHelper(pParam->methodCode, pParam->methodCodeSize, pParam->jitFlags);
     }
     finallyErrorTrap()
     {
@@ -4575,10 +4576,7 @@ unsigned getMethodBodyChecksum(__in_z char* code, int size)
 #endif
 }
 
-int Compiler::compCompileHelper(CORINFO_MODULE_HANDLE module,
-                                void**                methodCode,
-                                uint32_t*             methodCodeSize,
-                                JitFlags*             jitFlags)
+int Compiler::compCompileHelper(void** methodCode, uint32_t* methodCodeSize, JitFlags* jitFlags)
 {
     assert(!compIsForInlining());
 
@@ -4628,9 +4626,6 @@ int Compiler::compCompileHelper(CORINFO_MODULE_HANDLE module,
     }
 #endif
 
-    info.compScopeHnd         = module;
-    info.compXcptnsCount      = info.compMethodInfo->EHcount;
-    info.compMaxStack         = info.compMethodInfo->maxStack;
     info.compIsStatic         = (info.compFlags & CORINFO_FLG_STATIC) != 0;
     info.compInitMem          = (info.compMethodInfo->options & CORINFO_OPT_INIT_LOCALS) != 0;
     info.compPublishStubParam = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PUBLISH_SECRET_PARAM);

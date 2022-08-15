@@ -530,7 +530,13 @@ void jitInlineCode(InlineInfo* inlineInfo)
                                       inlinerCompiler->info.compCompHnd, &inlineInfo->inlineCandidateInfo->methInfo,
                                       inlineInfo);
 
-            pParam->result = inlineeCompiler->inlMain(inlineInfo->inlineCandidateInfo->methInfo.scope);
+            inlineeCompiler->info.compScopeHnd    = inlineInfo->inlineCandidateInfo->methInfo.scope;
+            inlineeCompiler->info.compCode        = inlineeCompiler->info.compMethodInfo->ILCode;
+            inlineeCompiler->info.compILCodeSize  = inlineeCompiler->info.compMethodInfo->ILCodeSize;
+            inlineeCompiler->info.compXcptnsCount = inlineeCompiler->info.compMethodInfo->EHcount;
+            inlineeCompiler->info.compMaxStack    = inlineeCompiler->info.compMethodInfo->maxStack;
+
+            pParam->result = inlineeCompiler->inlMain();
         }
         finallyErrorTrap()
         {
@@ -554,7 +560,7 @@ void jitInlineCode(InlineInfo* inlineInfo)
     }
 }
 
-int Compiler::inlMain(CORINFO_MODULE_HANDLE module)
+int Compiler::inlMain()
 {
     // compInit should have set these already.
     noway_assert(info.compMethodInfo != nullptr);
@@ -603,13 +609,8 @@ int Compiler::inlMain(CORINFO_MODULE_HANDLE module)
     compBasicBlockID = inliner->compBasicBlockID;
 #endif
 
-    info.compScopeHnd    = module;
-    info.compXcptnsCount = info.compMethodInfo->EHcount;
-    info.compMaxStack    = info.compMethodInfo->maxStack;
-    info.compIsStatic    = (info.compFlags & CORINFO_FLG_STATIC) != 0;
-    info.compInitMem     = (info.compMethodInfo->options & CORINFO_OPT_INIT_LOCALS) != 0;
-    info.compCode        = info.compMethodInfo->ILCode;
-    info.compILCodeSize  = info.compMethodInfo->ILCodeSize;
+    info.compIsStatic = (info.compFlags & CORINFO_FLG_STATIC) != 0;
+    info.compInitMem  = (info.compMethodInfo->options & CORINFO_OPT_INIT_LOCALS) != 0;
 
     info.compILEntry          = 0;
     info.compPatchpointInfo   = nullptr;

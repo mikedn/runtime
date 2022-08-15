@@ -5765,7 +5765,7 @@ public:
     void inlFoldJTrue(BasicBlock* block);
     bool inlInlineCall(Statement* stmt, GenTreeCall* call);
     void inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, InlineResult* result);
-    int inlMain(CORINFO_MODULE_HANDLE module);
+    int  inlMain();
     void inlMainHelper();
     void inlImportInlinee();
     void inlPostInlineFailureCleanup(const InlineInfo* inlineInfo);
@@ -7656,10 +7656,7 @@ public:
 
     int compCompile(CORINFO_MODULE_HANDLE module, void** methodCode, uint32_t* methodCodeSize, JitFlags* compileFlags);
     void compCompileFinish();
-    int compCompileHelper(CORINFO_MODULE_HANDLE module,
-                          void**                methodCode,
-                          uint32_t*             methodCodeSize,
-                          JitFlags*             jitFlags);
+    int compCompileHelper(void** methodCode, uint32_t* methodCodeSize, JitFlags* jitFlags);
 
     ArenaAllocator* compGetArenaAllocator();
 
