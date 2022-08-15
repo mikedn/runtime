@@ -4662,6 +4662,70 @@ GenTree* Importer::impImportLdvirtftn(GenTree*                thisPtr,
     return gtNewHelperCallNode(CORINFO_HELP_VIRTUAL_FUNC_PTR, TYP_I_IMPL, helpArgs);
 }
 
+int Compiler::impNoteBoxPatternMatch(const BYTE* codeAddr, const BYTE* codeEndp)
+{
+    if (codeAddr >= codeEndp)
+    {
+        return -1;
+    }
+
+    switch (codeAddr[0])
+    {
+        case CEE_UNBOX_ANY:
+            if (codeAddr + 1 + sizeof(mdToken) <= codeEndp)
+            {
+                compInlineResult->Note(InlineObservation::CALLEE_FOLDABLE_BOX);
+                return 1 + sizeof(mdToken);
+            }
+            break;
+
+        case CEE_BRTRUE:
+        case CEE_BRTRUE_S:
+        case CEE_BRFALSE:
+        case CEE_BRFALSE_S:
+            if ((codeAddr + ((codeAddr[0] >= CEE_BRFALSE) ? 5 : 2)) <= codeEndp)
+            {
+                compInlineResult->Note(InlineObservation::CALLEE_FOLDABLE_BOX);
+                return 0;
+            }
+            break;
+
+        case CEE_ISINST:
+            if (codeAddr + 1 + sizeof(mdToken) + 1 <= codeEndp)
+            {
+                const BYTE* nextCodeAddr = codeAddr + 1 + sizeof(mdToken);
+
+                switch (nextCodeAddr[0])
+                {
+                    case CEE_BRTRUE:
+                    case CEE_BRTRUE_S:
+                    case CEE_BRFALSE:
+                    case CEE_BRFALSE_S:
+                        if ((nextCodeAddr + ((nextCodeAddr[0] >= CEE_BRFALSE) ? 5 : 2)) <= codeEndp)
+                        {
+                            compInlineResult->Note(InlineObservation::CALLEE_FOLDABLE_BOX);
+                            return 1 + sizeof(mdToken);
+                        }
+                        break;
+
+                    case CEE_UNBOX_ANY:
+                        if ((nextCodeAddr + 1 + sizeof(mdToken)) <= codeEndp)
+                        {
+                            compInlineResult->Note(InlineObservation::CALLEE_FOLDABLE_BOX);
+                            return 2 + sizeof(mdToken) * 2;
+                        }
+                        break;
+                }
+            }
+            break;
+
+        default:
+            break;
+    }
+
+    return -1;
+}
+
 //------------------------------------------------------------------------
 // impBoxPatternMatch: match and import common box idioms
 //
@@ -4676,11 +4740,8 @@ GenTree* Importer::impImportLdvirtftn(GenTree*                thisPtr,
 // Notes:
 //   pResolvedToken is known to be a value type; ref type boxing
 //   is handled in the CEE_BOX clause.
-
-int Importer::impBoxPatternMatch(CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                 const BYTE*             codeAddr,
-                                 const BYTE*             codeEndp,
-                                 bool                    makeInlineObservation)
+//
+int Importer::impBoxPatternMatch(CORINFO_RESOLVED_TOKEN* pResolvedToken, const BYTE* codeAddr, const BYTE* codeEndp)
 {
     if (codeAddr >= codeEndp)
     {
@@ -4693,12 +4754,6 @@ int Importer::impBoxPatternMatch(CORINFO_RESOLVED_TOKEN* pResolvedToken,
             // box + unbox.any
             if (codeAddr + 1 + sizeof(mdToken) <= codeEndp)
             {
-                if (makeInlineObservation)
-                {
-                    compInlineResult->Note(InlineObservation::CALLEE_FOLDABLE_BOX);
-                    return 1 + sizeof(mdToken);
-                }
-
                 CORINFO_RESOLVED_TOKEN unboxResolvedToken;
 
                 impResolveToken(codeAddr + 1, &unboxResolvedToken, CORINFO_TOKENKIND_Class);
@@ -4724,12 +4779,6 @@ int Importer::impBoxPatternMatch(CORINFO_RESOLVED_TOKEN* pResolvedToken,
             // box + br_true/false
             if ((codeAddr + ((codeAddr[0] >= CEE_BRFALSE) ? 5 : 2)) <= codeEndp)
             {
-                if (makeInlineObservation)
-                {
-                    compInlineResult->Note(InlineObservation::CALLEE_FOLDABLE_BOX);
-                    return 0;
-                }
-
                 if (info.compCompHnd->getBoxHelper(pResolvedToken->hClass) == CORINFO_HELP_BOX)
                 {
                     GenTree* sideEffects = impImportPop(compCurBB);
@@ -4759,12 +4808,6 @@ int Importer::impBoxPatternMatch(CORINFO_RESOLVED_TOKEN* pResolvedToken,
                     case CEE_BRFALSE_S:
                         if ((nextCodeAddr + ((nextCodeAddr[0] >= CEE_BRFALSE) ? 5 : 2)) <= codeEndp)
                         {
-                            if (makeInlineObservation)
-                            {
-                                compInlineResult->Note(InlineObservation::CALLEE_FOLDABLE_BOX);
-                                return 1 + sizeof(mdToken);
-                            }
-
                             if (!(impStackTop().val->gtFlags & GTF_SIDE_EFFECT))
                             {
                                 CorInfoHelpFunc boxHelper = info.compCompHnd->getBoxHelper(pResolvedToken->hClass);
@@ -4842,12 +4885,6 @@ int Importer::impBoxPatternMatch(CORINFO_RESOLVED_TOKEN* pResolvedToken,
                     case CEE_UNBOX_ANY:
                         if ((nextCodeAddr + 1 + sizeof(mdToken)) <= codeEndp)
                         {
-                            if (makeInlineObservation)
-                            {
-                                compInlineResult->Note(InlineObservation::CALLEE_FOLDABLE_BOX);
-                                return 2 + sizeof(mdToken) * 2;
-                            }
-
                             // See if the resolved tokens in box, isinst and unbox.any describe types that are equal.
                             CORINFO_RESOLVED_TOKEN isinstResolvedToken = {};
                             impResolveToken(codeAddr + 1, &isinstResolvedToken, CORINFO_TOKENKIND_Class);
