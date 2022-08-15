@@ -1845,7 +1845,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                     const bool notLastInstr = (codeAddr < codeEndp - sz);
                     const bool notDebugCode = !opts.compDbgCode;
 
-                    if (notStruct && notLastInstr && notDebugCode && m_importer.impILConsumesAddr(codeAddr + sz))
+                    if (notStruct && notLastInstr && notDebugCode && impILConsumesAddr(codeAddr + sz))
                     {
                         // We can skip the addrtaken, as next IL instruction consumes
                         // the address.

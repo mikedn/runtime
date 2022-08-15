@@ -2562,7 +2562,6 @@ struct Importer
                               bool                  tailCall);
 
     bool impIsPrimitive(CorInfoType type);
-    bool impILConsumesAddr(const BYTE* codeAddr);
 
     void impResolveToken(const BYTE* addr, CORINFO_RESOLVED_TOKEN* resolvedToken, CorInfoTokenKind kind);
 
@@ -4247,6 +4246,8 @@ public:
         // RuntimeTypeHandle is backed by raw pointer on CoreRT and by object reference on other runtimes
         return IsTargetAbi(CORINFO_CORERT_ABI) ? TYP_I_IMPL : TYP_REF;
     }
+
+    bool impILConsumesAddr(const BYTE* codeAddr);
 
     void impResolveToken(const BYTE* addr, CORINFO_RESOLVED_TOKEN* resolvedToken, CorInfoTokenKind kind);
 

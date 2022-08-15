@@ -99,7 +99,7 @@ typeInfo Importer::impMakeTypeInfo(CorInfoType type, CORINFO_CLASS_HANDLE classH
 // helper function that will tell us if the IL instruction at the addr passed
 // by param consumes an address at the top of the stack. We use it to save
 // us lvAddrTaken
-bool Importer::impILConsumesAddr(const BYTE* codeAddr)
+bool Compiler::impILConsumesAddr(const BYTE* codeAddr)
 {
     assert(!compIsForInlining());
 
