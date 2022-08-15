@@ -6856,6 +6856,8 @@ public:
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     */
 
+    void codeGenInit();
+
 public:
     CodeGenInterface* codeGen;
 

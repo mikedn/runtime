@@ -56,9 +56,9 @@ void CodeGenInterface::setFramePointerRequiredEH(bool value)
 #endif // JIT32_GCENCODER
 }
 
-CodeGenInterface* getCodeGenerator(Compiler* comp)
+void Compiler::codeGenInit()
 {
-    return new (comp, CMK_Codegen) CodeGen(comp);
+    codeGen = new (this, CMK_Codegen) CodeGen(this);
 }
 
 CodeGenInterface::CodeGenInterface(Compiler* compiler) : gcInfo(compiler), regSet(compiler, gcInfo), compiler(compiler)

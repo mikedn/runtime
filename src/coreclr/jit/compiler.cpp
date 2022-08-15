@@ -1038,8 +1038,7 @@ void Compiler::compInit(ArenaAllocator*       alloc,
     if (!compIsForInlining())
     {
         optInit();
-
-        codeGen = getCodeGenerator(this);
+        codeGenInit();
 
 #if MEASURE_NODE_SIZE
         genNodeSizeStatsPerFunc.Init();

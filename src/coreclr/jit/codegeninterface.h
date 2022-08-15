@@ -54,8 +54,6 @@ struct RegState
 //-------------------- CodeGenInterface ---------------------------------
 // interface to hide the full CodeGen implementation from rest of Compiler
 
-CodeGenInterface* getCodeGenerator(Compiler* comp);
-
 class CodeGenInterface
 {
     friend class emitter;
