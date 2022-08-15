@@ -20,9 +20,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 void Importer::impInit()
 {
     impStmtList = impLastStmt = nullptr;
-#ifdef DEBUG
-    impInlinedCodeSize = 0;
-#endif // DEBUG
 }
 
 /*****************************************************************************

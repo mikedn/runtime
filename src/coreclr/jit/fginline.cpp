@@ -870,7 +870,7 @@ void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, Inli
             eeGetMethodFullName(inlineInfo.iciCall->GetMethodHandle()),
             inlineInfo.inlineCandidateInfo->methInfo.ILCodeSize, inlineDepth, inlineResult->ReasonString());
 
-    INDEBUG(m_importer.impInlinedCodeSize += inlineInfo.inlineCandidateInfo->methInfo.ILCodeSize;)
+    INDEBUG(compInlinedCodeSize += inlineInfo.inlineCandidateInfo->methInfo.ILCodeSize;)
 
     inlineResult->NoteSuccess();
 }

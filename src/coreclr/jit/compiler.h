@@ -2087,8 +2087,6 @@ struct Importer
     JitExpandArray<uint8_t> impSpillCliqueMembers;
 
 #ifdef DEBUG
-    unsigned impInlinedCodeSize;
-
     unsigned    impCurOpcOffs;
     const char* impCurOpcName;
 
@@ -3038,7 +3036,8 @@ public:
         return name;
     }
 
-    DWORD expensiveDebugCheckLevel;
+    unsigned expensiveDebugCheckLevel;
+    unsigned compInlinedCodeSize;
 #endif
 
     //-------------------------------------------------------------------------
