@@ -913,7 +913,7 @@ GenTreeCall::Use* Importer::impPopReverseCallArgs(unsigned count, CORINFO_SIG_IN
     }
 }
 
-void Importer::impAssignCallWithRetBuf(GenTree* dest, GenTreeCall* call)
+void Compiler::impAssignCallWithRetBuf(GenTree* dest, GenTreeCall* call)
 {
     assert(varTypeIsStruct(dest->GetType()) && dest->OperIs(GT_LCL_VAR, GT_OBJ, GT_IND));
     assert(call->TreatAsHasRetBufArg());
@@ -1055,7 +1055,7 @@ GenTree* Importer::impAssignStruct(GenTree* dest, GenTree* src, unsigned curLeve
     {
         if (call->TreatAsHasRetBufArg())
         {
-            impAssignCallWithRetBuf(dest, call);
+            comp->impAssignCallWithRetBuf(dest, call);
 
             return call;
         }
@@ -1068,7 +1068,7 @@ GenTree* Importer::impAssignStruct(GenTree* dest, GenTree* src, unsigned curLeve
 
         if (call->TreatAsHasRetBufArg())
         {
-            impAssignCallWithRetBuf(dest, call);
+            comp->impAssignCallWithRetBuf(dest, call);
             retExpr->SetType(TYP_VOID);
 
             return retExpr;

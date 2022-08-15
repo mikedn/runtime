@@ -2282,7 +2282,6 @@ struct Importer
         impMakeMultiUse(tree, useCount, uses, layout, spillCheckLevel DEBUGARG(reason));
     }
 
-    void impAssignCallWithRetBuf(GenTree* dest, GenTreeCall* call);
     GenTree* impAssignMkRefAny(GenTree* dest, GenTreeOp* mkRefAny, unsigned curLevel);
     GenTree* impAssignStruct(GenTree* dest, GenTree* src, unsigned curLevel);
 
@@ -4254,6 +4253,8 @@ public:
     }
 
     bool impIsThis(GenTree* obj);
+
+    void impAssignCallWithRetBuf(GenTree* dest, GenTreeCall* call);
 
     BoxPattern impBoxPatternMatch(const BYTE* codeAddr, const BYTE* codeEnd, unsigned* patternSize);
 
