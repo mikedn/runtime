@@ -1259,40 +1259,36 @@ GenTree* Importer::impLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
         // No runtime lookup is required.
         // Access is direct or memory-indirect (of a fixed address) reference
 
-        CORINFO_GENERIC_HANDLE handle       = nullptr;
-        void*                  pIndirection = nullptr;
-        assert(pLookup->constLookup.accessType != IAT_PPVALUE && pLookup->constLookup.accessType != IAT_RELPVALUE);
+        void* handle     = nullptr;
+        void* handleAddr = nullptr;
 
         if (pLookup->constLookup.accessType == IAT_VALUE)
         {
             handle = pLookup->constLookup.handle;
         }
-        else if (pLookup->constLookup.accessType == IAT_PVALUE)
+        else
         {
-            pIndirection = pLookup->constLookup.addr;
+            assert(pLookup->constLookup.accessType == IAT_PVALUE);
+
+            handleAddr = pLookup->constLookup.addr;
         }
-        GenTree* addr = gtNewIconEmbHndNode(handle, pIndirection, handleFlags, compileTimeHandle);
+
+        GenTree* addr = gtNewIconEmbHndNode(handle, handleAddr, handleFlags, compileTimeHandle);
 
 #ifdef DEBUG
-        size_t handleToTrack;
-        if (handleFlags == GTF_ICON_TOKEN_HDL)
+        if (handleFlags != GTF_ICON_TOKEN_HDL)
         {
-            handleToTrack = 0;
-        }
-        else
-        {
-            handleToTrack = reinterpret_cast<size_t>(compileTimeHandle);
-        }
+            GenTreeIntCon* addrCon = addr->IsIntCon();
 
-        if (handle != nullptr)
-        {
-            addr->AsIntCon()->gtTargetHandle = handleToTrack;
-        }
-        else
-        {
-            addr->AsIndir()->GetAddr()->AsIntCon()->gtTargetHandle = handleToTrack;
+            if (addrCon == nullptr)
+            {
+                addrCon = addr->AsIndir()->GetAddr()->AsIntCon();
+            }
+
+            addrCon->gtTargetHandle = reinterpret_cast<size_t>(compileTimeHandle);
         }
 #endif
+
         return addr;
     }
 
