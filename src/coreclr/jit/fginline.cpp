@@ -687,7 +687,7 @@ void Compiler::inlMainHelper(CORINFO_MODULE_HANDLE module,
 
     info.compFlags = impInlineInfo->inlineCandidateInfo->methAttr;
 
-    compInitOptions(compileFlags);
+    inlInitOptions(compileFlags);
 
 #ifdef DEBUG
     if (verbose)
@@ -793,6 +793,55 @@ void Compiler::inlMainHelper(CORINFO_MODULE_HANDLE module,
     {
         assert(impInlineInfo->inlineResult == compInlineResult);
     }
+}
+
+void Compiler::inlInitOptions(JitFlags* jitFlags)
+{
+    assert(compIsForInlining());
+
+    memset(&opts, 0, sizeof(opts));
+
+    // The following flags are lost when inlining (hey are removed in inlInvokeInlineeCompiler).
+    assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_BBINSTR));
+    assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_PROF_ENTERLEAVE));
+    assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_DEBUG_EnC));
+    assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_DEBUG_INFO));
+    assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_REVERSE_PINVOKE));
+    assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_TRACK_TRANSITIONS));
+    assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_PUBLISH_SECRET_PARAM));
+
+    opts.jitFlags = jitFlags;
+
+    Compiler* inliner = impInlineRoot();
+
+#ifdef FEATURE_SIMD
+    featureSIMD = inliner->featureSIMD;
+#endif
+#ifdef DEBUG
+    verbose      = inliner->verbose;
+    verboseTrees = inliner->verboseTrees;
+    asciiTrees   = inliner->asciiTrees;
+#endif
+
+    opts.optFlags    = inliner->opts.optFlags;
+    opts.compCodeOpt = inliner->opts.compCodeOpt;
+    opts.compDbgCode = inliner->opts.compDbgCode;
+#if REGEN_SHORTCUTS || REGEN_CALLPAT
+    // We never want to have debugging enabled when regenerating GC encoding patterns
+    opts.compDbgCode = false;
+#endif
+#ifdef DEBUG
+    opts.dspDiffable = inliner->opts.dspDiffable;
+#endif
+#if FEATURE_TAILCALL_OPT
+    opts.compTailCallOpt = inliner->opts.compTailCallOpt;
+#endif
+#if FEATURE_FASTTAILCALL
+    opts.compFastTailCalls = inliner->opts.compFastTailCalls;
+#endif
+
+    compSetProcessor();
+    compInitPgo(jitFlags);
 }
 
 void Compiler::inlSetOptimizationLevel()

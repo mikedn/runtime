@@ -1506,20 +1506,9 @@ unsigned ReinterpretHexAsDecimal(unsigned in)
 
 void Compiler::compInitOptions(JitFlags* jitFlags)
 {
-    memset(&opts, 0, sizeof(opts));
+    assert(!compIsForInlining());
 
-    if (compIsForInlining())
-    {
-        // The following flags are lost when inlining. (They are removed in
-        // Compiler::inlInvokeInlineeCompiler().)
-        assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_BBINSTR));
-        assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_PROF_ENTERLEAVE));
-        assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_DEBUG_EnC));
-        assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_DEBUG_INFO));
-        assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_REVERSE_PINVOKE));
-        assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_TRACK_TRANSITIONS));
-        assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_PUBLISH_SECRET_PARAM));
-    }
+    memset(&opts, 0, sizeof(opts));
 
     opts.jitFlags = jitFlags;
     opts.optFlags = CLFLG_MAXOPT; // Default value is for full optimization
@@ -1530,8 +1519,7 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
         opts.optFlags = CLFLG_MINOPT;
     }
     // Don't optimize .cctors (except prejit) or if we're an inlinee
-    else if (!jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) && ((info.compFlags & FLG_CCTOR) == FLG_CCTOR) &&
-             !compIsForInlining())
+    else if (!jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) && ((info.compFlags & FLG_CCTOR) == FLG_CCTOR))
     {
         opts.optFlags = CLFLG_MINOPT;
     }
@@ -1598,20 +1586,13 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
     compSetProcessor();
 
 #ifdef DEBUG
-    opts.dspOrder = false;
-    if (compIsForInlining())
-    {
-        verbose = impInlineInfo->InlinerCompiler->verbose;
-    }
-    else
-    {
-        verbose = false;
-        codeGen->setVerbose(false);
-    }
-    verboseTrees     = verbose && shouldUseVerboseTrees();
-    verboseSsa       = verbose && shouldUseVerboseSsa();
+    opts.dspOrder    = false;
+    verbose          = false;
+    verboseTrees     = false;
+    verboseSsa       = false;
     asciiTrees       = shouldDumpASCIITrees();
-    opts.dspDiffable = compIsForInlining() ? impInlineInfo->InlinerCompiler->opts.dspDiffable : false;
+    opts.dspDiffable = false;
+    codeGen->setVerbose(false);
 #endif
 
     opts.altJit = false;
@@ -1628,131 +1609,128 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
     bool verboseDump  = false;
 #endif
 
-    if (!compIsForInlining())
-    {
 #ifdef DEBUG
-        const JitConfigValues::MethodSet* pfAltJit;
-        if (jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
+    const JitConfigValues::MethodSet* pfAltJit;
+    if (jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
+    {
+        pfAltJit = &JitConfig.AltJitNgen();
+    }
+    else
+    {
+        pfAltJit = &JitConfig.AltJit();
+    }
+
+    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_ALT_JIT))
+    {
+        if (pfAltJit->contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
         {
-            pfAltJit = &JitConfig.AltJitNgen();
-        }
-        else
-        {
-            pfAltJit = &JitConfig.AltJit();
+            opts.altJit = true;
         }
 
-        if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_ALT_JIT))
+        unsigned altJitLimit = ReinterpretHexAsDecimal(JitConfig.AltJitLimit());
+        if (altJitLimit > 0 && Compiler::jitTotalMethodCompiled >= altJitLimit)
         {
-            if (pfAltJit->contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
+            opts.altJit = false;
+        }
+    }
+
+#else // !DEBUG
+
+    const char* altJitVal;
+    if (jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
+    {
+        altJitVal = JitConfig.AltJitNgen().list();
+    }
+    else
+    {
+        altJitVal = JitConfig.AltJit().list();
+    }
+
+    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_ALT_JIT))
+    {
+        // In release mode, you either get all methods or no methods. You must use "*" as the parameter, or we
+        // ignore
+        // it. You don't get to give a regular expression of methods to match.
+        // (Partially, this is because we haven't computed and stored the method and class name except in debug, and
+        // it
+        // might be expensive to do so.)
+        if ((altJitVal != nullptr) && (strcmp(altJitVal, "*") == 0))
+        {
+            opts.altJit = true;
+        }
+    }
+
+#endif // !DEBUG
+
+    // Take care of COMPlus_AltJitExcludeAssemblies.
+    if (opts.altJit)
+    {
+        // First, initialize the AltJitExcludeAssemblies list, but only do it once.
+        if (!s_pAltJitExcludeAssembliesListInitialized)
+        {
+            const WCHAR* wszAltJitExcludeAssemblyList = JitConfig.AltJitExcludeAssemblies();
+            if (wszAltJitExcludeAssemblyList != nullptr)
             {
-                opts.altJit = true;
+                // NOTE: The Assembly name list is allocated in the process heap, not in the no-release heap, which
+                // is
+                // reclaimed
+                // for every compilation. This is ok because we only allocate once, due to the static.
+                s_pAltJitExcludeAssembliesList = new (HostAllocator::getHostAllocator())
+                    AssemblyNamesList2(wszAltJitExcludeAssemblyList, HostAllocator::getHostAllocator());
             }
+            s_pAltJitExcludeAssembliesListInitialized = true;
+        }
 
-            unsigned altJitLimit = ReinterpretHexAsDecimal(JitConfig.AltJitLimit());
-            if (altJitLimit > 0 && Compiler::jitTotalMethodCompiled >= altJitLimit)
+        if (s_pAltJitExcludeAssembliesList != nullptr)
+        {
+            // We have an exclusion list. See if this method is in an assembly that is on the list.
+            // Note that we check this for every method, since we might inline across modules, and
+            // if the inlinee module is on the list, we don't want to use the altjit for it.
+            const char* methodAssemblyName = info.compCompHnd->getAssemblyName(
+                info.compCompHnd->getModuleAssembly(info.compCompHnd->getClassModule(info.compClassHnd)));
+            if (s_pAltJitExcludeAssembliesList->IsInList(methodAssemblyName))
             {
                 opts.altJit = false;
             }
         }
+    }
 
-#else // !DEBUG
+#ifdef DEBUG
+    altJitConfig = !pfAltJit->isEmpty();
 
-        const char* altJitVal;
+    if (!altJitConfig || opts.altJit)
+    {
         if (jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
         {
-            altJitVal = JitConfig.AltJitNgen().list();
+            if (JitConfig.NgenDump().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
+            {
+                verboseDump = true;
+            }
+            unsigned ngenHashDumpVal = (unsigned)JitConfig.NgenHashDump();
+            if ((ngenHashDumpVal != (DWORD)-1) && (ngenHashDumpVal == info.compMethodHash()))
+            {
+                verboseDump = true;
+            }
         }
         else
         {
-            altJitVal = JitConfig.AltJit().list();
-        }
-
-        if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_ALT_JIT))
-        {
-            // In release mode, you either get all methods or no methods. You must use "*" as the parameter, or we
-            // ignore
-            // it. You don't get to give a regular expression of methods to match.
-            // (Partially, this is because we haven't computed and stored the method and class name except in debug, and
-            // it
-            // might be expensive to do so.)
-            if ((altJitVal != nullptr) && (strcmp(altJitVal, "*") == 0))
+            if (JitConfig.JitDump().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
             {
-                opts.altJit = true;
+                verboseDump = true;
+            }
+            unsigned jitHashDumpVal = (unsigned)JitConfig.JitHashDump();
+            if ((jitHashDumpVal != (DWORD)-1) && (jitHashDumpVal == info.compMethodHash()))
+            {
+                verboseDump = true;
             }
         }
-
-#endif // !DEBUG
-
-        // Take care of COMPlus_AltJitExcludeAssemblies.
-        if (opts.altJit)
-        {
-            // First, initialize the AltJitExcludeAssemblies list, but only do it once.
-            if (!s_pAltJitExcludeAssembliesListInitialized)
-            {
-                const WCHAR* wszAltJitExcludeAssemblyList = JitConfig.AltJitExcludeAssemblies();
-                if (wszAltJitExcludeAssemblyList != nullptr)
-                {
-                    // NOTE: The Assembly name list is allocated in the process heap, not in the no-release heap, which
-                    // is
-                    // reclaimed
-                    // for every compilation. This is ok because we only allocate once, due to the static.
-                    s_pAltJitExcludeAssembliesList = new (HostAllocator::getHostAllocator())
-                        AssemblyNamesList2(wszAltJitExcludeAssemblyList, HostAllocator::getHostAllocator());
-                }
-                s_pAltJitExcludeAssembliesListInitialized = true;
-            }
-
-            if (s_pAltJitExcludeAssembliesList != nullptr)
-            {
-                // We have an exclusion list. See if this method is in an assembly that is on the list.
-                // Note that we check this for every method, since we might inline across modules, and
-                // if the inlinee module is on the list, we don't want to use the altjit for it.
-                const char* methodAssemblyName = info.compCompHnd->getAssemblyName(
-                    info.compCompHnd->getModuleAssembly(info.compCompHnd->getClassModule(info.compClassHnd)));
-                if (s_pAltJitExcludeAssembliesList->IsInList(methodAssemblyName))
-                {
-                    opts.altJit = false;
-                }
-            }
-        }
-
-#ifdef DEBUG
-        altJitConfig = !pfAltJit->isEmpty();
-
-        if (!compIsForInlining() && (!altJitConfig || opts.altJit))
-        {
-            if (jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
-            {
-                if (JitConfig.NgenDump().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
-                {
-                    verboseDump = true;
-                }
-                unsigned ngenHashDumpVal = (unsigned)JitConfig.NgenHashDump();
-                if ((ngenHashDumpVal != (DWORD)-1) && (ngenHashDumpVal == info.compMethodHash()))
-                {
-                    verboseDump = true;
-                }
-            }
-            else
-            {
-                if (JitConfig.JitDump().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
-                {
-                    verboseDump = true;
-                }
-                unsigned jitHashDumpVal = (unsigned)JitConfig.JitHashDump();
-                if ((jitHashDumpVal != (DWORD)-1) && (jitHashDumpVal == info.compMethodHash()))
-                {
-                    verboseDump = true;
-                }
-            }
-        }
-
-        if (verboseDump)
-        {
-            verbose = true;
-        }
-#endif // DEBUG
     }
+
+    if (verboseDump)
+    {
+        verbose = true;
+    }
+#endif // DEBUG
 
 #ifdef FEATURE_SIMD
     featureSIMD = jitFlags->IsSet(JitFlags::JIT_FLAG_FEATURE_SIMD);
@@ -1773,11 +1751,7 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
 #endif // FEATURE_FASTTAILCALL
 
     compInitPgo(jitFlags);
-
-    if (!compIsForInlining())
-    {
-        compInitOptions2(jitFlags DEBUGARG(altJitConfig) DEBUGARG(verboseDump));
-    }
+    compInitOptions2(jitFlags DEBUGARG(altJitConfig) DEBUGARG(verboseDump));
 }
 
 void Compiler::compInitPgo(JitFlags* jitFlags)
@@ -1907,13 +1881,9 @@ void Compiler::compInitOptions2(JitFlags* jitFlags DEBUGARG(bool altJitConfig) D
 
     compDebugBreak = false;
 
-    if (compIsForInlining())
-    {
-        opts.dspDiffable = impInlineRoot()->opts.dspDiffable;
-    }
     // If we have a non-empty AltJit config then we change all of these other
     // config values to refer only to the AltJit.
-    else if (!altJitConfig || opts.altJit)
+    if (!altJitConfig || opts.altJit)
     {
         if (jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
         {
