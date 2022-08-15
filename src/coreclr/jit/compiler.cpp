@@ -987,11 +987,7 @@ void Compiler::compInit(ArenaAllocator*       alloc,
 #endif
     hbvGlobalData.Init();
 
-    opts.compMinOptsIsSet = false;
-    opts.instrCount       = 0;
-#ifdef DEBUG
-    opts.compMinOptsIsUsed = false;
-#endif
+    memset(&opts, 0, sizeof(opts));
 
     info.compILCodeSize = 0;
 #if defined(DEBUG) || defined(INLINE_DATA)
@@ -1408,8 +1404,6 @@ unsigned ReinterpretHexAsDecimal(unsigned in)
 void Compiler::compInitOptions(JitFlags* jitFlags)
 {
     assert(!compIsForInlining());
-
-    memset(&opts, 0, sizeof(opts));
 
     opts.jitFlags = jitFlags;
     opts.optFlags = CLFLG_MAXOPT; // Default value is for full optimization

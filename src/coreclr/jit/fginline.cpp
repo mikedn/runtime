@@ -654,7 +654,6 @@ int Compiler::inlMain(CORINFO_MODULE_HANDLE module)
     assert(impInlineInfo->inlineCandidateInfo->clsAttr == info.compCompHnd->getClassAttribs(info.compClassHnd));
     info.compClassAttr = impInlineInfo->inlineCandidateInfo->clsAttr;
 
-    memset(&opts, 0, sizeof(opts));
     opts.jitFlags        = &jitFlags;
     opts.compSupportsISA = inliner->opts.compSupportsISA;
     opts.optFlags        = inliner->opts.optFlags;
