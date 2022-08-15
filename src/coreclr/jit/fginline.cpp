@@ -847,9 +847,7 @@ void Compiler::inlSetProcessor()
 
     Compiler* inliner = impInlineRoot();
 
-    opts.compSupportsISA         = inliner->opts.compSupportsISA;
-    opts.compSupportsISAReported = 0;
-    opts.compSupportsISAExactly  = 0;
+    opts.compSupportsISA = inliner->opts.compSupportsISA;
 }
 
 void Compiler::inlSetOptimizationLevel()
