@@ -4544,7 +4544,6 @@ public:
     // The following are boolean flags that keep track of the state of internal data structures
 
     bool                 fgStmtListThreaded;       // true if the node list is now threaded
-    bool                 fgCanRelocateEHRegions;   // true if we are allowed to relocate the EH regions
     bool                 fgEdgeWeightsComputed;    // true after we have called fgComputeEdgeWeights
     bool                 fgHaveValidEdgeWeights;   // true if we were successful in computing all of the edge weights
     bool                 fgSlopUsedInEdgeWeights;  // true if their was some slop used when computing the edge weights

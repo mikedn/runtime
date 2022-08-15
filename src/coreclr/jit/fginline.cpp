@@ -775,8 +775,6 @@ void Compiler::inlMainHelper(CORINFO_MODULE_HANDLE module,
             opts.optFlags = CLFLG_MINOPT;
         }
 
-        fgCanRelocateEHRegions = true;
-
 #if COUNT_BASIC_BLOCKS
         bbCntTable.record(fgBBcount);
 

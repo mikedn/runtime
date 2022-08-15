@@ -2908,8 +2908,6 @@ void Compiler::compSetOptimizationLevel()
 #else
     opts.compExpandCallsEarly = (JitConfig.JitExpandCallsEarly() != 0);
 #endif
-
-    fgCanRelocateEHRegions = true;
 }
 
 #ifdef TARGET_ARMARCH
