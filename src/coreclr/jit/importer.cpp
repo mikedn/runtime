@@ -14271,12 +14271,12 @@ void Importer::impReimportSpillClique(BasicBlock* block)
 {
     class ReimportSpillClique : public SpillCliqueWalker
     {
-        Importer*   m_importer;
-        BasicBlock* m_currentBlock;
+        Importer*   importer;
+        BasicBlock* currentBlock;
 
     public:
         ReimportSpillClique(Importer* importer, BasicBlock* currentBlock)
-            : m_importer(importer), m_currentBlock(currentBlock)
+            : importer(importer), currentBlock(currentBlock)
         {
         }
 
@@ -14289,9 +14289,9 @@ void Importer::impReimportSpillClique(BasicBlock* block)
             }
 
             // If it's already imported it cannot be pending.
-            assert(!m_importer->impIsPendingBlockMember(block));
+            assert(!importer->impIsPendingBlockMember(block));
 
-            if ((block == m_currentBlock) && (dir == SpillCliquePred))
+            if ((block == currentBlock) && (dir == SpillCliquePred))
             {
                 // The current block, which triggered re-importing, does not need
                 // to be re-imported unless it is a successor (e.g. current block
@@ -14303,7 +14303,7 @@ void Importer::impReimportSpillClique(BasicBlock* block)
             JITDUMP(FMT_BB " will be reimported\n", block->bbNum);
 
             block->bbFlags &= ~BBF_IMPORTED;
-            m_importer->impPushPendingBlock(block);
+            importer->impPushPendingBlock(block);
         }
     } callback(this, block);
 
