@@ -1866,8 +1866,7 @@ struct CompilerOptions
 
     bool compProcedureSplitting; // Separate cold code from hot code
 
-    bool genFPopt; // Can we do frame-pointer-omission optimization?
-    bool altJit;   // True if we are an altjit and are compiling this method
+    bool altJit; // True if we are an altjit and are compiling this method
 
 #ifdef OPT_CONFIG
     bool optRepeat; // Repeat optimizer phases k times

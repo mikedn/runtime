@@ -14578,11 +14578,6 @@ void Compiler::fgSetOptions()
 
 #endif // TARGET_X86
 
-    if (!opts.genFPopt)
-    {
-        codeGen->setFramePointerRequired(true);
-    }
-
     // Assert that the EH table has been initialized by now. Note that
     // compHndBBtabAllocCount never decreases; it is a high-water mark
     // of table allocation. In contrast, compHndBBtabCount does shrink

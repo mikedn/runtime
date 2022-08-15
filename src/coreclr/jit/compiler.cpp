@@ -1869,8 +1869,6 @@ void Compiler::compInitOptions2(JitFlags* jitFlags, bool altJitConfig, bool verb
     opts.compTailCallLoopOpt = true;
 #endif // FEATURE_TAILCALL_OPT
 
-    opts.genFPopt = true;
-
     opts.instrCount = 0;
     opts.lvRefCount = 0;
 
