@@ -5774,9 +5774,9 @@ public:
     void inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, InlineResult* result);
     int inlMain(CORINFO_MODULE_HANDLE module, JitFlags* compileFlags);
     void inlMainHelper(CORINFO_MODULE_HANDLE module,
-                      ICorJitInfo*          jitInfo,
-                      CORINFO_METHOD_INFO*  methodInfo,
-                      JitFlags*             compileFlags);
+                       ICorJitInfo*          jitInfo,
+                       CORINFO_METHOD_INFO*  methodInfo,
+                       JitFlags*             compileFlags);
     void inlSetOptimizationLevel();
     void inlImportInlinee();
     void inlPostInlineFailureCleanup(const InlineInfo* inlineInfo);
@@ -7799,6 +7799,8 @@ protected:
     size_t compMaxUncheckedOffsetForNullObject;
 
     void compInitOptions(JitFlags* compileFlags);
+    void compInitPgo(JitFlags* compileFlags);
+    void compInitOptions2(JitFlags* compileFlags, bool altJitConfig, bool verboseDump);
 
     void compSetProcessor();
     void compInitDebuggingInfo();

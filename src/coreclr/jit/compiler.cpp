@@ -1770,6 +1770,16 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
     opts.compFastTailCalls = true;
 #endif // FEATURE_FASTTAILCALL
 
+    compInitPgo(jitFlags);
+
+    if (!compIsForInlining())
+    {
+        compInitOptions2(jitFlags, altJitConfig, verboseDump);
+    }
+}
+
+void Compiler::compInitPgo(JitFlags* jitFlags)
+{
     // Profile data
     //
     fgPgoSchema      = nullptr;
@@ -1844,11 +1854,11 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
         }
 #endif
     }
+}
 
-    if (compIsForInlining())
-    {
-        return;
-    }
+void Compiler::compInitOptions2(JitFlags* jitFlags, bool altJitConfig, bool verboseDump)
+{
+    assert(!compIsForInlining());
 
     // The rest of the opts fields that we initialize here
     // should only be used when we generate code for the method
