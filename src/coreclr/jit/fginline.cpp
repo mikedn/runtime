@@ -827,10 +827,6 @@ void Compiler::inlInitOptions(JitFlags* jitFlags)
     opts.optFlags    = inliner->opts.optFlags;
     opts.compCodeOpt = inliner->opts.compCodeOpt;
     opts.compDbgCode = inliner->opts.compDbgCode;
-#if REGEN_SHORTCUTS || REGEN_CALLPAT
-    // We never want to have debugging enabled when regenerating GC encoding patterns
-    opts.compDbgCode = false;
-#endif
 #ifdef DEBUG
     opts.dspDiffable = inliner->opts.dspDiffable;
 #endif
