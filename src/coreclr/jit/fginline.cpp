@@ -847,9 +847,6 @@ void Compiler::inlSetProcessor()
 
     Compiler* inliner = impInlineRoot();
 
-    info.genCPU = inliner->info.genCPU;
-
-    opts.compUseCMOV             = inliner->opts.compUseCMOV;
     opts.compSupportsISA         = inliner->opts.compSupportsISA;
     opts.compSupportsISAReported = 0;
     opts.compSupportsISAExactly  = 0;
