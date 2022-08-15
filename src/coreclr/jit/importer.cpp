@@ -14312,7 +14312,7 @@ void Importer::impReimportSpillClique(BasicBlock* block)
     // block has an outgoing live stack slot of type native int.
     // We need to reset these before traversal because they have already been set
     // by the previous walk to determine all the members of the spill clique.
-    impInlineRoot()->m_importer.impSpillCliqueMembers.Reset();
+    impSpillCliqueMembers.Reset();
 
     impWalkSpillCliqueFromPred(block, &callback);
 }
@@ -14358,7 +14358,7 @@ Compiler* Compiler::impInlineRoot()
 
 bool Importer::impIsSpillCliqueMember(SpillCliqueDir dir, BasicBlock* block)
 {
-    uint8_t state = impInlineRoot()->m_importer.impSpillCliqueMembers.Get(block->bbInd());
+    uint8_t state = impSpillCliqueMembers.Get(block->bbInd());
     uint8_t bit   = 1 << dir;
 
     return (state & bit) != 0;
@@ -14366,7 +14366,7 @@ bool Importer::impIsSpillCliqueMember(SpillCliqueDir dir, BasicBlock* block)
 
 bool Importer::impAddSpillCliqueMember(SpillCliqueDir dir, BasicBlock* block)
 {
-    uint8_t& state = impInlineRoot()->m_importer.impSpillCliqueMembers.GetRef(block->bbInd());
+    uint8_t& state = impSpillCliqueMembers.GetRef(block->bbInd());
     uint8_t  bit   = 1 << dir;
 
     if ((state & bit) != 0)
@@ -14405,36 +14405,13 @@ void Importer::impImport()
     }
 
     verCurrentState.esStackDepth = 0;
-
-    if (comp == inlineRoot)
-    {
-        // Allocate the stack contents
-        verCurrentState.esStack = new (comp, CMK_ImpStack) StackEntry[impStkSize];
-    }
-    else
-    {
-        // This is the inlinee compiler, steal the stack from the inliner compiler
-        // (after ensuring that it is large enough).
-        if (inlineRoot->m_importer.impStkSize < impStkSize)
-        {
-            inlineRoot->m_importer.impStkSize              = impStkSize;
-            inlineRoot->m_importer.verCurrentState.esStack = new (comp, CMK_ImpStack) StackEntry[impStkSize];
-        }
-
-        verCurrentState.esStack = inlineRoot->m_importer.verCurrentState.esStack;
-    }
+    verCurrentState.esStack      = new (comp, CMK_ImpStack) StackEntry[impStkSize];
 
     assert(fgFirstBB->bbEntryState == nullptr);
 
-    // Initialize stuff related to figuring "spill cliques" (see spec comment for impGetSpillTmpBase).
-    if (comp == inlineRoot) // These are only used on the root of the inlining tree.
-    {
-        // We have initialized these previously, but to size 0.  Make them larger.
-        impPendingBlockMembers.Init(getAllocator(), fgBBNumMax * 2);
-        impSpillCliqueMembers.Init(getAllocator(), fgBBNumMax * 2);
-    }
-    inlineRoot->m_importer.impPendingBlockMembers.Reset(fgBBNumMax * 2);
-    inlineRoot->m_importer.impSpillCliqueMembers.Reset(fgBBNumMax * 2);
+    impPendingBlockMembers.Reset(fgBBNumMax * 2);
+    impSpillCliqueMembers.Reset(fgBBNumMax * 2);
+
     impBlockListNodeFreeList = nullptr;
     INDEBUG(impLastILoffsStmt = nullptr;)
     impBoxTemp           = BAD_VAR_NUM;
@@ -17507,14 +17484,14 @@ bool Importer::impIsPrimitive(CorInfoType jitType)
 // Operates on the map in the top-level ancestor.
 bool Importer::impIsPendingBlockMember(BasicBlock* blk)
 {
-    return impInlineRoot()->m_importer.impPendingBlockMembers.Get(blk->bbInd());
+    return impPendingBlockMembers.Get(blk->bbInd());
 }
 
 // Set the byte for "b" to "val" (allocating/extending impPendingBlockMembers if necessary.)
 // Operates on the map in the top-level ancestor.
 void Importer::impSetPendingBlockMember(BasicBlock* blk, bool val)
 {
-    impInlineRoot()->m_importer.impPendingBlockMembers.Set(blk->bbInd(), val);
+    impPendingBlockMembers.Set(blk->bbInd(), val);
 }
 
 Importer::Importer(Compiler* comp)
