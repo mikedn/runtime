@@ -24,55 +24,48 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 void Compiler::lvaInit()
 {
-    /* We haven't allocated stack variables yet */
-    lvaRefCountState = RCS_INVALID;
-
-    lvaGenericsContextInUse = false;
-
-    lvaTrackedCount             = 0;
-    lvaTrackedCountInSizeTUnits = 0;
-    lvaCurEpoch                 = 0;
-    lvaTrackedToVarNumSize      = 0;
-    lvaTrackedToVarNum          = nullptr;
-
-    lvaDoneFrameLayout = NO_FRAME_LAYOUT;
-#if !defined(FEATURE_EH_FUNCLETS)
+    lvaRefCountState                = RCS_INVALID;
+    lvaGenericsContextInUse         = false;
+    lvaTrackedCount                 = 0;
+    lvaTrackedCountInSizeTUnits     = 0;
+    lvaCurEpoch                     = 0;
+    lvaTrackedToVarNumSize          = 0;
+    lvaTrackedToVarNum              = nullptr;
+    lvaAddressExposedLocalsMarked   = false;
+    impPromotableStructTypeCache[0] = nullptr;
+    impPromotableStructTypeCache[1] = nullptr;
+    gsShadowVarInfo                 = nullptr;
+    lvaDoneFrameLayout              = NO_FRAME_LAYOUT;
+    lvaNewObjArrayArgs              = BAD_VAR_NUM;
+    lvaGSSecurityCookie             = BAD_VAR_NUM;
+    lvaPInvokeFrameListVar          = BAD_VAR_NUM;
+    lvaInlinedPInvokeFrameVar       = BAD_VAR_NUM;
+    lvaReversePInvokeFrameVar       = BAD_VAR_NUM;
+    lvaVarargsHandleArg             = BAD_VAR_NUM;
+    lvaStubArgumentVar              = BAD_VAR_NUM;
+    lvaArg0Var                      = BAD_VAR_NUM;
+    lvaMonAcquired                  = BAD_VAR_NUM;
+    lvaRetAddrVar                   = BAD_VAR_NUM;
+#ifndef FEATURE_EH_FUNCLETS
     lvaShadowSPslotsVar = BAD_VAR_NUM;
-#endif // !FEATURE_EH_FUNCLETS
-    lvaPInvokeFrameListVar    = BAD_VAR_NUM;
-    lvaInlinedPInvokeFrameVar = BAD_VAR_NUM;
-    lvaReversePInvokeFrameVar = BAD_VAR_NUM;
+#else
+    lvaPSPSym = BAD_VAR_NUM;
+#endif
 #if FEATURE_FIXED_OUT_ARGS
     lvaOutgoingArgSpaceVar  = BAD_VAR_NUM;
     lvaOutgoingArgSpaceSize = PhasedVar<unsigned>();
-#endif // FEATURE_FIXED_OUT_ARGS
+#endif
 #ifdef JIT32_GCENCODER
     lvaLocAllocSPvar = BAD_VAR_NUM;
-#endif // JIT32_GCENCODER
-    lvaNewObjArrayArgs  = BAD_VAR_NUM;
-    lvaGSSecurityCookie = BAD_VAR_NUM;
+#endif
 #ifdef TARGET_X86
     lvaVarargsBaseOfStkArgs = BAD_VAR_NUM;
-#endif // TARGET_X86
-    lvaVarargsHandleArg = BAD_VAR_NUM;
-    lvaStubArgumentVar  = BAD_VAR_NUM;
-    lvaArg0Var          = BAD_VAR_NUM;
-    lvaMonAcquired      = BAD_VAR_NUM;
-    lvaRetAddrVar       = BAD_VAR_NUM;
-
-    gsShadowVarInfo = nullptr;
-#if defined(FEATURE_EH_FUNCLETS)
-    lvaPSPSym = BAD_VAR_NUM;
 #endif
+
 #if defined(DEBUG) && defined(TARGET_XARCH)
     lvaReturnSpCheck = BAD_VAR_NUM;
     X86_ONLY(lvaCallSpCheck = BAD_VAR_NUM);
 #endif
-
-    lvaAddressExposedLocalsMarked = false;
-
-    impPromotableStructTypeCache[0] = nullptr;
-    impPromotableStructTypeCache[1] = nullptr;
 }
 
 /*****************************************************************************/
