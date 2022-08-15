@@ -953,15 +953,14 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
             {
                 if (makeInlineObservations)
                 {
-                    int toSkip = impNoteBoxPatternMatch(codeAddr + sz, codeEndp);
-                    if (toSkip > 0)
+                    unsigned patternSize;
+                    if (impBoxPatternMatch(codeAddr + sz, codeEndp, &patternSize) != BoxPattern::None)
                     {
-                        // toSkip > 0 means we most likely will hit a pattern (e.g. box+isinst+brtrue) that
-                        // will be folded into a const
+                        compInlineResult->Note(InlineObservation::CALLEE_FOLDABLE_BOX);
 
                         if (preciseScan)
                         {
-                            codeAddr += toSkip;
+                            codeAddr += patternSize;
                         }
                     }
                 }

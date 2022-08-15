@@ -2019,6 +2019,15 @@ public:
 };
 #endif // FEATURE_SIMD
 
+enum class BoxPattern
+{
+    None,
+    BoxUnbox,
+    BoxBranch,
+    BoxCastBranch,
+    BoxCastUnbox
+};
+
 struct Importer
 {
     // For prefixFlags
@@ -2563,6 +2572,7 @@ struct Importer
     bool impIsPrimitive(CorInfoType type);
 
     void impResolveToken(const BYTE* addr, CORINFO_RESOLVED_TOKEN* resolvedToken, CorInfoTokenKind kind);
+    CORINFO_CLASS_HANDLE impResolveClassToken(const BYTE* addr, CorInfoTokenKind kind = CORINFO_TOKENKIND_Class);
 
     void impPushOnStack(GenTree* tree, typeInfo ti);
     StackEntry impPopStack();
@@ -2574,7 +2584,9 @@ struct Importer
 
     GenTree* impImportLdvirtftn(GenTree* thisPtr, CORINFO_RESOLVED_TOKEN* pResolvedToken, CORINFO_CALL_INFO* pCallInfo);
 
-    int impBoxPatternMatch(CORINFO_RESOLVED_TOKEN* pResolvedToken, const BYTE* codeAddr, const BYTE* codeEndp);
+    bool impImportBoxPattern(BoxPattern              pattern,
+                             CORINFO_RESOLVED_TOKEN* resolvedToken,
+                             const BYTE* codeAddr DEBUGARG(const BYTE* codeEnd));
     void impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken);
 
     void impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORINFO_CALL_INFO* pCallInfo);
@@ -4245,7 +4257,7 @@ public:
 
     bool impIsThis(GenTree* obj);
 
-    int impNoteBoxPatternMatch(const BYTE* codeAddr, const BYTE* codeEndp);
+    BoxPattern impBoxPatternMatch(const BYTE* codeAddr, const BYTE* codeEnd, unsigned* patternSize);
 
     bool impILConsumesAddr(const BYTE* codeAddr);
 

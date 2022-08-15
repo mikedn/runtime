@@ -4662,20 +4662,20 @@ GenTree* Importer::impImportLdvirtftn(GenTree*                thisPtr,
     return gtNewHelperCallNode(CORINFO_HELP_VIRTUAL_FUNC_PTR, TYP_I_IMPL, helpArgs);
 }
 
-int Compiler::impNoteBoxPatternMatch(const BYTE* codeAddr, const BYTE* codeEndp)
+BoxPattern Compiler::impBoxPatternMatch(const BYTE* codeAddr, const BYTE* codeEnd, unsigned* patternSize)
 {
-    if (codeAddr >= codeEndp)
+    if (codeAddr >= codeEnd)
     {
-        return -1;
+        return BoxPattern::None;
     }
 
     switch (codeAddr[0])
     {
         case CEE_UNBOX_ANY:
-            if (codeAddr + 1 + sizeof(mdToken) <= codeEndp)
+            if (codeAddr + 1 + sizeof(mdToken) <= codeEnd)
             {
-                compInlineResult->Note(InlineObservation::CALLEE_FOLDABLE_BOX);
-                return 1 + sizeof(mdToken);
+                *patternSize = 1 + sizeof(mdToken);
+                return BoxPattern::BoxUnbox;
             }
             break;
 
@@ -4683,15 +4683,15 @@ int Compiler::impNoteBoxPatternMatch(const BYTE* codeAddr, const BYTE* codeEndp)
         case CEE_BRTRUE_S:
         case CEE_BRFALSE:
         case CEE_BRFALSE_S:
-            if ((codeAddr + ((codeAddr[0] >= CEE_BRFALSE) ? 5 : 2)) <= codeEndp)
+            if ((codeAddr + ((codeAddr[0] >= CEE_BRFALSE) ? 5 : 2)) <= codeEnd)
             {
-                compInlineResult->Note(InlineObservation::CALLEE_FOLDABLE_BOX);
-                return 0;
+                *patternSize = 0;
+                return BoxPattern::BoxBranch;
             }
             break;
 
         case CEE_ISINST:
-            if (codeAddr + 1 + sizeof(mdToken) + 1 <= codeEndp)
+            if (codeAddr + 1 + sizeof(mdToken) + 1 <= codeEnd)
             {
                 const BYTE* nextCodeAddr = codeAddr + 1 + sizeof(mdToken);
 
@@ -4701,18 +4701,18 @@ int Compiler::impNoteBoxPatternMatch(const BYTE* codeAddr, const BYTE* codeEndp)
                     case CEE_BRTRUE_S:
                     case CEE_BRFALSE:
                     case CEE_BRFALSE_S:
-                        if ((nextCodeAddr + ((nextCodeAddr[0] >= CEE_BRFALSE) ? 5 : 2)) <= codeEndp)
+                        if ((nextCodeAddr + ((nextCodeAddr[0] >= CEE_BRFALSE) ? 5 : 2)) <= codeEnd)
                         {
-                            compInlineResult->Note(InlineObservation::CALLEE_FOLDABLE_BOX);
-                            return 1 + sizeof(mdToken);
+                            *patternSize = 1 + sizeof(mdToken);
+                            return BoxPattern::BoxCastBranch;
                         }
                         break;
 
                     case CEE_UNBOX_ANY:
-                        if ((nextCodeAddr + 1 + sizeof(mdToken)) <= codeEndp)
+                        if ((nextCodeAddr + 1 + sizeof(mdToken)) <= codeEnd)
                         {
-                            compInlineResult->Note(InlineObservation::CALLEE_FOLDABLE_BOX);
-                            return 2 + sizeof(mdToken) * 2;
+                            *patternSize = 2 + sizeof(mdToken) * 2;
+                            return BoxPattern::BoxCastUnbox;
                         }
                         break;
                 }
@@ -4723,199 +4723,163 @@ int Compiler::impNoteBoxPatternMatch(const BYTE* codeAddr, const BYTE* codeEndp)
             break;
     }
 
-    return -1;
+    return BoxPattern::None;
 }
 
-//------------------------------------------------------------------------
-// impBoxPatternMatch: match and import common box idioms
-//
-// Arguments:
-//   pResolvedToken - resolved token from the box operation
-//   codeAddr - position in IL stream after the box instruction
-//   codeEndp - end of IL stream
-//
-// Return Value:
-//   Number of IL bytes matched and imported, -1 otherwise
-//
-// Notes:
-//   pResolvedToken is known to be a value type; ref type boxing
-//   is handled in the CEE_BOX clause.
-//
-int Importer::impBoxPatternMatch(CORINFO_RESOLVED_TOKEN* pResolvedToken, const BYTE* codeAddr, const BYTE* codeEndp)
+bool Importer::impImportBoxPattern(BoxPattern              pattern,
+                                   CORINFO_RESOLVED_TOKEN* resolvedToken,
+                                   const BYTE* codeAddr DEBUGARG(const BYTE* codeEnd))
 {
-    if (codeAddr >= codeEndp)
+    assert(pattern != BoxPattern::None);
+    assert(codeAddr < codeEnd);
+
+    CORINFO_CLASS_HANDLE boxClass = resolvedToken->hClass;
+    ICorJitInfo*         jitInfo  = info.compCompHnd;
+
+    switch (pattern)
     {
-        return -1;
-    }
+        const BYTE*          nextCodeAddr;
+        CorInfoHelpFunc      boxHelper;
+        GenTree*             sideEffects;
+        CORINFO_CLASS_HANDLE unboxClass;
+        CORINFO_CLASS_HANDLE isinstClass;
 
-    switch (codeAddr[0])
-    {
-        case CEE_UNBOX_ANY:
-            // box + unbox.any
-            if (codeAddr + 1 + sizeof(mdToken) <= codeEndp)
+        case BoxPattern::BoxUnbox:
+            assert(codeAddr + 1 + sizeof(mdToken) <= codeEnd);
+
+            unboxClass = impResolveClassToken(codeAddr + 1);
+
+            if (jitInfo->compareTypesForEquality(unboxClass, boxClass) != TypeCompareState::Must)
             {
-                CORINFO_RESOLVED_TOKEN unboxResolvedToken;
+                return false;
+            }
 
-                impResolveToken(codeAddr + 1, &unboxResolvedToken, CORINFO_TOKENKIND_Class);
+            JITDUMP("\n Importing BOX; UNBOX.ANY as NOP\n");
 
-                // See if the resolved tokens describe types that are equal.
-                const TypeCompareState compare =
-                    info.compCompHnd->compareTypesForEquality(unboxResolvedToken.hClass, pResolvedToken->hClass);
+            return true;
 
-                // If so, box/unbox.any is a nop.
-                if (compare == TypeCompareState::Must)
+        case BoxPattern::BoxBranch:
+            assert((codeAddr + ((codeAddr[0] >= CEE_BRFALSE) ? 5 : 2)) <= codeEnd);
+
+            if (jitInfo->getBoxHelper(boxClass) != CORINFO_HELP_BOX)
+            {
+                return false;
+            }
+
+            sideEffects = impImportPop(compCurBB);
+
+            if (sideEffects != nullptr)
+            {
+                impAppendTree(sideEffects, CHECK_SPILL_ALL, impCurStmtOffs);
+            }
+
+            JITDUMP("\n Importing BOX; BRTRUE/FALSE as constant branch\n");
+
+            impPushOnStack(gtNewIconNode(1), typeInfo());
+
+            return true;
+
+        case BoxPattern::BoxCastBranch:
+            assert(codeAddr + 1 + sizeof(mdToken) + 1 <= codeEnd);
+            nextCodeAddr = codeAddr + 1 + sizeof(mdToken);
+            assert((nextCodeAddr + ((nextCodeAddr[0] >= CEE_BRFALSE) ? 5 : 2)) <= codeEnd);
+
+            if ((impStackTop().val->gtFlags & GTF_SIDE_EFFECT) != 0)
+            {
+                return false;
+            }
+
+            boxHelper = jitInfo->getBoxHelper(boxClass);
+
+            if (boxHelper == CORINFO_HELP_BOX)
+            {
+                isinstClass = impResolveClassToken(codeAddr + 1, CORINFO_TOKENKIND_Casting);
+
+                TypeCompareState castResult = jitInfo->compareTypesForCast(boxClass, isinstClass);
+
+                if (castResult == TypeCompareState::May)
                 {
-                    JITDUMP("\n Importing BOX; UNBOX.ANY as NOP\n");
-                    // Skip the next unbox.any instruction
-                    return 1 + sizeof(mdToken);
+                    return false;
+                }
+
+                JITDUMP("\n Importing BOX; ISINST; BRTRUE/FALSE as constant branch\n");
+
+                impPopStack();
+                impPushOnStack(gtNewIconNode((castResult == TypeCompareState::Must) ? 1 : 0), typeInfo());
+
+                return true;
+            }
+
+            if (boxHelper == CORINFO_HELP_BOX_NULLABLE)
+            {
+                // For nullable we're going to fold it to "ldfld hasValue + brtrue/brfalse" or
+                // "ldc.i4.0 + brtrue/brfalse" in case if the underlying type is not castable to
+                // the target type.
+
+                isinstClass = impResolveClassToken(codeAddr + 1, CORINFO_TOKENKIND_Casting);
+
+                CORINFO_CLASS_HANDLE underlyingCls = info.compCompHnd->getTypeForBox(boxClass);
+
+                TypeCompareState castResult = jitInfo->compareTypesForCast(underlyingCls, isinstClass);
+
+                if (castResult == TypeCompareState::Must)
+                {
+                    const CORINFO_FIELD_HANDLE hasValueField = jitInfo->getFieldInClass(boxClass, 0);
+
+                    assert(jitInfo->getFieldOffset(hasValueField) == 0);
+                    assert(!strcmp(jitInfo->getFieldName(hasValueField, nullptr), "hasValue"));
+
+                    GenTree* objToBox = impPopStack().val;
+
+                    // Spill struct to get its address (to access hasValue field)
+                    objToBox = impGetStructAddr(objToBox, boxClass, CHECK_SPILL_ALL, true);
+
+                    impPushOnStack(gtNewFieldIndir(TYP_BOOL, gtNewFieldAddr(objToBox, hasValueField, 0)), typeInfo());
+
+                    JITDUMP("\n Importing BOX; ISINST; BR_TRUE/FALSE as Nullable.hasValue\n");
+
+                    return true;
+                }
+
+                if (castResult == TypeCompareState::MustNot)
+                {
+                    impPopStack();
+                    impPushOnStack(gtNewIconNode(0), typeInfo());
+
+                    JITDUMP("\n Importing BOX; ISINST; BR_TRUE/FALSE as constant (false)\n");
+
+                    return true;
                 }
             }
-            break;
 
-        case CEE_BRTRUE:
-        case CEE_BRTRUE_S:
-        case CEE_BRFALSE:
-        case CEE_BRFALSE_S:
-            // box + br_true/false
-            if ((codeAddr + ((codeAddr[0] >= CEE_BRFALSE) ? 5 : 2)) <= codeEndp)
+            return false;
+
+        case BoxPattern::BoxCastUnbox:
+            assert(codeAddr + 1 + sizeof(mdToken) + 1 <= codeEnd);
+            nextCodeAddr = codeAddr + 1 + sizeof(mdToken);
+            assert((nextCodeAddr + 1 + sizeof(mdToken)) <= codeEnd);
+
+            isinstClass = impResolveClassToken(codeAddr + 1);
+
+            if (jitInfo->compareTypesForEquality(isinstClass, boxClass) != TypeCompareState::Must)
             {
-                if (info.compCompHnd->getBoxHelper(pResolvedToken->hClass) == CORINFO_HELP_BOX)
-                {
-                    GenTree* sideEffects = impImportPop(compCurBB);
-
-                    if (sideEffects != nullptr)
-                    {
-                        impAppendTree(sideEffects, CHECK_SPILL_ALL, impCurStmtOffs);
-                    }
-
-                    impPushOnStack(gtNewIconNode(1), typeInfo());
-                    return 0;
-                }
+                return false;
             }
-            break;
 
-        case CEE_ISINST:
-            if (codeAddr + 1 + sizeof(mdToken) + 1 <= codeEndp)
+            unboxClass = impResolveClassToken(nextCodeAddr + 1);
+
+            if (jitInfo->compareTypesForEquality(unboxClass, boxClass) != TypeCompareState::Must)
             {
-                const BYTE* nextCodeAddr = codeAddr + 1 + sizeof(mdToken);
-
-                switch (nextCodeAddr[0])
-                {
-                    // box + isinst + br_true/false
-                    case CEE_BRTRUE:
-                    case CEE_BRTRUE_S:
-                    case CEE_BRFALSE:
-                    case CEE_BRFALSE_S:
-                        if ((nextCodeAddr + ((nextCodeAddr[0] >= CEE_BRFALSE) ? 5 : 2)) <= codeEndp)
-                        {
-                            if (!(impStackTop().val->gtFlags & GTF_SIDE_EFFECT))
-                            {
-                                CorInfoHelpFunc boxHelper = info.compCompHnd->getBoxHelper(pResolvedToken->hClass);
-                                if (boxHelper == CORINFO_HELP_BOX)
-                                {
-                                    CORINFO_RESOLVED_TOKEN isInstResolvedToken;
-
-                                    impResolveToken(codeAddr + 1, &isInstResolvedToken, CORINFO_TOKENKIND_Casting);
-
-                                    TypeCompareState castResult =
-                                        info.compCompHnd->compareTypesForCast(pResolvedToken->hClass,
-                                                                              isInstResolvedToken.hClass);
-                                    if (castResult != TypeCompareState::May)
-                                    {
-                                        JITDUMP("\n Importing BOX; ISINST; BR_TRUE/FALSE as constant\n");
-                                        impPopStack();
-
-                                        impPushOnStack(gtNewIconNode((castResult == TypeCompareState::Must) ? 1 : 0),
-                                                       typeInfo());
-
-                                        // Skip the next isinst instruction
-                                        return 1 + sizeof(mdToken);
-                                    }
-                                }
-                                else if (boxHelper == CORINFO_HELP_BOX_NULLABLE)
-                                {
-                                    // For nullable we're going to fold it to "ldfld hasValue + brtrue/brfalse" or
-                                    // "ldc.i4.0 + brtrue/brfalse" in case if the underlying type is not castable to
-                                    // the target type.
-                                    CORINFO_RESOLVED_TOKEN isInstResolvedToken;
-                                    impResolveToken(codeAddr + 1, &isInstResolvedToken, CORINFO_TOKENKIND_Casting);
-
-                                    CORINFO_CLASS_HANDLE nullableCls   = pResolvedToken->hClass;
-                                    CORINFO_CLASS_HANDLE underlyingCls = info.compCompHnd->getTypeForBox(nullableCls);
-
-                                    TypeCompareState castResult =
-                                        info.compCompHnd->compareTypesForCast(underlyingCls,
-                                                                              isInstResolvedToken.hClass);
-
-                                    if (castResult == TypeCompareState::Must)
-                                    {
-                                        const CORINFO_FIELD_HANDLE hasValueFldHnd =
-                                            info.compCompHnd->getFieldInClass(nullableCls, 0);
-
-                                        assert(info.compCompHnd->getFieldOffset(hasValueFldHnd) == 0);
-                                        assert(!strcmp(info.compCompHnd->getFieldName(hasValueFldHnd, nullptr),
-                                                       "hasValue"));
-
-                                        GenTree* objToBox = impPopStack().val;
-
-                                        // Spill struct to get its address (to access hasValue field)
-                                        objToBox = impGetStructAddr(objToBox, nullableCls, CHECK_SPILL_ALL, true);
-
-                                        impPushOnStack(gtNewFieldIndir(TYP_BOOL,
-                                                                       gtNewFieldAddr(objToBox, hasValueFldHnd, 0)),
-                                                       typeInfo());
-
-                                        JITDUMP("\n Importing BOX; ISINST; BR_TRUE/FALSE as nullableVT.hasValue\n");
-                                        return 1 + sizeof(mdToken);
-                                    }
-
-                                    if (castResult == TypeCompareState::MustNot)
-                                    {
-                                        impPopStack();
-                                        impPushOnStack(gtNewIconNode(0), typeInfo());
-                                        JITDUMP("\n Importing BOX; ISINST; BR_TRUE/FALSE as constant (false)\n");
-                                        return 1 + sizeof(mdToken);
-                                    }
-                                }
-                            }
-                        }
-                        break;
-
-                    // box + isinst + unbox.any
-                    case CEE_UNBOX_ANY:
-                        if ((nextCodeAddr + 1 + sizeof(mdToken)) <= codeEndp)
-                        {
-                            // See if the resolved tokens in box, isinst and unbox.any describe types that are equal.
-                            CORINFO_RESOLVED_TOKEN isinstResolvedToken = {};
-                            impResolveToken(codeAddr + 1, &isinstResolvedToken, CORINFO_TOKENKIND_Class);
-
-                            if (info.compCompHnd->compareTypesForEquality(isinstResolvedToken.hClass,
-                                                                          pResolvedToken->hClass) ==
-                                TypeCompareState::Must)
-                            {
-                                CORINFO_RESOLVED_TOKEN unboxResolvedToken = {};
-                                impResolveToken(nextCodeAddr + 1, &unboxResolvedToken, CORINFO_TOKENKIND_Class);
-
-                                // If so, box + isinst + unbox.any is a nop.
-                                if (info.compCompHnd->compareTypesForEquality(unboxResolvedToken.hClass,
-                                                                              pResolvedToken->hClass) ==
-                                    TypeCompareState::Must)
-                                {
-                                    JITDUMP("\n Importing BOX; ISINST, UNBOX.ANY as NOP\n");
-                                    return 2 + sizeof(mdToken) * 2;
-                                }
-                            }
-                        }
-                        break;
-                }
+                return false;
             }
-            break;
+
+            JITDUMP("\n Importing BOX; ISINST, UNBOX.ANY as NOP\n");
+
+            return true;
 
         default:
-            break;
+            return false;
     }
-
-    return -1;
 }
 
 //------------------------------------------------------------------------
@@ -13142,12 +13106,13 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     break;
                 }
 
-                // Look ahead for box idioms
-                int matched = impBoxPatternMatch(&resolvedToken, codeAddr + sz, codeEndp);
-                if (matched >= 0)
+                unsigned   patternSize;
+                BoxPattern pattern = comp->impBoxPatternMatch(codeAddr + sz, codeEndp, &patternSize);
+
+                if ((pattern != BoxPattern::None) &&
+                    impImportBoxPattern(pattern, &resolvedToken, codeAddr + sz DEBUGARG(codeEndp)))
                 {
-                    // Skip the matched IL instructions
-                    sz += matched;
+                    sz += patternSize;
                     break;
                 }
 
@@ -18730,4 +18695,13 @@ bool Importer::inlImportReturn(InlineInfo* inlineInfo, GenTree* op, CORINFO_CLAS
 void Importer::impResolveToken(const BYTE* addr, CORINFO_RESOLVED_TOKEN* resolvedToken, CorInfoTokenKind kind)
 {
     comp->impResolveToken(addr, resolvedToken, kind);
+}
+
+CORINFO_CLASS_HANDLE Importer::impResolveClassToken(const BYTE* addr, CorInfoTokenKind kind)
+{
+    assert((kind == CORINFO_TOKENKIND_Class) || (kind == CORINFO_TOKENKIND_Casting));
+
+    CORINFO_RESOLVED_TOKEN token{};
+    comp->impResolveToken(addr, &token, kind);
+    return token.hClass;
 }
