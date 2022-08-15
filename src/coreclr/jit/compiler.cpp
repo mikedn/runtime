@@ -20,7 +20,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "rangecheck.h"
 #include "lower.h"
 #include "stacklevelsetter.h"
-#include "jittelemetry.h"
 #include "patchpointinfo.h"
 #include "jitstd/algorithm.h"
 
@@ -1036,18 +1035,6 @@ void Compiler::compInit(ArenaAllocator*       alloc,
         m_inlineStrategy = new (this, CMK_Inlining) InlineStrategy(this);
     }
 
-#ifdef FEATURE_TRACELOGGING
-    // Make sure JIT telemetry is initialized as soon as allocations can be made
-    // but no later than a point where noway_asserts can be thrown.
-    //    1. JIT telemetry could allocate some objects internally.
-    //    2. NowayAsserts are tracked through telemetry.
-    //    Note: JIT telemetry could gather data when compiler is not fully initialized.
-    //          So you have to initialize the compiler variables you use for telemetry.
-    static_assert_no_msg(PHASE_PRE_IMPORT == 0);
-
-    compJitTelemetry.Initialize(this);
-#endif
-
     new (&m_importer) Importer(this);
 
     fgInit();
@@ -1391,16 +1378,8 @@ void DummyProfilerELTStub(UINT_PTR ProfilerHandle)
 
 #endif // PROFILING_SUPPORTED
 
-bool Compiler::compShouldThrowOnNoway(
-#ifdef FEATURE_TRACELOGGING
-    const char* filename, unsigned line
-#endif
-    )
+bool Compiler::compShouldThrowOnNoway()
 {
-#ifdef FEATURE_TRACELOGGING
-    compJitTelemetry.NotifyNowayAssert(filename, line);
-#endif
-
     // In min opts, we don't want the noway assert to go through the exception
     // path. Instead we want it to just silently go through codegen for
     // compat reasons.
@@ -3834,13 +3813,7 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
 
     RecordStateAtEndOfCompilation();
 
-#ifdef FEATURE_TRACELOGGING
-    compJitTelemetry.NotifyEndOfCompilation();
-#endif
-
-#if defined(DEBUG)
-    ++Compiler::jitTotalMethodCompiled;
-#endif // defined(DEBUG)
+    INDEBUG(++Compiler::jitTotalMethodCompiled);
 
     compFunctionTraceEnd(*methodCodePtr, *methodCodeSize, false);
     JITDUMP("Method code size: %d\n", (unsigned)(*methodCodeSize));
@@ -5529,7 +5502,7 @@ double JitTimer::s_cyclesPerSec = CachedCyclesPerSecond();
 #endif
 #endif // FEATURE_JIT_METHOD_PERF
 
-#if defined(FEATURE_JIT_METHOD_PERF) || DUMP_FLOWGRAPHS || defined(FEATURE_TRACELOGGING)
+#if defined(FEATURE_JIT_METHOD_PERF) || DUMP_FLOWGRAPHS
 const char* PhaseNames[] = {
 #define CompPhaseNameMacro(enum_nm, string_nm, short_nm, hasChildren, parent, measureIR) string_nm,
 #include "compphases.h"

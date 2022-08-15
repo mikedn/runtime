@@ -119,9 +119,6 @@ extern "C" DLLEXPORT void jitStartup(ICorJitHost* jitHost)
         jitstdout = procstdout();
     }
 
-#ifdef FEATURE_TRACELOGGING
-    JitTelemetry::NotifyDllProcessAttach();
-#endif
     Compiler::compStartup();
 
     g_jitInitialized = true;
@@ -146,10 +143,6 @@ void jitShutdown(bool processIsTerminating)
             fclose(jitstdout);
         }
     }
-
-#ifdef FEATURE_TRACELOGGING
-    JitTelemetry::NotifyDllProcessDetach();
-#endif
 
     g_jitInitialized = false;
 }
@@ -1178,7 +1171,7 @@ bool Compiler::eeRunWithSPMIErrorTrapImp(void (*function)(void*), void* param)
  *                      Utility functions
  */
 
-#if defined(DEBUG) || defined(FEATURE_JIT_METHOD_PERF) || defined(FEATURE_SIMD) || defined(FEATURE_TRACELOGGING)
+#if defined(DEBUG) || defined(FEATURE_JIT_METHOD_PERF) || defined(FEATURE_SIMD)
 
 /*****************************************************************************/
 
@@ -1207,7 +1200,7 @@ struct FilterSuperPMIExceptionsParam_ee_il
     EXCEPTION_POINTERS    exceptionPointers;
 };
 
-#if defined(DEBUG) || defined(FEATURE_JIT_METHOD_PERF) || defined(FEATURE_SIMD) || defined(FEATURE_TRACELOGGING)
+#if defined(DEBUG) || defined(FEATURE_JIT_METHOD_PERF) || defined(FEATURE_SIMD)
 
 bool Compiler::eeIsNativeMethod(CORINFO_METHOD_HANDLE method)
 {

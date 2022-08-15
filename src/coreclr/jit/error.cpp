@@ -108,32 +108,14 @@ void DECLSPEC_NORETURN noWayAssertBody()
     fatal(CORJIT_RECOVERABLEERROR);
 }
 
-inline static bool ShouldThrowOnNoway(
-#ifdef FEATURE_TRACELOGGING
-    const char* filename, unsigned line
-#endif
-    )
+inline static bool ShouldThrowOnNoway()
 {
-    return JitTls::GetCompiler() == nullptr ||
-           JitTls::GetCompiler()->compShouldThrowOnNoway(
-#ifdef FEATURE_TRACELOGGING
-               filename, line
-#endif
-               );
+    return JitTls::GetCompiler() == nullptr || JitTls::GetCompiler()->compShouldThrowOnNoway();
 }
 
-/*****************************************************************************/
-void NOINLINE noWayAssertBodyConditional(
-#ifdef FEATURE_TRACELOGGING
-    const char* filename, unsigned line
-#endif
-    )
+void NOINLINE noWayAssertBodyConditional()
 {
-#ifdef FEATURE_TRACELOGGING
-    if (ShouldThrowOnNoway(filename, line))
-#else
     if (ShouldThrowOnNoway())
-#endif // FEATURE_TRACELOGGING
     {
         noWayAssertBody();
     }
@@ -510,11 +492,7 @@ void noWayAssertAbortHelper(const char* cond, const char* file, unsigned line)
 
 void noWayAssertBodyConditional(const char* cond, const char* file, unsigned line)
 {
-#ifdef FEATURE_TRACELOGGING
-    if (ShouldThrowOnNoway(file, line))
-#else
     if (ShouldThrowOnNoway())
-#endif
     {
         noWayAssertBody(cond, file, line);
     }
