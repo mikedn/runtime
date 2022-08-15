@@ -978,11 +978,22 @@ void Compiler::compInit(ArenaAllocator*       alloc,
     compInlineResult           = nullptr;
     compVarScopeMap            = nullptr;
     codeGen                    = nullptr;
+    compHndBBtab               = nullptr;
+    compHndBBtabCount          = 0;
+    compHndBBtabAllocCount     = 0;
+    compHasBackwardJump        = false;
+    compSwitchedToOptimized    = false;
+    compSwitchedToMinOpts      = false;
 #ifndef TARGET_X86
     m_abiStructArgTemps      = nullptr;
     m_abiStructArgTempsInUse = nullptr;
 #endif
 #ifdef DEBUG
+    compCurBB           = nullptr;
+    lvaTable            = nullptr;
+    compGenTreeID       = 0;
+    compStatementID     = 0;
+    compBasicBlockID    = 0;
     compCodeGenDone     = false;
     compInlinedCodeSize = 0;
 #endif
@@ -990,7 +1001,15 @@ void Compiler::compInit(ArenaAllocator*       alloc,
 
     memset(&opts, 0, sizeof(opts));
 
-    info.compILCodeSize = 0;
+    info.compILCodeSize                         = 0;
+    info.compILImportSize                       = 0;
+    info.compNativeCodeSize                     = 0;
+    info.compTotalHotCodeSize                   = 0;
+    info.compTotalColdCodeSize                  = 0;
+    info.compClassProbeCount                    = 0;
+    info.compHasNextCallRetAddr                 = false;
+    info.compUnmanagedCallCountWithGCTransition = 0;
+    info.compIsVarArgs                          = false;
 #if defined(DEBUG) || defined(INLINE_DATA)
     info.compMethodHashPrivate = 0;
 #endif
@@ -4148,30 +4167,8 @@ int Compiler::compCompile(CORINFO_MODULE_HANDLE module,
     }
 #endif // DEBUG
 
-    info.compCode                               = info.compMethodInfo->ILCode;
-    info.compILCodeSize                         = info.compMethodInfo->ILCodeSize;
-    info.compILImportSize                       = 0;
-    info.compNativeCodeSize                     = 0;
-    info.compTotalHotCodeSize                   = 0;
-    info.compTotalColdCodeSize                  = 0;
-    info.compClassProbeCount                    = 0;
-    info.compHasNextCallRetAddr                 = false;
-    info.compUnmanagedCallCountWithGCTransition = 0;
-    info.compIsVarArgs                          = false;
-
-    compHndBBtab            = nullptr;
-    compHndBBtabCount       = 0;
-    compHndBBtabAllocCount  = 0;
-    compHasBackwardJump     = false;
-    compSwitchedToOptimized = false;
-    compSwitchedToMinOpts   = false;
-#ifdef DEBUG
-    compCurBB        = nullptr;
-    lvaTable         = nullptr;
-    compGenTreeID    = 0;
-    compStatementID  = 0;
-    compBasicBlockID = 0;
-#endif
+    info.compCode       = info.compMethodInfo->ILCode;
+    info.compILCodeSize = info.compMethodInfo->ILCodeSize;
 
     struct Param
     {
