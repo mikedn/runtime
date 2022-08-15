@@ -4174,28 +4174,23 @@ int Compiler::compCompile(CORINFO_MODULE_HANDLE module,
     {
         Compiler*             compiler;
         CORINFO_MODULE_HANDLE module;
-        ICorJitInfo*          jitInfo;
-        CORINFO_METHOD_INFO*  methodInfo;
         void**                methodCode;
         uint32_t*             methodCodeSize;
-        JitFlags*             compileFlags;
+        JitFlags*             jitFlags;
         int                   result;
     } param;
 
     param.compiler       = this;
     param.module         = module;
-    param.jitInfo        = info.compCompHnd;
-    param.methodInfo     = info.compMethodInfo;
     param.methodCode     = methodCode;
     param.methodCodeSize = methodCodeSize;
-    param.compileFlags   = compileFlags;
+    param.jitFlags       = compileFlags;
     param.result         = CORJIT_INTERNALERROR;
 
     setErrorTrap(info.compCompHnd, Param*, pParam, &param)
     {
-        pParam->result =
-            pParam->compiler->compCompileHelper(pParam->module, pParam->jitInfo, pParam->methodInfo, pParam->methodCode,
-                                                pParam->methodCodeSize, pParam->compileFlags);
+        pParam->result = pParam->compiler->compCompileHelper(pParam->module, pParam->methodCode, pParam->methodCodeSize,
+                                                             pParam->jitFlags);
     }
     finallyErrorTrap()
     {
@@ -4580,12 +4575,10 @@ unsigned getMethodBodyChecksum(__in_z char* code, int size)
 #endif
 }
 
-int Compiler::compCompileHelper(CORINFO_MODULE_HANDLE classPtr,
-                                COMP_HANDLE           compHnd,
-                                CORINFO_METHOD_INFO*  methodInfo,
-                                void**                methodCodePtr,
+int Compiler::compCompileHelper(CORINFO_MODULE_HANDLE module,
+                                void**                methodCode,
                                 uint32_t*             methodCodeSize,
-                                JitFlags*             compileFlags)
+                                JitFlags*             jitFlags)
 {
     assert(!compIsForInlining());
 
@@ -4601,7 +4594,7 @@ int Compiler::compCompileHelper(CORINFO_MODULE_HANDLE classPtr,
     info.compChecksum = getMethodBodyChecksum((char*)methodInfo->ILCode, methodInfo->ILCodeSize);
 #endif
 
-    compInitOptions(compileFlags);
+    compInitOptions(jitFlags);
 
     if (!opts.altJit && opts.jitFlags->IsSet(JitFlags::JIT_FLAG_ALT_JIT))
     {
@@ -4635,17 +4628,17 @@ int Compiler::compCompileHelper(CORINFO_MODULE_HANDLE classPtr,
     }
 #endif
 
-    info.compScopeHnd         = classPtr;
-    info.compXcptnsCount      = methodInfo->EHcount;
-    info.compMaxStack         = methodInfo->maxStack;
+    info.compScopeHnd         = module;
+    info.compXcptnsCount      = info.compMethodInfo->EHcount;
+    info.compMaxStack         = info.compMethodInfo->maxStack;
     info.compIsStatic         = (info.compFlags & CORINFO_FLG_STATIC) != 0;
-    info.compInitMem          = (methodInfo->options & CORINFO_OPT_INIT_LOCALS) != 0;
+    info.compInitMem          = (info.compMethodInfo->options & CORINFO_OPT_INIT_LOCALS) != 0;
     info.compPublishStubParam = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PUBLISH_SECRET_PARAM);
 
     if (opts.IsReversePInvoke())
     {
         bool unused;
-        info.compCallConv = info.compCompHnd->getUnmanagedCallConv(methodInfo->ftn, nullptr, &unused);
+        info.compCallConv = info.compCompHnd->getUnmanagedCallConv(info.compMethodInfo->ftn, nullptr, &unused);
         info.compArgOrder = Target::g_tgtUnmanagedArgOrder;
     }
     else
@@ -4654,7 +4647,7 @@ int Compiler::compCompileHelper(CORINFO_MODULE_HANDLE classPtr,
         info.compArgOrder = Target::g_tgtArgOrder;
     }
 
-    switch (methodInfo->args.getCallConv())
+    switch (info.compMethodInfo->args.getCallConv())
     {
         case CORINFO_CALLCONV_NATIVEVARARG:
         case CORINFO_CALLCONV_VARARG:
@@ -4664,7 +4657,7 @@ int Compiler::compCompileHelper(CORINFO_MODULE_HANDLE classPtr,
             break;
     }
 
-    codeGen->GetEmitter()->emitBegCG(this, compHnd);
+    codeGen->GetEmitter()->emitBegCG(this, info.compCompHnd);
     lvaInitTypeRef();
     compInitDebuggingInfo();
 
@@ -4683,7 +4676,7 @@ int Compiler::compCompileHelper(CORINFO_MODULE_HANDLE classPtr,
         prejitResult.NoteBool(InlineObservation::CALLSITE_HAS_PROFILE, fgHaveSufficientProfileData());
 
         // Do the initial inline screen.
-        impCanInlineIL(methodHnd, methodInfo, (info.compFlags & CORINFO_FLG_FORCEINLINE) != 0, &prejitResult);
+        impCanInlineIL(methodHnd, info.compMethodInfo, (info.compFlags & CORINFO_FLG_FORCEINLINE) != 0, &prejitResult);
 
         // Temporarily install the prejitResult as the
         // compInlineResult so it's available to fgFindJumpTargets
@@ -4714,7 +4707,7 @@ int Compiler::compCompileHelper(CORINFO_MODULE_HANDLE classPtr,
         // profitability.
         if (prejitResult.IsDiscretionaryCandidate())
         {
-            prejitResult.DetermineProfitability(methodInfo);
+            prejitResult.DetermineProfitability(info.compMethodInfo);
         }
 
         m_inlineStrategy->NotePrejitDecision(prejitResult);
@@ -4779,7 +4772,7 @@ int Compiler::compCompileHelper(CORINFO_MODULE_HANDLE classPtr,
     }
 #endif
 
-    compCompile(methodCodePtr, methodCodeSize, compileFlags);
+    compCompile(methodCode, methodCodeSize, jitFlags);
     compCompileFinish();
 
     // Did we just compile for a target architecture that the VM isn't expecting? If so, the VM

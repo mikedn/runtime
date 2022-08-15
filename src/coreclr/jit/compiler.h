@@ -7656,12 +7656,10 @@ public:
 
     int compCompile(CORINFO_MODULE_HANDLE module, void** methodCode, uint32_t* methodCodeSize, JitFlags* compileFlags);
     void compCompileFinish();
-    int compCompileHelper(CORINFO_MODULE_HANDLE classPtr,
-                          COMP_HANDLE           compHnd,
-                          CORINFO_METHOD_INFO*  methodInfo,
-                          void**                methodCodePtr,
+    int compCompileHelper(CORINFO_MODULE_HANDLE module,
+                          void**                methodCode,
                           uint32_t*             methodCodeSize,
-                          JitFlags*             compileFlag);
+                          JitFlags*             jitFlags);
 
     ArenaAllocator* compGetArenaAllocator();
 
