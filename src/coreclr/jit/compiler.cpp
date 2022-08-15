@@ -929,55 +929,96 @@ void Compiler::compDisplayStaticSizes(FILE* fout)
 
 INDEBUG(ConfigMethodRange fJitStressRange;)
 
-/*****************************************************************************
- *
- *  Constructor
- */
 void Compiler::compInit(ArenaAllocator*       alloc,
                         CORINFO_METHOD_HANDLE methodHnd,
-                        COMP_HANDLE           compHnd,
+                        ICorJitInfo*          jitInfo,
                         CORINFO_METHOD_INFO*  methodInfo,
                         InlineInfo*           inlineInfo)
 {
-    compArenaAllocator = alloc;
-
-    new (&m_importer) Importer(this);
-
-    // Inlinee Compile object will only be allocated when needed for the 1st time.
-    InlineeCompiler = nullptr;
-
-    // Set the inline info.
-    impInlineInfo       = inlineInfo;
-    info.compCompHnd    = compHnd;
+    compArenaAllocator  = alloc;
     info.compMethodHnd  = methodHnd;
+    info.compCompHnd    = jitInfo;
     info.compMethodInfo = methodInfo;
+    impInlineInfo       = inlineInfo;
+
+    InlineeCompiler            = nullptr;
+    eeInfoInitialized          = false;
+    compDoAggressiveInlining   = false;
+    mostRecentlyActivePhase    = PHASE_PRE_IMPORT;
+    activePhaseChecks          = PhaseChecks::CHECK_NONE;
+    compJmpOpUsed              = false;
+    compLongUsed               = false;
+    compTailCallUsed           = false;
+    compLocallocUsed           = false;
+    compLocallocOptimized      = false;
+    compQmarkRationalized      = false;
+    compQmarkUsed              = false;
+    compFloatingPointUsed      = false;
+    compUsesThrowHelper        = false;
+    compSuppressedZeroInit     = false;
+    compNeedsGSSecurityCookie  = false;
+    compGSReorderStackLayout   = false;
+    compGeneratingProlog       = false;
+    compGeneratingEpilog       = false;
+    compLSRADone               = false;
+    compRationalIRForm         = false;
+    optMethodFlags             = 0;
+    optNoReturnCallCount       = 0;
+    m_switchDescMap            = nullptr;
+    m_fieldSeqStore            = nullptr;
+    m_zeroOffsetFieldMap       = nullptr;
+    m_refAnyClass              = nullptr;
+    m_memorySsaMap             = nullptr;
+    ssaForm                    = false;
+    vnStore                    = nullptr;
+    m_partialSsaDefMap         = nullptr;
+    m_nodeToLoopMemoryBlockMap = nullptr;
+    fgOrder                    = FGOrderTree;
+    m_classLayoutTable         = nullptr;
+    m_inlineStrategy           = nullptr;
+    compInlineResult           = nullptr;
+    compVarScopeMap            = nullptr;
+    codeGen                    = nullptr;
+#ifndef TARGET_X86
+    m_abiStructArgTemps      = nullptr;
+    m_abiStructArgTempsInUse = nullptr;
+#endif
+#ifdef DEBUG
+    compCodeGenDone = false;
+#endif
+    hbvGlobalData.Init();
+
+    opts.compMinOptsIsSet = false;
+    opts.instrCount       = 0;
+#ifdef DEBUG
+    opts.compMinOptsIsUsed = false;
+#endif
+
+    info.compILCodeSize = 0;
+#if defined(DEBUG) || defined(INLINE_DATA)
+    info.compMethodHashPrivate = 0;
+#endif
 
 #if defined(DEBUG) || defined(LATE_DISASM) || DUMP_FLOWGRAPHS
     // Initialize the method name and related info, as it is used early in determining whether to
     // apply stress modes, and which ones to apply.
     // Note that even allocating memory can invoke the stress mechanism, so ensure that both
     // 'compMethodName' and 'compFullName' are either null or valid before we allocate.
-    // (The stress mode checks references these prior to checking bRangeAllowStress.)
-    //
     info.compMethodName = nullptr;
     info.compClassName  = nullptr;
     info.compFullName   = nullptr;
 
     const char* classNamePtr;
     const char* methodName = eeGetMethodName(methodHnd, &classNamePtr);
-    unsigned    len        = (unsigned)roundUp(strlen(classNamePtr) + 1);
-    info.compClassName     = getAllocator(CMK_DebugOnly).allocate<char>(len);
-    info.compMethodName    = methodName;
-    strcpy_s((char*)info.compClassName, len, classNamePtr);
+    unsigned    len        = static_cast<unsigned>(roundUp(strlen(classNamePtr) + 1));
+    char*       className  = getAllocator(CMK_DebugOnly).allocate<char>(len);
+    strcpy_s(className, len, classNamePtr);
 
-    info.compFullName  = eeGetMethodFullName(methodHnd);
-    info.compPerfScore = 0.0;
-
+    info.compMethodName          = methodName;
+    info.compClassName           = className;
+    info.compFullName            = eeGetMethodFullName(methodHnd);
+    info.compPerfScore           = 0.0;
     info.compMethodSuperPMIIndex = g_jitHost->getIntConfigValue(W("SuperPMIMethodContextNumber"), -1);
-#endif // defined(DEBUG) || defined(LATE_DISASM) || DUMP_FLOWGRAPHS
-
-#if defined(DEBUG) || defined(INLINE_DATA)
-    info.compMethodHashPrivate = 0;
 #endif
 
     // Opt-in to jit stress based on method hash ranges.
@@ -986,26 +1027,14 @@ void Compiler::compInit(ArenaAllocator*       alloc,
     assert(!fJitStressRange.Error());
     INDEBUG(bRangeAllowStress = fJitStressRange.Contains(info.compMethodHash()));
 
-    eeInfoInitialized = false;
-
-    compDoAggressiveInlining = false;
-
     if (compIsForInlining())
     {
-        m_inlineStrategy = nullptr;
         compInlineResult = inlineInfo->inlineResult;
     }
     else
     {
         m_inlineStrategy = new (this, CMK_Inlining) InlineStrategy(this);
-        compInlineResult = nullptr;
     }
-
-    // Initialize this to the first phase to run.
-    mostRecentlyActivePhase = PHASE_PRE_IMPORT;
-
-    // Initially, no phase checks are active.
-    activePhaseChecks = PhaseChecks::CHECK_NONE;
 
 #ifdef FEATURE_TRACELOGGING
     // Make sure JIT telemetry is initialized as soon as allocations can be made
@@ -1014,24 +1043,18 @@ void Compiler::compInit(ArenaAllocator*       alloc,
     //    2. NowayAsserts are tracked through telemetry.
     //    Note: JIT telemetry could gather data when compiler is not fully initialized.
     //          So you have to initialize the compiler variables you use for telemetry.
-    assert((unsigned)PHASE_PRE_IMPORT == 0);
-    info.compILCodeSize = 0;
-    info.compMethodHnd  = nullptr;
+    static_assert_no_msg(PHASE_PRE_IMPORT == 0);
+
     compJitTelemetry.Initialize(this);
 #endif
 
-    hashBv::Init(this);
+    new (&m_importer) Importer(this);
 
     fgInit();
     lvaInit();
 
     if (!compIsForInlining())
     {
-        codeGen = getCodeGenerator(this);
-        optInit();
-
-        compVarScopeMap = nullptr;
-
         // If this method were a real constructor for Compiler, these would
         // become method initializations.
         m_importer.impPendingBlockMembers = JitExpandArray<bool>(getAllocator());
@@ -1039,82 +1062,14 @@ void Compiler::compInit(ArenaAllocator*       alloc,
 
         lvMemoryPerSsaData = SsaDefArray<SsaMemDef>();
 
-        //
-        // Initialize all the per-method statistics gathering data structures.
-        //
+        optInit();
 
-        optLoopsCloned = 0;
+        codeGen = getCodeGenerator(this);
 
-#if LOOP_HOIST_STATS
-        m_loopsConsidered             = 0;
-        m_curLoopHasHoistedExpression = false;
-        m_loopsWithHoistedExpressions = 0;
-        m_totalHoistedExpressions     = 0;
-#endif // LOOP_HOIST_STATS
 #if MEASURE_NODE_SIZE
         genNodeSizeStatsPerFunc.Init();
-#endif // MEASURE_NODE_SIZE
-    }
-    else
-    {
-        codeGen = nullptr;
-    }
-
-    compJmpOpUsed         = false;
-    compLongUsed          = false;
-    compTailCallUsed      = false;
-    compLocallocUsed      = false;
-    compLocallocOptimized = false;
-    compQmarkRationalized = false;
-    compQmarkUsed         = false;
-    compFloatingPointUsed = false;
-
-    compSuppressedZeroInit = false;
-
-    compNeedsGSSecurityCookie = false;
-    compGSReorderStackLayout  = false;
-
-    compGeneratingProlog = false;
-    compGeneratingEpilog = false;
-
-    compLSRADone       = false;
-    compRationalIRForm = false;
-
-#ifdef DEBUG
-    compCodeGenDone        = false;
-    opts.compMinOptsIsUsed = false;
 #endif
-    opts.compMinOptsIsSet = false;
-
-    // Used by fgFindJumpTargets for inlining heuristics.
-    opts.instrCount = 0;
-
-    // Used to track when we should consider running EarlyProp
-    optMethodFlags       = 0;
-    optNoReturnCallCount = 0;
-
-    m_switchDescMap      = nullptr;
-    m_fieldSeqStore      = nullptr;
-    m_zeroOffsetFieldMap = nullptr;
-    m_refAnyClass        = nullptr;
-
-    m_memorySsaMap = nullptr;
-
-    ssaForm                    = false;
-    vnStore                    = nullptr;
-    m_partialSsaDefMap         = nullptr;
-    m_nodeToLoopMemoryBlockMap = nullptr;
-
-    // We start with the flow graph in tree-order
-    fgOrder = FGOrderTree;
-
-    m_classLayoutTable = nullptr;
-#ifndef TARGET_X86
-    m_abiStructArgTemps      = nullptr;
-    m_abiStructArgTempsInUse = nullptr;
-#endif
-
-    compUsesThrowHelper = false;
+    }
 }
 
 void* Compiler::compGetHelperFtn(CorInfoHelpFunc ftnNum,        /* IN  */

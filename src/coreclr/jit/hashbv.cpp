@@ -382,11 +382,6 @@ hashBv* hashBv::Create(Compiler* compiler)
     return result;
 }
 
-void hashBv::Init(Compiler* compiler)
-{
-    memset(&compiler->hbvGlobalData, 0, sizeof(hashBvGlobalData));
-}
-
 hashBvGlobalData* hashBv::globalData()
 {
     return &compiler->hbvGlobalData;

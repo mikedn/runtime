@@ -20,6 +20,15 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 void Compiler::optInit()
 {
+    optLoopsCloned = 0;
+
+#if LOOP_HOIST_STATS
+    m_loopsConsidered             = 0;
+    m_curLoopHasHoistedExpression = false;
+    m_loopsWithHoistedExpressions = 0;
+    m_totalHoistedExpressions     = 0;
+#endif
+
     optLoopsMarked = false;
     fgHasLoops     = false;
 

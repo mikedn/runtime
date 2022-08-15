@@ -7638,7 +7638,7 @@ public:
 
     void compInit(ArenaAllocator*       pAlloc,
                   CORINFO_METHOD_HANDLE methodHnd,
-                  COMP_HANDLE           compHnd,
+                  ICorJitInfo*          jitInfo,
                   CORINFO_METHOD_INFO*  methodInfo,
                   InlineInfo*           inlineInfo = nullptr);
 
