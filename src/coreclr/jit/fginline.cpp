@@ -761,15 +761,6 @@ void Compiler::inlMainHelper(CORINFO_MODULE_HANDLE module,
             printf("Basic block list for '%s'\n", info.compFullName);
             fgDispBasicBlocks();
         }
-
-        if (opts.disAsm || verbose)
-        {
-            compMethodID = ~info.compMethodHash() & 0xffff;
-        }
-        else
-        {
-            compMethodID = InterlockedIncrement(&s_compMethodsCount);
-        }
 #endif
 
         compInlineResult->NoteInt(InlineObservation::CALLEE_NUMBER_OF_BASIC_BLOCKS, fgBBcount);
