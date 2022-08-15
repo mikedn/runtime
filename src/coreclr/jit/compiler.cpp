@@ -1222,6 +1222,8 @@ unsigned char Compiler::compGetJitDefaultFill(Compiler* comp)
 
 void Compiler::compSetProcessor()
 {
+    assert(!compIsForInlining());
+
     //
     // NOTE: This function needs to be kept in sync with EEJitManager::SetCpuInfo() in vm\codeman.cpp
     //
@@ -1425,15 +1427,12 @@ void Compiler::compSetProcessor()
     opts.setSupportedISAs(instructionSetFlags);
 
 #ifdef TARGET_XARCH
-    if (!compIsForInlining())
+    if (canUseVexEncoding())
     {
-        if (canUseVexEncoding())
-        {
-            codeGen->GetEmitter()->SetUseVEXEncoding(true);
-            // Assume each JITted method does not contain AVX instruction at first
-            codeGen->GetEmitter()->SetContainsAVX(false);
-            codeGen->GetEmitter()->SetContains256bitAVX(false);
-        }
+        codeGen->GetEmitter()->SetUseVEXEncoding(true);
+        // Assume each JITted method does not contain AVX instruction at first
+        codeGen->GetEmitter()->SetContainsAVX(false);
+        codeGen->GetEmitter()->SetContains256bitAVX(false);
     }
 #endif // TARGET_XARCH
 }

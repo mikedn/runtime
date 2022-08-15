@@ -840,8 +840,22 @@ void Compiler::inlInitOptions(JitFlags* jitFlags)
     opts.compFastTailCalls = inliner->opts.compFastTailCalls;
 #endif
 
-    compSetProcessor();
+    inlSetProcessor(*jitFlags);
     compInitPgo(jitFlags);
+}
+
+void Compiler::inlSetProcessor(const JitFlags& jitFlags)
+{
+    assert(compIsForInlining());
+
+    Compiler* inliner = impInlineRoot();
+
+    info.genCPU = inliner->info.genCPU;
+
+    opts.compUseCMOV             = inliner->opts.compUseCMOV;
+    opts.compSupportsISA         = inliner->opts.compSupportsISA;
+    opts.compSupportsISAReported = 0;
+    opts.compSupportsISAExactly  = 0;
 }
 
 void Compiler::inlSetOptimizationLevel()
