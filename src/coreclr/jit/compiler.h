@@ -5806,11 +5806,6 @@ private:
 
     unsigned fgLargeFieldOffsetNullCheckTemps[TYP_COUNT];
 
-#ifdef DEBUG
-    void               CheckNoTransformableIndirectCallsRemain();
-    static fgWalkPreFn fgDebugCheckForTransformableIndirectCalls;
-#endif
-
     void fgPromoteStructs();
 
 #if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)

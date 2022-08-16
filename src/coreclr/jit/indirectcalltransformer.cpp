@@ -1252,46 +1252,6 @@ private:
     Compiler* compiler;
 };
 
-#ifdef DEBUG
-
-//------------------------------------------------------------------------
-// fgDebugCheckForTransformableIndirectCalls: callback to make sure there
-//  are no more GTF_CALL_M_FAT_POINTER_CHECK or GTF_CALL_M_GUARDED_DEVIRT
-//  calls remaining
-//
-Compiler::fgWalkResult Compiler::fgDebugCheckForTransformableIndirectCalls(GenTree** pTree, fgWalkData* data)
-{
-    GenTree* tree = *pTree;
-    if (tree->IsCall())
-    {
-        GenTreeCall* call = tree->AsCall();
-        assert(!call->IsFatPointerCandidate());
-        assert(!call->IsGuardedDevirtualizationCandidate());
-        assert(!call->IsExpRuntimeLookup());
-    }
-    return WALK_CONTINUE;
-}
-
-//------------------------------------------------------------------------
-// CheckNoTransformableIndirectCallsRemain: walk through blocks and check
-//    that there are no indirect call candidates left to transform.
-//
-void Compiler::CheckNoTransformableIndirectCallsRemain()
-{
-    assert(!doesMethodHaveFatPointer());
-    assert(!doesMethodHaveGuardedDevirtualization());
-    assert(!doesMethodHaveExpRuntimeLookup());
-
-    for (BasicBlock* const block : Blocks())
-    {
-        for (Statement* const stmt : block->Statements())
-        {
-            fgWalkTreePre(stmt->GetRootNodePointer(), fgDebugCheckForTransformableIndirectCalls);
-        }
-    }
-}
-#endif
-
 //------------------------------------------------------------------------
 // fgTransformIndirectCalls: find and transform various indirect calls
 //
@@ -1309,14 +1269,7 @@ PhaseStatus Compiler::fgTransformIndirectCalls()
         IndirectCallTransformer indirectCallTransformer(this);
         count = indirectCallTransformer.Run();
 
-        if (count > 0)
-        {
-            JITDUMP("\n -- %d calls transformed\n", count);
-        }
-        else
-        {
-            JITDUMP("\n -- no transforms done (?)\n");
-        }
+        JITDUMP("\n -- %d calls transformed\n", count);
 
         clearMethodHasFatPointer();
         clearMethodHasGuardedDevirtualization();
@@ -1327,7 +1280,23 @@ PhaseStatus Compiler::fgTransformIndirectCalls()
         JITDUMP("\n -- no candidates to transform\n");
     }
 
-    INDEBUG(CheckNoTransformableIndirectCallsRemain(););
+#ifdef DEBUG
+    for (BasicBlock* const block : Blocks())
+    {
+        for (Statement* const stmt : block->Statements())
+        {
+            fgWalkTreePre(stmt->GetRootNodePointer(), [](GenTree** use, fgWalkData* data) {
+                if (GenTreeCall* call = (*use)->IsCall())
+                {
+                    assert(!call->IsFatPointerCandidate());
+                    assert(!call->IsGuardedDevirtualizationCandidate());
+                    assert(!call->IsExpRuntimeLookup());
+                }
+                return WALK_CONTINUE;
+            });
+        }
+    }
+#endif
 
     return (count == 0) ? PhaseStatus::MODIFIED_NOTHING : PhaseStatus::MODIFIED_EVERYTHING;
 }
