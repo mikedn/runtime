@@ -2758,11 +2758,11 @@ struct Importer
                                          bool                    mustRestoreHandle = false,
                                          bool*                   runtimeLookup     = nullptr);
 
-    GenTreeCall* impReadyToRunHelperToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
-                                           CorInfoHelpFunc         helper,
-                                           var_types               type,
-                                           GenTreeCall::Use*       args              = nullptr,
-                                           CORINFO_LOOKUP_KIND*    genericLookupKind = nullptr);
+    GenTreeCall* gtNewReadyToRunHelperCallNode(CORINFO_RESOLVED_TOKEN* resolvedToken,
+                                               CorInfoHelpFunc         helper,
+                                               var_types               type,
+                                               GenTreeCall::Use*       args              = nullptr,
+                                               CORINFO_LOOKUP_KIND*    genericLookupKind = nullptr);
 
     GenTree* gtNewRuntimeContextTree(CORINFO_RUNTIME_LOOKUP_KIND kind);
 
@@ -4321,11 +4321,11 @@ public:
 
     GenTree* gtNewRuntimeContextTree(CORINFO_RUNTIME_LOOKUP_KIND kind);
 
-    GenTreeCall* impReadyToRunHelperToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                           CorInfoHelpFunc         helper,
-                                           var_types               type,
-                                           GenTreeCall::Use*       args               = nullptr,
-                                           CORINFO_LOOKUP_KIND*    pGenericLookupKind = nullptr);
+    GenTreeCall* gtNewReadyToRunHelperCallNode(CORINFO_RESOLVED_TOKEN* pResolvedToken,
+                                               CorInfoHelpFunc         helper,
+                                               var_types               type,
+                                               GenTreeCall::Use*       args               = nullptr,
+                                               CORINFO_LOOKUP_KIND*    pGenericLookupKind = nullptr);
 
     bool IsIntrinsicImplementedByUserCall(NamedIntrinsic intrinsicName);
     bool IsTargetIntrinsic(NamedIntrinsic intrinsicName);

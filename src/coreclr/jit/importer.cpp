@@ -1338,7 +1338,7 @@ GenTree* Importer::gtNewReadyToRunLookupTree(CORINFO_CONST_LOOKUP* pLookup,
     return addr;
 }
 
-GenTreeCall* Compiler::impReadyToRunHelperToTree(
+GenTreeCall* Compiler::gtNewReadyToRunHelperCallNode(
     CORINFO_RESOLVED_TOKEN* pResolvedToken,
     CorInfoHelpFunc         helper,
     var_types               type,
@@ -1445,8 +1445,8 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
 #ifdef FEATURE_READYTORUN_COMPILER
         if (opts.IsReadyToRun())
         {
-            return impReadyToRunHelperToTree(pResolvedToken, CORINFO_HELP_READYTORUN_GENERIC_HANDLE, TYP_I_IMPL,
-                                             gtNewCallArgs(ctxTree), &pLookup->lookupKind);
+            return gtNewReadyToRunHelperCallNode(pResolvedToken, CORINFO_HELP_READYTORUN_GENERIC_HANDLE, TYP_I_IMPL,
+                                                 gtNewCallArgs(ctxTree), &pLookup->lookupKind);
         }
 #endif
         return gtNewRuntimeLookupHelperCallNode(pRuntimeLookup, ctxTree, compileTimeHandle);
@@ -4607,8 +4607,8 @@ GenTree* Importer::impImportLdvirtftn(GenTree*                thisPtr,
         {
             GenTree* ctxTree = gtNewRuntimeContextTree(pCallInfo->codePointerLookup.lookupKind.runtimeLookupKind);
 
-            return impReadyToRunHelperToTree(pResolvedToken, CORINFO_HELP_READYTORUN_GENERIC_HANDLE, TYP_I_IMPL,
-                                             gtNewCallArgs(ctxTree), &pCallInfo->codePointerLookup.lookupKind);
+            return gtNewReadyToRunHelperCallNode(pResolvedToken, CORINFO_HELP_READYTORUN_GENERIC_HANDLE, TYP_I_IMPL,
+                                                 gtNewCallArgs(ctxTree), &pCallInfo->codePointerLookup.lookupKind);
         }
     }
 #endif
@@ -12500,8 +12500,8 @@ void Importer::impImportBlockCode(BasicBlock* block)
 #ifdef FEATURE_READYTORUN_COMPILER
                 if (opts.IsReadyToRun())
                 {
-                    op1 = impReadyToRunHelperToTree(&resolvedToken, CORINFO_HELP_READYTORUN_NEWARR_1, TYP_REF,
-                                                    gtNewCallArgs(op2));
+                    op1 = gtNewReadyToRunHelperCallNode(&resolvedToken, CORINFO_HELP_READYTORUN_NEWARR_1, TYP_REF,
+                                                        gtNewCallArgs(op2));
                     usingReadyToRunHelper = (op1 != nullptr);
 
                     if (!usingReadyToRunHelper)
@@ -12683,8 +12683,8 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 if (opts.IsReadyToRun())
                 {
                     GenTreeCall* opLookup =
-                        impReadyToRunHelperToTree(&resolvedToken, CORINFO_HELP_READYTORUN_ISINSTANCEOF, TYP_REF,
-                                                  gtNewCallArgs(op1));
+                        gtNewReadyToRunHelperCallNode(&resolvedToken, CORINFO_HELP_READYTORUN_ISINSTANCEOF, TYP_REF,
+                                                      gtNewCallArgs(op1));
                     usingReadyToRunHelper = (opLookup != nullptr);
                     op1                   = (usingReadyToRunHelper ? opLookup : op1);
 
@@ -13145,8 +13145,8 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     if (opts.IsReadyToRun())
                     {
                         GenTreeCall* opLookup =
-                            impReadyToRunHelperToTree(&resolvedToken, CORINFO_HELP_READYTORUN_CHKCAST, TYP_REF,
-                                                      gtNewCallArgs(op1));
+                            gtNewReadyToRunHelperCallNode(&resolvedToken, CORINFO_HELP_READYTORUN_CHKCAST, TYP_REF,
+                                                          gtNewCallArgs(op1));
                         usingReadyToRunHelper = (opLookup != nullptr);
                         op1                   = (usingReadyToRunHelper ? opLookup : op1);
 
@@ -17917,13 +17917,13 @@ GenTree* Importer::impParentClassTokenToHandle(CORINFO_RESOLVED_TOKEN* resolvedT
     return impTokenToHandle(resolvedToken, mustRestoreHandle, /* importParent */ true, runtimeLookup);
 }
 
-GenTreeCall* Importer::impReadyToRunHelperToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
-                                                 CorInfoHelpFunc         helper,
-                                                 var_types               type,
-                                                 GenTreeCall::Use*       args,
-                                                 CORINFO_LOOKUP_KIND*    genericLookupKind)
+GenTreeCall* Importer::gtNewReadyToRunHelperCallNode(CORINFO_RESOLVED_TOKEN* resolvedToken,
+                                                     CorInfoHelpFunc         helper,
+                                                     var_types               type,
+                                                     GenTreeCall::Use*       args,
+                                                     CORINFO_LOOKUP_KIND*    genericLookupKind)
 {
-    return comp->impReadyToRunHelperToTree(resolvedToken, helper, type, args, genericLookupKind);
+    return comp->gtNewReadyToRunHelperCallNode(resolvedToken, helper, type, args, genericLookupKind);
 }
 
 GenTree* Importer::gtNewRuntimeContextTree(CORINFO_RUNTIME_LOOKUP_KIND kind)
