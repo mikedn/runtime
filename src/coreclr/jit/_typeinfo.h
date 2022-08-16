@@ -27,28 +27,6 @@ enum ti_types
 #define TI_I_IMPL TI_INT
 #endif
 
-extern const ti_types g_ti_types_map[CORINFO_TYPE_COUNT];
-
-// Convert the type returned from the VM to a ti_type.
-
-inline ti_types JITtype2tiType(CorInfoType type)
-{
-    // spot check to make certain enumerations have not changed
-
-    assert(g_ti_types_map[CORINFO_TYPE_CLASS] == TI_REF);
-    assert(g_ti_types_map[CORINFO_TYPE_BYREF] == TI_ERROR);
-    assert(g_ti_types_map[CORINFO_TYPE_DOUBLE] == TI_DOUBLE);
-    assert(g_ti_types_map[CORINFO_TYPE_VALUECLASS] == TI_STRUCT);
-    assert(g_ti_types_map[CORINFO_TYPE_STRING] == TI_REF);
-
-    type = CorInfoType(type & CORINFO_TYPE_MASK); // strip off modifiers
-
-    assert(type < CORINFO_TYPE_COUNT);
-    assert(g_ti_types_map[type] != TI_ERROR || type == CORINFO_TYPE_VOID);
-
-    return g_ti_types_map[type];
-};
-
 // Declares the typeInfo class, which represents the type of an entity on the
 // stack.
 //
