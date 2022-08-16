@@ -622,7 +622,8 @@ bool Compiler::fgMayExplicitTailCall()
 //
 PhaseStatus Compiler::fgImport()
 {
-    m_importer.impImport();
+    Importer importer(this);
+    importer.impImport();
 
     // Estimate how much of method IL was actually imported.
     //
