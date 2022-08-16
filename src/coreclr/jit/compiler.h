@@ -4273,6 +4273,10 @@ public:
                              IL_OFFSETX              ilOffset = BAD_IL_OFFSET);
 
     void impLateDevirtualizeCall(GenTreeCall* call);
+    void impLateDevirtualizeCall(GenTreeCall*            call,
+                                 InlineCandidateInfo*    inlineInfo,
+                                 CORINFO_METHOD_HANDLE*  methodHnd,
+                                 CORINFO_CONTEXT_HANDLE* context);
 
     bool impIsTailCallILPattern(
         bool tailPrefixed, OPCODE curOpcode, const BYTE* codeAddrOfNextOpcode, const BYTE* codeEnd, bool isRecursive);

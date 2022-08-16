@@ -757,14 +757,9 @@ private:
 
             // Then invoke impDevirtualizeCall to actually transform the call for us,
             // given the original (base) method and the exact guarded class. It should succeed.
-            //
-            CORINFO_METHOD_HANDLE  methodHnd              = call->gtCallMethHnd;
-            unsigned               methodFlags            = compiler->info.compCompHnd->getMethodAttribs(methodHnd);
-            CORINFO_CONTEXT_HANDLE context                = inlineInfo->exactContextHnd;
-            const bool             isLateDevirtualization = true;
-            const bool             explicitTailCall       = (call->gtCallMoreFlags & GTF_CALL_M_EXPLICIT_TAILCALL) != 0;
-            compiler->impDevirtualizeCall(call, nullptr, &methodHnd, &methodFlags, &context, nullptr,
-                                          isLateDevirtualization, explicitTailCall);
+            CORINFO_METHOD_HANDLE  methodHnd;
+            CORINFO_CONTEXT_HANDLE context;
+            compiler->impLateDevirtualizeCall(call, inlineInfo, &methodHnd, &context);
 
             // We know this call can devirtualize or we would not have set up GDV here.
             // So impDevirtualizeCall should succeed in devirtualizing.

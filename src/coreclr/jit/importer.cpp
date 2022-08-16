@@ -16319,13 +16319,28 @@ void Compiler::impLateDevirtualizeCall(GenTreeCall* call)
 {
     JITDUMPTREE(call, "**** Late devirt opportunity\n");
 
-    CORINFO_METHOD_HANDLE  method                 = call->gtCallMethHnd;
+    CORINFO_METHOD_HANDLE  method                 = call->GetMethodHandle();
     unsigned               methodFlags            = 0;
     CORINFO_CONTEXT_HANDLE context                = nullptr;
     const bool             isLateDevirtualization = true;
     bool                   explicitTailCall       = (call->gtCallMoreFlags & GTF_CALL_M_EXPLICIT_TAILCALL) != 0;
 
     impDevirtualizeCall(call, nullptr, &method, &methodFlags, &context, nullptr, isLateDevirtualization,
+                        explicitTailCall);
+}
+
+void Compiler::impLateDevirtualizeCall(GenTreeCall*            call,
+                                       InlineCandidateInfo*    inlineInfo,
+                                       CORINFO_METHOD_HANDLE*  methodHnd,
+                                       CORINFO_CONTEXT_HANDLE* context)
+{
+    *methodHnd                        = call->GetMethodHandle();
+    unsigned methodFlags              = info.compCompHnd->getMethodAttribs(*methodHnd);
+    *context                          = inlineInfo->exactContextHnd;
+    const bool isLateDevirtualization = true;
+    const bool explicitTailCall       = (call->gtCallMoreFlags & GTF_CALL_M_EXPLICIT_TAILCALL) != 0;
+
+    impDevirtualizeCall(call, nullptr, methodHnd, &methodFlags, context, nullptr, isLateDevirtualization,
                         explicitTailCall);
 }
 
