@@ -67,25 +67,17 @@ PhaseStatus Compiler::fgInline()
 
             if (GenTreeCall* call = expr->IsCall())
             {
-                bool removeStmt = false;
+                assert(!call->IsGuardedDevirtualizationCandidate());
 
                 if (call->IsInlineCandidate())
                 {
                     bool inlined = inlInlineCall(stmt, call);
 
-                    removeStmt = inlined || (call->gtInlineCandidateInfo->retExprPlaceholder != nullptr);
-                }
-                else if (call->IsGuardedDevirtualizationCandidate())
-                {
-                    // TODO-MIKE-Cleanup: Shouldn't IndirectCallTransformer take care of this?!
-
-                    removeStmt = (call->gtInlineCandidateInfo->retExprPlaceholder != nullptr);
-                }
-
-                if (removeStmt)
-                {
-                    fgRemoveStmt(block, stmt DEBUGARG(/*dumpStmt */ false));
-                    continue;
+                    if (inlined || (call->gtInlineCandidateInfo->retExprPlaceholder != nullptr))
+                    {
+                        fgRemoveStmt(block, stmt DEBUGARG(/* dumpStmt */ false));
+                        continue;
+                    }
                 }
             }
 
@@ -271,7 +263,7 @@ public:
 #ifdef DEBUG
             // Some inlines may fail very early and never make it to candidate stage.
             // Report such failures so that they appear in inline tree dumps.
-            if (!call->IsInlineCandidate() && !call->IsGuardedDevirtualizationCandidate())
+            if (!call->IsInlineCandidate())
             {
                 InlineObservation observation = call->gtInlineObservation;
 
