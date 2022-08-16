@@ -3427,6 +3427,11 @@ public:
 
     GenTree* gtNewIconEmbHndNode(void* value, void* pValue, GenTreeFlags flags, void* compileTimeHandle);
 
+    GenTree* gtNewConstLookupTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
+                                  CORINFO_LOOKUP*         lookup,
+                                  GenTreeFlags            handleFlags,
+                                  void*                   compileTimeHandle);
+
     GenTree* gtNewIconEmbScpHndNode(CORINFO_MODULE_HANDLE scpHnd);
     GenTree* gtNewIconEmbClsHndNode(CORINFO_CLASS_HANDLE clsHnd);
     GenTree* gtNewIconEmbMethHndNode(CORINFO_METHOD_HANDLE methHnd);

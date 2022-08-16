@@ -1256,40 +1256,7 @@ GenTree* Importer::impLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
 {
     if (!pLookup->lookupKind.needsRuntimeLookup)
     {
-        // No runtime lookup is required.
-        // Access is direct or memory-indirect (of a fixed address) reference
-
-        void* handle     = nullptr;
-        void* handleAddr = nullptr;
-
-        if (pLookup->constLookup.accessType == IAT_VALUE)
-        {
-            handle = pLookup->constLookup.handle;
-        }
-        else
-        {
-            assert(pLookup->constLookup.accessType == IAT_PVALUE);
-
-            handleAddr = pLookup->constLookup.addr;
-        }
-
-        GenTree* addr = gtNewIconEmbHndNode(handle, handleAddr, handleFlags, compileTimeHandle);
-
-#ifdef DEBUG
-        if (handleFlags != GTF_ICON_TOKEN_HDL)
-        {
-            GenTreeIntCon* addrCon = addr->IsIntCon();
-
-            if (addrCon == nullptr)
-            {
-                addrCon = addr->AsIndir()->GetAddr()->AsIntCon();
-            }
-
-            addrCon->gtTargetHandle = reinterpret_cast<size_t>(compileTimeHandle);
-        }
-#endif
-
-        return addr;
+        return comp->gtNewConstLookupTree(pResolvedToken, pLookup, handleFlags, compileTimeHandle);
     }
 
     if (pLookup->lookupKind.runtimeLookupKind == CORINFO_LOOKUP_NOT_SUPPORTED)

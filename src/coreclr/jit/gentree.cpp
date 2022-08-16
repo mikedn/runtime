@@ -4161,6 +4161,46 @@ GenTree* Compiler::gtNewIconEmbHndNode(void* value, void* pValue, GenTreeFlags i
     return handleNode;
 }
 
+GenTree* Compiler::gtNewConstLookupTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
+                                        CORINFO_LOOKUP*         lookup,
+                                        GenTreeFlags            handleFlags,
+                                        void*                   compileTimeHandle)
+{
+    assert(!lookup->lookupKind.needsRuntimeLookup);
+
+    void* handle     = nullptr;
+    void* handleAddr = nullptr;
+
+    if (lookup->constLookup.accessType == IAT_VALUE)
+    {
+        handle = lookup->constLookup.handle;
+    }
+    else
+    {
+        assert(lookup->constLookup.accessType == IAT_PVALUE);
+
+        handleAddr = lookup->constLookup.addr;
+    }
+
+    GenTree* addr = gtNewIconEmbHndNode(handle, handleAddr, handleFlags, compileTimeHandle);
+
+#ifdef DEBUG
+    if (handleFlags != GTF_ICON_TOKEN_HDL)
+    {
+        GenTreeIntCon* addrCon = addr->IsIntCon();
+
+        if (addrCon == nullptr)
+        {
+            addrCon = addr->AsIndir()->GetAddr()->AsIntCon();
+        }
+
+        addrCon->gtTargetHandle = reinterpret_cast<size_t>(compileTimeHandle);
+    }
+#endif
+
+    return addr;
+}
+
 /*****************************************************************************/
 GenTree* Compiler::gtNewStringLiteralNode(InfoAccessType iat, void* pValue)
 {
