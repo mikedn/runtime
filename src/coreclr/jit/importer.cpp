@@ -16435,13 +16435,15 @@ CORINFO_RESOLVED_TOKEN* Importer::impAllocateToken(const CORINFO_RESOLVED_TOKEN&
 // Iterate through call arguments and spill RET_EXPR to local variables.
 class SpillRetExprHelper final : public GenTreeVisitor<SpillRetExprHelper>
 {
+    Importer* importer;
+
 public:
     enum
     {
         DoPreOrder = true
     };
 
-    SpillRetExprHelper(Compiler* compiler) : GenTreeVisitor<SpillRetExprHelper>(compiler)
+    SpillRetExprHelper(Importer* importer) : GenTreeVisitor<SpillRetExprHelper>(importer->comp), importer(importer)
     {
     }
 
@@ -16484,7 +16486,7 @@ public:
 
         unsigned tmp = m_compiler->lvaGrabTemp(true DEBUGARG("RET_EXPR temp"));
         JITDUMP("Storing return expression [%06u] to a local var V%02u.\n", retExpr->GetID(), tmp);
-        m_compiler->m_importer.impAppendTempAssign(tmp, retExpr, retExpr->GetLayout(), Importer::CHECK_SPILL_NONE);
+        importer->impAppendTempAssign(tmp, retExpr, retExpr->GetLayout(), Importer::CHECK_SPILL_NONE);
         *use = m_compiler->gtNewLclvNode(tmp, retExpr->GetType());
 
         if (retExpr->TypeIs(TYP_REF))
@@ -16518,7 +16520,7 @@ void Importer::addFatPointerCandidate(GenTreeCall* call)
     JITDUMP("Marking call [%06u] as fat pointer candidate\n", dspTreeID(call));
     comp->setMethodHasFatPointer();
     call->SetFatPointerCandidate();
-    SpillRetExprHelper helper(comp);
+    SpillRetExprHelper helper(this);
     helper.StoreRetExprResultsInArgs(call);
 }
 
@@ -16731,7 +16733,7 @@ void Importer::addGuardedDevirtualizationCandidate(GenTreeCall*          call,
 
     // Spill off any GT_RET_EXPR subtrees so we can clone the call.
     //
-    SpillRetExprHelper helper(comp);
+    SpillRetExprHelper helper(this);
     helper.StoreRetExprResultsInArgs(call);
 
     // Gather some information for later. Note we actually allocate InlineCandidateInfo
