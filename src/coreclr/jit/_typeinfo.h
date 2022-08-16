@@ -21,10 +21,12 @@ enum ti_types
     TI_ONLY_ENUM = TI_METHOD, // Enum values with greater value are completely described by the enumeration.
 };
 
-#if defined(TARGET_64BIT)
+#ifdef DEBUG
+#ifdef TARGET_64BIT
 #define TI_I_IMPL TI_LONG
 #else
 #define TI_I_IMPL TI_INT
+#endif
 #endif
 
 // Declares the typeInfo class, which represents the type of an entity on the
@@ -53,6 +55,7 @@ enum ti_types
 
 #define TI_FLAG_BYREF 0x00000080
 
+#ifdef DEBUG
 // This item is the MSIL 'I' type which is pointer-sized
 // (different size depending on platform) but which on ALL platforms
 // is implicitly convertible with a 32-bit int but not with a 64-bit one.
@@ -64,6 +67,7 @@ enum ti_types
 // different size, it's important to discern between a long and a native int
 // since conversions between them are not verifiable.
 #define TI_FLAG_NATIVE_INT 0x00000200
+#endif
 
 // This item contains resolved token. It is used for ctor delegate optimization.
 #define TI_FLAG_TOKEN 0x00000400
@@ -109,7 +113,7 @@ class typeInfo
 
     // Returns whether this is a primitive type (not a byref, objref,
     // array, null, value class, invalid value)
-    BOOL IsPrimitiveType() const
+    bool IsPrimitiveType() const
     {
         unsigned type = GetType();
 
@@ -122,10 +126,12 @@ public:
     {
     }
 
+#ifdef DEBUG
     typeInfo(ti_types tiType) : m_flags(static_cast<unsigned>(tiType)), m_cls(NO_CLASS_HANDLE)
     {
         assert((tiType >= TI_INT) && (tiType <= TI_DOUBLE));
     }
+#endif
 
     typeInfo(ti_types tiType, CORINFO_CLASS_HANDLE cls) : m_flags(tiType), m_cls(cls)
     {
@@ -148,13 +154,6 @@ public:
     CORINFO_CLASS_HANDLE GetClassHandleForValueClass() const
     {
         assert(IsType(TI_STRUCT));
-        assert(m_cls != NO_CLASS_HANDLE);
-        return m_cls;
-    }
-
-    CORINFO_CLASS_HANDLE GetClassHandleForObjRef() const
-    {
-        assert(IsType(TI_REF));
         assert(m_cls != NO_CLASS_HANDLE);
         return m_cls;
     }
@@ -209,7 +208,7 @@ public:
         if (!IsByRef())
         {
             m_flags = TI_ERROR;
-            INDEBUG(m_cls = NO_CLASS_HANDLE);
+            m_cls   = NO_CLASS_HANDLE;
         }
         return *this;
     }
