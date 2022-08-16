@@ -498,9 +498,11 @@ void BlockCountInstrumentor::InstrumentMethodEntry(Schema& schema, BYTE* profile
 
         info.compCompHnd->resolveToken(&resolvedToken);
 
-        // TODO-MIKE-Review: impTokenToHandle may call impAppendTree in some cases,
-        // that wouldn't make a lot of sense as we're done importing at this point.
-        arg = m_comp->m_importer.impTokenToHandle(&resolvedToken);
+        CORINFO_GENERICHANDLE_RESULT embedInfo;
+        info.compCompHnd->embedGenericHandle(&resolvedToken, false, &embedInfo);
+        noway_assert(!embedInfo.lookup.lookupKind.needsRuntimeLookup);
+        arg = m_comp->gtNewConstLookupTree(&resolvedToken, &embedInfo.lookup, GTF_ICON_METHOD_HDL,
+                                           embedInfo.compileTimeHandle);
     }
     else
 #endif
