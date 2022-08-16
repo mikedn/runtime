@@ -2317,7 +2317,7 @@ struct Importer
                                     CORINFO_LOOKUP*         pLookup,
                                     void*                   compileTimeHandle);
 
-    GenTree* impReadyToRunLookupToTree(CORINFO_CONST_LOOKUP* pLookup, GenTreeFlags flags, void* compileTimeHandle);
+    GenTree* gtNewReadyToRunLookupTree(CORINFO_CONST_LOOKUP* pLookup, GenTreeFlags flags, void* compileTimeHandle);
 
     GenTree* impCastClassOrIsInstToTree(GenTree*                op1,
                                         GenTree*                op2,

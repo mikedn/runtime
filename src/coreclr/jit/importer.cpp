@@ -1307,7 +1307,7 @@ GenTree* Importer::impLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
 }
 
 #ifdef FEATURE_READYTORUN_COMPILER
-GenTree* Importer::impReadyToRunLookupToTree(CORINFO_CONST_LOOKUP* pLookup,
+GenTree* Importer::gtNewReadyToRunLookupTree(CORINFO_CONST_LOOKUP* pLookup,
                                              GenTreeFlags          handleFlags,
                                              void*                 compileTimeHandle)
 {
@@ -7426,7 +7426,7 @@ var_types Importer::impImportCall(OPCODE                  opcode,
                 if (opts.IsReadyToRun())
                 {
                     instParam =
-                        impReadyToRunLookupToTree(&callInfo->instParamLookup, GTF_ICON_METHOD_HDL, exactMethodHandle);
+                        gtNewReadyToRunLookupTree(&callInfo->instParamLookup, GTF_ICON_METHOD_HDL, exactMethodHandle);
                     if (instParam == nullptr)
                     {
                         assert(compDonotInline());
@@ -7476,7 +7476,7 @@ var_types Importer::impImportCall(OPCODE                  opcode,
                 if (opts.IsReadyToRun())
                 {
                     instParam =
-                        impReadyToRunLookupToTree(&callInfo->instParamLookup, GTF_ICON_CLASS_HDL, exactClassHandle);
+                        gtNewReadyToRunLookupTree(&callInfo->instParamLookup, GTF_ICON_CLASS_HDL, exactClassHandle);
                     if (instParam == nullptr)
                     {
                         assert(compDonotInline());
