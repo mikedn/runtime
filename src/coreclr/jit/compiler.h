@@ -2049,38 +2049,41 @@ struct Importer
 #ifdef DEBUG
     bool& verbose;
 #endif
-    CompilerOptions&        opts;
-    CompiledMethodInfo&     info;
-    CORINFO_CONTEXT_HANDLE& impTokenLookupContextHandle;
-    unsigned&               optMethodFlags;
-    BasicBlock**&           fgBBs;
-    BasicBlock*&            fgFirstBB;
-    BasicBlock*&            fgEntryBB;
-    unsigned&               fgBBNumMax;
-    EHblkDsc*&              compHndBBtab;
-    unsigned&               compHndBBtabCount;
-    LclVarDsc*&             lvaTable;
-    unsigned&               lvaArg0Var;
-    InlineInfo*&            impInlineInfo;
-    InlineResult*&          compInlineResult;
-    bool&                   fgComputePredsDone;
-    bool&                   fgCheapPredsValid;
-    bool&                   compDoAggressiveInlining;
-    bool&                   compFloatingPointUsed;
-    bool&                   compLongUsed;
-    bool&                   compJmpOpUsed;
-    bool&                   compLocallocUsed;
-    bool&                   compLocallocOptimized;
-    bool&                   compGSReorderStackLayout;
-    bool&                   compSuppressedZeroInit;
-    bool&                   compHasBackwardJump;
-    bool&                   fgNoStructPromotion;
-    bool&                   impBoxTempInUse;
-    unsigned&               impBoxTemp;
-    BasicBlock*&            compCurBB;
-    unsigned&               lvaStubArgumentVar;
-    unsigned&               lvaNewObjArrayArgs;
-    unsigned&               lvaVarargsHandleArg;
+    CompilerOptions&                        opts;
+    CompiledMethodInfo&                     info;
+    CORINFO_CONTEXT_HANDLE&                 impTokenLookupContextHandle;
+    unsigned&                               optMethodFlags;
+    BasicBlock**&                           fgBBs;
+    BasicBlock*&                            fgFirstBB;
+    BasicBlock*&                            fgEntryBB;
+    unsigned&                               fgBBNumMax;
+    EHblkDsc*&                              compHndBBtab;
+    unsigned&                               compHndBBtabCount;
+    ICorJitInfo::PgoInstrumentationSchema*& fgPgoSchema;
+    BYTE*&                                  fgPgoData;
+    UINT32&                                 fgPgoSchemaCount;
+    LclVarDsc*&                             lvaTable;
+    unsigned&                               lvaArg0Var;
+    InlineInfo*&                            impInlineInfo;
+    InlineResult*&                          compInlineResult;
+    bool&                                   fgComputePredsDone;
+    bool&                                   fgCheapPredsValid;
+    bool&                                   compDoAggressiveInlining;
+    bool&                                   compFloatingPointUsed;
+    bool&                                   compLongUsed;
+    bool&                                   compJmpOpUsed;
+    bool&                                   compLocallocUsed;
+    bool&                                   compLocallocOptimized;
+    bool&                                   compGSReorderStackLayout;
+    bool&                                   compSuppressedZeroInit;
+    bool&                                   compHasBackwardJump;
+    bool&                                   fgNoStructPromotion;
+    bool&                                   impBoxTempInUse;
+    unsigned&                               impBoxTemp;
+    BasicBlock*&                            compCurBB;
+    unsigned&                               lvaStubArgumentVar;
+    unsigned&                               lvaNewObjArrayArgs;
+    unsigned&                               lvaVarargsHandleArg;
 #ifdef FEATURE_SIMD
     bool& featureSIMD;
 #endif
@@ -2157,6 +2160,7 @@ struct Importer
     bool IsMathIntrinsic(GenTree* tree);
     bool doesMethodHaveFrozenString();
     void setMethodHasExpRuntimeLookup();
+    void setMethodHasGuardedDevirtualization();
     INDEBUG(bool compTailCallStress();)
 
     NamedIntrinsic lookupNamedIntrinsic(CORINFO_METHOD_HANDLE method);
@@ -2212,6 +2216,21 @@ struct Importer
     bool tiCompatibleWith(const typeInfo& child, const typeInfo& parent) const;
 
     void addFatPointerCandidate(GenTreeCall* call);
+
+    void considerGuardedDevirtualization(GenTreeCall*            call,
+                                         IL_OFFSETX              iloffset,
+                                         bool                    isInterface,
+                                         CORINFO_METHOD_HANDLE   baseMethod,
+                                         CORINFO_CLASS_HANDLE    baseClass,
+                                         CORINFO_CONTEXT_HANDLE* pContextHandle DEBUGARG(CORINFO_CLASS_HANDLE objClass)
+                                             DEBUGARG(const char* objClassName));
+
+    void addGuardedDevirtualizationCandidate(GenTreeCall*          call,
+                                             CORINFO_METHOD_HANDLE methodHandle,
+                                             CORINFO_CLASS_HANDLE  classHandle,
+                                             unsigned              methodAttr,
+                                             unsigned              classAttr,
+                                             unsigned              likelihood);
 
 #ifdef DEBUG
     typeInfo verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd);
@@ -2721,6 +2740,7 @@ struct Importer
     bool eeIsValueClass(CORINFO_CLASS_HANDLE clsHnd);
     const char* eeGetFieldName(CORINFO_FIELD_HANDLE field, const char** className = nullptr);
     const char* eeGetClassName(CORINFO_CLASS_HANDLE clsHnd);
+    const char* eeGetMethodName(CORINFO_METHOD_HANDLE handle, const char** className);
     uint16_t eeGetRelocTypeHint(void* target);
     CORINFO_CLASS_HANDLE eeGetClassFromContext(CORINFO_CONTEXT_HANDLE context);
     static CORINFO_METHOD_HANDLE eeFindHelper(unsigned helper);
@@ -5453,11 +5473,11 @@ protected:
     void        fgIncorporateBlockCounts();
     void        fgIncorporateEdgeCounts();
 
-    CORINFO_CLASS_HANDLE getRandomClass(ICorJitInfo::PgoInstrumentationSchema* schema,
-                                        UINT32                                 countSchemaItems,
-                                        BYTE*                                  pInstrumentationData,
-                                        int32_t                                ilOffset,
-                                        CLRRandom*                             random);
+    static CORINFO_CLASS_HANDLE getRandomClass(ICorJitInfo::PgoInstrumentationSchema* schema,
+                                               UINT32                                 countSchemaItems,
+                                               BYTE*                                  pInstrumentationData,
+                                               int32_t                                ilOffset,
+                                               CLRRandom*                             random);
 
 public:
     const char*                            fgPgoFailReason;
@@ -6331,21 +6351,6 @@ public:
     {
         optMethodFlags &= ~OMF_HAS_GUARDEDDEVIRT;
     }
-
-    void considerGuardedDevirtualization(GenTreeCall*            call,
-                                         IL_OFFSETX              iloffset,
-                                         bool                    isInterface,
-                                         CORINFO_METHOD_HANDLE   baseMethod,
-                                         CORINFO_CLASS_HANDLE    baseClass,
-                                         CORINFO_CONTEXT_HANDLE* pContextHandle DEBUGARG(CORINFO_CLASS_HANDLE objClass)
-                                             DEBUGARG(const char* objClassName));
-
-    void addGuardedDevirtualizationCandidate(GenTreeCall*          call,
-                                             CORINFO_METHOD_HANDLE methodHandle,
-                                             CORINFO_CLASS_HANDLE  classHandle,
-                                             unsigned              methodAttr,
-                                             unsigned              classAttr,
-                                             unsigned              likelihood);
 
     bool doesMethodHaveExpRuntimeLookup()
     {

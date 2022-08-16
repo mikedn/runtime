@@ -15744,8 +15744,8 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
             return;
         }
 
-        considerGuardedDevirtualization(call, ilOffset, isInterface, baseMethod, baseClass,
-                                        pContextHandle DEBUGARG(objClass) DEBUGARG("unknown"));
+        m_importer.considerGuardedDevirtualization(call, ilOffset, isInterface, baseMethod, baseClass,
+                                                   pContextHandle DEBUGARG(objClass) DEBUGARG("unknown"));
 
         return;
     }
@@ -15795,8 +15795,8 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
             return;
         }
 
-        considerGuardedDevirtualization(call, ilOffset, isInterface, baseMethod, baseClass,
-                                        pContextHandle DEBUGARG(objClass) DEBUGARG(objClassName));
+        m_importer.considerGuardedDevirtualization(call, ilOffset, isInterface, baseMethod, baseClass,
+                                                   pContextHandle DEBUGARG(objClass) DEBUGARG(objClassName));
         return;
     }
 
@@ -15912,8 +15912,8 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
             return;
         }
 
-        considerGuardedDevirtualization(call, ilOffset, isInterface, baseMethod, baseClass,
-                                        pContextHandle DEBUGARG(objClass) DEBUGARG(objClassName));
+        m_importer.considerGuardedDevirtualization(call, ilOffset, isInterface, baseMethod, baseClass,
+                                                   pContextHandle DEBUGARG(objClass) DEBUGARG(objClassName));
         return;
     }
 
@@ -16541,7 +16541,7 @@ void Importer::addFatPointerCandidate(GenTreeCall* call)
 //    Consults with VM to see if there's a likely class at runtime,
 //    if so, adds a candidate for guarded devirtualization.
 //
-void Compiler::considerGuardedDevirtualization(
+void Importer::considerGuardedDevirtualization(
     GenTreeCall*            call,
     IL_OFFSETX              ilOffset,
     bool                    isInterface,
@@ -16558,7 +16558,7 @@ void Compiler::considerGuardedDevirtualization(
     // We currently only get likely class guesses when there is PGO data
     // with class profiles.
     //
-    if (fgPgoClassProfiles == 0)
+    if (comp->fgPgoClassProfiles == 0)
     {
         JITDUMP("Not guessing for class: no class profile pgo data, or pgo disabled\n");
         return;
@@ -16588,7 +16588,7 @@ void Compiler::considerGuardedDevirtualization(
             impInlineRoot()->m_inlineStrategy->GetRandom(JitConfig.JitRandomGuardedDevirtualization());
         likelihood      = 100;
         numberOfClasses = 1;
-        likelyClass     = getRandomClass(fgPgoSchema, fgPgoSchemaCount, fgPgoData, ilOffset, random);
+        likelyClass     = Compiler::getRandomClass(fgPgoSchema, fgPgoSchemaCount, fgPgoData, ilOffset, random);
     }
     else
 #endif
@@ -16666,7 +16666,7 @@ void Compiler::considerGuardedDevirtualization(
 //    classAttr - attributes of the class
 //    likelihood - odds that this class is the class seen at runtime
 //
-void Compiler::addGuardedDevirtualizationCandidate(GenTreeCall*          call,
+void Importer::addGuardedDevirtualizationCandidate(GenTreeCall*          call,
                                                    CORINFO_METHOD_HANDLE methodHandle,
                                                    CORINFO_CLASS_HANDLE  classHandle,
                                                    unsigned              methodAttr,
@@ -16731,13 +16731,13 @@ void Compiler::addGuardedDevirtualizationCandidate(GenTreeCall*          call,
 
     // Spill off any GT_RET_EXPR subtrees so we can clone the call.
     //
-    SpillRetExprHelper helper(this);
+    SpillRetExprHelper helper(comp);
     helper.StoreRetExprResultsInArgs(call);
 
     // Gather some information for later. Note we actually allocate InlineCandidateInfo
     // here, as the devirtualized half of this call will likely become an inline candidate.
     //
-    GuardedDevirtualizationCandidateInfo* pInfo = new (this, CMK_Inlining) InlineCandidateInfo;
+    GuardedDevirtualizationCandidateInfo* pInfo = new (comp, CMK_Inlining) InlineCandidateInfo;
 
     pInfo->guardedMethodHandle             = methodHandle;
     pInfo->guardedMethodUnboxedEntryHandle = nullptr;
@@ -17501,6 +17501,9 @@ Importer::Importer(Compiler* comp)
     , fgBBNumMax(comp->fgBBNumMax)
     , compHndBBtab(comp->compHndBBtab)
     , compHndBBtabCount(comp->compHndBBtabCount)
+    , fgPgoSchema(comp->fgPgoSchema)
+    , fgPgoData(comp->fgPgoData)
+    , fgPgoSchemaCount(comp->fgPgoSchemaCount)
     , lvaTable(comp->lvaTable)
     , lvaArg0Var(comp->lvaArg0Var)
     , impInlineInfo(comp->impInlineInfo)
@@ -17609,6 +17612,11 @@ bool Importer::doesMethodHaveFrozenString()
 void Importer::setMethodHasExpRuntimeLookup()
 {
     comp->setMethodHasExpRuntimeLookup();
+}
+
+void Importer::setMethodHasGuardedDevirtualization()
+{
+    comp->setMethodHasGuardedDevirtualization();
 }
 
 #ifdef DEBUG
@@ -17865,6 +17873,11 @@ const char* Importer::eeGetFieldName(CORINFO_FIELD_HANDLE field, const char** cl
 const char* Importer::eeGetClassName(CORINFO_CLASS_HANDLE clsHnd)
 {
     return comp->eeGetClassName(clsHnd);
+}
+
+const char* Importer::eeGetMethodName(CORINFO_METHOD_HANDLE method, const char** className)
+{
+    return comp->eeGetMethodName(method, className);
 }
 
 uint16_t Importer::eeGetRelocTypeHint(void* target)
