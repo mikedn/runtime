@@ -2951,7 +2951,6 @@ struct Importer
                              unsigned*               methodFlags,
                              CORINFO_CONTEXT_HANDLE* contextHandle,
                              CORINFO_CONTEXT_HANDLE* exactContextHandle,
-                             bool                    isLateDevirtualization,
                              bool                    isExplicitTailCall,
                              IL_OFFSETX              ilOffset = BAD_IL_OFFSET);
 
@@ -4288,7 +4287,7 @@ public:
                              unsigned*               methodFlags,
                              CORINFO_CONTEXT_HANDLE* contextHandle,
                              CORINFO_CONTEXT_HANDLE* exactContextHandle,
-                             bool                    isLateDevirtualization,
+                             Importer*               importer,
                              bool                    isExplicitTailCall,
                              IL_OFFSETX              ilOffset = BAD_IL_OFFSET);
 

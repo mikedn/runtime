@@ -7577,11 +7577,9 @@ var_types Importer::impImportCall(OPCODE                  opcode,
 
             // See if we can devirtualize.
 
-            const bool isExplicitTailCall     = (tailCallFlags & PREFIX_TAILCALL_EXPLICIT) != 0;
-            const bool isLateDevirtualization = false;
+            const bool isExplicitTailCall = (tailCallFlags & PREFIX_TAILCALL_EXPLICIT) != 0;
             impDevirtualizeCall(call->AsCall(), pResolvedToken, &callInfo->hMethod, &callInfo->methodFlags,
-                                &callInfo->contextHandle, &exactContextHnd, isLateDevirtualization, isExplicitTailCall,
-                                rawILOffset);
+                                &callInfo->contextHandle, &exactContextHnd, isExplicitTailCall, rawILOffset);
         }
 
         if (comp->impIsThis(obj))
@@ -15606,7 +15604,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
                                    unsigned*               methodFlags,
                                    CORINFO_CONTEXT_HANDLE* pContextHandle,
                                    CORINFO_CONTEXT_HANDLE* pExactContextHandle,
-                                   bool                    isLateDevirtualization,
+                                   Importer*               importer,
                                    bool                    isExplicitTailCall,
                                    IL_OFFSETX              ilOffset)
 {
@@ -15618,6 +15616,10 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     // This should be a virtual vtable or virtual stub call.
     //
     assert(call->IsVirtual());
+
+    // GDV can be done only while importing, it may need to append new statements and requires
+    // the IndirectCallTransformer phase that runs only once when importing is complete.
+    bool isLateDevirtualization = importer == nullptr;
 
     // Possibly instrument, if not optimizing.
     //
@@ -15744,8 +15746,8 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
             return;
         }
 
-        m_importer.considerGuardedDevirtualization(call, ilOffset, isInterface, baseMethod, baseClass,
-                                                   pContextHandle DEBUGARG(objClass) DEBUGARG("unknown"));
+        importer->considerGuardedDevirtualization(call, ilOffset, isInterface, baseMethod, baseClass,
+                                                  pContextHandle DEBUGARG(objClass) DEBUGARG("unknown"));
 
         return;
     }
@@ -15795,8 +15797,8 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
             return;
         }
 
-        m_importer.considerGuardedDevirtualization(call, ilOffset, isInterface, baseMethod, baseClass,
-                                                   pContextHandle DEBUGARG(objClass) DEBUGARG(objClassName));
+        importer->considerGuardedDevirtualization(call, ilOffset, isInterface, baseMethod, baseClass,
+                                                  pContextHandle DEBUGARG(objClass) DEBUGARG(objClassName));
         return;
     }
 
@@ -15912,8 +15914,8 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
             return;
         }
 
-        m_importer.considerGuardedDevirtualization(call, ilOffset, isInterface, baseMethod, baseClass,
-                                                   pContextHandle DEBUGARG(objClass) DEBUGARG(objClassName));
+        importer->considerGuardedDevirtualization(call, ilOffset, isInterface, baseMethod, baseClass,
+                                                  pContextHandle DEBUGARG(objClass) DEBUGARG(objClassName));
         return;
     }
 
@@ -16319,14 +16321,12 @@ void Compiler::impLateDevirtualizeCall(GenTreeCall* call)
 {
     JITDUMPTREE(call, "**** Late devirt opportunity\n");
 
-    CORINFO_METHOD_HANDLE  method                 = call->GetMethodHandle();
-    unsigned               methodFlags            = 0;
-    CORINFO_CONTEXT_HANDLE context                = nullptr;
-    const bool             isLateDevirtualization = true;
-    bool                   explicitTailCall       = (call->gtCallMoreFlags & GTF_CALL_M_EXPLICIT_TAILCALL) != 0;
+    CORINFO_METHOD_HANDLE  method           = call->GetMethodHandle();
+    unsigned               methodFlags      = 0;
+    CORINFO_CONTEXT_HANDLE context          = nullptr;
+    bool                   explicitTailCall = (call->gtCallMoreFlags & GTF_CALL_M_EXPLICIT_TAILCALL) != 0;
 
-    impDevirtualizeCall(call, nullptr, &method, &methodFlags, &context, nullptr, isLateDevirtualization,
-                        explicitTailCall);
+    impDevirtualizeCall(call, nullptr, &method, &methodFlags, &context, nullptr, nullptr, explicitTailCall);
 }
 
 void Compiler::impLateDevirtualizeCall(GenTreeCall*            call,
@@ -16334,14 +16334,12 @@ void Compiler::impLateDevirtualizeCall(GenTreeCall*            call,
                                        CORINFO_METHOD_HANDLE*  methodHnd,
                                        CORINFO_CONTEXT_HANDLE* context)
 {
-    *methodHnd                        = call->GetMethodHandle();
-    unsigned methodFlags              = info.compCompHnd->getMethodAttribs(*methodHnd);
-    *context                          = inlineInfo->exactContextHnd;
-    const bool isLateDevirtualization = true;
-    const bool explicitTailCall       = (call->gtCallMoreFlags & GTF_CALL_M_EXPLICIT_TAILCALL) != 0;
+    *methodHnd                  = call->GetMethodHandle();
+    unsigned methodFlags        = info.compCompHnd->getMethodAttribs(*methodHnd);
+    *context                    = inlineInfo->exactContextHnd;
+    const bool explicitTailCall = (call->gtCallMoreFlags & GTF_CALL_M_EXPLICIT_TAILCALL) != 0;
 
-    impDevirtualizeCall(call, nullptr, methodHnd, &methodFlags, context, nullptr, isLateDevirtualization,
-                        explicitTailCall);
+    impDevirtualizeCall(call, nullptr, methodHnd, &methodFlags, context, nullptr, nullptr, explicitTailCall);
 }
 
 //------------------------------------------------------------------------
@@ -18544,12 +18542,11 @@ void Importer::impDevirtualizeCall(GenTreeCall*            call,
                                    unsigned*               methodFlags,
                                    CORINFO_CONTEXT_HANDLE* contextHandle,
                                    CORINFO_CONTEXT_HANDLE* exactContextHandle,
-                                   bool                    isLateDevirtualization,
                                    bool                    isExplicitTailCall,
                                    IL_OFFSETX              ilOffset)
 {
-    comp->impDevirtualizeCall(call, resolvedToken, method, methodFlags, contextHandle, exactContextHandle,
-                              isLateDevirtualization, isExplicitTailCall, ilOffset);
+    comp->impDevirtualizeCall(call, resolvedToken, method, methodFlags, contextHandle, exactContextHandle, this,
+                              isExplicitTailCall, ilOffset);
 }
 
 GenTree* Importer::gtClone(GenTree* tree, bool complexOK)
