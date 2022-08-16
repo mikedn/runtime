@@ -1419,7 +1419,11 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
         return gtNewRuntimeLookupHelperCallNode(pRuntimeLookup, ctxTree, compileTimeHandle);
     }
 
-    // Slot pointer
+    if (!pRuntimeLookup->testForNull && (pRuntimeLookup->indirections == 0))
+    {
+        return ctxTree;
+    }
+
     GenTree* slotPtrTree = ctxTree;
 
     if (pRuntimeLookup->testForNull)
@@ -1430,7 +1434,6 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
     GenTree* indOffTree    = nullptr;
     GenTree* lastIndOfTree = nullptr;
 
-    // Applied repeated indirections
     for (uint16_t i = 0; i < pRuntimeLookup->indirections; i++)
     {
         if ((i == 1 && pRuntimeLookup->indirectFirstOffset) || (i == 2 && pRuntimeLookup->indirectSecondOffset))
@@ -1471,14 +1474,8 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
         }
     }
 
-    // No null test required
     if (!pRuntimeLookup->testForNull)
     {
-        if (pRuntimeLookup->indirections == 0)
-        {
-            return slotPtrTree;
-        }
-
         slotPtrTree = gtNewOperNode(GT_IND, TYP_I_IMPL, slotPtrTree);
         slotPtrTree->gtFlags |= GTF_IND_NONFAULTING;
 
