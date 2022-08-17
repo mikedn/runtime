@@ -947,7 +947,6 @@ void Compiler::compInit(ArenaAllocator*       alloc,
     impInlineInfo        = inlineInfo;
 
     InlineeCompiler            = nullptr;
-    eeInfoInitialized          = false;
     compDoAggressiveInlining   = false;
     mostRecentlyActivePhase    = PHASE_PRE_IMPORT;
     activePhaseChecks          = PhaseChecks::CHECK_NONE;
@@ -5218,7 +5217,7 @@ START:
 #if MEASURE_CLRAPI_CALLS
             if (!pParam->jitFallbackCompile)
             {
-                WrapICorJitInfo::makeOne(&pParam->allocator, pParam->compiler, pParam->compHnd);
+                WrapICorJitInfo::makeOne(&pParam->allocator, pParam->compiler, pParam->jitInfo);
             }
 #endif
 
@@ -5228,7 +5227,7 @@ START:
 
             pParam->compiler->compInit(&pParam->allocator, pParam->module, pParam->methodHnd, pParam->jitInfo,
                                        pParam->methodInfo);
-
+            pParam->jitInfo->getEEInfo(&pParam->compiler->eeInfo);
             INDEBUG(pParam->compiler->jitFallbackCompile = pParam->jitFallbackCompile;)
 
             pParam->result =

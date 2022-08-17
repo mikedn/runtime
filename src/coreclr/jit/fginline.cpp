@@ -521,6 +521,7 @@ void jitInlineCode(InlineInfo* inlineInfo)
             inlineeCompiler->compInit(allocator, inlineInfo->inlineCandidateInfo->methInfo.scope,
                                       inlineInfo->iciCall->GetMethodHandle(), inlinerCompiler->info.compCompHnd,
                                       &inlineInfo->inlineCandidateInfo->methInfo, inlineInfo);
+            inlineeCompiler->eeInfo = inlinerCompiler->eeInfo;
 
             pParam->result = inlineeCompiler->inlMain();
         }

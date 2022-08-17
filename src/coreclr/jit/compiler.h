@@ -6673,9 +6673,11 @@ public:
     // Method entry-points, instrs
 
     CORINFO_EE_INFO eeInfo;
-    bool            eeInfoInitialized;
 
-    CORINFO_EE_INFO* eeGetEEInfo();
+    CORINFO_EE_INFO* eeGetEEInfo()
+    {
+        return &eeInfo;
+    }
 
     // Gets the offset of a SDArray's first element
     static unsigned eeGetArrayDataOffset(var_types type);

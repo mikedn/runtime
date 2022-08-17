@@ -128,22 +128,6 @@ inline CORINFO_CLASS_HANDLE Compiler::eeGetClassFromContext(CORINFO_CONTEXT_HAND
     }
 }
 
-/*****************************************************************************
- *
- *                  Native Direct Optimizations
- */
-
-inline CORINFO_EE_INFO* Compiler::eeGetEEInfo()
-{
-    if (!eeInfoInitialized)
-    {
-        info.compCompHnd->getEEInfo(&eeInfo);
-        eeInfoInitialized = true;
-    }
-
-    return &eeInfo;
-}
-
 inline var_types JITtype2varType(CorInfoType type)
 {
     static constexpr var_types map[CORINFO_TYPE_COUNT]{
