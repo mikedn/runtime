@@ -6672,11 +6672,11 @@ public:
 
     // Method entry-points, instrs
 
-    CORINFO_EE_INFO eeInfo;
+    const CORINFO_EE_INFO* eeInfo;
 
-    CORINFO_EE_INFO* eeGetEEInfo()
+    const CORINFO_EE_INFO* eeGetEEInfo()
     {
-        return &eeInfo;
+        return eeInfo;
     }
 
     // Gets the offset of a SDArray's first element

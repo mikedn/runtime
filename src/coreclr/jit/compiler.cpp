@@ -5227,7 +5227,11 @@ START:
 
             pParam->compiler->compInit(&pParam->allocator, pParam->module, pParam->methodHnd, pParam->jitInfo,
                                        pParam->methodInfo);
-            pParam->jitInfo->getEEInfo(&pParam->compiler->eeInfo);
+
+            CORINFO_EE_INFO eeInfo;
+            pParam->jitInfo->getEEInfo(&eeInfo);
+            pParam->compiler->eeInfo = &eeInfo;
+
             INDEBUG(pParam->compiler->jitFallbackCompile = pParam->jitFallbackCompile;)
 
             pParam->result =
