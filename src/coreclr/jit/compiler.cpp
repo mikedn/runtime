@@ -1160,21 +1160,6 @@ void Compiler::compSetProcessor()
 
     const JitFlags& jitFlags = *opts.jitFlags;
 
-#if defined(TARGET_ARM)
-    info.genCPU = CPU_ARM;
-#elif defined(TARGET_ARM64)
-    info.genCPU      = CPU_ARM64;
-#elif defined(TARGET_AMD64)
-    info.genCPU = CPU_X64;
-#elif defined(TARGET_X86)
-    info.genCPU = CPU_X86;
-#endif
-
-    //
-    // Processor specific optimizations
-    //
-    CLANG_FORMAT_COMMENT_ANCHOR;
-
 #ifdef TARGET_AMD64
     opts.compUseCMOV = true;
 #elif defined(TARGET_X86)

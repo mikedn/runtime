@@ -1669,16 +1669,6 @@ struct CompiledMethodInfo
     unsigned                     compStmtOffsetsCount;
     ICorDebugInfo::BoundaryTypes compStmtOffsetsImplicit;
 
-#define CPU_X86 0x0100       // The generic X86 CPU
-#define CPU_X64 0x0200       // The generic x64 CPU
-#define CPU_AMD_X64 0x0210   // AMD x64 CPU
-#define CPU_INTEL_X64 0x0240 // Intel x64 CPU
-
-#define CPU_ARM 0x0300   // The generic ARM CPU
-#define CPU_ARM64 0x0400 // The generic ARM64 CPU
-
-    unsigned genCPU; // What CPU are we running on
-
     // Number of class profile probes in this method
     unsigned compClassProbeCount;
 };

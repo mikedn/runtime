@@ -1510,33 +1510,17 @@ void CodeGen::genGenerateMachineCode()
 
         printf(" for ");
 
-        if (compiler->info.genCPU == CPU_X86)
-        {
-            printf("generic X86 CPU");
-        }
-        else if (compiler->info.genCPU == CPU_X64)
-        {
-            if (compiler->canUseVexEncoding())
-            {
-                printf("X64 CPU with AVX");
-            }
-            else
-            {
-                printf("X64 CPU with SSE2");
-            }
-        }
-        else if (compiler->info.genCPU == CPU_ARM)
-        {
-            printf("generic ARM CPU");
-        }
-        else if (compiler->info.genCPU == CPU_ARM64)
-        {
-            printf("generic ARM64 CPU");
-        }
-        else
-        {
-            printf("unknown architecture");
-        }
+#if defined(TARGET_AMD64)
+        printf("X64 CPU with %s", compiler->canUseVexEncoding() ? "AVX" : "SSE2");
+#elif defined(TARGET_ARM64)
+        printf("generic ARM64 CPU");
+#elif defined(TARGET_X86)
+        printf("generic X86 CPU");
+#elif defined(TARGET_ARM)
+        printf("generic ARM CPU");
+#else
+#error Unknown target
+#endif
 
 #if defined(TARGET_WINDOWS)
         printf(" - Windows");
