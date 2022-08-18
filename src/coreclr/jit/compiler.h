@@ -7634,6 +7634,7 @@ public:
     static void compStartup();  // One-time initialization
     static void compShutdown(); // One-time finalization
 
+    Compiler(const CORINFO_EE_INFO* eeInfo);
     void compInit(ArenaAllocator*       alloc,
                   CORINFO_MODULE_HANDLE module,
                   CORINFO_METHOD_HANDLE methodHnd,

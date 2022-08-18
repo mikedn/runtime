@@ -928,6 +928,10 @@ void Compiler::compDisplayStaticSizes(FILE* fout)
 
 INDEBUG(ConfigMethodRange fJitStressRange;)
 
+Compiler::Compiler(const CORINFO_EE_INFO* eeInfo) : virtualStubParamInfo(eeInfo->targetAbi == CORINFO_CORERT_ABI)
+{
+}
+
 void Compiler::compInit(ArenaAllocator*       alloc,
                         CORINFO_MODULE_HANDLE module,
                         CORINFO_METHOD_HANDLE methodHnd,
@@ -4069,8 +4073,6 @@ int Compiler::compCompileMain(void** methodCode, uint32_t* methodCodeSize, JitFl
         assert(info.compPatchpointInfo != nullptr);
     }
 
-    new (&virtualStubParamInfo) VirtualStubParamInfo(IsTargetAbi(CORINFO_CORERT_ABI));
-
     info.compMatchedVM = (info.compCompHnd->getExpectedTargetArchitecture() == IMAGE_FILE_MACHINE_TARGET) &&
                          (eeGetEEInfo()->osType == CORINFO_OS_TARGET);
 
@@ -5197,7 +5199,15 @@ START:
     {
         setErrorTrap(nullptr, Param*, pParam, pParamOuter)
         {
+            CORINFO_EE_INFO eeInfo;
+            pParam->jitInfo->getEEInfo(&eeInfo);
+
             pParam->compiler = static_cast<Compiler*>(pParam->allocator.allocateMemory(sizeof(Compiler)));
+            new (pParam->compiler) Compiler(&eeInfo);
+            pParam->compiler->eeInfo = &eeInfo;
+            pParam->prevCompiler     = JitTls::GetCompiler();
+            JitTls::SetCompiler(pParam->compiler);
+            INDEBUG(JitTls::SetLogCompiler(pParam->compiler));
 
 #if MEASURE_CLRAPI_CALLS
             if (!pParam->jitFallbackCompile)
@@ -5206,16 +5216,8 @@ START:
             }
 #endif
 
-            pParam->prevCompiler = JitTls::GetCompiler();
-            JitTls::SetCompiler(pParam->compiler);
-            INDEBUG(JitTls::SetLogCompiler(pParam->compiler));
-
             pParam->compiler->compInit(&pParam->allocator, pParam->module, pParam->methodHnd, pParam->jitInfo,
                                        pParam->methodInfo);
-
-            CORINFO_EE_INFO eeInfo;
-            pParam->jitInfo->getEEInfo(&eeInfo);
-            pParam->compiler->eeInfo = &eeInfo;
 
             INDEBUG(pParam->compiler->jitFallbackCompile = pParam->jitFallbackCompile;)
 

@@ -515,13 +515,13 @@ void jitInlineCode(InlineInfo* inlineInfo)
             }
 
             Compiler* inlineeCompiler = inlinerCompiler->InlineeCompiler;
-
+            new (inlineeCompiler) Compiler(inlinerCompiler->eeInfo);
+            inlineeCompiler->eeInfo = inlinerCompiler->eeInfo;
             JitTls::SetCompiler(inlineeCompiler);
 
             inlineeCompiler->compInit(allocator, inlineInfo->inlineCandidateInfo->methInfo.scope,
                                       inlineInfo->iciCall->GetMethodHandle(), inlinerCompiler->info.compCompHnd,
                                       &inlineInfo->inlineCandidateInfo->methInfo, inlineInfo);
-            inlineeCompiler->eeInfo = inlinerCompiler->eeInfo;
 
             pParam->result = inlineeCompiler->inlMain();
         }
