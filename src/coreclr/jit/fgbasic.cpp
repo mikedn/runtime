@@ -799,8 +799,6 @@ private:
 // fgFindJumpTargets: walk the IL stream, determining jump target offsets
 //
 // Arguments:
-//    codeAddr   - base address of the IL code buffer
-//    codeSize   - number of bytes in the IL code buffer
 //    jumpTarget - [OUT] bit vector for flagging jump targets
 //
 // Notes:
@@ -818,8 +816,11 @@ private:
 #pragma warning(push)
 #pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
 #endif
-void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, FixedBitVect* jumpTarget)
+void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
 {
+    const BYTE*     codeAddr = info.compCode;
+    const IL_OFFSET codeSize = info.compILCodeSize;
+
     const BYTE* codeBegp = codeAddr;
     const BYTE* codeEndp = codeAddr + codeSize;
     unsigned    varNum;
@@ -2365,8 +2366,6 @@ void Compiler::fgLinkBasicBlocks()
 //   operations that might get optimized if this method were to be inlined.
 //
 // Arguments:
-//   codeAddr -- starting address of the method's IL stream
-//   codeSize -- length of the IL stream
 //   jumpTarget -- [in] bit vector of jump targets found by fgFindJumpTargets
 //
 // Returns:
@@ -2375,8 +2374,11 @@ void Compiler::fgLinkBasicBlocks()
 // Notes:
 //   Invoked for prejited and jitted methods, and for all inlinees
 
-unsigned Compiler::fgMakeBasicBlocks(const BYTE* codeAddr, IL_OFFSET codeSize, FixedBitVect* jumpTarget)
+unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTarget)
 {
+    const BYTE*     codeAddr = info.compCode;
+    const IL_OFFSET codeSize = info.compILCodeSize;
+
     unsigned    retBlocks = 0;
     const BYTE* codeBegp  = codeAddr;
     const BYTE* codeEndp  = codeAddr + codeSize;
@@ -2875,7 +2877,7 @@ void Compiler::fgFindBasicBlocks()
     FixedBitVect* jumpTarget = FixedBitVect::bitVectInit(info.compILCodeSize + 1, this);
 
     // Walk the instrs to find all jump targets
-    fgFindJumpTargets(info.compCode, info.compILCodeSize, jumpTarget);
+    fgFindJumpTargets(jumpTarget);
     if (compDonotInline())
     {
         return;
@@ -2962,7 +2964,7 @@ void Compiler::fgFindBasicBlocks()
 
     /* Now create the basic blocks */
 
-    unsigned retBlocks = fgMakeBasicBlocks(info.compCode, info.compILCodeSize, jumpTarget);
+    unsigned retBlocks = fgMakeBasicBlocks(jumpTarget);
 
     if (compIsForInlining())
     {

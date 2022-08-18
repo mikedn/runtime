@@ -5426,13 +5426,13 @@ protected:
 
     bool fgMayExplicitTailCall();
 
-    void fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, FixedBitVect* jumpTarget);
+    void fgFindJumpTargets(FixedBitVect* jumpTarget);
 
     void fgMarkBackwardJump(BasicBlock* startBlock, BasicBlock* endBlock);
 
     void fgLinkBasicBlocks();
 
-    unsigned fgMakeBasicBlocks(const BYTE* codeAddr, IL_OFFSET codeSize, FixedBitVect* jumpTarget);
+    unsigned fgMakeBasicBlocks(FixedBitVect* jumpTarget);
 
     void fgCheckBasicBlockControlFlow();
 
