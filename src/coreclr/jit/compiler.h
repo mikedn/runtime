@@ -1678,7 +1678,7 @@ struct CompiledMethodInfo
                        ICorJitInfo*          jitInfo);
 };
 
-enum codeOptimize
+enum codeOptimize : uint8_t
 {
     BLENDED_CODE,
     SMALL_CODE,

@@ -638,7 +638,7 @@ private:
 #define FEATURE_LOOP_ALIGN 0
 #endif
 
-enum OptFlags : unsigned
+enum OptFlags : uint8_t
 {
     CLFLG_REGVAR        = 0x01,
     CLFLG_TREETRANS     = 0x02,
