@@ -992,16 +992,18 @@ void Compiler::compInit()
     else
     {
         m_inlineStrategy = new (this, CMK_Inlining) InlineStrategy(this);
-    }
 
-    for (unsigned i = 0; i < _countof(fgLargeFieldOffsetNullCheckTemps); i++)
-    {
-        fgLargeFieldOffsetNullCheckTemps[i] = BAD_VAR_NUM;
-    }
+        for (unsigned i = 0; i < _countof(fgLargeFieldOffsetNullCheckTemps); i++)
+        {
+            fgLargeFieldOffsetNullCheckTemps[i] = BAD_VAR_NUM;
+        }
 
+        codeGenInit();
+
+#if MEASURE_NODE_SIZE
+        genNodeSizeStatsPerFunc.Init();
+#endif
 #ifdef DEBUG
-    if (!compIsForInlining())
-    {
         switch (JitConfig.JitNoStructPromotion())
         {
             case 0:
@@ -1015,15 +1017,6 @@ void Compiler::compInit()
             default:
                 unreached();
         }
-    }
-#endif
-
-    if (!compIsForInlining())
-    {
-        codeGenInit();
-
-#if MEASURE_NODE_SIZE
-        genNodeSizeStatsPerFunc.Init();
 #endif
     }
 }
