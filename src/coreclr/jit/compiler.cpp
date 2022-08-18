@@ -928,18 +928,18 @@ void Compiler::compDisplayStaticSizes(FILE* fout)
 
 INDEBUG(ConfigMethodRange fJitStressRange;)
 
-Compiler::Compiler(const CORINFO_EE_INFO* eeInfo) : virtualStubParamInfo(eeInfo->targetAbi == CORINFO_CORERT_ABI)
+Compiler::Compiler(ArenaAllocator* alloc, const CORINFO_EE_INFO* eeInfo)
+    : eeInfo(eeInfo), virtualStubParamInfo(eeInfo->targetAbi == CORINFO_CORERT_ABI), compArenaAllocator(alloc)
 {
+    memset(&opts, 0, sizeof(opts));
 }
 
-void Compiler::compInit(ArenaAllocator*       alloc,
-                        CORINFO_MODULE_HANDLE module,
+void Compiler::compInit(CORINFO_MODULE_HANDLE module,
                         CORINFO_METHOD_HANDLE methodHnd,
                         ICorJitInfo*          jitInfo,
                         CORINFO_METHOD_INFO*  methodInfo,
                         InlineInfo*           inlineInfo)
 {
-    compArenaAllocator   = alloc;
     info.compScopeHnd    = module;
     info.compMethodHnd   = methodHnd;
     info.compCompHnd     = jitInfo;
@@ -950,86 +950,9 @@ void Compiler::compInit(ArenaAllocator*       alloc,
     info.compMaxStack    = methodInfo->maxStack;
     impInlineInfo        = inlineInfo;
 
-    InlineeCompiler            = nullptr;
-    compDoAggressiveInlining   = false;
-    mostRecentlyActivePhase    = PHASE_PRE_IMPORT;
-    activePhaseChecks          = PhaseChecks::CHECK_NONE;
-    compJmpOpUsed              = false;
-    compLongUsed               = false;
-    compTailCallUsed           = false;
-    compLocallocUsed           = false;
-    compLocallocOptimized      = false;
-    compQmarkRationalized      = false;
-    compQmarkUsed              = false;
-    compFloatingPointUsed      = false;
-    compUsesThrowHelper        = false;
-    compSuppressedZeroInit     = false;
-    compNeedsGSSecurityCookie  = false;
-    compGSReorderStackLayout   = false;
-    compGeneratingProlog       = false;
-    compGeneratingEpilog       = false;
-    compLSRADone               = false;
-    compRationalIRForm         = false;
-    optMethodFlags             = 0;
-    optNoReturnCallCount       = 0;
-    m_switchDescMap            = nullptr;
-    m_fieldSeqStore            = nullptr;
-    m_zeroOffsetFieldMap       = nullptr;
-    m_refAnyClass              = nullptr;
-    m_memorySsaMap             = nullptr;
-    ssaForm                    = false;
-    vnStore                    = nullptr;
-    m_partialSsaDefMap         = nullptr;
-    m_nodeToLoopMemoryBlockMap = nullptr;
-    fgOrder                    = FGOrderTree;
-    m_classLayoutTable         = nullptr;
-    m_inlineStrategy           = nullptr;
-    compInlineResult           = nullptr;
-    compVarScopeMap            = nullptr;
-    codeGen                    = nullptr;
-    compHndBBtab               = nullptr;
-    compHndBBtabCount          = 0;
-    compHndBBtabAllocCount     = 0;
-    compHasBackwardJump        = false;
-    compSwitchedToOptimized    = false;
-    compSwitchedToMinOpts      = false;
-#ifndef TARGET_X86
-    m_abiStructArgTemps      = nullptr;
-    m_abiStructArgTempsInUse = nullptr;
-#endif
-#ifdef DEBUG
-    compCurBB           = nullptr;
-    lvaTable            = nullptr;
-    compGenTreeID       = 0;
-    compStatementID     = 0;
-    compBasicBlockID    = 0;
-    compCodeGenDone     = false;
-    compInlinedCodeSize = 0;
-#endif
-    hbvGlobalData.Init();
-
-    memset(&opts, 0, sizeof(opts));
-
-    info.compILImportSize                       = 0;
-    info.compNativeCodeSize                     = 0;
-    info.compTotalHotCodeSize                   = 0;
-    info.compTotalColdCodeSize                  = 0;
-    info.compClassProbeCount                    = 0;
-    info.compHasNextCallRetAddr                 = false;
-    info.compUnmanagedCallCountWithGCTransition = 0;
-    info.compIsVarArgs                          = false;
-#if defined(DEBUG) || defined(INLINE_DATA)
-    info.compMethodHashPrivate = 0;
-#endif
-
 #if defined(DEBUG) || defined(LATE_DISASM) || DUMP_FLOWGRAPHS
     // Initialize the method name and related info, as it is used early in determining whether to
     // apply stress modes, and which ones to apply.
-    // Note that even allocating memory can invoke the stress mechanism, so ensure that both
-    // 'compMethodName' and 'compFullName' are either null or valid before we allocate.
-    info.compMethodName = nullptr;
-    info.compClassName  = nullptr;
-    info.compFullName   = nullptr;
 
     const char* classNamePtr;
     const char* methodName = eeGetMethodName(methodHnd, &classNamePtr);
@@ -1040,7 +963,6 @@ void Compiler::compInit(ArenaAllocator*       alloc,
     info.compMethodName          = methodName;
     info.compClassName           = className;
     info.compFullName            = eeGetMethodFullName(methodHnd);
-    info.compPerfScore           = 0.0;
     info.compMethodSuperPMIIndex = g_jitHost->getIntConfigValue(W("SuperPMIMethodContextNumber"), -1);
 #endif
 
@@ -1060,11 +982,9 @@ void Compiler::compInit(ArenaAllocator*       alloc,
     }
 
     fgInit();
-    lvaInit();
 
     if (!compIsForInlining())
     {
-        optInit();
         codeGenInit();
 
 #if MEASURE_NODE_SIZE
@@ -5181,6 +5101,7 @@ START:
         uint32_t*             methodCodeSize;
         JitFlags*             compileFlags;
         int                   result;
+        CORINFO_EE_INFO       eeInfo;
     } param;
 
     param.compiler           = nullptr;
@@ -5199,13 +5120,11 @@ START:
     {
         setErrorTrap(nullptr, Param*, pParam, pParamOuter)
         {
-            CORINFO_EE_INFO eeInfo;
-            pParam->jitInfo->getEEInfo(&eeInfo);
+            pParam->jitInfo->getEEInfo(&pParam->eeInfo);
 
             pParam->compiler = static_cast<Compiler*>(pParam->allocator.allocateMemory(sizeof(Compiler)));
-            new (pParam->compiler) Compiler(&eeInfo);
-            pParam->compiler->eeInfo = &eeInfo;
-            pParam->prevCompiler     = JitTls::GetCompiler();
+            new (pParam->compiler) Compiler(&pParam->allocator, &pParam->eeInfo);
+            pParam->prevCompiler = JitTls::GetCompiler();
             JitTls::SetCompiler(pParam->compiler);
             INDEBUG(JitTls::SetLogCompiler(pParam->compiler));
 
@@ -5216,8 +5135,7 @@ START:
             }
 #endif
 
-            pParam->compiler->compInit(&pParam->allocator, pParam->module, pParam->methodHnd, pParam->jitInfo,
-                                       pParam->methodInfo);
+            pParam->compiler->compInit(pParam->module, pParam->methodHnd, pParam->jitInfo, pParam->methodInfo);
 
             INDEBUG(pParam->compiler->jitFallbackCompile = pParam->jitFallbackCompile;)
 

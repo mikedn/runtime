@@ -22,54 +22,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "jitstd/algorithm.h"
 #include "patchpointinfo.h"
 
-void Compiler::lvaInit()
-{
-    lvaRefCountState                = RCS_INVALID;
-    lvaGenericsContextInUse         = false;
-    lvaTrackedCount                 = 0;
-    lvaTrackedCountInSizeTUnits     = 0;
-    lvaCurEpoch                     = 0;
-    lvaTrackedToVarNumSize          = 0;
-    lvaTrackedToVarNum              = nullptr;
-    lvaAddressExposedLocalsMarked   = false;
-    impPromotableStructTypeCache[0] = nullptr;
-    impPromotableStructTypeCache[1] = nullptr;
-    gsShadowVarInfo                 = nullptr;
-    lvaDoneFrameLayout              = NO_FRAME_LAYOUT;
-    lvaNewObjArrayArgs              = BAD_VAR_NUM;
-    lvaGSSecurityCookie             = BAD_VAR_NUM;
-    lvaPInvokeFrameListVar          = BAD_VAR_NUM;
-    lvaInlinedPInvokeFrameVar       = BAD_VAR_NUM;
-    lvaReversePInvokeFrameVar       = BAD_VAR_NUM;
-    lvaVarargsHandleArg             = BAD_VAR_NUM;
-    lvaStubArgumentVar              = BAD_VAR_NUM;
-    lvaArg0Var                      = BAD_VAR_NUM;
-    lvaMonAcquired                  = BAD_VAR_NUM;
-    lvaRetAddrVar                   = BAD_VAR_NUM;
-#ifndef FEATURE_EH_FUNCLETS
-    lvaShadowSPslotsVar = BAD_VAR_NUM;
-#else
-    lvaPSPSym = BAD_VAR_NUM;
-#endif
-#if FEATURE_FIXED_OUT_ARGS
-    lvaOutgoingArgSpaceVar  = BAD_VAR_NUM;
-    lvaOutgoingArgSpaceSize = PhasedVar<unsigned>();
-#endif
-#ifdef JIT32_GCENCODER
-    lvaLocAllocSPvar = BAD_VAR_NUM;
-#endif
-#ifdef TARGET_X86
-    lvaVarargsBaseOfStkArgs = BAD_VAR_NUM;
-#endif
-
-#if defined(DEBUG) && defined(TARGET_XARCH)
-    lvaReturnSpCheck = BAD_VAR_NUM;
-    X86_ONLY(lvaCallSpCheck = BAD_VAR_NUM);
-#endif
-}
-
-/*****************************************************************************/
-
 void Compiler::lvaInitTypeRef()
 {
     var_types retType       = JITtype2varType(info.compMethodInfo->args.retType);

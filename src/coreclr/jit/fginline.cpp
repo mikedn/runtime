@@ -515,11 +515,10 @@ void jitInlineCode(InlineInfo* inlineInfo)
             }
 
             Compiler* inlineeCompiler = inlinerCompiler->InlineeCompiler;
-            new (inlineeCompiler) Compiler(inlinerCompiler->eeInfo);
-            inlineeCompiler->eeInfo = inlinerCompiler->eeInfo;
+            new (inlineeCompiler) Compiler(allocator, inlinerCompiler->eeInfo);
             JitTls::SetCompiler(inlineeCompiler);
 
-            inlineeCompiler->compInit(allocator, inlineInfo->inlineCandidateInfo->methInfo.scope,
+            inlineeCompiler->compInit(inlineInfo->inlineCandidateInfo->methInfo.scope,
                                       inlineInfo->iciCall->GetMethodHandle(), inlinerCompiler->info.compCompHnd,
                                       &inlineInfo->inlineCandidateInfo->methInfo, inlineInfo);
 

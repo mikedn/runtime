@@ -306,15 +306,8 @@ class hashBvGlobalData
     friend class hashBv;
     friend class hashBvNode;
 
-    hashBvNode* hbvNodeFreeList;
-    hashBv*     hbvFreeList;
-
-public:
-    void Init()
-    {
-        hbvNodeFreeList = nullptr;
-        hbvFreeList     = nullptr;
-    }
+    hashBvNode* hbvNodeFreeList = nullptr;
+    hashBv*     hbvFreeList     = nullptr;
 };
 
 template <typename Visitor>

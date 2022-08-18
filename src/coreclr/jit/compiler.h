@@ -1559,10 +1559,10 @@ struct CompiledMethodInfo
 
 #if defined(DEBUG) || defined(LATE_DISASM) || DUMP_FLOWGRAPHS
 
-    const char* compMethodName;
-    const char* compClassName;
-    const char* compFullName;
-    double      compPerfScore;
+    const char* compMethodName = nullptr;
+    const char* compClassName  = nullptr;
+    const char* compFullName   = nullptr;
+    double      compPerfScore  = 0.0;
     int         compMethodSuperPMIIndex; // useful when debugging under SuperPMI
 
 #endif // defined(DEBUG) || defined(LATE_DISASM) || DUMP_FLOWGRAPHS
@@ -1570,7 +1570,7 @@ struct CompiledMethodInfo
 #if defined(DEBUG) || defined(INLINE_DATA)
     // Method hash is logically const, but computed
     // on first demand.
-    mutable unsigned compMethodHashPrivate;
+    mutable unsigned compMethodHashPrivate = 0;
     unsigned         compMethodHash() const;
 #endif // defined(DEBUG) || defined(INLINE_DATA)
 
@@ -1587,11 +1587,11 @@ struct CompiledMethodInfo
     unsigned compClassAttr;
 
     const BYTE*     compCode;
-    IL_OFFSET       compILCodeSize;     // The IL code size
-    IL_OFFSET       compILImportSize;   // Estimated amount of IL actually imported
-    IL_OFFSET       compILEntry;        // The IL entry point (normally 0)
-    PatchpointInfo* compPatchpointInfo; // Patchpoint data for OSR (normally nullptr)
-    UNATIVE_OFFSET  compNativeCodeSize; // The native code size, after instructions are issued. This
+    IL_OFFSET       compILCodeSize;         // The IL code size
+    IL_OFFSET       compILImportSize = 0;   // Estimated amount of IL actually imported
+    IL_OFFSET       compILEntry;            // The IL entry point (normally 0)
+    PatchpointInfo* compPatchpointInfo;     // Patchpoint data for OSR (normally nullptr)
+    UNATIVE_OFFSET  compNativeCodeSize = 0; // The native code size, after instructions are issued. This
     // is less than (compTotalHotCodeSize + compTotalColdCodeSize) only if:
     // (1) the code is not hot/cold split, and we issued less code than we expected, or
     // (2) the code is hot/cold split, and we issued less code than we expected
@@ -1637,10 +1637,10 @@ struct CompiledMethodInfo
     unsigned compILlocalsCount; // Number of vars : args + locals (incl. implicit but not hidden)
     unsigned compLocalsCount;   // Number of vars : args + locals (incl. implicit and     hidden)
     unsigned compMaxStack;
-    UNATIVE_OFFSET compTotalHotCodeSize;  // Total number of bytes of Hot Code in the method
-    UNATIVE_OFFSET compTotalColdCodeSize; // Total number of bytes of Cold Code in the method
+    UNATIVE_OFFSET compTotalHotCodeSize  = 0; // Total number of bytes of Hot Code in the method
+    UNATIVE_OFFSET compTotalColdCodeSize = 0; // Total number of bytes of Cold Code in the method
 
-    unsigned compUnmanagedCallCountWithGCTransition; // count of unmanaged calls with GC transition.
+    unsigned compUnmanagedCallCountWithGCTransition = 0; // count of unmanaged calls with GC transition.
 
     CorInfoCallConvExtension compCallConv; // The entry-point calling convention for this method.
 
@@ -1670,7 +1670,11 @@ struct CompiledMethodInfo
     ICorDebugInfo::BoundaryTypes compStmtOffsetsImplicit;
 
     // Number of class profile probes in this method
-    unsigned compClassProbeCount;
+    unsigned compClassProbeCount = 0;
+
+    CompiledMethodInfo() : compIsVarArgs(false), compHasNextCallRetAddr(false)
+    {
+    }
 };
 
 enum codeOptimize
@@ -3046,7 +3050,7 @@ public:
     }
 
     unsigned expensiveDebugCheckLevel;
-    unsigned compInlinedCodeSize;
+    unsigned compInlinedCodeSize = 0;
 #endif
 
     //-------------------------------------------------------------------------
@@ -3161,7 +3165,7 @@ public:
     // 1 for methods with non-nested EH, or where only the try blocks are nested
     // 2 for a method with a catch within a catch
     // etc.
-    unsigned ehMaxHndNestingCount;
+    unsigned ehMaxHndNestingCount = 0;
 
 #endif // !FEATURE_EH_FUNCLETS
 
@@ -3811,7 +3815,7 @@ public:
     // This is a debug flag we will use to assert when creating block during codegen
     // as this interferes with procedure splitting. If you know what you're doing, set
     // it to true before creating the block. (DEBUG only)
-    bool fgSafeBasicBlockCreation;
+    bool fgSafeBasicBlockCreation = true;
 #endif
 
     BasicBlock* bbNewBasicBlock(BBjumpKinds jumpKind);
@@ -3839,7 +3843,7 @@ public:
     };
 
 public:
-    RefCountState lvaRefCountState; // Current local ref count state
+    RefCountState lvaRefCountState = RCS_INVALID; // Current local ref count state
 
     bool lvaLocalVarRefCounted() const
     {
@@ -3849,15 +3853,15 @@ public:
     unsigned lvaCount; // total number of locals, which includes function arguments,
                        // special arguments, IL local variables, and JIT temporary variables
 
-    LclVarDsc* lvaTable;     // variable descriptor table
-    unsigned   lvaTableSize; // lvaTable size (>= lvaCount)
+    LclVarDsc* lvaTable = nullptr; // variable descriptor table
+    unsigned   lvaTableSize;       // lvaTable size (>= lvaCount)
 
-    unsigned lvaTrackedCount;             // actual # of locals being tracked
-    unsigned lvaTrackedCountInSizeTUnits; // min # of size_t's sufficient to hold a bit for all the locals being tracked
+    unsigned lvaTrackedCount             = 0; // actual # of locals being tracked
+    unsigned lvaTrackedCountInSizeTUnits = 0; // min # of size_t's sufficient to hold a bit for all tracked locals
 
-    unsigned lvaCurEpoch; // VarSets are relative to a specific set of tracked var indices.
-                          // It that changes, this changes.  VarSets from different epochs
-                          // cannot be meaningfully combined.
+    unsigned lvaCurEpoch = 0; // VarSets are relative to a specific set of tracked var indices.
+                              // It that changes, this changes.  VarSets from different epochs
+                              // cannot be meaningfully combined.
 
     unsigned GetCurLVEpoch()
     {
@@ -3865,8 +3869,8 @@ public:
     }
 
     // reverse map of tracked number to var number
-    unsigned  lvaTrackedToVarNumSize;
-    unsigned* lvaTrackedToVarNum;
+    unsigned  lvaTrackedToVarNumSize = 0;
+    unsigned* lvaTrackedToVarNum     = 0;
 
     void lvaSetImplicitlyReferenced(unsigned lclNum);
 
@@ -3917,26 +3921,26 @@ public:
         lvaSetDoNotEnregister(lclNum DEBUGARG(reason));
     }
 
-    unsigned lvaVarargsHandleArg;
+    unsigned lvaVarargsHandleArg = BAD_VAR_NUM;
 #ifdef TARGET_X86
-    unsigned lvaVarargsBaseOfStkArgs; // Pointer (computed based on incoming varargs handle) to the start of the stack
-                                      // arguments
-#endif                                // TARGET_X86
+    // Pointer (computed based on incoming varargs handle) to the start of the stack arguments
+    unsigned lvaVarargsBaseOfStkArgs = BAD_VAR_NUM;
+#endif
 
-    unsigned lvaPInvokeFrameListVar;    // lclNum for the Frame root
-    unsigned lvaInlinedPInvokeFrameVar; // variable representing the InlinedCallFrame
-    unsigned lvaReversePInvokeFrameVar; // variable representing the reverse PInvoke frame
-    unsigned lvaMonAcquired;            // boolean variable introduced into in synchronized methods
-                                        // that tracks whether the lock has been taken
+    unsigned lvaPInvokeFrameListVar    = BAD_VAR_NUM; // lclNum for the Frame root
+    unsigned lvaInlinedPInvokeFrameVar = BAD_VAR_NUM; // variable representing the InlinedCallFrame
+    unsigned lvaReversePInvokeFrameVar = BAD_VAR_NUM; // variable representing the reverse PInvoke frame
+    unsigned lvaMonAcquired            = BAD_VAR_NUM; // boolean variable introduced into in synchronized methods
+                                                      // that tracks whether the lock has been taken
 
-    unsigned lvaArg0Var; // The lclNum of arg0. Normally this will be info.compThisArg.
-                         // However, if there is a "ldarga 0" or "starg 0" in the IL,
-                         // we will redirect all "ldarg(a) 0" and "starg 0" to this temp.
+    unsigned lvaArg0Var = BAD_VAR_NUM; // The lclNum of arg0. Normally this will be info.compThisArg.
+                                       // However, if there is a "ldarga 0" or "starg 0" in the IL,
+                                       // we will redirect all "ldarg(a) 0" and "starg 0" to this temp.
 
 #if FEATURE_FIXED_OUT_ARGS
-    unsigned            lvaOutgoingArgSpaceVar;  // TYP_BLK local for fixed outgoing argument space
-    PhasedVar<unsigned> lvaOutgoingArgSpaceSize; // size of fixed outgoing argument space
-#endif                                           // FEATURE_FIXED_OUT_ARGS
+    unsigned            lvaOutgoingArgSpaceVar = BAD_VAR_NUM; // TYP_BLK local for fixed outgoing argument space
+    PhasedVar<unsigned> lvaOutgoingArgSpaceSize;              // size of fixed outgoing argument space
+#endif
 
     static unsigned GetOutgoingArgByteSize(unsigned sizeWithoutPadding)
     {
@@ -3946,22 +3950,22 @@ public:
     // Variable representing the return address. The helper-based tailcall
     // mechanism passes the address of the return address to a runtime helper
     // where it is used to detect tail-call chains.
-    unsigned lvaRetAddrVar;
+    unsigned lvaRetAddrVar = BAD_VAR_NUM;
 
 #if defined(DEBUG) && defined(TARGET_XARCH)
     // Stores SP to confirm it is not corrupted on return.
-    unsigned lvaReturnSpCheck;
+    unsigned lvaReturnSpCheck = BAD_VAR_NUM;
     // Stores SP to confirm it is not corrupted after every call.
-    X86_ONLY(unsigned lvaCallSpCheck;)
+    X86_ONLY(unsigned lvaCallSpCheck = BAD_VAR_NUM;)
 #endif
 
-    bool lvaAddressExposedLocalsMarked;
+    bool lvaAddressExposedLocalsMarked = false;
 
 #if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
     bool lvaHasImplicitByRefParams;
 #endif
 
-    bool lvaGenericsContextInUse;
+    bool lvaGenericsContextInUse = false;
 
     bool lvaKeepAliveAndReportThis(); // Synchronized instance method of a reference type, or
                                       // CORINFO_GENERICS_CTXT_FROM_THIS?
@@ -3972,20 +3976,19 @@ public:
 
 #if !defined(FEATURE_EH_FUNCLETS)
     // This is used for the callable handlers
-    unsigned lvaShadowSPslotsVar; // TYP_BLK variable for all the shadow SP slots
-#endif                            // FEATURE_EH_FUNCLETS
+    unsigned lvaShadowSPslotsVar = BAD_VAR_NUM; // TYP_BLK variable for all the shadow SP slots
+#endif
 
     int lvaCachedGenericContextArgOffs;
     int lvaCachedGenericContextArgOffset(); // For CORINFO_CALLCONV_PARAMTYPE and if generic context is passed as
                                             // THIS pointer
 
 #ifdef JIT32_GCENCODER
+    // variable which stores the value of ESP after the the last alloca/localloc
+    unsigned lvaLocAllocSPvar = BAD_VAR_NUM;
+#endif
 
-    unsigned lvaLocAllocSPvar; // variable which stores the value of ESP after the the last alloca/localloc
-
-#endif // JIT32_GCENCODER
-
-    unsigned lvaNewObjArrayArgs; // variable with arguments for new MD array helper
+    unsigned lvaNewObjArrayArgs = BAD_VAR_NUM; // variable with arguments for new MD array helper
 
     // TODO-Review: Prior to reg predict we reserve 24 bytes for Spill temps.
     //              after the reg predict we will use a computed maxTmpSize
@@ -4064,8 +4067,6 @@ public:
     void lvaInitVarArgsHandle(InitVarDscInfo* varDscInfo);
 
     void lvaInitVarDsc(LclVarDsc* varDsc, unsigned varNum, CorInfoType corInfoType, CORINFO_CLASS_HANDLE typeHnd);
-
-    void lvaInit();
 
     LclVarDsc* lvaGetDesc(unsigned lclNum)
     {
@@ -4184,7 +4185,7 @@ public:
     }
 #endif // defined(FEATURE_SIMD)
 
-    unsigned lvaGSSecurityCookie; // LclVar number
+    unsigned lvaGSSecurityCookie = BAD_VAR_NUM; // LclVar number
     bool     lvaTempsHaveLargerOffsetThanVars();
 
     // Returns "true" iff local variable "lclNum" is in SSA form.
@@ -4194,15 +4195,15 @@ public:
         return lvaTable[lclNum].lvInSsa;
     }
 
-    unsigned lvaStubArgumentVar; // variable representing the secret stub argument
+    unsigned lvaStubArgumentVar = BAD_VAR_NUM; // variable representing the secret stub argument
 
 #if defined(FEATURE_EH_FUNCLETS)
-    unsigned lvaPSPSym; // variable representing the PSPSym
+    unsigned lvaPSPSym = BAD_VAR_NUM; // variable representing the PSPSym
 #endif
 
     InlineInfo*          impInlineInfo;
-    InlineStrategy*      m_inlineStrategy;
-    CORINFO_CLASS_HANDLE impPromotableStructTypeCache[2];
+    InlineStrategy*      m_inlineStrategy = nullptr;
+    CORINFO_CLASS_HANDLE impPromotableStructTypeCache[2]{};
 
     // The Compiler* that is the root of the inlining tree of which "this" is a member.
     Compiler* impInlineRoot();
@@ -4214,8 +4215,9 @@ public:
     }
 #endif // defined(DEBUG) || defined(INLINE_DATA)
 
-    bool fgNoStructPromotion;               // Set to true to turn off struct promotion for this method.
-    INDEBUG(bool fgNoStructParamPromotion;) // Set to true to turn off struct promotion of this method's parameters.
+    bool fgNoStructPromotion = false;               // Set to true to turn off struct promotion for this method.
+    INDEBUG(bool fgNoStructParamPromotion = false;) // Set to true to turn off struct promotion of this method's
+                                                    // parameters.
 
     //=========================================================================
     //                          PROTECTED
@@ -4380,23 +4382,24 @@ private:
     */
 
 public:
-    BasicBlock* fgFirstBB;        // Beginning of the basic block list
-    BasicBlock* fgLastBB;         // End of the basic block list
-    BasicBlock* fgFirstColdBlock; // First block to be placed in the cold section
-    BasicBlock* fgEntryBB;        // For OSR, the original method's entry point
+    BasicBlock* fgFirstBB        = nullptr; // Beginning of the basic block list
+    BasicBlock* fgLastBB         = nullptr; // End of the basic block list
+    BasicBlock* fgFirstColdBlock = nullptr; // First block to be placed in the cold section
+    BasicBlock* fgEntryBB        = nullptr; // For OSR, the original method's entry point
 #if defined(FEATURE_EH_FUNCLETS)
-    BasicBlock* fgFirstFuncletBB; // First block of outlined funclets (to allow block insertion before the funclets)
+    // First block of outlined funclets (to allow block insertion before the funclets)
+    BasicBlock* fgFirstFuncletBB = nullptr;
 #endif
-    BasicBlock* fgFirstBBScratch;   // Block inserted for initialization stuff. Is nullptr if no such block has been
-                                    // created.
-    BasicBlockList* fgReturnBlocks; // list of BBJ_RETURN blocks
-    unsigned        fgEdgeCount;    // # of control flow edges between the BBs
-    unsigned        fgBBcount;      // # of BBs in the method
+    // Block inserted for initialization stuff. Is nullptr if no such block has been created.
+    BasicBlock*     fgFirstBBScratch = nullptr;
+    BasicBlockList* fgReturnBlocks   = nullptr; // list of BBJ_RETURN blocks
+    unsigned        fgEdgeCount      = 0;       // # of control flow edges between the BBs
+    unsigned        fgBBcount        = 0;       // # of BBs in the method
 #ifdef DEBUG
-    unsigned fgBBcountAtCodegen; // # of BBs in the method at the start of codegen
+    unsigned fgBBcountAtCodegen = 0; // # of BBs in the method at the start of codegen
 #endif
-    unsigned     fgBBNumMax;       // The max bbNum that has been assigned to basic blocks
-    unsigned     fgDomBBcount;     // # of BBs for which we have dominator and reachability information
+    unsigned     fgBBNumMax   = 0; // The max bbNum that has been assigned to basic blocks
+    unsigned     fgDomBBcount = 0; // # of BBs for which we have dominator and reachability information
     BasicBlock** fgBBInvPostOrder; // The flow graph stored in an array sorted in topological order, needed to compute
                                    // dominance. Indexed by block number. Size: fgBBNumMax + 1.
 
@@ -4428,7 +4431,7 @@ public:
     // participate in a block set until the blocks are all renumbered, causing the epoch
     // to change. This is useful if continuing to use previous block sets is valuable.
     // If the epoch is zero, then it is uninitialized, and block sets can't be used.
-    unsigned fgCurBBEpoch;
+    unsigned fgCurBBEpoch = 0;
 
     unsigned GetCurBasicBlockEpoch()
     {
@@ -4438,11 +4441,11 @@ public:
     // The number of basic blocks in the current epoch. When the blocks are renumbered,
     // this is fgBBcount. As blocks are added, fgBBcount increases, fgCurBBEpochSize remains
     // the same, until a new BasicBlock epoch is created, such as when the blocks are all renumbered.
-    unsigned fgCurBBEpochSize;
+    unsigned fgCurBBEpochSize = 0;
 
     // The number of "size_t" elements required to hold a bitset large enough for fgCurBBEpochSize
     // bits. This is precomputed to avoid doing math every time BasicBlockBitSetTraits::GetArrSize() is called.
-    unsigned fgBBSetCountInSizeTUnits;
+    unsigned fgBBSetCountInSizeTUnits = 0;
 
     void NewBasicBlockEpoch()
     {
@@ -4524,24 +4527,23 @@ public:
     unsigned fgMeasureIR();
 #endif // FEATURE_JIT_METHOD_PERF
 
-    bool fgModified;         // True if the flow graph has been modified recently
-    bool fgComputePredsDone; // Have we computed the bbPreds list
-    bool fgCheapPredsValid;  // Is the bbCheapPreds list valid?
-    bool fgDomsComputed;     // Have we computed the dominator sets?
-    bool fgOptimizedFinally; // Did we optimize any try-finallys?
+    bool fgModified         = false; // True if the flow graph has been modified recently
+    bool fgComputePredsDone = false; // Have we computed the bbPreds list
+    bool fgCheapPredsValid  = false; // Is the bbCheapPreds list valid?
+    bool fgDomsComputed     = false; // Have we computed the dominator sets?
+    bool fgOptimizedFinally = false; // Did we optimize any try-finallys?
+    bool fgHasSwitch        = false; // any BBJ_SWITCH jumps?
 
-    bool fgHasSwitch; // any BBJ_SWITCH jumps?
-
-    BlockSet fgEnterBlks; // Set of blocks which have a special transfer of control; the "entry" blocks plus EH handler
-                          // begin blocks.
+    BlockSet fgEnterBlks = BlockSetOps::UninitVal(); // Set of blocks which have a special transfer of control; the
+                                                     // "entry" blocks plus EH handler begin blocks.
 
 #ifdef DEBUG
-    bool fgReachabilitySetsValid; // Are the bbReach sets valid?
-    bool fgEnterBlksSetValid;     // Is the fgEnterBlks set valid?
-#endif                            // DEBUG
+    bool fgReachabilitySetsValid = false; // Are the bbReach sets valid?
+    bool fgEnterBlksSetValid     = false; // Is the fgEnterBlks set valid?
+#endif
 
-    bool fgRemoveRestOfBlock; // true if we know that we will throw
-    bool fgStmtRemoved;       // true if we remove statements -> need new DFA
+    bool fgRemoveRestOfBlock;   // true if we know that we will throw
+    bool fgStmtRemoved = false; // true if we remove statements -> need new DFA
 
     // There are two modes for ordering of the trees.
     //  - In FGOrderTree, the dominant ordering is the tree order, and the nodes contained in
@@ -4554,26 +4556,27 @@ public:
         FGOrderTree,
         FGOrderLinear
     };
-    FlowGraphOrder fgOrder;
+    FlowGraphOrder fgOrder = FGOrderTree;
 
     // The following are boolean flags that keep track of the state of internal data structures
 
-    bool                 fgStmtListThreaded;       // true if the node list is now threaded
-    bool                 fgEdgeWeightsComputed;    // true after we have called fgComputeEdgeWeights
-    bool                 fgHaveValidEdgeWeights;   // true if we were successful in computing all of the edge weights
-    bool                 fgSlopUsedInEdgeWeights;  // true if their was some slop used when computing the edge weights
-    bool                 fgRangeUsedInEdgeWeights; // true if some of the edgeWeight are expressed in Min..Max form
-    bool                 fgNeedsUpdateFlowGraph;   // true if we need to run fgUpdateFlowGraph
-    BasicBlock::weight_t fgCalledCount;            // count of the number of times this method was called
-                                                   // This is derived from the profile data
-                                                   // or is BB_UNITY_WEIGHT when we don't have profile data
+    bool fgStmtListThreaded       = false; // true if the node list is now threaded
+    bool fgEdgeWeightsComputed    = false; // true after we have called fgComputeEdgeWeights
+    bool fgHaveValidEdgeWeights   = false; // true if we were successful in computing all of the edge weights
+    bool fgSlopUsedInEdgeWeights  = false; // true if their was some slop used when computing the edge weights
+    bool fgRangeUsedInEdgeWeights = true;  // true if some of the edgeWeight are expressed in Min..Max form
+    bool fgNeedsUpdateFlowGraph   = false; // true if we need to run fgUpdateFlowGraph
+
+    BasicBlock::weight_t fgCalledCount = BB_ZERO_WEIGHT; // count of the number of times this method was called
+                                                         // This is derived from the profile data
+                                                         // or is BB_UNITY_WEIGHT when we don't have profile data
 
 #if defined(FEATURE_EH_FUNCLETS)
-    bool fgFuncletsCreated; // true if the funclet creation phase has been run
-#endif                      // FEATURE_EH_FUNCLETS
+    bool fgFuncletsCreated = false; // true if the funclet creation phase has been run
+#endif
 
-    bool fgGlobalMorph; // indicates if we are during the global morphing phase
-                        // since fgMorphTree can be called from several places
+    bool fgGlobalMorph = false; // indicates if we are during the global morphing phase
+                                // since fgMorphTree can be called from several places
 
     bool     impBoxTempInUse; // the temp below is valid and available
     unsigned impBoxTemp;      // a temporary that is used for boxing
@@ -4584,10 +4587,10 @@ public:
 #endif
 
 #if defined(DEBUG)
-    bool fgPrintInlinedMethods;
+    bool fgPrintInlinedMethods = false;
 #endif
 
-    jitstd::vector<flowList*>* fgPredListSortVector;
+    jitstd::vector<flowList*>* fgPredListSortVector = nullptr;
 
     //-------------------------------------------------------------------------
 
@@ -4656,7 +4659,7 @@ public:
     void fgAddReversePInvokeEnterExit();
 
     // The number of separate return points in the method.
-    unsigned fgReturnCount;
+    unsigned fgReturnCount = 0;
 
     void fgAddInternal();
 
@@ -4760,7 +4763,7 @@ public:
 
     typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, unsigned> NodeToUnsignedMap;
 
-    NodeToUnsignedMap* m_partialSsaDefMap;
+    NodeToUnsignedMap* m_partialSsaDefMap = nullptr;
 
     void SetPartialSsaDefNum(GenTreeLclFld* store, unsigned ssaNum);
     unsigned GetSsaDefNum(GenTreeLclVarCommon* lclNode);
@@ -4780,7 +4783,7 @@ public:
     // and so memory does not constrain hoisting.
     //
     typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, BasicBlock*> NodeToLoopMemoryBlockMap;
-    NodeToLoopMemoryBlockMap* m_nodeToLoopMemoryBlockMap;
+    NodeToLoopMemoryBlockMap* m_nodeToLoopMemoryBlockMap = nullptr;
     NodeToLoopMemoryBlockMap* GetNodeToLoopMemoryBlockMap()
     {
         if (m_nodeToLoopMemoryBlockMap == nullptr)
@@ -4799,7 +4802,7 @@ public:
     // Reset any data structures to the state expected by "fgSsaBuild", so it can be run again.
     void fgResetForSsa();
 
-    bool ssaForm;
+    bool ssaForm = false;
 
     // Returns "true" if this is a special variable that is never zero initialized in the prolog.
     inline bool fgVarIsNeverZeroInitializedInProlog(unsigned varNum);
@@ -4808,7 +4811,7 @@ public:
     inline bool fgVarNeedsExplicitZeroInit(unsigned varNum, bool bbInALoop, bool bbIsReturn);
 
     // The value numbers for this compilation.
-    ValueNumStore* vnStore;
+    ValueNumStore* vnStore = nullptr;
 
 public:
     ValueNumStore* GetValueNumStore()
@@ -5113,7 +5116,7 @@ public:
 private:
     // Maps BasicBlock*'s that end in switch statements to SwitchUniqueSuccSets that allow
     // iteration over only the distinct successors.
-    BlockToSwitchDescMap* m_switchDescMap;
+    BlockToSwitchDescMap* m_switchDescMap = nullptr;
 
 public:
     BlockToSwitchDescMap* GetSwitchDescMap(bool createIfNull = true)
@@ -5294,7 +5297,7 @@ public:
     GenTree* fgMorphNormalizeLclVarStore(GenTreeOp* asg);
 
     // The following check for loops that don't execute calls
-    bool fgLoopCallMarked;
+    bool fgLoopCallMarked = false;
 
     void fgLoopCallTest(BasicBlock* srcBB, BasicBlock* dstBB);
     void fgLoopCallMark();
@@ -5456,8 +5459,8 @@ protected:
     bool fgHaveProfileData();
     bool fgGetProfileWeightForBasicBlock(IL_OFFSET offset, BasicBlock::weight_t* weight);
 
-    Instrumentor* fgCountInstrumentor;
-    Instrumentor* fgClassInstrumentor;
+    Instrumentor* fgCountInstrumentor = nullptr;
+    Instrumentor* fgClassInstrumentor = nullptr;
 
     PhaseStatus fgPrepareToInstrumentMethod();
     PhaseStatus fgInstrumentMethod();
@@ -5473,19 +5476,19 @@ protected:
 
 public:
     const char*                            fgPgoFailReason;
-    bool                                   fgPgoDisabled;
+    bool                                   fgPgoDisabled = false;
     ICorJitInfo::PgoSource                 fgPgoSource;
-    ICorJitInfo::PgoInstrumentationSchema* fgPgoSchema;
-    BYTE*                                  fgPgoData;
-    UINT32                                 fgPgoSchemaCount;
+    ICorJitInfo::PgoInstrumentationSchema* fgPgoSchema      = nullptr;
+    BYTE*                                  fgPgoData        = nullptr;
+    UINT32                                 fgPgoSchemaCount = 0;
     HRESULT                                fgPgoQueryResult;
-    UINT32                                 fgNumProfileRuns;
-    UINT32                                 fgPgoBlockCounts;
-    UINT32                                 fgPgoEdgeCounts;
-    UINT32                                 fgPgoClassProfiles;
-    unsigned                               fgPgoInlineePgo;
-    unsigned                               fgPgoInlineeNoPgo;
-    unsigned                               fgPgoInlineeNoPgoSingleBlock;
+    UINT32                                 fgNumProfileRuns             = 0;
+    UINT32                                 fgPgoBlockCounts             = 0;
+    UINT32                                 fgPgoEdgeCounts              = 0;
+    UINT32                                 fgPgoClassProfiles           = 0;
+    unsigned                               fgPgoInlineePgo              = 0;
+    unsigned                               fgPgoInlineeNoPgo            = 0;
+    unsigned                               fgPgoInlineeNoPgoSingleBlock = 0;
 
     void WalkSpanningTree(SpanningTreeVisitor* visitor);
     void fgSetProfileWeight(BasicBlock* block, BasicBlock::weight_t weight);
@@ -5554,7 +5557,7 @@ private:
 
     //------------------------- Morphing --------------------------------------
 
-    unsigned fgPtrArgCntMax;
+    unsigned fgPtrArgCntMax = 0;
 
 public:
     //------------------------------------------------------------------------
@@ -5582,8 +5585,8 @@ public:
 
 private:
 #ifndef TARGET_X86
-    hashBv* m_abiStructArgTemps;
-    hashBv* m_abiStructArgTempsInUse;
+    hashBv* m_abiStructArgTemps      = nullptr;
+    hashBv* m_abiStructArgTempsInUse = nullptr;
 #endif
 
 #if REARRANGE_ADDS
@@ -5760,10 +5763,10 @@ public:
 private:
     static CorInfoHelpFunc acdHelper(SpecialCodeKind codeKind);
 
-    AddCodeDsc* fgAddCodeList;
-    bool        fgAddCodeModf;
-    bool        fgRngChkThrowAdded;
-    AddCodeDsc* fgExcptnTargetCache[SCK_COUNT];
+    AddCodeDsc* fgAddCodeList                  = nullptr;
+    bool        fgAddCodeModf                  = false;
+    bool        fgRngChkThrowAdded             = false;
+    AddCodeDsc* fgExcptnTargetCache[SCK_COUNT] = {};
 
     BasicBlock* fgGetRngChkTarget(BasicBlock* block, SpecialCodeKind kind);
 
@@ -5871,8 +5874,6 @@ private:
     */
 
 public:
-    void optInit();
-
     GenTree* optRemoveRangeCheck(GenTreeBoundsChk* check, GenTree* comma, Statement* stmt);
     GenTree* optRemoveStandaloneRangeCheck(GenTreeBoundsChk* check, Statement* stmt);
     void optRemoveCommaBasedRangeCheck(GenTree* comma, Statement* stmt);
@@ -6110,17 +6111,17 @@ public:
     };
 
 protected:
-    bool fgMightHaveLoop(); // returns true if there are any backedges
-    bool fgHasLoops;        // True if this method has any loops, set in fgComputeReachability
+    bool fgMightHaveLoop();  // returns true if there are any backedges
+    bool fgHasLoops = false; // True if this method has any loops, set in fgComputeReachability
 
 public:
-    LoopDsc*      optLoopTable; // loop descriptor table
-    unsigned char optLoopCount; // number of tracked loops
+    LoopDsc*      optLoopTable = nullptr; // loop descriptor table
+    unsigned char optLoopCount = 0;       // number of tracked loops
 
 #ifdef DEBUG
-    unsigned char loopAlignCandidates; // number of loops identified for alignment
-    unsigned char loopsAligned;        // number of loops actually aligned
-#endif                                 // DEBUG
+    unsigned char loopAlignCandidates = 0; // number of loops identified for alignment
+    unsigned char loopsAligned        = 0; // number of loops actually aligned
+#endif
 
     bool optRecordLoop(BasicBlock*   head,
                        BasicBlock*   first,
@@ -6131,10 +6132,10 @@ public:
                        unsigned char exitCnt);
 
 protected:
-    unsigned optCallCount;         // number of calls made in the method
-    unsigned optIndirectCallCount; // number of virtual, interface and indirect calls made in the method
-    unsigned optNativeCallCount;   // number of Pinvoke/Native calls made in the method
-    unsigned optLoopsCloned;       // number of loops cloned in the current method.
+    unsigned optCallCount         = 0; // number of calls made in the method
+    unsigned optIndirectCallCount = 0; // number of virtual, interface and indirect calls made in the method
+    unsigned optNativeCallCount   = 0; // number of Pinvoke/Native calls made in the method
+    unsigned optLoopsCloned       = 0; // number of loops cloned in the current method.
 
 #ifdef DEBUG
     void optPrintLoopInfo(unsigned      loopNum,
@@ -6268,14 +6269,14 @@ public:
 // String to use for formatting CSE numbers. Note that this is the positive number, e.g., from GET_CSE_INDEX().
 #define FMT_CSE "CSE%02u"
 
-    bool csePhase; // True when we are executing the CSE phase
+    bool csePhase = false; // True when we are executing the CSE phase
 #if 0
     unsigned cseValueCount; // Count of CSE values, currently unused, see cseCanSwapOrder.
 #endif
 
 #ifdef DEBUG
-    unsigned cseFirstLclNum; // The first local variable number that is a CSE
-    unsigned cseCount;       // The total count of CSE temp locals introduced.
+    unsigned cseFirstLclNum = BAD_VAR_NUM; // The first local variable number that is a CSE
+    unsigned cseCount       = 0;           // The total count of CSE temp locals introduced.
 
     // Returns true if the LclVar was introduced by the CSE phase of the compiler.
     bool lclNumIsTrueCSE(unsigned lclNum) const
@@ -6369,7 +6370,7 @@ public:
         optMethodFlags |= OMF_HAS_PATCHPOINT;
     }
 
-    unsigned optMethodFlags;
+    unsigned optMethodFlags = 0;
 
     bool doesMethodHaveNoReturnCalls()
     {
@@ -6381,7 +6382,7 @@ public:
         optNoReturnCallCount++;
     }
 
-    unsigned optNoReturnCallCount;
+    unsigned optNoReturnCallCount = 0;
 
     void optEarlyProp();
 
@@ -6402,8 +6403,8 @@ protected:
     unsigned           optAddCopyLclNum;
     GenTree*           optAddCopyAsgnNode;
 
-    AssertionDsc*  apAssertionTable; // table that holds info about value assignments
-    AssertionIndex apAssertionCount; // total number of assertions in the assertion table
+    AssertionDsc*  apAssertionTable;     // table that holds info about value assignments
+    AssertionIndex apAssertionCount = 0; // total number of assertions in the assertion table
 
 public:
     AssertionIndex GetAssertionCount()
@@ -6519,7 +6520,7 @@ protected:
     bool optReachWithoutCall(BasicBlock* srcBB, BasicBlock* dstBB);
 
 protected:
-    bool optLoopsMarked;
+    bool optLoopsMarked = false;
 
     /*
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -6858,7 +6859,7 @@ public:
     void codeGenInit();
 
 public:
-    CodeGenInterface* codeGen;
+    CodeGenInterface* codeGen = nullptr;
 
     //  The following holds information about instr offsets in terms of generated code.
 
@@ -6889,8 +6890,8 @@ public:
     typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, IL_OFFSETX> CallSiteILOffsetTable;
     CallSiteILOffsetTable* genCallSite2ILOffsetMap;
 
-    unsigned    genReturnLocal; // Local number for the return value when applicable.
-    BasicBlock* genReturnBB;    // jumped to when not optimizing for speed.
+    unsigned    genReturnLocal = BAD_VAR_NUM; // Local number for the return value when applicable.
+    BasicBlock* genReturnBB    = nullptr;     // jumped to when not optimizing for speed.
 
     // The following properties are part of CodeGenContext.  Getters are provided here for
     // convenience and backward compatibility, but the properties can only be set by invoking
@@ -7262,23 +7263,23 @@ private:
     */
 
 public:
-    Compiler* InlineeCompiler; // The Compiler instance for the inlinee
+    Compiler* InlineeCompiler = nullptr; // The Compiler instance for the inlinee
 
-    InlineResult* compInlineResult; // The result of importing the inlinee method.
+    InlineResult* compInlineResult = nullptr; // The result of importing the inlinee method.
 
-    bool compDoAggressiveInlining; // If true, mark every method as CORINFO_FLG_FORCEINLINE
-    bool compJmpOpUsed;            // Does the method do a JMP
-    bool compLongUsed;             // Does the method use TYP_LONG
-    bool compFloatingPointUsed;    // Does the method use TYP_FLOAT or TYP_DOUBLE
-    bool compTailCallUsed;         // Does the method do a tailcall
-    bool compLocallocUsed;         // Does the method use localloc.
-    bool compLocallocOptimized;    // Does the method have an optimized localloc
-    bool compQmarkUsed;            // Does the method use GT_QMARK
-    bool compQmarkRationalized;    // Is it allowed to use a GT_QMARK node.
-    bool compHasBackwardJump;      // Does the method (or some inlinee) have a lexically backwards jump?
-    bool compSwitchedToOptimized;  // Codegen initially was Tier0 but jit switched to FullOpts
-    bool compSwitchedToMinOpts;    // Codegen initially was Tier1/FullOpts but jit switched to MinOpts
-    bool compSuppressedZeroInit;   // There are vars with lvSuppressedZeroInit set
+    bool compDoAggressiveInlining = false; // If true, mark every method as CORINFO_FLG_FORCEINLINE
+    bool compJmpOpUsed            = false; // Does the method do a JMP
+    bool compLongUsed             = false; // Does the method use TYP_LONG
+    bool compFloatingPointUsed    = false; // Does the method use TYP_FLOAT or TYP_DOUBLE
+    bool compTailCallUsed         = false; // Does the method do a tailcall
+    bool compLocallocUsed         = false; // Does the method use localloc.
+    bool compLocallocOptimized    = false; // Does the method have an optimized localloc
+    bool compQmarkUsed            = false; // Does the method use GT_QMARK
+    bool compQmarkRationalized    = false; // Is it allowed to use a GT_QMARK node.
+    bool compHasBackwardJump      = false; // Does the method (or some inlinee) have a lexically backwards jump?
+    bool compSwitchedToOptimized  = false; // Codegen initially was Tier0 but jit switched to FullOpts
+    bool compSwitchedToMinOpts    = false; // Codegen initially was Tier1/FullOpts but jit switched to MinOpts
+    bool compSuppressedZeroInit   = false; // There are vars with lvSuppressedZeroInit set
 
 // NOTE: These values are only reliable after
 //       the importing is completely finished.
@@ -7288,24 +7289,24 @@ public:
     // These are kept together for easy discoverability
 
     bool    bRangeAllowStress;
-    bool    compCodeGenDone;
+    bool    compCodeGenDone = false;
     int64_t compNumStatementLinksTraversed; // # of links traversed while doing debug checks
-    bool    fgNormalizeEHDone;              // Has the flowgraph EH normalization phase been done?
+    bool    fgNormalizeEHDone = false;      // Has the flowgraph EH normalization phase been done?
     size_t  compSizeEstimate;               // The estimated size of the method as per `gtSetEvalOrder`.
     size_t  compCycleEstimate;              // The estimated cycle count of the method as per `gtSetEvalOrder`
 #endif                                      // DEBUG
 
-    bool fgLocalVarLivenessDone; // Note that this one is used outside of debug.
-    bool compLSRADone;
-    bool compRationalIRForm;
+    bool fgLocalVarLivenessDone = false; // Note that this one is used outside of debug.
+    bool compLSRADone           = false;
+    bool compRationalIRForm     = false;
 
-    bool compUsesThrowHelper; // There is a call to a THROW_HELPER for the compiled method.
+    bool compUsesThrowHelper = false; // There is a call to a THROW_HELPER for the compiled method.
 
-    bool compGeneratingProlog;
-    bool compGeneratingEpilog;
-    bool compNeedsGSSecurityCookie; // There is an unsafe buffer (or localloc) on the stack.
-                                    // Insert cookie on frame and code to check the cookie, like VC++ -GS.
-    bool compGSReorderStackLayout;  // There is an unsafe buffer on the stack, reorder locals and make local
+    bool compGeneratingProlog      = false;
+    bool compGeneratingEpilog      = false;
+    bool compNeedsGSSecurityCookie = false; // There is an unsafe buffer (or localloc) on the stack.
+                                            // Insert cookie on frame and code to check the cookie, like VC++ -GS.
+    bool compGSReorderStackLayout = false;  // There is an unsafe buffer on the stack, reorder locals and make local
     // copies of susceptible parameters to avoid buffer overrun attacks through locals/params
     bool getNeedsGSSecurityCookie() const
     {
@@ -7316,9 +7317,9 @@ public:
         compNeedsGSSecurityCookie = true;
     }
 
-    FrameLayoutState lvaDoneFrameLayout; // The highest frame layout state that we've completed. During
-                                         // frame layout calculations, this is the level we are currently
-                                         // computing.
+    // The highest frame layout state that we've completed. During frame
+    // layout calculations, this is the level we are currently computing.
+    FrameLayoutState lvaDoneFrameLayout = NO_FRAME_LAYOUT;
 
     CompilerOptions opts;
 
@@ -7527,7 +7528,7 @@ public:
 #endif // DEBUG
 
 private:
-    class ClassLayoutTable* m_classLayoutTable;
+    class ClassLayoutTable* m_classLayoutTable = nullptr;
 
     class ClassLayoutTable* typCreateClassLayoutTable();
     class ClassLayoutTable* typGetClassLayoutTable();
@@ -7570,22 +7571,22 @@ private:
 public:
 #ifdef DEBUG
     LONG     compMethodID;
-    unsigned compGenTreeID;
-    unsigned compStatementID;
-    unsigned compBasicBlockID;
+    unsigned compGenTreeID    = 0;
+    unsigned compStatementID  = 0;
+    unsigned compBasicBlockID = 0;
 #endif
 
-    BasicBlock* compCurBB;   // the current basic block in process
-    Statement*  compCurStmt; // the current statement in process
-    GenTree*    compCurTree; // the current tree in process
+    BasicBlock* compCurBB = nullptr; // the current basic block in process
+    Statement*  compCurStmt;         // the current statement in process
+    GenTree*    compCurTree;         // the current tree in process
 
     //  The following is used to create the 'method JIT info' block.
     size_t compInfoBlkSize;
     BYTE*  compInfoBlkAddr;
 
-    EHblkDsc* compHndBBtab;           // array of EH data
-    unsigned  compHndBBtabCount;      // element count of used elements in EH data array
-    unsigned  compHndBBtabAllocCount; // element count of allocated elements in EH data array
+    EHblkDsc* compHndBBtab           = nullptr; // array of EH data
+    unsigned  compHndBBtabCount      = 0;       // element count of used elements in EH data array
+    unsigned  compHndBBtabAllocCount = 0;       // element count of allocated elements in EH data array
 
 #if defined(TARGET_X86)
 
@@ -7596,8 +7597,8 @@ public:
 
 #endif // !TARGET_X86
 
-    Phases      mostRecentlyActivePhase; // the most recently active phase
-    PhaseChecks activePhaseChecks;       // the currently active phase checks
+    Phases      mostRecentlyActivePhase = PHASE_PRE_IMPORT;        // the most recently active phase
+    PhaseChecks activePhaseChecks       = PhaseChecks::CHECK_NONE; // the currently active phase checks
 
     //-------------------------------------------------------------------------
     //  The following keeps track of how many bytes of local frame space we've
@@ -7634,9 +7635,8 @@ public:
     static void compStartup();  // One-time initialization
     static void compShutdown(); // One-time finalization
 
-    Compiler(const CORINFO_EE_INFO* eeInfo);
-    void compInit(ArenaAllocator*       alloc,
-                  CORINFO_MODULE_HANDLE module,
+    Compiler(ArenaAllocator* alloc, const CORINFO_EE_INFO* eeInfo);
+    void compInit(CORINFO_MODULE_HANDLE module,
                   CORINFO_METHOD_HANDLE methodHnd,
                   ICorJitInfo*          jitInfo,
                   CORINFO_METHOD_INFO*  methodInfo,
@@ -7669,10 +7669,10 @@ public:
 #endif                         // MEASURE_MEM_ALLOC
 
 #if LOOP_HOIST_STATS
-    unsigned m_loopsConsidered;
-    bool     m_curLoopHasHoistedExpression;
-    unsigned m_loopsWithHoistedExpressions;
-    unsigned m_totalHoistedExpressions;
+    unsigned m_loopsConsidered             = 0;
+    bool     m_curLoopHasHoistedExpression = false;
+    unsigned m_loopsWithHoistedExpressions = 0;
+    unsigned m_totalHoistedExpressions     = 0;
 
     void AddLoopHoistStats();
     void PrintPerMethodLoopHoistStats();
@@ -7727,7 +7727,7 @@ public:
     typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, VarScopeMapInfo*> VarNumToScopeDscMap;
 
     // Map to keep variables' scope indexed by varNum containing it's scope dscs at the index.
-    VarNumToScopeDscMap* compVarScopeMap;
+    VarNumToScopeDscMap* compVarScopeMap = nullptr;
 
     VarScopeDsc* compFindLocalVar(unsigned varNum, unsigned lifeBeg, unsigned lifeEnd);
 
@@ -7876,7 +7876,7 @@ public:
 
     GSCookie*           gsGlobalSecurityCookieAddr; // Address of global cookie for unsafe buffer checks
     GSCookie            gsGlobalSecurityCookieVal;  // Value of global cookie if addr is NULL
-    ShadowParamVarInfo* gsShadowVarInfo;            // Table used by shadow param analysis code
+    ShadowParamVarInfo* gsShadowVarInfo = nullptr;  // Table used by shadow param analysis code
 
     void gsGSChecksInitCookie();   // Grabs cookie variable
     void gsCopyShadowParams();     // Identify vulnerable params and create dhadow copies
@@ -7948,7 +7948,7 @@ public:
 
     // The "FieldSeqStore", for canonicalizing field sequences.  See the definition of FieldSeqStore for
     // operations.
-    FieldSeqStore* m_fieldSeqStore;
+    FieldSeqStore* m_fieldSeqStore = nullptr;
 
     FieldSeqStore* GetFieldSeqStore()
     {
@@ -7966,13 +7966,13 @@ public:
     // the offset of the field is zero, there's no "GT_ADD" node.  We normally attach a field sequence to the constant
     // that is added, but what do we do when that constant is zero, and is thus not present?  We use this mechanism to
     // attach the field sequence directly to the address node.
-    NodeToFieldSeqMap* m_zeroOffsetFieldMap;
+    NodeToFieldSeqMap* m_zeroOffsetFieldMap = nullptr;
 
     FieldSeqNode* GetZeroOffsetFieldSeq(GenTree* node);
     void CopyZeroOffsetFieldSeq(GenTree* from, GenTree* to);
     void AddZeroOffsetFieldSeq(GenTree* node, FieldSeqNode* fieldSeq);
 
-    NodeToUnsignedMap* m_memorySsaMap;
+    NodeToUnsignedMap* m_memorySsaMap = nullptr;
 
     // In some cases, we want to assign intermediate SSA #'s to memory states, and know what nodes create those memory
     // states. (We do this for try blocks, where, if the try block doesn't do a call that loses track of the memory
@@ -7989,7 +7989,7 @@ public:
     }
 
     // The Refany type is the only struct type whose structure is implicitly assumed by IL.  We need its fields.
-    CORINFO_CLASS_HANDLE m_refAnyClass;
+    CORINFO_CLASS_HANDLE m_refAnyClass = NO_CLASS_HANDLE;
     FieldSeqNode*        GetRefanyValueField()
     {
         if (m_refAnyClass == nullptr)

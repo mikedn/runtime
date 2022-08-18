@@ -16,33 +16,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #pragma warning(disable : 4701)
 #endif
 
-void Compiler::optInit()
-{
-    lvMemoryPerSsaData   = SsaDefArray<SsaMemDef>();
-    apAssertionCount     = 0;
-    optCallCount         = 0;
-    optIndirectCallCount = 0;
-    optNativeCallCount   = 0;
-    fgHasLoops           = false;
-    optLoopCount         = 0;
-    optLoopTable         = nullptr;
-    optLoopsCloned       = 0;
-    optLoopsMarked       = false;
-#if LOOP_HOIST_STATS
-    m_loopsConsidered             = 0;
-    m_curLoopHasHoistedExpression = false;
-    m_loopsWithHoistedExpressions = 0;
-    m_totalHoistedExpressions     = 0;
-#endif
-
-#ifdef DEBUG
-    loopAlignCandidates = 0;
-    loopsAligned        = 0;
-    cseFirstLclNum      = BAD_VAR_NUM;
-    cseCount            = 0;
-#endif
-}
-
 //------------------------------------------------------------------------
 // optSetBlockWeights: adjust block weights, as follows:
 // 1. A block that is not reachable from the entry block is marked "run rarely".

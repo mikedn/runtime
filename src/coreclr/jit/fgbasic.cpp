@@ -8,86 +8,12 @@
 
 void Compiler::fgInit()
 {
-    fgFirstBBScratch             = nullptr;
-    fgComputePredsDone           = false;
-    fgCheapPredsValid            = false;
-    fgEdgeWeightsComputed        = false;
-    fgHaveValidEdgeWeights       = false;
-    fgSlopUsedInEdgeWeights      = false;
-    fgRangeUsedInEdgeWeights     = true;
-    fgNeedsUpdateFlowGraph       = false;
-    fgCalledCount                = BB_ZERO_WEIGHT;
-    fgDomsComputed               = false;
-    fgLoopCallMarked             = false;
-    fgFirstBB                    = nullptr;
-    fgLastBB                     = nullptr;
-    fgFirstColdBlock             = nullptr;
-    fgEntryBB                    = nullptr;
-    fgHasSwitch                  = false;
-    fgPgoDisabled                = false;
-    fgPgoSchema                  = nullptr;
-    fgPgoData                    = nullptr;
-    fgPgoSchemaCount             = 0;
-    fgNumProfileRuns             = 0;
-    fgPgoBlockCounts             = 0;
-    fgPgoEdgeCounts              = 0;
-    fgPgoClassProfiles           = 0;
-    fgPgoInlineePgo              = 0;
-    fgPgoInlineeNoPgo            = 0;
-    fgPgoInlineeNoPgoSingleBlock = 0;
-    fgBBcount                    = 0;
-    fgBBNumMax                   = 0;
-    fgEdgeCount                  = 0;
-    fgDomBBcount                 = 0;
-    fgReturnCount                = 0;
-    fgCurBBEpoch                 = 0;
-    fgCurBBEpochSize             = 0;
-    fgBBSetCountInSizeTUnits     = 0;
-    fgGlobalMorph                = false;
-    fgModified                   = false;
-    fgCountInstrumentor          = nullptr;
-    fgClassInstrumentor          = nullptr;
-    fgPredListSortVector         = nullptr;
-    fgLocalVarLivenessDone       = false;
-    fgStmtListThreaded           = false;
-    fgAddCodeList                = nullptr;
-    fgAddCodeModf                = false;
-    fgPtrArgCntMax               = 0;
-    fgStmtRemoved                = false;
-    fgRngChkThrowAdded           = false;
-    fgOptimizedFinally           = false;
-    fgReturnBlocks               = nullptr;
-    fgEnterBlks                  = BlockSetOps::UninitVal();
-    fgNoStructPromotion          = false;
-    genReturnBB                  = nullptr;
-    genReturnLocal               = BAD_VAR_NUM;
-    csePhase                     = false;
-#ifdef FEATURE_EH_FUNCLETS
-    fgFirstFuncletBB  = nullptr;
-    fgFuncletsCreated = false;
-#else
-    ehMaxHndNestingCount = 0;
-#endif
-
-    for (int i = 0; i < SCK_COUNT; i++)
-    {
-        fgExcptnTargetCache[i] = nullptr;
-    }
-
     for (unsigned i = 0; i < _countof(fgLargeFieldOffsetNullCheckTemps); i++)
     {
         fgLargeFieldOffsetNullCheckTemps[i] = BAD_VAR_NUM;
     }
 
 #ifdef DEBUG
-    fgPrintInlinedMethods    = false;
-    fgReachabilitySetsValid  = false;
-    fgBBcountAtCodegen       = 0;
-    fgEnterBlksSetValid      = false;
-    fgNoStructParamPromotion = false;
-    fgNormalizeEHDone        = false;
-    fgSafeBasicBlockCreation = true;
-
     if (!compIsForInlining())
     {
         switch (JitConfig.JitNoStructPromotion())
