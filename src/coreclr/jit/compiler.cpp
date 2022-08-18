@@ -928,41 +928,54 @@ void Compiler::compDisplayStaticSizes(FILE* fout)
 
 INDEBUG(ConfigMethodRange fJitStressRange;)
 
-Compiler::Compiler(ArenaAllocator* alloc, const CORINFO_EE_INFO* eeInfo)
-    : eeInfo(eeInfo), virtualStubParamInfo(eeInfo->targetAbi == CORINFO_CORERT_ABI), compArenaAllocator(alloc)
+CompiledMethodInfo::CompiledMethodInfo(CORINFO_MODULE_HANDLE module,
+                                       CORINFO_METHOD_HANDLE method,
+                                       CORINFO_METHOD_INFO*  methodInfo,
+                                       ICorJitInfo*          jitInfo)
+    : compCompHnd(jitInfo)
+    , compScopeHnd(module)
+    , compMethodHnd(method)
+    , compMethodInfo(methodInfo)
+    , compCode(methodInfo->ILCode)
+    , compILCodeSize(methodInfo->ILCodeSize)
+    , compIsVarArgs(false)
+    , compHasNextCallRetAddr(false)
+    , compMaxStack(methodInfo->maxStack)
+    , compXcptnsCount(methodInfo->EHcount)
+{
+}
+
+Compiler::Compiler(ArenaAllocator*        alloc,
+                   const CORINFO_EE_INFO* eeInfo,
+                   CORINFO_MODULE_HANDLE  module,
+                   CORINFO_METHOD_HANDLE  method,
+                   CORINFO_METHOD_INFO*   methodInfo,
+                   ICorJitInfo*           jitInfo,
+                   InlineInfo*            inlineInfo)
+    : impInlineInfo(inlineInfo)
+    , eeInfo(eeInfo)
+    , virtualStubParamInfo(eeInfo->targetAbi == CORINFO_CORERT_ABI)
+    , info(module, method, methodInfo, jitInfo)
+    , compArenaAllocator(alloc)
 {
     memset(&opts, 0, sizeof(opts));
 }
 
-void Compiler::compInit(CORINFO_MODULE_HANDLE module,
-                        CORINFO_METHOD_HANDLE methodHnd,
-                        ICorJitInfo*          jitInfo,
-                        CORINFO_METHOD_INFO*  methodInfo,
-                        InlineInfo*           inlineInfo)
+void Compiler::compInit()
 {
-    info.compScopeHnd    = module;
-    info.compMethodHnd   = methodHnd;
-    info.compCompHnd     = jitInfo;
-    info.compMethodInfo  = methodInfo;
-    info.compCode        = methodInfo->ILCode;
-    info.compILCodeSize  = methodInfo->ILCodeSize;
-    info.compXcptnsCount = methodInfo->EHcount;
-    info.compMaxStack    = methodInfo->maxStack;
-    impInlineInfo        = inlineInfo;
-
 #if defined(DEBUG) || defined(LATE_DISASM) || DUMP_FLOWGRAPHS
     // Initialize the method name and related info, as it is used early in determining whether to
     // apply stress modes, and which ones to apply.
 
     const char* classNamePtr;
-    const char* methodName = eeGetMethodName(methodHnd, &classNamePtr);
+    const char* methodName = eeGetMethodName(info.compMethodHnd, &classNamePtr);
     size_t      len        = strlen(classNamePtr) + 1;
     char*       className  = getAllocator(CMK_DebugOnly).allocate<char>(len);
     strcpy_s(className, len, classNamePtr);
 
     info.compMethodName          = methodName;
     info.compClassName           = className;
-    info.compFullName            = eeGetMethodFullName(methodHnd);
+    info.compFullName            = eeGetMethodFullName(info.compMethodHnd);
     info.compMethodSuperPMIIndex = g_jitHost->getIntConfigValue(W("SuperPMIMethodContextNumber"), -1);
 #endif
 
@@ -974,7 +987,7 @@ void Compiler::compInit(CORINFO_MODULE_HANDLE module,
 
     if (compIsForInlining())
     {
-        compInlineResult = inlineInfo->inlineResult;
+        compInlineResult = impInlineInfo->inlineResult;
     }
     else
     {
@@ -5041,54 +5054,27 @@ void Compiler::compDispLocalVars()
 
 struct WrapICorJitInfo : public ICorJitInfo
 {
-    //------------------------------------------------------------------------
-    // WrapICorJitInfo::makeOne: allocate an instance of WrapICorJitInfo
-    //
-    // Arguments:
-    //    alloc      - the allocator to get memory from for the instance
-    //    compile    - the compiler instance
-    //    compHndRef - the ICorJitInfo handle from the EE; the caller's
-    //                 copy may be replaced with a "wrapper" instance
-    //
-    // Return Value:
-    //    If the config flags indicate that ICorJitInfo should be wrapped,
-    //    we return the "wrapper" instance; otherwise we return "nullptr".
+private:
+    Compiler*    wrapComp;
+    ICorJitInfo* wrapHnd; // the "real thing"
 
-    static WrapICorJitInfo* makeOne(ArenaAllocator* alloc, Compiler* compiler, COMP_HANDLE& compHndRef /* INOUT */)
+    WrapICorJitInfo(Compiler* compiler) : wrapComp(compiler), wrapHnd(compiler->info.compCompHnd)
     {
-        WrapICorJitInfo* wrap = nullptr;
-
-        if (JitConfig.JitEECallTimingInfo() != 0)
-        {
-            // It's too early to use the default allocator, so we do this
-            // in two steps to be safe (the constructor doesn't need to do
-            // anything except fill in the vtable pointer, so we let the
-            // compiler do it).
-            void* inst = alloc->allocateMemory(roundUp(sizeof(WrapICorJitInfo)));
-            if (inst != nullptr)
-            {
-                // If you get a build error here due to 'WrapICorJitInfo' being
-                // an abstract class, it's very likely that the wrapper bodies
-                // in ICorJitInfo_API_wrapper.hpp are no longer in sync with
-                // the EE interface; please be kind and update the header file.
-                wrap = new (inst) WrapICorJitInfo();
-
-                wrap->wrapComp = compiler;
-
-                // Save the real handle and replace it with our wrapped version.
-                wrap->wrapHnd = compHndRef;
-                compHndRef    = wrap;
-            }
-        }
-
-        return wrap;
     }
 
-private:
-    Compiler*   wrapComp;
-    COMP_HANDLE wrapHnd; // the "real thing"
-
 public:
+    static void WrapJitInfo(Compiler* compiler)
+    {
+        if (JitConfig.JitEECallTimingInfo() != 0)
+        {
+            // If you get a build error here due to 'WrapICorJitInfo' being
+            // an abstract class, it's very likely that the wrapper bodies
+            // in ICorJitInfo_API_wrapper.hpp are no longer in sync with
+            // the EE interface; please be kind and update the header file.
+            compiler->info.compCompHnd = new (compiler) WrapICorJitInfo(compiler);
+        }
+    }
+
 #include "ICorJitInfo_API_wrapper.hpp"
 };
 
@@ -5145,7 +5131,8 @@ START:
             pParam->jitInfo->getEEInfo(&pParam->eeInfo);
 
             pParam->compiler = static_cast<Compiler*>(pParam->allocator.allocateMemory(sizeof(Compiler)));
-            new (pParam->compiler) Compiler(&pParam->allocator, &pParam->eeInfo);
+            new (pParam->compiler) Compiler(&pParam->allocator, &pParam->eeInfo, pParam->module, pParam->methodHnd,
+                                            pParam->methodInfo, pParam->jitInfo);
             pParam->prevCompiler = JitTls::GetCompiler();
             JitTls::SetCompiler(pParam->compiler);
             INDEBUG(JitTls::SetLogCompiler(pParam->compiler));
@@ -5153,11 +5140,11 @@ START:
 #if MEASURE_CLRAPI_CALLS
             if (!pParam->jitFallbackCompile)
             {
-                WrapICorJitInfo::makeOne(&pParam->allocator, pParam->compiler, pParam->jitInfo);
+                WrapICorJitInfo::WrapJitInfo(pParam->compiler);
             }
 #endif
 
-            pParam->compiler->compInit(pParam->module, pParam->methodHnd, pParam->jitInfo, pParam->methodInfo);
+            pParam->compiler->compInit();
 
             INDEBUG(pParam->compiler->jitFallbackCompile = pParam->jitFallbackCompile;)
 

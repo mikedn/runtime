@@ -1672,9 +1672,10 @@ struct CompiledMethodInfo
     // Number of class profile probes in this method
     unsigned compClassProbeCount = 0;
 
-    CompiledMethodInfo() : compIsVarArgs(false), compHasNextCallRetAddr(false)
-    {
-    }
+    CompiledMethodInfo(CORINFO_MODULE_HANDLE module,
+                       CORINFO_METHOD_HANDLE method,
+                       CORINFO_METHOD_INFO*  methodInfo,
+                       ICorJitInfo*          jitInfo);
 };
 
 enum codeOptimize
@@ -7633,12 +7634,14 @@ public:
     static void compStartup();  // One-time initialization
     static void compShutdown(); // One-time finalization
 
-    Compiler(ArenaAllocator* alloc, const CORINFO_EE_INFO* eeInfo);
-    void compInit(CORINFO_MODULE_HANDLE module,
-                  CORINFO_METHOD_HANDLE methodHnd,
-                  ICorJitInfo*          jitInfo,
-                  CORINFO_METHOD_INFO*  methodInfo,
-                  InlineInfo*           inlineInfo = nullptr);
+    Compiler(ArenaAllocator*        alloc,
+             const CORINFO_EE_INFO* eeInfo,
+             CORINFO_MODULE_HANDLE  module,
+             CORINFO_METHOD_HANDLE  methodHnd,
+             CORINFO_METHOD_INFO*   methodInfo,
+             ICorJitInfo*           jitInfo,
+             InlineInfo*            inlineInfo = nullptr);
+    void compInit();
 
     static void compDisplayStaticSizes(FILE* fout);
 
