@@ -955,10 +955,10 @@ Compiler::Compiler(ArenaAllocator*        alloc,
     : impInlineInfo(inlineInfo)
     , eeInfo(eeInfo)
     , virtualStubParamInfo(eeInfo->targetAbi == CORINFO_CORERT_ABI)
+    , opts()
     , info(module, method, methodInfo, jitInfo)
     , compArenaAllocator(alloc)
 {
-    memset(&opts, 0, sizeof(opts));
 }
 
 void Compiler::compInit()
