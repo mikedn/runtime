@@ -2157,7 +2157,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         *insertionPoint = gtNewCallArgs(newArg);
 
         numArgs++;
-        nonStandardArgs.Add(newArg, virtualStubParamInfo.GetRegNum());
+        nonStandardArgs.Add(newArg, info.virtualStubParamRegNum);
     }
 #endif // defined(TARGET_ARM)
 #if defined(TARGET_X86)
@@ -2221,7 +2221,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             call->gtCallArgs = gtPrependNewCallArg(stubAddrArg, call->gtCallArgs);
 
             numArgs++;
-            nonStandardArgs.Add(stubAddrArg, virtualStubParamInfo.GetRegNum());
+            nonStandardArgs.Add(stubAddrArg, info.virtualStubParamRegNum);
         }
     }
     else
@@ -2256,7 +2256,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     }
 
 #if defined(FEATURE_READYTORUN_COMPILER) && defined(TARGET_ARMARCH)
-    // For arm, we dispatch code same as VSD using virtualStubParamInfo.GetRegNum()
+    // For arm, we dispatch code same as VSD using info.virtualStubParamRegNum
     // for indirection cell address, which ZapIndirectHelperThunk expects.
     if (call->IsR2RRelativeIndir())
     {

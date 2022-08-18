@@ -1649,6 +1649,7 @@ struct CompiledMethodInfo
     // current number of EH clauses (after additions like synchronized
     // methods and funclets, and removals like unreachable code deletion).
 
+    regNumber        virtualStubParamRegNum;
     Target::ArgOrder compArgOrder;
 
     bool compMatchedVM; // true if the VM is "matched": either the JIT is a cross-compiler
@@ -1672,10 +1673,11 @@ struct CompiledMethodInfo
     // Number of class profile probes in this method
     unsigned compClassProbeCount = 0;
 
-    CompiledMethodInfo(CORINFO_MODULE_HANDLE module,
-                       CORINFO_METHOD_HANDLE method,
-                       CORINFO_METHOD_INFO*  methodInfo,
-                       ICorJitInfo*          jitInfo);
+    CompiledMethodInfo(CORINFO_MODULE_HANDLE  module,
+                       CORINFO_METHOD_HANDLE  method,
+                       CORINFO_METHOD_INFO*   methodInfo,
+                       ICorJitInfo*           jitInfo,
+                       const CORINFO_EE_INFO* eeInfo);
 };
 
 enum codeOptimize : uint8_t
@@ -6710,8 +6712,6 @@ public:
             return regNum;
         }
     };
-
-    VirtualStubParamInfo virtualStubParamInfo;
 
     bool IsTargetAbi(CORINFO_RUNTIME_ABI abi)
     {

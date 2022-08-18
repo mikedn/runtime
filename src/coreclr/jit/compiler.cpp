@@ -928,10 +928,11 @@ void Compiler::compDisplayStaticSizes(FILE* fout)
 
 INDEBUG(ConfigMethodRange fJitStressRange;)
 
-CompiledMethodInfo::CompiledMethodInfo(CORINFO_MODULE_HANDLE module,
-                                       CORINFO_METHOD_HANDLE method,
-                                       CORINFO_METHOD_INFO*  methodInfo,
-                                       ICorJitInfo*          jitInfo)
+CompiledMethodInfo::CompiledMethodInfo(CORINFO_MODULE_HANDLE  module,
+                                       CORINFO_METHOD_HANDLE  method,
+                                       CORINFO_METHOD_INFO*   methodInfo,
+                                       ICorJitInfo*           jitInfo,
+                                       const CORINFO_EE_INFO* eeInfo)
     : compCompHnd(jitInfo)
     , compScopeHnd(module)
     , compMethodHnd(method)
@@ -942,6 +943,17 @@ CompiledMethodInfo::CompiledMethodInfo(CORINFO_MODULE_HANDLE module,
     , compHasNextCallRetAddr(false)
     , compMaxStack(methodInfo->maxStack)
     , compXcptnsCount(methodInfo->EHcount)
+#if defined(TARGET_X86)
+    , virtualStubParamRegNum(REG_EAX)
+#elif defined(TARGET_AMD64)
+    , virtualStubParamRegNum(eeInfo->targetAbi == CORINFO_CORERT_ABI ? REG_R10 : REG_R11)
+#elif defined(TARGET_ARM)
+    , virtualStubParamRegNum(eeInfo->targetAbi == CORINFO_CORERT_ABI ? REG_R12 : REG_R4)
+#elif defined(TARGET_ARM64)
+    , virtualStubParamRegNum(REG_R11)
+#else
+#error Unsupported or unset target architecture
+#endif
 {
 }
 
@@ -954,9 +966,8 @@ Compiler::Compiler(ArenaAllocator*        alloc,
                    InlineInfo*            inlineInfo)
     : impInlineInfo(inlineInfo)
     , eeInfo(eeInfo)
-    , virtualStubParamInfo(eeInfo->targetAbi == CORINFO_CORERT_ABI)
     , opts()
-    , info(module, method, methodInfo, jitInfo)
+    , info(module, method, methodInfo, jitInfo, eeInfo)
     , compArenaAllocator(alloc)
 {
 }
