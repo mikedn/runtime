@@ -6,33 +6,6 @@
 #pragma hdrstop
 #endif
 
-void Compiler::fgInit()
-{
-    for (unsigned i = 0; i < _countof(fgLargeFieldOffsetNullCheckTemps); i++)
-    {
-        fgLargeFieldOffsetNullCheckTemps[i] = BAD_VAR_NUM;
-    }
-
-#ifdef DEBUG
-    if (!compIsForInlining())
-    {
-        switch (JitConfig.JitNoStructPromotion())
-        {
-            case 0:
-                break;
-            case 1:
-                fgNoStructPromotion = true;
-                break;
-            case 2:
-                fgNoStructParamPromotion = true;
-                break;
-            default:
-                unreached();
-        }
-    }
-#endif
-}
-
 /*****************************************************************************
  *
  *  Create a basic block and append it to the current BB list.

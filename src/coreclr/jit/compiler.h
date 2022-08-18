@@ -4594,8 +4594,6 @@ public:
 
     //-------------------------------------------------------------------------
 
-    void fgInit();
-
     PhaseStatus fgImport();
 
     PhaseStatus fgTransformIndirectCalls();

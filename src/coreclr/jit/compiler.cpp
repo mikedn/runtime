@@ -981,7 +981,29 @@ void Compiler::compInit(CORINFO_MODULE_HANDLE module,
         m_inlineStrategy = new (this, CMK_Inlining) InlineStrategy(this);
     }
 
-    fgInit();
+    for (unsigned i = 0; i < _countof(fgLargeFieldOffsetNullCheckTemps); i++)
+    {
+        fgLargeFieldOffsetNullCheckTemps[i] = BAD_VAR_NUM;
+    }
+
+#ifdef DEBUG
+    if (!compIsForInlining())
+    {
+        switch (JitConfig.JitNoStructPromotion())
+        {
+            case 0:
+                break;
+            case 1:
+                fgNoStructPromotion = true;
+                break;
+            case 2:
+                fgNoStructParamPromotion = true;
+                break;
+            default:
+                unreached();
+        }
+    }
+#endif
 
     if (!compIsForInlining())
     {
