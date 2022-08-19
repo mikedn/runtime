@@ -7770,7 +7770,6 @@ protected:
 
     void compInitOptions(JitFlags* compileFlags);
     void compInitPgo();
-    void compInitOptions2(JitFlags* jitFlags DEBUGARG(bool altJitConfig) DEBUGARG(bool verboseDump));
     bool compCanSwitchToOptimized();
     void compSwitchToOptimized();
     void compSetProcessor();

@@ -1535,93 +1535,6 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
     // By default fast tail calls are enabled.
     opts.compFastTailCalls = true;
 #endif // FEATURE_FASTTAILCALL
-
-    compInitPgo();
-    compInitOptions2(jitFlags DEBUGARG(altJitConfig) DEBUGARG(verboseDump));
-}
-
-void Compiler::compInitPgo()
-{
-    // Profile data
-    //
-    fgPgoSchema      = nullptr;
-    fgPgoData        = nullptr;
-    fgPgoSchemaCount = 0;
-    fgPgoQueryResult = E_FAIL;
-    fgPgoFailReason  = nullptr;
-    fgPgoSource      = ICorJitInfo::PgoSource::Unknown;
-
-    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_BBOPT))
-    {
-        fgPgoQueryResult = info.compCompHnd->getPgoInstrumentationResults(info.compMethodHnd, &fgPgoSchema,
-                                                                          &fgPgoSchemaCount, &fgPgoData, &fgPgoSource);
-
-        // a failed result that also has a non-NULL fgPgoSchema
-        // indicates that the ILSize for the method no longer matches
-        // the ILSize for the method when profile data was collected.
-        //
-        // We will discard the IBC data in this case
-        //
-        if (FAILED(fgPgoQueryResult))
-        {
-            fgPgoFailReason = (fgPgoSchema != nullptr) ? "No matching PGO data" : "No PGO data";
-            fgPgoData       = nullptr;
-            fgPgoSchema     = nullptr;
-        }
-        // Optionally, disable use of profile data.
-        //
-        else if (JitConfig.JitDisablePgo() > 0)
-        {
-            fgPgoFailReason  = "PGO data available, but JitDisablePgo > 0";
-            fgPgoQueryResult = E_FAIL;
-            fgPgoData        = nullptr;
-            fgPgoSchema      = nullptr;
-            fgPgoDisabled    = true;
-        }
-#ifdef DEBUG
-        // Optionally, enable use of profile data for only some methods.
-        //
-        else
-        {
-            static ConfigMethodRange JitEnablePgoRange;
-            JitEnablePgoRange.EnsureInit(JitConfig.JitEnablePgoRange());
-
-            // Base this decision on the root method hash, so a method either sees all available
-            // profile data (including that for inlinees), or none of it.
-            //
-            const unsigned hash = impInlineRoot()->info.compMethodHash();
-            if (!JitEnablePgoRange.Contains(hash))
-            {
-                fgPgoFailReason  = "PGO data available, but method hash NOT within JitEnablePgoRange";
-                fgPgoQueryResult = E_FAIL;
-                fgPgoData        = nullptr;
-                fgPgoSchema      = nullptr;
-                fgPgoDisabled    = true;
-            }
-        }
-
-        // A successful result implies a non-NULL fgPgoSchema
-        //
-        if (SUCCEEDED(fgPgoQueryResult))
-        {
-            assert(fgPgoSchema != nullptr);
-        }
-
-        // A failed result implies a NULL fgPgoSchema
-        //   see implementation of Compiler::fgHaveProfileData()
-        //
-        if (FAILED(fgPgoQueryResult))
-        {
-            assert(fgPgoSchema == nullptr);
-        }
-#endif
-    }
-}
-
-void Compiler::compInitOptions2(JitFlags* jitFlags DEBUGARG(bool altJitConfig) DEBUGARG(bool verboseDump))
-{
-    assert(!compIsForInlining());
-
 #if FEATURE_TAILCALL_OPT
     opts.compTailCallLoopOpt = true;
 #endif
@@ -2061,6 +1974,86 @@ void Compiler::compInitOptions2(JitFlags* jitFlags DEBUGARG(bool altJitConfig) D
         opts.compJitSaveFpLrWithCalleeSavedRegisters = JitConfig.JitSaveFpLrWithCalleeSavedRegisters();
     }
 #endif // defined(DEBUG) && defined(TARGET_ARM64)
+
+    compInitPgo();
+}
+
+void Compiler::compInitPgo()
+{
+    // Profile data
+    //
+    fgPgoSchema      = nullptr;
+    fgPgoData        = nullptr;
+    fgPgoSchemaCount = 0;
+    fgPgoQueryResult = E_FAIL;
+    fgPgoFailReason  = nullptr;
+    fgPgoSource      = ICorJitInfo::PgoSource::Unknown;
+
+    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_BBOPT))
+    {
+        fgPgoQueryResult = info.compCompHnd->getPgoInstrumentationResults(info.compMethodHnd, &fgPgoSchema,
+                                                                          &fgPgoSchemaCount, &fgPgoData, &fgPgoSource);
+
+        // a failed result that also has a non-NULL fgPgoSchema
+        // indicates that the ILSize for the method no longer matches
+        // the ILSize for the method when profile data was collected.
+        //
+        // We will discard the IBC data in this case
+        //
+        if (FAILED(fgPgoQueryResult))
+        {
+            fgPgoFailReason = (fgPgoSchema != nullptr) ? "No matching PGO data" : "No PGO data";
+            fgPgoData       = nullptr;
+            fgPgoSchema     = nullptr;
+        }
+        // Optionally, disable use of profile data.
+        //
+        else if (JitConfig.JitDisablePgo() > 0)
+        {
+            fgPgoFailReason  = "PGO data available, but JitDisablePgo > 0";
+            fgPgoQueryResult = E_FAIL;
+            fgPgoData        = nullptr;
+            fgPgoSchema      = nullptr;
+            fgPgoDisabled    = true;
+        }
+#ifdef DEBUG
+        // Optionally, enable use of profile data for only some methods.
+        //
+        else
+        {
+            static ConfigMethodRange JitEnablePgoRange;
+            JitEnablePgoRange.EnsureInit(JitConfig.JitEnablePgoRange());
+
+            // Base this decision on the root method hash, so a method either sees all available
+            // profile data (including that for inlinees), or none of it.
+            //
+            const unsigned hash = impInlineRoot()->info.compMethodHash();
+            if (!JitEnablePgoRange.Contains(hash))
+            {
+                fgPgoFailReason  = "PGO data available, but method hash NOT within JitEnablePgoRange";
+                fgPgoQueryResult = E_FAIL;
+                fgPgoData        = nullptr;
+                fgPgoSchema      = nullptr;
+                fgPgoDisabled    = true;
+            }
+        }
+
+        // A successful result implies a non-NULL fgPgoSchema
+        //
+        if (SUCCEEDED(fgPgoQueryResult))
+        {
+            assert(fgPgoSchema != nullptr);
+        }
+
+        // A failed result implies a NULL fgPgoSchema
+        //   see implementation of Compiler::fgHaveProfileData()
+        //
+        if (FAILED(fgPgoQueryResult))
+        {
+            assert(fgPgoSchema == nullptr);
+        }
+#endif
+    }
 }
 
 //------------------------------------------------------------------------
