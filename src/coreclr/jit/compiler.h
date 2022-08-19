@@ -1872,7 +1872,6 @@ struct CompilerOptions
     bool dspEHTable;               // Display the EH table reported to the VM
     bool dspDebugInfo;             // Display the Debug info reported to the VM
     bool dspInstrs;                // Display the IL instructions intermixed with the native code output
-    bool dspLines;                 // Display source-code lines intermixed with native code output
     bool dmpHex;                   // Display raw bytes in hex of native code output
     bool disAsm;                   // Display native code as it is generated
     bool disAsmSpilled;            // Display native code when any register spilling occurs
@@ -3035,16 +3034,12 @@ public:
     hashBvGlobalData hbvGlobalData; // Used by the hashBv bitvector package.
 
 #ifdef DEBUG
-    bool verbose;
-    bool verboseTrees;
-    bool shouldUseVerboseTrees();
-    bool asciiTrees; // If true, dump trees using only ASCII characters
-    bool shouldDumpASCIITrees();
-    bool verboseSsa; // If true, produce especially verbose dump output in SSA construction.
-    bool shouldUseVerboseSsa();
+    bool verbose      = false;
+    bool verboseTrees = false;
+    bool verboseSsa   = false;  // If true, produce especially verbose dump output in SSA construction.
     bool treesBeforeAfterMorph; // If true, print trees before/after morphing (paired by an intra-compilation id:
-    int  morphNum;              // This counts the the trees that have been morphed, allowing us to label each uniquely.
-    bool doExtraSuperPmiQueries;
+    int  morphNum = 0;          // This counts the the trees that have been morphed, allowing us to label each uniquely.
+
     void makeExtraStructQueries(CORINFO_CLASS_HANDLE structHandle, int level); // Make queries recursively 'level' deep.
 
     const char* VarNameToStr(VarName name)
@@ -7319,23 +7314,16 @@ public:
 
     CompilerOptions opts;
 
-    static bool                s_pAltJitExcludeAssembliesListInitialized;
     static AssemblyNamesList2* s_pAltJitExcludeAssembliesList;
 
 #ifdef DEBUG
-    static bool                s_pJitDisasmIncludeAssembliesListInitialized;
     static AssemblyNamesList2* s_pJitDisasmIncludeAssembliesList;
+    static MethodSet*          s_pJitMethodSet;
 
-    static bool       s_pJitFunctionFileInitialized;
-    static MethodSet* s_pJitMethodSet;
-#endif // DEBUG
-
-#ifdef DEBUG
 // silence warning of cast to greater size. It is easier to silence than construct code the compiler is happy with, and
 // it is safe in this case
 #pragma warning(push)
 #pragma warning(disable : 4312)
-
     template <typename T>
     T dspPtr(T p)
     {
@@ -7662,10 +7650,6 @@ public:
 
     void generatePatchpointInfo();
 
-#if MEASURE_MEM_ALLOC
-    static bool s_dspMemStats; // Display per-phase memory statistics for every function
-#endif                         // MEASURE_MEM_ALLOC
-
 #if LOOP_HOIST_STATS
     unsigned m_loopsConsidered             = 0;
     bool     m_curLoopHasHoistedExpression = false;
@@ -7844,7 +7828,7 @@ public:
     // levels are currently unused: #define JITDUMP(level,...)                     ();
     void JitLogEE(unsigned level, const char* fmt, ...);
 
-    bool compDebugBreak;
+    bool compDebugBreak = false;
 
     bool compJitHaltMethod();
 

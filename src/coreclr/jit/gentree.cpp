@@ -56,7 +56,7 @@ struct IndentStack
         static constexpr const char* unicodeIndents[]{ "\xe2\x94\x82", "\xe2\x94\x94", "\xe2\x94\x9c", "\xe2\x94\x80", "\xe2\x96\x8c" };
         // clang-format on
 
-        indents = compiler->asciiTrees ? asciiIndents : unicodeIndents;
+        indents = JitConfig.JitDumpASCII() ? asciiIndents : unicodeIndents;
     }
 
     unsigned Empty()

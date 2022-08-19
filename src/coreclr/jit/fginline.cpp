@@ -585,7 +585,6 @@ int Compiler::inlMain()
 #ifdef DEBUG
     verbose          = inliner->verbose;
     verboseTrees     = inliner->verboseTrees;
-    asciiTrees       = inliner->asciiTrees;
     compGenTreeID    = inliner->compGenTreeID;
     compStatementID  = inliner->compStatementID;
     compBasicBlockID = inliner->compBasicBlockID;

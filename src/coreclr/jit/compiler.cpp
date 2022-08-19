@@ -25,35 +25,13 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 extern ICorJitHost* g_jitHost;
 
-#if defined(DEBUG)
-// Column settings for COMPlus_JitDumpIR.  We could(should) make these programmable.
-#define COLUMN_OPCODE 30
-#define COLUMN_OPERANDS (COLUMN_OPCODE + 25)
-#define COLUMN_KINDS 110
-#define COLUMN_FLAGS (COLUMN_KINDS + 32)
-#endif
-
-#if defined(DEBUG)
-unsigned Compiler::jitTotalMethodCompiled = 0;
-#endif // defined(DEBUG)
-
-#if defined(DEBUG)
-LONG Compiler::jitNestingLevel = 0;
-#endif // defined(DEBUG)
-
-// static
-bool                Compiler::s_pAltJitExcludeAssembliesListInitialized = false;
-AssemblyNamesList2* Compiler::s_pAltJitExcludeAssembliesList            = nullptr;
-
+AssemblyNamesList2* Compiler::s_pAltJitExcludeAssembliesList;
 #ifdef DEBUG
-// static
-bool                Compiler::s_pJitDisasmIncludeAssembliesListInitialized = false;
-AssemblyNamesList2* Compiler::s_pJitDisasmIncludeAssembliesList            = nullptr;
-
-// static
-bool       Compiler::s_pJitFunctionFileInitialized = false;
-MethodSet* Compiler::s_pJitMethodSet               = nullptr;
-#endif // DEBUG
+unsigned            Compiler::jitTotalMethodCompiled;
+LONG                Compiler::jitNestingLevel;
+AssemblyNamesList2* Compiler::s_pJitDisasmIncludeAssembliesList;
+MethodSet*          Compiler::s_pJitMethodSet;
+#endif
 
 /*****************************************************************************
  *
@@ -507,11 +485,6 @@ size_t genFlowNodeCnt;
 LONG Compiler::s_compMethodsCount = 0; // to produce unique label names
 #endif
 
-#if MEASURE_MEM_ALLOC
-/* static */
-bool Compiler::s_dspMemStats = false;
-#endif
-
 #ifndef PROFILING_SUPPORTED
 const bool Compiler::Options::compNoPInvokeInlineCB = false;
 #endif
@@ -542,27 +515,21 @@ void Compiler::compStartup()
     compDisplayStaticSizes(jitstdout);
 }
 
-/*****************************************************************************
- *
- *  One time finalization code
- */
-
-/* static */
 void Compiler::compShutdown()
 {
     if (s_pAltJitExcludeAssembliesList != nullptr)
     {
-        s_pAltJitExcludeAssembliesList->~AssemblyNamesList2(); // call the destructor
+        s_pAltJitExcludeAssembliesList->~AssemblyNamesList2();
         s_pAltJitExcludeAssembliesList = nullptr;
     }
 
 #ifdef DEBUG
     if (s_pJitDisasmIncludeAssembliesList != nullptr)
     {
-        s_pJitDisasmIncludeAssembliesList->~AssemblyNamesList2(); // call the destructor
+        s_pJitDisasmIncludeAssembliesList->~AssemblyNamesList2();
         s_pJitDisasmIncludeAssembliesList = nullptr;
     }
-#endif // DEBUG
+#endif
 
 #if MEASURE_NOWAY
     DisplayNowayAssertMap();
@@ -816,7 +783,7 @@ void Compiler::compShutdown()
 
 #if MEASURE_MEM_ALLOC
 
-    if (s_dspMemStats)
+    if (JitConfig.DisplayMemStats())
     {
         fprintf(fout, "\nAll allocations:\n");
         ArenaAllocator::dumpAggregateMemStats(jitstdout);
@@ -1439,30 +1406,11 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
     compSetProcessor();
 
 #ifdef DEBUG
-    opts.dspOrder    = false;
-    verbose          = false;
-    verboseTrees     = false;
-    verboseSsa       = false;
-    asciiTrees       = shouldDumpASCIITrees();
-    opts.dspDiffable = false;
     codeGen->setVerbose(false);
-#endif
 
-    opts.altJit = false;
-
-#if defined(LATE_DISASM) && !defined(DEBUG)
-    // For non-debug builds with the late disassembler built in, we currently always do late disassembly
-    // (we have no way to determine when not to, since we don't have class/method names).
-    // In the DEBUG case, this is initialized to false, below.
-    opts.doLateDisasm = true;
-#endif
-
-#ifdef DEBUG
     bool altJitConfig = false;
     bool verboseDump  = false;
-#endif
 
-#ifdef DEBUG
     const JitConfigValues::MethodSet* pfAltJit;
     if (jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
     {
@@ -1486,9 +1434,7 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
             opts.altJit = false;
         }
     }
-
-#else // !DEBUG
-
+#else  // !DEBUG
     const char* altJitVal;
     if (jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
     {
@@ -1512,36 +1458,23 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
             opts.altJit = true;
         }
     }
-
 #endif // !DEBUG
 
-    // Take care of COMPlus_AltJitExcludeAssemblies.
     if (opts.altJit)
     {
-        // First, initialize the AltJitExcludeAssemblies list, but only do it once.
-        if (!s_pAltJitExcludeAssembliesListInitialized)
-        {
-            const WCHAR* wszAltJitExcludeAssemblyList = JitConfig.AltJitExcludeAssemblies();
-            if (wszAltJitExcludeAssemblyList != nullptr)
-            {
-                // NOTE: The Assembly name list is allocated in the process heap, not in the no-release heap, which
-                // is
-                // reclaimed
-                // for every compilation. This is ok because we only allocate once, due to the static.
-                s_pAltJitExcludeAssembliesList = new (HostAllocator::getHostAllocator())
-                    AssemblyNamesList2(wszAltJitExcludeAssemblyList, HostAllocator::getHostAllocator());
-            }
-            s_pAltJitExcludeAssembliesListInitialized = true;
-        }
+        const WCHAR* altJitExcludeAssemblies = JitConfig.AltJitExcludeAssemblies();
 
-        if (s_pAltJitExcludeAssembliesList != nullptr)
+        if (altJitExcludeAssemblies != nullptr)
         {
-            // We have an exclusion list. See if this method is in an assembly that is on the list.
-            // Note that we check this for every method, since we might inline across modules, and
-            // if the inlinee module is on the list, we don't want to use the altjit for it.
-            const char* methodAssemblyName = info.compCompHnd->getAssemblyName(
-                info.compCompHnd->getModuleAssembly(info.compCompHnd->getClassModule(info.compClassHnd)));
-            if (s_pAltJitExcludeAssembliesList->IsInList(methodAssemblyName))
+            if (s_pAltJitExcludeAssembliesList == nullptr)
+            {
+                s_pAltJitExcludeAssembliesList = new (HostAllocator::getHostAllocator())
+                    AssemblyNamesList2(altJitExcludeAssemblies, HostAllocator::getHostAllocator());
+            }
+
+            if (!s_pAltJitExcludeAssembliesList->IsEmpty() &&
+                s_pAltJitExcludeAssembliesList->IsInList(info.compCompHnd->getAssemblyName(
+                    info.compCompHnd->getModuleAssembly(info.compCompHnd->getClassModule(info.compClassHnd)))))
             {
                 opts.altJit = false;
             }
@@ -1689,51 +1622,11 @@ void Compiler::compInitOptions2(JitFlags* jitFlags DEBUGARG(bool altJitConfig) D
 {
     assert(!compIsForInlining());
 
-    // The rest of the opts fields that we initialize here
-    // should only be used when we generate code for the method
-    // They should not be used when importing or inlining
-    CLANG_FORMAT_COMMENT_ANCHOR;
-
 #if FEATURE_TAILCALL_OPT
     opts.compTailCallLoopOpt = true;
-#endif // FEATURE_TAILCALL_OPT
-
-    opts.instrCount = 0;
-    opts.lvRefCount = 0;
-
-#ifdef PROFILING_SUPPORTED
-    opts.compJitELTHookEnabled = false;
-#endif // PROFILING_SUPPORTED
-
-#if defined(TARGET_ARM64)
-    // 0 is default: use the appropriate frame type based on the function.
-    opts.compJitSaveFpLrWithCalleeSavedRegisters = 0;
-#endif // defined(TARGET_ARM64)
+#endif
 
 #ifdef DEBUG
-    opts.dspInstrs       = false;
-    opts.dspLines        = false;
-    opts.dmpHex          = false;
-    opts.disAsm          = false;
-    opts.disAsmSpilled   = false;
-    opts.disDiffable     = false;
-    opts.disAddr         = false;
-    opts.disAlignment    = false;
-    opts.dspCode         = false;
-    opts.dspEHTable      = false;
-    opts.dspDebugInfo    = false;
-    opts.dspGCtbls       = false;
-    opts.disAsm2         = false;
-    opts.dspUnwind       = false;
-    opts.compLongAddress = false;
-    opts.optRepeat       = false;
-
-#ifdef LATE_DISASM
-    opts.doLateDisasm = false;
-#endif // LATE_DISASM
-
-    compDebugBreak = false;
-
     // If we have a non-empty AltJit config then we change all of these other
     // config values to refer only to the AltJit.
     if (!altJitConfig || opts.altJit)
@@ -1778,27 +1671,20 @@ void Compiler::compInitOptions2(JitFlags* jitFlags DEBUGARG(bool altJitConfig) D
         }
         else
         {
-            bool disEnabled = true;
+            bool         disEnabled       = true;
+            const WCHAR* disasmAssemblies = JitConfig.JitDisasmAssemblies();
 
-            // Setup assembly name list for disassembly, if not already set up.
-            if (!s_pJitDisasmIncludeAssembliesListInitialized)
+            if (disasmAssemblies != nullptr)
             {
-                const WCHAR* assemblyNameList = JitConfig.JitDisasmAssemblies();
-                if (assemblyNameList != nullptr)
+                if (s_pJitDisasmIncludeAssembliesList == nullptr)
                 {
                     s_pJitDisasmIncludeAssembliesList = new (HostAllocator::getHostAllocator())
-                        AssemblyNamesList2(assemblyNameList, HostAllocator::getHostAllocator());
+                        AssemblyNamesList2(disasmAssemblies, HostAllocator::getHostAllocator());
                 }
-                s_pJitDisasmIncludeAssembliesListInitialized = true;
-            }
 
-            // If we have an assembly name list for disassembly, also check this method's assembly.
-            if (s_pJitDisasmIncludeAssembliesList != nullptr && !s_pJitDisasmIncludeAssembliesList->IsEmpty())
-            {
-                const char* assemblyName = info.compCompHnd->getAssemblyName(
-                    info.compCompHnd->getModuleAssembly(info.compCompHnd->getClassModule(info.compClassHnd)));
-
-                if (!s_pJitDisasmIncludeAssembliesList->IsInList(assemblyName))
+                if (!s_pJitDisasmIncludeAssembliesList->IsEmpty() &&
+                    !s_pJitDisasmIncludeAssembliesList->IsInList(info.compCompHnd->getAssemblyName(
+                        info.compCompHnd->getModuleAssembly(info.compCompHnd->getClassModule(info.compClassHnd)))))
                 {
                     disEnabled = false;
                 }
@@ -1894,13 +1780,12 @@ void Compiler::compInitOptions2(JitFlags* jitFlags DEBUGARG(bool altJitConfig) D
         opts.disAsm2    = true;
         opts.dspUnwind  = true;
         verbose         = true;
-        verboseTrees    = shouldUseVerboseTrees();
-        verboseSsa      = shouldUseVerboseSsa();
+        verboseTrees    = JitConfig.JitDumpVerboseTrees() == 1;
+        verboseSsa      = JitConfig.JitDumpVerboseSsa() == 1;
         codeGen->setVerbose(true);
     }
 
     treesBeforeAfterMorph = (JitConfig.TreesBeforeAfterMorph() == 1);
-    morphNum              = 0; // Initialize the morphed-trees counting.
 
     expensiveDebugCheckLevel = JitConfig.JitExpensiveDebugCheckLevel();
     if (expensiveDebugCheckLevel == 0)
@@ -1939,23 +1824,14 @@ void Compiler::compInitOptions2(JitFlags* jitFlags DEBUGARG(bool altJitConfig) D
 
     memset(compActiveStressModes, 0, sizeof(compActiveStressModes));
 
-    // Read function list, if not already read, and there exists such a list.
-    if (!s_pJitFunctionFileInitialized)
+    const WCHAR* functionFileName = JitConfig.JitFunctionFile();
+
+    if ((functionFileName != nullptr) && (s_pJitMethodSet == nullptr))
     {
-        const WCHAR* functionFileName = JitConfig.JitFunctionFile();
-        if (functionFileName != nullptr)
-        {
-            s_pJitMethodSet =
-                new (HostAllocator::getHostAllocator()) MethodSet(functionFileName, HostAllocator::getHostAllocator());
-        }
-        s_pJitFunctionFileInitialized = true;
+        s_pJitMethodSet =
+            new (HostAllocator::getHostAllocator()) MethodSet(functionFileName, HostAllocator::getHostAllocator());
     }
 
-#endif // DEBUG
-
-//-------------------------------------------------------------------------
-
-#ifdef DEBUG
     assert(!codeGen->isGCTypeFixed());
     opts.compGcChecks = (JitConfig.JitGCChecks() != 0) || compStressCompile(STRESS_GENERIC_VARN, 5);
 
@@ -1976,10 +1852,6 @@ void Compiler::compInitOptions2(JitFlags* jitFlags DEBUGARG(bool altJitConfig) D
     X86_ONLY(opts.compStackCheckOnCall = (jitStackChecks & STACK_CHECK_ON_CALL) != 0);
 #endif // TARGET_XARCH
 #endif // DEBUG
-
-#if MEASURE_MEM_ALLOC
-    s_dspMemStats = (JitConfig.DisplayMemStats() != 0);
-#endif
 
 #ifdef PROFILING_SUPPORTED
     opts.compNoPInvokeInlineCB = jitFlags->IsSet(JitFlags::JIT_FLAG_PROF_NO_PINVOKE_INLINE);
@@ -4254,7 +4126,7 @@ void Compiler::compCompileFinish()
     }
 
 #ifdef DEBUG
-    if (s_dspMemStats || verbose)
+    if (verbose || JitConfig.DisplayMemStats())
     {
         printf("\nAllocations for %s (MethodHash=%08x)\n", info.compFullName, info.compMethodHash());
         compArenaAllocator->dumpMemStats(jitstdout);

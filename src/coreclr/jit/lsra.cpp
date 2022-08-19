@@ -9721,7 +9721,7 @@ void LinearScan::dumpRegRecordHeader()
         sprintf_s(bbRefPosFormat, MAX_LEGEND_FORMAT_CHARS, "BB%%-%dd PredBB%%-%dd", bbNumWidth, predBBNumDumpSpace);
     }
 
-    if (compiler->shouldDumpASCIITrees())
+    if (JitConfig.JitDumpASCII())
     {
         columnSeparator = "|";
         line            = "-";

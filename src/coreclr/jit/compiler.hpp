@@ -2409,27 +2409,6 @@ inline void RegSet::tmpDone()
 }
 
 #ifdef DEBUG
-inline bool Compiler::shouldUseVerboseTrees()
-{
-    return (JitConfig.JitDumpVerboseTrees() == 1);
-}
-
-inline bool Compiler::shouldUseVerboseSsa()
-{
-    return (JitConfig.JitDumpVerboseSsa() == 1);
-}
-
-//------------------------------------------------------------------------
-// shouldDumpASCIITrees: Should we use only ASCII characters for tree dumps?
-//
-// Notes:
-//    This is set to default to 1 in clrConfigValues.h
-
-inline bool Compiler::shouldDumpASCIITrees()
-{
-    return (JitConfig.JitDumpASCII() == 1);
-}
-
 /*****************************************************************************
  *  Should we enable JitStress mode?
  *   0:   No stress
