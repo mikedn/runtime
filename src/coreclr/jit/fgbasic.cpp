@@ -2542,12 +2542,12 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTarget)
                         BADCODE3("tail call not followed by ret", " at offset %04X", (IL_OFFSET)(codeAddr - codeBegp));
                     }
 
-                    if (fgCanSwitchToOptimized() && fgMayExplicitTailCall())
+                    if (compCanSwitchToOptimized() && fgMayExplicitTailCall())
                     {
                         // Method has an explicit tail call that may run like a loop or may not be generated as a tail
                         // call in tier 0, switch to optimized to avoid spending too much time running slower code and
                         // to avoid stack overflow from recursion
-                        fgSwitchToOptimized();
+                        compSwitchToOptimized();
                     }
                 }
                 else

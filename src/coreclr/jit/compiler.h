@@ -5415,9 +5415,6 @@ protected:
     void        fgInitBBLookup();
     BasicBlock* fgLookupBB(unsigned addr);
 
-    bool fgCanSwitchToOptimized();
-    void fgSwitchToOptimized();
-
     bool fgMayExplicitTailCall();
 
     void fgFindJumpTargets(FixedBitVect* jumpTarget);
@@ -7790,7 +7787,8 @@ protected:
     void compInitOptions(JitFlags* compileFlags);
     void compInitPgo();
     void compInitOptions2(JitFlags* jitFlags DEBUGARG(bool altJitConfig) DEBUGARG(bool verboseDump));
-
+    bool compCanSwitchToOptimized();
+    void compSwitchToOptimized();
     void compSetProcessor();
     void compInitDebuggingInfo();
     void compSetOptimizationLevel();

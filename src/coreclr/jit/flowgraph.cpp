@@ -492,64 +492,6 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
 }
 
 //------------------------------------------------------------------------
-// fgCanSwitchToOptimized: Determines if conditions are met to allow switching the opt level to optimized
-//
-// Return Value:
-//    True if the opt level may be switched from tier 0 to optimized, false otherwise
-//
-// Assumptions:
-//    - compInitOptions() has been called
-//    - compSetOptimizationLevel() has not been called
-//
-// Notes:
-//    This method is to be called at some point before compSetOptimizationLevel() to determine if the opt level may be
-//    changed based on information gathered in early phases.
-
-bool Compiler::fgCanSwitchToOptimized()
-{
-    bool result = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER0) && !opts.jitFlags->IsSet(JitFlags::JIT_FLAG_MIN_OPT) &&
-                  !opts.compDbgCode && !compIsForInlining();
-    if (result)
-    {
-        // Ensure that it would be safe to change the opt level
-        assert(opts.optFlags == CLFLG_MINOPT);
-        assert(!opts.IsMinOptsSet());
-    }
-
-    return result;
-}
-
-//------------------------------------------------------------------------
-// fgSwitchToOptimized: Switch the opt level from tier 0 to optimized
-//
-// Assumptions:
-//    - fgCanSwitchToOptimized() is true
-//    - compSetOptimizationLevel() has not been called
-//
-// Notes:
-//    This method is to be called at some point before compSetOptimizationLevel() to switch the opt level to optimized
-//    based on information gathered in early phases.
-
-void Compiler::fgSwitchToOptimized()
-{
-    assert(fgCanSwitchToOptimized());
-
-    // Switch to optimized and re-init options
-    JITDUMP("****\n**** JIT Tier0 jit request switching to Tier1 because of loop\n****\n");
-    assert(opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER0));
-    opts.jitFlags->Clear(JitFlags::JIT_FLAG_TIER0);
-    opts.jitFlags->Clear(JitFlags::JIT_FLAG_BBINSTR);
-
-    // Leave a note for jit diagnostics
-    compSwitchedToOptimized = true;
-
-    compInitOptions(opts.jitFlags);
-
-    // Notify the VM of the change
-    info.compCompHnd->setMethodAttribs(info.compMethodHnd, CORINFO_FLG_SWITCHED_TO_OPTIMIZED);
-}
-
-//------------------------------------------------------------------------
 // fgMayExplicitTailCall: Estimates conservatively for an explicit tail call, if the importer may actually use a tail
 // call.
 //
