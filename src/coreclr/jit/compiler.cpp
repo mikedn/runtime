@@ -1409,25 +1409,18 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
 
     compSetProcessor();
 
+    const JitConfigValues::MethodSet& altJitMethods =
+        jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) ? JitConfig.AltJitNgen() : JitConfig.AltJit();
+
 #ifdef DEBUG
     codeGen->setVerbose(false);
 
     bool altJitConfig = false;
     bool verboseDump  = false;
 
-    const JitConfigValues::MethodSet* pfAltJit;
-    if (jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
-    {
-        pfAltJit = &JitConfig.AltJitNgen();
-    }
-    else
-    {
-        pfAltJit = &JitConfig.AltJit();
-    }
-
     if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_ALT_JIT))
     {
-        if (pfAltJit->contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
+        if (altJitMethods.contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
         {
             opts.altJit = true;
         }
@@ -1439,15 +1432,7 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
         }
     }
 #else  // !DEBUG
-    const char* altJitVal;
-    if (jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
-    {
-        altJitVal = JitConfig.AltJitNgen().list();
-    }
-    else
-    {
-        altJitVal = JitConfig.AltJit().list();
-    }
+    const char* altJitVal               = altJitMethods.list();
 
     if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_ALT_JIT))
     {
@@ -1486,7 +1471,7 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
     }
 
 #ifdef DEBUG
-    altJitConfig = !pfAltJit->isEmpty();
+    altJitConfig = !altJitMethods.isEmpty();
 
     if (!altJitConfig || opts.altJit)
     {
