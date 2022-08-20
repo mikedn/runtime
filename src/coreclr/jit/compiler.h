@@ -7414,7 +7414,7 @@ public:
 
 #ifdef DEBUG
     static const LPCWSTR s_compStressModeNames[STRESS_COUNT + 1];
-    BYTE                 compActiveStressModes[STRESS_COUNT];
+    bool                 compActiveStressModes[STRESS_COUNT]{};
 #endif // DEBUG
 
 #define MAX_STRESS_WEIGHT 100

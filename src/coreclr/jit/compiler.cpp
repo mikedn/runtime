@@ -1728,8 +1728,6 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
         compDebugBreak = true;
     }
 
-    memset(compActiveStressModes, 0, sizeof(compActiveStressModes));
-
     const WCHAR* functionFileName = JitConfig.JitFunctionFile();
 
     if ((functionFileName != nullptr) && (s_pJitMethodSet == nullptr))
@@ -2159,7 +2157,7 @@ bool Compiler::compStressCompile(compStressArea stressArea, unsigned weight)
         {
             printf("\n\n*** JitStress: %ws ***\n\n", s_compStressModeNames[stressArea]);
         }
-        compActiveStressModes[stressArea] = 1;
+        compActiveStressModes[stressArea] = true;
     }
 
     return doStress;
