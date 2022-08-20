@@ -1605,16 +1605,6 @@ void Compiler::compInitOptions()
             opts.disAlignment = true;
         }
 
-        if (JitConfig.JitLongAddress() != 0)
-        {
-            opts.compLongAddress = true;
-        }
-
-        if (JitConfig.JitOptRepeat().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
-        {
-            opts.optRepeat = true;
-        }
-
         if (verboseDump)
         {
             opts.dspCode    = true;
@@ -1627,6 +1617,16 @@ void Compiler::compInitOptions()
             verboseSsa      = JitConfig.JitDumpVerboseSsa() == 1;
 
             codeGen->setVerbose();
+        }
+
+        if (JitConfig.JitLongAddress() != 0)
+        {
+            opts.compLongAddress = true;
+        }
+
+        if (JitConfig.JitOptRepeat().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
+        {
+            opts.optRepeat = true;
         }
     }
 
