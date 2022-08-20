@@ -3036,9 +3036,8 @@ public:
 #ifdef DEBUG
     bool verbose      = false;
     bool verboseTrees = false;
-    bool verboseSsa   = false;  // If true, produce especially verbose dump output in SSA construction.
-    bool treesBeforeAfterMorph; // If true, print trees before/after morphing (paired by an intra-compilation id:
-    int  morphNum = 0;          // This counts the the trees that have been morphed, allowing us to label each uniquely.
+    bool verboseSsa   = false; // If true, produce especially verbose dump output in SSA construction.
+    int  morphNum     = 0;     // This counts the the trees that have been morphed, allowing us to label each uniquely.
 
     void makeExtraStructQueries(CORINFO_CLASS_HANDLE structHandle, int level); // Make queries recursively 'level' deep.
 

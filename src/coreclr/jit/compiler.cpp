@@ -1620,7 +1620,6 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
         codeGen->setVerbose(verboseDump);
     }
 
-    treesBeforeAfterMorph    = JitConfig.TreesBeforeAfterMorph() == 1;
     expensiveDebugCheckLevel = JitConfig.JitExpensiveDebugCheckLevel();
 
     // If we're in a stress mode that modifies the flowgraph, make 1 the default.

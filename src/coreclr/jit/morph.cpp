@@ -13228,7 +13228,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 
 #ifdef DEBUG
     int thisMorphNum = 0;
-    if (verbose && treesBeforeAfterMorph)
+    if (verbose && JitConfig.TreesBeforeAfterMorph())
     {
         thisMorphNum = morphNum++;
         printf("\nfgMorphTree (before %d):\n", thisMorphNum);
@@ -13523,7 +13523,7 @@ void Compiler::fgMorphTreeDone(GenTree* tree,
                                DEBUGARG(int morphNum))
 {
 #ifdef DEBUG
-    if (verbose && treesBeforeAfterMorph)
+    if (verbose && JitConfig.TreesBeforeAfterMorph())
     {
         printf("\nfgMorphTree (after %d):\n", morphNum);
         gtDispTree(tree);
