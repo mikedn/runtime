@@ -1798,6 +1798,12 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
         compProfilerMethHndIndirected = false;
     }
 
+#ifdef UNIX_AMD64_ABI
+    if (compIsProfilerHookNeeded())
+    {
+        opts.compNeedToAlignFrame = true;
+    }
+#endif
 #endif // PROFILING_SUPPORTED
 
     ARM_ONLY(opts.compUseSoftFP = jitFlags->IsSet(JitFlags::JIT_FLAG_SOFTFP_ABI) || JitConfig.JitSoftFP();)
@@ -1928,15 +1934,6 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
             printf("OPTIONS: Jit invoked for ngen\n");
         }
     }
-#endif
-
-#ifdef PROFILING_SUPPORTED
-#ifdef UNIX_AMD64_ABI
-    if (compIsProfilerHookNeeded())
-    {
-        opts.compNeedToAlignFrame = true;
-    }
-#endif // UNIX_AMD64_ABI
 #endif
 
 #if defined(DEBUG) && defined(TARGET_ARM64)
