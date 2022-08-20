@@ -1454,32 +1454,13 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
     // options are irrelevant anyway.
     if (altJitMethods.isEmpty() || opts.altJit)
     {
-        bool verboseDump = false;
+        const auto& dumpNameSet =
+            jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) ? JitConfig.NgenDump() : JitConfig.JitDump();
+        const int dumpHash =
+            jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) ? JitConfig.NgenHashDump() : JitConfig.JitHashDump();
 
-        if (jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
-        {
-            if (JitConfig.NgenDump().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
-            {
-                verboseDump = true;
-            }
-            unsigned ngenHashDumpVal = (unsigned)JitConfig.NgenHashDump();
-            if ((ngenHashDumpVal != (DWORD)-1) && (ngenHashDumpVal == info.compMethodHash()))
-            {
-                verboseDump = true;
-            }
-        }
-        else
-        {
-            if (JitConfig.JitDump().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
-            {
-                verboseDump = true;
-            }
-            unsigned jitHashDumpVal = (unsigned)JitConfig.JitHashDump();
-            if ((jitHashDumpVal != (DWORD)-1) && (jitHashDumpVal == info.compMethodHash()))
-            {
-                verboseDump = true;
-            }
-        }
+        bool verboseDump = dumpNameSet.contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args) ||
+                           ((dumpHash != -1) && (static_cast<unsigned>(dumpHash) == info.compMethodHash()));
 
         if (jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
         {
