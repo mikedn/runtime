@@ -1685,18 +1685,11 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
     lvaEnregEHVars = (compEnregLocals() && JitConfig.EnableEHWriteThru());
 
 #if FEATURE_TAILCALL_OPT
-    // By default opportunistic tail call optimization is enabled.
-    // Recognition is done in the importer so this must be set for
-    // inlinees as well.
-    opts.compTailCallOpt = true;
-#endif // FEATURE_TAILCALL_OPT
-
+    opts.compTailCallOpt     = JitConfig.TailCallOpt() != 0;
+    opts.compTailCallLoopOpt = JitConfig.TailCallLoopOpt() != 0;
+#endif
 #if FEATURE_FASTTAILCALL
-    // By default fast tail calls are enabled.
-    opts.compFastTailCalls = true;
-#endif // FEATURE_FASTTAILCALL
-#if FEATURE_TAILCALL_OPT
-    opts.compTailCallLoopOpt = true;
+    opts.compFastTailCalls = JitConfig.FastTailCalls() != 0;
 #endif
 
 #ifdef DEBUG
@@ -1808,26 +1801,6 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
     }
 
 #endif // PROFILING_SUPPORTED
-
-#if FEATURE_TAILCALL_OPT
-    const WCHAR* strTailCallOpt = JitConfig.TailCallOpt();
-    if (strTailCallOpt != nullptr)
-    {
-        opts.compTailCallOpt = (UINT)_wtoi(strTailCallOpt) != 0;
-    }
-
-    if (JitConfig.TailCallLoopOpt() == 0)
-    {
-        opts.compTailCallLoopOpt = false;
-    }
-#endif
-
-#if FEATURE_FASTTAILCALL
-    if (JitConfig.FastTailCalls() == 0)
-    {
-        opts.compFastTailCalls = false;
-    }
-#endif // FEATURE_FASTTAILCALL
 
     ARM_ONLY(opts.compUseSoftFP = jitFlags->IsSet(JitFlags::JIT_FLAG_SOFTFP_ABI) || JitConfig.JitSoftFP();)
 
