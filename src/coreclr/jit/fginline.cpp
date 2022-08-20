@@ -654,22 +654,7 @@ int Compiler::inlMain()
     }
 #endif
 
-    struct Param : ErrorTrapParam
-    {
-        Compiler* compiler;
-    } param;
-
-    param.jitInfo  = info.compCompHnd;
-    param.compiler = this;
-
-    PAL_TRY(Param&, p, param)
-    {
-        p.compiler->inlMainHelper();
-    }
-    PAL_FINALLY
-    {
-    }
-    PAL_ENDTRY
+    inlMainHelper();
 
     return CORJIT_OK;
 }
