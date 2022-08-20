@@ -1571,6 +1571,9 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
         if (JitConfig.JitLateDisasm().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
         {
             opts.doLateDisasm = true;
+
+            codeGen->getDisAssembler().disOpenForLateDisAsm(info.compMethodName, info.compClassName,
+                                                            info.compMethodInfo->args.pSig);
         }
 #endif
 
@@ -1749,15 +1752,7 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
     ARM_ONLY(opts.compUseSoftFP = jitFlags->IsSet(JitFlags::JIT_FLAG_SOFTFP_ABI) || JitConfig.JitSoftFP();)
 
     opts.compScopeInfo = opts.compDbgInfo;
-
-#ifdef LATE_DISASM
-    codeGen->getDisAssembler().disOpenForLateDisAsm(info.compMethodName, info.compClassName,
-                                                    info.compMethodInfo->args.pSig);
-#endif
-
-    //-------------------------------------------------------------------------
-
-    opts.compReloc = jitFlags->IsSet(JitFlags::JIT_FLAG_RELOC);
+    opts.compReloc     = jitFlags->IsSet(JitFlags::JIT_FLAG_RELOC);
 
 #ifndef TARGET_ARM64
     // TODO-ARM64-NYI: enable hot/cold splitting
