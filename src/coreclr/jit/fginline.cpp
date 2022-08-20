@@ -497,8 +497,8 @@ void jitInlineCode(InlineInfo* inlineInfo)
 
     struct Param : ErrorTrapParam
     {
-        InlineInfo* inlineInfo;
-        int         result = CORJIT_INTERNALERROR;
+        InlineInfo*  inlineInfo;
+        CorJitResult result = CORJIT_INTERNALERROR;
     } param;
 
     param.jitInfo    = inlinerCompiler->info.compCompHnd;
@@ -527,7 +527,8 @@ void jitInlineCode(InlineInfo* inlineInfo)
             compiler->compInlineResult = inlineInfo->inlineResult;
             JitTls::SetCompiler(compiler);
             compiler->compInitMethodName();
-            p.result = compiler->inlMain();
+            compiler->inlMain();
+            p.result = CORJIT_OK;
         }
         PAL_FINALLY
         {
@@ -551,7 +552,7 @@ void jitInlineCode(InlineInfo* inlineInfo)
     }
 }
 
-int Compiler::inlMain()
+void Compiler::inlMain()
 {
     assert(compIsForInlining());
 
@@ -650,7 +651,7 @@ int Compiler::inlMain()
     {
         compInlineResult->NoteFatal(InlineObservation::CALLEE_MARKED_AS_SKIPPED);
 
-        return CORJIT_SKIPPED;
+        return;
     }
 #endif
 
@@ -692,7 +693,7 @@ int Compiler::inlMain()
 
     if (compDonotInline())
     {
-        return CORJIT_OK;
+        return;
     }
 
 #if COUNT_BASIC_BLOCKS
@@ -716,7 +717,7 @@ int Compiler::inlMain()
 
     if (compInlineResult->IsFailure())
     {
-        return CORJIT_OK;
+        return;
     }
 
     inlImportInlinee();
@@ -726,8 +727,6 @@ int Compiler::inlMain()
     inliner->compStatementID  = compStatementID;
     inliner->compBasicBlockID = compBasicBlockID;
 #endif
-
-    return CORJIT_OK;
 }
 
 void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, InlineResult* inlineResult)
