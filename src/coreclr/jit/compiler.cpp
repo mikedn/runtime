@@ -1516,30 +1516,7 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
     {
         verbose = true;
     }
-#endif // DEBUG
 
-#ifdef FEATURE_SIMD
-    featureSIMD = jitFlags->IsSet(JitFlags::JIT_FLAG_FEATURE_SIMD);
-#endif
-
-    lvaEnregEHVars = (compEnregLocals() && JitConfig.EnableEHWriteThru());
-
-#if FEATURE_TAILCALL_OPT
-    // By default opportunistic tail call optimization is enabled.
-    // Recognition is done in the importer so this must be set for
-    // inlinees as well.
-    opts.compTailCallOpt = true;
-#endif // FEATURE_TAILCALL_OPT
-
-#if FEATURE_FASTTAILCALL
-    // By default fast tail calls are enabled.
-    opts.compFastTailCalls = true;
-#endif // FEATURE_FASTTAILCALL
-#if FEATURE_TAILCALL_OPT
-    opts.compTailCallLoopOpt = true;
-#endif
-
-#ifdef DEBUG
     // If we have a non-empty AltJit config then we change all of these other
     // config values to refer only to the AltJit.
     if (!altJitConfig || opts.altJit)
@@ -1699,7 +1676,30 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
     }
 
     treesBeforeAfterMorph = (JitConfig.TreesBeforeAfterMorph() == 1);
+#endif // DEBUG
 
+#ifdef FEATURE_SIMD
+    featureSIMD = jitFlags->IsSet(JitFlags::JIT_FLAG_FEATURE_SIMD);
+#endif
+
+    lvaEnregEHVars = (compEnregLocals() && JitConfig.EnableEHWriteThru());
+
+#if FEATURE_TAILCALL_OPT
+    // By default opportunistic tail call optimization is enabled.
+    // Recognition is done in the importer so this must be set for
+    // inlinees as well.
+    opts.compTailCallOpt = true;
+#endif // FEATURE_TAILCALL_OPT
+
+#if FEATURE_FASTTAILCALL
+    // By default fast tail calls are enabled.
+    opts.compFastTailCalls = true;
+#endif // FEATURE_FASTTAILCALL
+#if FEATURE_TAILCALL_OPT
+    opts.compTailCallLoopOpt = true;
+#endif
+
+#ifdef DEBUG
     expensiveDebugCheckLevel = JitConfig.JitExpensiveDebugCheckLevel();
     if (expensiveDebugCheckLevel == 0)
     {
