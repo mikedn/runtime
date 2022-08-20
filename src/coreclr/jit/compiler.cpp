@@ -1450,10 +1450,9 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
 #ifdef DEBUG
     codeGen->setVerbose(false);
 
-    bool verboseDump  = false;
-    bool altJitConfig = !altJitMethods.isEmpty();
+    bool verboseDump = false;
 
-    if (!altJitConfig || opts.altJit)
+    if (altJitMethods.isEmpty() || opts.altJit)
     {
         if (jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
         {
@@ -1488,7 +1487,7 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
 
     // If we have a non-empty AltJit config then we change all of these other
     // config values to refer only to the AltJit.
-    if (!altJitConfig || opts.altJit)
+    if (altJitMethods.isEmpty() || opts.altJit)
     {
         if (jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
         {
