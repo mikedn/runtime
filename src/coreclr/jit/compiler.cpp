@@ -1266,6 +1266,10 @@ void Compiler::compSetProcessor()
         codeGen->GetEmitter()->SetContains256bitAVX(false);
     }
 #endif // TARGET_XARCH
+
+#ifdef FEATURE_SIMD
+    featureSIMD = jitFlags.IsSet(JitFlags::JIT_FLAG_FEATURE_SIMD);
+#endif
 }
 
 bool Compiler::notifyInstructionSetUsage(CORINFO_InstructionSet isa, bool supported) const
@@ -1677,10 +1681,6 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
 
     treesBeforeAfterMorph = (JitConfig.TreesBeforeAfterMorph() == 1);
 #endif // DEBUG
-
-#ifdef FEATURE_SIMD
-    featureSIMD = jitFlags->IsSet(JitFlags::JIT_FLAG_FEATURE_SIMD);
-#endif
 
     lvaEnregEHVars = (compEnregLocals() && JitConfig.EnableEHWriteThru());
 
