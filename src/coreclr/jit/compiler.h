@@ -5468,13 +5468,13 @@ protected:
                                                CLRRandom*                             random);
 
 public:
-    const char*                            fgPgoFailReason;
-    bool                                   fgPgoDisabled = false;
-    ICorJitInfo::PgoSource                 fgPgoSource;
-    ICorJitInfo::PgoInstrumentationSchema* fgPgoSchema      = nullptr;
-    BYTE*                                  fgPgoData        = nullptr;
-    UINT32                                 fgPgoSchemaCount = 0;
-    HRESULT                                fgPgoQueryResult;
+    const char*                            fgPgoFailReason              = nullptr;
+    bool                                   fgPgoDisabled                = false;
+    ICorJitInfo::PgoSource                 fgPgoSource                  = ICorJitInfo::PgoSource::Unknown;
+    ICorJitInfo::PgoInstrumentationSchema* fgPgoSchema                  = nullptr;
+    BYTE*                                  fgPgoData                    = nullptr;
+    UINT32                                 fgPgoSchemaCount             = 0;
+    HRESULT                                fgPgoQueryResult             = E_FAIL;
     UINT32                                 fgNumProfileRuns             = 0;
     UINT32                                 fgPgoBlockCounts             = 0;
     UINT32                                 fgPgoEdgeCounts              = 0;

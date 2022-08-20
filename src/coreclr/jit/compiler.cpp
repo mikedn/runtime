@@ -1978,15 +1978,6 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
 
 void Compiler::compInitPgo()
 {
-    // Profile data
-    //
-    fgPgoSchema      = nullptr;
-    fgPgoData        = nullptr;
-    fgPgoSchemaCount = 0;
-    fgPgoQueryResult = E_FAIL;
-    fgPgoFailReason  = nullptr;
-    fgPgoSource      = ICorJitInfo::PgoSource::Unknown;
-
     if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_BBOPT))
     {
         fgPgoQueryResult = info.compCompHnd->getPgoInstrumentationResults(info.compMethodHnd, &fgPgoSchema,
