@@ -1412,62 +1412,44 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
     const JitConfigValues::MethodSet& altJitMethods =
         jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) ? JitConfig.AltJitNgen() : JitConfig.AltJit();
 
+    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_ALT_JIT))
+    {
+#ifdef DEBUG
+        opts.altJit = altJitMethods.contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args) ||
+                      ((JitConfig.AltJitLimit() != 0) &&
+                       (Compiler::jitTotalMethodCompiled >= ReinterpretHexAsDecimal(JitConfig.AltJitLimit())));
+#else
+        // In release mode, you either get all methods or no methods. You must use "*" as the parameter,
+        // or we ignore it. Partially, this is because we haven't computed and stored the method and
+        // class name except in debug, and it might be expensive to do so.
+        opts.altJit = (altJitMethods.list() != nullptr) && (strcmp(altJitMethods.list(), "*") == 0);
+#endif
+
+        if (opts.altJit)
+        {
+            const WCHAR* altJitExcludeAssemblies = JitConfig.AltJitExcludeAssemblies();
+
+            if (altJitExcludeAssemblies != nullptr)
+            {
+                if (s_pAltJitExcludeAssembliesList == nullptr)
+                {
+                    s_pAltJitExcludeAssembliesList = new (HostAllocator::getHostAllocator())
+                        AssemblyNamesList2(altJitExcludeAssemblies, HostAllocator::getHostAllocator());
+                }
+
+                if (!s_pAltJitExcludeAssembliesList->IsEmpty() &&
+                    s_pAltJitExcludeAssembliesList->IsInList(info.compCompHnd->getAssemblyName(
+                        info.compCompHnd->getModuleAssembly(info.compCompHnd->getClassModule(info.compClassHnd)))))
+                {
+                    opts.altJit = false;
+                }
+            }
+        }
+    }
+
 #ifdef DEBUG
     codeGen->setVerbose(false);
 
-    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_ALT_JIT))
-    {
-        if (altJitMethods.contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
-        {
-            opts.altJit = true;
-        }
-
-        unsigned altJitLimit = ReinterpretHexAsDecimal(JitConfig.AltJitLimit());
-        if (altJitLimit > 0 && Compiler::jitTotalMethodCompiled >= altJitLimit)
-        {
-            opts.altJit = false;
-        }
-    }
-#else  // !DEBUG
-    const char* altJitVal               = altJitMethods.list();
-
-    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_ALT_JIT))
-    {
-        // In release mode, you either get all methods or no methods. You must use "*" as the parameter, or we
-        // ignore
-        // it. You don't get to give a regular expression of methods to match.
-        // (Partially, this is because we haven't computed and stored the method and class name except in debug, and
-        // it
-        // might be expensive to do so.)
-        if ((altJitVal != nullptr) && (strcmp(altJitVal, "*") == 0))
-        {
-            opts.altJit = true;
-        }
-    }
-#endif // !DEBUG
-
-    if (opts.altJit)
-    {
-        const WCHAR* altJitExcludeAssemblies = JitConfig.AltJitExcludeAssemblies();
-
-        if (altJitExcludeAssemblies != nullptr)
-        {
-            if (s_pAltJitExcludeAssembliesList == nullptr)
-            {
-                s_pAltJitExcludeAssembliesList = new (HostAllocator::getHostAllocator())
-                    AssemblyNamesList2(altJitExcludeAssemblies, HostAllocator::getHostAllocator());
-            }
-
-            if (!s_pAltJitExcludeAssembliesList->IsEmpty() &&
-                s_pAltJitExcludeAssembliesList->IsInList(info.compCompHnd->getAssemblyName(
-                    info.compCompHnd->getModuleAssembly(info.compCompHnd->getClassModule(info.compClassHnd)))))
-            {
-                opts.altJit = false;
-            }
-        }
-    }
-
-#ifdef DEBUG
     bool verboseDump  = false;
     bool altJitConfig = !altJitMethods.isEmpty();
 
