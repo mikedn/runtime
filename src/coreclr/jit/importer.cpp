@@ -17523,7 +17523,7 @@ bool Importer::compIsForInlining()
 
 bool Importer::compDonotInline()
 {
-    return comp->compDonotInline();
+    return comp->compIsForInlining() ? comp->compInlineResult->IsFailure() : false;
 }
 
 Compiler* Importer::impInlineRoot()

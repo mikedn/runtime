@@ -7663,7 +7663,6 @@ public:
 #endif // LOOP_HOIST_STATS
 
     bool compIsForInlining() const;
-    bool compDonotInline();
 
 #ifdef DEBUG
     // Get the default fill char value we randomize this value when JitStress is enabled.

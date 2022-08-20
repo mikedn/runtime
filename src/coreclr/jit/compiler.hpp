@@ -3064,24 +3064,6 @@ inline bool Compiler::compIsForInlining() const
     return (impInlineInfo != nullptr);
 }
 
-/*****************************************************************************
- *
- *  Check the inline result field in the compiler to see if inlining failed or not.
- */
-
-inline bool Compiler::compDonotInline()
-{
-    if (compIsForInlining())
-    {
-        assert(compInlineResult != nullptr);
-        return compInlineResult->IsFailure();
-    }
-    else
-    {
-        return false;
-    }
-}
-
 //------------------------------------------------------------------------
 // lvaIsGCTracked: Determine whether this var should be reported
 //    as tracked for GC purposes.
