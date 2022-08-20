@@ -4544,7 +4544,7 @@ public:
     //    by traversing the tree according to the order of the operands.
     //  - In FGOrderLinear, the dominant ordering is the linear order.
 
-    enum FlowGraphOrder
+    enum FlowGraphOrder : uint8_t
     {
         FGOrderTree,
         FGOrderLinear
