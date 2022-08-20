@@ -1885,7 +1885,8 @@ struct CompilerOptions
     bool dspDiffable;              // Makes the Jit Dump 'diff-able' (currently uses same COMPlus_* flag as disDiffable)
     bool compLongAddress;          // Force using large pseudo instructions for long address
     // (IF_LARGEJMP/IF_LARGEADR/IF_LARGLDC)
-    bool dspGCtbls; // Display the GC tables
+    bool dspGCtbls;       // Display the GC tables
+    bool isAltJitPresent; // And AltJit may be present, dump options apply only to it.
 #endif
 
     bool compExpandCallsEarly; // True if we should expand virtual call targets early for this method
@@ -7767,7 +7768,8 @@ public:
 protected:
     size_t compMaxUncheckedOffsetForNullObject;
 
-    void compInitOptions(JitFlags* compileFlags);
+    void compInitAltJit();
+    void compInitOptions();
     void compInitPgo();
     bool compCanSwitchToOptimized();
     void compSwitchToOptimized();

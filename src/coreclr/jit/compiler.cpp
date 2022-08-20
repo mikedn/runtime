@@ -1330,49 +1330,62 @@ unsigned ReinterpretHexAsDecimal(unsigned in)
     return result;
 }
 
-void Compiler::compInitOptions(JitFlags* jitFlags)
+void Compiler::compInitAltJit()
 {
     assert(!compIsForInlining());
 
-    opts.jitFlags = jitFlags;
-
     const JitConfigValues::MethodSet& altJitMethods =
-        jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) ? JitConfig.AltJitNgen() : JitConfig.AltJit();
+        opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) ? JitConfig.AltJitNgen() : JitConfig.AltJit();
 
-    if (jitFlags->IsSet(JitFlags::JIT_FLAG_ALT_JIT))
+    // Some options don't affect the real jit when an altjit is present. The real jit has no way to know
+    // if an altjit is present so we simply assume it is present if the altjit method list is not empty.
+    INDEBUG(opts.isAltJitPresent = !altJitMethods.isEmpty());
+
+    if (!opts.jitFlags->IsSet(JitFlags::JIT_FLAG_ALT_JIT))
     {
+        return;
+    }
+
 #ifdef DEBUG
-        opts.altJit = altJitMethods.contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args) &&
-                      ((JitConfig.AltJitLimit() == 0) ||
-                       (Compiler::jitTotalMethodCompiled < ReinterpretHexAsDecimal(JitConfig.AltJitLimit())));
+    opts.altJit = altJitMethods.contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args) &&
+                  ((JitConfig.AltJitLimit() == 0) ||
+                   (Compiler::jitTotalMethodCompiled < ReinterpretHexAsDecimal(JitConfig.AltJitLimit())));
 #else
-        // In release mode, you either get all methods or no methods. You must use "*" as the parameter,
-        // or we ignore it. Partially, this is because we haven't computed and stored the method and
-        // class name except in debug, and it might be expensive to do so.
-        opts.altJit                     = (altJitMethods.list() != nullptr) && (strcmp(altJitMethods.list(), "*") == 0);
+    // In release mode, you either get all methods or no methods. You must use "*" as the parameter,
+    // or we ignore it. Partially, this is because we haven't computed and stored the method and
+    // class name except in debug, and it might be expensive to do so.
+    opts.altJit                         = (altJitMethods.list() != nullptr) && (strcmp(altJitMethods.list(), "*") == 0);
 #endif
 
-        if (opts.altJit)
+    if (!opts.altJit)
+    {
+        return;
+    }
+
+    const WCHAR* altJitExcludeAssemblies = JitConfig.AltJitExcludeAssemblies();
+
+    if (altJitExcludeAssemblies != nullptr)
+    {
+        if (s_pAltJitExcludeAssembliesList == nullptr)
         {
-            const WCHAR* altJitExcludeAssemblies = JitConfig.AltJitExcludeAssemblies();
+            s_pAltJitExcludeAssembliesList = new (HostAllocator::getHostAllocator())
+                AssemblyNamesList2(altJitExcludeAssemblies, HostAllocator::getHostAllocator());
+        }
 
-            if (altJitExcludeAssemblies != nullptr)
-            {
-                if (s_pAltJitExcludeAssembliesList == nullptr)
-                {
-                    s_pAltJitExcludeAssembliesList = new (HostAllocator::getHostAllocator())
-                        AssemblyNamesList2(altJitExcludeAssemblies, HostAllocator::getHostAllocator());
-                }
-
-                if (!s_pAltJitExcludeAssembliesList->IsEmpty() &&
-                    s_pAltJitExcludeAssembliesList->IsInList(info.compCompHnd->getAssemblyName(
-                        info.compCompHnd->getModuleAssembly(info.compCompHnd->getClassModule(info.compClassHnd)))))
-                {
-                    opts.altJit = false;
-                }
-            }
+        if (!s_pAltJitExcludeAssembliesList->IsEmpty() &&
+            s_pAltJitExcludeAssembliesList->IsInList(info.compCompHnd->getAssemblyName(
+                info.compCompHnd->getModuleAssembly(info.compCompHnd->getClassModule(info.compClassHnd)))))
+        {
+            opts.altJit = false;
         }
     }
+}
+
+void Compiler::compInitOptions()
+{
+    assert(!compIsForInlining());
+
+    JitFlags* jitFlags = opts.jitFlags;
 
     opts.optFlags = CLFLG_MAXOPT; // Default value is for full optimization
 
@@ -1449,11 +1462,7 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
     compSetProcessor();
 
 #ifdef DEBUG
-    // Dump options don't affect the real jit when an altjit is present. The real jit has no way to
-    // know if an altjit is present we're going to assume that one is present if the altjit method
-    // list isn't empty. And if we're an altjit and we decided to skip this method then all the dump
-    // options are irrelevant anyway.
-    if (altJitMethods.isEmpty() || opts.altJit)
+    if (!opts.isAltJitPresent || opts.altJit)
     {
         const auto& dumpNameSet =
             jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) ? JitConfig.NgenDump() : JitConfig.JitDump();
@@ -1982,7 +1991,7 @@ void Compiler::compSwitchToOptimized()
     // Leave a note for jit diagnostics
     compSwitchedToOptimized = true;
 
-    compInitOptions(opts.jitFlags);
+    compInitOptions();
 
     // Notify the VM of the change
     info.compCompHnd->setMethodAttribs(info.compMethodHnd, CORINFO_FLG_SWITCHED_TO_OPTIMIZED);
@@ -4312,7 +4321,9 @@ int Compiler::compCompileHelper(void** methodCode, uint32_t* methodCodeSize, Jit
     info.compChecksum = getMethodBodyChecksum((char*)methodInfo->ILCode, methodInfo->ILCodeSize);
 #endif
 
-    compInitOptions(jitFlags);
+    opts.jitFlags = jitFlags;
+    compInitAltJit();
+    compInitOptions();
 
     if (!opts.altJit && opts.jitFlags->IsSet(JitFlags::JIT_FLAG_ALT_JIT))
     {
