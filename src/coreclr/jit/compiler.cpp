@@ -1826,25 +1826,16 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
 #endif
 #endif // DEBUG
 
-    opts.compProcedureSplitting = jitFlags->IsSet(JitFlags::JIT_FLAG_PROCSPLIT);
-
-#ifdef TARGET_ARM64
+#ifndef TARGET_ARM64
     // TODO-ARM64-NYI: enable hot/cold splitting
-    opts.compProcedureSplitting = false;
-#endif // TARGET_ARM64
-
-#ifdef DEBUG
-    opts.compProcedureSplittingEH = opts.compProcedureSplitting;
-#endif // DEBUG
-
-    if (opts.compProcedureSplitting)
+    if (jitFlags->IsSet(JitFlags::JIT_FLAG_PROCSPLIT))
     {
         // Note that opts.compdbgCode is true under ngen for checked assemblies!
         opts.compProcedureSplitting = !opts.compDbgCode;
 
 #ifdef DEBUG
         // JitForceProcedureSplitting is used to force procedure splitting on checked assemblies.
-        // This is useful for debugging on a checked build.  Note that we still only do procedure
+        // This is useful for debugging on a checked build. Note that we still only do procedure
         // splitting in the zapper.
         if (JitConfig.JitForceProcedureSplitting().contains(info.compMethodName, info.compClassName,
                                                             &info.compMethodInfo->args))
@@ -1858,15 +1849,16 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
         {
             opts.compProcedureSplitting = false;
         }
-        //
+
         // JitNoProcedureSplittingEH will disable procedure splitting in functions with EH.
-        if (JitConfig.JitNoProcedureSplittingEH().contains(info.compMethodName, info.compClassName,
-                                                           &info.compMethodInfo->args))
+        if (!JitConfig.JitNoProcedureSplittingEH().contains(info.compMethodName, info.compClassName,
+                                                            &info.compMethodInfo->args))
         {
-            opts.compProcedureSplittingEH = false;
+            opts.compProcedureSplittingEH = true;
         }
 #endif
     }
+#endif // !TARGET_ARM64
 
 #ifdef DEBUG
     // Now, set compMaxUncheckedOffsetForNullObject for STRESS_NULL_OBJECT_CHECK
