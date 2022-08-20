@@ -265,7 +265,7 @@ public:
     static const char* g_tgtCPUName;
     static const char* g_tgtPlatformName;
 
-    enum ArgOrder
+    enum ArgOrder : uint8_t
     {
         ARG_ORDER_R2L,
         ARG_ORDER_L2R
