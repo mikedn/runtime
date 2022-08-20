@@ -2754,17 +2754,40 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTarget)
     return retBlocks;
 }
 
+#ifdef DEBUG
+void Compiler::dmpILJumpTargets(FixedBitVect* targets)
+{
+    bool anyJumpTargets = false;
+    printf("Jump targets:\n");
+    for (unsigned i = 0; i < info.compILCodeSize + 1; i++)
+    {
+        if (targets->bitVectTest(i))
+        {
+            anyJumpTargets = true;
+            printf("  IL_%04x\n", i);
+        }
+    }
+
+    if (!anyJumpTargets)
+    {
+        printf("  none\n");
+    }
+}
+#endif
+
 /*****************************************************************************
  *
  *  Main entry point to discover the basic blocks for the current function.
  */
 
-void Compiler::fgCreateBasicBlocks()
+void Compiler::compCreateBasicBlocks()
 {
+    assert(!compIsForInlining());
+
 #ifdef DEBUG
     if (verbose)
     {
-        printf("*************** In fgCreateBasicBlocks() for %s\n", info.compFullName);
+        printf("*************** In compCreateBasicBlocks() for %s\n", info.compFullName);
     }
 
     // Call this here so any dump printing it inspires doesn't appear in the bb table.
@@ -2777,10 +2800,6 @@ void Compiler::fgCreateBasicBlocks()
 
     // Walk the instrs to find all jump targets
     fgFindJumpTargets(jumpTarget);
-    if (compDonotInline())
-    {
-        return;
-    }
 
     unsigned XTnum;
 
@@ -2788,9 +2807,7 @@ void Compiler::fgCreateBasicBlocks()
 
     if (info.compXcptnsCount > 0)
     {
-        noway_assert(!compIsForInlining());
-
-        /* Check and mark all the exception handlers */
+        // Check and mark all the exception handlers
 
         for (XTnum = 0; XTnum < info.compXcptnsCount; XTnum++)
         {
@@ -2840,57 +2857,11 @@ void Compiler::fgCreateBasicBlocks()
         }
     }
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        bool anyJumpTargets = false;
-        printf("Jump targets:\n");
-        for (unsigned i = 0; i < info.compILCodeSize + 1; i++)
-        {
-            if (jumpTarget->bitVectTest(i))
-            {
-                anyJumpTargets = true;
-                printf("  IL_%04x\n", i);
-            }
-        }
-
-        if (!anyJumpTargets)
-        {
-            printf("  none\n");
-        }
-    }
-#endif // DEBUG
+    DBEXEC(verbose, dmpILJumpTargets(jumpTarget);)
 
     /* Now create the basic blocks */
 
     unsigned retBlocks = fgMakeBasicBlocks(jumpTarget);
-
-    if (compIsForInlining())
-    {
-
-#ifdef DEBUG
-        // If fgFindJumpTargets marked the call as "no return" there
-        // really should be no BBJ_RETURN blocks in the method.
-        bool markedNoReturn = (impInlineInfo->iciCall->gtCallMoreFlags & GTF_CALL_M_DOES_NOT_RETURN) != 0;
-        assert((markedNoReturn && (retBlocks == 0)) || (!markedNoReturn && (retBlocks >= 1)));
-#endif // DEBUG
-
-        if (compInlineResult->IsFailure())
-        {
-            return;
-        }
-
-        noway_assert(info.compXcptnsCount == 0);
-        compHndBBtab = impInlineInfo->InlinerCompiler->compHndBBtab;
-        compHndBBtabAllocCount =
-            impInlineInfo->InlinerCompiler->compHndBBtabAllocCount; // we probably only use the table, not add to it.
-        compHndBBtabCount    = impInlineInfo->InlinerCompiler->compHndBBtabCount;
-        info.compXcptnsCount = impInlineInfo->InlinerCompiler->info.compXcptnsCount;
-
-        inlAnalyzeInlineeReturn(impInlineInfo, retBlocks);
-
-        return;
-    }
 
     // If we are doing OSR, add an entry block that simply branches to the right IL offset.
     if (opts.IsOSR())
@@ -3286,7 +3257,7 @@ void Compiler::fgCreateBasicBlocks()
 #ifdef DEBUG
     if (verbose)
     {
-        JITDUMP("*************** After fgCreateBasicBlocks() has created the EH table\n");
+        JITDUMP("*************** After compCreateBasicBlocks() has created the EH table\n");
         fgDispHandlerTab();
     }
 

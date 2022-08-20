@@ -816,9 +816,9 @@ void Compiler::inlImportInlinee()
     assert(compIsForInlining());
 
     lvaInitTypeRef();
-    fgCreateBasicBlocks();
+    inlCreateBasicBlocks();
 
-    if (compDonotInline())
+    if (compInlineResult->IsFailure())
     {
         return;
     }
@@ -869,6 +869,43 @@ void Compiler::inlImportInlinee()
         pCompJitTimer->Terminate(this, CompTimeSummaryInfo::s_compTimeSummary, false);
     }
 #endif
+}
+
+void Compiler::inlCreateBasicBlocks()
+{
+    JITDUMP("*************** In inlCreateBasicBlocks() for %s\n", info.compFullName);
+
+    // We don't inline method with EH
+    noway_assert(info.compXcptnsCount == 0);
+
+    FixedBitVect* jumpTargets = FixedBitVect::bitVectInit(info.compILCodeSize + 1, this);
+    fgFindJumpTargets(jumpTargets);
+
+    if (compInlineResult->IsFailure())
+    {
+        return;
+    }
+
+    DBEXEC(verbose, dmpILJumpTargets(jumpTargets);)
+
+    unsigned retBlocks = fgMakeBasicBlocks(jumpTargets);
+
+    // If fgFindJumpTargets marked the call as "no return" there
+    // really should be no BBJ_RETURN blocks in the method.
+    bool markedNoReturn = (impInlineInfo->iciCall->gtCallMoreFlags & GTF_CALL_M_DOES_NOT_RETURN) != 0;
+    assert((markedNoReturn && (retBlocks == 0)) || (!markedNoReturn && (retBlocks >= 1)));
+
+    if (compInlineResult->IsFailure())
+    {
+        return;
+    }
+
+    compHndBBtab           = impInlineInfo->InlinerCompiler->compHndBBtab;
+    compHndBBtabAllocCount = impInlineInfo->InlinerCompiler->compHndBBtabAllocCount;
+    compHndBBtabCount      = impInlineInfo->InlinerCompiler->compHndBBtabCount;
+    info.compXcptnsCount   = impInlineInfo->InlinerCompiler->info.compXcptnsCount;
+
+    inlAnalyzeInlineeReturn(impInlineInfo, retBlocks);
 }
 
 void Compiler::inlAnalyzeInlineeReturn(InlineInfo* inlineInfo, unsigned returnBlockCount)

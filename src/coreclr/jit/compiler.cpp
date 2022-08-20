@@ -4314,7 +4314,7 @@ CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCode
     if (!opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
     {
         // We are jitting the root method.
-        fgCreateBasicBlocks();
+        compCreateBasicBlocks();
     }
     else
     {
@@ -4335,7 +4335,7 @@ CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCode
         //
         // We don't pass prejitResult in as a parameter to avoid
         // potential aliasing confusion -- the other call to
-        // fgCreateBasicBlocks may have set up compInlineResult and
+        // compCreateBasicBlocksmay have set up compInlineResult and
         // the code in fgFindJumpTargets references that data
         // member extensively.
         assert(compInlineResult == nullptr);
@@ -4347,7 +4347,7 @@ CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCode
         //
         // This will also update the status of this method as
         // an inline candidate.
-        fgCreateBasicBlocks();
+        compCreateBasicBlocks();
 
         // Undo the temporary setup.
         assert(compInlineResult == &prejitResult);

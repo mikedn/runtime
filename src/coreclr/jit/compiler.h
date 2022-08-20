@@ -5165,7 +5165,8 @@ public:
                            bool        initializingPreds = false); // Only set to 'true' when we are computing preds in
                                                                    // fgComputePreds()
 
-    void fgCreateBasicBlocks();
+    void compCreateBasicBlocks();
+    INDEBUG(void dmpILJumpTargets(FixedBitVect* targets);)
 
     bool fgIsBetterFallThrough(BasicBlock* bCur, BasicBlock* bAlt);
 
@@ -5776,6 +5777,7 @@ public:
     void inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, InlineResult* result);
     void inlMain();
     void inlImportInlinee();
+    void inlCreateBasicBlocks();
     void inlPostInlineFailureCleanup(const InlineInfo* inlineInfo);
     void inlAnalyzeInlineeReturn(InlineInfo* inlineInfo, unsigned returnBlockCount);
     bool inlImportReturn(Importer& importer, InlineInfo* inlineInfo, GenTree* op2, CORINFO_CLASS_HANDLE retClsHnd);
