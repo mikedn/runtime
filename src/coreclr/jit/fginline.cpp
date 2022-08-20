@@ -583,7 +583,7 @@ int Compiler::inlMain()
 
     jitFlags.Set(JitFlags::JIT_FLAG_SKIP_VERIFICATION);
 
-    compMaxUncheckedOffsetForNullObject = eeGetEEInfo()->maxUncheckedOffsetForNullObject;
+    compMaxUncheckedOffsetForNullObject = inliner->compMaxUncheckedOffsetForNullObject;
     compDoAggressiveInlining            = inliner->compDoAggressiveInlining;
 #ifdef FEATURE_SIMD
     featureSIMD = inliner->featureSIMD;
