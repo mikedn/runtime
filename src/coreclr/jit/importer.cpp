@@ -17915,7 +17915,8 @@ CORINFO_CLASS_HANDLE Importer::impGetTypeHandleClass()
 
 var_types Importer::GetRuntimeHandleUnderlyingType()
 {
-    return comp->GetRuntimeHandleUnderlyingType();
+    // RuntimeTypeHandle is backed by raw pointer on CoreRT and by object reference on other runtimes
+    return IsTargetAbi(CORINFO_CORERT_ABI) ? TYP_I_IMPL : TYP_REF;
 }
 
 CORINFO_CLASS_HANDLE Importer::gtGetClassHandle(GenTree* tree, bool* isExact, bool* isNonNull)
