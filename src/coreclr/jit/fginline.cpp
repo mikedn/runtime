@@ -630,6 +630,10 @@ int Compiler::inlMain()
     opts.optFlags        = inliner->opts.optFlags;
     opts.compCodeOpt     = inliner->opts.compCodeOpt;
     opts.compDbgCode     = inliner->opts.compDbgCode;
+
+    assert(!inliner->opts.MinOpts());
+    opts.SetMinOpts(false);
+
 #ifdef DEBUG
     opts.dspDiffable = inliner->opts.dspDiffable;
 #endif
@@ -713,16 +717,6 @@ void Compiler::inlMainHelper()
         return;
     }
 
-    Compiler* inliner = impInlineRoot();
-
-    // TODO-MIKE-Review: This is likely pointless, since we're inlining we're not doing minopts...
-    opts.SetMinOpts(inliner->opts.MinOpts());
-
-    if (opts.OptimizationDisabled())
-    {
-        opts.optFlags = CLFLG_MINOPT;
-    }
-
 #if COUNT_BASIC_BLOCKS
     bbCntTable.record(fgBBcount);
 
@@ -750,6 +744,8 @@ void Compiler::inlMainHelper()
     inlImportInlinee();
 
 #ifdef DEBUG
+    Compiler* inliner = impInlineRoot();
+
     inliner->compGenTreeID    = compGenTreeID;
     inliner->compStatementID  = compStatementID;
     inliner->compBasicBlockID = compBasicBlockID;
