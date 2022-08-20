@@ -709,56 +709,54 @@ void Compiler::inlMainHelper()
 #endif
 
     lvaInitTypeRef();
-
-    Compiler* inliner = impInlineRoot();
-
     fgFindBasicBlocks();
-
-    if (!compDonotInline())
-    {
-        // TODO-MIKE-Review: This is likely pointless, since we're inlining we're not doing minopts...
-        opts.SetMinOpts(inliner->opts.MinOpts());
-
-        if (opts.OptimizationDisabled())
-        {
-            opts.optFlags = CLFLG_MINOPT;
-        }
-
-#if COUNT_BASIC_BLOCKS
-        bbCntTable.record(fgBBcount);
-
-        if (fgBBcount == 1)
-        {
-            bbOneBBSizeTable.record(methodInfo->ILCodeSize);
-        }
-#endif
-
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("Basic block list for '%s'\n", info.compFullName);
-            fgDispBasicBlocks();
-        }
-#endif
-
-        compInlineResult->NoteInt(InlineObservation::CALLEE_NUMBER_OF_BASIC_BLOCKS, fgBBcount);
-
-        if (!compInlineResult->IsFailure())
-        {
-            inlImportInlinee();
-
-#ifdef DEBUG
-            inliner->compGenTreeID    = compGenTreeID;
-            inliner->compStatementID  = compStatementID;
-            inliner->compBasicBlockID = compBasicBlockID;
-#endif
-        }
-    }
 
     if (compDonotInline())
     {
-        assert(impInlineInfo->inlineResult == compInlineResult);
+        return;
     }
+
+    Compiler* inliner = impInlineRoot();
+
+    // TODO-MIKE-Review: This is likely pointless, since we're inlining we're not doing minopts...
+    opts.SetMinOpts(inliner->opts.MinOpts());
+
+    if (opts.OptimizationDisabled())
+    {
+        opts.optFlags = CLFLG_MINOPT;
+    }
+
+#if COUNT_BASIC_BLOCKS
+    bbCntTable.record(fgBBcount);
+
+    if (fgBBcount == 1)
+    {
+        bbOneBBSizeTable.record(methodInfo->ILCodeSize);
+    }
+#endif
+
+#ifdef DEBUG
+    if (verbose)
+    {
+        printf("Basic block list for '%s'\n", info.compFullName);
+        fgDispBasicBlocks();
+    }
+#endif
+
+    compInlineResult->NoteInt(InlineObservation::CALLEE_NUMBER_OF_BASIC_BLOCKS, fgBBcount);
+
+    if (compInlineResult->IsFailure())
+    {
+        return;
+    }
+
+    inlImportInlinee();
+
+#ifdef DEBUG
+    inliner->compGenTreeID    = compGenTreeID;
+    inliner->compStatementID  = compStatementID;
+    inliner->compBasicBlockID = compBasicBlockID;
+#endif
 }
 
 void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, InlineResult* inlineResult)
