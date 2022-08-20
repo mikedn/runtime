@@ -555,6 +555,16 @@ void jitInlineCode(InlineInfo* inlineInfo)
 void Compiler::inlMain()
 {
     assert(compIsForInlining());
+    assert(info.compILCodeSize != 0);
+
+#ifdef DEBUG
+    if (info.SkipMethod())
+    {
+        compInlineResult->NoteFatal(InlineObservation::CALLEE_MARKED_AS_SKIPPED);
+
+        return;
+    }
+#endif
 
 #ifdef FEATURE_JIT_METHOD_PERF
     // TODO-MIKE-Review: Is this used when inlining?
@@ -645,17 +655,6 @@ void Compiler::inlMain()
     opts.compFastTailCalls = inliner->opts.compFastTailCalls;
 #endif
     opts.compExpandCallsEarly = inliner->opts.compExpandCallsEarly;
-
-#ifdef DEBUG
-    if (info.SkipMethod())
-    {
-        compInlineResult->NoteFatal(InlineObservation::CALLEE_MARKED_AS_SKIPPED);
-
-        return;
-    }
-#endif
-
-    assert(info.compILCodeSize != 0);
 
 #ifdef DEBUG
     unsigned methAttrOld   = impInlineInfo->inlineCandidateInfo->methAttr;
