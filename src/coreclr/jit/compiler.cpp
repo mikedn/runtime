@@ -1415,9 +1415,6 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
 #ifdef DEBUG
     codeGen->setVerbose(false);
 
-    bool altJitConfig = false;
-    bool verboseDump  = false;
-
     if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_ALT_JIT))
     {
         if (altJitMethods.contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
@@ -1471,7 +1468,8 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
     }
 
 #ifdef DEBUG
-    altJitConfig = !altJitMethods.isEmpty();
+    bool verboseDump  = false;
+    bool altJitConfig = !altJitMethods.isEmpty();
 
     if (!altJitConfig || opts.altJit)
     {
