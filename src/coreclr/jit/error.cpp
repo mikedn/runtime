@@ -183,29 +183,24 @@ void notYetImplemented(const char* msg, const char* filename, unsigned line)
     }
 }
 
-/*****************************************************************************/
-LONG __JITfilter(PEXCEPTION_POINTERS pExceptionPointers, LPVOID lpvParam)
+LONG JitErrorTrapFilter(PEXCEPTION_POINTERS pExceptionPointers, ErrorTrapParam& param)
 {
-    DWORD exceptCode = pExceptionPointers->ExceptionRecord->ExceptionCode;
-
-    if (exceptCode == FATAL_JIT_EXCEPTION)
+    if (pExceptionPointers->ExceptionRecord->ExceptionCode != FATAL_JIT_EXCEPTION)
     {
-        ErrorTrapParam* pParam = (ErrorTrapParam*)lpvParam;
-
-        assert(pExceptionPointers->ExceptionRecord->NumberParameters == 1);
-        pParam->errc = (int)pExceptionPointers->ExceptionRecord->ExceptionInformation[0];
-
-        ICorJitInfo* jitInfo = pParam->jitInfo;
-
-        if (jitInfo != nullptr)
-        {
-            jitInfo->reportFatalError((CorJitResult)pParam->errc);
-        }
-
-        return EXCEPTION_EXECUTE_HANDLER;
+        return EXCEPTION_CONTINUE_SEARCH;
     }
 
-    return EXCEPTION_CONTINUE_SEARCH;
+    assert(pExceptionPointers->ExceptionRecord->NumberParameters == 1);
+    param.error = static_cast<CorJitResult>(pExceptionPointers->ExceptionRecord->ExceptionInformation[0]);
+
+    ICorJitInfo* jitInfo = param.jitInfo;
+
+    if (jitInfo != nullptr)
+    {
+        jitInfo->reportFatalError(param.error);
+    }
+
+    return EXCEPTION_EXECUTE_HANDLER;
 }
 
 /*****************************************************************************/

@@ -14,51 +14,25 @@ class Compiler;
 
 struct ErrorTrapParam
 {
-    int                errc;
-    ICorJitInfo*       jitInfo;
+    CorJitResult       error   = CORJIT_INTERNALERROR;
+    ICorJitInfo*       jitInfo = nullptr;
     EXCEPTION_POINTERS exceptionPointers;
-    ErrorTrapParam()
+};
+
+template <typename T>
+struct NestedErrorTrapParam : ErrorTrapParam
+{
+    T param;
+
+    NestedErrorTrapParam(T param) : param(param)
     {
-        jitInfo = nullptr;
     }
 };
 
 // Only catch JIT internal errors (will not catch EE generated Errors)
-extern LONG __JITfilter(PEXCEPTION_POINTERS pExceptionPointers, LPVOID lpvParam);
-
-#define setErrorTrap(compHnd, ParamType, paramDef, paramRef)                                                           \
-    struct __JITParam : ErrorTrapParam                                                                                 \
-    {                                                                                                                  \
-        ParamType param;                                                                                               \
-    } __JITparam;                                                                                                      \
-    __JITparam.errc    = CORJIT_INTERNALERROR;                                                                         \
-    __JITparam.jitInfo = compHnd;                                                                                      \
-    __JITparam.param   = paramRef;                                                                                     \
-    PAL_TRY(__JITParam*, __JITpParam, &__JITparam)                                                                     \
-    {                                                                                                                  \
-        ParamType paramDef = __JITpParam->param;
-
-// Only catch JIT internal errors (will not catch EE generated Errors)
-#define impJitErrorTrap()                                                                                              \
-    }                                                                                                                  \
-    PAL_EXCEPT_FILTER(__JITfilter)                                                                                     \
-    {                                                                                                                  \
-        int __errc = __JITparam.errc;                                                                                  \
-        (void)__errc;
-
-#define endErrorTrap()                                                                                                 \
-    }                                                                                                                  \
-    PAL_ENDTRY
-
-#define finallyErrorTrap()                                                                                             \
-    }                                                                                                                  \
-    PAL_FINALLY                                                                                                        \
-    {
-
-/*****************************************************************************/
+extern LONG JitErrorTrapFilter(PEXCEPTION_POINTERS pExceptionPointers, ErrorTrapParam& param);
 
 // clang-format off
-
 extern void debugError(const char* msg, const char* file, unsigned line);
 extern void DECLSPEC_NORETURN badCode();
 extern void DECLSPEC_NORETURN badCode3(const char* msg, const char* msg2, int arg, __in_z const char* file, unsigned line);

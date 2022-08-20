@@ -3835,32 +3835,31 @@ int Compiler::compCompileMain(void** nativeCode, uint32_t* nativeCodeSize, JitFl
     }
 #endif // DEBUG
 
-    struct Param
+    struct Param : ErrorTrapParam
     {
         Compiler* compiler;
         void**    nativeCode;
         uint32_t* nativeCodeSize;
         JitFlags* jitFlags;
-        int       result;
+        int       result = CORJIT_INTERNALERROR;
     } param;
 
+    param.jitInfo        = info.compCompHnd;
     param.compiler       = this;
     param.nativeCode     = nativeCode;
     param.nativeCodeSize = nativeCodeSize;
     param.jitFlags       = jitFlags;
-    param.result         = CORJIT_INTERNALERROR;
 
-    setErrorTrap(info.compCompHnd, Param*, pParam, &param)
+    PAL_TRY(Param&, p, param)
     {
-        pParam->result =
-            pParam->compiler->compCompileHelper(pParam->nativeCode, pParam->nativeCodeSize, pParam->jitFlags);
+        p.result = p.compiler->compCompileHelper(p.nativeCode, p.nativeCodeSize, p.jitFlags);
     }
-    finallyErrorTrap()
+    PAL_FINALLY
     {
     }
-    endErrorTrap()
+    PAL_ENDTRY
 
-        return param.result;
+    return param.result;
 }
 
 #if defined(DEBUG) || defined(INLINE_DATA)
@@ -4830,82 +4829,79 @@ int jitNativeCode(ICorJitInfo*         jitInfo,
     bool jitFallbackCompile = false;
 
 START:
-    struct Param
+    struct Param : ErrorTrapParam
     {
         ArenaAllocator       allocator;
-        Compiler*            compiler;
-        Compiler*            prevCompiler;
+        Compiler*            compiler     = nullptr;
+        Compiler*            prevCompiler = nullptr;
         bool                 jitFallbackCompile;
-        ICorJitInfo*         jitInfo;
         CORINFO_METHOD_INFO* methodInfo;
         void**               nativeCode;
         uint32_t*            nativeCodeSize;
         JitFlags*            jitFlags;
-        int                  result;
+        int                  result = CORJIT_INTERNALERROR;
         CORINFO_EE_INFO      eeInfo;
     } param;
 
-    param.compiler           = nullptr;
-    param.prevCompiler       = nullptr;
-    param.jitFallbackCompile = jitFallbackCompile;
     param.jitInfo            = jitInfo;
+    param.jitFallbackCompile = jitFallbackCompile;
     param.methodInfo         = methodInfo;
     param.nativeCode         = nativeCode;
     param.nativeCodeSize     = nativeCodeSize;
     param.jitFlags           = jitFlags;
-    param.result             = CORJIT_INTERNALERROR;
 
-    setErrorTrap(jitInfo, Param*, pParamOuter, &param)
+    PAL_TRY(Param&, p, param)
     {
-        setErrorTrap(nullptr, Param*, pParam, pParamOuter)
-        {
-            pParam->jitInfo->getEEInfo(&pParam->eeInfo);
+        NestedErrorTrapParam<Param&> param2(p);
 
-            pParam->compiler = static_cast<Compiler*>(pParam->allocator.allocateMemory(sizeof(Compiler)));
-            new (pParam->compiler) Compiler(&pParam->allocator, &pParam->eeInfo, pParam->methodInfo->scope,
-                                            pParam->methodInfo->ftn, pParam->methodInfo, pParam->jitInfo);
-            pParam->prevCompiler = JitTls::GetCompiler();
-            JitTls::SetCompiler(pParam->compiler);
-            INDEBUG(JitTls::SetLogCompiler(pParam->compiler));
+        PAL_TRY(NestedErrorTrapParam<Param&>&, p2, param2)
+        {
+            Param& p = p2.param;
+
+            p.jitInfo->getEEInfo(&p.eeInfo);
+
+            p.compiler = static_cast<Compiler*>(p.allocator.allocateMemory(sizeof(Compiler)));
+            new (p.compiler)
+                Compiler(&p.allocator, &p.eeInfo, p.methodInfo->scope, p.methodInfo->ftn, p.methodInfo, p.jitInfo);
+            p.prevCompiler = JitTls::GetCompiler();
+            JitTls::SetCompiler(p.compiler);
+            INDEBUG(JitTls::SetLogCompiler(p.compiler));
 
 #if MEASURE_CLRAPI_CALLS
-            if (!pParam->jitFallbackCompile)
+            if (!p.jitFallbackCompile)
             {
-                WrapICorJitInfo::WrapJitInfo(pParam->compiler);
+                WrapICorJitInfo::WrapJitInfo(p.compiler);
             }
 #endif
 
-            pParam->compiler->compInit();
-
-            INDEBUG(pParam->compiler->jitFallbackCompile = pParam->jitFallbackCompile;)
-
-            pParam->result =
-                pParam->compiler->compCompileMain(pParam->nativeCode, pParam->nativeCodeSize, pParam->jitFlags);
+            p.compiler->compInit();
+            INDEBUG(p.compiler->jitFallbackCompile = p.jitFallbackCompile;)
+            p.result = p.compiler->compCompileMain(p.nativeCode, p.nativeCodeSize, p.jitFlags);
         }
-        finallyErrorTrap()
+        PAL_FINALLY
         {
             // If OOM is thrown when allocating the Compiler object, we will
-            // end up here and pParamOuter->compiler will be nullptr.
+            // end up here and p.compiler will be nullptr.
 
-            if (pParamOuter->compiler != nullptr)
+            if (p.compiler != nullptr)
             {
-                pParamOuter->compiler->info.compCode = nullptr;
+                p.compiler->info.compCode = nullptr;
 
-                assert(JitTls::GetCompiler() == pParamOuter->compiler);
-                JitTls::SetCompiler(pParamOuter->prevCompiler);
+                assert(JitTls::GetCompiler() == p.compiler);
+                JitTls::SetCompiler(p.prevCompiler);
             }
 
-            pParamOuter->allocator.destroy();
+            p.allocator.destroy();
         }
-        endErrorTrap()
+        PAL_ENDTRY
     }
-    impJitErrorTrap()
+    PAL_EXCEPT_FILTER(JitErrorTrapFilter)
     {
-        param.result = __errc;
+        param.result = param.error;
     }
-    endErrorTrap()
+    PAL_ENDTRY
 
-        int result = param.result;
+    int result = param.result;
 
     if (!jitFallbackCompile &&
         ((result == CORJIT_INTERNALERROR) || (result == CORJIT_RECOVERABLEERROR) || (result == CORJIT_IMPLLIMITATION)))

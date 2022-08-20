@@ -495,17 +495,24 @@ void jitInlineCode(InlineInfo* inlineInfo)
                                   inlinerCompiler->eeGetMethodFullName(inlineInfo->iciCall->GetMethodHandle()),
                                   inlinerCompiler->dspPtr(inlineInfo->inlineCandidateInfo->exactContextHnd)));
 
-    struct Param
+    struct Param : ErrorTrapParam
     {
         InlineInfo* inlineInfo;
-        int         result;
-    } param{inlineInfo, CORJIT_INTERNALERROR};
+        int         result = CORJIT_INTERNALERROR;
+    } param;
 
-    setErrorTrap(inlinerCompiler->info.compCompHnd, Param*, pParamOuter, &param)
+    param.jitInfo    = inlinerCompiler->info.compCompHnd;
+    param.inlineInfo = inlineInfo;
+
+    PAL_TRY(Param&, p, param)
     {
-        setErrorTrap(nullptr, Param*, pParam, pParamOuter)
+        NestedErrorTrapParam<Param&> param2(p);
+
+        PAL_TRY(NestedErrorTrapParam<Param&>&, p2, param2)
         {
-            InlineInfo*     inlineInfo      = pParam->inlineInfo;
+            Param& p = p2.param;
+
+            InlineInfo*     inlineInfo      = p.inlineInfo;
             Compiler*       inlinerCompiler = inlineInfo->InlinerCompiler;
             ArenaAllocator* allocator       = inlinerCompiler->compGetArenaAllocator();
 
@@ -523,25 +530,25 @@ void jitInlineCode(InlineInfo* inlineInfo)
 
             inlineeCompiler->compInit();
 
-            pParam->result = inlineeCompiler->inlMain();
+            p.result = inlineeCompiler->inlMain();
         }
-        finallyErrorTrap()
+        PAL_FINALLY
         {
-            JitTls::SetCompiler(pParamOuter->inlineInfo->InlinerCompiler);
+            JitTls::SetCompiler(p.inlineInfo->InlinerCompiler);
         }
-        endErrorTrap()
+        PAL_ENDTRY
     }
-    impJitErrorTrap()
+    PAL_EXCEPT_FILTER(JitErrorTrapFilter)
     {
         // Note that we failed to compile the inlinee, and that
         // there's no point trying to inline it again anywhere else.
         inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLEE_COMPILATION_ERROR);
 
-        param.result = __errc;
+        param.result = param.error;
     }
-    endErrorTrap()
+    PAL_ENDTRY
 
-        if ((param.result != CORJIT_OK) && !inlineInfo->inlineResult->IsFailure())
+    if ((param.result != CORJIT_OK) && !inlineInfo->inlineResult->IsFailure())
     {
         inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLSITE_COMPILATION_FAILURE);
     }
@@ -646,21 +653,24 @@ int Compiler::inlMain()
     }
 #endif
 
-    struct Param
+    struct Param : ErrorTrapParam
     {
         Compiler* compiler;
-    } param{this};
+    } param;
 
-    setErrorTrap(info.compCompHnd, Param*, pParam, &param)
-    {
-        pParam->compiler->inlMainHelper();
-    }
-    finallyErrorTrap()
-    {
-    }
-    endErrorTrap()
+    param.jitInfo  = info.compCompHnd;
+    param.compiler = this;
 
-        return CORJIT_OK;
+    PAL_TRY(Param&, p, param)
+    {
+        p.compiler->inlMainHelper();
+    }
+    PAL_FINALLY
+    {
+    }
+    PAL_ENDTRY
+
+    return CORJIT_OK;
 }
 
 void Compiler::inlMainHelper()
