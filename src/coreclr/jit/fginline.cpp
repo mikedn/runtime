@@ -688,38 +688,6 @@ void Compiler::inlMain()
     }
 #endif
 
-    lvaInitTypeRef();
-    fgFindBasicBlocks();
-
-    if (compDonotInline())
-    {
-        return;
-    }
-
-#if COUNT_BASIC_BLOCKS
-    bbCntTable.record(fgBBcount);
-
-    if (fgBBcount == 1)
-    {
-        bbOneBBSizeTable.record(methodInfo->ILCodeSize);
-    }
-#endif
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("Basic block list for '%s'\n", info.compFullName);
-        fgDispBasicBlocks();
-    }
-#endif
-
-    compInlineResult->NoteInt(InlineObservation::CALLEE_NUMBER_OF_BASIC_BLOCKS, fgBBcount);
-
-    if (compInlineResult->IsFailure())
-    {
-        return;
-    }
-
     inlImportInlinee();
 
 #ifdef DEBUG
@@ -846,6 +814,38 @@ void Compiler::inlPostInlineFailureCleanup(const InlineInfo* inlineInfo)
 void Compiler::inlImportInlinee()
 {
     assert(compIsForInlining());
+
+    lvaInitTypeRef();
+    fgFindBasicBlocks();
+
+    if (compDonotInline())
+    {
+        return;
+    }
+
+#if COUNT_BASIC_BLOCKS
+    bbCntTable.record(fgBBcount);
+
+    if (fgBBcount == 1)
+    {
+        bbOneBBSizeTable.record(methodInfo->ILCodeSize);
+    }
+#endif
+
+#ifdef DEBUG
+    if (verbose)
+    {
+        printf("Basic block list for '%s'\n", info.compFullName);
+        fgDispBasicBlocks();
+    }
+#endif
+
+    compInlineResult->NoteInt(InlineObservation::CALLEE_NUMBER_OF_BASIC_BLOCKS, fgBBcount);
+
+    if (compInlineResult->IsFailure())
+    {
+        return;
+    }
 
     DoPhase(this, PHASE_PRE_IMPORT, [this]() { impInlineRoot()->m_inlineStrategy->NoteImport(); });
     DoPhase(this, PHASE_INCPROFILE, &Compiler::fgIncorporateProfileData);
