@@ -884,14 +884,12 @@ void Compiler::compDisplayStaticSizes(FILE* fout)
 
 INDEBUG(ConfigMethodRange fJitStressRange;)
 
-CompiledMethodInfo::CompiledMethodInfo(CORINFO_MODULE_HANDLE  module,
-                                       CORINFO_METHOD_HANDLE  method,
-                                       CORINFO_METHOD_INFO*   methodInfo,
+CompiledMethodInfo::CompiledMethodInfo(CORINFO_METHOD_INFO*   methodInfo,
                                        ICorJitInfo*           jitInfo,
                                        const CORINFO_EE_INFO* eeInfo)
     : compCompHnd(jitInfo)
-    , compScopeHnd(module)
-    , compMethodHnd(method)
+    , compScopeHnd(methodInfo->scope)
+    , compMethodHnd(methodInfo->ftn)
     , compMethodInfo(methodInfo)
     , compCode(methodInfo->ILCode)
     , compILCodeSize(methodInfo->ILCodeSize)
@@ -915,16 +913,10 @@ CompiledMethodInfo::CompiledMethodInfo(CORINFO_MODULE_HANDLE  module,
 
 Compiler::Compiler(ArenaAllocator*        alloc,
                    const CORINFO_EE_INFO* eeInfo,
-                   CORINFO_MODULE_HANDLE  module,
-                   CORINFO_METHOD_HANDLE  method,
                    CORINFO_METHOD_INFO*   methodInfo,
                    ICorJitInfo*           jitInfo,
                    InlineInfo*            inlineInfo)
-    : impInlineInfo(inlineInfo)
-    , eeInfo(eeInfo)
-    , opts()
-    , info(module, method, methodInfo, jitInfo, eeInfo)
-    , compArenaAllocator(alloc)
+    : impInlineInfo(inlineInfo), eeInfo(eeInfo), opts(), info(methodInfo, jitInfo, eeInfo), compArenaAllocator(alloc)
 {
 }
 
@@ -4861,8 +4853,7 @@ START:
             p.jitInfo->getEEInfo(&p.eeInfo);
 
             p.compiler = static_cast<Compiler*>(p.allocator.allocateMemory(sizeof(Compiler)));
-            new (p.compiler)
-                Compiler(&p.allocator, &p.eeInfo, p.methodInfo->scope, p.methodInfo->ftn, p.methodInfo, p.jitInfo);
+            new (p.compiler) Compiler(&p.allocator, &p.eeInfo, p.methodInfo, p.jitInfo);
             p.prevCompiler = JitTls::GetCompiler();
             JitTls::SetCompiler(p.compiler);
             INDEBUG(JitTls::SetLogCompiler(p.compiler));

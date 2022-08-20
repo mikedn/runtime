@@ -1673,11 +1673,7 @@ struct CompiledMethodInfo
     // Number of class profile probes in this method
     unsigned compClassProbeCount = 0;
 
-    CompiledMethodInfo(CORINFO_MODULE_HANDLE  module,
-                       CORINFO_METHOD_HANDLE  method,
-                       CORINFO_METHOD_INFO*   methodInfo,
-                       ICorJitInfo*           jitInfo,
-                       const CORINFO_EE_INFO* eeInfo);
+    CompiledMethodInfo(CORINFO_METHOD_INFO* methodInfo, ICorJitInfo* jitInfo, const CORINFO_EE_INFO* eeInfo);
 };
 
 enum codeOptimize : uint8_t
@@ -7620,8 +7616,6 @@ public:
 
     Compiler(ArenaAllocator*        alloc,
              const CORINFO_EE_INFO* eeInfo,
-             CORINFO_MODULE_HANDLE  module,
-             CORINFO_METHOD_HANDLE  methodHnd,
              CORINFO_METHOD_INFO*   methodInfo,
              ICorJitInfo*           jitInfo,
              InlineInfo*            inlineInfo = nullptr);
