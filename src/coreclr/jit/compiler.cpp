@@ -1861,10 +1861,17 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
 #endif // !TARGET_ARM64
 
 #ifdef DEBUG
-    // Now, set compMaxUncheckedOffsetForNullObject for STRESS_NULL_OBJECT_CHECK
+#ifdef TARGET_ARM64
+    if ((s_pJitMethodSet == nullptr) || s_pJitMethodSet->IsActiveMethod(info.compFullName, info.compMethodHash()))
+    {
+        opts.compJitSaveFpLrWithCalleeSavedRegisters = JitConfig.JitSaveFpLrWithCalleeSavedRegisters();
+    }
+#endif
+
     if (compStressCompile(STRESS_NULL_OBJECT_CHECK, 30))
     {
         compMaxUncheckedOffsetForNullObject = (size_t)JitConfig.JitMaxUncheckedOffset();
+
         if (verbose)
         {
             printf("STRESS_NULL_OBJECT_CHECK: compMaxUncheckedOffsetForNullObject=0x%X\n",
@@ -1927,13 +1934,6 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
         }
     }
 #endif
-
-#if defined(DEBUG) && defined(TARGET_ARM64)
-    if ((s_pJitMethodSet == nullptr) || s_pJitMethodSet->IsActiveMethod(info.compFullName, info.compMethodHash()))
-    {
-        opts.compJitSaveFpLrWithCalleeSavedRegisters = JitConfig.JitSaveFpLrWithCalleeSavedRegisters();
-    }
-#endif // defined(DEBUG) && defined(TARGET_ARM64)
 }
 
 void Compiler::compInitPgo()
