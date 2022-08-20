@@ -1415,9 +1415,9 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
     if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_ALT_JIT))
     {
 #ifdef DEBUG
-        opts.altJit = altJitMethods.contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args) ||
-                      ((JitConfig.AltJitLimit() != 0) &&
-                       (Compiler::jitTotalMethodCompiled >= ReinterpretHexAsDecimal(JitConfig.AltJitLimit())));
+        opts.altJit = altJitMethods.contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args) &&
+                      ((JitConfig.AltJitLimit() == 0) ||
+                       (Compiler::jitTotalMethodCompiled < ReinterpretHexAsDecimal(JitConfig.AltJitLimit())));
 #else
         // In release mode, you either get all methods or no methods. You must use "*" as the parameter,
         // or we ignore it. Partially, this is because we haven't computed and stored the method and
@@ -1620,7 +1620,14 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
         codeGen->setVerbose(verboseDump);
     }
 
-    treesBeforeAfterMorph = (JitConfig.TreesBeforeAfterMorph() == 1);
+    treesBeforeAfterMorph    = JitConfig.TreesBeforeAfterMorph() == 1;
+    expensiveDebugCheckLevel = JitConfig.JitExpensiveDebugCheckLevel();
+
+    // If we're in a stress mode that modifies the flowgraph, make 1 the default.
+    if ((expensiveDebugCheckLevel == 0) && (fgStressBBProf() || compStressCompile(STRESS_DO_WHILE_LOOPS, 30)))
+    {
+        expensiveDebugCheckLevel = 1;
+    }
 #endif // DEBUG
 
     lvaEnregEHVars = (compEnregLocals() && JitConfig.EnableEHWriteThru());
@@ -1634,16 +1641,6 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
 #endif
 
 #ifdef DEBUG
-    expensiveDebugCheckLevel = JitConfig.JitExpensiveDebugCheckLevel();
-    if (expensiveDebugCheckLevel == 0)
-    {
-        // If we're in a stress mode that modifies the flowgraph, make 1 the default.
-        if (fgStressBBProf() || compStressCompile(STRESS_DO_WHILE_LOOPS, 30))
-        {
-            expensiveDebugCheckLevel = 1;
-        }
-    }
-
     if (verbose)
     {
         printf("****** START compiling %s (MethodHash=%08x)\n", info.compFullName, info.compMethodHash());
