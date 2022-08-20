@@ -1974,8 +1974,6 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
         opts.compJitSaveFpLrWithCalleeSavedRegisters = JitConfig.JitSaveFpLrWithCalleeSavedRegisters();
     }
 #endif // defined(DEBUG) && defined(TARGET_ARM64)
-
-    compInitPgo();
 }
 
 void Compiler::compInitPgo()
@@ -4501,6 +4499,7 @@ int Compiler::compCompileHelper(void** methodCode, uint32_t* methodCodeSize, Jit
     codeGen->GetEmitter()->emitBegCG(this, info.compCompHnd);
     lvaInitTypeRef();
     compInitDebuggingInfo();
+    compInitPgo();
 
     if (!opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
     {
