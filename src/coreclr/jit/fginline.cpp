@@ -512,24 +512,22 @@ void jitInlineCode(InlineInfo* inlineInfo)
         {
             Param& p = p2.param;
 
-            InlineInfo*     inlineInfo      = p.inlineInfo;
-            Compiler*       inlinerCompiler = inlineInfo->InlinerCompiler;
-            ArenaAllocator* allocator       = inlinerCompiler->compGetArenaAllocator();
+            InlineInfo*     inlineInfo = p.inlineInfo;
+            Compiler*       inliner    = inlineInfo->InlinerCompiler;
+            ArenaAllocator* allocator  = inliner->compGetArenaAllocator();
 
-            if (inlinerCompiler->InlineeCompiler == nullptr)
+            if (inliner->InlineeCompiler == nullptr)
             {
-                inlinerCompiler->InlineeCompiler = static_cast<Compiler*>(allocator->allocateMemory(sizeof(Compiler)));
+                inliner->InlineeCompiler = static_cast<Compiler*>(allocator->allocateMemory(sizeof(Compiler)));
             }
 
-            Compiler* inlineeCompiler = inlinerCompiler->InlineeCompiler;
-            new (inlineeCompiler)
-                Compiler(allocator, inlinerCompiler->eeInfo, &inlineInfo->inlineCandidateInfo->methInfo,
-                         inlinerCompiler->info.compCompHnd, inlineInfo);
-            JitTls::SetCompiler(inlineeCompiler);
-
-            inlineeCompiler->compInit();
-
-            p.result = inlineeCompiler->inlMain();
+            Compiler* compiler = inliner->InlineeCompiler;
+            new (compiler) Compiler(allocator, inliner->eeInfo, &inlineInfo->inlineCandidateInfo->methInfo,
+                                    inliner->info.compCompHnd, inlineInfo);
+            compiler->compInlineResult = inlineInfo->inlineResult;
+            JitTls::SetCompiler(compiler);
+            compiler->compInitMethodName();
+            p.result = compiler->inlMain();
         }
         PAL_FINALLY
         {

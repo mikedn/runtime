@@ -7619,6 +7619,7 @@ public:
              CORINFO_METHOD_INFO*   methodInfo,
              ICorJitInfo*           jitInfo,
              InlineInfo*            inlineInfo = nullptr);
+    void compInitMethodName();
     void compInit();
 
     static void compDisplayStaticSizes(FILE* fout);

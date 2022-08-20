@@ -920,7 +920,7 @@ Compiler::Compiler(ArenaAllocator*        alloc,
 {
 }
 
-void Compiler::compInit()
+void Compiler::compInitMethodName()
 {
 #if defined(DEBUG) || defined(LATE_DISASM) || DUMP_FLOWGRAPHS
     // Initialize the method name and related info, as it is used early in determining whether to
@@ -943,41 +943,39 @@ void Compiler::compInit()
     // methods will be subject to stress.
     assert(!fJitStressRange.Error());
     INDEBUG(bRangeAllowStress = fJitStressRange.Contains(info.compMethodHash()));
+}
 
-    if (compIsForInlining())
+void Compiler::compInit()
+{
+    assert(!compIsForInlining());
+
+    m_inlineStrategy = new (this, CMK_Inlining) InlineStrategy(this);
+
+    for (unsigned i = 0; i < _countof(fgLargeFieldOffsetNullCheckTemps); i++)
     {
-        compInlineResult = impInlineInfo->inlineResult;
+        fgLargeFieldOffsetNullCheckTemps[i] = BAD_VAR_NUM;
     }
-    else
-    {
-        m_inlineStrategy = new (this, CMK_Inlining) InlineStrategy(this);
 
-        for (unsigned i = 0; i < _countof(fgLargeFieldOffsetNullCheckTemps); i++)
-        {
-            fgLargeFieldOffsetNullCheckTemps[i] = BAD_VAR_NUM;
-        }
-
-        codeGenInit();
+    codeGenInit();
 
 #if MEASURE_NODE_SIZE
-        genNodeSizeStatsPerFunc.Init();
+    genNodeSizeStatsPerFunc.Init();
 #endif
 #ifdef DEBUG
-        switch (JitConfig.JitNoStructPromotion())
-        {
-            case 0:
-                break;
-            case 1:
-                fgNoStructPromotion = true;
-                break;
-            case 2:
-                fgNoStructParamPromotion = true;
-                break;
-            default:
-                unreached();
-        }
-#endif
+    switch (JitConfig.JitNoStructPromotion())
+    {
+        case 0:
+            break;
+        case 1:
+            fgNoStructPromotion = true;
+            break;
+        case 2:
+            fgNoStructParamPromotion = true;
+            break;
+        default:
+            unreached();
     }
+#endif
 }
 
 void* Compiler::compGetHelperFtn(CorInfoHelpFunc ftnNum,        /* IN  */
@@ -4865,6 +4863,7 @@ START:
             }
 #endif
 
+            p.compiler->compInitMethodName();
             p.compiler->compInit();
             INDEBUG(p.compiler->jitFallbackCompile = p.jitFallbackCompile;)
             p.result = p.compiler->compCompileMain(p.nativeCode, p.nativeCodeSize, p.jitFlags);
