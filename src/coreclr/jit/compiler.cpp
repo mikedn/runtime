@@ -1418,6 +1418,14 @@ void Compiler::compInitConfigOptions()
 #endif
 
 #ifdef DEBUG
+    const WCHAR* functionFileName = JitConfig.JitFunctionFile();
+
+    if ((functionFileName != nullptr) && (s_pJitMethodSet == nullptr))
+    {
+        s_pJitMethodSet =
+            new (HostAllocator::getHostAllocator()) MethodSet(functionFileName, HostAllocator::getHostAllocator());
+    }
+
     if (!opts.isAltJitPresent || opts.altJit)
     {
         const auto& cfg          = JitConfig;
@@ -1621,14 +1629,6 @@ void Compiler::compInitOptions()
     if ((jitHashBreakVal != (DWORD)-1) && (jitHashBreakVal == info.compMethodHash()))
     {
         assert(!"JitHashBreak reached");
-    }
-
-    const WCHAR* functionFileName = JitConfig.JitFunctionFile();
-
-    if ((functionFileName != nullptr) && (s_pJitMethodSet == nullptr))
-    {
-        s_pJitMethodSet =
-            new (HostAllocator::getHostAllocator()) MethodSet(functionFileName, HostAllocator::getHostAllocator());
     }
 #endif // DEBUG
 
