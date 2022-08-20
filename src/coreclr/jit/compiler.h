@@ -5165,7 +5165,7 @@ public:
                            bool        initializingPreds = false); // Only set to 'true' when we are computing preds in
                                                                    // fgComputePreds()
 
-    void fgFindBasicBlocks();
+    void fgCreateBasicBlocks();
 
     bool fgIsBetterFallThrough(BasicBlock* bCur, BasicBlock* bAlt);
 

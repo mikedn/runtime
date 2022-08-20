@@ -2759,12 +2759,12 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTarget)
  *  Main entry point to discover the basic blocks for the current function.
  */
 
-void Compiler::fgFindBasicBlocks()
+void Compiler::fgCreateBasicBlocks()
 {
 #ifdef DEBUG
     if (verbose)
     {
-        printf("*************** In fgFindBasicBlocks() for %s\n", info.compFullName);
+        printf("*************** In fgCreateBasicBlocks() for %s\n", info.compFullName);
     }
 
     // Call this here so any dump printing it inspires doesn't appear in the bb table.
@@ -3286,7 +3286,7 @@ void Compiler::fgFindBasicBlocks()
 #ifdef DEBUG
     if (verbose)
     {
-        JITDUMP("*************** After fgFindBasicBlocks() has created the EH table\n");
+        JITDUMP("*************** After fgCreateBasicBlocks() has created the EH table\n");
         fgDispHandlerTab();
     }
 

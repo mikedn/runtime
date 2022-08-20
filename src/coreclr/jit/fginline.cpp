@@ -816,7 +816,7 @@ void Compiler::inlImportInlinee()
     assert(compIsForInlining());
 
     lvaInitTypeRef();
-    fgFindBasicBlocks();
+    fgCreateBasicBlocks();
 
     if (compDonotInline())
     {

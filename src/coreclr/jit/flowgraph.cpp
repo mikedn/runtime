@@ -1439,7 +1439,7 @@ void Compiler::fgAddSyncMethodEnterExit()
         newEntry->ebdHndEndOffset    = 0; // handler doesn't correspond to any IL
 
         // Set some flags on the new region. This is the same as when we set up
-        // EH regions in fgFindBasicBlocks(). Note that the try has no enclosing
+        // EH regions in fgCreateBasicBlocks(). Note that the try has no enclosing
         // handler, and the fault has no enclosing try.
 
         tryBegBB->bbFlags |= BBF_DONT_REMOVE | BBF_TRY_BEG | BBF_IMPORTED;
