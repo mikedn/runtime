@@ -1766,8 +1766,8 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
         bool hookNeeded;
         bool indirected;
         info.compCompHnd->GetProfilingHandle(&hookNeeded, &compProfilerMethHnd, &indirected);
-        compProfilerHookNeeded        = !!hookNeeded;
-        compProfilerMethHndIndirected = !!indirected;
+        compProfilerHookNeeded        = hookNeeded;
+        compProfilerMethHndIndirected = indirected;
     }
     else
     {
