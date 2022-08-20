@@ -1448,12 +1448,14 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
     }
 
 #ifdef DEBUG
-    codeGen->setVerbose(false);
-
-    bool verboseDump = false;
-
+    // Dump options don't affect the real jit when an altjit is present. The real jit has no way to
+    // know if an altjit is present we're going to assume that one is present if the altjit method
+    // list isn't empty. And if we're an altjit and we decided to skip this method then all the dump
+    // options are irrelevant anyway.
     if (altJitMethods.isEmpty() || opts.altJit)
     {
+        bool verboseDump = false;
+
         if (jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
         {
             if (JitConfig.NgenDump().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
@@ -1478,17 +1480,7 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
                 verboseDump = true;
             }
         }
-    }
 
-    if (verboseDump)
-    {
-        verbose = true;
-    }
-
-    // If we have a non-empty AltJit config then we change all of these other
-    // config values to refer only to the AltJit.
-    if (altJitMethods.isEmpty() || opts.altJit)
-    {
         if (jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
         {
             if ((JitConfig.NgenOrder() & 1) == 1)
@@ -1628,19 +1620,20 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
         {
             opts.optRepeat = true;
         }
-    }
 
-    if (verboseDump)
-    {
-        opts.dspCode    = true;
-        opts.dspEHTable = true;
-        opts.dspGCtbls  = true;
-        opts.disAsm2    = true;
-        opts.dspUnwind  = true;
-        verbose         = true;
-        verboseTrees    = JitConfig.JitDumpVerboseTrees() == 1;
-        verboseSsa      = JitConfig.JitDumpVerboseSsa() == 1;
-        codeGen->setVerbose(true);
+        if (verboseDump)
+        {
+            opts.dspCode    = true;
+            opts.dspEHTable = true;
+            opts.dspGCtbls  = true;
+            opts.disAsm2    = true;
+            opts.dspUnwind  = true;
+            verbose         = true;
+            verboseTrees    = JitConfig.JitDumpVerboseTrees() == 1;
+            verboseSsa      = JitConfig.JitDumpVerboseSsa() == 1;
+        }
+
+        codeGen->setVerbose(verboseDump);
     }
 
     treesBeforeAfterMorph = (JitConfig.TreesBeforeAfterMorph() == 1);
