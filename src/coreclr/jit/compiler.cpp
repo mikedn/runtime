@@ -1543,7 +1543,6 @@ void Compiler::compInitOptions()
             opts.dspCode    = true;
             opts.dspEHTable = true;
             opts.dspGCtbls  = true;
-            opts.disAsm2    = true;
             opts.dspUnwind  = true;
 
             codeGen->setVerbose();

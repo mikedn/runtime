@@ -5975,7 +5975,7 @@ void CodeGen::genFinalizeFrame()
     GetEmitter()->emitMaxTmpSize = regSet.tmpGetTotalSize();
 
 #ifdef DEBUG
-    if (compiler->opts.dspCode || compiler->opts.disAsm || compiler->opts.disAsm2 || verbose)
+    if (compiler->opts.dspCode || compiler->opts.disAsm || verbose)
     {
         compiler->lvaTableDump();
     }
