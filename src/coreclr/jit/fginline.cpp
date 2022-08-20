@@ -647,7 +647,7 @@ void Compiler::inlMain()
     opts.compExpandCallsEarly = inliner->opts.compExpandCallsEarly;
 
 #ifdef DEBUG
-    if (skipMethod())
+    if (info.SkipMethod())
     {
         compInlineResult->NoteFatal(InlineObservation::CALLEE_MARKED_AS_SKIPPED);
 

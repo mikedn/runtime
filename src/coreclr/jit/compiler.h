@@ -1673,6 +1673,8 @@ struct CompiledMethodInfo
     // Number of class profile probes in this method
     unsigned compClassProbeCount = 0;
 
+    INDEBUG(bool SkipMethod() const;)
+
     CompiledMethodInfo(CORINFO_METHOD_INFO* methodInfo, ICorJitInfo* jitInfo, const CORINFO_EE_INFO* eeInfo);
 };
 
@@ -7740,10 +7742,6 @@ public:
     //-------------------------------------------------------------------------
 
 protected:
-#ifdef DEBUG
-    bool skipMethod();
-#endif
-
     ArenaAllocator* compArenaAllocator;
 
 public:

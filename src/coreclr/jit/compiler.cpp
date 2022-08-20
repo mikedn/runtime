@@ -3646,7 +3646,7 @@ void Compiler::RecomputeLoopInfo()
 
 #ifdef DEBUG
 
-bool Compiler::skipMethod()
+bool CompiledMethodInfo::SkipMethod() const
 {
     static ConfigMethodRange fJitRange;
     fJitRange.EnsureInit(JitConfig.JitRange());
@@ -3658,18 +3658,18 @@ bool Compiler::skipMethod()
     // So, the logic below relies on the fact that a null range string
     // passed to ConfigMethodRange represents the set of all methods.
 
-    if (!fJitRange.Contains(info.compMethodHash()))
+    if (!fJitRange.Contains(compMethodHash()))
     {
         return true;
     }
 
-    if (JitConfig.JitExclude().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
+    if (JitConfig.JitExclude().contains(compMethodName, compClassName, &compMethodInfo->args))
     {
         return true;
     }
 
     if (!JitConfig.JitInclude().isEmpty() &&
-        !JitConfig.JitInclude().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
+        !JitConfig.JitInclude().contains(compMethodName, compClassName, &compMethodInfo->args))
     {
         return true;
     }
@@ -3819,7 +3819,7 @@ CorJitResult Compiler::compCompileMain(void** nativeCode, uint32_t* nativeCodeSi
         }
     }
 
-    if (skipMethod())
+    if (info.SkipMethod())
     {
         return CORJIT_SKIPPED;
     }
