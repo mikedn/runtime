@@ -3689,7 +3689,7 @@ bool Compiler::skipMethod()
 
 #endif
 
-int Compiler::compCompileMain(void** nativeCode, uint32_t* nativeCodeSize, JitFlags* jitFlags)
+CorJitResult Compiler::compCompileMain(void** nativeCode, uint32_t* nativeCodeSize, JitFlags* jitFlags)
 {
     // Verification isn't supported
     assert(jitFlags->IsSet(JitFlags::JIT_FLAG_SKIP_VERIFICATION));
@@ -3837,11 +3837,11 @@ int Compiler::compCompileMain(void** nativeCode, uint32_t* nativeCodeSize, JitFl
 
     struct Param : ErrorTrapParam
     {
-        Compiler* compiler;
-        void**    nativeCode;
-        uint32_t* nativeCodeSize;
-        JitFlags* jitFlags;
-        int       result = CORJIT_INTERNALERROR;
+        Compiler*    compiler;
+        void**       nativeCode;
+        uint32_t*    nativeCodeSize;
+        JitFlags*    jitFlags;
+        CorJitResult result = CORJIT_INTERNALERROR;
     } param;
 
     param.jitInfo        = info.compCompHnd;
@@ -4237,7 +4237,7 @@ unsigned getMethodBodyChecksum(__in_z char* code, int size)
 #endif
 }
 
-int Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCodeSize, JitFlags* jitFlags)
+CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCodeSize, JitFlags* jitFlags)
 {
     assert(!compIsForInlining());
 
@@ -4820,11 +4820,11 @@ public:
 
 // Compile a single method
 
-int jitNativeCode(ICorJitInfo*         jitInfo,
-                  CORINFO_METHOD_INFO* methodInfo,
-                  void**               nativeCode,
-                  uint32_t*            nativeCodeSize,
-                  JitFlags*            jitFlags)
+CorJitResult jitNativeCode(ICorJitInfo*         jitInfo,
+                           CORINFO_METHOD_INFO* methodInfo,
+                           void**               nativeCode,
+                           uint32_t*            nativeCodeSize,
+                           JitFlags*            jitFlags)
 {
     bool jitFallbackCompile = false;
 
@@ -4839,7 +4839,7 @@ START:
         void**               nativeCode;
         uint32_t*            nativeCodeSize;
         JitFlags*            jitFlags;
-        int                  result = CORJIT_INTERNALERROR;
+        CorJitResult         result = CORJIT_INTERNALERROR;
         CORINFO_EE_INFO      eeInfo;
     } param;
 
@@ -4901,7 +4901,7 @@ START:
     }
     PAL_ENDTRY
 
-    int result = param.result;
+    CorJitResult result = param.result;
 
     if (!jitFallbackCompile &&
         ((result == CORJIT_INTERNALERROR) || (result == CORJIT_RECOVERABLEERROR) || (result == CORJIT_IMPLLIMITATION)))
