@@ -1741,60 +1741,67 @@ void Compiler::compInitOptions()
 
     if (verbose)
     {
-        // If we are compiling for a specific tier, make that very obvious in the output.
-        // Note that we don't expect multiple TIER flags to be set at one time, but there
-        // is nothing preventing that.
-        if (jitFlags->IsSet(JitFlags::JIT_FLAG_TIER0))
-        {
-            printf("OPTIONS: Tier-0 compilation (set COMPlus_TieredCompilation=0 to disable)\n");
-        }
-        if (jitFlags->IsSet(JitFlags::JIT_FLAG_TIER1))
-        {
-            printf("OPTIONS: Tier-1 compilation\n");
-        }
-        if (compSwitchedToOptimized)
-        {
-            printf("OPTIONS: Tier-0 compilation, switched to FullOpts\n");
-        }
-        if (compSwitchedToMinOpts)
-        {
-            printf("OPTIONS: Tier-1/FullOpts compilation, switched to MinOpts\n");
-        }
-
-        if (jitFlags->IsSet(JitFlags::JIT_FLAG_OSR))
-        {
-            printf("OPTIONS: OSR variant with entry point 0x%x\n", info.compILEntry);
-        }
-
-        printf("OPTIONS: compCodeOpt = %s\n",
-               (opts.compCodeOpt == BLENDED_CODE)
-                   ? "BLENDED_CODE"
-                   : (opts.compCodeOpt == SMALL_CODE) ? "SMALL_CODE"
-                                                      : (opts.compCodeOpt == FAST_CODE) ? "FAST_CODE" : "UNKNOWN_CODE");
-
-        printf("OPTIONS: compDbgCode = %s\n", dspBool(opts.compDbgCode));
-        printf("OPTIONS: compDbgInfo = %s\n", dspBool(opts.compDbgInfo));
-        printf("OPTIONS: compDbgEnC  = %s\n", dspBool(opts.compDbgEnC));
-        printf("OPTIONS: compProcedureSplitting   = %s\n", dspBool(opts.compProcedureSplitting));
-        printf("OPTIONS: compProcedureSplittingEH = %s\n", dspBool(opts.compProcedureSplittingEH));
-
-        if (jitFlags->IsSet(JitFlags::JIT_FLAG_BBOPT) && fgHaveProfileData())
-        {
-            printf("OPTIONS: optimized using %s profile data\n", pgoSourceToString(fgPgoSource));
-        }
-
-        if (fgPgoFailReason != nullptr)
-        {
-            printf("OPTIONS: %s\n", fgPgoFailReason);
-        }
-
-        if (jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
-        {
-            printf("OPTIONS: Jit invoked for ngen\n");
-        }
+        compDumpOptions();
     }
 #endif
 }
+
+#ifdef DEBUG
+void Compiler::compDumpOptions()
+{
+    // If we are compiling for a specific tier, make that very obvious in the output.
+    // Note that we don't expect multiple TIER flags to be set at one time, but there
+    // is nothing preventing that.
+    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER0))
+    {
+        printf("OPTIONS: Tier-0 compilation (set COMPlus_TieredCompilation=0 to disable)\n");
+    }
+    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER1))
+    {
+        printf("OPTIONS: Tier-1 compilation\n");
+    }
+    if (compSwitchedToOptimized)
+    {
+        printf("OPTIONS: Tier-0 compilation, switched to FullOpts\n");
+    }
+    if (compSwitchedToMinOpts)
+    {
+        printf("OPTIONS: Tier-1/FullOpts compilation, switched to MinOpts\n");
+    }
+
+    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_OSR))
+    {
+        printf("OPTIONS: OSR variant with entry point 0x%x\n", info.compILEntry);
+    }
+
+    printf("OPTIONS: compCodeOpt = %s\n", (opts.compCodeOpt == BLENDED_CODE)
+                                              ? "BLENDED_CODE"
+                                              : (opts.compCodeOpt == SMALL_CODE)
+                                                    ? "SMALL_CODE"
+                                                    : (opts.compCodeOpt == FAST_CODE) ? "FAST_CODE" : "UNKNOWN_CODE");
+
+    printf("OPTIONS: compDbgCode = %s\n", dspBool(opts.compDbgCode));
+    printf("OPTIONS: compDbgInfo = %s\n", dspBool(opts.compDbgInfo));
+    printf("OPTIONS: compDbgEnC  = %s\n", dspBool(opts.compDbgEnC));
+    printf("OPTIONS: compProcedureSplitting   = %s\n", dspBool(opts.compProcedureSplitting));
+    printf("OPTIONS: compProcedureSplittingEH = %s\n", dspBool(opts.compProcedureSplittingEH));
+
+    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_BBOPT) && fgHaveProfileData())
+    {
+        printf("OPTIONS: optimized using %s profile data\n", pgoSourceToString(fgPgoSource));
+    }
+
+    if (fgPgoFailReason != nullptr)
+    {
+        printf("OPTIONS: %s\n", fgPgoFailReason);
+    }
+
+    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
+    {
+        printf("OPTIONS: Jit invoked for ngen\n");
+    }
+}
+#endif // DEBUG
 
 void Compiler::compInitPgo()
 {

@@ -7770,6 +7770,7 @@ protected:
     void compInitAltJit();
     void compInitConfigOptions();
     void compInitOptions();
+    INDEBUG(void compDumpOptions();)
     void compInitPgo();
     bool compCanSwitchToOptimized();
     void compSwitchToOptimized();
