@@ -654,13 +654,6 @@ int Compiler::inlMain()
     }
 #endif
 
-    inlMainHelper();
-
-    return CORJIT_OK;
-}
-
-void Compiler::inlMainHelper()
-{
     assert(info.compILCodeSize != 0);
 
 #ifdef DEBUG
@@ -699,7 +692,7 @@ void Compiler::inlMainHelper()
 
     if (compDonotInline())
     {
-        return;
+        return CORJIT_OK;
     }
 
 #if COUNT_BASIC_BLOCKS
@@ -723,18 +716,18 @@ void Compiler::inlMainHelper()
 
     if (compInlineResult->IsFailure())
     {
-        return;
+        return CORJIT_OK;
     }
 
     inlImportInlinee();
 
 #ifdef DEBUG
-    Compiler* inliner = impInlineRoot();
-
     inliner->compGenTreeID    = compGenTreeID;
     inliner->compStatementID  = compStatementID;
     inliner->compBasicBlockID = compBasicBlockID;
 #endif
+
+    return CORJIT_OK;
 }
 
 void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, InlineResult* inlineResult)

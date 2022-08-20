@@ -5775,7 +5775,6 @@ public:
     bool inlInlineCall(Statement* stmt, GenTreeCall* call);
     void inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, InlineResult* result);
     int  inlMain();
-    void inlMainHelper();
     void inlImportInlinee();
     void inlPostInlineFailureCleanup(const InlineInfo* inlineInfo);
     void inlAnalyzeInlineeReturn(InlineInfo* inlineInfo, unsigned returnBlockCount);
