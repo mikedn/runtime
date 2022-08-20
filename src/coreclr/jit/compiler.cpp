@@ -1754,6 +1754,8 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
     }
     opts.compStackCheckOnRet = (jitStackChecks & STACK_CHECK_ON_RETURN) != 0;
     X86_ONLY(opts.compStackCheckOnCall = (jitStackChecks & STACK_CHECK_ON_CALL) != 0);
+
+    opts.compEnablePCRelAddr = JitConfig.EnablePCRelAddr() != 0;
 #endif // TARGET_XARCH
 #endif // DEBUG
 
@@ -1818,13 +1820,6 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
     //-------------------------------------------------------------------------
 
     opts.compReloc = jitFlags->IsSet(JitFlags::JIT_FLAG_RELOC);
-
-#ifdef DEBUG
-#if defined(TARGET_XARCH)
-    // Whether encoding of absolute addr as PC-rel offset is enabled
-    opts.compEnablePCRelAddr = (JitConfig.EnablePCRelAddr() != 0);
-#endif
-#endif // DEBUG
 
 #ifndef TARGET_ARM64
     // TODO-ARM64-NYI: enable hot/cold splitting
