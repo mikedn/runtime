@@ -1464,56 +1464,25 @@ void Compiler::compInitOptions()
 #ifdef DEBUG
     if (!opts.isAltJitPresent || opts.altJit)
     {
-        const auto& dumpNameSet =
-            jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) ? JitConfig.NgenDump() : JitConfig.JitDump();
-        const int dumpHash =
-            jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) ? JitConfig.NgenHashDump() : JitConfig.JitHashDump();
-
-        bool verboseDump = dumpNameSet.contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args) ||
-                           ((dumpHash != -1) && (static_cast<unsigned>(dumpHash) == info.compMethodHash()));
+        const auto& cfg          = JitConfig;
+        const auto  className    = info.compClassName;
+        const auto  methodName   = info.compMethodName;
+        const auto  methodParams = &info.compMethodInfo->args;
 
         if (jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
         {
-            if ((JitConfig.NgenOrder() & 1) == 1)
-            {
-                opts.dspOrder = true;
-            }
-
-            if (JitConfig.NgenGCDump().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
-            {
-                opts.dspGCtbls = true;
-            }
-
-            if (JitConfig.NgenDisasm().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
-            {
-                opts.disAsm = true;
-            }
-
-            if (JitConfig.NgenDisasm().contains("SPILLED", nullptr, nullptr))
-            {
-                opts.disAsmSpilled = true;
-            }
-
-            if (JitConfig.NgenUnwindDump().contains(info.compMethodName, info.compClassName,
-                                                    &info.compMethodInfo->args))
-            {
-                opts.dspUnwind = true;
-            }
-
-            if (JitConfig.NgenEHDump().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
-            {
-                opts.dspEHTable = true;
-            }
-
-            if (JitConfig.NgenDebugDump().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
-            {
-                opts.dspDebugInfo = true;
-            }
+            opts.dspOrder      = (cfg.NgenOrder() & 1) == 1;
+            opts.dspGCtbls     = cfg.NgenGCDump().contains(methodName, className, methodParams);
+            opts.disAsm        = cfg.NgenDisasm().contains(methodName, className, methodParams);
+            opts.disAsmSpilled = cfg.NgenDisasm().contains("SPILLED", nullptr, nullptr);
+            opts.dspUnwind     = cfg.NgenUnwindDump().contains(methodName, className, methodParams);
+            opts.dspEHTable    = cfg.NgenEHDump().contains(methodName, className, methodParams);
+            opts.dspDebugInfo  = cfg.NgenDebugDump().contains(methodName, className, methodParams);
         }
         else
         {
             bool         disEnabled       = true;
-            const WCHAR* disasmAssemblies = JitConfig.JitDisasmAssemblies();
+            const WCHAR* disasmAssemblies = cfg.JitDisasmAssemblies();
 
             if (disasmAssemblies != nullptr)
             {
@@ -1533,101 +1502,55 @@ void Compiler::compInitOptions()
 
             if (disEnabled)
             {
-                if ((JitConfig.JitOrder() & 1) == 1)
-                {
-                    opts.dspOrder = true;
-                }
-
-                if (JitConfig.JitGCDump().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
-                {
-                    opts.dspGCtbls = true;
-                }
-
-                if (JitConfig.JitDisasm().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
-                {
-                    opts.disAsm = true;
-                }
-
-                if (JitConfig.JitDisasm().contains("SPILLED", nullptr, nullptr))
-                {
-                    opts.disAsmSpilled = true;
-                }
-
-                if (JitConfig.JitUnwindDump().contains(info.compMethodName, info.compClassName,
-                                                       &info.compMethodInfo->args))
-                {
-                    opts.dspUnwind = true;
-                }
-
-                if (JitConfig.JitEHDump().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
-                {
-                    opts.dspEHTable = true;
-                }
-
-                if (JitConfig.JitDebugDump().contains(info.compMethodName, info.compClassName,
-                                                      &info.compMethodInfo->args))
-                {
-                    opts.dspDebugInfo = true;
-                }
+                opts.dspOrder      = (cfg.JitOrder() & 1) == 1;
+                opts.dspGCtbls     = cfg.JitGCDump().contains(methodName, className, methodParams);
+                opts.disAsm        = cfg.JitDisasm().contains(methodName, className, methodParams);
+                opts.disAsmSpilled = cfg.JitDisasm().contains("SPILLED", nullptr, nullptr);
+                opts.dspUnwind     = cfg.JitUnwindDump().contains(methodName, className, methodParams);
+                opts.dspEHTable    = cfg.JitEHDump().contains(methodName, className, methodParams);
+                opts.dspDebugInfo  = cfg.JitDebugDump().contains(methodName, className, methodParams);
             }
         }
 
-        if (opts.disAsm && JitConfig.JitDisasmWithGC())
+        if (opts.disAsm && cfg.JitDisasmWithGC())
         {
             opts.disasmWithGC = true;
         }
 
 #ifdef LATE_DISASM
-        if (JitConfig.JitLateDisasm().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
+        if (cfg.JitLateDisasm().contains(methodName, className, methodParams))
         {
             opts.doLateDisasm = true;
-
-            codeGen->getDisAssembler().disOpenForLateDisAsm(info.compMethodName, info.compClassName,
-                                                            info.compMethodInfo->args.pSig);
+            codeGen->getDisAssembler().disOpenForLateDisAsm(methodName, className, methodParams->pSig);
         }
 #endif
 
-        // This one applies to both Ngen/Jit Disasm output: COMPlus_JitDiffableDasm=1
-        if (JitConfig.DiffableDasm() != 0)
-        {
-            opts.disDiffable = true;
-            opts.dspDiffable = true;
-        }
+        opts.disDiffable  = cfg.DiffableDasm() != 0;
+        opts.dspDiffable  = cfg.DiffableDasm() != 0;
+        opts.disAddr      = cfg.JitDasmWithAddress() != 0;
+        opts.disAlignment = cfg.JitDasmWithAlignmentBoundaries() != 0;
 
-        // This one applies to both Ngen/Jit Disasm output: COMPlus_JitDasmWithAddress=1
-        if (JitConfig.JitDasmWithAddress() != 0)
-        {
-            opts.disAddr = true;
-        }
+        const auto& dumpNameSet = jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) ? cfg.NgenDump() : cfg.JitDump();
+        const int   dumpHash    = jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) ? cfg.NgenHashDump() : cfg.JitHashDump();
 
-        if (JitConfig.JitDasmWithAlignmentBoundaries() != 0)
+        if (dumpNameSet.contains(methodName, className, methodParams) ||
+            ((dumpHash != -1) && (static_cast<unsigned>(dumpHash) == info.compMethodHash())))
         {
-            opts.disAlignment = true;
-        }
+            verbose      = true;
+            verboseTrees = cfg.JitDumpVerboseTrees() == 1;
+            verboseSsa   = cfg.JitDumpVerboseSsa() == 1;
 
-        if (verboseDump)
-        {
             opts.dspCode    = true;
             opts.dspEHTable = true;
             opts.dspGCtbls  = true;
             opts.disAsm2    = true;
             opts.dspUnwind  = true;
-            verbose         = true;
-            verboseTrees    = JitConfig.JitDumpVerboseTrees() == 1;
-            verboseSsa      = JitConfig.JitDumpVerboseSsa() == 1;
 
             codeGen->setVerbose();
         }
 
-        if (JitConfig.JitLongAddress() != 0)
-        {
-            opts.compLongAddress = true;
-        }
-
-        if (JitConfig.JitOptRepeat().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
-        {
-            opts.optRepeat = true;
-        }
+        opts.compLongAddress = cfg.JitLongAddress() != 0;
+        opts.optRepeat       = cfg.JitOptRepeat().contains(methodName, className, methodParams);
     }
 
     expensiveDebugCheckLevel = JitConfig.JitExpensiveDebugCheckLevel();
