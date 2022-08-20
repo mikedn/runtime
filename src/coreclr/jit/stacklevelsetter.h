@@ -6,12 +6,12 @@
 #include "compiler.h"
 #include "phase.h"
 
-class StackLevelSetter final : public Phase
+class StackLevelSetter final : public Phase<StackLevelSetter>
 {
 public:
     StackLevelSetter(Compiler* compiler);
 
-    virtual PhaseStatus DoPhase() override;
+    PhaseStatus DoPhase();
 
 private:
     void ProcessBlock(BasicBlock* block);

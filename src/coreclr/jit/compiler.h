@@ -2990,7 +2990,7 @@ class Compiler
     friend class LinearScan;
     friend class CallInfo;
     friend class Rationalizer;
-    friend class Phase;
+    friend class PhaseBase;
     friend class Lowering;
     friend class Cse;
     friend class CodeGenInterface;

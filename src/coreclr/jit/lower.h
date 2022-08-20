@@ -19,7 +19,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "lsra.h"
 #include "sideeffects.h"
 
-class Lowering final : public Phase
+class Lowering final : public Phase<Lowering>
 {
     SideEffectSet m_scratchSideEffects; // SideEffectSet used for IsSafeToContainMem and isRMWIndirCandidate
     BasicBlock*   m_block;
@@ -39,7 +39,7 @@ public:
     {
     }
 
-    virtual PhaseStatus DoPhase() override;
+    PhaseStatus DoPhase();
 
     void LowerNode(BasicBlock* block, GenTree* node)
     {

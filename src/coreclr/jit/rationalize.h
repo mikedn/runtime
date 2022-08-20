@@ -6,7 +6,7 @@
 
 #include "phase.h"
 
-class Rationalizer final : public Phase
+class Rationalizer final : public Phase<Rationalizer>
 {
 private:
     BasicBlock* m_block;
@@ -18,7 +18,7 @@ public:
         INDEBUG(comp->compNumStatementLinksTraversed = 0;)
     }
 
-    virtual PhaseStatus DoPhase() override;
+    PhaseStatus DoPhase();
 
 private:
     inline LIR::Range& BlockRange() const

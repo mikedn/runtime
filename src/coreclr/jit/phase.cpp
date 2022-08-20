@@ -4,16 +4,7 @@
 #include "jitpch.h"
 #include "phase.h"
 
-void Phase::Run()
-{
-    INDEBUG(Observations observations(comp));
-    PrePhase();
-    PhaseStatus status = DoPhase();
-    PostPhase(status);
-    INDEBUG(observations.Check(status));
-}
-
-void Phase::PrePhase()
+void PhaseBase::PrePhase()
 {
     comp->BeginPhase(m_phaseId);
 
@@ -79,7 +70,7 @@ void Phase::PrePhase()
 #endif
 }
 
-void Phase::PostPhase(PhaseStatus status)
+void PhaseBase::PostPhase(PhaseStatus status)
 {
 #ifdef DEBUG
     // Don't dump or check post phase unless the phase made changes.
@@ -179,7 +170,7 @@ void Phase::PostPhase(PhaseStatus status)
 
 #ifdef DEBUG
 // Snapshot key compiler variables before running a phase
-Phase::Observations::Observations(Compiler* compiler)
+PhaseBase::Observations::Observations(Compiler* compiler)
     : m_compiler(compiler->impInlineRoot())
     , m_fgBBcount(m_compiler->fgBBcount)
     , m_fgBBNumMax(m_compiler->fgBBNumMax)
@@ -192,7 +183,7 @@ Phase::Observations::Observations(Compiler* compiler)
 }
 
 // Verify key compiler variables are unchanged if phase claims it made no modifications
-void Phase::Observations::Check(PhaseStatus status)
+void PhaseBase::Observations::Check(PhaseStatus status)
 {
     if (status == PhaseStatus::MODIFIED_NOTHING)
     {

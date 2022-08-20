@@ -4,8 +4,11 @@
 #pragma once
 
 // A phase encapsulates a part of the compilation pipeline for a method.
-class Phase
+class PhaseBase
 {
+    template <typename P>
+    friend class Phase;
+
 #ifdef DEBUG
     // Observations made before a phase runs that should still
     // be true afterwards,if the phase status is MODIFIED_NOTHING.
@@ -31,23 +34,36 @@ class Phase
 
     Phases m_phaseId;
 
-protected:
-    Compiler* comp;
-
-    Phase(Compiler* compiler, Phases phaseId) : m_phaseId(phaseId), comp(compiler)
+    PhaseBase(Compiler* compiler, Phases phaseId) : m_phaseId(phaseId), comp(compiler)
     {
     }
 
-    virtual PhaseStatus DoPhase() = 0;
+protected:
+    Compiler* comp;
+};
 
+template <typename P>
+class Phase : public PhaseBase
+{
 public:
-    void Run();
+    Phase(Compiler* compiler, Phases phaseId) : PhaseBase(compiler, phaseId)
+    {
+    }
+
+    void Run()
+    {
+        INDEBUG(Observations observations(comp));
+        PrePhase();
+        PhaseStatus status = static_cast<P*>(this)->DoPhase();
+        PostPhase(status);
+        INDEBUG(observations.Check(status));
+    }
 };
 
 template <typename A>
 void DoPhase(Compiler* compiler, Phases phaseId, A action)
 {
-    class ActionPhase final : public Phase
+    class ActionPhase final : public Phase<ActionPhase>
     {
         A action;
 
@@ -56,8 +72,7 @@ void DoPhase(Compiler* compiler, Phases phaseId, A action)
         {
         }
 
-    protected:
-        virtual PhaseStatus DoPhase() override
+        PhaseStatus DoPhase()
         {
             action();
             return PhaseStatus::MODIFIED_EVERYTHING;
@@ -69,7 +84,7 @@ void DoPhase(Compiler* compiler, Phases phaseId, A action)
 
 inline void DoPhase(Compiler* compiler, Phases phaseId, void (Compiler::*action)())
 {
-    class CompilerPhase final : public Phase
+    class CompilerPhase final : public Phase<CompilerPhase>
     {
         void (Compiler::*action)();
 
@@ -79,8 +94,7 @@ inline void DoPhase(Compiler* compiler, Phases phaseId, void (Compiler::*action)
         {
         }
 
-    protected:
-        virtual PhaseStatus DoPhase() override
+        PhaseStatus DoPhase()
         {
             (comp->*action)();
             return PhaseStatus::MODIFIED_EVERYTHING;
@@ -92,18 +106,17 @@ inline void DoPhase(Compiler* compiler, Phases phaseId, void (Compiler::*action)
 
 inline void DoPhase(Compiler* compiler, Phases phaseId, PhaseStatus (Compiler::*action)())
 {
-    class CompilerPhase final : public Phase
+    class CompilerPhase final : public Phase<CompilerPhase>
     {
         PhaseStatus (Compiler::*action)();
 
     public:
         CompilerPhase(Compiler* compiler, Phases phaseId, PhaseStatus (Compiler::*action)())
-            : Phase(compiler, phaseId), action(action)
+            : Phase<CompilerPhase>(compiler, phaseId), action(action)
         {
         }
 
-    protected:
-        virtual PhaseStatus DoPhase() override
+        PhaseStatus DoPhase()
         {
             return (comp->*action)();
         }
