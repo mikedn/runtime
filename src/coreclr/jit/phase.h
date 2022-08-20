@@ -31,7 +31,7 @@ class Phase
     };
 
 public:
-    virtual void Run();
+    void Run();
 
 protected:
     Phase(Compiler* _compiler, Phases _phase) : comp(_compiler), m_name(nullptr), m_phase(_phase)
@@ -39,9 +39,9 @@ protected:
         m_name = PhaseNames[_phase];
     }
 
-    virtual void        PrePhase();
+    void                PrePhase();
     virtual PhaseStatus DoPhase() = 0;
-    virtual void PostPhase(PhaseStatus status);
+    void PostPhase(PhaseStatus status);
 
     Compiler*   comp;
     const char* m_name;
