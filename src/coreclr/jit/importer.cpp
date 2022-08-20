@@ -2221,13 +2221,6 @@ CORINFO_CLASS_HANDLE Compiler::impGetRefAnyClass()
     return refAnyClass;
 }
 
-CORINFO_CLASS_HANDLE Compiler::impGetTypeHandleClass()
-{
-    CORINFO_CLASS_HANDLE typeHandleClass = info.compCompHnd->getBuiltinClass(CLASSID_TYPE_HANDLE);
-    assert(typeHandleClass != (CORINFO_CLASS_HANDLE) nullptr);
-    return typeHandleClass;
-}
-
 CORINFO_CLASS_HANDLE Compiler::impGetStringClass()
 {
     CORINFO_CLASS_HANDLE stringClass = info.compCompHnd->getBuiltinClass(CLASSID_STRING);
@@ -17910,7 +17903,9 @@ CORINFO_CLASS_HANDLE Importer::impGetObjectClass()
 
 CORINFO_CLASS_HANDLE Importer::impGetTypeHandleClass()
 {
-    return comp->impGetTypeHandleClass();
+    CORINFO_CLASS_HANDLE typeHandleClass = info.compCompHnd->getBuiltinClass(CLASSID_TYPE_HANDLE);
+    assert(typeHandleClass != (CORINFO_CLASS_HANDLE) nullptr);
+    return typeHandleClass;
 }
 
 var_types Importer::GetRuntimeHandleUnderlyingType()
