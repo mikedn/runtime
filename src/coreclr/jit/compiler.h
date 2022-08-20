@@ -4247,7 +4247,6 @@ public:
     */
 
     CORINFO_CLASS_HANDLE impGetRefAnyClass();
-    CORINFO_CLASS_HANDLE impGetRuntimeArgumentHandle();
     CORINFO_CLASS_HANDLE impGetTypeHandleClass();
     CORINFO_CLASS_HANDLE impGetStringClass();
     CORINFO_CLASS_HANDLE impGetObjectClass();

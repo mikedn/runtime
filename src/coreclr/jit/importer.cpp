@@ -2228,13 +2228,6 @@ CORINFO_CLASS_HANDLE Compiler::impGetTypeHandleClass()
     return typeHandleClass;
 }
 
-CORINFO_CLASS_HANDLE Compiler::impGetRuntimeArgumentHandle()
-{
-    CORINFO_CLASS_HANDLE argIteratorClass = info.compCompHnd->getBuiltinClass(CLASSID_ARGUMENT_HANDLE);
-    assert(argIteratorClass != (CORINFO_CLASS_HANDLE) nullptr);
-    return argIteratorClass;
-}
-
 CORINFO_CLASS_HANDLE Compiler::impGetStringClass()
 {
     CORINFO_CLASS_HANDLE stringClass = info.compCompHnd->getBuiltinClass(CLASSID_STRING);
