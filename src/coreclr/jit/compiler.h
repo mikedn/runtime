@@ -7863,8 +7863,8 @@ public:
 
 private:
 #ifdef FEATURE_JIT_METHOD_PERF
-    JitTimer*                  pCompJitTimer;         // Timer data structure (by phases) for current compilation.
-    static CompTimeSummaryInfo s_compJitTimerSummary; // Summary of the Timer information for the whole run.
+    JitTimer*                  pCompJitTimer = nullptr; // Timer data structure (by phases) for current compilation.
+    static CompTimeSummaryInfo s_compJitTimerSummary;   // Summary of the Timer information for the whole run.
 
     static LPCWSTR JitTimeLogCsv();        // Retrieve the file name for CSV from ConfigDWORD.
     static LPCWSTR compJitTimeLogFilename; // If a log file for JIT time is desired, filename to write it to.

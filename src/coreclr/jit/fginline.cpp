@@ -568,13 +568,11 @@ void Compiler::inlMain()
 
 #ifdef FEATURE_JIT_METHOD_PERF
     // TODO-MIKE-Review: Is this used when inlining?
-    pCompJitTimer = nullptr;
-
     if ((Compiler::compJitTimeLogFilename != nullptr) || (JitTimeLogCsv() != nullptr))
     {
         pCompJitTimer = JitTimer::Create(this, info.compMethodInfo->ILCodeSize);
     }
-#endif // FEATURE_JIT_METHOD_PERF
+#endif
 
     Compiler* inliner = impInlineRoot();
 
@@ -693,6 +691,16 @@ void Compiler::inlMain()
     inliner->compGenTreeID    = compGenTreeID;
     inliner->compStatementID  = compStatementID;
     inliner->compBasicBlockID = compBasicBlockID;
+#endif
+
+#ifdef FEATURE_JIT_METHOD_PERF
+    if (pCompJitTimer != nullptr)
+    {
+#if MEASURE_CLRAPI_CALLS
+        EndPhase(PHASE_CLR_API);
+#endif
+        pCompJitTimer->Terminate(this, CompTimeSummaryInfo::s_compTimeSummary, false);
+    }
 #endif
 }
 
@@ -858,16 +866,6 @@ void Compiler::inlImportInlinee()
             inlUpdateRetSpillTempClass(impInlineInfo);
         });
     }
-
-#ifdef FEATURE_JIT_METHOD_PERF
-    if (pCompJitTimer != nullptr)
-    {
-#if MEASURE_CLRAPI_CALLS
-        EndPhase(PHASE_CLR_API);
-#endif
-        pCompJitTimer->Terminate(this, CompTimeSummaryInfo::s_compTimeSummary, false);
-    }
-#endif
 }
 
 void Compiler::inlCreateBasicBlocks()

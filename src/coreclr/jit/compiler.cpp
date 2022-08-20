@@ -3695,8 +3695,6 @@ CorJitResult Compiler::compCompileMain(void** nativeCode, uint32_t* nativeCodeSi
 #ifdef FEATURE_JIT_METHOD_PERF
     static bool checkedForJitTimeLog = false;
 
-    pCompJitTimer = nullptr;
-
     if (!checkedForJitTimeLog)
     {
         // Call into VM to get the config strings. FEATURE_JIT_METHOD_PERF is enabled for
