@@ -281,8 +281,7 @@ CorJitResult CILJit::compileMethod(ICorJitInfo*         jitInfo,
     jitFlags.SetFromFlags(corJitFlags);
 
     void* nativeCode = nullptr;
-    int   result =
-        jitNativeCode(methodInfo->ftn, methodInfo->scope, jitInfo, methodInfo, &nativeCode, nativeCodeSize, &jitFlags);
+    int   result     = jitNativeCode(jitInfo, methodInfo, &nativeCode, nativeCodeSize, &jitFlags);
 
     if (result == CORJIT_OK)
     {

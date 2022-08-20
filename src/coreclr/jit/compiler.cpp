@@ -4809,39 +4809,33 @@ public:
 
 // Compile a single method
 
-int jitNativeCode(CORINFO_METHOD_HANDLE methodHnd,
-                  CORINFO_MODULE_HANDLE module,
-                  ICorJitInfo*          jitInfo,
-                  CORINFO_METHOD_INFO*  methodInfo,
-                  void**                methodCodePtr,
-                  uint32_t*             methodCodeSize,
-                  JitFlags*             compileFlags)
+int jitNativeCode(ICorJitInfo*         jitInfo,
+                  CORINFO_METHOD_INFO* methodInfo,
+                  void**               methodCodePtr,
+                  uint32_t*            methodCodeSize,
+                  JitFlags*            compileFlags)
 {
     bool jitFallbackCompile = false;
 
 START:
     struct Param
     {
-        ArenaAllocator        allocator;
-        Compiler*             compiler;
-        Compiler*             prevCompiler;
-        bool                  jitFallbackCompile;
-        CORINFO_METHOD_HANDLE methodHnd;
-        CORINFO_MODULE_HANDLE module;
-        ICorJitInfo*          jitInfo;
-        CORINFO_METHOD_INFO*  methodInfo;
-        void**                methodCodePtr;
-        uint32_t*             methodCodeSize;
-        JitFlags*             compileFlags;
-        int                   result;
-        CORINFO_EE_INFO       eeInfo;
+        ArenaAllocator       allocator;
+        Compiler*            compiler;
+        Compiler*            prevCompiler;
+        bool                 jitFallbackCompile;
+        ICorJitInfo*         jitInfo;
+        CORINFO_METHOD_INFO* methodInfo;
+        void**               methodCodePtr;
+        uint32_t*            methodCodeSize;
+        JitFlags*            compileFlags;
+        int                  result;
+        CORINFO_EE_INFO      eeInfo;
     } param;
 
     param.compiler           = nullptr;
     param.prevCompiler       = nullptr;
     param.jitFallbackCompile = jitFallbackCompile;
-    param.methodHnd          = methodHnd;
-    param.module             = module;
     param.jitInfo            = jitInfo;
     param.methodInfo         = methodInfo;
     param.methodCodePtr      = methodCodePtr;
@@ -4856,8 +4850,8 @@ START:
             pParam->jitInfo->getEEInfo(&pParam->eeInfo);
 
             pParam->compiler = static_cast<Compiler*>(pParam->allocator.allocateMemory(sizeof(Compiler)));
-            new (pParam->compiler) Compiler(&pParam->allocator, &pParam->eeInfo, pParam->module, pParam->methodHnd,
-                                            pParam->methodInfo, pParam->jitInfo);
+            new (pParam->compiler) Compiler(&pParam->allocator, &pParam->eeInfo, pParam->methodInfo->scope,
+                                            pParam->methodInfo->ftn, pParam->methodInfo, pParam->jitInfo);
             pParam->prevCompiler = JitTls::GetCompiler();
             JitTls::SetCompiler(pParam->compiler);
             INDEBUG(JitTls::SetLogCompiler(pParam->compiler));
