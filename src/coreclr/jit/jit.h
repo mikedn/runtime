@@ -662,9 +662,9 @@ extern void dumpILRange(const BYTE* const codeAddr, unsigned codeSize); // in by
 
 extern int jitNativeCode(ICorJitInfo*         jitInfo,
                          CORINFO_METHOD_INFO* methodInfo,
-                         void**               methodCodePtr,
-                         uint32_t*            methodCodeSize,
-                         JitFlags*            compileFlags);
+                         void**               nativeCode,
+                         uint32_t*            nativeCodeSize,
+                         JitFlags* jitFlags);
 
 // Constants for making sure size_t fit into smaller types.
 const size_t MAX_USHORT_SIZE_T   = static_cast<size_t>(static_cast<unsigned short>(-1));

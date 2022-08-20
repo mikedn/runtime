@@ -1400,16 +1400,8 @@ void CodeGen::genInsertNopForUnwinder(BasicBlock* block)
 
 #endif // FEATURE_EH_FUNCLETS
 
-//----------------------------------------------------------------------
-// genGenerateCode: Generate code for the function.
-//
-// Arguments:
-//     codePtr [OUT] - address of generated code
-//     nativeSizeOfCode [OUT] - length of generated code in bytes
-//
-void CodeGen::genGenerateCode(void** codePtr, uint32_t* nativeSizeOfCode)
+void CodeGen::genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize)
 {
-
 #ifdef DEBUG
     if (verbose)
     {
@@ -1418,8 +1410,8 @@ void CodeGen::genGenerateCode(void** codePtr, uint32_t* nativeSizeOfCode)
     }
 #endif
 
-    this->codePtr          = codePtr;
-    this->nativeSizeOfCode = nativeSizeOfCode;
+    codePtr          = nativeCode;
+    nativeSizeOfCode = nativeCodeSize;
 
     DoPhase(this, PHASE_GENERATE_CODE, &CodeGen::genGenerateMachineCode);
     DoPhase(this, PHASE_EMIT_CODE, &CodeGen::genEmitMachineCode);

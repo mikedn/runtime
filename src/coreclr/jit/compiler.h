@@ -7640,10 +7640,10 @@ public:
     // These should fail by asserting.
     INDEBUG(void compDoComponentUnitTestsOnce();)
 
-    int compCompileMain(void** methodCode, uint32_t* methodCodeSize, JitFlags* compileFlags);
-    void compCompile(void** methodCode, uint32_t* methodCodeSize, JitFlags* compileFlags);
+    int compCompileMain(void** nativeCode, uint32_t* nativeCodeSize, JitFlags* jitFlags);
+    void compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags* jitFlags);
     void compCompileFinish();
-    int compCompileHelper(void** methodCode, uint32_t* methodCodeSize, JitFlags* jitFlags);
+    int compCompileHelper(void** nativeCode, uint32_t* nativeCodeSize, JitFlags* jitFlags);
 
     ArenaAllocator* compGetArenaAllocator();
 

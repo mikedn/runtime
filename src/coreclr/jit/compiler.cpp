@@ -2866,7 +2866,7 @@ void Compiler::EndPhase(Phases phase)
 // Arguments:
 //   methodCodePtr [OUT] - address of generated code
 //   methodCodeSize [OUT] - size of the generated code (hot + cold setions)
-//   compileFlags [IN] - flags controlling jit behavior
+//   jitFlags [IN] - flags controlling jit behavior
 //
 // Notes:
 //  This is the most interesting 'toplevel' function in the JIT.  It goes through the operations of
@@ -2878,7 +2878,7 @@ void Compiler::EndPhase(Phases phase)
 //
 //  Also called for inlinees, though they will only be run through the first few phases.
 //
-void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFlags* compileFlags)
+void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags* jitFlags)
 {
     assert(!compIsForInlining());
 
@@ -2894,7 +2894,7 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
     // If we're going to instrument code, we may need to prepare before
     // we import.
     //
-    if (compileFlags->IsSet(JitFlags::JIT_FLAG_BBINSTR))
+    if (jitFlags->IsSet(JitFlags::JIT_FLAG_BBINSTR))
     {
         DoPhase(this, PHASE_IBCPREP, &Compiler::fgPrepareToInstrumentMethod);
     }
@@ -2905,7 +2905,7 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
 
     // If instrumenting, add block and class probes.
     //
-    if (compileFlags->IsSet(JitFlags::JIT_FLAG_BBINSTR))
+    if (jitFlags->IsSet(JitFlags::JIT_FLAG_BBINSTR))
     {
         DoPhase(this, PHASE_IBCINSTR, &Compiler::fgInstrumentMethod);
     }
@@ -3456,7 +3456,7 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
 #endif
 
     // Generate code
-    codeGen->genGenerateCode(methodCodePtr, methodCodeSize);
+    codeGen->genGenerateCode(nativeCode, nativeCodeSize);
 
 #if TRACK_LSRA_STATS
     if (JitConfig.DisplayLsraStats() == 2)
@@ -3488,8 +3488,8 @@ void Compiler::compCompile(void** methodCodePtr, uint32_t* methodCodeSize, JitFl
 
     INDEBUG(++Compiler::jitTotalMethodCompiled);
 
-    compFunctionTraceEnd(*methodCodePtr, *methodCodeSize, false);
-    JITDUMP("Method code size: %d\n", (unsigned)(*methodCodeSize));
+    compFunctionTraceEnd(*nativeCode, *nativeCodeSize, false);
+    JITDUMP("Method code size: %u\n", *nativeCodeSize);
 
 #if FUNC_INFO_LOGGING
     if (compJitFuncInfoFile != nullptr)
@@ -3678,11 +3678,11 @@ bool Compiler::skipMethod()
 
 #endif
 
-int Compiler::compCompileMain(void** methodCode, uint32_t* methodCodeSize, JitFlags* compileFlags)
+int Compiler::compCompileMain(void** nativeCode, uint32_t* nativeCodeSize, JitFlags* jitFlags)
 {
     // Verification isn't supported
-    assert(compileFlags->IsSet(JitFlags::JIT_FLAG_SKIP_VERIFICATION));
-    assert(!compileFlags->IsSet(JitFlags::JIT_FLAG_IMPORT_ONLY));
+    assert(jitFlags->IsSet(JitFlags::JIT_FLAG_SKIP_VERIFICATION));
+    assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_IMPORT_ONLY));
 
     assert(!compIsForInlining());
 
@@ -3742,7 +3742,7 @@ int Compiler::compCompileMain(void** methodCode, uint32_t* methodCodeSize, JitFl
     }
 #endif // FUNC_INFO_LOGGING
 
-    if (compileFlags->IsSet(JitFlags::JIT_FLAG_OSR))
+    if (jitFlags->IsSet(JitFlags::JIT_FLAG_OSR))
     {
         info.compPatchpointInfo = info.compCompHnd->getOSRInfo(&info.compILEntry);
 
@@ -3775,7 +3775,7 @@ int Compiler::compCompileMain(void** methodCode, uint32_t* methodCodeSize, JitFl
         defaultArm64Flags.AddInstructionSet(InstructionSet_ArmBase);
         defaultArm64Flags.AddInstructionSet(InstructionSet_AdvSimd);
         defaultArm64Flags.Set64BitInstructionSetVariants();
-        compileFlags->SetInstructionSetFlags(defaultArm64Flags);
+        jitFlags->SetInstructionSetFlags(defaultArm64Flags);
 #endif
     }
 
@@ -3796,7 +3796,7 @@ int Compiler::compCompileMain(void** methodCode, uint32_t* methodCodeSize, JitFl
         // to these APIs being unimplemented. So disable this extra info for pre-jit mode.
         // See https://github.com/dotnet/runtime/issues/48888.
 
-        if (!compileFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
+        if (!jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
         {
             // Get the assembly name, to aid finding any particular SuperPMI method context function.
             info.compCompHnd->getAssemblyName(
@@ -3827,22 +3827,22 @@ int Compiler::compCompileMain(void** methodCode, uint32_t* methodCodeSize, JitFl
     struct Param
     {
         Compiler* compiler;
-        void**    methodCode;
-        uint32_t* methodCodeSize;
+        void**    nativeCode;
+        uint32_t* nativeCodeSize;
         JitFlags* jitFlags;
         int       result;
     } param;
 
     param.compiler       = this;
-    param.methodCode     = methodCode;
-    param.methodCodeSize = methodCodeSize;
-    param.jitFlags       = compileFlags;
+    param.nativeCode     = nativeCode;
+    param.nativeCodeSize = nativeCodeSize;
+    param.jitFlags       = jitFlags;
     param.result         = CORJIT_INTERNALERROR;
 
     setErrorTrap(info.compCompHnd, Param*, pParam, &param)
     {
         pParam->result =
-            pParam->compiler->compCompileHelper(pParam->methodCode, pParam->methodCodeSize, pParam->jitFlags);
+            pParam->compiler->compCompileHelper(pParam->nativeCode, pParam->nativeCodeSize, pParam->jitFlags);
     }
     finallyErrorTrap()
     {
@@ -4227,7 +4227,7 @@ unsigned getMethodBodyChecksum(__in_z char* code, int size)
 #endif
 }
 
-int Compiler::compCompileHelper(void** methodCode, uint32_t* methodCodeSize, JitFlags* jitFlags)
+int Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCodeSize, JitFlags* jitFlags)
 {
     assert(!compIsForInlining());
 
@@ -4422,7 +4422,7 @@ int Compiler::compCompileHelper(void** methodCode, uint32_t* methodCodeSize, Jit
     }
 #endif
 
-    compCompile(methodCode, methodCodeSize, jitFlags);
+    compCompile(nativeCode, nativeCodeSize, jitFlags);
     compCompileFinish();
 
     // Did we just compile for a target architecture that the VM isn't expecting? If so, the VM
@@ -4811,9 +4811,9 @@ public:
 
 int jitNativeCode(ICorJitInfo*         jitInfo,
                   CORINFO_METHOD_INFO* methodInfo,
-                  void**               methodCodePtr,
-                  uint32_t*            methodCodeSize,
-                  JitFlags*            compileFlags)
+                  void**               nativeCode,
+                  uint32_t*            nativeCodeSize,
+                  JitFlags*            jitFlags)
 {
     bool jitFallbackCompile = false;
 
@@ -4826,9 +4826,9 @@ START:
         bool                 jitFallbackCompile;
         ICorJitInfo*         jitInfo;
         CORINFO_METHOD_INFO* methodInfo;
-        void**               methodCodePtr;
-        uint32_t*            methodCodeSize;
-        JitFlags*            compileFlags;
+        void**               nativeCode;
+        uint32_t*            nativeCodeSize;
+        JitFlags*            jitFlags;
         int                  result;
         CORINFO_EE_INFO      eeInfo;
     } param;
@@ -4838,9 +4838,9 @@ START:
     param.jitFallbackCompile = jitFallbackCompile;
     param.jitInfo            = jitInfo;
     param.methodInfo         = methodInfo;
-    param.methodCodePtr      = methodCodePtr;
-    param.methodCodeSize     = methodCodeSize;
-    param.compileFlags       = compileFlags;
+    param.nativeCode         = nativeCode;
+    param.nativeCodeSize     = nativeCodeSize;
+    param.jitFlags           = jitFlags;
     param.result             = CORJIT_INTERNALERROR;
 
     setErrorTrap(jitInfo, Param*, pParamOuter, &param)
@@ -4868,7 +4868,7 @@ START:
             INDEBUG(pParam->compiler->jitFallbackCompile = pParam->jitFallbackCompile;)
 
             pParam->result =
-                pParam->compiler->compCompileMain(pParam->methodCodePtr, pParam->methodCodeSize, pParam->compileFlags);
+                pParam->compiler->compCompileMain(pParam->nativeCode, pParam->nativeCodeSize, pParam->jitFlags);
         }
         finallyErrorTrap()
         {
@@ -4902,9 +4902,9 @@ START:
         jitFallbackCompile = true;
 
         // Update the flags for 'safer' code generation.
-        compileFlags->Set(JitFlags::JIT_FLAG_MIN_OPT);
-        compileFlags->Clear(JitFlags::JIT_FLAG_SIZE_OPT);
-        compileFlags->Clear(JitFlags::JIT_FLAG_SPEED_OPT);
+        jitFlags->Set(JitFlags::JIT_FLAG_MIN_OPT);
+        jitFlags->Clear(JitFlags::JIT_FLAG_SIZE_OPT);
+        jitFlags->Clear(JitFlags::JIT_FLAG_SPEED_OPT);
 
         goto START;
     }

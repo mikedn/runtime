@@ -29,7 +29,7 @@ class CodeGen final : public CodeGenInterface
 public:
     CodeGen(Compiler* compiler);
 
-    virtual void genGenerateCode(void** codePtr, uint32_t* nativeSizeOfCode);
+    virtual void genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize);
 
     void genGenerateMachineCode();
     void genEmitMachineCode();
