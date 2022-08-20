@@ -1381,59 +1381,16 @@ void Compiler::compInitAltJit()
     }
 }
 
-void Compiler::compInitOptions()
+void Compiler::compInitConfigOptions()
 {
     assert(!compIsForInlining());
 
-    JitFlags* jitFlags = opts.jitFlags;
-
-    opts.optFlags = CLFLG_MAXOPT; // Default value is for full optimization
-
-    if (jitFlags->IsSet(JitFlags::JIT_FLAG_DEBUG_CODE) || jitFlags->IsSet(JitFlags::JIT_FLAG_MIN_OPT) ||
-        jitFlags->IsSet(JitFlags::JIT_FLAG_TIER0))
-    {
-        opts.optFlags = CLFLG_MINOPT;
-    }
-    // Don't optimize .cctors (except prejit) or if we're an inlinee
-    else if (!jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) && ((info.compFlags & FLG_CCTOR) == FLG_CCTOR))
-    {
-        opts.optFlags = CLFLG_MINOPT;
-    }
-
-    // Default value is to generate a blend of size and speed optimizations
-    //
-    opts.compCodeOpt = BLENDED_CODE;
-
-    // If the EE sets SIZE_OPT or if we are compiling a Class constructor
-    // we will optimize for code size at the expense of speed
-    //
-    if (jitFlags->IsSet(JitFlags::JIT_FLAG_SIZE_OPT) || ((info.compFlags & FLG_CCTOR) == FLG_CCTOR))
-    {
-        opts.compCodeOpt = SMALL_CODE;
-    }
-    //
-    // If the EE sets SPEED_OPT we will optimize for speed at the expense of code size
-    //
-    else if (jitFlags->IsSet(JitFlags::JIT_FLAG_SPEED_OPT) ||
-             (jitFlags->IsSet(JitFlags::JIT_FLAG_TIER1) && !jitFlags->IsSet(JitFlags::JIT_FLAG_MIN_OPT)))
-    {
-        opts.compCodeOpt = FAST_CODE;
-        assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_SIZE_OPT));
-    }
-
-    //-------------------------------------------------------------------------
-
-    opts.compDbgCode = jitFlags->IsSet(JitFlags::JIT_FLAG_DEBUG_CODE);
-    opts.compDbgInfo = jitFlags->IsSet(JitFlags::JIT_FLAG_DEBUG_INFO);
-    opts.compDbgEnC  = jitFlags->IsSet(JitFlags::JIT_FLAG_DEBUG_EnC);
-
 #ifdef DEBUG
     opts.compJitAlignLoopAdaptive       = JitConfig.JitAlignLoopAdaptive() == 1;
-    opts.compJitAlignLoopBoundary       = (unsigned short)JitConfig.JitAlignLoopBoundary();
-    opts.compJitAlignLoopMinBlockWeight = (unsigned short)JitConfig.JitAlignLoopMinBlockWeight();
-
-    opts.compJitAlignLoopForJcc      = JitConfig.JitAlignLoopForJcc() == 1;
-    opts.compJitAlignLoopMaxCodeSize = (unsigned short)JitConfig.JitAlignLoopMaxCodeSize();
+    opts.compJitAlignLoopBoundary       = static_cast<uint16_t>(JitConfig.JitAlignLoopBoundary());
+    opts.compJitAlignLoopMinBlockWeight = static_cast<uint16_t>(JitConfig.JitAlignLoopMinBlockWeight());
+    opts.compJitAlignLoopForJcc         = JitConfig.JitAlignLoopForJcc() == 1;
+    opts.compJitAlignLoopMaxCodeSize    = static_cast<uint16_t>(JitConfig.JitAlignLoopMaxCodeSize());
 #else
     opts.compJitAlignLoopAdaptive       = true;
     opts.compJitAlignLoopBoundary       = DEFAULT_ALIGN_LOOP_BOUNDARY;
@@ -1452,14 +1409,13 @@ void Compiler::compInitOptions()
 
     assert(isPow2(opts.compJitAlignLoopBoundary));
 
-#if REGEN_SHORTCUTS || REGEN_CALLPAT
-    // We never want to have debugging enabled when regenerating GC encoding patterns
-    opts.compDbgCode = false;
-    opts.compDbgInfo = false;
-    opts.compDbgEnC  = false;
+#if FEATURE_TAILCALL_OPT
+    opts.compTailCallOpt     = JitConfig.TailCallOpt() != 0;
+    opts.compTailCallLoopOpt = JitConfig.TailCallLoopOpt() != 0;
 #endif
-
-    compSetProcessor();
+#if FEATURE_FASTTAILCALL
+    opts.compFastTailCalls = JitConfig.FastTailCalls() != 0;
+#endif
 
 #ifdef DEBUG
     if (!opts.isAltJitPresent || opts.altJit)
@@ -1469,7 +1425,7 @@ void Compiler::compInitOptions()
         const auto  methodName   = info.compMethodName;
         const auto  methodParams = &info.compMethodInfo->args;
 
-        if (jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
+        if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
         {
             opts.dspOrder      = (cfg.NgenOrder() & 1) == 1;
             opts.dspGCtbls     = cfg.NgenGCDump().contains(methodName, className, methodParams);
@@ -1530,8 +1486,8 @@ void Compiler::compInitOptions()
         opts.disAddr      = cfg.JitDasmWithAddress() != 0;
         opts.disAlignment = cfg.JitDasmWithAlignmentBoundaries() != 0;
 
-        const auto& dumpNameSet = jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) ? cfg.NgenDump() : cfg.JitDump();
-        const int   dumpHash    = jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) ? cfg.NgenHashDump() : cfg.JitHashDump();
+        const auto& dumpNameSet = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) ? cfg.NgenDump() : cfg.JitDump();
+        const int   dumpHash = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) ? cfg.NgenHashDump() : cfg.JitHashDump();
 
         if (dumpNameSet.contains(methodName, className, methodParams) ||
             ((dumpHash != -1) && (static_cast<unsigned>(dumpHash) == info.compMethodHash())))
@@ -1552,44 +1508,6 @@ void Compiler::compInitOptions()
         opts.optRepeat       = cfg.JitOptRepeat().contains(methodName, className, methodParams);
     }
 
-    expensiveDebugCheckLevel = JitConfig.JitExpensiveDebugCheckLevel();
-
-    // If we're in a stress mode that modifies the flowgraph, make 1 the default.
-    if ((expensiveDebugCheckLevel == 0) && (fgStressBBProf() || compStressCompile(STRESS_DO_WHILE_LOOPS, 30)))
-    {
-        expensiveDebugCheckLevel = 1;
-    }
-#endif // DEBUG
-
-    lvaEnregEHVars = (compEnregLocals() && JitConfig.EnableEHWriteThru());
-
-#if FEATURE_TAILCALL_OPT
-    opts.compTailCallOpt     = JitConfig.TailCallOpt() != 0;
-    opts.compTailCallLoopOpt = JitConfig.TailCallLoopOpt() != 0;
-#endif
-#if FEATURE_FASTTAILCALL
-    opts.compFastTailCalls = JitConfig.FastTailCalls() != 0;
-#endif
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("****** START compiling %s (MethodHash=%08x)\n", info.compFullName, info.compMethodHash());
-        printf("Generating code for %s %s\n", Target::g_tgtPlatformName, Target::g_tgtCPUName);
-        printf(""); // in our logic this causes a flush
-    }
-
-    if (JitConfig.JitBreak().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
-    {
-        assert(!"JitBreak reached");
-    }
-
-    unsigned jitHashBreakVal = (unsigned)JitConfig.JitHashBreak();
-    if ((jitHashBreakVal != (DWORD)-1) && (jitHashBreakVal == info.compMethodHash()))
-    {
-        assert(!"JitHashBreak reached");
-    }
-
     if (verbose ||
         JitConfig.JitDebugBreak().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args) ||
         JitConfig.JitBreak().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
@@ -1597,12 +1515,12 @@ void Compiler::compInitOptions()
         compDebugBreak = true;
     }
 
-    const WCHAR* functionFileName = JitConfig.JitFunctionFile();
+    expensiveDebugCheckLevel = JitConfig.JitExpensiveDebugCheckLevel();
 
-    if ((functionFileName != nullptr) && (s_pJitMethodSet == nullptr))
+    // If we're in a stress mode that modifies the flowgraph, make 1 the default.
+    if ((expensiveDebugCheckLevel == 0) && (fgStressBBProf() || compStressCompile(STRESS_DO_WHILE_LOOPS, 30)))
     {
-        s_pJitMethodSet =
-            new (HostAllocator::getHostAllocator()) MethodSet(functionFileName, HostAllocator::getHostAllocator());
+        expensiveDebugCheckLevel = 1;
     }
 
     assert(!codeGen->isGCTypeFixed());
@@ -1626,6 +1544,92 @@ void Compiler::compInitOptions()
 
     opts.compEnablePCRelAddr = JitConfig.EnablePCRelAddr() != 0;
 #endif // TARGET_XARCH
+#endif // DEBUG
+}
+
+void Compiler::compInitOptions()
+{
+    assert(!compIsForInlining());
+
+    JitFlags* jitFlags = opts.jitFlags;
+
+    opts.optFlags = CLFLG_MAXOPT; // Default value is for full optimization
+
+    if (jitFlags->IsSet(JitFlags::JIT_FLAG_DEBUG_CODE) || jitFlags->IsSet(JitFlags::JIT_FLAG_MIN_OPT) ||
+        jitFlags->IsSet(JitFlags::JIT_FLAG_TIER0))
+    {
+        opts.optFlags = CLFLG_MINOPT;
+    }
+    // Don't optimize .cctors (except prejit) or if we're an inlinee
+    else if (!jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) && ((info.compFlags & FLG_CCTOR) == FLG_CCTOR))
+    {
+        opts.optFlags = CLFLG_MINOPT;
+    }
+
+    // Default value is to generate a blend of size and speed optimizations
+    //
+    opts.compCodeOpt = BLENDED_CODE;
+
+    // If the EE sets SIZE_OPT or if we are compiling a Class constructor
+    // we will optimize for code size at the expense of speed
+    //
+    if (jitFlags->IsSet(JitFlags::JIT_FLAG_SIZE_OPT) || ((info.compFlags & FLG_CCTOR) == FLG_CCTOR))
+    {
+        opts.compCodeOpt = SMALL_CODE;
+    }
+    //
+    // If the EE sets SPEED_OPT we will optimize for speed at the expense of code size
+    //
+    else if (jitFlags->IsSet(JitFlags::JIT_FLAG_SPEED_OPT) ||
+             (jitFlags->IsSet(JitFlags::JIT_FLAG_TIER1) && !jitFlags->IsSet(JitFlags::JIT_FLAG_MIN_OPT)))
+    {
+        opts.compCodeOpt = FAST_CODE;
+        assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_SIZE_OPT));
+    }
+
+    //-------------------------------------------------------------------------
+
+    opts.compDbgCode = jitFlags->IsSet(JitFlags::JIT_FLAG_DEBUG_CODE);
+    opts.compDbgInfo = jitFlags->IsSet(JitFlags::JIT_FLAG_DEBUG_INFO);
+    opts.compDbgEnC  = jitFlags->IsSet(JitFlags::JIT_FLAG_DEBUG_EnC);
+
+#if REGEN_SHORTCUTS || REGEN_CALLPAT
+    // We never want to have debugging enabled when regenerating GC encoding patterns
+    opts.compDbgCode = false;
+    opts.compDbgInfo = false;
+    opts.compDbgEnC  = false;
+#endif
+
+    compSetProcessor();
+
+    lvaEnregEHVars = (compEnregLocals() && JitConfig.EnableEHWriteThru());
+
+#ifdef DEBUG
+    if (verbose)
+    {
+        printf("****** START compiling %s (MethodHash=%08x)\n", info.compFullName, info.compMethodHash());
+        printf("Generating code for %s %s\n", Target::g_tgtPlatformName, Target::g_tgtCPUName);
+        printf(""); // in our logic this causes a flush
+    }
+
+    if (JitConfig.JitBreak().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
+    {
+        assert(!"JitBreak reached");
+    }
+
+    unsigned jitHashBreakVal = (unsigned)JitConfig.JitHashBreak();
+    if ((jitHashBreakVal != (DWORD)-1) && (jitHashBreakVal == info.compMethodHash()))
+    {
+        assert(!"JitHashBreak reached");
+    }
+
+    const WCHAR* functionFileName = JitConfig.JitFunctionFile();
+
+    if ((functionFileName != nullptr) && (s_pJitMethodSet == nullptr))
+    {
+        s_pJitMethodSet =
+            new (HostAllocator::getHostAllocator()) MethodSet(functionFileName, HostAllocator::getHostAllocator());
+    }
 #endif // DEBUG
 
 #ifdef PROFILING_SUPPORTED
@@ -4245,6 +4249,7 @@ int Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCodeSize, Jit
 
     opts.jitFlags = jitFlags;
     compInitAltJit();
+    compInitConfigOptions();
     compInitOptions();
 
     if (!opts.altJit && opts.jitFlags->IsSet(JitFlags::JIT_FLAG_ALT_JIT))

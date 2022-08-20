@@ -1912,17 +1912,17 @@ struct CompilerOptions
     bool compJitAlignLoopForJcc;
 #endif
     // For non-adaptive alignment, minimum loop size (in bytes) for which alignment will be done.
-    unsigned short compJitAlignLoopMaxCodeSize;
+    uint16_t compJitAlignLoopMaxCodeSize;
 
     // Minimum weight needed for the first block of a loop to make it a candidate for alignment.
-    unsigned short compJitAlignLoopMinBlockWeight;
+    uint16_t compJitAlignLoopMinBlockWeight;
 
     // For non-adaptive alignment, address boundary (power of 2) at which loop alignment should
     // be done. By default, 32B.
-    unsigned short compJitAlignLoopBoundary;
+    uint16_t compJitAlignLoopBoundary;
 
     // Padding limit to align a loop.
-    unsigned short compJitAlignPaddingLimit;
+    uint16_t compJitAlignPaddingLimit;
 
     // If set, perform adaptive loop alignment that limits number of padding based on loop size.
     bool compJitAlignLoopAdaptive;
@@ -7768,6 +7768,7 @@ protected:
     size_t compMaxUncheckedOffsetForNullObject;
 
     void compInitAltJit();
+    void compInitConfigOptions();
     void compInitOptions();
     void compInitPgo();
     bool compCanSwitchToOptimized();
