@@ -672,10 +672,7 @@ int Compiler::inlMain()
 
 void Compiler::inlMainHelper()
 {
-    if (info.compILCodeSize == 0)
-    {
-        BADCODE("code size is zero");
-    }
+    assert(info.compILCodeSize != 0);
 
 #ifdef DEBUG
     unsigned methAttrOld   = impInlineInfo->inlineCandidateInfo->methAttr;
