@@ -45,16 +45,16 @@ private:
     // Bit masks used in negating a float or double number.
     // This is to avoid creating more than one data constant for these bitmasks when a
     // method has more than one GT_FNEG operation on floating point values.
-    CORINFO_FIELD_HANDLE negBitmaskFlt;
-    CORINFO_FIELD_HANDLE negBitmaskDbl;
+    CORINFO_FIELD_HANDLE negBitmaskFlt = nullptr;
+    CORINFO_FIELD_HANDLE negBitmaskDbl = nullptr;
 
     // Bit masks used in computing Math.Abs() of a float or double number.
-    CORINFO_FIELD_HANDLE absBitmaskFlt;
-    CORINFO_FIELD_HANDLE absBitmaskDbl;
+    CORINFO_FIELD_HANDLE absBitmaskFlt = nullptr;
+    CORINFO_FIELD_HANDLE absBitmaskDbl = nullptr;
 
     // Bit mask used in U8 -> double conversion to adjust the result.
-    CORINFO_FIELD_HANDLE u8ToDblBitmask;
-    CORINFO_FIELD_HANDLE u8ToFltBitmask;
+    CORINFO_FIELD_HANDLE u8ToDblBitmask = nullptr;
+    CORINFO_FIELD_HANDLE u8ToFltBitmask = nullptr;
 
     void GenFloatAbs(GenTreeIntrinsic* node);
 
@@ -197,7 +197,7 @@ protected:
 
 #ifdef DEBUG
     // Last instr we have displayed for dspInstrs
-    unsigned genCurDispOffset;
+    unsigned genCurDispOffset = UINT32_MAX;
 #endif
 
     //-------------------------------------------------------------------------
@@ -495,7 +495,7 @@ protected:
 #ifdef TARGET_ARM64
     virtual void SetSaveFpLrWithAllCalleeSavedRegisters(bool value);
     virtual bool IsSaveFpLrWithAllCalleeSavedRegisters() const;
-    bool         genSaveFpLrWithAllCalleeSavedRegisters;
+    bool         genSaveFpLrWithAllCalleeSavedRegisters = false;
 #endif // TARGET_ARM64
 
     //-------------------------------------------------------------------------
@@ -779,7 +779,7 @@ protected:
     // Array of scopes of LocalVars in terms of native code
 
     TrnslLocalVarInfo* genTrnslLocalVarInfo;
-    unsigned           genTrnslLocalVarCount;
+    unsigned           genTrnslLocalVarCount = 0;
 #endif
 
     void genSetRegToConst(regNumber targetReg, var_types targetType, GenTree* tree);
@@ -1132,8 +1132,8 @@ protected:
 
 #if defined(UNIX_X86_ABI)
 
-    unsigned curNestedAlignment; // Keep track of alignment adjustment required during codegen.
-    unsigned maxNestedAlignment; // The maximum amount of alignment adjustment required.
+    unsigned curNestedAlignment = 0; // Keep track of alignment adjustment required during codegen.
+    unsigned maxNestedAlignment = 0; // The maximum amount of alignment adjustment required.
 
     void SubtractNestedAlignment(unsigned adjustment)
     {

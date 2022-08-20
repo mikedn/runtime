@@ -65,42 +65,21 @@ CodeGenInterface::CodeGenInterface(Compiler* compiler) : gcInfo(compiler), regSe
 {
 }
 
-CodeGen::CodeGen(Compiler* compiler)
-    : CodeGenInterface(compiler)
-    , m_liveness(compiler)
-#if defined(TARGET_XARCH)
-    , negBitmaskFlt(nullptr)
-    , negBitmaskDbl(nullptr)
-    , absBitmaskFlt(nullptr)
-    , absBitmaskDbl(nullptr)
-    , u8ToDblBitmask(nullptr)
-    , u8ToFltBitmask(nullptr)
-#endif
+CodeGen::CodeGen(Compiler* compiler) : CodeGenInterface(compiler), m_liveness(compiler)
 {
-#if defined(UNIX_X86_ABI)
-    curNestedAlignment = 0;
-    maxNestedAlignment = 0;
-#endif
+    regSet.tmpInit();
 
-    gcInfo.regSet        = &regSet;
+    gcInfo.regSet = &regSet;
+
     m_cgEmitter          = new (compiler->getAllocator()) emitter();
     m_cgEmitter->codeGen = this;
     m_cgEmitter->gcInfo  = &gcInfo;
-
-#ifdef DEBUG
-    setVerbose(compiler->verbose);
-#endif // DEBUG
-
-    regSet.tmpInit();
 
 #ifdef LATE_DISASM
     getDisAssembler().disInit(compiler);
 #endif
 
 #ifdef DEBUG
-    genTempLiveChg        = true;
-    genTrnslLocalVarCount = 0;
-
     // Shouldn't be used before it is set in genFnProlog()
     compiler->compCalleeRegsPushed = UninitializedWord<unsigned>(compiler);
 
@@ -119,21 +98,6 @@ CodeGen::CodeGen(Compiler* compiler)
     compiler->genIPmappingList        = nullptr;
     compiler->genIPmappingLast        = nullptr;
     compiler->genCallSite2ILOffsetMap = nullptr;
-
-    /* Assume that we not fully interruptible */
-
-    SetInterruptible(false);
-#ifdef TARGET_ARMARCH
-    SetHasTailCalls(false);
-#endif // TARGET_ARMARCH
-#ifdef DEBUG
-    genInterruptibleUsed = false;
-    genCurDispOffset     = (unsigned)-1;
-#endif
-
-#ifdef TARGET_ARM64
-    genSaveFpLrWithAllCalleeSavedRegisters = false;
-#endif // TARGET_ARM64
 }
 
 #if defined(TARGET_X86) || defined(TARGET_ARM)

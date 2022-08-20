@@ -1615,9 +1615,9 @@ void Compiler::compInitOptions(JitFlags* jitFlags)
             verbose         = true;
             verboseTrees    = JitConfig.JitDumpVerboseTrees() == 1;
             verboseSsa      = JitConfig.JitDumpVerboseSsa() == 1;
-        }
 
-        codeGen->setVerbose(verboseDump);
+            codeGen->setVerbose();
+        }
     }
 
     expensiveDebugCheckLevel = JitConfig.JitExpensiveDebugCheckLevel();

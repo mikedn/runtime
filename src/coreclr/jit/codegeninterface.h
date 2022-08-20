@@ -93,7 +93,7 @@ protected:
 protected:
 #ifdef DEBUG
     VARSET_TP genTempOldLife;
-    bool      genTempLiveChg;
+    bool      genTempLiveChg = true;
 #endif
 
     VARSET_TP genLastLiveSet;  // A one element map (genLastLiveSet-> genLastLiveMask)
@@ -243,7 +243,7 @@ public:
     }
 
 protected:
-    bool genInterruptibleUsed;
+    bool genInterruptibleUsed = false;
 #endif
 
 public:
@@ -282,11 +282,11 @@ protected:
 
 public:
 #ifdef DEBUG
-    void setVerbose(bool value)
+    void setVerbose()
     {
-        verbose = value;
+        verbose = true;
     }
-    bool verbose;
+    bool verbose = false;
 #endif // DEBUG
 
     // The following is set to true if we've determined that the current method
@@ -315,9 +315,9 @@ public:
 #endif // TARGET_ARMARCH
 
 private:
-    bool m_cgInterruptible;
+    bool m_cgInterruptible = false;
 #ifdef TARGET_ARMARCH
-    bool m_cgHasTailCalls;
+    bool m_cgHasTailCalls = false;
 #endif // TARGET_ARMARCH
 
     //  The following will be set to true if we've determined that we need to
