@@ -14835,7 +14835,6 @@ void Compiler::impCheckCanInline(GenTreeCall*           call,
         InlineResult*          result;
         InlineCandidateInfo**  ppInlineCandidateInfo;
     } param;
-    memset(&param, 0, sizeof(param));
 
     param.pThis                 = this;
     param.call                  = call;
