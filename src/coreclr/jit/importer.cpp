@@ -11563,31 +11563,8 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_CALLI:
-
-                /* CALLI does not respond to CONSTRAINED */
-                prefixFlags &= ~PREFIX_CONSTRAINED;
-
-                if (compIsForInlining())
-                {
-                    // CALLI doesn't have a method handle, so assume the worst.
-                    if (impInlineInfo->inlineCandidateInfo->dwRestrictions & INLINE_RESPECT_BOUNDARY)
-                    {
-                        compInlineResult->NoteFatal(InlineObservation::CALLSITE_CROSS_BOUNDARY_CALLI);
-                        return;
-                    }
-                }
-
-                // We can't call getCallInfo on the token from a CALLI.
-                // Suppress uninitialized use warning.
-                memset(&resolvedToken, 0, sizeof(resolvedToken));
-                memset(&callInfo, 0, sizeof(callInfo));
-
-                resolvedToken.token        = getU4LittleEndian(codeAddr);
-                resolvedToken.tokenContext = impTokenLookupContextHandle;
-                resolvedToken.tokenScope   = info.compScopeHnd;
-
-                callTyp = ImportCall(codeAddr, codeEndp, sz, opcodeOffs, opcode, resolvedToken,
-                                     constrainedResolvedToken, callInfo, prefixFlags, nullptr);
+                callTyp =
+                    ImportCallI(codeAddr, codeEndp, sz, opcodeOffs, opcode, constrainedResolvedToken, prefixFlags);
 
                 if (compDonotInline())
                 {
@@ -13357,6 +13334,42 @@ var_types Importer::ImportNewObj(const BYTE*             codeAddr,
 
     return ImportCall(codeAddr, codeEndp, sz, opcodeOffs, opcode, resolvedToken, constrainedResolvedToken, callInfo,
                       prefixFlags, newObjThisPtr);
+}
+
+var_types Importer::ImportCallI(const BYTE*             codeAddr,
+                                const BYTE*             codeEndp,
+                                int                     sz,
+                                IL_OFFSET               opcodeOffs,
+                                OPCODE&                 opcode,
+                                CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
+                                int                     prefixFlags)
+{
+    /* CALLI does not respond to CONSTRAINED */
+    prefixFlags &= ~PREFIX_CONSTRAINED;
+
+    if (compIsForInlining())
+    {
+        // CALLI doesn't have a method handle, so assume the worst.
+        if (impInlineInfo->inlineCandidateInfo->dwRestrictions & INLINE_RESPECT_BOUNDARY)
+        {
+            compInlineResult->NoteFatal(InlineObservation::CALLSITE_CROSS_BOUNDARY_CALLI);
+            return TYP_UNDEF;
+        }
+    }
+
+    // We can't call getCallInfo on the token from a CALLI.
+    // Suppress uninitialized use warning.
+    CORINFO_RESOLVED_TOKEN resolvedToken;
+    memset(&resolvedToken, 0, sizeof(resolvedToken));
+    CORINFO_CALL_INFO callInfo;
+    memset(&callInfo, 0, sizeof(callInfo));
+
+    resolvedToken.token        = getU4LittleEndian(codeAddr);
+    resolvedToken.tokenContext = impTokenLookupContextHandle;
+    resolvedToken.tokenScope   = info.compScopeHnd;
+
+    return ImportCall(codeAddr, codeEndp, sz, opcodeOffs, opcode, resolvedToken, constrainedResolvedToken, callInfo,
+                      prefixFlags, nullptr);
 }
 
 var_types Importer::ImportCall(const BYTE*             codeAddr,

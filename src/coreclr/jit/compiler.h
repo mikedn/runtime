@@ -2622,6 +2622,13 @@ struct Importer
                            CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
                            int                     prefixFlags,
                            BasicBlock*             block);
+    var_types ImportCallI(const BYTE*             codeAddr,
+                          const BYTE*             codeEndp,
+                          int                     sz,
+                          IL_OFFSET               opcodeOffs,
+                          OPCODE&                 opcode,
+                          CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
+                          int                     prefixFlags);
     var_types ImportCall(const BYTE*             codeAddr,
                          const BYTE*             codeEndp,
                          int                     sz,
