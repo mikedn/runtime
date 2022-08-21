@@ -9708,9 +9708,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
             return;
         }
 
-        /* Get the size of additional parameters */
-
-        signed int sz = opcodeSizes[opcode];
+        int sz = opcodeSizes[opcode];
 
 #ifdef DEBUG
         clsHnd  = NO_CLASS_HANDLE;
@@ -9817,13 +9815,13 @@ void Importer::impImportBlockCode(BasicBlock* block)
             case CEE_LDARG:
                 lclNum = getU2LittleEndian(codeAddr);
                 JITDUMP(" %u", lclNum);
-                impLoadArg(lclNum, opcodeOffs + sz + 1);
+                impLoadArg(lclNum, opcodeOffs + 1 + 2);
                 break;
 
             case CEE_LDARG_S:
                 lclNum = getU1LittleEndian(codeAddr);
                 JITDUMP(" %u", lclNum);
-                impLoadArg(lclNum, opcodeOffs + sz + 1);
+                impLoadArg(lclNum, opcodeOffs + 1 + 1);
                 break;
 
             case CEE_LDARG_0:
@@ -9831,19 +9829,19 @@ void Importer::impImportBlockCode(BasicBlock* block)
             case CEE_LDARG_2:
             case CEE_LDARG_3:
                 lclNum = (opcode - CEE_LDARG_0);
-                impLoadArg(lclNum, opcodeOffs + sz + 1);
+                impLoadArg(lclNum, opcodeOffs + 1);
                 break;
 
             case CEE_LDLOC:
                 lclNum = getU2LittleEndian(codeAddr);
                 JITDUMP(" %u", lclNum);
-                impLoadLoc(lclNum, opcodeOffs + sz + 1);
+                impLoadLoc(lclNum, opcodeOffs + 1 + 2);
                 break;
 
             case CEE_LDLOC_S:
                 lclNum = getU1LittleEndian(codeAddr);
                 JITDUMP(" %u", lclNum);
-                impLoadLoc(lclNum, opcodeOffs + sz + 1);
+                impLoadLoc(lclNum, opcodeOffs + 1 + 1);
                 break;
 
             case CEE_LDLOC_0:
@@ -9852,7 +9850,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
             case CEE_LDLOC_3:
                 lclNum = (opcode - CEE_LDLOC_0);
                 assert(lclNum >= 0 && lclNum < 4);
-                impLoadLoc(lclNum, opcodeOffs + sz + 1);
+                impLoadLoc(lclNum, opcodeOffs + 1);
                 break;
 
             case CEE_STARG:
@@ -10695,7 +10693,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
             case CEE_BR:
             case CEE_BR_S:
-                jmpDist = (sz == 1) ? getI1LittleEndian(codeAddr) : getI4LittleEndian(codeAddr);
+                jmpDist = (opcode == CEE_BR_S) ? getI1LittleEndian(codeAddr) : getI4LittleEndian(codeAddr);
 
                 if (compIsForInlining() && jmpDist == 0)
                 {
@@ -11484,8 +11482,8 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 goto PREFIX;
 
             case CEE_NEWOBJ:
-                callTyp = ImportNewObj(codeAddr, codeEndp, sz, opcodeOffs, opcode, constrainedResolvedToken,
-                                       prefixFlags, block);
+                callTyp =
+                    ImportNewObj(codeAddr, codeEndp, opcodeOffs, opcode, constrainedResolvedToken, prefixFlags, block);
 
                 if (compDonotInline())
                 {
@@ -11495,8 +11493,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_CALLI:
-                callTyp =
-                    ImportCallI(codeAddr, codeEndp, sz, opcodeOffs, opcode, constrainedResolvedToken, prefixFlags);
+                callTyp = ImportCallI(codeAddr, codeEndp, opcodeOffs, opcode, constrainedResolvedToken, prefixFlags);
 
                 if (compDonotInline())
                 {
@@ -11507,7 +11504,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
             case CEE_CALLVIRT:
             case CEE_CALL:
-                callTyp = ImportCall(codeAddr, codeEndp, sz, opcodeOffs, opcode, constrainedResolvedToken, prefixFlags);
+                callTyp = ImportCall(codeAddr, codeEndp, opcodeOffs, opcode, constrainedResolvedToken, prefixFlags);
 
                 if (compDonotInline())
                 {
@@ -12142,10 +12139,10 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 }
 
                 unsigned   patternSize;
-                BoxPattern pattern = comp->impBoxPatternMatch(codeAddr + sz, codeEndp, &patternSize);
+                BoxPattern pattern = comp->impBoxPatternMatch(codeAddr + 4, codeEndp, &patternSize);
 
                 if ((pattern != BoxPattern::None) &&
-                    impImportBoxPattern(pattern, &resolvedToken, codeAddr + sz DEBUGARG(codeEndp)))
+                    impImportBoxPattern(pattern, &resolvedToken, codeAddr + 4 DEBUGARG(codeEndp)))
                 {
                     sz += patternSize;
                     break;
@@ -13132,7 +13129,6 @@ void Importer::ImportNewArr(const BYTE* codeAddr, BasicBlock* block)
 
 var_types Importer::ImportNewObj(const BYTE*             codeAddr,
                                  const BYTE*             codeEndp,
-                                 int                     sz,
                                  IL_OFFSET               opcodeOffs,
                                  OPCODE&                 opcode,
                                  CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
@@ -13397,13 +13393,12 @@ var_types Importer::ImportNewObj(const BYTE*             codeAddr,
         }
     }
 
-    return ImportCall(codeAddr, codeEndp, sz, opcodeOffs, opcode, resolvedToken, constrainedResolvedToken, callInfo,
+    return ImportCall(codeAddr, codeEndp, opcodeOffs, opcode, resolvedToken, constrainedResolvedToken, callInfo,
                       prefixFlags, newObjThisPtr);
 }
 
 var_types Importer::ImportCallI(const BYTE*             codeAddr,
                                 const BYTE*             codeEndp,
-                                int                     sz,
                                 IL_OFFSET               opcodeOffs,
                                 OPCODE&                 opcode,
                                 CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
@@ -13433,13 +13428,12 @@ var_types Importer::ImportCallI(const BYTE*             codeAddr,
     resolvedToken.tokenContext = impTokenLookupContextHandle;
     resolvedToken.tokenScope   = info.compScopeHnd;
 
-    return ImportCall(codeAddr, codeEndp, sz, opcodeOffs, opcode, resolvedToken, constrainedResolvedToken, callInfo,
+    return ImportCall(codeAddr, codeEndp, opcodeOffs, opcode, resolvedToken, constrainedResolvedToken, callInfo,
                       prefixFlags, nullptr);
 }
 
 var_types Importer::ImportCall(const BYTE*             codeAddr,
                                const BYTE*             codeEndp,
-                               int                     sz,
                                IL_OFFSET               opcodeOffs,
                                OPCODE&                 opcode,
                                CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
@@ -13454,13 +13448,12 @@ var_types Importer::ImportCall(const BYTE*             codeAddr,
                           (opcode == CEE_CALLVIRT) ? CORINFO_CALLINFO_CALLVIRT : CORINFO_CALLINFO_NONE),
                   &callInfo);
 
-    return ImportCall(codeAddr, codeEndp, sz, opcodeOffs, opcode, resolvedToken, constrainedResolvedToken, callInfo,
+    return ImportCall(codeAddr, codeEndp, opcodeOffs, opcode, resolvedToken, constrainedResolvedToken, callInfo,
                       prefixFlags, nullptr);
 }
 
 var_types Importer::ImportCall(const BYTE*             codeAddr,
                                const BYTE*             codeEndp,
-                               int                     sz,
                                IL_OFFSET               opcodeOffs,
                                OPCODE&                 opcode,
                                CORINFO_RESOLVED_TOKEN& resolvedToken,
@@ -13507,7 +13500,7 @@ var_types Importer::ImportCall(const BYTE*             codeAddr,
             newBBcreatedForTailcallStress =
                 impOpcodeIsCallOpcode(opcode) && // Current opcode is a CALL, (not a CEE_NEWOBJ). So, don't
                 // make it jump to RET.
-                (OPCODE)getU1LittleEndian(codeAddr + sz) == CEE_RET; // Next opcode is a CEE_RET
+                (OPCODE)getU1LittleEndian(codeAddr + 4) == CEE_RET; // Next opcode is a CEE_RET
 
             bool hasTailPrefix = (prefixFlags & PREFIX_TAILCALL_EXPLICIT);
             if (newBBcreatedForTailcallStress && !hasTailPrefix)
@@ -13563,7 +13556,7 @@ var_types Importer::ImportCall(const BYTE*             codeAddr,
     // Note that when running under tail call stress, a call marked as explicit
     // tail prefixed will not be considered for implicit tail calling.
     if (passedStressModeValidation &&
-        impIsImplicitTailCallCandidate(opcode, codeAddr + sz, codeEndp, prefixFlags, isRecursive))
+        impIsImplicitTailCallCandidate(opcode, codeAddr + 4, codeEndp, prefixFlags, isRecursive))
     {
         if (compIsForInlining())
         {
