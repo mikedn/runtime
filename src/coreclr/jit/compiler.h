@@ -2437,7 +2437,7 @@ struct Importer
     void impLoadArg(unsigned ilArgNum, IL_OFFSET offset);
     void impLoadLoc(unsigned ilLclNum, IL_OFFSET offset);
     bool impInlineReturnInstruction();
-    void impReturnInstruction(int prefixFlags, OPCODE* opcode);
+    void impReturnInstruction(int prefixFlags, OPCODE opcode);
 
     void FreeBlockListNode(BlockListNode* node);
 
@@ -2625,26 +2625,24 @@ struct Importer
     var_types ImportNewObj(const BYTE*             codeAddr,
                            const BYTE*             codeEndp,
                            IL_OFFSET               opcodeOffs,
-                           OPCODE&                 opcode,
                            CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
                            int                     prefixFlags,
                            BasicBlock*             block);
     var_types ImportCallI(const BYTE*             codeAddr,
                           const BYTE*             codeEndp,
                           IL_OFFSET               opcodeOffs,
-                          OPCODE&                 opcode,
                           CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
                           int                     prefixFlags);
     var_types ImportCall(const BYTE*             codeAddr,
                          const BYTE*             codeEnd,
                          IL_OFFSET               ilOffset,
-                         OPCODE&                 opcode,
+                         OPCODE                  opcode,
                          CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
                          int                     prefixFlags);
     var_types ImportCall(const BYTE*             codeAddr,
                          const BYTE*             codeEnd,
                          IL_OFFSET               ilOffset,
-                         OPCODE&                 opcode,
+                         OPCODE                  opcode,
                          CORINFO_RESOLVED_TOKEN& resolvedToken,
                          CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
                          CORINFO_CALL_INFO&      callInfo,

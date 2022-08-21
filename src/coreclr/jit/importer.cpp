@@ -10240,7 +10240,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     break;
                 }
 
-                impReturnInstruction(prefixFlags, &opcode);
+                impReturnInstruction(prefixFlags, opcode);
                 break;
 
             case CEE_JMP:
@@ -11482,8 +11482,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 goto PREFIX;
 
             case CEE_NEWOBJ:
-                callTyp =
-                    ImportNewObj(codeAddr, codeEndp, opcodeOffs, opcode, constrainedResolvedToken, prefixFlags, block);
+                callTyp = ImportNewObj(codeAddr, codeEndp, opcodeOffs, constrainedResolvedToken, prefixFlags, block);
 
                 if (compDonotInline())
                 {
@@ -11493,7 +11492,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_CALLI:
-                callTyp = ImportCallI(codeAddr, codeEndp, opcodeOffs, opcode, constrainedResolvedToken, prefixFlags);
+                callTyp = ImportCallI(codeAddr, codeEndp, opcodeOffs, constrainedResolvedToken, prefixFlags);
 
                 if (compDonotInline())
                 {
@@ -13129,7 +13128,6 @@ void Importer::ImportNewArr(const BYTE* codeAddr, BasicBlock* block)
 var_types Importer::ImportNewObj(const BYTE*             codeAddr,
                                  const BYTE*             codeEndp,
                                  IL_OFFSET               opcodeOffs,
-                                 OPCODE&                 opcode,
                                  CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
                                  int                     prefixFlags,
                                  BasicBlock*             block)
@@ -13397,14 +13395,13 @@ var_types Importer::ImportNewObj(const BYTE*             codeAddr,
         return TYP_UNDEF;
     }
 
-    return ImportCall(codeAddr, codeEndp, opcodeOffs, opcode, resolvedToken, constrainedResolvedToken, callInfo,
+    return ImportCall(codeAddr, codeEndp, opcodeOffs, CEE_NEWOBJ, resolvedToken, constrainedResolvedToken, callInfo,
                       prefixFlags, newObjThisPtr);
 }
 
 var_types Importer::ImportCallI(const BYTE*             codeAddr,
                                 const BYTE*             codeEndp,
                                 IL_OFFSET               opcodeOffs,
-                                OPCODE&                 opcode,
                                 CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
                                 int                     prefixFlags)
 {
@@ -13432,14 +13429,14 @@ var_types Importer::ImportCallI(const BYTE*             codeAddr,
     resolvedToken.tokenContext = impTokenLookupContextHandle;
     resolvedToken.tokenScope   = info.compScopeHnd;
 
-    return ImportCall(codeAddr, codeEndp, opcodeOffs, opcode, resolvedToken, constrainedResolvedToken, callInfo,
+    return ImportCall(codeAddr, codeEndp, opcodeOffs, CEE_CALLI, resolvedToken, constrainedResolvedToken, callInfo,
                       prefixFlags, nullptr);
 }
 
 var_types Importer::ImportCall(const BYTE*             codeAddr,
                                const BYTE*             codeEnd,
                                IL_OFFSET               ilOffset,
-                               OPCODE&                 opcode,
+                               OPCODE                  opcode,
                                CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
                                int                     prefixFlags)
 {
@@ -13459,7 +13456,7 @@ var_types Importer::ImportCall(const BYTE*             codeAddr,
 var_types Importer::ImportCall(const BYTE*             codeAddr,
                                const BYTE*             codeEnd,
                                IL_OFFSET               ilOffset,
-                               OPCODE&                 opcode,
+                               OPCODE                  opcode,
                                CORINFO_RESOLVED_TOKEN& resolvedToken,
                                CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
                                CORINFO_CALL_INFO&      callInfo,
@@ -13585,7 +13582,7 @@ var_types Importer::ImportCall(const BYTE*             codeAddr,
         // If newBBcreatedForTailcallStress is true, we have created a new BB after the "call"
         // instruction in fgMakeBasicBlocks(). So we need to jump to RET regardless.
 
-        impReturnInstruction(prefixFlags, &opcode);
+        impReturnInstruction(prefixFlags, opcode);
     }
 
     return type;
@@ -13697,7 +13694,7 @@ bool Importer::impInlineReturnInstruction()
     return inlImportReturn(impInlineInfo, op2, retClsHnd);
 }
 
-void Importer::impReturnInstruction(int prefixFlags, OPCODE* opcode)
+void Importer::impReturnInstruction(int prefixFlags, OPCODE opcode)
 {
     assert(!compIsForInlining());
 
@@ -13795,11 +13792,9 @@ void Importer::impReturnInstruction(int prefixFlags, OPCODE* opcode)
     // We must have imported a tailcall and jumped to RET
     if ((prefixFlags & PREFIX_TAILCALL) != 0)
     {
-        assert((verCurrentState.esStackDepth == 0) && impOpcodeIsCallOpcode(*opcode));
+        assert((verCurrentState.esStackDepth == 0) && impOpcodeIsCallOpcode(opcode));
 
-        *opcode = CEE_RET; // To prevent trying to spill if CALL_SITE_BOUNDARIES
-
-        // impImportCall() would have already appended TYP_VOID calls
+        // impImportCall would have already appended TYP_VOID calls
         if (info.compRetType == TYP_VOID)
         {
             return;
