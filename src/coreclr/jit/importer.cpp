@@ -9520,11 +9520,9 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
     signed jmpDist;
 
-    int  prefixFlags = 0;
-    bool explicitTailCall, constraintCall, readonlyCall;
-
-    var_types callTyp    = TYP_COUNT;
-    OPCODE    prevOpcode = CEE_ILLEGAL;
+    int       prefixFlags = 0;
+    var_types callTyp     = TYP_COUNT;
+    OPCODE    prevOpcode  = CEE_ILLEGAL;
 
     if (block->bbCatchTyp)
     {
@@ -11949,151 +11947,13 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     resolvedToken.tokenScope   = info.compScopeHnd;
                 }
 
-            CALL: // memberRef should be set.
-                // newObjThisPtr should be set for CEE_NEWOBJ
-
-                JITDUMP(" %08X", resolvedToken.token);
-                constraintCall = (prefixFlags & PREFIX_CONSTRAINED) != 0;
-
-                bool newBBcreatedForTailcallStress;
-                bool passedStressModeValidation;
-
-                newBBcreatedForTailcallStress = false;
-                passedStressModeValidation    = true;
-
-                if (compIsForInlining())
-                {
-                    if (compDonotInline())
-                    {
-                        return;
-                    }
-                    // We rule out inlinees with explicit tail calls in fgMakeBasicBlocks.
-                    assert((prefixFlags & PREFIX_TAILCALL_EXPLICIT) == 0);
-                }
-                else
-                {
-#ifdef DEBUG
-                    if (compTailCallStress())
-                    {
-                        // Have we created a new BB after the "call" instruction in fgMakeBasicBlocks()?
-                        // Tail call stress only recognizes call+ret patterns and forces them to be
-                        // explicit tail prefixed calls.  Also fgMakeBasicBlocks() under tail call stress
-                        // doesn't import 'ret' opcode following the call into the basic block containing
-                        // the call instead imports it to a new basic block.  Note that fgMakeBasicBlocks()
-                        // is already checking that there is an opcode following call and hence it is
-                        // safe here to read next opcode without bounds check.
-                        newBBcreatedForTailcallStress =
-                            impOpcodeIsCallOpcode(opcode) && // Current opcode is a CALL, (not a CEE_NEWOBJ). So, don't
-                                                             // make it jump to RET.
-                            (OPCODE)getU1LittleEndian(codeAddr + sz) == CEE_RET; // Next opcode is a CEE_RET
-
-                        bool hasTailPrefix = (prefixFlags & PREFIX_TAILCALL_EXPLICIT);
-                        if (newBBcreatedForTailcallStress && !hasTailPrefix)
-                        {
-                            // Do a more detailed evaluation of legality
-                            const bool passedConstraintCheck =
-                                verCheckTailCallConstraint(opcode, &resolvedToken,
-                                                           constraintCall ? &constrainedResolvedToken : nullptr);
-
-                            if (passedConstraintCheck)
-                            {
-                                // Now check with the runtime
-                                CORINFO_METHOD_HANDLE declaredCalleeHnd = callInfo.hMethod;
-                                bool                  isVirtual         = (callInfo.kind == CORINFO_VIRTUALCALL_STUB) ||
-                                                 (callInfo.kind == CORINFO_VIRTUALCALL_VTABLE);
-                                CORINFO_METHOD_HANDLE exactCalleeHnd = isVirtual ? nullptr : declaredCalleeHnd;
-                                if (info.compCompHnd->canTailCall(info.compMethodHnd, declaredCalleeHnd, exactCalleeHnd,
-                                                                  hasTailPrefix)) // Is it legal to do tailcall?
-                                {
-                                    // Stress the tailcall.
-                                    JITDUMP(" (Tailcall stress: prefixFlags |= PREFIX_TAILCALL_EXPLICIT)");
-                                    prefixFlags |= PREFIX_TAILCALL_EXPLICIT;
-                                    prefixFlags |= PREFIX_TAILCALL_STRESS;
-                                }
-                                else
-                                {
-                                    // Runtime disallows this tail call
-                                    JITDUMP(" (Tailcall stress: runtime preventing tailcall)");
-                                    passedStressModeValidation = false;
-                                }
-                            }
-                            else
-                            {
-                                // Constraints disallow this tail call
-                                JITDUMP(" (Tailcall stress: constraint check failed)");
-                                passedStressModeValidation = false;
-                            }
-                        }
-                    }
-#endif // DEBUG
-                }
-
-                // This is split up to avoid goto flow warnings.
-                bool isRecursive;
-                isRecursive = !compIsForInlining() && (callInfo.hMethod == info.compMethodHnd);
-
-                // If we've already disqualified this call as a tail call under tail call stress,
-                // don't consider it for implicit tail calling either.
-                //
-                // When not running under tail call stress, we may mark this call as an implicit
-                // tail call candidate. We'll do an "equivalent" validation during impImportCall.
-                //
-                // Note that when running under tail call stress, a call marked as explicit
-                // tail prefixed will not be considered for implicit tail calling.
-                if (passedStressModeValidation &&
-                    impIsImplicitTailCallCandidate(opcode, codeAddr + sz, codeEndp, prefixFlags, isRecursive))
-                {
-                    if (compIsForInlining())
-                    {
-#if FEATURE_TAILCALL_OPT_SHARED_RETURN
-                        // Are we inlining at an implicit tail call site? If so the we can flag
-                        // implicit tail call sites in the inline body. These call sites
-                        // often end up in non BBJ_RETURN blocks, so only flag them when
-                        // we're able to handle shared returns.
-                        if (impInlineInfo->iciCall->IsImplicitTailCall())
-                        {
-                            JITDUMP("\n (Inline Implicit Tail call: prefixFlags |= PREFIX_TAILCALL_IMPLICIT)");
-                            prefixFlags |= PREFIX_TAILCALL_IMPLICIT;
-                        }
-#endif // FEATURE_TAILCALL_OPT_SHARED_RETURN
-                    }
-                    else
-                    {
-                        JITDUMP("\n (Implicit Tail call: prefixFlags |= PREFIX_TAILCALL_IMPLICIT)");
-                        prefixFlags |= PREFIX_TAILCALL_IMPLICIT;
-                    }
-                }
-
-                // Treat this call as tail call for verification only if "tail" prefixed (i.e. explicit tail call).
-                explicitTailCall = (prefixFlags & PREFIX_TAILCALL_EXPLICIT) != 0;
-                readonlyCall     = (prefixFlags & PREFIX_READONLY) != 0;
-
-                if (opcode != CEE_CALLI && opcode != CEE_NEWOBJ)
-                {
-                    // All calls and delegates need a security callout.
-                    // For delegates, this is the call to the delegate constructor, not the access check on the
-                    // LD(virt)FTN.
-                    impHandleAccessAllowed(callInfo.accessAllowed, callInfo.callsiteCalloutHelper);
-                }
-
-                callTyp = impImportCall(opcode, &resolvedToken, constraintCall ? &constrainedResolvedToken : nullptr,
-                                        newObjThisPtr, prefixFlags, &callInfo, opcodeOffs);
+            CALL:
+                callTyp = ImportCall(codeAddr, codeEndp, sz, opcodeOffs, opcode, resolvedToken,
+                                     constrainedResolvedToken, callInfo, prefixFlags, newObjThisPtr);
 
                 if (compDonotInline())
                 {
-                    // We do not check fails after lvaGrabTemp. It is covered with CoreCLR_13272 issue.
-                    assert((callTyp == TYP_UNDEF) ||
-                           (compInlineResult->GetObservation() == InlineObservation::CALLSITE_TOO_MANY_LOCALS));
-
                     return;
-                }
-
-                if (explicitTailCall || newBBcreatedForTailcallStress)
-                {
-                    // If newBBcreatedForTailcallStress is true, we have created a new BB after the "call"
-                    // instruction in fgMakeBasicBlocks(). So we need to jump to RET regardless.
-
-                    impReturnInstruction(prefixFlags, &opcode);
                 }
 
                 break;
@@ -13443,6 +13303,169 @@ void Importer::impImportBlockCode(BasicBlock* block)
 #ifdef _PREFAST_
 #pragma warning(pop)
 #endif
+
+var_types Importer::ImportCall(const BYTE*             codeAddr,
+                               const BYTE*             codeEndp,
+                               int                     sz,
+                               IL_OFFSET               opcodeOffs,
+                               OPCODE&                 opcode,
+                               CORINFO_RESOLVED_TOKEN& resolvedToken,
+                               CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
+                               CORINFO_CALL_INFO&      callInfo,
+                               int                     prefixFlags,
+                               GenTree*                newObjThisPtr)
+{
+    bool explicitTailCall, constraintCall, readonlyCall;
+
+    // memberRef should be set.
+    // newObjThisPtr should be set for CEE_NEWOBJ
+
+    JITDUMP(" %08X", resolvedToken.token);
+    constraintCall = (prefixFlags & PREFIX_CONSTRAINED) != 0;
+
+    bool newBBcreatedForTailcallStress;
+    bool passedStressModeValidation;
+
+    newBBcreatedForTailcallStress = false;
+    passedStressModeValidation    = true;
+
+    if (compIsForInlining())
+    {
+        if (compDonotInline())
+        {
+            return TYP_UNDEF;
+        }
+        // We rule out inlinees with explicit tail calls in fgMakeBasicBlocks.
+        assert((prefixFlags & PREFIX_TAILCALL_EXPLICIT) == 0);
+    }
+    else
+    {
+#ifdef DEBUG
+        if (compTailCallStress())
+        {
+            // Have we created a new BB after the "call" instruction in fgMakeBasicBlocks()?
+            // Tail call stress only recognizes call+ret patterns and forces them to be
+            // explicit tail prefixed calls.  Also fgMakeBasicBlocks() under tail call stress
+            // doesn't import 'ret' opcode following the call into the basic block containing
+            // the call instead imports it to a new basic block.  Note that fgMakeBasicBlocks()
+            // is already checking that there is an opcode following call and hence it is
+            // safe here to read next opcode without bounds check.
+            newBBcreatedForTailcallStress =
+                impOpcodeIsCallOpcode(opcode) && // Current opcode is a CALL, (not a CEE_NEWOBJ). So, don't
+                // make it jump to RET.
+                (OPCODE)getU1LittleEndian(codeAddr + sz) == CEE_RET; // Next opcode is a CEE_RET
+
+            bool hasTailPrefix = (prefixFlags & PREFIX_TAILCALL_EXPLICIT);
+            if (newBBcreatedForTailcallStress && !hasTailPrefix)
+            {
+                // Do a more detailed evaluation of legality
+                const bool passedConstraintCheck =
+                    verCheckTailCallConstraint(opcode, &resolvedToken,
+                                               constraintCall ? &constrainedResolvedToken : nullptr);
+
+                if (passedConstraintCheck)
+                {
+                    // Now check with the runtime
+                    CORINFO_METHOD_HANDLE declaredCalleeHnd = callInfo.hMethod;
+                    bool                  isVirtual =
+                        (callInfo.kind == CORINFO_VIRTUALCALL_STUB) || (callInfo.kind == CORINFO_VIRTUALCALL_VTABLE);
+                    CORINFO_METHOD_HANDLE exactCalleeHnd = isVirtual ? nullptr : declaredCalleeHnd;
+                    if (info.compCompHnd->canTailCall(info.compMethodHnd, declaredCalleeHnd, exactCalleeHnd,
+                                                      hasTailPrefix)) // Is it legal to do tailcall?
+                    {
+                        // Stress the tailcall.
+                        JITDUMP(" (Tailcall stress: prefixFlags |= PREFIX_TAILCALL_EXPLICIT)");
+                        prefixFlags |= PREFIX_TAILCALL_EXPLICIT;
+                        prefixFlags |= PREFIX_TAILCALL_STRESS;
+                    }
+                    else
+                    {
+                        // Runtime disallows this tail call
+                        JITDUMP(" (Tailcall stress: runtime preventing tailcall)");
+                        passedStressModeValidation = false;
+                    }
+                }
+                else
+                {
+                    // Constraints disallow this tail call
+                    JITDUMP(" (Tailcall stress: constraint check failed)");
+                    passedStressModeValidation = false;
+                }
+            }
+        }
+#endif // DEBUG
+    }
+
+    // This is split up to avoid goto flow warnings.
+    bool isRecursive;
+    isRecursive = !compIsForInlining() && (callInfo.hMethod == info.compMethodHnd);
+
+    // If we've already disqualified this call as a tail call under tail call stress,
+    // don't consider it for implicit tail calling either.
+    //
+    // When not running under tail call stress, we may mark this call as an implicit
+    // tail call candidate. We'll do an "equivalent" validation during impImportCall.
+    //
+    // Note that when running under tail call stress, a call marked as explicit
+    // tail prefixed will not be considered for implicit tail calling.
+    if (passedStressModeValidation &&
+        impIsImplicitTailCallCandidate(opcode, codeAddr + sz, codeEndp, prefixFlags, isRecursive))
+    {
+        if (compIsForInlining())
+        {
+#if FEATURE_TAILCALL_OPT_SHARED_RETURN
+            // Are we inlining at an implicit tail call site? If so the we can flag
+            // implicit tail call sites in the inline body. These call sites
+            // often end up in non BBJ_RETURN blocks, so only flag them when
+            // we're able to handle shared returns.
+            if (impInlineInfo->iciCall->IsImplicitTailCall())
+            {
+                JITDUMP("\n (Inline Implicit Tail call: prefixFlags |= PREFIX_TAILCALL_IMPLICIT)");
+                prefixFlags |= PREFIX_TAILCALL_IMPLICIT;
+            }
+#endif // FEATURE_TAILCALL_OPT_SHARED_RETURN
+        }
+        else
+        {
+            JITDUMP("\n (Implicit Tail call: prefixFlags |= PREFIX_TAILCALL_IMPLICIT)");
+            prefixFlags |= PREFIX_TAILCALL_IMPLICIT;
+        }
+    }
+
+    // Treat this call as tail call for verification only if "tail" prefixed (i.e. explicit tail call).
+    explicitTailCall = (prefixFlags & PREFIX_TAILCALL_EXPLICIT) != 0;
+    readonlyCall     = (prefixFlags & PREFIX_READONLY) != 0;
+
+    if (opcode != CEE_CALLI && opcode != CEE_NEWOBJ)
+    {
+        // All calls and delegates need a security callout.
+        // For delegates, this is the call to the delegate constructor, not the access check on the
+        // LD(virt)FTN.
+        impHandleAccessAllowed(callInfo.accessAllowed, callInfo.callsiteCalloutHelper);
+    }
+
+    var_types callTyp = impImportCall(opcode, &resolvedToken, constraintCall ? &constrainedResolvedToken : nullptr,
+                                      newObjThisPtr, prefixFlags, &callInfo, opcodeOffs);
+
+    if (compDonotInline())
+    {
+        // We do not check fails after lvaGrabTemp. It is covered with CoreCLR_13272 issue.
+        assert((callTyp == TYP_UNDEF) ||
+               (compInlineResult->GetObservation() == InlineObservation::CALLSITE_TOO_MANY_LOCALS));
+
+        return callTyp;
+    }
+
+    if (explicitTailCall || newBBcreatedForTailcallStress)
+    {
+        // If newBBcreatedForTailcallStress is true, we have created a new BB after the "call"
+        // instruction in fgMakeBasicBlocks(). So we need to jump to RET regardless.
+
+        impReturnInstruction(prefixFlags, &opcode);
+    }
+
+    return callTyp;
+}
 
 // Load an argument on the operand stack
 // Shared by the various CEE_LDARG opcodes

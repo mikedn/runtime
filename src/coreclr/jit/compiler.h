@@ -2612,6 +2612,16 @@ struct Importer
     void impInsertHelperCall(const CORINFO_HELPER_DESC& helperCall);
     void impHandleAccessAllowed(CorInfoIsAccessAllowedResult result, const CORINFO_HELPER_DESC& helperCall);
 
+    var_types ImportCall(const BYTE*             codeAddr,
+                         const BYTE*             codeEndp,
+                         int                     sz,
+                         IL_OFFSET               opcodeOffs,
+                         OPCODE&                 opcode,
+                         CORINFO_RESOLVED_TOKEN& resolvedToken,
+                         CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
+                         CORINFO_CALL_INFO&      callInfo,
+                         int                     prefixFlags,
+                         GenTree*                newObjThisPtr);
     var_types impImportCall(OPCODE                  opcode,
                             CORINFO_RESOLVED_TOKEN* pResolvedToken,
                             CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken, // Is this a "constrained." call on a
@@ -7245,18 +7255,18 @@ public:
     bool compDoAggressiveInlining = false; // If true, mark every method as CORINFO_FLG_FORCEINLINE
     bool compJmpOpUsed            = false; // Does the method do a JMP
 #ifndef TARGET_64BIT
-    bool compLongUsed             = false; // Does the method use TYP_LONG
+    bool compLongUsed = false; // Does the method use TYP_LONG
 #endif
-    bool compFloatingPointUsed    = false; // Does the method use TYP_FLOAT or TYP_DOUBLE
-    bool compTailCallUsed         = false; // Does the method do a tailcall
-    bool compLocallocUsed         = false; // Does the method use localloc.
-    bool compLocallocOptimized    = false; // Does the method have an optimized localloc
-    bool compQmarkUsed            = false; // Does the method use GT_QMARK
-    bool compQmarkRationalized    = false; // Is it allowed to use a GT_QMARK node.
-    bool compHasBackwardJump      = false; // Does the method (or some inlinee) have a lexically backwards jump?
-    bool compSwitchedToOptimized  = false; // Codegen initially was Tier0 but jit switched to FullOpts
-    bool compSwitchedToMinOpts    = false; // Codegen initially was Tier1/FullOpts but jit switched to MinOpts
-    bool compSuppressedZeroInit   = false; // There are vars with lvSuppressedZeroInit set
+    bool compFloatingPointUsed   = false; // Does the method use TYP_FLOAT or TYP_DOUBLE
+    bool compTailCallUsed        = false; // Does the method do a tailcall
+    bool compLocallocUsed        = false; // Does the method use localloc.
+    bool compLocallocOptimized   = false; // Does the method have an optimized localloc
+    bool compQmarkUsed           = false; // Does the method use GT_QMARK
+    bool compQmarkRationalized   = false; // Is it allowed to use a GT_QMARK node.
+    bool compHasBackwardJump     = false; // Does the method (or some inlinee) have a lexically backwards jump?
+    bool compSwitchedToOptimized = false; // Codegen initially was Tier0 but jit switched to FullOpts
+    bool compSwitchedToMinOpts   = false; // Codegen initially was Tier1/FullOpts but jit switched to MinOpts
+    bool compSuppressedZeroInit  = false; // There are vars with lvSuppressedZeroInit set
 
 // NOTE: These values are only reliable after
 //       the importing is completely finished.
