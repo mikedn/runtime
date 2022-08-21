@@ -12913,7 +12913,7 @@ void Importer::ImportLdFtn(const BYTE* codeAddr, CORINFO_RESOLVED_TOKEN& constra
     JITDUMP(" %08X", resolvedToken.token);
     CORINFO_CALL_INFO callInfo;
     eeGetCallInfo(&resolvedToken, (prefixFlags & PREFIX_CONSTRAINED) ? &constrainedResolvedToken : nullptr,
-                  combine(CORINFO_CALLINFO_SECURITYCHECKS, CORINFO_CALLINFO_LDFTN), &callInfo);
+                  CORINFO_CALLINFO_SECURITYCHECKS | CORINFO_CALLINFO_LDFTN, &callInfo);
 
     // This check really only applies to intrinsic Array.Address methods
     if (callInfo.sig.callConv & CORINFO_CALLCONV_PARAMTYPE)
@@ -12946,8 +12946,7 @@ void Importer::ImportLdVirtFtn(const BYTE* codeAddr, CORINFO_RESOLVED_TOKEN& con
     JITDUMP(" %08X", resolvedToken.token);
     CORINFO_CALL_INFO callInfo;
     eeGetCallInfo(&resolvedToken, nullptr /* constraint typeRef */,
-                  combine(combine(CORINFO_CALLINFO_SECURITYCHECKS, CORINFO_CALLINFO_LDFTN), CORINFO_CALLINFO_CALLVIRT),
-                  &callInfo);
+                  CORINFO_CALLINFO_SECURITYCHECKS | CORINFO_CALLINFO_LDFTN | CORINFO_CALLINFO_CALLVIRT, &callInfo);
 
     // This check really only applies to intrinsic Array.Address methods
     if (callInfo.sig.callConv & CORINFO_CALLCONV_PARAMTYPE)
@@ -13150,7 +13149,7 @@ var_types Importer::ImportNewObj(const BYTE*             codeAddr,
     impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_NewObj);
     CORINFO_CALL_INFO callInfo;
     eeGetCallInfo(&resolvedToken, nullptr /* constraint typeRef*/,
-                  combine(CORINFO_CALLINFO_SECURITYCHECKS, CORINFO_CALLINFO_ALLOWINSTPARAM), &callInfo);
+                  CORINFO_CALLINFO_SECURITYCHECKS | CORINFO_CALLINFO_ALLOWINSTPARAM, &callInfo);
 
     if (compIsForInlining())
     {
@@ -13433,48 +13432,40 @@ var_types Importer::ImportCallI(const BYTE*             codeAddr,
 }
 
 var_types Importer::ImportCall(const BYTE*             codeAddr,
-                               const BYTE*             codeEndp,
-                               IL_OFFSET               opcodeOffs,
+                               const BYTE*             codeEnd,
+                               IL_OFFSET               ilOffset,
                                OPCODE&                 opcode,
                                CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
                                int                     prefixFlags)
 {
     CORINFO_RESOLVED_TOKEN resolvedToken;
     impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
+
     CORINFO_CALL_INFO callInfo;
     eeGetCallInfo(&resolvedToken, (prefixFlags & PREFIX_CONSTRAINED) ? &constrainedResolvedToken : nullptr,
-                  // this is how impImportCall invokes getCallInfo
-                  combine(combine(CORINFO_CALLINFO_ALLOWINSTPARAM, CORINFO_CALLINFO_SECURITYCHECKS),
-                          (opcode == CEE_CALLVIRT) ? CORINFO_CALLINFO_CALLVIRT : CORINFO_CALLINFO_NONE),
+                  CORINFO_CALLINFO_ALLOWINSTPARAM | CORINFO_CALLINFO_SECURITYCHECKS |
+                      ((opcode == CEE_CALLVIRT) ? CORINFO_CALLINFO_CALLVIRT : CORINFO_CALLINFO_NONE),
                   &callInfo);
 
-    return ImportCall(codeAddr, codeEndp, opcodeOffs, opcode, resolvedToken, constrainedResolvedToken, callInfo,
+    return ImportCall(codeAddr, codeEnd, ilOffset, opcode, resolvedToken, constrainedResolvedToken, callInfo,
                       prefixFlags, nullptr);
 }
 
 var_types Importer::ImportCall(const BYTE*             codeAddr,
-                               const BYTE*             codeEndp,
-                               IL_OFFSET               opcodeOffs,
+                               const BYTE*             codeEnd,
+                               IL_OFFSET               ilOffset,
                                OPCODE&                 opcode,
                                CORINFO_RESOLVED_TOKEN& resolvedToken,
                                CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
                                CORINFO_CALL_INFO&      callInfo,
                                int                     prefixFlags,
-                               GenTree*                newObjThisPtr)
+                               GenTree*                newObjThis)
 {
-    bool explicitTailCall, constraintCall, readonlyCall;
-
-    // memberRef should be set.
-    // newObjThisPtr should be set for CEE_NEWOBJ
-
     JITDUMP(" %08X", resolvedToken.token);
-    constraintCall = (prefixFlags & PREFIX_CONSTRAINED) != 0;
 
-    bool newBBcreatedForTailcallStress;
-    bool passedStressModeValidation;
-
-    newBBcreatedForTailcallStress = false;
-    passedStressModeValidation    = true;
+    bool isConstrained                  = (prefixFlags & PREFIX_CONSTRAINED) != 0;
+    bool newBBcreatedForTailcallStress  = false;
+    bool passedTailCallStressValidation = true;
 
     if (compIsForInlining())
     {
@@ -13482,70 +13473,64 @@ var_types Importer::ImportCall(const BYTE*             codeAddr,
         {
             return TYP_UNDEF;
         }
+
         // We rule out inlinees with explicit tail calls in fgMakeBasicBlocks.
         assert((prefixFlags & PREFIX_TAILCALL_EXPLICIT) == 0);
     }
-    else
-    {
 #ifdef DEBUG
-        if (compTailCallStress())
+    else if (compTailCallStress())
+    {
+        // Have we created a new BB after the "call" instruction in fgMakeBasicBlocks()?
+        // Tail call stress only recognizes call+ret patterns and forces them to be
+        // explicit tail prefixed calls.  Also fgMakeBasicBlocks() under tail call stress
+        // doesn't import 'ret' opcode following the call into the basic block containing
+        // the call instead imports it to a new basic block.  Note that fgMakeBasicBlocks()
+        // is already checking that there is an opcode following call and hence it is
+        // safe here to read next opcode without bounds check.
+        newBBcreatedForTailcallStress =
+            // Current opcode is a CALL, (not NEWOBJ). So, don't make it jump to RET.
+            impOpcodeIsCallOpcode(opcode) && (getU1LittleEndian(codeAddr + 4) == CEE_RET);
+
+        bool hasTailPrefix = (prefixFlags & PREFIX_TAILCALL_EXPLICIT);
+
+        if (newBBcreatedForTailcallStress && !hasTailPrefix)
         {
-            // Have we created a new BB after the "call" instruction in fgMakeBasicBlocks()?
-            // Tail call stress only recognizes call+ret patterns and forces them to be
-            // explicit tail prefixed calls.  Also fgMakeBasicBlocks() under tail call stress
-            // doesn't import 'ret' opcode following the call into the basic block containing
-            // the call instead imports it to a new basic block.  Note that fgMakeBasicBlocks()
-            // is already checking that there is an opcode following call and hence it is
-            // safe here to read next opcode without bounds check.
-            newBBcreatedForTailcallStress =
-                impOpcodeIsCallOpcode(opcode) && // Current opcode is a CALL, (not a CEE_NEWOBJ). So, don't
-                // make it jump to RET.
-                (OPCODE)getU1LittleEndian(codeAddr + 4) == CEE_RET; // Next opcode is a CEE_RET
+            // Do a more detailed evaluation of legality
+            const bool passedConstraintCheck =
+                verCheckTailCallConstraint(opcode, &resolvedToken, isConstrained ? &constrainedResolvedToken : nullptr);
 
-            bool hasTailPrefix = (prefixFlags & PREFIX_TAILCALL_EXPLICIT);
-            if (newBBcreatedForTailcallStress && !hasTailPrefix)
+            if (passedConstraintCheck)
             {
-                // Do a more detailed evaluation of legality
-                const bool passedConstraintCheck =
-                    verCheckTailCallConstraint(opcode, &resolvedToken,
-                                               constraintCall ? &constrainedResolvedToken : nullptr);
+                CORINFO_METHOD_HANDLE exactMethod =
+                    ((callInfo.kind == CORINFO_VIRTUALCALL_STUB) || (callInfo.kind == CORINFO_VIRTUALCALL_VTABLE))
+                        ? nullptr
+                        : callInfo.hMethod;
 
-                if (passedConstraintCheck)
+                if (info.compCompHnd->canTailCall(info.compMethodHnd, callInfo.hMethod, exactMethod, hasTailPrefix))
                 {
-                    // Now check with the runtime
-                    CORINFO_METHOD_HANDLE declaredCalleeHnd = callInfo.hMethod;
-                    bool                  isVirtual =
-                        (callInfo.kind == CORINFO_VIRTUALCALL_STUB) || (callInfo.kind == CORINFO_VIRTUALCALL_VTABLE);
-                    CORINFO_METHOD_HANDLE exactCalleeHnd = isVirtual ? nullptr : declaredCalleeHnd;
-                    if (info.compCompHnd->canTailCall(info.compMethodHnd, declaredCalleeHnd, exactCalleeHnd,
-                                                      hasTailPrefix)) // Is it legal to do tailcall?
-                    {
-                        // Stress the tailcall.
-                        JITDUMP(" (Tailcall stress: prefixFlags |= PREFIX_TAILCALL_EXPLICIT)");
-                        prefixFlags |= PREFIX_TAILCALL_EXPLICIT;
-                        prefixFlags |= PREFIX_TAILCALL_STRESS;
-                    }
-                    else
-                    {
-                        // Runtime disallows this tail call
-                        JITDUMP(" (Tailcall stress: runtime preventing tailcall)");
-                        passedStressModeValidation = false;
-                    }
+                    JITDUMP(" (Tailcall stress: prefixFlags |= PREFIX_TAILCALL_EXPLICIT)");
+
+                    prefixFlags |= PREFIX_TAILCALL_EXPLICIT;
+                    prefixFlags |= PREFIX_TAILCALL_STRESS;
                 }
                 else
                 {
-                    // Constraints disallow this tail call
-                    JITDUMP(" (Tailcall stress: constraint check failed)");
-                    passedStressModeValidation = false;
+                    JITDUMP(" (Tailcall stress: runtime preventing tailcall)");
+
+                    passedTailCallStressValidation = false;
                 }
             }
-        }
-#endif // DEBUG
-    }
+            else
+            {
+                JITDUMP(" (Tailcall stress: constraint check failed)");
 
-    // This is split up to avoid goto flow warnings.
-    bool isRecursive;
-    isRecursive = !compIsForInlining() && (callInfo.hMethod == info.compMethodHnd);
+                passedTailCallStressValidation = false;
+            }
+        }
+    }
+#endif // DEBUG
+
+    bool isRecursive = !compIsForInlining() && (callInfo.hMethod == info.compMethodHnd);
 
     // If we've already disqualified this call as a tail call under tail call stress,
     // don't consider it for implicit tail calling either.
@@ -13555,8 +13540,8 @@ var_types Importer::ImportCall(const BYTE*             codeAddr,
     //
     // Note that when running under tail call stress, a call marked as explicit
     // tail prefixed will not be considered for implicit tail calling.
-    if (passedStressModeValidation &&
-        impIsImplicitTailCallCandidate(opcode, codeAddr + 4, codeEndp, prefixFlags, isRecursive))
+    if (passedTailCallStressValidation &&
+        impIsImplicitTailCallCandidate(opcode, codeAddr + 4, codeEnd, prefixFlags, isRecursive))
     {
         if (compIsForInlining())
         {
@@ -13568,42 +13553,33 @@ var_types Importer::ImportCall(const BYTE*             codeAddr,
             if (impInlineInfo->iciCall->IsImplicitTailCall())
             {
                 JITDUMP("\n (Inline Implicit Tail call: prefixFlags |= PREFIX_TAILCALL_IMPLICIT)");
+
                 prefixFlags |= PREFIX_TAILCALL_IMPLICIT;
             }
-#endif // FEATURE_TAILCALL_OPT_SHARED_RETURN
+#endif
         }
         else
         {
             JITDUMP("\n (Implicit Tail call: prefixFlags |= PREFIX_TAILCALL_IMPLICIT)");
+
             prefixFlags |= PREFIX_TAILCALL_IMPLICIT;
         }
     }
 
-    // Treat this call as tail call for verification only if "tail" prefixed (i.e. explicit tail call).
-    explicitTailCall = (prefixFlags & PREFIX_TAILCALL_EXPLICIT) != 0;
-    readonlyCall     = (prefixFlags & PREFIX_READONLY) != 0;
-
-    if (opcode != CEE_CALLI && opcode != CEE_NEWOBJ)
+    if ((opcode != CEE_CALLI) && (opcode != CEE_NEWOBJ))
     {
-        // All calls and delegates need a security callout.
-        // For delegates, this is the call to the delegate constructor, not the access check on the
-        // LD(virt)FTN.
         impHandleAccessAllowed(callInfo.accessAllowed, callInfo.callsiteCalloutHelper);
     }
 
-    var_types callTyp = impImportCall(opcode, &resolvedToken, constraintCall ? &constrainedResolvedToken : nullptr,
-                                      newObjThisPtr, prefixFlags, &callInfo, opcodeOffs);
+    var_types type = impImportCall(opcode, &resolvedToken, isConstrained ? &constrainedResolvedToken : nullptr,
+                                   newObjThis, prefixFlags, &callInfo, ilOffset);
 
     if (compDonotInline())
     {
-        // We do not check fails after lvaGrabTemp. It is covered with CoreCLR_13272 issue.
-        assert((callTyp == TYP_UNDEF) ||
+        assert((type == TYP_UNDEF) ||
                (compInlineResult->GetObservation() == InlineObservation::CALLSITE_TOO_MANY_LOCALS));
-
-        return callTyp;
     }
-
-    if (explicitTailCall || newBBcreatedForTailcallStress)
+    else if (((prefixFlags & PREFIX_TAILCALL_EXPLICIT) != 0) || newBBcreatedForTailcallStress)
     {
         // If newBBcreatedForTailcallStress is true, we have created a new BB after the "call"
         // instruction in fgMakeBasicBlocks(). So we need to jump to RET regardless.
@@ -13611,7 +13587,7 @@ var_types Importer::ImportCall(const BYTE*             codeAddr,
         impReturnInstruction(prefixFlags, &opcode);
     }
 
-    return callTyp;
+    return type;
 }
 
 // Load an argument on the operand stack

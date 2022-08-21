@@ -225,7 +225,7 @@ inline var_types CorTypeToPreciseVarType(CorInfoType type)
     return map[type];
 }
 
-inline CORINFO_CALLINFO_FLAGS combine(CORINFO_CALLINFO_FLAGS flag1, CORINFO_CALLINFO_FLAGS flag2)
+inline CORINFO_CALLINFO_FLAGS operator|(CORINFO_CALLINFO_FLAGS flag1, CORINFO_CALLINFO_FLAGS flag2)
 {
-    return (CORINFO_CALLINFO_FLAGS)(flag1 | flag2);
+    return static_cast<CORINFO_CALLINFO_FLAGS>(static_cast<int>(flag1) | static_cast<int>(flag2));
 }

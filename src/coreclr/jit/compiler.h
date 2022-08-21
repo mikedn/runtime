@@ -2636,20 +2636,20 @@ struct Importer
                           CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
                           int                     prefixFlags);
     var_types ImportCall(const BYTE*             codeAddr,
-                         const BYTE*             codeEndp,
-                         IL_OFFSET               opcodeOffs,
+                         const BYTE*             codeEnd,
+                         IL_OFFSET               ilOffset,
                          OPCODE&                 opcode,
                          CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
                          int                     prefixFlags);
     var_types ImportCall(const BYTE*             codeAddr,
-                         const BYTE*             codeEndp,
-                         IL_OFFSET               opcodeOffs,
+                         const BYTE*             codeEnd,
+                         IL_OFFSET               ilOffset,
                          OPCODE&                 opcode,
                          CORINFO_RESOLVED_TOKEN& resolvedToken,
                          CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
                          CORINFO_CALL_INFO&      callInfo,
                          int                     prefixFlags,
-                         GenTree*                newObjThisPtr);
+                         GenTree*                newObjThis);
     var_types impImportCall(OPCODE                  opcode,
                             CORINFO_RESOLVED_TOKEN* pResolvedToken,
                             CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken, // Is this a "constrained." call on a
