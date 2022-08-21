@@ -2612,6 +2612,16 @@ struct Importer
     void impInsertHelperCall(const CORINFO_HELPER_DESC& helperCall);
     void impHandleAccessAllowed(CorInfoIsAccessAllowedResult result, const CORINFO_HELPER_DESC& helperCall);
 
+    void ImportLdFtn(const BYTE*             codeAddr,
+                     CORINFO_RESOLVED_TOKEN& resolvedToken,
+                     CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
+                     CORINFO_CALL_INFO&      callInfo,
+                     int                     prefixFlags);
+    void ImportLdVirtFtn(const BYTE*             codeAddr,
+                         CORINFO_RESOLVED_TOKEN& resolvedToken,
+                         CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
+                         CORINFO_CALL_INFO&      callInfo,
+                         int                     prefixFlags);
     var_types ImportNewObj(const BYTE*             codeAddr,
                            const BYTE*             codeEndp,
                            int                     sz,
