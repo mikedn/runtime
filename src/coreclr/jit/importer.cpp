@@ -11503,7 +11503,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
             case CEE_CALLVIRT:
             case CEE_CALL:
-                callTyp = ImportCall(codeAddr, codeEndp, opcodeOffs, opcode, constrainedResolvedToken, prefixFlags);
+                callTyp = ImportCall(codeAddr, codeEndp, opcodeOffs, opcode, &constrainedResolvedToken, prefixFlags);
 
                 if (compDonotInline())
                 {
@@ -13376,9 +13376,8 @@ var_types Importer::ImportNewObj(
         return TYP_UNDEF;
     }
 
-    CORINFO_RESOLVED_TOKEN constrainedResolvedToken;
-    return ImportCall(codeAddr, codeEnd, ilOffset, CEE_NEWOBJ, resolvedToken, constrainedResolvedToken, callInfo,
-                      prefixFlags, newObjThis);
+    return ImportCall(codeAddr, codeEnd, ilOffset, CEE_NEWOBJ, resolvedToken, nullptr, callInfo, prefixFlags,
+                      newObjThis);
 }
 
 var_types Importer::ImportCallI(const BYTE* codeAddr, const BYTE* codeEnd, IL_OFFSET ilOffset, int prefixFlags)
@@ -13398,29 +13397,27 @@ var_types Importer::ImportCallI(const BYTE* codeAddr, const BYTE* codeEnd, IL_OF
     }
 
     CORINFO_RESOLVED_TOKEN resolvedToken{};
-    CORINFO_RESOLVED_TOKEN constrainedResolvedToken;
     CORINFO_CALL_INFO      callInfo{};
 
     resolvedToken.token        = getU4LittleEndian(codeAddr);
     resolvedToken.tokenContext = impTokenLookupContextHandle;
     resolvedToken.tokenScope   = info.compScopeHnd;
 
-    return ImportCall(codeAddr, codeEnd, ilOffset, CEE_CALLI, resolvedToken, constrainedResolvedToken, callInfo,
-                      prefixFlags, nullptr);
+    return ImportCall(codeAddr, codeEnd, ilOffset, CEE_CALLI, resolvedToken, nullptr, callInfo, prefixFlags, nullptr);
 }
 
 var_types Importer::ImportCall(const BYTE*             codeAddr,
                                const BYTE*             codeEnd,
                                IL_OFFSET               ilOffset,
                                OPCODE                  opcode,
-                               CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
+                               CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
                                int                     prefixFlags)
 {
     CORINFO_RESOLVED_TOKEN resolvedToken;
     impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
 
     CORINFO_CALL_INFO callInfo;
-    eeGetCallInfo(&resolvedToken, (prefixFlags & PREFIX_CONSTRAINED) ? &constrainedResolvedToken : nullptr,
+    eeGetCallInfo(&resolvedToken, (prefixFlags & PREFIX_CONSTRAINED) ? constrainedResolvedToken : nullptr,
                   CORINFO_CALLINFO_ALLOWINSTPARAM | CORINFO_CALLINFO_SECURITYCHECKS |
                       ((opcode == CEE_CALLVIRT) ? CORINFO_CALLINFO_CALLVIRT : CORINFO_CALLINFO_NONE),
                   &callInfo);
@@ -13434,7 +13431,7 @@ var_types Importer::ImportCall(const BYTE*             codeAddr,
                                IL_OFFSET               ilOffset,
                                OPCODE                  opcode,
                                CORINFO_RESOLVED_TOKEN& resolvedToken,
-                               CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
+                               CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
                                CORINFO_CALL_INFO&      callInfo,
                                int                     prefixFlags,
                                GenTree*                newObjThis)
@@ -13471,7 +13468,7 @@ var_types Importer::ImportCall(const BYTE*             codeAddr,
         {
             // Do a more detailed evaluation of legality
             const bool passedConstraintCheck =
-                verCheckTailCallConstraint(opcode, &resolvedToken, isConstrained ? &constrainedResolvedToken : nullptr);
+                verCheckTailCallConstraint(opcode, &resolvedToken, isConstrained ? constrainedResolvedToken : nullptr);
 
             if (passedConstraintCheck)
             {
@@ -13545,7 +13542,7 @@ var_types Importer::ImportCall(const BYTE*             codeAddr,
         impHandleAccessAllowed(callInfo.accessAllowed, callInfo.callsiteCalloutHelper);
     }
 
-    var_types type = impImportCall(opcode, &resolvedToken, isConstrained ? &constrainedResolvedToken : nullptr,
+    var_types type = impImportCall(opcode, &resolvedToken, isConstrained ? constrainedResolvedToken : nullptr,
                                    newObjThis, prefixFlags, &callInfo, ilOffset);
 
     if (compDonotInline())

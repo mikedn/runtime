@@ -2629,25 +2629,24 @@ struct Importer
                          const BYTE*             codeEnd,
                          IL_OFFSET               ilOffset,
                          OPCODE                  opcode,
-                         CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
+                         CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
                          int                     prefixFlags);
     var_types ImportCall(const BYTE*             codeAddr,
                          const BYTE*             codeEnd,
                          IL_OFFSET               ilOffset,
                          OPCODE                  opcode,
                          CORINFO_RESOLVED_TOKEN& resolvedToken,
-                         CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
+                         CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
                          CORINFO_CALL_INFO&      callInfo,
                          int                     prefixFlags,
                          GenTree*                newObjThis);
     var_types impImportCall(OPCODE                  opcode,
-                            CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                            CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken, // Is this a "constrained." call on a
-                            // type parameter?
-                            GenTree*           newobjThis,
-                            int                prefixFlags,
-                            CORINFO_CALL_INFO* callInfo,
-                            IL_OFFSET          rawILOffset);
+                            CORINFO_RESOLVED_TOKEN* resolvedToken,
+                            CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
+                            GenTree*                newObjThis,
+                            int                     prefixFlags,
+                            CORINFO_CALL_INFO*      callInfo,
+                            IL_OFFSET               ilOffset);
 
     void addExpRuntimeLookupCandidate(GenTreeCall* call);
 
