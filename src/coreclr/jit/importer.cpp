@@ -9730,10 +9730,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
         op1 = op2 = nullptr;
 #endif
 
-        /* See what kind of an opcode we have, then */
-
-        unsigned mflags = 0;
-
         switch (opcode)
         {
             unsigned             lclNum;
