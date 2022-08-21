@@ -11900,7 +11900,16 @@ void Importer::impImportBlockCode(BasicBlock* block)
                         newObjThisPtr = gtNewLclvNode(lclNum, TYP_REF);
                     }
                 }
-                goto CALL;
+
+                callTyp = ImportCall(codeAddr, codeEndp, sz, opcodeOffs, opcode, resolvedToken,
+                                     constrainedResolvedToken, callInfo, prefixFlags, newObjThisPtr);
+
+                if (compDonotInline())
+                {
+                    return;
+                }
+
+                break;
 
             case CEE_CALLI:
 
@@ -11947,9 +11956,8 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     resolvedToken.tokenScope   = info.compScopeHnd;
                 }
 
-            CALL:
                 callTyp = ImportCall(codeAddr, codeEndp, sz, opcodeOffs, opcode, resolvedToken,
-                                     constrainedResolvedToken, callInfo, prefixFlags, newObjThisPtr);
+                                     constrainedResolvedToken, callInfo, prefixFlags, nullptr);
 
                 if (compDonotInline())
                 {
