@@ -10176,20 +10176,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_ARGLIST:
-                if (!info.compIsVarArgs)
-                {
-                    BADCODE("arglist in non-vararg method");
-                }
-
-                assertImp((info.compMethodInfo->args.callConv & CORINFO_CALLCONV_MASK) == CORINFO_CALLCONV_VARARG);
-
-                // The ARGLIST cookie is a hidden 'last' parameter, we have already
-                // adjusted the arg count cos this is like fetching the last param
-                assertImp(info.compArgsCount > 0);
-                assert(lvaGetDesc(lvaVarargsHandleArg)->lvAddrExposed);
-
-                op1 = gtNewLclVarAddrNode(lvaVarargsHandleArg, TYP_I_IMPL);
-                impPushOnStack(op1, typeInfo());
+                ImportArgList();
                 break;
 
             case CEE_ENDFINALLY:
@@ -12615,6 +12602,27 @@ void Importer::impImportBlockCode(BasicBlock* block)
 #ifdef _PREFAST_
 #pragma warning(pop)
 #endif
+
+void Importer::ImportArgList()
+{
+    if (!info.compIsVarArgs)
+    {
+        BADCODE("arglist in non-vararg method");
+    }
+
+#ifdef DEBUG
+    GenTreeOp* op1 = nullptr;
+    GenTreeOp* op2 = nullptr;
+    assertImp((info.compMethodInfo->args.callConv & CORINFO_CALLCONV_MASK) == CORINFO_CALLCONV_VARARG);
+#endif
+
+    // The ARGLIST cookie is a hidden 'last' parameter, we have already
+    // adjusted the arg count cos this is like fetching the last param
+    assertImp(info.compArgsCount > 0);
+    assert(lvaGetDesc(lvaVarargsHandleArg)->lvAddrExposed);
+
+    impPushOnStack(gtNewLclVarAddrNode(lvaVarargsHandleArg, TYP_I_IMPL), typeInfo());
+}
 
 void Importer::ImportMkRefAny(const BYTE* codeAddr DEBUGARG(int sz))
 {

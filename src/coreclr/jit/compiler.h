@@ -2612,6 +2612,7 @@ struct Importer
     void impInsertHelperCall(const CORINFO_HELPER_DESC& helperCall);
     void impHandleAccessAllowed(CorInfoIsAccessAllowedResult result, const CORINFO_HELPER_DESC& helperCall);
 
+    void ImportArgList();
     void ImportMkRefAny(const BYTE* codeAddr DEBUGARG(int sz));
     void ImportRefAnyType();
     void ImportRefAnyVal(const BYTE* codeAddr);
