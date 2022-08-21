@@ -2622,12 +2622,8 @@ struct Importer
     void ImportLdFtn(const BYTE* codeAddr, CORINFO_RESOLVED_TOKEN& constrainedResolvedToken, int prefixFlags);
     void ImportLdVirtFtn(const BYTE* codeAddr, CORINFO_RESOLVED_TOKEN& constrainedResolvedToken, int prefixFlags);
     void ImportNewArr(const BYTE* codeAddr, BasicBlock* block);
-    var_types ImportNewObj(const BYTE*             codeAddr,
-                           const BYTE*             codeEndp,
-                           IL_OFFSET               opcodeOffs,
-                           CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
-                           int                     prefixFlags,
-                           BasicBlock*             block);
+    var_types ImportNewObj(
+        const BYTE* codeAddr, const BYTE* codeEnd, IL_OFFSET ilOffset, int prefixFlags, BasicBlock* block);
     var_types ImportCallI(const BYTE* codeAddr, const BYTE* codeEnd, IL_OFFSET ilOffset, int prefixFlags);
     var_types ImportCall(const BYTE*             codeAddr,
                          const BYTE*             codeEnd,

@@ -11482,7 +11482,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 goto PREFIX;
 
             case CEE_NEWOBJ:
-                callTyp = ImportNewObj(codeAddr, codeEndp, opcodeOffs, constrainedResolvedToken, prefixFlags, block);
+                callTyp = ImportNewObj(codeAddr, codeEndp, opcodeOffs, prefixFlags, block);
 
                 if (compDonotInline())
                 {
@@ -13125,46 +13125,37 @@ void Importer::ImportNewArr(const BYTE* codeAddr, BasicBlock* block)
     impPushOnStack(op1, typeInfo(TI_REF, resolvedToken.hClass));
 }
 
-var_types Importer::ImportNewObj(const BYTE*             codeAddr,
-                                 const BYTE*             codeEndp,
-                                 IL_OFFSET               opcodeOffs,
-                                 CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
-                                 int                     prefixFlags,
-                                 BasicBlock*             block)
+var_types Importer::ImportNewObj(
+    const BYTE* codeAddr, const BYTE* codeEnd, IL_OFFSET ilOffset, int prefixFlags, BasicBlock* block)
 {
-    GenTree* newObjThisPtr;
-    /* Since we will implicitly insert newObjThisPtr at the start of the
-       argument list, spill any GTF_ORDER_SIDEEFF */
-    impSpillCatchArg();
-
-    /* NEWOBJ does not respond to TAIL */
-    prefixFlags &= ~PREFIX_TAILCALL_EXPLICIT;
-
-    /* NEWOBJ does not respond to CONSTRAINED */
-    prefixFlags &= ~PREFIX_CONSTRAINED;
-
-    CORINFO_RESOLVED_TOKEN resolvedToken;
-    impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_NewObj);
-    CORINFO_CALL_INFO callInfo;
-    eeGetCallInfo(&resolvedToken, nullptr /* constraint typeRef*/,
-                  CORINFO_CALLINFO_SECURITYCHECKS | CORINFO_CALLINFO_ALLOWINSTPARAM, &callInfo);
-
     if (compIsForInlining())
     {
-        if (impInlineInfo->inlineCandidateInfo->dwRestrictions & INLINE_RESPECT_BOUNDARY)
+        if ((impInlineInfo->inlineCandidateInfo->dwRestrictions & INLINE_RESPECT_BOUNDARY) != 0)
         {
-            // Check to see if this call violates the boundary.
             compInlineResult->NoteFatal(InlineObservation::CALLSITE_CROSS_BOUNDARY_SECURITY);
+
             return TYP_UNDEF;
         }
     }
 
-    unsigned mflags = callInfo.methodFlags;
+    CORINFO_RESOLVED_TOKEN resolvedToken;
+    impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_NewObj);
 
-    if ((mflags & (CORINFO_FLG_STATIC | CORINFO_FLG_ABSTRACT)) != 0)
+    CORINFO_CALL_INFO callInfo;
+    eeGetCallInfo(&resolvedToken, nullptr, CORINFO_CALLINFO_SECURITYCHECKS | CORINFO_CALLINFO_ALLOWINSTPARAM,
+                  &callInfo);
+
+    if ((callInfo.methodFlags & (CORINFO_FLG_STATIC | CORINFO_FLG_ABSTRACT)) != 0)
     {
         BADCODE("newobj on static or abstract method");
     }
+
+    // Since we will implicitly insert newObjThis at the start of the argument list, spill any GTF_ORDER_SIDEEFF.
+    // TODO-MIKE-Review: Hmm, comment says one thing, code does something else...
+    impSpillCatchArg();
+
+    // TODO-MIKE-Review: This should probably be BADCODE
+    prefixFlags &= ~(PREFIX_TAILCALL_EXPLICIT | PREFIX_CONSTRAINED);
 
     // Insert the security callout before any actual code is generated
     impHandleAccessAllowed(callInfo.accessAllowed, callInfo.callsiteCalloutHelper);
@@ -13174,220 +13165,210 @@ var_types Importer::ImportNewObj(const BYTE*             codeAddr,
     //      1) Object is an array (arrays treated specially by the EE)
     //      2) Object is some other variable sized object (e.g. String)
     //      3) Class Size can be determined beforehand (normal case)
-    // In the first case, we need to call a NEWOBJ helper (multinewarray)
-    // in the second case we call the constructor with a '0' this pointer
-    // In the third case we alloc the memory, then call the constuctor
+    // In the first case, we need to call a NEWOBJ helper (multinewarray).
+    // In the second case we call the constructor with a null this pointer.
+    // In the third case we alloc the memory, then call the constuctor.
 
-    unsigned clsFlags = callInfo.classFlags;
-    if (clsFlags & CORINFO_FLG_ARRAY)
+    if ((callInfo.classFlags & CORINFO_FLG_ARRAY) != 0)
     {
 #ifdef DEBUG
         GenTree* op1 = nullptr;
         GenTree* op2 = nullptr;
         // Arrays need to call the NEWOBJ helper.
-        assertImp(clsFlags & CORINFO_FLG_VAROBJSIZE);
+        assertImp((callInfo.classFlags & CORINFO_FLG_VAROBJSIZE) != 0);
 #endif
-
         impImportNewObjArray(&resolvedToken, &callInfo);
+
+        return TYP_REF;
+    }
+
+    GenTree* newObjThis;
+
+    // At present this can only be String
+    if ((callInfo.classFlags & CORINFO_FLG_VAROBJSIZE) != 0)
+    {
+        if (IsTargetAbi(CORINFO_CORERT_ABI))
+        {
+            // The dummy argument does not exist in CoreRT
+            newObjThis = nullptr;
+        }
+        else
+        {
+            // This is the case for variable-sized objects that are not arrays.
+            // In this case, call the constructor with a null 'this' pointer.
+            newObjThis = gtNewIconNode(0, TYP_REF);
+        }
+
+        block->bbFlags |= BBF_HAS_NEWOBJ;
+        optMethodFlags |= OMF_HAS_NEWOBJ;
+    }
+    // This is the normal case where the size of the object is fixed.
+    // Allocate the memory and call the constructor.
+    // Note: We cannot add a peep to avoid use of temp here becase we
+    // don't have enough interference info to detect when sources and
+    // destination interfere, example: s = new S(ref);
+    //
+    // TODO: We find the correct place to introduce a general reverse
+    // copy prop for struct return values from newobj or any function
+    // returning structs.
+    //
+    // In the value class case we only need clsHnd for size calcs.
+    // The lookup of the code pointer will be handled by CALL in this case.
+    else if ((callInfo.classFlags & CORINFO_FLG_VALUECLASS) != 0)
+    {
+        CorInfoType  corType = info.compCompHnd->asCorInfoType(resolvedToken.hClass);
+        ClassLayout* layout  = impIsPrimitive(corType) ? nullptr : typGetObjLayout(resolvedToken.hClass);
+
+#ifdef FEATURE_SIMD
+        if ((layout != nullptr) && layout->IsVector() && ((callInfo.methodFlags & CORINFO_FLG_JIT_INTRINSIC) != 0))
+        {
+            // Only System.Numerics vectors have intrinsic constructors.
+            assert((layout->GetVectorKind() == VectorKind::Vector234) ||
+                   (layout->GetVectorKind() == VectorKind::VectorT));
+
+            const char* className          = nullptr;
+            const char* namespaceName      = nullptr;
+            const char* enclosingClassName = nullptr;
+            const char* methodName         = info.compCompHnd->getMethodNameFromMetadata(callInfo.hMethod, &className,
+                                                                                 &namespaceName, &enclosingClassName);
+
+            NamedIntrinsic ni = impFindSysNumSimdIntrinsic(callInfo.hMethod, className, methodName, enclosingClassName);
+
+            if (ni != NI_Illegal)
+            {
+                GenTree* intrinsic =
+                    impImportSysNumSimdIntrinsic(ni, resolvedToken.hClass, callInfo.hMethod, &callInfo.sig, true);
+
+                // TODO-MIKE-Cleanup: This should probably be an assert. impFindSysNumSimdIntrinsic is
+                // dumb and returns an intrinsic even if intrinsics are disabled or if the relevant
+                // ISAs aren't available. Otherwise there's no reason for intrinsic import to fail.
+                if (intrinsic != nullptr)
+                {
+                    // Set the call type for ICorDebugInfo::CALL_SITE_BOUNDARIES, even if we treated
+                    // this call as an intrinsic. These are constructors so the type is always VOID.
+                    impPushOnStack(intrinsic, typeInfo(TI_STRUCT, resolvedToken.hClass));
+
+                    return TYP_VOID;
+                }
+            }
+        }
+#endif // FEATURE_SIMD
+
+        unsigned lclNum = lvaGrabTemp(true DEBUGARG("newobj temp"));
+
+        if (compIsForInlining())
+        {
+            if (compInlineResult->IsFailure())
+            {
+                return TYP_UNDEF;
+            }
+
+            // If value class has GC fields, inform the inliner. It may choose to bail out on the inline.
+            uint32_t typeFlags = info.compCompHnd->getClassAttribs(resolvedToken.hClass);
+
+            if ((typeFlags & CORINFO_FLG_CONTAINS_GC_PTR) != 0)
+            {
+                compInlineResult->Note(InlineObservation::CALLEE_HAS_GC_STRUCT);
+
+                if (compInlineResult->IsFailure())
+                {
+                    return TYP_UNDEF;
+                }
+
+                // Do further notification in the case where the call site is rare;
+                // some policies do not track the relative hotness of call sites for
+                // "always" inline cases.
+
+                if (impInlineInfo->iciBlock->isRunRarely())
+                {
+                    compInlineResult->Note(InlineObservation::CALLSITE_RARE_GC_STRUCT);
+
+                    if (compInlineResult->IsFailure())
+                    {
+                        return TYP_UNDEF;
+                    }
+                }
+            }
+        }
+
+        if (layout == nullptr)
+        {
+            lvaGetDesc(lclNum)->SetType(CorTypeToVarType(corType));
+        }
+        else
+        {
+            lvaSetStruct(lclNum, layout, /* checkUnsafeBuffer */ true);
+        }
+
+        bool bbInALoop  = impBlockIsInALoop(block);
+        bool bbIsReturn = (block->bbJumpKind == BBJ_RETURN) &&
+                          (!compIsForInlining() || (impInlineInfo->iciBlock->bbJumpKind == BBJ_RETURN));
+
+        LclVarDsc* lcl = lvaGetDesc(lclNum);
+
+        if (fgVarNeedsExplicitZeroInit(lclNum, bbInALoop, bbIsReturn))
+        {
+            GenTree* init = gtNewAssignNode(gtNewLclvNode(lclNum, lcl->GetType()), gtNewIconNode(0));
+            impAppendTree(init, CHECK_SPILL_NONE, impCurStmtOffs);
+        }
+        else
+        {
+            JITDUMP("\nSuppressing zero-init for V%02u -- expect to zero in prolog\n", lclNum);
+
+            lcl->lvSuppressedZeroInit = 1;
+            compSuppressedZeroInit    = true;
+        }
+
+        newObjThis = gtNewLclVarAddrNode(lclNum, TYP_BYREF);
+    }
+    else
+    {
+        // If we're newing up a finalizable object, spill anything that can cause exceptions.
+
+        bool            hasSideEffects = false;
+        CorInfoHelpFunc newHelper = info.compCompHnd->getNewHelper(&resolvedToken, info.compMethodHnd, &hasSideEffects);
+
+        if (hasSideEffects)
+        {
+            JITDUMP("\nSpilling stack for finalizable newobj\n");
+
+            impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("finalizable newobj spill"));
+        }
+
+        unsigned lclNum = lvaNewTemp(TYP_REF, true DEBUGARG("newobj temp"));
+
         if (compDonotInline())
         {
             return TYP_UNDEF;
         }
 
-        return TYP_REF;
-    }
-    // At present this can only be String
-    else if (clsFlags & CORINFO_FLG_VAROBJSIZE)
-    {
-        if (IsTargetAbi(CORINFO_CORERT_ABI))
+        newObjThis = gtNewAllocObjNode(&resolvedToken, /* useParent */ true);
+
+        if (newObjThis == nullptr)
         {
-            // The dummy argument does not exist in CoreRT
-            newObjThisPtr = nullptr;
-        }
-        else
-        {
-            // This is the case for variable-sized objects that are not
-            // arrays.  In this case, call the constructor with a null 'this'
-            // pointer
-            newObjThisPtr = gtNewIconNode(0, TYP_REF);
+            return TYP_UNDEF;
         }
 
-        /* Remember that this basic block contains 'new' of an object */
         block->bbFlags |= BBF_HAS_NEWOBJ;
         optMethodFlags |= OMF_HAS_NEWOBJ;
-    }
-    else
-    {
-        // This is the normal case where the size of the object is
-        // fixed.  Allocate the memory and call the constructor.
 
-        // Note: We cannot add a peep to avoid use of temp here
-        // becase we don't have enough interference info to detect when
-        // sources and destination interfere, example: s = new S(ref);
+        LclVarDsc* lcl = lvaGetDesc(lclNum);
+        assert(lcl->lvSingleDef == 0);
+        lcl->lvSingleDef = 1;
+        JITDUMP("Marked V%02u as a single def local\n", lclNum);
+        lvaSetClass(lclNum, resolvedToken.hClass, /* isExact */ true);
 
-        // TODO: We find the correct place to introduce a general
-        // reverse copy prop for struct return values from newobj or
-        // any function returning structs.
-
-        // In the value class case we only need clsHnd for size calcs.
+        // Append the assignment to the temp/local. We don't need to spill the stack as
+        // we are just calling a JIT helper which can only throw OutOfMemoryException.
         //
-        // The lookup of the code pointer will be handled by CALL in this case
-        if ((clsFlags & CORINFO_FLG_VALUECLASS) != 0)
-        {
-            CorInfoType  corType = info.compCompHnd->asCorInfoType(resolvedToken.hClass);
-            ClassLayout* layout  = impIsPrimitive(corType) ? nullptr : typGetObjLayout(resolvedToken.hClass);
+        // We assign the newly allocated object (by a ALLOCOBJ node) to a temp. Note that
+        // the pattern "temp = allocObj" is required by ObjectAllocator phase to be able
+        // to determine ALLOCOBJ nodes without exhaustive walk over all expressions.
 
-#ifdef FEATURE_SIMD
-            if ((layout != nullptr) && layout->IsVector() && ((mflags & CORINFO_FLG_JIT_INTRINSIC) != 0))
-            {
-                // Only System.Numerics vectors have intrinsic constructors.
-                assert((layout->GetVectorKind() == VectorKind::Vector234) ||
-                       (layout->GetVectorKind() == VectorKind::VectorT));
+        GenTree* asg = gtNewAssignNode(gtNewLclvNode(lclNum, TYP_REF), newObjThis);
+        impAppendTree(asg, CHECK_SPILL_NONE, impCurStmtOffs);
 
-                const char* className          = nullptr;
-                const char* namespaceName      = nullptr;
-                const char* enclosingClassName = nullptr;
-                const char* methodName =
-                    info.compCompHnd->getMethodNameFromMetadata(callInfo.hMethod, &className, &namespaceName,
-                                                                &enclosingClassName);
-
-                NamedIntrinsic ni =
-                    impFindSysNumSimdIntrinsic(callInfo.hMethod, className, methodName, enclosingClassName);
-
-                if (ni != NI_Illegal)
-                {
-                    GenTree* intrinsic =
-                        impImportSysNumSimdIntrinsic(ni, resolvedToken.hClass, callInfo.hMethod, &callInfo.sig, true);
-
-                    // TODO-MIKE-Cleanup: This should probably be an assert. impFindSysNumSimdIntrinsic is
-                    // dumb and returns an intrinsic even if intrinsics are disabled or if the relevant
-                    // ISAs aren't available. Otherwise there's no reason for intrinsic import to fail.
-                    if (intrinsic != nullptr)
-                    {
-                        // Set the call type for ICorDebugInfo::CALL_SITE_BOUNDARIES, even if we treated
-                        // this call as an intrinsic. These are constructors so the type is always VOID.
-                        impPushOnStack(intrinsic, typeInfo(TI_STRUCT, resolvedToken.hClass));
-                        return TYP_VOID;
-                    }
-                }
-            }
-#endif // FEATURE_SIMD
-
-            unsigned lclNum = lvaGrabTemp(true DEBUGARG("newobj temp"));
-            if (compDonotInline())
-            {
-                // Fail fast if lvaGrabTemp fails with CALLSITE_TOO_MANY_LOCALS.
-                assert(compInlineResult->GetObservation() == InlineObservation::CALLSITE_TOO_MANY_LOCALS);
-                return TYP_UNDEF;
-            }
-
-            if (compIsForInlining())
-            {
-                // If value class has GC fields, inform the inliner. It may choose to
-                // bail out on the inline.
-                DWORD typeFlags = info.compCompHnd->getClassAttribs(resolvedToken.hClass);
-                if ((typeFlags & CORINFO_FLG_CONTAINS_GC_PTR) != 0)
-                {
-                    compInlineResult->Note(InlineObservation::CALLEE_HAS_GC_STRUCT);
-                    if (compInlineResult->IsFailure())
-                    {
-                        return TYP_UNDEF;
-                    }
-
-                    // Do further notification in the case where the call site is rare;
-                    // some policies do not track the relative hotness of call sites for
-                    // "always" inline cases.
-                    if (impInlineInfo->iciBlock->isRunRarely())
-                    {
-                        compInlineResult->Note(InlineObservation::CALLSITE_RARE_GC_STRUCT);
-                        if (compInlineResult->IsFailure())
-                        {
-                            return TYP_UNDEF;
-                        }
-                    }
-                }
-            }
-
-            if (layout == nullptr)
-            {
-                lvaGetDesc(lclNum)->SetType(JITtype2varType(corType));
-            }
-            else
-            {
-                // The local variable itself is the allocated space.
-                // Here we need unsafe value cls check, since the address of struct is taken for further use
-                // and potentially exploitable.
-                lvaSetStruct(lclNum, layout, /* checkUnsafeBuffer */ true);
-            }
-
-            bool bbInALoop  = impBlockIsInALoop(block);
-            bool bbIsReturn = (block->bbJumpKind == BBJ_RETURN) &&
-                              (!compIsForInlining() || (impInlineInfo->iciBlock->bbJumpKind == BBJ_RETURN));
-            LclVarDsc* const lcl = lvaGetDesc(lclNum);
-            if (fgVarNeedsExplicitZeroInit(lclNum, bbInALoop, bbIsReturn))
-            {
-                GenTree* init = gtNewAssignNode(gtNewLclvNode(lclNum, lcl->GetType()), gtNewIconNode(0));
-                impAppendTree(init, CHECK_SPILL_NONE, impCurStmtOffs);
-            }
-            else
-            {
-                JITDUMP("\nSuppressing zero-init for V%02u -- expect to zero in prolog\n", lclNum);
-                lcl->lvSuppressedZeroInit = 1;
-                compSuppressedZeroInit    = true;
-            }
-
-            newObjThisPtr = gtNewLclVarAddrNode(lclNum, TYP_BYREF);
-        }
-        else
-        {
-            // If we're newing up a finalizable object, spill anything that can cause exceptions.
-            //
-            bool            hasSideEffects = false;
-            CorInfoHelpFunc newHelper =
-                info.compCompHnd->getNewHelper(&resolvedToken, info.compMethodHnd, &hasSideEffects);
-
-            if (hasSideEffects)
-            {
-                JITDUMP("\nSpilling stack for finalizable newobj\n");
-                impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("finalizable newobj spill"));
-            }
-
-            unsigned lclNum = lvaNewTemp(TYP_REF, true DEBUGARG("newobj temp"));
-            if (compDonotInline())
-            {
-                assert(compInlineResult->GetObservation() == InlineObservation::CALLSITE_TOO_MANY_LOCALS);
-                return TYP_UNDEF;
-            }
-
-            GenTree* op1 = gtNewAllocObjNode(&resolvedToken, /* useParent */ true);
-            if (op1 == nullptr)
-            {
-                return TYP_UNDEF;
-            }
-
-            // Remember that this basic block contains 'new' of an object
-            block->bbFlags |= BBF_HAS_NEWOBJ;
-            optMethodFlags |= OMF_HAS_NEWOBJ;
-
-            LclVarDsc* lcl = lvaGetDesc(lclNum);
-            assert(lcl->lvSingleDef == 0);
-            lcl->lvSingleDef = 1;
-            JITDUMP("Marked V%02u as a single def local\n", lclNum);
-            lvaSetClass(lclNum, resolvedToken.hClass, /* isExact */ true);
-
-            // Append the assignment to the temp/local. Dont need to spill
-            // at all as we are just calling an EE-Jit helper which can only
-            // cause an (async) OutOfMemoryException.
-
-            // We assign the newly allocated object (by a GT_ALLOCOBJ node)
-            // to a temp. Note that the pattern "temp = allocObj" is required
-            // by ObjectAllocator phase to be able to determine GT_ALLOCOBJ nodes
-            // without exhaustive walk over all expressions.
-
-            GenTree* asg = gtNewAssignNode(gtNewLclvNode(lclNum, TYP_REF), op1);
-            impAppendTree(asg, CHECK_SPILL_NONE, impCurStmtOffs);
-            newObjThisPtr = gtNewLclvNode(lclNum, TYP_REF);
-        }
+        newObjThis = gtNewLclvNode(lclNum, TYP_REF);
     }
 
     if (compDonotInline())
@@ -13395,8 +13376,9 @@ var_types Importer::ImportNewObj(const BYTE*             codeAddr,
         return TYP_UNDEF;
     }
 
-    return ImportCall(codeAddr, codeEndp, opcodeOffs, CEE_NEWOBJ, resolvedToken, constrainedResolvedToken, callInfo,
-                      prefixFlags, newObjThisPtr);
+    CORINFO_RESOLVED_TOKEN constrainedResolvedToken;
+    return ImportCall(codeAddr, codeEnd, ilOffset, CEE_NEWOBJ, resolvedToken, constrainedResolvedToken, callInfo,
+                      prefixFlags, newObjThis);
 }
 
 var_types Importer::ImportCallI(const BYTE* codeAddr, const BYTE* codeEnd, IL_OFFSET ilOffset, int prefixFlags)
