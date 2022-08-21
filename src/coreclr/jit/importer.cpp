@@ -11468,7 +11468,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 goto PREFIX;
 
             case CEE_LDFTN:
-                ImportLdFtn(codeAddr, resolvedToken, constrainedResolvedToken, callInfo, prefixFlags);
+                ImportLdFtn(codeAddr, constrainedResolvedToken, prefixFlags);
 
                 if (compDonotInline())
                 {
@@ -11478,7 +11478,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_LDVIRTFTN:
-                ImportLdVirtFtn(codeAddr, resolvedToken, constrainedResolvedToken, callInfo, prefixFlags);
+                ImportLdVirtFtn(codeAddr, constrainedResolvedToken, prefixFlags);
 
                 if (compDonotInline())
                 {
@@ -11552,8 +11552,8 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 goto PREFIX;
 
             case CEE_NEWOBJ:
-                callTyp = ImportNewObj(codeAddr, codeEndp, sz, opcodeOffs, opcode, resolvedToken,
-                                       constrainedResolvedToken, callInfo, prefixFlags, block);
+                callTyp = ImportNewObj(codeAddr, codeEndp, sz, opcodeOffs, opcode, constrainedResolvedToken,
+                                       prefixFlags, block);
 
                 if (compDonotInline())
                 {
@@ -12961,17 +12961,14 @@ void Importer::impImportBlockCode(BasicBlock* block)
 #pragma warning(pop)
 #endif
 
-void Importer::ImportLdFtn(const BYTE*             codeAddr,
-                           CORINFO_RESOLVED_TOKEN& resolvedToken,
-                           CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
-                           CORINFO_CALL_INFO&      callInfo,
-                           int                     prefixFlags)
+void Importer::ImportLdFtn(const BYTE* codeAddr, CORINFO_RESOLVED_TOKEN& constrainedResolvedToken, int prefixFlags)
 {
     // Need to do a lookup here so that we perform an access check
     // and do a NOWAY if protections are violated
+    CORINFO_RESOLVED_TOKEN resolvedToken;
     impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
     JITDUMP(" %08X", resolvedToken.token);
-
+    CORINFO_CALL_INFO callInfo;
     eeGetCallInfo(&resolvedToken, (prefixFlags & PREFIX_CONSTRAINED) ? &constrainedResolvedToken : nullptr,
                   combine(CORINFO_CALLINFO_SECURITYCHECKS, CORINFO_CALLINFO_LDFTN), &callInfo);
 
@@ -12999,15 +12996,12 @@ void Importer::ImportLdFtn(const BYTE*             codeAddr,
     impPushOnStack(op1, typeInfo(heapToken));
 }
 
-void Importer::ImportLdVirtFtn(const BYTE*             codeAddr,
-                               CORINFO_RESOLVED_TOKEN& resolvedToken,
-                               CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
-                               CORINFO_CALL_INFO&      callInfo,
-                               int                     prefixFlags)
+void Importer::ImportLdVirtFtn(const BYTE* codeAddr, CORINFO_RESOLVED_TOKEN& constrainedResolvedToken, int prefixFlags)
 {
+    CORINFO_RESOLVED_TOKEN resolvedToken;
     impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
     JITDUMP(" %08X", resolvedToken.token);
-
+    CORINFO_CALL_INFO callInfo;
     eeGetCallInfo(&resolvedToken, nullptr /* constraint typeRef */,
                   combine(combine(CORINFO_CALLINFO_SECURITYCHECKS, CORINFO_CALLINFO_LDFTN), CORINFO_CALLINFO_CALLVIRT),
                   &callInfo);
@@ -13099,9 +13093,7 @@ var_types Importer::ImportNewObj(const BYTE*             codeAddr,
                                  int                     sz,
                                  IL_OFFSET               opcodeOffs,
                                  OPCODE&                 opcode,
-                                 CORINFO_RESOLVED_TOKEN& resolvedToken,
                                  CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
-                                 CORINFO_CALL_INFO&      callInfo,
                                  int                     prefixFlags,
                                  BasicBlock*             block)
 {
@@ -13116,8 +13108,9 @@ var_types Importer::ImportNewObj(const BYTE*             codeAddr,
     /* NEWOBJ does not respond to CONSTRAINED */
     prefixFlags &= ~PREFIX_CONSTRAINED;
 
+    CORINFO_RESOLVED_TOKEN resolvedToken;
     impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_NewObj);
-
+    CORINFO_CALL_INFO callInfo;
     eeGetCallInfo(&resolvedToken, nullptr /* constraint typeRef*/,
                   combine(CORINFO_CALLINFO_SECURITYCHECKS, CORINFO_CALLINFO_ALLOWINSTPARAM), &callInfo);
 
