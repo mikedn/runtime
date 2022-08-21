@@ -9543,7 +9543,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
 #endif
         CORINFO_RESOLVED_TOKEN resolvedToken;
         CORINFO_RESOLVED_TOKEN constrainedResolvedToken;
-        CORINFO_CALL_INFO      callInfo;
         CORINFO_FIELD_INFO     fieldInfo;
 
         //---------------------------------------------------------------------
@@ -11575,15 +11574,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
             case CEE_CALLVIRT:
             case CEE_CALL:
-                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
-                eeGetCallInfo(&resolvedToken, (prefixFlags & PREFIX_CONSTRAINED) ? &constrainedResolvedToken : nullptr,
-                              // this is how impImportCall invokes getCallInfo
-                              combine(combine(CORINFO_CALLINFO_ALLOWINSTPARAM, CORINFO_CALLINFO_SECURITYCHECKS),
-                                      (opcode == CEE_CALLVIRT) ? CORINFO_CALLINFO_CALLVIRT : CORINFO_CALLINFO_NONE),
-                              &callInfo);
-
-                callTyp = ImportCall(codeAddr, codeEndp, sz, opcodeOffs, opcode, resolvedToken,
-                                     constrainedResolvedToken, callInfo, prefixFlags, nullptr);
+                callTyp = ImportCall(codeAddr, codeEndp, sz, opcodeOffs, opcode, constrainedResolvedToken, prefixFlags);
 
                 if (compDonotInline())
                 {
@@ -13367,6 +13358,27 @@ var_types Importer::ImportCallI(const BYTE*             codeAddr,
     resolvedToken.token        = getU4LittleEndian(codeAddr);
     resolvedToken.tokenContext = impTokenLookupContextHandle;
     resolvedToken.tokenScope   = info.compScopeHnd;
+
+    return ImportCall(codeAddr, codeEndp, sz, opcodeOffs, opcode, resolvedToken, constrainedResolvedToken, callInfo,
+                      prefixFlags, nullptr);
+}
+
+var_types Importer::ImportCall(const BYTE*             codeAddr,
+                               const BYTE*             codeEndp,
+                               int                     sz,
+                               IL_OFFSET               opcodeOffs,
+                               OPCODE&                 opcode,
+                               CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
+                               int                     prefixFlags)
+{
+    CORINFO_RESOLVED_TOKEN resolvedToken;
+    impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
+    CORINFO_CALL_INFO callInfo;
+    eeGetCallInfo(&resolvedToken, (prefixFlags & PREFIX_CONSTRAINED) ? &constrainedResolvedToken : nullptr,
+                  // this is how impImportCall invokes getCallInfo
+                  combine(combine(CORINFO_CALLINFO_ALLOWINSTPARAM, CORINFO_CALLINFO_SECURITYCHECKS),
+                          (opcode == CEE_CALLVIRT) ? CORINFO_CALLINFO_CALLVIRT : CORINFO_CALLINFO_NONE),
+                  &callInfo);
 
     return ImportCall(codeAddr, codeEndp, sz, opcodeOffs, opcode, resolvedToken, constrainedResolvedToken, callInfo,
                       prefixFlags, nullptr);
