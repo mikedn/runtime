@@ -18592,13 +18592,6 @@ GenTree* Importer::gtReverseCond(GenTree* tree)
     return comp->gtReverseCond(tree);
 }
 
-GenTree* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            call,
-                                                 CORINFO_CONTEXT_HANDLE* exactContextHnd,
-                                                 CORINFO_RESOLVED_TOKEN* ldftnToken)
-{
-    return comp->fgOptimizeDelegateConstructor(call, exactContextHnd, ldftnToken);
-}
-
 bool Importer::fgAddrCouldBeNull(GenTree* addr)
 {
     return comp->fgAddrCouldBeNull(addr);

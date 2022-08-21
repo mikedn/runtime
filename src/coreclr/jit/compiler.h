@@ -5654,10 +5654,6 @@ private:
     GenTree* fgMorphCall(GenTreeCall* call);
     GenTree* fgRemoveArrayStoreHelperCall(GenTreeCall* call, GenTree* value);
     GenTree* fgExpandVirtualVtableCallTarget(GenTreeCall* call);
-
-    GenTree* fgOptimizeDelegateConstructor(GenTreeCall*            call,
-                                           CORINFO_CONTEXT_HANDLE* ExactContextHnd,
-                                           CORINFO_RESOLVED_TOKEN* ldftnToken);
     GenTree* fgMorphLeaf(GenTree* tree);
     void gtAssignSetVarDef(GenTree* dst);
     GenTree* fgMorphInitStruct(GenTreeOp* asg);
