@@ -351,6 +351,16 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
 
         // Local reads are side-effect-free; clear any flags leftover from frontend transformations.
         node->SetSideEffects(GTF_EMPTY);
+
+#ifndef TARGET_64BIT
+        if (node->TypeIs(TYP_LONG) ||
+            // We may end up with INT LCL_VAR nodes for LONG locals, we should
+            // treat them as LONG in case we want to promote the LONG local.
+            (node->TypeIs(TYP_INT) && node->OperIs(GT_LCL_VAR) && comp->lvaGetDesc(node->AsLclVar())->TypeIs(TYP_LONG)))
+        {
+            comp->compLongUsed = true;
+        }
+#endif
     }
     else
     {
@@ -370,14 +380,14 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
         {
             node->SetUnusedValue();
         }
-    }
 
 #ifndef TARGET_64BIT
-    if (node->TypeIs(TYP_LONG))
-    {
-        comp->compLongUsed = true;
-    }
+        if (node->TypeIs(TYP_LONG))
+        {
+            comp->compLongUsed = true;
+        }
 #endif
+    }
 
     return Compiler::WALK_CONTINUE;
 }
