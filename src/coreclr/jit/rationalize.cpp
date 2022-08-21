@@ -213,14 +213,22 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
             break;
 
         case GT_NOP:
-            // fgMorph sometimes inserts NOP nodes between defs and uses
-            // supposedly 'to prevent constant folding'. In this case, remove the
-            // NOP.
-            if (node->gtGetOp1() != nullptr)
+            // fgMorph sometimes inserts NOP nodes between defs and uses supposedly
+            // 'to prevent constant folding'. In this case, remove the NOP.
+            if (GenTree* value = node->gtGetOp1())
             {
-                use.ReplaceWith(comp, node->gtGetOp1());
+                if (!use.IsDummyUse())
+                {
+                    use.ReplaceWith(comp, value);
+                }
+                else
+                {
+                    value->SetUnusedValue();
+                }
+
                 BlockRange().Remove(node);
-                node = node->gtGetOp1();
+
+                return Compiler::WALK_CONTINUE;
             }
             break;
 
@@ -247,11 +255,10 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
 
             BlockRange().Remove(node);
 
-            GenTree* replacement = node->gtGetOp2();
+            GenTree* value = node->gtGetOp2();
             if (!use.IsDummyUse())
             {
-                use.ReplaceWith(comp, replacement);
-                node = replacement;
+                use.ReplaceWith(comp, value);
             }
             else
             {
@@ -259,7 +266,7 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
                 // it as well.
                 bool               isClosed    = false;
                 unsigned           sideEffects = 0;
-                LIR::ReadOnlyRange rhsRange    = BlockRange().GetTreeRange(replacement, &isClosed, &sideEffects);
+                LIR::ReadOnlyRange rhsRange    = BlockRange().GetTreeRange(value, &isClosed, &sideEffects);
 
                 if ((sideEffects & GTF_ALL_EFFECT) == 0)
                 {
@@ -269,11 +276,13 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
 
                     BlockRange().Delete(comp, m_block, std::move(rhsRange));
                 }
-                else
+                else if (value->IsValue())
                 {
-                    node = replacement;
+                    value->SetUnusedValue();
                 }
             }
+
+            return Compiler::WALK_CONTINUE;
         }
         break;
 
