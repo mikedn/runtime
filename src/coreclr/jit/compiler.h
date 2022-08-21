@@ -2617,6 +2617,7 @@ struct Importer
     void ImportRefAnyType();
     void ImportRefAnyVal(const BYTE* codeAddr);
     void ImportLocAlloc(BasicBlock* block);
+    void ImportIsInst(const BYTE* codeAddr DEBUGARG(int sz));
     void ImportJmp(const BYTE* codeAddr, BasicBlock* block);
     void ImportLdFtn(const BYTE* codeAddr, CORINFO_RESOLVED_TOKEN& constrainedResolvedToken, int prefixFlags);
     void ImportLdVirtFtn(const BYTE* codeAddr, CORINFO_RESOLVED_TOKEN& constrainedResolvedToken, int prefixFlags);

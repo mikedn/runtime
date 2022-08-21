@@ -11851,74 +11851,13 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_ISINST:
-            {
-                assertImp(sz == sizeof(unsigned));
-                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Casting);
-                JITDUMP(" %08X", resolvedToken.token);
+                ImportIsInst(codeAddr DEBUGARG(sz));
 
-                if (!opts.IsReadyToRun())
-                {
-                    op2 = impTokenToHandle(&resolvedToken);
-                    if (op2 == nullptr)
-                    {
-                        return;
-                    }
-                }
-
-                accessAllowedResult =
-                    info.compCompHnd->canAccessClass(&resolvedToken, info.compMethodHnd, &calloutHelper);
-                impHandleAccessAllowed(accessAllowedResult, calloutHelper);
-
-                op1 = impPopStack().val;
-
-                GenTree* optTree = impOptimizeCastClassOrIsInst(op1, &resolvedToken, false);
-
-                if (optTree != nullptr)
-                {
-                    impPushOnStack(optTree, typeInfo());
-                    break;
-                }
-
-#ifdef FEATURE_READYTORUN_COMPILER
-                if (opts.IsReadyToRun())
-                {
-                    GenTreeCall* opLookup =
-                        gtNewReadyToRunHelperCallNode(&resolvedToken, CORINFO_HELP_READYTORUN_ISINSTANCEOF, TYP_REF,
-                                                      gtNewCallArgs(op1));
-                    usingReadyToRunHelper = (opLookup != nullptr);
-                    op1                   = (usingReadyToRunHelper ? opLookup : op1);
-
-                    if (!usingReadyToRunHelper)
-                    {
-                        // TODO: ReadyToRun: When generic dictionary lookups are necessary, replace the lookup call
-                        // and the isinstanceof_any call with a single call to a dynamic R2R cell that will:
-                        //      1) Load the context
-                        //      2) Perform the generic dictionary lookup and caching, and generate the appropriate
-                        //      stub
-                        //      3) Perform the 'is instance' check on the input object
-                        // Reason: performance (today, we'll always use the slow helper for the R2R generics case)
-
-                        op2 = impTokenToHandle(&resolvedToken);
-                        if (op2 == nullptr)
-                        {
-                            return;
-                        }
-                    }
-                }
-
-                if (!usingReadyToRunHelper)
-#endif
-                {
-                    op1 = impCastClassOrIsInstToTree(op1, op2, &resolvedToken, false);
-                }
                 if (compDonotInline())
                 {
                     return;
                 }
-
-                impPushOnStack(op1, typeInfo());
                 break;
-            }
 
             case CEE_REFANYVAL:
                 ImportRefAnyVal(codeAddr);
@@ -12845,6 +12784,84 @@ void Importer::ImportLocAlloc(BasicBlock* block)
     else
     {
         compLocallocOptimized = true;
+    }
+
+    impPushOnStack(op1, typeInfo());
+}
+
+void Importer::ImportIsInst(const BYTE* codeAddr DEBUGARG(int sz))
+{
+    GenTree* op1 = nullptr;
+    GenTree* op2 = nullptr;
+    assertImp(sz == sizeof(unsigned));
+
+    CORINFO_RESOLVED_TOKEN resolvedToken;
+    impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Casting);
+    JITDUMP(" %08X", resolvedToken.token);
+
+    if (!opts.IsReadyToRun())
+    {
+        op2 = impTokenToHandle(&resolvedToken);
+        if (op2 == nullptr)
+        {
+            assert(compDonotInline());
+            return;
+        }
+    }
+
+    CORINFO_HELPER_DESC          calloutHelper;
+    CorInfoIsAccessAllowedResult accessAllowedResult =
+        info.compCompHnd->canAccessClass(&resolvedToken, info.compMethodHnd, &calloutHelper);
+    impHandleAccessAllowed(accessAllowedResult, calloutHelper);
+
+    op1 = impPopStack().val;
+
+    GenTree* optTree = impOptimizeCastClassOrIsInst(op1, &resolvedToken, false);
+
+    if (optTree != nullptr)
+    {
+        impPushOnStack(optTree, typeInfo());
+        return;
+    }
+
+    bool usingReadyToRunHelper = false;
+
+#ifdef FEATURE_READYTORUN_COMPILER
+    if (opts.IsReadyToRun())
+    {
+        GenTreeCall* opLookup = gtNewReadyToRunHelperCallNode(&resolvedToken, CORINFO_HELP_READYTORUN_ISINSTANCEOF,
+                                                              TYP_REF, gtNewCallArgs(op1));
+        usingReadyToRunHelper = (opLookup != nullptr);
+        op1                   = (usingReadyToRunHelper ? opLookup : op1);
+
+        if (!usingReadyToRunHelper)
+        {
+            // TODO: ReadyToRun: When generic dictionary lookups are necessary, replace the lookup call
+            // and the isinstanceof_any call with a single call to a dynamic R2R cell that will:
+            //      1) Load the context
+            //      2) Perform the generic dictionary lookup and caching, and generate the appropriate
+            //      stub
+            //      3) Perform the 'is instance' check on the input object
+            // Reason: performance (today, we'll always use the slow helper for the R2R generics case)
+
+            op2 = impTokenToHandle(&resolvedToken);
+            if (op2 == nullptr)
+            {
+                assert(compDonotInline());
+                return;
+            }
+        }
+    }
+
+    if (!usingReadyToRunHelper)
+#endif
+    {
+        op1 = impCastClassOrIsInstToTree(op1, op2, &resolvedToken, false);
+    }
+
+    if (compDonotInline())
+    {
+        return;
     }
 
     impPushOnStack(op1, typeInfo());
