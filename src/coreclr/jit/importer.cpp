@@ -9744,7 +9744,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
             int val;
 
-            CORINFO_SIG_INFO     sig;
             IL_OFFSET            jmpAddr;
             bool                 ovfl;
             CORINFO_CLASS_HANDLE tokenType;
@@ -10269,50 +10268,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_JMP:
-                assert(!compIsForInlining());
-
-                if ((info.compFlags & CORINFO_FLG_SYNCH) || block->hasTryIndex() || block->hasHndIndex())
-                {
-                    /* CEE_JMP does not make sense in some "protected" regions. */
-
-                    BADCODE("Jmp not allowed in protected region");
-                }
-
-                if (opts.IsReversePInvoke())
-                {
-                    BADCODE("Jmp not allowed in reverse P/Invoke");
-                }
-
-                if (verCurrentState.esStackDepth != 0)
-                {
-                    BADCODE("Stack must be empty after CEE_JMPs");
-                }
-
-                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
-
-                JITDUMP(" %08X", resolvedToken.token);
-
-                /* The signature of the target has to be identical to ours.
-                   At least check that argCnt and returnType match */
-
-                eeGetMethodSig(resolvedToken.hMethod, &sig);
-                if (sig.numArgs != info.compMethodInfo->args.numArgs ||
-                    sig.retType != info.compMethodInfo->args.retType ||
-                    sig.callConv != info.compMethodInfo->args.callConv)
-                {
-                    BADCODE("Incompatible target for CEE_JMPs");
-                }
-
-                // Mark the basic block as being a JUMP instead of RETURN
-                block->bbFlags |= BBF_HAS_JMP;
-                // Set this flag to make sure register arguments have a location assigned
-                // even if we don't use them inside the method
-                compJmpOpUsed = true;
-                // TODO-MIKE-Review: What does struct promotion have to do with JMP?
-                // Probably they messed up arg passing...
-                fgNoStructPromotion = true;
-
-                impSpillNoneAppendTree(new (comp, GT_JMP) GenTreeVal(GT_JMP, TYP_VOID, (size_t)resolvedToken.hMethod));
+                ImportJmp(codeAddr, block);
                 break;
 
             case CEE_LDELEMA:
@@ -12927,6 +12883,55 @@ void Importer::impImportBlockCode(BasicBlock* block)
 #ifdef _PREFAST_
 #pragma warning(pop)
 #endif
+
+void Importer::ImportJmp(const BYTE* codeAddr, BasicBlock* block)
+{
+    assert(!compIsForInlining());
+
+    if ((info.compFlags & CORINFO_FLG_SYNCH) || block->hasTryIndex() || block->hasHndIndex())
+    {
+        /* CEE_JMP does not make sense in some "protected" regions. */
+
+        BADCODE("Jmp not allowed in protected region");
+    }
+
+    if (opts.IsReversePInvoke())
+    {
+        BADCODE("Jmp not allowed in reverse P/Invoke");
+    }
+
+    if (verCurrentState.esStackDepth != 0)
+    {
+        BADCODE("Stack must be empty after CEE_JMPs");
+    }
+
+    CORINFO_RESOLVED_TOKEN resolvedToken;
+    impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
+
+    JITDUMP(" %08X", resolvedToken.token);
+
+    /* The signature of the target has to be identical to ours.
+       At least check that argCnt and returnType match */
+
+    CORINFO_SIG_INFO sig;
+    eeGetMethodSig(resolvedToken.hMethod, &sig);
+    if (sig.numArgs != info.compMethodInfo->args.numArgs || sig.retType != info.compMethodInfo->args.retType ||
+        sig.callConv != info.compMethodInfo->args.callConv)
+    {
+        BADCODE("Incompatible target for CEE_JMPs");
+    }
+
+    // Mark the basic block as being a JUMP instead of RETURN
+    block->bbFlags |= BBF_HAS_JMP;
+    // Set this flag to make sure register arguments have a location assigned
+    // even if we don't use them inside the method
+    compJmpOpUsed = true;
+    // TODO-MIKE-Review: What does struct promotion have to do with JMP?
+    // Probably they messed up arg passing...
+    fgNoStructPromotion = true;
+
+    impSpillNoneAppendTree(new (comp, GT_JMP) GenTreeVal(GT_JMP, TYP_VOID, (size_t)resolvedToken.hMethod));
+}
 
 void Importer::ImportLdFtn(const BYTE* codeAddr, CORINFO_RESOLVED_TOKEN& constrainedResolvedToken, int prefixFlags)
 {
