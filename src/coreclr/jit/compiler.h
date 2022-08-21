@@ -2612,6 +2612,16 @@ struct Importer
     void impInsertHelperCall(const CORINFO_HELPER_DESC& helperCall);
     void impHandleAccessAllowed(CorInfoIsAccessAllowedResult result, const CORINFO_HELPER_DESC& helperCall);
 
+    var_types ImportNewObj(const BYTE*             codeAddr,
+                           const BYTE*             codeEndp,
+                           int                     sz,
+                           IL_OFFSET               opcodeOffs,
+                           OPCODE&                 opcode,
+                           CORINFO_RESOLVED_TOKEN& resolvedToken,
+                           CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
+                           CORINFO_CALL_INFO&      callInfo,
+                           int                     prefixFlags,
+                           BasicBlock*             block);
     var_types ImportCall(const BYTE*             codeAddr,
                          const BYTE*             codeEndp,
                          int                     sz,
