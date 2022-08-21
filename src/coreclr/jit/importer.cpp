@@ -11842,7 +11842,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_ISINST:
-                ImportIsInst(codeAddr DEBUGARG(sz));
+                ImportIsInst(codeAddr);
 
                 if (compDonotInline())
                 {
@@ -12402,7 +12402,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_MKREFANY:
-                ImportMkRefAny(codeAddr DEBUGARG(sz));
+                ImportMkRefAny(codeAddr);
 
                 if (compDonotInline())
                 {
@@ -12554,7 +12554,7 @@ void Importer::ImportArgList()
     impPushOnStack(gtNewLclVarAddrNode(lvaVarargsHandleArg, TYP_I_IMPL), typeInfo());
 }
 
-void Importer::ImportMkRefAny(const BYTE* codeAddr DEBUGARG(int sz))
+void Importer::ImportMkRefAny(const BYTE* codeAddr)
 {
     assert(!compIsForInlining());
 
@@ -12563,16 +12563,11 @@ void Importer::ImportMkRefAny(const BYTE* codeAddr DEBUGARG(int sz))
 
     JITDUMP("disabling struct promotion because of mkrefany\n");
     fgNoStructPromotion = true;
-
-    genTreeOps oper = GT_MKREFANY;
-    GenTree*   op1  = nullptr;
-    GenTree*   op2  = nullptr;
-    assertImp(sz == sizeof(unsigned));
     CORINFO_RESOLVED_TOKEN resolvedToken;
     impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
     JITDUMP(" %08X", resolvedToken.token);
 
-    op2 = impTokenToHandle(&resolvedToken, /* mustRestoreHandle */ true);
+    GenTree* op2 = impTokenToHandle(&resolvedToken, /* mustRestoreHandle */ true);
     if (op2 == nullptr)
     {
         return;
@@ -12583,14 +12578,14 @@ void Importer::ImportMkRefAny(const BYTE* codeAddr DEBUGARG(int sz))
         info.compCompHnd->canAccessClass(&resolvedToken, info.compMethodHnd, &calloutHelper);
     impHandleAccessAllowed(accessAllowedResult, calloutHelper);
 
-    op1 = impPopStack().val;
+    GenTree* op1 = impPopStack().val;
 
     // @SPECVIOLATION: TYP_INT should not be allowed here by a strict reading of the spec.
     // But JIT32 allowed it, so we continue to allow it.
     assertImp(op1->TypeGet() == TYP_BYREF || op1->TypeGet() == TYP_I_IMPL || op1->TypeGet() == TYP_INT);
 
     // MKREFANY returns a struct.  op2 is the class token.
-    op1 = gtNewOperNode(oper, TYP_STRUCT, op1, op2);
+    op1 = gtNewOperNode(GT_MKREFANY, TYP_STRUCT, op1, op2);
 
     impPushOnStack(op1, typeInfo(TI_STRUCT, impGetRefAnyClass()));
 }
@@ -12780,15 +12775,13 @@ void Importer::ImportLocAlloc(BasicBlock* block)
     impPushOnStack(op1, typeInfo());
 }
 
-void Importer::ImportIsInst(const BYTE* codeAddr DEBUGARG(int sz))
+void Importer::ImportIsInst(const BYTE* codeAddr)
 {
-    GenTree* op1 = nullptr;
-    GenTree* op2 = nullptr;
-    assertImp(sz == sizeof(unsigned));
-
     CORINFO_RESOLVED_TOKEN resolvedToken;
     impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Casting);
     JITDUMP(" %08X", resolvedToken.token);
+
+    GenTree* op2 = nullptr;
 
     if (!opts.IsReadyToRun())
     {
@@ -12805,7 +12798,7 @@ void Importer::ImportIsInst(const BYTE* codeAddr DEBUGARG(int sz))
         info.compCompHnd->canAccessClass(&resolvedToken, info.compMethodHnd, &calloutHelper);
     impHandleAccessAllowed(accessAllowedResult, calloutHelper);
 
-    op1 = impPopStack().val;
+    GenTree* op1 = impPopStack().val;
 
     GenTree* optTree = impOptimizeCastClassOrIsInst(op1, &resolvedToken, false);
 
