@@ -12633,39 +12633,12 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_MKREFANY:
-                assert(!compIsForInlining());
+                ImportMkRefAny(codeAddr DEBUGARG(sz));
 
-                // Being lazy here. Refanys are tricky in terms of gc tracking.
-                // Since it is uncommon, just don't perform struct promotion in any method that contains mkrefany.
-
-                JITDUMP("disabling struct promotion because of mkrefany\n");
-                fgNoStructPromotion = true;
-
-                oper = GT_MKREFANY;
-                assertImp(sz == sizeof(unsigned));
-                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
-                JITDUMP(" %08X", resolvedToken.token);
-
-                op2 = impTokenToHandle(&resolvedToken, /* mustRestoreHandle */ true);
-                if (op2 == nullptr)
+                if (compDonotInline())
                 {
                     return;
                 }
-
-                accessAllowedResult =
-                    info.compCompHnd->canAccessClass(&resolvedToken, info.compMethodHnd, &calloutHelper);
-                impHandleAccessAllowed(accessAllowedResult, calloutHelper);
-
-                op1 = impPopStack().val;
-
-                // @SPECVIOLATION: TYP_INT should not be allowed here by a strict reading of the spec.
-                // But JIT32 allowed it, so we continue to allow it.
-                assertImp(op1->TypeGet() == TYP_BYREF || op1->TypeGet() == TYP_I_IMPL || op1->TypeGet() == TYP_INT);
-
-                // MKREFANY returns a struct.  op2 is the class token.
-                op1 = gtNewOperNode(oper, TYP_STRUCT, op1, op2);
-
-                impPushOnStack(op1, typeInfo(TI_STRUCT, impGetRefAnyClass()));
                 break;
 
             case CEE_LDOBJ:
@@ -12790,6 +12763,47 @@ void Importer::impImportBlockCode(BasicBlock* block)
 #ifdef _PREFAST_
 #pragma warning(pop)
 #endif
+
+void Importer::ImportMkRefAny(const BYTE* codeAddr DEBUGARG(int sz))
+{
+    assert(!compIsForInlining());
+
+    // Being lazy here. Refanys are tricky in terms of gc tracking.
+    // Since it is uncommon, just don't perform struct promotion in any method that contains mkrefany.
+
+    JITDUMP("disabling struct promotion because of mkrefany\n");
+    fgNoStructPromotion = true;
+
+    genTreeOps oper = GT_MKREFANY;
+    GenTree*   op1  = nullptr;
+    GenTree*   op2  = nullptr;
+    assertImp(sz == sizeof(unsigned));
+    CORINFO_RESOLVED_TOKEN resolvedToken;
+    impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
+    JITDUMP(" %08X", resolvedToken.token);
+
+    op2 = impTokenToHandle(&resolvedToken, /* mustRestoreHandle */ true);
+    if (op2 == nullptr)
+    {
+        return;
+    }
+
+    CORINFO_HELPER_DESC          calloutHelper;
+    CorInfoIsAccessAllowedResult accessAllowedResult =
+        info.compCompHnd->canAccessClass(&resolvedToken, info.compMethodHnd, &calloutHelper);
+    impHandleAccessAllowed(accessAllowedResult, calloutHelper);
+
+    op1 = impPopStack().val;
+
+    // @SPECVIOLATION: TYP_INT should not be allowed here by a strict reading of the spec.
+    // But JIT32 allowed it, so we continue to allow it.
+    assertImp(op1->TypeGet() == TYP_BYREF || op1->TypeGet() == TYP_I_IMPL || op1->TypeGet() == TYP_INT);
+
+    // MKREFANY returns a struct.  op2 is the class token.
+    op1 = gtNewOperNode(oper, TYP_STRUCT, op1, op2);
+
+    impPushOnStack(op1, typeInfo(TI_STRUCT, impGetRefAnyClass()));
+}
 
 void Importer::ImportLocAlloc(BasicBlock* block)
 {
