@@ -12014,40 +12014,12 @@ void Importer::impImportBlockCode(BasicBlock* block)
             }
 
             case CEE_REFANYVAL:
-                if (impStackTop().seTypeInfo.GetClassHandleForValueClass() != impGetRefAnyClass())
-                {
-                    BADCODE("typedref expected");
-                }
+                ImportRefAnyVal(codeAddr);
 
-                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
-                JITDUMP(" %08X", resolvedToken.token);
-
-                op2 = impTokenToHandle(&resolvedToken);
-                if (op2 == nullptr)
+                if (compDonotInline())
                 {
-                    assert(compIsForInlining() && compDonotInline());
                     return;
                 }
-
-                op1 = impPopStack().val;
-
-                if (op1->OperIs(GT_CALL, GT_RET_EXPR))
-                {
-                    unsigned tmpNum = lvaGrabTemp(true DEBUGARG("refanyval temp"));
-                    impAppendTempAssign(tmpNum, op1, impGetRefAnyClass(), CHECK_SPILL_ALL);
-                    op1 = gtNewLclvNode(tmpNum, TYP_STRUCT);
-                }
-
-                {
-                    GenTreeCall::Use* arg1 = gtNewCallArgs(op2);
-                    GenTreeCall::Use* arg2 = gtNewCallArgs(op1);
-                    arg2->SetSigTypeNum(typGetObjLayoutNum(impGetRefAnyClass()));
-                    arg1->SetNext(arg2);
-
-                    op1 = gtNewHelperCallNode(CORINFO_HELP_GETREFANY, TYP_BYREF, arg1);
-                }
-
-                impPushOnStack(op1, typeInfo());
                 break;
 
             case CEE_REFANYTYPE:
@@ -12807,6 +12779,45 @@ void Importer::ImportRefAnyType()
     op1->AsCall()->GetRetDesc()->InitializePrimitive(GetRuntimeHandleUnderlyingType());
 
     impPushOnStack(op1, typeInfo(TI_STRUCT, op1->AsCall()->GetRetLayout()->GetClassHandle()));
+}
+
+void Importer::ImportRefAnyVal(const BYTE* codeAddr)
+{
+    if (impStackTop().seTypeInfo.GetClassHandleForValueClass() != impGetRefAnyClass())
+    {
+        BADCODE("typedref expected");
+    }
+
+    CORINFO_RESOLVED_TOKEN resolvedToken;
+    impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
+    JITDUMP(" %08X", resolvedToken.token);
+
+    GenTree* op2 = impTokenToHandle(&resolvedToken);
+    if (op2 == nullptr)
+    {
+        assert(compIsForInlining() && compDonotInline());
+        return;
+    }
+
+    GenTree* op1 = impPopStack().val;
+
+    if (op1->OperIs(GT_CALL, GT_RET_EXPR))
+    {
+        unsigned tmpNum = lvaGrabTemp(true DEBUGARG("refanyval temp"));
+        impAppendTempAssign(tmpNum, op1, impGetRefAnyClass(), CHECK_SPILL_ALL);
+        op1 = gtNewLclvNode(tmpNum, TYP_STRUCT);
+    }
+
+    {
+        GenTreeCall::Use* arg1 = gtNewCallArgs(op2);
+        GenTreeCall::Use* arg2 = gtNewCallArgs(op1);
+        arg2->SetSigTypeNum(typGetObjLayoutNum(impGetRefAnyClass()));
+        arg1->SetNext(arg2);
+
+        op1 = gtNewHelperCallNode(CORINFO_HELP_GETREFANY, TYP_BYREF, arg1);
+    }
+
+    impPushOnStack(op1, typeInfo());
 }
 
 void Importer::ImportLocAlloc(BasicBlock* block)
