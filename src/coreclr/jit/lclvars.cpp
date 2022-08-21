@@ -44,11 +44,7 @@ void Compiler::lvaInitTypeRef()
         {
             info.retDesc.InitializePrimitive(retKind.type);
 
-            if ((retKind.type == TYP_LONG) && !compLongUsed)
-            {
-                compLongUsed = true;
-            }
-            else if (varTypeIsFloating(retKind.type) && !compFloatingPointUsed)
+            if (varTypeIsFloating(retKind.type) && !compFloatingPointUsed)
             {
                 compFloatingPointUsed = true;
             }

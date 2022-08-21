@@ -341,17 +341,16 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
     }
 
     // Do some extra processing on top-level nodes to remove unused local reads.
-    if (node->OperIsLocalRead())
+    if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
         if (use.IsDummyUse())
         {
             BlockRange().Remove(node);
+            return Compiler::WALK_CONTINUE;
         }
-        else
-        {
-            // Local reads are side-effect-free; clear any flags leftover from frontend transformations.
-            node->gtFlags &= ~GTF_ALL_EFFECT;
-        }
+
+        // Local reads are side-effect-free; clear any flags leftover from frontend transformations.
+        node->SetSideEffects(GTF_EMPTY);
     }
     else
     {
@@ -371,12 +370,14 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
         {
             node->SetUnusedValue();
         }
-
-        if (node->TypeGet() == TYP_LONG)
-        {
-            comp->compLongUsed = true;
-        }
     }
+
+#ifndef TARGET_64BIT
+    if (node->TypeIs(TYP_LONG))
+    {
+        comp->compLongUsed = true;
+    }
+#endif
 
     return Compiler::WALK_CONTINUE;
 }

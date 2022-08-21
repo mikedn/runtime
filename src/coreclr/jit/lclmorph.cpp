@@ -2899,10 +2899,6 @@ void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
         {
             compiler->compFloatingPointUsed = true;
         }
-        else if (field.type == TYP_LONG)
-        {
-            compiler->compLongUsed = true;
-        }
 
         FieldSeqNode* fieldSeq = nullptr;
 

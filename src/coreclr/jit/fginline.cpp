@@ -2175,7 +2175,6 @@ void Compiler::inlInsertInlineeBlocks(const InlineInfo* inlineInfo, Statement* s
 
 void Compiler::inlPropagateInlineeCompilerState()
 {
-    compLongUsed |= InlineeCompiler->compLongUsed;
     compFloatingPointUsed |= InlineeCompiler->compFloatingPointUsed;
     compLocallocUsed |= InlineeCompiler->compLocallocUsed;
     compLocallocOptimized |= InlineeCompiler->compLocallocOptimized;

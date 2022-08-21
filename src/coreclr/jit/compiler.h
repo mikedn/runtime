@@ -2064,7 +2064,6 @@ struct Importer
     bool&                                   fgCheapPredsValid;
     bool&                                   compDoAggressiveInlining;
     bool&                                   compFloatingPointUsed;
-    bool&                                   compLongUsed;
     bool&                                   compJmpOpUsed;
     bool&                                   compLocallocUsed;
     bool&                                   compLocallocOptimized;
@@ -7245,7 +7244,9 @@ public:
 
     bool compDoAggressiveInlining = false; // If true, mark every method as CORINFO_FLG_FORCEINLINE
     bool compJmpOpUsed            = false; // Does the method do a JMP
+#ifndef TARGET_64BIT
     bool compLongUsed             = false; // Does the method use TYP_LONG
+#endif
     bool compFloatingPointUsed    = false; // Does the method use TYP_FLOAT or TYP_DOUBLE
     bool compTailCallUsed         = false; // Does the method do a tailcall
     bool compLocallocUsed         = false; // Does the method use localloc.
