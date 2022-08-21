@@ -2619,6 +2619,7 @@ struct Importer
     void ImportJmp(const BYTE* codeAddr, BasicBlock* block);
     void ImportLdFtn(const BYTE* codeAddr, CORINFO_RESOLVED_TOKEN& constrainedResolvedToken, int prefixFlags);
     void ImportLdVirtFtn(const BYTE* codeAddr, CORINFO_RESOLVED_TOKEN& constrainedResolvedToken, int prefixFlags);
+    void ImportNewArr(const BYTE* codeAddr, BasicBlock* block);
     var_types ImportNewObj(const BYTE*             codeAddr,
                            const BYTE*             codeEndp,
                            int                     sz,

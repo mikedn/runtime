@@ -11844,94 +11844,14 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_NEWARR:
-            {
-                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Newarr);
-                JITDUMP(" %08X", resolvedToken.token);
+                ImportNewArr(codeAddr, block);
 
-                if (!opts.IsReadyToRun())
+                if (compDonotInline())
                 {
-                    // Need to restore array classes before creating array objects on the heap
-                    op1 = impTokenToHandle(&resolvedToken, /* mustRestoreHandle */ true);
-                    if (op1 == nullptr)
-                    { // compDonotInline()
-                        return;
-                    }
+                    return;
                 }
-
-                accessAllowedResult =
-                    info.compCompHnd->canAccessClass(&resolvedToken, info.compMethodHnd, &calloutHelper);
-                impHandleAccessAllowed(accessAllowedResult, calloutHelper);
-
-                /* Form the arglist: array class handle, size */
-                op2 = impPopStack().val;
-                assertImp(genActualTypeIsIntOrI(op2->gtType));
-
-#ifdef TARGET_64BIT
-                // The array helper takes a native int for array length.
-                // So if we have an int, explicitly extend it to be a native int.
-                if (genActualType(op2->TypeGet()) != TYP_I_IMPL)
-                {
-                    if (op2->IsIntegralConst())
-                    {
-                        op2->gtType = TYP_I_IMPL;
-                    }
-                    else
-                    {
-                        bool isUnsigned = false;
-                        op2             = gtNewCastNode(TYP_I_IMPL, op2, isUnsigned, TYP_I_IMPL);
-                    }
-                }
-#endif // TARGET_64BIT
-
-#ifdef FEATURE_READYTORUN_COMPILER
-                if (opts.IsReadyToRun())
-                {
-                    op1 = gtNewReadyToRunHelperCallNode(&resolvedToken, CORINFO_HELP_READYTORUN_NEWARR_1, TYP_REF,
-                                                        gtNewCallArgs(op2));
-                    usingReadyToRunHelper = (op1 != nullptr);
-
-                    if (!usingReadyToRunHelper)
-                    {
-                        // TODO: ReadyToRun: When generic dictionary lookups are necessary, replace the lookup call
-                        // and the newarr call with a single call to a dynamic R2R cell that will:
-                        //      1) Load the context
-                        //      2) Perform the generic dictionary lookup and caching, and generate the appropriate stub
-                        //      3) Allocate the new array
-                        // Reason: performance (today, we'll always use the slow helper for the R2R generics case)
-
-                        // Need to restore array classes before creating array objects on the heap
-                        op1 = impTokenToHandle(&resolvedToken, /* mustRestoreHandle */ true);
-                        if (op1 == nullptr)
-                        { // compDonotInline()
-                            return;
-                        }
-                    }
-                }
-
-                if (!usingReadyToRunHelper)
-#endif
-                {
-                    GenTreeCall::Use* args = gtNewCallArgs(op1, op2);
-
-                    /* Create a call to 'new' */
-
-                    // Note that this only works for shared generic code because the same helper is used for all
-                    // reference array types
-                    op1 = gtNewHelperCallNode(info.compCompHnd->getNewArrHelper(resolvedToken.hClass), TYP_REF, args);
-                }
-
-                op1->AsCall()->compileTimeHelperArgumentHandle = (CORINFO_GENERIC_HANDLE)resolvedToken.hClass;
-
-                /* Remember that this basic block contains 'new' of an sd array */
-
-                block->bbFlags |= BBF_HAS_NEWARRAY;
-                optMethodFlags |= OMF_HAS_NEWARRAY;
-
-                impPushOnStack(op1, typeInfo(TI_REF, resolvedToken.hClass));
-
                 callTyp = TYP_REF;
-            }
-            break;
+                break;
 
             case CEE_LOCALLOC:
                 ImportLocAlloc(block);
@@ -13096,6 +13016,102 @@ DO_LDFTN:
     assert(callInfo.hMethod != nullptr);
     heapToken->hMethod = callInfo.hMethod;
     impPushOnStack(op1, typeInfo(heapToken));
+}
+
+void Importer::ImportNewArr(const BYTE* codeAddr, BasicBlock* block)
+{
+    CORINFO_RESOLVED_TOKEN resolvedToken;
+    impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Newarr);
+    JITDUMP(" %08X", resolvedToken.token);
+
+    GenTree* op1 = nullptr;
+    GenTree* op2 = nullptr;
+
+    if (!opts.IsReadyToRun())
+    {
+        // Need to restore array classes before creating array objects on the heap
+        op1 = impTokenToHandle(&resolvedToken, /* mustRestoreHandle */ true);
+        if (op1 == nullptr)
+        {
+            assert(compDonotInline());
+            return;
+        }
+    }
+
+    CORINFO_HELPER_DESC          calloutHelper;
+    CorInfoIsAccessAllowedResult accessAllowedResult =
+        info.compCompHnd->canAccessClass(&resolvedToken, info.compMethodHnd, &calloutHelper);
+    impHandleAccessAllowed(accessAllowedResult, calloutHelper);
+
+    /* Form the arglist: array class handle, size */
+    op2 = impPopStack().val;
+    assertImp(genActualTypeIsIntOrI(op2->gtType));
+
+#ifdef TARGET_64BIT
+    // The array helper takes a native int for array length.
+    // So if we have an int, explicitly extend it to be a native int.
+    if (genActualType(op2->TypeGet()) != TYP_I_IMPL)
+    {
+        if (op2->IsIntegralConst())
+        {
+            op2->gtType = TYP_I_IMPL;
+        }
+        else
+        {
+            bool isUnsigned = false;
+            op2             = gtNewCastNode(TYP_I_IMPL, op2, isUnsigned, TYP_I_IMPL);
+        }
+    }
+#endif // TARGET_64BIT
+
+    bool usingReadyToRunHelper = false;
+
+#ifdef FEATURE_READYTORUN_COMPILER
+    if (opts.IsReadyToRun())
+    {
+        op1 = gtNewReadyToRunHelperCallNode(&resolvedToken, CORINFO_HELP_READYTORUN_NEWARR_1, TYP_REF,
+                                            gtNewCallArgs(op2));
+        usingReadyToRunHelper = (op1 != nullptr);
+
+        if (!usingReadyToRunHelper)
+        {
+            // TODO: ReadyToRun: When generic dictionary lookups are necessary, replace the lookup call
+            // and the newarr call with a single call to a dynamic R2R cell that will:
+            //      1) Load the context
+            //      2) Perform the generic dictionary lookup and caching, and generate the appropriate stub
+            //      3) Allocate the new array
+            // Reason: performance (today, we'll always use the slow helper for the R2R generics case)
+
+            // Need to restore array classes before creating array objects on the heap
+            op1 = impTokenToHandle(&resolvedToken, /* mustRestoreHandle */ true);
+            if (op1 == nullptr)
+            {
+                assert(compDonotInline());
+                return;
+            }
+        }
+    }
+
+    if (!usingReadyToRunHelper)
+#endif
+    {
+        GenTreeCall::Use* args = gtNewCallArgs(op1, op2);
+
+        /* Create a call to 'new' */
+
+        // Note that this only works for shared generic code because the same helper is used for all
+        // reference array types
+        op1 = gtNewHelperCallNode(info.compCompHnd->getNewArrHelper(resolvedToken.hClass), TYP_REF, args);
+    }
+
+    op1->AsCall()->compileTimeHelperArgumentHandle = (CORINFO_GENERIC_HANDLE)resolvedToken.hClass;
+
+    /* Remember that this basic block contains 'new' of an sd array */
+
+    block->bbFlags |= BBF_HAS_NEWARRAY;
+    optMethodFlags |= OMF_HAS_NEWARRAY;
+
+    impPushOnStack(op1, typeInfo(TI_REF, resolvedToken.hClass));
 }
 
 var_types Importer::ImportNewObj(const BYTE*             codeAddr,
