@@ -6642,6 +6642,22 @@ var_types Importer::impImportCall(OPCODE                  opcode,
                                   CORINFO_CALL_INFO*      callInfo,
                                   IL_OFFSET               rawILOffset)
 {
+    // TODO-MIKE-Review: Try to move this to ImportCallI. The main issue that ImportCall
+    // behaves a bit differently for CALL (e.g. calls impHandleAccessAllowed).
+    if ((opcode == CEE_CALLI) && IsTargetAbi(CORINFO_CORERT_ABI))
+    {
+        // See comment in impCheckForPInvokeCall
+        BasicBlock* block = compIsForInlining() ? impInlineInfo->iciBlock : compCurBB;
+
+        if (info.compCompHnd->convertPInvokeCalliToCall(pResolvedToken, !impCanPInvokeInlineCallSite(block)))
+        {
+            eeGetCallInfo(pResolvedToken, nullptr, CORINFO_CALLINFO_ALLOWINSTPARAM, callInfo);
+            opcode = CEE_CALL;
+            assert(pConstrainedResolvedToken == nullptr);
+            assert(newobjThis == nullptr);
+        }
+    }
+
     assert(opcode == CEE_CALL || opcode == CEE_CALLVIRT || opcode == CEE_NEWOBJ || opcode == CEE_CALLI);
 
     IL_OFFSETX             ilOffset                       = impCurILOffset(rawILOffset, true);
@@ -6714,18 +6730,6 @@ var_types Importer::impImportCall(OPCODE                  opcode,
 
     if (opcode == CEE_CALLI)
     {
-        if (IsTargetAbi(CORINFO_CORERT_ABI))
-        {
-            // See comment in impCheckForPInvokeCall
-            BasicBlock* block = compIsForInlining() ? impInlineInfo->iciBlock : compCurBB;
-            if (info.compCompHnd->convertPInvokeCalliToCall(pResolvedToken, !impCanPInvokeInlineCallSite(block)))
-            {
-                eeGetCallInfo(pResolvedToken, nullptr, CORINFO_CALLINFO_ALLOWINSTPARAM, callInfo);
-                return impImportCall(CEE_CALL, pResolvedToken, nullptr, nullptr, prefixFlags, callInfo, rawILOffset);
-            }
-        }
-
-        /* Get the call site sig */
         eeGetSig(pResolvedToken->token, pResolvedToken->tokenScope, pResolvedToken->tokenContext, &calliSig);
 
         callRetTyp = JITtype2varType(calliSig.retType);
