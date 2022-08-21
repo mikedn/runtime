@@ -11934,106 +11934,13 @@ void Importer::impImportBlockCode(BasicBlock* block)
             break;
 
             case CEE_LOCALLOC:
-                // We don't allow locallocs inside handlers
-                if (block->hasHndIndex())
+                ImportLocAlloc(block);
+
+                if (compDonotInline())
                 {
-                    BADCODE("Localloc can't be inside handler");
+                    return;
                 }
 
-                // Get the size to allocate
-
-                op2 = impPopStack().val;
-                assertImp(genActualTypeIsIntOrI(op2->gtType));
-
-                if (verCurrentState.esStackDepth != 0)
-                {
-                    BADCODE("Localloc can only be used when the stack is empty");
-                }
-
-                // If the localloc is not in a loop and its size is a small constant,
-                // create a new local var of TYP_BLK and return its address.
-                {
-                    bool convertedToLocal = false;
-
-                    // Need to aggressively fold here, as even fixed-size locallocs
-                    // will have casts in the way.
-                    op2 = gtFoldExpr(op2);
-
-                    if (GenTreeIntCon* icon = op2->IsIntCon())
-                    {
-                        const ssize_t allocSize = icon->GetValue();
-
-                        if (allocSize == 0)
-                        {
-                            // Result is nullptr
-                            JITDUMP("Converting stackalloc of 0 bytes to push null unmanaged pointer\n");
-                            op1 = gtNewIconNode(0, TYP_I_IMPL);
-
-                            convertedToLocal = true;
-                        }
-                        else if ((allocSize > 0) && !impBlockIsInALoop(block))
-                        {
-                            ssize_t maxSize = DEFAULT_MAX_LOCALLOC_TO_LOCAL_SIZE;
-                            INDEBUG(maxSize = JitConfig.JitStackAllocToLocalSize();)
-
-                            if (allocSize <= maxSize)
-                            {
-                                const unsigned lclNum = lvaGrabTemp(false DEBUGARG("small stackalloc temp"));
-                                JITDUMP("Converting stackalloc of %zd bytes to new local V%02u\n", allocSize, lclNum);
-
-                                LclVarDsc* lcl = lvaGetDesc(lclNum);
-                                lcl->SetBlockType(static_cast<unsigned>(allocSize));
-                                lcl->lvIsUnsafeBuffer = true;
-
-                                op1 = gtNewLclVarAddrNode(lclNum, TYP_I_IMPL);
-
-                                if (!opts.compDbgEnC)
-                                {
-                                    // Ensure we have stack security for this method.
-                                    // Reorder layout since the converted localloc is treated as an unsafe buffer.
-                                    setNeedsGSSecurityCookie();
-                                    compGSReorderStackLayout = true;
-                                }
-
-                                convertedToLocal = true;
-                            }
-                        }
-                    }
-
-                    if (!convertedToLocal)
-                    {
-                        // Bail out if inlining and the localloc was not converted.
-                        //
-                        // Note we might consider allowing the inline, if the call
-                        // site is not in a loop.
-                        if (compIsForInlining())
-                        {
-                            InlineObservation obs = op2->IsIntegralConst()
-                                                        ? InlineObservation::CALLEE_LOCALLOC_TOO_LARGE
-                                                        : InlineObservation::CALLSITE_LOCALLOC_SIZE_UNKNOWN;
-                            compInlineResult->NoteFatal(obs);
-                            return;
-                        }
-
-                        op1 = gtNewOperNode(GT_LCLHEAP, TYP_I_IMPL, op2);
-                        // May throw a stack overflow exception. Obviously, we don't want locallocs to be CSE'd.
-                        op1->gtFlags |= (GTF_EXCEPT | GTF_DONT_CSE);
-
-                        // Ensure we have stack security for this method.
-                        setNeedsGSSecurityCookie();
-
-                        /* The FP register may not be back to the original value at the end
-                           of the method, even if the frame size is 0, as localloc may
-                           have modified it. So we will HAVE to reset it */
-                        compLocallocUsed = true;
-                    }
-                    else
-                    {
-                        compLocallocOptimized = true;
-                    }
-                }
-
-                impPushOnStack(op1, typeInfo());
                 break;
 
             case CEE_ISINST:
@@ -12883,6 +12790,108 @@ void Importer::impImportBlockCode(BasicBlock* block)
 #ifdef _PREFAST_
 #pragma warning(pop)
 #endif
+
+void Importer::ImportLocAlloc(BasicBlock* block)
+{
+    // We don't allow locallocs inside handlers
+    if (block->hasHndIndex())
+    {
+        BADCODE("Localloc can't be inside handler");
+    }
+
+    // Get the size to allocate
+
+    GenTree* op1 = nullptr;
+    GenTree* op2 = impPopStack().val;
+    assertImp(genActualTypeIsIntOrI(op2->gtType));
+
+    if (verCurrentState.esStackDepth != 0)
+    {
+        BADCODE("Localloc can only be used when the stack is empty");
+    }
+
+    // If the localloc is not in a loop and its size is a small constant,
+    // create a new local var of TYP_BLK and return its address.
+    bool convertedToLocal = false;
+
+    // Need to aggressively fold here, as even fixed-size locallocs
+    // will have casts in the way.
+    op2 = gtFoldExpr(op2);
+
+    if (GenTreeIntCon* icon = op2->IsIntCon())
+    {
+        const ssize_t allocSize = icon->GetValue();
+
+        if (allocSize == 0)
+        {
+            // Result is nullptr
+            JITDUMP("Converting stackalloc of 0 bytes to push null unmanaged pointer\n");
+            op1 = gtNewIconNode(0, TYP_I_IMPL);
+
+            convertedToLocal = true;
+        }
+        else if ((allocSize > 0) && !impBlockIsInALoop(block))
+        {
+            ssize_t maxSize = DEFAULT_MAX_LOCALLOC_TO_LOCAL_SIZE;
+            INDEBUG(maxSize = JitConfig.JitStackAllocToLocalSize();)
+
+            if (allocSize <= maxSize)
+            {
+                const unsigned lclNum = lvaGrabTemp(false DEBUGARG("small stackalloc temp"));
+                JITDUMP("Converting stackalloc of %zd bytes to new local V%02u\n", allocSize, lclNum);
+
+                LclVarDsc* lcl = lvaGetDesc(lclNum);
+                lcl->SetBlockType(static_cast<unsigned>(allocSize));
+                lcl->lvIsUnsafeBuffer = true;
+
+                op1 = gtNewLclVarAddrNode(lclNum, TYP_I_IMPL);
+
+                if (!opts.compDbgEnC)
+                {
+                    // Ensure we have stack security for this method.
+                    // Reorder layout since the converted localloc is treated as an unsafe buffer.
+                    setNeedsGSSecurityCookie();
+                    compGSReorderStackLayout = true;
+                }
+
+                convertedToLocal = true;
+            }
+        }
+    }
+
+    if (!convertedToLocal)
+    {
+        // Bail out if inlining and the localloc was not converted.
+        //
+        // Note we might consider allowing the inline, if the call
+        // site is not in a loop.
+        if (compIsForInlining())
+        {
+            InlineObservation obs = op2->IsIntegralConst() ? InlineObservation::CALLEE_LOCALLOC_TOO_LARGE
+                                                           : InlineObservation::CALLSITE_LOCALLOC_SIZE_UNKNOWN;
+            compInlineResult->NoteFatal(obs);
+            return;
+        }
+
+        op1 = gtNewOperNode(GT_LCLHEAP, TYP_I_IMPL, op2);
+        // May throw a stack overflow exception. Obviously, we don't want locallocs to be CSE'd.
+        op1->gtFlags |= (GTF_EXCEPT | GTF_DONT_CSE);
+
+        // Ensure we have stack security for this method.
+        setNeedsGSSecurityCookie();
+
+        /* The FP register may not be back to the original value at the end
+           of the method, even if the frame size is 0, as localloc may
+           have modified it. So we will HAVE to reset it */
+        compLocallocUsed = true;
+    }
+    else
+    {
+        compLocallocOptimized = true;
+    }
+
+    impPushOnStack(op1, typeInfo());
+}
 
 void Importer::ImportJmp(const BYTE* codeAddr, BasicBlock* block)
 {

@@ -2612,6 +2612,7 @@ struct Importer
     void impInsertHelperCall(const CORINFO_HELPER_DESC& helperCall);
     void impHandleAccessAllowed(CorInfoIsAccessAllowedResult result, const CORINFO_HELPER_DESC& helperCall);
 
+    void ImportLocAlloc(BasicBlock* block);
     void ImportJmp(const BYTE* codeAddr, BasicBlock* block);
     void ImportLdFtn(const BYTE* codeAddr, CORINFO_RESOLVED_TOKEN& constrainedResolvedToken, int prefixFlags);
     void ImportLdVirtFtn(const BYTE* codeAddr, CORINFO_RESOLVED_TOKEN& constrainedResolvedToken, int prefixFlags);
