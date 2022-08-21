@@ -11668,35 +11668,33 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
-                FALLTHROUGH;
+                // We can't call getCallInfo on the token from a CALLI.
+                // Suppress uninitialized use warning.
+                memset(&resolvedToken, 0, sizeof(resolvedToken));
+                memset(&callInfo, 0, sizeof(callInfo));
+
+                resolvedToken.token        = getU4LittleEndian(codeAddr);
+                resolvedToken.tokenContext = impTokenLookupContextHandle;
+                resolvedToken.tokenScope   = info.compScopeHnd;
+
+                callTyp = ImportCall(codeAddr, codeEndp, sz, opcodeOffs, opcode, resolvedToken,
+                                     constrainedResolvedToken, callInfo, prefixFlags, nullptr);
+
+                if (compDonotInline())
+                {
+                    return;
+                }
+
+                break;
 
             case CEE_CALLVIRT:
             case CEE_CALL:
-
-                // We can't call getCallInfo on the token from a CALLI, but we need it in
-                // many other places.  We unfortunately embed that knowledge here.
-                if (opcode != CEE_CALLI)
-                {
-                    impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
-
-                    eeGetCallInfo(&resolvedToken,
-                                  (prefixFlags & PREFIX_CONSTRAINED) ? &constrainedResolvedToken : nullptr,
-                                  // this is how impImportCall invokes getCallInfo
-
-                                  combine(combine(CORINFO_CALLINFO_ALLOWINSTPARAM, CORINFO_CALLINFO_SECURITYCHECKS),
-                                          (opcode == CEE_CALLVIRT) ? CORINFO_CALLINFO_CALLVIRT : CORINFO_CALLINFO_NONE),
-                                  &callInfo);
-                }
-                else
-                {
-                    // Suppress uninitialized use warning.
-                    memset(&resolvedToken, 0, sizeof(resolvedToken));
-                    memset(&callInfo, 0, sizeof(callInfo));
-
-                    resolvedToken.token        = getU4LittleEndian(codeAddr);
-                    resolvedToken.tokenContext = impTokenLookupContextHandle;
-                    resolvedToken.tokenScope   = info.compScopeHnd;
-                }
+                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
+                eeGetCallInfo(&resolvedToken, (prefixFlags & PREFIX_CONSTRAINED) ? &constrainedResolvedToken : nullptr,
+                              // this is how impImportCall invokes getCallInfo
+                              combine(combine(CORINFO_CALLINFO_ALLOWINSTPARAM, CORINFO_CALLINFO_SECURITYCHECKS),
+                                      (opcode == CEE_CALLVIRT) ? CORINFO_CALLINFO_CALLVIRT : CORINFO_CALLINFO_NONE),
+                              &callInfo);
 
                 callTyp = ImportCall(codeAddr, codeEndp, sz, opcodeOffs, opcode, resolvedToken,
                                      constrainedResolvedToken, callInfo, prefixFlags, nullptr);
