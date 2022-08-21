@@ -153,8 +153,7 @@ void Compiler::lvaInitTypeRef()
         info.compTypeCtxtArg = BAD_VAR_NUM;
     }
 
-    lvaCount = info.compLocalsCount = info.compArgsCount + info.compMethodInfo->locals.numArgs;
-
+    info.compLocalsCount   = info.compArgsCount + info.compMethodInfo->locals.numArgs;
     info.compILlocalsCount = info.compILargsCount + info.compMethodInfo->locals.numArgs;
 
     /* Now allocate the variable descriptor table */
@@ -171,6 +170,7 @@ void Compiler::lvaInitTypeRef()
         return;
     }
 
+    lvaCount     = info.compLocalsCount;
     lvaTableSize = max(16, lvaCount * 2);
     lvaTable     = getAllocator(CMK_LvaTable).allocate<LclVarDsc>(lvaTableSize);
     memset(lvaTable, 0, lvaTableSize * sizeof(lvaTable[0]));
