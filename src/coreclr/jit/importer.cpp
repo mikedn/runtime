@@ -11492,7 +11492,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_CALLI:
-                callTyp = ImportCallI(codeAddr, codeEndp, opcodeOffs, constrainedResolvedToken, prefixFlags);
+                callTyp = ImportCallI(codeAddr, codeEndp, opcodeOffs, prefixFlags);
 
                 if (compDonotInline())
                 {
@@ -13399,37 +13399,31 @@ var_types Importer::ImportNewObj(const BYTE*             codeAddr,
                       prefixFlags, newObjThisPtr);
 }
 
-var_types Importer::ImportCallI(const BYTE*             codeAddr,
-                                const BYTE*             codeEndp,
-                                IL_OFFSET               opcodeOffs,
-                                CORINFO_RESOLVED_TOKEN& constrainedResolvedToken,
-                                int                     prefixFlags)
+var_types Importer::ImportCallI(const BYTE* codeAddr, const BYTE* codeEnd, IL_OFFSET ilOffset, int prefixFlags)
 {
-    /* CALLI does not respond to CONSTRAINED */
+    // TODO-MIKE-Review: This should probably be BADCODE
     prefixFlags &= ~PREFIX_CONSTRAINED;
 
     if (compIsForInlining())
     {
         // CALLI doesn't have a method handle, so assume the worst.
-        if (impInlineInfo->inlineCandidateInfo->dwRestrictions & INLINE_RESPECT_BOUNDARY)
+        if ((impInlineInfo->inlineCandidateInfo->dwRestrictions & INLINE_RESPECT_BOUNDARY) != 0)
         {
             compInlineResult->NoteFatal(InlineObservation::CALLSITE_CROSS_BOUNDARY_CALLI);
+
             return TYP_UNDEF;
         }
     }
 
-    // We can't call getCallInfo on the token from a CALLI.
-    // Suppress uninitialized use warning.
-    CORINFO_RESOLVED_TOKEN resolvedToken;
-    memset(&resolvedToken, 0, sizeof(resolvedToken));
-    CORINFO_CALL_INFO callInfo;
-    memset(&callInfo, 0, sizeof(callInfo));
+    CORINFO_RESOLVED_TOKEN resolvedToken{};
+    CORINFO_RESOLVED_TOKEN constrainedResolvedToken;
+    CORINFO_CALL_INFO      callInfo{};
 
     resolvedToken.token        = getU4LittleEndian(codeAddr);
     resolvedToken.tokenContext = impTokenLookupContextHandle;
     resolvedToken.tokenScope   = info.compScopeHnd;
 
-    return ImportCall(codeAddr, codeEndp, opcodeOffs, CEE_CALLI, resolvedToken, constrainedResolvedToken, callInfo,
+    return ImportCall(codeAddr, codeEnd, ilOffset, CEE_CALLI, resolvedToken, constrainedResolvedToken, callInfo,
                       prefixFlags, nullptr);
 }
 
