@@ -12051,47 +12051,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_REFANYTYPE:
-                if (impStackTop().seTypeInfo.GetClassHandleForValueClass() != impGetRefAnyClass())
-                {
-                    BADCODE("typedref expected");
-                }
-
-                op1 = impPopStack().val;
-
-                if (!op1->OperIs(GT_LCL_VAR, GT_MKREFANY))
-                {
-                    unsigned tmpNum = lvaGrabTemp(true DEBUGARG("refanytype temp"));
-                    impAppendTempAssign(tmpNum, op1, impGetRefAnyClass(), CHECK_SPILL_ALL);
-                    op1 = gtNewLclvNode(tmpNum, TYP_STRUCT);
-                }
-
-                if (op1->OperIs(GT_LCL_VAR))
-                {
-                    op1 = gtNewLclFldNode(op1->AsLclVar()->GetLclNum(), TYP_I_IMPL,
-                                          OFFSETOF__CORINFO_TypedReference__type);
-                    op1->AsLclFld()->SetFieldSeq(GetRefanyTypeField());
-                }
-                else
-                {
-                    assertImp(op1->gtOper == GT_MKREFANY);
-
-                    // The pointer may have side-effects
-                    if (op1->AsOp()->gtOp1->gtFlags & GTF_SIDE_EFFECT)
-                    {
-                        impSpillAllAppendTree(op1->AsOp()->gtOp1);
-                    }
-
-                    // We already have the class handle
-                    op1 = op1->AsOp()->gtOp2;
-                }
-
-                // convert native TypeHandle to RuntimeTypeHandle
-                op1 = gtNewHelperCallNode(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE_MAYBENULL, TYP_STRUCT,
-                                          gtNewCallArgs(op1));
-                op1->AsCall()->SetRetLayout(typGetObjLayout(impGetTypeHandleClass()));
-                op1->AsCall()->GetRetDesc()->InitializePrimitive(GetRuntimeHandleUnderlyingType());
-
-                impPushOnStack(op1, typeInfo(TI_STRUCT, op1->AsCall()->GetRetLayout()->GetClassHandle()));
+                ImportRefAnyType();
                 break;
 
             case CEE_LDTOKEN:
@@ -12803,6 +12763,50 @@ void Importer::ImportMkRefAny(const BYTE* codeAddr DEBUGARG(int sz))
     op1 = gtNewOperNode(oper, TYP_STRUCT, op1, op2);
 
     impPushOnStack(op1, typeInfo(TI_STRUCT, impGetRefAnyClass()));
+}
+
+void Importer::ImportRefAnyType()
+{
+    if (impStackTop().seTypeInfo.GetClassHandleForValueClass() != impGetRefAnyClass())
+    {
+        BADCODE("typedref expected");
+    }
+
+    GenTree* op1 = impPopStack().val;
+    INDEBUG(GenTree* op2 = nullptr;)
+
+    if (!op1->OperIs(GT_LCL_VAR, GT_MKREFANY))
+    {
+        unsigned tmpNum = lvaGrabTemp(true DEBUGARG("refanytype temp"));
+        impAppendTempAssign(tmpNum, op1, impGetRefAnyClass(), CHECK_SPILL_ALL);
+        op1 = gtNewLclvNode(tmpNum, TYP_STRUCT);
+    }
+
+    if (op1->OperIs(GT_LCL_VAR))
+    {
+        op1 = gtNewLclFldNode(op1->AsLclVar()->GetLclNum(), TYP_I_IMPL, OFFSETOF__CORINFO_TypedReference__type);
+        op1->AsLclFld()->SetFieldSeq(GetRefanyTypeField());
+    }
+    else
+    {
+        assertImp(op1->gtOper == GT_MKREFANY);
+
+        // The pointer may have side-effects
+        if (op1->AsOp()->gtOp1->gtFlags & GTF_SIDE_EFFECT)
+        {
+            impSpillAllAppendTree(op1->AsOp()->gtOp1);
+        }
+
+        // We already have the class handle
+        op1 = op1->AsOp()->gtOp2;
+    }
+
+    // convert native TypeHandle to RuntimeTypeHandle
+    op1 = gtNewHelperCallNode(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE_MAYBENULL, TYP_STRUCT, gtNewCallArgs(op1));
+    op1->AsCall()->SetRetLayout(typGetObjLayout(impGetTypeHandleClass()));
+    op1->AsCall()->GetRetDesc()->InitializePrimitive(GetRuntimeHandleUnderlyingType());
+
+    impPushOnStack(op1, typeInfo(TI_STRUCT, op1->AsCall()->GetRetLayout()->GetClassHandle()));
 }
 
 void Importer::ImportLocAlloc(BasicBlock* block)

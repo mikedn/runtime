@@ -2613,6 +2613,7 @@ struct Importer
     void impHandleAccessAllowed(CorInfoIsAccessAllowedResult result, const CORINFO_HELPER_DESC& helperCall);
 
     void ImportMkRefAny(const BYTE* codeAddr DEBUGARG(int sz));
+    void ImportRefAnyType();
     void ImportLocAlloc(BasicBlock* block);
     void ImportJmp(const BYTE* codeAddr, BasicBlock* block);
     void ImportLdFtn(const BYTE* codeAddr, CORINFO_RESOLVED_TOKEN& constrainedResolvedToken, int prefixFlags);
