@@ -13392,6 +13392,11 @@ var_types Importer::ImportNewObj(const BYTE*             codeAddr,
         }
     }
 
+    if (compDonotInline())
+    {
+        return TYP_UNDEF;
+    }
+
     return ImportCall(codeAddr, codeEndp, opcodeOffs, opcode, resolvedToken, constrainedResolvedToken, callInfo,
                       prefixFlags, newObjThisPtr);
 }
@@ -13469,11 +13474,7 @@ var_types Importer::ImportCall(const BYTE*             codeAddr,
 
     if (compIsForInlining())
     {
-        if (compDonotInline())
-        {
-            return TYP_UNDEF;
-        }
-
+        assert(!compDonotInline());
         // We rule out inlinees with explicit tail calls in fgMakeBasicBlocks.
         assert((prefixFlags & PREFIX_TAILCALL_EXPLICIT) == 0);
     }
