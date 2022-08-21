@@ -2620,7 +2620,7 @@ struct Importer
     void ImportIsInst(const BYTE* codeAddr DEBUGARG(int sz));
     void ImportJmp(const BYTE* codeAddr, BasicBlock* block);
     void ImportLdFtn(const BYTE* codeAddr, CORINFO_RESOLVED_TOKEN& constrainedResolvedToken, int prefixFlags);
-    void ImportLdVirtFtn(const BYTE* codeAddr, CORINFO_RESOLVED_TOKEN& constrainedResolvedToken, int prefixFlags);
+    void ImportLdVirtFtn(const BYTE* codeAddr);
     void ImportNewArr(const BYTE* codeAddr, BasicBlock* block);
     var_types ImportNewObj(
         const BYTE* codeAddr, const BYTE* codeEnd, IL_OFFSET ilOffset, int prefixFlags, BasicBlock* block);

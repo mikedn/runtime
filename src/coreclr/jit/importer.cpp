@@ -11412,7 +11412,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_LDVIRTFTN:
-                ImportLdVirtFtn(codeAddr, constrainedResolvedToken, prefixFlags);
+                ImportLdVirtFtn(codeAddr);
 
                 if (compDonotInline())
                 {
@@ -12909,124 +12909,93 @@ void Importer::ImportJmp(const BYTE* codeAddr, BasicBlock* block)
 
 void Importer::ImportLdFtn(const BYTE* codeAddr, CORINFO_RESOLVED_TOKEN& constrainedResolvedToken, int prefixFlags)
 {
-    // Need to do a lookup here so that we perform an access check
-    // and do a NOWAY if protections are violated
     CORINFO_RESOLVED_TOKEN resolvedToken;
     impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
     JITDUMP(" %08X", resolvedToken.token);
+
     CORINFO_CALL_INFO callInfo;
     eeGetCallInfo(&resolvedToken, (prefixFlags & PREFIX_CONSTRAINED) ? &constrainedResolvedToken : nullptr,
                   CORINFO_CALLINFO_SECURITYCHECKS | CORINFO_CALLINFO_LDFTN, &callInfo);
 
     // This check really only applies to intrinsic Array.Address methods
-    if (callInfo.sig.callConv & CORINFO_CALLCONV_PARAMTYPE)
+    if ((callInfo.sig.callConv & CORINFO_CALLCONV_PARAMTYPE) != 0)
     {
-        NO_WAY("Currently do not support LDFTN of Parameterized functions");
+        NO_WAY("Currently do not support LDFTN of parameterized functions");
     }
 
-    // Do this before DO_LDFTN since CEE_LDVIRTFN does it on its own.
     impHandleAccessAllowed(callInfo.accessAllowed, callInfo.callsiteCalloutHelper);
 
-    GenTree* op1 = impMethodPointer(&resolvedToken, &callInfo);
+    GenTree* result = impMethodPointer(&resolvedToken, &callInfo);
 
     if (compDonotInline())
     {
         return;
     }
 
-    // Call info may have more precise information about the function than
-    // the resolved token.
     CORINFO_RESOLVED_TOKEN* token = new (comp, CMK_Unknown) CORINFO_RESOLVED_TOKEN(resolvedToken);
+    // Call info may have more precise information about the function than the resolved token.
     assert(callInfo.hMethod != nullptr);
     token->hMethod = callInfo.hMethod;
-    impPushOnStack(op1, typeInfo(token));
+    impPushOnStack(result, typeInfo(token));
 }
 
-void Importer::ImportLdVirtFtn(const BYTE* codeAddr, CORINFO_RESOLVED_TOKEN& constrainedResolvedToken, int prefixFlags)
+void Importer::ImportLdVirtFtn(const BYTE* codeAddr)
 {
     CORINFO_RESOLVED_TOKEN resolvedToken;
     impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
     JITDUMP(" %08X", resolvedToken.token);
+
     CORINFO_CALL_INFO callInfo;
-    eeGetCallInfo(&resolvedToken, nullptr /* constraint typeRef */,
+    eeGetCallInfo(&resolvedToken, nullptr,
                   CORINFO_CALLINFO_SECURITYCHECKS | CORINFO_CALLINFO_LDFTN | CORINFO_CALLINFO_CALLVIRT, &callInfo);
 
     // This check really only applies to intrinsic Array.Address methods
-    if (callInfo.sig.callConv & CORINFO_CALLCONV_PARAMTYPE)
+    if ((callInfo.sig.callConv & CORINFO_CALLCONV_PARAMTYPE) != 0)
     {
-        NO_WAY("Currently do not support LDFTN of Parameterized functions");
+        NO_WAY("Currently do not support LDFTN of parameterized functions");
     }
-
-    unsigned mflags = callInfo.methodFlags;
 
     impHandleAccessAllowed(callInfo.accessAllowed, callInfo.callsiteCalloutHelper);
 
-    if (compIsForInlining())
+    bool isNonVirtual = callInfo.methodFlags & (CORINFO_FLG_FINAL | CORINFO_FLG_STATIC) ||
+                        !(callInfo.methodFlags & CORINFO_FLG_VIRTUAL);
+
+    if (compIsForInlining() && isNonVirtual)
     {
-        if (mflags & (CORINFO_FLG_FINAL | CORINFO_FLG_STATIC) || !(mflags & CORINFO_FLG_VIRTUAL))
-        {
-            compInlineResult->NoteFatal(InlineObservation::CALLSITE_LDVIRTFN_ON_NON_VIRTUAL);
-            return;
-        }
+        compInlineResult->NoteFatal(InlineObservation::CALLSITE_LDVIRTFN_ON_NON_VIRTUAL);
+
+        return;
     }
 
-    CORINFO_SIG_INFO& ftnSig = callInfo.sig;
+    GenTree* obj = impPopStack().val;
+    assert(obj->TypeIs(TYP_REF));
+    GenTree* result;
 
-    GenTree* op1 = impPopStack().val;
-#ifdef DEBUG
-    GenTree* op2 = nullptr;
-    assertImp(op1->gtType == TYP_REF);
-#endif
-
-    if (opts.IsReadyToRun())
+    if (opts.IsReadyToRun() ? (callInfo.kind != CORINFO_VIRTUALCALL_LDVIRTFTN) : isNonVirtual)
     {
-        if (callInfo.kind != CORINFO_VIRTUALCALL_LDVIRTFTN)
+        if ((obj->gtFlags & GTF_SIDE_EFFECT) != 0)
         {
-            if (op1->gtFlags & GTF_SIDE_EFFECT)
-            {
-                op1 = gtUnusedValNode(op1);
-                impAppendTree(op1, CHECK_SPILL_ALL, impCurStmtOffs);
-            }
-            goto DO_LDFTN;
+            impAppendTree(gtUnusedValNode(obj), CHECK_SPILL_ALL, impCurStmtOffs);
         }
+
+        result = impMethodPointer(&resolvedToken, &callInfo);
     }
-    else if (mflags & (CORINFO_FLG_FINAL | CORINFO_FLG_STATIC) || !(mflags & CORINFO_FLG_VIRTUAL))
+    else
     {
-        if (op1->gtFlags & GTF_SIDE_EFFECT)
-        {
-            op1 = gtUnusedValNode(op1);
-            impAppendTree(op1, CHECK_SPILL_ALL, impCurStmtOffs);
-        }
-        goto DO_LDFTN;
+        result                  = impImportLdvirtftn(obj, &resolvedToken, &callInfo);
+        resolvedToken.tokenType = CORINFO_TOKENKIND_Ldvirtftn;
     }
 
-    GenTree* fptr = impImportLdvirtftn(op1, &resolvedToken, &callInfo);
     if (compDonotInline())
     {
         return;
     }
 
     CORINFO_RESOLVED_TOKEN* token = new (comp, CMK_Unknown) CORINFO_RESOLVED_TOKEN(resolvedToken);
-    assert(callInfo.hMethod != nullptr);
-    token->tokenType = CORINFO_TOKENKIND_Ldvirtftn;
-    token->hMethod   = callInfo.hMethod;
-    impPushOnStack(fptr, typeInfo(token));
-
-    return;
-
-DO_LDFTN:
-    op1 = impMethodPointer(&resolvedToken, &callInfo);
-
-    if (compDonotInline())
-    {
-        return;
-    }
-
     // Call info may have more precise information about the function than the resolved token.
-    token = new (comp, CMK_Unknown) CORINFO_RESOLVED_TOKEN(resolvedToken);
     assert(callInfo.hMethod != nullptr);
     token->hMethod = callInfo.hMethod;
-    impPushOnStack(op1, typeInfo(token));
+    impPushOnStack(result, typeInfo(token));
 }
 
 void Importer::ImportNewArr(const BYTE* codeAddr, BasicBlock* block)
