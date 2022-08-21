@@ -2718,8 +2718,6 @@ struct Importer
 
     bool impCanSkipCovariantStoreCheck(GenTree* value, GenTree* array);
 
-    CORINFO_RESOLVED_TOKEN* impAllocateToken(const CORINFO_RESOLVED_TOKEN& token);
-
     void impImportInitObj(GenTree* dstAddr, ClassLayout* layout);
     void impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayout* layout);
     void impImportInitBlk(unsigned prefixFlags);

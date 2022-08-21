@@ -12936,10 +12936,10 @@ void Importer::ImportLdFtn(const BYTE* codeAddr, CORINFO_RESOLVED_TOKEN& constra
 
     // Call info may have more precise information about the function than
     // the resolved token.
-    CORINFO_RESOLVED_TOKEN* heapToken = impAllocateToken(resolvedToken);
+    CORINFO_RESOLVED_TOKEN* token = new (comp, CMK_Unknown) CORINFO_RESOLVED_TOKEN(resolvedToken);
     assert(callInfo.hMethod != nullptr);
-    heapToken->hMethod = callInfo.hMethod;
-    impPushOnStack(op1, typeInfo(heapToken));
+    token->hMethod = callInfo.hMethod;
+    impPushOnStack(op1, typeInfo(token));
 }
 
 void Importer::ImportLdVirtFtn(const BYTE* codeAddr, CORINFO_RESOLVED_TOKEN& constrainedResolvedToken, int prefixFlags)
@@ -13006,14 +13006,11 @@ void Importer::ImportLdVirtFtn(const BYTE* codeAddr, CORINFO_RESOLVED_TOKEN& con
         return;
     }
 
-    CORINFO_RESOLVED_TOKEN* heapToken = impAllocateToken(resolvedToken);
-
-    assert(heapToken->tokenType == CORINFO_TOKENKIND_Method);
+    CORINFO_RESOLVED_TOKEN* token = new (comp, CMK_Unknown) CORINFO_RESOLVED_TOKEN(resolvedToken);
     assert(callInfo.hMethod != nullptr);
-
-    heapToken->tokenType = CORINFO_TOKENKIND_Ldvirtftn;
-    heapToken->hMethod   = callInfo.hMethod;
-    impPushOnStack(fptr, typeInfo(heapToken));
+    token->tokenType = CORINFO_TOKENKIND_Ldvirtftn;
+    token->hMethod   = callInfo.hMethod;
+    impPushOnStack(fptr, typeInfo(token));
 
     return;
 
@@ -13025,12 +13022,11 @@ DO_LDFTN:
         return;
     }
 
-    // Call info may have more precise information about the function than
-    // the resolved token.
-    heapToken = impAllocateToken(resolvedToken);
+    // Call info may have more precise information about the function than the resolved token.
+    token = new (comp, CMK_Unknown) CORINFO_RESOLVED_TOKEN(resolvedToken);
     assert(callInfo.hMethod != nullptr);
-    heapToken->hMethod = callInfo.hMethod;
-    impPushOnStack(op1, typeInfo(heapToken));
+    token->hMethod = callInfo.hMethod;
+    impPushOnStack(op1, typeInfo(token));
 }
 
 void Importer::ImportNewArr(const BYTE* codeAddr, BasicBlock* block)
@@ -16477,21 +16473,6 @@ CORINFO_CLASS_HANDLE Compiler::impGetSpecialIntrinsicExactReturnType(CORINFO_MET
     }
 
     return result;
-}
-
-//------------------------------------------------------------------------
-// impAllocateToken: create CORINFO_RESOLVED_TOKEN into jit-allocated memory and init it.
-//
-// Arguments:
-//    token - init value for the allocated token.
-//
-// Return Value:
-//    pointer to token into jit-allocated memory.
-CORINFO_RESOLVED_TOKEN* Importer::impAllocateToken(const CORINFO_RESOLVED_TOKEN& token)
-{
-    CORINFO_RESOLVED_TOKEN* memory = getAllocator(CMK_Unknown).allocate<CORINFO_RESOLVED_TOKEN>(1);
-    *memory                        = token;
-    return memory;
 }
 
 // Iterate through call arguments and spill RET_EXPR to local variables.
