@@ -9684,12 +9684,11 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
         CORINFO_CLASS_HANDLE clsHnd = DUMMY_INIT(NULL);
 
-        var_types lclTyp        = TYP_UNKNOWN;
-        GenTree*  op1           = DUMMY_INIT(NULL);
-        GenTree*  op2           = DUMMY_INIT(NULL);
-        GenTree*  newObjThisPtr = DUMMY_INIT(NULL);
-        bool      uns           = DUMMY_INIT(false);
-        bool      isLocal       = false;
+        var_types lclTyp  = TYP_UNKNOWN;
+        GenTree*  op1     = DUMMY_INIT(NULL);
+        GenTree*  op2     = DUMMY_INIT(NULL);
+        bool      uns     = DUMMY_INIT(false);
+        bool      isLocal = false;
 
         /* Get the next opcode and the size of its parameters */
 
