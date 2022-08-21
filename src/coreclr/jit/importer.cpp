@@ -9736,24 +9736,14 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
         switch (opcode)
         {
-            unsigned  lclNum;
-            var_types type;
-
-            GenTree*   op3;
-            genTreeOps oper;
-
-            int val;
-
+            unsigned             lclNum;
+            var_types            type;
+            GenTree*             op3;
+            genTreeOps           oper;
+            int                  val;
             IL_OFFSET            jmpAddr;
             bool                 ovfl;
             CORINFO_CLASS_HANDLE tokenType;
-
-            union {
-                int     intVal;
-                float   fltVal;
-                __int64 lngVal;
-                double  dblVal;
-            } cval;
 
             case CEE_PREFIX1:
                 opcode     = (OPCODE)(getU1LittleEndian(codeAddr) + 256);
@@ -9775,38 +9765,43 @@ void Importer::impImportBlockCode(BasicBlock* block)
             case CEE_LDC_I4_6:
             case CEE_LDC_I4_7:
             case CEE_LDC_I4_8:
-                cval.intVal = (opcode - CEE_LDC_I4_0);
-                assert(-1 <= cval.intVal && cval.intVal <= 8);
+                val = (opcode - CEE_LDC_I4_0);
+                assert(-1 <= val && val <= 8);
                 goto PUSH_I4CON;
-
             case CEE_LDC_I4_S:
-                cval.intVal = getI1LittleEndian(codeAddr);
+                val = getI1LittleEndian(codeAddr);
                 goto PUSH_I4CON;
             case CEE_LDC_I4:
-                cval.intVal = getI4LittleEndian(codeAddr);
+                val = getI4LittleEndian(codeAddr);
                 goto PUSH_I4CON;
             PUSH_I4CON:
-                JITDUMP(" %d", cval.intVal);
-                impPushOnStack(gtNewIconNode(cval.intVal), typeInfo());
+                JITDUMP(" %d", val);
+                impPushOnStack(gtNewIconNode(val), typeInfo());
                 break;
 
             case CEE_LDC_I8:
-                cval.lngVal = getI8LittleEndian(codeAddr);
-                JITDUMP(" 0x%016llx", cval.lngVal);
-                impPushOnStack(gtNewLconNode(cval.lngVal), typeInfo());
+            {
+                int64_t value = getI8LittleEndian(codeAddr);
+                JITDUMP(" 0x%016llx", value);
+                impPushOnStack(gtNewLconNode(value), typeInfo());
                 break;
+            }
 
             case CEE_LDC_R8:
-                cval.dblVal = getR8LittleEndian(codeAddr);
-                JITDUMP(" %#.17g", cval.dblVal);
-                impPushOnStack(gtNewDconNode(cval.dblVal), typeInfo());
+            {
+                double value = getR8LittleEndian(codeAddr);
+                JITDUMP(" %#.17g", value);
+                impPushOnStack(gtNewDconNode(value, TYP_DOUBLE), typeInfo());
                 break;
+            }
 
             case CEE_LDC_R4:
-                cval.dblVal = getR4LittleEndian(codeAddr);
-                JITDUMP(" %#.17g", cval.dblVal);
-                impPushOnStack(gtNewDconNode(cval.dblVal, TYP_FLOAT), typeInfo());
+            {
+                float value = getR4LittleEndian(codeAddr);
+                JITDUMP(" %#.17g", value);
+                impPushOnStack(gtNewDconNode(value, TYP_FLOAT), typeInfo());
                 break;
+            }
 
             case CEE_LDSTR:
                 if (compIsForInlining())
