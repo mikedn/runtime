@@ -181,7 +181,7 @@ GenTree* Importer::impImportSysNumSimdIntrinsic(NamedIntrinsic        intrinsic,
                                                 CORINFO_SIG_INFO*     sig,
                                                 bool                  isNewObj)
 {
-    bool isSupported = featureSIMD && IsBaselineSimdIsaSupported();
+    bool isSupported = comp->featureSIMD && IsBaselineSimdIsaSupported();
 
     if (intrinsic == NI_VectorT128_get_IsHardwareAccelerated
 #ifdef TARGET_XARCH
@@ -249,7 +249,7 @@ GenTree* Importer::impImportSysNumSimdIntrinsic(NamedIntrinsic        intrinsic,
         return nullptr;
     }
 
-    compFloatingPointUsed = true;
+    comp->compFloatingPointUsed = true;
 
     if (hwIntrinsic == NI_SIMD_AS_HWINTRINSIC_START)
     {

@@ -1963,7 +1963,7 @@ GenTree* Compiler::fgMakeMultiUse(GenTree** pOp)
     }
 }
 
-GenTree* Compiler::fgInsertCommaFormTemp(GenTree** use)
+GenTreeLclVar* Compiler::fgInsertCommaFormTemp(GenTree** use)
 {
     GenTree* tree = *use;
     assert(!varTypeIsStruct(tree->GetType()));

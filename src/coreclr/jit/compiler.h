@@ -2039,48 +2039,19 @@ struct Importer
         PREFIX_READONLY    = 0x01000000
     };
 
-    Compiler* comp;
+    Compiler* const              comp;
+    CORINFO_CONTEXT_HANDLE const impTokenLookupContextHandle;
+    InlineInfo* const            impInlineInfo;
+    InlineResult* const          compInlineResult;
 #ifdef DEBUG
-    bool& verbose;
+    bool const verbose;
 #endif
-    CompilerOptions&                        opts;
-    CompiledMethodInfo&                     info;
-    CORINFO_CONTEXT_HANDLE&                 impTokenLookupContextHandle;
-    unsigned&                               optMethodFlags;
-    BasicBlock**&                           fgBBs;
-    BasicBlock*&                            fgFirstBB;
-    BasicBlock*&                            fgEntryBB;
-    unsigned&                               fgBBNumMax;
-    EHblkDsc*&                              compHndBBtab;
-    unsigned&                               compHndBBtabCount;
-    ICorJitInfo::PgoInstrumentationSchema*& fgPgoSchema;
-    BYTE*&                                  fgPgoData;
-    UINT32&                                 fgPgoSchemaCount;
-    LclVarDsc*&                             lvaTable;
-    unsigned&                               lvaArg0Var;
-    InlineInfo*&                            impInlineInfo;
-    InlineResult*&                          compInlineResult;
-    bool&                                   fgComputePredsDone;
-    bool&                                   fgCheapPredsValid;
-    bool&                                   compDoAggressiveInlining;
-    bool&                                   compFloatingPointUsed;
-    bool&                                   compJmpOpUsed;
-    bool&                                   compLocallocUsed;
-    bool&                                   compGSReorderStackLayout;
-    bool&                                   compSuppressedZeroInit;
-    bool&                                   compHasBackwardJump;
-    bool&                                   fgNoStructPromotion;
-    BasicBlock*&                            compCurBB;
-    unsigned&                               lvaStubArgumentVar;
-    unsigned&                               lvaNewObjArrayArgs;
-    unsigned&                               lvaVarargsHandleArg;
-#ifdef FEATURE_SIMD
-    bool& featureSIMD;
-#endif
-    unsigned& optNativeCallCount;
+    CompilerOptions&    opts;
+    CompiledMethodInfo& info;
+    BasicBlock*&        compCurBB;
 
-    Statement* impStmtList; // Statements for the BB being imported.
-    Statement* impLastStmt; // The last statement for the current BB.
+    Statement* impStmtList = nullptr; // Statements for the BB being imported.
+    Statement* impLastStmt = nullptr; // The last statement for the current BB.
 
     // We keep a byte-per-block map (dynamically extended) in the top-level Compiler object of a compilation.
     JitExpandArray<bool> impPendingBlockMembers;
@@ -2977,7 +2948,7 @@ struct Importer
     void gtInitStructCopyAsg(GenTreeOp* asg);
     GenTree* gtFoldExpr(GenTree* tree);
     GenTree* gtFoldExprConst(GenTree* tree);
-    GenTree* fgInsertCommaFormTemp(GenTree** use);
+    GenTreeLclVar* fgInsertCommaFormTemp(GenTree** use);
     void gtChangeOperToNullCheck(GenTree* tree);
     bool gtIsRecursiveCall(GenTreeCall* call);
     bool gtIsRecursiveCall(CORINFO_METHOD_HANDLE callMethodHandle);
@@ -5536,7 +5507,7 @@ public:
 private:
     Statement* fgInsertStmtListAfter(BasicBlock* block, Statement* stmtAfter, Statement* stmtList);
 
-    GenTree* fgInsertCommaFormTemp(GenTree** use);
+    GenTreeLclVar* fgInsertCommaFormTemp(GenTree** use);
     GenTree* fgMakeMultiUse(GenTree** ppTree);
 
 private:

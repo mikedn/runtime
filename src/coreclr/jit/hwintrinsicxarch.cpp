@@ -494,7 +494,7 @@ GenTree* Importer::impBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicS
 {
     assert(!sig.hasThisParam);
 
-    if (!featureSIMD)
+    if (!comp->featureSIMD)
     {
         return nullptr;
     }

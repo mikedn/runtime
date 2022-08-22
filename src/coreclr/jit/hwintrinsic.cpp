@@ -454,7 +454,7 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
     var_types    retType   = sigReader.retType;
     ClassLayout* retLayout = sigReader.retLayout;
 
-    if ((retLayout != nullptr) && featureSIMD)
+    if ((retLayout != nullptr) && comp->featureSIMD)
     {
         // Currently all HW intrinsics return either vectors or primitive types, not structs.
         if (!retLayout->IsVector() || retLayout->ElementTypeIsNInt())
@@ -673,7 +673,7 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
     {
         // Set `compFloatingPointUsed` to cover the scenario where an intrinsic is operating on SIMD fields, but
         // where no SIMD local vars are in use. This is the same logic as is used for FEATURE_SIMD.
-        compFloatingPointUsed = true;
+        comp->compFloatingPointUsed = true;
     }
 
     if (!impIsTableDrivenHWIntrinsic(intrinsic, category))

@@ -41,9 +41,9 @@ void Importer::impPushOnStack(GenTree* tree, typeInfo ti)
     verCurrentState.esStack[verCurrentState.esStackDepth].seTypeInfo = ti;
     verCurrentState.esStack[verCurrentState.esStackDepth++].val      = tree;
 
-    if (((tree->gtType == TYP_FLOAT) || (tree->gtType == TYP_DOUBLE)) && (compFloatingPointUsed == false))
+    if (((tree->gtType == TYP_FLOAT) || (tree->gtType == TYP_DOUBLE)) && !comp->compFloatingPointUsed)
     {
-        compFloatingPointUsed = true;
+        comp->compFloatingPointUsed = true;
     }
 }
 
@@ -498,7 +498,7 @@ void Importer::impAppendStmt(Statement* stmt, unsigned spillDepth)
     impStmtListAppend(stmt);
 
 #ifdef FEATURE_SIMD
-    if (opts.OptimizationEnabled() && featureSIMD)
+    if (opts.OptimizationEnabled() && comp->featureSIMD)
     {
         m_impSIMDCoalescingBuffer.Mark(comp, stmt);
     }
@@ -1864,7 +1864,7 @@ BasicBlock* Importer::impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_H
 
         fgInsertStmtAtEnd(newBlk, argStmt);
 
-        if (fgCheapPredsValid)
+        if (comp->fgCheapPredsValid)
         {
             fgAddCheapPred(hndBlk, newBlk);
         }
@@ -2525,6 +2525,7 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
             }
         };
 
+        INDEBUG(const unsigned lvaNewObjArrayArgs = comp->lvaNewObjArrayArgs);
         unsigned argIndex = 0;
         GenTree* comma;
 
@@ -2811,16 +2812,16 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
 
     if (intrinsicID == CORINFO_INTRINSIC_StubHelpers_GetStubContext)
     {
-        noway_assert(lvaStubArgumentVar != BAD_VAR_NUM);
-        return gtNewLclvNode(lvaStubArgumentVar, TYP_I_IMPL);
+        noway_assert(comp->lvaStubArgumentVar != BAD_VAR_NUM);
+        return gtNewLclvNode(comp->lvaStubArgumentVar, TYP_I_IMPL);
     }
 
 #ifdef TARGET_64BIT
     if (intrinsicID == CORINFO_INTRINSIC_StubHelpers_GetStubContextAddr)
     {
-        noway_assert(lvaStubArgumentVar != BAD_VAR_NUM);
-        lvaSetAddressExposed(lvaStubArgumentVar);
-        return gtNewLclVarAddrNode(lvaStubArgumentVar, TYP_I_IMPL);
+        noway_assert(comp->lvaStubArgumentVar != BAD_VAR_NUM);
+        lvaSetAddressExposed(comp->lvaStubArgumentVar);
+        return gtNewLclVarAddrNode(comp->lvaStubArgumentVar, TYP_I_IMPL);
     }
 #else
     assert(intrinsicID != CORINFO_INTRINSIC_StubHelpers_GetStubContextAddr);
@@ -4913,7 +4914,7 @@ void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
 
         // Remember that this basic block contains 'new' of an object, and so does this method
         compCurBB->bbFlags |= BBF_HAS_NEWOBJ;
-        optMethodFlags |= OMF_HAS_NEWOBJ;
+        comp->optMethodFlags |= OMF_HAS_NEWOBJ;
 
         GenTree*   asg     = gtNewAssignNode(gtNewLclvNode(impBoxTemp, TYP_REF), op1);
         Statement* asgStmt = impAppendTree(asg, CHECK_SPILL_NONE, impCurStmtOffs);
@@ -5081,10 +5082,12 @@ void Importer::impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORI
         // constructors within a single method.
 
         LclVarDsc* argsLcl;
+        unsigned   lvaNewObjArrayArgs = comp->lvaNewObjArrayArgs;
 
         if (lvaNewObjArrayArgs == BAD_VAR_NUM)
         {
-            lvaNewObjArrayArgs = lvaGrabTemp(false DEBUGARG("NewObjArrayArgs"));
+            lvaNewObjArrayArgs       = lvaGrabTemp(false DEBUGARG("NewObjArrayArgs"));
+            comp->lvaNewObjArrayArgs = lvaNewObjArrayArgs;
 
             argsLcl = lvaGetDesc(lvaNewObjArrayArgs);
             argsLcl->SetBlockType(0);
@@ -5412,7 +5415,7 @@ void Importer::impCheckForPInvokeCall(
     {
         return;
     }
-    optNativeCallCount++;
+    comp->optNativeCallCount++;
 
     if (methHnd == nullptr && (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB) || IsTargetAbi(CORINFO_CORERT_ABI)))
     {
@@ -7778,18 +7781,18 @@ DONE:
             // entry block, but now we must.
 
             // We should have remembered the real method entry block.
-            assert(fgEntryBB != nullptr);
+            assert(comp->fgEntryBB != nullptr);
 
             JITDUMP("\nOSR: found tail recursive call in the method, scheduling " FMT_BB " for importation\n",
-                    fgEntryBB->bbNum);
-            impImportBlockPending(fgEntryBB);
-            loopHead = fgEntryBB;
+                    comp->fgEntryBB->bbNum);
+            impImportBlockPending(comp->fgEntryBB);
+            loopHead = comp->fgEntryBB;
         }
         else
         {
             // For normal jitting we'll branch back to the firstBB; this
             // should already be imported.
-            loopHead = fgFirstBB;
+            loopHead = comp->fgFirstBB;
         }
 
         JITDUMP("\nFound tail recursive call in the method. Mark " FMT_BB " to " FMT_BB
@@ -8127,7 +8130,7 @@ void Importer::impImportLeave(BasicBlock* block)
     verCurrentState.esStackDepth = 0;
 
     assert(block->bbJumpKind == BBJ_LEAVE);
-    assert(fgBBs == (BasicBlock**)0xCDCD || fgLookupBB(jmpAddr) != NULL); // should be a BB boundary
+    assert(comp->fgBBs == (BasicBlock**)0xCDCD || fgLookupBB(jmpAddr) != NULL); // should be a BB boundary
 
     BasicBlock* step         = DUMMY_INIT(NULL);
     unsigned    encFinallies = 0; // Number of enclosing finallies.
@@ -8137,7 +8140,7 @@ void Importer::impImportLeave(BasicBlock* block)
     unsigned  XTnum;
     EHblkDsc* HBtab;
 
-    for (XTnum = 0, HBtab = compHndBBtab; XTnum < compHndBBtabCount; XTnum++, HBtab++)
+    for (XTnum = 0, HBtab = comp->compHndBBtab; XTnum < comp->compHndBBtabCount; XTnum++, HBtab++)
     {
         // Grab the handler offsets
 
@@ -8266,8 +8269,8 @@ void Importer::impImportLeave(BasicBlock* block)
             }
 #endif
 
-            unsigned finallyNesting = compHndBBtab[XTnum].ebdHandlerNestingLevel;
-            assert(finallyNesting <= compHndBBtabCount);
+            unsigned finallyNesting = comp->compHndBBtab[XTnum].ebdHandlerNestingLevel;
+            assert(finallyNesting <= comp->compHndBBtabCount);
 
             callBlock->bbJumpDest = HBtab->ebdHndBeg; // This callBlock will call the "finally" handler.
             GenTree* endLFin      = new (comp, GT_END_LFIN) GenTreeVal(GT_END_LFIN, TYP_VOID, finallyNesting);
@@ -8352,7 +8355,7 @@ void Importer::impImportLeave(BasicBlock* block)
         invalidatePreds = true;
     }
 
-    if (invalidatePreds && fgComputePredsDone)
+    if (invalidatePreds && comp->fgComputePredsDone)
     {
         JITDUMP("\n**** impImportLeave - Removing preds after creating new blocks\n");
         fgRemovePreds();
@@ -8395,7 +8398,7 @@ void Importer::impImportLeave(BasicBlock* block)
     verCurrentState.esStackDepth = 0;
 
     assert(block->bbJumpKind == BBJ_LEAVE);
-    assert(fgBBs == (BasicBlock**)0xCDCD || fgLookupBB(jmpAddr) != nullptr); // should be a BB boundary
+    assert(comp->fgBBs == (BasicBlock**)0xCDCD || fgLookupBB(jmpAddr) != nullptr); // should be a BB boundary
 
     BasicBlock* step = nullptr;
 
@@ -8419,7 +8422,7 @@ void Importer::impImportLeave(BasicBlock* block)
     unsigned  XTnum;
     EHblkDsc* HBtab;
 
-    for (XTnum = 0, HBtab = compHndBBtab; XTnum < compHndBBtabCount; XTnum++, HBtab++)
+    for (XTnum = 0, HBtab = comp->compHndBBtab; XTnum < comp->compHndBBtabCount; XTnum++, HBtab++)
     {
         // Grab the handler offsets
 
@@ -8798,7 +8801,7 @@ void Importer::impImportLeave(BasicBlock* block)
         impImportBlockPending(leaveTarget);
     }
 
-    if (invalidatePreds && fgComputePredsDone)
+    if (invalidatePreds && comp->fgComputePredsDone)
     {
         JITDUMP("\n**** impImportLeave - Removing preds after creating new blocks\n");
         fgRemovePreds();
@@ -9355,8 +9358,8 @@ GenTree* Importer::impCastClassOrIsInstToTree(GenTree*                op1,
     GenTree* op2Var = op2;
     if (isCastClass)
     {
-        op2Var                                                  = fgInsertCommaFormTemp(&op2);
-        lvaTable[op2Var->AsLclVarCommon()->GetLclNum()].lvIsCSE = true;
+        op2Var                                  = fgInsertCommaFormTemp(&op2);
+        lvaGetDesc(op2Var->AsLclVar())->lvIsCSE = true;
     }
     temp   = gtNewMethodTableLookup(temp);
     condMT = gtNewOperNode(GT_NE, TYP_INT, temp, op2);
@@ -9486,7 +9489,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 #ifdef FEATURE_ON_STACK_REPLACEMENT
 
     // Are there any places in the method where we might add a patchpoint?
-    if (compHasBackwardJump)
+    if (comp->compHasBackwardJump)
     {
         // Are patchpoints enabled?
         if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER0) && (JitConfig.TC_OnStackReplacement() > 0))
@@ -9890,7 +9893,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                     if (lclNum == info.compThisArg)
                     {
-                        lclNum = lvaArg0Var;
+                        lclNum = comp->lvaArg0Var;
                     }
 
                     assert(lvaGetDesc(lclNum)->lvHasILStoreOp);
@@ -10037,10 +10040,10 @@ void Importer::impImportBlockCode(BasicBlock* block)
                         if (isLocal)
                         {
                             // We should have seen a stloc in our IL prescan.
-                            assert(lvaTable[lclNum].lvHasILStoreOp);
+                            assert(lvaGetDesc(lclNum)->lvHasILStoreOp);
 
                             // Is there just one place this local is defined?
-                            const bool isSingleDefLocal = lvaTable[lclNum].lvSingleDef;
+                            const bool isSingleDefLocal = lvaGetDesc(lclNum)->lvSingleDef;
 
                             // TODO-MIKE-Cleanup: This check is probably no longer needed. It used to be the case
                             // that ref class handles were propagated from predecessors without merging, resulting
@@ -10142,7 +10145,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if (lclNum == info.compThisArg)
                 {
-                    lclNum = lvaArg0Var;
+                    lclNum = comp->lvaArg0Var;
                 }
 
             ADRVAR:
@@ -10167,7 +10170,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 // other importer code sees that handle, thinks that the value is a struct and spills the
                 // stack even if there's no need for that.
 
-                impPushOnStack(op1, lvaTable[lclNum].lvImpTypeInfo);
+                impPushOnStack(op1, lvaGetDesc(lclNum)->lvImpTypeInfo);
                 break;
 
             case CEE_ARGLIST:
@@ -10373,7 +10376,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                     if (varTypeUsesFloatReg(op1->GetType()))
                     {
-                        compFloatingPointUsed = true;
+                        comp->compFloatingPointUsed = true;
                     }
                 }
 
@@ -10486,7 +10489,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if (varTypeUsesFloatReg(op1->GetType()))
                 {
-                    compFloatingPointUsed = true;
+                    comp->compFloatingPointUsed = true;
                 }
 
                 impSpillAllAppendTree(op1);
@@ -12110,8 +12113,9 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     // For the multi-reg case we need to spill it to a temp so that
                     // we can pass the address to the unbox_nullable jit helper.
 
-                    unsigned tmp                  = lvaGrabTemp(true DEBUGARG("unbox nullable multireg temp"));
-                    lvaTable[tmp].lvIsMultiRegArg = true;
+                    unsigned tmp = lvaGrabTemp(true DEBUGARG("unbox nullable multireg temp"));
+
+                    lvaGetDesc(tmp)->lvIsMultiRegArg = true;
                     lvaSetStruct(tmp, layout, /* checkUnsafeBuffer */ true);
 
                     op2 = gtNewLclvNode(tmp, TYP_STRUCT);
@@ -12551,9 +12555,9 @@ void Importer::ImportArgList()
     // The ARGLIST cookie is a hidden 'last' parameter, we have already
     // adjusted the arg count cos this is like fetching the last param
     assertImp(info.compArgsCount > 0);
-    assert(lvaGetDesc(lvaVarargsHandleArg)->lvAddrExposed);
+    assert(lvaGetDesc(comp->lvaVarargsHandleArg)->lvAddrExposed);
 
-    impPushOnStack(gtNewLclVarAddrNode(lvaVarargsHandleArg, TYP_I_IMPL), typeInfo());
+    impPushOnStack(gtNewLclVarAddrNode(comp->lvaVarargsHandleArg, TYP_I_IMPL), typeInfo());
 }
 
 void Importer::ImportMkRefAny(const BYTE* codeAddr)
@@ -12562,9 +12566,10 @@ void Importer::ImportMkRefAny(const BYTE* codeAddr)
 
     // Being lazy here. Refanys are tricky in terms of gc tracking.
     // Since it is uncommon, just don't perform struct promotion in any method that contains mkrefany.
-
+    // TODO-MIKE-Review: What the heck is this comment talking about?
     JITDUMP("disabling struct promotion because of mkrefany\n");
-    fgNoStructPromotion = true;
+    comp->fgNoStructPromotion = true;
+
     CORINFO_RESOLVED_TOKEN resolvedToken;
     impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
     JITDUMP(" %08X", resolvedToken.token);
@@ -12735,7 +12740,7 @@ void Importer::ImportLocAlloc(BasicBlock* block)
                     // Ensure we have stack security for this method.
                     // Reorder layout since the converted localloc is treated as an unsafe buffer.
                     setNeedsGSSecurityCookie();
-                    compGSReorderStackLayout = true;
+                    comp->compGSReorderStackLayout = true;
                 }
 
                 convertedToLocal = true;
@@ -12767,7 +12772,7 @@ void Importer::ImportLocAlloc(BasicBlock* block)
         /* The FP register may not be back to the original value at the end
            of the method, even if the frame size is 0, as localloc may
            have modified it. So we will HAVE to reset it */
-        compLocallocUsed = true;
+        comp->compLocallocUsed = true;
     }
 
     impPushOnStack(op1, typeInfo());
@@ -12890,10 +12895,10 @@ void Importer::ImportJmp(const BYTE* codeAddr, BasicBlock* block)
     block->bbFlags |= BBF_HAS_JMP;
     // Set this flag to make sure register arguments have a location assigned
     // even if we don't use them inside the method
-    compJmpOpUsed = true;
+    comp->compJmpOpUsed = true;
     // TODO-MIKE-Review: What does struct promotion have to do with JMP?
     // Probably they messed up arg passing...
-    fgNoStructPromotion = true;
+    comp->fgNoStructPromotion = true;
 
     impSpillNoneAppendTree(new (comp, GT_JMP) GenTreeVal(GT_JMP, TYP_VOID, (size_t)resolvedToken.hMethod));
 }
@@ -13080,7 +13085,7 @@ void Importer::ImportNewArr(const BYTE* codeAddr, BasicBlock* block)
     /* Remember that this basic block contains 'new' of an sd array */
 
     block->bbFlags |= BBF_HAS_NEWARRAY;
-    optMethodFlags |= OMF_HAS_NEWARRAY;
+    comp->optMethodFlags |= OMF_HAS_NEWARRAY;
 
     impPushOnStack(op1, typeInfo(TI_REF, resolvedToken.hClass));
 }
@@ -13160,7 +13165,7 @@ var_types Importer::ImportNewObj(
         }
 
         block->bbFlags |= BBF_HAS_NEWOBJ;
-        optMethodFlags |= OMF_HAS_NEWOBJ;
+        comp->optMethodFlags |= OMF_HAS_NEWOBJ;
     }
     // This is the normal case where the size of the object is fixed.
     // Allocate the memory and call the constructor.
@@ -13275,8 +13280,8 @@ var_types Importer::ImportNewObj(
         {
             JITDUMP("\nSuppressing zero-init for V%02u -- expect to zero in prolog\n", lclNum);
 
-            lcl->lvSuppressedZeroInit = 1;
-            compSuppressedZeroInit    = true;
+            lcl->lvSuppressedZeroInit    = 1;
+            comp->compSuppressedZeroInit = true;
         }
 
         newObjThis = gtNewLclVarAddrNode(lclNum, TYP_BYREF);
@@ -13310,7 +13315,7 @@ var_types Importer::ImportNewObj(
         }
 
         block->bbFlags |= BBF_HAS_NEWOBJ;
-        optMethodFlags |= OMF_HAS_NEWOBJ;
+        comp->optMethodFlags |= OMF_HAS_NEWOBJ;
 
         LclVarDsc* lcl = lvaGetDesc(lclNum);
         assert(lcl->lvSingleDef == 0);
@@ -13548,7 +13553,7 @@ void Importer::impLoadArg(unsigned ilArgNum, IL_OFFSET offset)
 
         if (lclNum == info.compThisArg)
         {
-            lclNum = lvaArg0Var;
+            lclNum = comp->lvaArg0Var;
         }
 
         impPushLclVar(lclNum, offset);
@@ -14169,8 +14174,8 @@ void Importer::impWalkSpillCliqueFromPred(BasicBlock* block, SpillCliqueWalker* 
 {
     bool toDo = true;
 
-    noway_assert(!fgComputePredsDone);
-    if (!fgCheapPredsValid)
+    noway_assert(!comp->fgComputePredsDone);
+    if (!comp->fgCheapPredsValid)
     {
         fgComputeCheapPreds();
     }
@@ -14403,10 +14408,10 @@ void Importer::impImport()
     verCurrentState.esStackDepth = 0;
     verCurrentState.esStack      = new (comp, CMK_ImpStack) StackEntry[impStkSize];
 
-    assert(fgFirstBB->bbEntryState == nullptr);
+    assert(comp->fgFirstBB->bbEntryState == nullptr);
 
-    impPendingBlockMembers.Reset(fgBBNumMax * 2);
-    impSpillCliqueMembers.Reset(fgBBNumMax * 2);
+    impPendingBlockMembers.Reset(comp->fgBBNumMax * 2);
+    impSpillCliqueMembers.Reset(comp->fgBBNumMax * 2);
 
     impBlockListNodeFreeList = nullptr;
     INDEBUG(impLastILoffsStmt = nullptr;)
@@ -14417,7 +14422,7 @@ void Importer::impImport()
     // These can arise from needing a leading scratch BB, from EH normalization, and from OSR entry redirects.
     //
     // We expect a linear flow to the first non-internal block. But not necessarily straght-line flow.
-    BasicBlock* entryBlock = fgFirstBB;
+    BasicBlock* entryBlock = comp->fgFirstBB;
 
     while (entryBlock->bbFlags & BBF_INTERNAL)
     {
@@ -15101,7 +15106,7 @@ bool Importer::impInlineIsGuaranteedThisDerefBeforeAnySideEffects(GenTree*      
 
     BasicBlock* block = compCurBB;
 
-    if (block != fgFirstBB)
+    if (block != comp->fgFirstBB)
     {
         return false;
     }
@@ -15346,7 +15351,7 @@ void Importer::impMarkInlineCandidateHelper(GenTreeCall*           call,
 #endif
 
     // Check for COMPlus_AggressiveInlining
-    if (compDoAggressiveInlining)
+    if (comp->compDoAggressiveInlining)
     {
         methAttr |= CORINFO_FLG_FORCEINLINE;
     }
@@ -16593,12 +16598,14 @@ void Importer::considerGuardedDevirtualization(
             impInlineRoot()->m_inlineStrategy->GetRandom(JitConfig.JitRandomGuardedDevirtualization());
         likelihood      = 100;
         numberOfClasses = 1;
-        likelyClass     = Compiler::getRandomClass(fgPgoSchema, fgPgoSchemaCount, fgPgoData, ilOffset, random);
+        likelyClass =
+            Compiler::getRandomClass(comp->fgPgoSchema, comp->fgPgoSchemaCount, comp->fgPgoData, ilOffset, random);
     }
     else
 #endif
     {
-        likelyClass = getLikelyClass(fgPgoSchema, fgPgoSchemaCount, fgPgoData, ilOffset, &likelihood, &numberOfClasses);
+        likelyClass = getLikelyClass(comp->fgPgoSchema, comp->fgPgoSchemaCount, comp->fgPgoData, ilOffset, &likelihood,
+                                     &numberOfClasses);
     }
 
     if (likelyClass == NO_CLASS_HANDLE)
@@ -17493,46 +17500,15 @@ void Importer::impSetPendingBlockMember(BasicBlock* blk, bool val)
 
 Importer::Importer(Compiler* comp)
     : comp(comp)
+    , impTokenLookupContextHandle(comp->impTokenLookupContextHandle)
+    , impInlineInfo(comp->impInlineInfo)
+    , compInlineResult(comp->compInlineResult)
 #ifdef DEBUG
     , verbose(comp->verbose)
 #endif
     , opts(comp->opts)
     , info(comp->info)
-    , impTokenLookupContextHandle(comp->impTokenLookupContextHandle)
-    , optMethodFlags(comp->optMethodFlags)
-    , fgBBs(comp->fgBBs)
-    , fgFirstBB(comp->fgFirstBB)
-    , fgEntryBB(comp->fgEntryBB)
-    , fgBBNumMax(comp->fgBBNumMax)
-    , compHndBBtab(comp->compHndBBtab)
-    , compHndBBtabCount(comp->compHndBBtabCount)
-    , fgPgoSchema(comp->fgPgoSchema)
-    , fgPgoData(comp->fgPgoData)
-    , fgPgoSchemaCount(comp->fgPgoSchemaCount)
-    , lvaTable(comp->lvaTable)
-    , lvaArg0Var(comp->lvaArg0Var)
-    , impInlineInfo(comp->impInlineInfo)
-    , compInlineResult(comp->compInlineResult)
-    , fgComputePredsDone(comp->fgComputePredsDone)
-    , fgCheapPredsValid(comp->fgCheapPredsValid)
-    , compDoAggressiveInlining(comp->compDoAggressiveInlining)
-    , compFloatingPointUsed(comp->compFloatingPointUsed)
-    , compJmpOpUsed(comp->compJmpOpUsed)
-    , compLocallocUsed(comp->compLocallocUsed)
-    , compGSReorderStackLayout(comp->compGSReorderStackLayout)
-    , compSuppressedZeroInit(comp->compSuppressedZeroInit)
-    , compHasBackwardJump(comp->compHasBackwardJump)
-    , fgNoStructPromotion(comp->fgNoStructPromotion)
     , compCurBB(comp->compCurBB)
-    , lvaStubArgumentVar(comp->lvaStubArgumentVar)
-    , lvaNewObjArrayArgs(comp->lvaNewObjArrayArgs)
-    , lvaVarargsHandleArg(comp->lvaVarargsHandleArg)
-#ifdef FEATURE_SIMD
-    , featureSIMD(comp->featureSIMD)
-#endif
-    , optNativeCallCount(comp->optNativeCallCount)
-    , impStmtList(nullptr)
-    , impLastStmt(nullptr)
     , impPendingBlockMembers(comp->getAllocator())
     , impSpillCliqueMembers(comp->getAllocator())
 {
@@ -18583,7 +18559,7 @@ GenTree* Importer::gtFoldExprConst(GenTree* tree)
     return comp->gtFoldExprConst(tree);
 }
 
-GenTree* Importer::fgInsertCommaFormTemp(GenTree** use)
+GenTreeLclVar* Importer::fgInsertCommaFormTemp(GenTree** use)
 {
     return comp->fgInsertCommaFormTemp(use);
 }
