@@ -4882,6 +4882,8 @@ void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
         {
             // For minopts/debug code, try and minimize the total number
             // of box temps by reusing an existing temp when possible.
+            // In minopts we don't inline so there's no point in sharing the temp
+            // between inliner and inlinees.
             if (impBoxTempInUse || (impBoxTemp == BAD_VAR_NUM))
             {
                 impBoxTemp = lvaNewTemp(TYP_REF, true DEBUGARG("Reusable Box Helper"));
@@ -17526,8 +17528,6 @@ Importer::Importer(Compiler* comp)
     , compSuppressedZeroInit(comp->compSuppressedZeroInit)
     , compHasBackwardJump(comp->compHasBackwardJump)
     , fgNoStructPromotion(comp->fgNoStructPromotion)
-    , impBoxTempInUse(comp->impBoxTempInUse)
-    , impBoxTemp(comp->impBoxTemp)
     , compCurBB(comp->compCurBB)
     , lvaStubArgumentVar(comp->lvaStubArgumentVar)
     , lvaNewObjArrayArgs(comp->lvaNewObjArrayArgs)

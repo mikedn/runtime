@@ -2071,8 +2071,6 @@ struct Importer
     bool&                                   compSuppressedZeroInit;
     bool&                                   compHasBackwardJump;
     bool&                                   fgNoStructPromotion;
-    bool&                                   impBoxTempInUse;
-    unsigned&                               impBoxTemp;
     BasicBlock*&                            compCurBB;
     unsigned&                               lvaStubArgumentVar;
     unsigned&                               lvaNewObjArrayArgs;
@@ -2090,6 +2088,8 @@ struct Importer
     // When we compute a "spill clique" (see above) these byte-maps are allocated to have a byte per basic
     // block, and represent the predecessor and successor members of the clique currently being computed.
     JitExpandArray<uint8_t> impSpillCliqueMembers;
+    bool                    impBoxTempInUse = false;
+    unsigned                impBoxTemp      = BAD_VAR_NUM;
 
 #ifdef DEBUG
     unsigned    impCurOpcOffs;
@@ -4587,9 +4587,6 @@ public:
 
     bool fgGlobalMorph = false; // indicates if we are during the global morphing phase
                                 // since fgMorphTree can be called from several places
-
-    bool     impBoxTempInUse; // the temp below is valid and available
-    unsigned impBoxTemp;      // a temporary that is used for boxing
 
 #ifdef DEBUG
     bool jitFallbackCompile; // Are we doing a fallback compile? That is, have we executed a NO_WAY assert,
