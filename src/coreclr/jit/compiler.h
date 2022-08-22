@@ -2066,7 +2066,6 @@ struct Importer
     bool&                                   compFloatingPointUsed;
     bool&                                   compJmpOpUsed;
     bool&                                   compLocallocUsed;
-    bool&                                   compLocallocOptimized;
     bool&                                   compGSReorderStackLayout;
     bool&                                   compSuppressedZeroInit;
     bool&                                   compHasBackwardJump;
@@ -7272,7 +7271,6 @@ public:
     bool compFloatingPointUsed   = false; // Does the method use TYP_FLOAT or TYP_DOUBLE
     bool compTailCallUsed        = false; // Does the method do a tailcall
     bool compLocallocUsed        = false; // Does the method use localloc.
-    bool compLocallocOptimized   = false; // Does the method have an optimized localloc
     bool compQmarkUsed           = false; // Does the method use GT_QMARK
     bool compQmarkRationalized   = false; // Is it allowed to use a GT_QMARK node.
     bool compHasBackwardJump     = false; // Does the method (or some inlinee) have a lexically backwards jump?

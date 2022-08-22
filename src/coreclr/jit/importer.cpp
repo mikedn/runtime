@@ -12769,10 +12769,6 @@ void Importer::ImportLocAlloc(BasicBlock* block)
            have modified it. So we will HAVE to reset it */
         compLocallocUsed = true;
     }
-    else
-    {
-        compLocallocOptimized = true;
-    }
 
     impPushOnStack(op1, typeInfo());
 }
@@ -17523,7 +17519,6 @@ Importer::Importer(Compiler* comp)
     , compFloatingPointUsed(comp->compFloatingPointUsed)
     , compJmpOpUsed(comp->compJmpOpUsed)
     , compLocallocUsed(comp->compLocallocUsed)
-    , compLocallocOptimized(comp->compLocallocOptimized)
     , compGSReorderStackLayout(comp->compGSReorderStackLayout)
     , compSuppressedZeroInit(comp->compSuppressedZeroInit)
     , compHasBackwardJump(comp->compHasBackwardJump)
