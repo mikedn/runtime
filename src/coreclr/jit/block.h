@@ -80,18 +80,6 @@ struct flowList;
 struct EHblkDsc;
 struct BBswtDesc;
 
-struct StackEntry
-{
-    GenTree* val;
-    typeInfo seTypeInfo;
-};
-
-struct EntryState
-{
-    unsigned    esStackDepth; // size of esStack
-    StackEntry* esStack;      // ptr to  stack
-};
-
 class ImportSpillCliqueState
 {
     unsigned const hasCatchArg : 1;

@@ -2024,6 +2024,23 @@ enum class BoxPattern
 
 struct Importer
 {
+    struct StackEntry
+    {
+        GenTree* val;
+        typeInfo seTypeInfo;
+    };
+
+    struct Stack
+    {
+        static constexpr unsigned MinSize = 16;
+
+        unsigned const    capacity;
+        unsigned          esStackDepth;
+        StackEntry* const esStack;
+
+        Stack(Compiler* compiler);
+    };
+
     // For prefixFlags
     enum
     {
@@ -2066,7 +2083,7 @@ struct Importer
     const char* impCurOpcName;
 
     // For displaying instrs with generated native code (-n:B)
-    Statement* impLastILoffsStmt; // oldest stmt added for which we did not call SetLastILOffset().
+    Statement* impLastILoffsStmt = nullptr; // oldest stmt added for which we did not call SetLastILOffset().
     void       impNoteLastILoffs();
 #endif
 
@@ -2076,10 +2093,6 @@ struct Importer
     // It also includes flag bits, so use jitGetILoffs()
     // to get the actual IL offset value.
     IL_OFFSETX impCurStmtOffs;
-
-    unsigned impStkSize; // Size of the full stack
-
-#define SMALL_STACK_SIZE 16 // number of elements in impSmallStack
 
     // A free list of linked list nodes used to represent to-do stacks of basic blocks.
     struct BlockListNode
@@ -2092,11 +2105,10 @@ struct Importer
         void* operator new(size_t sz, Importer* importer);
     };
 
-    BlockListNode* impBlockListNodeFreeList;
-    BlockListNode* impPendingBlockStack;
+    BlockListNode* impBlockListNodeFreeList = nullptr;
+    BlockListNode* impPendingBlockStack     = nullptr;
 
-    // dynamic state info needed for verification
-    EntryState verCurrentState;
+    Stack verCurrentState;
 
 #ifdef FEATURE_SIMD
     SIMDCoalescingBuffer m_impSIMDCoalescingBuffer;

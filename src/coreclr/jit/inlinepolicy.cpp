@@ -522,7 +522,7 @@ void DefaultPolicy::NoteInt(InlineObservation obs, int value)
 
             unsigned calleeMaxStack = static_cast<unsigned>(value);
 
-            if (!m_IsForceInline && (calleeMaxStack > SMALL_STACK_SIZE))
+            if (!m_IsForceInline && (calleeMaxStack > Importer::Stack::MinSize))
             {
                 SetNever(InlineObservation::CALLEE_MAXSTACK_TOO_BIG);
             }

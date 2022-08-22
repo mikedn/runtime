@@ -24,10 +24,14 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 void Importer::impPushOnStack(GenTree* tree, typeInfo ti)
 {
-    /* Check for overflow. If inlining, we may be using a bigger stack */
+    // Check for overflow. If inlining, we may be using a bigger stack
+    // TODO-MIKE-Review: This doesn't make lot of sense. The stack may be bigger
+    // but only because the minimum allocated size is 16. This has nothing to do
+    // with inlining. Are there cases where the stack does need to be bigger due
+    // to some importer silliness?
 
     if ((verCurrentState.esStackDepth >= info.compMaxStack) &&
-        (verCurrentState.esStackDepth >= impStkSize || ((compCurBB->bbFlags & BBF_IMPORTED) == 0)))
+        (verCurrentState.esStackDepth >= verCurrentState.capacity || ((compCurBB->bbFlags & BBF_IMPORTED) == 0)))
     {
         BADCODE("stack overflow");
     }
@@ -162,7 +166,7 @@ void Compiler::impResolveToken(const BYTE* addr, CORINFO_RESOLVED_TOKEN* resolve
  *  Pop one tree from the stack.
  */
 
-StackEntry Importer::impPopStack()
+Importer::StackEntry Importer::impPopStack()
 {
     if (verCurrentState.esStackDepth == 0)
     {
@@ -249,7 +253,7 @@ GenTree* Importer::impSIMDPopStack(var_types type)
  *  Peep at n'th (0-based) tree on the top of the stack.
  */
 
-StackEntry& Importer::impStackTop(unsigned n)
+Importer::StackEntry& Importer::impStackTop(unsigned n)
 {
     if (verCurrentState.esStackDepth <= n)
     {
@@ -14387,36 +14391,9 @@ bool Importer::impAddSpillCliqueMember(SpillCliqueDir dir, BasicBlock* block)
 
 void Importer::impImport()
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In impImport() for %s\n", info.compFullName);
-    }
-#endif
-
-    Compiler* inlineRoot = impInlineRoot();
-
-    if (info.compMaxStack <= SMALL_STACK_SIZE)
-    {
-        impStkSize = SMALL_STACK_SIZE;
-    }
-    else
-    {
-        impStkSize = info.compMaxStack;
-    }
-
-    verCurrentState.esStackDepth = 0;
-    verCurrentState.esStack      = new (comp, CMK_ImpStack) StackEntry[impStkSize];
+    JITDUMP("*************** In impImport() for %s\n", info.compFullName);
 
     assert(comp->fgFirstBB->bbEntryState == nullptr);
-
-    impPendingBlockMembers.Reset(comp->fgBBNumMax * 2);
-    impSpillCliqueMembers.Reset(comp->fgBBNumMax * 2);
-
-    impBlockListNodeFreeList = nullptr;
-    INDEBUG(impLastILoffsStmt = nullptr;)
-    impBoxTemp           = BAD_VAR_NUM;
-    impPendingBlockStack = nullptr;
 
     // Skip leading internal blocks.
     // These can arise from needing a leading scratch BB, from EH normalization, and from OSR entry redirects.
@@ -14469,7 +14446,7 @@ void Importer::impImport()
     }
 
 #ifdef DEBUG
-    if (verbose && info.compXcptnsCount)
+    if (verbose && (info.compXcptnsCount != 0))
     {
         printf("\nAfter impImport() added block for try,catch,finally");
         fgDispBasicBlocks();
@@ -17498,6 +17475,13 @@ void Importer::impSetPendingBlockMember(BasicBlock* blk, bool val)
     impPendingBlockMembers.Set(blk->bbInd(), val);
 }
 
+Importer::Stack::Stack(Compiler* compiler)
+    : capacity(compiler->info.compMaxStack <= Stack::MinSize ? Stack::MinSize : compiler->info.compMaxStack)
+    , esStackDepth(0)
+    , esStack(new (compiler, CMK_ImpStack) StackEntry[capacity])
+{
+}
+
 Importer::Importer(Compiler* comp)
     : comp(comp)
     , impTokenLookupContextHandle(comp->impTokenLookupContextHandle)
@@ -17509,9 +17493,12 @@ Importer::Importer(Compiler* comp)
     , opts(comp->opts)
     , info(comp->info)
     , compCurBB(comp->compCurBB)
-    , impPendingBlockMembers(comp->getAllocator())
-    , impSpillCliqueMembers(comp->getAllocator())
+    , impPendingBlockMembers(comp->getAllocator(), comp->fgBBNumMax * 2)
+    , impSpillCliqueMembers(comp->getAllocator(), comp->fgBBNumMax * 2)
+    , verCurrentState(comp)
 {
+    impPendingBlockMembers.Reset();
+    impSpillCliqueMembers.Reset();
 }
 
 CompAllocator Importer::getAllocator(CompMemKind kind)
