@@ -2567,7 +2567,7 @@ struct Importer
     void impResolveToken(const BYTE* addr, CORINFO_RESOLVED_TOKEN* resolvedToken, CorInfoTokenKind kind);
     CORINFO_CLASS_HANDLE impResolveClassToken(const BYTE* addr, CorInfoTokenKind kind = CORINFO_TOKENKIND_Class);
 
-    void impPushOnStack(GenTree* tree, typeInfo ti);
+    void impPushOnStack(GenTree* tree, typeInfo ti = typeInfo());
     StackEntry impPopStack();
     GenTree* impPopStackCoerceArg(var_types signatureType);
     StackEntry& impStackTop(unsigned n = 0);

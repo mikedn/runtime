@@ -4692,7 +4692,7 @@ bool Importer::impImportBoxPattern(BoxPattern              pattern,
 
             JITDUMP("\n Importing BOX; BRTRUE/FALSE as constant branch\n");
 
-            impPushOnStack(gtNewIconNode(1), typeInfo());
+            impPushOnStack(gtNewIconNode(1));
 
             return true;
 
@@ -4722,7 +4722,7 @@ bool Importer::impImportBoxPattern(BoxPattern              pattern,
                 JITDUMP("\n Importing BOX; ISINST; BRTRUE/FALSE as constant branch\n");
 
                 impPopStack();
-                impPushOnStack(gtNewIconNode((castResult == TypeCompareState::Must) ? 1 : 0), typeInfo());
+                impPushOnStack(gtNewIconNode((castResult == TypeCompareState::Must) ? 1 : 0));
 
                 return true;
             }
@@ -4751,7 +4751,7 @@ bool Importer::impImportBoxPattern(BoxPattern              pattern,
                     // Spill struct to get its address (to access hasValue field)
                     objToBox = impGetStructAddr(objToBox, boxClass, CHECK_SPILL_ALL, true);
 
-                    impPushOnStack(gtNewFieldIndir(TYP_BOOL, gtNewFieldAddr(objToBox, hasValueField, 0)), typeInfo());
+                    impPushOnStack(gtNewFieldIndir(TYP_BOOL, gtNewFieldAddr(objToBox, hasValueField, 0)));
 
                     JITDUMP("\n Importing BOX; ISINST; BR_TRUE/FALSE as Nullable.hasValue\n");
 
@@ -4761,7 +4761,7 @@ bool Importer::impImportBoxPattern(BoxPattern              pattern,
                 if (castResult == TypeCompareState::MustNot)
                 {
                     impPopStack();
-                    impPushOnStack(gtNewIconNode(0), typeInfo());
+                    impPushOnStack(gtNewIconNode(0));
 
                     JITDUMP("\n Importing BOX; ISINST; BR_TRUE/FALSE as constant (false)\n");
 
@@ -5226,7 +5226,7 @@ GenTree* Importer::impTransformThis(GenTree*                thisPtr,
             }
             else
             {
-                impPushOnStack(indir, typeInfo());
+                impPushOnStack(indir);
             }
 
             // This pops off the byref-to-a-value-type remaining on the stack and
@@ -7947,7 +7947,7 @@ DONE_INTRINSIC:
         }
         else
         {
-            impPushOnStack(call, typeInfo());
+            impPushOnStack(call);
         }
     }
 
@@ -9750,7 +9750,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 goto DECODE_OPCODE;
 
             case CEE_LDNULL:
-                impPushOnStack(gtNewIconNode(0, TYP_REF), typeInfo());
+                impPushOnStack(gtNewIconNode(0, TYP_REF));
                 break;
 
             case CEE_LDC_I4_M1:
@@ -9774,14 +9774,14 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 goto PUSH_I4CON;
             PUSH_I4CON:
                 JITDUMP(" %d", val);
-                impPushOnStack(gtNewIconNode(val), typeInfo());
+                impPushOnStack(gtNewIconNode(val));
                 break;
 
             case CEE_LDC_I8:
             {
                 int64_t value = getI8LittleEndian(codeAddr);
                 JITDUMP(" 0x%016llx", value);
-                impPushOnStack(gtNewLconNode(value), typeInfo());
+                impPushOnStack(gtNewLconNode(value));
                 break;
             }
 
@@ -9789,7 +9789,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
             {
                 double value = getR8LittleEndian(codeAddr);
                 JITDUMP(" %#.17g", value);
-                impPushOnStack(gtNewDconNode(value, TYP_DOUBLE), typeInfo());
+                impPushOnStack(gtNewDconNode(value, TYP_DOUBLE));
                 break;
             }
 
@@ -9797,7 +9797,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
             {
                 float value = getR4LittleEndian(codeAddr);
                 JITDUMP(" %#.17g", value);
-                impPushOnStack(gtNewDconNode(value, TYP_FLOAT), typeInfo());
+                impPushOnStack(gtNewDconNode(value, TYP_FLOAT));
                 break;
             }
 
@@ -9813,7 +9813,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 val = getU4LittleEndian(codeAddr);
                 JITDUMP(" %08X", val);
-                impPushOnStack(gtNewSconNode(val, info.compScopeHnd), typeInfo());
+                impPushOnStack(gtNewSconNode(val, info.compScopeHnd));
                 break;
 
             case CEE_LDARG:
@@ -10286,7 +10286,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     op1                    = gtNewHelperCallNode(CORINFO_HELP_LDELEMA_REF, TYP_BYREF, args);
                 }
 
-                impPushOnStack(op1, typeInfo());
+                impPushOnStack(op1);
                 break;
 
             case CEE_LDELEM:
@@ -10383,7 +10383,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 }
                 else
                 {
-                    impPushOnStack(op1, typeInfo());
+                    impPushOnStack(op1);
                 }
                 break;
 
@@ -10570,7 +10570,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     if ((op2->IsIntegralConst(0) && (oper == GT_ADD || oper == GT_SUB)) ||
                         (op2->IsIntegralConst(1) && (oper == GT_MUL || oper == GT_DIV)))
                     {
-                        impPushOnStack(op1, typeInfo());
+                        impPushOnStack(op1);
                         break;
                     }
 
@@ -10591,7 +10591,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                             i1->SetValue(type, i1->GetValue() * i2->GetValue());
 
-                            impPushOnStack(i1, typeInfo());
+                            impPushOnStack(i1);
                             break;
                         }
                     }
@@ -10633,7 +10633,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
-                impPushOnStack(op1, typeInfo());
+                impPushOnStack(op1);
                 break;
 
             case CEE_SHL:
@@ -10650,14 +10650,14 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 impBashVarAddrsToI(op1, op2);
                 type = genActualType(op1->TypeGet());
                 op1  = gtNewOperNode(oper, type, op1, op2);
-                impPushOnStack(op1, typeInfo());
+                impPushOnStack(op1);
                 break;
 
             case CEE_NOT:
                 op1 = impPopStack().val;
                 impBashVarAddrsToI(op1, nullptr);
                 type = genActualType(op1->TypeGet());
-                impPushOnStack(gtNewOperNode(GT_NOT, type, op1), typeInfo());
+                impPushOnStack(gtNewOperNode(GT_NOT, type, op1));
                 break;
 
             case CEE_CKFINITE:
@@ -10665,7 +10665,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 type = op1->TypeGet();
                 op1  = gtNewOperNode(GT_CKFINITE, type, op1);
                 op1->gtFlags |= GTF_EXCEPT;
-                impPushOnStack(op1, typeInfo());
+                impPushOnStack(op1);
                 break;
 
             case CEE_LEAVE:
@@ -10862,7 +10862,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 // Fold result, if possible.
                 op1 = gtFoldExpr(op1);
 
-                impPushOnStack(op1, typeInfo());
+                impPushOnStack(op1);
                 break;
 
             case CEE_BEQ_S:
@@ -11136,7 +11136,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                         {
                             /* Toss the cast, it's a waste of time */
 
-                            impPushOnStack(op1, typeInfo());
+                            impPushOnStack(op1);
                             break;
                         }
                         else if (ival == mask)
@@ -11178,7 +11178,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
-                impPushOnStack(op1, typeInfo());
+                impPushOnStack(op1);
                 break;
 
             case CEE_NEG:
@@ -11194,7 +11194,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     type = varActualType(type);
                     oper = GT_NEG;
                 }
-                impPushOnStack(gtNewOperNode(oper, type, op1), typeInfo());
+                impPushOnStack(gtNewOperNode(oper, type, op1));
                 break;
 
             case CEE_POP:
@@ -11361,7 +11361,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     op1->gtFlags |= GTF_IND_UNALIGNED;
                 }
 
-                impPushOnStack(op1, typeInfo());
+                impPushOnStack(op1);
                 break;
 
             case CEE_UNALIGNED:
@@ -11657,7 +11657,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
-                impPushOnStack(op1, typeInfo());
+                impPushOnStack(op1);
             }
             break;
 
@@ -11792,7 +11792,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 }
                 else
                 {
-                    impPushOnStack(op1, typeInfo());
+                    impPushOnStack(op1);
                 }
                 break;
 
@@ -11963,8 +11963,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                                 GenTree* boxPayloadAddress =
                                     gtNewOperNode(GT_ADD, TYP_BYREF, op1Uses[0], boxPayloadOffset);
                                 GenTree* nullcheck = gtNewNullCheck(op1Uses[1]);
-                                GenTree* result    = gtNewCommaNode(nullcheck, boxPayloadAddress);
-                                impPushOnStack(result, typeInfo());
+                                impPushOnStack(gtNewCommaNode(nullcheck, boxPayloadAddress));
 
                                 break;
                             }
@@ -12071,7 +12070,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                     assert(op1->TypeIs(TYP_BYREF));
 
-                    impPushOnStack(op1, typeInfo());
+                    impPushOnStack(op1);
                     break;
                 }
 
@@ -12165,8 +12164,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
-                op1 = gtNewIconNode(info.compCompHnd->getClassSize(resolvedToken.hClass));
-                impPushOnStack(op1, typeInfo());
+                impPushOnStack(gtNewIconNode(info.compCompHnd->getClassSize(resolvedToken.hClass)));
                 break;
 
             case CEE_CASTCLASS:
@@ -12199,7 +12197,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if (optTree != nullptr)
                 {
-                    impPushOnStack(optTree, typeInfo());
+                    impPushOnStack(optTree);
                 }
                 else
                 {
@@ -12241,7 +12239,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                         return;
                     }
 
-                    impPushOnStack(op1, typeInfo());
+                    impPushOnStack(op1);
                 }
             }
             break;
@@ -12474,7 +12472,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 }
                 else
                 {
-                    impPushOnStack(op1, typeInfo());
+                    impPushOnStack(op1);
                 }
                 break;
 
@@ -12491,7 +12489,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     op1 = gtNewIndir(TYP_INT, op1);
                 }
 
-                impPushOnStack(op1, typeInfo());
+                impPushOnStack(op1);
                 break;
 
             case CEE_BREAK:
@@ -12552,7 +12550,7 @@ void Importer::ImportArgList()
     assertImp(info.compArgsCount > 0);
     assert(lvaGetDesc(comp->lvaVarargsHandleArg)->lvAddrExposed);
 
-    impPushOnStack(gtNewLclVarAddrNode(comp->lvaVarargsHandleArg, TYP_I_IMPL), typeInfo());
+    impPushOnStack(gtNewLclVarAddrNode(comp->lvaVarargsHandleArg, TYP_I_IMPL));
 }
 
 void Importer::ImportMkRefAny(const BYTE* codeAddr)
@@ -12672,7 +12670,7 @@ void Importer::ImportRefAnyVal(const BYTE* codeAddr)
         op1 = gtNewHelperCallNode(CORINFO_HELP_GETREFANY, TYP_BYREF, arg1);
     }
 
-    impPushOnStack(op1, typeInfo());
+    impPushOnStack(op1);
 }
 
 void Importer::ImportLocAlloc(BasicBlock* block)
@@ -12770,7 +12768,7 @@ void Importer::ImportLocAlloc(BasicBlock* block)
         comp->compLocallocUsed = true;
     }
 
-    impPushOnStack(op1, typeInfo());
+    impPushOnStack(op1);
 }
 
 void Importer::ImportIsInst(const BYTE* codeAddr)
@@ -12802,7 +12800,7 @@ void Importer::ImportIsInst(const BYTE* codeAddr)
 
     if (optTree != nullptr)
     {
-        impPushOnStack(optTree, typeInfo());
+        impPushOnStack(optTree);
         return;
     }
 
@@ -12846,7 +12844,7 @@ void Importer::ImportIsInst(const BYTE* codeAddr)
         return;
     }
 
-    impPushOnStack(op1, typeInfo());
+    impPushOnStack(op1);
 }
 
 void Importer::ImportJmp(const BYTE* codeAddr, BasicBlock* block)
