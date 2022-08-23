@@ -9470,12 +9470,10 @@ void Importer::impImportBlockCode(BasicBlock* block)
     }
 #endif
 
-    unsigned                     nxtStmtIndex = impInitBlockLineInfo();
-    IL_OFFSET                    nxtStmtOffs;
-    CorInfoHelpFunc              helper;
-    CorInfoIsAccessAllowedResult accessAllowedResult;
-    CORINFO_HELPER_DESC          calloutHelper;
-    const BYTE*                  lastLoadToken = nullptr;
+    unsigned        nxtStmtIndex = impInitBlockLineInfo();
+    IL_OFFSET       nxtStmtOffs;
+    CorInfoHelpFunc helper;
+    const BYTE*     lastLoadToken = nullptr;
 
     /* Get the tree list started */
 
@@ -11919,38 +11917,13 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_BOX:
-            {
-                assertImp(sz == sizeof(unsigned));
-                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Box);
-                JITDUMP(" %08X", resolvedToken.token);
+                sz += ImportBox(codeAddr, codeEndp);
 
-                accessAllowedResult =
-                    info.compCompHnd->canAccessClass(&resolvedToken, info.compMethodHnd, &calloutHelper);
-                impHandleAccessAllowed(accessAllowedResult, calloutHelper);
-
-                if (!info.compCompHnd->isValueClass(resolvedToken.hClass))
-                {
-                    // Boxing a reference type has no effect.
-                    break;
-                }
-
-                unsigned   patternSize;
-                BoxPattern pattern = comp->impBoxPatternMatch(codeAddr + 4, codeEndp, &patternSize);
-
-                if ((pattern != BoxPattern::None) &&
-                    impImportBoxPattern(pattern, &resolvedToken, codeAddr + 4 DEBUGARG(codeEndp)))
-                {
-                    sz += patternSize;
-                    break;
-                }
-
-                impImportAndPushBox(&resolvedToken);
                 if (compDonotInline())
                 {
                     return;
                 }
-            }
-            break;
+                break;
 
             case CEE_SIZEOF:
                 assertImp(sz == sizeof(unsigned));
@@ -12891,6 +12864,36 @@ void Importer::ImportUnbox(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnboxAn
 #endif // !FEATURE_MULTIREG_RET
 
     impPushOnStack(op1, typeInfo(TI_STRUCT, resolvedToken.hClass));
+}
+
+int Importer::ImportBox(const BYTE* codeAddr, const BYTE* codeEnd)
+{
+    CORINFO_RESOLVED_TOKEN resolvedToken;
+    impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Box);
+    JITDUMP(" %08X", resolvedToken.token);
+
+    CORINFO_HELPER_DESC          calloutHelper;
+    CorInfoIsAccessAllowedResult accessAllowedResult =
+        info.compCompHnd->canAccessClass(&resolvedToken, info.compMethodHnd, &calloutHelper);
+    impHandleAccessAllowed(accessAllowedResult, calloutHelper);
+
+    if (!info.compCompHnd->isValueClass(resolvedToken.hClass))
+    {
+        // Boxing a reference type has no effect.
+        return 0;
+    }
+
+    unsigned   patternSize;
+    BoxPattern pattern = comp->impBoxPatternMatch(codeAddr + 4, codeEnd, &patternSize);
+
+    if ((pattern != BoxPattern::None) && impImportBoxPattern(pattern, &resolvedToken, codeAddr + 4 DEBUGARG(codeEnd)))
+    {
+        return patternSize;
+    }
+
+    impImportAndPushBox(&resolvedToken);
+
+    return 0;
 }
 
 void Importer::ImportJmp(const BYTE* codeAddr, BasicBlock* block)
