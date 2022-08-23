@@ -12197,11 +12197,10 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if (optTree != nullptr)
                 {
-                    impPushOnStack(optTree);
+                    op1 = optTree;
                 }
                 else
                 {
-
 #ifdef FEATURE_READYTORUN_COMPILER
                     if (opts.IsReadyToRun())
                     {
@@ -12238,9 +12237,9 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     {
                         return;
                     }
-
-                    impPushOnStack(op1);
                 }
+
+                impPushOnStack(op1);
             }
             break;
 
