@@ -2034,7 +2034,7 @@ struct Importer
     {
         static constexpr unsigned MinSize = 16;
 
-        unsigned const    capacity;
+        unsigned const    maxStack;
         unsigned          esStackDepth;
         StackEntry* const esStack;
 

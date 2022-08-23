@@ -24,7 +24,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 void Importer::impPushOnStack(GenTree* tree, typeInfo ti)
 {
-    if (verCurrentState.esStackDepth >= info.compMaxStack)
+    if (verCurrentState.esStackDepth >= verCurrentState.maxStack)
     {
         BADCODE("stack overflow");
     }
@@ -17466,9 +17466,9 @@ void Importer::impSetPendingBlockMember(BasicBlock* blk, bool val)
 }
 
 Importer::Stack::Stack(Compiler* compiler)
-    : capacity(compiler->info.compMaxStack <= Stack::MinSize ? Stack::MinSize : compiler->info.compMaxStack)
+    : maxStack(compiler->info.compMaxStack)
     , esStackDepth(0)
-    , esStack(new (compiler, CMK_ImpStack) StackEntry[capacity])
+    , esStack(new (compiler, CMK_ImpStack) StackEntry[max(maxStack, Stack::MinSize)])
 {
 }
 
