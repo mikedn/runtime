@@ -24,23 +24,13 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 void Importer::impPushOnStack(GenTree* tree, typeInfo ti)
 {
-    // Check for overflow. If inlining, we may be using a bigger stack
-    // TODO-MIKE-Review: This doesn't make lot of sense. The stack may be bigger
-    // but only because the minimum allocated size is 16. This has nothing to do
-    // with inlining. Are there cases where the stack does need to be bigger due
-    // to some importer silliness?
-
-    if ((verCurrentState.esStackDepth >= info.compMaxStack) &&
-        (verCurrentState.esStackDepth >= verCurrentState.capacity || ((compCurBB->bbFlags & BBF_IMPORTED) == 0)))
+    if (verCurrentState.esStackDepth >= info.compMaxStack)
     {
         BADCODE("stack overflow");
     }
 
     // If we are pushing a struct, make certain we know the precise type!
-    if (tree->TypeIs(TYP_STRUCT))
-    {
-        assert(ti.GetClassHandleForValueClass() != NO_CLASS_HANDLE);
-    }
+    assert(!tree->TypeIs(TYP_STRUCT) || (ti.GetClassHandleForValueClass() != NO_CLASS_HANDLE));
 
     verCurrentState.esStack[verCurrentState.esStackDepth].seTypeInfo = ti;
     verCurrentState.esStack[verCurrentState.esStackDepth++].val      = tree;
