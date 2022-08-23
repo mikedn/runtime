@@ -9470,10 +9470,8 @@ void Importer::impImportBlockCode(BasicBlock* block)
     }
 #endif
 
-    unsigned        nxtStmtIndex = impInitBlockLineInfo();
-    IL_OFFSET       nxtStmtOffs;
-    CorInfoHelpFunc helper;
-    const BYTE*     lastLoadToken = nullptr;
+    unsigned  nxtStmtIndex = impInitBlockLineInfo();
+    IL_OFFSET nxtStmtOffs;
 
     /* Get the tree list started */
 
@@ -9729,14 +9727,13 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
         switch (opcode)
         {
-            unsigned             lclNum;
-            var_types            type;
-            GenTree*             op3;
-            genTreeOps           oper;
-            int                  val;
-            IL_OFFSET            jmpAddr;
-            bool                 ovfl;
-            CORINFO_CLASS_HANDLE tokenType;
+            unsigned   lclNum;
+            var_types  type;
+            GenTree*   op3;
+            genTreeOps oper;
+            int        val;
+            IL_OFFSET  jmpAddr;
+            bool       ovfl;
 
             case CEE_PREFIX1:
                 opcode     = (OPCODE)(getU1LittleEndian(codeAddr) + 256);
@@ -11859,39 +11856,12 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_LDTOKEN:
-                assertImp(sz == sizeof(unsigned));
-                lastLoadToken = codeAddr;
-                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Ldtoken);
-                tokenType = info.compCompHnd->getTokenTypeAsHandle(&resolvedToken);
+                ImportLdToken(codeAddr);
 
-                op1 = impTokenToHandle(&resolvedToken, /* mustRestoreHandle */ true);
-
-                if (op1 == nullptr)
+                if (compDonotInline())
                 {
-                    assert(compDonotInline());
                     return;
                 }
-
-                assert(resolvedToken.hClass != nullptr);
-
-                if (resolvedToken.hMethod != nullptr)
-                {
-                    helper = CORINFO_HELP_METHODDESC_TO_STUBRUNTIMEMETHOD;
-                }
-                else if (resolvedToken.hField != nullptr)
-                {
-                    helper = CORINFO_HELP_FIELDDESC_TO_STUBRUNTIMEFIELD;
-                }
-                else
-                {
-                    helper = CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE;
-                }
-
-                op1 = gtNewHelperCallNode(helper, TYP_STRUCT, gtNewCallArgs(op1));
-                op1->AsCall()->GetRetDesc()->InitializePrimitive(GetRuntimeHandleUnderlyingType());
-                op1->AsCall()->SetRetLayout(typGetObjLayout(tokenType));
-
-                impPushOnStack(op1, typeInfo(TI_STRUCT, tokenType));
                 break;
 
             case CEE_UNBOX:
@@ -12894,6 +12864,44 @@ int Importer::ImportBox(const BYTE* codeAddr, const BYTE* codeEnd)
     impImportAndPushBox(&resolvedToken);
 
     return 0;
+}
+
+void Importer::ImportLdToken(const BYTE* codeAddr)
+{
+    CORINFO_RESOLVED_TOKEN resolvedToken;
+    impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Ldtoken);
+    JITDUMP(" %08X", resolvedToken.token);
+    assert(resolvedToken.hClass != nullptr);
+
+    CORINFO_CLASS_HANDLE tokenType = info.compCompHnd->getTokenTypeAsHandle(&resolvedToken);
+    GenTree*             token     = impTokenToHandle(&resolvedToken, /* mustRestoreHandle */ true);
+
+    if (token == nullptr)
+    {
+        assert(compDonotInline());
+        return;
+    }
+
+    CorInfoHelpFunc helper;
+
+    if (resolvedToken.hMethod != nullptr)
+    {
+        helper = CORINFO_HELP_METHODDESC_TO_STUBRUNTIMEMETHOD;
+    }
+    else if (resolvedToken.hField != nullptr)
+    {
+        helper = CORINFO_HELP_FIELDDESC_TO_STUBRUNTIMEFIELD;
+    }
+    else
+    {
+        helper = CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE;
+    }
+
+    GenTreeCall* call = gtNewHelperCallNode(helper, TYP_STRUCT, gtNewCallArgs(token));
+    call->GetRetDesc()->InitializePrimitive(GetRuntimeHandleUnderlyingType());
+    call->SetRetLayout(typGetObjLayout(tokenType));
+
+    impPushOnStack(call, typeInfo(TI_STRUCT, tokenType));
 }
 
 void Importer::ImportJmp(const BYTE* codeAddr, BasicBlock* block)
