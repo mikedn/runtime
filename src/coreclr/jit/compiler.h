@@ -2601,6 +2601,7 @@ struct Importer
     void ImportLocAlloc(BasicBlock* block);
     void ImportIsInst(const BYTE* codeAddr);
     void ImportCastClass(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnboxAny);
+    void ImportUnbox(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnboxAny);
     void ImportJmp(const BYTE* codeAddr, BasicBlock* block);
     void ImportLdFtn(const BYTE* codeAddr, CORINFO_RESOLVED_TOKEN& constrainedResolvedToken, int prefixFlags);
     void ImportLdVirtFtn(const BYTE* codeAddr);

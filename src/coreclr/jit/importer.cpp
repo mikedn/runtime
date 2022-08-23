@@ -11898,7 +11898,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
             case CEE_UNBOX:
             case CEE_UNBOX_ANY:
-            {
                 assertImp(sz == sizeof(unsigned));
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
@@ -11907,225 +11906,17 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 {
                     JITDUMP("\n Importing UNBOX.ANY(refClass) as CASTCLASS\n");
                     ImportCastClass(resolvedToken, true);
-
-                    if (compDonotInline())
-                    {
-                        return;
-                    }
-                    break;
-                }
-
-                op2 = impTokenToHandle(&resolvedToken);
-                if (op2 == nullptr)
-                {
-                    assert(compDonotInline());
-                    return;
-                }
-
-                accessAllowedResult =
-                    info.compCompHnd->canAccessClass(&resolvedToken, info.compMethodHnd, &calloutHelper);
-                impHandleAccessAllowed(accessAllowedResult, calloutHelper);
-
-                op1 = impPopStack().val;
-                assertImp(op1->TypeIs(TYP_REF));
-
-                helper = info.compCompHnd->getUnBoxHelper(resolvedToken.hClass);
-                assert(helper == CORINFO_HELP_UNBOX || helper == CORINFO_HELP_UNBOX_NULLABLE);
-
-                // Check legality and profitability of inline expansion for unboxing.
-                const bool canExpandInline    = (helper == CORINFO_HELP_UNBOX);
-                const bool shouldExpandInline = !compCurBB->isRunRarely() && opts.OptimizationEnabled();
-
-                if (canExpandInline && shouldExpandInline)
-                {
-                    // See if we know anything about the type of op1, the object being unboxed.
-                    bool                 isExact   = false;
-                    bool                 isNonNull = false;
-                    CORINFO_CLASS_HANDLE clsHnd    = gtGetClassHandle(op1, &isExact, &isNonNull);
-
-                    // We can skip the "exact" bit here as we are comparing to a value class.
-                    // compareTypesForEquality should bail on comparisions for shared value classes.
-                    if (clsHnd != NO_CLASS_HANDLE)
-                    {
-                        const TypeCompareState compare =
-                            info.compCompHnd->compareTypesForEquality(resolvedToken.hClass, clsHnd);
-
-                        if (compare == TypeCompareState::Must)
-                        {
-                            JITDUMP("\nOptimizing %s (%s) -- type test will succeed\n",
-                                    opcode == CEE_UNBOX ? "UNBOX" : "UNBOX.ANY", eeGetClassName(clsHnd));
-
-                            // For UNBOX, null check (if necessary), and then leave the box payload byref on the stack.
-                            if (opcode == CEE_UNBOX)
-                            {
-                                GenTree* op1Uses[2];
-                                impMakeMultiUse(op1, 2, op1Uses, CHECK_SPILL_ALL DEBUGARG("optimized unbox clone"));
-
-                                GenTree* boxPayloadOffset = gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL);
-                                GenTree* boxPayloadAddress =
-                                    gtNewOperNode(GT_ADD, TYP_BYREF, op1Uses[0], boxPayloadOffset);
-                                GenTree* nullcheck = gtNewNullCheck(op1Uses[1]);
-                                impPushOnStack(gtNewCommaNode(nullcheck, boxPayloadAddress));
-
-                                break;
-                            }
-
-                            // For UNBOX.ANY load the struct from the box payload byref (the load will nullcheck)
-                            assert(opcode == CEE_UNBOX_ANY);
-                            GenTree* boxPayloadOffset = gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL);
-                            op1                       = gtNewOperNode(GT_ADD, TYP_BYREF, op1, boxPayloadOffset);
-                            goto LDOBJ;
-                        }
-                        else
-                        {
-                            JITDUMP("\nUnable to optimize %s -- can't resolve type comparison\n",
-                                    opcode == CEE_UNBOX ? "UNBOX" : "UNBOX.ANY");
-                        }
-                    }
-                    else
-                    {
-                        JITDUMP("\nUnable to optimize %s -- class for [%06u] not known\n",
-                                opcode == CEE_UNBOX ? "UNBOX" : "UNBOX.ANY", dspTreeID(op1));
-                    }
-
-                    JITDUMP("\n Importing %s as inline sequence\n", opcode == CEE_UNBOX ? "UNBOX" : "UNBOX.ANY");
-
-                    // we are doing normal unboxing
-                    // inline the common case of the unbox helper
-                    // UNBOX(exp) morphs into
-                    // clone = pop(exp);
-                    // ((*clone == typeToken) ? nop : helper(clone, typeToken));
-                    // push(clone + TARGET_POINTER_SIZE)
-
-                    GenTree* op1Uses[3];
-                    impMakeMultiUse(op1, 3, op1Uses, CHECK_SPILL_ALL DEBUGARG("inline unbox temp"));
-
-                    GenTree* condBox = gtNewOperNode(GT_EQ, TYP_INT, gtNewMethodTableLookup(op1Uses[0]), op2);
-
-                    op2 = impTokenToHandle(&resolvedToken);
-                    if (op2 == nullptr)
-                    {
-                        assert(!compDonotInline());
-                        return;
-                    }
-
-                    op1 = gtNewHelperCallNode(helper, TYP_VOID, gtNewCallArgs(op2, op1Uses[1]));
-                    op1 = gtNewQmarkNode(TYP_VOID, condBox, gtNewNothingNode(), op1);
-
-                    // QMARK nodes cannot reside on the evaluation stack. Because there
-                    // may be other trees on the evaluation stack that side-effect the
-                    // sources of the UNBOX operation we must spill the stack.
-
-                    impAppendTree(op1, CHECK_SPILL_ALL, impCurStmtOffs);
-
-                    // Create the address-expression to reference past the object header
-                    // to the beginning of the value-type. Today this means adjusting
-                    // past the base of the objects vtable field which is pointer sized.
-
-                    op2 = gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL);
-                    op1 = gtNewOperNode(GT_ADD, TYP_BYREF, op1Uses[2], op2);
                 }
                 else
                 {
-                    JITDUMP("\n Importing %s as helper call because %s\n", opcode == CEE_UNBOX ? "UNBOX" : "UNBOX.ANY",
-                            canExpandInline ? "want smaller code or faster jitting" : "inline expansion not legal");
-
-                    // Don't optimize, just call the helper and be done with it
-                    if (helper == CORINFO_HELP_UNBOX)
-                    {
-                        op1 = gtNewHelperCallNode(helper, TYP_BYREF, gtNewCallArgs(op2, op1));
-                    }
-                    else
-                    {
-                        assert(helper == CORINFO_HELP_UNBOX_NULLABLE);
-
-                        op1 = gtNewHelperCallNode(helper, TYP_STRUCT, gtNewCallArgs(op2, op1));
-                        op1->AsCall()->SetRetLayout(typGetObjLayout(resolvedToken.hClass));
-
-                        // This helper always returns the nullable struct via an "out" parameter,
-                        // similar to a return buffer. We do not need to initialize reg types.
-                        assert(op1->AsCall()->TreatAsHasRetBufArg());
-                    }
+                    ImportUnbox(resolvedToken, opcode == CEE_UNBOX_ANY);
                 }
 
-                assert(((helper == CORINFO_HELP_UNBOX) && op1->TypeIs(TYP_BYREF)) ||
-                       ((helper == CORINFO_HELP_UNBOX_NULLABLE) && op1->TypeIs(TYP_STRUCT)));
-
-                if (opcode == CEE_UNBOX)
+                if (compDonotInline())
                 {
-                    if (helper == CORINFO_HELP_UNBOX_NULLABLE)
-                    {
-                        // Unbox nullable helper returns a struct type.
-                        // We need to spill it to a temp so than can take the address of it.
-                        // Here we need unsafe value cls check, since the address of struct is taken to be used
-                        // further along and potetially be exploitable.
-
-                        ClassLayout* layout = typGetObjLayout(resolvedToken.hClass);
-                        unsigned     tmp    = lvaGrabTemp(true DEBUGARG("unbox nullable temp"));
-                        lvaSetStruct(tmp, layout, /* checkUnsafeBuffer */ true);
-
-                        op2 = gtNewLclvNode(tmp, TYP_STRUCT);
-                        op1 = impAssignStruct(op2, op1, CHECK_SPILL_ALL);
-                        op2 = gtNewLclVarAddrNode(tmp, TYP_BYREF);
-                        op1 = gtNewCommaNode(op1, op2);
-                    }
-
-                    assert(op1->TypeIs(TYP_BYREF));
-
-                    impPushOnStack(op1);
-                    break;
+                    return;
                 }
-
-                assert(opcode == CEE_UNBOX_ANY);
-
-                if (helper == CORINFO_HELP_UNBOX)
-                {
-                    // Normal unbox helper returns a TYP_BYREF.
-                    goto LDOBJ;
-                }
-
-                assert(helper == CORINFO_HELP_UNBOX_NULLABLE);
-                assert(op1->TypeIs(TYP_STRUCT));
-
-#if FEATURE_MULTIREG_RET
-                // TODO-MIKE-Cleanup: This has nothing to do with multireg returns.
-                // No matter what the struct type is the helper returns the struct value
-                // via an "out" parameter, there's no way to return it in registers because
-                // the same helper is used for all struct types.
-                // Doing this here is bad for CQ when the destination is a memory location,
-                // because we introduce a temp instead of just passing in the address of
-                // that location. impAssignStruct (TreatAsHasRetBufArg) already handles
-                // this case so there's no real need to do this here.
-                // Adding a temp when the destination is a promotable struct local might
-                // be useful because it avoids dependent promotion. But's probably something
-                // that impAssignStruct could handle as well.
-
-                ClassLayout*  layout  = typGetObjLayout(resolvedToken.hClass);
-                StructPassing retKind = abiGetStructReturnType(layout, CorInfoCallConvExtension::Managed, false);
-
-                if (retKind.kind == SPK_ByValue)
-                {
-                    // Unbox nullable helper returns a TYP_STRUCT.
-                    // For the multi-reg case we need to spill it to a temp so that
-                    // we can pass the address to the unbox_nullable jit helper.
-
-                    unsigned tmp = lvaGrabTemp(true DEBUGARG("unbox nullable multireg temp"));
-
-                    lvaGetDesc(tmp)->lvIsMultiRegArg = true;
-                    lvaSetStruct(tmp, layout, /* checkUnsafeBuffer */ true);
-
-                    op2 = gtNewLclvNode(tmp, TYP_STRUCT);
-                    op1 = impAssignStruct(op2, op1, CHECK_SPILL_ALL);
-                    op2 = gtNewLclVarAddrNode(tmp, TYP_BYREF);
-                    op1 = gtNewCommaNode(op1, op2);
-
-                    goto LDOBJ;
-                }
-#endif // !FEATURE_MULTIREG_RET
-
-                impPushOnStack(op1, typeInfo(TI_STRUCT, resolvedToken.hClass));
-            }
-            break;
+                break;
 
             case CEE_BOX:
             {
@@ -12371,7 +12162,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 op1 = impPopStack().val;
                 assertImp(op1->TypeIs(TYP_BYREF, TYP_I_IMPL));
 
-            LDOBJ:
                 lclTyp = JITtype2varType(info.compCompHnd->asCorInfoType(resolvedToken.hClass));
                 op2    = op1;
 
@@ -12853,6 +12643,254 @@ void Importer::ImportCastClass(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnb
     }
 
     impPushOnStack(op1);
+}
+
+void Importer::ImportUnbox(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnboxAny)
+{
+    GenTree* op2 = impTokenToHandle(&resolvedToken);
+    if (op2 == nullptr)
+    {
+        assert(compDonotInline());
+        return;
+    }
+
+    CORINFO_HELPER_DESC          calloutHelper;
+    CorInfoIsAccessAllowedResult accessAllowedResult =
+        info.compCompHnd->canAccessClass(&resolvedToken, info.compMethodHnd, &calloutHelper);
+    impHandleAccessAllowed(accessAllowedResult, calloutHelper);
+
+    GenTree* op1 = impPopStack().val;
+    assertImp(op1->TypeIs(TYP_REF));
+
+    CorInfoHelpFunc helper = info.compCompHnd->getUnBoxHelper(resolvedToken.hClass);
+    assert(helper == CORINFO_HELP_UNBOX || helper == CORINFO_HELP_UNBOX_NULLABLE);
+
+    // Check legality and profitability of inline expansion for unboxing.
+    const bool canExpandInline    = (helper == CORINFO_HELP_UNBOX);
+    const bool shouldExpandInline = !compCurBB->isRunRarely() && opts.OptimizationEnabled();
+
+    if (canExpandInline && shouldExpandInline)
+    {
+        // See if we know anything about the type of op1, the object being unboxed.
+        bool                 isExact   = false;
+        bool                 isNonNull = false;
+        CORINFO_CLASS_HANDLE clsHnd    = gtGetClassHandle(op1, &isExact, &isNonNull);
+
+        // We can skip the "exact" bit here as we are comparing to a value class.
+        // compareTypesForEquality should bail on comparisions for shared value classes.
+        if (clsHnd != NO_CLASS_HANDLE)
+        {
+            const TypeCompareState compare = info.compCompHnd->compareTypesForEquality(resolvedToken.hClass, clsHnd);
+
+            if (compare == TypeCompareState::Must)
+            {
+                JITDUMP("\nOptimizing %s (%s) -- type test will succeed\n", isUnboxAny ? "UNBOX.ANY" : "UNBOX",
+                        eeGetClassName(clsHnd));
+
+                // For UNBOX, null check (if necessary), and then leave the box payload byref on the stack.
+                if (!isUnboxAny)
+                {
+                    GenTree* op1Uses[2];
+                    impMakeMultiUse(op1, 2, op1Uses, CHECK_SPILL_ALL DEBUGARG("optimized unbox clone"));
+
+                    GenTree* boxPayloadOffset  = gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL);
+                    GenTree* boxPayloadAddress = gtNewOperNode(GT_ADD, TYP_BYREF, op1Uses[0], boxPayloadOffset);
+                    GenTree* nullcheck         = gtNewNullCheck(op1Uses[1]);
+                    impPushOnStack(gtNewCommaNode(nullcheck, boxPayloadAddress));
+
+                    return;
+                }
+
+                // For UNBOX.ANY load the struct from the box payload byref (the load will nullcheck)
+                assert(isUnboxAny);
+                GenTree* boxPayloadOffset = gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL);
+                op1                       = gtNewOperNode(GT_ADD, TYP_BYREF, op1, boxPayloadOffset);
+
+            LDOBJ:
+                var_types lclTyp = JITtype2varType(info.compCompHnd->asCorInfoType(resolvedToken.hClass));
+                op2              = op1;
+
+                if (lclTyp == TYP_STRUCT)
+                {
+                    op1 = gtNewObjNode(resolvedToken.hClass, op1);
+                }
+                else
+                {
+                    assertImp(varTypeIsArithmetic(lclTyp));
+
+                    op1 = gtNewOperNode(GT_IND, lclTyp, op1);
+                    op1->gtFlags |= GTF_GLOB_REF;
+                }
+
+                if (op2->IsFieldAddr() && op2->AsFieldAddr()->GetFieldSeq()->IsBoxedValueField())
+                {
+                    op1->gtFlags |= GTF_IND_NONFAULTING;
+                }
+                else
+                {
+                    op1->gtFlags |= GTF_EXCEPT;
+                }
+
+                if ((lclTyp == TYP_STRUCT) ||
+                    (info.compCompHnd->getTypeForPrimitiveValueClass(resolvedToken.hClass) == CORINFO_TYPE_UNDEF))
+                {
+                    impPushOnStack(op1, typeInfo(TI_STRUCT, resolvedToken.hClass));
+                }
+                else
+                {
+                    impPushOnStack(op1);
+                }
+
+                return;
+            }
+            else
+            {
+                JITDUMP("\nUnable to optimize %s -- can't resolve type comparison\n",
+                        isUnboxAny ? "UNBOX.ANY" : "UNBOX");
+            }
+        }
+        else
+        {
+            JITDUMP("\nUnable to optimize %s -- class for [%06u] not known\n", isUnboxAny ? "UNBOX.ANY" : "UNBOX",
+                    dspTreeID(op1));
+        }
+
+        JITDUMP("\n Importing %s as inline sequence\n", isUnboxAny ? "UNBOX.ANY" : "UNBOX");
+
+        // we are doing normal unboxing
+        // inline the common case of the unbox helper
+        // UNBOX(exp) morphs into
+        // clone = pop(exp);
+        // ((*clone == typeToken) ? nop : helper(clone, typeToken));
+        // push(clone + TARGET_POINTER_SIZE)
+
+        GenTree* op1Uses[3];
+        impMakeMultiUse(op1, 3, op1Uses, CHECK_SPILL_ALL DEBUGARG("inline unbox temp"));
+
+        GenTree* condBox = gtNewOperNode(GT_EQ, TYP_INT, gtNewMethodTableLookup(op1Uses[0]), op2);
+
+        op2 = impTokenToHandle(&resolvedToken);
+        if (op2 == nullptr)
+        {
+            assert(!compDonotInline());
+            return;
+        }
+
+        op1 = gtNewHelperCallNode(helper, TYP_VOID, gtNewCallArgs(op2, op1Uses[1]));
+        op1 = gtNewQmarkNode(TYP_VOID, condBox, gtNewNothingNode(), op1);
+
+        // QMARK nodes cannot reside on the evaluation stack. Because there
+        // may be other trees on the evaluation stack that side-effect the
+        // sources of the UNBOX operation we must spill the stack.
+
+        impAppendTree(op1, CHECK_SPILL_ALL, impCurStmtOffs);
+
+        // Create the address-expression to reference past the object header
+        // to the beginning of the value-type. Today this means adjusting
+        // past the base of the objects vtable field which is pointer sized.
+
+        op2 = gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL);
+        op1 = gtNewOperNode(GT_ADD, TYP_BYREF, op1Uses[2], op2);
+    }
+    else
+    {
+        JITDUMP("\n Importing %s as helper call because %s\n", isUnboxAny ? "UNBOX.ANY" : "UNBOX",
+                canExpandInline ? "want smaller code or faster jitting" : "inline expansion not legal");
+
+        // Don't optimize, just call the helper and be done with it
+        if (helper == CORINFO_HELP_UNBOX)
+        {
+            op1 = gtNewHelperCallNode(helper, TYP_BYREF, gtNewCallArgs(op2, op1));
+        }
+        else
+        {
+            assert(helper == CORINFO_HELP_UNBOX_NULLABLE);
+
+            op1 = gtNewHelperCallNode(helper, TYP_STRUCT, gtNewCallArgs(op2, op1));
+            op1->AsCall()->SetRetLayout(typGetObjLayout(resolvedToken.hClass));
+
+            // This helper always returns the nullable struct via an "out" parameter,
+            // similar to a return buffer. We do not need to initialize reg types.
+            assert(op1->AsCall()->TreatAsHasRetBufArg());
+        }
+    }
+
+    assert(((helper == CORINFO_HELP_UNBOX) && op1->TypeIs(TYP_BYREF)) ||
+           ((helper == CORINFO_HELP_UNBOX_NULLABLE) && op1->TypeIs(TYP_STRUCT)));
+
+    if (!isUnboxAny)
+    {
+        if (helper == CORINFO_HELP_UNBOX_NULLABLE)
+        {
+            // Unbox nullable helper returns a struct type.
+            // We need to spill it to a temp so than can take the address of it.
+            // Here we need unsafe value cls check, since the address of struct is taken to be used
+            // further along and potetially be exploitable.
+
+            ClassLayout* layout = typGetObjLayout(resolvedToken.hClass);
+            unsigned     tmp    = lvaGrabTemp(true DEBUGARG("unbox nullable temp"));
+            lvaSetStruct(tmp, layout, /* checkUnsafeBuffer */ true);
+
+            op2 = gtNewLclvNode(tmp, TYP_STRUCT);
+            op1 = impAssignStruct(op2, op1, CHECK_SPILL_ALL);
+            op2 = gtNewLclVarAddrNode(tmp, TYP_BYREF);
+            op1 = gtNewCommaNode(op1, op2);
+        }
+
+        assert(op1->TypeIs(TYP_BYREF));
+
+        impPushOnStack(op1);
+        return;
+    }
+
+    assert(isUnboxAny);
+
+    if (helper == CORINFO_HELP_UNBOX)
+    {
+        // Normal unbox helper returns a TYP_BYREF.
+        goto LDOBJ;
+    }
+
+    assert(helper == CORINFO_HELP_UNBOX_NULLABLE);
+    assert(op1->TypeIs(TYP_STRUCT));
+
+#if FEATURE_MULTIREG_RET
+    // TODO-MIKE-Cleanup: This has nothing to do with multireg returns.
+    // No matter what the struct type is the helper returns the struct value
+    // via an "out" parameter, there's no way to return it in registers because
+    // the same helper is used for all struct types.
+    // Doing this here is bad for CQ when the destination is a memory location,
+    // because we introduce a temp instead of just passing in the address of
+    // that location. impAssignStruct (TreatAsHasRetBufArg) already handles
+    // this case so there's no real need to do this here.
+    // Adding a temp when the destination is a promotable struct local might
+    // be useful because it avoids dependent promotion. But's probably something
+    // that impAssignStruct could handle as well.
+
+    ClassLayout*  layout  = typGetObjLayout(resolvedToken.hClass);
+    StructPassing retKind = abiGetStructReturnType(layout, CorInfoCallConvExtension::Managed, false);
+
+    if (retKind.kind == SPK_ByValue)
+    {
+        // Unbox nullable helper returns a TYP_STRUCT.
+        // For the multi-reg case we need to spill it to a temp so that
+        // we can pass the address to the unbox_nullable jit helper.
+
+        unsigned tmp = lvaGrabTemp(true DEBUGARG("unbox nullable multireg temp"));
+
+        lvaGetDesc(tmp)->lvIsMultiRegArg = true;
+        lvaSetStruct(tmp, layout, /* checkUnsafeBuffer */ true);
+
+        op2 = gtNewLclvNode(tmp, TYP_STRUCT);
+        op1 = impAssignStruct(op2, op1, CHECK_SPILL_ALL);
+        op2 = gtNewLclVarAddrNode(tmp, TYP_BYREF);
+        op1 = gtNewCommaNode(op1, op2);
+
+        goto LDOBJ;
+    }
+#endif // !FEATURE_MULTIREG_RET
+
+    impPushOnStack(op1, typeInfo(TI_STRUCT, resolvedToken.hClass));
 }
 
 void Importer::ImportJmp(const BYTE* codeAddr, BasicBlock* block)
