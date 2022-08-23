@@ -32,8 +32,9 @@ void Importer::impPushOnStack(GenTree* tree, typeInfo ti)
     // If we are pushing a struct, make certain we know the precise type!
     assert(!tree->TypeIs(TYP_STRUCT) || (ti.GetClassHandleForValueClass() != NO_CLASS_HANDLE));
 
-    verCurrentState.esStack[verCurrentState.esStackDepth].seTypeInfo = ti;
-    verCurrentState.esStack[verCurrentState.esStackDepth++].val      = tree;
+    auto& entry      = verCurrentState.esStack[verCurrentState.esStackDepth++];
+    entry.seTypeInfo = ti;
+    entry.val        = tree;
 
     if (((tree->gtType == TYP_FLOAT) || (tree->gtType == TYP_DOUBLE)) && !comp->compFloatingPointUsed)
     {
