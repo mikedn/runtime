@@ -17564,12 +17564,12 @@ bool Importer::IsTargetAbi(CORINFO_RUNTIME_ABI abi)
 
 bool Importer::compIsForInlining()
 {
-    return comp->compIsForInlining();
+    return impInlineInfo != nullptr;
 }
 
 bool Importer::compDonotInline()
 {
-    return comp->compIsForInlining() ? comp->compInlineResult->IsFailure() : false;
+    return compIsForInlining() ? compInlineResult->IsFailure() : false;
 }
 
 Compiler* Importer::impInlineRoot()
