@@ -730,7 +730,6 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
     const bool  isPreJit               = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT);
     const bool  isTier1                = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER1);
     unsigned    retBlocks              = 0;
-    int         prefixFlags            = 0;
     bool        preciseScan            = makeInlineObservations && compInlineResult->GetPolicy()->RequiresPreciseScan();
     const bool  resolveTokens          = preciseScan && (isPreJit || isTier1);
 
@@ -1524,79 +1523,12 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
             break;
 
             case CEE_UNALIGNED:
-            {
-                noway_assert(sz == sizeof(__int8));
-                prefixFlags |= Importer::PREFIX_UNALIGNED;
-
-                codeAddr += sizeof(__int8);
-
-                Importer::impValidateMemoryAccessOpcode(codeAddr, codeEndp, false);
-                handled = true;
-                goto OBSERVE_OPCODE;
-            }
-
             case CEE_CONSTRAINED:
-            {
-                noway_assert(sz == sizeof(unsigned));
-                prefixFlags |= Importer::PREFIX_CONSTRAINED;
-
-                codeAddr += sizeof(unsigned);
-
-                {
-                    OPCODE actualOpcode = Importer::impGetNonPrefixOpcode(codeAddr, codeEndp);
-
-                    if (actualOpcode != CEE_CALLVIRT && actualOpcode != CEE_CALL && actualOpcode != CEE_LDFTN)
-                    {
-                        BADCODE("constrained. has to be followed by callvirt, call or ldftn");
-                    }
-                }
-                handled = true;
-                goto OBSERVE_OPCODE;
-            }
-
             case CEE_READONLY:
-            {
-                noway_assert(sz == 0);
-                prefixFlags |= Importer::PREFIX_READONLY;
-
-                {
-                    OPCODE actualOpcode = Importer::impGetNonPrefixOpcode(codeAddr, codeEndp);
-
-                    if ((actualOpcode != CEE_LDELEMA) && !Importer::impOpcodeIsCallOpcode(actualOpcode))
-                    {
-                        BADCODE("readonly. has to be followed by ldelema or call");
-                    }
-                }
-                handled = true;
-                goto OBSERVE_OPCODE;
-            }
-
             case CEE_VOLATILE:
-            {
-                noway_assert(sz == 0);
-                prefixFlags |= Importer::PREFIX_VOLATILE;
-
-                Importer::impValidateMemoryAccessOpcode(codeAddr, codeEndp, true);
-                handled = true;
-                goto OBSERVE_OPCODE;
-            }
-
             case CEE_TAILCALL:
-            {
-                noway_assert(sz == 0);
-                prefixFlags |= Importer::PREFIX_TAILCALL_EXPLICIT;
-
-                {
-                    OPCODE actualOpcode = Importer::impGetNonPrefixOpcode(codeAddr, codeEndp);
-
-                    if (!Importer::impOpcodeIsCallOpcode(actualOpcode))
-                    {
-                        BADCODE("tailcall. has to be followed by call, callvirt or calli");
-                    }
-                }
                 handled = true;
                 goto OBSERVE_OPCODE;
-            }
 
             case CEE_STARG:
             case CEE_STARG_S:
@@ -1883,16 +1815,12 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                 break;
         }
 
-        // Skip any remaining operands this opcode may have
-        codeAddr += sz;
-
-        // Clear any prefix flags that may have been set
-        prefixFlags = 0;
-
         // Increment the number of observed instructions
         opts.instrCount++;
 
     OBSERVE_OPCODE:
+        // Skip any remaining operands this opcode may have
+        codeAddr += sz;
 
         // Note the opcode we just saw
         if (makeInlineObservations)
@@ -2491,9 +2419,10 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTarget)
             case CEE_CONSTRAINED:
             case CEE_VOLATILE:
             case CEE_UNALIGNED:
-                // fgFindJumpTargets should have ruled out this possibility
-                //   (i.e. a prefix opcodes as last intruction in a block)
-                noway_assert(codeAddr < codeEndp);
+                if (codeAddr + sz >= codeEndp)
+                {
+                    BADCODE("prefix not followed by opcode");
+                }
 
                 if (jumpTarget->bitVectTest(static_cast<unsigned>(codeAddr + sz - codeBegp)))
                 {
