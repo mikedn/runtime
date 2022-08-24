@@ -9689,35 +9689,33 @@ void Importer::impImportBlockCode(BasicBlock* block)
 #ifdef DEBUG
         impCurOpcOffs = (IL_OFFSET)(codeAddr - info.compCode - 1);
         JITDUMP("\n    [%2u] %3u (0x%03x) ", verCurrentState.esStackDepth, impCurOpcOffs, impCurOpcOffs);
+
+        clsHnd  = NO_CLASS_HANDLE;
+        lclTyp  = TYP_COUNT;
+        callTyp = TYP_COUNT;
+
+        // assertImp() checks both op1 and op2 even if they're not used
+        op1 = nullptr;
+        op2 = nullptr;
 #endif
 
-    DECODE_OPCODE:
-
-        // Return if any previous code has caused inline to fail.
         if (compDonotInline())
         {
             return;
         }
 
-        int sz = opcodeSizes[opcode];
-
+    DECODE_OPCODE:
 #ifdef DEBUG
-        clsHnd  = NO_CLASS_HANDLE;
-        lclTyp  = TYP_COUNT;
-        callTyp = TYP_COUNT;
-
-        impCurOpcOffs = (IL_OFFSET)(codeAddr - info.compCode - 1);
+        impCurOpcOffs = static_cast<IL_OFFSET>(codeAddr - info.compCode - 1);
         impCurOpcName = opcodeNames[opcode];
 
         if (verbose && (opcode != CEE_PREFIX1))
         {
             printf("%s", impCurOpcName);
         }
-
-        /* Use assertImp() to display the opcode */
-
-        op1 = op2 = nullptr;
 #endif
+
+        int sz = opcodeSizes[opcode];
 
         switch (opcode)
         {
@@ -9730,9 +9728,95 @@ void Importer::impImportBlockCode(BasicBlock* block)
             bool       ovfl;
 
             case CEE_PREFIX1:
-                opcode     = (OPCODE)(getU1LittleEndian(codeAddr) + 256);
-                opcodeOffs = (IL_OFFSET)(codeAddr - info.compCode);
-                codeAddr += sizeof(__int8);
+                opcode     = static_cast<OPCODE>(getU1LittleEndian(codeAddr) + 256);
+                opcodeOffs = static_cast<IL_OFFSET>(codeAddr - info.compCode);
+                codeAddr++;
+                goto DECODE_OPCODE;
+
+            case CEE_UNALIGNED:
+                val = getU1LittleEndian(codeAddr++);
+                JITDUMP(" %u", val);
+
+                if ((val != 1) && (val != 2) && (val != 4))
+                {
+                    BADCODE("Alignment unaligned. must be 1, 2, or 4");
+                }
+
+                impValidateMemoryAccessOpcode(impGetNonPrefixOpcode(codeAddr, codeEndp), false);
+
+                if ((prefixFlags & PREFIX_UNALIGNED) != 0)
+                {
+                    BADCODE("Multiple unaligned. prefixes");
+                }
+
+                prefixFlags |= PREFIX_UNALIGNED;
+                goto PREFIX;
+
+            case CEE_VOLATILE:
+                impValidateMemoryAccessOpcode(impGetNonPrefixOpcode(codeAddr, codeEndp), true);
+
+                if ((prefixFlags & PREFIX_VOLATILE) != 0)
+                {
+                    BADCODE("Multiple volatile. prefixes");
+                }
+
+                prefixFlags |= PREFIX_VOLATILE;
+                goto PREFIX;
+
+            case CEE_READONLY:
+                JITDUMP(" readonly.");
+
+                opcode = impGetNonPrefixOpcode(codeAddr, codeEndp);
+                if ((opcode != CEE_LDELEMA) && !impOpcodeIsCallOpcode(opcode))
+                {
+                    BADCODE("readonly. has to be followed by ldelema or call");
+                }
+
+                if ((prefixFlags & PREFIX_READONLY) != 0)
+                {
+                    BADCODE("Multiple readonly. prefixes");
+                }
+
+                prefixFlags |= PREFIX_READONLY;
+                goto PREFIX;
+
+            case CEE_TAILCALL:
+                JITDUMP(" tail.");
+
+                if (!impOpcodeIsCallOpcode(impGetNonPrefixOpcode(codeAddr, codeEndp)))
+                {
+                    BADCODE("tailcall. has to be followed by call, callvirt or calli");
+                }
+
+                if ((prefixFlags & PREFIX_TAILCALL_EXPLICIT) != 0)
+                {
+                    BADCODE("Multiple tailcall. prefixes");
+                }
+
+                prefixFlags |= PREFIX_TAILCALL_EXPLICIT;
+                goto PREFIX;
+
+            case CEE_CONSTRAINED:
+                impResolveToken(codeAddr, &constrainedResolvedToken, CORINFO_TOKENKIND_Constrained);
+                codeAddr += 4;
+                JITDUMP(" (%08X) ", constrainedResolvedToken.token);
+
+                opcode = impGetNonPrefixOpcode(codeAddr, codeEndp);
+                if ((opcode != CEE_CALLVIRT) && (opcode != CEE_CALL) && (opcode != CEE_LDFTN))
+                {
+                    BADCODE("constrained. has to be followed by callvirt, call or ldftn");
+                }
+
+                if ((prefixFlags & PREFIX_CONSTRAINED) != 0)
+                {
+                    BADCODE("Multiple constrained. prefixes");
+                }
+
+                prefixFlags |= PREFIX_CONSTRAINED;
+            PREFIX:
+                opcode     = static_cast<OPCODE>(getU1LittleEndian(codeAddr));
+                opcodeOffs = static_cast<IL_OFFSET>(codeAddr - info.compCode);
+                codeAddr++;
                 goto DECODE_OPCODE;
 
             case CEE_LDNULL:
@@ -11349,43 +11433,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 impPushOnStack(op1);
                 break;
 
-            case CEE_UNALIGNED:
-                assert(sz == 1);
-                val = getU1LittleEndian(codeAddr);
-                ++codeAddr;
-                JITDUMP(" %u", val);
-                if ((val != 1) && (val != 2) && (val != 4))
-                {
-                    BADCODE("Alignment unaligned. must be 1, 2, or 4");
-                }
-
-                if ((prefixFlags & PREFIX_UNALIGNED) != 0)
-                {
-                    BADCODE("Multiple unaligned. prefixes");
-                }
-
-                prefixFlags |= PREFIX_UNALIGNED;
-                impValidateMemoryAccessOpcode(impGetNonPrefixOpcode(codeAddr, codeEndp), false);
-
-            PREFIX:
-                opcode     = (OPCODE)getU1LittleEndian(codeAddr);
-                opcodeOffs = (IL_OFFSET)(codeAddr - info.compCode);
-                codeAddr += sizeof(__int8);
-                goto DECODE_OPCODE;
-
-            case CEE_VOLATILE:
-                if ((prefixFlags & PREFIX_VOLATILE) != 0)
-                {
-                    BADCODE("Multiple volatile. prefixes");
-                }
-
-                prefixFlags |= PREFIX_VOLATILE;
-
-                impValidateMemoryAccessOpcode(impGetNonPrefixOpcode(codeAddr, codeEndp), true);
-
-                assert(sz == 0);
-                goto PREFIX;
-
             case CEE_LDFTN:
                 ImportLdFtn(codeAddr, constrainedResolvedToken, prefixFlags);
 
@@ -11405,70 +11452,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 }
 
                 break;
-
-            case CEE_CONSTRAINED:
-                assertImp(sz == sizeof(unsigned));
-                impResolveToken(codeAddr, &constrainedResolvedToken, CORINFO_TOKENKIND_Constrained);
-                codeAddr += sizeof(unsigned); // prefix instructions must increment codeAddr manually
-                JITDUMP(" (%08X) ", constrainedResolvedToken.token);
-
-                if ((prefixFlags & PREFIX_CONSTRAINED) != 0)
-                {
-                    BADCODE("Multiple constrained. prefixes");
-                }
-
-                prefixFlags |= PREFIX_CONSTRAINED;
-
-                {
-                    OPCODE actualOpcode = impGetNonPrefixOpcode(codeAddr, codeEndp);
-                    if (actualOpcode != CEE_CALLVIRT && actualOpcode != CEE_CALL && actualOpcode != CEE_LDFTN)
-                    {
-                        BADCODE("constrained. has to be followed by callvirt, call or ldftn");
-                    }
-                }
-
-                goto PREFIX;
-
-            case CEE_READONLY:
-                JITDUMP(" readonly.");
-
-                if ((prefixFlags & PREFIX_READONLY) != 0)
-                {
-                    BADCODE("Multiple readonly. prefixes");
-                }
-
-                prefixFlags |= PREFIX_READONLY;
-
-                {
-                    OPCODE actualOpcode = impGetNonPrefixOpcode(codeAddr, codeEndp);
-                    if (actualOpcode != CEE_LDELEMA && !impOpcodeIsCallOpcode(actualOpcode))
-                    {
-                        BADCODE("readonly. has to be followed by ldelema or call");
-                    }
-                }
-
-                assert(sz == 0);
-                goto PREFIX;
-
-            case CEE_TAILCALL:
-                JITDUMP(" tail.");
-
-                if ((prefixFlags & PREFIX_TAILCALL_EXPLICIT) != 0)
-                {
-                    BADCODE("Multiple tailcall. prefixes");
-                }
-
-                prefixFlags |= PREFIX_TAILCALL_EXPLICIT;
-
-                {
-                    OPCODE actualOpcode = impGetNonPrefixOpcode(codeAddr, codeEndp);
-                    if (!impOpcodeIsCallOpcode(actualOpcode))
-                    {
-                        BADCODE("tailcall. has to be followed by call, callvirt or calli");
-                    }
-                }
-                assert(sz == 0);
-                goto PREFIX;
 
             case CEE_NEWOBJ:
                 callTyp = ImportNewObj(codeAddr, codeEndp, opcodeOffs, prefixFlags, block);
