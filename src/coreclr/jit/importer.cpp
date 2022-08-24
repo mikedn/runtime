@@ -8929,10 +8929,8 @@ OPCODE Importer::impGetNonPrefixOpcode(const BYTE* codeAddr, const BYTE* codeEnd
 /*****************************************************************************/
 // Checks whether the opcode is a valid opcode for volatile. and unaligned. prefixes
 
-void Importer::impValidateMemoryAccessOpcode(const BYTE* codeAddr, const BYTE* codeEndp, bool volatilePrefix)
+void Importer::impValidateMemoryAccessOpcode(OPCODE opcode, bool volatilePrefix)
 {
-    OPCODE opcode = impGetNonPrefixOpcode(codeAddr, codeEndp);
-
     if (!(
             // Opcode of all ldind and stdind happen to be in continuous, except stind.i.
             ((CEE_LDIND_I1 <= opcode) && (opcode <= CEE_STIND_R8)) || (opcode == CEE_STIND_I) ||
@@ -11367,7 +11365,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 }
 
                 prefixFlags |= PREFIX_UNALIGNED;
-                impValidateMemoryAccessOpcode(codeAddr, codeEndp, false);
+                impValidateMemoryAccessOpcode(impGetNonPrefixOpcode(codeAddr, codeEndp), false);
 
             PREFIX:
                 opcode     = (OPCODE)getU1LittleEndian(codeAddr);
@@ -11383,7 +11381,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 prefixFlags |= PREFIX_VOLATILE;
 
-                impValidateMemoryAccessOpcode(codeAddr, codeEndp, true);
+                impValidateMemoryAccessOpcode(impGetNonPrefixOpcode(codeAddr, codeEndp), true);
 
                 assert(sz == 0);
                 goto PREFIX;

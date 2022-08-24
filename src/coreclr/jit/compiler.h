@@ -2220,8 +2220,8 @@ struct Importer
 
     void impImport();
 
-    static void impValidateMemoryAccessOpcode(const BYTE* codeAddr, const BYTE* codeEndp, bool volatilePrefix);
     static OPCODE impGetNonPrefixOpcode(const BYTE* codeAddr, const BYTE* codeEndp);
+    static void impValidateMemoryAccessOpcode(OPCODE opcode, bool volatilePrefix);
     static bool impOpcodeIsCallOpcode(OPCODE opcode);
 
     void impStmtListBegin();
