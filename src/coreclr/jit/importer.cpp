@@ -9512,17 +9512,13 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
     /* Walk the opcodes that comprise the basic block */
 
-    const BYTE* codeAddr = info.compCode + block->bbCodeOffs;
-    const BYTE* codeEndp = info.compCode + block->bbCodeOffsEnd;
-
-    IL_OFFSET opcodeOffs    = block->bbCodeOffs;
-    IL_OFFSET lastSpillOffs = opcodeOffs;
-
-    signed jmpDist;
-
-    int       prefixFlags = 0;
-    var_types callTyp     = TYP_COUNT;
-    OPCODE    prevOpcode  = CEE_ILLEGAL;
+    const BYTE* codeAddr      = info.compCode + block->bbCodeOffs;
+    const BYTE* codeEndp      = info.compCode + block->bbCodeOffsEnd;
+    IL_OFFSET   opcodeOffs    = block->bbCodeOffs;
+    IL_OFFSET   lastSpillOffs = opcodeOffs;
+    int         prefixFlags   = 0;
+    var_types   callTyp       = TYP_COUNT;
+    OPCODE      prevOpcode    = CEE_ILLEGAL;
 
     if (block->bbCatchTyp)
     {
@@ -10689,9 +10685,8 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
             case CEE_BR:
             case CEE_BR_S:
-                jmpDist = (opcode == CEE_BR_S) ? getI1LittleEndian(codeAddr) : getI4LittleEndian(codeAddr);
-
-                if (compIsForInlining() && jmpDist == 0)
+                if (compIsForInlining() &&
+                    ((opcode == CEE_BR_S ? getI1LittleEndian(codeAddr) : getI4LittleEndian(codeAddr)) == 0))
                 {
                     break; /* NOP */
                 }
@@ -11520,7 +11515,8 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 typeInfo tiObj = impStackTop().seTypeInfo;
                 GenTree* obj   = impPopStack().val;
 
-                // LDFLD(A) can be used with static fields. The address is ignored but side effects must be preserved.
+                // LDFLD(A) can be used with static fields. The address is ignored but side effects must be
+                // preserved.
                 if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC) != 0)
                 {
                     if ((obj->gtFlags & GTF_SIDE_EFFECT) != 0)
