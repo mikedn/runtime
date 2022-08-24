@@ -9811,13 +9811,13 @@ void Importer::impImportBlockCode(BasicBlock* block)
             case CEE_LDARG:
                 lclNum = getU2LittleEndian(codeAddr);
                 JITDUMP(" %u", lclNum);
-                impLoadArg(lclNum, opcodeOffs + 1 + 2);
+                impLoadArg(lclNum);
                 break;
 
             case CEE_LDARG_S:
                 lclNum = getU1LittleEndian(codeAddr);
                 JITDUMP(" %u", lclNum);
-                impLoadArg(lclNum, opcodeOffs + 1 + 1);
+                impLoadArg(lclNum);
                 break;
 
             case CEE_LDARG_0:
@@ -9825,19 +9825,19 @@ void Importer::impImportBlockCode(BasicBlock* block)
             case CEE_LDARG_2:
             case CEE_LDARG_3:
                 lclNum = (opcode - CEE_LDARG_0);
-                impLoadArg(lclNum, opcodeOffs + 1);
+                impLoadArg(lclNum);
                 break;
 
             case CEE_LDLOC:
                 lclNum = getU2LittleEndian(codeAddr);
                 JITDUMP(" %u", lclNum);
-                impLoadLoc(lclNum, opcodeOffs + 1 + 2);
+                impLoadLoc(lclNum);
                 break;
 
             case CEE_LDLOC_S:
                 lclNum = getU1LittleEndian(codeAddr);
                 JITDUMP(" %u", lclNum);
-                impLoadLoc(lclNum, opcodeOffs + 1 + 1);
+                impLoadLoc(lclNum);
                 break;
 
             case CEE_LDLOC_0:
@@ -9846,7 +9846,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
             case CEE_LDLOC_3:
                 lclNum = (opcode - CEE_LDLOC_0);
                 assert(lclNum >= 0 && lclNum < 4);
-                impLoadLoc(lclNum, opcodeOffs + 1);
+                impLoadLoc(lclNum);
                 break;
 
             case CEE_STARG:
@@ -9985,7 +9985,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 // Create and append the assignment statement
 
-                op2 = gtNewLclvNode(lclNum, lclTyp DEBUGARG(opcodeOffs + sz + 1));
+                op2 = gtNewLclvNode(lclNum, lclTyp);
 
                 if (varTypeIsStruct(lclTyp))
                 {
@@ -13580,7 +13580,7 @@ var_types Importer::ImportCall(const BYTE*             codeAddr,
 // Shared by the various CEE_LDARG opcodes
 // ilArgNum is the argument index as specified in IL.
 // It will be mapped to the correct lvaTable index
-void Importer::impLoadArg(unsigned ilArgNum, IL_OFFSET offset)
+void Importer::impLoadArg(unsigned ilArgNum)
 {
     if (compIsForInlining())
     {
@@ -13606,7 +13606,7 @@ void Importer::impLoadArg(unsigned ilArgNum, IL_OFFSET offset)
             lclNum = comp->lvaArg0Var;
         }
 
-        impPushLclVar(lclNum, offset);
+        impPushLclVar(lclNum);
     }
 }
 
@@ -13614,7 +13614,7 @@ void Importer::impLoadArg(unsigned ilArgNum, IL_OFFSET offset)
 // Shared by the various CEE_LDLOC opcodes
 // ilLocNum is the local index as specified in IL.
 // It will be mapped to the correct lvaTable index
-void Importer::impLoadLoc(unsigned ilLocNum, IL_OFFSET offset)
+void Importer::impLoadLoc(unsigned ilLocNum)
 {
     unsigned lclNum;
 
@@ -13627,7 +13627,6 @@ void Importer::impLoadLoc(unsigned ilLocNum, IL_OFFSET offset)
         }
 
         lclNum = inlGetInlineeLocal(impInlineInfo, ilLocNum);
-        offset = BAD_IL_OFFSET;
     }
     else
     {
@@ -13639,12 +13638,12 @@ void Importer::impLoadLoc(unsigned ilLocNum, IL_OFFSET offset)
         lclNum = info.compArgsCount + ilLocNum;
     }
 
-    impPushLclVar(lclNum, offset);
+    impPushLclVar(lclNum);
 }
 
 // Load a local/argument on the operand stack
 // lclNum is an index into lvaTable *NOT* the arg/lcl index in the IL
-void Importer::impPushLclVar(unsigned lclNum, IL_OFFSET offset)
+void Importer::impPushLclVar(unsigned lclNum)
 {
     LclVarDsc* lcl  = lvaGetDesc(lclNum);
     var_types  type = lcl->GetType();
@@ -13654,7 +13653,7 @@ void Importer::impPushLclVar(unsigned lclNum, IL_OFFSET offset)
         type = varActualType(type);
     }
 
-    impPushOnStack(gtNewLclvNode(lclNum, type DEBUGARG(offset)), lcl->lvImpTypeInfo);
+    impPushOnStack(gtNewLclvNode(lclNum, type), lcl->lvImpTypeInfo);
 }
 
 //------------------------------------------------------------------------
@@ -13737,7 +13736,7 @@ void Importer::impReturnInstruction(int prefixFlags, OPCODE opcode)
 
         if (info.compRetBuffArg != BAD_VAR_NUM)
         {
-            GenTree* retBuffAddr  = gtNewLclvNode(info.compRetBuffArg, TYP_BYREF DEBUGARG(impCurStmtOffs));
+            GenTree* retBuffAddr  = gtNewLclvNode(info.compRetBuffArg, TYP_BYREF);
             GenTree* retBuffIndir = gtNewObjNode(info.GetRetLayout(), retBuffAddr);
             value                 = impAssignStruct(retBuffIndir, value, CHECK_SPILL_ALL);
 
@@ -18114,9 +18113,9 @@ Statement* Importer::gtNewStmt(GenTree* expr, IL_OFFSETX offset)
     return comp->gtNewStmt(expr, offset);
 }
 
-GenTreeLclVar* Importer::gtNewLclvNode(unsigned lclNum, var_types type DEBUGARG(IL_OFFSETX ILoffs))
+GenTreeLclVar* Importer::gtNewLclvNode(unsigned lclNum, var_types type)
 {
-    return comp->gtNewLclvNode(lclNum, type DEBUGARG(ILoffs));
+    return comp->gtNewLclvNode(lclNum, type);
 }
 
 GenTreeLclVar* Importer::gtNewLclVarAddrNode(unsigned lclNum, var_types type)

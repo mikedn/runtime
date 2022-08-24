@@ -2414,10 +2414,9 @@ struct Importer
     bool impIsSpillCliqueMember(SpillCliqueDir predOrSucc, BasicBlock* block);
     bool impAddSpillCliqueMember(SpillCliqueDir predOrSucc, BasicBlock* block);
 
-    void impPushLclVar(unsigned lclNum, IL_OFFSET offset);
-    GenTreeLclVar* impCreateLocalNode(unsigned lclNum DEBUGARG(IL_OFFSET offset));
-    void impLoadArg(unsigned ilArgNum, IL_OFFSET offset);
-    void impLoadLoc(unsigned ilLclNum, IL_OFFSET offset);
+    void impPushLclVar(unsigned lclNum);
+    void impLoadArg(unsigned ilArgNum);
+    void impLoadLoc(unsigned ilLclNum);
     bool impInlineReturnInstruction();
     void impReturnInstruction(int prefixFlags, OPCODE opcode);
 
@@ -2811,7 +2810,7 @@ struct Importer
 
     Statement* gtNewStmt(GenTree* expr = nullptr, IL_OFFSETX offset = BAD_IL_OFFSET);
 
-    GenTreeLclVar* gtNewLclvNode(unsigned lclNum, var_types type DEBUGARG(IL_OFFSETX ILoffs = BAD_IL_OFFSET));
+    GenTreeLclVar* gtNewLclvNode(unsigned lclNum, var_types type);
     GenTreeLclVar* gtNewLclVarAddrNode(unsigned lclNum, var_types type = TYP_I_IMPL);
     GenTreeLclFld* gtNewLclFldNode(unsigned lclNum, var_types type, unsigned offset);
     GenTreeIntCon* gtNewIconNode(ssize_t value, var_types type = TYP_INT);
@@ -3485,8 +3484,8 @@ public:
                                                   GenTree*                ctxTree,
                                                   void*                   compileTimeHandle);
 
-    GenTreeLclVar* gtNewLclvNode(unsigned lnum, var_types type DEBUGARG(IL_OFFSETX ILoffs = BAD_IL_OFFSET));
-    GenTreeLclVar* gtNewLclVarLargeNode(unsigned lnum, var_types type DEBUGARG(IL_OFFSETX ILoffs = BAD_IL_OFFSET));
+    GenTreeLclVar* gtNewLclvNode(unsigned lnum, var_types type);
+    GenTreeLclVar* gtNewLclVarLargeNode(unsigned lnum, var_types type);
 
     GenTreeLclVar* gtNewLclVarAddrNode(unsigned lclNum, var_types type = TYP_I_IMPL);
     GenTreeLclFld* gtNewLclFldAddrNode(unsigned      lclNum,
