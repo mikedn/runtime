@@ -2495,7 +2495,7 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTarget)
                 //   (i.e. a prefix opcodes as last intruction in a block)
                 noway_assert(codeAddr < codeEndp);
 
-                if (jumpTarget->bitVectTest((UINT)(codeAddr - codeBegp)))
+                if (jumpTarget->bitVectTest(static_cast<unsigned>(codeAddr + sz - codeBegp)))
                 {
                     BADCODE3("jump target between prefix and an opcode", " at offset %04X",
                              (IL_OFFSET)(codeAddr - codeBegp));
