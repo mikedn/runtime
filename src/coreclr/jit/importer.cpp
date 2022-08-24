@@ -3373,7 +3373,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
                         if (hClass != NO_CLASS_HANDLE)
                         {
                             retNode =
-                                gtNewIconNode((eeIsValueClass(hClass) &&
+                                gtNewIconNode((info.compCompHnd->isValueClass(hClass) &&
                                                // pointers are not value types (e.g. typeof(int*).IsValueType is false)
                                                info.compCompHnd->asCorInfoType(hClass) != CORINFO_TYPE_PTR)
                                                   ? 1
@@ -10386,7 +10386,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 JITDUMP(" %08X", resolvedToken.token);
                 clsHnd = resolvedToken.hClass;
 
-                if (eeIsValueClass(clsHnd))
+                if (info.compCompHnd->isValueClass(clsHnd))
                 {
                     lclTyp = JITtype2varType(info.compCompHnd->asCorInfoType(clsHnd));
                     goto ARR_ST;
@@ -14677,7 +14677,7 @@ void Compiler::impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, I
             CORINFO_CLASS_HANDLE argCls    = gtGetClassHandle(argNode, &isExact, &isNonNull);
             if (argCls != nullptr)
             {
-                const bool isArgValueType = eeIsValueClass(argCls);
+                const bool isArgValueType = info.compCompHnd->isValueClass(argCls);
                 // Exact class of the arg is known
                 if (isExact && !isArgValueType)
                 {
@@ -17868,11 +17868,6 @@ void Importer::eeGetFieldInfo(CORINFO_RESOLVED_TOKEN* resolvedToken,
                               CORINFO_FIELD_INFO*     result)
 {
     return comp->eeGetFieldInfo(resolvedToken, flags, result);
-}
-
-bool Importer::eeIsValueClass(CORINFO_CLASS_HANDLE clsHnd)
-{
-    return comp->eeIsValueClass(clsHnd);
 }
 
 const char* Importer::eeGetFieldName(CORINFO_FIELD_HANDLE field, const char** className)

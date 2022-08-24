@@ -42,17 +42,6 @@ void Compiler::eeGetFieldInfo(CORINFO_RESOLVED_TOKEN* pResolvedToken,
     info.compCompHnd->getFieldInfo(pResolvedToken, info.compMethodHnd, accessFlags, pResult);
 }
 
-/*****************************************************************************
- *
- *          VOS info, method sigs, etc
- */
-
-FORCEINLINE
-bool Compiler::eeIsValueClass(CORINFO_CLASS_HANDLE clsHnd)
-{
-    return info.compCompHnd->isValueClass(clsHnd);
-}
-
 FORCEINLINE
 void Compiler::eeGetSig(unsigned               sigTok,
                         CORINFO_MODULE_HANDLE  scope,
