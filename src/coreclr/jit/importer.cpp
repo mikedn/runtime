@@ -259,11 +259,6 @@ unsigned Importer::impStackHeight()
     return verCurrentState.esStackDepth;
 }
 
-void Importer::impStmtListBegin()
-{
-    assert(impStmtList == nullptr && impLastStmt == nullptr);
-}
-
 void Importer::impStmtListAppend(Statement* stmt)
 {
     if (impStmtList == nullptr)
@@ -9456,31 +9451,18 @@ bool Importer::impBlockIsInALoop(BasicBlock* block)
 #pragma warning(push)
 #pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
 #endif
-/*****************************************************************************
- *  Import the instr for the given basic block
- */
 void Importer::impImportBlockCode(BasicBlock* block)
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("\nImporting " FMT_BB " (PC=%03u) of '%s'", block->bbNum, block->bbCodeOffs, info.compFullName);
-    }
-#endif
+    JITDUMP("\nImporting " FMT_BB " (PC=%03u) of '%s'", block->bbNum, block->bbCodeOffs, info.compFullName);
 
-    unsigned  nxtStmtIndex = impInitBlockLineInfo();
-    IL_OFFSET nxtStmtOffs;
+    assert((impStmtList == nullptr) && (impLastStmt == nullptr));
 
-    /* Get the tree list started */
-
-    impStmtListBegin();
+    unsigned nxtStmtIndex = impInitBlockLineInfo();
 
 #ifdef FEATURE_ON_STACK_REPLACEMENT
-
     // Are there any places in the method where we might add a patchpoint?
     if (comp->compHasBackwardJump)
     {
-        // Are patchpoints enabled?
         if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER0) && (JitConfig.TC_OnStackReplacement() > 0))
         {
             // We don't inline at Tier0, if we do, we may need rethink our approach.
@@ -9501,212 +9483,188 @@ void Importer::impImportBlockCode(BasicBlock* block)
         // Should not see backward branch targets w/o backwards branches
         assert((block->bbFlags & BBF_BACKWARD_JUMP_TARGET) == 0);
     }
-
 #endif // FEATURE_ON_STACK_REPLACEMENT
 
 #ifdef FEATURE_SIMD
     m_impSIMDCoalescingBuffer.Clear();
 #endif
 
-    /* Walk the opcodes that comprise the basic block */
+    IL_OFFSET      opcodeOffs    = block->bbCodeOffs;
+    IL_OFFSET      lastSpillOffs = opcodeOffs;
+    const uint8_t* codeAddr      = info.compCode + opcodeOffs;
+    const uint8_t* codeEndp      = info.compCode + block->bbCodeOffsEnd;
+    var_types      callTyp       = TYP_COUNT;
+    OPCODE         prevOpcode    = CEE_ILLEGAL;
 
-    const BYTE* codeAddr      = info.compCode + block->bbCodeOffs;
-    const BYTE* codeEndp      = info.compCode + block->bbCodeOffsEnd;
-    IL_OFFSET   opcodeOffs    = block->bbCodeOffs;
-    IL_OFFSET   lastSpillOffs = opcodeOffs;
-    int         prefixFlags   = 0;
-    var_types   callTyp       = TYP_COUNT;
-    OPCODE      prevOpcode    = CEE_ILLEGAL;
-
-    if (block->bbCatchTyp)
+    if (block->bbCatchTyp != 0)
     {
-        if (info.compStmtOffsetsImplicit & ICorDebugInfo::CALL_SITE_BOUNDARIES)
+        if ((info.compStmtOffsetsImplicit & ICorDebugInfo::CALL_SITE_BOUNDARIES) != 0)
         {
-            impCurStmtOffsSet(block->bbCodeOffs);
+            impCurStmtOffsSet(opcodeOffs);
         }
 
-        // We will spill the GT_CATCH_ARG and the input of the BB_QMARK block
-        // to a temp. This is a trade off for code simplicity
         impSpillCatchArg();
     }
 
     while (codeAddr < codeEndp)
     {
-        CORINFO_RESOLVED_TOKEN resolvedToken;
-        CORINFO_RESOLVED_TOKEN constrainedResolvedToken;
-        CORINFO_FIELD_INFO     fieldInfo;
-
-        //---------------------------------------------------------------------
-
-        /* We need to restrict the max tree depth as many of the Compiler
-           functions are recursive. We do this by spilling the stack */
-
-        if (verCurrentState.esStackDepth)
+        if (verCurrentState.esStackDepth != 0)
         {
-            /* Has it been a while since we last saw a non-empty stack (which
-               guarantees that the tree depth isnt accumulating. */
+            // We need to restrict the tree depth as traversal facilities (e.g. GenTreeVisitor)
+            // are recursive. We do this by spilling the stack. For simplicity, we don't track
+            // the actual tree depth, we track the amount of IL that has been imported while the
+            // stack is not empty. This may result in unnecessary spilling - 200 bytes of IL may
+            // result in 50 trees, each with a depth of just 3.
 
-            if ((opcodeOffs - lastSpillOffs) > MAX_TREE_SIZE && impCanSpillNow(prevOpcode))
+            if ((opcodeOffs - lastSpillOffs > MAX_TREE_SIZE) && impCanSpillNow(prevOpcode))
             {
-                impSpillStackEnsure();
+                impSpillStackEnsure(/* spillLeaves */ false);
                 lastSpillOffs = opcodeOffs;
             }
         }
         else
         {
             lastSpillOffs   = opcodeOffs;
-            impBoxTempInUse = false; // nothing on the stack, box temp OK to use again
+            impBoxTempInUse = false; // The stack is empty now, the box temp can be reused.
         }
-
-        /* Compute the current instr offset */
-
-        opcodeOffs = (IL_OFFSET)(codeAddr - info.compCode);
-
-#ifndef DEBUG
-        if (opts.compDbgInfo)
-#endif
-        {
-            if (!compIsForInlining())
-            {
-                nxtStmtOffs =
-                    (nxtStmtIndex < info.compStmtOffsetsCount) ? info.compStmtOffsets[nxtStmtIndex] : BAD_IL_OFFSET;
-
-                /* Have we reached the next stmt boundary ? */
-
-                if (nxtStmtOffs != BAD_IL_OFFSET && opcodeOffs >= nxtStmtOffs)
-                {
-                    assert(nxtStmtOffs == info.compStmtOffsets[nxtStmtIndex]);
-
-                    if (verCurrentState.esStackDepth != 0 && opts.compDbgCode)
-                    {
-                        /* We need to provide accurate IP-mapping at this point.
-                           So spill anything on the stack so that it will form
-                           gtStmts with the correct stmt offset noted */
-
-                        impSpillStackEnsure(true);
-                    }
-
-                    // Has impCurStmtOffs been reported in any tree?
-
-                    if (impCurStmtOffs != BAD_IL_OFFSET && opts.compDbgCode)
-                    {
-                        GenTree* placeHolder = new (comp, GT_NO_OP) GenTree(GT_NO_OP, TYP_VOID);
-                        impAppendTree(placeHolder, CHECK_SPILL_NONE, impCurStmtOffs);
-
-                        assert(impCurStmtOffs == BAD_IL_OFFSET);
-                    }
-
-                    if (impCurStmtOffs == BAD_IL_OFFSET)
-                    {
-                        /* Make sure that nxtStmtIndex is in sync with opcodeOffs.
-                           If opcodeOffs has gone past nxtStmtIndex, catch up */
-
-                        while ((nxtStmtIndex + 1) < info.compStmtOffsetsCount &&
-                               info.compStmtOffsets[nxtStmtIndex + 1] <= opcodeOffs)
-                        {
-                            nxtStmtIndex++;
-                        }
-
-                        /* Go to the new stmt */
-
-                        impCurStmtOffsSet(info.compStmtOffsets[nxtStmtIndex]);
-
-                        /* Update the stmt boundary index */
-
-                        nxtStmtIndex++;
-                        assert(nxtStmtIndex <= info.compStmtOffsetsCount);
-
-                        /* Are there any more line# entries after this one? */
-
-                        if (nxtStmtIndex < info.compStmtOffsetsCount)
-                        {
-                            /* Remember where the next line# starts */
-
-                            nxtStmtOffs = info.compStmtOffsets[nxtStmtIndex];
-                        }
-                        else
-                        {
-                            /* No more line# entries */
-
-                            nxtStmtOffs = BAD_IL_OFFSET;
-                        }
-                    }
-                }
-                else if ((info.compStmtOffsetsImplicit & ICorDebugInfo::STACK_EMPTY_BOUNDARIES) &&
-                         (verCurrentState.esStackDepth == 0))
-                {
-                    /* At stack-empty locations, we have already added the tree to
-                       the stmt list with the last offset. We just need to update
-                       impCurStmtOffs
-                     */
-
-                    impCurStmtOffsSet(opcodeOffs);
-                }
-                else if ((info.compStmtOffsetsImplicit & ICorDebugInfo::CALL_SITE_BOUNDARIES) &&
-                         impOpcodeIsCallSiteBoundary(prevOpcode))
-                {
-                    /* Make sure we have a type cached */
-                    assert(callTyp != TYP_COUNT);
-
-                    if (callTyp == TYP_VOID)
-                    {
-                        impCurStmtOffsSet(opcodeOffs);
-                    }
-                    else if (opts.compDbgCode)
-                    {
-                        impSpillStackEnsure(true);
-                        impCurStmtOffsSet(opcodeOffs);
-                    }
-                }
-                else if ((info.compStmtOffsetsImplicit & ICorDebugInfo::NOP_BOUNDARIES) && (prevOpcode == CEE_NOP))
-                {
-                    if (opts.compDbgCode)
-                    {
-                        impSpillStackEnsure(true);
-                    }
-
-                    impCurStmtOffsSet(opcodeOffs);
-                }
-
-                assert(impCurStmtOffs == BAD_IL_OFFSET || nxtStmtOffs == BAD_IL_OFFSET ||
-                       jitGetILoffs(impCurStmtOffs) <= nxtStmtOffs);
-            }
-        }
-
-        CORINFO_CLASS_HANDLE clsHnd = DUMMY_INIT(NULL);
-
-        var_types lclTyp  = TYP_UNKNOWN;
-        GenTree*  op1     = DUMMY_INIT(NULL);
-        GenTree*  op2     = DUMMY_INIT(NULL);
-        bool      uns     = DUMMY_INIT(false);
-        bool      isLocal = false;
-
-        /* Get the next opcode and the size of its parameters */
-
-        OPCODE opcode = (OPCODE)getU1LittleEndian(codeAddr);
-        codeAddr += sizeof(__int8);
-
-#ifdef DEBUG
-        impCurOpcOffs = (IL_OFFSET)(codeAddr - info.compCode - 1);
-        JITDUMP("\n    [%2u] %3u (0x%03x) ", verCurrentState.esStackDepth, impCurOpcOffs, impCurOpcOffs);
-
-        clsHnd  = NO_CLASS_HANDLE;
-        lclTyp  = TYP_COUNT;
-        callTyp = TYP_COUNT;
-
-        // assertImp() checks both op1 and op2 even if they're not used
-        op1 = nullptr;
-        op2 = nullptr;
-#endif
 
         if (compDonotInline())
         {
             return;
         }
 
+        opcodeOffs = static_cast<IL_OFFSET>(codeAddr - info.compCode);
+
+        if (!compIsForInlining()
+#ifndef DEBUG // TODO-MIKE-Review: This looks like an odd Checked/Release difference.
+            && opts.compDbgInfo
+#endif
+            )
+        {
+            IL_OFFSET nxtStmtOffs =
+                (nxtStmtIndex < info.compStmtOffsetsCount) ? info.compStmtOffsets[nxtStmtIndex] : BAD_IL_OFFSET;
+
+            /* Have we reached the next stmt boundary ? */
+
+            if (nxtStmtOffs != BAD_IL_OFFSET && opcodeOffs >= nxtStmtOffs)
+            {
+                assert(nxtStmtOffs == info.compStmtOffsets[nxtStmtIndex]);
+
+                if (verCurrentState.esStackDepth != 0 && opts.compDbgCode)
+                {
+                    /* We need to provide accurate IP-mapping at this point.
+                       So spill anything on the stack so that it will form
+                       gtStmts with the correct stmt offset noted */
+
+                    impSpillStackEnsure(true);
+                }
+
+                // Has impCurStmtOffs been reported in any tree?
+
+                if (impCurStmtOffs != BAD_IL_OFFSET && opts.compDbgCode)
+                {
+                    GenTree* placeHolder = new (comp, GT_NO_OP) GenTree(GT_NO_OP, TYP_VOID);
+                    impAppendTree(placeHolder, CHECK_SPILL_NONE, impCurStmtOffs);
+
+                    assert(impCurStmtOffs == BAD_IL_OFFSET);
+                }
+
+                if (impCurStmtOffs == BAD_IL_OFFSET)
+                {
+                    /* Make sure that nxtStmtIndex is in sync with opcodeOffs.
+                       If opcodeOffs has gone past nxtStmtIndex, catch up */
+
+                    while ((nxtStmtIndex + 1) < info.compStmtOffsetsCount &&
+                           info.compStmtOffsets[nxtStmtIndex + 1] <= opcodeOffs)
+                    {
+                        nxtStmtIndex++;
+                    }
+
+                    /* Go to the new stmt */
+
+                    impCurStmtOffsSet(info.compStmtOffsets[nxtStmtIndex]);
+
+                    /* Update the stmt boundary index */
+
+                    nxtStmtIndex++;
+                    assert(nxtStmtIndex <= info.compStmtOffsetsCount);
+
+                    /* Are there any more line# entries after this one? */
+
+                    if (nxtStmtIndex < info.compStmtOffsetsCount)
+                    {
+                        /* Remember where the next line# starts */
+
+                        nxtStmtOffs = info.compStmtOffsets[nxtStmtIndex];
+                    }
+                    else
+                    {
+                        /* No more line# entries */
+
+                        nxtStmtOffs = BAD_IL_OFFSET;
+                    }
+                }
+            }
+            else if ((info.compStmtOffsetsImplicit & ICorDebugInfo::STACK_EMPTY_BOUNDARIES) &&
+                     (verCurrentState.esStackDepth == 0))
+            {
+                /* At stack-empty locations, we have already added the tree to
+                   the stmt list with the last offset. We just need to update
+                   impCurStmtOffs
+                 */
+
+                impCurStmtOffsSet(opcodeOffs);
+            }
+            else if ((info.compStmtOffsetsImplicit & ICorDebugInfo::CALL_SITE_BOUNDARIES) &&
+                     impOpcodeIsCallSiteBoundary(prevOpcode))
+            {
+                /* Make sure we have a type cached */
+                assert(callTyp != TYP_COUNT);
+
+                if (callTyp == TYP_VOID)
+                {
+                    impCurStmtOffsSet(opcodeOffs);
+                }
+                else if (opts.compDbgCode)
+                {
+                    impSpillStackEnsure(true);
+                    impCurStmtOffsSet(opcodeOffs);
+                }
+            }
+            else if ((info.compStmtOffsetsImplicit & ICorDebugInfo::NOP_BOUNDARIES) && (prevOpcode == CEE_NOP))
+            {
+                if (opts.compDbgCode)
+                {
+                    impSpillStackEnsure(true);
+                }
+
+                impCurStmtOffsSet(opcodeOffs);
+            }
+
+            assert(impCurStmtOffs == BAD_IL_OFFSET || nxtStmtOffs == BAD_IL_OFFSET ||
+                   jitGetILoffs(impCurStmtOffs) <= nxtStmtOffs);
+        }
+
+        CORINFO_CLASS_HANDLE clsHnd  = NO_CLASS_HANDLE;
+        var_types            lclTyp  = TYP_UNKNOWN;
+        GenTree*             op1     = nullptr;
+        GenTree*             op2     = nullptr;
+        bool                 uns     = false;
+        bool                 isLocal = false;
+
+#ifdef DEBUG
+        lclTyp  = TYP_COUNT;
+        callTyp = TYP_COUNT;
+
+        JITDUMP("\n    [%2u] %3u (0x%03x) ", verCurrentState.esStackDepth, opcodeOffs, opcodeOffs);
+#endif
+
+        int    prefixFlags = 0;
+        OPCODE opcode      = static_cast<OPCODE>(*codeAddr++);
+
     DECODE_OPCODE:
 #ifdef DEBUG
-        impCurOpcOffs = static_cast<IL_OFFSET>(codeAddr - info.compCode - 1);
+        impCurOpcOffs = opcodeOffs;
         impCurOpcName = opcodeNames[opcode];
 
         if (verbose && (opcode != CEE_PREFIX1))
@@ -9719,22 +9677,24 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
         switch (opcode)
         {
-            unsigned   lclNum;
-            var_types  type;
-            GenTree*   op3;
-            genTreeOps oper;
-            int        val;
-            IL_OFFSET  jmpAddr;
-            bool       ovfl;
+            unsigned               lclNum;
+            var_types              type;
+            GenTree*               op3;
+            genTreeOps             oper;
+            int                    val;
+            IL_OFFSET              jmpAddr;
+            bool                   ovfl;
+            CORINFO_RESOLVED_TOKEN resolvedToken;
+            CORINFO_RESOLVED_TOKEN constrainedResolvedToken;
+            CORINFO_FIELD_INFO     fieldInfo;
 
             case CEE_PREFIX1:
-                opcode     = static_cast<OPCODE>(getU1LittleEndian(codeAddr) + 256);
                 opcodeOffs = static_cast<IL_OFFSET>(codeAddr - info.compCode);
-                codeAddr++;
+                opcode     = static_cast<OPCODE>(*codeAddr++ + 256);
                 goto DECODE_OPCODE;
 
             case CEE_UNALIGNED:
-                val = getU1LittleEndian(codeAddr++);
+                val = *codeAddr++;
                 JITDUMP(" %u", val);
 
                 if ((val != 1) && (val != 2) && (val != 4))
@@ -9814,9 +9774,8 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 prefixFlags |= PREFIX_CONSTRAINED;
             PREFIX:
-                opcode     = static_cast<OPCODE>(getU1LittleEndian(codeAddr));
                 opcodeOffs = static_cast<IL_OFFSET>(codeAddr - info.compCode);
-                codeAddr++;
+                opcode     = static_cast<OPCODE>(*codeAddr++);
                 goto DECODE_OPCODE;
 
             case CEE_LDNULL:
@@ -12172,8 +12131,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
         codeAddr += sz;
         prevOpcode = opcode;
-
-        prefixFlags = 0;
     }
 }
 #ifdef _PREFAST_

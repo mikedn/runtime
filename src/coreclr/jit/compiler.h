@@ -2224,7 +2224,6 @@ struct Importer
     static void impValidateMemoryAccessOpcode(OPCODE opcode, bool volatilePrefix);
     static bool impOpcodeIsCallOpcode(OPCODE opcode);
 
-    void impStmtListBegin();
     void impStmtListAppend(Statement* stmt);
     void impStmtListInsertBefore(Statement* stmt, Statement* stmtBefore);
     Statement* impStmtListRemoveLast();
