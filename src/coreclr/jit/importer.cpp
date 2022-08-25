@@ -11394,53 +11394,19 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
             case CEE_LDFTN:
                 ImportLdFtn(codeAddr, constrainedResolvedToken, prefixFlags);
-
-                if (compDonotInline())
-                {
-                    return;
-                }
-
                 break;
-
             case CEE_LDVIRTFTN:
                 ImportLdVirtFtn(codeAddr);
-
-                if (compDonotInline())
-                {
-                    return;
-                }
-
                 break;
-
             case CEE_NEWOBJ:
                 callTyp = ImportNewObj(codeAddr, codeEndp, opcodeOffs, prefixFlags, block);
-
-                if (compDonotInline())
-                {
-                    return;
-                }
-
                 break;
-
             case CEE_CALLI:
                 callTyp = ImportCallI(codeAddr, codeEndp, opcodeOffs, prefixFlags);
-
-                if (compDonotInline())
-                {
-                    return;
-                }
-
                 break;
-
             case CEE_CALLVIRT:
             case CEE_CALL:
                 callTyp = ImportCall(codeAddr, codeEndp, opcodeOffs, opcode, &constrainedResolvedToken, prefixFlags);
-
-                if (compDonotInline())
-                {
-                    return;
-                }
-
                 break;
 
             case CEE_LDFLD:
@@ -11751,53 +11717,25 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
             case CEE_NEWARR:
                 ImportNewArr(codeAddr, block);
-
-                if (compDonotInline())
-                {
-                    return;
-                }
                 callTyp = TYP_REF;
                 break;
-
             case CEE_LOCALLOC:
                 ImportLocAlloc(block);
-
-                if (compDonotInline())
-                {
-                    return;
-                }
-
                 break;
-
             case CEE_ISINST:
                 ImportIsInst(codeAddr);
-
-                if (compDonotInline())
-                {
-                    return;
-                }
                 break;
-
+            case CEE_MKREFANY:
+                ImportMkRefAny(codeAddr);
+                break;
             case CEE_REFANYVAL:
                 ImportRefAnyVal(codeAddr);
-
-                if (compDonotInline())
-                {
-                    return;
-                }
                 break;
-
             case CEE_REFANYTYPE:
                 ImportRefAnyType();
                 break;
-
             case CEE_LDTOKEN:
                 ImportLdToken(codeAddr);
-
-                if (compDonotInline())
-                {
-                    return;
-                }
                 break;
 
             case CEE_UNBOX:
@@ -11815,20 +11753,10 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 {
                     ImportUnbox(resolvedToken, opcode == CEE_UNBOX_ANY);
                 }
-
-                if (compDonotInline())
-                {
-                    return;
-                }
                 break;
 
             case CEE_BOX:
                 sz += ImportBox(codeAddr, codeEndp);
-
-                if (compDonotInline())
-                {
-                    return;
-                }
                 break;
 
             case CEE_SIZEOF:
@@ -11845,11 +11773,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 JITDUMP(" %08X", resolvedToken.token);
 
                 ImportCastClass(resolvedToken, false);
-
-                if (compDonotInline())
-                {
-                    return;
-                }
                 break;
 
             case CEE_THROW:
@@ -12006,15 +11929,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 // we've got an address so the local is "address taken".
                 impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("STOBJ stack spill temp"));
                 impSpillNoneAppendTree(op1);
-                break;
-
-            case CEE_MKREFANY:
-                ImportMkRefAny(codeAddr);
-
-                if (compDonotInline())
-                {
-                    return;
-                }
                 break;
 
             case CEE_LDOBJ:
