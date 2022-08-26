@@ -10202,12 +10202,16 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_ENDFINALLY:
-
                 if (compIsForInlining())
                 {
                     assert(!"Shouldn't have exception handlers in the inliner!");
                     compInlineResult->NoteFatal(InlineObservation::CALLEE_HAS_ENDFINALLY);
                     return;
+                }
+
+                if (info.compXcptnsCount == 0)
+                {
+                    BADCODE("endfinally outside finally");
                 }
 
                 if (verCurrentState.esStackDepth > 0)
@@ -10216,18 +10220,10 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     verCurrentState.esStackDepth = 0;
                 }
 
-                if (info.compXcptnsCount == 0)
-                {
-                    BADCODE("endfinally outside finally");
-                }
-
-                assert(verCurrentState.esStackDepth == 0);
-
                 impSpillNoneAppendTree(gtNewOperNode(GT_RETFILT, TYP_VOID, nullptr));
                 break;
 
             case CEE_ENDFILTER:
-
                 if (compIsForInlining())
                 {
                     assert(!"Shouldn't have exception handlers in the inliner!");
@@ -10235,28 +10231,28 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     return;
                 }
 
-                block->bbSetRunRarely(); // filters are rare
-
                 if (info.compXcptnsCount == 0)
                 {
                     BADCODE("endfilter outside filter");
                 }
 
-                op1 = impPopStack().val;
-                assertImp(op1->gtType == TYP_INT);
                 if (!bbInFilterILRange(block))
                 {
                     BADCODE("EndFilter outside a filter handler");
                 }
 
-                assert(compCurBB->bbFlags & BBF_DONT_REMOVE);
-                assert(compCurBB->bbJumpKind == BBJ_EHFILTERRET);
+                assert(block->bbFlags & BBF_DONT_REMOVE);
+                assert(block->bbJumpKind == BBJ_EHFILTERRET);
 
-                if (verCurrentState.esStackDepth != 0)
+                if (verCurrentState.esStackDepth != 1)
                 {
                     BADCODE("stack must be 1 on end of filter");
                 }
 
+                block->bbSetRunRarely(); // filters are rare
+
+                op1 = impPopStack().val;
+                assertImp(op1->TypeIs(TYP_INT));
                 impSpillNoneAppendTree(gtNewOperNode(GT_RETFILT, op1->GetType(), op1));
                 break;
 
