@@ -10649,7 +10649,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                             op1->gtFlags |= GTF_UNSIGNED;
                         }
                     }
-                    else if (varTypeIsIntegral(op1->GetType()) && op1->OperIs(GT_DIV, GT_UDIV, GT_MOD, GT_UMOD))
+                    else if (op1->OperIs(GT_DIV, GT_UDIV, GT_MOD, GT_UMOD))
                     {
                         if (op1->OperMayThrow(comp))
                         {
