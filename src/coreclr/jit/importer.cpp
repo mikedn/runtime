@@ -12209,8 +12209,6 @@ void Importer::ImportLocAlloc(BasicBlock* block)
 
     // If the localloc is not in a loop and its size is a small constant,
     // create a new local var of TYP_BLK and return its address.
-    bool convertedToLocal = false;
-
     // Need to aggressively fold here, as even fixed-size locallocs
     // will have casts in the way.
     op2 = gtFoldExpr(op2);
@@ -12224,8 +12222,6 @@ void Importer::ImportLocAlloc(BasicBlock* block)
             // Result is nullptr
             JITDUMP("Converting stackalloc of 0 bytes to push null unmanaged pointer\n");
             op1 = gtNewIconNode(0, TYP_I_IMPL);
-
-            convertedToLocal = true;
         }
         else if ((allocSize > 0) && !impBlockIsInALoop(block))
         {
@@ -12250,13 +12246,11 @@ void Importer::ImportLocAlloc(BasicBlock* block)
                     setNeedsGSSecurityCookie();
                     comp->compGSReorderStackLayout = true;
                 }
-
-                convertedToLocal = true;
             }
         }
     }
 
-    if (!convertedToLocal)
+    if (op1 == nullptr)
     {
         // Bail out if inlining and the localloc was not converted.
         //
