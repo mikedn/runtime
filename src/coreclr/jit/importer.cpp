@@ -10590,15 +10590,13 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     op1 = new (comp, oper == GT_FMOD ? GT_CALL : oper)
                         GenTreeOp(oper, type, op1, op2 DEBUGARG(/*largeNode*/ true));
                 }
+                else if ((op2->IsIntegralConst(0) && (oper == GT_ADD || oper == GT_SUB)) ||
+                         (op2->IsIntegralConst(1) && (oper == GT_MUL || oper == GT_DIV)))
+                {
+                    // just push op1
+                }
                 else
                 {
-                    if ((op2->IsIntegralConst(0) && (oper == GT_ADD || oper == GT_SUB)) ||
-                        (op2->IsIntegralConst(1) && (oper == GT_MUL || oper == GT_DIV)))
-                    {
-                        impPushOnStack(op1);
-                        break;
-                    }
-
                     if ((oper == GT_MUL) && !ovfl && ((type == TYP_INT) || (type == TYP_LONG)))
                     {
                         GenTreeIntCon* i1 = op1->IsIntCon();
@@ -11080,13 +11078,11 @@ void Importer::impImportBlockCode(BasicBlock* block)
             case CEE_CONV_U2:
                 lclTyp = TYP_USHORT;
                 goto CONV;
-#if (REGSIZE_BYTES == 8)
             case CEE_CONV_U:
                 lclTyp = TYP_U_IMPL;
+#ifdef TARGET_64BIT
                 goto CONV_UN;
 #else
-            case CEE_CONV_U:
-                lclTyp = TYP_U_IMPL;
                 goto CONV;
 #endif
             case CEE_CONV_U4:
