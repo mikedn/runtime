@@ -720,66 +720,62 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
     const BYTE*     codeAddr = info.compCode;
     const IL_OFFSET codeSize = info.compILCodeSize;
 
-    const BYTE* codeBegp = codeAddr;
-    const BYTE* codeEndp = codeAddr + codeSize;
-    unsigned    varNum;
-    FgStack     pushedStack;
-    const bool  isForceInline          = (info.compFlags & CORINFO_FLG_FORCEINLINE) != 0;
-    const bool  makeInlineObservations = (compInlineResult != nullptr);
-    const bool  isInlining             = compIsForInlining();
-    const bool  isPreJit               = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT);
-    const bool  isTier1                = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER1);
-    unsigned    retBlocks              = 0;
-    bool        preciseScan            = makeInlineObservations && compInlineResult->GetPolicy()->RequiresPreciseScan();
-    const bool  resolveTokens          = preciseScan && (isPreJit || isTier1);
+    const BYTE*   codeBegp = codeAddr;
+    const BYTE*   codeEndp = codeAddr + codeSize;
+    unsigned      varNum;
+    FgStack       pushedStack;
+    const bool    isForceInline = (info.compFlags & CORINFO_FLG_FORCEINLINE) != 0;
+    InlineResult* inlineResult  = compInlineResult;
+    InlineInfo*   inlineInfo    = impInlineInfo;
+    const bool    isPreJit      = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT);
+    const bool    isTier1       = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER1);
+    unsigned      retBlocks     = 0;
+    bool          preciseScan   = (inlineResult != nullptr) && inlineResult->GetPolicy()->RequiresPreciseScan();
+    const bool    resolveTokens = preciseScan && (isPreJit || isTier1);
 
-    if (makeInlineObservations)
+    if (inlineResult != nullptr)
     {
         // Set default values for profile (to avoid NoteFailed in CALLEE_IL_CODE_SIZE's handler)
         // these will be overridden later.
-        compInlineResult->NoteBool(InlineObservation::CALLSITE_HAS_PROFILE, true);
-        compInlineResult->NoteDouble(InlineObservation::CALLSITE_PROFILE_FREQUENCY, 1.0);
+        inlineResult->NoteBool(InlineObservation::CALLSITE_HAS_PROFILE, true);
+        inlineResult->NoteDouble(InlineObservation::CALLSITE_PROFILE_FREQUENCY, 1.0);
         // Observe force inline state and code size.
-        compInlineResult->NoteBool(InlineObservation::CALLEE_IS_FORCE_INLINE, isForceInline);
-        compInlineResult->NoteInt(InlineObservation::CALLEE_IL_CODE_SIZE, codeSize);
+        inlineResult->NoteBool(InlineObservation::CALLEE_IS_FORCE_INLINE, isForceInline);
+        inlineResult->NoteInt(InlineObservation::CALLEE_IL_CODE_SIZE, codeSize);
 
-        // Determine if call site is within a try.
-        if (isInlining && impInlineInfo->iciBlock->hasTryIndex())
+        if (inlineInfo != nullptr)
         {
-            compInlineResult->Note(InlineObservation::CALLSITE_IN_TRY_REGION);
-        }
+            // Determine if call site is within a try.
+            if (inlineInfo->iciBlock->hasTryIndex())
+            {
+                inlineResult->Note(InlineObservation::CALLSITE_IN_TRY_REGION);
+            }
 
-        // Determine if the call site is in a no-return block
-        if (isInlining && (impInlineInfo->iciBlock->bbJumpKind == BBJ_THROW))
-        {
-            compInlineResult->Note(InlineObservation::CALLSITE_IN_NORETURN_REGION);
-        }
+            // Determine if the call site is in a no-return block
+            if (inlineInfo->iciBlock->bbJumpKind == BBJ_THROW)
+            {
+                inlineResult->Note(InlineObservation::CALLSITE_IN_NORETURN_REGION);
+            }
 
-        // Determine if the call site is in a loop.
-        if (isInlining && ((impInlineInfo->iciBlock->bbFlags & BBF_BACKWARD_JUMP) != 0))
-        {
-            compInlineResult->Note(InlineObservation::CALLSITE_IN_LOOP);
+            // Determine if the call site is in a loop.
+            if ((inlineInfo->iciBlock->bbFlags & BBF_BACKWARD_JUMP) != 0)
+            {
+                inlineResult->Note(InlineObservation::CALLSITE_IN_LOOP);
+            }
         }
-
-#ifdef DEBUG
 
         // If inlining, this method should still be a candidate.
-        if (isInlining)
-        {
-            assert(compInlineResult->IsCandidate());
-        }
-
-#endif // DEBUG
+        assert((inlineInfo == nullptr) || inlineResult->IsCandidate());
 
         // note that we're starting to look at the opcodes.
-        compInlineResult->Note(InlineObservation::CALLEE_BEGIN_OPCODE_SCAN);
+        inlineResult->Note(InlineObservation::CALLEE_BEGIN_OPCODE_SCAN);
     }
 
     CORINFO_RESOLVED_TOKEN resolvedToken;
+    OPCODE                 opcode     = CEE_NOP;
+    OPCODE                 prevOpcode = CEE_NOP;
+    bool                   handled    = false;
 
-    OPCODE opcode     = CEE_NOP;
-    OPCODE prevOpcode = CEE_NOP;
-    bool   handled    = false;
     while (codeAddr < codeEndp)
     {
         prevOpcode = opcode;
@@ -796,7 +792,6 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
         bool typeIsNormed = false;
 
     DECODE_OPCODE:
-
         if ((unsigned)opcode >= CEE_COUNT)
         {
             BADCODE3("Illegal opcode", ": %02X", (int)opcode);
@@ -807,7 +802,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
             opts.lvRefCount++;
         }
 
-        if (makeInlineObservations && (opcode >= CEE_LDNULL) && (opcode <= CEE_LDC_R8))
+        if ((inlineResult != nullptr) && (opcode >= CEE_LDNULL) && (opcode <= CEE_LDC_R8))
         {
             // LDTOKEN and LDSTR are handled below
             pushedStack.PushConstant();
@@ -863,22 +858,19 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
             }
 
             case CEE_THROW:
-            {
-                if (makeInlineObservations)
+                if (inlineResult != nullptr)
                 {
-                    compInlineResult->Note(InlineObservation::CALLEE_THROW_BLOCK);
+                    inlineResult->Note(InlineObservation::CALLEE_THROW_BLOCK);
                 }
                 break;
-            }
 
             case CEE_BOX:
-            {
-                if (makeInlineObservations)
+                if (inlineResult != nullptr)
                 {
                     unsigned patternSize;
                     if (impBoxPatternMatch(codeAddr + sz, codeEndp, &patternSize) != BoxPattern::None)
                     {
-                        compInlineResult->Note(InlineObservation::CALLEE_FOLDABLE_BOX);
+                        inlineResult->Note(InlineObservation::CALLEE_FOLDABLE_BOX);
 
                         if (preciseScan)
                         {
@@ -887,39 +879,35 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                     }
                 }
                 break;
-            }
 
             case CEE_CASTCLASS:
             case CEE_ISINST:
-            {
-                if (makeInlineObservations)
+                if (inlineResult != nullptr)
                 {
                     FgStack::FgSlot slot = pushedStack.Top();
-                    if (FgStack::IsConstantOrConstArg(slot, impInlineInfo) ||
-                        FgStack::IsExactArgument(slot, impInlineInfo))
+                    if (FgStack::IsConstantOrConstArg(slot, inlineInfo) || FgStack::IsExactArgument(slot, inlineInfo))
                     {
-                        compInlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_EXPR_UN);
+                        inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_EXPR_UN);
                         handled = true; // and keep argument in the pushedStack
                     }
                     else if (FgStack::IsArgument(slot))
                     {
-                        compInlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_CAST);
+                        inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_CAST);
                         handled = true; // and keep argument in the pushedStack
                     }
                 }
                 break;
-            }
 
             case CEE_CALL:
             case CEE_CALLVIRT:
             {
                 // There has to be code after the call, otherwise the inlinee is unverifiable.
-                if (isInlining)
+                if (inlineInfo != nullptr)
                 {
                     noway_assert(codeAddr < codeEndp - sz);
                 }
 
-                if (!makeInlineObservations)
+                if (inlineResult == nullptr)
                 {
                     break;
                 }
@@ -944,7 +932,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                     if (IsMathIntrinsic(ni))
                     {
                         // Most Math(F) intrinsics have single arguments
-                        foldableIntrinsc = FgStack::IsConstantOrConstArg(pushedStack.Top(), impInlineInfo);
+                        foldableIntrinsc = FgStack::IsConstantOrConstArg(pushedStack.Top(), inlineInfo);
                     }
                     else
                     {
@@ -966,7 +954,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                             {
                                 if (FgStack::IsArgument(pushedStack.Top(0)) || FgStack::IsArgument(pushedStack.Top(1)))
                                 {
-                                    compInlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_RANGE_CHECK);
+                                    inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_RANGE_CHECK);
                                 }
                                 break;
                             }
@@ -986,7 +974,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
 #endif
                             {
                                 // Top() in order to keep it as is in case of foldableIntrinsc
-                                if (FgStack::IsConstantOrConstArg(pushedStack.Top(), impInlineInfo))
+                                if (FgStack::IsConstantOrConstArg(pushedStack.Top(), inlineInfo))
                                 {
                                     foldableIntrinsc = true;
                                 }
@@ -1000,8 +988,8 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                             case NI_System_Type_IsAssignableTo:
                             case NI_System_Type_IsAssignableFrom:
                             {
-                                if (FgStack::IsConstantOrConstArg(pushedStack.Top(0), impInlineInfo) &&
-                                    FgStack::IsConstantOrConstArg(pushedStack.Top(1), impInlineInfo))
+                                if (FgStack::IsConstantOrConstArg(pushedStack.Top(0), inlineInfo) &&
+                                    FgStack::IsConstantOrConstArg(pushedStack.Top(1), inlineInfo))
                                 {
                                     foldableIntrinsc = true;
                                     pushedStack.PushConstant();
@@ -1050,7 +1038,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
 
                     if (foldableIntrinsc)
                     {
-                        compInlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_INTRINSIC);
+                        inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_INTRINSIC);
                         handled = true;
                     }
                     else if (ni != NI_Illegal)
@@ -1059,7 +1047,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                         // except Math where only a few intrinsics won't end up as normal calls
                         if (!IsMathIntrinsic(ni) || IsTargetIntrinsic(ni))
                         {
-                            compInlineResult->Note(InlineObservation::CALLEE_INTRINSIC);
+                            inlineResult->Note(InlineObservation::CALLEE_INTRINSIC);
                         }
                     }
                 }
@@ -1068,7 +1056,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                 {
                     // If the method has a call followed by a ret, assume that
                     // it is a wrapper method.
-                    compInlineResult->Note(InlineObservation::CALLEE_LOOKS_LIKE_WRAPPER);
+                    inlineResult->Note(InlineObservation::CALLEE_LOOKS_LIKE_WRAPPER);
                 }
 
                 if (!isJitIntrinsic && !handled && FgStack::IsArgument(pushedStack.Top()))
@@ -1135,13 +1123,12 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
             case CEE_CONV_OVF_U8_UN:
             case CEE_NOT:
             case CEE_NEG:
-            {
-                if (makeInlineObservations)
+                if (inlineResult != nullptr)
                 {
                     FgStack::FgSlot arg = pushedStack.Top();
-                    if (FgStack::IsConstArgument(arg, impInlineInfo))
+                    if (FgStack::IsConstArgument(arg, inlineInfo))
                     {
-                        compInlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_EXPR_UN);
+                        inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_EXPR_UN);
                         handled = true;
                     }
                     else if (FgStack::IsArgument(arg) || FgStack::IsConstant(arg))
@@ -1150,7 +1137,6 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                     }
                 }
                 break;
-            }
 
             // Binary operators:
             case CEE_ADD:
@@ -1178,7 +1164,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
             case CEE_CLT:
             case CEE_CLT_UN:
             {
-                if (!makeInlineObservations)
+                if (inlineResult == nullptr)
                 {
                     break;
                 }
@@ -1192,7 +1178,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                         case CEE_CGT_UN:
                         case CEE_CLT:
                         case CEE_CLT_UN:
-                            fgObserveInlineConstants(opcode, pushedStack, isInlining);
+                            fgObserveInlineConstants(opcode, pushedStack, inlineInfo != nullptr);
                             break;
                         default:
                             break;
@@ -1204,23 +1190,23 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                     FgStack::FgSlot arg1 = pushedStack.Top(0);
 
                     // Const op ConstArg -> ConstArg
-                    if (FgStack::IsConstant(arg0) && FgStack::IsConstArgument(arg1, impInlineInfo))
+                    if (FgStack::IsConstant(arg0) && FgStack::IsConstArgument(arg1, inlineInfo))
                     {
                         // keep stack unchanged
                         handled = true;
-                        compInlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_EXPR);
+                        inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_EXPR);
                     }
                     // ConstArg op Const    -> ConstArg
                     // ConstArg op ConstArg -> ConstArg
-                    else if (FgStack::IsConstArgument(arg0, impInlineInfo) &&
-                             FgStack::IsConstantOrConstArg(arg1, impInlineInfo))
+                    else if (FgStack::IsConstArgument(arg0, inlineInfo) &&
+                             FgStack::IsConstantOrConstArg(arg1, inlineInfo))
                     {
                         if (FgStack::IsConstant(arg1))
                         {
                             pushedStack.Push(arg0);
                         }
                         handled = true;
-                        compInlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_EXPR);
+                        inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_EXPR);
                     }
                     // Const op Const -> Const
                     else if (FgStack::IsConstant(arg0) && FgStack::IsConstant(arg1))
@@ -1231,29 +1217,29 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                     }
                     // Arg op ConstArg
                     // Arg op Const
-                    else if (FgStack::IsArgument(arg0) && FgStack::IsConstantOrConstArg(arg1, impInlineInfo))
+                    else if (FgStack::IsArgument(arg0) && FgStack::IsConstantOrConstArg(arg1, inlineInfo))
                     {
                         // "Arg op CNS" --> keep arg0 in the stack for the next ops
                         pushedStack.Push(arg0);
                         handled = true;
-                        compInlineResult->Note(InlineObservation::CALLEE_BINARY_EXRP_WITH_CNS);
+                        inlineResult->Note(InlineObservation::CALLEE_BINARY_EXRP_WITH_CNS);
                     }
                     // ConstArg op Arg
                     // Const    op Arg
-                    else if (FgStack::IsArgument(arg1) && FgStack::IsConstantOrConstArg(arg0, impInlineInfo))
+                    else if (FgStack::IsArgument(arg1) && FgStack::IsConstantOrConstArg(arg0, inlineInfo))
                     {
                         // "CNS op ARG" --> keep arg1 in the stack for the next ops
                         handled = true;
-                        compInlineResult->Note(InlineObservation::CALLEE_BINARY_EXRP_WITH_CNS);
+                        inlineResult->Note(InlineObservation::CALLEE_BINARY_EXRP_WITH_CNS);
                     }
                     // X / ConstArg
                     // X % ConstArg
-                    if (FgStack::IsConstArgument(arg1, impInlineInfo))
+                    if (FgStack::IsConstArgument(arg1, inlineInfo))
                     {
                         if ((opcode == CEE_DIV) || (opcode == CEE_DIV_UN) || (opcode == CEE_REM) ||
                             (opcode == CEE_REM_UN))
                         {
-                            compInlineResult->Note(InlineObservation::CALLSITE_DIV_BY_CNS);
+                            inlineResult->Note(InlineObservation::CALLSITE_DIV_BY_CNS);
                         }
                         pushedStack.Push(arg0);
                         handled = true;
@@ -1300,7 +1286,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                 // Compute jump target address
                 signed jmpDist = (sz == 1) ? getI1LittleEndian(codeAddr) : getI4LittleEndian(codeAddr);
 
-                if (compIsForInlining() && jmpDist == 0 &&
+                if ((inlineInfo != nullptr) && jmpDist == 0 &&
                     (opcode == CEE_LEAVE || opcode == CEE_LEAVE_S || opcode == CEE_BR || opcode == CEE_BR_S))
                 {
                     break; /* NOP */
@@ -1314,20 +1300,20 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                     BADCODE3("code jumps to outer space", " at offset %04X", (IL_OFFSET)(codeAddr - codeBegp));
                 }
 
-                if (makeInlineObservations && (jmpDist < 0))
+                if ((inlineResult != nullptr) && (jmpDist < 0))
                 {
-                    compInlineResult->Note(InlineObservation::CALLEE_BACKWARD_JUMP);
+                    inlineResult->Note(InlineObservation::CALLEE_BACKWARD_JUMP);
                 }
 
                 // Mark the jump target
                 jumpTarget->bitVectSet(jmpAddr);
 
                 // See if jump might be sensitive to inlining
-                if (!preciseScan && makeInlineObservations && (opcode != CEE_BR_S) && (opcode != CEE_BR))
+                if (!preciseScan && (inlineResult != nullptr) && (opcode != CEE_BR_S) && (opcode != CEE_BR))
                 {
-                    fgObserveInlineConstants(opcode, pushedStack, isInlining);
+                    fgObserveInlineConstants(opcode, pushedStack, inlineInfo != nullptr);
                 }
-                else if (preciseScan && makeInlineObservations)
+                else if (preciseScan && (inlineResult != nullptr))
                 {
                     switch (opcode)
                     {
@@ -1356,34 +1342,33 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                             FgStack::FgSlot op1 = pushedStack.Top(1);
                             FgStack::FgSlot op2 = pushedStack.Top(0);
 
-                            if (FgStack::IsConstantOrConstArg(op1, impInlineInfo) &&
-                                FgStack::IsConstantOrConstArg(op2, impInlineInfo))
+                            if (FgStack::IsConstantOrConstArg(op1, inlineInfo) &&
+                                FgStack::IsConstantOrConstArg(op2, inlineInfo))
                             {
-                                compInlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_BRANCH);
+                                inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_BRANCH);
                             }
-                            if (FgStack::IsConstArgument(op1, impInlineInfo) ||
-                                FgStack::IsConstArgument(op2, impInlineInfo))
+                            if (FgStack::IsConstArgument(op1, inlineInfo) || FgStack::IsConstArgument(op2, inlineInfo))
                             {
-                                compInlineResult->Note(InlineObservation::CALLSITE_CONSTANT_ARG_FEEDS_TEST);
+                                inlineResult->Note(InlineObservation::CALLSITE_CONSTANT_ARG_FEEDS_TEST);
                             }
 
                             if ((FgStack::IsArgument(op1) && FgStack::IsArrayLen(op2)) ||
                                 (FgStack::IsArgument(op2) && FgStack::IsArrayLen(op1)))
                             {
-                                compInlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_RANGE_CHECK);
+                                inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_RANGE_CHECK);
                             }
-                            else if ((FgStack::IsArgument(op1) && FgStack::IsConstantOrConstArg(op2, impInlineInfo)) ||
-                                     (FgStack::IsArgument(op2) && FgStack::IsConstantOrConstArg(op1, impInlineInfo)))
+                            else if ((FgStack::IsArgument(op1) && FgStack::IsConstantOrConstArg(op2, inlineInfo)) ||
+                                     (FgStack::IsArgument(op2) && FgStack::IsConstantOrConstArg(op1, inlineInfo)))
                             {
-                                compInlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_CONSTANT_TEST);
+                                inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_CONSTANT_TEST);
                             }
                             else if (FgStack::IsArgument(op1) || FgStack::IsArgument(op2))
                             {
-                                compInlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_TEST);
+                                inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_TEST);
                             }
                             else if (FgStack::IsConstant(op1) || FgStack::IsConstant(op2))
                             {
-                                compInlineResult->Note(InlineObservation::CALLEE_BINARY_EXRP_WITH_CNS);
+                                inlineResult->Note(InlineObservation::CALLEE_BINARY_EXRP_WITH_CNS);
                             }
                             break;
                         }
@@ -1394,14 +1379,14 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                         case CEE_BRFALSE:
                         case CEE_BRTRUE:
                         {
-                            if (FgStack::IsConstantOrConstArg(pushedStack.Top(), impInlineInfo))
+                            if (FgStack::IsConstantOrConstArg(pushedStack.Top(), inlineInfo))
                             {
-                                compInlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_BRANCH);
+                                inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_BRANCH);
                             }
                             else if (FgStack::IsArgument(pushedStack.Top()))
                             {
                                 // E.g. brtrue is basically "if (X == 0)"
-                                compInlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_CONSTANT_TEST);
+                                inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_CONSTANT_TEST);
                             }
                             break;
                         }
@@ -1419,7 +1404,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
             {
                 if (FgStack::IsArgument(pushedStack.Top()))
                 {
-                    compInlineResult->Note(InlineObservation::CALLEE_ARG_STRUCT_FIELD_ACCESS);
+                    inlineResult->Note(InlineObservation::CALLEE_ARG_STRUCT_FIELD_ACCESS);
                     handled = true; // keep argument on top of the stack
                 }
                 break;
@@ -1453,23 +1438,23 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                 }
                 if (FgStack::IsArgument(pushedStack.Top()) || FgStack::IsArgument(pushedStack.Top(1)))
                 {
-                    compInlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_RANGE_CHECK);
+                    inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_RANGE_CHECK);
                 }
                 break;
             }
 
             case CEE_SWITCH:
             {
-                if (makeInlineObservations)
+                if (inlineResult != nullptr)
                 {
-                    compInlineResult->Note(InlineObservation::CALLEE_HAS_SWITCH);
-                    if (FgStack::IsConstantOrConstArg(pushedStack.Top(), impInlineInfo))
+                    inlineResult->Note(InlineObservation::CALLEE_HAS_SWITCH);
+                    if (FgStack::IsConstantOrConstArg(pushedStack.Top(), inlineInfo))
                     {
-                        compInlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_SWITCH);
+                        inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_SWITCH);
                     }
 
                     // Fail fast, if we're inlining and can't handle this.
-                    if (isInlining && compInlineResult->IsFailure())
+                    if ((inlineInfo != nullptr) && inlineResult->IsFailure())
                     {
                         return;
                     }
@@ -1542,9 +1527,9 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
 
                 varNum = (sz == sizeof(BYTE)) ? getU1LittleEndian(codeAddr) : getU2LittleEndian(codeAddr);
 
-                if (isInlining)
+                if (inlineInfo != nullptr)
                 {
-                    impInlineInfo->NoteParamStore(varNum);
+                    inlineInfo->NoteParamStore(varNum);
                 }
                 else
                 {
@@ -1582,9 +1567,9 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                 varNum = (sz == sizeof(BYTE)) ? getU1LittleEndian(codeAddr) : getU2LittleEndian(codeAddr);
 
             STLOC:
-                if (isInlining)
+                if (inlineInfo != nullptr)
                 {
-                    impInlineInfo->NoteLocalStore(varNum);
+                    inlineInfo->NoteLocalStore(varNum);
                 }
                 else
                 {
@@ -1614,8 +1599,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
             case CEE_LDLOC_1:
             case CEE_LDLOC_2:
             case CEE_LDLOC_3:
-                //
-                if (preciseScan && makeInlineObservations && (prevOpcode == (CEE_STLOC_3 - (CEE_LDLOC_3 - opcode))))
+                if (preciseScan && (inlineResult != nullptr) && (prevOpcode == (CEE_STLOC_3 - (CEE_LDLOC_3 - opcode))))
                 {
                     // Fold stloc+ldloc
                     pushedStack.Push(pushedStack.Top(1)); // throw away SLOT_UNKNOWN inserted by STLOC
@@ -1638,17 +1622,17 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
 
                 varNum = (sz == sizeof(BYTE)) ? getU1LittleEndian(codeAddr) : getU2LittleEndian(codeAddr);
 
-                if (isInlining)
+                if (inlineInfo != nullptr)
                 {
                     if ((opcode == CEE_LDLOCA) || (opcode == CEE_LDLOCA_S))
                     {
-                        impInlineInfo->NoteAddressTakenLocal(varNum);
-                        typeIsNormed = impInlineInfo->IsNormedTypeLocal(varNum);
+                        inlineInfo->NoteAddressTakenLocal(varNum);
+                        typeIsNormed = inlineInfo->IsNormedTypeLocal(varNum);
                     }
                     else
                     {
-                        impInlineInfo->NoteAddressTakenParam(varNum);
-                        typeIsNormed = impInlineInfo->IsNormedTypeParam(varNum);
+                        inlineInfo->NoteAddressTakenParam(varNum);
+                        typeIsNormed = inlineInfo->IsNormedTypeParam(varNum);
 
                         pushedStack.PushArgument(varNum);
                         handled = true;
@@ -1723,7 +1707,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                 retBlocks++;
 
 #if !defined(TARGET_X86) && !defined(TARGET_ARM)
-                if (!isInlining)
+                if (inlineInfo == nullptr)
                 {
                     // We transform this into a set of ldarg's + tail call and
                     // thus may push more onto the stack than originally thought.
@@ -1742,28 +1726,28 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
 
             case CEE_MKREFANY:
             case CEE_RETHROW:
-                if (makeInlineObservations)
+                if (inlineResult != nullptr)
                 {
                     // Arguably this should be NoteFatal, but the legacy behavior is
                     // to ignore this for the prejit root.
-                    compInlineResult->Note(InlineObservation::CALLEE_UNSUPPORTED_OPCODE);
+                    inlineResult->Note(InlineObservation::CALLEE_UNSUPPORTED_OPCODE);
 
                     // Fail fast if we're inlining...
-                    if (isInlining)
+                    if (inlineInfo != nullptr)
                     {
-                        assert(compInlineResult->IsFailure());
+                        assert(inlineResult->IsFailure());
                         return;
                     }
                 }
                 break;
 
             case CEE_LOCALLOC:
-
                 // We now allow localloc callees to become candidates in some cases.
-                if (makeInlineObservations)
+                if (inlineResult != nullptr)
                 {
-                    compInlineResult->Note(InlineObservation::CALLEE_HAS_LOCALLOC);
-                    if (isInlining && compInlineResult->IsFailure())
+                    inlineResult->Note(InlineObservation::CALLEE_HAS_LOCALLOC);
+
+                    if ((inlineInfo != nullptr) && inlineResult->IsFailure())
                     {
                         return;
                     }
@@ -1774,7 +1758,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
             case CEE_LDARG_1:
             case CEE_LDARG_2:
             case CEE_LDARG_3:
-                if (makeInlineObservations)
+                if (inlineResult != nullptr)
                 {
                     pushedStack.PushArgument(opcode - CEE_LDARG_0);
                     handled = true;
@@ -1791,7 +1775,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
 
                 varNum = (sz == sizeof(BYTE)) ? getU1LittleEndian(codeAddr) : getU2LittleEndian(codeAddr);
 
-                if (makeInlineObservations)
+                if (inlineResult != nullptr)
                 {
                     pushedStack.PushArgument(varNum);
                     handled = true;
@@ -1800,7 +1784,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
             break;
 
             case CEE_LDLEN:
-                if (makeInlineObservations)
+                if (inlineResult != nullptr)
                 {
                     pushedStack.PushArrayLen();
                     handled = true;
@@ -1823,11 +1807,11 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
         codeAddr += sz;
 
         // Note the opcode we just saw
-        if (makeInlineObservations)
+        if (inlineResult != nullptr)
         {
             InlineObservation obs =
                 typeIsNormed ? InlineObservation::CALLEE_OPCODE_NORMED : InlineObservation::CALLEE_OPCODE;
-            compInlineResult->NoteInt(obs, opcode);
+            inlineResult->NoteInt(obs, opcode);
         }
     }
 
@@ -1838,52 +1822,52 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                  " at offset %04X", (IL_OFFSET)(codeAddr - codeBegp));
     }
 
-    if (makeInlineObservations)
+    if (inlineResult != nullptr)
     {
-        compInlineResult->Note(InlineObservation::CALLEE_END_OPCODE_SCAN);
+        inlineResult->Note(InlineObservation::CALLEE_END_OPCODE_SCAN);
 
         // If there are no return blocks we know it does not return, however if there
         // return blocks we don't know it returns as it may be counting unreachable code.
         // However we will still make the CALLEE_DOES_NOT_RETURN observation.
 
-        compInlineResult->NoteBool(InlineObservation::CALLEE_DOES_NOT_RETURN, retBlocks == 0);
+        inlineResult->NoteBool(InlineObservation::CALLEE_DOES_NOT_RETURN, retBlocks == 0);
 
-        if (retBlocks == 0 && isInlining)
+        if ((retBlocks == 0) && (inlineInfo != nullptr))
         {
             // Mark the call node as "no return" as it can impact caller's code quality.
-            impInlineInfo->iciCall->gtCallMoreFlags |= GTF_CALL_M_DOES_NOT_RETURN;
+            inlineInfo->iciCall->gtCallMoreFlags |= GTF_CALL_M_DOES_NOT_RETURN;
             // Mark root method as containing a noreturn call.
-            impInlineRoot()->setMethodHasNoReturnCalls();
+            inlineInfo->InlinerCompiler->setMethodHasNoReturnCalls();
         }
 
         // If the inline is viable and discretionary, do the
         // profitability screening.
-        if (compInlineResult->IsDiscretionaryCandidate())
+        if (inlineResult->IsDiscretionaryCandidate())
         {
             // Make some callsite specific observations that will feed
             // into the profitability model.
-            impMakeDiscretionaryInlineObservations(impInlineInfo, compInlineResult);
+            impMakeDiscretionaryInlineObservations(inlineInfo, inlineResult);
 
             // None of those observations should have changed the
             // inline's viability.
-            assert(compInlineResult->IsCandidate());
+            assert(inlineResult->IsCandidate());
 
-            if (isInlining)
+            if (inlineInfo != nullptr)
             {
                 // Assess profitability...
-                CORINFO_METHOD_INFO* methodInfo = &impInlineInfo->inlineCandidateInfo->methInfo;
-                compInlineResult->DetermineProfitability(methodInfo);
+                CORINFO_METHOD_INFO* methodInfo = &inlineInfo->inlineCandidateInfo->methInfo;
+                inlineResult->DetermineProfitability(methodInfo);
 
-                if (compInlineResult->IsFailure())
+                if (inlineResult->IsFailure())
                 {
-                    impInlineRoot()->m_inlineStrategy->NoteUnprofitable();
+                    inlineInfo->InlinerCompiler->m_inlineStrategy->NoteUnprofitable();
                     JITDUMP("\n\nInline expansion aborted, inline not profitable\n");
                     return;
                 }
                 else
                 {
                     // The inline is still viable.
-                    assert(compInlineResult->IsCandidate());
+                    assert(inlineResult->IsCandidate());
                 }
             }
             else
@@ -1896,7 +1880,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
 
     // None of the local vars in the inlinee should have address taken or been written to.
     // Therefore we should NOT need to enter this "if" statement.
-    if (!isInlining && !info.compIsStatic)
+    if ((inlineInfo == nullptr) && !info.compIsStatic)
     {
         fgAdjustForAddressExposedOrWrittenThis();
     }
@@ -1911,7 +1895,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
     // For inlinees we do this over in inlFetchInlineeLocal and
     // inlUseArg (here args are included as we somtimes get
     // new information about the types of inlinee args).
-    if (!isInlining)
+    if (inlineInfo == nullptr)
     {
         const unsigned firstLcl = info.compArgsCount;
         const unsigned lastLcl  = firstLcl + info.compMethodInfo->locals.numArgs;
