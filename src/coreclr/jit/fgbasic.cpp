@@ -665,18 +665,12 @@ public:
         assert(IsArgument(value));
         return value - SLOT_ARGUMENT;
     }
-    bool IsStackTwoDeep() const
+
+    unsigned Depth() const
     {
-        return depth == 2;
+        return depth;
     }
-    bool IsStackOneDeep() const
-    {
-        return depth == 1;
-    }
-    bool IsStackAtLeastOneDeep() const
-    {
-        return depth >= 1;
-    }
+
     void Push(FgSlot slot)
     {
         assert(depth <= 2);
@@ -1925,7 +1919,7 @@ void Compiler::fgObserveInlineConstants(OPCODE opcode, const FgStack& stack, Inl
     InlineResult* inlineResult = compInlineResult;
 
     // The stack only has to be 1 deep for BRTRUE/FALSE
-    bool lookForBranchCases = stack.IsStackAtLeastOneDeep();
+    bool lookForBranchCases = stack.Depth() >= 1;
 
     if (lookForBranchCases)
     {
@@ -1953,7 +1947,7 @@ void Compiler::fgObserveInlineConstants(OPCODE opcode, const FgStack& stack, Inl
     }
 
     // Remaining cases require at least two things on the stack.
-    if (!stack.IsStackTwoDeep())
+    if (stack.Depth() != 2)
     {
         return;
     }
