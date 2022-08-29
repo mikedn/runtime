@@ -1767,21 +1767,18 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
 
             case CEE_LDARG_S:
             case CEE_LDARG:
-            {
                 if (codeAddr > codeEndp - sz)
                 {
                     goto TOO_FAR;
                 }
 
-                varNum = (sz == sizeof(BYTE)) ? getU1LittleEndian(codeAddr) : getU2LittleEndian(codeAddr);
-
                 if (inlineResult != nullptr)
                 {
-                    pushedStack.PushArgument(varNum);
+                    unsigned locNum = (sz == 1) ? getU1LittleEndian(codeAddr) : getU2LittleEndian(codeAddr);
+                    pushedStack.PushArgument(locNum);
                     handled = true;
                 }
-            }
-            break;
+                break;
 
             case CEE_LDLEN:
                 if (inlineResult != nullptr)
