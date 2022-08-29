@@ -1166,7 +1166,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                         case CEE_CGT_UN:
                         case CEE_CLT:
                         case CEE_CLT_UN:
-                            fgObserveInlineConstants(opcode, pushedStack, inlineInfo != nullptr);
+                            fgObserveInlineConstants(opcode, pushedStack, inlineInfo);
                             break;
                         default:
                             break;
@@ -1294,7 +1294,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
 
                 if (!preciseScan && (inlineResult != nullptr) && (opcode != CEE_BR_S) && (opcode != CEE_BR))
                 {
-                    fgObserveInlineConstants(opcode, pushedStack, inlineInfo != nullptr);
+                    fgObserveInlineConstants(opcode, pushedStack, inlineInfo);
                 }
                 else if (preciseScan && (inlineResult != nullptr))
                 {
@@ -1917,10 +1917,12 @@ void Compiler::fgAdjustForAddressExposedOrWrittenThis()
 //
 //    The crude stack model may overestimate stack depth.
 
-void Compiler::fgObserveInlineConstants(OPCODE opcode, const FgStack& stack, bool isInlining)
+void Compiler::fgObserveInlineConstants(OPCODE opcode, const FgStack& stack, InlineInfo* inlineInfo)
 {
     // We should be able to record inline observations.
     assert(compInlineResult != nullptr);
+
+    InlineResult* inlineResult = compInlineResult;
 
     // The stack only has to be 1 deep for BRTRUE/FALSE
     bool lookForBranchCases = stack.IsStackAtLeastOneDeep();
@@ -1932,16 +1934,16 @@ void Compiler::fgObserveInlineConstants(OPCODE opcode, const FgStack& stack, boo
             FgStack::FgSlot slot0 = stack.GetSlot0();
             if (FgStack::IsArgument(slot0))
             {
-                compInlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_CONSTANT_TEST);
+                inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_CONSTANT_TEST);
 
-                if (isInlining)
+                if (inlineInfo != nullptr)
                 {
                     // Check for the double whammy of an incoming constant argument
                     // feeding a constant test.
                     unsigned varNum = FgStack::SlotTypeToArgNum(slot0);
-                    if (impInlineInfo->IsInvariantArg(varNum))
+                    if (inlineInfo->IsInvariantArg(varNum))
                     {
-                        compInlineResult->Note(InlineObservation::CALLSITE_CONSTANT_ARG_FEEDS_TEST);
+                        inlineResult->Note(InlineObservation::CALLSITE_CONSTANT_ARG_FEEDS_TEST);
                     }
                 }
             }
@@ -1963,38 +1965,38 @@ void Compiler::fgObserveInlineConstants(OPCODE opcode, const FgStack& stack, boo
     if ((FgStack::IsConstant(slot0) && FgStack::IsArgument(slot1)) ||
         (FgStack::IsConstant(slot1) && FgStack::IsArgument(slot0)))
     {
-        compInlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_CONSTANT_TEST);
+        inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_CONSTANT_TEST);
     }
 
     // Arg feeds range check
     if ((FgStack::IsArrayLen(slot0) && FgStack::IsArgument(slot1)) ||
         (FgStack::IsArrayLen(slot1) && FgStack::IsArgument(slot0)))
     {
-        compInlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_RANGE_CHECK);
+        inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_RANGE_CHECK);
     }
 
     // Check for an incoming arg that's a constant
-    if (isInlining)
+    if (inlineInfo != nullptr)
     {
         if (FgStack::IsArgument(slot0))
         {
-            compInlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_TEST);
+            inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_TEST);
 
             unsigned varNum = FgStack::SlotTypeToArgNum(slot0);
-            if (impInlineInfo->IsInvariantArg(varNum))
+            if (inlineInfo->IsInvariantArg(varNum))
             {
-                compInlineResult->Note(InlineObservation::CALLSITE_CONSTANT_ARG_FEEDS_TEST);
+                inlineResult->Note(InlineObservation::CALLSITE_CONSTANT_ARG_FEEDS_TEST);
             }
         }
 
         if (FgStack::IsArgument(slot1))
         {
-            compInlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_TEST);
+            inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_TEST);
 
             unsigned varNum = FgStack::SlotTypeToArgNum(slot1);
-            if (impInlineInfo->IsInvariantArg(varNum))
+            if (inlineInfo->IsInvariantArg(varNum))
             {
-                compInlineResult->Note(InlineObservation::CALLSITE_CONSTANT_ARG_FEEDS_TEST);
+                inlineResult->Note(InlineObservation::CALLSITE_CONSTANT_ARG_FEEDS_TEST);
             }
         }
     }
