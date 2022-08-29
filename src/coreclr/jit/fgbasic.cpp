@@ -6,43 +6,6 @@
 #pragma hdrstop
 #endif
 
-/*****************************************************************************
- *
- *  Create a basic block and append it to the current BB list.
- */
-
-BasicBlock* Compiler::fgNewBasicBlock(BBjumpKinds jumpKind)
-{
-    // This method must not be called after the exception table has been
-    // constructed, because it doesn't not provide support for patching
-    // the exception table.
-
-    noway_assert(compHndBBtabCount == 0);
-
-    BasicBlock* block;
-
-    /* Allocate the block descriptor */
-
-    block = bbNewBasicBlock(jumpKind);
-    noway_assert(block->bbJumpKind == jumpKind);
-
-    /* Append the block to the end of the global basic block list */
-
-    if (fgFirstBB)
-    {
-        fgLastBB->setNext(block);
-    }
-    else
-    {
-        fgFirstBB     = block;
-        block->bbPrev = nullptr;
-    }
-
-    fgLastBB = block;
-
-    return block;
-}
-
 //------------------------------------------------------------------------
 // fgEnsureFirstBBisScratch: Ensure that fgFirstBB is a scratch BasicBlock
 //
@@ -2515,7 +2478,7 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTarget)
             }
         }
 
-        BasicBlock* block = fgNewBasicBlock(jumpKind);
+        BasicBlock* block = bbNewBasicBlock(jumpKind);
         block->bbFlags |= blockFlags;
         block->bbRefs        = 0;
         block->bbCodeOffs    = currentBlockOffset;
@@ -2537,6 +2500,18 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTarget)
             default:
                 break;
         }
+
+        if (fgFirstBB != nullptr)
+        {
+            fgLastBB->setNext(block);
+        }
+        else
+        {
+            fgFirstBB     = block;
+            block->bbPrev = nullptr;
+        }
+
+        fgLastBB = block;
 
         DBEXEC(verbose, block->dspBlockHeader(this, false, false, false));
 
