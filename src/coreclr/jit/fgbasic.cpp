@@ -717,24 +717,14 @@ private:
 #endif
 void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
 {
-    const BYTE*     codeAddr = info.compCode;
-    const IL_OFFSET codeSize = info.compILCodeSize;
-
-    const BYTE*   codeBegp = codeAddr;
-    const BYTE*   codeEndp = codeAddr + codeSize;
-    unsigned      varNum;
-    FgStack       pushedStack;
-    const bool    isForceInline = (info.compFlags & CORINFO_FLG_FORCEINLINE) != 0;
-    InlineResult* inlineResult  = compInlineResult;
-    InlineInfo*   inlineInfo    = impInlineInfo;
-    const bool    isPreJit      = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT);
-    const bool    isTier1       = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER1);
-    unsigned      retBlocks     = 0;
-    bool          preciseScan   = (inlineResult != nullptr) && inlineResult->GetPolicy()->RequiresPreciseScan();
-    const bool    resolveTokens = preciseScan && (isPreJit || isTier1);
+    const IL_OFFSET codeSize     = info.compILCodeSize;
+    InlineResult*   inlineResult = compInlineResult;
+    InlineInfo*     inlineInfo   = impInlineInfo;
 
     if (inlineResult != nullptr)
     {
+        const bool isForceInline = (info.compFlags & CORINFO_FLG_FORCEINLINE) != 0;
+
         // Set default values for profile (to avoid NoteFailed in CALLEE_IL_CODE_SIZE's handler)
         // these will be overridden later.
         inlineResult->NoteBool(InlineObservation::CALLSITE_HAS_PROFILE, true);
@@ -771,15 +761,23 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
         inlineResult->Note(InlineObservation::CALLEE_BEGIN_OPCODE_SCAN);
     }
 
-    OPCODE opcode     = CEE_NOP;
-    OPCODE prevOpcode = CEE_NOP;
-    bool   handled    = false;
+    const bool     isPreJit      = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT);
+    const bool     isTier1       = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER1);
+    const bool     preciseScan   = (inlineResult != nullptr) && inlineResult->GetPolicy()->RequiresPreciseScan();
+    const bool     resolveTokens = preciseScan && (isPreJit || isTier1);
+    OPCODE         opcode        = CEE_NOP;
+    OPCODE         prevOpcode    = CEE_NOP;
+    bool           handled       = false;
+    unsigned       retBlocks     = 0;
+    const uint8_t* codeBegin     = info.compCode;
+    const uint8_t* codeEnd       = codeBegin + codeSize;
+    const uint8_t* codeAddr      = codeBegin;
+    FgStack        pushedStack;
 
-    while (codeAddr < codeEndp)
+    while (codeAddr < codeEnd)
     {
         prevOpcode = opcode;
-        opcode     = (OPCODE)getU1LittleEndian(codeAddr);
-        codeAddr += sizeof(__int8);
+        opcode     = static_cast<OPCODE>(*codeAddr++);
 
         if (!handled && preciseScan)
         {
@@ -791,7 +789,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
         bool typeIsNormed = false;
 
     DECODE_OPCODE:
-        if ((unsigned)opcode >= CEE_COUNT)
+        if (opcode >= CEE_COUNT)
         {
             BADCODE3("Illegal opcode", ": %02X", (int)opcode);
         }
@@ -805,16 +803,16 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
 
         switch (opcode)
         {
+            unsigned varNum;
+
             case CEE_PREFIX1:
-            {
-                if (codeAddr >= codeEndp)
+                if (codeAddr >= codeEnd)
                 {
                     goto TOO_FAR;
                 }
-                opcode = (OPCODE)(256 + getU1LittleEndian(codeAddr));
-                codeAddr += sizeof(__int8);
+
+                opcode = static_cast<OPCODE>(256 + *codeAddr++);
                 goto DECODE_OPCODE;
-            }
 
             case CEE_PREFIX2:
             case CEE_PREFIX3:
@@ -823,9 +821,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
             case CEE_PREFIX6:
             case CEE_PREFIX7:
             case CEE_PREFIXREF:
-            {
-                BADCODE3("Illegal opcode", ": %02X", (int)opcode);
-            }
+                BADCODE3("Illegal opcode", ": %02X", opcode);
 
             case CEE_LDNULL:
             case CEE_LDC_I4_M1:
@@ -861,14 +857,12 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                 break;
 
             case CEE_DUP:
-            {
                 if (preciseScan)
                 {
                     pushedStack.Push(pushedStack.Top());
                     handled = true;
                 }
                 break;
-            }
 
             case CEE_THROW:
                 if (inlineResult != nullptr)
@@ -881,7 +875,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                 if (inlineResult != nullptr)
                 {
                     unsigned patternSize;
-                    if (impBoxPatternMatch(codeAddr + sz, codeEndp, &patternSize) != BoxPattern::None)
+                    if (impBoxPatternMatch(codeAddr + sz, codeEnd, &patternSize) != BoxPattern::None)
                     {
                         inlineResult->Note(InlineObservation::CALLEE_FOLDABLE_BOX);
 
@@ -917,7 +911,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                 // There has to be code after the call, otherwise the inlinee is unverifiable.
                 if (inlineInfo != nullptr)
                 {
-                    noway_assert(codeAddr < codeEndp - sz);
+                    noway_assert(codeAddr < codeEnd - sz);
                 }
 
                 if (inlineResult == nullptr)
@@ -953,22 +947,18 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                                 case NI_System_Collections_Generic_EqualityComparer_get_Default:
                                 case NI_System_Enum_HasFlag:
                                 case NI_System_GC_KeepAlive:
-                                {
                                     pushedStack.PushUnknown();
                                     foldableIntrinsc = true;
                                     break;
-                                }
 
                                 case NI_System_Span_get_Item:
                                 case NI_System_ReadOnlySpan_get_Item:
-                                {
                                     if (FgStack::IsArgument(pushedStack.Top(0)) ||
                                         FgStack::IsArgument(pushedStack.Top(1)))
                                     {
                                         inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_RANGE_CHECK);
                                     }
                                     break;
-                                }
 
                                 // These are foldable if the first argument is a constant
                                 case NI_System_Type_get_IsValueType:
@@ -983,14 +973,12 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                                 case NI_Vector64_Create:
                                 case NI_Vector128_Create:
 #endif
-                                {
                                     // Top() in order to keep it as is in case of foldableIntrinsc
                                     if (FgStack::IsConstantOrConstArg(pushedStack.Top(), inlineInfo))
                                     {
                                         foldableIntrinsc = true;
                                     }
                                     break;
-                                }
 
                                 // These are foldable if two arguments are constants
                                 case NI_System_Type_op_Equality:
@@ -998,7 +986,6 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                                 case NI_System_String_get_Chars:
                                 case NI_System_Type_IsAssignableTo:
                                 case NI_System_Type_IsAssignableFrom:
-                                {
                                     if (FgStack::IsConstantOrConstArg(pushedStack.Top(0), inlineInfo) &&
                                         FgStack::IsConstantOrConstArg(pushedStack.Top(1), inlineInfo))
                                     {
@@ -1006,15 +993,12 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                                         pushedStack.PushConstant();
                                     }
                                     break;
-                                }
 
                                 case NI_IsSupported_True:
                                 case NI_IsSupported_False:
-                                {
                                     foldableIntrinsc = true;
                                     pushedStack.PushConstant();
                                     break;
-                                }
 #if defined(TARGET_XARCH) && defined(FEATURE_HW_INTRINSICS)
                                 case NI_Vector128_get_Count:
                                 case NI_Vector256_get_Count:
@@ -1039,11 +1023,8 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                                     pushedStack.PushUnknown();
                                     break;
 #endif
-
                                 default:
-                                {
                                     break;
-                                }
                             }
                         }
 
@@ -1071,7 +1052,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                     handled = true;
                 }
 
-                if ((codeAddr < codeEndp - sz) && (OPCODE)getU1LittleEndian(codeAddr + sz) == CEE_RET)
+                if ((codeAddr < codeEnd - sz) && (static_cast<OPCODE>(codeAddr[sz]) == CEE_RET))
                 {
                     // If the method has a call followed by a ret, assume that
                     // it is a wrapper method.
@@ -1091,15 +1072,12 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
             case CEE_LDIND_R4:
             case CEE_LDIND_R8:
             case CEE_LDIND_REF:
-            {
                 if (FgStack::IsArgument(pushedStack.Top()))
                 {
                     handled = true;
                 }
                 break;
-            }
 
-            // Unary operators:
             case CEE_CONV_I:
             case CEE_CONV_U:
             case CEE_CONV_I1:
@@ -1150,7 +1128,6 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                 }
                 break;
 
-            // Binary operators:
             case CEE_ADD:
             case CEE_SUB:
             case CEE_MUL:
@@ -1175,7 +1152,6 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
             case CEE_CGT_UN:
             case CEE_CLT:
             case CEE_CLT_UN:
-            {
                 if (inlineResult == nullptr)
                 {
                     break;
@@ -1258,9 +1234,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                     }
                 }
                 break;
-            }
 
-            // Jumps
             case CEE_LEAVE:
             case CEE_LEAVE_S:
             case CEE_BR:
@@ -1290,37 +1264,34 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
             case CEE_BNE_UN:
             case CEE_BNE_UN_S:
             {
-                if (codeAddr > codeEndp - sz)
+                if (codeAddr > codeEnd - sz)
                 {
                     goto TOO_FAR;
                 }
 
-                // Compute jump target address
-                signed jmpDist = (sz == 1) ? getI1LittleEndian(codeAddr) : getI4LittleEndian(codeAddr);
+                int distance = (sz == 1) ? getI1LittleEndian(codeAddr) : getI4LittleEndian(codeAddr);
 
-                if ((inlineInfo != nullptr) && jmpDist == 0 &&
+                if ((inlineInfo != nullptr) && (distance == 0) &&
                     (opcode == CEE_LEAVE || opcode == CEE_LEAVE_S || opcode == CEE_BR || opcode == CEE_BR_S))
                 {
-                    break; /* NOP */
+                    break;
                 }
 
-                unsigned jmpAddr = (IL_OFFSET)(codeAddr - codeBegp) + sz + jmpDist;
+                unsigned targetOffset = static_cast<unsigned>(codeAddr - codeBegin) + sz + distance;
 
-                // Make sure target is reasonable
-                if (jmpAddr >= codeSize)
+                if (targetOffset >= codeSize)
                 {
-                    BADCODE3("code jumps to outer space", " at offset %04X", (IL_OFFSET)(codeAddr - codeBegp));
+                    BADCODE3("code jumps to outer space", " at offset %04X",
+                             static_cast<unsigned>(codeAddr - codeBegin));
                 }
 
-                if ((inlineResult != nullptr) && (jmpDist < 0))
+                if ((inlineResult != nullptr) && (distance < 0))
                 {
                     inlineResult->Note(InlineObservation::CALLEE_BACKWARD_JUMP);
                 }
 
-                // Mark the jump target
-                jumpTarget->bitVectSet(jmpAddr);
+                jumpTarget->bitVectSet(targetOffset);
 
-                // See if jump might be sensitive to inlining
                 if (!preciseScan && (inlineResult != nullptr) && (opcode != CEE_BR_S) && (opcode != CEE_BR))
                 {
                     fgObserveInlineConstants(opcode, pushedStack, inlineInfo != nullptr);
@@ -1329,7 +1300,6 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                 {
                     switch (opcode)
                     {
-                        // Binary
                         case CEE_BEQ:
                         case CEE_BGE:
                         case CEE_BGT:
@@ -1385,12 +1355,10 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                             break;
                         }
 
-                        // Unary
                         case CEE_BRFALSE_S:
                         case CEE_BRTRUE_S:
                         case CEE_BRFALSE:
                         case CEE_BRTRUE:
-                        {
                             if (FgStack::IsConstantOrConstArg(pushedStack.Top(), inlineInfo))
                             {
                                 inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_BRANCH);
@@ -1401,7 +1369,6 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                                 inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_CONSTANT_TEST);
                             }
                             break;
-                        }
 
                         default:
                             break;
@@ -1410,17 +1377,73 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
             }
             break;
 
+            case CEE_SWITCH:
+            {
+                if (inlineResult != nullptr)
+                {
+                    inlineResult->Note(InlineObservation::CALLEE_HAS_SWITCH);
+                    if (FgStack::IsConstantOrConstArg(pushedStack.Top(), inlineInfo))
+                    {
+                        inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_SWITCH);
+                    }
+
+                    // Fail fast, if we're inlining and can't handle this.
+                    if ((inlineInfo != nullptr) && inlineResult->IsFailure())
+                    {
+                        return;
+                    }
+                }
+
+                if (codeAddr > codeEnd - 4)
+                {
+                    goto TOO_FAR;
+                }
+
+                unsigned targetCount = getU4LittleEndian(codeAddr);
+                codeAddr += 4;
+
+                if (targetCount > codeSize / 4)
+                {
+                    goto TOO_FAR;
+                }
+
+                unsigned fallThroughOffset = static_cast<unsigned>(codeAddr - codeBegin) + targetCount * 4;
+
+                if (fallThroughOffset >= codeSize)
+                {
+                    goto TOO_FAR;
+                }
+
+                jumpTarget->bitVectSet(fallThroughOffset);
+
+                for (unsigned i = 0; i < targetCount; i++)
+                {
+                    unsigned targetOffset = fallThroughOffset + getI4LittleEndian(codeAddr);
+                    codeAddr += 4;
+
+                    if (targetOffset >= codeSize)
+                    {
+                        BADCODE3("jump target out of range", " at offset %04X",
+                                 static_cast<unsigned>(codeAddr - codeBegin));
+                    }
+
+                    jumpTarget->bitVectSet(targetOffset);
+                }
+
+                // We've advanced past all the bytes in this instruction
+                sz = 0;
+            }
+            break;
+
             case CEE_LDFLDA:
             case CEE_LDFLD:
             case CEE_STFLD:
-            {
                 if (FgStack::IsArgument(pushedStack.Top()))
                 {
                     inlineResult->Note(InlineObservation::CALLEE_ARG_STRUCT_FIELD_ACCESS);
                     handled = true; // keep argument on top of the stack
                 }
                 break;
-            }
 
             case CEE_LDELEM_I1:
             case CEE_LDELEM_U1:
@@ -1443,81 +1466,11 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
             case CEE_STELEM_REF:
             case CEE_LDELEM:
             case CEE_STELEM:
-            {
-                if (!preciseScan)
-                {
-                    break;
-                }
-                if (FgStack::IsArgument(pushedStack.Top()) || FgStack::IsArgument(pushedStack.Top(1)))
+                if (preciseScan && (FgStack::IsArgument(pushedStack.Top()) || FgStack::IsArgument(pushedStack.Top(1))))
                 {
                     inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_RANGE_CHECK);
                 }
                 break;
-            }
-
-            case CEE_SWITCH:
-            {
-                if (inlineResult != nullptr)
-                {
-                    inlineResult->Note(InlineObservation::CALLEE_HAS_SWITCH);
-                    if (FgStack::IsConstantOrConstArg(pushedStack.Top(), inlineInfo))
-                    {
-                        inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_SWITCH);
-                    }
-
-                    // Fail fast, if we're inlining and can't handle this.
-                    if ((inlineInfo != nullptr) && inlineResult->IsFailure())
-                    {
-                        return;
-                    }
-                }
-
-                // Make sure we don't go past the end reading the number of cases
-                if (codeAddr > codeEndp - sizeof(DWORD))
-                {
-                    goto TOO_FAR;
-                }
-
-                // Read the number of cases
-                unsigned jmpCnt = getU4LittleEndian(codeAddr);
-                codeAddr += sizeof(DWORD);
-
-                if (jmpCnt > codeSize / sizeof(DWORD))
-                {
-                    goto TOO_FAR;
-                }
-
-                // Find the end of the switch table
-                unsigned jmpBase = (unsigned)((codeAddr - codeBegp) + jmpCnt * sizeof(DWORD));
-
-                // Make sure there is more code after the switch
-                if (jmpBase >= codeSize)
-                {
-                    goto TOO_FAR;
-                }
-
-                // jmpBase is also the target of the default case, so mark it
-                jumpTarget->bitVectSet(jmpBase);
-
-                // Process table entries
-                while (jmpCnt > 0)
-                {
-                    unsigned jmpAddr = jmpBase + getI4LittleEndian(codeAddr);
-                    codeAddr += 4;
-
-                    if (jmpAddr >= codeSize)
-                    {
-                        BADCODE3("jump target out of range", " at offset %04X", (IL_OFFSET)(codeAddr - codeBegp));
-                    }
-
-                    jumpTarget->bitVectSet(jmpAddr);
-                    jmpCnt--;
-                }
-
-                // We've advanced past all the bytes in this instruction
-                sz = 0;
-            }
-            break;
 
             case CEE_UNALIGNED:
             case CEE_CONSTRAINED:
@@ -1529,15 +1482,12 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
 
             case CEE_STARG:
             case CEE_STARG_S:
-            {
-                noway_assert(sz == sizeof(BYTE) || sz == sizeof(WORD));
-
-                if (codeAddr > codeEndp - sz)
+                if (codeAddr > codeEnd - sz)
                 {
                     goto TOO_FAR;
                 }
 
-                varNum = (sz == sizeof(BYTE)) ? getU1LittleEndian(codeAddr) : getU2LittleEndian(codeAddr);
+                varNum = (sz == 1) ? *codeAddr : getU2LittleEndian(codeAddr);
 
                 if (inlineInfo != nullptr)
                 {
@@ -1556,8 +1506,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                         lvaGetDesc(varNum)->lvHasILStoreOp = 1;
                     }
                 }
-            }
-            break;
+                break;
 
             case CEE_STLOC_0:
             case CEE_STLOC_1:
@@ -1568,15 +1517,12 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
 
             case CEE_STLOC:
             case CEE_STLOC_S:
-            {
-                noway_assert(sz == sizeof(BYTE) || sz == sizeof(WORD));
-
-                if (codeAddr > codeEndp - sz)
+                if (codeAddr > codeEnd - sz)
                 {
                     goto TOO_FAR;
                 }
 
-                varNum = (sz == sizeof(BYTE)) ? getU1LittleEndian(codeAddr) : getU2LittleEndian(codeAddr);
+                varNum = (sz == 1) ? *codeAddr : getU2LittleEndian(codeAddr);
 
             STLOC:
                 if (inlineInfo != nullptr)
@@ -1587,8 +1533,8 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                 {
                     varNum += info.compArgsCount;
 
-                    // This check is only intended to prevent an AV.  Bad varNum values will later
-                    // be handled properly by the verifier.
+                    // This check is only intended to prevent invalid memory access. Bad varNum values
+                    // will later be handled properly by the importer.
                     if (varNum < lvaCount)
                     {
                         LclVarDsc* lcl = lvaGetDesc(varNum);
@@ -1604,8 +1550,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                         }
                     }
                 }
-            }
-            break;
+                break;
 
             case CEE_LDLOC_0:
             case CEE_LDLOC_1:
@@ -1613,7 +1558,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
             case CEE_LDLOC_3:
                 if (preciseScan && (inlineResult != nullptr) && (prevOpcode == (CEE_STLOC_3 - (CEE_LDLOC_3 - opcode))))
                 {
-                    // Fold stloc+ldloc
+                    // Fold stloc + ldloc
                     pushedStack.Push(pushedStack.Top(1)); // throw away SLOT_UNKNOWN inserted by STLOC
                     handled = true;
                 }
@@ -1623,16 +1568,12 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
             case CEE_LDARGA_S:
             case CEE_LDLOCA:
             case CEE_LDLOCA_S:
-            {
-                // Handle address-taken args or locals
-                noway_assert(sz == sizeof(BYTE) || sz == sizeof(WORD));
-
-                if (codeAddr > codeEndp - sz)
+                if (codeAddr > codeEnd - sz)
                 {
                     goto TOO_FAR;
                 }
 
-                varNum = (sz == sizeof(BYTE)) ? getU1LittleEndian(codeAddr) : getU2LittleEndian(codeAddr);
+                varNum = (sz == 1) ? *codeAddr : getU2LittleEndian(codeAddr);
 
                 if (inlineInfo != nullptr)
                 {
@@ -1692,7 +1633,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                     // won't need the address of this local at all
 
                     const bool notStruct    = !varTypeIsStruct(lcl->GetType());
-                    const bool notLastInstr = (codeAddr < codeEndp - sz);
+                    const bool notLastInstr = (codeAddr < codeEnd - sz);
                     const bool notDebugCode = !opts.compDbgCode;
 
                     if (notStruct && notLastInstr && notDebugCode && impILConsumesAddr(codeAddr + sz))
@@ -1711,9 +1652,12 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                             // This may be conservative, but probably not very.
                         }
                     }
-                } // isInlining
-            }
-            break;
+                }
+                break;
+
+            case CEE_RET:
+                retBlocks++;
+                break;
 
             case CEE_JMP:
                 retBlocks++;
@@ -1729,13 +1673,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                     info.compMaxStack = max(info.compMaxStack, info.compILargsCount);
                     break;
                 }
-#endif // !TARGET_X86 && !TARGET_ARM
-
-                // If we are inlining, we need to fail for a CEE_JMP opcode, just like
-                // the list of other opcodes (for all platforms).
-
-                FALLTHROUGH;
-
+#endif
             case CEE_MKREFANY:
             case CEE_RETHROW:
                 if (inlineResult != nullptr)
@@ -1779,14 +1717,14 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
 
             case CEE_LDARG_S:
             case CEE_LDARG:
-                if (codeAddr > codeEndp - sz)
+                if (codeAddr > codeEnd - sz)
                 {
                     goto TOO_FAR;
                 }
 
                 if (inlineResult != nullptr)
                 {
-                    unsigned locNum = (sz == 1) ? getU1LittleEndian(codeAddr) : getU2LittleEndian(codeAddr);
+                    unsigned locNum = (sz == 1) ? *codeAddr : getU2LittleEndian(codeAddr);
                     pushedStack.PushArgument(locNum);
                     handled = true;
                 }
@@ -1798,10 +1736,6 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                     pushedStack.PushArrayLen();
                     handled = true;
                 }
-                break;
-
-            case CEE_RET:
-                retBlocks++;
                 break;
 
             default:
@@ -1824,11 +1758,11 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
         }
     }
 
-    if (codeAddr != codeEndp)
+    if (codeAddr != codeEnd)
     {
     TOO_FAR:
         BADCODE3("Code ends in the middle of an opcode, or there is a branch past the end of the method",
-                 " at offset %04X", (IL_OFFSET)(codeAddr - codeBegp));
+                 " at offset %04X", (IL_OFFSET)(codeAddr - codeBegin));
     }
 
     if (inlineResult != nullptr)
