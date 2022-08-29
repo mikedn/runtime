@@ -1506,17 +1506,25 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
             case CEE_STLOC_1:
             case CEE_STLOC_2:
             case CEE_STLOC_3:
-                varNum = (opcode - CEE_STLOC_0);
+                varNum = opcode - CEE_STLOC_0;
                 goto STLOC;
 
             case CEE_STLOC:
-            case CEE_STLOC_S:
-                if (codeAddr > codeEnd - sz)
+                if (codeAddr > codeEnd - 2)
                 {
                     goto TOO_FAR;
                 }
 
-                varNum = (sz == 1) ? *codeAddr : getU2LittleEndian(codeAddr);
+                varNum = getU2LittleEndian(codeAddr);
+                goto STLOC;
+
+            case CEE_STLOC_S:
+                if (codeAddr > codeEnd - 1)
+                {
+                    goto TOO_FAR;
+                }
+
+                varNum = *codeAddr;
 
             STLOC:
                 if (inlineInfo != nullptr)
@@ -1559,16 +1567,25 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                 break;
 
             case CEE_LDARGA:
-            case CEE_LDARGA_S:
             case CEE_LDLOCA:
-            case CEE_LDLOCA_S:
-                if (codeAddr > codeEnd - sz)
+                if (codeAddr > codeEnd - 2)
                 {
                     goto TOO_FAR;
                 }
 
-                varNum = (sz == 1) ? *codeAddr : getU2LittleEndian(codeAddr);
+                varNum = getU2LittleEndian(codeAddr);
+                goto LDLOCA;
 
+            case CEE_LDARGA_S:
+            case CEE_LDLOCA_S:
+                if (codeAddr > codeEnd - 1)
+                {
+                    goto TOO_FAR;
+                }
+
+                varNum = *codeAddr;
+
+            LDLOCA:
                 if (inlineInfo != nullptr)
                 {
                     if ((opcode == CEE_LDLOCA) || (opcode == CEE_LDLOCA_S))
@@ -1702,24 +1719,30 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
             case CEE_LDARG_1:
             case CEE_LDARG_2:
             case CEE_LDARG_3:
-                if (inlineResult != nullptr)
-                {
-                    pushedStack.PushArgument(opcode - CEE_LDARG_0);
-                    handled = true;
-                }
-                break;
+                varNum = opcode - CEE_LDARG_0;
+                goto LDARG;
 
-            case CEE_LDARG_S:
             case CEE_LDARG:
-                if (codeAddr > codeEnd - sz)
+                if (codeAddr > codeEnd - 2)
                 {
                     goto TOO_FAR;
                 }
 
+                varNum = getU2LittleEndian(codeAddr);
+                goto LDARG;
+
+            case CEE_LDARG_S:
+                if (codeAddr > codeEnd - 1)
+                {
+                    goto TOO_FAR;
+                }
+
+                varNum = *codeAddr;
+
+            LDARG:
                 if (inlineResult != nullptr)
                 {
-                    unsigned locNum = (sz == 1) ? *codeAddr : getU2LittleEndian(codeAddr);
-                    pushedStack.PushArgument(locNum);
+                    pushedStack.PushArgument(varNum);
                     handled = true;
                 }
                 break;
