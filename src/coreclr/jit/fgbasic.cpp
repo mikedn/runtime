@@ -771,10 +771,9 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
         inlineResult->Note(InlineObservation::CALLEE_BEGIN_OPCODE_SCAN);
     }
 
-    CORINFO_RESOLVED_TOKEN resolvedToken;
-    OPCODE                 opcode     = CEE_NOP;
-    OPCODE                 prevOpcode = CEE_NOP;
-    bool                   handled    = false;
+    OPCODE opcode     = CEE_NOP;
+    OPCODE prevOpcode = CEE_NOP;
+    bool   handled    = false;
 
     while (codeAddr < codeEndp)
     {
@@ -926,151 +925,143 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                     break;
                 }
 
-                CORINFO_METHOD_HANDLE methodHnd      = nullptr;
-                bool                  isJitIntrinsic = false;
-                NamedIntrinsic        ni             = NI_Illegal;
+                bool isJitIntrinsic = false;
 
                 if (resolveTokens)
                 {
+                    CORINFO_RESOLVED_TOKEN resolvedToken;
                     impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
-                    methodHnd      = resolvedToken.hMethod;
-                    isJitIntrinsic = info.compCompHnd->isJitIntrinsic(methodHnd);
-                }
 
-                if (isJitIntrinsic)
-                {
-                    ni = lookupNamedIntrinsic(methodHnd);
-
-                    bool foldableIntrinsc = false;
-
-                    if (IsMathIntrinsic(ni))
+                    if (info.compCompHnd->isJitIntrinsic(resolvedToken.hMethod))
                     {
-                        // Most Math(F) intrinsics have single arguments
-                        foldableIntrinsc = FgStack::IsConstantOrConstArg(pushedStack.Top(), inlineInfo);
-                    }
-                    else
-                    {
-                        switch (ni)
+                        isJitIntrinsic    = true;
+                        NamedIntrinsic ni = lookupNamedIntrinsic(resolvedToken.hMethod);
+
+                        bool foldableIntrinsc = false;
+
+                        if (IsMathIntrinsic(ni))
                         {
-                            // These are most likely foldable without arguments
-                            case NI_System_Collections_Generic_Comparer_get_Default:
-                            case NI_System_Collections_Generic_EqualityComparer_get_Default:
-                            case NI_System_Enum_HasFlag:
-                            case NI_System_GC_KeepAlive:
+                            // Most Math(F) intrinsics have single arguments
+                            foldableIntrinsc = FgStack::IsConstantOrConstArg(pushedStack.Top(), inlineInfo);
+                        }
+                        else
+                        {
+                            switch (ni)
                             {
-                                pushedStack.PushUnknown();
-                                foldableIntrinsc = true;
-                                break;
-                            }
-
-                            case NI_System_Span_get_Item:
-                            case NI_System_ReadOnlySpan_get_Item:
-                            {
-                                if (FgStack::IsArgument(pushedStack.Top(0)) || FgStack::IsArgument(pushedStack.Top(1)))
+                                // These are most likely foldable without arguments
+                                case NI_System_Collections_Generic_Comparer_get_Default:
+                                case NI_System_Collections_Generic_EqualityComparer_get_Default:
+                                case NI_System_Enum_HasFlag:
+                                case NI_System_GC_KeepAlive:
                                 {
-                                    inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_RANGE_CHECK);
-                                }
-                                break;
-                            }
-
-                            // These are foldable if the first argument is a constant
-                            case NI_System_Type_get_IsValueType:
-                            case NI_System_Type_GetTypeFromHandle:
-                            case NI_System_String_get_Length:
-                            case NI_System_Buffers_Binary_BinaryPrimitives_ReverseEndianness:
-                            case NI_System_Numerics_BitOperations_PopCount:
-#if defined(TARGET_XARCH) && defined(FEATURE_HW_INTRINSICS)
-                            case NI_Vector128_Create:
-                            case NI_Vector256_Create:
-#elif defined(TARGET_ARM64) && defined(FEATURE_HW_INTRINSICS)
-                            case NI_Vector64_Create:
-                            case NI_Vector128_Create:
-#endif
-                            {
-                                // Top() in order to keep it as is in case of foldableIntrinsc
-                                if (FgStack::IsConstantOrConstArg(pushedStack.Top(), inlineInfo))
-                                {
+                                    pushedStack.PushUnknown();
                                     foldableIntrinsc = true;
+                                    break;
                                 }
-                                break;
-                            }
 
-                            // These are foldable if two arguments are constants
-                            case NI_System_Type_op_Equality:
-                            case NI_System_Type_op_Inequality:
-                            case NI_System_String_get_Chars:
-                            case NI_System_Type_IsAssignableTo:
-                            case NI_System_Type_IsAssignableFrom:
-                            {
-                                if (FgStack::IsConstantOrConstArg(pushedStack.Top(0), inlineInfo) &&
-                                    FgStack::IsConstantOrConstArg(pushedStack.Top(1), inlineInfo))
+                                case NI_System_Span_get_Item:
+                                case NI_System_ReadOnlySpan_get_Item:
+                                {
+                                    if (FgStack::IsArgument(pushedStack.Top(0)) ||
+                                        FgStack::IsArgument(pushedStack.Top(1)))
+                                    {
+                                        inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_RANGE_CHECK);
+                                    }
+                                    break;
+                                }
+
+                                // These are foldable if the first argument is a constant
+                                case NI_System_Type_get_IsValueType:
+                                case NI_System_Type_GetTypeFromHandle:
+                                case NI_System_String_get_Length:
+                                case NI_System_Buffers_Binary_BinaryPrimitives_ReverseEndianness:
+                                case NI_System_Numerics_BitOperations_PopCount:
+#if defined(TARGET_XARCH) && defined(FEATURE_HW_INTRINSICS)
+                                case NI_Vector128_Create:
+                                case NI_Vector256_Create:
+#elif defined(TARGET_ARM64) && defined(FEATURE_HW_INTRINSICS)
+                                case NI_Vector64_Create:
+                                case NI_Vector128_Create:
+#endif
+                                {
+                                    // Top() in order to keep it as is in case of foldableIntrinsc
+                                    if (FgStack::IsConstantOrConstArg(pushedStack.Top(), inlineInfo))
+                                    {
+                                        foldableIntrinsc = true;
+                                    }
+                                    break;
+                                }
+
+                                // These are foldable if two arguments are constants
+                                case NI_System_Type_op_Equality:
+                                case NI_System_Type_op_Inequality:
+                                case NI_System_String_get_Chars:
+                                case NI_System_Type_IsAssignableTo:
+                                case NI_System_Type_IsAssignableFrom:
+                                {
+                                    if (FgStack::IsConstantOrConstArg(pushedStack.Top(0), inlineInfo) &&
+                                        FgStack::IsConstantOrConstArg(pushedStack.Top(1), inlineInfo))
+                                    {
+                                        foldableIntrinsc = true;
+                                        pushedStack.PushConstant();
+                                    }
+                                    break;
+                                }
+
+                                case NI_IsSupported_True:
+                                case NI_IsSupported_False:
                                 {
                                     foldableIntrinsc = true;
                                     pushedStack.PushConstant();
+                                    break;
                                 }
-                                break;
-                            }
-
-                            case NI_IsSupported_True:
-                            case NI_IsSupported_False:
-                            {
-                                foldableIntrinsc = true;
-                                pushedStack.PushConstant();
-                                break;
-                            }
 #if defined(TARGET_XARCH) && defined(FEATURE_HW_INTRINSICS)
-                            case NI_Vector128_get_Count:
-                            case NI_Vector256_get_Count:
-                                foldableIntrinsc = true;
-                                pushedStack.PushConstant();
-                                // TODO: check if it's a loop condition - we unroll such loops.
-                                break;
-                            case NI_Vector256_get_Zero:
-                            case NI_Vector256_get_AllBitsSet:
-                                foldableIntrinsc = true;
-                                pushedStack.PushUnknown();
-                                break;
+                                case NI_Vector128_get_Count:
+                                case NI_Vector256_get_Count:
+                                    foldableIntrinsc = true;
+                                    pushedStack.PushConstant();
+                                    // TODO: check if it's a loop condition - we unroll such loops.
+                                    break;
+                                case NI_Vector256_get_Zero:
+                                case NI_Vector256_get_AllBitsSet:
+                                    foldableIntrinsc = true;
+                                    pushedStack.PushUnknown();
+                                    break;
 #elif defined(TARGET_ARM64) && defined(FEATURE_HW_INTRINSICS)
-                            case NI_Vector64_get_Count:
-                            case NI_Vector128_get_Count:
-                                foldableIntrinsc = true;
-                                pushedStack.PushConstant();
-                                break;
-                            case NI_Vector128_get_Zero:
-                            case NI_Vector128_get_AllBitsSet:
-                                foldableIntrinsc = true;
-                                pushedStack.PushUnknown();
-                                break;
+                                case NI_Vector64_get_Count:
+                                case NI_Vector128_get_Count:
+                                    foldableIntrinsc = true;
+                                    pushedStack.PushConstant();
+                                    break;
+                                case NI_Vector128_get_Zero:
+                                case NI_Vector128_get_AllBitsSet:
+                                    foldableIntrinsc = true;
+                                    pushedStack.PushUnknown();
+                                    break;
 #endif
 
-                            default:
+                                default:
+                                {
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (foldableIntrinsc)
+                        {
+                            inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_INTRINSIC);
+                            handled = true;
+                        }
+                        else if (ni != NI_Illegal)
+                        {
+                            // Otherwise note "intrinsic" (most likely will be lowered as single instructions)
+                            // except Math where only a few intrinsics won't end up as normal calls
+                            if (!IsMathIntrinsic(ni) || IsTargetIntrinsic(ni))
                             {
-                                break;
+                                inlineResult->Note(InlineObservation::CALLEE_INTRINSIC);
                             }
                         }
                     }
-
-                    if (foldableIntrinsc)
-                    {
-                        inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_INTRINSIC);
-                        handled = true;
-                    }
-                    else if (ni != NI_Illegal)
-                    {
-                        // Otherwise note "intrinsic" (most likely will be lowered as single instructions)
-                        // except Math where only a few intrinsics won't end up as normal calls
-                        if (!IsMathIntrinsic(ni) || IsTargetIntrinsic(ni))
-                        {
-                            inlineResult->Note(InlineObservation::CALLEE_INTRINSIC);
-                        }
-                    }
-                }
-
-                if ((codeAddr < codeEndp - sz) && (OPCODE)getU1LittleEndian(codeAddr + sz) == CEE_RET)
-                {
-                    // If the method has a call followed by a ret, assume that
-                    // it is a wrapper method.
-                    inlineResult->Note(InlineObservation::CALLEE_LOOKS_LIKE_WRAPPER);
                 }
 
                 if (!isJitIntrinsic && !handled && FgStack::IsArgument(pushedStack.Top()))
@@ -1078,6 +1069,13 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                     // Optimistically assume that "call(arg)" returns something arg-dependent.
                     // However, we don't know how many args it expects and its return type.
                     handled = true;
+                }
+
+                if ((codeAddr < codeEndp - sz) && (OPCODE)getU1LittleEndian(codeAddr + sz) == CEE_RET)
+                {
+                    // If the method has a call followed by a ret, assume that
+                    // it is a wrapper method.
+                    inlineResult->Note(InlineObservation::CALLEE_LOOKS_LIKE_WRAPPER);
                 }
             }
             break;
