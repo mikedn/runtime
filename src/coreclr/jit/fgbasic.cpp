@@ -2149,16 +2149,6 @@ void Compiler::fgLinkBasicBlocks()
 
 unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTarget)
 {
-    const BYTE*     codeAddr = info.compCode;
-    const IL_OFFSET codeSize = info.compILCodeSize;
-
-    unsigned    retBlocks = 0;
-    const BYTE* codeBegp  = codeAddr;
-    const BYTE* codeEndp  = codeAddr + codeSize;
-    bool        tailCall  = false;
-    unsigned    curBBoffs = 0;
-    BasicBlock* curBBdesc;
-
     // Keep track of where we are in the scope lists, as we will also
     // create blocks at scope boundaries.
     if (opts.compDbgCode && (info.compVarScopesCount > 0))
@@ -2166,54 +2156,97 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTarget)
         compResetScopeLists();
 
         // Ignore scopes beginning at offset 0
+
         while (compGetNextEnterScope(0))
-        { /* do nothing */
+        {
         }
+
         while (compGetNextExitScope(0))
-        { /* do nothing */
+        {
         }
     }
 
+    InlineInfo* const    inlineInfo         = impInlineInfo;
+    InlineResult* const  inlineResult       = compInlineResult;
+    const IL_OFFSET      codeSize           = info.compILCodeSize;
+    const uint8_t* const codeBegin          = info.compCode;
+    const uint8_t* const codeEnd            = codeBegin + codeSize;
+    const uint8_t*       codeAddr           = codeBegin;
+    bool                 tailCall           = false;
+    unsigned             retBlocks          = 0;
+    unsigned             currentBlockOffset = 0;
+
     do
     {
-        unsigned        jmpAddr = DUMMY_INIT(BAD_IL_OFFSET);
-        BasicBlockFlags bbFlags = BBF_EMPTY;
-        BBswtDesc*      swtDsc  = nullptr;
-        unsigned        nxtBBoffs;
-        OPCODE          opcode = (OPCODE)getU1LittleEndian(codeAddr);
-        codeAddr += sizeof(__int8);
-        BBjumpKinds jmpKind = BBJ_NONE;
+        BBjumpKinds     jumpKind   = BBJ_NONE;
+        BasicBlockFlags blockFlags = BBF_EMPTY;
+        unsigned        jumpOffset = BAD_IL_OFFSET;
+        BBswtDesc*      switchDesc = nullptr;
+
+        OPCODE opcode = static_cast<OPCODE>(*codeAddr++);
 
     DECODE_OPCODE:
-
-        /* Get the size of additional parameters */
-
-        noway_assert((unsigned)opcode < CEE_COUNT);
+        noway_assert(opcode < CEE_COUNT);
 
         unsigned sz = opcodeSizes[opcode];
 
         switch (opcode)
         {
-            signed jmpDist;
-
             case CEE_PREFIX1:
-                if (jumpTarget->bitVectTest((UINT)(codeAddr - codeBegp)))
+                if (jumpTarget->bitVectTest(static_cast<unsigned>(codeAddr - codeBegin)))
                 {
                     BADCODE3("jump target between prefix 0xFE and opcode", " at offset %04X",
-                             (IL_OFFSET)(codeAddr - codeBegp));
+                             static_cast<unsigned>(codeAddr - codeBegin));
                 }
 
-                opcode = (OPCODE)(256 + getU1LittleEndian(codeAddr));
-                codeAddr += sizeof(__int8);
+                opcode = static_cast<OPCODE>(256 + *codeAddr++);
                 goto DECODE_OPCODE;
 
-            /* Check to see if we have a jump/return opcode */
+            case CEE_TAILCALL:
+                if (inlineInfo != nullptr)
+                {
+                    // TODO-CQ: We can inline some callees with explicit tail calls if we can guarantee that the calls
+                    // can be dispatched as tail calls from the caller.
+                    inlineResult->NoteFatal(InlineObservation::CALLEE_EXPLICIT_TAIL_PREFIX);
+                    retBlocks++;
+
+                    return retBlocks;
+                }
+                FALLTHROUGH;
+            case CEE_READONLY:
+            case CEE_CONSTRAINED:
+            case CEE_VOLATILE:
+            case CEE_UNALIGNED:
+                if (codeAddr + sz >= codeEnd)
+                {
+                    BADCODE("prefix not followed by opcode");
+                }
+
+                if (jumpTarget->bitVectTest(static_cast<unsigned>(codeAddr + sz - codeBegin)))
+                {
+                    BADCODE3("jump target between prefix and an opcode", " at offset %04X",
+                             static_cast<unsigned>(codeAddr - codeBegin));
+                }
+                break;
+
+            case CEE_THROW:
+            case CEE_RETHROW:
+                jumpKind = BBJ_THROW;
+                break;
+
+            case CEE_ENDFILTER:
+                blockFlags |= BBF_DONT_REMOVE;
+                jumpKind = BBJ_EHFILTERRET;
+                break;
+
+            case CEE_ENDFINALLY:
+                jumpKind = BBJ_EHFINALLYRET;
+                break;
 
             case CEE_BRFALSE:
             case CEE_BRFALSE_S:
             case CEE_BRTRUE:
             case CEE_BRTRUE_S:
-
             case CEE_BEQ:
             case CEE_BEQ_S:
             case CEE_BGE:
@@ -2234,92 +2267,57 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTarget)
             case CEE_BLT_UN_S:
             case CEE_BNE_UN:
             case CEE_BNE_UN_S:
-
-                jmpKind = BBJ_COND;
+                jumpKind = BBJ_COND;
                 goto JMP;
 
             case CEE_LEAVE:
             case CEE_LEAVE_S:
-
-                // We need to check if we are jumping out of a finally-protected try.
-                jmpKind = BBJ_LEAVE;
+                jumpKind = BBJ_LEAVE;
                 goto JMP;
 
             case CEE_BR:
             case CEE_BR_S:
-                jmpKind = BBJ_ALWAYS;
+                jumpKind = BBJ_ALWAYS;
                 goto JMP;
 
             JMP:
+            {
+                int jmpDist = (sz == 1) ? getI1LittleEndian(codeAddr) : getI4LittleEndian(codeAddr);
 
-                /* Compute the target address of the jump */
-
-                jmpDist = (sz == 1) ? getI1LittleEndian(codeAddr) : getI4LittleEndian(codeAddr);
-
-                if (compIsForInlining() && jmpDist == 0 && (opcode == CEE_BR || opcode == CEE_BR_S))
+                if ((inlineInfo != nullptr) && (jmpDist == 0) && (opcode == CEE_BR || opcode == CEE_BR_S))
                 {
-                    continue; /* NOP */
+                    continue;
                 }
 
-                jmpAddr = (IL_OFFSET)(codeAddr - codeBegp) + sz + jmpDist;
-                break;
+                jumpOffset = static_cast<unsigned>(codeAddr - codeBegin) + sz + jmpDist;
+            }
+            break;
 
             case CEE_SWITCH:
             {
-                unsigned jmpBase;
-                unsigned jmpCnt; // # of switch cases (excluding default)
+                switchDesc = new (this, CMK_BasicBlock) BBswtDesc;
 
-                BasicBlock** jmpTab;
-                BasicBlock** jmpPtr;
-
-                /* Allocate the switch descriptor */
-
-                swtDsc = new (this, CMK_BasicBlock) BBswtDesc;
-
-                /* Read the number of entries in the table */
-
-                jmpCnt = getU4LittleEndian(codeAddr);
+                unsigned targetCount = getU4LittleEndian(codeAddr);
                 codeAddr += 4;
+                unsigned fallThroughOffset = static_cast<unsigned>((codeAddr - codeBegin) + targetCount * 4);
 
-                /* Compute  the base offset for the opcode */
+                BasicBlock** targetTable = new (this, CMK_BasicBlock) BasicBlock*[targetCount + 1];
 
-                jmpBase = (IL_OFFSET)((codeAddr - codeBegp) + jmpCnt * sizeof(DWORD));
-
-                /* Allocate the jump table */
-
-                jmpPtr = jmpTab = new (this, CMK_BasicBlock) BasicBlock*[jmpCnt + 1];
-
-                /* Fill in the jump table */
-
-                for (unsigned count = jmpCnt; count; count--)
+                for (unsigned i = 0; i < targetCount; i++)
                 {
-                    jmpDist = getI4LittleEndian(codeAddr);
+                    int distance = getI4LittleEndian(codeAddr);
                     codeAddr += 4;
 
-                    // store the offset in the pointer.  We change these in fgLinkBasicBlocks().
-                    *jmpPtr++ = (BasicBlock*)(size_t)(jmpBase + jmpDist);
+                    // Store the offset in the pointer. We change these in fgLinkBasicBlocks.
+                    targetTable[i] = reinterpret_cast<BasicBlock*>(static_cast<size_t>(fallThroughOffset + distance));
                 }
 
-                /* Append the default label to the target table */
+                targetTable[targetCount] = reinterpret_cast<BasicBlock*>(static_cast<size_t>(fallThroughOffset));
 
-                *jmpPtr++ = (BasicBlock*)(size_t)jmpBase;
+                switchDesc->bbsCount  = targetCount + 1;
+                switchDesc->bbsDstTab = targetTable;
 
-                /* Make sure we found the right number of labels */
-
-                noway_assert(jmpPtr == jmpTab + jmpCnt + 1);
-
-                /* Compute the size of the switch opcode operands */
-
-                sz = sizeof(DWORD) + jmpCnt * sizeof(DWORD);
-
-                /* Fill in the remaining fields of the switch descriptor */
-
-                swtDsc->bbsCount  = jmpCnt + 1;
-                swtDsc->bbsDstTab = jmpTab;
-
-                /* This is definitely a jump */
-
-                jmpKind     = BBJ_SWITCH;
+                jumpKind    = BBJ_SWITCH;
                 fgHasSwitch = true;
 
                 if (opts.compProcedureSplitting)
@@ -2337,51 +2335,14 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTarget)
                     JITDUMP("Turning off procedure splitting for this method, as it might need switch tables; "
                             "implementation limitation.\n");
                 }
-            }
+
                 goto GOT_ENDP;
-
-            case CEE_ENDFILTER:
-                bbFlags |= BBF_DONT_REMOVE;
-                jmpKind = BBJ_EHFILTERRET;
-                break;
-
-            case CEE_ENDFINALLY:
-                jmpKind = BBJ_EHFINALLYRET;
-                break;
-
-            case CEE_TAILCALL:
-                if (compIsForInlining())
-                {
-                    // TODO-CQ: We can inline some callees with explicit tail calls if we can guarantee that the calls
-                    // can be dispatched as tail calls from the caller.
-                    compInlineResult->NoteFatal(InlineObservation::CALLEE_EXPLICIT_TAIL_PREFIX);
-                    retBlocks++;
-                    return retBlocks;
-                }
-
-                FALLTHROUGH;
-
-            case CEE_READONLY:
-            case CEE_CONSTRAINED:
-            case CEE_VOLATILE:
-            case CEE_UNALIGNED:
-                if (codeAddr + sz >= codeEndp)
-                {
-                    BADCODE("prefix not followed by opcode");
-                }
-
-                if (jumpTarget->bitVectTest(static_cast<unsigned>(codeAddr + sz - codeBegp)))
-                {
-                    BADCODE3("jump target between prefix and an opcode", " at offset %04X",
-                             (IL_OFFSET)(codeAddr - codeBegp));
-                }
-                break;
+            }
 
             case CEE_CALL:
             case CEE_CALLVIRT:
             case CEE_CALLI:
-            {
-                if (compIsForInlining() ||               // Ignore tail call in the inlinee. Period.
+                if ((inlineInfo != nullptr) ||           // Ignore tail call in the inlinee. Period.
                     (!tailCall && !compTailCallStress()) // A new BB with BBJ_RETURN would have been created
 
                     // after a tailcall statement.
@@ -2399,10 +2360,10 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTarget)
                 // Make sure the code sequence is legal for the tail call.
                 // If so, mark this BB as having a BBJ_RETURN.
 
-                if (codeAddr >= codeEndp - sz)
+                if (codeAddr >= codeEnd - sz)
                 {
                     BADCODE3("No code found after the call instruction", " at offset %04X",
-                             (IL_OFFSET)(codeAddr - codeBegp));
+                             static_cast<unsigned>(codeAddr - codeBegin));
                 }
 
                 if (tailCall)
@@ -2411,10 +2372,11 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTarget)
                     // allowed. We don't know at this point whether the call is recursive so we conservatively pass
                     // false. This will only affect explicit tail calls when IL verification is not needed for the
                     // method.
-                    bool isRecursive = false;
-                    if (!impIsTailCallILPattern(tailCall, opcode, codeAddr + sz, codeEndp, isRecursive))
+
+                    if (!impIsTailCallILPattern(tailCall, opcode, codeAddr + sz, codeEnd, /* isRecursive */ false))
                     {
-                        BADCODE3("tail call not followed by ret", " at offset %04X", (IL_OFFSET)(codeAddr - codeBegp));
+                        BADCODE3("tail call not followed by ret", " at offset %04X",
+                                 static_cast<unsigned>(codeAddr - codeBegin));
                     }
 
                     if (compCanSwitchToOptimized() && fgMayExplicitTailCall())
@@ -2427,7 +2389,7 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTarget)
                 }
                 else
                 {
-                    OPCODE nextOpcode = (OPCODE)getU1LittleEndian(codeAddr + sz);
+                    OPCODE nextOpcode = static_cast<OPCODE>(codeAddr[sz]);
 
                     if (nextOpcode != CEE_RET)
                     {
@@ -2437,45 +2399,30 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTarget)
                         break;
                     }
                 }
-            }
 
-                /* For tail call, we just call CORINFO_HELP_TAILCALL, and it jumps to the
-                   target. So we don't need an epilog - just like CORINFO_HELP_THROW.
-                   Make the block BBJ_RETURN, but we will change it to BBJ_THROW
-                   if the tailness of the call is satisfied.
-                   NOTE : The next instruction is guaranteed to be a CEE_RET
-                   and it will create another BasicBlock. But there may be an
-                   jump directly to that CEE_RET. If we want to avoid creating
-                   an unnecessary block, we need to check if the CEE_RETURN is
-                   the target of a jump.
-                 */
-
+                // For tail call, we just call CORINFO_HELP_TAILCALL, and it jumps to the target.
+                // So we don't need an epilog - just like CORINFO_HELP_THROW.
+                // Make the block BBJ_RETURN, but we will change it to BBJ_THROW if the tailness
+                // of the call is satisfied.
+                // NOTE: The next instruction is guaranteed to be a CEE_RET and it will create
+                // another BasicBlock. But there may be an jump directly to that CEE_RET. If we
+                // want to avoid creating an unnecessary block, we need to check if the CEE_RETURN
+                // is the target of a jump.
                 FALLTHROUGH;
-
             case CEE_JMP:
-            /* These are equivalent to a return from the current method
-               But instead of directly returning to the caller we jump and
-               execute something else in between */
             case CEE_RET:
                 retBlocks++;
-                jmpKind = BBJ_RETURN;
+                jumpKind = BBJ_RETURN;
                 break;
 
-            case CEE_THROW:
-            case CEE_RETHROW:
-                jmpKind = BBJ_THROW;
+#ifndef DEBUG
+            default:
                 break;
-
-#ifdef DEBUG
-// make certain we did not forget any flow of control instructions
-// by checking the 'ctrl' field in opcode.def. First filter out all
-// non-ctrl instructions
-#define BREAK(name)                                                                                                    \
-    case name:                                                                                                         \
-        break;
-#define NEXT(name)                                                                                                     \
-    case name:                                                                                                         \
-        break;
+#else // DEBUG
+// Make certain we did not forget any flow of control instructions by checking the 'ctrl' field in opcode.def.
+// clang-format off
+#define BREAK(name) case name: break;
+#define NEXT(name) case name: break;
 #define CALL(name)
 #define THROW(name)
 #undef RETURN // undef contract RETURN macro
@@ -2483,13 +2430,12 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTarget)
 #define META(name)
 #define BRANCH(name)
 #define COND_BRANCH(name)
-#define PHI(name)
+// clang-format on
 
 #define OPDEF(name, string, pop, push, oprType, opcType, l, s1, s2, ctrl) ctrl(name)
 #include "opcode.def"
 #undef OPDEF
 
-#undef PHI
 #undef BREAK
 #undef CALL
 #undef NEXT
@@ -2503,81 +2449,64 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTarget)
             case CEE_NEWOBJ: // CTRL_CALL
                 break;
 
-            // what's left are forgotten instructions
             default:
                 BADCODE("Unrecognized control Opcode");
-                break;
-#else  // !DEBUG
-            default:
                 break;
 #endif // !DEBUG
         }
 
-        /* Jump over the operand */
-
         codeAddr += sz;
 
     GOT_ENDP:
-
         tailCall = (opcode == CEE_TAILCALL);
 
-        /* Make sure a jump target isn't in the middle of our opcode */
-
-        if (sz)
+        // Make sure a jump target isn't in the middle of our opcode.
+        if (sz != 0)
         {
-            IL_OFFSET offs = (IL_OFFSET)(codeAddr - codeBegp) - sz; // offset of the operand
+            unsigned offs = static_cast<unsigned>(codeAddr - codeBegin) - sz;
 
-            for (unsigned i = 0; i < sz; i++, offs++)
+            for (unsigned i = 0; i < sz; i++)
             {
-                if (jumpTarget->bitVectTest(offs))
+                if (jumpTarget->bitVectTest(offs + i))
                 {
-                    BADCODE3("jump into the middle of an opcode", " at offset %04X", (IL_OFFSET)(codeAddr - codeBegp));
+                    BADCODE3("jump into the middle of an opcode", " at offset %04X",
+                             static_cast<unsigned>(codeAddr - codeBegin));
                 }
             }
         }
 
-        /* Compute the offset of the next opcode */
+        // Compute the offset of the next opcode.
 
-        nxtBBoffs = (IL_OFFSET)(codeAddr - codeBegp);
+        unsigned nextBlockOffset = static_cast<unsigned>(codeAddr - codeBegin);
 
         bool foundScope = false;
 
         if (opts.compDbgCode && (info.compVarScopesCount > 0))
         {
-            while (compGetNextEnterScope(nxtBBoffs))
+            while (compGetNextEnterScope(nextBlockOffset))
             {
                 foundScope = true;
             }
-            while (compGetNextExitScope(nxtBBoffs))
+
+            while (compGetNextExitScope(nextBlockOffset))
             {
                 foundScope = true;
             }
         }
 
-        /* Do we have a jump? */
-
-        if (jmpKind == BBJ_NONE)
+        if (jumpKind == BBJ_NONE)
         {
-            /* No jump; make sure we don't fall off the end of the function */
-
-            if (codeAddr == codeEndp)
+            if (codeAddr == codeEnd)
             {
-                BADCODE3("missing return opcode", " at offset %04X", (IL_OFFSET)(codeAddr - codeBegp));
+                BADCODE3("missing return opcode", " at offset %04X", static_cast<unsigned>(codeAddr - codeBegin));
             }
 
-            /* If a label follows this opcode, we'll have to make a new BB */
-
-            bool makeBlock = jumpTarget->bitVectTest(nxtBBoffs);
+            bool makeBlock = jumpTarget->bitVectTest(nextBlockOffset);
 
             if (!makeBlock && foundScope)
             {
                 makeBlock = true;
-#ifdef DEBUG
-                if (verbose)
-                {
-                    printf("Splitting at BBoffs = %04u\n", nxtBBoffs);
-                }
-#endif // DEBUG
+                JITDUMP("Splitting at BBoffs = %04u\n", nextBlockOffset);
             }
 
             if (!makeBlock)
@@ -2586,43 +2515,35 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTarget)
             }
         }
 
-        /* We need to create a new basic block */
+        BasicBlock* block = fgNewBasicBlock(jumpKind);
+        block->bbFlags |= blockFlags;
+        block->bbRefs        = 0;
+        block->bbCodeOffs    = currentBlockOffset;
+        block->bbCodeOffsEnd = nextBlockOffset;
 
-        curBBdesc = fgNewBasicBlock(jmpKind);
-
-        curBBdesc->bbFlags |= bbFlags;
-        curBBdesc->bbRefs = 0;
-
-        curBBdesc->bbCodeOffs    = curBBoffs;
-        curBBdesc->bbCodeOffsEnd = nxtBBoffs;
-
-        switch (jmpKind)
+        switch (jumpKind)
         {
             case BBJ_SWITCH:
-                curBBdesc->bbJumpSwt = swtDsc;
+                block->bbJumpSwt = switchDesc;
                 break;
 
             case BBJ_COND:
             case BBJ_ALWAYS:
             case BBJ_LEAVE:
-                noway_assert(jmpAddr != DUMMY_INIT(BAD_IL_OFFSET));
-                curBBdesc->bbJumpOffs = jmpAddr;
+                assert(jumpOffset != BAD_IL_OFFSET);
+                block->bbJumpOffs = jumpOffset;
                 break;
 
             default:
                 break;
         }
 
-        DBEXEC(verbose, curBBdesc->dspBlockHeader(this, false, false, false));
+        DBEXEC(verbose, block->dspBlockHeader(this, false, false, false));
 
-        /* Remember where the next BB will start */
+        currentBlockOffset = nextBlockOffset;
+    } while (codeAddr < codeEnd);
 
-        curBBoffs = nxtBBoffs;
-    } while (codeAddr < codeEndp);
-
-    noway_assert(codeAddr == codeEndp);
-
-    /* Finally link up the bbJumpDest of the blocks together */
+    noway_assert(codeAddr == codeEnd);
 
     fgLinkBasicBlocks();
 
