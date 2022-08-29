@@ -802,13 +802,6 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
             opts.lvRefCount++;
         }
 
-        if ((inlineResult != nullptr) && (opcode >= CEE_LDNULL) && (opcode <= CEE_LDC_R8))
-        {
-            // LDTOKEN and LDSTR are handled below
-            pushedStack.PushConstant();
-            handled = true;
-        }
-
         unsigned sz = opcodeSizes[opcode];
 
         switch (opcode)
@@ -835,17 +828,38 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                 BADCODE3("Illegal opcode", ": %02X", (int)opcode);
             }
 
+            case CEE_LDNULL:
+            case CEE_LDC_I4_M1:
+            case CEE_LDC_I4_0:
+            case CEE_LDC_I4_1:
+            case CEE_LDC_I4_2:
+            case CEE_LDC_I4_3:
+            case CEE_LDC_I4_4:
+            case CEE_LDC_I4_5:
+            case CEE_LDC_I4_6:
+            case CEE_LDC_I4_7:
+            case CEE_LDC_I4_8:
+            case CEE_LDC_I4_S:
+            case CEE_LDC_I4:
+            case CEE_LDC_I8:
+            case CEE_LDC_R4:
+            case CEE_LDC_R8:
+                if (inlineResult != nullptr)
+                {
+                    pushedStack.PushConstant();
+                    handled = true;
+                }
+                break;
+
             case CEE_SIZEOF:
             case CEE_LDTOKEN:
             case CEE_LDSTR:
-            {
                 if (preciseScan)
                 {
                     pushedStack.PushConstant();
                     handled = true;
                 }
                 break;
-            }
 
             case CEE_DUP:
             {
