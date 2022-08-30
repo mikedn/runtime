@@ -2572,15 +2572,13 @@ void Compiler::compCreateBasicBlocks()
     // Walk the instrs to find all jump targets
     fgFindJumpTargets(jumpTarget);
 
-    unsigned XTnum;
-
     /* Are there any exception handlers? */
 
     if (info.compXcptnsCount > 0)
     {
         // Check and mark all the exception handlers
 
-        for (XTnum = 0; XTnum < info.compXcptnsCount; XTnum++)
+        for (unsigned XTnum = 0; XTnum < info.compXcptnsCount; XTnum++)
         {
             CORINFO_EH_CLAUSE clause;
             info.compCompHnd->getEHinfo(info.compMethodHnd, XTnum, &clause);
@@ -2656,13 +2654,14 @@ void Compiler::compCreateBasicBlocks()
         fgInitBBLookup();
     }
 
-    /* Mark all blocks within 'try' blocks as such */
-
-    if (info.compXcptnsCount == 0)
+    if (info.compXcptnsCount != 0)
     {
-        return;
+        compCreateEHTable();
     }
+}
 
+void Compiler::compCreateEHTable()
+{
     if (info.compXcptnsCount > MAX_XCPTN_INDEX)
     {
         IMPL_LIMITATION("too many exception clauses");
@@ -2686,6 +2685,7 @@ void Compiler::compCreateBasicBlocks()
     // Annotate BBs with exception handling information required for generating correct eh code
     // as well as checking for correct IL
 
+    unsigned  XTnum;
     EHblkDsc* HBtab;
 
     for (XTnum = 0, HBtab = compHndBBtab; XTnum < compHndBBtabCount; XTnum++, HBtab++)

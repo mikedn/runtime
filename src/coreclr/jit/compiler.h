@@ -5162,6 +5162,7 @@ public:
                                                                    // fgComputePreds()
 
     void compCreateBasicBlocks();
+    void compCreateEHTable();
     INDEBUG(void dmpILJumpTargets(FixedBitVect* targets);)
 
     bool fgIsBetterFallThrough(BasicBlock* bCur, BasicBlock* bAlt);
