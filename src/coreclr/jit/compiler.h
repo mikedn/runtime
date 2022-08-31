@@ -6729,6 +6729,7 @@ public:
     // Debugging support - Local var info
 
     void eeGetVars();
+    void eeGetVars(ICorDebugInfo::ILVarInfo* varInfoTable, uint32_t varInfoCount, bool extendOthers);
 
     unsigned eeVarsCount;
 

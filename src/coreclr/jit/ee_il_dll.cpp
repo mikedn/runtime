@@ -635,20 +635,48 @@ void Compiler::eeSetLVdone()
 
 void Compiler::eeGetVars()
 {
-    ICorDebugInfo::ILVarInfo* varInfoTable;
-    ULONG32                   varInfoCount;
+    ICorDebugInfo::ILVarInfo* varTable;
+    uint32_t                  varCount;
     bool                      extendOthers;
 
-    info.compCompHnd->getVars(info.compMethodHnd, &varInfoCount, &varInfoTable, &extendOthers);
+    info.compCompHnd->getVars(info.compMethodHnd, &varCount, &varTable, &extendOthers);
+    JITDUMP("getVars() returned cVars = %u, extendOthers = %d\n", varCount, extendOthers);
 
-#ifdef DEBUG
-    if (verbose)
+    if (varCount != 0)
     {
-        printf("getVars() returned cVars = %d, extendOthers = %s\n", varInfoCount, extendOthers ? "true" : "false");
+        eeGetVars(varTable, varCount, extendOthers);
+        return;
     }
-#endif
 
-    // Over allocate in case extendOthers is set.
+    if ((info.compLocalsCount == 0) || !extendOthers)
+    {
+        assert(info.compVarScopesCount == 0);
+        return;
+    }
+
+    // TODO-MIKE-Review: Why do we need to allocate an array that basically
+    // tells us that all IL args & locals are live everywhere?!?
+
+    VarScopeDsc* scopes = new (this, CMK_DebugInfo) VarScopeDsc[info.compLocalsCount];
+
+    for (unsigned i = 0; i < info.compLocalsCount; i++)
+    {
+        scopes[i].vsdLifeBeg = 0;
+        scopes[i].vsdLifeEnd = info.compILCodeSize;
+        scopes[i].vsdVarNum  = i;
+        scopes[i].vsdLVnum   = i;
+
+        INDEBUG(scopes[i].vsdName = gtGetLclVarName(i));
+    }
+
+    info.compVarScopesCount = info.compLocalsCount;
+    info.compVarScopes      = scopes;
+}
+
+void Compiler::eeGetVars(ICorDebugInfo::ILVarInfo* varInfoTable, uint32_t varInfoCount, bool extendOthers)
+{
+    // TODO-MIKE-Review: Get rid of this? The runtime only returns a var table in varargs
+    // functions and then the table has only one variable that is live everywhere.
 
     SIZE_T varInfoCountExtra = varInfoCount;
     if (extendOthers)
@@ -695,9 +723,6 @@ void Compiler::eeGetVars()
         localVarPtr++;
         info.compVarScopesCount++;
     }
-
-    // TODO-MIKE-Review: Why do we need to allocate an array that basically
-    // tells us that all IL args & locals are live everywhere?!?
 
     if (extendOthers)
     {
