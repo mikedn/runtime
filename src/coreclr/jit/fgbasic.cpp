@@ -1806,41 +1806,6 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
             }
         }
     }
-
-    // None of the local vars in the inlinee should have address taken or been written to.
-    // Therefore we should NOT need to enter this "if" statement.
-    if ((inlineInfo == nullptr) && !info.compIsStatic)
-    {
-        fgAdjustForAddressExposedOrWrittenThis();
-    }
-
-    // Now that we've seen the IL, set lvSingleDef for root method
-    // locals.
-    //
-    // We could also do this for root method arguments but single-def
-    // arguments are set by the caller and so we don't know anything
-    // about the possible values or types.
-    //
-    // For inlinees we do this over in inlFetchInlineeLocal and
-    // inlUseArg (here args are included as we somtimes get
-    // new information about the types of inlinee args).
-    if (inlineInfo == nullptr)
-    {
-        const unsigned firstLcl = info.compArgsCount;
-        const unsigned lastLcl  = firstLcl + info.compMethodInfo->locals.numArgs;
-        for (unsigned lclNum = firstLcl; lclNum < lastLcl; lclNum++)
-        {
-            LclVarDsc* lclDsc = lvaGetDesc(lclNum);
-            assert(lclDsc->lvSingleDef == 0);
-            // could restrict this to TYP_REF
-            lclDsc->lvSingleDef = !lclDsc->lvHasMultipleILStoreOp && !lclDsc->lvHasLdAddrOp;
-
-            if (lclDsc->lvSingleDef)
-            {
-                JITDUMP("Marked V%02u as a single def local\n", lclNum);
-            }
-        }
-    }
 }
 #ifdef _PREFAST_
 #pragma warning(pop)
@@ -1858,6 +1823,8 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
 
 void Compiler::fgAdjustForAddressExposedOrWrittenThis()
 {
+    assert(!compIsForInlining());
+
     LclVarDsc* thisLcl = lvaGetDesc(info.compThisArg);
 
     // Optionally enable adjustment during stress.
@@ -2577,6 +2544,38 @@ void Compiler::compCreateBasicBlocks()
 
     // Walk the instrs to find all jump targets
     fgFindJumpTargets(jumpTarget);
+
+    // None of the local vars in the inlinee should have address taken or been written to.
+    // Therefore we should NOT need to enter this "if" statement.
+    if (!info.compIsStatic)
+    {
+        fgAdjustForAddressExposedOrWrittenThis();
+    }
+
+    // Now that we've seen the IL, set lvSingleDef for root method
+    // locals.
+    //
+    // We could also do this for root method arguments but single-def
+    // arguments are set by the caller and so we don't know anything
+    // about the possible values or types.
+    //
+    // For inlinees we do this over in inlFetchInlineeLocal and
+    // inlUseArg (here args are included as we somtimes get
+    // new information about the types of inlinee args).
+    const unsigned firstLcl = info.compArgsCount;
+    const unsigned lastLcl  = firstLcl + info.compMethodInfo->locals.numArgs;
+    for (unsigned lclNum = firstLcl; lclNum < lastLcl; lclNum++)
+    {
+        LclVarDsc* lclDsc = lvaGetDesc(lclNum);
+        assert(lclDsc->lvSingleDef == 0);
+        // could restrict this to TYP_REF
+        lclDsc->lvSingleDef = !lclDsc->lvHasMultipleILStoreOp && !lclDsc->lvHasLdAddrOp;
+
+        if (lclDsc->lvSingleDef)
+        {
+            JITDUMP("Marked V%02u as a single def local\n", lclNum);
+        }
+    }
 
     /* Are there any exception handlers? */
 
