@@ -431,90 +431,76 @@ BasicBlock* Compiler::fgFirstBlockOfHandler(BasicBlock* block)
     return ehGetDsc(block->getHndIndex())->ebdHndBeg;
 }
 
-/*****************************************************************************
- *
- *  The following helps find a basic block given its PC offset.
- */
-
 void Compiler::fgInitBBLookup()
 {
-    BasicBlock** dscBBptr;
-
-    /* Allocate the basic block table */
-
-    dscBBptr = fgBBs = new (this, CMK_BasicBlock) BasicBlock*[fgBBcount];
-
-    /* Walk all the basic blocks, filling in the table */
+    BasicBlock** blocks = new (this, CMK_BasicBlock) BasicBlock*[fgBBcount];
+    fgBBs               = blocks;
 
     for (BasicBlock* const block : Blocks())
     {
-        *dscBBptr++ = block;
+        *blocks++ = block;
     }
 
-    noway_assert(dscBBptr == fgBBs + fgBBcount);
+    noway_assert(blocks == fgBBs + fgBBcount);
 }
 
 BasicBlock* Compiler::fgLookupBB(unsigned addr)
 {
-    unsigned lo;
-    unsigned hi;
+    unsigned lo = 0;
+    unsigned hi = fgBBcount - 1;
 
-    /* Do a binary search */
-
-    for (lo = 0, hi = fgBBcount - 1;;)
+    for (;;)
     {
-
     AGAIN:;
-
         if (lo > hi)
         {
             break;
         }
 
-        unsigned    mid = (lo + hi) / 2;
-        BasicBlock* dsc = fgBBs[mid];
+        unsigned    mid   = (lo + hi) / 2;
+        BasicBlock* block = fgBBs[mid];
 
         // We introduce internal blocks for BBJ_CALLFINALLY. Skip over these.
-
-        while (dsc->bbFlags & BBF_INTERNAL)
+        while ((block->bbFlags & BBF_INTERNAL) != 0)
         {
-            dsc = dsc->bbNext;
+            block = block->bbNext;
             mid++;
 
             // We skipped over too many, Set hi back to the original mid - 1
-
             if (mid > hi)
             {
                 mid = (lo + hi) / 2;
                 hi  = mid - 1;
+
                 goto AGAIN;
             }
         }
 
-        unsigned pos = dsc->bbCodeOffs;
-
-        if (pos < addr)
+        if (block->bbCodeOffs < addr)
         {
             if ((lo == hi) && (lo == (fgBBcount - 1)))
             {
-                noway_assert(addr == dsc->bbCodeOffsEnd);
-                return nullptr; // NULL means the end of method
+                noway_assert(addr == block->bbCodeOffsEnd);
+
+                return nullptr; // nullptr means the end of method
             }
+
             lo = mid + 1;
+
             continue;
         }
 
-        if (pos > addr)
+        if (block->bbCodeOffs > addr)
         {
             hi = mid - 1;
+
             continue;
         }
 
-        return dsc;
+        return block;
     }
-#ifdef DEBUG
-    printf("ERROR: Couldn't find basic block at offset %04X\n", addr);
-#endif // DEBUG
+
+    INDEBUG(printf("ERROR: Couldn't find basic block at offset %04X\n", addr));
     NO_WAY("fgLookupBB failed.");
 }
 
@@ -1955,10 +1941,6 @@ void Compiler::fgObserveInlineConstants(OPCODE opcode, const FgStack& stack, Inl
     }
 }
 
-#ifdef _PREFAST_
-#pragma warning(pop)
-#endif
-
 //------------------------------------------------------------------------
 // fgMarkBackwardJump: mark blocks indicating there is a jump backwards in
 //   IL, from a higher to lower IL offset.
@@ -1969,7 +1951,7 @@ void Compiler::fgObserveInlineConstants(OPCODE opcode, const FgStack& stack, Inl
 
 void Compiler::fgMarkBackwardJump(BasicBlock* targetBlock, BasicBlock* sourceBlock)
 {
-    noway_assert(targetBlock->bbNum <= sourceBlock->bbNum);
+    assert(targetBlock->bbNum <= sourceBlock->bbNum);
 
     for (BasicBlock* const block : Blocks(targetBlock, sourceBlock))
     {
@@ -1983,55 +1965,63 @@ void Compiler::fgMarkBackwardJump(BasicBlock* targetBlock, BasicBlock* sourceBlo
     targetBlock->bbFlags |= BBF_BACKWARD_JUMP_TARGET;
 }
 
-/*****************************************************************************
- *
- *  Finally link up the bbJumpDest of the blocks together
- */
-
 void Compiler::fgLinkBasicBlocks()
 {
-    /* Create the basic block lookup tables */
-
     fgInitBBLookup();
 
-    /* First block is always reachable */
-
+    // First block is always reachable
     fgFirstBB->bbRefs = 1;
 
-    /* Walk all the basic blocks, filling in the target addresses */
-
-    for (BasicBlock* const curBBdesc : Blocks())
+    for (BasicBlock* const block : Blocks())
     {
-        switch (curBBdesc->bbJumpKind)
+        switch (block->bbJumpKind)
         {
             case BBJ_COND:
             case BBJ_ALWAYS:
             case BBJ_LEAVE:
-                curBBdesc->bbJumpDest = fgLookupBB(curBBdesc->bbJumpOffs);
-                curBBdesc->bbJumpDest->bbRefs++;
-                if (curBBdesc->bbJumpDest->bbNum <= curBBdesc->bbNum)
+                block->bbJumpDest = fgLookupBB(block->bbJumpOffs);
+                block->bbJumpDest->bbRefs++;
+
+                if (block->bbJumpDest->bbNum <= block->bbNum)
                 {
-                    fgMarkBackwardJump(curBBdesc->bbJumpDest, curBBdesc);
+                    fgMarkBackwardJump(block->bbJumpDest, block);
                 }
 
-                /* Is the next block reachable? */
-
-                if (curBBdesc->bbJumpKind == BBJ_ALWAYS || curBBdesc->bbJumpKind == BBJ_LEAVE)
+                if (block->bbJumpKind != BBJ_COND)
                 {
                     break;
                 }
 
-                if (!curBBdesc->bbNext)
+                FALLTHROUGH;
+            case BBJ_NONE:
+                if (block->bbNext == nullptr)
                 {
                     BADCODE("Fall thru the end of a method");
                 }
 
-                // Fall through, the next block is also reachable
-                FALLTHROUGH;
-
-            case BBJ_NONE:
-                curBBdesc->bbNext->bbRefs++;
+                block->bbNext->bbRefs++;
                 break;
+
+            case BBJ_SWITCH:
+            {
+                unsigned     count   = block->bbJumpSwt->bbsCount;
+                BasicBlock** targets = block->bbJumpSwt->bbsDstTab;
+
+                for (unsigned i = 0; i < count; i++)
+                {
+                    BasicBlock* target = fgLookupBB(static_cast<unsigned>(reinterpret_cast<size_t>(targets[i])));
+                    target->bbRefs++;
+                    targets[i] = target;
+
+                    if (target->bbNum <= block->bbNum)
+                    {
+                        fgMarkBackwardJump(target, block);
+                    }
+                }
+
+                noway_assert(targets[count - 1] == block->bbNext);
+            }
+            break;
 
             case BBJ_EHFINALLYRET:
             case BBJ_EHFILTERRET:
@@ -2039,33 +2029,10 @@ void Compiler::fgLinkBasicBlocks()
             case BBJ_RETURN:
                 break;
 
-            case BBJ_SWITCH:
-
-                unsigned jumpCnt;
-                jumpCnt = curBBdesc->bbJumpSwt->bbsCount;
-                BasicBlock** jumpPtr;
-                jumpPtr = curBBdesc->bbJumpSwt->bbsDstTab;
-
-                do
-                {
-                    *jumpPtr = fgLookupBB((unsigned)*(size_t*)jumpPtr);
-                    (*jumpPtr)->bbRefs++;
-                    if ((*jumpPtr)->bbNum <= curBBdesc->bbNum)
-                    {
-                        fgMarkBackwardJump(*jumpPtr, curBBdesc);
-                    }
-                } while (++jumpPtr, --jumpCnt);
-
-                /* Default case of CEE_SWITCH (next block), is at end of jumpTab[] */
-
-                noway_assert(*(jumpPtr - 1) == curBBdesc->bbNext);
-                break;
-
             case BBJ_CALLFINALLY: // BBJ_CALLFINALLY and BBJ_EHCATCHRET don't appear until later
             case BBJ_EHCATCHRET:
             default:
-                noway_assert(!"Unexpected bbJumpKind");
-                break;
+                unreached();
         }
     }
 }
@@ -2519,34 +2486,18 @@ void Compiler::dmpILJumpTargets(FixedBitVect* targets)
 }
 #endif
 
-/*****************************************************************************
- *
- *  Main entry point to discover the basic blocks for the current function.
- */
-
 void Compiler::compCreateBasicBlocks()
 {
     assert(!compIsForInlining());
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In compCreateBasicBlocks() for %s\n", info.compFullName);
-    }
+    JITDUMP("*************** In compCreateBasicBlocks() for %s\n", info.compFullName);
 
     // Call this here so any dump printing it inspires doesn't appear in the bb table.
-    //
-    fgStressBBProf();
-#endif
+    INDEBUG(fgStressBBProf());
 
-    // Allocate the 'jump target' bit vector
-    FixedBitVect* jumpTarget = FixedBitVect::bitVectInit(info.compILCodeSize + 1, this);
+    FixedBitVect* jumpTargets = FixedBitVect::bitVectInit(info.compILCodeSize + 1, this);
+    fgFindJumpTargets(jumpTargets);
 
-    // Walk the instrs to find all jump targets
-    fgFindJumpTargets(jumpTarget);
-
-    // None of the local vars in the inlinee should have address taken or been written to.
-    // Therefore we should NOT need to enter this "if" statement.
     if (!info.compIsStatic)
     {
         fgAdjustForAddressExposedOrWrittenThis();
@@ -2577,65 +2528,56 @@ void Compiler::compCreateBasicBlocks()
         }
     }
 
-    /* Are there any exception handlers? */
-
-    if (info.compXcptnsCount > 0)
+    for (unsigned i = 0, count = info.compXcptnsCount; i < info.compXcptnsCount; i++)
     {
-        // Check and mark all the exception handlers
+        CORINFO_EH_CLAUSE clause;
+        info.compCompHnd->getEHinfo(info.compMethodHnd, i, &clause);
+        noway_assert(clause.HandlerLength != UINT32_MAX);
 
-        for (unsigned XTnum = 0; XTnum < info.compXcptnsCount; XTnum++)
+        if (clause.TryLength == 0)
         {
-            CORINFO_EH_CLAUSE clause;
-            info.compCompHnd->getEHinfo(info.compMethodHnd, XTnum, &clause);
-            noway_assert(clause.HandlerLength != (unsigned)-1);
-
-            if (clause.TryLength <= 0)
-            {
-                BADCODE("try block length <=0");
-            }
-
-            /* Mark the 'try' block extent and the handler itself */
-
-            if (clause.TryOffset > info.compILCodeSize)
-            {
-                BADCODE("try offset is > codesize");
-            }
-            jumpTarget->bitVectSet(clause.TryOffset);
-
-            if (clause.TryOffset + clause.TryLength > info.compILCodeSize)
-            {
-                BADCODE("try end is > codesize");
-            }
-            jumpTarget->bitVectSet(clause.TryOffset + clause.TryLength);
-
-            if (clause.HandlerOffset > info.compILCodeSize)
-            {
-                BADCODE("handler offset > codesize");
-            }
-            jumpTarget->bitVectSet(clause.HandlerOffset);
-
-            if (clause.HandlerOffset + clause.HandlerLength > info.compILCodeSize)
-            {
-                BADCODE("handler end > codesize");
-            }
-            jumpTarget->bitVectSet(clause.HandlerOffset + clause.HandlerLength);
-
-            if (clause.Flags & CORINFO_EH_CLAUSE_FILTER)
-            {
-                if (clause.FilterOffset > info.compILCodeSize)
-                {
-                    BADCODE("filter offset > codesize");
-                }
-                jumpTarget->bitVectSet(clause.FilterOffset);
-            }
+            BADCODE("try block length <=0");
         }
+
+        if (clause.TryOffset > info.compILCodeSize)
+        {
+            BADCODE("try offset is > codesize");
+        }
+
+        if (clause.TryOffset + clause.TryLength > info.compILCodeSize)
+        {
+            BADCODE("try end is > codesize");
+        }
+
+        if (clause.HandlerOffset > info.compILCodeSize)
+        {
+            BADCODE("handler offset > codesize");
+        }
+
+        if (clause.HandlerOffset + clause.HandlerLength > info.compILCodeSize)
+        {
+            BADCODE("handler end > codesize");
+        }
+
+        if ((clause.Flags & CORINFO_EH_CLAUSE_FILTER) != 0)
+        {
+            if (clause.FilterOffset > info.compILCodeSize)
+            {
+                BADCODE("filter offset > codesize");
+            }
+
+            jumpTargets->bitVectSet(clause.FilterOffset);
+        }
+
+        jumpTargets->bitVectSet(clause.TryOffset);
+        jumpTargets->bitVectSet(clause.TryOffset + clause.TryLength);
+        jumpTargets->bitVectSet(clause.HandlerOffset);
+        jumpTargets->bitVectSet(clause.HandlerOffset + clause.HandlerLength);
     }
 
-    DBEXEC(verbose, dmpILJumpTargets(jumpTarget);)
+    DBEXEC(verbose, dmpILJumpTargets(jumpTargets);)
 
-    /* Now create the basic blocks */
-
-    unsigned retBlocks = fgMakeBasicBlocks(jumpTarget);
+    fgMakeBasicBlocks(jumpTargets);
 
     // If we are doing OSR, add an entry block that simply branches to the right IL offset.
     if (opts.IsOSR())
@@ -2643,17 +2585,16 @@ void Compiler::compCreateBasicBlocks()
         // Remember the original entry block in case this method is tail recursive.
         fgEntryBB = fgLookupBB(0);
 
-        // Find the OSR entry block.
         assert(info.compILEntry >= 0);
-        BasicBlock* bbTarget = fgLookupBB(info.compILEntry);
+        BasicBlock* entry = fgLookupBB(info.compILEntry);
 
         fgEnsureFirstBBisScratch();
         fgFirstBB->bbJumpKind = BBJ_ALWAYS;
-        fgFirstBB->bbJumpDest = bbTarget;
-        fgAddRefPred(bbTarget, fgFirstBB);
+        fgFirstBB->bbJumpDest = entry;
+        fgAddRefPred(entry, fgFirstBB);
 
         JITDUMP("OSR: redirecting flow at entry via " FMT_BB " to " FMT_BB " (il offset 0x%x)\n", fgFirstBB->bbNum,
-                bbTarget->bbNum, info.compILEntry);
+                entry->bbNum, info.compILEntry);
 
         // rebuild lookup table... should be able to avoid this by leaving room up front.
         fgInitBBLookup();
