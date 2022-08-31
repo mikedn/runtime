@@ -751,11 +751,6 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
             BADCODE3("Illegal opcode", ": %02X", (int)opcode);
         }
 
-        if ((opcode >= CEE_LDARG_0 && opcode <= CEE_STLOC_S) || (opcode >= CEE_LDARG && opcode <= CEE_STLOC))
-        {
-            opts.lvRefCount++;
-        }
-
         unsigned sz = opcodeSizes[opcode];
 
         switch (opcode)
@@ -1463,6 +1458,8 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                         lvaGetDesc(varNum)->lvHasILStoreOp = 1;
                     }
                 }
+
+                opts.lvRefCount++;
                 break;
 
             case CEE_STLOC_0:
@@ -1515,18 +1512,25 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                         }
                     }
                 }
+
+                opts.lvRefCount++;
                 break;
 
             case CEE_LDLOC_0:
             case CEE_LDLOC_1:
             case CEE_LDLOC_2:
             case CEE_LDLOC_3:
+                // TODO-MIKE-Review: Why only LDLOC_0-3?
                 if (preciseScan && (inlineResult != nullptr) && (prevOpcode == (CEE_STLOC_3 - (CEE_LDLOC_3 - opcode))))
                 {
                     // Fold stloc + ldloc
                     pushedStack.Push(pushedStack.Top(1)); // throw away SLOT_UNKNOWN inserted by STLOC
                     handled = true;
                 }
+                FALLTHROUGH;
+            case CEE_LDLOC:
+            case CEE_LDLOC_S:
+                opts.lvRefCount++;
                 break;
 
             case CEE_LDARGA:
@@ -1627,6 +1631,8 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                         }
                     }
                 }
+
+                opts.lvRefCount++;
                 break;
 
             case CEE_RET:
