@@ -18,6 +18,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #endif
 #include "emit.h"
 #include "corexcep.h"
+#include "jitstd/algorithm.h"
 
 #if !defined(HOST_UNIX)
 #include <io.h>    // For _dup, _setmode
@@ -645,6 +646,13 @@ void Compiler::eeGetVars()
     if (varCount != 0)
     {
         eeGetVars(varTable, varCount, extendOthers);
+        info.compCompHnd->freeArray(varTable);
+
+        compInitSortedScopeLists();
+#ifdef USING_SCOPE_INFO
+        compInitVarScopeMap();
+#endif
+
         return;
     }
 
@@ -671,78 +679,64 @@ void Compiler::eeGetVars()
 
     info.compVarScopesCount = info.compLocalsCount;
     info.compVarScopes      = scopes;
+    compVarScopeExtended    = true;
 }
 
 void Compiler::eeGetVars(ICorDebugInfo::ILVarInfo* varInfoTable, uint32_t varInfoCount, bool extendOthers)
 {
+    assert(varInfoCount != 0);
+
     // TODO-MIKE-Review: Get rid of this? The runtime only returns a var table in varargs
     // functions and then the table has only one variable that is live everywhere.
 
-    SIZE_T varInfoCountExtra = varInfoCount;
+    unsigned varInfoCountExtra = varInfoCount;
+
     if (extendOthers)
     {
         varInfoCountExtra += info.compLocalsCount;
     }
 
-    if (varInfoCountExtra == 0)
-    {
-        return;
-    }
-
     info.compVarScopes = new (this, CMK_DebugInfo) VarScopeDsc[varInfoCountExtra];
 
-    VarScopeDsc*              localVarPtr = info.compVarScopes;
-    ICorDebugInfo::ILVarInfo* v           = varInfoTable;
+    VarScopeDsc*              scopes = info.compVarScopes;
+    ICorDebugInfo::ILVarInfo* vars   = varInfoTable;
 
-    for (unsigned i = 0; i < varInfoCount; i++, v++)
+    for (unsigned i = 0; i < varInfoCount; i++, vars++)
     {
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("var:%d start:%d end:%d\n", v->varNumber, v->startOffset, v->endOffset);
-        }
-#endif
+        JITDUMP("var:%d start:%d end:%d\n", vars->varNumber, vars->startOffset, vars->endOffset);
 
-        if (v->startOffset >= v->endOffset)
+        if (vars->startOffset >= vars->endOffset)
         {
             continue;
         }
 
-        assert(v->startOffset <= info.compILCodeSize);
-        assert(v->endOffset <= info.compILCodeSize);
+        assert(vars->startOffset <= info.compILCodeSize);
+        assert(vars->endOffset <= info.compILCodeSize);
 
-        localVarPtr->vsdLifeBeg = v->startOffset;
-        localVarPtr->vsdLifeEnd = v->endOffset;
-        localVarPtr->vsdLVnum   = i;
-        localVarPtr->vsdVarNum  = compMapILvarNum(v->varNumber);
+        scopes->vsdLifeBeg = vars->startOffset;
+        scopes->vsdLifeEnd = vars->endOffset;
+        scopes->vsdLVnum   = i;
+        scopes->vsdVarNum  = compMapILvarNum(vars->varNumber);
 
-#ifdef DEBUG
-        localVarPtr->vsdName = gtGetLclVarName(localVarPtr->vsdVarNum);
-#endif
+        INDEBUG(scopes->vsdName = gtGetLclVarName(scopes->vsdVarNum));
 
-        localVarPtr++;
+        scopes++;
         info.compVarScopesCount++;
     }
 
     if (extendOthers)
     {
-        // Allocate a bit-array for all the variables and initialize to false
+        bool* varInfoProvided = getAllocator(CMK_Unknown).allocate<bool>(info.compLocalsCount);
 
-        bool*    varInfoProvided = getAllocator(CMK_Unknown).allocate<bool>(info.compLocalsCount);
-        unsigned i;
-        for (i = 0; i < info.compLocalsCount; i++)
+        for (unsigned i = 0; i < info.compLocalsCount; i++)
         {
             varInfoProvided[i] = false;
         }
 
-        // Find which vars have absolutely no varInfo provided
-
-        for (i = 0; i < info.compVarScopesCount; i++)
+        for (unsigned i = 0; i < info.compVarScopesCount; i++)
         {
             varInfoProvided[info.compVarScopes[i].vsdVarNum] = true;
         }
-
-        // Create entries for the variables with no varInfo
 
         for (unsigned varNum = 0; varNum < info.compLocalsCount; varNum++)
         {
@@ -751,38 +745,371 @@ void Compiler::eeGetVars(ICorDebugInfo::ILVarInfo* varInfoTable, uint32_t varInf
                 continue;
             }
 
-            // Create a varInfo with scope over the entire method
+            scopes->vsdLifeBeg = 0;
+            scopes->vsdLifeEnd = info.compILCodeSize;
+            scopes->vsdVarNum  = varNum;
+            scopes->vsdLVnum   = info.compVarScopesCount;
 
-            localVarPtr->vsdLifeBeg = 0;
-            localVarPtr->vsdLifeEnd = info.compILCodeSize;
-            localVarPtr->vsdVarNum  = varNum;
-            localVarPtr->vsdLVnum   = info.compVarScopesCount;
+            INDEBUG(scopes->vsdName = gtGetLclVarName(scopes->vsdVarNum));
 
-#ifdef DEBUG
-            localVarPtr->vsdName = gtGetLclVarName(localVarPtr->vsdVarNum);
-#endif
-
-            localVarPtr++;
+            scopes++;
             info.compVarScopesCount++;
         }
     }
 
-    assert(localVarPtr <= info.compVarScopes + varInfoCountExtra);
+    assert(scopes <= info.compVarScopes + varInfoCountExtra);
 
-    if (varInfoCount != 0)
-    {
-        info.compCompHnd->freeArray(varInfoTable);
-    }
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        compDispLocalVars();
-    }
-#endif // DEBUG
+    DBEXEC(verbose, compDispLocalVars();)
 }
 
+unsigned Compiler::compMapILvarNum(unsigned ilVarNum)
+{
+    noway_assert((ilVarNum < info.compILlocalsCount) || (ilVarNum > ICorDebugInfo::UNKNOWN_ILNUM));
+
+    unsigned varNum;
+
+    if (ilVarNum == ICorDebugInfo::VARARGS_HND_ILNUM)
+    {
+        noway_assert(info.compIsVarArgs);
+
+        varNum = lvaVarargsHandleArg;
+
+        noway_assert(lvaGetDesc(varNum)->IsParam());
+    }
+    else if (ilVarNum == ICorDebugInfo::RETBUF_ILNUM)
+    {
+        noway_assert(info.compRetBuffArg != BAD_VAR_NUM);
+
+        varNum = info.compRetBuffArg;
+    }
+    else if (ilVarNum == ICorDebugInfo::TYPECTXT_ILNUM)
+    {
+        noway_assert(info.compTypeCtxtArg >= 0);
+
+        varNum = static_cast<unsigned>(info.compTypeCtxtArg);
+    }
+    else if (ilVarNum < info.compILargsCount)
+    {
+        varNum = compMapILargNum(ilVarNum);
+
+        noway_assert(lvaGetDesc(varNum)->IsParam());
+    }
+    else if (ilVarNum < info.compILlocalsCount)
+    {
+        varNum = info.compArgsCount + ilVarNum - info.compILargsCount;
+
+        noway_assert(!lvaGetDesc(varNum)->IsParam());
+    }
+    else
+    {
+        unreached();
+    }
+
+    noway_assert(varNum < info.compLocalsCount);
+
+    return varNum;
+}
+
+void Compiler::compInitSortedScopeLists()
+{
+    assert(info.compVarScopesCount != 0);
+
+    compEnterScopeList = new (this, CMK_DebugInfo) VarScopeDsc*[info.compVarScopesCount];
+    compExitScopeList  = new (this, CMK_DebugInfo) VarScopeDsc*[info.compVarScopesCount];
+
+    for (unsigned i = 0; i < info.compVarScopesCount; i++)
+    {
+        compEnterScopeList[i] = &info.compVarScopes[i];
+        compExitScopeList[i]  = &info.compVarScopes[i];
+    }
+
+    jitstd::sort(compEnterScopeList, compEnterScopeList + info.compVarScopesCount,
+                 [](const VarScopeDsc* elem1, const VarScopeDsc* elem2) {
+                     return elem1->vsdLifeBeg < elem2->vsdLifeBeg;
+                 });
+
+    jitstd::sort(compExitScopeList, compExitScopeList + info.compVarScopesCount,
+                 [](const VarScopeDsc* elem1, const VarScopeDsc* elem2) {
+                     return elem1->vsdLifeEnd < elem2->vsdLifeEnd;
+                 });
+}
+
+void Compiler::compResetScopeLists()
+{
+    if (info.compVarScopesCount == 0)
+    {
+        return;
+    }
+
+    assert(compVarScopeExtended || (compEnterScopeList != nullptr) && (compExitScopeList != nullptr));
+
+    compNextEnterScope = 0;
+    compNextExitScope  = 0;
+}
+
+VarScopeDsc* Compiler::compGetNextEnterScope(unsigned offs)
+{
+    if (compNextEnterScope < info.compVarScopesCount)
+    {
+        if (compVarScopeExtended)
+        {
+            if (offs == 0)
+            {
+                return &info.compVarScopes[compNextEnterScope++];
+            }
+        }
+        else
+        {
+            unsigned nextEnterOffs = compEnterScopeList[compNextEnterScope]->vsdLifeBeg;
+            assert(offs <= nextEnterOffs);
+
+            if (nextEnterOffs == offs)
+            {
+                return compEnterScopeList[compNextEnterScope++];
+            }
+        }
+    }
+
+    return nullptr;
+}
+
+VarScopeDsc* Compiler::compGetNextExitScope(unsigned offs)
+{
+    if (compNextExitScope < info.compVarScopesCount)
+    {
+        if (compVarScopeExtended)
+        {
+            if (offs == info.compILCodeSize)
+            {
+                return &info.compVarScopes[compNextExitScope++];
+            }
+        }
+        else
+        {
+            unsigned nextExitOffs = compExitScopeList[compNextExitScope]->vsdLifeEnd;
+            assert(offs <= nextExitOffs);
+
+            if (nextExitOffs == offs)
+            {
+                return compExitScopeList[compNextExitScope++];
+            }
+        }
+    }
+
+    return nullptr;
+}
+
+VarScopeDsc* Compiler::compGetNextEnterScopeScan(unsigned offs)
+{
+    if (compNextEnterScope < info.compVarScopesCount)
+    {
+        if (compVarScopeExtended)
+        {
+            return &info.compVarScopes[compNextEnterScope++];
+        }
+        else if (offs >= compEnterScopeList[compNextEnterScope]->vsdLifeBeg)
+        {
+            return compEnterScopeList[compNextEnterScope++];
+        }
+    }
+
+    return nullptr;
+}
+
+VarScopeDsc* Compiler::compGetNextExitScopeScan(unsigned offs)
+{
+    if (compNextExitScope < info.compVarScopesCount)
+    {
+        if (compVarScopeExtended)
+        {
+            if (offs >= info.compILCodeSize)
+            {
+                return &info.compVarScopes[compNextExitScope++];
+            }
+        }
+        else if (offs >= compExitScopeList[compNextExitScope]->vsdLifeEnd)
+        {
+            return compExitScopeList[compNextExitScope++];
+        }
+    }
+
+    return nullptr;
+}
+
+#ifdef USING_SCOPE_INFO
+VarScopeDsc* Compiler::compFindLocalVarLinear(unsigned varNum, unsigned offs)
+{
+    for (unsigned i = 0; i < info.compVarScopesCount; i++)
+    {
+        VarScopeDsc& dsc = info.compVarScopes[i];
+
+        if ((dsc.vsdVarNum == varNum) && (dsc.vsdLifeBeg <= offs) && (dsc.vsdLifeEnd > offs))
+        {
+            return &dsc;
+        }
+    }
+
+    return nullptr;
+}
+
+VarScopeDsc* Compiler::compFindLocalVar(unsigned varNum, unsigned offs)
+{
+    if (compVarScopeExtended)
+    {
+        assert(info.compVarScopes[varNum].vsdVarNum == varNum);
+        assert((info.compVarScopes[varNum].vsdLifeBeg == 0) && (offs <= info.compVarScopes[varNum].vsdLifeEnd));
+
+        return &info.compVarScopes[varNum];
+    }
+
+    if (compVarScopeMap == nullptr)
+    {
+        return compFindLocalVarLinear(varNum, offs);
+    }
+
+    VarScopeDsc* scope = compFindLocalVarMapped(varNum, offs);
+    assert(scope == compFindLocalVarLinear(varNum, offs));
+    return scope;
+}
+
+void Compiler::compInitVarScopeMap()
+{
+    assert(compVarScopeMap == nullptr);
+
+    if (info.compVarScopesCount < 32)
+    {
+        return;
+    }
+
+    compVarScopeMap = new (getAllocator(CMK_DebugInfo))
+        JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, VarScopeListNode*>(getAllocator(CMK_DebugInfo));
+    // 599 prime to limit huge allocations; for ex: duplicated scopes on single var.
+    compVarScopeMap->Reallocate(min(info.compVarScopesCount, 599));
+
+    for (unsigned i = 0; i < info.compVarScopesCount; ++i)
+    {
+        VarScopeListNode** head = compVarScopeMap->Emplace(info.compVarScopes[i].vsdVarNum);
+
+        *head = new (getAllocator(CMK_DebugInfo)) VarScopeListNode(&info.compVarScopes[i], *head);
+    }
+}
+
+VarScopeDsc* Compiler::compFindLocalVarMapped(unsigned varNum, unsigned offs)
+{
+    VarScopeListNode* node;
+
+    if (compVarScopeMap->Lookup(varNum, &node))
+    {
+        for (; node != nullptr; node = node->next)
+        {
+            if ((node->scope->vsdLifeBeg <= offs) && (node->scope->vsdLifeEnd > offs))
+            {
+                return node->scope;
+            }
+        }
+    }
+
+    return nullptr;
+}
+
+bool Compiler::compVerifyVarScopes()
+{
+    if (compVarScopeExtended)
+    {
+        return true;
+    }
+
+    // No entries with overlapping lives should have the same slot.
+
+    for (unsigned i = 0; i < info.compVarScopesCount; i++)
+    {
+        for (unsigned j = i + 1; j < compiler->info.compVarScopesCount; j++)
+        {
+            unsigned slot1 = info.compVarScopes[i].vsdVarNum;
+            unsigned beg1  = info.compVarScopes[i].vsdLifeBeg;
+            unsigned end1  = info.compVarScopes[i].vsdLifeEnd;
+
+            unsigned slot2 = info.compVarScopes[j].vsdVarNum;
+            unsigned beg2  = info.compVarScopes[j].vsdLifeBeg;
+            unsigned end2  = info.compVarScopes[j].vsdLifeEnd;
+
+            if (slot1 == slot2 && (end1 > beg2 && beg1 < end2))
+            {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+#endif // USING_SCOPE_INFO
+
 #ifdef DEBUG
+
+void Compiler::compDispScopeLists()
+{
+    unsigned i;
+
+    printf("Local variable scopes = %d\n", info.compVarScopesCount);
+
+    if (info.compVarScopesCount)
+    {
+        printf("    \tVarNum \tLVNum \t      Name \tBeg \tEnd\n");
+    }
+
+    printf("Sorted by enter scope:\n");
+    for (i = 0; i < info.compVarScopesCount; i++)
+    {
+        VarScopeDsc* varScope = compEnterScopeList[i];
+        assert(varScope);
+        printf("%2d: \t%02Xh \t%02Xh \t%10s \t%03Xh   \t%03Xh", i, varScope->vsdVarNum, varScope->vsdLVnum,
+               varScope->vsdName == nullptr ? "UNKNOWN" : varScope->vsdName, varScope->vsdLifeBeg,
+               varScope->vsdLifeEnd);
+
+        if (compNextEnterScope == i)
+        {
+            printf(" <-- next enter scope");
+        }
+
+        printf("\n");
+    }
+
+    printf("Sorted by exit scope:\n");
+    for (i = 0; i < info.compVarScopesCount; i++)
+    {
+        VarScopeDsc* varScope = compExitScopeList[i];
+        assert(varScope);
+        printf("%2d: \t%02Xh \t%02Xh \t%10s \t%03Xh   \t%03Xh", i, varScope->vsdVarNum, varScope->vsdLVnum,
+               varScope->vsdName == nullptr ? "UNKNOWN" : varScope->vsdName, varScope->vsdLifeBeg,
+               varScope->vsdLifeEnd);
+
+        if (compNextExitScope == i)
+        {
+            printf(" <-- next exit scope");
+        }
+
+        printf("\n");
+    }
+}
+
+void Compiler::compDispLocalVars()
+{
+    printf("info.compVarScopesCount = %d\n", info.compVarScopesCount);
+
+    if (info.compVarScopesCount > 0)
+    {
+        printf("    \tVarNum \tLVNum \t      Name \tBeg \tEnd\n");
+    }
+
+    for (unsigned i = 0; i < info.compVarScopesCount; i++)
+    {
+        VarScopeDsc* varScope = &info.compVarScopes[i];
+        printf("%2d: \t%02Xh \t%02Xh \t%10s \t%03Xh   \t%03Xh\n", i, varScope->vsdVarNum, varScope->vsdLVnum,
+               varScope->vsdName == nullptr ? "UNKNOWN" : varScope->vsdName, varScope->vsdLifeBeg,
+               varScope->vsdLifeEnd);
+    }
+}
+
 void Compiler::eeDispVar(ICorDebugInfo::NativeVarInfo* var)
 {
     const char* name = nullptr;
@@ -799,8 +1126,8 @@ void Compiler::eeDispVar(ICorDebugInfo::NativeVarInfo* var)
     {
         name = "typeCtx";
     }
-    printf("%3d(%10s) : From %08Xh to %08Xh, in ", var->varNumber,
-           (VarNameToStr(name) == nullptr) ? "UNKNOWN" : VarNameToStr(name), var->startOffset, var->endOffset);
+    printf("%3d(%10s) : From %08Xh to %08Xh, in ", var->varNumber, (name == nullptr) ? "UNKNOWN" : name,
+           var->startOffset, var->endOffset);
 
     switch ((CodeGenInterface::siVarLocType)var->loc.vlType)
     {

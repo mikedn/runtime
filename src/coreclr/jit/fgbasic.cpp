@@ -2054,7 +2054,7 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTarget)
 {
     // Keep track of where we are in the scope lists, as we will also
     // create blocks at scope boundaries.
-    if (opts.compDbgCode && (info.compVarScopesCount > 0))
+    if (opts.compDbgCode && (info.compVarScopesCount > 0) && !compVarScopeExtended)
     {
         compResetScopeLists();
 
@@ -2384,7 +2384,7 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTarget)
 
         bool foundScope = false;
 
-        if (opts.compDbgCode && (info.compVarScopesCount > 0))
+        if (opts.compDbgCode && (info.compVarScopesCount > 0) && !compVarScopeExtended)
         {
             while (compGetNextEnterScope(nextBlockOffset))
             {

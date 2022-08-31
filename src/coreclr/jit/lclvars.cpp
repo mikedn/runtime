@@ -1292,57 +1292,6 @@ void Compiler::lvaInitVarDsc(LclVarDsc* varDsc, unsigned varNum, CorInfoType cor
 }
 
 /*****************************************************************************
- * Returns our internal varNum for a given IL variable.
- * Asserts assume it is called after lvaTable[] has been set up.
- */
-
-unsigned Compiler::compMapILvarNum(unsigned ILvarNum)
-{
-    noway_assert(ILvarNum < info.compILlocalsCount || ILvarNum > unsigned(ICorDebugInfo::UNKNOWN_ILNUM));
-
-    unsigned varNum;
-
-    if (ILvarNum == (unsigned)ICorDebugInfo::VARARGS_HND_ILNUM)
-    {
-        // The varargs cookie is the last argument in lvaTable[]
-        noway_assert(info.compIsVarArgs);
-
-        varNum = lvaVarargsHandleArg;
-        noway_assert(lvaTable[varNum].lvIsParam);
-    }
-    else if (ILvarNum == (unsigned)ICorDebugInfo::RETBUF_ILNUM)
-    {
-        noway_assert(info.compRetBuffArg != BAD_VAR_NUM);
-        varNum = info.compRetBuffArg;
-    }
-    else if (ILvarNum == (unsigned)ICorDebugInfo::TYPECTXT_ILNUM)
-    {
-        noway_assert(info.compTypeCtxtArg >= 0);
-        varNum = unsigned(info.compTypeCtxtArg);
-    }
-    else if (ILvarNum < info.compILargsCount)
-    {
-        // Parameter
-        varNum = compMapILargNum(ILvarNum);
-        noway_assert(lvaTable[varNum].lvIsParam);
-    }
-    else if (ILvarNum < info.compILlocalsCount)
-    {
-        // Local variable
-        unsigned lclNum = ILvarNum - info.compILargsCount;
-        varNum          = info.compArgsCount + lclNum;
-        noway_assert(!lvaTable[varNum].lvIsParam);
-    }
-    else
-    {
-        unreached();
-    }
-
-    noway_assert(varNum < info.compLocalsCount);
-    return varNum;
-}
-
-/*****************************************************************************
  * Returns the IL variable number given our internal varNum.
  * Special return values are VARG_ILNUM, RETBUF_ILNUM, TYPECTXT_ILNUM.
  *

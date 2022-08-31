@@ -124,7 +124,6 @@ const int BAD_STK_OFFS = 0xBAADF00D; // for LclVarDsc::lvStkOffs
 #endif
 
 // The following holds the Local var info (scope information)
-typedef const char* VarName; // Actual ASCII string
 struct VarScopeDsc
 {
     unsigned vsdVarNum; // (remapped) LclVarDsc number
@@ -136,9 +135,7 @@ struct VarScopeDsc
     IL_OFFSET vsdLifeBeg; // instr offset of beg of life
     IL_OFFSET vsdLifeEnd; // instr offset of end of life
 
-#ifdef DEBUG
-    VarName vsdName; // name of the var
-#endif
+    INDEBUG(const char* vsdName;) // name of the var
 };
 
 // This class stores information associated with a LclVar SSA definition.
@@ -3045,11 +3042,6 @@ public:
     int  morphNum     = 0;     // This counts the the trees that have been morphed, allowing us to label each uniquely.
 
     void makeExtraStructQueries(CORINFO_CLASS_HANDLE structHandle, int level); // Make queries recursively 'level' deep.
-
-    const char* VarNameToStr(VarName name)
-    {
-        return name;
-    }
 
     unsigned expensiveDebugCheckLevel;
     unsigned compInlinedCodeSize = 0;
@@ -7597,9 +7589,9 @@ public:
 
     unsigned compArgSize; // total size of arguments in bytes (including register args (lvIsRegArg))
 
-    unsigned compMapILargNum(unsigned ILargNum);      // map accounting for hidden args
-    unsigned compMapILvarNum(unsigned ILvarNum);      // map accounting for hidden args
-    unsigned compMap2ILvarNum(unsigned varNum) const; // map accounting for hidden args
+    unsigned compMapILargNum(unsigned ilArgNum);
+    unsigned compMapILvarNum(unsigned ilVarNum);
+    unsigned compMap2ILvarNum(unsigned varNum) const;
 
     //-------------------------------------------------------------------------
 
@@ -7662,67 +7654,42 @@ public:
 
     //-------------------------------------------------------------------------
 
+    VarScopeDsc** compEnterScopeList; // List has the offsets where variables enter scope, sorted by instr offset
+    VarScopeDsc** compExitScopeList;  // List has the offsets where variables go out of scope, sorted by instr offset
+    unsigned      compNextEnterScope;
+    unsigned      compNextExitScope;
+
+#ifdef USING_SCOPE_INFO
     struct VarScopeListNode
     {
-        VarScopeDsc*             data;
-        VarScopeListNode*        next;
-        static VarScopeListNode* Create(VarScopeDsc* value, CompAllocator alloc)
+        VarScopeDsc*      scope;
+        VarScopeListNode* next;
+
+        VarScopeListNode(VarScopeDsc* scope, VarScopeListNode* next) : scope(scope), next(next)
         {
-            VarScopeListNode* node = new (alloc) VarScopeListNode;
-            node->data             = value;
-            node->next             = nullptr;
-            return node;
         }
     };
 
-    struct VarScopeMapInfo
-    {
-        VarScopeListNode*       head;
-        VarScopeListNode*       tail;
-        static VarScopeMapInfo* Create(VarScopeListNode* node, CompAllocator alloc)
-        {
-            VarScopeMapInfo* info = new (alloc) VarScopeMapInfo;
-            info->head            = node;
-            info->tail            = node;
-            return info;
-        }
-    };
+    JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, VarScopeListNode*>* compVarScopeMap = nullptr;
+#endif
 
-    // Max value of scope count for which we would use linear search; for larger values we would use hashtable lookup.
-    static const unsigned MAX_LINEAR_FIND_LCL_SCOPELIST = 32;
+    bool compVarScopeExtended = false;
 
-    typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, VarScopeMapInfo*> VarNumToScopeDscMap;
+    void         compInitSortedScopeLists();
+    void         compResetScopeLists();
+    VarScopeDsc* compGetNextEnterScope(unsigned offs);
+    VarScopeDsc* compGetNextExitScope(unsigned offs);
+    VarScopeDsc* compGetNextEnterScopeScan(unsigned offs);
+    VarScopeDsc* compGetNextExitScopeScan(unsigned offs);
+    INDEBUG(void compDispScopeLists());
 
-    // Map to keep variables' scope indexed by varNum containing it's scope dscs at the index.
-    VarNumToScopeDscMap* compVarScopeMap = nullptr;
-
-    VarScopeDsc* compFindLocalVar(unsigned varNum, unsigned lifeBeg, unsigned lifeEnd);
-
+#ifdef USING_SCOPE_INFO
+    void         compInitVarScopeMap();
     VarScopeDsc* compFindLocalVar(unsigned varNum, unsigned offs);
-
     VarScopeDsc* compFindLocalVarLinear(unsigned varNum, unsigned offs);
-
-    void compInitVarScopeMap();
-
-    VarScopeDsc** compEnterScopeList; // List has the offsets where variables
-                                      // enter scope, sorted by instr offset
-    unsigned compNextEnterScope;
-
-    VarScopeDsc** compExitScopeList; // List has the offsets where variables
-                                     // go out of scope, sorted by instr offset
-    unsigned compNextExitScope;
-
-    void compInitScopeLists();
-
-    void compResetScopeLists();
-
-    VarScopeDsc* compGetNextEnterScope(unsigned offs, bool scan = false);
-
-    VarScopeDsc* compGetNextExitScope(unsigned offs, bool scan = false);
-
-#ifdef DEBUG
-    void compDispScopeLists();
-#endif // DEBUG
+    VarScopeDsc* compFindLocalVarMapped(unsigned varNum, unsigned offs);
+    INDEBUG(void compVerifyVarScopes());
+#endif
 
     bool compIsProfilerHookNeeded();
 

@@ -8977,7 +8977,7 @@ void CodeGen::genSetScopeInfo()
     // Initialize the table where the reported variables' home will be placed.
     compiler->eeSetLVcount(varsLocationsCount);
 
-#ifdef DEBUG
+#ifdef LATE_DISASM
     genTrnslLocalVarCount = varsLocationsCount;
     if (varsLocationsCount)
     {
@@ -9196,9 +9196,8 @@ void CodeGen::genSetScopeInfo(unsigned       which,
 
 #endif // TARGET_X86
 
-    VarName name = nullptr;
-
-#ifdef DEBUG
+#ifdef LATE_DISASM
+    const char* name = nullptr;
 
     for (unsigned scopeNum = 0; scopeNum < compiler->info.compVarScopesCount; scopeNum++)
     {
@@ -9207,8 +9206,6 @@ void CodeGen::genSetScopeInfo(unsigned       which,
             name = compiler->info.compVarScopes[scopeNum].vsdName;
         }
     }
-
-    // Hang on to this compiler->info.
 
     TrnslLocalVarInfo& tlvi = genTrnslLocalVarInfo[which];
 
@@ -9219,22 +9216,12 @@ void CodeGen::genSetScopeInfo(unsigned       which,
     tlvi.tlviLength    = length;
     tlvi.tlviAvailable = avail;
     tlvi.tlviVarLoc    = *varLoc;
-
-#endif // DEBUG
+#endif
 
     compiler->eeSetLVinfo(which, startOffs, length, ilVarNum, *varLoc);
 }
 
-/*****************************************************************************/
 #ifdef LATE_DISASM
-#if defined(DEBUG)
-/*****************************************************************************
- *                          CompilerRegName
- *
- * Can be called only after lviSetLocalVarInfo() has been called
- */
-
-/* virtual */
 const char* CodeGen::siRegVarName(size_t offs, size_t size, unsigned reg)
 {
     if (!compiler->opts.compScopeInfo)
@@ -9243,28 +9230,22 @@ const char* CodeGen::siRegVarName(size_t offs, size_t size, unsigned reg)
     if (compiler->info.compVarScopesCount == 0)
         return nullptr;
 
-    noway_assert(genTrnslLocalVarCount == 0 || genTrnslLocalVarInfo);
+    TrnslLocalVarInfo* info = genTrnslLocalVarInfo;
+
+    noway_assert((genTrnslLocalVarCount == 0) || (info != nullptr));
 
     for (unsigned i = 0; i < genTrnslLocalVarCount; i++)
     {
-        if ((genTrnslLocalVarInfo[i].tlviVarLoc.vlIsInReg((regNumber)reg)) &&
-            (genTrnslLocalVarInfo[i].tlviAvailable == true) && (genTrnslLocalVarInfo[i].tlviStartPC <= offs + size) &&
-            (genTrnslLocalVarInfo[i].tlviStartPC + genTrnslLocalVarInfo[i].tlviLength > offs))
+        if ((info[i].tlviVarLoc.vlIsInReg((regNumber)reg)) && (info[i].tlviAvailable == true) &&
+            (info[i].tlviStartPC <= offs + size) && (info[i].tlviStartPC + info[i].tlviLength > offs))
         {
-            return genTrnslLocalVarInfo[i].tlviName ? compiler->VarNameToStr(genTrnslLocalVarInfo[i].tlviName) : NULL;
+            return info[i].tlviName ? info[i].tlviName : nullptr;
         }
     }
 
-    return NULL;
+    return nullptr;
 }
 
-/*****************************************************************************
- *                          CompilerStkName
- *
- * Can be called only after lviSetLocalVarInfo() has been called
- */
-
-/* virtual */
 const char* CodeGen::siStackVarName(size_t offs, size_t size, unsigned reg, unsigned stkOffs)
 {
     if (!compiler->opts.compScopeInfo)
@@ -9273,23 +9254,21 @@ const char* CodeGen::siStackVarName(size_t offs, size_t size, unsigned reg, unsi
     if (compiler->info.compVarScopesCount == 0)
         return nullptr;
 
-    noway_assert(genTrnslLocalVarCount == 0 || genTrnslLocalVarInfo);
+    TrnslLocalVarInfo* info = genTrnslLocalVarInfo;
+
+    noway_assert((genTrnslLocalVarCount == 0) || (info != nullptr));
 
     for (unsigned i = 0; i < genTrnslLocalVarCount; i++)
     {
-        if ((genTrnslLocalVarInfo[i].tlviVarLoc.vlIsOnStack((regNumber)reg, stkOffs)) &&
-            (genTrnslLocalVarInfo[i].tlviAvailable == true) && (genTrnslLocalVarInfo[i].tlviStartPC <= offs + size) &&
-            (genTrnslLocalVarInfo[i].tlviStartPC + genTrnslLocalVarInfo[i].tlviLength > offs))
+        if ((info[i].tlviVarLoc.vlIsOnStack((regNumber)reg, stkOffs)) && (info[i].tlviAvailable == true) &&
+            (info[i].tlviStartPC <= offs + size) && (info[i].tlviStartPC + info[i].tlviLength > offs))
         {
-            return genTrnslLocalVarInfo[i].tlviName ? compiler->VarNameToStr(genTrnslLocalVarInfo[i].tlviName) : NULL;
+            return info[i].tlviName ? info[i].tlviName : nullptr;
         }
     }
 
-    return NULL;
+    return nullptr;
 }
-
-/*****************************************************************************/
-#endif // defined(DEBUG)
 #endif // LATE_DISASM
 
 #ifdef DEBUG

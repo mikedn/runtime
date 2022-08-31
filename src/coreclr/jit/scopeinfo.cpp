@@ -776,7 +776,7 @@ void CodeGen::siEndScope(unsigned varNum)
 
         // Note the following assert is saying that we expect
         // the VM supplied info to be invalid...
-        assert(!siVerifyLocalVarTab());
+        assert(!compiler->compVerifyVarScopes());
 
         compiler->opts.compScopeInfo = false;
     }
@@ -802,42 +802,6 @@ void CodeGen::siEndScope(siScope* scope)
     }
 }
 
-/*****************************************************************************
- *                      siVerifyLocalVarTab
- *
- * Checks the LocalVarTab for consistency. The VM may not have properly
- * verified the LocalVariableTable.
- */
-
-#ifdef DEBUG
-
-bool CodeGen::siVerifyLocalVarTab()
-{
-    // No entries with overlapping lives should have the same slot.
-
-    for (unsigned i = 0; i < compiler->info.compVarScopesCount; i++)
-    {
-        for (unsigned j = i + 1; j < compiler->info.compVarScopesCount; j++)
-        {
-            unsigned slot1 = compiler->info.compVarScopes[i].vsdVarNum;
-            unsigned beg1  = compiler->info.compVarScopes[i].vsdLifeBeg;
-            unsigned end1  = compiler->info.compVarScopes[i].vsdLifeEnd;
-
-            unsigned slot2 = compiler->info.compVarScopes[j].vsdVarNum;
-            unsigned beg2  = compiler->info.compVarScopes[j].vsdLifeBeg;
-            unsigned end2  = compiler->info.compVarScopes[j].vsdLifeEnd;
-
-            if (slot1 == slot2 && (end1 > beg2 && beg1 < end2))
-            {
-                return false;
-            }
-        }
-    }
-
-    return true;
-}
-
-#endif // DEBUG
 #endif // USING_SCOPE_INFO
 
 /*============================================================================
@@ -1067,14 +1031,14 @@ void CodeGen::siOpenScopesForNonTrackedVars(const BasicBlock* block, unsigned in
             JITDUMP("Scope info: found offset hole. lastOffs=%u, currOffs=%u\n", lastBlockILEndOffset, beginOffs);
 
             // Skip enter scopes
-            while ((varScope = compiler->compGetNextEnterScope(beginOffs - 1, true)) != nullptr)
+            while ((varScope = compiler->compGetNextEnterScopeScan(beginOffs - 1)) != nullptr)
             {
                 /* do nothing */
                 JITDUMP("Scope info: skipping enter scope, LVnum=%u\n", varScope->vsdLVnum);
             }
 
             // Skip exit scopes
-            while ((varScope = compiler->compGetNextExitScope(beginOffs - 1, true)) != nullptr)
+            while ((varScope = compiler->compGetNextExitScopeScan(beginOffs - 1)) != nullptr)
             {
                 /* do nothing */
                 JITDUMP("Scope info: skipping exit scope, LVnum=%u\n", varScope->vsdLVnum);
@@ -1364,8 +1328,7 @@ void CodeGen::siDispOpenScopes()
             {
                 if (localVars->vsdLVnum == scope->scLVnum)
                 {
-                    const char* name = compiler->VarNameToStr(localVars->vsdName);
-                    // brace-matching editor workaround for following line: (
+                    const char* name = localVars->vsdName;
                     printf("   %u (%s) [%03X..%03X)\n", localVars->vsdLVnum, name == nullptr ? "UNKNOWN" : name,
                            localVars->vsdLifeBeg, localVars->vsdLifeEnd);
                     break;

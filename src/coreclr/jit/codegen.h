@@ -652,10 +652,6 @@ protected:
 
     void siEndScope(siScope* scope);
 
-#ifdef DEBUG
-    bool siVerifyLocalVarTab();
-#endif
-
 #ifdef LATE_DISASM
 public:
     /* virtual */
@@ -763,13 +759,12 @@ protected:
      */
 
 protected:
-#ifdef DEBUG
-
+#ifdef LATE_DISASM
     struct TrnslLocalVarInfo
     {
         unsigned       tlviVarNum;
         unsigned       tlviLVnum;
-        VarName        tlviName;
+        const char*    tlviName;
         UNATIVE_OFFSET tlviStartPC;
         size_t         tlviLength;
         bool           tlviAvailable;
