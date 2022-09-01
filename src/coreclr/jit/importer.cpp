@@ -1816,7 +1816,7 @@ BasicBlock* Importer::impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_H
     // Spill GT_CATCH_ARG to a temp if there are jumps to the beginning of the handler
     if ((hndBlk->bbRefs <= 1) && !forceInsertNewBlock)
     {
-        hndBlk->bbEntryState = new (comp, CMK_ImpStack) ImportSpillCliqueState(clsHnd);
+        hndBlk->bbEntryState = new (comp, CMK_Importer) ImportSpillCliqueState(clsHnd);
     }
     else
     {
@@ -1830,7 +1830,7 @@ BasicBlock* Importer::impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_H
         newBlk->bbFlags |= BBF_IMPORTED | BBF_DONT_REMOVE;
         newBlk->inheritWeight(hndBlk);
         newBlk->bbCodeOffs   = hndBlk->bbCodeOffs;
-        newBlk->bbEntryState = new (comp, CMK_ImpStack) ImportSpillCliqueState(clsHnd);
+        newBlk->bbEntryState = new (comp, CMK_Importer) ImportSpillCliqueState(clsHnd);
 
         /* Account for the new link we are about to create */
         hndBlk->bbRefs++;
@@ -1859,7 +1859,7 @@ BasicBlock* Importer::impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_H
             fgAddCheapPred(hndBlk, newBlk);
         }
 
-        impSetSpillCliqueState(newBlk, new (comp, CMK_ImpStack) ImportSpillCliqueState(tempNum, 1));
+        impSetSpillCliqueState(newBlk, new (comp, CMK_Importer) ImportSpillCliqueState(tempNum, 1));
     }
 
     return hndBlk;
@@ -12812,7 +12812,7 @@ void Importer::ImportLdFtn(const BYTE* codeAddr, CORINFO_RESOLVED_TOKEN& constra
         return;
     }
 
-    CORINFO_RESOLVED_TOKEN* token = new (comp, CMK_Unknown) CORINFO_RESOLVED_TOKEN(resolvedToken);
+    CORINFO_RESOLVED_TOKEN* token = new (comp, CMK_Importer) CORINFO_RESOLVED_TOKEN(resolvedToken);
     // Call info may have more precise information about the function than the resolved token.
     assert(callInfo.hMethod != nullptr);
     token->hMethod = callInfo.hMethod;
@@ -12871,7 +12871,7 @@ void Importer::ImportLdVirtFtn(const BYTE* codeAddr)
         return;
     }
 
-    CORINFO_RESOLVED_TOKEN* token = new (comp, CMK_Unknown) CORINFO_RESOLVED_TOKEN(resolvedToken);
+    CORINFO_RESOLVED_TOKEN* token = new (comp, CMK_Importer) CORINFO_RESOLVED_TOKEN(resolvedToken);
     // Call info may have more precise information about the function than the resolved token.
     assert(callInfo.hMethod != nullptr);
     token->hMethod = callInfo.hMethod;
@@ -13817,7 +13817,7 @@ bool Importer::impSpillStackAtBlockEnd(BasicBlock* block)
     {
         unsigned spillTempBaseLclNum = lvaGrabTemps(verCurrentState.esStackDepth DEBUGARG("spill clique temp"));
 
-        state = new (comp, CMK_ImpStack) ImportSpillCliqueState(spillTempBaseLclNum, verCurrentState.esStackDepth);
+        state = new (comp, CMK_Importer) ImportSpillCliqueState(spillTempBaseLclNum, verCurrentState.esStackDepth);
 
         impSetSpillCliqueState(block, state);
 
@@ -14037,7 +14037,7 @@ void* Importer::BlockListNode::operator new(size_t sz, Importer* importer)
 {
     if (importer->impBlockListNodeFreeList == nullptr)
     {
-        return importer->comp->getAllocator(CMK_BasicBlock).allocate<BlockListNode>(1);
+        return importer->comp->getAllocator(CMK_Importer).allocate<BlockListNode>(1);
     }
     else
     {
@@ -17357,7 +17357,7 @@ void Importer::impSetPendingBlockMember(BasicBlock* blk, bool val)
 Importer::Stack::Stack(Compiler* compiler)
     : maxStack(compiler->info.compMaxStack)
     , esStackDepth(0)
-    , esStack(new (compiler, CMK_ImpStack) StackEntry[max(maxStack, Stack::MinSize)])
+    , esStack(new (compiler, CMK_Importer) StackEntry[max(maxStack, Stack::MinSize)])
 {
 }
 
@@ -17372,8 +17372,8 @@ Importer::Importer(Compiler* comp)
     , opts(comp->opts)
     , info(comp->info)
     , compCurBB(comp->compCurBB)
-    , impPendingBlockMembers(comp->getAllocator(), comp->fgBBNumMax * 2)
-    , impSpillCliqueMembers(comp->getAllocator(), comp->fgBBNumMax * 2)
+    , impPendingBlockMembers(comp->getAllocator(CMK_Importer), comp->fgBBNumMax * 2)
+    , impSpillCliqueMembers(comp->getAllocator(CMK_Importer), comp->fgBBNumMax * 2)
     , verCurrentState(comp)
 {
     impPendingBlockMembers.Reset();
