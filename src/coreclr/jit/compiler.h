@@ -7681,7 +7681,6 @@ public:
     VarScopeDsc* compGetNextExitScope(unsigned offs);
     VarScopeDsc* compGetNextEnterScopeScan(unsigned offs);
     VarScopeDsc* compGetNextExitScopeScan(unsigned offs);
-    INDEBUG(void compDispScopeLists());
 
 #ifdef USING_SCOPE_INFO
     void         compInitVarScopeMap();

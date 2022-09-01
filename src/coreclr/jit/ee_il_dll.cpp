@@ -1046,52 +1046,6 @@ bool Compiler::compVerifyVarScopes()
 
 #ifdef DEBUG
 
-void Compiler::compDispScopeLists()
-{
-    unsigned i;
-
-    printf("Local variable scopes = %d\n", info.compVarScopesCount);
-
-    if (info.compVarScopesCount)
-    {
-        printf("    \tVarNum \tLVNum \t      Name \tBeg \tEnd\n");
-    }
-
-    printf("Sorted by enter scope:\n");
-    for (i = 0; i < info.compVarScopesCount; i++)
-    {
-        VarScopeDsc* varScope = compEnterScopeList[i];
-        assert(varScope);
-        printf("%2d: \t%02Xh \t%02Xh \t%10s \t%03Xh   \t%03Xh", i, varScope->vsdVarNum, varScope->vsdLVnum,
-               varScope->vsdName == nullptr ? "UNKNOWN" : varScope->vsdName, varScope->vsdLifeBeg,
-               varScope->vsdLifeEnd);
-
-        if (compNextEnterScope == i)
-        {
-            printf(" <-- next enter scope");
-        }
-
-        printf("\n");
-    }
-
-    printf("Sorted by exit scope:\n");
-    for (i = 0; i < info.compVarScopesCount; i++)
-    {
-        VarScopeDsc* varScope = compExitScopeList[i];
-        assert(varScope);
-        printf("%2d: \t%02Xh \t%02Xh \t%10s \t%03Xh   \t%03Xh", i, varScope->vsdVarNum, varScope->vsdLVnum,
-               varScope->vsdName == nullptr ? "UNKNOWN" : varScope->vsdName, varScope->vsdLifeBeg,
-               varScope->vsdLifeEnd);
-
-        if (compNextExitScope == i)
-        {
-            printf(" <-- next exit scope");
-        }
-
-        printf("\n");
-    }
-}
-
 void Compiler::compDispLocalVars()
 {
     printf("info.compVarScopesCount = %d\n", info.compVarScopesCount);
