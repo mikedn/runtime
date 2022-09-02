@@ -17366,10 +17366,24 @@ bool Importer::impIsPrimitive(CorInfoType jitType)
     return ((CORINFO_TYPE_BOOL <= jitType && jitType <= CORINFO_TYPE_DOUBLE) || jitType == CORINFO_TYPE_PTR);
 }
 
+Importer::StackEntry* Compiler::impAllocStack(unsigned size)
+{
+    if (impInlineInfo != nullptr)
+    {
+        return impInlineInfo->InlinerCompiler->impAllocStack(size);
+    }
+
+    if (size > impSharedStackSize)
+    {
+        impSharedStackSize = max(size, Importer::Stack::MinSize);
+        impSharedStack     = new (this, CMK_Importer) Importer::StackEntry[impSharedStackSize];
+    }
+
+    return impSharedStack;
+}
+
 Importer::Stack::Stack(Compiler* compiler)
-    : maxStack(compiler->info.compMaxStack)
-    , esStackDepth(0)
-    , esStack(new (compiler, CMK_Importer) StackEntry[max(maxStack, Stack::MinSize)])
+    : maxStack(compiler->info.compMaxStack), esStackDepth(0), esStack(compiler->impAllocStack(maxStack))
 {
 }
 

@@ -4186,9 +4186,11 @@ public:
     unsigned lvaPSPSym = BAD_VAR_NUM; // variable representing the PSPSym
 #endif
 
-    InlineInfo*          impInlineInfo;
-    InlineStrategy*      m_inlineStrategy = nullptr;
-    CORINFO_CLASS_HANDLE impPromotableStructTypeCache[2]{};
+    unsigned              impSharedStackSize = 0;
+    Importer::StackEntry* impSharedStack     = nullptr;
+    InlineInfo*           impInlineInfo;
+    InlineStrategy*       m_inlineStrategy = nullptr;
+    CORINFO_CLASS_HANDLE  impPromotableStructTypeCache[2]{};
 
     // The Compiler* that is the root of the inlining tree of which "this" is a member.
     Compiler* impInlineRoot();
@@ -4241,6 +4243,8 @@ public:
     CORINFO_CLASS_HANDLE impGetRefAnyClass();
     CORINFO_CLASS_HANDLE impGetStringClass();
     CORINFO_CLASS_HANDLE impGetObjectClass();
+
+    Importer::StackEntry* impAllocStack(unsigned size);
 
     bool impIsThis(GenTree* obj);
 
