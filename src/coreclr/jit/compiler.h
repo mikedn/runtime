@@ -2067,11 +2067,8 @@ struct Importer
     Statement* impStmtList = nullptr; // Statements for the BB being imported.
     Statement* impLastStmt = nullptr; // The last statement for the current BB.
 
-    // When we compute a "spill clique" (see above) these byte-maps are allocated to have a byte per basic
-    // block, and represent the predecessor and successor members of the clique currently being computed.
-    JitExpandArray<uint8_t> impSpillCliqueMembers;
-    bool                    impBoxTempInUse = false;
-    unsigned                impBoxTemp      = BAD_VAR_NUM;
+    bool     impBoxTempInUse = false;
+    unsigned impBoxTemp      = BAD_VAR_NUM;
 
 #ifdef DEBUG
     unsigned    impCurOpcOffs;
@@ -2400,8 +2397,9 @@ struct Importer
     // predecessor or successor within the spill clique
     void impWalkSpillCliqueFromPred(BasicBlock* pred, SpillCliqueWalker* callback);
 
-    bool impIsSpillCliqueMember(SpillCliqueDir predOrSucc, BasicBlock* block);
-    bool impAddSpillCliqueMember(SpillCliqueDir predOrSucc, BasicBlock* block);
+    INDEBUG(bool impIsSpillCliquePredMember(BasicBlock* block);)
+    bool impAddSpillCliqueSuccMember(BasicBlock* block);
+    bool impAddSpillCliquePredMember(BasicBlock* block);
 
     void impPushLclVar(unsigned lclNum);
     void impLoadArg(unsigned ilArgNum);

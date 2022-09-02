@@ -14072,9 +14072,6 @@ void Importer::FreeBlockListNode(Importer::BlockListNode* node)
 
 void Importer::impWalkSpillCliqueFromPred(BasicBlock* block, SpillCliqueWalker* callback)
 {
-    bool toDo = true;
-
-    noway_assert(!comp->fgComputePredsDone);
     if (!comp->fgCheapPredsValid)
     {
         fgComputeCheapPreds();
@@ -14082,9 +14079,11 @@ void Importer::impWalkSpillCliqueFromPred(BasicBlock* block, SpillCliqueWalker* 
 
     BlockListNode* succCliqueToDo = nullptr;
     BlockListNode* predCliqueToDo = new (this) BlockListNode(block);
-    while (toDo)
+
+    for (bool toDo = true; toDo;)
     {
         toDo = false;
+
         // Look at the successors of every member of the predecessor to-do list.
         while (predCliqueToDo != nullptr)
         {
@@ -14095,9 +14094,7 @@ void Importer::impWalkSpillCliqueFromPred(BasicBlock* block, SpillCliqueWalker* 
 
             for (BasicBlock* const succ : blk->Succs())
             {
-                // If it's not already in the clique, add it, and also add it
-                // as a member of the successor "toDo" set.
-                if (impAddSpillCliqueMember(SpillCliqueSucc, succ))
+                if (impAddSpillCliqueSuccMember(succ))
                 {
                     callback->Visit(SpillCliqueSucc, succ);
                     succCliqueToDo = new (this) BlockListNode(succ, succCliqueToDo);
@@ -14105,6 +14102,7 @@ void Importer::impWalkSpillCliqueFromPred(BasicBlock* block, SpillCliqueWalker* 
                 }
             }
         }
+
         // Look at the predecessors of every member of the successor to-do list.
         while (succCliqueToDo != nullptr)
         {
@@ -14116,9 +14114,8 @@ void Importer::impWalkSpillCliqueFromPred(BasicBlock* block, SpillCliqueWalker* 
             for (BasicBlockList* pred = blk->bbCheapPreds; pred != nullptr; pred = pred->next)
             {
                 BasicBlock* predBlock = pred->block;
-                // If it's not already in the clique, add it, and also add it
-                // as a member of the predecessor "toDo" set.
-                if (impAddSpillCliqueMember(SpillCliquePred, predBlock))
+
+                if (impAddSpillCliquePredMember(predBlock))
                 {
                     callback->Visit(SpillCliquePred, predBlock);
                     predCliqueToDo = new (this) BlockListNode(predBlock, predCliqueToDo);
@@ -14131,7 +14128,7 @@ void Importer::impWalkSpillCliqueFromPred(BasicBlock* block, SpillCliqueWalker* 
     // If this fails, it means we didn't walk the spill clique properly and somehow managed
     // miss walking back to include the predecessor we started from.
     // This most likely cause: missing or out of date bbPreds
-    assert(impIsSpillCliqueMember(SpillCliquePred, block));
+    assert(impIsSpillCliquePredMember(block));
 }
 
 void Importer::impSetSpillCliqueState(BasicBlock* block, ImportSpillCliqueState* state)
@@ -14213,7 +14210,12 @@ void Importer::impReimportSpillClique(BasicBlock* block)
     // block has an outgoing live stack slot of type native int.
     // We need to reset these before traversal because they have already been set
     // by the previous walk to determine all the members of the spill clique.
-    impSpillCliqueMembers.Reset();
+
+    for (BasicBlock* block : comp->Blocks())
+    {
+        block->spillCliquePredMember = false;
+        block->spillCliqueSuccMember = false;
+    }
 
     impWalkSpillCliqueFromPred(block, &callback);
 }
@@ -14257,25 +14259,32 @@ Compiler* Compiler::impInlineRoot()
     return (impInlineInfo == nullptr) ? this : impInlineInfo->InlinerCompiler;
 }
 
-bool Importer::impIsSpillCliqueMember(SpillCliqueDir dir, BasicBlock* block)
+#ifdef DEBUG
+bool Importer::impIsSpillCliquePredMember(BasicBlock* block)
 {
-    uint8_t state = impSpillCliqueMembers.Get(block->bbInd());
-    uint8_t bit   = 1 << dir;
-
-    return (state & bit) != 0;
+    return block->spillCliquePredMember;
 }
+#endif
 
-bool Importer::impAddSpillCliqueMember(SpillCliqueDir dir, BasicBlock* block)
+bool Importer::impAddSpillCliqueSuccMember(BasicBlock* block)
 {
-    uint8_t& state = impSpillCliqueMembers.GetRef(block->bbInd());
-    uint8_t  bit   = 1 << dir;
-
-    if ((state & bit) != 0)
+    if (block->spillCliqueSuccMember)
     {
         return false;
     }
 
-    state |= bit;
+    block->spillCliqueSuccMember = true;
+    return true;
+}
+
+bool Importer::impAddSpillCliquePredMember(BasicBlock* block)
+{
+    if (block->spillCliquePredMember)
+    {
+        return false;
+    }
+
+    block->spillCliquePredMember = true;
     return true;
 }
 
@@ -17375,10 +17384,8 @@ Importer::Importer(Compiler* comp)
     , opts(comp->opts)
     , info(comp->info)
     , compCurBB(comp->compCurBB)
-    , impSpillCliqueMembers(comp->getAllocator(CMK_Importer), comp->fgBBNumMax * 2)
     , verCurrentState(comp)
 {
-    impSpillCliqueMembers.Reset();
 }
 
 CompAllocator Importer::getAllocator(CompMemKind kind)

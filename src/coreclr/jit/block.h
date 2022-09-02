@@ -1016,6 +1016,9 @@ struct BasicBlock : private LIR::Range
     loopNumber bbNatLoopNum; // Index, in optLoopTable, of most-nested loop that contains this block,
                              // or else NOT_IN_LOOP if this block is not in a loop.
 
+    bool spillCliquePredMember : 1;
+    bool spillCliqueSuccMember : 1;
+
     // Use, def, live in/out information for the implicit memory variable.
     bool bbMemoryUse : 1;
     bool bbMemoryDef : 1;
