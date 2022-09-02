@@ -3620,6 +3620,7 @@ public:
 
     bool gtCompareTree(GenTree* op1, GenTree* op2);
 
+    static void gtReverseRelop(GenTreeOp* relop);
     GenTree* gtReverseCond(GenTree* tree);
 
     unsigned gtSetCallArgsOrder(const GenTreeCall::UseList& args, bool lateArgs, int* callCostEx, int* callCostSz);

@@ -10761,9 +10761,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 {
                     if (opcode == CEE_BRFALSE || opcode == CEE_BRFALSE_S)
                     {
-                        // Flip the sense of the compare
-
-                        op1 = gtReverseCond(op1);
+                        Compiler::gtReverseRelop(op1->AsOp());
                     }
                 }
                 else
@@ -18495,11 +18493,6 @@ GenTree* Importer::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
 CORINFO_CLASS_HANDLE Importer::gtGetHelperArgClassHandle(GenTree* array)
 {
     return comp->gtGetHelperArgClassHandle(array);
-}
-
-GenTree* Importer::gtReverseCond(GenTree* tree)
-{
-    return comp->gtReverseCond(tree);
 }
 
 bool Importer::fgAddrCouldBeNull(GenTree* addr)

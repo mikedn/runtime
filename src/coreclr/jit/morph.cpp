@@ -10922,20 +10922,20 @@ DONE_MORPHING_CHILDREN:
                     //
                     //
                     //
-                    GenTree* comma = op1;
-                    GenTree* relop = comma->AsOp()->gtOp2;
+                    GenTree*   comma = op1;
+                    GenTreeOp* relop = comma->AsOp()->GetOp(1)->AsOp();
 
-                    GenTree* relop_op1 = relop->AsOp()->gtOp1;
+                    GenTree* relop_op1 = relop->GetOp(0);
 
                     bool reverse = ((ival2 == 0) == (oper == GT_EQ));
 
                     if (reverse)
                     {
-                        gtReverseCond(relop);
+                        gtReverseRelop(relop);
                     }
 
-                    relop->AsOp()->gtOp1 = comma;
-                    comma->AsOp()->gtOp2 = relop_op1;
+                    relop->SetOp(0, comma);
+                    comma->AsOp()->SetOp(1, relop_op1);
 
                     // Comma now has fewer nodes underneath it, so we need to regenerate its flags
                     comma->gtFlags &= ~GTF_ALL_EFFECT;
@@ -11036,7 +11036,7 @@ DONE_MORPHING_CHILDREN:
 
                     if (reverse)
                     {
-                        gtReverseCond(op1);
+                        gtReverseRelop(op1->AsOp());
                     }
 
                     noway_assert((op1->gtFlags & GTF_RELOP_JMP_USED) == 0);
@@ -11100,7 +11100,7 @@ DONE_MORPHING_CHILDREN:
                         // Reverse the cond if necessary
                         if (ival2 == 1)
                         {
-                            gtReverseCond(tree);
+                            gtReverseRelop(tree->AsOp());
                             cns2->AsIntCon()->gtIconVal = 0;
                             oper                        = tree->gtOper;
                         }
@@ -11119,7 +11119,7 @@ DONE_MORPHING_CHILDREN:
                         // Reverse the cond if necessary
                         if (ival2 == 1)
                         {
-                            gtReverseCond(tree);
+                            gtReverseRelop(tree->AsOp());
                             cns2->AsIntConCommon()->SetLngValue(0);
                             oper = tree->gtOper;
                         }
@@ -12613,7 +12613,7 @@ GenTree* Compiler::fgMorphSmpOpOptional(GenTreeOp* tree)
             else if (op2->IsIntegralConst(1) && op1->OperIsCompare())
             {
                 /* "binaryVal ^ 1" is "!binaryVal" */
-                gtReverseCond(op1);
+                gtReverseRelop(op1->AsOp());
                 DEBUG_DESTROY_NODE(op2);
                 DEBUG_DESTROY_NODE(tree);
                 return op1;

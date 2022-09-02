@@ -7553,7 +7553,7 @@ GenTree* OptBoolsDsc::optIsBoolComp(OptTestInfo* pOptTest)
         // and change the true to false.
         if (pOptTest->isBool)
         {
-            m_comp->gtReverseCond(cond);
+            m_comp->gtReverseRelop(cond->AsOp());
             opr2->AsIntCon()->gtIconVal = 0;
         }
         else

@@ -3555,7 +3555,7 @@ bool Compiler::fgOptimizeBranch(BasicBlock* bJump)
     condTree = condTree->AsOp()->gtOp1;
 
     // This condTree has to be a RelOp comparison.
-    if (condTree->OperIsCompare() == false)
+    if (!condTree->OperIsCompare())
     {
         return false;
     }
@@ -3576,10 +3576,7 @@ bool Compiler::fgOptimizeBranch(BasicBlock* bJump)
         newStmtList->SetPrevStmt(newLastStmt);
     }
 
-    //
-    // Reverse the sense of the compare
-    //
-    gtReverseCond(condTree);
+    gtReverseRelop(condTree->AsOp());
 
     // We need to update the following flags of the bJump block if they were set in the bDest block
     bJump->bbFlags |= (bDest->bbFlags & BBF_IR_SUMMARY);

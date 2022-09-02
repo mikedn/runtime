@@ -1743,25 +1743,29 @@ genTreeOps GenTree::SwapRelop(genTreeOps relop)
     return swapOps[relop - GT_EQ];
 }
 
-/*****************************************************************************
- *
- *  Reverse the meaning of the given test condition.
- */
+void Compiler::gtReverseRelop(GenTreeOp* relop)
+{
+    assert(relop->OperIsCompare());
+
+    relop->gtOper = GenTree::ReverseRelop(relop->GetOper());
+    // TODO-MIKE-Review: We could probably generate a proper VN.
+    relop->gtVNPair.SetBoth(ValueNumStore::NoVN);
+
+    // Flip the GTF_RELOP_NAN_UN bit
+    //     a ord b   === (a != NaN && b != NaN)
+    //     a unord b === (a == NaN || b == NaN)
+    // => !(a ord b) === (a unord b)
+    if (varTypeIsFloating(relop->GetOp(0)->GetType()))
+    {
+        relop->gtFlags ^= GTF_RELOP_NAN_UN;
+    }
+}
 
 GenTree* Compiler::gtReverseCond(GenTree* tree)
 {
     if (tree->OperIsCompare())
     {
-        tree->SetOper(GenTree::ReverseRelop(tree->OperGet()));
-
-        // Flip the GTF_RELOP_NAN_UN bit
-        //     a ord b   === (a != NaN && b != NaN)
-        //     a unord b === (a == NaN || b == NaN)
-        // => !(a ord b) === (a unord b)
-        if (varTypeIsFloating(tree->AsOp()->gtOp1->TypeGet()))
-        {
-            tree->gtFlags ^= GTF_RELOP_NAN_UN;
-        }
+        gtReverseRelop(tree->AsOp());
     }
     else if (tree->OperIs(GT_JCC, GT_SETCC))
     {
