@@ -89,14 +89,7 @@ class Compiler;
 
 #include "unwind.h"
 
-/*****************************************************************************/
-
-//
 // Declare global operator new overloads that use the compiler's arena allocator
-//
-
-// I wanted to make the second argument optional, with default = CMK_Unknown, but that
-// caused these to be ambiguous with the global placement new operators.
 void* __cdecl operator new(size_t n, Compiler* context, CompMemKind cmk);
 void* __cdecl operator new[](size_t n, Compiler* context, CompMemKind cmk);
 
@@ -1320,7 +1313,7 @@ public:
 
     static JitTimer* Create(Compiler* comp, unsigned byteCodeSize)
     {
-        return ::new (comp, CMK_Unknown) JitTimer(byteCodeSize);
+        return ::new (comp, CMK_DebugOnly) JitTimer(byteCodeSize);
     }
 
     static void PrintCsvHeader();
@@ -4399,7 +4392,7 @@ public:
     // Allocate array like T* a = new T[fgBBNumMax + 1];
     // Using helper so we don't keep forgetting +1.
     template <typename T>
-    T* fgAllocateTypeForEachBlk(CompMemKind cmk = CMK_Unknown)
+    T* fgAllocateTypeForEachBlk(CompMemKind cmk)
     {
         return getAllocator(cmk).allocate<T>(fgBBNumMax + 1);
     }

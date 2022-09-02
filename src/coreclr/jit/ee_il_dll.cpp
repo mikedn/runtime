@@ -726,7 +726,7 @@ void Compiler::eeGetVars(ICorDebugInfo::ILVarInfo* varInfoTable, uint32_t varInf
 
     if (extendOthers)
     {
-        bool* varInfoProvided = getAllocator(CMK_Unknown).allocate<bool>(info.compLocalsCount);
+        bool* varInfoProvided = getAllocator(CMK_DebugInfo).allocate<bool>(info.compLocalsCount);
 
         for (unsigned i = 0; i < info.compLocalsCount; i++)
         {

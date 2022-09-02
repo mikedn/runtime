@@ -5673,7 +5673,7 @@ GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall* tree,
 
     if (tree->fgArgInfo != nullptr)
     {
-        copy->fgArgInfo = new (this, CMK_Unknown) fgArgInfo(this, copy, tree);
+        copy->fgArgInfo = new (this, CMK_CallInfo) fgArgInfo(this, copy, tree);
     }
 
 #ifdef FEATURE_READYTORUN_COMPILER
