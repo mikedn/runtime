@@ -14017,6 +14017,23 @@ void Importer::impPushPendingBlock(BasicBlock* block)
     impSetPendingBlockMember(block, true);
 }
 
+bool Importer::impIsPendingBlockMember(BasicBlock* block)
+{
+    return (block->bbFlags & BBF_MARKED) != 0;
+}
+
+void Importer::impSetPendingBlockMember(BasicBlock* block, bool pending)
+{
+    if (pending)
+    {
+        block->bbFlags |= BBF_MARKED;
+    }
+    else
+    {
+        block->bbFlags &= ~BBF_MARKED;
+    }
+}
+
 BasicBlock* Importer::impPopPendingBlock()
 {
     BlockListNode* node = impPendingBlockStack;
@@ -17340,20 +17357,6 @@ bool Importer::impIsPrimitive(CorInfoType jitType)
     return ((CORINFO_TYPE_BOOL <= jitType && jitType <= CORINFO_TYPE_DOUBLE) || jitType == CORINFO_TYPE_PTR);
 }
 
-// Return the byte for "b" (allocating/extending impPendingBlockMembers if necessary.)
-// Operates on the map in the top-level ancestor.
-bool Importer::impIsPendingBlockMember(BasicBlock* blk)
-{
-    return impPendingBlockMembers.Get(blk->bbInd());
-}
-
-// Set the byte for "b" to "val" (allocating/extending impPendingBlockMembers if necessary.)
-// Operates on the map in the top-level ancestor.
-void Importer::impSetPendingBlockMember(BasicBlock* blk, bool val)
-{
-    impPendingBlockMembers.Set(blk->bbInd(), val);
-}
-
 Importer::Stack::Stack(Compiler* compiler)
     : maxStack(compiler->info.compMaxStack)
     , esStackDepth(0)
@@ -17372,11 +17375,9 @@ Importer::Importer(Compiler* comp)
     , opts(comp->opts)
     , info(comp->info)
     , compCurBB(comp->compCurBB)
-    , impPendingBlockMembers(comp->getAllocator(CMK_Importer), comp->fgBBNumMax * 2)
     , impSpillCliqueMembers(comp->getAllocator(CMK_Importer), comp->fgBBNumMax * 2)
     , verCurrentState(comp)
 {
-    impPendingBlockMembers.Reset();
     impSpillCliqueMembers.Reset();
 }
 

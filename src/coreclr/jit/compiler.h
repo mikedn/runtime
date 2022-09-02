@@ -2067,8 +2067,6 @@ struct Importer
     Statement* impStmtList = nullptr; // Statements for the BB being imported.
     Statement* impLastStmt = nullptr; // The last statement for the current BB.
 
-    // We keep a byte-per-block map (dynamically extended) in the top-level Compiler object of a compilation.
-    JitExpandArray<bool> impPendingBlockMembers;
     // When we compute a "spill clique" (see above) these byte-maps are allocated to have a byte per basic
     // block, and represent the predecessor and successor members of the clique currently being computed.
     JitExpandArray<uint8_t> impSpillCliqueMembers;
@@ -2328,13 +2326,6 @@ struct Importer
     static const unsigned MAX_TREE_SIZE = 200;
     bool impCanSpillNow(OPCODE prevOpcode);
 
-    // Return the byte for "b" (allocating/extending impPendingBlockMembers if necessary.)
-    // Operates on the map in the top-level ancestor.
-    bool impIsPendingBlockMember(BasicBlock* blk);
-    // Set the byte for "b" to "val" (allocating/extending impPendingBlockMembers if necessary.)
-    // Operates on the map in the top-level ancestor.
-    void impSetPendingBlockMember(BasicBlock* blk, bool val);
-
     void impSpillStackEntry(unsigned level DEBUGARG(const char* reason));
 
     void impSpillStackEnsure(bool spillLeaves = false);
@@ -2352,6 +2343,8 @@ struct Importer
 
     void impImportBlockPending(BasicBlock* block);
     void impPushPendingBlock(BasicBlock* block);
+    bool impIsPendingBlockMember(BasicBlock* block);
+    void impSetPendingBlockMember(BasicBlock* block, bool pending);
     BasicBlock* impPopPendingBlock();
 
     var_types impGetNumericBinaryOpType(genTreeOps oper, bool fUnsigned, GenTree** pOp1, GenTree** pOp2);
