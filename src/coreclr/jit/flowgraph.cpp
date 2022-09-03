@@ -2636,9 +2636,9 @@ void Compiler::fgSimpleLowering()
 #endif // FEATURE_FIXED_OUT_ARGS
 
 #ifdef DEBUG
-    if (verbose && fgRngChkThrowAdded)
+    if (verbose)
     {
-        printf("\nAfter fgSimpleLowering() added some RngChk throw blocks");
+        printf("\nAfter fgSimpleLowering()");
         fgDispBasicBlocks();
         fgDispHandlerTab();
         printf("\n");
@@ -3282,11 +3282,6 @@ BasicBlock* Compiler::fgAddCodeRef(BasicBlock* srcBlk, unsigned refData, Special
 
     newBlk->bbFlags |= BBF_IMPORTED;
     newBlk->bbFlags |= BBF_DONT_REMOVE;
-
-    /* Remember that we're adding a new basic block */
-
-    fgAddCodeModf      = true;
-    fgRngChkThrowAdded = true;
 
     /* Now figure out what code to insert */
 

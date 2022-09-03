@@ -5705,8 +5705,6 @@ private:
     static CorInfoHelpFunc acdHelper(SpecialCodeKind codeKind);
 
     AddCodeDsc* fgAddCodeList                  = nullptr;
-    bool        fgAddCodeModf                  = false;
-    bool        fgRngChkThrowAdded             = false;
     AddCodeDsc* fgExcptnTargetCache[SCK_COUNT] = {};
 
     BasicBlock* fgGetRngChkTarget(BasicBlock* block, SpecialCodeKind kind);
@@ -5756,8 +5754,6 @@ public:
     INDEBUG(void inlDebugCheckInlineCandidates();)
 
 private:
-    bool fgIsCodeAdded();
-
     bool fgIsThrowHlpBlk(BasicBlock* block);
 
 #if !FEATURE_FIXED_OUT_ARGS

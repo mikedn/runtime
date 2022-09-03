@@ -2022,7 +2022,7 @@ inline bool Compiler::compCanEncodePtrArgCntMax()
 
 inline bool Compiler::fgIsThrowHlpBlk(BasicBlock* block)
 {
-    if (!fgIsCodeAdded())
+    if (fgAddCodeList == nullptr)
     {
         return false;
     }
@@ -2169,16 +2169,6 @@ inline void Compiler::fgConvertBBToThrowBB(BasicBlock* block)
         }
 #endif // defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
     }
-}
-
-/*****************************************************************************
- *
- *  Return true if we've added any new basic blocks.
- */
-
-inline bool Compiler::fgIsCodeAdded()
-{
-    return fgAddCodeModf;
 }
 
 /*****************************************************************************
