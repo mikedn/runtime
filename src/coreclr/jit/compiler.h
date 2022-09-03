@@ -7073,35 +7073,27 @@ public:
 #ifndef TARGET_64BIT
     bool compLongUsed = false; // Does the method use TYP_LONG
 #endif
-    bool compFloatingPointUsed   = false; // Does the method use TYP_FLOAT or TYP_DOUBLE
-    bool compTailCallUsed        = false; // Does the method do a tailcall
-    bool compLocallocUsed        = false; // Does the method use localloc.
-    bool compQmarkUsed           = false; // Does the method use GT_QMARK
-    bool compQmarkRationalized   = false; // Is it allowed to use a GT_QMARK node.
-    bool compHasBackwardJump     = false; // Does the method (or some inlinee) have a lexically backwards jump?
-    bool compSwitchedToOptimized = false; // Codegen initially was Tier0 but jit switched to FullOpts
-    bool compSwitchedToMinOpts   = false; // Codegen initially was Tier1/FullOpts but jit switched to MinOpts
-    bool compSuppressedZeroInit  = false; // There are vars with lvSuppressedZeroInit set
-
-// NOTE: These values are only reliable after
-//       the importing is completely finished.
+    bool compFloatingPointUsed  = false; // Does the method use TYP_FLOAT or TYP_DOUBLE
+    bool compTailCallUsed       = false; // Does the method do a tailcall
+    bool compLocallocUsed       = false; // Does the method use localloc.
+    bool compQmarkUsed          = false; // Does the method use GT_QMARK
+    bool compQmarkRationalized  = false; // Is it allowed to use a GT_QMARK node.
+    bool compHasBackwardJump    = false; // Does the method (or some inlinee) have a lexically backwards jump?
+    bool compSuppressedZeroInit = false; // There are vars with lvSuppressedZeroInit set
 
 #ifdef DEBUG
-    // State information - which phases have completed?
-    // These are kept together for easy discoverability
-
+    bool    compSwitchedToOptimized = false; // Codegen initially was Tier0 but jit switched to FullOpts
+    bool    compSwitchedToMinOpts   = false; // Codegen initially was Tier1/FullOpts but jit switched to MinOpts
     bool    bRangeAllowStress;
     bool    compCodeGenDone = false;
-    int64_t compNumStatementLinksTraversed; // # of links traversed while doing debug checks
-    bool    fgNormalizeEHDone = false;      // Has the flowgraph EH normalization phase been done?
-    size_t  compSizeEstimate;               // The estimated size of the method as per `gtSetEvalOrder`.
-    size_t  compCycleEstimate;              // The estimated cycle count of the method as per `gtSetEvalOrder`
-#endif                                      // DEBUG
+    int64_t compNumStatementLinksTraversed;   // # of links traversed while doing debug checks
+    bool    fgNormalizeEHDone = false;        // Has the flowgraph EH normalization phase been done?
+    size_t  compSizeEstimate;                 // The estimated size of the method as per `gtSetEvalOrder`.
+    size_t  compCycleEstimate;                // The estimated cycle count of the method as per `gtSetEvalOrder`
+    bool    fgNoStructParamPromotion = false; // Set to true to turn off struct promotion of this method's params.
+#endif
 
-    bool fgNoStructPromotion = false;               // Set to true to turn off struct promotion for this method.
-    INDEBUG(bool fgNoStructParamPromotion = false;) // Set to true to turn off struct promotion of this method's
-                                                    // parameters.
-
+    bool fgNoStructPromotion       = false; // Set to true to turn off struct promotion for this method.
     bool optLoopsMarked            = false;
     bool fgLoopCallMarked          = false; // The following check for loops that don't execute calls
     bool fgHasLoops                = false; // True if this method has any loops, set in fgComputeReachability
@@ -7270,8 +7262,10 @@ public:
 #endif
     }
 
+#ifdef DEBUG
     const char* compGetTieringName(bool wantShortName = false) const;
     const char* compGetStressMessage() const;
+#endif
 
     codeOptimize compCodeOpt() const
     {
@@ -7542,8 +7536,10 @@ public:
     //-------------------------------------------------------------------------
 
 public:
+#ifdef DEBUG
     void compFunctionTraceStart();
     void compFunctionTraceEnd(void* methodCodePtr, ULONG methodCodeSize, bool isNYI);
+#endif
 
 protected:
     size_t compMaxUncheckedOffsetForNullObject;

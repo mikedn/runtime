@@ -1900,8 +1900,7 @@ void Compiler::compSwitchToOptimized()
     opts.jitFlags->Clear(JitFlags::JIT_FLAG_TIER0);
     opts.jitFlags->Clear(JitFlags::JIT_FLAG_BBINSTR);
 
-    // Leave a note for jit diagnostics
-    compSwitchedToOptimized = true;
+    INDEBUG(compSwitchedToOptimized = true);
 
     compInitOptions();
 
@@ -2422,7 +2421,7 @@ void Compiler::compSetOptimizationLevel(const ILStats& ilStats)
     {
         info.compCompHnd->setMethodAttribs(info.compMethodHnd, CORINFO_FLG_SWITCHED_TO_MIN_OPT);
         opts.jitFlags->Clear(JitFlags::JIT_FLAG_TIER1);
-        compSwitchedToMinOpts = true;
+        INDEBUG(compSwitchedToMinOpts = true);
     }
 
     JITDUMP("OPTIONS: opts.MinOpts() == %s\n", opts.MinOpts() ? "true" : "false");
@@ -2643,6 +2642,7 @@ bool Compiler::compRsvdRegCheck(FrameLayoutState curState)
 }
 #endif // TARGET_ARMARCH
 
+#ifdef DEBUG
 //------------------------------------------------------------------------
 // compGetTieringName: get a string describing tiered compilation settings
 //   for this method
@@ -2727,7 +2727,6 @@ const char* Compiler::compGetStressMessage() const
     // Add note about stress where appropriate
     const char* stressMessage = "";
 
-#ifdef DEBUG
     // Is stress enabled via mode name or level?
     if ((JitConfig.JitStressModeNames() != nullptr) || (getJitStressLevel() > 0))
     {
@@ -2752,14 +2751,12 @@ const char* Compiler::compGetStressMessage() const
             stressMessage = " NoJitStress(Range)";
         }
     }
-#endif // DEBUG
 
     return stressMessage;
 }
 
 void Compiler::compFunctionTraceStart()
 {
-#ifdef DEBUG
     assert(!compIsForInlining());
 
     if ((JitConfig.JitFunctionTrace() != 0) && !opts.disDiffable)
@@ -2778,12 +2775,10 @@ void Compiler::compFunctionTraceStart()
                info.compFullName, info.compMethodHash(),
                compGetTieringName()); /* } editor brace matching workaround for this printf */
     }
-#endif // DEBUG
 }
 
 void Compiler::compFunctionTraceEnd(void* methodCodePtr, ULONG methodCodeSize, bool isNYI)
 {
-#ifdef DEBUG
     assert(!compIsForInlining());
 
     if ((JitConfig.JitFunctionTrace() != 0) && !opts.disDiffable)
@@ -2806,8 +2801,8 @@ void Compiler::compFunctionTraceEnd(void* methodCodePtr, ULONG methodCodeSize, b
         printf("} Jitted Method %4d at" FMT_ADDR "method %s size %08x%s%s\n", methodNumber, DBG_ADDR(methodCodePtr),
                info.compFullName, methodCodeSize, isNYI ? " NYI" : "", opts.altJit ? " altjit" : "");
     }
-#endif // DEBUG
 }
+#endif // DEBUG
 
 //------------------------------------------------------------------------
 // BeginPhase: begin execution of a phase
@@ -2860,7 +2855,7 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
 {
     assert(!compIsForInlining());
 
-    compFunctionTraceStart();
+    INDEBUG(compFunctionTraceStart());
 
     // Incorporate profile data.
     //
@@ -3466,7 +3461,7 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
 
     INDEBUG(++Compiler::jitTotalMethodCompiled);
 
-    compFunctionTraceEnd(*nativeCode, *nativeCodeSize, false);
+    INDEBUG(compFunctionTraceEnd(*nativeCode, *nativeCodeSize, false));
     JITDUMP("Method code size: %u\n", *nativeCodeSize);
 
 #if FUNC_INFO_LOGGING
