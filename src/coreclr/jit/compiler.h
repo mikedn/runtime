@@ -1706,8 +1706,6 @@ struct CompilerOptions
     OptFlags     optFlags;
     codeOptimize compCodeOpt; // what type of code optimizations
 
-    bool compUseCMOV : 1;
-
 // optimize maximally and/or favor speed over size?
 
 #define DEFAULT_MIN_OPTS_CODE_SIZE 60000
@@ -7209,7 +7207,6 @@ public:
         STRESS_MODE(MAKE_CSE)                                                                   \
         STRESS_MODE(LEGACY_INLINE)                                                              \
         STRESS_MODE(CLONE_EXPR)                                                                 \
-        STRESS_MODE(USE_CMOV)                                                                   \
         STRESS_MODE(FOLD)                                                                       \
         STRESS_MODE(MERGED_RETURNS)                                                             \
         STRESS_MODE(BB_PROFILE)                                                                 \

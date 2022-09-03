@@ -1069,17 +1069,6 @@ void Compiler::compSetProcessor()
 
     const JitFlags& jitFlags = *opts.jitFlags;
 
-#ifdef TARGET_AMD64
-    opts.compUseCMOV = true;
-#elif defined(TARGET_X86)
-    opts.compUseCMOV = jitFlags.IsSet(JitFlags::JIT_FLAG_USE_CMOV);
-#ifdef DEBUG
-    if (opts.compUseCMOV)
-        opts.compUseCMOV = !compStressCompile(STRESS_USE_CMOV, 50);
-#endif // DEBUG
-
-#endif // TARGET_X86
-
     // The VM will set the ISA flags depending on actual hardware support.
     // We then select which ISAs to leave enabled based on the JIT config.
     // The exception to this is the dummy Vector64/128/256 ISAs, which must be added explicitly.
