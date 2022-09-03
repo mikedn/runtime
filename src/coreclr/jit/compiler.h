@@ -1697,8 +1697,6 @@ struct CompilerOptions
         compSupportsISA = isas.GetFlagsRaw();
     }
 
-    unsigned instrCount;
-    unsigned lvRefCount;
 #ifdef TARGET_ARM64
     // Decision about whether to save FP/LR registers with callee-saved registers (see
     // COMPlus_JitSaveFpLrWithCalleSavedRegisters).
@@ -5129,7 +5127,13 @@ public:
                            bool        initializingPreds = false); // Only set to 'true' when we are computing preds in
                                                                    // fgComputePreds()
 
-    void compCreateBasicBlocks();
+    struct ILStats
+    {
+        unsigned instrCount;
+        unsigned lclRefCount;
+    };
+
+    void compCreateBasicBlocks(ILStats& ilStats);
     void compCreateEHTable();
     INDEBUG(void dmpILJumpTargets(FixedBitVect* targets);)
 
@@ -5334,7 +5338,7 @@ protected:
 
     bool fgMayExplicitTailCall();
 
-    void fgFindJumpTargets(FixedBitVect* jumpTarget);
+    void fgFindJumpTargets(FixedBitVect* jumpTarget, ILStats* ilStats = nullptr);
 
     void fgMarkBackwardJump(BasicBlock* startBlock, BasicBlock* endBlock);
 
@@ -7575,7 +7579,7 @@ protected:
     void compSwitchToOptimized();
     void compSetProcessor();
     void compInitDebuggingInfo();
-    void compSetOptimizationLevel();
+    void compSetOptimizationLevel(const ILStats& ilStats);
 #ifdef TARGET_ARMARCH
     bool compRsvdRegCheck(FrameLayoutState curState);
 #endif

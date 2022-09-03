@@ -2206,7 +2206,7 @@ void Compiler::compInitDebuggingInfo()
     }
 }
 
-void Compiler::compSetOptimizationLevel()
+void Compiler::compSetOptimizationLevel(const ILStats& ilStats)
 {
     assert(!compIsForInlining());
 
@@ -2338,7 +2338,7 @@ void Compiler::compSetOptimizationLevel()
             JITLOG((LL_INFO10, "IL Code Size exceeded, using MinOpts for method %s\n", info.compFullName));
             theMinOptsValue = true;
         }
-        else if ((unsigned)JitConfig.JitMinOptsInstrCount() < opts.instrCount)
+        else if ((unsigned)JitConfig.JitMinOptsInstrCount() < ilStats.instrCount)
         {
             JITLOG((LL_INFO10, "IL instruction count exceeded, using MinOpts for method %s\n", info.compFullName));
             theMinOptsValue = true;
@@ -2353,7 +2353,7 @@ void Compiler::compSetOptimizationLevel()
             JITLOG((LL_INFO10, "Local Variable Num count exceeded, using MinOpts for method %s\n", info.compFullName));
             theMinOptsValue = true;
         }
-        else if ((unsigned)JitConfig.JitMinOptsLvRefCount() < opts.lvRefCount)
+        else if ((unsigned)JitConfig.JitMinOptsLvRefCount() < ilStats.lclRefCount)
         {
             JITLOG((LL_INFO10, "Local Variable Ref count exceeded, using MinOpts for method %s\n", info.compFullName));
             theMinOptsValue = true;
@@ -2362,7 +2362,8 @@ void Compiler::compSetOptimizationLevel()
         {
             JITLOG((LL_INFO10000, "IL Code Size,Instr %4d,%4d, Basic Block count %3d, Local Variable Num,Ref count "
                                   "%3d,%3d for method %s\n",
-                    info.compILCodeSize, opts.instrCount, fgBBcount, lvaCount, opts.lvRefCount, info.compFullName));
+                    info.compILCodeSize, ilStats.instrCount, fgBBcount, lvaCount, ilStats.lclRefCount,
+                    info.compFullName));
             if (JitConfig.JitBreakOnMinOpts() != 0)
             {
                 assert(!"MinOpts enabled");
@@ -2374,9 +2375,9 @@ void Compiler::compSetOptimizationLevel()
     // For PREJIT we never drop down to MinOpts
     // unless unless CLFLG_MINOPT is set
     if (!theMinOptsValue && !opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) &&
-        ((DEFAULT_MIN_OPTS_CODE_SIZE < info.compILCodeSize) || (DEFAULT_MIN_OPTS_INSTR_COUNT < opts.instrCount) ||
+        ((DEFAULT_MIN_OPTS_CODE_SIZE < info.compILCodeSize) || (DEFAULT_MIN_OPTS_INSTR_COUNT < ilStats.instrCount) ||
          (DEFAULT_MIN_OPTS_BB_COUNT < fgBBcount) || (DEFAULT_MIN_OPTS_LV_NUM_COUNT < lvaCount) ||
-         (DEFAULT_MIN_OPTS_LV_REF_COUNT < opts.lvRefCount)))
+         (DEFAULT_MIN_OPTS_LV_REF_COUNT < ilStats.lclRefCount)))
     {
         theMinOptsValue = true;
     }
@@ -2384,7 +2385,7 @@ void Compiler::compSetOptimizationLevel()
 
     JITLOG((LL_INFO10000,
             "IL Code Size,Instr %4d,%4d, Basic Block count %3d, Local Variable Num,Ref count %3d,%3d for method %s\n",
-            info.compILCodeSize, opts.instrCount, fgBBcount, lvaCount, opts.lvRefCount, info.compFullName));
+            info.compILCodeSize, ilStats.instrCount, fgBBcount, lvaCount, ilStats.lclRefCount, info.compFullName));
 
 #if 0
     // The code in this #if has been useful in debugging loop cloning issues, by
@@ -4292,10 +4293,12 @@ CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCode
     compInitDebuggingInfo();
     compInitPgo();
 
+    ILStats ilStats;
+
     if (!opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
     {
         // We are jitting the root method.
-        compCreateBasicBlocks();
+        compCreateBasicBlocks(ilStats);
     }
     else
     {
@@ -4328,7 +4331,7 @@ CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCode
         //
         // This will also update the status of this method as
         // an inline candidate.
-        compCreateBasicBlocks();
+        compCreateBasicBlocks(ilStats);
 
         // Undo the temporary setup.
         assert(compInlineResult == &prejitResult);
@@ -4369,7 +4372,7 @@ CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCode
         compSwitchToOptimized();
     }
 
-    compSetOptimizationLevel();
+    compSetOptimizationLevel(ilStats);
 
 #if COUNT_BASIC_BLOCKS
     bbCntTable.record(fgBBcount);

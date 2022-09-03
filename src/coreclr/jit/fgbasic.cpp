@@ -646,7 +646,7 @@ private:
 #pragma warning(push)
 #pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
 #endif
-void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
+void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget, ILStats* ilStats)
 {
     const IL_OFFSET codeSize     = info.compILCodeSize;
     InlineResult*   inlineResult = compInlineResult;
@@ -700,6 +700,8 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
     OPCODE         prevOpcode    = CEE_NOP;
     bool           handled       = false;
     unsigned       retBlocks     = 0;
+    unsigned       lclRefCount   = 0;
+    unsigned       instrCount    = 0;
     const uint8_t* codeBegin     = info.compCode;
     const uint8_t* codeEnd       = codeBegin + codeSize;
     const uint8_t* codeAddr      = codeBegin;
@@ -1433,7 +1435,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                     }
                 }
 
-                opts.lvRefCount++;
+                lclRefCount++;
                 break;
 
             case CEE_STLOC_0:
@@ -1487,7 +1489,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                     }
                 }
 
-                opts.lvRefCount++;
+                lclRefCount++;
                 break;
 
             case CEE_LDLOC_0:
@@ -1504,7 +1506,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                 FALLTHROUGH;
             case CEE_LDLOC:
             case CEE_LDLOC_S:
-                opts.lvRefCount++;
+                lclRefCount++;
                 break;
 
             case CEE_LDARGA:
@@ -1606,7 +1608,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                     }
                 }
 
-                opts.lvRefCount++;
+                lclRefCount++;
                 break;
 
             case CEE_RET:
@@ -1704,7 +1706,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
         }
 
         // Increment the number of observed instructions
-        opts.instrCount++;
+        instrCount++;
 
     OBSERVE_OPCODE:
         // Skip any remaining operands this opcode may have
@@ -1724,6 +1726,12 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
     TOO_FAR:
         BADCODE3("Code ends in the middle of an opcode, or there is a branch past the end of the method",
                  " at offset %04X", (IL_OFFSET)(codeAddr - codeBegin));
+    }
+
+    if (ilStats != nullptr)
+    {
+        ilStats->instrCount  = instrCount;
+        ilStats->lclRefCount = lclRefCount;
     }
 
     if (inlineResult != nullptr)
@@ -2475,7 +2483,7 @@ void Compiler::dmpILJumpTargets(FixedBitVect* targets)
 }
 #endif
 
-void Compiler::compCreateBasicBlocks()
+void Compiler::compCreateBasicBlocks(ILStats& ilStats)
 {
     assert(!compIsForInlining());
 
@@ -2485,7 +2493,7 @@ void Compiler::compCreateBasicBlocks()
     INDEBUG(fgStressBBProf());
 
     FixedBitVect* jumpTargets = FixedBitVect::bitVectInit(info.compILCodeSize + 1, this);
-    fgFindJumpTargets(jumpTargets);
+    fgFindJumpTargets(jumpTargets, &ilStats);
 
     if (!info.compIsStatic)
     {
