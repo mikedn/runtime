@@ -2625,9 +2625,9 @@ void Compiler::compCreateEHTable()
 
     fgNeedToSortEHTable = false;
 
-    verInitEHTree(info.compXcptnsCount);
-    EHNodeDsc* initRoot = ehnNext; // remember the original root since
-                                   // it may get modified during insertion
+    EHTree     ehTree(this, info.compXcptnsCount);
+    EHNodeDsc* initRoot = ehTree.ehnNext; // remember the original root since
+                                          // it may get modified during insertion
 
     // Annotate BBs with exception handling information required for generating correct eh code
     // as well as checking for correct IL
@@ -2835,7 +2835,7 @@ void Compiler::compCreateEHTable()
         // Verify that it's legal
         //
 
-        verInsertEhNode(&clause, HBtab);
+        verInsertEhNode(ehTree, &clause, HBtab);
 
     } // end foreach handler table entry
 

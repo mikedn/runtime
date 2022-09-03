@@ -3041,8 +3041,13 @@ public:
     struct EHNodeDsc;
     typedef struct EHNodeDsc* pEHNodeDsc;
 
-    EHNodeDsc* ehnTree; // root of the tree comprising the EHnodes.
-    EHNodeDsc* ehnNext; // root of the tree comprising the EHnodes.
+    struct EHTree
+    {
+        EHNodeDsc* ehnTree = nullptr; // root of the tree comprising the EHnodes.
+        EHNodeDsc* ehnNext;           // root of the tree comprising the EHnodes.
+
+        EHTree(Compiler* compiler, unsigned numEHClauses);
+    };
 
     struct EHNodeDsc
     {
@@ -3350,7 +3355,7 @@ public:
     bool fgNeedToSortEHTable;
 
     void verInitEHTree(unsigned numEHClauses);
-    void verInsertEhNode(CORINFO_EH_CLAUSE* clause, EHblkDsc* handlerTab);
+    void verInsertEhNode(EHTree& tree, CORINFO_EH_CLAUSE* clause, EHblkDsc* handlerTab);
     void verInsertEhNodeInTree(EHNodeDsc** ppRoot, EHNodeDsc* node);
     void verInsertEhNodeParent(EHNodeDsc** ppRoot, EHNodeDsc* node);
     void verCheckNestingLevel(EHNodeDsc* initRoot);

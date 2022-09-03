@@ -3620,20 +3620,19 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
  *
  */
 
-void Compiler::verInitEHTree(unsigned numEHClauses)
+Compiler::EHTree::EHTree(Compiler* compiler, unsigned numEHClauses)
+    : ehnNext(new (compiler, CMK_BasicBlock) EHNodeDsc[numEHClauses * 3])
 {
-    ehnNext = new (this, CMK_BasicBlock) EHNodeDsc[numEHClauses * 3];
-    ehnTree = nullptr;
 }
 
 /* Inserts the try, handler and filter (optional) clause information in a tree structure
  * in order to catch incorrect eh formatting (e.g. illegal overlaps, incorrect order)
  */
 
-void Compiler::verInsertEhNode(CORINFO_EH_CLAUSE* clause, EHblkDsc* handlerTab)
+void Compiler::verInsertEhNode(EHTree& tree, CORINFO_EH_CLAUSE* clause, EHblkDsc* handlerTab)
 {
-    EHNodeDsc* tryNode     = ehnNext++;
-    EHNodeDsc* handlerNode = ehnNext++;
+    EHNodeDsc* tryNode     = tree.ehnNext++;
+    EHNodeDsc* handlerNode = tree.ehnNext++;
     EHNodeDsc* filterNode  = nullptr; // optional
 
     tryNode->ehnSetTryNodeType();
@@ -3660,7 +3659,7 @@ void Compiler::verInsertEhNode(CORINFO_EH_CLAUSE* clause, EHblkDsc* handlerTab)
 
     if (clause->Flags & CORINFO_EH_CLAUSE_FILTER)
     {
-        filterNode                 = ehnNext++;
+        filterNode                 = tree.ehnNext++;
         filterNode->ehnStartOffset = clause->FilterOffset;
         BasicBlock* blk            = handlerTab->BBFilterLast();
         filterNode->ehnEndOffset   = blk->bbCodeOffsEnd - 1;
@@ -3671,11 +3670,11 @@ void Compiler::verInsertEhNode(CORINFO_EH_CLAUSE* clause, EHblkDsc* handlerTab)
         tryNode->ehnFilterNode = filterNode;
     }
 
-    verInsertEhNodeInTree(&ehnTree, tryNode);
-    verInsertEhNodeInTree(&ehnTree, handlerNode);
+    verInsertEhNodeInTree(&tree.ehnTree, tryNode);
+    verInsertEhNodeInTree(&tree.ehnTree, handlerNode);
     if (filterNode)
     {
-        verInsertEhNodeInTree(&ehnTree, filterNode);
+        verInsertEhNodeInTree(&tree.ehnTree, filterNode);
     }
 }
 
