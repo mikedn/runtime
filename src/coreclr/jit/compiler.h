@@ -6821,21 +6821,6 @@ public:
 public:
     CodeGenInterface* codeGen = nullptr;
 
-    //  The following holds information about instr offsets in terms of generated code.
-
-    struct IPmappingDsc
-    {
-        IPmappingDsc* ipmdNext;      // next line# record
-        emitLocation  ipmdNativeLoc; // the emitter location of the native code corresponding to the IL offset
-        IL_OFFSETX    ipmdILoffsx;   // the instr offset
-        bool          ipmdIsLabel;   // Can this code be a branch label?
-    };
-
-    // Record the instr offset mapping to the generated code
-
-    IPmappingDsc* genIPmappingList;
-    IPmappingDsc* genIPmappingLast;
-
     // Managed RetVal - A side hash table meant to record the mapping from a
     // GT_CALL node to its IL offset.  This info is used to emit sequence points
     // that can be used by debugger to determine the native offset at which the

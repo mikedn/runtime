@@ -94,9 +94,6 @@ CodeGen::CodeGen(Compiler* compiler) : CodeGenInterface(compiler), m_liveness(co
     compiler->compVSQuirkStackPaddingNeeded = 0;
 #endif
 
-    //  Initialize the IP-mapping logic.
-    compiler->genIPmappingList        = nullptr;
-    compiler->genIPmappingLast        = nullptr;
     compiler->genCallSite2ILOffsetMap = nullptr;
 }
 
@@ -9277,7 +9274,7 @@ const char* CodeGen::siStackVarName(size_t offs, size_t size, unsigned reg, unsi
  *  Display a IPmappingDsc. Pass -1 as mappingNum to not display a mapping number.
  */
 
-void CodeGen::genIPmappingDisp(unsigned mappingNum, Compiler::IPmappingDsc* ipMapping)
+void CodeGen::genIPmappingDisp(unsigned mappingNum, IPmappingDsc* ipMapping)
 {
     if (mappingNum != unsigned(-1))
     {
@@ -9320,10 +9317,10 @@ void CodeGen::genIPmappingDisp(unsigned mappingNum, Compiler::IPmappingDsc* ipMa
 
 void CodeGen::genIPmappingListDisp()
 {
-    unsigned                mappingNum = 0;
-    Compiler::IPmappingDsc* ipMapping;
+    unsigned      mappingNum = 0;
+    IPmappingDsc* ipMapping;
 
-    for (ipMapping = compiler->genIPmappingList; ipMapping != nullptr; ipMapping = ipMapping->ipmdNext)
+    for (ipMapping = genIPmappingList; ipMapping != nullptr; ipMapping = ipMapping->ipmdNext)
     {
         genIPmappingDisp(mappingNum, ipMapping);
         ++mappingNum;
@@ -9364,7 +9361,7 @@ void CodeGen::genIPmappingAdd(IL_OFFSETX offsx, bool isLabel)
             // Ignore this one if it's the same IL offset as the last one we saw.
             // Note that we'll let through two identical IL offsets if the flag bits
             // differ, or two identical "special" mappings (e.g., PROLOG).
-            if ((compiler->genIPmappingLast != nullptr) && (offsx == compiler->genIPmappingLast->ipmdILoffsx))
+            if ((genIPmappingLast != nullptr) && (offsx == genIPmappingLast->ipmdILoffsx))
             {
                 JITDUMP("genIPmappingAdd: ignoring duplicate IL offset 0x%x\n", offsx);
                 return;
@@ -9374,25 +9371,25 @@ void CodeGen::genIPmappingAdd(IL_OFFSETX offsx, bool isLabel)
 
     /* Create a mapping entry and append it to the list */
 
-    Compiler::IPmappingDsc* addMapping = compiler->getAllocator(CMK_DebugInfo).allocate<Compiler::IPmappingDsc>(1);
+    IPmappingDsc* addMapping = compiler->getAllocator(CMK_DebugInfo).allocate<IPmappingDsc>(1);
     addMapping->ipmdNativeLoc.CaptureLocation(GetEmitter());
     addMapping->ipmdILoffsx = offsx;
     addMapping->ipmdIsLabel = isLabel;
     addMapping->ipmdNext    = nullptr;
 
-    if (compiler->genIPmappingList != nullptr)
+    if (genIPmappingList != nullptr)
     {
-        assert(compiler->genIPmappingLast != nullptr);
-        assert(compiler->genIPmappingLast->ipmdNext == nullptr);
-        compiler->genIPmappingLast->ipmdNext = addMapping;
+        assert(genIPmappingLast != nullptr);
+        assert(genIPmappingLast->ipmdNext == nullptr);
+        genIPmappingLast->ipmdNext = addMapping;
     }
     else
     {
-        assert(compiler->genIPmappingLast == nullptr);
-        compiler->genIPmappingList = addMapping;
+        assert(genIPmappingLast == nullptr);
+        genIPmappingList = addMapping;
     }
 
-    compiler->genIPmappingLast = addMapping;
+    genIPmappingLast = addMapping;
 
 #ifdef DEBUG
     if (verbose)
@@ -9433,18 +9430,18 @@ void CodeGen::genIPmappingAddToFront(IL_OFFSETX offsx)
 
     /* Create a mapping entry and prepend it to the list */
 
-    Compiler::IPmappingDsc* addMapping = compiler->getAllocator(CMK_DebugInfo).allocate<Compiler::IPmappingDsc>(1);
+    IPmappingDsc* addMapping = compiler->getAllocator(CMK_DebugInfo).allocate<IPmappingDsc>(1);
     addMapping->ipmdNativeLoc.CaptureLocation(GetEmitter());
     addMapping->ipmdILoffsx = offsx;
     addMapping->ipmdIsLabel = true;
     addMapping->ipmdNext    = nullptr;
 
-    addMapping->ipmdNext       = compiler->genIPmappingList;
-    compiler->genIPmappingList = addMapping;
+    addMapping->ipmdNext = genIPmappingList;
+    genIPmappingList     = addMapping;
 
-    if (compiler->genIPmappingLast == nullptr)
+    if (genIPmappingLast == nullptr)
     {
-        compiler->genIPmappingLast = addMapping;
+        genIPmappingLast = addMapping;
     }
 
 #ifdef DEBUG
@@ -9588,19 +9585,19 @@ void CodeGen::genEnsureCodeEmitted(IL_OFFSETX offsx)
 
     /* If other IL were offsets reported, skip */
 
-    if (compiler->genIPmappingLast == nullptr)
+    if (genIPmappingLast == nullptr)
     {
         return;
     }
 
-    if (compiler->genIPmappingLast->ipmdILoffsx != offsx)
+    if (genIPmappingLast->ipmdILoffsx != offsx)
     {
         return;
     }
 
     /* offsx was the last reported offset. Make sure that we generated native code */
 
-    if (compiler->genIPmappingLast->ipmdNativeLoc.IsCurrentLocation(GetEmitter()))
+    if (genIPmappingLast->ipmdNativeLoc.IsCurrentLocation(GetEmitter()))
     {
         instGen(INS_nop);
     }
@@ -9625,25 +9622,24 @@ void CodeGen::genIPmappingGen()
     }
 #endif
 
-    if (compiler->genIPmappingList == nullptr)
+    if (genIPmappingList == nullptr)
     {
         compiler->eeSetLIcount(0);
         compiler->eeSetLIdone();
         return;
     }
 
-    Compiler::IPmappingDsc* tmpMapping;
-    Compiler::IPmappingDsc* prevMapping;
-    unsigned                mappingCnt;
-    UNATIVE_OFFSET          lastNativeOfs;
+    IPmappingDsc*  tmpMapping;
+    IPmappingDsc*  prevMapping;
+    unsigned       mappingCnt;
+    UNATIVE_OFFSET lastNativeOfs;
 
     /* First count the number of distinct mapping records */
 
     mappingCnt    = 0;
     lastNativeOfs = UNATIVE_OFFSET(~0);
 
-    for (prevMapping = nullptr, tmpMapping = compiler->genIPmappingList; tmpMapping != nullptr;
-         tmpMapping = tmpMapping->ipmdNext)
+    for (prevMapping = nullptr, tmpMapping = genIPmappingList; tmpMapping != nullptr; tmpMapping = tmpMapping->ipmdNext)
     {
         IL_OFFSETX srcIP = tmpMapping->ipmdILoffsx;
 
@@ -9723,7 +9719,7 @@ void CodeGen::genIPmappingGen()
     mappingCnt    = 0;
     lastNativeOfs = UNATIVE_OFFSET(~0);
 
-    for (tmpMapping = compiler->genIPmappingList; tmpMapping != nullptr; tmpMapping = tmpMapping->ipmdNext)
+    for (tmpMapping = genIPmappingList; tmpMapping != nullptr; tmpMapping = tmpMapping->ipmdNext)
     {
         // Do we have to skip this record ?
         if (!tmpMapping->ipmdNativeLoc.Valid())

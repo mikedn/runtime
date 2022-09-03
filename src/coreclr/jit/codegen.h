@@ -520,7 +520,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
 #ifdef DEBUG
-    void genIPmappingDisp(unsigned mappingNum, Compiler::IPmappingDsc* ipMapping);
+    void genIPmappingDisp(unsigned mappingNum, IPmappingDsc* ipMapping);
     void genIPmappingListDisp();
 #endif // DEBUG
 
