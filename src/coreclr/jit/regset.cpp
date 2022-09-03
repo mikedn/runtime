@@ -195,34 +195,8 @@ void RegSet::SetMaskVars(regMaskTP newMaskVars)
     _rsMaskVars = newMaskVars;
 }
 
-/*****************************************************************************/
-
 RegSet::RegSet(Compiler* compiler, GCInfo& gcInfo) : m_rsCompiler(compiler), m_rsGCInfo(gcInfo)
 {
-    /* Initialize the spill logic */
-
-    rsSpillInit();
-
-    /* Initialize the argument register count */
-    // TODO-Cleanup: Consider moving intRegState and floatRegState to RegSet.  They used
-    // to be initialized here, but are now initialized in the CodeGen constructor.
-    // intRegState.rsCurRegArgNum   = 0;
-    // loatRegState.rsCurRegArgNum = 0;
-
-    rsMaskResvd = RBM_NONE;
-
-#ifdef TARGET_ARMARCH
-    rsMaskCalleeSaved = RBM_NONE;
-#endif // TARGET_ARMARCH
-
-#ifdef TARGET_ARM
-    rsMaskPreSpillRegArg = RBM_NONE;
-    rsMaskPreSpillAlign  = RBM_NONE;
-#endif
-
-#ifdef DEBUG
-    rsModifiedRegsMaskInitialized = false;
-#endif // DEBUG
 }
 
 /*****************************************************************************
@@ -387,18 +361,6 @@ XX                                                                           XX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
-
-void RegSet::tmpInit()
-{
-    tmpCount = 0;
-    tmpSize  = 0;
-#ifdef DEBUG
-    tmpGetCount = 0;
-#endif
-
-    memset(tmpFree, 0, sizeof(tmpFree));
-    memset(tmpUsed, 0, sizeof(tmpUsed));
-}
 
 /* static */
 var_types RegSet::tmpNormalizeType(var_types type)
@@ -772,31 +734,6 @@ regMaskSmall genRegMaskFromCalleeSavedMask(unsigned short calleeSaveMask)
     return res;
 }
 
-/*****************************************************************************
- *
- *  Initializes the spill code. Should be called once per function compiled.
- */
-
-// inline
-void RegSet::rsSpillInit()
-{
-    /* Clear out the spill and multi-use tables */
-
-    memset(rsSpillDesc, 0, sizeof(rsSpillDesc));
-
-    INDEBUG(rsNeededSpillReg = false;)
-
-    /* We don't have any descriptors allocated */
-
-    rsSpillFree = nullptr;
-}
-
-/*****************************************************************************
- *
- *  Shuts down the spill code. Should be called once per function compiled.
- */
-
-// inline
 void RegSet::rsSpillDone()
 {
     rsSpillChk();

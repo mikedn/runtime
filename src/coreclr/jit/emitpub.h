@@ -8,8 +8,6 @@
 static void emitInit();
 static void emitDone();
 
-void emitBegCG(Compiler* comp, COMP_HANDLE cmpHandle);
-
 void emitBegFN(bool hasFramePtr
 #if defined(DEBUG)
                ,

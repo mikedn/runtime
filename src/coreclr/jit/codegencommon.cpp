@@ -63,17 +63,12 @@ void Compiler::codeGenInit()
 
 CodeGenInterface::CodeGenInterface(Compiler* compiler) : gcInfo(compiler), regSet(compiler, gcInfo), compiler(compiler)
 {
+    gcInfo.regSet = &regSet;
 }
 
 CodeGen::CodeGen(Compiler* compiler) : CodeGenInterface(compiler), m_liveness(compiler)
 {
-    regSet.tmpInit();
-
-    gcInfo.regSet = &regSet;
-
-    m_cgEmitter          = new (compiler->getAllocator()) emitter();
-    m_cgEmitter->codeGen = this;
-    m_cgEmitter->gcInfo  = &gcInfo;
+    m_cgEmitter = new (compiler->getAllocator()) emitter(compiler, this, gcInfo, compiler->info.compCompHnd);
 
 #ifdef LATE_DISASM
     getDisAssembler().disInit(compiler);
@@ -83,18 +78,11 @@ CodeGen::CodeGen(Compiler* compiler) : CodeGenInterface(compiler), m_liveness(co
     // Shouldn't be used before it is set in genFnProlog()
     compiler->compCalleeRegsPushed = UninitializedWord<unsigned>(compiler);
 
-#if defined(TARGET_XARCH)
+#ifdef TARGET_XARCH
     // Shouldn't be used before it is set in genFnProlog()
     compiler->compCalleeFPRegsSavedMask = (regMaskTP)-1;
-#endif // defined(TARGET_XARCH)
-#endif // DEBUG
-
-#ifdef TARGET_AMD64
-    // This will be set before final frame layout.
-    compiler->compVSQuirkStackPaddingNeeded = 0;
 #endif
-
-    compiler->genCallSite2ILOffsetMap = nullptr;
+#endif
 }
 
 #if defined(TARGET_X86) || defined(TARGET_ARM)

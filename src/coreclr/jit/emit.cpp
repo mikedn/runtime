@@ -627,22 +627,6 @@ unsigned emitLclVarAddr::lvaOffset() const // returns the offset into the variab
     }
 }
 
-/*****************************************************************************
- *
- *  Record some info about the method about to be emitted.
- */
-
-void emitter::emitBegCG(Compiler* comp, COMP_HANDLE cmpHandle)
-{
-    emitComp      = comp;
-    emitCmpHandle = cmpHandle;
-}
-
-/*****************************************************************************
- *
- *  Prepare the given IG for emission of code.
- */
-
 void emitter::emitGenIG(insGroup* ig)
 {
     /* Set the "current IG" value */

@@ -4288,7 +4288,6 @@ CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCode
             break;
     }
 
-    codeGen->GetEmitter()->emitBegCG(this, info.compCompHnd);
     lvaInitTypeRef();
     compInitDebuggingInfo();
     compInitPgo();

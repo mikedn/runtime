@@ -153,7 +153,7 @@ code_t AddVexPrefixIfNeededAndNotPresent(instruction ins, code_t code, emitAttr 
     return code;
 }
 
-bool useVEXEncodings;
+bool useVEXEncodings = false;
 bool UseVEXEncoding() const
 {
     return useVEXEncodings;

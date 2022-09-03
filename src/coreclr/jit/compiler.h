@@ -6833,7 +6833,7 @@ public:
     // structure and IL offset is needed only when generating debuggable code. Therefore
     // it is desirable to avoid memory size penalty in retail scenarios.
     typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, IL_OFFSETX> CallSiteILOffsetTable;
-    CallSiteILOffsetTable* genCallSite2ILOffsetMap;
+    CallSiteILOffsetTable* genCallSite2ILOffsetMap = nullptr;
 
     unsigned    genReturnLocal = BAD_VAR_NUM; // Local number for the return value when applicable.
     BasicBlock* genReturnBB    = nullptr;     // jumped to when not optimizing for speed.
@@ -7556,7 +7556,7 @@ public:
 // Quirk for VS debug-launch scenario to work:
 // Bytes of padding between save-reg area and locals.
 #define VSQUIRK_STACK_PAD (2 * REGSIZE_BYTES)
-    unsigned compVSQuirkStackPaddingNeeded;
+    unsigned compVSQuirkStackPaddingNeeded = 0;
 #endif
 
     unsigned compArgSize; // total size of arguments in bytes (including register args (lvIsRegArg))
