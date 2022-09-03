@@ -1780,6 +1780,8 @@ private:
     // handled in 'BuildNode'.
     bool pendingDelayFree;
 
+    bool rpMustCreateEBPCalled = false; // Set to true after we have called rpMustCreateEBPFrame once
+
     // This method clears the "build state" before starting to handle a new node.
     void clearBuildState()
     {

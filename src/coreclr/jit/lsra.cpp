@@ -659,8 +659,7 @@ LinearScan::LinearScan(Compiler* theCompiler)
         availableDoubleRegs &= ~RBM_CALLEE_SAVED;
     }
 #endif // TARGET_AMD64
-    compiler->rpFrameType           = FT_NOT_SET;
-    compiler->rpMustCreateEBPCalled = false;
+    compiler->rpFrameType = FT_NOT_SET;
 
     compiler->codeGen->intRegState.rsIsFloat   = false;
     compiler->codeGen->floatRegState.rsIsFloat = true;
@@ -2353,12 +2352,10 @@ void LinearScan::setFrameType()
     }
     else
     {
-        if (compiler->rpMustCreateEBPCalled == false)
+        if (!rpMustCreateEBPCalled)
         {
-#ifdef DEBUG
-            const char* reason;
-#endif // DEBUG
-            compiler->rpMustCreateEBPCalled = true;
+            rpMustCreateEBPCalled = true;
+            INDEBUG(const char* reason);
             if (compiler->rpMustCreateEBPFrame(INDEBUG(&reason)))
             {
                 JITDUMP("; Decided to create an EBP based frame for ETW stackwalking (%s)\n", reason);

@@ -6493,7 +6493,6 @@ protected:
     // Some things are used by both LSRA and regpredict allocators.
 
     FrameType rpFrameType;
-    bool      rpMustCreateEBPCalled; // Set to true after we have called rpMustCreateEBPFrame once
 
     bool rpMustCreateEBPFrame(INDEBUG(const char** wbReason));
 
