@@ -114,7 +114,7 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** pTree, fgWa
             newState.isUnderIndir = true;
             {
                 newState.skipNextNode = true; // Don't have to worry about which kind of node we're dealing with
-                comp->fgWalkTreePre(&tree, comp->gsMarkPtrsAndAssignGroups, (void*)&newState);
+                comp->fgWalkTreePre(&tree, comp->gsMarkPtrsAndAssignGroups, &newState);
             }
 
             return WALK_SKIP_SUBTREES;
@@ -182,7 +182,7 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** pTree, fgWa
                 {
                     newState.isUnderIndir = true;
                     comp->fgWalkTreePre(&tree->AsCall()->gtCallThisArg->NodeRef(), gsMarkPtrsAndAssignGroups,
-                                        (void*)&newState);
+                                        &newState);
                 }
 
                 for (GenTreeCall::Use& use : tree->AsCall()->Args())
@@ -196,7 +196,7 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** pTree, fgWa
                         continue;
                     }
 
-                    comp->fgWalkTreePre(&use.NodeRef(), gsMarkPtrsAndAssignGroups, (void*)&newState);
+                    comp->fgWalkTreePre(&use.NodeRef(), gsMarkPtrsAndAssignGroups, &newState);
                 }
 
                 for (GenTreeCall::Use& use : tree->AsCall()->LateArgs())
@@ -206,7 +206,7 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** pTree, fgWa
                         continue;
                     }
 
-                    comp->fgWalkTreePre(&use.NodeRef(), gsMarkPtrsAndAssignGroups, (void*)&newState);
+                    comp->fgWalkTreePre(&use.NodeRef(), gsMarkPtrsAndAssignGroups, &newState);
                 }
 
                 if (tree->AsCall()->IsIndirectCall())
@@ -216,7 +216,7 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** pTree, fgWa
                     // A function pointer is treated like a write-through pointer since
                     // it controls what code gets executed, and so indirectly can cause
                     // a write to memory.
-                    comp->fgWalkTreePre(&tree->AsCall()->gtCallAddr, gsMarkPtrsAndAssignGroups, (void*)&newState);
+                    comp->fgWalkTreePre(&tree->AsCall()->gtCallAddr, gsMarkPtrsAndAssignGroups, &newState);
                 }
             }
             return WALK_SKIP_SUBTREES;
@@ -229,7 +229,7 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** pTree, fgWa
             // Assignments - track assign groups and *p defs.
 
             // Walk dst side
-            comp->fgWalkTreePre(&dst, comp->gsMarkPtrsAndAssignGroups, (void*)&newState);
+            comp->fgWalkTreePre(&dst, comp->gsMarkPtrsAndAssignGroups, &newState);
 
             // Now handle src side
             if (dst->OperIs(GT_LCL_VAR, GT_LCL_FLD))
@@ -239,7 +239,7 @@ Compiler::fgWalkResult Compiler::gsMarkPtrsAndAssignGroups(GenTree** pTree, fgWa
                 newState.isAssignSrc = true;
             }
 
-            comp->fgWalkTreePre(&src, comp->gsMarkPtrsAndAssignGroups, (void*)&newState);
+            comp->fgWalkTreePre(&src, comp->gsMarkPtrsAndAssignGroups, &newState);
             assert(dst == asg->gtGetOp1());
             assert(src == asg->gtGetOp2());
 
@@ -271,7 +271,13 @@ bool Compiler::gsFindVulnerableParams()
     info.skipNextNode = false;
 
     // Walk all the trees setting lvIsWritePtr, lvIsOutgoingArg, lvIsPtr and assignGroup.
-    fgWalkAllTreesPre(gsMarkPtrsAndAssignGroups, &info);
+    for (BasicBlock* const block : Blocks())
+    {
+        for (Statement* const stmt : block->Statements())
+        {
+            fgWalkTreePre(stmt->GetRootNodePointer(), gsMarkPtrsAndAssignGroups, &info);
+        }
+    }
 
     // Compute has vulnerable at the end of the loop.
     bool hasOneVulnerable = false;

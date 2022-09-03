@@ -14760,13 +14760,13 @@ void Compiler::fgPreExpandQmarkChecks(GenTree* expr)
     // there are no qmarks within it.
     if (topQmark == nullptr)
     {
-        fgWalkTreePre(&expr, fgAssertNoQmark, nullptr);
+        fgWalkTreePre(&expr, fgAssertNoQmark);
     }
     else
     {
         // We could probably expand the cond node also, but don't think the extra effort is necessary,
         // so let's just assert the cond node of a top level qmark doesn't have further top level qmarks.
-        fgWalkTreePre(&topQmark->gtOp1, fgAssertNoQmark, nullptr);
+        fgWalkTreePre(&topQmark->gtOp1, fgAssertNoQmark);
         fgPreExpandQmarkChecks(topQmark->gtOp2);
         fgPreExpandQmarkChecks(topQmark->gtOp3);
     }
@@ -15227,7 +15227,7 @@ void Compiler::fgPostExpandQmarkChecks()
         for (Statement* const stmt : block->Statements())
         {
             GenTree* expr = stmt->GetRootNode();
-            fgWalkTreePre(&expr, fgAssertNoQmark, nullptr);
+            fgWalkTreePre(&expr, fgAssertNoQmark);
         }
     }
 }

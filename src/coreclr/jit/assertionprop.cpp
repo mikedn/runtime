@@ -441,7 +441,7 @@ void Compiler::optAddCopies()
             optAddCopyLclNum   = lclNum;  // in
             optAddCopyAsgnNode = nullptr; // out
 
-            fgWalkTreePre(stmt->GetRootNodePointer(), Compiler::optAddCopiesCallback, (void*)this, false);
+            fgWalkTreePre(stmt->GetRootNodePointer(), Compiler::optAddCopiesCallback, this);
 
             noway_assert(optAddCopyAsgnNode);
 

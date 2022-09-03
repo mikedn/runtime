@@ -3766,15 +3766,33 @@ public:
 
     // For tree walks
 
+    struct fgWalkData
+    {
+        Compiler* compiler;
+        void*     pCallbackData; // user-provided data
+        GenTree*  parent;        // parent of current node, provided to callback
+
+        fgWalkData(Compiler* compiler, void* callbackData) : compiler(compiler), pCallbackData(callbackData)
+        {
+        }
+    };
+
     enum fgWalkResult
     {
         WALK_CONTINUE,
         WALK_SKIP_SUBTREES,
         WALK_ABORT
     };
-    struct fgWalkData;
-    typedef fgWalkResult(fgWalkPreFn)(GenTree** pTree, fgWalkData* data);
-    typedef fgWalkResult(fgWalkPostFn)(GenTree** pTree, fgWalkData* data);
+
+    typedef fgWalkResult(fgWalkPreFn)(GenTree** use, fgWalkData* data);
+    typedef fgWalkResult(fgWalkPostFn)(GenTree** use, fgWalkData* data);
+
+    fgWalkResult fgWalkTreePre(GenTree** use, fgWalkPreFn* visitor, void* callbackData = nullptr);
+    fgWalkResult fgWalkTree(GenTree**     use,
+                            fgWalkPreFn*  preVisitor,
+                            fgWalkPostFn* postVisitor,
+                            void*         callbackData = nullptr);
+    fgWalkResult fgWalkTreePost(GenTree** use, fgWalkPostFn* visitor, void* callbackData = nullptr);
 
     struct FindLinkData
     {
@@ -5324,42 +5342,6 @@ public:
     bool fgProfileWeightsConsistent(BasicBlock::weight_t weight1, BasicBlock::weight_t weight2);
 
     static GenTree* fgGetFirstNode(GenTree* tree);
-
-    //--------------------- Walking the trees in the IR -----------------------
-
-    struct fgWalkData
-    {
-        Compiler*     compiler;
-        fgWalkPreFn*  wtprVisitorFn;
-        fgWalkPostFn* wtpoVisitorFn;
-        void*         pCallbackData; // user-provided data
-        GenTree*      parent;        // parent of current node, provided to callback
-        GenTreeStack* parentStack;   // stack of parent nodes, if asked for
-        bool          wtprLclsOnly;  // whether to only visit lclvar nodes
-#ifdef DEBUG
-        bool printModified; // callback can use this
-#endif
-    };
-
-    fgWalkResult fgWalkTreePre(GenTree**    pTree,
-                               fgWalkPreFn* visitor,
-                               void*        pCallBackData = nullptr,
-                               bool         lclVarsOnly   = false,
-                               bool         computeStack  = false);
-
-    fgWalkResult fgWalkTree(GenTree**     pTree,
-                            fgWalkPreFn*  preVisitor,
-                            fgWalkPostFn* postVisitor,
-                            void*         pCallBackData = nullptr);
-
-    void fgWalkAllTreesPre(fgWalkPreFn* visitor, void* pCallBackData);
-
-    //----- Postorder
-
-    fgWalkResult fgWalkTreePost(GenTree**     pTree,
-                                fgWalkPostFn* visitor,
-                                void*         pCallBackData = nullptr,
-                                bool          computeStack  = false);
 
     // An fgWalkPreFn that looks for expressions that have inline throws in
     // minopts mode. Basically it looks for tress with gtOverflowEx() or
@@ -8825,6 +8807,10 @@ template <bool computeStack, bool doPreOrder, bool doPostOrder, bool doLclVarsOn
 class GenericTreeWalker final
     : public GenTreeVisitor<GenericTreeWalker<computeStack, doPreOrder, doPostOrder, doLclVarsOnly, useExecutionOrder>>
 {
+    Compiler::fgWalkData    walkData;
+    Compiler::fgWalkPreFn*  preVisitor;
+    Compiler::fgWalkPostFn* postVisitor;
+
 public:
     enum
     {
@@ -8835,35 +8821,55 @@ public:
         UseExecutionOrder = useExecutionOrder,
     };
 
-private:
-    Compiler::fgWalkData* m_walkData;
-
-public:
-    GenericTreeWalker(Compiler::fgWalkData* walkData)
+    GenericTreeWalker(Compiler*               compiler,
+                      Compiler::fgWalkPreFn*  preVisitor,
+                      Compiler::fgWalkPostFn* postVisitor,
+                      void*                   callbackData)
         : GenTreeVisitor<GenericTreeWalker<computeStack, doPreOrder, doPostOrder, doLclVarsOnly, useExecutionOrder>>(
-              walkData->compiler)
-        , m_walkData(walkData)
+              compiler)
+        , walkData(compiler, callbackData)
+        , preVisitor(preVisitor)
+        , postVisitor(postVisitor)
     {
-        assert(walkData != nullptr);
-
-        if (computeStack)
-        {
-            walkData->parentStack = &this->m_ancestors;
-        }
+        assert((preVisitor != nullptr) || (postVisitor != nullptr));
     }
 
     Compiler::fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
     {
-        m_walkData->parent = user;
-        return m_walkData->wtprVisitorFn(use, m_walkData);
+        walkData.parent = user;
+        return preVisitor(use, &walkData);
     }
 
     Compiler::fgWalkResult PostOrderVisit(GenTree** use, GenTree* user)
     {
-        m_walkData->parent = user;
-        return m_walkData->wtpoVisitorFn(use, m_walkData);
+        walkData.parent = user;
+        return postVisitor(use, &walkData);
     }
 };
+
+inline Compiler::fgWalkResult Compiler::fgWalkTreePre(GenTree** use, fgWalkPreFn* visitor, void* callbackData)
+{
+    GenericTreeWalker<false, true, false, false, true> walker(this, visitor, nullptr, callbackData);
+    return walker.WalkTree(use, nullptr);
+}
+
+inline Compiler::fgWalkResult Compiler::fgWalkTreePost(GenTree** use, fgWalkPostFn* visitor, void* callbackData)
+{
+    GenericTreeWalker<false, false, true, false, true> walker(this, nullptr, visitor, callbackData);
+    return walker.WalkTree(use, nullptr);
+}
+
+inline Compiler::fgWalkResult Compiler::fgWalkTree(GenTree**    use,
+                                                   fgWalkPreFn* preVisitor,
+                                                   fgWalkPreFn* postVisitor,
+                                                   void*        callbackData)
+
+{
+    assert((preVisitor != nullptr) && (postVisitor != nullptr));
+
+    GenericTreeWalker<true, true, true, false, true> walker(this, preVisitor, postVisitor, callbackData);
+    return walker.WalkTree(use, nullptr);
+}
 
 // A dominator tree visitor implemented using the curiously-recurring-template pattern, similar to GenTreeVisitor.
 template <typename TVisitor>
