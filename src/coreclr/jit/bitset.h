@@ -72,16 +72,23 @@ public:
 };
 
 template <>
-FORCEINLINE unsigned BitSetSupport::CountBitsInIntegral<unsigned>(unsigned c)
+FORCEINLINE unsigned BitSetSupport::CountBitsInIntegral<uint64_t>(uint64_t c)
 {
-    // Make sure we're 32 bit.
-    assert(sizeof(unsigned) == 4);
-    c = (c & 0x55555555) + ((c >> 1) & 0x55555555);
-    c = (c & 0x33333333) + ((c >> 2) & 0x33333333);
-    c = (c & 0x0f0f0f0f) + ((c >> 4) & 0x0f0f0f0f);
-    c = (c & 0x00ff00ff) + ((c >> 8) & 0x00ff00ff);
-    c = (c & 0x0000ffff) + ((c >> 16) & 0x0000ffff);
-    return c;
+    // TODO-MIKE-Throughput: Use popcnt.
+
+    c = c - ((c >> 1) & 0x5555555555555555ull);
+    c = (c & 0x3333333333333333ull) + ((c >> 2) & 0x3333333333333333ull);
+    c = ((c + (c >> 4)) & 0x0F0F0F0F0F0F0F0Full) * 0x0101010101010101ull;
+    return static_cast<unsigned>(c >> 56);
+}
+
+template <>
+FORCEINLINE unsigned BitSetSupport::CountBitsInIntegral<uint32_t>(uint32_t c)
+{
+    c = c - ((c >> 1) & 0x55555555u);
+    c = (c & 0x33333333u) + ((c >> 2) & 0x33333333u);
+    c = ((c + (c >> 4)) & 0xF0F0F0Fu) * 0x1010101u;
+    return static_cast<unsigned>(c >> 24);
 }
 
 // A "BitSet" represents a set of integers from a "universe" [0..N-1].  This implementation assumes that "N"
