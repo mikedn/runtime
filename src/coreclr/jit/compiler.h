@@ -4699,7 +4699,18 @@ public:
     void fgLocalVarLivenessUntracked();
     void livInitNewBlock(BasicBlock* block);
 
-    void fgPerNodeLocalVarLiveness(GenTree* node);
+    struct LivenessState
+    {
+        VARSET_TP fgCurUseSet; // vars used by block (before an assignment)
+        VARSET_TP fgCurDefSet; // vars assigned by block (before a use)
+
+        bool fgCurMemoryUse : 1;   // True iff the current basic block uses memory.
+        bool fgCurMemoryDef : 1;   // True iff the current basic block modifies memory.
+        bool fgCurMemoryHavoc : 1; // True if the current basic block is known to set memory to a "havoc" value.
+    };
+
+    void fgMarkUseDef(LivenessState& state, GenTreeLclVarCommon* tree);
+    void fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* node);
     void fgPerBlockLocalVarLiveness();
     void fgPerBlockLocalVarLivenessLIR();
 
@@ -5632,17 +5643,6 @@ private:
 
     unsigned fgGetLargeFieldOffsetNullCheckTemp(var_types type); // We cache one temp per type to be
                                                                  // used when morphing big offset.
-
-    //----------------------- Liveness analysis -------------------------------
-
-    VARSET_TP fgCurUseSet; // vars used     by block (before an assignment)
-    VARSET_TP fgCurDefSet; // vars assigned by block (before a use)
-
-    bool fgCurMemoryUse : 1;   // True iff the current basic block uses memory.
-    bool fgCurMemoryDef : 1;   // True iff the current basic block modifies memory.
-    bool fgCurMemoryHavoc : 1; // True if  the current basic block is known to set memory to a "havoc" value.
-
-    void fgMarkUseDef(GenTreeLclVarCommon* tree);
 
     //-------------------------------------------------------------------------
     //

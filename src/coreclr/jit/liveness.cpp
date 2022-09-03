@@ -4,7 +4,7 @@
 #include "jitpch.h"
 #include "lower.h"
 
-void Compiler::fgMarkUseDef(GenTreeLclVarCommon* node)
+void Compiler::fgMarkUseDef(LivenessState& state, GenTreeLclVarCommon* node)
 {
     assert(node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD));
 
@@ -28,14 +28,14 @@ void Compiler::fgMarkUseDef(GenTreeLclVarCommon* node)
 
     if (lcl->HasLiveness())
     {
-        if (isUse && !VarSetOps::IsMember(this, fgCurDefSet, lcl->lvVarIndex))
+        if (isUse && !VarSetOps::IsMember(this, state.fgCurDefSet, lcl->lvVarIndex))
         {
-            VarSetOps::AddElemD(this, fgCurUseSet, lcl->lvVarIndex);
+            VarSetOps::AddElemD(this, state.fgCurUseSet, lcl->lvVarIndex);
         }
 
         if (isDef)
         {
-            VarSetOps::AddElemD(this, fgCurDefSet, lcl->lvVarIndex);
+            VarSetOps::AddElemD(this, state.fgCurDefSet, lcl->lvVarIndex);
         }
 
         return;
@@ -79,14 +79,14 @@ void Compiler::fgMarkUseDef(GenTreeLclVarCommon* node)
         bool totalOverlap = (lclOffset <= fieldOffset) && (fieldEndOffset <= lclEndOffset);
         bool isFieldUse   = !isDef || !totalOverlap;
 
-        if (isFieldUse && !VarSetOps::IsMember(this, fgCurDefSet, fieldLcl->GetLivenessBitIndex()))
+        if (isFieldUse && !VarSetOps::IsMember(this, state.fgCurDefSet, fieldLcl->GetLivenessBitIndex()))
         {
-            VarSetOps::AddElemD(this, fgCurUseSet, fieldLcl->GetLivenessBitIndex());
+            VarSetOps::AddElemD(this, state.fgCurUseSet, fieldLcl->GetLivenessBitIndex());
         }
 
         if (isDef)
         {
-            VarSetOps::AddElemD(this, fgCurDefSet, fieldLcl->GetLivenessBitIndex());
+            VarSetOps::AddElemD(this, state.fgCurDefSet, fieldLcl->GetLivenessBitIndex());
         }
     }
 }
@@ -191,7 +191,7 @@ void Compiler::livInitNewBlock(BasicBlock* block)
     block->bbMemoryLiveOut = false;
 }
 
-void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
+void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
 {
     switch (tree->GetOper())
     {
@@ -201,11 +201,11 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
             {
                 if (lvaGetDesc(tree->AsLclVarCommon())->IsAddressExposed())
                 {
-                    fgCurMemoryUse = true;
+                    state.fgCurMemoryUse = true;
                 }
                 else
                 {
-                    fgMarkUseDef(tree->AsLclVarCommon());
+                    fgMarkUseDef(state, tree->AsLclVarCommon());
                 }
             }
             break;
@@ -225,7 +225,7 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
             if ((tree->gtFlags & GTF_IND_VOLATILE) != 0)
             {
                 // For any Volatile indirection, we must handle it as a memory def
-                fgCurMemoryDef = true;
+                state.fgCurMemoryDef = true;
             }
 
             // If the GT_IND is the lhs of an assignment, we'll handle it
@@ -240,7 +240,7 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
                     assert(lvaGetDesc(lclNode)->IsAddressExposed());
                 }
 
-                fgCurMemoryUse = true;
+                state.fgCurMemoryUse = true;
             }
             break;
 
@@ -253,14 +253,14 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
         case GT_CMPXCHG:
         case GT_COPY_BLK:
         case GT_INIT_BLK:
-            fgCurMemoryUse   = true;
-            fgCurMemoryDef   = true;
-            fgCurMemoryHavoc = true;
+            state.fgCurMemoryUse   = true;
+            state.fgCurMemoryDef   = true;
+            state.fgCurMemoryHavoc = true;
             break;
 
         case GT_MEMORYBARRIER:
             // Simliar to any Volatile indirection, we must handle this as a definition of GcHeap/ByrefExposed
-            fgCurMemoryDef = true;
+            state.fgCurMemoryDef = true;
             break;
 
 #ifdef FEATURE_HW_INTRINSICS
@@ -272,11 +272,11 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
             //
             if (hwIntrinsicNode->OperIsMemoryStore())
             {
-                fgCurMemoryDef = true;
+                state.fgCurMemoryDef = true;
             }
             if (hwIntrinsicNode->OperIsMemoryLoad())
             {
-                fgCurMemoryUse = true;
+                state.fgCurMemoryUse = true;
             }
             break;
         }
@@ -298,9 +298,9 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
             }
             if (modHeap)
             {
-                fgCurMemoryUse   = true;
-                fgCurMemoryDef   = true;
-                fgCurMemoryHavoc = true;
+                state.fgCurMemoryUse   = true;
+                state.fgCurMemoryDef   = true;
+                state.fgCurMemoryHavoc = true;
             }
             break;
         }
@@ -312,11 +312,11 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
 
                 if (lvaGetDesc(lclNode)->IsAddressExposed())
                 {
-                    fgCurMemoryDef = true;
+                    state.fgCurMemoryDef = true;
                     break;
                 }
 
-                fgMarkUseDef(lclNode);
+                fgMarkUseDef(state, lclNode);
                 break;
             }
 
@@ -328,7 +328,7 @@ void Compiler::fgPerNodeLocalVarLiveness(GenTree* tree)
                 }
             }
 
-            fgCurMemoryDef = true;
+            state.fgCurMemoryDef = true;
             break;
 
         case GT_QMARK:
@@ -350,15 +350,16 @@ void Compiler::fgPerBlockLocalVarLiveness()
 
     for (BasicBlock* block : Blocks())
     {
-        fgCurUseSet = block->bbVarUse;
-        fgCurDefSet = block->bbVarDef;
+        LivenessState state;
 
-        VarSetOps::ClearD(this, fgCurUseSet);
-        VarSetOps::ClearD(this, fgCurDefSet);
+        state.fgCurUseSet      = block->bbVarUse;
+        state.fgCurDefSet      = block->bbVarDef;
+        state.fgCurMemoryUse   = false;
+        state.fgCurMemoryDef   = false;
+        state.fgCurMemoryHavoc = false;
 
-        fgCurMemoryUse   = false;
-        fgCurMemoryDef   = false;
-        fgCurMemoryHavoc = false;
+        VarSetOps::ClearD(this, state.fgCurUseSet);
+        VarSetOps::ClearD(this, state.fgCurDefSet);
 
         compCurBB = block;
 
@@ -368,16 +369,15 @@ void Compiler::fgPerBlockLocalVarLiveness()
 
             for (GenTree* const node : stmt->Nodes())
             {
-                fgPerNodeLocalVarLiveness(node);
+                fgPerNodeLocalVarLiveness(state, node);
             }
         }
 
-        block->bbVarUse = fgCurUseSet;
-        block->bbVarDef = fgCurDefSet;
-
-        block->bbMemoryUse   = fgCurMemoryUse;
-        block->bbMemoryDef   = fgCurMemoryDef;
-        block->bbMemoryHavoc = fgCurMemoryHavoc;
+        block->bbVarUse      = state.fgCurUseSet;
+        block->bbVarDef      = state.fgCurDefSet;
+        block->bbMemoryUse   = state.fgCurMemoryUse;
+        block->bbMemoryDef   = state.fgCurMemoryDef;
+        block->bbMemoryHavoc = state.fgCurMemoryHavoc;
 
         // Also clear the IN set, just in case we will do multiple DFAs
         VarSetOps::ClearD(this, block->bbLiveIn);
@@ -394,11 +394,13 @@ void Compiler::fgPerBlockLocalVarLivenessLIR()
 
     for (BasicBlock* block : Blocks())
     {
-        fgCurUseSet = block->bbVarUse;
-        fgCurDefSet = block->bbVarDef;
+        LivenessState state;
 
-        VarSetOps::ClearD(this, fgCurUseSet);
-        VarSetOps::ClearD(this, fgCurDefSet);
+        state.fgCurUseSet = block->bbVarUse;
+        state.fgCurDefSet = block->bbVarDef;
+
+        VarSetOps::ClearD(this, state.fgCurUseSet);
+        VarSetOps::ClearD(this, state.fgCurDefSet);
 
         for (GenTree* node : LIR::AsRange(block))
         {
@@ -406,7 +408,7 @@ void Compiler::fgPerBlockLocalVarLivenessLIR()
             {
                 if (!lvaGetDesc(node->AsLclVarCommon())->IsAddressExposed())
                 {
-                    fgMarkUseDef(node->AsLclVarCommon());
+                    fgMarkUseDef(state, node->AsLclVarCommon());
                 }
             }
             else if (node->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
@@ -415,8 +417,8 @@ void Compiler::fgPerBlockLocalVarLivenessLIR()
             }
         }
 
-        block->bbVarUse = fgCurUseSet;
-        block->bbVarDef = fgCurDefSet;
+        block->bbVarUse = state.fgCurUseSet;
+        block->bbVarDef = state.fgCurDefSet;
 
         // Also clear the IN set, just in case we will do multiple DFAs
         VarSetOps::ClearD(this, block->bbLiveIn);
