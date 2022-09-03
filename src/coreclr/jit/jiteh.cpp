@@ -1794,11 +1794,6 @@ void Compiler::fgRemoveEH()
 
 void Compiler::fgSortEHTable()
 {
-    if (!fgNeedToSortEHTable)
-    {
-        return;
-    }
-
     // Now, all fields of the EH table are set except for those that are related
     // to nesting. We need to first sort the table to ensure that an EH clause
     // appears before any try or handler that it is nested within. The CLI spec
@@ -3670,11 +3665,11 @@ void Compiler::verInsertEhNode(EHTree& tree, CORINFO_EH_CLAUSE* clause, EHblkDsc
         tryNode->ehnFilterNode = filterNode;
     }
 
-    verInsertEhNodeInTree(&tree.ehnTree, tryNode);
-    verInsertEhNodeInTree(&tree.ehnTree, handlerNode);
+    verInsertEhNodeInTree(tree, tryNode);
+    verInsertEhNodeInTree(tree, handlerNode);
     if (filterNode)
     {
-        verInsertEhNodeInTree(&tree.ehnTree, filterNode);
+        verInsertEhNodeInTree(tree, filterNode);
     }
 }
 
@@ -3735,7 +3730,7 @@ void Compiler::verInsertEhNode(EHTree& tree, CORINFO_EH_CLAUSE* clause, EHblkDsc
 
 */
 
-void Compiler::verInsertEhNodeInTree(EHNodeDsc** ppRoot, EHNodeDsc* node)
+void Compiler::verInsertEhNodeInTree(EHTree& tree, EHNodeDsc* node)
 {
     unsigned nStart = node->ehnStartOffset;
     unsigned nEnd   = node->ehnEndOffset;
@@ -3747,6 +3742,8 @@ void Compiler::verInsertEhNodeInTree(EHNodeDsc** ppRoot, EHNodeDsc* node)
     node->ehnNext       = nullptr;
     node->ehnChild      = nullptr;
     node->ehnEquivalent = nullptr;
+
+    EHNodeDsc** ppRoot = &tree.ehnTree;
 
     while (true)
     {
@@ -3829,7 +3826,7 @@ void Compiler::verInsertEhNodeInTree(EHNodeDsc** ppRoot, EHNodeDsc* node)
                 // handler clause came first in the table. The rest of the compiler
                 // doesn't expect this, so sort the EH table.
 
-                fgNeedToSortEHTable = true;
+                tree.fgNeedToSortEHTable = true;
 
                 // Case 12 (nStart == rStart)
                 // non try blocks are not allowed to start at the same offset

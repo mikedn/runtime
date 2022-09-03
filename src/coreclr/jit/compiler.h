@@ -3045,6 +3045,7 @@ public:
     {
         EHNodeDsc* ehnTree = nullptr; // root of the tree comprising the EHnodes.
         EHNodeDsc* ehnNext;           // root of the tree comprising the EHnodes.
+        bool       fgNeedToSortEHTable = false;
 
         EHTree(Compiler* compiler, unsigned numEHClauses);
     };
@@ -3352,11 +3353,9 @@ public:
     void fgDispHandlerTab();
 #endif // DEBUG
 
-    bool fgNeedToSortEHTable;
-
     void verInitEHTree(unsigned numEHClauses);
     void verInsertEhNode(EHTree& tree, CORINFO_EH_CLAUSE* clause, EHblkDsc* handlerTab);
-    void verInsertEhNodeInTree(EHNodeDsc** ppRoot, EHNodeDsc* node);
+    void verInsertEhNodeInTree(EHTree& tree, EHNodeDsc* node);
     void verInsertEhNodeParent(EHNodeDsc** ppRoot, EHNodeDsc* node);
     void verCheckNestingLevel(EHNodeDsc* initRoot);
 

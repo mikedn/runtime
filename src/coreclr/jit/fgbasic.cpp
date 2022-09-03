@@ -2623,8 +2623,6 @@ void Compiler::compCreateEHTable()
      * when we do need to sort it.
      */
 
-    fgNeedToSortEHTable = false;
-
     EHTree     ehTree(this, info.compXcptnsCount);
     EHNodeDsc* initRoot = ehTree.ehnNext; // remember the original root since
                                           // it may get modified during insertion
@@ -2839,7 +2837,10 @@ void Compiler::compCreateEHTable()
 
     } // end foreach handler table entry
 
-    fgSortEHTable();
+    if (ehTree.fgNeedToSortEHTable)
+    {
+        fgSortEHTable();
+    }
 
     // Next, set things related to nesting that depend on the sorting being complete.
 
