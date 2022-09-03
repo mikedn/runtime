@@ -6345,11 +6345,6 @@ public:
      *               Value/Assertion propagation
      *************************************************************************/
 protected:
-    static fgWalkPreFn optAddCopiesCallback;
-    static fgWalkPreFn optVNAssertionPropStmtVisitor;
-    unsigned           optAddCopyLclNum;
-    GenTree*           optAddCopyAsgnNode;
-
     AssertionDsc*  apAssertionTable;     // table that holds info about value assignments
     AssertionIndex apAssertionCount = 0; // total number of assertions in the assertion table
 
