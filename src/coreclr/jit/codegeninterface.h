@@ -80,6 +80,10 @@ public:
         m_genAlignLoops = value;
     }
 
+    //  The following is used to create the 'method JIT info' block.
+    size_t compInfoBlkSize;
+    BYTE*  compInfoBlkAddr;
+
     GCInfo gcInfo;
 
     RegSet   regSet;

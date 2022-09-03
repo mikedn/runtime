@@ -7534,10 +7534,6 @@ public:
     Statement*  compCurStmt;         // the current statement in process
     GenTree*    compCurTree;         // the current tree in process
 
-    //  The following is used to create the 'method JIT info' block.
-    size_t compInfoBlkSize;
-    BYTE*  compInfoBlkAddr;
-
     EHblkDsc* compHndBBtab           = nullptr; // array of EH data
     unsigned  compHndBBtabCount      = 0;       // element count of used elements in EH data array
     unsigned  compHndBBtabAllocCount = 0;       // element count of allocated elements in EH data array

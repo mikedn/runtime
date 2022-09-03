@@ -1846,7 +1846,7 @@ void CodeGen::genEmitUnwindDebugGCandEH()
             fprintf(dmpf, "    Const at %p [%04X bytes]\n", dspPtr(consPtr), consSize);
         }
 #ifdef JIT32_GCENCODER
-        size_t infoSize = compiler->compInfoBlkSize;
+        size_t infoSize = compInfoBlkSize;
         if (infoSize)
             fprintf(dmpf, "    Info  at %p [%04X bytes]\n", dspPtr(infoPtr), infoSize);
 #endif // JIT32_GCENCODER
@@ -1892,7 +1892,7 @@ void CodeGen::genEmitUnwindDebugGCandEH()
 
     size_t dataSize = GetEmitter()->emitDataSize();
     grossVMsize += compiler->info.compILCodeSize;
-    totalNCsize += codeSize + dataSize + compiler->compInfoBlkSize;
+    totalNCsize += codeSize + dataSize + compInfoBlkSize;
     grossNCsize += codeSize + dataSize;
 
 #endif // DISPLAY_SIZES
