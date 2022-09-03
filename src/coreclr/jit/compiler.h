@@ -6055,21 +6055,21 @@ protected:
     bool fgMightHaveLoop(); // returns true if there are any backedges
 
 public:
-    LoopDsc*      optLoopTable = nullptr; // loop descriptor table
-    unsigned char optLoopCount = 0;       // number of tracked loops
+    LoopDsc* optLoopTable = nullptr; // loop descriptor table
+    unsigned optLoopCount = 0;       // number of tracked loops
 
 #ifdef DEBUG
     unsigned char loopAlignCandidates = 0; // number of loops identified for alignment
     unsigned char loopsAligned        = 0; // number of loops actually aligned
 #endif
 
-    bool optRecordLoop(BasicBlock*   head,
-                       BasicBlock*   first,
-                       BasicBlock*   top,
-                       BasicBlock*   entry,
-                       BasicBlock*   bottom,
-                       BasicBlock*   exit,
-                       unsigned char exitCnt);
+    bool optRecordLoop(BasicBlock* head,
+                       BasicBlock* first,
+                       BasicBlock* top,
+                       BasicBlock* entry,
+                       BasicBlock* bottom,
+                       BasicBlock* exit,
+                       unsigned    exitCnt);
 
 protected:
     unsigned optCallCount         = 0; // number of calls made in the method
@@ -6115,11 +6115,11 @@ protected:
 
     // Ensures that all the loops in the loop nest rooted at "loopInd" (an index into the loop table) are 'canonical' --
     // each loop has a unique "top."  Returns "true" iff the flowgraph has been modified.
-    bool optCanonicalizeLoopNest(unsigned char loopInd);
+    bool optCanonicalizeLoopNest(unsigned loopInd);
 
     // Ensures that the loop "loopInd" (an index into the loop table) is 'canonical' -- it has a unique "top,"
     // unshared with any other loop.  Returns "true" iff the flowgraph has been modified
-    bool optCanonicalizeLoop(unsigned char loopInd);
+    bool optCanonicalizeLoop(unsigned loopInd);
 
     // Requires "l1" to be a valid loop table index, and not "BasicBlock::NOT_IN_LOOP".  Requires "l2" to be
     // a valid loop table index, or else "BasicBlock::NOT_IN_LOOP".  Returns true
