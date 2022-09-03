@@ -167,6 +167,9 @@ void Compiler::fgChangeSwitchBlock(BasicBlock* oldSwitchBlock, BasicBlock* newSw
     noway_assert(oldSwitchBlock != nullptr);
     noway_assert(newSwitchBlock != nullptr);
     noway_assert(oldSwitchBlock->bbJumpKind == BBJ_SWITCH);
+    noway_assert(newSwitchBlock->bbJumpKind == BBJ_SWITCH);
+
+    newSwitchBlock->bbJumpSwt = oldSwitchBlock->bbJumpSwt;
 
     // Walk the switch's jump table, updating the predecessor for each branch.
     for (BasicBlock* const bJump : oldSwitchBlock->SwitchTargets())
@@ -196,22 +199,7 @@ void Compiler::fgChangeSwitchBlock(BasicBlock* oldSwitchBlock, BasicBlock* newSw
         fgAddRefPred(bJump, newSwitchBlock);
     }
 
-    if (m_switchDescMap != nullptr)
-    {
-        SwitchUniqueSuccSet uniqueSuccSet;
-
-        // If already computed and cached the unique descriptors for the old block, let's
-        // update those for the new block.
-        if (m_switchDescMap->Lookup(oldSwitchBlock, &uniqueSuccSet))
-        {
-            m_switchDescMap->Set(newSwitchBlock, uniqueSuccSet, BlockToSwitchDescMap::Overwrite);
-        }
-        else
-        {
-            fgInvalidateSwitchDescMapEntry(newSwitchBlock);
-        }
-        fgInvalidateSwitchDescMapEntry(oldSwitchBlock);
-    }
+    oldSwitchBlock->bbJumpSwt = nullptr;
 }
 
 //------------------------------------------------------------------------
@@ -3520,10 +3508,6 @@ BasicBlock* Compiler::fgSplitBlockAtEnd(BasicBlock* curr)
     }
     else
     {
-        // In the case of a switch statement there's more complicated logic in order to wire up the predecessor lists
-        // but fortunately there's an existing method that implements this functionality.
-        newBlock->bbJumpSwt = curr->bbJumpSwt;
-
         fgChangeSwitchBlock(curr, newBlock);
 
         curr->bbJumpSwt = nullptr;

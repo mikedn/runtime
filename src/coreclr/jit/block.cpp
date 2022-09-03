@@ -1206,10 +1206,7 @@ unsigned BasicBlock::NumSucc(Compiler* comp)
             }
 
         case BBJ_SWITCH:
-        {
-            Compiler::SwitchUniqueSuccSet sd = comp->GetDescriptorForSwitch(this);
-            return sd.numDistinctSuccs;
-        }
+            return comp->GetDescriptorForSwitch(this)->numDistinctSuccs;
 
         default:
             unreached();
@@ -1266,9 +1263,9 @@ BasicBlock* BasicBlock::GetSucc(unsigned i, Compiler* comp)
 
         case BBJ_SWITCH:
         {
-            Compiler::SwitchUniqueSuccSet sd = comp->GetDescriptorForSwitch(this);
-            assert(i < sd.numDistinctSuccs); // Range check.
-            return sd.nonDuplicates[i];
+            BBswtDesc* sd = comp->GetDescriptorForSwitch(this);
+            assert(i < sd->numDistinctSuccs); // Range check.
+            return sd->nonDuplicates[i];
         }
 
         default:

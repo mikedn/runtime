@@ -1914,9 +1914,6 @@ void Compiler::fgCompactBlocks(BasicBlock* block, BasicBlock* bNext)
             break;
 
         case BBJ_SWITCH:
-            block->bbJumpSwt = bNext->bbJumpSwt;
-            // We are moving the switch jump from bNext to block.  Examine the jump targets
-            // of the BBJ_SWITCH at bNext and replace the predecessor to 'bNext' with ones to 'block'
             fgChangeSwitchBlock(bNext, block);
             break;
 

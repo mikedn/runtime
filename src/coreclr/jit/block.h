@@ -1522,10 +1522,19 @@ struct BBswtDesc
     unsigned             bbsDominantCase;
     BasicBlock::weight_t bbsDominantFraction;
 
-    bool bbsHasDefault;      // true if last switch case is a default case
-    bool bbsHasDominantCase; // true if switch has a dominant case
+    bool bbsHasDefault      = true;  // true if last switch case is a default case
+    bool bbsHasDominantCase = false; // true if switch has a dominant case
 
-    BBswtDesc() : bbsHasDefault(true), bbsHasDominantCase(false)
+    unsigned     numDistinctSuccs;        // Number of distinct targets of the switch.
+    BasicBlock** nonDuplicates = nullptr; // Array of "numDistinctSuccs", containing all the distinct switch target
+                                          // successors.
+
+    // The switch block "switchBlk" just had an entry with value "from" modified to the value "to".
+    // Update "this" as necessary: if "from" is no longer an element of the jump table of "switchBlk",
+    // remove it from "this", and ensure that "to" is a member.  Use "alloc" to do any required allocation.
+    void UpdateTarget(CompAllocator alloc, BasicBlock* switchBlk, BasicBlock* from, BasicBlock* to);
+
+    BBswtDesc()
     {
     }
 

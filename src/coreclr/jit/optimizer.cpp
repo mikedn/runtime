@@ -2568,12 +2568,7 @@ void Compiler::optRedirectBlock(BasicBlock* blk, BlockToBlockMap* redirectMap, c
             // If any redirections happened, invalidate the switch table map for the switch.
             if (redirected)
             {
-                // Don't create a new map just to try to remove an entry.
-                BlockToSwitchDescMap* switchMap = GetSwitchDescMap(/* createIfNull */ false);
-                if (switchMap != nullptr)
-                {
-                    switchMap->Remove(blk);
-                }
+                blk->bbJumpSwt->nonDuplicates = nullptr;
             }
         }
         break;

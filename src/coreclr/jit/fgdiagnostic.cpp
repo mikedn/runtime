@@ -3484,28 +3484,24 @@ void Compiler::fgDebugCheckBlockLinks()
         // If this is a switch, check that the tables are consistent.
         // Note that we don't call GetSwitchDescMap(), because it has the side-effect
         // of allocating it if it is not present.
-        if (block->bbJumpKind == BBJ_SWITCH && m_switchDescMap != nullptr)
+        if ((block->bbJumpKind == BBJ_SWITCH) && (block->bbJumpSwt->nonDuplicates != nullptr))
         {
-            SwitchUniqueSuccSet uniqueSuccSet;
-            if (m_switchDescMap->Lookup(block, &uniqueSuccSet))
+            // Create a set with all the successors. Don't use BlockSet, so we don't need to worry
+            // about the BlockSet epoch.
+            BitVecTraits bitVecTraits(fgBBNumMax + 1, this);
+            BitVec       succBlocks(BitVecOps::MakeEmpty(&bitVecTraits));
+            for (BasicBlock* const bTarget : block->SwitchTargets())
             {
-                // Create a set with all the successors. Don't use BlockSet, so we don't need to worry
-                // about the BlockSet epoch.
-                BitVecTraits bitVecTraits(fgBBNumMax + 1, this);
-                BitVec       succBlocks(BitVecOps::MakeEmpty(&bitVecTraits));
-                for (BasicBlock* const bTarget : block->SwitchTargets())
-                {
-                    BitVecOps::AddElemD(&bitVecTraits, succBlocks, bTarget->bbNum);
-                }
-                // Now we should have a set of unique successors that matches what's in the switchMap.
-                // First, check the number of entries, then make sure all the blocks in uniqueSuccSet
-                // are in the BlockSet.
-                unsigned count = BitVecOps::Count(&bitVecTraits, succBlocks);
-                assert(uniqueSuccSet.numDistinctSuccs == count);
-                for (unsigned i = 0; i < uniqueSuccSet.numDistinctSuccs; i++)
-                {
-                    assert(BitVecOps::IsMember(&bitVecTraits, succBlocks, uniqueSuccSet.nonDuplicates[i]->bbNum));
-                }
+                BitVecOps::AddElemD(&bitVecTraits, succBlocks, bTarget->bbNum);
+            }
+            // Now we should have a set of unique successors that matches what's in the switchMap.
+            // First, check the number of entries, then make sure all the blocks in uniqueSuccSet
+            // are in the BlockSet.
+            unsigned count = BitVecOps::Count(&bitVecTraits, succBlocks);
+            assert(block->bbJumpSwt->numDistinctSuccs == count);
+            for (unsigned i = 0; i < block->bbJumpSwt->numDistinctSuccs; i++)
+            {
+                assert(BitVecOps::IsMember(&bitVecTraits, succBlocks, block->bbJumpSwt->nonDuplicates[i]->bbNum));
             }
         }
     }
