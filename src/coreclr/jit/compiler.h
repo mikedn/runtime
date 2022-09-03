@@ -1578,7 +1578,6 @@ struct CompiledMethodInfo
 
     const BYTE*     compCode;
     IL_OFFSET       compILCodeSize;         // The IL code size
-    IL_OFFSET       compILImportSize = 0;   // Estimated amount of IL actually imported
     IL_OFFSET       compILEntry;            // The IL entry point (normally 0)
     PatchpointInfo* compPatchpointInfo;     // Patchpoint data for OSR (normally nullptr)
     UNATIVE_OFFSET  compNativeCodeSize = 0; // The native code size, after instructions are issued. This

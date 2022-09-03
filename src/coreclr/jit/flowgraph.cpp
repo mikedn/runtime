@@ -577,12 +577,9 @@ PhaseStatus Compiler::fgImport()
                 compIsForInlining() ? "inlinee" : "root method", importedILSize, info.compILCodeSize);
     }
 
-    // Record this for diagnostics and for the inliner's budget computations
-    info.compILImportSize = importedILSize;
-
     if (compIsForInlining())
     {
-        compInlineResult->SetImportedILSize(info.compILImportSize);
+        compInlineResult->SetImportedILSize(importedILSize);
     }
 
     // Full preds are only used later on
