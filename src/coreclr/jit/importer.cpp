@@ -7946,11 +7946,6 @@ DONE_INTRINSIC:
         }
     }
 
-    // VSD functions get a new call target each time we getCallInfo, so clear the cache.
-    // Also, the call info cache for CALLI instructions is largely incomplete, so clear it out.
-    // if ( (opcode == CEE_CALLI) || (callInfoCache.fetchCallInfo().kind == CORINFO_VIRTUALCALL_STUB))
-    //  callInfoCache.uncacheCallInfo();
-
     return callRetTyp;
 }
 #ifdef _PREFAST_
