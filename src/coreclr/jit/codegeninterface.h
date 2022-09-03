@@ -80,6 +80,8 @@ public:
         m_genAlignLoops = value;
     }
 
+    Compiler* compiler;
+
     //  The following holds information about instr offsets in terms of generated code.
     struct IPmappingDsc
     {
@@ -103,11 +105,11 @@ public:
     RegState intRegState;
     RegState floatRegState;
 
-protected:
-    Compiler* compiler;
-    bool      m_genAlignLoops;
+    FrameType rpFrameType;
 
 protected:
+    bool m_genAlignLoops;
+
 #ifdef DEBUG
     VARSET_TP genTempOldLife;
     bool      genTempLiveChg = true;

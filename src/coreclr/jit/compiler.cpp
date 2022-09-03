@@ -4056,21 +4056,21 @@ void Compiler::compCompileFinish()
             printf("   | ");
         }
 
-        if (rpFrameType == FT_EBP_FRAME)
+        if (codeGen->rpFrameType == FT_EBP_FRAME)
         {
             printf("%3s | ", STR_FPBASE);
         }
-        else if (rpFrameType == FT_ESP_FRAME)
+        else if (codeGen->rpFrameType == FT_ESP_FRAME)
         {
             printf("%3s | ", STR_SPBASE);
         }
 #if DOUBLE_ALIGN
-        else if (rpFrameType == FT_DOUBLE_ALIGN_FRAME)
+        else if (codeGen->rpFrameType == FT_DOUBLE_ALIGN_FRAME)
         {
             printf("dbl | ");
         }
 #endif
-        else // (rpFrameType == FT_NOT_SET)
+        else // (codeGen->rpFrameType == FT_NOT_SET)
         {
             printf("??? | ");
         }

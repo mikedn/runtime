@@ -4559,11 +4559,7 @@ public:
     bool fgRangeUsedInEdgeWeights = true;  // true if some of the edgeWeight are expressed in Min..Max form
     bool fgNeedsUpdateFlowGraph   = false; // true if we need to run fgUpdateFlowGraph
 
-    BasicBlock::weight_t fgCalledCount = BB_ZERO_WEIGHT; // count of the number of times this method was called
-                                                         // This is derived from the profile data
-                                                         // or is BB_UNITY_WEIGHT when we don't have profile data
-
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
     bool fgFuncletsCreated = false; // true if the funclet creation phase has been run
 #endif
 
@@ -4573,11 +4569,13 @@ public:
 #ifdef DEBUG
     bool jitFallbackCompile; // Are we doing a fallback compile? That is, have we executed a NO_WAY assert,
                              //   and we are trying to compile again in a "safer", minopts mode?
-#endif
 
-#if defined(DEBUG)
     bool fgPrintInlinedMethods = false;
 #endif
+
+    BasicBlock::weight_t fgCalledCount = BB_ZERO_WEIGHT; // count of the number of times this method was called
+                                                         // This is derived from the profile data or is
+                                                         // BB_UNITY_WEIGHT when we don't have profile data
 
     //-------------------------------------------------------------------------
 
@@ -6490,10 +6488,6 @@ public:
 #endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
 
 protected:
-    // Some things are used by both LSRA and regpredict allocators.
-
-    FrameType rpFrameType;
-
     bool rpMustCreateEBPFrame(INDEBUG(const char** wbReason));
 
 private:
