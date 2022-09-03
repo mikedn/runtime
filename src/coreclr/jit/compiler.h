@@ -3019,6 +3019,7 @@ class Compiler
     */
 
 public:
+    ArenaAllocator*  compArenaAllocator;
     hashBvGlobalData hbvGlobalData; // Used by the hashBv bitvector package.
 
 #ifdef DEBUG
@@ -3831,7 +3832,7 @@ public:
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     */
 
-    enum FrameLayoutState
+    enum FrameLayoutState : uint8_t
     {
         NO_FRAME_LAYOUT,
         INITIAL_FRAME_LAYOUT,
@@ -3885,8 +3886,6 @@ public:
     void lvaSetLiveInOutOfHandler(unsigned lclNum);
 
     void lvSetMinOptsDoNotEnreg();
-
-    bool lvaEnregEHVars;
 
 #ifdef DEBUG
     // Reasons why we can't enregister.  Some of these correspond to debug properties of local vars.
@@ -4204,6 +4203,8 @@ public:
     Importer::StackEntry* impSharedStack     = nullptr;
     InlineInfo*           impInlineInfo;
     InlineStrategy*       m_inlineStrategy = nullptr;
+    Compiler*             InlineeCompiler  = nullptr; // The Compiler instance for the inlinee
+    InlineResult*         compInlineResult = nullptr; // The result of importing the inlinee method.
     CORINFO_CLASS_HANDLE  impPromotableStructTypeCache[2]{};
 
     // The Compiler* that is the root of the inlining tree of which "this" is a member.
@@ -4215,10 +4216,6 @@ public:
         return m_compCycles;
     }
 #endif // defined(DEBUG) || defined(INLINE_DATA)
-
-    bool fgNoStructPromotion = false;               // Set to true to turn off struct promotion for this method.
-    INDEBUG(bool fgNoStructParamPromotion = false;) // Set to true to turn off struct promotion of this method's
-                                                    // parameters.
 
     //=========================================================================
     //                          PROTECTED
@@ -4406,6 +4403,11 @@ public:
     unsigned* fgDomTreePreOrder;
     unsigned* fgDomTreePostOrder;
 
+    BlockSet fgEnterBlks = BlockSetOps::UninitVal(); // Set of blocks which have a special transfer of control; the
+                                                     // "entry" blocks plus EH handler begin blocks.
+
+    jitstd::vector<flowList*>* fgPredListSortVector = nullptr;
+
     // Dominator tree used by SSA construction and copy propagation (the two are expected to use the same tree
     // in order to avoid the need for SSA reconstruction and an "out of SSA" phase).
     DomTreeNode* fgSsaDomTree;
@@ -4527,9 +4529,6 @@ public:
     bool fgOptimizedFinally = false; // Did we optimize any try-finallys?
     bool fgHasSwitch        = false; // any BBJ_SWITCH jumps?
 
-    BlockSet fgEnterBlks = BlockSetOps::UninitVal(); // Set of blocks which have a special transfer of control; the
-                                                     // "entry" blocks plus EH handler begin blocks.
-
 #ifdef DEBUG
     bool fgReachabilitySetsValid = false; // Are the bbReach sets valid?
     bool fgEnterBlksSetValid     = false; // Is the fgEnterBlks set valid?
@@ -4579,8 +4578,6 @@ public:
 #if defined(DEBUG)
     bool fgPrintInlinedMethods = false;
 #endif
-
-    jitstd::vector<flowList*>* fgPredListSortVector = nullptr;
 
     //-------------------------------------------------------------------------
 
@@ -4789,8 +4786,6 @@ public:
 
     // Reset any data structures to the state expected by "fgSsaBuild", so it can be run again.
     void fgResetForSsa();
-
-    bool ssaForm = false;
 
     // Returns "true" if this is a special variable that is never zero initialized in the prolog.
     inline bool fgVarIsNeverZeroInitializedInProlog(unsigned varNum);
@@ -5285,9 +5280,6 @@ public:
 
     bool gtIsSmallIntCastNeeded(GenTree* tree, var_types toType);
     GenTree* fgMorphNormalizeLclVarStore(GenTreeOp* asg);
-
-    // The following check for loops that don't execute calls
-    bool fgLoopCallMarked = false;
 
     void fgLoopCallTest(BasicBlock* srcBB, BasicBlock* dstBB);
     void fgLoopCallMark();
@@ -6058,8 +6050,7 @@ public:
     };
 
 protected:
-    bool fgMightHaveLoop();  // returns true if there are any backedges
-    bool fgHasLoops = false; // True if this method has any loops, set in fgComputeReachability
+    bool fgMightHaveLoop(); // returns true if there are any backedges
 
 public:
     LoopDsc*      optLoopTable = nullptr; // loop descriptor table
@@ -6216,7 +6207,6 @@ public:
 // String to use for formatting CSE numbers. Note that this is the positive number, e.g., from GET_CSE_INDEX().
 #define FMT_CSE "CSE%02u"
 
-    bool csePhase = false; // True when we are executing the CSE phase
 #if 0
     unsigned cseValueCount; // Count of CSE values, currently unused, see cseCanSwapOrder.
 #endif
@@ -6462,8 +6452,6 @@ protected:
     bool optReachWithoutCall(BasicBlock* srcBB, BasicBlock* dstBB);
 
 protected:
-    bool optLoopsMarked = false;
-
     /*
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -7145,10 +7133,6 @@ private:
     */
 
 public:
-    Compiler* InlineeCompiler = nullptr; // The Compiler instance for the inlinee
-
-    InlineResult* compInlineResult = nullptr; // The result of importing the inlinee method.
-
     bool compDoAggressiveInlining = false; // If true, mark every method as CORINFO_FLG_FORCEINLINE
     bool compJmpOpUsed            = false; // Does the method do a JMP
 #ifndef TARGET_64BIT
@@ -7179,12 +7163,19 @@ public:
     size_t  compCycleEstimate;              // The estimated cycle count of the method as per `gtSetEvalOrder`
 #endif                                      // DEBUG
 
-    bool fgLocalVarLivenessDone = false; // Note that this one is used outside of debug.
-    bool compLSRADone           = false;
-    bool compRationalIRForm     = false;
+    bool fgNoStructPromotion = false;               // Set to true to turn off struct promotion for this method.
+    INDEBUG(bool fgNoStructParamPromotion = false;) // Set to true to turn off struct promotion of this method's
+                                                    // parameters.
 
-    bool compUsesThrowHelper = false; // There is a call to a THROW_HELPER for the compiled method.
-
+    bool optLoopsMarked            = false;
+    bool fgLoopCallMarked          = false; // The following check for loops that don't execute calls
+    bool fgHasLoops                = false; // True if this method has any loops, set in fgComputeReachability
+    bool fgLocalVarLivenessDone    = false; // Note that this one is used outside of debug.
+    bool ssaForm                   = false;
+    bool csePhase                  = false; // True when we are executing the CSE phase
+    bool compLSRADone              = false;
+    bool compRationalIRForm        = false;
+    bool compUsesThrowHelper       = false; // There is a call to a THROW_HELPER for the compiled method.
     bool compGeneratingProlog      = false;
     bool compGeneratingEpilog      = false;
     bool compNeedsGSSecurityCookie = false; // There is an unsafe buffer (or localloc) on the stack.
@@ -7203,6 +7194,8 @@ public:
     // The highest frame layout state that we've completed. During frame
     // layout calculations, this is the level we are currently computing.
     FrameLayoutState lvaDoneFrameLayout = NO_FRAME_LAYOUT;
+
+    bool lvaEnregEHVars;
 
     CompilerOptions opts;
 
@@ -7614,9 +7607,6 @@ public:
 
     //-------------------------------------------------------------------------
 
-protected:
-    ArenaAllocator* compArenaAllocator;
-
 public:
     void compFunctionTraceStart();
     void compFunctionTraceEnd(void* methodCodePtr, ULONG methodCodeSize, bool isNYI);
@@ -7648,8 +7638,8 @@ protected:
     // Data required for generating profiler Enter/Leave/TailCall hooks
 
     bool  compProfilerHookNeeded; // Whether profiler Enter/Leave/TailCall hook needs to be generated for the method
-    void* compProfilerMethHnd;    // Profiler handle of the method being compiled. Passed as param to ELT callbacks
     bool  compProfilerMethHndIndirected; // Whether compProfilerHandle is pointer to the handle or is an actual handle
+    void* compProfilerMethHnd; // Profiler handle of the method being compiled. Passed as param to ELT callbacks
 #endif
 
 public:

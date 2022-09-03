@@ -916,7 +916,7 @@ Compiler::Compiler(ArenaAllocator*        alloc,
                    CORINFO_METHOD_INFO*   methodInfo,
                    ICorJitInfo*           jitInfo,
                    InlineInfo*            inlineInfo)
-    : impInlineInfo(inlineInfo), eeInfo(eeInfo), opts(), info(methodInfo, jitInfo, eeInfo), compArenaAllocator(alloc)
+    : compArenaAllocator(alloc), impInlineInfo(inlineInfo), eeInfo(eeInfo), opts(), info(methodInfo, jitInfo, eeInfo)
 {
 }
 
@@ -1600,7 +1600,7 @@ void Compiler::compInitOptions()
 
     compSetProcessor();
 
-    lvaEnregEHVars = (compEnregLocals() && JitConfig.EnableEHWriteThru());
+    lvaEnregEHVars = compEnregLocals() && JitConfig.EnableEHWriteThru();
 
 #ifdef DEBUG
     if (verbose)
