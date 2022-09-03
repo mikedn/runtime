@@ -1640,6 +1640,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget)
                     break;
                 }
 #endif
+                FALLTHROUGH;
             case CEE_MKREFANY:
             case CEE_RETHROW:
                 if (inlineResult != nullptr)

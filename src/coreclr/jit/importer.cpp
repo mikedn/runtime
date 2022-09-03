@@ -12476,42 +12476,7 @@ void Importer::ImportUnbox(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnboxAn
                 GenTree* boxPayloadOffset = gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL);
                 op1                       = gtNewOperNode(GT_ADD, TYP_BYREF, op1, boxPayloadOffset);
 
-            LDOBJ:
-                var_types lclTyp = JITtype2varType(info.compCompHnd->asCorInfoType(resolvedToken.hClass));
-                op2              = op1;
-
-                if (lclTyp == TYP_STRUCT)
-                {
-                    op1 = gtNewObjNode(resolvedToken.hClass, op1);
-                }
-                else
-                {
-                    assertImp(varTypeIsArithmetic(lclTyp));
-
-                    op1 = gtNewOperNode(GT_IND, lclTyp, op1);
-                    op1->gtFlags |= GTF_GLOB_REF;
-                }
-
-                if (op2->IsFieldAddr() && op2->AsFieldAddr()->GetFieldSeq()->IsBoxedValueField())
-                {
-                    op1->gtFlags |= GTF_IND_NONFAULTING;
-                }
-                else
-                {
-                    op1->gtFlags |= GTF_EXCEPT;
-                }
-
-                if ((lclTyp == TYP_STRUCT) ||
-                    (info.compCompHnd->getTypeForPrimitiveValueClass(resolvedToken.hClass) == CORINFO_TYPE_UNDEF))
-                {
-                    impPushOnStack(op1, typeInfo(TI_STRUCT, resolvedToken.hClass));
-                }
-                else
-                {
-                    impPushOnStack(op1);
-                }
-
-                return;
+                goto LDOBJ;
             }
             else
             {
@@ -12615,52 +12580,86 @@ void Importer::ImportUnbox(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnboxAn
 
     assert(isUnboxAny);
 
-    if (helper == CORINFO_HELP_UNBOX)
+    // Normal unbox helper returns a TYP_BYREF.
+    if (helper != CORINFO_HELP_UNBOX)
     {
-        // Normal unbox helper returns a TYP_BYREF.
-        goto LDOBJ;
-    }
-
-    assert(helper == CORINFO_HELP_UNBOX_NULLABLE);
-    assert(op1->TypeIs(TYP_STRUCT));
+        assert(helper == CORINFO_HELP_UNBOX_NULLABLE);
+        assert(op1->TypeIs(TYP_STRUCT));
 
 #if FEATURE_MULTIREG_RET
-    // TODO-MIKE-Cleanup: This has nothing to do with multireg returns.
-    // No matter what the struct type is the helper returns the struct value
-    // via an "out" parameter, there's no way to return it in registers because
-    // the same helper is used for all struct types.
-    // Doing this here is bad for CQ when the destination is a memory location,
-    // because we introduce a temp instead of just passing in the address of
-    // that location. impAssignStruct (TreatAsHasRetBufArg) already handles
-    // this case so there's no real need to do this here.
-    // Adding a temp when the destination is a promotable struct local might
-    // be useful because it avoids dependent promotion. But's probably something
-    // that impAssignStruct could handle as well.
+        // TODO-MIKE-Cleanup: This has nothing to do with multireg returns.
+        // No matter what the struct type is the helper returns the struct value
+        // via an "out" parameter, there's no way to return it in registers because
+        // the same helper is used for all struct types.
+        // Doing this here is bad for CQ when the destination is a memory location,
+        // because we introduce a temp instead of just passing in the address of
+        // that location. impAssignStruct (TreatAsHasRetBufArg) already handles
+        // this case so there's no real need to do this here.
+        // Adding a temp when the destination is a promotable struct local might
+        // be useful because it avoids dependent promotion. But's probably something
+        // that impAssignStruct could handle as well.
 
-    ClassLayout*  layout  = typGetObjLayout(resolvedToken.hClass);
-    StructPassing retKind = abiGetStructReturnType(layout, CorInfoCallConvExtension::Managed, false);
+        ClassLayout*  layout  = typGetObjLayout(resolvedToken.hClass);
+        StructPassing retKind = abiGetStructReturnType(layout, CorInfoCallConvExtension::Managed, false);
 
-    if (retKind.kind == SPK_ByValue)
-    {
-        // Unbox nullable helper returns a TYP_STRUCT.
-        // For the multi-reg case we need to spill it to a temp so that
-        // we can pass the address to the unbox_nullable jit helper.
+        if (retKind.kind == SPK_ByValue)
+        {
+            // Unbox nullable helper returns a TYP_STRUCT.
+            // For the multi-reg case we need to spill it to a temp so that
+            // we can pass the address to the unbox_nullable jit helper.
 
-        unsigned tmp = lvaGrabTemp(true DEBUGARG("unbox nullable multireg temp"));
+            unsigned tmp = lvaGrabTemp(true DEBUGARG("unbox nullable multireg temp"));
 
-        lvaGetDesc(tmp)->lvIsMultiRegArg = true;
-        lvaSetStruct(tmp, layout, /* checkUnsafeBuffer */ true);
+            lvaGetDesc(tmp)->lvIsMultiRegArg = true;
+            lvaSetStruct(tmp, layout, /* checkUnsafeBuffer */ true);
 
-        op2 = gtNewLclvNode(tmp, TYP_STRUCT);
-        op1 = impAssignStruct(op2, op1, CHECK_SPILL_ALL);
-        op2 = gtNewLclVarAddrNode(tmp, TYP_BYREF);
-        op1 = gtNewCommaNode(op1, op2);
-
-        goto LDOBJ;
-    }
+            op2 = gtNewLclvNode(tmp, TYP_STRUCT);
+            op1 = impAssignStruct(op2, op1, CHECK_SPILL_ALL);
+            op2 = gtNewLclVarAddrNode(tmp, TYP_BYREF);
+            op1 = gtNewCommaNode(op1, op2);
+        }
+        else
 #endif // !FEATURE_MULTIREG_RET
+        {
+            impPushOnStack(op1, typeInfo(TI_STRUCT, resolvedToken.hClass));
+            return;
+        }
+    }
 
-    impPushOnStack(op1, typeInfo(TI_STRUCT, resolvedToken.hClass));
+LDOBJ:
+    var_types lclTyp = JITtype2varType(info.compCompHnd->asCorInfoType(resolvedToken.hClass));
+    op2              = op1;
+
+    if (lclTyp == TYP_STRUCT)
+    {
+        op1 = gtNewObjNode(resolvedToken.hClass, op1);
+    }
+    else
+    {
+        assertImp(varTypeIsArithmetic(lclTyp));
+
+        op1 = gtNewOperNode(GT_IND, lclTyp, op1);
+        op1->gtFlags |= GTF_GLOB_REF;
+    }
+
+    if (op2->IsFieldAddr() && op2->AsFieldAddr()->GetFieldSeq()->IsBoxedValueField())
+    {
+        op1->gtFlags |= GTF_IND_NONFAULTING;
+    }
+    else
+    {
+        op1->gtFlags |= GTF_EXCEPT;
+    }
+
+    if ((lclTyp == TYP_STRUCT) ||
+        (info.compCompHnd->getTypeForPrimitiveValueClass(resolvedToken.hClass) == CORINFO_TYPE_UNDEF))
+    {
+        impPushOnStack(op1, typeInfo(TI_STRUCT, resolvedToken.hClass));
+    }
+    else
+    {
+        impPushOnStack(op1);
+    }
 }
 
 int Importer::ImportBox(const BYTE* codeAddr, const BYTE* codeEnd)
@@ -17770,6 +17769,7 @@ GenTree* Importer::impParentClassTokenToHandle(CORINFO_RESOLVED_TOKEN* resolvedT
     return impTokenToHandle(resolvedToken, mustRestoreHandle, /* importParent */ true, runtimeLookup);
 }
 
+#ifdef FEATURE_READYTORUN_COMPILER
 GenTreeCall* Importer::gtNewReadyToRunHelperCallNode(CORINFO_RESOLVED_TOKEN* resolvedToken,
                                                      CorInfoHelpFunc         helper,
                                                      var_types               type,
@@ -17778,6 +17778,7 @@ GenTreeCall* Importer::gtNewReadyToRunHelperCallNode(CORINFO_RESOLVED_TOKEN* res
 {
     return comp->gtNewReadyToRunHelperCallNode(resolvedToken, helper, type, args, genericLookupKind);
 }
+#endif
 
 GenTree* Importer::gtNewRuntimeContextTree(CORINFO_RUNTIME_LOOKUP_KIND kind)
 {

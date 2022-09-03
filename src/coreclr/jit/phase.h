@@ -68,7 +68,8 @@ void DoPhase(Compiler* compiler, Phases phaseId, A action)
         A action;
 
     public:
-        ActionPhase(Compiler* compiler, Phases phaseId, A action) : Phase(compiler, phaseId), action(action)
+        ActionPhase(Compiler* compiler, Phases phaseId, A action)
+            : Phase<ActionPhase>(compiler, phaseId), action(action)
         {
         }
 
@@ -90,7 +91,7 @@ inline void DoPhase(Compiler* compiler, Phases phaseId, void (Compiler::*action)
 
     public:
         CompilerPhase(Compiler* compiler, Phases phaseId, void (Compiler::*action)())
-            : Phase(compiler, phaseId), action(action)
+            : Phase<CompilerPhase>(compiler, phaseId), action(action)
         {
         }
 

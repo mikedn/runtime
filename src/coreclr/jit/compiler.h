@@ -2740,11 +2740,13 @@ struct Importer
                                          bool                    mustRestoreHandle = false,
                                          bool*                   runtimeLookup     = nullptr);
 
+#ifdef FEATURE_READYTORUN_COMPILER
     GenTreeCall* gtNewReadyToRunHelperCallNode(CORINFO_RESOLVED_TOKEN* resolvedToken,
                                                CorInfoHelpFunc         helper,
                                                var_types               type,
                                                GenTreeCall::Use*       args              = nullptr,
                                                CORINFO_LOOKUP_KIND*    genericLookupKind = nullptr);
+#endif
 
     GenTree* gtNewRuntimeContextTree(CORINFO_RUNTIME_LOOKUP_KIND kind);
 
