@@ -3172,6 +3172,8 @@ CorInfoHelpFunc Compiler::acdHelper(SpecialCodeKind codeKind)
 //
 BasicBlock* Compiler::fgAddCodeRef(BasicBlock* srcBlk, unsigned refData, SpecialCodeKind kind)
 {
+    assert(kind != SCK_NONE);
+
     // Record that the code will call a THROW_HELPER
     // so on Windows Amd64 we can allocate the 4 outgoing
     // arg slots on the stack frame if there are no other calls.
@@ -3181,17 +3183,6 @@ BasicBlock* Compiler::fgAddCodeRef(BasicBlock* srcBlk, unsigned refData, Special
     {
         return nullptr;
     }
-
-    const static BBjumpKinds jumpKinds[] = {
-        BBJ_NONE,   // SCK_NONE
-        BBJ_THROW,  // SCK_RNGCHK_FAIL
-        BBJ_THROW,  // SCK_DIV_BY_ZERO
-        BBJ_THROW,  // SCK_ARITH_EXCP, SCK_OVERFLOW
-        BBJ_THROW,  // SCK_ARG_EXCPN
-        BBJ_THROW,  // SCK_ARG_RNG_EXCPN
-    };
-
-    noway_assert(sizeof(jumpKinds) == SCK_COUNT); // sanity check
 
     /* First look for an existing entry that matches what we're looking for */
 
@@ -3219,7 +3210,7 @@ BasicBlock* Compiler::fgAddCodeRef(BasicBlock* srcBlk, unsigned refData, Special
 
     BasicBlock* newBlk;
 
-    newBlk = add->acdDstBlk = fgNewBBinRegion(jumpKinds[kind], srcBlk, /* runRarely */ true, /* insertAtEnd */ true);
+    newBlk = add->acdDstBlk = fgNewBBinRegion(BBJ_THROW, srcBlk, /* runRarely */ true, /* insertAtEnd */ true);
 
 #ifdef DEBUG
     if (verbose)
