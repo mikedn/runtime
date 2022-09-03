@@ -2072,8 +2072,8 @@ struct Importer
 #endif
 
     IL_OFFSET*                   compStmtOffsets; // sorted
-    unsigned                     compStmtOffsetsCount;
-    ICorDebugInfo::BoundaryTypes compStmtOffsetsImplicit;
+    unsigned                     compStmtOffsetsCount = 0;
+    ICorDebugInfo::BoundaryTypes compStmtOffsetsImplicit = ICorDebugInfo::NO_BOUNDARIES;
 
     static constexpr unsigned CHECK_SPILL_ALL  = UINT32_MAX;
     static constexpr unsigned CHECK_SPILL_NONE = 0;

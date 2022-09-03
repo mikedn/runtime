@@ -2140,27 +2140,16 @@ void Compiler::compInitDebuggingInfo()
 
 void Importer::InitDebuggingInfo()
 {
-    /*-------------------------------------------------------------------------
-     *
-     * Read the stmt-offsets table and the line-number table
-     */
-
-    compStmtOffsetsImplicit = ICorDebugInfo::NO_BOUNDARIES;
-
     // We can only report debug info for EnC at places where the stack is empty.
     // Actually, at places where there are not live temps. Else, we won't be able
     // to map between the old and the new versions correctly as we won't have
     // any info for the live temps.
 
     assert(!opts.compDbgEnC || !opts.compDbgInfo ||
-           0 == (compStmtOffsetsImplicit & ~ICorDebugInfo::STACK_EMPTY_BOUNDARIES));
-
-    compStmtOffsetsCount = 0;
+           ((compStmtOffsetsImplicit & ~ICorDebugInfo::STACK_EMPTY_BOUNDARIES) == 0));
 
     if (opts.compDbgInfo)
     {
-        /* Get hold of the line# records, if there are any */
-
         eeGetStmtOffsets();
 
 #ifdef DEBUG

@@ -534,43 +534,40 @@ unsigned Compiler::eeGetMDArrayDataOffset(var_types type, unsigned rank)
     return eeGetArrayDataOffset(type) + 2 * genTypeSize(TYP_INT) * rank;
 }
 
-/*****************************************************************************/
-
 void Importer::eeGetStmtOffsets()
 {
-    ULONG32                      offsetsCount;
+    assert(!compIsForInlining());
+
+    unsigned                     offsetsCount;
     uint32_t*                    offsets;
     ICorDebugInfo::BoundaryTypes offsetsImplicit;
 
     info.compCompHnd->getBoundaries(info.compMethodHnd, &offsetsCount, &offsets, &offsetsImplicit);
 
-    /* Set the implicit boundaries */
-
-    compStmtOffsetsImplicit = (ICorDebugInfo::BoundaryTypes)offsetsImplicit;
-
-    /* Process the explicit boundaries */
-
-    compStmtOffsetsCount = 0;
+    compStmtOffsetsImplicit = offsetsImplicit;
 
     if (offsetsCount == 0)
     {
+        assert(compStmtOffsetsCount == 0);
         return;
     }
 
-    compStmtOffsets = new (comp, CMK_DebugInfo) IL_OFFSET[offsetsCount];
+    IL_OFFSET* offsetsCopy      = new (comp, CMK_DebugInfo) IL_OFFSET[offsetsCount];
+    unsigned   offsetsCopyCount = 0;
+    IL_OFFSET  maxOffset        = info.compILCodeSize;
 
     for (unsigned i = 0; i < offsetsCount; i++)
     {
-        if (offsets[i] > info.compILCodeSize)
+        if (offsets[i] <= maxOffset)
         {
-            continue;
+            offsetsCopy[offsetsCopyCount++] = offsets[i];
         }
-
-        compStmtOffsets[compStmtOffsetsCount] = offsets[i];
-        compStmtOffsetsCount++;
     }
 
     info.compCompHnd->freeArray(offsets);
+
+    compStmtOffsets      = offsetsCopy;
+    compStmtOffsetsCount = offsetsCopyCount;
 }
 
 /*****************************************************************************
