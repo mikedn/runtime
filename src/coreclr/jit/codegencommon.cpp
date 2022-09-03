@@ -9277,7 +9277,7 @@ void CodeGen::genIPmappingDisp(unsigned mappingNum, IPmappingDsc* ipMapping)
     }
     else
     {
-        Compiler::eeDispILOffs(jitGetILoffsAny(offsx));
+        eeDispILOffs(jitGetILoffsAny(offsx));
 
         if (jitIsStackEmpty(offsx))
         {
@@ -9612,8 +9612,8 @@ void CodeGen::genIPmappingGen()
 
     if (genIPmappingList == nullptr)
     {
-        compiler->eeSetLIcount(0);
-        compiler->eeSetLIdone();
+        eeSetLIcount(0);
+        eeSetLIdone();
         return;
     }
 
@@ -9700,7 +9700,7 @@ void CodeGen::genIPmappingGen()
 
     /* Tell them how many mapping records we've got */
 
-    compiler->eeSetLIcount(mappingCnt);
+    eeSetLIcount(mappingCnt);
 
     /* Now tell them about the mappings */
 
@@ -9720,11 +9720,11 @@ void CodeGen::genIPmappingGen()
 
         if (jitIsCallInstruction(srcIP))
         {
-            compiler->eeSetLIinfo(mappingCnt++, nextNativeOfs, jitGetILoffs(srcIP), jitIsStackEmpty(srcIP), true);
+            eeSetLIinfo(mappingCnt++, nextNativeOfs, jitGetILoffs(srcIP), jitIsStackEmpty(srcIP), true);
         }
         else if (nextNativeOfs != lastNativeOfs)
         {
-            compiler->eeSetLIinfo(mappingCnt++, nextNativeOfs, jitGetILoffsAny(srcIP), jitIsStackEmpty(srcIP), false);
+            eeSetLIinfo(mappingCnt++, nextNativeOfs, jitGetILoffsAny(srcIP), jitIsStackEmpty(srcIP), false);
             lastNativeOfs = nextNativeOfs;
         }
         else if (srcIP == (IL_OFFSETX)ICorDebugInfo::EPILOG || srcIP == 0)
@@ -9735,7 +9735,7 @@ void CodeGen::genIPmappingGen()
             // at the (empty) ret statement if the user tries to put a
             // breakpoint there, and then have the option of seeing the
             // epilog or not based on SetUnmappedStopMask for the stepper.
-            compiler->eeSetLIinfo(mappingCnt++, nextNativeOfs, jitGetILoffsAny(srcIP), jitIsStackEmpty(srcIP), false);
+            eeSetLIinfo(mappingCnt++, nextNativeOfs, jitGetILoffsAny(srcIP), jitIsStackEmpty(srcIP), false);
         }
     }
 
@@ -9777,7 +9777,7 @@ void CodeGen::genIPmappingGen()
     }
 #endif // 0
 
-    compiler->eeSetLIdone();
+    eeSetLIdone();
 }
 
 /*============================================================================

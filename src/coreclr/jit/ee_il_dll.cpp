@@ -19,6 +19,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "emit.h"
 #include "corexcep.h"
 #include "jitstd/algorithm.h"
+#include "codegen.h"
 
 #if !defined(HOST_UNIX)
 #include <io.h>    // For _dup, _setmode
@@ -1189,14 +1190,15 @@ void Compiler::eeDispVars(CORINFO_METHOD_HANDLE ftn, ULONG32 cVars, ICorDebugInf
  *                  Debugging support - Line number info
  */
 
-void Compiler::eeSetLIcount(unsigned count)
+void CodeGen::eeSetLIcount(unsigned count)
 {
-    assert(opts.compDbgInfo);
+    assert(compiler->opts.compDbgInfo);
 
     eeBoundariesCount = count;
     if (eeBoundariesCount)
     {
-        eeBoundaries = (boundariesDsc*)info.compCompHnd->allocateArray(eeBoundariesCount * sizeof(eeBoundaries[0]));
+        eeBoundaries = static_cast<boundariesDsc*>(
+            compiler->info.compCompHnd->allocateArray(eeBoundariesCount * sizeof(eeBoundaries[0])));
     }
     else
     {
@@ -1204,10 +1206,10 @@ void Compiler::eeSetLIcount(unsigned count)
     }
 }
 
-void Compiler::eeSetLIinfo(
+void CodeGen::eeSetLIinfo(
     unsigned which, UNATIVE_OFFSET nativeOffset, IL_OFFSET ilOffset, bool stkEmpty, bool callInstruction)
 {
-    assert(opts.compDbgInfo);
+    assert(compiler->opts.compDbgInfo);
     assert(eeBoundariesCount > 0);
     assert(which < eeBoundariesCount);
 
@@ -1220,12 +1222,12 @@ void Compiler::eeSetLIinfo(
     }
 }
 
-void Compiler::eeSetLIdone()
+void CodeGen::eeSetLIdone()
 {
-    assert(opts.compDbgInfo);
+    assert(compiler->opts.compDbgInfo);
 
 #if defined(DEBUG)
-    if (verbose || opts.dspDebugInfo)
+    if (verbose || compiler->opts.dspDebugInfo)
     {
         eeDispLineInfos();
     }
@@ -1234,15 +1236,15 @@ void Compiler::eeSetLIdone()
     // necessary but not sufficient condition that the 2 struct definitions overlap
     assert(sizeof(eeBoundaries[0]) == sizeof(ICorDebugInfo::OffsetMapping));
 
-    info.compCompHnd->setBoundaries(info.compMethodHnd, eeBoundariesCount, (ICorDebugInfo::OffsetMapping*)eeBoundaries);
+    compiler->info.compCompHnd->setBoundaries(compiler->info.compMethodHnd, eeBoundariesCount,
+                                              (ICorDebugInfo::OffsetMapping*)eeBoundaries);
 
     eeBoundaries = nullptr; // we give up ownership after setBoundaries();
 }
 
-#if defined(DEBUG)
+#ifdef DEBUG
 
-/* static */
-void Compiler::eeDispILOffs(IL_OFFSET offs)
+void CodeGen::eeDispILOffs(IL_OFFSET offs)
 {
     const char* specialOffs[] = {"EPILOG", "PROLOG", "NO_MAP"};
 
@@ -1262,8 +1264,7 @@ void Compiler::eeDispILOffs(IL_OFFSET offs)
     }
 }
 
-/* static */
-void Compiler::eeDispLineInfo(const boundariesDsc* line)
+void CodeGen::eeDispLineInfo(const boundariesDsc* line)
 {
     printf("IL offs ");
 
@@ -1296,7 +1297,7 @@ void Compiler::eeDispLineInfo(const boundariesDsc* line)
     assert((line->sourceReason & ~(ICorDebugInfo::STACK_EMPTY | ICorDebugInfo::CALL_INSTRUCTION)) == 0);
 }
 
-void Compiler::eeDispLineInfos()
+void CodeGen::eeDispLineInfos()
 {
     printf("IP mapping count : %d\n", eeBoundariesCount); // this might be zero
     for (unsigned i = 0; i < eeBoundariesCount; i++)

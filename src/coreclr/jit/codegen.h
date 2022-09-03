@@ -528,6 +528,24 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     void genIPmappingAddToFront(IL_OFFSETX offset);
     void genIPmappingGen();
 
+    unsigned eeBoundariesCount;
+
+    struct boundariesDsc
+    {
+        UNATIVE_OFFSET nativeIP;
+        IL_OFFSET      ilOffset;
+        unsigned       sourceReason;
+    } * eeBoundaries; // Boundaries to report to EE
+    void eeSetLIcount(unsigned count);
+    void eeSetLIinfo(unsigned which, UNATIVE_OFFSET offs, unsigned srcIP, bool stkEmpty, bool callInstruction);
+    void eeSetLIdone();
+
+#ifdef DEBUG
+    static void eeDispILOffs(IL_OFFSET offs);
+    static void eeDispLineInfo(const boundariesDsc* line);
+    void eeDispLineInfos();
+#endif
+
     void genEnsureCodeEmitted(IL_OFFSETX offsx);
 
     //-------------------------------------------------------------------------
