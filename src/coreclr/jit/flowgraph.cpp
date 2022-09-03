@@ -3185,7 +3185,6 @@ BasicBlock* Compiler::fgAddCodeRef(BasicBlock* srcBlk, unsigned refData, Special
     const static BBjumpKinds jumpKinds[] = {
         BBJ_NONE,   // SCK_NONE
         BBJ_THROW,  // SCK_RNGCHK_FAIL
-        BBJ_ALWAYS, // SCK_PAUSE_EXEC
         BBJ_THROW,  // SCK_DIV_BY_ZERO
         BBJ_THROW,  // SCK_ARITH_EXCP, SCK_OVERFLOW
         BBJ_THROW,  // SCK_ARG_EXCPN
@@ -3252,9 +3251,6 @@ BasicBlock* Compiler::fgAddCodeRef(BasicBlock* srcBlk, unsigned refData, Special
         {
             case SCK_RNGCHK_FAIL:
                 msg = " for RNGCHK_FAIL";
-                break;
-            case SCK_PAUSE_EXEC:
-                msg = " for PAUSE_EXEC";
                 break;
             case SCK_DIV_BY_ZERO:
                 msg = " for DIV_BY_ZERO";
