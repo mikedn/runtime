@@ -5521,7 +5521,7 @@ void CodeGen::genReportGenericContextArg(regNumber initReg, bool* pInitRegZeroed
     unsigned contextArg = reportArg ? compiler->info.compTypeCtxtArg : compiler->info.compThisArg;
 
     noway_assert(contextArg != BAD_VAR_NUM);
-    LclVarDsc* varDsc = &compiler->lvaTable[contextArg];
+    LclVarDsc* varDsc = compiler->lvaGetDesc(contextArg);
 
     // We are still in the prolog and compiler->info.compTypeCtxtArg has not been
     // moved to its final home location. So we need to use it from the

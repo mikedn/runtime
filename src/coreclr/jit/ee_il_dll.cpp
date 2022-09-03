@@ -787,9 +787,9 @@ unsigned Compiler::compMapILvarNum(unsigned ilVarNum)
     }
     else if (ilVarNum == ICorDebugInfo::TYPECTXT_ILNUM)
     {
-        noway_assert(info.compTypeCtxtArg >= 0);
+        noway_assert(info.compTypeCtxtArg != BAD_VAR_NUM);
 
-        varNum = static_cast<unsigned>(info.compTypeCtxtArg);
+        varNum = info.compTypeCtxtArg;
     }
     else if (ilVarNum < info.compILargsCount)
     {
