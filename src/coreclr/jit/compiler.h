@@ -1697,13 +1697,18 @@ struct CompilerOptions
         compSupportsISA = isas.GetFlagsRaw();
     }
 
-    OptFlags optFlags;
     unsigned instrCount;
     unsigned lvRefCount;
+#ifdef TARGET_ARM64
+    // Decision about whether to save FP/LR registers with callee-saved registers (see
+    // COMPlus_JitSaveFpLrWithCalleSavedRegisters).
+    int compJitSaveFpLrWithCalleeSavedRegisters;
+#endif
 
+    OptFlags     optFlags;
     codeOptimize compCodeOpt; // what type of code optimizations
 
-    bool compUseCMOV;
+    bool compUseCMOV : 1;
 
 // optimize maximally and/or favor speed over size?
 
@@ -1716,8 +1721,8 @@ struct CompilerOptions
 // Maximun number of locals before turning off the inlining
 #define MAX_LV_NUM_COUNT_FOR_INLINING 512
 
-    bool compMinOpts;
-    bool compMinOptsIsSet;
+    bool compMinOpts : 1;
+    bool compMinOptsIsSet : 1;
 #ifdef DEBUG
     mutable bool compMinOptsIsUsed;
 
@@ -1806,13 +1811,13 @@ struct CompilerOptions
         return jitFlags->IsSet(JitFlags::JIT_FLAG_REVERSE_PINVOKE);
     }
 
-    bool compScopeInfo; // Generate the LocalVar info ?
-    bool compDbgCode;   // Generate debugger-friendly code?
-    bool compDbgInfo;   // Gather debugging info?
-    bool compDbgEnC;
+    bool compScopeInfo : 1; // Generate the LocalVar info ?
+    bool compDbgCode : 1;   // Generate debugger-friendly code?
+    bool compDbgInfo : 1;   // Gather debugging info?
+    bool compDbgEnC : 1;
 
 #ifdef PROFILING_SUPPORTED
-    bool compNoPInvokeInlineCB;
+    bool compNoPInvokeInlineCB : 1;
 #else
     static const bool compNoPInvokeInlineCB;
 #endif
@@ -1828,7 +1833,7 @@ struct CompilerOptions
 #endif // TARGET_XARCH
 #endif // DEBUG
 
-    bool compReloc; // Generate relocs for pointers in code, true for all ngen/prejit codegen
+    bool compReloc : 1; // Generate relocs for pointers in code, true for all ngen/prejit codegen
 
 #ifdef DEBUG
 #if defined(TARGET_XARCH)
@@ -1846,37 +1851,60 @@ struct CompilerOptions
     bool compNeedToAlignFrame;
 #endif // UNIX_AMD64_ABI
 
-    bool compProcedureSplitting; // Separate cold code from hot code
+    bool compProcedureSplitting : 1; // Separate cold code from hot code
 
-    bool altJit; // True if we are an altjit and are compiling this method
+    bool altJit : 1; // True if we are an altjit and are compiling this method
 
 #ifdef OPT_CONFIG
     bool optRepeat; // Repeat optimizer phases k times
 #endif
 
 #ifdef DEBUG
-    bool compProcedureSplittingEH; // Separate cold code from hot code for functions with EH
-    bool dspCode;                  // Display native code generated
-    bool dspEHTable;               // Display the EH table reported to the VM
-    bool dspDebugInfo;             // Display the Debug info reported to the VM
-    bool dspInstrs;                // Display the IL instructions intermixed with the native code output
-    bool dmpHex;                   // Display raw bytes in hex of native code output
-    bool disAsm;                   // Display native code as it is generated
-    bool disAsmSpilled;            // Display native code when any register spilling occurs
-    bool disasmWithGC;             // Display GC info interleaved with disassembly.
-    bool disDiffable;              // Makes the Disassembly code 'diff-able'
-    bool disAddr;                  // Display process address next to each instruction in disassembly code
-    bool disAlignment;             // Display alignment boundaries in disassembly code
-    bool dspOrder;                 // Display names of each of the methods that we ngen/jit
-    bool dspUnwind;                // Display the unwind info output
-    bool dspDiffable;              // Makes the Jit Dump 'diff-able' (currently uses same COMPlus_* flag as disDiffable)
-    bool compLongAddress;          // Force using large pseudo instructions for long address
+    bool compProcedureSplittingEH : 1; // Separate cold code from hot code for functions with EH
+    bool dspCode : 1;                  // Display native code generated
+    bool dspEHTable : 1;               // Display the EH table reported to the VM
+    bool dspDebugInfo : 1;             // Display the Debug info reported to the VM
+    bool dspInstrs : 1;                // Display the IL instructions intermixed with the native code output
+    bool dmpHex;                       // Display raw bytes in hex of native code output
+    bool disAsm;                       // Display native code as it is generated
+    bool disAsmSpilled;                // Display native code when any register spilling occurs
+    bool disasmWithGC;                 // Display GC info interleaved with disassembly.
+    bool disDiffable;                  // Makes the Disassembly code 'diff-able'
+    bool disAddr;                      // Display process address next to each instruction in disassembly code
+    bool disAlignment;                 // Display alignment boundaries in disassembly code
+    bool dspOrder;                     // Display names of each of the methods that we ngen/jit
+    bool dspUnwind;                    // Display the unwind info output
+    bool dspDiffable;     // Makes the Jit Dump 'diff-able' (currently uses same COMPlus_* flag as disDiffable)
+    bool compLongAddress; // Force using large pseudo instructions for long address
     // (IF_LARGEJMP/IF_LARGEADR/IF_LARGLDC)
     bool dspGCtbls;       // Display the GC tables
     bool isAltJitPresent; // And AltJit may be present, dump options apply only to it.
 #endif
+#ifdef LATE_DISASM
+    bool doLateDisasm : 1; // Run the late disassembler
+#endif
 
-    bool compExpandCallsEarly; // True if we should expand virtual call targets early for this method
+    bool compExpandCallsEarly : 1; // True if we should expand virtual call targets early for this method
+
+#ifdef PROFILING_SUPPORTED
+    // Whether to emit Enter/Leave/TailCall hooks using a dummy stub (DummyProfilerELTStub()).
+    // This option helps make the JIT behave as if it is running under a profiler.
+    bool compJitELTHookEnabled : 1;
+#endif // PROFILING_SUPPORTED
+
+#if FEATURE_TAILCALL_OPT
+    // Whether opportunistic or implicit tail call optimization is enabled.
+    bool compTailCallOpt : 1;
+    // Whether optimization of transforming a recursive tail call into a loop is enabled.
+    bool compTailCallLoopOpt : 1;
+#endif
+
+#if FEATURE_FASTTAILCALL
+    // Whether fast tail calls are allowed.
+    bool compFastTailCalls : 1;
+#endif // FEATURE_FASTTAILCALL
+
+    ARM_ONLY(bool compUseSoftFP : 1;)
 
 // Default numbers used to perform loop alignment. All the numbers are choosen
 // based on experimenting with various benchmarks.
@@ -1897,8 +1925,11 @@ struct CompilerOptions
     // Loop alignment variables
 
     // If set, for non-adaptive alignment, ensure loop jmps are not on or cross alignment boundary.
-    bool compJitAlignLoopForJcc;
+    bool compJitAlignLoopForJcc : 1;
 #endif
+    // If set, perform adaptive loop alignment that limits number of padding based on loop size.
+    bool compJitAlignLoopAdaptive : 1;
+
     // For non-adaptive alignment, minimum loop size (in bytes) for which alignment will be done.
     uint16_t compJitAlignLoopMaxCodeSize;
 
@@ -1912,43 +1943,10 @@ struct CompilerOptions
     // Padding limit to align a loop.
     uint16_t compJitAlignPaddingLimit;
 
-    // If set, perform adaptive loop alignment that limits number of padding based on loop size.
-    bool compJitAlignLoopAdaptive;
-
-#ifdef LATE_DISASM
-    bool doLateDisasm; // Run the late disassembler
-#endif                 // LATE_DISASM
-
 #if DUMP_GC_TABLES && !defined(DEBUG)
 #pragma message("NOTE: this non-debug build has GC ptr table dumping always enabled!")
     static const bool dspGCtbls = true;
 #endif
-
-#ifdef PROFILING_SUPPORTED
-    // Whether to emit Enter/Leave/TailCall hooks using a dummy stub (DummyProfilerELTStub()).
-    // This option helps make the JIT behave as if it is running under a profiler.
-    bool compJitELTHookEnabled;
-#endif // PROFILING_SUPPORTED
-
-#if FEATURE_TAILCALL_OPT
-    // Whether opportunistic or implicit tail call optimization is enabled.
-    bool compTailCallOpt;
-    // Whether optimization of transforming a recursive tail call into a loop is enabled.
-    bool compTailCallLoopOpt;
-#endif
-
-#if FEATURE_FASTTAILCALL
-    // Whether fast tail calls are allowed.
-    bool compFastTailCalls;
-#endif // FEATURE_FASTTAILCALL
-
-#if defined(TARGET_ARM64)
-    // Decision about whether to save FP/LR registers with callee-saved registers (see
-    // COMPlus_JitSaveFpLrWithCalleSavedRegisters).
-    int compJitSaveFpLrWithCalleeSavedRegisters;
-#endif // defined(TARGET_ARM64)
-
-    ARM_ONLY(bool compUseSoftFP;)
 
     bool UseSoftFP()
     {
