@@ -1840,7 +1840,7 @@ BasicBlock* Importer::impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_H
         GenTree*   argAsg  = gtNewAssignNode(gtNewLclvNode(tempNum, TYP_REF), impNewCatchArg());
         Statement* argStmt;
 
-        if (info.compStmtOffsetsImplicit & ICorDebugInfo::CALL_SITE_BOUNDARIES)
+        if (compStmtOffsetsImplicit & ICorDebugInfo::CALL_SITE_BOUNDARIES)
         {
             // Report the debug info. impImportBlockCode won't treat the actual handler as exception block and thus
             // won't do it for us.
@@ -2090,12 +2090,12 @@ unsigned Importer::impInitBlockLineInfo()
 
     IL_OFFSET blockOffs = compCurBB->bbCodeOffs;
 
-    if ((verCurrentState.esStackDepth == 0) && (info.compStmtOffsetsImplicit & ICorDebugInfo::STACK_EMPTY_BOUNDARIES))
+    if ((verCurrentState.esStackDepth == 0) && (compStmtOffsetsImplicit & ICorDebugInfo::STACK_EMPTY_BOUNDARIES))
     {
         impCurStmtOffsSet(blockOffs);
     }
 
-    if (false && (info.compStmtOffsetsImplicit & ICorDebugInfo::CALL_SITE_BOUNDARIES))
+    if (false && (compStmtOffsetsImplicit & ICorDebugInfo::CALL_SITE_BOUNDARIES))
     {
         impCurStmtOffsSet(blockOffs);
     }
@@ -2108,7 +2108,7 @@ unsigned Importer::impInitBlockLineInfo()
         impCurStmtOffsSet(blockOffs);
     }
 
-    if (!info.compStmtOffsetsCount)
+    if (!compStmtOffsetsCount)
     {
         return ~0;
     }
@@ -2117,35 +2117,35 @@ unsigned Importer::impInitBlockLineInfo()
 
     /* Start looking at an entry that is based on our instr offset */
 
-    unsigned index = (info.compStmtOffsetsCount * blockOffs) / info.compILCodeSize;
+    unsigned index = (compStmtOffsetsCount * blockOffs) / info.compILCodeSize;
 
-    if (index >= info.compStmtOffsetsCount)
+    if (index >= compStmtOffsetsCount)
     {
-        index = info.compStmtOffsetsCount - 1;
+        index = compStmtOffsetsCount - 1;
     }
 
     /* If we've guessed too far, back up */
 
-    while (index > 0 && info.compStmtOffsets[index - 1] >= blockOffs)
+    while (index > 0 && compStmtOffsets[index - 1] >= blockOffs)
     {
         index--;
     }
 
     /* If we guessed short, advance ahead */
 
-    while (info.compStmtOffsets[index] < blockOffs)
+    while (compStmtOffsets[index] < blockOffs)
     {
         index++;
 
-        if (index == info.compStmtOffsetsCount)
+        if (index == compStmtOffsetsCount)
         {
-            return info.compStmtOffsetsCount;
+            return compStmtOffsetsCount;
         }
     }
 
-    assert(index < info.compStmtOffsetsCount);
+    assert(index < compStmtOffsetsCount);
 
-    if (info.compStmtOffsets[index] == blockOffs)
+    if (compStmtOffsets[index] == blockOffs)
     {
         /* There is an explicit boundary for the start of this basic block.
            So we will start with bbCodeOffs. Else we will wait until we
@@ -9493,7 +9493,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
     if (block->bbCatchTyp != 0)
     {
-        if ((info.compStmtOffsetsImplicit & ICorDebugInfo::CALL_SITE_BOUNDARIES) != 0)
+        if ((compStmtOffsetsImplicit & ICorDebugInfo::CALL_SITE_BOUNDARIES) != 0)
         {
             impCurStmtOffsSet(opcodeOffs);
         }
@@ -9537,13 +9537,13 @@ void Importer::impImportBlockCode(BasicBlock* block)
             )
         {
             IL_OFFSET nxtStmtOffs =
-                (nxtStmtIndex < info.compStmtOffsetsCount) ? info.compStmtOffsets[nxtStmtIndex] : BAD_IL_OFFSET;
+                (nxtStmtIndex < compStmtOffsetsCount) ? compStmtOffsets[nxtStmtIndex] : BAD_IL_OFFSET;
 
             /* Have we reached the next stmt boundary ? */
 
             if (nxtStmtOffs != BAD_IL_OFFSET && opcodeOffs >= nxtStmtOffs)
             {
-                assert(nxtStmtOffs == info.compStmtOffsets[nxtStmtIndex]);
+                assert(nxtStmtOffs == compStmtOffsets[nxtStmtIndex]);
 
                 if (verCurrentState.esStackDepth != 0 && opts.compDbgCode)
                 {
@@ -9569,28 +9569,27 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     /* Make sure that nxtStmtIndex is in sync with opcodeOffs.
                        If opcodeOffs has gone past nxtStmtIndex, catch up */
 
-                    while ((nxtStmtIndex + 1) < info.compStmtOffsetsCount &&
-                           info.compStmtOffsets[nxtStmtIndex + 1] <= opcodeOffs)
+                    while ((nxtStmtIndex + 1) < compStmtOffsetsCount && compStmtOffsets[nxtStmtIndex + 1] <= opcodeOffs)
                     {
                         nxtStmtIndex++;
                     }
 
                     /* Go to the new stmt */
 
-                    impCurStmtOffsSet(info.compStmtOffsets[nxtStmtIndex]);
+                    impCurStmtOffsSet(compStmtOffsets[nxtStmtIndex]);
 
                     /* Update the stmt boundary index */
 
                     nxtStmtIndex++;
-                    assert(nxtStmtIndex <= info.compStmtOffsetsCount);
+                    assert(nxtStmtIndex <= compStmtOffsetsCount);
 
                     /* Are there any more line# entries after this one? */
 
-                    if (nxtStmtIndex < info.compStmtOffsetsCount)
+                    if (nxtStmtIndex < compStmtOffsetsCount)
                     {
                         /* Remember where the next line# starts */
 
-                        nxtStmtOffs = info.compStmtOffsets[nxtStmtIndex];
+                        nxtStmtOffs = compStmtOffsets[nxtStmtIndex];
                     }
                     else
                     {
@@ -9600,7 +9599,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     }
                 }
             }
-            else if ((info.compStmtOffsetsImplicit & ICorDebugInfo::STACK_EMPTY_BOUNDARIES) &&
+            else if ((compStmtOffsetsImplicit & ICorDebugInfo::STACK_EMPTY_BOUNDARIES) &&
                      (verCurrentState.esStackDepth == 0))
             {
                 /* At stack-empty locations, we have already added the tree to
@@ -9610,7 +9609,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 impCurStmtOffsSet(opcodeOffs);
             }
-            else if ((info.compStmtOffsetsImplicit & ICorDebugInfo::CALL_SITE_BOUNDARIES) &&
+            else if ((compStmtOffsetsImplicit & ICorDebugInfo::CALL_SITE_BOUNDARIES) &&
                      impOpcodeIsCallSiteBoundary(prevOpcode))
             {
                 /* Make sure we have a type cached */
@@ -9626,7 +9625,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     impCurStmtOffsSet(opcodeOffs);
                 }
             }
-            else if ((info.compStmtOffsetsImplicit & ICorDebugInfo::NOP_BOUNDARIES) && (prevOpcode == CEE_NOP))
+            else if ((compStmtOffsetsImplicit & ICorDebugInfo::NOP_BOUNDARIES) && (prevOpcode == CEE_NOP))
             {
                 if (opts.compDbgCode)
                 {
@@ -14291,6 +14290,8 @@ void Importer::impImport()
     JITDUMP("*************** In impImport() for %s\n", info.compFullName);
 
     assert(comp->fgFirstBB->bbEntryState == nullptr);
+
+    InitDebuggingInfo();
 
     // Skip leading internal blocks.
     // These can arise from needing a leading scratch BB, from EH normalization, and from OSR entry redirects.

@@ -1607,10 +1607,6 @@ struct CompiledMethodInfo
     unsigned     compVarScopesCount;
     VarScopeDsc* compVarScopes;
 
-    IL_OFFSET*                   compStmtOffsets; // sorted
-    unsigned                     compStmtOffsetsCount;
-    ICorDebugInfo::BoundaryTypes compStmtOffsetsImplicit;
-
     CorInfoCallConvExtension compCallConv; // The entry-point calling convention for this method.
     regNumber                virtualStubParamRegNum;
     Target::ArgOrder         compArgOrder;
@@ -2075,12 +2071,19 @@ struct Importer
     SIMDCoalescingBuffer m_impSIMDCoalescingBuffer;
 #endif
 
+    IL_OFFSET*                   compStmtOffsets; // sorted
+    unsigned                     compStmtOffsetsCount;
+    ICorDebugInfo::BoundaryTypes compStmtOffsetsImplicit;
+
     static constexpr unsigned CHECK_SPILL_ALL  = UINT32_MAX;
     static constexpr unsigned CHECK_SPILL_NONE = 0;
 
     Importer(Compiler* compiler);
 
     CompAllocator getAllocator(CompMemKind kind = CMK_Generic);
+
+    void InitDebuggingInfo();
+    void eeGetStmtOffsets();
 
     codeOptimize compCodeOpt();
     bool IsTargetAbi(CORINFO_RUNTIME_ABI abi);
@@ -6587,10 +6590,6 @@ public:
         return false;
 #endif
     }
-
-    // Debugging support - Line number info
-
-    void eeGetStmtOffsets();
 
     // Debugging support - Local var info
 

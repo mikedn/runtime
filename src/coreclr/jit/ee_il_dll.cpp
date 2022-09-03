@@ -536,7 +536,7 @@ unsigned Compiler::eeGetMDArrayDataOffset(var_types type, unsigned rank)
 
 /*****************************************************************************/
 
-void Compiler::eeGetStmtOffsets()
+void Importer::eeGetStmtOffsets()
 {
     ULONG32                      offsetsCount;
     uint32_t*                    offsets;
@@ -546,18 +546,18 @@ void Compiler::eeGetStmtOffsets()
 
     /* Set the implicit boundaries */
 
-    info.compStmtOffsetsImplicit = (ICorDebugInfo::BoundaryTypes)offsetsImplicit;
+    compStmtOffsetsImplicit = (ICorDebugInfo::BoundaryTypes)offsetsImplicit;
 
     /* Process the explicit boundaries */
 
-    info.compStmtOffsetsCount = 0;
+    compStmtOffsetsCount = 0;
 
     if (offsetsCount == 0)
     {
         return;
     }
 
-    info.compStmtOffsets = new (this, CMK_DebugInfo) IL_OFFSET[offsetsCount];
+    compStmtOffsets = new (comp, CMK_DebugInfo) IL_OFFSET[offsetsCount];
 
     for (unsigned i = 0; i < offsetsCount; i++)
     {
@@ -566,8 +566,8 @@ void Compiler::eeGetStmtOffsets()
             continue;
         }
 
-        info.compStmtOffsets[info.compStmtOffsetsCount] = offsets[i];
-        info.compStmtOffsetsCount++;
+        compStmtOffsets[compStmtOffsetsCount] = offsets[i];
+        compStmtOffsetsCount++;
     }
 
     info.compCompHnd->freeArray(offsets);

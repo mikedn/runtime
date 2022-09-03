@@ -2137,13 +2137,16 @@ void Compiler::compInitDebuggingInfo()
             JITDUMP("Debuggable code - Add " FMT_BB " to perform initialization of variables\n", fgFirstBB->bbNum);
         }
     }
+}
 
+void Importer::InitDebuggingInfo()
+{
     /*-------------------------------------------------------------------------
      *
      * Read the stmt-offsets table and the line-number table
      */
 
-    info.compStmtOffsetsImplicit = ICorDebugInfo::NO_BOUNDARIES;
+    compStmtOffsetsImplicit = ICorDebugInfo::NO_BOUNDARIES;
 
     // We can only report debug info for EnC at places where the stack is empty.
     // Actually, at places where there are not live temps. Else, we won't be able
@@ -2151,9 +2154,9 @@ void Compiler::compInitDebuggingInfo()
     // any info for the live temps.
 
     assert(!opts.compDbgEnC || !opts.compDbgInfo ||
-           0 == (info.compStmtOffsetsImplicit & ~ICorDebugInfo::STACK_EMPTY_BOUNDARIES));
+           0 == (compStmtOffsetsImplicit & ~ICorDebugInfo::STACK_EMPTY_BOUNDARIES));
 
-    info.compStmtOffsetsCount = 0;
+    compStmtOffsetsCount = 0;
 
     if (opts.compDbgInfo)
     {
@@ -2164,29 +2167,29 @@ void Compiler::compInitDebuggingInfo()
 #ifdef DEBUG
         if (verbose)
         {
-            printf("info.compStmtOffsetsCount    = %d\n", info.compStmtOffsetsCount);
-            printf("info.compStmtOffsetsImplicit = %04Xh", info.compStmtOffsetsImplicit);
+            printf("info.compStmtOffsetsCount    = %d\n", compStmtOffsetsCount);
+            printf("info.compStmtOffsetsImplicit = %04Xh", compStmtOffsetsImplicit);
 
-            if (info.compStmtOffsetsImplicit)
+            if (compStmtOffsetsImplicit)
             {
                 printf(" ( ");
-                if (info.compStmtOffsetsImplicit & ICorDebugInfo::STACK_EMPTY_BOUNDARIES)
+                if (compStmtOffsetsImplicit & ICorDebugInfo::STACK_EMPTY_BOUNDARIES)
                 {
                     printf("STACK_EMPTY ");
                 }
-                if (info.compStmtOffsetsImplicit & ICorDebugInfo::NOP_BOUNDARIES)
+                if (compStmtOffsetsImplicit & ICorDebugInfo::NOP_BOUNDARIES)
                 {
                     printf("NOP ");
                 }
-                if (info.compStmtOffsetsImplicit & ICorDebugInfo::CALL_SITE_BOUNDARIES)
+                if (compStmtOffsetsImplicit & ICorDebugInfo::CALL_SITE_BOUNDARIES)
                 {
                     printf("CALL_SITE ");
                 }
                 printf(")");
             }
             printf("\n");
-            IL_OFFSET* pOffs = info.compStmtOffsets;
-            for (unsigned i = 0; i < info.compStmtOffsetsCount; i++, pOffs++)
+            IL_OFFSET* pOffs = compStmtOffsets;
+            for (unsigned i = 0; i < compStmtOffsetsCount; i++, pOffs++)
             {
                 printf("%02d) IL_%04Xh\n", i, *pOffs);
             }
