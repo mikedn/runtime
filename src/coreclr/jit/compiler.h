@@ -1538,53 +1538,82 @@ enum CallInterf : uint8_t
 
 struct CompiledMethodInfo
 {
-    COMP_HANDLE           compCompHnd;
+    ICorJitInfo*          compCompHnd;
     CORINFO_MODULE_HANDLE compScopeHnd;
     CORINFO_CLASS_HANDLE  compClassHnd;
     CORINFO_METHOD_HANDLE compMethodHnd;
     CORINFO_METHOD_INFO*  compMethodInfo;
 
-    bool hasCircularClassConstraints;
-    bool hasCircularMethodConstraints;
-
 #if defined(DEBUG) || defined(LATE_DISASM) || DUMP_FLOWGRAPHS
-
     const char* compMethodName = nullptr;
     const char* compClassName  = nullptr;
     const char* compFullName   = nullptr;
     double      compPerfScore  = 0.0;
     int         compMethodSuperPMIIndex; // useful when debugging under SuperPMI
-
-#endif // defined(DEBUG) || defined(LATE_DISASM) || DUMP_FLOWGRAPHS
+#endif
 
 #if defined(DEBUG) || defined(INLINE_DATA)
-    // Method hash is logically const, but computed
-    // on first demand.
     mutable unsigned compMethodHashPrivate = 0;
     unsigned         compMethodHash() const;
-#endif // defined(DEBUG) || defined(INLINE_DATA)
+#endif
 
 #ifdef PSEUDORANDOM_NOP_INSERTION
-    // things for pseudorandom nop insertion
     unsigned  compChecksum;
     CLRRandom compRNG;
 #endif
 
+    const uint8_t*  compCode;           // IL code
+    PatchpointInfo* compPatchpointInfo; // Patchpoint data for OSR (normally nullptr)
+
+    IL_OFFSET compILCodeSize; // The IL code size
+    IL_OFFSET compILEntry;    // The IL entry point (normally 0)
+
+    unsigned compILargsCount; // Number of arguments (incl. implicit but not hidden)
+    unsigned compArgsCount;   // Number of arguments (incl. implicit and hidden)
+    unsigned compMaxStack;
+
+    // Number of exception-handling clauses read in the method's IL.
+    // You should generally use compHndBBtabCount instead: it is the
+    // current number of EH clauses (after additions like synchronized
+    // methods and funclets, and removals like unreachable code deletion).
+    unsigned compXcptnsCount;
+
     // The following holds the FLG_xxxx flags for the method we're compiling.
     unsigned compFlags;
-
     // The following holds the class attributes for the method we're compiling.
     unsigned compClassAttr;
 
-    const BYTE*     compCode;
-    IL_OFFSET       compILCodeSize;         // The IL code size
-    IL_OFFSET       compILEntry;            // The IL entry point (normally 0)
-    PatchpointInfo* compPatchpointInfo;     // Patchpoint data for OSR (normally nullptr)
-    UNATIVE_OFFSET  compNativeCodeSize = 0; // The native code size, after instructions are issued. This
-    // is less than (compTotalHotCodeSize + compTotalColdCodeSize) only if:
+#if FEATURE_FASTTAILCALL
+    unsigned compArgStackSize; // Incoming argument stack size in bytes
+#endif
+
+    unsigned compRetBuffArg;  // position of hidden return param var (0, 1) (BAD_VAR_NUM means not present);
+    unsigned compTypeCtxtArg; // position of hidden param for type context for generic code (CORINFO_CALLCONV_PARAMTYPE)
+    unsigned compThisArg;     // position of implicit this pointer param (not to be confused with lvaArg0Var)
+    unsigned compILlocalsCount; // Number of vars : args + locals (incl. implicit but not hidden)
+    unsigned compLocalsCount;   // Number of vars : args + locals (incl. implicit and     hidden)
+    unsigned compTotalHotCodeSize                   = 0; // Total number of bytes of Hot Code in the method
+    unsigned compTotalColdCodeSize                  = 0; // Total number of bytes of Cold Code in the method
+    unsigned compUnmanagedCallCountWithGCTransition = 0; // count of unmanaged calls with GC transition.
+    unsigned compClassProbeCount                    = 0; // Number of class profile probes in this method
+
+    // The native code size, after instructions are issued.
+    // This is less than (compTotalHotCodeSize + compTotalColdCodeSize) only if:
     // (1) the code is not hot/cold split, and we issued less code than we expected, or
     // (2) the code is hot/cold split, and we issued less code than we expected
     // in the cold section (the hot section will always be padded out to compTotalHotCodeSize).
+    unsigned compNativeCodeSize = 0;
+
+    unsigned     compVarScopesCount;
+    VarScopeDsc* compVarScopes;
+
+    IL_OFFSET*                   compStmtOffsets; // sorted
+    unsigned                     compStmtOffsetsCount;
+    ICorDebugInfo::BoundaryTypes compStmtOffsetsImplicit;
+
+    CorInfoCallConvExtension compCallConv; // The entry-point calling convention for this method.
+    regNumber                virtualStubParamRegNum;
+    Target::ArgOrder         compArgOrder;
 
     bool compIsStatic : 1;           // Is the method static (no 'this' pointer)?
     bool compIsVarArgs : 1;          // Does the method have varargs parameters?
@@ -1592,6 +1621,9 @@ struct CompiledMethodInfo
     bool compProfilerCallback : 1;   // JIT inserted a profiler Enter callback
     bool compPublishStubParam : 1;   // EAX captured in prolog will be available through an intrinsic
     bool compHasNextCallRetAddr : 1; // The NextCallReturnAddress intrinsic is used.
+    bool compMatchedVM : 1;          // true if the VM is "matched": either the JIT is a cross-compiler
+                                     // and the VM expects that, or the JIT is a "self-host" compiler
+                                     // (e.g., x86 hosted targeting x86) and the VM expects that.
 
     var_types      compRetType; // Return type of the method as declared in IL
     ReturnTypeDesc retDesc;
@@ -1608,59 +1640,10 @@ struct CompiledMethodInfo
         return retLayout;
     }
 
-    unsigned compILargsCount; // Number of arguments (incl. implicit but not hidden)
-    unsigned compArgsCount;   // Number of arguments (incl. implicit and     hidden)
-
     unsigned GetParamCount() const
     {
         return compArgsCount;
     }
-
-#if FEATURE_FASTTAILCALL
-    unsigned compArgStackSize; // Incoming argument stack size in bytes
-#endif                         // FEATURE_FASTTAILCALL
-
-    unsigned compRetBuffArg;  // position of hidden return param var (0, 1) (BAD_VAR_NUM means not present);
-    unsigned compTypeCtxtArg; // position of hidden param for type context for generic code (CORINFO_CALLCONV_PARAMTYPE)
-    unsigned compThisArg;     // position of implicit this pointer param (not to be confused with lvaArg0Var)
-    unsigned compILlocalsCount; // Number of vars : args + locals (incl. implicit but not hidden)
-    unsigned compLocalsCount;   // Number of vars : args + locals (incl. implicit and     hidden)
-    unsigned compMaxStack;
-    UNATIVE_OFFSET compTotalHotCodeSize  = 0; // Total number of bytes of Hot Code in the method
-    UNATIVE_OFFSET compTotalColdCodeSize = 0; // Total number of bytes of Cold Code in the method
-
-    unsigned compUnmanagedCallCountWithGCTransition = 0; // count of unmanaged calls with GC transition.
-
-    CorInfoCallConvExtension compCallConv; // The entry-point calling convention for this method.
-
-    unsigned compXcptnsCount; // Number of exception-handling clauses read in the method's IL.
-    // You should generally use compHndBBtabCount instead: it is the
-    // current number of EH clauses (after additions like synchronized
-    // methods and funclets, and removals like unreachable code deletion).
-
-    regNumber        virtualStubParamRegNum;
-    Target::ArgOrder compArgOrder;
-
-    bool compMatchedVM; // true if the VM is "matched": either the JIT is a cross-compiler
-                        // and the VM expects that, or the JIT is a "self-host" compiler
-                        // (e.g., x86 hosted targeting x86) and the VM expects that.
-
-    /*  The following holds IL scope information about local variables.
-     */
-
-    unsigned     compVarScopesCount;
-    VarScopeDsc* compVarScopes;
-
-    /* The following holds information about instr offsets for
-     * which we need to report IP-mappings
-     */
-
-    IL_OFFSET*                   compStmtOffsets; // sorted
-    unsigned                     compStmtOffsetsCount;
-    ICorDebugInfo::BoundaryTypes compStmtOffsetsImplicit;
-
-    // Number of class profile probes in this method
-    unsigned compClassProbeCount = 0;
 
     INDEBUG(bool SkipMethod() const;)
 

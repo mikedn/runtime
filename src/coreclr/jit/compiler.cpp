@@ -893,8 +893,6 @@ CompiledMethodInfo::CompiledMethodInfo(CORINFO_METHOD_INFO*   methodInfo,
     , compMethodInfo(methodInfo)
     , compCode(methodInfo->ILCode)
     , compILCodeSize(methodInfo->ILCodeSize)
-    , compIsVarArgs(false)
-    , compHasNextCallRetAddr(false)
     , compMaxStack(methodInfo->maxStack)
     , compXcptnsCount(methodInfo->EHcount)
 #if defined(TARGET_X86)
@@ -908,6 +906,8 @@ CompiledMethodInfo::CompiledMethodInfo(CORINFO_METHOD_INFO*   methodInfo,
 #else
 #error Unsupported or unset target architecture
 #endif
+    , compIsVarArgs(false)
+    , compHasNextCallRetAddr(false)
 {
 }
 
