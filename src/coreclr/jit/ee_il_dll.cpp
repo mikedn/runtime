@@ -578,16 +578,17 @@ void Compiler::eeGetStmtOffsets()
  *                  Debugging support - Local var info
  */
 
-void Compiler::eeSetLVcount(unsigned count)
+void CodeGen::eeSetLVcount(unsigned count)
 {
-    assert(opts.compScopeInfo);
+    assert(compiler->opts.compScopeInfo);
 
     JITDUMP("VarLocInfo count is %d\n", count);
 
     eeVarsCount = count;
     if (eeVarsCount)
     {
-        eeVars = (VarResultInfo*)info.compCompHnd->allocateArray(eeVarsCount * sizeof(eeVars[0]));
+        eeVars =
+            static_cast<VarResultInfo*>(compiler->info.compCompHnd->allocateArray(eeVarsCount * sizeof(eeVars[0])));
     }
     else
     {
@@ -595,16 +596,16 @@ void Compiler::eeSetLVcount(unsigned count)
     }
 }
 
-void Compiler::eeSetLVinfo(unsigned                          which,
-                           UNATIVE_OFFSET                    startOffs,
-                           UNATIVE_OFFSET                    length,
-                           unsigned                          varNum,
-                           const CodeGenInterface::siVarLoc& varLoc)
+void CodeGen::eeSetLVinfo(unsigned                          which,
+                          UNATIVE_OFFSET                    startOffs,
+                          UNATIVE_OFFSET                    length,
+                          unsigned                          varNum,
+                          const CodeGenInterface::siVarLoc& varLoc)
 {
     // ICorDebugInfo::VarLoc and CodeGenInterface::siVarLoc have to overlap
     // This is checked in siInit()
 
-    assert(opts.compScopeInfo);
+    assert(compiler->opts.compScopeInfo);
     assert(eeVarsCount > 0);
     assert(which < eeVarsCount);
 
@@ -617,20 +618,21 @@ void Compiler::eeSetLVinfo(unsigned                          which,
     }
 }
 
-void Compiler::eeSetLVdone()
+void CodeGen::eeSetLVdone()
 {
     // necessary but not sufficient condition that the 2 struct definitions overlap
     assert(sizeof(eeVars[0]) == sizeof(ICorDebugInfo::NativeVarInfo));
-    assert(opts.compScopeInfo);
+    assert(compiler->opts.compScopeInfo);
 
 #ifdef DEBUG
-    if (verbose || opts.dspDebugInfo)
+    if (verbose || compiler->opts.dspDebugInfo)
     {
-        eeDispVars(info.compMethodHnd, eeVarsCount, (ICorDebugInfo::NativeVarInfo*)eeVars);
+        eeDispVars(compiler->info.compMethodHnd, eeVarsCount, (ICorDebugInfo::NativeVarInfo*)eeVars);
     }
 #endif // DEBUG
 
-    info.compCompHnd->setVars(info.compMethodHnd, eeVarsCount, (ICorDebugInfo::NativeVarInfo*)eeVars);
+    compiler->info.compCompHnd->setVars(compiler->info.compMethodHnd, eeVarsCount,
+                                        (ICorDebugInfo::NativeVarInfo*)eeVars);
 
     eeVars = nullptr; // We give up ownership after setVars()
 }
@@ -1065,7 +1067,7 @@ void Compiler::compDispLocalVars()
     }
 }
 
-void Compiler::eeDispVar(ICorDebugInfo::NativeVarInfo* var)
+void CodeGen::eeDispVar(ICorDebugInfo::NativeVarInfo* var)
 {
     const char* name = nullptr;
 
@@ -1161,22 +1163,22 @@ void Compiler::eeDispVar(ICorDebugInfo::NativeVarInfo* var)
 }
 
 // Same parameters as ICorStaticInfo::setVars().
-void Compiler::eeDispVars(CORINFO_METHOD_HANDLE ftn, ULONG32 cVars, ICorDebugInfo::NativeVarInfo* vars)
+void CodeGen::eeDispVars(CORINFO_METHOD_HANDLE ftn, ULONG32 cVars, ICorDebugInfo::NativeVarInfo* vars)
 {
     // Estimate number of unique vars with debug info
     //
-    ALLVARSET_TP uniqueVars(AllVarSetOps::MakeEmpty(this));
+    ALLVARSET_TP uniqueVars(AllVarSetOps::MakeEmpty(compiler));
     for (unsigned i = 0; i < cVars; i++)
     {
         // ignore "special vars" and out of bounds vars
         if ((((int)vars[i].varNumber) >= 0) && (vars[i].varNumber < lclMAX_ALLSET_TRACKED))
         {
-            AllVarSetOps::AddElemD(this, uniqueVars, vars[i].varNumber);
+            AllVarSetOps::AddElemD(compiler, uniqueVars, vars[i].varNumber);
         }
     }
 
     printf("; Variable debug info: %d live ranges, %d vars for method %s\n", cVars,
-           AllVarSetOps::Count(this, uniqueVars), info.compFullName);
+           AllVarSetOps::Count(compiler, uniqueVars), compiler->info.compFullName);
 
     for (unsigned i = 0; i < cVars; i++)
     {

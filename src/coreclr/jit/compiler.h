@@ -6673,28 +6673,6 @@ public:
     void eeGetVars();
     void eeGetVars(ICorDebugInfo::ILVarInfo* varInfoTable, uint32_t varInfoCount, bool extendOthers);
 
-    unsigned eeVarsCount;
-
-    struct VarResultInfo
-    {
-        UNATIVE_OFFSET             startOffset;
-        UNATIVE_OFFSET             endOffset;
-        DWORD                      varNumber;
-        CodeGenInterface::siVarLoc loc;
-    } * eeVars;
-    void eeSetLVcount(unsigned count);
-    void eeSetLVinfo(unsigned                          which,
-                     UNATIVE_OFFSET                    startOffs,
-                     UNATIVE_OFFSET                    length,
-                     unsigned                          varNum,
-                     const CodeGenInterface::siVarLoc& loc);
-    void eeSetLVdone();
-
-#ifdef DEBUG
-    void eeDispVar(ICorDebugInfo::NativeVarInfo* var);
-    void eeDispVars(CORINFO_METHOD_HANDLE ftn, ULONG32 cVars, ICorDebugInfo::NativeVarInfo* vars);
-#endif // DEBUG
-
     // ICorJitInfo wrappers
 
     void eeReserveUnwindInfo(bool isFunclet, bool isColdCode, ULONG unwindSize);

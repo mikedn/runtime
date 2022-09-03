@@ -8952,15 +8952,15 @@ void CodeGen::genSetScopeInfo()
     if (varsLocationsCount == 0)
     {
         // No variable home to report
-        compiler->eeSetLVcount(0);
-        compiler->eeSetLVdone();
+        eeSetLVcount(0);
+        eeSetLVdone();
         return;
     }
 
     noway_assert(compiler->opts.compScopeInfo && (compiler->info.compVarScopesCount > 0));
 
     // Initialize the table where the reported variables' home will be placed.
-    compiler->eeSetLVcount(varsLocationsCount);
+    eeSetLVcount(varsLocationsCount);
 
 #ifdef LATE_DISASM
     genTrnslLocalVarCount = varsLocationsCount;
@@ -8983,7 +8983,7 @@ void CodeGen::genSetScopeInfo()
 #endif // USING_VARIABLE_LIVE_RANGE
 #endif // USING_SCOPE_INFO
 
-    compiler->eeSetLVdone();
+    eeSetLVdone();
 }
 
 #ifdef USING_SCOPE_INFO
@@ -9203,7 +9203,7 @@ void CodeGen::genSetScopeInfo(unsigned       which,
     tlvi.tlviVarLoc    = *varLoc;
 #endif
 
-    compiler->eeSetLVinfo(which, startOffs, length, ilVarNum, *varLoc);
+    eeSetLVinfo(which, startOffs, length, ilVarNum, *varLoc);
 }
 
 #ifdef LATE_DISASM

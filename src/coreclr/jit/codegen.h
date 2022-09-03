@@ -546,6 +546,28 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     void eeDispLineInfos();
 #endif
 
+    unsigned eeVarsCount;
+
+    struct VarResultInfo
+    {
+        UNATIVE_OFFSET             startOffset;
+        UNATIVE_OFFSET             endOffset;
+        DWORD                      varNumber;
+        CodeGenInterface::siVarLoc loc;
+    } * eeVars;
+    void eeSetLVcount(unsigned count);
+    void eeSetLVinfo(unsigned                          which,
+                     UNATIVE_OFFSET                    startOffs,
+                     UNATIVE_OFFSET                    length,
+                     unsigned                          varNum,
+                     const CodeGenInterface::siVarLoc& loc);
+    void eeSetLVdone();
+
+#ifdef DEBUG
+    void eeDispVar(ICorDebugInfo::NativeVarInfo* var);
+    void eeDispVars(CORINFO_METHOD_HANDLE ftn, ULONG32 cVars, ICorDebugInfo::NativeVarInfo* vars);
+#endif // DEBUG
+
     void genEnsureCodeEmitted(IL_OFFSETX offsx);
 
     //-------------------------------------------------------------------------
