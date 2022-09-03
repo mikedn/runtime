@@ -3169,8 +3169,6 @@ CorInfoHelpFunc Compiler::acdHelper(SpecialCodeKind codeKind)
 //
 BasicBlock* Compiler::fgAddCodeRef(BasicBlock* srcBlk, unsigned refData, SpecialCodeKind kind)
 {
-    assert(kind != SCK_NONE);
-
     // Record that the code will call a THROW_HELPER
     // so on Windows Amd64 we can allocate the 4 outgoing
     // arg slots on the stack frame if there are no other calls.
