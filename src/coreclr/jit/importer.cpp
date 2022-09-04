@@ -9530,11 +9530,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
         opcodeOffs = static_cast<IL_OFFSET>(codeAddr - info.compCode);
 
-        if (!compIsForInlining()
-#ifndef DEBUG // TODO-MIKE-Review: This looks like an odd Checked/Release difference.
-            && opts.compDbgInfo
-#endif
-            )
+        if (!compIsForInlining() && opts.compDbgInfo)
         {
             IL_OFFSET nxtStmtOffs =
                 (nxtStmtIndex < compStmtOffsetsCount) ? compStmtOffsets[nxtStmtIndex] : BAD_IL_OFFSET;
