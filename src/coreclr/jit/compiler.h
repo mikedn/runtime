@@ -2196,8 +2196,8 @@ struct Importer
 
     void impSetCurrentState(BasicBlock* block);
 
-    INDEBUG(void impAppendStmtCheck(Statement* stmt, unsigned chkLevel);)
-    void impAppendStmt(Statement* stmt, unsigned chkLevel);
+    INDEBUG(void AppendStmtCheck(GenTree* tree, unsigned chkLevel);)
+    void SpillStack(GenTree* tree, unsigned chkLevel);
     Statement* impAppendTree(GenTree* tree, unsigned chkLevel);
     void impSpillAllAppendTree(GenTree* tree);
     void impSpillNoneAppendTree(GenTree* tree);
