@@ -2095,11 +2095,6 @@ unsigned Importer::impInitBlockLineInfo()
         impCurStmtOffsSet(blockOffs);
     }
 
-    if (false && (compStmtOffsetsImplicit & ICorDebugInfo::CALL_SITE_BOUNDARIES))
-    {
-        impCurStmtOffsSet(blockOffs);
-    }
-
     /* Always report IL offset 0 or some tests get confused.
        Probably a good idea anyways */
 
