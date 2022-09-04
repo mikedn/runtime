@@ -1149,7 +1149,7 @@ GenTree* Importer::impVectorT128Widen(const HWIntrinsicSignature& sig)
 
     GenTree* lo = gtNewSimdHWIntrinsicNode(TYP_SIMD16, lower, eltType, 8, uses[0]);
     GenTree* hi = gtNewSimdHWIntrinsicNode(TYP_SIMD16, upper, eltType, 16, uses[1]);
-    impAppendTree(impAssignSIMDAddr(loAddr, lo), CHECK_SPILL_ALL, impCurStmtOffs);
+    impAppendTree(impAssignSIMDAddr(loAddr, lo), CHECK_SPILL_ALL);
     return impAssignSIMDAddr(hiAddr, hi);
 }
 
@@ -2319,7 +2319,7 @@ GenTree* Importer::impVectorT128Widen(const HWIntrinsicSignature& sig)
         hi = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_UnpackHigh, eltType, 16, uses[1], sign[1]);
     }
 
-    impAppendTree(impAssignSIMDAddr(loAddr, lo), CHECK_SPILL_ALL, impCurStmtOffs);
+    impAppendTree(impAssignSIMDAddr(loAddr, lo), CHECK_SPILL_ALL);
     return impAssignSIMDAddr(hiAddr, hi);
 }
 
@@ -2372,7 +2372,7 @@ GenTree* Importer::impVectorT256Widen(const HWIntrinsicSignature& sig)
     hi = gtNewSimdHWIntrinsicNode(TYP_SIMD32, extractIntrinsic, eltType, 32, uses[1], gtNewIconNode(1));
     hi = gtNewSimdHWIntrinsicNode(TYP_SIMD32, widenIntrinsic, eltType, 32, hi);
 
-    impAppendTree(impAssignSIMDAddr(loAddr, lo), CHECK_SPILL_ALL, impCurStmtOffs);
+    impAppendTree(impAssignSIMDAddr(loAddr, lo), CHECK_SPILL_ALL);
     return impAssignSIMDAddr(hiAddr, hi);
 }
 

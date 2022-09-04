@@ -235,7 +235,6 @@ inline unsigned genCountBits(T bits)
     return cnt;
 }
 
-
 template <>
 inline unsigned genCountBits<uint64_t>(uint64_t c)
 {

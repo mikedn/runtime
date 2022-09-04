@@ -516,24 +516,24 @@ void Importer::impAppendStmt(Statement* stmt, unsigned spillDepth)
 #endif
 }
 
-Statement* Importer::impAppendTree(GenTree* tree, unsigned spillDepth, IL_OFFSETX offset)
+Statement* Importer::impAppendTree(GenTree* tree, unsigned spillDepth)
 {
     assert(tree != nullptr);
 
-    Statement* stmt = gtNewStmt(tree, offset);
+    Statement* stmt = gtNewStmt(tree, impCurStmtOffs);
     impAppendStmt(stmt, spillDepth);
     return stmt;
 }
 
 void Importer::impSpillAllAppendTree(GenTree* op1)
 {
-    impAppendTree(op1, CHECK_SPILL_ALL, impCurStmtOffs);
+    impAppendTree(op1, CHECK_SPILL_ALL);
     INDEBUG(impNoteLastILoffs();)
 }
 
 void Importer::impSpillNoneAppendTree(GenTree* op1)
 {
-    impAppendTree(op1, CHECK_SPILL_NONE, impCurStmtOffs);
+    impAppendTree(op1, CHECK_SPILL_NONE);
     INDEBUG(impNoteLastILoffs();)
 }
 
@@ -554,7 +554,7 @@ void Importer::impAppendTempAssign(unsigned lclNum, GenTree* val, unsigned curLe
     lcl->SetType(type);
 
     GenTree* asg = gtNewAssignNode(gtNewLclvNode(lclNum, type), val);
-    impAppendTree(asg, curLevel, impCurStmtOffs);
+    impAppendTree(asg, curLevel);
 }
 
 void Importer::impAppendTempAssign(unsigned lclNum, GenTree* val, CORINFO_CLASS_HANDLE structType, unsigned curLevel)
@@ -585,7 +585,7 @@ void Importer::impAppendTempAssign(unsigned lclNum, GenTree* val, ClassLayout* l
 
     GenTree* dest = gtNewLclvNode(lclNum, lcl->GetType());
     GenTree* asg  = impAssignStruct(dest, val, curLevel);
-    impAppendTree(asg, curLevel, impCurStmtOffs);
+    impAppendTree(asg, curLevel);
 }
 
 /*****************************************************************************
@@ -1012,7 +1012,7 @@ GenTree* Importer::impAssignMkRefAny(GenTree* dest, GenTreeOp* mkRefAny, unsigne
 
     GenTree* valueField = gtNewFieldIndir(TYP_BYREF, gtNewFieldAddr(destAddrUses[0], GetRefanyValueField(),
                                                                     OFFSETOF__CORINFO_TypedReference__dataPtr));
-    impAppendTree(gtNewAssignNode(valueField, mkRefAny->GetOp(0)), curLevel, impCurStmtOffs);
+    impAppendTree(gtNewAssignNode(valueField, mkRefAny->GetOp(0)), curLevel);
 
     GenTree* typeField = gtNewFieldIndir(TYP_I_IMPL, gtNewFieldAddr(destAddrUses[1], GetRefanyTypeField(),
                                                                     OFFSETOF__CORINFO_TypedReference__type));
@@ -1474,7 +1474,7 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
 
         unsigned slotLclNum = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("impRuntimeLookup test"));
         GenTree* asg        = gtNewAssignNode(gtNewLclvNode(slotLclNum, TYP_I_IMPL), slotPtrTree);
-        impAppendTree(asg, CHECK_SPILL_ALL, impCurStmtOffs);
+        impAppendTree(asg, CHECK_SPILL_ALL);
 
         GenTree* slot = gtNewLclvNode(slotLclNum, TYP_I_IMPL);
 #ifdef TARGET_64BIT
@@ -1493,7 +1493,7 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
         asg = gtNewAssignNode(gtNewLclvNode(slotLclNum, TYP_I_IMPL), indir);
 
         GenTree* qmark = gtNewQmarkNode(TYP_VOID, relop, gtNewNothingNode(), asg);
-        impAppendTree(qmark, CHECK_SPILL_NONE, impCurStmtOffs);
+        impAppendTree(qmark, CHECK_SPILL_NONE);
 
         return gtNewLclvNode(slotLclNum, TYP_I_IMPL);
     }
@@ -1553,7 +1553,7 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
 
     unsigned tmp = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("spilling Runtime Lookup tree"));
     GenTree* asg = gtNewAssignNode(gtNewLclvNode(tmp, TYP_I_IMPL), result);
-    impAppendTree(asg, CHECK_SPILL_NONE, impCurStmtOffs);
+    impAppendTree(asg, CHECK_SPILL_NONE);
     return gtNewLclvNode(tmp, TYP_I_IMPL);
 }
 
@@ -1921,7 +1921,7 @@ void Importer::impMakeMultiUse(GenTree*  tree,
 
     var_types type   = varActualType(tree->GetType());
     unsigned  lclNum = lvaNewTemp(type, true DEBUGARG(reason));
-    impAppendTree(gtNewAssignNode(gtNewLclvNode(lclNum, type), tree), spillCheckLevel, impCurStmtOffs);
+    impAppendTree(gtNewAssignNode(gtNewLclvNode(lclNum, type), tree), spillCheckLevel);
 
     for (unsigned i = 0; i < useCount; i++)
     {
@@ -2062,7 +2062,7 @@ void Importer::impNoteBranchOffs()
 {
     if (opts.compDbgCode)
     {
-        impAppendTree(gtNewNothingNode(), CHECK_SPILL_NONE, impCurStmtOffs);
+        impAppendTree(gtNewNothingNode(), CHECK_SPILL_NONE);
     }
 }
 
@@ -3120,7 +3120,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
 
             unsigned rawHandleSlot = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("rawHandle"));
             GenTree* asg           = gtNewAssignNode(gtNewLclvNode(rawHandleSlot, TYP_I_IMPL), rawHandle);
-            impAppendTree(asg, CHECK_SPILL_NONE, impCurStmtOffs);
+            impAppendTree(asg, CHECK_SPILL_NONE);
             GenTree* lclVarAddr = gtNewLclVarAddrNode(rawHandleSlot, TYP_I_IMPL);
 
             retNode = gtNewOperNode(GT_IND, JITtype2varType(sig->retType), lclVarAddr);
@@ -4189,7 +4189,7 @@ GenTree* Importer::impUnsupportedNamedIntrinsic(CorInfoHelpFunc       helper,
 
     GenTreeCall* call = gtNewHelperCallNode(helper, TYP_VOID);
     call->gtCallMoreFlags |= GTF_CALL_M_DOES_NOT_RETURN;
-    impAppendTree(call, CHECK_SPILL_ALL, impCurStmtOffs);
+    impAppendTree(call, CHECK_SPILL_ALL);
 
     var_types retType = JITtype2varType(sig->retType);
 
@@ -4677,7 +4677,7 @@ bool Importer::impImportBoxPattern(BoxPattern              pattern,
 
             if (sideEffects != nullptr)
             {
-                impAppendTree(sideEffects, CHECK_SPILL_ALL, impCurStmtOffs);
+                impAppendTree(sideEffects, CHECK_SPILL_ALL);
             }
 
             JITDUMP("\n Importing BOX; BRTRUE/FALSE as constant branch\n");
@@ -4902,7 +4902,7 @@ void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
         comp->optMethodFlags |= OMF_HAS_NEWOBJ;
 
         GenTree*   asg     = gtNewAssignNode(gtNewLclvNode(impBoxTemp, TYP_REF), op1);
-        Statement* asgStmt = impAppendTree(asg, CHECK_SPILL_NONE, impCurStmtOffs);
+        Statement* asgStmt = impAppendTree(asg, CHECK_SPILL_NONE);
 
         op1 = gtNewLclvNode(impBoxTemp, TYP_REF);
         op2 = gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL);
@@ -4977,7 +4977,7 @@ void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
         impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("impImportAndPushBox"));
 
         // Set up this copy as a second assignment.
-        Statement* copyStmt = impAppendTree(op1, CHECK_SPILL_NONE, impCurStmtOffs);
+        Statement* copyStmt = impAppendTree(op1, CHECK_SPILL_NONE);
 
         op1 = gtNewLclvNode(impBoxTemp, TYP_REF);
 
@@ -6133,7 +6133,7 @@ GenTree* Importer::impImportStSFld(GenTree*                  value,
             // initialization will happen before whatever side effects the value tree may
             // have. This doesn't seem quite right when the type initializer doesn't have
             // BeforeFieldInit sematic.
-            impAppendTree(helperNode, CHECK_SPILL_NONE, impCurStmtOffs);
+            impAppendTree(helperNode, CHECK_SPILL_NONE);
         }
 
         field = impAssignStruct(field, value, CHECK_SPILL_NONE);
@@ -6458,7 +6458,7 @@ void Importer::impInsertHelperCall(const CORINFO_HELPER_DESC& helperInfo)
      * Also, consider sticking this in the first basic block.
      */
     GenTree* callout = gtNewHelperCallNode(helperInfo.helperNum, TYP_VOID, args);
-    impAppendTree(callout, CHECK_SPILL_NONE, impCurStmtOffs);
+    impAppendTree(callout, CHECK_SPILL_NONE);
 }
 
 // Checks whether the return types of caller and callee are compatible
@@ -6898,7 +6898,7 @@ var_types Importer::impImportCall(OPCODE                  opcode,
 
                     unsigned lclNum = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("VirtualCall with runtime lookup"));
                     GenTree* asg    = gtNewAssignNode(gtNewLclvNode(lclNum, TYP_I_IMPL), stubAddr);
-                    impAppendTree(asg, CHECK_SPILL_NONE, impCurStmtOffs);
+                    impAppendTree(asg, CHECK_SPILL_NONE);
                     stubAddr = gtNewLclvNode(lclNum, TYP_I_IMPL);
 
                     // Create the actual call node
@@ -6990,7 +6990,7 @@ var_types Importer::impImportCall(OPCODE                  opcode,
 
                 unsigned lclNum = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("VirtualCall through function pointer"));
                 GenTree* asg    = gtNewAssignNode(gtNewLclvNode(lclNum, TYP_I_IMPL), fptr);
-                impAppendTree(asg, CHECK_SPILL_ALL, impCurStmtOffs);
+                impAppendTree(asg, CHECK_SPILL_ALL);
                 fptr = gtNewLclvNode(lclNum, TYP_I_IMPL);
 
                 // Create the actual call node
@@ -7066,7 +7066,7 @@ var_types Importer::impImportCall(OPCODE                  opcode,
 
                 unsigned lclNum = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("Indirect call through function pointer"));
                 GenTree* asg    = gtNewAssignNode(gtNewLclvNode(lclNum, TYP_I_IMPL), fptr);
-                impAppendTree(asg, CHECK_SPILL_ALL, impCurStmtOffs);
+                impAppendTree(asg, CHECK_SPILL_ALL);
                 fptr = gtNewLclvNode(lclNum, TYP_I_IMPL);
 
                 call = gtNewIndCallNode(fptr, callRetTyp, nullptr, ilOffset);
@@ -7566,7 +7566,7 @@ var_types Importer::impImportCall(OPCODE                  opcode,
             impMarkInlineCandidate(call->AsCall(), exactContextHnd, exactContextNeedsRuntimeLookup, callInfo);
 
             // append the call node.
-            impAppendTree(call, CHECK_SPILL_ALL, impCurStmtOffs);
+            impAppendTree(call, CHECK_SPILL_ALL);
 
             // Now push the value of the 'new onto the stack
 
@@ -7822,11 +7822,11 @@ DONE_INTRINSIC:
         {
             // we actually did push something, so don't spill the thing we just pushed.
             assert(verCurrentState.esStackDepth > 0);
-            impAppendTree(call, verCurrentState.esStackDepth - 1, impCurStmtOffs);
+            impAppendTree(call, verCurrentState.esStackDepth - 1);
         }
         else
         {
-            impAppendTree(call, CHECK_SPILL_ALL, impCurStmtOffs);
+            impAppendTree(call, CHECK_SPILL_ALL);
         }
     }
     else
@@ -7859,7 +7859,7 @@ DONE_INTRINSIC:
                 assert(!isFatPointerCandidate); // We should not try to inline calli.
 
                 // Make the call its own tree (spill the stack if needed).
-                impAppendTree(origCall, CHECK_SPILL_ALL, impCurStmtOffs);
+                impAppendTree(origCall, CHECK_SPILL_ALL);
 
                 // TODO: Still using the widened type.
                 GenTreeRetExpr* retExpr = gtNewRetExpr(origCall, origCall->GetType());
@@ -8185,7 +8185,7 @@ void Importer::impImportLeave(BasicBlock* block)
 
                 if (endCatches)
                 {
-                    impAppendTree(endCatches, CHECK_SPILL_NONE, impCurStmtOffs);
+                    impAppendTree(endCatches, CHECK_SPILL_NONE);
                 }
 
 #ifdef DEBUG
@@ -8274,7 +8274,7 @@ void Importer::impImportLeave(BasicBlock* block)
 
         if (endCatches)
         {
-            impAppendTree(endCatches, CHECK_SPILL_NONE, impCurStmtOffs);
+            impAppendTree(endCatches, CHECK_SPILL_NONE);
         }
 
 #ifdef DEBUG
@@ -9123,12 +9123,12 @@ void Importer::impBranchToNextBlock(BasicBlock* block, GenTree* op1, GenTree* op
     if (op1->gtFlags & GTF_GLOB_EFFECT)
     {
         impSpillSideEffects(GTF_SIDE_EFFECT, CHECK_SPILL_ALL DEBUGARG("Branch to next Optimization, op1 side effect"));
-        impAppendTree(gtUnusedValNode(op1), CHECK_SPILL_NONE, impCurStmtOffs);
+        impAppendTree(gtUnusedValNode(op1), CHECK_SPILL_NONE);
     }
     if (op2->gtFlags & GTF_GLOB_EFFECT)
     {
         impSpillSideEffects(GTF_SIDE_EFFECT, CHECK_SPILL_ALL DEBUGARG("Branch to next Optimization, op2 side effect"));
-        impAppendTree(gtUnusedValNode(op2), CHECK_SPILL_NONE, impCurStmtOffs);
+        impAppendTree(gtUnusedValNode(op2), CHECK_SPILL_NONE);
     }
 
 #ifdef DEBUG
@@ -9385,7 +9385,7 @@ GenTree* Importer::impCastClassOrIsInstToTree(GenTree*                op1,
     // Make QMark node a top level node by spilling it.
     unsigned tmp = lvaNewTemp(TYP_REF, true DEBUGARG("spilling QMark2"));
     GenTree* asg = gtNewAssignNode(gtNewLclvNode(tmp, TYP_REF), qmarkNull);
-    impAppendTree(asg, CHECK_SPILL_NONE, impCurStmtOffs);
+    impAppendTree(asg, CHECK_SPILL_NONE);
 
     // TODO-CQ: Is it possible op1 has a better type?
     //
@@ -9549,7 +9549,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 if (impCurStmtOffs != BAD_IL_OFFSET && opts.compDbgCode)
                 {
                     GenTree* placeHolder = new (comp, GT_NO_OP) GenTree(GT_NO_OP, TYP_VOID);
-                    impAppendTree(placeHolder, CHECK_SPILL_NONE, impCurStmtOffs);
+                    impAppendTree(placeHolder, CHECK_SPILL_NONE);
 
                     assert(impCurStmtOffs == BAD_IL_OFFSET);
                 }
@@ -11397,7 +11397,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 {
                     if ((obj->gtFlags & GTF_SIDE_EFFECT) != 0)
                     {
-                        impAppendTree(gtUnusedValNode(obj), CHECK_SPILL_ALL, impCurStmtOffs);
+                        impAppendTree(gtUnusedValNode(obj), CHECK_SPILL_ALL);
                     }
 
                     opcode = opcode == CEE_LDFLD ? CEE_LDSFLD : CEE_LDSFLDA;
@@ -11544,7 +11544,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 {
                     if ((obj->gtFlags & GTF_SIDE_EFFECT) != 0)
                     {
-                        impAppendTree(gtUnusedValNode(obj), CHECK_SPILL_ALL, impCurStmtOffs);
+                        impAppendTree(gtUnusedValNode(obj), CHECK_SPILL_ALL);
                     }
 
                     opcode = CEE_STSFLD;
@@ -12502,7 +12502,7 @@ void Importer::ImportUnbox(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnboxAn
         // may be other trees on the evaluation stack that side-effect the
         // sources of the UNBOX operation we must spill the stack.
 
-        impAppendTree(op1, CHECK_SPILL_ALL, impCurStmtOffs);
+        impAppendTree(op1, CHECK_SPILL_ALL);
 
         // Create the address-expression to reference past the object header
         // to the beginning of the value-type. Today this means adjusting
@@ -12831,7 +12831,7 @@ void Importer::ImportLdVirtFtn(const BYTE* codeAddr)
     {
         if ((obj->gtFlags & GTF_SIDE_EFFECT) != 0)
         {
-            impAppendTree(gtUnusedValNode(obj), CHECK_SPILL_ALL, impCurStmtOffs);
+            impAppendTree(gtUnusedValNode(obj), CHECK_SPILL_ALL);
         }
 
         result = impMethodPointer(&resolvedToken, &callInfo);
@@ -13134,7 +13134,7 @@ void Importer::ImportNewObj(
         if (fgVarNeedsExplicitZeroInit(lclNum, bbInALoop, bbIsReturn))
         {
             GenTree* init = gtNewAssignNode(gtNewLclvNode(lclNum, lcl->GetType()), gtNewIconNode(0));
-            impAppendTree(init, CHECK_SPILL_NONE, impCurStmtOffs);
+            impAppendTree(init, CHECK_SPILL_NONE);
         }
         else
         {
@@ -13191,7 +13191,7 @@ void Importer::ImportNewObj(
         // to determine ALLOCOBJ nodes without exhaustive walk over all expressions.
 
         GenTree* asg = gtNewAssignNode(gtNewLclvNode(lclNum, TYP_REF), newObjThis);
-        impAppendTree(asg, CHECK_SPILL_NONE, impCurStmtOffs);
+        impAppendTree(asg, CHECK_SPILL_NONE);
 
         newObjThis = gtNewLclvNode(lclNum, TYP_REF);
     }
@@ -13546,7 +13546,7 @@ void Importer::impReturnInstruction(int prefixFlags, OPCODE opcode)
             GenTree* retBuffIndir = gtNewObjNode(info.GetRetLayout(), retBuffAddr);
             value                 = impAssignStruct(retBuffIndir, value, CHECK_SPILL_ALL);
 
-            impAppendTree(value, CHECK_SPILL_NONE, impCurStmtOffs);
+            impAppendTree(value, CHECK_SPILL_NONE);
 
             if (info.retDesc.GetRegCount() == 0)
             {
@@ -13957,7 +13957,7 @@ bool Importer::impSpillStackAtBlockEnd(BasicBlock* block)
                 asg = gtNewAssignNode(dst, tree);
             }
 
-            impAppendTree(asg, CHECK_SPILL_NONE, impCurStmtOffs);
+            impAppendTree(asg, CHECK_SPILL_NONE);
         }
     }
 
@@ -17307,7 +17307,7 @@ GenTree* Importer::impCheckForNullPointer(GenTree* obj)
         unsigned tmp = lvaNewTemp(obj->GetType(), true DEBUGARG("CheckForNullPointer"));
         GenTree* asg = gtNewAssignNode(gtNewLclvNode(tmp, obj->GetType()), obj);
         // We don't need to spill while appending as we are assigning a constant to a new temp.
-        impAppendTree(asg, CHECK_SPILL_NONE, impCurStmtOffs);
+        impAppendTree(asg, CHECK_SPILL_NONE);
 
         obj = gtNewLclvNode(tmp, obj->GetType());
     }

@@ -2198,7 +2198,7 @@ struct Importer
 
     INDEBUG(void impAppendStmtCheck(Statement* stmt, unsigned chkLevel);)
     void impAppendStmt(Statement* stmt, unsigned chkLevel);
-    Statement* impAppendTree(GenTree* tree, unsigned chkLevel, IL_OFFSETX offset);
+    Statement* impAppendTree(GenTree* tree, unsigned chkLevel);
     void impSpillAllAppendTree(GenTree* tree);
     void impSpillNoneAppendTree(GenTree* tree);
     void impAppendTempAssign(unsigned lclNum, GenTree* val, unsigned curLevel);
