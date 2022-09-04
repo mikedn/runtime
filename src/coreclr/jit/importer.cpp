@@ -1962,17 +1962,11 @@ void Importer::impMakeMultiUse(GenTree*     tree,
 
 void Importer::impCurStmtOffsSet(IL_OFFSET offs)
 {
-    if (compIsForInlining())
-    {
-        Statement* callStmt = impInlineInfo->iciStmt;
-        impCurStmtOffs      = callStmt->GetILOffsetX();
-    }
-    else
-    {
-        assert(offs == BAD_IL_OFFSET || (offs & IL_OFFSETX_BITS) == 0);
-        IL_OFFSETX stkBit = (verCurrentState.esStackDepth > 0) ? IL_OFFSETX_STKBIT : 0;
-        impCurStmtOffs    = offs | stkBit;
-    }
+    assert(!compIsForInlining());
+    assert(offs == BAD_IL_OFFSET || (offs & IL_OFFSETX_BITS) == 0);
+
+    IL_OFFSETX stkBit = (verCurrentState.esStackDepth > 0) ? IL_OFFSETX_STKBIT : 0;
+    impCurStmtOffs    = offs | stkBit;
 }
 
 /*****************************************************************************
@@ -2067,6 +2061,15 @@ void Importer::impNoteBranchOffs()
 
 unsigned Importer::impInitBlockLineInfo()
 {
+    if (compIsForInlining())
+    {
+        // TODO-MIKE-Review: This is dubious. We're reporting an offset that may
+        // have already been reported by the inliner due to CALL_SITE_BOUNDARIES.
+        impCurStmtOffs = impInlineInfo->iciStmt->GetILOffsetX();
+
+        return UINT32_MAX;
+    }
+
     /* Assume the block does not correspond with any IL offset. This prevents
        us from reporting extra offsets. Extra mappings can cause confusing
        stepping, especially if the extra mapping is a jump-target, and the
@@ -2074,11 +2077,6 @@ unsigned Importer::impInitBlockLineInfo()
        nearest known offset */
 
     impCurStmtOffsSet(BAD_IL_OFFSET);
-
-    if (compIsForInlining())
-    {
-        return ~0;
-    }
 
     IL_OFFSET blockOffs = compCurBB->bbCodeOffs;
 
