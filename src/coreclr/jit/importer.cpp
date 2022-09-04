@@ -499,11 +499,7 @@ Statement* Importer::impAppendTree(GenTree* tree, unsigned spillDepth)
 
     // Once we set impCurStmtOffs in an appended tree, we are ready
     // to report the following offsets. So reset impCurStmtOffs.
-
-    if (impLastStmt->GetILOffsetX() == impCurStmtOffs)
-    {
-        impCurStmtOffsSet(BAD_IL_OFFSET);
-    }
+    impCurStmtOffs = BAD_IL_OFFSET;
 
 #ifdef DEBUG
     if (impLastILoffsStmt == nullptr)
