@@ -2072,7 +2072,7 @@ struct Importer
 #endif
 
     IL_OFFSET*                   compStmtOffsets; // sorted
-    unsigned                     compStmtOffsetsCount = 0;
+    unsigned                     compStmtOffsetsCount    = 0;
     ICorDebugInfo::BoundaryTypes compStmtOffsetsImplicit = ICorDebugInfo::NO_BOUNDARIES;
 
     static constexpr unsigned CHECK_SPILL_ALL  = UINT32_MAX;
@@ -2566,24 +2566,24 @@ struct Importer
     void ImportLdFtn(const BYTE* codeAddr, CORINFO_RESOLVED_TOKEN& constrainedResolvedToken, int prefixFlags);
     void ImportLdVirtFtn(const BYTE* codeAddr);
     void ImportNewArr(const BYTE* codeAddr, BasicBlock* block);
-    var_types ImportNewObj(
-        const BYTE* codeAddr, const BYTE* codeEnd, IL_OFFSET ilOffset, int prefixFlags, BasicBlock* block);
-    var_types ImportCallI(const BYTE* codeAddr, const BYTE* codeEnd, IL_OFFSET ilOffset, int prefixFlags);
-    var_types ImportCall(const BYTE*             codeAddr,
-                         const BYTE*             codeEnd,
-                         IL_OFFSET               ilOffset,
-                         OPCODE                  opcode,
-                         CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
-                         int                     prefixFlags);
-    var_types ImportCall(const BYTE*             codeAddr,
-                         const BYTE*             codeEnd,
-                         IL_OFFSET               ilOffset,
-                         OPCODE                  opcode,
-                         CORINFO_RESOLVED_TOKEN& resolvedToken,
-                         CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
-                         CORINFO_CALL_INFO&      callInfo,
-                         int                     prefixFlags,
-                         GenTree*                newObjThis);
+    void ImportNewObj(
+        const uint8_t* codeAddr, const uint8_t* codeEnd, IL_OFFSET ilOffset, int prefixFlags, BasicBlock* block);
+    void ImportCallI(const uint8_t* codeAddr, const uint8_t* codeEnd, IL_OFFSET ilOffset, int prefixFlags);
+    void ImportCall(const uint8_t*          codeAddr,
+                    const uint8_t*          codeEnd,
+                    IL_OFFSET               ilOffset,
+                    OPCODE                  opcode,
+                    CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
+                    int                     prefixFlags);
+    void ImportCall(const uint8_t*          codeAddr,
+                    const uint8_t*          codeEnd,
+                    IL_OFFSET               ilOffset,
+                    OPCODE                  opcode,
+                    CORINFO_RESOLVED_TOKEN& resolvedToken,
+                    CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
+                    CORINFO_CALL_INFO&      callInfo,
+                    int                     prefixFlags,
+                    GenTree*                newObjThis = nullptr);
     var_types impImportCall(OPCODE                  opcode,
                             CORINFO_RESOLVED_TOKEN* resolvedToken,
                             CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
