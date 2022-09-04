@@ -1963,7 +1963,7 @@ void Importer::impMakeMultiUse(GenTree*     tree,
 void Importer::impCurStmtOffsSet(IL_OFFSET offs)
 {
     assert(!compIsForInlining());
-    assert(offs == BAD_IL_OFFSET || (offs & IL_OFFSETX_BITS) == 0);
+    assert((offs != BAD_IL_OFFSET) && ((offs & IL_OFFSETX_BITS) == 0));
 
     IL_OFFSETX stkBit = (verCurrentState.esStackDepth > 0) ? IL_OFFSETX_STKBIT : 0;
     impCurStmtOffs    = offs | stkBit;
@@ -2070,13 +2070,13 @@ unsigned Importer::impInitBlockLineInfo()
         return UINT32_MAX;
     }
 
-    /* Assume the block does not correspond with any IL offset. This prevents
-       us from reporting extra offsets. Extra mappings can cause confusing
-       stepping, especially if the extra mapping is a jump-target, and the
-       debugger does not ignore extra mappings, but instead rewinds to the
-       nearest known offset */
+    // Assume the block does not correspond with any IL offset. This prevents
+    // us from reporting extra offsets. Extra mappings can cause confusing
+    // stepping, especially if the extra mapping is a jump-target, and the
+    // debugger does not ignore extra mappings, but instead rewinds to the
+    // nearest known offset.
 
-    impCurStmtOffsSet(BAD_IL_OFFSET);
+    impCurStmtOffs = BAD_IL_OFFSET;
 
     IL_OFFSET blockOffs = compCurBB->bbCodeOffs;
 
