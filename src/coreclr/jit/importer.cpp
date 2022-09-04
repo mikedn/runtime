@@ -9564,21 +9564,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                     nxtStmtIndex++;
                     assert(nxtStmtIndex <= compStmtOffsetsCount);
-
-                    /* Are there any more line# entries after this one? */
-
-                    if (nxtStmtIndex < compStmtOffsetsCount)
-                    {
-                        /* Remember where the next line# starts */
-
-                        nxtStmtOffs = compStmtOffsets[nxtStmtIndex];
-                    }
-                    else
-                    {
-                        /* No more line# entries */
-
-                        nxtStmtOffs = BAD_IL_OFFSET;
-                    }
                 }
             }
             else if ((compStmtOffsetsImplicit & ICorDebugInfo::STACK_EMPTY_BOUNDARIES) &&
@@ -9613,9 +9598,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 impCurStmtOffsSet(opcodeOffs);
             }
-
-            assert(impCurStmtOffs == BAD_IL_OFFSET || nxtStmtOffs == BAD_IL_OFFSET ||
-                   jitGetILoffs(impCurStmtOffs) <= nxtStmtOffs);
         }
 
         CORINFO_CLASS_HANDLE clsHnd  = NO_CLASS_HANDLE;
