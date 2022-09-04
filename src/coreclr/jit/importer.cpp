@@ -13963,7 +13963,7 @@ bool Importer::impSpillStackAtBlockEnd(BasicBlock* block)
 
     if (branchStmt != nullptr)
     {
-        impAppendStmt(branchStmt, CHECK_SPILL_NONE);
+        impStmtListAppend(branchStmt);
     }
 
     return reimportSpillClique;
