@@ -2052,14 +2052,11 @@ void Importer::impNoteBranchOffs()
     }
 }
 
-/*****************************************************************************
- * Locate the next stmt boundary for which we need to record info.
- * We will have to spill the stack at such boundaries if it is not
- * already empty.
- * Returns the next stmt boundary (after the start of the block)
- */
-
-unsigned Importer::impInitBlockLineInfo()
+// Locate the next stmt boundary for which we need to record info.
+// We will have to spill the stack at such boundaries if it is not
+// already empty.
+// Returns the next stmt boundary (after the start of the block)
+unsigned Importer::impInitBlockLineInfo(BasicBlock* block)
 {
     if (compIsForInlining())
     {
@@ -2085,23 +2082,20 @@ unsigned Importer::impInitBlockLineInfo()
         impCurStmtOffsSet(blockOffs);
     }
 
-    /* Always report IL offset 0 or some tests get confused.
-       Probably a good idea anyways */
-
+    // Always report IL offset 0 or some tests get confused.
     if (blockOffs == 0)
     {
         impCurStmtOffsSet(blockOffs);
     }
 
-    if (!compStmtOffsetsCount)
+    if (compStmtOffsetsCount == 0)
     {
-        return ~0;
+        return UINT32_MAX;
     }
 
-    /* Find the lowest explicit stmt boundary within the block */
+    // Find the lowest explicit stmt boundary within the block.
 
-    /* Start looking at an entry that is based on our instr offset */
-
+    // Guess a starting index to avoid searching the entire offset array.
     unsigned index = (compStmtOffsetsCount * blockOffs) / info.compILCodeSize;
 
     if (index >= compStmtOffsetsCount)
@@ -2109,14 +2103,10 @@ unsigned Importer::impInitBlockLineInfo()
         index = compStmtOffsetsCount - 1;
     }
 
-    /* If we've guessed too far, back up */
-
-    while (index > 0 && compStmtOffsets[index - 1] >= blockOffs)
+    while ((index > 0) && (compStmtOffsets[index - 1] >= blockOffs))
     {
         index--;
     }
-
-    /* If we guessed short, advance ahead */
 
     while (compStmtOffsets[index] < blockOffs)
     {
@@ -2124,7 +2114,7 @@ unsigned Importer::impInitBlockLineInfo()
 
         if (index == compStmtOffsetsCount)
         {
-            return compStmtOffsetsCount;
+            return index;
         }
     }
 
@@ -2132,12 +2122,7 @@ unsigned Importer::impInitBlockLineInfo()
 
     if (compStmtOffsets[index] == blockOffs)
     {
-        /* There is an explicit boundary for the start of this basic block.
-           So we will start with bbCodeOffs. Else we will wait until we
-           get to the next explicit boundary */
-
         impCurStmtOffsSet(blockOffs);
-
         index++;
     }
 
@@ -9437,8 +9422,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
     assert((impStmtList == nullptr) && (impLastStmt == nullptr));
 
-    unsigned nxtStmtIndex = impInitBlockLineInfo();
-
 #ifdef FEATURE_ON_STACK_REPLACEMENT
     // Are there any places in the method where we might add a patchpoint?
     if (comp->compHasBackwardJump)
@@ -9469,21 +9452,23 @@ void Importer::impImportBlockCode(BasicBlock* block)
     m_impSIMDCoalescingBuffer.Clear();
 #endif
 
-    IL_OFFSET      opcodeOffs    = block->bbCodeOffs;
-    IL_OFFSET      lastSpillOffs = opcodeOffs;
-    const uint8_t* codeAddr      = info.compCode + opcodeOffs;
-    const uint8_t* codeEndp      = info.compCode + block->bbCodeOffsEnd;
-    OPCODE         prevOpcode    = CEE_ILLEGAL;
+    unsigned nextStmtIndex = impInitBlockLineInfo(block);
 
     if (block->bbCatchTyp != 0)
     {
         if ((compStmtOffsetsImplicit & ICorDebugInfo::CALL_SITE_BOUNDARIES) != 0)
         {
-            impCurStmtOffsSet(opcodeOffs);
+            impCurStmtOffsSet(block->bbCodeOffs);
         }
 
         impSpillCatchArg();
     }
+
+    IL_OFFSET      opcodeOffs    = block->bbCodeOffs;
+    IL_OFFSET      lastSpillOffs = opcodeOffs;
+    const uint8_t* codeAddr      = info.compCode + opcodeOffs;
+    const uint8_t* codeEndp      = info.compCode + block->bbCodeOffsEnd;
+    OPCODE         prevOpcode    = CEE_ILLEGAL;
 
     while (codeAddr < codeEndp)
     {
@@ -9514,64 +9499,44 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
         opcodeOffs = static_cast<IL_OFFSET>(codeAddr - info.compCode);
 
-        if (!compIsForInlining() && opts.compDbgInfo)
+        if ((nextStmtIndex < compStmtOffsetsCount) && (opcodeOffs >= compStmtOffsets[nextStmtIndex]))
         {
-            IL_OFFSET nxtStmtOffs =
-                (nxtStmtIndex < compStmtOffsetsCount) ? compStmtOffsets[nxtStmtIndex] : BAD_IL_OFFSET;
-
-            /* Have we reached the next stmt boundary ? */
-
-            if (nxtStmtOffs != BAD_IL_OFFSET && opcodeOffs >= nxtStmtOffs)
+            if (opts.compDbgCode)
             {
-                assert(nxtStmtOffs == compStmtOffsets[nxtStmtIndex]);
-
-                if (verCurrentState.esStackDepth != 0 && opts.compDbgCode)
+                if (verCurrentState.esStackDepth != 0)
                 {
-                    /* We need to provide accurate IP-mapping at this point.
-                       So spill anything on the stack so that it will form
-                       gtStmts with the correct stmt offset noted */
-
                     impSpillStackEnsure(true);
                 }
-
-                // Has impCurStmtOffs been reported in any tree?
-
-                if (impCurStmtOffs != BAD_IL_OFFSET && opts.compDbgCode)
+                else if (impCurStmtOffs != BAD_IL_OFFSET)
                 {
-                    GenTree* placeHolder = new (comp, GT_NO_OP) GenTree(GT_NO_OP, TYP_VOID);
-                    impAppendTree(placeHolder, CHECK_SPILL_NONE);
-
-                    assert(impCurStmtOffs == BAD_IL_OFFSET);
+                    // Somehow we did not generate any statements for the current offset,
+                    // add a nop statement so that the current offset gets reported.
+                    GenTree* nop = new (comp, GT_NO_OP) GenTree(GT_NO_OP, TYP_VOID);
+                    impAppendTree(nop, CHECK_SPILL_NONE);
                 }
 
-                if (impCurStmtOffs == BAD_IL_OFFSET)
-                {
-                    /* Make sure that nxtStmtIndex is in sync with opcodeOffs.
-                       If opcodeOffs has gone past nxtStmtIndex, catch up */
-
-                    while ((nxtStmtIndex + 1) < compStmtOffsetsCount && compStmtOffsets[nxtStmtIndex + 1] <= opcodeOffs)
-                    {
-                        nxtStmtIndex++;
-                    }
-
-                    /* Go to the new stmt */
-
-                    impCurStmtOffsSet(compStmtOffsets[nxtStmtIndex]);
-
-                    /* Update the stmt boundary index */
-
-                    nxtStmtIndex++;
-                    assert(nxtStmtIndex <= compStmtOffsetsCount);
-                }
+                assert(impCurStmtOffs == BAD_IL_OFFSET);
             }
-            else if ((compStmtOffsetsImplicit & ICorDebugInfo::STACK_EMPTY_BOUNDARIES) &&
-                     (verCurrentState.esStackDepth == 0))
-            {
-                /* At stack-empty locations, we have already added the tree to
-                   the stmt list with the last offset. We just need to update
-                   impCurStmtOffs
-                 */
 
+            if (impCurStmtOffs == BAD_IL_OFFSET)
+            {
+                // Make sure that nextStmtIndex is in sync with opcodeOffs.
+                while ((nextStmtIndex + 1 < compStmtOffsetsCount) && (compStmtOffsets[nextStmtIndex + 1] <= opcodeOffs))
+                {
+                    nextStmtIndex++;
+                }
+
+                impCurStmtOffsSet(compStmtOffsets[nextStmtIndex]);
+
+                nextStmtIndex++;
+                assert(nextStmtIndex <= compStmtOffsetsCount);
+            }
+        }
+        else if (compStmtOffsetsImplicit != ICorDebugInfo::NO_BOUNDARIES)
+        {
+            if ((compStmtOffsetsImplicit & ICorDebugInfo::STACK_EMPTY_BOUNDARIES) &&
+                (verCurrentState.esStackDepth == 0))
+            {
                 impCurStmtOffsSet(opcodeOffs);
             }
             else if ((compStmtOffsetsImplicit & ICorDebugInfo::CALL_SITE_BOUNDARIES) &&

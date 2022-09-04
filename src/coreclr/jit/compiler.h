@@ -2268,7 +2268,7 @@ struct Importer
 
     void impNoteBranchOffs();
 
-    unsigned impInitBlockLineInfo();
+    unsigned impInitBlockLineInfo(BasicBlock* block);
 
     GenTree* impCheckForNullPointer(GenTree* obj);
     bool impIsAnySTLOC(OPCODE opcode)
