@@ -6592,13 +6592,13 @@ bool Importer::impIsImplicitTailCallCandidate(
 #pragma warning(push)
 #pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
 #endif
-GenTree* Importer::impImportCall(OPCODE                  opcode,
-                                 CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                 CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken,
-                                 GenTree*                newobjThis,
-                                 int                     prefixFlags,
-                                 CORINFO_CALL_INFO*      callInfo,
-                                 IL_OFFSET               rawILOffset)
+GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
+                                     CORINFO_RESOLVED_TOKEN* pResolvedToken,
+                                     CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken,
+                                     GenTree*                newobjThis,
+                                     int                     prefixFlags,
+                                     CORINFO_CALL_INFO*      callInfo,
+                                     IL_OFFSET               rawILOffset)
 {
     // TODO-MIKE-Review: Try to move this to ImportCallI. The main issue that ImportCall
     // behaves a bit differently for CALL (e.g. calls impHandleAccessAllowed).
@@ -6634,8 +6634,6 @@ GenTree* Importer::impImportCall(OPCODE                  opcode,
     const char*            szCanTailCallFailReason        = nullptr;
     const int              tailCallFlags                  = (prefixFlags & PREFIX_TAILCALL);
     const bool             isReadonlyCall                 = (prefixFlags & PREFIX_READONLY) != 0;
-
-    CORINFO_RESOLVED_TOKEN* ldftnToken = nullptr;
 
     bool             hasCallSiteSig = false;
     CORINFO_SIG_INFO callSiteSig;
@@ -7422,21 +7420,6 @@ GenTree* Importer::impImportCall(OPCODE                  opcode,
         extraArg = gtNewCallArgs(instParam);
     }
 
-    if ((opcode == CEE_NEWOBJ) && ((clsFlags & CORINFO_FLG_DELEGATE) != 0))
-    {
-        // Only verifiable cases are supported.
-        // dup; ldvirtftn; newobj; or ldftn; newobj.
-        // IL test could contain unverifiable sequence, in this case optimization should not be done.
-        if (impStackHeight() > 0)
-        {
-            typeInfo delegateTypeInfo = impStackTop().seTypeInfo;
-            if (delegateTypeInfo.IsToken())
-            {
-                ldftnToken = delegateTypeInfo.GetToken();
-            }
-        }
-    }
-
     //-------------------------------------------------------------------------
     // The main group of arguments
 
@@ -7448,26 +7431,22 @@ GenTree* Importer::impImportCall(OPCODE                  opcode,
         call->gtFlags |= use.GetNode()->gtFlags & GTF_GLOB_EFFECT;
     }
 
+    if (opcode == CEE_NEWOBJ)
+    {
+        return call->AsCall();
+    }
+
     //-------------------------------------------------------------------------
     // The "this" pointer
 
-    if (((mflags & CORINFO_FLG_STATIC) == 0) && ((sig->callConv & CORINFO_CALLCONV_EXPLICITTHIS) == 0) &&
-        !((opcode == CEE_NEWOBJ) && (newobjThis == nullptr)))
+    if (((mflags & CORINFO_FLG_STATIC) == 0) && ((sig->callConv & CORINFO_CALLCONV_EXPLICITTHIS) == 0))
     {
-        GenTree* obj;
+        GenTree* obj = impPopStack().val;
 
-        if (opcode == CEE_NEWOBJ)
+        obj = impTransformThis(obj, pConstrainedResolvedToken, constraintCallThisTransform);
+        if (compDonotInline())
         {
-            obj = newobjThis;
-        }
-        else
-        {
-            obj = impPopStack().val;
-            obj = impTransformThis(obj, pConstrainedResolvedToken, constraintCallThisTransform);
-            if (compDonotInline())
-            {
-                return nullptr;
-            }
+            return nullptr;
         }
 
         // Store the "this" value in the call
@@ -7486,75 +7465,6 @@ GenTree* Importer::impImportCall(OPCODE                  opcode,
             impDevirtualizeCall(call->AsCall(), pResolvedToken, &callInfo->hMethod, &callInfo->methodFlags,
                                 &callInfo->contextHandle, &exactContextHnd, isExplicitTailCall, rawILOffset);
         }
-    }
-
-    //-------------------------------------------------------------------------
-    // The "this" pointer for "newobj"
-
-    if (opcode == CEE_NEWOBJ)
-    {
-        if (clsFlags & CORINFO_FLG_VAROBJSIZE)
-        {
-            assert(!(clsFlags & CORINFO_FLG_ARRAY)); // arrays handled separately
-            // This is a 'new' of a variable sized object, wher
-            // the constructor is to return the object.  In this case
-            // the constructor claims to return VOID but we know it
-            // actually returns the new object
-            assert(callRetTyp == TYP_VOID);
-            call->SetType(TYP_REF);
-            call->AsCall()->SetRetSigType(TYP_REF);
-            impSpillCatchArg();
-
-            impPushOnStack(call, typeInfo(TI_REF, clsHnd));
-
-            return call;
-        }
-
-        if (clsFlags & CORINFO_FLG_DELEGATE)
-        {
-            // New inliner morph it in impImportCall.
-            // This will allow us to inline the call to the delegate constructor.
-            call = fgOptimizeDelegateConstructor(call->AsCall(), &exactContextHnd, ldftnToken);
-        }
-
-#if defined(DEBUG) || defined(INLINE_DATA)
-        // Keep track of the raw IL offset of the call
-        call->AsCall()->gtRawILOffset = rawILOffset;
-#endif // defined(DEBUG) || defined(INLINE_DATA)
-
-        // Is it an inline candidate?
-        impMarkInlineCandidate(call->AsCall(), exactContextHnd, exactContextNeedsRuntimeLookup, callInfo);
-
-        // append the call node.
-        impAppendTree(call, CHECK_SPILL_ALL);
-
-        // Now push the value of the 'new onto the stack
-
-        // This is a 'new' of a non-variable sized object.
-        // Append the new node (op1) to the statement list,
-        // and then push the local holding the value of this
-        // new instruction on the stack.
-
-        if ((clsFlags & CORINFO_FLG_VALUECLASS) != 0)
-        {
-            assert(newobjThis->OperIs(GT_LCL_VAR_ADDR));
-
-            unsigned tmp = newobjThis->AsLclVar()->GetLclNum();
-            impPushOnStack(gtNewLclvNode(tmp, lvaGetDesc(tmp)->GetType()), typeInfo(TI_STRUCT, clsHnd));
-        }
-        else
-        {
-            if (newobjThis->gtOper == GT_COMMA)
-            {
-                // We must have inserted the callout. Get the real newobj.
-                newobjThis = newobjThis->AsOp()->gtOp2;
-            }
-
-            assert(newobjThis->gtOper == GT_LCL_VAR);
-            impPushOnStack(gtNewLclvNode(newobjThis->AsLclVarCommon()->GetLclNum(), TYP_REF), typeInfo(TI_REF, clsHnd));
-        }
-
-        return call;
     }
 
 DONE:
@@ -7900,7 +7810,7 @@ DONE_INTRINSIC:
         }
     }
 
-    return call;
+    return nullptr;
 }
 #ifdef _PREFAST_
 #pragma warning(pop)
@@ -13123,7 +13033,103 @@ void Importer::ImportNewObj(
         return;
     }
 
-    impImportCall(CEE_NEWOBJ, &resolvedToken, nullptr, newObjThis, prefixFlags, &callInfo, ilOffset);
+    CORINFO_CLASS_HANDLE    clsHnd                         = resolvedToken.hClass;
+    unsigned                clsFlags                       = callInfo.classFlags;
+    CORINFO_CONTEXT_HANDLE  exactContextHnd                = callInfo.contextHandle;
+    bool                    exactContextNeedsRuntimeLookup = callInfo.exactContextNeedsRuntimeLookup;
+    CORINFO_RESOLVED_TOKEN* ldftnToken                     = nullptr;
+
+    if ((clsFlags & CORINFO_FLG_DELEGATE) != 0)
+    {
+        // Only verifiable cases are supported.
+        // dup; ldvirtftn; newobj; or ldftn; newobj.
+        // IL test could contain unverifiable sequence, in this case optimization should not be done.
+        if (impStackHeight() > 0)
+        {
+            typeInfo delegateTypeInfo = impStackTop().seTypeInfo;
+            if (delegateTypeInfo.IsToken())
+            {
+                ldftnToken = delegateTypeInfo.GetToken();
+            }
+        }
+    }
+
+    GenTreeCall* call =
+        impImportCall(CEE_NEWOBJ, &resolvedToken, nullptr, newObjThis, prefixFlags, &callInfo, ilOffset);
+
+    if (call == nullptr)
+    {
+        return;
+    }
+
+    if (((callInfo.sig.callConv & CORINFO_CALLCONV_EXPLICITTHIS) == 0) && (newObjThis != nullptr))
+    {
+        GenTree* obj = newObjThis;
+
+        call->gtFlags |= obj->gtFlags & GTF_GLOB_EFFECT;
+        call->AsCall()->gtCallThisArg = gtNewCallArgs(obj);
+
+        assert(!call->AsCall()->IsVirtual());
+    }
+
+    if (clsFlags & CORINFO_FLG_VAROBJSIZE)
+    {
+        assert(!(clsFlags & CORINFO_FLG_ARRAY)); // arrays handled separately
+        // This is a 'new' of a variable sized object, wher
+        // the constructor is to return the object.  In this case
+        // the constructor claims to return VOID but we know it
+        // actually returns the new object
+        call->SetType(TYP_REF);
+        call->AsCall()->SetRetSigType(TYP_REF);
+        impSpillCatchArg();
+
+        impPushOnStack(call, typeInfo(TI_REF, clsHnd));
+
+        return;
+    }
+
+    if (clsFlags & CORINFO_FLG_DELEGATE)
+    {
+        // New inliner morph it in impImportCall.
+        // This will allow us to inline the call to the delegate constructor.
+        call = fgOptimizeDelegateConstructor(call, &exactContextHnd, ldftnToken);
+    }
+
+#if defined(DEBUG) || defined(INLINE_DATA)
+    call->AsCall()->gtRawILOffset = ilOffset;
+#endif
+
+    // Is it an inline candidate?
+    impMarkInlineCandidate(call, exactContextHnd, exactContextNeedsRuntimeLookup, &callInfo);
+
+    // append the call node.
+    impAppendTree(call, CHECK_SPILL_ALL);
+
+    // Now push the value of the 'new onto the stack
+
+    // This is a 'new' of a non-variable sized object.
+    // Append the new node (op1) to the statement list,
+    // and then push the local holding the value of this
+    // new instruction on the stack.
+
+    if ((clsFlags & CORINFO_FLG_VALUECLASS) != 0)
+    {
+        assert(newObjThis->OperIs(GT_LCL_VAR_ADDR));
+
+        unsigned tmp = newObjThis->AsLclVar()->GetLclNum();
+        impPushOnStack(gtNewLclvNode(tmp, lvaGetDesc(tmp)->GetType()), typeInfo(TI_STRUCT, clsHnd));
+    }
+    else
+    {
+        if (newObjThis->gtOper == GT_COMMA)
+        {
+            // We must have inserted the callout. Get the real newobj.
+            newObjThis = newObjThis->AsOp()->gtOp2;
+        }
+
+        assert(newObjThis->gtOper == GT_LCL_VAR);
+        impPushOnStack(gtNewLclvNode(newObjThis->AsLclVarCommon()->GetLclNum(), TYP_REF), typeInfo(TI_REF, clsHnd));
+    }
 }
 
 void Importer::ImportCallI(const uint8_t* codeAddr, const uint8_t* codeEnd, IL_OFFSET ilOffset, int prefixFlags)

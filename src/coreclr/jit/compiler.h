@@ -2583,13 +2583,13 @@ struct Importer
                     CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
                     CORINFO_CALL_INFO&      callInfo,
                     int                     prefixFlags);
-    GenTree* impImportCall(OPCODE                  opcode,
-                           CORINFO_RESOLVED_TOKEN* resolvedToken,
-                           CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
-                           GenTree*                newObjThis,
-                           int                     prefixFlags,
-                           CORINFO_CALL_INFO*      callInfo,
-                           IL_OFFSET               ilOffset);
+    GenTreeCall* impImportCall(OPCODE                  opcode,
+                               CORINFO_RESOLVED_TOKEN* resolvedToken,
+                               CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
+                               GenTree*                newObjThis,
+                               int                     prefixFlags,
+                               CORINFO_CALL_INFO*      callInfo,
+                               IL_OFFSET               ilOffset);
 
     void addExpRuntimeLookupCandidate(GenTreeCall* call);
 
@@ -2934,9 +2934,9 @@ struct Importer
     GenTree* gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp);
     CORINFO_CLASS_HANDLE gtGetHelperArgClassHandle(GenTree* array);
     GenTree* gtReverseCond(GenTree* tree);
-    GenTree* fgOptimizeDelegateConstructor(GenTreeCall*            call,
-                                           CORINFO_CONTEXT_HANDLE* exactContextHnd,
-                                           CORINFO_RESOLVED_TOKEN* ldftnToken);
+    GenTreeCall* fgOptimizeDelegateConstructor(GenTreeCall*            call,
+                                               CORINFO_CONTEXT_HANDLE* exactContextHnd,
+                                               CORINFO_RESOLVED_TOKEN* ldftnToken);
     bool fgAddrCouldBeNull(GenTree* addr);
 
     void impCheckCanInline(GenTreeCall*           call,

@@ -863,9 +863,9 @@ bool Compiler::fgAddrCouldBeNull(GenTree* addr)
 //    Original call tree if no optimization applies.
 //    Updated call tree if optimized.
 
-GenTree* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            call,
-                                                 CORINFO_CONTEXT_HANDLE* ExactContextHnd,
-                                                 CORINFO_RESOLVED_TOKEN* ldftnToken)
+GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            call,
+                                                     CORINFO_CONTEXT_HANDLE* ExactContextHnd,
+                                                     CORINFO_RESOLVED_TOKEN* ldftnToken)
 {
     JITDUMP("\nfgOptimizeDelegateConstructor: ");
     noway_assert(call->gtCallType == CT_USER_FUNC);
