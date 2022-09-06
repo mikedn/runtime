@@ -3696,7 +3696,6 @@ enum GenTreeCallFlags : unsigned int
                                                      // in special cases. Used to optimize fast way out in morphing
     GTF_CALL_M_UNMGD_THISCALL          = 0x00000080, // "this" pointer (first argument) should be enregistered (only for GTF_CALL_UNMANAGED)
     GTF_CALL_M_VIRTSTUB_REL_INDIRECT   = 0x00000080, // the virtstub is indirected through a relative address (only for GTF_CALL_VIRT_STUB)
-    GTF_CALL_M_NONVIRT_SAME_THIS       = 0x00000080, // callee "this" pointer is equal to caller this pointer (only for GTF_CALL_NONVIRT)
 #ifdef TARGET_X86
     GTF_CALL_M_TAILCALL_VIA_JIT_HELPER = 0x00000200, // call is a tail call dispatched via tail call JIT helper.
 #endif
@@ -4348,10 +4347,6 @@ public:
 #endif
     }
 
-    bool IsSameThis() const
-    {
-        return (gtCallMoreFlags & GTF_CALL_M_NONVIRT_SAME_THIS) != 0;
-    }
     bool IsDelegateInvoke() const
     {
         return (gtCallMoreFlags & GTF_CALL_M_DELEGATE_INV) != 0;

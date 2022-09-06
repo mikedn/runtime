@@ -6454,13 +6454,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                             chars += printf("[CALL_M_VIRTSTUB_REL_INDIRECT]");
                         }
                     }
-                    else if (!call->IsVirtual())
-                    {
-                        if (call->gtCallMoreFlags & GTF_CALL_M_NONVIRT_SAME_THIS)
-                        {
-                            chars += printf("[CALL_M_NONVIRT_SAME_THIS]");
-                        }
-                    }
 
 #ifdef TARGET_X86
                     if (call->gtCallMoreFlags & GTF_CALL_M_TAILCALL_VIA_JIT_HELPER)

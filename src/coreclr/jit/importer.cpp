@@ -7486,11 +7486,6 @@ GenTree* Importer::impImportCall(OPCODE                  opcode,
             impDevirtualizeCall(call->AsCall(), pResolvedToken, &callInfo->hMethod, &callInfo->methodFlags,
                                 &callInfo->contextHandle, &exactContextHnd, isExplicitTailCall, rawILOffset);
         }
-
-        if (comp->impIsThis(obj))
-        {
-            call->AsCall()->gtCallMoreFlags |= GTF_CALL_M_NONVIRT_SAME_THIS;
-        }
     }
 
     //-------------------------------------------------------------------------
