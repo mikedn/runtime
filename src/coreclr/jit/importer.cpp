@@ -7110,18 +7110,12 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
     CORINFO_CLASS_HANDLE actualMethodRetTypeSigClass;
     actualMethodRetTypeSigClass = sig->retTypeSigClass;
 
+    if ((sig->callConv & CORINFO_CALLCONV_MASK) == CORINFO_CALLCONV_VARARG ||
+        (sig->callConv & CORINFO_CALLCONV_MASK) == CORINFO_CALLCONV_NATIVEVARARG)
+    {
 #if !FEATURE_VARARG
-    /* Check for varargs */
-    if ((sig->callConv & CORINFO_CALLCONV_MASK) == CORINFO_CALLCONV_VARARG ||
-        (sig->callConv & CORINFO_CALLCONV_MASK) == CORINFO_CALLCONV_NATIVEVARARG)
-    {
         BADCODE("Varargs not supported.");
-    }
-#endif // !FEATURE_VARARG
-
-    if ((sig->callConv & CORINFO_CALLCONV_MASK) == CORINFO_CALLCONV_VARARG ||
-        (sig->callConv & CORINFO_CALLCONV_MASK) == CORINFO_CALLCONV_NATIVEVARARG)
-    {
+#else
         assert(!compIsForInlining());
 
         /* Set the right flags */
@@ -7176,9 +7170,10 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
             assert(numArgsDef <= sig->numArgs);
         }
 
-        /* We will have "cookie" as the last argument but we cannot push
-         * it on the operand stack because we may overflow, so we append it
-         * to the arg list next after we pop them */
+/* We will have "cookie" as the last argument but we cannot push
+ * it on the operand stack because we may overflow, so we append it
+ * to the arg list next after we pop them */
+#endif // FEATURE_VARARG
     }
 
     //--------------------------- Inline NDirect ------------------------------
