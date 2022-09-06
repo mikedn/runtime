@@ -2584,13 +2584,13 @@ struct Importer
                     CORINFO_CALL_INFO&      callInfo,
                     int                     prefixFlags,
                     GenTree*                newObjThis = nullptr);
-    var_types impImportCall(OPCODE                  opcode,
-                            CORINFO_RESOLVED_TOKEN* resolvedToken,
-                            CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
-                            GenTree*                newObjThis,
-                            int                     prefixFlags,
-                            CORINFO_CALL_INFO*      callInfo,
-                            IL_OFFSET               ilOffset);
+    GenTree* impImportCall(OPCODE                  opcode,
+                           CORINFO_RESOLVED_TOKEN* resolvedToken,
+                           CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
+                           GenTree*                newObjThis,
+                           int                     prefixFlags,
+                           CORINFO_CALL_INFO*      callInfo,
+                           IL_OFFSET               ilOffset);
 
     void addExpRuntimeLookupCandidate(GenTreeCall* call);
 

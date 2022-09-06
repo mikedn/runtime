@@ -6582,12 +6582,6 @@ bool Importer::impIsImplicitTailCallCandidate(
 //    callInfo                  - EE supplied info for the call
 //    rawILOffset               - IL offset of the opcode
 //
-// Returns:
-//    Type of the call's return value.
-//    If we're importing an inlinee and have realized the inline must fail, the call return type should be TYP_UNDEF.
-//    However we can't assert for this here yet because there are cases we miss. See issue #13272.
-//
-//
 // Notes:
 //    opcode can be CEE_CALL, CEE_CALLI, CEE_CALLVIRT, or CEE_NEWOBJ.
 //
@@ -6598,14 +6592,13 @@ bool Importer::impIsImplicitTailCallCandidate(
 #pragma warning(push)
 #pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
 #endif
-
-var_types Importer::impImportCall(OPCODE                  opcode,
-                                  CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                  CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken,
-                                  GenTree*                newobjThis,
-                                  int                     prefixFlags,
-                                  CORINFO_CALL_INFO*      callInfo,
-                                  IL_OFFSET               rawILOffset)
+GenTree* Importer::impImportCall(OPCODE                  opcode,
+                                 CORINFO_RESOLVED_TOKEN* pResolvedToken,
+                                 CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken,
+                                 GenTree*                newobjThis,
+                                 int                     prefixFlags,
+                                 CORINFO_CALL_INFO*      callInfo,
+                                 IL_OFFSET               rawILOffset)
 {
     // TODO-MIKE-Review: Try to move this to ImportCallI. The main issue that ImportCall
     // behaves a bit differently for CALL (e.g. calls impHandleAccessAllowed).
@@ -6751,7 +6744,7 @@ var_types Importer::impImportCall(OPCODE                  opcode,
             if (impInlineInfo->inlineCandidateInfo->dwRestrictions & INLINE_RESPECT_BOUNDARY)
             {
                 compInlineResult->NoteFatal(InlineObservation::CALLSITE_CROSS_BOUNDARY_SECURITY);
-                return TYP_UNDEF;
+                return nullptr;
             }
 
             /* Does the inlinee use StackCrawlMark */
@@ -6759,26 +6752,26 @@ var_types Importer::impImportCall(OPCODE                  opcode,
             if (mflags & CORINFO_FLG_DONT_INLINE_CALLER)
             {
                 compInlineResult->NoteFatal(InlineObservation::CALLEE_STACK_CRAWL_MARK);
-                return TYP_UNDEF;
+                return nullptr;
             }
 
             /* For now ignore varargs */
             if ((sig->callConv & CORINFO_CALLCONV_MASK) == CORINFO_CALLCONV_NATIVEVARARG)
             {
                 compInlineResult->NoteFatal(InlineObservation::CALLEE_HAS_NATIVE_VARARGS);
-                return TYP_UNDEF;
+                return nullptr;
             }
 
             if ((sig->callConv & CORINFO_CALLCONV_MASK) == CORINFO_CALLCONV_VARARG)
             {
                 compInlineResult->NoteFatal(InlineObservation::CALLEE_HAS_MANAGED_VARARGS);
-                return TYP_UNDEF;
+                return nullptr;
             }
 
             if ((mflags & CORINFO_FLG_VIRTUAL) && (sig->sigInst.methInstCount != 0) && (opcode == CEE_CALLVIRT))
             {
                 compInlineResult->NoteFatal(InlineObservation::CALLEE_IS_GENERIC_VIRTUAL);
-                return TYP_UNDEF;
+                return nullptr;
             }
         }
 
@@ -6798,7 +6791,7 @@ var_types Importer::impImportCall(OPCODE                  opcode,
 
             if (compDonotInline())
             {
-                return TYP_UNDEF;
+                return nullptr;
             }
 
             if (call != nullptr)
@@ -6860,7 +6853,7 @@ var_types Importer::impImportCall(OPCODE                  opcode,
                         // Runtime does not support inlining of all shapes of runtime lookups
                         // Inlining has to be aborted in such a case
                         compInlineResult->NoteFatal(InlineObservation::CALLSITE_HAS_COMPLEX_HANDLE);
-                        return TYP_UNDEF;
+                        return nullptr;
                     }
 
                     GenTree* stubAddr = impRuntimeLookupToTree(pResolvedToken, &callInfo->stubLookup, methHnd);
@@ -6941,7 +6934,7 @@ var_types Importer::impImportCall(OPCODE                  opcode,
                 if (compIsForInlining())
                 {
                     compInlineResult->NoteFatal(InlineObservation::CALLSITE_HAS_CALL_VIA_LDVIRTFTN);
-                    return TYP_UNDEF;
+                    return nullptr;
                 }
 
                 assert(!(mflags & CORINFO_FLG_STATIC)); // can't call a static method
@@ -7032,7 +7025,7 @@ var_types Importer::impImportCall(OPCODE                  opcode,
 
                 if (compDonotInline())
                 {
-                    return TYP_UNDEF;
+                    return nullptr;
                 }
 
                 // Now make an indirect call through the function pointer
@@ -7239,13 +7232,10 @@ var_types Importer::impImportCall(OPCODE                  opcode,
             if (compIsForInlining())
             {
                 compInlineResult->NoteFatal(InlineObservation::CALLSITE_CANT_EMBED_PINVOKE_COOKIE);
-            }
-            else
-            {
-                IMPL_LIMITATION("Can't get PInvoke cookie (cross module generics)");
+                return nullptr;
             }
 
-            return TYP_UNDEF;
+            IMPL_LIMITATION("Can't get PInvoke cookie (cross module generics)");
         }
 
         void* valueAddr;
@@ -7287,7 +7277,7 @@ var_types Importer::impImportCall(OPCODE                  opcode,
         if (!info.compCompHnd->canGetVarArgsHandle(sig))
         {
             compInlineResult->NoteFatal(InlineObservation::CALLSITE_CANT_EMBED_VARARGS_COOKIE);
-            return TYP_UNDEF;
+            return nullptr;
         }
 
         varCookie = info.compCompHnd->getVarArgsHandle(sig, &pVarCookie);
@@ -7345,7 +7335,7 @@ var_types Importer::impImportCall(OPCODE                  opcode,
                     if (instParam == nullptr)
                     {
                         assert(compDonotInline());
-                        return TYP_UNDEF;
+                        return nullptr;
                     }
                 }
                 else
@@ -7361,7 +7351,7 @@ var_types Importer::impImportCall(OPCODE                  opcode,
                 if (instParam == nullptr)
                 {
                     assert(compDonotInline());
-                    return TYP_UNDEF;
+                    return nullptr;
                 }
             }
         }
@@ -7376,7 +7366,7 @@ var_types Importer::impImportCall(OPCODE                  opcode,
             if (compIsForInlining() && (clsFlags & CORINFO_FLG_ARRAY) != 0)
             {
                 compInlineResult->NoteFatal(InlineObservation::CALLEE_IS_ARRAY_METHOD);
-                return TYP_UNDEF;
+                return nullptr;
             }
 
             if ((clsFlags & CORINFO_FLG_ARRAY) && isReadonlyCall)
@@ -7395,7 +7385,7 @@ var_types Importer::impImportCall(OPCODE                  opcode,
                     if (instParam == nullptr)
                     {
                         assert(compDonotInline());
-                        return TYP_UNDEF;
+                        return nullptr;
                     }
                 }
                 else
@@ -7423,7 +7413,7 @@ var_types Importer::impImportCall(OPCODE                  opcode,
                 if (instParam == nullptr)
                 {
                     assert(compDonotInline());
-                    return TYP_UNDEF;
+                    return nullptr;
                 }
             }
         }
@@ -7476,7 +7466,7 @@ var_types Importer::impImportCall(OPCODE                  opcode,
             obj = impTransformThis(obj, pConstrainedResolvedToken, constraintCallThisTransform);
             if (compDonotInline())
             {
-                return TYP_UNDEF;
+                return nullptr;
             }
         }
 
@@ -7516,61 +7506,60 @@ var_types Importer::impImportCall(OPCODE                  opcode,
             // the constructor claims to return VOID but we know it
             // actually returns the new object
             assert(callRetTyp == TYP_VOID);
-            callRetTyp = TYP_REF;
             call->SetType(TYP_REF);
             call->AsCall()->SetRetSigType(TYP_REF);
             impSpillCatchArg();
 
             impPushOnStack(call, typeInfo(TI_REF, clsHnd));
+
+            return call;
+        }
+
+        if (clsFlags & CORINFO_FLG_DELEGATE)
+        {
+            // New inliner morph it in impImportCall.
+            // This will allow us to inline the call to the delegate constructor.
+            call = fgOptimizeDelegateConstructor(call->AsCall(), &exactContextHnd, ldftnToken);
+        }
+
+#if defined(DEBUG) || defined(INLINE_DATA)
+        // Keep track of the raw IL offset of the call
+        call->AsCall()->gtRawILOffset = rawILOffset;
+#endif // defined(DEBUG) || defined(INLINE_DATA)
+
+        // Is it an inline candidate?
+        impMarkInlineCandidate(call->AsCall(), exactContextHnd, exactContextNeedsRuntimeLookup, callInfo);
+
+        // append the call node.
+        impAppendTree(call, CHECK_SPILL_ALL);
+
+        // Now push the value of the 'new onto the stack
+
+        // This is a 'new' of a non-variable sized object.
+        // Append the new node (op1) to the statement list,
+        // and then push the local holding the value of this
+        // new instruction on the stack.
+
+        if ((clsFlags & CORINFO_FLG_VALUECLASS) != 0)
+        {
+            assert(newobjThis->OperIs(GT_LCL_VAR_ADDR));
+
+            unsigned tmp = newobjThis->AsLclVar()->GetLclNum();
+            impPushOnStack(gtNewLclvNode(tmp, lvaGetDesc(tmp)->GetType()), typeInfo(TI_STRUCT, clsHnd));
         }
         else
         {
-            if (clsFlags & CORINFO_FLG_DELEGATE)
+            if (newobjThis->gtOper == GT_COMMA)
             {
-                // New inliner morph it in impImportCall.
-                // This will allow us to inline the call to the delegate constructor.
-                call = fgOptimizeDelegateConstructor(call->AsCall(), &exactContextHnd, ldftnToken);
+                // We must have inserted the callout. Get the real newobj.
+                newobjThis = newobjThis->AsOp()->gtOp2;
             }
 
-#if defined(DEBUG) || defined(INLINE_DATA)
-            // Keep track of the raw IL offset of the call
-            call->AsCall()->gtRawILOffset = rawILOffset;
-#endif // defined(DEBUG) || defined(INLINE_DATA)
-
-            // Is it an inline candidate?
-            impMarkInlineCandidate(call->AsCall(), exactContextHnd, exactContextNeedsRuntimeLookup, callInfo);
-
-            // append the call node.
-            impAppendTree(call, CHECK_SPILL_ALL);
-
-            // Now push the value of the 'new onto the stack
-
-            // This is a 'new' of a non-variable sized object.
-            // Append the new node (op1) to the statement list,
-            // and then push the local holding the value of this
-            // new instruction on the stack.
-
-            if ((clsFlags & CORINFO_FLG_VALUECLASS) != 0)
-            {
-                assert(newobjThis->OperIs(GT_LCL_VAR_ADDR));
-
-                unsigned tmp = newobjThis->AsLclVar()->GetLclNum();
-                impPushOnStack(gtNewLclvNode(tmp, lvaGetDesc(tmp)->GetType()), typeInfo(TI_STRUCT, clsHnd));
-            }
-            else
-            {
-                if (newobjThis->gtOper == GT_COMMA)
-                {
-                    // We must have inserted the callout. Get the real newobj.
-                    newobjThis = newobjThis->AsOp()->gtOp2;
-                }
-
-                assert(newobjThis->gtOper == GT_LCL_VAR);
-                impPushOnStack(gtNewLclvNode(newobjThis->AsLclVarCommon()->GetLclNum(), TYP_REF),
-                               typeInfo(TI_REF, clsHnd));
-            }
+            assert(newobjThis->gtOper == GT_LCL_VAR);
+            impPushOnStack(gtNewLclvNode(newobjThis->AsLclVarCommon()->GetLclNum(), TYP_REF), typeInfo(TI_REF, clsHnd));
         }
-        return callRetTyp;
+
+        return call;
     }
 
 DONE:
@@ -7916,7 +7905,7 @@ DONE_INTRINSIC:
         }
     }
 
-    return callRetTyp;
+    return call;
 }
 #ifdef _PREFAST_
 #pragma warning(pop)
@@ -13302,15 +13291,15 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
         impHandleAccessAllowed(callInfo.accessAllowed, callInfo.callsiteCalloutHelper);
     }
 
-    var_types type = impImportCall(opcode, &resolvedToken, isConstrained ? constrainedResolvedToken : nullptr,
-                                   newObjThis, prefixFlags, &callInfo, ilOffset);
+    impImportCall(opcode, &resolvedToken, isConstrained ? constrainedResolvedToken : nullptr, newObjThis, prefixFlags,
+                  &callInfo, ilOffset);
 
     if (compDonotInline())
     {
-        assert((type == TYP_UNDEF) ||
-               (compInlineResult->GetObservation() == InlineObservation::CALLSITE_TOO_MANY_LOCALS));
+        return;
     }
-    else if (((prefixFlags & PREFIX_TAILCALL_EXPLICIT) != 0) || newBBcreatedForTailcallStress)
+
+    if (((prefixFlags & PREFIX_TAILCALL_EXPLICIT) != 0) || newBBcreatedForTailcallStress)
     {
         // If newBBcreatedForTailcallStress is true, we have created a new BB after the "call"
         // instruction in fgMakeBasicBlocks(). So we need to jump to RET regardless.
