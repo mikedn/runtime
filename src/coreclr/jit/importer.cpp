@@ -13121,14 +13121,9 @@ void Importer::ImportNewObj(
     }
     else
     {
-        if (newObjThis->gtOper == GT_COMMA)
-        {
-            // We must have inserted the callout. Get the real newobj.
-            newObjThis = newObjThis->AsOp()->gtOp2;
-        }
+        assert(newObjThis->OperIs(GT_LCL_VAR));
 
-        assert(newObjThis->gtOper == GT_LCL_VAR);
-        impPushOnStack(gtNewLclvNode(newObjThis->AsLclVarCommon()->GetLclNum(), TYP_REF), typeInfo(TI_REF, clsHnd));
+        impPushOnStack(gtNewLclvNode(newObjThis->AsLclVar()->GetLclNum(), TYP_REF), typeInfo(TI_REF, clsHnd));
     }
 }
 
@@ -13166,6 +13161,8 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
                           CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
                           int                     prefixFlags)
 {
+    assert((opcode == CEE_CALL) || (opcode == CEE_CALLVIRT));
+
     CORINFO_RESOLVED_TOKEN resolvedToken;
     impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
     JITDUMP(" %08X", resolvedToken.token);
@@ -13188,6 +13185,8 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
                           CORINFO_CALL_INFO&      callInfo,
                           int                     prefixFlags)
 {
+    assert(impOpcodeIsCallOpcode(opcode));
+
     bool isConstrained                  = (prefixFlags & PREFIX_CONSTRAINED) != 0;
     bool newBBcreatedForTailcallStress  = false;
     bool passedTailCallStressValidation = true;
@@ -13208,9 +13207,7 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
         // the call instead imports it to a new basic block.  Note that fgMakeBasicBlocks()
         // is already checking that there is an opcode following call and hence it is
         // safe here to read next opcode without bounds check.
-        newBBcreatedForTailcallStress =
-            // Current opcode is a CALL, (not NEWOBJ). So, don't make it jump to RET.
-            impOpcodeIsCallOpcode(opcode) && (getU1LittleEndian(codeAddr + 4) == CEE_RET);
+        newBBcreatedForTailcallStress = getU1LittleEndian(codeAddr + 4) == CEE_RET;
 
         if (newBBcreatedForTailcallStress && ((prefixFlags & PREFIX_TAILCALL_EXPLICIT) == 0))
         {
@@ -13285,7 +13282,7 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
         }
     }
 
-    if ((opcode != CEE_CALLI) && (opcode != CEE_NEWOBJ))
+    if (opcode != CEE_CALLI)
     {
         impHandleAccessAllowed(callInfo.accessAllowed, callInfo.callsiteCalloutHelper);
     }
