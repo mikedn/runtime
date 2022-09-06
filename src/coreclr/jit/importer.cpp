@@ -17234,24 +17234,13 @@ GenTree* Importer::impCheckForNullPointer(GenTree* obj)
     return obj;
 }
 
-/*****************************************************************************
- *
- *  Check for the special case where the object is the methods original 'this' pointer.
- *  Note that, the original 'this' pointer is always local var 0 for non-static method,
- *  even if we might have created the copy of 'this' pointer in lvaArg0Var.
- */
-
+// Check for the special case where the object is the methods original 'this' pointer.
+// Note that, the original 'this' pointer is always local var 0 for non-static method,
+// even if we might have created the copy of 'this' pointer in lvaArg0Var.
 bool Compiler::impIsThis(GenTree* obj)
 {
-    if (compIsForInlining())
-    {
-        return impInlineInfo->InlinerCompiler->impIsThis(obj);
-    }
-    else
-    {
-        return ((obj != nullptr) && (obj->gtOper == GT_LCL_VAR) &&
-                lvaIsOriginalThisArg(obj->AsLclVarCommon()->GetLclNum()));
-    }
+    return (obj != nullptr) && obj->OperIs(GT_LCL_VAR) &&
+           impInlineRoot()->lvaIsOriginalThisArg(obj->AsLclVar()->GetLclNum());
 }
 
 bool Importer::impIsPrimitive(CorInfoType jitType)
