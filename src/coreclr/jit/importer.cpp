@@ -12891,6 +12891,7 @@ void Importer::ImportNewObj(
 
     CORINFO_RESOLVED_TOKEN resolvedToken;
     impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_NewObj);
+    JITDUMP(" %08X", resolvedToken.token);
 
     CORINFO_CALL_INFO callInfo;
     eeGetCallInfo(&resolvedToken, nullptr, CORINFO_CALLINFO_SECURITYCHECKS | CORINFO_CALLINFO_ALLOWINSTPARAM,
@@ -13127,7 +13128,7 @@ void Importer::ImportNewObj(
         return;
     }
 
-    ImportCall(codeAddr, codeEnd, ilOffset, CEE_NEWOBJ, resolvedToken, nullptr, callInfo, prefixFlags, newObjThis);
+    impImportCall(CEE_NEWOBJ, &resolvedToken, nullptr, newObjThis, prefixFlags, &callInfo, ilOffset);
 }
 
 void Importer::ImportCallI(const uint8_t* codeAddr, const uint8_t* codeEnd, IL_OFFSET ilOffset, int prefixFlags)
@@ -13152,6 +13153,7 @@ void Importer::ImportCallI(const uint8_t* codeAddr, const uint8_t* codeEnd, IL_O
     resolvedToken.token        = getU4LittleEndian(codeAddr);
     resolvedToken.tokenContext = impTokenLookupContextHandle;
     resolvedToken.tokenScope   = info.compScopeHnd;
+    JITDUMP(" %08X", resolvedToken.token);
 
     ImportCall(codeAddr, codeEnd, ilOffset, CEE_CALLI, resolvedToken, nullptr, callInfo, prefixFlags);
 }
@@ -13165,6 +13167,7 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
 {
     CORINFO_RESOLVED_TOKEN resolvedToken;
     impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
+    JITDUMP(" %08X", resolvedToken.token);
 
     CORINFO_CALL_INFO callInfo;
     eeGetCallInfo(&resolvedToken, (prefixFlags & PREFIX_CONSTRAINED) ? constrainedResolvedToken : nullptr,
@@ -13182,11 +13185,8 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
                           CORINFO_RESOLVED_TOKEN& resolvedToken,
                           CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
                           CORINFO_CALL_INFO&      callInfo,
-                          int                     prefixFlags,
-                          GenTree*                newObjThis)
+                          int                     prefixFlags)
 {
-    JITDUMP(" %08X", resolvedToken.token);
-
     bool isConstrained                  = (prefixFlags & PREFIX_CONSTRAINED) != 0;
     bool newBBcreatedForTailcallStress  = false;
     bool passedTailCallStressValidation = true;
@@ -13289,7 +13289,7 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
         impHandleAccessAllowed(callInfo.accessAllowed, callInfo.callsiteCalloutHelper);
     }
 
-    impImportCall(opcode, &resolvedToken, isConstrained ? constrainedResolvedToken : nullptr, newObjThis, prefixFlags,
+    impImportCall(opcode, &resolvedToken, isConstrained ? constrainedResolvedToken : nullptr, nullptr, prefixFlags,
                   &callInfo, ilOffset);
 
     if (compDonotInline())

@@ -2582,8 +2582,7 @@ struct Importer
                     CORINFO_RESOLVED_TOKEN& resolvedToken,
                     CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
                     CORINFO_CALL_INFO&      callInfo,
-                    int                     prefixFlags,
-                    GenTree*                newObjThis = nullptr);
+                    int                     prefixFlags);
     GenTree* impImportCall(OPCODE                  opcode,
                            CORINFO_RESOLVED_TOKEN* resolvedToken,
                            CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
