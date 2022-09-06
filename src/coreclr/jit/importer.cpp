@@ -13211,9 +13211,7 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
             // Current opcode is a CALL, (not NEWOBJ). So, don't make it jump to RET.
             impOpcodeIsCallOpcode(opcode) && (getU1LittleEndian(codeAddr + 4) == CEE_RET);
 
-        bool hasTailPrefix = (prefixFlags & PREFIX_TAILCALL_EXPLICIT);
-
-        if (newBBcreatedForTailcallStress && !hasTailPrefix)
+        if (newBBcreatedForTailcallStress && ((prefixFlags & PREFIX_TAILCALL_EXPLICIT) == 0))
         {
             // Do a more detailed evaluation of legality
             const bool passedConstraintCheck =
@@ -13226,7 +13224,7 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
                         ? nullptr
                         : callInfo.hMethod;
 
-                if (info.compCompHnd->canTailCall(info.compMethodHnd, callInfo.hMethod, exactMethod, hasTailPrefix))
+                if (info.compCompHnd->canTailCall(info.compMethodHnd, callInfo.hMethod, exactMethod, false))
                 {
                     JITDUMP(" (Tailcall stress: prefixFlags |= PREFIX_TAILCALL_EXPLICIT)");
 
