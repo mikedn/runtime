@@ -7239,21 +7239,17 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
     if ((sig->callConv & CORINFO_CALLCONV_MASK) == CORINFO_CALLCONV_VARARG)
     {
-        assert(!compIsForInlining());
+        GenTree* arg = CreateVarargsCallArgHandle(call->AsCall(), sig);
 
-        void *varCookie, *pVarCookie;
-        if (!info.compCompHnd->canGetVarArgsHandle(sig))
+        if (arg == nullptr)
         {
-            compInlineResult->NoteFatal(InlineObservation::CALLSITE_CANT_EMBED_VARARGS_COOKIE);
+            assert(compDonotInline());
+
             return nullptr;
         }
 
-        varCookie = info.compCompHnd->getVarArgsHandle(sig, &pVarCookie);
-        assert((!varCookie) != (!pVarCookie));
-        GenTree* cookie = gtNewIconEmbHndNode(varCookie, pVarCookie, GTF_ICON_VARG_HDL, sig);
-
         assert(extraArg == nullptr);
-        extraArg = gtNewCallArgs(cookie);
+        extraArg = gtNewCallArgs(arg);
     }
 
     //-------------------------------------------------------------------------
@@ -7821,6 +7817,23 @@ GenTree* Importer::CreateCallICookie(GenTreeCall* call, CORINFO_SIG_INFO* sig)
     call->AsCall()->gtCallCookie = cookie;
 
     return cookie;
+}
+
+GenTree* Importer::CreateVarargsCallArgHandle(GenTreeCall* call, CORINFO_SIG_INFO* sig)
+{
+    assert(!compIsForInlining());
+
+    if (!info.compCompHnd->canGetVarArgsHandle(sig))
+    {
+        compInlineResult->NoteFatal(InlineObservation::CALLSITE_CANT_EMBED_VARARGS_COOKIE);
+        return nullptr;
+    }
+
+    void* handleAddr;
+    void* handle = info.compCompHnd->getVarArgsHandle(sig, &handleAddr);
+    assert((handle == nullptr) != (handleAddr == nullptr));
+
+    return gtNewIconEmbHndNode(handle, handleAddr, GTF_ICON_VARG_HDL, sig);
 }
 
 void Importer::impInitializeStructCall(GenTreeCall* call, CORINFO_CLASS_HANDLE retClass)
