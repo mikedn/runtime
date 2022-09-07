@@ -2592,6 +2592,11 @@ struct Importer
                                IL_OFFSET               ilOffset);
     GenTree* CreateCallICookie(GenTreeCall* call, CORINFO_SIG_INFO* sig);
     GenTree* CreateVarargsCallArgHandle(GenTreeCall* call, CORINFO_SIG_INFO* sig);
+    GenTree* CreateGenericCallTypeArg(GenTreeCall*            call,
+                                      CORINFO_CALL_INFO*      callInfo,
+                                      CORINFO_RESOLVED_TOKEN* resolvedToken,
+                                      CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
+                                      bool                    isReadOnlyCall);
 
     void addExpRuntimeLookupCandidate(GenTreeCall* call);
 

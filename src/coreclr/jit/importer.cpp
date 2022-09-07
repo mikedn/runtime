@@ -7252,134 +7252,18 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
         extraArg = gtNewCallArgs(arg);
     }
 
-    //-------------------------------------------------------------------------
-    // Extra arg for shared generic code and array methods
-    //
-    // Extra argument containing instantiation information is passed in the
-    // following circumstances:
-    // (a) To the "Address" method on array classes; the extra parameter is
-    //     the array's type handle (a TypeDesc)
-    // (b) To shared-code instance methods in generic structs; the extra parameter
-    //     is the struct's type handle (a vtable ptr)
-    // (c) To shared-code per-instantiation non-generic static methods in generic
-    //     classes and structs; the extra parameter is the type handle
-    // (d) To shared-code generic methods; the extra parameter is an
-    //     exact-instantiation MethodDesc
-    //
-    // We also set the exact type context associated with the call so we can
-    // inline the call correctly later on.
-
     if (sig->callConv & CORINFO_CALLCONV_PARAMTYPE)
     {
-        assert(call->AsCall()->gtCallType == CT_USER_FUNC);
-        if (clsHnd == nullptr)
-        {
-            NO_WAY("CALLI on parameterized type");
-        }
-
         assert(opcode != CEE_CALLI);
 
-        GenTree* instParam;
+        GenTree* instParam = CreateGenericCallTypeArg(call->AsCall(), callInfo, pResolvedToken,
+                                                      pConstrainedResolvedToken, isReadonlyCall);
 
-        // Instantiated generic method
-        if (((SIZE_T)exactContextHnd & CORINFO_CONTEXTFLAGS_MASK) == CORINFO_CONTEXTFLAGS_METHOD)
+        if (instParam == nullptr)
         {
-            assert(exactContextHnd != METHOD_BEING_COMPILED_CONTEXT());
+            assert(compDonotInline());
 
-            CORINFO_METHOD_HANDLE exactMethodHandle =
-                (CORINFO_METHOD_HANDLE)((SIZE_T)exactContextHnd & ~CORINFO_CONTEXTFLAGS_MASK);
-
-            if (!exactContextNeedsRuntimeLookup)
-            {
-#ifdef FEATURE_READYTORUN_COMPILER
-                if (opts.IsReadyToRun())
-                {
-                    instParam =
-                        gtNewReadyToRunLookupTree(&callInfo->instParamLookup, GTF_ICON_METHOD_HDL, exactMethodHandle);
-                    if (instParam == nullptr)
-                    {
-                        assert(compDonotInline());
-                        return nullptr;
-                    }
-                }
-                else
-#endif
-                {
-                    instParam = gtNewIconEmbMethHndNode(exactMethodHandle);
-                    info.compCompHnd->methodMustBeLoadedBeforeCodeIsRun(exactMethodHandle);
-                }
-            }
-            else
-            {
-                instParam = impTokenToHandle(pResolvedToken, /* mustRestoreHandle */ true);
-                if (instParam == nullptr)
-                {
-                    assert(compDonotInline());
-                    return nullptr;
-                }
-            }
-        }
-
-        // otherwise must be an instance method in a generic struct,
-        // a static method in a generic type, or a runtime-generated array method
-        else
-        {
-            assert(((SIZE_T)exactContextHnd & CORINFO_CONTEXTFLAGS_MASK) == CORINFO_CONTEXTFLAGS_CLASS);
-            CORINFO_CLASS_HANDLE exactClassHandle = eeGetClassFromContext(exactContextHnd);
-
-            if (compIsForInlining() && (clsFlags & CORINFO_FLG_ARRAY) != 0)
-            {
-                compInlineResult->NoteFatal(InlineObservation::CALLEE_IS_ARRAY_METHOD);
-                return nullptr;
-            }
-
-            if ((clsFlags & CORINFO_FLG_ARRAY) && isReadonlyCall)
-            {
-                // We indicate "readonly" to the Address operation by using a null
-                // instParam.
-                instParam = gtNewIconNode(0, TYP_REF);
-            }
-            else if (!exactContextNeedsRuntimeLookup)
-            {
-#ifdef FEATURE_READYTORUN_COMPILER
-                if (opts.IsReadyToRun())
-                {
-                    instParam =
-                        gtNewReadyToRunLookupTree(&callInfo->instParamLookup, GTF_ICON_CLASS_HDL, exactClassHandle);
-                    if (instParam == nullptr)
-                    {
-                        assert(compDonotInline());
-                        return nullptr;
-                    }
-                }
-                else
-#endif
-                {
-                    instParam = gtNewIconEmbClsHndNode(exactClassHandle);
-                    info.compCompHnd->classMustBeLoadedBeforeCodeIsRun(exactClassHandle);
-                }
-            }
-            else
-            {
-                // If the EE was able to resolve a constrained call, the instantiating parameter to use is the type
-                // by which the call was constrained with. We embed pConstrainedResolvedToken as the extra argument
-                // because pResolvedToken is an interface method and interface types make a poor generic context.
-                if (pConstrainedResolvedToken)
-                {
-                    instParam = impTokenToHandle(pConstrainedResolvedToken, /* mustRestoreHandle */ true,
-                                                 /* importParent */ false);
-                }
-                else
-                {
-                    instParam = impParentClassTokenToHandle(pResolvedToken, /* mustRestoreHandle */ true);
-                }
-
-                if (instParam == nullptr)
-                {
-                    assert(compDonotInline());
-                    return nullptr;
-                }
-            }
+            return nullptr;
         }
 
         assert(extraArg == nullptr);
@@ -7834,6 +7718,146 @@ GenTree* Importer::CreateVarargsCallArgHandle(GenTreeCall* call, CORINFO_SIG_INF
     assert((handle == nullptr) != (handleAddr == nullptr));
 
     return gtNewIconEmbHndNode(handle, handleAddr, GTF_ICON_VARG_HDL, sig);
+}
+
+GenTree* Importer::CreateGenericCallTypeArg(GenTreeCall*            call,
+                                            CORINFO_CALL_INFO*      callInfo,
+                                            CORINFO_RESOLVED_TOKEN* resolvedToken,
+                                            CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
+                                            bool                    isReadonlyCall)
+{
+    assert(call->AsCall()->IsUserCall());
+
+    //-------------------------------------------------------------------------
+    // Extra arg for shared generic code and array methods
+    //
+    // Extra argument containing instantiation information is passed in the
+    // following circumstances:
+    // (a) To the "Address" method on array classes; the extra parameter is
+    //     the array's type handle (a TypeDesc)
+    // (b) To shared-code instance methods in generic structs; the extra parameter
+    //     is the struct's type handle (a vtable ptr)
+    // (c) To shared-code per-instantiation non-generic static methods in generic
+    //     classes and structs; the extra parameter is the type handle
+    // (d) To shared-code generic methods; the extra parameter is an
+    //     exact-instantiation MethodDesc
+    //
+    // We also set the exact type context associated with the call so we can
+    // inline the call correctly later on.
+
+    CORINFO_CLASS_HANDLE clsHnd                         = resolvedToken->hClass;
+    auto                 exactContextHnd                = callInfo->contextHandle;
+    bool                 exactContextNeedsRuntimeLookup = callInfo->exactContextNeedsRuntimeLookup;
+    auto                 clsFlags                       = callInfo->classFlags;
+
+    if (clsHnd == nullptr)
+    {
+        NO_WAY("CALLI on parameterized type");
+    }
+
+    GenTree* instParam;
+
+    // Instantiated generic method
+    if (((SIZE_T)exactContextHnd & CORINFO_CONTEXTFLAGS_MASK) == CORINFO_CONTEXTFLAGS_METHOD)
+    {
+        assert(exactContextHnd != METHOD_BEING_COMPILED_CONTEXT());
+
+        CORINFO_METHOD_HANDLE exactMethodHandle =
+            (CORINFO_METHOD_HANDLE)((SIZE_T)exactContextHnd & ~CORINFO_CONTEXTFLAGS_MASK);
+
+        if (!exactContextNeedsRuntimeLookup)
+        {
+#ifdef FEATURE_READYTORUN_COMPILER
+            if (opts.IsReadyToRun())
+            {
+                instParam =
+                    gtNewReadyToRunLookupTree(&callInfo->instParamLookup, GTF_ICON_METHOD_HDL, exactMethodHandle);
+                if (instParam == nullptr)
+                {
+                    assert(compDonotInline());
+                    return nullptr;
+                }
+            }
+            else
+#endif
+            {
+                instParam = gtNewIconEmbMethHndNode(exactMethodHandle);
+                info.compCompHnd->methodMustBeLoadedBeforeCodeIsRun(exactMethodHandle);
+            }
+        }
+        else
+        {
+            instParam = impTokenToHandle(resolvedToken, /* mustRestoreHandle */ true);
+            if (instParam == nullptr)
+            {
+                assert(compDonotInline());
+                return nullptr;
+            }
+        }
+    }
+
+    // otherwise must be an instance method in a generic struct,
+    // a static method in a generic type, or a runtime-generated array method
+    else
+    {
+        assert(((SIZE_T)exactContextHnd & CORINFO_CONTEXTFLAGS_MASK) == CORINFO_CONTEXTFLAGS_CLASS);
+        CORINFO_CLASS_HANDLE exactClassHandle = eeGetClassFromContext(exactContextHnd);
+
+        if (compIsForInlining() && (clsFlags & CORINFO_FLG_ARRAY) != 0)
+        {
+            compInlineResult->NoteFatal(InlineObservation::CALLEE_IS_ARRAY_METHOD);
+            return nullptr;
+        }
+
+        if ((clsFlags & CORINFO_FLG_ARRAY) && isReadonlyCall)
+        {
+            // We indicate "readonly" to the Address operation by using a null
+            // instParam.
+            instParam = gtNewIconNode(0, TYP_REF);
+        }
+        else if (!exactContextNeedsRuntimeLookup)
+        {
+#ifdef FEATURE_READYTORUN_COMPILER
+            if (opts.IsReadyToRun())
+            {
+                instParam = gtNewReadyToRunLookupTree(&callInfo->instParamLookup, GTF_ICON_CLASS_HDL, exactClassHandle);
+                if (instParam == nullptr)
+                {
+                    assert(compDonotInline());
+                    return nullptr;
+                }
+            }
+            else
+#endif
+            {
+                instParam = gtNewIconEmbClsHndNode(exactClassHandle);
+                info.compCompHnd->classMustBeLoadedBeforeCodeIsRun(exactClassHandle);
+            }
+        }
+        else
+        {
+            // If the EE was able to resolve a constrained call, the instantiating parameter to use is the type
+            // by which the call was constrained with. We embed pConstrainedResolvedToken as the extra argument
+            // because pResolvedToken is an interface method and interface types make a poor generic context.
+            if (constrainedResolvedToken)
+            {
+                instParam = impTokenToHandle(constrainedResolvedToken, /* mustRestoreHandle */ true,
+                                             /* importParent */ false);
+            }
+            else
+            {
+                instParam = impParentClassTokenToHandle(resolvedToken, /* mustRestoreHandle */ true);
+            }
+
+            if (instParam == nullptr)
+            {
+                assert(compDonotInline());
+                return nullptr;
+            }
+        }
+    }
+
+    return instParam;
 }
 
 void Importer::impInitializeStructCall(GenTreeCall* call, CORINFO_CLASS_HANDLE retClass)
