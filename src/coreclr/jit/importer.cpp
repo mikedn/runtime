@@ -7216,37 +7216,12 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
     else if ((opcode == CEE_CALLI) && ((sig->callConv & CORINFO_CALLCONV_MASK) != CORINFO_CALLCONV_DEFAULT) &&
              ((sig->callConv & CORINFO_CALLCONV_MASK) != CORINFO_CALLCONV_VARARG))
     {
-        if (!info.compCompHnd->canGetCookieForPInvokeCalliSig(sig))
+        if (CreateCallICookie(call->AsCall(), sig) == nullptr)
         {
-            // Normally this only happens with inlining.
-            // However, a generic method (or type) being NGENd into another module
-            // can run into this issue as well.  There's not an easy fall-back for NGEN
-            // so instead we fallback to JIT.
-            if (compIsForInlining())
-            {
-                compInlineResult->NoteFatal(InlineObservation::CALLSITE_CANT_EMBED_PINVOKE_COOKIE);
-                return nullptr;
-            }
+            assert(compDonotInline());
 
-            IMPL_LIMITATION("Can't get PInvoke cookie (cross module generics)");
+            return nullptr;
         }
-
-        void* valueAddr;
-        void* value = info.compCompHnd->GetCookieForPInvokeCalliSig(sig, &valueAddr);
-
-        GenTree* cookie = gtNewIconEmbHndNode(value, valueAddr, GTF_ICON_PINVKI_HDL, sig);
-        cookie->SetDoNotCSE();
-
-        if (cookie->OperIs(GT_IND))
-        {
-            cookie->AsIndir()->GetAddr()->AsIntCon()->SetDoNotCSE();
-        }
-        else
-        {
-            assert(cookie->IsIntCon());
-        }
-
-        call->AsCall()->gtCallCookie = cookie;
 
         if (canTailCall)
         {
@@ -7810,6 +7785,43 @@ DONE_INTRINSIC:
 #ifdef _PREFAST_
 #pragma warning(pop)
 #endif
+
+GenTree* Importer::CreateCallICookie(GenTreeCall* call, CORINFO_SIG_INFO* sig)
+{
+    if (!info.compCompHnd->canGetCookieForPInvokeCalliSig(sig))
+    {
+        // Normally this only happens with inlining.
+        // However, a generic method (or type) being NGENd into another module
+        // can run into this issue as well.  There's not an easy fall-back for NGEN
+        // so instead we fallback to JIT.
+        if (compIsForInlining())
+        {
+            compInlineResult->NoteFatal(InlineObservation::CALLSITE_CANT_EMBED_PINVOKE_COOKIE);
+            return nullptr;
+        }
+
+        IMPL_LIMITATION("Can't get PInvoke cookie (cross module generics)");
+    }
+
+    void* valueAddr;
+    void* value = info.compCompHnd->GetCookieForPInvokeCalliSig(sig, &valueAddr);
+
+    GenTree* cookie = gtNewIconEmbHndNode(value, valueAddr, GTF_ICON_PINVKI_HDL, sig);
+    cookie->SetDoNotCSE();
+
+    if (cookie->OperIs(GT_IND))
+    {
+        cookie->AsIndir()->GetAddr()->AsIntCon()->SetDoNotCSE();
+    }
+    else
+    {
+        assert(cookie->IsIntCon());
+    }
+
+    call->AsCall()->gtCallCookie = cookie;
+
+    return cookie;
+}
 
 void Importer::impInitializeStructCall(GenTreeCall* call, CORINFO_CLASS_HANDLE retClass)
 {
