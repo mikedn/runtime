@@ -7065,6 +7065,31 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
         {
             call->AsCall()->gtCallMoreFlags |= GTF_CALL_M_SPECIAL_INTRINSIC;
         }
+
+        /* Special case - Check if it is a call to Delegate.Invoke(). */
+
+        if (mflags & CORINFO_FLG_DELEGATE_INVOKE)
+        {
+            assert(!(mflags & CORINFO_FLG_STATIC)); // can't call a static method
+            assert(mflags & CORINFO_FLG_FINAL);
+
+            /* Set the delegate flag */
+            call->AsCall()->gtCallMoreFlags |= GTF_CALL_M_DELEGATE_INV;
+
+            if (callInfo->wrapperDelegateInvoke)
+            {
+                call->AsCall()->gtCallMoreFlags |= GTF_CALL_M_WRAPPER_DELEGATE_INV;
+            }
+
+            if (opcode == CEE_CALLVIRT)
+            {
+                assert(mflags & CORINFO_FLG_FINAL);
+
+                /* It should have the GTF_CALL_NULLCHECK flag set. Reset it */
+                assert(call->gtFlags & GTF_CALL_NULLCHECK);
+                call->gtFlags &= ~GTF_CALL_NULLCHECK;
+            }
+        }
     }
 
     assert(sig != nullptr);
@@ -7081,31 +7106,6 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
     /*-------------------------------------------------------------------------
      * Check special-cases etc
      */
-
-    /* Special case - Check if it is a call to Delegate.Invoke(). */
-
-    if (mflags & CORINFO_FLG_DELEGATE_INVOKE)
-    {
-        assert(!(mflags & CORINFO_FLG_STATIC)); // can't call a static method
-        assert(mflags & CORINFO_FLG_FINAL);
-
-        /* Set the delegate flag */
-        call->AsCall()->gtCallMoreFlags |= GTF_CALL_M_DELEGATE_INV;
-
-        if (callInfo->wrapperDelegateInvoke)
-        {
-            call->AsCall()->gtCallMoreFlags |= GTF_CALL_M_WRAPPER_DELEGATE_INV;
-        }
-
-        if (opcode == CEE_CALLVIRT)
-        {
-            assert(mflags & CORINFO_FLG_FINAL);
-
-            /* It should have the GTF_CALL_NULLCHECK flag set. Reset it */
-            assert(call->gtFlags & GTF_CALL_NULLCHECK);
-            call->gtFlags &= ~GTF_CALL_NULLCHECK;
-        }
-    }
 
     CORINFO_CLASS_HANDLE actualMethodRetTypeSigClass;
     actualMethodRetTypeSigClass = sig->retTypeSigClass;
