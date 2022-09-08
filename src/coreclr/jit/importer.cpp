@@ -12861,6 +12861,9 @@ void Importer::ImportNewObj(
     // Insert the security callout before any actual code is generated
     impHandleAccessAllowed(callInfo.accessAllowed, callInfo.callsiteCalloutHelper);
 
+    CORINFO_CLASS_HANDLE classHandle = resolvedToken.hClass;
+    unsigned             classFlags  = callInfo.classFlags;
+
     // There are three different cases for new
     // Object size is variable (depends on arguments)
     //      1) Object is an array (arrays treated specially by the EE)
@@ -12870,14 +12873,13 @@ void Importer::ImportNewObj(
     // In the second case we call the constructor with a null this pointer.
     // In the third case we alloc the memory, then call the constuctor.
 
-    if ((callInfo.classFlags & CORINFO_FLG_ARRAY) != 0)
+    if ((classFlags & CORINFO_FLG_ARRAY) != 0)
     {
-#ifdef DEBUG
-        GenTree* op1 = nullptr;
-        GenTree* op2 = nullptr;
+        INDEBUG(GenTree* op1 = nullptr);
+        INDEBUG(GenTree* op2 = nullptr);
         // Arrays need to call the NEWOBJ helper.
-        assertImp((callInfo.classFlags & CORINFO_FLG_VAROBJSIZE) != 0);
-#endif
+        assertImp((classFlags & CORINFO_FLG_VAROBJSIZE) != 0);
+
         impImportNewObjArray(&resolvedToken, &callInfo);
 
         return;
@@ -12886,7 +12888,7 @@ void Importer::ImportNewObj(
     GenTree* newObjThis;
 
     // At present this can only be String
-    if ((callInfo.classFlags & CORINFO_FLG_VAROBJSIZE) != 0)
+    if ((classFlags & CORINFO_FLG_VAROBJSIZE) != 0)
     {
         if (IsTargetAbi(CORINFO_CORERT_ABI))
         {
@@ -12915,10 +12917,10 @@ void Importer::ImportNewObj(
     //
     // In the value class case we only need clsHnd for size calcs.
     // The lookup of the code pointer will be handled by CALL in this case.
-    else if ((callInfo.classFlags & CORINFO_FLG_VALUECLASS) != 0)
+    else if ((classFlags & CORINFO_FLG_VALUECLASS) != 0)
     {
-        CorInfoType  corType = info.compCompHnd->asCorInfoType(resolvedToken.hClass);
-        ClassLayout* layout  = impIsPrimitive(corType) ? nullptr : typGetObjLayout(resolvedToken.hClass);
+        CorInfoType  corType = info.compCompHnd->asCorInfoType(classHandle);
+        ClassLayout* layout  = impIsPrimitive(corType) ? nullptr : typGetObjLayout(classHandle);
 
 #ifdef FEATURE_SIMD
         if ((layout != nullptr) && layout->IsVector() && ((callInfo.methodFlags & CORINFO_FLG_JIT_INTRINSIC) != 0))
@@ -12927,18 +12929,18 @@ void Importer::ImportNewObj(
             assert((layout->GetVectorKind() == VectorKind::Vector234) ||
                    (layout->GetVectorKind() == VectorKind::VectorT));
 
-            const char* className          = nullptr;
-            const char* namespaceName      = nullptr;
-            const char* enclosingClassName = nullptr;
-            const char* methodName         = info.compCompHnd->getMethodNameFromMetadata(callInfo.hMethod, &className,
+            CORINFO_METHOD_HANDLE methodHandle       = callInfo.hMethod;
+            const char*           className          = nullptr;
+            const char*           namespaceName      = nullptr;
+            const char*           enclosingClassName = nullptr;
+            const char*           methodName = info.compCompHnd->getMethodNameFromMetadata(methodHandle, &className,
                                                                                  &namespaceName, &enclosingClassName);
 
-            NamedIntrinsic ni = impFindSysNumSimdIntrinsic(callInfo.hMethod, className, methodName, enclosingClassName);
+            NamedIntrinsic ni = impFindSysNumSimdIntrinsic(methodHandle, className, methodName, enclosingClassName);
 
             if (ni != NI_Illegal)
             {
-                GenTree* intrinsic =
-                    impImportSysNumSimdIntrinsic(ni, resolvedToken.hClass, callInfo.hMethod, &callInfo.sig, true);
+                GenTree* intrinsic = impImportSysNumSimdIntrinsic(ni, classHandle, methodHandle, &callInfo.sig, true);
 
                 // TODO-MIKE-Cleanup: This should probably be an assert. impFindSysNumSimdIntrinsic is
                 // dumb and returns an intrinsic even if intrinsics are disabled or if the relevant
@@ -12947,7 +12949,7 @@ void Importer::ImportNewObj(
                 {
                     // Set the call type for ICorDebugInfo::CALL_SITE_BOUNDARIES, even if we treated
                     // this call as an intrinsic. These are constructors so the type is always VOID.
-                    impPushOnStack(intrinsic, typeInfo(TI_STRUCT, resolvedToken.hClass));
+                    impPushOnStack(intrinsic, typeInfo(TI_STRUCT, classHandle));
 
                     return;
                 }
@@ -12965,9 +12967,7 @@ void Importer::ImportNewObj(
             }
 
             // If value class has GC fields, inform the inliner. It may choose to bail out on the inline.
-            uint32_t typeFlags = info.compCompHnd->getClassAttribs(resolvedToken.hClass);
-
-            if ((typeFlags & CORINFO_FLG_CONTAINS_GC_PTR) != 0)
+            if ((classFlags & CORINFO_FLG_CONTAINS_GC_PTR) != 0)
             {
                 compInlineResult->Note(InlineObservation::CALLEE_HAS_GC_STRUCT);
 
@@ -13009,14 +13009,13 @@ void Importer::ImportNewObj(
 
         if (fgVarNeedsExplicitZeroInit(lclNum, bbInALoop, bbIsReturn))
         {
-            GenTree* init = gtNewAssignNode(gtNewLclvNode(lclNum, lcl->GetType()), gtNewIconNode(0));
-            impAppendTree(init, CHECK_SPILL_NONE);
+            impSpillNoneAppendTree(gtNewAssignNode(gtNewLclvNode(lclNum, lcl->GetType()), gtNewIconNode(0)));
         }
         else
         {
             JITDUMP("\nSuppressing zero-init for V%02u -- expect to zero in prolog\n", lclNum);
 
-            lcl->lvSuppressedZeroInit    = 1;
+            lcl->lvSuppressedZeroInit    = true;
             comp->compSuppressedZeroInit = true;
         }
 
@@ -13043,9 +13042,9 @@ void Importer::ImportNewObj(
             return;
         }
 
-        newObjThis = gtNewAllocObjNode(&resolvedToken, /* useParent */ true);
+        GenTree* allocObj = gtNewAllocObjNode(&resolvedToken, /* useParent */ true);
 
-        if (newObjThis == nullptr)
+        if (allocObj == nullptr)
         {
             return;
         }
@@ -13057,7 +13056,7 @@ void Importer::ImportNewObj(
         assert(lcl->lvSingleDef == 0);
         lcl->lvSingleDef = 1;
         JITDUMP("Marked V%02u as a single def local\n", lclNum);
-        lvaSetClass(lclNum, resolvedToken.hClass, /* isExact */ true);
+        lvaSetClass(lclNum, classHandle, /* isExact */ true);
 
         // Append the assignment to the temp/local. We don't need to spill the stack as
         // we are just calling a JIT helper which can only throw OutOfMemoryException.
@@ -13066,8 +13065,7 @@ void Importer::ImportNewObj(
         // the pattern "temp = allocObj" is required by ObjectAllocator phase to be able
         // to determine ALLOCOBJ nodes without exhaustive walk over all expressions.
 
-        GenTree* asg = gtNewAssignNode(gtNewLclvNode(lclNum, TYP_REF), newObjThis);
-        impAppendTree(asg, CHECK_SPILL_NONE);
+        impSpillNoneAppendTree(gtNewAssignNode(gtNewLclvNode(lclNum, TYP_REF), allocObj));
 
         newObjThis = gtNewLclvNode(lclNum, TYP_REF);
     }
@@ -13077,17 +13075,14 @@ void Importer::ImportNewObj(
         return;
     }
 
-    CORINFO_CLASS_HANDLE    clsHnd                         = resolvedToken.hClass;
-    unsigned                clsFlags                       = callInfo.classFlags;
-    CORINFO_CONTEXT_HANDLE  exactContextHnd                = callInfo.contextHandle;
-    bool                    exactContextNeedsRuntimeLookup = callInfo.exactContextNeedsRuntimeLookup;
-    CORINFO_RESOLVED_TOKEN* ldftnToken                     = nullptr;
+    CORINFO_RESOLVED_TOKEN* ldftnToken = nullptr;
 
-    if ((clsFlags & CORINFO_FLG_DELEGATE) != 0)
+    if ((classFlags & CORINFO_FLG_DELEGATE) != 0)
     {
         // Only verifiable cases are supported.
         // dup; ldvirtftn; newobj; or ldftn; newobj.
         // IL test could contain unverifiable sequence, in this case optimization should not be done.
+
         if (impStackHeight() > 0)
         {
             typeInfo delegateTypeInfo = impStackTop().seTypeInfo;
@@ -13108,66 +13103,49 @@ void Importer::ImportNewObj(
 
     if (((callInfo.sig.callConv & CORINFO_CALLCONV_EXPLICITTHIS) == 0) && (newObjThis != nullptr))
     {
-        GenTree* obj = newObjThis;
+        assert(!call->IsVirtual());
 
-        call->gtFlags |= obj->gtFlags & GTF_GLOB_EFFECT;
-        call->AsCall()->gtCallThisArg = gtNewCallArgs(obj);
-
-        assert(!call->AsCall()->IsVirtual());
+        call->gtCallThisArg = gtNewCallArgs(newObjThis);
+        call->AddSideEffects(newObjThis->GetSideEffects());
     }
 
-    if (clsFlags & CORINFO_FLG_VAROBJSIZE)
+    if ((classFlags & CORINFO_FLG_VAROBJSIZE) != 0)
     {
-        assert(!(clsFlags & CORINFO_FLG_ARRAY)); // arrays handled separately
-        // This is a 'new' of a variable sized object, wher
-        // the constructor is to return the object.  In this case
-        // the constructor claims to return VOID but we know it
-        // actually returns the new object
-        call->SetType(TYP_REF);
-        call->AsCall()->SetRetSigType(TYP_REF);
-        impSpillCatchArg();
+        // This is a 'new' of a variable sized object, where the constructor is to return the object.
+        // In this case the signature has VOID return but we know that the object is actually returned.
 
-        impPushOnStack(call, typeInfo(TI_REF, clsHnd));
+        call->SetType(TYP_REF);
+        call->SetRetSigType(TYP_REF);
+
+        impSpillCatchArg();
+        impPushOnStack(call, typeInfo(TI_REF, classHandle));
 
         return;
     }
 
-    if (clsFlags & CORINFO_FLG_DELEGATE)
+#if defined(DEBUG) || defined(INLINE_DATA)
+    call->gtRawILOffset = ilOffset;
+#endif
+
+    CORINFO_CONTEXT_HANDLE exactContextHnd = callInfo.contextHandle;
+
+    if ((classFlags & CORINFO_FLG_DELEGATE) != 0)
     {
-        // New inliner morph it in impImportCall.
-        // This will allow us to inline the call to the delegate constructor.
         call = fgOptimizeDelegateConstructor(call, &exactContextHnd, ldftnToken);
     }
 
-#if defined(DEBUG) || defined(INLINE_DATA)
-    call->AsCall()->gtRawILOffset = ilOffset;
-#endif
+    impMarkInlineCandidate(call, exactContextHnd, callInfo.exactContextNeedsRuntimeLookup, &callInfo);
+    impSpillAllAppendTree(call);
 
-    // Is it an inline candidate?
-    impMarkInlineCandidate(call, exactContextHnd, exactContextNeedsRuntimeLookup, &callInfo);
+    unsigned lclNum = newObjThis->AsLclVar()->GetLclNum();
 
-    // append the call node.
-    impAppendTree(call, CHECK_SPILL_ALL);
-
-    // Now push the value of the 'new onto the stack
-
-    // This is a 'new' of a non-variable sized object.
-    // Append the new node (op1) to the statement list,
-    // and then push the local holding the value of this
-    // new instruction on the stack.
-
-    if ((clsFlags & CORINFO_FLG_VALUECLASS) != 0)
+    if ((classFlags & CORINFO_FLG_VALUECLASS) != 0)
     {
-        assert(newObjThis->OperIs(GT_LCL_VAR_ADDR));
-
-        unsigned tmp = newObjThis->AsLclVar()->GetLclNum();
-        impPushOnStack(gtNewLclvNode(tmp, lvaGetDesc(tmp)->GetType()), typeInfo(TI_STRUCT, clsHnd));
+        impPushOnStack(gtNewLclvNode(lclNum, lvaGetDesc(lclNum)->GetType()), typeInfo(TI_STRUCT, classHandle));
     }
     else
     {
-        assert(newObjThis->OperIs(GT_LCL_VAR));
-
-        impPushOnStack(gtNewLclvNode(newObjThis->AsLclVar()->GetLclNum(), TYP_REF), typeInfo(TI_REF, clsHnd));
+        impPushOnStack(gtNewLclvNode(lclNum, TYP_REF), typeInfo(TI_REF, classHandle));
     }
 }
 
