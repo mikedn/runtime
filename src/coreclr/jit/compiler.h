@@ -2933,8 +2933,6 @@ struct Importer
     void gtChangeOperToNullCheck(GenTree* tree);
     bool gtIsRecursiveCall(GenTreeCall* call);
     bool gtIsRecursiveCall(CORINFO_METHOD_HANDLE callMethodHandle);
-    bool gtIsTypeHandleToRuntimeTypeHelper(GenTreeCall* call);
-    bool gtIsTypeHandleToRuntimeTypeHandleHelper(GenTreeCall* call, CorInfoHelpFunc* helper = nullptr);
     static GenTreeFlags gtTokenToIconFlags(unsigned token);
     GenTree* gtFoldTypeCompare(GenTree* tree);
     GenTree* gtFoldTypeEqualityCall(bool isEq, GenTree* op1, GenTree* op2);
@@ -5747,8 +5745,6 @@ private:
     };
 
     TypeProducerKind gtGetTypeProducerKind(GenTree* tree);
-    bool gtIsTypeHandleToRuntimeTypeHelper(GenTreeCall* call);
-    bool gtIsTypeHandleToRuntimeTypeHandleHelper(GenTreeCall* call, CorInfoHelpFunc* pHelper = nullptr);
 
     bool fgIsBigOffset(size_t offset);
 

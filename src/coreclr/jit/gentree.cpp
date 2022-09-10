@@ -11860,18 +11860,18 @@ Compiler::FindLinkData Compiler::gtFindLink(Statement* stmt, GenTree* node)
 
 Compiler::TypeProducerKind Compiler::gtGetTypeProducerKind(GenTree* tree)
 {
-    if (tree->gtOper == GT_CALL)
+    if (GenTreeCall* call = tree->IsCall())
     {
-        if (tree->AsCall()->gtCallType == CT_HELPER)
+        if (call->IsHelperCall())
         {
-            if (gtIsTypeHandleToRuntimeTypeHelper(tree->AsCall()))
+            if (call->IsTypeHandleToRuntimeTypeHelperCall())
             {
                 return TPK_Handle;
             }
         }
-        else if (tree->AsCall()->gtCallMoreFlags & GTF_CALL_M_SPECIAL_INTRINSIC)
+        else if ((call->gtCallMoreFlags & GTF_CALL_M_SPECIAL_INTRINSIC) != 0)
         {
-            if (info.compCompHnd->getIntrinsicID(tree->AsCall()->gtCallMethHnd) == CORINFO_INTRINSIC_Object_GetType)
+            if (info.compCompHnd->getIntrinsicID(call->GetMethodHandle()) == CORINFO_INTRINSIC_Object_GetType)
             {
                 return TPK_GetType;
             }
@@ -11899,55 +11899,29 @@ Compiler::TypeProducerKind Compiler::gtGetTypeProducerKind(GenTree* tree)
     return TPK_Unknown;
 }
 
-//------------------------------------------------------------------------
-// gtIsTypeHandleToRuntimeTypeHelperCall -- see if tree is constructing
-//    a RuntimeType from a handle
-//
-// Arguments:
-//    tree - tree to examine
-//
-// Return Value:
-//    True if so
-
-bool Compiler::gtIsTypeHandleToRuntimeTypeHelper(GenTreeCall* call)
+bool GenTreeCall::IsTypeHandleToRuntimeTypeHelperCall() const
 {
-    return call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE) ||
-           call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE_MAYBENULL);
+    switch (Compiler::eeGetHelperNum(gtCallMethHnd))
+    {
+        case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE:
+        case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE_MAYBENULL:
+            return true;
+        default:
+            return false;
+    }
 }
 
-//------------------------------------------------------------------------
-// gtIsTypeHandleToRuntimeTypeHandleHelperCall -- see if tree is constructing
-//    a RuntimeTypeHandle from a handle
-//
-// Arguments:
-//    tree - tree to examine
-//    pHelper - optional pointer to a variable that receives the type of the helper
-//
-// Return Value:
-//    True if so
-
-bool Compiler::gtIsTypeHandleToRuntimeTypeHandleHelper(GenTreeCall* call, CorInfoHelpFunc* pHelper)
+bool GenTreeCall::IsTypeHandleToRuntimeTypeHandleHelperCall() const
 {
-    CorInfoHelpFunc helper = CORINFO_HELP_UNDEF;
-
-    if (call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE))
+    switch (Compiler::eeGetHelperNum(gtCallMethHnd))
     {
-        helper = CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE;
+        case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE:
+        case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE_MAYBENULL:
+            return true;
+        default:
+            return false;
     }
-    else if (call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE_MAYBENULL))
-    {
-        helper = CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE_MAYBENULL;
-    }
-
-    if (pHelper != nullptr)
-    {
-        *pHelper = helper;
-    }
-
-    return helper != CORINFO_HELP_UNDEF;
 }
-
-/*****************************************************************************/
 
 struct ComplexityStruct
 {

@@ -2909,8 +2909,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
 
         case CORINFO_INTRINSIC_RTH_GetValueInternal:
             op1 = impStackTop(0).val;
-            if (op1->gtOper == GT_CALL && (op1->AsCall()->gtCallType == CT_HELPER) &&
-                gtIsTypeHandleToRuntimeTypeHandleHelper(op1->AsCall()))
+            if (op1->IsHelperCall() && op1->AsCall()->IsTypeHandleToRuntimeTypeHandleHelperCall())
             {
                 // Old tree
                 // Helper-RuntimeTypeHandle -> TreeToGetNativeTypeHandle
@@ -3218,26 +3217,27 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
 
             case NI_System_Type_GetTypeFromHandle:
             {
-                GenTree*        op1 = impStackTop(0).val;
-                CorInfoHelpFunc typeHandleHelper;
-                if (op1->gtOper == GT_CALL && (op1->AsCall()->gtCallType == CT_HELPER) &&
-                    gtIsTypeHandleToRuntimeTypeHandleHelper(op1->AsCall(), &typeHandleHelper))
+                GenTree* op1 = impStackTop(0).val;
+                if (op1->IsHelperCall() && op1->AsCall()->IsTypeHandleToRuntimeTypeHandleHelperCall())
                 {
-                    op1 = impPopStack().val;
+                    assert(op1->AsCall()->gtCallArgs->GetNext() == nullptr);
+
+                    impPopStack();
+
                     // Replace helper with a more specialized helper that returns RuntimeType
-                    if (typeHandleHelper == CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE)
+                    CorInfoHelpFunc helper = Compiler::eeGetHelperNum(op1->AsCall()->GetMethodHandle());
+
+                    if (helper == CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE)
                     {
-                        typeHandleHelper = CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE;
+                        helper = CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE;
                     }
                     else
                     {
-                        assert(typeHandleHelper == CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE_MAYBENULL);
-                        typeHandleHelper = CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE_MAYBENULL;
+                        assert(helper == CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE_MAYBENULL);
+                        helper = CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE_MAYBENULL;
                     }
-                    assert(op1->AsCall()->gtCallArgs->GetNext() == nullptr);
-                    op1         = gtNewHelperCallNode(typeHandleHelper, TYP_REF, op1->AsCall()->gtCallArgs);
-                    op1->gtType = TYP_REF;
-                    retNode     = op1;
+
+                    retNode = gtNewHelperCallNode(helper, TYP_REF, op1->AsCall()->gtCallArgs);
                 }
                 break;
             }
@@ -7573,7 +7573,7 @@ PUSH_CALL:
         else
         {
             if (call->IsHelperCall() &&
-                (gtIsTypeHandleToRuntimeTypeHelper(call) || gtIsTypeHandleToRuntimeTypeHandleHelper(call)))
+                (call->IsTypeHandleToRuntimeTypeHelperCall() || call->IsTypeHandleToRuntimeTypeHandleHelperCall()))
             {
                 spillStack = false;
             }
@@ -18321,16 +18321,6 @@ bool Importer::gtIsRecursiveCall(GenTreeCall* call)
 bool Importer::gtIsRecursiveCall(CORINFO_METHOD_HANDLE callMethodHandle)
 {
     return comp->gtIsRecursiveCall(callMethodHandle);
-}
-
-bool Importer::gtIsTypeHandleToRuntimeTypeHelper(GenTreeCall* call)
-{
-    return comp->gtIsTypeHandleToRuntimeTypeHelper(call);
-}
-
-bool Importer::gtIsTypeHandleToRuntimeTypeHandleHelper(GenTreeCall* call, CorInfoHelpFunc* helper)
-{
-    return comp->gtIsTypeHandleToRuntimeTypeHandleHelper(call, helper);
 }
 
 GenTreeFlags Importer::gtTokenToIconFlags(unsigned token)

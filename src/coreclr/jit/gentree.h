@@ -1992,7 +1992,7 @@ public:
         return t1->GetIconHandleFlag() == t2->GetIconHandleFlag();
     }
 
-    inline bool IsHelperCall();
+    bool IsHelperCall();
 
     bool gtOverflow() const;
     bool gtOverflowEx() const;
@@ -4525,6 +4525,9 @@ public:
         assert(IsInlineCandidate());
         return gtInlineCandidateInfo;
     }
+
+    bool IsTypeHandleToRuntimeTypeHelperCall() const;
+    bool IsTypeHandleToRuntimeTypeHandleHelperCall() const;
 
     static bool Equals(GenTreeCall* c1, GenTreeCall* c2);
 
