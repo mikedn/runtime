@@ -274,11 +274,11 @@ int LinearScan::BuildNode(GenTree* tree)
 
         case GT_INTRINSIC:
         {
-            noway_assert((tree->AsIntrinsic()->gtIntrinsicName == NI_System_Math_Abs) ||
-                         (tree->AsIntrinsic()->gtIntrinsicName == NI_System_Math_Ceiling) ||
-                         (tree->AsIntrinsic()->gtIntrinsicName == NI_System_Math_Floor) ||
-                         (tree->AsIntrinsic()->gtIntrinsicName == NI_System_Math_Round) ||
-                         (tree->AsIntrinsic()->gtIntrinsicName == NI_System_Math_Sqrt));
+            noway_assert((tree->AsIntrinsic()->GetIntrinsic() == NI_System_Math_Abs) ||
+                         (tree->AsIntrinsic()->GetIntrinsic() == NI_System_Math_Ceiling) ||
+                         (tree->AsIntrinsic()->GetIntrinsic() == NI_System_Math_Floor) ||
+                         (tree->AsIntrinsic()->GetIntrinsic() == NI_System_Math_Round) ||
+                         (tree->AsIntrinsic()->GetIntrinsic() == NI_System_Math_Sqrt));
 
             // Both operand and its result must be of the same floating point type.
             GenTree* op1 = tree->gtGetOp1();

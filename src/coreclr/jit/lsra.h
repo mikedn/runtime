@@ -1837,7 +1837,7 @@ private:
     int BuildStructStoreUnrollRegsWB(GenTreeObj* store, ClassLayout* layout);
     int BuildStoreDynBlk(GenTreeDynBlk* store);
     int BuildModDiv(GenTree* tree);
-    int BuildIntrinsic(GenTree* tree);
+    int BuildIntrinsic(GenTreeIntrinsic* tree);
     void BuildStoreLclVarDef(GenTreeLclVar* store, LclVarDsc* lcl, RefPosition* singleUseRef, unsigned index);
     int BuildStoreLclVarMultiReg(GenTreeLclVar* store);
     int BuildStoreLclVar(GenTreeLclVar* store, int* dstCount);

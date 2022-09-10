@@ -285,7 +285,7 @@ int LinearScan::BuildNode(GenTree* tree)
             BuildUse(op1);
             srcCount = 1;
 
-            switch (tree->AsIntrinsic()->gtIntrinsicName)
+            switch (tree->AsIntrinsic()->GetIntrinsic())
             {
                 case NI_System_Math_Abs:
                 case NI_System_Math_Sqrt:

@@ -4915,7 +4915,7 @@ public:
     void vnBitCast(GenTreeUnOp* tree);
 
     // Does value-numbering for an intrinsic tree.
-    void fgValueNumberIntrinsic(GenTree* tree);
+    void vnIntrinsic(GenTreeIntrinsic* intrinsic);
 
 #ifdef FEATURE_HW_INTRINSICS
     // Does value-numbering for a GT_HWINTRINSIC tree

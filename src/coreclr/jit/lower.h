@@ -67,7 +67,7 @@ private:
     void ContainCheckBoundsChk(GenTreeBoundsChk* node);
 #ifdef TARGET_XARCH
     void ContainCheckFloatBinary(GenTreeOp* node);
-    void ContainCheckIntrinsic(GenTreeOp* node);
+    void ContainCheckIntrinsic(GenTreeIntrinsic* node);
 #endif // TARGET_XARCH
 #ifdef FEATURE_SIMD
     bool ContainSIMD12MemToMemCopy(GenTree* store, GenTree* value);

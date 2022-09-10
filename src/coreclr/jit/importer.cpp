@@ -2690,14 +2690,15 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
     assert((methodFlags & (CORINFO_FLG_INTRINSIC | CORINFO_FLG_JIT_INTRINSIC)) != 0);
 
     bool              mustExpand  = false;
-    bool              isSpecial   = false;
     CorInfoIntrinsics intrinsicID = CORINFO_INTRINSIC_Illegal;
-    NamedIntrinsic    ni          = NI_Illegal;
 
     if ((methodFlags & CORINFO_FLG_INTRINSIC) != 0)
     {
         intrinsicID = info.compCompHnd->getIntrinsicID(method, &mustExpand);
+        assert((intrinsicID == CORINFO_INTRINSIC_Illegal) || (intrinsicID < CORINFO_INTRINSIC_Count));
     }
+
+    NamedIntrinsic ni = NI_Illegal;
 
     if ((methodFlags & CORINFO_FLG_JIT_INTRINSIC) != 0)
     {
@@ -2755,10 +2756,6 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
 
     *pIntrinsicID = intrinsicID;
 
-#ifndef TARGET_ARM
-    genTreeOps interlockedOperator;
-#endif
-
     // These intrinsics must be supported regardless of DbgCode and MinOpts.
 
     if (intrinsicID == CORINFO_INTRINSIC_StubHelpers_GetStubContext)
@@ -2802,6 +2799,10 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
     CorInfoType callJitType = sig->retType;
     var_types   callType    = JITtype2varType(callJitType);
     GenTree*    retNode     = nullptr;
+    bool        isSpecial   = false;
+#ifndef TARGET_ARM
+    genTreeOps interlockedOperator;
+#endif
 
     switch (intrinsicID)
     {
@@ -3003,7 +3004,8 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             {
                 JITDUMP("Expanding as special intrinsic\n");
                 impPopStack();
-                op1 = new (comp, GT_INTRINSIC) GenTreeIntrinsic(genActualType(callType), op1, intrinsicID, ni, method);
+                op1 = new (comp, GT_INTRINSIC)
+                    GenTreeIntrinsic(TYP_REF, op1, NI_CORINFO_INTRINSIC_Object_GetType, method);
 
                 // Set the CALL flag to indicate that the operator is implemented by a call.
                 // Set also the EXCEPTION flag because the native implementation of
@@ -3680,8 +3682,7 @@ GenTree* Importer::impMathIntrinsic(CORINFO_METHOD_HANDLE method,
                     op1 = gtNewCastNode(callType, op1, false, callType);
                 }
 
-                op1 = new (comp, GT_INTRINSIC)
-                    GenTreeIntrinsic(genActualType(callType), op1, CORINFO_INTRINSIC_Illegal, intrinsicName, method);
+                op1 = new (comp, GT_INTRINSIC) GenTreeIntrinsic(varActualType(callType), op1, intrinsicName, method);
                 break;
 
             case 2:
@@ -3706,8 +3707,8 @@ GenTree* Importer::impMathIntrinsic(CORINFO_METHOD_HANDLE method,
                     op2 = gtNewCastNode(callType, op2, false, callType);
                 }
 
-                op1 = new (comp, GT_INTRINSIC) GenTreeIntrinsic(genActualType(callType), op1, op2,
-                                                                CORINFO_INTRINSIC_Illegal, intrinsicName, method);
+                op1 =
+                    new (comp, GT_INTRINSIC) GenTreeIntrinsic(varActualType(callType), op1, op2, intrinsicName, method);
                 break;
 
             default:
@@ -15306,7 +15307,7 @@ bool Compiler::IsMathIntrinsic(NamedIntrinsic intrinsicName)
 
 bool Compiler::IsMathIntrinsic(GenTree* tree)
 {
-    return (tree->OperGet() == GT_INTRINSIC) && IsMathIntrinsic(tree->AsIntrinsic()->gtIntrinsicName);
+    return tree->IsIntrinsic() && IsMathIntrinsic(tree->AsIntrinsic()->GetIntrinsic());
 }
 
 //------------------------------------------------------------------------

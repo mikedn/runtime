@@ -6470,7 +6470,7 @@ void CodeGen::genSSE41RoundOp(GenTreeUnOp* treeNode)
     unsigned ival = 0;
 
     // v) tree oper is NI_System_Math{F}_Round, _Ceiling, or _Floor
-    switch (treeNode->AsIntrinsic()->gtIntrinsicName)
+    switch (treeNode->AsIntrinsic()->GetIntrinsic())
     {
         case NI_System_Math_Round:
             ival = 4;

@@ -324,15 +324,15 @@ GenTree* Lowering::LowerNode(GenTree* node)
 
 #ifdef TARGET_XARCH
         case GT_INTRINSIC:
-            ContainCheckIntrinsic(node->AsOp());
+            ContainCheckIntrinsic(node->AsIntrinsic());
             break;
-#endif // TARGET_XARCH
+#endif
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
             LowerHWIntrinsic(node->AsHWIntrinsic());
             break;
-#endif // FEATURE_HW_INTRINSICS
+#endif
 
         case GT_LCL_FLD:
             LowerLclFld(node->AsLclFld());

@@ -2130,7 +2130,7 @@ public:
 
     inline GenTree(genTreeOps oper, var_types type DEBUGARG(bool largeNode = false));
 
-    GenTree(GenTree* copyFrom) : GenTree(copyFrom->gtOper, copyFrom->gtType)
+    GenTree(const GenTree* copyFrom) : GenTree(copyFrom->gtOper, copyFrom->gtType)
     {
     }
 };
@@ -2730,7 +2730,7 @@ protected:
         }
     }
 
-    GenTreeUnOp(GenTreeUnOp* copyFrom) : GenTree(copyFrom), gtOp1(copyFrom->gtOp1)
+    GenTreeUnOp(const GenTreeUnOp* copyFrom) : GenTree(copyFrom), gtOp1(copyFrom->gtOp1)
     {
     }
 
@@ -2798,7 +2798,7 @@ struct GenTreeOp : public GenTreeUnOp
         assert((oper == GT_NOP) || (oper == GT_RETURN) || (oper == GT_RETFILT));
     }
 
-    GenTreeOp(GenTreeOp* copyFrom) : GenTreeUnOp(copyFrom), gtOp2(copyFrom->gtOp2)
+    GenTreeOp(const GenTreeOp* copyFrom) : GenTreeUnOp(copyFrom), gtOp2(copyFrom->gtOp2)
     {
     }
 
@@ -5146,45 +5146,42 @@ struct GenTreeQmark : public GenTreeTernaryOp
 
 struct GenTreeIntrinsic : public GenTreeOp
 {
-    CorInfoIntrinsics     gtIntrinsicId;
-    NamedIntrinsic        gtIntrinsicName;
-    CORINFO_METHOD_HANDLE gtMethodHandle; // Method handle of the method which is treated as an intrinsic.
+private:
+    NamedIntrinsic m_intrinsicName;
 
+public:
+    CORINFO_METHOD_HANDLE gtMethodHandle; // Method handle of the method which is treated as an intrinsic.
 #ifdef FEATURE_READYTORUN_COMPILER
     // Call target lookup info for method call from a Ready To Run module
     CORINFO_CONST_LOOKUP gtEntryPoint;
 #endif
 
-    GenTreeIntrinsic(var_types             type,
-                     GenTree*              op1,
-                     CorInfoIntrinsics     intrinsicId,
-                     NamedIntrinsic        intrinsicName,
-                     CORINFO_METHOD_HANDLE methodHandle)
-        : GenTreeOp(GT_INTRINSIC, type, op1, nullptr)
-        , gtIntrinsicId(intrinsicId)
-        , gtIntrinsicName(intrinsicName)
-        , gtMethodHandle(methodHandle)
+    GenTreeIntrinsic(var_types type, GenTree* op1, NamedIntrinsic intrinsicName, CORINFO_METHOD_HANDLE methodHandle)
+        : GenTreeOp(GT_INTRINSIC, type, op1, nullptr), m_intrinsicName(intrinsicName), gtMethodHandle(methodHandle)
     {
-        assert(intrinsicId != CORINFO_INTRINSIC_Illegal || intrinsicName != NI_Illegal);
+        assert(intrinsicName != NI_Illegal);
     }
 
-    GenTreeIntrinsic(var_types             type,
-                     GenTree*              op1,
-                     GenTree*              op2,
-                     CorInfoIntrinsics     intrinsicId,
-                     NamedIntrinsic        intrinsicName,
-                     CORINFO_METHOD_HANDLE methodHandle)
-        : GenTreeOp(GT_INTRINSIC, type, op1, op2)
-        , gtIntrinsicId(intrinsicId)
-        , gtIntrinsicName(intrinsicName)
-        , gtMethodHandle(methodHandle)
+    GenTreeIntrinsic(
+        var_types type, GenTree* op1, GenTree* op2, NamedIntrinsic intrinsicName, CORINFO_METHOD_HANDLE methodHandle)
+        : GenTreeOp(GT_INTRINSIC, type, op1, op2), m_intrinsicName(intrinsicName), gtMethodHandle(methodHandle)
     {
-        assert(intrinsicId != CORINFO_INTRINSIC_Illegal || intrinsicName != NI_Illegal);
+        assert(intrinsicName != NI_Illegal);
+    }
+
+    GenTreeIntrinsic(const GenTreeIntrinsic* copyFrom)
+        : GenTreeOp(copyFrom)
+        , m_intrinsicName(copyFrom->m_intrinsicName)
+        , gtMethodHandle(copyFrom->gtMethodHandle)
+#ifdef FEATURE_READYTORUN_COMPILER
+        , gtEntryPoint(copyFrom->gtEntryPoint)
+#endif
+    {
     }
 
     NamedIntrinsic GetIntrinsic()
     {
-        return gtIntrinsicName;
+        return m_intrinsicName;
     }
 
 #if DEBUGGABLE_GENTREE
