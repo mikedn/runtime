@@ -438,8 +438,6 @@ void Importer::SpillStack(GenTree* stmtExpr, unsigned spillDepth)
 
     if ((stmtSideEffects & GTF_GLOB_EFFECT) == 0)
     {
-        impSpillCatchArg();
-
         return;
     }
 
@@ -1670,8 +1668,6 @@ void Importer::impSpillStackEnsure(bool spillLeaves)
 // [0..spillDepth) is the portion of the stack which will be checked and spilled.
 void Importer::impSpillSideEffects(GenTreeFlags spillSideEffects, unsigned spillDepth DEBUGARG(const char* reason))
 {
-    impSpillCatchArg();
-
     spillDepth = min(spillDepth, verCurrentState.esStackDepth);
 
     for (unsigned i = 0; i < spillDepth; i++)
@@ -1707,10 +1703,7 @@ void Importer::impSpillSideEffects(GenTreeFlags spillSideEffects, unsigned spill
 void Importer::impSpillCatchArg()
 {
     // CATCH_ARG may only appear in catch blocks
-    if (!compCurBB->bbCatchTyp)
-    {
-        return;
-    }
+    assert(compCurBB->bbCatchTyp != 0);
 
     auto visitor = [](GenTree** use, Compiler::fgWalkData* data) {
         return (*use)->OperIs(GT_CATCH_ARG) ? Compiler::WALK_ABORT : Compiler::WALK_CONTINUE;
@@ -1731,8 +1724,6 @@ void Importer::impSpillCatchArg()
 // Spill all trees containing references to the specified local.
 void Importer::impSpillLclReferences(unsigned lclNum)
 {
-    impSpillCatchArg();
-
     for (unsigned level = 0; level < verCurrentState.esStackDepth; level++)
     {
         GenTree* tree = verCurrentState.esStack[level].val;
@@ -4802,9 +4793,6 @@ bool Importer::impImportBoxPattern(BoxPattern              pattern,
 
 void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
 {
-    // Spill any special side effects
-    impSpillCatchArg();
-
     // Get get the expression to box from the stack.
     GenTree*             op1       = nullptr;
     GenTree*             op2       = nullptr;
@@ -7527,8 +7515,6 @@ DONE_INTRINSIC:
     }
     else
     {
-        impSpillCatchArg();
-
         if (GenTreeCall* origCall = call->IsCall())
         {
             // Sometimes "call" is not a GT_CALL (if we imported an intrinsic that didn't turn into a call)
@@ -12817,10 +12803,6 @@ void Importer::ImportNewObj(
         BADCODE("newobj on static or abstract method");
     }
 
-    // Since we will implicitly insert newObjThis at the start of the argument list, spill any GTF_ORDER_SIDEEFF.
-    // TODO-MIKE-Review: Hmm, comment says one thing, code does something else...
-    impSpillCatchArg();
-
     // TODO-MIKE-Review: This should probably be BADCODE
     prefixFlags &= ~(PREFIX_TAILCALL_EXPLICIT | PREFIX_CONSTRAINED);
 
@@ -13083,7 +13065,6 @@ void Importer::ImportNewObj(
         call->SetType(TYP_REF);
         call->SetRetSigType(TYP_REF);
 
-        impSpillCatchArg();
         impPushOnStack(call, typeInfo(TI_REF, classHandle));
 
         return;
