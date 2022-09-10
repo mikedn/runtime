@@ -3669,6 +3669,9 @@ GenTree* Importer::impMathIntrinsic(CORINFO_METHOD_HANDLE method,
                 if (op1->TypeGet() != genActualType(op1Type))
                 {
                     assert(varTypeIsFloating(op1));
+                    // TODO-MIKE-Review: This is messed up, it casts to the method's
+                    // return type instead of casting to the parameter type. This
+                    // would probably blow in some cases involving ILogB.
                     op1 = gtNewCastNode(callType, op1, false, callType);
                 }
 
