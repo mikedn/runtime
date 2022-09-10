@@ -9978,7 +9978,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 // other importer code sees that handle, thinks that the value is a struct and spills the
                 // stack even if there's no need for that.
 
-                impPushOnStack(op1, lvaGetDesc(lclNum)->lvImpTypeInfo);
+                impPushOnStack(op1, lvaGetDesc(op1->AsLclVar()->GetLclNum())->lvImpTypeInfo);
                 break;
 
             case CEE_ARGLIST:
