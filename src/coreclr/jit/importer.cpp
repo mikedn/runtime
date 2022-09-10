@@ -2675,8 +2675,6 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
 //
 
 GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
-                                CORINFO_CLASS_HANDLE    clsHnd,
-                                CORINFO_METHOD_HANDLE   method,
                                 CORINFO_SIG_INFO*       sig,
                                 unsigned                methodFlags,
                                 CORINFO_RESOLVED_TOKEN* resolvedToken,
@@ -2689,8 +2687,10 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
 {
     assert((methodFlags & (CORINFO_FLG_INTRINSIC | CORINFO_FLG_JIT_INTRINSIC)) != 0);
 
-    bool              mustExpand  = false;
-    CorInfoIntrinsics intrinsicId = CORINFO_INTRINSIC_Illegal;
+    CORINFO_CLASS_HANDLE  clsHnd      = resolvedToken->hClass;
+    CORINFO_METHOD_HANDLE method      = callInfo->hMethod;
+    bool                  mustExpand  = false;
+    CorInfoIntrinsics     intrinsicId = CORINFO_INTRINSIC_Illegal;
 
     if ((methodFlags & CORINFO_FLG_INTRINSIC) != 0)
     {
@@ -6636,7 +6636,6 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
     CORINFO_METHOD_HANDLE methHnd;
     CORINFO_SIG_INFO      calliSig;
     CORINFO_SIG_INFO      callSiteSig;
-    var_types             callRetTyp;
     CORINFO_SIG_INFO*     retTypeSig;
     unsigned              mflags;
     CORINFO_CLASS_HANDLE  clsHnd;
@@ -6676,7 +6675,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
         }
     }
 
-    callRetTyp = CorTypeToVarType(sig->retType);
+    var_types callRetTyp = CorTypeToVarType(sig->retType);
 
     JITDUMP("\nimpImportCall: opcode %s, kind %d, retType %s, retStructSize %u\n", opcodeNames[opcode], callInfo->kind,
             varTypeName(callRetTyp),
@@ -6747,7 +6746,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
         {
             const bool isTailCall = canTailCall && (tailCallFlags != 0);
 
-            value = impIntrinsic(newobjThis, clsHnd, methHnd, sig, mflags, pResolvedToken, isReadonlyCall, isTailCall,
+            value = impIntrinsic(newobjThis, sig, mflags, pResolvedToken, isReadonlyCall, isTailCall,
                                  pConstrainedResolvedToken, callInfo, &intrinsicID, &isSpecialIntrinsic);
 
             if (compDonotInline())
