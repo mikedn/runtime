@@ -3632,13 +3632,11 @@ GenTree* Importer::impMathIntrinsic(CORINFO_METHOD_HANDLE method,
                                     NamedIntrinsic        intrinsicName,
                                     bool                  tailCall)
 {
-    GenTree* op1;
-    GenTree* op2;
-
     assert(callType != TYP_STRUCT);
     assert(IsMathIntrinsic(intrinsicName));
 
-    op1 = nullptr;
+    GenTree* op1 = nullptr;
+    GenTree* op2 = nullptr;
 
 #if !defined(TARGET_X86)
     // Intrinsics that are not implemented directly by target instructions will
@@ -3674,7 +3672,6 @@ GenTree* Importer::impMathIntrinsic(CORINFO_METHOD_HANDLE method,
                     op1 = gtNewCastNode(callType, op1, false, callType);
                 }
 
-                op1 = new (comp, GT_INTRINSIC) GenTreeIntrinsic(varActualType(callType), op1, intrinsicName, method);
                 break;
 
             case 2:
@@ -3699,13 +3696,13 @@ GenTree* Importer::impMathIntrinsic(CORINFO_METHOD_HANDLE method,
                     op2 = gtNewCastNode(callType, op2, false, callType);
                 }
 
-                op1 =
-                    new (comp, GT_INTRINSIC) GenTreeIntrinsic(varActualType(callType), op1, op2, intrinsicName, method);
                 break;
 
             default:
                 NO_WAY("Unsupported number of args for Math Intrinsic");
         }
+
+        op1 = new (comp, GT_INTRINSIC) GenTreeIntrinsic(varActualType(callType), op1, op2, intrinsicName, method);
 
         if (IsIntrinsicImplementedByUserCall(intrinsicName))
         {
