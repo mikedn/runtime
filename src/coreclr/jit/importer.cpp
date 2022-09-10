@@ -2788,8 +2788,6 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
         return new (comp, GT_LABEL) GenTree(GT_LABEL, TYP_I_IMPL);
     }
 
-    GenTree* retNode = nullptr;
-
     // Under debug and minopts, only expand what is required.
     // NextCallReturnAddress intrinsic returns the return address of the next call.
     // If that call is an intrinsic and is expanded, codegen for NextCallReturnAddress will fail.
@@ -2798,13 +2796,12 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
     if (!mustExpand && (opts.OptimizationDisabled() || info.compHasNextCallRetAddr))
     {
         *pIntrinsicID = CORINFO_INTRINSIC_Illegal;
-        return retNode;
+        return nullptr;
     }
 
     CorInfoType callJitType = sig->retType;
     var_types   callType    = JITtype2varType(callJitType);
-
-    /* First do the intrinsics which are always smaller than a call */
+    GenTree*    retNode     = nullptr;
 
     switch (intrinsicID)
     {
@@ -3092,9 +3089,8 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
 
             break;
         }
+
         default:
-            /* Unknown intrinsic */
-            intrinsicID = CORINFO_INTRINSIC_Illegal;
             break;
     }
 
@@ -6691,18 +6687,6 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
             varTypeName(callRetTyp),
             (callRetTyp == TYP_STRUCT) ? info.compCompHnd->getClassSize(sig->retTypeSigClass) : 0);
 
-    // We only need to cast the return value of pinvoke inlined calls that return small types
-
-    // TODO-AMD64-Cleanup: Remove this when we stop interoperating with JIT64, or if we decide to stop
-    // widening everything! CoreCLR does not support JIT64 interoperation so no need to widen there.
-    // The existing x64 JIT doesn't bother widening all types to int, so we have to assume for
-    // the time being that the callee might be compiled by the other JIT and thus the return
-    // value will need to be widened by us (or not widened at all...)
-
-    // ReadyToRun code sticks with default calling convention that does not widen small return types.
-
-    bool checkForSmallType = opts.IsReadyToRun();
-
     GenTreeCall*      call              = nullptr;
     GenTreeCall::Use* args              = nullptr;
     GenTreeCall::Use* extraArg          = nullptr;
@@ -7208,14 +7192,13 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
             szCanTailCallFailReason = "Callee is native";
         }
 
-        checkForSmallType = true;
-
         impPopArgsForUnmanagedCall(call, sig);
 
         goto DONE;
     }
-    else if ((opcode == CEE_CALLI) && ((sig->callConv & CORINFO_CALLCONV_MASK) != CORINFO_CALLCONV_DEFAULT) &&
-             ((sig->callConv & CORINFO_CALLCONV_MASK) != CORINFO_CALLCONV_VARARG))
+
+    if ((opcode == CEE_CALLI) && ((sig->callConv & CORINFO_CALLCONV_MASK) != CORINFO_CALLCONV_DEFAULT) &&
+        ((sig->callConv & CORINFO_CALLCONV_MASK) != CORINFO_CALLCONV_VARARG))
     {
         if (CreateCallICookie(call, sig) == nullptr)
         {
@@ -7591,20 +7574,16 @@ PUSH_CALL:
         }
     }
 
-    if (!intrinsicImported)
-    {
-        //-------------------------------------------------------------------------
-        //
-        /* If the call is of a small type and the callee is managed, the callee will normalize the result
-            before returning.
-            However, we need to normalize small type values returned by unmanaged
-            functions (pinvoke). The pinvoke stub does the normalization, but we need to do it here
-            if we use the shorter inlined pinvoke stub. */
+    // Usual native calling conventions do not automatically widen returned small int values to
+    // INT so we have to do it in the caller. R2R also follows the native calling and widens in
+    // the caller, even if the callee is a managed method that automatically widens itself.
+    //
+    // TODO-MIKE-Review: The intrinsicImported check is likely bogus, intrinsic importing may
+    // produce a call and then there's no obvious reason not to follow the same rules.
 
-        if (checkForSmallType && varTypeIsIntegral(callRetTyp) && genTypeSize(callRetTyp) < genTypeSize(TYP_INT))
-        {
-            value = gtNewCastNode(genActualType(callRetTyp), value, false, callRetTyp);
-        }
+    if (!intrinsicImported && varTypeIsSmall(callRetTyp) && (opts.IsReadyToRun() || call->IsUnmanaged()))
+    {
+        value = gtNewCastNode(TYP_INT, value, false, callRetTyp);
     }
 
 PUSH_VALUE:
