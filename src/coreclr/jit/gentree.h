@@ -6379,7 +6379,7 @@ private:
     BasicBlockFlags m_retBlockIRSummary;
 
 public:
-    GenTreeRetExpr(var_types type, GenTreeCall* call);
+    GenTreeRetExpr(GenTreeCall* call);
 
     GenTreeCall* GetCall() const
     {

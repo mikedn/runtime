@@ -6977,7 +6977,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 if ((sig->sigInst.methInstCount != 0) && IsTargetAbi(CORINFO_CORERT_ABI))
                 {
                     // CoreRT generic virtual method: need to handle potential fat function pointers
-                    addFatPointerCandidate(call->AsCall());
+                    addFatPointerCandidate(call);
                 }
 #ifdef FEATURE_READYTORUN_COMPILER
                 if (opts.IsReadyToRun())
@@ -7187,7 +7187,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
     {
         // New lexical block here to avoid compilation errors because of GOTOs.
         BasicBlock* block = compIsForInlining() ? impInlineInfo->iciBlock : compCurBB;
-        impCheckForPInvokeCall(call->AsCall(), methHnd, sig, mflags, block);
+        impCheckForPInvokeCall(call, methHnd, sig, mflags, block);
     }
 
 #ifdef UNIX_X86_ABI
@@ -7217,7 +7217,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
     else if ((opcode == CEE_CALLI) && ((sig->callConv & CORINFO_CALLCONV_MASK) != CORINFO_CALLCONV_DEFAULT) &&
              ((sig->callConv & CORINFO_CALLCONV_MASK) != CORINFO_CALLCONV_VARARG))
     {
-        if (CreateCallICookie(call->AsCall(), sig) == nullptr)
+        if (CreateCallICookie(call, sig) == nullptr)
         {
             assert(compDonotInline());
 
@@ -7240,7 +7240,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
     if ((sig->callConv & CORINFO_CALLCONV_MASK) == CORINFO_CALLCONV_VARARG)
     {
-        GenTree* arg = CreateVarargsCallArgHandle(call->AsCall(), sig);
+        GenTree* arg = CreateVarargsCallArgHandle(call, sig);
 
         if (arg == nullptr)
         {
@@ -7257,8 +7257,8 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
     {
         assert(opcode != CEE_CALLI);
 
-        GenTree* instParam = CreateGenericCallTypeArg(call->AsCall(), callInfo, pResolvedToken,
-                                                      pConstrainedResolvedToken, isReadonlyCall);
+        GenTree* instParam =
+            CreateGenericCallTypeArg(call, callInfo, pResolvedToken, pConstrainedResolvedToken, isReadonlyCall);
 
         if (instParam == nullptr)
         {
@@ -7284,7 +7284,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
     if (opcode == CEE_NEWOBJ)
     {
-        return call->AsCall();
+        return call;
     }
 
     //-------------------------------------------------------------------------
@@ -7313,20 +7313,18 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
             // See if we can devirtualize.
 
             const bool isExplicitTailCall = (tailCallFlags & PREFIX_TAILCALL_EXPLICIT) != 0;
-            impDevirtualizeCall(call->AsCall(), pResolvedToken, &callInfo->hMethod, &callInfo->methodFlags,
+            impDevirtualizeCall(call, pResolvedToken, &callInfo->hMethod, &callInfo->methodFlags,
                                 &callInfo->contextHandle, &exactContextHnd, isExplicitTailCall, rawILOffset);
         }
     }
 
 DONE:
-
     // In debug we want to be able to register callsites with the EE.
-    assert(call->callSig == nullptr);
     INDEBUG(call->callSig = new (comp, CMK_Generic) CORINFO_SIG_INFO(*sig));
 
     if (call->TypeIs(TYP_STRUCT))
     {
-        impInitializeStructCall(call->AsCall(), retTypeSig->retTypeClass);
+        impInitializeStructCall(call, retTypeSig->retTypeClass);
     }
 
     // Final importer checks for calls flagged as tail calls.
@@ -7363,7 +7361,7 @@ DONE:
         // managed calling convention dictates that the callee widens the value. For explicit tailcalls we don't
         // want to require this detail of the calling convention to bubble up to the tailcall helpers
         bool allowWidening = isImplicitTailCall;
-        if (canTailCall && !comp->impTailCallRetTypeCompatible(call->AsCall(), allowWidening))
+        if (canTailCall && !comp->impTailCallRetTypeCompatible(call, allowWidening))
         {
             canTailCall             = false;
             szCanTailCallFailReason = "Return types are not tail call compatible";
@@ -7513,12 +7511,12 @@ DONE:
 #endif
 
     // Is it an inline candidate?
-    impMarkInlineCandidate(call->AsCall(), exactContextHnd, exactContextNeedsRuntimeLookup, callInfo);
+    impMarkInlineCandidate(call, exactContextHnd, exactContextNeedsRuntimeLookup, callInfo);
 
     if ((sig->flags & CORINFO_SIGFLAG_FAT_CALL) != 0)
     {
         assert(opcode == CEE_CALLI);
-        addFatPointerCandidate(call->AsCall());
+        addFatPointerCandidate(call);
     }
 
     assert(opcode != CEE_NEWOBJ);
@@ -7531,26 +7529,19 @@ DONE:
     }
 
 PUSH_CALL:
-    const bool isFatPointerCandidate              = call->IsFatPointerCandidate();
-    const bool isInlineCandidate                  = call->IsInlineCandidate();
-    const bool isGuardedDevirtualizationCandidate = call->IsGuardedDevirtualizationCandidate();
-
     // TODO: consider handling fatcalli cases this way too...?
-    if (isInlineCandidate || isGuardedDevirtualizationCandidate)
+    if (call->IsInlineCandidate() || call->IsGuardedDevirtualizationCandidate())
     {
         assert(opts.OptEnabled(CLFLG_INLINING));
-        assert(!isFatPointerCandidate); // We should not try to inline calli.
+        assert(!call->IsFatPointerCandidate()); // We should not try to inline calli.
 
         // Make the call its own tree (spill the stack if needed).
         impAppendTree(call, CHECK_SPILL_ALL);
 
         // TODO: Still using the widened type.
-        GenTreeRetExpr* retExpr = gtNewRetExpr(call->AsCall(), call->GetType());
-
-        // Link the retExpr to the call so if necessary we can manipulate it later.
+        GenTreeRetExpr* retExpr                         = gtNewRetExpr(call);
         call->gtInlineCandidateInfo->retExprPlaceholder = retExpr;
 
-        // Propagate retExpr as the placeholder for the call.
         value = retExpr;
     }
     else
@@ -7563,7 +7554,7 @@ PUSH_CALL:
         // fragile pattern matches later on.
         bool spillStack = true;
 
-        if (isFatPointerCandidate)
+        if (call->IsFatPointerCandidate())
         {
             // fatPointer candidates should be in statements of the form call() or var = call().
             // Such form allows to find statements with fat calls without walking through whole trees
@@ -7576,6 +7567,7 @@ PUSH_CALL:
             // bogus. We'll end up with something like tmp = CALL, other stack contents, tmp use
             // instead of other stack contents, tmp = CALL, tmp use.
             impAppendTempAssign(calliTempLclNum, call, call->GetRetLayout(), CHECK_SPILL_NONE);
+
             value = gtNewLclvNode(calliTempLclNum, varActualType(lvaGetDesc(calliTempLclNum)->GetType()));
         }
         else
@@ -17938,9 +17930,9 @@ GenTree* Importer::gtUnusedValNode(GenTree* expr)
     return comp->gtUnusedValNode(expr);
 }
 
-GenTreeRetExpr* Importer::gtNewRetExpr(GenTreeCall* call, var_types type)
+GenTreeRetExpr* Importer::gtNewRetExpr(GenTreeCall* call)
 {
-    return comp->gtNewRetExpr(call, type);
+    return comp->gtNewRetExpr(call);
 }
 
 GenTree* Importer::gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, bool dummy)

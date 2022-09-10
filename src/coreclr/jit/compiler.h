@@ -2797,7 +2797,7 @@ struct Importer
     GenTree* gtNewSconNode(int cpx, CORINFO_MODULE_HANDLE module);
     GenTree* gtNewNothingNode();
     GenTree* gtUnusedValNode(GenTree* expr);
-    GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call, var_types type);
+    GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call);
     // TODO-MIKE-Cleanup: Remove stupid dummy param.
     GenTree* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, bool dummy = false);
     GenTree* gtNewNullCheck(GenTree* addr);
@@ -3522,7 +3522,7 @@ public:
 #endif // FEATURE_HW_INTRINSICS
 
     GenTreeLclFld* gtNewLclFldNode(unsigned lnum, var_types type, unsigned offset);
-    GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call, var_types type);
+    GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call);
 
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset);
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, FieldSeqNode* fieldSeq, unsigned offset);

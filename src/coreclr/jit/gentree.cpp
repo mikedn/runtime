@@ -3611,8 +3611,8 @@ GenTree* GenTree::FindUser(GenTree*** useEdge)
     return nullptr;
 }
 
-GenTreeRetExpr::GenTreeRetExpr(var_types type, GenTreeCall* call)
-    : GenTree(GT_RET_EXPR, type), m_call(call), m_retExpr(call), m_retBlockIRSummary(BBF_EMPTY)
+GenTreeRetExpr::GenTreeRetExpr(GenTreeCall* call)
+    : GenTree(GT_RET_EXPR, call->GetType()), m_call(call), m_retExpr(call), m_retBlockIRSummary(BBF_EMPTY)
 {
     // GT_RET_EXPR node eventually might be bashed back to GT_CALL (when inlining is aborted for example).
     // Therefore it should carry the GTF_CALL flag so that all the rules about spilling can apply to it as well.
@@ -4496,9 +4496,9 @@ GenTreeLclFld* Compiler::gtNewLclFldNode(unsigned lnum, var_types type, unsigned
     return new (this, GT_LCL_FLD) GenTreeLclFld(GT_LCL_FLD, type, lnum, offset);
 }
 
-GenTreeRetExpr* Compiler::gtNewRetExpr(GenTreeCall* call, var_types type)
+GenTreeRetExpr* Compiler::gtNewRetExpr(GenTreeCall* call)
 {
-    return new (this, GT_RET_EXPR) GenTreeRetExpr(type, call);
+    return new (this, GT_RET_EXPR) GenTreeRetExpr(call);
 }
 
 GenTreeCall::Use* Compiler::gtPrependNewCallArg(GenTree* node, GenTreeCall::Use* args)

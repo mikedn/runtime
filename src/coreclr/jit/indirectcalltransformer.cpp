@@ -812,7 +812,7 @@ private:
                 // we set all this up in FixupRetExpr().
                 if (oldRetExpr != nullptr)
                 {
-                    inlineInfo->retExprPlaceholder = compiler->gtNewRetExpr(call, call->GetType());
+                    inlineInfo->retExprPlaceholder = compiler->gtNewRetExpr(call);
 
                     GenTree* retExpr = inlineInfo->retExprPlaceholder;
 
