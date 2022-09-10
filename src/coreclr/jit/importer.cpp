@@ -2679,11 +2679,11 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
                                 CORINFO_METHOD_HANDLE   method,
                                 CORINFO_SIG_INFO*       sig,
                                 unsigned                methodFlags,
-                                int                     memberRef,
+                                CORINFO_RESOLVED_TOKEN* resolvedToken,
                                 bool                    readonlyCall,
                                 bool                    tailCall,
                                 CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
-                                CORINFO_THIS_TRANSFORM  constraintCallThisTransform,
+                                CORINFO_CALL_INFO*      callInfo,
                                 CorInfoIntrinsics*      pIntrinsicId,
                                 bool*                   isSpecialIntrinsic)
 {
@@ -2906,7 +2906,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
         case NI_CORINFO_INTRINSIC_Array_Address:
         case NI_CORINFO_INTRINSIC_Array_Get:
         case NI_CORINFO_INTRINSIC_Array_Set:
-            retNode = impArrayAccessIntrinsic(clsHnd, sig, memberRef, readonlyCall, ni);
+            retNode = impArrayAccessIntrinsic(clsHnd, sig, resolvedToken->token, readonlyCall, ni);
             break;
 
         case NI_CORINFO_INTRINSIC_RTH_GetValueInternal:
@@ -2967,7 +2967,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             // If so, instead of boxing and then extracting the type, just
             // construct the type directly.
             if ((retNode == nullptr) && (constrainedResolvedToken != nullptr) &&
-                (constraintCallThisTransform == CORINFO_BOX_THIS))
+                (callInfo->thisTransform == CORINFO_BOX_THIS))
             {
                 // Ensure this is one of the is simple box cases (in particular, rule out nullables).
                 const CorInfoHelpFunc boxHelper = info.compCompHnd->getBoxHelper(constrainedResolvedToken->hClass);
@@ -3067,17 +3067,19 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
         case NI_CORINFO_INTRINSIC_GetRawHandle:
         {
             noway_assert(IsTargetAbi(CORINFO_CORERT_ABI)); // Only CoreRT supports it.
-            CORINFO_RESOLVED_TOKEN resolvedToken;
-            resolvedToken.tokenContext = impTokenLookupContextHandle;
-            resolvedToken.tokenScope   = info.compScopeHnd;
-            resolvedToken.token        = memberRef;
-            resolvedToken.tokenType    = CORINFO_TOKENKIND_Method;
+
+            // TODO-MIKE-Review: Can't we just use the existing resolvedToken?
+            CORINFO_RESOLVED_TOKEN rt;
+            rt.tokenContext = impTokenLookupContextHandle;
+            rt.tokenScope   = info.compScopeHnd;
+            rt.token        = resolvedToken->token;
+            rt.tokenType    = CORINFO_TOKENKIND_Method;
 
             CORINFO_GENERICHANDLE_RESULT embedInfo;
-            info.compCompHnd->expandRawHandleIntrinsic(&resolvedToken, &embedInfo);
+            info.compCompHnd->expandRawHandleIntrinsic(&rt, &embedInfo);
 
-            GenTree* rawHandle = impLookupToTree(&resolvedToken, &embedInfo.lookup, gtTokenToIconFlags(memberRef),
-                                                 embedInfo.compileTimeHandle);
+            GenTree* rawHandle =
+                impLookupToTree(&rt, &embedInfo.lookup, gtTokenToIconFlags(rt.token), embedInfo.compileTimeHandle);
             if (rawHandle == nullptr)
             {
                 return nullptr;
@@ -6745,9 +6747,8 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
         {
             const bool isTailCall = canTailCall && (tailCallFlags != 0);
 
-            value = impIntrinsic(newobjThis, clsHnd, methHnd, sig, mflags, pResolvedToken->token, isReadonlyCall,
-                                 isTailCall, pConstrainedResolvedToken, callInfo->thisTransform, &intrinsicID,
-                                 &isSpecialIntrinsic);
+            value = impIntrinsic(newobjThis, clsHnd, methHnd, sig, mflags, pResolvedToken, isReadonlyCall, isTailCall,
+                                 pConstrainedResolvedToken, callInfo, &intrinsicID, &isSpecialIntrinsic);
 
             if (compDonotInline())
             {

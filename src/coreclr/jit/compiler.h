@@ -2488,11 +2488,8 @@ struct Importer
     GenTree* impBMI1OrBMI2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
 #endif // TARGET_XARCH
 #endif // FEATURE_HW_INTRINSICS
-    GenTree* impArrayAccessIntrinsic(CORINFO_CLASS_HANDLE clsHnd,
-                                     CORINFO_SIG_INFO*    sig,
-                                     int                  memberRef,
-                                     bool                 readonlyCall,
-                                     NamedIntrinsic name);
+    GenTree* impArrayAccessIntrinsic(
+        CORINFO_CLASS_HANDLE clsHnd, CORINFO_SIG_INFO* sig, int memberRef, bool readonlyCall, NamedIntrinsic name);
     GenTree* impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig);
 
     GenTree* impMethodPointer(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORINFO_CALL_INFO* pCallInfo);
@@ -2507,11 +2504,11 @@ struct Importer
                           CORINFO_METHOD_HANDLE   method,
                           CORINFO_SIG_INFO*       sig,
                           unsigned                methodFlags,
-                          int                     memberRef,
+                          CORINFO_RESOLVED_TOKEN* resolvedToken,
                           bool                    readonlyCall,
                           bool                    tailCall,
                           CORINFO_RESOLVED_TOKEN* contstrainedResolvedToken,
-                          CORINFO_THIS_TRANSFORM  constraintCallThisTransform,
+                          CORINFO_CALL_INFO*      callInfo,
                           CorInfoIntrinsics*      pIntrinsicId,
                           bool*                   isSpecialIntrinsic = nullptr);
     GenTree* impMathIntrinsic(CORINFO_METHOD_HANDLE method,
