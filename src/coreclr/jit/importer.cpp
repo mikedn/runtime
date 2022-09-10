@@ -2820,22 +2820,18 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
         // whatever optimizations may arise from the fact that result value is not used.
         case NI_CORINFO_INTRINSIC_InterlockedAdd32:
         case NI_CORINFO_INTRINSIC_InterlockedXAdd32:
-            interlockedOperator = GT_XADD;
-            goto InterlockedBinOpCommon;
-        case NI_CORINFO_INTRINSIC_InterlockedXchg32:
-            interlockedOperator = GT_XCHG;
-            goto InterlockedBinOpCommon;
-
 #ifdef TARGET_64BIT
         case NI_CORINFO_INTRINSIC_InterlockedAdd64:
         case NI_CORINFO_INTRINSIC_InterlockedXAdd64:
+#endif
             interlockedOperator = GT_XADD;
             goto InterlockedBinOpCommon;
-        case NI_CORINFO_INTRINSIC_InterlockedXchg64:
-            interlockedOperator = GT_XCHG;
-            goto InterlockedBinOpCommon;
-#endif // TARGET_AMD64
 
+        case NI_CORINFO_INTRINSIC_InterlockedXchg32:
+#ifdef TARGET_64BIT
+        case NI_CORINFO_INTRINSIC_InterlockedXchg64:
+#endif
+            interlockedOperator = GT_XCHG;
         InterlockedBinOpCommon:
             assert(callType != TYP_STRUCT);
             assert(sig->numArgs == 2);
@@ -2858,6 +2854,24 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             op1->gtFlags |= GTF_GLOB_REF | GTF_ASG;
             retNode = op1;
             break;
+
+        case NI_CORINFO_INTRINSIC_InterlockedCmpXchg32:
+#ifdef TARGET_64BIT
+        case NI_CORINFO_INTRINSIC_InterlockedCmpXchg64:
+#endif
+        {
+            assert(callType != TYP_STRUCT);
+            assert(sig->numArgs == 3);
+            GenTree* op2;
+            GenTree* op3;
+
+            op3 = impPopStack().val; // comparand
+            op2 = impPopStack().val; // value
+            op1 = impPopStack().val; // location address
+
+            retNode = new (comp, GT_CMPXCHG) GenTreeCmpXchg(genActualType(callType), op1, op2, op3);
+            break;
+        }
 #endif // defined(TARGET_XARCH) || defined(TARGET_ARM64)
 
         case NI_CORINFO_INTRINSIC_MemoryBarrier:
@@ -2877,27 +2891,6 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
 
             retNode = op1;
             break;
-
-#if defined(TARGET_XARCH) || defined(TARGET_ARM64)
-        // TODO-ARM-CQ: reenable treating InterlockedCmpXchg32 operation as intrinsic
-        case NI_CORINFO_INTRINSIC_InterlockedCmpXchg32:
-#ifdef TARGET_64BIT
-        case NI_CORINFO_INTRINSIC_InterlockedCmpXchg64:
-#endif
-        {
-            assert(callType != TYP_STRUCT);
-            assert(sig->numArgs == 3);
-            GenTree* op2;
-            GenTree* op3;
-
-            op3 = impPopStack().val; // comparand
-            op2 = impPopStack().val; // value
-            op1 = impPopStack().val; // location address
-
-            retNode = new (comp, GT_CMPXCHG) GenTreeCmpXchg(genActualType(callType), op1, op2, op3);
-            break;
-        }
-#endif // defined(TARGET_XARCH) || defined(TARGET_ARM64)
 
         case NI_CORINFO_INTRINSIC_InitializeArray:
             retNode = impInitializeArrayIntrinsic(sig);
