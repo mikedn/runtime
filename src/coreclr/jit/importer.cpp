@@ -6629,9 +6629,6 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
     const int              tailCallFlags                  = (prefixFlags & PREFIX_TAILCALL);
     const bool             isReadonlyCall                 = (prefixFlags & PREFIX_READONLY) != 0;
 
-    bool             hasCallSiteSig = false;
-    CORINFO_SIG_INFO callSiteSig;
-
     // Synchronized methods need to call CORINFO_HELP_MON_EXIT at the end. We could
     // do that before tailcalls, but that is probably not the intended
     // semantic. So just disallow tailcalls from synchronized methods.
@@ -6661,7 +6658,9 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
     CORINFO_SIG_INFO*     sig;
     CORINFO_METHOD_HANDLE methHnd;
     CORINFO_SIG_INFO      calliSig;
+    CORINFO_SIG_INFO      callSiteSig;
     var_types             callRetTyp;
+    CORINFO_SIG_INFO*     retTypeSig;
     unsigned              mflags;
     CORINFO_CLASS_HANDLE  clsHnd;
     unsigned              clsFlags;
@@ -6670,11 +6669,12 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
     {
         eeGetSig(pResolvedToken->token, pResolvedToken->tokenScope, pResolvedToken->tokenContext, &calliSig);
 
-        sig      = &calliSig;
-        methHnd  = nullptr;
-        mflags   = ((calliSig.callConv & CORINFO_CALLCONV_HASTHIS) != 0) ? 0 : CORINFO_FLG_STATIC;
-        clsHnd   = nullptr;
-        clsFlags = 0;
+        sig        = &calliSig;
+        methHnd    = nullptr;
+        mflags     = ((sig->callConv & CORINFO_CALLCONV_HASTHIS) != 0) ? 0 : CORINFO_FLG_STATIC;
+        clsHnd     = nullptr;
+        clsFlags   = 0;
+        retTypeSig = sig;
     }
     else
     {
@@ -6683,6 +6683,20 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
         mflags   = callInfo->methodFlags;
         clsHnd   = pResolvedToken->hClass;
         clsFlags = callInfo->classFlags;
+
+        if ((((clsFlags & CORINFO_FLG_ARRAY) != 0) && (sig->retType != CORINFO_TYPE_VOID)) ||
+            ((sig->callConv & CORINFO_CALLCONV_MASK) == CORINFO_CALLCONV_VARARG) ||
+            ((sig->callConv & CORINFO_CALLCONV_MASK) == CORINFO_CALLCONV_NATIVEVARARG))
+        {
+            eeGetCallSiteSig(pResolvedToken->token, pResolvedToken->tokenScope, pResolvedToken->tokenContext,
+                             &callSiteSig);
+
+            retTypeSig = &callSiteSig;
+        }
+        else
+        {
+            retTypeSig = sig;
+        }
     }
 
     callRetTyp = CorTypeToVarType(sig->retType);
@@ -7089,9 +7103,6 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
      * Check special-cases etc
      */
 
-    CORINFO_CLASS_HANDLE actualMethodRetTypeSigClass;
-    actualMethodRetTypeSigClass = sig->retTypeSigClass;
-
     if ((sig->callConv & CORINFO_CALLCONV_MASK) == CORINFO_CALLCONV_VARARG ||
         (sig->callConv & CORINFO_CALLCONV_MASK) == CORINFO_CALLCONV_NATIVEVARARG)
     {
@@ -7120,36 +7131,30 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
         }
 #endif
 
-        /* Get the total number of arguments - this is already correct
-         * for CALLI - for methods we have to get it from the call site */
+        // CALLI already has the correct signature, for other opcodes we need to switch to
+        // the call site signature to get the correct number of args.
 
         if (opcode != CEE_CALLI)
         {
-#ifdef DEBUG
-            unsigned numArgsDef = sig->numArgs;
-#endif
-            eeGetCallSiteSig(pResolvedToken->token, pResolvedToken->tokenScope, pResolvedToken->tokenContext, sig);
+            assert(sig->numArgs <= retTypeSig->numArgs);
 
-            // For vararg calls we must be sure to load the return type of the
-            // method actually being called, as well as the return types of the
-            // specified in the vararg signature. With type equivalency, these types
-            // may not be the same.
-            if (sig->retTypeSigClass != actualMethodRetTypeSigClass)
+            if ((sig->retTypeSigClass != NO_CLASS_HANDLE) && (sig->retTypeSigClass != retTypeSig->retTypeSigClass) &&
+                (sig->retType != CORINFO_TYPE_CLASS) && (sig->retType != CORINFO_TYPE_BYREF) &&
+                (sig->retType != CORINFO_TYPE_PTR) && (sig->retType != CORINFO_TYPE_VAR))
             {
-                if (actualMethodRetTypeSigClass != nullptr && sig->retType != CORINFO_TYPE_CLASS &&
-                    sig->retType != CORINFO_TYPE_BYREF && sig->retType != CORINFO_TYPE_PTR &&
-                    sig->retType != CORINFO_TYPE_VAR)
-                {
-                    // Make sure that all valuetypes (including enums) that we push are loaded.
-                    // This is to guarantee that if a GC is triggerred from the prestub of this methods,
-                    // all valuetypes in the method signature are already loaded.
-                    // We need to be able to find the size of the valuetypes, but we cannot
-                    // do a class-load from within GC.
-                    info.compCompHnd->classMustBeLoadedBeforeCodeIsRun(actualMethodRetTypeSigClass);
-                }
+                // Make sure that all valuetypes (including enums) that we push are loaded.
+                // This is to guarantee that if a GC is triggerred from the prestub of this
+                // methods, all valuetypes in the method signature are already loaded.
+                // We need to be able to find the size of the valuetypes, but we cannot
+                // do a class-load from within GC.
+                // impPopCallArgs does this for all types in the signature but we need to
+                // use the call site signature and due to type equivalence the return type
+                // of the method's signature may be different, so we handle it here.
+                // TODO-MIKE-Review: What about param types, can't those be different too?
+                info.compCompHnd->classMustBeLoadedBeforeCodeIsRun(sig->retTypeSigClass);
             }
 
-            assert(numArgsDef <= sig->numArgs);
+            sig = retTypeSig;
         }
 
 /* We will have "cookie" as the last argument but we cannot push
@@ -7310,18 +7315,7 @@ DONE:
 
     if (call->TypeIs(TYP_STRUCT))
     {
-        if ((clsFlags & CORINFO_FLG_ARRAY) != 0)
-        {
-            eeGetCallSiteSig(pResolvedToken->token, pResolvedToken->tokenScope, pResolvedToken->tokenContext,
-                             &callSiteSig);
-            hasCallSiteSig = true;
-
-            impInitializeStructCall(call->AsCall(), callSiteSig.retTypeClass);
-        }
-        else
-        {
-            impInitializeStructCall(call->AsCall(), sig->retTypeClass);
-        }
+        impInitializeStructCall(call->AsCall(), retTypeSig->retTypeClass);
     }
 
     // Final importer checks for calls flagged as tail calls.
@@ -7535,17 +7529,6 @@ DONE_INTRINSIC:
     {
         impSpillCatchArg();
 
-        if ((clsFlags & CORINFO_FLG_ARRAY) != 0)
-        {
-            if (!hasCallSiteSig)
-            {
-                eeGetCallSiteSig(pResolvedToken->token, pResolvedToken->tokenScope, pResolvedToken->tokenContext,
-                                 &callSiteSig);
-            }
-
-            sig = &callSiteSig;
-        }
-
         if (GenTreeCall* origCall = call->IsCall())
         {
             // Sometimes "call" is not a GT_CALL (if we imported an intrinsic that didn't turn into a call)
@@ -7633,9 +7616,9 @@ DONE_INTRINSIC:
             }
         }
 
-        if (sig->retTypeClass != NO_CLASS_HANDLE)
+        if (retTypeSig->retTypeClass != NO_CLASS_HANDLE)
         {
-            impPushOnStack(call, impMakeTypeInfo(sig->retType, sig->retTypeClass));
+            impPushOnStack(call, impMakeTypeInfo(retTypeSig->retType, retTypeSig->retTypeClass));
         }
         else
         {
