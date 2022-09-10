@@ -2492,7 +2492,7 @@ struct Importer
                                      CORINFO_SIG_INFO*    sig,
                                      int                  memberRef,
                                      bool                 readonlyCall,
-                                     CorInfoIntrinsics    intrinsicID);
+                                     NamedIntrinsic name);
     GenTree* impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig);
 
     GenTree* impMethodPointer(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORINFO_CALL_INFO* pCallInfo);
@@ -2510,9 +2510,9 @@ struct Importer
                           int                     memberRef,
                           bool                    readonlyCall,
                           bool                    tailCall,
-                          CORINFO_RESOLVED_TOKEN* pContstrainedResolvedToken,
+                          CORINFO_RESOLVED_TOKEN* contstrainedResolvedToken,
                           CORINFO_THIS_TRANSFORM  constraintCallThisTransform,
-                          CorInfoIntrinsics*      pIntrinsicID,
+                          CorInfoIntrinsics*      pIntrinsicId,
                           bool*                   isSpecialIntrinsic = nullptr);
     GenTree* impMathIntrinsic(CORINFO_METHOD_HANDLE method,
                               CORINFO_SIG_INFO*     sig,
