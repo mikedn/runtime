@@ -6619,12 +6619,6 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
     assert(opcode == CEE_CALL || opcode == CEE_CALLVIRT || opcode == CEE_NEWOBJ || opcode == CEE_CALLI);
 
     IL_OFFSETX             ilOffset                       = impCurILOffset(rawILOffset, true);
-    var_types              callRetTyp                     = TYP_COUNT;
-    CORINFO_SIG_INFO*      sig                            = nullptr;
-    CORINFO_METHOD_HANDLE  methHnd                        = nullptr;
-    CORINFO_CLASS_HANDLE   clsHnd                         = nullptr;
-    unsigned               clsFlags                       = 0;
-    unsigned               mflags                         = 0;
     GenTree*               call                           = nullptr;
     GenTreeCall::Use*      args                           = nullptr;
     CORINFO_THIS_TRANSFORM constraintCallThisTransform    = CORINFO_NO_THIS_TRANSFORM;
@@ -6664,6 +6658,39 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
     }
 #endif // FEATURE_FIXED_OUT_ARGS
 
+    CORINFO_SIG_INFO*     sig;
+    CORINFO_METHOD_HANDLE methHnd;
+    CORINFO_SIG_INFO      calliSig;
+    var_types             callRetTyp;
+    unsigned              mflags;
+    CORINFO_CLASS_HANDLE  clsHnd;
+    unsigned              clsFlags;
+
+    if (opcode == CEE_CALLI)
+    {
+        eeGetSig(pResolvedToken->token, pResolvedToken->tokenScope, pResolvedToken->tokenContext, &calliSig);
+
+        sig      = &calliSig;
+        methHnd  = nullptr;
+        mflags   = ((calliSig.callConv & CORINFO_CALLCONV_HASTHIS) != 0) ? 0 : CORINFO_FLG_STATIC;
+        clsHnd   = nullptr;
+        clsFlags = 0;
+    }
+    else
+    {
+        sig      = &callInfo->sig;
+        methHnd  = callInfo->hMethod;
+        mflags   = callInfo->methodFlags;
+        clsHnd   = pResolvedToken->hClass;
+        clsFlags = callInfo->classFlags;
+    }
+
+    callRetTyp = CorTypeToVarType(sig->retType);
+
+    JITDUMP("\nimpImportCall: opcode %s, kind %d, retType %s, retStructSize %u\n", opcodeNames[opcode], callInfo->kind,
+            varTypeName(callRetTyp),
+            (callRetTyp == TYP_STRUCT) ? info.compCompHnd->getClassSize(sig->retTypeSigClass) : 0);
+
     // We only need to cast the return value of pinvoke inlined calls that return small types
 
     // TODO-AMD64-Cleanup: Remove this when we stop interoperating with JIT64, or if we decide to stop
@@ -6677,7 +6704,6 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
     bool checkForSmallType  = opts.IsReadyToRun();
     bool bIntrinsicImported = false;
 
-    CORINFO_SIG_INFO  calliSig;
     GenTreeCall::Use* extraArg = nullptr;
 
     /*-------------------------------------------------------------------------
@@ -6686,55 +6712,15 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
     if (opcode == CEE_CALLI)
     {
-        eeGetSig(pResolvedToken->token, pResolvedToken->tokenScope, pResolvedToken->tokenContext, &calliSig);
-
-        callRetTyp = JITtype2varType(calliSig.retType);
-
         call = impImportIndirectCall(&calliSig, ilOffset);
 
-        // We don't know the target method, so we have to infer the flags, or
-        // assume the worst-case.
-        mflags = (calliSig.callConv & CORINFO_CALLCONV_HASTHIS) ? 0 : CORINFO_FLG_STATIC;
-
-#ifdef DEBUG
-        if (verbose)
-        {
-            unsigned structSize =
-                (callRetTyp == TYP_STRUCT) ? info.compCompHnd->getClassSize(calliSig.retTypeSigClass) : 0;
-            printf("\nIn Compiler::impImportCall: opcode is %s, kind=%d, callRetType is %s, structSize is %d\n",
-                   opcodeNames[opcode], callInfo->kind, varTypeName(callRetTyp), structSize);
-        }
-#endif
         // This should be checked in impImportBlockCode.
         assert(!compIsForInlining() || !(impInlineInfo->inlineCandidateInfo->dwRestrictions & INLINE_RESPECT_BOUNDARY));
-
-        sig = &calliSig;
     }
     else // (opcode != CEE_CALLI)
     {
         CorInfoIntrinsics intrinsicID = CORINFO_INTRINSIC_Count;
 
-        // Passing CORINFO_CALLINFO_ALLOWINSTPARAM indicates that this JIT is prepared to
-        // supply the instantiation parameters necessary to make direct calls to underlying
-        // shared generic code, rather than calling through instantiating stubs.  If the
-        // returned signature has CORINFO_CALLCONV_PARAMTYPE then this indicates that the JIT
-        // must indeed pass an instantiation parameter.
-
-        methHnd = callInfo->hMethod;
-
-        sig        = &(callInfo->sig);
-        callRetTyp = JITtype2varType(sig->retType);
-
-        mflags = callInfo->methodFlags;
-
-#ifdef DEBUG
-        if (verbose)
-        {
-            unsigned structSize = (callRetTyp == TYP_STRUCT) ? info.compCompHnd->getClassSize(sig->retTypeSigClass) : 0;
-            printf("\nIn Compiler::impImportCall: opcode is %s, kind=%d, callRetType is %s, structSize is %d\n",
-                   opcodeNames[opcode], callInfo->kind, varTypeName(callRetTyp), structSize);
-        }
-#endif
         if (compIsForInlining())
         {
             /* Does this call site have security boundary restrictions? */
@@ -6772,10 +6758,6 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 return nullptr;
             }
         }
-
-        clsHnd = pResolvedToken->hClass;
-
-        clsFlags = callInfo->classFlags;
 
         // <NICE> Factor this into getCallInfo </NICE>
         bool isSpecialIntrinsic = false;
@@ -7333,6 +7315,7 @@ DONE:
             eeGetCallSiteSig(pResolvedToken->token, pResolvedToken->tokenScope, pResolvedToken->tokenContext,
                              &callSiteSig);
             hasCallSiteSig = true;
+
             impInitializeStructCall(call->AsCall(), callSiteSig.retTypeClass);
         }
         else
