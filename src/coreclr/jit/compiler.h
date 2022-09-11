@@ -2594,6 +2594,13 @@ struct Importer
                                       CORINFO_RESOLVED_TOKEN* resolvedToken,
                                       CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
                                       bool                    isReadOnlyCall);
+    void SetupTailCall(GenTreeCall*            call,
+                       OPCODE                  opcode,
+                       int                     prefixFlags,
+                       CORINFO_SIG_INFO*       sig,
+                       CORINFO_RESOLVED_TOKEN* resolvedToken,
+                       CORINFO_METHOD_HANDLE   methodHandle,
+                       const char*             tailCallFailReason);
 
     void addExpRuntimeLookupCandidate(GenTreeCall* call);
 
