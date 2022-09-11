@@ -745,66 +745,39 @@ GenTree* Importer::CoerceCallArg(var_types paramType, GenTree* arg)
     return castType == argType ? arg : gtNewCastNode(castType, arg, false, castType);
 }
 
-/*****************************************************************************
- *
- *  Pop the given number of values from the stack in reverse order (STDCALL/CDECL etc.)
- *  The first "skipReverseCount" items are not reversed.
- */
-
-GenTreeCall::Use* Importer::impPopReverseCallArgs(CORINFO_SIG_INFO* sig, unsigned skipReverseCount)
+#ifdef TARGET_X86
+GenTreeCall::Use* Importer::ReverseCallArgs(GenTreeCall::Use* args, bool skipFirst)
 {
-    unsigned count = sig->numArgs;
+    GenTreeCall::Use* reversedArgs = nullptr;
+    GenTreeCall::Use* arg          = args;
 
-    assert(skipReverseCount <= count);
-
-    GenTreeCall::Use* list = impPopCallArgs(sig);
-
-    // reverse the list
-    if (list == nullptr || skipReverseCount == count)
+    if (skipFirst)
     {
-        return list;
+        arg = arg->GetNext();
     }
 
-    GenTreeCall::Use* ptr          = nullptr; // Initialized to the first node that needs to be reversed
-    GenTreeCall::Use* lastSkipNode = nullptr; // Will be set to the last node that does not need to be reversed
-
-    if (skipReverseCount == 0)
+    if (arg == nullptr)
     {
-        ptr = list;
+        return args;
     }
-    else
-    {
-        lastSkipNode = list;
-        // Get to the first node that needs to be reversed
-        for (unsigned i = 0; i < skipReverseCount - 1; i++)
-        {
-            lastSkipNode = lastSkipNode->GetNext();
-        }
-
-        PREFIX_ASSUME(lastSkipNode != nullptr);
-        ptr = lastSkipNode->GetNext();
-    }
-
-    GenTreeCall::Use* reversedList = nullptr;
 
     do
     {
-        GenTreeCall::Use* tmp = ptr->GetNext();
-        ptr->SetNext(reversedList);
-        reversedList = ptr;
-        ptr          = tmp;
-    } while (ptr != nullptr);
+        GenTreeCall::Use* next = arg->GetNext();
+        arg->SetNext(reversedArgs);
+        reversedArgs = arg;
+        arg          = next;
+    } while (arg != nullptr);
 
-    if (skipReverseCount)
+    if (skipFirst)
     {
-        lastSkipNode->SetNext(reversedList);
-        return list;
+        args->SetNext(reversedArgs);
+        reversedArgs = args;
     }
-    else
-    {
-        return reversedList;
-    }
+
+    return reversedArgs;
 }
+#endif // TARGET_X86
 
 void Compiler::impAssignCallWithRetBuf(GenTree* dest, GenTreeCall* call)
 {
@@ -5356,99 +5329,87 @@ GenTreeCall* Importer::impImportIndirectCall(CORINFO_SIG_INFO* sig, IL_OFFSETX i
     return gtNewIndCallNode(addr, CorTypeToVarType(sig->retType), nullptr, ilOffset);
 }
 
-/*****************************************************************************/
-
-void Importer::impPopArgsForUnmanagedCall(GenTreeCall* call, CORINFO_SIG_INFO* sig)
+void Importer::PopUnmanagedCallArgs(GenTreeCall* call, CORINFO_SIG_INFO* sig)
 {
-    assert(call->gtFlags & GTF_CALL_UNMANAGED);
+    assert(call->IsUnmanaged());
 
-    /* Since we push the arguments in reverse order (i.e. right -> left)
-     * spill any side effects from the stack
-     *
-     * OBS: If there is only one side effect we do not need to spill it
-     *      thus we have to spill all side-effects except last one
-     */
-
-    unsigned lastLevelWithSideEffects = UINT_MAX;
+#ifdef TARGET_X86
+    // Since we push the arguments in reverse order (i.e. right -> left)
+    // spill any side effects from the stack.
+    // If there is only one side effect we do not need to spill it thus
+    // we have to spill all side-effects except last one.
 
     unsigned argsToReverse = sig->numArgs;
 
     // For "thiscall", the first argument goes in a register. Since its
     // order does not need to be changed, we do not need to spill it
 
-    if (call->gtCallMoreFlags & GTF_CALL_M_UNMGD_THISCALL)
+    if ((call->gtCallMoreFlags & GTF_CALL_M_UNMGD_THISCALL) != 0)
     {
-        assert(argsToReverse);
+        assert(argsToReverse >= 1);
         argsToReverse--;
     }
 
-#ifndef TARGET_X86
-    // Don't reverse args on ARM or x64 - first four args always placed in regs in order
-    argsToReverse = 0;
-#endif
+    unsigned lastLevelWithSideEffects = UINT_MAX;
 
     for (unsigned level = verCurrentState.esStackDepth - argsToReverse; level < verCurrentState.esStackDepth; level++)
     {
-        if (verCurrentState.esStack[level].val->gtFlags & GTF_ORDER_SIDEEFF)
+        if ((verCurrentState.esStack[level].val->gtFlags & GTF_ORDER_SIDEEFF) != 0)
         {
             assert(lastLevelWithSideEffects == UINT_MAX);
 
-            impSpillStackEntry(level DEBUGARG("impPopArgsForUnmanagedCall - other side effect"));
+            impSpillStackEntry(level DEBUGARG("PopUnmanagedCallArgs - other side effect"));
         }
-        else if (verCurrentState.esStack[level].val->gtFlags & GTF_SIDE_EFFECT)
+        else if ((verCurrentState.esStack[level].val->gtFlags & GTF_SIDE_EFFECT) != 0)
         {
             if (lastLevelWithSideEffects != UINT_MAX)
             {
-                /* We had a previous side effect - must spill it */
-                impSpillStackEntry(lastLevelWithSideEffects DEBUGARG("impPopArgsForUnmanagedCall - side effect"));
+                // We had a previous side effect - must spill it.
+                impSpillStackEntry(lastLevelWithSideEffects DEBUGARG("PopUnmanagedCallArgs - side effect"));
 
-                /* Record the level for the current side effect in case we will spill it */
+                // Record the level for the current side effect in case we will spill it.
                 lastLevelWithSideEffects = level;
             }
             else
             {
-                /* This is the first side effect encountered - record its level */
-
+                // This is the first side effect encountered - record its level.
                 lastLevelWithSideEffects = level;
             }
         }
     }
+#endif // TARGET_X86
 
-    /* The argument list is now "clean" - no out-of-order side effects
-     * Pop the argument list in reverse order */
+    GenTreeCall::Use* args = impPopCallArgs(sig);
 
-    GenTreeCall::Use* args = impPopReverseCallArgs(sig, sig->numArgs - argsToReverse);
-    call->gtCallArgs       = args;
+#ifdef TARGET_X86
+    args = ReverseCallArgs(args, (call->gtCallMoreFlags & GTF_CALL_M_UNMGD_THISCALL) != 0);
+#endif
+
+    call->gtCallArgs = args;
 
     if ((call->gtCallMoreFlags & GTF_CALL_M_UNMGD_THISCALL) != 0)
     {
-        GenTree* thisPtr = args->GetNode();
-        impBashVarAddrsToI(thisPtr);
-        assert(thisPtr->TypeIs(TYP_I_IMPL, TYP_BYREF));
+        GenTree* thisArg = args->GetNode();
+        assert(thisArg->TypeIs(TYP_I_IMPL, TYP_BYREF));
+        impBashVarAddrsToI(thisArg);
     }
 
-    for (GenTreeCall::Use& argUse : GenTreeCall::UseList(args))
+    for (GenTreeCall::Use& argUse : call->Args())
     {
         GenTree* arg = argUse.GetNode();
         call->gtFlags |= arg->gtFlags & GTF_GLOB_EFFECT;
 
-        // We should not be passing gc typed args to an unmanaged call.
-        if (varTypeIsGC(arg->TypeGet()))
+        // We should not pass GC typed args to an unmanaged call.
+        // We tolerate BYREF args by retyping to native int.
+        // Otherwise we'll generate inconsistent GC info for this arg at
+        // the call site (GC info says byref, PInvoke sig says native int).
+        if (arg->TypeIs(TYP_BYREF))
         {
-            // Tolerate byrefs by retyping to native int.
-            //
-            // This is needed or we'll generate inconsistent GC info
-            // for this arg at the call site (gc info says byref,
-            // pinvoke sig says native int).
-            //
-            if (arg->TypeGet() == TYP_BYREF)
-            {
-                arg->ChangeType(TYP_I_IMPL);
-            }
-            else
-            {
-                assert(!"*** invalid IL: gc ref passed to unmanaged call");
-            }
+            arg->ChangeType(TYP_I_IMPL);
+        }
+        else
+        {
+            assert(!varTypeIsGC(arg->GetType()));
         }
     }
 }
@@ -7088,7 +7049,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
             szCanTailCallFailReason = "Callee is native";
         }
 
-        impPopArgsForUnmanagedCall(call, sig);
+        PopUnmanagedCallArgs(call, sig);
 
         goto DONE;
     }

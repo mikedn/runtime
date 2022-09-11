@@ -2281,7 +2281,9 @@ struct Importer
 
     GenTree* CoerceCallArg(var_types paramType, GenTree* arg);
 
-    GenTreeCall::Use* impPopReverseCallArgs(CORINFO_SIG_INFO* sig, unsigned skipReverseCount = 0);
+#ifdef TARGET_X86
+    GenTreeCall::Use* ReverseCallArgs(GenTreeCall::Use* args, bool skipReverseCount);
+#endif
 
     /*
      * Get current IL offset with stack-empty info incoporated
@@ -2542,7 +2544,7 @@ struct Importer
     void impCheckForPInvokeCall(
         GenTreeCall* call, CORINFO_METHOD_HANDLE methHnd, CORINFO_SIG_INFO* sig, unsigned mflags, BasicBlock* block);
     GenTreeCall* impImportIndirectCall(CORINFO_SIG_INFO* sig, IL_OFFSETX ilOffset = BAD_IL_OFFSET);
-    void impPopArgsForUnmanagedCall(GenTreeCall* call, CORINFO_SIG_INFO* sig);
+    void PopUnmanagedCallArgs(GenTreeCall* call, CORINFO_SIG_INFO* sig);
 
     void impInsertHelperCall(const CORINFO_HELPER_DESC& helperCall);
     void impHandleAccessAllowed(CorInfoIsAccessAllowedResult result, const CORINFO_HELPER_DESC& helperCall);
