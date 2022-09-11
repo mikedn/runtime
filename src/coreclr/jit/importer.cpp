@@ -578,37 +578,15 @@ void Importer::impAppendTempAssign(unsigned lclNum, GenTree* val, ClassLayout* l
     impAppendTree(asg, curLevel);
 }
 
-/*****************************************************************************
- *
- *  Pop the given number of values from the stack and return a list node with
- *  their values.
- *  The 'prefixTree' argument may optionally contain an argument
- *  list that is prepended to the list returned from this function.
- *
- *  The notion of prepended is a bit misleading in that the list is backwards
- *  from the way I would expect: The first element popped is at the end of
- *  the returned list, and prefixTree is 'before' that, meaning closer to
- *  the end of the list.  To get to prefixTree, you have to walk to the
- *  end of the list.
- *
- *  For ARG_ORDER_R2L prefixTree is only used to insert extra arguments, as
- *  such we reverse its meaning such that returnValue has a reversed
- *  prefixTree at the head of the list.
- */
-
-GenTreeCall::Use* Importer::impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig, GenTreeCall::Use* prefixArgs)
+GenTreeCall::Use* Importer::impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig, GenTreeCall::Use* extraArgs)
 {
-    assert(sig == nullptr || count == sig->numArgs);
+    assert((sig == nullptr) || (count == sig->numArgs));
 
-    GenTreeCall::Use* argList;
+    GenTreeCall::Use* args = nullptr;
 
-    if (Target::g_tgtArgOrder == Target::ARG_ORDER_R2L)
+    if (Target::g_tgtArgOrder == Target::ARG_ORDER_L2R)
     {
-        argList = nullptr;
-    }
-    else
-    { // ARG_ORDER_L2R
-        argList = prefixArgs;
+        args = extraArgs;
     }
 
     while (count--)
@@ -624,52 +602,36 @@ GenTreeCall::Use* Importer::impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig
             JITDUMPTREE(arg, "resulting tree:\n");
         }
 
-        // NOTE: we defer bashing the type for I_IMPL to fgMorphArgs
-        argList = gtPrependNewCallArg(arg, argList);
+        args = gtPrependNewCallArg(arg, args);
     }
 
     if (sig != nullptr)
     {
-        if (sig->retTypeSigClass != nullptr && sig->retType != CORINFO_TYPE_CLASS &&
-            sig->retType != CORINFO_TYPE_BYREF && sig->retType != CORINFO_TYPE_PTR && sig->retType != CORINFO_TYPE_VAR)
+        assert(sig->retType != CORINFO_TYPE_VAR);
+
+        if ((sig->retTypeSigClass != nullptr) && (sig->retType != CORINFO_TYPE_CLASS) &&
+            (sig->retType != CORINFO_TYPE_BYREF) && (sig->retType != CORINFO_TYPE_PTR))
         {
             // Make sure that all valuetypes (including enums) that we push are loaded.
-            // This is to guarantee that if a GC is triggerred from the prestub of this methods,
-            // all valuetypes in the method signature are already loaded.
+            // This is to guarantee that if a GC is triggerred from the prestub of this
+            // methods, all valuetypes in the method signature are already loaded.
             // We need to be able to find the size of the valuetypes, but we cannot
             // do a class-load from within GC.
             info.compCompHnd->classMustBeLoadedBeforeCodeIsRun(sig->retTypeSigClass);
         }
 
-        CORINFO_ARG_LIST_HANDLE sigArgs = sig->args;
-        GenTreeCall::Use*       arg;
+        CORINFO_ARG_LIST_HANDLE param = sig->args;
+        GenTreeCall::Use*       arg   = args;
 
-        for (arg = argList, count = sig->numArgs; count > 0; arg = arg->GetNext(), count--)
+        for (unsigned i = 0, paramCount = sig->numArgs; i < paramCount; i++)
         {
-            PREFIX_ASSUME(arg != nullptr);
-
             CORINFO_CLASS_HANDLE paramClass;
-            CorInfoType          paramCorType = strip(info.compCompHnd->getArgType(sig, sigArgs, &paramClass));
+            CorInfoType          paramCorType = strip(info.compCompHnd->getArgType(sig, param, &paramClass));
             var_types            paramType    = varActualType(CorTypeToVarType(paramCorType));
 
             if (paramType != varActualType(arg->GetNode()->GetType()))
             {
                 arg->SetNode(CoerceCallArg(paramType, arg->GetNode()));
-            }
-
-            if ((paramCorType != CORINFO_TYPE_CLASS) && (paramCorType != CORINFO_TYPE_BYREF) &&
-                (paramCorType != CORINFO_TYPE_PTR))
-            {
-                CORINFO_CLASS_HANDLE argRealClass = info.compCompHnd->getArgClass(sig, sigArgs);
-                if (argRealClass != nullptr)
-                {
-                    // Make sure that all valuetypes (including enums) that we push are loaded.
-                    // This is to guarantee that if a GC is triggered from the prestub of this methods,
-                    // all valuetypes in the method signature are already loaded.
-                    // We need to be able to find the size of the valuetypes, but we cannot
-                    // do a class-load from within GC.
-                    info.compCompHnd->classMustBeLoadedBeforeCodeIsRun(argRealClass);
-                }
             }
 
             if ((paramCorType == CORINFO_TYPE_VALUECLASS) || (paramCorType == CORINFO_TYPE_REFANY))
@@ -682,25 +644,44 @@ GenTreeCall::Use* Importer::impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig
                 arg->SetSigTypeNum(static_cast<unsigned>(JITtype2varType(paramCorType)));
             }
 
-            sigArgs = info.compCompHnd->getArgNext(sigArgs);
+            if ((paramCorType != CORINFO_TYPE_CLASS) && (paramCorType != CORINFO_TYPE_BYREF) &&
+                (paramCorType != CORINFO_TYPE_PTR))
+            {
+                CORINFO_CLASS_HANDLE realParamClass = info.compCompHnd->getArgClass(sig, param);
+
+                if (realParamClass != nullptr)
+                {
+                    // Make sure that all valuetypes (including enums) that we push are loaded.
+                    // This is to guarantee that if a GC is triggered from the prestub of this
+                    // methods, all valuetypes in the method signature are already loaded.
+                    // We need to be able to find the size of the valuetypes, but we cannot
+                    // do a class-load from within GC.
+                    info.compCompHnd->classMustBeLoadedBeforeCodeIsRun(realParamClass);
+                }
+            }
+
+            if (i + 1 < paramCount)
+            {
+                param = info.compCompHnd->getArgNext(param);
+                arg   = arg->GetNext();
+            }
         }
     }
 
     if (Target::g_tgtArgOrder == Target::ARG_ORDER_R2L)
     {
-        // Prepend the prefixTree
+        // Prepend extra args.
 
-        // Simple in-place reversal to place treeList
-        // at the end of a reversed prefixTree
-        while (prefixArgs != nullptr)
+        while (extraArgs != nullptr)
         {
-            GenTreeCall::Use* next = prefixArgs->GetNext();
-            prefixArgs->SetNext(argList);
-            argList    = prefixArgs;
-            prefixArgs = next;
+            GenTreeCall::Use* next = extraArgs->GetNext();
+            extraArgs->SetNext(args);
+            args      = extraArgs;
+            extraArgs = next;
         }
     }
-    return argList;
+
+    return args;
 }
 
 GenTree* Importer::CoerceCallArg(var_types paramType, GenTree* arg)
