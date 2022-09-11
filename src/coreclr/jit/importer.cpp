@@ -578,15 +578,16 @@ void Importer::impAppendTempAssign(unsigned lclNum, GenTree* val, ClassLayout* l
     impAppendTree(asg, curLevel);
 }
 
-GenTreeCall::Use* Importer::impPopCallArgs(CORINFO_SIG_INFO* sig, GenTreeCall::Use* extraArgs)
+GenTreeCall::Use* Importer::impPopCallArgs(CORINFO_SIG_INFO* sig, GenTreeCall::Use* extraArg)
 {
     assert(sig->retType != CORINFO_TYPE_VAR);
+    assert((extraArg == nullptr) || (extraArg->GetNext() == nullptr));
 
     GenTreeCall::Use* args = nullptr;
 
     if (Target::g_tgtArgOrder == Target::ARG_ORDER_L2R)
     {
-        args = extraArgs;
+        args = extraArg;
     }
 
     for (unsigned i = 0, paramCount = sig->numArgs; i < paramCount; i++)
@@ -626,7 +627,7 @@ GenTreeCall::Use* Importer::impPopCallArgs(CORINFO_SIG_INFO* sig, GenTreeCall::U
         }
         else
         {
-            arg->SetSigTypeNum(static_cast<unsigned>(JITtype2varType(paramCorType)));
+            arg->SetSigTypeNum(static_cast<unsigned>(CorTypeToVarType(paramCorType)));
         }
 
         if ((paramCorType != CORINFO_TYPE_CLASS) && (paramCorType != CORINFO_TYPE_BYREF) &&
@@ -663,17 +664,10 @@ GenTreeCall::Use* Importer::impPopCallArgs(CORINFO_SIG_INFO* sig, GenTreeCall::U
         info.compCompHnd->classMustBeLoadedBeforeCodeIsRun(sig->retTypeSigClass);
     }
 
-    if (Target::g_tgtArgOrder == Target::ARG_ORDER_R2L)
+    if ((Target::g_tgtArgOrder == Target::ARG_ORDER_R2L) && (extraArg != nullptr))
     {
-        // Prepend extra args.
-
-        while (extraArgs != nullptr)
-        {
-            GenTreeCall::Use* next = extraArgs->GetNext();
-            extraArgs->SetNext(args);
-            args      = extraArgs;
-            extraArgs = next;
-        }
+        extraArg->SetNext(args);
+        args = extraArg;
     }
 
     return args;
@@ -4898,13 +4892,14 @@ void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken)
 
 void Importer::impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORINFO_CALL_INFO* pCallInfo)
 {
+    assert(pCallInfo->sig.numArgs != 0);
+
     GenTree* classHandle = impParentClassTokenToHandle(pResolvedToken);
     if (classHandle == nullptr)
-    { // compDonotInline()
+    {
+        assert(!compDonotInline());
         return;
     }
-
-    assert(pCallInfo->sig.numArgs);
 
     GenTree* node;
 
@@ -4976,39 +4971,43 @@ void Importer::impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORI
 
         GenTreeCall::Use* args = gtNewCallArgs(node);
 
-        // pass number of arguments to the helper
         args = gtPrependNewCallArg(gtNewIconNode(pCallInfo->sig.numArgs), args);
-
         args = gtPrependNewCallArg(classHandle, args);
-
         node = gtNewHelperCallNode(CORINFO_HELP_NEW_MDARR_NONVARARG, TYP_REF, args);
     }
     else
     {
-        //
-        // The varargs helper needs the type and method handles as last
-        // and  last-1 param (this is a cdecl call, so args will be
-        // pushed in reverse order on the CPU stack)
-        //
+        GenTreeCall::Use* args    = nullptr;
+        GenTreeCall::Use* lastArg = nullptr;
 
-        GenTreeCall::Use* args = gtNewCallArgs(classHandle);
+        for (int i = pCallInfo->sig.numArgs - 1; i >= 0; i--)
+        {
+            GenTree* dim = impImplicitIorI4Cast(impPopStack().val, TYP_INT);
+            args         = gtPrependNewCallArg(dim, args);
 
-        // pass number of arguments to the helper
-        args = gtPrependNewCallArg(gtNewIconNode(pCallInfo->sig.numArgs), args);
-        args = impPopCallArgs(&pCallInfo->sig, args);
+            if (lastArg == nullptr)
+            {
+                lastArg = args;
+            }
+        }
+
+        GenTreeIntCon* numArgsNode = gtNewIconNode(pCallInfo->sig.numArgs);
+
+        if (Target::g_tgtArgOrder == Target::ARG_ORDER_R2L)
+        {
+            args = gtPrependNewCallArg(numArgsNode, args);
+            args = gtPrependNewCallArg(classHandle, args);
+        }
+        else
+        {
+            lastArg = gtInsertNewCallArgAfter(numArgsNode, lastArg);
+            lastArg = gtInsertNewCallArgAfter(classHandle, lastArg);
+        }
+
         node = gtNewHelperCallNode(CORINFO_HELP_NEW_MDARR, TYP_REF, args);
 
         // varargs, so we pop the arguments
         node->gtFlags |= GTF_CALL_POP_ARGS;
-
-#ifdef DEBUG
-        // At the present time we don't track Caller pop arguments
-        // that have GC references in them
-        for (GenTreeCall::Use& use : GenTreeCall::UseList(args))
-        {
-            assert(use.GetNode()->TypeGet() != TYP_REF);
-        }
-#endif
     }
 
     for (GenTreeCall::Use& use : node->AsCall()->Args())
@@ -6589,7 +6588,6 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
             (callRetTyp == TYP_STRUCT) ? info.compCompHnd->getClassSize(sig->retTypeSigClass) : 0);
 
     GenTreeCall*      call     = nullptr;
-    GenTreeCall::Use* args     = nullptr;
     GenTreeCall::Use* extraArg = nullptr;
     GenTree*          value    = nullptr;
 
@@ -7155,8 +7153,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
     //-------------------------------------------------------------------------
     // The main group of arguments
 
-    args             = impPopCallArgs(sig, extraArg);
-    call->gtCallArgs = args;
+    call->gtCallArgs = impPopCallArgs(sig, extraArg);
 
     for (GenTreeCall::Use& use : call->Args())
     {
