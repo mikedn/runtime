@@ -3366,79 +3366,6 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
         }
 #endif // TARGET_ARM64
 
-#ifdef FEATURE_HW_INTRINSICS
-        case NI_System_Math_FusedMultiplyAdd:
-        {
-#ifdef TARGET_XARCH
-            if (compExactlyDependsOn(InstructionSet_FMA) && supportSIMDTypes())
-            {
-                assert(varTypeIsFloating(callType));
-
-                // We are constructing a chain of intrinsics similar to:
-                //    return FMA.MultiplyAddScalar(
-                //        Vector128.CreateScalarUnsafe(x),
-                //        Vector128.CreateScalarUnsafe(y),
-                //        Vector128.CreateScalarUnsafe(z)
-                //    ).ToScalar();
-
-                GenTree* op3 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, callType, 16,
-                                                        impPopStack().val);
-                GenTree* op2 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, callType, 16,
-                                                        impPopStack().val);
-                GenTree* op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, callType, 16,
-                                                        impPopStack().val);
-                GenTree* res =
-                    gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_FMA_MultiplyAddScalar, callType, 16, op1, op2, op3);
-
-                retNode =
-                    gtNewSimdHWIntrinsicNode(callType, NI_Vector128_GetElement, callType, 16, res, gtNewIconNode(0));
-                break;
-            }
-#elif defined(TARGET_ARM64)
-            if (compExactlyDependsOn(InstructionSet_AdvSimd))
-            {
-                assert(varTypeIsFloating(callType));
-
-                // We are constructing a chain of intrinsics similar to:
-                //    return AdvSimd.FusedMultiplyAddScalar(
-                //        Vector64.Create{ScalarUnsafe}(z),
-                //        Vector64.Create{ScalarUnsafe}(y),
-                //        Vector64.Create{ScalarUnsafe}(x)
-                //    ).ToScalar();
-
-                NamedIntrinsic createVector64 =
-                    (callType == TYP_DOUBLE) ? NI_Vector64_Create : NI_Vector64_CreateScalarUnsafe;
-
-                constexpr unsigned int simdSize = 8;
-
-                GenTree* op3 =
-                    gtNewSimdHWIntrinsicNode(TYP_SIMD8, createVector64, callType, simdSize, impPopStack().val);
-                GenTree* op2 =
-                    gtNewSimdHWIntrinsicNode(TYP_SIMD8, createVector64, callType, simdSize, impPopStack().val);
-                GenTree* op1 =
-                    gtNewSimdHWIntrinsicNode(TYP_SIMD8, createVector64, callType, simdSize, impPopStack().val);
-
-                // Note that AdvSimd.FusedMultiplyAddScalar(op1,op2,op3) corresponds to op1 + op2 * op3
-                // while Math{F}.FusedMultiplyAddScalar(op1,op2,op3) corresponds to op1 * op2 + op3
-                retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD8, NI_AdvSimd_FusedMultiplyAddScalar, callType, simdSize,
-                                                   op3, op2, op1);
-
-                retNode = gtNewSimdHWIntrinsicNode(callType, NI_Vector64_GetElement, callType, simdSize, retNode,
-                                                   gtNewIconNode(0));
-                break;
-            }
-#endif
-
-            // TODO-CQ-XArch: Ideally we would create a GT_INTRINSIC node for fma, however, that currently
-            // requires more extensive changes to valuenum to support methods with 3 operands
-
-            // We want to generate a GT_INTRINSIC node in the case the call can't be treated as
-            // a target intrinsic so that we can still benefit from CSE and constant folding.
-
-            break;
-        }
-#endif // FEATURE_HW_INTRINSICS
-
         case NI_System_Math_Abs:
         case NI_System_Math_Acos:
         case NI_System_Math_Acosh:
@@ -3465,10 +3392,11 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
         case NI_System_Math_Sqrt:
         case NI_System_Math_Tan:
         case NI_System_Math_Tanh:
-        {
+#ifdef FEATURE_HW_INTRINSICS
+        case NI_System_Math_FusedMultiplyAdd:
+#endif
             retNode = impMathIntrinsic(method, sig, callType, ni, tailCall);
             break;
-        }
 
         case NI_System_Array_Clone:
         case NI_System_Collections_Generic_Comparer_get_Default:
@@ -3629,6 +3557,71 @@ GenTree* Importer::impMathIntrinsic(CORINFO_METHOD_HANDLE method,
 {
     assert(callType != TYP_STRUCT);
     assert(IsMathIntrinsic(intrinsicName));
+
+#ifdef FEATURE_HW_INTRINSICS
+    if (intrinsicName == NI_System_Math_FusedMultiplyAdd)
+    {
+        assert(sig->numArgs == 3);
+        assert(varTypeIsFloating(callType));
+
+#ifdef TARGET_XARCH
+        if (compExactlyDependsOn(InstructionSet_FMA) && supportSIMDTypes())
+        {
+            // We are constructing a chain of intrinsics similar to:
+            //    return FMA.MultiplyAddScalar(
+            //        Vector128.CreateScalarUnsafe(x),
+            //        Vector128.CreateScalarUnsafe(y),
+            //        Vector128.CreateScalarUnsafe(z)
+            //    ).ToScalar();
+
+            GenTree* op3 =
+                gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, callType, 16, impPopStack().val);
+            GenTree* op2 =
+                gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, callType, 16, impPopStack().val);
+            GenTree* op1 =
+                gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, callType, 16, impPopStack().val);
+            op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_FMA_MultiplyAddScalar, callType, 16, op1, op2, op3);
+
+            return gtNewSimdHWIntrinsicNode(callType, NI_Vector128_GetElement, callType, 16, op1, gtNewIconNode(0));
+        }
+#elif defined(TARGET_ARM64)
+        if (compExactlyDependsOn(InstructionSet_AdvSimd))
+        {
+            // We are constructing a chain of intrinsics similar to:
+            //    return AdvSimd.FusedMultiplyAddScalar(
+            //        Vector64.Create{ScalarUnsafe}(z),
+            //        Vector64.Create{ScalarUnsafe}(y),
+            //        Vector64.Create{ScalarUnsafe}(x)
+            //    ).ToScalar();
+
+            NamedIntrinsic createVector64 =
+                (callType == TYP_DOUBLE) ? NI_Vector64_Create : NI_Vector64_CreateScalarUnsafe;
+
+            constexpr unsigned int simdSize = 8;
+
+            GenTree* op3 = gtNewSimdHWIntrinsicNode(TYP_SIMD8, createVector64, callType, simdSize, impPopStack().val);
+            GenTree* op2 = gtNewSimdHWIntrinsicNode(TYP_SIMD8, createVector64, callType, simdSize, impPopStack().val);
+            GenTree* op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD8, createVector64, callType, simdSize, impPopStack().val);
+
+            // Note that AdvSimd.FusedMultiplyAddScalar(op1,op2,op3) corresponds to op1 + op2 * op3
+            // while Math{F}.FusedMultiplyAddScalar(op1,op2,op3) corresponds to op1 * op2 + op3
+            op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD8, NI_AdvSimd_FusedMultiplyAddScalar, callType, simdSize, op3, op2,
+                                           op1);
+
+            return gtNewSimdHWIntrinsicNode(callType, NI_Vector64_GetElement, callType, simdSize, op1,
+                                            gtNewIconNode(0));
+        }
+#endif
+
+        // TODO-CQ-XArch: Ideally we would create a GT_INTRINSIC node for fma, however, that currently
+        // requires more extensive changes to valuenum to support methods with 3 operands
+
+        // We want to generate a GT_INTRINSIC node in the case the call can't be treated as
+        // a target intrinsic so that we can still benefit from CSE and constant folding.
+
+        return nullptr;
+    }
+#endif // FEATURE_HW_INTRINSICS
 
     GenTree* op1 = nullptr;
     GenTree* op2 = nullptr;
