@@ -6466,8 +6466,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
     CORINFO_THIS_TRANSFORM constraintCallThisTransform    = CORINFO_NO_THIS_TRANSFORM;
     CORINFO_CONTEXT_HANDLE exactContextHnd                = nullptr;
     bool                   exactContextNeedsRuntimeLookup = false;
-    bool                   canTailCall                    = true;
-    const char*            szCanTailCallFailReason        = nullptr;
+    const char*            tailCallFailReason             = nullptr;
     const bool             isReadonlyCall                 = (prefixFlags & PREFIX_READONLY) != 0;
 
     // Synchronized methods need to call CORINFO_HELP_MON_EXIT at the end. We could
@@ -6480,19 +6479,16 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
     // at the end, so tailcalls should be disabled.
     if (info.compFlags & CORINFO_FLG_SYNCH)
     {
-        canTailCall             = false;
-        szCanTailCallFailReason = "Caller is synchronized";
+        tailCallFailReason = "Caller is synchronized";
     }
     else if (opts.IsReversePInvoke())
     {
-        canTailCall             = false;
-        szCanTailCallFailReason = "Caller is Reverse P/Invoke";
+        tailCallFailReason = "Caller is Reverse P/Invoke";
     }
 #if !FEATURE_FIXED_OUT_ARGS
     else if (info.compIsVarArgs)
     {
-        canTailCall             = false;
-        szCanTailCallFailReason = "Caller is varargs";
+        tailCallFailReason = "Caller is varargs";
     }
 #endif // FEATURE_FIXED_OUT_ARGS
 
@@ -6605,7 +6601,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
         bool isSpecialIntrinsic = false;
         if ((mflags & (CORINFO_FLG_INTRINSIC | CORINFO_FLG_JIT_INTRINSIC)) != 0)
         {
-            const bool isTailCall = canTailCall && ((prefixFlags & PREFIX_TAILCALL) != 0);
+            const bool isTailCall = (tailCallFailReason == nullptr) && ((prefixFlags & PREFIX_TAILCALL) != 0);
 
             value = impIntrinsic(newobjThis, sig, mflags, pResolvedToken, isReadonlyCall, isTailCall,
                                  pConstrainedResolvedToken, callInfo, &intrinsicID, &isSpecialIntrinsic);
@@ -6722,11 +6718,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                     call = gtNewIndCallNode(stubAddr, callRetTyp, nullptr);
                     call->gtFlags |= GTF_CALL_VIRT_STUB;
 
-#ifdef TARGET_X86
-                    // No tailcalls allowed for these yet...
-                    canTailCall             = false;
-                    szCanTailCallFailReason = "VirtualCall with runtime lookup";
-#endif
+                    X86_ONLY(tailCallFailReason = "VirtualCall with runtime lookup");
                 }
                 else
                 {
@@ -6975,10 +6967,9 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
         CLANG_FORMAT_COMMENT_ANCHOR;
 
 #ifdef TARGET_X86
-        if (canTailCall)
+        if (tailCallFailReason == nullptr)
         {
-            canTailCall             = false;
-            szCanTailCallFailReason = "Callee is varargs";
+            tailCallFailReason = "Callee is varargs";
         }
 #endif
 
@@ -7039,10 +7030,9 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
         // This needs to be cleaned up on return.
         // In addition, native calls have different normalization rules than managed code
         // (managed calling convention always widens return values in the callee)
-        if (canTailCall)
+        if (tailCallFailReason == nullptr)
         {
-            canTailCall             = false;
-            szCanTailCallFailReason = "Callee is native";
+            tailCallFailReason = "Callee is native";
         }
 
         PopUnmanagedCallArgs(call, sig);
@@ -7060,10 +7050,9 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
             return nullptr;
         }
 
-        if (canTailCall)
+        if (tailCallFailReason == nullptr)
         {
-            canTailCall             = false;
-            szCanTailCallFailReason = "PInvoke calli";
+            tailCallFailReason = "PInvoke calli";
         }
     }
 
@@ -7184,14 +7173,13 @@ DONE:
         // managed calling convention dictates that the callee widens the value. For explicit tailcalls we don't
         // want to require this detail of the calling convention to bubble up to the tailcall helpers
         bool allowWidening = isImplicitTailCall;
-        if (canTailCall && !comp->impTailCallRetTypeCompatible(call, allowWidening))
+        if ((tailCallFailReason == nullptr) && !comp->impTailCallRetTypeCompatible(call, allowWidening))
         {
-            canTailCall             = false;
-            szCanTailCallFailReason = "Return types are not tail call compatible";
+            tailCallFailReason = "Return types are not tail call compatible";
         }
 
         // Stack empty check for implicit tail calls.
-        if (canTailCall && isImplicitTailCall && (verCurrentState.esStackDepth != 0))
+        if ((tailCallFailReason == nullptr) && isImplicitTailCall && (verCurrentState.esStackDepth != 0))
         {
             BADCODE("Stack should be empty after tailcall");
         }
@@ -7201,7 +7189,7 @@ DONE:
         assert(!isExplicitTailCall || compCurBB->bbJumpKind == BBJ_RETURN);
 
         // Ask VM for permission to tailcall
-        if (canTailCall)
+        if (tailCallFailReason == nullptr)
         {
             // True virtual or indirect calls, shouldn't pass in a callee handle.
             CORINFO_METHOD_HANDLE exactCalleeHnd =
@@ -7268,22 +7256,22 @@ DONE:
             else
             {
                 // canTailCall reported its reasons already
-                canTailCall = false;
+                tailCallFailReason = "VM rejected tail call";
                 JITDUMP("\ninfo.compCompHnd->canTailCall returned false for call [%06u]\n", dspTreeID(call));
             }
         }
         else
         {
             // If this assert fires it means that canTailCall was set to false without setting a reason!
-            assert(szCanTailCallFailReason != nullptr);
+            assert(tailCallFailReason != nullptr);
             JITDUMP("\nRejecting %splicit tail call for [%06u], reason: '%s'\n", isExplicitTailCall ? "ex" : "im",
-                    dspTreeID(call), szCanTailCallFailReason);
+                    dspTreeID(call), tailCallFailReason);
             info.compCompHnd->reportTailCallDecision(info.compMethodHnd, methHnd, isExplicitTailCall, TAILCALL_FAIL,
-                                                     szCanTailCallFailReason);
+                                                     tailCallFailReason);
         }
 
         // A tail recursive call is a potential loop from the current block to the start of the method.
-        if (canTailCall && gtIsRecursiveCall(methHnd))
+        if ((tailCallFailReason == nullptr) && gtIsRecursiveCall(methHnd))
         {
             assert(verCurrentState.esStackDepth == 0);
             BasicBlock* loopHead = nullptr;
