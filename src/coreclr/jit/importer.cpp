@@ -6468,7 +6468,6 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
     bool                   exactContextNeedsRuntimeLookup = false;
     bool                   canTailCall                    = true;
     const char*            szCanTailCallFailReason        = nullptr;
-    const int              tailCallFlags                  = (prefixFlags & PREFIX_TAILCALL);
     const bool             isReadonlyCall                 = (prefixFlags & PREFIX_READONLY) != 0;
 
     // Synchronized methods need to call CORINFO_HELP_MON_EXIT at the end. We could
@@ -6606,7 +6605,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
         bool isSpecialIntrinsic = false;
         if ((mflags & (CORINFO_FLG_INTRINSIC | CORINFO_FLG_JIT_INTRINSIC)) != 0)
         {
-            const bool isTailCall = canTailCall && (tailCallFlags != 0);
+            const bool isTailCall = canTailCall && ((prefixFlags & PREFIX_TAILCALL) != 0);
 
             value = impIntrinsic(newobjThis, sig, mflags, pResolvedToken, isReadonlyCall, isTailCall,
                                  pConstrainedResolvedToken, callInfo, &intrinsicID, &isSpecialIntrinsic);
@@ -7136,7 +7135,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
             // See if we can devirtualize.
 
-            const bool isExplicitTailCall = (tailCallFlags & PREFIX_TAILCALL_EXPLICIT) != 0;
+            const bool isExplicitTailCall = (prefixFlags & PREFIX_TAILCALL_EXPLICIT) != 0;
             impDevirtualizeCall(call, pResolvedToken, &callInfo->hMethod, &callInfo->methodFlags,
                                 &callInfo->contextHandle, &exactContextHnd, isExplicitTailCall, rawILOffset);
         }
@@ -7153,11 +7152,11 @@ DONE:
 
     // Final importer checks for calls flagged as tail calls.
     //
-    if (tailCallFlags != 0)
+    if ((prefixFlags & PREFIX_TAILCALL) != 0)
     {
-        const bool isExplicitTailCall = (tailCallFlags & PREFIX_TAILCALL_EXPLICIT) != 0;
-        const bool isImplicitTailCall = (tailCallFlags & PREFIX_TAILCALL_IMPLICIT) != 0;
-        const bool isStressTailCall   = (tailCallFlags & PREFIX_TAILCALL_STRESS) != 0;
+        const bool isExplicitTailCall = (prefixFlags & PREFIX_TAILCALL_EXPLICIT) != 0;
+        const bool isImplicitTailCall = (prefixFlags & PREFIX_TAILCALL_IMPLICIT) != 0;
+        const bool isStressTailCall   = (prefixFlags & PREFIX_TAILCALL_STRESS) != 0;
 
         // Exactly one of these should be true.
         assert(isExplicitTailCall != isImplicitTailCall);
