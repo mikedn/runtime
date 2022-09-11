@@ -7282,37 +7282,37 @@ DONE:
             info.compCompHnd->reportTailCallDecision(info.compMethodHnd, methHnd, isExplicitTailCall, TAILCALL_FAIL,
                                                      szCanTailCallFailReason);
         }
-    }
 
-    // A tail recursive call is a potential loop from the current block to the start of the method.
-    if ((tailCallFlags != 0) && canTailCall && gtIsRecursiveCall(methHnd))
-    {
-        assert(verCurrentState.esStackDepth == 0);
-        BasicBlock* loopHead = nullptr;
-        if (opts.IsOSR())
+        // A tail recursive call is a potential loop from the current block to the start of the method.
+        if (canTailCall && gtIsRecursiveCall(methHnd))
         {
-            // We might not have been planning on importing the method
-            // entry block, but now we must.
+            assert(verCurrentState.esStackDepth == 0);
+            BasicBlock* loopHead = nullptr;
+            if (opts.IsOSR())
+            {
+                // We might not have been planning on importing the method
+                // entry block, but now we must.
 
-            // We should have remembered the real method entry block.
-            assert(comp->fgEntryBB != nullptr);
+                // We should have remembered the real method entry block.
+                assert(comp->fgEntryBB != nullptr);
 
-            JITDUMP("\nOSR: found tail recursive call in the method, scheduling " FMT_BB " for importation\n",
-                    comp->fgEntryBB->bbNum);
-            impImportBlockPending(comp->fgEntryBB);
-            loopHead = comp->fgEntryBB;
+                JITDUMP("\nOSR: found tail recursive call in the method, scheduling " FMT_BB " for importation\n",
+                        comp->fgEntryBB->bbNum);
+                impImportBlockPending(comp->fgEntryBB);
+                loopHead = comp->fgEntryBB;
+            }
+            else
+            {
+                // For normal jitting we'll branch back to the firstBB; this
+                // should already be imported.
+                loopHead = comp->fgFirstBB;
+            }
+
+            JITDUMP("\nFound tail recursive call in the method. Mark " FMT_BB " to " FMT_BB
+                    " as having a backward branch.\n",
+                    loopHead->bbNum, compCurBB->bbNum);
+            comp->fgMarkBackwardJump(loopHead, compCurBB);
         }
-        else
-        {
-            // For normal jitting we'll branch back to the firstBB; this
-            // should already be imported.
-            loopHead = comp->fgFirstBB;
-        }
-
-        JITDUMP("\nFound tail recursive call in the method. Mark " FMT_BB " to " FMT_BB
-                " as having a backward branch.\n",
-                loopHead->bbNum, compCurBB->bbNum);
-        comp->fgMarkBackwardJump(loopHead, compCurBB);
     }
 
     // Note: we assume that small return types are already normalized by the managed callee
