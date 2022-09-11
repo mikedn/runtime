@@ -7472,159 +7472,151 @@ void Importer::SetupTailCall(GenTreeCall*            call,
 {
     const bool isExplicitTailCall = (prefixFlags & PREFIX_TAILCALL_EXPLICIT) != 0;
     const bool isImplicitTailCall = (prefixFlags & PREFIX_TAILCALL_IMPLICIT) != 0;
-    const bool isStressTailCall   = (prefixFlags & PREFIX_TAILCALL_STRESS) != 0;
 
-    // Exactly one of these should be true.
     assert(isExplicitTailCall != isImplicitTailCall);
 
-    // This check cannot be performed for implicit tail calls for the reason
-    // that impIsImplicitTailCallCandidate() is not checking whether return
-    // types are compatible before marking a call node with PREFIX_TAILCALL_IMPLICIT.
-    // As a result it is possible that in the following case, we find that
-    // the type stack is non-empty if Callee() is considered for implicit
-    // tail calling.
+    // This check cannot be performed for implicit tail calls because impIsImplicitTailCallCandidate
+    // is not checking whether return types types are compatible before marking a call node with
+    // PREFIX_TAILCALL_IMPLICIT.
+    // As a result it is possible that in the following case, we find that the type stack is not
+    // empty if Callee() is considered for implicit tail calling.
+    //
     //      int Caller(..) { .... void Callee(); ret val; ... }
     //
-    // Note that we cannot check return type compatibility before ImpImportCall()
-    // as we don't have required info or need to duplicate some of the logic of
-    // ImpImportCall().
+    // Note that we cannot check return type compatibility before impImportCall as we don't have
+    // required info or need to duplicate some of the logic of impImportCall.
     //
-    // For implicit tail calls, we perform this check after return types are
-    // known to be compatible.
+    // For implicit tail calls, we perform this check after return types are known to be compatible.
+
     if (isExplicitTailCall && (verCurrentState.esStackDepth != 0))
     {
         BADCODE("Stack should be empty after tailcall");
     }
 
-    // For opportunistic tailcalls we allow implicit widening, i.e. tailcalls from int32 -> int16, since the
-    // managed calling convention dictates that the callee widens the value. For explicit tailcalls we don't
-    // want to require this detail of the calling convention to bubble up to the tailcall helpers
-    bool allowWidening = isImplicitTailCall;
-    if ((tailCallFailReason == nullptr) && !comp->impTailCallRetTypeCompatible(call, allowWidening))
+    // For opportunistic tailcalls we allow implicit widening, i.e. tailcalls from int32 -> int16,
+    // since the managed calling convention dictates that the callee widens the value. For explicit
+    // tailcalls we don't want to require this detail of the calling convention to bubble up to the
+    // tailcall helpers.
+
+    if ((tailCallFailReason == nullptr) && !comp->impTailCallRetTypeCompatible(call, isImplicitTailCall))
     {
         tailCallFailReason = "Return types are not tail call compatible";
     }
 
-    // Stack empty check for implicit tail calls.
     if ((tailCallFailReason == nullptr) && isImplicitTailCall && (verCurrentState.esStackDepth != 0))
     {
         BADCODE("Stack should be empty after tailcall");
     }
 
-    // assert(compCurBB is not a catch, finally or filter block);
-    // assert(compCurBB is not a try block protected by a finally block);
-    assert(!isExplicitTailCall || compCurBB->bbJumpKind == BBJ_RETURN);
+    assert(!isExplicitTailCall || (compCurBB->bbJumpKind == BBJ_RETURN));
 
     // Ask VM for permission to tailcall
-    if (tailCallFailReason == nullptr)
+    if (tailCallFailReason != nullptr)
     {
-        // True virtual or indirect calls, shouldn't pass in a callee handle.
-        CORINFO_METHOD_HANDLE exactCalleeHnd =
-            ((call->gtCallType != CT_USER_FUNC) || call->IsVirtual()) ? nullptr : methodHandle;
+        JITDUMP("\nRejecting %splicit tail call for [%06u], reason: '%s'\n", isExplicitTailCall ? "ex" : "im",
+                call->GetID(), tailCallFailReason);
 
-        if (info.compCompHnd->canTailCall(info.compMethodHnd, methodHandle, exactCalleeHnd, isExplicitTailCall))
+        info.compCompHnd->reportTailCallDecision(info.compMethodHnd, methodHandle, isExplicitTailCall, TAILCALL_FAIL,
+                                                 tailCallFailReason);
+
+        return;
+    }
+
+    // True virtual or indirect calls, shouldn't pass in a callee handle.
+    CORINFO_METHOD_HANDLE exactCalleeHnd = (!call->IsUserCall() || call->IsVirtual()) ? nullptr : methodHandle;
+
+    if (!info.compCompHnd->canTailCall(info.compMethodHnd, methodHandle, exactCalleeHnd, isExplicitTailCall))
+    {
+        JITDUMP("\ninfo.compCompHnd->canTailCall returned false for call [%06u]\n", call->GetID());
+
+        return;
+    }
+
+    if (isExplicitTailCall)
+    {
+        // In case of explicit tail calls, mark it so that it is not considered for inlining.
+        call->gtCallMoreFlags |= GTF_CALL_M_EXPLICIT_TAILCALL;
+
+        JITDUMP("\nGTF_CALL_M_EXPLICIT_TAILCALL set for call [%06u]\n", call->GetID());
+
+        if ((prefixFlags & PREFIX_TAILCALL_STRESS) != 0)
         {
-            if (isExplicitTailCall)
-            {
-                // In case of explicit tail calls, mark it so that it is not considered
-                // for in-lining.
-                call->gtCallMoreFlags |= GTF_CALL_M_EXPLICIT_TAILCALL;
-                JITDUMP("\nGTF_CALL_M_EXPLICIT_TAILCALL set for call [%06u]\n", dspTreeID(call));
+            call->gtCallMoreFlags |= GTF_CALL_M_STRESS_TAILCALL;
 
-                if (isStressTailCall)
-                {
-                    call->gtCallMoreFlags |= GTF_CALL_M_STRESS_TAILCALL;
-                    JITDUMP("\nGTF_CALL_M_STRESS_TAILCALL set for call [%06u]\n", dspTreeID(call));
-                }
-            }
-            else
-            {
-#if FEATURE_TAILCALL_OPT
-                // Must be an implicit tail call.
-                assert(isImplicitTailCall);
-
-                // It is possible that a call node is both an inline candidate and marked
-                // for opportunistic tail calling.  In-lining happens before morhphing of
-                // trees.  If in-lining of an in-line candidate gets aborted for whatever
-                // reason, it will survive to the morphing stage at which point it will be
-                // transformed into a tail call after performing additional checks.
-
-                call->gtCallMoreFlags |= GTF_CALL_M_IMPLICIT_TAILCALL;
-                JITDUMP("\nGTF_CALL_M_IMPLICIT_TAILCALL set for call [%06u]\n", dspTreeID(call));
-
-#else //! FEATURE_TAILCALL_OPT
-                NYI("Implicit tail call prefix on a target which doesn't support opportunistic tail calls");
-
-#endif // FEATURE_TAILCALL_OPT
-            }
-
-            // This might or might not turn into a tailcall. We do more
-            // checks in morph. For explicit tailcalls we need more
-            // information in morph in case it turns out to be a
-            // helper-based tailcall.
-            if (isExplicitTailCall)
-            {
-                assert(call->tailCallInfo == nullptr);
-                call->tailCallInfo = new (comp, CMK_CorTailCallInfo) TailCallSiteInfo;
-                switch (opcode)
-                {
-                    case CEE_CALLI:
-                        call->tailCallInfo->SetCalli(sig);
-                        break;
-                    case CEE_CALLVIRT:
-                        call->tailCallInfo->SetCallvirt(sig, resolvedToken);
-                        break;
-                    default:
-                        call->tailCallInfo->SetCall(sig, resolvedToken);
-                        break;
-                }
-            }
-        }
-        else
-        {
-            // canTailCall reported its reasons already
-            tailCallFailReason = "VM rejected tail call";
-            JITDUMP("\ninfo.compCompHnd->canTailCall returned false for call [%06u]\n", dspTreeID(call));
+            JITDUMP("\nGTF_CALL_M_STRESS_TAILCALL set for call [%06u]\n", call->GetID());
         }
     }
     else
     {
-        // If this assert fires it means that canTailCall was set to false without setting a reason!
-        assert(tailCallFailReason != nullptr);
-        JITDUMP("\nRejecting %splicit tail call for [%06u], reason: '%s'\n", isExplicitTailCall ? "ex" : "im",
-                dspTreeID(call), tailCallFailReason);
-        info.compCompHnd->reportTailCallDecision(info.compMethodHnd, methodHandle, isExplicitTailCall, TAILCALL_FAIL,
-                                                 tailCallFailReason);
+#if !FEATURE_TAILCALL_OPT
+        NYI("Implicit tail call prefix on a target which doesn't support opportunistic tail calls");
+#else
+        // Must be an implicit tail call.
+        assert(isImplicitTailCall);
+
+        // It is possible that a call node is both an inline candidate and marked
+        // for opportunistic tail calling. Inlining happens before morhphing of
+        // trees. If inlining of an inline candidate gets aborted for whatever
+        // reason, it will survive to the morphing stage at which point it will
+        // be transformed into a tail call after performing additional checks.
+        call->gtCallMoreFlags |= GTF_CALL_M_IMPLICIT_TAILCALL;
+
+        JITDUMP("\nGTF_CALL_M_IMPLICIT_TAILCALL set for call [%06u]\n", call->GetID());
+#endif
+    }
+
+    // This might or might not turn into a tailcall. We do more checks in morph.
+    // For explicit tailcalls we need more information in morph in case it turns
+    // out to be a helper-based tailcall.
+    if (isExplicitTailCall)
+    {
+        call->tailCallInfo = new (comp, CMK_CorTailCallInfo) TailCallSiteInfo(sig);
+
+        switch (opcode)
+        {
+            case CEE_CALLI:
+                call->tailCallInfo->SetCalli();
+                break;
+            case CEE_CALLVIRT:
+                call->tailCallInfo->SetCallvirt(resolvedToken);
+                break;
+            default:
+                call->tailCallInfo->SetCall(resolvedToken);
+                break;
+        }
     }
 
     // A tail recursive call is a potential loop from the current block to the start of the method.
-    if ((tailCallFailReason == nullptr) && gtIsRecursiveCall(methodHandle))
+    if (gtIsRecursiveCall(methodHandle))
     {
         assert(verCurrentState.esStackDepth == 0);
+
         BasicBlock* loopHead = nullptr;
+
         if (opts.IsOSR())
         {
-            // We might not have been planning on importing the method
-            // entry block, but now we must.
+            // OSR doesn't import the entry block by default,
+            // we have to do it now for recursive tail calls.
 
-            // We should have remembered the real method entry block.
             assert(comp->fgEntryBB != nullptr);
 
             JITDUMP("\nOSR: found tail recursive call in the method, scheduling " FMT_BB " for importation\n",
                     comp->fgEntryBB->bbNum);
+
             impImportBlockPending(comp->fgEntryBB);
             loopHead = comp->fgEntryBB;
         }
         else
         {
-            // For normal jitting we'll branch back to the firstBB; this
-            // should already be imported.
+            // For normal jitting we'll branch back to the firstBB,
+            // this should already be imported.
+
             loopHead = comp->fgFirstBB;
         }
 
-        JITDUMP("\nFound tail recursive call in the method. Mark " FMT_BB " to " FMT_BB
-                " as having a backward branch.\n",
+        JITDUMP("\nFound recursive tail call. Mark " FMT_BB " to " FMT_BB " as having a backward branch.\n",
                 loopHead->bbNum, compCurBB->bbNum);
+
         comp->fgMarkBackwardJump(loopHead, compCurBB);
     }
 }
