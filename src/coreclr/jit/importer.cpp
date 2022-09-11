@@ -655,7 +655,7 @@ GenTreeCall::Use* Importer::impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig
 
             var_types jitSigType = JITtype2varType(corType);
 
-            if (!impCheckImplicitArgumentCoercion(jitSigType, arg->GetNode()->TypeGet()))
+            if (!CheckImplicitArgumentCoercion(varActualType(jitSigType), varActualType(arg->GetNode()->GetType())))
             {
                 BADCODE("the call argument has a type that can't be implicitly converted to the signature type");
             }
@@ -725,109 +725,54 @@ GenTreeCall::Use* Importer::impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig
     return argList;
 }
 
-static bool TypeIs(var_types type1, var_types type2)
+// Check that the argument value's type is compatible with the
+// parameter's type using ECMA implicit argument coercion table.
+bool Importer::CheckImplicitArgumentCoercion(var_types paramType, var_types argType) const
 {
-    return type1 == type2;
-}
-
-// Check if type1 matches any type from the list.
-template <typename... T>
-static bool TypeIs(var_types type1, var_types type2, T... rest)
-{
-    return TypeIs(type1, type2) || TypeIs(type1, rest...);
-}
-
-//------------------------------------------------------------------------
-// impCheckImplicitArgumentCoercion: check that the node's type is compatible with
-//   the signature's type using ECMA implicit argument coercion table.
-//
-// Arguments:
-//    sigType  - the type in the call signature;
-//    nodeType - the node type.
-//
-// Return Value:
-//    true if they are compatible, false otherwise.
-//
-// Notes:
-//   - it is currently allowing byref->long passing, should be fixed in VM;
-//   - it can't check long -> native int case on 64-bit platforms,
-//      so the behavior is different depending on the target bitness.
-//
-bool Importer::impCheckImplicitArgumentCoercion(var_types sigType, var_types nodeType) const
-{
-    if (sigType == nodeType)
+    if (paramType == argType)
     {
         return true;
     }
 
-    if (TypeIs(sigType, TYP_BOOL, TYP_UBYTE, TYP_BYTE, TYP_USHORT, TYP_SHORT, TYP_UINT, TYP_INT))
+    switch (paramType)
     {
-        if (TypeIs(nodeType, TYP_BOOL, TYP_UBYTE, TYP_BYTE, TYP_USHORT, TYP_SHORT, TYP_UINT, TYP_INT, TYP_I_IMPL))
-        {
-            return true;
-        }
-    }
-    else if (TypeIs(sigType, TYP_ULONG, TYP_LONG))
-    {
-        if (TypeIs(nodeType, TYP_LONG))
-        {
-            return true;
-        }
-    }
-    else if (TypeIs(sigType, TYP_FLOAT, TYP_DOUBLE))
-    {
-        if (TypeIs(nodeType, TYP_FLOAT, TYP_DOUBLE))
-        {
-            return true;
-        }
-    }
-    else if (TypeIs(sigType, TYP_BYREF))
-    {
-        if (TypeIs(nodeType, TYP_I_IMPL))
-        {
-            return true;
-        }
+#ifdef TARGET_64BIT
+        case TYP_INT:
+            // We allow implicit int64 to int32 truncation that ECMA does not allow,
+            // JIT's type system doesn't distinguish between "native int" and int64.
+            return argType == TYP_LONG;
 
-        // This condition tolerates such IL:
-        // ;  V00 this              ref  this class-hnd
-        // ldarg.0
-        // call(byref)
-        if (TypeIs(nodeType, TYP_REF))
-        {
-            return true;
-        }
-    }
-    else if (varTypeIsStruct(sigType))
-    {
-        if (varTypeIsStruct(nodeType))
-        {
-            return true;
-        }
-    }
+        case TYP_LONG:
+            // We allow implicit int32 to int64 extension that ECMA does not allow,
+            // JIT's type system doesn't distinguish between "native int" and int32.
+            // We allow BYREF to LONG conversion that ECMA does not allow but that
+            // appears in real code (e.g. passing a ldloca/ldarga value as native int).
+            return (argType == TYP_INT) || (argType == TYP_BYREF);
+#else
+        case TYP_INT:
+            // We allow BYREF to INT conversion that ECMA does not allow but that
+            // appears in real code (e.g. passing a ldloca/ldarga value as native int).
+            return argType == TYP_BYREF;
+#endif
 
-    // This condition should not be under `else` because `TYP_I_IMPL`
-    // intersects with `TYP_LONG` or `TYP_INT`.
-    if (TypeIs(sigType, TYP_I_IMPL, TYP_U_IMPL))
-    {
-        // Note that it allows `ldc.i8 1; call(nint)` on 64-bit platforms,
-        // but we can't distinguish `nint` from `long` there.
-        if (TypeIs(nodeType, TYP_I_IMPL, TYP_U_IMPL, TYP_INT, TYP_UINT))
-        {
-            return true;
-        }
+        case TYP_FLOAT:
+            return argType == TYP_DOUBLE;
 
-        // It tolerates IL that ECMA does not allow but that is commonly used.
-        // Example:
-        //   V02 loc1           struct <RTL_OSVERSIONINFOEX, 32>
-        //   ldloca.s     0x2
-        //   call(native int)
-        if (TypeIs(nodeType, TYP_BYREF))
-        {
-            return true;
-        }
+        case TYP_DOUBLE:
+            return argType == TYP_FLOAT;
+
+        case TYP_BYREF:
+            // We allow REF to BYREF conversion that ECMA does not allow but that
+            // sometimes appears in real code (e.g. to get the method table from
+            // an object reference).
+            return (argType == TYP_I_IMPL) || (argType == TYP_REF);
+
+        case TYP_STRUCT:
+            return varTypeIsSIMD(argType);
+
+        default:
+            return false;
     }
-
-    return false;
 }
 
 /*****************************************************************************
