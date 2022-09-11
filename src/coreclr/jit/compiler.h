@@ -2277,7 +2277,7 @@ struct Importer
                 ((opcode >= CEE_STLOC_0) && (opcode <= CEE_STLOC_3)));
     }
 
-    GenTreeCall::Use* impPopCallArgs(CORINFO_SIG_INFO* sig, GenTreeCall::Use* extraArg = nullptr);
+    GenTreeCall::Use* PopCallArgs(CORINFO_SIG_INFO* sig, GenTree* extraArg = nullptr);
 
     GenTree* CoerceCallArg(var_types paramType, GenTree* arg);
 

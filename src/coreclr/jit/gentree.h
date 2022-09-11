@@ -3916,7 +3916,7 @@ struct GenTreeCall final : public GenTree
         Use(GenTree* node, Use* next = nullptr)
             : m_node(node)
             , m_next(next)
-            // Always record the type of node at call arg's creation. impPopCallArgs will override this with
+            // Always record the type of node at call arg's creation. PopCallArgs will override this with
             // the actual signature type but for helper calls there is no signature information so we'll just
             // whatever we have. Helper calls usually don't have struct params so this should work most of the
             // time. Hopefully helper calls also don't have small int params, otherwise this will get messy on

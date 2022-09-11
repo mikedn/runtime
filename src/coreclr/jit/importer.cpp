@@ -174,7 +174,7 @@ GenTree* Importer::impPopStackCoerceArg(var_types signatureType)
     // Not currently supported for small int (it's not clear if truncation has to be done or not).
     assert(!varTypeIsSmall(signatureType));
 
-    // TODO-MIKE-Cleanup: impPopCallArgs has some similar logic...
+    // TODO-MIKE-Cleanup: PopCallArgs has some similar logic...
 
     if (verCurrentState.esStackDepth == 0)
     {
@@ -578,16 +578,15 @@ void Importer::impAppendTempAssign(unsigned lclNum, GenTree* val, ClassLayout* l
     impAppendTree(asg, curLevel);
 }
 
-GenTreeCall::Use* Importer::impPopCallArgs(CORINFO_SIG_INFO* sig, GenTreeCall::Use* extraArg)
+GenTreeCall::Use* Importer::PopCallArgs(CORINFO_SIG_INFO* sig, GenTree* extraArg)
 {
     assert(sig->retType != CORINFO_TYPE_VAR);
-    assert((extraArg == nullptr) || (extraArg->GetNext() == nullptr));
 
     GenTreeCall::Use* args = nullptr;
 
-    if (Target::g_tgtArgOrder == Target::ARG_ORDER_L2R)
+    if ((Target::g_tgtArgOrder == Target::ARG_ORDER_L2R) && (extraArg != nullptr))
     {
-        args = extraArg;
+        args = gtNewCallArgs(extraArg);
     }
 
     for (unsigned i = 0, paramCount = sig->numArgs; i < paramCount; i++)
@@ -666,8 +665,7 @@ GenTreeCall::Use* Importer::impPopCallArgs(CORINFO_SIG_INFO* sig, GenTreeCall::U
 
     if ((Target::g_tgtArgOrder == Target::ARG_ORDER_R2L) && (extraArg != nullptr))
     {
-        extraArg->SetNext(args);
-        args = extraArg;
+        args = gtPrependNewCallArg(extraArg, args);
     }
 
     return args;
@@ -5379,7 +5377,7 @@ void Importer::PopUnmanagedCallArgs(GenTreeCall* call, CORINFO_SIG_INFO* sig)
     }
 #endif // TARGET_X86
 
-    GenTreeCall::Use* args = impPopCallArgs(sig);
+    GenTreeCall::Use* args = PopCallArgs(sig);
 
 #ifdef TARGET_X86
     args = ReverseCallArgs(args, (call->gtCallMoreFlags & GTF_CALL_M_UNMGD_THISCALL) != 0);
@@ -6548,9 +6546,8 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
             varTypeName(callRetTyp),
             (callRetTyp == TYP_STRUCT) ? info.compCompHnd->getClassSize(sig->retTypeSigClass) : 0);
 
-    GenTreeCall*      call     = nullptr;
-    GenTreeCall::Use* extraArg = nullptr;
-    GenTree*          value    = nullptr;
+    GenTreeCall* call  = nullptr;
+    GenTree*     value = nullptr;
 
     /*-------------------------------------------------------------------------
      * First create the call node
@@ -6791,7 +6788,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 // OK, We've been told to call via LDVIRTFTN, so just
                 // take the call now....
 
-                GenTreeCall::Use* args = impPopCallArgs(sig);
+                GenTreeCall::Use* args = PopCallArgs(sig);
 
                 GenTree* thisPtr = impPopStack().val;
                 thisPtr          = impTransformThis(thisPtr, pConstrainedResolvedToken, callInfo->thisTransform);
@@ -7002,7 +6999,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 // methods, all valuetypes in the method signature are already loaded.
                 // We need to be able to find the size of the valuetypes, but we cannot
                 // do a class-load from within GC.
-                // impPopCallArgs does this for all types in the signature but we need to
+                // PopCallArgs does this for all types in the signature but we need to
                 // use the call site signature and due to type equivalence the return type
                 // of the method's signature may be different, so we handle it here.
                 // TODO-MIKE-Review: What about param types, can't those be different too?
@@ -7071,50 +7068,38 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
         }
     }
 
-    /*-------------------------------------------------------------------------
-     * Create the argument list
-     */
+    // Create the argument list
 
-    //-------------------------------------------------------------------------
-    // Special case - for varargs we have an implicit last argument
+    GenTree* extraArg = nullptr;
 
     if ((sig->callConv & CORINFO_CALLCONV_MASK) == CORINFO_CALLCONV_VARARG)
     {
-        GenTree* arg = CreateVarargsCallArgHandle(call, sig);
+        extraArg = CreateVarargsCallArgHandle(call, sig);
 
-        if (arg == nullptr)
+        if (extraArg == nullptr)
         {
             assert(compDonotInline());
 
             return nullptr;
         }
-
-        assert(extraArg == nullptr);
-        extraArg = gtNewCallArgs(arg);
     }
 
-    if (sig->callConv & CORINFO_CALLCONV_PARAMTYPE)
+    if ((sig->callConv & CORINFO_CALLCONV_PARAMTYPE) != 0)
     {
         assert(opcode != CEE_CALLI);
+        assert(extraArg == nullptr);
 
-        GenTree* instParam =
-            CreateGenericCallTypeArg(call, callInfo, pResolvedToken, pConstrainedResolvedToken, isReadonlyCall);
+        extraArg = CreateGenericCallTypeArg(call, callInfo, pResolvedToken, pConstrainedResolvedToken, isReadonlyCall);
 
-        if (instParam == nullptr)
+        if (extraArg == nullptr)
         {
             assert(compDonotInline());
 
             return nullptr;
         }
-
-        assert(extraArg == nullptr);
-        extraArg = gtNewCallArgs(instParam);
     }
 
-    //-------------------------------------------------------------------------
-    // The main group of arguments
-
-    call->gtCallArgs = impPopCallArgs(sig, extraArg);
+    call->gtCallArgs = PopCallArgs(sig, extraArg);
 
     for (GenTreeCall::Use& use : call->Args())
     {
