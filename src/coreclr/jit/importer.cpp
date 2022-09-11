@@ -648,39 +648,17 @@ GenTreeCall::Use* Importer::impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig
         {
             PREFIX_ASSUME(arg != nullptr);
 
-            CORINFO_CLASS_HANDLE argClass;
-            CorInfoType          corType = strip(info.compCompHnd->getArgType(sig, sigArgs, &argClass));
+            CORINFO_CLASS_HANDLE paramClass;
+            CorInfoType          paramCorType = strip(info.compCompHnd->getArgType(sig, sigArgs, &paramClass));
+            var_types            paramType    = varActualType(CorTypeToVarType(paramCorType));
 
-            assert(corType != CORINFO_TYPE_VAR);
-
-            var_types jitSigType = JITtype2varType(corType);
-
-            if (!CheckImplicitArgumentCoercion(varActualType(jitSigType), varActualType(arg->GetNode()->GetType())))
+            if (paramType != varActualType(arg->GetNode()->GetType()))
             {
-                BADCODE("the call argument has a type that can't be implicitly converted to the signature type");
+                arg->SetNode(CoerceCallArg(paramType, arg->GetNode()));
             }
 
-            // insert implied casts (from float to double or double to float)
-
-            if ((jitSigType == TYP_DOUBLE) && arg->GetNode()->TypeIs(TYP_FLOAT))
-            {
-                arg->SetNode(gtNewCastNode(TYP_DOUBLE, arg->GetNode(), false, TYP_DOUBLE));
-            }
-            else if ((jitSigType == TYP_FLOAT) && arg->GetNode()->TypeIs(TYP_DOUBLE))
-            {
-                arg->SetNode(gtNewCastNode(TYP_FLOAT, arg->GetNode(), false, TYP_FLOAT));
-            }
-
-            // insert any widening or narrowing casts for backwards compatibility
-
-            // TODO-MIKE-Fix: This gets it wrong when the arg is int32 and the param is native uint,
-            // the spec requires zero extension but sign extension is done because JITtype2varType
-            // erases the signedness of the signature type. Probably doesn't really matter, at least
-            // the C# compiler has the habit of inserting its own casts.
-
-            arg->SetNode(impImplicitIorI4Cast(arg->GetNode(), jitSigType));
-
-            if ((corType != CORINFO_TYPE_CLASS) && (corType != CORINFO_TYPE_BYREF) && (corType != CORINFO_TYPE_PTR))
+            if ((paramCorType != CORINFO_TYPE_CLASS) && (paramCorType != CORINFO_TYPE_BYREF) &&
+                (paramCorType != CORINFO_TYPE_PTR))
             {
                 CORINFO_CLASS_HANDLE argRealClass = info.compCompHnd->getArgClass(sig, sigArgs);
                 if (argRealClass != nullptr)
@@ -694,14 +672,14 @@ GenTreeCall::Use* Importer::impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig
                 }
             }
 
-            if ((corType == CORINFO_TYPE_VALUECLASS) || (corType == CORINFO_TYPE_REFANY))
+            if ((paramCorType == CORINFO_TYPE_VALUECLASS) || (paramCorType == CORINFO_TYPE_REFANY))
             {
-                assert(argClass != NO_CLASS_HANDLE);
-                arg->SetSigTypeNum(typGetObjLayoutNum(argClass));
+                assert(paramClass != NO_CLASS_HANDLE);
+                arg->SetSigTypeNum(typGetObjLayoutNum(paramClass));
             }
             else
             {
-                arg->SetSigTypeNum(static_cast<unsigned>(JITtype2varType(corType)));
+                arg->SetSigTypeNum(static_cast<unsigned>(JITtype2varType(paramCorType)));
             }
 
             sigArgs = info.compCompHnd->getArgNext(sigArgs);
@@ -725,14 +703,12 @@ GenTreeCall::Use* Importer::impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig
     return argList;
 }
 
-// Check that the argument value's type is compatible with the
-// parameter's type using ECMA implicit argument coercion table.
-bool Importer::CheckImplicitArgumentCoercion(var_types paramType, var_types argType) const
+GenTree* Importer::CoerceCallArg(var_types paramType, GenTree* arg)
 {
-    if (paramType == argType)
-    {
-        return true;
-    }
+    var_types argType  = varActualType(arg->GetType());
+    var_types castType = TYP_UNDEF;
+
+    assert(paramType != argType);
 
     switch (paramType)
     {
@@ -740,39 +716,63 @@ bool Importer::CheckImplicitArgumentCoercion(var_types paramType, var_types argT
         case TYP_INT:
             // We allow implicit int64 to int32 truncation that ECMA does not allow,
             // JIT's type system doesn't distinguish between "native int" and int64.
-            return argType == TYP_LONG;
+            castType = (argType == TYP_LONG) ? paramType : TYP_UNDEF;
+            break;
 
         case TYP_LONG:
             // We allow implicit int32 to int64 extension that ECMA does not allow,
             // JIT's type system doesn't distinguish between "native int" and int32.
+            if (argType == TYP_INT)
+            {
+                // TODO-MIKE-Fix: This gets it wrong when the arg is int32 and the param
+                // is native uint, the spec requires zero extension but we do sign extension.
+                // Probably it doesn't really matter, at least the C# compiler has the habit
+                // of inserting its own casts.
+                castType = paramType;
+                break;
+            }
+
             // We allow BYREF to LONG conversion that ECMA does not allow but that
             // appears in real code (e.g. passing a ldloca/ldarga value as native int).
-            return (argType == TYP_INT) || (argType == TYP_BYREF);
+            castType = (argType == TYP_BYREF) ? argType : TYP_UNDEF;
+            break;
 #else
         case TYP_INT:
             // We allow BYREF to INT conversion that ECMA does not allow but that
             // appears in real code (e.g. passing a ldloca/ldarga value as native int).
-            return argType == TYP_BYREF;
+            castType = argType == TYP_BYREF ? argType : TYP_UNDEF;
+            break;
 #endif
 
         case TYP_FLOAT:
-            return argType == TYP_DOUBLE;
+            castType = (argType == TYP_DOUBLE) ? paramType : TYP_UNDEF;
+            break;
 
         case TYP_DOUBLE:
-            return argType == TYP_FLOAT;
+            castType = (argType == TYP_FLOAT) ? paramType : TYP_UNDEF;
+            break;
 
         case TYP_BYREF:
             // We allow REF to BYREF conversion that ECMA does not allow but that
             // sometimes appears in real code (e.g. to get the method table from
             // an object reference).
-            return (argType == TYP_I_IMPL) || (argType == TYP_REF);
+            castType = ((argType == TYP_I_IMPL) || (argType == TYP_REF)) ? argType : TYP_UNDEF;
+            break;
 
         case TYP_STRUCT:
-            return varTypeIsSIMD(argType);
+            castType = varTypeIsSIMD(argType) ? argType : TYP_UNDEF;
+            break;
 
         default:
-            return false;
+            break;
     }
+
+    if (castType == TYP_UNDEF)
+    {
+        BADCODE("the call argument has a type that can't be implicitly converted to the parameter type");
+    }
+
+    return castType == argType ? arg : gtNewCastNode(castType, arg, false, castType);
 }
 
 /*****************************************************************************
@@ -1442,7 +1442,7 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken
     handleForNullCheck->gtFlags |= GTF_IND_NONFAULTING;
 
     // Call the helper
-    // - Setup argNode with the pointer to the signature returned by the lookup
+    // - Setup argValue with the pointer to the signature returned by the lookup
     GenTree* argNode = gtNewIconEmbHndNode(pRuntimeLookup->signature, nullptr, GTF_ICON_GLOBAL_PTR, compileTimeHandle);
 
     GenTreeCall::Use* helperArgs = gtNewCallArgs(ctxTree, argNode);
@@ -2172,7 +2172,7 @@ GenTree* Importer::impImplicitIorI4Cast(GenTree* tree, var_types dstTyp)
         else if (varTypeIsI(wantedType) && (currType == TYP_INT))
         {
             // Note that this allows TYP_INT to be cast to a TYP_I_IMPL when wantedType is a TYP_BYREF or TYP_REF
-            tree = gtNewCastNode(TYP_I_IMPL, tree, false, TYP_I_IMPL);
+            tree = gtNewCastNode(TYP_LONG, tree, false, TYP_LONG);
         }
         else if ((wantedType == TYP_INT) && varTypeIsI(currType))
         {
@@ -4312,12 +4312,12 @@ bool Importer::verCheckTailCallConstraint(OPCODE                  opcode,
     {
         // For unsafe code, we might have parameters containing pointer to the stack location.
         // Disallow the tailcall for this kind.
-        CORINFO_CLASS_HANDLE argClass;
-        CorInfoType          argCorType = strip(info.compCompHnd->getArgType(&sig, args, &argClass));
+        CORINFO_CLASS_HANDLE paramClass;
+        CorInfoType          argCorType = strip(info.compCompHnd->getArgType(&sig, args, &paramClass));
 
         if ((argCorType == CORINFO_TYPE_PTR) || (argCorType == CORINFO_TYPE_BYREF) ||
             ((argCorType == CORINFO_TYPE_VALUECLASS) &&
-             ((info.compCompHnd->getClassAttribs(argClass) & CORINFO_FLG_CONTAINS_STACK_PTR) != 0)))
+             ((info.compCompHnd->getClassAttribs(paramClass) & CORINFO_FLG_CONTAINS_STACK_PTR) != 0)))
         {
             return false;
         }

@@ -2279,7 +2279,7 @@ struct Importer
 
     GenTreeCall::Use* impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig, GenTreeCall::Use* prefixArgs = nullptr);
 
-    bool CheckImplicitArgumentCoercion(var_types paramType, var_types argType) const;
+    GenTree* CoerceCallArg(var_types paramType, GenTree* arg);
 
     GenTreeCall::Use* impPopReverseCallArgs(unsigned count, CORINFO_SIG_INFO* sig, unsigned skipReverseCount = 0);
 
