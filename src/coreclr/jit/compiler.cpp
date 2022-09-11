@@ -4247,7 +4247,7 @@ CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCode
     {
         bool unused;
         info.compCallConv = info.compCompHnd->getUnmanagedCallConv(info.compMethodInfo->ftn, nullptr, &unused);
-        info.compArgOrder = Target::g_tgtUnmanagedArgOrder;
+        info.compArgOrder = Target::ARG_ORDER_R2L;
     }
     else
     {

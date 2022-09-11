@@ -271,7 +271,6 @@ public:
         ARG_ORDER_L2R
     };
     static const enum ArgOrder g_tgtArgOrder;
-    static const enum ArgOrder g_tgtUnmanagedArgOrder;
 };
 
 #if defined(DEBUG) || defined(LATE_DISASM) || DUMP_GC_TABLES
