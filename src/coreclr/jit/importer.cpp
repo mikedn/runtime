@@ -4977,8 +4977,9 @@ void Importer::impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORI
 
         node = gtNewHelperCallNode(CORINFO_HELP_NEW_MDARR, TYP_REF, args);
 
-        // varargs, so we pop the arguments
+#ifdef TARGET_X86
         node->gtFlags |= GTF_CALL_POP_ARGS;
+#endif
     }
 
     for (GenTreeCall::Use& use : node->AsCall()->Args())
@@ -5290,12 +5291,13 @@ void Importer::impCheckForPInvokeCall(
         info.compUnmanagedCallCountWithGCTransition++;
     }
 
-    // AMD64 convention is same for native and managed
+#ifdef TARGET_X86
     if (unmanagedCallConv == CorInfoCallConvExtension::C ||
         unmanagedCallConv == CorInfoCallConvExtension::CMemberFunction)
     {
         call->gtFlags |= GTF_CALL_POP_ARGS;
     }
+#endif
 
     if (unmanagedCallConv == CorInfoCallConvExtension::Thiscall)
     {
@@ -6954,19 +6956,16 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 #else
         assert(!compIsForInlining());
 
-        /* Set the right flags */
-
-        call->gtFlags |= GTF_CALL_POP_ARGS;
         call->gtCallMoreFlags |= GTF_CALL_M_VARARGS;
 
-        /* Can't allow tailcall for varargs as it is caller-pop. The caller
-           will be expecting to pop a certain number of arguments, but if we
-           tailcall to a function with a different number of arguments, we
-           are hosed. There are ways around this (caller remembers esp value,
-           varargs is not caller-pop, etc), but not worth it. */
-        CLANG_FORMAT_COMMENT_ANCHOR;
-
 #ifdef TARGET_X86
+        call->gtFlags |= GTF_CALL_POP_ARGS;
+
+        // Can't allow tailcall for varargs as it is caller-pop. The caller
+        // will be expecting to pop a certain number of arguments, but if we
+        // tailcall to a function with a different number of arguments, we
+        // are hosed. There are ways around this (caller remembers esp value,
+        // varargs is not caller-pop, etc), but not worth it.
         if (tailCallFailReason == nullptr)
         {
             tailCallFailReason = "Callee is varargs";
@@ -7018,13 +7017,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
         impCheckForPInvokeCall(call, methHnd, sig, mflags, block);
     }
 
-#ifdef UNIX_X86_ABI
-    // On Unix x86 we use caller-cleaned convention.
-    if ((call->gtFlags & GTF_CALL_UNMANAGED) == 0)
-        call->gtFlags |= GTF_CALL_POP_ARGS;
-#endif // UNIX_X86_ABI
-
-    if (call->gtFlags & GTF_CALL_UNMANAGED)
+    if ((call->gtFlags & GTF_CALL_UNMANAGED) != 0)
     {
         // We set up the unmanaged call by linking the frame, disabling GC, etc
         // This needs to be cleaned up on return.
@@ -7039,6 +7032,10 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
         goto DONE;
     }
+
+#ifdef UNIX_X86_ABI
+    call->gtFlags |= GTF_CALL_POP_ARGS;
+#endif
 
     if ((opcode == CEE_CALLI) && ((sig->callConv & CORINFO_CALLCONV_MASK) != CORINFO_CALLCONV_DEFAULT) &&
         ((sig->callConv & CORINFO_CALLCONV_MASK) != CORINFO_CALLCONV_VARARG))

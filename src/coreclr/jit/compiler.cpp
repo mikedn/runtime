@@ -6397,10 +6397,12 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 {
                     chars += printf("[CALL_NULLCHECK]");
                 }
+#ifdef TARGET_X86
                 if (tree->gtFlags & GTF_CALL_POP_ARGS)
                 {
                     chars += printf("[CALL_POP_ARGS]");
                 }
+#endif
                 if (tree->gtFlags & GTF_CALL_HOISTABLE)
                 {
                     chars += printf("[CALL_HOISTABLE]");

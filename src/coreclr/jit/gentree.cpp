@@ -8327,11 +8327,13 @@ void Compiler::gtDispTree(GenTree*     tree,
                 printf("%sunmanaged", separator);
                 separator = ", ";
 
+#ifdef TARGET_X86
                 if (call->CallerPop())
                 {
                     printf("%spopargs", separator);
                     separator = ", ";
                 }
+#endif
 
                 if ((call->gtCallMoreFlags & GTF_CALL_M_UNMGD_THISCALL) != 0)
                 {

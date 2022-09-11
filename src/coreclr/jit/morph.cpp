@@ -2316,7 +2316,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     unsigned maxRegArgs  = MAX_REG_ARG; // X86: non-const, must be calculated
 
 #ifndef UNIX_X86_ABI
-    if (call->gtFlags & GTF_CALL_POP_ARGS)
+    if (call->CallerPop())
     {
         noway_assert(intArgRegNum < MAX_REG_ARG);
         // No more register arguments for varargs (CALL_POP_ARGS)
