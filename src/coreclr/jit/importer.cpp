@@ -6769,8 +6769,8 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 {
                     unsigned spillDepth = verCurrentState.esStackDepth;
 
-                    // TODO-MIKE-Review: This might be dead code, ImportNewObj handles intrinsic
-                    // (Vector2/3/4/T ctors) import directly.
+                    // TODO-MIKE-Review: This is needed for NI_CORINFO_INTRINSIC_ByReference_Ctor,
+                    // that needs to be handled in ImportNewObj instead.
                     if (opcode == CEE_NEWOBJ)
                     {
                         // We actually did push something, so don't spill the thing we just pushed.
