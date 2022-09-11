@@ -6667,11 +6667,10 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
             varTypeName(callRetTyp),
             (callRetTyp == TYP_STRUCT) ? info.compCompHnd->getClassSize(sig->retTypeSigClass) : 0);
 
-    GenTreeCall*      call              = nullptr;
-    GenTreeCall::Use* args              = nullptr;
-    GenTreeCall::Use* extraArg          = nullptr;
-    GenTree*          value             = nullptr;
-    bool              intrinsicImported = false;
+    GenTreeCall*      call     = nullptr;
+    GenTreeCall::Use* args     = nullptr;
+    GenTreeCall::Use* extraArg = nullptr;
+    GenTree*          value    = nullptr;
 
     /*-------------------------------------------------------------------------
      * First create the call node
@@ -6780,7 +6779,6 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
                 if (call != nullptr)
                 {
-                    intrinsicImported = true;
                     goto PUSH_CALL;
                 }
 
@@ -7521,7 +7519,6 @@ PUSH_CALL:
             // fatPointer candidates should be in statements of the form call() or var = call().
             // Such form allows to find statements with fat calls without walking through whole trees
             // and removes problems with cutting trees.
-            assert(!intrinsicImported);
             assert(IsTargetAbi(CORINFO_CORERT_ABI));
 
             unsigned calliTempLclNum = lvaGrabTemp(true DEBUGARG("calli fat pointer temp"));
@@ -7556,11 +7553,8 @@ PUSH_CALL:
     // Usual native calling conventions do not automatically widen returned small int values to
     // INT so we have to do it in the caller. R2R also follows the native calling and widens in
     // the caller, even if the callee is a managed method that automatically widens itself.
-    //
-    // TODO-MIKE-Review: The intrinsicImported check is likely bogus, intrinsic importing may
-    // produce a call and then there's no obvious reason not to follow the same rules.
 
-    if (!intrinsicImported && varTypeIsSmall(callRetTyp) && (opts.IsReadyToRun() || call->IsUnmanaged()))
+    if (varTypeIsSmall(callRetTyp) && (opts.IsReadyToRun() || call->IsUnmanaged()))
     {
         value = gtNewCastNode(TYP_INT, value, false, callRetTyp);
     }
