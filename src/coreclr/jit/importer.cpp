@@ -578,9 +578,9 @@ void Importer::impAppendTempAssign(unsigned lclNum, GenTree* val, ClassLayout* l
     impAppendTree(asg, curLevel);
 }
 
-GenTreeCall::Use* Importer::impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig, GenTreeCall::Use* extraArgs)
+GenTreeCall::Use* Importer::impPopCallArgs(CORINFO_SIG_INFO* sig, GenTreeCall::Use* extraArgs)
 {
-    assert((sig == nullptr) || (count == sig->numArgs));
+    assert(sig->retType != CORINFO_TYPE_VAR);
 
     GenTreeCall::Use* args = nullptr;
 
@@ -589,7 +589,7 @@ GenTreeCall::Use* Importer::impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig
         args = extraArgs;
     }
 
-    while (count--)
+    for (unsigned i = 0, paramCount = sig->numArgs; i < paramCount; i++)
     {
         StackEntry se  = impPopStack();
         GenTree*   arg = se.val;
@@ -605,67 +605,62 @@ GenTreeCall::Use* Importer::impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig
         args = gtPrependNewCallArg(arg, args);
     }
 
-    if (sig != nullptr)
+    CORINFO_ARG_LIST_HANDLE param = sig->args;
+    GenTreeCall::Use*       arg   = args;
+
+    for (unsigned i = 0, paramCount = sig->numArgs; i < paramCount; i++)
     {
-        assert(sig->retType != CORINFO_TYPE_VAR);
+        CORINFO_CLASS_HANDLE paramClass;
+        CorInfoType          paramCorType = strip(info.compCompHnd->getArgType(sig, param, &paramClass));
+        var_types            paramType    = varActualType(CorTypeToVarType(paramCorType));
 
-        if ((sig->retTypeSigClass != nullptr) && (sig->retType != CORINFO_TYPE_CLASS) &&
-            (sig->retType != CORINFO_TYPE_BYREF) && (sig->retType != CORINFO_TYPE_PTR))
+        if (paramType != varActualType(arg->GetNode()->GetType()))
         {
-            // Make sure that all valuetypes (including enums) that we push are loaded.
-            // This is to guarantee that if a GC is triggerred from the prestub of this
-            // methods, all valuetypes in the method signature are already loaded.
-            // We need to be able to find the size of the valuetypes, but we cannot
-            // do a class-load from within GC.
-            info.compCompHnd->classMustBeLoadedBeforeCodeIsRun(sig->retTypeSigClass);
+            arg->SetNode(CoerceCallArg(paramType, arg->GetNode()));
         }
 
-        CORINFO_ARG_LIST_HANDLE param = sig->args;
-        GenTreeCall::Use*       arg   = args;
-
-        for (unsigned i = 0, paramCount = sig->numArgs; i < paramCount; i++)
+        if ((paramCorType == CORINFO_TYPE_VALUECLASS) || (paramCorType == CORINFO_TYPE_REFANY))
         {
-            CORINFO_CLASS_HANDLE paramClass;
-            CorInfoType          paramCorType = strip(info.compCompHnd->getArgType(sig, param, &paramClass));
-            var_types            paramType    = varActualType(CorTypeToVarType(paramCorType));
+            assert(paramClass != NO_CLASS_HANDLE);
+            arg->SetSigTypeNum(typGetObjLayoutNum(paramClass));
+        }
+        else
+        {
+            arg->SetSigTypeNum(static_cast<unsigned>(JITtype2varType(paramCorType)));
+        }
 
-            if (paramType != varActualType(arg->GetNode()->GetType()))
-            {
-                arg->SetNode(CoerceCallArg(paramType, arg->GetNode()));
-            }
+        if ((paramCorType != CORINFO_TYPE_CLASS) && (paramCorType != CORINFO_TYPE_BYREF) &&
+            (paramCorType != CORINFO_TYPE_PTR))
+        {
+            CORINFO_CLASS_HANDLE realParamClass = info.compCompHnd->getArgClass(sig, param);
 
-            if ((paramCorType == CORINFO_TYPE_VALUECLASS) || (paramCorType == CORINFO_TYPE_REFANY))
+            if (realParamClass != nullptr)
             {
-                assert(paramClass != NO_CLASS_HANDLE);
-                arg->SetSigTypeNum(typGetObjLayoutNum(paramClass));
-            }
-            else
-            {
-                arg->SetSigTypeNum(static_cast<unsigned>(JITtype2varType(paramCorType)));
-            }
-
-            if ((paramCorType != CORINFO_TYPE_CLASS) && (paramCorType != CORINFO_TYPE_BYREF) &&
-                (paramCorType != CORINFO_TYPE_PTR))
-            {
-                CORINFO_CLASS_HANDLE realParamClass = info.compCompHnd->getArgClass(sig, param);
-
-                if (realParamClass != nullptr)
-                {
-                    // Make sure that all valuetypes (including enums) that we push are loaded.
-                    // This is to guarantee that if a GC is triggered from the prestub of this
-                    // methods, all valuetypes in the method signature are already loaded.
-                    // We need to be able to find the size of the valuetypes, but we cannot
-                    // do a class-load from within GC.
-                    info.compCompHnd->classMustBeLoadedBeforeCodeIsRun(realParamClass);
-                }
-            }
-
-            if (i + 1 < paramCount)
-            {
-                param = info.compCompHnd->getArgNext(param);
-                arg   = arg->GetNext();
+                // Make sure that all valuetypes (including enums) that we push are loaded.
+                // This is to guarantee that if a GC is triggered from the prestub of this
+                // methods, all valuetypes in the method signature are already loaded.
+                // We need to be able to find the size of the valuetypes, but we cannot
+                // do a class-load from within GC.
+                info.compCompHnd->classMustBeLoadedBeforeCodeIsRun(realParamClass);
             }
         }
+
+        if (i + 1 < paramCount)
+        {
+            param = info.compCompHnd->getArgNext(param);
+            arg   = arg->GetNext();
+        }
+    }
+
+    if ((sig->retTypeSigClass != nullptr) && (sig->retType != CORINFO_TYPE_CLASS) &&
+        (sig->retType != CORINFO_TYPE_BYREF) && (sig->retType != CORINFO_TYPE_PTR))
+    {
+        // Make sure that all valuetypes (including enums) that we push are loaded.
+        // This is to guarantee that if a GC is triggerred from the prestub of this
+        // methods, all valuetypes in the method signature are already loaded.
+        // We need to be able to find the size of the valuetypes, but we cannot
+        // do a class-load from within GC.
+        info.compCompHnd->classMustBeLoadedBeforeCodeIsRun(sig->retTypeSigClass);
     }
 
     if (Target::g_tgtArgOrder == Target::ARG_ORDER_R2L)
@@ -762,11 +757,13 @@ GenTree* Importer::CoerceCallArg(var_types paramType, GenTree* arg)
  *  The first "skipReverseCount" items are not reversed.
  */
 
-GenTreeCall::Use* Importer::impPopReverseCallArgs(unsigned count, CORINFO_SIG_INFO* sig, unsigned skipReverseCount)
+GenTreeCall::Use* Importer::impPopReverseCallArgs(CORINFO_SIG_INFO* sig, unsigned skipReverseCount)
 {
+    unsigned count = sig->numArgs;
+
     assert(skipReverseCount <= count);
 
-    GenTreeCall::Use* list = impPopCallArgs(count, sig);
+    GenTreeCall::Use* list = impPopCallArgs(sig);
 
     // reverse the list
     if (list == nullptr || skipReverseCount == count)
@@ -4998,9 +4995,7 @@ void Importer::impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORI
 
         // pass number of arguments to the helper
         args = gtPrependNewCallArg(gtNewIconNode(pCallInfo->sig.numArgs), args);
-
-        args = impPopCallArgs(pCallInfo->sig.numArgs, &pCallInfo->sig, args);
-
+        args = impPopCallArgs(&pCallInfo->sig, args);
         node = gtNewHelperCallNode(CORINFO_HELP_NEW_MDARR, TYP_REF, args);
 
         // varargs, so we pop the arguments
@@ -5423,7 +5418,7 @@ void Importer::impPopArgsForUnmanagedCall(GenTreeCall* call, CORINFO_SIG_INFO* s
     /* The argument list is now "clean" - no out-of-order side effects
      * Pop the argument list in reverse order */
 
-    GenTreeCall::Use* args = impPopReverseCallArgs(sig->numArgs, sig, sig->numArgs - argsToReverse);
+    GenTreeCall::Use* args = impPopReverseCallArgs(sig, sig->numArgs - argsToReverse);
     call->gtCallArgs       = args;
 
     if ((call->gtCallMoreFlags & GTF_CALL_M_UNMGD_THISCALL) != 0)
@@ -6837,7 +6832,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 // OK, We've been told to call via LDVIRTFTN, so just
                 // take the call now....
 
-                GenTreeCall::Use* args = impPopCallArgs(sig->numArgs, sig);
+                GenTreeCall::Use* args = impPopCallArgs(sig);
 
                 GenTree* thisPtr = impPopStack().val;
                 thisPtr          = impTransformThis(thisPtr, pConstrainedResolvedToken, callInfo->thisTransform);
@@ -7160,7 +7155,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
     //-------------------------------------------------------------------------
     // The main group of arguments
 
-    args             = impPopCallArgs(sig->numArgs, sig, extraArg);
+    args             = impPopCallArgs(sig, extraArg);
     call->gtCallArgs = args;
 
     for (GenTreeCall::Use& use : call->Args())
@@ -10130,11 +10125,22 @@ void Importer::impImportBlockCode(BasicBlock* block)
                         lclTyp = TYP_REF;
                         goto ARR_ST;
                     }
+
+                    // Else call a helper function to do the assignment
                 }
 
-                // Else call a helper function to do the assignment
-                op1 = gtNewHelperCallNode(CORINFO_HELP_ARRADDR_ST, TYP_VOID, impPopCallArgs(3, nullptr));
-                impSpillAllAppendTree(op1);
+                {
+                    GenTree* value = impPopStack().val;
+                    GenTree* index = impPopStack().val;
+                    GenTree* array = impPopStack().val;
+
+                    assertImp(array->TypeIs(TYP_REF));
+                    assertImp(value->TypeIs(TYP_REF));
+                    assertImp(varTypeIsIntegral(index->GetType()));
+
+                    impSpillAllAppendTree(
+                        gtNewHelperCallNode(CORINFO_HELP_ARRADDR_ST, TYP_VOID, gtNewCallArgs(array, index, value)));
+                }
                 break;
 
             case CEE_STELEM_I1:

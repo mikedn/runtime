@@ -2277,11 +2277,11 @@ struct Importer
                 ((opcode >= CEE_STLOC_0) && (opcode <= CEE_STLOC_3)));
     }
 
-    GenTreeCall::Use* impPopCallArgs(unsigned count, CORINFO_SIG_INFO* sig, GenTreeCall::Use* extraArgs = nullptr);
+    GenTreeCall::Use* impPopCallArgs(CORINFO_SIG_INFO* sig, GenTreeCall::Use* extraArgs = nullptr);
 
     GenTree* CoerceCallArg(var_types paramType, GenTree* arg);
 
-    GenTreeCall::Use* impPopReverseCallArgs(unsigned count, CORINFO_SIG_INFO* sig, unsigned skipReverseCount = 0);
+    GenTreeCall::Use* impPopReverseCallArgs(CORINFO_SIG_INFO* sig, unsigned skipReverseCount = 0);
 
     /*
      * Get current IL offset with stack-empty info incoporated
