@@ -2284,10 +2284,7 @@ struct Importer
     GenTreeCall::Use* ReverseCallArgs(GenTreeCall::Use* args, bool skipReverseCount);
 #endif
 
-    /*
-     * Get current IL offset with stack-empty info incoporated
-     */
-    IL_OFFSETX impCurILOffset(IL_OFFSET offs, bool callInstruction = false);
+    IL_OFFSETX GetCallILOffsetX(IL_OFFSET offs);
 
     //---------------- Spilling the importer stack ----------------------------
 
@@ -2562,18 +2559,15 @@ struct Importer
     void ImportLdFtn(const BYTE* codeAddr, CORINFO_RESOLVED_TOKEN& constrainedResolvedToken, int prefixFlags);
     void ImportLdVirtFtn(const BYTE* codeAddr);
     void ImportNewArr(const BYTE* codeAddr, BasicBlock* block);
-    void ImportNewObj(
-        const uint8_t* codeAddr, const uint8_t* codeEnd, IL_OFFSET ilOffset, int prefixFlags, BasicBlock* block);
-    void ImportCallI(const uint8_t* codeAddr, const uint8_t* codeEnd, IL_OFFSET ilOffset, int prefixFlags);
+    void ImportNewObj(const uint8_t* codeAddr, const uint8_t* codeEnd, int prefixFlags, BasicBlock* block);
+    void ImportCallI(const uint8_t* codeAddr, const uint8_t* codeEnd, int prefixFlags);
     void ImportCall(const uint8_t*          codeAddr,
                     const uint8_t*          codeEnd,
-                    IL_OFFSET               ilOffset,
                     OPCODE                  opcode,
                     CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
                     int                     prefixFlags);
     void ImportCall(const uint8_t*          codeAddr,
                     const uint8_t*          codeEnd,
-                    IL_OFFSET               ilOffset,
                     OPCODE                  opcode,
                     CORINFO_RESOLVED_TOKEN& resolvedToken,
                     CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
@@ -2585,7 +2579,7 @@ struct Importer
                                GenTree*                newObjThis,
                                int                     prefixFlags,
                                CORINFO_CALL_INFO*      callInfo,
-                               IL_OFFSET               ilOffset);
+                               const uint8_t*          ilAddr);
     GenTree* CreateCallICookie(GenTreeCall* call, CORINFO_SIG_INFO* sig);
     GenTree* CreateVarargsCallArgHandle(GenTreeCall* call, CORINFO_SIG_INFO* sig);
     GenTree* CreateGenericCallTypeArg(GenTreeCall*            call,

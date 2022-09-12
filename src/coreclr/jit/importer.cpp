@@ -1848,22 +1848,17 @@ void Importer::impCurStmtOffsSet(IL_OFFSET offs)
     impCurStmtOffs    = offs | stkBit;
 }
 
-/*****************************************************************************
- * Returns current IL offset with stack-empty and call-instruction info incorporated
- */
-IL_OFFSETX Importer::impCurILOffset(IL_OFFSET offs, bool callInstruction)
+IL_OFFSETX Importer::GetCallILOffsetX(IL_OFFSET offs)
 {
+    assert((offs != BAD_IL_OFFSET) && ((offs & IL_OFFSETX_BITS) == 0));
+
     if (compIsForInlining())
     {
         return BAD_IL_OFFSET;
     }
-    else
-    {
-        assert(offs == BAD_IL_OFFSET || (offs & IL_OFFSETX_BITS) == 0);
-        IL_OFFSETX stkBit             = (verCurrentState.esStackDepth > 0) ? IL_OFFSETX_STKBIT : 0;
-        IL_OFFSETX callInstructionBit = callInstruction ? IL_OFFSETX_CALLINSTRUCTIONBIT : 0;
-        return offs | stkBit | callInstructionBit;
-    }
+
+    IL_OFFSETX stkBit = (verCurrentState.esStackDepth > 0) ? IL_OFFSETX_STKBIT : 0;
+    return offs | IL_OFFSETX_CALLINSTRUCTIONBIT | stkBit;
 }
 
 //------------------------------------------------------------------------
@@ -6444,7 +6439,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                                      GenTree*                newobjThis,
                                      int                     prefixFlags,
                                      CORINFO_CALL_INFO*      callInfo,
-                                     IL_OFFSET               rawILOffset)
+                                     const uint8_t*          ilAddr)
 {
     // TODO-MIKE-Review: Try to move this to ImportCallI. The main issue that ImportCall
     // behaves a bit differently for CALL (e.g. calls impHandleAccessAllowed).
@@ -6464,7 +6459,8 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
     assert(opcode == CEE_CALL || opcode == CEE_CALLVIRT || opcode == CEE_NEWOBJ || opcode == CEE_CALLI);
 
-    IL_OFFSETX             ilOffset                       = impCurILOffset(rawILOffset, true);
+    IL_OFFSET              rawILOffset                    = static_cast<IL_OFFSET>(ilAddr - info.compCode);
+    IL_OFFSETX             ilOffset                       = GetCallILOffsetX(rawILOffset);
     CORINFO_THIS_TRANSFORM constraintCallThisTransform    = CORINFO_NO_THIS_TRANSFORM;
     CORINFO_CONTEXT_HANDLE exactContextHnd                = nullptr;
     bool                   exactContextNeedsRuntimeLookup = false;
@@ -10972,14 +10968,14 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 ImportLdVirtFtn(codeAddr);
                 break;
             case CEE_NEWOBJ:
-                ImportNewObj(codeAddr, codeEndp, opcodeOffs, prefixFlags, block);
+                ImportNewObj(codeAddr, codeEndp, prefixFlags, block);
                 break;
             case CEE_CALLI:
-                ImportCallI(codeAddr, codeEndp, opcodeOffs, prefixFlags);
+                ImportCallI(codeAddr, codeEndp, prefixFlags);
                 break;
             case CEE_CALLVIRT:
             case CEE_CALL:
-                ImportCall(codeAddr, codeEndp, opcodeOffs, opcode, &constrainedResolvedToken, prefixFlags);
+                ImportCall(codeAddr, codeEndp, opcode, &constrainedResolvedToken, prefixFlags);
                 break;
 
             case CEE_LDFLD:
@@ -12541,8 +12537,7 @@ void Importer::ImportNewArr(const BYTE* codeAddr, BasicBlock* block)
     impPushOnStack(op1, typeInfo(TI_REF, resolvedToken.hClass));
 }
 
-void Importer::ImportNewObj(
-    const uint8_t* codeAddr, const uint8_t* codeEnd, IL_OFFSET ilOffset, int prefixFlags, BasicBlock* block)
+void Importer::ImportNewObj(const uint8_t* codeAddr, const uint8_t* codeEnd, int prefixFlags, BasicBlock* block)
 {
     if (compIsForInlining())
     {
@@ -12803,7 +12798,7 @@ void Importer::ImportNewObj(
     }
 
     GenTreeCall* call =
-        impImportCall(CEE_NEWOBJ, &resolvedToken, nullptr, newObjThis, prefixFlags, &callInfo, ilOffset);
+        impImportCall(CEE_NEWOBJ, &resolvedToken, nullptr, newObjThis, prefixFlags, &callInfo, codeAddr);
 
     if (call == nullptr)
     {
@@ -12832,7 +12827,7 @@ void Importer::ImportNewObj(
     }
 
 #if defined(DEBUG) || defined(INLINE_DATA)
-    call->gtRawILOffset = ilOffset;
+    call->gtRawILOffset = static_cast<IL_OFFSET>(codeAddr - info.compCode);
 #endif
 
     CORINFO_CONTEXT_HANDLE exactContextHnd = callInfo.contextHandle;
@@ -12857,7 +12852,7 @@ void Importer::ImportNewObj(
     }
 }
 
-void Importer::ImportCallI(const uint8_t* codeAddr, const uint8_t* codeEnd, IL_OFFSET ilOffset, int prefixFlags)
+void Importer::ImportCallI(const uint8_t* codeAddr, const uint8_t* codeEnd, int prefixFlags)
 {
     // TODO-MIKE-Review: This should probably be BADCODE
     prefixFlags &= ~PREFIX_CONSTRAINED;
@@ -12881,12 +12876,11 @@ void Importer::ImportCallI(const uint8_t* codeAddr, const uint8_t* codeEnd, IL_O
     resolvedToken.tokenScope   = info.compScopeHnd;
     JITDUMP(" %08X", resolvedToken.token);
 
-    ImportCall(codeAddr, codeEnd, ilOffset, CEE_CALLI, resolvedToken, nullptr, callInfo, prefixFlags);
+    ImportCall(codeAddr, codeEnd, CEE_CALLI, resolvedToken, nullptr, callInfo, prefixFlags);
 }
 
 void Importer::ImportCall(const uint8_t*          codeAddr,
                           const uint8_t*          codeEnd,
-                          IL_OFFSET               ilOffset,
                           OPCODE                  opcode,
                           CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
                           int                     prefixFlags)
@@ -12903,12 +12897,11 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
                       ((opcode == CEE_CALLVIRT) ? CORINFO_CALLINFO_CALLVIRT : CORINFO_CALLINFO_NONE),
                   &callInfo);
 
-    ImportCall(codeAddr, codeEnd, ilOffset, opcode, resolvedToken, constrainedResolvedToken, callInfo, prefixFlags);
+    ImportCall(codeAddr, codeEnd, opcode, resolvedToken, constrainedResolvedToken, callInfo, prefixFlags);
 }
 
 void Importer::ImportCall(const uint8_t*          codeAddr,
                           const uint8_t*          codeEnd,
-                          IL_OFFSET               ilOffset,
                           OPCODE                  opcode,
                           CORINFO_RESOLVED_TOKEN& resolvedToken,
                           CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
@@ -13018,7 +13011,7 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
     }
 
     impImportCall(opcode, &resolvedToken, isConstrained ? constrainedResolvedToken : nullptr, nullptr, prefixFlags,
-                  &callInfo, ilOffset);
+                  &callInfo, codeAddr);
 
     if (compDonotInline())
     {
