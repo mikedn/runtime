@@ -2036,8 +2036,7 @@ struct Importer
     unsigned impBoxTemp      = BAD_VAR_NUM;
 
 #ifdef DEBUG
-    unsigned    impCurOpcOffs;
-    const char* impCurOpcName;
+    unsigned impCurOpcOffs;
 
     // For displaying instrs with generated native code (-n:B)
     Statement* impLastILoffsStmt = nullptr; // oldest stmt added for which we did not call SetLastILOffset().

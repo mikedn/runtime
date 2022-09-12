@@ -9214,32 +9214,21 @@ void Importer::impImportBlockCode(BasicBlock* block)
             }
         }
 
-        CORINFO_CLASS_HANDLE clsHnd  = NO_CLASS_HANDLE;
-        var_types            lclTyp  = TYP_UNKNOWN;
-        GenTree*             op1     = nullptr;
-        GenTree*             op2     = nullptr;
-        bool                 uns     = false;
-        bool                 isLocal = false;
-
-#ifdef DEBUG
-        lclTyp = TYP_COUNT;
-
         JITDUMP("\n    [%2u] %3u (0x%03x) ", verCurrentState.esStackDepth, opcodeOffs, opcodeOffs);
-#endif
 
-        int    prefixFlags = 0;
-        OPCODE opcode      = static_cast<OPCODE>(*codeAddr++);
+        CORINFO_CLASS_HANDLE clsHnd      = NO_CLASS_HANDLE;
+        var_types            lclTyp      = TYP_UNKNOWN;
+        GenTree*             op1         = nullptr;
+        GenTree*             op2         = nullptr;
+        bool                 uns         = false;
+        bool                 isLocal     = false;
+        int                  prefixFlags = 0;
+        OPCODE               opcode      = static_cast<OPCODE>(*codeAddr++);
 
     DECODE_OPCODE:
-#ifdef DEBUG
-        impCurOpcOffs = opcodeOffs;
-        impCurOpcName = opcodeNames[opcode];
-
-        if (verbose && (opcode != CEE_PREFIX1))
-        {
-            printf("%s", impCurOpcName);
-        }
-#endif
+        INDEBUG(lclTyp = TYP_COUNT);
+        INDEBUG(impCurOpcOffs = opcodeOffs);
+        DBEXEC(verbose && (opcode != CEE_PREFIX1), printf("%s", opcodeNames[opcode]))
 
         int sz = opcodeSizes[opcode];
 
@@ -13356,7 +13345,6 @@ void Importer::impImportBlock(BasicBlock* block)
 
     compCurBB = block;
 
-    INDEBUG(impCurOpcName = "unknown";)
     INDEBUG(impCurOpcOffs = block->bbCodeOffs;)
 
     if (((block->bbFlags & BBF_TRY_BEG) != 0) && (verCurrentState.esStackDepth != 0))
