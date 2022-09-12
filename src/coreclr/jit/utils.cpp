@@ -41,8 +41,7 @@ const char* Target::g_tgtPlatformName = "Windows";
 #define DECLARE_DATA
 
 // clang-format off
-extern
-const signed char       opcodeSizes[] =
+extern const uint8_t opcodeSizes[]
 {
     #define InlineNone_size           0
     #define ShortInlineVar_size       1
@@ -89,6 +88,22 @@ const signed char       opcodeSizes[] =
     #undef InlineSwitch_size
     #undef InlinePhi_size
 };
+
+#ifdef DEBUG
+extern const char* const opcodeNames[]
+{
+#define OPDEF(name, string, pop, push, oprType, opcType, l, s1, s2, ctrl) string,
+#include "opcode.def"
+#undef OPDEF
+};
+
+extern const OPCODE_FORMAT opcodeArgKinds[]
+{
+#define OPDEF(name, string, pop, push, oprType, opcType, l, s1, s2, ctrl) oprType,
+#include "opcode.def"
+#undef OPDEF
+};
+#endif
 // clang-format on
 
 const BYTE varTypeClassification[] = {
@@ -96,24 +111,6 @@ const BYTE varTypeClassification[] = {
 #include "typelist.h"
 #undef DEF_TP
 };
-
-/*****************************************************************************/
-/*****************************************************************************/
-#ifdef DEBUG
-extern const char* const opcodeNames[] = {
-#define OPDEF(name, string, pop, push, oprType, opcType, l, s1, s2, ctrl) string,
-#include "opcode.def"
-#undef OPDEF
-};
-
-extern const BYTE opcodeArgKinds[] = {
-#define OPDEF(name, string, pop, push, oprType, opcType, l, s1, s2, ctrl) (BYTE) oprType,
-#include "opcode.def"
-#undef OPDEF
-};
-#endif
-
-/*****************************************************************************/
 
 const char* varTypeName(var_types type)
 {
@@ -391,8 +388,8 @@ DECODE_OPCODE:
 
     /* Get the size of additional parameters */
 
-    size_t   sz      = opcodeSizes[opcode];
-    unsigned argKind = opcodeArgKinds[opcode];
+    size_t        sz      = opcodeSizes[opcode];
+    OPCODE_FORMAT argKind = opcodeArgKinds[opcode];
 
     /* See what kind of an opcode we have, then */
 

@@ -9219,7 +9219,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
         INDEBUG(impCurOpcOffs = opcodeOffs);
         DBEXEC(verbose && (opcode != CEE_PREFIX1), printf("%s", opcodeNames[opcode]))
 
-        int sz = opcodeSizes[opcode];
+        unsigned opcodeSize = opcodeSizes[opcode];
 
         switch (opcode)
         {
@@ -11322,7 +11322,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_BOX:
-                sz += ImportBox(codeAddr, codeEndp);
+                codeAddr += ImportBox(codeAddr, codeEndp);
                 break;
 
             case CEE_SIZEOF:
@@ -11608,7 +11608,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 BADCODE3("unknown opcode", ": %02X", (int)opcode);
         }
 
-        codeAddr += sz;
+        codeAddr += opcodeSize;
         prevOpcode = opcode;
     }
 }
