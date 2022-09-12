@@ -11657,16 +11657,8 @@ void Importer::ImportArgList()
         BADCODE("arglist in non-vararg method");
     }
 
-#ifdef DEBUG
-    GenTreeOp* op1 = nullptr;
-    GenTreeOp* op2 = nullptr;
-    assertImp((info.compMethodInfo->args.callConv & CORINFO_CALLCONV_MASK) == CORINFO_CALLCONV_VARARG);
-#endif
-
-    // The ARGLIST cookie is a hidden 'last' parameter, we have already
-    // adjusted the arg count cos this is like fetching the last param
-    assertImp(info.compArgsCount > 0);
-    assert(lvaGetDesc(comp->lvaVarargsHandleArg)->lvAddrExposed);
+    assert(info.compMethodInfo->args.getCallConv() == CORINFO_CALLCONV_VARARG);
+    assert(lvaGetDesc(comp->lvaVarargsHandleArg)->IsAddressExposed());
 
     impPushOnStack(gtNewLclVarAddrNode(comp->lvaVarargsHandleArg, TYP_I_IMPL));
 }
@@ -11698,9 +11690,8 @@ void Importer::ImportMkRefAny(const BYTE* codeAddr)
 
     GenTree* op1 = impPopStack().val;
 
-    // @SPECVIOLATION: TYP_INT should not be allowed here by a strict reading of the spec.
-    // But JIT32 allowed it, so we continue to allow it.
-    assertImp(op1->TypeGet() == TYP_BYREF || op1->TypeGet() == TYP_I_IMPL || op1->TypeGet() == TYP_INT);
+    // TODO-MIKE-Review: This should be BADCODE.
+    assert(op1->TypeIs(TYP_BYREF, TYP_I_IMPL));
 
     // MKREFANY returns a struct.  op2 is the class token.
     op1 = gtNewOperNode(GT_MKREFANY, TYP_STRUCT, op1, op2);
@@ -11716,7 +11707,6 @@ void Importer::ImportRefAnyType()
     }
 
     GenTree* op1 = impPopStack().val;
-    INDEBUG(GenTree* op2 = nullptr;)
 
     if (!op1->OperIs(GT_LCL_VAR, GT_MKREFANY))
     {
@@ -11732,8 +11722,6 @@ void Importer::ImportRefAnyType()
     }
     else
     {
-        assertImp(op1->gtOper == GT_MKREFANY);
-
         // The pointer may have side-effects
         if (op1->AsOp()->gtOp1->gtFlags & GTF_SIDE_EFFECT)
         {
@@ -11799,22 +11787,24 @@ void Importer::ImportLocAlloc(BasicBlock* block)
         BADCODE("Localloc can't be inside handler");
     }
 
-    // Get the size to allocate
-
-    GenTree* op1 = nullptr;
-    GenTree* op2 = impPopStack().val;
-    assertImp(genActualTypeIsIntOrI(op2->gtType));
-
-    if (verCurrentState.esStackDepth != 0)
+    if (verCurrentState.esStackDepth != 1)
     {
         BADCODE("Localloc can only be used when the stack is empty");
     }
+
+    // Get the size to allocate
+    GenTree* op2 = impPopStack().val;
+
+    // TODO-MIKE-Review: This should be BADCODE.
+    assert(genActualTypeIsIntOrI(op2->GetType()));
 
     // If the localloc is not in a loop and its size is a small constant,
     // create a new local var of TYP_BLK and return its address.
     // Need to aggressively fold here, as even fixed-size locallocs
     // will have casts in the way.
     op2 = gtFoldExpr(op2);
+
+    GenTree* op1 = nullptr;
 
     if (GenTreeIntCon* icon = op2->IsIntCon())
     {
@@ -12044,7 +12034,9 @@ void Importer::ImportUnbox(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnboxAn
     impHandleAccessAllowed(accessAllowedResult, calloutHelper);
 
     GenTree* op1 = impPopStack().val;
-    assertImp(op1->TypeIs(TYP_REF));
+
+    // TODO-MIKE-Review: This should be BADCODE.
+    assert(op1->TypeIs(TYP_REF));
 
     CorInfoHelpFunc helper = info.compCompHnd->getUnBoxHelper(resolvedToken.hClass);
     assert(helper == CORINFO_HELP_UNBOX || helper == CORINFO_HELP_UNBOX_NULLABLE);
@@ -12090,7 +12082,7 @@ void Importer::ImportUnbox(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnboxAn
                 GenTree* boxPayloadOffset = gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL);
                 op1                       = gtNewOperNode(GT_ADD, TYP_BYREF, op1, boxPayloadOffset);
 
-                goto LDOBJ;
+                goto LOAD_VALUE;
             }
             else
             {
@@ -12240,8 +12232,8 @@ void Importer::ImportUnbox(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnboxAn
         }
     }
 
-LDOBJ:
-    var_types lclTyp = JITtype2varType(info.compCompHnd->asCorInfoType(resolvedToken.hClass));
+LOAD_VALUE:
+    var_types lclTyp = CorTypeToVarType(info.compCompHnd->asCorInfoType(resolvedToken.hClass));
     op2              = op1;
 
     if (lclTyp == TYP_STRUCT)
@@ -12250,7 +12242,7 @@ LDOBJ:
     }
     else
     {
-        assertImp(varTypeIsArithmetic(lclTyp));
+        assert(varTypeIsArithmetic(lclTyp));
 
         op1 = gtNewOperNode(GT_IND, lclTyp, op1);
         op1->gtFlags |= GTF_GLOB_REF;
@@ -12511,7 +12503,9 @@ void Importer::ImportNewArr(const BYTE* codeAddr, BasicBlock* block)
 
     /* Form the arglist: array class handle, size */
     op2 = impPopStack().val;
-    assertImp(genActualTypeIsIntOrI(op2->gtType));
+
+    // TODO-MIKE-Review: This should be BADCODE.
+    assert(genActualTypeIsIntOrI(op2->GetType()));
 
 #ifdef TARGET_64BIT
     // The array helper takes a native int for array length.
@@ -12626,10 +12620,7 @@ void Importer::ImportNewObj(
 
     if ((classFlags & CORINFO_FLG_ARRAY) != 0)
     {
-        INDEBUG(GenTree* op1 = nullptr);
-        INDEBUG(GenTree* op2 = nullptr);
-        // Arrays need to call the NEWOBJ helper.
-        assertImp((classFlags & CORINFO_FLG_VAROBJSIZE) != 0);
+        assert((classFlags & CORINFO_FLG_VAROBJSIZE) != 0);
 
         impImportNewObjArray(&resolvedToken, &callInfo);
 
@@ -13204,15 +13195,14 @@ void Importer::impReturnInstruction(int prefixFlags, OPCODE opcode)
 
 #ifdef DEBUG
         {
-            GenTree*  op1     = value;
-            GenTree*  op2     = nullptr;
-            var_types retType = info.compRetType;
-            var_types valType = value->GetType();
-            assertImp((varActualType(valType) == varActualType(retType)) ||
-                      ((valType == TYP_I_IMPL) && (retType == TYP_BYREF)) ||
-                      (varTypeIsGC(valType) && (retType == TYP_I_IMPL)) ||
-                      (varTypeIsFloating(valType) && varTypeIsFloating(retType)) ||
-                      (varTypeIsStruct(valType) && varTypeIsStruct(retType)));
+            var_types retType = varActualType(info.compRetType);
+            var_types valType = varActualType(value->GetType());
+
+            // TODO-MIKE-Review: This should be BADCODE.
+            assert((valType == retType) || ((valType == TYP_I_IMPL) && (retType == TYP_BYREF)) ||
+                   (varTypeIsGC(valType) && (retType == TYP_I_IMPL)) ||
+                   (varTypeIsFloating(valType) && varTypeIsFloating(retType)) ||
+                   (varTypeIsStruct(valType) && varTypeIsStruct(retType)));
         }
 
         if (((prefixFlags & PREFIX_TAILCALL) == 0) && opts.compGcChecks && (info.compRetType == TYP_REF))
