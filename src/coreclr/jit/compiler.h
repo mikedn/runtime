@@ -2640,7 +2640,7 @@ struct Importer
     GenTree* impImplicitR4orR8Cast(GenTree* tree, var_types dstTyp);
 
     void impImportLeave(BasicBlock* block);
-    void impResetLeaveBlock(BasicBlock* block, unsigned jmpAddr);
+    void impResetLeaveBlock(BasicBlock* block, IL_OFFSET leaveOffset);
     GenTree* impUnsupportedNamedIntrinsic(CorInfoHelpFunc       helper,
                                           CORINFO_METHOD_HANDLE method,
                                           CORINFO_SIG_INFO*     sig,

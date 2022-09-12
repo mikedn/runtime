@@ -8472,7 +8472,7 @@ void Importer::impImportLeave(BasicBlock* block)
 // This is called when reimporting a leave block. It resets the JumpKind,
 // JumpDest, and bbNext to the original values
 
-void Importer::impResetLeaveBlock(BasicBlock* block, unsigned jmpAddr)
+void Importer::impResetLeaveBlock(BasicBlock* block, IL_OFFSET leaveOffset)
 {
 #if defined(FEATURE_EH_FUNCLETS)
     // With EH Funclets, while importing leave opcode we create another block ending with BBJ_ALWAYS (call it B1)
@@ -8530,7 +8530,7 @@ void Importer::impResetLeaveBlock(BasicBlock* block, unsigned jmpAddr)
 
     block->bbJumpKind = BBJ_LEAVE;
     fgInitBBLookup();
-    block->bbJumpDest = fgLookupBB(jmpAddr);
+    block->bbJumpDest = fgLookupBB(leaveOffset);
 
     // We will leave the BBJ_ALWAYS block we introduced. When it's reimported
     // the BBJ_ALWAYS block will be unreachable, and will be removed after. The
@@ -9231,7 +9231,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
             GenTree*               op3;
             genTreeOps             oper;
             int                    val;
-            IL_OFFSET              jmpAddr;
             bool                   uns;
             bool                   ovfl;
             bool                   isLocal;
@@ -10269,14 +10268,10 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_LEAVE:
-                val     = getI4LittleEndian(codeAddr); // jump distance
-                jmpAddr = (IL_OFFSET)((codeAddr - info.compCode + sizeof(__int32)) + val);
+                val = 4 + getI4LittleEndian(codeAddr);
                 goto LEAVE;
-
             case CEE_LEAVE_S:
-                val     = getI1LittleEndian(codeAddr); // jump distance
-                jmpAddr = (IL_OFFSET)((codeAddr - info.compCode + sizeof(__int8)) + val);
-
+                val = 1 + getI1LittleEndian(codeAddr);
             LEAVE:
                 if (compIsForInlining())
                 {
@@ -10284,13 +10279,18 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     return;
                 }
 
-                JITDUMP(" %04X", jmpAddr);
-                if (block->bbJumpKind != BBJ_LEAVE)
                 {
-                    impResetLeaveBlock(block, jmpAddr);
+                    IL_OFFSET offset = static_cast<IL_OFFSET>((codeAddr - info.compCode) + val);
+                    JITDUMP(" %04X", offset);
+
+                    if (block->bbJumpKind != BBJ_LEAVE)
+                    {
+                        impResetLeaveBlock(block, offset);
+                    }
+
+                    assert(offset == block->bbJumpDest->bbCodeOffs);
                 }
 
-                assert(jmpAddr == block->bbJumpDest->bbCodeOffs);
                 impImportLeave(block);
                 impNoteBranchOffs();
                 break;
