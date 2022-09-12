@@ -1954,7 +1954,7 @@ unsigned Importer::impInitBlockLineInfo(BasicBlock* block)
 
     impCurStmtOffs = BAD_IL_OFFSET;
 
-    IL_OFFSET blockOffs = compCurBB->bbCodeOffs;
+    IL_OFFSET blockOffs = block->bbCodeOffs;
 
     if ((verCurrentState.esStackDepth == 0) && (compStmtOffsetsImplicit & ICorDebugInfo::STACK_EMPTY_BOUNDARIES))
     {
