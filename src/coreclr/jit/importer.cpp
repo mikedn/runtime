@@ -9099,32 +9099,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
     assert((impStmtList == nullptr) && (impLastStmt == nullptr));
 
-#ifdef FEATURE_ON_STACK_REPLACEMENT
-    // Are there any places in the method where we might add a patchpoint?
-    if (comp->compHasBackwardJump)
-    {
-        if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER0) && (JitConfig.TC_OnStackReplacement() > 0))
-        {
-            // We don't inline at Tier0, if we do, we may need rethink our approach.
-            // Could probably support inlines that don't introduce flow.
-            assert(!compIsForInlining());
-
-            // Is the start of this block a suitable patchpoint?
-            // Current strategy is blocks that are stack-empty and backwards branch targets
-            if (block->bbFlags & BBF_BACKWARD_JUMP_TARGET && (verCurrentState.esStackDepth == 0))
-            {
-                block->bbFlags |= BBF_PATCHPOINT;
-                comp->setMethodHasPatchpoint();
-            }
-        }
-    }
-    else
-    {
-        // Should not see backward branch targets w/o backwards branches
-        assert((block->bbFlags & BBF_BACKWARD_JUMP_TARGET) == 0);
-    }
-#endif // FEATURE_ON_STACK_REPLACEMENT
-
 #ifdef FEATURE_SIMD
     m_impSIMDCoalescingBuffer.Clear();
 #endif
@@ -13394,6 +13368,32 @@ void Importer::impImportBlock(BasicBlock* block)
     {
         impAddPendingEHSuccessors(block);
     }
+
+#ifdef FEATURE_ON_STACK_REPLACEMENT
+    // Are there any places in the method where we might add a patchpoint?
+    if (comp->compHasBackwardJump)
+    {
+        if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER0) && (JitConfig.TC_OnStackReplacement() > 0))
+        {
+            // We don't inline at Tier0, if we do, we may need rethink our approach.
+            // Could probably support inlines that don't introduce flow.
+            assert(!compIsForInlining());
+
+            // Is the start of this block a suitable patchpoint?
+            // Current strategy is blocks that are stack-empty and backwards branch targets
+            if (block->bbFlags & BBF_BACKWARD_JUMP_TARGET && (verCurrentState.esStackDepth == 0))
+            {
+                block->bbFlags |= BBF_PATCHPOINT;
+                comp->setMethodHasPatchpoint();
+            }
+        }
+    }
+    else
+    {
+        // Should not see backward branch targets w/o backwards branches
+        assert((block->bbFlags & BBF_BACKWARD_JUMP_TARGET) == 0);
+    }
+#endif // FEATURE_ON_STACK_REPLACEMENT
 
     impImportBlockCode(block);
 
