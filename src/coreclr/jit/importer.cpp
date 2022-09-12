@@ -9070,25 +9070,6 @@ GenTree* Importer::impCastClassOrIsInstToTree(GenTree*                op1,
     return gtNewLclvNode(tmp, TYP_REF);
 }
 
-#ifndef DEBUG
-#define assertImp(cond) ((void)0)
-#else
-#define assertImp(cond)                                                                                                \
-    do                                                                                                                 \
-    {                                                                                                                  \
-        if (!(cond))                                                                                                   \
-        {                                                                                                              \
-            const int cchAssertImpBuf = 600;                                                                           \
-            char*     assertImpBuf    = (char*)alloca(cchAssertImpBuf);                                                \
-            _snprintf_s(assertImpBuf, cchAssertImpBuf, cchAssertImpBuf - 1,                                            \
-                        "%s : Possibly bad IL with CEE_%s at offset %04Xh (op1=%s value=%s stkDepth=%d)", #cond,       \
-                        impCurOpcName, impCurOpcOffs, op1 ? varTypeName(op1->TypeGet()) : "NULL",                      \
-                        op2 ? varTypeName(op2->TypeGet()) : "NULL", verCurrentState.esStackDepth);                     \
-            assertAbort(assertImpBuf, __FILE__, __LINE__);                                                             \
-        }                                                                                                              \
-    } while (0)
-#endif // DEBUG
-
 //------------------------------------------------------------------------
 // impBlockIsInALoop: check if a block might be in a loop
 //
@@ -9653,12 +9634,12 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     }
 #endif
 
-                    // We had better assign it a value of the correct type
-                    assertImp((varActualType(lclTyp) == varActualType(op1->GetType())) ||
-                              ((lclTyp == TYP_I_IMPL) && op1->TypeIs(TYP_BYREF, TYP_REF)) ||
-                              ((lclTyp == TYP_BYREF) && op1->TypeIs(TYP_I_IMPL)) ||
-                              ((lclTyp == TYP_BYREF) && op1->TypeIs(TYP_REF)) ||
-                              (varTypeIsFloating(lclTyp) && varTypeIsFloating(op1->GetType())));
+                    // TODO-MIKE-Review: This should be BADCODE.
+                    assert((varActualType(lclTyp) == varActualType(op1->GetType())) ||
+                           ((lclTyp == TYP_I_IMPL) && op1->TypeIs(TYP_BYREF, TYP_REF)) ||
+                           ((lclTyp == TYP_BYREF) && op1->TypeIs(TYP_I_IMPL)) ||
+                           ((lclTyp == TYP_BYREF) && op1->TypeIs(TYP_REF)) ||
+                           (varTypeIsFloating(lclTyp) && varTypeIsFloating(op1->GetType())));
 
                     if (lclTyp == TYP_I_IMPL)
                     {
@@ -9982,7 +9963,9 @@ void Importer::impImportBlockCode(BasicBlock* block)
             ARR_LD:
                 op2 = impPopStack().val; // Index
                 op1 = impPopStack().val; // Array reference
-                assertImp(op1->gtType == TYP_REF);
+
+                // TODO-MIKE-Review: This should be BADCODE.
+                assert(op1->TypeIs(TYP_REF));
 
                 /* Check for null pointer - in the inliner case we simply abort */
 
@@ -10067,9 +10050,10 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     GenTree* index = impPopStack().val;
                     GenTree* array = impPopStack().val;
 
-                    assertImp(array->TypeIs(TYP_REF));
-                    assertImp(value->TypeIs(TYP_REF));
-                    assertImp(varTypeIsIntegral(index->GetType()));
+                    // TODO-MIKE-Review: This should be BADCODE.
+                    assert(array->TypeIs(TYP_REF));
+                    assert(value->TypeIs(TYP_REF));
+                    assert(varTypeIsIntegral(index->GetType()));
 
                     impSpillAllAppendTree(
                         gtNewHelperCallNode(CORINFO_HELP_ARRADDR_ST, TYP_VOID, gtNewCallArgs(array, index, value)));
@@ -10112,7 +10096,8 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 op1 = impPopStack().val; // index
                 op3 = impPopStack().val; // array
 
-                assertImp(op3->TypeIs(TYP_REF));
+                // TODO-MIKE-Review: This should be BADCODE.
+                assert(op3->TypeIs(TYP_REF));
 
                 op3 = impCheckForNullPointer(op3);
                 op1 = gtNewArrayIndexAddr(op3, op1, lclTyp);
@@ -10422,9 +10407,10 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     assert(!opts.compDbgCode);
 
                     BBjumpKinds foldedJumpKind = (BBjumpKinds)(op1->AsIntCon()->gtIconVal ? BBJ_ALWAYS : BBJ_NONE);
-                    assertImp((block->bbJumpKind == BBJ_COND)            // normal case
-                              || (block->bbJumpKind == foldedJumpKind)); // this can happen if we are reimporting the
-                                                                         // block for the second time
+
+                    assert((block->bbJumpKind == BBJ_COND)            // normal case
+                           || (block->bbJumpKind == foldedJumpKind)); // this can happen if we are reimporting the
+                                                                      // block for the second time
 
                     block->bbJumpKind = foldedJumpKind;
 #ifdef DEBUG
@@ -10496,8 +10482,9 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 {
                     impAddCompareOpImplicitCasts(uns, op1, op2);
 
-                    assertImp((varActualType(op1->GetType()) == varActualType(op2->GetType())) ||
-                              (varTypeIsI(op1->GetType()) == varTypeIsI(op2->GetType())));
+                    // TODO-MIKE-Review: This should be BADCODE.
+                    assert((varActualType(op1->GetType()) == varActualType(op2->GetType())) ||
+                           (varTypeIsI(op1->GetType()) == varTypeIsI(op2->GetType())));
                 }
 
                 op1 = gtNewOperNode(oper, TYP_INT, op1, op2);
@@ -10582,8 +10569,9 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 {
                     impAddCompareOpImplicitCasts(uns, op1, op2);
 
-                    assertImp((varActualType(op1->GetType()) == varActualType(op2->GetType())) ||
-                              (varTypeIsI(op1->GetType()) == varTypeIsI(op2->GetType())));
+                    // TODO-MIKE-Review: This should be BADCODE.
+                    assert((varActualType(op1->GetType()) == varActualType(op2->GetType())) ||
+                           (varTypeIsI(op1->GetType()) == varTypeIsI(op2->GetType())));
                 }
 
                 op1 = gtNewOperNode(oper, TYP_INT, op1, op2);
@@ -10601,7 +10589,9 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 codeAddr += 4 + getU4LittleEndian(codeAddr) * 4;
 
                 op1 = impPopStack().val;
-                assertImp(genActualTypeIsIntOrI(op1->GetType()));
+
+                // TODO-MIKE-Review: This should be BADCODE.
+                assert(varActualTypeIsIntOrI(op1->GetType()));
 
                 impSpillAllAppendTree(gtNewOperNode(GT_SWITCH, TYP_VOID, op1));
                 break;
@@ -10886,8 +10876,8 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 op2 = impPopStack().val; // value to store
                 op1 = impPopStack().val; // address to store to
 
-                // you can indirect off of a TYP_I_IMPL (if we are in C) or a BYREF
-                assertImp(op1->TypeIs(TYP_I_IMPL, TYP_BYREF));
+                // TODO-MIKE-Review: This should be BADCODE.
+                assert(op1->TypeIs(TYP_I_IMPL, TYP_BYREF));
 
                 impBashVarAddrsToI(op1, op2);
 
@@ -10896,29 +10886,30 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if ((lclTyp == TYP_REF) && !op2->TypeIs(TYP_REF))
                 {
-                    // STIND_REF can be used to store TYP_INT, TYP_I_IMPL, TYP_REF, or TYP_BYREF.
-                    assertImp(op2->TypeIs(TYP_INT, TYP_I_IMPL, TYP_BYREF));
+                    // TODO-MIKE-Review: This should be BADCODE. Not clear why this allows
+                    // I_IMPL, BYREF, much less INT. Typical nonsense...
+                    assert(op2->TypeIs(TYP_INT, TYP_I_IMPL, TYP_BYREF));
                     lclTyp = op2->GetType();
                 }
 
-// Check target type.
 #ifdef DEBUG
-                if (op2->gtType == TYP_BYREF || lclTyp == TYP_BYREF)
+                // TODO-MIKE-Review: This should be BADCODE. And it's a complete mess anyway.
+                if (op2->TypeIs(TYP_BYREF) || (lclTyp == TYP_BYREF))
                 {
-                    if (op2->gtType == TYP_BYREF)
+                    if (op2->TypeIs(TYP_BYREF))
                     {
-                        assertImp(lclTyp == TYP_BYREF || lclTyp == TYP_I_IMPL);
+                        assert((lclTyp == TYP_BYREF) || (lclTyp == TYP_I_IMPL));
                     }
                     else if (lclTyp == TYP_BYREF)
                     {
-                        assertImp(op2->gtType == TYP_BYREF || varTypeIsIntOrI(op2->gtType));
+                        assert(op2->TypeIs(TYP_BYREF) || varTypeIsIntOrI(op2->GetType()));
                     }
                 }
                 else
                 {
-                    assertImp(genActualType(op2->gtType) == genActualType(lclTyp) ||
-                              ((lclTyp == TYP_I_IMPL) && (genActualType(op2->gtType) == TYP_INT)) ||
-                              (varTypeIsFloating(op2->gtType) && varTypeIsFloating(lclTyp)));
+                    assert((varActualType(op2->GetType()) == varActualType(lclTyp)) ||
+                           ((lclTyp == TYP_I_IMPL) && (varActualType(op2->GetType()) == TYP_INT)) ||
+                           (varTypeIsFloating(op2->GetType()) && varTypeIsFloating(lclTyp)));
                 }
 #endif
 
@@ -10992,7 +10983,8 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 }
 #endif
 
-                assertImp(op1->TypeIs(TYP_I_IMPL, TYP_BYREF));
+                // TODO-MIKE-Review: This should be BADCODE. Might need to tolerate REF too.
+                assert(op1->TypeIs(TYP_I_IMPL, TYP_BYREF));
 
                 op1 = gtNewOperNode(GT_IND, lclTyp, op1);
 
@@ -11436,7 +11428,8 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 op1 = impPopStack().val; // Destination address
 
-                assertImp(op1->TypeIs(TYP_I_IMPL, TYP_BYREF));
+                // TODO-MIKE-Review: This should be BADCODE.
+                assert(op1->TypeIs(TYP_I_IMPL, TYP_BYREF));
 
                 impBashVarAddrsToI(op1);
 
@@ -11466,8 +11459,9 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 op2 = impPopStack().val; // Source address
                 op1 = impPopStack().val; // Destination address
 
-                assertImp(op1->TypeIs(TYP_I_IMPL, TYP_BYREF));
-                assertImp(op2->TypeIs(TYP_I_IMPL, TYP_BYREF));
+                // TODO-MIKE-Review: This should be BADCODE.
+                assert(op1->TypeIs(TYP_I_IMPL, TYP_BYREF));
+                assert(op2->TypeIs(TYP_I_IMPL, TYP_BYREF));
 
                 impBashVarAddrsToI(op1, op2);
 
@@ -11488,7 +11482,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if (info.compCompHnd->isValueClass(resolvedToken.hClass))
                 {
-                    lclTyp = JITtype2varType(info.compCompHnd->asCorInfoType(resolvedToken.hClass));
+                    lclTyp = CorTypeToVarType(info.compCompHnd->asCorInfoType(resolvedToken.hClass));
                 }
                 else
                 {
@@ -11503,7 +11497,8 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 op2 = impPopStack().val; // Value
                 op1 = impPopStack().val; // Ptr
 
-                assertImp(varTypeIsStruct(op2));
+                // TODO-MIKE-Review: This should be BADCODE.
+                assert(varTypeIsStruct(op2->GetType()));
 
                 op1 = gtNewObjNode(typGetObjLayout(resolvedToken.hClass), op1);
                 op1 = impAssignStruct(op1, op2, CHECK_SPILL_ALL);
@@ -11560,7 +11555,9 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 }
 
                 op1 = impPopStack().val;
-                assertImp(op1->TypeIs(TYP_BYREF, TYP_I_IMPL));
+
+                // TODO-MIKE-Review: This should be BADCODE.
+                assert(op1->TypeIs(TYP_BYREF, TYP_I_IMPL));
 
                 lclTyp = JITtype2varType(info.compCompHnd->asCorInfoType(resolvedToken.hClass));
                 op2    = op1;
@@ -11571,7 +11568,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 }
                 else
                 {
-                    assertImp(varTypeIsArithmetic(lclTyp));
+                    assert(varTypeIsArithmetic(lclTyp));
 
                     op1 = gtNewOperNode(GT_IND, lclTyp, op1);
                     op1->gtFlags |= GTF_GLOB_REF;
