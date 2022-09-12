@@ -9890,7 +9890,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_LDELEMA:
-                assertImp(sz == sizeof(unsigned));
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
                 clsHnd = resolvedToken.hClass;
@@ -9928,7 +9927,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_LDELEM:
-                assertImp(sz == sizeof(unsigned));
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
                 clsHnd = resolvedToken.hClass;
@@ -10027,7 +10025,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
             // stelem for reference and value types
             case CEE_STELEM:
-                assertImp(sz == sizeof(unsigned));
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
                 clsHnd = resolvedToken.hClass;
@@ -11026,7 +11023,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
             case CEE_LDFLD:
             case CEE_LDFLDA:
             {
-                assertImp(sz == sizeof(unsigned));
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Field);
                 JITDUMP(" %08X", resolvedToken.token);
                 eeGetFieldInfo(&resolvedToken, (opcode == CEE_LDFLDA) ? CORINFO_ACCESS_ADDRESS : CORINFO_ACCESS_GET,
@@ -11171,7 +11167,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
             case CEE_STFLD:
             {
-                assertImp(sz == sizeof(unsigned));
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Field);
                 JITDUMP(" %08X", resolvedToken.token);
                 eeGetFieldInfo(&resolvedToken, CORINFO_ACCESS_SET, &fieldInfo);
@@ -11274,7 +11269,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
             case CEE_LDSFLD:
             case CEE_LDSFLDA:
-                assertImp(sz == sizeof(unsigned));
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Field);
                 JITDUMP(" %08X", resolvedToken.token);
                 eeGetFieldInfo(&resolvedToken, (opcode == CEE_LDSFLDA) ? CORINFO_ACCESS_ADDRESS : CORINFO_ACCESS_GET,
@@ -11305,7 +11299,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_STSFLD:
-                assertImp(sz == sizeof(unsigned));
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Field);
                 JITDUMP(" %08X", resolvedToken.token);
                 eeGetFieldInfo(&resolvedToken, CORINFO_ACCESS_SET, &fieldInfo);
@@ -11353,7 +11346,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
             case CEE_UNBOX:
             case CEE_UNBOX_ANY:
-                assertImp(sz == sizeof(unsigned));
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
@@ -11373,7 +11365,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_SIZEOF:
-                assertImp(sz == sizeof(unsigned));
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
@@ -11381,7 +11372,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_CASTCLASS:
-                assertImp(sz == sizeof(unsigned));
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Casting);
                 JITDUMP(" %08X", resolvedToken.token);
 
@@ -11424,7 +11414,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_INITOBJ:
-                assertImp(sz == sizeof(unsigned));
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
@@ -11454,7 +11443,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_CPOBJ:
-                assertImp(sz == sizeof(unsigned));
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
@@ -11487,7 +11475,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_STOBJ:
-                assertImp(sz == sizeof(unsigned));
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
@@ -11545,7 +11532,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_LDOBJ:
-                assertImp(sz == sizeof(unsigned));
                 impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
