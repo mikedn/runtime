@@ -9865,8 +9865,16 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 block->bbSetRunRarely(); // filters are rare
 
                 op1 = impPopStack().val;
-                assertImp(op1->TypeIs(TYP_INT));
-                impSpillNoneAppendTree(gtNewOperNode(GT_RETFILT, op1->GetType(), op1));
+
+                if (varActualType(op1->GetType()) != TYP_INT)
+                {
+                    // TODO-MIKE-Review: This should be BADCODE. Old code only asserted and
+                    // there's a pretty good chance that LONG values worked fine by accident.
+                    op1 = gtNewCastNode(TYP_INT, op1, false, TYP_INT);
+                    assert(!"Bad endfilter value type");
+                }
+
+                impSpillNoneAppendTree(gtNewOperNode(GT_RETFILT, TYP_INT, op1));
                 break;
 
             case CEE_RET:
