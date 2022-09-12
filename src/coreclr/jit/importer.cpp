@@ -9226,7 +9226,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
         OPCODE               opcode      = static_cast<OPCODE>(*codeAddr++);
 
     DECODE_OPCODE:
-        INDEBUG(lclTyp = TYP_COUNT);
         INDEBUG(impCurOpcOffs = opcodeOffs);
         DBEXEC(verbose && (opcode != CEE_PREFIX1), printf("%s", opcodeNames[opcode]))
 
