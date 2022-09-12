@@ -9212,14 +9212,8 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
         JITDUMP("\n    [%2u] %3u (0x%03x) ", verCurrentState.esStackDepth, opcodeOffs, opcodeOffs);
 
-        CORINFO_CLASS_HANDLE clsHnd      = NO_CLASS_HANDLE;
-        var_types            lclTyp      = TYP_UNKNOWN;
-        GenTree*             op1         = nullptr;
-        GenTree*             op2         = nullptr;
-        bool                 uns         = false;
-        bool                 isLocal     = false;
-        int                  prefixFlags = 0;
-        OPCODE               opcode      = static_cast<OPCODE>(*codeAddr++);
+        int    prefixFlags = 0;
+        OPCODE opcode      = static_cast<OPCODE>(*codeAddr++);
 
     DECODE_OPCODE:
         INDEBUG(impCurOpcOffs = opcodeOffs);
@@ -9230,12 +9224,18 @@ void Importer::impImportBlockCode(BasicBlock* block)
         switch (opcode)
         {
             unsigned               lclNum;
+            var_types              lclTyp;
             var_types              type;
+            GenTree*               op1;
+            GenTree*               op2;
             GenTree*               op3;
             genTreeOps             oper;
             int                    val;
             IL_OFFSET              jmpAddr;
+            bool                   uns;
             bool                   ovfl;
+            bool                   isLocal;
+            CORINFO_CLASS_HANDLE   clsHnd;
             CORINFO_RESOLVED_TOKEN resolvedToken;
             CORINFO_RESOLVED_TOKEN constrainedResolvedToken;
             CORINFO_FIELD_INFO     fieldInfo;
@@ -9475,25 +9475,25 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     assert(lvaGetDesc(lclNum)->lvHasILStoreOp);
                 }
 
-                goto ST_ARG;
+                isLocal = false;
+                goto STLCL;
 
             case CEE_STLOC:
-                lclNum  = getU2LittleEndian(codeAddr);
-                isLocal = true;
+                lclNum = getU2LittleEndian(codeAddr);
                 JITDUMP(" %u", lclNum);
-                goto ST_LOC;
+                goto STLOC;
             case CEE_STLOC_S:
-                lclNum  = getU1LittleEndian(codeAddr);
-                isLocal = true;
+                lclNum = getU1LittleEndian(codeAddr);
                 JITDUMP(" %u", lclNum);
-                goto ST_LOC;
+                goto STLOC;
             case CEE_STLOC_0:
             case CEE_STLOC_1:
             case CEE_STLOC_2:
             case CEE_STLOC_3:
+                lclNum = (opcode - CEE_STLOC_0);
+            STLOC:
                 isLocal = true;
-                lclNum  = (opcode - CEE_STLOC_0);
-            ST_LOC:
+
                 if (compIsForInlining())
                 {
                     if (lclNum >= impInlineInfo->ilLocCount)
@@ -9514,7 +9514,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                     lclNum += info.compArgsCount;
 
-                ST_ARG:
+                STLCL:
                     LclVarDsc* lcl = lvaGetDesc(lclNum);
                     lclTyp         = lcl->GetType();
 
@@ -9845,7 +9845,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 if (info.compCompHnd->isValueClass(resolvedToken.hClass))
                 {
                     lclTyp = JITtype2varType(info.compCompHnd->asCorInfoType(clsHnd));
-                    goto ARR_LD;
+                    goto LDELEM;
                 }
 
                 // Similarly, if its a readonly access, we can do a simple address-of
@@ -9853,7 +9853,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 if ((prefixFlags & PREFIX_READONLY) != 0)
                 {
                     lclTyp = TYP_REF;
-                    goto ARR_LD;
+                    goto LDELEM;
                 }
 
                 // Otherwise we need the full helper function with run-time type check
@@ -9881,44 +9881,46 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 if (info.compCompHnd->isValueClass(resolvedToken.hClass))
                 {
                     lclTyp = JITtype2varType(info.compCompHnd->asCorInfoType(clsHnd));
-                    goto ARR_LD;
+                    goto LDELEM;
                 }
 
                 opcode = CEE_LDELEM_REF;
-                __fallthrough;
+                FALLTHROUGH;
             case CEE_LDELEM_REF:
                 lclTyp = TYP_REF;
-                goto ARR_LD;
+                goto LDELEM_T;
             case CEE_LDELEM_I1:
                 lclTyp = TYP_BYTE;
-                goto ARR_LD;
+                goto LDELEM_T;
             case CEE_LDELEM_I2:
                 lclTyp = TYP_SHORT;
-                goto ARR_LD;
+                goto LDELEM_T;
             case CEE_LDELEM_I:
                 lclTyp = TYP_I_IMPL;
-                goto ARR_LD;
+                goto LDELEM_T;
             case CEE_LDELEM_U4:
                 lclTyp = TYP_INT;
-                goto ARR_LD;
+                goto LDELEM_T;
             case CEE_LDELEM_I4:
                 lclTyp = TYP_INT;
-                goto ARR_LD;
+                goto LDELEM_T;
             case CEE_LDELEM_I8:
                 lclTyp = TYP_LONG;
-                goto ARR_LD;
+                goto LDELEM_T;
             case CEE_LDELEM_R4:
                 lclTyp = TYP_FLOAT;
-                goto ARR_LD;
+                goto LDELEM_T;
             case CEE_LDELEM_R8:
                 lclTyp = TYP_DOUBLE;
-                goto ARR_LD;
+                goto LDELEM_T;
             case CEE_LDELEM_U1:
                 lclTyp = TYP_UBYTE;
-                goto ARR_LD;
+                goto LDELEM_T;
             case CEE_LDELEM_U2:
                 lclTyp = TYP_USHORT;
-            ARR_LD:
+            LDELEM_T:
+                clsHnd = NO_CLASS_HANDLE;
+            LDELEM:
                 op2 = impPopStack().val; // Index
                 op1 = impPopStack().val; // Array reference
 
@@ -9981,7 +9983,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 if (info.compCompHnd->isValueClass(clsHnd))
                 {
                     lclTyp = JITtype2varType(info.compCompHnd->asCorInfoType(clsHnd));
-                    goto ARR_ST;
+                    goto STELEM;
                 }
 
                 // If it's a reference type just behave as though it's a stelem.ref instruction
@@ -9997,7 +9999,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     if (impCanSkipCovariantStoreCheck(value, array))
                     {
                         lclTyp = TYP_REF;
-                        goto ARR_ST;
+                        goto STELEM_T;
                     }
 
                     // Else call a helper function to do the assignment
@@ -10020,25 +10022,27 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
             case CEE_STELEM_I1:
                 lclTyp = TYP_BYTE;
-                goto ARR_ST;
+                goto STELEM_T;
             case CEE_STELEM_I2:
                 lclTyp = TYP_SHORT;
-                goto ARR_ST;
+                goto STELEM_T;
             case CEE_STELEM_I:
                 lclTyp = TYP_I_IMPL;
-                goto ARR_ST;
+                goto STELEM_T;
             case CEE_STELEM_I4:
                 lclTyp = TYP_INT;
-                goto ARR_ST;
+                goto STELEM_T;
             case CEE_STELEM_I8:
                 lclTyp = TYP_LONG;
-                goto ARR_ST;
+                goto STELEM_T;
             case CEE_STELEM_R4:
                 lclTyp = TYP_FLOAT;
-                goto ARR_ST;
+                goto STELEM_T;
             case CEE_STELEM_R8:
                 lclTyp = TYP_DOUBLE;
-            ARR_ST:
+            STELEM_T:
+                clsHnd = NO_CLASS_HANDLE;
+            STELEM:
                 // We need to evaluate array, index, value and then perform a range check.
                 // However, the IR we build is ASG(IND(INDEX_ADDR(array, index)), value),
                 // with INDEX_ADDR performing the range check, before value is evaluated.
@@ -10148,6 +10152,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 oper = GT_XOR;
             MATH_OP2_NO_OVF:
                 ovfl = false;
+                uns  = false;
 
             MATH_OP2:
                 op2 = impPopStack().val;
@@ -10697,8 +10702,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 {
                     uns = false;
                 }
-
-                // At this point uns, ovf, callNode are all set.
 
                 if (varTypeIsSmall(lclTyp) && !ovfl && op1->gtType == TYP_INT && op1->gtOper == GT_AND)
                 {
