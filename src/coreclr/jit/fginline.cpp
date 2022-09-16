@@ -556,6 +556,7 @@ void Compiler::inlMain()
 {
     assert(compIsForInlining());
     assert(info.compILCodeSize != 0);
+    assert(!info.compMethodInfo->args.isVarArg());
 
 #ifdef DEBUG
     if (info.SkipMethod())
@@ -603,8 +604,9 @@ void Compiler::inlMain()
     compBasicBlockID = inliner->compBasicBlockID;
 #endif
 
-    info.compIsStatic = (info.compFlags & CORINFO_FLG_STATIC) != 0;
-    info.compInitMem  = (info.compMethodInfo->options & CORINFO_OPT_INIT_LOCALS) != 0;
+    info.compIsStatic  = (info.compFlags & CORINFO_FLG_STATIC) != 0;
+    info.compInitMem   = (info.compMethodInfo->options & CORINFO_OPT_INIT_LOCALS) != 0;
+    info.compIsVarArgs = false;
 
     info.compILEntry          = 0;
     info.compPatchpointInfo   = nullptr;
@@ -613,17 +615,6 @@ void Compiler::inlMain()
     info.compCallConv         = CorInfoCallConvExtension::Managed;
     info.compArgOrder         = Target::g_tgtArgOrder;
     info.compMatchedVM        = inliner->info.compMatchedVM;
-
-    // TODO-MIKE-Review: Does inlining need this?
-    switch (info.compMethodInfo->args.getCallConv())
-    {
-        case CORINFO_CALLCONV_NATIVEVARARG:
-        case CORINFO_CALLCONV_VARARG:
-            info.compIsVarArgs = true;
-            break;
-        default:
-            break;
-    }
 
     // Set the context for token lookup.
     impTokenLookupContextHandle = impInlineInfo->inlineCandidateInfo->exactContextHnd;
