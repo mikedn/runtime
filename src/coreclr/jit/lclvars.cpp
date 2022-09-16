@@ -151,8 +151,7 @@ bool Compiler::lvaInitLocalsCount()
         info.compTypeCtxtArg = BAD_VAR_NUM;
     }
 
-    info.compLocalsCount   = info.compArgsCount + info.compMethodInfo->locals.numArgs;
-    info.compILlocalsCount = info.compILargsCount + info.compMethodInfo->locals.numArgs;
+    info.compLocalsCount = info.compArgsCount + info.compMethodInfo->locals.numArgs;
 
     return hasRetBuffArg;
 }

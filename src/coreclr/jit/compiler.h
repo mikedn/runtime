@@ -1590,8 +1590,7 @@ struct CompiledMethodInfo
     unsigned compRetBuffArg;  // position of hidden return param var (0, 1) (BAD_VAR_NUM means not present);
     unsigned compTypeCtxtArg; // position of hidden param for type context for generic code (CORINFO_CALLCONV_PARAMTYPE)
     unsigned compThisArg;     // position of implicit this pointer param (not to be confused with lvaArg0Var)
-    unsigned compILlocalsCount; // Number of vars : args + locals (incl. implicit but not hidden)
-    unsigned compLocalsCount;   // Number of vars : args + locals (incl. implicit and     hidden)
+    unsigned compLocalsCount; // Number of vars : args + locals (incl. implicit and     hidden)
     unsigned compTotalHotCodeSize                   = 0; // Total number of bytes of Hot Code in the method
     unsigned compTotalColdCodeSize                  = 0; // Total number of bytes of Cold Code in the method
     unsigned compUnmanagedCallCountWithGCTransition = 0; // count of unmanaged calls with GC transition.

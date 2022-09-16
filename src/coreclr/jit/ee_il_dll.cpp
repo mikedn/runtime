@@ -764,7 +764,9 @@ void Compiler::eeGetVars(ICorDebugInfo::ILVarInfo* varInfoTable, uint32_t varInf
 
 unsigned Compiler::compMapILvarNum(unsigned ilVarNum)
 {
-    noway_assert((ilVarNum < info.compILlocalsCount) || (ilVarNum > ICorDebugInfo::UNKNOWN_ILNUM));
+    unsigned compILlocalsCount = info.compILargsCount + info.compMethodInfo->locals.numArgs;
+
+    noway_assert((ilVarNum < compILlocalsCount) || (ilVarNum > ICorDebugInfo::UNKNOWN_ILNUM));
 
     unsigned varNum;
 
@@ -794,7 +796,7 @@ unsigned Compiler::compMapILvarNum(unsigned ilVarNum)
 
         noway_assert(lvaGetDesc(varNum)->IsParam());
     }
-    else if (ilVarNum < info.compILlocalsCount)
+    else if (ilVarNum < compILlocalsCount)
     {
         varNum = info.compArgsCount + ilVarNum - info.compILargsCount;
 
