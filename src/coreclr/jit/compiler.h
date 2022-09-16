@@ -4037,7 +4037,10 @@ public:
 
     //------------------------ For splitting types ----------------------------
 
-    void lvaInitTypeRef();
+    bool lvaInitRetType();
+    bool lvaInitLocalsCount();
+    void lvaInitLocals();
+    void lvaInitInline();
 
     void lvaInitArgs(InitVarDscInfo* varDscInfo);
     void lvaInitThisPtr(InitVarDscInfo* varDscInfo);

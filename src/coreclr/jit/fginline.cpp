@@ -813,7 +813,9 @@ void Compiler::inlImportInlinee()
 {
     assert(compIsForInlining());
 
-    lvaInitTypeRef();
+    lvaInitInline();
+    assert(impInlineInfo->iciCall->GetRetSigType() == info.GetRetSigType());
+
     inlCreateBasicBlocks();
 
     if (compInlineResult->IsFailure())

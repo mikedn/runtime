@@ -22,7 +22,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "jitstd/algorithm.h"
 #include "patchpointinfo.h"
 
-void Compiler::lvaInitTypeRef()
+bool Compiler::lvaInitRetType()
 {
     var_types retType       = JITtype2varType(info.compMethodInfo->args.retType);
     bool      hasRetBuffArg = false;
@@ -83,10 +83,12 @@ void Compiler::lvaInitTypeRef()
         }
     }
 
-    if (compIsForInlining())
-    {
-        assert(impInlineInfo->iciCall->GetRetSigType() == info.GetRetSigType());
-    }
+    return hasRetBuffArg;
+}
+
+bool Compiler::lvaInitLocalsCount()
+{
+    bool hasRetBuffArg = lvaInitRetType();
 
     /* x86 args look something like this:
         [this ptr] [hidden return buffer] [declared arguments]* [generic context] [var arg cookie]
@@ -152,19 +154,28 @@ void Compiler::lvaInitTypeRef()
     info.compLocalsCount   = info.compArgsCount + info.compMethodInfo->locals.numArgs;
     info.compILlocalsCount = info.compILargsCount + info.compMethodInfo->locals.numArgs;
 
-    /* Now allocate the variable descriptor table */
+    return hasRetBuffArg;
+}
 
-    if (compIsForInlining())
-    {
-        Compiler* inlinerCompiler = impInlineInfo->InlinerCompiler;
+void Compiler::lvaInitInline()
+{
+    assert(compIsForInlining());
 
-        lvaTable           = inlinerCompiler->lvaTable;
-        lvaCount           = inlinerCompiler->lvaCount;
-        lvaTableSize       = inlinerCompiler->lvaTableSize;
-        lvaStubArgumentVar = inlinerCompiler->lvaStubArgumentVar;
+    lvaInitLocalsCount();
 
-        return;
-    }
+    Compiler* inlinerCompiler = impInlineInfo->InlinerCompiler;
+
+    lvaTable           = inlinerCompiler->lvaTable;
+    lvaCount           = inlinerCompiler->lvaCount;
+    lvaTableSize       = inlinerCompiler->lvaTableSize;
+    lvaStubArgumentVar = inlinerCompiler->lvaStubArgumentVar;
+}
+
+void Compiler::lvaInitLocals()
+{
+    assert(!compIsForInlining());
+
+    bool hasRetBuffArg = lvaInitLocalsCount();
 
     lvaCount     = info.compLocalsCount;
     lvaTableSize = max(16, lvaCount * 2);
