@@ -13,14 +13,10 @@ unsigned InitVarDscInfo::allocRegArg(var_types type, unsigned numRegs /* = 1 */)
     assert(numRegs > 0);
 
     unsigned resultArgNum = regArgNum(type);
-    bool     isBackFilled = false;
 
 #ifdef TARGET_ARM
     // Check for back-filling
-    if (varTypeIsFloating(type) &&          // We only back-fill the float registers
-        !anyFloatStackArgs &&               // Is it legal to back-fill? (We haven't put any FP args on the stack yet)
-        (numRegs == 1) &&                   // Is there a possibility we could back-fill?
-        (fltArgSkippedRegMask != RBM_NONE)) // Is there an available back-fill slot?
+    if (varTypeIsFloating(type) && !anyFloatStackArgs && (numRegs == 1) && (fltArgSkippedRegMask != RBM_NONE))
     {
         // We will never back-fill something greater than a single register
         // (TYP_FLOAT, or TYP_STRUCT HFA with a single float). This is because
@@ -29,24 +25,20 @@ unsigned InitVarDscInfo::allocRegArg(var_types type, unsigned numRegs /* = 1 */)
 
         // Back-fill the register
         regMaskTP backFillBitMask = genFindLowestBit(fltArgSkippedRegMask);
-        fltArgSkippedRegMask &= ~backFillBitMask; // Remove the back-filled register(s) from the skipped mask
+        fltArgSkippedRegMask &= ~backFillBitMask;
         resultArgNum = genMapFloatRegNumToRegArgNum(genRegNumFromMask(backFillBitMask));
         assert(resultArgNum < MAX_FLOAT_REG_ARG);
-        isBackFilled = true;
-    }
-#endif // TARGET_ARM
 
-    if (!isBackFilled)
-    {
-#if defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)
-        // For System V the reg type counters should be independent.
-        nextReg(TYP_INT, numRegs);
-        nextReg(TYP_FLOAT, numRegs);
-#else
-        // We didn't back-fill a register (on ARM), so skip the number of registers that we allocated.
-        nextReg(type, numRegs);
-#endif
+        return resultArgNum;
     }
+#endif
+
+#ifdef WINDOWS_AMD64_ABI
+    nextReg(TYP_INT, numRegs);
+    nextReg(TYP_FLOAT, numRegs);
+#else
+    nextReg(type, numRegs);
+#endif
 
     return resultArgNum;
 }
@@ -55,20 +47,15 @@ bool InitVarDscInfo::enoughAvailRegs(var_types type, unsigned numRegs /* = 1 */)
 {
     assert(numRegs > 0);
 
-    unsigned backFillCount = 0;
-
 #ifdef TARGET_ARM
     // Check for back-filling
-    if (varTypeIsFloating(type) &&          // We only back-fill the float registers
-        !anyFloatStackArgs &&               // Is it legal to back-fill? (We haven't put any FP args on the stack yet)
-        (numRegs == 1) &&                   // Is there a possibility we could back-fill?
-        (fltArgSkippedRegMask != RBM_NONE)) // Is there an available back-fill slot?
+    if (varTypeIsFloating(type) && !anyFloatStackArgs && (numRegs == 1) && (fltArgSkippedRegMask != RBM_NONE))
     {
-        backFillCount = 1;
+        return regArgNum(type) <= maxRegArgNum(type);
     }
-#endif // TARGET_ARM
+#endif
 
-    return regArgNum(type) + numRegs - backFillCount <= maxRegArgNum(type);
+    return regArgNum(type) + numRegs <= maxRegArgNum(type);
 }
 
 #ifdef TARGET_ARM
