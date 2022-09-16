@@ -1143,7 +1143,7 @@ struct ArrayInfo
 
 // This enumeration names the phases into which we divide compilation.  The phases should completely
 // partition a compilation.
-enum Phases
+enum Phases : uint8_t
 {
 #define CompPhaseNameMacro(enum_nm, string_nm, short_nm, hasChildren, parent, measureIR) enum_nm,
 #include "compphases.h"
@@ -1156,7 +1156,7 @@ extern const LPCWSTR PhaseShortNames[];
 
 // Specify which checks should be run after each phase
 //
-enum class PhaseChecks
+enum class PhaseChecks : uint8_t
 {
     CHECK_NONE,
     CHECK_ALL
@@ -3829,16 +3829,23 @@ public:
 public:
     RefCountState lvaRefCountState = RCS_INVALID; // Current local ref count state
 
+    bool lvaAddressExposedLocalsMarked = false;
+#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
+    bool lvaHasImplicitByRefParams;
+#endif
+    bool lvaGenericsContextInUse = false;
+
     bool lvaLocalVarRefCounted() const
     {
         return lvaRefCountState == RCS_NORMAL;
     }
 
-    unsigned lvaCount; // total number of locals, which includes function arguments,
-                       // special arguments, IL local variables, and JIT temporary variables
+    unsigned lvaCount;     // total number of locals, which includes function arguments,
+                           // special arguments, IL local variables, and JIT temporary variables
+    unsigned lvaTableSize; // lvaTable size (>= lvaCount)
 
-    LclVarDsc* lvaTable = nullptr; // variable descriptor table
-    unsigned   lvaTableSize;       // lvaTable size (>= lvaCount)
+    LclVarDsc* lvaTable           = nullptr; // variable descriptor table
+    unsigned*  lvaTrackedToVarNum = nullptr;
 
     unsigned lvaTrackedCount             = 0; // actual # of locals being tracked
     unsigned lvaTrackedCountInSizeTUnits = 0; // min # of size_t's sufficient to hold a bit for all tracked locals
@@ -3853,8 +3860,7 @@ public:
     }
 
     // reverse map of tracked number to var number
-    unsigned  lvaTrackedToVarNumSize = 0;
-    unsigned* lvaTrackedToVarNum     = 0;
+    unsigned lvaTrackedToVarNumSize = 0;
 
     void lvaSetImplicitlyReferenced(unsigned lclNum);
 
@@ -3940,14 +3946,6 @@ public:
     // Stores SP to confirm it is not corrupted after every call.
     X86_ONLY(unsigned lvaCallSpCheck = BAD_VAR_NUM;)
 #endif
-
-    bool lvaAddressExposedLocalsMarked = false;
-
-#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
-    bool lvaHasImplicitByRefParams;
-#endif
-
-    bool lvaGenericsContextInUse = false;
 
     bool lvaKeepAliveAndReportThis(); // Synchronized instance method of a reference type, or
                                       // CORINFO_GENERICS_CTXT_FROM_THIS?
@@ -4182,6 +4180,9 @@ public:
 #if defined(FEATURE_EH_FUNCLETS)
     unsigned lvaPSPSym = BAD_VAR_NUM; // variable representing the PSPSym
 #endif
+
+    unsigned genReturnLocal = BAD_VAR_NUM; // Local number for the return value when applicable.
+    unsigned fgLargeFieldOffsetNullCheckTemps[3];
 
     unsigned              impSharedStackSize = 0;
     Importer::StackEntry* impSharedStack     = nullptr;
@@ -4953,12 +4954,6 @@ public:
     // Adds the exception sets for the current tree node
     void vnAddNodeExceptionSet(GenTree* tree);
 
-    // This is the current value number for the memory implicit variable while doing
-    // value numbering.  This is the value number under the "liberal" interpretation
-    // of memory values; the "conservative" interpretation needs no VN, since every
-    // access of memory yields an unknown value.
-    ValueNum fgCurMemoryVN;
-
     bool isTrivialPointerSizedStruct(ClassLayout* layout) const;
     bool isNativePrimitiveStructType(ClassLayout* layout);
     var_types abiGetStructIntegerRegisterType(ClassLayout* layout);
@@ -5707,8 +5702,6 @@ private:
     unsigned fgThrowHlpBlkStkLevel(BasicBlock* block);
 #endif // !FEATURE_FIXED_OUT_ARGS
 
-    unsigned fgLargeFieldOffsetNullCheckTemps[TYP_COUNT];
-
     void fgPromoteStructs();
 
 #if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
@@ -6273,6 +6266,12 @@ public:
     bool optJumpThread(BasicBlock* const block, BasicBlock* const domBlock);
     bool optReachable(BasicBlock* const fromBlock, BasicBlock* const toBlock, BasicBlock* const excludedBlock);
 
+    // This is the current value number for the memory implicit variable while doing
+    // value numbering.  This is the value number under the "liberal" interpretation
+    // of memory values; the "conservative" interpretation needs no VN, since every
+    // access of memory yields an unknown value.
+    ValueNum fgCurMemoryVN;
+
 #if ASSERTION_PROP
     /**************************************************************************
      *               Value/Assertion propagation
@@ -6694,8 +6693,7 @@ public:
     typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, IL_OFFSETX> CallSiteILOffsetTable;
     CallSiteILOffsetTable* genCallSite2ILOffsetMap = nullptr;
 
-    unsigned    genReturnLocal = BAD_VAR_NUM; // Local number for the return value when applicable.
-    BasicBlock* genReturnBB    = nullptr;     // jumped to when not optimizing for speed.
+    BasicBlock* genReturnBB = nullptr; // jumped to when not optimizing for speed.
 
     // The following properties are part of CodeGenContext.  Getters are provided here for
     // convenience and backward compatibility, but the properties can only be set by invoking
@@ -7123,6 +7121,9 @@ public:
 
     bool lvaEnregEHVars;
 
+    Phases      mostRecentlyActivePhase = PHASE_PRE_IMPORT;        // the most recently active phase
+    PhaseChecks activePhaseChecks       = PhaseChecks::CHECK_NONE; // the currently active phase checks
+
     CompilerOptions opts;
 
     static AssemblyNamesList2* s_pAltJitExcludeAssembliesList;
@@ -7389,9 +7390,6 @@ public:
 
 #endif // !TARGET_X86
 
-    Phases      mostRecentlyActivePhase = PHASE_PRE_IMPORT;        // the most recently active phase
-    PhaseChecks activePhaseChecks       = PhaseChecks::CHECK_NONE; // the currently active phase checks
-
     //-------------------------------------------------------------------------
     //  The following keeps track of how many bytes of local frame space we've
     //  grabbed so far in the current function, and how many argument bytes we
@@ -7535,8 +7533,6 @@ public:
 #endif
 
 protected:
-    size_t compMaxUncheckedOffsetForNullObject;
-
     void compInitAltJit();
     void compInitConfigOptions();
     void compInitOptions();
@@ -7564,6 +7560,8 @@ protected:
     bool  compProfilerMethHndIndirected; // Whether compProfilerHandle is pointer to the handle or is an actual handle
     void* compProfilerMethHnd; // Profiler handle of the method being compiled. Passed as param to ELT callbacks
 #endif
+
+    size_t compMaxUncheckedOffsetForNullObject;
 
 public:
     CompAllocator getAllocator(CompMemKind cmk = CMK_Generic)

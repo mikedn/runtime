@@ -5470,14 +5470,32 @@ GenTree* Compiler::fgMorphLclVar(GenTreeLclVar* lclVar)
 
 unsigned Compiler::fgGetLargeFieldOffsetNullCheckTemp(var_types type)
 {
-    assert(varTypeIsI(type));
+    unsigned index;
 
-    if (fgLargeFieldOffsetNullCheckTemps[type] == BAD_VAR_NUM)
+    switch (type)
     {
-        fgLargeFieldOffsetNullCheckTemps[type] = lvaNewTemp(type, false DEBUGARG("large field offset null check temp"));
+        case TYP_I_IMPL:
+            index = 0;
+            break;
+        case TYP_BYREF:
+            index = 1;
+            break;
+        case TYP_REF:
+            index = 2;
+            break;
+        default:
+            unreached();
     }
 
-    unsigned lclNum = fgLargeFieldOffsetNullCheckTemps[type];
+    assert(index < _countof(fgLargeFieldOffsetNullCheckTemps));
+
+    if (fgLargeFieldOffsetNullCheckTemps[index] == BAD_VAR_NUM)
+    {
+        fgLargeFieldOffsetNullCheckTemps[index] =
+            lvaNewTemp(type, false DEBUGARG("large field offset null check temp"));
+    }
+
+    unsigned lclNum = fgLargeFieldOffsetNullCheckTemps[index];
     assert(lvaGetDesc(lclNum)->GetType() == type);
     return lclNum;
 }
