@@ -1017,14 +1017,7 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
 #endif // FEATURE_FASTTAILCALL
     }
 
-#ifdef UNIX_AMD64_ABI
-    // The arg size is returning the number of bytes of the argument. For a struct that
-    // may not always be a multiple of REGSIZE_BYTES. The stack allocated space should
-    // always be multiple of REGSIZE_BYTES, so round it up.
-    compArgSize += roundUp(paramSize, REGSIZE_BYTES);
-#else
     compArgSize += paramSize;
-#endif
 
     if (info.compIsVarArgs ARM_ONLY(|| isSoftFPPreSpill))
     {
