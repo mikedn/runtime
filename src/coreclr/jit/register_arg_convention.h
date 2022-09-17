@@ -13,6 +13,7 @@ struct InitVarDscInfo
     unsigned maxFloatRegArgNum;
 
 #ifdef TARGET_ARM
+    regMaskTP doubleAlignMask = RBM_NONE;
     // Support back-filling of FP parameters. This is similar to code in gtMorphArgs() that
     // handles arguments.
     regMaskTP fltArgSkippedRegMask = RBM_NONE;

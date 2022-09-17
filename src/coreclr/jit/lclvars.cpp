@@ -603,20 +603,17 @@ void Compiler::lvaInitUserParams(InitVarDscInfo& paramInfo, unsigned skipParams,
     {
     }
 
-    ARM_ONLY(regMaskTP doubleAlignMask = RBM_NONE);
-
     for (unsigned i = 0; i < takeParams; i++, paramInfo.varNum++, param = info.compCompHnd->getArgNext(param))
     {
-        lvaInitUserParam(&paramInfo, param ARM_ARG(&doubleAlignMask));
+        lvaInitUserParam(&paramInfo, param);
     }
 
     compArgSize = GetOutgoingArgByteSize(compArgSize);
 
-    ARM_ONLY(lvaAlignPreSpillParams(doubleAlignMask));
+    ARM_ONLY(lvaAlignPreSpillParams(paramInfo.doubleAlignMask));
 }
 
-void Compiler::lvaInitUserParam(InitVarDscInfo*         varDscInfo,
-                                CORINFO_ARG_LIST_HANDLE argLst ARM_ARG(regMaskTP* doubleAlignMask))
+void Compiler::lvaInitUserParam(InitVarDscInfo* varDscInfo, CORINFO_ARG_LIST_HANDLE argLst)
 {
     LclVarDsc* varDsc = lvaGetDesc(varDscInfo->varNum);
 
@@ -762,7 +759,7 @@ void Compiler::lvaInitUserParam(InitVarDscInfo*         varDscInfo,
 
             if (cAlign == 2)
             {
-                *doubleAlignMask |= regMask;
+                varDscInfo->doubleAlignMask |= regMask;
             }
 
             codeGen->regSet.rsMaskPreSpillRegArg |= regMask;

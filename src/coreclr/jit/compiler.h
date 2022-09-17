@@ -4048,8 +4048,7 @@ public:
     void lvaInitGenericsContextParam(InitVarDscInfo& paramInfo);
     void lvaInitVarargsHandleParam(InitVarDscInfo& paramInfo);
     void lvaInitUserParams(InitVarDscInfo& paramInfo, unsigned skipParams, unsigned takeParams);
-    void lvaInitUserParam(InitVarDscInfo*         varDscInfo,
-                          CORINFO_ARG_LIST_HANDLE argLst ARM_ARG(regMaskTP* doubleAlignMask));
+    void lvaInitUserParam(InitVarDscInfo* varDscInfo, CORINFO_ARG_LIST_HANDLE argLst);
 #ifdef TARGET_ARM
     void lvaAlignPreSpillParams(regMaskTP doubleAlignMask);
 #endif
