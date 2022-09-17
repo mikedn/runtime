@@ -5294,8 +5294,13 @@ void Importer::impCheckForPInvokeCall(
     }
 #endif
 
-    if (unmanagedCallConv == CorInfoCallConvExtension::Thiscall)
+    if ((unmanagedCallConv == CorInfoCallConvExtension::Thiscall))
     {
+        if (sig->numArgs == 0)
+        {
+            BADCODE("Instance method without 'this' param");
+        }
+
         call->gtCallMoreFlags |= GTF_CALL_M_UNMGD_THISCALL;
     }
 }

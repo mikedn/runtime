@@ -310,7 +310,10 @@ void Compiler::lvaInitArgs(bool hasRetBufParam)
 #if defined(TARGET_WINDOWS) && !defined(TARGET_ARM)
     if (callConvIsInstanceMethodCallConv(info.compCallConv))
     {
-        assert(numUserArgs >= 1);
+        if (numUserArgs == 0)
+        {
+            BADCODE("Instance method without 'this' param");
+        }
 
         lvaInitUserArgs(&varDscInfo, 0, 1);
         numUserArgsToSkip++;
@@ -564,6 +567,9 @@ void Compiler::lvaInitVarargsHandleParam(InitVarDscInfo& paramInfo)
 
 void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, unsigned takeArgs)
 {
+    assert(skipArgs <= info.compMethodInfo->args.numArgs);
+    assert(takeArgs <= info.compMethodInfo->args.numArgs - skipArgs);
+
 #if defined(TARGET_X86)
     // Only (some of) the implicit args are enregistered for varargs
     if (info.compIsVarArgs)
@@ -574,15 +580,12 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, un
     varDscInfo->floatRegArgNum       = varDscInfo->intRegArgNum;
 #endif
 
-    CORINFO_ARG_LIST_HANDLE argLst    = info.compMethodInfo->args.args;
-    const unsigned          argSigLen = info.compMethodInfo->args.numArgs;
-
-    const int64_t numUserArgs = min(takeArgs, (argSigLen - (int64_t)skipArgs));
-
-    if (numUserArgs <= 0)
+    if (takeArgs == 0)
     {
         return;
     }
+
+    CORINFO_ARG_LIST_HANDLE argLst = info.compMethodInfo->args.args;
 
     for (unsigned i = 0; i < skipArgs; i++, argLst = info.compCompHnd->getArgNext(argLst))
     {
@@ -594,7 +597,7 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, un
 
     LclVarDsc* varDsc = lvaGetDesc(varDscInfo->varNum);
 
-    for (unsigned i = 0; i < numUserArgs;
+    for (unsigned i = 0; i < takeArgs;
          i++, varDscInfo->varNum++, varDsc++, argLst = info.compCompHnd->getArgNext(argLst))
     {
 #ifdef TARGET_UNIX
