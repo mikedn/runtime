@@ -1981,12 +1981,6 @@ void LinearScan::updateRegStateForArg(LclVarDsc* argDsc)
         else
         {
             JITDUMP("Int arg V%02u in reg %s\n", (argDsc - compiler->lvaTable), getRegName(argDsc->GetArgReg()));
-#if FEATURE_MULTIREG_ARGS
-            if (argDsc->GetOtherArgReg() != REG_NA)
-            {
-                JITDUMP("(second half) in reg %s\n", getRegName(argDsc->GetOtherArgReg()));
-            }
-#endif // FEATURE_MULTIREG_ARGS
             compiler->raUpdateRegStateForArg(intRegState, argDsc);
         }
     }
