@@ -421,7 +421,7 @@ void Compiler::lvaInitThisParam(InitVarDscInfo& paramInfo)
     lcl->lvIsRegArg = true;
     lcl->lvOnFrame  = true;
 
-    lcl->SetArgReg(genMapRegArgNumToRegNum(paramInfo.allocRegArg(TYP_INT), lcl->GetType()));
+    lcl->SetArgReg(genMapIntRegArgNumToRegNum(paramInfo.allocRegArg(TYP_INT)));
 #if FEATURE_MULTIREG_ARGS
     lcl->SetOtherArgReg(REG_NA);
 #endif
@@ -499,7 +499,7 @@ void Compiler::lvaInitGenericsContextParam(InitVarDscInfo& paramInfo)
     if (paramInfo.canEnreg(TYP_I_IMPL))
     {
         lcl->lvIsRegArg = true;
-        lcl->SetArgReg(genMapRegArgNumToRegNum(paramInfo.allocRegArg(TYP_I_IMPL), TYP_I_IMPL));
+        lcl->SetArgReg(genMapIntRegArgNumToRegNum(paramInfo.allocRegArg(TYP_I_IMPL)));
 #if FEATURE_MULTIREG_ARGS
         lcl->SetOtherArgReg(REG_NA);
 #endif
@@ -552,7 +552,7 @@ void Compiler::lvaInitVarargsHandleParam(InitVarDscInfo& paramInfo)
         unsigned regIndex = paramInfo.allocRegArg(TYP_I_IMPL);
 
         lcl->lvIsRegArg = true;
-        lcl->SetArgReg(genMapRegArgNumToRegNum(regIndex, TYP_I_IMPL));
+        lcl->SetArgReg(genMapIntRegArgNumToRegNum(regIndex));
 #if FEATURE_MULTIREG_ARGS
         lcl->SetOtherArgReg(REG_NA);
 #endif
@@ -842,11 +842,11 @@ void Compiler::lvaInitUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAND
 #ifdef TARGET_ARM64
         if (paramType == TYP_STRUCT)
         {
-            lcl->SetArgReg(genMapRegArgNumToRegNum(firstAllocatedRegArgNum, TYP_LONG));
+            lcl->SetArgReg(genMapIntRegArgNumToRegNum(firstAllocatedRegArgNum));
 
             if (slots == 2)
             {
-                lcl->SetOtherArgReg(genMapRegArgNumToRegNum(firstAllocatedRegArgNum + 1, TYP_LONG));
+                lcl->SetOtherArgReg(genMapIntRegArgNumToRegNum(firstAllocatedRegArgNum + 1));
                 lcl->lvIsMultiRegArg = true;
             }
         }
@@ -874,12 +874,12 @@ void Compiler::lvaInitUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAND
 #elif defined(TARGET_ARM)
         if (lcl->TypeIs(TYP_LONG))
         {
-            lcl->SetOtherArgReg(genMapRegArgNumToRegNum(firstAllocatedRegArgNum + 1, TYP_INT));
+            lcl->SetOtherArgReg(genMapIntRegArgNumToRegNum(firstAllocatedRegArgNum + 1));
         }
 
         if (varTypeIsStruct(paramType))
         {
-            lcl->SetArgReg(genMapRegArgNumToRegNum(firstAllocatedRegArgNum, TYP_INT));
+            lcl->SetArgReg(genMapIntRegArgNumToRegNum(firstAllocatedRegArgNum));
         }
         else
 #endif
@@ -952,8 +952,8 @@ void Compiler::lvaInitUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAND
                     {
                         if (paramType == TYP_DOUBLE)
                         {
-                            printf("%s/%s", getRegName(genMapRegArgNumToRegNum(regArgNum, paramType)),
-                                   getRegName(genMapRegArgNumToRegNum(regArgNum + 1, paramType)));
+                            printf("%s/%s", getRegName(genMapFloatRegArgNumToRegNum(regArgNum)),
+                                   getRegName(genMapFloatRegArgNumToRegNum(regArgNum + 1)));
 
                             assert(ix + 1 < slots);
                             ++ix;
@@ -961,13 +961,13 @@ void Compiler::lvaInitUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAND
                         }
                         else
                         {
-                            printf("%s", getRegName(genMapRegArgNumToRegNum(regArgNum, paramType)));
+                            printf("%s", getRegName(genMapFloatRegArgNumToRegNum(regArgNum)));
                         }
                     }
                     else
 #endif // TARGET_ARM
                     {
-                        printf("%s", getRegName(genMapRegArgNumToRegNum(regArgNum, paramType)));
+                        printf("%s", getRegName(genMapIntRegArgNumToRegNum(regArgNum)));
                     }
                 }
             }
