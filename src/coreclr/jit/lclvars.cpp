@@ -275,24 +275,33 @@ void Compiler::lvaInitParams(bool hasRetBufParam)
     unsigned floatRegCount = MAX_FLOAT_REG_ARG;
 
 #ifdef TARGET_X86
-    switch (info.compCallConv)
+    assert(floatRegCount == 0);
+
+    if (info.compIsVarArgs)
     {
-        case CorInfoCallConvExtension::Thiscall:
-            intRegCount = 1;
-            break;
-        case CorInfoCallConvExtension::C:
-        case CorInfoCallConvExtension::Stdcall:
-        case CorInfoCallConvExtension::CMemberFunction:
-        case CorInfoCallConvExtension::StdcallMemberFunction:
-            intRegCount = 0;
-            break;
-        case CorInfoCallConvExtension::Managed:
-        case CorInfoCallConvExtension::Fastcall:
-        case CorInfoCallConvExtension::FastcallMemberFunction:
-            break;
-        default:
-            assert(!"Unknown calling convention");
-            break;
+        intRegCount = 0;
+    }
+    else
+    {
+        switch (info.compCallConv)
+        {
+            case CorInfoCallConvExtension::Thiscall:
+                intRegCount = 1;
+                break;
+            case CorInfoCallConvExtension::C:
+            case CorInfoCallConvExtension::Stdcall:
+            case CorInfoCallConvExtension::CMemberFunction:
+            case CorInfoCallConvExtension::StdcallMemberFunction:
+                intRegCount = 0;
+                break;
+            case CorInfoCallConvExtension::Managed:
+            case CorInfoCallConvExtension::Fastcall:
+            case CorInfoCallConvExtension::FastcallMemberFunction:
+                break;
+            default:
+                assert(!"Unknown calling convention");
+                break;
+        }
     }
 #endif
 
@@ -582,14 +591,8 @@ void Compiler::lvaInitUserParams(InitVarDscInfo& paramInfo, unsigned skipParams,
     assert(skipParams <= info.compMethodInfo->args.numArgs);
     assert(takeParams <= info.compMethodInfo->args.numArgs - skipParams);
 
-#if defined(TARGET_X86)
-    // Only (some of) the implicit params are enregistered for varargs.
-    if (info.compIsVarArgs)
-    {
-        paramInfo.maxIntRegArgNum = paramInfo.intRegArgNum;
-    }
-#elif defined(WINDOWS_AMD64_ABI)
-    paramInfo.floatRegArgNum     = paramInfo.intRegArgNum;
+#ifdef WINDOWS_AMD64_ABI
+    paramInfo.floatRegArgNum = paramInfo.intRegArgNum;
 #endif
 
     if (takeParams == 0)
