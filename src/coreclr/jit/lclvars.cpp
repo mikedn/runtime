@@ -611,15 +611,22 @@ void Compiler::lvaInitUserParams(InitVarDscInfo& paramInfo, bool skipFirstParam)
 
 void Compiler::lvaInitUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param)
 {
-    CORINFO_CLASS_HANDLE typeHnd   = nullptr;
-    CorInfoType          corType   = strip(info.compCompHnd->getArgType(&info.compMethodInfo->args, param, &typeHnd));
-    unsigned             paramSize = eeGetArgSize(param, &info.compMethodInfo->args);
+    CORINFO_CLASS_HANDLE typeHnd = nullptr;
+    CorInfoType          corType = strip(info.compCompHnd->getArgType(&info.compMethodInfo->args, param, &typeHnd));
 
     LclVarDsc* lcl = lvaGetDesc(paramInfo.varNum);
 
     lcl->lvIsParam = true;
     lcl->lvOnFrame = true;
     lvaInitVarDsc(lcl, paramInfo.varNum, corType, typeHnd);
+
+    if (opts.IsOSR() && info.compPatchpointInfo->IsExposed(paramInfo.varNum))
+    {
+        JITDUMP("-- V%02u is OSR exposed\n", paramInfo.varNum);
+
+        lcl->lvHasLdAddrOp = true;
+        lvaSetVarAddrExposed(paramInfo.varNum);
+    }
 
     if (corType == CORINFO_TYPE_CLASS)
     {
@@ -637,6 +644,12 @@ void Compiler::lvaInitUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAND
     }
 #endif
 
+    lvaAllocUserParam(paramInfo, param, lcl);
+}
+
+void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl)
+{
+    unsigned  paramSize     = eeGetArgSize(param, &info.compMethodInfo->args);
     var_types realParamType = mangleVarArgsType(lcl->GetType());
     var_types paramType     = realParamType;
     unsigned  slots         = (paramSize + REGSIZE_BYTES - 1) / REGSIZE_BYTES;
@@ -1021,14 +1034,6 @@ void Compiler::lvaInitUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAND
         // TODO-CQ: We shouldn't have to go as far as to declare these AX, DNER should suffice.
         lvaSetAddressExposed(lcl);
 #endif
-    }
-
-    if (opts.IsOSR() && info.compPatchpointInfo->IsExposed(paramInfo.varNum))
-    {
-        JITDUMP("-- V%02u is OSR exposed\n", paramInfo.varNum);
-
-        lcl->lvHasLdAddrOp = true;
-        lvaSetVarAddrExposed(paramInfo.varNum);
     }
 }
 
