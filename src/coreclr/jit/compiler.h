@@ -6515,7 +6515,7 @@ public:
     var_types eeGetArgType(CORINFO_ARG_LIST_HANDLE list, CORINFO_SIG_INFO* sig, bool* isPinned);
     CORINFO_CLASS_HANDLE eeGetArgClass(CORINFO_SIG_INFO* sig, CORINFO_ARG_LIST_HANDLE list);
     CORINFO_CLASS_HANDLE eeGetClassFromContext(CORINFO_CONTEXT_HANDLE context);
-    unsigned eeGetArgSize(CORINFO_ARG_LIST_HANDLE list, CORINFO_SIG_INFO* sig);
+    unsigned eeGetParamAllocSize(CORINFO_ARG_LIST_HANDLE param, CORINFO_SIG_INFO* sig);
     static unsigned eeGetArgAlignment(var_types type, bool isFloatHfa);
 
     // VOM info, method sigs

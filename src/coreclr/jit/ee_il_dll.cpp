@@ -351,116 +351,62 @@ unsigned CILJit::getMaxIntrinsicSIMDVectorLength(CORJIT_FLAGS cpuCompileFlags)
 #endif // !FEATURE_SIMD
 }
 
-//------------------------------------------------------------------------
-// eeGetArgSize: Returns the number of bytes required for the given type argument
-//   including padding after the actual value.
-//
-// Arguments:
-//   list - the arg list handle pointing to the argument
-//   sig  - the signature for the arg's method
-//
-// Return value:
-//   the number of stack slots in stack arguments for the call.
-//
-// Notes:
-//   - On most platforms arguments are passed with TARGET_POINTER_SIZE alignment,
-//   so all types take an integer number of TARGET_POINTER_SIZE slots.
-//   It is different for arm64 apple that packs some types without alignment and padding.
-//   If the argument is passed by reference then the method returns REF size.
-//
-unsigned Compiler::eeGetArgSize(CORINFO_ARG_LIST_HANDLE list, CORINFO_SIG_INFO* sig)
+// Returns the number of bytes required for the given parameter.
+// Usually this is just the param type size, rounded up to the register size
+// but there are special case like implicit by ref params and osx-arm64 weird
+// parameter packing.
+unsigned Compiler::eeGetParamAllocSize(CORINFO_ARG_LIST_HANDLE param, CORINFO_SIG_INFO* sig)
 {
-#if defined(TARGET_AMD64)
+#ifdef WINDOWS_AMD64_ABI
+    return REGSIZE_BYTES;
+#else
+    CORINFO_CLASS_HANDLE paramClass;
+    var_types            paramType = CorTypeToVarType(strip(info.compCompHnd->getArgType(sig, param, &paramClass)));
+    unsigned             paramSize;
+#ifdef TARGET_ARM64
+    var_types            hfaType = TYP_UNDEF;
+#endif
 
-    // Everything fits into a single 'slot' size
-    // to accommodate irregular sized structs, they are passed byref
-    CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef UNIX_AMD64_ABI
-    CORINFO_CLASS_HANDLE argClass;
-    CorInfoType          argTypeJit = strip(info.compCompHnd->getArgType(sig, list, &argClass));
-    var_types            argType    = JITtype2varType(argTypeJit);
-    if (varTypeIsStruct(argType))
+    if (!varTypeIsStruct(paramType))
     {
-        unsigned structSize = info.compCompHnd->getClassSize(argClass);
-        return roundUp(structSize, TARGET_POINTER_SIZE);
-    }
-#endif // UNIX_AMD64_ABI
-    return TARGET_POINTER_SIZE;
-
-#else // !TARGET_AMD64
-
-    CORINFO_CLASS_HANDLE argClass;
-    CorInfoType          argTypeJit = strip(info.compCompHnd->getArgType(sig, list, &argClass));
-    var_types            argType    = JITtype2varType(argTypeJit);
-    unsigned             argSize;
-
-    var_types hfaType = TYP_UNDEF;
-    bool      isHfa   = false;
-
-    if (varTypeIsStruct(argType))
-    {
-        ClassLayout* layout = typGetObjLayout(argClass);
-        layout->EnsureHfaInfo(this);
-
-        isHfa               = layout->IsHfa();
-        hfaType             = isHfa ? layout->GetHfaElementType() : TYP_UNDEF;
-        unsigned structSize = layout->GetSize();
-
-        // make certain the EE passes us back the right thing for refanys
-        assert(argTypeJit != CORINFO_TYPE_REFANY || structSize == 2 * TARGET_POINTER_SIZE);
-
-        // For each target that supports passing struct args in multiple registers
-        // apply the target specific rules for them here:
-        CLANG_FORMAT_COMMENT_ANCHOR;
-
-#if FEATURE_MULTIREG_ARGS
-#if defined(TARGET_ARM64)
-        // Any structs that are larger than MAX_PASS_MULTIREG_BYTES are always passed by reference
-        if (structSize > MAX_PASS_MULTIREG_BYTES)
-        {
-            // This struct is passed by reference using a single 'slot'
-            return TARGET_POINTER_SIZE;
-        }
-        else
-        {
-            // Is the struct larger than 16 bytes
-            if (structSize > (2 * TARGET_POINTER_SIZE))
-            {
-
-#ifndef TARGET_UNIX
-                if (info.compIsVarArgs)
-                {
-                    // Arm64 Varargs ABI requires passing in general purpose
-                    // registers. Force the decision of whether this is an HFA
-                    // to false to correctly pass as if it was not an HFA.
-                    isHfa = false;
-                }
-#endif // TARGET_UNIX
-                if (!isHfa)
-                {
-                    // This struct is passed by reference using a single 'slot'
-                    return TARGET_POINTER_SIZE;
-                }
-            }
-        }
-#elif !defined(TARGET_ARM)
-        NYI("unknown target");
-#endif // defined(TARGET_XXX)
-#endif // FEATURE_MULTIREG_ARGS
-
-        // Otherwise we will pass this struct by value in multiple registers/stack bytes.
-        argSize = structSize;
+        paramSize = varTypeSize(paramType);
     }
     else
     {
-        argSize = genTypeSize(argType);
-    }
-    const unsigned argAlignment       = eeGetArgAlignment(argType, (hfaType == TYP_FLOAT));
-    const unsigned argSizeWithPadding = roundUp(argSize, argAlignment);
-    return argSizeWithPadding;
+        ClassLayout* layout = typGetObjLayout(paramClass);
 
+        paramSize = layout->GetSize();
+
+#ifdef TARGET_ARM64
+        if (paramSize > MAX_PASS_MULTIREG_BYTES)
+        {
+            return REGSIZE_BYTES;
+        }
+
+        layout->EnsureHfaInfo(this);
+
+#ifdef TARGET_WINDOWS
+        if (layout->IsHfa() && !info.compIsVarArgs)
+#else
+        if (layout->IsHfa())
 #endif
+        {
+            hfaType = layout->GetHfaElementType();
+        }
+
+        if ((paramSize > 2 * REGSIZE_BYTES) && (hfaType == TYP_UNDEF))
+        {
+            return REGSIZE_BYTES;
+        }
+#endif // TARGET_ARM64
+    }
+
+#ifdef OSX_ARM64_ABI
+    return roundUp(paramSize, eeGetArgAlignment(paramType, (hfaType == TYP_FLOAT)));
+#else
+    return roundUp(paramSize, REGSIZE_BYTES);
+#endif
+#endif // !WINDOWS_AMD64_ABI
 }
 
 //------------------------------------------------------------------------

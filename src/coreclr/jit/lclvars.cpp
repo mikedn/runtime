@@ -649,7 +649,7 @@ void Compiler::lvaInitUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAND
 
 void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl)
 {
-    unsigned  paramSize     = eeGetArgSize(param, &info.compMethodInfo->args);
+    unsigned  paramSize     = eeGetParamAllocSize(param, &info.compMethodInfo->args);
     var_types realParamType = mangleVarArgsType(lcl->GetType());
     var_types paramType     = realParamType;
     unsigned  slots         = (paramSize + REGSIZE_BYTES - 1) / REGSIZE_BYTES;
@@ -3943,7 +3943,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
     {
         if (lvaIsPreSpilled(preSpillLclNum, preSpillMask))
         {
-            unsigned argSize = eeGetArgSize(argLst, &info.compMethodInfo->args);
+            unsigned argSize = eeGetParamAllocSize(argLst, &info.compMethodInfo->args);
             argOffs          = lvaAssignVirtualFrameOffsetToArg(preSpillLclNum, argSize, argOffs);
             argLcls++;
 
@@ -3966,7 +3966,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
     {
         if (!lvaIsPreSpilled(stkLclNum, preSpillMask))
         {
-            const unsigned argSize = eeGetArgSize(argLst, &info.compMethodInfo->args);
+            const unsigned argSize = eeGetParamAllocSize(argLst, &info.compMethodInfo->args);
             argOffs                = lvaAssignVirtualFrameOffsetToArg(stkLclNum, argSize, argOffs);
             argLcls++;
         }
@@ -3977,7 +3977,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
 #else // !TARGET_ARM
     for (unsigned i = 0; i < argSigLen; i++)
     {
-        unsigned argumentSize = eeGetArgSize(argLst, &info.compMethodInfo->args);
+        unsigned argumentSize = eeGetParamAllocSize(argLst, &info.compMethodInfo->args);
 
 #if !defined(OSX_ARM64_ABI)
         assert(argumentSize % TARGET_POINTER_SIZE == 0);
