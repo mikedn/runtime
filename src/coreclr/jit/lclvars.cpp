@@ -328,14 +328,14 @@ void Compiler::lvaInitArgs(bool hasRetBufParam)
     }
 
 #if USER_ARGS_COME_LAST
-    lvaInitGenericsCtxt(&varDscInfo);
+    lvaInitGenericsContextParam(varDscInfo);
     lvaInitVarArgsHandle(&varDscInfo);
 #endif
 
     lvaInitUserArgs(&varDscInfo, numUserArgsToSkip, numUserArgs);
 
 #if !USER_ARGS_COME_LAST
-    lvaInitGenericsCtxt(varDscInfo);
+    lvaInitGenericsContextParam(varDscInfo);
     lvaInitVarArgsHandle(varDscInfo);
 #endif
 
@@ -451,6 +451,55 @@ void Compiler::lvaInitRetBufParam(InitVarDscInfo& paramInfo, bool useFixedRetBuf
     }
 
     compArgSize += REGSIZE_BYTES;
+    paramInfo.varNum++;
+    paramInfo.varDsc++;
+}
+
+void Compiler::lvaInitGenericsContextParam(InitVarDscInfo& paramInfo)
+{
+    if ((info.compMethodInfo->args.callConv & CORINFO_CALLCONV_PARAMTYPE) == 0)
+    {
+        return;
+    }
+
+    info.compTypeCtxtArg = paramInfo.varNum;
+
+    LclVarDsc* lcl = paramInfo.varDsc;
+
+    lcl->SetType(TYP_I_IMPL);
+    lcl->lvIsParam = true;
+    lcl->lvOnFrame = true;
+
+    if (paramInfo.canEnreg(TYP_I_IMPL))
+    {
+        lcl->lvIsRegArg = true;
+        lcl->SetArgReg(genMapRegArgNumToRegNum(paramInfo.regArgNum(TYP_INT), lcl->GetType()));
+#if FEATURE_MULTIREG_ARGS
+        lcl->SetOtherArgReg(REG_NA);
+#endif
+
+        // TODO-MIKE-Cleanup: Why doesn't this code use allocRegArg?
+        paramInfo.intRegArgNum++;
+
+        JITDUMP("'GenCtxt' passed in register %s\n", getRegName(lcl->GetArgReg()));
+    }
+    else
+    {
+#if FEATURE_FASTTAILCALL
+        lcl->SetStackOffset(paramInfo.stackArgSize);
+        paramInfo.stackArgSize += REGSIZE_BYTES;
+#endif
+    }
+
+    compArgSize += REGSIZE_BYTES;
+
+#ifdef TARGET_X86
+    if (info.compIsVarArgs)
+    {
+        lcl->SetStackOffset(compArgSize);
+    }
+#endif
+
     paramInfo.varNum++;
     paramInfo.varDsc++;
 }
@@ -979,54 +1028,6 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, un
         }
     }
 #endif // TARGET_ARM
-}
-
-void Compiler::lvaInitGenericsCtxt(InitVarDscInfo* varDscInfo)
-{
-    if (info.compMethodInfo->args.callConv & CORINFO_CALLCONV_PARAMTYPE)
-    {
-        info.compTypeCtxtArg = varDscInfo->varNum;
-
-        LclVarDsc* varDsc = varDscInfo->varDsc;
-        varDsc->SetType(TYP_I_IMPL);
-        varDsc->lvIsParam = true;
-
-        if (varDscInfo->canEnreg(TYP_I_IMPL))
-        {
-            varDsc->lvIsRegArg = true;
-            varDsc->SetArgReg(genMapRegArgNumToRegNum(varDscInfo->regArgNum(TYP_INT), varDsc->GetType()));
-#if FEATURE_MULTIREG_ARGS
-            varDsc->SetOtherArgReg(REG_NA);
-#endif
-
-            varDsc->lvOnFrame = true;
-
-            varDscInfo->intRegArgNum++;
-
-            JITDUMP("'GenCtxt'   passed in register %s\n", getRegName(varDsc->GetArgReg()));
-        }
-        else
-        {
-            varDsc->lvOnFrame = true;
-
-#if FEATURE_FASTTAILCALL
-            varDsc->SetStackOffset(varDscInfo->stackArgSize);
-            varDscInfo->stackArgSize += REGSIZE_BYTES;
-#endif
-        }
-
-        compArgSize += REGSIZE_BYTES;
-
-#ifdef TARGET_X86
-        if (info.compIsVarArgs)
-        {
-            varDsc->SetStackOffset(compArgSize);
-        }
-#endif
-
-        varDscInfo->varNum++;
-        varDscInfo->varDsc++;
-    }
 }
 
 void Compiler::lvaInitVarArgsHandle(InitVarDscInfo* varDscInfo)

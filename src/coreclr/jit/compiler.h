@@ -4045,8 +4045,8 @@ public:
     void lvaInitArgs(bool hasRetBufParam);
     void lvaInitThisParam(InitVarDscInfo& paramInfo);
     void lvaInitRetBufParam(InitVarDscInfo& paramInfo, bool useFixedRetBufReg);
+    void lvaInitGenericsContextParam(InitVarDscInfo& paramInfo);
     void lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, unsigned takeArgs);
-    void lvaInitGenericsCtxt(InitVarDscInfo* varDscInfo);
     void lvaInitVarArgsHandle(InitVarDscInfo* varDscInfo);
 
     void lvaInitVarDsc(LclVarDsc* varDsc, unsigned varNum, CorInfoType corInfoType, CORINFO_CLASS_HANDLE typeHnd);
