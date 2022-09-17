@@ -271,6 +271,14 @@ void Compiler::lvaInitLocals()
 
 void Compiler::lvaInitParams(bool hasRetBufParam)
 {
+#if defined(TARGET_ARM) && defined(PROFILING_SUPPORTED)
+    // Prespill all argument regs on to stack in case of Arm when under profiler.
+    if (compIsProfilerHookNeeded())
+    {
+        codeGen->regSet.rsMaskPreSpillRegArg |= RBM_ARG_REGS;
+    }
+#endif
+
     unsigned intRegCount   = MAX_REG_ARG;
     unsigned floatRegCount = MAX_FLOAT_REG_ARG;
 
@@ -307,14 +315,6 @@ void Compiler::lvaInitParams(bool hasRetBufParam)
 
     InitVarDscInfo paramInfo(intRegCount, floatRegCount);
     compArgSize = 0;
-
-#if defined(TARGET_ARM) && defined(PROFILING_SUPPORTED)
-    // Prespill all argument regs on to stack in case of Arm when under profiler.
-    if (compIsProfilerHookNeeded())
-    {
-        codeGen->regSet.rsMaskPreSpillRegArg |= RBM_ARG_REGS;
-    }
-#endif
 
     // x86 params look something like this:
     //  [this] [struct return buffer] [user params] [generic context] [varargs handle]
@@ -398,8 +398,8 @@ void Compiler::lvaInitThisParam(InitVarDscInfo& paramInfo)
         return;
     }
 
-    noway_assert(paramInfo.varNum == 0);
-    noway_assert(paramInfo.intRegArgNum == 0);
+    assert(paramInfo.varNum == 0);
+    assert(paramInfo.intRegArgNum == 0);
 
     lvaArg0Var       = 0;
     info.compThisArg = 0;
