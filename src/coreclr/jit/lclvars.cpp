@@ -259,31 +259,32 @@ void Compiler::lvaInitLocals()
 
 void Compiler::lvaInitArgs(bool hasRetBufParam)
 {
-    InitVarDscInfo varDscInfo;
+    unsigned maxIntRegArgNum   = MAX_REG_ARG;
+    unsigned maxFloatRegArgNum = MAX_FLOAT_REG_ARG;
 
 #ifdef TARGET_X86
     switch (info.compCallConv)
     {
         case CorInfoCallConvExtension::Thiscall:
-            varDscInfo.Init(lvaTable, 1, 0);
+            maxIntRegArgNum = 1;
             break;
         case CorInfoCallConvExtension::C:
         case CorInfoCallConvExtension::Stdcall:
         case CorInfoCallConvExtension::CMemberFunction:
         case CorInfoCallConvExtension::StdcallMemberFunction:
-            varDscInfo.Init(lvaTable, 0, 0);
+            maxIntRegArgNum = 0;
             break;
         case CorInfoCallConvExtension::Managed:
         case CorInfoCallConvExtension::Fastcall:
         case CorInfoCallConvExtension::FastcallMemberFunction:
+            break;
         default:
-            varDscInfo.Init(lvaTable, MAX_REG_ARG, MAX_FLOAT_REG_ARG);
+            assert(!"Unknown calling convention");
             break;
     }
-#else
-    varDscInfo.Init(lvaTable, MAX_REG_ARG, MAX_FLOAT_REG_ARG);
 #endif
 
+    InitVarDscInfo varDscInfo(lvaTable, maxIntRegArgNum, maxFloatRegArgNum);
     compArgSize = 0;
 
 #if defined(TARGET_ARM) && defined(PROFILING_SUPPORTED)

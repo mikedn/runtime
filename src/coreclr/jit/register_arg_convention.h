@@ -30,8 +30,7 @@ struct InitVarDscInfo
 #endif // FEATURE_FASTTAILCALL
 
 public:
-    // set to initial values
-    void Init(LclVarDsc* lvaTable, unsigned _maxIntRegArgNum, unsigned _maxFloatRegArgNum)
+    InitVarDscInfo(LclVarDsc* lvaTable, unsigned _maxIntRegArgNum, unsigned _maxFloatRegArgNum)
     {
         varDsc            = &lvaTable[0]; // the first argument LclVar 0
         varNum            = 0;            // the first argument varNum 0
