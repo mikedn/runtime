@@ -2821,16 +2821,11 @@ void CodeGen::genJmpMethod(GenTree* jmp)
         emitAttr  storeSize = emitActualTypeSize(storeType);
 
 #ifdef TARGET_ARM
+        // TODO-MIKE-Cleanup: This is likely dead code.
         if (varDsc->TypeGet() == TYP_LONG)
         {
             // long - at least the low half must be enregistered
             GetEmitter()->emitIns_S_R(INS_str, EA_4BYTE, varDsc->GetRegNum(), varNum, 0);
-
-            // Is the upper half also enregistered?
-            if (varDsc->GetOtherReg() != REG_STK)
-            {
-                GetEmitter()->emitIns_S_R(INS_str, EA_4BYTE, varDsc->GetOtherReg(), varNum, sizeof(int));
-            }
         }
         else
 #endif // TARGET_ARM

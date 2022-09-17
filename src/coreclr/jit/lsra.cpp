@@ -1533,11 +1533,7 @@ void LinearScan::identifyCandidates()
     INTRACK_STATS(regCandidateVarCount = 0);
     for (lclNum = 0, varDsc = compiler->lvaTable; lclNum < compiler->lvaCount; lclNum++, varDsc++)
     {
-        // Initialize all variables to REG_STK
         varDsc->SetRegNum(REG_STK);
-#ifndef TARGET_64BIT
-        varDsc->SetOtherReg(REG_STK);
-#endif // TARGET_64BIT
 
         if (!enregisterLocalVars)
         {

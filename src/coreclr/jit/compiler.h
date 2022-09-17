@@ -615,9 +615,6 @@ private:
                               // variable is enregistered (lvRegister is only set
                               // to non-zero if the variable gets the same register assignment for its entire
                               // lifetime).
-#if !defined(TARGET_64BIT)
-    regNumberSmall _lvOtherReg; // Used for "upper half" of long var.
-#endif                          // !defined(TARGET_64BIT)
 
     regNumberSmall _lvArgReg; // The (first) register in which this argument is passed.
 
@@ -644,38 +641,6 @@ public:
         _lvRegNum = (regNumberSmall)reg;
         assert(_lvRegNum == reg);
     }
-
-/////////////////////
-
-#if defined(TARGET_64BIT)
-
-    regNumber GetOtherReg() const
-    {
-        assert(!"shouldn't get here"); // can't use "unreached();" because it's NORETURN, which causes C4072
-                                       // "unreachable code" warnings
-        return REG_NA;
-    }
-
-    void SetOtherReg(regNumber reg)
-    {
-        assert(!"shouldn't get here"); // can't use "unreached();" because it's NORETURN, which causes C4072
-                                       // "unreachable code" warnings
-    }
-#else  // !TARGET_64BIT
-
-    regNumber GetOtherReg() const
-    {
-        return (regNumber)_lvOtherReg;
-    }
-
-    void SetOtherReg(regNumber reg)
-    {
-        _lvOtherReg = (regNumberSmall)reg;
-        assert(_lvOtherReg == reg);
-    }
-#endif // !TARGET_64BIT
-
-    /////////////////////
 
     regNumber GetArgReg() const
     {

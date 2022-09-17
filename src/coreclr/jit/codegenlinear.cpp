@@ -887,11 +887,6 @@ void CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
     if (!lclVar->IsRegSpilled(0))
     {
         lcl->SetRegNum(REG_STK);
-
-        if (varTypeIsMultiReg(lclVar->GetType()))
-        {
-            lcl->SetOtherReg(REG_STK);
-        }
     }
     else
     {

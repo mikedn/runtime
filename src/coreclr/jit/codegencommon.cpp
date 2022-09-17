@@ -2825,22 +2825,14 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
                     goto NON_DEP;
                 }
 
-#if !defined(TARGET_64BIT)
-                if ((i == 1) && varTypeIsStruct(varDsc) && (varDsc->GetOtherReg() == regNum))
-                {
-                    goto NON_DEP;
-                }
-                if ((i == 1) && (genActualType(varDsc->TypeGet()) == TYP_LONG) && (varDsc->GetOtherReg() == regNum))
-                {
-                    goto NON_DEP;
-                }
-
+#ifndef TARGET_64BIT
                 if ((i == 1) && (genActualType(varDsc->TypeGet()) == TYP_DOUBLE) &&
                     (REG_NEXT(varDsc->GetRegNum()) == regNum))
                 {
                     goto NON_DEP;
                 }
-#endif // !defined(TARGET_64BIT)
+#endif
+
                 regArgTab[regArgNum + i].circular = true;
             }
             else
@@ -2935,9 +2927,10 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
                 }
 #endif // defined(UNIX_AMD64_ABI) && defined(FEATURE_SIMD)
 #if !defined(TARGET_64BIT)
+                // TODO-MIKE-Cleanup: This is likely dead code.
                 else if (regArgTab[argNum].slot == 2 && genActualType(varDsc->TypeGet()) == TYP_LONG)
                 {
-                    destRegNum = varDsc->GetOtherReg();
+                    destRegNum = REG_STK;
                 }
                 else
                 {
@@ -3031,10 +3024,6 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
             {
                 continue;
             }
-            else if (varDsc->GetOtherReg() != REG_STK)
-            {
-                continue;
-            }
         }
         else
 #endif // !TARGET_64BIT
@@ -3061,8 +3050,8 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
 
         noway_assert(varDsc->lvIsParam);
         noway_assert(varDsc->lvIsRegArg);
-        noway_assert(varDsc->lvIsInReg() == false || varDsc->lvLiveInOutOfHndlr ||
-                     (varDsc->lvType == TYP_LONG && varDsc->GetOtherReg() == REG_STK && regArgTab[argNum].slot == 2));
+        noway_assert(!varDsc->lvIsInReg() || varDsc->lvLiveInOutOfHndlr ||
+                     (varDsc->TypeIs(TYP_LONG) && regArgTab[argNum].slot == 2));
 
         var_types storeType = TYP_UNDEF;
         unsigned  slotSize  = TARGET_POINTER_SIZE;
@@ -3488,7 +3477,8 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
                 }
                 else
                 {
-                    destRegNum = varDsc->GetOtherReg();
+                    // TODO-MIKE-Cleanup: This is likely dead code.
+                    destRegNum = REG_STK;
                 }
 
                 assert(destRegNum != REG_STK);
@@ -3887,9 +3877,8 @@ void CodeGen::genCheckUseBlockInit()
                         else
                         {
                             // Var is partially enregistered
-                            noway_assert(genTypeSize(varDsc->TypeGet()) > sizeof(int) &&
-                                         varDsc->GetOtherReg() == REG_STK);
-                            initStkLclCnt += genTypeStSz(TYP_INT);
+                            noway_assert(varTypeSize(varDsc->GetType()) > 4);
+                            initStkLclCnt += 4;
                             counted = true;
                         }
                     }
@@ -6232,17 +6221,9 @@ void CodeGen::genFnProlog()
 
                 if (varTypeIsMultiReg(varDsc))
                 {
-                    if (varDsc->GetOtherReg() != REG_STK)
-                    {
-                        initRegs |= genRegMask(varDsc->GetOtherReg());
-                    }
-                    else
-                    {
-                        /* Upper DWORD is on the stack, and needs to be inited */
-
-                        loOffs += sizeof(int);
-                        goto INIT_STK;
-                    }
+                    // Upper DWORD is on the stack, and needs to be inited
+                    loOffs += sizeof(int);
+                    goto INIT_STK;
                 }
             }
             else if (varDsc->TypeGet() == TYP_DOUBLE)

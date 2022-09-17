@@ -377,23 +377,14 @@ void CodeGenInterface::siVarLoc::siFillRegisterVarLoc(
 
 #ifndef TARGET_64BIT
         case TYP_LONG:
-            if (varDsc->GetOtherReg() != REG_STK)
+            this->vlType                        = VLT_REG_STK;
+            this->vlRegStk.vlrsReg              = varDsc->GetRegNum();
+            this->vlRegStk.vlrsStk.vlrssBaseReg = baseReg;
+            if (isFramePointerUsed && this->vlRegStk.vlrsStk.vlrssBaseReg == REG_SPBASE)
             {
-                this->vlType            = VLT_REG_REG;
-                this->vlRegReg.vlrrReg1 = varDsc->GetRegNum();
-                this->vlRegReg.vlrrReg2 = varDsc->GetOtherReg();
+                this->vlRegStk.vlrsStk.vlrssBaseReg = (regNumber)ICorDebugInfo::REGNUM_AMBIENT_SP;
             }
-            else
-            {
-                this->vlType                        = VLT_REG_STK;
-                this->vlRegStk.vlrsReg              = varDsc->GetRegNum();
-                this->vlRegStk.vlrsStk.vlrssBaseReg = baseReg;
-                if (isFramePointerUsed && this->vlRegStk.vlrsStk.vlrssBaseReg == REG_SPBASE)
-                {
-                    this->vlRegStk.vlrsStk.vlrssBaseReg = (regNumber)ICorDebugInfo::REGNUM_AMBIENT_SP;
-                }
-                this->vlRegStk.vlrsStk.vlrssOffset = offset + sizeof(int);
-            }
+            this->vlRegStk.vlrsStk.vlrssOffset = offset + sizeof(int);
             break;
 #endif // !TARGET_64BIT
 
