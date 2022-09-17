@@ -647,25 +647,27 @@ void Compiler::lvaInitUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAND
     unsigned  regCount      = slots;
     var_types hfaType       = TYP_UNDEF;
 
+    if (varTypeIsStruct(paramType))
+    {
 #if defined(TARGET_ARM64) && defined(TARGET_WINDOWS)
-    // win-arm64 varargs does not use HFAs and can split a STRUCT arg between the last
-    // integer reg arg (x7) and the first stack arg slot.
-    if (info.compIsVarArgs)
-    {
-        // TODO-MIKE-Review: This STRUCT check is dubious, it misses SIMD12/16.
-        if ((paramType == TYP_STRUCT) && paramInfo.canEnreg(TYP_INT, 1) && !paramInfo.canEnreg(TYP_INT, slots))
+        // win-arm64 varargs does not use HFAs and can split a STRUCT arg between the last
+        // integer reg arg (x7) and the first stack arg slot.
+        if (info.compIsVarArgs)
         {
-            regCount = 1;
+            if (paramInfo.canEnreg(TYP_INT, 1) && !paramInfo.canEnreg(TYP_INT, slots))
+            {
+                regCount = 1;
+            }
         }
-    }
-    else
+        else
 #endif
-        if (varTypeIsStruct(paramType) && lcl->GetLayout()->IsHfa())
-    {
-        slots     = lcl->GetLayout()->GetHfaRegCount();
-        hfaType   = lcl->GetLayout()->GetHfaElementType();
-        paramType = hfaType;
-        regCount  = slots;
+            if (lcl->GetLayout()->IsHfa())
+        {
+            slots     = lcl->GetLayout()->GetHfaRegCount();
+            hfaType   = lcl->GetLayout()->GetHfaElementType();
+            paramType = hfaType;
+            regCount  = slots;
+        }
     }
 
     bool canPassArgInRegisters = false;
@@ -800,6 +802,8 @@ void Compiler::lvaInitUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAND
     else
 #endif
     {
+        // TODO-MIKE-Fix: This is messed up for for win-arm64 varargs, paramType may
+        // be SIMD12/16 when it should in fact be INT since varargs doesn't use HFAs.
         canPassArgInRegisters = paramInfo.canEnreg(paramType, regCount);
     }
 
