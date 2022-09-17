@@ -4043,7 +4043,7 @@ public:
     void lvaInitInline();
 
     void lvaInitArgs(bool hasRetBuffArg);
-    void lvaInitThisPtr(InitVarDscInfo* varDscInfo);
+    void lvaInitThisParam(InitVarDscInfo& paramInfo);
     void lvaInitRetBuffArg(InitVarDscInfo* varDscInfo, bool useFixedRetBufReg);
     void lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, unsigned takeArgs);
     void lvaInitGenericsCtxt(InitVarDscInfo* varDscInfo);

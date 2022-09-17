@@ -300,7 +300,7 @@ void Compiler::lvaInitArgs(bool hasRetBuffArg)
     // x64, arm and arm64 place the generic context and varargs handle before user args:
     //  [this] [struct return buffer] [generic context] [varargs handle] [user args]
 
-    lvaInitThisPtr(&varDscInfo);
+    lvaInitThisParam(varDscInfo);
 
     unsigned numUserArgsToSkip = 0;
     unsigned numUserArgs       = info.compMethodInfo->args.numArgs;
@@ -358,45 +358,46 @@ void Compiler::lvaInitArgs(bool hasRetBuffArg)
 #endif
 }
 
-void Compiler::lvaInitThisPtr(InitVarDscInfo* varDscInfo)
+void Compiler::lvaInitThisParam(InitVarDscInfo& paramInfo)
 {
-    if (!info.compIsStatic)
+    if (info.compIsStatic)
     {
-        noway_assert(varDscInfo->varNum == 0);
-        noway_assert(varDscInfo->intRegArgNum == 0);
+        return;
+    }
 
-        lvaArg0Var       = 0;
-        info.compThisArg = 0;
+    noway_assert(paramInfo.varNum == 0);
+    noway_assert(paramInfo.intRegArgNum == 0);
 
-        LclVarDsc* varDsc = varDscInfo->varDsc;
-        varDsc->lvIsParam = true;
-        varDsc->lvIsPtr   = true;
+    lvaArg0Var       = 0;
+    info.compThisArg = 0;
 
-        if ((info.compClassAttr & CORINFO_FLG_VALUECLASS) != 0)
-        {
-            varDsc->SetType(TYP_BYREF);
-        }
-        else
-        {
-            varDsc->SetType(TYP_REF);
-            lvaSetClass(varDscInfo->varNum, info.compClassHnd);
-        }
+    LclVarDsc* lcl = paramInfo.varDsc;
 
-        varDsc->lvIsRegArg = true;
+    if ((info.compClassAttr & CORINFO_FLG_VALUECLASS) != 0)
+    {
+        lcl->SetType(TYP_BYREF);
+    }
+    else
+    {
+        lcl->SetType(TYP_REF);
+        lvaSetClass(paramInfo.varNum, info.compClassHnd);
+    }
 
-        varDsc->SetArgReg(genMapRegArgNumToRegNum(varDscInfo->allocRegArg(TYP_INT), varDsc->GetType()));
+    lcl->lvIsParam  = true;
+    lcl->lvIsPtr    = true;
+    lcl->lvIsRegArg = true;
+    lcl->lvOnFrame  = true;
+
+    lcl->SetArgReg(genMapRegArgNumToRegNum(paramInfo.allocRegArg(TYP_INT), lcl->GetType()));
 #if FEATURE_MULTIREG_ARGS
-        varDsc->SetOtherArgReg(REG_NA);
+    lcl->SetOtherArgReg(REG_NA);
 #endif
 
-        varDsc->lvOnFrame = true;
+    JITDUMP("'this' passed in register %s\n", getRegName(lcl->GetArgReg()));
 
-        JITDUMP("'this'    passed in register %s\n", getRegName(varDsc->GetArgReg()));
-
-        compArgSize += REGSIZE_BYTES;
-        varDscInfo->varNum++;
-        varDscInfo->varDsc++;
-    }
+    compArgSize += REGSIZE_BYTES;
+    paramInfo.varNum++;
+    paramInfo.varDsc++;
 }
 
 void Compiler::lvaInitRetBuffArg(InitVarDscInfo* varDscInfo, bool useFixedRetBufReg)
