@@ -4044,7 +4044,7 @@ public:
 
     void lvaInitArgs(bool hasRetBuffArg);
     void lvaInitThisParam(InitVarDscInfo& paramInfo);
-    void lvaInitRetBuffArg(InitVarDscInfo* varDscInfo, bool useFixedRetBufReg);
+    void lvaInitRetBufParam(InitVarDscInfo& paramInfo, bool useFixedRetBufReg);
     void lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, unsigned takeArgs);
     void lvaInitGenericsCtxt(InitVarDscInfo* varDscInfo);
     void lvaInitVarArgsHandle(InitVarDscInfo* varDscInfo);

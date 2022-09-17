@@ -314,12 +314,12 @@ void Compiler::lvaInitArgs(bool hasRetBuffArg)
         numUserArgsToSkip++;
         numUserArgs--;
 
-        lvaInitRetBuffArg(&varDscInfo, false);
+        lvaInitRetBufParam(varDscInfo, false);
     }
     else
 #endif
     {
-        lvaInitRetBuffArg(&varDscInfo, true);
+        lvaInitRetBufParam(varDscInfo, true);
     }
 
 #if USER_ARGS_COME_LAST
@@ -400,56 +400,59 @@ void Compiler::lvaInitThisParam(InitVarDscInfo& paramInfo)
     paramInfo.varDsc++;
 }
 
-void Compiler::lvaInitRetBuffArg(InitVarDscInfo* varDscInfo, bool useFixedRetBufReg)
+void Compiler::lvaInitRetBufParam(InitVarDscInfo& paramInfo, bool useFixedRetBufReg)
 {
-    if (varDscInfo->hasRetBufArg)
+    if (!paramInfo.hasRetBufArg)
     {
-        info.compRetBuffArg = varDscInfo->varNum;
+        return;
+    }
 
-        LclVarDsc* varDsc = varDscInfo->varDsc;
-        varDsc->SetType(TYP_BYREF);
-        varDsc->lvIsParam  = true;
-        varDsc->lvIsRegArg = false;
+#ifdef DEBUG
+    if (info.compRetType == TYP_STRUCT)
+    {
+        CORINFO_SIG_INFO sigInfo;
+        info.compCompHnd->getMethodSig(info.compMethodHnd, &sigInfo);
 
-        if (useFixedRetBufReg && hasFixedRetBuffReg())
-        {
-            varDsc->lvIsRegArg = true;
-            varDsc->SetArgReg(theFixedRetBuffReg());
-        }
-        else if (varDscInfo->canEnreg(TYP_INT))
-        {
-            varDsc->lvIsRegArg     = true;
-            unsigned retBuffArgNum = varDscInfo->allocRegArg(TYP_INT);
-            varDsc->SetArgReg(genMapIntRegArgNumToRegNum(retBuffArgNum));
-        }
+        assert(CorTypeToVarType(sigInfo.retType) == TYP_STRUCT);
 
-#if FEATURE_MULTIREG_ARGS
-        varDsc->SetOtherArgReg(REG_NA);
+        // The VM has disabled this optimization a long time ago.
+        assert(!info.compCompHnd->isStructRequiringStackAllocRetBuf(sigInfo.retTypeClass));
+    }
 #endif
 
-        varDsc->lvOnFrame = true;
+    info.compRetBuffArg = paramInfo.varNum;
 
-        if (info.compRetType == TYP_STRUCT)
-        {
-            CORINFO_SIG_INFO sigInfo;
-            info.compCompHnd->getMethodSig(info.compMethodHnd, &sigInfo);
-            assert(JITtype2varType(sigInfo.retType) == info.compRetType); // Else shouldn't have a ret buff.
+    LclVarDsc* lcl = paramInfo.varDsc;
 
-            // The VM has disabled this optimization a long time ago.
-            assert(!info.compCompHnd->isStructRequiringStackAllocRetBuf(sigInfo.retTypeClass));
-        }
+    lcl->SetType(TYP_BYREF);
+    lcl->lvIsParam = true;
+    lcl->lvOnFrame = true;
 
-        assert(!varDsc->lvIsRegArg || isValidIntArgReg(varDsc->GetArgReg()));
-
-        if (varDsc->lvIsRegArg)
-        {
-            JITDUMP("'__retBuf'  passed in register %s\n", getRegName(varDsc->GetArgReg()));
-        }
-
-        compArgSize += REGSIZE_BYTES;
-        varDscInfo->varNum++;
-        varDscInfo->varDsc++;
+    if (useFixedRetBufReg && hasFixedRetBuffReg())
+    {
+        lcl->lvIsRegArg = true;
+        lcl->SetArgReg(theFixedRetBuffReg());
     }
+    else if (paramInfo.canEnreg(TYP_INT))
+    {
+        lcl->lvIsRegArg = true;
+        lcl->SetArgReg(genMapIntRegArgNumToRegNum(paramInfo.allocRegArg(TYP_INT)));
+    }
+
+#if FEATURE_MULTIREG_ARGS
+    lcl->SetOtherArgReg(REG_NA);
+#endif
+
+    assert(!lcl->lvIsRegArg || isValidIntArgReg(lcl->GetArgReg()));
+
+    if (lcl->lvIsRegArg)
+    {
+        JITDUMP("'__retBuf' passed in register %s\n", getRegName(lcl->GetArgReg()));
+    }
+
+    compArgSize += REGSIZE_BYTES;
+    paramInfo.varNum++;
+    paramInfo.varDsc++;
 }
 
 void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, unsigned takeArgs)
