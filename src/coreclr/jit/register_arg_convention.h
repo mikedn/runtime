@@ -4,50 +4,31 @@
 #ifndef __register_arg_convention__
 #define __register_arg_convention__
 
-class LclVarDsc;
-
 struct InitVarDscInfo
 {
-    LclVarDsc* varDsc;
-    unsigned   varNum;
-
-    unsigned intRegArgNum;
-    unsigned floatRegArgNum;
+    unsigned varNum         = 0;
+    unsigned intRegArgNum   = 0;
+    unsigned floatRegArgNum = 0;
     unsigned maxIntRegArgNum;
     unsigned maxFloatRegArgNum;
 
 #ifdef TARGET_ARM
     // Support back-filling of FP parameters. This is similar to code in gtMorphArgs() that
     // handles arguments.
-    regMaskTP fltArgSkippedRegMask;
-    bool      anyFloatStackArgs;
-#endif // TARGET_ARM
+    regMaskTP fltArgSkippedRegMask = RBM_NONE;
+    bool      anyFloatStackArgs    = false;
+#endif
 
 #if FEATURE_FASTTAILCALL
     // It is used to calculate argument stack size information in byte
-    unsigned stackArgSize;
-    bool     hasMultiSlotStruct;
-#endif // FEATURE_FASTTAILCALL
+    unsigned stackArgSize       = 0;
+    bool     hasMultiSlotStruct = false;
+#endif
 
 public:
-    InitVarDscInfo(LclVarDsc* lvaTable, unsigned _maxIntRegArgNum, unsigned _maxFloatRegArgNum)
+    InitVarDscInfo(unsigned maxIntRegArgNum, unsigned maxFloatRegArgNum)
+        : maxIntRegArgNum(maxIntRegArgNum), maxFloatRegArgNum(maxFloatRegArgNum)
     {
-        varDsc            = &lvaTable[0]; // the first argument LclVar 0
-        varNum            = 0;            // the first argument varNum 0
-        intRegArgNum      = 0;
-        floatRegArgNum    = 0;
-        maxIntRegArgNum   = _maxIntRegArgNum;
-        maxFloatRegArgNum = _maxFloatRegArgNum;
-
-#ifdef TARGET_ARM
-        fltArgSkippedRegMask = RBM_NONE;
-        anyFloatStackArgs    = false;
-#endif // TARGET_ARM
-
-#if FEATURE_FASTTAILCALL
-        stackArgSize       = 0;
-        hasMultiSlotStruct = false;
-#endif // FEATURE_FASTTAILCALL
     }
 
     // return ref to current register arg for this type

@@ -284,7 +284,7 @@ void Compiler::lvaInitArgs(bool hasRetBufParam)
     }
 #endif
 
-    InitVarDscInfo varDscInfo(lvaTable, maxIntRegArgNum, maxFloatRegArgNum);
+    InitVarDscInfo varDscInfo(maxIntRegArgNum, maxFloatRegArgNum);
     compArgSize = 0;
 
 #if defined(TARGET_ARM) && defined(PROFILING_SUPPORTED)
@@ -377,7 +377,7 @@ void Compiler::lvaInitThisParam(InitVarDscInfo& paramInfo)
     lvaArg0Var       = 0;
     info.compThisArg = 0;
 
-    LclVarDsc* lcl = paramInfo.varDsc;
+    LclVarDsc* lcl = lvaGetDesc(paramInfo.varNum);
 
     if ((info.compClassAttr & CORINFO_FLG_VALUECLASS) != 0)
     {
@@ -403,7 +403,6 @@ void Compiler::lvaInitThisParam(InitVarDscInfo& paramInfo)
 
     compArgSize += REGSIZE_BYTES;
     paramInfo.varNum++;
-    paramInfo.varDsc++;
 }
 
 void Compiler::lvaInitRetBufParam(InitVarDscInfo& paramInfo, bool useFixedRetBufReg)
@@ -423,7 +422,7 @@ void Compiler::lvaInitRetBufParam(InitVarDscInfo& paramInfo, bool useFixedRetBuf
 
     info.compRetBuffArg = paramInfo.varNum;
 
-    LclVarDsc* lcl = paramInfo.varDsc;
+    LclVarDsc* lcl = lvaGetDesc(paramInfo.varNum);
 
     lcl->SetType(TYP_BYREF);
     lcl->lvIsParam = true;
@@ -453,7 +452,6 @@ void Compiler::lvaInitRetBufParam(InitVarDscInfo& paramInfo, bool useFixedRetBuf
 
     compArgSize += REGSIZE_BYTES;
     paramInfo.varNum++;
-    paramInfo.varDsc++;
 }
 
 void Compiler::lvaInitGenericsContextParam(InitVarDscInfo& paramInfo)
@@ -465,7 +463,7 @@ void Compiler::lvaInitGenericsContextParam(InitVarDscInfo& paramInfo)
 
     info.compTypeCtxtArg = paramInfo.varNum;
 
-    LclVarDsc* lcl = paramInfo.varDsc;
+    LclVarDsc* lcl = lvaGetDesc(paramInfo.varNum);
 
     lcl->SetType(TYP_I_IMPL);
     lcl->lvIsParam = true;
@@ -493,6 +491,7 @@ void Compiler::lvaInitGenericsContextParam(InitVarDscInfo& paramInfo)
     }
 
     compArgSize += REGSIZE_BYTES;
+    paramInfo.varNum++;
 
 #ifdef TARGET_X86
     if (info.compIsVarArgs)
@@ -500,9 +499,6 @@ void Compiler::lvaInitGenericsContextParam(InitVarDscInfo& paramInfo)
         lcl->SetStackOffset(compArgSize);
     }
 #endif
-
-    paramInfo.varNum++;
-    paramInfo.varDsc++;
 }
 
 void Compiler::lvaInitVarargsHandleParam(InitVarDscInfo& paramInfo)
@@ -514,7 +510,7 @@ void Compiler::lvaInitVarargsHandleParam(InitVarDscInfo& paramInfo)
 
     lvaVarargsHandleArg = paramInfo.varNum;
 
-    LclVarDsc* lcl = paramInfo.varDsc;
+    LclVarDsc* lcl = lvaGetDesc(paramInfo.varNum);
 
     lcl->SetType(TYP_I_IMPL);
     lcl->lvIsParam = true;
@@ -559,7 +555,6 @@ void Compiler::lvaInitVarargsHandleParam(InitVarDscInfo& paramInfo)
 
     compArgSize += REGSIZE_BYTES;
     paramInfo.varNum++;
-    paramInfo.varDsc++;
 
 #ifdef TARGET_X86
     lcl->SetStackOffset(compArgSize);
@@ -597,8 +592,10 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, un
     regMaskTP doubleAlignMask = RBM_NONE;
 #endif
 
+    LclVarDsc* varDsc = lvaGetDesc(varDscInfo->varNum);
+
     for (unsigned i = 0; i < numUserArgs;
-         i++, varDscInfo->varNum++, varDscInfo->varDsc++, argLst = info.compCompHnd->getArgNext(argLst))
+         i++, varDscInfo->varNum++, varDsc++, argLst = info.compCompHnd->getArgNext(argLst))
     {
 #ifdef TARGET_UNIX
         if (info.compIsVarArgs)
@@ -612,7 +609,6 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, un
         }
 #endif
 
-        LclVarDsc*           varDsc  = varDscInfo->varDsc;
         CORINFO_CLASS_HANDLE typeHnd = nullptr;
         CorInfoType corInfoType = strip(info.compCompHnd->getArgType(&info.compMethodInfo->args, argLst, &typeHnd));
 
