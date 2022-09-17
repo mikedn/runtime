@@ -156,7 +156,7 @@ void Compiler::lvaInitTable()
         new (&lvaTable[i]) LclVarDsc();
     }
 
-    lvaInitArgs(hasRetBuffArg);
+    lvaInitParams(hasRetBuffArg);
     lvaInitLocals();
 }
 
@@ -269,22 +269,22 @@ void Compiler::lvaInitLocals()
     DBEXEC(verbose, lvaTableDump(INITIAL_FRAME_LAYOUT));
 }
 
-void Compiler::lvaInitArgs(bool hasRetBufParam)
+void Compiler::lvaInitParams(bool hasRetBufParam)
 {
-    unsigned maxIntRegArgNum   = MAX_REG_ARG;
-    unsigned maxFloatRegArgNum = MAX_FLOAT_REG_ARG;
+    unsigned intRegCount   = MAX_REG_ARG;
+    unsigned floatRegCount = MAX_FLOAT_REG_ARG;
 
 #ifdef TARGET_X86
     switch (info.compCallConv)
     {
         case CorInfoCallConvExtension::Thiscall:
-            maxIntRegArgNum = 1;
+            intRegCount = 1;
             break;
         case CorInfoCallConvExtension::C:
         case CorInfoCallConvExtension::Stdcall:
         case CorInfoCallConvExtension::CMemberFunction:
         case CorInfoCallConvExtension::StdcallMemberFunction:
-            maxIntRegArgNum = 0;
+            intRegCount = 0;
             break;
         case CorInfoCallConvExtension::Managed:
         case CorInfoCallConvExtension::Fastcall:
@@ -296,7 +296,7 @@ void Compiler::lvaInitArgs(bool hasRetBufParam)
     }
 #endif
 
-    InitVarDscInfo varDscInfo(maxIntRegArgNum, maxFloatRegArgNum);
+    InitVarDscInfo paramInfo(intRegCount, floatRegCount);
     compArgSize = 0;
 
 #if defined(TARGET_ARM) && defined(PROFILING_SUPPORTED)
@@ -313,23 +313,23 @@ void Compiler::lvaInitArgs(bool hasRetBufParam)
     // x64, arm and arm64 place the generic context and varargs handle before user params:
     //  [this] [struct return buffer] [generic context] [varargs handle] [user params]
 
-    lvaInitThisParam(varDscInfo);
+    lvaInitThisParam(paramInfo);
 
-    unsigned numUserArgsToSkip = 0;
-    unsigned numUserArgs       = info.compMethodInfo->args.numArgs;
+    unsigned numUserParamsToSkip = 0;
+    unsigned numUserParams       = info.compMethodInfo->args.numArgs;
     bool     useFixedRetBufReg;
 
 #if defined(TARGET_WINDOWS) && !defined(TARGET_ARM)
     if (callConvIsInstanceMethodCallConv(info.compCallConv))
     {
-        if (numUserArgs == 0)
+        if (numUserParams == 0)
         {
             BADCODE("Instance method without 'this' param");
         }
 
-        lvaInitUserParams(varDscInfo, 0, 1);
-        numUserArgsToSkip++;
-        numUserArgs--;
+        lvaInitUserParams(paramInfo, 0, 1);
+        numUserParamsToSkip++;
+        numUserParams--;
         useFixedRetBufReg = false;
     }
     else
@@ -340,29 +340,29 @@ void Compiler::lvaInitArgs(bool hasRetBufParam)
 
     if (hasRetBufParam)
     {
-        lvaInitRetBufParam(varDscInfo, useFixedRetBufReg);
+        lvaInitRetBufParam(paramInfo, useFixedRetBufReg);
     }
 
 #if USER_ARGS_COME_LAST
-    lvaInitGenericsContextParam(varDscInfo);
-    lvaInitVarargsHandleParam(varDscInfo);
+    lvaInitGenericsContextParam(paramInfo);
+    lvaInitVarargsHandleParam(paramInfo);
 #endif
 
-    lvaInitUserParams(varDscInfo, numUserArgsToSkip, numUserArgs);
+    lvaInitUserParams(paramInfo, numUserParamsToSkip, numUserParams);
 
 #if !USER_ARGS_COME_LAST
-    lvaInitGenericsContextParam(varDscInfo);
-    lvaInitVarargsHandleParam(varDscInfo);
+    lvaInitGenericsContextParam(paramInfo);
+    lvaInitVarargsHandleParam(paramInfo);
 #endif
 
-    noway_assert(varDscInfo.varNum == info.compArgsCount);
-    assert(varDscInfo.intRegArgNum <= MAX_REG_ARG);
+    noway_assert(paramInfo.varNum == info.compArgsCount);
+    assert(paramInfo.intRegArgNum <= MAX_REG_ARG);
 
-    codeGen->intRegState.rsCalleeRegArgCount   = varDscInfo.intRegArgNum;
-    codeGen->floatRegState.rsCalleeRegArgCount = varDscInfo.floatRegArgNum;
+    codeGen->intRegState.rsCalleeRegArgCount   = paramInfo.intRegArgNum;
+    codeGen->floatRegState.rsCalleeRegArgCount = paramInfo.floatRegArgNum;
 
 #if FEATURE_FASTTAILCALL
-    info.compArgStackSize = varDscInfo.stackArgSize;
+    info.compArgStackSize = paramInfo.stackArgSize;
 #endif
 
     // The total argument size must be aligned.
