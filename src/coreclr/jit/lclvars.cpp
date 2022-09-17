@@ -329,14 +329,14 @@ void Compiler::lvaInitArgs(bool hasRetBufParam)
 
 #if USER_ARGS_COME_LAST
     lvaInitGenericsContextParam(varDscInfo);
-    lvaInitVarArgsHandle(&varDscInfo);
+    lvaInitVarargsHandleParam(varDscInfo);
 #endif
 
     lvaInitUserArgs(&varDscInfo, numUserArgsToSkip, numUserArgs);
 
 #if !USER_ARGS_COME_LAST
     lvaInitGenericsContextParam(varDscInfo);
-    lvaInitVarArgsHandle(varDscInfo);
+    lvaInitVarargsHandleParam(varDscInfo);
 #endif
 
     noway_assert(varDscInfo.varNum == info.compArgsCount);
@@ -502,6 +502,68 @@ void Compiler::lvaInitGenericsContextParam(InitVarDscInfo& paramInfo)
 
     paramInfo.varNum++;
     paramInfo.varDsc++;
+}
+
+void Compiler::lvaInitVarargsHandleParam(InitVarDscInfo& paramInfo)
+{
+    if (!info.compIsVarArgs)
+    {
+        return;
+    }
+
+    lvaVarargsHandleArg = paramInfo.varNum;
+
+    LclVarDsc* lcl = paramInfo.varDsc;
+
+    lcl->SetType(TYP_I_IMPL);
+    lcl->lvIsParam = true;
+    lcl->lvOnFrame = true;
+
+    // Make sure this lives in the stack, address may be reported to the VM.
+    // TODO-CQ: This should probably be only DNER but that causes problems,
+    // so, for expedience, I switched back to this heavyweight hammer.
+    // But I think it should be possible to switch; it may just work now
+    // that other problems are fixed.
+    lvaSetAddressExposed(lcl);
+
+    if (paramInfo.canEnreg(TYP_I_IMPL))
+    {
+        unsigned regIndex = paramInfo.allocRegArg(TYP_I_IMPL);
+
+        lcl->lvIsRegArg = true;
+        lcl->SetArgReg(genMapRegArgNumToRegNum(regIndex, TYP_I_IMPL));
+#if FEATURE_MULTIREG_ARGS
+        lcl->SetOtherArgReg(REG_NA);
+#endif
+
+#ifdef TARGET_ARM
+        // This has to be spilled right in front of the real arguments and we have
+        // to pre-spill all the argument registers explicitly because we only have
+        // have symbols for the declared ones, not any potential variadic ones.
+        for (unsigned ix = regIndex; ix < ArrLen(intArgMasks); ix++)
+        {
+            codeGen->regSet.rsMaskPreSpillRegArg |= intArgMasks[ix];
+        }
+#endif // TARGET_ARM
+
+        JITDUMP("'VarArgHnd' passed in register %s\n", getRegName(lcl->GetArgReg()));
+    }
+    else
+    {
+#if FEATURE_FASTTAILCALL
+        lcl->SetStackOffset(paramInfo.stackArgSize);
+        paramInfo.stackArgSize += REGSIZE_BYTES;
+#endif
+    }
+
+    compArgSize += REGSIZE_BYTES;
+    paramInfo.varNum++;
+    paramInfo.varDsc++;
+
+#ifdef TARGET_X86
+    lcl->SetStackOffset(compArgSize);
+    lvaVarargsBaseOfStkArgs = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("Varargs BaseOfStkArgs"));
+#endif
 }
 
 void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, unsigned takeArgs)
@@ -1028,69 +1090,6 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, un
         }
     }
 #endif // TARGET_ARM
-}
-
-void Compiler::lvaInitVarArgsHandle(InitVarDscInfo* varDscInfo)
-{
-    if (info.compIsVarArgs)
-    {
-        lvaVarargsHandleArg = varDscInfo->varNum;
-
-        LclVarDsc* varDsc = varDscInfo->varDsc;
-        varDsc->SetType(TYP_I_IMPL);
-        varDsc->lvIsParam = true;
-
-        // Make sure this lives in the stack -- address may be reported to the VM.
-        // TODO-CQ: This should probably be:
-        //   lvaSetVarDoNotEnregister(varDscInfo->varNum DEBUGARG(DNER_VMNeedsStackAddr));
-        // But that causes problems, so, for expedience, I switched back to this heavyweight
-        // hammer.  But I think it should be possible to switch; it may just work now
-        // that other problems are fixed.
-        lvaSetVarAddrExposed(varDscInfo->varNum);
-
-        if (varDscInfo->canEnreg(TYP_I_IMPL))
-        {
-            unsigned varArgHndArgNum = varDscInfo->allocRegArg(TYP_I_IMPL);
-
-            varDsc->lvIsRegArg = true;
-            varDsc->SetArgReg(genMapRegArgNumToRegNum(varArgHndArgNum, TYP_I_IMPL));
-#if FEATURE_MULTIREG_ARGS
-            varDsc->SetOtherArgReg(REG_NA);
-#endif
-
-            varDsc->lvOnFrame = true;
-
-#ifdef TARGET_ARM
-            // This has to be spilled right in front of the real arguments and we have
-            // to pre-spill all the argument registers explicitly because we only have
-            // have symbols for the declared ones, not any potential variadic ones.
-            for (unsigned ix = varArgHndArgNum; ix < ArrLen(intArgMasks); ix++)
-            {
-                codeGen->regSet.rsMaskPreSpillRegArg |= intArgMasks[ix];
-            }
-#endif // TARGET_ARM
-
-            JITDUMP("'VarArgHnd' passed in register %s\n", getRegName(varDsc->GetArgReg()));
-        }
-        else
-        {
-            varDsc->lvOnFrame = true;
-
-#if FEATURE_FASTTAILCALL
-            varDsc->SetStackOffset(varDscInfo->stackArgSize);
-            varDscInfo->stackArgSize += REGSIZE_BYTES;
-#endif
-        }
-
-        compArgSize += REGSIZE_BYTES;
-        varDscInfo->varNum++;
-        varDscInfo->varDsc++;
-
-#ifdef TARGET_X86
-        varDsc->SetStackOffset(compArgSize);
-        lvaVarargsBaseOfStkArgs = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("Varargs BaseOfStkArgs"));
-#endif
-    }
 }
 
 void Compiler::lvaInitVarDsc(LclVarDsc* varDsc, unsigned varNum, CorInfoType corInfoType, CORINFO_CLASS_HANDLE typeHnd)
