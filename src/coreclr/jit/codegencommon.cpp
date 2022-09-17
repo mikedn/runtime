@@ -2605,7 +2605,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
             unsigned firstRegSlot = 0;
             for (unsigned slotCounter = 0; slotCounter < varDsc->GetLayout()->GetSysVAmd64AbiRegCount(); slotCounter++)
             {
-                regNumber regNum = varDsc->lvRegNumForSlot(slotCounter);
+                regNumber regNum = varDsc->GetParamReg(slotCounter);
                 var_types regType;
 
 #ifdef FEATURE_SIMD

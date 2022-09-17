@@ -571,26 +571,6 @@ public:
 
     INDEBUG(char lvSingleDefDisqualifyReason = 'H';)
 
-#if FEATURE_MULTIREG_ARGS
-    regNumber lvRegNumForSlot(unsigned slotNum)
-    {
-        if (slotNum == 0)
-        {
-            return (regNumber)_lvArgReg;
-        }
-        else if (slotNum == 1)
-        {
-            return GetOtherArgReg();
-        }
-        else
-        {
-            assert(false && "Invalid slotNum!");
-        }
-
-        unreached();
-    }
-#endif // FEATURE_MULTIREG_ARGS
-
     bool lvIsHfa() const
     {
 #ifdef FEATURE_HFA
@@ -654,7 +634,6 @@ public:
     }
 
 #if FEATURE_MULTIREG_ARGS
-
     regNumber GetOtherArgReg() const
     {
         return (regNumber)_lvOtherArgReg;
@@ -665,7 +644,22 @@ public:
         _lvOtherArgReg = (regNumberSmall)reg;
         assert(_lvOtherArgReg == reg);
     }
-#endif // FEATURE_MULTIREG_ARGS
+#endif
+
+#ifdef UNIX_AMD64_ABI
+    regNumber GetParamReg(unsigned index)
+    {
+        if (index == 0)
+        {
+            return GetArgReg();
+        }
+        else
+        {
+            assert(index == 1);
+            return GetOtherArgReg();
+        }
+    }
+#endif
 
     // Is this is a SIMD struct which is used for SIMD intrinsic?
     bool lvIsUsedInSIMDIntrinsic() const
