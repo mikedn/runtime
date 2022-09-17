@@ -1498,38 +1498,28 @@ void CodeGen::psiBegProlog()
             {
                 if (lclVarDsc->GetLayout()->GetSysVAmd64AbiRegCount() != 0)
                 {
-                    regNumber regNum      = REG_NA;
-                    regNumber otherRegNum = REG_NA;
-                    for (unsigned nCnt = 0; nCnt < lclVarDsc->GetLayout()->GetSysVAmd64AbiRegCount(); nCnt++)
+                    regNumber regNum[2]{REG_NA, REG_NA};
+
+                    for (unsigned i = 0; i < lclVarDsc->GetLayout()->GetSysVAmd64AbiRegCount(); i++)
                     {
-                        if (nCnt == 0)
-                        {
-                            regNum = lclVarDsc->GetArgReg();
-                        }
-                        else if (nCnt == 1)
-                        {
-                            otherRegNum = lclVarDsc->GetOtherArgReg();
-                        }
-                        else
-                        {
-                            assert(false && "Invalid eightbyte number.");
-                        }
+                        regNum[i] = lclVarDsc->GetParamReg(i);
 
 #ifdef DEBUG
-                        var_types regType = lclVarDsc->GetLayout()->GetSysVAmd64AbiRegType(nCnt);
+                        var_types regType = lclVarDsc->GetLayout()->GetSysVAmd64AbiRegType(i);
                         regType           = compiler->mangleVarArgsType(regType);
-                        assert(genMapRegNumToRegArgNum((nCnt == 0 ? regNum : otherRegNum), regType) != (unsigned)-1);
-#endif // DEBUG
+                        assert(genMapRegNumToRegArgNum(regNum[i], regType) != UINT32_MAX);
+#endif
                     }
+
 #ifdef USING_SCOPE_INFO
                     newScope->scRegister    = true;
-                    newScope->u1.scRegNum   = (regNumberSmall)regNum;
-                    newScope->u1.scOtherReg = (regNumberSmall)otherRegNum;
-#endif // USING_SCOPE_INFO
+                    newScope->u1.scRegNum   = static_cast<regNumberSmall>(regNum[0]);
+                    newScope->u1.scOtherReg = static_cast<regNumberSmall>(regNum[1]);
+#endif
 
 #ifdef USING_VARIABLE_LIVE_RANGE
-                    varLocation.storeVariableInRegisters(regNum, otherRegNum);
-#endif // USING_VARIABLE_LIVE_RANGE
+                    varLocation.storeVariableInRegisters(regNum[0], regNum[1]);
+#endif
                 }
                 else
                 {

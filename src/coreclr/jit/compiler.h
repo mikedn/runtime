@@ -659,6 +659,19 @@ public:
             return GetOtherArgReg();
         }
     }
+
+    void SetParamReg(unsigned index, regNumber reg)
+    {
+        if (index == 0)
+        {
+            return SetArgReg(reg);
+        }
+        else
+        {
+            assert(index == 1);
+            return SetOtherArgReg(reg);
+        }
+    }
 #endif
 
     // Is this is a SIMD struct which is used for SIMD intrinsic?

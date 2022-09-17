@@ -5383,16 +5383,18 @@ void CodeGen::genJmpMethod(GenTree* jmp)
             // genCodeForBBList().
 
             var_types type = varActualType(varDsc->GetLayout()->GetSysVAmd64AbiRegType(0));
-            GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), varDsc->GetArgReg(), varNum, 0);
-            regSet.SetMaskVars(regSet.GetMaskVars() | genRegMask(varDsc->GetArgReg()));
-            gcInfo.gcMarkRegPtrVal(varDsc->GetArgReg(), type);
+            regNumber reg  = varDsc->GetParamReg(0);
+            GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, varNum, 0);
+            regSet.SetMaskVars(regSet.GetMaskVars() | genRegMask(reg));
+            gcInfo.gcMarkRegPtrVal(reg, type);
 
             if (varDsc->GetLayout()->GetSysVAmd64AbiRegCount() > 1)
             {
                 type = varActualType(varDsc->GetLayout()->GetSysVAmd64AbiRegType(1));
-                GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), varDsc->GetOtherArgReg(), varNum, 8);
-                regSet.SetMaskVars(regSet.GetMaskVars() | genRegMask(varDsc->GetOtherArgReg()));
-                gcInfo.gcMarkRegPtrVal(varDsc->GetOtherArgReg(), type);
+                reg  = varDsc->GetParamReg(1);
+                GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, varNum, 8);
+                regSet.SetMaskVars(regSet.GetMaskVars() | genRegMask(reg));
+                gcInfo.gcMarkRegPtrVal(reg, type);
             }
 
             if (varDsc->lvTracked)

@@ -2945,8 +2945,8 @@ void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
 #ifdef UNIX_AMD64_ABI
         if (varTypeIsSIMD(fieldLcl->GetType()) && (lcl->GetPromotedFieldCount() == 1))
         {
-            fieldLcl->SetArgReg(lcl->GetArgReg());
-            fieldLcl->SetOtherArgReg(lcl->GetOtherArgReg());
+            fieldLcl->SetParamReg(0, lcl->GetParamReg(0));
+            fieldLcl->SetParamReg(1, lcl->GetParamReg(1));
             continue;
         }
 #endif

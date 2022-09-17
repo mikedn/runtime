@@ -830,13 +830,13 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
         {
             var_types regType0     = lcl->GetLayout()->GetSysVAmd64AbiRegType(0);
             unsigned  regParamNum0 = paramInfo.allocRegArg(regType0);
-            lcl->SetArgReg(genMapRegArgNumToRegNum(regParamNum0, regType0));
+            lcl->SetParamReg(0, genMapRegArgNumToRegNum(regParamNum0, regType0));
 
             if (lcl->GetLayout()->GetSysVAmd64AbiRegCount() >= 2)
             {
                 var_types regType1     = lcl->GetLayout()->GetSysVAmd64AbiRegType(1);
                 unsigned  regParamNum1 = paramInfo.allocRegArg(regType1);
-                lcl->SetOtherArgReg(genMapRegArgNumToRegNum(regParamNum1, regType1));
+                lcl->SetParamReg(1, genMapRegArgNumToRegNum(regParamNum1, regType1));
                 lcl->lvIsMultiRegArg = true;
             }
         }
@@ -883,11 +883,11 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
         if (verbose)
         {
 #ifdef UNIX_AMD64_ABI
-            printf("%s", getRegName(lcl->GetArgReg()));
+            printf("%s", getRegName(lcl->GetParamReg(0)));
 
-            if (lcl->GetOtherArgReg() != REG_NA)
+            if (lcl->GetParamReg(1) != REG_NA)
             {
-                printf(", %s", getRegName(lcl->GetOtherArgReg()));
+                printf(", %s", getRegName(lcl->GetParamReg(1)));
             }
 #else // !UNIX_AMD64_ABI
             bool     isFloat   = varTypeUsesFloatReg(paramType);

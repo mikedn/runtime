@@ -1895,35 +1895,38 @@ void LinearScan::insertZeroInitRefPositions()
 //
 void LinearScan::unixAmd64UpdateRegStateForArg(LclVarDsc* argDsc)
 {
-    assert(varTypeIsStruct(argDsc));
+    assert(varTypeIsStruct(argDsc->GetType()));
+
     RegState* intRegState   = &compiler->codeGen->intRegState;
     RegState* floatRegState = &compiler->codeGen->floatRegState;
+    regNumber reg0          = argDsc->GetParamReg(0);
+    regNumber reg1          = argDsc->GetParamReg(1);
 
-    if ((argDsc->GetArgReg() != REG_STK) && (argDsc->GetArgReg() != REG_NA))
+    if ((reg0 != REG_STK) && (reg0 != REG_NA))
     {
-        if (genRegMask(argDsc->GetArgReg()) & (RBM_ALLFLOAT))
+        if (genRegMask(reg0) & RBM_ALLFLOAT)
         {
-            assert(genRegMask(argDsc->GetArgReg()) & (RBM_FLTARG_REGS));
-            floatRegState->rsCalleeRegArgMaskLiveIn |= genRegMask(argDsc->GetArgReg());
+            assert(genRegMask(reg0) & RBM_FLTARG_REGS);
+            floatRegState->rsCalleeRegArgMaskLiveIn |= genRegMask(reg0);
         }
         else
         {
-            assert(genRegMask(argDsc->GetArgReg()) & (RBM_ARG_REGS));
-            intRegState->rsCalleeRegArgMaskLiveIn |= genRegMask(argDsc->GetArgReg());
+            assert(genRegMask(reg0) & RBM_ARG_REGS);
+            intRegState->rsCalleeRegArgMaskLiveIn |= genRegMask(reg0);
         }
     }
 
-    if ((argDsc->GetOtherArgReg() != REG_STK) && (argDsc->GetOtherArgReg() != REG_NA))
+    if ((reg1 != REG_STK) && (reg1 != REG_NA))
     {
-        if (genRegMask(argDsc->GetOtherArgReg()) & (RBM_ALLFLOAT))
+        if (genRegMask(reg1) & RBM_ALLFLOAT)
         {
-            assert(genRegMask(argDsc->GetOtherArgReg()) & (RBM_FLTARG_REGS));
-            floatRegState->rsCalleeRegArgMaskLiveIn |= genRegMask(argDsc->GetOtherArgReg());
+            assert(genRegMask(reg1) & RBM_FLTARG_REGS);
+            floatRegState->rsCalleeRegArgMaskLiveIn |= genRegMask(reg1);
         }
         else
         {
-            assert(genRegMask(argDsc->GetOtherArgReg()) & (RBM_ARG_REGS));
-            intRegState->rsCalleeRegArgMaskLiveIn |= genRegMask(argDsc->GetOtherArgReg());
+            assert(genRegMask(reg1) & RBM_ARG_REGS);
+            intRegState->rsCalleeRegArgMaskLiveIn |= genRegMask(reg1);
         }
     }
 }
