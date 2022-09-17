@@ -307,11 +307,11 @@ void Compiler::lvaInitArgs(bool hasRetBufParam)
     }
 #endif
 
-    // x86 args look something like this:
-    //  [this] [struct return buffer] [user args] [generic context] [varargs handle]
+    // x86 params look something like this:
+    //  [this] [struct return buffer] [user params] [generic context] [varargs handle]
     //
-    // x64, arm and arm64 place the generic context and varargs handle before user args:
-    //  [this] [struct return buffer] [generic context] [varargs handle] [user args]
+    // x64, arm and arm64 place the generic context and varargs handle before user params:
+    //  [this] [struct return buffer] [generic context] [varargs handle] [user params]
 
     lvaInitThisParam(varDscInfo);
 
@@ -549,8 +549,8 @@ void Compiler::lvaInitVarargsHandleParam(InitVarDscInfo& paramInfo)
 #endif
 
 #ifdef TARGET_ARM
-        // This has to be spilled right in front of the real arguments and we have
-        // to pre-spill all the argument registers explicitly because we only have
+        // This has to be spilled right in front of the user params and we have
+        // to pre-spill all the register params explicitly because we only have
         // have symbols for the declared ones, not any potential variadic ones.
         for (unsigned ix = regIndex; ix < ArrLen(intArgMasks); ix++)
         {
@@ -580,7 +580,7 @@ void Compiler::lvaInitVarargsHandleParam(InitVarDscInfo& paramInfo)
 void Compiler::lvaInitUserParams(InitVarDscInfo& paramInfo, unsigned skipParams, unsigned takeParams)
 {
     assert(skipParams <= info.compMethodInfo->args.numArgs);
-    assert(takeParams <= info.compMethodInfo->args.numArgs - skipArgs);
+    assert(takeParams <= info.compMethodInfo->args.numArgs - skipParams);
 
 #if defined(TARGET_X86)
     // Only (some of) the implicit params are enregistered for varargs.
@@ -605,7 +605,7 @@ void Compiler::lvaInitUserParams(InitVarDscInfo& paramInfo, unsigned skipParams,
 
     for (unsigned i = 0; i < takeParams; i++, paramInfo.varNum++, param = info.compCompHnd->getArgNext(param))
     {
-        lvaInitUserParam(&paramInfo, param);
+        lvaInitUserParam(paramInfo, param);
     }
 
     compArgSize = GetOutgoingArgByteSize(compArgSize);
@@ -613,120 +613,106 @@ void Compiler::lvaInitUserParams(InitVarDscInfo& paramInfo, unsigned skipParams,
     ARM_ONLY(lvaAlignPreSpillParams(paramInfo.doubleAlignMask));
 }
 
-void Compiler::lvaInitUserParam(InitVarDscInfo* varDscInfo, CORINFO_ARG_LIST_HANDLE argLst)
+void Compiler::lvaInitUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param)
 {
-    LclVarDsc* varDsc = lvaGetDesc(varDscInfo->varNum);
+    CORINFO_CLASS_HANDLE typeHnd   = nullptr;
+    CorInfoType          corType   = strip(info.compCompHnd->getArgType(&info.compMethodInfo->args, param, &typeHnd));
+    unsigned             paramSize = eeGetArgSize(param, &info.compMethodInfo->args);
 
-    CORINFO_CLASS_HANDLE typeHnd = nullptr;
-    CorInfoType corInfoType      = strip(info.compCompHnd->getArgType(&info.compMethodInfo->args, argLst, &typeHnd));
+    LclVarDsc* lcl = lvaGetDesc(paramInfo.varNum);
 
-    varDsc->lvIsParam = true;
-    lvaInitVarDsc(varDsc, varDscInfo->varNum, corInfoType, typeHnd);
+    lcl->lvIsParam = true;
+    lcl->lvOnFrame = true;
+    lvaInitVarDsc(lcl, paramInfo.varNum, corType, typeHnd);
 
-    if (corInfoType == CORINFO_TYPE_CLASS)
+    if (corType == CORINFO_TYPE_CLASS)
     {
-        CORINFO_CLASS_HANDLE clsHnd = info.compCompHnd->getArgClass(&info.compMethodInfo->args, argLst);
-        lvaSetClass(varDscInfo->varNum, clsHnd);
+        lvaSetClass(paramInfo.varNum, info.compCompHnd->getArgClass(&info.compMethodInfo->args, param));
     }
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-    else if (varTypeIsStruct(varDsc->GetType()))
+    else if (varTypeIsStruct(lcl->GetType()) &&
+             abiGetStructParamType(lcl->GetLayout(), info.compIsVarArgs).kind == SPK_ByReference)
     {
-        if (abiGetStructParamType(varDsc->GetLayout(), info.compIsVarArgs).kind == SPK_ByReference)
-        {
-            JITDUMP("Marking V%02u as a byref parameter\n", varDscInfo->varNum);
-            varDsc->lvIsImplicitByRef = true;
-        }
+        JITDUMP("Marking V%02u as a byref parameter\n", paramInfo.varNum);
+        lcl->lvIsImplicitByRef = true;
+
+        // TODO-MIKE-Cleanup: If it's implicit-by-ref we know that it needs a single integer
+        // register or stack slot and can skip a lot of the mess below, like HFA checks.
     }
-#endif // defined(TARGET_AMD64) || defined(TARGET_ARM64)
+#endif
 
-    // For ARM, ARM64, and AMD64 varargs, all arguments go in integer registers
-    var_types argType = mangleVarArgsType(varDsc->GetType());
-
-    var_types origArgType = argType;
-
-    bool     isSoftFPPreSpill = opts.UseSoftFP() && varTypeIsFloating(varDsc->GetType());
-    unsigned argSize          = eeGetArgSize(argLst, &info.compMethodInfo->args);
-
-    // The total number of slots of this argument
-    unsigned  cSlots  = (argSize + REGSIZE_BYTES - 1) / REGSIZE_BYTES;
-    var_types hfaType = TYP_UNDEF;
+    var_types realParamType = mangleVarArgsType(lcl->GetType());
+    var_types paramType     = realParamType;
+    unsigned  slots         = (paramSize + REGSIZE_BYTES - 1) / REGSIZE_BYTES;
+    unsigned  regCount      = slots;
+    var_types hfaType       = TYP_UNDEF;
 
 #if defined(TARGET_ARM64) && defined(TARGET_WINDOWS)
-    if (!info.compIsVarArgs) // win-arm64 varargs ABI does not use HFAs
-#endif
+    // win-arm64 varargs does not use HFAs and can split a STRUCT arg between the last
+    // integer reg arg (x7) and the first stack arg slot.
+    if (info.compIsVarArgs)
     {
-        if (varTypeIsStruct(argType) && varDsc->GetLayout()->IsHfa())
+        // TODO-MIKE-Review: This STRUCT check is dubious, it misses SIMD12/16.
+        if ((paramType == TYP_STRUCT) && paramInfo.canEnreg(TYP_INT, 1) && !paramInfo.canEnreg(TYP_INT, slots))
         {
-            // We have an HFA argument, so from here on out treat the type as a float, double, or vector.
-            // The orginal struct type is available by using origArgType.
-            // We also update the cSlots to be the number of float/double/vector fields in the HFA.
-
-            hfaType = varDsc->GetLayout()->GetHfaElementType();
-            cSlots  = varDsc->GetLayout()->GetHfaRegCount();
-
-            argType = hfaType; // TODO-Cleanup: remove this asignment and mark `argType` as const.
+            regCount = 1;
         }
     }
-
-    // The number of slots that must be enregistered if we are to consider this argument enregistered.
-    // This is normally the same as cSlots, since we normally either enregister the entire object,
-    // or none of it. For structs on ARM, however, we only need to enregister a single slot to consider
-    // it enregistered, as long as we can split the rest onto the stack.
-    unsigned cSlotsToEnregister = cSlots;
-
-#if defined(TARGET_ARM64) && FEATURE_ARG_SPLIT
-    // win-arm64 varargs can split a STRUCT arg between the last integer reg arg (x7)
-    // and the first stack arg slot.
-    if (info.compIsVarArgs && (argType == TYP_STRUCT) && varDscInfo->canEnreg(TYP_INT, 1) &&
-        !varDscInfo->canEnreg(TYP_INT, cSlots))
-    {
-        cSlotsToEnregister = 1;
-    }
+    else
 #endif
+        if (varTypeIsStruct(paramType) && lcl->GetLayout()->IsHfa())
+    {
+        slots     = lcl->GetLayout()->GetHfaRegCount();
+        hfaType   = lcl->GetLayout()->GetHfaElementType();
+        paramType = hfaType;
+        regCount  = slots;
+    }
+
+    bool canPassArgInRegisters = false;
 
 #ifdef TARGET_ARM
-    // On ARM we pass the first 4 words of integer arguments and non-HFA structs in registers.
-    // But we pre-spill user arguments in varargs methods and structs.
-    unsigned cAlign;
-    bool     preSpill = info.compIsVarArgs || isSoftFPPreSpill;
+    const bool isSoftFPPreSpill = opts.UseSoftFP() && varTypeIsFloating(lcl->GetType());
+    // On ARM we pass the first 4 words of integer params and non-HFA structs in registers.
+    // But we pre-spill user params in varargs methods and structs.
+    bool     preSpill  = info.compIsVarArgs || isSoftFPPreSpill;
+    unsigned slotAlign = 1;
 
-    switch (origArgType)
+    switch (realParamType)
     {
         case TYP_STRUCT:
-            assert(varDsc->lvSize() == argSize);
-            cAlign = varDsc->lvStructDoubleAlign ? 2 : 1;
+            assert(lcl->lvSize() == paramSize);
+            slotAlign = lcl->lvStructDoubleAlign ? 2 : 1;
 
-            // HFA arguments go on the stack frame. They don't get spilled in the prolog like struct
-            // arguments passed in the integer registers but get homed immediately after the prolog.
+            // HFA params go on the stack frame. They don't get spilled in the prolog like struct
+            // params passed in the integer registers but get homed immediately after the prolog.
             if (hfaType == TYP_UNDEF)
             {
                 // TODO-Arm32-Windows: vararg struct should be forced to split like ARM64 above.
 
                 // HFAs must be totally enregistered or not, but other structs can be split.
-                cSlotsToEnregister = 1;
-                preSpill           = true;
+                regCount = 1;
+                preSpill = true;
             }
             break;
 
         case TYP_DOUBLE:
         case TYP_LONG:
-            cAlign = 2;
+            slotAlign = 2;
             break;
 
         default:
-            cAlign = 1;
             break;
     }
 
-    if (isRegParamType(argType))
+    if (isRegParamType(paramType))
     {
-        compArgSize += varDscInfo->alignReg(argType, cAlign) * REGSIZE_BYTES;
+        compArgSize += paramInfo.alignReg(paramType, slotAlign) * REGSIZE_BYTES;
     }
 
-    if (argType == TYP_STRUCT)
+    if (paramType == TYP_STRUCT)
     {
         // Are we going to split the struct between registers and stack? We can do that as long as
-        // no floating-point arguments have been put on the stack.
+        // no floating-point params have been put on the stack.
         //
         // From the ARM Procedure Call Standard:
         // Rule C.5: "If the NCRN is less than r4 **and** the NSAA is equal to the SP,"
@@ -736,11 +722,10 @@ void Compiler::lvaInitUserParam(InitVarDscInfo* varDscInfo, CORINFO_ARG_LIST_HAN
         // Anything that follows will also be on the stack. However, if something from
         // floating point regs has been spilled to the stack, we can still use r0-r3 until they are full.
 
-        if (varDscInfo->canEnreg(TYP_INT, 1) && !varDscInfo->canEnreg(TYP_INT, cSlots) &&
-            varDscInfo->existAnyFloatStackArgs())
+        if (paramInfo.canEnreg(TYP_INT, 1) && !paramInfo.canEnreg(TYP_INT, slots) && paramInfo.existAnyFloatStackArgs())
         {
             // Prevent all future use of integer registers
-            varDscInfo->setAllRegArgUsed(TYP_INT);
+            paramInfo.setAllRegArgUsed(TYP_INT);
             // This struct won't be prespilled, since it will go on the stack
             preSpill = false;
         }
@@ -748,38 +733,41 @@ void Compiler::lvaInitUserParam(InitVarDscInfo* varDscInfo, CORINFO_ARG_LIST_HAN
 
     if (preSpill)
     {
-        for (unsigned ix = 0; ix < cSlots; ix++)
+        regMaskTP paramRegMask = RBM_NONE;
+
+        for (unsigned i = 0; i < slots; i++)
         {
-            if (!varDscInfo->canEnreg(TYP_INT, ix + 1))
+            if (!paramInfo.canEnreg(TYP_INT, i + 1))
             {
                 break;
             }
 
-            regMaskTP regMask = genMapArgNumToRegMask(varDscInfo->regArgNum(TYP_INT) + ix, TYP_INT);
-
-            if (cAlign == 2)
-            {
-                varDscInfo->doubleAlignMask |= regMask;
-            }
-
-            codeGen->regSet.rsMaskPreSpillRegArg |= regMask;
+            paramRegMask |= genMapArgNumToRegMask(paramInfo.regArgNum(TYP_INT) + i, TYP_INT);
         }
+
+        if (slotAlign == 2)
+        {
+            paramInfo.doubleAlignMask |= paramRegMask;
+        }
+
+        codeGen->regSet.rsMaskPreSpillRegArg |= paramRegMask;
     }
 #elif defined(UNIX_AMD64_ABI)
     bool structPassedInRegisters = false;
 
-    if (varTypeIsStruct(argType))
+    if (varTypeIsStruct(paramType))
     {
-        varDsc->GetLayout()->EnsureSysVAmd64AbiInfo(this);
-        structPassedInRegisters = varDsc->GetLayout()->GetSysVAmd64AbiRegCount() != 0;
+        lcl->GetLayout()->EnsureSysVAmd64AbiInfo(this);
+        structPassedInRegisters = lcl->GetLayout()->GetSysVAmd64AbiRegCount() != 0;
+
         if (structPassedInRegisters)
         {
             unsigned intRegCount   = 0;
             unsigned floatRegCount = 0;
 
-            for (unsigned i = 0; i < varDsc->GetLayout()->GetSysVAmd64AbiRegCount(); i++)
+            for (unsigned i = 0; i < lcl->GetLayout()->GetSysVAmd64AbiRegCount(); i++)
             {
-                if (!varTypeUsesFloatReg(varDsc->GetLayout()->GetSysVAmd64AbiRegType(i)))
+                if (!varTypeUsesFloatReg(lcl->GetLayout()->GetSysVAmd64AbiRegType(i)))
                 {
                     intRegCount++;
                 }
@@ -789,12 +777,8 @@ void Compiler::lvaInitUserParam(InitVarDscInfo* varDscInfo, CORINFO_ARG_LIST_HAN
                 }
             }
 
-            if ((intRegCount != 0) && !varDscInfo->canEnreg(TYP_INT, intRegCount))
-            {
-                structPassedInRegisters = false;
-            }
-
-            if ((floatRegCount != 0) && !varDscInfo->canEnreg(TYP_FLOAT, floatRegCount))
+            if (((intRegCount != 0) && !paramInfo.canEnreg(TYP_INT, intRegCount)) ||
+                ((floatRegCount != 0) && !paramInfo.canEnreg(TYP_FLOAT, floatRegCount)))
             {
                 structPassedInRegisters = false;
             }
@@ -802,25 +786,21 @@ void Compiler::lvaInitUserParam(InitVarDscInfo* varDscInfo, CORINFO_ARG_LIST_HAN
     }
 #endif // UNIX_AMD64_ABI
 
-    varDsc->lvOnFrame = true;
-
-    bool canPassArgInRegisters = false;
-
 #if defined(UNIX_AMD64_ABI)
-    if (varTypeIsStruct(argType))
+    if (varTypeIsStruct(paramType))
     {
         canPassArgInRegisters = structPassedInRegisters;
     }
     else
 #elif defined(TARGET_X86)
-    if (varTypeIsStruct(argType) && isTrivialPointerSizedStruct(varDsc->GetLayout()))
+    if (varTypeIsStruct(paramType) && isTrivialPointerSizedStruct(lcl->GetLayout()))
     {
-        canPassArgInRegisters = varDscInfo->canEnreg(TYP_I_IMPL, cSlotsToEnregister);
+        canPassArgInRegisters = paramInfo.canEnreg(TYP_INT, regCount);
     }
     else
 #endif
     {
-        canPassArgInRegisters = varDscInfo->canEnreg(argType, cSlotsToEnregister);
+        canPassArgInRegisters = paramInfo.canEnreg(paramType, regCount);
     }
 
     if (canPassArgInRegisters)
@@ -829,90 +809,85 @@ void Compiler::lvaInitUserParam(InitVarDscInfo* varDscInfo, CORINFO_ARG_LIST_HAN
         // For non-HFA structs, we still "try" to enregister the whole thing; it will just max out if splitting
         // to the stack happens.
         unsigned firstAllocatedRegArgNum = 0;
-
-#if FEATURE_MULTIREG_ARGS
-        varDsc->SetOtherArgReg(REG_NA);
-#endif
-
 #ifdef UNIX_AMD64_ABI
         unsigned  secondAllocatedRegArgNum = 0;
         var_types firstEightByteType       = TYP_UNDEF;
         var_types secondEightByteType      = TYP_UNDEF;
 
-        if (varTypeIsStruct(argType))
+        if (varTypeIsStruct(paramType))
         {
-            if (varDsc->GetLayout()->GetSysVAmd64AbiRegCount() >= 1)
+            if (lcl->GetLayout()->GetSysVAmd64AbiRegCount() >= 1)
             {
-                firstEightByteType      = varDsc->GetLayout()->GetSysVAmd64AbiRegType(0);
-                firstAllocatedRegArgNum = varDscInfo->allocRegArg(firstEightByteType, 1);
+                firstEightByteType      = lcl->GetLayout()->GetSysVAmd64AbiRegType(0);
+                firstAllocatedRegArgNum = paramInfo.allocRegArg(firstEightByteType, 1);
             }
         }
         else
 #endif
         {
-            firstAllocatedRegArgNum = varDscInfo->allocRegArg(argType, cSlots);
+            firstAllocatedRegArgNum = paramInfo.allocRegArg(paramType, slots);
         }
 
         // We need to save the fact that this HFA is enregistered
         // Note that we can have HVAs of SIMD types even if we are not recognizing intrinsics.
         // In that case, we won't have normalized the vector types on the lcl, so if we have a single vector
         // register, we need to set the type now. Otherwise, later we'll assume this is passed by reference.
-        if ((hfaType != TYP_UNDEF) && (varDsc->GetLayout()->GetHfaElementCount() > 1))
+        if ((hfaType != TYP_UNDEF) && (lcl->GetLayout()->GetHfaElementCount() > 1))
         {
-            varDsc->lvIsMultiRegArg = true;
+            lcl->lvIsMultiRegArg = true;
         }
 
-        varDsc->lvIsRegArg = true;
+        lcl->lvIsRegArg = true;
 
-#if FEATURE_MULTIREG_ARGS
 #ifdef TARGET_ARM64
-        if (argType == TYP_STRUCT)
+        if (paramType == TYP_STRUCT)
         {
-            varDsc->SetArgReg(genMapRegArgNumToRegNum(firstAllocatedRegArgNum, TYP_I_IMPL));
-            if (cSlots == 2)
+            lcl->SetArgReg(genMapRegArgNumToRegNum(firstAllocatedRegArgNum, TYP_LONG));
+
+            if (slots == 2)
             {
-                varDsc->SetOtherArgReg(genMapRegArgNumToRegNum(firstAllocatedRegArgNum + 1, TYP_I_IMPL));
-                varDsc->lvIsMultiRegArg = true;
+                lcl->SetOtherArgReg(genMapRegArgNumToRegNum(firstAllocatedRegArgNum + 1, TYP_LONG));
+                lcl->lvIsMultiRegArg = true;
             }
         }
+        else
 #elif defined(UNIX_AMD64_ABI)
-        if (varTypeIsStruct(argType))
+        if (varTypeIsStruct(paramType))
         {
-            varDsc->SetArgReg(genMapRegArgNumToRegNum(firstAllocatedRegArgNum, firstEightByteType));
+            lcl->SetArgReg(genMapRegArgNumToRegNum(firstAllocatedRegArgNum, firstEightByteType));
 
             // If there is a second eightbyte, get a register for it too and map the arg to the reg number.
-            if (varDsc->GetLayout()->GetSysVAmd64AbiRegCount() >= 2)
+            if (lcl->GetLayout()->GetSysVAmd64AbiRegCount() >= 2)
             {
-                secondEightByteType      = varDsc->GetLayout()->GetSysVAmd64AbiRegType(1);
-                secondAllocatedRegArgNum = varDscInfo->allocRegArg(secondEightByteType, 1);
-                varDsc->lvIsMultiRegArg  = true;
+                secondEightByteType      = lcl->GetLayout()->GetSysVAmd64AbiRegType(1);
+                secondAllocatedRegArgNum = paramInfo.allocRegArg(secondEightByteType, 1);
+
+                lcl->lvIsMultiRegArg = true;
             }
 
             if (secondEightByteType != TYP_UNDEF)
             {
-                varDsc->SetOtherArgReg(genMapRegArgNumToRegNum(secondAllocatedRegArgNum, secondEightByteType));
+                lcl->SetOtherArgReg(genMapRegArgNumToRegNum(secondAllocatedRegArgNum, secondEightByteType));
             }
         }
-#else  // ARM32
-        if (varTypeIsStruct(argType))
-        {
-            varDsc->SetArgReg(genMapRegArgNumToRegNum(firstAllocatedRegArgNum, TYP_I_IMPL));
-        }
-#endif // ARM32
         else
-#endif // FEATURE_MULTIREG_ARGS
+#elif defined(TARGET_ARM)
+        if (lcl->TypeIs(TYP_LONG))
         {
-            varDsc->SetArgReg(genMapRegArgNumToRegNum(firstAllocatedRegArgNum, argType));
+            lcl->SetOtherArgReg(genMapRegArgNumToRegNum(firstAllocatedRegArgNum + 1, TYP_INT));
         }
 
-#ifdef TARGET_ARM
-        if (varDsc->TypeIs(TYP_LONG))
+        if (varTypeIsStruct(paramType))
         {
-            varDsc->SetOtherArgReg(genMapRegArgNumToRegNum(firstAllocatedRegArgNum + 1, TYP_INT));
+            lcl->SetArgReg(genMapRegArgNumToRegNum(firstAllocatedRegArgNum, TYP_INT));
         }
+        else
 #endif
+        {
+            lcl->SetArgReg(genMapRegArgNumToRegNum(firstAllocatedRegArgNum, paramType));
+        }
 
-        JITDUMP("Arg #%u    passed in register(s) ", varDscInfo->varNum);
+        JITDUMP("Param %u passed in register(s) ", paramInfo.varNum);
 
 #ifdef DEBUG
         if (verbose)
@@ -920,18 +895,18 @@ void Compiler::lvaInitUserParam(InitVarDscInfo* varDscInfo, CORINFO_ARG_LIST_HAN
             bool isFloat = false;
 
 #ifdef UNIX_AMD64_ABI
-            if (varTypeIsStruct(argType) && (varDsc->GetLayout()->GetSysVAmd64AbiRegCount() >= 1))
+            if (varTypeIsStruct(paramType) && (lcl->GetLayout()->GetSysVAmd64AbiRegCount() >= 1))
             {
                 isFloat = varTypeUsesFloatReg(firstEightByteType);
             }
             else
 #endif // UNIX_AMD64_ABI
             {
-                isFloat = varTypeUsesFloatReg(argType);
+                isFloat = varTypeUsesFloatReg(paramType);
             }
 
 #ifdef UNIX_AMD64_ABI
-            if (varTypeIsStruct(argType))
+            if (varTypeIsStruct(paramType))
             {
                 if (firstEightByteType == TYP_UNDEF)
                 {
@@ -956,43 +931,43 @@ void Compiler::lvaInitUserParam(InitVarDscInfo* varDscInfo, CORINFO_ARG_LIST_HAN
             else
 #endif // UNIX_AMD64_ABI
             {
-                isFloat            = varTypeUsesFloatReg(argType);
-                unsigned regArgNum = genMapRegNumToRegArgNum(varDsc->GetArgReg(), argType);
+                isFloat            = varTypeUsesFloatReg(paramType);
+                unsigned regArgNum = genMapRegNumToRegArgNum(lcl->GetArgReg(), paramType);
 
-                for (unsigned ix = 0; ix < cSlots; ix++, regArgNum++)
+                for (unsigned ix = 0; ix < slots; ix++, regArgNum++)
                 {
                     if (ix > 0)
                     {
                         printf(",");
                     }
 
-                    if (!isFloat && (regArgNum >= varDscInfo->maxIntRegArgNum))
+                    if (!isFloat && (regArgNum >= paramInfo.maxIntRegArgNum))
                     {
-                        printf(" stack slots:%d", cSlots - ix);
+                        printf(" stack slots:%d", slots - ix);
                         break;
                     }
 
 #ifdef TARGET_ARM
                     if (isFloat)
                     {
-                        if (argType == TYP_DOUBLE)
+                        if (paramType == TYP_DOUBLE)
                         {
-                            printf("%s/%s", getRegName(genMapRegArgNumToRegNum(regArgNum, argType)),
-                                   getRegName(genMapRegArgNumToRegNum(regArgNum + 1, argType)));
+                            printf("%s/%s", getRegName(genMapRegArgNumToRegNum(regArgNum, paramType)),
+                                   getRegName(genMapRegArgNumToRegNum(regArgNum + 1, paramType)));
 
-                            assert(ix + 1 < cSlots);
+                            assert(ix + 1 < slots);
                             ++ix;
                             ++regArgNum;
                         }
                         else
                         {
-                            printf("%s", getRegName(genMapRegArgNumToRegNum(regArgNum, argType)));
+                            printf("%s", getRegName(genMapRegArgNumToRegNum(regArgNum, paramType)));
                         }
                     }
                     else
 #endif // TARGET_ARM
                     {
-                        printf("%s", getRegName(genMapRegArgNumToRegNum(regArgNum, argType)));
+                        printf("%s", getRegName(genMapRegArgNumToRegNum(regArgNum, paramType)));
                     }
                 }
             }
@@ -1002,33 +977,30 @@ void Compiler::lvaInitUserParam(InitVarDscInfo* varDscInfo, CORINFO_ARG_LIST_HAN
     }
     else
     {
-#if defined(TARGET_ARM)
-        varDscInfo->setAllRegArgUsed(argType);
+#ifdef TARGET_ARMARCH
+        paramInfo.setAllRegArgUsed(paramType);
 
-        if (varTypeUsesFloatReg(argType))
+#ifdef TARGET_ARM
+        if (varTypeUsesFloatReg(paramType))
         {
-            varDscInfo->setAnyFloatStackArgs();
+            paramInfo.setAnyFloatStackArgs();
         }
-#elif defined(TARGET_ARM64)
-        // If we needed to use the stack in order to pass this argument then
-        // record the fact that we have used up any remaining registers of this 'type'
-        // This prevents any 'backfilling' from occuring on ARM64
-        varDscInfo->setAllRegArgUsed(argType);
+#endif
 #endif
 
 #if FEATURE_FASTTAILCALL
-        const unsigned argAlignment = eeGetArgAlignment(origArgType, (hfaType == TYP_FLOAT));
+        const unsigned argAlignment = eeGetArgAlignment(realParamType, (hfaType == TYP_FLOAT));
 
 #ifdef OSX_ARM64_ABI
-        varDscInfo->stackArgSize = roundUp(varDscInfo->stackArgSize, argAlignment);
+        paramInfo.stackArgSize = roundUp(paramInfo.stackArgSize, argAlignment);
 #endif
 
-        assert((argSize % argAlignment) == 0);
-        assert((varDscInfo->stackArgSize % argAlignment) == 0);
-        JITDUMP("set user arg V%02u offset to %u\n", varDscInfo->varNum, varDscInfo->stackArgSize);
+        assert((paramSize % argAlignment) == 0);
+        assert((paramInfo.stackArgSize % argAlignment) == 0);
+        JITDUMP("set user arg V%02u offset to %u\n", paramInfo.varNum, paramInfo.stackArgSize);
 
-        varDsc->SetStackOffset(varDscInfo->stackArgSize);
-        varDscInfo->stackArgSize += argSize;
+        lcl->SetStackOffset(paramInfo.stackArgSize);
+        paramInfo.stackArgSize += paramSize;
 #endif // FEATURE_FASTTAILCALL
     }
 
@@ -1036,26 +1008,27 @@ void Compiler::lvaInitUserParam(InitVarDscInfo* varDscInfo, CORINFO_ARG_LIST_HAN
     // The arg size is returning the number of bytes of the argument. For a struct that
     // may not always be a multiple of REGSIZE_BYTES. The stack allocated space should
     // always be multiple of REGSIZE_BYTES, so round it up.
-    compArgSize += roundUp(argSize, REGSIZE_BYTES);
+    compArgSize += roundUp(paramSize, REGSIZE_BYTES);
 #else
-    compArgSize += argSize;
+    compArgSize += paramSize;
 #endif
 
-    if (info.compIsVarArgs || isSoftFPPreSpill)
+    if (info.compIsVarArgs ARM_ONLY(|| isSoftFPPreSpill))
     {
 #ifdef TARGET_X86
-        varDsc->SetStackOffset(compArgSize);
+        lcl->SetStackOffset(compArgSize);
 #else
         // TODO-CQ: We shouldn't have to go as far as to declare these AX, DNER should suffice.
-        lvaSetVarAddrExposed(varDscInfo->varNum);
+        lvaSetAddressExposed(lcl);
 #endif
     }
 
-    if (opts.IsOSR() && info.compPatchpointInfo->IsExposed(varDscInfo->varNum))
+    if (opts.IsOSR() && info.compPatchpointInfo->IsExposed(paramInfo.varNum))
     {
-        JITDUMP("-- V%02u is OSR exposed\n", varDscInfo->varNum);
-        varDsc->lvHasLdAddrOp = true;
-        lvaSetVarAddrExposed(varDscInfo->varNum);
+        JITDUMP("-- V%02u is OSR exposed\n", paramInfo.varNum);
+
+        lcl->lvHasLdAddrOp = true;
+        lvaSetVarAddrExposed(paramInfo.varNum);
     }
 }
 
