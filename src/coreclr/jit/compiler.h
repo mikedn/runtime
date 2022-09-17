@@ -4038,6 +4038,7 @@ public:
 
     bool lvaInitRetType();
     bool lvaInitLocalsCount();
+    void lvaInitTable();
     void lvaInitLocals();
     void lvaInitInline();
 

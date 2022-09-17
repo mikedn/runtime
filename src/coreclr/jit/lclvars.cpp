@@ -129,7 +129,7 @@ void Compiler::lvaInitInline()
     lvaStubArgumentVar = inlinerCompiler->lvaStubArgumentVar;
 }
 
-void Compiler::lvaInitLocals()
+void Compiler::lvaInitTable()
 {
     assert(!compIsForInlining());
 
@@ -145,7 +145,11 @@ void Compiler::lvaInitLocals()
     }
 
     lvaInitArgs(hasRetBuffArg);
+    lvaInitLocals();
+}
 
+void Compiler::lvaInitLocals()
+{
     CORINFO_ARG_LIST_HANDLE localsSig = info.compMethodInfo->locals.args;
     unsigned                varNum    = info.compArgsCount;
 

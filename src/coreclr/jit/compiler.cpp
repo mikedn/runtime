@@ -4265,7 +4265,7 @@ CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCode
             break;
     }
 
-    lvaInitLocals();
+    lvaInitTable();
     compInitDebuggingInfo();
     compInitPgo();
 
