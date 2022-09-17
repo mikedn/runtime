@@ -4047,7 +4047,7 @@ public:
     void lvaInitRetBufParam(InitVarDscInfo& paramInfo, bool useFixedRetBufReg);
     void lvaInitGenericsContextParam(InitVarDscInfo& paramInfo);
     void lvaInitVarargsHandleParam(InitVarDscInfo& paramInfo);
-    void lvaInitUserParams(InitVarDscInfo& paramInfo, unsigned skipParams, unsigned takeParams);
+    void lvaInitUserParams(InitVarDscInfo& paramInfo, bool skipFirstParam);
     void lvaInitUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param);
 #ifdef TARGET_ARM
     void lvaAlignPreSpillParams(regMaskTP doubleAlignMask);

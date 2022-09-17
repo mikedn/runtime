@@ -324,21 +324,21 @@ void Compiler::lvaInitParams(bool hasRetBufParam)
 
     lvaInitThisParam(paramInfo);
 
-    unsigned numUserParamsToSkip = 0;
-    unsigned numUserParams       = info.compMethodInfo->args.numArgs;
-    bool     useFixedRetBufReg;
+    bool skipFirstParam = false;
+    bool useFixedRetBufReg;
 
 #if defined(TARGET_WINDOWS) && !defined(TARGET_ARM)
     if (callConvIsInstanceMethodCallConv(info.compCallConv))
     {
-        if (numUserParams == 0)
+        if (info.compMethodInfo->args.numArgs == 0)
         {
             BADCODE("Instance method without 'this' param");
         }
 
-        lvaInitUserParams(paramInfo, 0, 1);
-        numUserParamsToSkip++;
-        numUserParams--;
+        lvaInitUserParam(paramInfo, info.compMethodInfo->args.args);
+
+        paramInfo.varNum++;
+        skipFirstParam    = true;
         useFixedRetBufReg = false;
     }
     else
@@ -357,7 +357,10 @@ void Compiler::lvaInitParams(bool hasRetBufParam)
     lvaInitVarargsHandleParam(paramInfo);
 #endif
 
-    lvaInitUserParams(paramInfo, numUserParamsToSkip, numUserParams);
+    lvaInitUserParams(paramInfo, skipFirstParam);
+
+    ARM_ONLY(lvaAlignPreSpillParams(paramInfo.doubleAlignMask));
+    compArgSize = GetOutgoingArgByteSize(compArgSize);
 
 #if !USER_ARGS_COME_LAST
     lvaInitGenericsContextParam(paramInfo);
@@ -496,13 +499,10 @@ void Compiler::lvaInitGenericsContextParam(InitVarDscInfo& paramInfo)
     if (paramInfo.canEnreg(TYP_I_IMPL))
     {
         lcl->lvIsRegArg = true;
-        lcl->SetArgReg(genMapRegArgNumToRegNum(paramInfo.regArgNum(TYP_INT), lcl->GetType()));
+        lcl->SetArgReg(genMapRegArgNumToRegNum(paramInfo.allocRegArg(TYP_I_IMPL), TYP_I_IMPL));
 #if FEATURE_MULTIREG_ARGS
         lcl->SetOtherArgReg(REG_NA);
 #endif
-
-        // TODO-MIKE-Cleanup: Why doesn't this code use allocRegArg?
-        paramInfo.intRegArgNum++;
 
         JITDUMP("'GenCtxt' passed in register %s\n", getRegName(lcl->GetArgReg()));
     }
@@ -586,34 +586,27 @@ void Compiler::lvaInitVarargsHandleParam(InitVarDscInfo& paramInfo)
 #endif
 }
 
-void Compiler::lvaInitUserParams(InitVarDscInfo& paramInfo, unsigned skipParams, unsigned takeParams)
+void Compiler::lvaInitUserParams(InitVarDscInfo& paramInfo, bool skipFirstParam)
 {
-    assert(skipParams <= info.compMethodInfo->args.numArgs);
-    assert(takeParams <= info.compMethodInfo->args.numArgs - skipParams);
+    assert(!skipFirstParam || (info.compMethodInfo->args.numArgs != 0));
 
 #ifdef WINDOWS_AMD64_ABI
-    paramInfo.floatRegArgNum = paramInfo.intRegArgNum;
+    assert(paramInfo.floatRegArgNum == paramInfo.intRegArgNum);
 #endif
 
-    if (takeParams == 0)
+    CORINFO_ARG_LIST_HANDLE param      = info.compMethodInfo->args.args;
+    unsigned                paramCount = info.compMethodInfo->args.numArgs;
+
+    if (skipFirstParam)
     {
-        return;
+        param = info.compCompHnd->getArgNext(param);
+        paramCount--;
     }
 
-    CORINFO_ARG_LIST_HANDLE param = info.compMethodInfo->args.args;
-
-    for (unsigned i = 0; i < skipParams; i++, param = info.compCompHnd->getArgNext(param))
-    {
-    }
-
-    for (unsigned i = 0; i < takeParams; i++, paramInfo.varNum++, param = info.compCompHnd->getArgNext(param))
+    for (unsigned i = 0; i < paramCount; i++, paramInfo.varNum++, param = info.compCompHnd->getArgNext(param))
     {
         lvaInitUserParam(paramInfo, param);
     }
-
-    compArgSize = GetOutgoingArgByteSize(compArgSize);
-
-    ARM_ONLY(lvaAlignPreSpillParams(paramInfo.doubleAlignMask));
 }
 
 void Compiler::lvaInitUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param)
