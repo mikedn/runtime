@@ -4042,7 +4042,7 @@ public:
     void lvaInitLocals();
     void lvaInitInline();
 
-    void lvaInitArgs(bool hasRetBuffArg);
+    void lvaInitArgs(bool hasRetBufParam);
     void lvaInitThisParam(InitVarDscInfo& paramInfo);
     void lvaInitRetBufParam(InitVarDscInfo& paramInfo, bool useFixedRetBufReg);
     void lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, unsigned takeArgs);

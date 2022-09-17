@@ -16,8 +16,6 @@ struct InitVarDscInfo
     unsigned maxIntRegArgNum;
     unsigned maxFloatRegArgNum;
 
-    bool hasRetBufArg;
-
 #ifdef TARGET_ARM
     // Support back-filling of FP parameters. This is similar to code in gtMorphArgs() that
     // handles arguments.
@@ -33,9 +31,8 @@ struct InitVarDscInfo
 
 public:
     // set to initial values
-    void Init(LclVarDsc* lvaTable, bool _hasRetBufArg, unsigned _maxIntRegArgNum, unsigned _maxFloatRegArgNum)
+    void Init(LclVarDsc* lvaTable, unsigned _maxIntRegArgNum, unsigned _maxFloatRegArgNum)
     {
-        hasRetBufArg      = _hasRetBufArg;
         varDsc            = &lvaTable[0]; // the first argument LclVar 0
         varNum            = 0;            // the first argument varNum 0
         intRegArgNum      = 0;

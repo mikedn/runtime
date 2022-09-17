@@ -257,7 +257,7 @@ void Compiler::lvaInitLocals()
     DBEXEC(verbose, lvaTableDump(INITIAL_FRAME_LAYOUT));
 }
 
-void Compiler::lvaInitArgs(bool hasRetBuffArg)
+void Compiler::lvaInitArgs(bool hasRetBufParam)
 {
     InitVarDscInfo varDscInfo;
 
@@ -265,23 +265,23 @@ void Compiler::lvaInitArgs(bool hasRetBuffArg)
     switch (info.compCallConv)
     {
         case CorInfoCallConvExtension::Thiscall:
-            varDscInfo.Init(lvaTable, hasRetBuffArg, 1, 0);
+            varDscInfo.Init(lvaTable, 1, 0);
             break;
         case CorInfoCallConvExtension::C:
         case CorInfoCallConvExtension::Stdcall:
         case CorInfoCallConvExtension::CMemberFunction:
         case CorInfoCallConvExtension::StdcallMemberFunction:
-            varDscInfo.Init(lvaTable, hasRetBuffArg, 0, 0);
+            varDscInfo.Init(lvaTable, 0, 0);
             break;
         case CorInfoCallConvExtension::Managed:
         case CorInfoCallConvExtension::Fastcall:
         case CorInfoCallConvExtension::FastcallMemberFunction:
         default:
-            varDscInfo.Init(lvaTable, hasRetBuffArg, MAX_REG_ARG, MAX_FLOAT_REG_ARG);
+            varDscInfo.Init(lvaTable, MAX_REG_ARG, MAX_FLOAT_REG_ARG);
             break;
     }
 #else
-    varDscInfo.Init(lvaTable, hasRetBuffArg, MAX_REG_ARG, MAX_FLOAT_REG_ARG);
+    varDscInfo.Init(lvaTable, MAX_REG_ARG, MAX_FLOAT_REG_ARG);
 #endif
 
     compArgSize = 0;
@@ -304,6 +304,7 @@ void Compiler::lvaInitArgs(bool hasRetBuffArg)
 
     unsigned numUserArgsToSkip = 0;
     unsigned numUserArgs       = info.compMethodInfo->args.numArgs;
+    bool     useFixedRetBufReg;
 
 #if defined(TARGET_WINDOWS) && !defined(TARGET_ARM)
     if (callConvIsInstanceMethodCallConv(info.compCallConv))
@@ -313,13 +314,17 @@ void Compiler::lvaInitArgs(bool hasRetBuffArg)
         lvaInitUserArgs(&varDscInfo, 0, 1);
         numUserArgsToSkip++;
         numUserArgs--;
-
-        lvaInitRetBufParam(varDscInfo, false);
+        useFixedRetBufReg = false;
     }
     else
 #endif
     {
-        lvaInitRetBufParam(varDscInfo, true);
+        useFixedRetBufReg = true;
+    }
+
+    if (hasRetBufParam)
+    {
+        lvaInitRetBufParam(varDscInfo, useFixedRetBufReg);
     }
 
 #if USER_ARGS_COME_LAST
@@ -402,11 +407,6 @@ void Compiler::lvaInitThisParam(InitVarDscInfo& paramInfo)
 
 void Compiler::lvaInitRetBufParam(InitVarDscInfo& paramInfo, bool useFixedRetBufReg)
 {
-    if (!paramInfo.hasRetBufArg)
-    {
-        return;
-    }
-
 #ifdef DEBUG
     if (info.compRetType == TYP_STRUCT)
     {
