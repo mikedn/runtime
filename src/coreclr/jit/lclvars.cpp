@@ -858,10 +858,9 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
 #elif defined(TARGET_ARM)
         if (lcl->TypeIs(TYP_LONG))
         {
-            unsigned regParamNum = paramInfo.allocRegArg(paramType, slots);
+            unsigned regParamNum = paramInfo.allocRegArg(TYP_INT, 2);
 
             lcl->SetArgReg(genMapIntRegArgNumToRegNum(regParamNum));
-            lcl->SetOtherArgReg(genMapIntRegArgNumToRegNum(regParamNum + 1));
         }
         else if (varTypeIsStruct(paramType))
         {
