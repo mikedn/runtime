@@ -133,6 +133,18 @@ void Compiler::lvaInitTable()
 {
     assert(!compIsForInlining());
 
+#ifdef TARGET_UNIX
+    if (info.compIsVarArgs)
+    {
+        // Currently native varargs is not implemented on non windows targets.
+        //
+        // Note that some targets like Arm64 Unix should not need much work as
+        // the ABI is the same. While other targets may only need small changes
+        // such as amd64 Unix, which just expects RAX to pass numFPArguments.
+        NYI("InitUserArgs for Vararg callee is not yet implemented on non Windows targets.");
+    }
+#endif
+
     bool hasRetBuffArg = lvaInitLocalsCount();
 
     lvaCount     = info.compLocalsCount;
@@ -607,18 +619,6 @@ void Compiler::lvaInitUserParam(InitVarDscInfo*         varDscInfo,
                                 CORINFO_ARG_LIST_HANDLE argLst ARM_ARG(regMaskTP* doubleAlignMask))
 {
     LclVarDsc* varDsc = lvaGetDesc(varDscInfo->varNum);
-
-#ifdef TARGET_UNIX
-    if (info.compIsVarArgs)
-    {
-        // Currently native varargs is not implemented on non windows targets.
-        //
-        // Note that some targets like Arm64 Unix should not need much work as
-        // the ABI is the same. While other targets may only need small changes
-        // such as amd64 Unix, which just expects RAX to pass numFPArguments.
-        NYI("InitUserArgs for Vararg callee is not yet implemented on non Windows targets.");
-    }
-#endif
 
     CORINFO_CLASS_HANDLE typeHnd = nullptr;
     CorInfoType corInfoType      = strip(info.compCompHnd->getArgType(&info.compMethodInfo->args, argLst, &typeHnd));
