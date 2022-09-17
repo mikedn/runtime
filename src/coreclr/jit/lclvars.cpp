@@ -818,172 +818,119 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
     if (canPassArgInRegisters)
     {
-        // Allocate the registers we need. allocRegArg() returns the first argument register number of the set.
-        // For non-HFA structs, we still "try" to enregister the whole thing; it will just max out if splitting
-        // to the stack happens.
-        unsigned firstAllocatedRegArgNum = 0;
-#ifdef UNIX_AMD64_ABI
-        unsigned  secondAllocatedRegArgNum = 0;
-        var_types firstEightByteType       = TYP_UNDEF;
-        var_types secondEightByteType      = TYP_UNDEF;
+        lcl->lvIsRegArg = true;
 
-        if (varTypeIsStruct(paramType))
-        {
-            if (lcl->GetLayout()->GetSysVAmd64AbiRegCount() >= 1)
-            {
-                firstEightByteType      = lcl->GetLayout()->GetSysVAmd64AbiRegType(0);
-                firstAllocatedRegArgNum = paramInfo.allocRegArg(firstEightByteType, 1);
-            }
-        }
-        else
-#endif
-        {
-            firstAllocatedRegArgNum = paramInfo.allocRegArg(paramType, slots);
-        }
-
-        // We need to save the fact that this HFA is enregistered
-        // Note that we can have HVAs of SIMD types even if we are not recognizing intrinsics.
-        // In that case, we won't have normalized the vector types on the lcl, so if we have a single vector
-        // register, we need to set the type now. Otherwise, later we'll assume this is passed by reference.
         if ((hfaType != TYP_UNDEF) && (lcl->GetLayout()->GetHfaElementCount() > 1))
         {
             lcl->lvIsMultiRegArg = true;
         }
 
-        lcl->lvIsRegArg = true;
-
-#ifdef TARGET_ARM64
-        if (paramType == TYP_STRUCT)
+#if defined(UNIX_AMD64_ABI)
+        if (varTypeIsStruct(paramType))
         {
-            lcl->SetArgReg(genMapIntRegArgNumToRegNum(firstAllocatedRegArgNum));
+            var_types regType0     = lcl->GetLayout()->GetSysVAmd64AbiRegType(0);
+            unsigned  regParamNum0 = paramInfo.allocRegArg(regType0);
+            lcl->SetArgReg(genMapRegArgNumToRegNum(regParamNum0, regType0));
 
-            if (slots == 2)
+            if (lcl->GetLayout()->GetSysVAmd64AbiRegCount() >= 2)
             {
-                lcl->SetOtherArgReg(genMapIntRegArgNumToRegNum(firstAllocatedRegArgNum + 1));
+                var_types regType1     = lcl->GetLayout()->GetSysVAmd64AbiRegType(1);
+                unsigned  regParamNum1 = paramInfo.allocRegArg(regType1);
+                lcl->SetOtherArgReg(genMapRegArgNumToRegNum(regParamNum1, regType1));
                 lcl->lvIsMultiRegArg = true;
             }
         }
         else
-#elif defined(UNIX_AMD64_ABI)
-        if (varTypeIsStruct(paramType))
+#elif defined(TARGET_ARM64)
+        if (paramType == TYP_STRUCT)
         {
-            lcl->SetArgReg(genMapRegArgNumToRegNum(firstAllocatedRegArgNum, firstEightByteType));
+            unsigned regParamNum = paramInfo.allocRegArg(TYP_INT, slots);
 
-            // If there is a second eightbyte, get a register for it too and map the arg to the reg number.
-            if (lcl->GetLayout()->GetSysVAmd64AbiRegCount() >= 2)
+            lcl->SetArgReg(genMapIntRegArgNumToRegNum(regParamNum));
+
+            if (slots == 2)
             {
-                secondEightByteType      = lcl->GetLayout()->GetSysVAmd64AbiRegType(1);
-                secondAllocatedRegArgNum = paramInfo.allocRegArg(secondEightByteType, 1);
-
+                lcl->SetOtherArgReg(genMapIntRegArgNumToRegNum(regParamNum + 1));
                 lcl->lvIsMultiRegArg = true;
-            }
-
-            if (secondEightByteType != TYP_UNDEF)
-            {
-                lcl->SetOtherArgReg(genMapRegArgNumToRegNum(secondAllocatedRegArgNum, secondEightByteType));
             }
         }
         else
 #elif defined(TARGET_ARM)
         if (lcl->TypeIs(TYP_LONG))
         {
-            lcl->SetOtherArgReg(genMapIntRegArgNumToRegNum(firstAllocatedRegArgNum + 1));
-        }
+            unsigned regParamNum = paramInfo.allocRegArg(paramType, slots);
 
-        if (varTypeIsStruct(paramType))
+            lcl->SetArgReg(genMapIntRegArgNumToRegNum(regParamNum));
+            lcl->SetOtherArgReg(genMapIntRegArgNumToRegNum(regParamNum + 1));
+        }
+        else if (varTypeIsStruct(paramType))
         {
-            lcl->SetArgReg(genMapIntRegArgNumToRegNum(firstAllocatedRegArgNum));
+            unsigned regParamNum = paramInfo.allocRegArg(TYP_INT, slots);
+
+            lcl->SetArgReg(genMapIntRegArgNumToRegNum(regParamNum));
         }
         else
 #endif
         {
-            lcl->SetArgReg(genMapRegArgNumToRegNum(firstAllocatedRegArgNum, paramType));
+            unsigned regParamNum = paramInfo.allocRegArg(paramType, slots);
+
+            lcl->SetArgReg(genMapRegArgNumToRegNum(regParamNum, paramType));
         }
 
-        JITDUMP("Param %u passed in register(s) ", paramInfo.varNum);
+        JITDUMP("Param V%02u registers: ", paramInfo.varNum);
 
 #ifdef DEBUG
         if (verbose)
         {
-            bool isFloat = false;
-
 #ifdef UNIX_AMD64_ABI
-            if (varTypeIsStruct(paramType) && (lcl->GetLayout()->GetSysVAmd64AbiRegCount() >= 1))
+            printf("%s", getRegName(lcl->GetArgReg()));
+
+            if (lcl->GetOtherArgReg() != REG_NA)
             {
-                isFloat = varTypeUsesFloatReg(firstEightByteType);
+                printf(", %s", getRegName(lcl->GetOtherArgReg()));
             }
-            else
-#endif // UNIX_AMD64_ABI
+#else // !UNIX_AMD64_ABI
+            bool     isFloat   = varTypeUsesFloatReg(paramType);
+            unsigned regArgNum = genMapRegNumToRegArgNum(lcl->GetArgReg(), paramType);
+
+            for (unsigned ix = 0; ix < slots; ix++, regArgNum++)
             {
-                isFloat = varTypeUsesFloatReg(paramType);
-            }
-
-#ifdef UNIX_AMD64_ABI
-            if (varTypeIsStruct(paramType))
-            {
-                if (firstEightByteType == TYP_UNDEF)
+                if (ix > 0)
                 {
-                    printf("firstEightByte: <not used>");
-                }
-                else
-                {
-                    printf("firstEightByte: %s",
-                           getRegName(genMapRegArgNumToRegNum(firstAllocatedRegArgNum, firstEightByteType)));
+                    printf(",");
                 }
 
-                if (secondEightByteType == TYP_UNDEF)
+                if (!isFloat && (regArgNum >= paramInfo.maxIntRegArgNum))
                 {
-                    printf(", secondEightByte: <not used>");
+                    printf(" stack slots:%d", slots - ix);
+                    break;
                 }
-                else
-                {
-                    printf(", secondEightByte: %s",
-                           getRegName(genMapRegArgNumToRegNum(secondAllocatedRegArgNum, secondEightByteType)));
-                }
-            }
-            else
-#endif // UNIX_AMD64_ABI
-            {
-                isFloat            = varTypeUsesFloatReg(paramType);
-                unsigned regArgNum = genMapRegNumToRegArgNum(lcl->GetArgReg(), paramType);
-
-                for (unsigned ix = 0; ix < slots; ix++, regArgNum++)
-                {
-                    if (ix > 0)
-                    {
-                        printf(",");
-                    }
-
-                    if (!isFloat && (regArgNum >= paramInfo.maxIntRegArgNum))
-                    {
-                        printf(" stack slots:%d", slots - ix);
-                        break;
-                    }
 
 #ifdef TARGET_ARM
-                    if (isFloat)
+                if (isFloat)
+                {
+                    if (paramType == TYP_DOUBLE)
                     {
-                        if (paramType == TYP_DOUBLE)
-                        {
-                            printf("%s/%s", getRegName(genMapFloatRegArgNumToRegNum(regArgNum)),
-                                   getRegName(genMapFloatRegArgNumToRegNum(regArgNum + 1)));
+                        printf("%s/%s", getRegName(genMapFloatRegArgNumToRegNum(regArgNum)),
+                               getRegName(genMapFloatRegArgNumToRegNum(regArgNum + 1)));
 
-                            assert(ix + 1 < slots);
-                            ++ix;
-                            ++regArgNum;
-                        }
-                        else
-                        {
-                            printf("%s", getRegName(genMapFloatRegArgNumToRegNum(regArgNum)));
-                        }
+                        assert(ix + 1 < slots);
+                        ++ix;
+                        ++regArgNum;
                     }
                     else
-#endif // TARGET_ARM
                     {
-                        printf("%s", getRegName(genMapIntRegArgNumToRegNum(regArgNum)));
+                        printf("%s", getRegName(genMapFloatRegArgNumToRegNum(regArgNum)));
                     }
                 }
+                else
+#endif // TARGET_ARM
+                {
+                    printf("%s", getRegName(genMapIntRegArgNumToRegNum(regArgNum)));
+                }
             }
+#endif // !UNIX_AMD64_ABI
+
             printf("\n");
         }
 #endif // DEBUG
