@@ -144,40 +144,16 @@ void Compiler::lvaInitLocals()
         new (&lvaTable[i]) LclVarDsc();
     }
 
-    InitVarDscInfo varDscInfo;
-
-#ifdef TARGET_X86
-    switch (info.compCallConv)
-    {
-        case CorInfoCallConvExtension::Thiscall:
-            varDscInfo.Init(lvaTable, hasRetBuffArg, 1, 0);
-            break;
-        case CorInfoCallConvExtension::C:
-        case CorInfoCallConvExtension::Stdcall:
-        case CorInfoCallConvExtension::CMemberFunction:
-        case CorInfoCallConvExtension::StdcallMemberFunction:
-            varDscInfo.Init(lvaTable, hasRetBuffArg, 0, 0);
-            break;
-        case CorInfoCallConvExtension::Managed:
-        case CorInfoCallConvExtension::Fastcall:
-        case CorInfoCallConvExtension::FastcallMemberFunction:
-        default:
-            varDscInfo.Init(lvaTable, hasRetBuffArg, MAX_REG_ARG, MAX_FLOAT_REG_ARG);
-            break;
-    }
-#else
-    varDscInfo.Init(lvaTable, hasRetBuffArg, MAX_REG_ARG, MAX_FLOAT_REG_ARG);
-#endif
-
-    lvaInitArgs(&varDscInfo);
+    lvaInitArgs(hasRetBuffArg);
 
     CORINFO_ARG_LIST_HANDLE localsSig = info.compMethodInfo->locals.args;
-    unsigned                varNum    = varDscInfo.varNum;
-    LclVarDsc*              varDsc    = varDscInfo.varDsc;
+    unsigned                varNum    = info.compArgsCount;
 
     for (unsigned i = 0; i < info.compMethodInfo->locals.numArgs;
-         i++, varNum++, varDsc++, localsSig = info.compCompHnd->getArgNext(localsSig))
+         i++, varNum++, localsSig = info.compCompHnd->getArgNext(localsSig))
     {
+        LclVarDsc* varDsc = lvaGetDesc(varNum);
+
         CORINFO_CLASS_HANDLE typeHnd;
         CorInfoTypeWithMod   corInfoTypeWithMod =
             info.compCompHnd->getArgType(&info.compMethodInfo->locals, localsSig, &typeHnd);
@@ -277,8 +253,33 @@ void Compiler::lvaInitLocals()
     DBEXEC(verbose, lvaTableDump(INITIAL_FRAME_LAYOUT));
 }
 
-void Compiler::lvaInitArgs(InitVarDscInfo* varDscInfo)
+void Compiler::lvaInitArgs(bool hasRetBuffArg)
 {
+    InitVarDscInfo varDscInfo;
+
+#ifdef TARGET_X86
+    switch (info.compCallConv)
+    {
+        case CorInfoCallConvExtension::Thiscall:
+            varDscInfo.Init(lvaTable, hasRetBuffArg, 1, 0);
+            break;
+        case CorInfoCallConvExtension::C:
+        case CorInfoCallConvExtension::Stdcall:
+        case CorInfoCallConvExtension::CMemberFunction:
+        case CorInfoCallConvExtension::StdcallMemberFunction:
+            varDscInfo.Init(lvaTable, hasRetBuffArg, 0, 0);
+            break;
+        case CorInfoCallConvExtension::Managed:
+        case CorInfoCallConvExtension::Fastcall:
+        case CorInfoCallConvExtension::FastcallMemberFunction:
+        default:
+            varDscInfo.Init(lvaTable, hasRetBuffArg, MAX_REG_ARG, MAX_FLOAT_REG_ARG);
+            break;
+    }
+#else
+    varDscInfo.Init(lvaTable, hasRetBuffArg, MAX_REG_ARG, MAX_FLOAT_REG_ARG);
+#endif
+
     compArgSize = 0;
 
 #if defined(TARGET_ARM) && defined(PROFILING_SUPPORTED)
@@ -295,7 +296,7 @@ void Compiler::lvaInitArgs(InitVarDscInfo* varDscInfo)
     // x64, arm and arm64 place the generic context and varargs handle before user args:
     //  [this] [struct return buffer] [generic context] [varargs handle] [user args]
 
-    lvaInitThisPtr(varDscInfo);
+    lvaInitThisPtr(&varDscInfo);
 
     unsigned numUserArgsToSkip = 0;
     unsigned numUserArgs       = info.compMethodInfo->args.numArgs;
@@ -305,38 +306,38 @@ void Compiler::lvaInitArgs(InitVarDscInfo* varDscInfo)
     {
         assert(numUserArgs >= 1);
 
-        lvaInitUserArgs(varDscInfo, 0, 1);
+        lvaInitUserArgs(&varDscInfo, 0, 1);
         numUserArgsToSkip++;
         numUserArgs--;
 
-        lvaInitRetBuffArg(varDscInfo, false);
+        lvaInitRetBuffArg(&varDscInfo, false);
     }
     else
 #endif
     {
-        lvaInitRetBuffArg(varDscInfo, true);
+        lvaInitRetBuffArg(&varDscInfo, true);
     }
 
 #if USER_ARGS_COME_LAST
-    lvaInitGenericsCtxt(varDscInfo);
-    lvaInitVarArgsHandle(varDscInfo);
+    lvaInitGenericsCtxt(&varDscInfo);
+    lvaInitVarArgsHandle(&varDscInfo);
 #endif
 
-    lvaInitUserArgs(varDscInfo, numUserArgsToSkip, numUserArgs);
+    lvaInitUserArgs(&varDscInfo, numUserArgsToSkip, numUserArgs);
 
 #if !USER_ARGS_COME_LAST
     lvaInitGenericsCtxt(varDscInfo);
     lvaInitVarArgsHandle(varDscInfo);
 #endif
 
-    noway_assert(varDscInfo->varNum == info.compArgsCount);
-    assert(varDscInfo->intRegArgNum <= MAX_REG_ARG);
+    noway_assert(varDscInfo.varNum == info.compArgsCount);
+    assert(varDscInfo.intRegArgNum <= MAX_REG_ARG);
 
-    codeGen->intRegState.rsCalleeRegArgCount   = varDscInfo->intRegArgNum;
-    codeGen->floatRegState.rsCalleeRegArgCount = varDscInfo->floatRegArgNum;
+    codeGen->intRegState.rsCalleeRegArgCount   = varDscInfo.intRegArgNum;
+    codeGen->floatRegState.rsCalleeRegArgCount = varDscInfo.floatRegArgNum;
 
 #if FEATURE_FASTTAILCALL
-    info.compArgStackSize = varDscInfo->stackArgSize;
+    info.compArgStackSize = varDscInfo.stackArgSize;
 #endif
 
     // The total argument size must be aligned.

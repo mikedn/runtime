@@ -4041,7 +4041,7 @@ public:
     void lvaInitLocals();
     void lvaInitInline();
 
-    void lvaInitArgs(InitVarDscInfo* varDscInfo);
+    void lvaInitArgs(bool hasRetBuffArg);
     void lvaInitThisPtr(InitVarDscInfo* varDscInfo);
     void lvaInitRetBuffArg(InitVarDscInfo* varDscInfo, bool useFixedRetBufReg);
     void lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, unsigned takeArgs);
