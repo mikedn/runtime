@@ -4047,7 +4047,7 @@ public:
     void lvaInitRetBufParam(InitVarDscInfo& paramInfo, bool useFixedRetBufReg);
     void lvaInitGenericsContextParam(InitVarDscInfo& paramInfo);
     void lvaInitVarargsHandleParam(InitVarDscInfo& paramInfo);
-    void lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, unsigned takeArgs);
+    void lvaInitUserParams(InitVarDscInfo& paramInfo, unsigned skipParams, unsigned takeParams);
     void lvaInitUserParam(InitVarDscInfo*         varDscInfo,
                           CORINFO_ARG_LIST_HANDLE argLst ARM_ARG(regMaskTP* doubleAlignMask));
 #ifdef TARGET_ARM

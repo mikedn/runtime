@@ -327,7 +327,7 @@ void Compiler::lvaInitArgs(bool hasRetBufParam)
             BADCODE("Instance method without 'this' param");
         }
 
-        lvaInitUserArgs(&varDscInfo, 0, 1);
+        lvaInitUserParams(varDscInfo, 0, 1);
         numUserArgsToSkip++;
         numUserArgs--;
         useFixedRetBufReg = false;
@@ -348,7 +348,7 @@ void Compiler::lvaInitArgs(bool hasRetBufParam)
     lvaInitVarargsHandleParam(varDscInfo);
 #endif
 
-    lvaInitUserArgs(&varDscInfo, numUserArgsToSkip, numUserArgs);
+    lvaInitUserParams(varDscInfo, numUserArgsToSkip, numUserArgs);
 
 #if !USER_ARGS_COME_LAST
     lvaInitGenericsContextParam(varDscInfo);
@@ -577,37 +577,37 @@ void Compiler::lvaInitVarargsHandleParam(InitVarDscInfo& paramInfo)
 #endif
 }
 
-void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, unsigned takeArgs)
+void Compiler::lvaInitUserParams(InitVarDscInfo& paramInfo, unsigned skipParams, unsigned takeParams)
 {
-    assert(skipArgs <= info.compMethodInfo->args.numArgs);
-    assert(takeArgs <= info.compMethodInfo->args.numArgs - skipArgs);
+    assert(skipParams <= info.compMethodInfo->args.numArgs);
+    assert(takeParams <= info.compMethodInfo->args.numArgs - skipArgs);
 
 #if defined(TARGET_X86)
-    // Only (some of) the implicit args are enregistered for varargs
+    // Only (some of) the implicit params are enregistered for varargs.
     if (info.compIsVarArgs)
     {
-        varDscInfo->maxIntRegArgNum = varDscInfo->intRegArgNum;
+        paramInfo.maxIntRegArgNum = paramInfo.intRegArgNum;
     }
 #elif defined(WINDOWS_AMD64_ABI)
-    varDscInfo->floatRegArgNum   = varDscInfo->intRegArgNum;
+    paramInfo.floatRegArgNum     = paramInfo.intRegArgNum;
 #endif
 
-    if (takeArgs == 0)
+    if (takeParams == 0)
     {
         return;
     }
 
-    CORINFO_ARG_LIST_HANDLE argLst = info.compMethodInfo->args.args;
+    CORINFO_ARG_LIST_HANDLE param = info.compMethodInfo->args.args;
 
-    for (unsigned i = 0; i < skipArgs; i++, argLst = info.compCompHnd->getArgNext(argLst))
+    for (unsigned i = 0; i < skipParams; i++, param = info.compCompHnd->getArgNext(param))
     {
     }
 
     ARM_ONLY(regMaskTP doubleAlignMask = RBM_NONE);
 
-    for (unsigned i = 0; i < takeArgs; i++, varDscInfo->varNum++, argLst = info.compCompHnd->getArgNext(argLst))
+    for (unsigned i = 0; i < takeParams; i++, paramInfo.varNum++, param = info.compCompHnd->getArgNext(param))
     {
-        lvaInitUserParam(varDscInfo, argLst ARM_ARG(&doubleAlignMask));
+        lvaInitUserParam(&paramInfo, param ARM_ARG(&doubleAlignMask));
     }
 
     compArgSize = GetOutgoingArgByteSize(compArgSize);
@@ -4334,7 +4334,7 @@ int Compiler::lvaAssignVirtualFrameOffsetToArg(unsigned lclNum,
             //
             // stk arg                  --> argOffs here will be 12 {r0-r2} but pre-spill will be 16.
             // ---- Caller SP ----
-            // r3    int             a2 --> pushed (not pre-spilled) for alignment of a0 by lvaInitUserArgs.
+            // r3    int             a2 --> pushed (not pre-spilled) for alignment of a0 by lvaInitUserParams.
             // r2    struct { int }  a1
             // r0-r1 struct { long } a0
             CLANG_FORMAT_COMMENT_ANCHOR;
