@@ -372,7 +372,7 @@ void Compiler::lvaInitThisPtr(InitVarDscInfo* varDscInfo)
         varDsc->lvIsParam = true;
         varDsc->lvIsPtr   = true;
 
-        if (info.compCompHnd->isValueClass(info.compClassHnd))
+        if ((info.compClassAttr & CORINFO_FLG_VALUECLASS) != 0)
         {
             varDsc->SetType(TYP_BYREF);
         }
