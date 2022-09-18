@@ -1912,39 +1912,29 @@ inline unsigned Compiler::compMapILargNum(unsigned ILargNum)
     return (ILargNum);
 }
 
-//------------------------------------------------------------------------
-// Compiler::mangleVarArgsType: Retype float types to their corresponding
-//                            : int/long types.
-//
-// Notes:
-//
-// The mangling of types will only occur for incoming vararg fixed arguments
-// on windows arm|64 or on armel (softFP).
-//
-// NO-OP for all other cases.
-//
+#ifdef TARGET_ARMARCH
 inline var_types Compiler::mangleVarArgsType(var_types type)
 {
-#if defined(TARGET_ARMARCH)
-    if (opts.UseSoftFP()
-#if defined(TARGET_WINDOWS)
-        || info.compIsVarArgs
-#endif // defined(TARGET_WINDOWS)
+    if (!opts.UseSoftFP()
+#ifdef TARGET_WINDOWS
+        && !info.compIsVarArgs
+#endif
         )
     {
-        switch (type)
-        {
-            case TYP_FLOAT:
-                return TYP_INT;
-            case TYP_DOUBLE:
-                return TYP_LONG;
-            default:
-                break;
-        }
+        return type;
     }
-#endif // defined(TARGET_ARMARCH)
-    return type;
+
+    switch (type)
+    {
+        case TYP_FLOAT:
+            return TYP_INT;
+        case TYP_DOUBLE:
+            return TYP_LONG;
+        default:
+            return type;
+    }
 }
+#endif // TARGET_ARMARCH
 
 // For CORECLR there is no vararg on System V systems.
 #if FEATURE_VARARG

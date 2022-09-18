@@ -1537,12 +1537,18 @@ void CodeGen::psiBegProlog()
             if (!isStructHandled)
             {
 #ifdef DEBUG
-                var_types regType = compiler->mangleVarArgsType(lclVarDsc->TypeGet());
+                var_types regType = lclVarDsc->GetType();
+
+#ifdef TARGET_ARMARCH
+                regType = compiler->mangleVarArgsType(regType);
+#endif
+
                 if (lclVarDsc->lvIsHfaRegArg())
                 {
                     regType = lclVarDsc->GetLayout()->GetHfaElementType();
                 }
-                assert(genMapRegNumToRegArgNum(lclVarDsc->GetArgReg(), regType) != (unsigned)-1);
+
+                assert(genMapRegNumToRegArgNum(lclVarDsc->GetArgReg(), regType) != UINT32_MAX);
 #endif // DEBUG
 
 #ifdef USING_SCOPE_INFO

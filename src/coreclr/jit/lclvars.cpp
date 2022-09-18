@@ -649,12 +649,16 @@ void Compiler::lvaInitUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAND
 
 void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl)
 {
-    unsigned  paramSize = eeGetParamAllocSize(param, &info.compMethodInfo->args);
+    unsigned paramSize = eeGetParamAllocSize(param, &info.compMethodInfo->args);
+    unsigned slots     = (paramSize + REGSIZE_BYTES - 1) / REGSIZE_BYTES;
+    unsigned regCount  = slots;
+#ifdef TARGET_ARMARCH
     var_types paramType = mangleVarArgsType(lcl->GetType());
-    var_types regType   = paramType;
-    unsigned  slots     = (paramSize + REGSIZE_BYTES - 1) / REGSIZE_BYTES;
-    unsigned  regCount  = slots;
-    var_types hfaType   = TYP_UNDEF;
+#else
+    var_types paramType = lcl->GetType();
+#endif
+    var_types regType = paramType;
+    var_types hfaType = TYP_UNDEF;
 
     if (varTypeIsStruct(paramType))
     {

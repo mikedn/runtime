@@ -4288,7 +4288,9 @@ private:
 
     CORINFO_CONTEXT_HANDLE impTokenLookupContextHandle; // The context used for looking up tokens.
 
+#ifdef TARGET_ARMARCH
     var_types mangleVarArgsType(var_types type);
+#endif
 
 #if FEATURE_VARARG
     regNumber getCallArgIntRegister(regNumber floatReg);

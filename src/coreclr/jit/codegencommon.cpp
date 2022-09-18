@@ -2510,7 +2510,11 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
                 return varDsc->GetLayout()->GetHfaElementType();
             }
 
+#ifdef TARGET_ARMARCH
             return compiler->mangleVarArgsType(varDsc->GetType());
+#else
+            return varDsc->GetType();
+#endif
         }
 
 #endif // !UNIX_AMD64_ABI
@@ -2567,7 +2571,12 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
             }
         }
 
-        var_types regType = compiler->mangleVarArgsType(varDsc->TypeGet());
+        var_types regType = varDsc->GetType();
+
+#ifdef TARGET_ARMARCH
+        regType = compiler->mangleVarArgsType(regType);
+#endif
+
         // Change regType to the HFA type when we have a HFA argument
         if (varDsc->lvIsHfaRegArg())
         {
@@ -3080,7 +3089,10 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
         }
         else // Not a struct type
         {
-            storeType = compiler->mangleVarArgsType(genActualType(varDsc->TypeGet()));
+            storeType = varActualType(varDsc->GetType());
+#ifdef TARGET_ARMARCH
+            storeType = compiler->mangleVarArgsType(storeType);
+#endif
         }
         size = emitActualTypeSize(storeType);
 #ifdef TARGET_X86
