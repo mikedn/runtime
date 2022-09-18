@@ -195,13 +195,6 @@ protected:
     void*     coldCodePtr;
     void*     consPtr;
 
-#ifdef DEBUG
-    // Last instr we have displayed for dspInstrs
-    unsigned genCurDispOffset = UINT32_MAX;
-#endif
-
-    //-------------------------------------------------------------------------
-
     // JIT-time constants for use in multi-dimensional array code generation.
     unsigned genOffsetOfMDArrayLowerBound(var_types elemType, unsigned rank, unsigned dimension);
     unsigned genOffsetOfMDArrayDimensionSize(var_types elemType, unsigned rank, unsigned dimension);

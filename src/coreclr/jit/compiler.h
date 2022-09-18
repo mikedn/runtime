@@ -2006,13 +2006,7 @@ struct Importer
     bool     impBoxTempInUse = false;
     unsigned impBoxTemp      = BAD_VAR_NUM;
 
-#ifdef DEBUG
-    unsigned impCurOpcOffs;
-
-    // For displaying instrs with generated native code (-n:B)
-    Statement* impLastILoffsStmt = nullptr; // oldest stmt added for which we did not call SetLastILOffset().
-    void       impNoteLastILoffs();
-#endif
+    INDEBUG(unsigned impCurOpcOffs;)
 
     // IL offset of the stmt currently being imported. It gets set to
     // BAD_IL_OFFSET after it has been set in the appended trees. Then it gets
@@ -7134,12 +7128,6 @@ public:
     static int dspTreeID(GenTree* tree)
     {
         return tree->gtTreeID;
-    }
-
-    static void printStmtID(Statement* stmt)
-    {
-        assert(stmt != nullptr);
-        printf(FMT_STMT, stmt->GetID());
     }
 
     const char* pgoSourceToString(ICorJitInfo::PgoSource p);

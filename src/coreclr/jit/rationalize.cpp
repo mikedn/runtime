@@ -489,10 +489,8 @@ PhaseStatus Rationalizer::DoPhase()
                 // node and insert it into the LIR.
                 if (statement->GetILOffsetX() != BAD_IL_OFFSET)
                 {
-                    assert(!statement->IsPhiDefnStmt());
-                    GenTreeILOffset* ilOffset = new (comp, GT_IL_OFFSET)
-                        GenTreeILOffset(statement->GetILOffsetX() DEBUGARG(statement->GetLastILOffset()));
-                    BlockRange().InsertBefore(statement->GetTreeList(), ilOffset);
+                    BlockRange().InsertBefore(statement->GetTreeList(),
+                                              new (comp, GT_IL_OFFSET) GenTreeILOffset(statement->GetILOffsetX()));
                 }
 
                 m_block = block;

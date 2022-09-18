@@ -315,14 +315,6 @@ void Importer::impStmtListEnd(BasicBlock* block)
 
     impStmtList = nullptr;
     impLastStmt = nullptr;
-
-#ifdef DEBUG
-    if (impLastILoffsStmt != nullptr)
-    {
-        impLastILoffsStmt->SetLastILOffset(compIsForInlining() ? BAD_IL_OFFSET : impCurOpcOffs);
-        impLastILoffsStmt = nullptr;
-    }
-#endif
 }
 
 void Importer::impSetBlockStmtList(BasicBlock* block, Statement* firstStmt, Statement* lastStmt)
@@ -500,11 +492,6 @@ Statement* Importer::impAppendTree(GenTree* tree, unsigned spillDepth)
     impCurStmtOffs = BAD_IL_OFFSET;
 
 #ifdef DEBUG
-    if (impLastILoffsStmt == nullptr)
-    {
-        impLastILoffsStmt = stmt;
-    }
-
     if (verbose)
     {
         printf("\n\n");
@@ -518,13 +505,11 @@ Statement* Importer::impAppendTree(GenTree* tree, unsigned spillDepth)
 void Importer::impSpillAllAppendTree(GenTree* op1)
 {
     impAppendTree(op1, CHECK_SPILL_ALL);
-    INDEBUG(impNoteLastILoffs();)
 }
 
 void Importer::impSpillNoneAppendTree(GenTree* op1)
 {
     impAppendTree(op1, CHECK_SPILL_NONE);
-    INDEBUG(impNoteLastILoffs();)
 }
 
 /*****************************************************************************
@@ -1875,42 +1860,6 @@ bool Importer::impCanSpillNow(OPCODE prevOpcode)
     // Avoid breaking up to guarantee that impInitializeArrayIntrinsic can succeed.
     return (prevOpcode != CEE_LDTOKEN) && (prevOpcode != CEE_NEWARR) && (prevOpcode != CEE_NEWOBJ);
 }
-
-/*****************************************************************************
- *
- *  Remember the instr offset for the statements
- *
- *  When we do impAppendTree(tree), we can't set stmt->SetLastILOffset(impCurOpcOffs),
- *  if the append was done because of a partial stack spill,
- *  as some of the trees corresponding to code up to impCurOpcOffs might
- *  still be sitting on the stack.
- *  So we delay calling of SetLastILOffset() until impNoteLastILoffs().
- *  This should be called when an opcode finally/explicitly causes
- *  impAppendTree(tree) to be called (as opposed to being called because of
- *  a spill caused by the opcode)
- */
-
-#ifdef DEBUG
-
-void Importer::impNoteLastILoffs()
-{
-    if (impLastILoffsStmt == nullptr)
-    {
-        // We should have added a statement for the current basic block
-        // Is this assert correct ?
-
-        assert(impLastStmt);
-
-        impLastStmt->SetLastILOffset(compIsForInlining() ? BAD_IL_OFFSET : impCurOpcOffs);
-    }
-    else
-    {
-        impLastILoffsStmt->SetLastILOffset(compIsForInlining() ? BAD_IL_OFFSET : impCurOpcOffs);
-        impLastILoffsStmt = nullptr;
-    }
-}
-
-#endif // DEBUG
 
 /*****************************************************************************
  * We don't create any GenTree (excluding spills) for a branch.
@@ -8802,13 +8751,6 @@ void Importer::impBranchToNextBlock(BasicBlock* block, GenTree* op1, GenTree* op
         impSpillSideEffects(GTF_SIDE_EFFECT, CHECK_SPILL_ALL DEBUGARG("Branch to next Optimization, op2 side effect"));
         impAppendTree(gtUnusedValNode(op2), CHECK_SPILL_NONE);
     }
-
-#ifdef DEBUG
-    if ((op1->gtFlags | op2->gtFlags) & GTF_GLOB_EFFECT)
-    {
-        impNoteLastILoffs();
-    }
-#endif
 }
 
 //------------------------------------------------------------------------

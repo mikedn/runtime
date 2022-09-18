@@ -6429,16 +6429,8 @@ class InlineContext;
 struct GenTreeILOffset : public GenTree
 {
     IL_OFFSETX gtStmtILoffsx; // instr offset (if available)
-#ifdef DEBUG
-    IL_OFFSET gtStmtLastILoffs; // instr offset at end of stmt
-#endif
 
-    GenTreeILOffset(IL_OFFSETX offset DEBUGARG(IL_OFFSET lastOffset = BAD_IL_OFFSET))
-        : GenTree(GT_IL_OFFSET, TYP_VOID)
-        , gtStmtILoffsx(offset)
-#ifdef DEBUG
-        , gtStmtLastILoffs(lastOffset)
-#endif
+    GenTreeILOffset(IL_OFFSETX offset) : GenTree(GT_IL_OFFSET, TYP_VOID), gtStmtILoffsx(offset)
     {
     }
 
@@ -6516,7 +6508,6 @@ public:
         , m_inlineContext(nullptr)
         , m_ILOffsetX(offset)
 #ifdef DEBUG
-        , m_lastILOffset(BAD_IL_OFFSET)
         , m_stmtID(stmtID)
 #endif
         , m_compilerAdded(false)
@@ -6586,22 +6577,11 @@ public:
     }
 
 #ifdef DEBUG
-
-    IL_OFFSET GetLastILOffset() const
-    {
-        return m_lastILOffset;
-    }
-
-    void SetLastILOffset(IL_OFFSET lastILOffset)
-    {
-        m_lastILOffset = lastILOffset;
-    }
-
     unsigned GetID() const
     {
         return m_stmtID;
     }
-#endif // DEBUG
+#endif
 
     Statement* GetNextStmt() const
     {
@@ -6667,10 +6647,7 @@ private:
 
     IL_OFFSETX m_ILOffsetX; // The instr offset (if available).
 
-#ifdef DEBUG
-    IL_OFFSET m_lastILOffset; // The instr offset at the end of this statement.
-    unsigned  m_stmtID;
-#endif
+    INDEBUG(unsigned m_stmtID;)
 
     bool m_compilerAdded; // Was the statement created by optimizer?
 };

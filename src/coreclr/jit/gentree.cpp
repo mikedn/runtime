@@ -8603,38 +8603,22 @@ void Compiler::gtGetCallArgMsg(GenTreeCall* call, CallArgInfo* argInfo, GenTree*
 //    stmt - the statement to be printed;
 //    msg  - an additional message to print before the statement.
 //
-void Compiler::gtDispStmt(Statement* stmt, const char* msg /* = nullptr */)
+void Compiler::gtDispStmt(Statement* stmt, const char* msg)
 {
-    if (opts.compDbgInfo)
+    if (msg != nullptr)
     {
-        if (msg != nullptr)
-        {
-            printf("%s ", msg);
-        }
-        printStmtID(stmt);
-        IL_OFFSETX firstILOffsx = stmt->GetILOffsetX();
-        printf(" (IL ");
-        if (firstILOffsx == BAD_IL_OFFSET)
-        {
-            printf("  ???");
-        }
-        else
-        {
-            printf("0x%03X", jitGetILoffs(firstILOffsx));
-        }
-        printf("...");
-
-        IL_OFFSET lastILOffs = stmt->GetLastILOffset();
-        if (lastILOffs == BAD_IL_OFFSET)
-        {
-            printf("  ???");
-        }
-        else
-        {
-            printf("0x%03X", lastILOffs);
-        }
-        printf(")\n");
+        printf("%s ", msg);
     }
+
+    printf(FMT_STMT, stmt->GetID());
+
+    if (opts.compDbgInfo && (stmt->GetILOffsetX() != BAD_IL_OFFSET))
+    {
+        printf(" IL 0x%03X", jitGetILoffs(stmt->GetILOffsetX()));
+    }
+
+    printf("\n");
+
     gtDispTree(stmt->GetRootNode());
 }
 

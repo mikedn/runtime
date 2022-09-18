@@ -423,19 +423,6 @@ void CodeGen::genCodeForBBlist()
                 currentILOffset = ilOffset->gtStmtILoffsx;
                 genIPmappingAdd(currentILOffset, firstMapping);
                 firstMapping = false;
-#ifdef DEBUG
-                assert(ilOffset->gtStmtLastILoffs <= compiler->info.compILCodeSize ||
-                       ilOffset->gtStmtLastILoffs == BAD_IL_OFFSET);
-
-                if (compiler->opts.dspCode && compiler->opts.dspInstrs && ilOffset->gtStmtLastILoffs != BAD_IL_OFFSET)
-                {
-                    while (genCurDispOffset <= ilOffset->gtStmtLastILoffs)
-                    {
-                        genCurDispOffset += dumpSingleInstr(compiler->info.compCode, genCurDispOffset, ">    ");
-                    }
-                }
-
-#endif // DEBUG
             }
 
             genCodeForTreeNode(node);
