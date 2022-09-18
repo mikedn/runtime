@@ -368,8 +368,6 @@ void CodeGen::genCodeForBBlist()
             genIPmappingAdd((IL_OFFSETX)ICorDebugInfo::NO_MAPPING, true);
         }
 
-        bool firstMapping = true;
-
 #if defined(FEATURE_EH_FUNCLETS)
         if (block->bbFlags & BBF_FUNCLET_BEG)
         {
@@ -385,10 +383,6 @@ void CodeGen::genCodeForBBlist()
         {
             genPoisonFrame(newLiveRegSet);
         }
-
-        // Traverse the block in linear order, generating code for each node as we
-        // as we encounter it.
-        CLANG_FORMAT_COMMENT_ANCHOR;
 
 #ifdef DEBUG
         // Set the use-order numbers for each node.
@@ -412,7 +406,12 @@ void CodeGen::genCodeForBBlist()
         }
 #endif // DEBUG
 
+        // Traverse the block in linear order, generating code for each node as we
+        // as we encounter it.
+
         IL_OFFSETX currentILOffset = BAD_IL_OFFSET;
+        bool       firstMapping    = true;
+
         for (GenTree* node : LIR::AsRange(block))
         {
             // Do we have a new IL offset?
