@@ -1493,7 +1493,8 @@ void CodeGen::psiBegProlog()
         if (lclVarDsc->lvIsRegArg)
         {
             bool isStructHandled = false;
-#if defined(UNIX_AMD64_ABI)
+
+#ifdef UNIX_AMD64_ABI
             if (varTypeIsStruct(lclVarDsc->GetType()))
             {
                 if (lclVarDsc->GetLayout()->GetSysVAmd64AbiRegCount() != 0)
@@ -1504,11 +1505,8 @@ void CodeGen::psiBegProlog()
                     {
                         regNum[i] = lclVarDsc->GetParamReg(i);
 
-#ifdef DEBUG
-                        var_types regType = lclVarDsc->GetLayout()->GetSysVAmd64AbiRegType(i);
-                        regType           = compiler->mangleVarArgsType(regType);
+                        INDEBUG(var_types regType = lclVarDsc->GetLayout()->GetSysVAmd64AbiRegType(i));
                         assert(genMapRegNumToRegArgNum(regNum[i], regType) != UINT32_MAX);
-#endif
                     }
 
 #ifdef USING_SCOPE_INFO
@@ -1534,7 +1532,8 @@ void CodeGen::psiBegProlog()
 
                 isStructHandled = true;
             }
-#endif // !defined(UNIX_AMD64_ABI)
+#endif // UNIX_AMD64_ABI
+
             if (!isStructHandled)
             {
 #ifdef DEBUG
