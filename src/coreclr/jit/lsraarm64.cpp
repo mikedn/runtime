@@ -669,6 +669,10 @@ int LinearScan::BuildNode(GenTree* tree)
             srcCount = BuildInstr(tree->AsInstr());
             break;
 
+        case GT_IL_OFFSET:
+            srcCount = 0;
+            break;
+
         case GT_ARGPLACE:
         case GT_ASG:
         case GT_BLK:

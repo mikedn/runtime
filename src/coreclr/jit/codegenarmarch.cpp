@@ -539,10 +539,6 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             genProduceReg(treeNode);
             break;
 
-        case GT_IL_OFFSET:
-            // Do nothing; these nodes are simply markers for debug info.
-            break;
-
         case GT_INSTR:
             genCodeForInstr(treeNode->AsInstr());
             break;

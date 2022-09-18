@@ -608,6 +608,10 @@ int LinearScan::BuildNode(GenTree* tree)
         case GT_QMARK:
             unreached();
 
+        case GT_IL_OFFSET:
+            srcCount = 0;
+            break;
+
         default:
             srcCount = BuildSimple(tree);
             break;

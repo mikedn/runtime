@@ -414,22 +414,23 @@ void CodeGen::genCodeForBBlist()
 
         for (GenTree* node : LIR::AsRange(block))
         {
-            // Do we have a new IL offset?
-            if (node->OperGet() == GT_IL_OFFSET)
+            if (GenTreeILOffset* ilOffset = node->IsILOffset())
             {
-                GenTreeILOffset* ilOffset = node->AsILOffset();
                 genEnsureCodeEmitted(currentILOffset);
                 currentILOffset = ilOffset->gtStmtILoffsx;
                 genIPmappingAdd(currentILOffset, firstMapping);
                 firstMapping = false;
             }
-
-            genCodeForTreeNode(node);
-            if (node->gtHasReg() && node->IsUnusedValue())
+            else
             {
-                UseRegs(node);
+                genCodeForTreeNode(node);
+
+                if (node->gtHasReg() && node->IsUnusedValue())
+                {
+                    UseRegs(node);
+                }
             }
-        } // end for each node in block
+        }
 
 #ifdef DEBUG
         // The following set of register spill checks and GC pointer tracking checks used to be
