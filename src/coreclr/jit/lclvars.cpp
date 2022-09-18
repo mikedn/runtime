@@ -649,12 +649,12 @@ void Compiler::lvaInitUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAND
 
 void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl)
 {
-    unsigned  paramSize     = eeGetParamAllocSize(param, &info.compMethodInfo->args);
-    var_types realParamType = mangleVarArgsType(lcl->GetType());
-    var_types paramType     = realParamType;
-    unsigned  slots         = (paramSize + REGSIZE_BYTES - 1) / REGSIZE_BYTES;
-    unsigned  regCount      = slots;
-    var_types hfaType       = TYP_UNDEF;
+    unsigned  paramSize = eeGetParamAllocSize(param, &info.compMethodInfo->args);
+    var_types paramType = mangleVarArgsType(lcl->GetType());
+    var_types regType   = paramType;
+    unsigned  slots     = (paramSize + REGSIZE_BYTES - 1) / REGSIZE_BYTES;
+    unsigned  regCount  = slots;
+    var_types hfaType   = TYP_UNDEF;
 
     if (varTypeIsStruct(paramType))
     {
@@ -672,10 +672,10 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
 #endif
             if (lcl->GetLayout()->IsHfa())
         {
-            slots     = lcl->GetLayout()->GetHfaRegCount();
-            hfaType   = lcl->GetLayout()->GetHfaElementType();
-            paramType = hfaType;
-            regCount  = slots;
+            slots    = lcl->GetLayout()->GetHfaRegCount();
+            hfaType  = lcl->GetLayout()->GetHfaElementType();
+            regType  = hfaType;
+            regCount = slots;
         }
     }
 
@@ -688,7 +688,7 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
     bool     preSpill  = info.compIsVarArgs || isSoftFPPreSpill;
     unsigned slotAlign = 1;
 
-    switch (realParamType)
+    switch (paramType)
     {
         case TYP_STRUCT:
             assert(lcl->lvSize() == paramSize);
@@ -715,12 +715,12 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
             break;
     }
 
-    if (isRegParamType(paramType))
+    if (isRegParamType(regType))
     {
-        compArgSize += paramInfo.alignReg(paramType, slotAlign) * REGSIZE_BYTES;
+        compArgSize += paramInfo.alignReg(regType, slotAlign) * REGSIZE_BYTES;
     }
 
-    if (paramType == TYP_STRUCT)
+    if (regType == TYP_STRUCT)
     {
         // Are we going to split the struct between registers and stack? We can do that as long as
         // no floating-point params have been put on the stack.
@@ -766,7 +766,7 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
 #elif defined(UNIX_AMD64_ABI)
     bool structPassedInRegisters = false;
 
-    if (varTypeIsStruct(paramType))
+    if (varTypeIsStruct(regType))
     {
         lcl->GetLayout()->EnsureSysVAmd64AbiInfo(this);
         structPassedInRegisters = lcl->GetLayout()->GetSysVAmd64AbiRegCount() != 0;
@@ -798,13 +798,13 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
 #endif // UNIX_AMD64_ABI
 
 #if defined(UNIX_AMD64_ABI)
-    if (varTypeIsStruct(paramType))
+    if (varTypeIsStruct(regType))
     {
         canPassArgInRegisters = structPassedInRegisters;
     }
     else
 #elif defined(TARGET_X86)
-    if (varTypeIsStruct(paramType) && isTrivialPointerSizedStruct(lcl->GetLayout()))
+    if (varTypeIsStruct(regType) && isTrivialPointerSizedStruct(lcl->GetLayout()))
     {
         canPassArgInRegisters = paramInfo.canEnreg(TYP_INT, regCount);
     }
@@ -813,7 +813,7 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
     {
         // TODO-MIKE-Fix: This is messed up for for win-arm64 varargs, paramType may
         // be SIMD12/16 when it should in fact be INT since varargs doesn't use HFAs.
-        canPassArgInRegisters = paramInfo.canEnreg(paramType, regCount);
+        canPassArgInRegisters = paramInfo.canEnreg(regType, regCount);
     }
 
     if (canPassArgInRegisters)
@@ -826,7 +826,7 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
         }
 
 #if defined(UNIX_AMD64_ABI)
-        if (varTypeIsStruct(paramType))
+        if (varTypeIsStruct(regType))
         {
             var_types regType0     = lcl->GetLayout()->GetSysVAmd64AbiRegType(0);
             unsigned  regParamNum0 = paramInfo.allocRegArg(regType0);
@@ -842,7 +842,7 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
         }
         else
 #elif defined(TARGET_ARM64)
-        if (paramType == TYP_STRUCT)
+        if (regType == TYP_STRUCT)
         {
             unsigned regParamNum = paramInfo.allocRegArg(TYP_INT, slots);
 
@@ -862,7 +862,7 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
             lcl->SetArgReg(genMapIntRegArgNumToRegNum(regParamNum));
         }
-        else if (varTypeIsStruct(paramType))
+        else if (varTypeIsStruct(regType))
         {
             unsigned regParamNum = paramInfo.allocRegArg(TYP_INT, slots);
 
@@ -871,9 +871,9 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
         else
 #endif
         {
-            unsigned regParamNum = paramInfo.allocRegArg(paramType, slots);
+            unsigned regParamNum = paramInfo.allocRegArg(regType, slots);
 
-            lcl->SetArgReg(genMapRegArgNumToRegNum(regParamNum, paramType));
+            lcl->SetArgReg(genMapRegArgNumToRegNum(regParamNum, regType));
         }
 
         JITDUMP("Param V%02u registers: ", paramInfo.varNum);
@@ -889,8 +889,8 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
                 printf(", %s", getRegName(lcl->GetParamReg(1)));
             }
 #else // !UNIX_AMD64_ABI
-            bool     isFloat   = varTypeUsesFloatReg(paramType);
-            unsigned regArgNum = genMapRegNumToRegArgNum(lcl->GetArgReg(), paramType);
+            bool     isFloat   = varTypeUsesFloatReg(regType);
+            unsigned regArgNum = genMapRegNumToRegArgNum(lcl->GetArgReg(), regType);
 
             for (unsigned ix = 0; ix < slots; ix++, regArgNum++)
             {
@@ -908,7 +908,7 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
 #ifdef TARGET_ARM
                 if (isFloat)
                 {
-                    if (paramType == TYP_DOUBLE)
+                    if (regType == TYP_DOUBLE)
                     {
                         printf("%s/%s", getRegName(genMapFloatRegArgNumToRegNum(regArgNum)),
                                getRegName(genMapFloatRegArgNumToRegNum(regArgNum + 1)));
@@ -937,10 +937,10 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
     else
     {
 #ifdef TARGET_ARMARCH
-        paramInfo.setAllRegArgUsed(paramType);
+        paramInfo.setAllRegArgUsed(regType);
 
 #ifdef TARGET_ARM
-        if (varTypeUsesFloatReg(paramType))
+        if (varTypeUsesFloatReg(regType))
         {
             paramInfo.setAnyFloatStackArgs();
         }
@@ -948,7 +948,7 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
 #endif
 
 #if FEATURE_FASTTAILCALL
-        const unsigned argAlignment = eeGetArgAlignment(realParamType, (hfaType == TYP_FLOAT));
+        const unsigned argAlignment = eeGetArgAlignment(paramType, (hfaType == TYP_FLOAT));
 
 #ifdef OSX_ARM64_ABI
         paramInfo.stackArgSize = roundUp(paramInfo.stackArgSize, argAlignment);
