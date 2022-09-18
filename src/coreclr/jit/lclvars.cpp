@@ -664,6 +664,10 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
         {
             if (paramInfo.canEnreg(TYP_INT, 1) && !paramInfo.canEnreg(TYP_INT, slots))
             {
+                // Make sure this is always treated as STRUCT even if it's a SIMD type.
+                // The code below assigns x8 to "OtherArgReg", that's complete nonsense but
+                // AssignVirtualFrameOffsetToArg uses that to recognize this split param.
+                regType  = TYP_STRUCT;
                 regCount = 1;
             }
         }
@@ -801,8 +805,6 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
     else
 #endif
     {
-        // TODO-MIKE-Fix: This is messed up for for win-arm64 varargs, paramType may
-        // be SIMD12/16 when it should in fact be INT since varargs doesn't use HFAs.
         canPassArgInRegisters = paramInfo.canEnreg(regType, regCount);
     }
 

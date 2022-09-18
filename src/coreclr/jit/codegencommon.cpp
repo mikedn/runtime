@@ -2684,6 +2684,9 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
         else
 #endif // defined(UNIX_AMD64_ABI)
         {
+            // TODO-MIKE-Fix: This is messed up for for win-arm64 varargs. regType may be SIMD12/16
+            // and the regiter may be x7, so we treat an integer register as a float one.
+
             // Bingo - add it to our table
             regArgNum = genMapRegNumToRegArgNum(varDsc->GetArgReg(), regType);
 
