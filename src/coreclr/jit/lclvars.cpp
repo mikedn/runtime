@@ -649,16 +649,12 @@ void Compiler::lvaInitUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAND
 
 void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl)
 {
-    unsigned paramSize = eeGetParamAllocSize(param, &info.compMethodInfo->args);
-    unsigned slots     = (paramSize + REGSIZE_BYTES - 1) / REGSIZE_BYTES;
-    unsigned regCount  = slots;
-#ifdef TARGET_ARMARCH
-    var_types paramType = mangleVarArgsType(lcl->GetType());
-#else
+    unsigned  paramSize = eeGetParamAllocSize(param, &info.compMethodInfo->args);
+    unsigned  slots     = (paramSize + REGSIZE_BYTES - 1) / REGSIZE_BYTES;
+    unsigned  regCount  = slots;
     var_types paramType = lcl->GetType();
-#endif
-    var_types regType = paramType;
-    var_types hfaType = TYP_UNDEF;
+    var_types regType   = paramType;
+    var_types hfaType   = TYP_UNDEF;
 
     if (varTypeIsStruct(paramType))
     {
@@ -681,6 +677,12 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
             regType  = hfaType;
             regCount = slots;
         }
+    }
+    else
+    {
+#ifdef TARGET_ARMARCH
+        regType = mangleVarArgsType(regType);
+#endif
     }
 
     bool canPassArgInRegisters = false;
