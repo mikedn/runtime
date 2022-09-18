@@ -652,11 +652,10 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
     unsigned  paramSize = eeGetParamAllocSize(param, &info.compMethodInfo->args);
     unsigned  slots     = (paramSize + REGSIZE_BYTES - 1) / REGSIZE_BYTES;
     unsigned  regCount  = slots;
-    var_types paramType = lcl->GetType();
-    var_types regType   = paramType;
+    var_types regType   = lcl->GetType();
     var_types hfaType   = TYP_UNDEF;
 
-    if (varTypeIsStruct(paramType))
+    if (varTypeIsStruct(lcl->GetType()))
     {
 #if defined(TARGET_ARM64) && defined(TARGET_WINDOWS)
         // win-arm64 varargs does not use HFAs and can split a STRUCT arg between the last
@@ -691,61 +690,54 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
     const bool isSoftFPPreSpill = opts.UseSoftFP() && varTypeIsFloating(lcl->GetType());
     // On ARM we pass the first 4 words of integer params and non-HFA structs in registers.
     // But we pre-spill user params in varargs methods and structs.
-    bool     preSpill  = info.compIsVarArgs || isSoftFPPreSpill;
-    unsigned slotAlign = 1;
+    bool     preSpill = info.compIsVarArgs || isSoftFPPreSpill;
+    unsigned regAlign = 1;
 
-    switch (paramType)
+    if (lcl->TypeIs(TYP_LONG, TYP_DOUBLE))
     {
-        case TYP_STRUCT:
-            assert(lcl->lvSize() == paramSize);
-            slotAlign = lcl->lvStructDoubleAlign ? 2 : 1;
+        regAlign = 2;
+    }
+    else if (lcl->TypeIs(TYP_STRUCT))
+    {
+        assert(lcl->lvSize() == paramSize);
 
-            // HFA params go on the stack frame. They don't get spilled in the prolog like struct
-            // params passed in the integer registers but get homed immediately after the prolog.
-            if (hfaType == TYP_UNDEF)
+        if (lcl->lvStructDoubleAlign)
+        {
+            regAlign = 2;
+        }
+
+        if (regType == TYP_STRUCT)
+        {
+            // TODO-Arm32-Windows: vararg struct should be forced to split like ARM64 above.
+
+            // Are we going to split the struct between registers and stack? We can do that as long as
+            // no floating-point params have been put on the stack.
+            //
+            // From the ARM Procedure Call Standard:
+            // Rule C.5: "If the NCRN is less than r4 **and** the NSAA is equal to the SP,"
+            // then split the argument between registers and stack. Implication: if something
+            // has already been spilled to the stack, then anything that would normally be
+            // split between the core registers and the stack will be put on the stack.
+            // Anything that follows will also be on the stack. However, if something from
+            // floating point regs has been spilled to the stack, we can still use r0-r3 until they are full.
+
+            regCount = 1;
+            preSpill = true;
+
+            if (paramInfo.canEnreg(TYP_INT, 1) && !paramInfo.canEnreg(TYP_INT, slots) &&
+                paramInfo.existAnyFloatStackArgs())
             {
-                // TODO-Arm32-Windows: vararg struct should be forced to split like ARM64 above.
-
-                // HFAs must be totally enregistered or not, but other structs can be split.
-                regCount = 1;
-                preSpill = true;
+                // Prevent all future use of integer registers
+                paramInfo.setAllRegArgUsed(TYP_INT);
+                // This struct won't be prespilled, since it will go on the stack
+                preSpill = false;
             }
-            break;
-
-        case TYP_DOUBLE:
-        case TYP_LONG:
-            slotAlign = 2;
-            break;
-
-        default:
-            break;
+        }
     }
 
     if (isRegParamType(regType))
     {
-        compArgSize += paramInfo.alignReg(regType, slotAlign) * REGSIZE_BYTES;
-    }
-
-    if (regType == TYP_STRUCT)
-    {
-        // Are we going to split the struct between registers and stack? We can do that as long as
-        // no floating-point params have been put on the stack.
-        //
-        // From the ARM Procedure Call Standard:
-        // Rule C.5: "If the NCRN is less than r4 **and** the NSAA is equal to the SP,"
-        // then split the argument between registers and stack. Implication: if something
-        // has already been spilled to the stack, then anything that would normally be
-        // split between the core registers and the stack will be put on the stack.
-        // Anything that follows will also be on the stack. However, if something from
-        // floating point regs has been spilled to the stack, we can still use r0-r3 until they are full.
-
-        if (paramInfo.canEnreg(TYP_INT, 1) && !paramInfo.canEnreg(TYP_INT, slots) && paramInfo.existAnyFloatStackArgs())
-        {
-            // Prevent all future use of integer registers
-            paramInfo.setAllRegArgUsed(TYP_INT);
-            // This struct won't be prespilled, since it will go on the stack
-            preSpill = false;
-        }
+        compArgSize += paramInfo.alignReg(regType, regAlign) * REGSIZE_BYTES;
     }
 
     if (preSpill)
@@ -762,7 +754,7 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
             paramRegMask |= genMapArgNumToRegMask(paramInfo.regArgNum(TYP_INT) + i, TYP_INT);
         }
 
-        if (slotAlign == 2)
+        if (regAlign == 2)
         {
             paramInfo.doubleAlignMask |= paramRegMask;
         }
@@ -946,7 +938,7 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
 #endif
 
 #if FEATURE_FASTTAILCALL
-        const unsigned argAlignment = eeGetArgAlignment(paramType, (hfaType == TYP_FLOAT));
+        const unsigned argAlignment = eeGetArgAlignment(lcl->GetType(), (hfaType == TYP_FLOAT));
 
 #ifdef OSX_ARM64_ABI
         paramInfo.stackArgSize = roundUp(paramInfo.stackArgSize, argAlignment);
