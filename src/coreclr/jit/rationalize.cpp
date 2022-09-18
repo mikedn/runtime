@@ -474,28 +474,32 @@ PhaseStatus Rationalizer::DoPhase()
             continue;
         }
 
+        IL_OFFSETX currentILOffset = BAD_IL_OFFSET;
+
         for (Statement* const statement : block->Statements())
         {
-            assert(statement->GetTreeList() != nullptr);
-            assert(statement->GetTreeList()->gtPrev == nullptr);
+            assert(statement->GetNodeList() != nullptr);
+            assert(statement->GetNodeList()->gtPrev == nullptr);
             assert(statement->GetRootNode() != nullptr);
             assert(statement->GetRootNode()->gtNext == nullptr);
 
-            if (!statement->IsPhiDefnStmt()) // Note that we get rid of PHI nodes here.
+            if (statement->IsPhiDefnStmt())
             {
-                BlockRange().InsertAtEnd(LIR::Range(statement->GetTreeList(), statement->GetRootNode()));
-
-                // If this statement has correct offset information, change it into an IL offset
-                // node and insert it into the LIR.
-                if (statement->GetILOffsetX() != BAD_IL_OFFSET)
-                {
-                    BlockRange().InsertBefore(statement->GetTreeList(),
-                                              new (comp, GT_IL_OFFSET) GenTreeILOffset(statement->GetILOffsetX()));
-                }
-
-                m_block = block;
-                visitor.WalkTree(statement->GetRootNodePointer(), nullptr);
+                continue;
             }
+
+            IL_OFFSETX stmtILOffset = statement->GetILOffsetX();
+
+            if ((stmtILOffset != BAD_IL_OFFSET) && (stmtILOffset != currentILOffset))
+            {
+                BlockRange().InsertAtEnd(new (comp, GT_IL_OFFSET) GenTreeILOffset(stmtILOffset));
+                currentILOffset = stmtILOffset;
+            }
+
+            BlockRange().InsertAtEnd(LIR::Range(statement->GetNodeList(), statement->GetRootNode()));
+
+            m_block = block;
+            visitor.WalkTree(statement->GetRootNodePointer(), nullptr);
         }
 
         block->bbStmtList = nullptr;
