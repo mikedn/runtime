@@ -1572,26 +1572,13 @@ void Importer::impSpillSideEffects(GenTreeFlags spillSideEffects, unsigned spill
     }
 }
 
-// Spill all trees containing CATCH_ARG nodes.
-void Importer::impSpillCatchArg()
-{
-    // CATCH_ARG may only appear in catch blocks
-    assert(compCurBB->bbCatchTyp != 0);
+void Importer::SpillCatchArg()
+{    
+    assert(handlerGetsXcptnObj(compCurBB->bbCatchTyp));
+    assert(verCurrentState.esStackDepth == 1);
+    assert(impStackTop().val->OperIs(GT_CATCH_ARG));
 
-    auto visitor = [](GenTree** use, Compiler::fgWalkData* data) {
-        return (*use)->OperIs(GT_CATCH_ARG) ? Compiler::WALK_ABORT : Compiler::WALK_CONTINUE;
-    };
-
-    for (unsigned level = 0; level < verCurrentState.esStackDepth; level++)
-    {
-        GenTree* tree = verCurrentState.esStack[level].val;
-
-        // CATCH_ARG should have GTF_ORDER_SIDEEFF so we can avoid tree walking if that's not present.
-        if (((tree->gtFlags & GTF_ORDER_SIDEEFF) != 0) && (comp->fgWalkTreePre(&tree, visitor) == Compiler::WALK_ABORT))
-        {
-            impSpillStackEntry(level DEBUGARG("catch arg spill temp"));
-        }
-    }
+    impSpillStackEntry(0 DEBUGARG("catch arg spill temp"));
 }
 
 // Spill all trees containing references to the specified local.
@@ -9055,7 +9042,10 @@ void Importer::impImportBlockCode(BasicBlock* block)
             impCurStmtOffsSet(block->bbCodeOffs);
         }
 
-        impSpillCatchArg();
+        if (handlerGetsXcptnObj(block->bbCatchTyp))
+        {
+            SpillCatchArg();
+        }
     }
 
     IL_OFFSET      opcodeOffs    = block->bbCodeOffs;

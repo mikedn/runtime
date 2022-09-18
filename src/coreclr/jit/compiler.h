@@ -2261,7 +2261,7 @@ struct Importer
     void impSpillStackEntry(unsigned level DEBUGARG(const char* reason));
 
     void impSpillStackEnsure(bool spillLeaves = false);
-    void impSpillCatchArg();
+    void SpillCatchArg();
     void impSpillSideEffects(GenTreeFlags spillSideEffects, unsigned chkLevel DEBUGARG(const char* reason));
     void impSpillLclReferences(unsigned lclNum);
 
