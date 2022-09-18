@@ -763,15 +763,14 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
         codeGen->regSet.rsMaskPreSpillRegArg |= paramRegMask;
     }
-#elif defined(UNIX_AMD64_ABI)
-    bool structPassedInRegisters = false;
+#endif // TARGET_ARM
 
+#if defined(UNIX_AMD64_ABI)
     if (varTypeIsStruct(regType))
     {
         lcl->GetLayout()->EnsureSysVAmd64AbiInfo(this);
-        structPassedInRegisters = lcl->GetLayout()->GetSysVAmd64AbiRegCount() != 0;
 
-        if (structPassedInRegisters)
+        if (lcl->GetLayout()->GetSysVAmd64AbiRegCount() != 0)
         {
             unsigned intRegCount   = 0;
             unsigned floatRegCount = 0;
@@ -788,25 +787,18 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
                 }
             }
 
-            if (((intRegCount != 0) && !paramInfo.canEnreg(TYP_INT, intRegCount)) ||
-                ((floatRegCount != 0) && !paramInfo.canEnreg(TYP_FLOAT, floatRegCount)))
+            if (((intRegCount == 0) || paramInfo.canEnreg(TYP_INT, intRegCount)) &&
+                ((floatRegCount == 0) || paramInfo.canEnreg(TYP_FLOAT, floatRegCount)))
             {
-                structPassedInRegisters = false;
+                canPassArgInRegisters = true;
             }
         }
     }
-#endif // UNIX_AMD64_ABI
-
-#if defined(UNIX_AMD64_ABI)
-    if (varTypeIsStruct(regType))
-    {
-        canPassArgInRegisters = structPassedInRegisters;
-    }
     else
 #elif defined(TARGET_X86)
-    if (varTypeIsStruct(regType) && isTrivialPointerSizedStruct(lcl->GetLayout()))
+    if (varTypeIsStruct(regType))
     {
-        canPassArgInRegisters = paramInfo.canEnreg(TYP_INT, regCount);
+        canPassArgInRegisters = isTrivialPointerSizedStruct(lcl->GetLayout()) && paramInfo.canEnreg(TYP_INT, regCount);
     }
     else
 #endif
