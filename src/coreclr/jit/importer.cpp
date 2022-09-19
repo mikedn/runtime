@@ -1500,39 +1500,24 @@ void Importer::impSpillStackEntry(unsigned level DEBUGARG(const char* reason))
     se.val = gtNewLclvNode(tmpNum, varActualType(lcl->GetType()));
 }
 
-/*****************************************************************************
- *
- *  Ensure that the stack has only spilled values
- */
-
-void Importer::impSpillStackEnsure(bool spillLeaves)
+void Importer::EnsureStackSpilled(bool ignoreLeaves DEBUGARG(const char* reason))
 {
-    assert(!spillLeaves || opts.compDbgCode);
-
     for (unsigned level = 0; level < verCurrentState.esStackDepth; level++)
     {
         GenTree* tree = verCurrentState.esStack[level].val;
 
-        // TODO-MIKE-Cleanup: CLS_VAR_ADDR never needs spilling, it is
-        // blocked here only because ADDR(CLS_VAR) was not a leaf before.
-        // The whole "spill leaves" thing is bonkers.
-
-        if (!spillLeaves && tree->OperIsLeaf() && !tree->OperIs(GT_CLS_VAR_ADDR))
+        if (ignoreLeaves && tree->OperIsLeaf())
         {
             continue;
         }
 
-        // Temps introduced by the importer itself don't need to be spilled
-
-        bool isTempLcl =
-            (tree->OperGet() == GT_LCL_VAR) && (tree->AsLclVarCommon()->GetLclNum() >= info.compLocalsCount);
-
-        if (isTempLcl)
+        // Temps introduced by the importer itself don't need to be spilled.
+        if (tree->OperIs(GT_LCL_VAR) && (tree->AsLclVar()->GetLclNum() >= info.compLocalsCount))
         {
             continue;
         }
 
-        impSpillStackEntry(level DEBUGARG("impSpillStackEnsure"));
+        impSpillStackEntry(level DEBUGARG(reason));
     }
 }
 
@@ -9066,7 +9051,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
             if ((opcodeOffs - lastSpillOffs > MAX_TREE_SIZE) && impCanSpillNow(prevOpcode))
             {
-                impSpillStackEnsure(/* spillLeaves */ false);
+                EnsureStackSpilled(true DEBUGARG("deep tree spill"));
                 lastSpillOffs = opcodeOffs;
             }
         }
@@ -9089,7 +9074,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
             {
                 if (verCurrentState.esStackDepth != 0)
                 {
-                    impSpillStackEnsure(true);
+                    EnsureStackSpilled(false DEBUGARG("debug info spill"));
                 }
                 else if (impCurStmtOffs != BAD_IL_OFFSET)
                 {
@@ -9128,7 +9113,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
             {
                 if (opts.compDbgCode)
                 {
-                    impSpillStackEnsure(true);
+                    EnsureStackSpilled(false DEBUGARG("debug info spill"));
                     impCurStmtOffsSet(opcodeOffs);
                 }
                 else if (verCurrentState.esStackDepth == 0)
@@ -9140,7 +9125,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
             {
                 if (opts.compDbgCode)
                 {
-                    impSpillStackEnsure(true);
+                    EnsureStackSpilled(false DEBUGARG("debug info spill"));
                 }
 
                 impCurStmtOffsSet(opcodeOffs);
@@ -10335,7 +10320,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if (opts.compDbgCode && impCurStmtOffs != BAD_IL_OFFSET)
                 {
-                    impSpillStackEnsure(true);
+                    EnsureStackSpilled(false DEBUGARG("debug info spill"));
                 }
 
                 impSpillAllAppendTree(gtNewOperNode(GT_JTRUE, TYP_VOID, op1));
