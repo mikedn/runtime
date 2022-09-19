@@ -1558,7 +1558,7 @@ void Importer::impSpillSideEffects(GenTreeFlags spillSideEffects, unsigned spill
 }
 
 void Importer::SpillCatchArg()
-{    
+{
     assert(handlerGetsXcptnObj(compCurBB->bbCatchTyp));
     assert(verCurrentState.esStackDepth == 1);
     assert(impStackTop().val->OperIs(GT_CATCH_ARG));
@@ -1789,6 +1789,41 @@ void Importer::impMakeMultiUse(GenTree*     tree,
     {
         uses[i] = gtNewLclvNode(lclNum, type);
     }
+}
+
+NOINLINE unsigned Importer::AdvanceStmtOffset(unsigned nextStmtIndex, unsigned opcodeOffs)
+{
+    if (opts.compDbgCode)
+    {
+        if (verCurrentState.esStackDepth != 0)
+        {
+            EnsureStackSpilled(false DEBUGARG("debug info spill"));
+        }
+        else if (impCurStmtOffs != BAD_IL_OFFSET)
+        {
+            // Somehow we did not generate any statements for the current offset,
+            // add a nop statement so that the current offset gets reported.
+            impSpillNoneAppendTree(new (comp, GT_NO_OP) GenTree(GT_NO_OP, TYP_VOID));
+        }
+
+        assert(impCurStmtOffs == BAD_IL_OFFSET);
+    }
+
+    if (impCurStmtOffs == BAD_IL_OFFSET)
+    {
+        // Make sure that nextStmtIndex is in sync with opcodeOffs.
+        while ((nextStmtIndex + 1 < compStmtOffsetsCount) && (compStmtOffsets[nextStmtIndex + 1] <= opcodeOffs))
+        {
+            nextStmtIndex++;
+        }
+
+        impCurStmtOffsSet(compStmtOffsets[nextStmtIndex]);
+
+        nextStmtIndex++;
+        assert(nextStmtIndex <= compStmtOffsetsCount);
+    }
+
+    return nextStmtIndex;
 }
 
 /*****************************************************************************
@@ -9070,36 +9105,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
         if ((nextStmtIndex < compStmtOffsetsCount) && (opcodeOffs >= compStmtOffsets[nextStmtIndex]))
         {
-            if (opts.compDbgCode)
-            {
-                if (verCurrentState.esStackDepth != 0)
-                {
-                    EnsureStackSpilled(false DEBUGARG("debug info spill"));
-                }
-                else if (impCurStmtOffs != BAD_IL_OFFSET)
-                {
-                    // Somehow we did not generate any statements for the current offset,
-                    // add a nop statement so that the current offset gets reported.
-                    GenTree* nop = new (comp, GT_NO_OP) GenTree(GT_NO_OP, TYP_VOID);
-                    impAppendTree(nop, CHECK_SPILL_NONE);
-                }
-
-                assert(impCurStmtOffs == BAD_IL_OFFSET);
-            }
-
-            if (impCurStmtOffs == BAD_IL_OFFSET)
-            {
-                // Make sure that nextStmtIndex is in sync with opcodeOffs.
-                while ((nextStmtIndex + 1 < compStmtOffsetsCount) && (compStmtOffsets[nextStmtIndex + 1] <= opcodeOffs))
-                {
-                    nextStmtIndex++;
-                }
-
-                impCurStmtOffsSet(compStmtOffsets[nextStmtIndex]);
-
-                nextStmtIndex++;
-                assert(nextStmtIndex <= compStmtOffsetsCount);
-            }
+            nextStmtIndex = AdvanceStmtOffset(nextStmtIndex, opcodeOffs);
         }
         else if (compStmtOffsetsImplicit != ICorDebugInfo::NO_BOUNDARIES)
         {

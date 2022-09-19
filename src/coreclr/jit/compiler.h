@@ -2228,6 +2228,7 @@ struct Importer
 
     GenTree* impOptimizeCastClassOrIsInst(GenTree* op1, CORINFO_RESOLVED_TOKEN* pResolvedToken, bool isCastClass);
 
+    unsigned AdvanceStmtOffset(unsigned nextStmtOffsIndex, unsigned opcodeOffs);
     void impCurStmtOffsSet(IL_OFFSET offs);
 
     void impNoteBranchOffs();
