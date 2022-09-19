@@ -2006,8 +2006,6 @@ struct Importer
     bool     impBoxTempInUse = false;
     unsigned impBoxTemp      = BAD_VAR_NUM;
 
-    INDEBUG(unsigned impCurOpcOffs;)
-
     // IL offset of the stmt currently being imported. It gets set to
     // BAD_IL_OFFSET after it has been set in the appended trees. Then it gets
     // updated at IL offsets for which we have to report mapping info.

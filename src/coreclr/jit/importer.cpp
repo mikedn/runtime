@@ -9144,7 +9144,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
         OPCODE opcode      = static_cast<OPCODE>(*codeAddr++);
 
     DECODE_OPCODE:
-        INDEBUG(impCurOpcOffs = opcodeOffs);
         DBEXEC(verbose && (opcode != CEE_PREFIX1), printf("%s", opcodeNames[opcode]))
 
         unsigned opcodeSize = opcodeSizes[opcode];
@@ -13267,8 +13266,6 @@ void Importer::impImportBlock(BasicBlock* block)
     impSetCurrentState(block);
 
     compCurBB = block;
-
-    INDEBUG(impCurOpcOffs = block->bbCodeOffs;)
 
     if (((block->bbFlags & BBF_TRY_BEG) != 0) && (verCurrentState.esStackDepth != 0))
     {
