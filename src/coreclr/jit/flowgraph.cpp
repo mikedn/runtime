@@ -541,58 +541,7 @@ bool Compiler::fgMayExplicitTailCall()
 PhaseStatus Compiler::fgImport()
 {
     Importer importer(this);
-    importer.impImport();
-
-    // Estimate how much of method IL was actually imported.
-    //
-    // Note this includes (to some extent) the impact of importer folded
-    // branches, provided the folded tree covered the entire block's IL.
-    unsigned importedILSize = 0;
-
-    if (compIsForInlining() || INDEBUG(true))
-    {
-        for (BasicBlock* const block : Blocks())
-        {
-            if ((block->bbFlags & BBF_IMPORTED) != 0)
-            {
-                // Assume if we generate any IR for the block we generate IR for the entire block.
-                if (block->firstStmt() != nullptr)
-                {
-                    IL_OFFSET beginOffset = block->bbCodeOffs;
-                    IL_OFFSET endOffset   = block->bbCodeOffsEnd;
-
-                    if ((beginOffset != BAD_IL_OFFSET) && (endOffset != BAD_IL_OFFSET) && (endOffset > beginOffset))
-                    {
-                        unsigned blockILSize = endOffset - beginOffset;
-                        importedILSize += blockILSize;
-                    }
-                }
-            }
-        }
-    }
-
-    // Could be tripped up if we ever duplicate blocks
-    assert(importedILSize <= info.compILCodeSize);
-
-    // Leave a note if we only did a partial import.
-    if (importedILSize != info.compILCodeSize)
-    {
-        JITDUMP("\n** Note: %s IL was partially imported -- imported %u of %u bytes of method IL\n",
-                compIsForInlining() ? "inlinee" : "root method", importedILSize, info.compILCodeSize);
-    }
-
-    if (compIsForInlining())
-    {
-        compInlineResult->SetImportedILSize(importedILSize);
-    }
-
-    // Full preds are only used later on
-    assert(!fgComputePredsDone);
-    if (fgCheapPredsValid)
-    {
-        // Cheap predecessors are only used during importation
-        fgRemovePreds();
-    }
+    importer.Import();
 
     return PhaseStatus::MODIFIED_EVERYTHING;
 }

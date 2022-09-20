@@ -2144,7 +2144,7 @@ struct Importer
                                     );
 #endif
 
-    void impImport();
+    void Import();
 
     static OPCODE impGetNonPrefixOpcode(const BYTE* codeAddr, const BYTE* codeEndp);
     static void impValidateMemoryAccessOpcode(OPCODE opcode, bool volatilePrefix);

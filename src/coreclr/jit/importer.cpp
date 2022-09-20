@@ -13250,6 +13250,16 @@ void Importer::ImportSingleBlockMethod(BasicBlock* block)
     compCurBB = block;
     impImportBlockCode(block);
     impStmtListEnd(block);
+
+    if (compIsForInlining() && (block->firstStmt() != nullptr))
+    {
+        compInlineResult->SetImportedILSize(block->bbCodeOffsEnd - block->bbCodeOffs);
+    }
+
+    if (comp->fgCheapPredsValid)
+    {
+        fgRemovePreds();
+    }
 }
 
 void Importer::impImportBlock(BasicBlock* block)
@@ -13873,7 +13883,7 @@ bool Importer::impAddSpillCliquePredMember(BasicBlock* block)
  *  basic flowgraph has already been constructed and is passed in.
  */
 
-void Importer::impImport()
+void Importer::Import()
 {
     JITDUMP("*************** In impImport() for %s\n", info.compFullName);
 
@@ -13947,6 +13957,49 @@ void Importer::impImport()
         printf("\n");
     }
 #endif
+
+    // Estimate how much of method IL was actually imported.
+    //
+    // Note this includes (to some extent) the impact of importer folded
+    // branches, provided the folded tree covered the entire block's IL.
+    unsigned importedILSize = 0;
+
+    if (compIsForInlining() INDEBUG(|| true))
+    {
+        for (BasicBlock* const block : comp->Blocks())
+        {
+            if ((block->bbFlags & BBF_IMPORTED) != 0)
+            {
+                // Assume if we generate any IR for the block we generate IR for the entire block.
+                if (block->firstStmt() != nullptr)
+                {
+                    if (block->bbCodeOffsEnd > block->bbCodeOffs)
+                    {
+                        importedILSize += block->bbCodeOffsEnd - block->bbCodeOffs;
+                    }
+                }
+            }
+        }
+    }
+
+    if (importedILSize != info.compILCodeSize)
+    {
+        // Could be tripped up if we ever duplicate blocks
+        assert(importedILSize <= info.compILCodeSize);
+
+        JITDUMP("\n** Note: %s IL was partially imported -- imported %u of %u bytes of method IL\n",
+                compIsForInlining() ? "inlinee" : "root method", importedILSize, info.compILCodeSize);
+    }
+
+    if (compIsForInlining())
+    {
+        compInlineResult->SetImportedILSize(importedILSize);
+    }
+
+    if (comp->fgCheapPredsValid)
+    {
+        fgRemovePreds();
+    }
 }
 
 GenTreeLclVar* Compiler::impIsAddressInLocal(GenTree* tree)
