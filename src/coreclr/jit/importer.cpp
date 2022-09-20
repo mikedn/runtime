@@ -5250,7 +5250,7 @@ void Importer::impCheckForPInvokeCall(
     }
 #endif
 
-    if ((unmanagedCallConv == CorInfoCallConvExtension::Thiscall))
+    if (unmanagedCallConv == CorInfoCallConvExtension::Thiscall)
     {
         if (sig->numArgs == 0)
         {
@@ -6986,101 +6986,102 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
         }
 
         PopUnmanagedCallArgs(call, sig);
-
-        goto DONE;
     }
-
+    else
+    {
 #ifdef UNIX_X86_ABI
-    call->gtFlags |= GTF_CALL_POP_ARGS;
+        call->gtFlags |= GTF_CALL_POP_ARGS;
 #endif
 
-    if ((opcode == CEE_CALLI) && ((sig->callConv & CORINFO_CALLCONV_MASK) != CORINFO_CALLCONV_DEFAULT) &&
-        ((sig->callConv & CORINFO_CALLCONV_MASK) != CORINFO_CALLCONV_VARARG))
-    {
-        if (CreateCallICookie(call, sig) == nullptr)
+        if ((opcode == CEE_CALLI) && ((sig->callConv & CORINFO_CALLCONV_MASK) != CORINFO_CALLCONV_DEFAULT) &&
+            ((sig->callConv & CORINFO_CALLCONV_MASK) != CORINFO_CALLCONV_VARARG))
         {
-            assert(compDonotInline());
+            if (CreateCallICookie(call, sig) == nullptr)
+            {
+                assert(compDonotInline());
 
-            return nullptr;
+                return nullptr;
+            }
+
+            if (tailCallFailReason == nullptr)
+            {
+                tailCallFailReason = "PInvoke calli";
+            }
         }
 
-        if (tailCallFailReason == nullptr)
+        // Create the argument list
+
+        GenTree* extraArg = nullptr;
+
+        if ((sig->callConv & CORINFO_CALLCONV_MASK) == CORINFO_CALLCONV_VARARG)
         {
-            tailCallFailReason = "PInvoke calli";
-        }
-    }
+            extraArg = CreateVarargsCallArgHandle(call, sig);
 
-    // Create the argument list
+            if (extraArg == nullptr)
+            {
+                assert(compDonotInline());
 
-    GenTree* extraArg = nullptr;
-
-    if ((sig->callConv & CORINFO_CALLCONV_MASK) == CORINFO_CALLCONV_VARARG)
-    {
-        extraArg = CreateVarargsCallArgHandle(call, sig);
-
-        if (extraArg == nullptr)
-        {
-            assert(compDonotInline());
-
-            return nullptr;
-        }
-    }
-
-    if ((sig->callConv & CORINFO_CALLCONV_PARAMTYPE) != 0)
-    {
-        assert(opcode != CEE_CALLI);
-        assert(extraArg == nullptr);
-
-        extraArg = CreateGenericCallTypeArg(call, callInfo, pResolvedToken, pConstrainedResolvedToken, isReadonlyCall);
-
-        if (extraArg == nullptr)
-        {
-            assert(compDonotInline());
-
-            return nullptr;
-        }
-    }
-
-    call->gtCallArgs = PopCallArgs(sig, extraArg);
-
-    for (GenTreeCall::Use& use : call->Args())
-    {
-        call->gtFlags |= use.GetNode()->gtFlags & GTF_GLOB_EFFECT;
-    }
-
-    if (opcode == CEE_NEWOBJ)
-    {
-        return call;
-    }
-
-    //-------------------------------------------------------------------------
-    // The "this" pointer
-
-    if (((mflags & CORINFO_FLG_STATIC) == 0) && ((sig->callConv & CORINFO_CALLCONV_EXPLICITTHIS) == 0))
-    {
-        GenTree* obj = impPopStack().val;
-
-        obj = impTransformThis(obj, pConstrainedResolvedToken, constraintCallThisTransform);
-        if (compDonotInline())
-        {
-            return nullptr;
+                return nullptr;
+            }
         }
 
-        // Store the "this" value in the call
-        call->gtFlags |= obj->gtFlags & GTF_GLOB_EFFECT;
-        call->gtCallThisArg = gtNewCallArgs(obj);
-
-        // Is this a virtual or interface call?
-        if (call->IsVirtual())
+        if ((sig->callConv & CORINFO_CALLCONV_PARAMTYPE) != 0)
         {
-            // only true object pointers can be virtual
-            assert(obj->gtType == TYP_REF);
+            assert(opcode != CEE_CALLI);
+            assert(extraArg == nullptr);
 
-            // See if we can devirtualize.
+            extraArg =
+                CreateGenericCallTypeArg(call, callInfo, pResolvedToken, pConstrainedResolvedToken, isReadonlyCall);
 
-            const bool isExplicitTailCall = (prefixFlags & PREFIX_TAILCALL_EXPLICIT) != 0;
-            impDevirtualizeCall(call, pResolvedToken, &callInfo->hMethod, &callInfo->methodFlags,
-                                &callInfo->contextHandle, &exactContextHnd, isExplicitTailCall, rawILOffset);
+            if (extraArg == nullptr)
+            {
+                assert(compDonotInline());
+
+                return nullptr;
+            }
+        }
+
+        call->gtCallArgs = PopCallArgs(sig, extraArg);
+
+        for (GenTreeCall::Use& use : call->Args())
+        {
+            call->gtFlags |= use.GetNode()->gtFlags & GTF_GLOB_EFFECT;
+        }
+
+        if (opcode == CEE_NEWOBJ)
+        {
+            return call;
+        }
+
+        //-------------------------------------------------------------------------
+        // The "this" pointer
+
+        if (((mflags & CORINFO_FLG_STATIC) == 0) && ((sig->callConv & CORINFO_CALLCONV_EXPLICITTHIS) == 0))
+        {
+            GenTree* obj = impPopStack().val;
+
+            obj = impTransformThis(obj, pConstrainedResolvedToken, constraintCallThisTransform);
+            if (compDonotInline())
+            {
+                return nullptr;
+            }
+
+            // Store the "this" value in the call
+            call->gtFlags |= obj->gtFlags & GTF_GLOB_EFFECT;
+            call->gtCallThisArg = gtNewCallArgs(obj);
+
+            // Is this a virtual or interface call?
+            if (call->IsVirtual())
+            {
+                // only true object pointers can be virtual
+                assert(obj->gtType == TYP_REF);
+
+                // See if we can devirtualize.
+
+                const bool isExplicitTailCall = (prefixFlags & PREFIX_TAILCALL_EXPLICIT) != 0;
+                impDevirtualizeCall(call, pResolvedToken, &callInfo->hMethod, &callInfo->methodFlags,
+                                    &callInfo->contextHandle, &exactContextHnd, isExplicitTailCall, rawILOffset);
+            }
         }
     }
 
