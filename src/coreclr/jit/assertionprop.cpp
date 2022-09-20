@@ -414,36 +414,26 @@ void Compiler::optAddCopies()
             /* Locate the assignment to varDsc in the lvDefStmt */
             stmt = varDsc->lvDefStmt;
 
-            struct WalkData
+            GenTreeOp* tree = nullptr;
+
+            for (GenTree* node = stmt->GetRootNode(); node != nullptr; node = node->gtPrev)
             {
-                unsigned   copyLclNum;
-                GenTreeOp* copyAsg;
-            } walkData{lclNum, nullptr};
+                if (!node->OperIs(GT_ASG))
+                {
+                    continue;
+                }
 
-            fgWalkTreePre(stmt->GetRootNodePointer(),
-                          [](GenTree** use, fgWalkData* data) {
-                              GenTree* node = *use;
+                GenTree* dest = node->AsOp()->GetOp(0);
 
-                              if (!node->OperIs(GT_ASG))
-                              {
-                                  return WALK_CONTINUE;
-                              }
+                if (!dest->OperIs(GT_LCL_VAR) || (dest->AsLclVar()->GetLclNum() != lclNum))
+                {
+                    continue;
+                }
 
-                              GenTree*  dest     = node->AsOp()->GetOp(0);
-                              WalkData* walkData = static_cast<WalkData*>(data->pCallbackData);
+                tree = node->AsOp();
+                break;
+            }
 
-                              if (!dest->OperIs(GT_LCL_VAR) || (dest->AsLclVar()->GetLclNum() != walkData->copyLclNum))
-                              {
-                                  return WALK_CONTINUE;
-                              }
-
-                              walkData->copyAsg = node->AsOp();
-
-                              return WALK_ABORT;
-                          },
-                          &walkData);
-
-            GenTreeOp* tree = walkData.copyAsg;
             noway_assert(tree != nullptr);
 
             GenTree* newAsg  = gtNewAssignNode(gtNewLclvNode(copyLclNum, typ), tree->GetOp(1));
