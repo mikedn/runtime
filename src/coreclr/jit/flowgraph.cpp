@@ -548,20 +548,24 @@ PhaseStatus Compiler::fgImport()
     // Note this includes (to some extent) the impact of importer folded
     // branches, provided the folded tree covered the entire block's IL.
     unsigned importedILSize = 0;
-    for (BasicBlock* const block : Blocks())
-    {
-        if ((block->bbFlags & BBF_IMPORTED) != 0)
-        {
-            // Assume if we generate any IR for the block we generate IR for the entire block.
-            if (block->firstStmt() != nullptr)
-            {
-                IL_OFFSET beginOffset = block->bbCodeOffs;
-                IL_OFFSET endOffset   = block->bbCodeOffsEnd;
 
-                if ((beginOffset != BAD_IL_OFFSET) && (endOffset != BAD_IL_OFFSET) && (endOffset > beginOffset))
+    if (compIsForInlining() || INDEBUG(true))
+    {
+        for (BasicBlock* const block : Blocks())
+        {
+            if ((block->bbFlags & BBF_IMPORTED) != 0)
+            {
+                // Assume if we generate any IR for the block we generate IR for the entire block.
+                if (block->firstStmt() != nullptr)
                 {
-                    unsigned blockILSize = endOffset - beginOffset;
-                    importedILSize += blockILSize;
+                    IL_OFFSET beginOffset = block->bbCodeOffs;
+                    IL_OFFSET endOffset   = block->bbCodeOffsEnd;
+
+                    if ((beginOffset != BAD_IL_OFFSET) && (endOffset != BAD_IL_OFFSET) && (endOffset > beginOffset))
+                    {
+                        unsigned blockILSize = endOffset - beginOffset;
+                        importedILSize += blockILSize;
+                    }
                 }
             }
         }
