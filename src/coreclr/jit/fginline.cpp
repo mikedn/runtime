@@ -847,7 +847,8 @@ void Compiler::inlImportInlinee()
         return;
     }
 
-    DoPhase(this, PHASE_PRE_IMPORT, [this]() { impInlineRoot()->m_inlineStrategy->NoteImport(); });
+    impInlineInfo->InlinerCompiler->m_inlineStrategy->NoteImport();
+
     DoPhase(this, PHASE_INCPROFILE, &Compiler::fgIncorporateProfileData);
     DoPhase(this, PHASE_IMPORTATION, &Compiler::fgImport);
     DoPhase(this, PHASE_INDXCALL, &Compiler::fgTransformIndirectCalls);
