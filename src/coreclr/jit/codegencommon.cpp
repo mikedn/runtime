@@ -1689,7 +1689,7 @@ void CodeGen::genEmitMachineCode()
 #if TRACK_LSRA_STATS
         if (JitConfig.DisplayLsraStats() == 3)
         {
-            compiler->m_pLinearScan->dumpLsraStatsSummary(jitstdout);
+            m_pLinearScan->dumpLsraStatsSummary(jitstdout);
         }
 #endif // TRACK_LSRA_STATS
 
@@ -5772,7 +5772,7 @@ void CodeGen::genFinalizeFrame()
     // of the first basic block, so load those up. In particular, the determination
     // of whether or not to use block init in the prolog is dependent on the variable
     // locations on entry to the function.
-    compiler->m_pLinearScan->recordVarLocationsAtStartOfBB(compiler->fgFirstBB);
+    m_pLinearScan->recordVarLocationsAtStartOfBB(compiler->fgFirstBB);
 
     genCheckUseBlockInit();
 
@@ -8497,7 +8497,7 @@ void CodeGen::genGeneratePrologsAndEpilogs()
 
     // Before generating the prolog, we need to reset the variable locations to what they will be on entry.
     // This affects our code that determines which untracked locals need to be zero initialized.
-    compiler->m_pLinearScan->recordVarLocationsAtStartOfBB(compiler->fgFirstBB);
+    m_pLinearScan->recordVarLocationsAtStartOfBB(compiler->fgFirstBB);
 
     // Tell the emitter we're done with main code generation, and are going to start prolog and epilog generation.
 

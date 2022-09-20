@@ -6410,8 +6410,6 @@ protected:
     bool rpMustCreateEBPFrame(INDEBUG(const char** wbReason));
 
 private:
-    LinearScanInterface* m_pLinearScan;
-
     bool lvaIsX86VarargsStackParam(unsigned lclNum);
 
     /*

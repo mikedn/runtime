@@ -3407,8 +3407,9 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     stackLevelSetter.Run();
 #endif // !OSX_ARM64_ABI
 
-    m_pLinearScan = getLinearScanAllocator(this);
-    DoPhase(this, PHASE_LINEAR_SCAN, [this]() { m_pLinearScan->doLinearScan(); });
+    LinearScanInterface* lsra = getLinearScanAllocator(this);
+    codeGen->m_pLinearScan    = lsra;
+    DoPhase(this, PHASE_LINEAR_SCAN, [lsra]() { lsra->doLinearScan(); });
 
     // Copied from rpPredictRegUse()
     SetFullPtrRegMapRequired(codeGen->GetInterruptible() || !codeGen->isFramePointerUsed());
@@ -3423,7 +3424,7 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
 #if TRACK_LSRA_STATS
     if (JitConfig.DisplayLsraStats() == 2)
     {
-        m_pLinearScan->dumpLsraStatsCsv(jitstdout);
+        lsra->dumpLsraStatsCsv(jitstdout);
     }
 #endif // TRACK_LSRA_STATS
 
