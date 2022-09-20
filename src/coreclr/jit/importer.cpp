@@ -13243,6 +13243,15 @@ void Importer::impAddPendingEHSuccessors(BasicBlock* block)
     }
 }
 
+void Importer::ImportSingleBlockMethod(BasicBlock* block)
+{
+    assert((block == comp->fgFirstBB) && (block->bbNext == nullptr) && ((block->bbFlags & BBF_INTERNAL) == 0));
+
+    compCurBB = block;
+    impImportBlockCode(block);
+    impStmtListEnd(block);
+}
+
 void Importer::impImportBlock(BasicBlock* block)
 {
     // BBF_INTERNAL blocks only exist during importation due to EH canonicalization. We need to
@@ -13872,11 +13881,19 @@ void Importer::impImport()
 
     InitDebuggingInfo();
 
+    BasicBlock* entryBlock = comp->fgFirstBB;
+
+    if (entryBlock->bbNext == nullptr)
+    {
+        ImportSingleBlockMethod(entryBlock);
+
+        return;
+    }
+
     // Skip leading internal blocks.
     // These can arise from needing a leading scratch BB, from EH normalization, and from OSR entry redirects.
     //
     // We expect a linear flow to the first non-internal block. But not necessarily straght-line flow.
-    BasicBlock* entryBlock = comp->fgFirstBB;
 
     while (entryBlock->bbFlags & BBF_INTERNAL)
     {

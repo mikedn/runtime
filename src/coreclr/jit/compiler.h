@@ -2282,6 +2282,7 @@ struct Importer
     void impAddCompareOpImplicitCasts(bool isUnsigned, GenTree*& op1, GenTree*& op2);
     void impBranchToNextBlock(BasicBlock* block, GenTree* op1, GenTree* op2);
 
+    void ImportSingleBlockMethod(BasicBlock* block);
     void impImportBlock(BasicBlock* block);
     bool impSpillStackAtBlockEnd(BasicBlock* block);
 
