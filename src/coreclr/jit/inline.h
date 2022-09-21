@@ -742,13 +742,13 @@ public:
 #if defined(DEBUG) || defined(INLINE_DATA)
 
     // Dump the full subtree, including failures
-    void Dump(unsigned indent = 0);
+    void Dump(InlineStrategy* strategy, unsigned indent = 0);
 
     // Dump only the success subtree, with rich data
-    void DumpData(unsigned indent = 0);
+    void DumpData(InlineStrategy* strategy, unsigned indent = 0);
 
     // Dump full subtree in xml format
-    void DumpXml(FILE* file = stderr, unsigned indent = 0);
+    void DumpXml(InlineStrategy* strategy, FILE* file = stderr, unsigned indent = 0);
 
     // Get callee handle
     CORINFO_METHOD_HANDLE GetCallee() const
@@ -832,7 +832,6 @@ private:
     InlineContext(InlineStrategy* strategy);
 
 private:
-    InlineStrategy*   m_InlineStrategy;    // overall strategy
     InlineContext*    m_Parent;            // logical caller (parent)
     InlineContext*    m_Child;             // first child
     InlineContext*    m_Sibling;           // next child of the parent
