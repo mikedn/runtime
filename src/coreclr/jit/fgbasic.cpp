@@ -646,7 +646,7 @@ private:
 #pragma warning(push)
 #pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
 #endif
-void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget, ILStats* ilStats)
+FixedBitVect* Compiler::fgFindJumpTargets(ILStats* ilStats)
 {
     const IL_OFFSET codeSize     = info.compILCodeSize;
     InlineResult*   inlineResult = compInlineResult;
@@ -705,6 +705,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget, ILStats* ilStats)
     const uint8_t* codeBegin     = info.compCode;
     const uint8_t* codeEnd       = codeBegin + codeSize;
     const uint8_t* codeAddr      = codeBegin;
+    FixedBitVect*  jumpTargets   = nullptr;
     FgStack        pushedStack;
 
     while (codeAddr < codeEnd)
@@ -1218,7 +1219,12 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget, ILStats* ilStats)
                     inlineResult->Note(InlineObservation::CALLEE_BACKWARD_JUMP);
                 }
 
-                jumpTarget->bitVectSet(targetOffset);
+                if (jumpTargets == nullptr)
+                {
+                    jumpTargets = FixedBitVect::bitVectInit(info.compILCodeSize + 1, this);
+                }
+
+                jumpTargets->bitVectSet(targetOffset);
 
                 if (!preciseScan && (inlineResult != nullptr) && (opcode != CEE_BR_S) && (opcode != CEE_BR))
                 {
@@ -1318,7 +1324,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget, ILStats* ilStats)
                     // Fail fast, if we're inlining and can't handle this.
                     if ((inlineInfo != nullptr) && inlineResult->IsFailure())
                     {
-                        return;
+                        return nullptr;
                     }
                 }
 
@@ -1342,7 +1348,12 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget, ILStats* ilStats)
                     goto TOO_FAR;
                 }
 
-                jumpTarget->bitVectSet(fallThroughOffset);
+                if (jumpTargets == nullptr)
+                {
+                    jumpTargets = FixedBitVect::bitVectInit(info.compILCodeSize + 1, this);
+                }
+
+                jumpTargets->bitVectSet(fallThroughOffset);
 
                 for (unsigned i = 0; i < targetCount; i++)
                 {
@@ -1355,7 +1366,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget, ILStats* ilStats)
                                  static_cast<unsigned>(codeAddr - codeBegin));
                     }
 
-                    jumpTarget->bitVectSet(targetOffset);
+                    jumpTargets->bitVectSet(targetOffset);
                 }
 
                 // We've advanced past all the bytes in this instruction
@@ -1643,7 +1654,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget, ILStats* ilStats)
                     if (inlineInfo != nullptr)
                     {
                         assert(inlineResult->IsFailure());
-                        return;
+                        return nullptr;
                     }
                 }
                 break;
@@ -1656,7 +1667,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget, ILStats* ilStats)
 
                     if ((inlineInfo != nullptr) && inlineResult->IsFailure())
                     {
-                        return;
+                        return nullptr;
                     }
                 }
                 break;
@@ -1774,7 +1785,7 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget, ILStats* ilStats)
                 {
                     inlineInfo->InlinerCompiler->m_inlineStrategy->NoteUnprofitable();
                     JITDUMP("\n\nInline expansion aborted, inline not profitable\n");
-                    return;
+                    return nullptr;
                 }
                 else
                 {
@@ -1789,6 +1800,8 @@ void Compiler::fgFindJumpTargets(FixedBitVect* jumpTarget, ILStats* ilStats)
             }
         }
     }
+
+    return jumpTargets;
 }
 #ifdef _PREFAST_
 #pragma warning(pop)
@@ -2047,7 +2060,7 @@ void Compiler::fgLinkBasicBlocks()
 // Notes:
 //   Invoked for prejited and jitted methods, and for all inlinees
 
-unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTarget)
+unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTargets)
 {
     // Keep track of where we are in the scope lists, as we will also
     // create blocks at scope boundaries.
@@ -2093,7 +2106,7 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTarget)
         switch (opcode)
         {
             case CEE_PREFIX1:
-                if (jumpTarget->bitVectTest(static_cast<unsigned>(codeAddr - codeBegin)))
+                if ((jumpTargets != nullptr) && jumpTargets->bitVectTest(static_cast<unsigned>(codeAddr - codeBegin)))
                 {
                     BADCODE3("jump target between prefix 0xFE and opcode", " at offset %04X",
                              static_cast<unsigned>(codeAddr - codeBegin));
@@ -2122,7 +2135,8 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTarget)
                     BADCODE("prefix not followed by opcode");
                 }
 
-                if (jumpTarget->bitVectTest(static_cast<unsigned>(codeAddr + sz - codeBegin)))
+                if ((jumpTargets != nullptr) &&
+                    jumpTargets->bitVectTest(static_cast<unsigned>(codeAddr + sz - codeBegin)))
                 {
                     BADCODE3("jump target between prefix and an opcode", " at offset %04X",
                              static_cast<unsigned>(codeAddr - codeBegin));
@@ -2361,13 +2375,13 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTarget)
         tailCall = (opcode == CEE_TAILCALL);
 
         // Make sure a jump target isn't in the middle of our opcode.
-        if (sz != 0)
+        if ((sz != 0) && (jumpTargets != nullptr))
         {
             unsigned offs = static_cast<unsigned>(codeAddr - codeBegin) - sz;
 
             for (unsigned i = 0; i < sz; i++)
             {
-                if (jumpTarget->bitVectTest(offs + i))
+                if (jumpTargets->bitVectTest(offs + i))
                 {
                     BADCODE3("jump into the middle of an opcode", " at offset %04X",
                              static_cast<unsigned>(codeAddr - codeBegin));
@@ -2401,7 +2415,7 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTarget)
                 BADCODE3("missing return opcode", " at offset %04X", static_cast<unsigned>(codeAddr - codeBegin));
             }
 
-            bool makeBlock = jumpTarget->bitVectTest(nextBlockOffset);
+            bool makeBlock = (jumpTargets != nullptr) && jumpTargets->bitVectTest(nextBlockOffset);
 
             if (!makeBlock && foundScope)
             {
@@ -2467,12 +2481,16 @@ void Compiler::dmpILJumpTargets(FixedBitVect* targets)
 {
     bool anyJumpTargets = false;
     printf("Jump targets:\n");
-    for (unsigned i = 0; i < info.compILCodeSize + 1; i++)
+
+    if (targets != nullptr)
     {
-        if (targets->bitVectTest(i))
+        for (unsigned i = 0; i < info.compILCodeSize + 1; i++)
         {
-            anyJumpTargets = true;
-            printf("  IL_%04x\n", i);
+            if (targets->bitVectTest(i))
+            {
+                anyJumpTargets = true;
+                printf("  IL_%04x\n", i);
+            }
         }
     }
 
@@ -2492,8 +2510,7 @@ void Compiler::compCreateBasicBlocks(ILStats& ilStats)
     // Call this here so any dump printing it inspires doesn't appear in the bb table.
     INDEBUG(fgStressBBProf());
 
-    FixedBitVect* jumpTargets = FixedBitVect::bitVectInit(info.compILCodeSize + 1, this);
-    fgFindJumpTargets(jumpTargets, &ilStats);
+    FixedBitVect* jumpTargets = fgFindJumpTargets(&ilStats);
 
     if (!info.compIsStatic)
     {
@@ -2523,6 +2540,11 @@ void Compiler::compCreateBasicBlocks(ILStats& ilStats)
         {
             JITDUMP("Marked V%02u as a single def local\n", lclNum);
         }
+    }
+
+    if ((jumpTargets == nullptr) && (info.compXcptnsCount != 0))
+    {
+        jumpTargets = FixedBitVect::bitVectInit(info.compILCodeSize + 1, this);
     }
 
     for (unsigned i = 0, count = info.compXcptnsCount; i < info.compXcptnsCount; i++)

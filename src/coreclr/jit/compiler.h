@@ -5293,7 +5293,7 @@ protected:
 
     bool fgMayExplicitTailCall();
 
-    void fgFindJumpTargets(FixedBitVect* jumpTarget, ILStats* ilStats = nullptr);
+    FixedBitVect* fgFindJumpTargets(ILStats* ilStats = nullptr);
 
     void fgMarkBackwardJump(BasicBlock* startBlock, BasicBlock* endBlock);
 

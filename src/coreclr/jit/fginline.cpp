@@ -869,8 +869,7 @@ void Compiler::inlCreateBasicBlocks()
     // We don't inline method with EH
     noway_assert(info.compXcptnsCount == 0);
 
-    FixedBitVect* jumpTargets = FixedBitVect::bitVectInit(info.compILCodeSize + 1, this);
-    fgFindJumpTargets(jumpTargets);
+    FixedBitVect* jumpTargets = fgFindJumpTargets();
 
     if (compInlineResult->IsFailure())
     {
