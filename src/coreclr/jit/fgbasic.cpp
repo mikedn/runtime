@@ -2551,38 +2551,42 @@ void Compiler::compCreateBasicBlocks(ILStats& ilStats)
     {
         CORINFO_EH_CLAUSE clause;
         info.compCompHnd->getEHinfo(info.compMethodHnd, i, &clause);
-        noway_assert(clause.HandlerLength != UINT32_MAX);
 
         if (clause.TryLength == 0)
         {
-            BADCODE("try block length <=0");
+            BADCODE("try is empty");
         }
 
-        if (clause.TryOffset > info.compILCodeSize)
+        if (clause.TryOffset >= info.compILCodeSize)
         {
-            BADCODE("try offset is > codesize");
+            BADCODE("try begins outside method");
         }
 
-        if (clause.TryOffset + clause.TryLength > info.compILCodeSize)
+        if (clause.TryLength > info.compILCodeSize - clause.TryOffset)
         {
-            BADCODE("try end is > codesize");
+            BADCODE("try ends outside method");
         }
 
-        if (clause.HandlerOffset > info.compILCodeSize)
+        if (clause.HandlerLength == 0)
         {
-            BADCODE("handler offset > codesize");
+            BADCODE("handler is empty");
         }
 
-        if (clause.HandlerOffset + clause.HandlerLength > info.compILCodeSize)
+        if (clause.HandlerOffset >= info.compILCodeSize)
         {
-            BADCODE("handler end > codesize");
+            BADCODE("handler begins outside method");
+        }
+
+        if (clause.HandlerLength > info.compILCodeSize - clause.HandlerOffset)
+        {
+            BADCODE("handler ends outside method");
         }
 
         if ((clause.Flags & CORINFO_EH_CLAUSE_FILTER) != 0)
         {
-            if (clause.FilterOffset > info.compILCodeSize)
+            if (clause.FilterOffset >= clause.HandlerOffset)
             {
-                BADCODE("filter offset > codesize");
+                BADCODE("filter is empty or begins after handler");
             }
 
             jumpTargets->bitVectSet(clause.FilterOffset);
@@ -2655,7 +2659,6 @@ void Compiler::compCreateEHTable()
     {
         CORINFO_EH_CLAUSE clause;
         info.compCompHnd->getEHinfo(info.compMethodHnd, XTnum, &clause);
-        noway_assert(clause.HandlerLength != (unsigned)-1); // @DEPRECATED
 
 #ifdef DEBUG
         if (verbose)
