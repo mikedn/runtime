@@ -722,11 +722,6 @@ FixedBitVect* Compiler::fgFindJumpTargets(ILStats* ilStats)
         bool typeIsNormed = false;
 
     DECODE_OPCODE:
-        if (opcode >= CEE_COUNT)
-        {
-            BADCODE3("Illegal opcode", ": %02X", (int)opcode);
-        }
-
         unsigned sz = opcodeSizes[opcode];
 
         switch (opcode)
@@ -740,6 +735,12 @@ FixedBitVect* Compiler::fgFindJumpTargets(ILStats* ilStats)
                 }
 
                 opcode = static_cast<OPCODE>(256 + *codeAddr++);
+
+                if (opcode >= CEE_COUNT)
+                {
+                    BADCODE3("Illegal opcode", ": %02X", (int)opcode);
+                }
+
                 goto DECODE_OPCODE;
 
             case CEE_PREFIX2:
@@ -2098,8 +2099,6 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTargets)
         OPCODE opcode = static_cast<OPCODE>(*codeAddr++);
 
     DECODE_OPCODE:
-        noway_assert(opcode < CEE_COUNT);
-
         unsigned sz = opcodeSizes[opcode];
 
         switch (opcode)
@@ -2112,6 +2111,7 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTargets)
                 }
 
                 opcode = static_cast<OPCODE>(256 + *codeAddr++);
+                assert(opcode < CEE_COUNT);
                 goto DECODE_OPCODE;
 
             case CEE_TAILCALL:
