@@ -2695,9 +2695,9 @@ void Compiler::compCreateEHTable()
         /* Convert the various addresses to basic blocks */
 
         BasicBlock* tryBegBB = fgLookupBB(tryBegOff);
-        BasicBlock* tryEndBB = tryEndOff < info.compILCodeSize ? fgLookupBB(tryEndOff) : nullptr;
+        BasicBlock* tryEndBB = tryEndOff < info.compILCodeSize ? fgLookupBB(tryEndOff)->bbPrev : fgLastBB;
         BasicBlock* hndBegBB = fgLookupBB(hndBegOff);
-        BasicBlock* hndEndBB = hndEndOff < info.compILCodeSize ? fgLookupBB(hndEndOff) : nullptr;
+        BasicBlock* hndEndBB = hndEndOff < info.compILCodeSize ? fgLookupBB(hndEndOff)->bbPrev : fgLastBB;
         BasicBlock* filtBB   = nullptr;
         BasicBlock* block;
 
@@ -2812,23 +2812,10 @@ void Compiler::compCreateEHTable()
         HBtab->ebdHandlerType = ToEHHandlerType(clause.Flags);
 
         HBtab->ebdTryBeg  = tryBegBB;
-        HBtab->ebdTryLast = (tryEndBB == nullptr) ? fgLastBB : tryEndBB->bbPrev;
+        HBtab->ebdTryLast = tryEndBB;
 
         HBtab->ebdHndBeg  = hndBegBB;
-        HBtab->ebdHndLast = (hndEndBB == nullptr) ? fgLastBB : hndEndBB->bbPrev;
-
-        //
-        // Assert that all of our try/hnd blocks are setup correctly.
-        //
-        if (HBtab->ebdTryLast == nullptr)
-        {
-            BADCODE("Try Clause is invalid");
-        }
-
-        if (HBtab->ebdHndLast == nullptr)
-        {
-            BADCODE("Handler Clause is invalid");
-        }
+        HBtab->ebdHndLast = hndEndBB;
 
         //
         // Verify that it's legal
