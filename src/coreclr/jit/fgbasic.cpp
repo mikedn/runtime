@@ -1221,7 +1221,7 @@ FixedBitVect* Compiler::fgFindJumpTargets(ILStats* ilStats)
 
                 if (jumpTargets == nullptr)
                 {
-                    jumpTargets = FixedBitVect::bitVectInit(info.compILCodeSize + 1, this);
+                    jumpTargets = FixedBitVect::bitVectInit(info.compILCodeSize, this);
                 }
 
                 jumpTargets->bitVectSet(targetOffset);
@@ -1350,7 +1350,7 @@ FixedBitVect* Compiler::fgFindJumpTargets(ILStats* ilStats)
 
                 if (jumpTargets == nullptr)
                 {
-                    jumpTargets = FixedBitVect::bitVectInit(info.compILCodeSize + 1, this);
+                    jumpTargets = FixedBitVect::bitVectInit(info.compILCodeSize, this);
                 }
 
                 jumpTargets->bitVectSet(fallThroughOffset);
@@ -2484,7 +2484,7 @@ void Compiler::dmpILJumpTargets(FixedBitVect* targets)
 
     if (targets != nullptr)
     {
-        for (unsigned i = 0; i < info.compILCodeSize + 1; i++)
+        for (unsigned i = 0; i < info.compILCodeSize; i++)
         {
             if (targets->bitVectTest(i))
             {
@@ -2544,7 +2544,7 @@ void Compiler::compCreateBasicBlocks(ILStats& ilStats)
 
     if ((jumpTargets == nullptr) && (info.compXcptnsCount != 0))
     {
-        jumpTargets = FixedBitVect::bitVectInit(info.compILCodeSize + 1, this);
+        jumpTargets = FixedBitVect::bitVectInit(info.compILCodeSize, this);
     }
 
     for (unsigned i = 0, count = info.compXcptnsCount; i < info.compXcptnsCount; i++)
@@ -2593,9 +2593,18 @@ void Compiler::compCreateBasicBlocks(ILStats& ilStats)
         }
 
         jumpTargets->bitVectSet(clause.TryOffset);
-        jumpTargets->bitVectSet(clause.TryOffset + clause.TryLength);
+
+        if (clause.TryOffset + clause.TryLength < info.compILCodeSize)
+        {
+            jumpTargets->bitVectSet(clause.TryOffset + clause.TryLength);
+        }
+
         jumpTargets->bitVectSet(clause.HandlerOffset);
-        jumpTargets->bitVectSet(clause.HandlerOffset + clause.HandlerLength);
+
+        if (clause.HandlerOffset + clause.HandlerLength < info.compILCodeSize)
+        {
+            jumpTargets->bitVectSet(clause.HandlerOffset + clause.HandlerLength);
+        }
     }
 
     DBEXEC(verbose, dmpILJumpTargets(jumpTargets);)
