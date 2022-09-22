@@ -2104,12 +2104,6 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTargets)
         switch (opcode)
         {
             case CEE_PREFIX1:
-                if ((jumpTargets != nullptr) && jumpTargets->bitVectTest(static_cast<unsigned>(codeAddr - codeBegin)))
-                {
-                    BADCODE3("jump target between prefix 0xFE and opcode", " at offset %04X",
-                             static_cast<unsigned>(codeAddr - codeBegin));
-                }
-
                 opcode = static_cast<OPCODE>(256 + *codeAddr++);
                 assert(opcode < CEE_COUNT);
                 goto DECODE_OPCODE;
@@ -2132,13 +2126,6 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTargets)
                 if (codeAddr + sz >= codeEnd)
                 {
                     BADCODE("prefix not followed by opcode");
-                }
-
-                if ((jumpTargets != nullptr) &&
-                    jumpTargets->bitVectTest(static_cast<unsigned>(codeAddr + sz - codeBegin)))
-                {
-                    BADCODE3("jump target between prefix and an opcode", " at offset %04X",
-                             static_cast<unsigned>(codeAddr - codeBegin));
                 }
                 break;
 
@@ -2372,21 +2359,6 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTargets)
 
     GOT_ENDP:
         tailCall = (opcode == CEE_TAILCALL);
-
-        // Make sure a jump target isn't in the middle of our opcode.
-        if ((sz != 0) && (jumpTargets != nullptr))
-        {
-            unsigned offs = static_cast<unsigned>(codeAddr - codeBegin) - sz;
-
-            for (unsigned i = 0; i < sz; i++)
-            {
-                if (jumpTargets->bitVectTest(offs + i))
-                {
-                    BADCODE3("jump into the middle of an opcode", " at offset %04X",
-                             static_cast<unsigned>(codeAddr - codeBegin));
-                }
-            }
-        }
 
         // Compute the offset of the next opcode.
 
