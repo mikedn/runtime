@@ -2080,7 +2080,7 @@ struct Importer
     static bool jitIsBetween(unsigned value, unsigned start, unsigned end);
 
     void        fgInitBBLookup();
-    BasicBlock* fgLookupBB(unsigned addr);
+    BasicBlock* fgLookupBB(unsigned offs);
 
     BasicBlock* bbNewBasicBlock(BBjumpKinds jumpKind);
     BasicBlock* fgNewBBbefore(BBjumpKinds jumpKind, BasicBlock* block, bool extendRegion);

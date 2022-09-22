@@ -432,7 +432,7 @@ void Compiler::fgInitBBLookup()
     noway_assert(blocks == fgBBs + fgBBcount);
 }
 
-BasicBlock* Compiler::fgLookupBB(unsigned addr)
+BasicBlock* Compiler::fgLookupBB(unsigned offs)
 {
     unsigned lo = 0;
     unsigned hi = fgBBcount - 1;
@@ -464,13 +464,13 @@ BasicBlock* Compiler::fgLookupBB(unsigned addr)
             }
         }
 
-        if (block->bbCodeOffs < addr)
+        if (block->bbCodeOffs < offs)
         {
             if ((lo == hi) && (lo == (fgBBcount - 1)))
             {
-                noway_assert(addr == block->bbCodeOffsEnd);
+                assert(offs == block->bbCodeOffsEnd);
 
-                return nullptr; // nullptr means the end of method
+                break;
             }
 
             lo = mid + 1;
@@ -478,7 +478,7 @@ BasicBlock* Compiler::fgLookupBB(unsigned addr)
             continue;
         }
 
-        if (block->bbCodeOffs > addr)
+        if (block->bbCodeOffs > offs)
         {
             hi = mid - 1;
 
@@ -488,8 +488,7 @@ BasicBlock* Compiler::fgLookupBB(unsigned addr)
         return block;
     }
 
-    INDEBUG(printf("ERROR: Couldn't find basic block at offset %04X\n", addr));
-    NO_WAY("fgLookupBB failed.");
+    BADCODE3("block starts outside the method or in the middle of an instruction: ", "0x%04X", offs);
 }
 
 //------------------------------------------------------------------------
@@ -2705,25 +2704,11 @@ void Compiler::compCreateEHTable()
         /* Convert the various addresses to basic blocks */
 
         BasicBlock* tryBegBB = fgLookupBB(tryBegOff);
-        BasicBlock* tryEndBB =
-            fgLookupBB(tryEndOff); // note: this can be NULL if the try region is at the end of the function
+        BasicBlock* tryEndBB = tryEndOff < info.compILCodeSize ? fgLookupBB(tryEndOff) : nullptr;
         BasicBlock* hndBegBB = fgLookupBB(hndBegOff);
-        BasicBlock* hndEndBB = nullptr;
+        BasicBlock* hndEndBB = hndEndOff < info.compILCodeSize ? fgLookupBB(hndEndOff) : nullptr;
         BasicBlock* filtBB   = nullptr;
         BasicBlock* block;
-
-        //
-        // Assert that the try/hnd beginning blocks are set up correctly
-        //
-        if (tryBegBB == nullptr)
-        {
-            BADCODE("Try Clause is invalid");
-        }
-
-        if (hndBegBB == nullptr)
-        {
-            BADCODE("Handler Clause is invalid");
-        }
 
 #if HANDLER_ENTRY_MUST_BE_IN_HOT_SECTION
         // This will change the block weight from 0 to 1
@@ -2732,11 +2717,6 @@ void Compiler::compCreateEHTable()
 #else
         hndBegBB->bbSetRunRarely();   // handler entry points are rarely executed
 #endif
-
-        if (hndEndOff < info.compILCodeSize)
-        {
-            hndEndBB = fgLookupBB(hndEndOff);
-        }
 
         if (clause.Flags & CORINFO_EH_CLAUSE_FILTER)
         {
