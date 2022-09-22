@@ -2686,15 +2686,6 @@ void Compiler::compCreateEHTable()
             filterBegOff = clause.FilterOffset;
         }
 
-        if (tryEndOff > info.compILCodeSize)
-        {
-            BADCODE3("end of try block beyond end of method for try", " at offset %04X", tryBegOff);
-        }
-        if (hndEndOff > info.compILCodeSize)
-        {
-            BADCODE3("end of hnd block beyond end of method for try", " at offset %04X", tryBegOff);
-        }
-
         HBtab->ebdTryBegOffset    = tryBegOff;
         HBtab->ebdTryEndOffset    = tryEndOff;
         HBtab->ebdFilterBegOffset = filterBegOff;
