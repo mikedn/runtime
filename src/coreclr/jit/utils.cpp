@@ -875,7 +875,7 @@ void FixedBitVect::bitVectSet(UINT bitNum)
 {
     UINT index;
 
-    assert(bitNum <= bitVectSize);
+    assert(bitNum < bitVectSize);
 
     index = bitNum / bitChunkSize();
     bitNum -= index * bitChunkSize();
@@ -888,7 +888,7 @@ bool FixedBitVect::bitVectTest(UINT bitNum)
 {
     UINT index;
 
-    assert(bitNum <= bitVectSize);
+    assert(bitNum < bitVectSize);
 
     index = bitNum / bitChunkSize();
     bitNum -= index * bitChunkSize();
