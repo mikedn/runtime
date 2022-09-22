@@ -2675,22 +2675,15 @@ void Compiler::compCreateEHTable()
         }
 #endif // DEBUG
 
-        IL_OFFSET tryBegOff    = clause.TryOffset;
-        IL_OFFSET tryEndOff    = tryBegOff + clause.TryLength;
-        IL_OFFSET filterBegOff = 0;
-        IL_OFFSET hndBegOff    = clause.HandlerOffset;
-        IL_OFFSET hndEndOff    = hndBegOff + clause.HandlerLength;
+        IL_OFFSET tryBegOff = clause.TryOffset;
+        IL_OFFSET tryEndOff = tryBegOff + clause.TryLength;
+        IL_OFFSET hndBegOff = clause.HandlerOffset;
+        IL_OFFSET hndEndOff = hndBegOff + clause.HandlerLength;
 
-        if (clause.Flags & CORINFO_EH_CLAUSE_FILTER)
-        {
-            filterBegOff = clause.FilterOffset;
-        }
-
-        HBtab->ebdTryBegOffset    = tryBegOff;
-        HBtab->ebdTryEndOffset    = tryEndOff;
-        HBtab->ebdFilterBegOffset = filterBegOff;
-        HBtab->ebdHndBegOffset    = hndBegOff;
-        HBtab->ebdHndEndOffset    = hndEndOff;
+        HBtab->ebdTryBegOffset = tryBegOff;
+        HBtab->ebdTryEndOffset = tryEndOff;
+        HBtab->ebdHndBegOffset = hndBegOff;
+        HBtab->ebdHndEndOffset = hndEndOff;
 
         /* Convert the various addresses to basic blocks */
 
@@ -2711,9 +2704,15 @@ void Compiler::compCreateEHTable()
 
         if (clause.Flags & CORINFO_EH_CLAUSE_FILTER)
         {
-            filtBB = HBtab->ebdFilter = fgLookupBB(clause.FilterOffset);
-            filtBB->bbCatchTyp        = BBCT_FILTER;
-            hndBegBB->bbCatchTyp      = BBCT_FILTER_HANDLER;
+            filtBB = fgLookupBB(clause.FilterOffset);
+            filtBB->bbFlags |= BBF_DONT_REMOVE;
+            filtBB->bbRefs++; // The first block of a filter gets an extra, "artificial" reference count.
+            filtBB->bbCatchTyp = BBCT_FILTER;
+
+            HBtab->ebdFilter          = filtBB;
+            HBtab->ebdFilterBegOffset = clause.FilterOffset;
+
+            hndBegBB->bbCatchTyp = BBCT_FILTER_HANDLER;
 
 #if HANDLER_ENTRY_MUST_BE_IN_HOT_SECTION
             // This will change the block weight from 0 to 1
@@ -2760,28 +2759,25 @@ void Compiler::compCreateEHTable()
             {
                 hndBegBB->bbCatchTyp = BBCT_FINALLY;
             }
+            else if (clause.Flags & CORINFO_EH_CLAUSE_FAULT)
+            {
+                hndBegBB->bbCatchTyp = BBCT_FAULT;
+            }
             else
             {
-                if (clause.Flags & CORINFO_EH_CLAUSE_FAULT)
-                {
-                    hndBegBB->bbCatchTyp = BBCT_FAULT;
-                }
-                else
-                {
-                    hndBegBB->bbCatchTyp = clause.ClassToken;
+                hndBegBB->bbCatchTyp = clause.ClassToken;
 
-                    // These values should be non-zero value that will
-                    // not collide with real tokens for bbCatchTyp
-                    if (clause.ClassToken == 0)
-                    {
-                        BADCODE("Exception catch type is Null");
-                    }
-
-                    noway_assert(clause.ClassToken != BBCT_FAULT);
-                    noway_assert(clause.ClassToken != BBCT_FINALLY);
-                    noway_assert(clause.ClassToken != BBCT_FILTER);
-                    noway_assert(clause.ClassToken != BBCT_FILTER_HANDLER);
+                // These values should be non-zero value that will
+                // not collide with real tokens for bbCatchTyp
+                if (clause.ClassToken == 0)
+                {
+                    BADCODE("Exception catch type is Null");
                 }
+
+                noway_assert(clause.ClassToken != BBCT_FAULT);
+                noway_assert(clause.ClassToken != BBCT_FINALLY);
+                noway_assert(clause.ClassToken != BBCT_FILTER);
+                noway_assert(clause.ClassToken != BBCT_FILTER_HANDLER);
             }
         }
 
@@ -2795,15 +2791,6 @@ void Compiler::compCreateEHTable()
         tryBegBB->bbFlags |= BBF_DONT_REMOVE;
         hndBegBB->bbFlags |= BBF_DONT_REMOVE;
         hndBegBB->bbRefs++; // The first block of a handler gets an extra, "artificial" reference count.
-
-        if (clause.Flags & CORINFO_EH_CLAUSE_FILTER)
-        {
-            filtBB->bbFlags |= BBF_DONT_REMOVE;
-            filtBB->bbRefs++; // The first block of a filter gets an extra, "artificial" reference count.
-        }
-
-        tryBegBB->bbFlags |= BBF_DONT_REMOVE;
-        hndBegBB->bbFlags |= BBF_DONT_REMOVE;
 
         //
         // Store the info to the table of EH block handlers
