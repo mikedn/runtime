@@ -6298,10 +6298,7 @@ bool Compiler::impTailCallRetTypeCompatible(GenTreeCall* call, bool allowWidenin
  * Determine whether the call could be converted to an implicit tail call
  *
  */
-bool Importer::impIsImplicitTailCallCandidate(const BYTE* codeAddrOfNextOpcode,
-                                              const BYTE* codeEnd,
-                                              int         prefixFlags,
-                                              bool        isRecursive)
+bool Importer::impIsImplicitTailCallCandidate(const BYTE* codeAddrOfNextOpcode, const BYTE* codeEnd, int prefixFlags)
 {
 #if !FEATURE_TAILCALL_OPT
     return false;
@@ -12858,8 +12855,6 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
     }
 #endif // DEBUG
 
-    bool isRecursive = !compIsForInlining() && (callInfo.hMethod == info.compMethodHnd);
-
     // If we've already disqualified this call as a tail call under tail call stress,
     // don't consider it for implicit tail calling either.
     //
@@ -12868,8 +12863,7 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
     //
     // Note that when running under tail call stress, a call marked as explicit
     // tail prefixed will not be considered for implicit tail calling.
-    if (passedTailCallStressValidation &&
-        impIsImplicitTailCallCandidate(codeAddr + 4, codeEnd, prefixFlags, isRecursive))
+    if (passedTailCallStressValidation && impIsImplicitTailCallCandidate(codeAddr + 4, codeEnd, prefixFlags))
     {
         if (compIsForInlining())
         {
