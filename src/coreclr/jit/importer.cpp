@@ -12760,10 +12760,10 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
 {
     assert(impOpcodeIsCallOpcode(opcode));
 
-    bool           isConstrained                  = (prefixFlags & PREFIX_CONSTRAINED) != 0;
-    bool           newBBcreatedForTailcallStress  = false;
-    bool           passedTailCallStressValidation = true;
-    const uint8_t* nextOpcodeAddr                 = codeAddr + 4;
+    bool           isConstrained                 = (prefixFlags & PREFIX_CONSTRAINED) != 0;
+    bool           allowImplicitTailcall         = (prefixFlags & PREFIX_TAILCALL_EXPLICIT) == 0;
+    const uint8_t* nextOpcodeAddr                = codeAddr + 4;
+    bool           newBBcreatedForTailcallStress = false;
 
     if (compIsForInlining())
     {
@@ -12783,13 +12783,9 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
         // safe here to read next opcode without bounds check.
         newBBcreatedForTailcallStress = static_cast<OPCODE>(*nextOpcodeAddr) == CEE_RET;
 
-        if (newBBcreatedForTailcallStress && ((prefixFlags & PREFIX_TAILCALL_EXPLICIT) == 0))
+        if (newBBcreatedForTailcallStress && allowImplicitTailcall)
         {
-            // Do a more detailed evaluation of legality
-            const bool passedConstraintCheck =
-                verCheckTailCallConstraint(opcode, &resolvedToken, isConstrained ? constrainedResolvedToken : nullptr);
-
-            if (passedConstraintCheck)
+            if (verCheckTailCallConstraint(opcode, &resolvedToken, isConstrained ? constrainedResolvedToken : nullptr))
             {
                 CORINFO_METHOD_HANDLE exactMethod =
                     ((callInfo.kind == CORINFO_VIRTUALCALL_STUB) || (callInfo.kind == CORINFO_VIRTUALCALL_VTABLE))
@@ -12800,62 +12796,35 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
                 {
                     JITDUMP(" (Tailcall stress: prefixFlags |= PREFIX_TAILCALL_EXPLICIT)");
 
-                    prefixFlags |= PREFIX_TAILCALL_EXPLICIT;
-                    prefixFlags |= PREFIX_TAILCALL_STRESS;
+                    prefixFlags |= PREFIX_TAILCALL_EXPLICIT | PREFIX_TAILCALL_STRESS;
                 }
                 else
                 {
                     JITDUMP(" (Tailcall stress: runtime preventing tailcall)");
-
-                    passedTailCallStressValidation = false;
                 }
             }
             else
             {
                 JITDUMP(" (Tailcall stress: constraint check failed)");
-
-                passedTailCallStressValidation = false;
             }
+
+            allowImplicitTailcall = false;
         }
     }
 #endif // DEBUG
 
 #if FEATURE_TAILCALL_OPT
-    // If we've already disqualified this call as a tail call under tail call stress,
-    // don't consider it for implicit tail calling either.
-    //
-    // When not running under tail call stress, we may mark this call as an implicit
-    // tail call candidate. We'll do an "equivalent" validation during impImportCall.
-    //
-    // Note that when running under tail call stress, a call marked as explicit
-    // tail prefixed will not be considered for implicit tail calling.
-    if (passedTailCallStressValidation && ((prefixFlags & PREFIX_TAILCALL_EXPLICIT) == 0) &&
-        (JitConfig.TailCallOpt() != 0) && opts.OptimizationEnabled()
+    if (allowImplicitTailcall && (JitConfig.TailCallOpt() != 0) && opts.OptimizationEnabled()
         // Note that we don't care if the RET is in a different block, if we do tail
         // call then the call's block will eventually be converted to a RETURN block.
-        && (nextOpcodeAddr < info.compCode + info.compILCodeSize) && (static_cast<OPCODE>(*nextOpcodeAddr) == CEE_RET))
+        && (nextOpcodeAddr < info.compCode + info.compILCodeSize) && (static_cast<OPCODE>(*nextOpcodeAddr) == CEE_RET)
+        // When inlining the inliner call has to be an implicit tail call as well,
+        // to ensure that the inlinee's call ends up in a RETRUN block eventually.
+        && (!compIsForInlining() || impInlineInfo->iciCall->IsImplicitTailCall()))
     {
-        if (compIsForInlining())
-        {
-#if FEATURE_TAILCALL_OPT_SHARED_RETURN
-            // Are we inlining at an implicit tail call site? If so the we can flag
-            // implicit tail call sites in the inline body. These call sites
-            // often end up in non BBJ_RETURN blocks, so only flag them when
-            // we're able to handle shared returns.
-            if (impInlineInfo->iciCall->IsImplicitTailCall())
-            {
-                JITDUMP("\n (Inline Implicit Tail call: prefixFlags |= PREFIX_TAILCALL_IMPLICIT)");
+        JITDUMP("\n (Implicit Tail call: prefixFlags |= PREFIX_TAILCALL_IMPLICIT)");
 
-                prefixFlags |= PREFIX_TAILCALL_IMPLICIT;
-            }
-#endif
-        }
-        else
-        {
-            JITDUMP("\n (Implicit Tail call: prefixFlags |= PREFIX_TAILCALL_IMPLICIT)");
-
-            prefixFlags |= PREFIX_TAILCALL_IMPLICIT;
-        }
+        prefixFlags |= PREFIX_TAILCALL_IMPLICIT;
     }
 #endif
 
