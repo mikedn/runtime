@@ -2098,7 +2098,6 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTargets)
     const uint8_t* const codeBegin          = info.compCode;
     const uint8_t* const codeEnd            = codeBegin + codeSize;
     const uint8_t*       codeAddr           = codeBegin;
-    bool                 tailCall           = false;
     unsigned             retBlocks          = 0;
     unsigned             currentBlockOffset = 0;
 
@@ -2108,6 +2107,7 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTargets)
         BasicBlockFlags blockFlags = BBF_EMPTY;
         unsigned        jumpOffset = BAD_IL_OFFSET;
         BBswtDesc*      switchDesc = nullptr;
+        bool            tailCall   = false;
 
         OPCODE opcode = static_cast<OPCODE>(*codeAddr++);
 
@@ -2131,7 +2131,10 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTargets)
 
                     return retBlocks;
                 }
-                break;
+
+                opcode   = static_cast<OPCODE>(*codeAddr++);
+                tailCall = true;
+                goto DECODE_OPCODE;
 
             case CEE_THROW:
             case CEE_RETHROW:
@@ -2326,8 +2329,6 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTargets)
         codeAddr += sz;
 
     GOT_ENDP:
-        tailCall = (opcode == CEE_TAILCALL);
-
         // Compute the offset of the next opcode.
 
         unsigned nextBlockOffset = static_cast<unsigned>(codeAddr - codeBegin);
