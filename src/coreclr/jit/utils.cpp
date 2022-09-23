@@ -873,27 +873,17 @@ FixedBitVect* FixedBitVect::bitVectInit(UINT size, Compiler* comp)
 // bitVectSet() - Sets the given bit
 void FixedBitVect::bitVectSet(UINT bitNum)
 {
-    UINT index;
-
     assert(bitNum < bitVectSize);
 
-    index = bitNum / bitChunkSize();
-    bitNum -= index * bitChunkSize();
-
-    bitVect[index] |= bitNumToBit(bitNum);
+    bitVect[bitNum / bitChunkSize()] |= bitNumToBit(bitNum % bitChunkSize());
 }
 
 // bitVectTest() - Tests the given bit
 bool FixedBitVect::bitVectTest(UINT bitNum)
 {
-    UINT index;
-
     assert(bitNum < bitVectSize);
 
-    index = bitNum / bitChunkSize();
-    bitNum -= index * bitChunkSize();
-
-    return (bitVect[index] & bitNumToBit(bitNum)) != 0;
+    return (bitVect[bitNum / bitChunkSize()] & bitNumToBit(bitNum % bitChunkSize())) != 0;
 }
 
 // bitVectOr() - Or in the given bit vector
