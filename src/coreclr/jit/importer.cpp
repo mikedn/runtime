@@ -6319,11 +6319,10 @@ bool Importer::impIsImplicitTailCallCandidate(const BYTE* codeAddrOfNextOpcode, 
         return false;
     }
 
-    // we can actually handle if the ret is in a fallthrough block, as long as that is the only part of the
-    // sequence. Make sure we don't go past the end of the IL however.
-    codeEnd = min(codeEnd + 1, info.compCode + info.compILCodeSize);
-
-    return (codeAddrOfNextOpcode < codeEnd) && (static_cast<OPCODE>(*codeAddrOfNextOpcode) == CEE_RET);
+    // Note that we don't care if the RET is in a different block, if we do tail
+    // call then the call's block will eventually be converted to a RETURN block.
+    return (codeAddrOfNextOpcode < info.compCode + info.compILCodeSize) &&
+           (static_cast<OPCODE>(*codeAddrOfNextOpcode) == CEE_RET);
 #endif // FEATURE_TAILCALL_OPT
 }
 
