@@ -637,9 +637,6 @@ void Compiler::inlMain()
 #ifdef DEBUG
     opts.dspDiffable = inliner->opts.dspDiffable;
 #endif
-#if FEATURE_TAILCALL_OPT
-    opts.compTailCallOpt = inliner->opts.compTailCallOpt;
-#endif
 #if FEATURE_FASTTAILCALL
     opts.compFastTailCalls = inliner->opts.compFastTailCalls;
 #endif

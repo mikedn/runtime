@@ -6303,7 +6303,7 @@ bool Importer::impIsImplicitTailCallCandidate(const BYTE* codeAddrOfNextOpcode, 
 #if !FEATURE_TAILCALL_OPT
     return false;
 #else
-    if (!opts.compTailCallOpt)
+    if (JitConfig.TailCallOpt() == 0)
     {
         return false;
     }

@@ -1389,7 +1389,6 @@ void Compiler::compInitConfigOptions()
     assert(isPow2(opts.compJitAlignLoopBoundary));
 
 #if FEATURE_TAILCALL_OPT
-    opts.compTailCallOpt     = JitConfig.TailCallOpt() != 0;
     opts.compTailCallLoopOpt = JitConfig.TailCallLoopOpt() != 0;
 #endif
 #if FEATURE_FASTTAILCALL

@@ -1838,8 +1838,6 @@ struct CompilerOptions
 #endif // PROFILING_SUPPORTED
 
 #if FEATURE_TAILCALL_OPT
-    // Whether opportunistic or implicit tail call optimization is enabled.
-    bool compTailCallOpt : 1;
     // Whether optimization of transforming a recursive tail call into a loop is enabled.
     bool compTailCallLoopOpt : 1;
 #endif
