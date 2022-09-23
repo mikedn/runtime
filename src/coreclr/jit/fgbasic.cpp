@@ -2319,44 +2319,8 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTargets)
                 jumpKind = BBJ_RETURN;
                 break;
 
-#ifndef DEBUG
             default:
                 break;
-#else // DEBUG
-// Make certain we did not forget any flow of control instructions by checking the 'ctrl' field in opcode.def.
-// clang-format off
-#define BREAK(name) case name: break;
-#define NEXT(name) case name: break;
-#define CALL(name)
-#define THROW(name)
-#undef RETURN // undef contract RETURN macro
-#define RETURN(name)
-#define META(name)
-#define BRANCH(name)
-#define COND_BRANCH(name)
-// clang-format on
-
-#define OPDEF(name, string, pop, push, oprType, opcType, l, s1, s2, ctrl) ctrl(name)
-#include "opcode.def"
-#undef OPDEF
-
-#undef BREAK
-#undef CALL
-#undef NEXT
-#undef THROW
-#undef RETURN
-#undef META
-#undef BRANCH
-#undef COND_BRANCH
-
-            // These ctrl-flow opcodes don't need any special handling
-            case CEE_NEWOBJ: // CTRL_CALL
-                break;
-
-            default:
-                BADCODE("Unrecognized control Opcode");
-                break;
-#endif // !DEBUG
         }
 
         codeAddr += sz;
