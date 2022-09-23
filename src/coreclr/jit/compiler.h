@@ -7207,20 +7207,16 @@ public:
 
 #endif // DEBUG
 
+#ifdef DEBUG
     bool compTailCallStress()
     {
-#ifdef DEBUG
         // Do not stress tailcalls in IL stubs as the runtime creates several IL
         // stubs to implement the tailcall mechanism, which would then
         // recursively create more IL stubs.
         return !opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB) &&
                (JitConfig.TailcallStress() != 0 || compStressCompile(STRESS_TAILCALL, 5));
-#else
-        return false;
-#endif
     }
 
-#ifdef DEBUG
     const char* compGetTieringName(bool wantShortName = false) const;
     const char* compGetStressMessage() const;
 #endif

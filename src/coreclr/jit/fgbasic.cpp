@@ -2249,33 +2249,15 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTargets)
             case CEE_CALL:
             case CEE_CALLVIRT:
             case CEE_CALLI:
-                if ((inlineInfo != nullptr) ||           // Ignore tail call in the inlinee. Period.
-                    (!tailCall && !compTailCallStress()) // A new BB with BBJ_RETURN would have been created
-
-                    // after a tailcall statement.
-                    // We need to keep this invariant if we want to stress the tailcall.
-                    // That way, the potential (tail)call statement is always the last
-                    // statement in the block.
-                    // Otherwise, we will assert at the following line in fgMorphCall()
-                    //     noway_assert(fgMorphStmt->GetNextStmt() == NULL);
-                    )
+                if (inlineInfo != nullptr)
                 {
-                    // Neither .tailcall prefix, no tailcall stress. So move on.
+                    // Ignore all tail calling in inlinees.
                     break;
-                }
-
-                // Make sure the code sequence is legal for the tail call.
-                // If so, mark this BB as having a BBJ_RETURN.
-
-                if (codeAddr >= codeEnd - sz)
-                {
-                    BADCODE3("No code found after the call instruction", " at offset %04X",
-                             static_cast<unsigned>(codeAddr - codeBegin));
                 }
 
                 if (tailCall)
                 {
-                    if (static_cast<OPCODE>(*(codeAddr + sz)) != CEE_RET)
+                    if ((codeAddr >= codeEnd - sz) || (static_cast<OPCODE>(*(codeAddr + sz)) != CEE_RET))
                     {
                         BADCODE3("tail call not followed by ret", " at offset %04X",
                                  static_cast<unsigned>(codeAddr - codeBegin));
@@ -2289,17 +2271,19 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTargets)
                         compSwitchToOptimized();
                     }
                 }
-                else
+#ifdef DEBUG
+                else if (compTailCallStress())
                 {
-                    OPCODE nextOpcode = static_cast<OPCODE>(codeAddr[sz]);
-
-                    if (nextOpcode != CEE_RET)
+                    if ((codeAddr >= codeEnd - sz) || (static_cast<OPCODE>(*(codeAddr + sz)) != CEE_RET))
                     {
-                        noway_assert(compTailCallStress());
-                        // Next OPCODE is not a CEE_RET, bail the attempt to stress the tailcall.
-                        // (I.e. We will not make a new BB after the "call" statement.)
+                        // Next opcode is not RET, bail the attempt to stress the tailcall.
                         break;
                     }
+                }
+#endif
+                else
+                {
+                    break;
                 }
 
                 // For tail call, we just call CORINFO_HELP_TAILCALL, and it jumps to the target.
