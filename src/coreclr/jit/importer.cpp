@@ -6293,6 +6293,7 @@ bool Compiler::impTailCallRetTypeCompatible(GenTreeCall* call, bool allowWidenin
     return true;
 }
 
+#if FEATURE_TAILCALL_OPT
 // Returns true if the current opcode and and the opcodes following it correspond
 // to a supported tail call IL pattern.
 bool Importer::impIsTailCallILPattern(OPCODE      curOpcode,
@@ -6302,16 +6303,9 @@ bool Importer::impIsTailCallILPattern(OPCODE      curOpcode,
 {
     assert(impOpcodeIsCallOpcode(curOpcode));
 
-#if !FEATURE_TAILCALL_OPT_SHARED_RETURN
-    // If shared ret tail opt is not enabled, we will enable
-    // it for recursive methods.
-    if (isRecursive)
-#endif
-    {
-        // we can actually handle if the ret is in a fallthrough block, as long as that is the only part of the
-        // sequence. Make sure we don't go past the end of the IL however.
-        codeEnd = min(codeEnd + 1, info.compCode + info.compILCodeSize);
-    }
+    // we can actually handle if the ret is in a fallthrough block, as long as that is the only part of the
+    // sequence. Make sure we don't go past the end of the IL however.
+    codeEnd = min(codeEnd + 1, info.compCode + info.compILCodeSize);
 
     // Bail out if there is no next opcode after call
     if (codeAddrOfNextOpcode >= codeEnd)
@@ -6323,6 +6317,7 @@ bool Importer::impIsTailCallILPattern(OPCODE      curOpcode,
 
     return (nextOpcode == CEE_RET);
 }
+#endif // FEATURE_TAILCALL_OPT
 
 /*****************************************************************************
  *
@@ -6332,8 +6327,9 @@ bool Importer::impIsTailCallILPattern(OPCODE      curOpcode,
 bool Importer::impIsImplicitTailCallCandidate(
     OPCODE opcode, const BYTE* codeAddrOfNextOpcode, const BYTE* codeEnd, int prefixFlags, bool isRecursive)
 {
-
-#if FEATURE_TAILCALL_OPT
+#if !FEATURE_TAILCALL_OPT
+    return false;
+#else
     if (!opts.compTailCallOpt)
     {
         return false;
@@ -6350,14 +6346,6 @@ bool Importer::impIsImplicitTailCallCandidate(
         return false;
     }
 
-#if !FEATURE_TAILCALL_OPT_SHARED_RETURN
-    // the block containing call is marked as BBJ_RETURN
-    // We allow shared ret tail call optimization on recursive calls even under
-    // !FEATURE_TAILCALL_OPT_SHARED_RETURN.
-    if (!isRecursive && (compCurBB->bbJumpKind != BBJ_RETURN))
-        return false;
-#endif // !FEATURE_TAILCALL_OPT_SHARED_RETURN
-
     // must be call+ret or call+pop+ret
     if (!impIsTailCallILPattern(opcode, codeAddrOfNextOpcode, codeEnd, isRecursive))
     {
@@ -6365,8 +6353,6 @@ bool Importer::impIsImplicitTailCallCandidate(
     }
 
     return true;
-#else
-    return false;
 #endif // FEATURE_TAILCALL_OPT
 }
 

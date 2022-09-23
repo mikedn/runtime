@@ -2149,10 +2149,12 @@ struct Importer
     static OPCODE impGetNonPrefixOpcode(const BYTE* codeAddr, const BYTE* codeEndp);
     static void impValidateMemoryAccessOpcode(OPCODE opcode, bool volatilePrefix);
     static bool impOpcodeIsCallOpcode(OPCODE opcode);
+#if FEATURE_TAILCALL_OPT
     bool impIsTailCallILPattern(OPCODE      curOpcode,
                                 const BYTE* codeAddrOfNextOpcode,
                                 const BYTE* codeEnd,
                                 bool        isRecursive);
+#endif
 
     void impStmtListAppend(Statement* stmt);
     void impStmtListInsertBefore(Statement* stmt, Statement* stmtBefore);
