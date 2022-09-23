@@ -6293,39 +6293,15 @@ bool Compiler::impTailCallRetTypeCompatible(GenTreeCall* call, bool allowWidenin
     return true;
 }
 
-#if FEATURE_TAILCALL_OPT
-// Returns true if the current opcode and and the opcodes following it correspond
-// to a supported tail call IL pattern.
-bool Importer::impIsTailCallILPattern(OPCODE      curOpcode,
-                                      const BYTE* codeAddrOfNextOpcode,
-                                      const BYTE* codeEnd,
-                                      bool        isRecursive)
-{
-    assert(impOpcodeIsCallOpcode(curOpcode));
-
-    // we can actually handle if the ret is in a fallthrough block, as long as that is the only part of the
-    // sequence. Make sure we don't go past the end of the IL however.
-    codeEnd = min(codeEnd + 1, info.compCode + info.compILCodeSize);
-
-    // Bail out if there is no next opcode after call
-    if (codeAddrOfNextOpcode >= codeEnd)
-    {
-        return false;
-    }
-
-    OPCODE nextOpcode = (OPCODE)getU1LittleEndian(codeAddrOfNextOpcode);
-
-    return (nextOpcode == CEE_RET);
-}
-#endif // FEATURE_TAILCALL_OPT
-
 /*****************************************************************************
  *
  * Determine whether the call could be converted to an implicit tail call
  *
  */
-bool Importer::impIsImplicitTailCallCandidate(
-    OPCODE opcode, const BYTE* codeAddrOfNextOpcode, const BYTE* codeEnd, int prefixFlags, bool isRecursive)
+bool Importer::impIsImplicitTailCallCandidate(const BYTE* codeAddrOfNextOpcode,
+                                              const BYTE* codeEnd,
+                                              int         prefixFlags,
+                                              bool        isRecursive)
 {
 #if !FEATURE_TAILCALL_OPT
     return false;
@@ -6346,13 +6322,11 @@ bool Importer::impIsImplicitTailCallCandidate(
         return false;
     }
 
-    // must be call+ret or call+pop+ret
-    if (!impIsTailCallILPattern(opcode, codeAddrOfNextOpcode, codeEnd, isRecursive))
-    {
-        return false;
-    }
+    // we can actually handle if the ret is in a fallthrough block, as long as that is the only part of the
+    // sequence. Make sure we don't go past the end of the IL however.
+    codeEnd = min(codeEnd + 1, info.compCode + info.compILCodeSize);
 
-    return true;
+    return (codeAddrOfNextOpcode < codeEnd) && (static_cast<OPCODE>(*codeAddrOfNextOpcode) == CEE_RET);
 #endif // FEATURE_TAILCALL_OPT
 }
 
@@ -12895,7 +12869,7 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
     // Note that when running under tail call stress, a call marked as explicit
     // tail prefixed will not be considered for implicit tail calling.
     if (passedTailCallStressValidation &&
-        impIsImplicitTailCallCandidate(opcode, codeAddr + 4, codeEnd, prefixFlags, isRecursive))
+        impIsImplicitTailCallCandidate(codeAddr + 4, codeEnd, prefixFlags, isRecursive))
     {
         if (compIsForInlining())
         {

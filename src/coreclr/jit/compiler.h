@@ -2149,12 +2149,6 @@ struct Importer
     static OPCODE impGetNonPrefixOpcode(const BYTE* codeAddr, const BYTE* codeEndp);
     static void impValidateMemoryAccessOpcode(OPCODE opcode, bool volatilePrefix);
     static bool impOpcodeIsCallOpcode(OPCODE opcode);
-#if FEATURE_TAILCALL_OPT
-    bool impIsTailCallILPattern(OPCODE      curOpcode,
-                                const BYTE* codeAddrOfNextOpcode,
-                                const BYTE* codeEnd,
-                                bool        isRecursive);
-#endif
 
     void impStmtListAppend(Statement* stmt);
     void impStmtListInsertBefore(Statement* stmt, Statement* stmtBefore);
@@ -2632,7 +2626,7 @@ struct Importer
                                       CORINFO_CALL_INFO*     callInfo);
 
     bool impIsImplicitTailCallCandidate(
-        OPCODE curOpcode, const BYTE* codeAddrOfNextOpcode, const BYTE* codeEnd, int prefixFlags, bool isRecursive);
+        const BYTE* codeAddrOfNextOpcode, const BYTE* codeEnd, int prefixFlags, bool isRecursive);
 
     bool impCanSkipCovariantStoreCheck(GenTree* value, GenTree* array);
 
