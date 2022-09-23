@@ -12748,6 +12748,8 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
                       ((opcode == CEE_CALLVIRT) ? CORINFO_CALLINFO_CALLVIRT : CORINFO_CALLINFO_NONE),
                   &callInfo);
 
+    impHandleAccessAllowed(callInfo.accessAllowed, callInfo.callsiteCalloutHelper);
+
     ImportCall(codeAddr, opcode, resolvedToken, constrainedResolvedToken, callInfo, prefixFlags);
 }
 
@@ -12827,11 +12829,6 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
         prefixFlags |= PREFIX_TAILCALL_IMPLICIT;
     }
 #endif
-
-    if (opcode != CEE_CALLI)
-    {
-        impHandleAccessAllowed(callInfo.accessAllowed, callInfo.callsiteCalloutHelper);
-    }
 
     impImportCall(opcode, &resolvedToken, isConstrained ? constrainedResolvedToken : nullptr, nullptr, prefixFlags,
                   &callInfo, codeAddr);
