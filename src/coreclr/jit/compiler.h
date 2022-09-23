@@ -2149,6 +2149,10 @@ struct Importer
     static OPCODE impGetNonPrefixOpcode(const BYTE* codeAddr, const BYTE* codeEndp);
     static void impValidateMemoryAccessOpcode(OPCODE opcode, bool volatilePrefix);
     static bool impOpcodeIsCallOpcode(OPCODE opcode);
+    bool impIsTailCallILPattern(OPCODE      curOpcode,
+                                const BYTE* codeAddrOfNextOpcode,
+                                const BYTE* codeEnd,
+                                bool        isRecursive);
 
     void impStmtListAppend(Statement* stmt);
     void impStmtListInsertBefore(Statement* stmt, Statement* stmtBefore);
@@ -4241,9 +4245,6 @@ public:
                                  InlineCandidateInfo*    inlineInfo,
                                  CORINFO_METHOD_HANDLE*  methodHnd,
                                  CORINFO_CONTEXT_HANDLE* context);
-
-    bool impIsTailCallILPattern(
-        bool tailPrefixed, OPCODE curOpcode, const BYTE* codeAddrOfNextOpcode, const BYTE* codeEnd, bool isRecursive);
 
     //=========================================================================
     //                          PROTECTED

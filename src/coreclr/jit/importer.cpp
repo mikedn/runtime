@@ -6295,10 +6295,12 @@ bool Compiler::impTailCallRetTypeCompatible(GenTreeCall* call, bool allowWidenin
 
 // Returns true if the current opcode and and the opcodes following it correspond
 // to a supported tail call IL pattern.
-bool Compiler::impIsTailCallILPattern(
-    bool tailPrefixed, OPCODE curOpcode, const BYTE* codeAddrOfNextOpcode, const BYTE* codeEnd, bool isRecursive)
+bool Importer::impIsTailCallILPattern(OPCODE      curOpcode,
+                                      const BYTE* codeAddrOfNextOpcode,
+                                      const BYTE* codeEnd,
+                                      bool        isRecursive)
 {
-    assert(Importer::impOpcodeIsCallOpcode(curOpcode));
+    assert(impOpcodeIsCallOpcode(curOpcode));
 
 #if !FEATURE_TAILCALL_OPT_SHARED_RETURN
     // If shared ret tail opt is not enabled, we will enable
@@ -6357,7 +6359,7 @@ bool Importer::impIsImplicitTailCallCandidate(
 #endif // !FEATURE_TAILCALL_OPT_SHARED_RETURN
 
     // must be call+ret or call+pop+ret
-    if (!comp->impIsTailCallILPattern(false, opcode, codeAddrOfNextOpcode, codeEnd, isRecursive))
+    if (!impIsTailCallILPattern(opcode, codeAddrOfNextOpcode, codeEnd, isRecursive))
     {
         return false;
     }
