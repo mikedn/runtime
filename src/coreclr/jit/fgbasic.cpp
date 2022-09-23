@@ -1424,6 +1424,11 @@ FixedBitVect* Compiler::fgFindJumpTargets(ILStats* ilStats)
             case CEE_READONLY:
             case CEE_VOLATILE:
             case CEE_TAILCALL:
+                if (codeAddr + sz >= codeEnd)
+                {
+                    BADCODE("prefix not followed by opcode");
+                }
+
                 handled = true;
                 goto OBSERVE_OPCODE;
 
@@ -2125,15 +2130,6 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTargets)
                     retBlocks++;
 
                     return retBlocks;
-                }
-                FALLTHROUGH;
-            case CEE_READONLY:
-            case CEE_CONSTRAINED:
-            case CEE_VOLATILE:
-            case CEE_UNALIGNED:
-                if (codeAddr + sz >= codeEnd)
-                {
-                    BADCODE("prefix not followed by opcode");
                 }
                 break;
 
