@@ -6298,11 +6298,7 @@ bool Compiler::impTailCallRetTypeCompatible(GenTreeCall* call, bool allowWidenin
 bool Compiler::impIsTailCallILPattern(
     bool tailPrefixed, OPCODE curOpcode, const BYTE* codeAddrOfNextOpcode, const BYTE* codeEnd, bool isRecursive)
 {
-    // Bail out if the current opcode is not a call.
-    if (!Importer::impOpcodeIsCallOpcode(curOpcode))
-    {
-        return false;
-    }
+    assert(Importer::impOpcodeIsCallOpcode(curOpcode));
 
 #if !FEATURE_TAILCALL_OPT_SHARED_RETURN
     // If shared ret tail opt is not enabled, we will enable
