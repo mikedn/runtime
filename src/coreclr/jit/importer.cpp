@@ -10820,14 +10820,14 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 ImportLdVirtFtn(codeAddr);
                 break;
             case CEE_NEWOBJ:
-                ImportNewObj(codeAddr, codeEndp, prefixFlags, block);
+                ImportNewObj(codeAddr, prefixFlags, block);
                 break;
             case CEE_CALLI:
-                ImportCallI(codeAddr, codeEndp, prefixFlags);
+                ImportCallI(codeAddr, prefixFlags);
                 break;
             case CEE_CALLVIRT:
             case CEE_CALL:
-                ImportCall(codeAddr, codeEndp, opcode, &constrainedResolvedToken, prefixFlags);
+                ImportCall(codeAddr, opcode, &constrainedResolvedToken, prefixFlags);
                 break;
 
             case CEE_LDFLD:
@@ -12389,7 +12389,7 @@ void Importer::ImportNewArr(const BYTE* codeAddr, BasicBlock* block)
     impPushOnStack(op1, typeInfo(TI_REF, resolvedToken.hClass));
 }
 
-void Importer::ImportNewObj(const uint8_t* codeAddr, const uint8_t* codeEnd, int prefixFlags, BasicBlock* block)
+void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock* block)
 {
     if (compIsForInlining())
     {
@@ -12704,7 +12704,7 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, const uint8_t* codeEnd, int
     }
 }
 
-void Importer::ImportCallI(const uint8_t* codeAddr, const uint8_t* codeEnd, int prefixFlags)
+void Importer::ImportCallI(const uint8_t* codeAddr, int prefixFlags)
 {
     // TODO-MIKE-Review: This should probably be BADCODE
     prefixFlags &= ~PREFIX_CONSTRAINED;
@@ -12728,11 +12728,10 @@ void Importer::ImportCallI(const uint8_t* codeAddr, const uint8_t* codeEnd, int 
     resolvedToken.tokenScope   = info.compScopeHnd;
     JITDUMP(" %08X", resolvedToken.token);
 
-    ImportCall(codeAddr, codeEnd, CEE_CALLI, resolvedToken, nullptr, callInfo, prefixFlags);
+    ImportCall(codeAddr, CEE_CALLI, resolvedToken, nullptr, callInfo, prefixFlags);
 }
 
 void Importer::ImportCall(const uint8_t*          codeAddr,
-                          const uint8_t*          codeEnd,
                           OPCODE                  opcode,
                           CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
                           int                     prefixFlags)
@@ -12749,11 +12748,10 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
                       ((opcode == CEE_CALLVIRT) ? CORINFO_CALLINFO_CALLVIRT : CORINFO_CALLINFO_NONE),
                   &callInfo);
 
-    ImportCall(codeAddr, codeEnd, opcode, resolvedToken, constrainedResolvedToken, callInfo, prefixFlags);
+    ImportCall(codeAddr, opcode, resolvedToken, constrainedResolvedToken, callInfo, prefixFlags);
 }
 
 void Importer::ImportCall(const uint8_t*          codeAddr,
-                          const uint8_t*          codeEnd,
                           OPCODE                  opcode,
                           CORINFO_RESOLVED_TOKEN& resolvedToken,
                           CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,

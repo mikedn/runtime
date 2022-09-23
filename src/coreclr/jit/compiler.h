@@ -2522,15 +2522,13 @@ struct Importer
     void ImportLdFtn(const BYTE* codeAddr, CORINFO_RESOLVED_TOKEN& constrainedResolvedToken, int prefixFlags);
     void ImportLdVirtFtn(const BYTE* codeAddr);
     void ImportNewArr(const BYTE* codeAddr, BasicBlock* block);
-    void ImportNewObj(const uint8_t* codeAddr, const uint8_t* codeEnd, int prefixFlags, BasicBlock* block);
-    void ImportCallI(const uint8_t* codeAddr, const uint8_t* codeEnd, int prefixFlags);
+    void ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock* block);
+    void ImportCallI(const uint8_t* codeAddr, int prefixFlags);
     void ImportCall(const uint8_t*          codeAddr,
-                    const uint8_t*          codeEnd,
                     OPCODE                  opcode,
                     CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
                     int                     prefixFlags);
     void ImportCall(const uint8_t*          codeAddr,
-                    const uint8_t*          codeEnd,
                     OPCODE                  opcode,
                     CORINFO_RESOLVED_TOKEN& resolvedToken,
                     CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
