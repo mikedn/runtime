@@ -2275,12 +2275,7 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTargets)
 
                 if (tailCall)
                 {
-                    // impIsTailCallILPattern uses isRecursive flag to determine whether ret in a fallthrough block is
-                    // allowed. We don't know at this point whether the call is recursive so we conservatively pass
-                    // false. This will only affect explicit tail calls when IL verification is not needed for the
-                    // method.
-
-                    if (!impIsTailCallILPattern(tailCall, opcode, codeAddr + sz, codeEnd, /* isRecursive */ false))
+                    if (static_cast<OPCODE>(*(codeAddr + sz)) != CEE_RET)
                     {
                         BADCODE3("tail call not followed by ret", " at offset %04X",
                                  static_cast<unsigned>(codeAddr - codeBegin));
