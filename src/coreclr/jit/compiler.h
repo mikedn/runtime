@@ -2623,8 +2623,6 @@ struct Importer
                                       bool                   exactContextNeedsRuntimeLookup,
                                       CORINFO_CALL_INFO*     callInfo);
 
-    bool impIsImplicitTailCallCandidate(const BYTE* codeAddrOfNextOpcode, const BYTE* codeEnd, int prefixFlags);
-
     bool impCanSkipCovariantStoreCheck(GenTree* value, GenTree* array);
 
     void impImportInitObj(GenTree* dstAddr, ClassLayout* layout);

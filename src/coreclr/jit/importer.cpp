@@ -6293,39 +6293,6 @@ bool Compiler::impTailCallRetTypeCompatible(GenTreeCall* call, bool allowWidenin
     return true;
 }
 
-/*****************************************************************************
- *
- * Determine whether the call could be converted to an implicit tail call
- *
- */
-bool Importer::impIsImplicitTailCallCandidate(const BYTE* codeAddrOfNextOpcode, const BYTE* codeEnd, int prefixFlags)
-{
-#if !FEATURE_TAILCALL_OPT
-    return false;
-#else
-    if (JitConfig.TailCallOpt() == 0)
-    {
-        return false;
-    }
-
-    if (opts.OptimizationDisabled())
-    {
-        return false;
-    }
-
-    // must not be tail prefixed
-    if (prefixFlags & PREFIX_TAILCALL_EXPLICIT)
-    {
-        return false;
-    }
-
-    // Note that we don't care if the RET is in a different block, if we do tail
-    // call then the call's block will eventually be converted to a RETURN block.
-    return (codeAddrOfNextOpcode < info.compCode + info.compILCodeSize) &&
-           (static_cast<OPCODE>(*codeAddrOfNextOpcode) == CEE_RET);
-#endif // FEATURE_TAILCALL_OPT
-}
-
 //------------------------------------------------------------------------
 // impImportCall: import a call-inspiring opcode
 //
@@ -12795,9 +12762,10 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
 {
     assert(impOpcodeIsCallOpcode(opcode));
 
-    bool isConstrained                  = (prefixFlags & PREFIX_CONSTRAINED) != 0;
-    bool newBBcreatedForTailcallStress  = false;
-    bool passedTailCallStressValidation = true;
+    bool           isConstrained                  = (prefixFlags & PREFIX_CONSTRAINED) != 0;
+    bool           newBBcreatedForTailcallStress  = false;
+    bool           passedTailCallStressValidation = true;
+    const uint8_t* nextOpcodeAddr                 = codeAddr + 4;
 
     if (compIsForInlining())
     {
@@ -12815,7 +12783,7 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
         // the call instead imports it to a new basic block.  Note that fgMakeBasicBlocks()
         // is already checking that there is an opcode following call and hence it is
         // safe here to read next opcode without bounds check.
-        newBBcreatedForTailcallStress = getU1LittleEndian(codeAddr + 4) == CEE_RET;
+        newBBcreatedForTailcallStress = static_cast<OPCODE>(*nextOpcodeAddr) == CEE_RET;
 
         if (newBBcreatedForTailcallStress && ((prefixFlags & PREFIX_TAILCALL_EXPLICIT) == 0))
         {
@@ -12854,6 +12822,7 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
     }
 #endif // DEBUG
 
+#if FEATURE_TAILCALL_OPT
     // If we've already disqualified this call as a tail call under tail call stress,
     // don't consider it for implicit tail calling either.
     //
@@ -12862,7 +12831,11 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
     //
     // Note that when running under tail call stress, a call marked as explicit
     // tail prefixed will not be considered for implicit tail calling.
-    if (passedTailCallStressValidation && impIsImplicitTailCallCandidate(codeAddr + 4, codeEnd, prefixFlags))
+    if (passedTailCallStressValidation && ((prefixFlags & PREFIX_TAILCALL_EXPLICIT) == 0) &&
+        (JitConfig.TailCallOpt() != 0) && opts.OptimizationEnabled()
+        // Note that we don't care if the RET is in a different block, if we do tail
+        // call then the call's block will eventually be converted to a RETURN block.
+        && (nextOpcodeAddr < info.compCode + info.compILCodeSize) && (static_cast<OPCODE>(*nextOpcodeAddr) == CEE_RET))
     {
         if (compIsForInlining())
         {
@@ -12886,6 +12859,7 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
             prefixFlags |= PREFIX_TAILCALL_IMPLICIT;
         }
     }
+#endif
 
     if (opcode != CEE_CALLI)
     {
