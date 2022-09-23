@@ -9665,19 +9665,17 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_RET:
-                prefixFlags &= ~PREFIX_TAILCALL; // ret without call before it
-
                 if (compIsForInlining())
                 {
                     if (!impInlineReturnInstruction())
                     {
                         return;
                     }
-
-                    break;
                 }
-
-                impReturnInstruction(prefixFlags, opcode);
+                else
+                {
+                    impReturnInstruction(0, CEE_RET);
+                }
                 break;
 
             case CEE_JMP:
