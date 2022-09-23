@@ -1214,11 +1214,6 @@ FixedBitVect* Compiler::fgFindJumpTargets(ILStats* ilStats)
                              static_cast<unsigned>(codeAddr - codeBegin));
                 }
 
-                if ((inlineResult != nullptr) && (distance < 0))
-                {
-                    inlineResult->Note(InlineObservation::CALLEE_BACKWARD_JUMP);
-                }
-
                 if (jumpTargets == nullptr)
                 {
                     jumpTargets = FixedBitVect::bitVectInit(info.compILCodeSize, this);
@@ -1226,87 +1221,100 @@ FixedBitVect* Compiler::fgFindJumpTargets(ILStats* ilStats)
 
                 jumpTargets->bitVectSet(targetOffset);
 
-                if (!preciseScan && (inlineResult != nullptr) && (opcode != CEE_BR_S) && (opcode != CEE_BR))
+                if (inlineResult == nullptr)
                 {
-                    fgObserveInlineConstants(opcode, pushedStack, inlineInfo);
+                    break;
                 }
-                else if (preciseScan && (inlineResult != nullptr))
+
+                if (distance < 0)
                 {
-                    switch (opcode)
+                    inlineResult->Note(InlineObservation::CALLEE_BACKWARD_JUMP);
+                }
+
+                if (!preciseScan)
+                {
+                    if ((opcode != CEE_BR_S) && (opcode != CEE_BR))
                     {
-                        case CEE_BEQ:
-                        case CEE_BGE:
-                        case CEE_BGT:
-                        case CEE_BLE:
-                        case CEE_BLT:
-                        case CEE_BNE_UN:
-                        case CEE_BGE_UN:
-                        case CEE_BGT_UN:
-                        case CEE_BLE_UN:
-                        case CEE_BLT_UN:
-                        case CEE_BEQ_S:
-                        case CEE_BGE_S:
-                        case CEE_BGT_S:
-                        case CEE_BLE_S:
-                        case CEE_BLT_S:
-                        case CEE_BNE_UN_S:
-                        case CEE_BGE_UN_S:
-                        case CEE_BGT_UN_S:
-                        case CEE_BLE_UN_S:
-                        case CEE_BLT_UN_S:
+                        fgObserveInlineConstants(opcode, pushedStack, inlineInfo);
+                    }
+
+                    break;
+                }
+
+                switch (opcode)
+                {
+                    case CEE_BEQ:
+                    case CEE_BGE:
+                    case CEE_BGT:
+                    case CEE_BLE:
+                    case CEE_BLT:
+                    case CEE_BNE_UN:
+                    case CEE_BGE_UN:
+                    case CEE_BGT_UN:
+                    case CEE_BLE_UN:
+                    case CEE_BLT_UN:
+                    case CEE_BEQ_S:
+                    case CEE_BGE_S:
+                    case CEE_BGT_S:
+                    case CEE_BLE_S:
+                    case CEE_BLT_S:
+                    case CEE_BNE_UN_S:
+                    case CEE_BGE_UN_S:
+                    case CEE_BGT_UN_S:
+                    case CEE_BLE_UN_S:
+                    case CEE_BLT_UN_S:
+                    {
+                        FgStack::FgSlot op1 = pushedStack.Top(1);
+                        FgStack::FgSlot op2 = pushedStack.Top(0);
+
+                        if (FgStack::IsConstantOrConstArg(op1, inlineInfo) &&
+                            FgStack::IsConstantOrConstArg(op2, inlineInfo))
                         {
-                            FgStack::FgSlot op1 = pushedStack.Top(1);
-                            FgStack::FgSlot op2 = pushedStack.Top(0);
-
-                            if (FgStack::IsConstantOrConstArg(op1, inlineInfo) &&
-                                FgStack::IsConstantOrConstArg(op2, inlineInfo))
-                            {
-                                inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_BRANCH);
-                            }
-                            if (FgStack::IsConstArgument(op1, inlineInfo) || FgStack::IsConstArgument(op2, inlineInfo))
-                            {
-                                inlineResult->Note(InlineObservation::CALLSITE_CONSTANT_ARG_FEEDS_TEST);
-                            }
-
-                            if ((FgStack::IsArgument(op1) && FgStack::IsArrayLen(op2)) ||
-                                (FgStack::IsArgument(op2) && FgStack::IsArrayLen(op1)))
-                            {
-                                inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_RANGE_CHECK);
-                            }
-                            else if ((FgStack::IsArgument(op1) && FgStack::IsConstantOrConstArg(op2, inlineInfo)) ||
-                                     (FgStack::IsArgument(op2) && FgStack::IsConstantOrConstArg(op1, inlineInfo)))
-                            {
-                                inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_CONSTANT_TEST);
-                            }
-                            else if (FgStack::IsArgument(op1) || FgStack::IsArgument(op2))
-                            {
-                                inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_TEST);
-                            }
-                            else if (FgStack::IsConstant(op1) || FgStack::IsConstant(op2))
-                            {
-                                inlineResult->Note(InlineObservation::CALLEE_BINARY_EXRP_WITH_CNS);
-                            }
-                            break;
+                            inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_BRANCH);
+                        }
+                        if (FgStack::IsConstArgument(op1, inlineInfo) || FgStack::IsConstArgument(op2, inlineInfo))
+                        {
+                            inlineResult->Note(InlineObservation::CALLSITE_CONSTANT_ARG_FEEDS_TEST);
                         }
 
-                        case CEE_BRFALSE_S:
-                        case CEE_BRTRUE_S:
-                        case CEE_BRFALSE:
-                        case CEE_BRTRUE:
-                            if (FgStack::IsConstantOrConstArg(pushedStack.Top(), inlineInfo))
-                            {
-                                inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_BRANCH);
-                            }
-                            else if (FgStack::IsArgument(pushedStack.Top()))
-                            {
-                                // E.g. brtrue is basically "if (X == 0)"
-                                inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_CONSTANT_TEST);
-                            }
-                            break;
-
-                        default:
-                            break;
+                        if ((FgStack::IsArgument(op1) && FgStack::IsArrayLen(op2)) ||
+                            (FgStack::IsArgument(op2) && FgStack::IsArrayLen(op1)))
+                        {
+                            inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_RANGE_CHECK);
+                        }
+                        else if ((FgStack::IsArgument(op1) && FgStack::IsConstantOrConstArg(op2, inlineInfo)) ||
+                                 (FgStack::IsArgument(op2) && FgStack::IsConstantOrConstArg(op1, inlineInfo)))
+                        {
+                            inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_CONSTANT_TEST);
+                        }
+                        else if (FgStack::IsArgument(op1) || FgStack::IsArgument(op2))
+                        {
+                            inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_TEST);
+                        }
+                        else if (FgStack::IsConstant(op1) || FgStack::IsConstant(op2))
+                        {
+                            inlineResult->Note(InlineObservation::CALLEE_BINARY_EXRP_WITH_CNS);
+                        }
+                        break;
                     }
+
+                    case CEE_BRFALSE_S:
+                    case CEE_BRTRUE_S:
+                    case CEE_BRFALSE:
+                    case CEE_BRTRUE:
+                        if (FgStack::IsConstantOrConstArg(pushedStack.Top(), inlineInfo))
+                        {
+                            inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_BRANCH);
+                        }
+                        else if (FgStack::IsArgument(pushedStack.Top()))
+                        {
+                            // E.g. brtrue is basically "if (X == 0)"
+                            inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_CONSTANT_TEST);
+                        }
+                        break;
+
+                    default:
+                        break;
                 }
             }
             break;
