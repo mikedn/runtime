@@ -2338,7 +2338,7 @@ struct Importer
     void impLoadArg(unsigned ilArgNum);
     void impLoadLoc(unsigned ilLclNum);
     bool impInlineReturnInstruction();
-    void impReturnInstruction(int prefixFlags, OPCODE opcode);
+    void impReturnInstruction(INDEBUG(bool isTailcall = false));
 
     void FreeBlockListNode(BlockListNode* node);
 

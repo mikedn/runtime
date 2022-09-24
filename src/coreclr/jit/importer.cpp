@@ -9674,7 +9674,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 }
                 else
                 {
-                    impReturnInstruction(0, CEE_RET);
+                    impReturnInstruction();
                 }
                 break;
 
@@ -12760,10 +12760,10 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
 {
     assert(impOpcodeIsCallOpcode(opcode));
 
-    bool           isConstrained                 = (prefixFlags & PREFIX_CONSTRAINED) != 0;
-    bool           allowImplicitTailcall         = (prefixFlags & PREFIX_TAILCALL_EXPLICIT) == 0;
-    const uint8_t* nextOpcodeAddr                = codeAddr + 4;
-    bool           newBBcreatedForTailcallStress = false;
+    bool           isConstrained         = (prefixFlags & PREFIX_CONSTRAINED) != 0;
+    bool           allowImplicitTailcall = (prefixFlags & PREFIX_TAILCALL_EXPLICIT) == 0;
+    const uint8_t* nextOpcodeAddr        = codeAddr + 4;
+    INDEBUG(bool isInTailcallReturnBlock = false);
 
     if (compIsForInlining())
     {
@@ -12774,16 +12774,13 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
 #ifdef DEBUG
     else if (compTailCallStress())
     {
-        // Have we created a new BB after the "call" instruction in fgMakeBasicBlocks()?
-        // Tail call stress only recognizes call+ret patterns and forces them to be
-        // explicit tail prefixed calls.  Also fgMakeBasicBlocks() under tail call stress
-        // doesn't import 'ret' opcode following the call into the basic block containing
-        // the call instead imports it to a new basic block.  Note that fgMakeBasicBlocks()
-        // is already checking that there is an opcode following call and hence it is
-        // safe here to read next opcode without bounds check.
-        newBBcreatedForTailcallStress = static_cast<OPCODE>(*nextOpcodeAddr) == CEE_RET;
+        // In tail call stress mode we always create a RETURN block for a call followed
+        // by a ret. This block does not include the ret instruction (since the ret could
+        // be a jump target) so even if we decide not to synthesize an explicit tail call
+        // we still need to create a RETURN node out of thin air.
+        isInTailcallReturnBlock = static_cast<OPCODE>(*nextOpcodeAddr) == CEE_RET;
 
-        if (newBBcreatedForTailcallStress && allowImplicitTailcall)
+        if (isInTailcallReturnBlock && allowImplicitTailcall)
         {
             if (verCheckTailCallConstraint(opcode, &resolvedToken, isConstrained ? constrainedResolvedToken : nullptr))
             {
@@ -12836,13 +12833,22 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
         return;
     }
 
-    if (((prefixFlags & PREFIX_TAILCALL_EXPLICIT) != 0) || newBBcreatedForTailcallStress)
+    if ((prefixFlags & PREFIX_TAILCALL_EXPLICIT) != 0)
     {
-        // If newBBcreatedForTailcallStress is true, we have created a new BB after the "call"
-        // instruction in fgMakeBasicBlocks(). So we need to jump to RET regardless.
-
-        impReturnInstruction(prefixFlags, opcode);
+        // An explicit tail call always gets its own RETURN block that does not
+        // include the following ret instruction, if the call returns a value we
+        // need to generate a RETURN node now.
+        if (info.compRetType != TYP_VOID)
+        {
+            impReturnInstruction(INDEBUG(true));
+        }
     }
+#ifdef DEBUG
+    else if (isInTailcallReturnBlock)
+    {
+        impReturnInstruction();
+    }
+#endif
 }
 
 // Load an argument on the operand stack
@@ -12950,9 +12956,10 @@ bool Importer::impInlineReturnInstruction()
     return inlImportReturn(impInlineInfo, op2, retClsHnd);
 }
 
-void Importer::impReturnInstruction(int prefixFlags, OPCODE opcode)
+void Importer::impReturnInstruction(INDEBUG(bool isTailcall))
 {
     assert(!compIsForInlining());
+    assert(compCurBB->bbJumpKind == BBJ_RETURN);
 
     GenTree* ret;
 
@@ -12983,7 +12990,7 @@ void Importer::impReturnInstruction(int prefixFlags, OPCODE opcode)
                    (varTypeIsStruct(valType) && varTypeIsStruct(retType)));
         }
 
-        if (((prefixFlags & PREFIX_TAILCALL) == 0) && opts.compGcChecks && (info.compRetType == TYP_REF))
+        if (!isTailcall && opts.compGcChecks && (info.compRetType == TYP_REF))
         {
             // DDB 3483  : JIT Stress: early termination of GC ref's life time in exception code path
             // VSW 440513: Incorrect gcinfo on the return value under COMPlus_JitGCChecks=1 for methods with
@@ -13041,18 +13048,6 @@ void Importer::impReturnInstruction(int prefixFlags, OPCODE opcode)
 #endif
 
             ret = gtNewOperNode(GT_RETURN, varActualType(info.compRetType), value);
-        }
-    }
-
-    // We must have imported a tailcall and jumped to RET
-    if ((prefixFlags & PREFIX_TAILCALL) != 0)
-    {
-        assert((verCurrentState.esStackDepth == 0) && impOpcodeIsCallOpcode(opcode));
-
-        // impImportCall would have already appended TYP_VOID calls
-        if (info.compRetType == TYP_VOID)
-        {
-            return;
         }
     }
 
