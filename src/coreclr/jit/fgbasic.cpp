@@ -2243,7 +2243,8 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTargets)
                             "implementation limitation.\n");
                 }
 
-                goto GOT_ENDP;
+                assert(sz == 0);
+                break;
             }
 
             case CEE_CALL:
@@ -2301,12 +2302,8 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTargets)
 
         codeAddr += sz;
 
-    GOT_ENDP:
-        // Compute the offset of the next opcode.
-
         unsigned nextBlockOffset = static_cast<unsigned>(codeAddr - codeBegin);
-
-        bool foundScope = false;
+        bool     foundScope      = false;
 
         if (opts.compDbgCode && (info.compVarScopesCount > 0) && !compVarScopeExtended)
         {
