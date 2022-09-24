@@ -4147,6 +4147,9 @@ bool Importer::verCheckTailCallConstraint(OPCODE                  opcode,
                                                                                             // call on a type parameter?
                                           )
 {
+    assert(impOpcodeIsCallOpcode(opcode));
+    assert(!compIsForInlining());
+
     DWORD            mflags;
     CORINFO_SIG_INFO sig;
     unsigned int     popCount = 0; // we can't pop the stack since impImportCall needs it, so
@@ -4156,13 +4159,6 @@ bool Importer::verCheckTailCallConstraint(OPCODE                  opcode,
     CORINFO_METHOD_HANDLE methodHnd       = nullptr;
     CORINFO_CLASS_HANDLE  methodClassHnd  = nullptr;
     unsigned              methodClassFlgs = 0;
-
-    assert(impOpcodeIsCallOpcode(opcode));
-
-    if (compIsForInlining())
-    {
-        return false;
-    }
 
     // for calli, VerifyOrReturn that this is not a virtual method
     if (opcode == CEE_CALLI)

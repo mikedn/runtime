@@ -283,6 +283,8 @@ static bool tiCompatibleWithByRef(ICorJitInfo* vm, const typeInfo& child, const 
 
 bool typeInfo::tiCompatibleWith(ICorJitInfo* vm, const typeInfo& child, const typeInfo& parent)
 {
+    assert(!parent.IsType(TI_METHOD));
+
     if (typeInfo::AreEquivalent(child, parent))
     {
         return true;
@@ -291,12 +293,6 @@ bool typeInfo::tiCompatibleWith(ICorJitInfo* vm, const typeInfo& child, const ty
     if (parent.IsType(TI_REF))
     {
         return child.IsType(TI_REF) && vm->canCast(child.m_cls, parent.m_cls);
-    }
-
-    if (parent.IsType(TI_METHOD))
-    {
-        // Right now we don't bother merging method handles
-        return child.IsType(TI_METHOD);
     }
 
     if (parent.IsType(TI_STRUCT))
