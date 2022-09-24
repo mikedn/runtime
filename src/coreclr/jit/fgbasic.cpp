@@ -2249,12 +2249,6 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTargets)
             case CEE_CALL:
             case CEE_CALLVIRT:
             case CEE_CALLI:
-                if (inlineInfo != nullptr)
-                {
-                    // Ignore all tail calling in inlinees.
-                    break;
-                }
-
                 if (tailCall)
                 {
                     if ((codeAddr >= codeEnd - sz) || (static_cast<OPCODE>(*(codeAddr + sz)) != CEE_RET))
@@ -2272,7 +2266,7 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTargets)
                     }
                 }
 #ifdef DEBUG
-                else if (compTailCallStress())
+                else if (compTailCallStress() && (inlineInfo == nullptr))
                 {
                     if ((codeAddr >= codeEnd - sz) || (static_cast<OPCODE>(*(codeAddr + sz)) != CEE_RET))
                     {
