@@ -1419,11 +1419,19 @@ FixedBitVect* Compiler::fgFindJumpTargets(ILStats* ilStats)
                 }
                 break;
 
+            case CEE_TAILCALL:
+                if (inlineInfo != nullptr)
+                {
+                    // TODO-CQ: We can inline some callees with explicit tail calls if we can guarantee that the calls
+                    // can be dispatched as tail calls from the caller.
+                    inlineResult->NoteFatal(InlineObservation::CALLEE_EXPLICIT_TAIL_PREFIX);
+                    return nullptr;
+                }
+                FALLTHROUGH;
             case CEE_UNALIGNED:
             case CEE_CONSTRAINED:
             case CEE_READONLY:
             case CEE_VOLATILE:
-            case CEE_TAILCALL:
                 if (codeAddr + sz >= codeEnd)
                 {
                     BADCODE("prefix not followed by opcode");
@@ -2122,16 +2130,6 @@ unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTargets)
                 goto DECODE_OPCODE;
 
             case CEE_TAILCALL:
-                if (inlineInfo != nullptr)
-                {
-                    // TODO-CQ: We can inline some callees with explicit tail calls if we can guarantee that the calls
-                    // can be dispatched as tail calls from the caller.
-                    inlineResult->NoteFatal(InlineObservation::CALLEE_EXPLICIT_TAIL_PREFIX);
-                    retBlocks++;
-
-                    return retBlocks;
-                }
-
                 opcode   = static_cast<OPCODE>(*codeAddr++);
                 tailCall = true;
                 goto DECODE_OPCODE;
