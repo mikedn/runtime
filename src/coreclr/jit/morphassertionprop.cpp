@@ -783,14 +783,14 @@ bool Compiler::morphAssertionIsTypeRange(GenTreeLclVar* lclVar, var_types type)
     // TODO-MIKE-Review: Check why BOOL is ignored, it behaves like UBYTE when used with casts.
     if (!varTypeIsSmallInt(type))
     {
-        return nullptr;
+        return false;
     }
 
     const MorphAssertion* assertion = morphAssertionFindRange(lclVar->GetLclNum());
 
     if (assertion == nullptr)
     {
-        return nullptr;
+        return false;
     }
 
     const auto& typeRange  = GetSmallTypeRange(type);
