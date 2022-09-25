@@ -13850,7 +13850,9 @@ void Importer::Import()
                 // Assume if we generate any IR for the block we generate IR for the entire block.
                 if (block->firstStmt() != nullptr)
                 {
-                    if (block->bbCodeOffsEnd > block->bbCodeOffs)
+                    // TODO-MIKE-Review: Some EH code generates blocks where bbCodeOffs is valid
+                    // and bbCodeOffsEnd is BAD_IL_OFFSET, that doesn't make a lot of sense.
+                    if ((block->bbCodeOffs < block->bbCodeOffsEnd) && (block->bbCodeOffsEnd <= MAX_IL_OFFSET))
                     {
                         importedILSize += block->bbCodeOffsEnd - block->bbCodeOffs;
                     }
