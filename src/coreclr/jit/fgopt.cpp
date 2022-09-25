@@ -1525,13 +1525,9 @@ bool Compiler::fgCanCompactBlocks(BasicBlock* block, BasicBlock* bNext)
     }
 
     // We cannot compact two blocks in different EH regions.
-    //
-    if (fgCanRelocateEHRegions)
+    if (!BasicBlock::sameEHRegion(block, bNext))
     {
-        if (!BasicBlock::sameEHRegion(block, bNext))
-        {
-            return false;
-        }
+        return false;
     }
 
     // If there is a switch predecessor don't bother because we'd have to update the uniquesuccs as well
@@ -1918,9 +1914,6 @@ void Compiler::fgCompactBlocks(BasicBlock* block, BasicBlock* bNext)
             break;
 
         case BBJ_SWITCH:
-            block->bbJumpSwt = bNext->bbJumpSwt;
-            // We are moving the switch jump from bNext to block.  Examine the jump targets
-            // of the BBJ_SWITCH at bNext and replace the predecessor to 'bNext' with ones to 'block'
             fgChangeSwitchBlock(bNext, block);
             break;
 
@@ -3559,7 +3552,7 @@ bool Compiler::fgOptimizeBranch(BasicBlock* bJump)
     condTree = condTree->AsOp()->gtOp1;
 
     // This condTree has to be a RelOp comparison.
-    if (condTree->OperIsCompare() == false)
+    if (!condTree->OperIsCompare())
     {
         return false;
     }
@@ -3580,10 +3573,7 @@ bool Compiler::fgOptimizeBranch(BasicBlock* bJump)
         newStmtList->SetPrevStmt(newLastStmt);
     }
 
-    //
-    // Reverse the sense of the compare
-    //
-    gtReverseCond(condTree);
+    gtReverseRelop(condTree->AsOp());
 
     // We need to update the following flags of the bJump block if they were set in the bDest block
     bJump->bbFlags |= (bDest->bbFlags & BBF_IR_SUMMARY);

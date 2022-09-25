@@ -492,64 +492,6 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
 }
 
 //------------------------------------------------------------------------
-// fgCanSwitchToOptimized: Determines if conditions are met to allow switching the opt level to optimized
-//
-// Return Value:
-//    True if the opt level may be switched from tier 0 to optimized, false otherwise
-//
-// Assumptions:
-//    - compInitOptions() has been called
-//    - compSetOptimizationLevel() has not been called
-//
-// Notes:
-//    This method is to be called at some point before compSetOptimizationLevel() to determine if the opt level may be
-//    changed based on information gathered in early phases.
-
-bool Compiler::fgCanSwitchToOptimized()
-{
-    bool result = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER0) && !opts.jitFlags->IsSet(JitFlags::JIT_FLAG_MIN_OPT) &&
-                  !opts.compDbgCode && !compIsForInlining();
-    if (result)
-    {
-        // Ensure that it would be safe to change the opt level
-        assert(opts.optFlags == CLFLG_MINOPT);
-        assert(!opts.IsMinOptsSet());
-    }
-
-    return result;
-}
-
-//------------------------------------------------------------------------
-// fgSwitchToOptimized: Switch the opt level from tier 0 to optimized
-//
-// Assumptions:
-//    - fgCanSwitchToOptimized() is true
-//    - compSetOptimizationLevel() has not been called
-//
-// Notes:
-//    This method is to be called at some point before compSetOptimizationLevel() to switch the opt level to optimized
-//    based on information gathered in early phases.
-
-void Compiler::fgSwitchToOptimized()
-{
-    assert(fgCanSwitchToOptimized());
-
-    // Switch to optimized and re-init options
-    JITDUMP("****\n**** JIT Tier0 jit request switching to Tier1 because of loop\n****\n");
-    assert(opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER0));
-    opts.jitFlags->Clear(JitFlags::JIT_FLAG_TIER0);
-    opts.jitFlags->Clear(JitFlags::JIT_FLAG_BBINSTR);
-
-    // Leave a note for jit diagnostics
-    compSwitchedToOptimized = true;
-
-    compInitOptions(opts.jitFlags);
-
-    // Notify the VM of the change
-    info.compCompHnd->setMethodAttribs(info.compMethodHnd, CORINFO_FLG_SWITCHED_TO_OPTIMIZED);
-}
-
-//------------------------------------------------------------------------
 // fgMayExplicitTailCall: Estimates conservatively for an explicit tail call, if the importer may actually use a tail
 // call.
 //
@@ -591,30 +533,6 @@ bool Compiler::fgMayExplicitTailCall()
 }
 
 //------------------------------------------------------------------------
-// fgFindJumpTargets: walk the IL stream, determining jump target offsets
-//
-// Arguments:
-//    codeAddr   - base address of the IL code buffer
-//    codeSize   - number of bytes in the IL code buffer
-//    jumpTarget - [OUT] bit vector for flagging jump targets
-//
-// Notes:
-//    If inlining or prejitting the root, this method also makes
-//    various observations about the method that factor into inline
-//    decisions.
-//
-//    May throw an exception if the IL is malformed.
-//
-//    jumpTarget[N] is set to 1 if IL offset N is a jump target in the method.
-//
-//    Also sets lvAddrExposed and lvHasILStoreOp, ilHasMultipleILStoreOp in lvaTable[].
-
-#ifdef _PREFAST_
-#pragma warning(push)
-#pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
-#endif
-
-//------------------------------------------------------------------------
 // fgImport: read the IL for the method and create jit IR
 //
 // Returns:
@@ -622,57 +540,8 @@ bool Compiler::fgMayExplicitTailCall()
 //
 PhaseStatus Compiler::fgImport()
 {
-    impImport();
-
-    // Estimate how much of method IL was actually imported.
-    //
-    // Note this includes (to some extent) the impact of importer folded
-    // branches, provided the folded tree covered the entire block's IL.
-    unsigned importedILSize = 0;
-    for (BasicBlock* const block : Blocks())
-    {
-        if ((block->bbFlags & BBF_IMPORTED) != 0)
-        {
-            // Assume if we generate any IR for the block we generate IR for the entire block.
-            if (block->firstStmt() != nullptr)
-            {
-                IL_OFFSET beginOffset = block->bbCodeOffs;
-                IL_OFFSET endOffset   = block->bbCodeOffsEnd;
-
-                if ((beginOffset != BAD_IL_OFFSET) && (endOffset != BAD_IL_OFFSET) && (endOffset > beginOffset))
-                {
-                    unsigned blockILSize = endOffset - beginOffset;
-                    importedILSize += blockILSize;
-                }
-            }
-        }
-    }
-
-    // Could be tripped up if we ever duplicate blocks
-    assert(importedILSize <= info.compILCodeSize);
-
-    // Leave a note if we only did a partial import.
-    if (importedILSize != info.compILCodeSize)
-    {
-        JITDUMP("\n** Note: %s IL was partially imported -- imported %u of %u bytes of method IL\n",
-                compIsForInlining() ? "inlinee" : "root method", importedILSize, info.compILCodeSize);
-    }
-
-    // Record this for diagnostics and for the inliner's budget computations
-    info.compILImportSize = importedILSize;
-
-    if (compIsForInlining())
-    {
-        compInlineResult->SetImportedILSize(info.compILImportSize);
-    }
-
-    // Full preds are only used later on
-    assert(!fgComputePredsDone);
-    if (fgCheapPredsValid)
-    {
-        // Cheap predecessors are only used during importation
-        fgRemovePreds();
-    }
+    Importer importer(this);
+    importer.Import();
 
     return PhaseStatus::MODIFIED_EVERYTHING;
 }
@@ -878,7 +747,7 @@ GenTreeCall* Compiler::fgGetSharedCCtor(CORINFO_CLASS_HANDLE cls)
         memset(&resolvedToken, 0, sizeof(resolvedToken));
         resolvedToken.hClass = cls;
 
-        return impReadyToRunHelperToTree(&resolvedToken, CORINFO_HELP_READYTORUN_STATIC_BASE, TYP_BYREF);
+        return gtNewReadyToRunHelperCallNode(&resolvedToken, CORINFO_HELP_READYTORUN_STATIC_BASE, TYP_BYREF);
     }
 #endif
 
@@ -947,9 +816,9 @@ bool Compiler::fgAddrCouldBeNull(GenTree* addr)
 //    Original call tree if no optimization applies.
 //    Updated call tree if optimized.
 
-GenTree* Compiler::fgOptimizeDelegateConstructor(GenTreeCall*            call,
-                                                 CORINFO_CONTEXT_HANDLE* ExactContextHnd,
-                                                 CORINFO_RESOLVED_TOKEN* ldftnToken)
+GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            call,
+                                                     CORINFO_CONTEXT_HANDLE* ExactContextHnd,
+                                                     CORINFO_RESOLVED_TOKEN* ldftnToken)
 {
     JITDUMP("\nfgOptimizeDelegateConstructor: ");
     noway_assert(call->gtCallType == CT_USER_FUNC);
@@ -1055,7 +924,7 @@ GenTree* Compiler::fgOptimizeDelegateConstructor(GenTreeCall*            call,
                     CORINFO_CONST_LOOKUP genericLookup;
                     info.compCompHnd->getReadyToRunHelper(ldftnToken, &pLookup.lookupKind,
                                                           CORINFO_HELP_READYTORUN_GENERIC_HANDLE, &genericLookup);
-                    GenTree* ctxTree = getRuntimeContextTree(pLookup.lookupKind.runtimeLookupKind);
+                    GenTree* ctxTree = gtNewRuntimeContextTree(pLookup.lookupKind.runtimeLookupKind);
                     helperArgs       = gtNewCallArgs(thisPointer, targetObjPointers, ctxTree);
                     entryPoint       = genericLookup;
                 }
@@ -1520,7 +1389,7 @@ void Compiler::fgAddSyncMethodEnterExit()
         newEntry->ebdHndEndOffset    = 0; // handler doesn't correspond to any IL
 
         // Set some flags on the new region. This is the same as when we set up
-        // EH regions in fgFindBasicBlocks(). Note that the try has no enclosing
+        // EH regions in compCreateBasicBlocks(). Note that the try has no enclosing
         // handler, and the fault has no enclosing try.
 
         tryBegBB->bbFlags |= BBF_DONT_REMOVE | BBF_TRY_BEG | BBF_IMPORTED;
@@ -2717,9 +2586,9 @@ void Compiler::fgSimpleLowering()
 #endif // FEATURE_FIXED_OUT_ARGS
 
 #ifdef DEBUG
-    if (verbose && fgRngChkThrowAdded)
+    if (verbose)
     {
-        printf("\nAfter fgSimpleLowering() added some RngChk throw blocks");
+        printf("\nAfter fgSimpleLowering()");
         fgDispBasicBlocks();
         fgDispHandlerTab();
         printf("\n");
@@ -3263,18 +3132,6 @@ BasicBlock* Compiler::fgAddCodeRef(BasicBlock* srcBlk, unsigned refData, Special
         return nullptr;
     }
 
-    const static BBjumpKinds jumpKinds[] = {
-        BBJ_NONE,   // SCK_NONE
-        BBJ_THROW,  // SCK_RNGCHK_FAIL
-        BBJ_ALWAYS, // SCK_PAUSE_EXEC
-        BBJ_THROW,  // SCK_DIV_BY_ZERO
-        BBJ_THROW,  // SCK_ARITH_EXCP, SCK_OVERFLOW
-        BBJ_THROW,  // SCK_ARG_EXCPN
-        BBJ_THROW,  // SCK_ARG_RNG_EXCPN
-    };
-
-    noway_assert(sizeof(jumpKinds) == SCK_COUNT); // sanity check
-
     /* First look for an existing entry that matches what we're looking for */
 
     AddCodeDsc* add = fgFindExcptnTarget(kind, refData);
@@ -3301,7 +3158,7 @@ BasicBlock* Compiler::fgAddCodeRef(BasicBlock* srcBlk, unsigned refData, Special
 
     BasicBlock* newBlk;
 
-    newBlk = add->acdDstBlk = fgNewBBinRegion(jumpKinds[kind], srcBlk, /* runRarely */ true, /* insertAtEnd */ true);
+    newBlk = add->acdDstBlk = fgNewBBinRegion(BBJ_THROW, srcBlk, /* runRarely */ true, /* insertAtEnd */ true);
 
 #ifdef DEBUG
     if (verbose)
@@ -3334,9 +3191,6 @@ BasicBlock* Compiler::fgAddCodeRef(BasicBlock* srcBlk, unsigned refData, Special
             case SCK_RNGCHK_FAIL:
                 msg = " for RNGCHK_FAIL";
                 break;
-            case SCK_PAUSE_EXEC:
-                msg = " for PAUSE_EXEC";
-                break;
             case SCK_DIV_BY_ZERO:
                 msg = " for DIV_BY_ZERO";
                 break;
@@ -3363,11 +3217,6 @@ BasicBlock* Compiler::fgAddCodeRef(BasicBlock* srcBlk, unsigned refData, Special
 
     newBlk->bbFlags |= BBF_IMPORTED;
     newBlk->bbFlags |= BBF_DONT_REMOVE;
-
-    /* Remember that we're adding a new basic block */
-
-    fgAddCodeModf      = true;
-    fgRngChkThrowAdded = true;
 
     /* Now figure out what code to insert */
 

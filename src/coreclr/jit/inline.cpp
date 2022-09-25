@@ -325,8 +325,7 @@ bool InlDecisionIsDecided(InlineDecision d)
 // InlineContext: default constructor
 
 InlineContext::InlineContext(InlineStrategy* strategy)
-    : m_InlineStrategy(strategy)
-    , m_Parent(nullptr)
+    : m_Parent(nullptr)
     , m_Child(nullptr)
     , m_Sibling(nullptr)
     , m_Code(nullptr)
@@ -369,16 +368,16 @@ void InlineContext::AddChild(InlineContext* child)
 // Arguments:
 //    indent   - indentation level for this node
 
-void InlineContext::Dump(unsigned indent)
+void InlineContext::Dump(InlineStrategy* strategy, unsigned indent)
 {
     // Handle fact that siblings are in reverse order.
     if (m_Sibling != nullptr)
     {
-        m_Sibling->Dump(indent);
+        m_Sibling->Dump(strategy, indent);
     }
 
     // We may not know callee name in some of the failing cases
-    Compiler*   compiler   = m_InlineStrategy->GetCompiler();
+    Compiler*   compiler   = strategy->GetCompiler();
     const char* calleeName = nullptr;
 
     if (m_Callee == nullptr)
@@ -430,7 +429,7 @@ void InlineContext::Dump(unsigned indent)
     // Recurse to first child
     if (m_Child != nullptr)
     {
-        m_Child->Dump(indent + 2);
+        m_Child->Dump(strategy, indent + 2);
     }
 }
 
@@ -441,15 +440,15 @@ void InlineContext::Dump(unsigned indent)
 // Arguments:
 //    indent   - indentation level for this node
 
-void InlineContext::DumpData(unsigned indent)
+void InlineContext::DumpData(InlineStrategy* strategy, unsigned indent)
 {
     // Handle fact that siblings are in reverse order.
     if (m_Sibling != nullptr)
     {
-        m_Sibling->DumpData(indent);
+        m_Sibling->DumpData(strategy, indent);
     }
 
-    Compiler* compiler = m_InlineStrategy->GetCompiler();
+    Compiler* compiler = strategy->GetCompiler();
 
 #if defined(DEBUG)
     const char* calleeName = compiler->eeGetMethodFullName(m_Callee);
@@ -461,7 +460,7 @@ void InlineContext::DumpData(unsigned indent)
     {
         // Root method... cons up a policy so we can display the name
         InlinePolicy* policy = InlinePolicy::GetPolicy(compiler, true);
-        printf("\nInlines [%u] into \"%s\" [%s]\n", m_InlineStrategy->GetInlineCount(), calleeName, policy->GetName());
+        printf("\nInlines [%u] into \"%s\" [%s]\n", strategy->GetInlineCount(), calleeName, policy->GetName());
     }
     else if (m_Success)
     {
@@ -474,7 +473,7 @@ void InlineContext::DumpData(unsigned indent)
     // Recurse to first child
     if (m_Child != nullptr)
     {
-        m_Child->DumpData(indent + 2);
+        m_Child->DumpData(strategy, indent + 2);
     }
 }
 
@@ -515,12 +514,12 @@ static void EscapeNameForXml(char* name)
 //    file     - file for output
 //    indent   - indentation level for this node
 
-void InlineContext::DumpXml(FILE* file, unsigned indent)
+void InlineContext::DumpXml(InlineStrategy* strategy, FILE* file, unsigned indent)
 {
     // Handle fact that siblings are in reverse order.
     if (m_Sibling != nullptr)
     {
-        m_Sibling->DumpXml(file, indent);
+        m_Sibling->DumpXml(strategy, file, indent);
     }
 
     // Optionally suppress failing inline records
@@ -536,7 +535,7 @@ void InlineContext::DumpXml(FILE* file, unsigned indent)
 
     if (!isRoot)
     {
-        Compiler* compiler = m_InlineStrategy->GetCompiler();
+        Compiler* compiler = strategy->GetCompiler();
 
         mdMethodDef calleeToken  = compiler->info.compCompHnd->getMethodDefFromMethod(m_Callee);
         unsigned    calleeHash   = compiler->compMethodHash(m_Callee);
@@ -575,10 +574,10 @@ void InlineContext::DumpXml(FILE* file, unsigned indent)
         const int dumpDataSetting = JitConfig.JitInlineDumpData();
 
         // JitInlineDumpData=1 -- dump data plus deltas for last inline only
-        if ((dumpDataSetting == 1) && (this == m_InlineStrategy->GetLastContext()))
+        if ((dumpDataSetting == 1) && (this == strategy->GetLastContext()))
         {
             fprintf(file, "%*s<Data>", indent + 2, "");
-            m_InlineStrategy->DumpDataContents(file);
+            strategy->DumpDataContents(file);
             fprintf(file, "</Data>\n");
         }
 
@@ -598,7 +597,7 @@ void InlineContext::DumpXml(FILE* file, unsigned indent)
     if (hasChild)
     {
         fprintf(file, "%*s<Inlines>\n", newIndent, "");
-        m_Child->DumpXml(file, newIndent + 2);
+        m_Child->DumpXml(strategy, file, newIndent + 2);
         fprintf(file, "%*s</Inlines>\n", newIndent, "");
     }
     else
@@ -1356,7 +1355,7 @@ InlineContext* InlineStrategy::NewFailure(Statement* stmt, const InlineResult& i
 
 void InlineStrategy::Dump(bool showBudget)
 {
-    m_RootContext->Dump();
+    m_RootContext->Dump(this);
 
     if (!showBudget)
     {
@@ -1439,8 +1438,8 @@ void InlineStrategy::DumpData()
 void InlineStrategy::DumpDataEnsurePolicyIsSet()
 {
     // Cache references to compiler substructures.
-    const Compiler::Info&    info = m_Compiler->info;
-    const Compiler::Options& opts = m_Compiler->opts;
+    const CompiledMethodInfo& info = m_Compiler->info;
+    const CompilerOptions&    opts = m_Compiler->opts;
 
     // If there weren't any successful inlines, we won't have a
     // successful policy, so fake one up.
@@ -1495,7 +1494,7 @@ void InlineStrategy::DumpDataContents(FILE* file)
     DumpDataEnsurePolicyIsSet();
 
     // Cache references to compiler substructures.
-    const Compiler::Info& info = m_Compiler->info;
+    const CompiledMethodInfo& info = m_Compiler->info;
 
     // We'd really like the method identifier to be unique and
     // durable across crossgen invocations. Not clear how to
@@ -1584,8 +1583,8 @@ void InlineStrategy::DumpXml(FILE* file, unsigned indent)
     }
 
     // Cache references to compiler substructures.
-    const Compiler::Info&    info = m_Compiler->info;
-    const Compiler::Options& opts = m_Compiler->opts;
+    const CompiledMethodInfo& info = m_Compiler->info;
+    const CompilerOptions&    opts = m_Compiler->opts;
 
     const bool isPrejitRoot = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT);
 
@@ -1646,7 +1645,7 @@ void InlineStrategy::DumpXml(FILE* file, unsigned indent)
     // For such methods there aren't any inlines.
     if (m_RootContext != nullptr)
     {
-        m_RootContext->DumpXml(file, indent + 2);
+        m_RootContext->DumpXml(this, file, indent + 2);
     }
     else
     {

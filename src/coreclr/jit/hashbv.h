@@ -186,7 +186,6 @@ public:
 public:
     hashBv(Compiler* comp);
     static hashBv* Create(Compiler* comp);
-    static void Init(Compiler* comp);
     static hashBv* CreateFrom(hashBv* other, Compiler* comp);
     void hbvFree();
 #ifdef DEBUG
@@ -307,8 +306,8 @@ class hashBvGlobalData
     friend class hashBv;
     friend class hashBvNode;
 
-    hashBvNode* hbvNodeFreeList;
-    hashBv*     hbvFreeList;
+    hashBvNode* hbvNodeFreeList = nullptr;
+    hashBv*     hbvFreeList     = nullptr;
 };
 
 template <typename Visitor>

@@ -13,7 +13,7 @@
 CompMemKindMacro(AssertionProp)
 CompMemKindMacro(ASTNode)
 CompMemKindMacro(InstDesc)
-CompMemKindMacro(ImpStack)
+CompMemKindMacro(Importer)
 CompMemKindMacro(BasicBlock)
 CompMemKindMacro(CallInfo)
 CompMemKindMacro(FlowList)

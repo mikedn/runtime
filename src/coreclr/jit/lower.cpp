@@ -324,15 +324,15 @@ GenTree* Lowering::LowerNode(GenTree* node)
 
 #ifdef TARGET_XARCH
         case GT_INTRINSIC:
-            ContainCheckIntrinsic(node->AsOp());
+            ContainCheckIntrinsic(node->AsIntrinsic());
             break;
-#endif // TARGET_XARCH
+#endif
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
             LowerHWIntrinsic(node->AsHWIntrinsic());
             break;
-#endif // FEATURE_HW_INTRINSICS
+#endif
 
         case GT_LCL_FLD:
             LowerLclFld(node->AsLclFld());
@@ -4591,25 +4591,24 @@ PhaseStatus Lowering::DoPhase()
         InsertPInvokeMethodProlog();
     }
 
-#if !defined(TARGET_64BIT)
-    DecomposeLongs decomp(comp); // Initialize the long decomposition class.
+#ifndef TARGET_64BIT
+    DecomposeLongs decomp(comp);
     if (comp->compLongUsed)
     {
         decomp.PrepareForDecomposition();
     }
-#endif // !defined(TARGET_64BIT)
+#endif
 
     for (BasicBlock* const block : comp->Blocks())
     {
-        /* Make the block publicly available */
         comp->compCurBB = block;
 
-#if !defined(TARGET_64BIT)
+#ifndef TARGET_64BIT
         if (comp->compLongUsed)
         {
             decomp.DecomposeBlock(block);
         }
-#endif //! TARGET_64BIT
+#endif
 
         LowerBlock(block);
     }

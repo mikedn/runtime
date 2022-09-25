@@ -377,23 +377,14 @@ void CodeGenInterface::siVarLoc::siFillRegisterVarLoc(
 
 #ifndef TARGET_64BIT
         case TYP_LONG:
-            if (varDsc->GetOtherReg() != REG_STK)
+            this->vlType                        = VLT_REG_STK;
+            this->vlRegStk.vlrsReg              = varDsc->GetRegNum();
+            this->vlRegStk.vlrsStk.vlrssBaseReg = baseReg;
+            if (isFramePointerUsed && this->vlRegStk.vlrsStk.vlrssBaseReg == REG_SPBASE)
             {
-                this->vlType            = VLT_REG_REG;
-                this->vlRegReg.vlrrReg1 = varDsc->GetRegNum();
-                this->vlRegReg.vlrrReg2 = varDsc->GetOtherReg();
+                this->vlRegStk.vlrsStk.vlrssBaseReg = (regNumber)ICorDebugInfo::REGNUM_AMBIENT_SP;
             }
-            else
-            {
-                this->vlType                        = VLT_REG_STK;
-                this->vlRegStk.vlrsReg              = varDsc->GetRegNum();
-                this->vlRegStk.vlrsStk.vlrssBaseReg = baseReg;
-                if (isFramePointerUsed && this->vlRegStk.vlrsStk.vlrssBaseReg == REG_SPBASE)
-                {
-                    this->vlRegStk.vlrsStk.vlrssBaseReg = (regNumber)ICorDebugInfo::REGNUM_AMBIENT_SP;
-                }
-                this->vlRegStk.vlrsStk.vlrssOffset = offset + sizeof(int);
-            }
+            this->vlRegStk.vlrsStk.vlrssOffset = offset + sizeof(int);
             break;
 #endif // !TARGET_64BIT
 
@@ -776,7 +767,7 @@ void CodeGen::siEndScope(unsigned varNum)
 
         // Note the following assert is saying that we expect
         // the VM supplied info to be invalid...
-        assert(!siVerifyLocalVarTab());
+        assert(!compiler->compVerifyVarScopes());
 
         compiler->opts.compScopeInfo = false;
     }
@@ -802,42 +793,6 @@ void CodeGen::siEndScope(siScope* scope)
     }
 }
 
-/*****************************************************************************
- *                      siVerifyLocalVarTab
- *
- * Checks the LocalVarTab for consistency. The VM may not have properly
- * verified the LocalVariableTable.
- */
-
-#ifdef DEBUG
-
-bool CodeGen::siVerifyLocalVarTab()
-{
-    // No entries with overlapping lives should have the same slot.
-
-    for (unsigned i = 0; i < compiler->info.compVarScopesCount; i++)
-    {
-        for (unsigned j = i + 1; j < compiler->info.compVarScopesCount; j++)
-        {
-            unsigned slot1 = compiler->info.compVarScopes[i].vsdVarNum;
-            unsigned beg1  = compiler->info.compVarScopes[i].vsdLifeBeg;
-            unsigned end1  = compiler->info.compVarScopes[i].vsdLifeEnd;
-
-            unsigned slot2 = compiler->info.compVarScopes[j].vsdVarNum;
-            unsigned beg2  = compiler->info.compVarScopes[j].vsdLifeBeg;
-            unsigned end2  = compiler->info.compVarScopes[j].vsdLifeEnd;
-
-            if (slot1 == slot2 && (end1 > beg2 && beg1 < end2))
-            {
-                return false;
-            }
-        }
-    }
-
-    return true;
-}
-
-#endif // DEBUG
 #endif // USING_SCOPE_INFO
 
 /*============================================================================
@@ -1067,14 +1022,14 @@ void CodeGen::siOpenScopesForNonTrackedVars(const BasicBlock* block, unsigned in
             JITDUMP("Scope info: found offset hole. lastOffs=%u, currOffs=%u\n", lastBlockILEndOffset, beginOffs);
 
             // Skip enter scopes
-            while ((varScope = compiler->compGetNextEnterScope(beginOffs - 1, true)) != nullptr)
+            while ((varScope = compiler->compGetNextEnterScopeScan(beginOffs - 1)) != nullptr)
             {
                 /* do nothing */
                 JITDUMP("Scope info: skipping enter scope, LVnum=%u\n", varScope->vsdLVnum);
             }
 
             // Skip exit scopes
-            while ((varScope = compiler->compGetNextExitScope(beginOffs - 1, true)) != nullptr)
+            while ((varScope = compiler->compGetNextExitScopeScan(beginOffs - 1)) != nullptr)
             {
                 /* do nothing */
                 JITDUMP("Scope info: skipping exit scope, LVnum=%u\n", varScope->vsdLVnum);
@@ -1364,8 +1319,7 @@ void CodeGen::siDispOpenScopes()
             {
                 if (localVars->vsdLVnum == scope->scLVnum)
                 {
-                    const char* name = compiler->VarNameToStr(localVars->vsdName);
-                    // brace-matching editor workaround for following line: (
+                    const char* name = localVars->vsdName;
                     printf("   %u (%s) [%03X..%03X)\n", localVars->vsdLVnum, name == nullptr ? "UNKNOWN" : name,
                            localVars->vsdLifeBeg, localVars->vsdLifeEnd);
                     break;
@@ -1539,43 +1493,31 @@ void CodeGen::psiBegProlog()
         if (lclVarDsc->lvIsRegArg)
         {
             bool isStructHandled = false;
-#if defined(UNIX_AMD64_ABI)
+
+#ifdef UNIX_AMD64_ABI
             if (varTypeIsStruct(lclVarDsc->GetType()))
             {
                 if (lclVarDsc->GetLayout()->GetSysVAmd64AbiRegCount() != 0)
                 {
-                    regNumber regNum      = REG_NA;
-                    regNumber otherRegNum = REG_NA;
-                    for (unsigned nCnt = 0; nCnt < lclVarDsc->GetLayout()->GetSysVAmd64AbiRegCount(); nCnt++)
-                    {
-                        if (nCnt == 0)
-                        {
-                            regNum = lclVarDsc->GetArgReg();
-                        }
-                        else if (nCnt == 1)
-                        {
-                            otherRegNum = lclVarDsc->GetOtherArgReg();
-                        }
-                        else
-                        {
-                            assert(false && "Invalid eightbyte number.");
-                        }
+                    regNumber regNum[2]{REG_NA, REG_NA};
 
-#ifdef DEBUG
-                        var_types regType = lclVarDsc->GetLayout()->GetSysVAmd64AbiRegType(nCnt);
-                        regType           = compiler->mangleVarArgsType(regType);
-                        assert(genMapRegNumToRegArgNum((nCnt == 0 ? regNum : otherRegNum), regType) != (unsigned)-1);
-#endif // DEBUG
+                    for (unsigned i = 0; i < lclVarDsc->GetLayout()->GetSysVAmd64AbiRegCount(); i++)
+                    {
+                        regNum[i] = lclVarDsc->GetParamReg(i);
+
+                        INDEBUG(var_types regType = lclVarDsc->GetLayout()->GetSysVAmd64AbiRegType(i));
+                        assert(genMapRegNumToRegArgNum(regNum[i], regType) != UINT32_MAX);
                     }
+
 #ifdef USING_SCOPE_INFO
                     newScope->scRegister    = true;
-                    newScope->u1.scRegNum   = (regNumberSmall)regNum;
-                    newScope->u1.scOtherReg = (regNumberSmall)otherRegNum;
-#endif // USING_SCOPE_INFO
+                    newScope->u1.scRegNum   = static_cast<regNumberSmall>(regNum[0]);
+                    newScope->u1.scOtherReg = static_cast<regNumberSmall>(regNum[1]);
+#endif
 
 #ifdef USING_VARIABLE_LIVE_RANGE
-                    varLocation.storeVariableInRegisters(regNum, otherRegNum);
-#endif // USING_VARIABLE_LIVE_RANGE
+                    varLocation.storeVariableInRegisters(regNum[0], regNum[1]);
+#endif
                 }
                 else
                 {
@@ -1590,16 +1532,23 @@ void CodeGen::psiBegProlog()
 
                 isStructHandled = true;
             }
-#endif // !defined(UNIX_AMD64_ABI)
+#endif // UNIX_AMD64_ABI
+
             if (!isStructHandled)
             {
 #ifdef DEBUG
-                var_types regType = compiler->mangleVarArgsType(lclVarDsc->TypeGet());
+                var_types regType = lclVarDsc->GetType();
+
+#ifdef TARGET_ARMARCH
+                regType = compiler->mangleVarArgsType(regType);
+#endif
+
                 if (lclVarDsc->lvIsHfaRegArg())
                 {
                     regType = lclVarDsc->GetLayout()->GetHfaElementType();
                 }
-                assert(genMapRegNumToRegArgNum(lclVarDsc->GetArgReg(), regType) != (unsigned)-1);
+
+                assert(genMapRegNumToRegArgNum(lclVarDsc->GetArgReg(), regType) != UINT32_MAX);
 #endif // DEBUG
 
 #ifdef USING_SCOPE_INFO

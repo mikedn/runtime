@@ -2376,7 +2376,7 @@ void Lowering::LowerHWIntrinsicCreateConst(GenTreeHWIntrinsic* node, const Vecto
 
     var_types type = getSIMDTypeForSize(size);
     size           = (size != 12) ? size : 16;
-    unsigned align = (comp->compCodeOpt() != Compiler::SMALL_CODE) ? size : emitter::dataSection::MIN_DATA_ALIGN;
+    unsigned align = (comp->compCodeOpt() != SMALL_CODE) ? size : emitter::dataSection::MIN_DATA_ALIGN;
 
     UNATIVE_OFFSET       offset = comp->GetEmitter()->emitDataConst(vecConst.u8, size, align, type);
     CORINFO_FIELD_HANDLE handle = comp->eeFindJitDataOffs(offset);
@@ -4266,33 +4266,32 @@ void Lowering::ContainCheckBoundsChk(GenTreeBoundsChk* node)
     }
 }
 
-//------------------------------------------------------------------------
-// ContainCheckIntrinsic: determine whether the source of an INTRINSIC node should be contained.
-//
-// Arguments:
-//    node - pointer to the node
-//
-void Lowering::ContainCheckIntrinsic(GenTreeOp* node)
+void Lowering::ContainCheckIntrinsic(GenTreeIntrinsic* node)
 {
-    assert(node->OperIs(GT_INTRINSIC));
-
-    NamedIntrinsic intrinsicName = node->AsIntrinsic()->gtIntrinsicName;
-
-    if ((intrinsicName == NI_System_Math_Ceiling) || (intrinsicName == NI_System_Math_Floor) ||
-        (intrinsicName == NI_System_Math_Round) || (intrinsicName == NI_System_Math_Sqrt))
+    switch (node->GetIntrinsic())
     {
-        GenTree* op1 = node->gtGetOp1();
+        case NI_System_Math_Ceiling:
+        case NI_System_Math_Floor:
+        case NI_System_Math_Round:
+        case NI_System_Math_Sqrt:
+        {
+            GenTree* op1 = node->gtGetOp1();
 
-        if (IsContainableMemoryOp(op1) || op1->IsCnsNonZeroFltOrDbl())
-        {
-            MakeSrcContained(node, op1);
+            if (IsContainableMemoryOp(op1) || op1->IsCnsNonZeroFltOrDbl())
+            {
+                MakeSrcContained(node, op1);
+            }
+            else
+            {
+                // Mark the operand as reg optional since codegen can still
+                // generate code if op1 is on stack.
+                op1->SetRegOptional();
+            }
         }
-        else
-        {
-            // Mark the operand as reg optional since codegen can still
-            // generate code if op1 is on stack.
-            op1->SetRegOptional();
-        }
+        break;
+
+        default:
+            break;
     }
 }
 

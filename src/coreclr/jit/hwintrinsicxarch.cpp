@@ -441,7 +441,7 @@ bool HWIntrinsicInfo::isScalarIsa(CORINFO_InstructionSet isa)
 // Return Value:
 //     return the IR of semantic alternative on non-const imm-arg
 //
-GenTree* Compiler::impNonConstFallback(NamedIntrinsic intrinsic, var_types simdType, var_types baseType)
+GenTree* Importer::impNonConstFallback(NamedIntrinsic intrinsic, var_types simdType, var_types baseType)
 {
     assert(HWIntrinsicInfo::NoJmpTableImm(intrinsic));
     switch (intrinsic)
@@ -465,7 +465,7 @@ GenTree* Compiler::impNonConstFallback(NamedIntrinsic intrinsic, var_types simdT
     }
 }
 
-GenTree* Compiler::impSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
+GenTree* Importer::impSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
 {
     switch (HWIntrinsicInfo::lookupIsa(intrinsic))
     {
@@ -490,11 +490,11 @@ GenTree* Compiler::impSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
     }
 }
 
-GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
+GenTree* Importer::impBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
 {
     assert(!sig.hasThisParam);
 
-    if (!featureSIMD)
+    if (!comp->featureSIMD)
     {
         return nullptr;
     }
@@ -735,7 +735,7 @@ GenTree* Compiler::impBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicS
     }
 }
 
-GenTree* Compiler::impSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
+GenTree* Importer::impSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
 {
     switch (intrinsic)
     {
@@ -830,7 +830,7 @@ GenTree* Compiler::impSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSi
     }
 }
 
-GenTree* Compiler::impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
+GenTree* Importer::impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
 {
     switch (intrinsic)
     {
@@ -881,7 +881,7 @@ GenTree* Compiler::impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, const HWIntri
     }
 }
 
-GenTree* Compiler::impBMI1OrBMI2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
+GenTree* Importer::impBMI1OrBMI2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
 {
     switch (intrinsic)
     {

@@ -1,85 +1,14 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                           LclVarsInfo                                     XX
-XX                                                                           XX
-XX   The variables to be used by the code generator.                         XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
-
-#include "emit.h"
 #include "register_arg_convention.h"
 #include "jitstd/algorithm.h"
 #include "patchpointinfo.h"
 
-void Compiler::lvaInit()
+bool Compiler::lvaInitRetType()
 {
-    /* We haven't allocated stack variables yet */
-    lvaRefCountState = RCS_INVALID;
-
-    lvaGenericsContextInUse = false;
-
-    lvaTrackedCount             = 0;
-    lvaTrackedCountInSizeTUnits = 0;
-    lvaCurEpoch                 = 0;
-    lvaTrackedToVarNumSize      = 0;
-    lvaTrackedToVarNum          = nullptr;
-
-    lvaDoneFrameLayout = NO_FRAME_LAYOUT;
-#if !defined(FEATURE_EH_FUNCLETS)
-    lvaShadowSPslotsVar = BAD_VAR_NUM;
-#endif // !FEATURE_EH_FUNCLETS
-    lvaPInvokeFrameListVar    = BAD_VAR_NUM;
-    lvaInlinedPInvokeFrameVar = BAD_VAR_NUM;
-    lvaReversePInvokeFrameVar = BAD_VAR_NUM;
-#if FEATURE_FIXED_OUT_ARGS
-    lvaOutgoingArgSpaceVar  = BAD_VAR_NUM;
-    lvaOutgoingArgSpaceSize = PhasedVar<unsigned>();
-#endif // FEATURE_FIXED_OUT_ARGS
-#ifdef JIT32_GCENCODER
-    lvaLocAllocSPvar = BAD_VAR_NUM;
-#endif // JIT32_GCENCODER
-    lvaNewObjArrayArgs  = BAD_VAR_NUM;
-    lvaGSSecurityCookie = BAD_VAR_NUM;
-#ifdef TARGET_X86
-    lvaVarargsBaseOfStkArgs = BAD_VAR_NUM;
-#endif // TARGET_X86
-    lvaVarargsHandleArg = BAD_VAR_NUM;
-    lvaStubArgumentVar  = BAD_VAR_NUM;
-    lvaArg0Var          = BAD_VAR_NUM;
-    lvaMonAcquired      = BAD_VAR_NUM;
-    lvaRetAddrVar       = BAD_VAR_NUM;
-
-    gsShadowVarInfo = nullptr;
-#if defined(FEATURE_EH_FUNCLETS)
-    lvaPSPSym = BAD_VAR_NUM;
-#endif
-#if defined(DEBUG) && defined(TARGET_XARCH)
-    lvaReturnSpCheck = BAD_VAR_NUM;
-    X86_ONLY(lvaCallSpCheck = BAD_VAR_NUM);
-#endif
-
-    lvaAddressExposedLocalsMarked = false;
-
-    impPromotableStructTypeCache[0] = nullptr;
-    impPromotableStructTypeCache[1] = nullptr;
-}
-
-/*****************************************************************************/
-
-void Compiler::lvaInitTypeRef()
-{
-    var_types retType       = JITtype2varType(info.compMethodInfo->args.retType);
+    var_types retType       = CorTypeToVarType(info.compMethodInfo->args.retType);
     bool      hasRetBuffArg = false;
 
     if (retType != TYP_STRUCT)
@@ -99,11 +28,7 @@ void Compiler::lvaInitTypeRef()
         {
             info.retDesc.InitializePrimitive(retKind.type);
 
-            if ((retKind.type == TYP_LONG) && !compLongUsed)
-            {
-                compLongUsed = true;
-            }
-            else if (varTypeIsFloating(retKind.type) && !compFloatingPointUsed)
+            if (varTypeIsFloating(retKind.type) && !compFloatingPointUsed)
             {
                 compFloatingPointUsed = true;
             }
@@ -142,32 +67,14 @@ void Compiler::lvaInitTypeRef()
         }
     }
 
-    if (compIsForInlining())
-    {
-        assert(impInlineInfo->iciCall->GetRetSigType() == info.GetRetSigType());
-    }
+    return hasRetBuffArg;
+}
 
-    /* x86 args look something like this:
-        [this ptr] [hidden return buffer] [declared arguments]* [generic context] [var arg cookie]
-
-       x64 is closer to the native ABI:
-        [this ptr] [hidden return buffer] [generic context] [var arg cookie] [declared arguments]*
-        (Note: prior to .NET Framework 4.5.1 for Windows 8.1 (but not .NET Framework 4.5.1 "downlevel"),
-        the "hidden return buffer" came before the "this ptr". Now, the "this ptr" comes first. This
-        is different from the C++ order, where the "hidden return buffer" always comes first.)
-
-       ARM and ARM64 are the same as the current x64 convention:
-        [this ptr] [hidden return buffer] [generic context] [var arg cookie] [declared arguments]*
-
-       Key difference:
-           The var arg cookie and generic context are swapped with respect to the user arguments
-    */
-
-    /* Set compArgsCount and compLocalsCount */
+bool Compiler::lvaInitLocalsCount()
+{
+    bool hasRetBuffArg = lvaInitRetType();
 
     info.compArgsCount = info.compMethodInfo->args.numArgs;
-
-    // Is there a 'this' pointer
 
     if (!info.compIsStatic)
     {
@@ -189,16 +96,11 @@ void Compiler::lvaInitTypeRef()
         info.compRetBuffArg = BAD_VAR_NUM;
     }
 
-    /* There is a 'hidden' cookie pushed last when the
-       calling convention is varargs */
-
     if (info.compIsVarArgs)
     {
         info.compArgsCount++;
     }
 
-    // Is there an extra parameter used to pass instantiation info to
-    // shared generic methods and shared generic struct instance methods?
     if (info.compMethodInfo->args.callConv & CORINFO_CALLCONV_PARAMTYPE)
     {
         info.compArgsCount++;
@@ -208,24 +110,44 @@ void Compiler::lvaInitTypeRef()
         info.compTypeCtxtArg = BAD_VAR_NUM;
     }
 
-    lvaCount = info.compLocalsCount = info.compArgsCount + info.compMethodInfo->locals.numArgs;
+    info.compLocalsCount = info.compArgsCount + info.compMethodInfo->locals.numArgs;
 
-    info.compILlocalsCount = info.compILargsCount + info.compMethodInfo->locals.numArgs;
+    return hasRetBuffArg;
+}
 
-    /* Now allocate the variable descriptor table */
+void Compiler::lvaInitInline()
+{
+    assert(compIsForInlining());
 
-    if (compIsForInlining())
+    lvaInitLocalsCount();
+
+    Compiler* inlinerCompiler = impInlineInfo->InlinerCompiler;
+
+    lvaTable           = inlinerCompiler->lvaTable;
+    lvaCount           = inlinerCompiler->lvaCount;
+    lvaTableSize       = inlinerCompiler->lvaTableSize;
+    lvaStubArgumentVar = inlinerCompiler->lvaStubArgumentVar;
+}
+
+void Compiler::lvaInitTable()
+{
+    assert(!compIsForInlining());
+
+#ifdef TARGET_UNIX
+    if (info.compIsVarArgs)
     {
-        Compiler* inlinerCompiler = impInlineInfo->InlinerCompiler;
-
-        lvaTable           = inlinerCompiler->lvaTable;
-        lvaCount           = inlinerCompiler->lvaCount;
-        lvaTableSize       = inlinerCompiler->lvaTableSize;
-        lvaStubArgumentVar = inlinerCompiler->lvaStubArgumentVar;
-
-        return;
+        // Currently native varargs is not implemented on non windows targets.
+        //
+        // Note that some targets like Arm64 Unix should not need much work as
+        // the ABI is the same. While other targets may only need small changes
+        // such as amd64 Unix, which just expects RAX to pass numFPArguments.
+        NYI("InitUserArgs for Vararg callee is not yet implemented on non Windows targets.");
     }
+#endif
 
+    bool hasRetBuffArg = lvaInitLocalsCount();
+
+    lvaCount     = info.compLocalsCount;
     lvaTableSize = max(16, lvaCount * 2);
     lvaTable     = getAllocator(CMK_LvaTable).allocate<LclVarDsc>(lvaTableSize);
     memset(lvaTable, 0, lvaTableSize * sizeof(lvaTable[0]));
@@ -234,53 +156,20 @@ void Compiler::lvaInitTypeRef()
         new (&lvaTable[i]) LclVarDsc();
     }
 
-    //-------------------------------------------------------------------------
-    // Count the arguments and initialize the respective lvaTable[] entries
-    //
-    // First the implicit arguments
-    //-------------------------------------------------------------------------
+    lvaInitParams(hasRetBuffArg);
+    lvaInitLocals();
+}
 
-    InitVarDscInfo varDscInfo;
-#ifdef TARGET_X86
-    // x86 unmanaged calling conventions limit the number of registers supported
-    // for accepting arguments. As a result, we need to modify the number of registers
-    // when we emit a method with an unmanaged calling convention.
-    switch (info.compCallConv)
-    {
-        case CorInfoCallConvExtension::Thiscall:
-            // In thiscall the this parameter goes into a register.
-            varDscInfo.Init(lvaTable, hasRetBuffArg, 1, 0);
-            break;
-        case CorInfoCallConvExtension::C:
-        case CorInfoCallConvExtension::Stdcall:
-        case CorInfoCallConvExtension::CMemberFunction:
-        case CorInfoCallConvExtension::StdcallMemberFunction:
-            varDscInfo.Init(lvaTable, hasRetBuffArg, 0, 0);
-            break;
-        case CorInfoCallConvExtension::Managed:
-        case CorInfoCallConvExtension::Fastcall:
-        case CorInfoCallConvExtension::FastcallMemberFunction:
-        default:
-            varDscInfo.Init(lvaTable, hasRetBuffArg, MAX_REG_ARG, MAX_FLOAT_REG_ARG);
-            break;
-    }
-#else
-    varDscInfo.Init(lvaTable, hasRetBuffArg, MAX_REG_ARG, MAX_FLOAT_REG_ARG);
-#endif
-
-    lvaInitArgs(&varDscInfo);
-
-    //-------------------------------------------------------------------------
-    // Finally the local variables
-    //-------------------------------------------------------------------------
-
-    unsigned                varNum    = varDscInfo.varNum;
-    LclVarDsc*              varDsc    = varDscInfo.varDsc;
+void Compiler::lvaInitLocals()
+{
     CORINFO_ARG_LIST_HANDLE localsSig = info.compMethodInfo->locals.args;
+    unsigned                varNum    = info.compArgsCount;
 
     for (unsigned i = 0; i < info.compMethodInfo->locals.numArgs;
-         i++, varNum++, varDsc++, localsSig = info.compCompHnd->getArgNext(localsSig))
+         i++, varNum++, localsSig = info.compCompHnd->getArgNext(localsSig))
     {
+        LclVarDsc* varDsc = lvaGetDesc(varNum);
+
         CORINFO_CLASS_HANDLE typeHnd;
         CorInfoTypeWithMod   corInfoTypeWithMod =
             info.compCompHnd->getArgType(&info.compMethodInfo->locals, localsSig, &typeHnd);
@@ -293,7 +182,7 @@ void Compiler::lvaInitTypeRef()
             if ((corInfoType == CORINFO_TYPE_CLASS) || (corInfoType == CORINFO_TYPE_BYREF))
             {
                 JITDUMP("Setting lvPinned for V%02u\n", varNum);
-                varDsc->lvPinned = 1;
+                varDsc->lvPinned = true;
             }
             else
             {
@@ -301,45 +190,47 @@ void Compiler::lvaInitTypeRef()
             }
         }
 
-        varDsc->lvOnFrame = true; // The final home for this local variable might be our local stack frame
+        varDsc->lvOnFrame = true;
 
         if (corInfoType == CORINFO_TYPE_CLASS)
         {
-            CORINFO_CLASS_HANDLE clsHnd = info.compCompHnd->getArgClass(&info.compMethodInfo->locals, localsSig);
-            lvaSetClass(varNum, clsHnd);
+            lvaSetClass(varNum, info.compCompHnd->getArgClass(&info.compMethodInfo->locals, localsSig));
         }
 
         if (opts.IsOSR() && info.compPatchpointInfo->IsExposed(varNum))
         {
             JITDUMP("-- V%02u is OSR exposed\n", varNum);
-            varDsc->lvHasLdAddrOp = 1;
+            varDsc->lvHasLdAddrOp = true;
 
-            if (varDsc->lvType != TYP_STRUCT)
+            if (!varDsc->TypeIs(TYP_STRUCT))
             {
                 lvaSetVarAddrExposed(varNum);
             }
         }
     }
 
-    if ( // If there already exist unsafe buffers, don't mark more structs as unsafe
+#ifdef DEBUG
+    if (compStressCompile(STRESS_UNSAFE_BUFFER_CHECKS, 25) &&
+        // If there already exist unsafe buffers, don't mark more structs as unsafe
         // as that will cause them to be placed along with the real unsafe buffers,
         // unnecessarily exposing them to overruns. This can affect GS tests which
         // intentionally do buffer-overruns.
         !getNeedsGSSecurityCookie() &&
         // GS checks require the stack to be re-ordered, which can't be done with EnC
-        !opts.compDbgEnC && compStressCompile(STRESS_UNSAFE_BUFFER_CHECKS, 25))
+        !opts.compDbgEnC)
     {
         setNeedsGSSecurityCookie();
         compGSReorderStackLayout = true;
 
         for (unsigned i = 0; i < lvaCount; i++)
         {
-            if ((lvaTable[i].lvType == TYP_STRUCT) && compStressCompile(STRESS_GENERIC_VARN, 60))
+            if (lvaGetDesc(i)->TypeIs(TYP_STRUCT) && compStressCompile(STRESS_GENERIC_VARN, 60))
             {
-                lvaTable[i].lvIsUnsafeBuffer = true;
+                lvaGetDesc(i)->lvIsUnsafeBuffer = true;
             }
         }
     }
+#endif
 
     if (getNeedsGSSecurityCookie())
     {
@@ -375,19 +266,11 @@ void Compiler::lvaInitTypeRef()
         lvaSetImplicitlyReferenced(lvaStubArgumentVar);
     }
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        lvaTableDump(INITIAL_FRAME_LAYOUT);
-    }
-#endif
+    DBEXEC(verbose, lvaTableDump(INITIAL_FRAME_LAYOUT));
 }
 
-/*****************************************************************************/
-void Compiler::lvaInitArgs(InitVarDscInfo* varDscInfo)
+void Compiler::lvaInitParams(bool hasRetBufParam)
 {
-    compArgSize = 0;
-
 #if defined(TARGET_ARM) && defined(PROFILING_SUPPORTED)
     // Prespill all argument regs on to stack in case of Arm when under profiler.
     if (compIsProfilerHookNeeded())
@@ -396,373 +279,450 @@ void Compiler::lvaInitArgs(InitVarDscInfo* varDscInfo)
     }
 #endif
 
-    //----------------------------------------------------------------------
+    unsigned intRegCount   = MAX_REG_ARG;
+    unsigned floatRegCount = MAX_FLOAT_REG_ARG;
 
-    /* Is there a "this" pointer ? */
-    lvaInitThisPtr(varDscInfo);
+#ifdef TARGET_X86
+    assert(floatRegCount == 0);
 
-    unsigned numUserArgsToSkip = 0;
-    unsigned numUserArgs       = info.compMethodInfo->args.numArgs;
+    if (info.compIsVarArgs)
+    {
+        intRegCount = 0;
+
+        // Native varargs doesn't use any registers but the managed version
+        // uses up to 2 for special params - this and the return buffer.
+        assert(!callConvIsInstanceMethodCallConv(info.compCallConv));
+
+        intRegCount += info.compIsStatic ? 0 : 1;
+        intRegCount += hasRetBufParam ? 1 : 0;
+    }
+    else
+    {
+        switch (info.compCallConv)
+        {
+            case CorInfoCallConvExtension::Thiscall:
+                intRegCount = 1;
+                break;
+            case CorInfoCallConvExtension::C:
+            case CorInfoCallConvExtension::Stdcall:
+            case CorInfoCallConvExtension::CMemberFunction:
+            case CorInfoCallConvExtension::StdcallMemberFunction:
+                intRegCount = 0;
+                break;
+            case CorInfoCallConvExtension::Managed:
+            case CorInfoCallConvExtension::Fastcall:
+            case CorInfoCallConvExtension::FastcallMemberFunction:
+                break;
+            default:
+                assert(!"Unknown calling convention");
+                break;
+        }
+    }
+#endif
+
+    InitVarDscInfo paramInfo(intRegCount, floatRegCount);
+    compArgSize = 0;
+
+    // x86 params look something like this:
+    //  [this] [struct return buffer] [user params] [generic context] [varargs handle]
+    //
+    // x64, arm and arm64 place the generic context and varargs handle before user params:
+    //  [this] [struct return buffer] [generic context] [varargs handle] [user params]
+
+    lvaInitThisParam(paramInfo);
+
+    bool skipFirstParam = false;
+    bool useFixedRetBufReg;
+
 #if defined(TARGET_WINDOWS) && !defined(TARGET_ARM)
     if (callConvIsInstanceMethodCallConv(info.compCallConv))
     {
-        // If we are a native instance method, handle the first user arg
-        // (the unmanaged this parameter) and then handle the hidden
-        // return buffer parameter.
-        assert(numUserArgs >= 1);
-        lvaInitUserArgs(varDscInfo, 0, 1);
-        numUserArgsToSkip++;
-        numUserArgs--;
+        if (info.compMethodInfo->args.numArgs == 0)
+        {
+            BADCODE("Instance method without 'this' param");
+        }
 
-        lvaInitRetBuffArg(varDscInfo, false);
+        lvaInitUserParam(paramInfo, info.compMethodInfo->args.args);
+
+        paramInfo.varNum++;
+        skipFirstParam    = true;
+        useFixedRetBufReg = false;
     }
     else
 #endif
     {
-        /* If we have a hidden return-buffer parameter, that comes here */
-        lvaInitRetBuffArg(varDscInfo, true);
+        useFixedRetBufReg = true;
     }
 
-//======================================================================
+    if (hasRetBufParam)
+    {
+        lvaInitRetBufParam(paramInfo, useFixedRetBufReg);
+    }
 
 #if USER_ARGS_COME_LAST
-    //@GENERICS: final instantiation-info argument for shared generic methods
-    // and shared generic struct instance methods
-    lvaInitGenericsCtxt(varDscInfo);
-
-    /* If the method is varargs, process the varargs cookie */
-    lvaInitVarArgsHandle(varDscInfo);
+    lvaInitGenericsContextParam(paramInfo);
+    lvaInitVarargsHandleParam(paramInfo);
 #endif
 
-    //-------------------------------------------------------------------------
-    // Now walk the function signature for the explicit user arguments
-    //-------------------------------------------------------------------------
-    lvaInitUserArgs(varDscInfo, numUserArgsToSkip, numUserArgs);
+    lvaInitUserParams(paramInfo, skipFirstParam);
+
+    ARM_ONLY(lvaAlignPreSpillParams(paramInfo.doubleAlignMask));
+    compArgSize = GetOutgoingArgByteSize(compArgSize);
 
 #if !USER_ARGS_COME_LAST
-    //@GENERICS: final instantiation-info argument for shared generic methods
-    // and shared generic struct instance methods
-    lvaInitGenericsCtxt(varDscInfo);
-
-    /* If the method is varargs, process the varargs cookie */
-    lvaInitVarArgsHandle(varDscInfo);
+    lvaInitGenericsContextParam(paramInfo);
+    lvaInitVarargsHandleParam(paramInfo);
 #endif
 
-    //----------------------------------------------------------------------
+    noway_assert(paramInfo.varNum == info.compArgsCount);
+    assert(paramInfo.intRegArgNum <= MAX_REG_ARG);
 
-    // We have set info.compArgsCount in compCompile()
-    noway_assert(varDscInfo->varNum == info.compArgsCount);
-    assert(varDscInfo->intRegArgNum <= MAX_REG_ARG);
-
-    codeGen->intRegState.rsCalleeRegArgCount   = varDscInfo->intRegArgNum;
-    codeGen->floatRegState.rsCalleeRegArgCount = varDscInfo->floatRegArgNum;
+    codeGen->intRegState.rsCalleeRegArgCount   = paramInfo.intRegArgNum;
+    codeGen->floatRegState.rsCalleeRegArgCount = paramInfo.floatRegArgNum;
 
 #if FEATURE_FASTTAILCALL
-    // Save the stack usage information
-    // We can get register usage information using codeGen->intRegState and
-    // codeGen->floatRegState
-    info.compArgStackSize = varDscInfo->stackArgSize;
-#endif // FEATURE_FASTTAILCALL
+    info.compArgStackSize = paramInfo.stackArgSize;
+#endif
 
     // The total argument size must be aligned.
-    noway_assert((compArgSize % TARGET_POINTER_SIZE) == 0);
+    noway_assert((compArgSize % REGSIZE_BYTES) == 0);
 
 #ifdef TARGET_X86
-    /* We can not pass more than 2^16 dwords as arguments as the "ret"
-       instruction can only pop 2^16 arguments. Could be handled correctly
-       but it will be very difficult for fully interruptible code */
-
-    if (compArgSize != (size_t)(unsigned short)compArgSize)
+    // The x86 ret instruction has a 16 bit immediate so we cannot easily pop more than
+    // 2^16 bytes of stack arguments. Could be handled correctly but it will be very
+    // difficult for fully interruptible code
+    if (compArgSize >= (1u << 16))
+    {
         IMPL_LIMITATION("Too many arguments for the \"ret\" instruction to pop");
+    }
 #endif
 }
 
-/*****************************************************************************/
-void Compiler::lvaInitThisPtr(InitVarDscInfo* varDscInfo)
+void Compiler::lvaInitThisParam(InitVarDscInfo& paramInfo)
 {
-    LclVarDsc* varDsc = varDscInfo->varDsc;
-    if (!info.compIsStatic)
-    {
-        varDsc->lvIsParam = 1;
-        varDsc->lvIsPtr   = 1;
-
-        lvaArg0Var = info.compThisArg = varDscInfo->varNum;
-        noway_assert(info.compThisArg == 0);
-
-        if (info.compCompHnd->isValueClass(info.compClassHnd))
-        {
-            varDsc->SetType(TYP_BYREF);
-        }
-        else
-        {
-            varDsc->SetType(TYP_REF);
-            lvaSetClass(varDscInfo->varNum, info.compClassHnd);
-        }
-
-        varDsc->lvIsRegArg = true;
-        noway_assert(varDscInfo->intRegArgNum == 0);
-
-        varDsc->SetArgReg(genMapRegArgNumToRegNum(varDscInfo->allocRegArg(TYP_INT), varDsc->TypeGet()));
-#if FEATURE_MULTIREG_ARGS
-        varDsc->SetOtherArgReg(REG_NA);
-#endif
-        varDsc->lvOnFrame = true; // The final home for this incoming register might be our local stack frame
-
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("'this'    passed in register %s\n", getRegName(varDsc->GetArgReg()));
-        }
-#endif
-        compArgSize += TARGET_POINTER_SIZE;
-
-        varDscInfo->varNum++;
-        varDscInfo->varDsc++;
-    }
-}
-
-/*****************************************************************************/
-void Compiler::lvaInitRetBuffArg(InitVarDscInfo* varDscInfo, bool useFixedRetBufReg)
-{
-    if (varDscInfo->hasRetBufArg)
-    {
-        info.compRetBuffArg = varDscInfo->varNum;
-
-        LclVarDsc* varDsc = varDscInfo->varDsc;
-        varDsc->SetType(TYP_BYREF);
-        varDsc->lvIsParam  = 1;
-        varDsc->lvIsRegArg = 0;
-
-        if (useFixedRetBufReg && hasFixedRetBuffReg())
-        {
-            varDsc->lvIsRegArg = 1;
-            varDsc->SetArgReg(theFixedRetBuffReg());
-        }
-        else if (varDscInfo->canEnreg(TYP_INT))
-        {
-            varDsc->lvIsRegArg     = 1;
-            unsigned retBuffArgNum = varDscInfo->allocRegArg(TYP_INT);
-            varDsc->SetArgReg(genMapIntRegArgNumToRegNum(retBuffArgNum));
-        }
-
-#if FEATURE_MULTIREG_ARGS
-        varDsc->SetOtherArgReg(REG_NA);
-#endif
-        varDsc->lvOnFrame = true; // The final home for this incoming register might be our local stack frame
-
-        if (info.compRetType == TYP_STRUCT)
-        {
-            CORINFO_SIG_INFO sigInfo;
-            info.compCompHnd->getMethodSig(info.compMethodHnd, &sigInfo);
-            assert(JITtype2varType(sigInfo.retType) == info.compRetType); // Else shouldn't have a ret buff.
-
-            // The VM has disabled this optimization a long time ago.
-            assert(!info.compCompHnd->isStructRequiringStackAllocRetBuf(sigInfo.retTypeClass));
-        }
-
-        assert(!varDsc->lvIsRegArg || isValidIntArgReg(varDsc->GetArgReg()));
-
-#ifdef DEBUG
-        if (varDsc->lvIsRegArg && verbose)
-        {
-            printf("'__retBuf'  passed in register %s\n", getRegName(varDsc->GetArgReg()));
-        }
-#endif
-
-        /* Update the total argument size, count and lcl */
-
-        compArgSize += TARGET_POINTER_SIZE;
-        varDscInfo->varNum++;
-        varDscInfo->varDsc++;
-    }
-}
-
-//-----------------------------------------------------------------------------
-// lvaInitUserArgs:
-//     Initialize local var descriptions for incoming user arguments
-//
-// Arguments:
-//    varDscInfo     - the local var descriptions
-//    skipArgs       - the number of user args to skip processing.
-//    takeArgs       - the number of user args to process (after skipping skipArgs number of args)
-//
-void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, unsigned takeArgs)
-{
-//-------------------------------------------------------------------------
-// Walk the function signature for the explicit arguments
-//-------------------------------------------------------------------------
-
-#if defined(TARGET_X86)
-    // Only (some of) the implicit args are enregistered for varargs
-    if (info.compIsVarArgs)
-    {
-        varDscInfo->maxIntRegArgNum = varDscInfo->intRegArgNum;
-    }
-#elif defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)
-    // On System V type environment the float registers are not indexed together with the int ones.
-    varDscInfo->floatRegArgNum       = varDscInfo->intRegArgNum;
-#endif // TARGET*
-
-    CORINFO_ARG_LIST_HANDLE argLst = info.compMethodInfo->args.args;
-
-    const unsigned argSigLen = info.compMethodInfo->args.numArgs;
-
-    // We will process at most takeArgs arguments from the signature after skipping skipArgs arguments
-    const int64_t numUserArgs = min(takeArgs, (argSigLen - (int64_t)skipArgs));
-
-    // If there are no user args or less than skipArgs args, return here since there's no work to do.
-    if (numUserArgs <= 0)
+    if (info.compIsStatic)
     {
         return;
     }
 
-#ifdef TARGET_ARM
-    regMaskTP doubleAlignMask = RBM_NONE;
-#endif // TARGET_ARM
+    assert(paramInfo.varNum == 0);
+    assert(paramInfo.intRegArgNum == 0);
 
-    // Skip skipArgs arguments from the signature.
-    for (unsigned i = 0; i < skipArgs; i++, argLst = info.compCompHnd->getArgNext(argLst))
+    lvaArg0Var       = 0;
+    info.compThisArg = 0;
+
+    LclVarDsc* lcl = lvaGetDesc(paramInfo.varNum);
+
+    if ((info.compClassAttr & CORINFO_FLG_VALUECLASS) != 0)
     {
-        ;
+        lcl->SetType(TYP_BYREF);
+    }
+    else
+    {
+        lcl->SetType(TYP_REF);
+        lvaSetClass(paramInfo.varNum, info.compClassHnd);
     }
 
-    // Process each user arg.
-    for (unsigned i = 0; i < numUserArgs;
-         i++, varDscInfo->varNum++, varDscInfo->varDsc++, argLst = info.compCompHnd->getArgNext(argLst))
+    lcl->lvIsParam  = true;
+    lcl->lvIsPtr    = true;
+    lcl->lvIsRegArg = true;
+    lcl->lvOnFrame  = true;
+
+    lcl->SetArgReg(genMapIntRegArgNumToRegNum(paramInfo.allocRegArg(TYP_INT)));
+#if FEATURE_MULTIREG_ARGS
+    lcl->SetOtherArgReg(REG_NA);
+#endif
+
+    JITDUMP("'this' passed in register %s\n", getRegName(lcl->GetArgReg()));
+
+    compArgSize += REGSIZE_BYTES;
+    paramInfo.varNum++;
+}
+
+void Compiler::lvaInitRetBufParam(InitVarDscInfo& paramInfo, bool useFixedRetBufReg)
+{
+#ifdef DEBUG
+    if (info.compRetType == TYP_STRUCT)
     {
-#ifdef TARGET_UNIX
-        if (info.compIsVarArgs)
-        {
-            // Currently native varargs is not implemented on non windows targets.
-            //
-            // Note that some targets like Arm64 Unix should not need much work as
-            // the ABI is the same. While other targets may only need small changes
-            // such as amd64 Unix, which just expects RAX to pass numFPArguments.
-            NYI("InitUserArgs for Vararg callee is not yet implemented on non Windows targets.");
-        }
+        CORINFO_SIG_INFO sigInfo;
+        info.compCompHnd->getMethodSig(info.compMethodHnd, &sigInfo);
+
+        assert(CorTypeToVarType(sigInfo.retType) == TYP_STRUCT);
+
+        // The VM has disabled this optimization a long time ago.
+        assert(!info.compCompHnd->isStructRequiringStackAllocRetBuf(sigInfo.retTypeClass));
+    }
 #endif
 
-        LclVarDsc*           varDsc  = varDscInfo->varDsc;
-        CORINFO_CLASS_HANDLE typeHnd = nullptr;
-        CorInfoType corInfoType = strip(info.compCompHnd->getArgType(&info.compMethodInfo->args, argLst, &typeHnd));
+    info.compRetBuffArg = paramInfo.varNum;
 
-        varDsc->lvIsParam = 1;
-        lvaInitVarDsc(varDsc, varDscInfo->varNum, corInfoType, typeHnd);
+    LclVarDsc* lcl = lvaGetDesc(paramInfo.varNum);
 
-        if (corInfoType == CORINFO_TYPE_CLASS)
-        {
-            CORINFO_CLASS_HANDLE clsHnd = info.compCompHnd->getArgClass(&info.compMethodInfo->args, argLst);
-            lvaSetClass(varDscInfo->varNum, clsHnd);
-        }
-#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-        else if (varTypeIsStruct(varDsc->GetType()))
-        {
-            if (abiGetStructParamType(varDsc->GetLayout(), info.compIsVarArgs).kind == SPK_ByReference)
-            {
-                JITDUMP("Marking V%02u as a byref parameter\n", varDscInfo->varNum);
-                varDsc->lvIsImplicitByRef = 1;
-            }
-        }
-#endif // defined(TARGET_AMD64) || defined(TARGET_ARM64)
+    lcl->SetType(TYP_BYREF);
+    lcl->lvIsParam = true;
+    lcl->lvOnFrame = true;
 
-        // For ARM, ARM64, and AMD64 varargs, all arguments go in integer registers
-        var_types argType = mangleVarArgsType(varDsc->TypeGet());
+    if (useFixedRetBufReg && hasFixedRetBuffReg())
+    {
+        lcl->lvIsRegArg = true;
+        lcl->SetArgReg(theFixedRetBuffReg());
+    }
+    else if (paramInfo.canEnreg(TYP_INT))
+    {
+        lcl->lvIsRegArg = true;
+        lcl->SetArgReg(genMapIntRegArgNumToRegNum(paramInfo.allocRegArg(TYP_INT)));
+    }
 
-        var_types origArgType = argType;
-
-        // ARM softfp calling convention should affect only the floating point arguments.
-        // Otherwise there appear too many surplus pre-spills and other memory operations
-        // with the associated locations .
-        bool     isSoftFPPreSpill = opts.UseSoftFP() && varTypeIsFloating(varDsc->TypeGet());
-        unsigned argSize          = eeGetArgSize(argLst, &info.compMethodInfo->args);
-        unsigned cSlots =
-            (argSize + TARGET_POINTER_SIZE - 1) / TARGET_POINTER_SIZE; // the total number of slots of this argument
-        var_types hfaType = TYP_UNDEF;
-
-#if defined(TARGET_ARM64) && defined(TARGET_WINDOWS)
-        if (!info.compIsVarArgs) // win-arm64 varargs ABI does not use HFAs
+#if FEATURE_MULTIREG_ARGS
+    lcl->SetOtherArgReg(REG_NA);
 #endif
-        {
-            if (varTypeIsStruct(argType) && varDsc->GetLayout()->IsHfa())
-            {
-                // We have an HFA argument, so from here on out treat the type as a float, double, or vector.
-                // The orginal struct type is available by using origArgType.
-                // We also update the cSlots to be the number of float/double/vector fields in the HFA.
 
-                hfaType = varDsc->GetLayout()->GetHfaElementType();
-                cSlots  = varDsc->GetLayout()->GetHfaRegCount();
+    assert(!lcl->lvIsRegArg || isValidIntArgReg(lcl->GetArgReg()));
 
-                argType = hfaType; // TODO-Cleanup: remove this asignment and mark `argType` as const.
-            }
-        }
+    if (lcl->lvIsRegArg)
+    {
+        JITDUMP("'__retBuf' passed in register %s\n", getRegName(lcl->GetArgReg()));
+    }
 
-        // The number of slots that must be enregistered if we are to consider this argument enregistered.
-        // This is normally the same as cSlots, since we normally either enregister the entire object,
-        // or none of it. For structs on ARM, however, we only need to enregister a single slot to consider
-        // it enregistered, as long as we can split the rest onto the stack.
-        unsigned cSlotsToEnregister = cSlots;
+    compArgSize += REGSIZE_BYTES;
+    paramInfo.varNum++;
+}
 
-#if defined(TARGET_ARM64) && FEATURE_ARG_SPLIT
+void Compiler::lvaInitGenericsContextParam(InitVarDscInfo& paramInfo)
+{
+    if ((info.compMethodInfo->args.callConv & CORINFO_CALLCONV_PARAMTYPE) == 0)
+    {
+        return;
+    }
 
-        // On arm64 Windows we will need to properly handle the case where a >8byte <=16byte
-        // struct is split between register r7 and virtual stack slot s[0]
-        // We will only do this for calls to vararg methods on Windows Arm64
-        //
-        // !!This does not affect the normal arm64 calling convention or Unix Arm64!!
-        if (info.compIsVarArgs && (argType == TYP_STRUCT))
-        {
-            if (varDscInfo->canEnreg(TYP_INT, 1) &&     // The beginning of the struct can go in a register
-                !varDscInfo->canEnreg(TYP_INT, cSlots)) // The end of the struct can't fit in a register
-            {
-                cSlotsToEnregister = 1; // Force the split
-            }
-        }
+    info.compTypeCtxtArg = paramInfo.varNum;
 
-#endif // defined(TARGET_ARM64) && FEATURE_ARG_SPLIT
+    LclVarDsc* lcl = lvaGetDesc(paramInfo.varNum);
+
+    lcl->SetType(TYP_I_IMPL);
+    lcl->lvIsParam = true;
+    lcl->lvOnFrame = true;
+
+    if (paramInfo.canEnreg(TYP_I_IMPL))
+    {
+        lcl->lvIsRegArg = true;
+        lcl->SetArgReg(genMapIntRegArgNumToRegNum(paramInfo.allocRegArg(TYP_I_IMPL)));
+#if FEATURE_MULTIREG_ARGS
+        lcl->SetOtherArgReg(REG_NA);
+#endif
+
+        JITDUMP("'GenCtxt' passed in register %s\n", getRegName(lcl->GetArgReg()));
+    }
+    else
+    {
+#if FEATURE_FASTTAILCALL
+        lcl->SetStackOffset(paramInfo.stackArgSize);
+        paramInfo.stackArgSize += REGSIZE_BYTES;
+#endif
+    }
+
+    compArgSize += REGSIZE_BYTES;
+    paramInfo.varNum++;
+
+#ifdef TARGET_X86
+    if (info.compIsVarArgs)
+    {
+        lcl->SetStackOffset(compArgSize);
+    }
+#endif
+}
+
+void Compiler::lvaInitVarargsHandleParam(InitVarDscInfo& paramInfo)
+{
+    if (!info.compIsVarArgs)
+    {
+        return;
+    }
+
+    lvaVarargsHandleArg = paramInfo.varNum;
+
+    LclVarDsc* lcl = lvaGetDesc(paramInfo.varNum);
+
+    lcl->SetType(TYP_I_IMPL);
+    lcl->lvIsParam = true;
+    lcl->lvOnFrame = true;
+
+    // Make sure this lives in the stack, address may be reported to the VM.
+    // TODO-CQ: This should probably be only DNER but that causes problems,
+    // so, for expedience, I switched back to this heavyweight hammer.
+    // But I think it should be possible to switch; it may just work now
+    // that other problems are fixed.
+    lvaSetAddressExposed(lcl);
+
+    if (paramInfo.canEnreg(TYP_I_IMPL))
+    {
+        unsigned regIndex = paramInfo.allocRegArg(TYP_I_IMPL);
+
+        lcl->lvIsRegArg = true;
+        lcl->SetArgReg(genMapIntRegArgNumToRegNum(regIndex));
+#if FEATURE_MULTIREG_ARGS
+        lcl->SetOtherArgReg(REG_NA);
+#endif
 
 #ifdef TARGET_ARM
-        // On ARM we pass the first 4 words of integer arguments and non-HFA structs in registers.
-        // But we pre-spill user arguments in varargs methods and structs.
-        //
-        unsigned cAlign;
-        bool     preSpill = info.compIsVarArgs || isSoftFPPreSpill;
-
-        switch (origArgType)
+        // This has to be spilled right in front of the user params and we have
+        // to pre-spill all the register params explicitly because we only have
+        // have symbols for the declared ones, not any potential variadic ones.
+        for (unsigned ix = regIndex; ix < ArrLen(intArgMasks); ix++)
         {
-            case TYP_STRUCT:
-                assert(varDsc->lvSize() == argSize);
-                cAlign = varDsc->lvStructDoubleAlign ? 2 : 1;
+            codeGen->regSet.rsMaskPreSpillRegArg |= intArgMasks[ix];
+        }
+#endif // TARGET_ARM
 
-                // HFA arguments go on the stack frame. They don't get spilled in the prolog like struct
-                // arguments passed in the integer registers but get homed immediately after the prolog.
-                if (hfaType == TYP_UNDEF)
-                {
-                    // TODO-Arm32-Windows: vararg struct should be forced to split like
-                    // ARM64 above.
-                    cSlotsToEnregister = 1; // HFAs must be totally enregistered or not, but other structs can be split.
-                    preSpill           = true;
-                }
-                break;
+        JITDUMP("'VarArgHnd' passed in register %s\n", getRegName(lcl->GetArgReg()));
+    }
+    else
+    {
+#if FEATURE_FASTTAILCALL
+        lcl->SetStackOffset(paramInfo.stackArgSize);
+        paramInfo.stackArgSize += REGSIZE_BYTES;
+#endif
+    }
 
-            case TYP_DOUBLE:
-            case TYP_LONG:
-                cAlign = 2;
-                break;
+    compArgSize += REGSIZE_BYTES;
+    paramInfo.varNum++;
 
-            default:
-                cAlign = 1;
-                break;
+#ifdef TARGET_X86
+    lcl->SetStackOffset(compArgSize);
+    lvaVarargsBaseOfStkArgs = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("Varargs BaseOfStkArgs"));
+#endif
+}
+
+void Compiler::lvaInitUserParams(InitVarDscInfo& paramInfo, bool skipFirstParam)
+{
+    assert(!skipFirstParam || (info.compMethodInfo->args.numArgs != 0));
+
+#ifdef WINDOWS_AMD64_ABI
+    assert(paramInfo.floatRegArgNum == paramInfo.intRegArgNum);
+#endif
+
+    CORINFO_ARG_LIST_HANDLE param      = info.compMethodInfo->args.args;
+    unsigned                paramCount = info.compMethodInfo->args.numArgs;
+
+    if (skipFirstParam)
+    {
+        param = info.compCompHnd->getArgNext(param);
+        paramCount--;
+    }
+
+    for (unsigned i = 0; i < paramCount; i++, paramInfo.varNum++, param = info.compCompHnd->getArgNext(param))
+    {
+        lvaInitUserParam(paramInfo, param);
+    }
+}
+
+void Compiler::lvaInitUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param)
+{
+    CORINFO_CLASS_HANDLE typeHnd = nullptr;
+    CorInfoType          corType = strip(info.compCompHnd->getArgType(&info.compMethodInfo->args, param, &typeHnd));
+
+    LclVarDsc* lcl = lvaGetDesc(paramInfo.varNum);
+
+    lcl->lvIsParam = true;
+    lcl->lvOnFrame = true;
+    lvaInitVarDsc(lcl, paramInfo.varNum, corType, typeHnd);
+
+    if (opts.IsOSR() && info.compPatchpointInfo->IsExposed(paramInfo.varNum))
+    {
+        JITDUMP("-- V%02u is OSR exposed\n", paramInfo.varNum);
+
+        lcl->lvHasLdAddrOp = true;
+        lvaSetVarAddrExposed(paramInfo.varNum);
+    }
+
+    if (corType == CORINFO_TYPE_CLASS)
+    {
+        lvaSetClass(paramInfo.varNum, info.compCompHnd->getArgClass(&info.compMethodInfo->args, param));
+    }
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+    else if (varTypeIsStruct(lcl->GetType()) &&
+             abiGetStructParamType(lcl->GetLayout(), info.compIsVarArgs).kind == SPK_ByReference)
+    {
+        JITDUMP("Marking V%02u as a byref parameter\n", paramInfo.varNum);
+        lcl->lvIsImplicitByRef = true;
+
+        // TODO-MIKE-Cleanup: If it's implicit-by-ref we know that it needs a single integer
+        // register or stack slot and can skip a lot of the mess below, like HFA checks.
+    }
+#endif
+
+    lvaAllocUserParam(paramInfo, param, lcl);
+}
+
+void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl)
+{
+    unsigned  paramSize = eeGetParamAllocSize(param, &info.compMethodInfo->args);
+    unsigned  slots     = (paramSize + REGSIZE_BYTES - 1) / REGSIZE_BYTES;
+    unsigned  regCount  = slots;
+    var_types regType   = lcl->GetType();
+    var_types hfaType   = TYP_UNDEF;
+
+    if (varTypeIsStruct(lcl->GetType()))
+    {
+#if defined(TARGET_ARM64) && defined(TARGET_WINDOWS)
+        // win-arm64 varargs does not use HFAs and can split a STRUCT arg between the last
+        // integer reg arg (x7) and the first stack arg slot.
+        if (info.compIsVarArgs)
+        {
+            if (paramInfo.canEnreg(TYP_INT, 1) && !paramInfo.canEnreg(TYP_INT, slots))
+            {
+                // Make sure this is always treated as STRUCT even if it's a SIMD type.
+                // The code below assigns x8 to "OtherArgReg", that's complete nonsense but
+                // AssignVirtualFrameOffsetToArg uses that to recognize this split param.
+                regType  = TYP_STRUCT;
+                regCount = 1;
+            }
+        }
+        else
+#endif
+            if (lcl->GetLayout()->IsHfa())
+        {
+            slots    = lcl->GetLayout()->GetHfaRegCount();
+            hfaType  = lcl->GetLayout()->GetHfaElementType();
+            regType  = hfaType;
+            regCount = slots;
+        }
+    }
+    else
+    {
+#ifdef TARGET_ARMARCH
+        regType = mangleVarArgsType(regType);
+#endif
+    }
+
+    bool canPassArgInRegisters = false;
+
+#ifdef TARGET_ARM
+    const bool isSoftFPPreSpill = opts.UseSoftFP() && varTypeIsFloating(lcl->GetType());
+    // On ARM we pass the first 4 words of integer params and non-HFA structs in registers.
+    // But we pre-spill user params in varargs methods and structs.
+    bool     preSpill = info.compIsVarArgs || isSoftFPPreSpill;
+    unsigned regAlign = 1;
+
+    if (lcl->TypeIs(TYP_LONG, TYP_DOUBLE))
+    {
+        regAlign = 2;
+    }
+    else if (lcl->TypeIs(TYP_STRUCT))
+    {
+        assert(lcl->lvSize() == paramSize);
+
+        if (lcl->lvStructDoubleAlign)
+        {
+            regAlign = 2;
         }
 
-        if (isRegParamType(argType))
+        if (regType == TYP_STRUCT)
         {
-            compArgSize += varDscInfo->alignReg(argType, cAlign) * REGSIZE_BYTES;
-        }
+            // TODO-Arm32-Windows: vararg struct should be forced to split like ARM64 above.
 
-        if (argType == TYP_STRUCT)
-        {
             // Are we going to split the struct between registers and stack? We can do that as long as
-            // no floating-point arguments have been put on the stack.
+            // no floating-point params have been put on the stack.
             //
             // From the ARM Procedure Call Standard:
             // Rule C.5: "If the NCRN is less than r4 **and** the NSAA is equal to the SP,"
@@ -772,343 +732,257 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, un
             // Anything that follows will also be on the stack. However, if something from
             // floating point regs has been spilled to the stack, we can still use r0-r3 until they are full.
 
-            if (varDscInfo->canEnreg(TYP_INT, 1) &&       // The beginning of the struct can go in a register
-                !varDscInfo->canEnreg(TYP_INT, cSlots) && // The end of the struct can't fit in a register
-                varDscInfo->existAnyFloatStackArgs())     // There's at least one stack-based FP arg already
+            regCount = 1;
+            preSpill = true;
+
+            if (paramInfo.canEnreg(TYP_INT, 1) && !paramInfo.canEnreg(TYP_INT, slots) &&
+                paramInfo.existAnyFloatStackArgs())
             {
-                varDscInfo->setAllRegArgUsed(TYP_INT); // Prevent all future use of integer registers
-                preSpill = false;                      // This struct won't be prespilled, since it will go on the stack
+                // Prevent all future use of integer registers
+                paramInfo.setAllRegArgUsed(TYP_INT);
+                // This struct won't be prespilled, since it will go on the stack
+                preSpill = false;
             }
-        }
-
-        if (preSpill)
-        {
-            for (unsigned ix = 0; ix < cSlots; ix++)
-            {
-                if (!varDscInfo->canEnreg(TYP_INT, ix + 1))
-                {
-                    break;
-                }
-                regMaskTP regMask = genMapArgNumToRegMask(varDscInfo->regArgNum(TYP_INT) + ix, TYP_INT);
-                if (cAlign == 2)
-                {
-                    doubleAlignMask |= regMask;
-                }
-                codeGen->regSet.rsMaskPreSpillRegArg |= regMask;
-            }
-        }
-#else // !TARGET_ARM
-#if defined(UNIX_AMD64_ABI)
-        bool structPassedInRegisters = false;
-        if (varTypeIsStruct(argType))
-        {
-            varDsc->GetLayout()->EnsureSysVAmd64AbiInfo(this);
-            structPassedInRegisters = varDsc->GetLayout()->GetSysVAmd64AbiRegCount() != 0;
-            if (structPassedInRegisters)
-            {
-                unsigned intRegCount   = 0;
-                unsigned floatRegCount = 0;
-
-                for (unsigned i = 0; i < varDsc->GetLayout()->GetSysVAmd64AbiRegCount(); i++)
-                {
-                    if (!varTypeUsesFloatReg(varDsc->GetLayout()->GetSysVAmd64AbiRegType(i)))
-                    {
-                        intRegCount++;
-                    }
-                    else
-                    {
-                        floatRegCount++;
-                    }
-                }
-
-                if ((intRegCount != 0) && !varDscInfo->canEnreg(TYP_INT, intRegCount))
-                {
-                    structPassedInRegisters = false;
-                }
-
-                if ((floatRegCount != 0) && !varDscInfo->canEnreg(TYP_FLOAT, floatRegCount))
-                {
-                    structPassedInRegisters = false;
-                }
-            }
-        }
-#endif // UNIX_AMD64_ABI
-#endif // !TARGET_ARM
-
-        // The final home for this incoming register might be our local stack frame.
-        // For System V platforms the final home will always be on the local stack frame.
-        varDsc->lvOnFrame = true;
-
-        bool canPassArgInRegisters = false;
-
-#if defined(UNIX_AMD64_ABI)
-        if (varTypeIsStruct(argType))
-        {
-            canPassArgInRegisters = structPassedInRegisters;
-        }
-        else
-#elif defined(TARGET_X86)
-        if (varTypeIsStruct(argType) && isTrivialPointerSizedStruct(varDsc->GetLayout()))
-        {
-            canPassArgInRegisters = varDscInfo->canEnreg(TYP_I_IMPL, cSlotsToEnregister);
-        }
-        else
-#endif // defined(UNIX_AMD64_ABI)
-        {
-            canPassArgInRegisters = varDscInfo->canEnreg(argType, cSlotsToEnregister);
-        }
-
-        if (canPassArgInRegisters)
-        {
-            /* Another register argument */
-
-            // Allocate the registers we need. allocRegArg() returns the first argument register number of the set.
-            // For non-HFA structs, we still "try" to enregister the whole thing; it will just max out if splitting
-            // to the stack happens.
-            unsigned firstAllocatedRegArgNum = 0;
-
-#if FEATURE_MULTIREG_ARGS
-            varDsc->SetOtherArgReg(REG_NA);
-#endif // FEATURE_MULTIREG_ARGS
-
-#if defined(UNIX_AMD64_ABI)
-            unsigned  secondAllocatedRegArgNum = 0;
-            var_types firstEightByteType       = TYP_UNDEF;
-            var_types secondEightByteType      = TYP_UNDEF;
-
-            if (varTypeIsStruct(argType))
-            {
-                if (varDsc->GetLayout()->GetSysVAmd64AbiRegCount() >= 1)
-                {
-                    firstEightByteType      = varDsc->GetLayout()->GetSysVAmd64AbiRegType(0);
-                    firstAllocatedRegArgNum = varDscInfo->allocRegArg(firstEightByteType, 1);
-                }
-            }
-            else
-#endif // defined(UNIX_AMD64_ABI)
-            {
-                firstAllocatedRegArgNum = varDscInfo->allocRegArg(argType, cSlots);
-            }
-
-            // We need to save the fact that this HFA is enregistered
-            // Note that we can have HVAs of SIMD types even if we are not recognizing intrinsics.
-            // In that case, we won't have normalized the vector types on the lcl, so if we have a single vector
-            // register, we need to set the type now. Otherwise, later we'll assume this is passed by reference.
-            if ((hfaType != TYP_UNDEF) && (varDsc->GetLayout()->GetHfaElementCount() > 1))
-            {
-                varDsc->lvIsMultiRegArg = true;
-            }
-
-            varDsc->lvIsRegArg = 1;
-
-#if FEATURE_MULTIREG_ARGS
-#ifdef TARGET_ARM64
-            if (argType == TYP_STRUCT)
-            {
-                varDsc->SetArgReg(genMapRegArgNumToRegNum(firstAllocatedRegArgNum, TYP_I_IMPL));
-                if (cSlots == 2)
-                {
-                    varDsc->SetOtherArgReg(genMapRegArgNumToRegNum(firstAllocatedRegArgNum + 1, TYP_I_IMPL));
-                    varDsc->lvIsMultiRegArg = true;
-                }
-            }
-#elif defined(UNIX_AMD64_ABI)
-            if (varTypeIsStruct(argType))
-            {
-                varDsc->SetArgReg(genMapRegArgNumToRegNum(firstAllocatedRegArgNum, firstEightByteType));
-
-                // If there is a second eightbyte, get a register for it too and map the arg to the reg number.
-                if (varDsc->GetLayout()->GetSysVAmd64AbiRegCount() >= 2)
-                {
-                    secondEightByteType      = varDsc->GetLayout()->GetSysVAmd64AbiRegType(1);
-                    secondAllocatedRegArgNum = varDscInfo->allocRegArg(secondEightByteType, 1);
-                    varDsc->lvIsMultiRegArg  = true;
-                }
-
-                if (secondEightByteType != TYP_UNDEF)
-                {
-                    varDsc->SetOtherArgReg(genMapRegArgNumToRegNum(secondAllocatedRegArgNum, secondEightByteType));
-                }
-            }
-#else  // ARM32
-            if (varTypeIsStruct(argType))
-            {
-                varDsc->SetArgReg(genMapRegArgNumToRegNum(firstAllocatedRegArgNum, TYP_I_IMPL));
-            }
-#endif // ARM32
-            else
-#endif // FEATURE_MULTIREG_ARGS
-            {
-                varDsc->SetArgReg(genMapRegArgNumToRegNum(firstAllocatedRegArgNum, argType));
-            }
-
-#ifdef TARGET_ARM
-            if (varDsc->TypeGet() == TYP_LONG)
-            {
-                varDsc->SetOtherArgReg(genMapRegArgNumToRegNum(firstAllocatedRegArgNum + 1, TYP_INT));
-            }
-#endif // TARGET_ARM
-
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("Arg #%u    passed in register(s) ", varDscInfo->varNum);
-                bool isFloat = false;
-#if defined(UNIX_AMD64_ABI)
-                if (varTypeIsStruct(argType) && (varDsc->GetLayout()->GetSysVAmd64AbiRegCount() >= 1))
-                {
-                    isFloat = varTypeUsesFloatReg(firstEightByteType);
-                }
-                else
-#endif // !UNIX_AMD64_ABI
-                {
-                    isFloat = varTypeUsesFloatReg(argType);
-                }
-
-#if defined(UNIX_AMD64_ABI)
-                if (varTypeIsStruct(argType))
-                {
-                    // Print both registers, just to be clear
-                    if (firstEightByteType == TYP_UNDEF)
-                    {
-                        printf("firstEightByte: <not used>");
-                    }
-                    else
-                    {
-                        printf("firstEightByte: %s",
-                               getRegName(genMapRegArgNumToRegNum(firstAllocatedRegArgNum, firstEightByteType)));
-                    }
-
-                    if (secondEightByteType == TYP_UNDEF)
-                    {
-                        printf(", secondEightByte: <not used>");
-                    }
-                    else
-                    {
-                        printf(", secondEightByte: %s",
-                               getRegName(genMapRegArgNumToRegNum(secondAllocatedRegArgNum, secondEightByteType)));
-                    }
-                }
-                else
-#endif // defined(UNIX_AMD64_ABI)
-                {
-                    isFloat            = varTypeUsesFloatReg(argType);
-                    unsigned regArgNum = genMapRegNumToRegArgNum(varDsc->GetArgReg(), argType);
-
-                    for (unsigned ix = 0; ix < cSlots; ix++, regArgNum++)
-                    {
-                        if (ix > 0)
-                        {
-                            printf(",");
-                        }
-
-                        if (!isFloat && (regArgNum >= varDscInfo->maxIntRegArgNum)) // a struct has been split between
-                                                                                    // registers and stack
-                        {
-                            printf(" stack slots:%d", cSlots - ix);
-                            break;
-                        }
-
-#ifdef TARGET_ARM
-                        if (isFloat)
-                        {
-                            // Print register size prefix
-                            if (argType == TYP_DOUBLE)
-                            {
-                                // Print both registers, just to be clear
-                                printf("%s/%s", getRegName(genMapRegArgNumToRegNum(regArgNum, argType)),
-                                       getRegName(genMapRegArgNumToRegNum(regArgNum + 1, argType)));
-
-                                // doubles take 2 slots
-                                assert(ix + 1 < cSlots);
-                                ++ix;
-                                ++regArgNum;
-                            }
-                            else
-                            {
-                                printf("%s", getRegName(genMapRegArgNumToRegNum(regArgNum, argType)));
-                            }
-                        }
-                        else
-#endif // TARGET_ARM
-                        {
-                            printf("%s", getRegName(genMapRegArgNumToRegNum(regArgNum, argType)));
-                        }
-                    }
-                }
-                printf("\n");
-            }
-#endif    // DEBUG
-        } // end if (canPassArgInRegisters)
-        else
-        {
-#if defined(TARGET_ARM)
-            varDscInfo->setAllRegArgUsed(argType);
-            if (varTypeUsesFloatReg(argType))
-            {
-                varDscInfo->setAnyFloatStackArgs();
-            }
-
-#elif defined(TARGET_ARM64)
-
-            // If we needed to use the stack in order to pass this argument then
-            // record the fact that we have used up any remaining registers of this 'type'
-            // This prevents any 'backfilling' from occuring on ARM64
-            //
-            varDscInfo->setAllRegArgUsed(argType);
-
-#endif // TARGET_XXX
-
-#if FEATURE_FASTTAILCALL
-            const unsigned argAlignment = eeGetArgAlignment(origArgType, (hfaType == TYP_FLOAT));
-#if defined(OSX_ARM64_ABI)
-            varDscInfo->stackArgSize = roundUp(varDscInfo->stackArgSize, argAlignment);
-#endif // OSX_ARM64_ABI
-
-            assert((argSize % argAlignment) == 0);
-            assert((varDscInfo->stackArgSize % argAlignment) == 0);
-
-            JITDUMP("set user arg V%02u offset to %u\n", varDscInfo->varNum, varDscInfo->stackArgSize);
-            varDsc->SetStackOffset(varDscInfo->stackArgSize);
-            varDscInfo->stackArgSize += argSize;
-#endif // FEATURE_FASTTAILCALL
-        }
-
-#ifdef UNIX_AMD64_ABI
-        // The arg size is returning the number of bytes of the argument. For a struct it could return a size not a
-        // multiple of TARGET_POINTER_SIZE. The stack allocated space should always be multiple of TARGET_POINTER_SIZE,
-        // so round it up.
-        compArgSize += roundUp(argSize, TARGET_POINTER_SIZE);
-#else  // !UNIX_AMD64_ABI
-        compArgSize += argSize;
-#endif // !UNIX_AMD64_ABI
-        if (info.compIsVarArgs || isSoftFPPreSpill)
-        {
-#if defined(TARGET_X86)
-            varDsc->SetStackOffset(compArgSize);
-#else  // !TARGET_X86
-            // TODO-CQ: We shouldn't have to go as far as to declare these
-            // address-exposed -- DoNotEnregister should suffice.
-
-            lvaSetVarAddrExposed(varDscInfo->varNum);
-#endif // !TARGET_X86
-        }
-
-        if (opts.IsOSR() && info.compPatchpointInfo->IsExposed(varDscInfo->varNum))
-        {
-            JITDUMP("-- V%02u is OSR exposed\n", varDscInfo->varNum);
-            varDsc->lvHasLdAddrOp = 1;
-            lvaSetVarAddrExposed(varDscInfo->varNum);
         }
     }
 
-    compArgSize = GetOutgoingArgByteSize(compArgSize);
+    if (isRegParamType(regType))
+    {
+        compArgSize += paramInfo.alignReg(regType, regAlign) * REGSIZE_BYTES;
+    }
+
+    if (preSpill)
+    {
+        regMaskTP paramRegMask = RBM_NONE;
+
+        for (unsigned i = 0; i < slots; i++)
+        {
+            if (!paramInfo.canEnreg(TYP_INT, i + 1))
+            {
+                break;
+            }
+
+            paramRegMask |= genMapArgNumToRegMask(paramInfo.regArgNum(TYP_INT) + i, TYP_INT);
+        }
+
+        if (regAlign == 2)
+        {
+            paramInfo.doubleAlignMask |= paramRegMask;
+        }
+
+        codeGen->regSet.rsMaskPreSpillRegArg |= paramRegMask;
+    }
+#endif // TARGET_ARM
+
+#if defined(UNIX_AMD64_ABI)
+    if (varTypeIsStruct(regType))
+    {
+        lcl->GetLayout()->EnsureSysVAmd64AbiInfo(this);
+
+        if (lcl->GetLayout()->GetSysVAmd64AbiRegCount() != 0)
+        {
+            unsigned intRegCount   = 0;
+            unsigned floatRegCount = 0;
+
+            for (unsigned i = 0; i < lcl->GetLayout()->GetSysVAmd64AbiRegCount(); i++)
+            {
+                if (!varTypeUsesFloatReg(lcl->GetLayout()->GetSysVAmd64AbiRegType(i)))
+                {
+                    intRegCount++;
+                }
+                else
+                {
+                    floatRegCount++;
+                }
+            }
+
+            if (((intRegCount == 0) || paramInfo.canEnreg(TYP_INT, intRegCount)) &&
+                ((floatRegCount == 0) || paramInfo.canEnreg(TYP_FLOAT, floatRegCount)))
+            {
+                canPassArgInRegisters = true;
+            }
+        }
+    }
+    else
+#elif defined(TARGET_X86)
+    if (varTypeIsStruct(regType))
+    {
+        canPassArgInRegisters = isTrivialPointerSizedStruct(lcl->GetLayout()) && paramInfo.canEnreg(TYP_INT, regCount);
+    }
+    else
+#endif
+    {
+        canPassArgInRegisters = paramInfo.canEnreg(regType, regCount);
+    }
+
+    if (canPassArgInRegisters)
+    {
+        lcl->lvIsRegArg = true;
+
+        if ((hfaType != TYP_UNDEF) && (lcl->GetLayout()->GetHfaElementCount() > 1))
+        {
+            lcl->lvIsMultiRegArg = true;
+        }
+
+#if defined(UNIX_AMD64_ABI)
+        if (varTypeIsStruct(regType))
+        {
+            var_types regType0     = lcl->GetLayout()->GetSysVAmd64AbiRegType(0);
+            unsigned  regParamNum0 = paramInfo.allocRegArg(regType0);
+            lcl->SetParamReg(0, genMapRegArgNumToRegNum(regParamNum0, regType0));
+
+            if (lcl->GetLayout()->GetSysVAmd64AbiRegCount() >= 2)
+            {
+                var_types regType1     = lcl->GetLayout()->GetSysVAmd64AbiRegType(1);
+                unsigned  regParamNum1 = paramInfo.allocRegArg(regType1);
+                lcl->SetParamReg(1, genMapRegArgNumToRegNum(regParamNum1, regType1));
+                lcl->lvIsMultiRegArg = true;
+            }
+        }
+        else
+#elif defined(TARGET_ARM64)
+        if (regType == TYP_STRUCT)
+        {
+            unsigned regParamNum = paramInfo.allocRegArg(TYP_INT, slots);
+
+            lcl->SetArgReg(genMapIntRegArgNumToRegNum(regParamNum));
+
+            if (slots == 2)
+            {
+                lcl->SetOtherArgReg(genMapIntRegArgNumToRegNum(regParamNum + 1));
+                lcl->lvIsMultiRegArg = true;
+            }
+        }
+        else
+#elif defined(TARGET_ARM)
+        if (lcl->TypeIs(TYP_LONG))
+        {
+            unsigned regParamNum = paramInfo.allocRegArg(TYP_INT, 2);
+
+            lcl->SetArgReg(genMapIntRegArgNumToRegNum(regParamNum));
+        }
+        else if (varTypeIsStruct(regType))
+        {
+            unsigned regParamNum = paramInfo.allocRegArg(TYP_INT, slots);
+
+            lcl->SetArgReg(genMapIntRegArgNumToRegNum(regParamNum));
+        }
+        else
+#endif
+        {
+            unsigned regParamNum = paramInfo.allocRegArg(regType, slots);
+
+            lcl->SetArgReg(genMapRegArgNumToRegNum(regParamNum, regType));
+        }
+
+        JITDUMP("Param V%02u registers: ", paramInfo.varNum);
+
+#ifdef DEBUG
+        if (verbose)
+        {
+#ifdef UNIX_AMD64_ABI
+            printf("%s", getRegName(lcl->GetParamReg(0)));
+
+            if (lcl->GetParamReg(1) != REG_NA)
+            {
+                printf(", %s", getRegName(lcl->GetParamReg(1)));
+            }
+#else // !UNIX_AMD64_ABI
+            bool     isFloat   = varTypeUsesFloatReg(regType);
+            unsigned regArgNum = genMapRegNumToRegArgNum(lcl->GetArgReg(), regType);
+
+            for (unsigned ix = 0; ix < slots; ix++, regArgNum++)
+            {
+                if (ix > 0)
+                {
+                    printf(",");
+                }
+
+                if (!isFloat && (regArgNum >= paramInfo.maxIntRegArgNum))
+                {
+                    printf(" stack slots:%d", slots - ix);
+                    break;
+                }
 
 #ifdef TARGET_ARM
+                if (isFloat)
+                {
+                    if (regType == TYP_DOUBLE)
+                    {
+                        printf("%s/%s", getRegName(genMapFloatRegArgNumToRegNum(regArgNum)),
+                               getRegName(genMapFloatRegArgNumToRegNum(regArgNum + 1)));
+
+                        assert(ix + 1 < slots);
+                        ++ix;
+                        ++regArgNum;
+                    }
+                    else
+                    {
+                        printf("%s", getRegName(genMapFloatRegArgNumToRegNum(regArgNum)));
+                    }
+                }
+                else
+#endif // TARGET_ARM
+                {
+                    printf("%s", getRegName(genMapIntRegArgNumToRegNum(regArgNum)));
+                }
+            }
+#endif // !UNIX_AMD64_ABI
+
+            printf("\n");
+        }
+#endif // DEBUG
+    }
+    else
+    {
+#ifdef TARGET_ARMARCH
+        paramInfo.setAllRegArgUsed(regType);
+
+#ifdef TARGET_ARM
+        if (varTypeUsesFloatReg(regType))
+        {
+            paramInfo.setAnyFloatStackArgs();
+        }
+#endif
+#endif
+
+#if FEATURE_FASTTAILCALL
+        const unsigned argAlignment = eeGetArgAlignment(lcl->GetType(), (hfaType == TYP_FLOAT));
+
+#ifdef OSX_ARM64_ABI
+        paramInfo.stackArgSize = roundUp(paramInfo.stackArgSize, argAlignment);
+#endif
+
+        assert((paramSize % argAlignment) == 0);
+        assert((paramInfo.stackArgSize % argAlignment) == 0);
+        JITDUMP("set user arg V%02u offset to %u\n", paramInfo.varNum, paramInfo.stackArgSize);
+
+        lcl->SetStackOffset(paramInfo.stackArgSize);
+        paramInfo.stackArgSize += paramSize;
+#endif // FEATURE_FASTTAILCALL
+    }
+
+    compArgSize += paramSize;
+
+    if (info.compIsVarArgs ARM_ONLY(|| isSoftFPPreSpill))
+    {
+#ifdef TARGET_X86
+        lcl->SetStackOffset(compArgSize);
+#else
+        // TODO-CQ: We shouldn't have to go as far as to declare these AX, DNER should suffice.
+        lvaSetAddressExposed(lcl);
+#endif
+    }
+}
+
+#ifdef TARGET_ARM
+void Compiler::lvaAlignPreSpillParams(regMaskTP doubleAlignMask)
+{
     if (doubleAlignMask != RBM_NONE)
     {
         assert(RBM_ARG_REGS == 0xF);
         assert((doubleAlignMask & RBM_ARG_REGS) == doubleAlignMask);
+
         if (doubleAlignMask != RBM_NONE && doubleAlignMask != RBM_ARG_REGS)
         {
             // 'double aligned types' can begin only at r0 or r2 and we always expect at least two registers to be used
@@ -1136,141 +1010,9 @@ void Compiler::lvaInitUserArgs(InitVarDscInfo* varDscInfo, unsigned skipArgs, un
             }
         }
     }
-#endif // TARGET_ARM
 }
-
-/*****************************************************************************/
-void Compiler::lvaInitGenericsCtxt(InitVarDscInfo* varDscInfo)
-{
-    //@GENERICS: final instantiation-info argument for shared generic methods
-    // and shared generic struct instance methods
-    if (info.compMethodInfo->args.callConv & CORINFO_CALLCONV_PARAMTYPE)
-    {
-        info.compTypeCtxtArg = varDscInfo->varNum;
-
-        LclVarDsc* varDsc = varDscInfo->varDsc;
-        varDsc->SetType(TYP_I_IMPL);
-        varDsc->lvIsParam = 1;
-
-        if (varDscInfo->canEnreg(TYP_I_IMPL))
-        {
-            /* Another register argument */
-
-            varDsc->lvIsRegArg = 1;
-            varDsc->SetArgReg(genMapRegArgNumToRegNum(varDscInfo->regArgNum(TYP_INT), varDsc->TypeGet()));
-#if FEATURE_MULTIREG_ARGS
-            varDsc->SetOtherArgReg(REG_NA);
-#endif
-            varDsc->lvOnFrame = true; // The final home for this incoming register might be our local stack frame
-
-            varDscInfo->intRegArgNum++;
-
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("'GenCtxt'   passed in register %s\n", getRegName(varDsc->GetArgReg()));
-            }
-#endif
-        }
-        else
-        {
-            // We need to mark these as being on the stack, as this is not done elsewhere in the case that canEnreg
-            // returns false.
-            varDsc->lvOnFrame = true;
-#if FEATURE_FASTTAILCALL
-            varDsc->SetStackOffset(varDscInfo->stackArgSize);
-            varDscInfo->stackArgSize += TARGET_POINTER_SIZE;
-#endif // FEATURE_FASTTAILCALL
-        }
-
-        compArgSize += TARGET_POINTER_SIZE;
-
-#if defined(TARGET_X86)
-        if (info.compIsVarArgs)
-            varDsc->SetStackOffset(compArgSize);
-#endif // TARGET_X86
-
-        varDscInfo->varNum++;
-        varDscInfo->varDsc++;
-    }
-}
-
-/*****************************************************************************/
-void Compiler::lvaInitVarArgsHandle(InitVarDscInfo* varDscInfo)
-{
-    if (info.compIsVarArgs)
-    {
-        lvaVarargsHandleArg = varDscInfo->varNum;
-
-        LclVarDsc* varDsc = varDscInfo->varDsc;
-        varDsc->SetType(TYP_I_IMPL);
-        varDsc->lvIsParam = 1;
-        // Make sure this lives in the stack -- address may be reported to the VM.
-        // TODO-CQ: This should probably be:
-        //   lvaSetVarDoNotEnregister(varDscInfo->varNum DEBUGARG(DNER_VMNeedsStackAddr));
-        // But that causes problems, so, for expedience, I switched back to this heavyweight
-        // hammer.  But I think it should be possible to switch; it may just work now
-        // that other problems are fixed.
-        lvaSetVarAddrExposed(varDscInfo->varNum);
-
-        if (varDscInfo->canEnreg(TYP_I_IMPL))
-        {
-            /* Another register argument */
-
-            unsigned varArgHndArgNum = varDscInfo->allocRegArg(TYP_I_IMPL);
-
-            varDsc->lvIsRegArg = 1;
-            varDsc->SetArgReg(genMapRegArgNumToRegNum(varArgHndArgNum, TYP_I_IMPL));
-#if FEATURE_MULTIREG_ARGS
-            varDsc->SetOtherArgReg(REG_NA);
-#endif
-            varDsc->lvOnFrame = true; // The final home for this incoming register might be our local stack frame
-#ifdef TARGET_ARM
-            // This has to be spilled right in front of the real arguments and we have
-            // to pre-spill all the argument registers explicitly because we only have
-            // have symbols for the declared ones, not any potential variadic ones.
-            for (unsigned ix = varArgHndArgNum; ix < ArrLen(intArgMasks); ix++)
-            {
-                codeGen->regSet.rsMaskPreSpillRegArg |= intArgMasks[ix];
-            }
 #endif // TARGET_ARM
 
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("'VarArgHnd' passed in register %s\n", getRegName(varDsc->GetArgReg()));
-            }
-#endif // DEBUG
-        }
-        else
-        {
-            // We need to mark these as being on the stack, as this is not done elsewhere in the case that canEnreg
-            // returns false.
-            varDsc->lvOnFrame = true;
-#if FEATURE_FASTTAILCALL
-            varDsc->SetStackOffset(varDscInfo->stackArgSize);
-            varDscInfo->stackArgSize += TARGET_POINTER_SIZE;
-#endif // FEATURE_FASTTAILCALL
-        }
-
-        /* Update the total argument size, count and lcl */
-
-        compArgSize += TARGET_POINTER_SIZE;
-
-        varDscInfo->varNum++;
-        varDscInfo->varDsc++;
-
-#if defined(TARGET_X86)
-        varDsc->SetStackOffset(compArgSize);
-
-        // Allocate a temp to point at the beginning of the args
-
-        lvaVarargsBaseOfStkArgs = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("Varargs BaseOfStkArgs"));
-#endif // TARGET_X86
-    }
-}
-
-/*****************************************************************************/
 void Compiler::lvaInitVarDsc(LclVarDsc* varDsc, unsigned varNum, CorInfoType corInfoType, CORINFO_CLASS_HANDLE typeHnd)
 {
     noway_assert(varDsc == &lvaTable[varNum]);
@@ -1291,7 +1033,7 @@ void Compiler::lvaInitVarDsc(LclVarDsc* varDsc, unsigned varNum, CorInfoType cor
         case CORINFO_TYPE_STRING:
         case CORINFO_TYPE_VAR:
         case CORINFO_TYPE_REFANY:
-            varDsc->lvIsPtr = 1;
+            varDsc->lvIsPtr = true;
             break;
         default:
             break;
@@ -1351,57 +1093,6 @@ void Compiler::lvaInitVarDsc(LclVarDsc* varDsc, unsigned varNum, CorInfoType cor
 }
 
 /*****************************************************************************
- * Returns our internal varNum for a given IL variable.
- * Asserts assume it is called after lvaTable[] has been set up.
- */
-
-unsigned Compiler::compMapILvarNum(unsigned ILvarNum)
-{
-    noway_assert(ILvarNum < info.compILlocalsCount || ILvarNum > unsigned(ICorDebugInfo::UNKNOWN_ILNUM));
-
-    unsigned varNum;
-
-    if (ILvarNum == (unsigned)ICorDebugInfo::VARARGS_HND_ILNUM)
-    {
-        // The varargs cookie is the last argument in lvaTable[]
-        noway_assert(info.compIsVarArgs);
-
-        varNum = lvaVarargsHandleArg;
-        noway_assert(lvaTable[varNum].lvIsParam);
-    }
-    else if (ILvarNum == (unsigned)ICorDebugInfo::RETBUF_ILNUM)
-    {
-        noway_assert(info.compRetBuffArg != BAD_VAR_NUM);
-        varNum = info.compRetBuffArg;
-    }
-    else if (ILvarNum == (unsigned)ICorDebugInfo::TYPECTXT_ILNUM)
-    {
-        noway_assert(info.compTypeCtxtArg >= 0);
-        varNum = unsigned(info.compTypeCtxtArg);
-    }
-    else if (ILvarNum < info.compILargsCount)
-    {
-        // Parameter
-        varNum = compMapILargNum(ILvarNum);
-        noway_assert(lvaTable[varNum].lvIsParam);
-    }
-    else if (ILvarNum < info.compILlocalsCount)
-    {
-        // Local variable
-        unsigned lclNum = ILvarNum - info.compILargsCount;
-        varNum          = info.compArgsCount + lclNum;
-        noway_assert(!lvaTable[varNum].lvIsParam);
-    }
-    else
-    {
-        unreached();
-    }
-
-    noway_assert(varNum < info.compLocalsCount);
-    return varNum;
-}
-
-/*****************************************************************************
  * Returns the IL variable number given our internal varNum.
  * Special return values are VARG_ILNUM, RETBUF_ILNUM, TYPECTXT_ILNUM.
  *
@@ -1430,7 +1121,7 @@ unsigned Compiler::compMap2ILvarNum(unsigned varNum) const
 
     // We create an extra argument for the type context parameter
     // needed for shared generic code.
-    if ((info.compMethodInfo->args.callConv & CORINFO_CALLCONV_PARAMTYPE) && varNum == (unsigned)info.compTypeCtxtArg)
+    if ((info.compMethodInfo->args.callConv & CORINFO_CALLCONV_PARAMTYPE) && (varNum == info.compTypeCtxtArg))
     {
         return (unsigned)ICorDebugInfo::TYPECTXT_ILNUM;
     }
@@ -1443,7 +1134,7 @@ unsigned Compiler::compMap2ILvarNum(unsigned varNum) const
 #endif // FEATURE_FIXED_OUT_ARGS
 
     // Now mutate varNum to remove extra parameters from the count.
-    if ((info.compMethodInfo->args.callConv & CORINFO_CALLCONV_PARAMTYPE) && varNum > (unsigned)info.compTypeCtxtArg)
+    if ((info.compMethodInfo->args.callConv & CORINFO_CALLCONV_PARAMTYPE) && (varNum > info.compTypeCtxtArg))
     {
         varNum--;
     }
@@ -4130,7 +3821,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
     //@GENERICS: extra argument for instantiation info
     if (info.compMethodInfo->args.callConv & CORINFO_CALLCONV_PARAMTYPE)
     {
-        noway_assert(lclNum == (unsigned)info.compTypeCtxtArg);
+        noway_assert(lclNum == info.compTypeCtxtArg);
         argOffs = lvaAssignVirtualFrameOffsetToArg(lclNum++, REGSIZE_BYTES,
                                                    argOffs UNIX_AMD64_ABI_ONLY_ARG(&callerArgOffset));
     }
@@ -4190,7 +3881,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
     {
         if (lvaIsPreSpilled(preSpillLclNum, preSpillMask))
         {
-            unsigned argSize = eeGetArgSize(argLst, &info.compMethodInfo->args);
+            unsigned argSize = eeGetParamAllocSize(argLst, &info.compMethodInfo->args);
             argOffs          = lvaAssignVirtualFrameOffsetToArg(preSpillLclNum, argSize, argOffs);
             argLcls++;
 
@@ -4213,7 +3904,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
     {
         if (!lvaIsPreSpilled(stkLclNum, preSpillMask))
         {
-            const unsigned argSize = eeGetArgSize(argLst, &info.compMethodInfo->args);
+            const unsigned argSize = eeGetParamAllocSize(argLst, &info.compMethodInfo->args);
             argOffs                = lvaAssignVirtualFrameOffsetToArg(stkLclNum, argSize, argOffs);
             argLcls++;
         }
@@ -4224,7 +3915,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
 #else // !TARGET_ARM
     for (unsigned i = 0; i < argSigLen; i++)
     {
-        unsigned argumentSize = eeGetArgSize(argLst, &info.compMethodInfo->args);
+        unsigned argumentSize = eeGetParamAllocSize(argLst, &info.compMethodInfo->args);
 
 #if !defined(OSX_ARM64_ABI)
         assert(argumentSize % TARGET_POINTER_SIZE == 0);
@@ -4241,7 +3932,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
     //@GENERICS: extra argument for instantiation info
     if (info.compMethodInfo->args.callConv & CORINFO_CALLCONV_PARAMTYPE)
     {
-        noway_assert(lclNum == (unsigned)info.compTypeCtxtArg);
+        noway_assert(lclNum == info.compTypeCtxtArg);
         argOffs = lvaAssignVirtualFrameOffsetToArg(lclNum++, REGSIZE_BYTES,
                                                    argOffs UNIX_AMD64_ABI_ONLY_ARG(&callerArgOffset));
     }
@@ -4556,7 +4247,7 @@ int Compiler::lvaAssignVirtualFrameOffsetToArg(unsigned lclNum,
             //
             // stk arg                  --> argOffs here will be 12 {r0-r2} but pre-spill will be 16.
             // ---- Caller SP ----
-            // r3    int             a2 --> pushed (not pre-spilled) for alignment of a0 by lvaInitUserArgs.
+            // r3    int             a2 --> pushed (not pre-spilled) for alignment of a0 by lvaInitUserParams.
             // r2    struct { int }  a1
             // r0-r1 struct { long } a0
             CLANG_FORMAT_COMMENT_ANCHOR;
@@ -4808,21 +4499,6 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
 
     stkOffs -= calleeFPRegsSavedSize;
     lvaIncrementFrameSize(calleeFPRegsSavedSize);
-
-    // Quirk for VS debug-launch scenario to work
-    if (compVSQuirkStackPaddingNeeded > 0)
-    {
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("\nAdding VS quirk stack padding of %d bytes between save-reg area and locals\n",
-                   compVSQuirkStackPaddingNeeded);
-        }
-#endif // DEBUG
-
-        stkOffs -= compVSQuirkStackPaddingNeeded;
-        lvaIncrementFrameSize(compVSQuirkStackPaddingNeeded);
-    }
 #endif // TARGET_AMD64
 
 #if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARMARCH)
@@ -5070,8 +4746,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
 
             bool allocateOnFrame = varDsc->lvOnFrame;
 
-            if (varDsc->lvRegister && (lvaDoneFrameLayout == REGALLOC_FRAME_LAYOUT) &&
-                ((varDsc->TypeGet() != TYP_LONG) || (varDsc->GetOtherReg() != REG_STK)))
+            if (varDsc->lvRegister && (lvaDoneFrameLayout == REGALLOC_FRAME_LAYOUT) && !varDsc->TypeIs(TYP_LONG))
             {
                 allocateOnFrame = false;
             }

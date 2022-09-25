@@ -627,26 +627,6 @@ unsigned emitLclVarAddr::lvaOffset() const // returns the offset into the variab
     }
 }
 
-/*****************************************************************************
- *
- *  Record some info about the method about to be emitted.
- */
-
-void emitter::emitBegCG(Compiler* comp, COMP_HANDLE cmpHandle)
-{
-    emitComp      = comp;
-    emitCmpHandle = cmpHandle;
-}
-
-void emitter::emitEndCG()
-{
-}
-
-/*****************************************************************************
- *
- *  Prepare the given IG for emission of code.
- */
-
 void emitter::emitGenIG(insGroup* ig)
 {
     /* Set the "current IG" value */
@@ -6857,7 +6837,7 @@ CORINFO_FIELD_HANDLE emitter::emitFltOrDblConst(double constValue, emitAttr attr
     unsigned cnsAlign = cnsSize;
 
 #ifdef TARGET_XARCH
-    if (emitComp->compCodeOpt() == Compiler::SMALL_CODE)
+    if (emitComp->compCodeOpt() == SMALL_CODE)
     {
         // Some platforms don't require doubles to be aligned and so
         // we can use a smaller alignment to help with smaller code
@@ -8032,7 +8012,7 @@ void emitter::emitGCvarLiveUpd(int offs, int varNum, GCtype gcType, BYTE* addr D
                     assert(!emitContTrkPtrLcls ||
                            // EBP based variables in the double-aligned frames are indeed input arguments.
                            // and we don't require them to fall into the "interesting" range.
-                           ((emitComp->rpFrameType == FT_DOUBLE_ALIGN_FRAME) && (varNum >= 0) &&
+                           ((codeGen->rpFrameType == FT_DOUBLE_ALIGN_FRAME) && (varNum >= 0) &&
                             (emitComp->lvaTable[varNum].lvFramePointerBased == 1)));
 #else
                     assert(!emitContTrkPtrLcls);

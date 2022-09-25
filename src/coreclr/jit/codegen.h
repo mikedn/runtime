@@ -29,7 +29,7 @@ class CodeGen final : public CodeGenInterface
 public:
     CodeGen(Compiler* compiler);
 
-    virtual void genGenerateCode(void** codePtr, uint32_t* nativeSizeOfCode);
+    virtual void genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize);
 
     void genGenerateMachineCode();
     void genEmitMachineCode();
@@ -45,16 +45,16 @@ private:
     // Bit masks used in negating a float or double number.
     // This is to avoid creating more than one data constant for these bitmasks when a
     // method has more than one GT_FNEG operation on floating point values.
-    CORINFO_FIELD_HANDLE negBitmaskFlt;
-    CORINFO_FIELD_HANDLE negBitmaskDbl;
+    CORINFO_FIELD_HANDLE negBitmaskFlt = nullptr;
+    CORINFO_FIELD_HANDLE negBitmaskDbl = nullptr;
 
     // Bit masks used in computing Math.Abs() of a float or double number.
-    CORINFO_FIELD_HANDLE absBitmaskFlt;
-    CORINFO_FIELD_HANDLE absBitmaskDbl;
+    CORINFO_FIELD_HANDLE absBitmaskFlt = nullptr;
+    CORINFO_FIELD_HANDLE absBitmaskDbl = nullptr;
 
     // Bit mask used in U8 -> double conversion to adjust the result.
-    CORINFO_FIELD_HANDLE u8ToDblBitmask;
-    CORINFO_FIELD_HANDLE u8ToFltBitmask;
+    CORINFO_FIELD_HANDLE u8ToDblBitmask = nullptr;
+    CORINFO_FIELD_HANDLE u8ToFltBitmask = nullptr;
 
     void GenFloatAbs(GenTreeIntrinsic* node);
 
@@ -194,13 +194,6 @@ protected:
     unsigned  codeSize;
     void*     coldCodePtr;
     void*     consPtr;
-
-#ifdef DEBUG
-    // Last instr we have displayed for dspInstrs
-    unsigned genCurDispOffset;
-#endif
-
-    //-------------------------------------------------------------------------
 
     // JIT-time constants for use in multi-dimensional array code generation.
     unsigned genOffsetOfMDArrayLowerBound(var_types elemType, unsigned rank, unsigned dimension);
@@ -495,7 +488,7 @@ protected:
 #ifdef TARGET_ARM64
     virtual void SetSaveFpLrWithAllCalleeSavedRegisters(bool value);
     virtual bool IsSaveFpLrWithAllCalleeSavedRegisters() const;
-    bool         genSaveFpLrWithAllCalleeSavedRegisters;
+    bool         genSaveFpLrWithAllCalleeSavedRegisters = false;
 #endif // TARGET_ARM64
 
     //-------------------------------------------------------------------------
@@ -520,13 +513,53 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
 #ifdef DEBUG
-    void genIPmappingDisp(unsigned mappingNum, Compiler::IPmappingDsc* ipMapping);
+    void genIPmappingDisp(unsigned mappingNum, IPmappingDsc* ipMapping);
     void genIPmappingListDisp();
 #endif // DEBUG
 
     void genIPmappingAdd(IL_OFFSETX offset, bool isLabel);
     void genIPmappingAddToFront(IL_OFFSETX offset);
     void genIPmappingGen();
+
+    unsigned eeBoundariesCount;
+
+    struct boundariesDsc
+    {
+        UNATIVE_OFFSET nativeIP;
+        IL_OFFSET      ilOffset;
+        unsigned       sourceReason;
+    } * eeBoundaries; // Boundaries to report to EE
+    void eeSetLIcount(unsigned count);
+    void eeSetLIinfo(unsigned which, UNATIVE_OFFSET offs, unsigned srcIP, bool stkEmpty, bool callInstruction);
+    void eeSetLIdone();
+
+#ifdef DEBUG
+    static void eeDispILOffs(IL_OFFSET offs);
+    static void eeDispLineInfo(const boundariesDsc* line);
+    void eeDispLineInfos();
+#endif
+
+    unsigned eeVarsCount;
+
+    struct VarResultInfo
+    {
+        UNATIVE_OFFSET             startOffset;
+        UNATIVE_OFFSET             endOffset;
+        DWORD                      varNumber;
+        CodeGenInterface::siVarLoc loc;
+    } * eeVars;
+    void eeSetLVcount(unsigned count);
+    void eeSetLVinfo(unsigned                          which,
+                     UNATIVE_OFFSET                    startOffs,
+                     UNATIVE_OFFSET                    length,
+                     unsigned                          varNum,
+                     const CodeGenInterface::siVarLoc& loc);
+    void eeSetLVdone();
+
+#ifdef DEBUG
+    void eeDispVar(ICorDebugInfo::NativeVarInfo* var);
+    void eeDispVars(CORINFO_METHOD_HANDLE ftn, ULONG32 cVars, ICorDebugInfo::NativeVarInfo* vars);
+#endif // DEBUG
 
     void genEnsureCodeEmitted(IL_OFFSETX offsx);
 
@@ -652,10 +685,6 @@ protected:
 
     void siEndScope(siScope* scope);
 
-#ifdef DEBUG
-    bool siVerifyLocalVarTab();
-#endif
-
 #ifdef LATE_DISASM
 public:
     /* virtual */
@@ -763,13 +792,12 @@ protected:
      */
 
 protected:
-#ifdef DEBUG
-
+#ifdef LATE_DISASM
     struct TrnslLocalVarInfo
     {
         unsigned       tlviVarNum;
         unsigned       tlviLVnum;
-        VarName        tlviName;
+        const char*    tlviName;
         UNATIVE_OFFSET tlviStartPC;
         size_t         tlviLength;
         bool           tlviAvailable;
@@ -779,7 +807,7 @@ protected:
     // Array of scopes of LocalVars in terms of native code
 
     TrnslLocalVarInfo* genTrnslLocalVarInfo;
-    unsigned           genTrnslLocalVarCount;
+    unsigned           genTrnslLocalVarCount = 0;
 #endif
 
     void genSetRegToConst(regNumber targetReg, var_types targetType, GenTree* tree);
@@ -1132,8 +1160,8 @@ protected:
 
 #if defined(UNIX_X86_ABI)
 
-    unsigned curNestedAlignment; // Keep track of alignment adjustment required during codegen.
-    unsigned maxNestedAlignment; // The maximum amount of alignment adjustment required.
+    unsigned curNestedAlignment = 0; // Keep track of alignment adjustment required during codegen.
+    unsigned maxNestedAlignment = 0; // The maximum amount of alignment adjustment required.
 
     void SubtractNestedAlignment(unsigned adjustment)
     {
@@ -1481,7 +1509,7 @@ public:
 
 inline void DoPhase(CodeGen* codeGen, Phases phaseId, void (CodeGen::*action)())
 {
-    class CodeGenPhase final : public Phase
+    class CodeGenPhase final : public Phase<CodeGenPhase>
     {
         CodeGen* codeGen;
         void (CodeGen::*action)();
@@ -1492,15 +1520,13 @@ inline void DoPhase(CodeGen* codeGen, Phases phaseId, void (CodeGen::*action)())
         {
         }
 
-    protected:
-        virtual PhaseStatus DoPhase() override
+        PhaseStatus DoPhase()
         {
             (codeGen->*action)();
             return PhaseStatus::MODIFIED_EVERYTHING;
         }
-    };
+    } phase(codeGen, phaseId, action);
 
-    CodeGenPhase phase(codeGen, phaseId, action);
     phase.Run();
 }
 

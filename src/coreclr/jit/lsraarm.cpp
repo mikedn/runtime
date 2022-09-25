@@ -285,7 +285,7 @@ int LinearScan::BuildNode(GenTree* tree)
             BuildUse(op1);
             srcCount = 1;
 
-            switch (tree->AsIntrinsic()->gtIntrinsicName)
+            switch (tree->AsIntrinsic()->GetIntrinsic())
             {
                 case NI_System_Math_Abs:
                 case NI_System_Math_Sqrt:
@@ -707,7 +707,6 @@ int LinearScan::BuildNode(GenTree* tree)
         case GT_LCL_VAR_ADDR:
         case GT_PHYSREG:
         case GT_CLS_VAR_ADDR:
-        case GT_IL_OFFSET:
         case GT_LABEL:
         case GT_PINVOKE_PROLOG:
         case GT_JCC:
@@ -728,6 +727,10 @@ int LinearScan::BuildNode(GenTree* tree)
 
         case GT_INSTR:
             srcCount = BuildInstr(tree->AsInstr());
+            break;
+
+        case GT_IL_OFFSET:
+            srcCount = 0;
             break;
 
         case GT_ARGPLACE:

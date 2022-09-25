@@ -167,6 +167,12 @@
 #error Unsupported or unset target architecture
 #endif
 
+#ifdef TARGET_UNIX
+#define CORINFO_OS_TARGET CORINFO_UNIX
+#else
+#define CORINFO_OS_TARGET CORINFO_WINNT
+#endif
+
 // Include the AMD64 unwind codes when appropriate.
 #if defined(TARGET_AMD64)
 #include "win64unwind.h"
@@ -632,7 +638,7 @@ private:
 #define FEATURE_LOOP_ALIGN 0
 #endif
 
-enum OptFlags : unsigned
+enum OptFlags : uint8_t
 {
     CLFLG_REGVAR        = 0x01,
     CLFLG_TREETRANS     = 0x02,
@@ -654,13 +660,11 @@ extern void dumpILRange(const BYTE* const codeAddr, unsigned codeSize); // in by
 
 /*****************************************************************************/
 
-extern int jitNativeCode(CORINFO_METHOD_HANDLE methodHnd,
-                         CORINFO_MODULE_HANDLE classHnd,
-                         COMP_HANDLE           compHnd,
-                         CORINFO_METHOD_INFO*  methodInfo,
-                         void**                methodCodePtr,
-                         uint32_t*             methodCodeSize,
-                         JitFlags*             compileFlags);
+extern CorJitResult jitNativeCode(ICorJitInfo*         jitInfo,
+                                  CORINFO_METHOD_INFO* methodInfo,
+                                  void**               nativeCode,
+                                  uint32_t*            nativeCodeSize,
+                                  JitFlags*            jitFlags);
 
 // Constants for making sure size_t fit into smaller types.
 const size_t MAX_USHORT_SIZE_T   = static_cast<size_t>(static_cast<unsigned short>(-1));
@@ -673,9 +677,10 @@ class Compiler;
 class JitTls
 {
 #ifdef DEBUG
-    Compiler* m_compiler;
-    LogEnv    m_logEnv;
-    JitTls*   m_next;
+    Compiler*    m_compiler;
+    Compiler*    m_logCompiler;
+    ICorJitInfo* m_jitInfo;
+    JitTls*      m_next;
 #endif
 
 public:
@@ -683,7 +688,9 @@ public:
     ~JitTls();
 
 #ifdef DEBUG
-    static LogEnv* GetLogEnv();
+    static Compiler* GetLogCompiler();
+    static void SetLogCompiler(Compiler* compiler);
+    static ICorJitInfo* GetJitInfo();
 #endif
 
     static Compiler* GetCompiler();

@@ -80,18 +80,6 @@ struct flowList;
 struct EHblkDsc;
 struct BBswtDesc;
 
-struct StackEntry
-{
-    GenTree* val;
-    typeInfo seTypeInfo;
-};
-
-struct EntryState
-{
-    unsigned    esStackDepth; // size of esStack
-    StackEntry* esStack;      // ptr to  stack
-};
-
 class ImportSpillCliqueState
 {
     unsigned const hasCatchArg : 1;
@@ -1028,6 +1016,9 @@ struct BasicBlock : private LIR::Range
     loopNumber bbNatLoopNum; // Index, in optLoopTable, of most-nested loop that contains this block,
                              // or else NOT_IN_LOOP if this block is not in a loop.
 
+    bool spillCliquePredMember : 1;
+    bool spillCliqueSuccMember : 1;
+
     // Use, def, live in/out information for the implicit memory variable.
     bool bbMemoryUse : 1;
     bool bbMemoryDef : 1;
@@ -1531,10 +1522,19 @@ struct BBswtDesc
     unsigned             bbsDominantCase;
     BasicBlock::weight_t bbsDominantFraction;
 
-    bool bbsHasDefault;      // true if last switch case is a default case
-    bool bbsHasDominantCase; // true if switch has a dominant case
+    bool bbsHasDefault      = true;  // true if last switch case is a default case
+    bool bbsHasDominantCase = false; // true if switch has a dominant case
 
-    BBswtDesc() : bbsHasDefault(true), bbsHasDominantCase(false)
+    unsigned     numDistinctSuccs;        // Number of distinct targets of the switch.
+    BasicBlock** nonDuplicates = nullptr; // Array of "numDistinctSuccs", containing all the distinct switch target
+                                          // successors.
+
+    // The switch block "switchBlk" just had an entry with value "from" modified to the value "to".
+    // Update "this" as necessary: if "from" is no longer an element of the jump table of "switchBlk",
+    // remove it from "this", and ensure that "to" is a member.  Use "alloc" to do any required allocation.
+    void UpdateTarget(CompAllocator alloc, BasicBlock* switchBlk, BasicBlock* from, BasicBlock* to);
+
+    BBswtDesc()
     {
     }
 

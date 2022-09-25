@@ -1963,7 +1963,7 @@ GenTree* Compiler::fgMakeMultiUse(GenTree** pOp)
     }
 }
 
-GenTree* Compiler::fgInsertCommaFormTemp(GenTree** use)
+GenTreeLclVar* Compiler::fgInsertCommaFormTemp(GenTree** use)
 {
     GenTree* tree = *use;
     assert(!varTypeIsStruct(tree->GetType()));
@@ -2157,7 +2157,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         *insertionPoint = gtNewCallArgs(newArg);
 
         numArgs++;
-        nonStandardArgs.Add(newArg, virtualStubParamInfo.GetRegNum());
+        nonStandardArgs.Add(newArg, info.virtualStubParamRegNum);
     }
 #endif // defined(TARGET_ARM)
 #if defined(TARGET_X86)
@@ -2221,7 +2221,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             call->gtCallArgs = gtPrependNewCallArg(stubAddrArg, call->gtCallArgs);
 
             numArgs++;
-            nonStandardArgs.Add(stubAddrArg, virtualStubParamInfo.GetRegNum());
+            nonStandardArgs.Add(stubAddrArg, info.virtualStubParamRegNum);
         }
     }
     else
@@ -2256,7 +2256,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     }
 
 #if defined(FEATURE_READYTORUN_COMPILER) && defined(TARGET_ARMARCH)
-    // For arm, we dispatch code same as VSD using virtualStubParamInfo.GetRegNum()
+    // For arm, we dispatch code same as VSD using info.virtualStubParamRegNum
     // for indirection cell address, which ZapIndirectHelperThunk expects.
     if (call->IsR2RRelativeIndir())
     {
@@ -2316,7 +2316,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     unsigned maxRegArgs  = MAX_REG_ARG; // X86: non-const, must be calculated
 
 #ifndef UNIX_X86_ABI
-    if (call->gtFlags & GTF_CALL_POP_ARGS)
+    if (call->CallerPop())
     {
         noway_assert(intArgRegNum < MAX_REG_ARG);
         // No more register arguments for varargs (CALL_POP_ARGS)
@@ -2522,7 +2522,8 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
             assert((varActualType(sigType) == varActualType(argx->GetType())) ||
                    ((sigType == TYP_BYREF) && argx->TypeIs(TYP_I_IMPL)) ||
-                   ((sigType == TYP_I_IMPL) && argx->TypeIs(TYP_BYREF)));
+                   ((sigType == TYP_I_IMPL) && argx->TypeIs(TYP_BYREF)) ||
+                   ((sigType == TYP_BYREF) && argx->TypeIs(TYP_REF)));
 
 #ifdef TARGET_ARM
             argAlign =
@@ -5470,14 +5471,32 @@ GenTree* Compiler::fgMorphLclVar(GenTreeLclVar* lclVar)
 
 unsigned Compiler::fgGetLargeFieldOffsetNullCheckTemp(var_types type)
 {
-    assert(varTypeIsI(type));
+    unsigned index;
 
-    if (fgLargeFieldOffsetNullCheckTemps[type] == BAD_VAR_NUM)
+    switch (type)
     {
-        fgLargeFieldOffsetNullCheckTemps[type] = lvaNewTemp(type, false DEBUGARG("large field offset null check temp"));
+        case TYP_I_IMPL:
+            index = 0;
+            break;
+        case TYP_BYREF:
+            index = 1;
+            break;
+        case TYP_REF:
+            index = 2;
+            break;
+        default:
+            unreached();
     }
 
-    unsigned lclNum = fgLargeFieldOffsetNullCheckTemps[type];
+    assert(index < _countof(fgLargeFieldOffsetNullCheckTemps));
+
+    if (fgLargeFieldOffsetNullCheckTemps[index] == BAD_VAR_NUM)
+    {
+        fgLargeFieldOffsetNullCheckTemps[index] =
+            lvaNewTemp(type, false DEBUGARG("large field offset null check temp"));
+    }
+
+    unsigned lclNum = fgLargeFieldOffsetNullCheckTemps[index];
     assert(lvaGetDesc(lclNum)->GetType() == type);
     return lclNum;
 }
@@ -7277,11 +7296,11 @@ GenTree* Compiler::getRuntimeLookupTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
         // of that node both in the importer and here, and expand the node in lower (introducing control flow if
         // necessary).
         return gtNewRuntimeLookupHelperCallNode(pRuntimeLookup,
-                                                getRuntimeContextTree(pLookup->lookupKind.runtimeLookupKind),
+                                                gtNewRuntimeContextTree(pLookup->lookupKind.runtimeLookupKind),
                                                 compileTimeHandle);
     }
 
-    GenTree* result = getRuntimeContextTree(pLookup->lookupKind.runtimeLookupKind);
+    GenTree* result = gtNewRuntimeContextTree(pLookup->lookupKind.runtimeLookupKind);
 
     ArrayStack<GenTree*> stmts(getAllocator(CMK_ArrayStack));
 
@@ -8061,17 +8080,25 @@ GenTree* Compiler::fgRemoveArrayStoreHelperCall(GenTreeCall* call, GenTree* valu
     fgWalkTreePost(&value, resetMorphedFlag);
 #endif // DEBUG
 
-    GenTree*          nullCheckedArr = impCheckForNullPointer(arr);
-    GenTreeIndexAddr* addr           = gtNewArrayIndexAddr(nullCheckedArr, index, TYP_REF);
-    GenTreeIndir*     arrIndexNode   = gtNewIndexIndir(TYP_REF, addr);
-    if (!fgGlobalMorph && !opts.MinOpts())
-    {
-        arrIndexNode->SetAddr(fgMorphIndexAddr(addr));
-    }
-    GenTree* arrStore = gtNewAssignNode(arrIndexNode, value);
-    arrStore->gtFlags |= GTF_ASG;
+    GenTree* result;
 
-    GenTree* result = fgMorphTree(arrStore);
+    if (arr->IsIntegralConst(0))
+    {
+        result = gtNewOperNode(GT_IND, TYP_I_IMPL, arr);
+    }
+    else
+    {
+        GenTreeIndexAddr* addr         = gtNewArrayIndexAddr(arr, index, TYP_REF);
+        GenTreeIndir*     arrIndexNode = gtNewIndexIndir(TYP_REF, addr);
+        if (!fgGlobalMorph && !opts.MinOpts())
+        {
+            arrIndexNode->SetAddr(fgMorphIndexAddr(addr));
+        }
+        result = gtNewAssignNode(arrIndexNode, value);
+    }
+
+    result = fgMorphTree(result);
+
     if (argSetup != nullptr)
     {
         result = gtNewCommaNode(argSetup, result);
@@ -10534,7 +10561,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
 #ifdef TARGET_ARM
         case GT_INTRINSIC:
-            if (tree->AsIntrinsic()->gtIntrinsicName == NI_System_Math_Round)
+            if (tree->AsIntrinsic()->GetIntrinsic() == NI_System_Math_Round)
             {
                 switch (tree->TypeGet())
                 {
@@ -10914,20 +10941,20 @@ DONE_MORPHING_CHILDREN:
                     //
                     //
                     //
-                    GenTree* comma = op1;
-                    GenTree* relop = comma->AsOp()->gtOp2;
+                    GenTree*   comma = op1;
+                    GenTreeOp* relop = comma->AsOp()->GetOp(1)->AsOp();
 
-                    GenTree* relop_op1 = relop->AsOp()->gtOp1;
+                    GenTree* relop_op1 = relop->GetOp(0);
 
                     bool reverse = ((ival2 == 0) == (oper == GT_EQ));
 
                     if (reverse)
                     {
-                        gtReverseCond(relop);
+                        gtReverseRelop(relop);
                     }
 
-                    relop->AsOp()->gtOp1 = comma;
-                    comma->AsOp()->gtOp2 = relop_op1;
+                    relop->SetOp(0, comma);
+                    comma->AsOp()->SetOp(1, relop_op1);
 
                     // Comma now has fewer nodes underneath it, so we need to regenerate its flags
                     comma->gtFlags &= ~GTF_ALL_EFFECT;
@@ -11028,7 +11055,7 @@ DONE_MORPHING_CHILDREN:
 
                     if (reverse)
                     {
-                        gtReverseCond(op1);
+                        gtReverseRelop(op1->AsOp());
                     }
 
                     noway_assert((op1->gtFlags & GTF_RELOP_JMP_USED) == 0);
@@ -11092,7 +11119,7 @@ DONE_MORPHING_CHILDREN:
                         // Reverse the cond if necessary
                         if (ival2 == 1)
                         {
-                            gtReverseCond(tree);
+                            gtReverseRelop(tree->AsOp());
                             cns2->AsIntCon()->gtIconVal = 0;
                             oper                        = tree->gtOper;
                         }
@@ -11111,7 +11138,7 @@ DONE_MORPHING_CHILDREN:
                         // Reverse the cond if necessary
                         if (ival2 == 1)
                         {
-                            gtReverseCond(tree);
+                            gtReverseRelop(tree->AsOp());
                             cns2->AsIntConCommon()->SetLngValue(0);
                             oper = tree->gtOper;
                         }
@@ -12605,7 +12632,7 @@ GenTree* Compiler::fgMorphSmpOpOptional(GenTreeOp* tree)
             else if (op2->IsIntegralConst(1) && op1->OperIsCompare())
             {
                 /* "binaryVal ^ 1" is "!binaryVal" */
-                gtReverseCond(op1);
+                gtReverseRelop(op1->AsOp());
                 DEBUG_DESTROY_NODE(op2);
                 DEBUG_DESTROY_NODE(tree);
                 return op1;
@@ -13220,7 +13247,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 
 #ifdef DEBUG
     int thisMorphNum = 0;
-    if (verbose && treesBeforeAfterMorph)
+    if (verbose && JitConfig.TreesBeforeAfterMorph())
     {
         thisMorphNum = morphNum++;
         printf("\nfgMorphTree (before %d):\n", thisMorphNum);
@@ -13515,7 +13542,7 @@ void Compiler::fgMorphTreeDone(GenTree* tree,
                                DEBUGARG(int morphNum))
 {
 #ifdef DEBUG
-    if (verbose && treesBeforeAfterMorph)
+    if (verbose && JitConfig.TreesBeforeAfterMorph())
     {
         printf("\nfgMorphTree (after %d):\n", morphNum);
         gtDispTree(tree);
@@ -14570,11 +14597,6 @@ void Compiler::fgSetOptions()
 
 #endif // TARGET_X86
 
-    if (!opts.genFPopt)
-    {
-        codeGen->setFramePointerRequired(true);
-    }
-
     // Assert that the EH table has been initialized by now. Note that
     // compHndBBtabAllocCount never decreases; it is a high-water mark
     // of table allocation. In contrast, compHndBBtabCount does shrink
@@ -14672,17 +14694,17 @@ GenTree* Compiler::fgInitThisClass()
             if (!(info.compClassAttr & CORINFO_FLG_SHAREDINST))
             {
                 resolvedToken.hClass = info.compClassHnd;
-                return impReadyToRunHelperToTree(&resolvedToken, CORINFO_HELP_READYTORUN_STATIC_BASE, TYP_BYREF);
+                return gtNewReadyToRunHelperCallNode(&resolvedToken, CORINFO_HELP_READYTORUN_STATIC_BASE, TYP_BYREF);
             }
 
             // We need a runtime lookup.
-            GenTree* ctxTree = getRuntimeContextTree(kind.runtimeLookupKind);
+            GenTree* ctxTree = gtNewRuntimeContextTree(kind.runtimeLookupKind);
 
             // CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE with a zeroed out resolvedToken means "get the static
             // base of the class that owns the method being compiled". If we're in this method, it means we're not
             // inlining and there's no ambiguity.
-            return impReadyToRunHelperToTree(&resolvedToken, CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE, TYP_BYREF,
-                                             gtNewCallArgs(ctxTree), &kind);
+            return gtNewReadyToRunHelperCallNode(&resolvedToken, CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE, TYP_BYREF,
+                                                 gtNewCallArgs(ctxTree), &kind);
         }
 #endif
 
@@ -14757,13 +14779,13 @@ void Compiler::fgPreExpandQmarkChecks(GenTree* expr)
     // there are no qmarks within it.
     if (topQmark == nullptr)
     {
-        fgWalkTreePre(&expr, fgAssertNoQmark, nullptr);
+        fgWalkTreePre(&expr, fgAssertNoQmark);
     }
     else
     {
         // We could probably expand the cond node also, but don't think the extra effort is necessary,
         // so let's just assert the cond node of a top level qmark doesn't have further top level qmarks.
-        fgWalkTreePre(&topQmark->gtOp1, fgAssertNoQmark, nullptr);
+        fgWalkTreePre(&topQmark->gtOp1, fgAssertNoQmark);
         fgPreExpandQmarkChecks(topQmark->gtOp2);
         fgPreExpandQmarkChecks(topQmark->gtOp3);
     }
@@ -15224,7 +15246,7 @@ void Compiler::fgPostExpandQmarkChecks()
         for (Statement* const stmt : block->Statements())
         {
             GenTree* expr = stmt->GetRootNode();
-            fgWalkTreePre(&expr, fgAssertNoQmark, nullptr);
+            fgWalkTreePre(&expr, fgAssertNoQmark);
         }
     }
 }

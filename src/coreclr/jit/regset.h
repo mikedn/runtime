@@ -67,12 +67,12 @@ private:
     //
 
 private:
-    INDEBUG(bool rsNeededSpillReg;) // true if this method needed to spill any registers
-    regMaskTP rsModifiedRegsMask;   // mask of the registers modified by the current function.
+    INDEBUG(bool rsNeededSpillReg = false;) // true if this method needed to spill any registers
+    regMaskTP rsModifiedRegsMask;           // mask of the registers modified by the current function.
 
 #ifdef DEBUG
-    bool rsModifiedRegsMaskInitialized; // Has rsModifiedRegsMask been initialized? Guards against illegal use.
-#endif                                  // DEBUG
+    bool rsModifiedRegsMaskInitialized = false; // Has rsModifiedRegsMask been initialized? Guards against illegal use.
+#endif
 
 public:
     regMaskTP rsGetModifiedRegsMask() const
@@ -124,20 +124,20 @@ private:
     regMaskTP _rsMaskVars; // backing store for rsMaskVars property
 
 #ifdef TARGET_ARMARCH
-    regMaskTP rsMaskCalleeSaved; // mask of the registers pushed/popped in the prolog/epilog
-#endif                           // TARGET_ARM
+    regMaskTP rsMaskCalleeSaved = RBM_NONE; // mask of the registers pushed/popped in the prolog/epilog
+#endif
 
-public:                    // TODO-Cleanup: Should be private, but Compiler uses it
-    regMaskTP rsMaskResvd; // mask of the registers that are reserved for special purposes (typically empty)
+public:                               // TODO-Cleanup: Should be private, but Compiler uses it
+    regMaskTP rsMaskResvd = RBM_NONE; // mask of the registers that are reserved for special purposes (typically empty)
 
 public: // The PreSpill masks are used in LclVars.cpp
 #ifdef TARGET_ARM
-    regMaskTP rsMaskPreSpillAlign;  // Mask of alignment padding added to prespill to keep double aligned args
-                                    // at aligned stack addresses.
-    regMaskTP rsMaskPreSpillRegArg; // mask of incoming registers that are spilled at the start of the prolog
-                                    // This includes registers used to pass a struct (or part of a struct)
-                                    // and all enregistered user arguments in a varargs call
-#endif                              // TARGET_ARM
+    regMaskTP rsMaskPreSpillAlign = RBM_NONE; // Mask of alignment padding added to prespill to keep double aligned args
+                                              // at aligned stack addresses.
+    regMaskTP rsMaskPreSpillRegArg = RBM_NONE; // mask of incoming registers that are spilled at the start of the prolog
+                                               // This includes registers used to pass a struct (or part of a struct)
+                                               // and all enregistered user arguments in a varargs call
+#endif
 
 private:
     //-------------------------------------------------------------------------
@@ -146,11 +146,10 @@ private:
     //
 
     // When a register gets spilled, the old information is stored here
-    SpillDsc* rsSpillDesc[REG_COUNT];
-    SpillDsc* rsSpillFree; // list of unused spill descriptors
+    SpillDsc* rsSpillDesc[REG_COUNT] = {};
+    SpillDsc* rsSpillFree            = nullptr; // list of unused spill descriptors
 
     void rsSpillChk();
-    void rsSpillInit();
     void rsSpillDone();
     void rsSpillBeg();
     void rsSpillEnd();
@@ -166,8 +165,6 @@ private:
     TempDsc* rsGetSpillTempWord(regNumber oldReg, SpillDsc* dsc, SpillDsc* prevDsc);
 
 public:
-    void tmpInit();
-
     enum TEMP_USAGE_TYPE
     {
         TEMP_USAGE_FREE,
@@ -196,11 +193,11 @@ public:
     }
 
 private:
-    unsigned tmpCount; // Number of temps
-    unsigned tmpSize;  // Size of all the temps
+    unsigned tmpCount = 0; // Number of temps
+    unsigned tmpSize  = 0; // Size of all the temps
 #ifdef DEBUG
     // Used by RegSet::rsSpillChk()
-    unsigned tmpGetCount; // Temps which haven't been released yet
+    unsigned tmpGetCount = 0; // Temps which haven't been released yet
 #endif
     static unsigned tmpSlot(unsigned size); // which slot in tmpFree[] or tmpUsed[] to use
 
@@ -218,8 +215,8 @@ private:
         TEMP_SLOT_COUNT = (TEMP_MAX_SIZE / sizeof(int))
     };
 
-    TempDsc* tmpFree[TEMP_MAX_SIZE / sizeof(int)];
-    TempDsc* tmpUsed[TEMP_MAX_SIZE / sizeof(int)];
+    TempDsc* tmpFree[TEMP_MAX_SIZE / sizeof(int)] = {};
+    TempDsc* tmpUsed[TEMP_MAX_SIZE / sizeof(int)] = {};
 };
 
 #endif // _REGSET_H

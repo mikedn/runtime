@@ -1794,11 +1794,6 @@ void Compiler::fgRemoveEH()
 
 void Compiler::fgSortEHTable()
 {
-    if (!fgNeedToSortEHTable)
-    {
-        return;
-    }
-
     // Now, all fields of the EH table are set except for those that are related
     // to nesting. We need to first sort the table to ensure that an EH clause
     // appears before any try or handler that it is nested within. The CLI spec
@@ -3620,20 +3615,19 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
  *
  */
 
-void Compiler::verInitEHTree(unsigned numEHClauses)
+Compiler::EHTree::EHTree(Compiler* compiler, unsigned numEHClauses)
+    : ehnNext(new (compiler, CMK_BasicBlock) EHNodeDsc[numEHClauses * 3])
 {
-    ehnNext = new (this, CMK_BasicBlock) EHNodeDsc[numEHClauses * 3];
-    ehnTree = nullptr;
 }
 
 /* Inserts the try, handler and filter (optional) clause information in a tree structure
  * in order to catch incorrect eh formatting (e.g. illegal overlaps, incorrect order)
  */
 
-void Compiler::verInsertEhNode(CORINFO_EH_CLAUSE* clause, EHblkDsc* handlerTab)
+void Compiler::verInsertEhNode(EHTree& tree, CORINFO_EH_CLAUSE* clause, EHblkDsc* handlerTab)
 {
-    EHNodeDsc* tryNode     = ehnNext++;
-    EHNodeDsc* handlerNode = ehnNext++;
+    EHNodeDsc* tryNode     = tree.ehnNext++;
+    EHNodeDsc* handlerNode = tree.ehnNext++;
     EHNodeDsc* filterNode  = nullptr; // optional
 
     tryNode->ehnSetTryNodeType();
@@ -3660,7 +3654,7 @@ void Compiler::verInsertEhNode(CORINFO_EH_CLAUSE* clause, EHblkDsc* handlerTab)
 
     if (clause->Flags & CORINFO_EH_CLAUSE_FILTER)
     {
-        filterNode                 = ehnNext++;
+        filterNode                 = tree.ehnNext++;
         filterNode->ehnStartOffset = clause->FilterOffset;
         BasicBlock* blk            = handlerTab->BBFilterLast();
         filterNode->ehnEndOffset   = blk->bbCodeOffsEnd - 1;
@@ -3671,11 +3665,11 @@ void Compiler::verInsertEhNode(CORINFO_EH_CLAUSE* clause, EHblkDsc* handlerTab)
         tryNode->ehnFilterNode = filterNode;
     }
 
-    verInsertEhNodeInTree(&ehnTree, tryNode);
-    verInsertEhNodeInTree(&ehnTree, handlerNode);
+    verInsertEhNodeInTree(tree, tryNode);
+    verInsertEhNodeInTree(tree, handlerNode);
     if (filterNode)
     {
-        verInsertEhNodeInTree(&ehnTree, filterNode);
+        verInsertEhNodeInTree(tree, filterNode);
     }
 }
 
@@ -3736,7 +3730,7 @@ void Compiler::verInsertEhNode(CORINFO_EH_CLAUSE* clause, EHblkDsc* handlerTab)
 
 */
 
-void Compiler::verInsertEhNodeInTree(EHNodeDsc** ppRoot, EHNodeDsc* node)
+void Compiler::verInsertEhNodeInTree(EHTree& tree, EHNodeDsc* node)
 {
     unsigned nStart = node->ehnStartOffset;
     unsigned nEnd   = node->ehnEndOffset;
@@ -3748,6 +3742,8 @@ void Compiler::verInsertEhNodeInTree(EHNodeDsc** ppRoot, EHNodeDsc* node)
     node->ehnNext       = nullptr;
     node->ehnChild      = nullptr;
     node->ehnEquivalent = nullptr;
+
+    EHNodeDsc** ppRoot = &tree.ehnTree;
 
     while (true)
     {
@@ -3830,7 +3826,7 @@ void Compiler::verInsertEhNodeInTree(EHNodeDsc** ppRoot, EHNodeDsc* node)
                 // handler clause came first in the table. The rest of the compiler
                 // doesn't expect this, so sort the EH table.
 
-                fgNeedToSortEHTable = true;
+                tree.fgNeedToSortEHTable = true;
 
                 // Case 12 (nStart == rStart)
                 // non try blocks are not allowed to start at the same offset
@@ -4259,55 +4255,53 @@ bool Compiler::fgRelocateEHRegions()
         printf("*************** In fgRelocateEHRegions()\n");
 #endif
 
-    if (fgCanRelocateEHRegions)
+    unsigned  XTnum;
+    EHblkDsc* HBtab;
+
+    for (XTnum = 0, HBtab = compHndBBtab; XTnum < compHndBBtabCount; XTnum++, HBtab++)
     {
-        unsigned  XTnum;
-        EHblkDsc* HBtab;
-
-        for (XTnum = 0, HBtab = compHndBBtab; XTnum < compHndBBtabCount; XTnum++, HBtab++)
+        // Nested EH regions cannot be moved.
+        // Also we don't want to relocate an EH region that has a filter
+        if ((HBtab->ebdHandlerNestingLevel == 0) && !HBtab->HasFilter())
         {
-            // Nested EH regions cannot be moved.
-            // Also we don't want to relocate an EH region that has a filter
-            if ((HBtab->ebdHandlerNestingLevel == 0) && !HBtab->HasFilter())
+            bool movedTry = false;
+#if DEBUG
+            bool movedHnd = false;
+#endif // DEBUG
+
+            // Only try to move the outermost try region
+            if (HBtab->ebdEnclosingTryIndex == EHblkDsc::NO_ENCLOSING_INDEX)
             {
-                bool movedTry = false;
-#if DEBUG
-                bool movedHnd = false;
-#endif // DEBUG
-
-                // Only try to move the outermost try region
-                if (HBtab->ebdEnclosingTryIndex == EHblkDsc::NO_ENCLOSING_INDEX)
+                // Move the entire try region if it can be moved
+                if (HBtab->ebdTryBeg->isRunRarely())
                 {
-                    // Move the entire try region if it can be moved
-                    if (HBtab->ebdTryBeg->isRunRarely())
+                    BasicBlock* bTryLastBB = fgRelocateEHRange(XTnum, FG_RELOCATE_TRY);
+                    if (bTryLastBB != NULL)
                     {
-                        BasicBlock* bTryLastBB = fgRelocateEHRange(XTnum, FG_RELOCATE_TRY);
-                        if (bTryLastBB != NULL)
-                        {
-                            result   = true;
-                            movedTry = true;
-                        }
+                        result   = true;
+                        movedTry = true;
                     }
-#if DEBUG
-                    if (verbose && movedTry)
-                    {
-                        printf("\nAfter relocating an EH try region");
-                        fgDispBasicBlocks();
-                        fgDispHandlerTab();
-
-                        // Make sure that the predecessor lists are accurate
-                        if (expensiveDebugCheckLevel >= 2)
-                        {
-                            fgDebugCheckBBlist();
-                        }
-                    }
-#endif // DEBUG
                 }
+#if DEBUG
+                if (verbose && movedTry)
+                {
+                    printf("\nAfter relocating an EH try region");
+                    fgDispBasicBlocks();
+                    fgDispHandlerTab();
 
-                // Currently it is not good to move the rarely run handler regions to the end of the method
-                // because fgDetermineFirstColdBlock() must put the start of any handler region in the hot
-                // section.
-                CLANG_FORMAT_COMMENT_ANCHOR;
+                    // Make sure that the predecessor lists are accurate
+                    if (expensiveDebugCheckLevel >= 2)
+                    {
+                        fgDebugCheckBBlist();
+                    }
+                }
+#endif // DEBUG
+            }
+
+            // Currently it is not good to move the rarely run handler regions to the end of the method
+            // because fgDetermineFirstColdBlock() must put the start of any handler region in the hot
+            // section.
+            CLANG_FORMAT_COMMENT_ANCHOR;
 
 #if 0
                 // Now try to move the entire handler region if it can be moved.
@@ -4326,20 +4320,19 @@ bool Compiler::fgRelocateEHRegions()
 #endif // 0
 
 #if DEBUG
-                if (verbose && movedHnd)
-                {
-                    printf("\nAfter relocating an EH handler region");
-                    fgDispBasicBlocks();
-                    fgDispHandlerTab();
+            if (verbose && movedHnd)
+            {
+                printf("\nAfter relocating an EH handler region");
+                fgDispBasicBlocks();
+                fgDispHandlerTab();
 
-                    // Make sure that the predecessor lists are accurate
-                    if (expensiveDebugCheckLevel >= 2)
-                    {
-                        fgDebugCheckBBlist();
-                    }
+                // Make sure that the predecessor lists are accurate
+                if (expensiveDebugCheckLevel >= 2)
+                {
+                    fgDebugCheckBBlist();
                 }
-#endif // DEBUG
             }
+#endif // DEBUG
         }
     }
 

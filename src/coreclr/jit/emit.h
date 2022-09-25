@@ -44,7 +44,14 @@ void emitterStats(FILE* fout);
 void emitterStaticStats(FILE* fout); // Static stats about the emitter (data structure offsets, sizes, etc.)
 #endif
 
-void printRegMaskInt(regMaskTP mask);
+#ifdef DEBUG
+
+inline void printRegMaskInt(regMaskTP mask)
+{
+    printf(REG_MASK_INT_FMT, (mask & RBM_ALLINT));
+}
+
+#endif // DEBUG
 
 /*****************************************************************************/
 /* Forward declarations */
@@ -410,20 +417,15 @@ class emitter
     friend class CodeGen;
     friend class CodeGenInterface;
 
+    Compiler*    emitComp;
+    GCInfo*      gcInfo;
+    CodeGen*     codeGen;
+    ICorJitInfo* emitCmpHandle;
+
 public:
-    /*************************************************************************
-     *
-     *  Define the public entry points.
-     */
-
-    // Constructor.
-    emitter()
+    emitter(Compiler* compiler, CodeGen* codeGen, GCInfo& gcInfo, ICorJitInfo* jitInfo)
+        : emitComp(compiler), gcInfo(&gcInfo), codeGen(codeGen), emitCmpHandle(jitInfo)
     {
-#ifdef TARGET_XARCH
-        SetUseVEXEncoding(false);
-#endif // TARGET_XARCH
-
-        emitDataSecCur = nullptr;
     }
 
 #include "emitpub.h"
@@ -432,10 +434,6 @@ protected:
     /************************************************************************/
     /*                        Miscellaneous stuff                           */
     /************************************************************************/
-
-    Compiler* emitComp;
-    GCInfo*   gcInfo;
-    CodeGen*  codeGen;
 
     typedef GCInfo::varPtrDsc varPtrDsc;
     typedef GCInfo::regPtrDsc regPtrDsc;
@@ -2268,22 +2266,12 @@ public:
 
     dataSecDsc emitConsDsc;
 
-    dataSection* emitDataSecCur;
+    dataSection* emitDataSecCur = nullptr;
 
     void emitOutputDataSec(dataSecDsc* sec, BYTE* dst);
 #ifdef DEBUG
     void emitDispDataSec(dataSecDsc* section);
 #endif
-
-    /************************************************************************/
-    /*              Handles to the current class and method.                */
-    /************************************************************************/
-
-    COMP_HANDLE emitCmpHandle;
-
-    /************************************************************************/
-    /*               Helpers for interface to EE                            */
-    /************************************************************************/
 
     void emitRecordRelocation(void* location,       /* IN */
                               void* target,         /* IN */

@@ -56,7 +56,7 @@ struct IndentStack
         static constexpr const char* unicodeIndents[]{ "\xe2\x94\x82", "\xe2\x94\x94", "\xe2\x94\x9c", "\xe2\x94\x80", "\xe2\x96\x8c" };
         // clang-format on
 
-        indents = compiler->asciiTrees ? asciiIndents : unicodeIndents;
+        indents = JitConfig.JitDumpASCII() ? asciiIndents : unicodeIndents;
     }
 
     unsigned Empty()
@@ -424,23 +424,6 @@ void GenTree::DumpNodeSizes(FILE* fp)
 }
 
 #endif // MEASURE_NODE_SIZE
-
-/*****************************************************************************
- *
- *  Walk all basic blocks and call the given function pointer for all tree
- *  nodes contained therein.
- */
-
-void Compiler::fgWalkAllTreesPre(fgWalkPreFn* visitor, void* pCallBackData)
-{
-    for (BasicBlock* const block : Blocks())
-    {
-        for (Statement* const stmt : block->Statements())
-        {
-            fgWalkTreePre(stmt->GetRootNodePointer(), visitor, pCallBackData);
-        }
-    }
-}
 
 //------------------------------------------------------------------
 // gtHasReg: Whether node beeen assigned a register by LSRA
@@ -1184,7 +1167,7 @@ AGAIN:
             switch (oper)
             {
                 case GT_INTRINSIC:
-                    if (op1->AsIntrinsic()->gtIntrinsicId != op2->AsIntrinsic()->gtIntrinsicId)
+                    if (op1->AsIntrinsic()->GetIntrinsic() != op2->AsIntrinsic()->GetIntrinsic())
                     {
                         return false;
                     }
@@ -1502,7 +1485,7 @@ AGAIN:
             switch (oper)
             {
                 case GT_INTRINSIC:
-                    hash += tree->AsIntrinsic()->gtIntrinsicId;
+                    hash += static_cast<unsigned>(tree->AsIntrinsic()->GetIntrinsic());
                     break;
                 case GT_LEA:
                     hash +=
@@ -1743,25 +1726,29 @@ genTreeOps GenTree::SwapRelop(genTreeOps relop)
     return swapOps[relop - GT_EQ];
 }
 
-/*****************************************************************************
- *
- *  Reverse the meaning of the given test condition.
- */
+void Compiler::gtReverseRelop(GenTreeOp* relop)
+{
+    assert(relop->OperIsCompare());
+
+    relop->gtOper = GenTree::ReverseRelop(relop->GetOper());
+    // TODO-MIKE-Review: We could probably generate a proper VN.
+    relop->gtVNPair.SetBoth(ValueNumStore::NoVN);
+
+    // Flip the GTF_RELOP_NAN_UN bit
+    //     a ord b   === (a != NaN && b != NaN)
+    //     a unord b === (a == NaN || b == NaN)
+    // => !(a ord b) === (a unord b)
+    if (varTypeIsFloating(relop->GetOp(0)->GetType()))
+    {
+        relop->gtFlags ^= GTF_RELOP_NAN_UN;
+    }
+}
 
 GenTree* Compiler::gtReverseCond(GenTree* tree)
 {
     if (tree->OperIsCompare())
     {
-        tree->SetOper(GenTree::ReverseRelop(tree->OperGet()));
-
-        // Flip the GTF_RELOP_NAN_UN bit
-        //     a ord b   === (a != NaN && b != NaN)
-        //     a unord b === (a == NaN || b == NaN)
-        // => !(a ord b) === (a unord b)
-        if (varTypeIsFloating(tree->AsOp()->gtOp1->TypeGet()))
-        {
-            tree->gtFlags ^= GTF_RELOP_NAN_UN;
-        }
+        gtReverseRelop(tree->AsOp());
     }
     else if (tree->OperIs(GT_JCC, GT_SETCC))
     {
@@ -2539,86 +2526,77 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
 
                 case GT_INTRINSIC:
                     intrinsic = tree->AsIntrinsic();
-                    if (intrinsic->gtIntrinsicId == CORINFO_INTRINSIC_Illegal)
+
+                    // GT_INTRINSIC intrinsics Sin, Cos, Sqrt, Abs ... have higher costs.
+                    // TODO: tune these costs target specific as some of these are
+                    // target intrinsics and would cost less to generate code.
+                    switch (intrinsic->GetIntrinsic())
                     {
-                        // named intrinsic
-                        assert(intrinsic->gtIntrinsicName != NI_Illegal);
+                        default:
+                            assert(!"missing case for gtIntrinsicName");
+                            costEx = 12;
+                            costSz = 12;
+                            break;
 
-                        // GT_INTRINSIC intrinsics Sin, Cos, Sqrt, Abs ... have higher costs.
-                        // TODO: tune these costs target specific as some of these are
-                        // target intrinsics and would cost less to generate code.
-                        switch (intrinsic->gtIntrinsicName)
+                        case NI_CORINFO_INTRINSIC_Object_GetType:
+                            // Giving a large fixed execution cost is because we'd like to CSE them,
+                            // even if they are implemented by calls. This is different from modeling
+                            // user calls since we never CSE user calls.
+                            costEx = 36;
+                            costSz = 4;
+                            break;
+
+                        case NI_System_Math_Abs:
+                            costEx = 5;
+                            costSz = 15;
+                            break;
+
+                        case NI_System_Math_Acos:
+                        case NI_System_Math_Acosh:
+                        case NI_System_Math_Asin:
+                        case NI_System_Math_Asinh:
+                        case NI_System_Math_Atan:
+                        case NI_System_Math_Atanh:
+                        case NI_System_Math_Atan2:
+                        case NI_System_Math_Cbrt:
+                        case NI_System_Math_Ceiling:
+                        case NI_System_Math_Cos:
+                        case NI_System_Math_Cosh:
+                        case NI_System_Math_Exp:
+                        case NI_System_Math_Floor:
+                        case NI_System_Math_FMod:
+                        case NI_System_Math_FusedMultiplyAdd:
+                        case NI_System_Math_ILogB:
+                        case NI_System_Math_Log:
+                        case NI_System_Math_Log2:
+                        case NI_System_Math_Log10:
+                        case NI_System_Math_Pow:
+                        case NI_System_Math_Round:
+                        case NI_System_Math_Sin:
+                        case NI_System_Math_Sinh:
+                        case NI_System_Math_Sqrt:
+                        case NI_System_Math_Tan:
+                        case NI_System_Math_Tanh:
                         {
-                            default:
-                                assert(!"missing case for gtIntrinsicName");
-                                costEx = 12;
-                                costSz = 12;
-                                break;
+                            // Giving intrinsics a large fixed execution cost is because we'd like to CSE
+                            // them, even if they are implemented by calls. This is different from modeling
+                            // user calls since we never CSE user calls. We don't do this for target intrinsics
+                            // however as they typically represent single instruction calls
 
-                            case NI_System_Math_Abs:
-                                costEx = 5;
-                                costSz = 15;
-                                break;
-
-                            case NI_System_Math_Acos:
-                            case NI_System_Math_Acosh:
-                            case NI_System_Math_Asin:
-                            case NI_System_Math_Asinh:
-                            case NI_System_Math_Atan:
-                            case NI_System_Math_Atanh:
-                            case NI_System_Math_Atan2:
-                            case NI_System_Math_Cbrt:
-                            case NI_System_Math_Ceiling:
-                            case NI_System_Math_Cos:
-                            case NI_System_Math_Cosh:
-                            case NI_System_Math_Exp:
-                            case NI_System_Math_Floor:
-                            case NI_System_Math_FMod:
-                            case NI_System_Math_FusedMultiplyAdd:
-                            case NI_System_Math_ILogB:
-                            case NI_System_Math_Log:
-                            case NI_System_Math_Log2:
-                            case NI_System_Math_Log10:
-                            case NI_System_Math_Pow:
-                            case NI_System_Math_Round:
-                            case NI_System_Math_Sin:
-                            case NI_System_Math_Sinh:
-                            case NI_System_Math_Sqrt:
-                            case NI_System_Math_Tan:
-                            case NI_System_Math_Tanh:
+                            if (IsIntrinsicImplementedByUserCall(intrinsic->GetIntrinsic()))
                             {
-                                // Giving intrinsics a large fixed execution cost is because we'd like to CSE
-                                // them, even if they are implemented by calls. This is different from modeling
-                                // user calls since we never CSE user calls. We don't do this for target intrinsics
-                                // however as they typically represent single instruction calls
-
-                                if (IsIntrinsicImplementedByUserCall(intrinsic->gtIntrinsicName))
-                                {
-                                    costEx = 36;
-                                    costSz = 4;
-                                }
-                                else
-                                {
-                                    costEx = 3;
-                                    costSz = 4;
-                                }
-                                break;
+                                costEx = 36;
+                                costSz = 4;
                             }
+                            else
+                            {
+                                costEx = 3;
+                                costSz = 4;
+                            }
+                            break;
                         }
                     }
-                    else
-                    {
-                        // old style intrinsic (only Object_GetType is expected)
-                        assert(intrinsic->gtIntrinsicName == NI_Illegal);
-                        assert(intrinsic->gtIntrinsicId == CORINFO_INTRINSIC_Object_GetType);
 
-                        // Giving intrinsics a large fixed execution cost is because we'd like to CSE
-                        // them, even if they are implemented by calls. This is different from modeling
-                        // user calls since we never CSE user calls.
-                        costEx = 36;
-                        costSz = 4;
-                        break;
-                    }
                     level++;
                     break;
 
@@ -3025,8 +3003,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                 break;
 
             case GT_INTRINSIC:
-
-                switch (tree->AsIntrinsic()->gtIntrinsicName)
+                switch (tree->AsIntrinsic()->GetIntrinsic())
                 {
                     case NI_System_Math_Atan2:
                     case NI_System_Math_Pow:
@@ -3086,7 +3063,7 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             // so if possible it was set above.
             tryToSwap = false;
         }
-        else if ((oper == GT_INTRINSIC) && IsIntrinsicImplementedByUserCall(tree->AsIntrinsic()->gtIntrinsicName))
+        else if ((oper == GT_INTRINSIC) && IsIntrinsicImplementedByUserCall(tree->AsIntrinsic()->GetIntrinsic()))
         {
             // We do not swap operand execution order for intrinsics that are implemented by user calls
             // because of trickiness around ensuring the execution order does not change during rationalization.
@@ -3624,8 +3601,8 @@ GenTree* GenTree::FindUser(GenTree*** useEdge)
     return nullptr;
 }
 
-GenTreeRetExpr::GenTreeRetExpr(var_types type, GenTreeCall* call)
-    : GenTree(GT_RET_EXPR, type), m_call(call), m_retExpr(call), m_retBlockIRSummary(BBF_EMPTY)
+GenTreeRetExpr::GenTreeRetExpr(GenTreeCall* call)
+    : GenTree(GT_RET_EXPR, call->GetType()), m_call(call), m_retExpr(call), m_retBlockIRSummary(BBF_EMPTY)
 {
     // GT_RET_EXPR node eventually might be bashed back to GT_CALL (when inlining is aborted for example).
     // Therefore it should carry the GTF_CALL flag so that all the rules about spilling can apply to it as well.
@@ -3675,7 +3652,7 @@ bool GenTree::OperRequiresCallFlag(Compiler* comp)
             return true;
 
         case GT_INTRINSIC:
-            return comp->IsIntrinsicImplementedByUserCall(this->AsIntrinsic()->gtIntrinsicName);
+            return comp->IsIntrinsicImplementedByUserCall(AsIntrinsic()->GetIntrinsic());
 
 #if FEATURE_FIXED_OUT_ARGS && !defined(TARGET_64BIT)
         case GT_LSH:
@@ -4045,39 +4022,24 @@ GenTree* Compiler::gtNewJmpTableNode()
     return new (this, GT_JMPTABLE) GenTree(GT_JMPTABLE, TYP_I_IMPL);
 }
 
-/*****************************************************************************
- *
- *  Converts an annotated token into an icon flags (so that we will later be
- *  able to tell the type of the handle that will be embedded in the icon
- *  node)
- */
-
+// Converts an annotated token into an icon flags (so that we will later be
+// able to tell the type of the handle that will be embedded in the icon
+// node).
 GenTreeFlags Compiler::gtTokenToIconFlags(unsigned token)
 {
-    GenTreeFlags flags = GTF_EMPTY;
-
     switch (TypeFromToken(token))
     {
         case mdtTypeRef:
         case mdtTypeDef:
         case mdtTypeSpec:
-            flags = GTF_ICON_CLASS_HDL;
-            break;
-
+            return GTF_ICON_CLASS_HDL;
         case mdtMethodDef:
-            flags = GTF_ICON_METHOD_HDL;
-            break;
-
+            return GTF_ICON_METHOD_HDL;
         case mdtFieldDef:
-            flags = GTF_ICON_FIELD_HDL;
-            break;
-
+            return GTF_ICON_FIELD_HDL;
         default:
-            flags = GTF_ICON_TOKEN_HDL;
-            break;
+            return GTF_ICON_TOKEN_HDL;
     }
-
-    return flags;
 }
 
 //-----------------------------------------------------------------------------------------
@@ -4174,6 +4136,46 @@ GenTree* Compiler::gtNewIconEmbHndNode(void* value, void* pValue, GenTreeFlags i
     iconNode->AsIntCon()->gtCompileTimeHandle = reinterpret_cast<size_t>(compileTimeHandle);
 
     return handleNode;
+}
+
+GenTree* Compiler::gtNewConstLookupTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
+                                        CORINFO_LOOKUP*         lookup,
+                                        GenTreeFlags            handleFlags,
+                                        void*                   compileTimeHandle)
+{
+    assert(!lookup->lookupKind.needsRuntimeLookup);
+
+    void* handle     = nullptr;
+    void* handleAddr = nullptr;
+
+    if (lookup->constLookup.accessType == IAT_VALUE)
+    {
+        handle = lookup->constLookup.handle;
+    }
+    else
+    {
+        assert(lookup->constLookup.accessType == IAT_PVALUE);
+
+        handleAddr = lookup->constLookup.addr;
+    }
+
+    GenTree* addr = gtNewIconEmbHndNode(handle, handleAddr, handleFlags, compileTimeHandle);
+
+#ifdef DEBUG
+    if (handleFlags != GTF_ICON_TOKEN_HDL)
+    {
+        GenTreeIntCon* addrCon = addr->IsIntCon();
+
+        if (addrCon == nullptr)
+        {
+            addrCon = addr->AsIndir()->GetAddr()->AsIntCon();
+        }
+
+        addrCon->gtTargetHandle = reinterpret_cast<size_t>(compileTimeHandle);
+    }
+#endif
+
+    return addr;
 }
 
 /*****************************************************************************/
@@ -4419,7 +4421,7 @@ GenTreeCall* Compiler::gtNewCallNode(
     return node;
 }
 
-GenTreeLclVar* Compiler::gtNewLclvNode(unsigned lnum, var_types type DEBUGARG(IL_OFFSETX ILoffs))
+GenTreeLclVar* Compiler::gtNewLclvNode(unsigned lnum, var_types type)
 {
 #ifdef DEBUG
     // We need to ensure that all struct values are normalized.
@@ -4441,10 +4443,10 @@ GenTreeLclVar* Compiler::gtNewLclvNode(unsigned lnum, var_types type DEBUGARG(IL
     }
 #endif
 
-    return new (this, GT_LCL_VAR) GenTreeLclVar(GT_LCL_VAR, type, lnum DEBUGARG(ILoffs));
+    return new (this, GT_LCL_VAR) GenTreeLclVar(GT_LCL_VAR, type, lnum);
 }
 
-GenTreeLclVar* Compiler::gtNewLclVarLargeNode(unsigned lnum, var_types type DEBUGARG(IL_OFFSETX ILoffs))
+GenTreeLclVar* Compiler::gtNewLclVarLargeNode(unsigned lnum, var_types type)
 {
 #ifdef DEBUG
     LclVarDsc* lcl = lvaGetDesc(lnum);
@@ -4464,8 +4466,7 @@ GenTreeLclVar* Compiler::gtNewLclVarLargeNode(unsigned lnum, var_types type DEBU
     // This local variable node may later get transformed into a large node
     assert(GenTree::s_gtNodeSizes[LargeOpOpcode()] > GenTree::s_gtNodeSizes[GT_LCL_VAR]);
 
-    return new (this, LargeOpOpcode())
-        GenTreeLclVar(GT_LCL_VAR, type, lnum DEBUGARG(ILoffs) DEBUGARG(/*largeNode*/ true));
+    return new (this, LargeOpOpcode()) GenTreeLclVar(GT_LCL_VAR, type, lnum DEBUGARG(/*largeNode*/ true));
 }
 
 GenTreeLclVar* Compiler::gtNewLclVarAddrNode(unsigned lclNum, var_types type)
@@ -4485,9 +4486,9 @@ GenTreeLclFld* Compiler::gtNewLclFldNode(unsigned lnum, var_types type, unsigned
     return new (this, GT_LCL_FLD) GenTreeLclFld(GT_LCL_FLD, type, lnum, offset);
 }
 
-GenTreeRetExpr* Compiler::gtNewRetExpr(GenTreeCall* call, var_types type)
+GenTreeRetExpr* Compiler::gtNewRetExpr(GenTreeCall* call)
 {
-    return new (this, GT_RET_EXPR) GenTreeRetExpr(type, call);
+    return new (this, GT_RET_EXPR) GenTreeRetExpr(call);
 }
 
 GenTreeCall::Use* Compiler::gtPrependNewCallArg(GenTree* node, GenTreeCall::Use* args)
@@ -4943,13 +4944,12 @@ GenTreeUnOp* Compiler::gtNewBitCastNode(var_types type, GenTree* arg)
 //    Returns GT_ALLOCOBJ node that will be later morphed into an
 //    allocation helper call or local variable allocation on the stack.
 
-GenTreeAllocObj* Compiler::gtNewAllocObjNode(CORINFO_RESOLVED_TOKEN* pResolvedToken, bool useParent)
+GenTreeAllocObj* Importer::gtNewAllocObjNode(CORINFO_RESOLVED_TOKEN* pResolvedToken, bool useParent)
 {
     const bool      mustRestoreHandle     = true;
-    bool* const     pRuntimeLookup        = nullptr;
     bool            usingReadyToRunHelper = false;
     CorInfoHelpFunc helper                = CORINFO_HELP_UNDEF;
-    GenTree*        opHandle = impTokenToHandle(pResolvedToken, pRuntimeLookup, mustRestoreHandle, useParent);
+    GenTree*        opHandle              = impTokenToHandle(pResolvedToken, mustRestoreHandle, useParent);
 
 #ifdef FEATURE_READYTORUN_COMPILER
     CORINFO_CONST_LOOKUP lookup = {};
@@ -5323,13 +5323,7 @@ GenTree* Compiler::gtCloneExpr(
                 break;
 
             case GT_INTRINSIC:
-                copy = new (this, GT_INTRINSIC)
-                    GenTreeIntrinsic(tree->TypeGet(), tree->AsOp()->gtOp1, tree->AsOp()->gtOp2,
-                                     tree->AsIntrinsic()->gtIntrinsicId, tree->AsIntrinsic()->gtIntrinsicName,
-                                     tree->AsIntrinsic()->gtMethodHandle);
-#ifdef FEATURE_READYTORUN_COMPILER
-                copy->AsIntrinsic()->gtEntryPoint = tree->AsIntrinsic()->gtEntryPoint;
-#endif
+                copy = new (this, GT_INTRINSIC) GenTreeIntrinsic(tree->AsIntrinsic());
                 break;
 
             case GT_LEA:
@@ -5650,7 +5644,7 @@ GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall* tree,
 
     if (tree->fgArgInfo != nullptr)
     {
-        copy->fgArgInfo = new (this, CMK_Unknown) fgArgInfo(this, copy, tree);
+        copy->fgArgInfo = new (this, CMK_CallInfo) fgArgInfo(this, copy, tree);
     }
 
 #ifdef FEATURE_READYTORUN_COMPILER
@@ -5659,7 +5653,7 @@ GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall* tree,
 
 #if defined(DEBUG) || defined(INLINE_DATA)
     copy->gtInlineObservation = tree->gtInlineObservation;
-    copy->gtRawILOffset       = tree->AsCall()->gtRawILOffset;
+    copy->gtRawILOffset       = tree->gtRawILOffset;
 #endif
 
     // We keep track of the number of no return calls, so if we've cloned
@@ -8099,107 +8093,97 @@ void Compiler::gtDispTree(GenTree*     tree,
         break;
 
         case GT_INTRINSIC:
-        {
-            GenTreeIntrinsic* intrinsic = tree->AsIntrinsic();
-
-            if (intrinsic->gtIntrinsicId == CORINFO_INTRINSIC_Object_GetType)
+            switch (tree->AsIntrinsic()->GetIntrinsic())
             {
-                assert(intrinsic->gtIntrinsicName == NI_Illegal);
-                printf(" objGetType");
+                case NI_CORINFO_INTRINSIC_Object_GetType:
+                    printf(" objGetType");
+                    break;
+                case NI_System_Math_Abs:
+                    printf(" abs");
+                    break;
+                case NI_System_Math_Acos:
+                    printf(" acos");
+                    break;
+                case NI_System_Math_Acosh:
+                    printf(" acosh");
+                    break;
+                case NI_System_Math_Asin:
+                    printf(" asin");
+                    break;
+                case NI_System_Math_Asinh:
+                    printf(" asinh");
+                    break;
+                case NI_System_Math_Atan:
+                    printf(" atan");
+                    break;
+                case NI_System_Math_Atanh:
+                    printf(" atanh");
+                    break;
+                case NI_System_Math_Atan2:
+                    printf(" atan2");
+                    break;
+                case NI_System_Math_Cbrt:
+                    printf(" cbrt");
+                    break;
+                case NI_System_Math_Ceiling:
+                    printf(" ceiling");
+                    break;
+                case NI_System_Math_Cos:
+                    printf(" cos");
+                    break;
+                case NI_System_Math_Cosh:
+                    printf(" cosh");
+                    break;
+                case NI_System_Math_Exp:
+                    printf(" exp");
+                    break;
+                case NI_System_Math_Floor:
+                    printf(" floor");
+                    break;
+                case NI_System_Math_FMod:
+                    printf(" fmod");
+                    break;
+                case NI_System_Math_FusedMultiplyAdd:
+                    printf(" fma");
+                    break;
+                case NI_System_Math_ILogB:
+                    printf(" ilogb");
+                    break;
+                case NI_System_Math_Log:
+                    printf(" log");
+                    break;
+                case NI_System_Math_Log2:
+                    printf(" log2");
+                    break;
+                case NI_System_Math_Log10:
+                    printf(" log10");
+                    break;
+                case NI_System_Math_Pow:
+                    printf(" pow");
+                    break;
+                case NI_System_Math_Round:
+                    printf(" round");
+                    break;
+                case NI_System_Math_Sin:
+                    printf(" sin");
+                    break;
+                case NI_System_Math_Sinh:
+                    printf(" sinh");
+                    break;
+                case NI_System_Math_Sqrt:
+                    printf(" sqrt");
+                    break;
+                case NI_System_Math_Tan:
+                    printf(" tan");
+                    break;
+                case NI_System_Math_Tanh:
+                    printf(" tanh");
+                    break;
+                default:
+                    printf(" ???");
+                    break;
             }
-            else
-            {
-                assert(intrinsic->gtIntrinsicId == CORINFO_INTRINSIC_Illegal);
-                switch (intrinsic->gtIntrinsicName)
-                {
-                    case NI_System_Math_Abs:
-                        printf(" abs");
-                        break;
-                    case NI_System_Math_Acos:
-                        printf(" acos");
-                        break;
-                    case NI_System_Math_Acosh:
-                        printf(" acosh");
-                        break;
-                    case NI_System_Math_Asin:
-                        printf(" asin");
-                        break;
-                    case NI_System_Math_Asinh:
-                        printf(" asinh");
-                        break;
-                    case NI_System_Math_Atan:
-                        printf(" atan");
-                        break;
-                    case NI_System_Math_Atanh:
-                        printf(" atanh");
-                        break;
-                    case NI_System_Math_Atan2:
-                        printf(" atan2");
-                        break;
-                    case NI_System_Math_Cbrt:
-                        printf(" cbrt");
-                        break;
-                    case NI_System_Math_Ceiling:
-                        printf(" ceiling");
-                        break;
-                    case NI_System_Math_Cos:
-                        printf(" cos");
-                        break;
-                    case NI_System_Math_Cosh:
-                        printf(" cosh");
-                        break;
-                    case NI_System_Math_Exp:
-                        printf(" exp");
-                        break;
-                    case NI_System_Math_Floor:
-                        printf(" floor");
-                        break;
-                    case NI_System_Math_FMod:
-                        printf(" fmod");
-                        break;
-                    case NI_System_Math_FusedMultiplyAdd:
-                        printf(" fma");
-                        break;
-                    case NI_System_Math_ILogB:
-                        printf(" ilogb");
-                        break;
-                    case NI_System_Math_Log:
-                        printf(" log");
-                        break;
-                    case NI_System_Math_Log2:
-                        printf(" log2");
-                        break;
-                    case NI_System_Math_Log10:
-                        printf(" log10");
-                        break;
-                    case NI_System_Math_Pow:
-                        printf(" pow");
-                        break;
-                    case NI_System_Math_Round:
-                        printf(" round");
-                        break;
-                    case NI_System_Math_Sin:
-                        printf(" sin");
-                        break;
-                    case NI_System_Math_Sinh:
-                        printf(" sinh");
-                        break;
-                    case NI_System_Math_Sqrt:
-                        printf(" sqrt");
-                        break;
-                    case NI_System_Math_Tan:
-                        printf(" tan");
-                        break;
-                    case NI_System_Math_Tanh:
-                        printf(" tanh");
-                        break;
-
-                    default:
-                        unreached();
-                }
-            }
-        }
-        break;
+            break;
 
         case GT_FIELD_LIST:
             printf(" { ");
@@ -8343,11 +8327,13 @@ void Compiler::gtDispTree(GenTree*     tree,
                 printf("%sunmanaged", separator);
                 separator = ", ";
 
+#ifdef TARGET_X86
                 if (call->CallerPop())
                 {
                     printf("%spopargs", separator);
                     separator = ", ";
                 }
+#endif
 
                 if ((call->gtCallMoreFlags & GTF_CALL_M_UNMGD_THISCALL) != 0)
                 {
@@ -8617,38 +8603,22 @@ void Compiler::gtGetCallArgMsg(GenTreeCall* call, CallArgInfo* argInfo, GenTree*
 //    stmt - the statement to be printed;
 //    msg  - an additional message to print before the statement.
 //
-void Compiler::gtDispStmt(Statement* stmt, const char* msg /* = nullptr */)
+void Compiler::gtDispStmt(Statement* stmt, const char* msg)
 {
-    if (opts.compDbgInfo)
+    if (msg != nullptr)
     {
-        if (msg != nullptr)
-        {
-            printf("%s ", msg);
-        }
-        printStmtID(stmt);
-        IL_OFFSETX firstILOffsx = stmt->GetILOffsetX();
-        printf(" (IL ");
-        if (firstILOffsx == BAD_IL_OFFSET)
-        {
-            printf("  ???");
-        }
-        else
-        {
-            printf("0x%03X", jitGetILoffs(firstILOffsx));
-        }
-        printf("...");
-
-        IL_OFFSET lastILOffs = stmt->GetLastILOffset();
-        if (lastILOffs == BAD_IL_OFFSET)
-        {
-            printf("  ???");
-        }
-        else
-        {
-            printf("0x%03X", lastILOffs);
-        }
-        printf(")\n");
+        printf("%s ", msg);
     }
+
+    printf(FMT_STMT, stmt->GetID());
+
+    if (opts.compDbgInfo && (stmt->GetILOffsetX() != BAD_IL_OFFSET))
+    {
+        printf(" IL 0x%03X", jitGetILoffs(stmt->GetILOffsetX()));
+    }
+
+    printf("\n");
+
     gtDispTree(stmt->GetRootNode());
 }
 
@@ -11850,24 +11820,24 @@ Compiler::FindLinkData Compiler::gtFindLink(Statement* stmt, GenTree* node)
 
 Compiler::TypeProducerKind Compiler::gtGetTypeProducerKind(GenTree* tree)
 {
-    if (tree->gtOper == GT_CALL)
+    if (GenTreeCall* call = tree->IsCall())
     {
-        if (tree->AsCall()->gtCallType == CT_HELPER)
+        if (call->IsHelperCall())
         {
-            if (gtIsTypeHandleToRuntimeTypeHelper(tree->AsCall()))
+            if (call->IsTypeHandleToRuntimeTypeHelperCall())
             {
                 return TPK_Handle;
             }
         }
-        else if (tree->AsCall()->gtCallMoreFlags & GTF_CALL_M_SPECIAL_INTRINSIC)
+        else if ((call->gtCallMoreFlags & GTF_CALL_M_SPECIAL_INTRINSIC) != 0)
         {
-            if (info.compCompHnd->getIntrinsicID(tree->AsCall()->gtCallMethHnd) == CORINFO_INTRINSIC_Object_GetType)
+            if (info.compCompHnd->getIntrinsicID(call->GetMethodHandle()) == CORINFO_INTRINSIC_Object_GetType)
             {
                 return TPK_GetType;
             }
         }
     }
-    else if ((tree->gtOper == GT_INTRINSIC) && (tree->AsIntrinsic()->gtIntrinsicId == CORINFO_INTRINSIC_Object_GetType))
+    else if (tree->IsIntrinsic() && (tree->AsIntrinsic()->GetIntrinsic() == NI_CORINFO_INTRINSIC_Object_GetType))
     {
         return TPK_GetType;
     }
@@ -11889,55 +11859,29 @@ Compiler::TypeProducerKind Compiler::gtGetTypeProducerKind(GenTree* tree)
     return TPK_Unknown;
 }
 
-//------------------------------------------------------------------------
-// gtIsTypeHandleToRuntimeTypeHelperCall -- see if tree is constructing
-//    a RuntimeType from a handle
-//
-// Arguments:
-//    tree - tree to examine
-//
-// Return Value:
-//    True if so
-
-bool Compiler::gtIsTypeHandleToRuntimeTypeHelper(GenTreeCall* call)
+bool GenTreeCall::IsTypeHandleToRuntimeTypeHelperCall() const
 {
-    return call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE) ||
-           call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE_MAYBENULL);
+    switch (Compiler::eeGetHelperNum(gtCallMethHnd))
+    {
+        case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE:
+        case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE_MAYBENULL:
+            return true;
+        default:
+            return false;
+    }
 }
 
-//------------------------------------------------------------------------
-// gtIsTypeHandleToRuntimeTypeHandleHelperCall -- see if tree is constructing
-//    a RuntimeTypeHandle from a handle
-//
-// Arguments:
-//    tree - tree to examine
-//    pHelper - optional pointer to a variable that receives the type of the helper
-//
-// Return Value:
-//    True if so
-
-bool Compiler::gtIsTypeHandleToRuntimeTypeHandleHelper(GenTreeCall* call, CorInfoHelpFunc* pHelper)
+bool GenTreeCall::IsTypeHandleToRuntimeTypeHandleHelperCall() const
 {
-    CorInfoHelpFunc helper = CORINFO_HELP_UNDEF;
-
-    if (call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE))
+    switch (Compiler::eeGetHelperNum(gtCallMethHnd))
     {
-        helper = CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE;
+        case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE:
+        case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE_MAYBENULL:
+            return true;
+        default:
+            return false;
     }
-    else if (call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE_MAYBENULL))
-    {
-        helper = CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE_MAYBENULL;
-    }
-
-    if (pHelper != nullptr)
-    {
-        *pHelper = helper;
-    }
-
-    return helper != CORINFO_HELP_UNDEF;
 }
-
-/*****************************************************************************/
 
 struct ComplexityStruct
 {
@@ -12435,7 +12379,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
         {
             GenTreeIntrinsic* intrinsic = obj->AsIntrinsic();
 
-            if (intrinsic->gtIntrinsicId == CORINFO_INTRINSIC_Object_GetType)
+            if (intrinsic->GetIntrinsic() == NI_CORINFO_INTRINSIC_Object_GetType)
             {
                 CORINFO_CLASS_HANDLE runtimeType = info.compCompHnd->getBuiltinClass(CLASSID_RUNTIME_TYPE);
                 assert(runtimeType != NO_CLASS_HANDLE);

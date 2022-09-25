@@ -213,14 +213,22 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
             break;
 
         case GT_NOP:
-            // fgMorph sometimes inserts NOP nodes between defs and uses
-            // supposedly 'to prevent constant folding'. In this case, remove the
-            // NOP.
-            if (node->gtGetOp1() != nullptr)
+            // fgMorph sometimes inserts NOP nodes between defs and uses supposedly
+            // 'to prevent constant folding'. In this case, remove the NOP.
+            if (GenTree* value = node->gtGetOp1())
             {
-                use.ReplaceWith(comp, node->gtGetOp1());
+                if (!use.IsDummyUse())
+                {
+                    use.ReplaceWith(comp, value);
+                }
+                else
+                {
+                    value->SetUnusedValue();
+                }
+
                 BlockRange().Remove(node);
-                node = node->gtGetOp1();
+
+                return Compiler::WALK_CONTINUE;
             }
             break;
 
@@ -247,11 +255,10 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
 
             BlockRange().Remove(node);
 
-            GenTree* replacement = node->gtGetOp2();
+            GenTree* value = node->gtGetOp2();
             if (!use.IsDummyUse())
             {
-                use.ReplaceWith(comp, replacement);
-                node = replacement;
+                use.ReplaceWith(comp, value);
             }
             else
             {
@@ -259,7 +266,7 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
                 // it as well.
                 bool               isClosed    = false;
                 unsigned           sideEffects = 0;
-                LIR::ReadOnlyRange rhsRange    = BlockRange().GetTreeRange(replacement, &isClosed, &sideEffects);
+                LIR::ReadOnlyRange rhsRange    = BlockRange().GetTreeRange(value, &isClosed, &sideEffects);
 
                 if ((sideEffects & GTF_ALL_EFFECT) == 0)
                 {
@@ -269,11 +276,13 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
 
                     BlockRange().Delete(comp, m_block, std::move(rhsRange));
                 }
-                else
+                else if (value->IsValue())
                 {
-                    node = replacement;
+                    value->SetUnusedValue();
                 }
             }
+
+            return Compiler::WALK_CONTINUE;
         }
         break;
 
@@ -286,7 +295,7 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
 
         case GT_INTRINSIC:
             // Non-target intrinsics should have already been rewritten back into user calls.
-            assert(comp->IsTargetIntrinsic(node->AsIntrinsic()->gtIntrinsicName));
+            assert(comp->IsTargetIntrinsic(node->AsIntrinsic()->GetIntrinsic()));
             break;
 
         case GT_ADD:
@@ -341,17 +350,26 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
     }
 
     // Do some extra processing on top-level nodes to remove unused local reads.
-    if (node->OperIsLocalRead())
+    if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
         if (use.IsDummyUse())
         {
             BlockRange().Remove(node);
+            return Compiler::WALK_CONTINUE;
         }
-        else
+
+        // Local reads are side-effect-free; clear any flags leftover from frontend transformations.
+        node->SetSideEffects(GTF_EMPTY);
+
+#ifndef TARGET_64BIT
+        if (node->TypeIs(TYP_LONG) ||
+            // We may end up with INT LCL_VAR nodes for LONG locals, we should
+            // treat them as LONG in case we want to promote the LONG local.
+            (node->TypeIs(TYP_INT) && node->OperIs(GT_LCL_VAR) && comp->lvaGetDesc(node->AsLclVar())->TypeIs(TYP_LONG)))
         {
-            // Local reads are side-effect-free; clear any flags leftover from frontend transformations.
-            node->gtFlags &= ~GTF_ALL_EFFECT;
+            comp->compLongUsed = true;
         }
+#endif
     }
     else
     {
@@ -372,10 +390,12 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
             node->SetUnusedValue();
         }
 
-        if (node->TypeGet() == TYP_LONG)
+#ifndef TARGET_64BIT
+        if (node->TypeIs(TYP_LONG))
         {
             comp->compLongUsed = true;
         }
+#endif
     }
 
     return Compiler::WALK_CONTINUE;
@@ -418,8 +438,8 @@ PhaseStatus Rationalizer::DoPhase()
         fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
         {
             GenTree* const node = *use;
-            if (node->OperGet() == GT_INTRINSIC &&
-                m_rationalizer.comp->IsIntrinsicImplementedByUserCall(node->AsIntrinsic()->gtIntrinsicName))
+            if (node->IsIntrinsic() &&
+                m_rationalizer.comp->IsIntrinsicImplementedByUserCall(node->AsIntrinsic()->GetIntrinsic()))
             {
                 m_rationalizer.RewriteIntrinsicAsUserCall(use, this->m_ancestors);
             }
@@ -454,30 +474,32 @@ PhaseStatus Rationalizer::DoPhase()
             continue;
         }
 
+        IL_OFFSETX currentILOffset = BAD_IL_OFFSET;
+
         for (Statement* const statement : block->Statements())
         {
-            assert(statement->GetTreeList() != nullptr);
-            assert(statement->GetTreeList()->gtPrev == nullptr);
+            assert(statement->GetNodeList() != nullptr);
+            assert(statement->GetNodeList()->gtPrev == nullptr);
             assert(statement->GetRootNode() != nullptr);
             assert(statement->GetRootNode()->gtNext == nullptr);
 
-            if (!statement->IsPhiDefnStmt()) // Note that we get rid of PHI nodes here.
+            if (statement->IsPhiDefnStmt())
             {
-                BlockRange().InsertAtEnd(LIR::Range(statement->GetTreeList(), statement->GetRootNode()));
-
-                // If this statement has correct offset information, change it into an IL offset
-                // node and insert it into the LIR.
-                if (statement->GetILOffsetX() != BAD_IL_OFFSET)
-                {
-                    assert(!statement->IsPhiDefnStmt());
-                    GenTreeILOffset* ilOffset = new (comp, GT_IL_OFFSET)
-                        GenTreeILOffset(statement->GetILOffsetX() DEBUGARG(statement->GetLastILOffset()));
-                    BlockRange().InsertBefore(statement->GetTreeList(), ilOffset);
-                }
-
-                m_block = block;
-                visitor.WalkTree(statement->GetRootNodePointer(), nullptr);
+                continue;
             }
+
+            IL_OFFSETX stmtILOffset = statement->GetILOffsetX();
+
+            if ((stmtILOffset != BAD_IL_OFFSET) && (stmtILOffset != currentILOffset))
+            {
+                BlockRange().InsertAtEnd(new (comp, GT_IL_OFFSET) GenTreeILOffset(stmtILOffset));
+                currentILOffset = stmtILOffset;
+            }
+
+            BlockRange().InsertAtEnd(LIR::Range(statement->GetNodeList(), statement->GetRootNode()));
+
+            m_block = block;
+            visitor.WalkTree(statement->GetRootNodePointer(), nullptr);
         }
 
         block->bbStmtList = nullptr;

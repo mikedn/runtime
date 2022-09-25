@@ -11,20 +11,6 @@
 #undef fprintf
 #define fprintf flogf
 
-class Compiler;
-class LogEnv
-{
-public:
-    LogEnv(ICorJitInfo* aCompHnd);
-    void setCompiler(Compiler* val)
-    {
-        const_cast<Compiler*&>(compiler) = val;
-    }
-
-    ICorJitInfo* const compHnd;
-    Compiler* const    compiler;
-};
-
 bool vlogf(unsigned level, const char* fmt, va_list args);
 int vflogf(FILE* file, const char* fmt, va_list args);
 

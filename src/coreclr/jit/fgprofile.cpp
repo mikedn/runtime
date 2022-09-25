@@ -461,8 +461,8 @@ void BlockCountInstrumentor::Instrument(BasicBlock* block, Schema& schema, BYTE*
 //
 void BlockCountInstrumentor::InstrumentMethodEntry(Schema& schema, BYTE* profileMemory)
 {
-    Compiler::Options& opts = m_comp->opts;
-    Compiler::Info&    info = m_comp->info;
+    CompilerOptions&    opts = m_comp->opts;
+    CompiledMethodInfo& info = m_comp->info;
 
     // Nothing to do, if not prejitting.
     //
@@ -498,7 +498,11 @@ void BlockCountInstrumentor::InstrumentMethodEntry(Schema& schema, BYTE* profile
 
         info.compCompHnd->resolveToken(&resolvedToken);
 
-        arg = m_comp->impTokenToHandle(&resolvedToken);
+        CORINFO_GENERICHANDLE_RESULT embedInfo;
+        info.compCompHnd->embedGenericHandle(&resolvedToken, false, &embedInfo);
+        noway_assert(!embedInfo.lookup.lookupKind.needsRuntimeLookup);
+        arg = m_comp->gtNewConstLookupTree(&resolvedToken, &embedInfo.lookup, GTF_ICON_METHOD_HDL,
+                                           embedInfo.compileTimeHandle);
     }
     else
 #endif

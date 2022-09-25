@@ -793,7 +793,7 @@ public:
     {
         if (m_count == 0)
         {
-            return nullptr;
+            return false;
         }
 
         unsigned index = GetBucketIndex(value);

@@ -8,6 +8,8 @@
 
 #include "_typeinfo.h"
 
+#ifdef DEBUG
+
 const ti_types g_ti_types_map[CORINFO_TYPE_COUNT] = {
     // see the definition of enum CorInfoType in file inc/corinfo.h
     TI_ERROR,  // CORINFO_TYPE_UNDEF           = 0x0,
@@ -35,9 +37,25 @@ const ti_types g_ti_types_map[CORINFO_TYPE_COUNT] = {
     TI_ERROR,  // CORINFO_TYPE_VAR             = 0x16,
 };
 
-#ifdef DEBUG
+// Convert the type returned from the VM to a ti_type.
+ti_types JITtype2tiType(CorInfoType type)
+{
+    // spot check to make certain enumerations have not changed
+    assert(g_ti_types_map[CORINFO_TYPE_CLASS] == TI_REF);
+    assert(g_ti_types_map[CORINFO_TYPE_BYREF] == TI_ERROR);
+    assert(g_ti_types_map[CORINFO_TYPE_DOUBLE] == TI_DOUBLE);
+    assert(g_ti_types_map[CORINFO_TYPE_VALUECLASS] == TI_STRUCT);
+    assert(g_ti_types_map[CORINFO_TYPE_STRING] == TI_REF);
 
-typeInfo Compiler::verMakeTypeInfo(CorInfoType ciType, CORINFO_CLASS_HANDLE clsHnd)
+    type = CorInfoType(type & CORINFO_TYPE_MASK); // strip off modifiers
+
+    assert(type < CORINFO_TYPE_COUNT);
+    assert(g_ti_types_map[type] != TI_ERROR || type == CORINFO_TYPE_VOID);
+
+    return g_ti_types_map[type];
+};
+
+typeInfo Importer::verMakeTypeInfo(CorInfoType ciType, CORINFO_CLASS_HANDLE clsHnd)
 {
     assert(ciType < CORINFO_TYPE_COUNT);
 
@@ -107,7 +125,7 @@ typeInfo Compiler::verMakeTypeInfo(CorInfoType ciType, CORINFO_CLASS_HANDLE clsH
     return tiResult;
 }
 
-typeInfo Compiler::verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd)
+typeInfo Importer::verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd)
 {
     if (clsHnd == nullptr)
     {
@@ -192,7 +210,7 @@ bool typeInfo::AreEquivalent(const typeInfo& li, const typeInfo& ti)
     return li.m_cls == ti.m_cls;
 }
 
-bool Compiler::tiCompatibleWith(const typeInfo& child, const typeInfo& parent) const
+bool Importer::tiCompatibleWith(const typeInfo& child, const typeInfo& parent) const
 {
     return typeInfo::tiCompatibleWith(info.compCompHnd, child, parent);
 }
@@ -265,6 +283,8 @@ static bool tiCompatibleWithByRef(ICorJitInfo* vm, const typeInfo& child, const 
 
 bool typeInfo::tiCompatibleWith(ICorJitInfo* vm, const typeInfo& child, const typeInfo& parent)
 {
+    assert(!parent.IsType(TI_METHOD));
+
     if (typeInfo::AreEquivalent(child, parent))
     {
         return true;
@@ -273,12 +293,6 @@ bool typeInfo::tiCompatibleWith(ICorJitInfo* vm, const typeInfo& child, const ty
     if (parent.IsType(TI_REF))
     {
         return child.IsType(TI_REF) && vm->canCast(child.m_cls, parent.m_cls);
-    }
-
-    if (parent.IsType(TI_METHOD))
-    {
-        // Right now we don't bother merging method handles
-        return child.IsType(TI_METHOD);
     }
 
     if (parent.IsType(TI_STRUCT))

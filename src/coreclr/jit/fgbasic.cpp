@@ -6,210 +6,6 @@
 #pragma hdrstop
 #endif
 
-// Flowgraph Construction and Maintenance
-
-void Compiler::fgInit()
-{
-    impInit();
-
-    /* Initialization for fgWalkTreePre() and fgWalkTreePost() */
-
-    fgFirstBBScratch = nullptr;
-
-#ifdef DEBUG
-    fgPrintInlinedMethods = false;
-#endif // DEBUG
-
-    /* We haven't yet computed the bbPreds lists */
-    fgComputePredsDone = false;
-
-    /* We haven't yet computed the bbCheapPreds lists */
-    fgCheapPredsValid = false;
-
-    /* We haven't yet computed the edge weight */
-    fgEdgeWeightsComputed    = false;
-    fgHaveValidEdgeWeights   = false;
-    fgSlopUsedInEdgeWeights  = false;
-    fgRangeUsedInEdgeWeights = true;
-    fgNeedsUpdateFlowGraph   = false;
-    fgCalledCount            = BB_ZERO_WEIGHT;
-
-    /* We haven't yet computed the dominator sets */
-    fgDomsComputed = false;
-
-#ifdef DEBUG
-    fgReachabilitySetsValid = false;
-#endif // DEBUG
-
-    /* We don't know yet which loops will always execute calls */
-    fgLoopCallMarked = false;
-
-    /* Initialize the basic block list */
-
-    fgFirstBB        = nullptr;
-    fgLastBB         = nullptr;
-    fgFirstColdBlock = nullptr;
-    fgEntryBB        = nullptr;
-
-#if defined(FEATURE_EH_FUNCLETS)
-    fgFirstFuncletBB  = nullptr;
-    fgFuncletsCreated = false;
-#endif // FEATURE_EH_FUNCLETS
-
-    fgBBcount = 0;
-
-#ifdef DEBUG
-    fgBBcountAtCodegen = 0;
-#endif // DEBUG
-
-    fgBBNumMax    = 0;
-    fgEdgeCount   = 0;
-    fgDomBBcount  = 0;
-    fgReturnCount = 0;
-
-    // Initialize BlockSet data.
-    fgCurBBEpoch             = 0;
-    fgCurBBEpochSize         = 0;
-    fgBBSetCountInSizeTUnits = 0;
-
-    genReturnBB    = nullptr;
-    genReturnLocal = BAD_VAR_NUM;
-
-    /* We haven't reached the global morphing phase */
-    fgGlobalMorph = false;
-    fgModified    = false;
-
-#ifdef DEBUG
-    fgSafeBasicBlockCreation = true;
-#endif // DEBUG
-
-    fgLocalVarLivenessDone = false;
-
-    /* Statement list is not threaded yet */
-
-    fgStmtListThreaded = false;
-
-    // Initialize the logic for adding code. This is used to insert code such
-    // as the code that raises an exception when an array range check fails.
-
-    fgAddCodeList = nullptr;
-    fgAddCodeModf = false;
-
-    for (int i = 0; i < SCK_COUNT; i++)
-    {
-        fgExcptnTargetCache[i] = nullptr;
-    }
-
-    /* Keep track of the max count of pointer arguments */
-    fgPtrArgCntMax = 0;
-
-    /* This global flag is set whenever we remove a statement */
-    fgStmtRemoved = false;
-
-    /* This global flag is set whenever we add a throw block for a RngChk */
-    fgRngChkThrowAdded = false; /* reset flag for fgIsCodeAdded() */
-
-    /* Keep track of whether or not EH statements have been optimized */
-    fgOptimizedFinally = false;
-
-    /* We will record a list of all BBJ_RETURN blocks here */
-    fgReturnBlocks = nullptr;
-
-    /* This is set by fgComputeReachability */
-    fgEnterBlks = BlockSetOps::UninitVal();
-
-#ifdef DEBUG
-    fgEnterBlksSetValid = false;
-#endif // DEBUG
-
-#if !defined(FEATURE_EH_FUNCLETS)
-    ehMaxHndNestingCount = 0;
-#endif // !FEATURE_EH_FUNCLETS
-
-    for (unsigned i = 0; i < _countof(fgLargeFieldOffsetNullCheckTemps); i++)
-    {
-        fgLargeFieldOffsetNullCheckTemps[i] = BAD_VAR_NUM;
-    }
-
-    fgNoStructPromotion = false;
-    INDEBUG(fgNoStructParamPromotion = false;)
-
-    csePhase = false; // referenced in fgMorphSmpOp()
-
-#ifdef DEBUG
-    fgNormalizeEHDone = false;
-#endif // DEBUG
-
-#ifdef DEBUG
-    if (!compIsForInlining())
-    {
-        const int noStructPromotionValue = JitConfig.JitNoStructPromotion();
-        assert(0 <= noStructPromotionValue && noStructPromotionValue <= 2);
-        if (noStructPromotionValue == 1)
-        {
-            fgNoStructPromotion = true;
-        }
-        if (noStructPromotionValue == 2)
-        {
-            fgNoStructParamPromotion = true;
-        }
-    }
-#endif // DEBUG
-
-    fgHasSwitch                  = false;
-    fgPgoDisabled                = false;
-    fgPgoSchema                  = nullptr;
-    fgPgoData                    = nullptr;
-    fgPgoSchemaCount             = 0;
-    fgNumProfileRuns             = 0;
-    fgPgoBlockCounts             = 0;
-    fgPgoEdgeCounts              = 0;
-    fgPgoClassProfiles           = 0;
-    fgPgoInlineePgo              = 0;
-    fgPgoInlineeNoPgo            = 0;
-    fgPgoInlineeNoPgoSingleBlock = 0;
-    fgCountInstrumentor          = nullptr;
-    fgClassInstrumentor          = nullptr;
-    fgPredListSortVector         = nullptr;
-}
-
-/*****************************************************************************
- *
- *  Create a basic block and append it to the current BB list.
- */
-
-BasicBlock* Compiler::fgNewBasicBlock(BBjumpKinds jumpKind)
-{
-    // This method must not be called after the exception table has been
-    // constructed, because it doesn't not provide support for patching
-    // the exception table.
-
-    noway_assert(compHndBBtabCount == 0);
-
-    BasicBlock* block;
-
-    /* Allocate the block descriptor */
-
-    block = bbNewBasicBlock(jumpKind);
-    noway_assert(block->bbJumpKind == jumpKind);
-
-    /* Append the block to the end of the global basic block list */
-
-    if (fgFirstBB)
-    {
-        fgLastBB->setNext(block);
-    }
-    else
-    {
-        fgFirstBB     = block;
-        block->bbPrev = nullptr;
-    }
-
-    fgLastBB = block;
-
-    return block;
-}
-
 //------------------------------------------------------------------------
 // fgEnsureFirstBBisScratch: Ensure that fgFirstBB is a scratch BasicBlock
 //
@@ -371,6 +167,9 @@ void Compiler::fgChangeSwitchBlock(BasicBlock* oldSwitchBlock, BasicBlock* newSw
     noway_assert(oldSwitchBlock != nullptr);
     noway_assert(newSwitchBlock != nullptr);
     noway_assert(oldSwitchBlock->bbJumpKind == BBJ_SWITCH);
+    noway_assert(newSwitchBlock->bbJumpKind == BBJ_SWITCH);
+
+    newSwitchBlock->bbJumpSwt = oldSwitchBlock->bbJumpSwt;
 
     // Walk the switch's jump table, updating the predecessor for each branch.
     for (BasicBlock* const bJump : oldSwitchBlock->SwitchTargets())
@@ -400,22 +199,7 @@ void Compiler::fgChangeSwitchBlock(BasicBlock* oldSwitchBlock, BasicBlock* newSw
         fgAddRefPred(bJump, newSwitchBlock);
     }
 
-    if (m_switchDescMap != nullptr)
-    {
-        SwitchUniqueSuccSet uniqueSuccSet;
-
-        // If already computed and cached the unique descriptors for the old block, let's
-        // update those for the new block.
-        if (m_switchDescMap->Lookup(oldSwitchBlock, &uniqueSuccSet))
-        {
-            m_switchDescMap->Set(newSwitchBlock, uniqueSuccSet, BlockToSwitchDescMap::Overwrite);
-        }
-        else
-        {
-            fgInvalidateSwitchDescMapEntry(newSwitchBlock);
-        }
-        fgInvalidateSwitchDescMapEntry(oldSwitchBlock);
-    }
+    oldSwitchBlock->bbJumpSwt = nullptr;
 }
 
 //------------------------------------------------------------------------
@@ -635,91 +419,76 @@ BasicBlock* Compiler::fgFirstBlockOfHandler(BasicBlock* block)
     return ehGetDsc(block->getHndIndex())->ebdHndBeg;
 }
 
-/*****************************************************************************
- *
- *  The following helps find a basic block given its PC offset.
- */
-
 void Compiler::fgInitBBLookup()
 {
-    BasicBlock** dscBBptr;
-
-    /* Allocate the basic block table */
-
-    dscBBptr = fgBBs = new (this, CMK_BasicBlock) BasicBlock*[fgBBcount];
-
-    /* Walk all the basic blocks, filling in the table */
+    BasicBlock** blocks = new (this, CMK_BasicBlock) BasicBlock*[fgBBcount];
+    fgBBs               = blocks;
 
     for (BasicBlock* const block : Blocks())
     {
-        *dscBBptr++ = block;
+        *blocks++ = block;
     }
 
-    noway_assert(dscBBptr == fgBBs + fgBBcount);
+    noway_assert(blocks == fgBBs + fgBBcount);
 }
 
-BasicBlock* Compiler::fgLookupBB(unsigned addr)
+BasicBlock* Compiler::fgLookupBB(unsigned offs)
 {
-    unsigned lo;
-    unsigned hi;
+    unsigned lo = 0;
+    unsigned hi = fgBBcount - 1;
 
-    /* Do a binary search */
-
-    for (lo = 0, hi = fgBBcount - 1;;)
+    for (;;)
     {
-
     AGAIN:;
-
         if (lo > hi)
         {
             break;
         }
 
-        unsigned    mid = (lo + hi) / 2;
-        BasicBlock* dsc = fgBBs[mid];
+        unsigned    mid   = (lo + hi) / 2;
+        BasicBlock* block = fgBBs[mid];
 
         // We introduce internal blocks for BBJ_CALLFINALLY. Skip over these.
-
-        while (dsc->bbFlags & BBF_INTERNAL)
+        while ((block->bbFlags & BBF_INTERNAL) != 0)
         {
-            dsc = dsc->bbNext;
+            block = block->bbNext;
             mid++;
 
             // We skipped over too many, Set hi back to the original mid - 1
-
             if (mid > hi)
             {
                 mid = (lo + hi) / 2;
                 hi  = mid - 1;
+
                 goto AGAIN;
             }
         }
 
-        unsigned pos = dsc->bbCodeOffs;
-
-        if (pos < addr)
+        if (block->bbCodeOffs < offs)
         {
             if ((lo == hi) && (lo == (fgBBcount - 1)))
             {
-                noway_assert(addr == dsc->bbCodeOffsEnd);
-                return nullptr; // NULL means the end of method
+                assert(offs == block->bbCodeOffsEnd);
+
+                break;
             }
+
             lo = mid + 1;
+
             continue;
         }
 
-        if (pos > addr)
+        if (block->bbCodeOffs > offs)
         {
             hi = mid - 1;
+
             continue;
         }
 
-        return dsc;
+        return block;
     }
-#ifdef DEBUG
-    printf("ERROR: Couldn't find basic block at offset %04X\n", addr);
-#endif // DEBUG
-    NO_WAY("fgLookupBB failed.");
+
+    BADCODE3("block starts outside the method or in the middle of an instruction: ", "0x%04X", offs);
 }
 
 //------------------------------------------------------------------------
@@ -832,18 +601,12 @@ public:
         assert(IsArgument(value));
         return value - SLOT_ARGUMENT;
     }
-    bool IsStackTwoDeep() const
+
+    unsigned Depth() const
     {
-        return depth == 2;
+        return depth;
     }
-    bool IsStackOneDeep() const
-    {
-        return depth == 1;
-    }
-    bool IsStackAtLeastOneDeep() const
-    {
-        return depth >= 1;
-    }
+
     void Push(FgSlot slot)
     {
         assert(depth <= 2);
@@ -861,74 +624,93 @@ private:
     unsigned depth;
 };
 
-void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, FixedBitVect* jumpTarget)
-{
-    const BYTE* codeBegp = codeAddr;
-    const BYTE* codeEndp = codeAddr + codeSize;
-    unsigned    varNum;
-    FgStack     pushedStack;
-    const bool  isForceInline          = (info.compFlags & CORINFO_FLG_FORCEINLINE) != 0;
-    const bool  makeInlineObservations = (compInlineResult != nullptr);
-    const bool  isInlining             = compIsForInlining();
-    const bool  isPreJit               = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT);
-    const bool  isTier1                = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER1);
-    unsigned    retBlocks              = 0;
-    int         prefixFlags            = 0;
-    bool        preciseScan            = makeInlineObservations && compInlineResult->GetPolicy()->RequiresPreciseScan();
-    const bool  resolveTokens          = preciseScan && (isPreJit || isTier1);
+//------------------------------------------------------------------------
+// fgFindJumpTargets: walk the IL stream, determining jump target offsets
+//
+// Arguments:
+//    jumpTarget - [OUT] bit vector for flagging jump targets
+//
+// Notes:
+//    If inlining or prejitting the root, this method also makes
+//    various observations about the method that factor into inline
+//    decisions.
+//
+//    May throw an exception if the IL is malformed.
+//
+//    jumpTarget[N] is set to 1 if IL offset N is a jump target in the method.
+//
+//    Also sets lvAddrExposed and lvHasILStoreOp, ilHasMultipleILStoreOp in lvaTable[].
 
-    if (makeInlineObservations)
+#ifdef _PREFAST_
+#pragma warning(push)
+#pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
+#endif
+FixedBitVect* Compiler::fgFindJumpTargets(ILStats* ilStats)
+{
+    const IL_OFFSET codeSize     = info.compILCodeSize;
+    InlineResult*   inlineResult = compInlineResult;
+    InlineInfo*     inlineInfo   = impInlineInfo;
+
+    if (inlineResult != nullptr)
     {
+        const bool isForceInline = (info.compFlags & CORINFO_FLG_FORCEINLINE) != 0;
+
         // Set default values for profile (to avoid NoteFailed in CALLEE_IL_CODE_SIZE's handler)
         // these will be overridden later.
-        compInlineResult->NoteBool(InlineObservation::CALLSITE_HAS_PROFILE, true);
-        compInlineResult->NoteDouble(InlineObservation::CALLSITE_PROFILE_FREQUENCY, 1.0);
+        inlineResult->NoteBool(InlineObservation::CALLSITE_HAS_PROFILE, true);
+        inlineResult->NoteDouble(InlineObservation::CALLSITE_PROFILE_FREQUENCY, 1.0);
         // Observe force inline state and code size.
-        compInlineResult->NoteBool(InlineObservation::CALLEE_IS_FORCE_INLINE, isForceInline);
-        compInlineResult->NoteInt(InlineObservation::CALLEE_IL_CODE_SIZE, codeSize);
+        inlineResult->NoteBool(InlineObservation::CALLEE_IS_FORCE_INLINE, isForceInline);
+        inlineResult->NoteInt(InlineObservation::CALLEE_IL_CODE_SIZE, codeSize);
 
-        // Determine if call site is within a try.
-        if (isInlining && impInlineInfo->iciBlock->hasTryIndex())
+        if (inlineInfo != nullptr)
         {
-            compInlineResult->Note(InlineObservation::CALLSITE_IN_TRY_REGION);
-        }
+            // Determine if call site is within a try.
+            if (inlineInfo->iciBlock->hasTryIndex())
+            {
+                inlineResult->Note(InlineObservation::CALLSITE_IN_TRY_REGION);
+            }
 
-        // Determine if the call site is in a no-return block
-        if (isInlining && (impInlineInfo->iciBlock->bbJumpKind == BBJ_THROW))
-        {
-            compInlineResult->Note(InlineObservation::CALLSITE_IN_NORETURN_REGION);
-        }
+            // Determine if the call site is in a no-return block
+            if (inlineInfo->iciBlock->bbJumpKind == BBJ_THROW)
+            {
+                inlineResult->Note(InlineObservation::CALLSITE_IN_NORETURN_REGION);
+            }
 
-        // Determine if the call site is in a loop.
-        if (isInlining && ((impInlineInfo->iciBlock->bbFlags & BBF_BACKWARD_JUMP) != 0))
-        {
-            compInlineResult->Note(InlineObservation::CALLSITE_IN_LOOP);
+            // Determine if the call site is in a loop.
+            if ((inlineInfo->iciBlock->bbFlags & BBF_BACKWARD_JUMP) != 0)
+            {
+                inlineResult->Note(InlineObservation::CALLSITE_IN_LOOP);
+            }
         }
-
-#ifdef DEBUG
 
         // If inlining, this method should still be a candidate.
-        if (isInlining)
-        {
-            assert(compInlineResult->IsCandidate());
-        }
-
-#endif // DEBUG
+        assert((inlineInfo == nullptr) || inlineResult->IsCandidate());
 
         // note that we're starting to look at the opcodes.
-        compInlineResult->Note(InlineObservation::CALLEE_BEGIN_OPCODE_SCAN);
+        inlineResult->Note(InlineObservation::CALLEE_BEGIN_OPCODE_SCAN);
     }
 
-    CORINFO_RESOLVED_TOKEN resolvedToken;
+    const bool     isPreJit      = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT);
+    const bool     isTier1       = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER1);
+    const bool     preciseScan   = (inlineResult != nullptr) && inlineResult->GetPolicy()->RequiresPreciseScan();
+    const bool     resolveTokens = preciseScan && (isPreJit || isTier1);
+    OPCODE         opcode        = CEE_NOP;
+    OPCODE         prevOpcode    = CEE_NOP;
+    bool           handled       = false;
+    unsigned       retBlocks     = 0;
+    unsigned       lclRefCount   = 0;
+    unsigned       instrCount    = 0;
+    const uint8_t* codeBegin     = info.compCode;
+    const uint8_t* codeEnd       = codeBegin + codeSize;
+    const uint8_t* codeAddr      = codeBegin;
+    FixedBitVect*  jumpTargets   = nullptr;
+    FgStack        pushedStack;
 
-    OPCODE opcode     = CEE_NOP;
-    OPCODE prevOpcode = CEE_NOP;
-    bool   handled    = false;
-    while (codeAddr < codeEndp)
+    while (codeAddr < codeEnd)
     {
         prevOpcode = opcode;
-        opcode     = (OPCODE)getU1LittleEndian(codeAddr);
-        codeAddr += sizeof(__int8);
+        opcode     = static_cast<OPCODE>(*codeAddr++);
 
         if (!handled && preciseScan)
         {
@@ -940,38 +722,26 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
         bool typeIsNormed = false;
 
     DECODE_OPCODE:
-
-        if ((unsigned)opcode >= CEE_COUNT)
-        {
-            BADCODE3("Illegal opcode", ": %02X", (int)opcode);
-        }
-
-        if ((opcode >= CEE_LDARG_0 && opcode <= CEE_STLOC_S) || (opcode >= CEE_LDARG && opcode <= CEE_STLOC))
-        {
-            opts.lvRefCount++;
-        }
-
-        if (makeInlineObservations && (opcode >= CEE_LDNULL) && (opcode <= CEE_LDC_R8))
-        {
-            // LDTOKEN and LDSTR are handled below
-            pushedStack.PushConstant();
-            handled = true;
-        }
-
         unsigned sz = opcodeSizes[opcode];
 
         switch (opcode)
         {
+            unsigned varNum;
+
             case CEE_PREFIX1:
-            {
-                if (codeAddr >= codeEndp)
+                if (codeAddr >= codeEnd)
                 {
                     goto TOO_FAR;
                 }
-                opcode = (OPCODE)(256 + getU1LittleEndian(codeAddr));
-                codeAddr += sizeof(__int8);
+
+                opcode = static_cast<OPCODE>(256 + *codeAddr++);
+
+                if (opcode >= CEE_COUNT)
+                {
+                    BADCODE3("Illegal opcode", ": %02X", (int)opcode);
+                }
+
                 goto DECODE_OPCODE;
-            }
 
             case CEE_PREFIX2:
             case CEE_PREFIX3:
@@ -980,240 +750,228 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
             case CEE_PREFIX6:
             case CEE_PREFIX7:
             case CEE_PREFIXREF:
-            {
-                BADCODE3("Illegal opcode", ": %02X", (int)opcode);
-            }
+                BADCODE3("Illegal opcode", ": %02X", opcode);
+
+            case CEE_LDNULL:
+            case CEE_LDC_I4_M1:
+            case CEE_LDC_I4_0:
+            case CEE_LDC_I4_1:
+            case CEE_LDC_I4_2:
+            case CEE_LDC_I4_3:
+            case CEE_LDC_I4_4:
+            case CEE_LDC_I4_5:
+            case CEE_LDC_I4_6:
+            case CEE_LDC_I4_7:
+            case CEE_LDC_I4_8:
+            case CEE_LDC_I4_S:
+            case CEE_LDC_I4:
+            case CEE_LDC_I8:
+            case CEE_LDC_R4:
+            case CEE_LDC_R8:
+                if (inlineResult != nullptr)
+                {
+                    pushedStack.PushConstant();
+                    handled = true;
+                }
+                break;
 
             case CEE_SIZEOF:
             case CEE_LDTOKEN:
             case CEE_LDSTR:
-            {
                 if (preciseScan)
                 {
                     pushedStack.PushConstant();
                     handled = true;
                 }
                 break;
-            }
 
             case CEE_DUP:
-            {
                 if (preciseScan)
                 {
                     pushedStack.Push(pushedStack.Top());
                     handled = true;
                 }
                 break;
-            }
 
             case CEE_THROW:
-            {
-                if (makeInlineObservations)
+                if (inlineResult != nullptr)
                 {
-                    compInlineResult->Note(InlineObservation::CALLEE_THROW_BLOCK);
+                    inlineResult->Note(InlineObservation::CALLEE_THROW_BLOCK);
                 }
                 break;
-            }
 
             case CEE_BOX:
-            {
-                if (makeInlineObservations)
+                if (inlineResult != nullptr)
                 {
-                    int toSkip = impBoxPatternMatch(nullptr, codeAddr + sz, codeEndp, true);
-                    if (toSkip > 0)
+                    unsigned patternSize;
+                    if (impBoxPatternMatch(codeAddr + sz, codeEnd, &patternSize) != BoxPattern::None)
                     {
-                        // toSkip > 0 means we most likely will hit a pattern (e.g. box+isinst+brtrue) that
-                        // will be folded into a const
+                        inlineResult->Note(InlineObservation::CALLEE_FOLDABLE_BOX);
 
                         if (preciseScan)
                         {
-                            codeAddr += toSkip;
+                            codeAddr += patternSize;
                         }
                     }
                 }
                 break;
-            }
 
             case CEE_CASTCLASS:
             case CEE_ISINST:
-            {
-                if (makeInlineObservations)
+                if (inlineResult != nullptr)
                 {
                     FgStack::FgSlot slot = pushedStack.Top();
-                    if (FgStack::IsConstantOrConstArg(slot, impInlineInfo) ||
-                        FgStack::IsExactArgument(slot, impInlineInfo))
+                    if (FgStack::IsConstantOrConstArg(slot, inlineInfo) || FgStack::IsExactArgument(slot, inlineInfo))
                     {
-                        compInlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_EXPR_UN);
+                        inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_EXPR_UN);
                         handled = true; // and keep argument in the pushedStack
                     }
                     else if (FgStack::IsArgument(slot))
                     {
-                        compInlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_CAST);
+                        inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_CAST);
                         handled = true; // and keep argument in the pushedStack
                     }
                 }
                 break;
-            }
 
             case CEE_CALL:
             case CEE_CALLVIRT:
             {
                 // There has to be code after the call, otherwise the inlinee is unverifiable.
-                if (isInlining)
+                if (inlineInfo != nullptr)
                 {
-                    noway_assert(codeAddr < codeEndp - sz);
+                    noway_assert(codeAddr < codeEnd - sz);
                 }
 
-                if (!makeInlineObservations)
+                if (inlineResult == nullptr)
                 {
                     break;
                 }
 
-                CORINFO_METHOD_HANDLE methodHnd      = nullptr;
-                bool                  isJitIntrinsic = false;
-                NamedIntrinsic        ni             = NI_Illegal;
+                bool isJitIntrinsic = false;
 
                 if (resolveTokens)
                 {
+                    CORINFO_RESOLVED_TOKEN resolvedToken;
                     impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
-                    methodHnd      = resolvedToken.hMethod;
-                    isJitIntrinsic = info.compCompHnd->isJitIntrinsic(methodHnd);
-                }
 
-                if (isJitIntrinsic)
-                {
-                    ni = lookupNamedIntrinsic(methodHnd);
-
-                    bool foldableIntrinsc = false;
-
-                    if (IsMathIntrinsic(ni))
+                    if (info.compCompHnd->isJitIntrinsic(resolvedToken.hMethod))
                     {
-                        // Most Math(F) intrinsics have single arguments
-                        foldableIntrinsc = FgStack::IsConstantOrConstArg(pushedStack.Top(), impInlineInfo);
-                    }
-                    else
-                    {
-                        switch (ni)
+                        isJitIntrinsic    = true;
+                        NamedIntrinsic ni = lookupNamedIntrinsic(resolvedToken.hMethod);
+
+                        bool foldableIntrinsc = false;
+
+                        if (IsMathIntrinsic(ni))
                         {
-                            // These are most likely foldable without arguments
-                            case NI_System_Collections_Generic_Comparer_get_Default:
-                            case NI_System_Collections_Generic_EqualityComparer_get_Default:
-                            case NI_System_Enum_HasFlag:
-                            case NI_System_GC_KeepAlive:
+                            // Most Math(F) intrinsics have single arguments
+                            foldableIntrinsc = FgStack::IsConstantOrConstArg(pushedStack.Top(), inlineInfo);
+                        }
+                        else
+                        {
+                            switch (ni)
                             {
-                                pushedStack.PushUnknown();
-                                foldableIntrinsc = true;
-                                break;
-                            }
-
-                            case NI_System_Span_get_Item:
-                            case NI_System_ReadOnlySpan_get_Item:
-                            {
-                                if (FgStack::IsArgument(pushedStack.Top(0)) || FgStack::IsArgument(pushedStack.Top(1)))
-                                {
-                                    compInlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_RANGE_CHECK);
-                                }
-                                break;
-                            }
-
-                            // These are foldable if the first argument is a constant
-                            case NI_System_Type_get_IsValueType:
-                            case NI_System_Type_GetTypeFromHandle:
-                            case NI_System_String_get_Length:
-                            case NI_System_Buffers_Binary_BinaryPrimitives_ReverseEndianness:
-                            case NI_System_Numerics_BitOperations_PopCount:
-#if defined(TARGET_XARCH) && defined(FEATURE_HW_INTRINSICS)
-                            case NI_Vector128_Create:
-                            case NI_Vector256_Create:
-#elif defined(TARGET_ARM64) && defined(FEATURE_HW_INTRINSICS)
-                            case NI_Vector64_Create:
-                            case NI_Vector128_Create:
-#endif
-                            {
-                                // Top() in order to keep it as is in case of foldableIntrinsc
-                                if (FgStack::IsConstantOrConstArg(pushedStack.Top(), impInlineInfo))
-                                {
+                                // These are most likely foldable without arguments
+                                case NI_System_Collections_Generic_Comparer_get_Default:
+                                case NI_System_Collections_Generic_EqualityComparer_get_Default:
+                                case NI_System_Enum_HasFlag:
+                                case NI_System_GC_KeepAlive:
+                                    pushedStack.PushUnknown();
                                     foldableIntrinsc = true;
-                                }
-                                break;
-                            }
+                                    break;
 
-                            // These are foldable if two arguments are constants
-                            case NI_System_Type_op_Equality:
-                            case NI_System_Type_op_Inequality:
-                            case NI_System_String_get_Chars:
-                            case NI_System_Type_IsAssignableTo:
-                            case NI_System_Type_IsAssignableFrom:
-                            {
-                                if (FgStack::IsConstantOrConstArg(pushedStack.Top(0), impInlineInfo) &&
-                                    FgStack::IsConstantOrConstArg(pushedStack.Top(1), impInlineInfo))
-                                {
+                                case NI_System_Span_get_Item:
+                                case NI_System_ReadOnlySpan_get_Item:
+                                    if (FgStack::IsArgument(pushedStack.Top(0)) ||
+                                        FgStack::IsArgument(pushedStack.Top(1)))
+                                    {
+                                        inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_RANGE_CHECK);
+                                    }
+                                    break;
+
+                                // These are foldable if the first argument is a constant
+                                case NI_System_Type_get_IsValueType:
+                                case NI_System_Type_GetTypeFromHandle:
+                                case NI_System_String_get_Length:
+                                case NI_System_Buffers_Binary_BinaryPrimitives_ReverseEndianness:
+                                case NI_System_Numerics_BitOperations_PopCount:
+#if defined(TARGET_XARCH) && defined(FEATURE_HW_INTRINSICS)
+                                case NI_Vector128_Create:
+                                case NI_Vector256_Create:
+#elif defined(TARGET_ARM64) && defined(FEATURE_HW_INTRINSICS)
+                                case NI_Vector64_Create:
+                                case NI_Vector128_Create:
+#endif
+                                    // Top() in order to keep it as is in case of foldableIntrinsc
+                                    if (FgStack::IsConstantOrConstArg(pushedStack.Top(), inlineInfo))
+                                    {
+                                        foldableIntrinsc = true;
+                                    }
+                                    break;
+
+                                // These are foldable if two arguments are constants
+                                case NI_System_Type_op_Equality:
+                                case NI_System_Type_op_Inequality:
+                                case NI_System_String_get_Chars:
+                                case NI_System_Type_IsAssignableTo:
+                                case NI_System_Type_IsAssignableFrom:
+                                    if (FgStack::IsConstantOrConstArg(pushedStack.Top(0), inlineInfo) &&
+                                        FgStack::IsConstantOrConstArg(pushedStack.Top(1), inlineInfo))
+                                    {
+                                        foldableIntrinsc = true;
+                                        pushedStack.PushConstant();
+                                    }
+                                    break;
+
+                                case NI_IsSupported_True:
+                                case NI_IsSupported_False:
                                     foldableIntrinsc = true;
                                     pushedStack.PushConstant();
-                                }
-                                break;
-                            }
-
-                            case NI_IsSupported_True:
-                            case NI_IsSupported_False:
-                            {
-                                foldableIntrinsc = true;
-                                pushedStack.PushConstant();
-                                break;
-                            }
+                                    break;
 #if defined(TARGET_XARCH) && defined(FEATURE_HW_INTRINSICS)
-                            case NI_Vector128_get_Count:
-                            case NI_Vector256_get_Count:
-                                foldableIntrinsc = true;
-                                pushedStack.PushConstant();
-                                // TODO: check if it's a loop condition - we unroll such loops.
-                                break;
-                            case NI_Vector256_get_Zero:
-                            case NI_Vector256_get_AllBitsSet:
-                                foldableIntrinsc = true;
-                                pushedStack.PushUnknown();
-                                break;
+                                case NI_Vector128_get_Count:
+                                case NI_Vector256_get_Count:
+                                    foldableIntrinsc = true;
+                                    pushedStack.PushConstant();
+                                    // TODO: check if it's a loop condition - we unroll such loops.
+                                    break;
+                                case NI_Vector256_get_Zero:
+                                case NI_Vector256_get_AllBitsSet:
+                                    foldableIntrinsc = true;
+                                    pushedStack.PushUnknown();
+                                    break;
 #elif defined(TARGET_ARM64) && defined(FEATURE_HW_INTRINSICS)
-                            case NI_Vector64_get_Count:
-                            case NI_Vector128_get_Count:
-                                foldableIntrinsc = true;
-                                pushedStack.PushConstant();
-                                break;
-                            case NI_Vector128_get_Zero:
-                            case NI_Vector128_get_AllBitsSet:
-                                foldableIntrinsc = true;
-                                pushedStack.PushUnknown();
-                                break;
+                                case NI_Vector64_get_Count:
+                                case NI_Vector128_get_Count:
+                                    foldableIntrinsc = true;
+                                    pushedStack.PushConstant();
+                                    break;
+                                case NI_Vector128_get_Zero:
+                                case NI_Vector128_get_AllBitsSet:
+                                    foldableIntrinsc = true;
+                                    pushedStack.PushUnknown();
+                                    break;
 #endif
+                                default:
+                                    break;
+                            }
+                        }
 
-                            default:
+                        if (foldableIntrinsc)
+                        {
+                            inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_INTRINSIC);
+                            handled = true;
+                        }
+                        else if (ni != NI_Illegal)
+                        {
+                            // Otherwise note "intrinsic" (most likely will be lowered as single instructions)
+                            // except Math where only a few intrinsics won't end up as normal calls
+                            if (!IsMathIntrinsic(ni) || IsTargetIntrinsic(ni))
                             {
-                                break;
+                                inlineResult->Note(InlineObservation::CALLEE_INTRINSIC);
                             }
                         }
                     }
-
-                    if (foldableIntrinsc)
-                    {
-                        compInlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_INTRINSIC);
-                        handled = true;
-                    }
-                    else if (ni != NI_Illegal)
-                    {
-                        // Otherwise note "intrinsic" (most likely will be lowered as single instructions)
-                        // except Math where only a few intrinsics won't end up as normal calls
-                        if (!IsMathIntrinsic(ni) || IsTargetIntrinsic(ni))
-                        {
-                            compInlineResult->Note(InlineObservation::CALLEE_INTRINSIC);
-                        }
-                    }
-                }
-
-                if ((codeAddr < codeEndp - sz) && (OPCODE)getU1LittleEndian(codeAddr + sz) == CEE_RET)
-                {
-                    // If the method has a call followed by a ret, assume that
-                    // it is a wrapper method.
-                    compInlineResult->Note(InlineObservation::CALLEE_LOOKS_LIKE_WRAPPER);
                 }
 
                 if (!isJitIntrinsic && !handled && FgStack::IsArgument(pushedStack.Top()))
@@ -1221,6 +979,13 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                     // Optimistically assume that "call(arg)" returns something arg-dependent.
                     // However, we don't know how many args it expects and its return type.
                     handled = true;
+                }
+
+                if ((codeAddr < codeEnd - sz) && (static_cast<OPCODE>(codeAddr[sz]) == CEE_RET))
+                {
+                    // If the method has a call followed by a ret, assume that
+                    // it is a wrapper method.
+                    inlineResult->Note(InlineObservation::CALLEE_LOOKS_LIKE_WRAPPER);
                 }
             }
             break;
@@ -1236,15 +1001,12 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
             case CEE_LDIND_R4:
             case CEE_LDIND_R8:
             case CEE_LDIND_REF:
-            {
                 if (FgStack::IsArgument(pushedStack.Top()))
                 {
                     handled = true;
                 }
                 break;
-            }
 
-            // Unary operators:
             case CEE_CONV_I:
             case CEE_CONV_U:
             case CEE_CONV_I1:
@@ -1280,13 +1042,12 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
             case CEE_CONV_OVF_U8_UN:
             case CEE_NOT:
             case CEE_NEG:
-            {
-                if (makeInlineObservations)
+                if (inlineResult != nullptr)
                 {
                     FgStack::FgSlot arg = pushedStack.Top();
-                    if (FgStack::IsConstArgument(arg, impInlineInfo))
+                    if (FgStack::IsConstArgument(arg, inlineInfo))
                     {
-                        compInlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_EXPR_UN);
+                        inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_EXPR_UN);
                         handled = true;
                     }
                     else if (FgStack::IsArgument(arg) || FgStack::IsConstant(arg))
@@ -1295,9 +1056,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                     }
                 }
                 break;
-            }
 
-            // Binary operators:
             case CEE_ADD:
             case CEE_SUB:
             case CEE_MUL:
@@ -1322,8 +1081,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
             case CEE_CGT_UN:
             case CEE_CLT:
             case CEE_CLT_UN:
-            {
-                if (!makeInlineObservations)
+                if (inlineResult == nullptr)
                 {
                     break;
                 }
@@ -1337,7 +1095,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                         case CEE_CGT_UN:
                         case CEE_CLT:
                         case CEE_CLT_UN:
-                            fgObserveInlineConstants(opcode, pushedStack, isInlining);
+                            fgObserveInlineConstants(opcode, pushedStack, inlineInfo);
                             break;
                         default:
                             break;
@@ -1349,23 +1107,23 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                     FgStack::FgSlot arg1 = pushedStack.Top(0);
 
                     // Const op ConstArg -> ConstArg
-                    if (FgStack::IsConstant(arg0) && FgStack::IsConstArgument(arg1, impInlineInfo))
+                    if (FgStack::IsConstant(arg0) && FgStack::IsConstArgument(arg1, inlineInfo))
                     {
                         // keep stack unchanged
                         handled = true;
-                        compInlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_EXPR);
+                        inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_EXPR);
                     }
                     // ConstArg op Const    -> ConstArg
                     // ConstArg op ConstArg -> ConstArg
-                    else if (FgStack::IsConstArgument(arg0, impInlineInfo) &&
-                             FgStack::IsConstantOrConstArg(arg1, impInlineInfo))
+                    else if (FgStack::IsConstArgument(arg0, inlineInfo) &&
+                             FgStack::IsConstantOrConstArg(arg1, inlineInfo))
                     {
                         if (FgStack::IsConstant(arg1))
                         {
                             pushedStack.Push(arg0);
                         }
                         handled = true;
-                        compInlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_EXPR);
+                        inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_EXPR);
                     }
                     // Const op Const -> Const
                     else if (FgStack::IsConstant(arg0) && FgStack::IsConstant(arg1))
@@ -1376,38 +1134,36 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                     }
                     // Arg op ConstArg
                     // Arg op Const
-                    else if (FgStack::IsArgument(arg0) && FgStack::IsConstantOrConstArg(arg1, impInlineInfo))
+                    else if (FgStack::IsArgument(arg0) && FgStack::IsConstantOrConstArg(arg1, inlineInfo))
                     {
                         // "Arg op CNS" --> keep arg0 in the stack for the next ops
                         pushedStack.Push(arg0);
                         handled = true;
-                        compInlineResult->Note(InlineObservation::CALLEE_BINARY_EXRP_WITH_CNS);
+                        inlineResult->Note(InlineObservation::CALLEE_BINARY_EXRP_WITH_CNS);
                     }
                     // ConstArg op Arg
                     // Const    op Arg
-                    else if (FgStack::IsArgument(arg1) && FgStack::IsConstantOrConstArg(arg0, impInlineInfo))
+                    else if (FgStack::IsArgument(arg1) && FgStack::IsConstantOrConstArg(arg0, inlineInfo))
                     {
                         // "CNS op ARG" --> keep arg1 in the stack for the next ops
                         handled = true;
-                        compInlineResult->Note(InlineObservation::CALLEE_BINARY_EXRP_WITH_CNS);
+                        inlineResult->Note(InlineObservation::CALLEE_BINARY_EXRP_WITH_CNS);
                     }
                     // X / ConstArg
                     // X % ConstArg
-                    if (FgStack::IsConstArgument(arg1, impInlineInfo))
+                    if (FgStack::IsConstArgument(arg1, inlineInfo))
                     {
                         if ((opcode == CEE_DIV) || (opcode == CEE_DIV_UN) || (opcode == CEE_REM) ||
                             (opcode == CEE_REM_UN))
                         {
-                            compInlineResult->Note(InlineObservation::CALLSITE_DIV_BY_CNS);
+                            inlineResult->Note(InlineObservation::CALLSITE_DIV_BY_CNS);
                         }
                         pushedStack.Push(arg0);
                         handled = true;
                     }
                 }
                 break;
-            }
 
-            // Jumps
             case CEE_LEAVE:
             case CEE_LEAVE_S:
             case CEE_BR:
@@ -1437,138 +1193,204 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
             case CEE_BNE_UN:
             case CEE_BNE_UN_S:
             {
-                if (codeAddr > codeEndp - sz)
+                if (codeAddr > codeEnd - sz)
                 {
                     goto TOO_FAR;
                 }
 
-                // Compute jump target address
-                signed jmpDist = (sz == 1) ? getI1LittleEndian(codeAddr) : getI4LittleEndian(codeAddr);
+                int distance = (sz == 1) ? getI1LittleEndian(codeAddr) : getI4LittleEndian(codeAddr);
 
-                if (compIsForInlining() && jmpDist == 0 &&
+                if ((inlineInfo != nullptr) && (distance == 0) &&
                     (opcode == CEE_LEAVE || opcode == CEE_LEAVE_S || opcode == CEE_BR || opcode == CEE_BR_S))
                 {
-                    break; /* NOP */
+                    break;
                 }
 
-                unsigned jmpAddr = (IL_OFFSET)(codeAddr - codeBegp) + sz + jmpDist;
+                unsigned targetOffset = static_cast<unsigned>(codeAddr - codeBegin) + sz + distance;
 
-                // Make sure target is reasonable
-                if (jmpAddr >= codeSize)
+                if (targetOffset >= codeSize)
                 {
-                    BADCODE3("code jumps to outer space", " at offset %04X", (IL_OFFSET)(codeAddr - codeBegp));
+                    BADCODE3("code jumps to outer space", " at offset %04X",
+                             static_cast<unsigned>(codeAddr - codeBegin));
                 }
 
-                if (makeInlineObservations && (jmpDist < 0))
+                if (jumpTargets == nullptr)
                 {
-                    compInlineResult->Note(InlineObservation::CALLEE_BACKWARD_JUMP);
+                    jumpTargets = FixedBitVect::bitVectInit(info.compILCodeSize, this);
                 }
 
-                // Mark the jump target
-                jumpTarget->bitVectSet(jmpAddr);
+                jumpTargets->bitVectSet(targetOffset);
 
-                // See if jump might be sensitive to inlining
-                if (!preciseScan && makeInlineObservations && (opcode != CEE_BR_S) && (opcode != CEE_BR))
+                if (inlineResult == nullptr)
                 {
-                    fgObserveInlineConstants(opcode, pushedStack, isInlining);
+                    break;
                 }
-                else if (preciseScan && makeInlineObservations)
+
+                if (distance < 0)
                 {
-                    switch (opcode)
+                    inlineResult->Note(InlineObservation::CALLEE_BACKWARD_JUMP);
+                }
+
+                if (!preciseScan)
+                {
+                    if ((opcode != CEE_BR_S) && (opcode != CEE_BR))
                     {
-                        // Binary
-                        case CEE_BEQ:
-                        case CEE_BGE:
-                        case CEE_BGT:
-                        case CEE_BLE:
-                        case CEE_BLT:
-                        case CEE_BNE_UN:
-                        case CEE_BGE_UN:
-                        case CEE_BGT_UN:
-                        case CEE_BLE_UN:
-                        case CEE_BLT_UN:
-                        case CEE_BEQ_S:
-                        case CEE_BGE_S:
-                        case CEE_BGT_S:
-                        case CEE_BLE_S:
-                        case CEE_BLT_S:
-                        case CEE_BNE_UN_S:
-                        case CEE_BGE_UN_S:
-                        case CEE_BGT_UN_S:
-                        case CEE_BLE_UN_S:
-                        case CEE_BLT_UN_S:
+                        fgObserveInlineConstants(opcode, pushedStack, inlineInfo);
+                    }
+
+                    break;
+                }
+
+                switch (opcode)
+                {
+                    case CEE_BEQ:
+                    case CEE_BGE:
+                    case CEE_BGT:
+                    case CEE_BLE:
+                    case CEE_BLT:
+                    case CEE_BNE_UN:
+                    case CEE_BGE_UN:
+                    case CEE_BGT_UN:
+                    case CEE_BLE_UN:
+                    case CEE_BLT_UN:
+                    case CEE_BEQ_S:
+                    case CEE_BGE_S:
+                    case CEE_BGT_S:
+                    case CEE_BLE_S:
+                    case CEE_BLT_S:
+                    case CEE_BNE_UN_S:
+                    case CEE_BGE_UN_S:
+                    case CEE_BGT_UN_S:
+                    case CEE_BLE_UN_S:
+                    case CEE_BLT_UN_S:
+                    {
+                        FgStack::FgSlot op1 = pushedStack.Top(1);
+                        FgStack::FgSlot op2 = pushedStack.Top(0);
+
+                        if (FgStack::IsConstantOrConstArg(op1, inlineInfo) &&
+                            FgStack::IsConstantOrConstArg(op2, inlineInfo))
                         {
-                            FgStack::FgSlot op1 = pushedStack.Top(1);
-                            FgStack::FgSlot op2 = pushedStack.Top(0);
-
-                            if (FgStack::IsConstantOrConstArg(op1, impInlineInfo) &&
-                                FgStack::IsConstantOrConstArg(op2, impInlineInfo))
-                            {
-                                compInlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_BRANCH);
-                            }
-                            if (FgStack::IsConstArgument(op1, impInlineInfo) ||
-                                FgStack::IsConstArgument(op2, impInlineInfo))
-                            {
-                                compInlineResult->Note(InlineObservation::CALLSITE_CONSTANT_ARG_FEEDS_TEST);
-                            }
-
-                            if ((FgStack::IsArgument(op1) && FgStack::IsArrayLen(op2)) ||
-                                (FgStack::IsArgument(op2) && FgStack::IsArrayLen(op1)))
-                            {
-                                compInlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_RANGE_CHECK);
-                            }
-                            else if ((FgStack::IsArgument(op1) && FgStack::IsConstantOrConstArg(op2, impInlineInfo)) ||
-                                     (FgStack::IsArgument(op2) && FgStack::IsConstantOrConstArg(op1, impInlineInfo)))
-                            {
-                                compInlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_CONSTANT_TEST);
-                            }
-                            else if (FgStack::IsArgument(op1) || FgStack::IsArgument(op2))
-                            {
-                                compInlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_TEST);
-                            }
-                            else if (FgStack::IsConstant(op1) || FgStack::IsConstant(op2))
-                            {
-                                compInlineResult->Note(InlineObservation::CALLEE_BINARY_EXRP_WITH_CNS);
-                            }
-                            break;
+                            inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_BRANCH);
+                        }
+                        if (FgStack::IsConstArgument(op1, inlineInfo) || FgStack::IsConstArgument(op2, inlineInfo))
+                        {
+                            inlineResult->Note(InlineObservation::CALLSITE_CONSTANT_ARG_FEEDS_TEST);
                         }
 
-                        // Unary
-                        case CEE_BRFALSE_S:
-                        case CEE_BRTRUE_S:
-                        case CEE_BRFALSE:
-                        case CEE_BRTRUE:
+                        if ((FgStack::IsArgument(op1) && FgStack::IsArrayLen(op2)) ||
+                            (FgStack::IsArgument(op2) && FgStack::IsArrayLen(op1)))
                         {
-                            if (FgStack::IsConstantOrConstArg(pushedStack.Top(), impInlineInfo))
-                            {
-                                compInlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_BRANCH);
-                            }
-                            else if (FgStack::IsArgument(pushedStack.Top()))
-                            {
-                                // E.g. brtrue is basically "if (X == 0)"
-                                compInlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_CONSTANT_TEST);
-                            }
-                            break;
+                            inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_RANGE_CHECK);
                         }
+                        else if ((FgStack::IsArgument(op1) && FgStack::IsConstantOrConstArg(op2, inlineInfo)) ||
+                                 (FgStack::IsArgument(op2) && FgStack::IsConstantOrConstArg(op1, inlineInfo)))
+                        {
+                            inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_CONSTANT_TEST);
+                        }
+                        else if (FgStack::IsArgument(op1) || FgStack::IsArgument(op2))
+                        {
+                            inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_TEST);
+                        }
+                        else if (FgStack::IsConstant(op1) || FgStack::IsConstant(op2))
+                        {
+                            inlineResult->Note(InlineObservation::CALLEE_BINARY_EXRP_WITH_CNS);
+                        }
+                        break;
+                    }
 
-                        default:
-                            break;
+                    case CEE_BRFALSE_S:
+                    case CEE_BRTRUE_S:
+                    case CEE_BRFALSE:
+                    case CEE_BRTRUE:
+                        if (FgStack::IsConstantOrConstArg(pushedStack.Top(), inlineInfo))
+                        {
+                            inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_BRANCH);
+                        }
+                        else if (FgStack::IsArgument(pushedStack.Top()))
+                        {
+                            // E.g. brtrue is basically "if (X == 0)"
+                            inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_CONSTANT_TEST);
+                        }
+                        break;
+
+                    default:
+                        break;
+                }
+            }
+            break;
+
+            case CEE_SWITCH:
+            {
+                if (inlineResult != nullptr)
+                {
+                    inlineResult->Note(InlineObservation::CALLEE_HAS_SWITCH);
+                    if (FgStack::IsConstantOrConstArg(pushedStack.Top(), inlineInfo))
+                    {
+                        inlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_SWITCH);
+                    }
+
+                    // Fail fast, if we're inlining and can't handle this.
+                    if ((inlineInfo != nullptr) && inlineResult->IsFailure())
+                    {
+                        return nullptr;
                     }
                 }
+
+                if (codeAddr > codeEnd - 4)
+                {
+                    goto TOO_FAR;
+                }
+
+                unsigned targetCount = getU4LittleEndian(codeAddr);
+                codeAddr += 4;
+
+                if (targetCount > codeSize / 4)
+                {
+                    goto TOO_FAR;
+                }
+
+                unsigned fallThroughOffset = static_cast<unsigned>(codeAddr - codeBegin) + targetCount * 4;
+
+                if (fallThroughOffset >= codeSize)
+                {
+                    goto TOO_FAR;
+                }
+
+                if (jumpTargets == nullptr)
+                {
+                    jumpTargets = FixedBitVect::bitVectInit(info.compILCodeSize, this);
+                }
+
+                jumpTargets->bitVectSet(fallThroughOffset);
+
+                for (unsigned i = 0; i < targetCount; i++)
+                {
+                    unsigned targetOffset = fallThroughOffset + getI4LittleEndian(codeAddr);
+                    codeAddr += 4;
+
+                    if (targetOffset >= codeSize)
+                    {
+                        BADCODE3("jump target out of range", " at offset %04X",
+                                 static_cast<unsigned>(codeAddr - codeBegin));
+                    }
+
+                    jumpTargets->bitVectSet(targetOffset);
+                }
+
+                // We've advanced past all the bytes in this instruction
+                sz = 0;
             }
             break;
 
             case CEE_LDFLDA:
             case CEE_LDFLD:
             case CEE_STFLD:
-            {
                 if (FgStack::IsArgument(pushedStack.Top()))
                 {
-                    compInlineResult->Note(InlineObservation::CALLEE_ARG_STRUCT_FIELD_ACCESS);
+                    inlineResult->Note(InlineObservation::CALLEE_ARG_STRUCT_FIELD_ACCESS);
                     handled = true; // keep argument on top of the stack
                 }
                 break;
-            }
 
             case CEE_LDELEM_I1:
             case CEE_LDELEM_U1:
@@ -1591,172 +1413,45 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
             case CEE_STELEM_REF:
             case CEE_LDELEM:
             case CEE_STELEM:
-            {
-                if (!preciseScan)
+                if (preciseScan && (FgStack::IsArgument(pushedStack.Top()) || FgStack::IsArgument(pushedStack.Top(1))))
                 {
-                    break;
-                }
-                if (FgStack::IsArgument(pushedStack.Top()) || FgStack::IsArgument(pushedStack.Top(1)))
-                {
-                    compInlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_RANGE_CHECK);
+                    inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_RANGE_CHECK);
                 }
                 break;
-            }
-
-            case CEE_SWITCH:
-            {
-                if (makeInlineObservations)
-                {
-                    compInlineResult->Note(InlineObservation::CALLEE_HAS_SWITCH);
-                    if (FgStack::IsConstantOrConstArg(pushedStack.Top(), impInlineInfo))
-                    {
-                        compInlineResult->Note(InlineObservation::CALLSITE_FOLDABLE_SWITCH);
-                    }
-
-                    // Fail fast, if we're inlining and can't handle this.
-                    if (isInlining && compInlineResult->IsFailure())
-                    {
-                        return;
-                    }
-                }
-
-                // Make sure we don't go past the end reading the number of cases
-                if (codeAddr > codeEndp - sizeof(DWORD))
-                {
-                    goto TOO_FAR;
-                }
-
-                // Read the number of cases
-                unsigned jmpCnt = getU4LittleEndian(codeAddr);
-                codeAddr += sizeof(DWORD);
-
-                if (jmpCnt > codeSize / sizeof(DWORD))
-                {
-                    goto TOO_FAR;
-                }
-
-                // Find the end of the switch table
-                unsigned jmpBase = (unsigned)((codeAddr - codeBegp) + jmpCnt * sizeof(DWORD));
-
-                // Make sure there is more code after the switch
-                if (jmpBase >= codeSize)
-                {
-                    goto TOO_FAR;
-                }
-
-                // jmpBase is also the target of the default case, so mark it
-                jumpTarget->bitVectSet(jmpBase);
-
-                // Process table entries
-                while (jmpCnt > 0)
-                {
-                    unsigned jmpAddr = jmpBase + getI4LittleEndian(codeAddr);
-                    codeAddr += 4;
-
-                    if (jmpAddr >= codeSize)
-                    {
-                        BADCODE3("jump target out of range", " at offset %04X", (IL_OFFSET)(codeAddr - codeBegp));
-                    }
-
-                    jumpTarget->bitVectSet(jmpAddr);
-                    jmpCnt--;
-                }
-
-                // We've advanced past all the bytes in this instruction
-                sz = 0;
-            }
-            break;
-
-            case CEE_UNALIGNED:
-            {
-                noway_assert(sz == sizeof(__int8));
-                prefixFlags |= PREFIX_UNALIGNED;
-
-                codeAddr += sizeof(__int8);
-
-                impValidateMemoryAccessOpcode(codeAddr, codeEndp, false);
-                handled = true;
-                goto OBSERVE_OPCODE;
-            }
-
-            case CEE_CONSTRAINED:
-            {
-                noway_assert(sz == sizeof(unsigned));
-                prefixFlags |= PREFIX_CONSTRAINED;
-
-                codeAddr += sizeof(unsigned);
-
-                {
-                    OPCODE actualOpcode = impGetNonPrefixOpcode(codeAddr, codeEndp);
-
-                    if (actualOpcode != CEE_CALLVIRT && actualOpcode != CEE_CALL && actualOpcode != CEE_LDFTN)
-                    {
-                        BADCODE("constrained. has to be followed by callvirt, call or ldftn");
-                    }
-                }
-                handled = true;
-                goto OBSERVE_OPCODE;
-            }
-
-            case CEE_READONLY:
-            {
-                noway_assert(sz == 0);
-                prefixFlags |= PREFIX_READONLY;
-
-                {
-                    OPCODE actualOpcode = impGetNonPrefixOpcode(codeAddr, codeEndp);
-
-                    if ((actualOpcode != CEE_LDELEMA) && !impOpcodeIsCallOpcode(actualOpcode))
-                    {
-                        BADCODE("readonly. has to be followed by ldelema or call");
-                    }
-                }
-                handled = true;
-                goto OBSERVE_OPCODE;
-            }
-
-            case CEE_VOLATILE:
-            {
-                noway_assert(sz == 0);
-                prefixFlags |= PREFIX_VOLATILE;
-
-                impValidateMemoryAccessOpcode(codeAddr, codeEndp, true);
-                handled = true;
-                goto OBSERVE_OPCODE;
-            }
 
             case CEE_TAILCALL:
-            {
-                noway_assert(sz == 0);
-                prefixFlags |= PREFIX_TAILCALL_EXPLICIT;
-
+                if (inlineInfo != nullptr)
                 {
-                    OPCODE actualOpcode = impGetNonPrefixOpcode(codeAddr, codeEndp);
-
-                    if (!impOpcodeIsCallOpcode(actualOpcode))
-                    {
-                        BADCODE("tailcall. has to be followed by call, callvirt or calli");
-                    }
+                    // TODO-CQ: We can inline some callees with explicit tail calls if we can guarantee that the calls
+                    // can be dispatched as tail calls from the caller.
+                    inlineResult->NoteFatal(InlineObservation::CALLEE_EXPLICIT_TAIL_PREFIX);
+                    return nullptr;
                 }
+                FALLTHROUGH;
+            case CEE_UNALIGNED:
+            case CEE_CONSTRAINED:
+            case CEE_READONLY:
+            case CEE_VOLATILE:
+                if (codeAddr + sz >= codeEnd)
+                {
+                    BADCODE("prefix not followed by opcode");
+                }
+
                 handled = true;
                 goto OBSERVE_OPCODE;
-            }
 
             case CEE_STARG:
             case CEE_STARG_S:
-            {
-                noway_assert(sz == sizeof(BYTE) || sz == sizeof(WORD));
-
-                if (codeAddr > codeEndp - sz)
+                if (codeAddr > codeEnd - sz)
                 {
                     goto TOO_FAR;
                 }
 
-                varNum = (sz == sizeof(BYTE)) ? getU1LittleEndian(codeAddr) : getU2LittleEndian(codeAddr);
+                varNum = (sz == 1) ? *codeAddr : getU2LittleEndian(codeAddr);
 
-                if (isInlining)
+                if (inlineInfo != nullptr)
                 {
-                    impInlineInfo->NoteParamStore(varNum);
+                    inlineInfo->NoteParamStore(varNum);
                 }
                 else
                 {
@@ -1771,39 +1466,45 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                         lvaGetDesc(varNum)->lvHasILStoreOp = 1;
                     }
                 }
-            }
-            break;
+
+                lclRefCount++;
+                break;
 
             case CEE_STLOC_0:
             case CEE_STLOC_1:
             case CEE_STLOC_2:
             case CEE_STLOC_3:
-                varNum = (opcode - CEE_STLOC_0);
+                varNum = opcode - CEE_STLOC_0;
                 goto STLOC;
 
             case CEE_STLOC:
-            case CEE_STLOC_S:
-            {
-                noway_assert(sz == sizeof(BYTE) || sz == sizeof(WORD));
-
-                if (codeAddr > codeEndp - sz)
+                if (codeAddr > codeEnd - 2)
                 {
                     goto TOO_FAR;
                 }
 
-                varNum = (sz == sizeof(BYTE)) ? getU1LittleEndian(codeAddr) : getU2LittleEndian(codeAddr);
+                varNum = getU2LittleEndian(codeAddr);
+                goto STLOC;
+
+            case CEE_STLOC_S:
+                if (codeAddr > codeEnd - 1)
+                {
+                    goto TOO_FAR;
+                }
+
+                varNum = *codeAddr;
 
             STLOC:
-                if (isInlining)
+                if (inlineInfo != nullptr)
                 {
-                    impInlineInfo->NoteLocalStore(varNum);
+                    inlineInfo->NoteLocalStore(varNum);
                 }
                 else
                 {
                     varNum += info.compArgsCount;
 
-                    // This check is only intended to prevent an AV.  Bad varNum values will later
-                    // be handled properly by the verifier.
+                    // This check is only intended to prevent invalid memory access. Bad varNum values
+                    // will later be handled properly by the importer.
                     if (varNum < lvaCount)
                     {
                         LclVarDsc* lcl = lvaGetDesc(varNum);
@@ -1819,48 +1520,58 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                         }
                     }
                 }
-            }
-            break;
+
+                lclRefCount++;
+                break;
 
             case CEE_LDLOC_0:
             case CEE_LDLOC_1:
             case CEE_LDLOC_2:
             case CEE_LDLOC_3:
-                //
-                if (preciseScan && makeInlineObservations && (prevOpcode == (CEE_STLOC_3 - (CEE_LDLOC_3 - opcode))))
+                // TODO-MIKE-Review: Why only LDLOC_0-3?
+                if (preciseScan && (inlineResult != nullptr) && (prevOpcode == (CEE_STLOC_3 - (CEE_LDLOC_3 - opcode))))
                 {
-                    // Fold stloc+ldloc
+                    // Fold stloc + ldloc
                     pushedStack.Push(pushedStack.Top(1)); // throw away SLOT_UNKNOWN inserted by STLOC
                     handled = true;
                 }
+                FALLTHROUGH;
+            case CEE_LDLOC:
+            case CEE_LDLOC_S:
+                lclRefCount++;
                 break;
 
             case CEE_LDARGA:
-            case CEE_LDARGA_S:
             case CEE_LDLOCA:
-            case CEE_LDLOCA_S:
-            {
-                // Handle address-taken args or locals
-                noway_assert(sz == sizeof(BYTE) || sz == sizeof(WORD));
-
-                if (codeAddr > codeEndp - sz)
+                if (codeAddr > codeEnd - 2)
                 {
                     goto TOO_FAR;
                 }
 
-                varNum = (sz == sizeof(BYTE)) ? getU1LittleEndian(codeAddr) : getU2LittleEndian(codeAddr);
+                varNum = getU2LittleEndian(codeAddr);
+                goto LDLOCA;
 
-                if (isInlining)
+            case CEE_LDARGA_S:
+            case CEE_LDLOCA_S:
+                if (codeAddr > codeEnd - 1)
+                {
+                    goto TOO_FAR;
+                }
+
+                varNum = *codeAddr;
+
+            LDLOCA:
+                if (inlineInfo != nullptr)
                 {
                     if ((opcode == CEE_LDLOCA) || (opcode == CEE_LDLOCA_S))
                     {
-                        impInlineInfo->NoteAddressTakenLocal(varNum);
-                        typeIsNormed = impInlineInfo->IsNormedTypeLocal(varNum);
+                        inlineInfo->NoteAddressTakenLocal(varNum);
+                        typeIsNormed = inlineInfo->IsNormedTypeLocal(varNum);
                     }
                     else
                     {
-                        impInlineInfo->NoteAddressTakenParam(varNum);
-                        typeIsNormed = impInlineInfo->IsNormedTypeParam(varNum);
+                        inlineInfo->NoteAddressTakenParam(varNum);
+                        typeIsNormed = inlineInfo->IsNormedTypeParam(varNum);
 
                         pushedStack.PushArgument(varNum);
                         handled = true;
@@ -1908,7 +1619,7 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                     // won't need the address of this local at all
 
                     const bool notStruct    = !varTypeIsStruct(lcl->GetType());
-                    const bool notLastInstr = (codeAddr < codeEndp - sz);
+                    const bool notLastInstr = (codeAddr < codeEnd - sz);
                     const bool notDebugCode = !opts.compDbgCode;
 
                     if (notStruct && notLastInstr && notDebugCode && impILConsumesAddr(codeAddr + sz))
@@ -1927,15 +1638,20 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                             // This may be conservative, but probably not very.
                         }
                     }
-                } // isInlining
-            }
-            break;
+                }
+
+                lclRefCount++;
+                break;
+
+            case CEE_RET:
+                retBlocks++;
+                break;
 
             case CEE_JMP:
                 retBlocks++;
 
 #if !defined(TARGET_X86) && !defined(TARGET_ARM)
-                if (!isInlining)
+                if (inlineInfo == nullptr)
                 {
                     // We transform this into a set of ldarg's + tail call and
                     // thus may push more onto the stack than originally thought.
@@ -1945,39 +1661,34 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
                     info.compMaxStack = max(info.compMaxStack, info.compILargsCount);
                     break;
                 }
-#endif // !TARGET_X86 && !TARGET_ARM
-
-                // If we are inlining, we need to fail for a CEE_JMP opcode, just like
-                // the list of other opcodes (for all platforms).
-
+#endif
                 FALLTHROUGH;
-
             case CEE_MKREFANY:
             case CEE_RETHROW:
-                if (makeInlineObservations)
+                if (inlineResult != nullptr)
                 {
                     // Arguably this should be NoteFatal, but the legacy behavior is
                     // to ignore this for the prejit root.
-                    compInlineResult->Note(InlineObservation::CALLEE_UNSUPPORTED_OPCODE);
+                    inlineResult->Note(InlineObservation::CALLEE_UNSUPPORTED_OPCODE);
 
                     // Fail fast if we're inlining...
-                    if (isInlining)
+                    if (inlineInfo != nullptr)
                     {
-                        assert(compInlineResult->IsFailure());
-                        return;
+                        assert(inlineResult->IsFailure());
+                        return nullptr;
                     }
                 }
                 break;
 
             case CEE_LOCALLOC:
-
                 // We now allow localloc callees to become candidates in some cases.
-                if (makeInlineObservations)
+                if (inlineResult != nullptr)
                 {
-                    compInlineResult->Note(InlineObservation::CALLEE_HAS_LOCALLOC);
-                    if (isInlining && compInlineResult->IsFailure())
+                    inlineResult->Note(InlineObservation::CALLEE_HAS_LOCALLOC);
+
+                    if ((inlineInfo != nullptr) && inlineResult->IsFailure())
                     {
-                        return;
+                        return nullptr;
                     }
                 }
                 break;
@@ -1986,120 +1697,121 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
             case CEE_LDARG_1:
             case CEE_LDARG_2:
             case CEE_LDARG_3:
-                if (makeInlineObservations)
-                {
-                    pushedStack.PushArgument(opcode - CEE_LDARG_0);
-                    handled = true;
-                }
-                break;
+                varNum = opcode - CEE_LDARG_0;
+                goto LDARG;
 
-            case CEE_LDARG_S:
             case CEE_LDARG:
-            {
-                if (codeAddr > codeEndp - sz)
+                if (codeAddr > codeEnd - 2)
                 {
                     goto TOO_FAR;
                 }
 
-                varNum = (sz == sizeof(BYTE)) ? getU1LittleEndian(codeAddr) : getU2LittleEndian(codeAddr);
+                varNum = getU2LittleEndian(codeAddr);
+                goto LDARG;
 
-                if (makeInlineObservations)
+            case CEE_LDARG_S:
+                if (codeAddr > codeEnd - 1)
+                {
+                    goto TOO_FAR;
+                }
+
+                varNum = *codeAddr;
+
+            LDARG:
+                if (inlineResult != nullptr)
                 {
                     pushedStack.PushArgument(varNum);
                     handled = true;
                 }
-            }
-            break;
+                break;
 
             case CEE_LDLEN:
-                if (makeInlineObservations)
+                if (inlineResult != nullptr)
                 {
                     pushedStack.PushArrayLen();
                     handled = true;
                 }
                 break;
 
-            case CEE_RET:
-                retBlocks++;
-                break;
-
             default:
                 break;
         }
 
+        // Increment the number of observed instructions
+        instrCount++;
+
+    OBSERVE_OPCODE:
         // Skip any remaining operands this opcode may have
         codeAddr += sz;
 
-        // Clear any prefix flags that may have been set
-        prefixFlags = 0;
-
-        // Increment the number of observed instructions
-        opts.instrCount++;
-
-    OBSERVE_OPCODE:
-
         // Note the opcode we just saw
-        if (makeInlineObservations)
+        if (inlineResult != nullptr)
         {
             InlineObservation obs =
                 typeIsNormed ? InlineObservation::CALLEE_OPCODE_NORMED : InlineObservation::CALLEE_OPCODE;
-            compInlineResult->NoteInt(obs, opcode);
+            inlineResult->NoteInt(obs, opcode);
         }
     }
 
-    if (codeAddr != codeEndp)
+    if (codeAddr != codeEnd)
     {
     TOO_FAR:
         BADCODE3("Code ends in the middle of an opcode, or there is a branch past the end of the method",
-                 " at offset %04X", (IL_OFFSET)(codeAddr - codeBegp));
+                 " at offset %04X", (IL_OFFSET)(codeAddr - codeBegin));
     }
 
-    if (makeInlineObservations)
+    if (ilStats != nullptr)
     {
-        compInlineResult->Note(InlineObservation::CALLEE_END_OPCODE_SCAN);
+        ilStats->instrCount  = instrCount;
+        ilStats->lclRefCount = lclRefCount;
+    }
+
+    if (inlineResult != nullptr)
+    {
+        inlineResult->Note(InlineObservation::CALLEE_END_OPCODE_SCAN);
 
         // If there are no return blocks we know it does not return, however if there
         // return blocks we don't know it returns as it may be counting unreachable code.
         // However we will still make the CALLEE_DOES_NOT_RETURN observation.
 
-        compInlineResult->NoteBool(InlineObservation::CALLEE_DOES_NOT_RETURN, retBlocks == 0);
+        inlineResult->NoteBool(InlineObservation::CALLEE_DOES_NOT_RETURN, retBlocks == 0);
 
-        if (retBlocks == 0 && isInlining)
+        if ((retBlocks == 0) && (inlineInfo != nullptr))
         {
             // Mark the call node as "no return" as it can impact caller's code quality.
-            impInlineInfo->iciCall->gtCallMoreFlags |= GTF_CALL_M_DOES_NOT_RETURN;
+            inlineInfo->iciCall->gtCallMoreFlags |= GTF_CALL_M_DOES_NOT_RETURN;
             // Mark root method as containing a noreturn call.
-            impInlineRoot()->setMethodHasNoReturnCalls();
+            inlineInfo->InlinerCompiler->setMethodHasNoReturnCalls();
         }
 
         // If the inline is viable and discretionary, do the
         // profitability screening.
-        if (compInlineResult->IsDiscretionaryCandidate())
+        if (inlineResult->IsDiscretionaryCandidate())
         {
             // Make some callsite specific observations that will feed
             // into the profitability model.
-            impMakeDiscretionaryInlineObservations(impInlineInfo, compInlineResult);
+            impMakeDiscretionaryInlineObservations(inlineInfo, inlineResult);
 
             // None of those observations should have changed the
             // inline's viability.
-            assert(compInlineResult->IsCandidate());
+            assert(inlineResult->IsCandidate());
 
-            if (isInlining)
+            if (inlineInfo != nullptr)
             {
                 // Assess profitability...
-                CORINFO_METHOD_INFO* methodInfo = &impInlineInfo->inlineCandidateInfo->methInfo;
-                compInlineResult->DetermineProfitability(methodInfo);
+                CORINFO_METHOD_INFO* methodInfo = &inlineInfo->inlineCandidateInfo->methInfo;
+                inlineResult->DetermineProfitability(methodInfo);
 
-                if (compInlineResult->IsFailure())
+                if (inlineResult->IsFailure())
                 {
-                    impInlineRoot()->m_inlineStrategy->NoteUnprofitable();
+                    inlineInfo->InlinerCompiler->m_inlineStrategy->NoteUnprofitable();
                     JITDUMP("\n\nInline expansion aborted, inline not profitable\n");
-                    return;
+                    return nullptr;
                 }
                 else
                 {
                     // The inline is still viable.
-                    assert(compInlineResult->IsCandidate());
+                    assert(inlineResult->IsCandidate());
                 }
             }
             else
@@ -2110,41 +1822,11 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
         }
     }
 
-    // None of the local vars in the inlinee should have address taken or been written to.
-    // Therefore we should NOT need to enter this "if" statement.
-    if (!isInlining && !info.compIsStatic)
-    {
-        fgAdjustForAddressExposedOrWrittenThis();
-    }
-
-    // Now that we've seen the IL, set lvSingleDef for root method
-    // locals.
-    //
-    // We could also do this for root method arguments but single-def
-    // arguments are set by the caller and so we don't know anything
-    // about the possible values or types.
-    //
-    // For inlinees we do this over in inlFetchInlineeLocal and
-    // inlUseArg (here args are included as we somtimes get
-    // new information about the types of inlinee args).
-    if (!isInlining)
-    {
-        const unsigned firstLcl = info.compArgsCount;
-        const unsigned lastLcl  = firstLcl + info.compMethodInfo->locals.numArgs;
-        for (unsigned lclNum = firstLcl; lclNum < lastLcl; lclNum++)
-        {
-            LclVarDsc* lclDsc = lvaGetDesc(lclNum);
-            assert(lclDsc->lvSingleDef == 0);
-            // could restrict this to TYP_REF
-            lclDsc->lvSingleDef = !lclDsc->lvHasMultipleILStoreOp && !lclDsc->lvHasLdAddrOp;
-
-            if (lclDsc->lvSingleDef)
-            {
-                JITDUMP("Marked V%02u as a single def local\n", lclNum);
-            }
-        }
-    }
+    return jumpTargets;
 }
+#ifdef _PREFAST_
+#pragma warning(pop)
+#endif
 
 //------------------------------------------------------------------------
 // fgAdjustForAddressExposedOrWrittenThis: update var table for cases
@@ -2158,6 +1840,8 @@ void Compiler::fgFindJumpTargets(const BYTE* codeAddr, IL_OFFSET codeSize, Fixed
 
 void Compiler::fgAdjustForAddressExposedOrWrittenThis()
 {
+    assert(!compIsForInlining());
+
     LclVarDsc* thisLcl = lvaGetDesc(info.compThisArg);
 
     // Optionally enable adjustment during stress.
@@ -2203,13 +1887,15 @@ void Compiler::fgAdjustForAddressExposedOrWrittenThis()
 //
 //    The crude stack model may overestimate stack depth.
 
-void Compiler::fgObserveInlineConstants(OPCODE opcode, const FgStack& stack, bool isInlining)
+void Compiler::fgObserveInlineConstants(OPCODE opcode, const FgStack& stack, InlineInfo* inlineInfo)
 {
     // We should be able to record inline observations.
     assert(compInlineResult != nullptr);
 
+    InlineResult* inlineResult = compInlineResult;
+
     // The stack only has to be 1 deep for BRTRUE/FALSE
-    bool lookForBranchCases = stack.IsStackAtLeastOneDeep();
+    bool lookForBranchCases = stack.Depth() >= 1;
 
     if (lookForBranchCases)
     {
@@ -2218,16 +1904,16 @@ void Compiler::fgObserveInlineConstants(OPCODE opcode, const FgStack& stack, boo
             FgStack::FgSlot slot0 = stack.GetSlot0();
             if (FgStack::IsArgument(slot0))
             {
-                compInlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_CONSTANT_TEST);
+                inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_CONSTANT_TEST);
 
-                if (isInlining)
+                if (inlineInfo != nullptr)
                 {
                     // Check for the double whammy of an incoming constant argument
                     // feeding a constant test.
                     unsigned varNum = FgStack::SlotTypeToArgNum(slot0);
-                    if (impInlineInfo->IsInvariantArg(varNum))
+                    if (inlineInfo->IsInvariantArg(varNum))
                     {
-                        compInlineResult->Note(InlineObservation::CALLSITE_CONSTANT_ARG_FEEDS_TEST);
+                        inlineResult->Note(InlineObservation::CALLSITE_CONSTANT_ARG_FEEDS_TEST);
                     }
                 }
             }
@@ -2237,7 +1923,7 @@ void Compiler::fgObserveInlineConstants(OPCODE opcode, const FgStack& stack, boo
     }
 
     // Remaining cases require at least two things on the stack.
-    if (!stack.IsStackTwoDeep())
+    if (stack.Depth() != 2)
     {
         return;
     }
@@ -2249,46 +1935,42 @@ void Compiler::fgObserveInlineConstants(OPCODE opcode, const FgStack& stack, boo
     if ((FgStack::IsConstant(slot0) && FgStack::IsArgument(slot1)) ||
         (FgStack::IsConstant(slot1) && FgStack::IsArgument(slot0)))
     {
-        compInlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_CONSTANT_TEST);
+        inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_CONSTANT_TEST);
     }
 
     // Arg feeds range check
     if ((FgStack::IsArrayLen(slot0) && FgStack::IsArgument(slot1)) ||
         (FgStack::IsArrayLen(slot1) && FgStack::IsArgument(slot0)))
     {
-        compInlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_RANGE_CHECK);
+        inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_RANGE_CHECK);
     }
 
     // Check for an incoming arg that's a constant
-    if (isInlining)
+    if (inlineInfo != nullptr)
     {
         if (FgStack::IsArgument(slot0))
         {
-            compInlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_TEST);
+            inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_TEST);
 
             unsigned varNum = FgStack::SlotTypeToArgNum(slot0);
-            if (impInlineInfo->IsInvariantArg(varNum))
+            if (inlineInfo->IsInvariantArg(varNum))
             {
-                compInlineResult->Note(InlineObservation::CALLSITE_CONSTANT_ARG_FEEDS_TEST);
+                inlineResult->Note(InlineObservation::CALLSITE_CONSTANT_ARG_FEEDS_TEST);
             }
         }
 
         if (FgStack::IsArgument(slot1))
         {
-            compInlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_TEST);
+            inlineResult->Note(InlineObservation::CALLEE_ARG_FEEDS_TEST);
 
             unsigned varNum = FgStack::SlotTypeToArgNum(slot1);
-            if (impInlineInfo->IsInvariantArg(varNum))
+            if (inlineInfo->IsInvariantArg(varNum))
             {
-                compInlineResult->Note(InlineObservation::CALLSITE_CONSTANT_ARG_FEEDS_TEST);
+                inlineResult->Note(InlineObservation::CALLSITE_CONSTANT_ARG_FEEDS_TEST);
             }
         }
     }
 }
-
-#ifdef _PREFAST_
-#pragma warning(pop)
-#endif
 
 //------------------------------------------------------------------------
 // fgMarkBackwardJump: mark blocks indicating there is a jump backwards in
@@ -2300,7 +1982,7 @@ void Compiler::fgObserveInlineConstants(OPCODE opcode, const FgStack& stack, boo
 
 void Compiler::fgMarkBackwardJump(BasicBlock* targetBlock, BasicBlock* sourceBlock)
 {
-    noway_assert(targetBlock->bbNum <= sourceBlock->bbNum);
+    assert(targetBlock->bbNum <= sourceBlock->bbNum);
 
     for (BasicBlock* const block : Blocks(targetBlock, sourceBlock))
     {
@@ -2314,55 +1996,63 @@ void Compiler::fgMarkBackwardJump(BasicBlock* targetBlock, BasicBlock* sourceBlo
     targetBlock->bbFlags |= BBF_BACKWARD_JUMP_TARGET;
 }
 
-/*****************************************************************************
- *
- *  Finally link up the bbJumpDest of the blocks together
- */
-
 void Compiler::fgLinkBasicBlocks()
 {
-    /* Create the basic block lookup tables */
-
     fgInitBBLookup();
 
-    /* First block is always reachable */
-
+    // First block is always reachable
     fgFirstBB->bbRefs = 1;
 
-    /* Walk all the basic blocks, filling in the target addresses */
-
-    for (BasicBlock* const curBBdesc : Blocks())
+    for (BasicBlock* const block : Blocks())
     {
-        switch (curBBdesc->bbJumpKind)
+        switch (block->bbJumpKind)
         {
             case BBJ_COND:
             case BBJ_ALWAYS:
             case BBJ_LEAVE:
-                curBBdesc->bbJumpDest = fgLookupBB(curBBdesc->bbJumpOffs);
-                curBBdesc->bbJumpDest->bbRefs++;
-                if (curBBdesc->bbJumpDest->bbNum <= curBBdesc->bbNum)
+                block->bbJumpDest = fgLookupBB(block->bbJumpOffs);
+                block->bbJumpDest->bbRefs++;
+
+                if (block->bbJumpDest->bbNum <= block->bbNum)
                 {
-                    fgMarkBackwardJump(curBBdesc->bbJumpDest, curBBdesc);
+                    fgMarkBackwardJump(block->bbJumpDest, block);
                 }
 
-                /* Is the next block reachable? */
-
-                if (curBBdesc->bbJumpKind == BBJ_ALWAYS || curBBdesc->bbJumpKind == BBJ_LEAVE)
+                if (block->bbJumpKind != BBJ_COND)
                 {
                     break;
                 }
 
-                if (!curBBdesc->bbNext)
+                FALLTHROUGH;
+            case BBJ_NONE:
+                if (block->bbNext == nullptr)
                 {
                     BADCODE("Fall thru the end of a method");
                 }
 
-                // Fall through, the next block is also reachable
-                FALLTHROUGH;
-
-            case BBJ_NONE:
-                curBBdesc->bbNext->bbRefs++;
+                block->bbNext->bbRefs++;
                 break;
+
+            case BBJ_SWITCH:
+            {
+                unsigned     count   = block->bbJumpSwt->bbsCount;
+                BasicBlock** targets = block->bbJumpSwt->bbsDstTab;
+
+                for (unsigned i = 0; i < count; i++)
+                {
+                    BasicBlock* target = fgLookupBB(static_cast<unsigned>(reinterpret_cast<size_t>(targets[i])));
+                    target->bbRefs++;
+                    targets[i] = target;
+
+                    if (target->bbNum <= block->bbNum)
+                    {
+                        fgMarkBackwardJump(target, block);
+                    }
+                }
+
+                noway_assert(targets[count - 1] == block->bbNext);
+            }
+            break;
 
             case BBJ_EHFINALLYRET:
             case BBJ_EHFILTERRET:
@@ -2370,33 +2060,10 @@ void Compiler::fgLinkBasicBlocks()
             case BBJ_RETURN:
                 break;
 
-            case BBJ_SWITCH:
-
-                unsigned jumpCnt;
-                jumpCnt = curBBdesc->bbJumpSwt->bbsCount;
-                BasicBlock** jumpPtr;
-                jumpPtr = curBBdesc->bbJumpSwt->bbsDstTab;
-
-                do
-                {
-                    *jumpPtr = fgLookupBB((unsigned)*(size_t*)jumpPtr);
-                    (*jumpPtr)->bbRefs++;
-                    if ((*jumpPtr)->bbNum <= curBBdesc->bbNum)
-                    {
-                        fgMarkBackwardJump(*jumpPtr, curBBdesc);
-                    }
-                } while (++jumpPtr, --jumpCnt);
-
-                /* Default case of CEE_SWITCH (next block), is at end of jumpTab[] */
-
-                noway_assert(*(jumpPtr - 1) == curBBdesc->bbNext);
-                break;
-
             case BBJ_CALLFINALLY: // BBJ_CALLFINALLY and BBJ_EHCATCHRET don't appear until later
             case BBJ_EHCATCHRET:
             default:
-                noway_assert(!"Unexpected bbJumpKind");
-                break;
+                unreached();
         }
     }
 }
@@ -2406,8 +2073,6 @@ void Compiler::fgLinkBasicBlocks()
 //   operations that might get optimized if this method were to be inlined.
 //
 // Arguments:
-//   codeAddr -- starting address of the method's IL stream
-//   codeSize -- length of the IL stream
 //   jumpTarget -- [in] bit vector of jump targets found by fgFindJumpTargets
 //
 // Returns:
@@ -2416,70 +2081,77 @@ void Compiler::fgLinkBasicBlocks()
 // Notes:
 //   Invoked for prejited and jitted methods, and for all inlinees
 
-unsigned Compiler::fgMakeBasicBlocks(const BYTE* codeAddr, IL_OFFSET codeSize, FixedBitVect* jumpTarget)
+unsigned Compiler::fgMakeBasicBlocks(FixedBitVect* jumpTargets)
 {
-    unsigned    retBlocks = 0;
-    const BYTE* codeBegp  = codeAddr;
-    const BYTE* codeEndp  = codeAddr + codeSize;
-    bool        tailCall  = false;
-    unsigned    curBBoffs = 0;
-    BasicBlock* curBBdesc;
-
     // Keep track of where we are in the scope lists, as we will also
     // create blocks at scope boundaries.
-    if (opts.compDbgCode && (info.compVarScopesCount > 0))
+    if (opts.compDbgCode && (info.compVarScopesCount > 0) && !compVarScopeExtended)
     {
         compResetScopeLists();
 
         // Ignore scopes beginning at offset 0
+
         while (compGetNextEnterScope(0))
-        { /* do nothing */
+        {
         }
+
         while (compGetNextExitScope(0))
-        { /* do nothing */
+        {
         }
     }
 
+    InlineInfo* const    inlineInfo         = impInlineInfo;
+    InlineResult* const  inlineResult       = compInlineResult;
+    const IL_OFFSET      codeSize           = info.compILCodeSize;
+    const uint8_t* const codeBegin          = info.compCode;
+    const uint8_t* const codeEnd            = codeBegin + codeSize;
+    const uint8_t*       codeAddr           = codeBegin;
+    unsigned             retBlocks          = 0;
+    unsigned             currentBlockOffset = 0;
+
     do
     {
-        unsigned        jmpAddr = DUMMY_INIT(BAD_IL_OFFSET);
-        BasicBlockFlags bbFlags = BBF_EMPTY;
-        BBswtDesc*      swtDsc  = nullptr;
-        unsigned        nxtBBoffs;
-        OPCODE          opcode = (OPCODE)getU1LittleEndian(codeAddr);
-        codeAddr += sizeof(__int8);
-        BBjumpKinds jmpKind = BBJ_NONE;
+        BBjumpKinds     jumpKind   = BBJ_NONE;
+        BasicBlockFlags blockFlags = BBF_EMPTY;
+        unsigned        jumpOffset = BAD_IL_OFFSET;
+        BBswtDesc*      switchDesc = nullptr;
+        bool            tailCall   = false;
+
+        OPCODE opcode = static_cast<OPCODE>(*codeAddr++);
 
     DECODE_OPCODE:
-
-        /* Get the size of additional parameters */
-
-        noway_assert((unsigned)opcode < CEE_COUNT);
-
         unsigned sz = opcodeSizes[opcode];
 
         switch (opcode)
         {
-            signed jmpDist;
-
             case CEE_PREFIX1:
-                if (jumpTarget->bitVectTest((UINT)(codeAddr - codeBegp)))
-                {
-                    BADCODE3("jump target between prefix 0xFE and opcode", " at offset %04X",
-                             (IL_OFFSET)(codeAddr - codeBegp));
-                }
-
-                opcode = (OPCODE)(256 + getU1LittleEndian(codeAddr));
-                codeAddr += sizeof(__int8);
+                opcode = static_cast<OPCODE>(256 + *codeAddr++);
+                assert(opcode < CEE_COUNT);
                 goto DECODE_OPCODE;
 
-            /* Check to see if we have a jump/return opcode */
+            case CEE_TAILCALL:
+                opcode   = static_cast<OPCODE>(*codeAddr++);
+                tailCall = true;
+                goto DECODE_OPCODE;
+
+            case CEE_THROW:
+            case CEE_RETHROW:
+                jumpKind = BBJ_THROW;
+                break;
+
+            case CEE_ENDFILTER:
+                blockFlags |= BBF_DONT_REMOVE;
+                jumpKind = BBJ_EHFILTERRET;
+                break;
+
+            case CEE_ENDFINALLY:
+                jumpKind = BBJ_EHFINALLYRET;
+                break;
 
             case CEE_BRFALSE:
             case CEE_BRFALSE_S:
             case CEE_BRTRUE:
             case CEE_BRTRUE_S:
-
             case CEE_BEQ:
             case CEE_BEQ_S:
             case CEE_BGE:
@@ -2500,92 +2172,57 @@ unsigned Compiler::fgMakeBasicBlocks(const BYTE* codeAddr, IL_OFFSET codeSize, F
             case CEE_BLT_UN_S:
             case CEE_BNE_UN:
             case CEE_BNE_UN_S:
-
-                jmpKind = BBJ_COND;
+                jumpKind = BBJ_COND;
                 goto JMP;
 
             case CEE_LEAVE:
             case CEE_LEAVE_S:
-
-                // We need to check if we are jumping out of a finally-protected try.
-                jmpKind = BBJ_LEAVE;
+                jumpKind = BBJ_LEAVE;
                 goto JMP;
 
             case CEE_BR:
             case CEE_BR_S:
-                jmpKind = BBJ_ALWAYS;
+                jumpKind = BBJ_ALWAYS;
                 goto JMP;
 
             JMP:
+            {
+                int jmpDist = (sz == 1) ? getI1LittleEndian(codeAddr) : getI4LittleEndian(codeAddr);
 
-                /* Compute the target address of the jump */
-
-                jmpDist = (sz == 1) ? getI1LittleEndian(codeAddr) : getI4LittleEndian(codeAddr);
-
-                if (compIsForInlining() && jmpDist == 0 && (opcode == CEE_BR || opcode == CEE_BR_S))
+                if ((inlineInfo != nullptr) && (jmpDist == 0) && (opcode == CEE_BR || opcode == CEE_BR_S))
                 {
-                    continue; /* NOP */
+                    continue;
                 }
 
-                jmpAddr = (IL_OFFSET)(codeAddr - codeBegp) + sz + jmpDist;
-                break;
+                jumpOffset = static_cast<unsigned>(codeAddr - codeBegin) + sz + jmpDist;
+            }
+            break;
 
             case CEE_SWITCH:
             {
-                unsigned jmpBase;
-                unsigned jmpCnt; // # of switch cases (excluding default)
+                switchDesc = new (this, CMK_BasicBlock) BBswtDesc;
 
-                BasicBlock** jmpTab;
-                BasicBlock** jmpPtr;
-
-                /* Allocate the switch descriptor */
-
-                swtDsc = new (this, CMK_BasicBlock) BBswtDesc;
-
-                /* Read the number of entries in the table */
-
-                jmpCnt = getU4LittleEndian(codeAddr);
+                unsigned targetCount = getU4LittleEndian(codeAddr);
                 codeAddr += 4;
+                unsigned fallThroughOffset = static_cast<unsigned>((codeAddr - codeBegin) + targetCount * 4);
 
-                /* Compute  the base offset for the opcode */
+                BasicBlock** targetTable = new (this, CMK_BasicBlock) BasicBlock*[targetCount + 1];
 
-                jmpBase = (IL_OFFSET)((codeAddr - codeBegp) + jmpCnt * sizeof(DWORD));
-
-                /* Allocate the jump table */
-
-                jmpPtr = jmpTab = new (this, CMK_BasicBlock) BasicBlock*[jmpCnt + 1];
-
-                /* Fill in the jump table */
-
-                for (unsigned count = jmpCnt; count; count--)
+                for (unsigned i = 0; i < targetCount; i++)
                 {
-                    jmpDist = getI4LittleEndian(codeAddr);
+                    int distance = getI4LittleEndian(codeAddr);
                     codeAddr += 4;
 
-                    // store the offset in the pointer.  We change these in fgLinkBasicBlocks().
-                    *jmpPtr++ = (BasicBlock*)(size_t)(jmpBase + jmpDist);
+                    // Store the offset in the pointer. We change these in fgLinkBasicBlocks.
+                    targetTable[i] = reinterpret_cast<BasicBlock*>(static_cast<size_t>(fallThroughOffset + distance));
                 }
 
-                /* Append the default label to the target table */
+                targetTable[targetCount] = reinterpret_cast<BasicBlock*>(static_cast<size_t>(fallThroughOffset));
 
-                *jmpPtr++ = (BasicBlock*)(size_t)jmpBase;
+                switchDesc->bbsCount  = targetCount + 1;
+                switchDesc->bbsDstTab = targetTable;
 
-                /* Make sure we found the right number of labels */
-
-                noway_assert(jmpPtr == jmpTab + jmpCnt + 1);
-
-                /* Compute the size of the switch opcode operands */
-
-                sz = sizeof(DWORD) + jmpCnt * sizeof(DWORD);
-
-                /* Fill in the remaining fields of the switch descriptor */
-
-                swtDsc->bbsCount  = jmpCnt + 1;
-                swtDsc->bbsDstTab = jmpTab;
-
-                /* This is definitely a jump */
-
-                jmpKind     = BBJ_SWITCH;
+                jumpKind    = BBJ_SWITCH;
                 fgHasSwitch = true;
 
                 if (opts.compProcedureSplitting)
@@ -2603,246 +2240,95 @@ unsigned Compiler::fgMakeBasicBlocks(const BYTE* codeAddr, IL_OFFSET codeSize, F
                     JITDUMP("Turning off procedure splitting for this method, as it might need switch tables; "
                             "implementation limitation.\n");
                 }
+
+                assert(sz == 0);
+                break;
             }
-                goto GOT_ENDP;
-
-            case CEE_ENDFILTER:
-                bbFlags |= BBF_DONT_REMOVE;
-                jmpKind = BBJ_EHFILTERRET;
-                break;
-
-            case CEE_ENDFINALLY:
-                jmpKind = BBJ_EHFINALLYRET;
-                break;
-
-            case CEE_TAILCALL:
-                if (compIsForInlining())
-                {
-                    // TODO-CQ: We can inline some callees with explicit tail calls if we can guarantee that the calls
-                    // can be dispatched as tail calls from the caller.
-                    compInlineResult->NoteFatal(InlineObservation::CALLEE_EXPLICIT_TAIL_PREFIX);
-                    retBlocks++;
-                    return retBlocks;
-                }
-
-                FALLTHROUGH;
-
-            case CEE_READONLY:
-            case CEE_CONSTRAINED:
-            case CEE_VOLATILE:
-            case CEE_UNALIGNED:
-                // fgFindJumpTargets should have ruled out this possibility
-                //   (i.e. a prefix opcodes as last intruction in a block)
-                noway_assert(codeAddr < codeEndp);
-
-                if (jumpTarget->bitVectTest((UINT)(codeAddr - codeBegp)))
-                {
-                    BADCODE3("jump target between prefix and an opcode", " at offset %04X",
-                             (IL_OFFSET)(codeAddr - codeBegp));
-                }
-                break;
 
             case CEE_CALL:
             case CEE_CALLVIRT:
             case CEE_CALLI:
-            {
-                if (compIsForInlining() ||               // Ignore tail call in the inlinee. Period.
-                    (!tailCall && !compTailCallStress()) // A new BB with BBJ_RETURN would have been created
-
-                    // after a tailcall statement.
-                    // We need to keep this invariant if we want to stress the tailcall.
-                    // That way, the potential (tail)call statement is always the last
-                    // statement in the block.
-                    // Otherwise, we will assert at the following line in fgMorphCall()
-                    //     noway_assert(fgMorphStmt->GetNextStmt() == NULL);
-                    )
-                {
-                    // Neither .tailcall prefix, no tailcall stress. So move on.
-                    break;
-                }
-
-                // Make sure the code sequence is legal for the tail call.
-                // If so, mark this BB as having a BBJ_RETURN.
-
-                if (codeAddr >= codeEndp - sz)
-                {
-                    BADCODE3("No code found after the call instruction", " at offset %04X",
-                             (IL_OFFSET)(codeAddr - codeBegp));
-                }
-
                 if (tailCall)
                 {
-                    // impIsTailCallILPattern uses isRecursive flag to determine whether ret in a fallthrough block is
-                    // allowed. We don't know at this point whether the call is recursive so we conservatively pass
-                    // false. This will only affect explicit tail calls when IL verification is not needed for the
-                    // method.
-                    bool isRecursive = false;
-                    if (!impIsTailCallILPattern(tailCall, opcode, codeAddr + sz, codeEndp, isRecursive))
+                    if ((codeAddr >= codeEnd - sz) || (static_cast<OPCODE>(*(codeAddr + sz)) != CEE_RET))
                     {
-                        BADCODE3("tail call not followed by ret", " at offset %04X", (IL_OFFSET)(codeAddr - codeBegp));
+                        BADCODE3("tail call not followed by ret", " at offset %04X",
+                                 static_cast<unsigned>(codeAddr - codeBegin));
                     }
 
-                    if (fgCanSwitchToOptimized() && fgMayExplicitTailCall())
+                    if (compCanSwitchToOptimized() && fgMayExplicitTailCall())
                     {
                         // Method has an explicit tail call that may run like a loop or may not be generated as a tail
                         // call in tier 0, switch to optimized to avoid spending too much time running slower code and
                         // to avoid stack overflow from recursion
-                        fgSwitchToOptimized();
+                        compSwitchToOptimized();
                     }
                 }
-                else
+#ifdef DEBUG
+                else if (compTailCallStress() && (inlineInfo == nullptr))
                 {
-                    OPCODE nextOpcode = (OPCODE)getU1LittleEndian(codeAddr + sz);
-
-                    if (nextOpcode != CEE_RET)
+                    if ((codeAddr >= codeEnd - sz) || (static_cast<OPCODE>(*(codeAddr + sz)) != CEE_RET))
                     {
-                        noway_assert(compTailCallStress());
-                        // Next OPCODE is not a CEE_RET, bail the attempt to stress the tailcall.
-                        // (I.e. We will not make a new BB after the "call" statement.)
+                        // Next opcode is not RET, bail the attempt to stress the tailcall.
                         break;
                     }
                 }
-            }
+#endif
+                else
+                {
+                    break;
+                }
 
-                /* For tail call, we just call CORINFO_HELP_TAILCALL, and it jumps to the
-                   target. So we don't need an epilog - just like CORINFO_HELP_THROW.
-                   Make the block BBJ_RETURN, but we will change it to BBJ_THROW
-                   if the tailness of the call is satisfied.
-                   NOTE : The next instruction is guaranteed to be a CEE_RET
-                   and it will create another BasicBlock. But there may be an
-                   jump directly to that CEE_RET. If we want to avoid creating
-                   an unnecessary block, we need to check if the CEE_RETURN is
-                   the target of a jump.
-                 */
-
+                // For tail call, we just call CORINFO_HELP_TAILCALL, and it jumps to the target.
+                // So we don't need an epilog - just like CORINFO_HELP_THROW.
+                // Make the block BBJ_RETURN, but we will change it to BBJ_THROW if the tailness
+                // of the call is satisfied.
+                // NOTE: The next instruction is guaranteed to be a CEE_RET and it will create
+                // another BasicBlock. But there may be an jump directly to that CEE_RET. If we
+                // want to avoid creating an unnecessary block, we need to check if the CEE_RETURN
+                // is the target of a jump.
                 FALLTHROUGH;
-
             case CEE_JMP:
-            /* These are equivalent to a return from the current method
-               But instead of directly returning to the caller we jump and
-               execute something else in between */
             case CEE_RET:
                 retBlocks++;
-                jmpKind = BBJ_RETURN;
+                jumpKind = BBJ_RETURN;
                 break;
 
-            case CEE_THROW:
-            case CEE_RETHROW:
-                jmpKind = BBJ_THROW;
-                break;
-
-#ifdef DEBUG
-// make certain we did not forget any flow of control instructions
-// by checking the 'ctrl' field in opcode.def. First filter out all
-// non-ctrl instructions
-#define BREAK(name)                                                                                                    \
-    case name:                                                                                                         \
-        break;
-#define NEXT(name)                                                                                                     \
-    case name:                                                                                                         \
-        break;
-#define CALL(name)
-#define THROW(name)
-#undef RETURN // undef contract RETURN macro
-#define RETURN(name)
-#define META(name)
-#define BRANCH(name)
-#define COND_BRANCH(name)
-#define PHI(name)
-
-#define OPDEF(name, string, pop, push, oprType, opcType, l, s1, s2, ctrl) ctrl(name)
-#include "opcode.def"
-#undef OPDEF
-
-#undef PHI
-#undef BREAK
-#undef CALL
-#undef NEXT
-#undef THROW
-#undef RETURN
-#undef META
-#undef BRANCH
-#undef COND_BRANCH
-
-            // These ctrl-flow opcodes don't need any special handling
-            case CEE_NEWOBJ: // CTRL_CALL
-                break;
-
-            // what's left are forgotten instructions
-            default:
-                BADCODE("Unrecognized control Opcode");
-                break;
-#else  // !DEBUG
             default:
                 break;
-#endif // !DEBUG
         }
-
-        /* Jump over the operand */
 
         codeAddr += sz;
 
-    GOT_ENDP:
+        unsigned nextBlockOffset = static_cast<unsigned>(codeAddr - codeBegin);
+        bool     foundScope      = false;
 
-        tailCall = (opcode == CEE_TAILCALL);
-
-        /* Make sure a jump target isn't in the middle of our opcode */
-
-        if (sz)
+        if (opts.compDbgCode && (info.compVarScopesCount > 0) && !compVarScopeExtended)
         {
-            IL_OFFSET offs = (IL_OFFSET)(codeAddr - codeBegp) - sz; // offset of the operand
-
-            for (unsigned i = 0; i < sz; i++, offs++)
-            {
-                if (jumpTarget->bitVectTest(offs))
-                {
-                    BADCODE3("jump into the middle of an opcode", " at offset %04X", (IL_OFFSET)(codeAddr - codeBegp));
-                }
-            }
-        }
-
-        /* Compute the offset of the next opcode */
-
-        nxtBBoffs = (IL_OFFSET)(codeAddr - codeBegp);
-
-        bool foundScope = false;
-
-        if (opts.compDbgCode && (info.compVarScopesCount > 0))
-        {
-            while (compGetNextEnterScope(nxtBBoffs))
+            while (compGetNextEnterScope(nextBlockOffset))
             {
                 foundScope = true;
             }
-            while (compGetNextExitScope(nxtBBoffs))
+
+            while (compGetNextExitScope(nextBlockOffset))
             {
                 foundScope = true;
             }
         }
 
-        /* Do we have a jump? */
-
-        if (jmpKind == BBJ_NONE)
+        if (jumpKind == BBJ_NONE)
         {
-            /* No jump; make sure we don't fall off the end of the function */
-
-            if (codeAddr == codeEndp)
+            if (codeAddr == codeEnd)
             {
-                BADCODE3("missing return opcode", " at offset %04X", (IL_OFFSET)(codeAddr - codeBegp));
+                BADCODE3("missing return opcode", " at offset %04X", static_cast<unsigned>(codeAddr - codeBegin));
             }
 
-            /* If a label follows this opcode, we'll have to make a new BB */
-
-            bool makeBlock = jumpTarget->bitVectTest(nxtBBoffs);
+            bool makeBlock = (jumpTargets != nullptr) && jumpTargets->bitVectTest(nextBlockOffset);
 
             if (!makeBlock && foundScope)
             {
                 makeBlock = true;
-#ifdef DEBUG
-                if (verbose)
-                {
-                    printf("Splitting at BBoffs = %04u\n", nxtBBoffs);
-                }
-#endif // DEBUG
+                JITDUMP("Splitting at BBoffs = %04u\n", nextBlockOffset);
             }
 
             if (!makeBlock)
@@ -2851,186 +2337,187 @@ unsigned Compiler::fgMakeBasicBlocks(const BYTE* codeAddr, IL_OFFSET codeSize, F
             }
         }
 
-        /* We need to create a new basic block */
+        BasicBlock* block = bbNewBasicBlock(jumpKind);
+        block->bbFlags |= blockFlags;
+        block->bbRefs        = 0;
+        block->bbCodeOffs    = currentBlockOffset;
+        block->bbCodeOffsEnd = nextBlockOffset;
 
-        curBBdesc = fgNewBasicBlock(jmpKind);
-
-        curBBdesc->bbFlags |= bbFlags;
-        curBBdesc->bbRefs = 0;
-
-        curBBdesc->bbCodeOffs    = curBBoffs;
-        curBBdesc->bbCodeOffsEnd = nxtBBoffs;
-
-        switch (jmpKind)
+        switch (jumpKind)
         {
             case BBJ_SWITCH:
-                curBBdesc->bbJumpSwt = swtDsc;
+                block->bbJumpSwt = switchDesc;
                 break;
 
             case BBJ_COND:
             case BBJ_ALWAYS:
             case BBJ_LEAVE:
-                noway_assert(jmpAddr != DUMMY_INIT(BAD_IL_OFFSET));
-                curBBdesc->bbJumpOffs = jmpAddr;
+                assert(jumpOffset != BAD_IL_OFFSET);
+                block->bbJumpOffs = jumpOffset;
                 break;
 
             default:
                 break;
         }
 
-        DBEXEC(verbose, curBBdesc->dspBlockHeader(this, false, false, false));
+        if (fgFirstBB != nullptr)
+        {
+            fgLastBB->setNext(block);
+        }
+        else
+        {
+            fgFirstBB     = block;
+            block->bbPrev = nullptr;
+        }
 
-        /* Remember where the next BB will start */
+        fgLastBB = block;
 
-        curBBoffs = nxtBBoffs;
-    } while (codeAddr < codeEndp);
+        DBEXEC(verbose, block->dspBlockHeader(this, false, false, false));
 
-    noway_assert(codeAddr == codeEndp);
+        currentBlockOffset = nextBlockOffset;
+    } while (codeAddr < codeEnd);
 
-    /* Finally link up the bbJumpDest of the blocks together */
+    noway_assert(codeAddr == codeEnd);
 
     fgLinkBasicBlocks();
 
     return retBlocks;
 }
 
-/*****************************************************************************
- *
- *  Main entry point to discover the basic blocks for the current function.
- */
-
-void Compiler::fgFindBasicBlocks()
+#ifdef DEBUG
+void Compiler::dmpILJumpTargets(FixedBitVect* targets)
 {
-#ifdef DEBUG
-    if (verbose)
+    bool anyJumpTargets = false;
+    printf("Jump targets:\n");
+
+    if (targets != nullptr)
     {
-        printf("*************** In fgFindBasicBlocks() for %s\n", info.compFullName);
-    }
-
-    // Call this here so any dump printing it inspires doesn't appear in the bb table.
-    //
-    fgStressBBProf();
-#endif
-
-    // Allocate the 'jump target' bit vector
-    FixedBitVect* jumpTarget = FixedBitVect::bitVectInit(info.compILCodeSize + 1, this);
-
-    // Walk the instrs to find all jump targets
-    fgFindJumpTargets(info.compCode, info.compILCodeSize, jumpTarget);
-    if (compDonotInline())
-    {
-        return;
-    }
-
-    unsigned XTnum;
-
-    /* Are there any exception handlers? */
-
-    if (info.compXcptnsCount > 0)
-    {
-        noway_assert(!compIsForInlining());
-
-        /* Check and mark all the exception handlers */
-
-        for (XTnum = 0; XTnum < info.compXcptnsCount; XTnum++)
+        for (unsigned i = 0; i < info.compILCodeSize; i++)
         {
-            CORINFO_EH_CLAUSE clause;
-            info.compCompHnd->getEHinfo(info.compMethodHnd, XTnum, &clause);
-            noway_assert(clause.HandlerLength != (unsigned)-1);
-
-            if (clause.TryLength <= 0)
-            {
-                BADCODE("try block length <=0");
-            }
-
-            /* Mark the 'try' block extent and the handler itself */
-
-            if (clause.TryOffset > info.compILCodeSize)
-            {
-                BADCODE("try offset is > codesize");
-            }
-            jumpTarget->bitVectSet(clause.TryOffset);
-
-            if (clause.TryOffset + clause.TryLength > info.compILCodeSize)
-            {
-                BADCODE("try end is > codesize");
-            }
-            jumpTarget->bitVectSet(clause.TryOffset + clause.TryLength);
-
-            if (clause.HandlerOffset > info.compILCodeSize)
-            {
-                BADCODE("handler offset > codesize");
-            }
-            jumpTarget->bitVectSet(clause.HandlerOffset);
-
-            if (clause.HandlerOffset + clause.HandlerLength > info.compILCodeSize)
-            {
-                BADCODE("handler end > codesize");
-            }
-            jumpTarget->bitVectSet(clause.HandlerOffset + clause.HandlerLength);
-
-            if (clause.Flags & CORINFO_EH_CLAUSE_FILTER)
-            {
-                if (clause.FilterOffset > info.compILCodeSize)
-                {
-                    BADCODE("filter offset > codesize");
-                }
-                jumpTarget->bitVectSet(clause.FilterOffset);
-            }
-        }
-    }
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        bool anyJumpTargets = false;
-        printf("Jump targets:\n");
-        for (unsigned i = 0; i < info.compILCodeSize + 1; i++)
-        {
-            if (jumpTarget->bitVectTest(i))
+            if (targets->bitVectTest(i))
             {
                 anyJumpTargets = true;
                 printf("  IL_%04x\n", i);
             }
         }
-
-        if (!anyJumpTargets)
-        {
-            printf("  none\n");
-        }
     }
-#endif // DEBUG
 
-    /* Now create the basic blocks */
-
-    unsigned retBlocks = fgMakeBasicBlocks(info.compCode, info.compILCodeSize, jumpTarget);
-
-    if (compIsForInlining())
+    if (!anyJumpTargets)
     {
+        printf("  none\n");
+    }
+}
+#endif
 
-#ifdef DEBUG
-        // If fgFindJumpTargets marked the call as "no return" there
-        // really should be no BBJ_RETURN blocks in the method.
-        bool markedNoReturn = (impInlineInfo->iciCall->gtCallMoreFlags & GTF_CALL_M_DOES_NOT_RETURN) != 0;
-        assert((markedNoReturn && (retBlocks == 0)) || (!markedNoReturn && (retBlocks >= 1)));
-#endif // DEBUG
+void Compiler::compCreateBasicBlocks(ILStats& ilStats)
+{
+    assert(!compIsForInlining());
 
-        if (compInlineResult->IsFailure())
+    JITDUMP("*************** In compCreateBasicBlocks() for %s\n", info.compFullName);
+
+    // Call this here so any dump printing it inspires doesn't appear in the bb table.
+    INDEBUG(fgStressBBProf());
+
+    FixedBitVect* jumpTargets = fgFindJumpTargets(&ilStats);
+
+    if (!info.compIsStatic)
+    {
+        fgAdjustForAddressExposedOrWrittenThis();
+    }
+
+    // Now that we've seen the IL, set lvSingleDef for root method
+    // locals.
+    //
+    // We could also do this for root method arguments but single-def
+    // arguments are set by the caller and so we don't know anything
+    // about the possible values or types.
+    //
+    // For inlinees we do this over in inlFetchInlineeLocal and
+    // inlUseArg (here args are included as we somtimes get
+    // new information about the types of inlinee args).
+    const unsigned firstLcl = info.compArgsCount;
+    const unsigned lastLcl  = firstLcl + info.compMethodInfo->locals.numArgs;
+    for (unsigned lclNum = firstLcl; lclNum < lastLcl; lclNum++)
+    {
+        LclVarDsc* lclDsc = lvaGetDesc(lclNum);
+        assert(lclDsc->lvSingleDef == 0);
+        // could restrict this to TYP_REF
+        lclDsc->lvSingleDef = !lclDsc->lvHasMultipleILStoreOp && !lclDsc->lvHasLdAddrOp;
+
+        if (lclDsc->lvSingleDef)
         {
-            return;
+            JITDUMP("Marked V%02u as a single def local\n", lclNum);
+        }
+    }
+
+    if ((jumpTargets == nullptr) && (info.compXcptnsCount != 0))
+    {
+        jumpTargets = FixedBitVect::bitVectInit(info.compILCodeSize, this);
+    }
+
+    for (unsigned i = 0, count = info.compXcptnsCount; i < info.compXcptnsCount; i++)
+    {
+        CORINFO_EH_CLAUSE clause;
+        info.compCompHnd->getEHinfo(info.compMethodHnd, i, &clause);
+
+        if (clause.TryLength == 0)
+        {
+            BADCODE("try is empty");
         }
 
-        noway_assert(info.compXcptnsCount == 0);
-        compHndBBtab = impInlineInfo->InlinerCompiler->compHndBBtab;
-        compHndBBtabAllocCount =
-            impInlineInfo->InlinerCompiler->compHndBBtabAllocCount; // we probably only use the table, not add to it.
-        compHndBBtabCount    = impInlineInfo->InlinerCompiler->compHndBBtabCount;
-        info.compXcptnsCount = impInlineInfo->InlinerCompiler->info.compXcptnsCount;
+        if (clause.TryOffset >= info.compILCodeSize)
+        {
+            BADCODE("try begins outside method");
+        }
 
-        inlAnalyzeInlineeReturn(impInlineInfo, retBlocks);
+        if (clause.TryLength > info.compILCodeSize - clause.TryOffset)
+        {
+            BADCODE("try ends outside method");
+        }
 
-        return;
+        if (clause.HandlerLength == 0)
+        {
+            BADCODE("handler is empty");
+        }
+
+        if (clause.HandlerOffset >= info.compILCodeSize)
+        {
+            BADCODE("handler begins outside method");
+        }
+
+        if (clause.HandlerLength > info.compILCodeSize - clause.HandlerOffset)
+        {
+            BADCODE("handler ends outside method");
+        }
+
+        if ((clause.Flags & CORINFO_EH_CLAUSE_FILTER) != 0)
+        {
+            if (clause.FilterOffset >= clause.HandlerOffset)
+            {
+                BADCODE("filter is empty or begins after handler");
+            }
+
+            jumpTargets->bitVectSet(clause.FilterOffset);
+        }
+
+        jumpTargets->bitVectSet(clause.TryOffset);
+
+        if (clause.TryOffset + clause.TryLength < info.compILCodeSize)
+        {
+            jumpTargets->bitVectSet(clause.TryOffset + clause.TryLength);
+        }
+
+        jumpTargets->bitVectSet(clause.HandlerOffset);
+
+        if (clause.HandlerOffset + clause.HandlerLength < info.compILCodeSize)
+        {
+            jumpTargets->bitVectSet(clause.HandlerOffset + clause.HandlerLength);
+        }
     }
+
+    DBEXEC(verbose, dmpILJumpTargets(jumpTargets);)
+
+    fgMakeBasicBlocks(jumpTargets);
 
     // If we are doing OSR, add an entry block that simply branches to the right IL offset.
     if (opts.IsOSR())
@@ -3038,29 +2525,29 @@ void Compiler::fgFindBasicBlocks()
         // Remember the original entry block in case this method is tail recursive.
         fgEntryBB = fgLookupBB(0);
 
-        // Find the OSR entry block.
         assert(info.compILEntry >= 0);
-        BasicBlock* bbTarget = fgLookupBB(info.compILEntry);
+        BasicBlock* entry = fgLookupBB(info.compILEntry);
 
         fgEnsureFirstBBisScratch();
         fgFirstBB->bbJumpKind = BBJ_ALWAYS;
-        fgFirstBB->bbJumpDest = bbTarget;
-        fgAddRefPred(bbTarget, fgFirstBB);
+        fgFirstBB->bbJumpDest = entry;
+        fgAddRefPred(entry, fgFirstBB);
 
         JITDUMP("OSR: redirecting flow at entry via " FMT_BB " to " FMT_BB " (il offset 0x%x)\n", fgFirstBB->bbNum,
-                bbTarget->bbNum, info.compILEntry);
+                entry->bbNum, info.compILEntry);
 
         // rebuild lookup table... should be able to avoid this by leaving room up front.
         fgInitBBLookup();
     }
 
-    /* Mark all blocks within 'try' blocks as such */
-
-    if (info.compXcptnsCount == 0)
+    if (info.compXcptnsCount != 0)
     {
-        return;
+        compCreateEHTable();
     }
+}
 
+void Compiler::compCreateEHTable()
+{
     if (info.compXcptnsCount > MAX_XCPTN_INDEX)
     {
         IMPL_LIMITATION("too many exception clauses");
@@ -3075,22 +2562,20 @@ void Compiler::fgFindBasicBlocks()
      * when we do need to sort it.
      */
 
-    fgNeedToSortEHTable = false;
-
-    verInitEHTree(info.compXcptnsCount);
-    EHNodeDsc* initRoot = ehnNext; // remember the original root since
-                                   // it may get modified during insertion
+    EHTree     ehTree(this, info.compXcptnsCount);
+    EHNodeDsc* initRoot = ehTree.ehnNext; // remember the original root since
+                                          // it may get modified during insertion
 
     // Annotate BBs with exception handling information required for generating correct eh code
     // as well as checking for correct IL
 
+    unsigned  XTnum;
     EHblkDsc* HBtab;
 
     for (XTnum = 0, HBtab = compHndBBtab; XTnum < compHndBBtabCount; XTnum++, HBtab++)
     {
         CORINFO_EH_CLAUSE clause;
         info.compCompHnd->getEHinfo(info.compMethodHnd, XTnum, &clause);
-        noway_assert(clause.HandlerLength != (unsigned)-1); // @DEPRECATED
 
 #ifdef DEBUG
         if (verbose)
@@ -3099,54 +2584,24 @@ void Compiler::fgFindBasicBlocks()
         }
 #endif // DEBUG
 
-        IL_OFFSET tryBegOff    = clause.TryOffset;
-        IL_OFFSET tryEndOff    = tryBegOff + clause.TryLength;
-        IL_OFFSET filterBegOff = 0;
-        IL_OFFSET hndBegOff    = clause.HandlerOffset;
-        IL_OFFSET hndEndOff    = hndBegOff + clause.HandlerLength;
+        IL_OFFSET tryBegOff = clause.TryOffset;
+        IL_OFFSET tryEndOff = tryBegOff + clause.TryLength;
+        IL_OFFSET hndBegOff = clause.HandlerOffset;
+        IL_OFFSET hndEndOff = hndBegOff + clause.HandlerLength;
 
-        if (clause.Flags & CORINFO_EH_CLAUSE_FILTER)
-        {
-            filterBegOff = clause.FilterOffset;
-        }
-
-        if (tryEndOff > info.compILCodeSize)
-        {
-            BADCODE3("end of try block beyond end of method for try", " at offset %04X", tryBegOff);
-        }
-        if (hndEndOff > info.compILCodeSize)
-        {
-            BADCODE3("end of hnd block beyond end of method for try", " at offset %04X", tryBegOff);
-        }
-
-        HBtab->ebdTryBegOffset    = tryBegOff;
-        HBtab->ebdTryEndOffset    = tryEndOff;
-        HBtab->ebdFilterBegOffset = filterBegOff;
-        HBtab->ebdHndBegOffset    = hndBegOff;
-        HBtab->ebdHndEndOffset    = hndEndOff;
+        HBtab->ebdTryBegOffset = tryBegOff;
+        HBtab->ebdTryEndOffset = tryEndOff;
+        HBtab->ebdHndBegOffset = hndBegOff;
+        HBtab->ebdHndEndOffset = hndEndOff;
 
         /* Convert the various addresses to basic blocks */
 
         BasicBlock* tryBegBB = fgLookupBB(tryBegOff);
-        BasicBlock* tryEndBB =
-            fgLookupBB(tryEndOff); // note: this can be NULL if the try region is at the end of the function
+        BasicBlock* tryEndBB = tryEndOff < info.compILCodeSize ? fgLookupBB(tryEndOff)->bbPrev : fgLastBB;
         BasicBlock* hndBegBB = fgLookupBB(hndBegOff);
-        BasicBlock* hndEndBB = nullptr;
+        BasicBlock* hndEndBB = hndEndOff < info.compILCodeSize ? fgLookupBB(hndEndOff)->bbPrev : fgLastBB;
         BasicBlock* filtBB   = nullptr;
         BasicBlock* block;
-
-        //
-        // Assert that the try/hnd beginning blocks are set up correctly
-        //
-        if (tryBegBB == nullptr)
-        {
-            BADCODE("Try Clause is invalid");
-        }
-
-        if (hndBegBB == nullptr)
-        {
-            BADCODE("Handler Clause is invalid");
-        }
 
 #if HANDLER_ENTRY_MUST_BE_IN_HOT_SECTION
         // This will change the block weight from 0 to 1
@@ -3156,16 +2611,17 @@ void Compiler::fgFindBasicBlocks()
         hndBegBB->bbSetRunRarely();   // handler entry points are rarely executed
 #endif
 
-        if (hndEndOff < info.compILCodeSize)
-        {
-            hndEndBB = fgLookupBB(hndEndOff);
-        }
-
         if (clause.Flags & CORINFO_EH_CLAUSE_FILTER)
         {
-            filtBB = HBtab->ebdFilter = fgLookupBB(clause.FilterOffset);
-            filtBB->bbCatchTyp        = BBCT_FILTER;
-            hndBegBB->bbCatchTyp      = BBCT_FILTER_HANDLER;
+            filtBB = fgLookupBB(clause.FilterOffset);
+            filtBB->bbFlags |= BBF_DONT_REMOVE;
+            filtBB->bbRefs++; // The first block of a filter gets an extra, "artificial" reference count.
+            filtBB->bbCatchTyp = BBCT_FILTER;
+
+            HBtab->ebdFilter          = filtBB;
+            HBtab->ebdFilterBegOffset = clause.FilterOffset;
+
+            hndBegBB->bbCatchTyp = BBCT_FILTER_HANDLER;
 
 #if HANDLER_ENTRY_MUST_BE_IN_HOT_SECTION
             // This will change the block weight from 0 to 1
@@ -3212,28 +2668,25 @@ void Compiler::fgFindBasicBlocks()
             {
                 hndBegBB->bbCatchTyp = BBCT_FINALLY;
             }
+            else if (clause.Flags & CORINFO_EH_CLAUSE_FAULT)
+            {
+                hndBegBB->bbCatchTyp = BBCT_FAULT;
+            }
             else
             {
-                if (clause.Flags & CORINFO_EH_CLAUSE_FAULT)
-                {
-                    hndBegBB->bbCatchTyp = BBCT_FAULT;
-                }
-                else
-                {
-                    hndBegBB->bbCatchTyp = clause.ClassToken;
+                hndBegBB->bbCatchTyp = clause.ClassToken;
 
-                    // These values should be non-zero value that will
-                    // not collide with real tokens for bbCatchTyp
-                    if (clause.ClassToken == 0)
-                    {
-                        BADCODE("Exception catch type is Null");
-                    }
-
-                    noway_assert(clause.ClassToken != BBCT_FAULT);
-                    noway_assert(clause.ClassToken != BBCT_FINALLY);
-                    noway_assert(clause.ClassToken != BBCT_FILTER);
-                    noway_assert(clause.ClassToken != BBCT_FILTER_HANDLER);
+                // These values should be non-zero value that will
+                // not collide with real tokens for bbCatchTyp
+                if (clause.ClassToken == 0)
+                {
+                    BADCODE("Exception catch type is Null");
                 }
+
+                noway_assert(clause.ClassToken != BBCT_FAULT);
+                noway_assert(clause.ClassToken != BBCT_FINALLY);
+                noway_assert(clause.ClassToken != BBCT_FILTER);
+                noway_assert(clause.ClassToken != BBCT_FILTER_HANDLER);
             }
         }
 
@@ -3248,15 +2701,6 @@ void Compiler::fgFindBasicBlocks()
         hndBegBB->bbFlags |= BBF_DONT_REMOVE;
         hndBegBB->bbRefs++; // The first block of a handler gets an extra, "artificial" reference count.
 
-        if (clause.Flags & CORINFO_EH_CLAUSE_FILTER)
-        {
-            filtBB->bbFlags |= BBF_DONT_REMOVE;
-            filtBB->bbRefs++; // The first block of a filter gets an extra, "artificial" reference count.
-        }
-
-        tryBegBB->bbFlags |= BBF_DONT_REMOVE;
-        hndBegBB->bbFlags |= BBF_DONT_REMOVE;
-
         //
         // Store the info to the table of EH block handlers
         //
@@ -3264,33 +2708,23 @@ void Compiler::fgFindBasicBlocks()
         HBtab->ebdHandlerType = ToEHHandlerType(clause.Flags);
 
         HBtab->ebdTryBeg  = tryBegBB;
-        HBtab->ebdTryLast = (tryEndBB == nullptr) ? fgLastBB : tryEndBB->bbPrev;
+        HBtab->ebdTryLast = tryEndBB;
 
         HBtab->ebdHndBeg  = hndBegBB;
-        HBtab->ebdHndLast = (hndEndBB == nullptr) ? fgLastBB : hndEndBB->bbPrev;
-
-        //
-        // Assert that all of our try/hnd blocks are setup correctly.
-        //
-        if (HBtab->ebdTryLast == nullptr)
-        {
-            BADCODE("Try Clause is invalid");
-        }
-
-        if (HBtab->ebdHndLast == nullptr)
-        {
-            BADCODE("Handler Clause is invalid");
-        }
+        HBtab->ebdHndLast = hndEndBB;
 
         //
         // Verify that it's legal
         //
 
-        verInsertEhNode(&clause, HBtab);
+        verInsertEhNode(ehTree, &clause, HBtab);
 
     } // end foreach handler table entry
 
-    fgSortEHTable();
+    if (ehTree.fgNeedToSortEHTable)
+    {
+        fgSortEHTable();
+    }
 
     // Next, set things related to nesting that depend on the sorting being complete.
 
@@ -3426,7 +2860,7 @@ void Compiler::fgFindBasicBlocks()
 #ifdef DEBUG
     if (verbose)
     {
-        JITDUMP("*************** After fgFindBasicBlocks() has created the EH table\n");
+        JITDUMP("*************** After compCreateBasicBlocks() has created the EH table\n");
         fgDispHandlerTab();
     }
 
@@ -3970,10 +3404,6 @@ BasicBlock* Compiler::fgSplitBlockAtEnd(BasicBlock* curr)
     }
     else
     {
-        // In the case of a switch statement there's more complicated logic in order to wire up the predecessor lists
-        // but fortunately there's an existing method that implements this functionality.
-        newBlock->bbJumpSwt = curr->bbJumpSwt;
-
         fgChangeSwitchBlock(curr, newBlock);
 
         curr->bbJumpSwt = nullptr;

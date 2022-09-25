@@ -8159,8 +8159,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             break;
 
         case GT_INTRINSIC:
-            fgValueNumberIntrinsic(tree);
-            // ToDo: model the exceptions for Intrinsics
+            vnIntrinsic(tree->AsIntrinsic());
             break;
 
         case GT_COMMA:
@@ -8359,43 +8358,44 @@ void Compiler::fgValueNumberTree(GenTree* tree)
 #endif // DEBUG
 }
 
-void Compiler::fgValueNumberIntrinsic(GenTree* tree)
+void Compiler::vnIntrinsic(GenTreeIntrinsic* intrinsic)
 {
-    assert(tree->OperGet() == GT_INTRINSIC);
-    GenTreeIntrinsic* intrinsic = tree->AsIntrinsic();
-    ValueNumPair      arg0VNP, arg1VNP;
-    ValueNumPair      arg0VNPx = ValueNumStore::VNPForEmptyExcSet();
-    ValueNumPair      arg1VNPx = ValueNumStore::VNPForEmptyExcSet();
+    // TODO: model the exceptions for Intrinsics
 
-    vnStore->VNPUnpackExc(intrinsic->AsOp()->gtOp1->gtVNPair, &arg0VNP, &arg0VNPx);
+    ValueNumPair arg0VNP, arg1VNP;
+    ValueNumPair arg0VNPx = ValueNumStore::VNPForEmptyExcSet();
+    ValueNumPair arg1VNPx = ValueNumStore::VNPForEmptyExcSet();
 
-    if (intrinsic->AsOp()->gtOp2 != nullptr)
+    vnStore->VNPUnpackExc(intrinsic->gtOp1->gtVNPair, &arg0VNP, &arg0VNPx);
+
+    if (intrinsic->gtOp2 != nullptr)
     {
-        vnStore->VNPUnpackExc(intrinsic->AsOp()->gtOp2->gtVNPair, &arg1VNP, &arg1VNPx);
+        vnStore->VNPUnpackExc(intrinsic->gtOp2->gtVNPair, &arg1VNP, &arg1VNPx);
     }
 
-    if (IsMathIntrinsic(intrinsic->gtIntrinsicName))
+    if (IsMathIntrinsic(intrinsic->GetIntrinsic()))
     {
         // GT_INTRINSIC is a currently a subtype of binary operators. But most of
         // the math intrinsics are actually unary operations.
 
         if (intrinsic->AsOp()->gtOp2 == nullptr)
         {
-            intrinsic->gtVNPair =
-                vnStore->VNPWithExc(vnStore->EvalMathFuncUnary(tree->TypeGet(), intrinsic->gtIntrinsicName, arg0VNP),
-                                    arg0VNPx);
+            intrinsic->gtVNPair = vnStore->VNPWithExc(vnStore->EvalMathFuncUnary(intrinsic->GetType(),
+                                                                                 intrinsic->GetIntrinsic(), arg0VNP),
+                                                      arg0VNPx);
         }
         else
         {
             ValueNumPair newVNP =
-                vnStore->EvalMathFuncBinary(tree->TypeGet(), intrinsic->gtIntrinsicName, arg0VNP, arg1VNP);
+                vnStore->EvalMathFuncBinary(intrinsic->GetType(), intrinsic->GetIntrinsic(), arg0VNP, arg1VNP);
             ValueNumPair excSet = vnStore->VNPExcSetUnion(arg0VNPx, arg1VNPx);
             intrinsic->gtVNPair = vnStore->VNPWithExc(newVNP, excSet);
         }
     }
     else
     {
-        assert(intrinsic->gtIntrinsicId == CORINFO_INTRINSIC_Object_GetType);
+        assert(intrinsic->GetIntrinsic() == NI_CORINFO_INTRINSIC_Object_GetType);
+
         intrinsic->gtVNPair =
             vnStore->VNPWithExc(vnStore->VNPairForFunc(intrinsic->TypeGet(), VNF_ObjGetType, arg0VNP), arg0VNPx);
     }

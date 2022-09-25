@@ -235,6 +235,18 @@ inline unsigned genCountBits(T bits)
     return cnt;
 }
 
+template <>
+inline unsigned genCountBits<uint64_t>(uint64_t c)
+{
+    return BitSetSupport::CountBitsInIntegral(c);
+}
+
+template <>
+inline unsigned genCountBits<uint32_t>(uint32_t c)
+{
+    return BitSetSupport::CountBitsInIntegral(c);
+}
+
 /*****************************************************************************
  *
  *  Given 3 masks value, end, start, returns the bits of value between start
@@ -1572,7 +1584,7 @@ inline bool Compiler::lvaReportParamTypeArg()
 {
     if (info.compMethodInfo->options & (CORINFO_GENERICS_CTXT_FROM_METHODDESC | CORINFO_GENERICS_CTXT_FROM_METHODTABLE))
     {
-        assert(info.compTypeCtxtArg != -1);
+        assert(info.compTypeCtxtArg != BAD_VAR_NUM);
 
         // If the VM requires us to keep the generics context alive and report it (for example, if any catch
         // clause catches a type that uses a generic parameter of this method) this flag will be set.
@@ -1884,13 +1896,13 @@ inline unsigned Compiler::compMapILargNum(unsigned ILargNum)
         assert(ILargNum < info.compLocalsCount); // compLocals count already adjusted.
     }
 
-    if (ILargNum >= (unsigned)info.compTypeCtxtArg)
+    if (ILargNum >= info.compTypeCtxtArg)
     {
         ILargNum++;
         assert(ILargNum < info.compLocalsCount); // compLocals count already adjusted.
     }
 
-    if (ILargNum >= (unsigned)lvaVarargsHandleArg)
+    if (ILargNum >= lvaVarargsHandleArg)
     {
         ILargNum++;
         assert(ILargNum < info.compLocalsCount); // compLocals count already adjusted.
@@ -1900,39 +1912,29 @@ inline unsigned Compiler::compMapILargNum(unsigned ILargNum)
     return (ILargNum);
 }
 
-//------------------------------------------------------------------------
-// Compiler::mangleVarArgsType: Retype float types to their corresponding
-//                            : int/long types.
-//
-// Notes:
-//
-// The mangling of types will only occur for incoming vararg fixed arguments
-// on windows arm|64 or on armel (softFP).
-//
-// NO-OP for all other cases.
-//
+#ifdef TARGET_ARMARCH
 inline var_types Compiler::mangleVarArgsType(var_types type)
 {
-#if defined(TARGET_ARMARCH)
-    if (opts.UseSoftFP()
-#if defined(TARGET_WINDOWS)
-        || info.compIsVarArgs
-#endif // defined(TARGET_WINDOWS)
+    if (!opts.UseSoftFP()
+#ifdef TARGET_WINDOWS
+        && !info.compIsVarArgs
+#endif
         )
     {
-        switch (type)
-        {
-            case TYP_FLOAT:
-                return TYP_INT;
-            case TYP_DOUBLE:
-                return TYP_LONG;
-            default:
-                break;
-        }
+        return type;
     }
-#endif // defined(TARGET_ARMARCH)
-    return type;
+
+    switch (type)
+    {
+        case TYP_FLOAT:
+            return TYP_INT;
+        case TYP_DOUBLE:
+            return TYP_LONG;
+        default:
+            return type;
+    }
 }
+#endif // TARGET_ARMARCH
 
 // For CORECLR there is no vararg on System V systems.
 #if FEATURE_VARARG
@@ -2010,163 +2012,6 @@ inline bool Compiler::compCanEncodePtrArgCntMax()
 
 /*****************************************************************************
  *
- *  Call the given function pointer for all nodes in the tree. The 'visitor'
- *  fn should return one of the following values:
- *
- *  WALK_ABORT          stop walking and return immediately
- *  WALK_CONTINUE       continue walking
- *  WALK_SKIP_SUBTREES  don't walk any subtrees of the node just visited
- *
- *  computeStack - true if we want to make stack visible to callback function
- */
-
-inline Compiler::fgWalkResult Compiler::fgWalkTreePre(
-    GenTree** pTree, fgWalkPreFn* visitor, void* callBackData, bool lclVarsOnly, bool computeStack)
-
-{
-    fgWalkData walkData;
-
-    walkData.compiler      = this;
-    walkData.wtprVisitorFn = visitor;
-    walkData.pCallbackData = callBackData;
-    walkData.parent        = nullptr;
-    walkData.wtprLclsOnly  = lclVarsOnly;
-#ifdef DEBUG
-    walkData.printModified = false;
-#endif
-
-    fgWalkResult result;
-    if (lclVarsOnly && computeStack)
-    {
-        GenericTreeWalker<true, true, false, true, true> walker(&walkData);
-        result = walker.WalkTree(pTree, nullptr);
-    }
-    else if (lclVarsOnly)
-    {
-        GenericTreeWalker<false, true, false, true, true> walker(&walkData);
-        result = walker.WalkTree(pTree, nullptr);
-    }
-    else if (computeStack)
-    {
-        GenericTreeWalker<true, true, false, false, true> walker(&walkData);
-        result = walker.WalkTree(pTree, nullptr);
-    }
-    else
-    {
-        GenericTreeWalker<false, true, false, false, true> walker(&walkData);
-        result = walker.WalkTree(pTree, nullptr);
-    }
-
-#ifdef DEBUG
-    if (verbose && walkData.printModified)
-    {
-        gtDispTree(*pTree);
-    }
-#endif
-
-    return result;
-}
-
-/*****************************************************************************
- *
- *  Same as above, except the tree walk is performed in a depth-first fashion,
- *  The 'visitor' fn should return one of the following values:
- *
- *  WALK_ABORT          stop walking and return immediately
- *  WALK_CONTINUE       continue walking
- *
- *  computeStack - true if we want to make stack visible to callback function
- */
-
-inline Compiler::fgWalkResult Compiler::fgWalkTreePost(GenTree**     pTree,
-                                                       fgWalkPostFn* visitor,
-                                                       void*         callBackData,
-                                                       bool          computeStack)
-{
-    fgWalkData walkData;
-
-    walkData.compiler      = this;
-    walkData.wtpoVisitorFn = visitor;
-    walkData.pCallbackData = callBackData;
-    walkData.parent        = nullptr;
-
-    fgWalkResult result;
-    if (computeStack)
-    {
-        GenericTreeWalker<true, false, true, false, true> walker(&walkData);
-        result = walker.WalkTree(pTree, nullptr);
-    }
-    else
-    {
-        GenericTreeWalker<false, false, true, false, true> walker(&walkData);
-        result = walker.WalkTree(pTree, nullptr);
-    }
-
-    assert(result == WALK_CONTINUE || result == WALK_ABORT);
-
-    return result;
-}
-
-/*****************************************************************************
- *
- *  Call the given function pointer for all nodes in the tree. The 'visitor'
- *  fn should return one of the following values:
- *
- *  WALK_ABORT          stop walking and return immediately
- *  WALK_CONTINUE       continue walking
- *  WALK_SKIP_SUBTREES  don't walk any subtrees of the node just visited
- */
-
-inline Compiler::fgWalkResult Compiler::fgWalkTree(GenTree**    pTree,
-                                                   fgWalkPreFn* preVisitor,
-                                                   fgWalkPreFn* postVisitor,
-                                                   void*        callBackData)
-
-{
-    fgWalkData walkData;
-
-    walkData.compiler      = this;
-    walkData.wtprVisitorFn = preVisitor;
-    walkData.wtpoVisitorFn = postVisitor;
-    walkData.pCallbackData = callBackData;
-    walkData.parent        = nullptr;
-    walkData.wtprLclsOnly  = false;
-#ifdef DEBUG
-    walkData.printModified = false;
-#endif
-
-    fgWalkResult result;
-
-    assert(preVisitor || postVisitor);
-
-    if (preVisitor && postVisitor)
-    {
-        GenericTreeWalker<true, true, true, false, true> walker(&walkData);
-        result = walker.WalkTree(pTree, nullptr);
-    }
-    else if (preVisitor)
-    {
-        GenericTreeWalker<true, true, false, false, true> walker(&walkData);
-        result = walker.WalkTree(pTree, nullptr);
-    }
-    else
-    {
-        GenericTreeWalker<true, false, true, false, true> walker(&walkData);
-        result = walker.WalkTree(pTree, nullptr);
-    }
-
-#ifdef DEBUG
-    if (verbose && walkData.printModified)
-    {
-        gtDispTree(*pTree);
-    }
-#endif
-
-    return result;
-}
-
-/*****************************************************************************
- *
  * Has this block been added to throw an inlined exception
  * Returns true if the block was added to throw one of:
  *    range-check exception
@@ -2179,7 +2024,7 @@ inline Compiler::fgWalkResult Compiler::fgWalkTree(GenTree**    pTree,
 
 inline bool Compiler::fgIsThrowHlpBlk(BasicBlock* block)
 {
-    if (!fgIsCodeAdded())
+    if (fgAddCodeList == nullptr)
     {
         return false;
     }
@@ -2329,16 +2174,6 @@ inline void Compiler::fgConvertBBToThrowBB(BasicBlock* block)
 }
 
 /*****************************************************************************
- *
- *  Return true if we've added any new basic blocks.
- */
-
-inline bool Compiler::fgIsCodeAdded()
-{
-    return fgAddCodeModf;
-}
-
-/*****************************************************************************
   Is the offset too big?
 */
 inline bool Compiler::fgIsBigOffset(size_t offset)
@@ -2409,27 +2244,6 @@ inline void RegSet::tmpDone()
 }
 
 #ifdef DEBUG
-inline bool Compiler::shouldUseVerboseTrees()
-{
-    return (JitConfig.JitDumpVerboseTrees() == 1);
-}
-
-inline bool Compiler::shouldUseVerboseSsa()
-{
-    return (JitConfig.JitDumpVerboseSsa() == 1);
-}
-
-//------------------------------------------------------------------------
-// shouldDumpASCIITrees: Should we use only ASCII characters for tree dumps?
-//
-// Notes:
-//    This is set to default to 1 in clrConfigValues.h
-
-inline bool Compiler::shouldDumpASCIITrees()
-{
-    return (JitConfig.JitDumpASCII() == 1);
-}
-
 /*****************************************************************************
  *  Should we enable JitStress mode?
  *   0:   No stress
@@ -3041,20 +2855,6 @@ inline bool Compiler::IsGcSafePoint(GenTree* tree)
     return false;
 }
 
-#if defined(DEBUG) || defined(FEATURE_JIT_METHOD_PERF) || defined(FEATURE_SIMD) || defined(FEATURE_TRACELOGGING)
-
-inline bool Compiler::eeIsNativeMethod(CORINFO_METHOD_HANDLE method)
-{
-    return ((((size_t)method) & 0x2) == 0x2);
-}
-
-inline CORINFO_METHOD_HANDLE Compiler::eeGetMethodHandleForNative(CORINFO_METHOD_HANDLE method)
-{
-    assert((((size_t)method) & 0x3) == 0x2);
-    return (CORINFO_METHOD_HANDLE)(((size_t)method) & ~0x3);
-}
-#endif
-
 /*
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -3091,106 +2891,12 @@ inline bool Compiler::compIsProfilerHookNeeded()
 
 /*****************************************************************************
  *
- *  Check for the special case where the object is the constant 0.
- *  As we can't even fold the tree (null+fldOffs), we are left with
- *  op1 and op2 both being a constant. This causes lots of problems.
- *  We simply grab a temp and assign 0 to it and use it in place of the NULL.
- */
-
-inline GenTree* Compiler::impCheckForNullPointer(GenTree* obj)
-{
-    /* If it is not a GC type, we will be able to fold it.
-       So don't need to do anything */
-
-    if (!varTypeIsGC(obj->TypeGet()))
-    {
-        return obj;
-    }
-
-    if (obj->gtOper == GT_CNS_INT)
-    {
-        assert(obj->gtType == TYP_REF || obj->gtType == TYP_BYREF);
-
-        // We can see non-zero byrefs for RVA statics or for frozen strings.
-        if (obj->AsIntCon()->gtIconVal != 0)
-        {
-#ifdef DEBUG
-            if (!obj->TypeIs(TYP_BYREF))
-            {
-                assert(obj->TypeIs(TYP_REF));
-                assert(obj->IsIconHandle(GTF_ICON_STR_HDL));
-                if (!doesMethodHaveFrozenString())
-                {
-                    assert(compIsForInlining());
-                    assert(impInlineInfo->InlinerCompiler->doesMethodHaveFrozenString());
-                }
-            }
-#endif // DEBUG
-            return obj;
-        }
-
-        unsigned tmp = lvaNewTemp(obj->GetType(), true DEBUGARG("CheckForNullPointer"));
-        GenTree* asg = gtNewAssignNode(gtNewLclvNode(tmp, obj->GetType()), obj);
-        // We don't need to spill while appending as we are assigning a constant to a new temp.
-        impAppendTree(asg, CHECK_SPILL_NONE, impCurStmtOffs);
-
-        obj = gtNewLclvNode(tmp, obj->GetType());
-    }
-
-    return obj;
-}
-
-/*****************************************************************************
- *
- *  Check for the special case where the object is the methods original 'this' pointer.
- *  Note that, the original 'this' pointer is always local var 0 for non-static method,
- *  even if we might have created the copy of 'this' pointer in lvaArg0Var.
- */
-
-inline bool Compiler::impIsThis(GenTree* obj)
-{
-    if (compIsForInlining())
-    {
-        return impInlineInfo->InlinerCompiler->impIsThis(obj);
-    }
-    else
-    {
-        return ((obj != nullptr) && (obj->gtOper == GT_LCL_VAR) &&
-                lvaIsOriginalThisArg(obj->AsLclVarCommon()->GetLclNum()));
-    }
-}
-
-/*****************************************************************************
- *
  *  Returns true if the compiler instance is created for inlining.
  */
 
 inline bool Compiler::compIsForInlining() const
 {
     return (impInlineInfo != nullptr);
-}
-
-/*****************************************************************************
- *
- *  Check the inline result field in the compiler to see if inlining failed or not.
- */
-
-inline bool Compiler::compDonotInline()
-{
-    if (compIsForInlining())
-    {
-        assert(compInlineResult != nullptr);
-        return compInlineResult->IsFailure();
-    }
-    else
-    {
-        return false;
-    }
-}
-
-inline bool Compiler::impIsPrimitive(CorInfoType jitType)
-{
-    return ((CORINFO_TYPE_BOOL <= jitType && jitType <= CORINFO_TYPE_DOUBLE) || jitType == CORINFO_TYPE_PTR);
 }
 
 //------------------------------------------------------------------------
@@ -3690,17 +3396,6 @@ inline void* __cdecl operator new[](size_t sz, Compiler* compiler, CompMemKind c
 {
     return compiler->getAllocator(cmk).allocate<char>(sz);
 }
-
-/*****************************************************************************/
-
-#ifdef DEBUG
-
-inline void printRegMaskInt(regMaskTP mask)
-{
-    printf(REG_MASK_INT_FMT, (mask & RBM_ALLINT));
-}
-
-#endif // DEBUG
 
 inline static bool StructHasOverlappingFields(DWORD attribs)
 {

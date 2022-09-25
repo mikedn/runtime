@@ -18,6 +18,8 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #endif
 #include "emit.h"
 #include "corexcep.h"
+#include "jitstd/algorithm.h"
+#include "codegen.h"
 
 #if !defined(HOST_UNIX)
 #include <io.h>    // For _dup, _setmode
@@ -36,6 +38,8 @@ FILE* jitstdout = nullptr;
 ICorJitHost*   g_jitHost        = nullptr;
 static CILJit* ILJitter         = nullptr; // The one and only JITTER I return
 bool           g_jitInitialized = false;
+
+INDEBUG(extern ConfigMethodRange fJitStressRange;)
 
 /*****************************************************************************/
 
@@ -72,6 +76,8 @@ extern "C" DLLEXPORT void jitStartup(ICorJitHost* jitHost)
 
     assert(!JitConfig.isInitialized());
     JitConfig.initialize(jitHost);
+
+    INDEBUG(fJitStressRange.EnsureInit(JitConfig.JitStressRange()));
 
 #ifdef DEBUG
     const WCHAR* jitStdOutFile = JitConfig.JitStdOutFile();
@@ -115,9 +121,6 @@ extern "C" DLLEXPORT void jitStartup(ICorJitHost* jitHost)
         jitstdout = procstdout();
     }
 
-#ifdef FEATURE_TRACELOGGING
-    JitTelemetry::NotifyDllProcessAttach();
-#endif
     Compiler::compStartup();
 
     g_jitInitialized = true;
@@ -142,10 +145,6 @@ void jitShutdown(bool processIsTerminating)
             fclose(jitstdout);
         }
     }
-
-#ifdef FEATURE_TRACELOGGING
-    JitTelemetry::NotifyDllProcessDetach();
-#endif
 
     g_jitInitialized = false;
 }
@@ -196,7 +195,8 @@ void SetJitTls(JitTls* value)
     gJitTls = value;
 }
 
-JitTls::JitTls(ICorJitInfo* jitInfo) : m_compiler(nullptr), m_logEnv(jitInfo), m_next(GetJitTls())
+JitTls::JitTls(ICorJitInfo* jitInfo)
+    : m_compiler(nullptr), m_logCompiler(nullptr), m_jitInfo(jitInfo), m_next(GetJitTls())
 {
     SetJitTls(this);
 }
@@ -206,9 +206,19 @@ JitTls::~JitTls()
     SetJitTls(m_next);
 }
 
-LogEnv* JitTls::GetLogEnv()
+ICorJitInfo* JitTls::GetJitInfo()
 {
-    return &GetJitTls()->m_logEnv;
+    return GetJitTls()->m_jitInfo;
+}
+
+Compiler* JitTls::GetLogCompiler()
+{
+    return GetJitTls()->m_logCompiler;
+}
+
+void JitTls::SetLogCompiler(Compiler* compiler)
+{
+    GetJitTls()->m_logCompiler = compiler;
 }
 
 Compiler* JitTls::GetCompiler()
@@ -255,49 +265,37 @@ void JitTls::SetCompiler(Compiler* compiler)
 
 #endif // !defined(DEBUG)
 
-//****************************************************************************
-// The main JIT function for the 32 bit JIT.  See code:ICorJitCompiler#EEToJitInterface for more on the EE-JIT
-// interface. Things really don't get going inside the JIT until the code:Compiler::compCompile#Phases
-// method.  Usually that is where you want to go.
-
-CorJitResult CILJit::compileMethod(ICorJitInfo*         compHnd,
+CorJitResult CILJit::compileMethod(ICorJitInfo*         jitInfo,
                                    CORINFO_METHOD_INFO* methodInfo,
                                    unsigned             flags,
                                    uint8_t**            entryAddress,
-                                   uint32_t*            nativeSizeOfCode)
+                                   uint32_t*            nativeCodeSize)
 {
-    JitFlags jitFlags;
-
     assert(flags == CORJIT_FLAGS::CORJIT_FLAG_CALL_GETJITFLAGS);
+    assert(methodInfo->ILCode != nullptr);
+
+    JitTls jitTls(jitInfo);
+
     CORJIT_FLAGS corJitFlags;
-    DWORD        jitFlagsSize = compHnd->getJitFlags(&corJitFlags, sizeof(corJitFlags));
-    assert(jitFlagsSize == sizeof(corJitFlags));
+    uint32_t     corJitFlagsSize = jitInfo->getJitFlags(&corJitFlags, sizeof(corJitFlags));
+    assert(corJitFlagsSize == sizeof(corJitFlags));
+    JitFlags jitFlags;
     jitFlags.SetFromFlags(corJitFlags);
 
-    int                   result;
-    void*                 methodCodePtr = nullptr;
-    CORINFO_METHOD_HANDLE methodHandle  = methodInfo->ftn;
-
-    JitTls jitTls(compHnd); // Initialize any necessary thread-local state
-
-    assert(methodInfo->ILCode);
-
-    result = jitNativeCode(methodHandle, methodInfo->scope, compHnd, methodInfo, &methodCodePtr, nativeSizeOfCode,
-                           &jitFlags);
+    void* nativeCode = nullptr;
+    int   result     = jitNativeCode(jitInfo, methodInfo, &nativeCode, nativeCodeSize, &jitFlags);
 
     if (result == CORJIT_OK)
     {
-        *entryAddress = (BYTE*)methodCodePtr;
+        *entryAddress = static_cast<BYTE*>(nativeCode);
     }
 
-    return CorJitResult(result);
+    return static_cast<CorJitResult>(result);
 }
 
 void CILJit::ProcessShutdownWork(ICorStaticInfo* statInfo)
 {
     jitShutdown(false);
-
-    Compiler::ProcessShutdownWork(statInfo);
 }
 
 /*****************************************************************************
@@ -353,116 +351,62 @@ unsigned CILJit::getMaxIntrinsicSIMDVectorLength(CORJIT_FLAGS cpuCompileFlags)
 #endif // !FEATURE_SIMD
 }
 
-//------------------------------------------------------------------------
-// eeGetArgSize: Returns the number of bytes required for the given type argument
-//   including padding after the actual value.
-//
-// Arguments:
-//   list - the arg list handle pointing to the argument
-//   sig  - the signature for the arg's method
-//
-// Return value:
-//   the number of stack slots in stack arguments for the call.
-//
-// Notes:
-//   - On most platforms arguments are passed with TARGET_POINTER_SIZE alignment,
-//   so all types take an integer number of TARGET_POINTER_SIZE slots.
-//   It is different for arm64 apple that packs some types without alignment and padding.
-//   If the argument is passed by reference then the method returns REF size.
-//
-unsigned Compiler::eeGetArgSize(CORINFO_ARG_LIST_HANDLE list, CORINFO_SIG_INFO* sig)
+// Returns the number of bytes required for the given parameter.
+// Usually this is just the param type size, rounded up to the register size
+// but there are special case like implicit by ref params and osx-arm64 weird
+// parameter packing.
+unsigned Compiler::eeGetParamAllocSize(CORINFO_ARG_LIST_HANDLE param, CORINFO_SIG_INFO* sig)
 {
-#if defined(TARGET_AMD64)
+#ifdef WINDOWS_AMD64_ABI
+    return REGSIZE_BYTES;
+#else
+    CORINFO_CLASS_HANDLE paramClass;
+    var_types            paramType = CorTypeToVarType(strip(info.compCompHnd->getArgType(sig, param, &paramClass)));
+    unsigned             paramSize;
+#ifdef TARGET_ARM64
+    var_types            hfaType = TYP_UNDEF;
+#endif
 
-    // Everything fits into a single 'slot' size
-    // to accommodate irregular sized structs, they are passed byref
-    CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef UNIX_AMD64_ABI
-    CORINFO_CLASS_HANDLE argClass;
-    CorInfoType          argTypeJit = strip(info.compCompHnd->getArgType(sig, list, &argClass));
-    var_types            argType    = JITtype2varType(argTypeJit);
-    if (varTypeIsStruct(argType))
+    if (!varTypeIsStruct(paramType))
     {
-        unsigned structSize = info.compCompHnd->getClassSize(argClass);
-        return roundUp(structSize, TARGET_POINTER_SIZE);
-    }
-#endif // UNIX_AMD64_ABI
-    return TARGET_POINTER_SIZE;
-
-#else // !TARGET_AMD64
-
-    CORINFO_CLASS_HANDLE argClass;
-    CorInfoType          argTypeJit = strip(info.compCompHnd->getArgType(sig, list, &argClass));
-    var_types            argType    = JITtype2varType(argTypeJit);
-    unsigned             argSize;
-
-    var_types hfaType = TYP_UNDEF;
-    bool      isHfa   = false;
-
-    if (varTypeIsStruct(argType))
-    {
-        ClassLayout* layout = typGetObjLayout(argClass);
-        layout->EnsureHfaInfo(this);
-
-        isHfa               = layout->IsHfa();
-        hfaType             = isHfa ? layout->GetHfaElementType() : TYP_UNDEF;
-        unsigned structSize = layout->GetSize();
-
-        // make certain the EE passes us back the right thing for refanys
-        assert(argTypeJit != CORINFO_TYPE_REFANY || structSize == 2 * TARGET_POINTER_SIZE);
-
-        // For each target that supports passing struct args in multiple registers
-        // apply the target specific rules for them here:
-        CLANG_FORMAT_COMMENT_ANCHOR;
-
-#if FEATURE_MULTIREG_ARGS
-#if defined(TARGET_ARM64)
-        // Any structs that are larger than MAX_PASS_MULTIREG_BYTES are always passed by reference
-        if (structSize > MAX_PASS_MULTIREG_BYTES)
-        {
-            // This struct is passed by reference using a single 'slot'
-            return TARGET_POINTER_SIZE;
-        }
-        else
-        {
-            // Is the struct larger than 16 bytes
-            if (structSize > (2 * TARGET_POINTER_SIZE))
-            {
-
-#ifndef TARGET_UNIX
-                if (info.compIsVarArgs)
-                {
-                    // Arm64 Varargs ABI requires passing in general purpose
-                    // registers. Force the decision of whether this is an HFA
-                    // to false to correctly pass as if it was not an HFA.
-                    isHfa = false;
-                }
-#endif // TARGET_UNIX
-                if (!isHfa)
-                {
-                    // This struct is passed by reference using a single 'slot'
-                    return TARGET_POINTER_SIZE;
-                }
-            }
-        }
-#elif !defined(TARGET_ARM)
-        NYI("unknown target");
-#endif // defined(TARGET_XXX)
-#endif // FEATURE_MULTIREG_ARGS
-
-        // Otherwise we will pass this struct by value in multiple registers/stack bytes.
-        argSize = structSize;
+        paramSize = varTypeSize(paramType);
     }
     else
     {
-        argSize = genTypeSize(argType);
-    }
-    const unsigned argAlignment       = eeGetArgAlignment(argType, (hfaType == TYP_FLOAT));
-    const unsigned argSizeWithPadding = roundUp(argSize, argAlignment);
-    return argSizeWithPadding;
+        ClassLayout* layout = typGetObjLayout(paramClass);
 
+        paramSize = layout->GetSize();
+
+#ifdef TARGET_ARM64
+        if (paramSize > MAX_PASS_MULTIREG_BYTES)
+        {
+            return REGSIZE_BYTES;
+        }
+
+        layout->EnsureHfaInfo(this);
+
+#ifdef TARGET_WINDOWS
+        if (layout->IsHfa() && !info.compIsVarArgs)
+#else
+        if (layout->IsHfa())
 #endif
+        {
+            hfaType = layout->GetHfaElementType();
+        }
+
+        if ((paramSize > 2 * REGSIZE_BYTES) && (hfaType == TYP_UNDEF))
+        {
+            return REGSIZE_BYTES;
+        }
+#endif // TARGET_ARM64
+    }
+
+#ifdef OSX_ARM64_ABI
+    return roundUp(paramSize, eeGetArgAlignment(paramType, (hfaType == TYP_FLOAT)));
+#else
+    return roundUp(paramSize, REGSIZE_BYTES);
+#endif
+#endif // !WINDOWS_AMD64_ABI
 }
 
 //------------------------------------------------------------------------
@@ -536,43 +480,40 @@ unsigned Compiler::eeGetMDArrayDataOffset(var_types type, unsigned rank)
     return eeGetArrayDataOffset(type) + 2 * genTypeSize(TYP_INT) * rank;
 }
 
-/*****************************************************************************/
-
-void Compiler::eeGetStmtOffsets()
+void Importer::eeGetStmtOffsets()
 {
-    ULONG32                      offsetsCount;
+    assert(!compIsForInlining());
+
+    unsigned                     offsetsCount;
     uint32_t*                    offsets;
     ICorDebugInfo::BoundaryTypes offsetsImplicit;
 
     info.compCompHnd->getBoundaries(info.compMethodHnd, &offsetsCount, &offsets, &offsetsImplicit);
 
-    /* Set the implicit boundaries */
-
-    info.compStmtOffsetsImplicit = (ICorDebugInfo::BoundaryTypes)offsetsImplicit;
-
-    /* Process the explicit boundaries */
-
-    info.compStmtOffsetsCount = 0;
+    compStmtOffsetsImplicit = offsetsImplicit;
 
     if (offsetsCount == 0)
     {
+        assert(compStmtOffsetsCount == 0);
         return;
     }
 
-    info.compStmtOffsets = new (this, CMK_DebugInfo) IL_OFFSET[offsetsCount];
+    IL_OFFSET* offsetsCopy      = new (comp, CMK_DebugInfo) IL_OFFSET[offsetsCount];
+    unsigned   offsetsCopyCount = 0;
+    IL_OFFSET  maxOffset        = info.compILCodeSize;
 
     for (unsigned i = 0; i < offsetsCount; i++)
     {
-        if (offsets[i] > info.compILCodeSize)
+        if (offsets[i] <= maxOffset)
         {
-            continue;
+            offsetsCopy[offsetsCopyCount++] = offsets[i];
         }
-
-        info.compStmtOffsets[info.compStmtOffsetsCount] = offsets[i];
-        info.compStmtOffsetsCount++;
     }
 
     info.compCompHnd->freeArray(offsets);
+
+    compStmtOffsets      = offsetsCopy;
+    compStmtOffsetsCount = offsetsCopyCount;
 }
 
 /*****************************************************************************
@@ -580,16 +521,17 @@ void Compiler::eeGetStmtOffsets()
  *                  Debugging support - Local var info
  */
 
-void Compiler::eeSetLVcount(unsigned count)
+void CodeGen::eeSetLVcount(unsigned count)
 {
-    assert(opts.compScopeInfo);
+    assert(compiler->opts.compScopeInfo);
 
     JITDUMP("VarLocInfo count is %d\n", count);
 
     eeVarsCount = count;
     if (eeVarsCount)
     {
-        eeVars = (VarResultInfo*)info.compCompHnd->allocateArray(eeVarsCount * sizeof(eeVars[0]));
+        eeVars =
+            static_cast<VarResultInfo*>(compiler->info.compCompHnd->allocateArray(eeVarsCount * sizeof(eeVars[0])));
     }
     else
     {
@@ -597,16 +539,16 @@ void Compiler::eeSetLVcount(unsigned count)
     }
 }
 
-void Compiler::eeSetLVinfo(unsigned                          which,
-                           UNATIVE_OFFSET                    startOffs,
-                           UNATIVE_OFFSET                    length,
-                           unsigned                          varNum,
-                           const CodeGenInterface::siVarLoc& varLoc)
+void CodeGen::eeSetLVinfo(unsigned                          which,
+                          UNATIVE_OFFSET                    startOffs,
+                          UNATIVE_OFFSET                    length,
+                          unsigned                          varNum,
+                          const CodeGenInterface::siVarLoc& varLoc)
 {
     // ICorDebugInfo::VarLoc and CodeGenInterface::siVarLoc have to overlap
     // This is checked in siInit()
 
-    assert(opts.compScopeInfo);
+    assert(compiler->opts.compScopeInfo);
     assert(eeVarsCount > 0);
     assert(which < eeVarsCount);
 
@@ -619,109 +561,128 @@ void Compiler::eeSetLVinfo(unsigned                          which,
     }
 }
 
-void Compiler::eeSetLVdone()
+void CodeGen::eeSetLVdone()
 {
     // necessary but not sufficient condition that the 2 struct definitions overlap
     assert(sizeof(eeVars[0]) == sizeof(ICorDebugInfo::NativeVarInfo));
-    assert(opts.compScopeInfo);
+    assert(compiler->opts.compScopeInfo);
 
 #ifdef DEBUG
-    if (verbose || opts.dspDebugInfo)
+    if (verbose || compiler->opts.dspDebugInfo)
     {
-        eeDispVars(info.compMethodHnd, eeVarsCount, (ICorDebugInfo::NativeVarInfo*)eeVars);
+        eeDispVars(compiler->info.compMethodHnd, eeVarsCount, (ICorDebugInfo::NativeVarInfo*)eeVars);
     }
 #endif // DEBUG
 
-    info.compCompHnd->setVars(info.compMethodHnd, eeVarsCount, (ICorDebugInfo::NativeVarInfo*)eeVars);
+    compiler->info.compCompHnd->setVars(compiler->info.compMethodHnd, eeVarsCount,
+                                        (ICorDebugInfo::NativeVarInfo*)eeVars);
 
     eeVars = nullptr; // We give up ownership after setVars()
 }
 
 void Compiler::eeGetVars()
 {
-    ICorDebugInfo::ILVarInfo* varInfoTable;
-    ULONG32                   varInfoCount;
+    ICorDebugInfo::ILVarInfo* varTable;
+    uint32_t                  varCount;
     bool                      extendOthers;
 
-    info.compCompHnd->getVars(info.compMethodHnd, &varInfoCount, &varInfoTable, &extendOthers);
+    info.compCompHnd->getVars(info.compMethodHnd, &varCount, &varTable, &extendOthers);
+    JITDUMP("getVars() returned cVars = %u, extendOthers = %d\n", varCount, extendOthers);
 
-#ifdef DEBUG
-    if (verbose)
+    if (varCount != 0)
     {
-        printf("getVars() returned cVars = %d, extendOthers = %s\n", varInfoCount, extendOthers ? "true" : "false");
-    }
+        eeGetVars(varTable, varCount, extendOthers);
+        info.compCompHnd->freeArray(varTable);
+
+        compInitSortedScopeLists();
+#ifdef USING_SCOPE_INFO
+        compInitVarScopeMap();
 #endif
 
-    // Over allocate in case extendOthers is set.
-
-    SIZE_T varInfoCountExtra = varInfoCount;
-    if (extendOthers)
-    {
-        varInfoCountExtra += info.compLocalsCount;
-    }
-
-    if (varInfoCountExtra == 0)
-    {
         return;
     }
 
-    info.compVarScopes = new (this, CMK_DebugInfo) VarScopeDsc[varInfoCountExtra];
-
-    VarScopeDsc*              localVarPtr = info.compVarScopes;
-    ICorDebugInfo::ILVarInfo* v           = varInfoTable;
-
-    for (unsigned i = 0; i < varInfoCount; i++, v++)
+    if ((info.compLocalsCount == 0) || !extendOthers)
     {
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("var:%d start:%d end:%d\n", v->varNumber, v->startOffset, v->endOffset);
-        }
-#endif
-
-        if (v->startOffset >= v->endOffset)
-        {
-            continue;
-        }
-
-        assert(v->startOffset <= info.compILCodeSize);
-        assert(v->endOffset <= info.compILCodeSize);
-
-        localVarPtr->vsdLifeBeg = v->startOffset;
-        localVarPtr->vsdLifeEnd = v->endOffset;
-        localVarPtr->vsdLVnum   = i;
-        localVarPtr->vsdVarNum  = compMapILvarNum(v->varNumber);
-
-#ifdef DEBUG
-        localVarPtr->vsdName = gtGetLclVarName(localVarPtr->vsdVarNum);
-#endif
-
-        localVarPtr++;
-        info.compVarScopesCount++;
+        assert(info.compVarScopesCount == 0);
+        return;
     }
 
     // TODO-MIKE-Review: Why do we need to allocate an array that basically
     // tells us that all IL args & locals are live everywhere?!?
 
+    VarScopeDsc* scopes = new (this, CMK_DebugInfo) VarScopeDsc[info.compLocalsCount];
+
+    for (unsigned i = 0; i < info.compLocalsCount; i++)
+    {
+        scopes[i].vsdLifeBeg = 0;
+        scopes[i].vsdLifeEnd = info.compILCodeSize;
+        scopes[i].vsdVarNum  = i;
+        scopes[i].vsdLVnum   = i;
+
+        INDEBUG(scopes[i].vsdName = gtGetLclVarName(i));
+    }
+
+    info.compVarScopesCount = info.compLocalsCount;
+    info.compVarScopes      = scopes;
+    compVarScopeExtended    = true;
+}
+
+void Compiler::eeGetVars(ICorDebugInfo::ILVarInfo* varInfoTable, uint32_t varInfoCount, bool extendOthers)
+{
+    assert(varInfoCount != 0);
+
+    // TODO-MIKE-Review: Get rid of this? The runtime only returns a var table in varargs
+    // functions and then the table has only one variable that is live everywhere.
+
+    unsigned varInfoCountExtra = varInfoCount;
+
     if (extendOthers)
     {
-        // Allocate a bit-array for all the variables and initialize to false
+        varInfoCountExtra += info.compLocalsCount;
+    }
 
-        bool*    varInfoProvided = getAllocator(CMK_Unknown).allocate<bool>(info.compLocalsCount);
-        unsigned i;
-        for (i = 0; i < info.compLocalsCount; i++)
+    info.compVarScopes = new (this, CMK_DebugInfo) VarScopeDsc[varInfoCountExtra];
+
+    VarScopeDsc*              scopes = info.compVarScopes;
+    ICorDebugInfo::ILVarInfo* vars   = varInfoTable;
+
+    for (unsigned i = 0; i < varInfoCount; i++, vars++)
+    {
+        JITDUMP("var:%d start:%d end:%d\n", vars->varNumber, vars->startOffset, vars->endOffset);
+
+        if (vars->startOffset >= vars->endOffset)
+        {
+            continue;
+        }
+
+        assert(vars->startOffset <= info.compILCodeSize);
+        assert(vars->endOffset <= info.compILCodeSize);
+
+        scopes->vsdLifeBeg = vars->startOffset;
+        scopes->vsdLifeEnd = vars->endOffset;
+        scopes->vsdLVnum   = i;
+        scopes->vsdVarNum  = compMapILvarNum(vars->varNumber);
+
+        INDEBUG(scopes->vsdName = gtGetLclVarName(scopes->vsdVarNum));
+
+        scopes++;
+        info.compVarScopesCount++;
+    }
+
+    if (extendOthers)
+    {
+        bool* varInfoProvided = getAllocator(CMK_DebugInfo).allocate<bool>(info.compLocalsCount);
+
+        for (unsigned i = 0; i < info.compLocalsCount; i++)
         {
             varInfoProvided[i] = false;
         }
 
-        // Find which vars have absolutely no varInfo provided
-
-        for (i = 0; i < info.compVarScopesCount; i++)
+        for (unsigned i = 0; i < info.compVarScopesCount; i++)
         {
             varInfoProvided[info.compVarScopes[i].vsdVarNum] = true;
         }
-
-        // Create entries for the variables with no varInfo
 
         for (unsigned varNum = 0; varNum < info.compLocalsCount; varNum++)
         {
@@ -730,39 +691,328 @@ void Compiler::eeGetVars()
                 continue;
             }
 
-            // Create a varInfo with scope over the entire method
+            scopes->vsdLifeBeg = 0;
+            scopes->vsdLifeEnd = info.compILCodeSize;
+            scopes->vsdVarNum  = varNum;
+            scopes->vsdLVnum   = info.compVarScopesCount;
 
-            localVarPtr->vsdLifeBeg = 0;
-            localVarPtr->vsdLifeEnd = info.compILCodeSize;
-            localVarPtr->vsdVarNum  = varNum;
-            localVarPtr->vsdLVnum   = info.compVarScopesCount;
+            INDEBUG(scopes->vsdName = gtGetLclVarName(scopes->vsdVarNum));
 
-#ifdef DEBUG
-            localVarPtr->vsdName = gtGetLclVarName(localVarPtr->vsdVarNum);
-#endif
-
-            localVarPtr++;
+            scopes++;
             info.compVarScopesCount++;
         }
     }
 
-    assert(localVarPtr <= info.compVarScopes + varInfoCountExtra);
+    assert(scopes <= info.compVarScopes + varInfoCountExtra);
 
-    if (varInfoCount != 0)
-    {
-        info.compCompHnd->freeArray(varInfoTable);
-    }
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        compDispLocalVars();
-    }
-#endif // DEBUG
+    DBEXEC(verbose, compDispLocalVars();)
 }
 
+unsigned Compiler::compMapILvarNum(unsigned ilVarNum)
+{
+    unsigned compILlocalsCount = info.compILargsCount + info.compMethodInfo->locals.numArgs;
+
+    noway_assert((ilVarNum < compILlocalsCount) || (ilVarNum > ICorDebugInfo::UNKNOWN_ILNUM));
+
+    unsigned varNum;
+
+    if (ilVarNum == ICorDebugInfo::VARARGS_HND_ILNUM)
+    {
+        noway_assert(info.compIsVarArgs);
+
+        varNum = lvaVarargsHandleArg;
+
+        noway_assert(lvaGetDesc(varNum)->IsParam());
+    }
+    else if (ilVarNum == ICorDebugInfo::RETBUF_ILNUM)
+    {
+        noway_assert(info.compRetBuffArg != BAD_VAR_NUM);
+
+        varNum = info.compRetBuffArg;
+    }
+    else if (ilVarNum == ICorDebugInfo::TYPECTXT_ILNUM)
+    {
+        noway_assert(info.compTypeCtxtArg != BAD_VAR_NUM);
+
+        varNum = info.compTypeCtxtArg;
+    }
+    else if (ilVarNum < info.compILargsCount)
+    {
+        varNum = compMapILargNum(ilVarNum);
+
+        noway_assert(lvaGetDesc(varNum)->IsParam());
+    }
+    else if (ilVarNum < compILlocalsCount)
+    {
+        varNum = info.compArgsCount + ilVarNum - info.compILargsCount;
+
+        noway_assert(!lvaGetDesc(varNum)->IsParam());
+    }
+    else
+    {
+        unreached();
+    }
+
+    noway_assert(varNum < info.compLocalsCount);
+
+    return varNum;
+}
+
+void Compiler::compInitSortedScopeLists()
+{
+    assert(info.compVarScopesCount != 0);
+
+    compEnterScopeList = new (this, CMK_DebugInfo) VarScopeDsc*[info.compVarScopesCount];
+    compExitScopeList  = new (this, CMK_DebugInfo) VarScopeDsc*[info.compVarScopesCount];
+
+    for (unsigned i = 0; i < info.compVarScopesCount; i++)
+    {
+        compEnterScopeList[i] = &info.compVarScopes[i];
+        compExitScopeList[i]  = &info.compVarScopes[i];
+    }
+
+    jitstd::sort(compEnterScopeList, compEnterScopeList + info.compVarScopesCount,
+                 [](const VarScopeDsc* elem1, const VarScopeDsc* elem2) {
+                     return elem1->vsdLifeBeg < elem2->vsdLifeBeg;
+                 });
+
+    jitstd::sort(compExitScopeList, compExitScopeList + info.compVarScopesCount,
+                 [](const VarScopeDsc* elem1, const VarScopeDsc* elem2) {
+                     return elem1->vsdLifeEnd < elem2->vsdLifeEnd;
+                 });
+}
+
+void Compiler::compResetScopeLists()
+{
+    if (info.compVarScopesCount == 0)
+    {
+        return;
+    }
+
+    assert(compVarScopeExtended || (compEnterScopeList != nullptr) && (compExitScopeList != nullptr));
+
+    compNextEnterScope = 0;
+    compNextExitScope  = 0;
+}
+
+VarScopeDsc* Compiler::compGetNextEnterScope(unsigned offs)
+{
+    if (compNextEnterScope < info.compVarScopesCount)
+    {
+        if (compVarScopeExtended)
+        {
+            if (offs == 0)
+            {
+                return &info.compVarScopes[compNextEnterScope++];
+            }
+        }
+        else
+        {
+            unsigned nextEnterOffs = compEnterScopeList[compNextEnterScope]->vsdLifeBeg;
+            assert(offs <= nextEnterOffs);
+
+            if (nextEnterOffs == offs)
+            {
+                return compEnterScopeList[compNextEnterScope++];
+            }
+        }
+    }
+
+    return nullptr;
+}
+
+VarScopeDsc* Compiler::compGetNextExitScope(unsigned offs)
+{
+    if (compNextExitScope < info.compVarScopesCount)
+    {
+        if (compVarScopeExtended)
+        {
+            if (offs == info.compILCodeSize)
+            {
+                return &info.compVarScopes[compNextExitScope++];
+            }
+        }
+        else
+        {
+            unsigned nextExitOffs = compExitScopeList[compNextExitScope]->vsdLifeEnd;
+            assert(offs <= nextExitOffs);
+
+            if (nextExitOffs == offs)
+            {
+                return compExitScopeList[compNextExitScope++];
+            }
+        }
+    }
+
+    return nullptr;
+}
+
+VarScopeDsc* Compiler::compGetNextEnterScopeScan(unsigned offs)
+{
+    if (compNextEnterScope < info.compVarScopesCount)
+    {
+        if (compVarScopeExtended)
+        {
+            return &info.compVarScopes[compNextEnterScope++];
+        }
+        else if (offs >= compEnterScopeList[compNextEnterScope]->vsdLifeBeg)
+        {
+            return compEnterScopeList[compNextEnterScope++];
+        }
+    }
+
+    return nullptr;
+}
+
+VarScopeDsc* Compiler::compGetNextExitScopeScan(unsigned offs)
+{
+    if (compNextExitScope < info.compVarScopesCount)
+    {
+        if (compVarScopeExtended)
+        {
+            if (offs >= info.compILCodeSize)
+            {
+                return &info.compVarScopes[compNextExitScope++];
+            }
+        }
+        else if (offs >= compExitScopeList[compNextExitScope]->vsdLifeEnd)
+        {
+            return compExitScopeList[compNextExitScope++];
+        }
+    }
+
+    return nullptr;
+}
+
+#ifdef USING_SCOPE_INFO
+VarScopeDsc* Compiler::compFindLocalVarLinear(unsigned varNum, unsigned offs)
+{
+    for (unsigned i = 0; i < info.compVarScopesCount; i++)
+    {
+        VarScopeDsc& dsc = info.compVarScopes[i];
+
+        if ((dsc.vsdVarNum == varNum) && (dsc.vsdLifeBeg <= offs) && (dsc.vsdLifeEnd > offs))
+        {
+            return &dsc;
+        }
+    }
+
+    return nullptr;
+}
+
+VarScopeDsc* Compiler::compFindLocalVar(unsigned varNum, unsigned offs)
+{
+    if (compVarScopeExtended)
+    {
+        assert(info.compVarScopes[varNum].vsdVarNum == varNum);
+        assert((info.compVarScopes[varNum].vsdLifeBeg == 0) && (offs <= info.compVarScopes[varNum].vsdLifeEnd));
+
+        return &info.compVarScopes[varNum];
+    }
+
+    if (compVarScopeMap == nullptr)
+    {
+        return compFindLocalVarLinear(varNum, offs);
+    }
+
+    VarScopeDsc* scope = compFindLocalVarMapped(varNum, offs);
+    assert(scope == compFindLocalVarLinear(varNum, offs));
+    return scope;
+}
+
+void Compiler::compInitVarScopeMap()
+{
+    assert(compVarScopeMap == nullptr);
+
+    if (info.compVarScopesCount < 32)
+    {
+        return;
+    }
+
+    compVarScopeMap = new (getAllocator(CMK_DebugInfo))
+        JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, VarScopeListNode*>(getAllocator(CMK_DebugInfo));
+    // 599 prime to limit huge allocations; for ex: duplicated scopes on single var.
+    compVarScopeMap->Reallocate(min(info.compVarScopesCount, 599));
+
+    for (unsigned i = 0; i < info.compVarScopesCount; ++i)
+    {
+        VarScopeListNode** head = compVarScopeMap->Emplace(info.compVarScopes[i].vsdVarNum);
+
+        *head = new (getAllocator(CMK_DebugInfo)) VarScopeListNode(&info.compVarScopes[i], *head);
+    }
+}
+
+VarScopeDsc* Compiler::compFindLocalVarMapped(unsigned varNum, unsigned offs)
+{
+    VarScopeListNode* node;
+
+    if (compVarScopeMap->Lookup(varNum, &node))
+    {
+        for (; node != nullptr; node = node->next)
+        {
+            if ((node->scope->vsdLifeBeg <= offs) && (node->scope->vsdLifeEnd > offs))
+            {
+                return node->scope;
+            }
+        }
+    }
+
+    return nullptr;
+}
+
+bool Compiler::compVerifyVarScopes()
+{
+    if (compVarScopeExtended)
+    {
+        return true;
+    }
+
+    // No entries with overlapping lives should have the same slot.
+
+    for (unsigned i = 0; i < info.compVarScopesCount; i++)
+    {
+        for (unsigned j = i + 1; j < compiler->info.compVarScopesCount; j++)
+        {
+            unsigned slot1 = info.compVarScopes[i].vsdVarNum;
+            unsigned beg1  = info.compVarScopes[i].vsdLifeBeg;
+            unsigned end1  = info.compVarScopes[i].vsdLifeEnd;
+
+            unsigned slot2 = info.compVarScopes[j].vsdVarNum;
+            unsigned beg2  = info.compVarScopes[j].vsdLifeBeg;
+            unsigned end2  = info.compVarScopes[j].vsdLifeEnd;
+
+            if (slot1 == slot2 && (end1 > beg2 && beg1 < end2))
+            {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+#endif // USING_SCOPE_INFO
+
 #ifdef DEBUG
-void Compiler::eeDispVar(ICorDebugInfo::NativeVarInfo* var)
+
+void Compiler::compDispLocalVars()
+{
+    printf("info.compVarScopesCount = %d\n", info.compVarScopesCount);
+
+    if (info.compVarScopesCount > 0)
+    {
+        printf("    \tVarNum \tLVNum \t      Name \tBeg \tEnd\n");
+    }
+
+    for (unsigned i = 0; i < info.compVarScopesCount; i++)
+    {
+        VarScopeDsc* varScope = &info.compVarScopes[i];
+        printf("%2d: \t%02Xh \t%02Xh \t%10s \t%03Xh   \t%03Xh\n", i, varScope->vsdVarNum, varScope->vsdLVnum,
+               varScope->vsdName == nullptr ? "UNKNOWN" : varScope->vsdName, varScope->vsdLifeBeg,
+               varScope->vsdLifeEnd);
+    }
+}
+
+void CodeGen::eeDispVar(ICorDebugInfo::NativeVarInfo* var)
 {
     const char* name = nullptr;
 
@@ -778,8 +1028,8 @@ void Compiler::eeDispVar(ICorDebugInfo::NativeVarInfo* var)
     {
         name = "typeCtx";
     }
-    printf("%3d(%10s) : From %08Xh to %08Xh, in ", var->varNumber,
-           (VarNameToStr(name) == nullptr) ? "UNKNOWN" : VarNameToStr(name), var->startOffset, var->endOffset);
+    printf("%3d(%10s) : From %08Xh to %08Xh, in ", var->varNumber, (name == nullptr) ? "UNKNOWN" : name,
+           var->startOffset, var->endOffset);
 
     switch ((CodeGenInterface::siVarLocType)var->loc.vlType)
     {
@@ -858,22 +1108,22 @@ void Compiler::eeDispVar(ICorDebugInfo::NativeVarInfo* var)
 }
 
 // Same parameters as ICorStaticInfo::setVars().
-void Compiler::eeDispVars(CORINFO_METHOD_HANDLE ftn, ULONG32 cVars, ICorDebugInfo::NativeVarInfo* vars)
+void CodeGen::eeDispVars(CORINFO_METHOD_HANDLE ftn, ULONG32 cVars, ICorDebugInfo::NativeVarInfo* vars)
 {
     // Estimate number of unique vars with debug info
     //
-    ALLVARSET_TP uniqueVars(AllVarSetOps::MakeEmpty(this));
+    ALLVARSET_TP uniqueVars(AllVarSetOps::MakeEmpty(compiler));
     for (unsigned i = 0; i < cVars; i++)
     {
         // ignore "special vars" and out of bounds vars
         if ((((int)vars[i].varNumber) >= 0) && (vars[i].varNumber < lclMAX_ALLSET_TRACKED))
         {
-            AllVarSetOps::AddElemD(this, uniqueVars, vars[i].varNumber);
+            AllVarSetOps::AddElemD(compiler, uniqueVars, vars[i].varNumber);
         }
     }
 
     printf("; Variable debug info: %d live ranges, %d vars for method %s\n", cVars,
-           AllVarSetOps::Count(this, uniqueVars), info.compFullName);
+           AllVarSetOps::Count(compiler, uniqueVars), compiler->info.compFullName);
 
     for (unsigned i = 0; i < cVars; i++)
     {
@@ -887,14 +1137,15 @@ void Compiler::eeDispVars(CORINFO_METHOD_HANDLE ftn, ULONG32 cVars, ICorDebugInf
  *                  Debugging support - Line number info
  */
 
-void Compiler::eeSetLIcount(unsigned count)
+void CodeGen::eeSetLIcount(unsigned count)
 {
-    assert(opts.compDbgInfo);
+    assert(compiler->opts.compDbgInfo);
 
     eeBoundariesCount = count;
     if (eeBoundariesCount)
     {
-        eeBoundaries = (boundariesDsc*)info.compCompHnd->allocateArray(eeBoundariesCount * sizeof(eeBoundaries[0]));
+        eeBoundaries = static_cast<boundariesDsc*>(
+            compiler->info.compCompHnd->allocateArray(eeBoundariesCount * sizeof(eeBoundaries[0])));
     }
     else
     {
@@ -902,10 +1153,10 @@ void Compiler::eeSetLIcount(unsigned count)
     }
 }
 
-void Compiler::eeSetLIinfo(
+void CodeGen::eeSetLIinfo(
     unsigned which, UNATIVE_OFFSET nativeOffset, IL_OFFSET ilOffset, bool stkEmpty, bool callInstruction)
 {
-    assert(opts.compDbgInfo);
+    assert(compiler->opts.compDbgInfo);
     assert(eeBoundariesCount > 0);
     assert(which < eeBoundariesCount);
 
@@ -918,12 +1169,12 @@ void Compiler::eeSetLIinfo(
     }
 }
 
-void Compiler::eeSetLIdone()
+void CodeGen::eeSetLIdone()
 {
-    assert(opts.compDbgInfo);
+    assert(compiler->opts.compDbgInfo);
 
 #if defined(DEBUG)
-    if (verbose || opts.dspDebugInfo)
+    if (verbose || compiler->opts.dspDebugInfo)
     {
         eeDispLineInfos();
     }
@@ -932,15 +1183,15 @@ void Compiler::eeSetLIdone()
     // necessary but not sufficient condition that the 2 struct definitions overlap
     assert(sizeof(eeBoundaries[0]) == sizeof(ICorDebugInfo::OffsetMapping));
 
-    info.compCompHnd->setBoundaries(info.compMethodHnd, eeBoundariesCount, (ICorDebugInfo::OffsetMapping*)eeBoundaries);
+    compiler->info.compCompHnd->setBoundaries(compiler->info.compMethodHnd, eeBoundariesCount,
+                                              (ICorDebugInfo::OffsetMapping*)eeBoundaries);
 
     eeBoundaries = nullptr; // we give up ownership after setBoundaries();
 }
 
-#if defined(DEBUG)
+#ifdef DEBUG
 
-/* static */
-void Compiler::eeDispILOffs(IL_OFFSET offs)
+void CodeGen::eeDispILOffs(IL_OFFSET offs)
 {
     const char* specialOffs[] = {"EPILOG", "PROLOG", "NO_MAP"};
 
@@ -960,8 +1211,7 @@ void Compiler::eeDispILOffs(IL_OFFSET offs)
     }
 }
 
-/* static */
-void Compiler::eeDispLineInfo(const boundariesDsc* line)
+void CodeGen::eeDispLineInfo(const boundariesDsc* line)
 {
     printf("IL offs ");
 
@@ -994,7 +1244,7 @@ void Compiler::eeDispLineInfo(const boundariesDsc* line)
     assert((line->sourceReason & ~(ICorDebugInfo::STACK_EMPTY | ICorDebugInfo::CALL_INSTRUCTION)) == 0);
 }
 
-void Compiler::eeDispLineInfos()
+void CodeGen::eeDispLineInfos()
 {
     printf("IP mapping count : %d\n", eeBoundariesCount); // this might be zero
     for (unsigned i = 0; i < eeBoundariesCount; i++)
@@ -1176,7 +1426,7 @@ bool Compiler::eeRunWithSPMIErrorTrapImp(void (*function)(void*), void* param)
  *                      Utility functions
  */
 
-#if defined(DEBUG) || defined(FEATURE_JIT_METHOD_PERF) || defined(FEATURE_SIMD) || defined(FEATURE_TRACELOGGING)
+#if defined(DEBUG) || defined(FEATURE_JIT_METHOD_PERF) || defined(FEATURE_SIMD)
 
 /*****************************************************************************/
 
@@ -1196,7 +1446,7 @@ const char* jitHlpFuncTable[CORINFO_HELP_COUNT] = {
 struct FilterSuperPMIExceptionsParam_ee_il
 {
     Compiler*             pThis;
-    Compiler::Info*       pJitInfo;
+    CompiledMethodInfo*   pJitInfo;
     CORINFO_FIELD_HANDLE  field;
     CORINFO_METHOD_HANDLE method;
     CORINFO_CLASS_HANDLE  clazz;
@@ -1204,6 +1454,21 @@ struct FilterSuperPMIExceptionsParam_ee_il
     const char*           fieldOrMethodOrClassNamePtr;
     EXCEPTION_POINTERS    exceptionPointers;
 };
+
+#if defined(DEBUG) || defined(FEATURE_JIT_METHOD_PERF) || defined(FEATURE_SIMD)
+
+bool Compiler::eeIsNativeMethod(CORINFO_METHOD_HANDLE method)
+{
+    return ((((size_t)method) & 0x2) == 0x2);
+}
+
+CORINFO_METHOD_HANDLE Compiler::eeGetMethodHandleForNative(CORINFO_METHOD_HANDLE method)
+{
+    assert((((size_t)method) & 0x3) == 0x2);
+    return (CORINFO_METHOD_HANDLE)(((size_t)method) & ~0x3);
+}
+
+#endif
 
 const char* Compiler::eeGetMethodName(CORINFO_METHOD_HANDLE method, const char** classNamePtr)
 {

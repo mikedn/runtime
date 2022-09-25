@@ -659,9 +659,7 @@ LinearScan::LinearScan(Compiler* theCompiler)
         availableDoubleRegs &= ~RBM_CALLEE_SAVED;
     }
 #endif // TARGET_AMD64
-    compiler->rpFrameType           = FT_NOT_SET;
-    compiler->rpMustCreateEBPCalled = false;
-
+    compiler->codeGen->rpFrameType             = FT_NOT_SET;
     compiler->codeGen->intRegState.rsIsFloat   = false;
     compiler->codeGen->floatRegState.rsIsFloat = true;
 
@@ -1535,11 +1533,7 @@ void LinearScan::identifyCandidates()
     INTRACK_STATS(regCandidateVarCount = 0);
     for (lclNum = 0, varDsc = compiler->lvaTable; lclNum < compiler->lvaCount; lclNum++, varDsc++)
     {
-        // Initialize all variables to REG_STK
         varDsc->SetRegNum(REG_STK);
-#ifndef TARGET_64BIT
-        varDsc->SetOtherReg(REG_STK);
-#endif // TARGET_64BIT
 
         if (!enregisterLocalVars)
         {
@@ -2353,12 +2347,10 @@ void LinearScan::setFrameType()
     }
     else
     {
-        if (compiler->rpMustCreateEBPCalled == false)
+        if (!rpMustCreateEBPCalled)
         {
-#ifdef DEBUG
-            const char* reason;
-#endif // DEBUG
-            compiler->rpMustCreateEBPCalled = true;
+            rpMustCreateEBPCalled = true;
+            INDEBUG(const char* reason);
             if (compiler->rpMustCreateEBPFrame(INDEBUG(&reason)))
             {
                 JITDUMP("; Decided to create an EBP based frame for ETW stackwalking (%s)\n", reason);
@@ -2405,7 +2397,7 @@ void LinearScan::setFrameType()
         removeMask |= RBM_FPBASE;
     }
 
-    compiler->rpFrameType = frameType;
+    compiler->codeGen->rpFrameType = frameType;
 
 #ifdef TARGET_ARMARCH
     // Determine whether we need to reserve a register for large lclVar offsets.
@@ -9721,7 +9713,7 @@ void LinearScan::dumpRegRecordHeader()
         sprintf_s(bbRefPosFormat, MAX_LEGEND_FORMAT_CHARS, "BB%%-%dd PredBB%%-%dd", bbNumWidth, predBBNumDumpSpace);
     }
 
-    if (compiler->shouldDumpASCIITrees())
+    if (JitConfig.JitDumpASCII())
     {
         columnSeparator = "|";
         line            = "-";

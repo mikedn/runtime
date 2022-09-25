@@ -14,51 +14,25 @@ class Compiler;
 
 struct ErrorTrapParam
 {
-    int                errc;
-    ICorJitInfo*       jitInfo;
+    CorJitResult       error   = CORJIT_INTERNALERROR;
+    ICorJitInfo*       jitInfo = nullptr;
     EXCEPTION_POINTERS exceptionPointers;
-    ErrorTrapParam()
+};
+
+template <typename T>
+struct NestedErrorTrapParam : ErrorTrapParam
+{
+    T param;
+
+    NestedErrorTrapParam(T param) : param(param)
     {
-        jitInfo = nullptr;
     }
 };
 
 // Only catch JIT internal errors (will not catch EE generated Errors)
-extern LONG __JITfilter(PEXCEPTION_POINTERS pExceptionPointers, LPVOID lpvParam);
-
-#define setErrorTrap(compHnd, ParamType, paramDef, paramRef)                                                           \
-    struct __JITParam : ErrorTrapParam                                                                                 \
-    {                                                                                                                  \
-        ParamType param;                                                                                               \
-    } __JITparam;                                                                                                      \
-    __JITparam.errc    = CORJIT_INTERNALERROR;                                                                         \
-    __JITparam.jitInfo = compHnd;                                                                                      \
-    __JITparam.param   = paramRef;                                                                                     \
-    PAL_TRY(__JITParam*, __JITpParam, &__JITparam)                                                                     \
-    {                                                                                                                  \
-        ParamType paramDef = __JITpParam->param;
-
-// Only catch JIT internal errors (will not catch EE generated Errors)
-#define impJitErrorTrap()                                                                                              \
-    }                                                                                                                  \
-    PAL_EXCEPT_FILTER(__JITfilter)                                                                                     \
-    {                                                                                                                  \
-        int __errc = __JITparam.errc;                                                                                  \
-        (void)__errc;
-
-#define endErrorTrap()                                                                                                 \
-    }                                                                                                                  \
-    PAL_ENDTRY
-
-#define finallyErrorTrap()                                                                                             \
-    }                                                                                                                  \
-    PAL_FINALLY                                                                                                        \
-    {
-
-/*****************************************************************************/
+extern LONG JitErrorTrapFilter(PEXCEPTION_POINTERS pExceptionPointers, ErrorTrapParam& param);
 
 // clang-format off
-
 extern void debugError(const char* msg, const char* file, unsigned line);
 extern void DECLSPEC_NORETURN badCode();
 extern void DECLSPEC_NORETURN badCode3(const char* msg, const char* msg2, int arg, __in_z const char* file, unsigned line);
@@ -73,11 +47,7 @@ extern void DECLSPEC_NORETURN noWayAssertBody(const char* cond, const char* file
 // Conditionally invoke the noway assert body. The conditional predicate is evaluated using a method on the tlsCompiler.
 // If a noway_assert is hit, we ask the Compiler whether to raise an exception (i.e., conditionally raise exception.)
 // To have backward compatibility between v4.5 and v4.0, in min-opts we take a shot at codegen rather than rethrow.
-extern void ANALYZER_NORETURN noWayAssertBodyConditional(
-#ifdef FEATURE_TRACELOGGING
-    const char* file, unsigned line
-#endif
-    );
+extern void ANALYZER_NORETURN noWayAssertBodyConditional();
 
 extern void ANALYZER_NORETURN noWayAssertBodyConditional(const char* cond, const char* file, unsigned line);
 
@@ -135,12 +105,7 @@ extern void RecordNowayAssertGlobal(const char* filename, unsigned line, const c
 // supported by our current implementation because of various
 // limitations (that could be removed in the future)
 #define IMPL_LIMITATION(msg) implLimitation()
-
-#ifdef FEATURE_TRACELOGGING
-#define NOWAY_ASSERT_BODY_ARGUMENTS __FILE__, __LINE__
-#else
 #define NOWAY_ASSERT_BODY_ARGUMENTS
-#endif
 
 #define noway_assert(cond)                                                                                             \
     do                                                                                                                 \

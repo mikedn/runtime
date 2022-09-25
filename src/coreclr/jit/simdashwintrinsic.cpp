@@ -175,13 +175,13 @@ NamedIntrinsic Compiler::impFindSysNumSimdIntrinsic(CORINFO_METHOD_HANDLE method
     return NI_Illegal;
 }
 
-GenTree* Compiler::impImportSysNumSimdIntrinsic(NamedIntrinsic        intrinsic,
+GenTree* Importer::impImportSysNumSimdIntrinsic(NamedIntrinsic        intrinsic,
                                                 CORINFO_CLASS_HANDLE  clsHnd,
                                                 CORINFO_METHOD_HANDLE method,
                                                 CORINFO_SIG_INFO*     sig,
                                                 bool                  isNewObj)
 {
-    bool isSupported = featureSIMD && IsBaselineSimdIsaSupported();
+    bool isSupported = comp->featureSIMD && IsBaselineSimdIsaSupported();
 
     if (intrinsic == NI_VectorT128_get_IsHardwareAccelerated
 #ifdef TARGET_XARCH
@@ -198,7 +198,7 @@ GenTree* Compiler::impImportSysNumSimdIntrinsic(NamedIntrinsic        intrinsic,
     }
 
     HWIntrinsicSignature signature;
-    signature.Read(this, sig);
+    signature.Read(comp, sig);
 
     const char* namespaceName = nullptr;
     const char* className     = info.compCompHnd->getClassNameFromMetadata(clsHnd, &namespaceName);
@@ -249,7 +249,7 @@ GenTree* Compiler::impImportSysNumSimdIntrinsic(NamedIntrinsic        intrinsic,
         return nullptr;
     }
 
-    compFloatingPointUsed = true;
+    comp->compFloatingPointUsed = true;
 
     if (hwIntrinsic == NI_SIMD_AS_HWINTRINSIC_START)
     {
@@ -299,7 +299,7 @@ GenTree* Compiler::impImportSysNumSimdIntrinsic(NamedIntrinsic        intrinsic,
     }
 }
 
-GenTree* Compiler::impVector234TSpecial(NamedIntrinsic              intrinsic,
+GenTree* Importer::impVector234TSpecial(NamedIntrinsic              intrinsic,
                                         const HWIntrinsicSignature& sig,
                                         ClassLayout*                layout,
                                         bool                        isNewObj)
@@ -538,7 +538,7 @@ GenTree* Compiler::impVector234TSpecial(NamedIntrinsic              intrinsic,
     }
 }
 
-GenTree* Compiler::impVector234TOne(const HWIntrinsicSignature& sig)
+GenTree* Importer::impVector234TOne(const HWIntrinsicSignature& sig)
 {
     assert(varTypeIsSIMD(sig.retType));
     assert(sig.paramCount == 0);
@@ -551,7 +551,7 @@ GenTree* Compiler::impVector234TOne(const HWIntrinsicSignature& sig)
     return gtNewSimdHWIntrinsicNode(type, GetCreateSimdHWIntrinsic(type), eltType, size, one);
 }
 
-GenTree* Compiler::impVectorTCount(const HWIntrinsicSignature& sig, ClassLayout* layout)
+GenTree* Importer::impVectorTCount(const HWIntrinsicSignature& sig, ClassLayout* layout)
 {
     assert(sig.retType == TYP_INT);
     assert(sig.paramCount == 0);
@@ -561,7 +561,7 @@ GenTree* Compiler::impVectorTCount(const HWIntrinsicSignature& sig, ClassLayout*
     return countNode;
 }
 
-GenTree* Compiler::impVector234TCreateBroadcast(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj)
+GenTree* Importer::impVector234TCreateBroadcast(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj)
 {
     assert(sig.retType == TYP_VOID);
     assert(sig.hasThisParam);
@@ -590,7 +590,7 @@ GenTree* Compiler::impVector234TCreateBroadcast(const HWIntrinsicSignature& sig,
     return create;
 }
 
-GenTree* Compiler::impVector234Create(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj)
+GenTree* Importer::impVector234Create(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj)
 {
     assert(sig.retType == TYP_VOID);
     assert(sig.hasThisParam);
@@ -626,7 +626,7 @@ GenTree* Compiler::impVector234Create(const HWIntrinsicSignature& sig, ClassLayo
 
     if (areArgsContiguous)
     {
-        SIMDCoalescingBuffer::ChangeToSIMDMem(this, args[0], layout->GetSIMDType());
+        SIMDCoalescingBuffer::ChangeToSIMDMem(comp, args[0], layout->GetSIMDType());
 
         create = args[0];
 
@@ -672,7 +672,7 @@ GenTree* Compiler::impVector234Create(const HWIntrinsicSignature& sig, ClassLayo
     return create;
 }
 
-GenTree* Compiler::impVector234CreateExtend(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj)
+GenTree* Importer::impVector234CreateExtend(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj)
 {
     assert(sig.retType == TYP_VOID);
     assert(sig.hasThisParam);
@@ -747,7 +747,7 @@ GenTree* Compiler::impVector234CreateExtend(const HWIntrinsicSignature& sig, Cla
     return create;
 }
 
-GenTree* Compiler::impPopStackAddrAsVector(var_types type)
+GenTree* Importer::impPopStackAddrAsVector(var_types type)
 {
     assert(varTypeIsSIMD(type));
 
@@ -773,7 +773,7 @@ GenTree* Compiler::impPopStackAddrAsVector(var_types type)
     return gtNewOperNode(GT_IND, type, addr);
 }
 
-GenTree* Compiler::impAssignSIMDAddr(GenTree* destAddr, GenTree* src)
+GenTree* Importer::impAssignSIMDAddr(GenTree* destAddr, GenTree* src)
 {
     assert(destAddr->TypeIs(TYP_BYREF, TYP_I_IMPL));
     assert(src->OperIs(GT_IND, GT_HWINTRINSIC));
@@ -801,7 +801,7 @@ GenTree* Compiler::impAssignSIMDAddr(GenTree* destAddr, GenTree* src)
     return gtNewAssignNode(dest, src);
 }
 
-GenTree* Compiler::impGetArrayElementsAsVector(ClassLayout*    layout,
+GenTree* Importer::impGetArrayElementsAsVector(ClassLayout*    layout,
                                                GenTree*        array,
                                                GenTree*        index,
                                                SpecialCodeKind indexThrowKind,
@@ -863,7 +863,7 @@ GenTree* Compiler::impGetArrayElementsAsVector(ClassLayout*    layout,
     return indir;
 }
 
-GenTree* Compiler::impVectorTFromArray(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj)
+GenTree* Importer::impVectorTFromArray(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj)
 {
     assert((sig.paramCount == 1) || (sig.paramCount == 2));
     assert(sig.paramType[0] == TYP_REF);
@@ -883,7 +883,7 @@ GenTree* Compiler::impVectorTFromArray(const HWIntrinsicSignature& sig, ClassLay
     return indir;
 }
 
-GenTree* Compiler::impVector234TCopyTo(const HWIntrinsicSignature& sig, ClassLayout* layout)
+GenTree* Importer::impVector234TCopyTo(const HWIntrinsicSignature& sig, ClassLayout* layout)
 {
     assert(sig.retType == TYP_VOID);
     assert(sig.hasThisParam);
@@ -899,7 +899,7 @@ GenTree* Compiler::impVector234TCopyTo(const HWIntrinsicSignature& sig, ClassLay
     return gtNewAssignNode(indir, value);
 }
 
-GenTree* Compiler::impVectorTGetItem(const HWIntrinsicSignature& sig, ClassLayout* layout)
+GenTree* Importer::impVectorTGetItem(const HWIntrinsicSignature& sig, ClassLayout* layout)
 {
     assert(sig.paramCount == 1);
     assert(sig.paramType[0] == TYP_INT);
@@ -910,7 +910,7 @@ GenTree* Compiler::impVectorTGetItem(const HWIntrinsicSignature& sig, ClassLayou
     return impVectorGetElement(layout, value, index);
 }
 
-GenTree* Compiler::impVector234TInstanceEquals(const HWIntrinsicSignature& sig)
+GenTree* Importer::impVector234TInstanceEquals(const HWIntrinsicSignature& sig)
 {
     assert(sig.retType == TYP_BOOL);
     assert(sig.hasThisParam && (sig.paramCount == 1));
@@ -923,7 +923,7 @@ GenTree* Compiler::impVector234TInstanceEquals(const HWIntrinsicSignature& sig)
 
 #ifdef TARGET_ARMARCH
 
-GenTree* Compiler::impVector234TEquals(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool notEqual)
+GenTree* Importer::impVector234TEquals(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool notEqual)
 {
     assert(sig.retType == TYP_BOOL);
     assert((sig.hasThisParam && (sig.paramCount == 1)) || (sig.paramCount == 2));
@@ -954,7 +954,7 @@ GenTree* Compiler::impVector234TEquals(const HWIntrinsicSignature& sig, GenTree*
     return gtNewOperNode(notEqual ? GT_EQ : GT_NE, TYP_INT, op1, gtNewIconNode(0));
 }
 
-GenTree* Compiler::impVectorT128ConditionalSelect(const HWIntrinsicSignature& sig,
+GenTree* Importer::impVectorT128ConditionalSelect(const HWIntrinsicSignature& sig,
                                                   GenTree*                    mask,
                                                   GenTree*                    op1,
                                                   GenTree*                    op2)
@@ -969,7 +969,7 @@ GenTree* Compiler::impVectorT128ConditionalSelect(const HWIntrinsicSignature& si
     return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AdvSimd_BitwiseSelect, eltType, 16, mask, op1, op2);
 }
 
-GenTree* Compiler::impVector234Dot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
+GenTree* Importer::impVector234Dot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
 {
     assert(sig.paramCount == 2);
     assert(sig.paramType[0] != TYP_SIMD32);
@@ -992,7 +992,7 @@ GenTree* Compiler::impVector234Dot(const HWIntrinsicSignature& sig, GenTree* op1
     return gtNewSimdHWIntrinsicNode(TYP_FLOAT, NI_Vector128_Sum, TYP_FLOAT, 16, op1);
 }
 
-GenTree* Compiler::impVectorT128Sum(const HWIntrinsicSignature& sig, GenTree* op1)
+GenTree* Importer::impVectorT128Sum(const HWIntrinsicSignature& sig, GenTree* op1)
 {
     assert(sig.paramCount == 1);
     assert(sig.paramType[0] == TYP_SIMD16);
@@ -1015,7 +1015,7 @@ GenTree* Compiler::impVectorT128Sum(const HWIntrinsicSignature& sig, GenTree* op
     return gtNewSimdGetElementNode(TYP_SIMD16, sig.retType, op1, gtNewIconNode(0));
 }
 
-GenTree* Compiler::impVectorT128Dot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
+GenTree* Importer::impVectorT128Dot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
 {
     assert(sig.paramCount == 2);
     assert(sig.paramType[0] == TYP_SIMD16);
@@ -1064,7 +1064,7 @@ GenTree* Compiler::impVectorT128Dot(const HWIntrinsicSignature& sig, GenTree* op
     return gtNewSimdGetElementNode(TYP_SIMD16, eltType, op1, gtNewIconNode(0));
 }
 
-GenTree* Compiler::impVectorT128MinMax(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool isMax)
+GenTree* Importer::impVectorT128MinMax(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool isMax)
 {
     assert(sig.paramCount == 2);
     assert((sig.retLayout == sig.paramLayout[0]) && (sig.retLayout == sig.paramLayout[1]));
@@ -1085,7 +1085,7 @@ GenTree* Compiler::impVectorT128MinMax(const HWIntrinsicSignature& sig, GenTree*
                                     uses[1][1]);
 }
 
-GenTree* Compiler::impVectorT128Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
+GenTree* Importer::impVectorT128Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
 {
     assert(sig.retType == TYP_SIMD16);
     assert(sig.paramCount == 2);
@@ -1112,7 +1112,7 @@ GenTree* Compiler::impVectorT128Narrow(const HWIntrinsicSignature& sig, GenTree*
     return gtNewSimdHWIntrinsicNode(TYP_SIMD16, upper, retEltType, 16, op1, op2);
 }
 
-GenTree* Compiler::impVectorT128Widen(const HWIntrinsicSignature& sig)
+GenTree* Importer::impVectorT128Widen(const HWIntrinsicSignature& sig)
 {
     assert(sig.retType == TYP_VOID);
     assert(sig.paramCount == 3);
@@ -1149,11 +1149,11 @@ GenTree* Compiler::impVectorT128Widen(const HWIntrinsicSignature& sig)
 
     GenTree* lo = gtNewSimdHWIntrinsicNode(TYP_SIMD16, lower, eltType, 8, uses[0]);
     GenTree* hi = gtNewSimdHWIntrinsicNode(TYP_SIMD16, upper, eltType, 16, uses[1]);
-    impAppendTree(impAssignSIMDAddr(loAddr, lo), CHECK_SPILL_ALL, impCurStmtOffs);
+    impAppendTree(impAssignSIMDAddr(loAddr, lo), CHECK_SPILL_ALL);
     return impAssignSIMDAddr(hiAddr, hi);
 }
 
-GenTree* Compiler::impVectorTMultiply(const HWIntrinsicSignature& sig)
+GenTree* Importer::impVectorTMultiply(const HWIntrinsicSignature& sig)
 {
     assert(sig.retType == TYP_SIMD16);
     assert(sig.paramCount == 2);
@@ -1218,7 +1218,7 @@ GenTree* Compiler::impVectorTMultiply(const HWIntrinsicSignature& sig)
 
 #ifdef TARGET_XARCH
 
-GenTree* Compiler::impVector234T128Abs(const HWIntrinsicSignature& sig, GenTree* op1)
+GenTree* Importer::impVector234T128Abs(const HWIntrinsicSignature& sig, GenTree* op1)
 {
     assert(sig.retType != TYP_SIMD32);
     assert(sig.paramCount == 1);
@@ -1292,7 +1292,7 @@ GenTree* Compiler::impVector234T128Abs(const HWIntrinsicSignature& sig, GenTree*
     return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Subtract, eltType, 16, tmp, signUses[1]);
 }
 
-GenTree* Compiler::impVectorT256Abs(const HWIntrinsicSignature& sig, GenTree* op1)
+GenTree* Importer::impVectorT256Abs(const HWIntrinsicSignature& sig, GenTree* op1)
 {
     assert(sig.paramCount == 1);
     assert(sig.retLayout == sig.paramLayout[0]);
@@ -1341,7 +1341,7 @@ GenTree* Compiler::impVectorT256Abs(const HWIntrinsicSignature& sig, GenTree* op
     return gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_Abs, eltType, 32, op1);
 }
 
-GenTree* Compiler::impVectorTAndNot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
+GenTree* Importer::impVectorTAndNot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
 {
     assert(sig.paramCount == 2);
     assert((sig.retLayout == sig.paramLayout[0]) && (sig.retLayout == sig.paramLayout[1]));
@@ -1381,7 +1381,7 @@ constexpr ssize_t SHUFFLE_ZWXY = 0xB1; // 10 11 00 01
 constexpr ssize_t SHUFFLE_WWYY = 0xF5; // 11 11 01 01
 constexpr ssize_t SHUFFLE_ZZXX = 0xA0; // 10 10 00 00
 
-GenTree* Compiler::impVectorT128ConvertUInt32ToSingle(const HWIntrinsicSignature& sig, GenTree* op1)
+GenTree* Importer::impVectorT128ConvertUInt32ToSingle(const HWIntrinsicSignature& sig, GenTree* op1)
 {
     assert(sig.paramCount == 1);
     assert(sig.paramType[0] == TYP_SIMD16);
@@ -1406,7 +1406,7 @@ GenTree* Compiler::impVectorT128ConvertUInt32ToSingle(const HWIntrinsicSignature
     return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Add, TYP_FLOAT, 16, uses[0], uses[1]);
 }
 
-GenTree* Compiler::impVectorT256ConvertUInt32ToSingle(const HWIntrinsicSignature& sig, GenTree* op1)
+GenTree* Importer::impVectorT256ConvertUInt32ToSingle(const HWIntrinsicSignature& sig, GenTree* op1)
 {
     assert(sig.paramCount == 1);
     assert(sig.paramType[0] == TYP_SIMD32);
@@ -1431,7 +1431,7 @@ GenTree* Compiler::impVectorT256ConvertUInt32ToSingle(const HWIntrinsicSignature
     return gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX_Add, TYP_FLOAT, 32, uses[0], uses[1]);
 }
 
-GenTree* Compiler::impVectorT128ConvertInt64ToDouble(const HWIntrinsicSignature& sig, GenTree* op1)
+GenTree* Importer::impVectorT128ConvertInt64ToDouble(const HWIntrinsicSignature& sig, GenTree* op1)
 {
     assert(sig.paramCount == 1);
     assert(sig.paramType[0] == TYP_SIMD16);
@@ -1501,7 +1501,7 @@ GenTree* Compiler::impVectorT128ConvertInt64ToDouble(const HWIntrinsicSignature&
 #endif
 }
 
-GenTree* Compiler::impVectorT256ConvertInt64ToDouble(const HWIntrinsicSignature& sig, GenTree* op1)
+GenTree* Importer::impVectorT256ConvertInt64ToDouble(const HWIntrinsicSignature& sig, GenTree* op1)
 {
     assert(sig.paramCount == 1);
     assert(sig.paramType[0] == TYP_SIMD32);
@@ -1577,7 +1577,7 @@ GenTree* Compiler::impVectorT256ConvertInt64ToDouble(const HWIntrinsicSignature&
 #endif
 }
 
-GenTree* Compiler::impVectorT128ConvertUInt64ToDouble(const HWIntrinsicSignature& sig, GenTree* op1)
+GenTree* Importer::impVectorT128ConvertUInt64ToDouble(const HWIntrinsicSignature& sig, GenTree* op1)
 {
     assert(sig.paramCount == 1);
     assert(sig.paramType[0] == TYP_SIMD16);
@@ -1607,7 +1607,7 @@ GenTree* Compiler::impVectorT128ConvertUInt64ToDouble(const HWIntrinsicSignature
     return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Add, TYP_DOUBLE, 16, e[0], e[1]);
 }
 
-GenTree* Compiler::impVectorT256ConvertUInt64ToDouble(const HWIntrinsicSignature& sig, GenTree* op1)
+GenTree* Importer::impVectorT256ConvertUInt64ToDouble(const HWIntrinsicSignature& sig, GenTree* op1)
 {
     assert(sig.paramCount == 1);
     assert(sig.paramType[0] == TYP_SIMD32);
@@ -1637,7 +1637,7 @@ GenTree* Compiler::impVectorT256ConvertUInt64ToDouble(const HWIntrinsicSignature
     return gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX_Add, TYP_DOUBLE, 32, e[0], e[1]);
 }
 
-GenTree* Compiler::impVectorT128ConvertDoubleToInt64(const HWIntrinsicSignature& sig)
+GenTree* Importer::impVectorT128ConvertDoubleToInt64(const HWIntrinsicSignature& sig)
 {
     assert(sig.paramCount == 1);
     assert(sig.paramType[0] == TYP_SIMD16);
@@ -1669,7 +1669,7 @@ GenTree* Compiler::impVectorT128ConvertDoubleToInt64(const HWIntrinsicSignature&
 #endif
 }
 
-GenTree* Compiler::impVectorT256ConvertDoubleToInt64(const HWIntrinsicSignature& sig)
+GenTree* Importer::impVectorT256ConvertDoubleToInt64(const HWIntrinsicSignature& sig)
 {
     assert(sig.paramCount == 1);
     assert(sig.paramType[0] == TYP_SIMD32);
@@ -1711,7 +1711,7 @@ GenTree* Compiler::impVectorT256ConvertDoubleToInt64(const HWIntrinsicSignature&
 #endif
 }
 
-GenTree* Compiler::impVector23Division(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
+GenTree* Importer::impVector23Division(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
 {
     assert(sig.paramCount == 2);
     assert((sig.retLayout == sig.paramLayout[0]) && (sig.retLayout == sig.paramLayout[1]));
@@ -1751,7 +1751,7 @@ GenTree* Compiler::impVector23Division(const HWIntrinsicSignature& sig, GenTree*
     return d;
 }
 
-GenTree* Compiler::impVector234Dot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
+GenTree* Importer::impVector234Dot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
 {
     assert(sig.paramCount == 2);
     assert(sig.paramLayout[0] == sig.paramLayout[1]);
@@ -1777,7 +1777,7 @@ GenTree* Compiler::impVector234Dot(const HWIntrinsicSignature& sig, GenTree* op1
     return gtNewSimdGetElementNode(TYP_SIMD16, TYP_FLOAT, op1, gtNewIconNode(0));
 }
 
-GenTree* Compiler::impVectorT128Sum(const HWIntrinsicSignature& sig)
+GenTree* Importer::impVectorT128Sum(const HWIntrinsicSignature& sig)
 {
     assert(sig.paramCount == 1);
     assert(sig.paramType[0] == TYP_SIMD16);
@@ -1794,7 +1794,7 @@ GenTree* Compiler::impVectorT128Sum(const HWIntrinsicSignature& sig)
     return impVectorT128Sum(vec, eltType, sig.retType);
 }
 
-GenTree* Compiler::impVectorT128Sum(GenTree* vec, var_types eltType, var_types retType)
+GenTree* Importer::impVectorT128Sum(GenTree* vec, var_types eltType, var_types retType)
 {
     if (eltType == TYP_BYTE)
     {
@@ -1807,7 +1807,7 @@ GenTree* Compiler::impVectorT128Sum(GenTree* vec, var_types eltType, var_types r
     return gtNewSimdGetElementNode(TYP_SIMD16, retType, vec, gtNewIconNode(0));
 }
 
-GenTree* Compiler::impVectorT256Sum(const HWIntrinsicSignature& sig)
+GenTree* Importer::impVectorT256Sum(const HWIntrinsicSignature& sig)
 {
     assert(sig.paramCount == 1);
     assert(sig.paramType[0] == TYP_SIMD32);
@@ -1819,7 +1819,7 @@ GenTree* Compiler::impVectorT256Sum(const HWIntrinsicSignature& sig)
     return impVectorT128Sum(vec, eltType, sig.retType);
 }
 
-GenTree* Compiler::impVectorT128Dot(const HWIntrinsicSignature& sig)
+GenTree* Importer::impVectorT128Dot(const HWIntrinsicSignature& sig)
 {
     assert(sig.paramCount == 2);
     assert(sig.paramType[0] == TYP_SIMD16);
@@ -1879,7 +1879,7 @@ GenTree* Compiler::impVectorT128Dot(const HWIntrinsicSignature& sig)
     return gtNewSimdGetElementNode(TYP_SIMD16, sig.retType, op1, gtNewIconNode(0));
 }
 
-GenTree* Compiler::impVectorT256Dot(const HWIntrinsicSignature& sig)
+GenTree* Importer::impVectorT256Dot(const HWIntrinsicSignature& sig)
 {
     assert(sig.paramCount == 2);
     assert(sig.paramType[0] == TYP_SIMD32);
@@ -1930,7 +1930,7 @@ GenTree* Compiler::impVectorT256Dot(const HWIntrinsicSignature& sig)
     return gtNewSimdGetElementNode(TYP_SIMD16, sig.retType, op1, gtNewIconNode(0));
 }
 
-GenTree* Compiler::impVectorTMultiplyAddAdjacentByte(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
+GenTree* Importer::impVectorTMultiplyAddAdjacentByte(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
 {
     assert(varTypeIsByte(sig.paramLayout[0]->GetElementType()));
 
@@ -1955,7 +1955,7 @@ GenTree* Compiler::impVectorTMultiplyAddAdjacentByte(const HWIntrinsicSignature&
     return gtNewSimdHWIntrinsicNode(type, add, TYP_INT, size, lo, hi);
 }
 
-GenTree* Compiler::impVector234TEquals(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool notEqual)
+GenTree* Importer::impVector234TEquals(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool notEqual)
 {
     assert((sig.hasThisParam && (sig.paramCount == 1)) || (sig.paramCount == 2));
     assert(sig.hasThisParam || (sig.paramLayout[0] == sig.paramLayout[1]));
@@ -2029,7 +2029,7 @@ GenTree* Compiler::impVector234TEquals(const HWIntrinsicSignature& sig, GenTree*
     return gtNewOperNode(notEqual ? GT_NE : GT_EQ, TYP_INT, op1, gtNewIconNode(mask));
 }
 
-GenTree* Compiler::impVectorT128MinMax(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool isMax)
+GenTree* Importer::impVectorT128MinMax(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool isMax)
 {
     assert(sig.paramCount == 2);
     assert(sig.retType == TYP_SIMD16);
@@ -2121,7 +2121,7 @@ GenTree* Compiler::impVectorT128MinMax(const HWIntrinsicSignature& sig, GenTree*
     return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE41_BlendVariable, TYP_UBYTE, 16, uses[0][1], uses[1][1], mask);
 }
 
-GenTree* Compiler::impVectorT256MinMax(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool isMax)
+GenTree* Importer::impVectorT256MinMax(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool isMax)
 {
     assert(sig.paramCount == 2);
     assert(sig.retType == TYP_SIMD32);
@@ -2152,7 +2152,7 @@ GenTree* Compiler::impVectorT256MinMax(const HWIntrinsicSignature& sig, GenTree*
     return gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_BlendVariable, TYP_UBYTE, 32, uses[0][1], uses[1][1], mask);
 }
 
-GenTree* Compiler::impVectorT128Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
+GenTree* Importer::impVectorT128Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
 {
     assert(sig.retType == TYP_SIMD16);
     assert(sig.paramCount == 2);
@@ -2197,7 +2197,7 @@ GenTree* Compiler::impVectorT128Narrow(const HWIntrinsicSignature& sig, GenTree*
     return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_PackSignedSaturate, retEltType, 16, op1, op2);
 }
 
-GenTree* Compiler::impVectorT256Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
+GenTree* Importer::impVectorT256Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
 {
     assert(sig.retType == TYP_SIMD32);
     assert(sig.paramCount == 2);
@@ -2245,7 +2245,7 @@ GenTree* Compiler::impVectorT256Narrow(const HWIntrinsicSignature& sig, GenTree*
     return gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_PackUnsignedSaturate, retEltType, 32, op1, op2);
 }
 
-GenTree* Compiler::impVectorT128Widen(const HWIntrinsicSignature& sig)
+GenTree* Importer::impVectorT128Widen(const HWIntrinsicSignature& sig)
 {
     assert(sig.retType == TYP_VOID);
     assert(sig.paramCount == 3);
@@ -2319,11 +2319,11 @@ GenTree* Compiler::impVectorT128Widen(const HWIntrinsicSignature& sig)
         hi = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_UnpackHigh, eltType, 16, uses[1], sign[1]);
     }
 
-    impAppendTree(impAssignSIMDAddr(loAddr, lo), CHECK_SPILL_ALL, impCurStmtOffs);
+    impAppendTree(impAssignSIMDAddr(loAddr, lo), CHECK_SPILL_ALL);
     return impAssignSIMDAddr(hiAddr, hi);
 }
 
-GenTree* Compiler::impVectorT256Widen(const HWIntrinsicSignature& sig)
+GenTree* Importer::impVectorT256Widen(const HWIntrinsicSignature& sig)
 {
     assert(sig.retType == TYP_VOID);
     assert(sig.paramCount == 3);
@@ -2372,11 +2372,11 @@ GenTree* Compiler::impVectorT256Widen(const HWIntrinsicSignature& sig)
     hi = gtNewSimdHWIntrinsicNode(TYP_SIMD32, extractIntrinsic, eltType, 32, uses[1], gtNewIconNode(1));
     hi = gtNewSimdHWIntrinsicNode(TYP_SIMD32, widenIntrinsic, eltType, 32, hi);
 
-    impAppendTree(impAssignSIMDAddr(loAddr, lo), CHECK_SPILL_ALL, impCurStmtOffs);
+    impAppendTree(impAssignSIMDAddr(loAddr, lo), CHECK_SPILL_ALL);
     return impAssignSIMDAddr(hiAddr, hi);
 }
 
-GenTree* Compiler::impVectorTMultiply(const HWIntrinsicSignature& sig)
+GenTree* Importer::impVectorTMultiply(const HWIntrinsicSignature& sig)
 {
     assert(sig.paramCount == 2);
 
@@ -2470,7 +2470,7 @@ GenTree* Compiler::impVectorTMultiply(const HWIntrinsicSignature& sig)
     return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_UnpackLow, eltType, 16, t, u);
 }
 
-GenTree* Compiler::impVectorTMultiplyLong(ClassLayout* layout, GenTree* op1, GenTree* op2)
+GenTree* Importer::impVectorTMultiplyLong(ClassLayout* layout, GenTree* op1, GenTree* op2)
 {
     assert(varTypeIsLong(layout->GetElementType()));
 
@@ -2497,7 +2497,7 @@ GenTree* Compiler::impVectorTMultiplyLong(ClassLayout* layout, GenTree* op1, Gen
     return gtNewSimdHWIntrinsicNode(type, add, TYP_LONG, size, lo, hi);
 }
 
-GenTree* Compiler::impVectorTMultiplyByte(ClassLayout* layout, GenTree* op1, GenTree* op2)
+GenTree* Importer::impVectorTMultiplyByte(ClassLayout* layout, GenTree* op1, GenTree* op2)
 {
     assert(varTypeIsByte(layout->GetElementType()));
 
@@ -2525,7 +2525,7 @@ GenTree* Compiler::impVectorTMultiplyByte(ClassLayout* layout, GenTree* op1, Gen
     return gtNewSimdHWIntrinsicNode(type, por, TYP_INT, size, lo, hi);
 }
 
-GenTree* Compiler::impVectorT128ConditionalSelect(const HWIntrinsicSignature& sig,
+GenTree* Importer::impVectorT128ConditionalSelect(const HWIntrinsicSignature& sig,
                                                   GenTree*                    mask,
                                                   GenTree*                    op1,
                                                   GenTree*                    op2)
@@ -2546,7 +2546,7 @@ GenTree* Compiler::impVectorT128ConditionalSelect(const HWIntrinsicSignature& si
     return gtNewSimdHWIntrinsicNode(TYP_SIMD16, sse ? NI_SSE_Or : NI_SSE2_Or, eltType, 16, op1, op2);
 }
 
-GenTree* Compiler::impVectorT256ConditionalSelect(const HWIntrinsicSignature& sig,
+GenTree* Importer::impVectorT256ConditionalSelect(const HWIntrinsicSignature& sig,
                                                   GenTree*                    mask,
                                                   GenTree*                    op1,
                                                   GenTree*                    op2)
@@ -2567,7 +2567,7 @@ GenTree* Compiler::impVectorT256ConditionalSelect(const HWIntrinsicSignature& si
     return gtNewSimdHWIntrinsicNode(TYP_SIMD32, avx ? NI_AVX_Or : NI_AVX2_Or, eltType, 32, op1, op2);
 }
 
-var_types Compiler::impVectorTUnsignedCompareAdjust(ClassLayout* layout,
+var_types Importer::impVectorTUnsignedCompareAdjust(ClassLayout* layout,
                                                     var_types    eltType,
                                                     GenTree**    op1,
                                                     GenTree**    op2)
@@ -2612,7 +2612,7 @@ var_types Compiler::impVectorTUnsignedCompareAdjust(ClassLayout* layout,
     return eltType;
 }
 
-GenTree* Compiler::impVectorT128LongGreaterThanSse2(ClassLayout* layout, GenTree* op1, GenTree* op2, bool lessThan)
+GenTree* Importer::impVectorT128LongGreaterThanSse2(ClassLayout* layout, GenTree* op1, GenTree* op2, bool lessThan)
 {
     assert(layout->GetSIMDType() == TYP_SIMD16);
 
@@ -2655,7 +2655,7 @@ GenTree* Compiler::impVectorT128LongGreaterThanSse2(ClassLayout* layout, GenTree
     return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, gt, gtNewIconNode(SHUFFLE_WWYY));
 }
 
-GenTree* Compiler::impVectorT128ULongGreaterThanSse2(ClassLayout* layout, GenTree* op1, GenTree* op2, bool lessThan)
+GenTree* Importer::impVectorT128ULongGreaterThanSse2(ClassLayout* layout, GenTree* op1, GenTree* op2, bool lessThan)
 {
     assert(layout->GetSIMDType() == TYP_SIMD16);
 
@@ -2690,7 +2690,7 @@ GenTree* Compiler::impVectorT128ULongGreaterThanSse2(ClassLayout* layout, GenTre
     return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, gt, gtNewIconNode(SHUFFLE_WWYY));
 }
 
-GenTree* Compiler::impVectorT128LongEquals(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
+GenTree* Importer::impVectorT128LongEquals(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
 {
     assert(sig.paramCount == 2);
     assert(sig.paramLayout[0] == sig.paramLayout[1]);
@@ -2716,7 +2716,7 @@ GenTree* Compiler::impVectorT128LongEquals(const HWIntrinsicSignature& sig, GenT
     return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_And, eltType, 16, shuffleEq, eqUses[1]);
 }
 
-GenTree* Compiler::impVectorT128Compare(const HWIntrinsicSignature& sig,
+GenTree* Importer::impVectorT128Compare(const HWIntrinsicSignature& sig,
                                         NamedIntrinsic              intrinsic,
                                         GenTree*                    op1,
                                         GenTree*                    op2)
@@ -2789,7 +2789,7 @@ GenTree* Compiler::impVectorT128Compare(const HWIntrinsicSignature& sig,
     return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Xor, eltType, 16, gt, allBitsSet);
 }
 
-GenTree* Compiler::impVectorT256Compare(const HWIntrinsicSignature& sig,
+GenTree* Importer::impVectorT256Compare(const HWIntrinsicSignature& sig,
                                         NamedIntrinsic              intrinsic,
                                         GenTree*                    op1,
                                         GenTree*                    op2)
@@ -2849,7 +2849,7 @@ GenTree* Compiler::impVectorT256Compare(const HWIntrinsicSignature& sig,
 // of persistent side effects and they can be discarded. They may have exception side effects that
 // may need to be preserved - a[1] doesn't imply that a[2] is also a valid array element.
 //
-bool Compiler::SIMDCoalescingBuffer::AreContiguousMemoryLocations(GenTree* l1, GenTree* l2)
+bool SIMDCoalescingBuffer::AreContiguousMemoryLocations(GenTree* l1, GenTree* l2)
 {
     if ((l1->GetOper() != l2->GetOper()) || l1->TypeIs(TYP_STRUCT))
     {
@@ -2935,7 +2935,7 @@ bool Compiler::SIMDCoalescingBuffer::AreContiguousMemoryLocations(GenTree* l1, G
 
 // Change a FLOAT typed IND/LCL_FLD node into a SIMD typed IND/LCL_FLD.
 //
-void Compiler::SIMDCoalescingBuffer::ChangeToSIMDMem(Compiler* compiler, GenTree* tree, var_types simdType)
+void SIMDCoalescingBuffer::ChangeToSIMDMem(Compiler* compiler, GenTree* tree, var_types simdType)
 {
     assert(tree->TypeIs(TYP_FLOAT));
 
@@ -3037,7 +3037,7 @@ void Compiler::SIMDCoalescingBuffer::ChangeToSIMDMem(Compiler* compiler, GenTree
 
 // Recognize a field of a SIMD local variable (Vector2/3/4 fields).
 //
-unsigned Compiler::SIMDCoalescingBuffer::IsSimdLocalField(GenTree* node, Compiler* compiler)
+unsigned SIMDCoalescingBuffer::IsSimdLocalField(GenTree* node, Compiler* compiler)
 {
     // We only care about Vector2/3/4 so the element type is always FLOAT.
     assert(node->TypeIs(TYP_FLOAT));
@@ -3087,7 +3087,7 @@ unsigned Compiler::SIMDCoalescingBuffer::IsSimdLocalField(GenTree* node, Compile
 
 // Recognize a NI_Vector128_GetElement or LCL_FLD that uses a SIMD local variable.
 //
-unsigned Compiler::SIMDCoalescingBuffer::IsSimdLocalExtract(GenTree* node)
+unsigned SIMDCoalescingBuffer::IsSimdLocalExtract(GenTree* node)
 {
     // We only care about Vector2/3/4 so the element type is always FLOAT.
     assert(node->TypeIs(TYP_FLOAT));
@@ -3119,7 +3119,7 @@ unsigned Compiler::SIMDCoalescingBuffer::IsSimdLocalExtract(GenTree* node)
 // Try to add an assignment statement to the coalescing buffer (common code for Add and Mark).
 // Return true if the statment is added and the number of statements in the buffer equals the number of SIMD elements.
 //
-bool Compiler::SIMDCoalescingBuffer::Add(Compiler* compiler, Statement* stmt, GenTreeOp* asg, unsigned simdLclNum)
+bool SIMDCoalescingBuffer::Add(Compiler* compiler, Statement* stmt, GenTreeOp* asg, unsigned simdLclNum)
 {
     if (simdLclNum == BAD_VAR_NUM)
     {
@@ -3177,7 +3177,7 @@ bool Compiler::SIMDCoalescingBuffer::Add(Compiler* compiler, Statement* stmt, Ge
 // expanded into more complex trees. But then the coalescing code only recognizes constant array
 // indices and COMMAs aren't present in LIR so probably there's not much difference.
 //
-void Compiler::SIMDCoalescingBuffer::Mark(Compiler* compiler, Statement* stmt)
+void SIMDCoalescingBuffer::Mark(Compiler* compiler, Statement* stmt)
 {
     GenTree* asg = stmt->GetRootNode();
 
@@ -3217,7 +3217,7 @@ void Compiler::SIMDCoalescingBuffer::Mark(Compiler* compiler, Statement* stmt)
 // Try to add an assignment statement to the coalescing buffer.
 // Return true if the statment is added and the number of statements in the buffer equals the number of SIMD elements.
 //
-bool Compiler::SIMDCoalescingBuffer::Add(Compiler* compiler, Statement* stmt)
+bool SIMDCoalescingBuffer::Add(Compiler* compiler, Statement* stmt)
 {
     GenTree* asg = stmt->GetRootNode();
 
@@ -3235,7 +3235,7 @@ bool Compiler::SIMDCoalescingBuffer::Add(Compiler* compiler, Statement* stmt)
 // Transform the first assignment in the buffer into a SIMD assignment
 // and remove the rest of the statements from the block.
 //
-void Compiler::SIMDCoalescingBuffer::Coalesce(Compiler* compiler, BasicBlock* block)
+void SIMDCoalescingBuffer::Coalesce(Compiler* compiler, BasicBlock* block)
 {
     var_types type;
 

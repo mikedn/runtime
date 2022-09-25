@@ -16,33 +16,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #pragma warning(disable : 4701)
 #endif
 
-/*****************************************************************************/
-
-void Compiler::optInit()
-{
-    optLoopsMarked = false;
-    fgHasLoops     = false;
-
-    /* Initialize the # of tracked loops to 0 */
-    optLoopCount = 0;
-    optLoopTable = nullptr;
-
-#ifdef DEBUG
-    loopAlignCandidates = 0;
-    loopsAligned        = 0;
-#endif
-
-    /* Keep track of the number of calls and indirect calls made by this method */
-    optCallCount         = 0;
-    optIndirectCallCount = 0;
-    optNativeCallCount   = 0;
-
-    INDEBUG(cseFirstLclNum = BAD_VAR_NUM);
-    INDEBUG(cseCount = 0);
-
-    apAssertionCount = 0;
-}
-
 //------------------------------------------------------------------------
 // optSetBlockWeights: adjust block weights, as follows:
 // 1. A block that is not reachable from the entry block is marked "run rarely".
@@ -1032,13 +1005,13 @@ bool Compiler::optExtractInitTestIncr(
  *  out of entries in loop table.
  */
 
-bool Compiler::optRecordLoop(BasicBlock*   head,
-                             BasicBlock*   first,
-                             BasicBlock*   top,
-                             BasicBlock*   entry,
-                             BasicBlock*   bottom,
-                             BasicBlock*   exit,
-                             unsigned char exitCnt)
+bool Compiler::optRecordLoop(BasicBlock* head,
+                             BasicBlock* first,
+                             BasicBlock* top,
+                             BasicBlock* entry,
+                             BasicBlock* bottom,
+                             BasicBlock* exit,
+                             unsigned    exitCnt)
 {
     // Record this loop in the table, if there's room.
 
@@ -1057,7 +1030,7 @@ bool Compiler::optRecordLoop(BasicBlock*   head,
     assert(entry->bbNum <= bottom->bbNum);
     assert(head->bbNum < top->bbNum || head->bbNum > bottom->bbNum);
 
-    unsigned char loopInd = optLoopCount;
+    unsigned loopInd = optLoopCount;
 
     if (optLoopTable == nullptr)
     {
@@ -1067,9 +1040,9 @@ bool Compiler::optRecordLoop(BasicBlock*   head,
     else
     {
         // If the new loop contains any existing ones, add it in the right place.
-        for (unsigned char prevPlus1 = optLoopCount; prevPlus1 > 0; prevPlus1--)
+        for (unsigned prevPlus1 = optLoopCount; prevPlus1 > 0; prevPlus1--)
         {
-            unsigned char prev = prevPlus1 - 1;
+            unsigned prev = prevPlus1 - 1;
             if (optLoopTable[prev].lpContainedBy(first, bottom))
             {
                 loopInd = prev;
@@ -1103,7 +1076,7 @@ bool Compiler::optRecordLoop(BasicBlock*   head,
     optLoopTable[loopInd].lpBottom  = bottom;
     optLoopTable[loopInd].lpEntry   = entry;
     optLoopTable[loopInd].lpExit    = exit;
-    optLoopTable[loopInd].lpExitCnt = exitCnt;
+    optLoopTable[loopInd].lpExitCnt = static_cast<uint8_t>(exitCnt);
 
     optLoopTable[loopInd].lpParent  = BasicBlock::NOT_IN_LOOP;
     optLoopTable[loopInd].lpChild   = BasicBlock::NOT_IN_LOOP;
@@ -1489,10 +1462,10 @@ class LoopSearch
     BasicBlock* bottom; // Predecessor of back-edge to TOP, also lexically last in-loop block
     BasicBlock* entry;  // Successor of unique entry edge
 
-    BasicBlock*   lastExit;       // Most recently discovered exit block
-    unsigned char exitCount;      // Number of discovered exit edges
-    unsigned int  oldBlockMaxNum; // Used to identify new blocks created during compaction
-    BlockSet      bottomBlocks;   // BOTTOM blocks of already-recorded loops
+    BasicBlock* lastExit;       // Most recently discovered exit block
+    unsigned    exitCount;      // Number of discovered exit edges
+    unsigned    oldBlockMaxNum; // Used to identify new blocks created during compaction
+    BlockSet    bottomBlocks;   // BOTTOM blocks of already-recorded loops
 #ifdef DEBUG
     bool forgotExit = false; // Flags a rare case where lastExit gets nulled out, for assertions
 #endif
@@ -1693,7 +1666,7 @@ public:
     //------------------------------------------------------------------------
     // GetExitCount: Return the exit count computed for the loop
     //
-    unsigned char GetExitCount() const
+    unsigned GetExitCount() const
     {
         return exitCount;
     }
@@ -2379,7 +2352,7 @@ void Compiler::optFindNaturalLoops()
                 loopsThisMethod++;
 
                 /* keep track of the number of exits */
-                loopExitCountTable.record(static_cast<unsigned>(search.GetExitCount()));
+                loopExitCountTable.record(search.GetExitCount());
 
                 // Note that we continue to look for loops even if
                 // (optLoopCount == BasicBlock::MAX_LOOP_NUM), in contrast to the !COUNT_LOOPS code below.
@@ -2436,16 +2409,16 @@ NO_MORE_LOOPS:
 
     // Now the loop indices are stable.  We can figure out parent/child relationships
     // (using table indices to name loops), and label blocks.
-    for (unsigned char loopInd = 1; loopInd < optLoopCount; loopInd++)
+    for (unsigned loopInd = 1; loopInd < optLoopCount; loopInd++)
     {
-        for (unsigned char possibleParent = loopInd; possibleParent > 0;)
+        for (unsigned possibleParent = loopInd; possibleParent > 0;)
         {
             possibleParent--;
             if (optLoopTable[possibleParent].lpContains(optLoopTable[loopInd]))
             {
-                optLoopTable[loopInd].lpParent       = possibleParent;
+                optLoopTable[loopInd].lpParent       = static_cast<uint8_t>(possibleParent);
                 optLoopTable[loopInd].lpSibling      = optLoopTable[possibleParent].lpChild;
-                optLoopTable[possibleParent].lpChild = loopInd;
+                optLoopTable[possibleParent].lpChild = static_cast<uint8_t>(loopInd);
                 break;
             }
         }
@@ -2454,17 +2427,17 @@ NO_MORE_LOOPS:
     // Now label the blocks with the innermost loop to which they belong.  Since parents
     // precede children in the table, doing the labeling for each loop in order will achieve
     // this -- the innermost loop labeling will be done last.
-    for (unsigned char loopInd = 0; loopInd < optLoopCount; loopInd++)
+    for (unsigned loopInd = 0; loopInd < optLoopCount; loopInd++)
     {
         for (BasicBlock* const blk : optLoopTable[loopInd].LoopBlocks())
         {
-            blk->bbNatLoopNum = loopInd;
+            blk->bbNatLoopNum = static_cast<BasicBlock::loopNumber>(loopInd);
         }
     }
 
     // Make sure that loops are canonical: that every loop has a unique "top", by creating an empty "nop"
     // one, if necessary, for loops containing others that share a "top."
-    for (unsigned char loopInd = 0; loopInd < optLoopCount; loopInd++)
+    for (unsigned loopInd = 0; loopInd < optLoopCount; loopInd++)
     {
         // Traverse the outermost loops as entries into the loop nest; so skip non-outermost.
         if (optLoopTable[loopInd].lpParent != BasicBlock::NOT_IN_LOOP)
@@ -2508,7 +2481,7 @@ void Compiler::optIdentifyLoopsForAlignment()
 #if FEATURE_LOOP_ALIGN
     if (codeGen->ShouldAlignLoops())
     {
-        for (unsigned char loopInd = 0; loopInd < optLoopCount; loopInd++)
+        for (unsigned loopInd = 0; loopInd < optLoopCount; loopInd++)
         {
             BasicBlock* first = optLoopTable[loopInd].lpFirst;
 
@@ -2595,12 +2568,7 @@ void Compiler::optRedirectBlock(BasicBlock* blk, BlockToBlockMap* redirectMap, c
             // If any redirections happened, invalidate the switch table map for the switch.
             if (redirected)
             {
-                // Don't create a new map just to try to remove an entry.
-                BlockToSwitchDescMap* switchMap = GetSwitchDescMap(/* createIfNull */ false);
-                if (switchMap != nullptr)
-                {
-                    switchMap->Remove(blk);
-                }
+                blk->bbJumpSwt->nonDuplicates = nullptr;
             }
         }
         break;
@@ -2638,7 +2606,7 @@ void Compiler::optCopyBlkDest(BasicBlock* from, BasicBlock* to)
 // Returns true if 'block' is an entry block for any loop in 'optLoopTable'
 bool Compiler::optIsLoopEntry(BasicBlock* block) const
 {
-    for (unsigned char loopInd = 0; loopInd < optLoopCount; loopInd++)
+    for (unsigned loopInd = 0; loopInd < optLoopCount; loopInd++)
     {
         // Traverse the outermost loops as entries into the loop nest; so skip non-outermost.
         if (optLoopTable[loopInd].lpEntry == block)
@@ -2651,7 +2619,7 @@ bool Compiler::optIsLoopEntry(BasicBlock* block) const
 
 // Canonicalize the loop nest rooted at parent loop 'loopInd'.
 // Returns 'true' if the flow graph is modified.
-bool Compiler::optCanonicalizeLoopNest(unsigned char loopInd)
+bool Compiler::optCanonicalizeLoopNest(unsigned loopInd)
 {
     bool modified = false;
 
@@ -2664,8 +2632,8 @@ bool Compiler::optCanonicalizeLoopNest(unsigned char loopInd)
         }
     }
 
-    for (unsigned char child = optLoopTable[loopInd].lpChild; child != BasicBlock::NOT_IN_LOOP;
-         child               = optLoopTable[child].lpSibling)
+    for (unsigned child = optLoopTable[loopInd].lpChild; child != BasicBlock::NOT_IN_LOOP;
+         child          = optLoopTable[child].lpSibling)
     {
         if (optCanonicalizeLoopNest(child))
         {
@@ -2676,7 +2644,7 @@ bool Compiler::optCanonicalizeLoopNest(unsigned char loopInd)
     return modified;
 }
 
-bool Compiler::optCanonicalizeLoop(unsigned char loopInd)
+bool Compiler::optCanonicalizeLoop(unsigned loopInd)
 {
     // Is the top uniquely part of the current loop?
     BasicBlock* t = optLoopTable[loopInd].lpTop;
@@ -2866,7 +2834,7 @@ bool Compiler::optCanonicalizeLoop(unsigned char loopInd)
     optLoopTable[loopInd].lpTop   = newT;
     optLoopTable[loopInd].lpFirst = newT;
 
-    newT->bbNatLoopNum = loopInd;
+    newT->bbNatLoopNum = static_cast<BasicBlock::loopNumber>(loopInd);
 
     JITDUMP("in optCanonicalizeLoop: made new block " FMT_BB " [%p] the new unique top of loop %d.\n", newT->bbNum,
             dspPtr(newT), loopInd);
@@ -2889,8 +2857,8 @@ bool Compiler::optCanonicalizeLoop(unsigned char loopInd)
     // If any loops nested in "loopInd" have the same head and entry as "loopInd",
     // it must be the case that they were do-while's (since "h" fell through to the entry).
     // The new node "newT" becomes the head of such loops.
-    for (unsigned char childLoop = optLoopTable[loopInd].lpChild; childLoop != BasicBlock::NOT_IN_LOOP;
-         childLoop               = optLoopTable[childLoop].lpSibling)
+    for (unsigned childLoop = optLoopTable[loopInd].lpChild; childLoop != BasicBlock::NOT_IN_LOOP;
+         childLoop          = optLoopTable[childLoop].lpSibling)
     {
         if (optLoopTable[childLoop].lpEntry == origE && optLoopTable[childLoop].lpHead == h &&
             newT->bbJumpKind == BBJ_NONE && newT->bbNext == origE)
@@ -2922,8 +2890,8 @@ void Compiler::optUpdateLoopHead(unsigned loopInd, BasicBlock* from, BasicBlock*
 {
     assert(optLoopTable[loopInd].lpHead == from);
     optLoopTable[loopInd].lpHead = to;
-    for (unsigned char childLoop = optLoopTable[loopInd].lpChild; childLoop != BasicBlock::NOT_IN_LOOP;
-         childLoop               = optLoopTable[childLoop].lpSibling)
+    for (unsigned childLoop = optLoopTable[loopInd].lpChild; childLoop != BasicBlock::NOT_IN_LOOP;
+         childLoop          = optLoopTable[childLoop].lpSibling)
     {
         if (optLoopTable[childLoop].lpHead == from)
         {
@@ -7580,7 +7548,7 @@ GenTree* OptBoolsDsc::optIsBoolComp(OptTestInfo* pOptTest)
         // and change the true to false.
         if (pOptTest->isBool)
         {
-            m_comp->gtReverseCond(cond);
+            m_comp->gtReverseRelop(cond->AsOp());
             opr2->AsIntCon()->gtIconVal = 0;
         }
         else

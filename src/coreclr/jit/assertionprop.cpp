@@ -8,30 +8,6 @@
 
 /*****************************************************************************
  *
- *  Helper passed to Compiler::fgWalkTreePre() to find the Asgn node for optAddCopies()
- */
-
-/* static */
-Compiler::fgWalkResult Compiler::optAddCopiesCallback(GenTree** pTree, fgWalkData* data)
-{
-    GenTree* tree = *pTree;
-
-    if (tree->OperIs(GT_ASG))
-    {
-        GenTree*  op1  = tree->AsOp()->gtOp1;
-        Compiler* comp = data->compiler;
-
-        if ((op1->gtOper == GT_LCL_VAR) && (op1->AsLclVarCommon()->GetLclNum() == comp->optAddCopyLclNum))
-        {
-            comp->optAddCopyAsgnNode = tree;
-            return WALK_ABORT;
-        }
-    }
-    return WALK_CONTINUE;
-}
-
-/*****************************************************************************
- *
  *  Add new copies before Assertion Prop.
  */
 
@@ -438,34 +414,36 @@ void Compiler::optAddCopies()
             /* Locate the assignment to varDsc in the lvDefStmt */
             stmt = varDsc->lvDefStmt;
 
-            optAddCopyLclNum   = lclNum;  // in
-            optAddCopyAsgnNode = nullptr; // out
+            GenTreeOp* tree = nullptr;
 
-            fgWalkTreePre(stmt->GetRootNodePointer(), Compiler::optAddCopiesCallback, (void*)this, false);
+            for (GenTree* node = stmt->GetRootNode(); node != nullptr; node = node->gtPrev)
+            {
+                if (!node->OperIs(GT_ASG))
+                {
+                    continue;
+                }
 
-            noway_assert(optAddCopyAsgnNode);
+                GenTree* dest = node->AsOp()->GetOp(0);
 
-            GenTree* tree = optAddCopyAsgnNode;
-            GenTree* op1  = tree->AsOp()->gtOp1;
+                if (!dest->OperIs(GT_LCL_VAR) || (dest->AsLclVar()->GetLclNum() != lclNum))
+                {
+                    continue;
+                }
 
-            noway_assert(tree && op1 && tree->OperIs(GT_ASG) && (op1->gtOper == GT_LCL_VAR) &&
-                         (op1->AsLclVarCommon()->GetLclNum() == lclNum));
+                tree = node->AsOp();
+                break;
+            }
 
-            /* Assign the old expression into the new temp */
+            noway_assert(tree != nullptr);
 
-            GenTree* newAsgn = gtNewAssignNode(gtNewLclvNode(copyLclNum, typ), tree->AsOp()->gtOp2);
-
-            /* Copy the new temp to op1 */
-
-            GenTree* copyAsgn = gtNewAssignNode(op1, gtNewLclvNode(copyLclNum, typ));
-
-            /* Change the tree to a GT_COMMA with the two assignments as child nodes */
+            GenTree* newAsg  = gtNewAssignNode(gtNewLclvNode(copyLclNum, typ), tree->GetOp(1));
+            GenTree* copyAsg = gtNewAssignNode(tree->GetOp(0), gtNewLclvNode(copyLclNum, typ));
 
             tree->ChangeOper(GT_COMMA);
-            tree->AsOp()->SetOp(0, newAsgn);
-            tree->AsOp()->SetOp(1, copyAsgn);
+            tree->SetOp(0, newAsg);
+            tree->SetOp(1, copyAsg);
             tree->SetType(TYP_VOID);
-            tree->SetSideEffects(newAsgn->GetSideEffects() | copyAsgn->GetSideEffects());
+            tree->SetSideEffects(newAsg->GetSideEffects() | copyAsg->GetSideEffects());
             tree->gtFlags &= ~GTF_REVERSE_OPS;
         }
 

@@ -180,7 +180,7 @@ void CodeGen::genCodeForBBlist()
         gcInfo.gcRegGCrefSetCur = RBM_NONE;
         gcInfo.gcRegByrefSetCur = RBM_NONE;
 
-        compiler->m_pLinearScan->recordVarLocationsAtStartOfBB(block);
+        m_pLinearScan->recordVarLocationsAtStartOfBB(block);
 
         // Updating variable liveness after last instruction of previous block was emitted
         // and before first of the current block is emitted
@@ -368,8 +368,6 @@ void CodeGen::genCodeForBBlist()
             genIPmappingAdd((IL_OFFSETX)ICorDebugInfo::NO_MAPPING, true);
         }
 
-        bool firstMapping = true;
-
 #if defined(FEATURE_EH_FUNCLETS)
         if (block->bbFlags & BBF_FUNCLET_BEG)
         {
@@ -385,10 +383,6 @@ void CodeGen::genCodeForBBlist()
         {
             genPoisonFrame(newLiveRegSet);
         }
-
-        // Traverse the block in linear order, generating code for each node as we
-        // as we encounter it.
-        CLANG_FORMAT_COMMENT_ANCHOR;
 
 #ifdef DEBUG
         // Set the use-order numbers for each node.
@@ -412,38 +406,31 @@ void CodeGen::genCodeForBBlist()
         }
 #endif // DEBUG
 
+        // Traverse the block in linear order, generating code for each node as we
+        // as we encounter it.
+
         IL_OFFSETX currentILOffset = BAD_IL_OFFSET;
+        bool       firstMapping    = true;
+
         for (GenTree* node : LIR::AsRange(block))
         {
-            // Do we have a new IL offset?
-            if (node->OperGet() == GT_IL_OFFSET)
+            if (GenTreeILOffset* ilOffset = node->IsILOffset())
             {
-                GenTreeILOffset* ilOffset = node->AsILOffset();
                 genEnsureCodeEmitted(currentILOffset);
                 currentILOffset = ilOffset->gtStmtILoffsx;
                 genIPmappingAdd(currentILOffset, firstMapping);
                 firstMapping = false;
-#ifdef DEBUG
-                assert(ilOffset->gtStmtLastILoffs <= compiler->info.compILCodeSize ||
-                       ilOffset->gtStmtLastILoffs == BAD_IL_OFFSET);
-
-                if (compiler->opts.dspCode && compiler->opts.dspInstrs && ilOffset->gtStmtLastILoffs != BAD_IL_OFFSET)
-                {
-                    while (genCurDispOffset <= ilOffset->gtStmtLastILoffs)
-                    {
-                        genCurDispOffset += dumpSingleInstr(compiler->info.compCode, genCurDispOffset, ">    ");
-                    }
-                }
-
-#endif // DEBUG
             }
-
-            genCodeForTreeNode(node);
-            if (node->gtHasReg() && node->IsUnusedValue())
+            else
             {
-                UseRegs(node);
+                genCodeForTreeNode(node);
+
+                if (node->gtHasReg() && node->IsUnusedValue())
+                {
+                    UseRegs(node);
+                }
             }
-        } // end for each node in block
+        }
 
 #ifdef DEBUG
         // The following set of register spill checks and GC pointer tracking checks used to be
@@ -887,11 +874,6 @@ void CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
     if (!lclVar->IsRegSpilled(0))
     {
         lcl->SetRegNum(REG_STK);
-
-        if (varTypeIsMultiReg(lclVar->GetType()))
-        {
-            lcl->SetOtherReg(REG_STK);
-        }
     }
     else
     {

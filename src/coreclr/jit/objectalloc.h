@@ -19,7 +19,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "phase.h"
 #include "smallhash.h"
 
-class ObjectAllocator final : public Phase
+class ObjectAllocator final : public Phase<ObjectAllocator>
 {
     typedef SmallHashTable<unsigned int, unsigned int, 8U> LocalToLocalMap;
 
@@ -43,8 +43,7 @@ public:
     bool IsObjectStackAllocationEnabled() const;
     void EnableObjectStackAllocation();
 
-protected:
-    virtual PhaseStatus DoPhase() override;
+    PhaseStatus DoPhase();
 
 private:
     bool CanAllocateLclVarOnStack(unsigned int lclNum, CORINFO_CLASS_HANDLE clsHnd);

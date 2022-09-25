@@ -300,7 +300,7 @@ int LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_INTRINSIC:
-            srcCount = BuildIntrinsic(tree->AsOp());
+            srcCount = BuildIntrinsic(tree->AsIntrinsic());
             break;
 
 #ifdef FEATURE_HW_INTRINSICS
@@ -607,6 +607,10 @@ int LinearScan::BuildNode(GenTree* tree)
         case GT_COMMA:
         case GT_QMARK:
             unreached();
+
+        case GT_IL_OFFSET:
+            srcCount = 0;
+            break;
 
         default:
             srcCount = BuildSimple(tree);
@@ -1774,16 +1778,7 @@ int LinearScan::BuildModDiv(GenTree* tree)
     return srcCount;
 }
 
-//------------------------------------------------------------------------
-// BuildIntrinsic: Set the NodeInfo for a GT_INTRINSIC.
-//
-// Arguments:
-//    tree      - The node of interest
-//
-// Return Value:
-//    The number of sources consumed by this node.
-//
-int LinearScan::BuildIntrinsic(GenTree* tree)
+int LinearScan::BuildIntrinsic(GenTreeIntrinsic* tree)
 {
     // Both operand and its result must be of floating point type.
     GenTree* op1 = tree->gtGetOp1();
@@ -1791,7 +1786,7 @@ int LinearScan::BuildIntrinsic(GenTree* tree)
     assert(op1->TypeGet() == tree->TypeGet());
     RefPosition* internalFloatDef = nullptr;
 
-    switch (tree->AsIntrinsic()->gtIntrinsicName)
+    switch (tree->GetIntrinsic())
     {
         case NI_System_Math_Abs:
             // TODO-MIKE-Review: Where is this internal reg used???

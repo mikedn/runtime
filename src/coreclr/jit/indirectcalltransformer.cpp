@@ -674,10 +674,7 @@ private:
                     // path returns. So we have to stick with the current type for B as the
                     // return type.
                     //
-                    // Note local vars always live in the root method's symbol table. So we
-                    // need to use the root compiler for lookup here.
-                    //
-                    LclVarDsc* const returnTempLcl = compiler->impInlineRoot()->lvaGetDesc(returnTemp);
+                    LclVarDsc* const returnTempLcl = compiler->lvaGetDesc(returnTemp);
 
                     if (returnTempLcl->lvSingleDef == 1)
                     {
@@ -760,14 +757,9 @@ private:
 
             // Then invoke impDevirtualizeCall to actually transform the call for us,
             // given the original (base) method and the exact guarded class. It should succeed.
-            //
-            CORINFO_METHOD_HANDLE  methodHnd              = call->gtCallMethHnd;
-            unsigned               methodFlags            = compiler->info.compCompHnd->getMethodAttribs(methodHnd);
-            CORINFO_CONTEXT_HANDLE context                = inlineInfo->exactContextHnd;
-            const bool             isLateDevirtualization = true;
-            const bool             explicitTailCall       = (call->gtCallMoreFlags & GTF_CALL_M_EXPLICIT_TAILCALL) != 0;
-            compiler->impDevirtualizeCall(call, nullptr, &methodHnd, &methodFlags, &context, nullptr,
-                                          isLateDevirtualization, explicitTailCall);
+            CORINFO_METHOD_HANDLE  methodHnd;
+            CORINFO_CONTEXT_HANDLE context;
+            compiler->impLateDevirtualizeCall(call, inlineInfo, &methodHnd, &context);
 
             // We know this call can devirtualize or we would not have set up GDV here.
             // So impDevirtualizeCall should succeed in devirtualizing.
@@ -820,7 +812,7 @@ private:
                 // we set all this up in FixupRetExpr().
                 if (oldRetExpr != nullptr)
                 {
-                    inlineInfo->retExprPlaceholder = compiler->gtNewRetExpr(call, call->GetType());
+                    inlineInfo->retExprPlaceholder = compiler->gtNewRetExpr(call);
 
                     GenTree* retExpr = inlineInfo->retExprPlaceholder;
 
@@ -1255,46 +1247,6 @@ private:
     Compiler* compiler;
 };
 
-#ifdef DEBUG
-
-//------------------------------------------------------------------------
-// fgDebugCheckForTransformableIndirectCalls: callback to make sure there
-//  are no more GTF_CALL_M_FAT_POINTER_CHECK or GTF_CALL_M_GUARDED_DEVIRT
-//  calls remaining
-//
-Compiler::fgWalkResult Compiler::fgDebugCheckForTransformableIndirectCalls(GenTree** pTree, fgWalkData* data)
-{
-    GenTree* tree = *pTree;
-    if (tree->IsCall())
-    {
-        GenTreeCall* call = tree->AsCall();
-        assert(!call->IsFatPointerCandidate());
-        assert(!call->IsGuardedDevirtualizationCandidate());
-        assert(!call->IsExpRuntimeLookup());
-    }
-    return WALK_CONTINUE;
-}
-
-//------------------------------------------------------------------------
-// CheckNoTransformableIndirectCallsRemain: walk through blocks and check
-//    that there are no indirect call candidates left to transform.
-//
-void Compiler::CheckNoTransformableIndirectCallsRemain()
-{
-    assert(!doesMethodHaveFatPointer());
-    assert(!doesMethodHaveGuardedDevirtualization());
-    assert(!doesMethodHaveExpRuntimeLookup());
-
-    for (BasicBlock* const block : Blocks())
-    {
-        for (Statement* const stmt : block->Statements())
-        {
-            fgWalkTreePre(stmt->GetRootNodePointer(), fgDebugCheckForTransformableIndirectCalls);
-        }
-    }
-}
-#endif
-
 //------------------------------------------------------------------------
 // fgTransformIndirectCalls: find and transform various indirect calls
 //
@@ -1312,14 +1264,7 @@ PhaseStatus Compiler::fgTransformIndirectCalls()
         IndirectCallTransformer indirectCallTransformer(this);
         count = indirectCallTransformer.Run();
 
-        if (count > 0)
-        {
-            JITDUMP("\n -- %d calls transformed\n", count);
-        }
-        else
-        {
-            JITDUMP("\n -- no transforms done (?)\n");
-        }
+        JITDUMP("\n -- %d calls transformed\n", count);
 
         clearMethodHasFatPointer();
         clearMethodHasGuardedDevirtualization();
@@ -1330,7 +1275,23 @@ PhaseStatus Compiler::fgTransformIndirectCalls()
         JITDUMP("\n -- no candidates to transform\n");
     }
 
-    INDEBUG(CheckNoTransformableIndirectCallsRemain(););
+#ifdef DEBUG
+    for (BasicBlock* const block : Blocks())
+    {
+        for (Statement* const stmt : block->Statements())
+        {
+            fgWalkTreePre(stmt->GetRootNodePointer(), [](GenTree** use, fgWalkData* data) {
+                if (GenTreeCall* call = (*use)->IsCall())
+                {
+                    assert(!call->IsFatPointerCandidate());
+                    assert(!call->IsGuardedDevirtualizationCandidate());
+                    assert(!call->IsExpRuntimeLookup());
+                }
+                return WALK_CONTINUE;
+            });
+        }
+    }
+#endif
 
     return (count == 0) ? PhaseStatus::MODIFIED_NOTHING : PhaseStatus::MODIFIED_EVERYTHING;
 }

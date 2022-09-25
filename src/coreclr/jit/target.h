@@ -265,13 +265,12 @@ public:
     static const char* g_tgtCPUName;
     static const char* g_tgtPlatformName;
 
-    enum ArgOrder
+    enum ArgOrder : uint8_t
     {
         ARG_ORDER_R2L,
         ARG_ORDER_L2R
     };
     static const enum ArgOrder g_tgtArgOrder;
-    static const enum ArgOrder g_tgtUnmanagedArgOrder;
 };
 
 #if defined(DEBUG) || defined(LATE_DISASM) || DUMP_GC_TABLES

@@ -67,25 +67,17 @@ PhaseStatus Compiler::fgInline()
 
             if (GenTreeCall* call = expr->IsCall())
             {
-                bool removeStmt = false;
+                assert(!call->IsGuardedDevirtualizationCandidate());
 
                 if (call->IsInlineCandidate())
                 {
                     bool inlined = inlInlineCall(stmt, call);
 
-                    removeStmt = inlined || (call->gtInlineCandidateInfo->retExprPlaceholder != nullptr);
-                }
-                else if (call->IsGuardedDevirtualizationCandidate())
-                {
-                    // TODO-MIKE-Cleanup: Shouldn't IndirectCallTransformer take care of this?!
-
-                    removeStmt = (call->gtInlineCandidateInfo->retExprPlaceholder != nullptr);
-                }
-
-                if (removeStmt)
-                {
-                    fgRemoveStmt(block, stmt DEBUGARG(/*dumpStmt */ false));
-                    continue;
+                    if (inlined || (call->gtInlineCandidateInfo->retExprPlaceholder != nullptr))
+                    {
+                        fgRemoveStmt(block, stmt DEBUGARG(/* dumpStmt */ false));
+                        continue;
+                    }
                 }
             }
 
@@ -271,7 +263,7 @@ public:
 #ifdef DEBUG
             // Some inlines may fail very early and never make it to candidate stage.
             // Report such failures so that they appear in inline tree dumps.
-            if (!call->IsInlineCandidate() && !call->IsGuardedDevirtualizationCandidate())
+            if (!call->IsInlineCandidate())
             {
                 InlineObservation observation = call->gtInlineObservation;
 
@@ -503,69 +495,201 @@ void jitInlineCode(InlineInfo* inlineInfo)
                                   inlinerCompiler->eeGetMethodFullName(inlineInfo->iciCall->GetMethodHandle()),
                                   inlinerCompiler->dspPtr(inlineInfo->inlineCandidateInfo->exactContextHnd)));
 
-    struct Param
+    struct Param : ErrorTrapParam
     {
-        InlineInfo* inlineInfo;
-        int         result;
-    } param{inlineInfo, CORJIT_INTERNALERROR};
+        InlineInfo*  inlineInfo;
+        CorJitResult result = CORJIT_INTERNALERROR;
+    } param;
 
-    setErrorTrap(inlinerCompiler->info.compCompHnd, Param*, pParamOuter, &param)
+    param.jitInfo    = inlinerCompiler->info.compCompHnd;
+    param.inlineInfo = inlineInfo;
+
+    PAL_TRY(Param&, p, param)
     {
-        setErrorTrap(nullptr, Param*, pParam, pParamOuter)
+        NestedErrorTrapParam<Param&> param2(p);
+
+        PAL_TRY(NestedErrorTrapParam<Param&>&, p2, param2)
         {
-            InlineInfo*     inlineInfo      = pParam->inlineInfo;
-            Compiler*       inlinerCompiler = inlineInfo->InlinerCompiler;
-            ArenaAllocator* allocator       = inlinerCompiler->compGetArenaAllocator();
+            Param& p = p2.param;
 
-            if (inlinerCompiler->InlineeCompiler == nullptr)
+            InlineInfo*     inlineInfo = p.inlineInfo;
+            Compiler*       inliner    = inlineInfo->InlinerCompiler;
+            ArenaAllocator* allocator  = inliner->compGetArenaAllocator();
+
+            if (inliner->InlineeCompiler == nullptr)
             {
-                inlinerCompiler->InlineeCompiler = static_cast<Compiler*>(allocator->allocateMemory(sizeof(Compiler)));
+                inliner->InlineeCompiler = static_cast<Compiler*>(allocator->allocateMemory(sizeof(Compiler)));
             }
 
-            Compiler* inlineeCompiler = inlinerCompiler->InlineeCompiler;
-
-            JitTls::SetCompiler(inlineeCompiler);
-
-            inlineeCompiler->compInit(allocator, inlineInfo->iciCall->GetMethodHandle(),
-                                      inlinerCompiler->info.compCompHnd, &inlineInfo->inlineCandidateInfo->methInfo,
-                                      inlineInfo);
-
-            JitFlags compileFlags = *inlinerCompiler->opts.jitFlags;
-            // The following flags are lost when inlining.
-            // (This is checked in Compiler::compInitOptions().)
-            compileFlags.Clear(JitFlags::JIT_FLAG_BBINSTR);
-            compileFlags.Clear(JitFlags::JIT_FLAG_PROF_ENTERLEAVE);
-            compileFlags.Clear(JitFlags::JIT_FLAG_DEBUG_EnC);
-            compileFlags.Clear(JitFlags::JIT_FLAG_DEBUG_INFO);
-            compileFlags.Clear(JitFlags::JIT_FLAG_REVERSE_PINVOKE);
-            compileFlags.Clear(JitFlags::JIT_FLAG_TRACK_TRANSITIONS);
-            compileFlags.Clear(JitFlags::JIT_FLAG_PUBLISH_SECRET_PARAM);
-
-            compileFlags.Set(JitFlags::JIT_FLAG_SKIP_VERIFICATION);
-
-            pParam->result = inlineeCompiler->compCompile(inlineInfo->inlineCandidateInfo->methInfo.scope, nullptr,
-                                                          nullptr, &compileFlags);
+            Compiler* compiler = inliner->InlineeCompiler;
+            new (compiler) Compiler(allocator, inliner->eeInfo, &inlineInfo->inlineCandidateInfo->methInfo,
+                                    inliner->info.compCompHnd, inlineInfo);
+            compiler->compInlineResult = inlineInfo->inlineResult;
+            JitTls::SetCompiler(compiler);
+            compiler->compInitMethodName();
+            compiler->inlMain();
+            p.result = CORJIT_OK;
         }
-        finallyErrorTrap()
+        PAL_FINALLY
         {
-            JitTls::SetCompiler(pParamOuter->inlineInfo->InlinerCompiler);
+            JitTls::SetCompiler(p.inlineInfo->InlinerCompiler);
         }
-        endErrorTrap()
+        PAL_ENDTRY
     }
-    impJitErrorTrap()
+    PAL_EXCEPT_FILTER(JitErrorTrapFilter)
     {
         // Note that we failed to compile the inlinee, and that
         // there's no point trying to inline it again anywhere else.
         inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLEE_COMPILATION_ERROR);
 
-        param.result = __errc;
+        param.result = param.error;
     }
-    endErrorTrap()
+    PAL_ENDTRY
 
-        if ((param.result != CORJIT_OK) && !inlineInfo->inlineResult->IsFailure())
+    if ((param.result != CORJIT_OK) && !inlineInfo->inlineResult->IsFailure())
     {
         inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLSITE_COMPILATION_FAILURE);
     }
+}
+
+void Compiler::inlMain()
+{
+    assert(compIsForInlining());
+    assert(info.compILCodeSize != 0);
+    assert(!info.compMethodInfo->args.isVarArg());
+
+#ifdef DEBUG
+    if (info.SkipMethod())
+    {
+        compInlineResult->NoteFatal(InlineObservation::CALLEE_MARKED_AS_SKIPPED);
+
+        return;
+    }
+#endif
+
+#ifdef FEATURE_JIT_METHOD_PERF
+    // TODO-MIKE-Review: Is this used when inlining?
+    if ((Compiler::compJitTimeLogFilename != nullptr) || (JitTimeLogCsv() != nullptr))
+    {
+        pCompJitTimer = JitTimer::Create(this, info.compMethodInfo->ILCodeSize);
+    }
+#endif
+
+    Compiler* inliner = impInlineRoot();
+
+    JitFlags jitFlags = *inliner->opts.jitFlags;
+
+    // The following flags are lost when inlining.
+    jitFlags.Clear(JitFlags::JIT_FLAG_BBINSTR);
+    jitFlags.Clear(JitFlags::JIT_FLAG_PROF_ENTERLEAVE);
+    jitFlags.Clear(JitFlags::JIT_FLAG_DEBUG_EnC);
+    jitFlags.Clear(JitFlags::JIT_FLAG_DEBUG_INFO);
+    jitFlags.Clear(JitFlags::JIT_FLAG_REVERSE_PINVOKE);
+    jitFlags.Clear(JitFlags::JIT_FLAG_TRACK_TRANSITIONS);
+    jitFlags.Clear(JitFlags::JIT_FLAG_PUBLISH_SECRET_PARAM);
+    jitFlags.Clear(JitFlags::JIT_FLAG_OSR);
+
+    jitFlags.Set(JitFlags::JIT_FLAG_SKIP_VERIFICATION);
+
+    compMaxUncheckedOffsetForNullObject = inliner->compMaxUncheckedOffsetForNullObject;
+    compDoAggressiveInlining            = inliner->compDoAggressiveInlining;
+#ifdef FEATURE_SIMD
+    featureSIMD = inliner->featureSIMD;
+#endif
+#ifdef DEBUG
+    verbose          = inliner->verbose;
+    verboseTrees     = inliner->verboseTrees;
+    compGenTreeID    = inliner->compGenTreeID;
+    compStatementID  = inliner->compStatementID;
+    compBasicBlockID = inliner->compBasicBlockID;
+#endif
+
+    info.compIsStatic  = (info.compFlags & CORINFO_FLG_STATIC) != 0;
+    info.compInitMem   = (info.compMethodInfo->options & CORINFO_OPT_INIT_LOCALS) != 0;
+    info.compIsVarArgs = false;
+
+    info.compILEntry          = 0;
+    info.compPatchpointInfo   = nullptr;
+    info.compProfilerCallback = false;
+    info.compPublishStubParam = false;
+    info.compCallConv         = CorInfoCallConvExtension::Managed;
+    info.compArgOrder         = Target::g_tgtArgOrder;
+    info.compMatchedVM        = inliner->info.compMatchedVM;
+
+    // Set the context for token lookup.
+    impTokenLookupContextHandle = impInlineInfo->inlineCandidateInfo->exactContextHnd;
+
+    assert(impInlineInfo->inlineCandidateInfo->clsHandle == info.compCompHnd->getMethodClass(info.compMethodHnd));
+    info.compClassHnd = impInlineInfo->inlineCandidateInfo->clsHandle;
+
+    assert(impInlineInfo->inlineCandidateInfo->clsAttr == info.compCompHnd->getClassAttribs(info.compClassHnd));
+    info.compClassAttr = impInlineInfo->inlineCandidateInfo->clsAttr;
+
+    opts.jitFlags        = &jitFlags;
+    opts.compSupportsISA = inliner->opts.compSupportsISA;
+    opts.optFlags        = inliner->opts.optFlags;
+    opts.compCodeOpt     = inliner->opts.compCodeOpt;
+    opts.compDbgCode     = inliner->opts.compDbgCode;
+
+    assert(!inliner->opts.MinOpts());
+    opts.SetMinOpts(false);
+
+#ifdef DEBUG
+    opts.dspDiffable = inliner->opts.dspDiffable;
+#endif
+#if FEATURE_FASTTAILCALL
+    opts.compFastTailCalls = inliner->opts.compFastTailCalls;
+#endif
+    opts.compExpandCallsEarly = inliner->opts.compExpandCallsEarly;
+
+#ifdef DEBUG
+    unsigned methAttrOld   = impInlineInfo->inlineCandidateInfo->methAttr;
+    unsigned methAttrNew   = info.compCompHnd->getMethodAttribs(info.compMethodHnd);
+    unsigned flagsToIgnore = CORINFO_FLG_DONT_INLINE | CORINFO_FLG_FORCEINLINE;
+    assert((methAttrOld & (~flagsToIgnore)) == (methAttrNew & (~flagsToIgnore)));
+#endif
+
+    info.compFlags = impInlineInfo->inlineCandidateInfo->methAttr;
+
+    compInitPgo();
+
+    if (compDoAggressiveInlining
+#ifdef DEBUG
+        || compStressCompile(STRESS_FORCE_INLINE, 0)
+#endif
+            )
+    {
+        info.compFlags |= CORINFO_FLG_FORCEINLINE;
+    }
+
+    JITLOG((LL_INFO100000, "\nINLINER impTokenLookupContextHandle for %s is 0x%p.\n",
+            eeGetMethodFullName(info.compMethodHnd), dspPtr(impTokenLookupContextHandle)));
+
+#ifdef DEBUG
+    if (verbose)
+    {
+        printf("IL to import:\n");
+        dumpILRange(info.compCode, info.compILCodeSize);
+    }
+#endif
+
+    inlImportInlinee();
+
+#ifdef DEBUG
+    inliner->compGenTreeID    = compGenTreeID;
+    inliner->compStatementID  = compStatementID;
+    inliner->compBasicBlockID = compBasicBlockID;
+#endif
+
+#ifdef FEATURE_JIT_METHOD_PERF
+    if (pCompJitTimer != nullptr)
+    {
+#if MEASURE_CLRAPI_CALLS
+        EndPhase(PHASE_CLR_API);
+#endif
+        pCompJitTimer->Terminate(this, CompTimeSummaryInfo::s_compTimeSummary, false);
+    }
+#endif
 }
 
 void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, InlineResult* inlineResult)
@@ -651,7 +775,7 @@ void Compiler::inlInvokeInlineeCompiler(Statement* stmt, GenTreeCall* call, Inli
             eeGetMethodFullName(inlineInfo.iciCall->GetMethodHandle()),
             inlineInfo.inlineCandidateInfo->methInfo.ILCodeSize, inlineDepth, inlineResult->ReasonString());
 
-    INDEBUG(impInlinedCodeSize += inlineInfo.inlineCandidateInfo->methInfo.ILCodeSize;)
+    INDEBUG(compInlinedCodeSize += inlineInfo.inlineCandidateInfo->methInfo.ILCodeSize;)
 
     inlineResult->NoteSuccess();
 }
@@ -680,6 +804,95 @@ void Compiler::inlPostInlineFailureCleanup(const InlineInfo* inlineInfo)
             }
         }
     }
+}
+
+void Compiler::inlImportInlinee()
+{
+    assert(compIsForInlining());
+
+    lvaInitInline();
+    assert(impInlineInfo->iciCall->GetRetSigType() == info.GetRetSigType());
+
+    inlCreateBasicBlocks();
+
+    if (compInlineResult->IsFailure())
+    {
+        return;
+    }
+
+#if COUNT_BASIC_BLOCKS
+    bbCntTable.record(fgBBcount);
+
+    if (fgBBcount == 1)
+    {
+        bbOneBBSizeTable.record(methodInfo->ILCodeSize);
+    }
+#endif
+
+#ifdef DEBUG
+    if (verbose)
+    {
+        printf("Basic block list for '%s'\n", info.compFullName);
+        fgDispBasicBlocks();
+    }
+#endif
+
+    compInlineResult->NoteInt(InlineObservation::CALLEE_NUMBER_OF_BASIC_BLOCKS, fgBBcount);
+
+    if (compInlineResult->IsFailure())
+    {
+        return;
+    }
+
+    impInlineInfo->InlinerCompiler->m_inlineStrategy->NoteImport();
+
+    DoPhase(this, PHASE_INCPROFILE, &Compiler::fgIncorporateProfileData);
+    DoPhase(this, PHASE_IMPORTATION, &Compiler::fgImport);
+    DoPhase(this, PHASE_INDXCALL, &Compiler::fgTransformIndirectCalls);
+
+    if (!compInlineResult->IsFailure())
+    {
+        DoPhase(this, PHASE_POST_IMPORT, [this]() {
+            fgRemoveEmptyBlocks();
+            inlUpdateRetSpillTempClass(impInlineInfo);
+        });
+    }
+}
+
+void Compiler::inlCreateBasicBlocks()
+{
+    JITDUMP("*************** In inlCreateBasicBlocks() for %s\n", info.compFullName);
+
+    // We don't inline method with EH
+    noway_assert(info.compXcptnsCount == 0);
+
+    FixedBitVect* jumpTargets = fgFindJumpTargets();
+
+    if (compInlineResult->IsFailure())
+    {
+        return;
+    }
+
+    DBEXEC(verbose, dmpILJumpTargets(jumpTargets);)
+
+    unsigned retBlocks = fgMakeBasicBlocks(jumpTargets);
+
+    // If fgFindJumpTargets marked the call as "no return" there
+    // really should be no BBJ_RETURN blocks in the method.
+    bool markedNoReturn = (impInlineInfo->iciCall->gtCallMoreFlags & GTF_CALL_M_DOES_NOT_RETURN) != 0;
+    assert((markedNoReturn && (retBlocks == 0)) || (!markedNoReturn && (retBlocks >= 1)));
+
+    if (compInlineResult->IsFailure())
+    {
+        return;
+    }
+
+    compHndBBtab           = impInlineInfo->InlinerCompiler->compHndBBtab;
+    compHndBBtabAllocCount = impInlineInfo->InlinerCompiler->compHndBBtabAllocCount;
+    compHndBBtabCount      = impInlineInfo->InlinerCompiler->compHndBBtabCount;
+    info.compXcptnsCount   = impInlineInfo->InlinerCompiler->info.compXcptnsCount;
+
+    inlAnalyzeInlineeReturn(impInlineInfo, retBlocks);
 }
 
 void Compiler::inlAnalyzeInlineeReturn(InlineInfo* inlineInfo, unsigned returnBlockCount)
@@ -765,7 +978,10 @@ void Compiler::inlAnalyzeInlineeReturn(InlineInfo* inlineInfo, unsigned returnBl
     inlineInfo->retSpillTempLclNum = spillLclNum;
 }
 
-bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO_CLASS_HANDLE retExprClass)
+bool Compiler::inlImportReturn(Importer&            importer,
+                               InlineInfo*          inlineInfo,
+                               GenTree*             retExpr,
+                               CORINFO_CLASS_HANDLE retExprClass)
 {
     JITDUMPTREE(retExpr, "\nInlinee return expression:\n");
 
@@ -882,7 +1098,7 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO
         // lack of optimizations caused by address exposed.
         // No FX diffs if done so it's probably very rare so not worth the trouble now.
 
-        retExpr = impSpillPseudoReturnBufferCall(retExpr->AsCall());
+        retExpr = importer.impSpillPseudoReturnBufferCall(retExpr->AsCall());
     }
 
     if (inlineInfo->retSpillTempLclNum != BAD_VAR_NUM)
@@ -894,14 +1110,14 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO
 
         if (varTypeIsStruct(retExpr->GetType()))
         {
-            asg = impAssignStruct(dest, retExpr, CHECK_SPILL_NONE);
+            asg = importer.impAssignStruct(dest, retExpr, Importer::CHECK_SPILL_NONE);
         }
         else
         {
             asg = gtNewAssignNode(dest, retExpr);
         }
 
-        impAppendTree(asg, CHECK_SPILL_NONE, impCurStmtOffs);
+        importer.impAppendTree(asg, Importer::CHECK_SPILL_NONE);
 
         if (inlineInfo->retExpr == nullptr)
         {
@@ -930,7 +1146,7 @@ bool Compiler::inlImportReturn(InlineInfo* inlineInfo, GenTree* retExpr, CORINFO
             GenTree* retBufAddr  = gtCloneExpr(inlineInfo->iciCall->gtCallArgs->GetNode());
             GenTree* retBufIndir = gtNewObjNode(typGetObjLayout(retExprClass), retBufAddr);
 
-            retExpr = impAssignStruct(retBufIndir, retExpr, CHECK_SPILL_ALL);
+            retExpr = importer.impAssignStruct(retBufIndir, retExpr, Importer::CHECK_SPILL_ALL);
         }
 
         JITDUMPTREE(retExpr, "Inliner return expression:\n");
@@ -1949,10 +2165,8 @@ void Compiler::inlInsertInlineeBlocks(const InlineInfo* inlineInfo, Statement* s
 
 void Compiler::inlPropagateInlineeCompilerState()
 {
-    compLongUsed |= InlineeCompiler->compLongUsed;
     compFloatingPointUsed |= InlineeCompiler->compFloatingPointUsed;
     compLocallocUsed |= InlineeCompiler->compLocallocUsed;
-    compLocallocOptimized |= InlineeCompiler->compLocallocOptimized;
     compQmarkUsed |= InlineeCompiler->compQmarkUsed;
     compGSReorderStackLayout |= InlineeCompiler->compGSReorderStackLayout;
     compHasBackwardJump |= InlineeCompiler->compHasBackwardJump;
@@ -2110,8 +2324,8 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
 
         if (argInfo.paramHasLcl)
         {
-            GenTree* dst = gtNewLclvNode(argInfo.paramLclNum, argInfo.paramType);
-            GenTree* asg;
+            GenTreeLclVar* dst = gtNewLclvNode(argInfo.paramLclNum, argInfo.paramType);
+            GenTree*       asg;
 
             if (argInfo.paramType != TYP_STRUCT)
             {
@@ -2126,13 +2340,11 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
             {
                 // The argument cannot be MKREFANY because TypedReference parameters block
                 // inlining. That's probably an unnecessary limitation but who cares about
-                // TypedReference?
-                // This means that impAssignStruct won't have to add new statements, it
-                // cannot do that since we're not actually importing IL.
+                // TypedReference? inlAssignStruct does not support MKREFANY.
 
                 assert(!argNode->OperIs(GT_MKREFANY));
 
-                asg = impAssignStruct(dst, argNode, CHECK_SPILL_NONE);
+                asg = inlAssignStruct(dst, argNode);
             }
 
             Statement* stmt = gtNewStmt(asg, inlineInfo->iciStmt->GetILOffsetX());
@@ -2269,6 +2481,86 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
     }
 
     return afterStmt;
+}
+
+GenTree* Compiler::inlAssignStruct(GenTreeLclVar* dest, GenTree* src)
+{
+    assert(dest->OperIs(GT_LCL_VAR));
+    assert((src->TypeIs(TYP_STRUCT) && src->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_OBJ, GT_CALL, GT_RET_EXPR)) ||
+           varTypeIsSIMD(src->GetType()));
+
+    // TODO-MIKE-Cleanup: Share code with impAssignStruct, the main difference is that
+    // impAssignStruct supports MKREFANY by appending a separate assignment statement
+    // for one of refany's field. We could probably just generate a COMMA with the 2
+    // assignements instead.
+    // On the other hand, can we get calls with return buffer here? If not, then there's
+    // not much left in this function, only the lvIsMultiRegRet that may be also redundant.
+
+    // Handle calls that return structs by reference - the destination address
+    // is passed to the call as the return buffer address and no assignment is
+    // generated.
+
+    if (GenTreeCall* call = src->IsCall())
+    {
+        if (call->TreatAsHasRetBufArg())
+        {
+            impAssignCallWithRetBuf(dest, call);
+
+            return call;
+        }
+    }
+    else if (GenTreeRetExpr* retExpr = src->IsRetExpr())
+    {
+        GenTreeCall* call = retExpr->GetCall();
+
+        assert(retExpr->GetRetExpr() == call);
+
+        if (call->TreatAsHasRetBufArg())
+        {
+            impAssignCallWithRetBuf(dest, call);
+            retExpr->SetType(TYP_VOID);
+
+            return retExpr;
+        }
+    }
+
+    // In all other cases we create and return a struct assignment node.
+
+    LclVarDsc* lcl = lvaGetDesc(dest);
+
+#if FEATURE_MULTIREG_RET
+#ifdef UNIX_AMD64_ABI
+    if (src->OperIs(GT_CALL))
+#else
+    if (src->OperIs(GT_CALL) && src->AsCall()->HasMultiRegRetVal())
+#endif
+    {
+        // If the struct is returned in multiple registers we need to set lvIsMultiRegRet
+        // on the destination local variable.
+
+        // TODO-1stClassStructs: Eliminate this pessimization when we can more generally
+        // handle multireg returns.
+
+        // TODO-MIKE-Cleanup: Why is lvIsMultiRegRet set unconditionally
+        // for UNIX_AMD64_ABI?!
+        // Well, because MultiRegRet doesn't really have much to do with
+        // multiple registers. The problem is that returning a struct in
+        // one or multiple registers results in dependent promotion if
+        // registers and promoted fields do not match. So it makes sense
+        // to block promotion if the struct is returned in a single reg
+        // but it has more than one field.
+        // At the same time, this shouldn't be needed if the struct is
+        // returned in a single register and has a single field.
+        // But what about ARMARCH?!
+        // Oh well, the usual mess.
+
+        lcl->lvIsMultiRegRet = true;
+    }
+#endif
+
+    GenTreeOp* asgNode = gtNewAssignNode(dest, src);
+    gtInitStructCopyAsg(asgNode);
+    return asgNode;
 }
 
 bool Compiler::inlCanDiscardArgSideEffects(GenTree* argNode)

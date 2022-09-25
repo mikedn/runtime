@@ -1,24 +1,19 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*****************************************************************************/
-#ifndef _PHASE_H_
-#define _PHASE_H_
+#pragma once
 
 // A phase encapsulates a part of the compilation pipeline for a method.
-//
-class Phase
+class PhaseBase
 {
+    template <typename P>
+    friend class Phase;
+
+#ifdef DEBUG
     // Observations made before a phase runs that should still
     // be true afterwards,if the phase status is MODIFIED_NOTHING.
     class Observations
     {
-    public:
-        Observations(Compiler* compiler);
-        void Check(PhaseStatus status);
-
-    private:
-#ifdef DEBUG
         Compiler* m_compiler;
         unsigned  m_fgBBcount;
         unsigned  m_fgBBNumMax;
@@ -27,113 +22,106 @@ class Phase
         unsigned  m_compGenTreeID;
         unsigned  m_compStatementID;
         unsigned  m_compBasicBlockID;
-#endif // DEBUG
+
+    public:
+        Observations(Compiler* compiler);
+        void Check(PhaseStatus status);
     };
+#endif // DEBUG
 
-public:
-    virtual void Run();
+    void PrePhase();
+    void PostPhase(PhaseStatus status);
 
-protected:
-    Phase(Compiler* _compiler, Phases _phase) : comp(_compiler), m_name(nullptr), m_phase(_phase)
+    Phases m_phaseId;
+
+    PhaseBase(Compiler* compiler, Phases phaseId) : m_phaseId(phaseId), comp(compiler)
     {
-        m_name = PhaseNames[_phase];
     }
 
-    virtual void        PrePhase();
-    virtual PhaseStatus DoPhase() = 0;
-    virtual void PostPhase(PhaseStatus status);
-
-    Compiler*   comp;
-    const char* m_name;
-    Phases      m_phase;
+protected:
+    Compiler* comp;
 };
 
-// A phase that accepts a lambda for the actions done by the phase.
-//
+template <typename P>
+class Phase : public PhaseBase
+{
+public:
+    Phase(Compiler* compiler, Phases phaseId) : PhaseBase(compiler, phaseId)
+    {
+    }
+
+    void Run()
+    {
+        INDEBUG(Observations observations(comp));
+        PrePhase();
+        PhaseStatus status = static_cast<P*>(this)->DoPhase();
+        PostPhase(status);
+        INDEBUG(observations.Check(status));
+    }
+};
+
 template <typename A>
-class ActionPhase final : public Phase
+void DoPhase(Compiler* compiler, Phases phaseId, A action)
 {
-public:
-    ActionPhase(Compiler* _compiler, Phases _phase, A _action) : Phase(_compiler, _phase), action(_action)
+    class ActionPhase final : public Phase<ActionPhase>
     {
-    }
+        A action;
 
-protected:
-    virtual PhaseStatus DoPhase() override
-    {
-        action();
-        return PhaseStatus::MODIFIED_EVERYTHING;
-    }
+    public:
+        ActionPhase(Compiler* compiler, Phases phaseId, A action)
+            : Phase<ActionPhase>(compiler, phaseId), action(action)
+        {
+        }
 
-private:
-    A action;
-};
+        PhaseStatus DoPhase()
+        {
+            action();
+            return PhaseStatus::MODIFIED_EVERYTHING;
+        }
+    } phase(compiler, phaseId, action);
 
-// Wrappers for using ActionPhase
-//
-template <typename A>
-void DoPhase(Compiler* _compiler, Phases _phase, A _action)
-{
-    ActionPhase<A> phase(_compiler, _phase, _action);
     phase.Run();
 }
 
-// A simple phase that just invokes a method on the compiler instance
-//
-class CompilerPhase final : public Phase
+inline void DoPhase(Compiler* compiler, Phases phaseId, void (Compiler::*action)())
 {
-public:
-    CompilerPhase(Compiler* _compiler, Phases _phase, void (Compiler::*_action)())
-        : Phase(_compiler, _phase), action(_action)
+    class CompilerPhase final : public Phase<CompilerPhase>
     {
-    }
+        void (Compiler::*action)();
 
-protected:
-    virtual PhaseStatus DoPhase() override
-    {
-        (comp->*action)();
-        return PhaseStatus::MODIFIED_EVERYTHING;
-    }
+    public:
+        CompilerPhase(Compiler* compiler, Phases phaseId, void (Compiler::*action)())
+            : Phase<CompilerPhase>(compiler, phaseId), action(action)
+        {
+        }
 
-private:
-    void (Compiler::*action)();
-};
+        PhaseStatus DoPhase()
+        {
+            (comp->*action)();
+            return PhaseStatus::MODIFIED_EVERYTHING;
+        }
+    } phase(compiler, phaseId, action);
 
-// Wrapper for using CompilePhase
-//
-inline void DoPhase(Compiler* _compiler, Phases _phase, void (Compiler::*_action)())
-{
-    CompilerPhase phase(_compiler, _phase, _action);
     phase.Run();
 }
 
-// A simple phase that just invokes a method on the compiler instance
-// where the method being invoked returns a PhaseStatus
-//
-class CompilerPhaseWithStatus final : public Phase
+inline void DoPhase(Compiler* compiler, Phases phaseId, PhaseStatus (Compiler::*action)())
 {
-public:
-    CompilerPhaseWithStatus(Compiler* _compiler, Phases _phase, PhaseStatus (Compiler::*_action)())
-        : Phase(_compiler, _phase), action(_action)
+    class CompilerPhase final : public Phase<CompilerPhase>
     {
-    }
+        PhaseStatus (Compiler::*action)();
 
-protected:
-    virtual PhaseStatus DoPhase() override
-    {
-        return (comp->*action)();
-    }
+    public:
+        CompilerPhase(Compiler* compiler, Phases phaseId, PhaseStatus (Compiler::*action)())
+            : Phase<CompilerPhase>(compiler, phaseId), action(action)
+        {
+        }
 
-private:
-    PhaseStatus (Compiler::*action)();
-};
+        PhaseStatus DoPhase()
+        {
+            return (comp->*action)();
+        }
+    } phase(compiler, phaseId, action);
 
-// Wrapper for using CompilePhaseWithStatus
-//
-inline void DoPhase(Compiler* _compiler, Phases _phase, PhaseStatus (Compiler::*_action)())
-{
-    CompilerPhaseWithStatus phase(_compiler, _phase, _action);
     phase.Run();
 }
-
-#endif /* End of _PHASE_H_ */

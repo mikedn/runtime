@@ -902,14 +902,13 @@ void Compiler::fgSuccOfFinallyRetWork(BasicBlock* block, unsigned i, BasicBlock*
     }
 }
 
-Compiler::SwitchUniqueSuccSet Compiler::GetDescriptorForSwitch(BasicBlock* switchBlk)
+BBswtDesc* Compiler::GetDescriptorForSwitch(BasicBlock* switchBlk)
 {
     assert(switchBlk->bbJumpKind == BBJ_SWITCH);
-    BlockToSwitchDescMap* switchMap = GetSwitchDescMap();
-    SwitchUniqueSuccSet   res;
-    if (switchMap->Lookup(switchBlk, &res))
+
+    if (switchBlk->bbJumpSwt->nonDuplicates != nullptr)
     {
-        return res;
+        return switchBlk->bbJumpSwt;
     }
     else
     {
@@ -947,17 +946,13 @@ Compiler::SwitchUniqueSuccSet Compiler::GetDescriptorForSwitch(BasicBlock* switc
 
         assert(nonDupInd == numNonDups);
         assert(BitVecOps::Count(&blockVecTraits, uniqueSuccBlocks) == 0);
-        res.numDistinctSuccs = numNonDups;
-        res.nonDuplicates    = nonDups;
-        switchMap->Set(switchBlk, res);
-        return res;
+        switchBlk->bbJumpSwt->numDistinctSuccs = numNonDups;
+        switchBlk->bbJumpSwt->nonDuplicates    = nonDups;
+        return switchBlk->bbJumpSwt;
     }
 }
 
-void Compiler::SwitchUniqueSuccSet::UpdateTarget(CompAllocator alloc,
-                                                 BasicBlock*   switchBlk,
-                                                 BasicBlock*   from,
-                                                 BasicBlock*   to)
+void BBswtDesc::UpdateTarget(CompAllocator alloc, BasicBlock* switchBlk, BasicBlock* from, BasicBlock* to)
 {
     assert(switchBlk->bbJumpKind == BBJ_SWITCH); // Precondition.
 
@@ -1043,26 +1038,31 @@ void Compiler::SwitchUniqueSuccSet::UpdateTarget(CompAllocator alloc,
  */
 void Compiler::fgInvalidateSwitchDescMapEntry(BasicBlock* block)
 {
-    // Check if map has no entries yet.
-    if (m_switchDescMap != nullptr)
+    if (block->bbJumpKind == BBJ_SWITCH)
     {
-        m_switchDescMap->Remove(block);
+        block->bbJumpSwt->nonDuplicates = nullptr;
     }
 }
 
 void Compiler::UpdateSwitchTableTarget(BasicBlock* switchBlk, BasicBlock* from, BasicBlock* to)
 {
-    if (m_switchDescMap == nullptr)
+    assert(switchBlk->bbJumpKind == BBJ_SWITCH);
+
+    if (switchBlk->bbJumpSwt->nonDuplicates == nullptr)
     {
-        return; // No mappings, nothing to do.
+        return;
     }
 
-    // Otherwise...
-    BlockToSwitchDescMap* switchMap = GetSwitchDescMap();
-    SwitchUniqueSuccSet*  res       = switchMap->LookupPointer(switchBlk);
-    if (res != nullptr)
+    switchBlk->bbJumpSwt->UpdateTarget(getAllocator(), switchBlk, from, to);
+}
+
+void Compiler::InvalidateUniqueSwitchSuccMap()
+{
+    for (BasicBlock* block : Blocks())
     {
-        // If no result, nothing to do. Otherwise, update it.
-        res->UpdateTarget(getAllocator(), switchBlk, from, to);
+        if (block->bbJumpKind == BBJ_SWITCH)
+        {
+            block->bbJumpSwt->nonDuplicates = nullptr;
+        }
     }
 }

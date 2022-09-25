@@ -75,6 +75,7 @@ typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, VARSET_TP*> NodeToVarset
 
 class GCInfo
 {
+    friend class CodeGenInterface;
     friend class CodeGen;
 
 private:

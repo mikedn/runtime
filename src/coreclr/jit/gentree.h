@@ -48,13 +48,10 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 //   GenTreeOps nodes, for which codegen will generate the branch
 //     - it will use the appropriate kind based on the opcode, though it's not
 //       clear why SCK_OVERFLOW == SCK_ARITH_EXCPN
-// SCK_PAUSE_EXEC is not currently used.
 //
 enum SpecialCodeKind
 {
-    SCK_NONE,
     SCK_RNGCHK_FAIL,                // target when range check fails
-    SCK_PAUSE_EXEC,                 // target to stop (e.g. to allow GC)
     SCK_DIV_BY_ZERO,                // target for divide by zero (Not used on X86/X64)
     SCK_ARITH_EXCPN,                // target on arithmetic exception
     SCK_OVERFLOW = SCK_ARITH_EXCPN, // target on overflow
@@ -480,7 +477,9 @@ enum GenTreeFlags : unsigned int
     GTF_CALL_VIRT_VTABLE        = 0x20000000, // GT_CALL -- a  vtable-based virtual call
 
     GTF_CALL_NULLCHECK          = 0x08000000, // GT_CALL -- must check instance pointer for null
+#ifdef TARGET_X86
     GTF_CALL_POP_ARGS           = 0x04000000, // GT_CALL -- caller pop arguments?
+#endif
     GTF_CALL_HOISTABLE          = 0x02000000, // GT_CALL -- call is hoistable
 
     GTF_MEMORYBARRIER_LOAD      = 0x40000000, // GT_MEMORYBARRIER -- Load barrier
@@ -1995,7 +1994,7 @@ public:
         return t1->GetIconHandleFlag() == t2->GetIconHandleFlag();
     }
 
-    inline bool IsHelperCall();
+    bool IsHelperCall();
 
     bool gtOverflow() const;
     bool gtOverflowEx() const;
@@ -2133,7 +2132,7 @@ public:
 
     inline GenTree(genTreeOps oper, var_types type DEBUGARG(bool largeNode = false));
 
-    GenTree(GenTree* copyFrom) : GenTree(copyFrom->gtOper, copyFrom->gtType)
+    GenTree(const GenTree* copyFrom) : GenTree(copyFrom->gtOper, copyFrom->gtType)
     {
     }
 };
@@ -2733,7 +2732,7 @@ protected:
         }
     }
 
-    GenTreeUnOp(GenTreeUnOp* copyFrom) : GenTree(copyFrom), gtOp1(copyFrom->gtOp1)
+    GenTreeUnOp(const GenTreeUnOp* copyFrom) : GenTree(copyFrom), gtOp1(copyFrom->gtOp1)
     {
     }
 
@@ -2801,7 +2800,7 @@ struct GenTreeOp : public GenTreeUnOp
         assert((oper == GT_NOP) || (oper == GT_RETURN) || (oper == GT_RETFILT));
     }
 
-    GenTreeOp(GenTreeOp* copyFrom) : GenTreeUnOp(copyFrom), gtOp2(copyFrom->gtOp2)
+    GenTreeOp(const GenTreeOp* copyFrom) : GenTreeUnOp(copyFrom), gtOp2(copyFrom->gtOp2)
     {
     }
 
@@ -3381,17 +3380,13 @@ struct GenTreeLclVar : public GenTreeLclVarCommon
     unsigned GetMultiRegCount(Compiler* compiler) const;
     var_types GetMultiRegType(Compiler* compiler, unsigned regIndex);
 
-    GenTreeLclVar(genTreeOps oper,
-                  var_types  type,
-                  unsigned lclNum DEBUGARG(IL_OFFSET ilOffs = BAD_IL_OFFSET) DEBUGARG(bool largeNode = false))
+    GenTreeLclVar(genTreeOps oper, var_types type, unsigned lclNum DEBUGARG(bool largeNode = false))
         : GenTreeLclVarCommon(oper, type, lclNum DEBUGARG(largeNode))
     {
         assert(OperIsLocal(oper) || OperIsLocalAddr(oper));
     }
 
-    GenTreeLclVar(var_types type,
-                  unsigned  lclNum,
-                  GenTree* value DEBUGARG(IL_OFFSET ilOffs = BAD_IL_OFFSET) DEBUGARG(bool largeNode = false))
+    GenTreeLclVar(var_types type, unsigned lclNum, GenTree* value DEBUGARG(bool largeNode = false))
         : GenTreeLclVarCommon(GT_STORE_LCL_VAR, type, lclNum DEBUGARG(largeNode))
     {
         gtFlags |= GTF_ASG | GTF_VAR_DEF;
@@ -3703,7 +3698,6 @@ enum GenTreeCallFlags : unsigned int
                                                      // in special cases. Used to optimize fast way out in morphing
     GTF_CALL_M_UNMGD_THISCALL          = 0x00000080, // "this" pointer (first argument) should be enregistered (only for GTF_CALL_UNMANAGED)
     GTF_CALL_M_VIRTSTUB_REL_INDIRECT   = 0x00000080, // the virtstub is indirected through a relative address (only for GTF_CALL_VIRT_STUB)
-    GTF_CALL_M_NONVIRT_SAME_THIS       = 0x00000080, // callee "this" pointer is equal to caller this pointer (only for GTF_CALL_NONVIRT)
 #ifdef TARGET_X86
     GTF_CALL_M_TAILCALL_VIA_JIT_HELPER = 0x00000200, // call is a tail call dispatched via tail call JIT helper.
 #endif
@@ -3857,54 +3851,48 @@ class TailCallSiteInfo
     CORINFO_RESOLVED_TOKEN m_token;
 
 public:
-    // Is the tailcall a callvirt instruction?
+    TailCallSiteInfo(const CORINFO_SIG_INFO* sig) : m_sig(*sig)
+    {
+    }
+
     bool IsCallvirt()
     {
         return m_isCallvirt;
     }
 
-    // Is the tailcall a calli instruction?
     bool IsCalli()
     {
         return m_isCalli;
     }
 
-    // Get the token of the callee
     CORINFO_RESOLVED_TOKEN* GetToken()
     {
         assert(!IsCalli());
         return &m_token;
     }
 
-    // Get the signature of the callee
     CORINFO_SIG_INFO* GetSig()
     {
         return &m_sig;
     }
 
-    // Mark the tailcall as a calli with the given signature
-    void SetCalli(CORINFO_SIG_INFO* sig)
+    void SetCalli()
     {
         m_isCallvirt = false;
         m_isCalli    = true;
-        m_sig        = *sig;
     }
 
-    // Mark the tailcall as a callvirt with the given signature and token
-    void SetCallvirt(CORINFO_SIG_INFO* sig, CORINFO_RESOLVED_TOKEN* token)
+    void SetCallvirt(CORINFO_RESOLVED_TOKEN* token)
     {
         m_isCallvirt = true;
         m_isCalli    = false;
-        m_sig        = *sig;
         m_token      = *token;
     }
 
-    // Mark the tailcall as a call with the given signature and token
-    void SetCall(CORINFO_SIG_INFO* sig, CORINFO_RESOLVED_TOKEN* token)
+    void SetCall(CORINFO_RESOLVED_TOKEN* token)
     {
         m_isCallvirt = false;
         m_isCalli    = false;
-        m_sig        = *sig;
         m_token      = *token;
     }
 };
@@ -3924,7 +3912,7 @@ struct GenTreeCall final : public GenTree
         Use(GenTree* node, Use* next = nullptr)
             : m_node(node)
             , m_next(next)
-            // Always record the type of node at call arg's creation. impPopCallArgs will override this with
+            // Always record the type of node at call arg's creation. PopCallArgs will override this with
             // the actual signature type but for helper calls there is no signature information so we'll just
             // whatever we have. Helper calls usually don't have struct params so this should work most of the
             // time. Hopefully helper calls also don't have small int params, otherwise this will get messy on
@@ -4218,22 +4206,29 @@ public:
     {
         return (gtFlags & GTF_CALL_UNMANAGED) != 0;
     }
+
     bool NeedsNullCheck() const
     {
         return (gtFlags & GTF_CALL_NULLCHECK) != 0;
     }
+
+#ifdef TARGET_X86
     bool CallerPop() const
     {
         return (gtFlags & GTF_CALL_POP_ARGS) != 0;
     }
+#endif
+
     bool IsVirtual() const
     {
         return (gtFlags & GTF_CALL_VIRT_KIND_MASK) != GTF_CALL_NONVIRT;
     }
+
     bool IsVirtualStub() const
     {
         return (gtFlags & GTF_CALL_VIRT_KIND_MASK) == GTF_CALL_VIRT_STUB;
     }
+
     bool IsVirtualVtable() const
     {
         return (gtFlags & GTF_CALL_VIRT_KIND_MASK) == GTF_CALL_VIRT_VTABLE;
@@ -4355,10 +4350,6 @@ public:
 #endif
     }
 
-    bool IsSameThis() const
-    {
-        return (gtCallMoreFlags & GTF_CALL_M_NONVIRT_SAME_THIS) != 0;
-    }
     bool IsDelegateInvoke() const
     {
         return (gtCallMoreFlags & GTF_CALL_M_DELEGATE_INV) != 0;
@@ -4537,6 +4528,9 @@ public:
         assert(IsInlineCandidate());
         return gtInlineCandidateInfo;
     }
+
+    bool IsTypeHandleToRuntimeTypeHelperCall() const;
+    bool IsTypeHandleToRuntimeTypeHandleHelperCall() const;
 
     static bool Equals(GenTreeCall* c1, GenTreeCall* c2);
 
@@ -5155,45 +5149,42 @@ struct GenTreeQmark : public GenTreeTernaryOp
 
 struct GenTreeIntrinsic : public GenTreeOp
 {
-    CorInfoIntrinsics     gtIntrinsicId;
-    NamedIntrinsic        gtIntrinsicName;
-    CORINFO_METHOD_HANDLE gtMethodHandle; // Method handle of the method which is treated as an intrinsic.
+private:
+    NamedIntrinsic m_intrinsicName;
 
+public:
+    CORINFO_METHOD_HANDLE gtMethodHandle; // Method handle of the method which is treated as an intrinsic.
 #ifdef FEATURE_READYTORUN_COMPILER
     // Call target lookup info for method call from a Ready To Run module
     CORINFO_CONST_LOOKUP gtEntryPoint;
 #endif
 
-    GenTreeIntrinsic(var_types             type,
-                     GenTree*              op1,
-                     CorInfoIntrinsics     intrinsicId,
-                     NamedIntrinsic        intrinsicName,
-                     CORINFO_METHOD_HANDLE methodHandle)
-        : GenTreeOp(GT_INTRINSIC, type, op1, nullptr)
-        , gtIntrinsicId(intrinsicId)
-        , gtIntrinsicName(intrinsicName)
-        , gtMethodHandle(methodHandle)
+    GenTreeIntrinsic(var_types type, GenTree* op1, NamedIntrinsic intrinsicName, CORINFO_METHOD_HANDLE methodHandle)
+        : GenTreeOp(GT_INTRINSIC, type, op1, nullptr), m_intrinsicName(intrinsicName), gtMethodHandle(methodHandle)
     {
-        assert(intrinsicId != CORINFO_INTRINSIC_Illegal || intrinsicName != NI_Illegal);
+        assert(intrinsicName != NI_Illegal);
     }
 
-    GenTreeIntrinsic(var_types             type,
-                     GenTree*              op1,
-                     GenTree*              op2,
-                     CorInfoIntrinsics     intrinsicId,
-                     NamedIntrinsic        intrinsicName,
-                     CORINFO_METHOD_HANDLE methodHandle)
-        : GenTreeOp(GT_INTRINSIC, type, op1, op2)
-        , gtIntrinsicId(intrinsicId)
-        , gtIntrinsicName(intrinsicName)
-        , gtMethodHandle(methodHandle)
+    GenTreeIntrinsic(
+        var_types type, GenTree* op1, GenTree* op2, NamedIntrinsic intrinsicName, CORINFO_METHOD_HANDLE methodHandle)
+        : GenTreeOp(GT_INTRINSIC, type, op1, op2), m_intrinsicName(intrinsicName), gtMethodHandle(methodHandle)
     {
-        assert(intrinsicId != CORINFO_INTRINSIC_Illegal || intrinsicName != NI_Illegal);
+        assert(intrinsicName != NI_Illegal);
+    }
+
+    GenTreeIntrinsic(const GenTreeIntrinsic* copyFrom)
+        : GenTreeOp(copyFrom)
+        , m_intrinsicName(copyFrom->m_intrinsicName)
+        , gtMethodHandle(copyFrom->gtMethodHandle)
+#ifdef FEATURE_READYTORUN_COMPILER
+        , gtEntryPoint(copyFrom->gtEntryPoint)
+#endif
+    {
     }
 
     NamedIntrinsic GetIntrinsic()
     {
-        return gtIntrinsicName;
+        return m_intrinsicName;
     }
 
 #if DEBUGGABLE_GENTREE
@@ -6391,7 +6382,7 @@ private:
     BasicBlockFlags m_retBlockIRSummary;
 
 public:
-    GenTreeRetExpr(var_types type, GenTreeCall* call);
+    GenTreeRetExpr(GenTreeCall* call);
 
     GenTreeCall* GetCall() const
     {
@@ -6438,16 +6429,8 @@ class InlineContext;
 struct GenTreeILOffset : public GenTree
 {
     IL_OFFSETX gtStmtILoffsx; // instr offset (if available)
-#ifdef DEBUG
-    IL_OFFSET gtStmtLastILoffs; // instr offset at end of stmt
-#endif
 
-    GenTreeILOffset(IL_OFFSETX offset DEBUGARG(IL_OFFSET lastOffset = BAD_IL_OFFSET))
-        : GenTree(GT_IL_OFFSET, TYP_VOID)
-        , gtStmtILoffsx(offset)
-#ifdef DEBUG
-        , gtStmtLastILoffs(lastOffset)
-#endif
+    GenTreeILOffset(IL_OFFSETX offset) : GenTree(GT_IL_OFFSET, TYP_VOID), gtStmtILoffsx(offset)
     {
     }
 
@@ -6525,7 +6508,6 @@ public:
         , m_inlineContext(nullptr)
         , m_ILOffsetX(offset)
 #ifdef DEBUG
-        , m_lastILOffset(BAD_IL_OFFSET)
         , m_stmtID(stmtID)
 #endif
         , m_compilerAdded(false)
@@ -6595,22 +6577,11 @@ public:
     }
 
 #ifdef DEBUG
-
-    IL_OFFSET GetLastILOffset() const
-    {
-        return m_lastILOffset;
-    }
-
-    void SetLastILOffset(IL_OFFSET lastILOffset)
-    {
-        m_lastILOffset = lastILOffset;
-    }
-
     unsigned GetID() const
     {
         return m_stmtID;
     }
-#endif // DEBUG
+#endif
 
     Statement* GetNextStmt() const
     {
@@ -6676,10 +6647,7 @@ private:
 
     IL_OFFSETX m_ILOffsetX; // The instr offset (if available).
 
-#ifdef DEBUG
-    IL_OFFSET m_lastILOffset; // The instr offset at the end of this statement.
-    unsigned  m_stmtID;
-#endif
+    INDEBUG(unsigned m_stmtID;)
 
     bool m_compilerAdded; // Was the statement created by optimizer?
 };

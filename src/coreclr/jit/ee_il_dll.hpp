@@ -42,17 +42,6 @@ void Compiler::eeGetFieldInfo(CORINFO_RESOLVED_TOKEN* pResolvedToken,
     info.compCompHnd->getFieldInfo(pResolvedToken, info.compMethodHnd, accessFlags, pResult);
 }
 
-/*****************************************************************************
- *
- *          VOS info, method sigs, etc
- */
-
-FORCEINLINE
-bool Compiler::eeIsValueClass(CORINFO_CLASS_HANDLE clsHnd)
-{
-    return info.compCompHnd->isValueClass(clsHnd);
-}
-
 FORCEINLINE
 void Compiler::eeGetSig(unsigned               sigTok,
                         CORINFO_MODULE_HANDLE  scope,
@@ -126,22 +115,6 @@ inline CORINFO_CLASS_HANDLE Compiler::eeGetClassFromContext(CORINFO_CONTEXT_HAND
     {
         return info.compCompHnd->getMethodClass(CORINFO_METHOD_HANDLE((SIZE_T)context & ~CORINFO_CONTEXTFLAGS_MASK));
     }
-}
-
-/*****************************************************************************
- *
- *                  Native Direct Optimizations
- */
-
-inline CORINFO_EE_INFO* Compiler::eeGetEEInfo()
-{
-    if (!eeInfoInitialized)
-    {
-        info.compCompHnd->getEEInfo(&eeInfo);
-        eeInfoInitialized = true;
-    }
-
-    return &eeInfo;
 }
 
 inline var_types JITtype2varType(CorInfoType type)
@@ -241,7 +214,7 @@ inline var_types CorTypeToPreciseVarType(CorInfoType type)
     return map[type];
 }
 
-inline CORINFO_CALLINFO_FLAGS combine(CORINFO_CALLINFO_FLAGS flag1, CORINFO_CALLINFO_FLAGS flag2)
+inline CORINFO_CALLINFO_FLAGS operator|(CORINFO_CALLINFO_FLAGS flag1, CORINFO_CALLINFO_FLAGS flag2)
 {
-    return (CORINFO_CALLINFO_FLAGS)(flag1 | flag2);
+    return static_cast<CORINFO_CALLINFO_FLAGS>(static_cast<int>(flag1) | static_cast<int>(flag2));
 }

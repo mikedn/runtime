@@ -539,10 +539,6 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             genProduceReg(treeNode);
             break;
 
-        case GT_IL_OFFSET:
-            // Do nothing; these nodes are simply markers for debug info.
-            break;
-
         case GT_INSTR:
             genCodeForInstr(treeNode->AsInstr());
             break;
@@ -2821,16 +2817,11 @@ void CodeGen::genJmpMethod(GenTree* jmp)
         emitAttr  storeSize = emitActualTypeSize(storeType);
 
 #ifdef TARGET_ARM
+        // TODO-MIKE-Cleanup: This is likely dead code.
         if (varDsc->TypeGet() == TYP_LONG)
         {
             // long - at least the low half must be enregistered
             GetEmitter()->emitIns_S_R(INS_str, EA_4BYTE, varDsc->GetRegNum(), varNum, 0);
-
-            // Is the upper half also enregistered?
-            if (varDsc->GetOtherReg() != REG_STK)
-            {
-                GetEmitter()->emitIns_S_R(INS_str, EA_4BYTE, varDsc->GetOtherReg(), varNum, sizeof(int));
-            }
         }
         else
 #endif // TARGET_ARM
@@ -3433,8 +3424,8 @@ void CodeGen::genCreateAndStoreGCInfo(unsigned codeSize,
 
     // GC Encoder automatically puts the GC info in the right spot using ICorJitInfo::allocGCInfo(size_t)
     // let's save the values anyway for debugging purposes
-    compiler->compInfoBlkAddr = gcInfoEncoder->Emit();
-    compiler->compInfoBlkSize = 0; // not exposed by the GCEncoder interface
+    compInfoBlkAddr = gcInfoEncoder->Emit();
+    compInfoBlkSize = 0; // not exposed by the GCEncoder interface
 }
 
 // clang-format off

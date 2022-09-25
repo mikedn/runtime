@@ -73,10 +73,10 @@ bool Compiler::shouldDoubleAlign(unsigned             refCntStk,
     unsigned bytesUsed         = refCntStk + refCntEBP - refCntStkParam + DBL_ALIGN_SETUP_SIZE;
     unsigned misaligned_weight = 4;
 
-    if (compCodeOpt() == Compiler::SMALL_CODE)
+    if (compCodeOpt() == SMALL_CODE)
         misaligned_weight = 0;
 
-    if (compCodeOpt() == Compiler::FAST_CODE)
+    if (compCodeOpt() == FAST_CODE)
         misaligned_weight *= 4;
 
     JITDUMP("\nDouble alignment:\n");

@@ -35,7 +35,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 struct FilterSuperPMIExceptionsParam_eeinterface
 {
     Compiler*               pThis;
-    Compiler::Info*         pJitInfo;
+    CompiledMethodInfo*     pJitInfo;
     bool                    hasThis;
     size_t                  siglength;
     CORINFO_SIG_INFO        sig;

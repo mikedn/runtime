@@ -2899,10 +2899,6 @@ void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
         {
             compiler->compFloatingPointUsed = true;
         }
-        else if (field.type == TYP_LONG)
-        {
-            compiler->compLongUsed = true;
-        }
 
         FieldSeqNode* fieldSeq = nullptr;
 
@@ -2949,11 +2945,17 @@ void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
 #ifdef UNIX_AMD64_ABI
         if (varTypeIsSIMD(fieldLcl->GetType()) && (lcl->GetPromotedFieldCount() == 1))
         {
-            fieldLcl->SetArgReg(lcl->GetArgReg());
-            fieldLcl->SetOtherArgReg(lcl->GetOtherArgReg());
-            continue;
+            fieldLcl->SetParamReg(0, lcl->GetParamReg(0));
+            fieldLcl->SetParamReg(1, lcl->GetParamReg(1));
         }
-#endif
+        else
+        {
+            assert(field.offset == REGSIZE_BYTES * index);
+
+            fieldLcl->SetParamReg(0, lcl->GetParamReg(index));
+        }
+#else // !UNIX_AMD64_ABI
+        unsigned regIndex = index;
 
         if (lcl->lvIsHfa())
         {
@@ -2962,8 +2964,6 @@ void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
             // with holes. Is that even a thing? The VM seems to think that it is...
             assert(field.offset == index * varTypeSize(lcl->GetLayout()->GetHfaElementType()));
 
-            unsigned regIndex = index;
-
 #ifdef TARGET_ARM
             if (lcl->GetLayout()->GetHfaElementType() == TYP_DOUBLE)
             {
@@ -2971,22 +2971,16 @@ void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
                 regIndex *= 2;
             }
 #endif
-
-            fieldLcl->SetArgReg(static_cast<regNumber>(lcl->GetArgReg() + regIndex));
-            continue;
-        }
-
-        // TODO-ARMARCH: Need to determine if/how to handle split args.
-
-        if (index == 0)
-        {
-            fieldLcl->SetArgReg(lcl->GetArgReg());
         }
         else
         {
-            assert(index == 1);
-            fieldLcl->SetArgReg(lcl->GetOtherArgReg());
+            assert(field.offset == index * REGSIZE_BYTES);
+
+            // TODO-ARMARCH: Need to determine if/how to handle split args.
         }
+
+        fieldLcl->SetArgReg(static_cast<regNumber>(lcl->GetArgReg() + regIndex));
+#endif // !UNIX_AMD64_ABI
 #endif // FEATURE_MULTIREG_ARGS
     }
 }

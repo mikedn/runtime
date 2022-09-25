@@ -54,8 +54,6 @@ struct RegState
 //-------------------- CodeGenInterface ---------------------------------
 // interface to hide the full CodeGen implementation from rest of Compiler
 
-CodeGenInterface* getCodeGenerator(Compiler* comp);
-
 class CodeGenInterface
 {
     friend class emitter;
@@ -82,20 +80,39 @@ public:
         m_genAlignLoops = value;
     }
 
+    Compiler* compiler;
+
+    //  The following holds information about instr offsets in terms of generated code.
+    struct IPmappingDsc
+    {
+        IPmappingDsc* ipmdNext;      // next line# record
+        emitLocation  ipmdNativeLoc; // the emitter location of the native code corresponding to the IL offset
+        IL_OFFSETX    ipmdILoffsx;   // the instr offset
+        bool          ipmdIsLabel;   // Can this code be a branch label?
+    };
+
+    // Record the instr offset mapping to the generated code
+    IPmappingDsc* genIPmappingList = nullptr;
+    IPmappingDsc* genIPmappingLast = nullptr;
+
+    //  The following is used to create the 'method JIT info' block.
+    size_t compInfoBlkSize;
+    BYTE*  compInfoBlkAddr;
+
     GCInfo gcInfo;
 
     RegSet   regSet;
     RegState intRegState;
     RegState floatRegState;
 
-protected:
-    Compiler* compiler;
-    bool      m_genAlignLoops;
+    FrameType rpFrameType;
 
 protected:
+    bool m_genAlignLoops;
+
 #ifdef DEBUG
     VARSET_TP genTempOldLife;
-    bool      genTempLiveChg;
+    bool      genTempLiveChg = true;
 #endif
 
     VARSET_TP genLastLiveSet;  // A one element map (genLastLiveSet-> genLastLiveMask)
@@ -245,7 +262,7 @@ public:
     }
 
 protected:
-    bool genInterruptibleUsed;
+    bool genInterruptibleUsed = false;
 #endif
 
 public:
@@ -284,11 +301,11 @@ protected:
 
 public:
 #ifdef DEBUG
-    void setVerbose(bool value)
+    void setVerbose()
     {
-        verbose = value;
+        verbose = true;
     }
-    bool verbose;
+    bool verbose = false;
 #endif // DEBUG
 
     // The following is set to true if we've determined that the current method
@@ -317,9 +334,9 @@ public:
 #endif // TARGET_ARMARCH
 
 private:
-    bool m_cgInterruptible;
+    bool m_cgInterruptible = false;
 #ifdef TARGET_ARMARCH
-    bool m_cgHasTailCalls;
+    bool m_cgHasTailCalls = false;
 #endif // TARGET_ARMARCH
 
     //  The following will be set to true if we've determined that we need to
@@ -708,6 +725,9 @@ public:
 
     virtual const char* siStackVarName(size_t offs, size_t size, unsigned reg, unsigned stkOffs) = 0;
 #endif // LATE_DISASM
+
+public:
+    class LinearScanInterface* m_pLinearScan = nullptr;
 };
 
 StructStoreKind GetStructStoreKind(bool isLocalStore, ClassLayout* layout, GenTree* src);

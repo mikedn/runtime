@@ -840,14 +840,14 @@ regMaskTP LinearScan::getKillSetForCall(GenTreeCall* call)
 #ifdef TARGET_ARM
         if (call->IsVirtualStub())
         {
-            killMask |= genRegMask(compiler->virtualStubParamInfo.GetRegNum());
+            killMask |= genRegMask(compiler->info.virtualStubParamRegNum);
         }
 #else
         // Verify that the special virtual stub call register is in the kill mask.
         // We don't just add it unconditionally to the killMask because for most
         // architectures it is already in the RBM_CALLEE_TRASH set, and we don't
         // want to introduce extra checks and calls in this hot function.
-        assert(!call->IsVirtualStub() || ((killMask & genRegMask(compiler->virtualStubParamInfo.GetRegNum())) != 0));
+        assert(!call->IsVirtualStub() || ((killMask & genRegMask(compiler->info.virtualStubParamRegNum)) != 0));
 #endif
     }
     return killMask;
@@ -1895,35 +1895,38 @@ void LinearScan::insertZeroInitRefPositions()
 //
 void LinearScan::unixAmd64UpdateRegStateForArg(LclVarDsc* argDsc)
 {
-    assert(varTypeIsStruct(argDsc));
+    assert(varTypeIsStruct(argDsc->GetType()));
+
     RegState* intRegState   = &compiler->codeGen->intRegState;
     RegState* floatRegState = &compiler->codeGen->floatRegState;
+    regNumber reg0          = argDsc->GetParamReg(0);
+    regNumber reg1          = argDsc->GetParamReg(1);
 
-    if ((argDsc->GetArgReg() != REG_STK) && (argDsc->GetArgReg() != REG_NA))
+    if ((reg0 != REG_STK) && (reg0 != REG_NA))
     {
-        if (genRegMask(argDsc->GetArgReg()) & (RBM_ALLFLOAT))
+        if (genRegMask(reg0) & RBM_ALLFLOAT)
         {
-            assert(genRegMask(argDsc->GetArgReg()) & (RBM_FLTARG_REGS));
-            floatRegState->rsCalleeRegArgMaskLiveIn |= genRegMask(argDsc->GetArgReg());
+            assert(genRegMask(reg0) & RBM_FLTARG_REGS);
+            floatRegState->rsCalleeRegArgMaskLiveIn |= genRegMask(reg0);
         }
         else
         {
-            assert(genRegMask(argDsc->GetArgReg()) & (RBM_ARG_REGS));
-            intRegState->rsCalleeRegArgMaskLiveIn |= genRegMask(argDsc->GetArgReg());
+            assert(genRegMask(reg0) & RBM_ARG_REGS);
+            intRegState->rsCalleeRegArgMaskLiveIn |= genRegMask(reg0);
         }
     }
 
-    if ((argDsc->GetOtherArgReg() != REG_STK) && (argDsc->GetOtherArgReg() != REG_NA))
+    if ((reg1 != REG_STK) && (reg1 != REG_NA))
     {
-        if (genRegMask(argDsc->GetOtherArgReg()) & (RBM_ALLFLOAT))
+        if (genRegMask(reg1) & RBM_ALLFLOAT)
         {
-            assert(genRegMask(argDsc->GetOtherArgReg()) & (RBM_FLTARG_REGS));
-            floatRegState->rsCalleeRegArgMaskLiveIn |= genRegMask(argDsc->GetOtherArgReg());
+            assert(genRegMask(reg1) & RBM_FLTARG_REGS);
+            floatRegState->rsCalleeRegArgMaskLiveIn |= genRegMask(reg1);
         }
         else
         {
-            assert(genRegMask(argDsc->GetOtherArgReg()) & (RBM_ARG_REGS));
-            intRegState->rsCalleeRegArgMaskLiveIn |= genRegMask(argDsc->GetOtherArgReg());
+            assert(genRegMask(reg1) & RBM_ARG_REGS);
+            intRegState->rsCalleeRegArgMaskLiveIn |= genRegMask(reg1);
         }
     }
 }
@@ -1978,12 +1981,6 @@ void LinearScan::updateRegStateForArg(LclVarDsc* argDsc)
         else
         {
             JITDUMP("Int arg V%02u in reg %s\n", (argDsc - compiler->lvaTable), getRegName(argDsc->GetArgReg()));
-#if FEATURE_MULTIREG_ARGS
-            if (argDsc->GetOtherArgReg() != REG_NA)
-            {
-                JITDUMP("(second half) in reg %s\n", getRegName(argDsc->GetOtherArgReg()));
-            }
-#endif // FEATURE_MULTIREG_ARGS
             compiler->raUpdateRegStateForArg(intRegState, argDsc);
         }
     }

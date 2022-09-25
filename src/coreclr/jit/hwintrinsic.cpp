@@ -40,7 +40,7 @@ const HWIntrinsicInfo& HWIntrinsicInfo::lookup(NamedIntrinsic id)
     return hwIntrinsicInfoArray[id - NI_HW_INTRINSIC_START - 1];
 }
 
-var_types Compiler::impGetHWIntrinsicBaseTypeFromArg(NamedIntrinsic    intrinsic,
+var_types Importer::impGetHWIntrinsicBaseTypeFromArg(NamedIntrinsic    intrinsic,
                                                      CORINFO_SIG_INFO* sig,
                                                      var_types         baseType,
                                                      ClassLayout**     argLayout)
@@ -178,7 +178,7 @@ bool HWIntrinsicInfo::isImmOp(NamedIntrinsic id, const GenTree* op)
     return true;
 }
 
-GenTree* Compiler::impPopArgForHWIntrinsic(var_types paramType, ClassLayout* paramLayout)
+GenTree* Importer::impPopArgForHWIntrinsic(var_types paramType, ClassLayout* paramLayout)
 {
     if (!varTypeIsStruct(paramType))
     {
@@ -208,7 +208,7 @@ GenTree* Compiler::impPopArgForHWIntrinsic(var_types paramType, ClassLayout* par
 //     add a GT_HW_INTRINSIC_CHK node for non-full-range imm-intrinsic, which would throw ArgumentOutOfRangeException
 //     when the imm-argument is not in the valid range
 //
-GenTree* Compiler::addRangeCheckIfNeeded(
+GenTree* Importer::addRangeCheckIfNeeded(
     NamedIntrinsic intrinsic, GenTree* immOp, bool mustExpand, int immLowerBound, int immUpperBound)
 {
     assert(immOp != nullptr);
@@ -243,7 +243,7 @@ GenTree* Compiler::addRangeCheckIfNeeded(
 //     add a GT_HW_INTRINSIC_CHK node for non-full-range imm-intrinsic, which would throw ArgumentOutOfRangeException
 //     when the imm-argument is not in the valid range
 //
-GenTree* Compiler::addRangeCheckForHWIntrinsic(GenTree* immOp, int immLowerBound, int immUpperBound)
+GenTree* Importer::addRangeCheckForHWIntrinsic(GenTree* immOp, int immLowerBound, int immUpperBound)
 {
     // Bounds check for value of an immediate operand
     //   (immLowerBound <= immOp) && (immOp <= immUpperBound)
@@ -268,7 +268,7 @@ GenTree* Compiler::addRangeCheckForHWIntrinsic(GenTree* immOp, int immLowerBound
         immOpUses[1] = gtNewOperNode(GT_SUB, TYP_INT, immOpUses[1], gtNewIconNode(immLowerBound, TYP_INT));
     }
 
-    GenTreeBoundsChk* hwIntrinsicChk = new (this, GT_HW_INTRINSIC_CHK)
+    GenTreeBoundsChk* hwIntrinsicChk = new (comp, GT_HW_INTRINSIC_CHK)
         GenTreeBoundsChk(GT_HW_INTRINSIC_CHK, immOpUses[1], adjustedUpperBoundNode, SCK_ARG_RNG_EXCPN);
 
     return gtNewCommaNode(hwIntrinsicChk, immOpUses[0]);
@@ -438,7 +438,7 @@ void HWIntrinsicSignature::Read(Compiler* compiler, CORINFO_SIG_INFO* sig)
 // Return Value:
 //    The GT_HWINTRINSIC node, or nullptr if not a supported intrinsic
 //
-GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
+GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
                                   CORINFO_CLASS_HANDLE  clsHnd,
                                   CORINFO_METHOD_HANDLE method,
                                   CORINFO_SIG_INFO*     sig,
@@ -450,11 +450,11 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
     unsigned               simdSize = static_cast<unsigned>(HWIntrinsicInfo::lookup(intrinsic).simdSize);
 
     HWIntrinsicSignature sigReader;
-    sigReader.Read(this, sig);
+    sigReader.Read(comp, sig);
     var_types    retType   = sigReader.retType;
     ClassLayout* retLayout = sigReader.retLayout;
 
-    if ((retLayout != nullptr) && featureSIMD)
+    if ((retLayout != nullptr) && comp->featureSIMD)
     {
         // Currently all HW intrinsics return either vectors or primitive types, not structs.
         if (!retLayout->IsVector() || retLayout->ElementTypeIsNInt())
@@ -673,7 +673,7 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
     {
         // Set `compFloatingPointUsed` to cover the scenario where an intrinsic is operating on SIMD fields, but
         // where no SIMD local vars are in use. This is the same logic as is used for FEATURE_SIMD.
-        compFloatingPointUsed = true;
+        comp->compFloatingPointUsed = true;
     }
 
     if (!impIsTableDrivenHWIntrinsic(intrinsic, category))
@@ -885,7 +885,7 @@ GenTree* Compiler::impHWIntrinsic(NamedIntrinsic        intrinsic,
     return retNode;
 }
 
-GenTree* Compiler::impVectorGetElement(ClassLayout* layout, GenTree* value, GenTree* index)
+GenTree* Importer::impVectorGetElement(ClassLayout* layout, GenTree* value, GenTree* index)
 {
     assert(value->GetType() == layout->GetSIMDType());
     assert(varActualType(index->GetType()) == TYP_INT);

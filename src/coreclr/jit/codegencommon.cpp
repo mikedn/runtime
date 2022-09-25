@@ -56,84 +56,33 @@ void CodeGenInterface::setFramePointerRequiredEH(bool value)
 #endif // JIT32_GCENCODER
 }
 
-CodeGenInterface* getCodeGenerator(Compiler* comp)
+void Compiler::codeGenInit()
 {
-    return new (comp, CMK_Codegen) CodeGen(comp);
+    codeGen = new (this, CMK_Codegen) CodeGen(this);
 }
 
-CodeGenInterface::CodeGenInterface(Compiler* compiler) : gcInfo(compiler), regSet(compiler, gcInfo), compiler(compiler)
+CodeGenInterface::CodeGenInterface(Compiler* compiler) : compiler(compiler), gcInfo(compiler), regSet(compiler, gcInfo)
 {
+    gcInfo.regSet = &regSet;
 }
 
-CodeGen::CodeGen(Compiler* compiler)
-    : CodeGenInterface(compiler)
-    , m_liveness(compiler)
-#if defined(TARGET_XARCH)
-    , negBitmaskFlt(nullptr)
-    , negBitmaskDbl(nullptr)
-    , absBitmaskFlt(nullptr)
-    , absBitmaskDbl(nullptr)
-    , u8ToDblBitmask(nullptr)
-    , u8ToFltBitmask(nullptr)
-#endif
+CodeGen::CodeGen(Compiler* compiler) : CodeGenInterface(compiler), m_liveness(compiler)
 {
-#if defined(UNIX_X86_ABI)
-    curNestedAlignment = 0;
-    maxNestedAlignment = 0;
-#endif
-
-    gcInfo.regSet        = &regSet;
-    m_cgEmitter          = new (compiler->getAllocator()) emitter();
-    m_cgEmitter->codeGen = this;
-    m_cgEmitter->gcInfo  = &gcInfo;
-
-#ifdef DEBUG
-    setVerbose(compiler->verbose);
-#endif // DEBUG
-
-    regSet.tmpInit();
+    m_cgEmitter = new (compiler->getAllocator()) emitter(compiler, this, gcInfo, compiler->info.compCompHnd);
 
 #ifdef LATE_DISASM
     getDisAssembler().disInit(compiler);
 #endif
 
 #ifdef DEBUG
-    genTempLiveChg        = true;
-    genTrnslLocalVarCount = 0;
-
     // Shouldn't be used before it is set in genFnProlog()
     compiler->compCalleeRegsPushed = UninitializedWord<unsigned>(compiler);
 
-#if defined(TARGET_XARCH)
+#ifdef TARGET_XARCH
     // Shouldn't be used before it is set in genFnProlog()
     compiler->compCalleeFPRegsSavedMask = (regMaskTP)-1;
-#endif // defined(TARGET_XARCH)
-#endif // DEBUG
-
-#ifdef TARGET_AMD64
-    // This will be set before final frame layout.
-    compiler->compVSQuirkStackPaddingNeeded = 0;
 #endif
-
-    //  Initialize the IP-mapping logic.
-    compiler->genIPmappingList        = nullptr;
-    compiler->genIPmappingLast        = nullptr;
-    compiler->genCallSite2ILOffsetMap = nullptr;
-
-    /* Assume that we not fully interruptible */
-
-    SetInterruptible(false);
-#ifdef TARGET_ARMARCH
-    SetHasTailCalls(false);
-#endif // TARGET_ARMARCH
-#ifdef DEBUG
-    genInterruptibleUsed = false;
-    genCurDispOffset     = (unsigned)-1;
 #endif
-
-#ifdef TARGET_ARM64
-    genSaveFpLrWithAllCalleeSavedRegisters = false;
-#endif // TARGET_ARM64
 }
 
 #if defined(TARGET_X86) || defined(TARGET_ARM)
@@ -1436,16 +1385,8 @@ void CodeGen::genInsertNopForUnwinder(BasicBlock* block)
 
 #endif // FEATURE_EH_FUNCLETS
 
-//----------------------------------------------------------------------
-// genGenerateCode: Generate code for the function.
-//
-// Arguments:
-//     codePtr [OUT] - address of generated code
-//     nativeSizeOfCode [OUT] - length of generated code in bytes
-//
-void CodeGen::genGenerateCode(void** codePtr, uint32_t* nativeSizeOfCode)
+void CodeGen::genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize)
 {
-
 #ifdef DEBUG
     if (verbose)
     {
@@ -1454,8 +1395,8 @@ void CodeGen::genGenerateCode(void** codePtr, uint32_t* nativeSizeOfCode)
     }
 #endif
 
-    this->codePtr          = codePtr;
-    this->nativeSizeOfCode = nativeSizeOfCode;
+    codePtr          = nativeCode;
+    nativeSizeOfCode = nativeCodeSize;
 
     DoPhase(this, PHASE_GENERATE_CODE, &CodeGen::genGenerateMachineCode);
     DoPhase(this, PHASE_EMIT_CODE, &CodeGen::genEmitMachineCode);
@@ -1495,11 +1436,11 @@ void CodeGen::genGenerateMachineCode()
 
         printf("; Emitting ");
 
-        if (compiler->compCodeOpt() == Compiler::SMALL_CODE)
+        if (compiler->compCodeOpt() == SMALL_CODE)
         {
             printf("SMALL_CODE");
         }
-        else if (compiler->compCodeOpt() == Compiler::FAST_CODE)
+        else if (compiler->compCodeOpt() == FAST_CODE)
         {
             printf("FAST_CODE");
         }
@@ -1510,37 +1451,17 @@ void CodeGen::genGenerateMachineCode()
 
         printf(" for ");
 
-        if (compiler->info.genCPU == CPU_X86)
-        {
-            printf("generic X86 CPU");
-        }
-        else if (compiler->info.genCPU == CPU_X86_PENTIUM_4)
-        {
-            printf("Pentium 4");
-        }
-        else if (compiler->info.genCPU == CPU_X64)
-        {
-            if (compiler->canUseVexEncoding())
-            {
-                printf("X64 CPU with AVX");
-            }
-            else
-            {
-                printf("X64 CPU with SSE2");
-            }
-        }
-        else if (compiler->info.genCPU == CPU_ARM)
-        {
-            printf("generic ARM CPU");
-        }
-        else if (compiler->info.genCPU == CPU_ARM64)
-        {
-            printf("generic ARM64 CPU");
-        }
-        else
-        {
-            printf("unknown architecture");
-        }
+#if defined(TARGET_AMD64)
+        printf("X64 CPU with %s", compiler->canUseVexEncoding() ? "AVX" : "SSE2");
+#elif defined(TARGET_ARM64)
+        printf("generic ARM64 CPU");
+#elif defined(TARGET_X86)
+        printf("generic X86 CPU");
+#elif defined(TARGET_ARM)
+        printf("generic ARM CPU");
+#else
+#error Unknown target
+#endif
 
 #if defined(TARGET_WINDOWS)
         printf(" - Windows");
@@ -1647,7 +1568,7 @@ void CodeGen::genGenerateMachineCode()
     GetEmitter()->emitBegFN(isFramePointerUsed()
 #if defined(DEBUG)
                                 ,
-                            (compiler->compCodeOpt() != Compiler::SMALL_CODE) &&
+                            (compiler->compCodeOpt() != SMALL_CODE) &&
                                 !compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT)
 #endif
                                 ,
@@ -1768,7 +1689,7 @@ void CodeGen::genEmitMachineCode()
 #if TRACK_LSRA_STATS
         if (JitConfig.DisplayLsraStats() == 3)
         {
-            compiler->m_pLinearScan->dumpLsraStatsSummary(jitstdout);
+            m_pLinearScan->dumpLsraStatsSummary(jitstdout);
         }
 #endif // TRACK_LSRA_STATS
 
@@ -1910,7 +1831,7 @@ void CodeGen::genEmitUnwindDebugGCandEH()
             fprintf(dmpf, "    Const at %p [%04X bytes]\n", dspPtr(consPtr), consSize);
         }
 #ifdef JIT32_GCENCODER
-        size_t infoSize = compiler->compInfoBlkSize;
+        size_t infoSize = compInfoBlkSize;
         if (infoSize)
             fprintf(dmpf, "    Info  at %p [%04X bytes]\n", dspPtr(infoPtr), infoSize);
 #endif // JIT32_GCENCODER
@@ -1956,7 +1877,7 @@ void CodeGen::genEmitUnwindDebugGCandEH()
 
     size_t dataSize = GetEmitter()->emitDataSize();
     grossVMsize += compiler->info.compILCodeSize;
-    totalNCsize += codeSize + dataSize + compiler->compInfoBlkSize;
+    totalNCsize += codeSize + dataSize + compInfoBlkSize;
     grossNCsize += codeSize + dataSize;
 
 #endif // DISPLAY_SIZES
@@ -2589,7 +2510,11 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
                 return varDsc->GetLayout()->GetHfaElementType();
             }
 
+#ifdef TARGET_ARMARCH
             return compiler->mangleVarArgsType(varDsc->GetType());
+#else
+            return varDsc->GetType();
+#endif
         }
 
 #endif // !UNIX_AMD64_ABI
@@ -2646,7 +2571,12 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
             }
         }
 
-        var_types regType = compiler->mangleVarArgsType(varDsc->TypeGet());
+        var_types regType = varDsc->GetType();
+
+#ifdef TARGET_ARMARCH
+        regType = compiler->mangleVarArgsType(regType);
+#endif
+
         // Change regType to the HFA type when we have a HFA argument
         if (varDsc->lvIsHfaRegArg())
         {
@@ -2684,7 +2614,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
             unsigned firstRegSlot = 0;
             for (unsigned slotCounter = 0; slotCounter < varDsc->GetLayout()->GetSysVAmd64AbiRegCount(); slotCounter++)
             {
-                regNumber regNum = varDsc->lvRegNumForSlot(slotCounter);
+                regNumber regNum = varDsc->GetParamReg(slotCounter);
                 var_types regType;
 
 #ifdef FEATURE_SIMD
@@ -2754,6 +2684,9 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
         else
 #endif // defined(UNIX_AMD64_ABI)
         {
+            // TODO-MIKE-Fix: This is messed up for for win-arm64 varargs. regType may be SIMD12/16
+            // and the regiter may be x7, so we treat an integer register as a float one.
+
             // Bingo - add it to our table
             regArgNum = genMapRegNumToRegArgNum(varDsc->GetArgReg(), regType);
 
@@ -2904,22 +2837,14 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
                     goto NON_DEP;
                 }
 
-#if !defined(TARGET_64BIT)
-                if ((i == 1) && varTypeIsStruct(varDsc) && (varDsc->GetOtherReg() == regNum))
-                {
-                    goto NON_DEP;
-                }
-                if ((i == 1) && (genActualType(varDsc->TypeGet()) == TYP_LONG) && (varDsc->GetOtherReg() == regNum))
-                {
-                    goto NON_DEP;
-                }
-
+#ifndef TARGET_64BIT
                 if ((i == 1) && (genActualType(varDsc->TypeGet()) == TYP_DOUBLE) &&
                     (REG_NEXT(varDsc->GetRegNum()) == regNum))
                 {
                     goto NON_DEP;
                 }
-#endif // !defined(TARGET_64BIT)
+#endif
+
                 regArgTab[regArgNum + i].circular = true;
             }
             else
@@ -3014,9 +2939,10 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
                 }
 #endif // defined(UNIX_AMD64_ABI) && defined(FEATURE_SIMD)
 #if !defined(TARGET_64BIT)
+                // TODO-MIKE-Cleanup: This is likely dead code.
                 else if (regArgTab[argNum].slot == 2 && genActualType(varDsc->TypeGet()) == TYP_LONG)
                 {
-                    destRegNum = varDsc->GetOtherReg();
+                    destRegNum = REG_STK;
                 }
                 else
                 {
@@ -3110,10 +3036,6 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
             {
                 continue;
             }
-            else if (varDsc->GetOtherReg() != REG_STK)
-            {
-                continue;
-            }
         }
         else
 #endif // !TARGET_64BIT
@@ -3140,8 +3062,8 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
 
         noway_assert(varDsc->lvIsParam);
         noway_assert(varDsc->lvIsRegArg);
-        noway_assert(varDsc->lvIsInReg() == false || varDsc->lvLiveInOutOfHndlr ||
-                     (varDsc->lvType == TYP_LONG && varDsc->GetOtherReg() == REG_STK && regArgTab[argNum].slot == 2));
+        noway_assert(!varDsc->lvIsInReg() || varDsc->lvLiveInOutOfHndlr ||
+                     (varDsc->TypeIs(TYP_LONG) && regArgTab[argNum].slot == 2));
 
         var_types storeType = TYP_UNDEF;
         unsigned  slotSize  = TARGET_POINTER_SIZE;
@@ -3170,7 +3092,10 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
         }
         else // Not a struct type
         {
-            storeType = compiler->mangleVarArgsType(genActualType(varDsc->TypeGet()));
+            storeType = varActualType(varDsc->GetType());
+#ifdef TARGET_ARMARCH
+            storeType = compiler->mangleVarArgsType(storeType);
+#endif
         }
         size = emitActualTypeSize(storeType);
 #ifdef TARGET_X86
@@ -3567,7 +3492,8 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
                 }
                 else
                 {
-                    destRegNum = varDsc->GetOtherReg();
+                    // TODO-MIKE-Cleanup: This is likely dead code.
+                    destRegNum = REG_STK;
                 }
 
                 assert(destRegNum != REG_STK);
@@ -3966,9 +3892,8 @@ void CodeGen::genCheckUseBlockInit()
                         else
                         {
                             // Var is partially enregistered
-                            noway_assert(genTypeSize(varDsc->TypeGet()) > sizeof(int) &&
-                                         varDsc->GetOtherReg() == REG_STK);
-                            initStkLclCnt += genTypeStSz(TYP_INT);
+                            noway_assert(varTypeSize(varDsc->GetType()) > 4);
+                            initStkLclCnt += 4;
                             counted = true;
                         }
                     }
@@ -5600,7 +5525,7 @@ void CodeGen::genReportGenericContextArg(regNumber initReg, bool* pInitRegZeroed
     unsigned contextArg = reportArg ? compiler->info.compTypeCtxtArg : compiler->info.compThisArg;
 
     noway_assert(contextArg != BAD_VAR_NUM);
-    LclVarDsc* varDsc = &compiler->lvaTable[contextArg];
+    LclVarDsc* varDsc = compiler->lvaGetDesc(contextArg);
 
     // We are still in the prolog and compiler->info.compTypeCtxtArg has not been
     // moved to its final home location. So we need to use it from the
@@ -5847,7 +5772,7 @@ void CodeGen::genFinalizeFrame()
     // of the first basic block, so load those up. In particular, the determination
     // of whether or not to use block init in the prolog is dependent on the variable
     // locations on entry to the function.
-    compiler->m_pLinearScan->recordVarLocationsAtStartOfBB(compiler->fgFirstBB);
+    m_pLinearScan->recordVarLocationsAtStartOfBB(compiler->fgFirstBB);
 
     genCheckUseBlockInit();
 
@@ -6031,7 +5956,7 @@ void CodeGen::genFinalizeFrame()
     GetEmitter()->emitMaxTmpSize = regSet.tmpGetTotalSize();
 
 #ifdef DEBUG
-    if (compiler->opts.dspCode || compiler->opts.disAsm || compiler->opts.disAsm2 || verbose)
+    if (compiler->opts.dspCode || compiler->opts.disAsm || verbose)
     {
         compiler->lvaTableDump();
     }
@@ -6311,17 +6236,9 @@ void CodeGen::genFnProlog()
 
                 if (varTypeIsMultiReg(varDsc))
                 {
-                    if (varDsc->GetOtherReg() != REG_STK)
-                    {
-                        initRegs |= genRegMask(varDsc->GetOtherReg());
-                    }
-                    else
-                    {
-                        /* Upper DWORD is on the stack, and needs to be inited */
-
-                        loOffs += sizeof(int);
-                        goto INIT_STK;
-                    }
+                    // Upper DWORD is on the stack, and needs to be inited
+                    loOffs += sizeof(int);
+                    goto INIT_STK;
                 }
             }
             else if (varDsc->TypeGet() == TYP_DOUBLE)
@@ -8580,7 +8497,7 @@ void CodeGen::genGeneratePrologsAndEpilogs()
 
     // Before generating the prolog, we need to reset the variable locations to what they will be on entry.
     // This affects our code that determines which untracked locals need to be zero initialized.
-    compiler->m_pLinearScan->recordVarLocationsAtStartOfBB(compiler->fgFirstBB);
+    m_pLinearScan->recordVarLocationsAtStartOfBB(compiler->fgFirstBB);
 
     // Tell the emitter we're done with main code generation, and are going to start prolog and epilog generation.
 
@@ -9031,17 +8948,17 @@ void CodeGen::genSetScopeInfo()
     if (varsLocationsCount == 0)
     {
         // No variable home to report
-        compiler->eeSetLVcount(0);
-        compiler->eeSetLVdone();
+        eeSetLVcount(0);
+        eeSetLVdone();
         return;
     }
 
     noway_assert(compiler->opts.compScopeInfo && (compiler->info.compVarScopesCount > 0));
 
     // Initialize the table where the reported variables' home will be placed.
-    compiler->eeSetLVcount(varsLocationsCount);
+    eeSetLVcount(varsLocationsCount);
 
-#ifdef DEBUG
+#ifdef LATE_DISASM
     genTrnslLocalVarCount = varsLocationsCount;
     if (varsLocationsCount)
     {
@@ -9062,7 +8979,7 @@ void CodeGen::genSetScopeInfo()
 #endif // USING_VARIABLE_LIVE_RANGE
 #endif // USING_SCOPE_INFO
 
-    compiler->eeSetLVdone();
+    eeSetLVdone();
 }
 
 #ifdef USING_SCOPE_INFO
@@ -9260,9 +9177,8 @@ void CodeGen::genSetScopeInfo(unsigned       which,
 
 #endif // TARGET_X86
 
-    VarName name = nullptr;
-
-#ifdef DEBUG
+#ifdef LATE_DISASM
+    const char* name = nullptr;
 
     for (unsigned scopeNum = 0; scopeNum < compiler->info.compVarScopesCount; scopeNum++)
     {
@@ -9271,8 +9187,6 @@ void CodeGen::genSetScopeInfo(unsigned       which,
             name = compiler->info.compVarScopes[scopeNum].vsdName;
         }
     }
-
-    // Hang on to this compiler->info.
 
     TrnslLocalVarInfo& tlvi = genTrnslLocalVarInfo[which];
 
@@ -9283,22 +9197,12 @@ void CodeGen::genSetScopeInfo(unsigned       which,
     tlvi.tlviLength    = length;
     tlvi.tlviAvailable = avail;
     tlvi.tlviVarLoc    = *varLoc;
+#endif
 
-#endif // DEBUG
-
-    compiler->eeSetLVinfo(which, startOffs, length, ilVarNum, *varLoc);
+    eeSetLVinfo(which, startOffs, length, ilVarNum, *varLoc);
 }
 
-/*****************************************************************************/
 #ifdef LATE_DISASM
-#if defined(DEBUG)
-/*****************************************************************************
- *                          CompilerRegName
- *
- * Can be called only after lviSetLocalVarInfo() has been called
- */
-
-/* virtual */
 const char* CodeGen::siRegVarName(size_t offs, size_t size, unsigned reg)
 {
     if (!compiler->opts.compScopeInfo)
@@ -9307,28 +9211,22 @@ const char* CodeGen::siRegVarName(size_t offs, size_t size, unsigned reg)
     if (compiler->info.compVarScopesCount == 0)
         return nullptr;
 
-    noway_assert(genTrnslLocalVarCount == 0 || genTrnslLocalVarInfo);
+    TrnslLocalVarInfo* info = genTrnslLocalVarInfo;
+
+    noway_assert((genTrnslLocalVarCount == 0) || (info != nullptr));
 
     for (unsigned i = 0; i < genTrnslLocalVarCount; i++)
     {
-        if ((genTrnslLocalVarInfo[i].tlviVarLoc.vlIsInReg((regNumber)reg)) &&
-            (genTrnslLocalVarInfo[i].tlviAvailable == true) && (genTrnslLocalVarInfo[i].tlviStartPC <= offs + size) &&
-            (genTrnslLocalVarInfo[i].tlviStartPC + genTrnslLocalVarInfo[i].tlviLength > offs))
+        if ((info[i].tlviVarLoc.vlIsInReg((regNumber)reg)) && (info[i].tlviAvailable == true) &&
+            (info[i].tlviStartPC <= offs + size) && (info[i].tlviStartPC + info[i].tlviLength > offs))
         {
-            return genTrnslLocalVarInfo[i].tlviName ? compiler->VarNameToStr(genTrnslLocalVarInfo[i].tlviName) : NULL;
+            return info[i].tlviName ? info[i].tlviName : nullptr;
         }
     }
 
-    return NULL;
+    return nullptr;
 }
 
-/*****************************************************************************
- *                          CompilerStkName
- *
- * Can be called only after lviSetLocalVarInfo() has been called
- */
-
-/* virtual */
 const char* CodeGen::siStackVarName(size_t offs, size_t size, unsigned reg, unsigned stkOffs)
 {
     if (!compiler->opts.compScopeInfo)
@@ -9337,23 +9235,21 @@ const char* CodeGen::siStackVarName(size_t offs, size_t size, unsigned reg, unsi
     if (compiler->info.compVarScopesCount == 0)
         return nullptr;
 
-    noway_assert(genTrnslLocalVarCount == 0 || genTrnslLocalVarInfo);
+    TrnslLocalVarInfo* info = genTrnslLocalVarInfo;
+
+    noway_assert((genTrnslLocalVarCount == 0) || (info != nullptr));
 
     for (unsigned i = 0; i < genTrnslLocalVarCount; i++)
     {
-        if ((genTrnslLocalVarInfo[i].tlviVarLoc.vlIsOnStack((regNumber)reg, stkOffs)) &&
-            (genTrnslLocalVarInfo[i].tlviAvailable == true) && (genTrnslLocalVarInfo[i].tlviStartPC <= offs + size) &&
-            (genTrnslLocalVarInfo[i].tlviStartPC + genTrnslLocalVarInfo[i].tlviLength > offs))
+        if ((info[i].tlviVarLoc.vlIsOnStack((regNumber)reg, stkOffs)) && (info[i].tlviAvailable == true) &&
+            (info[i].tlviStartPC <= offs + size) && (info[i].tlviStartPC + info[i].tlviLength > offs))
         {
-            return genTrnslLocalVarInfo[i].tlviName ? compiler->VarNameToStr(genTrnslLocalVarInfo[i].tlviName) : NULL;
+            return info[i].tlviName ? info[i].tlviName : nullptr;
         }
     }
 
-    return NULL;
+    return nullptr;
 }
-
-/*****************************************************************************/
-#endif // defined(DEBUG)
 #endif // LATE_DISASM
 
 #ifdef DEBUG
@@ -9362,7 +9258,7 @@ const char* CodeGen::siStackVarName(size_t offs, size_t size, unsigned reg, unsi
  *  Display a IPmappingDsc. Pass -1 as mappingNum to not display a mapping number.
  */
 
-void CodeGen::genIPmappingDisp(unsigned mappingNum, Compiler::IPmappingDsc* ipMapping)
+void CodeGen::genIPmappingDisp(unsigned mappingNum, IPmappingDsc* ipMapping)
 {
     if (mappingNum != unsigned(-1))
     {
@@ -9377,7 +9273,7 @@ void CodeGen::genIPmappingDisp(unsigned mappingNum, Compiler::IPmappingDsc* ipMa
     }
     else
     {
-        Compiler::eeDispILOffs(jitGetILoffsAny(offsx));
+        eeDispILOffs(jitGetILoffsAny(offsx));
 
         if (jitIsStackEmpty(offsx))
         {
@@ -9405,10 +9301,10 @@ void CodeGen::genIPmappingDisp(unsigned mappingNum, Compiler::IPmappingDsc* ipMa
 
 void CodeGen::genIPmappingListDisp()
 {
-    unsigned                mappingNum = 0;
-    Compiler::IPmappingDsc* ipMapping;
+    unsigned      mappingNum = 0;
+    IPmappingDsc* ipMapping;
 
-    for (ipMapping = compiler->genIPmappingList; ipMapping != nullptr; ipMapping = ipMapping->ipmdNext)
+    for (ipMapping = genIPmappingList; ipMapping != nullptr; ipMapping = ipMapping->ipmdNext)
     {
         genIPmappingDisp(mappingNum, ipMapping);
         ++mappingNum;
@@ -9449,7 +9345,7 @@ void CodeGen::genIPmappingAdd(IL_OFFSETX offsx, bool isLabel)
             // Ignore this one if it's the same IL offset as the last one we saw.
             // Note that we'll let through two identical IL offsets if the flag bits
             // differ, or two identical "special" mappings (e.g., PROLOG).
-            if ((compiler->genIPmappingLast != nullptr) && (offsx == compiler->genIPmappingLast->ipmdILoffsx))
+            if ((genIPmappingLast != nullptr) && (offsx == genIPmappingLast->ipmdILoffsx))
             {
                 JITDUMP("genIPmappingAdd: ignoring duplicate IL offset 0x%x\n", offsx);
                 return;
@@ -9459,25 +9355,25 @@ void CodeGen::genIPmappingAdd(IL_OFFSETX offsx, bool isLabel)
 
     /* Create a mapping entry and append it to the list */
 
-    Compiler::IPmappingDsc* addMapping = compiler->getAllocator(CMK_DebugInfo).allocate<Compiler::IPmappingDsc>(1);
+    IPmappingDsc* addMapping = compiler->getAllocator(CMK_DebugInfo).allocate<IPmappingDsc>(1);
     addMapping->ipmdNativeLoc.CaptureLocation(GetEmitter());
     addMapping->ipmdILoffsx = offsx;
     addMapping->ipmdIsLabel = isLabel;
     addMapping->ipmdNext    = nullptr;
 
-    if (compiler->genIPmappingList != nullptr)
+    if (genIPmappingList != nullptr)
     {
-        assert(compiler->genIPmappingLast != nullptr);
-        assert(compiler->genIPmappingLast->ipmdNext == nullptr);
-        compiler->genIPmappingLast->ipmdNext = addMapping;
+        assert(genIPmappingLast != nullptr);
+        assert(genIPmappingLast->ipmdNext == nullptr);
+        genIPmappingLast->ipmdNext = addMapping;
     }
     else
     {
-        assert(compiler->genIPmappingLast == nullptr);
-        compiler->genIPmappingList = addMapping;
+        assert(genIPmappingLast == nullptr);
+        genIPmappingList = addMapping;
     }
 
-    compiler->genIPmappingLast = addMapping;
+    genIPmappingLast = addMapping;
 
 #ifdef DEBUG
     if (verbose)
@@ -9518,18 +9414,18 @@ void CodeGen::genIPmappingAddToFront(IL_OFFSETX offsx)
 
     /* Create a mapping entry and prepend it to the list */
 
-    Compiler::IPmappingDsc* addMapping = compiler->getAllocator(CMK_DebugInfo).allocate<Compiler::IPmappingDsc>(1);
+    IPmappingDsc* addMapping = compiler->getAllocator(CMK_DebugInfo).allocate<IPmappingDsc>(1);
     addMapping->ipmdNativeLoc.CaptureLocation(GetEmitter());
     addMapping->ipmdILoffsx = offsx;
     addMapping->ipmdIsLabel = true;
     addMapping->ipmdNext    = nullptr;
 
-    addMapping->ipmdNext       = compiler->genIPmappingList;
-    compiler->genIPmappingList = addMapping;
+    addMapping->ipmdNext = genIPmappingList;
+    genIPmappingList     = addMapping;
 
-    if (compiler->genIPmappingLast == nullptr)
+    if (genIPmappingLast == nullptr)
     {
-        compiler->genIPmappingLast = addMapping;
+        genIPmappingLast = addMapping;
     }
 
 #ifdef DEBUG
@@ -9673,19 +9569,19 @@ void CodeGen::genEnsureCodeEmitted(IL_OFFSETX offsx)
 
     /* If other IL were offsets reported, skip */
 
-    if (compiler->genIPmappingLast == nullptr)
+    if (genIPmappingLast == nullptr)
     {
         return;
     }
 
-    if (compiler->genIPmappingLast->ipmdILoffsx != offsx)
+    if (genIPmappingLast->ipmdILoffsx != offsx)
     {
         return;
     }
 
     /* offsx was the last reported offset. Make sure that we generated native code */
 
-    if (compiler->genIPmappingLast->ipmdNativeLoc.IsCurrentLocation(GetEmitter()))
+    if (genIPmappingLast->ipmdNativeLoc.IsCurrentLocation(GetEmitter()))
     {
         instGen(INS_nop);
     }
@@ -9710,25 +9606,24 @@ void CodeGen::genIPmappingGen()
     }
 #endif
 
-    if (compiler->genIPmappingList == nullptr)
+    if (genIPmappingList == nullptr)
     {
-        compiler->eeSetLIcount(0);
-        compiler->eeSetLIdone();
+        eeSetLIcount(0);
+        eeSetLIdone();
         return;
     }
 
-    Compiler::IPmappingDsc* tmpMapping;
-    Compiler::IPmappingDsc* prevMapping;
-    unsigned                mappingCnt;
-    UNATIVE_OFFSET          lastNativeOfs;
+    IPmappingDsc*  tmpMapping;
+    IPmappingDsc*  prevMapping;
+    unsigned       mappingCnt;
+    UNATIVE_OFFSET lastNativeOfs;
 
     /* First count the number of distinct mapping records */
 
     mappingCnt    = 0;
     lastNativeOfs = UNATIVE_OFFSET(~0);
 
-    for (prevMapping = nullptr, tmpMapping = compiler->genIPmappingList; tmpMapping != nullptr;
-         tmpMapping = tmpMapping->ipmdNext)
+    for (prevMapping = nullptr, tmpMapping = genIPmappingList; tmpMapping != nullptr; tmpMapping = tmpMapping->ipmdNext)
     {
         IL_OFFSETX srcIP = tmpMapping->ipmdILoffsx;
 
@@ -9801,14 +9696,14 @@ void CodeGen::genIPmappingGen()
 
     /* Tell them how many mapping records we've got */
 
-    compiler->eeSetLIcount(mappingCnt);
+    eeSetLIcount(mappingCnt);
 
     /* Now tell them about the mappings */
 
     mappingCnt    = 0;
     lastNativeOfs = UNATIVE_OFFSET(~0);
 
-    for (tmpMapping = compiler->genIPmappingList; tmpMapping != nullptr; tmpMapping = tmpMapping->ipmdNext)
+    for (tmpMapping = genIPmappingList; tmpMapping != nullptr; tmpMapping = tmpMapping->ipmdNext)
     {
         // Do we have to skip this record ?
         if (!tmpMapping->ipmdNativeLoc.Valid())
@@ -9821,11 +9716,11 @@ void CodeGen::genIPmappingGen()
 
         if (jitIsCallInstruction(srcIP))
         {
-            compiler->eeSetLIinfo(mappingCnt++, nextNativeOfs, jitGetILoffs(srcIP), jitIsStackEmpty(srcIP), true);
+            eeSetLIinfo(mappingCnt++, nextNativeOfs, jitGetILoffs(srcIP), jitIsStackEmpty(srcIP), true);
         }
         else if (nextNativeOfs != lastNativeOfs)
         {
-            compiler->eeSetLIinfo(mappingCnt++, nextNativeOfs, jitGetILoffsAny(srcIP), jitIsStackEmpty(srcIP), false);
+            eeSetLIinfo(mappingCnt++, nextNativeOfs, jitGetILoffsAny(srcIP), jitIsStackEmpty(srcIP), false);
             lastNativeOfs = nextNativeOfs;
         }
         else if (srcIP == (IL_OFFSETX)ICorDebugInfo::EPILOG || srcIP == 0)
@@ -9836,7 +9731,7 @@ void CodeGen::genIPmappingGen()
             // at the (empty) ret statement if the user tries to put a
             // breakpoint there, and then have the option of seeing the
             // epilog or not based on SetUnmappedStopMask for the stepper.
-            compiler->eeSetLIinfo(mappingCnt++, nextNativeOfs, jitGetILoffsAny(srcIP), jitIsStackEmpty(srcIP), false);
+            eeSetLIinfo(mappingCnt++, nextNativeOfs, jitGetILoffsAny(srcIP), jitIsStackEmpty(srcIP), false);
         }
     }
 
@@ -9878,7 +9773,7 @@ void CodeGen::genIPmappingGen()
     }
 #endif // 0
 
-    compiler->eeSetLIdone();
+    eeSetLIdone();
 }
 
 /*============================================================================
