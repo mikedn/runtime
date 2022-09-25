@@ -288,6 +288,13 @@ void Compiler::lvaInitParams(bool hasRetBufParam)
     if (info.compIsVarArgs)
     {
         intRegCount = 0;
+
+        // Native varargs doesn't use any registers but the managed version
+        // uses up to 2 for special params - this and the return buffer.
+        assert(!callConvIsInstanceMethodCallConv(info.compCallConv));
+
+        intRegCount += info.compIsStatic ? 0 : 1;
+        intRegCount += hasRetBufParam ? 1 : 0;
     }
     else
     {
