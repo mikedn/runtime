@@ -708,7 +708,8 @@ GenTree* Importer::CoerceCallArg(var_types paramType, GenTree* arg)
         case TYP_BYREF:
             // We allow REF to BYREF conversion that ECMA does not allow but that
             // sometimes appears in real code (e.g. to get the method table from
-            // an object reference).
+            // an object reference or to create a null BYREF by using ldnull, like
+            // IL stubs using GetDelegateTarget do).
             castType = ((argType == TYP_I_IMPL) || (argType == TYP_REF)) ? argType : TYP_UNDEF;
             break;
 

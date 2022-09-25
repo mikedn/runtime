@@ -2522,7 +2522,8 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
             assert((varActualType(sigType) == varActualType(argx->GetType())) ||
                    ((sigType == TYP_BYREF) && argx->TypeIs(TYP_I_IMPL)) ||
-                   ((sigType == TYP_I_IMPL) && argx->TypeIs(TYP_BYREF)));
+                   ((sigType == TYP_I_IMPL) && argx->TypeIs(TYP_BYREF)) ||
+                   ((sigType == TYP_BYREF) && argx->TypeIs(TYP_REF)));
 
 #ifdef TARGET_ARM
             argAlign =
