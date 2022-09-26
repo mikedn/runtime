@@ -5547,7 +5547,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
  *      cVar,        dVar           : Display a local variable given its number (call lvaDumpEntry()).
  *      cVarDsc,     dVarDsc        : Display a local variable given a LclVarDsc* (call lvaDumpEntry()).
  *      cVars,       dVars          : Display the local variable table (call lvaTableDump()).
- *      cVarsFinal,  dVarsFinal     : Display the local variable table (call lvaTableDump(FINAL_FRAME_LAYOUT)).
  *      cBlockCheapPreds, dBlockCheapPreds : Display a block's cheap predecessors (call block->dspCheapPreds()).
  *      cBlockPreds, dBlockPreds    : Display a block's predecessors (call block->dspPreds()).
  *      cBlockSuccs, dBlockSuccs    : Display a block's successors (call block->dspSuccs(compiler)).
@@ -5641,13 +5640,6 @@ void cVars(Compiler* comp)
     static unsigned sequenceNumber = 0; // separate calls with a number to indicate this function has been called
     printf("===================================================================== *Vars %u\n", sequenceNumber++);
     comp->lvaTableDump();
-}
-
-void cVarsFinal(Compiler* comp)
-{
-    static unsigned sequenceNumber = 0; // separate calls with a number to indicate this function has been called
-    printf("===================================================================== *Vars %u\n", sequenceNumber++);
-    comp->lvaTableDump(Compiler::FINAL_FRAME_LAYOUT);
 }
 
 void cBlockCheapPreds(Compiler* comp, BasicBlock* block)
@@ -5775,11 +5767,6 @@ void dVarDsc(LclVarDsc* varDsc)
 void dVars()
 {
     cVars(JitTls::GetCompiler());
-}
-
-void dVarsFinal()
-{
-    cVarsFinal(JitTls::GetCompiler());
 }
 
 void dBlockPreds(BasicBlock* block)

@@ -3966,8 +3966,7 @@ public:
     void lvaDumpRegLocation(unsigned lclNum);
     void lvaDumpFrameLocation(unsigned lclNum);
     void lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth = 6);
-    void lvaTableDump(FrameLayoutState curState = NO_FRAME_LAYOUT); // NO_FRAME_LAYOUT means use the current frame
-                                                                    // layout state defined by lvaDoneFrameLayout
+    void lvaTableDump();
 #endif
 
 // Limit frames size to 1GB. The maximum is 2GB in theory - make it intentionally smaller

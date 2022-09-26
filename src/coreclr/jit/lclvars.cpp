@@ -266,7 +266,7 @@ void Compiler::lvaInitLocals()
         lvaSetImplicitlyReferenced(lvaStubArgumentVar);
     }
 
-    DBEXEC(verbose, lvaTableDump(INITIAL_FRAME_LAYOUT));
+    DBEXEC(verbose, lvaTableDump());
 }
 
 void Compiler::lvaInitParams(bool hasRetBufParam)
@@ -5733,51 +5733,22 @@ void Compiler::lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth)
     printf("\n");
 }
 
-/*****************************************************************************
-*
-*  dump the lvaTable
-*/
-
-void Compiler::lvaTableDump(FrameLayoutState curState)
+void Compiler::lvaTableDump()
 {
-    if (curState == NO_FRAME_LAYOUT)
-    {
-        curState = lvaDoneFrameLayout;
-        if (curState == NO_FRAME_LAYOUT)
-        {
-            // Still no layout? Could be a bug, but just display the initial layout
-            curState = INITIAL_FRAME_LAYOUT;
-        }
-    }
-
-    if (curState == INITIAL_FRAME_LAYOUT)
-    {
-        printf("; Initial");
-    }
-    else if (curState == PRE_REGALLOC_FRAME_LAYOUT)
-    {
-        printf("; Pre-RegAlloc");
-    }
-    else if (curState == REGALLOC_FRAME_LAYOUT)
+    if (lvaDoneFrameLayout == REGALLOC_FRAME_LAYOUT)
     {
         printf("; RegAlloc");
     }
-    else if (curState == TENTATIVE_FRAME_LAYOUT)
-    {
-        printf("; Tentative");
-    }
-    else if (curState == FINAL_FRAME_LAYOUT)
+    else if (lvaDoneFrameLayout == FINAL_FRAME_LAYOUT)
     {
         printf("; Final");
     }
     else
     {
-        printf("UNKNOWN FrameLayoutState!");
-        unreached();
+        printf("; Initial");
     }
 
-    printf(" local variable assignments\n");
-    printf(";\n");
+    printf(" local variable assignments\n;\n");
 
     unsigned   lclNum;
     LclVarDsc* varDsc;
@@ -5818,7 +5789,7 @@ void Compiler::lvaTableDump(FrameLayoutState curState)
                (offset < 0 ? -offset : offset));
     }
 
-    if (curState >= TENTATIVE_FRAME_LAYOUT)
+    if (lvaDoneFrameLayout == FINAL_FRAME_LAYOUT)
     {
         printf(";\n");
         printf("; Lcl frame size = %d\n", compLclFrameSize);
@@ -6002,6 +5973,7 @@ unsigned Compiler::lvaFrameSize()
     compCalleeRegsPushed++; // We always push LR, see genPushCalleeSavedRegisters.
 
     lvaAssignFrameOffsets(REGALLOC_FRAME_LAYOUT);
+    DBEXEC(verbose, lvaTableDump());
 
     unsigned frameSize = compLclFrameSize;
 

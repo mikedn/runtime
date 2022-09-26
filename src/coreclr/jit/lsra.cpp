@@ -1780,17 +1780,6 @@ void LinearScan::identifyCandidates()
     {
         VarSetOps::IntersectionD(compiler, exceptVars, registerCandidateVars);
     }
-
-#ifdef TARGET_ARM
-#ifdef DEBUG
-    if (VERBOSE)
-    {
-        // Frame layout is only pre-computed for ARM
-        printf("\nlvaTable after IdentifyCandidates\n");
-        compiler->lvaTableDump(Compiler::FrameLayoutState::PRE_REGALLOC_FRAME_LAYOUT);
-    }
-#endif // DEBUG
-#endif // TARGET_ARM
 }
 
 // TODO-Throughput: This mapping can surely be more efficiently done
