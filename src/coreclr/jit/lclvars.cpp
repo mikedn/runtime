@@ -3406,46 +3406,13 @@ void Compiler::lvaAssignFrameOffsets(FrameLayoutState curState)
 
 #if FEATURE_FIXED_OUT_ARGS
     assert(lvaOutgoingArgSpaceVar != BAD_VAR_NUM);
-#endif // FEATURE_FIXED_OUT_ARGS
-
-    /*-------------------------------------------------------------------------
-     *
-     * First process the arguments.
-     *
-     *-------------------------------------------------------------------------
-     */
+#endif
 
     lvaAssignVirtualFrameOffsetsToArgs();
-
-    /*-------------------------------------------------------------------------
-     *
-     * Now compute stack offsets for any variables that don't live in registers
-     *
-     *-------------------------------------------------------------------------
-     */
-
     lvaAssignVirtualFrameOffsetsToLocals();
-
     lvaAlignFrame();
-
-    /*-------------------------------------------------------------------------
-     *
-     * Now patch the offsets
-     *
-     *-------------------------------------------------------------------------
-     */
-
     lvaFixVirtualFrameOffsets();
-
-    // Modify the stack offset for fields of promoted structs.
     lvaAssignFrameOffsetsToPromotedStructs();
-
-    /*-------------------------------------------------------------------------
-     *
-     * Finalize
-     *
-     *-------------------------------------------------------------------------
-     */
 
     // If it's not the final frame layout, then it's just an estimate. This means
     // we're allowed to once again write to these variables, even if we've read
