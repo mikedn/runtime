@@ -4291,11 +4291,6 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
     int stkOffs              = 0;
     int originalFrameStkOffs = 0;
     int originalFrameSize    = 0;
-    // codeGen->isFramePointerUsed is set in regalloc phase. Initialize it to a guess for pre-regalloc layout.
-    if (lvaDoneFrameLayout <= PRE_REGALLOC_FRAME_LAYOUT)
-    {
-        codeGen->setFramePointerUsed(codeGen->isFramePointerRequired());
-    }
 
 #ifdef TARGET_ARM64
     // Decide where to save FP and LR registers. We store FP/LR registers at the bottom of the frame if there is
