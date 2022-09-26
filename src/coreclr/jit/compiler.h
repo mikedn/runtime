@@ -4066,8 +4066,6 @@ public:
     void lvaComputeRefCountsLIR();
     void lvaAddRef(LclVarDsc* lcl, BasicBlock::weight_t weight, bool propagate = true);
 
-    void lvaAllocOutgoingArgSpaceVar(); // Set up lvaOutgoingArgSpaceVar
-
 #ifdef DEBUG
     void lvaDispVarSet(VARSET_VALARG_TP set, VARSET_VALARG_TP allVars);
     void lvaDispVarSet(VARSET_VALARG_TP set);

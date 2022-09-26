@@ -256,9 +256,13 @@ void Compiler::lvaInitLocals()
         lvaSetImplicitlyReferenced(lclNum);
     }
 
+#if FEATURE_FIXED_OUT_ARGS
     // Allocate the lvaOutgoingArgSpaceVar now because we can run into problems in the
     // emitter when the varNum is greater that 32767 (see emitLclVarAddr::initLclVarAddr)
-    lvaAllocOutgoingArgSpaceVar();
+    lvaOutgoingArgSpaceVar = lvaGrabTemp(false DEBUGARG("outgoing args area"));
+    lvaGetDesc(lvaOutgoingArgSpaceVar)->SetBlockType(0);
+    lvaSetImplicitlyReferenced(lvaOutgoingArgSpaceVar);
+#endif
 
     if (info.compPublishStubParam)
     {
@@ -2936,20 +2940,6 @@ void Compiler::lvaComputeLclRefCounts()
         }
 #endif
     }
-}
-
-void Compiler::lvaAllocOutgoingArgSpaceVar()
-{
-#if FEATURE_FIXED_OUT_ARGS
-    if (lvaOutgoingArgSpaceVar == BAD_VAR_NUM)
-    {
-        lvaOutgoingArgSpaceVar = lvaGrabTemp(false DEBUGARG("outgoing args area"));
-        lvaGetDesc(lvaOutgoingArgSpaceVar)->SetBlockType(0);
-        lvaSetImplicitlyReferenced(lvaOutgoingArgSpaceVar);
-    }
-
-    noway_assert(lvaOutgoingArgSpaceVar >= info.compLocalsCount);
-#endif // FEATURE_FIXED_OUT_ARGS
 }
 
 inline void Compiler::lvaIncrementFrameSize(unsigned size)
