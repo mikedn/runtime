@@ -5377,78 +5377,77 @@ void Compiler::lvaAssignFrameOffsetsToPromotedStructs()
  */
 int Compiler::lvaAllocateTemps(int stkOffs, bool mustDoubleAlign)
 {
-    unsigned spillTempSize = 0;
-
-    if (lvaDoneFrameLayout == FINAL_FRAME_LAYOUT)
+#ifdef TARGET_ARMARCH
+    if (lvaDoneFrameLayout == REGALLOC_FRAME_LAYOUT)
     {
-        int preSpillSize = 0;
-#ifdef TARGET_ARM
-        preSpillSize = genCountBits(codeGen->regSet.rsMaskPreSpillRegs(true)) * TARGET_POINTER_SIZE;
+        // There are no temps when estimating frame size.
+        return stkOffs;
+    }
 #endif
 
-        /* Allocate temps */
+    assert(lvaDoneFrameLayout == FINAL_FRAME_LAYOUT);
 
-        assert(codeGen->regSet.tmpAllFree());
+    unsigned spillTempSize = 0;
+    int      preSpillSize  = 0;
+#ifdef TARGET_ARM
+    preSpillSize = genCountBits(codeGen->regSet.rsMaskPreSpillRegs(true)) * TARGET_POINTER_SIZE;
+#endif
 
-        for (TempDsc* temp = codeGen->regSet.tmpListBeg(); temp != nullptr; temp = codeGen->regSet.tmpListNxt(temp))
-        {
-            var_types tempType = temp->tdTempType();
-            unsigned  size     = temp->tdTempSize();
+    /* Allocate temps */
 
-            /* Figure out and record the stack offset of the temp */
+    assert(codeGen->regSet.tmpAllFree());
 
-            /* Need to align the offset? */
-            CLANG_FORMAT_COMMENT_ANCHOR;
+    for (TempDsc* temp = codeGen->regSet.tmpListBeg(); temp != nullptr; temp = codeGen->regSet.tmpListNxt(temp))
+    {
+        var_types tempType = temp->tdTempType();
+        unsigned  size     = temp->tdTempSize();
+
+        /* Figure out and record the stack offset of the temp */
+
+        /* Need to align the offset? */
+        CLANG_FORMAT_COMMENT_ANCHOR;
 
 #ifdef TARGET_64BIT
-            if (varTypeIsGC(tempType) && ((stkOffs % TARGET_POINTER_SIZE) != 0))
-            {
-                // Calculate 'pad' as the number of bytes to align up 'stkOffs' to be a multiple of TARGET_POINTER_SIZE
-                // In practice this is really just a fancy way of writing 4. (as all stack locations are at least 4-byte
-                // aligned). Note stkOffs is always negative, so (stkOffs % TARGET_POINTER_SIZE) yields a negative
-                // value.
-                //
-                int alignPad = (int)AlignmentPad((unsigned)-stkOffs, TARGET_POINTER_SIZE);
+        if (varTypeIsGC(tempType) && ((stkOffs % TARGET_POINTER_SIZE) != 0))
+        {
+            // Calculate 'pad' as the number of bytes to align up 'stkOffs' to be a multiple of TARGET_POINTER_SIZE
+            // In practice this is really just a fancy way of writing 4. (as all stack locations are at least 4-byte
+            // aligned). Note stkOffs is always negative, so (stkOffs % TARGET_POINTER_SIZE) yields a negative
+            // value.
+            //
+            int alignPad = (int)AlignmentPad((unsigned)-stkOffs, TARGET_POINTER_SIZE);
 
-                spillTempSize += alignPad;
-                lvaIncrementFrameSize(alignPad);
-                stkOffs -= alignPad;
+            spillTempSize += alignPad;
+            lvaIncrementFrameSize(alignPad);
+            stkOffs -= alignPad;
 
-                noway_assert((stkOffs % TARGET_POINTER_SIZE) == 0);
-            }
-#endif
-
-            if (mustDoubleAlign && (tempType == TYP_DOUBLE)) // Align doubles for x86 and ARM
-            {
-                noway_assert((compLclFrameSize % TARGET_POINTER_SIZE) == 0);
-
-                if (((stkOffs + preSpillSize) % (2 * TARGET_POINTER_SIZE)) != 0)
-                {
-                    spillTempSize += TARGET_POINTER_SIZE;
-                    lvaIncrementFrameSize(TARGET_POINTER_SIZE);
-                    stkOffs -= TARGET_POINTER_SIZE;
-                }
-                // We should now have a double-aligned (stkOffs+preSpillSize)
-                noway_assert(((stkOffs + preSpillSize) % (2 * TARGET_POINTER_SIZE)) == 0);
-            }
-
-            spillTempSize += size;
-            lvaIncrementFrameSize(size);
-            stkOffs -= size;
-            temp->tdSetTempOffs(stkOffs);
+            noway_assert((stkOffs % TARGET_POINTER_SIZE) == 0);
         }
-#ifdef TARGET_ARM
-        // Only required for the ARM platform that we have an accurate estimate for the spillTempSize
-        noway_assert(spillTempSize <= lvaGetMaxSpillTempSize());
 #endif
-    }
-    else // We haven't run codegen, so there are no Spill temps yet!
-    {
-        unsigned size = lvaGetMaxSpillTempSize();
 
+        if (mustDoubleAlign && (tempType == TYP_DOUBLE)) // Align doubles for x86 and ARM
+        {
+            noway_assert((compLclFrameSize % TARGET_POINTER_SIZE) == 0);
+
+            if (((stkOffs + preSpillSize) % (2 * TARGET_POINTER_SIZE)) != 0)
+            {
+                spillTempSize += TARGET_POINTER_SIZE;
+                lvaIncrementFrameSize(TARGET_POINTER_SIZE);
+                stkOffs -= TARGET_POINTER_SIZE;
+            }
+            // We should now have a double-aligned (stkOffs+preSpillSize)
+            noway_assert(((stkOffs + preSpillSize) % (2 * TARGET_POINTER_SIZE)) == 0);
+        }
+
+        spillTempSize += size;
         lvaIncrementFrameSize(size);
         stkOffs -= size;
+        temp->tdSetTempOffs(stkOffs);
     }
+#ifdef TARGET_ARM
+    // Only required for the ARM platform that we have an accurate estimate for the spillTempSize
+    noway_assert(spillTempSize <= lvaGetMaxSpillTempSize());
+#endif
 
     return stkOffs;
 }
