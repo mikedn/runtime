@@ -6070,48 +6070,40 @@ bool Compiler::compRsvdRegCheck()
 #endif // TARGET_ARM
 }
 
-/*****************************************************************************
- *
- *  Conservatively estimate the layout of the stack frame.
- *
- *  This function is only used before final frame layout. It conservatively estimates the
- *  number of callee-saved registers that must be saved, then calls lvaAssignFrameOffsets().
- *  To do final frame layout, the callee-saved registers are known precisely, so
- *  lvaAssignFrameOffsets() is called directly.
- *
- *  Returns the (conservative, that is, overly large) estimated size of the frame,
- *  including the callee-saved registers. This is only used by the emitter during code
- *  generation when estimating the size of the offset of instructions accessing temps,
- *  and only if temps have a larger offset than variables.
- */
-
+// Returns the (conservative, that is, overly large) estimated size of the frame,
+// including the callee-saved registers. This is only used by LSRA to check if a
+// temporary register needs to be reserved for frame offsets that are to large to
+// be encoded in a load/store instruction.
 unsigned Compiler::lvaFrameSize()
 {
     assert(lvaDoneFrameLayout < FINAL_FRAME_LAYOUT);
 
-    unsigned result;
-
-    /* Layout the stack frame conservatively.
-       Assume all callee-saved registers are spilled to stack */
+    // Layout the stack frame conservatively.
+    // Assume all callee-saved registers are spilled to stack.
 
     compCalleeRegsPushed = CNT_CALLEE_SAVED;
 
     if (compFloatingPointUsed)
+    {
         compCalleeRegsPushed += CNT_CALLEE_SAVED_FLOAT;
+    }
 
-    compCalleeRegsPushed++; // we always push LR.  See genPushCalleeSavedRegisters
+    compCalleeRegsPushed++; // We always push LR, see genPushCalleeSavedRegisters.
 
     lvaAssignFrameOffsets(REGALLOC_FRAME_LAYOUT);
 
-    unsigned calleeSavedRegMaxSz = CALLEE_SAVED_REG_MAXSZ;
+    unsigned frameSize = compLclFrameSize;
+
+    frameSize += CALLEE_SAVED_REG_MAXSZ;
+
     if (compFloatingPointUsed)
     {
-        calleeSavedRegMaxSz += CALLEE_SAVED_FLOAT_MAXSZ;
+        frameSize += CALLEE_SAVED_FLOAT_MAXSZ;
     }
-    calleeSavedRegMaxSz += REGSIZE_BYTES; // we always push LR.  See genPushCalleeSavedRegisters
 
-    result = compLclFrameSize + calleeSavedRegMaxSz;
-    return result;
+    frameSize += REGSIZE_BYTES; // We always push LR, see genPushCalleeSavedRegisters.
+
+    return frameSize;
 }
 
 #endif // TARGET_ARMARCH
