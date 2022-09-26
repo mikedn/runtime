@@ -3776,7 +3776,9 @@ public:
     enum FrameLayoutState : uint8_t
     {
         NO_FRAME_LAYOUT,
+#ifdef TARGET_ARMARCH
         REGALLOC_FRAME_LAYOUT,
+#endif
         FINAL_FRAME_LAYOUT
     };
 

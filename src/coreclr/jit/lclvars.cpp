@@ -3396,13 +3396,21 @@ unsigned Compiler::lvaGetMaxSpillTempSize()
 
 void Compiler::lvaAssignFrameOffsets(FrameLayoutState curState)
 {
+#ifdef TARGET_ARMARCH
     assert((curState == REGALLOC_FRAME_LAYOUT) || (curState == FINAL_FRAME_LAYOUT));
+#else
+    assert(curState == FINAL_FRAME_LAYOUT);
+#endif
     assert(curState > lvaDoneFrameLayout);
 
     lvaDoneFrameLayout = curState;
 
+#ifdef TARGET_ARMARCH
     JITDUMP("*************** In lvaAssignFrameOffsets (%s)\n",
             curState == FINAL_FRAME_LAYOUT ? "FINAL_FRAME_LAYOUT" : "REGALLOC_FRAME_LAYOUT");
+#else
+    JITDUMP("*************** In lvaAssignFrameOffsets (FINAL_FRAME_LAYOUT)\n");
+#endif
 
 #if FEATURE_FIXED_OUT_ARGS
     assert(lvaOutgoingArgSpaceVar != BAD_VAR_NUM);
@@ -4678,10 +4686,12 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
 
             bool allocateOnFrame = varDsc->lvOnFrame;
 
+#ifdef TARGET_ARMARCH
             if (varDsc->lvRegister && (lvaDoneFrameLayout == REGALLOC_FRAME_LAYOUT) && !varDsc->TypeIs(TYP_LONG))
             {
                 allocateOnFrame = false;
             }
+#endif
 
             // For OSR args and locals, we use the slots on the original frame.
             //
@@ -5730,14 +5740,16 @@ void Compiler::lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth)
 
 void Compiler::lvaTableDump()
 {
-    if (lvaDoneFrameLayout == REGALLOC_FRAME_LAYOUT)
-    {
-        printf("; RegAlloc");
-    }
-    else if (lvaDoneFrameLayout == FINAL_FRAME_LAYOUT)
+    if (lvaDoneFrameLayout == FINAL_FRAME_LAYOUT)
     {
         printf("; Final");
     }
+#ifdef TARGET_ARMARCH
+    else if (lvaDoneFrameLayout == REGALLOC_FRAME_LAYOUT)
+    {
+        printf("; RegAlloc");
+    }
+#endif
     else
     {
         printf("; Initial");
