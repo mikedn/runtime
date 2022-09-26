@@ -2994,7 +2994,7 @@ unsigned Compiler::lvaGetMaxSpillTempSize()
 {
     unsigned result = 0;
 
-    if (lvaDoneFrameLayout >= REGALLOC_FRAME_LAYOUT)
+    if (lvaDoneFrameLayout != NO_FRAME_LAYOUT)
     {
         result = codeGen->regSet.tmpGetTotalSize();
     }
@@ -5549,7 +5549,7 @@ void Compiler::lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth)
 
     printf(" %-6s", varTypeName(type));
 
-    if (lvaDoneFrameLayout < REGALLOC_FRAME_LAYOUT)
+    if (lvaDoneFrameLayout == NO_FRAME_LAYOUT)
     {
         if (type == TYP_STRUCT)
         {

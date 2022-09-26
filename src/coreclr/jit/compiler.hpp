@@ -1669,7 +1669,7 @@ inline
 
         // If we have finished with register allocation, and this isn't a stack-based local,
         // check that this has a valid stack location.
-        if (lvaDoneFrameLayout > REGALLOC_FRAME_LAYOUT && !varDsc->lvOnFrame)
+        if ((lvaDoneFrameLayout == FINAL_FRAME_LAYOUT) && !varDsc->lvOnFrame)
         {
 #ifdef TARGET_AMD64
 #ifndef UNIX_AMD64_ABI
