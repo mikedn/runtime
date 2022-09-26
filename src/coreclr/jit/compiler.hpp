@@ -1425,7 +1425,7 @@ inline unsigned Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* re
     }
 
     // You cannot allocate more space after frame layout!
-    noway_assert(lvaDoneFrameLayout < Compiler::TENTATIVE_FRAME_LAYOUT);
+    noway_assert(lvaDoneFrameLayout < FINAL_FRAME_LAYOUT);
 
     if (lvaCount + 1 > lvaTableSize)
     {
@@ -1479,7 +1479,7 @@ inline unsigned Compiler::lvaGrabTemps(unsigned count DEBUGARG(const char* reaso
         return lclNum;
     }
 
-    noway_assert(lvaDoneFrameLayout < Compiler::TENTATIVE_FRAME_LAYOUT);
+    noway_assert(lvaDoneFrameLayout < FINAL_FRAME_LAYOUT);
 
     if (lvaCount + count > lvaTableSize)
     {

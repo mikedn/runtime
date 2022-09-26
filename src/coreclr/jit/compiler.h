@@ -3776,10 +3776,7 @@ public:
     enum FrameLayoutState : uint8_t
     {
         NO_FRAME_LAYOUT,
-        INITIAL_FRAME_LAYOUT,
-        PRE_REGALLOC_FRAME_LAYOUT,
         REGALLOC_FRAME_LAYOUT,
-        TENTATIVE_FRAME_LAYOUT,
         FINAL_FRAME_LAYOUT
     };
 
