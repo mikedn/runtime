@@ -3977,8 +3977,8 @@ public:
     void lvaIncrementFrameSize(unsigned size);
 
 #ifdef TARGET_ARMARCH
-    bool compRsvdRegCheck(FrameLayoutState curState);
-    unsigned lvaFrameSize(FrameLayoutState curState);
+    bool     compRsvdRegCheck();
+    unsigned lvaFrameSize();
 #endif
 
     // Returns the caller-SP-relative offset for the SP/FP relative offset determined by FP based.

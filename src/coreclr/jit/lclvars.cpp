@@ -5911,11 +5911,11 @@ void Compiler::lvaTableDump(FrameLayoutState curState)
 //  The method advances the frame layout state to curState by calling
 //  lvaFrameSize(curState).
 //
-bool Compiler::compRsvdRegCheck(FrameLayoutState curState)
+bool Compiler::compRsvdRegCheck()
 {
     // Always do the layout even if returning early. Callers might
     // depend on us to do the layout.
-    unsigned frameSize = lvaFrameSize(curState);
+    unsigned frameSize = lvaFrameSize();
     JITDUMP("\n"
             "compRsvdRegCheck\n"
             "  frame size  = %6d\n"
@@ -6085,9 +6085,9 @@ bool Compiler::compRsvdRegCheck(FrameLayoutState curState)
  *  and only if temps have a larger offset than variables.
  */
 
-unsigned Compiler::lvaFrameSize(FrameLayoutState curState)
+unsigned Compiler::lvaFrameSize()
 {
-    assert(curState < FINAL_FRAME_LAYOUT);
+    assert(lvaDoneFrameLayout < FINAL_FRAME_LAYOUT);
 
     unsigned result;
 
@@ -6129,7 +6129,7 @@ unsigned Compiler::lvaFrameSize(FrameLayoutState curState)
     }
 #endif
 
-    lvaAssignFrameOffsets(curState);
+    lvaAssignFrameOffsets(REGALLOC_FRAME_LAYOUT);
 
     unsigned calleeSavedRegMaxSz = CALLEE_SAVED_REG_MAXSZ;
 #if defined(TARGET_ARMARCH)
