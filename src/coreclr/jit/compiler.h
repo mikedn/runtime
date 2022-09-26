@@ -3968,9 +3968,6 @@ public:
     void lvaTableDump();
 #endif
 
-// Limit frames size to 1GB. The maximum is 2GB in theory - make it intentionally smaller
-// to avoid bugs from borderline cases.
-#define MAX_FrameSize 0x3FFFFFFF
     void lvaIncrementFrameSize(unsigned size);
 
 #ifdef TARGET_ARMARCH

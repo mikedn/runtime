@@ -2942,9 +2942,13 @@ void Compiler::lvaComputeLclRefCounts()
     }
 }
 
-inline void Compiler::lvaIncrementFrameSize(unsigned size)
+void Compiler::lvaIncrementFrameSize(unsigned size)
 {
-    if (size > MAX_FrameSize || compLclFrameSize + size > MAX_FrameSize)
+    // Limit frames size to 1GB. The maximum is 2GB in theory - make
+    // it intentionally smaller to avoid bugs from borderline cases.
+    constexpr unsigned MaxFrameSize = 0x3FFFFFFF;
+
+    if ((size > MaxFrameSize) || (compLclFrameSize + size > MaxFrameSize))
     {
         BADCODE("Frame size overflow");
     }
