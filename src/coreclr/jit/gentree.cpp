@@ -7366,37 +7366,6 @@ void Compiler::gtDispLclVar(unsigned lclNum, bool padForBiggestDisp)
 }
 
 //------------------------------------------------------------------------
-// gtDispLclVarStructType: Print size and type information about a struct or lclBlk local variable.
-//
-// Arguments:
-//   lclNum - The local var id.
-//
-void Compiler::gtDispLclVarStructType(unsigned lclNum)
-{
-    LclVarDsc* varDsc = lvaGetDesc(lclNum);
-    var_types  type   = varDsc->TypeGet();
-    if (type == TYP_STRUCT)
-    {
-        ClassLayout* layout = varDsc->GetLayout();
-        assert(layout != nullptr);
-        gtDispClassLayout(layout, type);
-    }
-#if FEATURE_FIXED_OUT_ARGS
-    else if (lclNum == lvaOutgoingArgSpaceVar)
-    {
-        if (lvaOutgoingArgSpaceSize.HasFinalValue())
-        {
-            printf("<%u> ", lvaOutgoingArgSpaceSize.GetValue());
-        }
-        else
-        {
-            printf("<na> ");
-        }
-    }
-#endif // FEATURE_FIXED_OUT_ARGS
-}
-
-//------------------------------------------------------------------------
 // gtDispClassLayout: Print size and type information about a layout.
 //
 // Arguments:

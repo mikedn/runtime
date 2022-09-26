@@ -5520,84 +5520,76 @@ void Compiler::lvaDumpFrameLocation(unsigned lclNum)
  *  dump a single lvaTable entry
  */
 
-void Compiler::lvaDumpEntry(unsigned lclNum, FrameLayoutState curState, size_t refCntWtdWidth)
+void Compiler::lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth)
 {
     LclVarDsc* varDsc = lvaGetDesc(lclNum);
     var_types  type   = varDsc->TypeGet();
 
-    if (curState == INITIAL_FRAME_LAYOUT)
-    {
-        printf(";  ");
-        gtDispLclVar(lclNum);
+    printf("; ");
 
-        if (lvaRefCountState == RCS_NORMAL)
+    gtDispLclVar(lclNum);
+
+    if (lvaTrackedCount != 0)
+    {
+        if (varDsc->HasLiveness())
         {
-            printf(" (%3u,%*s)", varDsc->GetRefCount(), (int)refCntWtdWidth, refCntWtd2str(varDsc->GetRefWeight()));
+            printf("[T%02u]", varDsc->GetLivenessBitIndex());
         }
+        else
+        {
+            printf("[   ]");
+        }
+    }
+
+    if (lvaRefCountState == RCS_NORMAL)
+    {
+        printf(" (%3u,%*s)", varDsc->GetRefCount(), (int)refCntWtdWidth, refCntWtd2str(varDsc->GetRefWeight()));
+    }
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-        else if (lvaRefCountState == RCS_MORPH)
-        {
-            printf(" (%3u,%3u)", varDsc->GetImplicitByRefParamAnyRefCount(),
-                   varDsc->GetImplicitByRefParamCallRefCount());
-        }
+    else if (lvaRefCountState == RCS_MORPH)
+    {
+        printf(" (%3u,%3u)", varDsc->GetImplicitByRefParamAnyRefCount(), varDsc->GetImplicitByRefParamCallRefCount());
+    }
 #endif
 
-        printf(" %7s ", varTypeName(type));
-        gtDispLclVarStructType(lclNum);
+    printf(" %-6s", varTypeName(type));
+
+    if (lvaDoneFrameLayout < REGALLOC_FRAME_LAYOUT)
+    {
+        if (type == TYP_STRUCT)
+        {
+            ClassLayout* layout = varDsc->GetLayout();
+            assert(layout != nullptr);
+            gtDispClassLayout(layout, type);
+        }
+#if FEATURE_FIXED_OUT_ARGS
+        else if (lclNum == lvaOutgoingArgSpaceVar)
+        {
+            if (lvaOutgoingArgSpaceSize.HasFinalValue())
+            {
+                printf("<%u>", lvaOutgoingArgSpaceSize.GetValue());
+            }
+            else
+            {
+                printf("<na>");
+            }
+        }
+#endif
     }
     else
     {
-        if (varDsc->GetRefCount() == 0)
+        if (varTypeIsStruct(type) || (type == TYP_BLK))
         {
-            // Print this with a special indicator that the variable is unused. Even though the
-            // variable itself is unused, it might be a struct that is promoted, so seeing it
-            // can be useful when looking at the promoted struct fields. It's also weird to see
-            // missing var numbers if these aren't printed.
-            printf(";* ");
-        }
-#if FEATURE_FIXED_OUT_ARGS
-        // Since lvaOutgoingArgSpaceSize is a PhasedVar we can't read it for Dumping until
-        // after we set it to something.
-        else if ((lclNum == lvaOutgoingArgSpaceVar) && lvaOutgoingArgSpaceSize.HasFinalValue() &&
-                 (lvaOutgoingArgSpaceSize == 0))
-        {
-            // Similar to above; print this anyway.
-            printf(";# ");
-        }
-#endif // FEATURE_FIXED_OUT_ARGS
-        else
-        {
-            printf(";  ");
-        }
-
-        gtDispLclVar(lclNum);
-
-        printf("[V%02u", lclNum);
-        if (varDsc->lvTracked)
-        {
-            printf(",T%02u]", varDsc->lvVarIndex);
+            printf("<%2u>  ", lvaLclSize(lclNum));
         }
         else
         {
-            printf("    ]");
+            printf("      ");
         }
 
-        printf(" (%3u,%*s)", varDsc->GetRefCount(), (int)refCntWtdWidth, refCntWtd2str(varDsc->GetRefWeight()));
-
-        printf(" %7s ", varTypeName(type));
-        if (genTypeSize(type) == 0)
+        if ((lvaRefCountState == RCS_NORMAL) && (varDsc->GetRefCount() == 0))
         {
-            printf("(%2d) ", lvaLclSize(lclNum));
-        }
-        else
-        {
-            printf(" ->  ");
-        }
-
-        // The register or stack location field is 11 characters wide.
-        if (varDsc->GetRefCount() == 0)
-        {
-            printf("zero-ref   ");
+            printf("           ");
         }
         else if (varDsc->lvRegister != 0)
         {
@@ -5610,12 +5602,9 @@ void Compiler::lvaDumpEntry(unsigned lclNum, FrameLayoutState curState, size_t r
         }
         else
         {
-            // For RyuJIT backend, it might be in a register part of the time, but it will definitely have a stack home
-            // location. Otherwise, it's always on the stack.
-            if (lvaDoneFrameLayout != NO_FRAME_LAYOUT)
-            {
-                lvaDumpFrameLocation(lclNum);
-            }
+            // For RyuJIT backend, it might be in a register part of the time, but it will
+            // definitely have a stack home location. Otherwise, it's always on the stack.
+            lvaDumpFrameLocation(lclNum);
         }
     }
 
@@ -5813,7 +5802,7 @@ void Compiler::lvaTableDump(FrameLayoutState curState)
 
     for (lclNum = 0, varDsc = lvaTable; lclNum < lvaCount; lclNum++, varDsc++)
     {
-        lvaDumpEntry(lclNum, curState, refCntWtdWidth);
+        lvaDumpEntry(lclNum, refCntWtdWidth);
     }
 
     //-------------------------------------------------------------------------

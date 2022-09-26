@@ -3692,7 +3692,6 @@ public:
     int dmpLclName(unsigned lclNum);
     char* gtGetLclVarName(unsigned lclNum);
     void gtDispLclVar(unsigned lclNum, bool padForBiggestDisp = true);
-    void gtDispLclVarStructType(unsigned lclNum);
     void gtDispClassLayout(ClassLayout* layout, var_types type);
     void gtDispStmt(Statement* stmt, const char* msg = nullptr);
     void gtDispBlockStmts(BasicBlock* block);
@@ -3966,7 +3965,7 @@ public:
 #ifdef DEBUG
     void lvaDumpRegLocation(unsigned lclNum);
     void lvaDumpFrameLocation(unsigned lclNum);
-    void lvaDumpEntry(unsigned lclNum, FrameLayoutState curState, size_t refCntWtdWidth = 6);
+    void lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth = 6);
     void lvaTableDump(FrameLayoutState curState = NO_FRAME_LAYOUT); // NO_FRAME_LAYOUT means use the current frame
                                                                     // layout state defined by lvaDoneFrameLayout
 #endif
