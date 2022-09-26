@@ -5916,38 +5916,23 @@ bool Compiler::compRsvdRegCheck()
     // Always do the layout even if returning early. Callers might
     // depend on us to do the layout.
     unsigned frameSize = lvaFrameSize();
-    JITDUMP("\n"
-            "compRsvdRegCheck\n"
-            "  frame size  = %6d\n"
-            "  compArgSize = %6d\n",
-            frameSize, compArgSize);
+
+    JITDUMP("\ncompRsvdRegCheck - frame size = %u, compArgSize = %u\n", frameSize, compArgSize);
 
     if (opts.MinOpts())
     {
         // Have a recovery path in case we fail to reserve REG_OPT_RSVD and go
         // over the limit of SP and FP offset ranges due to large
         // temps.
-        JITDUMP(" Returning true (MinOpts)\n\n");
+        JITDUMP("Returning true (MinOpts)\n\n");
         return true;
     }
 
-    unsigned calleeSavedRegMaxSz = CALLEE_SAVED_REG_MAXSZ;
-    if (compFloatingPointUsed)
-    {
-        calleeSavedRegMaxSz += CALLEE_SAVED_FLOAT_MAXSZ;
-    }
-    calleeSavedRegMaxSz += REGSIZE_BYTES; // we always push LR.  See genPushCalleeSavedRegisters
-
-    noway_assert(frameSize >= calleeSavedRegMaxSz);
-
-#if defined(TARGET_ARM64)
-
+#ifdef TARGET_ARM64
     // TODO-ARM64-CQ: update this!
-    JITDUMP(" Returning true (ARM64)\n\n");
+    JITDUMP("Returning true (ARM64)\n\n");
     return true; // just always assume we'll need it, for now
-
-#else  // TARGET_ARM
-
+#else
     // frame layout:
     //
     //         ... high addresses ...
