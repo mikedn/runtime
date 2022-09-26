@@ -3926,17 +3926,6 @@ public:
 
     unsigned lvaNewObjArrayArgs = BAD_VAR_NUM; // variable with arguments for new MD array helper
 
-    // TODO-Review: Prior to reg predict we reserve 24 bytes for Spill temps.
-    //              after the reg predict we will use a computed maxTmpSize
-    //              which is based upon the number of spill temps predicted by reg predict
-    //              All this is necessary because if we under-estimate the size of the spill
-    //              temps we could fail when encoding instructions that reference stack offsets for ARM.
-    //
-    // Pre codegen max spill temp size.
-    static const unsigned MAX_SPILL_TEMP_SIZE = 24;
-
-    //-------------------------------------------------------------------------
-
     unsigned lvaGetMaxSpillTempSize();
 #ifdef TARGET_ARM
     bool lvaIsPreSpilled(unsigned lclNum, regMaskTP preSpillMask);

@@ -2979,24 +2979,11 @@ bool Compiler::lvaTempsHaveLargerOffsetThanVars()
 #endif
 }
 
-/****************************************************************************
-*
-*  Return an upper bound estimate for the size of the compiler spill temps
-*
-*/
 unsigned Compiler::lvaGetMaxSpillTempSize()
 {
-    unsigned result = 0;
+    assert(lvaDoneFrameLayout != NO_FRAME_LAYOUT);
 
-    if (lvaDoneFrameLayout != NO_FRAME_LAYOUT)
-    {
-        result = codeGen->regSet.tmpGetTotalSize();
-    }
-    else
-    {
-        result = MAX_SPILL_TEMP_SIZE;
-    }
-    return result;
+    return codeGen->regSet.tmpGetTotalSize();
 }
 
 // clang-format off
