@@ -3977,6 +3977,7 @@ public:
     void lvaIncrementFrameSize(unsigned size);
 
 #ifdef TARGET_ARMARCH
+    bool compRsvdRegCheck(FrameLayoutState curState);
     unsigned lvaFrameSize(FrameLayoutState curState);
 #endif
 
@@ -7497,9 +7498,6 @@ protected:
     void compSetProcessor();
     void compInitDebuggingInfo();
     void compSetOptimizationLevel(const ILStats& ilStats);
-#ifdef TARGET_ARMARCH
-    bool compRsvdRegCheck(FrameLayoutState curState);
-#endif
 
     // Clear annotations produced during optimizations; to be used between iterations when repeating opts.
     void ResetOptAnnotations();
