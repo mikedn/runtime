@@ -3396,43 +3396,13 @@ unsigned Compiler::lvaGetMaxSpillTempSize()
 
 void Compiler::lvaAssignFrameOffsets(FrameLayoutState curState)
 {
-    noway_assert((lvaDoneFrameLayout < curState) || (curState == REGALLOC_FRAME_LAYOUT));
+    assert((curState == REGALLOC_FRAME_LAYOUT) || (curState == FINAL_FRAME_LAYOUT));
+    assert(curState > lvaDoneFrameLayout);
 
     lvaDoneFrameLayout = curState;
 
-#ifdef DEBUG
-    if (verbose)
-    {
-
-        printf("*************** In lvaAssignFrameOffsets");
-        if (curState == INITIAL_FRAME_LAYOUT)
-        {
-            printf("(INITIAL_FRAME_LAYOUT)");
-        }
-        else if (curState == PRE_REGALLOC_FRAME_LAYOUT)
-        {
-            printf("(PRE_REGALLOC_FRAME_LAYOUT)");
-        }
-        else if (curState == REGALLOC_FRAME_LAYOUT)
-        {
-            printf("(REGALLOC_FRAME_LAYOUT)");
-        }
-        else if (curState == TENTATIVE_FRAME_LAYOUT)
-        {
-            printf("(TENTATIVE_FRAME_LAYOUT)");
-        }
-        else if (curState == FINAL_FRAME_LAYOUT)
-        {
-            printf("(FINAL_FRAME_LAYOUT)");
-        }
-        else
-        {
-            printf("(UNKNOWN)");
-            unreached();
-        }
-        printf("\n");
-    }
-#endif
+    JITDUMP("*************** In lvaAssignFrameOffsets (%s)\n",
+            curState == FINAL_FRAME_LAYOUT ? "FINAL_FRAME_LAYOUT" : "REGALLOC_FRAME_LAYOUT");
 
 #if FEATURE_FIXED_OUT_ARGS
     assert(lvaOutgoingArgSpaceVar != BAD_VAR_NUM);
