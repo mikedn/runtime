@@ -6096,49 +6096,19 @@ unsigned Compiler::lvaFrameSize()
 
     compCalleeRegsPushed = CNT_CALLEE_SAVED;
 
-#if defined(TARGET_ARMARCH)
     if (compFloatingPointUsed)
         compCalleeRegsPushed += CNT_CALLEE_SAVED_FLOAT;
 
     compCalleeRegsPushed++; // we always push LR.  See genPushCalleeSavedRegisters
-#elif defined(TARGET_AMD64)
-    if (compFloatingPointUsed)
-    {
-        compCalleeFPRegsSavedMask = RBM_FLT_CALLEE_SAVED;
-    }
-    else
-    {
-        compCalleeFPRegsSavedMask = RBM_NONE;
-    }
-#endif
-
-#if DOUBLE_ALIGN
-    if (genDoubleAlign())
-    {
-        // X86 only - account for extra 4-byte pad that may be created by "and  esp, -8"  instruction
-        compCalleeRegsPushed++;
-    }
-#endif
-
-#ifdef TARGET_XARCH
-    // Since FP/EBP is included in the SAVED_REG_MAXSZ we need to
-    // subtract 1 register if codeGen->isFramePointerUsed() is true.
-    if (codeGen->isFramePointerUsed())
-    {
-        compCalleeRegsPushed--;
-    }
-#endif
 
     lvaAssignFrameOffsets(REGALLOC_FRAME_LAYOUT);
 
     unsigned calleeSavedRegMaxSz = CALLEE_SAVED_REG_MAXSZ;
-#if defined(TARGET_ARMARCH)
     if (compFloatingPointUsed)
     {
         calleeSavedRegMaxSz += CALLEE_SAVED_FLOAT_MAXSZ;
     }
     calleeSavedRegMaxSz += REGSIZE_BYTES; // we always push LR.  See genPushCalleeSavedRegisters
-#endif
 
     result = compLclFrameSize + calleeSavedRegMaxSz;
     return result;
