@@ -409,6 +409,13 @@ public:
 #endif
     }
 
+#ifdef TARGET_ARM
+    bool IsPreSpilledRegParam(regMaskTP preSpillMask) const
+    {
+        return lvIsRegArg && (preSpillMask & genRegMask(GetArgReg()));
+    }
+#endif
+
     bool IsPinning() const
     {
         return lvPinned;
@@ -3927,9 +3934,6 @@ public:
     unsigned lvaNewObjArrayArgs = BAD_VAR_NUM; // variable with arguments for new MD array helper
 
     unsigned lvaGetMaxSpillTempSize();
-#ifdef TARGET_ARM
-    bool lvaIsPreSpilled(unsigned lclNum, regMaskTP preSpillMask);
-#endif // TARGET_ARM
     void lvaAssignFrameOffsets(FrameLayoutState curState);
     void lvaFixVirtualFrameOffsets();
     void lvaUpdateArgsWithInitialReg();

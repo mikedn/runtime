@@ -3521,10 +3521,10 @@ void Compiler::lvaFixVirtualFrameOffsets()
                 || (varDsc->lvIsRegArg
 #if defined(TARGET_ARM) && defined(PROFILING_SUPPORTED)
                     && compIsProfilerHookNeeded() &&
-                    !lvaIsPreSpilled(lclNum, codeGen->regSet.rsMaskPreSpillRegs(false)) // We need assign stack offsets
-                                                                                        // for prespilled arguments
+                    // We need assign stack offsets for prespilled arguments
+                    !varDsc->IsPreSpilledRegParam(codeGen->regSet.rsMaskPreSpillRegs(false))
 #endif
-                    )
+                        )
 #endif // !defined(TARGET_AMD64)
                     )
             {
@@ -3595,14 +3595,6 @@ void Compiler::lvaFixVirtualFrameOffsets()
     }
 #endif
 }
-
-#ifdef TARGET_ARM
-bool Compiler::lvaIsPreSpilled(unsigned lclNum, regMaskTP preSpillMask)
-{
-    const LclVarDsc& desc = lvaTable[lclNum];
-    return desc.lvIsRegArg && (preSpillMask & genRegMask(desc.GetArgReg()));
-}
-#endif // TARGET_ARM
 
 // Assign virtual stack offsets to the arguments, and implicit arguments
 // (this ptr, return buffer, generics, and varargs).
@@ -3724,7 +3716,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
     regMaskTP tempMask     = RBM_NONE;
     for (unsigned i = 0, preSpillLclNum = lclNum; i < argSigLen; ++i, ++preSpillLclNum)
     {
-        if (lvaIsPreSpilled(preSpillLclNum, preSpillMask))
+        if (lvaGetDesc(preSpillLclNum)->IsPreSpilledRegParam(preSpillMask))
         {
             unsigned argSize = eeGetParamAllocSize(argLst, &info.compMethodInfo->args);
             argOffs          = lvaAssignVirtualFrameOffsetToArg(preSpillLclNum, argSize, argOffs);
@@ -3746,7 +3738,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
     argLst = info.compMethodInfo->args.args;
     for (unsigned i = 0, stkLclNum = lclNum; i < argSigLen; ++i, ++stkLclNum)
     {
-        if (!lvaIsPreSpilled(stkLclNum, preSpillMask))
+        if (!lvaGetDesc(stkLclNum)->IsPreSpilledRegParam(preSpillMask))
         {
             const unsigned argSize = eeGetParamAllocSize(argLst, &info.compMethodInfo->args);
             argOffs                = lvaAssignVirtualFrameOffsetToArg(stkLclNum, argSize, argOffs);

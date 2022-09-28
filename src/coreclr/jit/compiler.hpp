@@ -1664,7 +1664,7 @@ inline
         bool isPrespilledArg = false;
 #if defined(TARGET_ARM) && defined(PROFILING_SUPPORTED)
         isPrespilledArg = varDsc->lvIsParam && compIsProfilerHookNeeded() &&
-                          lvaIsPreSpilled(varNum, codeGen->regSet.rsMaskPreSpillRegs(false));
+                          varDsc->IsPreSpilledRegParam(codeGen->regSet.rsMaskPreSpillRegs(false));
 #endif
 
         // If we have finished with register allocation, and this isn't a stack-based local,

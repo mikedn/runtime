@@ -3744,7 +3744,7 @@ void CodeGen::genEnregisterIncomingStackArgs()
         bool isPrespilledForProfiling = false;
 #if defined(TARGET_ARM) && defined(PROFILING_SUPPORTED)
         isPrespilledForProfiling =
-            compiler->compIsProfilerHookNeeded() && compiler->lvaIsPreSpilled(varNum, regSet.rsMaskPreSpillRegs(false));
+            compiler->compIsProfilerHookNeeded() && varDsc->IsPreSpilledRegParam(regSet.rsMaskPreSpillRegs(false));
 #endif
 
         if (varDsc->lvIsRegArg && !isPrespilledForProfiling)
@@ -5536,7 +5536,7 @@ void CodeGen::genReportGenericContextArg(regNumber initReg, bool* pInitRegZeroed
     bool isPrespilledForProfiling = false;
 #if defined(TARGET_ARM) && defined(PROFILING_SUPPORTED)
     isPrespilledForProfiling =
-        compiler->compIsProfilerHookNeeded() && compiler->lvaIsPreSpilled(contextArg, regSet.rsMaskPreSpillRegs(false));
+        compiler->compIsProfilerHookNeeded() && varDsc->IsPreSpilledRegParam(regSet.rsMaskPreSpillRegs(false));
 #endif
 
     // Load from the argument register only if it is not prespilled.
