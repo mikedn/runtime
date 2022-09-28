@@ -3660,7 +3660,9 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
         lclNum++;
     }
 
-    unsigned userArgsToSkip = 0;
+    CORINFO_ARG_LIST_HANDLE argLst    = info.compMethodInfo->args.args;
+    unsigned                argSigLen = info.compMethodInfo->args.numArgs;
+
 #if defined(TARGET_WINDOWS) && !defined(TARGET_ARM)
     // In the native instance method calling convention on Windows,
     // the this parameter comes before the hidden return buffer parameter.
@@ -3676,7 +3678,8 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
         }
 
         lclNum++;
-        userArgsToSkip++;
+        argLst = info.compCompHnd->getArgNext(argLst);
+        argSigLen--;
     }
 #endif
 
@@ -3707,16 +3710,6 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
     }
 
 #endif // USER_ARGS_COME_LAST
-
-    CORINFO_ARG_LIST_HANDLE argLst    = info.compMethodInfo->args.args;
-    unsigned                argSigLen = info.compMethodInfo->args.numArgs;
-    // Skip any user args that we've already processed.
-    assert(userArgsToSkip <= argSigLen);
-    argSigLen -= userArgsToSkip;
-    for (unsigned i = 0; i < userArgsToSkip; i++, argLst = info.compCompHnd->getArgNext(argLst))
-    {
-        ;
-    }
 
 #ifdef TARGET_ARM
     //
