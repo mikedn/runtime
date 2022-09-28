@@ -3712,7 +3712,6 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
 #endif // USER_ARGS_COME_LAST
 
 #ifdef TARGET_ARM
-    //
     // struct_n { int; int; ... n times };
     //
     // Consider signature:
@@ -3737,9 +3736,6 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
     //
     // Therefore, we'll do a two pass offset calculation, one that considers pre-spill
     // and the next, stack args.
-    //
-
-    unsigned argLcls = 0;
 
     // Take care of pre spill registers first.
     regMaskTP preSpillMask = codeGen->regSet.rsMaskPreSpillRegs(false);
@@ -3750,7 +3746,6 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
         {
             unsigned argSize = eeGetParamAllocSize(argLst, &info.compMethodInfo->args);
             argOffs          = lvaAssignVirtualFrameOffsetToArg(preSpillLclNum, argSize, argOffs);
-            argLcls++;
 
             // Early out if we can. If size is 8 and base reg is 2, then the mask is 0x1100
             tempMask |= ((((1 << (roundUp(argSize, TARGET_POINTER_SIZE) / REGSIZE_BYTES))) - 1)
@@ -3773,12 +3768,9 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
         {
             const unsigned argSize = eeGetParamAllocSize(argLst, &info.compMethodInfo->args);
             argOffs                = lvaAssignVirtualFrameOffsetToArg(stkLclNum, argSize, argOffs);
-            argLcls++;
         }
         argLst = info.compCompHnd->getArgNext(argLst);
     }
-
-    lclNum += argLcls;
 #else // !TARGET_ARM
     for (unsigned i = 0; i < argSigLen; i++)
     {
@@ -3792,10 +3784,8 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
             lvaAssignVirtualFrameOffsetToArg(lclNum++, argumentSize, argOffs UNIX_AMD64_ABI_ONLY_ARG(&callerArgOffset));
         argLst = info.compCompHnd->getArgNext(argLst);
     }
-#endif // !TARGET_ARM
 
 #if !USER_ARGS_COME_LAST
-
     //@GENERICS: extra argument for instantiation info
     if (info.compMethodInfo->args.callConv & CORINFO_CALLCONV_PARAMTYPE)
     {
@@ -3809,6 +3799,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
     }
 
 #endif // USER_ARGS_COME_LAST
+#endif // !TARGET_ARM
 }
 
 #ifdef UNIX_AMD64_ABI
