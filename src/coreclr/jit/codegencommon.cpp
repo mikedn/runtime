@@ -5943,6 +5943,8 @@ void CodeGen::genFinalizeFrame()
     }
 #endif // DEBUG
 
+    compiler->lvaUpdateArgsWithInitialReg();
+
     /* Assign the final offsets to things living on the stack frame */
 
     compiler->lvaAssignFrameOffsets(Compiler::FINAL_FRAME_LAYOUT);

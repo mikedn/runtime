@@ -3696,9 +3696,6 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
         argOffs -= codeGen->intRegState.rsCalleeRegArgCount * REGSIZE_BYTES;
     }
 
-    // Update the arg initial register locations.
-    lvaUpdateArgsWithInitialReg();
-
     /* Is there a "this" argument? */
 
     if (!info.compIsStatic)
