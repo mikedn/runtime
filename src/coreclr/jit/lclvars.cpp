@@ -3859,7 +3859,7 @@ int Compiler::lvaAssignVirtualFrameOffsetToArg(unsigned lclNum, unsigned argSize
     return argOffs;
 }
 
-#else // !UNIX_AMD64_ABI
+#elif defined(TARGET_ARM)
 
 // Assign virtual stack offsets to an individual argument, and return the offset for the next argument.
 // Note: This method only calculates the initial offset of the stack passed/spilled arguments
@@ -3871,11 +3871,6 @@ int Compiler::lvaAssignVirtualFrameOffsetToArg(unsigned lclNum, unsigned argSize
     noway_assert(lclNum < info.compArgsCount);
     noway_assert(argSize);
 
-    if (info.compArgOrder == Target::ARG_ORDER_L2R)
-    {
-        argOffs -= argSize;
-    }
-
     unsigned fieldVarNum = BAD_VAR_NUM;
 
     noway_assert(lclNum < lvaCount);
@@ -3885,36 +3880,6 @@ int Compiler::lvaAssignVirtualFrameOffsetToArg(unsigned lclNum, unsigned argSize
 
     if (varDsc->lvIsRegArg)
     {
-#if !defined(TARGET_ARMARCH)
-        // TODO: Remove this noway_assert and replace occurrences of TARGET_POINTER_SIZE with argSize
-        // Also investigate why we are incrementing argOffs for X86 as this seems incorrect
-        INDEBUG(noway_assert(argSize == TARGET_POINTER_SIZE));
-#endif
-
-#if defined(TARGET_X86)
-        argOffs += TARGET_POINTER_SIZE;
-#elif defined(TARGET_AMD64)
-        // Register arguments on AMD64 also takes stack space. (in the backing store)
-        varDsc->SetStackOffset(argOffs);
-        argOffs += TARGET_POINTER_SIZE;
-#elif defined(TARGET_ARM64)
-// Register arguments on ARM64 only take stack space when they have a frame home.
-// Unless on windows and in a vararg method.
-#if FEATURE_ARG_SPLIT
-        if (this->info.compIsVarArgs)
-        {
-            if (varDsc->lvType == TYP_STRUCT && varDsc->GetOtherArgReg() >= MAX_REG_ARG &&
-                varDsc->GetOtherArgReg() != REG_NA)
-            {
-                // This is a split struct. It will account for an extra (8 bytes)
-                // of alignment.
-                varDsc->SetStackOffset(varDsc->GetStackOffset() + TARGET_POINTER_SIZE);
-                argOffs += TARGET_POINTER_SIZE;
-            }
-        }
-#endif // FEATURE_ARG_SPLIT
-
-#elif defined(TARGET_ARM)
         // On ARM we spill the registers in codeGen->regSet.rsMaskPreSpillRegArg
         // in the prolog, so we have to do SetStackOffset() here
         regMaskTP regMask = genRegMask(varDsc->GetArgReg());
@@ -3990,13 +3955,9 @@ int Compiler::lvaAssignVirtualFrameOffsetToArg(unsigned lclNum, unsigned argSize
             varDsc->SetStackOffset(argOffs);
             argOffs += argSize;
         }
-#else // TARGET*
-#error Unsupported or unset target architecture
-#endif // TARGET*
     }
     else
     {
-#if defined(TARGET_ARM)
         // Dev11 Bug 42817: incorrect codegen for DrawFlatCheckBox causes A/V in WinForms
         //
         // Here we have method with a signature (int a1, struct a2, struct a3, int a4, int a5).
@@ -4101,9 +4062,103 @@ int Compiler::lvaAssignVirtualFrameOffsetToArg(unsigned lclNum, unsigned argSize
             default:
                 break;
         }
-#endif // TARGET_ARM
+
         bool     isFloatHfa   = varDsc->lvIsHfa() && (varDsc->GetLayout()->GetHfaElementType() == TYP_FLOAT);
         unsigned argAlignment = eeGetArgAlignment(varDsc->GetType(), isFloatHfa);
+
+        assert((argSize % argAlignment) == 0);
+        assert((argOffs % argAlignment) == 0);
+        varDsc->SetStackOffset(argOffs);
+    }
+
+    if ((varDsc->TypeGet() == TYP_LONG) && varDsc->lvPromoted)
+    {
+        noway_assert(varDsc->lvFieldCnt == 2);
+        fieldVarNum = varDsc->lvFieldLclStart;
+        lvaTable[fieldVarNum].SetStackOffset(varDsc->GetStackOffset());
+        lvaTable[fieldVarNum + 1].SetStackOffset(varDsc->GetStackOffset() + genTypeSize(TYP_INT));
+    }
+    else if (varDsc->lvPromotedStruct())
+    {
+        unsigned firstFieldNum = varDsc->lvFieldLclStart;
+        for (unsigned i = 0; i < varDsc->lvFieldCnt; i++)
+        {
+            LclVarDsc* fieldVarDsc = lvaGetDesc(firstFieldNum + i);
+            fieldVarDsc->SetStackOffset(varDsc->GetStackOffset() + fieldVarDsc->lvFldOffset);
+        }
+    }
+
+    if (!varDsc->lvIsRegArg)
+    {
+        argOffs += argSize;
+    }
+
+    return argOffs;
+}
+
+#else
+
+// Assign virtual stack offsets to an individual argument, and return the offset for the next argument.
+// Note: This method only calculates the initial offset of the stack passed/spilled arguments
+// (if any - the RA might decide to spill(home on the stack) register passed arguments, if rarely used.)
+// The final offset is calculated in lvaFixVirtualFrameOffsets method. It accounts for FP existance,
+// ret address slot, stack frame padding, alloca instructions, etc.
+int Compiler::lvaAssignVirtualFrameOffsetToArg(unsigned lclNum, unsigned argSize, int argOffs)
+{
+    noway_assert(lclNum < info.compArgsCount);
+    noway_assert(argSize);
+
+    if (info.compArgOrder == Target::ARG_ORDER_L2R)
+    {
+        argOffs -= argSize;
+    }
+
+    unsigned fieldVarNum = BAD_VAR_NUM;
+
+    noway_assert(lclNum < lvaCount);
+    LclVarDsc* varDsc = lvaGetDesc(lclNum);
+
+    noway_assert(varDsc->lvIsParam);
+
+    if (varDsc->lvIsRegArg)
+    {
+#if !defined(TARGET_ARMARCH)
+        // TODO: Remove this noway_assert and replace occurrences of TARGET_POINTER_SIZE with argSize
+        // Also investigate why we are incrementing argOffs for X86 as this seems incorrect
+        INDEBUG(noway_assert(argSize == TARGET_POINTER_SIZE));
+#endif
+
+#if defined(TARGET_X86)
+        argOffs += TARGET_POINTER_SIZE;
+#elif defined(TARGET_AMD64)
+        // Register arguments on AMD64 also takes stack space. (in the backing store)
+        varDsc->SetStackOffset(argOffs);
+        argOffs += TARGET_POINTER_SIZE;
+#elif defined(TARGET_ARM64)
+// Register arguments on ARM64 only take stack space when they have a frame home.
+// Unless on windows and in a vararg method.
+#if FEATURE_ARG_SPLIT
+        if (this->info.compIsVarArgs)
+        {
+            if (varDsc->lvType == TYP_STRUCT && varDsc->GetOtherArgReg() >= MAX_REG_ARG &&
+                varDsc->GetOtherArgReg() != REG_NA)
+            {
+                // This is a split struct. It will account for an extra (8 bytes)
+                // of alignment.
+                varDsc->SetStackOffset(varDsc->GetStackOffset() + TARGET_POINTER_SIZE);
+                argOffs += TARGET_POINTER_SIZE;
+            }
+        }
+#endif // FEATURE_ARG_SPLIT
+#else  // TARGET*
+#error Unsupported or unset target architecture
+#endif // TARGET*
+    }
+    else
+    {
+        bool     isFloatHfa   = varDsc->lvIsHfa() && (varDsc->GetLayout()->GetHfaElementType() == TYP_FLOAT);
+        unsigned argAlignment = eeGetArgAlignment(varDsc->GetType(), isFloatHfa);
+
 #ifdef OSX_ARM64_ABI
         argOffs               = roundUp(argOffs, argAlignment);
 #endif
@@ -4140,7 +4195,8 @@ int Compiler::lvaAssignVirtualFrameOffsetToArg(unsigned lclNum, unsigned argSize
 
     return argOffs;
 }
-#endif // !UNIX_AMD64_ABI
+
+#endif
 
 // Assign virtual stack offsets to locals, temps, and anything else.
 // These will all be negative offsets (stack grows down) relative to the virtual '0' address.
