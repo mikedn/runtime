@@ -3670,12 +3670,11 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
     {
 #ifdef TARGET_X86
         if (!lvaTable[lclNum].lvIsRegArg)
+#endif
         {
             argOffs = lvaAssignVirtualFrameOffsetToArg(lclNum, REGSIZE_BYTES, argOffs);
         }
-#else
-        argOffs              = lvaAssignVirtualFrameOffsetToArg(lclNum, REGSIZE_BYTES, argOffs);
-#endif // TARGET_X86
+
         lclNum++;
         userArgsToSkip++;
     }
