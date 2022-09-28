@@ -3851,11 +3851,9 @@ int Compiler::lvaAssignVirtualFrameOffsetToArg(LclVarDsc* varDsc, unsigned argSi
     }
     else
     {
-        bool     isFloatHfa   = varDsc->lvIsHfa() && (varDsc->GetLayout()->GetHfaElementType() == TYP_FLOAT);
-        unsigned argAlignment = eeGetArgAlignment(varDsc->GetType(), isFloatHfa);
+        assert((argSize % REGSIZE_BYTES) == 0);
+        assert((argOffs % REGSIZE_BYTES) == 0);
 
-        assert((argSize % argAlignment) == 0);
-        assert((argOffs % argAlignment) == 0);
         varDsc->SetStackOffset(argOffs);
     }
 
@@ -3900,11 +3898,13 @@ int Compiler::lvaAssignVirtualFrameOffsetToArg(LclVarDsc* varDsc, unsigned argSi
     }
     else
     {
+#ifdef OSX_ARM64_ABI
         bool     isFloatHfa   = varDsc->lvIsHfa() && (varDsc->GetLayout()->GetHfaElementType() == TYP_FLOAT);
         unsigned argAlignment = eeGetArgAlignment(varDsc->GetType(), isFloatHfa);
 
-#ifdef OSX_ARM64_ABI
-        argOffs               = roundUp(argOffs, argAlignment);
+        argOffs = roundUp(argOffs, argAlignment);
+#else
+        unsigned argAlignment = REGSIZE_BYTES;
 #endif
 
         assert((argSize % argAlignment) == 0);
@@ -3949,11 +3949,8 @@ int Compiler::lvaAssignVirtualFrameOffsetToArg(LclVarDsc* varDsc, unsigned argSi
     }
     else
     {
-        bool     isFloatHfa   = varDsc->lvIsHfa() && (varDsc->GetLayout()->GetHfaElementType() == TYP_FLOAT);
-        unsigned argAlignment = eeGetArgAlignment(varDsc->GetType(), isFloatHfa);
-
-        assert((argSize % argAlignment) == 0);
-        assert((argOffs % argAlignment) == 0);
+        assert((argSize % REGSIZE_BYTES) == 0);
+        assert((argOffs % REGSIZE_BYTES) == 0);
 
         varDsc->SetStackOffset(argOffs);
     }
