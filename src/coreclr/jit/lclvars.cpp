@@ -3863,18 +3863,16 @@ int Compiler::lvaAssignVirtualFrameOffsetToArg(LclVarDsc* varDsc, unsigned argSi
     assert((argSize % REGSIZE_BYTES) == 0);
     assert((argOffs % REGSIZE_BYTES) == 0);
 
-    if (info.compArgOrder == Target::ARG_ORDER_L2R)
-    {
-        argOffs -= argSize;
-    }
-
     if (varDsc->IsRegParam())
     {
         assert(argSize == REGSIZE_BYTES);
 
-        // TODO-MIKE-Review: investigate why we are incrementing argOffs for X86 as this seems incorrect.
-        // Maybe because we decremented it above for L2R?
-        return argOffs + REGSIZE_BYTES;
+        return argOffs;
+    }
+
+    if (info.compArgOrder == Target::ARG_ORDER_L2R)
+    {
+        argOffs -= argSize;
     }
 
     varDsc->SetStackOffset(argOffs);
