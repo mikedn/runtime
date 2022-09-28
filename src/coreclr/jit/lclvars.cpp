@@ -3794,11 +3794,6 @@ int Compiler::lvaAssignVirtualFrameOffsetToArg(unsigned lclNum, unsigned argSize
     noway_assert(lclNum < info.compArgsCount);
     noway_assert(argSize);
 
-    if (info.compArgOrder == Target::ARG_ORDER_L2R)
-    {
-        argOffs -= argSize;
-    }
-
     unsigned fieldVarNum = BAD_VAR_NUM;
 
     noway_assert(lclNum < lvaCount);
@@ -3856,7 +3851,7 @@ int Compiler::lvaAssignVirtualFrameOffsetToArg(unsigned lclNum, unsigned argSize
         }
     }
 
-    if (info.compArgOrder == Target::ARG_ORDER_R2L && !varDsc->lvIsRegArg)
+    if (!varDsc->lvIsRegArg)
     {
         argOffs += argSize;
     }
