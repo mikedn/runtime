@@ -3608,50 +3608,35 @@ bool Compiler::lvaIsPreSpilled(unsigned lclNum, regMaskTP preSpillMask)
 }
 #endif // TARGET_ARM
 
-//------------------------------------------------------------------------
-// lvaUpdateArgWithInitialReg: Set the initial register of a local variable
-//                             to the one assigned by the register allocator.
-//
-// Arguments:
-//    lcl - the local variable descriptor
-//
-void Compiler::lvaUpdateArgWithInitialReg(LclVarDsc* varDsc)
-{
-    noway_assert(varDsc->lvIsParam);
-
-    if (varDsc->lvIsRegCandidate())
-    {
-        varDsc->SetRegNum(varDsc->GetArgInitReg());
-    }
-}
-
-//------------------------------------------------------------------------
-// lvaUpdateArgsWithInitialReg() : For each argument variable descriptor, update
-//     its current register with the initial register as assigned by LSRA.
-//
+// For each argument variable descriptor, update its curent
+// register with the initial register as assigned by LSRA.
 void Compiler::lvaUpdateArgsWithInitialReg()
 {
-    if (!compLSRADone)
-    {
-        return;
-    }
+    assert(compLSRADone);
+
+    auto setParamReg = [](LclVarDsc* lcl) {
+        assert(lcl->IsParam());
+
+        if (lcl->IsRegCandidate())
+        {
+            lcl->SetRegNum(lcl->GetArgInitReg());
+        }
+    };
 
     for (unsigned lclNum = 0; lclNum < info.compArgsCount; lclNum++)
     {
-        LclVarDsc* varDsc = lvaGetDesc(lclNum);
+        LclVarDsc* lcl = lvaGetDesc(lclNum);
 
-        if (varDsc->lvPromotedStruct())
+        if (lcl->lvPromotedStruct())
         {
-            for (unsigned fieldVarNum = varDsc->lvFieldLclStart;
-                 fieldVarNum < varDsc->lvFieldLclStart + varDsc->lvFieldCnt; ++fieldVarNum)
+            for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
             {
-                LclVarDsc* fieldVarDsc = lvaGetDesc(fieldVarNum);
-                lvaUpdateArgWithInitialReg(fieldVarDsc);
+                setParamReg(lvaGetDesc(lcl->GetPromotedFieldLclNum(i)));
             }
         }
         else
         {
-            lvaUpdateArgWithInitialReg(varDsc);
+            setParamReg(lcl);
         }
     }
 }
