@@ -3608,39 +3608,6 @@ bool Compiler::lvaIsPreSpilled(unsigned lclNum, regMaskTP preSpillMask)
 }
 #endif // TARGET_ARM
 
-// For each argument variable descriptor, update its curent
-// register with the initial register as assigned by LSRA.
-void Compiler::lvaUpdateArgsWithInitialReg()
-{
-    assert(compLSRADone);
-
-    auto setParamReg = [](LclVarDsc* lcl) {
-        assert(lcl->IsParam());
-
-        if (lcl->IsRegCandidate())
-        {
-            lcl->SetRegNum(lcl->GetArgInitReg());
-        }
-    };
-
-    for (unsigned lclNum = 0; lclNum < info.compArgsCount; lclNum++)
-    {
-        LclVarDsc* lcl = lvaGetDesc(lclNum);
-
-        if (lcl->lvPromotedStruct())
-        {
-            for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
-            {
-                setParamReg(lvaGetDesc(lcl->GetPromotedFieldLclNum(i)));
-            }
-        }
-        else
-        {
-            setParamReg(lcl);
-        }
-    }
-}
-
 /*****************************************************************************
  *  lvaAssignVirtualFrameOffsetsToArgs() : Assign virtual stack offsets to the
  *  arguments, and implicit arguments (this ptr, return buffer, generics,
