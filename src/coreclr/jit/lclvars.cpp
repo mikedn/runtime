@@ -3808,14 +3808,12 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
     if (info.compMethodInfo->args.callConv & CORINFO_CALLCONV_PARAMTYPE)
     {
         noway_assert(lclNum == info.compTypeCtxtArg);
-        argOffs = lvaAssignVirtualFrameOffsetToArg(lclNum++, REGSIZE_BYTES,
-                                                   argOffs UNIX_AMD64_ABI_ONLY_ARG(&callerArgOffset));
+        argOffs = lvaAssignVirtualFrameOffsetToArg(lclNum++, REGSIZE_BYTES, argOffs);
     }
 
     if (info.compIsVarArgs)
     {
-        argOffs = lvaAssignVirtualFrameOffsetToArg(lclNum++, REGSIZE_BYTES,
-                                                   argOffs UNIX_AMD64_ABI_ONLY_ARG(&callerArgOffset));
+        argOffs = lvaAssignVirtualFrameOffsetToArg(lclNum++, REGSIZE_BYTES, argOffs);
     }
 
 #endif // USER_ARGS_COME_LAST
@@ -3831,9 +3829,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
 //        ret address slot, stack frame padding, alloca instructions, etc.
 //  Note: This is the implementation for UNIX_AMD64 System V platforms.
 //
-int Compiler::lvaAssignVirtualFrameOffsetToArg(unsigned lclNum,
-                                               unsigned argSize,
-                                               int argOffs UNIX_AMD64_ABI_ONLY_ARG(int* callerArgOffset))
+int Compiler::lvaAssignVirtualFrameOffsetToArg(unsigned lclNum, unsigned argSize, int argOffs, int* callerArgOffset)
 {
     noway_assert(lclNum < info.compArgsCount);
     noway_assert(argSize);
@@ -3924,9 +3920,7 @@ int Compiler::lvaAssignVirtualFrameOffsetToArg(unsigned lclNum,
 //        The final offset is calculated in lvaFixVirtualFrameOffsets method. It accounts for FP existance,
 //        ret address slot, stack frame padding, alloca instructions, etc.
 //  Note: This implementation for all the platforms but UNIX_AMD64 OSs (System V 64 bit.)
-int Compiler::lvaAssignVirtualFrameOffsetToArg(unsigned lclNum,
-                                               unsigned argSize,
-                                               int argOffs UNIX_AMD64_ABI_ONLY_ARG(int* callerArgOffset))
+int Compiler::lvaAssignVirtualFrameOffsetToArg(unsigned lclNum, unsigned argSize, int argOffs)
 {
     noway_assert(lclNum < info.compArgsCount);
     noway_assert(argSize);

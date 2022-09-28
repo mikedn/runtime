@@ -3934,11 +3934,9 @@ public:
     void lvaFixVirtualFrameOffsets();
     void lvaUpdateArgsWithInitialReg();
     void lvaAssignVirtualFrameOffsetsToArgs();
-#ifdef UNIX_AMD64_ABI
-    int lvaAssignVirtualFrameOffsetToArg(unsigned lclNum, unsigned argSize, int argOffs, int* callerArgOffset);
-#else  // !UNIX_AMD64_ABI
-    int lvaAssignVirtualFrameOffsetToArg(unsigned lclNum, unsigned argSize, int argOffs);
-#endif // !UNIX_AMD64_ABI
+    int lvaAssignVirtualFrameOffsetToArg(unsigned lclNum,
+                                         unsigned argSize,
+                                         int argOffs UNIX_AMD64_ABI_ONLY_ARG(int* callerArgOffset));
     void lvaAssignVirtualFrameOffsetsToLocals();
     int lvaAllocLocalAndSetVirtualOffset(unsigned lclNum, unsigned size, int stkOffs);
 #ifdef TARGET_AMD64
