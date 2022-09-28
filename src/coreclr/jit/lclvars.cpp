@@ -3600,10 +3600,9 @@ void Compiler::lvaFixVirtualFrameOffsets()
 // (this ptr, return buffer, generics, and varargs).
 void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
 {
-    unsigned lclNum  = 0;
-    int      argOffs = 0;
-#ifdef UNIX_AMD64_ABI
-    int callerArgOffset = 0;
+    noway_assert(codeGen->intRegState.rsCalleeRegArgCount <= MAX_REG_ARG);
+#ifndef OSX_ARM64_ABI
+    noway_assert(compArgSize >= codeGen->intRegState.rsCalleeRegArgCount * REGSIZE_BYTES);
 #endif
 
     // Assign stack offsets to arguments (in reverse order of passing).
@@ -3614,35 +3613,34 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
     //
     // This is all relative to our Virtual '0'
 
+    int argOffs = 0;
+
     if (info.compArgOrder == Target::ARG_ORDER_L2R)
     {
         argOffs = compArgSize;
-    }
 
-    // Update the argOffs to reflect arguments that are passed in registers.
-
-    noway_assert(codeGen->intRegState.rsCalleeRegArgCount <= MAX_REG_ARG);
-#ifndef OSX_ARM64_ABI
-    noway_assert(compArgSize >= codeGen->intRegState.rsCalleeRegArgCount * REGSIZE_BYTES);
-#endif
-
-    if (info.compArgOrder == Target::ARG_ORDER_L2R)
-    {
+        // Update the argOffs to reflect arguments that are passed in registers.
         argOffs -= codeGen->intRegState.rsCalleeRegArgCount * REGSIZE_BYTES;
     }
+
+    unsigned                lclNum    = 0;
+    CORINFO_ARG_LIST_HANDLE argLst    = info.compMethodInfo->args.args;
+    unsigned                argSigLen = info.compMethodInfo->args.numArgs;
+#ifdef UNIX_AMD64_ABI
+    int callerArgOffset = 0;
+#endif
 
     if (!info.compIsStatic)
     {
         noway_assert(lclNum == info.compThisArg);
+
 #ifndef TARGET_X86
         argOffs =
             lvaAssignVirtualFrameOffsetToArg(lclNum, REGSIZE_BYTES, argOffs UNIX_AMD64_ABI_ONLY_ARG(&callerArgOffset));
 #endif
+
         lclNum++;
     }
-
-    CORINFO_ARG_LIST_HANDLE argLst    = info.compMethodInfo->args.args;
-    unsigned                argSigLen = info.compMethodInfo->args.numArgs;
 
 #if defined(TARGET_WINDOWS) && !defined(TARGET_ARM)
     // In the native instance method calling convention on Windows,
@@ -3650,7 +3648,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
     if (callConvIsInstanceMethodCallConv(info.compCallConv))
     {
 #ifdef TARGET_X86
-        if (!lvaTable[lclNum].lvIsRegArg)
+        if (!lvaGetDesc(lclNum)->IsRegParam())
 #endif
         {
             argOffs = lvaAssignVirtualFrameOffsetToArg(lclNum, REGSIZE_BYTES, argOffs);
@@ -3665,15 +3663,16 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
     if (info.compRetBuffArg != BAD_VAR_NUM)
     {
         noway_assert(lclNum == info.compRetBuffArg);
-        argOffs =
-            lvaAssignVirtualFrameOffsetToArg(lclNum, REGSIZE_BYTES, argOffs UNIX_AMD64_ABI_ONLY_ARG(&callerArgOffset));
-        lclNum++;
+
+        argOffs = lvaAssignVirtualFrameOffsetToArg(lclNum++, REGSIZE_BYTES,
+                                                   argOffs UNIX_AMD64_ABI_ONLY_ARG(&callerArgOffset));
     }
 
 #if USER_ARGS_COME_LAST
-    if (info.compMethodInfo->args.callConv & CORINFO_CALLCONV_PARAMTYPE)
+    if (info.compMethodInfo->args.hasTypeArg())
     {
         noway_assert(lclNum == info.compTypeCtxtArg);
+
         argOffs = lvaAssignVirtualFrameOffsetToArg(lclNum++, REGSIZE_BYTES,
                                                    argOffs UNIX_AMD64_ABI_ONLY_ARG(&callerArgOffset));
     }
@@ -3714,55 +3713,56 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
     // Take care of pre spill registers first.
     regMaskTP preSpillMask = codeGen->regSet.rsMaskPreSpillRegs(false);
     regMaskTP tempMask     = RBM_NONE;
-    for (unsigned i = 0, preSpillLclNum = lclNum; i < argSigLen; ++i, ++preSpillLclNum)
+
+    for (unsigned i = 0; i < argSigLen; ++i, argLst = info.compCompHnd->getArgNext(argLst))
     {
-        if (lvaGetDesc(preSpillLclNum)->IsPreSpilledRegParam(preSpillMask))
+        LclVarDsc* lcl = lvaGetDesc(lclNum + i);
+
+        if (lcl->IsPreSpilledRegParam(preSpillMask))
         {
             unsigned argSize = eeGetParamAllocSize(argLst, &info.compMethodInfo->args);
-            argOffs          = lvaAssignVirtualFrameOffsetToArg(preSpillLclNum, argSize, argOffs);
+            argOffs          = lvaAssignVirtualFrameOffsetToArg(lclNum + i, argSize, argOffs);
 
             // Early out if we can. If size is 8 and base reg is 2, then the mask is 0x1100
-            tempMask |= ((((1 << (roundUp(argSize, TARGET_POINTER_SIZE) / REGSIZE_BYTES))) - 1)
-                         << lvaTable[preSpillLclNum].GetArgReg());
+            tempMask |= (((1 << (roundUp(argSize, REGSIZE_BYTES) / REGSIZE_BYTES))) - 1) << lcl->GetArgReg();
+
             if (tempMask == preSpillMask)
             {
-                // We won't encounter more pre-spilled registers,
-                // so don't bother iterating further.
+                // We won't encounter more pre-spilled registers, so don't bother iterating further.
                 break;
             }
         }
-        argLst = info.compCompHnd->getArgNext(argLst);
     }
 
     // Take care of non pre-spilled stack arguments.
     argLst = info.compMethodInfo->args.args;
-    for (unsigned i = 0, stkLclNum = lclNum; i < argSigLen; ++i, ++stkLclNum)
+
+    for (unsigned i = 0; i < argSigLen; ++i, argLst = info.compCompHnd->getArgNext(argLst))
     {
-        if (!lvaGetDesc(stkLclNum)->IsPreSpilledRegParam(preSpillMask))
+        if (!lvaGetDesc(lclNum + i)->IsPreSpilledRegParam(preSpillMask))
         {
-            const unsigned argSize = eeGetParamAllocSize(argLst, &info.compMethodInfo->args);
-            argOffs                = lvaAssignVirtualFrameOffsetToArg(stkLclNum, argSize, argOffs);
+            unsigned argSize = eeGetParamAllocSize(argLst, &info.compMethodInfo->args);
+            argOffs          = lvaAssignVirtualFrameOffsetToArg(lclNum + i, argSize, argOffs);
         }
-        argLst = info.compCompHnd->getArgNext(argLst);
     }
 #else // !TARGET_ARM
-    for (unsigned i = 0; i < argSigLen; i++)
+    for (unsigned i = 0; i < argSigLen; i++, argLst = info.compCompHnd->getArgNext(argLst))
     {
-        unsigned argumentSize = eeGetParamAllocSize(argLst, &info.compMethodInfo->args);
+        unsigned argSize = eeGetParamAllocSize(argLst, &info.compMethodInfo->args);
 
 #ifndef OSX_ARM64_ABI
-        assert(argumentSize % TARGET_POINTER_SIZE == 0);
+        assert(argSize % REGSIZE_BYTES == 0);
 #endif
 
         argOffs =
-            lvaAssignVirtualFrameOffsetToArg(lclNum++, argumentSize, argOffs UNIX_AMD64_ABI_ONLY_ARG(&callerArgOffset));
-        argLst = info.compCompHnd->getArgNext(argLst);
+            lvaAssignVirtualFrameOffsetToArg(lclNum++, argSize, argOffs UNIX_AMD64_ABI_ONLY_ARG(&callerArgOffset));
     }
 
 #if !USER_ARGS_COME_LAST
-    if (info.compMethodInfo->args.callConv & CORINFO_CALLCONV_PARAMTYPE)
+    if (info.compMethodInfo->args.hasTypeArg())
     {
         noway_assert(lclNum == info.compTypeCtxtArg);
+
         argOffs = lvaAssignVirtualFrameOffsetToArg(lclNum++, REGSIZE_BYTES, argOffs);
     }
 
