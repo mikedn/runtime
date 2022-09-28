@@ -3818,17 +3818,6 @@ int Compiler::lvaAssignVirtualFrameOffsetToArg(LclVarDsc* varDsc, unsigned argSi
         }
     }
 
-    if (varDsc->lvPromotedStruct())
-    {
-        unsigned firstFieldNum = varDsc->lvFieldLclStart;
-        int      offset        = varDsc->GetStackOffset();
-        for (unsigned i = 0; i < varDsc->lvFieldCnt; i++)
-        {
-            LclVarDsc* fieldVarDsc = lvaGetDesc(firstFieldNum + i);
-            fieldVarDsc->SetStackOffset(offset + fieldVarDsc->lvFldOffset);
-        }
-    }
-
     if (!varDsc->lvIsRegArg)
     {
         argOffs += argSize;
@@ -3855,16 +3844,6 @@ int Compiler::lvaAssignVirtualFrameOffsetToArg(LclVarDsc* varDsc, unsigned argSi
         assert((argOffs % REGSIZE_BYTES) == 0);
 
         varDsc->SetStackOffset(argOffs);
-    }
-
-    if (varDsc->lvPromotedStruct())
-    {
-        unsigned firstFieldNum = varDsc->lvFieldLclStart;
-        for (unsigned i = 0; i < varDsc->lvFieldCnt; i++)
-        {
-            LclVarDsc* fieldVarDsc = lvaGetDesc(firstFieldNum + i);
-            fieldVarDsc->SetStackOffset(varDsc->GetStackOffset() + fieldVarDsc->lvFldOffset);
-        }
     }
 
     if (!varDsc->lvIsRegArg)
@@ -3912,16 +3891,6 @@ int Compiler::lvaAssignVirtualFrameOffsetToArg(LclVarDsc* varDsc, unsigned argSi
         varDsc->SetStackOffset(argOffs);
     }
 
-    if (varDsc->lvPromotedStruct())
-    {
-        unsigned firstFieldNum = varDsc->lvFieldLclStart;
-        for (unsigned i = 0; i < varDsc->lvFieldCnt; i++)
-        {
-            LclVarDsc* fieldVarDsc = lvaGetDesc(firstFieldNum + i);
-            fieldVarDsc->SetStackOffset(varDsc->GetStackOffset() + fieldVarDsc->lvFldOffset);
-        }
-    }
-
     if (!varDsc->lvIsRegArg)
     {
         argOffs += argSize;
@@ -3953,23 +3922,6 @@ int Compiler::lvaAssignVirtualFrameOffsetToArg(LclVarDsc* varDsc, unsigned argSi
         assert((argOffs % REGSIZE_BYTES) == 0);
 
         varDsc->SetStackOffset(argOffs);
-    }
-
-    if ((varDsc->TypeGet() == TYP_LONG) && varDsc->lvPromoted)
-    {
-        noway_assert(varDsc->lvFieldCnt == 2);
-        unsigned fieldVarNum = varDsc->lvFieldLclStart;
-        lvaTable[fieldVarNum].SetStackOffset(varDsc->GetStackOffset());
-        lvaTable[fieldVarNum + 1].SetStackOffset(varDsc->GetStackOffset() + genTypeSize(TYP_INT));
-    }
-    else if (varDsc->lvPromotedStruct())
-    {
-        unsigned firstFieldNum = varDsc->lvFieldLclStart;
-        for (unsigned i = 0; i < varDsc->lvFieldCnt; i++)
-        {
-            LclVarDsc* fieldVarDsc = lvaGetDesc(firstFieldNum + i);
-            fieldVarDsc->SetStackOffset(varDsc->GetStackOffset() + fieldVarDsc->lvFldOffset);
-        }
     }
 
     if (info.compArgOrder == Target::ARG_ORDER_R2L && !varDsc->lvIsRegArg)
@@ -4184,23 +4136,6 @@ int Compiler::lvaAssignVirtualFrameOffsetToArg(LclVarDsc* varDsc, unsigned argSi
         varDsc->SetStackOffset(argOffs);
     }
 
-    if ((varDsc->TypeGet() == TYP_LONG) && varDsc->lvPromoted)
-    {
-        noway_assert(varDsc->lvFieldCnt == 2);
-        unsigned fieldVarNum = varDsc->lvFieldLclStart;
-        lvaTable[fieldVarNum].SetStackOffset(varDsc->GetStackOffset());
-        lvaTable[fieldVarNum + 1].SetStackOffset(varDsc->GetStackOffset() + genTypeSize(TYP_INT));
-    }
-    else if (varDsc->lvPromotedStruct())
-    {
-        unsigned firstFieldNum = varDsc->lvFieldLclStart;
-        for (unsigned i = 0; i < varDsc->lvFieldCnt; i++)
-        {
-            LclVarDsc* fieldVarDsc = lvaGetDesc(firstFieldNum + i);
-            fieldVarDsc->SetStackOffset(varDsc->GetStackOffset() + fieldVarDsc->lvFldOffset);
-        }
-    }
-
     if (!varDsc->lvIsRegArg)
     {
         argOffs += argSize;
@@ -4222,7 +4157,30 @@ int Compiler::lvaAssignParamVirtualFrameOffset(unsigned lclNum,
 
     assert(lcl->IsParam() && !lcl->IsPromotedField());
 
-    return lvaAssignVirtualFrameOffsetToArg(lcl, argSize, argOffs UNIX_AMD64_ABI_ONLY_ARG(callerArgOffset));
+    argOffs = lvaAssignVirtualFrameOffsetToArg(lcl, argSize, argOffs UNIX_AMD64_ABI_ONLY_ARG(callerArgOffset));
+
+    if (lcl->IsPromoted())
+    {
+#ifndef TARGET_64BIT
+        if (lcl->TypeIs(TYP_LONG))
+        {
+            assert(lcl->GetPromotedFieldCount() == 2);
+
+            lvaGetDesc(lcl->GetPromotedFieldLclNum(0))->SetStackOffset(lcl->GetStackOffset());
+            lvaGetDesc(lcl->GetPromotedFieldLclNum(1))->SetStackOffset(lcl->GetStackOffset() + 4);
+        }
+        else
+#endif
+        {
+            for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
+            {
+                LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
+                fieldLcl->SetStackOffset(lcl->GetStackOffset() + fieldLcl->GetPromotedFieldOffset());
+            }
+        }
+    }
+
+    return argOffs;
 }
 
 // Assign virtual stack offsets to locals, temps, and anything else.
