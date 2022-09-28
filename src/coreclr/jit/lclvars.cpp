@@ -3636,7 +3636,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
 
 #ifndef TARGET_X86
         argOffs =
-            lvaAssignVirtualFrameOffsetToArg(lclNum, REGSIZE_BYTES, argOffs UNIX_AMD64_ABI_ONLY_ARG(&callerArgOffset));
+            lvaAssignParamVirtualFrameOffset(lclNum, REGSIZE_BYTES, argOffs UNIX_AMD64_ABI_ONLY_ARG(&callerArgOffset));
 #endif
 
         lclNum++;
@@ -3651,7 +3651,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
         if (!lvaGetDesc(lclNum)->IsRegParam())
 #endif
         {
-            argOffs = lvaAssignVirtualFrameOffsetToArg(lclNum, REGSIZE_BYTES, argOffs);
+            argOffs = lvaAssignParamVirtualFrameOffset(lclNum, REGSIZE_BYTES, argOffs);
         }
 
         lclNum++;
@@ -3664,7 +3664,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
     {
         noway_assert(lclNum == info.compRetBuffArg);
 
-        argOffs = lvaAssignVirtualFrameOffsetToArg(lclNum++, REGSIZE_BYTES,
+        argOffs = lvaAssignParamVirtualFrameOffset(lclNum++, REGSIZE_BYTES,
                                                    argOffs UNIX_AMD64_ABI_ONLY_ARG(&callerArgOffset));
     }
 
@@ -3673,13 +3673,13 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
     {
         noway_assert(lclNum == info.compTypeCtxtArg);
 
-        argOffs = lvaAssignVirtualFrameOffsetToArg(lclNum++, REGSIZE_BYTES,
+        argOffs = lvaAssignParamVirtualFrameOffset(lclNum++, REGSIZE_BYTES,
                                                    argOffs UNIX_AMD64_ABI_ONLY_ARG(&callerArgOffset));
     }
 
     if (info.compIsVarArgs)
     {
-        argOffs = lvaAssignVirtualFrameOffsetToArg(lclNum++, REGSIZE_BYTES,
+        argOffs = lvaAssignParamVirtualFrameOffset(lclNum++, REGSIZE_BYTES,
                                                    argOffs UNIX_AMD64_ABI_ONLY_ARG(&callerArgOffset));
     }
 #endif // USER_ARGS_COME_LAST
@@ -3721,7 +3721,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
         if (lcl->IsPreSpilledRegParam(preSpillMask))
         {
             unsigned argSize = eeGetParamAllocSize(argLst, &info.compMethodInfo->args);
-            argOffs          = lvaAssignVirtualFrameOffsetToArg(lclNum + i, argSize, argOffs);
+            argOffs          = lvaAssignParamVirtualFrameOffset(lclNum + i, argSize, argOffs);
 
             // Early out if we can. If size is 8 and base reg is 2, then the mask is 0x1100
             tempMask |= (((1 << (roundUp(argSize, REGSIZE_BYTES) / REGSIZE_BYTES))) - 1) << lcl->GetArgReg();
@@ -3742,7 +3742,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
         if (!lvaGetDesc(lclNum + i)->IsPreSpilledRegParam(preSpillMask))
         {
             unsigned argSize = eeGetParamAllocSize(argLst, &info.compMethodInfo->args);
-            argOffs          = lvaAssignVirtualFrameOffsetToArg(lclNum + i, argSize, argOffs);
+            argOffs          = lvaAssignParamVirtualFrameOffset(lclNum + i, argSize, argOffs);
         }
     }
 #else // !TARGET_ARM
@@ -3755,7 +3755,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
 #endif
 
         argOffs =
-            lvaAssignVirtualFrameOffsetToArg(lclNum++, argSize, argOffs UNIX_AMD64_ABI_ONLY_ARG(&callerArgOffset));
+            lvaAssignParamVirtualFrameOffset(lclNum++, argSize, argOffs UNIX_AMD64_ABI_ONLY_ARG(&callerArgOffset));
     }
 
 #if !USER_ARGS_COME_LAST
@@ -3763,12 +3763,12 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
     {
         noway_assert(lclNum == info.compTypeCtxtArg);
 
-        argOffs = lvaAssignVirtualFrameOffsetToArg(lclNum++, REGSIZE_BYTES, argOffs);
+        argOffs = lvaAssignParamVirtualFrameOffset(lclNum++, REGSIZE_BYTES, argOffs);
     }
 
     if (info.compIsVarArgs)
     {
-        argOffs = lvaAssignVirtualFrameOffsetToArg(lclNum++, REGSIZE_BYTES, argOffs);
+        argOffs = lvaAssignParamVirtualFrameOffset(lclNum++, REGSIZE_BYTES, argOffs);
     }
 
 #endif // USER_ARGS_COME_LAST
@@ -3776,23 +3776,9 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
 }
 
 #ifdef UNIX_AMD64_ABI
-// Assign virtual stack offsets to an individual argument, and return the offset for the next argument.
-// Note: This method only calculates the initial offset of the stack passed/spilled arguments
-// (if any - the RA might decide to spill (home on the stack) register passed arguments, if rarely used.)
-// The final offset is calculated in lvaFixVirtualFrameOffsets method. It accounts for FP existance,
-// ret address slot, stack frame padding, alloca instructions, etc.
-int Compiler::lvaAssignVirtualFrameOffsetToArg(unsigned lclNum, unsigned argSize, int argOffs, int* callerArgOffset)
+
+int Compiler::lvaAssignVirtualFrameOffsetToArg(LclVarDsc* varDsc, unsigned argSize, int argOffs, int* callerArgOffset)
 {
-    noway_assert(lclNum < info.compArgsCount);
-    noway_assert(argSize);
-
-    unsigned fieldVarNum = BAD_VAR_NUM;
-
-    noway_assert(lclNum < lvaCount);
-    LclVarDsc* varDsc = lvaGetDesc(lclNum);
-
-    noway_assert(varDsc->lvIsParam);
-
     if (varDsc->lvIsRegArg)
     {
         // Argument is passed in a register, don't count it
@@ -3851,6 +3837,152 @@ int Compiler::lvaAssignVirtualFrameOffsetToArg(unsigned lclNum, unsigned argSize
     return argOffs;
 }
 
+#elif defined(WINDOWS_AMD64_ABI)
+
+int Compiler::lvaAssignVirtualFrameOffsetToArg(LclVarDsc* varDsc, unsigned argSize, int argOffs)
+{
+    if (varDsc->lvIsRegArg)
+    {
+        // TODO: Remove this noway_assert and replace occurrences of TARGET_POINTER_SIZE with argSize
+        INDEBUG(noway_assert(argSize == TARGET_POINTER_SIZE));
+
+        varDsc->SetStackOffset(argOffs);
+        argOffs += TARGET_POINTER_SIZE;
+    }
+    else
+    {
+        bool     isFloatHfa   = varDsc->lvIsHfa() && (varDsc->GetLayout()->GetHfaElementType() == TYP_FLOAT);
+        unsigned argAlignment = eeGetArgAlignment(varDsc->GetType(), isFloatHfa);
+
+        assert((argSize % argAlignment) == 0);
+        assert((argOffs % argAlignment) == 0);
+        varDsc->SetStackOffset(argOffs);
+    }
+
+    if (varDsc->lvPromotedStruct())
+    {
+        unsigned firstFieldNum = varDsc->lvFieldLclStart;
+        for (unsigned i = 0; i < varDsc->lvFieldCnt; i++)
+        {
+            LclVarDsc* fieldVarDsc = lvaGetDesc(firstFieldNum + i);
+            fieldVarDsc->SetStackOffset(varDsc->GetStackOffset() + fieldVarDsc->lvFldOffset);
+        }
+    }
+
+    if (!varDsc->lvIsRegArg)
+    {
+        argOffs += argSize;
+    }
+
+    return argOffs;
+}
+
+#elif defined(TARGET_ARM64)
+
+int Compiler::lvaAssignVirtualFrameOffsetToArg(LclVarDsc* varDsc, unsigned argSize, int argOffs)
+{
+    if (varDsc->lvIsRegArg)
+    {
+#if TARGET_WINDOWS
+        // Register arguments on ARM64 only take stack space when they have a frame home.
+        // Unless on windows and in a vararg method.
+        if (info.compIsVarArgs)
+        {
+            if (varDsc->lvType == TYP_STRUCT && varDsc->GetOtherArgReg() >= MAX_REG_ARG &&
+                varDsc->GetOtherArgReg() != REG_NA)
+            {
+                // This is a split struct. It will account for an extra (8 bytes) of alignment.
+                varDsc->SetStackOffset(varDsc->GetStackOffset() + TARGET_POINTER_SIZE);
+                argOffs += TARGET_POINTER_SIZE;
+            }
+        }
+#endif // TARGET_WINDOWS
+    }
+    else
+    {
+        bool     isFloatHfa   = varDsc->lvIsHfa() && (varDsc->GetLayout()->GetHfaElementType() == TYP_FLOAT);
+        unsigned argAlignment = eeGetArgAlignment(varDsc->GetType(), isFloatHfa);
+
+#ifdef OSX_ARM64_ABI
+        argOffs               = roundUp(argOffs, argAlignment);
+#endif
+
+        assert((argSize % argAlignment) == 0);
+        assert((argOffs % argAlignment) == 0);
+        varDsc->SetStackOffset(argOffs);
+    }
+
+    if (varDsc->lvPromotedStruct())
+    {
+        unsigned firstFieldNum = varDsc->lvFieldLclStart;
+        for (unsigned i = 0; i < varDsc->lvFieldCnt; i++)
+        {
+            LclVarDsc* fieldVarDsc = lvaGetDesc(firstFieldNum + i);
+            fieldVarDsc->SetStackOffset(varDsc->GetStackOffset() + fieldVarDsc->lvFldOffset);
+        }
+    }
+
+    if (!varDsc->lvIsRegArg)
+    {
+        argOffs += argSize;
+    }
+
+    return argOffs;
+}
+
+#elif defined(TARGET_X86)
+
+int Compiler::lvaAssignVirtualFrameOffsetToArg(LclVarDsc* varDsc, unsigned argSize, int argOffs)
+{
+    if (info.compArgOrder == Target::ARG_ORDER_L2R)
+    {
+        argOffs -= argSize;
+    }
+
+    if (varDsc->lvIsRegArg)
+    {
+        // TODO: Remove this noway_assert and replace occurrences of TARGET_POINTER_SIZE with argSize
+        // Also investigate why we are incrementing argOffs for X86 as this seems incorrect
+        INDEBUG(noway_assert(argSize == TARGET_POINTER_SIZE));
+
+        argOffs += TARGET_POINTER_SIZE;
+    }
+    else
+    {
+        bool     isFloatHfa   = varDsc->lvIsHfa() && (varDsc->GetLayout()->GetHfaElementType() == TYP_FLOAT);
+        unsigned argAlignment = eeGetArgAlignment(varDsc->GetType(), isFloatHfa);
+
+        assert((argSize % argAlignment) == 0);
+        assert((argOffs % argAlignment) == 0);
+
+        varDsc->SetStackOffset(argOffs);
+    }
+
+    if ((varDsc->TypeGet() == TYP_LONG) && varDsc->lvPromoted)
+    {
+        noway_assert(varDsc->lvFieldCnt == 2);
+        unsigned fieldVarNum = varDsc->lvFieldLclStart;
+        lvaTable[fieldVarNum].SetStackOffset(varDsc->GetStackOffset());
+        lvaTable[fieldVarNum + 1].SetStackOffset(varDsc->GetStackOffset() + genTypeSize(TYP_INT));
+    }
+    else if (varDsc->lvPromotedStruct())
+    {
+        unsigned firstFieldNum = varDsc->lvFieldLclStart;
+        for (unsigned i = 0; i < varDsc->lvFieldCnt; i++)
+        {
+            LclVarDsc* fieldVarDsc = lvaGetDesc(firstFieldNum + i);
+            fieldVarDsc->SetStackOffset(varDsc->GetStackOffset() + fieldVarDsc->lvFldOffset);
+        }
+    }
+
+    if (info.compArgOrder == Target::ARG_ORDER_R2L && !varDsc->lvIsRegArg)
+    {
+        argOffs += argSize;
+    }
+
+    return argOffs;
+}
+
 #elif defined(TARGET_ARM)
 
 // Assign virtual stack offsets to an individual argument, and return the offset for the next argument.
@@ -3858,16 +3990,8 @@ int Compiler::lvaAssignVirtualFrameOffsetToArg(unsigned lclNum, unsigned argSize
 // (if any - the RA might decide to spill(home on the stack) register passed arguments, if rarely used.)
 // The final offset is calculated in lvaFixVirtualFrameOffsets method. It accounts for FP existance,
 // ret address slot, stack frame padding, alloca instructions, etc.
-int Compiler::lvaAssignVirtualFrameOffsetToArg(unsigned lclNum, unsigned argSize, int argOffs)
+int Compiler::lvaAssignVirtualFrameOffsetToArg(LclVarDsc* varDsc, unsigned argSize, int argOffs)
 {
-    noway_assert(lclNum < info.compArgsCount);
-    noway_assert(argSize);
-
-    unsigned fieldVarNum = BAD_VAR_NUM;
-
-    noway_assert(lclNum < lvaCount);
-    LclVarDsc* varDsc = lvaGetDesc(lclNum);
-
     noway_assert(varDsc->lvIsParam);
 
     if (varDsc->lvIsRegArg)
@@ -4066,7 +4190,7 @@ int Compiler::lvaAssignVirtualFrameOffsetToArg(unsigned lclNum, unsigned argSize
     if ((varDsc->TypeGet() == TYP_LONG) && varDsc->lvPromoted)
     {
         noway_assert(varDsc->lvFieldCnt == 2);
-        fieldVarNum = varDsc->lvFieldLclStart;
+        unsigned fieldVarNum = varDsc->lvFieldLclStart;
         lvaTable[fieldVarNum].SetStackOffset(varDsc->GetStackOffset());
         lvaTable[fieldVarNum + 1].SetStackOffset(varDsc->GetStackOffset() + genTypeSize(TYP_INT));
     }
@@ -4088,107 +4212,21 @@ int Compiler::lvaAssignVirtualFrameOffsetToArg(unsigned lclNum, unsigned argSize
     return argOffs;
 }
 
-#else
+#endif
 
-// Assign virtual stack offsets to an individual argument, and return the offset for the next argument.
-// Note: This method only calculates the initial offset of the stack passed/spilled arguments
-// (if any - the RA might decide to spill(home on the stack) register passed arguments, if rarely used.)
-// The final offset is calculated in lvaFixVirtualFrameOffsets method. It accounts for FP existance,
-// ret address slot, stack frame padding, alloca instructions, etc.
-int Compiler::lvaAssignVirtualFrameOffsetToArg(unsigned lclNum, unsigned argSize, int argOffs)
+int Compiler::lvaAssignParamVirtualFrameOffset(unsigned lclNum,
+                                               unsigned argSize,
+                                               int argOffs UNIX_AMD64_ABI_ONLY_ARG(int* callerArgOffset))
 {
-    noway_assert(lclNum < info.compArgsCount);
-    noway_assert(argSize);
+    assert(lclNum < info.compArgsCount);
+    assert(argSize != 0);
 
-    if (info.compArgOrder == Target::ARG_ORDER_L2R)
-    {
-        argOffs -= argSize;
-    }
+    LclVarDsc* lcl = lvaGetDesc(lclNum);
 
-    unsigned fieldVarNum = BAD_VAR_NUM;
+    assert(lcl->IsParam() && !lcl->IsPromotedField());
 
-    noway_assert(lclNum < lvaCount);
-    LclVarDsc* varDsc = lvaGetDesc(lclNum);
-
-    noway_assert(varDsc->lvIsParam);
-
-    if (varDsc->lvIsRegArg)
-    {
-#if !defined(TARGET_ARMARCH)
-        // TODO: Remove this noway_assert and replace occurrences of TARGET_POINTER_SIZE with argSize
-        // Also investigate why we are incrementing argOffs for X86 as this seems incorrect
-        INDEBUG(noway_assert(argSize == TARGET_POINTER_SIZE));
-#endif
-
-#if defined(TARGET_X86)
-        argOffs += TARGET_POINTER_SIZE;
-#elif defined(TARGET_AMD64)
-        // Register arguments on AMD64 also takes stack space. (in the backing store)
-        varDsc->SetStackOffset(argOffs);
-        argOffs += TARGET_POINTER_SIZE;
-#elif defined(TARGET_ARM64)
-// Register arguments on ARM64 only take stack space when they have a frame home.
-// Unless on windows and in a vararg method.
-#if FEATURE_ARG_SPLIT
-        if (this->info.compIsVarArgs)
-        {
-            if (varDsc->lvType == TYP_STRUCT && varDsc->GetOtherArgReg() >= MAX_REG_ARG &&
-                varDsc->GetOtherArgReg() != REG_NA)
-            {
-                // This is a split struct. It will account for an extra (8 bytes)
-                // of alignment.
-                varDsc->SetStackOffset(varDsc->GetStackOffset() + TARGET_POINTER_SIZE);
-                argOffs += TARGET_POINTER_SIZE;
-            }
-        }
-#endif // FEATURE_ARG_SPLIT
-#else  // TARGET*
-#error Unsupported or unset target architecture
-#endif // TARGET*
-    }
-    else
-    {
-        bool     isFloatHfa   = varDsc->lvIsHfa() && (varDsc->GetLayout()->GetHfaElementType() == TYP_FLOAT);
-        unsigned argAlignment = eeGetArgAlignment(varDsc->GetType(), isFloatHfa);
-
-#ifdef OSX_ARM64_ABI
-        argOffs               = roundUp(argOffs, argAlignment);
-#endif
-
-        assert((argSize % argAlignment) == 0);
-        assert((argOffs % argAlignment) == 0);
-        varDsc->SetStackOffset(argOffs);
-    }
-
-#ifndef TARGET_64BIT
-    if ((varDsc->TypeGet() == TYP_LONG) && varDsc->lvPromoted)
-    {
-        noway_assert(varDsc->lvFieldCnt == 2);
-        fieldVarNum = varDsc->lvFieldLclStart;
-        lvaTable[fieldVarNum].SetStackOffset(varDsc->GetStackOffset());
-        lvaTable[fieldVarNum + 1].SetStackOffset(varDsc->GetStackOffset() + genTypeSize(TYP_INT));
-    }
-    else
-#endif
-        if (varDsc->lvPromotedStruct())
-    {
-        unsigned firstFieldNum = varDsc->lvFieldLclStart;
-        for (unsigned i = 0; i < varDsc->lvFieldCnt; i++)
-        {
-            LclVarDsc* fieldVarDsc = lvaGetDesc(firstFieldNum + i);
-            fieldVarDsc->SetStackOffset(varDsc->GetStackOffset() + fieldVarDsc->lvFldOffset);
-        }
-    }
-
-    if (info.compArgOrder == Target::ARG_ORDER_R2L && !varDsc->lvIsRegArg)
-    {
-        argOffs += argSize;
-    }
-
-    return argOffs;
+    return lvaAssignVirtualFrameOffsetToArg(lcl, argSize, argOffs UNIX_AMD64_ABI_ONLY_ARG(callerArgOffset));
 }
-
-#endif
 
 // Assign virtual stack offsets to locals, temps, and anything else.
 // These will all be negative offsets (stack grows down) relative to the virtual '0' address.
