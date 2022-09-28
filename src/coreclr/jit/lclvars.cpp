@@ -3779,152 +3779,107 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
 
 int Compiler::lvaAssignVirtualFrameOffsetToArg(LclVarDsc* varDsc, unsigned argSize, int argOffs, int* callerArgOffset)
 {
-    if (varDsc->lvIsRegArg)
+    if (varDsc->IsRegParam())
     {
-        // Argument is passed in a register, don't count it
-        // when updating the current offset on the stack.
+        // Argument is passed in a register, don't count it, when updating the current offset on the stack.
+        // The offset for args needs to be set only for the stack homed arguments for System V.
 
-        if (varDsc->lvOnFrame)
-        {
-            // The offset for args needs to be set only for the stack homed arguments for System V.
-            varDsc->SetStackOffset(argOffs);
-        }
-        else
-        {
-            varDsc->SetStackOffset(0);
-        }
-    }
-    else
-    {
-        // On System V platforms, if the RA decides to home a register passed arg on the stack, it creates a stack
-        // location on the callee stack (like any other local var.) In such a case, the register passed, stack homed
-        // arguments are accessed using negative offsets and the stack passed arguments are accessed using positive
-        // offset (from the caller's stack.)
-        // For System V platforms if there is no frame pointer the caller stack parameter offset should include the
-        // callee allocated space. If frame register is used, the callee allocated space should not be included for
-        // accessing the caller stack parameters. The last two requirements are met in lvaFixVirtualFrameOffsets
-        // method, which fixes the offsets, based on frame pointer existence, existence of alloca instructions, ret
-        // address pushed, ets.
+        varDsc->SetStackOffset(varDsc->lvOnFrame ? argOffs : 0);
 
-        varDsc->SetStackOffset(*callerArgOffset);
-
-        if (argSize > TARGET_POINTER_SIZE)
-        {
-            *callerArgOffset += (int)roundUp(argSize, TARGET_POINTER_SIZE);
-        }
-        else
-        {
-            *callerArgOffset += TARGET_POINTER_SIZE;
-        }
+        return argOffs;
     }
 
-    if (!varDsc->lvIsRegArg)
-    {
-        argOffs += argSize;
-    }
+    // On System V platforms, if the RA decides to home a register passed arg on the stack, it creates a stack
+    // location on the callee stack (like any other local var.) In such a case, the register passed, stack homed
+    // arguments are accessed using negative offsets and the stack passed arguments are accessed using positive
+    // offset (from the caller's stack.)
+    // For System V platforms if there is no frame pointer the caller stack parameter offset should include the
+    // callee allocated space. If frame register is used, the callee allocated space should not be included for
+    // accessing the caller stack parameters. The last two requirements are met in lvaFixVirtualFrameOffsets
+    // method, which fixes the offsets, based on frame pointer existence, existence of alloca instructions, ret
+    // address pushed, ets.
 
-    return argOffs;
+    varDsc->SetStackOffset(*callerArgOffset);
+    *callerArgOffset += static_cast<int>(roundUp(argSize, REGSIZE_BYTES));
+
+    return argOffs + argSize;
 }
 
 #elif defined(WINDOWS_AMD64_ABI)
 
-int Compiler::lvaAssignVirtualFrameOffsetToArg(LclVarDsc* varDsc, unsigned argSize, int argOffs)
+int Compiler::lvaAssignVirtualFrameOffsetToArg(LclVarDsc* lcl, unsigned argSize, int argOffs)
 {
-    if (varDsc->lvIsRegArg)
-    {
-        // TODO: Remove this noway_assert and replace occurrences of TARGET_POINTER_SIZE with argSize
-        INDEBUG(noway_assert(argSize == TARGET_POINTER_SIZE));
+    assert(argSize == REGSIZE_BYTES);
+    assert((argOffs % REGSIZE_BYTES) == 0);
 
-        varDsc->SetStackOffset(argOffs);
-        argOffs += TARGET_POINTER_SIZE;
-    }
-    else
-    {
-        assert((argSize % REGSIZE_BYTES) == 0);
-        assert((argOffs % REGSIZE_BYTES) == 0);
-
-        varDsc->SetStackOffset(argOffs);
-    }
-
-    if (!varDsc->lvIsRegArg)
-    {
-        argOffs += argSize;
-    }
+    lcl->SetStackOffset(argOffs);
+    argOffs += REGSIZE_BYTES;
 
     return argOffs;
 }
 
 #elif defined(TARGET_ARM64)
 
-int Compiler::lvaAssignVirtualFrameOffsetToArg(LclVarDsc* varDsc, unsigned argSize, int argOffs)
+int Compiler::lvaAssignVirtualFrameOffsetToArg(LclVarDsc* lcl, unsigned argSize, int argOffs)
 {
-    if (varDsc->lvIsRegArg)
+    if (lcl->IsRegParam())
     {
 #if TARGET_WINDOWS
         // Register arguments on ARM64 only take stack space when they have a frame home.
-        // Unless on windows and in a vararg method.
-        if (info.compIsVarArgs)
+        // Unless on Windows and in a vararg method where we can have a struct param that
+        // is split between the last integer param register and a stack slot.
+        if (info.compIsVarArgs && lcl->TypeIs(TYP_STRUCT) && (lcl->GetOtherArgReg() >= MAX_REG_ARG) &&
+            (lcl->GetOtherArgReg() != REG_NA))
         {
-            if (varDsc->lvType == TYP_STRUCT && varDsc->GetOtherArgReg() >= MAX_REG_ARG &&
-                varDsc->GetOtherArgReg() != REG_NA)
-            {
-                // This is a split struct. It will account for an extra (8 bytes) of alignment.
-                varDsc->SetStackOffset(varDsc->GetStackOffset() + TARGET_POINTER_SIZE);
-                argOffs += TARGET_POINTER_SIZE;
-            }
+            lcl->SetStackOffset(lcl->GetStackOffset() + REGSIZE_BYTES);
+            argOffs += REGSIZE_BYTES;
         }
 #endif // TARGET_WINDOWS
-    }
-    else
-    {
-#ifdef OSX_ARM64_ABI
-        bool     isFloatHfa   = varDsc->lvIsHfa() && (varDsc->GetLayout()->GetHfaElementType() == TYP_FLOAT);
-        unsigned argAlignment = eeGetArgAlignment(varDsc->GetType(), isFloatHfa);
 
-        argOffs = roundUp(argOffs, argAlignment);
+        return argOffs;
+    }
+
+#ifdef OSX_ARM64_ABI
+    unsigned align =
+        eeGetArgAlignment(lcl->GetType(), lcl->lvIsHfa() && (lcl->GetLayout()->GetHfaElementType() == TYP_FLOAT));
+
+    argOffs = roundUp(argOffs, align);
 #else
-        unsigned argAlignment = REGSIZE_BYTES;
+    unsigned align = REGSIZE_BYTES;
 #endif
 
-        assert((argSize % argAlignment) == 0);
-        assert((argOffs % argAlignment) == 0);
-        varDsc->SetStackOffset(argOffs);
-    }
+    assert((argSize % align) == 0);
+    assert((argOffs % align) == 0);
 
-    if (!varDsc->lvIsRegArg)
-    {
-        argOffs += argSize;
-    }
+    lcl->SetStackOffset(argOffs);
 
-    return argOffs;
+    return argOffs + argSize;
 }
 
 #elif defined(TARGET_X86)
 
 int Compiler::lvaAssignVirtualFrameOffsetToArg(LclVarDsc* varDsc, unsigned argSize, int argOffs)
 {
+    assert((argSize % REGSIZE_BYTES) == 0);
+    assert((argOffs % REGSIZE_BYTES) == 0);
+
     if (info.compArgOrder == Target::ARG_ORDER_L2R)
     {
         argOffs -= argSize;
     }
 
-    if (varDsc->lvIsRegArg)
+    if (varDsc->IsRegParam())
     {
-        // TODO: Remove this noway_assert and replace occurrences of TARGET_POINTER_SIZE with argSize
-        // Also investigate why we are incrementing argOffs for X86 as this seems incorrect
-        INDEBUG(noway_assert(argSize == TARGET_POINTER_SIZE));
+        assert(argSize == REGSIZE_BYTES);
 
-        argOffs += TARGET_POINTER_SIZE;
-    }
-    else
-    {
-        assert((argSize % REGSIZE_BYTES) == 0);
-        assert((argOffs % REGSIZE_BYTES) == 0);
-
-        varDsc->SetStackOffset(argOffs);
+        // TODO-MIKE-Review: investigate why we are incrementing argOffs for X86 as this seems incorrect.
+        // Maybe because we decremented it above for L2R?
+        return argOffs + REGSIZE_BYTES;
     }
 
-    if (info.compArgOrder == Target::ARG_ORDER_R2L && !varDsc->lvIsRegArg)
+    varDsc->SetStackOffset(argOffs);
+
+    if (info.compArgOrder == Target::ARG_ORDER_R2L)
     {
         argOffs += argSize;
     }
@@ -3934,214 +3889,179 @@ int Compiler::lvaAssignVirtualFrameOffsetToArg(LclVarDsc* varDsc, unsigned argSi
 
 #elif defined(TARGET_ARM)
 
-// Assign virtual stack offsets to an individual argument, and return the offset for the next argument.
-// Note: This method only calculates the initial offset of the stack passed/spilled arguments
-// (if any - the RA might decide to spill(home on the stack) register passed arguments, if rarely used.)
-// The final offset is calculated in lvaFixVirtualFrameOffsets method. It accounts for FP existance,
-// ret address slot, stack frame padding, alloca instructions, etc.
-int Compiler::lvaAssignVirtualFrameOffsetToArg(LclVarDsc* varDsc, unsigned argSize, int argOffs)
+int Compiler::lvaAssignVirtualFrameOffsetToArg(LclVarDsc* lcl, unsigned argSize, int argOffs)
 {
-    noway_assert(varDsc->lvIsParam);
+    bool align8Byte = lcl->TypeIs(TYP_DOUBLE, TYP_LONG) || (lcl->TypeIs(TYP_STRUCT) && lcl->lvStructDoubleAlign);
 
-    if (varDsc->lvIsRegArg)
+    if (lcl->IsRegParam())
     {
         // On ARM we spill the registers in codeGen->regSet.rsMaskPreSpillRegArg
-        // in the prolog, so we have to do SetStackOffset() here
-        regMaskTP regMask = genRegMask(varDsc->GetArgReg());
-        if (codeGen->regSet.rsMaskPreSpillRegArg & regMask)
+        // in the prolog, so we have to assign them frame offsets.
+
+        regMaskTP regMask = genRegMask(lcl->GetArgReg());
+
+        if ((codeGen->regSet.rsMaskPreSpillRegArg & regMask) == 0)
         {
-            // Signature: void foo(struct_8, int, struct_4)
-            // ------- CALLER SP -------
-            // r3 struct_4
-            // r2 int - not prespilled, but added for alignment. argOffs should skip this.
-            // r1 struct_8
-            // r0 struct_8
-            // -------------------------
-            // If we added alignment we need to fix argOffs for all registers above alignment.
-            if (codeGen->regSet.rsMaskPreSpillAlign != RBM_NONE)
-            {
-                assert(genCountBits(codeGen->regSet.rsMaskPreSpillAlign) == 1);
-                // Is register beyond the alignment pos?
-                if (regMask > codeGen->regSet.rsMaskPreSpillAlign)
-                {
-                    // Increment argOffs just once for the _first_ register after alignment pos
-                    // in the prespill mask.
-                    if (!BitsBetween(codeGen->regSet.rsMaskPreSpillRegArg, regMask,
-                                     codeGen->regSet.rsMaskPreSpillAlign))
-                    {
-                        argOffs += TARGET_POINTER_SIZE;
-                    }
-                }
-            }
-
-            switch (varDsc->lvType)
-            {
-                case TYP_STRUCT:
-                    if (!varDsc->lvStructDoubleAlign)
-                    {
-                        break;
-                    }
-                    FALLTHROUGH;
-
-                case TYP_DOUBLE:
-                case TYP_LONG:
-                {
-                    // Let's assign offsets to arg1, a double in r2. argOffs has to be 4 not 8.
-                    //
-                    // ------- CALLER SP -------
-                    // r3
-                    // r2 double   -- argOffs = 4, but it doesn't need to be skipped, because there is no skipping.
-                    // r1 VACookie -- argOffs = 0
-                    // -------------------------
-                    //
-                    // Consider argOffs as if it accounts for number of prespilled registers before the current
-                    // register. In the above example, for r2, it is r1 that is prespilled, but since r1 is
-                    // accounted for by argOffs being 4, there should have been no skipping. Instead, if we didn't
-                    // assign r1 to any variable, then argOffs would still be 0 which implies it is not accounting
-                    // for r1, equivalently r1 is skipped.
-                    //
-                    // If prevRegsSize is unaccounted for by a corresponding argOffs, we must have skipped a register.
-                    int prevRegsSize =
-                        genCountBits(codeGen->regSet.rsMaskPreSpillRegArg & (regMask - 1)) * TARGET_POINTER_SIZE;
-                    if (argOffs < prevRegsSize)
-                    {
-                        // We must align up the argOffset to a multiple of 8 to account for skipped registers.
-                        argOffs = roundUp((unsigned)argOffs, 2 * TARGET_POINTER_SIZE);
-                    }
-                    // We should've skipped only a single register.
-                    assert(argOffs == prevRegsSize);
-                }
-                break;
-
-                default:
-                    // No alignment of argOffs required
-                    break;
-            }
-            varDsc->SetStackOffset(argOffs);
-            argOffs += argSize;
+            return argOffs;
         }
-    }
-    else
-    {
-        // Dev11 Bug 42817: incorrect codegen for DrawFlatCheckBox causes A/V in WinForms
-        //
-        // Here we have method with a signature (int a1, struct a2, struct a3, int a4, int a5).
-        // Struct parameter 'a2' is 16-bytes with no alignment requirements;
-        //  it uses r1,r2,r3 and [OutArg+0] when passed.
-        // Struct parameter 'a3' is 16-bytes that is required to be double aligned;
-        //  the caller skips [OutArg+4] and starts the argument at [OutArg+8].
-        // Thus the caller generates the correct code to pass the arguments.
-        // When generating code to receive the arguments we set codeGen->regSet.rsMaskPreSpillRegArg to [r1,r2,r3]
-        //  and spill these three registers as the first instruction in the prolog.
-        // Then when we layout the arguments' stack offsets we have an argOffs 0 which
-        //  points at the location that we spilled r1 into the stack.  For this first
-        //  struct we take the lvIsRegArg path above with "codeGen->regSet.rsMaskPreSpillRegArg &" matching.
-        // Next when we calculate the argOffs for the second 16-byte struct we have an argOffs
-        //  of 16, which appears to be aligned properly so we don't skip a stack slot.
-        //
-        // To fix this we must recover the actual OutArg offset by subtracting off the
-        //  sizeof of the PreSpill register args.
-        // Then we align this offset to a multiple of 8 and add back the sizeof
-        //  of the PreSpill register args.
-        //
-        // Dev11 Bug 71767: failure of assert(sizeofPreSpillRegArgs <= argOffs)
-        //
-        // We have a method with 'this' passed in r0, RetBuf arg in r1, VarArgs cookie
-        // in r2. The first user arg is a 144 byte struct with double alignment required,
-        // r3 is skipped, and the struct is passed on the stack. However, 'r3' is added
-        // to the codeGen->regSet.rsMaskPreSpillRegArg mask by the VarArgs cookie code, since we need to
-        // home all the potential varargs arguments in registers, even if we don't have
-        // signature type information for the variadic arguments. However, due to alignment,
-        // we have skipped a register that doesn't have a corresponding symbol. Make up
-        // for that by increasing argOffs here.
 
-        int sizeofPreSpillRegArgs = genCountBits(codeGen->regSet.rsMaskPreSpillRegs(true)) * REGSIZE_BYTES;
+        // Signature: void foo(struct_8, int, struct_4)
+        // ------- CALLER SP -------
+        // r3 struct_4
+        // r2 int - not prespilled, but added for alignment. argOffs should skip this.
+        // r1 struct_8
+        // r0 struct_8
+        // -------------------------
+        // If we added alignment we need to fix argOffs for all registers above alignment.
 
-        if (argOffs < sizeofPreSpillRegArgs)
+        if (codeGen->regSet.rsMaskPreSpillAlign != RBM_NONE)
         {
-            // This can only happen if we skipped the last register spot because current stk arg
-            // is a struct requiring alignment or a pre-spill alignment was required because the
-            // first reg arg needed alignment.
+            assert(genCountBits(codeGen->regSet.rsMaskPreSpillAlign) == 1);
+
+            // Is register beyond the alignment pos?
+            if (regMask > codeGen->regSet.rsMaskPreSpillAlign)
+            {
+                // Increment argOffs just once for the _first_ register after alignment pos
+                // in the prespill mask.
+                if (!BitsBetween(codeGen->regSet.rsMaskPreSpillRegArg, regMask, codeGen->regSet.rsMaskPreSpillAlign))
+                {
+                    argOffs += TARGET_POINTER_SIZE;
+                }
+            }
+        }
+
+        if (align8Byte)
+        {
+            // Let's assign offsets to arg1, a double in r2. argOffs has to be 4 not 8.
             //
-            // Example 1: First Stk Argument requiring alignment in vararg case (same as above comment.)
-            //            Signature (int a0, int a1, int a2, struct {long} a3, ...)
+            // ------- CALLER SP -------
+            // r3
+            // r2 double   -- argOffs = 4, but it doesn't need to be skipped, because there is no skipping.
+            // r1 VACookie -- argOffs = 0
+            // -------------------------
             //
-            // stk arg    a3             --> argOffs here will be 12 (r0-r2) but pre-spill will be 16.
-            // ---- Caller SP ----
-            // r3                        --> Stack slot is skipped in this case.
-            // r2    int  a2
-            // r1    int  a1
-            // r0    int  a0
+            // Consider argOffs as if it accounts for number of prespilled registers before the current
+            // register. In the above example, for r2, it is r1 that is prespilled, but since r1 is
+            // accounted for by argOffs being 4, there should have been no skipping. Instead, if we didn't
+            // assign r1 to any variable, then argOffs would still be 0 which implies it is not accounting
+            // for r1, equivalently r1 is skipped.
             //
-            // Example 2: First Reg Argument requiring alignment in no-vararg case.
-            //            Signature (struct {long} a0, struct {int} a1, int a2, int a3)
-            //
-            // stk arg                  --> argOffs here will be 12 {r0-r2} but pre-spill will be 16.
-            // ---- Caller SP ----
-            // r3    int             a2 --> pushed (not pre-spilled) for alignment of a0 by lvaInitUserParams.
-            // r2    struct { int }  a1
-            // r0-r1 struct { long } a0
-            CLANG_FORMAT_COMMENT_ANCHOR;
+            // If prevRegsSize is unaccounted for by a corresponding argOffs, we must have skipped a register.
+
+            int prevRegsSize = genCountBits(codeGen->regSet.rsMaskPreSpillRegArg & (regMask - 1)) * REGSIZE_BYTES;
+
+            if (argOffs < prevRegsSize)
+            {
+                // We must align up the argOffset to a multiple of 8 to account for skipped registers.
+                argOffs = roundUp(static_cast<unsigned>(argOffs), 2 * REGSIZE_BYTES);
+            }
+
+            // We should've skipped only a single register.
+            assert(argOffs == prevRegsSize);
+        }
+
+        lcl->SetStackOffset(argOffs);
+
+        return argOffs + argSize;
+    }
+
+    // Dev11 Bug 42817: incorrect codegen for DrawFlatCheckBox causes A/V in WinForms
+    //
+    // Here we have method with a signature (int a1, struct a2, struct a3, int a4, int a5).
+    // Struct parameter 'a2' is 16-bytes with no alignment requirements;
+    //  it uses r1,r2,r3 and [OutArg+0] when passed.
+    // Struct parameter 'a3' is 16-bytes that is required to be double aligned;
+    //  the caller skips [OutArg+4] and starts the argument at [OutArg+8].
+    // Thus the caller generates the correct code to pass the arguments.
+    // When generating code to receive the arguments we set codeGen->regSet.rsMaskPreSpillRegArg to [r1,r2,r3]
+    //  and spill these three registers as the first instruction in the prolog.
+    // Then when we layout the arguments' stack offsets we have an argOffs 0 which
+    //  points at the location that we spilled r1 into the stack.  For this first
+    //  struct we take the lvIsRegArg path above with "codeGen->regSet.rsMaskPreSpillRegArg &" matching.
+    // Next when we calculate the argOffs for the second 16-byte struct we have an argOffs
+    //  of 16, which appears to be aligned properly so we don't skip a stack slot.
+    //
+    // To fix this we must recover the actual OutArg offset by subtracting off the
+    //  sizeof of the PreSpill register args.
+    // Then we align this offset to a multiple of 8 and add back the sizeof
+    //  of the PreSpill register args.
+    //
+    // Dev11 Bug 71767: failure of assert(sizeofPreSpillRegArgs <= argOffs)
+    //
+    // We have a method with 'this' passed in r0, RetBuf arg in r1, VarArgs cookie
+    // in r2. The first user arg is a 144 byte struct with double alignment required,
+    // r3 is skipped, and the struct is passed on the stack. However, 'r3' is added
+    // to the codeGen->regSet.rsMaskPreSpillRegArg mask by the VarArgs cookie code, since we need to
+    // home all the potential varargs arguments in registers, even if we don't have
+    // signature type information for the variadic arguments. However, due to alignment,
+    // we have skipped a register that doesn't have a corresponding symbol. Make up
+    // for that by increasing argOffs here.
+
+    int sizeofPreSpillRegArgs = genCountBits(codeGen->regSet.rsMaskPreSpillRegs(true)) * REGSIZE_BYTES;
+
+    if (argOffs < sizeofPreSpillRegArgs)
+    {
+        // This can only happen if we skipped the last register spot because current stk arg
+        // is a struct requiring alignment or a pre-spill alignment was required because the
+        // first reg arg needed alignment.
+        //
+        // Example 1: First Stk Argument requiring alignment in vararg case (same as above comment.)
+        //            Signature (int a0, int a1, int a2, struct {long} a3, ...)
+        //
+        // stk arg    a3             --> argOffs here will be 12 (r0-r2) but pre-spill will be 16.
+        // ---- Caller SP ----
+        // r3                        --> Stack slot is skipped in this case.
+        // r2    int  a2
+        // r1    int  a1
+        // r0    int  a0
+        //
+        // Example 2: First Reg Argument requiring alignment in no-vararg case.
+        //            Signature (struct {long} a0, struct {int} a1, int a2, int a3)
+        //
+        // stk arg                  --> argOffs here will be 12 {r0-r2} but pre-spill will be 16.
+        // ---- Caller SP ----
+        // r3    int             a2 --> pushed (not pre-spilled) for alignment of a0 by lvaInitUserParams.
+        // r2    struct { int }  a1
+        // r0-r1 struct { long } a0
+        CLANG_FORMAT_COMMENT_ANCHOR;
 
 #ifdef PROFILING_SUPPORTED
-            // On Arm under profiler, r0-r3 are always prespilled on stack.
-            // It is possible to have methods that accept only HFAs as parameters e.g. Signature(struct hfa1, struct
-            // hfa2), in which case hfa1 and hfa2 will be en-registered in co-processor registers and will have an
-            // argument offset less than size of preSpill.
-            //
-            // For this reason the following conditions are asserted when not under profiler.
-            if (!compIsProfilerHookNeeded())
+        // On Arm under profiler, r0-r3 are always prespilled on stack.
+        // It is possible to have methods that accept only HFAs as parameters e.g. Signature(struct hfa1, struct
+        // hfa2), in which case hfa1 and hfa2 will be en-registered in co-processor registers and will have an
+        // argument offset less than size of preSpill.
+        //
+        // For this reason the following conditions are asserted when not under profiler.
+        if (!compIsProfilerHookNeeded())
 #endif
-            {
-                bool cond = ((info.compIsVarArgs || opts.compUseSoftFP) &&
-                             // Does cur stk arg require double alignment?
-                             ((varDsc->lvType == TYP_STRUCT && varDsc->lvStructDoubleAlign) ||
-                              (varDsc->lvType == TYP_DOUBLE) || (varDsc->lvType == TYP_LONG))) ||
-                            // Did first reg arg require alignment?
-                            (codeGen->regSet.rsMaskPreSpillAlign & genRegMask(REG_ARG_LAST));
-
-                noway_assert(cond);
-                noway_assert(sizeofPreSpillRegArgs <=
-                             argOffs + TARGET_POINTER_SIZE); // at most one register of alignment
-            }
-            argOffs = sizeofPreSpillRegArgs;
-        }
-
-        noway_assert(argOffs >= sizeofPreSpillRegArgs);
-        int argOffsWithoutPreSpillRegArgs = argOffs - sizeofPreSpillRegArgs;
-
-        switch (varDsc->lvType)
         {
-            case TYP_STRUCT:
-                if (!varDsc->lvStructDoubleAlign)
-                    break;
+            noway_assert(((info.compIsVarArgs || opts.compUseSoftFP) && align8Byte) ||
+                         // Did first reg arg require alignment?
+                         (codeGen->regSet.rsMaskPreSpillAlign & genRegMask(REG_ARG_LAST)));
 
-                FALLTHROUGH;
-
-            case TYP_DOUBLE:
-            case TYP_LONG:
-                argOffs =
-                    roundUp((unsigned)argOffsWithoutPreSpillRegArgs, 2 * TARGET_POINTER_SIZE) + sizeofPreSpillRegArgs;
-                break;
-
-            default:
-                break;
+            // At most one register of alignment.
+            noway_assert(sizeofPreSpillRegArgs <= argOffs + REGSIZE_BYTES);
         }
 
-        bool     isFloatHfa   = varDsc->lvIsHfa() && (varDsc->GetLayout()->GetHfaElementType() == TYP_FLOAT);
-        unsigned argAlignment = eeGetArgAlignment(varDsc->GetType(), isFloatHfa);
-
-        assert((argSize % argAlignment) == 0);
-        assert((argOffs % argAlignment) == 0);
-        varDsc->SetStackOffset(argOffs);
+        argOffs = sizeofPreSpillRegArgs;
     }
 
-    if (!varDsc->lvIsRegArg)
+    noway_assert(argOffs >= sizeofPreSpillRegArgs);
+
+    int argOffsWithoutPreSpillRegArgs = argOffs - sizeofPreSpillRegArgs;
+
+    if (align8Byte)
     {
-        argOffs += argSize;
+        argOffs =
+            roundUp(static_cast<unsigned>(argOffsWithoutPreSpillRegArgs), 2 * REGSIZE_BYTES) + sizeofPreSpillRegArgs;
     }
 
-    return argOffs;
+    assert((argSize % REGSIZE_BYTES) == 0);
+    assert((argOffs % REGSIZE_BYTES) == 0);
+
+    lcl->SetStackOffset(argOffs);
+
+    return argOffs + argSize;
 }
 
 #endif
