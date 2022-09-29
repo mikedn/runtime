@@ -613,8 +613,12 @@ void Compiler::inlMain()
     info.compProfilerCallback = false;
     info.compPublishStubParam = false;
     info.compCallConv         = CorInfoCallConvExtension::Managed;
-    info.compArgOrder         = Target::g_tgtArgOrder;
-    info.compMatchedVM        = inliner->info.compMatchedVM;
+#ifdef TARGET_X86
+    info.compArgOrder = Target::ARG_ORDER_L2R;
+#else
+    info.compArgOrder  = Target::ARG_ORDER_R2L;
+#endif
+    info.compMatchedVM = inliner->info.compMatchedVM;
 
     // Set the context for token lookup.
     impTokenLookupContextHandle = impInlineInfo->inlineCandidateInfo->exactContextHnd;

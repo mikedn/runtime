@@ -12,8 +12,7 @@
 
 #include "target.h"
 
-const char*            Target::g_tgtCPUName  = "x86";
-const Target::ArgOrder Target::g_tgtArgOrder = ARG_ORDER_L2R;
+const char* Target::g_tgtCPUName = "x86";
 
 // clang-format off
 const regNumber intArgRegs [] {REG_ECX, REG_EDX};

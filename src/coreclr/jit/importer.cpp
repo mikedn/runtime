@@ -570,7 +570,7 @@ GenTreeCall::Use* Importer::PopCallArgs(CORINFO_SIG_INFO* sig, GenTree* extraArg
     GenTreeCall::Use* args = nullptr;
 
 #ifdef TARGET_X86
-    if ((Target::g_tgtArgOrder == Target::ARG_ORDER_L2R) && (extraArg != nullptr))
+    if (extraArg != nullptr)
     {
         args = gtNewCallArgs(extraArg);
     }
@@ -650,10 +650,12 @@ GenTreeCall::Use* Importer::PopCallArgs(CORINFO_SIG_INFO* sig, GenTree* extraArg
         info.compCompHnd->classMustBeLoadedBeforeCodeIsRun(sig->retTypeSigClass);
     }
 
-    if ((Target::g_tgtArgOrder == Target::ARG_ORDER_R2L) && (extraArg != nullptr))
+#ifndef TARGET_X86
+    if (extraArg != nullptr)
     {
         args = gtPrependNewCallArg(extraArg, args);
     }
+#endif
 
     return args;
 }
@@ -4914,16 +4916,13 @@ void Importer::impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORI
 
         GenTreeIntCon* numArgsNode = gtNewIconNode(pCallInfo->sig.numArgs);
 
-        if (Target::g_tgtArgOrder == Target::ARG_ORDER_R2L)
-        {
-            args = gtPrependNewCallArg(numArgsNode, args);
-            args = gtPrependNewCallArg(classHandle, args);
-        }
-        else
-        {
-            lastArg = gtInsertNewCallArgAfter(numArgsNode, lastArg);
-            lastArg = gtInsertNewCallArgAfter(classHandle, lastArg);
-        }
+#ifdef TARGET_X86
+        lastArg = gtInsertNewCallArgAfter(numArgsNode, lastArg);
+        lastArg = gtInsertNewCallArgAfter(classHandle, lastArg);
+#else
+        args = gtPrependNewCallArg(numArgsNode, args);
+        args = gtPrependNewCallArg(classHandle, args);
+#endif
 
         node = gtNewHelperCallNode(CORINFO_HELP_NEW_MDARR, TYP_REF, args);
 
@@ -15521,13 +15520,23 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
                                 call->gtCallThisArg = gtNewCallArgs(localCopyThis);
                                 call->gtCallMoreFlags |= GTF_CALL_M_UNBOXED;
 
-                                // Prepend for R2L arg passing or empty L2R passing
-                                // Append for non-empty L2R
-                                //
-                                if ((Target::g_tgtArgOrder == Target::ARG_ORDER_R2L) || (call->gtCallArgs == nullptr))
+                                if (call->gtCallArgs == nullptr)
                                 {
+                                    call->gtCallArgs = gtNewCallArgs(methodTableArg);
+                                }
+                                else
+                                {
+#ifdef TARGET_X86
+                                    GenTreeCall::Use* beforeArg = call->gtCallArgs;
+
+                                    while (beforeArg->GetNext() != nullptr)
+                                    {
+                                        beforeArg = beforeArg->GetNext();
+                                    }
+
+                                    beforeArg->SetNext(gtNewCallArgs(methodTableArg));
+#else
                                     // If there's a ret buf, the method table is the second arg.
-                                    //
                                     if (call->HasRetBufArg())
                                     {
                                         gtInsertNewCallArgAfter(methodTableArg, call->gtCallArgs);
@@ -15536,16 +15545,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
                                     {
                                         call->gtCallArgs = gtPrependNewCallArg(methodTableArg, call->gtCallArgs);
                                     }
-                                }
-                                else
-                                {
-                                    GenTreeCall::Use* beforeArg = call->gtCallArgs;
-                                    while (beforeArg->GetNext() != nullptr)
-                                    {
-                                        beforeArg = beforeArg->GetNext();
-                                    }
-
-                                    beforeArg->SetNext(gtNewCallArgs(methodTableArg));
+#endif
                                 }
 
                                 call->gtCallMethHnd   = unboxedEntryMethod;
@@ -15655,15 +15655,23 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
                             pDerivedResolvedToken = &dvInfo.resolvedTokenDevirtualizedUnboxedMethod;
                             derivedMethodAttribs  = unboxedMethodAttribs;
 
-                            // Add the method table argument.
-                            //
-                            // Prepend for R2L arg passing or empty L2R passing
-                            // Append for non-empty L2R
-                            //
-                            if ((Target::g_tgtArgOrder == Target::ARG_ORDER_R2L) || (call->gtCallArgs == nullptr))
+                            if (call->gtCallArgs == nullptr)
                             {
+                                call->gtCallArgs = gtNewCallArgs(methodTableArg);
+                            }
+                            else
+                            {
+#ifdef TARGET_X86
+                                GenTreeCall::Use* beforeArg = call->gtCallArgs;
+
+                                while (beforeArg->GetNext() != nullptr)
+                                {
+                                    beforeArg = beforeArg->GetNext();
+                                }
+
+                                beforeArg->SetNext(gtNewCallArgs(methodTableArg));
+#else
                                 // If there's a ret buf, the method table is the second arg.
-                                //
                                 if (call->HasRetBufArg())
                                 {
                                     gtInsertNewCallArgAfter(methodTableArg, call->gtCallArgs);
@@ -15672,16 +15680,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
                                 {
                                     call->gtCallArgs = gtPrependNewCallArg(methodTableArg, call->gtCallArgs);
                                 }
-                            }
-                            else
-                            {
-                                GenTreeCall::Use* beforeArg = call->gtCallArgs;
-                                while (beforeArg->GetNext() != nullptr)
-                                {
-                                    beforeArg = beforeArg->GetNext();
-                                }
-
-                                beforeArg->SetNext(gtNewCallArgs(methodTableArg));
+#endif
                             }
                         }
                     }
