@@ -4436,7 +4436,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
         // and we're not using a frame pointer, we have to place the temps
         // above the vars.  Otherwise we place them after the vars (at the
         // bottom of the frame).
-        noway_assert(!tempsAllocated);
+
         stkOffs = lvaAllocateTemps(stkOffs
 #ifndef TARGET_64BIT
                                    ,
