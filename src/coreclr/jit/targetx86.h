@@ -18,10 +18,6 @@
                                            // of contiguous non-gc slots that trigger generating rep movsq instead of
                                            // sequences of movsq instructions
 
-#ifdef FEATURE_SIMD
-  #define ALIGN_SIMD_TYPES         1       // whether SIMD type locals are to be aligned
-#endif // FEATURE_SIMD
-
   #define FEATURE_FIXED_OUT_ARGS   0       // X86 uses push instructions to pass args
   #define FEATURE_MULTIREG_STRUCT_PROMOTE  0  // True when we want to promote fields of a multireg struct into registers
   #define FEATURE_FASTTAILCALL     0       // Tail calls made as epilog+jmp

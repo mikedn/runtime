@@ -19,7 +19,6 @@
                                            // sequences of movsq instructions
 
 #ifdef FEATURE_SIMD
-  #define ALIGN_SIMD_TYPES         1       // whether SIMD type locals are to be aligned
 #if defined(UNIX_AMD64_ABI)
   #define FEATURE_PARTIAL_SIMD_CALLEE_SAVE 0 // Whether SIMD registers are partially saved at calls
 #else // !UNIX_AMD64_ABI

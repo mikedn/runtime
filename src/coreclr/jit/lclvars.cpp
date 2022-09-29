@@ -4895,14 +4895,14 @@ int Compiler::lvaAllocLocalAndSetVirtualOffset(unsigned lclNum, unsigned size, i
 #ifdef TARGET_ARMARCH
             || (lvaDoneFrameLayout != FINAL_FRAME_LAYOUT)
 #endif
-#if defined(FEATURE_SIMD) && ALIGN_SIMD_TYPES
+#ifdef FEATURE_SIMD
             || varTypeIsSIMD(lcl->GetType())
 #endif
                 )
         {
             unsigned pad = 0;
 
-#if defined(FEATURE_SIMD) && ALIGN_SIMD_TYPES
+#ifdef FEATURE_SIMD
             if (varTypeIsSIMD(lcl->GetType()) && !lcl->IsImplicitByRefParam())
             {
                 int alignment = lvaGetSimdTypedLocalPreferredAlignment(lcl);
@@ -4923,7 +4923,7 @@ int Compiler::lvaAllocLocalAndSetVirtualOffset(unsigned lclNum, unsigned size, i
                 }
             }
             else
-#endif // FEATURE_SIMD && ALIGN_SIMD_TYPES
+#endif // FEATURE_SIMD
 #ifdef TARGET_ARMARCH
                 if (lvaDoneFrameLayout != FINAL_FRAME_LAYOUT)
             {
@@ -6086,7 +6086,7 @@ int Compiler::lvaGetSimdTypedLocalPreferredAlignment(LclVarDsc* lcl)
 //
 bool Compiler::lvaIsSimdTypedLocalAligned(unsigned lclNum)
 {
-#if !defined(FEATURE_SIMD) || !ALIGN_SIMD_TYPES
+#ifndef FEATURE_SIMD
     return false;
 #else
     LclVarDsc* lcl = lvaGetDesc(lclNum);

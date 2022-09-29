@@ -14,7 +14,6 @@
   #define INITBLK_UNROLL_LIMIT     64      // Upper bound to let the code generator to loop unroll InitBlk.
 
 #ifdef FEATURE_SIMD
-  #define ALIGN_SIMD_TYPES         1       // whether SIMD type locals are to be aligned
   #define FEATURE_PARTIAL_SIMD_CALLEE_SAVE 1 // Whether SIMD registers are partially saved at calls
 #endif // FEATURE_SIMD
 
