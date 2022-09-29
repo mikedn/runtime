@@ -3616,7 +3616,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
     int argOffs = 0;
 
 #ifdef TARGET_X86
-    if (info.compArgOrder == Target::ARG_ORDER_L2R)
+    if (info.compCallConv == CorInfoCallConvExtension::Managed)
     {
         argOffs = compArgSize;
 
@@ -3872,14 +3872,14 @@ int Compiler::lvaAssignVirtualFrameOffsetToArg(LclVarDsc* varDsc, unsigned argSi
         return argOffs;
     }
 
-    if (info.compArgOrder == Target::ARG_ORDER_L2R)
+    if (info.compCallConv == CorInfoCallConvExtension::Managed)
     {
         argOffs -= argSize;
     }
 
     varDsc->SetStackOffset(argOffs);
 
-    if (info.compArgOrder == Target::ARG_ORDER_R2L)
+    if (info.compCallConv != CorInfoCallConvExtension::Managed)
     {
         argOffs += argSize;
     }

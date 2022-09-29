@@ -4072,7 +4072,6 @@ CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCode
     info.compIsStatic         = (info.compFlags & CORINFO_FLG_STATIC) != 0;
     info.compInitMem          = (info.compMethodInfo->options & CORINFO_OPT_INIT_LOCALS) != 0;
     info.compPublishStubParam = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PUBLISH_SECRET_PARAM);
-    info.compArgOrder         = Target::ARG_ORDER_R2L;
 
     if (opts.IsReversePInvoke())
     {
@@ -4082,9 +4081,6 @@ CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCode
     else
     {
         info.compCallConv = CorInfoCallConvExtension::Managed;
-#ifdef TARGET_X86
-        info.compArgOrder = Target::ARG_ORDER_L2R;
-#endif
     }
 
     switch (info.compMethodInfo->args.getCallConv())
