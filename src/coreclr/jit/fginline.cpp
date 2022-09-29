@@ -1266,7 +1266,7 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
 
     if ((argsSig.callConv & CORINFO_CALLCONV_PARAMTYPE) != 0)
     {
-#if USER_ARGS_COME_LAST
+#ifndef TARGET_X86
         typeCtxtArgNum = argNum;
 #else
         typeCtxtArgNum = inlineInfo->ilArgCount;

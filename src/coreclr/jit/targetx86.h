@@ -54,7 +54,6 @@
   #define NOGC_WRITE_BARRIERS      0       // Do not modify this -- modify the definition above.  (If we're not using
                                            // ASM barriers we definitely don't have NOGC barriers).
 #endif
-  #define USER_ARGS_COME_LAST      0
   #define EMIT_TRACK_STACK_DEPTH   1
   #define TARGET_POINTER_SIZE      4       // equal to sizeof(void*) and the managed pointer size in bytes for this
                                            // target

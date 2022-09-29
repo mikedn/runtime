@@ -363,7 +363,7 @@ void Compiler::lvaInitParams(bool hasRetBufParam)
         lvaInitRetBufParam(paramInfo, useFixedRetBufReg);
     }
 
-#if USER_ARGS_COME_LAST
+#ifndef TARGET_X86
     lvaInitGenericsContextParam(paramInfo);
     lvaInitVarargsHandleParam(paramInfo);
 #endif
@@ -373,7 +373,7 @@ void Compiler::lvaInitParams(bool hasRetBufParam)
     ARM_ONLY(lvaAlignPreSpillParams(paramInfo.doubleAlignMask));
     compArgSize = GetOutgoingArgByteSize(compArgSize);
 
-#if !USER_ARGS_COME_LAST
+#ifdef TARGET_X86
     lvaInitGenericsContextParam(paramInfo);
     lvaInitVarargsHandleParam(paramInfo);
 #endif
@@ -3670,7 +3670,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
                                                    argOffs UNIX_AMD64_ABI_ONLY_ARG(&callerArgOffset));
     }
 
-#if USER_ARGS_COME_LAST
+#ifndef TARGET_X86
     if (info.compMethodInfo->args.hasTypeArg())
     {
         noway_assert(lclNum == info.compTypeCtxtArg);
@@ -3684,7 +3684,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
         argOffs = lvaAssignParamVirtualFrameOffset(lclNum++, REGSIZE_BYTES,
                                                    argOffs UNIX_AMD64_ABI_ONLY_ARG(&callerArgOffset));
     }
-#endif // USER_ARGS_COME_LAST
+#endif // !TARGET_X86
 
 #ifdef TARGET_ARM
     // struct_n { int; int; ... n times };
@@ -3760,7 +3760,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
             lvaAssignParamVirtualFrameOffset(lclNum++, argSize, argOffs UNIX_AMD64_ABI_ONLY_ARG(&callerArgOffset));
     }
 
-#if !USER_ARGS_COME_LAST
+#ifdef TARGET_X86
     if (info.compMethodInfo->args.hasTypeArg())
     {
         noway_assert(lclNum == info.compTypeCtxtArg);
@@ -3773,7 +3773,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
         argOffs = lvaAssignParamVirtualFrameOffset(lclNum++, REGSIZE_BYTES, argOffs);
     }
 
-#endif // USER_ARGS_COME_LAST
+#endif // TARGET_X86
 #endif // !TARGET_ARM
 }
 
