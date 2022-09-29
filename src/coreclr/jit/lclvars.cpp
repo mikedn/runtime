@@ -4870,97 +4870,87 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
 int Compiler::lvaAllocLocalAndSetVirtualOffset(unsigned lclNum, unsigned size, int stkOffs)
 {
     noway_assert(lclNum != BAD_VAR_NUM);
+    assert(size != 0);
+    assert(stkOffs <= 0);
 
     LclVarDsc* lcl = lvaGetDesc(lclNum);
 
 #ifdef TARGET_64BIT
-    // Before final frame layout, assume the worst case, that every >=8 byte local will need
-    // maximum padding to be aligned. This is because we generate code based on the stack offset
-    // computed during tentative frame layout. These offsets cannot get bigger during final
-    // frame layout, as that would possibly require different code generation (for example,
-    // using a 4-byte offset instead of a 1-byte offset in an instruction). The offsets can get
-    // smaller. It is possible there is different alignment at the point locals are allocated
-    // between tentative and final frame layout which would introduce padding between locals
-    // and thus increase the offset (from the stack pointer) of one of the locals. Hence the
-    // need to assume the worst alignment before final frame layout.
-    // We could probably improve this by sorting all the objects by alignment,
-    // such that all 8 byte objects are together, 4 byte objects are together, etc., which
-    // would require at most one alignment padding per group.
-    //
-    // TYP_SIMD structs locals have alignment preference given by lvaGetSimdTypedLocalPreferredAlignment() for
-    // better performance.
-    if ((size >= 8) && ((lvaDoneFrameLayout != FINAL_FRAME_LAYOUT) || ((stkOffs % 8) != 0)
-#if defined(FEATURE_SIMD) && ALIGN_SIMD_TYPES
-                        || varTypeIsSIMD(lcl->GetType())
-#endif
-                            ))
+    if (size >= 8)
     {
-        // Note that stack offsets are negative or equal to zero
-        assert(stkOffs <= 0);
+        // Before final frame layout, assume the worst case, that every >=8 byte local will need
+        // maximum padding to be aligned. This is because we generate code based on the stack offset
+        // computed during tentative frame layout. These offsets cannot get bigger during final
+        // frame layout, as that would possibly require different code generation (for example,
+        // using a 4-byte offset instead of a 1-byte offset in an instruction). The offsets can get
+        // smaller. It is possible there is different alignment at the point locals are allocated
+        // between tentative and final frame layout which would introduce padding between locals
+        // and thus increase the offset (from the stack pointer) of one of the locals. Hence the
+        // need to assume the worst alignment before final frame layout.
+        // We could probably improve this by sorting all the objects by alignment, such that all
+        // 8 byte objects are together, 4 byte objects are together, etc., which would require at
+        // most one alignment padding per group.
 
-        // alignment padding
-        unsigned pad = 0;
+        if ((stkOffs % 8 != 0)
+#ifdef TARGET_ARMARCH
+            || (lvaDoneFrameLayout != FINAL_FRAME_LAYOUT)
+#endif
 #if defined(FEATURE_SIMD) && ALIGN_SIMD_TYPES
-        if (varTypeIsSIMD(lcl->GetType()) && !lcl->IsImplicitByRefParam())
+            || varTypeIsSIMD(lcl->GetType())
+#endif
+                )
         {
-            int alignment = lvaGetSimdTypedLocalPreferredAlignment(lcl);
+            unsigned pad = 0;
 
-            if (stkOffs % alignment != 0)
+#if defined(FEATURE_SIMD) && ALIGN_SIMD_TYPES
+            if (varTypeIsSIMD(lcl->GetType()) && !lcl->IsImplicitByRefParam())
             {
-                if (lvaDoneFrameLayout != FINAL_FRAME_LAYOUT)
+                int alignment = lvaGetSimdTypedLocalPreferredAlignment(lcl);
+
+                if (stkOffs % alignment != 0)
                 {
-                    pad = alignment - 1;
-                    // Note that all the objects will probably be misaligned, but we'll fix that in final layout.
+#ifdef TARGET_ARMARCH
+                    if (lvaDoneFrameLayout != FINAL_FRAME_LAYOUT)
+                    {
+                        // Note that all the objects will probably be misaligned, but we'll fix that in final layout.
+                        pad = alignment - 1;
+                    }
+                    else
+#endif
+                    {
+                        pad = alignment + (stkOffs % alignment); // +1 to +(alignment-1) bytes
+                    }
                 }
-                else
-                {
-                    pad = alignment + (stkOffs % alignment); // +1 to +(alignment-1) bytes
-                }
-            }
-        }
-        else
-#endif // FEATURE_SIMD && ALIGN_SIMD_TYPES
-        {
-            if (lvaDoneFrameLayout != FINAL_FRAME_LAYOUT)
-            {
-                pad = 7;
-                // Note that all the objects will probably be misaligned, but we'll fix that in final layout.
             }
             else
+#endif // FEATURE_SIMD && ALIGN_SIMD_TYPES
+#ifdef TARGET_ARMARCH
+                if (lvaDoneFrameLayout != FINAL_FRAME_LAYOUT)
             {
-                pad = 8 + (stkOffs % 8); // +1 to +7 bytes
+                // Note that all the objects will probably be misaligned, but we'll fix that in final layout.
+                pad = 7;
             }
-        }
-        // Will the pad ever be anything except 4? Do we put smaller-than-4-sized objects on the stack?
-        lvaIncrementFrameSize(pad);
-        stkOffs -= pad;
-
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("Pad ");
-            gtDispLclVar(lclNum, /*pad*/ false);
-            printf(", size=%d, stkOffs=%c0x%x, pad=%d\n", size, stkOffs < 0 ? '-' : '+',
-                   stkOffs < 0 ? -stkOffs : stkOffs, pad);
-        }
+            else
 #endif
+            {
+                pad = 8 + stkOffs % 8; // +1 to +7 bytes
+            }
+
+            lvaIncrementFrameSize(pad);
+            stkOffs -= pad;
+
+            JITDUMP("Pad %u V%02u stack offset %c0x%x (size %u)", pad, lclNum, stkOffs < 0 ? '-' : '+',
+                    stkOffs < 0 ? -stkOffs : stkOffs, size);
+        }
     }
 #endif // TARGET_64BIT
 
-    // Reserve space on the stack by bumping the frame size.
-
     lvaIncrementFrameSize(size);
     stkOffs -= size;
-    lvaTable[lclNum].SetStackOffset(stkOffs);
+    lcl->SetStackOffset(stkOffs);
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("Assign ");
-        gtDispLclVar(lclNum, /*pad*/ false);
-        printf(", size=%d, stkOffs=%c0x%x\n", size, stkOffs < 0 ? '-' : '+', stkOffs < 0 ? -stkOffs : stkOffs);
-    }
-#endif
+    JITDUMP("Assign V%02u stack offset %c0x%x (size %u)\n", lclNum, stkOffs < 0 ? '-' : '+',
+            stkOffs < 0 ? -stkOffs : stkOffs, size);
 
     return stkOffs;
 }
