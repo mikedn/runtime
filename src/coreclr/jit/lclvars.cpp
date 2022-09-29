@@ -5509,7 +5509,7 @@ void Compiler::lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth)
     {
         if (varDsc->HasLiveness())
         {
-            printf("[T%02u]", varDsc->GetLivenessBitIndex());
+            printf("[L%02u]", varDsc->GetLivenessBitIndex());
         }
         else
         {
@@ -5755,15 +5755,12 @@ void Compiler::lvaTableDump()
         lvaDumpEntry(lclNum, refCntWtdWidth);
     }
 
-    assert(codeGen->regSet.tmpAllFree());
-
     for (TempDsc* temp = codeGen->regSet.tmpListBeg(); temp != nullptr; temp = codeGen->regSet.tmpListNxt(temp))
     {
-        printf(";  TEMP_%02u %26s%*s%7s  -> ", -temp->tdTempNum(), " ", refCntWtdWidth, " ",
+        printf("; T%02u %25s%*s%7s     ", -temp->tdTempNum(), " ", refCntWtdWidth, " ",
                varTypeName(temp->tdTempType()));
         int offset = temp->tdTempOffs();
-        printf(" [%2s%1s0x%02X]\n", isFramePointerUsed() ? STR_FPBASE : STR_SPBASE, (offset < 0 ? "-" : "+"),
-               (offset < 0 ? -offset : offset));
+        printf(" [%2s%1s%02XH]\n", isFramePointerUsed() ? STR_FPBASE : STR_SPBASE, offset < 0 ? "-" : "+", abs(offset));
     }
 
     if (lvaDoneFrameLayout == FINAL_FRAME_LAYOUT)
