@@ -3951,7 +3951,11 @@ public:
 #endif
     void lvaAlignFrame();
     void lvaAssignFrameOffsetsToPromotedStructs();
-    int lvaAllocateTemps(int stkOffs, bool mustDoubleAlign);
+    int lvaAllocateTemps(int stkOffs
+#ifndef TARGET_64BIT
+        , bool mustDoubleAlign
+#endif
+    );
 
 #ifdef DEBUG
     void lvaDumpRegLocation(unsigned lclNum);

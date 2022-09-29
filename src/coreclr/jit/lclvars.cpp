@@ -4161,8 +4161,10 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
     }
 #endif // TARGET_XARCH
 
-    int  preSpillSize    = 0;
+    int preSpillSize = 0;
+#ifndef TARGET_64BIT
     bool mustDoubleAlign = false;
+#endif
 
 #ifdef TARGET_ARM
     mustDoubleAlign = true;
@@ -4263,6 +4265,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
     }
 #endif // FEATURE_EH_FUNCLETS && defined(TARGET_ARMARCH)
 
+#ifndef TARGET_64BIT
     if (mustDoubleAlign)
     {
         if (lvaDoneFrameLayout != FINAL_FRAME_LAYOUT)
@@ -4293,6 +4296,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
             noway_assert(((stkOffs + preSpillSize) % (2 * TARGET_POINTER_SIZE)) == 0);
         }
     }
+#endif // !TARGET_64BIT
 
     if (lvaMonAcquired != BAD_VAR_NUM)
     {
@@ -4433,7 +4437,12 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
         // above the vars.  Otherwise we place them after the vars (at the
         // bottom of the frame).
         noway_assert(!tempsAllocated);
-        stkOffs        = lvaAllocateTemps(stkOffs, mustDoubleAlign);
+        stkOffs = lvaAllocateTemps(stkOffs
+#ifndef TARGET_64BIT
+                                   ,
+                                   mustDoubleAlign
+#endif
+                                   );
         tempsAllocated = true;
     }
 
@@ -4676,13 +4685,12 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
                 }
             }
 
+#ifndef TARGET_64BIT
             if (mustDoubleAlign && (varDsc->lvType == TYP_DOUBLE // Align doubles for ARM and x86
 #ifdef TARGET_ARM
                                     || varDsc->lvType == TYP_LONG // Align longs for ARM
 #endif
-#ifndef TARGET_64BIT
                                     || varDsc->lvStructDoubleAlign // Align when lvStructDoubleAlign is true
-#endif
                                     ))
             {
                 noway_assert((compLclFrameSize % TARGET_POINTER_SIZE) == 0);
@@ -4711,6 +4719,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
                 // Remember that we had to double align a LclVar
                 have_LclVarDoubleAlign = true;
             }
+#endif // !TARGET_64BIT
 
             // Reserve the stack space for this variable
             stkOffs = lvaAllocLocalAndSetVirtualOffset(lclNum, lvaLclSize(lclNum), stkOffs);
@@ -4751,9 +4760,14 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
         }
     }
 
-    if (tempsAllocated == false)
+    if (!tempsAllocated)
     {
-        stkOffs = lvaAllocateTemps(stkOffs, mustDoubleAlign);
+        stkOffs = lvaAllocateTemps(stkOffs
+#ifndef TARGET_64BIT
+                                   ,
+                                   mustDoubleAlign
+#endif
+                                   );
     }
 
     // lvaInlinedPInvokeFrameVar and lvaStubArgumentVar need to be assigned last
@@ -4775,6 +4789,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
             lvaAllocLocalAndSetVirtualOffset(lvaInlinedPInvokeFrameVar, lvaLclSize(lvaInlinedPInvokeFrameVar), stkOffs);
     }
 
+#ifndef TARGET_64BIT
     if (mustDoubleAlign)
     {
         if (lvaDoneFrameLayout != FINAL_FRAME_LAYOUT)
@@ -4807,6 +4822,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
             noway_assert(((stkOffs + preSpillSize) % (2 * TARGET_POINTER_SIZE)) == 0);
         }
     }
+#endif // !TARGET_64BIT
 
 #if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_AMD64)
     if (lvaPSPSym != BAD_VAR_NUM)
@@ -5155,7 +5171,12 @@ void Compiler::lvaAssignFrameOffsetsToPromotedStructs()
 }
 
 // Assign virtual offsets to temps (always negative).
-int Compiler::lvaAllocateTemps(int stkOffs, bool mustDoubleAlign)
+int Compiler::lvaAllocateTemps(int stkOffs
+#ifndef TARGET_64BIT
+                               ,
+                               bool mustDoubleAlign
+#endif
+                               )
 {
     assert(stkOffs <= 0);
 
@@ -5194,8 +5215,7 @@ int Compiler::lvaAllocateTemps(int stkOffs, bool mustDoubleAlign)
 
             noway_assert((stkOffs % REGSIZE_BYTES) == 0);
         }
-#endif
-
+#else
         if (mustDoubleAlign && (type == TYP_DOUBLE)) // Align doubles for x86 and ARM
         {
             noway_assert((compLclFrameSize % REGSIZE_BYTES) == 0);
@@ -5211,6 +5231,7 @@ int Compiler::lvaAllocateTemps(int stkOffs, bool mustDoubleAlign)
 
             noway_assert(((stkOffs + preSpillSize) % (2 * REGSIZE_BYTES)) == 0);
         }
+#endif
 
         lvaIncrementFrameSize(size);
         stkOffs -= size;
