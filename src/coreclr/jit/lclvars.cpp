@@ -3615,6 +3615,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
 
     int argOffs = 0;
 
+#ifdef TARGET_X86
     if (info.compArgOrder == Target::ARG_ORDER_L2R)
     {
         argOffs = compArgSize;
@@ -3622,6 +3623,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
         // Update the argOffs to reflect arguments that are passed in registers.
         argOffs -= codeGen->intRegState.rsCalleeRegArgCount * REGSIZE_BYTES;
     }
+#endif
 
     unsigned                lclNum    = 0;
     CORINFO_ARG_LIST_HANDLE argLst    = info.compMethodInfo->args.args;

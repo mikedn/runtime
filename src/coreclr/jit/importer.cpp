@@ -569,10 +569,12 @@ GenTreeCall::Use* Importer::PopCallArgs(CORINFO_SIG_INFO* sig, GenTree* extraArg
 
     GenTreeCall::Use* args = nullptr;
 
+#ifdef TARGET_X86
     if ((Target::g_tgtArgOrder == Target::ARG_ORDER_L2R) && (extraArg != nullptr))
     {
         args = gtNewCallArgs(extraArg);
     }
+#endif
 
     for (unsigned i = 0, paramCount = sig->numArgs; i < paramCount; i++)
     {

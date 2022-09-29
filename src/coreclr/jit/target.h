@@ -268,7 +268,9 @@ public:
     enum ArgOrder : uint8_t
     {
         ARG_ORDER_R2L,
+#ifdef TARGET_X86
         ARG_ORDER_L2R
+#endif
     };
     static const enum ArgOrder g_tgtArgOrder;
 };
