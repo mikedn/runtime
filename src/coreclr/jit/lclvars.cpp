@@ -3860,12 +3860,12 @@ int Compiler::lvaAssignVirtualFrameOffsetToArg(LclVarDsc* lcl, unsigned argSize,
 
 #elif defined(TARGET_X86)
 
-int Compiler::lvaAssignVirtualFrameOffsetToArg(LclVarDsc* varDsc, unsigned argSize, int argOffs)
+int Compiler::lvaAssignVirtualFrameOffsetToArg(LclVarDsc* lcl, unsigned argSize, int argOffs)
 {
     assert((argSize % REGSIZE_BYTES) == 0);
     assert((argOffs % REGSIZE_BYTES) == 0);
 
-    if (varDsc->IsRegParam())
+    if (lcl->IsRegParam())
     {
         assert(argSize == REGSIZE_BYTES);
 
@@ -3877,7 +3877,7 @@ int Compiler::lvaAssignVirtualFrameOffsetToArg(LclVarDsc* varDsc, unsigned argSi
         argOffs -= argSize;
     }
 
-    varDsc->SetStackOffset(argOffs);
+    lcl->SetStackOffset(argOffs);
 
     if (info.compCallConv != CorInfoCallConvExtension::Managed)
     {
