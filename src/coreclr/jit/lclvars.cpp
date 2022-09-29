@@ -5157,6 +5157,8 @@ void Compiler::lvaAssignFrameOffsetsToPromotedStructs()
 // Assign virtual offsets to temps (always negative).
 int Compiler::lvaAllocateTemps(int stkOffs, bool mustDoubleAlign)
 {
+    assert(stkOffs <= 0);
+
 #ifdef TARGET_ARMARCH
     if (lvaDoneFrameLayout == REGALLOC_FRAME_LAYOUT)
     {
@@ -5167,54 +5169,55 @@ int Compiler::lvaAllocateTemps(int stkOffs, bool mustDoubleAlign)
 
     assert(lvaDoneFrameLayout == FINAL_FRAME_LAYOUT);
 
-    unsigned spillTempSize = 0;
-    int      preSpillSize  = 0;
 #ifdef TARGET_ARM
-    preSpillSize = genCountBits(codeGen->regSet.rsMaskPreSpillRegs(true)) * TARGET_POINTER_SIZE;
+    unsigned spillTempSize = 0;
+    int      preSpillSize  = genCountBits(codeGen->regSet.rsMaskPreSpillRegs(true)) * REGSIZE_BYTES;
+#else
+    int preSpillSize = 0;
 #endif
 
     assert(codeGen->regSet.tmpAllFree());
 
     for (TempDsc* temp = codeGen->regSet.tmpListBeg(); temp != nullptr; temp = codeGen->regSet.tmpListNxt(temp))
     {
-        var_types tempType = temp->tdTempType();
-        unsigned  size     = temp->tdTempSize();
+        var_types type = temp->tdTempType();
+        unsigned  size = temp->tdTempSize();
 
 #ifdef TARGET_64BIT
-        if (varTypeIsGC(tempType) && ((stkOffs % TARGET_POINTER_SIZE) != 0))
+        if (varTypeIsGC(type) && ((stkOffs % REGSIZE_BYTES) != 0))
         {
-            // Calculate 'pad' as the number of bytes to align up 'stkOffs' to be a multiple of TARGET_POINTER_SIZE
-            // In practice this is really just a fancy way of writing 4. (as all stack locations are at least 4-byte
-            // aligned). Note stkOffs is always negative, so (stkOffs % TARGET_POINTER_SIZE) yields a negative
-            // value.
+            unsigned alignPad = static_cast<unsigned>(-stkOffs);
+            alignPad          = roundUp(alignPad, REGSIZE_BYTES) - alignPad;
 
-            int alignPad = (int)AlignmentPad((unsigned)-stkOffs, TARGET_POINTER_SIZE);
-
-            spillTempSize += alignPad;
             lvaIncrementFrameSize(alignPad);
             stkOffs -= alignPad;
 
-            noway_assert((stkOffs % TARGET_POINTER_SIZE) == 0);
+            noway_assert((stkOffs % REGSIZE_BYTES) == 0);
         }
 #endif
 
-        if (mustDoubleAlign && (tempType == TYP_DOUBLE)) // Align doubles for x86 and ARM
+        if (mustDoubleAlign && (type == TYP_DOUBLE)) // Align doubles for x86 and ARM
         {
-            noway_assert((compLclFrameSize % TARGET_POINTER_SIZE) == 0);
+            noway_assert((compLclFrameSize % REGSIZE_BYTES) == 0);
 
-            if (((stkOffs + preSpillSize) % (2 * TARGET_POINTER_SIZE)) != 0)
+            if (((stkOffs + preSpillSize) % (2 * REGSIZE_BYTES)) != 0)
             {
-                spillTempSize += TARGET_POINTER_SIZE;
-                lvaIncrementFrameSize(TARGET_POINTER_SIZE);
-                stkOffs -= TARGET_POINTER_SIZE;
+                lvaIncrementFrameSize(REGSIZE_BYTES);
+                stkOffs -= REGSIZE_BYTES;
+#ifdef TARGET_ARM
+                spillTempSize += REGSIZE_BYTES;
+#endif
             }
 
-            noway_assert(((stkOffs + preSpillSize) % (2 * TARGET_POINTER_SIZE)) == 0);
+            noway_assert(((stkOffs + preSpillSize) % (2 * REGSIZE_BYTES)) == 0);
         }
 
-        spillTempSize += size;
         lvaIncrementFrameSize(size);
         stkOffs -= size;
+#ifdef TARGET_ARM
+        spillTempSize += size;
+#endif
+
         temp->tdSetTempOffs(stkOffs);
     }
 
