@@ -4430,24 +4430,6 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
         }
     }
 
-    bool tempsAllocated = false;
-
-    if (lvaTempsHaveLargerOffsetThanVars() && !codeGen->isFramePointerUsed())
-    {
-        // Because we want the temps to have a larger offset than locals
-        // and we're not using a frame pointer, we have to place the temps
-        // above the vars.  Otherwise we place them after the vars (at the
-        // bottom of the frame).
-
-        stkOffs = lvaAllocateTemps(stkOffs
-#ifndef TARGET_64BIT
-                                   ,
-                                   mustDoubleAlign
-#endif
-                                   );
-        tempsAllocated = true;
-    }
-
     alloc_order[cur++] = ALLOC_NON_PTRS;
 
     if (opts.compDbgEnC)
@@ -4470,6 +4452,24 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
     alloc_order[cur] = 0;
 
     noway_assert(cur < _countof(alloc_order));
+
+    bool tempsAllocated = false;
+
+    if (lvaTempsHaveLargerOffsetThanVars() && !codeGen->isFramePointerUsed())
+    {
+        // Because we want the temps to have a larger offset than locals
+        // and we're not using a frame pointer, we have to place the temps
+        // above the vars.  Otherwise we place them after the vars (at the
+        // bottom of the frame).
+
+        stkOffs = lvaAllocateTemps(stkOffs
+#ifndef TARGET_64BIT
+                                   ,
+                                   mustDoubleAlign
+#endif
+                                   );
+        tempsAllocated = true;
+    }
 
     // Force first pass to happen
     UINT assignMore             = 0xFFFFFFFF;
