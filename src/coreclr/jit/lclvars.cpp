@@ -4268,6 +4268,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
 #ifndef TARGET_64BIT
     if (mustDoubleAlign)
     {
+#ifdef TARGET_ARM
         if (lvaDoneFrameLayout != FINAL_FRAME_LAYOUT)
         {
             // Allocate a pointer sized stack slot, since we may need to double align here
@@ -4285,7 +4286,8 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
             lvaIncrementFrameSize(TARGET_POINTER_SIZE);
             stkOffs -= TARGET_POINTER_SIZE;
         }
-        else // FINAL_FRAME_LAYOUT
+        else
+#endif
         {
             if (((stkOffs + preSpillSize) % (2 * TARGET_POINTER_SIZE)) != 0)
             {
@@ -4792,6 +4794,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
 #ifndef TARGET_64BIT
     if (mustDoubleAlign)
     {
+#ifdef TARGET_ARM
         if (lvaDoneFrameLayout != FINAL_FRAME_LAYOUT)
         {
             // Allocate a pointer sized stack slot, since we may need to double align here
@@ -4811,7 +4814,8 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
                 stkOffs -= TARGET_POINTER_SIZE;
             }
         }
-        else // FINAL_FRAME_LAYOUT
+        else
+#endif
         {
             if (((stkOffs + preSpillSize) % (2 * TARGET_POINTER_SIZE)) != 0)
             {
@@ -4996,13 +5000,7 @@ void Compiler::lvaAlignFrame()
     {
         lvaIncrementFrameSize(8 - (compLclFrameSize % 8));
     }
-    else if (lvaDoneFrameLayout != FINAL_FRAME_LAYOUT)
-    {
-        // If we are not doing final layout, we don't know the exact value of compLclFrameSize
-        // and thus do not know how much we will need to add in order to be aligned.
-        // We add 8 so compLclFrameSize is still a multiple of 8.
-        lvaIncrementFrameSize(8);
-    }
+
     assert((compLclFrameSize % 8) == 0);
 
     // Ensure that the stack is always 16-byte aligned by grabbing an unused QWORD
@@ -5092,14 +5090,6 @@ void Compiler::lvaAlignFrame()
 
     if (STACK_ALIGN > REGSIZE_BYTES)
     {
-        if (lvaDoneFrameLayout != FINAL_FRAME_LAYOUT)
-        {
-            // If we are not doing final layout, we don't know the exact value of compLclFrameSize
-            // and thus do not know how much we will need to add in order to be aligned.
-            // We add the maximum pad that we could ever have (which is 12)
-            lvaIncrementFrameSize(STACK_ALIGN - REGSIZE_BYTES);
-        }
-
         // Align the stack with STACK_ALIGN value.
         int  adjustFrameSize = compLclFrameSize;
 #if defined(UNIX_X86_ABI)
