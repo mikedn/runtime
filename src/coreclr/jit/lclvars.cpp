@@ -4408,50 +4408,46 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
     //         pointer temps
     //     non-pointer temps
 
-    enum Allocation
+    enum
     {
-        ALLOC_NON_PTRS                 = 0x1, // assign offsets to non-ptr
-        ALLOC_PTRS                     = 0x2, // Second pass, assign offsets to tracked ptrs
+        ALLOC_NON_PTRS                 = 0x1,
+        ALLOC_PTRS                     = 0x2,
         ALLOC_UNSAFE_BUFFERS           = 0x4,
         ALLOC_UNSAFE_BUFFERS_WITH_PTRS = 0x8
     };
-    UINT alloc_order[5];
 
-    unsigned int cur = 0;
+    unsigned allocOrder[4];
+    unsigned allocCount = 0;
 
-    if (compGSReorderStackLayout)
+    if (opts.compDbgEnC)
+    {
+        // We will use just one pass, and assign offsets to all variables.
+        allocOrder[allocCount++] = ALLOC_NON_PTRS | ALLOC_PTRS;
+    }
+    else if (!compGSReorderStackLayout)
+    {
+        allocOrder[allocCount++] = ALLOC_NON_PTRS;
+        allocOrder[allocCount++] = ALLOC_PTRS;
+    }
+    else
     {
         noway_assert(getNeedsGSSecurityCookie());
 
         if (codeGen->isFramePointerUsed())
         {
-            alloc_order[cur++] = ALLOC_UNSAFE_BUFFERS;
-            alloc_order[cur++] = ALLOC_UNSAFE_BUFFERS_WITH_PTRS;
+            allocOrder[allocCount++] = ALLOC_UNSAFE_BUFFERS;
+            allocOrder[allocCount++] = ALLOC_UNSAFE_BUFFERS_WITH_PTRS;
+            allocOrder[allocCount++] = ALLOC_NON_PTRS;
+            allocOrder[allocCount++] = ALLOC_PTRS;
+        }
+        else
+        {
+            allocOrder[allocCount++] = ALLOC_NON_PTRS;
+            allocOrder[allocCount++] = ALLOC_PTRS;
+            allocOrder[allocCount++] = ALLOC_UNSAFE_BUFFERS_WITH_PTRS;
+            allocOrder[allocCount++] = ALLOC_UNSAFE_BUFFERS;
         }
     }
-
-    alloc_order[cur++] = ALLOC_NON_PTRS;
-
-    if (opts.compDbgEnC)
-    {
-        // We will use just one pass, and assign offsets to all variables.
-        alloc_order[cur - 1] |= ALLOC_PTRS;
-        noway_assert(compGSReorderStackLayout == false);
-    }
-    else
-    {
-        alloc_order[cur++] = ALLOC_PTRS;
-    }
-
-    if (!codeGen->isFramePointerUsed() && compGSReorderStackLayout)
-    {
-        alloc_order[cur++] = ALLOC_UNSAFE_BUFFERS_WITH_PTRS;
-        alloc_order[cur++] = ALLOC_UNSAFE_BUFFERS;
-    }
-
-    alloc_order[cur] = 0;
-
-    noway_assert(cur < _countof(alloc_order));
 
     bool tempsAllocated = false;
 
@@ -4472,12 +4468,12 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
     }
 
     // Force first pass to happen
-    UINT assignMore             = 0xFFFFFFFF;
-    bool have_LclVarDoubleAlign = false;
+    unsigned assignMore             = 0xFFFFFFFF;
+    bool     have_LclVarDoubleAlign = false;
 
-    for (cur = 0; alloc_order[cur]; cur++)
+    for (unsigned cur = 0; cur < allocCount; cur++)
     {
-        if ((assignMore & alloc_order[cur]) == 0)
+        if ((assignMore & allocOrder[cur]) == 0)
         {
             continue;
         }
@@ -4655,7 +4651,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
             {
                 if (varDsc->lvIsPtr)
                 {
-                    if ((alloc_order[cur] & ALLOC_UNSAFE_BUFFERS_WITH_PTRS) == 0)
+                    if ((allocOrder[cur] & ALLOC_UNSAFE_BUFFERS_WITH_PTRS) == 0)
                     {
                         assignMore |= ALLOC_UNSAFE_BUFFERS_WITH_PTRS;
                         continue;
@@ -4663,7 +4659,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
                 }
                 else
                 {
-                    if ((alloc_order[cur] & ALLOC_UNSAFE_BUFFERS) == 0)
+                    if ((allocOrder[cur] & ALLOC_UNSAFE_BUFFERS) == 0)
                     {
                         assignMore |= ALLOC_UNSAFE_BUFFERS;
                         continue;
@@ -4672,7 +4668,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
             }
             else if (varTypeIsGC(varDsc->TypeGet()) && varDsc->lvTracked)
             {
-                if ((alloc_order[cur] & ALLOC_PTRS) == 0)
+                if ((allocOrder[cur] & ALLOC_PTRS) == 0)
                 {
                     assignMore |= ALLOC_PTRS;
                     continue;
@@ -4680,7 +4676,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
             }
             else
             {
-                if ((alloc_order[cur] & ALLOC_NON_PTRS) == 0)
+                if ((allocOrder[cur] & ALLOC_NON_PTRS) == 0)
                 {
                     assignMore |= ALLOC_NON_PTRS;
                     continue;
