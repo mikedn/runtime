@@ -4107,10 +4107,6 @@ int Compiler::lvaAssignParamVirtualFrameOffset(unsigned lclNum,
 // These will all be negative offsets (stack grows down) relative to the virtual '0' address.
 void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
 {
-    int stkOffs              = 0;
-    int originalFrameStkOffs = 0;
-    int originalFrameSize    = 0;
-
 #ifdef TARGET_ARM64
     // Decide where to save FP and LR registers. We store FP/LR registers at the bottom of the frame if there is
     // a frame pointer used (so we get positive offsets from the frame pointer to access locals), but not if we
@@ -4118,65 +4114,68 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
     // and also the saved frame pointer. See CodeGen::genPushCalleeSavedRegisters() for more details about the
     // frame types. Since saving FP/LR at high addresses is a relatively rare case, force using it during stress.
     // (It should be legal to use these frame types for every frame).
-
-    if (opts.compJitSaveFpLrWithCalleeSavedRegisters == 0)
+    switch (opts.compJitSaveFpLrWithCalleeSavedRegisters)
     {
-        // Default configuration
-        codeGen->SetSaveFpLrWithAllCalleeSavedRegisters((getNeedsGSSecurityCookie() && compLocallocUsed) ||
-                                                        compStressCompile(STRESS_GENERIC_VARN, 20));
-    }
-    else if (opts.compJitSaveFpLrWithCalleeSavedRegisters == 1)
-    {
-        codeGen->SetSaveFpLrWithAllCalleeSavedRegisters(false); // Disable using new frames
-    }
-    else if (opts.compJitSaveFpLrWithCalleeSavedRegisters == 2)
-    {
-        codeGen->SetSaveFpLrWithAllCalleeSavedRegisters(true); // Force using new frames
+        default:
+            // Default configuration
+            codeGen->SetSaveFpLrWithAllCalleeSavedRegisters((getNeedsGSSecurityCookie() && compLocallocUsed) ||
+                                                            compStressCompile(STRESS_GENERIC_VARN, 20));
+            break;
+        case 1:
+            // Disable using new frames
+            codeGen->SetSaveFpLrWithAllCalleeSavedRegisters(false);
+            break;
+        case 2:
+            // Force using new frames
+            codeGen->SetSaveFpLrWithAllCalleeSavedRegisters(true);
+            break;
     }
 #endif // TARGET_ARM64
 
+    int stkOffs              = 0;
+    int originalFrameStkOffs = 0;
+    int originalFrameSize    = 0;
+
 #ifdef TARGET_XARCH
     // On x86/amd64, the return address has already been pushed by the call instruction in the caller.
-    stkOffs -= TARGET_POINTER_SIZE; // return address;
+    stkOffs -= REGSIZE_BYTES; // return address;
+
     if (lvaRetAddrVar != BAD_VAR_NUM)
     {
-        lvaTable[lvaRetAddrVar].SetStackOffset(stkOffs);
+        lvaGetDesc(lvaRetAddrVar)->SetStackOffset(stkOffs);
     }
 
-    // If we are an OSR method, we "inherit" the frame of the original method,
-    // and the stack is already double aligned on entry (since the return address push
-    // and any special alignment push happened "before").
+    // If we are an OSR method, we "inherit" the frame of the original method, and the stack
+    // is already double aligned on entry (since the return address push and any special
+    // alignment push happened "before").
     if (opts.IsOSR())
     {
         originalFrameSize    = info.compPatchpointInfo->FpToSpDelta();
         originalFrameStkOffs = stkOffs;
         stkOffs -= originalFrameSize;
     }
-    // TODO-AMD64-CQ: for X64 eventually this should be pushed with all the other
-    // calleeregs.  When you fix this, you'll also need to fix
-    // the assert at the bottom of this method
+
+    // TODO-AMD64-CQ: for X64 eventually this should be pushed with all the other callee regs.
+    // When you fix this, you'll also need to fix the assert at the bottom of this method.
     if (codeGen->doubleAlignOrFramePointerUsed())
     {
         stkOffs -= REGSIZE_BYTES;
     }
 #endif // TARGET_XARCH
 
-    int preSpillSize = 0;
-#ifndef TARGET_64BIT
-    bool mustDoubleAlign = false;
-#endif
-
 #ifdef TARGET_ARM
-    mustDoubleAlign = true;
-    preSpillSize    = genCountBits(codeGen->regSet.rsMaskPreSpillRegs(true)) * REGSIZE_BYTES;
-#else // !TARGET_ARM
+    int  preSpillSize    = genCountBits(codeGen->regSet.rsMaskPreSpillRegs(true)) * REGSIZE_BYTES;
+    bool mustDoubleAlign = true;
+#elif defined(TARGET_X86)
+    int  preSpillSize    = 0;
+    bool mustDoubleAlign = false;
 #if DOUBLE_ALIGN
     if (genDoubleAlign())
     {
-        mustDoubleAlign = true; // X86 only
+        mustDoubleAlign = true;
     }
 #endif
-#endif // !TARGET_ARM
+#endif
 
 #ifdef TARGET_ARM64
     // If the frame pointer is used, then we'll save FP/LR at the bottom of the stack.
@@ -4184,6 +4183,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
     // registers (if any).
 
     int initialStkOffs = 0;
+
     if (info.compIsVarArgs)
     {
         // For varargs we always save all of the integer register arguments
@@ -4201,16 +4201,15 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
     {
         // Subtract off FP and LR.
         assert(compCalleeRegsPushed >= 2);
+
         stkOffs -= (compCalleeRegsPushed - 2) * REGSIZE_BYTES;
     }
-
 #else // !TARGET_ARM64
 #ifdef TARGET_ARM
-    // On ARM32 LR is part of the pushed registers and is always stored at the
-    // top.
+    // On ARM32 LR is part of the pushed registers and is always stored at the top.
     if (lvaRetAddrVar != BAD_VAR_NUM)
     {
-        lvaTable[lvaRetAddrVar].SetStackOffset(stkOffs - REGSIZE_BYTES);
+        lvaGetDesc(lvaRetAddrVar)->SetStackOffset(stkOffs - REGSIZE_BYTES);
     }
 #endif
 
@@ -4220,21 +4219,21 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
     compLclFrameSize = 0;
 
 #ifdef TARGET_AMD64
-    // In case of Amd64 compCalleeRegsPushed includes float regs (Xmm6-xmm15) that
-    // need to be pushed.  But Amd64 doesn't support push/pop of xmm registers.
+    // In case of AMD64 compCalleeRegsPushed includes float regs (XMM6-XMM15) that
+    // need to be pushed. But AMD64 doesn't support push/pop of XMM registers.
     // Instead we need to allocate space for them on the stack and save them in prolog.
-    // Therefore, we consider xmm registers being saved while computing stack offsets
-    // but space for xmm registers is considered part of compLclFrameSize.
+    // Therefore, we consider XMM registers being saved while computing stack offsets
+    // but space for XMM registers is considered part of compLclFrameSize.
     // Notes
-    //  1) We need to save the entire 128-bits of xmm register to stack, since amd64
-    //     prolog unwind codes allow encoding of an instruction that stores the entire xmm reg
-    //     at an offset relative to SP
+    //  1) We need to save the entire 128-bits of XMM register to stack, since AMD64
+    //     prolog unwind codes allow encoding of an instruction that stores the entire
+    //     XMM reg at an offset relative to SP.
     //  2) We adjust frame size so that SP is aligned at 16-bytes after pushing integer registers.
-    //     This means while saving the first xmm register to its allocated stack location we might
-    //     have to skip 8-bytes.  The reason for padding is to use efficient "movaps" to save/restore
-    //     xmm registers to/from stack to match Jit64 codegen.  Without the aligning on 16-byte
-    //     boundary we would have to use movups when offset turns out unaligned.  Movaps is more
-    //     performant than movups.
+    //     This means while saving the first XMM register to its allocated stack location we might
+    //     have to skip 8-bytes. The reason for padding is to use efficient MOVAPS to save/restore
+    //     XMM registers to/from stack to match JIT64 codegen. Without the aligning on 16-byte
+    //     boundary we would have to use MOVUPS when offset turns out unaligned. MOVAPS is more
+    //     performant than MOVUPS.
     unsigned calleeFPRegsSavedSize = genCountBits(compCalleeFPRegsSavedMask) * XMM_REGSIZE_BYTES;
 
     // For OSR the alignment pad computation should not take the original frame into account.
@@ -4243,25 +4242,27 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
 
     if ((calleeFPRegsSavedSize > 0) && ((offsetForAlign % XMM_REGSIZE_BYTES) != 0))
     {
-        // Take care of alignment
-        int alignPad = (int)AlignmentPad((unsigned)offsetForAlign, XMM_REGSIZE_BYTES);
+        int alignPad = static_cast<int>(AlignmentPad(static_cast<unsigned>(offsetForAlign), XMM_REGSIZE_BYTES));
         assert(alignPad != 0);
-        stkOffs -= alignPad;
+
         lvaIncrementFrameSize(alignPad);
+        stkOffs -= alignPad;
     }
 
-    stkOffs -= calleeFPRegsSavedSize;
     lvaIncrementFrameSize(calleeFPRegsSavedSize);
+    stkOffs -= calleeFPRegsSavedSize;
 #endif // TARGET_AMD64
 
 #if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARMARCH)
     if (lvaPSPSym != BAD_VAR_NUM)
     {
         // On ARM/ARM64, if we need a PSPSym, allocate it first, before anything else, including
-        // padding (so we can avoid computing the same padding in the funclet
-        // frame). Note that there is no special padding requirement for the PSPSym.
-        noway_assert(codeGen->isFramePointerUsed()); // We need an explicit frame pointer
-        stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaPSPSym, TARGET_POINTER_SIZE, stkOffs);
+        // padding (so we can avoid computing the same padding in the funclet frame). Note that
+        // there is no special padding requirement for the PSPSym.
+
+        noway_assert(codeGen->isFramePointerUsed());
+
+        stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaPSPSym, REGSIZE_BYTES, stkOffs);
     }
 #endif // FEATURE_EH_FUNCLETS && defined(TARGET_ARMARCH)
 
@@ -4271,31 +4272,29 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
 #ifdef TARGET_ARM
         if (lvaDoneFrameLayout != FINAL_FRAME_LAYOUT)
         {
-            // Allocate a pointer sized stack slot, since we may need to double align here
-            // when lvaDoneFrameLayout == FINAL_FRAME_LAYOUT
-            lvaIncrementFrameSize(TARGET_POINTER_SIZE);
-            stkOffs -= TARGET_POINTER_SIZE;
+            lvaIncrementFrameSize(REGSIZE_BYTES);
+            stkOffs -= REGSIZE_BYTES;
 
-            // If we have any TYP_LONG, TYP_DOUBLE or double aligned structs
-            // then we need to allocate a second pointer sized stack slot,
-            // since we may need to double align that LclVar when we see it
-            // in the loop below.  We will just always do this so that the
-            // offsets that we calculate for the stack frame will always
-            // be greater (or equal) to what they can be in the final layout.
-            //
-            lvaIncrementFrameSize(TARGET_POINTER_SIZE);
-            stkOffs -= TARGET_POINTER_SIZE;
+            // If we have any LONG, DOUBLE or double aligned structs then we need
+            // to allocate a second pointer sized stack slot, since we may need to
+            // double align that LclVar when we see it in the loop below. We will
+            // just always do this so that the offsets that we calculate for the
+            // stack frame will always be greater (or equal) to what they can be
+            // in the final layout.
+
+            lvaIncrementFrameSize(REGSIZE_BYTES);
+            stkOffs -= REGSIZE_BYTES;
         }
         else
 #endif
         {
-            if (((stkOffs + preSpillSize) % (2 * TARGET_POINTER_SIZE)) != 0)
+            if ((stkOffs + preSpillSize) % (2 * REGSIZE_BYTES) != 0)
             {
-                lvaIncrementFrameSize(TARGET_POINTER_SIZE);
-                stkOffs -= TARGET_POINTER_SIZE;
+                lvaIncrementFrameSize(REGSIZE_BYTES);
+                stkOffs -= REGSIZE_BYTES;
             }
-            // We should now have a double-aligned (stkOffs+preSpillSize)
-            noway_assert(((stkOffs + preSpillSize) % (2 * TARGET_POINTER_SIZE)) == 0);
+
+            assert((stkOffs + preSpillSize) % (2 * REGSIZE_BYTES) == 0);
         }
     }
 #endif // !TARGET_64BIT
@@ -4311,8 +4310,9 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
 #ifdef JIT32_GCENCODER
     if (lvaLocAllocSPvar != BAD_VAR_NUM)
     {
-        noway_assert(codeGen->isFramePointerUsed()); // else offsets of locals of frameless methods will be incorrect
-        stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaLocAllocSPvar, TARGET_POINTER_SIZE, stkOffs);
+        noway_assert(codeGen->isFramePointerUsed());
+
+        stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaLocAllocSPvar, REGSIZE_BYTES, stkOffs);
     }
 #endif // JIT32_GCENCODER
 
@@ -4333,14 +4333,14 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
         {
             PatchpointInfo* ppInfo = info.compPatchpointInfo;
             assert(ppInfo->HasGenericContextArgOffset());
-            const int originalOffset       = ppInfo->GenericContextArgOffset();
-            lvaCachedGenericContextArgOffs = originalFrameStkOffs + originalOffset;
+            lvaCachedGenericContextArgOffs = originalFrameStkOffs + ppInfo->GenericContextArgOffset();
         }
         else
         {
             // For CORINFO_CALLCONV_PARAMTYPE (if needed)
-            lvaIncrementFrameSize(TARGET_POINTER_SIZE);
-            stkOffs -= TARGET_POINTER_SIZE;
+            lvaIncrementFrameSize(REGSIZE_BYTES);
+            stkOffs -= REGSIZE_BYTES;
+
             lvaCachedGenericContextArgOffs = stkOffs;
         }
     }
@@ -4348,13 +4348,14 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
     else if (lvaKeepAliveAndReportThis())
     {
         bool canUseExistingSlot = false;
+
         if (opts.IsOSR())
         {
             PatchpointInfo* ppInfo = info.compPatchpointInfo;
+
             if (ppInfo->HasKeptAliveThis())
             {
-                const int originalOffset       = ppInfo->KeptAliveThisOffset();
-                lvaCachedGenericContextArgOffs = originalFrameStkOffs + originalOffset;
+                lvaCachedGenericContextArgOffs = originalFrameStkOffs + ppInfo->KeptAliveThisOffset();
                 canUseExistingSlot             = true;
             }
         }
@@ -4362,8 +4363,9 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
         if (!canUseExistingSlot)
         {
             // When "this" is also used as generic context arg.
-            lvaIncrementFrameSize(TARGET_POINTER_SIZE);
-            stkOffs -= TARGET_POINTER_SIZE;
+            lvaIncrementFrameSize(REGSIZE_BYTES);
+            stkOffs -= REGSIZE_BYTES;
+
             lvaCachedGenericContextArgOffs = stkOffs;
         }
     }
@@ -4373,19 +4375,21 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
     // If we need space for slots for shadow SP, reserve it now.
     if (ehNeedsShadowSPslots())
     {
-        noway_assert(codeGen->isFramePointerUsed()); // else offsets of locals of frameless methods will be incorrect
+        noway_assert(codeGen->isFramePointerUsed());
+
         if (!lvaReportParamTypeArg())
         {
 #ifndef JIT32_GCENCODER
             if (!lvaKeepAliveAndReportThis())
 #endif
             {
-                // In order to keep the gc info encoding smaller, the VM assumes that all methods with EH
-                // have also saved space for a ParamTypeArg, so we need to do that here
-                lvaIncrementFrameSize(TARGET_POINTER_SIZE);
-                stkOffs -= TARGET_POINTER_SIZE;
+                // In order to keep the GC info encoding smaller, the VM assumes that all methods
+                // with EH have also saved space for a ParamTypeArg, so we need to do that here.
+                lvaIncrementFrameSize(REGSIZE_BYTES);
+                stkOffs -= REGSIZE_BYTES;
             }
         }
+
         stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaShadowSPslotsVar, lvaLclSize(lvaShadowSPslotsVar), stkOffs);
     }
 #endif // !FEATURE_EH_FUNCLETS
@@ -4396,17 +4400,17 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
 
         if (!opts.IsOSR() || !info.compPatchpointInfo->HasSecurityCookie())
         {
-            stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaGSSecurityCookie, lvaLclSize(lvaGSSecurityCookie), stkOffs);
+            stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaGSSecurityCookie, REGSIZE_BYTES, stkOffs);
         }
     }
 
     // If we're supposed to track lifetimes of pointer temps, we'll
     // assign frame offsets in the following order:
     //
-    //     non-pointer local variables (also untracked pointer variables)
-    //         pointer local variables
-    //         pointer temps
-    //     non-pointer temps
+    // non-pointer local variables (also untracked pointer variables)
+    //     pointer local variables
+    //     pointer temps
+    // non-pointer temps
 
     enum
     {
@@ -4421,6 +4425,8 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
 
     if (opts.compDbgEnC)
     {
+        assert(!compGSReorderStackLayout);
+
         // We will use just one pass, and assign offsets to all variables.
         allocOrder[allocCount++] = ALLOC_NON_PTRS | ALLOC_PTRS;
     }
@@ -4468,43 +4474,31 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
     }
 
     // Force first pass to happen
-    unsigned assignMore             = 0xFFFFFFFF;
-    bool     have_LclVarDoubleAlign = false;
+    unsigned assignNext         = ALLOC_NON_PTRS | ALLOC_PTRS | ALLOC_UNSAFE_BUFFERS | ALLOC_UNSAFE_BUFFERS_WITH_PTRS;
+    bool     haveLclDoubleAlign = false;
 
-    for (unsigned cur = 0; cur < allocCount; cur++)
+    for (unsigned allocStep = 0; allocStep < allocCount; allocStep++)
     {
-        if ((assignMore & allocOrder[cur]) == 0)
+        if ((assignNext & allocOrder[allocStep]) == 0)
         {
             continue;
         }
 
-        assignMore = 0;
+        assignNext = 0;
 
-        unsigned   lclNum;
-        LclVarDsc* varDsc;
-
-        for (lclNum = 0, varDsc = lvaTable; lclNum < lvaCount; lclNum++, varDsc++)
+        for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
         {
-            // Ignore dependent promoted fields.
-            if (!opts.IsOSR() && varDsc->IsDependentPromotedField(this))
+            LclVarDsc* lcl = lvaGetDesc(lclNum);
+
+            if (!opts.IsOSR() && lcl->IsDependentPromotedField(this))
             {
                 continue;
             }
 
 #if FEATURE_FIXED_OUT_ARGS
-            // The scratch mem is used for the outgoing arguments, and it must be absolutely last
             if (lclNum == lvaOutgoingArgSpaceVar)
             {
                 continue;
-            }
-#endif
-
-            bool allocateOnFrame = varDsc->lvOnFrame;
-
-#ifdef TARGET_ARMARCH
-            if (varDsc->lvRegister && (lvaDoneFrameLayout == REGALLOC_FRAME_LAYOUT) && !varDsc->TypeIs(TYP_LONG))
-            {
-                allocateOnFrame = false;
             }
 #endif
 
@@ -4514,22 +4508,31 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
             // will refer to their memory homes.
             if (lvaIsOSRLocal(lclNum))
             {
-                // TODO-CQ: enable struct promotion for OSR locals; when that
-                // happens, figure out how to properly refer to the original
-                // frame slots for the promoted fields.
-                assert(!varDsc->lvIsStructField);
+                // TODO-CQ: enable struct promotion for OSR locals; when that happens, figure out
+                // how to properly refer to the original frame slots for the promoted fields.
+                assert(!lcl->IsPromotedField());
 
                 // Add frampointer-relative offset of this OSR live local in the original frame
                 // to the offset of original frame in our new frame.
                 int originalOffset = info.compPatchpointInfo->Offset(lclNum);
                 int offset         = originalFrameStkOffs + originalOffset;
 
-                JITDUMP("---OSR--- V%02u (on old frame) old rbp offset %d old frame offset %d new virt offset %d\n",
-                        lclNum, originalOffset, originalFrameStkOffs, offset);
+                JITDUMP("OSR: V%02u (on old frame) old rbp offset %d old frame offset %d new virt offset %d\n", lclNum,
+                        originalOffset, originalFrameStkOffs, offset);
 
-                lvaTable[lclNum].SetStackOffset(offset);
+                lcl->SetStackOffset(offset);
+
                 continue;
             }
+
+            bool allocateOnFrame = lcl->lvOnFrame;
+
+#ifdef TARGET_ARMARCH
+            if (lcl->lvRegister && (lvaDoneFrameLayout == REGALLOC_FRAME_LAYOUT) && !lcl->TypeIs(TYP_LONG))
+            {
+                allocateOnFrame = false;
+            }
+#endif
 
             // Ignore variables that are not on the stack frame.
 
@@ -4544,26 +4547,28 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
                 {
                     continue;
                 }
-                else if (lclNum >= info.compLocalsCount)
+
+                if (lclNum >= info.compLocalsCount)
                 {
                     // ignore temps for EnC
                     continue;
                 }
             }
-            else if (lvaGSSecurityCookie == lclNum && getNeedsGSSecurityCookie())
+            else if ((lvaGSSecurityCookie == lclNum) && getNeedsGSSecurityCookie())
             {
                 // Special case for OSR. If the original method had a cookie,
                 // we use its slot on the original frame.
+
                 if (opts.IsOSR() && info.compPatchpointInfo->HasSecurityCookie())
                 {
                     int originalOffset = info.compPatchpointInfo->SecurityCookieOffset();
                     int offset         = originalFrameStkOffs + originalOffset;
 
-                    JITDUMP("---OSR--- V%02u (on old frame, security cookie) old rbp offset %d old frame offset %d new "
+                    JITDUMP("OSR: V%02u (on old frame, security cookie) old rbp offset %d old frame offset %d new "
                             "virt offset %d\n",
                             lclNum, originalOffset, originalFrameStkOffs, offset);
 
-                    lvaTable[lclNum].SetStackOffset(offset);
+                    lcl->SetStackOffset(offset);
                 }
 
                 continue;
@@ -4571,6 +4576,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
 
             // These need to be located as the very first variables (highest memory address)
             // and so they have already been assigned an offset
+
             if (
 #ifdef FEATURE_EH_FUNCLETS
                 lclNum == lvaPSPSym ||
@@ -4582,7 +4588,8 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
 #endif
                 lclNum == lvaRetAddrVar)
             {
-                assert(varDsc->GetStackOffset() != BAD_STK_OFFS);
+                assert(lcl->GetStackOffset() != BAD_STK_OFFS);
+
                 continue;
             }
 
@@ -4604,148 +4611,140 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
             if (lclNum == lvaInlinedPInvokeFrameVar)
             {
                 noway_assert(codeGen->isFramePointerUsed());
+
                 continue;
             }
 
-            if (varDsc->lvIsParam)
+            if (lcl->IsParam())
             {
-#if defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)
+#ifdef WINDOWS_AMD64_ABI
                 // On Windows AMD64 we can use the caller-reserved stack area that is already setup
-                assert(varDsc->GetStackOffset() != BAD_STK_OFFS);
+                assert(lcl->GetStackOffset() != BAD_STK_OFFS);
+
                 continue;
-
-#else // !TARGET_AMD64
-
-                // A register argument that is not enregistered ends up as
-                // a local variable which will need stack frame space.
-                if (!varDsc->lvIsRegArg)
+#else
+                if (!lcl->IsRegParam())
                 {
                     continue;
                 }
 
 #ifdef TARGET_ARM64
-                if (info.compIsVarArgs && varDsc->GetArgReg() != theFixedRetBuffArgNum())
+                if (info.compIsVarArgs && (lcl->GetArgReg() != theFixedRetBuffArgNum()))
                 {
                     // Stack offset to varargs (parameters) should point to home area which will be preallocated.
-                    const unsigned regArgNum = genMapIntRegNumToRegArgNum(varDsc->GetArgReg());
-                    varDsc->SetStackOffset(-initialStkOffs + regArgNum * REGSIZE_BYTES);
+                    unsigned regNum = genMapIntRegNumToRegArgNum(lcl->GetArgReg());
+                    lcl->SetStackOffset(-initialStkOffs + regNum * REGSIZE_BYTES);
+
                     continue;
                 }
-
-#endif
-
-#ifdef TARGET_ARM
+#elif defined(TARGET_ARM)
                 // On ARM we spill the registers in codeGen->regSet.rsMaskPreSpillRegArg
                 // in the prolog, thus they don't need stack frame space.
-                if ((codeGen->regSet.rsMaskPreSpillRegs(false) & genRegMask(varDsc->GetArgReg())) != 0)
+                if ((codeGen->regSet.rsMaskPreSpillRegs(false) & genRegMask(lcl->GetArgReg())) != 0)
                 {
-                    assert(varDsc->GetStackOffset() != BAD_STK_OFFS);
+                    assert(lcl->GetStackOffset() != BAD_STK_OFFS);
+
                     continue;
                 }
 #endif
-
-#endif // !TARGET_AMD64
+#endif // !WINDOWS_AMD64_ABI
             }
 
-            if (varDsc->lvIsUnsafeBuffer && compGSReorderStackLayout)
+            if (lcl->lvIsUnsafeBuffer && compGSReorderStackLayout)
             {
-                if (varDsc->lvIsPtr)
+                if (lcl->lvIsPtr)
                 {
-                    if ((allocOrder[cur] & ALLOC_UNSAFE_BUFFERS_WITH_PTRS) == 0)
+                    if ((allocOrder[allocStep] & ALLOC_UNSAFE_BUFFERS_WITH_PTRS) == 0)
                     {
-                        assignMore |= ALLOC_UNSAFE_BUFFERS_WITH_PTRS;
+                        assignNext |= ALLOC_UNSAFE_BUFFERS_WITH_PTRS;
+
                         continue;
                     }
                 }
                 else
                 {
-                    if ((allocOrder[cur] & ALLOC_UNSAFE_BUFFERS) == 0)
+                    if ((allocOrder[allocStep] & ALLOC_UNSAFE_BUFFERS) == 0)
                     {
-                        assignMore |= ALLOC_UNSAFE_BUFFERS;
+                        assignNext |= ALLOC_UNSAFE_BUFFERS;
+
                         continue;
                     }
                 }
             }
-            else if (varTypeIsGC(varDsc->TypeGet()) && varDsc->lvTracked)
+            else if (varTypeIsGC(lcl->GetType()) && lcl->HasLiveness())
             {
-                if ((allocOrder[cur] & ALLOC_PTRS) == 0)
+                if ((allocOrder[allocStep] & ALLOC_PTRS) == 0)
                 {
-                    assignMore |= ALLOC_PTRS;
+                    assignNext |= ALLOC_PTRS;
+
                     continue;
                 }
             }
             else
             {
-                if ((allocOrder[cur] & ALLOC_NON_PTRS) == 0)
+                if ((allocOrder[allocStep] & ALLOC_NON_PTRS) == 0)
                 {
-                    assignMore |= ALLOC_NON_PTRS;
+                    assignNext |= ALLOC_NON_PTRS;
+
                     continue;
                 }
             }
 
 #ifndef TARGET_64BIT
-            if (mustDoubleAlign && (varDsc->lvType == TYP_DOUBLE // Align doubles for ARM and x86
-#ifdef TARGET_ARM
-                                    || varDsc->lvType == TYP_LONG // Align longs for ARM
-#endif
-                                    || varDsc->lvStructDoubleAlign // Align when lvStructDoubleAlign is true
-                                    ))
+            if (mustDoubleAlign &&
+                (lcl->TypeIs(TYP_DOUBLE) ARM_ONLY(|| lcl->TypeIs(TYP_LONG)) || lcl->lvStructDoubleAlign))
             {
-                noway_assert((compLclFrameSize % TARGET_POINTER_SIZE) == 0);
+                noway_assert((compLclFrameSize % REGSIZE_BYTES) == 0);
 
-                if ((lvaDoneFrameLayout != FINAL_FRAME_LAYOUT) && !have_LclVarDoubleAlign)
+                if ((lvaDoneFrameLayout != FINAL_FRAME_LAYOUT) && !haveLclDoubleAlign)
                 {
-                    // If this is the first TYP_LONG, TYP_DOUBLE or double aligned struct
-                    // then we have seen in this loop then we allocate a pointer sized
-                    // stack slot since we may need to double align this LclVar
-                    // when lvaDoneFrameLayout == FINAL_FRAME_LAYOUT
-                    lvaIncrementFrameSize(TARGET_POINTER_SIZE);
-                    stkOffs -= TARGET_POINTER_SIZE;
+                    // If this is the first LONG, DOUBLE or double aligned struct that
+                    // we have seen in this loop then we allocate a pointer sized stack
+                    // slot since we may need to double align this local for the final
+                    // frame layout.
+
+                    lvaIncrementFrameSize(REGSIZE_BYTES);
+                    stkOffs -= REGSIZE_BYTES;
                 }
                 else
                 {
-                    if (((stkOffs + preSpillSize) % (2 * TARGET_POINTER_SIZE)) != 0)
+                    if ((stkOffs + preSpillSize) % (2 * REGSIZE_BYTES) != 0)
                     {
-                        lvaIncrementFrameSize(TARGET_POINTER_SIZE);
-                        stkOffs -= TARGET_POINTER_SIZE;
+                        lvaIncrementFrameSize(REGSIZE_BYTES);
+                        stkOffs -= REGSIZE_BYTES;
                     }
 
-                    // We should now have a double-aligned (stkOffs+preSpillSize)
-                    noway_assert(((stkOffs + preSpillSize) % (2 * TARGET_POINTER_SIZE)) == 0);
+                    assert((stkOffs + preSpillSize) % (2 * REGSIZE_BYTES) == 0);
                 }
 
-                // Remember that we had to double align a LclVar
-                have_LclVarDoubleAlign = true;
+                haveLclDoubleAlign = true;
             }
 #endif // !TARGET_64BIT
 
-            // Reserve the stack space for this variable
             stkOffs = lvaAllocLocalAndSetVirtualOffset(lclNum, lvaLclSize(lclNum), stkOffs);
+
 #ifdef TARGET_ARMARCH
-            // If we have an incoming register argument that has a struct promoted field
-            // then we need to copy the lvStkOff (the stack home) from the reg arg to the field lclvar
-            if (varDsc->lvIsRegArg && varDsc->lvPromotedStruct())
+            if (lcl->IsPromoted() && lcl->IsRegParam())
             {
-                unsigned firstFieldNum = varDsc->lvFieldLclStart;
-                for (unsigned i = 0; i < varDsc->lvFieldCnt; i++)
+#ifdef TARGET_ARM
+                if (lcl->TypeIs(TYP_LONG))
                 {
-                    LclVarDsc* fieldVarDsc = lvaGetDesc(firstFieldNum + i);
-                    fieldVarDsc->SetStackOffset(varDsc->GetStackOffset() + fieldVarDsc->lvFldOffset);
+                    assert(lcl->GetPromotedFieldCount() == 2);
+
+                    lvaGetDesc(lcl->GetPromotedFieldLclNum(0))->SetStackOffset(lcl->GetStackOffset());
+                    lvaGetDesc(lcl->GetPromotedFieldLclNum(1))->SetStackOffset(lcl->GetStackOffset() + 4);
+                }
+                else
+#endif // TARGET_ARM
+                {
+                    for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
+                    {
+                        LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
+                        fieldLcl->SetStackOffset(lcl->GetStackOffset() + fieldLcl->GetPromotedFieldOffset());
+                    }
                 }
             }
-#ifdef TARGET_ARM
-            // If we have an incoming register argument that has a promoted long
-            // then we need to copy the lvStkOff (the stack home) from the reg arg to the field lclvar
-            else if (varDsc->lvIsRegArg && varDsc->lvPromoted)
-            {
-                assert(varTypeIsLong(varDsc) && (varDsc->lvFieldCnt == 2));
-
-                unsigned fieldVarNum = varDsc->lvFieldLclStart;
-                lvaTable[fieldVarNum].SetStackOffset(varDsc->GetStackOffset());
-                lvaTable[fieldVarNum + 1].SetStackOffset(varDsc->GetStackOffset() + 4);
-            }
-#endif // TARGET_ARM
-#endif // TARGET_ARM64
+#endif // TARGET_ARMARCH
         }
     }
 
@@ -4753,8 +4752,8 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
     {
         if (!opts.IsOSR() || !info.compPatchpointInfo->HasSecurityCookie())
         {
-            // LOCALLOC used, but we have no unsafe buffer.  Allocated cookie last, close to localloc buffer.
-            stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaGSSecurityCookie, lvaLclSize(lvaGSSecurityCookie), stkOffs);
+            // LOCALLOC used, but we have no unsafe buffer. Allocated cookie last, close to localloc buffer.
+            stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaGSSecurityCookie, REGSIZE_BYTES, stkOffs);
         }
     }
 
@@ -4777,12 +4776,14 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
 #ifdef JIT32_GCENCODER
         noway_assert(codeGen->isFramePointerUsed());
 #endif
-        stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaStubArgumentVar, lvaLclSize(lvaStubArgumentVar), stkOffs);
+
+        stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaStubArgumentVar, REGSIZE_BYTES, stkOffs);
     }
 
     if (lvaInlinedPInvokeFrameVar != BAD_VAR_NUM)
     {
         noway_assert(codeGen->isFramePointerUsed());
+
         stkOffs =
             lvaAllocLocalAndSetVirtualOffset(lvaInlinedPInvokeFrameVar, lvaLclSize(lvaInlinedPInvokeFrameVar), stkOffs);
     }
@@ -4793,33 +4794,33 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
 #ifdef TARGET_ARM
         if (lvaDoneFrameLayout != FINAL_FRAME_LAYOUT)
         {
-            // Allocate a pointer sized stack slot, since we may need to double align here
-            // when lvaDoneFrameLayout == FINAL_FRAME_LAYOUT
-            lvaIncrementFrameSize(TARGET_POINTER_SIZE);
-            stkOffs -= TARGET_POINTER_SIZE;
+            // Allocate a pointer sized stack slot, since we may need to double align here.
 
-            if (have_LclVarDoubleAlign)
+            lvaIncrementFrameSize(REGSIZE_BYTES);
+            stkOffs -= REGSIZE_BYTES;
+
+            if (haveLclDoubleAlign)
             {
-                // If we have any TYP_LONG, TYP_DOUBLE or double aligned structs
-                // the we need to allocate a second pointer sized stack slot,
-                // since we may need to double align the last LclVar that we saw
-                // in the loop above. We do this so that the offsets that we
-                // calculate for the stack frame are always greater than they will
-                // be in the final layout.
-                lvaIncrementFrameSize(TARGET_POINTER_SIZE);
-                stkOffs -= TARGET_POINTER_SIZE;
+                // If we have any LONG, DOUBLE or double aligned structs then we need to
+                // allocate a second pointer sized stack slot, since we may need to double
+                // align the last LclVar that we saw in the loop above. We do this so that
+                // the offsets that we calculate for the stack frame are always greater
+                // than they will be in the final layout.
+
+                lvaIncrementFrameSize(REGSIZE_BYTES);
+                stkOffs -= REGSIZE_BYTES;
             }
         }
         else
 #endif
         {
-            if (((stkOffs + preSpillSize) % (2 * TARGET_POINTER_SIZE)) != 0)
+            if ((stkOffs + preSpillSize) % (2 * REGSIZE_BYTES) != 0)
             {
-                lvaIncrementFrameSize(TARGET_POINTER_SIZE);
-                stkOffs -= TARGET_POINTER_SIZE;
+                lvaIncrementFrameSize(REGSIZE_BYTES);
+                stkOffs -= REGSIZE_BYTES;
             }
-            // We should now have a double-aligned (stkOffs+preSpillSize)
-            noway_assert(((stkOffs + preSpillSize) % (2 * TARGET_POINTER_SIZE)) == 0);
+
+            assert((stkOffs + preSpillSize) % (2 * REGSIZE_BYTES) == 0);
         }
     }
 #endif // !TARGET_64BIT
@@ -4828,16 +4829,17 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
     if (lvaPSPSym != BAD_VAR_NUM)
     {
         // On AMD64, if we need a PSPSym, allocate it last, immediately above the outgoing argument
-        // space. Any padding will be higher on the stack than this
-        // (including the padding added by lvaAlignFrame()).
+        // space. Any padding will be higher on the stack than this (including the padding added by
+        // lvaAlignFrame).
         noway_assert(codeGen->isFramePointerUsed()); // We need an explicit frame pointer
-        stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaPSPSym, TARGET_POINTER_SIZE, stkOffs);
+
+        stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaPSPSym, REGSIZE_BYTES, stkOffs);
     }
 #endif // FEATURE_EH_FUNCLETS && defined(TARGET_AMD64)
 
 #ifdef TARGET_ARM64
-    if (!codeGen->IsSaveFpLrWithAllCalleeSavedRegisters() &&
-        isFramePointerUsed()) // Note that currently we always have a frame pointer
+    // Note that currently we always have a frame pointer
+    if (!codeGen->IsSaveFpLrWithAllCalleeSavedRegisters() && isFramePointerUsed())
     {
         // Create space for saving FP and LR.
         stkOffs -= 2 * REGSIZE_BYTES;
@@ -4847,16 +4849,16 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
 #if FEATURE_FIXED_OUT_ARGS
     if (lvaOutgoingArgSpaceSize > 0)
     {
-#if defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI) // No 4 slots for outgoing params on System V.
-        noway_assert(lvaOutgoingArgSpaceSize >= (4 * TARGET_POINTER_SIZE));
+        noway_assert(lvaOutgoingArgSpaceSize % REGSIZE_BYTES == 0);
+#ifdef WINDOWS_AMD64_ABI
+        noway_assert(lvaOutgoingArgSpaceSize >= 4 * REGSIZE_BYTES);
 #endif
-        noway_assert((lvaOutgoingArgSpaceSize % TARGET_POINTER_SIZE) == 0);
 
         // Give it a value so we can avoid asserts in CHK builds.
         // Since this will always use an SP relative offset of zero
         // at the end of lvaFixVirtualFrameOffsets, it will be set to absolute '0'
 
-        stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaOutgoingArgSpaceVar, lvaLclSize(lvaOutgoingArgSpaceVar), stkOffs);
+        stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaOutgoingArgSpaceVar, lvaOutgoingArgSpaceSize, stkOffs);
     }
 #endif // FEATURE_FIXED_OUT_ARGS
 
@@ -4874,13 +4876,14 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
 #ifdef TARGET_XARCH
     if (codeGen->doubleAlignOrFramePointerUsed())
     {
-        pushedCount += 1; // pushed EBP (frame pointer)
+        pushedCount++; // pushed EBP (frame pointer)
     }
-    pushedCount += 1; // pushed PC (return address)
+
+    pushedCount++; // pushed PC (return address)
 #endif
 
     noway_assert(compLclFrameSize + originalFrameSize ==
-                 (unsigned)-(stkOffs + (pushedCount * (int)TARGET_POINTER_SIZE)));
+                 static_cast<unsigned>(-(stkOffs + pushedCount * REGSIZE_BYTES)));
 }
 
 int Compiler::lvaAllocLocalAndSetVirtualOffset(unsigned lclNum, unsigned size, int stkOffs)
@@ -5204,9 +5207,9 @@ int Compiler::lvaAllocateTemps(int stkOffs
 #else
         if (mustDoubleAlign && (type == TYP_DOUBLE)) // Align doubles for x86 and ARM
         {
-            noway_assert((compLclFrameSize % REGSIZE_BYTES) == 0);
+            noway_assert(compLclFrameSize % REGSIZE_BYTES == 0);
 
-            if (((stkOffs + preSpillSize) % (2 * REGSIZE_BYTES)) != 0)
+            if ((stkOffs + preSpillSize) % (2 * REGSIZE_BYTES) != 0)
             {
                 lvaIncrementFrameSize(REGSIZE_BYTES);
                 stkOffs -= REGSIZE_BYTES;
@@ -5215,7 +5218,7 @@ int Compiler::lvaAllocateTemps(int stkOffs
 #endif
             }
 
-            noway_assert(((stkOffs + preSpillSize) % (2 * REGSIZE_BYTES)) == 0);
+            noway_assert((stkOffs + preSpillSize) % (2 * REGSIZE_BYTES) == 0);
         }
 #endif
 
