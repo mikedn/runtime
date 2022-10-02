@@ -3938,11 +3938,11 @@ public:
     void lvaUpdateArgsWithInitialReg();
     void lvaAssignVirtualFrameOffsetsToArgs();
     int lvaAssignVirtualFrameOffsetToArg(LclVarDsc* lcl,
-                                         unsigned argSize,
+                                         unsigned   argSize,
                                          int argOffs UNIX_AMD64_ABI_ONLY_ARG(int* callerArgOffset));
     int lvaAssignParamVirtualFrameOffset(unsigned lclNum,
-        unsigned argSize,
-        int argOffs UNIX_AMD64_ABI_ONLY_ARG(int* callerArgOffset));
+                                         unsigned argSize,
+                                         int argOffs UNIX_AMD64_ABI_ONLY_ARG(int* callerArgOffset));
     void lvaAssignVirtualFrameOffsetsToLocals();
     int lvaAllocLocalAndSetVirtualOffset(unsigned lclNum, unsigned size, int stkOffs);
 #ifdef TARGET_AMD64
@@ -3953,9 +3953,10 @@ public:
     void lvaAssignFrameOffsetsToPromotedStructs();
     int lvaAllocateTemps(int stkOffs
 #ifndef TARGET_64BIT
-        , bool mustDoubleAlign
+                         ,
+                         bool mustDoubleAlign
 #endif
-    );
+                         );
 
 #ifdef DEBUG
     void lvaDumpRegLocation(unsigned lclNum);
@@ -3971,14 +3972,12 @@ public:
     unsigned lvaFrameSize();
 #endif
 
+    // Returns the caller-SP-relative offset for the local variable "varNum."
+    int lvaGetCallerSPRelativeOffset(unsigned lclNum);
     // Returns the caller-SP-relative offset for the SP/FP relative offset determined by FP based.
     int lvaToCallerSPRelativeOffset(int offs, bool isFpBased, bool forRootFrame = true) const;
-
-    // Returns the caller-SP-relative offset for the local variable "varNum."
-    int lvaGetCallerSPRelativeOffset(unsigned varNum);
-
+    int lvaGetInitialSPRelativeOffset(unsigned lclNum);
     int lvaToInitialSPRelativeOffset(unsigned offset, bool isFpBased);
-    int lvaGetInitialSPRelativeOffset(unsigned varNum);
 
     // True if this is an OSR compilation and this local is potentially
     // located on the original method stack frame.

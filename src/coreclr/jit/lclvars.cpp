@@ -5955,31 +5955,16 @@ unsigned Compiler::lvaFrameSize()
 #endif // TARGET_ARMARCH
 
 // Return the caller-SP-relative stack offset of a local/parameter.
-// Requires the local to be on the stack and frame layout to be complete.
-int Compiler::lvaGetCallerSPRelativeOffset(unsigned varNum)
+int Compiler::lvaGetCallerSPRelativeOffset(unsigned lclNum)
 {
     assert(lvaDoneFrameLayout == FINAL_FRAME_LAYOUT);
-    assert(varNum < lvaCount);
-    LclVarDsc* varDsc = lvaTable + varNum;
-    assert(varDsc->lvOnFrame);
 
-    return lvaToCallerSPRelativeOffset(varDsc->GetStackOffset(), varDsc->lvFramePointerBased);
+    LclVarDsc* lcl = lvaGetDesc(lclNum);
+    assert(lcl->lvOnFrame);
+    return lvaToCallerSPRelativeOffset(lcl->GetStackOffset(), lcl->lvFramePointerBased);
 }
 
-//-----------------------------------------------------------------------------
-// lvaToCallerSPRelativeOffset: translate a frame offset into an offset from
-//    the caller's stack pointer.
-//
-// Arguments:
-//    offset - frame offset
-//    isFpBase - if true, offset is from FP, otherwise offset is from SP
-//    forRootFrame - if the current method is an OSR method, adjust the offset
-//      to be relative to the SP for the root method, instead of being relative
-//      to the SP for the OSR method.
-//
-// Returins:
-//    suitable offset
-//
+// Translate a frame offset into an offset from the caller's stack pointer.
 int Compiler::lvaToCallerSPRelativeOffset(int offset, bool isFpBased, bool forRootFrame) const
 {
     assert(lvaDoneFrameLayout == FINAL_FRAME_LAYOUT);
@@ -5993,7 +5978,10 @@ int Compiler::lvaToCallerSPRelativeOffset(int offset, bool isFpBased, bool forRo
         offset += codeGen->genCallerSPtoInitialSPdelta();
     }
 
-#ifdef TARGET_AMD64
+#ifndef TARGET_AMD64
+    // OSR NYI for other targets.
+    assert(!opts.IsOSR());
+#else
     if (forRootFrame && opts.IsOSR())
     {
         // The offset computed above already includes the OSR frame adjustment, plus the
@@ -6006,42 +5994,34 @@ int Compiler::lvaToCallerSPRelativeOffset(int offset, bool isFpBased, bool forRo
         // ppInfo's FpToSpDelta also accounts for the popped pseudo return address
         // between the original method frame and the OSR frame. So the net adjustment
         // is simply FpToSpDelta plus one register.
-        //
 
-        const PatchpointInfo* const ppInfo     = info.compPatchpointInfo;
-        const int                   adjustment = ppInfo->FpToSpDelta() + REGSIZE_BYTES;
-        offset -= adjustment;
+        offset -= info.compPatchpointInfo->FpToSpDelta() + REGSIZE_BYTES;
     }
-#else
-    // OSR NYI for other targets.
-    assert(!opts.IsOSR());
 #endif
 
     return offset;
 }
 
-/*****************************************************************************
- *
- *  Return the Initial-SP-relative stack offset of a local/parameter.
- *  Requires the local to be on the stack and frame layout to be complete.
- */
-
-int Compiler::lvaGetInitialSPRelativeOffset(unsigned varNum)
+// Return the Initial-SP-relative stack offset of a local/parameter.
+int Compiler::lvaGetInitialSPRelativeOffset(unsigned lclNum)
 {
     assert(lvaDoneFrameLayout == FINAL_FRAME_LAYOUT);
-    assert(varNum < lvaCount);
-    LclVarDsc* varDsc = lvaTable + varNum;
-    assert(varDsc->lvOnFrame);
 
-    return lvaToInitialSPRelativeOffset(varDsc->GetStackOffset(), varDsc->lvFramePointerBased);
+    LclVarDsc* lcl = lvaGetDesc(lclNum);
+    assert(lcl->lvOnFrame);
+    return lvaToInitialSPRelativeOffset(lcl->GetStackOffset(), lcl->lvFramePointerBased);
 }
 
-// Given a local variable offset, and whether that offset is frame-pointer based, return its offset from Initial-SP.
-// This is used, for example, to figure out the offset of the frame pointer from Initial-SP.
+// Given a local variable offset, and whether that offset is frame-pointer based,
+// return its offset from Initial-SP. This is used, for example, to figure out
+// the offset of the frame pointer from Initial-SP.
 int Compiler::lvaToInitialSPRelativeOffset(unsigned offset, bool isFpBased)
 {
     assert(lvaDoneFrameLayout == FINAL_FRAME_LAYOUT);
-#ifdef TARGET_AMD64
+
+#ifndef TARGET_AMD64
+    NYI("lvaToInitialSPRelativeOffset");
+#else
     if (isFpBased)
     {
         // Currently, the frame starts by pushing ebp, ebp points to the saved ebp
@@ -6049,15 +6029,14 @@ int Compiler::lvaToInitialSPRelativeOffset(unsigned offset, bool isFpBased)
         // size of the callee-saved regs (not including ebp itself) to find Initial-SP.
 
         assert(codeGen->isFramePointerUsed());
+
         offset += codeGen->genSPtoFPdelta();
     }
     else
     {
         // The offset is correct already!
     }
-#else  // !TARGET_AMD64
-    NYI("lvaToInitialSPRelativeOffset");
-#endif // !TARGET_AMD64
+#endif
 
     return offset;
 }
