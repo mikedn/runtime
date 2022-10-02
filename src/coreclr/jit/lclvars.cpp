@@ -3418,24 +3418,23 @@ void Compiler::lvaAssignFrameOffsets(FrameLayoutState curState)
 // based on whether lcl->lvFramePointerBased is true or false respectively.
 void Compiler::lvaFixVirtualFrameOffsets()
 {
-    LclVarDsc* varDsc;
-
-#if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_AMD64)
+#ifdef TARGET_AMD64
     if (lvaPSPSym != BAD_VAR_NUM)
     {
-        // We need to fix the offset of the PSPSym so there is no padding between it and the outgoing argument space.
-        // Without this code, lvaAlignFrame might have put the padding lower than the PSPSym, which would be between
-        // the PSPSym and the outgoing argument space.
-        varDsc = &lvaTable[lvaPSPSym];
-        assert(varDsc->lvFramePointerBased); // We always access it RBP-relative.
-        assert(!varDsc->lvMustInit);         // It is never "must init".
-        varDsc->SetStackOffset(codeGen->genCallerSPtoInitialSPdelta() + lvaLclSize(lvaOutgoingArgSpaceVar));
+        // We need to fix the offset of the PSPSym so there is no padding between it and the outgoing
+        // argument space. Without this code, lvaAlignFrame might have put the padding lower than the
+        // PSPSym, which would be between the PSPSym and the outgoing argument space.
+        LclVarDsc* lcl = lvaGetDesc(lvaPSPSym);
+
+        assert(lcl->lvFramePointerBased && !lcl->lvMustInit);
+
+        lcl->SetStackOffset(codeGen->genCallerSPtoInitialSPdelta() + lvaOutgoingArgSpaceSize);
 
         // With OSR the new frame RBP points at the base of the new frame, but the virtual offsets
         // are from the base of the old frame. Adjust.
         if (opts.IsOSR())
         {
-            varDsc->SetStackOffset(varDsc->GetStackOffset() - info.compPatchpointInfo->FpToSpDelta());
+            lcl->SetStackOffset(lcl->GetStackOffset() - info.compPatchpointInfo->FpToSpDelta());
         }
     }
 #endif
@@ -3444,12 +3443,14 @@ void Compiler::lvaFixVirtualFrameOffsets()
     int delta = 0;
 
 #ifdef TARGET_XARCH
-    delta += REGSIZE_BYTES; // pushed PC (return address) for x86/x64
+    delta += REGSIZE_BYTES; // pushed return address for x86/x64
+
     JITDUMP("--- delta bump %d for RA\n", REGSIZE_BYTES);
 
     if (codeGen->doubleAlignOrFramePointerUsed())
     {
         JITDUMP("--- delta bump %d for FP\n", REGSIZE_BYTES);
+
         delta += REGSIZE_BYTES; // pushed EBP (frame pointer)
     }
 #endif
@@ -3458,6 +3459,7 @@ void Compiler::lvaFixVirtualFrameOffsets()
     {
         // pushed registers, return address, and padding
         JITDUMP("--- delta bump %d for RSP frame\n", codeGen->genTotalFrameSize());
+
         delta += codeGen->genTotalFrameSize();
     }
 #if defined(TARGET_ARM)
@@ -3471,6 +3473,7 @@ void Compiler::lvaFixVirtualFrameOffsets()
     {
         // FP is used.
         JITDUMP("--- delta bump %d for RBP frame\n", codeGen->genTotalFrameSize() - codeGen->genSPtoFPdelta());
+
         delta += codeGen->genTotalFrameSize() - codeGen->genSPtoFPdelta();
     }
 #endif // TARGET_AMD64
@@ -3480,88 +3483,72 @@ void Compiler::lvaFixVirtualFrameOffsets()
     if (opts.IsOSR())
     {
         JITDUMP("--- delta bump %d for OSR\n", info.compPatchpointInfo->FpToSpDelta());
+
         delta += info.compPatchpointInfo->FpToSpDelta();
     }
 
     JITDUMP("--- virtual stack offset to actual stack offset delta is %d\n", delta);
 
-    unsigned lclNum;
-    for (lclNum = 0, varDsc = lvaTable; lclNum < lvaCount; lclNum++, varDsc++)
+    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
     {
-        bool doAssignStkOffs = true;
+        LclVarDsc* lcl = lvaGetDesc(lclNum);
 
         // Can't be relative to EBP unless we have an EBP
-        noway_assert(!varDsc->lvFramePointerBased || codeGen->doubleAlignOrFramePointerUsed());
+        noway_assert(!lcl->lvFramePointerBased || codeGen->doubleAlignOrFramePointerUsed());
 
-        // Is this a non-param promoted struct field?
-        //   if so then set doAssignStkOffs to false.
-        if (varDsc->IsPromotedField())
+        if (lcl->IsPromotedField())
         {
-            LclVarDsc* parentLcl = lvaGetDesc(varDsc->GetPromotedFieldParentLclNum());
+            LclVarDsc* parentLcl = lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
 
-            if (parentLcl->IsDependentPromoted())
+            if (parentLcl->IsDependentPromoted() && (!lcl->IsParam()
+                                                      // On x86, we set the stack offset for a promoted field to match
+                                                      // a struct parameter in lvAssignFrameOffsetsToPromotedStructs.
+                                                      X86_ONLY(|| parentLcl->IsParam())))
             {
-                if (!varDsc->IsParam()
-#ifdef TARGET_X86
-                    // On x86, we set the stack offset for a promoted field
-                    // to match a struct parameter in lvAssignFrameOffsetsToPromotedStructs.
-                    || parentLcl->IsParam()
-#endif
-                        )
-                {
-                    doAssignStkOffs = false; // Assigned later in lvaAssignFrameOffsetsToPromotedStructs()
-                }
+                continue; // Assigned later in lvaAssignFrameOffsetsToPromotedStructs
             }
         }
 
-        if (!varDsc->lvOnFrame)
-        {
-            if (!varDsc->lvIsParam
-#if !defined(TARGET_AMD64)
-                || (varDsc->lvIsRegArg
+        if (!lcl->lvOnFrame && (!lcl->IsParam()
+#ifndef TARGET_AMD64
+                                || (lcl->IsRegParam()
 #if defined(TARGET_ARM) && defined(PROFILING_SUPPORTED)
-                    && compIsProfilerHookNeeded() &&
-                    // We need assign stack offsets for prespilled arguments
-                    !varDsc->IsPreSpilledRegParam(codeGen->regSet.rsMaskPreSpillRegs(false))
+                                    && compIsProfilerHookNeeded() &&
+                                    // We need assign stack offsets for prespilled arguments
+                                    !lcl->IsPreSpilledRegParam(codeGen->regSet.rsMaskPreSpillRegs(false))
 #endif
-                        )
-#endif // !defined(TARGET_AMD64)
-                    )
-            {
-                doAssignStkOffs = false; // Not on frame or an incomming stack arg
-            }
-        }
-
-        if (doAssignStkOffs)
+                                        )
+#endif // !TARGET_AMD64
+                                    ))
         {
-            JITDUMP("-- V%02u was %d, now %d\n", lclNum, varDsc->GetStackOffset(), varDsc->GetStackOffset() + delta);
-            varDsc->SetStackOffset(varDsc->GetStackOffset() + delta);
-
-#if DOUBLE_ALIGN
-            if (genDoubleAlign() && !codeGen->isFramePointerUsed())
-            {
-                if (varDsc->lvFramePointerBased)
-                {
-                    varDsc->SetStackOffset(varDsc->GetStackOffset() - delta);
-
-                    // We need to re-adjust the offsets of the parameters so they are EBP
-                    // relative rather than stack/frame pointer relative
-
-                    varDsc->SetStackOffset(varDsc->GetStackOffset() +
-                                           (2 * TARGET_POINTER_SIZE)); // return address and pushed EBP
-
-                    noway_assert(varDsc->GetStackOffset() >= FIRST_ARG_STACK_OFFS);
-                }
-            }
-#endif
-            // On System V environments the stkOffs could be 0 for params passed in registers.
-            //
-            // For normal methods only EBP relative references can have negative offsets.
-            assert(codeGen->isFramePointerUsed() || varDsc->GetStackOffset() >= 0);
+            continue;
         }
+
+        JITDUMP("-- V%02u was %d, now %d\n", lclNum, lcl->GetStackOffset(), lcl->GetStackOffset() + delta);
+
+        lcl->SetStackOffset(lcl->GetStackOffset() + delta);
+
+#if defined(TARGET_X86) && DOUBLE_ALIGN
+        if (genDoubleAlign() && !codeGen->isFramePointerUsed() && lcl->lvFramePointerBased)
+        {
+            lcl->SetStackOffset(lcl->GetStackOffset() - delta);
+
+            // We need to re-adjust the offsets of the parameters so they 
+            // are EBP relative rather than stack/frame pointer relative.
+
+            lcl->SetStackOffset(lcl->GetStackOffset() + 2 * REGSIZE_BYTES); // return address and pushed EBP
+
+            noway_assert(lcl->GetStackOffset() >= FIRST_ARG_STACK_OFFS);
+        }
+#endif
+
+        // On System V environments the stack offset could be 0 for params passed in registers.
+        // For normal methods only EBP relative references can have negative offsets.
+        assert(codeGen->isFramePointerUsed() || (lcl->GetStackOffset() >= 0));
     }
 
     assert(codeGen->regSet.tmpAllFree());
+
     for (TempDsc* temp = codeGen->regSet.tmpListBeg(); temp != nullptr; temp = codeGen->regSet.tmpListNxt(temp))
     {
         temp->tdAdjustTempOffs(delta);
@@ -3570,16 +3557,15 @@ void Compiler::lvaFixVirtualFrameOffsets()
     lvaCachedGenericContextArgOffs += delta;
 
 #if FEATURE_FIXED_OUT_ARGS
-
     if (lvaOutgoingArgSpaceVar != BAD_VAR_NUM)
     {
-        varDsc = &lvaTable[lvaOutgoingArgSpaceVar];
-        varDsc->SetStackOffset(0);
-        varDsc->lvFramePointerBased = false;
-        varDsc->lvMustInit          = false;
-    }
+        LclVarDsc* lcl = lvaGetDesc(lvaOutgoingArgSpaceVar);
 
-#endif // FEATURE_FIXED_OUT_ARGS
+        lcl->SetStackOffset(0);
+        lcl->lvFramePointerBased = false;
+        lcl->lvMustInit          = false;
+    }
+#endif
 
 #ifdef TARGET_ARM64
     // We normally add alignment below the locals between them and the outgoing
@@ -3589,9 +3575,10 @@ void Compiler::lvaFixVirtualFrameOffsets()
     // so instead of dealing with skipping adjustment just for them we just set
     // them here always.
     assert(codeGen->isFramePointerUsed());
+
     if (lvaRetAddrVar != BAD_VAR_NUM)
     {
-        lvaTable[lvaRetAddrVar].SetStackOffset(REGSIZE_BYTES);
+        lvaGetDesc(lvaRetAddrVar)->SetStackOffset(REGSIZE_BYTES);
     }
 #endif
 }
