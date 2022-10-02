@@ -1505,6 +1505,8 @@ public:
     void inst_SETCC(GenCondition condition, var_types type, regNumber dstReg);
 
     INDEBUG(bool IsValidSourceType(var_types instrType, var_types sourceType);)
+
+    bool IsSimdLocalAligned(unsigned lclNum);
 };
 
 inline void DoPhase(CodeGen* codeGen, Phases phaseId, void (CodeGen::*action)())

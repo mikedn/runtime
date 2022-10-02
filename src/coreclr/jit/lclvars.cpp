@@ -3533,7 +3533,7 @@ void Compiler::lvaFixVirtualFrameOffsets()
         {
             lcl->SetStackOffset(lcl->GetStackOffset() - delta);
 
-            // We need to re-adjust the offsets of the parameters so they 
+            // We need to re-adjust the offsets of the parameters so they
             // are EBP relative rather than stack/frame pointer relative.
 
             lcl->SetStackOffset(lcl->GetStackOffset() + 2 * REGSIZE_BYTES); // return address and pushed EBP
@@ -5259,7 +5259,7 @@ int Compiler::lvaFrameAddress(
 int Compiler::lvaFrameAddress(int varNum, bool* pFPbased)
 #endif
 {
-    assert(lvaDoneFrameLayout != NO_FRAME_LAYOUT);
+    assert(lvaDoneFrameLayout == FINAL_FRAME_LAYOUT);
 
     int  varOffset;
     bool FPbased;
@@ -5278,7 +5278,7 @@ int Compiler::lvaFrameAddress(int varNum, bool* pFPbased)
 
         // If we have finished with register allocation, and this isn't a stack-based local,
         // check that this has a valid stack location.
-        if ((lvaDoneFrameLayout == FINAL_FRAME_LAYOUT) && !varDsc->lvOnFrame)
+        if (!varDsc->lvOnFrame)
         {
 #ifdef TARGET_AMD64
 #ifndef UNIX_AMD64_ABI
@@ -5328,55 +5328,6 @@ int Compiler::lvaFrameAddress(int varNum, bool* pFPbased)
             }
             assert(tmpDsc != nullptr);
             varOffset = tmpDsc->tdTempOffs();
-        }
-        else
-        {
-            // This value is an estimate until we calculate the
-            // offset after the final frame layout
-            // ---------------------------------------------------
-            //   :                         :
-            //   +-------------------------+ base --+
-            //   | LR, ++N for ARM         |        |   frameBaseOffset (= N)
-            //   +-------------------------+        |
-            //   | R11, ++N for ARM        | <---FP |
-            //   +-------------------------+      --+
-            //   | compCalleeRegsPushed - N|        |   lclFrameOffset
-            //   +-------------------------+      --+
-            //   | lclVars                 |        |
-            //   +-------------------------+        |
-            //   | tmp[MAX_SPILL_TEMP]     |        |
-            //   | tmp[1]                  |        |
-            //   | tmp[0]                  |        |   compLclFrameSize
-            //   +-------------------------+        |
-            //   | outgoingArgSpaceSize    |        |
-            //   +-------------------------+      --+
-            //   |                         | <---SP
-            //   :                         :
-            // ---------------------------------------------------
-
-            fConservative = true;
-            if (!FPbased)
-            {
-                // Worst case stack based offset.
-                CLANG_FORMAT_COMMENT_ANCHOR;
-#if FEATURE_FIXED_OUT_ARGS
-                int outGoingArgSpaceSize = lvaOutgoingArgSpaceSize;
-#else
-                int outGoingArgSpaceSize = 0;
-#endif
-                varOffset = outGoingArgSpaceSize + max(-varNum * TARGET_POINTER_SIZE, (int)lvaGetMaxSpillTempSize());
-            }
-            else
-            {
-                // Worst case FP based offset.
-                CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef TARGET_ARM
-                varOffset = codeGen->genCallerSPtoInitialSPdelta() - codeGen->genCallerSPtoFPdelta();
-#else
-                varOffset                = -(codeGen->genTotalFrameSize());
-#endif
-            }
         }
     }
 
@@ -5506,7 +5457,7 @@ void Compiler::lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth)
 
     printf(" %-6s", varTypeName(type));
 
-    if (lvaDoneFrameLayout == NO_FRAME_LAYOUT)
+    if (lvaDoneFrameLayout != FINAL_FRAME_LAYOUT)
     {
         if (type == TYP_STRUCT)
         {
@@ -6040,64 +5991,6 @@ int Compiler::lvaGetSimdTypedLocalPreferredAlignment(LclVarDsc* lcl)
     return varTypeSize(lcl->GetType());
 }
 #endif // FEATURE_SIMD
-
-// Returns true if the TYP_SIMD locals on stack are aligned at their
-// preferred byte boundary specified by lvaGetSimdTypedLocalPreferredAlignment().
-//
-// As per the Intel manual, the preferred alignment for AVX vectors is
-// 32-bytes. It is not clear whether additional stack space used in
-// aligning stack is worth the benefit and for now will use 16-byte
-// alignment for AVX 256-bit vectors with unaligned load/stores to/from
-// memory. On x86, the stack frame is aligned to 4 bytes. We need to extend
-// existing support for double (8-byte) alignment to 16 or 32 byte
-// alignment for frames with local SIMD vars, if that is determined to be
-// profitable.
-//
-// On Amd64 and SysV, RSP+8 is aligned on entry to the function (before
-// prolog has run). This means that in RBP-based frames RBP will be 16-byte
-// aligned. For RSP-based frames these are only sometimes aligned, depending
-// on the frame size.
-//
-bool Compiler::lvaIsSimdTypedLocalAligned(unsigned lclNum)
-{
-#ifndef FEATURE_SIMD
-    return false;
-#else
-    LclVarDsc* lcl = lvaGetDesc(lclNum);
-
-    if (!varTypeIsSIMD(lcl->GetType()))
-    {
-        return false;
-    }
-
-    int alignment = lvaGetSimdTypedLocalPreferredAlignment(lcl);
-
-    if (alignment > STACK_ALIGN)
-    {
-        return false;
-    }
-
-    bool rbpBased;
-    int  off = lvaFrameAddress(lclNum, &rbpBased);
-    // On SysV and Winx64 ABIs RSP+8 will be 16-byte aligned at the
-    // first instruction of a function. If our frame is RBP based
-    // then RBP will always be 16 bytes aligned, so we can simply
-    // check the offset.
-    if (rbpBased)
-    {
-        return (off % alignment) == 0;
-    }
-
-    // For RSP-based frame the alignment of RSP depends on our
-    // locals. rsp+8 is aligned on entry and we just subtract frame
-    // size so it is not hard to compute. Note that the compiler
-    // tries hard to make sure the frame size means RSP will be
-    // 16-byte aligned, but for leaf functions without locals (i.e.
-    // frameSize = 0) it will not be.
-    int frameSize = codeGen->genTotalFrameSize();
-    return ((8 - frameSize + off) % alignment) == 0;
-#endif
-}
 
 #ifdef FEATURE_SIMD
 // Mark locals used by SIMD intrinsics to prevent struct promotion.

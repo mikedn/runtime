@@ -844,7 +844,7 @@ void CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
             // a local may be allocated to a register that is not addressable at the granularity of the
             // local's defined type (e.g. x86).
             var_types   type = lcl->GetActualRegisterType();
-            instruction ins  = ins_Store(type, compiler->lvaIsSimdTypedLocalAligned(lclNum));
+            instruction ins  = ins_Store(type, IsSimdLocalAligned(lclNum));
 
             GetEmitter()->emitIns_S_R(ins, emitTypeSize(type), lclVar->GetRegNum(), lclNum, 0);
         }
@@ -1159,7 +1159,7 @@ void CodeGen::UnspillRegCandidateLclVar(GenTreeLclVar* node)
     regNumber dstReg = node->GetRegNum();
     unsigned  lclNum = node->GetLclNum();
 
-    instruction ins = ins_Load(regType, compiler->lvaIsSimdTypedLocalAligned(lclNum));
+    instruction ins = ins_Load(regType, IsSimdLocalAligned(lclNum));
     GetEmitter()->emitIns_R_S(ins, emitTypeSize(regType), dstReg, lclNum, 0);
 
     // TODO-Review: We would like to call:
@@ -1764,8 +1764,7 @@ void CodeGen::SpillLclVarReg(unsigned lclNum, var_types type, GenTreeLclVar* lcl
         return;
     }
 
-    GetEmitter()->emitIns_S_R(ins_Store(type, compiler->lvaIsSimdTypedLocalAligned(lclNum)), emitTypeSize(type), reg,
-                              lclNum, 0);
+    GetEmitter()->emitIns_S_R(ins_Store(type, IsSimdLocalAligned(lclNum)), emitTypeSize(type), reg, lclNum, 0);
 }
 
 #if FEATURE_ARG_SPLIT
@@ -2283,3 +2282,61 @@ bool CodeGen::IsValidSourceType(var_types instrType, var_types sourceType)
     }
 }
 #endif
+
+// Returns true if the TYP_SIMD locals on stack are aligned at their
+// preferred byte boundary specified by lvaGetSimdTypedLocalPreferredAlignment().
+//
+// As per the Intel manual, the preferred alignment for AVX vectors is
+// 32-bytes. It is not clear whether additional stack space used in
+// aligning stack is worth the benefit and for now will use 16-byte
+// alignment for AVX 256-bit vectors with unaligned load/stores to/from
+// memory. On x86, the stack frame is aligned to 4 bytes. We need to extend
+// existing support for double (8-byte) alignment to 16 or 32 byte
+// alignment for frames with local SIMD vars, if that is determined to be
+// profitable.
+//
+// On Amd64 and SysV, RSP+8 is aligned on entry to the function (before
+// prolog has run). This means that in RBP-based frames RBP will be 16-byte
+// aligned. For RSP-based frames these are only sometimes aligned, depending
+// on the frame size.
+//
+bool CodeGen::IsSimdLocalAligned(unsigned lclNum)
+{
+#ifndef FEATURE_SIMD
+    return false;
+#else
+    LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
+
+    if (!varTypeIsSIMD(lcl->GetType()))
+    {
+        return false;
+    }
+
+    int alignment = compiler->lvaGetSimdTypedLocalPreferredAlignment(lcl);
+
+    if (alignment > STACK_ALIGN)
+    {
+        return false;
+    }
+
+    bool rbpBased;
+    int  off = compiler->lvaFrameAddress(lclNum, &rbpBased);
+    // On SysV and Winx64 ABIs RSP+8 will be 16-byte aligned at the
+    // first instruction of a function. If our frame is RBP based
+    // then RBP will always be 16 bytes aligned, so we can simply
+    // check the offset.
+    if (rbpBased)
+    {
+        return (off % alignment) == 0;
+    }
+
+    // For RSP-based frame the alignment of RSP depends on our
+    // locals. rsp+8 is aligned on entry and we just subtract frame
+    // size so it is not hard to compute. Note that the compiler
+    // tries hard to make sure the frame size means RSP will be
+    // 16-byte aligned, but for leaf functions without locals (i.e.
+    // frameSize = 0) it will not be.
+    int frameSize = genTotalFrameSize();
+    return ((8 - frameSize + off) % alignment) == 0;
+#endif
+}

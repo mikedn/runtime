@@ -6934,8 +6934,6 @@ private:
 #endif // FEATURE_SIMD
 
 private:
-    bool lvaIsSimdTypedLocalAligned(unsigned varNum);
-
 #ifdef DEBUG
     // Answer the question: Is a particular ISA supported?
     // Use this api when asking the question so that future
