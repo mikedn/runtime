@@ -660,7 +660,7 @@ void Compiler::lvaInitUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAND
 
 void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl)
 {
-    unsigned  paramSize = eeGetParamAllocSize(param, &info.compMethodInfo->args);
+    unsigned  paramSize = lvaGetParamAllocSize(param, &info.compMethodInfo->args);
     unsigned  slots     = (paramSize + REGSIZE_BYTES - 1) / REGSIZE_BYTES;
     unsigned  regCount  = slots;
     var_types regType   = lcl->GetType();
@@ -951,7 +951,7 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
 #endif
 
 #if FEATURE_FASTTAILCALL
-        const unsigned argAlignment = eeGetArgAlignment(lcl->GetType(), (hfaType == TYP_FLOAT));
+        const unsigned argAlignment = lvaGetArgAlignment(lcl->GetType(), (hfaType == TYP_FLOAT));
 
 #ifdef OSX_ARM64_ABI
         paramInfo.stackArgSize = roundUp(paramInfo.stackArgSize, argAlignment);
@@ -2205,7 +2205,7 @@ unsigned LclVarDsc::lvSize() const // Size needed for storage representation. On
     {
         assert(varTypeIsStruct(lvType));
         bool     isFloatHfa   = lvIsHfa() && (m_layout->GetHfaElementType() == TYP_FLOAT);
-        unsigned argAlignment = Compiler::eeGetArgAlignment(lvType, isFloatHfa);
+        unsigned argAlignment = Compiler::lvaGetArgAlignment(lvType, isFloatHfa);
         return roundUp(size, argAlignment);
     }
 
@@ -2986,6 +2986,100 @@ unsigned Compiler::lvaGetMaxSpillTempSize()
     return codeGen->regSet.tmpGetTotalSize();
 }
 
+// Returns the number of bytes required for the given parameter.
+// Usually this is just the param type size, rounded up to the register size
+// but there are special case like implicit by ref params and osx-arm64 weird
+// parameter packing.
+unsigned Compiler::lvaGetParamAllocSize(CORINFO_ARG_LIST_HANDLE param, CORINFO_SIG_INFO* sig)
+{
+#ifdef WINDOWS_AMD64_ABI
+    return REGSIZE_BYTES;
+#else
+    CORINFO_CLASS_HANDLE paramClass;
+    var_types            paramType = CorTypeToVarType(strip(info.compCompHnd->getArgType(sig, param, &paramClass)));
+    unsigned             paramSize;
+#ifdef TARGET_ARM64
+    var_types            hfaType = TYP_UNDEF;
+#endif
+
+    if (!varTypeIsStruct(paramType))
+    {
+        paramSize = varTypeSize(paramType);
+    }
+    else
+    {
+        ClassLayout* layout = typGetObjLayout(paramClass);
+
+        paramSize = layout->GetSize();
+
+#ifdef TARGET_ARM64
+        if (paramSize > MAX_PASS_MULTIREG_BYTES)
+        {
+            return REGSIZE_BYTES;
+        }
+
+        layout->EnsureHfaInfo(this);
+
+#ifdef TARGET_WINDOWS
+        if (layout->IsHfa() && !info.compIsVarArgs)
+#else
+        if (layout->IsHfa())
+#endif
+        {
+            hfaType = layout->GetHfaElementType();
+        }
+
+        if ((paramSize > 2 * REGSIZE_BYTES) && (hfaType == TYP_UNDEF))
+        {
+            return REGSIZE_BYTES;
+        }
+#endif // TARGET_ARM64
+    }
+
+#ifdef OSX_ARM64_ABI
+    return roundUp(paramSize, lvaGetArgAlignment(paramType, (hfaType == TYP_FLOAT)));
+#else
+    return roundUp(paramSize, REGSIZE_BYTES);
+#endif
+#endif // !WINDOWS_AMD64_ABI
+}
+
+//------------------------------------------------------------------------
+// lvaGetArgAlignment: Return arg passing alignment for the given type.
+//
+// Arguments:
+//   type - the argument type
+//   isFloatHfa - is it an HFA<float> type
+//
+// Return value:
+//   the required alignment in bytes.
+//
+// Notes:
+//   It currently doesn't return smaller than required alignment for arm32 (4 bytes for double and int64)
+//   but it does not lead to issues because its alignment requirements are satisfied in other code parts.
+//   TODO: fix this function and delete the other code that is handling this.
+//
+// static
+unsigned Compiler::lvaGetArgAlignment(var_types type, bool isFloatHfa)
+{
+#if defined(OSX_ARM64_ABI)
+    if (isFloatHfa)
+    {
+        assert(varTypeIsStruct(type));
+        return sizeof(float);
+    }
+    if (varTypeIsStruct(type))
+    {
+        return TARGET_POINTER_SIZE;
+    }
+    const unsigned argSize = genTypeSize(type);
+    assert((0 < argSize) && (argSize <= TARGET_POINTER_SIZE));
+    return argSize;
+#else
+    return TARGET_POINTER_SIZE;
+#endif
+}
+
 // clang-format off
 /*****************************************************************************
  *
@@ -3709,7 +3803,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
 
         if (lcl->IsPreSpilledRegParam(preSpillMask))
         {
-            unsigned argSize = eeGetParamAllocSize(argLst, &info.compMethodInfo->args);
+            unsigned argSize = lvaGetParamAllocSize(argLst, &info.compMethodInfo->args);
             argOffs          = lvaAssignParamVirtualFrameOffset(lclNum + i, argSize, argOffs);
 
             // Early out if we can. If size is 8 and base reg is 2, then the mask is 0x1100
@@ -3730,14 +3824,14 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
     {
         if (!lvaGetDesc(lclNum + i)->IsPreSpilledRegParam(preSpillMask))
         {
-            unsigned argSize = eeGetParamAllocSize(argLst, &info.compMethodInfo->args);
+            unsigned argSize = lvaGetParamAllocSize(argLst, &info.compMethodInfo->args);
             argOffs          = lvaAssignParamVirtualFrameOffset(lclNum + i, argSize, argOffs);
         }
     }
 #else // !TARGET_ARM
     for (unsigned i = 0; i < argSigLen; i++, argLst = info.compCompHnd->getArgNext(argLst))
     {
-        unsigned argSize = eeGetParamAllocSize(argLst, &info.compMethodInfo->args);
+        unsigned argSize = lvaGetParamAllocSize(argLst, &info.compMethodInfo->args);
 
 #ifndef OSX_ARM64_ABI
         assert(argSize % REGSIZE_BYTES == 0);
@@ -3830,7 +3924,7 @@ int Compiler::lvaAssignVirtualFrameOffsetToArg(LclVarDsc* lcl, unsigned argSize,
 
 #ifdef OSX_ARM64_ABI
     unsigned align =
-        eeGetArgAlignment(lcl->GetType(), lcl->lvIsHfa() && (lcl->GetLayout()->GetHfaElementType() == TYP_FLOAT));
+        lvaGetArgAlignment(lcl->GetType(), lcl->lvIsHfa() && (lcl->GetLayout()->GetHfaElementType() == TYP_FLOAT));
 
     argOffs = roundUp(argOffs, align);
 #else

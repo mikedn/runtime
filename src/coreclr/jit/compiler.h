@@ -3933,6 +3933,8 @@ public:
     unsigned lvaNewObjArrayArgs = BAD_VAR_NUM; // variable with arguments for new MD array helper
 
     unsigned lvaGetMaxSpillTempSize();
+    unsigned lvaGetParamAllocSize(CORINFO_ARG_LIST_HANDLE param, CORINFO_SIG_INFO* sig);
+    static unsigned lvaGetArgAlignment(var_types type, bool isFloatHfa);
     void lvaAssignFrameOffsets(FrameLayoutState curState);
     void lvaFixVirtualFrameOffsets();
     void lvaUpdateArgsWithInitialReg();
@@ -6466,8 +6468,6 @@ public:
     var_types eeGetArgType(CORINFO_ARG_LIST_HANDLE list, CORINFO_SIG_INFO* sig, bool* isPinned);
     CORINFO_CLASS_HANDLE eeGetArgClass(CORINFO_SIG_INFO* sig, CORINFO_ARG_LIST_HANDLE list);
     CORINFO_CLASS_HANDLE eeGetClassFromContext(CORINFO_CONTEXT_HANDLE context);
-    unsigned eeGetParamAllocSize(CORINFO_ARG_LIST_HANDLE param, CORINFO_SIG_INFO* sig);
-    static unsigned eeGetArgAlignment(var_types type, bool isFloatHfa);
 
     // VOM info, method sigs
 
