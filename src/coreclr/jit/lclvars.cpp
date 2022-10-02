@@ -951,7 +951,7 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
 #endif
 
 #if FEATURE_FASTTAILCALL
-        const unsigned argAlignment = lvaGetArgAlignment(lcl->GetType(), (hfaType == TYP_FLOAT));
+        const unsigned argAlignment = lvaGetParamAlignment(lcl->GetType(), (hfaType == TYP_FLOAT));
 
 #ifdef OSX_ARM64_ABI
         paramInfo.stackArgSize = roundUp(paramInfo.stackArgSize, argAlignment);
@@ -2205,7 +2205,7 @@ unsigned LclVarDsc::lvSize() const // Size needed for storage representation. On
     {
         assert(varTypeIsStruct(lvType));
         bool     isFloatHfa   = lvIsHfa() && (m_layout->GetHfaElementType() == TYP_FLOAT);
-        unsigned argAlignment = Compiler::lvaGetArgAlignment(lvType, isFloatHfa);
+        unsigned argAlignment = Compiler::lvaGetParamAlignment(lvType, isFloatHfa);
         return roundUp(size, argAlignment);
     }
 
@@ -3037,47 +3037,37 @@ unsigned Compiler::lvaGetParamAllocSize(CORINFO_ARG_LIST_HANDLE param, CORINFO_S
     }
 
 #ifdef OSX_ARM64_ABI
-    return roundUp(paramSize, lvaGetArgAlignment(paramType, (hfaType == TYP_FLOAT)));
+    return roundUp(paramSize, lvaGetParamAlignment(paramType, (hfaType == TYP_FLOAT)));
 #else
     return roundUp(paramSize, REGSIZE_BYTES);
 #endif
 #endif // !WINDOWS_AMD64_ABI
 }
 
-//------------------------------------------------------------------------
-// lvaGetArgAlignment: Return arg passing alignment for the given type.
-//
-// Arguments:
-//   type - the argument type
-//   isFloatHfa - is it an HFA<float> type
-//
-// Return value:
-//   the required alignment in bytes.
-//
-// Notes:
-//   It currently doesn't return smaller than required alignment for arm32 (4 bytes for double and int64)
-//   but it does not lead to issues because its alignment requirements are satisfied in other code parts.
-//   TODO: fix this function and delete the other code that is handling this.
-//
-// static
-unsigned Compiler::lvaGetArgAlignment(var_types type, bool isFloatHfa)
+// Return alignment for a parameter of the given type.
+// It currently doesn't return smaller than required alignment for arm32 (4 bytes for double and int64)
+// but it does not lead to issues because its alignment requirements are satisfied in other code parts.
+// TODO: fix this function and delete the other code that is handling this.
+unsigned Compiler::lvaGetParamAlignment(var_types type, bool isFloatHfa)
 {
-#if defined(OSX_ARM64_ABI)
+#ifdef OSX_ARM64_ABI
     if (isFloatHfa)
     {
         assert(varTypeIsStruct(type));
-        return sizeof(float);
+        return 4;
     }
-    if (varTypeIsStruct(type))
+
+    if (!varTypeIsStruct(type))
     {
-        return TARGET_POINTER_SIZE;
+        unsigned size = varTypeSize(type);
+        assert((0 < size) && (size <= REGSIZE_BYTES));
+        return size;
     }
-    const unsigned argSize = genTypeSize(type);
-    assert((0 < argSize) && (argSize <= TARGET_POINTER_SIZE));
-    return argSize;
-#else
-    return TARGET_POINTER_SIZE;
 #endif
+
+    // TODO-MIKE-Review: Looks like vector params have incorrect alignment on ARM64.
+
+    return REGSIZE_BYTES;
 }
 
 // clang-format off
@@ -3924,7 +3914,7 @@ int Compiler::lvaAssignVirtualFrameOffsetToArg(LclVarDsc* lcl, unsigned argSize,
 
 #ifdef OSX_ARM64_ABI
     unsigned align =
-        lvaGetArgAlignment(lcl->GetType(), lcl->lvIsHfa() && (lcl->GetLayout()->GetHfaElementType() == TYP_FLOAT));
+        lvaGetParamAlignment(lcl->GetType(), lcl->lvIsHfa() && (lcl->GetLayout()->GetHfaElementType() == TYP_FLOAT));
 
     argOffs = roundUp(argOffs, align);
 #else

@@ -3934,7 +3934,7 @@ public:
 
     unsigned lvaGetMaxSpillTempSize();
     unsigned lvaGetParamAllocSize(CORINFO_ARG_LIST_HANDLE param, CORINFO_SIG_INFO* sig);
-    static unsigned lvaGetArgAlignment(var_types type, bool isFloatHfa);
+    static unsigned lvaGetParamAlignment(var_types type, bool isFloatHfa);
     void lvaAssignFrameOffsets(FrameLayoutState curState);
     void lvaFixVirtualFrameOffsets();
     void lvaUpdateArgsWithInitialReg();

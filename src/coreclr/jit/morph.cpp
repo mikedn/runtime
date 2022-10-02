@@ -2579,11 +2579,8 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         regNumber nonStdRegNum     = REG_NA;
         unsigned  nextFltArgRegNum = fltArgRegNum; // This is the next floating-point argument register number to use
 
-#if defined(OSX_ARM64_ABI)
-        // Arm64 Apple has a special ABI for passing small size arguments on stack,
-        // bytes are aligned to 1-byte, shorts to 2-byte, int/float to 4-byte, etc.
-        // It means passing 8 1-byte arguments on stack can take as small as 8 bytes.
-        unsigned argAlignBytes = lvaGetArgAlignment(sigType, hfaType == TYP_FLOAT);
+#ifdef OSX_ARM64_ABI
+        unsigned argAlignBytes = lvaGetParamAlignment(sigType, hfaType == TYP_FLOAT);
 #endif
 
 //
