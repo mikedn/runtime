@@ -5356,319 +5356,6 @@ int Compiler::lvaFrameAddress(int varNum,
     return varOffset;
 }
 
-#ifdef DEBUG
-
-// Dump the register a local is in right now. It is only the current location, since the location
-// changes and it is updated throughout code generation based on LSRA register assignments.
-void Compiler::lvaDumpRegLocation(unsigned lclNum)
-{
-    LclVarDsc* varDsc = lvaTable + lclNum;
-
-#ifdef TARGET_ARM
-    if (varDsc->TypeGet() == TYP_DOUBLE)
-    {
-        printf("%3s:%-3s    ", getRegName(varDsc->GetRegNum()), getRegName(REG_NEXT(varDsc->GetRegNum())));
-    }
-    else
-#endif
-    {
-        printf("%3s        ", getRegName(varDsc->GetRegNum()));
-    }
-}
-
-// Dump the frame location assigned to a local.
-// It's the home location, even though the variable doesn't always live in its home location.
-void Compiler::lvaDumpFrameLocation(unsigned lclNum)
-{
-    int       offset;
-    regNumber baseReg;
-
-#ifdef TARGET_ARM
-    offset = lvaFrameAddress(lclNum, compLocallocUsed, 0, /* isFloatUsage */ false, &baseReg);
-#else
-    bool EBPbased;
-    offset  = lvaFrameAddress(lclNum, &EBPbased);
-    baseReg = EBPbased ? REG_FPBASE : REG_SPBASE;
-#endif
-
-    printf("[%2s%1s%02XH]  ", getRegName(baseReg), (offset < 0 ? "-" : "+"), (offset < 0 ? -offset : offset));
-}
-
-void Compiler::lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth)
-{
-    LclVarDsc* varDsc = lvaGetDesc(lclNum);
-    var_types  type   = varDsc->TypeGet();
-
-    printf("; ");
-
-    gtDispLclVar(lclNum);
-
-    if (lvaTrackedCount != 0)
-    {
-        if (varDsc->HasLiveness())
-        {
-            printf("[L%02u]", varDsc->GetLivenessBitIndex());
-        }
-        else
-        {
-            printf("[   ]");
-        }
-    }
-
-    if (lvaRefCountState == RCS_NORMAL)
-    {
-        printf(" (%3u,%*s)", varDsc->GetRefCount(), (int)refCntWtdWidth, refCntWtd2str(varDsc->GetRefWeight()));
-    }
-#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-    else if (lvaRefCountState == RCS_MORPH)
-    {
-        printf(" (%3u,%3u)", varDsc->GetImplicitByRefParamAnyRefCount(), varDsc->GetImplicitByRefParamCallRefCount());
-    }
-#endif
-
-    printf(" %-6s", varTypeName(type));
-
-    if (lvaDoneFrameLayout != FINAL_FRAME_LAYOUT)
-    {
-        if (type == TYP_STRUCT)
-        {
-            ClassLayout* layout = varDsc->GetLayout();
-            assert(layout != nullptr);
-            gtDispClassLayout(layout, type);
-        }
-#if FEATURE_FIXED_OUT_ARGS
-        else if (lclNum == lvaOutgoingArgSpaceVar)
-        {
-            if (lvaOutgoingArgSpaceSize.HasFinalValue())
-            {
-                printf("<%u>", lvaOutgoingArgSpaceSize.GetValue());
-            }
-            else
-            {
-                printf("<na>");
-            }
-        }
-#endif
-    }
-    else
-    {
-        if (varTypeIsStruct(type) || (type == TYP_BLK))
-        {
-            printf("<%2u>  ", lvaLclSize(lclNum));
-        }
-        else
-        {
-            printf("      ");
-        }
-
-        if ((lvaRefCountState == RCS_NORMAL) && (varDsc->GetRefCount() == 0))
-        {
-            printf("           ");
-        }
-        else if (varDsc->lvRegister != 0)
-        {
-            // It's always a register, and always in the same register.
-            lvaDumpRegLocation(lclNum);
-        }
-        else if (varDsc->lvOnFrame == 0)
-        {
-            printf("registers  ");
-        }
-        else
-        {
-            // For RyuJIT backend, it might be in a register part of the time, but it will
-            // definitely have a stack home location. Otherwise, it's always on the stack.
-            lvaDumpFrameLocation(lclNum);
-        }
-    }
-
-    if (varDsc->lvDoNotEnregister)
-    {
-        printf(" do-not-enreg[");
-        if (varDsc->lvAddrExposed)
-        {
-            printf("X");
-        }
-        if (varTypeIsStruct(varDsc))
-        {
-            printf("S");
-        }
-        if (lvaEnregEHVars && varDsc->lvLiveInOutOfHndlr)
-        {
-            printf("%c", varDsc->lvSingleDefDisqualifyReason);
-        }
-        if (varDsc->lvLclFieldExpr)
-        {
-            printf("F");
-        }
-        if (varDsc->lvLclBlockOpAddr)
-        {
-            printf("B");
-        }
-        if (varDsc->lvIsMultiRegArg)
-        {
-            printf("A");
-        }
-        if (varDsc->lvIsMultiRegRet)
-        {
-            printf("R");
-        }
-#ifdef JIT32_GCENCODER
-        if (varDsc->lvPinned)
-        {
-            printf("P");
-        }
-#endif
-        printf("]");
-    }
-
-    if (varDsc->lvIsMultiRegArg)
-    {
-        printf(" multireg-arg");
-    }
-    if (varDsc->lvIsMultiRegRet)
-    {
-        printf(" multireg-ret");
-    }
-    if (varDsc->lvMustInit)
-    {
-        printf(" must-init");
-    }
-    if (varDsc->lvAddrExposed)
-    {
-        printf(" addr-exposed");
-    }
-    if (varDsc->lvHasLdAddrOp)
-    {
-        printf(" ld-addr-op");
-    }
-    if (varDsc->lvPinned)
-    {
-        printf(" pinned");
-    }
-    if (varDsc->lvClassHnd != NO_CLASS_HANDLE)
-    {
-        printf(" class-hnd");
-    }
-    if (varDsc->lvClassIsExact)
-    {
-        printf(" exact");
-    }
-    if (varDsc->lvLiveInOutOfHndlr)
-    {
-        printf(" EH-live");
-    }
-    if (varDsc->lvSpillAtSingleDef)
-    {
-        printf(" spill-single-def");
-    }
-    else if (varDsc->lvSingleDefRegCandidate)
-    {
-        printf(" single-def");
-    }
-#ifndef TARGET_64BIT
-    if (varDsc->lvStructDoubleAlign)
-    {
-        printf(" double-align");
-    }
-#endif
-    if (varDsc->lvOverlappingFields)
-    {
-        printf(" overlapping-fields");
-    }
-
-    if (compGSReorderStackLayout && !varDsc->lvRegister)
-    {
-        if (varDsc->lvIsPtr)
-        {
-            printf(" ptr");
-        }
-        if (varDsc->lvIsUnsafeBuffer)
-        {
-            printf(" unsafe-buffer");
-        }
-    }
-
-    if (varDsc->IsPromotedField())
-    {
-        LclVarDsc* parentLcl = lvaGetDesc(varDsc->GetPromotedFieldParentLclNum());
-        printf(" %s", parentLcl->IsIndependentPromoted() ? "P-INDEP" : "P-DEP");
-        printf(" V%02u@%u", varDsc->GetPromotedFieldParentLclNum(), varDsc->GetPromotedFieldOffset());
-
-        if (varDsc->GetPromotedFieldSeq() != nullptr)
-        {
-            printf(" ");
-            dmpFieldSeqFields(varDsc->GetPromotedFieldSeq());
-        }
-    }
-
-    if (varDsc->lvReason != nullptr)
-    {
-        printf(" \"%s\"", varDsc->lvReason);
-    }
-
-    printf("\n");
-}
-
-void Compiler::lvaTableDump()
-{
-    if (lvaDoneFrameLayout == FINAL_FRAME_LAYOUT)
-    {
-        printf("; Final");
-    }
-#ifdef TARGET_ARMARCH
-    else if (lvaDoneFrameLayout == REGALLOC_FRAME_LAYOUT)
-    {
-        printf("; RegAlloc");
-    }
-#endif
-    else
-    {
-        printf("; Initial");
-    }
-
-    printf(" local variable assignments\n;\n");
-
-    unsigned   lclNum;
-    LclVarDsc* varDsc;
-
-    // Figure out some sizes, to help line things up
-
-    size_t refCntWtdWidth = 6; // Use 6 as the minimum width
-
-    if (lvaRefCountState == RCS_NORMAL)
-    {
-        for (lclNum = 0, varDsc = lvaTable; lclNum < lvaCount; lclNum++, varDsc++)
-        {
-            size_t width = strlen(refCntWtd2str(varDsc->GetRefWeight()));
-            if (width > refCntWtdWidth)
-            {
-                refCntWtdWidth = width;
-            }
-        }
-    }
-
-    for (lclNum = 0, varDsc = lvaTable; lclNum < lvaCount; lclNum++, varDsc++)
-    {
-        lvaDumpEntry(lclNum, refCntWtdWidth);
-    }
-
-    for (TempDsc* temp = codeGen->regSet.tmpListBeg(); temp != nullptr; temp = codeGen->regSet.tmpListNxt(temp))
-    {
-        printf("; T%02u %25s%*s%7s     ", -temp->tdTempNum(), " ", refCntWtdWidth, " ",
-               varTypeName(temp->tdTempType()));
-        int offset = temp->tdTempOffs();
-        printf(" [%2s%1s%02XH]\n", isFramePointerUsed() ? STR_FPBASE : STR_SPBASE, offset < 0 ? "-" : "+", abs(offset));
-    }
-
-    if (lvaDoneFrameLayout == FINAL_FRAME_LAYOUT)
-    {
-        printf(";\n");
-        printf("; Lcl frame size = %d\n", compLclFrameSize);
-    }
-}
-#endif // DEBUG
-
 #ifdef TARGET_ARMARCH
 
 // Function compRsvdRegCheck:
@@ -6018,6 +5705,317 @@ void Compiler::lvaRecordSimdIntrinsicDef(unsigned lclNum, GenTreeHWIntrinsic* sr
 #endif // FEATURE_SIMD
 
 #ifdef DEBUG
+
+// Dump the register a local is in right now. It is only the current location, since the location
+// changes and it is updated throughout code generation based on LSRA register assignments.
+void Compiler::lvaDumpRegLocation(unsigned lclNum)
+{
+    LclVarDsc* varDsc = lvaTable + lclNum;
+
+#ifdef TARGET_ARM
+    if (varDsc->TypeGet() == TYP_DOUBLE)
+    {
+        printf("%3s:%-3s    ", getRegName(varDsc->GetRegNum()), getRegName(REG_NEXT(varDsc->GetRegNum())));
+    }
+    else
+#endif
+    {
+        printf("%3s        ", getRegName(varDsc->GetRegNum()));
+    }
+}
+
+// Dump the frame location assigned to a local.
+// It's the home location, even though the variable doesn't always live in its home location.
+void Compiler::lvaDumpFrameLocation(unsigned lclNum)
+{
+    int       offset;
+    regNumber baseReg;
+
+#ifdef TARGET_ARM
+    offset = lvaFrameAddress(lclNum, compLocallocUsed, 0, /* isFloatUsage */ false, &baseReg);
+#else
+    bool EBPbased;
+    offset  = lvaFrameAddress(lclNum, &EBPbased);
+    baseReg = EBPbased ? REG_FPBASE : REG_SPBASE;
+#endif
+
+    printf("[%2s%1s%02XH]  ", getRegName(baseReg), (offset < 0 ? "-" : "+"), (offset < 0 ? -offset : offset));
+}
+
+void Compiler::lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth)
+{
+    LclVarDsc* varDsc = lvaGetDesc(lclNum);
+    var_types  type   = varDsc->TypeGet();
+
+    printf("; ");
+
+    gtDispLclVar(lclNum);
+
+    if (lvaTrackedCount != 0)
+    {
+        if (varDsc->HasLiveness())
+        {
+            printf("[L%02u]", varDsc->GetLivenessBitIndex());
+        }
+        else
+        {
+            printf("[   ]");
+        }
+    }
+
+    if (lvaRefCountState == RCS_NORMAL)
+    {
+        printf(" (%3u,%*s)", varDsc->GetRefCount(), (int)refCntWtdWidth, refCntWtd2str(varDsc->GetRefWeight()));
+    }
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+    else if (lvaRefCountState == RCS_MORPH)
+    {
+        printf(" (%3u,%3u)", varDsc->GetImplicitByRefParamAnyRefCount(), varDsc->GetImplicitByRefParamCallRefCount());
+    }
+#endif
+
+    printf(" %-6s", varTypeName(type));
+
+    if (lvaDoneFrameLayout != FINAL_FRAME_LAYOUT)
+    {
+        if (type == TYP_STRUCT)
+        {
+            ClassLayout* layout = varDsc->GetLayout();
+            assert(layout != nullptr);
+            gtDispClassLayout(layout, type);
+        }
+#if FEATURE_FIXED_OUT_ARGS
+        else if (lclNum == lvaOutgoingArgSpaceVar)
+        {
+            if (lvaOutgoingArgSpaceSize.HasFinalValue())
+            {
+                printf("<%u>", lvaOutgoingArgSpaceSize.GetValue());
+            }
+            else
+            {
+                printf("<na>");
+            }
+        }
+#endif
+    }
+    else
+    {
+        if (varTypeIsStruct(type) || (type == TYP_BLK))
+        {
+            printf("<%2u>  ", lvaLclSize(lclNum));
+        }
+        else
+        {
+            printf("      ");
+        }
+
+        if ((lvaRefCountState == RCS_NORMAL) && (varDsc->GetRefCount() == 0))
+        {
+            printf("           ");
+        }
+        else if (varDsc->lvRegister != 0)
+        {
+            // It's always a register, and always in the same register.
+            lvaDumpRegLocation(lclNum);
+        }
+        else if (varDsc->lvOnFrame == 0)
+        {
+            printf("registers  ");
+        }
+        else
+        {
+            // For RyuJIT backend, it might be in a register part of the time, but it will
+            // definitely have a stack home location. Otherwise, it's always on the stack.
+            lvaDumpFrameLocation(lclNum);
+        }
+    }
+
+    if (varDsc->lvDoNotEnregister)
+    {
+        printf(" do-not-enreg[");
+        if (varDsc->lvAddrExposed)
+        {
+            printf("X");
+        }
+        if (varTypeIsStruct(varDsc))
+        {
+            printf("S");
+        }
+        if (lvaEnregEHVars && varDsc->lvLiveInOutOfHndlr)
+        {
+            printf("%c", varDsc->lvSingleDefDisqualifyReason);
+        }
+        if (varDsc->lvLclFieldExpr)
+        {
+            printf("F");
+        }
+        if (varDsc->lvLclBlockOpAddr)
+        {
+            printf("B");
+        }
+        if (varDsc->lvIsMultiRegArg)
+        {
+            printf("A");
+        }
+        if (varDsc->lvIsMultiRegRet)
+        {
+            printf("R");
+        }
+#ifdef JIT32_GCENCODER
+        if (varDsc->lvPinned)
+        {
+            printf("P");
+        }
+#endif
+        printf("]");
+    }
+
+    if (varDsc->lvIsMultiRegArg)
+    {
+        printf(" multireg-arg");
+    }
+    if (varDsc->lvIsMultiRegRet)
+    {
+        printf(" multireg-ret");
+    }
+    if (varDsc->lvMustInit)
+    {
+        printf(" must-init");
+    }
+    if (varDsc->lvAddrExposed)
+    {
+        printf(" addr-exposed");
+    }
+    if (varDsc->lvHasLdAddrOp)
+    {
+        printf(" ld-addr-op");
+    }
+    if (varDsc->lvPinned)
+    {
+        printf(" pinned");
+    }
+    if (varDsc->lvClassHnd != NO_CLASS_HANDLE)
+    {
+        printf(" class-hnd");
+    }
+    if (varDsc->lvClassIsExact)
+    {
+        printf(" exact");
+    }
+    if (varDsc->lvLiveInOutOfHndlr)
+    {
+        printf(" EH-live");
+    }
+    if (varDsc->lvSpillAtSingleDef)
+    {
+        printf(" spill-single-def");
+    }
+    else if (varDsc->lvSingleDefRegCandidate)
+    {
+        printf(" single-def");
+    }
+#ifndef TARGET_64BIT
+    if (varDsc->lvStructDoubleAlign)
+    {
+        printf(" double-align");
+    }
+#endif
+    if (varDsc->lvOverlappingFields)
+    {
+        printf(" overlapping-fields");
+    }
+
+    if (compGSReorderStackLayout && !varDsc->lvRegister)
+    {
+        if (varDsc->lvIsPtr)
+        {
+            printf(" ptr");
+        }
+        if (varDsc->lvIsUnsafeBuffer)
+        {
+            printf(" unsafe-buffer");
+        }
+    }
+
+    if (varDsc->IsPromotedField())
+    {
+        LclVarDsc* parentLcl = lvaGetDesc(varDsc->GetPromotedFieldParentLclNum());
+        printf(" %s", parentLcl->IsIndependentPromoted() ? "P-INDEP" : "P-DEP");
+        printf(" V%02u@%u", varDsc->GetPromotedFieldParentLclNum(), varDsc->GetPromotedFieldOffset());
+
+        if (varDsc->GetPromotedFieldSeq() != nullptr)
+        {
+            printf(" ");
+            dmpFieldSeqFields(varDsc->GetPromotedFieldSeq());
+        }
+    }
+
+    if (varDsc->lvReason != nullptr)
+    {
+        printf(" \"%s\"", varDsc->lvReason);
+    }
+
+    printf("\n");
+}
+
+void Compiler::lvaTableDump()
+{
+    if (lvaDoneFrameLayout == FINAL_FRAME_LAYOUT)
+    {
+        printf("; Final");
+    }
+#ifdef TARGET_ARMARCH
+    else if (lvaDoneFrameLayout == REGALLOC_FRAME_LAYOUT)
+    {
+        printf("; RegAlloc");
+    }
+#endif
+    else
+    {
+        printf("; Initial");
+    }
+
+    printf(" local variable assignments\n;\n");
+
+    unsigned   lclNum;
+    LclVarDsc* varDsc;
+
+    // Figure out some sizes, to help line things up
+
+    size_t refCntWtdWidth = 6; // Use 6 as the minimum width
+
+    if (lvaRefCountState == RCS_NORMAL)
+    {
+        for (lclNum = 0, varDsc = lvaTable; lclNum < lvaCount; lclNum++, varDsc++)
+        {
+            size_t width = strlen(refCntWtd2str(varDsc->GetRefWeight()));
+            if (width > refCntWtdWidth)
+            {
+                refCntWtdWidth = width;
+            }
+        }
+    }
+
+    for (lclNum = 0, varDsc = lvaTable; lclNum < lvaCount; lclNum++, varDsc++)
+    {
+        lvaDumpEntry(lclNum, refCntWtdWidth);
+    }
+
+    for (TempDsc* temp = codeGen->regSet.tmpListBeg(); temp != nullptr; temp = codeGen->regSet.tmpListNxt(temp))
+    {
+        printf("; T%02u %25s%*s%7s     ", -temp->tdTempNum(), " ", refCntWtdWidth, " ",
+               varTypeName(temp->tdTempType()));
+        int offset = temp->tdTempOffs();
+        printf(" [%2s%1s%02XH]\n", isFramePointerUsed() ? STR_FPBASE : STR_SPBASE, offset < 0 ? "-" : "+", abs(offset));
+    }
+
+    if (lvaDoneFrameLayout == FINAL_FRAME_LAYOUT)
+    {
+        printf(";\n");
+        printf("; Lcl frame size = %d\n", compLclFrameSize);
+    }
+}
+
 void Compiler::lvaDispVarSet(VARSET_VALARG_TP set)
 {
     VARSET_TP allVars(VarSetOps::MakeEmpty(this));
