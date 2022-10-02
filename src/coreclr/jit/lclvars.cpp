@@ -5226,160 +5226,131 @@ int Compiler::lvaAllocateTemps(int stkOffs
     return stkOffs;
 }
 
-//------------------------------------------------------------------------
-// lvaFrameAddress: Determine the stack frame offset of the given variable,
-// and how to generate an address to that stack frame.
-//
-// Arguments:
-//    varNum         - The variable to inquire about. Positive for user variables
-//                     or arguments, negative for spill-temporaries.
-//    mustBeFPBased  - [TARGET_ARM only] True if the base register must be FP.
-//                     After FINAL_FRAME_LAYOUT, if false, it also requires SP base register.
-//    pBaseReg       - [TARGET_ARM only] Out arg. *pBaseReg is set to the base
-//                     register to use.
-//    addrModeOffset - [TARGET_ARM only] The mode offset within the variable that we need to address.
-//                     For example, for a large struct local, and a struct field reference, this will be the offset
-//                     of the field. Thus, for V02 + 0x28, if V02 itself is at offset SP + 0x10
-//                     then addrModeOffset is what gets added beyond that, here 0x28.
-//    isFloatUsage   - [TARGET_ARM only] True if the instruction being generated is a floating
-//                     point instruction. This requires using floating-point offset restrictions.
-//                     Note that a variable can be non-float, e.g., struct, but accessed as a
-//                     float local field.
-//    pFPbased       - [non-TARGET_ARM] Out arg. Set *FPbased to true if the
-//                     variable is addressed off of FP, false if it's addressed
-//                     off of SP.
-//
-// Return Value:
-//    Returns the variable offset from the given base register.
-//
+// Determine the stack frame offset of the given local,
+// and how to generate an address to that local's stack location.
+int Compiler::lvaFrameAddress(int varNum,
 #ifdef TARGET_ARM
-int Compiler::lvaFrameAddress(
-    int varNum, bool mustBeFPBased, regNumber* pBaseReg, int addrModeOffset, bool isFloatUsage)
+                              bool       mustBeFPBased,
+                              int        addrModeOffset,
+                              bool       isFloatUsage,
+                              regNumber* baseReg
 #else
-int Compiler::lvaFrameAddress(int varNum, bool* pFPbased)
+                              bool* pFPbased
 #endif
+                              )
 {
     assert(lvaDoneFrameLayout == FINAL_FRAME_LAYOUT);
 
     int  varOffset;
-    bool FPbased;
-    bool fConservative = false;
+    bool fpBased;
+
     if (varNum >= 0)
     {
-        LclVarDsc* varDsc;
+        LclVarDsc* lcl = lvaGetDesc(static_cast<unsigned>(varNum));
 
-        assert((unsigned)varNum < lvaCount);
-        varDsc               = lvaTable + varNum;
         bool isPrespilledArg = false;
 #if defined(TARGET_ARM) && defined(PROFILING_SUPPORTED)
-        isPrespilledArg = varDsc->lvIsParam && compIsProfilerHookNeeded() &&
-                          varDsc->IsPreSpilledRegParam(codeGen->regSet.rsMaskPreSpillRegs(false));
+        isPrespilledArg = lcl->IsParam() && compIsProfilerHookNeeded() &&
+                          lcl->IsPreSpilledRegParam(codeGen->regSet.rsMaskPreSpillRegs(false));
 #endif
 
-        // If we have finished with register allocation, and this isn't a stack-based local,
-        // check that this has a valid stack location.
-        if (!varDsc->lvOnFrame)
+        if (!lcl->lvOnFrame)
         {
-#ifdef TARGET_AMD64
-#ifndef UNIX_AMD64_ABI
-            // On amd64, every param has a stack location, except on Unix-like systems.
-            assert(varDsc->lvIsParam);
-#endif // UNIX_AMD64_ABI
-#else  // !TARGET_AMD64
-            // For other targets, a stack parameter that is enregistered or prespilled
-            // for profiling on ARM will have a stack location.
-            assert((varDsc->lvIsParam && !varDsc->lvIsRegArg) || isPrespilledArg);
-#endif // !TARGET_AMD64
+#ifdef WINDOWS_AMD64_ABI
+            assert(lcl->IsParam());
+#endif
+#ifndef TARGET_AMD64
+            assert((lcl->IsParam() && !lcl->IsRegParam()) || isPrespilledArg);
+#endif
         }
 
-        FPbased = varDsc->lvFramePointerBased;
+        fpBased = lcl->lvFramePointerBased;
 
-#ifdef DEBUG
 #if FEATURE_FIXED_OUT_ARGS
-        if ((unsigned)varNum == lvaOutgoingArgSpaceVar)
+        if (static_cast<unsigned>(varNum) == lvaOutgoingArgSpaceVar)
         {
-            assert(FPbased == false);
+            assert(!fpBased);
         }
         else
 #endif
         {
-#if DOUBLE_ALIGN
-            assert(FPbased == (isFramePointerUsed() || (genDoubleAlign() && varDsc->lvIsParam && !varDsc->lvIsRegArg)));
-#else
 #ifdef TARGET_X86
-            assert(FPbased == isFramePointerUsed());
+#if DOUBLE_ALIGN
+            assert(fpBased == (isFramePointerUsed() || (genDoubleAlign() && lcl->IsParam() && !lcl->IsRegParam())));
+#else
+            assert(fpBased == isFramePointerUsed());
 #endif
 #endif
         }
-#endif // DEBUG
 
-        varOffset = varDsc->GetStackOffset();
+        varOffset = lcl->GetStackOffset();
     }
     else // Its a spill-temp
     {
-        FPbased = isFramePointerUsed();
-        if (lvaDoneFrameLayout == Compiler::FINAL_FRAME_LAYOUT)
+        fpBased = isFramePointerUsed();
+
+        TempDsc* tmpDsc = codeGen->regSet.tmpFindNum(varNum);
+
+        // The temp might be in use, since this might be during code generation.
+        if (tmpDsc == nullptr)
         {
-            TempDsc* tmpDsc = codeGen->regSet.tmpFindNum(varNum);
-            // The temp might be in use, since this might be during code generation.
-            if (tmpDsc == nullptr)
-            {
-                tmpDsc = codeGen->regSet.tmpFindNum(varNum, RegSet::TEMP_USAGE_USED);
-            }
+            tmpDsc = codeGen->regSet.tmpFindNum(varNum, RegSet::TEMP_USAGE_USED);
             assert(tmpDsc != nullptr);
-            varOffset = tmpDsc->tdTempOffs();
         }
+
+        varOffset = tmpDsc->tdTempOffs();
     }
 
-#ifdef TARGET_ARM
-    if (FPbased)
+#ifndef TARGET_ARM
+    *pFPbased = fpBased;
+#else
+    if (!fpBased)
     {
-        if (mustBeFPBased)
-        {
-            *pBaseReg = REG_FPBASE;
-        }
-        // Change the Frame Pointer (R11)-based addressing to the SP-based addressing when possible because
-        // it generates smaller code on ARM. See frame picture above for the math.
-        else
-        {
-            // If it is the final frame layout phase, we don't have a choice, we should stick
-            // to either FP based or SP based that we decided in the earlier phase. Because
-            // we have already selected the instruction. MinOpts will always reserve R10, so
-            // for MinOpts always use SP-based offsets, using R10 as necessary, for simplicity.
-
-            int spVarOffset        = fConservative ? compLclFrameSize : varOffset + codeGen->genSPtoFPdelta();
-            int actualSPOffset     = spVarOffset + addrModeOffset;
-            int actualFPOffset     = varOffset + addrModeOffset;
-            int encodingLimitUpper = isFloatUsage ? 0x3FC : 0xFFF;
-            int encodingLimitLower = isFloatUsage ? -0x3FC : -0xFF;
-
-            // Use SP-based encoding. During encoding, we'll pick the best encoding for the actual offset we have.
-            if (opts.MinOpts() || (actualSPOffset <= encodingLimitUpper))
-            {
-                varOffset = spVarOffset;
-                *pBaseReg = compLocallocUsed ? REG_SAVED_LOCALLOC_SP : REG_SPBASE;
-            }
-            // Use Frame Pointer (R11)-based encoding.
-            else if ((encodingLimitLower <= actualFPOffset) && (actualFPOffset <= encodingLimitUpper))
-            {
-                *pBaseReg = REG_FPBASE;
-            }
-            // Otherwise, use SP-based encoding. This is either (1) a small positive offset using a single movw,
-            // (2) a large offset using movw/movt. In either case, we must have already reserved
-            // the "reserved register", which will get used during encoding.
-            else
-            {
-                varOffset = spVarOffset;
-                *pBaseReg = compLocallocUsed ? REG_SAVED_LOCALLOC_SP : REG_SPBASE;
-            }
-        }
+        *baseReg = REG_SPBASE;
+    }
+    else if (mustBeFPBased)
+    {
+        *baseReg = REG_FPBASE;
     }
     else
     {
-        *pBaseReg = REG_SPBASE;
+        // Change the Frame Pointer (R11)-based addressing to the SP-based addressing when
+        // possible because it generates smaller code on ARM. See frame picture above for
+        // the math.
+
+        // If it is the final frame layout phase, we don't have a choice, we should stick
+        // to either FP based or SP based that we decided in the earlier phase. Because
+        // we have already selected the instruction. MinOpts will always reserve R10, so
+        // for MinOpts always use SP-based offsets, using R10 as necessary, for simplicity.
+
+        int spVarOffset        = varOffset + codeGen->genSPtoFPdelta();
+        int actualSPOffset     = spVarOffset + addrModeOffset;
+        int actualFPOffset     = varOffset + addrModeOffset;
+        int encodingLimitUpper = isFloatUsage ? 0x3FC : 0xFFF;
+        int encodingLimitLower = isFloatUsage ? -0x3FC : -0xFF;
+
+        // Use SP-based encoding. During encoding, we'll pick the best encoding for the actual offset we have.
+        if (opts.MinOpts() || (actualSPOffset <= encodingLimitUpper))
+        {
+            *baseReg = compLocallocUsed ? REG_SAVED_LOCALLOC_SP : REG_SPBASE;
+
+            varOffset = spVarOffset;
+        }
+        // Use Frame Pointer (R11)-based encoding.
+        else if ((encodingLimitLower <= actualFPOffset) && (actualFPOffset <= encodingLimitUpper))
+        {
+            *baseReg = REG_FPBASE;
+        }
+        // Otherwise, use SP-based encoding. This is either (1) a small positive offset using a single movw,
+        // (2) a large offset using movw/movt. In either case, we must have already reserved
+        // the "reserved register", which will get used during encoding.
+        else
+        {
+            *baseReg = compLocallocUsed ? REG_SAVED_LOCALLOC_SP : REG_SPBASE;
+
+            varOffset = spVarOffset;
+        }
     }
-#else
-    *pFPbased                            = FPbased;
 #endif
 
     return varOffset;
@@ -5413,7 +5384,7 @@ void Compiler::lvaDumpFrameLocation(unsigned lclNum)
     regNumber baseReg;
 
 #ifdef TARGET_ARM
-    offset = lvaFrameAddress(lclNum, compLocallocUsed, &baseReg, 0, /* isFloatUsage */ false);
+    offset = lvaFrameAddress(lclNum, compLocallocUsed, 0, /* isFloatUsage */ false, &baseReg);
 #else
     bool EBPbased;
     offset  = lvaFrameAddress(lclNum, &EBPbased);

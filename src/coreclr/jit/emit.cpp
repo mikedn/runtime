@@ -8272,7 +8272,7 @@ cnsval_ssize_t emitter::emitGetInsSC(instrDesc* id)
         regNumber baseReg;
         int       offs = id->idAddr()->iiaLclVar.lvaOffset();
 #if defined(TARGET_ARM)
-        int adr = emitComp->lvaFrameAddress(varNum, id->idIsLclFPBase(), &baseReg, offs, instIsFP(id->idIns()));
+        int adr = emitComp->lvaFrameAddress(varNum, id->idIsLclFPBase(), offs, instIsFP(id->idIns()), &baseReg);
         int dsp = adr + offs;
         if ((id->idIns() == INS_sub) || (id->idIns() == INS_subw))
             dsp = -dsp;

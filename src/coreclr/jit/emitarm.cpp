@@ -3659,7 +3659,7 @@ void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg1, int va
     unsigned undisp;
 
     base =
-        emitComp->lvaFrameAddress(varx, emitComp->funCurrentFunc()->funKind != FUNC_ROOT, &reg2, offs, instIsFP(ins));
+        emitComp->lvaFrameAddress(varx, emitComp->funCurrentFunc()->funKind != FUNC_ROOT, offs, instIsFP(ins), &reg2);
     if (pBaseReg != nullptr)
     {
         *pBaseReg = reg2;
@@ -3797,7 +3797,7 @@ void emitter::emitIns_genStackOffset(regNumber r, int varx, int offs, bool isFlo
     int       disp;
 
     base =
-        emitComp->lvaFrameAddress(varx, emitComp->funCurrentFunc()->funKind != FUNC_ROOT, &regBase, offs, isFloatUsage);
+        emitComp->lvaFrameAddress(varx, emitComp->funCurrentFunc()->funKind != FUNC_ROOT, offs, isFloatUsage, &regBase);
     disp = base + offs;
 
     emitIns_R_S(INS_movw, EA_4BYTE, r, varx, offs, pBaseReg);
@@ -3845,7 +3845,7 @@ void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg1, int va
     unsigned undisp;
 
     base =
-        emitComp->lvaFrameAddress(varx, emitComp->funCurrentFunc()->funKind != FUNC_ROOT, &reg2, offs, instIsFP(ins));
+        emitComp->lvaFrameAddress(varx, emitComp->funCurrentFunc()->funKind != FUNC_ROOT, offs, instIsFP(ins), &reg2);
 
     disp   = base + offs;
     undisp = unsigned_abs(disp);
@@ -6453,7 +6453,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         int       varNum = id->idAddr()->iiaLclVar.lvaVarNum();
         unsigned  ofs    = AlignDown(id->idAddr()->iiaLclVar.lvaOffset(), TARGET_POINTER_SIZE);
         regNumber regBase;
-        int adr = emitComp->lvaFrameAddress(varNum, true, &regBase, ofs, /* isFloatUsage */ false); // no float GC refs
+        int adr = emitComp->lvaFrameAddress(varNum, true, ofs, /* isFloatUsage */ false, &regBase); // no float GC refs
         if (id->idGCref() != GCT_NONE)
         {
             emitGCvarLiveUpd(adr + ofs, varNum, id->idGCref(), dst DEBUG_ARG(varNum));

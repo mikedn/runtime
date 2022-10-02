@@ -4065,11 +4065,16 @@ public:
     void lvaDispVarSet(VARSET_VALARG_TP set);
 #endif
 
+    int lvaFrameAddress(int varNum,
 #ifdef TARGET_ARM
-    int lvaFrameAddress(int varNum, bool mustBeFPBased, regNumber* pBaseReg, int addrModeOffset, bool isFloatUsage);
+                        bool       mustBeFPBased,
+                        int        lclOffset,
+                        bool       isFloatUsage,
+                        regNumber* baseReg
 #else
-    int lvaFrameAddress(int varNum, bool* pFPbased);
+                        bool* pFPbased
 #endif
+                        );
 
     bool lvaIsParameter(unsigned varNum);
     bool lvaIsRegArgument(unsigned varNum);
@@ -5141,7 +5146,7 @@ public:
     void fgCreateFuncletPrologBlocks();
     void fgCreateFunclets();
 #else  // !FEATURE_EH_FUNCLETS
-    bool fgRelocateEHRegions();
+    bool                      fgRelocateEHRegions();
 #endif // !FEATURE_EH_FUNCLETS
 
     bool fgOptimizeUncondBranchToSimpleCond(BasicBlock* block, BasicBlock* target);
