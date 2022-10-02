@@ -6002,6 +6002,7 @@ int Compiler::lvaToCallerSPRelativeOffset(int offset, bool isFpBased, bool forRo
     return offset;
 }
 
+#ifdef TARGET_AMD64
 // Return the Initial-SP-relative stack offset of a local/parameter.
 int Compiler::lvaGetInitialSPRelativeOffset(unsigned lclNum)
 {
@@ -6019,9 +6020,6 @@ int Compiler::lvaToInitialSPRelativeOffset(unsigned offset, bool isFpBased)
 {
     assert(lvaDoneFrameLayout == FINAL_FRAME_LAYOUT);
 
-#ifndef TARGET_AMD64
-    NYI("lvaToInitialSPRelativeOffset");
-#else
     if (isFpBased)
     {
         // Currently, the frame starts by pushing ebp, ebp points to the saved ebp
@@ -6036,10 +6034,10 @@ int Compiler::lvaToInitialSPRelativeOffset(unsigned offset, bool isFpBased)
     {
         // The offset is correct already!
     }
-#endif
 
     return offset;
 }
+#endif // TARGET_AMD64
 
 #ifdef FEATURE_SIMD
 // Get the preferred alignment of SIMD typed local for better performance.
