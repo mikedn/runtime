@@ -307,10 +307,10 @@ void CodeGenInterface::siVarLoc::siFillStackVarLoc(
             //
             // Now, the VM expects a special enum for these type of local vars: VLT_STK_BYREF
             // to accomodate for this situation.
-            if (varDsc->lvIsImplicitByRef)
+            if (varDsc->IsImplicitByRefParam())
             {
-                assert(varDsc->lvIsParam);
-                assert(varDsc->lvType == TYP_BYREF);
+                assert(varDsc->IsParam() || varDsc->TypeIs(TYP_BYREF));
+
                 this->vlType = VLT_STK_BYREF;
             }
             else

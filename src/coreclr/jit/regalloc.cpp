@@ -127,7 +127,7 @@ regNumber Compiler::raUpdateRegStateForArg(RegState* regState, LclVarDsc* argDsc
         if (hasFixedRetBuffReg() && (inArgReg == theFixedRetBuffReg()))
         {
             // We should have a TYP_BYREF or TYP_I_IMPL arg and not a TYP_STRUCT arg
-            noway_assert(argDsc->lvType == TYP_BYREF || argDsc->lvType == TYP_I_IMPL);
+            noway_assert(argDsc->TypeIs(TYP_BYREF, TYP_I_IMPL));
             // We should have recorded the variable number for the return buffer arg
             noway_assert(info.compRetBuffArg != BAD_VAR_NUM);
         }
@@ -140,7 +140,7 @@ regNumber Compiler::raUpdateRegStateForArg(RegState* regState, LclVarDsc* argDsc
     regState->rsCalleeRegArgMaskLiveIn |= inArgMask;
 
 #ifdef TARGET_ARM
-    if (argDsc->lvType == TYP_DOUBLE)
+    if (argDsc->TypeIs(TYP_DOUBLE))
     {
         if (info.compIsVarArgs || opts.compUseSoftFP)
         {
@@ -154,7 +154,7 @@ regNumber Compiler::raUpdateRegStateForArg(RegState* regState, LclVarDsc* argDsc
         }
         regState->rsCalleeRegArgMaskLiveIn |= genRegMask((regNumber)(inArgReg + 1));
     }
-    else if (argDsc->lvType == TYP_LONG)
+    else if (argDsc->TypeIs(TYP_LONG))
     {
         assert((inArgReg == REG_R0) || (inArgReg == REG_R2));
         assert(!regState->rsIsFloat);

@@ -7894,9 +7894,9 @@ Statement* Compiler::fgAssignRecursiveCallArgToCallerParam(GenTree*       arg,
         }
 
         // Now assign the temp to the parameter.
-        LclVarDsc* paramDsc = lvaTable + originalArgNum;
-        assert(paramDsc->lvIsParam);
-        GenTree* paramDest       = gtNewLclvNode(originalArgNum, paramDsc->lvType);
+        LclVarDsc* paramDsc = lvaGetDesc(originalArgNum);
+        assert(paramDsc->IsParam());
+        GenTree* paramDest       = gtNewLclvNode(originalArgNum, paramDsc->GetType());
         GenTree* paramAssignNode = gtNewAssignNode(paramDest, argInTemp);
         paramAssignStmt          = gtNewStmt(paramAssignNode, callILOffset);
 

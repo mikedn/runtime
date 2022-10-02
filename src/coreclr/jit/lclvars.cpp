@@ -1642,8 +1642,8 @@ void Compiler::lvaUpdateClass(unsigned varNum, CORINFO_CLASS_HANDLE clsHnd, bool
     // Else we should have a class handle to consider
     assert(clsHnd != nullptr);
 
-    LclVarDsc* varDsc = &lvaTable[varNum];
-    assert(varDsc->lvType == TYP_REF);
+    LclVarDsc* varDsc = lvaGetDesc(varNum);
+    assert(varDsc->TypeIs(TYP_REF));
 
     // We should already have a class
     assert(varDsc->lvClassHnd != NO_CLASS_HANDLE);
@@ -1846,8 +1846,8 @@ public:
         // legacy backend. It should be enabled and verified.
 
         // Force integer candidates to sort above float candidates.
-        const bool isFloat1 = varTypeUsesFloatReg(dsc1->lvType);
-        const bool isFloat2 = varTypeUsesFloatReg(dsc2->lvType);
+        const bool isFloat1 = varTypeUsesFloatReg(dsc1->GetType());
+        const bool isFloat2 = varTypeUsesFloatReg(dsc2->GetType());
 
         if (isFloat1 != isFloat2)
         {
@@ -1955,8 +1955,8 @@ public:
         // legacy backend. It should be enabled and verified.
 
         // Force integer candidates to sort above float candidates.
-        const bool isFloat1 = varTypeUsesFloatReg(dsc1->lvType);
-        const bool isFloat2 = varTypeUsesFloatReg(dsc2->lvType);
+        const bool isFloat1 = varTypeUsesFloatReg(dsc1->GetType());
+        const bool isFloat2 = varTypeUsesFloatReg(dsc2->GetType());
 
         if (isFloat1 != isFloat2)
         {

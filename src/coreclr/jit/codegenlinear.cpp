@@ -207,14 +207,16 @@ void CodeGen::genCodeForBBlist()
             if (varDsc->lvIsInReg())
             {
                 newLiveRegSet |= varDsc->lvRegMask();
-                if (varDsc->lvType == TYP_REF)
+
+                if (varDsc->TypeIs(TYP_REF))
                 {
                     newRegGCrefSet |= varDsc->lvRegMask();
                 }
-                else if (varDsc->lvType == TYP_BYREF)
+                else if (varDsc->TypeIs(TYP_BYREF))
                 {
                     newRegByrefSet |= varDsc->lvRegMask();
                 }
+
                 if (!varDsc->IsAlwaysAliveInMemory())
                 {
 #ifdef DEBUG

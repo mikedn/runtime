@@ -2642,7 +2642,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
                 // single xmm reg. Hence RyuJIT explicitly generates code to clears upper 4-bytes of Vector3
                 // type args in prolog and Vector3 type return value of a call
 
-                if (varDsc->lvType == TYP_SIMD12)
+                if (varDsc->TypeIs(TYP_SIMD12))
                 {
                     regType = TYP_DOUBLE;
                 }
@@ -2786,14 +2786,14 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
                 else
                 {
 #ifdef TARGET_X86
-                    noway_assert(varDsc->lvType == TYP_STRUCT);
+                    noway_assert(varDsc->TypeIs(TYP_STRUCT));
 #else  // !TARGET_X86
                     // For LSRA, it may not be in regArgMaskLive if it has a zero
                     // refcnt.  This is in contrast with the non-LSRA case in which all
                     // non-tracked args are assumed live on entry.
-                    noway_assert((varDsc->lvRefCnt() == 0) || (varDsc->lvType == TYP_STRUCT) ||
-                                 (varDsc->lvAddrExposed && compiler->info.compIsVarArgs) ||
-                                 (varDsc->lvAddrExposed && compiler->opts.UseSoftFP()));
+                    noway_assert((varDsc->GetRefCount() == 0) || varDsc->TypeIs(TYP_STRUCT) ||
+                                 (varDsc->IsAddressExposed() && compiler->info.compIsVarArgs) ||
+                                 (varDsc->IsAddressExposed() && compiler->opts.UseSoftFP()));
 #endif // !TARGET_X86
                 }
                 // Mark it as processed and be done with it
@@ -3030,7 +3030,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
 
 #ifndef TARGET_64BIT
         // If this arg is never on the stack, go to the next one.
-        if (varDsc->lvType == TYP_LONG)
+        if (varDsc->TypeIs(TYP_LONG))
         {
             if (regArgTab[argNum].slot == 1 && !regArgTab[argNum].stackArg && !regArgTab[argNum].writeThru)
             {
@@ -3048,7 +3048,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
         }
 
 #if defined(TARGET_ARM)
-        if (varDsc->lvType == TYP_DOUBLE)
+        if (varDsc->TypeIs(TYP_DOUBLE))
         {
             if (regArgTab[argNum].slot == 2)
             {
@@ -5411,7 +5411,7 @@ void CodeGen::genZeroInitFrame(int untrLclHi, int untrLclLo, regNumber initReg, 
             }
 
             // Note we are always reading from the original frame here
-            const var_types lclTyp  = genActualType(varDsc->lvType);
+            const var_types lclTyp  = varActualType(varDsc->GetType());
             const emitAttr  size    = emitTypeSize(lclTyp);
             const int       stkOffs = patchpointInfo->Offset(lclNum) + fieldOffset;
 

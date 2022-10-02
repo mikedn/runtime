@@ -11305,18 +11305,20 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         {
             // If the type of the local is a gc ref type, update the liveness.
             var_types vt;
+
             if (varNum >= 0)
             {
-                // "Regular" (non-spill-temp) local.
-                vt = var_types(emitComp->lvaTable[varNum].lvType);
+                vt = emitComp->lvaGetDesc(varNum)->GetType();
             }
             else
             {
-                TempDsc* tmpDsc = codeGen->regSet.tmpFindNum(varNum);
-                vt              = tmpDsc->tdTempType();
+                vt = codeGen->regSet.tmpFindNum(varNum)->tdTempType();
             }
-            if (vt == TYP_REF || vt == TYP_BYREF)
+
+            if (varTypeIsGC(vt))
+            {
                 emitGCvarDeadUpd(adr + ofs, dst DEBUG_ARG(varNum));
+            }
         }
         if (emitInsWritesToLclVarStackLocPair(id))
         {
@@ -11329,18 +11331,20 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             {
                 // If the type of the local is a gc ref type, update the liveness.
                 var_types vt;
+
                 if (varNum >= 0)
                 {
-                    // "Regular" (non-spill-temp) local.
-                    vt = var_types(emitComp->lvaTable[varNum].lvType);
+                    vt = emitComp->lvaGetDesc(varNum)->GetType();
                 }
                 else
                 {
-                    TempDsc* tmpDsc = codeGen->regSet.tmpFindNum(varNum);
-                    vt              = tmpDsc->tdTempType();
+                    vt = codeGen->regSet.tmpFindNum(varNum)->tdTempType();
                 }
-                if (vt == TYP_REF || vt == TYP_BYREF)
+
+                if (varTypeIsGC(vt))
+                {
                     emitGCvarDeadUpd(adr + ofs2, dst DEBUG_ARG(varNum));
+                }
             }
         }
     }

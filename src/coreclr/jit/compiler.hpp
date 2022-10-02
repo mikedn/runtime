@@ -2829,12 +2829,12 @@ bool Compiler::fgVarNeedsExplicitZeroInit(unsigned varNum, bool bbInALoop, bool 
         return true;
     }
 
-    if (varTypeIsGC(varDsc->lvType))
+    if (varTypeIsGC(varDsc->GetType()))
     {
         return false;
     }
 
-    if ((varDsc->lvType == TYP_STRUCT) && varDsc->HasGCPtr())
+    if (varDsc->TypeIs(TYP_STRUCT) && varDsc->HasGCPtr())
     {
         ClassLayout* layout = varDsc->GetLayout();
         if (layout->GetSlotCount() == layout->GetGCPtrCount())

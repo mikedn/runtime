@@ -5137,17 +5137,18 @@ public:
 
         for (unsigned i = 0; i < comp->lvaCount; i++)
         {
-            LclVarDsc* varDsc = comp->lvaGetDesc(i);
-            if (varDsc->lvTracked)
+            LclVarDsc* lcl = comp->lvaGetDesc(i);
+
+            if (lcl->HasLiveness())
             {
-                if (varTypeIsFloating(varDsc->lvType))
+                if (varTypeIsFloating(lcl->GetType()))
                 {
-                    VarSetOps::AddElemD(comp, lvaFloatVars, varDsc->lvVarIndex);
+                    VarSetOps::AddElemD(comp, lvaFloatVars, lcl->GetLivenessBitIndex());
                 }
 #ifndef TARGET_64BIT
-                else if (varTypeIsLong(varDsc->lvType))
+                else if (lcl->TypeIs(TYP_LONG))
                 {
-                    VarSetOps::AddElemD(comp, lvaLongVars, varDsc->lvVarIndex);
+                    VarSetOps::AddElemD(comp, lvaLongVars, lcl->GetLivenessBitIndex());
                 }
 #endif
             }

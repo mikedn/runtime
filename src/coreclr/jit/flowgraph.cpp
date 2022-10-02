@@ -2343,7 +2343,7 @@ void Compiler::fgAddInternal()
         }
         else
         {
-            noway_assert(lvaTable[info.compThisArg].lvType == TYP_REF);
+            noway_assert(lvaGetDesc(info.compThisArg)->TypeIs(TYP_REF));
 
             tree = gtNewLclvNode(info.compThisArg, TYP_REF);
 
