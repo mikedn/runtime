@@ -3486,14 +3486,6 @@ void Compiler::lvaAssignFrameOffsets(FrameLayoutState curState)
     lvaAlignFrame();
     lvaFixVirtualFrameOffsets();
     lvaAssignFrameOffsetsToPromotedStructs();
-
-    // If it's not the final frame layout, then it's just an estimate. This means
-    // we're allowed to once again write to these variables, even if we've read
-    // from them to make tentative code generation or frame layout decisions.
-    if (curState < FINAL_FRAME_LAYOUT)
-    {
-        codeGen->resetFramePointerUsedWritePhase();
-    }
 }
 
 // Now that everything has a virtual offset, determine the final value for
@@ -4993,7 +4985,7 @@ int Compiler::lvaAllocLocalAndSetVirtualOffset(unsigned lclNum, unsigned size, i
             unsigned pad = 0;
 
 #ifdef FEATURE_SIMD
-            if (varTypeIsSIMD(lcl->GetType()) && !lcl->IsImplicitByRefParam())
+            if (varTypeIsSIMD(lcl->GetType()))
             {
                 int alignment = lvaGetSimdTypedLocalPreferredAlignment(lcl);
 
