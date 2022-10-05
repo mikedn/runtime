@@ -4593,7 +4593,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
         {
             LclVarDsc* lcl = lvaGetDesc(lclNum);
 
-            if (!opts.IsOSR() && lcl->IsDependentPromotedField(this))
+            if (lcl->IsDependentPromotedField(this))
             {
                 continue;
             }
