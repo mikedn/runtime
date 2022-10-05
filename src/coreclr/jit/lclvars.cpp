@@ -3694,15 +3694,7 @@ void Compiler::lvaAssignFrameOffsetsToPromotedStructs()
 
             noway_assert(lcl->lvOnFrame);
 
-            if (parentLcl->lvOnFrame)
-            {
-                lcl->SetStackOffset(parentLcl->GetStackOffset() + lcl->GetPromotedFieldOffset());
-            }
-            else
-            {
-                lcl->lvOnFrame = false;
-                noway_assert(lcl->lvRefCnt() == 0);
-            }
+            lcl->SetStackOffset(parentLcl->GetStackOffset() + lcl->GetPromotedFieldOffset());
         }
     }
 }
