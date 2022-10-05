@@ -3659,6 +3659,54 @@ void Compiler::lvaFixVirtualFrameOffsets()
 #endif
 }
 
+// Assign offsets to fields within a promoted struct (worker for lvaAssignFrameOffsets).
+void Compiler::lvaAssignFrameOffsetsToPromotedStructs()
+{
+    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
+    {
+        LclVarDsc* lcl = lvaGetDesc(lclNum);
+
+        // For promoted struct fields that are params, we will
+        // assign their offsets in lvaAssignVirtualFrameOffsetToArg().
+        // This is not true for the System V systems since there is no
+        // outgoing args space. Assign the dependently promoted fields properly.
+        if (lcl->IsPromotedField()
+#if !defined(UNIX_AMD64_ABI) && !defined(TARGET_ARM) && !defined(TARGET_X86)
+            // ARM: lo/hi parts of a promoted long arg need to be updated.
+
+            // For System V platforms there is no outgoing args space.
+
+            // For System V and x86, a register passed struct arg is homed on the stack in a separate local var.
+            // The offset of these structs is already calculated in lvaAssignVirtualFrameOffsetToArg methos.
+            // Make sure the code below is not executed for these structs and the offset is not changed.
+            && !lcl->IsParam()
+#endif
+                )
+        {
+            LclVarDsc* parentLcl = lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
+
+            if (parentLcl->IsIndependentPromoted())
+            {
+                // The stack offset for these field locals must have been calculated
+                // by the normal frame offset assignment.
+                continue;
+            }
+
+            noway_assert(lcl->lvOnFrame);
+
+            if (parentLcl->lvOnFrame)
+            {
+                lcl->SetStackOffset(parentLcl->GetStackOffset() + lcl->GetPromotedFieldOffset());
+            }
+            else
+            {
+                lcl->lvOnFrame = false;
+                noway_assert(lcl->lvRefCnt() == 0);
+            }
+        }
+    }
+}
+
 // Assign virtual stack offsets to the arguments, and implicit arguments
 // (this ptr, return buffer, generics, and varargs).
 void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
@@ -5172,54 +5220,6 @@ void Compiler::lvaAlignFrame()
 #else
     NYI("TARGET specific lvaAlignFrame");
 #endif // !TARGET_AMD64
-}
-
-// Assign offsets to fields within a promoted struct (worker for lvaAssignFrameOffsets).
-void Compiler::lvaAssignFrameOffsetsToPromotedStructs()
-{
-    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
-    {
-        LclVarDsc* lcl = lvaGetDesc(lclNum);
-
-        // For promoted struct fields that are params, we will
-        // assign their offsets in lvaAssignVirtualFrameOffsetToArg().
-        // This is not true for the System V systems since there is no
-        // outgoing args space. Assign the dependently promoted fields properly.
-        if (lcl->IsPromotedField()
-#if !defined(UNIX_AMD64_ABI) && !defined(TARGET_ARM) && !defined(TARGET_X86)
-            // ARM: lo/hi parts of a promoted long arg need to be updated.
-
-            // For System V platforms there is no outgoing args space.
-
-            // For System V and x86, a register passed struct arg is homed on the stack in a separate local var.
-            // The offset of these structs is already calculated in lvaAssignVirtualFrameOffsetToArg methos.
-            // Make sure the code below is not executed for these structs and the offset is not changed.
-            && !lcl->IsParam()
-#endif
-                )
-        {
-            LclVarDsc* parentLcl = lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
-
-            if (parentLcl->IsIndependentPromoted())
-            {
-                // The stack offset for these field locals must have been calculated
-                // by the normal frame offset assignment.
-                continue;
-            }
-
-            noway_assert(lcl->lvOnFrame);
-
-            if (parentLcl->lvOnFrame)
-            {
-                lcl->SetStackOffset(parentLcl->GetStackOffset() + lcl->GetPromotedFieldOffset());
-            }
-            else
-            {
-                lcl->lvOnFrame = false;
-                noway_assert(lcl->lvRefCnt() == 0);
-            }
-        }
-    }
 }
 
 // Assign virtual offsets to temps (always negative).
