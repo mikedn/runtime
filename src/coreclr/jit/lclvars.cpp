@@ -3666,19 +3666,10 @@ void Compiler::lvaAssignFrameOffsetsToPromotedStructs()
     {
         LclVarDsc* lcl = lvaGetDesc(lclNum);
 
-        // For promoted struct fields that are params, we will
-        // assign their offsets in lvaAssignVirtualFrameOffsetToArg().
-        // This is not true for the System V systems since there is no
-        // outgoing args space. Assign the dependently promoted fields properly.
         if (lcl->IsPromotedField()
-#if !defined(UNIX_AMD64_ABI) && !defined(TARGET_ARM) && !defined(TARGET_X86)
-            // ARM: lo/hi parts of a promoted long arg need to be updated.
-
-            // For System V platforms there is no outgoing args space.
-
-            // For System V and x86, a register passed struct arg is homed on the stack in a separate local var.
-            // The offset of these structs is already calculated in lvaAssignVirtualFrameOffsetToArg methos.
-            // Make sure the code below is not executed for these structs and the offset is not changed.
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+            // TODO-MIKE-Review: It's not clear why params are excluded here. It's not like
+            // the offset of a dependent promoted field is somehow special for params.
             && !lcl->IsParam()
 #endif
                 )
