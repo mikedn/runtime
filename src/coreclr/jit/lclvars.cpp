@@ -3572,17 +3572,9 @@ void Compiler::lvaFixVirtualFrameOffsets()
         // Can't be relative to EBP unless we have an EBP
         noway_assert(!lcl->lvFramePointerBased || codeGen->doubleAlignOrFramePointerUsed());
 
-        if (lcl->IsPromotedField())
+        if (lcl->IsDependentPromotedField(this))
         {
-            LclVarDsc* parentLcl = lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
-
-            if (parentLcl->IsDependentPromoted() && (!lcl->IsParam()
-                                                      // On x86, we set the stack offset for a promoted field to match
-                                                      // a struct parameter in lvAssignFrameOffsetsToPromotedStructs.
-                                                      X86_ONLY(|| parentLcl->IsParam())))
-            {
-                continue; // Assigned later in lvaAssignFrameOffsetsToPromotedStructs
-            }
+            continue; // Assigned later in lvaAssignFrameOffsetsToPromotedStructs
         }
 
         if (!lcl->lvOnFrame && (!lcl->IsParam()
