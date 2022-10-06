@@ -3666,13 +3666,7 @@ void Compiler::lvaAssignFrameOffsetsToPromotedStructs()
     {
         LclVarDsc* lcl = lvaGetDesc(lclNum);
 
-        if (lcl->IsPromotedField()
-#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-            // TODO-MIKE-Review: It's not clear why params are excluded here. It's not like
-            // the offset of a dependent promoted field is somehow special for params.
-            && !lcl->IsParam()
-#endif
-                )
+        if (lcl->IsPromotedField())
         {
             LclVarDsc* parentLcl = lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
 
