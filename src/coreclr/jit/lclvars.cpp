@@ -3851,7 +3851,12 @@ void Compiler::lvaAssignVirtualFrameOffsetsToArgs()
             argOffs          = lvaAssignParamVirtualFrameOffset(lclNum + i, argSize, argOffs);
         }
     }
-#else // !TARGET_ARM
+#elif defined(WINDOWS_AMD64_ABI)
+    for (unsigned i = 0; i < argSigLen; i++)
+    {
+        argOffs = lvaAssignParamVirtualFrameOffset(lclNum++, REGSIZE_BYTES, argOffs);
+    }
+#else // !TARGET_ARM && !WINDOWS_AMD64_ABI
     for (unsigned i = 0; i < argSigLen; i++, argLst = info.compCompHnd->getArgNext(argLst))
     {
         unsigned argSize = lvaGetParamAllocSize(argLst, &info.compMethodInfo->args);
