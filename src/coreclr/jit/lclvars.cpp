@@ -4593,18 +4593,9 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
                 continue;
             }
 
-            bool allocateOnFrame = lcl->lvOnFrame;
-
-#ifdef TARGET_ARMARCH
-            if (lcl->lvRegister && (lvaDoneFrameLayout == REGALLOC_FRAME_LAYOUT) && !lcl->TypeIs(TYP_LONG))
-            {
-                allocateOnFrame = false;
-            }
-#endif
-
             // Ignore variables that are not on the stack frame.
 
-            if (!allocateOnFrame)
+            if (!lcl->lvOnFrame)
             {
                 // For EnC, all variables have to be allocated space on the
                 // stack, even though they may actually be enregistered. This
