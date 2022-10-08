@@ -3661,19 +3661,40 @@ void Compiler::lvaAssignFrameOffsetsToPromotedStructs()
     {
         LclVarDsc* lcl = lvaGetDesc(lclNum);
 
-        if (lcl->IsPromotedField())
+        if (!lcl->IsPromotedField())
         {
-            LclVarDsc* parentLcl = lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
+            continue;
+        }
 
-            if (parentLcl->IsIndependentPromoted())
-            {
-                // The stack offset for these field locals must have been calculated
-                // by the normal frame offset assignment.
-                continue;
-            }
+        LclVarDsc* parentLcl               = lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
+        bool       hasDependentStackOffset = parentLcl->IsDependentPromoted();
 
-            noway_assert(lcl->lvOnFrame);
+        // On win-x64 all parameters are allocated on the caller's frame, including
+        // parameters that are passed in registers. Since we have no control over
+        // how the caller stores parameter values, we have to treat them as dependent
+        // promoted for frame allocation purposes (we can't widen small int fields
+        // to INT, we can't reorder fields etc.).
+        // On all other targets, parameters passed in registers are allocated on
+        // callee's frame and thus can be treated as independent locals.
+        // There are special cases like ARM64 varargs and pre-spilled ARM params
+        // but then promotion is disabled. These would probably require dependent
+        // promotion too if enabled, or the pre-spilling code needs to be adjusted.
 
+        hasDependentStackOffset |= parentLcl->IsParam()
+#ifndef WINDOWS_AMD64_ABI
+                                   && !parentLcl->IsRegParam()
+#endif
+            ;
+
+#ifdef TARGET_ARM
+        assert(!parentLcl->IsParam());
+#endif
+#ifdef TARGET_ARM64
+        assert(!info.compIsVarArgs);
+#endif
+
+        if (hasDependentStackOffset)
+        {
             lcl->SetStackOffset(parentLcl->GetStackOffset() + lcl->GetPromotedFieldOffset());
         }
     }
@@ -4160,18 +4181,7 @@ int Compiler::lvaAssignParamVirtualFrameOffset(unsigned lclNum,
 
     assert(lcl->IsParam() && !lcl->IsPromotedField());
 
-    argOffs = lvaAssignVirtualFrameOffsetToArg(lcl, argSize, argOffs UNIX_AMD64_ABI_ONLY_ARG(callerArgOffset));
-
-    if (lcl->IsPromoted())
-    {
-        for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
-        {
-            LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
-            fieldLcl->SetStackOffset(lcl->GetStackOffset() + fieldLcl->GetPromotedFieldOffset());
-        }
-    }
-
-    return argOffs;
+    return lvaAssignVirtualFrameOffsetToArg(lcl, argSize, argOffs UNIX_AMD64_ABI_ONLY_ARG(callerArgOffset));
 }
 
 // Assign virtual stack offsets to locals, temps, and anything else.
@@ -4784,17 +4794,6 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
 #endif // !TARGET_64BIT
 
             stkOffs = lvaAllocLocalAndSetVirtualOffset(lclNum, lvaLclSize(lclNum), stkOffs);
-
-#ifdef TARGET_ARMARCH
-            if (lcl->IsPromoted() && lcl->IsRegParam())
-            {
-                for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
-                {
-                    LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
-                    fieldLcl->SetStackOffset(lcl->GetStackOffset() + fieldLcl->GetPromotedFieldOffset());
-                }
-            }
-#endif // TARGET_ARMARCH
         }
     }
 
