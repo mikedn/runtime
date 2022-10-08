@@ -4161,22 +4161,10 @@ int Compiler::lvaAssignParamVirtualFrameOffset(unsigned lclNum,
 
     if (lcl->IsPromoted())
     {
-#ifndef TARGET_64BIT
-        if (lcl->TypeIs(TYP_LONG))
+        for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
         {
-            assert(lcl->GetPromotedFieldCount() == 2);
-
-            lvaGetDesc(lcl->GetPromotedFieldLclNum(0))->SetStackOffset(lcl->GetStackOffset());
-            lvaGetDesc(lcl->GetPromotedFieldLclNum(1))->SetStackOffset(lcl->GetStackOffset() + 4);
-        }
-        else
-#endif
-        {
-            for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
-            {
-                LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
-                fieldLcl->SetStackOffset(lcl->GetStackOffset() + fieldLcl->GetPromotedFieldOffset());
-            }
+            LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
+            fieldLcl->SetStackOffset(lcl->GetStackOffset() + fieldLcl->GetPromotedFieldOffset());
         }
     }
 
@@ -4806,22 +4794,10 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
 #ifdef TARGET_ARMARCH
             if (lcl->IsPromoted() && lcl->IsRegParam())
             {
-#ifdef TARGET_ARM
-                if (lcl->TypeIs(TYP_LONG))
+                for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
                 {
-                    assert(lcl->GetPromotedFieldCount() == 2);
-
-                    lvaGetDesc(lcl->GetPromotedFieldLclNum(0))->SetStackOffset(lcl->GetStackOffset());
-                    lvaGetDesc(lcl->GetPromotedFieldLclNum(1))->SetStackOffset(lcl->GetStackOffset() + 4);
-                }
-                else
-#endif // TARGET_ARM
-                {
-                    for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
-                    {
-                        LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
-                        fieldLcl->SetStackOffset(lcl->GetStackOffset() + fieldLcl->GetPromotedFieldOffset());
-                    }
+                    LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
+                    fieldLcl->SetStackOffset(lcl->GetStackOffset() + fieldLcl->GetPromotedFieldOffset());
                 }
             }
 #endif // TARGET_ARMARCH
