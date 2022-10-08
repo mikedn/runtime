@@ -3938,21 +3938,21 @@ public:
     void lvaAssignFrameOffsets(FrameLayoutState curState);
     void lvaFixVirtualFrameOffsets();
     void lvaUpdateArgsWithInitialReg();
-    void lvaAssignVirtualFrameOffsetsToArgs();
-    int lvaAssignVirtualFrameOffsetToArg(LclVarDsc* lcl,
-                                         unsigned   argSize,
-                                         int argOffs UNIX_AMD64_ABI_ONLY_ARG(int* callerArgOffset));
+    void lvaAssignParamsVirtualFrameOffsets();
+    int lvaAssignParamVirtualFrameOffset(LclVarDsc* lcl,
+                                         unsigned   size,
+                                         int offset UNIX_AMD64_ABI_ONLY_ARG(int* callerArgOffset));
     int lvaAssignParamVirtualFrameOffset(unsigned lclNum,
-                                         unsigned argSize,
-                                         int argOffs UNIX_AMD64_ABI_ONLY_ARG(int* callerArgOffset));
-    void lvaAssignVirtualFrameOffsetsToLocals();
+                                         unsigned size,
+                                         int offset UNIX_AMD64_ABI_ONLY_ARG(int* callerArgOffset));
+    void lvaAssignLocalsVirtualFrameOffsets();
     int lvaAllocLocalAndSetVirtualOffset(unsigned lclNum, unsigned size, int stkOffs);
 #ifdef TARGET_AMD64
     // Returns true if compCalleeRegsPushed (including RBP if used as frame pointer) is even.
     bool lvaIsCalleeSavedIntRegCountEven();
 #endif
     void lvaAlignFrame();
-    void lvaAssignFrameOffsetsToPromotedStructs();
+    void lvaAssignPromotedFieldsVirtualFrameOffsets();
     int lvaAllocateTemps(int stkOffs
 #ifndef TARGET_64BIT
                          ,
