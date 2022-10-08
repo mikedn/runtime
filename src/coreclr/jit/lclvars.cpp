@@ -3889,6 +3889,9 @@ void Compiler::lvaAssignParamsVirtualFrameOffsets()
 
 int Compiler::lvaAssignParamVirtualFrameOffset(LclVarDsc* lcl, unsigned size, int offset, int* callerArgOffset)
 {
+    assert((size % REGSIZE_BYTES) == 0);
+    assert((offset % REGSIZE_BYTES) == 0);
+
     if (lcl->IsRegParam())
     {
         // Argument is passed in a register, don't count it, when updating the current offset on the stack.
@@ -3910,7 +3913,7 @@ int Compiler::lvaAssignParamVirtualFrameOffset(LclVarDsc* lcl, unsigned size, in
     // address pushed, ets.
 
     lcl->SetStackOffset(*callerArgOffset);
-    *callerArgOffset += static_cast<int>(roundUp(size, REGSIZE_BYTES));
+    *callerArgOffset += size;
 
     return offset + size;
 }
