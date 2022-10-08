@@ -2398,17 +2398,8 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #endif
 void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbered, RegState* regState)
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In genFnPrologCalleeRegArgs() for %s regs\n", regState->rsIsFloat ? "float" : "int");
-    }
-#endif
+    JITDUMP("*************** In genFnPrologCalleeRegArgs() for %s regs\n", regState->rsIsFloat ? "float" : "int");
 
-    unsigned  argMax;           // maximum argNum value plus 1, (including the RetBuffArg)
-    unsigned  argNum;           // current argNum, always in [0..argMax-1]
-    unsigned  fixedRetBufIndex; // argNum value used by the fixed return buffer argument (ARM64)
-    unsigned  regArgNum;        // index into the regArgTab[] table
     regMaskTP regArgMaskLive = regState->rsCalleeRegArgMaskLiveIn;
     bool      doingFloat     = regState->rsIsFloat;
 
@@ -2435,8 +2426,8 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
     //          r0, r2, r4 and r8 as valid integer arguments with argMax as 9
     //
 
-    argMax           = regState->rsCalleeRegArgCount;
-    fixedRetBufIndex = (unsigned)-1; // Invalid value
+    // maximum argNum value plus 1, (including the RetBuffArg)
+    unsigned argMax = regState->rsCalleeRegArgCount;
 
     // If necessary we will select a correct xtraReg for circular floating point args later.
     if (doingFloat)
@@ -2449,13 +2440,11 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
         noway_assert(argMax <= MAX_REG_ARG);
 
 #ifdef TARGET_ARM64
-        fixedRetBufIndex = RET_BUFF_ARGNUM;
-        argMax           = fixedRetBufIndex + 1;
+        argMax = RET_BUFF_ARGNUM + 1;
         assert(argMax == (MAX_REG_ARG + 1));
 #endif
     }
 
-    //
     // Construct a table with the register arguments, for detecting circular and
     // non-circular dependencies between the register arguments. A dependency is when
     // an argument register Rn needs to be moved to register Rm that is also an argument
@@ -2519,6 +2508,8 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
     } regArgTab[max(MAX_REG_ARG + 1, MAX_FLOAT_REG_ARG)] = {};
 
     LclVarDsc* varDsc;
+    unsigned   argNum;    // current argNum, always in [0..argMax-1]
+    unsigned   regArgNum; // index into the regArgTab[] table
 
     for (unsigned varNum = 0; varNum < compiler->lvaCount; ++varNum)
     {
