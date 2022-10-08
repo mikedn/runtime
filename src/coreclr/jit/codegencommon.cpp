@@ -2447,13 +2447,12 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
     else // we are doing the integer registers
     {
         noway_assert(argMax <= MAX_REG_ARG);
-        if (hasFixedRetBuffReg())
-        {
-            fixedRetBufIndex = theFixedRetBuffArgNum();
-            // We have an additional integer register argument when hasFixedRetBuffReg() is true
-            argMax = fixedRetBufIndex + 1;
-            assert(argMax == (MAX_REG_ARG + 1));
-        }
+
+#ifdef TARGET_ARM64
+        fixedRetBufIndex = RET_BUFF_ARGNUM;
+        argMax           = fixedRetBufIndex + 1;
+        assert(argMax == (MAX_REG_ARG + 1));
+#endif
     }
 
     //
@@ -2464,9 +2463,8 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
     // registers: the first register argument is in regArgTab[0], the second in
     // regArgTab[1], etc. Note that on ARM, a TYP_DOUBLE takes two entries, starting
     // at an even index. The regArgTab is indexed from 0 to argMax - 1.
-    // Note that due to an extra argument register for ARM64 (i.e  theFixedRetBuffReg())
+    // Note that due to an extra argument register for ARM64 (REG_ARG_RET_BUFF)
     // we have increased the allocated size of the regArgTab[] by one.
-    //
     struct regArgElem
     {
         unsigned varNum; // index into compiler->lvaTable[] for this register argument

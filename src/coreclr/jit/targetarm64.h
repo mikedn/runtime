@@ -254,9 +254,6 @@
 
   // On ARM64 the calling convention defines REG_R8 (x8) as an additional argument register.
   // It isn't allocated for the normal user arguments, so it isn't counted by MAX_REG_ARG.
-  // Whether we use this register to pass the RetBuff is controlled by the function hasFixedRetBuffReg().
-  // It is considered to be the next integer argnum, which is 8.
-  //
   #define REG_ARG_RET_BUFF         REG_R8
   #define RBM_ARG_RET_BUFF         RBM_R8
   #define RET_BUFF_ARGNUM          8

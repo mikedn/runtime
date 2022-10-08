@@ -4258,14 +4258,16 @@ public:
     // (HasRetBufArg == false).
     bool TreatAsHasRetBufArg() const;
 
+#ifdef TARGET_ARM64
     bool HasFixedRetBufArg() const
     {
-#if defined(TARGET_WINDOWS) && !defined(TARGET_ARM)
-        return hasFixedRetBuffReg() && HasRetBufArg() && !callConvIsInstanceMethodCallConv(GetUnmanagedCallConv());
-#else
-        return hasFixedRetBuffReg() && HasRetBufArg();
+        return HasRetBufArg()
+#ifdef TARGET_WINDOWS
+               && !callConvIsInstanceMethodCallConv(GetUnmanagedCallConv())
 #endif
+            ;
     }
+#endif
 
     bool HasMultiRegRetVal() const
     {
@@ -4321,7 +4323,7 @@ public:
         return false;
     }
 #else
-    bool IsFastTailCall() const
+    bool    IsFastTailCall() const
     {
 #if FEATURE_FASTTAILCALL
         return IsTailCall();

@@ -466,12 +466,15 @@ void Compiler::lvaInitRetBufParam(InitVarDscInfo& paramInfo, bool useFixedRetBuf
     lcl->lvIsParam = true;
     lcl->lvOnFrame = true;
 
-    if (useFixedRetBufReg && hasFixedRetBuffReg())
+#ifdef TARGET_ARM64
+    if (useFixedRetBufReg)
     {
         lcl->lvIsRegArg = true;
-        lcl->SetArgReg(theFixedRetBuffReg());
+        lcl->SetArgReg(REG_ARG_RET_BUFF);
     }
-    else if (paramInfo.canEnreg(TYP_INT))
+    else
+#endif
+        if (paramInfo.canEnreg(TYP_INT))
     {
         lcl->lvIsRegArg = true;
         lcl->SetArgReg(genMapIntRegArgNumToRegNum(paramInfo.allocRegArg(TYP_INT)));
@@ -4688,7 +4691,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
                 }
 
 #ifdef TARGET_ARM64
-                if (info.compIsVarArgs && (lcl->GetArgReg() != theFixedRetBuffArgNum()))
+                if (info.compIsVarArgs && (lcl->GetArgReg() != RET_BUFF_ARGNUM))
                 {
                     // Stack offset to varargs (parameters) should point to home area which will be preallocated.
                     unsigned regNum = genMapIntRegNumToRegArgNum(lcl->GetArgReg());

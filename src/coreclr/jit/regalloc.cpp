@@ -122,16 +122,18 @@ regNumber Compiler::raUpdateRegStateForArg(RegState* regState, LclVarDsc* argDsc
     }
     else //  regState is for the integer registers
     {
+#ifdef TARGET_ARM64
         // This might be the fixed return buffer register argument (on ARM64)
-        // We check and allow inArgReg to be theFixedRetBuffReg
-        if (hasFixedRetBuffReg() && (inArgReg == theFixedRetBuffReg()))
+        // We check and allow inArgReg to be REG_ARG_RET_BUFF
+        if (inArgReg == REG_ARG_RET_BUFF)
         {
             // We should have a TYP_BYREF or TYP_I_IMPL arg and not a TYP_STRUCT arg
             noway_assert(argDsc->TypeIs(TYP_BYREF, TYP_I_IMPL));
             // We should have recorded the variable number for the return buffer arg
             noway_assert(info.compRetBuffArg != BAD_VAR_NUM);
         }
-        else // we have a regular arg
+        else
+#endif
         {
             noway_assert(inArgMask & RBM_ARG_REGS);
         }

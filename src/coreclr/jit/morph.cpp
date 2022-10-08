@@ -2188,6 +2188,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     //
     CLANG_FORMAT_COMMENT_ANCHOR;
 
+#ifdef TARGET_ARM64
     if (call->HasFixedRetBufArg())
     {
         GenTreeCall::Use* args = call->gtCallArgs;
@@ -2195,8 +2196,9 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
         // We don't increment numArgs here, since we already counted this argument above.
 
-        nonStandardArgs.Add(args->GetNode(), theFixedRetBuffReg());
+        nonStandardArgs.Add(args->GetNode(), REG_ARG_RET_BUFF);
     }
+#endif
 
     // We are allowed to have a Fixed Return Buffer argument combined
     // with any of the remaining non-standard arguments

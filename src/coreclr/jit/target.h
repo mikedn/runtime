@@ -329,75 +329,17 @@ inline bool genIsValidDoubleReg(regNumber reg)
 #endif // TARGET_ARM
 
 //-------------------------------------------------------------------------------------------
-// hasFixedRetBuffReg:
-//     Returns true if our target architecture uses a fixed return buffer register
-//
-inline bool hasFixedRetBuffReg()
-{
-#ifdef TARGET_ARM64
-    return true;
-#else
-    return false;
-#endif
-}
-
-//-------------------------------------------------------------------------------------------
-// theFixedRetBuffReg:
-//     Returns the regNumber to use for the fixed return buffer
-//
-inline regNumber theFixedRetBuffReg()
-{
-    assert(hasFixedRetBuffReg()); // This predicate should be checked before calling this method
-#ifdef TARGET_ARM64
-    return REG_ARG_RET_BUFF;
-#else
-    return REG_NA;
-#endif
-}
-
-//-------------------------------------------------------------------------------------------
-// theFixedRetBuffMask:
-//     Returns the regNumber to use for the fixed return buffer
-//
-inline regMaskTP theFixedRetBuffMask()
-{
-    assert(hasFixedRetBuffReg()); // This predicate should be checked before calling this method
-#ifdef TARGET_ARM64
-    return RBM_ARG_RET_BUFF;
-#else
-    return 0;
-#endif
-}
-
-//-------------------------------------------------------------------------------------------
-// theFixedRetBuffArgNum:
-//     Returns the argNum to use for the fixed return buffer
-//
-inline unsigned theFixedRetBuffArgNum()
-{
-    assert(hasFixedRetBuffReg()); // This predicate should be checked before calling this method
-#ifdef TARGET_ARM64
-    return RET_BUFF_ARGNUM;
-#else
-    return BAD_VAR_NUM;
-#endif
-}
-
-//-------------------------------------------------------------------------------------------
 // fullIntArgRegMask:
 //     Returns the full mask of all possible integer registers
 //     Note this includes the fixed return buffer register on Arm64
 //
 inline regMaskTP fullIntArgRegMask()
 {
-    if (hasFixedRetBuffReg())
-    {
-        return RBM_ARG_REGS | theFixedRetBuffMask();
-    }
-    else
-    {
-        return RBM_ARG_REGS;
-    }
+#ifdef TARGET_ARM64
+    return RBM_ARG_REGS | RBM_ARG_RET_BUFF;
+#else
+    return RBM_ARG_REGS;
+#endif
 }
 
 //-------------------------------------------------------------------------------------------

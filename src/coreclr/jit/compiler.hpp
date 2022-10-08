@@ -2060,10 +2060,12 @@ inline int getJitStressLevel()
 
 inline regNumber genMapIntRegArgNumToRegNum(unsigned argNum)
 {
-    if (hasFixedRetBuffReg() && (argNum == theFixedRetBuffArgNum()))
+#ifdef TARGET_ARM64
+    if (argNum == RET_BUFF_ARGNUM)
     {
-        return theFixedRetBuffReg();
+        return REG_ARG_RET_BUFF;
     }
+#endif
 
     assert(argNum < ArrLen(intArgRegs));
 
@@ -2140,11 +2142,8 @@ __forceinline regMaskTP genMapArgNumToRegMask(unsigned argNum, var_types type)
     return result;
 }
 
-/*****************************************************************************/
-/* Map a register number ("RegNum") to a register argument number ("RegArgNum")
- * If we have a fixed return buffer register we return theFixedRetBuffArgNum
- */
-
+// Map a register number ("RegNum") to a register argument number ("RegArgNum")
+// If we have a fixed return buffer register we return RET_BUFF_ARGNUM.
 inline unsigned genMapIntRegNumToRegArgNum(regNumber regNum)
 {
     assert(genRegMask(regNum) & fullIntArgRegMask());
@@ -2182,16 +2181,15 @@ inline unsigned genMapIntRegNumToRegArgNum(regNumber regNum)
 #endif
 #endif
         default:
-            // Check for the Arm64 fixed return buffer argument register
-            if (hasFixedRetBuffReg() && (regNum == theFixedRetBuffReg()))
+#ifdef TARGET_ARM64
+            if (regNum == REG_ARG_RET_BUFF)
             {
-                return theFixedRetBuffArgNum();
+                return RET_BUFF_ARGNUM;
             }
-            else
-            {
-                assert(!"invalid register arg register");
-                return BAD_VAR_NUM;
-            }
+#endif
+
+            assert(!"invalid register arg register");
+            return BAD_VAR_NUM;
     }
 }
 
