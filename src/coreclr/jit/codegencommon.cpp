@@ -3695,80 +3695,56 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
 #pragma warning(pop)
 #endif
 
-/*****************************************************************************
- * If any incoming stack arguments live in registers, load them.
- */
-void CodeGen::genEnregisterIncomingStackArgs()
+void CodeGen::genPrologEnregisterIncomingStackParams()
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In genEnregisterIncomingStackArgs()\n");
-    }
-#endif
+    JITDUMP("*************** In genPrologEnregisterIncomingStackParams()\n");
 
-    // OSR handles this specially
-    if (compiler->opts.IsOSR())
-    {
-        return;
-    }
-
+    assert(!compiler->opts.IsOSR());
     assert(compiler->compGeneratingProlog);
 
-    unsigned varNum = 0;
-
-    for (LclVarDsc *varDsc = compiler->lvaTable; varNum < compiler->lvaCount; varNum++, varDsc++)
+    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
     {
-        /* Is this variable a parameter? */
+        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
 
-        if (!varDsc->lvIsParam)
+        if (!lcl->IsParam())
         {
             continue;
         }
 
-        /* If it's a register argument then it's already been taken care of.
-           But, on Arm when under a profiler, we would have prespilled a register argument
-           and hence here we need to load it from its prespilled location.
-        */
+        // If it's a register argument then it's already been taken care of.
+        // But, on ARM when under a profiler, we would have prespilled a register
+        // parameter and hence here we need to load it from its prespilled location.
         bool isPrespilledForProfiling = false;
 #if defined(TARGET_ARM) && defined(PROFILING_SUPPORTED)
         isPrespilledForProfiling =
-            compiler->compIsProfilerHookNeeded() && varDsc->IsPreSpilledRegParam(regSet.rsMaskPreSpillRegs(false));
+            compiler->compIsProfilerHookNeeded() && lcl->IsPreSpilledRegParam(regSet.rsMaskPreSpillRegs(false));
 #endif
 
-        if (varDsc->lvIsRegArg && !isPrespilledForProfiling)
+        if (lcl->IsRegParam() && !isPrespilledForProfiling)
         {
             continue;
         }
 
-        /* Has the parameter been assigned to a register? */
-
-        if (!varDsc->lvIsInReg())
+        if (!lcl->lvIsInReg())
         {
             continue;
         }
 
-        /* Is the variable dead on entry */
-
-        if (!VarSetOps::IsMember(compiler, compiler->fgFirstBB->bbLiveIn, varDsc->lvVarIndex))
+        if (!VarSetOps::IsMember(compiler, compiler->fgFirstBB->bbLiveIn, lcl->GetLivenessBitIndex()))
         {
             continue;
         }
 
-        /* Load the incoming parameter into the register */
-
-        /* Figure out the home offset of the incoming argument */
-
-        regNumber regNum = varDsc->GetParamInitialReg();
+        regNumber regNum = lcl->GetParamInitialReg();
         assert(regNum != REG_STK);
+        var_types regType = lcl->GetActualRegisterType();
 
-        var_types regType = varDsc->GetActualRegisterType();
-
-        GetEmitter()->emitIns_R_S(ins_Load(regType), emitTypeSize(regType), regNum, varNum, 0);
+        GetEmitter()->emitIns_R_S(ins_Load(regType), emitTypeSize(regType), regNum, lclNum, 0);
         regSet.verifyRegUsed(regNum);
+
 #ifdef USING_SCOPE_INFO
         psiMoveToReg(varNum);
-#endif // USING_SCOPE_INFO
+#endif
     }
 }
 
@@ -6648,7 +6624,7 @@ void CodeGen::genFnProlog()
     //
     // TODO-Cleanup: This logic can be implemented in
     // genFnPrologCalleeRegArgs() for argument registers and
-    // genEnregisterIncomingStackArgs() for stack arguments.
+    // genPrologEnregisterIncomingStackParams() for stack arguments.
     genClearStackVec3ArgUpperBits();
 #endif // UNIX_AMD64_ABI && FEATURE_SIMD
 
@@ -6695,10 +6671,9 @@ void CodeGen::genFnProlog()
                 }
             }
         }
-    }
 
-    // Home the incoming arguments.
-    genEnregisterIncomingStackArgs();
+        genPrologEnregisterIncomingStackParams();
+    }
 
     /* Initialize any must-init registers variables now */
 
