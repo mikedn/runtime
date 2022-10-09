@@ -3581,8 +3581,8 @@ void Compiler::lvaRetypeImplicitByRefParams()
                     fieldLcl->lvIsRegArg      = false;
                     fieldLcl->lvIsMultiRegArg = false;
                     fieldLcl->SetArgReg(REG_NA);
-#if FEATURE_MULTIREG_ARGS
-                    fieldLcl->SetOtherArgReg(REG_NA);
+#ifdef UNIX_AMD64_ABI
+                    fieldLcl->SetParamReg(1, REG_NA);
 #endif
                 }
 
@@ -3641,8 +3641,8 @@ void Compiler::lvaRetypeImplicitByRefParams()
                     fieldLcl->lvIsRegArg      = false;
                     fieldLcl->lvIsMultiRegArg = false;
                     fieldLcl->SetArgReg(REG_NA);
-#if FEATURE_MULTIREG_ARGS
-                    fieldLcl->SetOtherArgReg(REG_NA);
+#ifdef UNIX_AMD64_ABI
+                    fieldLcl->SetParamReg(1, REG_NA);
 #endif
                 }
 

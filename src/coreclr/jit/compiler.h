@@ -605,10 +605,9 @@ private:
 
     regNumberSmall _lvArgReg; // The (first) register in which this argument is passed.
 
-#if FEATURE_MULTIREG_ARGS
-    regNumberSmall _lvOtherArgReg; // Used for the second part of the struct passed in a register.
-                                   // Note this is defined but not used by ARM32
-#endif                             // FEATURE_MULTIREG_ARGS
+#ifdef UNIX_AMD64_ABI
+    regNumberSmall _lvOtherArgReg;
+#endif
 
     regNumberSmall _lvArgInitReg; // the register into which the argument is moved at entry
 
@@ -640,14 +639,6 @@ public:
         assert(_lvArgReg == reg);
     }
 
-#if FEATURE_MULTIREG_ARGS
-    void SetOtherArgReg(regNumber reg)
-    {
-        _lvOtherArgReg = (regNumberSmall)reg;
-        assert(_lvOtherArgReg == reg);
-    }
-#endif
-
 #ifdef UNIX_AMD64_ABI
     regNumber GetParamReg(unsigned index)
     {
@@ -671,7 +662,7 @@ public:
         else
         {
             assert(index == 1);
-            return SetOtherArgReg(reg);
+            _lvOtherArgReg = static_cast<regNumberSmall>(reg);
         }
     }
 #endif

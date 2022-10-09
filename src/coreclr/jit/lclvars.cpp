@@ -433,8 +433,8 @@ void Compiler::lvaInitThisParam(InitVarDscInfo& paramInfo)
     lcl->lvOnFrame  = true;
 
     lcl->SetArgReg(genMapIntRegArgNumToRegNum(paramInfo.allocRegArg(TYP_INT)));
-#if FEATURE_MULTIREG_ARGS
-    lcl->SetOtherArgReg(REG_NA);
+#ifdef UNIX_AMD64_ABI
+    lcl->SetParamReg(1, REG_NA);
 #endif
 
     JITDUMP("'this' passed in register %s\n", getRegName(lcl->GetArgReg()));
@@ -480,8 +480,8 @@ void Compiler::lvaInitRetBufParam(InitVarDscInfo& paramInfo, bool useFixedRetBuf
         lcl->SetArgReg(genMapIntRegArgNumToRegNum(paramInfo.allocRegArg(TYP_INT)));
     }
 
-#if FEATURE_MULTIREG_ARGS
-    lcl->SetOtherArgReg(REG_NA);
+#ifdef UNIX_AMD64_ABI
+    lcl->SetParamReg(1, REG_NA);
 #endif
 
     assert(!lcl->lvIsRegArg || isValidIntArgReg(lcl->GetArgReg()));
@@ -514,8 +514,8 @@ void Compiler::lvaInitGenericsContextParam(InitVarDscInfo& paramInfo)
     {
         lcl->lvIsRegArg = true;
         lcl->SetArgReg(genMapIntRegArgNumToRegNum(paramInfo.allocRegArg(TYP_I_IMPL)));
-#if FEATURE_MULTIREG_ARGS
-        lcl->SetOtherArgReg(REG_NA);
+#ifdef UNIX_AMD64_ABI
+        lcl->SetParamReg(1, REG_NA);
 #endif
 
         JITDUMP("'GenCtxt' passed in register %s\n", getRegName(lcl->GetArgReg()));
@@ -567,8 +567,8 @@ void Compiler::lvaInitVarargsHandleParam(InitVarDscInfo& paramInfo)
 
         lcl->lvIsRegArg = true;
         lcl->SetArgReg(genMapIntRegArgNumToRegNum(regIndex));
-#if FEATURE_MULTIREG_ARGS
-        lcl->SetOtherArgReg(REG_NA);
+#ifdef UNIX_AMD64_ABI
+        lcl->SetParamReg(1, REG_NA);
 #endif
 
 #ifdef TARGET_ARM
@@ -678,9 +678,9 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
         {
             if (paramInfo.canEnreg(TYP_INT, 1) && !paramInfo.canEnreg(TYP_INT, slots))
             {
-                // Make sure this is always treated as STRUCT even if it's a SIMD type.
-                // The code below assigns x8 to "OtherArgReg", that's complete nonsense but
-                // AssignVirtualFrameOffsetToArg uses that to recognize this split param.
+                // Make sure this is always treated as STRUCT even if it's a SIMD type,
+                // since it's will be passed in an integer register (x7) rather than a
+                // vector register.
                 regType  = TYP_STRUCT;
                 regCount = 1;
             }
@@ -856,7 +856,6 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
             if (slots == 2)
             {
-                lcl->SetOtherArgReg(genMapIntRegArgNumToRegNum(regParamNum + 1));
                 lcl->lvIsMultiRegArg = true;
             }
         }
@@ -1094,8 +1093,8 @@ void Compiler::lvaInitVarDsc(LclVarDsc* varDsc, unsigned varNum, CorInfoType cor
 
     INDEBUG(varDsc->SetStackOffset(BAD_STK_OFFS);)
 
-#if FEATURE_MULTIREG_ARGS
-    varDsc->SetOtherArgReg(REG_NA);
+#ifdef UNIX_AMD64_ABI
+    varDsc->SetParamReg(1, REG_NA);
 #endif
 }
 
