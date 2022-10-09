@@ -2526,7 +2526,11 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
             for (unsigned regIndex = 0; regIndex < lcl->GetLayout()->GetSysVAmd64AbiRegCount(); regIndex++)
             {
                 regNumber regNum = lcl->GetParamReg(regIndex);
-                var_types regType;
+
+                if (emitter::isFloatReg(regNum) != isFloat)
+                {
+                    continue;
+                }
 
                 // Assumption 1:
                 // RyuJit backend depends on the assumption that on 64-Bit targets Vector3 size is rounded off
@@ -2552,6 +2556,8 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
                 // single xmm reg. Hence RyuJIT explicitly generates code to clears upper 4-bytes of Vector3
                 // type args in prolog and Vector3 type return value of a call
 
+                var_types regType;
+
                 if (lcl->TypeIs(TYP_SIMD12))
                 {
                     regType = TYP_DOUBLE;
@@ -2563,22 +2569,19 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
 
                 paramRegIndex = genMapRegNumToRegArgNum(regNum, regType);
 
-                if (varTypeUsesFloatReg(lcl->GetLayout()->GetSysVAmd64AbiRegType(regIndex)) == isFloat)
+                if (regCount == 0)
                 {
-                    if (regCount == 0)
-                    {
-                        firstRegIndex = paramRegIndex;
-                    }
-
-                    noway_assert(paramRegIndex < paramRegCount);
-                    noway_assert(paramRegs[paramRegIndex].regIndex == 0);
-
-                    paramRegs[paramRegIndex].lclNum   = lclNum;
-                    paramRegs[paramRegIndex].regIndex = static_cast<uint8_t>(regIndex + 1);
-                    paramRegs[paramRegIndex].type     = regType;
-
-                    regCount++;
+                    firstRegIndex = paramRegIndex;
                 }
+
+                noway_assert(paramRegIndex < paramRegCount);
+                noway_assert(paramRegs[paramRegIndex].regIndex == 0);
+
+                paramRegs[paramRegIndex].lclNum   = lclNum;
+                paramRegs[paramRegIndex].regIndex = static_cast<uint8_t>(regIndex + 1);
+                paramRegs[paramRegIndex].type     = regType;
+
+                regCount++;
             }
 
             if (regCount == 0)
