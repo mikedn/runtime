@@ -6628,54 +6628,52 @@ void CodeGen::genFnProlog()
     genClearStackVec3ArgUpperBits();
 #endif // UNIX_AMD64_ABI && FEATURE_SIMD
 
-    /*-----------------------------------------------------------------------------
-     * Take care of register arguments first
-     */
-
-    RegState* regState;
-
-    // Update the arg initial register locations.
     compiler->lvaUpdateArgsWithInitialReg();
 
     // Home incoming arguments and generate any required inits.
     // OSR handles this by moving the values from the original frame.
-    //
     if (!compiler->opts.IsOSR())
     {
-        FOREACH_REGISTER_FILE(regState)
+        if (intRegState.rsCalleeRegArgMaskLiveIn != RBM_NONE)
         {
-            if (regState->rsCalleeRegArgMaskLiveIn)
+            // If we need an extra register to shuffle around the incoming registers
+            // we will use xtraReg (initReg) and set the xtraRegClobbered flag,
+            // if we don't need to use the xtraReg then this flag will stay false
+            regNumber xtraReg;
+            bool      xtraRegClobbered = false;
+
+            if ((genRegMask(initReg) & RBM_ARG_REGS) != 0)
             {
-                // If we need an extra register to shuffle around the incoming registers
-                // we will use xtraReg (initReg) and set the xtraRegClobbered flag,
-                // if we don't need to use the xtraReg then this flag will stay false
-                //
-                regNumber xtraReg;
-                bool      xtraRegClobbered = false;
+                xtraReg = initReg;
+            }
+            else
+            {
+                xtraReg       = REG_SCRATCH;
+                initRegZeroed = false;
+            }
 
-                if (regState->rsIsFloat)
-                {
-                    xtraReg = REG_NA;
-                }
-                else if (genRegMask(initReg) & RBM_ARG_REGS)
-                {
-                    xtraReg = initReg;
-                }
-                else
-                {
-                    xtraReg       = REG_SCRATCH;
-                    initRegZeroed = false;
-                }
+            genFnPrologCalleeRegArgs(xtraReg, &xtraRegClobbered, &intRegState);
 
-                genFnPrologCalleeRegArgs(xtraReg, &xtraRegClobbered, regState);
-
-                // TODO-MIKE-Review: This should probably be done only for integer registers.
-                if (xtraRegClobbered)
-                {
-                    initRegZeroed = false;
-                }
+            if (xtraRegClobbered)
+            {
+                initRegZeroed = false;
             }
         }
+
+#ifndef TARGET_X86
+        if (floatRegState.rsCalleeRegArgMaskLiveIn != RBM_NONE)
+        {
+            bool xtraRegClobbered = false;
+
+            genFnPrologCalleeRegArgs(REG_NA, &xtraRegClobbered, &floatRegState);
+
+            // TODO-MIKE-Review: This should probably be done only for integer registers.
+            if (xtraRegClobbered)
+            {
+                initRegZeroed = false;
+            }
+        }
+#endif
 
         genPrologEnregisterIncomingStackParams();
     }
