@@ -3026,15 +3026,15 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
         {
             paramRegs[paramRegIndex].processed = true;
             liveParamRegs &= ~genRegMask(srcRegNum);
-        }
 
 #ifdef TARGET_ARM
-        if ((storeType == TYP_DOUBLE) && !paramRegs[paramRegIndex].writeThru)
-        {
-            paramRegs[paramRegIndex + 1].processed = true;
-            liveParamRegs &= ~genRegMask(REG_NEXT(srcRegNum));
-        }
+            if (storeType == TYP_DOUBLE)
+            {
+                paramRegs[paramRegIndex + 1].processed = true;
+                liveParamRegs &= ~genRegMask(REG_NEXT(srcRegNum));
+            }
 #endif
+        }
     }
 
     // Process any circular dependencies
