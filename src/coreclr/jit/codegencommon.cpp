@@ -2699,8 +2699,10 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
                 }
 
                 paramRegs[paramRegIndex + i].processed = true;
+                paramRegs[paramRegIndex + i].circular  = false;
+                liveParamRegs &= ~genRegMask(regNum);
 
-                goto NON_DEP;
+                continue;
             }
 
 #ifdef TARGET_ARM
@@ -2725,35 +2727,38 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
             // If it goes on the stack or in a register that doesn't hold
             // an argument anymore -> CANNOT form a circular dependency.
 
-            if (lcl->lvIsInReg() && ((genRegMask(regNum) & liveParamRegs) != RBM_NONE))
+            if (!lcl->lvIsInReg() || ((genRegMask(regNum) & liveParamRegs) == RBM_NONE))
             {
-                // Will trash another argument -> possible dependency
-                // We may need several passes after the table is constructed
-                // to decide on that.
-                // Maybe the argument stays in the register (IDEAL)
+                paramRegs[paramRegIndex + i].circular = false;
+                liveParamRegs &= ~genRegMask(regNum);
 
-                if ((i == 0) && (lcl->GetRegNum() == regNum))
-                {
-                    goto NON_DEP;
-                }
+                continue;
+            }
+
+            // Will trash another argument -> possible dependency
+            // We may need several passes after the table is constructed
+            // to decide on that.
+            // Maybe the argument stays in the register (IDEAL)
+
+            if ((i == 0) && (lcl->GetRegNum() == regNum))
+            {
+                paramRegs[paramRegIndex + i].circular = false;
+                liveParamRegs &= ~genRegMask(regNum);
+
+                continue;
+            }
 
 #ifndef TARGET_64BIT
-                if ((i == 1) && lcl->TypeIs(TYP_DOUBLE) && (REG_NEXT(lcl->GetRegNum()) == regNum))
-                {
-                    goto NON_DEP;
-                }
+            if ((i == 1) && lcl->TypeIs(TYP_DOUBLE) && (REG_NEXT(lcl->GetRegNum()) == regNum))
+            {
+                paramRegs[paramRegIndex + i].circular = false;
+                liveParamRegs &= ~genRegMask(regNum);
+
+                continue;
+            }
 #endif
 
-                paramRegs[paramRegIndex + i].circular = true;
-            }
-            else
-            {
-            NON_DEP:
-                paramRegs[paramRegIndex + i].circular = false;
-
-                // mark the argument register as free
-                liveParamRegs &= ~genRegMask(regNum);
-            }
+            paramRegs[paramRegIndex + i].circular = true;
         }
     }
 
