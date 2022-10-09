@@ -3116,33 +3116,28 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
 
         unsigned   destLclNum = paramRegs[destRegIndex].lclNum;
         LclVarDsc* destLcl    = compiler->lvaGetDesc(destLclNum);
-
-        unsigned   srcLclNum = paramRegs[srcRegIndex].lclNum;
-        LclVarDsc* srcLcl    = compiler->lvaGetDesc(srcLclNum);
-
-        emitAttr size = EA_PTRSIZE;
+        unsigned   srcLclNum  = paramRegs[srcRegIndex].lclNum;
+        LclVarDsc* srcLcl     = compiler->lvaGetDesc(srcLclNum);
 
 #ifdef TARGET_XARCH
         if (destRegIndex == paramRegs[srcRegIndex].trashBy)
         {
             // Only 2 registers form the circular dependency - use "xchg".
 
-            unsigned   lclNum = paramRegs[paramRegIndex].lclNum;
-            LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
-
             noway_assert(varTypeSize(varActualType(srcLcl->GetType())) <= REGSIZE_BYTES);
+            noway_assert(destLcl->GetParamReg() == srcLcl->GetRegNum());
 
             // Set "size" to indicate GC if one and only one of the operands is a pointer.
             // RATIONALE: If both are pointers, nothing changes in the GC pointer tracking.
             // If only one is a pointer we have to "swap" the registers in the GC reg
             // pointer mask
 
+            emitAttr size = EA_PTRSIZE;
+
             if (varTypeGCtype(srcLcl->GetType()) != varTypeGCtype(destLcl->GetType()))
             {
                 size = EA_GCREF;
             }
-
-            noway_assert(destLcl->GetParamReg() == srcLcl->GetRegNum());
 
             GetEmitter()->emitIns_R_R(INS_xchg, size, srcLcl->GetRegNum(), srcLcl->GetParamReg());
             regSet.verifyRegUsed(srcLcl->GetRegNum());
@@ -3158,137 +3153,85 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
             psiMoveToReg(srcLclNum);
             psiMoveToReg(destLclNum);
 #endif
+            continue;
         }
-        else
 #endif // TARGET_XARCH
-        {
-            var_types destMemType = destLcl->GetType();
+
+        var_types destMemType = destLcl->GetType();
+        emitAttr  size        = EA_PTRSIZE;
 
 #ifdef TARGET_ARM
-            bool cycleAllDouble = true; // assume the best
+        bool cycleAllDouble = true; // assume the best
 
-            unsigned iter = beginRegIndex;
-            do
+        unsigned iter = beginRegIndex;
+        do
+        {
+            if (!compiler->lvaGetDesc(paramRegs[iter].lclNum)->TypeIs(TYP_DOUBLE))
             {
-                if (!compiler->lvaGetDesc(paramRegs[iter].lclNum)->TypeIs(TYP_DOUBLE))
-                {
-                    cycleAllDouble = false;
-                    break;
-                }
-
-                iter = paramRegs[iter].trashBy;
-            } while (iter != beginRegIndex);
-
-            // We may treat doubles as floats for ARM because we could have partial circular
-            // dependencies of a float with a lo/hi part of the double. We mark the
-            // trashBy values for each slot of the double, so let the circular dependency
-            // logic work its way out for floats rather than doubles. If a cycle has all
-            // doubles, then optimize so that instead of two vmov.f32's to move a double,
-            // we can use one vmov.f64.
-
-            if (!cycleAllDouble && destMemType == TYP_DOUBLE)
-            {
-                destMemType = TYP_FLOAT;
+                cycleAllDouble = false;
+                break;
             }
+
+            iter = paramRegs[iter].trashBy;
+        } while (iter != beginRegIndex);
+
+        // We may treat doubles as floats for ARM because we could have partial circular
+        // dependencies of a float with a lo/hi part of the double. We mark the
+        // trashBy values for each slot of the double, so let the circular dependency
+        // logic work its way out for floats rather than doubles. If a cycle has all
+        // doubles, then optimize so that instead of two vmov.f32's to move a double,
+        // we can use one vmov.f64.
+
+        if (!cycleAllDouble && destMemType == TYP_DOUBLE)
+        {
+            destMemType = TYP_FLOAT;
+        }
 #endif // TARGET_ARM
 
-            if (destMemType == TYP_REF)
-            {
-                size = EA_GCREF;
-            }
-            else if (destMemType == TYP_BYREF)
-            {
-                size = EA_BYREF;
-            }
-            else if (destMemType == TYP_DOUBLE)
-            {
-                size = EA_8BYTE;
-            }
-            else if (destMemType == TYP_FLOAT)
-            {
-                size = EA_4BYTE;
-            }
+        if (destMemType == TYP_REF)
+        {
+            size = EA_GCREF;
+        }
+        else if (destMemType == TYP_BYREF)
+        {
+            size = EA_BYREF;
+        }
+        else if (destMemType == TYP_DOUBLE)
+        {
+            size = EA_8BYTE;
+        }
+        else if (destMemType == TYP_FLOAT)
+        {
+            size = EA_4BYTE;
+        }
 
-            // Move the dest reg to the extra reg
+        // Move the dest reg to the extra reg
 
-            assert(tempReg != REG_NA);
+        assert(tempReg != REG_NA);
 
-            regNumber begRegNum = genMapRegArgNumToRegNum(beginRegIndex, destMemType);
-            GetEmitter()->emitIns_Mov(insCopy, size, tempReg, begRegNum, /* canSkip */ false);
-            regSet.verifyRegUsed(tempReg);
+        regNumber begRegNum = genMapRegArgNumToRegNum(beginRegIndex, destMemType);
+        GetEmitter()->emitIns_Mov(insCopy, size, tempReg, begRegNum, /* canSkip */ false);
+        regSet.verifyRegUsed(tempReg);
 
-            *tempRegClobbered = true;
+        *tempRegClobbered = true;
 #ifdef USING_SCOPE_INFO
-            psiMoveToReg(destLclNum, tempReg);
+        psiMoveToReg(destLclNum, tempReg);
 #endif
 
-            // Start moving everything to the right place.
-            while (srcRegIndex != beginRegIndex)
-            {
-                // mov dest, src
+        // Start moving everything to the right place.
+        while (srcRegIndex != beginRegIndex)
+        {
+            // mov dest, src
 
-                regNumber destRegNum = genMapRegArgNumToRegNum(destRegIndex, destMemType);
-                regNumber srcRegNum  = genMapRegArgNumToRegNum(srcRegIndex, destMemType);
-
-                GetEmitter()->emitIns_Mov(insCopy, size, destRegNum, srcRegNum, /* canSkip */ false);
-
-                regSet.verifyRegUsed(destRegNum);
-
-                // Mark src as processed.
-                noway_assert(srcRegIndex < paramRegCount);
-                paramRegs[srcRegIndex].processed = true;
-#ifdef TARGET_ARM
-                if (size == EA_8BYTE)
-                {
-                    paramRegs[srcRegIndex + 1].processed = true;
-                }
-#endif
-
-                liveParamRegs &= ~genMapArgNumToRegMask(srcRegIndex, destMemType);
-
-                // Move to the next pair.
-                destRegIndex = srcRegIndex;
-                srcRegIndex  = paramRegs[srcRegIndex].trashBy;
-
-                destLcl     = srcLcl;
-                destMemType = destLcl->GetType();
-
-#ifdef TARGET_ARM
-                if (!cycleAllDouble && (destMemType == TYP_DOUBLE))
-                {
-                    destMemType = TYP_FLOAT;
-                }
-#endif
-
-                srcLclNum = paramRegs[srcRegIndex].lclNum;
-                srcLcl    = compiler->lvaGetDesc(srcLclNum);
-
-                if (destMemType == TYP_REF)
-                {
-                    size = EA_GCREF;
-                }
-                else if (destMemType == TYP_DOUBLE)
-                {
-                    size = EA_8BYTE;
-                }
-                else
-                {
-                    size = EA_4BYTE;
-                }
-            }
-
-            // Take care of the first register.
-
-            noway_assert(srcRegIndex == beginRegIndex);
-
-            // move the dest reg (begReg) in the extra reg
             regNumber destRegNum = genMapRegArgNumToRegNum(destRegIndex, destMemType);
-            GetEmitter()->emitIns_Mov(insCopy, size, destRegNum, tempReg, /* canSkip */ false);
-            regSet.verifyRegUsed(destRegNum);
-#ifdef USING_SCOPE_INFO
-            psiMoveToReg(srcLclNum);
-#endif
+            regNumber srcRegNum  = genMapRegArgNumToRegNum(srcRegIndex, destMemType);
 
+            GetEmitter()->emitIns_Mov(insCopy, size, destRegNum, srcRegNum, /* canSkip */ false);
+
+            regSet.verifyRegUsed(destRegNum);
+
+            // Mark src as processed.
+            noway_assert(srcRegIndex < paramRegCount);
             paramRegs[srcRegIndex].processed = true;
 #ifdef TARGET_ARM
             if (size == EA_8BYTE)
@@ -3298,7 +3241,59 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
 #endif
 
             liveParamRegs &= ~genMapArgNumToRegMask(srcRegIndex, destMemType);
+
+            // Move to the next pair.
+            destRegIndex = srcRegIndex;
+            srcRegIndex  = paramRegs[srcRegIndex].trashBy;
+
+            destLcl     = srcLcl;
+            destMemType = destLcl->GetType();
+
+#ifdef TARGET_ARM
+            if (!cycleAllDouble && (destMemType == TYP_DOUBLE))
+            {
+                destMemType = TYP_FLOAT;
+            }
+#endif
+
+            srcLclNum = paramRegs[srcRegIndex].lclNum;
+            srcLcl    = compiler->lvaGetDesc(srcLclNum);
+
+            if (destMemType == TYP_REF)
+            {
+                size = EA_GCREF;
+            }
+            else if (destMemType == TYP_DOUBLE)
+            {
+                size = EA_8BYTE;
+            }
+            else
+            {
+                size = EA_4BYTE;
+            }
         }
+
+        // Take care of the first register.
+
+        noway_assert(srcRegIndex == beginRegIndex);
+
+        // move the dest reg (begReg) in the extra reg
+        regNumber destRegNum = genMapRegArgNumToRegNum(destRegIndex, destMemType);
+        GetEmitter()->emitIns_Mov(insCopy, size, destRegNum, tempReg, /* canSkip */ false);
+        regSet.verifyRegUsed(destRegNum);
+#ifdef USING_SCOPE_INFO
+        psiMoveToReg(srcLclNum);
+#endif
+
+        paramRegs[srcRegIndex].processed = true;
+#ifdef TARGET_ARM
+        if (size == EA_8BYTE)
+        {
+            paramRegs[srcRegIndex + 1].processed = true;
+        }
+#endif
+
+        liveParamRegs &= ~genMapArgNumToRegMask(srcRegIndex, destMemType);
     }
 
     // Finally take care of the remaining arguments that must be enregistered.
