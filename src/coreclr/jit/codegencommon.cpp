@@ -2826,8 +2826,7 @@ void CodeGen::genFnPrologCalleeRegArgs(RegState* regState, bool doingFloat, regN
                 }
 
 #ifndef TARGET_64BIT
-                if ((i == 1) && (genActualType(varDsc->TypeGet()) == TYP_DOUBLE) &&
-                    (REG_NEXT(varDsc->GetRegNum()) == regNum))
+                if ((i == 1) && varDsc->TypeIs(TYP_DOUBLE) && (REG_NEXT(varDsc->GetRegNum()) == regNum))
                 {
                     goto NON_DEP;
                 }
@@ -2935,7 +2934,7 @@ void CodeGen::genFnPrologCalleeRegArgs(RegState* regState, bool doingFloat, regN
                 else
                 {
                     assert(regArgTab[argNum].slot == 2);
-                    assert(varDsc->TypeGet() == TYP_DOUBLE);
+                    assert(varDsc->TypeIs(TYP_DOUBLE));
                     destRegNum = REG_NEXT(varDsc->GetRegNum());
                 }
 #endif // !defined(TARGET_64BIT)
@@ -3279,7 +3278,7 @@ void CodeGen::genFnPrologCalleeRegArgs(RegState* regState, bool doingFloat, regN
                 unsigned iter = begReg;
                 do
                 {
-                    if (compiler->lvaTable[regArgTab[iter].varNum].TypeGet() != TYP_DOUBLE)
+                    if (!compiler->lvaGetDesc(regArgTab[iter].varNum)->TypeIs(TYP_DOUBLE))
                     {
                         cycleAllDouble = false;
                         break;
@@ -3463,7 +3462,7 @@ void CodeGen::genFnPrologCalleeRegArgs(RegState* regState, bool doingFloat, regN
                 destRegNum = varDsc->GetRegNum();
 
 #ifdef TARGET_ARM
-                if (genActualType(destMemType) == TYP_DOUBLE && regArgTab[argNum + 1].processed)
+                if ((destMemType == TYP_DOUBLE) && regArgTab[argNum + 1].processed)
                 {
                     // The second half of the double has already been processed! Treat this as a single.
                     destMemType = TYP_FLOAT;
@@ -3471,10 +3470,11 @@ void CodeGen::genFnPrologCalleeRegArgs(RegState* regState, bool doingFloat, regN
 #endif // TARGET_ARM
             }
 #ifndef TARGET_64BIT
-            else if (regArgTab[argNum].slot == 2 && genActualType(destMemType) == TYP_LONG)
+            else if ((regArgTab[argNum].slot == 2) && (destMemType == TYP_LONG))
             {
-                assert(genActualType(varDsc->TypeGet()) == TYP_LONG || genActualType(varDsc->TypeGet()) == TYP_DOUBLE);
-                if (genActualType(varDsc->TypeGet()) == TYP_DOUBLE)
+                assert(varDsc->TypeIs(TYP_DOUBLE, TYP_LONG));
+
+                if (varDsc->TypeIs(TYP_DOUBLE))
                 {
                     destRegNum = regNum;
                 }
@@ -3549,7 +3549,7 @@ void CodeGen::genFnPrologCalleeRegArgs(RegState* regState, bool doingFloat, regN
                 regMaskTP destMask = genRegMask(destRegNum);
 #ifdef TARGET_ARM
                 // Don't process the double until both halves of the destination are clear.
-                if (genActualType(destMemType) == TYP_DOUBLE)
+                if (destMemType == TYP_DOUBLE)
                 {
                     assert((destMask & RBM_DBL_REGS) != 0);
                     destMask |= genRegMask(REG_NEXT(destRegNum));
@@ -3589,7 +3589,7 @@ void CodeGen::genFnPrologCalleeRegArgs(RegState* regState, bool doingFloat, regN
 #if FEATURE_MULTIREG_ARGS
             int argRegCount = 1;
 #ifdef TARGET_ARM
-            if (genActualType(destMemType) == TYP_DOUBLE)
+            if (destMemType == TYP_DOUBLE)
             {
                 argRegCount = 2;
             }
