@@ -2900,16 +2900,6 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
 
     for (unsigned paramRegIndex = 0; paramRegIndex < paramRegCount; paramRegIndex++)
     {
-#ifdef UNIX_AMD64_ABI
-        if (paramRegs[paramRegIndex].type == TYP_UNDEF)
-        {
-            // This could happen if the reg in paramRegs[paramRegIndex] is of the other register file -
-            // for System V register passed structs where the first reg is GPR and the second an XMM reg.
-            // The next register file processing will process it.
-            continue;
-        }
-#endif
-
         if (paramRegs[paramRegIndex].processed)
         {
             continue;
