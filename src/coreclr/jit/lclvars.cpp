@@ -3918,18 +3918,6 @@ int Compiler::lvaAssignParamVirtualFrameOffset(LclVarDsc* lcl, unsigned size, in
 {
     if (lcl->IsRegParam())
     {
-#if TARGET_WINDOWS
-        // Register arguments on ARM64 only take stack space when they have a frame home.
-        // Unless on Windows and in a vararg method where we can have a struct param that
-        // is split between the last integer param register and a stack slot.
-        if (info.compIsVarArgs && lcl->TypeIs(TYP_STRUCT) && (lcl->GetOtherArgReg() >= MAX_REG_ARG) &&
-            (lcl->GetOtherArgReg() != REG_NA))
-        {
-            lcl->SetStackOffset(lcl->GetStackOffset() + REGSIZE_BYTES);
-            offset += REGSIZE_BYTES;
-        }
-#endif // TARGET_WINDOWS
-
         return offset;
     }
 
