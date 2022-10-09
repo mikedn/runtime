@@ -432,7 +432,7 @@ void Compiler::lvaInitThisParam(InitVarDscInfo& paramInfo)
     lcl->lvIsRegArg = true;
     lcl->lvOnFrame  = true;
 
-    lcl->SetArgReg(genMapIntRegArgNumToRegNum(paramInfo.allocRegArg(TYP_INT)));
+    lcl->SetParamReg(genMapIntRegArgNumToRegNum(paramInfo.allocRegArg(TYP_INT)));
 #ifdef UNIX_AMD64_ABI
     lcl->SetParamReg(1, REG_NA);
 #endif
@@ -470,14 +470,14 @@ void Compiler::lvaInitRetBufParam(InitVarDscInfo& paramInfo, bool useFixedRetBuf
     if (useFixedRetBufReg)
     {
         lcl->lvIsRegArg = true;
-        lcl->SetArgReg(REG_ARG_RET_BUFF);
+        lcl->SetParamReg(REG_ARG_RET_BUFF);
     }
     else
 #endif
         if (paramInfo.canEnreg(TYP_INT))
     {
         lcl->lvIsRegArg = true;
-        lcl->SetArgReg(genMapIntRegArgNumToRegNum(paramInfo.allocRegArg(TYP_INT)));
+        lcl->SetParamReg(genMapIntRegArgNumToRegNum(paramInfo.allocRegArg(TYP_INT)));
     }
 
 #ifdef UNIX_AMD64_ABI
@@ -513,7 +513,7 @@ void Compiler::lvaInitGenericsContextParam(InitVarDscInfo& paramInfo)
     if (paramInfo.canEnreg(TYP_I_IMPL))
     {
         lcl->lvIsRegArg = true;
-        lcl->SetArgReg(genMapIntRegArgNumToRegNum(paramInfo.allocRegArg(TYP_I_IMPL)));
+        lcl->SetParamReg(genMapIntRegArgNumToRegNum(paramInfo.allocRegArg(TYP_I_IMPL)));
 #ifdef UNIX_AMD64_ABI
         lcl->SetParamReg(1, REG_NA);
 #endif
@@ -566,7 +566,7 @@ void Compiler::lvaInitVarargsHandleParam(InitVarDscInfo& paramInfo)
         unsigned regIndex = paramInfo.allocRegArg(TYP_I_IMPL);
 
         lcl->lvIsRegArg = true;
-        lcl->SetArgReg(genMapIntRegArgNumToRegNum(regIndex));
+        lcl->SetParamReg(genMapIntRegArgNumToRegNum(regIndex));
 #ifdef UNIX_AMD64_ABI
         lcl->SetParamReg(1, REG_NA);
 #endif
@@ -852,7 +852,7 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
         {
             unsigned regParamNum = paramInfo.allocRegArg(TYP_INT, slots);
 
-            lcl->SetArgReg(genMapIntRegArgNumToRegNum(regParamNum));
+            lcl->SetParamReg(genMapIntRegArgNumToRegNum(regParamNum));
 
             if (slots == 2)
             {
@@ -865,20 +865,20 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
         {
             unsigned regParamNum = paramInfo.allocRegArg(TYP_INT, 2);
 
-            lcl->SetArgReg(genMapIntRegArgNumToRegNum(regParamNum));
+            lcl->SetParamReg(genMapIntRegArgNumToRegNum(regParamNum));
         }
         else if (varTypeIsStruct(regType))
         {
             unsigned regParamNum = paramInfo.allocRegArg(TYP_INT, slots);
 
-            lcl->SetArgReg(genMapIntRegArgNumToRegNum(regParamNum));
+            lcl->SetParamReg(genMapIntRegArgNumToRegNum(regParamNum));
         }
         else
 #endif
         {
             unsigned regParamNum = paramInfo.allocRegArg(regType, slots);
 
-            lcl->SetArgReg(genMapRegArgNumToRegNum(regParamNum, regType));
+            lcl->SetParamReg(genMapRegArgNumToRegNum(regParamNum, regType));
         }
 
         JITDUMP("Param V%02u registers: ", paramInfo.varNum);

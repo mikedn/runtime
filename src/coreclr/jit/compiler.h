@@ -633,10 +633,9 @@ public:
         return (regNumber)_lvArgReg;
     }
 
-    void SetArgReg(regNumber reg)
+    void SetParamReg(regNumber reg)
     {
-        _lvArgReg = (regNumberSmall)reg;
-        assert(_lvArgReg == reg);
+        _lvArgReg = static_cast<regNumberSmall>(reg);
     }
 
 #ifdef UNIX_AMD64_ABI
@@ -657,7 +656,7 @@ public:
     {
         if (index == 0)
         {
-            return SetArgReg(reg);
+            return SetParamReg(reg);
         }
         else
         {

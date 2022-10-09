@@ -2934,11 +2934,11 @@ void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
         fieldLcl->lvIsRegArg = true;
 
 #if !FEATURE_MULTIREG_ARGS
-        fieldLcl->SetArgReg(lcl->GetArgReg());
+        fieldLcl->SetParamReg(lcl->GetArgReg());
 #else
         if (lcl->IsImplicitByRefParam())
         {
-            fieldLcl->SetArgReg(lcl->GetArgReg());
+            fieldLcl->SetParamReg(lcl->GetArgReg());
             continue;
         }
 
@@ -2979,7 +2979,7 @@ void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
             // TODO-ARMARCH: Need to determine if/how to handle split args.
         }
 
-        fieldLcl->SetArgReg(static_cast<regNumber>(lcl->GetArgReg() + regIndex));
+        fieldLcl->SetParamReg(static_cast<regNumber>(lcl->GetArgReg() + regIndex));
 #endif // !UNIX_AMD64_ABI
 #endif // FEATURE_MULTIREG_ARGS
     }
@@ -3580,7 +3580,7 @@ void Compiler::lvaRetypeImplicitByRefParams()
                     fieldLcl->lvIsParam       = false;
                     fieldLcl->lvIsRegArg      = false;
                     fieldLcl->lvIsMultiRegArg = false;
-                    fieldLcl->SetArgReg(REG_NA);
+                    fieldLcl->SetParamReg(REG_NA);
 #ifdef UNIX_AMD64_ABI
                     fieldLcl->SetParamReg(1, REG_NA);
 #endif
@@ -3640,7 +3640,7 @@ void Compiler::lvaRetypeImplicitByRefParams()
                     fieldLcl->lvIsParam       = false;
                     fieldLcl->lvIsRegArg      = false;
                     fieldLcl->lvIsMultiRegArg = false;
-                    fieldLcl->SetArgReg(REG_NA);
+                    fieldLcl->SetParamReg(REG_NA);
 #ifdef UNIX_AMD64_ABI
                     fieldLcl->SetParamReg(1, REG_NA);
 #endif
