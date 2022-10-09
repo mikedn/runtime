@@ -322,10 +322,6 @@ class LclVarDsc
 {
 public:
     LclVarDsc()
-        : _lvArgReg(REG_STK)
-#if FEATURE_MULTIREG_ARGS
-        , _lvOtherArgReg(REG_STK)
-#endif
     {
         // It is expected that the memory allocated for LclVarDsc is already zeroed.
         assert(lvType == TYP_UNDEF);
@@ -603,10 +599,10 @@ private:
                               // to non-zero if the variable gets the same register assignment for its entire
                               // lifetime).
 
-    regNumberSmall _lvArgReg; // The (first) register in which this argument is passed.
-
 #ifdef UNIX_AMD64_ABI
-    regNumberSmall _lvOtherArgReg;
+    regNumberSmall m_paramRegs[2]{REG_STK, REG_STK};
+#else
+    regNumberSmall m_paramRegs[1]{REG_STK};
 #endif
 
     regNumberSmall _lvArgInitReg; // the register into which the argument is moved at entry
@@ -630,39 +626,25 @@ public:
 
     regNumber GetArgReg() const
     {
-        return (regNumber)_lvArgReg;
+        return static_cast<regNumber>(m_paramRegs[0]);
     }
 
     void SetParamReg(regNumber reg)
     {
-        _lvArgReg = static_cast<regNumberSmall>(reg);
+        m_paramRegs[0] = static_cast<regNumberSmall>(reg);
     }
 
 #ifdef UNIX_AMD64_ABI
     regNumber GetParamReg(unsigned index)
     {
-        if (index == 0)
-        {
-            return GetArgReg();
-        }
-        else
-        {
-            assert(index == 1);
-            return static_cast<regNumber>(_lvOtherArgReg);
-        }
+        assert(index < _countof(m_paramRegs));
+        return static_cast<regNumber>(m_paramRegs[index]);
     }
 
     void SetParamReg(unsigned index, regNumber reg)
     {
-        if (index == 0)
-        {
-            return SetParamReg(reg);
-        }
-        else
-        {
-            assert(index == 1);
-            _lvOtherArgReg = static_cast<regNumberSmall>(reg);
-        }
+        assert(index < _countof(m_paramRegs));
+        m_paramRegs[index] = static_cast<regNumberSmall>(reg);
     }
 #endif
 
