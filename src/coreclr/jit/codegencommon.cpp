@@ -2913,21 +2913,19 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
         unsigned   lclNum = paramRegs[paramRegIndex].lclNum;
         LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
 
-#ifndef TARGET_64BIT
         // If this arg is never on the stack, go to the next one.
-        if (lcl->TypeIs(TYP_LONG))
+        if (!paramRegs[paramRegIndex].stackArg && !paramRegs[paramRegIndex].writeThru)
         {
-            if ((paramRegs[paramRegIndex].regIndex == 0) && !paramRegs[paramRegIndex].stackArg &&
-                !paramRegs[paramRegIndex].writeThru)
+#ifndef TARGET_64BIT
+            if (lcl->TypeIs(TYP_LONG))
             {
-                continue;
+                if (paramRegs[paramRegIndex].regIndex == 0)
+                {
+                    continue;
+                }
             }
-        }
-        else
-#endif // !TARGET_64BIT
-        {
-            // If this arg is never on the stack, go to the next one.
-            if (!paramRegs[paramRegIndex].stackArg && !paramRegs[paramRegIndex].writeThru)
+            else
+#endif
             {
                 continue;
             }
