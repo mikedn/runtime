@@ -2432,7 +2432,7 @@ void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbere
     // If necessary we will select a correct xtraReg for circular floating point args later.
     if (doingFloat)
     {
-        xtraReg = REG_NA;
+        assert(xtraReg == REG_NA);
         noway_assert(argMax <= MAX_FLOAT_REG_ARG);
     }
     else // we are doing the integer registers
@@ -6653,7 +6653,11 @@ void CodeGen::genFnProlog()
                 regNumber xtraReg;
                 bool      xtraRegClobbered = false;
 
-                if (genRegMask(initReg) & RBM_ARG_REGS)
+                if (regState->rsIsFloat)
+                {
+                    xtraReg = REG_NA;
+                }
+                else if (genRegMask(initReg) & RBM_ARG_REGS)
                 {
                     xtraReg = initReg;
                 }
@@ -6665,6 +6669,7 @@ void CodeGen::genFnProlog()
 
                 genFnPrologCalleeRegArgs(xtraReg, &xtraRegClobbered, regState);
 
+                // TODO-MIKE-Review: This should probably be done only for integer registers.
                 if (xtraRegClobbered)
                 {
                     initRegZeroed = false;
