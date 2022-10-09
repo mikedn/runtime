@@ -2575,10 +2575,10 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
                 }
 
                 noway_assert(paramRegIndex < paramRegCount);
-                noway_assert(paramRegs[paramRegIndex].regIndex == 0);
+                noway_assert(paramRegs[paramRegIndex].type == TYP_UNDEF);
 
                 paramRegs[paramRegIndex].lclNum   = lclNum;
-                paramRegs[paramRegIndex].regIndex = static_cast<uint8_t>(regIndex + 1);
+                paramRegs[paramRegIndex].regIndex = static_cast<uint8_t>(regIndex);
                 paramRegs[paramRegIndex].type     = regType;
 
                 regCount++;
@@ -2656,10 +2656,10 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
 
             for (unsigned i = 0; i < regCount; i++)
             {
-                noway_assert(paramRegs[paramRegIndex + i].regIndex == 0);
+                noway_assert(paramRegs[paramRegIndex + i].type == TYP_UNDEF);
 
                 paramRegs[paramRegIndex + i].lclNum   = lclNum;
-                paramRegs[paramRegIndex + i].regIndex = static_cast<uint8_t>(i + 1);
+                paramRegs[paramRegIndex + i].regIndex = static_cast<uint8_t>(i);
                 paramRegs[paramRegIndex + i].type     = regType;
             }
         }
@@ -2780,7 +2780,7 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
                     continue;
                 }
 
-                if (paramRegs[paramRegIndex].regIndex == 0) // Not a register argument
+                if (paramRegs[paramRegIndex].type == TYP_UNDEF) // Not a register argument
                 {
                     continue;
                 }
@@ -2800,11 +2800,10 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
 
                 if (varTypeIsStruct(lcl->GetType()) && lcl->IsIndependentPromoted())
                 {
-                    destRegNum =
-                        compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(paramRegs[paramRegIndex].regIndex - 1))
-                            ->GetRegNum();
+                    destRegNum = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(paramRegs[paramRegIndex].regIndex))
+                                     ->GetRegNum();
                 }
-                else if (paramRegs[paramRegIndex].regIndex == 1)
+                else if (paramRegs[paramRegIndex].regIndex == 0)
                 {
                     destRegNum = lcl->GetRegNum();
                 }
@@ -2814,7 +2813,7 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
                     // This must be a SIMD type that's fully enregistered, but is passed as an HFA.
                     // Each field will be inserted into the same destination register.
                     assert(varTypeIsSIMD(lcl->GetType()) && !lcl->GetLayout()->IsOpaqueVector());
-                    assert(paramRegs[paramRegIndex].regIndex <= lcl->GetLayout()->GetHfaRegCount());
+                    assert(paramRegs[paramRegIndex].regIndex < lcl->GetLayout()->GetHfaRegCount());
                     assert(paramRegIndex != 0);
                     assert(paramRegs[paramRegIndex - 1].lclNum == lclNum);
 
@@ -2829,9 +2828,9 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
 #ifdef UNIX_AMD64_ABI
                 else
                 {
-                    assert(paramRegs[paramRegIndex].regIndex == 2);
+                    assert(paramRegs[paramRegIndex].regIndex == 1);
                     assert(paramRegIndex > 0);
-                    assert(paramRegs[paramRegIndex - 1].regIndex == 1);
+                    assert(paramRegs[paramRegIndex - 1].regIndex == 0);
                     assert(paramRegs[paramRegIndex - 1].lclNum == lclNum);
                     assert((lclRegType == TYP_SIMD12) || (lclRegType == TYP_SIMD16));
 
@@ -2845,13 +2844,13 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
 #endif // UNIX_AMD64_ABI
 #ifndef TARGET_64BIT
                 // TODO-MIKE-Cleanup: This is likely dead code.
-                else if ((paramRegs[paramRegIndex].regIndex == 2) && lcl->TypeIs(TYP_LONG))
+                else if ((paramRegs[paramRegIndex].regIndex == 1) && lcl->TypeIs(TYP_LONG))
                 {
                     destRegNum = REG_STK;
                 }
                 else
                 {
-                    assert(paramRegs[paramRegIndex].regIndex == 2);
+                    assert(paramRegs[paramRegIndex].regIndex == 1);
                     assert(lcl->TypeIs(TYP_DOUBLE));
 
                     destRegNum = REG_NEXT(lcl->GetRegNum());
@@ -2918,7 +2917,7 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
             continue;
         }
 
-        if (paramRegs[paramRegIndex].regIndex == 0) // Not a register argument
+        if (paramRegs[paramRegIndex].type == TYP_UNDEF) // Not a register argument
         {
             continue;
         }
@@ -2931,7 +2930,7 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
         // If this arg is never on the stack, go to the next one.
         if (lcl->TypeIs(TYP_LONG))
         {
-            if ((paramRegs[paramRegIndex].regIndex == 1) && !paramRegs[paramRegIndex].stackArg &&
+            if ((paramRegs[paramRegIndex].regIndex == 0) && !paramRegs[paramRegIndex].stackArg &&
                 !paramRegs[paramRegIndex].writeThru)
             {
                 continue;
@@ -2948,9 +2947,9 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
         }
 
 #ifdef TARGET_ARM
-        if (lcl->TypeIs(TYP_DOUBLE) && (paramRegs[paramRegIndex].regIndex == 2))
+        if (lcl->TypeIs(TYP_DOUBLE) && (paramRegs[paramRegIndex].regIndex == 1))
         {
-            // We handled the entire double when processing the first half (slot == 1)
+            // We handled the entire double when processing the first half.
             continue;
         }
 #endif
@@ -2958,7 +2957,7 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
         noway_assert(!paramRegs[paramRegIndex].circular);
         noway_assert(lcl->IsParam() && lcl->IsRegParam());
         noway_assert(!lcl->lvIsInReg() || lcl->lvLiveInOutOfHndlr ||
-                     (lcl->TypeIs(TYP_LONG) && (paramRegs[paramRegIndex].regIndex == 2)));
+                     (lcl->TypeIs(TYP_LONG) && (paramRegs[paramRegIndex].regIndex == 1)));
 
         var_types storeType = TYP_UNDEF;
         unsigned  slotSize  = REGSIZE_BYTES;
@@ -3013,8 +3012,7 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
         }
         else
         {
-            // Since slot is typically 1, baseOffset is typically 0
-            unsigned baseOffset = (paramRegs[paramRegIndex].regIndex - 1) * slotSize;
+            unsigned baseOffset = paramRegs[paramRegIndex].regIndex * slotSize;
 
             GetEmitter()->emitIns_S_R(ins_Store(storeType), size, srcRegNum, lclNum, baseOffset);
 
@@ -3105,7 +3103,7 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
                 continue;
             }
 
-            if (paramRegs[paramRegIndex].regIndex == 0) // Not a register argument
+            if (paramRegs[paramRegIndex].type == TYP_UNDEF) // Not a register argument
             {
                 continue;
             }
@@ -3323,9 +3321,8 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
                 continue;
             }
 
-            if (paramRegs[paramRegIndex].regIndex == 0)
+            if (paramRegs[paramRegIndex].type == TYP_UNDEF) // Not a register argument
             {
-                // Not a register argument
                 continue;
             }
 
@@ -3360,7 +3357,7 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
             regNumber destRegNum  = REG_NA;
             var_types destMemType = lcl->GetRegisterType();
 
-            if (paramRegs[paramRegIndex].regIndex == 1)
+            if (paramRegs[paramRegIndex].regIndex == 0)
             {
                 destRegNum = lcl->GetRegNum();
 
@@ -3373,7 +3370,7 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
 #endif
             }
 #ifndef TARGET_64BIT
-            else if ((paramRegs[paramRegIndex].regIndex == 2) && (destMemType == TYP_LONG))
+            else if ((paramRegs[paramRegIndex].regIndex == 1) && (destMemType == TYP_LONG))
             {
                 assert(lcl->TypeIs(TYP_DOUBLE, TYP_LONG));
 
@@ -3391,7 +3388,7 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
             }
             else
             {
-                assert(paramRegs[paramRegIndex].regIndex == 2);
+                assert(paramRegs[paramRegIndex].regIndex == 1);
                 assert(destMemType == TYP_DOUBLE);
 
                 // For doubles, we move the entire double using the paramRegIndex representing
@@ -3412,7 +3409,7 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
                 // Because there are no circularities left, we are guaranteed to terminate.
 
                 assert(paramRegIndex > 0);
-                assert(paramRegs[paramRegIndex - 1].regIndex == 1);
+                assert(paramRegs[paramRegIndex - 1].regIndex == 0);
 
                 if (!paramRegs[paramRegIndex - 1].processed)
                 {
@@ -3433,9 +3430,9 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
 #if defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
             else
             {
-                assert(paramRegs[paramRegIndex].regIndex == 2);
+                assert(paramRegs[paramRegIndex].regIndex == 1);
                 assert(paramRegIndex > 0);
-                assert(paramRegs[paramRegIndex - 1].regIndex == 1);
+                assert(paramRegs[paramRegIndex - 1].regIndex == 0);
                 assert((lclRegType == TYP_SIMD12) || (lclRegType == TYP_SIMD16));
 
                 destRegNum = lcl->GetRegNum();
@@ -3476,7 +3473,7 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
 
 #ifdef TARGET_ARM64
                 if (varTypeIsSIMD(lcl->GetType()) && (paramRegIndex < paramRegCount - 1) &&
-                    (paramRegs[paramRegIndex + 1].regIndex == 2))
+                    (paramRegs[paramRegIndex + 1].regIndex == 1))
                 {
                     // For a SIMD type that is passed in two integer registers,
                     // Limit the copy below to the first 8 bytes from the first integer register.
@@ -3505,7 +3502,7 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
 
 #ifdef UNIX_AMD64_ABI
             if (varTypeIsStruct(lcl->GetType()) && (paramRegIndex < paramRegCount - 1) &&
-                (paramRegs[paramRegIndex + 1].regIndex == 2))
+                (paramRegs[paramRegIndex + 1].regIndex == 1))
             {
                 regCount = 2;
 
