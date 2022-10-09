@@ -111,12 +111,12 @@ bool Compiler::shouldDoubleAlign(unsigned             refCntStk,
 
 // The code to set the regState for each arg is outlined for shared use
 // by linear scan. (It is not shared for System V AMD64 platform.)
-regNumber Compiler::raUpdateRegStateForArg(RegState* regState, LclVarDsc* argDsc)
+regNumber Compiler::raUpdateRegStateForArg(RegState* regState, bool isFloatRegState, LclVarDsc* argDsc)
 {
     regNumber inArgReg  = argDsc->GetArgReg();
     regMaskTP inArgMask = genRegMask(inArgReg);
 
-    if (regState->rsIsFloat)
+    if (isFloatRegState)
     {
         noway_assert(inArgMask & RBM_FLTARG_REGS);
     }
@@ -147,11 +147,11 @@ regNumber Compiler::raUpdateRegStateForArg(RegState* regState, LclVarDsc* argDsc
         if (info.compIsVarArgs || opts.compUseSoftFP)
         {
             assert((inArgReg == REG_R0) || (inArgReg == REG_R2));
-            assert(!regState->rsIsFloat);
+            assert(!isFloatRegState);
         }
         else
         {
-            assert(regState->rsIsFloat);
+            assert(isFloatRegState);
             assert(emitter::isDoubleReg(inArgReg));
         }
         regState->rsCalleeRegArgMaskLiveIn |= genRegMask((regNumber)(inArgReg + 1));
@@ -159,7 +159,7 @@ regNumber Compiler::raUpdateRegStateForArg(RegState* regState, LclVarDsc* argDsc
     else if (argDsc->TypeIs(TYP_LONG))
     {
         assert((inArgReg == REG_R0) || (inArgReg == REG_R2));
-        assert(!regState->rsIsFloat);
+        assert(!isFloatRegState);
         regState->rsCalleeRegArgMaskLiveIn |= genRegMask((regNumber)(inArgReg + 1));
     }
 #endif // TARGET_ARM
@@ -169,7 +169,7 @@ regNumber Compiler::raUpdateRegStateForArg(RegState* regState, LclVarDsc* argDsc
     {
         if (argDsc->lvIsHfaRegArg())
         {
-            assert(regState->rsIsFloat);
+            assert(isFloatRegState);
             unsigned regCount = argDsc->GetLayout()->GetHfaRegCount();
 
             for (unsigned i = 1; i < regCount; i++)
@@ -180,7 +180,7 @@ regNumber Compiler::raUpdateRegStateForArg(RegState* regState, LclVarDsc* argDsc
         }
         else
         {
-            assert(!regState->rsIsFloat);
+            assert(!isFloatRegState);
             unsigned cSlots = argDsc->lvSize() / TARGET_POINTER_SIZE;
             for (unsigned i = 1; i < cSlots; i++)
             {

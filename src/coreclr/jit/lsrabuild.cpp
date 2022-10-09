@@ -1890,8 +1890,8 @@ void LinearScan::insertZeroInitRefPositions()
 //    argDsc - the LclVarDsc for the argument of interest
 //
 // Notes:
-//     See Compiler::raUpdateRegStateForArg(RegState *regState, LclVarDsc *argDsc) in regalloc.cpp
-//         for how state for argument is updated for unix non-structs and Windows AMD64 structs.
+//     See Compiler::raUpdateRegStateForArg  for how state for argument is updated
+//     for unix non-structs and Windows AMD64 structs.
 //
 void LinearScan::unixAmd64UpdateRegStateForArg(LclVarDsc* argDsc)
 {
@@ -1976,12 +1976,12 @@ void LinearScan::updateRegStateForArg(LclVarDsc* argDsc)
         if (isFloat)
         {
             JITDUMP("Float arg V%02u in reg %s\n", (argDsc - compiler->lvaTable), getRegName(argDsc->GetArgReg()));
-            compiler->raUpdateRegStateForArg(floatRegState, argDsc);
+            compiler->raUpdateRegStateForArg(floatRegState, true, argDsc);
         }
         else
         {
             JITDUMP("Int arg V%02u in reg %s\n", (argDsc - compiler->lvaTable), getRegName(argDsc->GetArgReg()));
-            compiler->raUpdateRegStateForArg(intRegState, argDsc);
+            compiler->raUpdateRegStateForArg(intRegState, false, argDsc);
         }
     }
 }

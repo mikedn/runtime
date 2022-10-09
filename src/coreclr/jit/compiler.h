@@ -6334,7 +6334,7 @@ protected:
     */
 
 public:
-    regNumber raUpdateRegStateForArg(RegState* regState, LclVarDsc* argDsc);
+    regNumber raUpdateRegStateForArg(RegState* regState, bool isFloatRegState, LclVarDsc* argDsc);
 
     void raMarkStkVars();
 

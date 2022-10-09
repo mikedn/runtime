@@ -659,9 +659,7 @@ LinearScan::LinearScan(Compiler* theCompiler)
         availableDoubleRegs &= ~RBM_CALLEE_SAVED;
     }
 #endif // TARGET_AMD64
-    compiler->codeGen->rpFrameType             = FT_NOT_SET;
-    compiler->codeGen->intRegState.rsIsFloat   = false;
-    compiler->codeGen->floatRegState.rsIsFloat = true;
+    compiler->codeGen->rpFrameType = FT_NOT_SET;
 
     // Block sequencing (the order in which we schedule).
     // Note that we don't initialize the bbVisitedSet until we do the first traversal

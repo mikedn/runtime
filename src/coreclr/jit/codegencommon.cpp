@@ -2396,12 +2396,11 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #pragma warning(push)
 #pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
 #endif
-void CodeGen::genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbered, RegState* regState)
+void CodeGen::genFnPrologCalleeRegArgs(RegState* regState, bool doingFloat, regNumber xtraReg, bool* pXtraRegClobbered)
 {
-    JITDUMP("*************** In genFnPrologCalleeRegArgs() for %s regs\n", regState->rsIsFloat ? "float" : "int");
+    JITDUMP("*************** In genFnPrologCalleeRegArgs() for %s regs\n", doingFloat ? "float" : "int");
 
     regMaskTP regArgMaskLive = regState->rsCalleeRegArgMaskLiveIn;
-    bool      doingFloat     = regState->rsIsFloat;
 
     // We should be generating the prolog block when we are called
     assert(compiler->compGeneratingProlog);
@@ -6652,7 +6651,7 @@ void CodeGen::genFnProlog()
                 initRegZeroed = false;
             }
 
-            genFnPrologCalleeRegArgs(xtraReg, &xtraRegClobbered, &intRegState);
+            genFnPrologCalleeRegArgs(&intRegState, false, xtraReg, &xtraRegClobbered);
 
             if (xtraRegClobbered)
             {
@@ -6665,7 +6664,7 @@ void CodeGen::genFnProlog()
         {
             bool xtraRegClobbered = false;
 
-            genFnPrologCalleeRegArgs(REG_NA, &xtraRegClobbered, &floatRegState);
+            genFnPrologCalleeRegArgs(&floatRegState, true, REG_NA, &xtraRegClobbered);
 
             // TODO-MIKE-Review: This should probably be done only for integer registers.
             if (xtraRegClobbered)

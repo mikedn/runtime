@@ -229,7 +229,7 @@ protected:
     //
 
     void genEstablishFramePointer(int delta, bool reportUnwindData);
-    void genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbered, RegState* regState);
+    void genFnPrologCalleeRegArgs(RegState* regState, bool isFloatRegState, regNumber xtraReg, bool* pXtraRegClobbered);
     void genPrologEnregisterIncomingStackParams();
     void genCheckUseBlockInit();
 #if defined(UNIX_AMD64_ABI) && defined(FEATURE_SIMD)
