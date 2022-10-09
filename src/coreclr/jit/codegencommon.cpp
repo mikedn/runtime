@@ -2702,7 +2702,6 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
                 }
 
                 paramRegs[paramRegIndex + i].processed = true;
-                paramRegs[paramRegIndex + i].circular  = false;
                 liveParamRegs &= ~genRegMask(regNum);
 
                 continue;
@@ -2721,10 +2720,7 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
                 noway_assert((liveParamRegs & genRegMask(regNum)) != RBM_NONE);
             }
 
-            paramRegs[paramRegIndex + i].processed = false;
             paramRegs[paramRegIndex + i].writeThru = lcl->lvIsInReg() && lcl->lvLiveInOutOfHndlr;
-
-            // Mark stack arguments since we will take care of those first.
             paramRegs[paramRegIndex + i].stackArg = !lcl->lvIsInReg();
 
             // If it goes on the stack or in a register that doesn't hold
@@ -2732,7 +2728,6 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
 
             if (!lcl->lvIsInReg() || ((genRegMask(regNum) & liveParamRegs) == RBM_NONE))
             {
-                paramRegs[paramRegIndex + i].circular = false;
                 liveParamRegs &= ~genRegMask(regNum);
 
                 continue;
@@ -2745,7 +2740,6 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
 
             if ((i == 0) && (lcl->GetRegNum() == regNum))
             {
-                paramRegs[paramRegIndex + i].circular = false;
                 liveParamRegs &= ~genRegMask(regNum);
 
                 continue;
@@ -2754,7 +2748,6 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
 #ifndef TARGET_64BIT
             if ((i == 1) && lcl->TypeIs(TYP_DOUBLE) && (REG_NEXT(lcl->GetRegNum()) == regNum))
             {
-                paramRegs[paramRegIndex + i].circular = false;
                 liveParamRegs &= ~genRegMask(regNum);
 
                 continue;
