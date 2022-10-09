@@ -2445,11 +2445,19 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
 
     regMaskTP liveParamRegs = regState.rsCalleeRegArgMaskLiveIn;
     liveParamRegs           = genPrologBuildParamRegsTable(paramRegs, paramRegCount, liveParamRegs, isFloat, tempReg);
-    genPrologMarkParamRegsCircularDependencies(paramRegs, paramRegCount, liveParamRegs);
+
+    if (liveParamRegs != RBM_NONE)
+    {
+        genPrologMarkParamRegsCircularDependencies(paramRegs, paramRegCount, liveParamRegs);
+    }
 
     liveParamRegs = regState.rsCalleeRegArgMaskLiveIn;
     liveParamRegs = genPrologSpillParamRegs(paramRegs, paramRegCount, liveParamRegs);
-    genPrologMoveParamRegs(paramRegs, paramRegCount, liveParamRegs, isFloat, tempReg, tempRegClobbered);
+
+    if (liveParamRegs != RBM_NONE)
+    {
+        genPrologMoveParamRegs(paramRegs, paramRegCount, liveParamRegs, isFloat, tempReg, tempRegClobbered);
+    }
 }
 
 regMaskTP CodeGen::genPrologBuildParamRegsTable(
@@ -2757,121 +2765,120 @@ void CodeGen::genPrologMarkParamRegsCircularDependencies(ParamRegInfo* paramRegs
                                                          unsigned      paramRegCount,
                                                          regMaskTP     liveParamRegs)
 {
+    assert(liveParamRegs != RBM_NONE);
+
     // Find the circular dependencies for the argument registers, if any.
     // A circular dependency is a set of registers R1, R2, ..., Rn
     // such that R1->R2 (that is, R1 needs to be moved to R2), R2->R3, ..., Rn->R1.
 
     bool change = true;
 
-    if (liveParamRegs != RBM_NONE)
+    // Possible circular dependencies still exist; the previous pass was not enough
+    // to filter them out. Use a "sieve" strategy to find all circular dependencies.
+    while (change)
     {
-        // Possible circular dependencies still exist; the previous pass was not enough
-        // to filter them out. Use a "sieve" strategy to find all circular dependencies.
-        while (change)
+        change = false;
+
+        for (unsigned paramRegIndex = 0; paramRegIndex < paramRegCount; paramRegIndex++)
         {
-            change = false;
-
-            for (unsigned paramRegIndex = 0; paramRegIndex < paramRegCount; paramRegIndex++)
+            if (!paramRegs[paramRegIndex].circular)
             {
-                if (!paramRegs[paramRegIndex].circular)
-                {
-                    continue;
-                }
+                continue;
+            }
 
-                if (paramRegs[paramRegIndex].type == TYP_UNDEF) // Not a register argument
-                {
-                    continue;
-                }
+            if (paramRegs[paramRegIndex].type == TYP_UNDEF) // Not a register argument
+            {
+                continue;
+            }
 
-                unsigned   lclNum = paramRegs[paramRegIndex].lclNum;
-                LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+            unsigned   lclNum = paramRegs[paramRegIndex].lclNum;
+            LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
 
-                // Cannot possibly have stack arguments.
-                noway_assert(lcl->lvIsInReg() && !paramRegs[paramRegIndex].stackArg);
+            // Cannot possibly have stack arguments.
+            noway_assert(lcl->lvIsInReg() && !paramRegs[paramRegIndex].stackArg);
 
-                const var_types lclRegType = lcl->GetRegisterType();
-                var_types       regType    = paramRegs[paramRegIndex].type;
-                regNumber       regNum     = genMapRegArgNumToRegNum(paramRegIndex, regType);
-                regNumber       destRegNum = REG_NA;
+            const var_types lclRegType = lcl->GetRegisterType();
+            var_types       regType    = paramRegs[paramRegIndex].type;
+            regNumber       regNum     = genMapRegArgNumToRegNum(paramRegIndex, regType);
+            regNumber       destRegNum = REG_NA;
 
-                if (varTypeIsStruct(lcl->GetType()) && lcl->IsIndependentPromoted())
-                {
-                    destRegNum = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(paramRegs[paramRegIndex].regIndex))
-                                     ->GetRegNum();
-                }
-                else if (paramRegs[paramRegIndex].regIndex == 0)
-                {
-                    destRegNum = lcl->GetRegNum();
-                }
+            if (varTypeIsStruct(lcl->GetType()) && lcl->IsIndependentPromoted())
+            {
+                destRegNum =
+                    compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(paramRegs[paramRegIndex].regIndex))->GetRegNum();
+            }
+            else if (paramRegs[paramRegIndex].regIndex == 0)
+            {
+                destRegNum = lcl->GetRegNum();
+            }
 #ifdef TARGET_ARM64
-                else if (lcl->lvIsHfaRegArg())
-                {
-                    // This must be a SIMD type that's fully enregistered, but is passed as an HFA.
-                    // Each field will be inserted into the same destination register.
-                    assert(varTypeIsSIMD(lcl->GetType()) && !lcl->GetLayout()->IsOpaqueVector());
-                    assert(paramRegs[paramRegIndex].regIndex < lcl->GetLayout()->GetHfaRegCount());
-                    assert(paramRegIndex != 0);
-                    assert(paramRegs[paramRegIndex - 1].lclNum == lclNum);
+            else if (lcl->lvIsHfaRegArg())
+            {
+                // This must be a SIMD type that's fully enregistered, but is passed as an HFA.
+                // Each field will be inserted into the same destination register.
+                assert(varTypeIsSIMD(lcl->GetType()) && !lcl->GetLayout()->IsOpaqueVector());
+                assert(paramRegs[paramRegIndex].regIndex < lcl->GetLayout()->GetHfaRegCount());
+                assert(paramRegIndex != 0);
+                assert(paramRegs[paramRegIndex - 1].lclNum == lclNum);
 
-                    liveParamRegs &= ~genRegMask(regNum);
-                    paramRegs[paramRegIndex].circular = false;
+                liveParamRegs &= ~genRegMask(regNum);
+                paramRegs[paramRegIndex].circular = false;
 
-                    change = true;
+                change = true;
 
-                    continue;
-                }
+                continue;
+            }
 #endif // TARGET_ARM64
 #ifdef UNIX_AMD64_ABI
-                else
-                {
-                    assert(paramRegs[paramRegIndex].regIndex == 1);
-                    assert(paramRegIndex > 0);
-                    assert(paramRegs[paramRegIndex - 1].regIndex == 0);
-                    assert(paramRegs[paramRegIndex - 1].lclNum == lclNum);
-                    assert((lclRegType == TYP_SIMD12) || (lclRegType == TYP_SIMD16));
+            else
+            {
+                assert(paramRegs[paramRegIndex].regIndex == 1);
+                assert(paramRegIndex > 0);
+                assert(paramRegs[paramRegIndex - 1].regIndex == 0);
+                assert(paramRegs[paramRegIndex - 1].lclNum == lclNum);
+                assert((lclRegType == TYP_SIMD12) || (lclRegType == TYP_SIMD16));
 
-                    liveParamRegs &= ~genRegMask(regNum);
-                    paramRegs[paramRegIndex].circular = false;
+                liveParamRegs &= ~genRegMask(regNum);
+                paramRegs[paramRegIndex].circular = false;
 
-                    change = true;
+                change = true;
 
-                    continue;
-                }
+                continue;
+            }
 #endif // UNIX_AMD64_ABI
 #ifndef TARGET_64BIT
-                // TODO-MIKE-Cleanup: This is likely dead code.
-                else if ((paramRegs[paramRegIndex].regIndex == 1) && lcl->TypeIs(TYP_LONG))
-                {
-                    destRegNum = REG_STK;
-                }
-                else
-                {
-                    assert(paramRegs[paramRegIndex].regIndex == 1);
-                    assert(lcl->TypeIs(TYP_DOUBLE));
+            // TODO-MIKE-Cleanup: This is likely dead code.
+            else if ((paramRegs[paramRegIndex].regIndex == 1) && lcl->TypeIs(TYP_LONG))
+            {
+                destRegNum = REG_STK;
+            }
+            else
+            {
+                assert(paramRegs[paramRegIndex].regIndex == 1);
+                assert(lcl->TypeIs(TYP_DOUBLE));
 
-                    destRegNum = REG_NEXT(lcl->GetRegNum());
-                }
+                destRegNum = REG_NEXT(lcl->GetRegNum());
+            }
 #endif // !TARGET_64BIT
 
-                noway_assert(destRegNum != REG_NA);
+            noway_assert(destRegNum != REG_NA);
 
-                if (genRegMask(destRegNum) & liveParamRegs)
-                {
-                    // We are trashing a live argument register - record it.
+            if (genRegMask(destRegNum) & liveParamRegs)
+            {
+                // We are trashing a live argument register - record it.
 
-                    unsigned destRegArgNum = genMapRegNumToRegArgNum(destRegNum, regType);
-                    noway_assert(destRegArgNum < paramRegCount);
-                    paramRegs[destRegArgNum].trashBy = paramRegIndex;
-                }
-                else
-                {
-                    // Argument goes to a free register.
-                    paramRegs[paramRegIndex].circular = false;
-                    // Mark the argument register as free.
-                    liveParamRegs &= ~genRegMask(regNum);
+                unsigned destRegArgNum = genMapRegNumToRegArgNum(destRegNum, regType);
+                noway_assert(destRegArgNum < paramRegCount);
+                paramRegs[destRegArgNum].trashBy = paramRegIndex;
+            }
+            else
+            {
+                // Argument goes to a free register.
+                paramRegs[paramRegIndex].circular = false;
+                // Mark the argument register as free.
+                liveParamRegs &= ~genRegMask(regNum);
 
-                    change = true;
-                }
+                change = true;
             }
         }
     }
@@ -3044,243 +3051,191 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
                                      regNumber     tempReg,
                                      bool*         tempRegClobbered)
 {
+    assert(liveParamRegs != RBM_NONE);
+
     // Process any circular dependencies
-    if (liveParamRegs != RBM_NONE)
+
+    instruction insCopy = INS_mov;
+
+    if (isFloat)
     {
-        instruction insCopy = INS_mov;
-
-        if (isFloat)
-        {
 #ifndef UNIX_AMD64_ABI
-            if (compiler->opts.UseHfa())
+        if (compiler->opts.UseHfa())
 #endif
+        {
+            insCopy = ins_Copy(TYP_DOUBLE);
+
+            // Compute tempReg here when we have a float argument
+            assert(tempReg == REG_NA);
+
+            regMaskTP fpAvailMask = RBM_FLT_CALLEE_TRASH & ~liveParamRegs;
+
+            if (compiler->opts.UseHfa())
             {
-                insCopy = ins_Copy(TYP_DOUBLE);
+                fpAvailMask &= RBM_ALLDOUBLE;
+            }
 
-                // Compute tempReg here when we have a float argument
-                assert(tempReg == REG_NA);
-
-                regMaskTP fpAvailMask = RBM_FLT_CALLEE_TRASH & ~liveParamRegs;
+            if (fpAvailMask == RBM_NONE)
+            {
+                fpAvailMask = RBM_ALLFLOAT & ~liveParamRegs;
 
                 if (compiler->opts.UseHfa())
                 {
                     fpAvailMask &= RBM_ALLDOUBLE;
                 }
-
-                if (fpAvailMask == RBM_NONE)
-                {
-                    fpAvailMask = RBM_ALLFLOAT & ~liveParamRegs;
-
-                    if (compiler->opts.UseHfa())
-                    {
-                        fpAvailMask &= RBM_ALLDOUBLE;
-                    }
-                }
-
-                assert(fpAvailMask != RBM_NONE);
-
-                // We pick the lowest avail register number
-                tempReg = genRegNumFromMask(genFindLowestBit(fpAvailMask));
             }
 
-#ifdef TARGET_X86
-            // This case shouldn't occur on x86 since NYI gets converted to an assert
-            NYI("Homing circular FP registers via xtraReg");
-#endif
+            assert(fpAvailMask != RBM_NONE);
+
+            // We pick the lowest avail register number
+            tempReg = genRegNumFromMask(genFindLowestBit(fpAvailMask));
         }
 
-        for (unsigned paramRegIndex = 0; paramRegIndex < paramRegCount; paramRegIndex++)
+#ifdef TARGET_X86
+        // This case shouldn't occur on x86 since NYI gets converted to an assert
+        NYI("Homing circular FP registers via xtraReg");
+#endif
+    }
+
+    for (unsigned paramRegIndex = 0; paramRegIndex < paramRegCount; paramRegIndex++)
+    {
+        if (!paramRegs[paramRegIndex].circular || paramRegs[paramRegIndex].processed)
         {
-            if (!paramRegs[paramRegIndex].circular || paramRegs[paramRegIndex].processed)
-            {
-                continue;
-            }
+            continue;
+        }
 
-            if (paramRegs[paramRegIndex].type == TYP_UNDEF) // Not a register argument
-            {
-                continue;
-            }
+        if (paramRegs[paramRegIndex].type == TYP_UNDEF) // Not a register argument
+        {
+            continue;
+        }
 
-            unsigned beginRegIndex = paramRegIndex;
-            unsigned destRegIndex  = paramRegIndex;
-            unsigned srcRegIndex   = paramRegs[paramRegIndex].trashBy;
-            noway_assert(srcRegIndex < paramRegCount);
+        unsigned beginRegIndex = paramRegIndex;
+        unsigned destRegIndex  = paramRegIndex;
+        unsigned srcRegIndex   = paramRegs[paramRegIndex].trashBy;
+        noway_assert(srcRegIndex < paramRegCount);
 
-            unsigned   destLclNum = paramRegs[destRegIndex].lclNum;
-            LclVarDsc* destLcl    = compiler->lvaGetDesc(destLclNum);
+        unsigned   destLclNum = paramRegs[destRegIndex].lclNum;
+        LclVarDsc* destLcl    = compiler->lvaGetDesc(destLclNum);
 
-            unsigned   srcLclNum = paramRegs[srcRegIndex].lclNum;
-            LclVarDsc* srcLcl    = compiler->lvaGetDesc(srcLclNum);
+        unsigned   srcLclNum = paramRegs[srcRegIndex].lclNum;
+        LclVarDsc* srcLcl    = compiler->lvaGetDesc(srcLclNum);
 
-            emitAttr size = EA_PTRSIZE;
+        emitAttr size = EA_PTRSIZE;
 
 #ifdef TARGET_XARCH
-            if (destRegIndex == paramRegs[srcRegIndex].trashBy)
+        if (destRegIndex == paramRegs[srcRegIndex].trashBy)
+        {
+            // Only 2 registers form the circular dependency - use "xchg".
+
+            unsigned   lclNum = paramRegs[paramRegIndex].lclNum;
+            LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+
+            noway_assert(varTypeSize(varActualType(srcLcl->GetType())) <= REGSIZE_BYTES);
+
+            // Set "size" to indicate GC if one and only one of the operands is a pointer.
+            // RATIONALE: If both are pointers, nothing changes in the GC pointer tracking.
+            // If only one is a pointer we have to "swap" the registers in the GC reg
+            // pointer mask
+
+            if (varTypeGCtype(srcLcl->GetType()) != varTypeGCtype(destLcl->GetType()))
             {
-                // Only 2 registers form the circular dependency - use "xchg".
+                size = EA_GCREF;
+            }
 
-                unsigned   lclNum = paramRegs[paramRegIndex].lclNum;
-                LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+            noway_assert(destLcl->GetParamReg() == srcLcl->GetRegNum());
 
-                noway_assert(varTypeSize(varActualType(srcLcl->GetType())) <= REGSIZE_BYTES);
+            GetEmitter()->emitIns_R_R(INS_xchg, size, srcLcl->GetRegNum(), srcLcl->GetParamReg());
+            regSet.verifyRegUsed(srcLcl->GetRegNum());
+            regSet.verifyRegUsed(srcLcl->GetParamReg());
 
-                // Set "size" to indicate GC if one and only one of the operands is a pointer.
-                // RATIONALE: If both are pointers, nothing changes in the GC pointer tracking.
-                // If only one is a pointer we have to "swap" the registers in the GC reg
-                // pointer mask
+            paramRegs[destRegIndex].processed = true;
+            paramRegs[srcRegIndex].processed  = true;
 
-                if (varTypeGCtype(srcLcl->GetType()) != varTypeGCtype(destLcl->GetType()))
-                {
-                    size = EA_GCREF;
-                }
-
-                noway_assert(destLcl->GetParamReg() == srcLcl->GetRegNum());
-
-                GetEmitter()->emitIns_R_R(INS_xchg, size, srcLcl->GetRegNum(), srcLcl->GetParamReg());
-                regSet.verifyRegUsed(srcLcl->GetRegNum());
-                regSet.verifyRegUsed(srcLcl->GetParamReg());
-
-                paramRegs[destRegIndex].processed = true;
-                paramRegs[srcRegIndex].processed  = true;
-
-                liveParamRegs &= ~genRegMask(srcLcl->GetParamReg());
-                liveParamRegs &= ~genRegMask(destLcl->GetParamReg());
+            liveParamRegs &= ~genRegMask(srcLcl->GetParamReg());
+            liveParamRegs &= ~genRegMask(destLcl->GetParamReg());
 
 #ifdef USING_SCOPE_INFO
-                psiMoveToReg(srcLclNum);
-                psiMoveToReg(destLclNum);
+            psiMoveToReg(srcLclNum);
+            psiMoveToReg(destLclNum);
 #endif
-            }
-            else
+        }
+        else
 #endif // TARGET_XARCH
-            {
-                var_types destMemType = destLcl->GetType();
+        {
+            var_types destMemType = destLcl->GetType();
 
 #ifdef TARGET_ARM
-                bool cycleAllDouble = true; // assume the best
+            bool cycleAllDouble = true; // assume the best
 
-                unsigned iter = beginRegIndex;
-                do
+            unsigned iter = beginRegIndex;
+            do
+            {
+                if (!compiler->lvaGetDesc(paramRegs[iter].lclNum)->TypeIs(TYP_DOUBLE))
                 {
-                    if (!compiler->lvaGetDesc(paramRegs[iter].lclNum)->TypeIs(TYP_DOUBLE))
-                    {
-                        cycleAllDouble = false;
-                        break;
-                    }
-
-                    iter = paramRegs[iter].trashBy;
-                } while (iter != beginRegIndex);
-
-                // We may treat doubles as floats for ARM because we could have partial circular
-                // dependencies of a float with a lo/hi part of the double. We mark the
-                // trashBy values for each slot of the double, so let the circular dependency
-                // logic work its way out for floats rather than doubles. If a cycle has all
-                // doubles, then optimize so that instead of two vmov.f32's to move a double,
-                // we can use one vmov.f64.
-
-                if (!cycleAllDouble && destMemType == TYP_DOUBLE)
-                {
-                    destMemType = TYP_FLOAT;
+                    cycleAllDouble = false;
+                    break;
                 }
+
+                iter = paramRegs[iter].trashBy;
+            } while (iter != beginRegIndex);
+
+            // We may treat doubles as floats for ARM because we could have partial circular
+            // dependencies of a float with a lo/hi part of the double. We mark the
+            // trashBy values for each slot of the double, so let the circular dependency
+            // logic work its way out for floats rather than doubles. If a cycle has all
+            // doubles, then optimize so that instead of two vmov.f32's to move a double,
+            // we can use one vmov.f64.
+
+            if (!cycleAllDouble && destMemType == TYP_DOUBLE)
+            {
+                destMemType = TYP_FLOAT;
+            }
 #endif // TARGET_ARM
 
-                if (destMemType == TYP_REF)
-                {
-                    size = EA_GCREF;
-                }
-                else if (destMemType == TYP_BYREF)
-                {
-                    size = EA_BYREF;
-                }
-                else if (destMemType == TYP_DOUBLE)
-                {
-                    size = EA_8BYTE;
-                }
-                else if (destMemType == TYP_FLOAT)
-                {
-                    size = EA_4BYTE;
-                }
+            if (destMemType == TYP_REF)
+            {
+                size = EA_GCREF;
+            }
+            else if (destMemType == TYP_BYREF)
+            {
+                size = EA_BYREF;
+            }
+            else if (destMemType == TYP_DOUBLE)
+            {
+                size = EA_8BYTE;
+            }
+            else if (destMemType == TYP_FLOAT)
+            {
+                size = EA_4BYTE;
+            }
 
-                // Move the dest reg to the extra reg
+            // Move the dest reg to the extra reg
 
-                assert(tempReg != REG_NA);
+            assert(tempReg != REG_NA);
 
-                regNumber begRegNum = genMapRegArgNumToRegNum(beginRegIndex, destMemType);
-                GetEmitter()->emitIns_Mov(insCopy, size, tempReg, begRegNum, /* canSkip */ false);
-                regSet.verifyRegUsed(tempReg);
+            regNumber begRegNum = genMapRegArgNumToRegNum(beginRegIndex, destMemType);
+            GetEmitter()->emitIns_Mov(insCopy, size, tempReg, begRegNum, /* canSkip */ false);
+            regSet.verifyRegUsed(tempReg);
 
-                *tempRegClobbered = true;
+            *tempRegClobbered = true;
 #ifdef USING_SCOPE_INFO
-                psiMoveToReg(destLclNum, tempReg);
+            psiMoveToReg(destLclNum, tempReg);
 #endif
 
-                // Start moving everything to the right place.
-                while (srcRegIndex != beginRegIndex)
-                {
-                    // mov dest, src
+            // Start moving everything to the right place.
+            while (srcRegIndex != beginRegIndex)
+            {
+                // mov dest, src
 
-                    regNumber destRegNum = genMapRegArgNumToRegNum(destRegIndex, destMemType);
-                    regNumber srcRegNum  = genMapRegArgNumToRegNum(srcRegIndex, destMemType);
-
-                    GetEmitter()->emitIns_Mov(insCopy, size, destRegNum, srcRegNum, /* canSkip */ false);
-
-                    regSet.verifyRegUsed(destRegNum);
-
-                    // Mark src as processed.
-                    noway_assert(srcRegIndex < paramRegCount);
-                    paramRegs[srcRegIndex].processed = true;
-#ifdef TARGET_ARM
-                    if (size == EA_8BYTE)
-                    {
-                        paramRegs[srcRegIndex + 1].processed = true;
-                    }
-#endif
-
-                    liveParamRegs &= ~genMapArgNumToRegMask(srcRegIndex, destMemType);
-
-                    // Move to the next pair.
-                    destRegIndex = srcRegIndex;
-                    srcRegIndex  = paramRegs[srcRegIndex].trashBy;
-
-                    destLcl     = srcLcl;
-                    destMemType = destLcl->GetType();
-
-#ifdef TARGET_ARM
-                    if (!cycleAllDouble && (destMemType == TYP_DOUBLE))
-                    {
-                        destMemType = TYP_FLOAT;
-                    }
-#endif
-
-                    srcLclNum = paramRegs[srcRegIndex].lclNum;
-                    srcLcl    = compiler->lvaGetDesc(srcLclNum);
-
-                    if (destMemType == TYP_REF)
-                    {
-                        size = EA_GCREF;
-                    }
-                    else if (destMemType == TYP_DOUBLE)
-                    {
-                        size = EA_8BYTE;
-                    }
-                    else
-                    {
-                        size = EA_4BYTE;
-                    }
-                }
-
-                // Take care of the first register.
-
-                noway_assert(srcRegIndex == beginRegIndex);
-
-                // move the dest reg (begReg) in the extra reg
                 regNumber destRegNum = genMapRegArgNumToRegNum(destRegIndex, destMemType);
-                GetEmitter()->emitIns_Mov(insCopy, size, destRegNum, tempReg, /* canSkip */ false);
-                regSet.verifyRegUsed(destRegNum);
-#ifdef USING_SCOPE_INFO
-                psiMoveToReg(srcLclNum);
-#endif
+                regNumber srcRegNum  = genMapRegArgNumToRegNum(srcRegIndex, destMemType);
 
+                GetEmitter()->emitIns_Mov(insCopy, size, destRegNum, srcRegNum, /* canSkip */ false);
+
+                regSet.verifyRegUsed(destRegNum);
+
+                // Mark src as processed.
+                noway_assert(srcRegIndex < paramRegCount);
                 paramRegs[srcRegIndex].processed = true;
 #ifdef TARGET_ARM
                 if (size == EA_8BYTE)
@@ -3290,7 +3245,59 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
 #endif
 
                 liveParamRegs &= ~genMapArgNumToRegMask(srcRegIndex, destMemType);
+
+                // Move to the next pair.
+                destRegIndex = srcRegIndex;
+                srcRegIndex  = paramRegs[srcRegIndex].trashBy;
+
+                destLcl     = srcLcl;
+                destMemType = destLcl->GetType();
+
+#ifdef TARGET_ARM
+                if (!cycleAllDouble && (destMemType == TYP_DOUBLE))
+                {
+                    destMemType = TYP_FLOAT;
+                }
+#endif
+
+                srcLclNum = paramRegs[srcRegIndex].lclNum;
+                srcLcl    = compiler->lvaGetDesc(srcLclNum);
+
+                if (destMemType == TYP_REF)
+                {
+                    size = EA_GCREF;
+                }
+                else if (destMemType == TYP_DOUBLE)
+                {
+                    size = EA_8BYTE;
+                }
+                else
+                {
+                    size = EA_4BYTE;
+                }
             }
+
+            // Take care of the first register.
+
+            noway_assert(srcRegIndex == beginRegIndex);
+
+            // move the dest reg (begReg) in the extra reg
+            regNumber destRegNum = genMapRegArgNumToRegNum(destRegIndex, destMemType);
+            GetEmitter()->emitIns_Mov(insCopy, size, destRegNum, tempReg, /* canSkip */ false);
+            regSet.verifyRegUsed(destRegNum);
+#ifdef USING_SCOPE_INFO
+            psiMoveToReg(srcLclNum);
+#endif
+
+            paramRegs[srcRegIndex].processed = true;
+#ifdef TARGET_ARM
+            if (size == EA_8BYTE)
+            {
+                paramRegs[srcRegIndex + 1].processed = true;
+            }
+#endif
+
+            liveParamRegs &= ~genMapArgNumToRegMask(srcRegIndex, destMemType);
         }
     }
 
