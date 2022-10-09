@@ -2388,10 +2388,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 // Generates code for moving incoming register arguments to their
 // assigned location, in the function prolog.
-#ifdef _PREFAST_
-#pragma warning(push)
-#pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
-#endif
 void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, regNumber tempReg, bool* tempRegClobbered)
 {
     assert(compiler->compGeneratingProlog);
@@ -2442,28 +2438,23 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
     // registers: the first register argument is in paramRegs[0], the second in
     // paramRegs[1], etc. Note that on ARM, a TYP_DOUBLE takes two entries, starting
     // at an even index. The paramRegs is indexed from 0 to paramRegCount - 1.
-    struct ParamRegInfo
-    {
-        unsigned lclNum;
-        // index into the param registers table of the register that will be copied to this register.
-        // That is, for paramRegs[x].trashBy = y, argument register number 'y' will be copied to
-        // argument register number 'x'. Only used when circular = true.
-        unsigned trashBy;
-
-        uint8_t   regIndex;
-        bool      stackArg;  // true if the argument gets homed to the stack
-        bool      writeThru; // true if the argument gets homed to both stack and register
-        bool      processed; // true after we've processed the argument (and it is in its final location)
-        bool      circular;  // true if this register participates in a circular dependency loop.
-        var_types type;
-    };
-
     // Note that due to an extra argument register for ARM64 (REG_ARG_RET_BUFF)
     // we have increased the allocated size of the paramRegs by one.
+
     ParamRegInfo paramRegs[max(MAX_REG_ARG + 1, MAX_FLOAT_REG_ARG)]{};
 
     regMaskTP liveParamRegs = regState.rsCalleeRegArgMaskLiveIn;
+    liveParamRegs           = genPrologBuildParamRegsTable(paramRegs, paramRegCount, liveParamRegs, isFloat, tempReg);
+    genPrologMarkParamRegsCircularDependencies(paramRegs, paramRegCount, liveParamRegs);
 
+    liveParamRegs = regState.rsCalleeRegArgMaskLiveIn;
+    liveParamRegs = genPrologSpillParamRegs(paramRegs, paramRegCount, liveParamRegs);
+    genPrologMoveParamRegs(paramRegs, paramRegCount, liveParamRegs, isFloat, tempReg, tempRegClobbered);
+}
+
+regMaskTP CodeGen::genPrologBuildParamRegsTable(
+    ParamRegInfo* paramRegs, unsigned paramRegCount, regMaskTP liveParamRegs, bool isFloat, regNumber tempReg)
+{
     for (unsigned lclNum = 0; lclNum < compiler->lvaCount; ++lclNum)
     {
         LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
@@ -2759,6 +2750,13 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
         }
     }
 
+    return liveParamRegs;
+}
+
+void CodeGen::genPrologMarkParamRegsCircularDependencies(ParamRegInfo* paramRegs,
+                                                         unsigned      paramRegCount,
+                                                         regMaskTP     liveParamRegs)
+{
     // Find the circular dependencies for the argument registers, if any.
     // A circular dependency is a set of registers R1, R2, ..., Rn
     // such that R1->R2 (that is, R1 needs to be moved to R2), R2->R3, ..., Rn->R1.
@@ -2891,12 +2889,13 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
 
     noway_assert(((liveParamRegs & RBM_FLTARG_REGS) == RBM_NONE) &&
                  "Homing of float argument registers with circular dependencies not implemented.");
+}
 
+regMaskTP CodeGen::genPrologSpillParamRegs(ParamRegInfo* paramRegs, unsigned paramRegCount, regMaskTP liveParamRegs)
+{
     // Now move the arguments to their locations.
     // First consider ones that go on the stack since they may free some registers.
     // Also home writeThru args, since they're also homed to the stack.
-
-    liveParamRegs = regState.rsCalleeRegArgMaskLiveIn; // reset the live in to what it was at the start
 
     for (unsigned paramRegIndex = 0; paramRegIndex < paramRegCount; paramRegIndex++)
     {
@@ -3035,6 +3034,16 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
         }
     }
 
+    return liveParamRegs;
+}
+
+void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
+                                     unsigned      paramRegCount,
+                                     regMaskTP     liveParamRegs,
+                                     bool          isFloat,
+                                     regNumber     tempReg,
+                                     bool*         tempRegClobbered)
+{
     // Process any circular dependencies
     if (liveParamRegs != RBM_NONE)
     {
@@ -3572,9 +3581,6 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
         noway_assert(liveParamRegsBefore != liveParamRegs); // if it doesn't change, we have an infinite loop
     }
 }
-#ifdef _PREFAST_
-#pragma warning(pop)
-#endif
 
 void CodeGen::genPrologEnregisterIncomingStackParams()
 {
