@@ -2450,7 +2450,7 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
         // argument register number 'x'. Only used when circular = true.
         unsigned trashBy;
 
-        uint8_t   regIndex;  // 0 if not a param register, 1-4 the ith register of a param
+        uint8_t   regIndex;
         bool      stackArg;  // true if the argument gets homed to the stack
         bool      writeThru; // true if the argument gets homed to both stack and register
         bool      processed; // true after we've processed the argument (and it is in its final location)
@@ -2785,13 +2785,11 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
                     continue;
                 }
 
-                unsigned lclNum = paramRegs[paramRegIndex].lclNum;
-                noway_assert(lclNum < compiler->lvaCount);
-                LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-                noway_assert(lcl->IsParam() && lcl->IsRegParam());
+                unsigned   lclNum = paramRegs[paramRegIndex].lclNum;
+                LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+
                 // Cannot possibly have stack arguments.
-                noway_assert(lcl->lvIsInReg());
-                noway_assert(!paramRegs[paramRegIndex].stackArg);
+                noway_assert(lcl->lvIsInReg() && !paramRegs[paramRegIndex].stackArg);
 
                 const var_types lclRegType = lcl->GetRegisterType();
                 var_types       regType    = paramRegs[paramRegIndex].type;
@@ -2922,9 +2920,8 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
             continue;
         }
 
-        unsigned lclNum = paramRegs[paramRegIndex].lclNum;
-        noway_assert(lclNum < compiler->lvaCount);
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
+        unsigned   lclNum = paramRegs[paramRegIndex].lclNum;
+        LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
 
 #ifndef TARGET_64BIT
         // If this arg is never on the stack, go to the next one.
@@ -2955,7 +2952,6 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
 #endif
 
         noway_assert(!paramRegs[paramRegIndex].circular);
-        noway_assert(lcl->IsParam() && lcl->IsRegParam());
         noway_assert(!lcl->lvIsInReg() || lcl->lvLiveInOutOfHndlr ||
                      (lcl->TypeIs(TYP_LONG) && (paramRegs[paramRegIndex].regIndex == 1)));
 
@@ -2999,7 +2995,7 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
         emitAttr size = emitActualTypeSize(storeType);
 
 #ifdef TARGET_X86
-        noway_assert(genTypeSize(storeType) == TARGET_POINTER_SIZE);
+        noway_assert(varTypeSize(storeType) == REGSIZE_BYTES);
 #endif
 
         regNumber srcRegNum = genMapRegArgNumToRegNum(paramRegIndex, storeType);
@@ -3113,15 +3109,11 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
             unsigned srcRegIndex   = paramRegs[paramRegIndex].trashBy;
             noway_assert(srcRegIndex < paramRegCount);
 
-            unsigned destLclNum = paramRegs[destRegIndex].lclNum;
-            noway_assert(destLclNum < compiler->lvaCount);
-            LclVarDsc* destLcl = compiler->lvaGetDesc(destLclNum);
-            noway_assert(destLcl->IsParam() && destLcl->IsRegParam());
+            unsigned   destLclNum = paramRegs[destRegIndex].lclNum;
+            LclVarDsc* destLcl    = compiler->lvaGetDesc(destLclNum);
 
-            unsigned srcLclNum = paramRegs[srcRegIndex].lclNum;
-            noway_assert(srcLclNum < compiler->lvaCount);
-            LclVarDsc* srcLcl = compiler->lvaGetDesc(srcLclNum);
-            noway_assert(srcLcl->IsParam() && srcLcl->IsRegParam());
+            unsigned   srcLclNum = paramRegs[srcRegIndex].lclNum;
+            LclVarDsc* srcLcl    = compiler->lvaGetDesc(srcLclNum);
 
             emitAttr size = EA_PTRSIZE;
 
@@ -3130,10 +3122,8 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
             {
                 // Only 2 registers form the circular dependency - use "xchg".
 
-                unsigned lclNum = paramRegs[paramRegIndex].lclNum;
-                noway_assert(lclNum < compiler->lvaCount);
-                LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-                noway_assert(lcl->IsParam() && lcl->IsRegParam());
+                unsigned   lclNum = paramRegs[paramRegIndex].lclNum;
+                LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
 
                 noway_assert(varTypeSize(varActualType(srcLcl->GetType())) <= REGSIZE_BYTES);
 
@@ -3266,9 +3256,7 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
 #endif
 
                     srcLclNum = paramRegs[srcRegIndex].lclNum;
-                    noway_assert(srcLclNum < compiler->lvaCount);
-                    srcLcl = compiler->lvaGetDesc(srcLclNum);
-                    noway_assert(srcLcl->IsParam() && srcLcl->IsRegParam());
+                    srcLcl    = compiler->lvaGetDesc(srcLclNum);
 
                     if (destMemType == TYP_REF)
                     {
@@ -3326,10 +3314,8 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
                 continue;
             }
 
-            unsigned lclNum = paramRegs[paramRegIndex].lclNum;
-            noway_assert(lclNum < compiler->lvaCount);
-
-            LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
+            unsigned   lclNum = paramRegs[paramRegIndex].lclNum;
+            LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
 
             const var_types regType    = paramRegs[paramRegIndex].type;
             const regNumber regNum     = genMapRegArgNumToRegNum(paramRegIndex, regType);
@@ -3346,7 +3332,6 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
             }
 #endif
 
-            noway_assert(lcl->IsParam() && lcl->IsRegParam());
             noway_assert(lcl->lvIsInReg() && !paramRegs[paramRegIndex].circular);
 #ifdef TARGET_X86
             // On x86 we don't enregister args that are not pointer sized.
