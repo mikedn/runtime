@@ -3331,7 +3331,7 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
                 }
 #endif
             }
-#ifndef TARGET_64BIT
+#ifdef TARGET_ARM
             else if ((paramRegs[paramRegIndex].regIndex == 1) && (destMemType == TYP_LONG))
             {
                 assert(lcl->TypeIs(TYP_DOUBLE, TYP_LONG));
@@ -3388,7 +3388,7 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
                 destMemType = TYP_FLOAT;
                 destRegNum  = REG_NEXT(lcl->GetRegNum());
             }
-#endif // !TARGET_64BIT
+#endif // !TARGET_ARM
 #if defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
             else
             {
