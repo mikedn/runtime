@@ -2945,14 +2945,13 @@ void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
 #ifdef UNIX_AMD64_ABI
         if (varTypeIsSIMD(fieldLcl->GetType()) && (lcl->GetPromotedFieldCount() == 1))
         {
-            fieldLcl->SetParamReg(0, lcl->GetParamReg(0));
-            fieldLcl->SetParamReg(1, lcl->GetParamReg(1));
+            fieldLcl->SetParamRegs(lcl->GetParamReg(0), lcl->GetParamReg(1));
         }
         else
         {
             assert(field.offset == REGSIZE_BYTES * index);
 
-            fieldLcl->SetParamReg(0, lcl->GetParamReg(index));
+            fieldLcl->SetParamRegs(lcl->GetParamReg(index), REG_NA);
         }
 #else // !UNIX_AMD64_ABI
         unsigned regIndex = index;

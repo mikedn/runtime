@@ -635,7 +635,7 @@ public:
     }
 
 #ifdef UNIX_AMD64_ABI
-    regNumber GetParamReg(unsigned index)
+    regNumber GetParamReg(unsigned index) const
     {
         assert(index < _countof(m_paramRegs));
         return static_cast<regNumber>(m_paramRegs[index]);
@@ -645,6 +645,12 @@ public:
     {
         assert(index < _countof(m_paramRegs));
         m_paramRegs[index] = static_cast<regNumberSmall>(reg);
+    }
+
+    void SetParamRegs(regNumber reg0, regNumber reg1)
+    {
+        m_paramRegs[0] = static_cast<regNumberSmall>(reg0);
+        m_paramRegs[1] = static_cast<regNumberSmall>(reg1);
     }
 #endif
 
