@@ -2746,7 +2746,7 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
                 continue;
             }
 
-#ifndef TARGET_64BIT
+#ifdef TARGET_ARM
             if ((i == 1) && lcl->TypeIs(TYP_DOUBLE) && (REG_NEXT(lcl->GetRegNum()) == regNum))
             {
                 liveParamRegs &= ~regMask;
