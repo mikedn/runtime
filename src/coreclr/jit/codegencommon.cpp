@@ -2618,7 +2618,21 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
             paramRegIndex = genMapRegNumToRegArgNum(lcl->GetParamReg(), regType);
             regCount      = 1;
 
-#ifdef TARGET_ARMARCH
+#ifdef TARGET_ARM
+            unsigned lclSize = compiler->lvaLclSize(lclNum);
+
+            if (lclSize > REGSIZE_BYTES)
+            {
+                unsigned maxParamRegCount = isFloat ? MAX_FLOAT_REG_ARG : MAX_REG_ARG;
+
+                regCount = lclSize / REGSIZE_BYTES;
+
+                if (paramRegIndex + regCount > maxParamRegCount)
+                {
+                    regCount = maxParamRegCount - paramRegIndex;
+                }
+            }
+#elif defined(TARGET_ARM64)
             if (compiler->lvaIsMultiRegStructParam(lcl))
             {
                 if (lcl->lvIsHfaRegArg())
@@ -2633,7 +2647,7 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
                     regCount = 2;
                 }
             }
-#endif // TARGET_ARMARCH
+#endif // TARGET_ARM64
 
             noway_assert(paramRegIndex + regCount <= paramRegCount);
 
@@ -2646,28 +2660,6 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
                 paramRegs[paramRegIndex + i].type     = regType;
             }
         }
-
-#ifdef TARGET_ARM
-        unsigned lclSize = compiler->lvaLclSize(lclNum);
-
-        if (lclSize > REGSIZE_BYTES)
-        {
-            unsigned maxParamRegCount = isFloat ? MAX_FLOAT_REG_ARG : MAX_REG_ARG;
-
-            regCount = lclSize / REGSIZE_BYTES;
-
-            if (paramRegIndex + regCount > maxParamRegCount)
-            {
-                regCount = maxParamRegCount - paramRegIndex;
-            }
-        }
-
-        for (unsigned i = 1; i < regCount; i++)
-        {
-            paramRegs[paramRegIndex + i].lclNum   = lclNum;
-            paramRegs[paramRegIndex + i].regIndex = static_cast<uint8_t>(i + 1);
-        }
-#endif // TARGET_ARM
 
         for (unsigned i = 0; i < regCount; i++)
         {
