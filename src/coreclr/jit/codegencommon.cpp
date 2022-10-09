@@ -2458,22 +2458,6 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
         var_types type;
     };
 
-    auto GetRegType = [this](LclVarDsc* lcl) {
-#ifndef TARGET_ARMARCH
-        return lcl->GetType();
-#else
-        if (lcl->lvIsHfaRegArg())
-        {
-#if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
-            assert(!compiler->info.compIsVarArgs);
-#endif
-            return lcl->GetLayout()->GetHfaElementType();
-        }
-
-        return compiler->mangleVarArgsType(lcl->GetType());
-#endif
-    };
-
     // Note that due to an extra argument register for ARM64 (REG_ARG_RET_BUFF)
     // we have increased the allocated size of the paramRegs by one.
     ParamRegInfo paramRegs[max(MAX_REG_ARG + 1, MAX_FLOAT_REG_ARG)]{};
@@ -2520,20 +2504,6 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
                 {
                     continue;
                 }
-            }
-        }
-
-        var_types regType = GetRegType(lcl);
-
-#ifdef UNIX_AMD64_ABI
-        if (!varTypeIsStruct(regType))
-#endif
-        {
-            // A struct might be passed partially in XMM register for System V calls.
-            // So a single arg might use both register files.
-            if (emitter::isFloatReg(lcl->GetParamReg()) != isFloat)
-            {
-                continue;
             }
         }
 
@@ -2621,6 +2591,27 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
         else
 #endif // UNIX_AMD64_ABI
         {
+            if (emitter::isFloatReg(lcl->GetParamReg()) != isFloat)
+            {
+                continue;
+            }
+
+            var_types regType = lcl->GetType();
+
+#ifdef TARGET_ARMARCH
+            if (lcl->lvIsHfaRegArg())
+            {
+#if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
+                assert(!compiler->info.compIsVarArgs);
+#endif
+                regType = lcl->GetLayout()->GetHfaElementType();
+            }
+            else
+            {
+                regType = compiler->mangleVarArgsType(regType);
+            }
+#endif
+
             // TODO-MIKE-Fix: This is messed up for for win-arm64 varargs. regType may be SIMD12/16
             // and the regiter may be x7, so we treat an integer register as a float one.
 
@@ -2680,8 +2671,8 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
 
         for (unsigned i = 0; i < regCount; i++)
         {
-            regType          = paramRegs[paramRegIndex + i].type;
-            regNumber regNum = genMapRegArgNumToRegNum(paramRegIndex + i, regType);
+            var_types regType = paramRegs[paramRegIndex + i].type;
+            regNumber regNum  = genMapRegArgNumToRegNum(paramRegIndex + i, regType);
 
 #ifndef UNIX_AMD64_ABI
             assert((i > 0) || (regNum == lcl->GetParamReg()));
