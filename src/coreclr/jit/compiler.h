@@ -641,11 +641,6 @@ public:
     }
 
 #if FEATURE_MULTIREG_ARGS
-    regNumber GetOtherArgReg() const
-    {
-        return (regNumber)_lvOtherArgReg;
-    }
-
     void SetOtherArgReg(regNumber reg)
     {
         _lvOtherArgReg = (regNumberSmall)reg;
@@ -663,7 +658,7 @@ public:
         else
         {
             assert(index == 1);
-            return GetOtherArgReg();
+            return static_cast<regNumber>(_lvOtherArgReg);
         }
     }
 
