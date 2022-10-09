@@ -3305,26 +3305,15 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
             unsigned   lclNum = paramRegs[paramRegIndex].lclNum;
             LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
 
-            const var_types regType    = paramRegs[paramRegIndex].type;
-            const regNumber regNum     = genMapRegArgNumToRegNum(paramRegIndex, regType);
-            const var_types lclRegType = lcl->GetRegisterType();
-
-#ifdef UNIX_AMD64_ABI
-            if (regType == TYP_UNDEF)
-            {
-                // This could happen if the reg in paramRegs[paramRegIndex] is of the other register file -
-                // for System V register passed structs where the first reg is GPR and the second an XMM reg.
-                // The next register file processing will process it.
-                liveParamRegs &= ~genRegMask(regNum);
-                continue;
-            }
-#endif
-
             noway_assert(lcl->lvIsInReg() && !paramRegs[paramRegIndex].circular);
 #ifdef TARGET_X86
             // On x86 we don't enregister args that are not pointer sized.
             noway_assert(varTypeSize(lcl->GetActualRegisterType()) == REGSIZE_BYTES);
 #endif
+
+            const var_types lclRegType = lcl->GetRegisterType();
+            const var_types regType    = paramRegs[paramRegIndex].type;
+            const regNumber regNum     = genMapRegArgNumToRegNum(paramRegIndex, regType);
 
             // Register argument - hopefully it stays in the same register.
             regNumber destRegNum  = REG_NA;
