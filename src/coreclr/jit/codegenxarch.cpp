@@ -8328,7 +8328,7 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
 
     // TODO-AMD64-CQ: Rather than reloading, see if this could be optimized by combining with prolog
     // generation logic that moves args around as required by first BB entry point conditions
-    // computed by LSRA.  Code pointers for investigating this further: genFnPrologCalleeRegArgs()
+    // computed by LSRA.  Code pointers for investigating this further: genPrologMoveParamRegs()
     // and genPrologEnregisterIncomingStackParams().
     //
     // Now reload arg registers from home locations.

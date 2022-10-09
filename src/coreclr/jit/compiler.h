@@ -629,6 +629,11 @@ public:
         return static_cast<regNumber>(m_paramRegs[0]);
     }
 
+    regNumber GetParamReg() const
+    {
+        return static_cast<regNumber>(m_paramRegs[0]);
+    }
+
     void SetParamReg(regNumber reg)
     {
         m_paramRegs[0] = static_cast<regNumberSmall>(reg);
