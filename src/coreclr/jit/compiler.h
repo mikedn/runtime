@@ -605,7 +605,7 @@ private:
     regNumberSmall m_paramRegs[1]{REG_STK};
 #endif
 
-    regNumberSmall _lvArgInitReg; // the register into which the argument is moved at entry
+    regNumberSmall m_paramInitialReg; // the register into which the argument is loaded at entry
 
 public:
     // The register number is stored in a small format (8 bits), but the getters return and the setters take
@@ -654,6 +654,16 @@ public:
     }
 #endif
 
+    regNumber GetParamInitialReg() const
+    {
+        return static_cast<regNumber>(m_paramInitialReg);
+    }
+
+    void SetParamInitialReg(regNumber reg)
+    {
+        m_paramInitialReg = static_cast<regNumberSmall>(reg);
+    }
+
     // Is this is a SIMD struct which is used for SIMD intrinsic?
     bool lvIsUsedInSIMDIntrinsic() const
     {
@@ -663,21 +673,6 @@ public:
         return false;
 #endif
     }
-
-    /////////////////////
-
-    regNumber GetArgInitReg() const
-    {
-        return (regNumber)_lvArgInitReg;
-    }
-
-    void SetArgInitReg(regNumber reg)
-    {
-        _lvArgInitReg = (regNumberSmall)reg;
-        assert(_lvArgInitReg == reg);
-    }
-
-    /////////////////////
 
     bool lvIsRegCandidate() const
     {

@@ -3759,7 +3759,7 @@ void CodeGen::genEnregisterIncomingStackArgs()
 
         /* Figure out the home offset of the incoming argument */
 
-        regNumber regNum = varDsc->GetArgInitReg();
+        regNumber regNum = varDsc->GetParamInitialReg();
         assert(regNum != REG_STK);
 
         var_types regType = varDsc->GetActualRegisterType();
@@ -5758,7 +5758,7 @@ void Compiler::lvaUpdateArgsWithInitialReg()
 
         if (lcl->IsRegCandidate())
         {
-            lcl->SetRegNum(lcl->GetArgInitReg());
+            lcl->SetRegNum(lcl->GetParamInitialReg());
         }
     };
 

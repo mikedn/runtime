@@ -6796,8 +6796,8 @@ void LinearScan::resolveRegisters()
                     else
 #endif // TARGET_ARM
                     {
-                        varDsc->SetArgInitReg(initialReg);
-                        JITDUMP("  Set V%02u argument initial register to %s\n", lclNum, getRegName(initialReg));
+                        varDsc->SetParamInitialReg(initialReg);
+                        JITDUMP("  Set V%02u parameter initial register to %s\n", lclNum, getRegName(initialReg));
                     }
 
                     // Stack args that are part of dependently-promoted structs should never be register candidates (see
