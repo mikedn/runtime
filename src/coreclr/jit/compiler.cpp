@@ -86,28 +86,24 @@ inline bool _our_GetThreadCycles(unsigned __int64* cycleOut)
 
 #endif // which host OS
 
-const BYTE genTypeSizes[] = {
-#define DEF_TP(tn, nm, jitType, verType, sz, sze, asze, st, al, tf) sz,
+const uint8_t genTypeSizes[]{
+#define DEF_TP(tn, nm, jitType, sz, sze, asze, st, al, tf) sz,
 #include "typelist.h"
-#undef DEF_TP
 };
 
-const BYTE genTypeAlignments[] = {
-#define DEF_TP(tn, nm, jitType, verType, sz, sze, asze, st, al, tf) al,
+const uint8_t genTypeAlignments[]{
+#define DEF_TP(tn, nm, jitType, sz, sze, asze, st, al, tf) al,
 #include "typelist.h"
-#undef DEF_TP
 };
 
-const BYTE genTypeStSzs[] = {
-#define DEF_TP(tn, nm, jitType, verType, sz, sze, asze, st, al, tf) st,
+const uint8_t genTypeStSzs[]{
+#define DEF_TP(tn, nm, jitType, sz, sze, asze, st, al, tf) st,
 #include "typelist.h"
-#undef DEF_TP
 };
 
-const BYTE genActualTypes[] = {
-#define DEF_TP(tn, nm, jitType, verType, sz, sze, asze, st, al, tf) jitType,
+const uint8_t genActualTypes[]{
+#define DEF_TP(tn, nm, jitType, sz, sze, asze, st, al, tf) jitType,
 #include "typelist.h"
-#undef DEF_TP
 };
 
 #endif // FEATURE_JIT_METHOD_PERF
