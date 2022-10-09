@@ -2668,12 +2668,13 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
         {
             var_types regType = paramRegs[paramRegIndex + i].type;
             regNumber regNum  = genMapRegArgNumToRegNum(paramRegIndex + i, regType);
+            regMaskTP regMask = genRegMask(regNum);
 
 #ifndef UNIX_AMD64_ABI
             assert((i > 0) || (regNum == lcl->GetParamReg()));
 #endif
 
-            if ((liveParamRegs & genRegMask(regNum)) == RBM_NONE)
+            if ((liveParamRegs & regMask) == RBM_NONE)
             {
                 if (lcl->HasLiveness() && !lcl->TypeIs(TYP_STRUCT))
                 {
@@ -2711,24 +2712,24 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
             // On the ARM when the lcl is a struct arg (or pre-spilled due to varargs) the initReg/xtraReg
             // could be equal to the param reg. The pre-spilled registers are also not considered live either
             // since they've already been spilled.
-            if ((regSet.rsMaskPreSpillRegs(false) & genRegMask(regNum)) == RBM_NONE)
+            if ((regSet.rsMaskPreSpillRegs(false) & regMask) == RBM_NONE)
 #endif
             {
 #ifndef UNIX_AMD64_ABI
                 noway_assert(tempReg != lcl->GetParamReg() + i);
 #endif
-                noway_assert((liveParamRegs & genRegMask(regNum)) != RBM_NONE);
+                noway_assert((liveParamRegs & regMask) != RBM_NONE);
             }
 
             paramRegs[paramRegIndex + i].writeThru = lcl->lvIsInReg() && lcl->lvLiveInOutOfHndlr;
-            paramRegs[paramRegIndex + i].stackArg = !lcl->lvIsInReg();
+            paramRegs[paramRegIndex + i].stackArg  = !lcl->lvIsInReg();
 
             // If it goes on the stack or in a register that doesn't hold
             // an argument anymore -> CANNOT form a circular dependency.
 
-            if (!lcl->lvIsInReg() || ((genRegMask(regNum) & liveParamRegs) == RBM_NONE))
+            if (!lcl->lvIsInReg() || ((regMask & liveParamRegs) == RBM_NONE))
             {
-                liveParamRegs &= ~genRegMask(regNum);
+                liveParamRegs &= ~regMask;
 
                 continue;
             }
@@ -2740,7 +2741,7 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
 
             if ((i == 0) && (lcl->GetRegNum() == regNum))
             {
-                liveParamRegs &= ~genRegMask(regNum);
+                liveParamRegs &= ~regMask;
 
                 continue;
             }
@@ -2748,7 +2749,7 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
 #ifndef TARGET_64BIT
             if ((i == 1) && lcl->TypeIs(TYP_DOUBLE) && (REG_NEXT(lcl->GetRegNum()) == regNum))
             {
-                liveParamRegs &= ~genRegMask(regNum);
+                liveParamRegs &= ~regMask;
 
                 continue;
             }
