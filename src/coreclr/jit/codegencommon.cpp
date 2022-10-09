@@ -2450,38 +2450,33 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
         // argument register number 'x'. Only used when circular = true.
         unsigned trashBy;
 
-        uint8_t regIndex;  // 0 if not a param register, 1-4 the ith register of a param
-        bool    stackArg;  // true if the argument gets homed to the stack
-        bool    writeThru; // true if the argument gets homed to both stack and register
-        bool    processed; // true after we've processed the argument (and it is in its final location)
-        bool    circular;  // true if this register participates in a circular dependency loop.
-#ifdef UNIX_AMD64_ABI
+        uint8_t   regIndex;  // 0 if not a param register, 1-4 the ith register of a param
+        bool      stackArg;  // true if the argument gets homed to the stack
+        bool      writeThru; // true if the argument gets homed to both stack and register
+        bool      processed; // true after we've processed the argument (and it is in its final location)
+        bool      circular;  // true if this register participates in a circular dependency loop.
         var_types type;
-#endif
+    };
 
-        var_types GetRegType(Compiler* compiler) const
+#ifndef UNIX_AMD64_ABI
+    auto GetRegType = [this](unsigned lclNum) {
+        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
+
+        if (lcl->lvIsHfaRegArg())
         {
-#ifdef UNIX_AMD64_ABI
-            return type;
-#else
-            LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
-            if (lcl->lvIsHfaRegArg())
-            {
 #if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
-                assert(!compiler->info.compIsVarArgs);
+            assert(!compiler->info.compIsVarArgs);
 #endif
-                return lcl->GetLayout()->GetHfaElementType();
-            }
+            return lcl->GetLayout()->GetHfaElementType();
+        }
 
 #ifdef TARGET_ARMARCH
-            return compiler->mangleVarArgsType(lcl->GetType());
+        return compiler->mangleVarArgsType(lcl->GetType());
 #else
-            return lcl->GetType();
+        return lcl->GetType();
 #endif
-#endif // !UNIX_AMD64_ABI
-        }
     };
+#endif // !UNIX_AMD64_ABI
 
     // Note that due to an extra argument register for ARM64 (REG_ARG_RET_BUFF)
     // we have increased the allocated size of the paramRegs by one.
@@ -2654,6 +2649,8 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
             paramRegs[paramRegIndex].regIndex = 1;
 #ifdef UNIX_AMD64_ABI
             paramRegs[paramRegIndex].type = regType;
+#else
+            paramRegs[paramRegIndex].type = GetRegType(lclNum);
 #endif
 
             regCount = 1;
@@ -2680,6 +2677,9 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
 
                     paramRegs[paramRegIndex + i].lclNum   = lclNum;
                     paramRegs[paramRegIndex + i].regIndex = static_cast<uint8_t>(i + 1);
+#ifndef UNIX_AMD64_ABI
+                    paramRegs[paramRegIndex + i].type = GetRegType(lclNum);
+#endif
                 }
             }
 #endif // FEATURE_MULTIREG_ARGS
@@ -2709,7 +2709,7 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
 
         for (unsigned i = 0; i < regCount; i++)
         {
-            regType          = paramRegs[paramRegIndex + i].GetRegType(compiler);
+            regType          = paramRegs[paramRegIndex + i].type;
             regNumber regNum = genMapRegArgNumToRegNum(paramRegIndex + i, regType);
 
 #ifndef UNIX_AMD64_ABI
@@ -2838,7 +2838,7 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
                 noway_assert(!paramRegs[paramRegIndex].stackArg);
 
                 const var_types lclRegType = lcl->GetRegisterType();
-                var_types       regType    = paramRegs[paramRegIndex].GetRegType(compiler);
+                var_types       regType    = paramRegs[paramRegIndex].type;
                 regNumber       regNum     = genMapRegArgNumToRegNum(paramRegIndex, regType);
                 regNumber       destRegNum = REG_NA;
 
@@ -2948,7 +2948,7 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
     for (unsigned paramRegIndex = 0; paramRegIndex < paramRegCount; paramRegIndex++)
     {
 #ifdef UNIX_AMD64_ABI
-        if (paramRegs[paramRegIndex].GetRegType(compiler) == TYP_UNDEF)
+        if (paramRegs[paramRegIndex].type == TYP_UNDEF)
         {
             // This could happen if the reg in paramRegs[paramRegIndex] is of the other register file -
             // for System V register passed structs where the first reg is GPR and the second an XMM reg.
@@ -3017,7 +3017,7 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
 #endif
 
 #ifdef UNIX_AMD64_ABI
-            storeType = paramRegs[paramRegIndex].GetRegType(compiler);
+            storeType = paramRegs[paramRegIndex].type;
 #else
 
             if (lcl->lvIsHfaRegArg())
@@ -3378,7 +3378,7 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
 
             LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
 
-            const var_types regType    = paramRegs[paramRegIndex].GetRegType(compiler);
+            const var_types regType    = paramRegs[paramRegIndex].type;
             const regNumber regNum     = genMapRegArgNumToRegNum(paramRegIndex, regType);
             const var_types lclRegType = lcl->GetRegisterType();
 
@@ -3553,8 +3553,7 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
             {
                 regCount = 2;
 
-                regNumber nextRegNum =
-                    genMapRegArgNumToRegNum(paramRegIndex + 1, paramRegs[paramRegIndex + 1].GetRegType(compiler));
+                regNumber nextRegNum = genMapRegArgNumToRegNum(paramRegIndex + 1, paramRegs[paramRegIndex + 1].type);
                 noway_assert(paramRegs[paramRegIndex + 1].lclNum == lclNum);
 
                 if (lcl->TypeIs(TYP_SIMD12) && compiler->compOpportunisticallyDependsOn(InstructionSet_SSE41))
@@ -3605,9 +3604,7 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
                             destRegNum = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i))->GetRegNum();
 
                             ParamRegInfo& nextParamReg = paramRegs[paramRegIndex + i];
-
-                            regNumber nextRegNum =
-                                genMapRegArgNumToRegNum(paramRegIndex + i, nextParamReg.GetRegType(compiler));
+                            regNumber     nextRegNum   = genMapRegArgNumToRegNum(paramRegIndex + i, nextParamReg.type);
 
                             noway_assert(nextParamReg.lclNum == lclNum);
                             noway_assert(genIsValidFloatReg(nextRegNum));
@@ -3627,9 +3624,7 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
                         for (unsigned i = 1; i < regCount; i++)
                         {
                             ParamRegInfo& nextParamReg = paramRegs[paramRegIndex + i];
-
-                            regNumber nextRegNum =
-                                genMapRegArgNumToRegNum(paramRegIndex + i, nextParamReg.GetRegType(compiler));
+                            regNumber     nextRegNum   = genMapRegArgNumToRegNum(paramRegIndex + i, nextParamReg.type);
 
                             noway_assert(nextParamReg.lclNum == lclNum);
                             noway_assert(genIsValidFloatReg(nextRegNum));
@@ -3653,8 +3648,7 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
 
                 nextParamReg.processed = true;
 
-                regNumber nextRegNum =
-                    genMapRegArgNumToRegNum(paramRegIndex + regSlot, nextParamReg.GetRegType(compiler));
+                regNumber nextRegNum = genMapRegArgNumToRegNum(paramRegIndex + regSlot, nextParamReg.type);
                 liveParamRegs &= ~genRegMask(nextRegNum);
             }
 #endif // FEATURE_MULTIREG_ARGS
