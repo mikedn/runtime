@@ -2531,34 +2531,21 @@ regMaskTP CodeGen::genPrologBuildParamRegsTable(
                     continue;
                 }
 
-                // Assumption 1:
-                // RyuJit backend depends on the assumption that on 64-Bit targets Vector3 size is rounded off
-                // to TARGET_POINTER_SIZE and hence Vector3 locals on stack can be treated as TYP_SIMD16 for
-                // reading and writing purposes.  Hence while homing a Vector3 type arg on stack we should
-                // home entire 16-bytes so that the upper-most 4-bytes will be zeroed when written to stack.
-                //
-                // Assumption 2:
-                // RyuJit backend is making another implicit assumption that Vector3 type args when passed in
-                // registers or on stack, the upper most 4-bytes will be zero.
-                //
-                // For P/Invoke return and Reverse P/Invoke argument passing, native compiler doesn't guarantee
-                // that upper 4-bytes of a Vector3 type struct is zero initialized and hence assumption 2 is
-                // invalid.
-                //
-                // RyuJIT x64 Windows: arguments are treated as passed by ref and hence read/written just 12
-                // bytes. In case of Vector3 returns, Caller allocates a zero initialized Vector3 local and
-                // passes it retBuf arg and Callee method writes only 12 bytes to retBuf. For this reason,
-                // there is no need to clear upper 4-bytes of Vector3 type args.
-                //
-                // RyuJIT x64 Unix: arguments are treated as passed by value and read/writen as if TYP_SIMD16.
-                // Vector3 return values are returned two return registers and Caller assembles them into a
-                // single xmm reg. Hence RyuJIT explicitly generates code to clears upper 4-bytes of Vector3
-                // type args in prolog and Vector3 type return value of a call
-
                 var_types regType;
 
                 if (lcl->TypeIs(TYP_SIMD12))
                 {
+                    // For SIMD12 the second eightbyte has FLOAT type, we want to widen that
+                    // to DOUBLE so that we store 16 bytes instead of 12 if we need to spill
+                    // the parameter. SIMD12 operations are ultimately SIMD16 operations and
+                    // some of them may expect the extra 4 bytes to be 0.
+
+                    // TODO-MIKE-Review: Yeah, and as usual something is messed up. If we do
+                    // not spill we explicitly zero out the extra 4 bytes. If the param is
+                    // passed on stack we also zero out by storing 0 to those upper 4 bytes.
+                    // But if we spill we don't zero out, we store whatever we get in the 2
+                    // param XMM registers. And then ARM64 doesn't seem to zero out anything.
+
                     regType = TYP_DOUBLE;
                 }
                 else
