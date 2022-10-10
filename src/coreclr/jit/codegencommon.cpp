@@ -2514,12 +2514,6 @@ regMaskTP CodeGen::genPrologBuildParamRegsTable(
         {
             lcl->GetLayout()->EnsureSysVAmd64AbiInfo(compiler);
 
-            if (lcl->GetLayout()->GetSysVAmd64AbiRegCount() == 0)
-            {
-                // The var is not passed in registers.
-                continue;
-            }
-
             unsigned firstRegIndex = 0;
 
             for (unsigned regIndex = 0; regIndex < lcl->GetLayout()->GetSysVAmd64AbiRegCount(); regIndex++)
