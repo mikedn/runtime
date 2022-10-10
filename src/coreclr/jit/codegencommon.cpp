@@ -3464,9 +3464,6 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
 #endif
             }
 
-            // Mark the argument as processed
-
-            assert(!paramRegs[paramRegIndex].processed);
             paramRegs[paramRegIndex].processed = true;
             liveParamRegs &= ~genRegMask(regNum);
 
