@@ -5761,14 +5761,6 @@ void CodeGen::genFinalizeFrame()
     /* Assign the final offsets to things living on the stack frame */
 
     compiler->lvaAssignFrameOffsets(Compiler::FINAL_FRAME_LAYOUT);
-
-    /* We want to make sure that the prolog size calculated here is accurate
-       (that is instructions will not shrink because of conservative stack
-       frame approximations).  We do this by filling in the correct size
-       here (where we have committed to the final numbers for the frame offsets)
-       This will ensure that the prolog size is always correct
-    */
-    GetEmitter()->emitMaxTmpSize = regSet.tmpGetTotalSize();
 }
 
 //------------------------------------------------------------------------
