@@ -123,6 +123,16 @@ void CodeGen::genCodeForBBlist()
     unsigned savedStkLvl;
 
 #ifdef DEBUG
+    if (compiler->opts.disAsm)
+    {
+        DumpDisasmHeader();
+    }
+
+    if (compiler->opts.disAsm || compiler->opts.dspCode || verbose)
+    {
+        compiler->lvaTableDump();
+    }
+
     genInterruptibleUsed = true;
     // You have to be careful if you create basic blocks from now on
     compiler->fgSafeBasicBlockCreation = false;

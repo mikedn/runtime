@@ -69,8 +69,6 @@ private:
     }
 #endif // defined(TARGET_XARCH)
 
-    void genPrepForCompiler();
-
     void genMarkLabelsForCodegen();
 
     regNumber genFramePointerReg()

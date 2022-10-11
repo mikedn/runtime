@@ -191,13 +191,6 @@ int CodeGenInterface::genCallerSPtoInitialSPdelta() const
 
 #endif // defined(TARGET_X86) || defined(TARGET_ARM)
 
-void CodeGen::genPrepForCompiler()
-{
-    m_liveness.Begin();
-
-    INDEBUG(compiler->fgBBcountAtCodegen = compiler->fgBBcount;)
-}
-
 //------------------------------------------------------------------------
 // genMarkLabelsForCodegen: Mark labels required for codegen.
 //
@@ -1400,72 +1393,32 @@ void CodeGen::genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize)
     DoPhase(this, PHASE_EMIT_GCEH, &CodeGen::genEmitUnwindDebugGCandEH);
 }
 
-//----------------------------------------------------------------------
-// genGenerateMachineCode -- determine which machine instructions to emit
-//
 void CodeGen::genGenerateMachineCode()
 {
 #ifdef DEBUG
     genInterruptibleUsed = true;
 
+    compiler->fgBBcountAtCodegen = compiler->fgBBcount;
     compiler->fgDebugCheckBBlist();
-#endif // DEBUG
+#endif
 
-    /* This is the real thing */
+    m_liveness.Begin();
 
-    genPrepForCompiler();
-
-    /* Prepare the emitter */
     GetEmitter()->Init();
-
-    DBEXEC(compiler->opts.disAsm, DumpDisasmHeader();)
-
-    // We compute the final frame layout before code generation. This is because LSRA
-    // has already computed exactly the maximum concurrent number of spill temps of each type that are
-    // required during code generation. So, there is nothing left to estimate: we can be precise in the frame
-    // layout. This helps us generate smaller code, and allocate, after code generation, a smaller amount of
-    // memory from the VM.
 
     genFinalizeFrame();
 
-    unsigned maxTmpSize = regSet.tmpGetTotalSize(); // This is precise after LSRA has pre-allocated the temps.
+    GetEmitter()->emitBegFN(isFramePointerUsed() DEBUGARG((compiler->compCodeOpt() != SMALL_CODE) &&
+                                                          !compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT)),
+                            regSet.tmpGetTotalSize());
 
-    GetEmitter()->emitBegFN(isFramePointerUsed()
-#if defined(DEBUG)
-                                ,
-                            (compiler->compCodeOpt() != SMALL_CODE) &&
-                                !compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT)
-#endif
-                                ,
-                            maxTmpSize);
-
-    /* Now generate code for the function */
     genCodeForBBlist();
-
-#ifdef DEBUG
-    // After code generation, dump the frame layout again. It should be the same as before code generation, if code
-    // generation hasn't touched it (it shouldn't!).
-    if (verbose)
-    {
-        compiler->lvaTableDump();
-    }
-#endif // DEBUG
-
-    /* We can now generate the function prolog and epilog */
-
     genGeneratePrologsAndEpilogs();
 
-    /* Bind jump distances */
-
     GetEmitter()->emitJumpDistBind();
-
 #if FEATURE_LOOP_ALIGN
-    /* Perform alignment adjustments */
-
     GetEmitter()->emitLoopAlignAdjustments();
 #endif
-
-    /* The code is now complete and final; it should not change after this. */
 }
 
 #ifdef DEBUG
@@ -5816,13 +5769,6 @@ void CodeGen::genFinalizeFrame()
        This will ensure that the prolog size is always correct
     */
     GetEmitter()->emitMaxTmpSize = regSet.tmpGetTotalSize();
-
-#ifdef DEBUG
-    if (compiler->opts.dspCode || compiler->opts.disAsm || verbose)
-    {
-        compiler->lvaTableDump();
-    }
-#endif
 }
 
 //------------------------------------------------------------------------
@@ -8355,6 +8301,7 @@ void CodeGen::genGeneratePrologsAndEpilogs()
     if (verbose)
     {
         printf("*************** Before prolog / epilog generation\n");
+        compiler->lvaTableDump();
         GetEmitter()->emitDispIGlist(false);
     }
 #endif
