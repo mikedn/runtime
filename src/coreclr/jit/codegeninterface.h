@@ -109,14 +109,6 @@ public:
 protected:
     bool m_genAlignLoops;
 
-#ifdef DEBUG
-    VARSET_TP genTempOldLife;
-    bool      genTempLiveChg = true;
-#endif
-
-    VARSET_TP genLastLiveSet;  // A one element map (genLastLiveSet-> genLastLiveMask)
-    regMaskTP genLastLiveMask; // these two are used in genLiveMask
-
 public:
     bool            genUseOptimizedWriteBarriers();
     CorInfoHelpFunc genWriteBarrierHelperForWriteBarrierForm(GenTreeStoreInd* store, GCInfo::WriteBarrierForm wbf);

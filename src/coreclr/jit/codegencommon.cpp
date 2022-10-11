@@ -195,9 +195,6 @@ void CodeGen::genPrepForCompiler()
 {
     m_liveness.Begin();
 
-    VarSetOps::AssignNoCopy(compiler, genLastLiveSet, VarSetOps::MakeEmpty(compiler));
-    genLastLiveMask = RBM_NONE;
-
     INDEBUG(compiler->fgBBcountAtCodegen = compiler->fgBBcount;)
 }
 
@@ -1420,16 +1417,8 @@ void CodeGen::genGenerateMachineCode()
 
     /* Prepare the emitter */
     GetEmitter()->Init();
-#ifdef DEBUG
-    VarSetOps::AssignNoCopy(compiler, genTempOldLife, VarSetOps::MakeEmpty(compiler));
-#endif
 
 #ifdef DEBUG
-    if (compiler->opts.disAsmSpilled && regSet.rsNeededSpillReg)
-    {
-        compiler->opts.disAsm = true;
-    }
-
     if (compiler->opts.disAsm)
     {
         printf("; Assembly listing for method %s\n", compiler->info.compFullName);

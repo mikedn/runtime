@@ -67,8 +67,7 @@ private:
     //
 
 private:
-    INDEBUG(bool rsNeededSpillReg = false;) // true if this method needed to spill any registers
-    regMaskTP rsModifiedRegsMask;           // mask of the registers modified by the current function.
+    regMaskTP rsModifiedRegsMask; // mask of the registers modified by the current function.
 
 #ifdef DEBUG
     bool rsModifiedRegsMaskInitialized = false; // Has rsModifiedRegsMask been initialized? Guards against illegal use.

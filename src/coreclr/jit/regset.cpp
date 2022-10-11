@@ -262,8 +262,6 @@ void RegSet::SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex)
     node->SetRegSpilled(regIndex, true);
 
     m_rsGCInfo.gcMarkRegSetNpt(genRegMask(reg));
-
-    INDEBUG(rsNeededSpillReg = true;)
 }
 
 #ifdef TARGET_X86

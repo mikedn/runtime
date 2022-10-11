@@ -1409,13 +1409,12 @@ void Compiler::compInitConfigOptions()
 
         if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
         {
-            opts.dspOrder      = (cfg.NgenOrder() & 1) == 1;
-            opts.dspGCtbls     = cfg.NgenGCDump().contains(methodName, className, methodParams);
-            opts.disAsm        = cfg.NgenDisasm().contains(methodName, className, methodParams);
-            opts.disAsmSpilled = cfg.NgenDisasm().contains("SPILLED", nullptr, nullptr);
-            opts.dspUnwind     = cfg.NgenUnwindDump().contains(methodName, className, methodParams);
-            opts.dspEHTable    = cfg.NgenEHDump().contains(methodName, className, methodParams);
-            opts.dspDebugInfo  = cfg.NgenDebugDump().contains(methodName, className, methodParams);
+            opts.dspOrder     = (cfg.NgenOrder() & 1) == 1;
+            opts.dspGCtbls    = cfg.NgenGCDump().contains(methodName, className, methodParams);
+            opts.disAsm       = cfg.NgenDisasm().contains(methodName, className, methodParams);
+            opts.dspUnwind    = cfg.NgenUnwindDump().contains(methodName, className, methodParams);
+            opts.dspEHTable   = cfg.NgenEHDump().contains(methodName, className, methodParams);
+            opts.dspDebugInfo = cfg.NgenDebugDump().contains(methodName, className, methodParams);
         }
         else
         {
@@ -1440,13 +1439,12 @@ void Compiler::compInitConfigOptions()
 
             if (disEnabled)
             {
-                opts.dspOrder      = (cfg.JitOrder() & 1) == 1;
-                opts.dspGCtbls     = cfg.JitGCDump().contains(methodName, className, methodParams);
-                opts.disAsm        = cfg.JitDisasm().contains(methodName, className, methodParams);
-                opts.disAsmSpilled = cfg.JitDisasm().contains("SPILLED", nullptr, nullptr);
-                opts.dspUnwind     = cfg.JitUnwindDump().contains(methodName, className, methodParams);
-                opts.dspEHTable    = cfg.JitEHDump().contains(methodName, className, methodParams);
-                opts.dspDebugInfo  = cfg.JitDebugDump().contains(methodName, className, methodParams);
+                opts.dspOrder     = (cfg.JitOrder() & 1) == 1;
+                opts.dspGCtbls    = cfg.JitGCDump().contains(methodName, className, methodParams);
+                opts.disAsm       = cfg.JitDisasm().contains(methodName, className, methodParams);
+                opts.dspUnwind    = cfg.JitUnwindDump().contains(methodName, className, methodParams);
+                opts.dspEHTable   = cfg.JitEHDump().contains(methodName, className, methodParams);
+                opts.dspDebugInfo = cfg.JitDebugDump().contains(methodName, className, methodParams);
             }
         }
 
