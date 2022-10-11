@@ -1418,131 +1418,7 @@ void CodeGen::genGenerateMachineCode()
     /* Prepare the emitter */
     GetEmitter()->Init();
 
-#ifdef DEBUG
-    if (compiler->opts.disAsm)
-    {
-        printf("; Assembly listing for method %s\n", compiler->info.compFullName);
-
-        printf("; Emitting ");
-
-        if (compiler->compCodeOpt() == SMALL_CODE)
-        {
-            printf("SMALL_CODE");
-        }
-        else if (compiler->compCodeOpt() == FAST_CODE)
-        {
-            printf("FAST_CODE");
-        }
-        else
-        {
-            printf("BLENDED_CODE");
-        }
-
-        printf(" for ");
-
-#if defined(TARGET_AMD64)
-        printf("X64 CPU with %s", compiler->canUseVexEncoding() ? "AVX" : "SSE2");
-#elif defined(TARGET_ARM64)
-        printf("generic ARM64 CPU");
-#elif defined(TARGET_X86)
-        printf("generic X86 CPU");
-#elif defined(TARGET_ARM)
-        printf("generic ARM CPU");
-#else
-#error Unknown target
-#endif
-
-#if defined(TARGET_WINDOWS)
-        printf(" - Windows");
-#elif defined(TARGET_UNIX)
-        printf(" - Unix");
-#endif
-
-        printf("\n");
-
-        if (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER0))
-        {
-            printf("; Tier-0 compilation\n");
-        }
-        else if (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER1))
-        {
-            printf("; Tier-1 compilation\n");
-        }
-        else if (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_READYTORUN))
-        {
-            printf("; ReadyToRun compilation\n");
-        }
-
-        if (compiler->opts.IsOSR())
-        {
-            printf("; OSR variant for entry point 0x%x\n", compiler->info.compILEntry);
-        }
-
-        if ((compiler->opts.optFlags & CLFLG_MAXOPT) == CLFLG_MAXOPT)
-        {
-            printf("; optimized code\n");
-        }
-        else if (compiler->opts.compDbgCode)
-        {
-            printf("; debuggable code\n");
-        }
-        else if (compiler->opts.MinOpts())
-        {
-            printf("; MinOpts code\n");
-        }
-        else
-        {
-            printf("; unknown optimization flags\n");
-        }
-
-        if (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_BBINSTR))
-        {
-            printf("; instrumented for collecting profile data\n");
-        }
-        else if (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_BBOPT) && compiler->fgHaveProfileData())
-        {
-            printf("; optimized using profile data\n");
-        }
-
-#if DOUBLE_ALIGN
-        if (compiler->genDoubleAlign())
-            printf("; double-aligned frame\n");
-        else
-#endif
-            printf("; %s based frame\n", isFramePointerUsed() ? STR_FPBASE : STR_SPBASE);
-
-        if (GetInterruptible())
-        {
-            printf("; fully interruptible\n");
-        }
-        else
-        {
-            printf("; partially interruptible\n");
-        }
-
-        if (compiler->fgHaveProfileData())
-        {
-            printf("; with PGO: edge weights are %s, and fgCalledCount is " FMT_WT "\n",
-                   compiler->fgHaveValidEdgeWeights ? "valid" : "invalid", compiler->fgCalledCount);
-        }
-
-        if (compiler->fgPgoFailReason != nullptr)
-        {
-            printf("; %s\n", compiler->fgPgoFailReason);
-        }
-
-        if ((compiler->fgPgoInlineePgo + compiler->fgPgoInlineeNoPgo + compiler->fgPgoInlineeNoPgoSingleBlock) > 0)
-        {
-            printf("; %u inlinees with PGO data; %u single block inlinees; %u inlinees without PGO data\n",
-                   compiler->fgPgoInlineePgo, compiler->fgPgoInlineeNoPgoSingleBlock, compiler->fgPgoInlineeNoPgo);
-        }
-
-        if (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_ALT_JIT))
-        {
-            printf("; invoked as altjit\n");
-        }
-    }
-#endif // DEBUG
+    DBEXEC(compiler->opts.disAsm, DumpDisasmHeader();)
 
     // We compute the final frame layout before code generation. This is because LSRA
     // has already computed exactly the maximum concurrent number of spill temps of each type that are
@@ -1591,6 +1467,136 @@ void CodeGen::genGenerateMachineCode()
 
     /* The code is now complete and final; it should not change after this. */
 }
+
+#ifdef DEBUG
+void CodeGen::DumpDisasmHeader() const
+{
+    printf("; Assembly listing for method %s\n", compiler->info.compFullName);
+
+    printf("; Emitting ");
+
+    if (compiler->compCodeOpt() == SMALL_CODE)
+    {
+        printf("SMALL_CODE");
+    }
+    else if (compiler->compCodeOpt() == FAST_CODE)
+    {
+        printf("FAST_CODE");
+    }
+    else
+    {
+        printf("BLENDED_CODE");
+    }
+
+    printf(" for ");
+
+#if defined(TARGET_AMD64)
+    printf("X64 CPU with %s", compiler->canUseVexEncoding() ? "AVX" : "SSE2");
+#elif defined(TARGET_ARM64)
+    printf("generic ARM64 CPU");
+#elif defined(TARGET_X86)
+    printf("generic X86 CPU");
+#elif defined(TARGET_ARM)
+    printf("generic ARM CPU");
+#else
+#error Unknown target
+#endif
+
+#if defined(TARGET_WINDOWS)
+    printf(" - Windows");
+#elif defined(TARGET_UNIX)
+    printf(" - Unix");
+#endif
+
+    printf("\n");
+
+    if (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER0))
+    {
+        printf("; Tier-0 compilation\n");
+    }
+    else if (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER1))
+    {
+        printf("; Tier-1 compilation\n");
+    }
+    else if (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_READYTORUN))
+    {
+        printf("; ReadyToRun compilation\n");
+    }
+
+    if (compiler->opts.IsOSR())
+    {
+        printf("; OSR variant for entry point 0x%x\n", compiler->info.compILEntry);
+    }
+
+    if ((compiler->opts.optFlags & CLFLG_MAXOPT) == CLFLG_MAXOPT)
+    {
+        printf("; optimized code\n");
+    }
+    else if (compiler->opts.compDbgCode)
+    {
+        printf("; debuggable code\n");
+    }
+    else if (compiler->opts.MinOpts())
+    {
+        printf("; MinOpts code\n");
+    }
+    else
+    {
+        printf("; unknown optimization flags\n");
+    }
+
+    if (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_BBINSTR))
+    {
+        printf("; instrumented for collecting profile data\n");
+    }
+    else if (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_BBOPT) && compiler->fgHaveProfileData())
+    {
+        printf("; optimized using profile data\n");
+    }
+
+#if DOUBLE_ALIGN
+    if (doDoubleAlign())
+    {
+        printf("; double-aligned frame\n");
+    }
+    else
+#endif
+    {
+        printf("; %s based frame\n", isFramePointerUsed() ? STR_FPBASE : STR_SPBASE);
+    }
+
+    if (GetInterruptible())
+    {
+        printf("; fully interruptible\n");
+    }
+    else
+    {
+        printf("; partially interruptible\n");
+    }
+
+    if (compiler->fgHaveProfileData())
+    {
+        printf("; with PGO: edge weights are %s, and fgCalledCount is " FMT_WT "\n",
+               compiler->fgHaveValidEdgeWeights ? "valid" : "invalid", compiler->fgCalledCount);
+    }
+
+    if (compiler->fgPgoFailReason != nullptr)
+    {
+        printf("; %s\n", compiler->fgPgoFailReason);
+    }
+
+    if ((compiler->fgPgoInlineePgo + compiler->fgPgoInlineeNoPgo + compiler->fgPgoInlineeNoPgoSingleBlock) > 0)
+    {
+        printf("; %u inlinees with PGO data; %u single block inlinees; %u inlinees without PGO data\n",
+               compiler->fgPgoInlineePgo, compiler->fgPgoInlineeNoPgoSingleBlock, compiler->fgPgoInlineeNoPgo);
+    }
+
+    if (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_ALT_JIT))
+    {
+        printf("; invoked as altjit\n");
+    }
+}
+#endif // DEBUG
 
 //----------------------------------------------------------------------
 // genEmitMachineCode -- emit the actual machine instruction code

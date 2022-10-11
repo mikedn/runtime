@@ -303,7 +303,7 @@ public:
     // is to be fully interruptible.
     //
 public:
-    bool GetInterruptible()
+    bool GetInterruptible() const
     {
         return m_cgInterruptible;
     }
@@ -313,8 +313,7 @@ public:
     }
 
 #ifdef TARGET_ARMARCH
-
-    bool GetHasTailCalls()
+    bool GetHasTailCalls() const
     {
         return m_cgHasTailCalls;
     }
@@ -337,7 +336,7 @@ private:
     //        for fully interruptible methods)
     //
 public:
-    bool IsFullPtrRegMapRequired()
+    bool IsFullPtrRegMapRequired() const
     {
         return m_cgFullPtrRegMap;
     }

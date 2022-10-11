@@ -1519,6 +1519,8 @@ public:
     INDEBUG(bool IsValidSourceType(var_types instrType, var_types sourceType);)
 
     bool IsSimdLocalAligned(unsigned lclNum);
+
+    INDEBUG(void DumpDisasmHeader() const;)
 };
 
 inline void DoPhase(CodeGen* codeGen, Phases phaseId, void (CodeGen::*action)())
