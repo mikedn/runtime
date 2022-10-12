@@ -16,6 +16,7 @@ class CodeGen final : public CodeGenInterface
     friend class DisAssembler;
     friend class CodeGenLivenessUpdater;
 
+    class LinearScan*      m_lsra = nullptr;
     CodeGenLivenessUpdater m_liveness;
 
 public:
@@ -23,6 +24,7 @@ public:
 
     virtual void genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize);
 
+    void genAllocateRegisters();
     void genGenerateMachineCode();
     void genEmitMachineCode();
     void genEmitUnwindDebugGCandEH();

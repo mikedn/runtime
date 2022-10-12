@@ -28,6 +28,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #endif
 
 #include "patchpointinfo.h"
+#include "lsra.h"
 
 /*****************************************************************************/
 
@@ -1388,18 +1389,35 @@ void CodeGen::genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize)
     codePtr          = nativeCode;
     nativeSizeOfCode = nativeCodeSize;
 
+    DoPhase(this, PHASE_LINEAR_SCAN, &CodeGen::genAllocateRegisters);
     DoPhase(this, PHASE_GENERATE_CODE, &CodeGen::genGenerateMachineCode);
     DoPhase(this, PHASE_EMIT_CODE, &CodeGen::genEmitMachineCode);
     DoPhase(this, PHASE_EMIT_GCEH, &CodeGen::genEmitUnwindDebugGCandEH);
+
+#if TRACK_LSRA_STATS
+    if (JitConfig.DisplayLsraStats() == 2)
+    {
+        m_lsra->dumpLsraStatsCsv(jitstdout);
+    }
+#endif
+}
+
+void CodeGen::genAllocateRegisters()
+{
+    m_lsra = new (compiler, CMK_LSRA) LinearScan(compiler);
+    m_lsra->doLinearScan();
 }
 
 void CodeGen::genGenerateMachineCode()
 {
-#ifdef DEBUG
-    genInterruptibleUsed = true;
+    SetFullPtrRegMapRequired(GetInterruptible() || !isFramePointerUsed());
 
+#ifdef DEBUG
     compiler->fgBBcountAtCodegen = compiler->fgBBcount;
+    compiler->fgDebugCheckLinks();
     compiler->fgDebugCheckBBlist();
+
+    genInterruptibleUsed = true;
 #endif
 
     genFinalizeFrame();
@@ -1631,7 +1649,7 @@ void CodeGen::genEmitMachineCode()
 #if TRACK_LSRA_STATS
         if (JitConfig.DisplayLsraStats() == 3)
         {
-            m_pLinearScan->dumpLsraStatsSummary(jitstdout);
+            m_lsra->dumpLsraStatsSummary(jitstdout);
         }
 #endif // TRACK_LSRA_STATS
 
@@ -5575,7 +5593,7 @@ void CodeGen::genFinalizeFrame()
     // of the first basic block, so load those up. In particular, the determination
     // of whether or not to use block init in the prolog is dependent on the variable
     // locations on entry to the function.
-    m_pLinearScan->recordVarLocationsAtStartOfBB(compiler->fgFirstBB);
+    m_lsra->recordVarLocationsAtStartOfBB(compiler->fgFirstBB);
 
     genCheckUseBlockInit();
 
@@ -8290,7 +8308,7 @@ void CodeGen::genGeneratePrologsAndEpilogs()
 
     // Before generating the prolog, we need to reset the variable locations to what they will be on entry.
     // This affects our code that determines which untracked locals need to be zero initialized.
-    m_pLinearScan->recordVarLocationsAtStartOfBB(compiler->fgFirstBB);
+    m_lsra->recordVarLocationsAtStartOfBB(compiler->fgFirstBB);
 
     // Tell the emitter we're done with main code generation, and are going to start prolog and epilog generation.
 

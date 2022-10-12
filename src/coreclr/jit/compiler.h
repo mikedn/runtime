@@ -1066,20 +1066,6 @@ public:
     }
 };
 
-// interface to hide linearscan implementation from rest of compiler
-class LinearScanInterface
-{
-public:
-    virtual void doLinearScan()                                = 0;
-    virtual void recordVarLocationsAtStartOfBB(BasicBlock* bb) = 0;
-#if TRACK_LSRA_STATS
-    virtual void dumpLsraStatsCsv(FILE* file)     = 0;
-    virtual void dumpLsraStatsSummary(FILE* file) = 0;
-#endif // TRACK_LSRA_STATS
-};
-
-LinearScanInterface* getLinearScanAllocator(Compiler* comp);
-
 // Information about arrays: their element type and size, and the offset of the first element.
 struct ArrayInfo
 {

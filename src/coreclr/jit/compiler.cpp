@@ -3230,26 +3230,7 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     stackLevelSetter.Run();
 #endif // !OSX_ARM64_ABI
 
-    LinearScanInterface* lsra = getLinearScanAllocator(this);
-    codeGen->m_pLinearScan    = lsra;
-    DoPhase(this, PHASE_LINEAR_SCAN, [lsra]() { lsra->doLinearScan(); });
-
-    // Copied from rpPredictRegUse()
-    SetFullPtrRegMapRequired(codeGen->GetInterruptible() || !codeGen->isFramePointerUsed());
-
-#ifdef DEBUG
-    fgDebugCheckLinks();
-#endif
-
-    // Generate code
     codeGen->genGenerateCode(nativeCode, nativeCodeSize);
-
-#if TRACK_LSRA_STATS
-    if (JitConfig.DisplayLsraStats() == 2)
-    {
-        lsra->dumpLsraStatsCsv(jitstdout);
-    }
-#endif // TRACK_LSRA_STATS
 
     // We're done -- set the active phase to the last phase
     // (which isn't really a phase)

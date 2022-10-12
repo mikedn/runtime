@@ -542,11 +542,6 @@ void LinearScan::dumpOutVarToRegMap(BasicBlock* block)
 
 #endif // DEBUG
 
-LinearScanInterface* getLinearScanAllocator(Compiler* comp)
-{
-    return new (comp, CMK_LSRA) LinearScan(comp);
-}
-
 //------------------------------------------------------------------------
 // LSRA constructor
 //
