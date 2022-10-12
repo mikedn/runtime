@@ -1000,14 +1000,19 @@ insGroup* emitter::emitSavIG(bool emitAdd)
  *  Start generating code to be scheduled; called once per method.
  */
 
-void emitter::emitBegFN(bool hasFramePtr
-#if defined(DEBUG)
-                        ,
-                        bool chkAlign
-#endif
-                        ,
-                        unsigned maxTmpSize)
+void emitter::emitBegFN()
 {
+    VarSetOps::AssignNoCopy(emitComp, emitPrevGCrefVars, VarSetOps::MakeEmpty(emitComp));
+    VarSetOps::AssignNoCopy(emitComp, emitInitGCrefVars, VarSetOps::MakeEmpty(emitComp));
+    VarSetOps::AssignNoCopy(emitComp, emitThisGCrefVars, VarSetOps::MakeEmpty(emitComp));
+#ifdef DEBUG
+    VarSetOps::AssignNoCopy(emitComp, debugPrevGCrefVars, VarSetOps::MakeEmpty(emitComp));
+    VarSetOps::AssignNoCopy(emitComp, debugThisGCrefVars, VarSetOps::MakeEmpty(emitComp));
+    debugPrevRegPtrDsc = nullptr;
+    debugPrevGCrefRegs = RBM_NONE;
+    debugPrevByrefRegs = RBM_NONE;
+#endif
+
     insGroup* ig;
 
     /* Assume we won't need the temp instruction buffer */
@@ -1023,13 +1028,12 @@ void emitter::emitBegFN(bool hasFramePtr
 
     /* Record stack frame info (the temp size is just an estimate) */
 
-    emitHasFramePtr = hasFramePtr;
+    emitHasFramePtr = codeGen->isFramePointerUsed();
 
-    emitMaxTmpSize = maxTmpSize;
+    emitMaxTmpSize = codeGen->regSet.tmpGetTotalSize();
 
-#ifdef DEBUG
-    emitChkAlign = chkAlign;
-#endif
+    INDEBUG(emitChkAlign =
+                (emitComp->compCodeOpt() != SMALL_CODE) && !emitComp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT));
 
     /* We have no epilogs yet */
 
@@ -1150,15 +1154,6 @@ int emitter::emitNextRandomNop()
     return emitComp->info.compRNG.Next(1, 9);
 }
 #endif
-
-/*****************************************************************************
- *
- *  Done generating code to be scheduled; called once per method.
- */
-
-void emitter::emitEndFN()
-{
-}
 
 // member function iiaIsJitDataOffset for idAddrUnion, defers to Compiler::eeIsJitDataOffs
 bool emitter::instrDesc::idAddrUnion::iiaIsJitDataOffset() const

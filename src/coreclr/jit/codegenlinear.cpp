@@ -105,6 +105,8 @@ void CodeGen::genInitialize()
     // We initialize the stack level before first "BasicBlock" code is generated in case we need to report stack
     // variable needs home and so its stack offset.
     SetStackLevel(0);
+
+    m_liveness.Begin();
 }
 
 //------------------------------------------------------------------------

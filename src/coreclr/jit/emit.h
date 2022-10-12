@@ -2360,22 +2360,6 @@ public:
  */
 
 #include "emitdef.h"
-
-    // It would be better if this were a constructor, but that would entail revamping the allocation
-    // infrastructure of the entire JIT...
-    void Init()
-    {
-        VarSetOps::AssignNoCopy(emitComp, emitPrevGCrefVars, VarSetOps::MakeEmpty(emitComp));
-        VarSetOps::AssignNoCopy(emitComp, emitInitGCrefVars, VarSetOps::MakeEmpty(emitComp));
-        VarSetOps::AssignNoCopy(emitComp, emitThisGCrefVars, VarSetOps::MakeEmpty(emitComp));
-#if defined(DEBUG)
-        VarSetOps::AssignNoCopy(emitComp, debugPrevGCrefVars, VarSetOps::MakeEmpty(emitComp));
-        VarSetOps::AssignNoCopy(emitComp, debugThisGCrefVars, VarSetOps::MakeEmpty(emitComp));
-        debugPrevRegPtrDsc = nullptr;
-        debugPrevGCrefRegs = RBM_NONE;
-        debugPrevByrefRegs = RBM_NONE;
-#endif
-    }
 };
 
 /*****************************************************************************

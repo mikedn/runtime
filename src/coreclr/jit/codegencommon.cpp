@@ -1402,15 +1402,9 @@ void CodeGen::genGenerateMachineCode()
     compiler->fgDebugCheckBBlist();
 #endif
 
-    m_liveness.Begin();
-
-    GetEmitter()->Init();
-
     genFinalizeFrame();
 
-    GetEmitter()->emitBegFN(isFramePointerUsed() DEBUGARG((compiler->compCodeOpt() != SMALL_CODE) &&
-                                                          !compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT)),
-                            regSet.tmpGetTotalSize());
+    GetEmitter()->emitBegFN();
 
     genCodeForBBlist();
     genGeneratePrologsAndEpilogs();
@@ -1808,10 +1802,6 @@ void CodeGen::genEmitUnwindDebugGCandEH()
     }
 
 #endif // DEBUG
-
-    /* Tell the emitter that we're done with this function */
-
-    GetEmitter()->emitEndFN();
 
     /* Shut down the spill logic */
 

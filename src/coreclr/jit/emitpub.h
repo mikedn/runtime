@@ -5,18 +5,7 @@
 /*       Overall emitter control (including startup and shutdown)       */
 /************************************************************************/
 
-static void emitInit();
-static void emitDone();
-
-void emitBegFN(bool hasFramePtr
-#if defined(DEBUG)
-               ,
-               bool checkAlign
-#endif
-               ,
-               unsigned maxTmpSize);
-
-void emitEndFN();
+void emitBegFN();
 
 void emitComputeCodeSizes();
 
