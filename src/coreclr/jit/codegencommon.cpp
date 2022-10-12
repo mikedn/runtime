@@ -1376,6 +1376,29 @@ void CodeGen::genInsertNopForUnwinder(BasicBlock* block)
 
 #endif // FEATURE_EH_FUNCLETS
 
+void DoPhase(CodeGen* codeGen, Phases phaseId, void (CodeGen::*action)())
+{
+    class CodeGenPhase final : public Phase<CodeGenPhase>
+    {
+        CodeGen* codeGen;
+        void (CodeGen::*action)();
+
+    public:
+        CodeGenPhase(CodeGen* codeGen, Phases phase, void (CodeGen::*action)())
+            : Phase(codeGen->GetCompiler(), phase), codeGen(codeGen), action(action)
+        {
+        }
+
+        PhaseStatus DoPhase()
+        {
+            (codeGen->*action)();
+            return PhaseStatus::MODIFIED_EVERYTHING;
+        }
+    } phase(codeGen, phaseId, action);
+
+    phase.Run();
+}
+
 void CodeGen::genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize)
 {
 #ifdef DEBUG
