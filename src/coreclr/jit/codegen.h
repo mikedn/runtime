@@ -497,12 +497,6 @@ protected:
     void genAmd64EmitterUnitTests();
 #endif
 
-#ifdef TARGET_ARM64
-    virtual void SetSaveFpLrWithAllCalleeSavedRegisters(bool value);
-    virtual bool IsSaveFpLrWithAllCalleeSavedRegisters() const;
-    bool         genSaveFpLrWithAllCalleeSavedRegisters = false;
-#endif // TARGET_ARM64
-
     //-------------------------------------------------------------------------
     //
     // End prolog/epilog generation

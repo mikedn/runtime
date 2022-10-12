@@ -3410,7 +3410,7 @@ int CodeGenInterface::genCallerSPtoInitialSPdelta() const
 // SetSaveFpLrWithAllCalleeSavedRegisters - Set the variable that indicates if FP/LR registers
 // are stored with the rest of the callee-saved registers.
 //
-void CodeGen::SetSaveFpLrWithAllCalleeSavedRegisters(bool value)
+void CodeGenInterface::SetSaveFpLrWithAllCalleeSavedRegisters(bool value)
 {
     JITDUMP("Setting genSaveFpLrWithAllCalleeSavedRegisters to %s\n", dspBool(value));
     genSaveFpLrWithAllCalleeSavedRegisters = value;
@@ -3420,7 +3420,7 @@ void CodeGen::SetSaveFpLrWithAllCalleeSavedRegisters(bool value)
 // IsSaveFpLrWithAllCalleeSavedRegisters - Return the value that indicates where FP/LR registers
 // are stored in the prolog.
 //
-bool CodeGen::IsSaveFpLrWithAllCalleeSavedRegisters() const
+bool CodeGenInterface::IsSaveFpLrWithAllCalleeSavedRegisters() const
 {
     return genSaveFpLrWithAllCalleeSavedRegisters;
 }

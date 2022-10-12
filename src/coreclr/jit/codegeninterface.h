@@ -156,9 +156,10 @@ public:
     int genTotalFrameSize() const;
 
 #ifdef TARGET_ARM64
-    virtual void SetSaveFpLrWithAllCalleeSavedRegisters(bool value) = 0;
-    virtual bool IsSaveFpLrWithAllCalleeSavedRegisters() const      = 0;
-#endif // TARGET_ARM64
+    void SetSaveFpLrWithAllCalleeSavedRegisters(bool value);
+    bool IsSaveFpLrWithAllCalleeSavedRegisters() const;
+    bool genSaveFpLrWithAllCalleeSavedRegisters = false;
+#endif
 
     regNumber genGetThisArgReg(GenTreeCall* call) const;
 
