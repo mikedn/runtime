@@ -325,7 +325,7 @@ void Compiler::lvaInitParams(bool hasRetBufParam)
 #endif
 
     InitVarDscInfo paramInfo(intRegCount, floatRegCount);
-    compArgSize = 0;
+    codeGen->paramsSize = 0;
 
     // x86 params look something like this:
     //  [this] [struct return buffer] [user params] [generic context] [varargs handle]
@@ -371,7 +371,7 @@ void Compiler::lvaInitParams(bool hasRetBufParam)
     lvaInitUserParams(paramInfo, skipFirstParam);
 
     ARM_ONLY(lvaAlignPreSpillParams(paramInfo.doubleAlignMask));
-    compArgSize = GetOutgoingArgByteSize(compArgSize);
+    codeGen->paramsSize = GetOutgoingArgByteSize(codeGen->paramsSize);
 
 #ifdef TARGET_X86
     lvaInitGenericsContextParam(paramInfo);
@@ -389,13 +389,13 @@ void Compiler::lvaInitParams(bool hasRetBufParam)
 #endif
 
     // The total argument size must be aligned.
-    noway_assert((compArgSize % REGSIZE_BYTES) == 0);
+    noway_assert((codeGen->paramsSize % REGSIZE_BYTES) == 0);
 
 #ifdef TARGET_X86
     // The x86 ret instruction has a 16 bit immediate so we cannot easily pop more than
     // 2^16 bytes of stack arguments. Could be handled correctly but it will be very
     // difficult for fully interruptible code
-    if (compArgSize >= (1u << 16))
+    if (codeGen->paramsSize >= (1u << 16))
     {
         IMPL_LIMITATION("Too many arguments for the \"ret\" instruction to pop");
     }
@@ -439,7 +439,7 @@ void Compiler::lvaInitThisParam(InitVarDscInfo& paramInfo)
 
     JITDUMP("'this' passed in register %s\n", getRegName(lcl->GetArgReg()));
 
-    compArgSize += REGSIZE_BYTES;
+    codeGen->paramsSize += REGSIZE_BYTES;
     paramInfo.varNum++;
 }
 
@@ -491,7 +491,7 @@ void Compiler::lvaInitRetBufParam(InitVarDscInfo& paramInfo, bool useFixedRetBuf
         JITDUMP("'__retBuf' passed in register %s\n", getRegName(lcl->GetArgReg()));
     }
 
-    compArgSize += REGSIZE_BYTES;
+    codeGen->paramsSize += REGSIZE_BYTES;
     paramInfo.varNum++;
 }
 
@@ -528,13 +528,13 @@ void Compiler::lvaInitGenericsContextParam(InitVarDscInfo& paramInfo)
 #endif
     }
 
-    compArgSize += REGSIZE_BYTES;
+    codeGen->paramsSize += REGSIZE_BYTES;
     paramInfo.varNum++;
 
 #ifdef TARGET_X86
     if (info.compIsVarArgs)
     {
-        lcl->SetStackOffset(compArgSize);
+        lcl->SetStackOffset(codeGen->paramsSize);
     }
 #endif
 }
@@ -591,11 +591,11 @@ void Compiler::lvaInitVarargsHandleParam(InitVarDscInfo& paramInfo)
 #endif
     }
 
-    compArgSize += REGSIZE_BYTES;
+    codeGen->paramsSize += REGSIZE_BYTES;
     paramInfo.varNum++;
 
 #ifdef TARGET_X86
-    lcl->SetStackOffset(compArgSize);
+    lcl->SetStackOffset(codeGen->paramsSize);
     lvaVarargsBaseOfStkArgs = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("Varargs BaseOfStkArgs"));
 #endif
 }
@@ -755,7 +755,7 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
     if (isRegParamType(regType))
     {
-        compArgSize += paramInfo.alignReg(regType, regAlign) * REGSIZE_BYTES;
+        codeGen->paramsSize += paramInfo.alignReg(regType, regAlign) * REGSIZE_BYTES;
     }
 
     if (preSpill)
@@ -968,12 +968,12 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
 #endif // FEATURE_FASTTAILCALL
     }
 
-    compArgSize += paramSize;
+    codeGen->paramsSize += paramSize;
 
     if (info.compIsVarArgs ARM_ONLY(|| isSoftFPPreSpill))
     {
 #ifdef TARGET_X86
-        lcl->SetStackOffset(compArgSize);
+        lcl->SetStackOffset(codeGen->paramsSize);
 #else
         // TODO-CQ: We shouldn't have to go as far as to declare these AX, DNER should suffice.
         lvaSetAddressExposed(lcl);
@@ -2950,12 +2950,12 @@ void Compiler::lvaIncrementFrameSize(unsigned size)
     // it intentionally smaller to avoid bugs from borderline cases.
     constexpr unsigned MaxFrameSize = 0x3FFFFFFF;
 
-    if ((size > MaxFrameSize) || (compLclFrameSize + size > MaxFrameSize))
+    if ((size > MaxFrameSize) || (codeGen->lclFrameSize + size > MaxFrameSize))
     {
         BADCODE("Frame size overflow");
     }
 
-    compLclFrameSize += size;
+    codeGen->lclFrameSize += size;
 }
 
 /****************************************************************************
@@ -3705,7 +3705,7 @@ void Compiler::lvaAssignParamsVirtualFrameOffsets()
 {
     noway_assert(codeGen->intRegState.rsCalleeRegArgCount <= MAX_REG_ARG);
 #ifndef OSX_ARM64_ABI
-    noway_assert(compArgSize >= codeGen->intRegState.rsCalleeRegArgCount * REGSIZE_BYTES);
+    noway_assert(codeGen->paramsSize >= codeGen->intRegState.rsCalleeRegArgCount * REGSIZE_BYTES);
 #endif
 
     // Assign stack offsets to arguments (in reverse order of passing).
@@ -3721,7 +3721,7 @@ void Compiler::lvaAssignParamsVirtualFrameOffsets()
 #ifdef TARGET_X86
     if (info.compCallConv == CorInfoCallConvExtension::Managed)
     {
-        argOffs = compArgSize;
+        argOffs = codeGen->paramsSize;
 
         // Update the argOffs to reflect arguments that are passed in registers.
         argOffs -= codeGen->intRegState.rsCalleeRegArgCount * REGSIZE_BYTES;
@@ -4270,7 +4270,7 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
     stkOffs -= codeGen->calleeRegsPushed * REGSIZE_BYTES;
 #endif // !TARGET_ARM64
 
-    compLclFrameSize = 0;
+    codeGen->lclFrameSize = 0;
 
 #ifdef TARGET_AMD64
     // In case of AMD64 compCalleeRegsPushed includes float regs (XMM6-XMM15) that
@@ -4739,7 +4739,7 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
             if (mustDoubleAlign &&
                 (lcl->TypeIs(TYP_DOUBLE) ARM_ONLY(|| lcl->TypeIs(TYP_LONG)) || lcl->lvStructDoubleAlign))
             {
-                noway_assert((compLclFrameSize % REGSIZE_BYTES) == 0);
+                noway_assert((codeGen->lclFrameSize % REGSIZE_BYTES) == 0);
 
                 if ((lvaDoneFrameLayout != FINAL_FRAME_LAYOUT) && !haveLclDoubleAlign)
                 {
@@ -4904,7 +4904,7 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
     pushedCount++; // pushed PC (return address)
 #endif
 
-    noway_assert(compLclFrameSize + originalFrameSize ==
+    noway_assert(codeGen->lclFrameSize + originalFrameSize ==
                  static_cast<unsigned>(-(stkOffs + pushedCount * REGSIZE_BYTES)));
 }
 
@@ -5017,19 +5017,19 @@ void Compiler::lvaAlignFrame()
 #if defined(TARGET_AMD64)
     // Leaf frames do not need full alignment, but the unwind info is smaller if we
     // are at least 8 byte aligned (and we assert as much)
-    if ((compLclFrameSize % 8) != 0)
+    if ((codeGen->lclFrameSize % 8) != 0)
     {
-        lvaIncrementFrameSize(8 - (compLclFrameSize % 8));
+        lvaIncrementFrameSize(8 - codeGen->lclFrameSize % 8);
     }
 
-    assert((compLclFrameSize % 8) == 0);
+    assert(codeGen->lclFrameSize % 8 == 0);
 
     // Ensure that the stack is always 16-byte aligned by grabbing an unused QWORD
     // if needed, but off by 8 because of the return value.
     // And don't forget that compCalleeRegsPused does *not* include RBP if we are
     // using it as the frame pointer.
     bool regPushedCountAligned = lvaIsCalleeSavedIntRegCountEven();
-    bool lclFrameSizeAligned   = (compLclFrameSize % 16) == 0;
+    bool lclFrameSizeAligned   = (codeGen->lclFrameSize % 16) == 0;
 
     // If this isn't the final frame layout, assume we have to push an extra QWORD
     // Just so the offsets are true upper limits.
@@ -5042,9 +5042,9 @@ void Compiler::lvaAlignFrame()
     // On AMD64-Unix, there are no such slots. There is a possibility to have calls in the method with frame size of 0.
     // The frame alignment logic won't kick in. This flags takes care of the AMD64-Unix case by remembering that there
     // are calls and making sure the frame alignment logic is executed.
-    bool stackNeedsAlignment = (compLclFrameSize != 0 || opts.compNeedToAlignFrame);
+    bool stackNeedsAlignment = (codeGen->lclFrameSize != 0 || opts.compNeedToAlignFrame);
 #else
-    bool stackNeedsAlignment = compLclFrameSize != 0;
+    bool stackNeedsAlignment = codeGen->lclFrameSize != 0;
 #endif
 
     if ((!codeGen->isFramePointerUsed() && (lvaDoneFrameLayout != FINAL_FRAME_LAYOUT)) ||
@@ -5057,9 +5057,9 @@ void Compiler::lvaAlignFrame()
     // The stack on ARM64 must be 16 byte aligned.
 
     // First, align up to 8.
-    if ((compLclFrameSize % 8) != 0)
+    if (codeGen->lclFrameSize % 8 != 0)
     {
-        lvaIncrementFrameSize(8 - (compLclFrameSize % 8));
+        lvaIncrementFrameSize(8 - codeGen->lclFrameSize % 8);
     }
     else if (lvaDoneFrameLayout != FINAL_FRAME_LAYOUT)
     {
@@ -5068,12 +5068,12 @@ void Compiler::lvaAlignFrame()
         // We add 8 so compLclFrameSize is still a multiple of 8.
         lvaIncrementFrameSize(8);
     }
-    assert((compLclFrameSize % 8) == 0);
+    assert(codeGen->lclFrameSize % 8 == 0);
 
     // Ensure that the stack is always 16-byte aligned by grabbing an unused QWORD
     // if needed.
     bool regPushedCountAligned = (codeGen->calleeRegsPushed % (16 / REGSIZE_BYTES)) == 0;
-    bool lclFrameSizeAligned   = (compLclFrameSize % 16) == 0;
+    bool lclFrameSizeAligned   = (codeGen->lclFrameSize % 16) == 0;
 
     // If this isn't the final frame layout, assume we have to push an extra QWORD
     // Just so the offsets are true upper limits.
@@ -5085,7 +5085,7 @@ void Compiler::lvaAlignFrame()
 #elif defined(TARGET_ARM)
 
     // Ensure that stack offsets will be double-aligned by grabbing an unused DWORD if needed.
-    bool lclFrameSizeAligned   = (compLclFrameSize % sizeof(double)) == 0;
+    bool lclFrameSizeAligned   = (codeGen->lclFrameSize % sizeof(double)) == 0;
     bool regPushedCountAligned = ((codeGen->calleeRegsPushed + genCountBits(codeGen->regSet.rsMaskPreSpillRegs(true))) %
                                   (sizeof(double) / TARGET_POINTER_SIZE)) == 0;
 
@@ -5101,7 +5101,7 @@ void Compiler::lvaAlignFrame()
     {
         // Double Frame Alignment for x86 is handled in Compiler::lvaAssignLocalsVirtualFrameOffsets()
 
-        if (compLclFrameSize == 0)
+        if (codeGen->lclFrameSize == 0)
         {
             // This can only happen with JitStress=1 or JitDoubleAlign=2
             lvaIncrementFrameSize(TARGET_POINTER_SIZE);
@@ -5112,7 +5112,7 @@ void Compiler::lvaAlignFrame()
     if (STACK_ALIGN > REGSIZE_BYTES)
     {
         // Align the stack with STACK_ALIGN value.
-        int  adjustFrameSize = compLclFrameSize;
+        int  adjustFrameSize = codeGen->lclFrameSize;
 #if defined(UNIX_X86_ABI)
         bool isEbpPushed     = codeGen->isFramePointerUsed();
 #if DOUBLE_ALIGN
@@ -5181,7 +5181,7 @@ int Compiler::lvaAllocateTemps(int stkOffs
 #else
         if (mustDoubleAlign && (type == TYP_DOUBLE)) // Align doubles for x86 and ARM
         {
-            noway_assert(compLclFrameSize % REGSIZE_BYTES == 0);
+            noway_assert(codeGen->lclFrameSize % REGSIZE_BYTES == 0);
 
             if ((stkOffs + preSpillSize) % (2 * REGSIZE_BYTES) != 0)
             {
@@ -5360,7 +5360,7 @@ bool Compiler::compRsvdRegCheck()
     // depend on us to do the layout.
     unsigned frameSize = lvaFrameSize();
 
-    JITDUMP("\ncompRsvdRegCheck - frame size = %u, compArgSize = %u\n", frameSize, compArgSize);
+    JITDUMP("\ncompRsvdRegCheck - frame size = %u, compArgSize = %u\n", frameSize, codeGen->paramsSize);
 
     if (opts.MinOpts())
     {
@@ -5414,7 +5414,7 @@ bool Compiler::compRsvdRegCheck()
     JITDUMP("  maxR11NegativeEncodingOffset     = %6d\n", maxR11NegativeEncodingOffset);
 
     // -1 because otherwise we are computing the address just beyond the last argument, which we don't need to do.
-    unsigned maxR11PositiveOffset = compArgSize + (2 * REGSIZE_BYTES) - 1;
+    unsigned maxR11PositiveOffset = codeGen->paramsSize + (2 * REGSIZE_BYTES) - 1;
     JITDUMP("  maxR11PositiveOffset             = %6d\n", maxR11PositiveOffset);
 
     // The value is positive, but represents a negative offset from R11.
@@ -5445,8 +5445,8 @@ bool Compiler::compRsvdRegCheck()
     JITDUMP("  maxSPPositiveEncodingOffset      = %6d\n", maxSPPositiveEncodingOffset);
 
     // -1 because otherwise we are computing the address just beyond the last argument, which we don't need to do.
-    assert(compArgSize + frameSize > 0);
-    unsigned maxSPPositiveOffset = compArgSize + frameSize - 1;
+    assert(codeGen->paramsSize + frameSize > 0);
+    unsigned maxSPPositiveOffset = codeGen->paramsSize + frameSize - 1;
 
     if (codeGen->isFramePointerUsed())
     {
@@ -5521,7 +5521,7 @@ unsigned Compiler::lvaFrameSize()
     lvaAssignFrameOffsets(REGALLOC_FRAME_LAYOUT);
     DBEXEC(verbose, lvaTableDump());
 
-    unsigned frameSize = compLclFrameSize;
+    unsigned frameSize = codeGen->lclFrameSize;
 
     frameSize += CALLEE_SAVED_REG_MAXSZ;
 
@@ -5999,7 +5999,7 @@ void Compiler::lvaTableDump()
     if (lvaDoneFrameLayout == FINAL_FRAME_LAYOUT)
     {
         printf(";\n");
-        printf("; Lcl frame size = %d\n", compLclFrameSize);
+        printf("; Lcl frame size = %d\n", codeGen->lclFrameSize);
     }
 }
 

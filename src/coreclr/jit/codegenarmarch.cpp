@@ -671,7 +671,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArg)
 #endif
         // Fast tail calls implemented as epilog+jmp - stack arg is setup in incoming arg area.
         outArgLclNum  = getFirstArgWithStackSlot();
-        outArgLclSize = compiler->compArgSize;
+        outArgLclSize = paramsSize;
     }
     else
     {
@@ -3634,8 +3634,7 @@ void CodeGen::genPushCalleeSavedRegisters()
     // registers have been saved. So instead of letting genAllocLclFrame use initReg as a temporary register,
     // always use REG_SCRATCH. We don't care if it trashes it, so ignore the initRegZeroed output argument.
     bool ignoreInitRegZeroed = false;
-    genAllocLclFrame(compiler->compLclFrameSize, REG_SCRATCH, &ignoreInitRegZeroed,
-                     intRegState.rsCalleeRegArgMaskLiveIn);
+    genAllocLclFrame(lclFrameSize, REG_SCRATCH, &ignoreInitRegZeroed, intRegState.rsCalleeRegArgMaskLiveIn);
 #endif
 
     regMaskTP rsPushRegs = regSet.rsGetModifiedRegsMask() & RBM_CALLEE_SAVED;
@@ -3691,7 +3690,7 @@ void CodeGen::genPushCalleeSavedRegisters()
     regMaskTP maskPushRegsFloat = rsPushRegs & RBM_ALLFLOAT;
     regMaskTP maskPushRegsInt   = rsPushRegs & ~maskPushRegsFloat;
 
-    maskPushRegsInt |= genStackAllocRegisterMask(compiler->compLclFrameSize, maskPushRegsFloat);
+    maskPushRegsInt |= genStackAllocRegisterMask(lclFrameSize, maskPushRegsFloat);
 
     assert(FitsIn<int>(maskPushRegsInt));
     inst_IV(INS_push, (int)maskPushRegsInt);
@@ -3856,8 +3855,7 @@ void CodeGen::genPushCalleeSavedRegisters()
             //      mov fp,sp
             // We do this *after* saving callee-saved registers, so the prolog/epilog unwind codes mostly match.
 
-            JITDUMP("Frame type 1. #outsz=0; #framesz=%d; LclFrameSize=%d\n", totalFrameSize,
-                    compiler->compLclFrameSize);
+            JITDUMP("Frame type 1. #outsz=0; #framesz=%d; LclFrameSize=%d\n", totalFrameSize, lclFrameSize);
 
             frameType = 1;
 
@@ -3867,8 +3865,8 @@ void CodeGen::genPushCalleeSavedRegisters()
                                           INS_OPTS_PRE_INDEX);
             compiler->unwindSaveRegPairPreindexed(REG_FP, REG_LR, -totalFrameSize);
 
-            maskSaveRegsInt &= ~(RBM_FP | RBM_LR);                        // We've already saved FP/LR
-            offset = (int)compiler->compLclFrameSize + 2 * REGSIZE_BYTES; // 2 for FP/LR
+            maskSaveRegsInt &= ~(RBM_FP | RBM_LR);          // We've already saved FP/LR
+            offset = (int)lclFrameSize + 2 * REGSIZE_BYTES; // 2 for FP/LR
         }
         else if (totalFrameSize <= 512)
         {
@@ -3886,7 +3884,7 @@ void CodeGen::genPushCalleeSavedRegisters()
             if (genSaveFpLrWithAllCalleeSavedRegisters)
             {
                 JITDUMP("Frame type 4 (save FP/LR at top). #outsz=%d; #framesz=%d; LclFrameSize=%d\n",
-                        unsigned(compiler->lvaOutgoingArgSpaceSize), totalFrameSize, compiler->compLclFrameSize);
+                        unsigned(compiler->lvaOutgoingArgSpaceSize), totalFrameSize, lclFrameSize);
 
                 frameType = 4;
 
@@ -3896,12 +3894,12 @@ void CodeGen::genPushCalleeSavedRegisters()
                 // is save callee-saved registers (and possibly varargs argument registers).
                 calleeSaveSPDelta = totalFrameSize;
 
-                offset = (int)compiler->compLclFrameSize;
+                offset = (int)lclFrameSize;
             }
             else
             {
                 JITDUMP("Frame type 2 (save FP/LR at bottom). #outsz=%d; #framesz=%d; LclFrameSize=%d\n",
-                        unsigned(compiler->lvaOutgoingArgSpaceSize), totalFrameSize, compiler->compLclFrameSize);
+                        unsigned(compiler->lvaOutgoingArgSpaceSize), totalFrameSize, lclFrameSize);
 
                 frameType = 2;
 
@@ -3920,8 +3918,8 @@ void CodeGen::genPushCalleeSavedRegisters()
                                               compiler->lvaOutgoingArgSpaceSize);
                 compiler->unwindSaveRegPair(REG_FP, REG_LR, compiler->lvaOutgoingArgSpaceSize);
 
-                maskSaveRegsInt &= ~(RBM_FP | RBM_LR);                        // We've already saved FP/LR
-                offset = (int)compiler->compLclFrameSize + 2 * REGSIZE_BYTES; // 2 for FP/LR
+                maskSaveRegsInt &= ~(RBM_FP | RBM_LR);          // We've already saved FP/LR
+                offset = (int)lclFrameSize + 2 * REGSIZE_BYTES; // 2 for FP/LR
             }
         }
         else
@@ -3989,11 +3987,11 @@ void CodeGen::genPushCalleeSavedRegisters()
             // slots. In fact, we are not; any empty alignment slots were calculated in
             // Compiler::lvaAssignFrameOffsets() and its callees.
 
-            int calleeSaveSPDeltaUnaligned = totalFrameSize - compiler->compLclFrameSize;
+            int calleeSaveSPDeltaUnaligned = totalFrameSize - lclFrameSize;
             if (genSaveFpLrWithAllCalleeSavedRegisters)
             {
                 JITDUMP("Frame type 5 (save FP/LR at top). #outsz=%d; #framesz=%d; LclFrameSize=%d\n",
-                        unsigned(compiler->lvaOutgoingArgSpaceSize), totalFrameSize, compiler->compLclFrameSize);
+                        unsigned(compiler->lvaOutgoingArgSpaceSize), totalFrameSize, lclFrameSize);
 
                 // This case is much simpler, because we allocate space for the callee-saved register area, including
                 // FP/LR. Note the SP adjustment might be SUB or be folded into the first store as a predecrement.
@@ -4005,7 +4003,7 @@ void CodeGen::genPushCalleeSavedRegisters()
             else
             {
                 JITDUMP("Frame type 3 (save FP/LR at bottom). #outsz=%d; #framesz=%d; LclFrameSize=%d\n",
-                        unsigned(compiler->lvaOutgoingArgSpaceSize), totalFrameSize, compiler->compLclFrameSize);
+                        unsigned(compiler->lvaOutgoingArgSpaceSize), totalFrameSize, lclFrameSize);
 
                 frameType = 3;
 

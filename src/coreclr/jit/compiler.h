@@ -7289,15 +7289,6 @@ public:
 
 #endif // !TARGET_X86
 
-    //-------------------------------------------------------------------------
-    //  The following keeps track of how many bytes of local frame space we've
-    //  grabbed so far in the current function, and how many argument bytes we
-    //  need to pop when we return.
-    //
-
-    unsigned compLclFrameSize; // secObject+lclBlk+locals+temps
-    unsigned compArgSize;      // total size of arguments in bytes (including register args (lvIsRegArg))
-
     unsigned compMapILargNum(unsigned ilArgNum);
     unsigned compMapILvarNum(unsigned ilVarNum);
     unsigned compMap2ILvarNum(unsigned varNum) const;

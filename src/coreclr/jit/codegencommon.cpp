@@ -105,7 +105,7 @@ int CodeGenInterface::genTotalFrameSize() const
 {
     assert(!IsUninitialized(calleeRegsPushed));
 
-    int totalFrameSize = calleeRegsPushed * REGSIZE_BYTES + compiler->compLclFrameSize;
+    int totalFrameSize = calleeRegsPushed * REGSIZE_BYTES + lclFrameSize;
 
     assert(totalFrameSize >= 0);
     return totalFrameSize;
@@ -4146,7 +4146,7 @@ void CodeGen::genPopCalleeSavedRegisters(bool jmpEpilog)
 
     if (!jmpEpilog)
     {
-        regMaskTP maskStackAlloc = genStackAllocRegisterMask(compiler->compLclFrameSize, maskPopRegsFloat);
+        regMaskTP maskStackAlloc = genStackAllocRegisterMask(lclFrameSize, maskPopRegsFloat);
         maskPopRegsInt |= maskStackAlloc;
     }
 
@@ -4219,7 +4219,7 @@ void CodeGen::genPopCalleeSavedRegistersAndFreeLclFrame(bool jmpEpilog)
 
             // Compute callee save SP offset which is at the top of local frame while the FP/LR is saved at the
             // bottom of stack.
-            calleeSaveSPOffset = compiler->compLclFrameSize + 2 * REGSIZE_BYTES;
+            calleeSaveSPOffset = lclFrameSize + 2 * REGSIZE_BYTES;
         }
         else if (totalFrameSize <= 512)
         {
@@ -4240,7 +4240,7 @@ void CodeGen::genPopCalleeSavedRegistersAndFreeLclFrame(bool jmpEpilog)
 
                 frameType = 4;
 
-                calleeSaveSPOffset = compiler->compLclFrameSize;
+                calleeSaveSPOffset = lclFrameSize;
 
                 // Remove the frame after we're done restoring the callee-saved registers.
                 calleeSaveSPDelta = totalFrameSize;
@@ -4257,7 +4257,7 @@ void CodeGen::genPopCalleeSavedRegistersAndFreeLclFrame(bool jmpEpilog)
 
                 // Compute callee save SP offset which is at the top of local frame while the FP/LR is saved at the
                 // bottom of stack.
-                calleeSaveSPOffset = compiler->compLclFrameSize + 2 * REGSIZE_BYTES;
+                calleeSaveSPOffset = lclFrameSize + 2 * REGSIZE_BYTES;
             }
         }
         else if (!genSaveFpLrWithAllCalleeSavedRegisters)
@@ -4267,8 +4267,8 @@ void CodeGen::genPopCalleeSavedRegistersAndFreeLclFrame(bool jmpEpilog)
 
             frameType = 3;
 
-            int calleeSaveSPDeltaUnaligned = totalFrameSize - compiler->compLclFrameSize -
-                                             2 * REGSIZE_BYTES; // 2 for FP, LR which we'll restore later.
+            int calleeSaveSPDeltaUnaligned =
+                totalFrameSize - lclFrameSize - 2 * REGSIZE_BYTES; // 2 for FP, LR which we'll restore later.
             assert(calleeSaveSPDeltaUnaligned >= 0);
             assert((calleeSaveSPDeltaUnaligned % 8) == 0); // It better at least be 8 byte aligned.
             calleeSaveSPDelta = AlignUp((UINT)calleeSaveSPDeltaUnaligned, STACK_ALIGN);
@@ -4339,7 +4339,7 @@ void CodeGen::genPopCalleeSavedRegistersAndFreeLclFrame(bool jmpEpilog)
 
             frameType = 5;
 
-            int calleeSaveSPDeltaUnaligned = totalFrameSize - compiler->compLclFrameSize;
+            int calleeSaveSPDeltaUnaligned = totalFrameSize - lclFrameSize;
             assert(calleeSaveSPDeltaUnaligned >= 0);
             assert((calleeSaveSPDeltaUnaligned % 8) == 0); // It better at least be 8 byte aligned.
             calleeSaveSPDelta = AlignUp((UINT)calleeSaveSPDeltaUnaligned, STACK_ALIGN);
@@ -5364,11 +5364,11 @@ void CodeGen::genReportGenericContextArg(regNumber initReg, bool* pInitRegZeroed
             // will become enregistered.
             // On Arm compiler->compArgSize doesn't include r11 and lr sizes and hence we need to add 2*REGSIZE_BYTES
             noway_assert((2 * REGSIZE_BYTES <= varDsc->GetStackOffset()) &&
-                         (size_t(varDsc->GetStackOffset()) < compiler->compArgSize + 2 * REGSIZE_BYTES));
+                         (size_t(varDsc->GetStackOffset()) < paramsSize + 2 * REGSIZE_BYTES));
 #else
             // GetStackOffset() is always valid for incoming stack-arguments, even if the argument
             // will become enregistered.
-            noway_assert((0 < varDsc->GetStackOffset()) && (size_t(varDsc->GetStackOffset()) < compiler->compArgSize));
+            noway_assert((0 < varDsc->GetStackOffset()) && (size_t(varDsc->GetStackOffset()) < paramsSize));
 #endif
         }
 
@@ -5638,7 +5638,7 @@ void CodeGen::genFinalizeFrame()
 
 #ifdef TARGET_ARM
     // Make sure that callee-saved registers used by call to a stack probing helper generated are pushed on stack.
-    if (compiler->compLclFrameSize >= compiler->eeGetPageSize())
+    if (lclFrameSize >= compiler->eeGetPageSize())
     {
         regSet.rsSetRegsModified(RBM_STACK_PROBE_HELPER_ARG | RBM_STACK_PROBE_HELPER_CALL_TARGET |
                                  RBM_STACK_PROBE_HELPER_TRASH);
@@ -6296,7 +6296,7 @@ void CodeGen::genFnProlog()
         // too big, we go ahead and do it here.
 
         int SPtoFPdelta          = (calleeRegsPushed - 2) * REGSIZE_BYTES;
-        afterLclFrameSPtoFPdelta = SPtoFPdelta + compiler->compLclFrameSize;
+        afterLclFrameSPtoFPdelta = SPtoFPdelta + lclFrameSize;
         if (!arm_Valid_Imm_For_Add_SP(afterLclFrameSPtoFPdelta))
         {
             // Oh well, it looks too big. Go ahead and establish the frame pointer here.
@@ -6317,13 +6317,12 @@ void CodeGen::genFnProlog()
     regMaskTP maskStackAlloc = RBM_NONE;
 
 #ifdef TARGET_ARM
-    maskStackAlloc =
-        genStackAllocRegisterMask(compiler->compLclFrameSize, regSet.rsGetModifiedRegsMask() & RBM_FLT_CALLEE_SAVED);
+    maskStackAlloc = genStackAllocRegisterMask(lclFrameSize, regSet.rsGetModifiedRegsMask() & RBM_FLT_CALLEE_SAVED);
 #endif // TARGET_ARM
 
     if (maskStackAlloc == RBM_NONE)
     {
-        genAllocLclFrame(compiler->compLclFrameSize, initReg, &initRegZeroed, intRegState.rsCalleeRegArgMaskLiveIn);
+        genAllocLclFrame(lclFrameSize, initReg, &initRegZeroed, intRegState.rsCalleeRegArgMaskLiveIn);
     }
 #endif // !TARGET_ARM64
 
@@ -6340,7 +6339,7 @@ void CodeGen::genFnProlog()
 
 #if defined(TARGET_XARCH)
     // Preserve callee saved float regs to stack.
-    genPreserveCalleeSavedFltRegs(compiler->compLclFrameSize);
+    genPreserveCalleeSavedFltRegs(lclFrameSize);
 #endif // defined(TARGET_XARCH)
 
 #ifdef TARGET_AMD64
@@ -6741,10 +6740,9 @@ void CodeGen::genFnEpilog(BasicBlock* block)
     }
 
     if (jmpEpilog ||
-        genStackAllocRegisterMask(compiler->compLclFrameSize, regSet.rsGetModifiedRegsMask() & RBM_FLT_CALLEE_SAVED) ==
-            RBM_NONE)
+        genStackAllocRegisterMask(lclFrameSize, regSet.rsGetModifiedRegsMask() & RBM_FLT_CALLEE_SAVED) == RBM_NONE)
     {
-        genFreeLclFrame(compiler->compLclFrameSize, &unwindStarted);
+        genFreeLclFrame(lclFrameSize, &unwindStarted);
     }
 
     if (!unwindStarted)
@@ -7026,7 +7024,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
 #endif
 
     // Restore float registers that were saved to stack before SP is modified.
-    genRestoreCalleeSavedFltRegs(compiler->compLclFrameSize);
+    genRestoreCalleeSavedFltRegs(lclFrameSize);
 
 #ifdef JIT32_GCENCODER
     // When using the JIT32 GC encoder, we do not start the OS-reported portion of the epilog until after
@@ -7076,13 +7074,13 @@ void CodeGen::genFnEpilog(BasicBlock* block)
 
         /* Get rid of our local variables */
 
-        if (compiler->compLclFrameSize)
+        if (lclFrameSize)
         {
 #ifdef TARGET_X86
             /* Add 'compiler->compLclFrameSize' to ESP */
             /* Use pop ECX to increment ESP by 4, unless compiler->compJmpOpUsed is true */
 
-            if ((compiler->compLclFrameSize == TARGET_POINTER_SIZE) && !compiler->compJmpOpUsed)
+            if ((lclFrameSize == TARGET_POINTER_SIZE) && !compiler->compJmpOpUsed)
             {
                 inst_RV(INS_pop, REG_ECX, TYP_I_IMPL);
                 regSet.verifyRegUsed(REG_ECX);
@@ -7092,7 +7090,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
             {
                 /* Add 'compiler->compLclFrameSize' to ESP */
                 /* Generate "add esp, <stack-size>" */
-                inst_RV_IV(INS_add, REG_SPBASE, compiler->compLclFrameSize, EA_PTRSIZE);
+                inst_RV_IV(INS_add, REG_SPBASE, lclFrameSize, EA_PTRSIZE);
             }
         }
 
@@ -7143,8 +7141,8 @@ void CodeGen::genFnEpilog(BasicBlock* block)
             // compiler->compCalleeRegsPushed==0. However, this is unlikely, and it
             // also complicates the code manager. Hence, we ignore that case.
 
-            noway_assert(compiler->compLclFrameSize != 0);
-            inst_RV_IV(INS_add, REG_SPBASE, compiler->compLclFrameSize, EA_PTRSIZE);
+            noway_assert(lclFrameSize != 0);
+            inst_RV_IV(INS_add, REG_SPBASE, lclFrameSize, EA_PTRSIZE);
 
             needMovEspEbp = true;
         }
@@ -7164,7 +7162,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
             }
             else if (!regSet.rsRegsModified(RBM_CALLEE_SAVED))
             {
-                if (compiler->compLclFrameSize != 0)
+                if (lclFrameSize != 0)
                 {
 #ifdef TARGET_AMD64
                     // AMD64 can't use "mov esp, ebp", according to the ABI specification describing epilogs. So,
@@ -7176,12 +7174,12 @@ void CodeGen::genFnEpilog(BasicBlock* block)
 #endif // !TARGET_AMD64
                 }
             }
-            else if (compiler->compLclFrameSize == 0)
+            else if (lclFrameSize == 0)
             {
                 // do nothing before popping the callee-saved registers
             }
 #ifdef TARGET_X86
-            else if (compiler->compLclFrameSize == REGSIZE_BYTES)
+            else if (lclFrameSize == REGSIZE_BYTES)
             {
                 // "pop ecx" will make ESP point to the callee-saved registers
                 inst_RV(INS_pop, REG_ECX, TYP_I_IMPL);
@@ -7209,7 +7207,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
                 // Case 2: localloc used
                 // genSPToFPDelta = Min(240, (int)compiler->lvaOutgoingArgSpaceSize)
                 // Offset = Amount to be added to RBP to point at callee saved int regs.
-                offset = genSPtoFPdelta() - compiler->compLclFrameSize;
+                offset = genSPtoFPdelta() - lclFrameSize;
 
                 // Offset should fit within a byte if localloc is not used.
                 if (!compiler->compLocallocUsed)
@@ -7416,10 +7414,10 @@ void CodeGen::genFnEpilog(BasicBlock* block)
 
         if (fCalleePop)
         {
-            noway_assert(compiler->compArgSize >= intRegState.rsCalleeRegArgCount * REGSIZE_BYTES);
-            stkArgSize = compiler->compArgSize - intRegState.rsCalleeRegArgCount * REGSIZE_BYTES;
+            noway_assert(paramsSize >= intRegState.rsCalleeRegArgCount * REGSIZE_BYTES);
+            stkArgSize = paramsSize - intRegState.rsCalleeRegArgCount * REGSIZE_BYTES;
 
-            noway_assert(compiler->compArgSize < 0x10000); // "ret" only has 2 byte operand
+            noway_assert(paramsSize < 0x10000); // "ret" only has 2 byte operand
         }
 #endif // TARGET_X86
 
@@ -9000,7 +8998,7 @@ void CodeGen::genSetScopeInfo(unsigned       which,
 
         noway_assert(cookieOffset < varOffset);
         unsigned offset     = varOffset - cookieOffset;
-        unsigned stkArgSize = compiler->compArgSize - intRegState.rsCalleeRegArgCount * REGSIZE_BYTES;
+        unsigned stkArgSize = paramsSize - intRegState.rsCalleeRegArgCount * REGSIZE_BYTES;
         noway_assert(offset < stkArgSize);
         offset = stkArgSize - offset;
 

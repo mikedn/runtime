@@ -6373,7 +6373,7 @@ int CodeGenInterface::genTotalFrameSize() const
 {
     assert(!IsUninitialized(calleeRegsPushed));
 
-    int totalFrameSize = calleeRegsPushed * REGSIZE_BYTES + compiler->compLclFrameSize;
+    int totalFrameSize = calleeRegsPushed * REGSIZE_BYTES + lclFrameSize;
 
     assert(totalFrameSize >= 0);
     return totalFrameSize;

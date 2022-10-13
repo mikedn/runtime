@@ -104,7 +104,14 @@ public:
     RegState intRegState;
     RegState floatRegState;
 
-    FrameType rpFrameType;
+    //-------------------------------------------------------------------------
+    //  The following keeps track of how many bytes of local frame space we've
+    //  grabbed so far in the current function, and how many argument bytes we
+    //  need to pop when we return.
+    //
+
+    unsigned lclFrameSize; // secObject + lclBlk + locals + temps
+    unsigned paramsSize;   // total size of parameters in bytes (including register params (lvIsRegArg))
 
     // Count of callee-saved regs we pushed in the prolog.
     // Does not include EBP for isFramePointerUsed() and double-aligned frames.
@@ -115,6 +122,8 @@ public:
     // Mask of callee saved float regs on stack.
     regMaskTP calleeFPRegsSavedMask;
 #endif
+
+    FrameType rpFrameType;
 
     bool generatingProlog = false;
     bool generatingEpilog = false;
