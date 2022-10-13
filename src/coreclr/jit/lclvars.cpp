@@ -4249,14 +4249,14 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
     if (codeGen->IsSaveFpLrWithAllCalleeSavedRegisters() ||
         !isFramePointerUsed()) // Note that currently we always have a frame pointer
     {
-        stkOffs -= compCalleeRegsPushed * REGSIZE_BYTES;
+        stkOffs -= codeGen->calleeRegsPushed * REGSIZE_BYTES;
     }
     else
     {
         // Subtract off FP and LR.
-        assert(compCalleeRegsPushed >= 2);
+        assert(codeGen->calleeRegsPushed >= 2);
 
-        stkOffs -= (compCalleeRegsPushed - 2) * REGSIZE_BYTES;
+        stkOffs -= (codeGen->calleeRegsPushed - 2) * REGSIZE_BYTES;
     }
 #else // !TARGET_ARM64
 #ifdef TARGET_ARM
@@ -4267,7 +4267,7 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
     }
 #endif
 
-    stkOffs -= compCalleeRegsPushed * REGSIZE_BYTES;
+    stkOffs -= codeGen->calleeRegsPushed * REGSIZE_BYTES;
 #endif // !TARGET_ARM64
 
     compLclFrameSize = 0;
@@ -4288,7 +4288,7 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
     //     XMM registers to/from stack to match JIT64 codegen. Without the aligning on 16-byte
     //     boundary we would have to use MOVUPS when offset turns out unaligned. MOVAPS is more
     //     performant than MOVUPS.
-    unsigned calleeFPRegsSavedSize = genCountBits(compCalleeFPRegsSavedMask) * XMM_REGSIZE_BYTES;
+    unsigned calleeFPRegsSavedSize = genCountBits(codeGen->calleeFPRegsSavedMask) * XMM_REGSIZE_BYTES;
 
     // For OSR the alignment pad computation should not take the original frame into account.
     // Original frame size includes the pseudo-saved RA and so is always = 8 mod 16.
@@ -4886,7 +4886,7 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
 
     // compLclFrameSize equals our negated virtual stack offset minus the pushed registers and return address
     // and the pushed frame pointer register which for some strange reason isn't part of 'compCalleeRegsPushed'.
-    int pushedCount = compCalleeRegsPushed;
+    int pushedCount = codeGen->calleeRegsPushed;
 
 #ifdef TARGET_ARM64
     if (info.compIsVarArgs)
@@ -5005,7 +5005,7 @@ int Compiler::lvaAllocLocalAndSetVirtualOffset(unsigned lclNum, unsigned size, i
 // negation of this routine.
 bool Compiler::lvaIsCalleeSavedIntRegCountEven()
 {
-    unsigned regsPushed = compCalleeRegsPushed + (codeGen->isFramePointerUsed() ? 1 : 0);
+    unsigned regsPushed = codeGen->calleeRegsPushed + (codeGen->isFramePointerUsed() ? 1 : 0);
     return (regsPushed % (16 / REGSIZE_BYTES)) == 0;
 }
 #endif // TARGET_AMD64
@@ -5072,7 +5072,7 @@ void Compiler::lvaAlignFrame()
 
     // Ensure that the stack is always 16-byte aligned by grabbing an unused QWORD
     // if needed.
-    bool regPushedCountAligned = (compCalleeRegsPushed % (16 / REGSIZE_BYTES)) == 0;
+    bool regPushedCountAligned = (codeGen->calleeRegsPushed % (16 / REGSIZE_BYTES)) == 0;
     bool lclFrameSizeAligned   = (compLclFrameSize % 16) == 0;
 
     // If this isn't the final frame layout, assume we have to push an extra QWORD
@@ -5086,7 +5086,7 @@ void Compiler::lvaAlignFrame()
 
     // Ensure that stack offsets will be double-aligned by grabbing an unused DWORD if needed.
     bool lclFrameSizeAligned   = (compLclFrameSize % sizeof(double)) == 0;
-    bool regPushedCountAligned = ((compCalleeRegsPushed + genCountBits(codeGen->regSet.rsMaskPreSpillRegs(true))) %
+    bool regPushedCountAligned = ((codeGen->calleeRegsPushed + genCountBits(codeGen->regSet.rsMaskPreSpillRegs(true))) %
                                   (sizeof(double) / TARGET_POINTER_SIZE)) == 0;
 
     if (regPushedCountAligned != lclFrameSizeAligned)
@@ -5509,14 +5509,14 @@ unsigned Compiler::lvaFrameSize()
     // Layout the stack frame conservatively.
     // Assume all callee-saved registers are spilled to stack.
 
-    compCalleeRegsPushed = CNT_CALLEE_SAVED;
+    codeGen->calleeRegsPushed = CNT_CALLEE_SAVED;
 
     if (compFloatingPointUsed)
     {
-        compCalleeRegsPushed += CNT_CALLEE_SAVED_FLOAT;
+        codeGen->calleeRegsPushed += CNT_CALLEE_SAVED_FLOAT;
     }
 
-    compCalleeRegsPushed++; // We always push LR, see genPushCalleeSavedRegisters.
+    codeGen->calleeRegsPushed++; // We always push LR, see genPushCalleeSavedRegisters.
 
     lvaAssignFrameOffsets(REGALLOC_FRAME_LAYOUT);
     DBEXEC(verbose, lvaTableDump());

@@ -106,6 +106,16 @@ public:
 
     FrameType rpFrameType;
 
+    // Count of callee-saved regs we pushed in the prolog.
+    // Does not include EBP for isFramePointerUsed() and double-aligned frames.
+    // In case of Amd64 this doesn't include float regs saved on stack.
+    unsigned calleeRegsPushed;
+
+#ifdef TARGET_XARCH
+    // Mask of callee saved float regs on stack.
+    regMaskTP calleeFPRegsSavedMask;
+#endif
+
 protected:
     bool m_genAlignLoops;
 

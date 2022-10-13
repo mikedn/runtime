@@ -3364,10 +3364,10 @@ int CodeGenInterface::genTotalFrameSize() const
     // since we don't use "push" instructions to save them, we don't have to do the
     // save of these varargs register arguments as the first thing in the prolog.
 
-    assert(!IsUninitialized(compiler->compCalleeRegsPushed));
+    assert(!IsUninitialized(calleeRegsPushed));
 
     int totalFrameSize = (compiler->info.compIsVarArgs ? MAX_REG_ARG * REGSIZE_BYTES : 0) +
-                         compiler->compCalleeRegsPushed * REGSIZE_BYTES + compiler->compLclFrameSize;
+                         calleeRegsPushed * REGSIZE_BYTES + compiler->compLclFrameSize;
 
     assert(totalFrameSize >= 0);
     return totalFrameSize;

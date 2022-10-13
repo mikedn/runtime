@@ -3677,13 +3677,13 @@ void CodeGen::genPushCalleeSavedRegisters()
 #endif // TARGET_ARMARCH
 
 #ifdef DEBUG
-    if (compiler->compCalleeRegsPushed != genCountBits(rsPushRegs))
+    if (calleeRegsPushed != genCountBits(rsPushRegs))
     {
-        printf("Error: unexpected number of callee-saved registers to push. Expected: %d. Got: %d ",
-               compiler->compCalleeRegsPushed, genCountBits(rsPushRegs));
+        printf("Error: unexpected number of callee-saved registers to push. Expected: %d. Got: %d ", calleeRegsPushed,
+               genCountBits(rsPushRegs));
         dspRegMask(rsPushRegs);
         printf("\n");
-        assert(compiler->compCalleeRegsPushed == genCountBits(rsPushRegs));
+        assert(calleeRegsPushed == genCountBits(rsPushRegs));
     }
 #endif // DEBUG
 

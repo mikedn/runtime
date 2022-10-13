@@ -77,11 +77,11 @@ CodeGen::CodeGen(Compiler* compiler) : CodeGenInterface(compiler), m_liveness(co
 
 #ifdef DEBUG
     // Shouldn't be used before it is set in genFnProlog()
-    compiler->compCalleeRegsPushed = UninitializedWord<unsigned>(compiler);
+    calleeRegsPushed = UninitializedWord<unsigned>(compiler);
 
 #ifdef TARGET_XARCH
     // Shouldn't be used before it is set in genFnProlog()
-    compiler->compCalleeFPRegsSavedMask = (regMaskTP)-1;
+    calleeFPRegsSavedMask = (regMaskTP)-1;
 #endif
 #endif
 }
@@ -103,9 +103,9 @@ CodeGen::CodeGen(Compiler* compiler) : CodeGenInterface(compiler), m_liveness(co
 
 int CodeGenInterface::genTotalFrameSize() const
 {
-    assert(!IsUninitialized(compiler->compCalleeRegsPushed));
+    assert(!IsUninitialized(calleeRegsPushed));
 
-    int totalFrameSize = compiler->compCalleeRegsPushed * REGSIZE_BYTES + compiler->compLclFrameSize;
+    int totalFrameSize = calleeRegsPushed * REGSIZE_BYTES + compiler->compLclFrameSize;
 
     assert(totalFrameSize >= 0);
     return totalFrameSize;
@@ -4472,7 +4472,7 @@ void CodeGen::genPopCalleeSavedRegisters(bool jmpEpilog)
     // space on stack in prolog sequence.  PopCount is essentially
     // tracking the count of integer registers pushed.
 
-    noway_assert(compiler->compCalleeRegsPushed == popCount);
+    noway_assert(calleeRegsPushed == popCount);
 }
 
 #elif defined(TARGET_X86)
@@ -5772,16 +5772,16 @@ void CodeGen::genFinalizeFrame()
     // Compute the count of callee saved float regs saved on stack.
     // On Amd64 we push only integer regs. Callee saved float (xmm6-xmm15)
     // regs are stack allocated and preserved in their stack locations.
-    compiler->compCalleeFPRegsSavedMask = maskCalleeRegsPushed & RBM_FLT_CALLEE_SAVED;
+    calleeFPRegsSavedMask = maskCalleeRegsPushed & RBM_FLT_CALLEE_SAVED;
     maskCalleeRegsPushed &= ~RBM_FLT_CALLEE_SAVED;
 #endif // defined(TARGET_XARCH)
 
-    compiler->compCalleeRegsPushed = genCountBits(maskCalleeRegsPushed);
+    calleeRegsPushed = genCountBits(maskCalleeRegsPushed);
 
 #ifdef DEBUG
     if (verbose)
     {
-        printf("Callee-saved registers pushed: %d ", compiler->compCalleeRegsPushed);
+        printf("Callee-saved registers pushed: %d ", calleeRegsPushed);
         dspRegMask(maskCalleeRegsPushed);
         printf("\n");
     }
@@ -6295,7 +6295,7 @@ void CodeGen::genFnProlog()
         // This makes the prolog and epilog match, giving us smaller unwind data. If the frame size is
         // too big, we go ahead and do it here.
 
-        int SPtoFPdelta          = (compiler->compCalleeRegsPushed - 2) * REGSIZE_BYTES;
+        int SPtoFPdelta          = (calleeRegsPushed - 2) * REGSIZE_BYTES;
         afterLclFrameSPtoFPdelta = SPtoFPdelta + compiler->compLclFrameSize;
         if (!arm_Valid_Imm_For_Add_SP(afterLclFrameSPtoFPdelta))
         {
@@ -7218,7 +7218,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
                 }
 #else
                 // lea esp, [ebp - compiler->compCalleeRegsPushed * REGSIZE_BYTES]
-                offset = compiler->compCalleeRegsPushed * REGSIZE_BYTES;
+                offset = calleeRegsPushed * REGSIZE_BYTES;
                 noway_assert(offset < UCHAR_MAX); // the offset fits in a byte
 #endif
 
@@ -7966,7 +7966,7 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
     assert(isFramePointerUsed());
     assert(compiler->lvaDoneFrameLayout == Compiler::FINAL_FRAME_LAYOUT); // The frame size and offsets must be
                                                                           // finalized
-    assert(compiler->compCalleeFPRegsSavedMask != (regMaskTP)-1); // The float registers to be preserved is finalized
+    assert(calleeFPRegsSavedMask != (regMaskTP)-1); // The float registers to be preserved is finalized
 
     // Even though lvaToInitialSPRelativeOffset() depends on compLclFrameSize,
     // that's ok, because we're figuring out an offset in the parent frame.
@@ -7988,14 +7988,13 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
     // How much stack do we allocate in the funclet?
     // We need to 16-byte align the stack.
 
-    unsigned totalFrameSize =
-        REGSIZE_BYTES                                       // return address
-        + REGSIZE_BYTES                                     // pushed EBP
-        + (compiler->compCalleeRegsPushed * REGSIZE_BYTES); // pushed callee-saved int regs, not including EBP
+    unsigned totalFrameSize = REGSIZE_BYTES                         // return address
+                              + REGSIZE_BYTES                       // pushed EBP
+                              + (calleeRegsPushed * REGSIZE_BYTES); // pushed callee-saved int regs, not including EBP
 
     // Entire 128-bits of XMM register is saved to stack due to ABI encoding requirement.
     // Copying entire XMM register to/from memory will be performant if SP is aligned at XMM_REGSIZE_BYTES boundary.
-    unsigned calleeFPRegsSavedSize = genCountBits(compiler->compCalleeFPRegsSavedMask) * XMM_REGSIZE_BYTES;
+    unsigned calleeFPRegsSavedSize = genCountBits(calleeFPRegsSavedMask) * XMM_REGSIZE_BYTES;
     unsigned FPRegsPad             = (calleeFPRegsSavedSize > 0) ? AlignmentPad(totalFrameSize, XMM_REGSIZE_BYTES) : 0;
 
     unsigned PSPSymSize = (compiler->lvaPSPSym != BAD_VAR_NUM) ? REGSIZE_BYTES : 0;
@@ -8400,7 +8399,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 void CodeGen::genPreserveCalleeSavedFltRegs(unsigned lclFrameSize)
 {
     genVzeroupperIfNeeded(false);
-    regMaskTP regMask = compiler->compCalleeFPRegsSavedMask;
+    regMaskTP regMask = calleeFPRegsSavedMask;
 
     // Only callee saved floating point registers should be in regMask
     assert((regMask & RBM_FLT_CALLEE_SAVED) == regMask);
@@ -8450,7 +8449,7 @@ void CodeGen::genPreserveCalleeSavedFltRegs(unsigned lclFrameSize)
 //             funclet frames: this will be FuncletInfo.fiSpDelta.
 void CodeGen::genRestoreCalleeSavedFltRegs(unsigned lclFrameSize)
 {
-    regMaskTP regMask = compiler->compCalleeFPRegsSavedMask;
+    regMaskTP regMask = calleeFPRegsSavedMask;
 
     // Only callee saved floating point registers should be in regMask
     assert((regMask & RBM_FLT_CALLEE_SAVED) == regMask);
