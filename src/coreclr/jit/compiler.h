@@ -6617,37 +6617,7 @@ public:
         return codeGen->GetEmitter();
     }
 
-    bool isFramePointerUsed() const
-    {
-        return codeGen->isFramePointerUsed();
-    }
-
-    bool GetInterruptible()
-    {
-        return codeGen->GetInterruptible();
-    }
-    void SetInterruptible(bool value)
-    {
-        codeGen->SetInterruptible(value);
-    }
-
-#ifdef TARGET_ARMARCH
-
-    bool GetHasTailCalls()
-    {
-        return codeGen->GetHasTailCalls();
-    }
-    void SetHasTailCalls(bool value)
-    {
-        codeGen->SetHasTailCalls(value);
-    }
-#endif // TARGET_ARMARCH
-
 #if DOUBLE_ALIGN
-    const bool genDoubleAlign()
-    {
-        return codeGen->doDoubleAlign();
-    }
     DWORD getCanDoubleAlign();
     bool shouldDoubleAlign(unsigned             refCntStk,
                            unsigned             refCntReg,
@@ -6655,15 +6625,6 @@ public:
                            unsigned             refCntStkParam,
                            BasicBlock::weight_t refCntWtdStkDbl);
 #endif // DOUBLE_ALIGN
-
-    bool IsFullPtrRegMapRequired()
-    {
-        return codeGen->IsFullPtrRegMapRequired();
-    }
-    void SetFullPtrRegMapRequired(bool value)
-    {
-        codeGen->SetFullPtrRegMapRequired(value);
-    }
 
 // Things that MAY belong either in CodeGen or CodeGenContext
 

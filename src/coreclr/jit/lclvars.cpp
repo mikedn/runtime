@@ -3599,7 +3599,7 @@ void Compiler::lvaFixVirtualFrameOffsets()
         lcl->SetStackOffset(lcl->GetStackOffset() + delta);
 
 #if defined(TARGET_X86) && DOUBLE_ALIGN
-        if (genDoubleAlign() && !codeGen->isFramePointerUsed() && lcl->lvFramePointerBased)
+        if (codeGen->doDoubleAlign() && !codeGen->isFramePointerUsed() && lcl->lvFramePointerBased)
         {
             lcl->SetStackOffset(lcl->GetStackOffset() - delta);
 
@@ -4224,7 +4224,7 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
     int  preSpillSize    = 0;
     bool mustDoubleAlign = false;
 #if DOUBLE_ALIGN
-    if (genDoubleAlign())
+    if (codeGen->doDoubleAlign())
     {
         mustDoubleAlign = true;
     }
@@ -4247,7 +4247,7 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
     }
 
     if (codeGen->IsSaveFpLrWithAllCalleeSavedRegisters() ||
-        !isFramePointerUsed()) // Note that currently we always have a frame pointer
+        !codeGen->isFramePointerUsed()) // Note that currently we always have a frame pointer
     {
         stkOffs -= codeGen->calleeRegsPushed * REGSIZE_BYTES;
     }
@@ -4861,7 +4861,7 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
 
 #ifdef TARGET_ARM64
     // Note that currently we always have a frame pointer
-    if (!codeGen->IsSaveFpLrWithAllCalleeSavedRegisters() && isFramePointerUsed())
+    if (!codeGen->IsSaveFpLrWithAllCalleeSavedRegisters() && codeGen->isFramePointerUsed())
     {
         // Create space for saving FP and LR.
         stkOffs -= 2 * REGSIZE_BYTES;
@@ -5097,7 +5097,7 @@ void Compiler::lvaAlignFrame()
 #elif defined(TARGET_X86)
 
 #if DOUBLE_ALIGN
-    if (genDoubleAlign())
+    if (codeGen->doDoubleAlign())
     {
         // Double Frame Alignment for x86 is handled in Compiler::lvaAssignLocalsVirtualFrameOffsets()
 
@@ -5263,9 +5263,10 @@ int Compiler::lvaFrameAddress(int varNum,
         {
 #ifdef TARGET_X86
 #if DOUBLE_ALIGN
-            assert(fpBased == (isFramePointerUsed() || (genDoubleAlign() && lcl->IsParam() && !lcl->IsRegParam())));
+            assert(fpBased == (codeGen->isFramePointerUsed() ||
+                               (codeGen->doDoubleAlign() && lcl->IsParam() && !lcl->IsRegParam())));
 #else
-            assert(fpBased == isFramePointerUsed());
+            assert(fpBased == codeGen->isFramePointerUsed());
 #endif
 #endif
         }
@@ -5274,7 +5275,7 @@ int Compiler::lvaFrameAddress(int varNum,
     }
     else // Its a spill-temp
     {
-        fpBased = isFramePointerUsed();
+        fpBased = codeGen->isFramePointerUsed();
 
         TempDsc* tmpDsc = codeGen->regSet.tmpFindNum(varNum);
 
@@ -5993,7 +5994,8 @@ void Compiler::lvaTableDump()
         printf("; T%02u %25s%*s%7s     ", -temp->tdTempNum(), " ", refCntWtdWidth, " ",
                varTypeName(temp->tdTempType()));
         int offset = temp->tdTempOffs();
-        printf(" [%2s%1s%02XH]\n", isFramePointerUsed() ? STR_FPBASE : STR_SPBASE, offset < 0 ? "-" : "+", abs(offset));
+        printf(" [%2s%1s%02XH]\n", codeGen->isFramePointerUsed() ? STR_FPBASE : STR_SPBASE, offset < 0 ? "-" : "+",
+               abs(offset));
     }
 
     if (lvaDoneFrameLayout == FINAL_FRAME_LAYOUT)

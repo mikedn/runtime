@@ -2109,7 +2109,7 @@ inline UNATIVE_OFFSET emitter::emitInsSizeSV(code_t code, int var, int dsp)
         offs = tmp->tdTempOffs();
 
         // We only care about the magnitude of the offset here, to determine instruction size.
-        if (emitComp->isFramePointerUsed())
+        if (codeGen->isFramePointerUsed())
         {
             if ((int)offs < 0)
             {
@@ -6719,7 +6719,7 @@ void emitter::emitDispAddrMode(instrDesc* id, bool noDetail)
         {
             frameRef = true;
         }
-        else if (emitComp->isFramePointerUsed() && id->idAddr()->iiaAddrMode.amBaseReg == REG_EBP)
+        else if (codeGen->isFramePointerUsed() && id->idAddr()->iiaAddrMode.amBaseReg == REG_EBP)
         {
             frameRef = true;
         }

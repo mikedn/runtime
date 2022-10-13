@@ -295,7 +295,7 @@ void StackLevelSetter::CheckArgCnt()
                    "interruptible\n");
         }
 #endif
-        comp->SetInterruptible(false);
+        comp->codeGen->SetInterruptible(false);
     }
     if (maxStackLevel >= sizeof(unsigned))
     {

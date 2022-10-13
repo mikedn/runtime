@@ -14572,14 +14572,14 @@ void Compiler::fgSetOptions()
     if (JitConfig.JitFullyInt() || compStressCompile(STRESS_GENERIC_VARN, 30))
     {
         noway_assert(!codeGen->isGCTypeFixed());
-        SetInterruptible(true);
+        codeGen->SetInterruptible(true);
     }
 #endif
 
     if (opts.compDbgCode)
     {
         assert(!codeGen->isGCTypeFixed());
-        SetInterruptible(true); // debugging is easier this way ...
+        codeGen->SetInterruptible(true); // debugging is easier this way ...
     }
 
     /* Assume we won't need an explicit stack frame if this is allowed */

@@ -363,12 +363,8 @@ public:
     {
         return m_cgFullPtrRegMap;
     }
-    void SetFullPtrRegMapRequired(bool value)
-    {
-        m_cgFullPtrRegMap = value;
-    }
 
-private:
+protected:
     bool m_cgFullPtrRegMap;
 
 public:

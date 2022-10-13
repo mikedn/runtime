@@ -1433,7 +1433,7 @@ void CodeGen::genAllocateRegisters()
 
 void CodeGen::genGenerateMachineCode()
 {
-    SetFullPtrRegMapRequired(GetInterruptible() || !isFramePointerUsed());
+    m_cgFullPtrRegMap = GetInterruptible() || !isFramePointerUsed();
 
 #ifdef DEBUG
     compiler->fgBBcountAtCodegen = compiler->fgBBcount;
@@ -6267,9 +6267,9 @@ void CodeGen::genFnProlog()
 #endif // !TARGET_AMD64
 
 #if DOUBLE_ALIGN
-        if (compiler->genDoubleAlign())
+        if (doDoubleAlign())
         {
-            noway_assert(isFramePointerUsed() == false);
+            noway_assert(!isFramePointerUsed());
             noway_assert(!regSet.rsRegsModified(RBM_FPBASE)); /* Trashing EBP is out.    */
 
             inst_RV_IV(INS_and, REG_SPBASE, -8, EA_PTRSIZE);
@@ -7132,7 +7132,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
         bool needMovEspEbp = false;
 
 #if DOUBLE_ALIGN
-        if (compiler->genDoubleAlign())
+        if (doDoubleAlign())
         {
             //
             // add esp, compLclFrameSize

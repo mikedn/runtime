@@ -1100,7 +1100,7 @@ inline void Compiler::fgMarkLoopHead(BasicBlock* block)
 
     /* Have we decided to generate fully interruptible code already? */
 
-    if (GetInterruptible())
+    if (codeGen->GetInterruptible())
     {
 #ifdef DEBUG
         if (verbose)
@@ -1175,7 +1175,7 @@ inline void Compiler::fgMarkLoopHead(BasicBlock* block)
         printf("no guaranteed callsite exits, marking method as fully interruptible\n");
     }
 #endif
-    SetInterruptible(true);
+    codeGen->SetInterruptible(true);
 }
 
 GenTree* Compiler::fgGetCritSectOfStaticMethod()
@@ -3406,7 +3406,7 @@ void Compiler::fgSetBlockOrder()
                 //
                 if (compCanEncodePtrArgCntMax())
                 {
-                    SetInterruptible(true);
+                    codeGen->SetInterruptible(true);
                 }
                 break;
             }
@@ -3425,7 +3425,7 @@ void Compiler::fgSetBlockOrder()
             // loop.  Thus we need to either add a poll, or make the method
             // fully interruptible.  I chose the later because that's what
             // JIT64 does.
-            SetInterruptible(true);
+            codeGen->SetInterruptible(true);
         }
 #endif // !JIT32_GCENCODER
 #endif // FEATURE_FASTTAILCALL

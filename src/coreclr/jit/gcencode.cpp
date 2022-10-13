@@ -349,7 +349,7 @@ void GCInfo::gcDumpVarPtrDsc(varPtrDsc* desc)
     const bool   isPin  = (desc->vpdVarNum & pinned_OFFSET_FLAG) != 0;
 
     printf("[%08X] %s%s var at [%s", dspPtr(desc), GCtypeStr(gcType), isPin ? "pinned-ptr" : "",
-           compiler->isFramePointerUsed() ? STR_FPBASE : STR_SPBASE);
+           compiler->codeGen->isFramePointerUsed() ? STR_FPBASE : STR_SPBASE);
 
     if (offs < 0)
     {
@@ -1523,10 +1523,10 @@ size_t GCInfo::gcInfoBlockHdrSave(
 
     header->interruptible = compiler->codeGen->GetInterruptible();
 
-    if (!compiler->isFramePointerUsed())
+    if (!compiler->codeGen->isFramePointerUsed())
     {
 #if DOUBLE_ALIGN
-        if (compiler->genDoubleAlign())
+        if (compiler->codeGen->doDoubleAlign())
         {
             header->ebpSaved = true;
             assert(!compiler->codeGen->regSet.rsRegsModified(RBM_EBP));
@@ -1544,7 +1544,7 @@ size_t GCInfo::gcInfoBlockHdrSave(
     }
 
 #if DOUBLE_ALIGN
-    header->doubleAlign = compiler->genDoubleAlign();
+    header->doubleAlign = compiler->codeGen->doDoubleAlign();
 #endif
 
     header->security = false;
@@ -1570,7 +1570,7 @@ size_t GCInfo::gcInfoBlockHdrSave(
     {
         assert(compiler->lvaGSSecurityCookie != BAD_VAR_NUM);
         int stkOffs            = compiler->lvaTable[compiler->lvaGSSecurityCookie].GetStackOffset();
-        header->gsCookieOffset = compiler->isFramePointerUsed() ? -stkOffs : stkOffs;
+        header->gsCookieOffset = compiler->codeGen->isFramePointerUsed() ? -stkOffs : stkOffs;
         assert(header->gsCookieOffset != INVALID_GS_COOKIE_OFFSET);
     }
 
@@ -1599,7 +1599,7 @@ size_t GCInfo::gcInfoBlockHdrSave(
     {
         assert(compiler->lvaReversePInvokeFrameVar != BAD_VAR_NUM);
         int stkOffs              = compiler->lvaTable[compiler->lvaReversePInvokeFrameVar].GetStackOffset();
-        header->revPInvokeOffset = compiler->isFramePointerUsed() ? -stkOffs : stkOffs;
+        header->revPInvokeOffset = compiler->codeGen->isFramePointerUsed() ? -stkOffs : stkOffs;
         assert(header->revPInvokeOffset != INVALID_REV_PINVOKE_OFFSET);
     }
 
@@ -2193,7 +2193,7 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
                 // For genDoubleAlign(), locals are addressed relative to ESP and
                 // arguments are addressed relative to EBP.
 
-                if (compiler->genDoubleAlign() && varDsc->lvIsParam && !varDsc->lvIsRegArg)
+                if (compiler->codeGen->doDoubleAlign() && varDsc->lvIsParam && !varDsc->lvIsRegArg)
                     offset += compiler->codeGen->genTotalFrameSize();
 #endif
 
@@ -2242,7 +2242,7 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
                     // For genDoubleAlign(), locals are addressed relative to ESP and
                     // arguments are addressed relative to EBP.
 
-                    if (compiler->genDoubleAlign() && varDsc->lvIsParam && !varDsc->lvIsRegArg)
+                    if (compiler->codeGen->doDoubleAlign() && varDsc->lvIsParam && !varDsc->lvIsRegArg)
                     {
                         offset += compiler->codeGen->genTotalFrameSize();
                     }
@@ -2440,7 +2440,7 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
     if (compiler->codeGen->GetInterruptible())
     {
 #ifdef TARGET_X86
-        assert(compiler->IsFullPtrRegMapRequired());
+        assert(compiler->codeGen->IsFullPtrRegMapRequired());
 
         unsigned ptrRegs = 0;
 
@@ -2602,7 +2602,7 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
                     assert((codeDelta & 0x7) == codeDelta);
                     *dest++ = 0xB0 | (BYTE)codeDelta;
 #ifndef UNIX_X86_ABI
-                    assert(!compiler->isFramePointerUsed());
+                    assert(!compiler->codeGen->isFramePointerUsed());
 #endif
 
                     /* Remember the new 'last' offset */
@@ -2771,7 +2771,7 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
         dest -= mask;
         totalSize++;
     }
-    else if (compiler->isFramePointerUsed()) // GetInterruptible() is false
+    else if (compiler->codeGen->isFramePointerUsed()) // GetInterruptible() is false
     {
 #ifdef TARGET_X86
         /*
@@ -2906,7 +2906,7 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
 
         CallDsc* call;
 
-        assert(compiler->IsFullPtrRegMapRequired() == false);
+        assert(!compiler->codeGen->IsFullPtrRegMapRequired());
 
         /* Walk the list of pointer register/argument entries */
 
@@ -3060,7 +3060,7 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
     }
     else // GetInterruptible() is false and we have an EBP-less frame
     {
-        assert(compiler->IsFullPtrRegMapRequired());
+        assert(compiler->codeGen->IsFullPtrRegMapRequired());
 
 #ifdef TARGET_X86
 
@@ -3846,7 +3846,7 @@ void GCInfo::gcInfoBlockHdrSave(GcInfoEncoder* gcInfoEncoder, unsigned methodSiz
 
     gcInfoEncoderWithLog->SetReturnKind(getReturnKind());
 
-    if (compiler->isFramePointerUsed())
+    if (compiler->codeGen->isFramePointerUsed())
     {
         gcInfoEncoderWithLog->SetStackBaseRegister(REG_FPBASE);
     }
@@ -3882,7 +3882,7 @@ void GCInfo::gcInfoBlockHdrSave(GcInfoEncoder* gcInfoEncoder, unsigned methodSiz
         }
 
         const int offset = compiler->lvaToCallerSPRelativeOffset(compiler->lvaCachedGenericContextArgOffset(),
-                                                                 compiler->isFramePointerUsed());
+                                                                 compiler->codeGen->isFramePointerUsed());
 
 #ifdef DEBUG
         if (compiler->opts.IsOSR())
@@ -3917,8 +3917,9 @@ void GCInfo::gcInfoBlockHdrSave(GcInfoEncoder* gcInfoEncoder, unsigned methodSiz
             useRootFrameSlot = ppInfo->HasKeptAliveThis();
         }
 
-        const int offset = compiler->lvaToCallerSPRelativeOffset(compiler->lvaCachedGenericContextArgOffset(),
-                                                                 compiler->isFramePointerUsed(), useRootFrameSlot);
+        const int offset =
+            compiler->lvaToCallerSPRelativeOffset(compiler->lvaCachedGenericContextArgOffset(),
+                                                  compiler->codeGen->isFramePointerUsed(), useRootFrameSlot);
 
 #ifdef DEBUG
         if (compiler->opts.IsOSR() && useRootFrameSlot)
@@ -4241,7 +4242,7 @@ void GCInfo::gcMakeRegPtrTable(
                 }
 
                 GcStackSlotBase stackSlotBase = GC_SP_REL;
-                if (compiler->isFramePointerUsed())
+                if (compiler->codeGen->isFramePointerUsed())
                 {
                     stackSlotBase = GC_FRAMEREG_REL;
                 }
@@ -4268,7 +4269,7 @@ void GCInfo::gcMakeRegPtrTable(
                 flags = (GcSlotFlags)(flags | GC_SLOT_INTERIOR);
             }
 
-            GcStackSlotBase stackSlotBase = compiler->isFramePointerUsed() ? GC_FRAMEREG_REL : GC_SP_REL;
+            GcStackSlotBase stackSlotBase = compiler->codeGen->isFramePointerUsed() ? GC_FRAMEREG_REL : GC_SP_REL;
 
             gcInfoEncoderWithLog->GetStackSlotId(compiler->lvaCachedGenericContextArgOffset(), flags, stackSlotBase);
         }
@@ -4286,7 +4287,7 @@ void GCInfo::gcMakeRegPtrTable(
 
     if (compiler->codeGen->GetInterruptible())
     {
-        assert(compiler->IsFullPtrRegMapRequired());
+        assert(compiler->codeGen->IsFullPtrRegMapRequired());
 
         regMaskSmall ptrRegs          = 0;
         regPtrDsc*   regStackArgFirst = nullptr;
@@ -4386,9 +4387,10 @@ void GCInfo::gcMakeRegPtrTable(
             }
         }
     }
-    else if (compiler->isFramePointerUsed()) // GetInterruptible() is false, and we're using EBP as a frame pointer.
+    else if (compiler->codeGen->isFramePointerUsed()) // GetInterruptible() is false, and we're using EBP as a frame
+                                                      // pointer.
     {
-        assert(compiler->IsFullPtrRegMapRequired() == false);
+        assert(!compiler->codeGen->IsFullPtrRegMapRequired());
 
         // Walk the list of pointer register/argument entries.
 
@@ -4494,7 +4496,7 @@ void GCInfo::gcMakeRegPtrTable(
     }
     else // GetInterruptible() is false and we have an EBP-less frame
     {
-        assert(compiler->IsFullPtrRegMapRequired());
+        assert(compiler->codeGen->IsFullPtrRegMapRequired());
 
         // Walk the list of pointer register/argument entries */
         // First count them.
@@ -4718,7 +4720,7 @@ void GCInfo::gcMakeVarPtrTable(GcInfoEncoder* gcInfoEncoder, MakeRegPtrMode mode
         }
 
         GcStackSlotBase stackSlotBase = GC_SP_REL;
-        if (compiler->isFramePointerUsed())
+        if (compiler->codeGen->isFramePointerUsed())
         {
             stackSlotBase = GC_FRAMEREG_REL;
         }
