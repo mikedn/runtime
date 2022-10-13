@@ -1085,7 +1085,7 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
     assert(block != NULL);
     assert(block->bbFlags & BBF_FUNCLET_BEG);
 
-    ScopedSetVariable<bool> _setGeneratingProlog(&compiler->compGeneratingProlog, true);
+    ScopedSetVariable<bool> _setGeneratingProlog(&generatingProlog, true);
 
     gcInfo.gcResetForBB();
 
@@ -1235,7 +1235,7 @@ void CodeGen::genFuncletEpilog()
         printf("*************** In genFuncletEpilog()\n");
 #endif
 
-    ScopedSetVariable<bool> _setGeneratingEpilog(&compiler->compGeneratingEpilog, true);
+    ScopedSetVariable<bool> _setGeneratingEpilog(&generatingEpilog, true);
 
     bool unwindStarted = false;
 
@@ -3599,7 +3599,7 @@ void CodeGen::LoadSIMD12(GenTree* load)
 //
 void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
 {
-    assert(compiler->compGeneratingProlog);
+    assert(generatingProlog);
 
     if (!compiler->compIsProfilerHookNeeded())
     {
@@ -8357,7 +8357,7 @@ void CodeGen::genArm64EmitterUnitTests()
 //
 void CodeGen::genAllocLclFrame(unsigned frameSize, regNumber initReg, bool* pInitRegZeroed, regMaskTP maskArgRegsLiveIn)
 {
-    assert(compiler->compGeneratingProlog);
+    assert(generatingProlog);
 
     if (frameSize == 0)
     {

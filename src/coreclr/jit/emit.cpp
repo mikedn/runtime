@@ -1563,7 +1563,7 @@ void emitter::emitCheckIGoffsets()
 
 void emitter::emitBegProlog()
 {
-    assert(emitComp->compGeneratingProlog);
+    assert(codeGen->generatingProlog);
 
 #if EMIT_TRACK_STACK_DEPTH
 
@@ -1616,7 +1616,7 @@ unsigned emitter::emitGetPrologOffsetEstimate()
 
 void emitter::emitMarkPrologEnd()
 {
-    assert(emitComp->compGeneratingProlog);
+    assert(codeGen->generatingProlog);
 
     /* For now only allow a single prolog ins group */
 
@@ -1633,7 +1633,7 @@ void emitter::emitMarkPrologEnd()
 
 void emitter::emitEndProlog()
 {
-    assert(emitComp->compGeneratingProlog);
+    assert(codeGen->generatingProlog);
 
     emitNoGCIG = false;
 
@@ -2206,7 +2206,7 @@ bool emitter::emitHasEpilogEnd()
 
 void emitter::emitStartExitSeq()
 {
-    assert(emitComp->compGeneratingEpilog);
+    assert(codeGen->generatingEpilog);
 
     emitExitSeqBegLoc.CaptureLocation(this);
 }
@@ -2225,7 +2225,7 @@ void emitter::emitStartExitSeq()
 
 void emitter::emitSetFrameRangeGCRs(int offsLo, int offsHi)
 {
-    assert(emitComp->compGeneratingProlog);
+    assert(codeGen->generatingProlog);
     assert(offsHi > offsLo);
 
 #ifdef DEBUG

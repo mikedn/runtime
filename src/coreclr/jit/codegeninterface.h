@@ -116,6 +116,9 @@ public:
     regMaskTP calleeFPRegsSavedMask;
 #endif
 
+    bool generatingProlog = false;
+    bool generatingEpilog = false;
+
 protected:
     bool m_genAlignLoops;
 

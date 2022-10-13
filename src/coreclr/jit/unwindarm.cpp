@@ -139,7 +139,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 void Compiler::unwindBegProlog()
 {
-    assert(compGeneratingProlog);
+    assert(codeGen->generatingProlog);
 
 #if defined(TARGET_UNIX)
     if (generateCFIUnwindCodes())
@@ -166,12 +166,12 @@ void Compiler::unwindBegProlog()
 
 void Compiler::unwindEndProlog()
 {
-    assert(compGeneratingProlog);
+    assert(codeGen->generatingProlog);
 }
 
 void Compiler::unwindBegEpilog()
 {
-    assert(compGeneratingEpilog);
+    assert(codeGen->generatingEpilog);
 
 #if defined(TARGET_UNIX)
     if (generateCFIUnwindCodes())
@@ -185,7 +185,7 @@ void Compiler::unwindBegEpilog()
 
 void Compiler::unwindEndEpilog()
 {
-    assert(compGeneratingEpilog);
+    assert(codeGen->generatingEpilog);
 }
 
 #if defined(TARGET_ARM)
@@ -399,7 +399,7 @@ void Compiler::unwindAllocStack(unsigned size)
 #if defined(TARGET_UNIX)
     if (generateCFIUnwindCodes())
     {
-        if (compGeneratingProlog)
+        if (codeGen->generatingProlog)
         {
             unwindAllocStackCFI(size);
         }
@@ -453,7 +453,7 @@ void Compiler::unwindSetFrameReg(regNumber reg, unsigned offset)
 #if defined(TARGET_UNIX)
     if (generateCFIUnwindCodes())
     {
-        if (compGeneratingProlog)
+        if (codeGen->generatingProlog)
         {
             unwindSetFrameRegCFI(reg, offset);
         }
@@ -550,8 +550,8 @@ void Compiler::unwindPadding()
 // all its funclets.
 void Compiler::unwindReserve()
 {
-    assert(!compGeneratingProlog);
-    assert(!compGeneratingEpilog);
+    assert(!codeGen->generatingProlog);
+    assert(!codeGen->generatingEpilog);
 
     assert(compFuncInfoCount > 0);
     for (unsigned funcIdx = 0; funcIdx < compFuncInfoCount; funcIdx++)

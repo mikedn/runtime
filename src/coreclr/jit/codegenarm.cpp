@@ -1335,7 +1335,7 @@ void CodeGen::genFloatReturn(GenTree* src)
 //
 void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
 {
-    assert(compiler->compGeneratingProlog);
+    assert(generatingProlog);
 
     // Give profiler a chance to back out of hooking this method
     if (!compiler->compIsProfilerHookNeeded())
@@ -1489,7 +1489,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 //
 void CodeGen::genAllocLclFrame(unsigned frameSize, regNumber initReg, bool* pInitRegZeroed, regMaskTP maskArgRegsLiveIn)
 {
-    assert(compiler->compGeneratingProlog);
+    assert(generatingProlog);
 
     if (frameSize == 0)
     {

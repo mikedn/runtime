@@ -1463,7 +1463,7 @@ NATIVE_OFFSET CodeGen::psiGetVarStackOffset(const LclVarDsc* lclVarDsc) const
 //
 void CodeGen::psiBegProlog()
 {
-    assert(compiler->compGeneratingProlog);
+    assert(generatingProlog);
 
 #ifdef USING_SCOPE_INFO
     psiOpenScopeList.scNext = nullptr;
@@ -1586,7 +1586,7 @@ void CodeGen::psiBegProlog()
 //
 void CodeGen::psiEndProlog()
 {
-    assert(compiler->compGeneratingProlog);
+    assert(generatingProlog);
 #ifdef USING_SCOPE_INFO
     for (psiScope* scope = psiOpenScopeList.scNext; scope; scope = psiOpenScopeList.scNext)
     {

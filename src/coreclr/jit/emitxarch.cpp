@@ -3147,7 +3147,7 @@ void emitter::SetInstrAddrMode(instrDesc* id, insFormat fmt, instruction ins, Ge
 // into its corresponding shadow space (defined by the x64 ABI)
 void emitter::spillIntArgRegsToShadowSlots()
 {
-    assert(emitComp->compGeneratingProlog);
+    assert(codeGen->generatingProlog);
 
     for (unsigned argNum = 0; argNum < MAX_REG_ARG; ++argNum)
     {

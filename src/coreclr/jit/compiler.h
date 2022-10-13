@@ -7011,8 +7011,6 @@ public:
     bool compLSRADone              = false;
     bool compRationalIRForm        = false;
     bool compUsesThrowHelper       = false; // There is a call to a THROW_HELPER for the compiled method.
-    bool compGeneratingProlog      = false;
-    bool compGeneratingEpilog      = false;
     bool compNeedsGSSecurityCookie = false; // There is an unsafe buffer (or localloc) on the stack.
                                             // Insert cookie on frame and code to check the cookie, like VC++ -GS.
     bool compGSReorderStackLayout = false;  // There is an unsafe buffer on the stack, reorder locals and make local

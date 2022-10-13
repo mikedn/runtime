@@ -587,7 +587,7 @@ void CodeGen::genSetRegToIcon(regNumber reg, ssize_t val, var_types type, insFla
 //
 void CodeGen::genSetGSSecurityCookie(regNumber initReg, bool* pInitRegZeroed)
 {
-    assert(compiler->compGeneratingProlog);
+    assert(generatingProlog);
 
     if (!compiler->getNeedsGSSecurityCookie())
     {
@@ -3623,7 +3623,7 @@ void CodeGen::genPushCalleeSavedRegisters(regNumber initReg, bool* pInitRegZeroe
 void CodeGen::genPushCalleeSavedRegisters()
 #endif
 {
-    assert(compiler->compGeneratingProlog);
+    assert(generatingProlog);
 
 #ifdef TARGET_ARM64
     // Probe large frames now, if necessary, since genPushCalleeSavedRegisters() will allocate the frame. Note that

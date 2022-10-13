@@ -2369,7 +2369,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 // assigned location, in the function prolog.
 void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, regNumber tempReg, bool* tempRegClobbered)
 {
-    assert(compiler->compGeneratingProlog);
+    assert(generatingProlog);
     assert(regState.rsCalleeRegArgMaskLiveIn != RBM_NONE);
 
     JITDUMP("*************** In genPrologMoveParamRegs() for %s regs\n", isFloat ? "float" : "int");
@@ -3546,7 +3546,7 @@ void CodeGen::genPrologEnregisterIncomingStackParams()
     JITDUMP("*************** In genPrologEnregisterIncomingStackParams()\n");
 
     assert(!compiler->opts.IsOSR());
-    assert(compiler->compGeneratingProlog);
+    assert(generatingProlog);
 
     for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
     {
@@ -3614,7 +3614,7 @@ void CodeGen::genPrologEnregisterIncomingStackParams()
  */
 void CodeGen::genCheckUseBlockInit()
 {
-    assert(!compiler->compGeneratingProlog);
+    assert(!generatingProlog);
 
     unsigned initStkLclCnt = 0; // The number of int-sized stack local variables that need to be initialized (variables
                                 // larger than int count for more than 1).
@@ -3881,7 +3881,7 @@ void CodeGen::genPopFltRegs(regMaskTP regMask)
 //
 void CodeGen::genFreeLclFrame(unsigned frameSize, /* IN OUT */ bool* pUnwindStarted)
 {
-    assert(compiler->compGeneratingEpilog);
+    assert(generatingEpilog);
 
     if (frameSize == 0)
         return;
@@ -3987,7 +3987,7 @@ void CodeGen::genMov32RelocatableImmediate(emitAttr size, BYTE* addr, regNumber 
  */
 regMaskTP CodeGen::genStackAllocRegisterMask(unsigned frameSize, regMaskTP maskCalleeSavedFloat)
 {
-    assert(compiler->compGeneratingProlog || compiler->compGeneratingEpilog);
+    assert(generatingProlog || generatingEpilog);
 
     // We can't do this optimization with callee saved floating point registers because
     // the stack would be allocated in a wrong spot.
@@ -4024,7 +4024,7 @@ regMaskTP CodeGen::genStackAllocRegisterMask(unsigned frameSize, regMaskTP maskC
  */
 void CodeGen::genZeroInitFltRegs(const regMaskTP& initFltRegs, const regMaskTP& initDblRegs, const regNumber& initReg)
 {
-    assert(compiler->compGeneratingProlog);
+    assert(generatingProlog);
 
     // The first float/double reg that is initialized to 0. So they can be used to
     // initialize the remaining registers.
@@ -4118,7 +4118,7 @@ void CodeGen::genZeroInitFltRegs(const regMaskTP& initFltRegs, const regMaskTP& 
 
 bool CodeGen::genCanUsePopToReturn(regMaskTP maskPopRegsInt, bool jmpEpilog)
 {
-    assert(compiler->compGeneratingEpilog);
+    assert(generatingEpilog);
 
     if (!jmpEpilog && regSet.rsMaskPreSpillRegs(true) == RBM_NONE)
         return true;
@@ -4128,7 +4128,7 @@ bool CodeGen::genCanUsePopToReturn(regMaskTP maskPopRegsInt, bool jmpEpilog)
 
 void CodeGen::genPopCalleeSavedRegisters(bool jmpEpilog)
 {
-    assert(compiler->compGeneratingEpilog);
+    assert(generatingEpilog);
 
     regMaskTP maskPopRegs      = regSet.rsGetModifiedRegsMask() & RBM_CALLEE_SAVED;
     regMaskTP maskPopRegsFloat = maskPopRegs & RBM_ALLFLOAT;
@@ -4178,7 +4178,7 @@ void CodeGen::genPopCalleeSavedRegisters(bool jmpEpilog)
 
 void CodeGen::genPopCalleeSavedRegistersAndFreeLclFrame(bool jmpEpilog)
 {
-    assert(compiler->compGeneratingEpilog);
+    assert(generatingEpilog);
 
     regMaskTP rsRestoreRegs = regSet.rsGetModifiedRegsMask() & RBM_CALLEE_SAVED;
 
@@ -4413,7 +4413,7 @@ void CodeGen::genPopCalleeSavedRegistersAndFreeLclFrame(bool jmpEpilog)
 
 void CodeGen::genPopCalleeSavedRegisters(bool jmpEpilog)
 {
-    assert(compiler->compGeneratingEpilog);
+    assert(generatingEpilog);
 
     unsigned popCount = 0;
     if (regSet.rsRegsModified(RBM_EBX))
@@ -4545,7 +4545,7 @@ regNumber CodeGen::genGetZeroReg(regNumber initReg, bool* pInitRegZeroed)
 //                     'false' if initReg was set to a non-zero value, and left unchanged if initReg was not touched.
 void CodeGen::genZeroInitFrame(int untrLclHi, int untrLclLo, regNumber initReg, bool* pInitRegZeroed)
 {
-    assert(compiler->compGeneratingProlog);
+    assert(generatingProlog);
 
     if (genUseBlockInit)
     {
@@ -5317,7 +5317,7 @@ void CodeGen::genReportGenericContextArg(regNumber initReg, bool* pInitRegZeroed
         return;
     }
 
-    assert(compiler->compGeneratingProlog);
+    assert(generatingProlog);
 
     bool reportArg = compiler->lvaReportParamTypeArg();
 
@@ -5803,7 +5803,7 @@ void CodeGen::genFinalizeFrame()
 
 void CodeGen::genEstablishFramePointer(int delta, bool reportUnwindData)
 {
-    assert(compiler->compGeneratingProlog);
+    assert(generatingProlog);
 
 #if defined(TARGET_XARCH)
 
@@ -5882,7 +5882,7 @@ void CodeGen::genEstablishFramePointer(int delta, bool reportUnwindData)
 #endif
 void CodeGen::genFnProlog()
 {
-    ScopedSetVariable<bool> _setGeneratingProlog(&compiler->compGeneratingProlog, true);
+    ScopedSetVariable<bool> _setGeneratingProlog(&generatingProlog, true);
 
     compiler->funSetCurrentFunc(0);
 
@@ -6670,7 +6670,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
         printf("*************** In genFnEpilog()\n");
 #endif // DEBUG
 
-    ScopedSetVariable<bool> _setGeneratingEpilog(&compiler->compGeneratingEpilog, true);
+    ScopedSetVariable<bool> _setGeneratingEpilog(&generatingEpilog, true);
 
     VarSetOps::Assign(compiler, gcInfo.gcVarPtrSetCur, GetEmitter()->emitInitGCrefVars);
     gcInfo.gcRegGCrefSetCur = GetEmitter()->emitInitGCrefRegs;
@@ -6991,7 +6991,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
     }
 #endif
 
-    ScopedSetVariable<bool> _setGeneratingEpilog(&compiler->compGeneratingEpilog, true);
+    ScopedSetVariable<bool> _setGeneratingEpilog(&generatingEpilog, true);
 
     VarSetOps::Assign(compiler, gcInfo.gcVarPtrSetCur, GetEmitter()->emitInitGCrefVars);
     gcInfo.gcRegGCrefSetCur = GetEmitter()->emitInitGCrefRegs;
@@ -7547,7 +7547,7 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
     assert(block != NULL);
     assert(block->bbFlags & BBF_FUNCLET_BEG);
 
-    ScopedSetVariable<bool> _setGeneratingProlog(&compiler->compGeneratingProlog, true);
+    ScopedSetVariable<bool> _setGeneratingProlog(&generatingProlog, true);
 
     gcInfo.gcResetForBB();
 
@@ -7634,7 +7634,7 @@ void CodeGen::genFuncletEpilog()
         printf("*************** In genFuncletEpilog()\n");
 #endif
 
-    ScopedSetVariable<bool> _setGeneratingEpilog(&compiler->compGeneratingEpilog, true);
+    ScopedSetVariable<bool> _setGeneratingEpilog(&generatingEpilog, true);
 
     // Just as for the main function, we delay starting the unwind codes until we have
     // an instruction which we know needs an unwind code. This is to support code like
@@ -7857,7 +7857,7 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
     assert(block->bbFlags & BBF_FUNCLET_BEG);
     assert(isFramePointerUsed());
 
-    ScopedSetVariable<bool> _setGeneratingProlog(&compiler->compGeneratingProlog, true);
+    ScopedSetVariable<bool> _setGeneratingProlog(&generatingProlog, true);
 
     gcInfo.gcResetForBB();
 
@@ -7937,7 +7937,7 @@ void CodeGen::genFuncletEpilog()
     }
 #endif
 
-    ScopedSetVariable<bool> _setGeneratingEpilog(&compiler->compGeneratingEpilog, true);
+    ScopedSetVariable<bool> _setGeneratingEpilog(&generatingEpilog, true);
 
     // Restore callee saved XMM regs from their stack slots before modifying SP
     // to position at callee saved int regs.
@@ -8230,7 +8230,7 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
  */
 void CodeGen::genSetPSPSym(regNumber initReg, bool* pInitRegZeroed)
 {
-    assert(compiler->compGeneratingProlog);
+    assert(generatingProlog);
 
     if (compiler->lvaPSPSym == BAD_VAR_NUM)
     {
@@ -9231,7 +9231,7 @@ void CodeGen::genIPmappingAddToFront(IL_OFFSETX offsx)
     }
 
     assert(offsx != BAD_IL_OFFSET);
-    assert(compiler->compGeneratingProlog); // We only ever do this during prolog generation.
+    assert(generatingProlog); // We only ever do this during prolog generation.
 
     switch ((int)offsx) // Need the cast since offs is unsigned and the case statements are comparing to signed.
     {

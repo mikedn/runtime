@@ -62,7 +62,7 @@ void CodeGen::genSetRegToIcon(regNumber reg, ssize_t val, var_types type, insFla
 //
 void CodeGen::genSetGSSecurityCookie(regNumber initReg, bool* pInitRegZeroed)
 {
-    assert(compiler->compGeneratingProlog);
+    assert(generatingProlog);
 
     if (!compiler->getNeedsGSSecurityCookie())
     {
@@ -1784,7 +1784,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
 //
 void CodeGen::genAllocLclFrame(unsigned frameSize, regNumber initReg, bool* pInitRegZeroed, regMaskTP maskArgRegsLiveIn)
 {
-    assert(compiler->compGeneratingProlog);
+    assert(generatingProlog);
 
     if (frameSize == 0)
     {
@@ -3241,7 +3241,7 @@ void CodeGen::genClearStackVec3ArgUpperBits()
 {
     JITDUMP("*************** In genClearStackVec3ArgUpperBits()\n");
 
-    assert(compiler->compGeneratingProlog);
+    assert(generatingProlog);
 
     for (unsigned lclNum = 0; lclNum < compiler->info.compArgsCount; lclNum++)
     {
@@ -8099,7 +8099,7 @@ void CodeGen::genAmd64EmitterUnitTests()
 //
 void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
 {
-    assert(compiler->compGeneratingProlog);
+    assert(generatingProlog);
 
     // Give profiler a chance to back out of hooking this method
     if (!compiler->compIsProfilerHookNeeded())
@@ -8239,7 +8239,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 //
 void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
 {
-    assert(compiler->compGeneratingProlog);
+    assert(generatingProlog);
 
     // Give profiler a chance to back out of hooking this method
     if (!compiler->compIsProfilerHookNeeded())
@@ -8761,7 +8761,7 @@ void CodeGen::genSIMDUpperUnspill(GenTreeUnOp* node)
 //
 void CodeGen::genPushCalleeSavedRegisters()
 {
-    assert(compiler->compGeneratingProlog);
+    assert(generatingProlog);
 
     // x86/x64 doesn't support push of xmm/ymm regs, therefore consider only integer registers for pushing onto stack
     // here. Space for float registers to be preserved is stack allocated and saved as part of prolog sequence and not
