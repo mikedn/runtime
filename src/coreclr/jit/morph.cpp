@@ -5840,7 +5840,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
 
         calleeArgStackSize += arg->GetSlotCount() * REGSIZE_BYTES;
     }
-    calleeArgStackSize = GetOutgoingArgByteSize(calleeArgStackSize);
+    calleeArgStackSize = roundUp(calleeArgStackSize, REGSIZE_BYTES);
 
     auto reportFastTailCallDecision = [&](const char* thisFailReason) {
         if (failReason != nullptr)

@@ -3850,11 +3850,6 @@ public:
     PhasedVar<unsigned> lvaOutgoingArgSpaceSize;              // size of fixed outgoing argument space
 #endif
 
-    static unsigned GetOutgoingArgByteSize(unsigned sizeWithoutPadding)
-    {
-        return roundUp(sizeWithoutPadding, TARGET_POINTER_SIZE);
-    }
-
     // Variable representing the return address. The helper-based tailcall
     // mechanism passes the address of the return address to a runtime helper
     // where it is used to detect tail-call chains.

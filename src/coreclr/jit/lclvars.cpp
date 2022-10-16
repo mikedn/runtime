@@ -325,7 +325,6 @@ void Compiler::lvaInitParams(bool hasRetBufParam)
 #endif
 
     InitVarDscInfo paramInfo(intRegCount, floatRegCount);
-    codeGen->paramsSize = 0;
 
     // x86 params look something like this:
     //  [this] [struct return buffer] [user params] [generic context] [varargs handle]
@@ -371,7 +370,7 @@ void Compiler::lvaInitParams(bool hasRetBufParam)
     lvaInitUserParams(paramInfo, skipFirstParam);
 
     ARM_ONLY(lvaAlignPreSpillParams(paramInfo.doubleAlignMask));
-    codeGen->paramsSize = GetOutgoingArgByteSize(codeGen->paramsSize);
+    paramInfo.size = roundUp(paramInfo.size, REGSIZE_BYTES);
 
 #ifdef TARGET_X86
     lvaInitGenericsContextParam(paramInfo);
@@ -381,6 +380,7 @@ void Compiler::lvaInitParams(bool hasRetBufParam)
     noway_assert(paramInfo.varNum == info.compArgsCount);
     assert(paramInfo.intRegArgNum <= MAX_REG_ARG);
 
+    codeGen->paramsSize                        = paramInfo.size;
     codeGen->intRegState.rsCalleeRegArgCount   = paramInfo.intRegArgNum;
     codeGen->floatRegState.rsCalleeRegArgCount = paramInfo.floatRegArgNum;
 
@@ -388,14 +388,11 @@ void Compiler::lvaInitParams(bool hasRetBufParam)
     info.compArgStackSize = paramInfo.stackArgSize;
 #endif
 
-    // The total argument size must be aligned.
-    noway_assert((codeGen->paramsSize % REGSIZE_BYTES) == 0);
-
 #ifdef TARGET_X86
     // The x86 ret instruction has a 16 bit immediate so we cannot easily pop more than
     // 2^16 bytes of stack arguments. Could be handled correctly but it will be very
     // difficult for fully interruptible code
-    if (codeGen->paramsSize >= (1u << 16))
+    if (paramInfo.size >= (1u << 16))
     {
         IMPL_LIMITATION("Too many arguments for the \"ret\" instruction to pop");
     }
@@ -439,7 +436,7 @@ void Compiler::lvaInitThisParam(InitVarDscInfo& paramInfo)
 
     JITDUMP("'this' passed in register %s\n", getRegName(lcl->GetArgReg()));
 
-    codeGen->paramsSize += REGSIZE_BYTES;
+    paramInfo.size += REGSIZE_BYTES;
     paramInfo.varNum++;
 }
 
@@ -491,7 +488,7 @@ void Compiler::lvaInitRetBufParam(InitVarDscInfo& paramInfo, bool useFixedRetBuf
         JITDUMP("'__retBuf' passed in register %s\n", getRegName(lcl->GetArgReg()));
     }
 
-    codeGen->paramsSize += REGSIZE_BYTES;
+    paramInfo.size += REGSIZE_BYTES;
     paramInfo.varNum++;
 }
 
@@ -528,13 +525,13 @@ void Compiler::lvaInitGenericsContextParam(InitVarDscInfo& paramInfo)
 #endif
     }
 
-    codeGen->paramsSize += REGSIZE_BYTES;
+    paramInfo.size += REGSIZE_BYTES;
     paramInfo.varNum++;
 
 #ifdef TARGET_X86
     if (info.compIsVarArgs)
     {
-        lcl->SetStackOffset(codeGen->paramsSize);
+        lcl->SetStackOffset(paramInfo.size);
     }
 #endif
 }
@@ -591,11 +588,11 @@ void Compiler::lvaInitVarargsHandleParam(InitVarDscInfo& paramInfo)
 #endif
     }
 
-    codeGen->paramsSize += REGSIZE_BYTES;
+    paramInfo.size += REGSIZE_BYTES;
     paramInfo.varNum++;
 
 #ifdef TARGET_X86
-    lcl->SetStackOffset(codeGen->paramsSize);
+    lcl->SetStackOffset(paramInfo.size);
     lvaVarargsBaseOfStkArgs = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("Varargs BaseOfStkArgs"));
 #endif
 }
@@ -744,7 +741,7 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
     }
 
     assert((paramSize % REGSIZE_BYTES) == 0);
-    codeGen->paramsSize += paramSize;
+    paramInfo.size += paramSize;
 
     if (info.compIsVarArgs)
     {
@@ -791,7 +788,7 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
         JITDUMP("Param V%02u offset: %u\n", paramInfo.varNum, offset);
     }
 
-    codeGen->paramsSize += REGSIZE_BYTES;
+    paramInfo.size += REGSIZE_BYTES;
 
     if (info.compIsVarArgs)
     {
@@ -897,7 +894,7 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
         JITDUMP("Param V%02u offset: %u\n", paramInfo.varNum, offset);
     }
 
-    codeGen->paramsSize += paramSize;
+    paramInfo.size += paramSize;
 
     if (info.compIsVarArgs)
     {
@@ -939,11 +936,11 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
 #endif // FEATURE_FASTTAILCALL
     }
 
-    codeGen->paramsSize += paramSize;
+    paramInfo.size += paramSize;
 
     if (info.compIsVarArgs)
     {
-        lcl->SetStackOffset(codeGen->paramsSize);
+        lcl->SetStackOffset(paramInfo.size);
     }
 }
 
@@ -1016,7 +1013,7 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
         }
     }
 
-    codeGen->paramsSize += paramInfo.alignReg(regType, regAlign) * REGSIZE_BYTES;
+    paramInfo.size += paramInfo.alignReg(regType, regAlign) * REGSIZE_BYTES;
 
     if (paramInfo.canEnreg(regType, minRegCount))
     {
@@ -1115,7 +1112,7 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
 #endif // FEATURE_FASTTAILCALL
     }
 
-    codeGen->paramsSize += paramSize;
+    paramInfo.size += paramSize;
 
     if (info.compIsVarArgs || softFPPreSpill)
     {

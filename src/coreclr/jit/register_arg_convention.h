@@ -6,6 +6,7 @@
 
 struct InitVarDscInfo
 {
+    unsigned size           = 0;
     unsigned varNum         = 0;
     unsigned intRegArgNum   = 0;
     unsigned floatRegArgNum = 0;
