@@ -1006,7 +1006,6 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
             if (!paramInfo.CanEnregister(TYP_INT, regCount) && paramInfo.CanEnregister(TYP_INT, 1) &&
                 paramInfo.HasFloatStackParams())
             {
-                paramInfo.SetHasStackParam(TYP_INT);
                 minRegCount = regCount;
                 preSpill    = false;
             }
@@ -1091,11 +1090,6 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
     else
     {
         paramInfo.SetHasStackParam(regType);
-
-        if (varTypeUsesFloatReg(regType))
-        {
-            paramInfo.SetHasFloatStackParams();
-        }
 
 #if FEATURE_FASTTAILCALL
         // TODO-MIKE-Cleanup: Consider enabling this independently of FEATURE_FASTTAILCALL.

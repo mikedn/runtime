@@ -64,7 +64,7 @@ public:
         assert(count > 0);
 
 #ifdef TARGET_ARM
-        if (varTypeIsFloating(type) && (count == 1) && (floatAlignPadMask != RBM_NONE) && !hasFloatStackParams)
+        if (varTypeIsFloating(type) && (count == 1) && (floatAlignPadMask != RBM_NONE))
         {
             regMaskTP regMask = genFindLowestBit(floatAlignPadMask);
             floatAlignPadMask &= ~regMask;
@@ -108,11 +108,6 @@ public:
         return 1;
     }
 
-    void SetHasFloatStackParams()
-    {
-        hasFloatStackParams = true;
-    }
-
     bool HasFloatStackParams() const
     {
         return hasFloatStackParams;
@@ -123,8 +118,16 @@ public:
     void SetHasStackParam(var_types type)
     {
         RegIndex(type) = GetRegCount(type);
-    }
+
+#ifdef TARGET_ARM
+        if (varTypeIsFloating(type))
+        {
+            hasFloatStackParams = true;
+            floatAlignPadMask   = RBM_NONE;
+        }
 #endif
+    }
+#endif // TARGET_ARMARCH
 
 private:
     bool AreRegsAvailable(var_types type, unsigned count = 1) const
@@ -132,7 +135,7 @@ private:
         assert(count > 0);
 
 #ifdef TARGET_ARM
-        if (varTypeIsFloating(type) && (count == 1) && (floatAlignPadMask != RBM_NONE) && !hasFloatStackParams)
+        if (varTypeIsFloating(type) && (count == 1) && (floatAlignPadMask != RBM_NONE))
         {
             return GetRegIndex(type) <= GetRegCount(type);
         }
