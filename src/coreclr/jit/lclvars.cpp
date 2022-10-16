@@ -665,14 +665,21 @@ void Compiler::lvaInitUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAND
 
 void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl)
 {
-    unsigned  paramSize = lvaGetParamAllocSize(param, &info.compMethodInfo->args);
-    unsigned  slots     = (paramSize + REGSIZE_BYTES - 1) / REGSIZE_BYTES;
-    unsigned  regCount  = slots;
-    var_types regType   = lcl->GetType();
+    unsigned paramSize  = lvaGetParamAllocSize(param, &info.compMethodInfo->args);
+    bool     isRegParam = false;
 
-    bool canPassArgInRegisters = false;
+    if (!varTypeIsStruct(lcl->GetType()))
+    {
+        assert(varTypeSize(lcl->GetType()) <= REGSIZE_BYTES);
 
-    if (varTypeIsStruct(regType))
+        if (paramInfo.canEnreg(lcl->GetType()))
+        {
+            lcl->SetParamReg(paramInfo.AllocReg(lcl->GetType()));
+
+            isRegParam = true;
+        }
+    }
+    else
     {
         lcl->GetLayout()->EnsureSysVAmd64AbiInfo(this);
 
@@ -696,68 +703,47 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
             if (((intRegCount == 0) || paramInfo.canEnreg(TYP_INT, intRegCount)) &&
                 ((floatRegCount == 0) || paramInfo.canEnreg(TYP_FLOAT, floatRegCount)))
             {
-                canPassArgInRegisters = true;
+                lcl->SetParamReg(0, paramInfo.AllocReg(lcl->GetLayout()->GetSysVAmd64AbiRegType(0)));
+
+                if (lcl->GetLayout()->GetSysVAmd64AbiRegCount() >= 2)
+                {
+                    lcl->SetParamReg(1, paramInfo.AllocReg(lcl->GetLayout()->GetSysVAmd64AbiRegType(1)));
+                    lcl->lvIsMultiRegArg = true;
+                }
+
+                isRegParam = true;
             }
         }
     }
-    else
-    {
-        canPassArgInRegisters = paramInfo.canEnreg(regType, regCount);
-    }
 
-    if (canPassArgInRegisters)
+    if (isRegParam)
     {
         lcl->lvIsRegArg = true;
 
-        if (varTypeIsStruct(regType))
-        {
-            var_types regType0     = lcl->GetLayout()->GetSysVAmd64AbiRegType(0);
-            unsigned  regParamNum0 = paramInfo.allocRegArg(regType0);
-            lcl->SetParamReg(0, genMapRegArgNumToRegNum(regParamNum0, regType0));
+        JITDUMP("Param V%02u registers: %s", paramInfo.varNum, getRegName(lcl->GetParamReg(0)));
 
-            if (lcl->GetLayout()->GetSysVAmd64AbiRegCount() >= 2)
-            {
-                var_types regType1     = lcl->GetLayout()->GetSysVAmd64AbiRegType(1);
-                unsigned  regParamNum1 = paramInfo.allocRegArg(regType1);
-                lcl->SetParamReg(1, genMapRegArgNumToRegNum(regParamNum1, regType1));
-                lcl->lvIsMultiRegArg = true;
-            }
+        if (lcl->GetParamReg(1) == REG_NA)
+        {
+            JITDUMP("\n");
         }
         else
         {
-            unsigned regParamNum = paramInfo.allocRegArg(regType, slots);
-
-            lcl->SetParamReg(genMapRegArgNumToRegNum(regParamNum, regType));
+            JITDUMP(", %s\n", getRegName(lcl->GetParamReg(1)));
         }
-
-        JITDUMP("Param V%02u registers: ", paramInfo.varNum);
-
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("%s", getRegName(lcl->GetParamReg(0)));
-
-            if (lcl->GetParamReg(1) != REG_NA)
-            {
-                printf(", %s", getRegName(lcl->GetParamReg(1)));
-            }
-
-            printf("\n");
-        }
-#endif // DEBUG
     }
     else
     {
-        const unsigned argAlignment = lvaGetParamAlignment(lcl->GetType(), false);
+        unsigned offset = paramInfo.stackArgSize;
 
-        assert((paramSize % argAlignment) == 0);
-        assert((paramInfo.stackArgSize % argAlignment) == 0);
-        JITDUMP("set user arg V%02u offset to %u\n", paramInfo.varNum, paramInfo.stackArgSize);
+        assert((offset % REGSIZE_BYTES) == 0);
 
-        lcl->SetStackOffset(paramInfo.stackArgSize);
-        paramInfo.stackArgSize += paramSize;
+        lcl->SetStackOffset(offset);
+        paramInfo.stackArgSize = offset + paramSize;
+
+        JITDUMP("Param V%02u offset: %u\n", paramInfo.varNum, offset);
     }
 
+    assert((paramSize % REGSIZE_BYTES) == 0);
     codeGen->paramsSize += paramSize;
 
     if (info.compIsVarArgs)
@@ -771,64 +757,48 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
 void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl)
 {
-    unsigned  paramSize = lvaGetParamAllocSize(param, &info.compMethodInfo->args);
-    unsigned  slots     = (paramSize + REGSIZE_BYTES - 1) / REGSIZE_BYTES;
-    unsigned  regCount  = slots;
-    var_types regType   = lcl->GetType();
+    var_types regType = lcl->GetType();
 
-    bool canPassArgInRegisters = paramInfo.canEnreg(regType, regCount);
+    if (varTypeIsStruct(regType))
+    {
+        regType = TYP_INT;
+    }
 
-    if (canPassArgInRegisters)
+    if (paramInfo.canEnreg(regType))
     {
         lcl->lvIsRegArg = true;
+        lcl->SetParamReg(paramInfo.AllocReg(regType));
 
-        unsigned regParamNum = paramInfo.allocRegArg(regType, slots);
-        lcl->SetParamReg(genMapRegArgNumToRegNum(regParamNum, regType));
-        JITDUMP("Param V%02u registers: ", paramInfo.varNum);
+        JITDUMP("Param V%02u register: %s\n", paramInfo.varNum, getRegName(lcl->GetParamReg()));
 
-#ifdef DEBUG
-        if (verbose)
-        {
-            bool     isFloat   = varTypeUsesFloatReg(regType);
-            unsigned regArgNum = genMapRegNumToRegArgNum(lcl->GetArgReg(), regType);
-
-            for (unsigned ix = 0; ix < slots; ix++, regArgNum++)
-            {
-                if (ix > 0)
-                {
-                    printf(",");
-                }
-
-                if (!isFloat && (regArgNum >= paramInfo.maxIntRegArgNum))
-                {
-                    printf(" stack slots:%d", slots - ix);
-                    break;
-                }
-
-                printf("%s", getRegName(genMapIntRegArgNumToRegNum(regArgNum)));
-            }
-
-            printf("\n");
-        }
-#endif // DEBUG
+        // TODO-MIKE-Review: Note that on win-x64 reg params do have a home but this
+        // code doesn't assign a stack offset in this case. It looks like the offset
+        // we set here is only used by LowerFastTailCall, were it's actually ignored
+        // for WINDOWS_AMD64_ABI. It would be better to just set the offset correctly
+        // here and remove the special casing from LowerFastTailCall.
+        // Also note that info.compArgStackSize does not seem to include the size of
+        // the 4 reg params.
     }
     else
     {
-        const unsigned argAlignment = lvaGetParamAlignment(lcl->GetType(), false);
+        unsigned offset = paramInfo.stackArgSize;
 
-        assert((paramSize % argAlignment) == 0);
-        assert((paramInfo.stackArgSize % argAlignment) == 0);
-        JITDUMP("set user arg V%02u offset to %u\n", paramInfo.varNum, paramInfo.stackArgSize);
+        assert((offset % REGSIZE_BYTES) == 0);
 
-        lcl->SetStackOffset(paramInfo.stackArgSize);
-        paramInfo.stackArgSize += paramSize;
+        lcl->SetStackOffset(offset);
+        paramInfo.stackArgSize = offset + REGSIZE_BYTES;
+
+        JITDUMP("Param V%02u offset: %u\n", paramInfo.varNum, offset);
     }
 
-    codeGen->paramsSize += paramSize;
+    codeGen->paramsSize += REGSIZE_BYTES;
 
     if (info.compIsVarArgs)
     {
         // TODO-CQ: We shouldn't have to go as far as to declare these AX, DNER should suffice.
+        // TODO-MIKE-Review: DNER shouldn't be needed either, someone must have been really
+        // confused about what varargs is and how it works. Or perhaps the runtime requires
+        // this for some reason?
         lvaSetAddressExposed(lcl);
     }
 }
@@ -838,94 +808,67 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
 void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl)
 {
     unsigned  paramSize = lvaGetParamAllocSize(param, &info.compMethodInfo->args);
-    unsigned  slots     = (paramSize + REGSIZE_BYTES - 1) / REGSIZE_BYTES;
-    unsigned  regCount  = slots;
     var_types regType   = lcl->GetType();
-    var_types hfaType   = TYP_UNDEF;
+    unsigned  regCount;
+    unsigned  minRegCount;
 
-    if (varTypeIsStruct(lcl->GetType()))
-    {
 #ifdef TARGET_WINDOWS
-        // win-arm64 varargs does not use HFAs and can split a STRUCT arg between the last
-        // integer reg arg (x7) and the first stack arg slot.
-        if (info.compIsVarArgs)
-        {
-            if (paramInfo.canEnreg(TYP_INT, 1) && !paramInfo.canEnreg(TYP_INT, slots))
-            {
-                // Make sure this is always treated as STRUCT even if it's a SIMD type,
-                // since it's will be passed in an integer register (x7) rather than a
-                // vector register.
-                regType  = TYP_STRUCT;
-                regCount = 1;
-            }
-        }
-        else
+    // win-arm64 varargs does not use HFAs and can split a STRUCT arg between the last
+    // integer reg arg (x7) and the first stack arg slot.
+    if (info.compIsVarArgs)
+    {
+        assert(paramSize <= 2 * REGSIZE_BYTES);
+
+        regType     = TYP_INT;
+        regCount    = (paramSize > REGSIZE_BYTES) && paramInfo.canEnreg(TYP_INT, 2) ? 2 : 1;
+        minRegCount = 1;
+    }
+    else
 #endif
-            if (lcl->GetLayout()->IsHfa())
-        {
-            slots    = lcl->GetLayout()->GetHfaRegCount();
-            hfaType  = lcl->GetLayout()->GetHfaElementType();
-            regType  = hfaType;
-            regCount = slots;
-        }
+        if (!varTypeIsStruct(regType))
+    {
+        assert(paramSize <= REGSIZE_BYTES);
+
+        regCount    = 1;
+        minRegCount = 1;
+    }
+    else if (lcl->GetLayout()->IsHfa())
+    {
+        regType     = lcl->GetLayout()->GetHfaElementType();
+        regCount    = lcl->GetLayout()->GetHfaElementCount();
+        minRegCount = regCount;
     }
     else
     {
-        regType = mangleVarArgsType(regType);
+        assert(paramSize <= 2 * REGSIZE_BYTES);
+
+        regType     = TYP_INT;
+        regCount    = paramSize > REGSIZE_BYTES ? 2 : 1;
+        minRegCount = regCount;
     }
 
-    bool canPassArgInRegisters = paramInfo.canEnreg(regType, regCount);
-
-    if (canPassArgInRegisters)
+    if (paramInfo.canEnreg(regType, minRegCount))
     {
-        lcl->lvIsRegArg = true;
-
-        if ((hfaType != TYP_UNDEF) && (lcl->GetLayout()->GetHfaElementCount() > 1))
-        {
-            lcl->lvIsMultiRegArg = true;
-        }
-
-        if (regType == TYP_STRUCT)
-        {
-            unsigned regParamNum = paramInfo.allocRegArg(TYP_INT, slots);
-
-            lcl->SetParamReg(genMapIntRegArgNumToRegNum(regParamNum));
-
-            if (slots == 2)
-            {
-                lcl->lvIsMultiRegArg = true;
-            }
-        }
-        else
-        {
-            unsigned regParamNum = paramInfo.allocRegArg(regType, slots);
-
-            lcl->SetParamReg(genMapRegArgNumToRegNum(regParamNum, regType));
-        }
+        lcl->lvIsRegArg      = true;
+        lcl->lvIsMultiRegArg = regCount > 1;
+        lcl->SetParamReg(paramInfo.AllocRegs(regType, regCount));
 
         JITDUMP("Param V%02u registers: ", paramInfo.varNum);
 
 #ifdef DEBUG
         if (verbose)
         {
-            bool     isFloat   = varTypeUsesFloatReg(regType);
-            unsigned regArgNum = genMapRegNumToRegArgNum(lcl->GetArgReg(), regType);
-
-            for (unsigned ix = 0; ix < slots; ix++, regArgNum++)
+            for (unsigned i = 0; i < regCount; i++)
             {
-                if (ix > 0)
-                {
-                    printf(",");
-                }
-
-                if (!isFloat && (regArgNum >= paramInfo.maxIntRegArgNum))
-                {
-                    printf(" stack slots:%d", slots - ix);
-                    break;
-                }
-
-                printf("%s", getRegName(genMapIntRegArgNumToRegNum(regArgNum)));
+                printf("%s%s", i > 0 ? ", " : "", getRegName(static_cast<regNumber>(lcl->GetParamReg() + i)));
             }
+
+#ifdef TARGET_WINDOWS
+            if (info.compIsVarArgs && (regCount * REGSIZE_BYTES < paramSize))
+            {
+                printf("+ 1 stack slot");
+            }
+#endif
 
             printf("\n");
         }
@@ -933,20 +876,25 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
     }
     else
     {
-        paramInfo.setAllRegArgUsed(regType);
+        paramInfo.SetAllRegsUsed(regType);
 
-        const unsigned argAlignment = lvaGetParamAlignment(lcl->GetType(), (hfaType == TYP_FLOAT));
+        unsigned offset    = paramInfo.stackArgSize;
+        unsigned alignment = lvaGetParamAlignment(lcl->GetType(), (regType == TYP_FLOAT));
 
 #ifdef OSX_ARM64_ABI
-        paramInfo.stackArgSize      = roundUp(paramInfo.stackArgSize, argAlignment);
+        // TODO-MIKE-Review: Note that lvaGetParamAlignment appears to be returning wrong
+        // alignment for vector params, if that's the case then this code should be enabled
+        // for all ARM64 targets, not just OSX.
+        offset = roundUp(offset, alignment);
 #endif
 
-        assert((paramSize % argAlignment) == 0);
-        assert((paramInfo.stackArgSize % argAlignment) == 0);
-        JITDUMP("set user arg V%02u offset to %u\n", paramInfo.varNum, paramInfo.stackArgSize);
+        assert((paramSize % alignment) == 0);
+        assert((offset % alignment) == 0);
 
-        lcl->SetStackOffset(paramInfo.stackArgSize);
-        paramInfo.stackArgSize += paramSize;
+        lcl->SetStackOffset(offset);
+        paramInfo.stackArgSize = offset + paramSize;
+
+        JITDUMP("Param V%02u offset: %u\n", paramInfo.varNum, offset);
     }
 
     codeGen->paramsSize += paramSize;
@@ -963,68 +911,31 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
 void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl)
 {
     unsigned  paramSize = lvaGetParamAllocSize(param, &info.compMethodInfo->args);
-    unsigned  slots     = (paramSize + REGSIZE_BYTES - 1) / REGSIZE_BYTES;
-    unsigned  regCount  = slots;
     var_types regType   = lcl->GetType();
 
-    bool canPassArgInRegisters = false;
-
-    if (varTypeIsStruct(regType))
-    {
-        canPassArgInRegisters = isTrivialPointerSizedStruct(lcl->GetLayout()) && paramInfo.canEnreg(TYP_INT, regCount);
-    }
-    else
-    {
-        canPassArgInRegisters = paramInfo.canEnreg(regType, regCount);
-    }
-
-    if (canPassArgInRegisters)
+    if ((varTypeIsI(varActualType(regType)) ||
+         ((regType == TYP_STRUCT) && isTrivialPointerSizedStruct(lcl->GetLayout()))) &&
+        paramInfo.canEnreg(TYP_INT))
     {
         lcl->lvIsRegArg = true;
+        lcl->SetParamReg(paramInfo.AllocReg(TYP_INT));
 
-        unsigned regParamNum = paramInfo.allocRegArg(regType, slots);
-        lcl->SetParamReg(genMapRegArgNumToRegNum(regParamNum, regType));
-        JITDUMP("Param V%02u registers: ", paramInfo.varNum);
-
-#ifdef DEBUG
-        if (verbose)
-        {
-            bool     isFloat   = varTypeUsesFloatReg(regType);
-            unsigned regArgNum = genMapRegNumToRegArgNum(lcl->GetArgReg(), regType);
-
-            for (unsigned ix = 0; ix < slots; ix++, regArgNum++)
-            {
-                if (ix > 0)
-                {
-                    printf(",");
-                }
-
-                if (!isFloat && (regArgNum >= paramInfo.maxIntRegArgNum))
-                {
-                    printf(" stack slots:%d", slots - ix);
-                    break;
-                }
-
-                {
-                    printf("%s", getRegName(genMapIntRegArgNumToRegNum(regArgNum)));
-                }
-            }
-
-            printf("\n");
-        }
-#endif // DEBUG
+        JITDUMP("Param V%02u register: %s\n", paramInfo.varNum, getRegName(lcl->GetParamReg()));
     }
     else
     {
 #if FEATURE_FASTTAILCALL
-        const unsigned argAlignment = lvaGetParamAlignment(lcl->GetType(), (hfaType == TYP_FLOAT));
+        // TODO-MIKE-Cleanup: Consider enabling this independently of FEATURE_FASTTAILCALL.
+        // We eventually have to set the stack offset for codegen so we may as well just do
+        // it here. And varargs needs it early anyway.
+        unsigned offset = paramInfo.stackArgSize;
 
-        assert((paramSize % argAlignment) == 0);
-        assert((paramInfo.stackArgSize % argAlignment) == 0);
-        JITDUMP("set user arg V%02u offset to %u\n", paramInfo.varNum, paramInfo.stackArgSize);
+        assert((offset % REGSIZE_BYTES) == 0);
 
-        lcl->SetStackOffset(paramInfo.stackArgSize);
-        paramInfo.stackArgSize += paramSize;
+        lcl->SetStackOffset(offset);
+        paramInfo.stackArgSize = offset + paramSize;
+
+        JITDUMP("Param V%02u offset: %u\n", paramInfo.varNum, offset);
 #endif // FEATURE_FASTTAILCALL
     }
 
@@ -1040,177 +951,140 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
 void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl)
 {
-    unsigned  paramSize = lvaGetParamAllocSize(param, &info.compMethodInfo->args);
-    unsigned  slots     = (paramSize + REGSIZE_BYTES - 1) / REGSIZE_BYTES;
-    unsigned  regCount  = slots;
-    var_types regType   = lcl->GetType();
-    var_types hfaType   = TYP_UNDEF;
+    unsigned  paramSize      = lvaGetParamAllocSize(param, &info.compMethodInfo->args);
+    var_types regType        = lcl->GetType();
+    unsigned  regAlign       = 1;
+    unsigned  regCount       = paramSize / REGSIZE_BYTES;
+    unsigned  minRegCount    = regCount;
+    bool      isHfa          = false;
+    bool      preSpill       = false;
+    bool      softFPPreSpill = false;
 
     assert(!info.compIsVarArgs);
+    assert(!varTypeIsSIMD(regType));
 
-    if (varTypeIsStruct(lcl->GetType()))
+    if (varTypeIsFloating(regType))
     {
-        if (lcl->GetLayout()->IsHfa())
+        if (regType == TYP_DOUBLE)
         {
-            slots    = lcl->GetLayout()->GetHfaRegCount();
-            hfaType  = lcl->GetLayout()->GetHfaElementType();
-            regType  = hfaType;
-            regCount = slots;
+            regAlign = 2;
+        }
+
+        if (opts.UseSoftFP() || info.compIsVarArgs)
+        {
+            regType        = regType == TYP_FLOAT ? TYP_INT : TYP_LONG;
+            preSpill       = true;
+            softFPPreSpill = true;
         }
     }
-    else
+    else if (regType == TYP_LONG)
     {
-        regType = mangleVarArgsType(regType);
-    }
-
-    bool canPassArgInRegisters = false;
-
-    const bool isSoftFPPreSpill = opts.UseSoftFP() && varTypeIsFloating(lcl->GetType());
-    // On ARM we pass the first 4 words of integer params and non-HFA structs in registers.
-    // But we pre-spill user params in varargs methods and structs.
-    bool     preSpill = info.compIsVarArgs || isSoftFPPreSpill;
-    unsigned regAlign = 1;
-
-    if (lcl->TypeIs(TYP_LONG, TYP_DOUBLE))
-    {
+        regType  = TYP_INT;
         regAlign = 2;
     }
-    else if (lcl->TypeIs(TYP_STRUCT))
+    else if (regType == TYP_STRUCT)
     {
-        assert(lcl->lvSize() == paramSize);
-
         if (lcl->lvStructDoubleAlign)
         {
             regAlign = 2;
         }
 
-        if (regType == TYP_STRUCT)
+        if (lcl->GetLayout()->IsHfa() && !info.compIsVarArgs)
         {
-            // TODO-Arm32-Windows: vararg struct should be forced to split like ARM64 above.
+            assert(!opts.UseSoftFP());
 
-            // Are we going to split the struct between registers and stack? We can do that as long as
-            // no floating-point params have been put on the stack.
-            //
-            // From the ARM Procedure Call Standard:
-            // Rule C.5: "If the NCRN is less than r4 **and** the NSAA is equal to the SP,"
-            // then split the argument between registers and stack. Implication: if something
-            // has already been spilled to the stack, then anything that would normally be
-            // split between the core registers and the stack will be put on the stack.
-            // Anything that follows will also be on the stack. However, if something from
-            // floating point regs has been spilled to the stack, we can still use r0-r3 until they are full.
+            regType     = lcl->GetLayout()->GetHfaElementType();
+            regCount    = lcl->GetLayout()->GetHfaRegCount();
+            isHfa       = true;
+            minRegCount = regCount;
 
-            regCount = 1;
-            preSpill = true;
-
-            if (paramInfo.canEnreg(TYP_INT, 1) && !paramInfo.canEnreg(TYP_INT, slots) &&
-                paramInfo.existAnyFloatStackArgs())
-            {
-                // Prevent all future use of integer registers
-                paramInfo.setAllRegArgUsed(TYP_INT);
-                // This struct won't be prespilled, since it will go on the stack
-                preSpill = false;
-            }
-        }
-    }
-
-    if (isRegParamType(regType))
-    {
-        codeGen->paramsSize += paramInfo.alignReg(regType, regAlign) * REGSIZE_BYTES;
-    }
-
-    if (preSpill)
-    {
-        regMaskTP paramRegMask = RBM_NONE;
-
-        for (unsigned i = 0; i < slots; i++)
-        {
-            if (!paramInfo.canEnreg(TYP_INT, i + 1))
-            {
-                break;
-            }
-
-            paramRegMask |= genMapArgNumToRegMask(paramInfo.regArgNum(TYP_INT) + i, TYP_INT);
-        }
-
-        if (regAlign == 2)
-        {
-            paramInfo.doubleAlignMask |= paramRegMask;
-        }
-
-        codeGen->regSet.rsMaskPreSpillRegArg |= paramRegMask;
-    }
-
-    canPassArgInRegisters = paramInfo.canEnreg(regType, regCount);
-
-    if (canPassArgInRegisters)
-    {
-        lcl->lvIsRegArg = true;
-
-        if ((hfaType != TYP_UNDEF) && (lcl->GetLayout()->GetHfaElementCount() > 1))
-        {
-            lcl->lvIsMultiRegArg = true;
-        }
-
-        if (lcl->TypeIs(TYP_LONG))
-        {
-            unsigned regParamNum = paramInfo.allocRegArg(TYP_INT, 2);
-
-            lcl->SetParamReg(genMapIntRegArgNumToRegNum(regParamNum));
-        }
-        else if (varTypeIsStruct(regType))
-        {
-            unsigned regParamNum = paramInfo.allocRegArg(TYP_INT, slots);
-
-            lcl->SetParamReg(genMapIntRegArgNumToRegNum(regParamNum));
+            assert((regAlign == 2) == (regType == TYP_DOUBLE));
         }
         else
         {
-            unsigned regParamNum = paramInfo.allocRegArg(regType, slots);
+            regType     = TYP_INT;
+            minRegCount = 1;
+            preSpill    = true;
 
-            lcl->SetParamReg(genMapRegArgNumToRegNum(regParamNum, regType));
+            if (!paramInfo.canEnreg(TYP_INT, regCount) && paramInfo.canEnreg(TYP_INT, 1) &&
+                paramInfo.HasFloatStackParams())
+            {
+                paramInfo.SetAllRegsUsed(TYP_INT);
+                minRegCount = regCount;
+                preSpill    = false;
+            }
         }
+    }
+
+    codeGen->paramsSize += paramInfo.alignReg(regType, regAlign) * REGSIZE_BYTES;
+
+    if (paramInfo.canEnreg(regType, minRegCount))
+    {
+        lcl->lvIsRegArg = true;
+
+        if (lcl->TypeIs(TYP_STRUCT))
+        {
+            if (isHfa)
+            {
+                lcl->lvIsMultiRegArg = lcl->GetLayout()->GetHfaElementCount() > 1;
+            }
+            else
+            {
+                assert(regType == TYP_INT);
+
+                regCount = min(regCount, paramInfo.GetAvailableRegCount(TYP_INT));
+            }
+        }
+
+        if (preSpill)
+        {
+            regMaskTP regMask = RBM_NONE;
+
+            for (unsigned i = 0; i < regCount; i++)
+            {
+                regMask |= genMapIntRegArgNumToRegMask(paramInfo.regArgNum(TYP_INT) + i);
+            }
+
+            if (regAlign == 2)
+            {
+                paramInfo.doubleAlignMask |= regMask;
+            }
+
+            codeGen->regSet.rsMaskPreSpillRegArg |= regMask;
+        }
+
+        lcl->SetParamReg(paramInfo.AllocRegs(regType, regCount));
 
         JITDUMP("Param V%02u registers: ", paramInfo.varNum);
 
 #ifdef DEBUG
         if (verbose)
         {
-            bool     isFloat   = varTypeUsesFloatReg(regType);
-            unsigned regArgNum = genMapRegNumToRegArgNum(lcl->GetArgReg(), regType);
-
-            for (unsigned ix = 0; ix < slots; ix++, regArgNum++)
+            for (unsigned i = 0; i < regCount; i++)
             {
-                if (ix > 0)
+                if (i > 0)
                 {
-                    printf(",");
+                    printf(", ");
                 }
 
-                if (!isFloat && (regArgNum >= paramInfo.maxIntRegArgNum))
-                {
-                    printf(" stack slots:%d", slots - ix);
-                    break;
-                }
+                regNumber reg = static_cast<regNumber>(lcl->GetParamReg() + i);
 
-                if (isFloat)
+                if (regType == TYP_DOUBLE)
                 {
-                    if (regType == TYP_DOUBLE)
-                    {
-                        printf("%s/%s", getRegName(genMapFloatRegArgNumToRegNum(regArgNum)),
-                               getRegName(genMapFloatRegArgNumToRegNum(regArgNum + 1)));
+                    printf("%s/%s", getRegName(reg), getRegName(REG_NEXT(reg)));
 
-                        assert(ix + 1 < slots);
-                        ++ix;
-                        ++regArgNum;
-                    }
-                    else
-                    {
-                        printf("%s", getRegName(genMapFloatRegArgNumToRegNum(regArgNum)));
-                    }
+                    assert(i + 1 < regCount);
+                    ++i;
                 }
                 else
                 {
-                    printf("%s", getRegName(genMapIntRegArgNumToRegNum(regArgNum)));
+                    printf("%s", getRegName(reg));
                 }
+            }
+
+            if (!varTypeIsFloating(regType) && (regCount * REGSIZE_BYTES < paramSize))
+            {
+                printf(" + %u stack slots", paramSize / REGSIZE_BYTES - regCount);
             }
 
             printf("\n");
@@ -1219,28 +1093,31 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
     }
     else
     {
-        paramInfo.setAllRegArgUsed(regType);
+        paramInfo.SetAllRegsUsed(regType);
 
         if (varTypeUsesFloatReg(regType))
         {
-            paramInfo.setAnyFloatStackArgs();
+            paramInfo.SetHasFloatStackParams();
         }
 
 #if FEATURE_FASTTAILCALL
-        const unsigned argAlignment = lvaGetParamAlignment(lcl->GetType(), (hfaType == TYP_FLOAT));
+        // TODO-MIKE-Cleanup: Consider enabling this independently of FEATURE_FASTTAILCALL.
+        // We eventually have to set the stack offset for codegen so we may as well just do
+        // it here. And varargs needs it early anyway.
+        unsigned offset = paramInfo.stackArgSize;
 
-        assert((paramSize % argAlignment) == 0);
-        assert((paramInfo.stackArgSize % argAlignment) == 0);
-        JITDUMP("set user arg V%02u offset to %u\n", paramInfo.varNum, paramInfo.stackArgSize);
+        assert((offset % REGSIZE_BYTES) == 0);
 
-        lcl->SetStackOffset(paramInfo.stackArgSize);
-        paramInfo.stackArgSize += paramSize;
+        lcl->SetStackOffset(offset);
+        paramInfo.stackArgSize = offset + paramSize;
+
+        JITDUMP("Param V%02u offset: %u\n", paramInfo.varNum, offset);
 #endif // FEATURE_FASTTAILCALL
     }
 
     codeGen->paramsSize += paramSize;
 
-    if (info.compIsVarArgs || isSoftFPPreSpill)
+    if (info.compIsVarArgs || softFPPreSpill)
     {
         // TODO-CQ: We shouldn't have to go as far as to declare these AX, DNER should suffice.
         lvaSetAddressExposed(lcl);
@@ -1249,37 +1126,33 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
 void Compiler::lvaAlignPreSpillParams(regMaskTP doubleAlignMask)
 {
-    if (doubleAlignMask != RBM_NONE)
+    if ((doubleAlignMask == RBM_NONE) || (doubleAlignMask == RBM_ARG_REGS))
     {
-        assert(RBM_ARG_REGS == 0xF);
-        assert((doubleAlignMask & RBM_ARG_REGS) == doubleAlignMask);
+        return;
+    }
 
-        if (doubleAlignMask != RBM_NONE && doubleAlignMask != RBM_ARG_REGS)
-        {
-            // 'double aligned types' can begin only at r0 or r2 and we always expect at least two registers to be used
-            // Note that in rare cases, we can have double-aligned structs of 12 bytes (if specified explicitly with
-            // attributes)
-            assert((doubleAlignMask == 0b0011) || (doubleAlignMask == 0b1100) ||
-                   (doubleAlignMask == 0b0111) /* || 0b1111 is if'ed out */);
+    // Double aligned params can begin only at r0 or r2 and we always expect at least
+    // two registers to be used. Note that in rare cases, we can have double aligned
+    // params of 12 bytes (if specified explicitly with StructLayout attribute).
+    assert((doubleAlignMask == (RBM_R0 | RBM_R1)) || (doubleAlignMask == (RBM_R2 | RBM_R3)) ||
+           (doubleAlignMask == (RBM_R0 | RBM_R1 | RBM_R2)));
 
-            // Now if doubleAlignMask is xyz1 i.e., the struct starts in r0, and we prespill r2 or r3
-            // but not both, then the stack would be misaligned for r0. So spill both
-            // r2 and r3.
-            //
-            // ; +0 --- caller SP double aligned ----
-            // ; -4 r2    r3
-            // ; -8 r1    r1
-            // ; -c r0    r0   <-- misaligned.
-            // ; callee saved regs
-            bool startsAtR0 = (doubleAlignMask & 1) == 1;
-            bool r2XorR3    = ((codeGen->regSet.rsMaskPreSpillRegArg & RBM_R2) == 0) !=
-                           ((codeGen->regSet.rsMaskPreSpillRegArg & RBM_R3) == 0);
-            if (startsAtR0 && r2XorR3)
-            {
-                codeGen->regSet.rsMaskPreSpillAlign =
-                    (~codeGen->regSet.rsMaskPreSpillRegArg & ~doubleAlignMask) & RBM_ARG_REGS;
-            }
-        }
+    // Now if doubleAlignMask is xyz1 i.e., the struct starts in r0, and we prespill r2 or r3
+    // but not both, then the stack would be misaligned for r0. So spill both
+    // r2 and r3.
+    //
+    // ; +0 --- caller SP double aligned ----
+    // ; -4 r2    r3
+    // ; -8 r1    r1
+    // ; -c r0    r0   <-- misaligned.
+    // ; callee saved regs
+    bool startsAtR0 = (doubleAlignMask & RBM_R0) == RBM_R0;
+    bool r2XorR3    = ((codeGen->regSet.rsMaskPreSpillRegArg & RBM_R2) == 0) !=
+                   ((codeGen->regSet.rsMaskPreSpillRegArg & RBM_R3) == 0);
+
+    if (startsAtR0 && r2XorR3)
+    {
+        codeGen->regSet.rsMaskPreSpillAlign = (~codeGen->regSet.rsMaskPreSpillRegArg & ~doubleAlignMask) & RBM_ARG_REGS;
     }
 }
 #endif // TARGET_ARM

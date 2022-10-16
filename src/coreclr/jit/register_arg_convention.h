@@ -13,9 +13,7 @@ struct InitVarDscInfo
     unsigned maxFloatRegArgNum;
 
 #ifdef TARGET_ARM
-    regMaskTP doubleAlignMask = RBM_NONE;
-    // Support back-filling of FP parameters. This is similar to code in gtMorphArgs() that
-    // handles arguments.
+    regMaskTP doubleAlignMask      = RBM_NONE;
     regMaskTP fltArgSkippedRegMask = RBM_NONE;
     bool      anyFloatStackArgs    = false;
 #endif
@@ -38,6 +36,11 @@ public:
         return varTypeUsesFloatArgReg(type) ? floatRegArgNum : intRegArgNum;
     }
 
+    unsigned regArgNum(var_types type) const
+    {
+        return varTypeUsesFloatArgReg(type) ? floatRegArgNum : intRegArgNum;
+    }
+
     // Allocate a set of contiguous argument registers. "type" is either an integer
     // type, indicating to use the integer registers, or a floating-point type, indicating
     // to use the floating-point registers. The actual type (TYP_FLOAT vs. TYP_DOUBLE) is
@@ -47,6 +50,16 @@ public:
     // This routine handles floating-point register back-filling on ARM.
     // Returns the first argument register of the allocated set.
     unsigned allocRegArg(var_types type, unsigned numRegs = 1);
+
+    regNumber AllocReg(var_types type)
+    {
+        return genMapRegArgNumToRegNum(allocRegArg(type, 1), type);
+    }
+
+    regNumber AllocRegs(var_types type, unsigned count)
+    {
+        return genMapRegArgNumToRegNum(allocRegArg(type, count), type);
+    }
 
 #ifdef TARGET_ARM
     // We are aligning the register to an ABI-required boundary, such as putting
@@ -62,30 +75,33 @@ public:
     // "numRegs" must be "2" to allocate an ARM double-precision floating-point register.
     bool canEnreg(var_types type, unsigned numRegs = 1);
 
-    // Set the fact that we have used up all remaining registers of 'type'
-    //
-    void setAllRegArgUsed(var_types type)
+#ifdef TARGET_ARMARCH
+    void SetAllRegsUsed(var_types type)
     {
         regArgNum(type) = maxRegArgNum(type);
     }
 
 #ifdef TARGET_ARM
-
-    void setAnyFloatStackArgs()
+    void SetHasFloatStackParams()
     {
         anyFloatStackArgs = true;
     }
 
-    bool existAnyFloatStackArgs()
+    bool HasFloatStackParams()
     {
         return anyFloatStackArgs;
     }
-
 #endif // TARGET_ARM
+#endif // TARGET_ARMARCH
+
+    unsigned GetAvailableRegCount(var_types type) const
+    {
+        return maxRegArgNum(type) - regArgNum(type);
+    }
 
 private:
     // return max register arg for this type
-    unsigned maxRegArgNum(var_types type)
+    unsigned maxRegArgNum(var_types type) const
     {
         return varTypeUsesFloatArgReg(type) ? maxFloatRegArgNum : maxIntRegArgNum;
     }
