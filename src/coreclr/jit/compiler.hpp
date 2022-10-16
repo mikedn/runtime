@@ -2121,27 +2121,6 @@ inline regMaskTP genMapFloatRegArgNumToRegMask(unsigned argNum)
 #endif
 }
 
-__forceinline regMaskTP genMapArgNumToRegMask(unsigned argNum, var_types type)
-{
-    regMaskTP result;
-    if (varTypeUsesFloatArgReg(type))
-    {
-        result = genMapFloatRegArgNumToRegMask(argNum);
-#ifdef TARGET_ARM
-        if (type == TYP_DOUBLE)
-        {
-            assert((result & RBM_DBL_REGS) != 0);
-            result |= (result << 1);
-        }
-#endif
-    }
-    else
-    {
-        result = genMapIntRegArgNumToRegMask(argNum);
-    }
-    return result;
-}
-
 // Map a register number ("RegNum") to a register argument number ("RegArgNum")
 // If we have a fixed return buffer register we return RET_BUFF_ARGNUM.
 inline unsigned genMapIntRegNumToRegArgNum(regNumber regNum)

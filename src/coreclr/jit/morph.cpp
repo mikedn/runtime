@@ -2551,7 +2551,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             {
                 if (fltArgRegNum % 2 == 1)
                 {
-                    fltArgSkippedRegMask |= genMapArgNumToRegMask(fltArgRegNum, TYP_FLOAT);
+                    fltArgSkippedRegMask |= genMapFloatRegArgNumToRegMask(fltArgRegNum);
                     fltArgRegNum++;
                 }
             }
@@ -2559,7 +2559,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             {
                 if (intArgRegNum % 2 == 1)
                 {
-                    argSkippedRegMask |= genMapArgNumToRegMask(intArgRegNum, TYP_I_IMPL);
+                    argSkippedRegMask |= genMapIntRegArgNumToRegMask(intArgRegNum);
                     intArgRegNum++;
                 }
             }
@@ -2751,7 +2751,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         {
             for (; fltArgRegNum < MAX_FLOAT_REG_ARG; ++fltArgRegNum)
             {
-                fltArgSkippedRegMask |= genMapArgNumToRegMask(fltArgRegNum, TYP_FLOAT);
+                fltArgSkippedRegMask |= genMapFloatRegArgNumToRegMask(fltArgRegNum);
             }
         }
 
@@ -2767,7 +2767,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             // Skip the rest of the integer argument registers
             for (; intArgRegNum < MAX_REG_ARG; ++intArgRegNum)
             {
-                argSkippedRegMask |= genMapArgNumToRegMask(intArgRegNum, TYP_I_IMPL);
+                argSkippedRegMask |= genMapIntRegArgNumToRegMask(intArgRegNum);
             }
         }
 #endif // TARGET_ARM

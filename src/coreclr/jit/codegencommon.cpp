@@ -3004,6 +3004,26 @@ regMaskTP CodeGen::genPrologSpillParamRegs(ParamRegInfo* paramRegs, unsigned par
     return liveParamRegs;
 }
 
+static regMaskTP genMapArgNumToRegMask(unsigned argNum, var_types type)
+{
+    if (varTypeUsesFloatArgReg(type))
+    {
+        regMaskTP result = genMapFloatRegArgNumToRegMask(argNum);
+
+#ifdef TARGET_ARM
+        if (type == TYP_DOUBLE)
+        {
+            assert((result & RBM_DBL_REGS) != 0);
+            result |= (result << 1);
+        }
+#endif
+
+        return result;
+    }
+
+    return genMapIntRegArgNumToRegMask(argNum);
+}
+
 void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
                                      unsigned      paramRegCount,
                                      regMaskTP     liveParamRegs,
