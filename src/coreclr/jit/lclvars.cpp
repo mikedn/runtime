@@ -954,7 +954,6 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
     unsigned  regCount       = paramSize / REGSIZE_BYTES;
     unsigned  minRegCount    = regCount;
     bool      isHfa          = false;
-    bool      preSpill       = false;
     bool      softFPPreSpill = false;
 
     assert(!info.compIsVarArgs);
@@ -970,7 +969,6 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
         if (opts.UseSoftFP() || info.compIsVarArgs)
         {
             regType        = regType == TYP_FLOAT ? TYP_INT : TYP_LONG;
-            preSpill       = true;
             softFPPreSpill = true;
         }
     }
@@ -999,15 +997,12 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
         }
         else
         {
-            regType     = TYP_INT;
-            minRegCount = 1;
-            preSpill    = true;
+            regType = TYP_INT;
 
-            if (!paramInfo.CanEnregister(TYP_INT, regCount) && paramInfo.CanEnregister(TYP_INT, 1) &&
-                paramInfo.HasFloatStackParams())
+            if (!paramInfo.CanEnregister(TYP_INT, regCount) && paramInfo.CanEnregister(TYP_INT) &&
+                !paramInfo.HasFloatStackParams())
             {
-                minRegCount = regCount;
-                preSpill    = false;
+                minRegCount = 1;
             }
         }
     }
@@ -1017,6 +1012,8 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
     if (paramInfo.CanEnregister(regType, minRegCount))
     {
         lcl->lvIsRegArg = true;
+
+        bool preSpill = softFPPreSpill;
 
         if (lcl->TypeIs(TYP_STRUCT))
         {
@@ -1029,6 +1026,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
                 assert(regType == TYP_INT);
 
                 regCount = min(regCount, paramInfo.GetAvailableRegCount(TYP_INT));
+                preSpill = true;
             }
         }
 
