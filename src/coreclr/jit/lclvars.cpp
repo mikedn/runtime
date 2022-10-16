@@ -324,7 +324,7 @@ void Compiler::lvaInitParams(bool hasRetBufParam)
     }
 #endif
 
-    InitVarDscInfo paramInfo(intRegCount, floatRegCount);
+    ParamAllocInfo paramInfo(intRegCount, floatRegCount);
 
     // x86 params look something like this:
     //  [this] [struct return buffer] [user params] [generic context] [varargs handle]
@@ -347,7 +347,7 @@ void Compiler::lvaInitParams(bool hasRetBufParam)
 
         lvaInitUserParam(paramInfo, info.compMethodInfo->args.args);
 
-        paramInfo.varNum++;
+        paramInfo.lclNum++;
         skipFirstParam    = true;
         useFixedRetBufReg = false;
     }
@@ -377,15 +377,15 @@ void Compiler::lvaInitParams(bool hasRetBufParam)
     lvaInitVarargsHandleParam(paramInfo);
 #endif
 
-    noway_assert(paramInfo.varNum == info.compArgsCount);
-    assert(paramInfo.intRegArgNum <= MAX_REG_ARG);
+    noway_assert(paramInfo.lclNum == info.compArgsCount);
+    assert(paramInfo.intRegIndex <= MAX_REG_ARG);
 
     codeGen->paramsSize                        = paramInfo.size;
-    codeGen->intRegState.rsCalleeRegArgCount   = paramInfo.intRegArgNum;
-    codeGen->floatRegState.rsCalleeRegArgCount = paramInfo.floatRegArgNum;
+    codeGen->intRegState.rsCalleeRegArgCount   = paramInfo.intRegIndex;
+    codeGen->floatRegState.rsCalleeRegArgCount = paramInfo.floatRegIndex;
 
 #if FEATURE_FASTTAILCALL
-    info.compArgStackSize = paramInfo.stackArgSize;
+    info.compArgStackSize = paramInfo.stackSize;
 #endif
 
 #ifdef TARGET_X86
@@ -399,20 +399,20 @@ void Compiler::lvaInitParams(bool hasRetBufParam)
 #endif
 }
 
-void Compiler::lvaInitThisParam(InitVarDscInfo& paramInfo)
+void Compiler::lvaInitThisParam(ParamAllocInfo& paramInfo)
 {
     if (info.compIsStatic)
     {
         return;
     }
 
-    assert(paramInfo.varNum == 0);
-    assert(paramInfo.intRegArgNum == 0);
+    assert(paramInfo.lclNum == 0);
+    assert(paramInfo.intRegIndex == 0);
 
     lvaArg0Var       = 0;
     info.compThisArg = 0;
 
-    LclVarDsc* lcl = lvaGetDesc(paramInfo.varNum);
+    LclVarDsc* lcl = lvaGetDesc(paramInfo.lclNum);
 
     if ((info.compClassAttr & CORINFO_FLG_VALUECLASS) != 0)
     {
@@ -421,7 +421,7 @@ void Compiler::lvaInitThisParam(InitVarDscInfo& paramInfo)
     else
     {
         lcl->SetType(TYP_REF);
-        lvaSetClass(paramInfo.varNum, info.compClassHnd);
+        lvaSetClass(paramInfo.lclNum, info.compClassHnd);
     }
 
     lcl->lvIsParam  = true;
@@ -429,7 +429,7 @@ void Compiler::lvaInitThisParam(InitVarDscInfo& paramInfo)
     lcl->lvIsRegArg = true;
     lcl->lvOnFrame  = true;
 
-    lcl->SetParamReg(genMapIntRegArgNumToRegNum(paramInfo.allocRegArg(TYP_INT)));
+    lcl->SetParamReg(paramInfo.AllocReg(TYP_INT));
 #ifdef UNIX_AMD64_ABI
     lcl->SetParamReg(1, REG_NA);
 #endif
@@ -437,10 +437,10 @@ void Compiler::lvaInitThisParam(InitVarDscInfo& paramInfo)
     JITDUMP("'this' passed in register %s\n", getRegName(lcl->GetArgReg()));
 
     paramInfo.size += REGSIZE_BYTES;
-    paramInfo.varNum++;
+    paramInfo.lclNum++;
 }
 
-void Compiler::lvaInitRetBufParam(InitVarDscInfo& paramInfo, bool useFixedRetBufReg)
+void Compiler::lvaInitRetBufParam(ParamAllocInfo& paramInfo, bool useFixedRetBufReg)
 {
 #ifdef DEBUG
     if (info.compRetType == TYP_STRUCT)
@@ -455,9 +455,9 @@ void Compiler::lvaInitRetBufParam(InitVarDscInfo& paramInfo, bool useFixedRetBuf
     }
 #endif
 
-    info.compRetBuffArg = paramInfo.varNum;
+    info.compRetBuffArg = paramInfo.lclNum;
 
-    LclVarDsc* lcl = lvaGetDesc(paramInfo.varNum);
+    LclVarDsc* lcl = lvaGetDesc(paramInfo.lclNum);
 
     lcl->SetType(TYP_BYREF);
     lcl->lvIsParam = true;
@@ -471,10 +471,10 @@ void Compiler::lvaInitRetBufParam(InitVarDscInfo& paramInfo, bool useFixedRetBuf
     }
     else
 #endif
-        if (paramInfo.canEnreg(TYP_INT))
+        if (paramInfo.CanEnregister(TYP_INT))
     {
         lcl->lvIsRegArg = true;
-        lcl->SetParamReg(genMapIntRegArgNumToRegNum(paramInfo.allocRegArg(TYP_INT)));
+        lcl->SetParamReg(paramInfo.AllocReg(TYP_INT));
     }
 
 #ifdef UNIX_AMD64_ABI
@@ -489,28 +489,28 @@ void Compiler::lvaInitRetBufParam(InitVarDscInfo& paramInfo, bool useFixedRetBuf
     }
 
     paramInfo.size += REGSIZE_BYTES;
-    paramInfo.varNum++;
+    paramInfo.lclNum++;
 }
 
-void Compiler::lvaInitGenericsContextParam(InitVarDscInfo& paramInfo)
+void Compiler::lvaInitGenericsContextParam(ParamAllocInfo& paramInfo)
 {
     if ((info.compMethodInfo->args.callConv & CORINFO_CALLCONV_PARAMTYPE) == 0)
     {
         return;
     }
 
-    info.compTypeCtxtArg = paramInfo.varNum;
+    info.compTypeCtxtArg = paramInfo.lclNum;
 
-    LclVarDsc* lcl = lvaGetDesc(paramInfo.varNum);
+    LclVarDsc* lcl = lvaGetDesc(paramInfo.lclNum);
 
     lcl->SetType(TYP_I_IMPL);
     lcl->lvIsParam = true;
     lcl->lvOnFrame = true;
 
-    if (paramInfo.canEnreg(TYP_I_IMPL))
+    if (paramInfo.CanEnregister(TYP_I_IMPL))
     {
         lcl->lvIsRegArg = true;
-        lcl->SetParamReg(genMapIntRegArgNumToRegNum(paramInfo.allocRegArg(TYP_I_IMPL)));
+        lcl->SetParamReg(paramInfo.AllocReg(TYP_I_IMPL));
 #ifdef UNIX_AMD64_ABI
         lcl->SetParamReg(1, REG_NA);
 #endif
@@ -520,13 +520,13 @@ void Compiler::lvaInitGenericsContextParam(InitVarDscInfo& paramInfo)
     else
     {
 #if FEATURE_FASTTAILCALL
-        lcl->SetStackOffset(paramInfo.stackArgSize);
-        paramInfo.stackArgSize += REGSIZE_BYTES;
+        lcl->SetStackOffset(paramInfo.stackSize);
+        paramInfo.stackSize += REGSIZE_BYTES;
 #endif
     }
 
     paramInfo.size += REGSIZE_BYTES;
-    paramInfo.varNum++;
+    paramInfo.lclNum++;
 
 #ifdef TARGET_X86
     if (info.compIsVarArgs)
@@ -536,16 +536,16 @@ void Compiler::lvaInitGenericsContextParam(InitVarDscInfo& paramInfo)
 #endif
 }
 
-void Compiler::lvaInitVarargsHandleParam(InitVarDscInfo& paramInfo)
+void Compiler::lvaInitVarargsHandleParam(ParamAllocInfo& paramInfo)
 {
     if (!info.compIsVarArgs)
     {
         return;
     }
 
-    lvaVarargsHandleArg = paramInfo.varNum;
+    lvaVarargsHandleArg = paramInfo.lclNum;
 
-    LclVarDsc* lcl = lvaGetDesc(paramInfo.varNum);
+    LclVarDsc* lcl = lvaGetDesc(paramInfo.lclNum);
 
     lcl->SetType(TYP_I_IMPL);
     lcl->lvIsParam = true;
@@ -558,9 +558,9 @@ void Compiler::lvaInitVarargsHandleParam(InitVarDscInfo& paramInfo)
     // that other problems are fixed.
     lvaSetAddressExposed(lcl);
 
-    if (paramInfo.canEnreg(TYP_I_IMPL))
+    if (paramInfo.CanEnregister(TYP_I_IMPL))
     {
-        unsigned regIndex = paramInfo.allocRegArg(TYP_I_IMPL);
+        unsigned regIndex = paramInfo.AllocRegIndex(TYP_I_IMPL);
 
         lcl->lvIsRegArg = true;
         lcl->SetParamReg(genMapIntRegArgNumToRegNum(regIndex));
@@ -583,13 +583,13 @@ void Compiler::lvaInitVarargsHandleParam(InitVarDscInfo& paramInfo)
     else
     {
 #if FEATURE_FASTTAILCALL
-        lcl->SetStackOffset(paramInfo.stackArgSize);
-        paramInfo.stackArgSize += REGSIZE_BYTES;
+        lcl->SetStackOffset(paramInfo.stackSize);
+        paramInfo.stackSize += REGSIZE_BYTES;
 #endif
     }
 
     paramInfo.size += REGSIZE_BYTES;
-    paramInfo.varNum++;
+    paramInfo.lclNum++;
 
 #ifdef TARGET_X86
     lcl->SetStackOffset(paramInfo.size);
@@ -597,12 +597,12 @@ void Compiler::lvaInitVarargsHandleParam(InitVarDscInfo& paramInfo)
 #endif
 }
 
-void Compiler::lvaInitUserParams(InitVarDscInfo& paramInfo, bool skipFirstParam)
+void Compiler::lvaInitUserParams(ParamAllocInfo& paramInfo, bool skipFirstParam)
 {
     assert(!skipFirstParam || (info.compMethodInfo->args.numArgs != 0));
 
 #ifdef WINDOWS_AMD64_ABI
-    assert(paramInfo.floatRegArgNum == paramInfo.intRegArgNum);
+    assert(paramInfo.floatRegIndex == paramInfo.intRegIndex);
 #endif
 
     CORINFO_ARG_LIST_HANDLE param      = info.compMethodInfo->args.args;
@@ -614,40 +614,40 @@ void Compiler::lvaInitUserParams(InitVarDscInfo& paramInfo, bool skipFirstParam)
         paramCount--;
     }
 
-    for (unsigned i = 0; i < paramCount; i++, paramInfo.varNum++, param = info.compCompHnd->getArgNext(param))
+    for (unsigned i = 0; i < paramCount; i++, paramInfo.lclNum++, param = info.compCompHnd->getArgNext(param))
     {
         lvaInitUserParam(paramInfo, param);
     }
 }
 
-void Compiler::lvaInitUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param)
+void Compiler::lvaInitUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param)
 {
     CORINFO_CLASS_HANDLE typeHnd = nullptr;
     CorInfoType          corType = strip(info.compCompHnd->getArgType(&info.compMethodInfo->args, param, &typeHnd));
 
-    LclVarDsc* lcl = lvaGetDesc(paramInfo.varNum);
+    LclVarDsc* lcl = lvaGetDesc(paramInfo.lclNum);
 
     lcl->lvIsParam = true;
     lcl->lvOnFrame = true;
-    lvaInitVarDsc(lcl, paramInfo.varNum, corType, typeHnd);
+    lvaInitVarDsc(lcl, paramInfo.lclNum, corType, typeHnd);
 
-    if (opts.IsOSR() && info.compPatchpointInfo->IsExposed(paramInfo.varNum))
+    if (opts.IsOSR() && info.compPatchpointInfo->IsExposed(paramInfo.lclNum))
     {
-        JITDUMP("-- V%02u is OSR exposed\n", paramInfo.varNum);
+        JITDUMP("-- V%02u is OSR exposed\n", paramInfo.lclNum);
 
         lcl->lvHasLdAddrOp = true;
-        lvaSetVarAddrExposed(paramInfo.varNum);
+        lvaSetVarAddrExposed(paramInfo.lclNum);
     }
 
     if (corType == CORINFO_TYPE_CLASS)
     {
-        lvaSetClass(paramInfo.varNum, info.compCompHnd->getArgClass(&info.compMethodInfo->args, param));
+        lvaSetClass(paramInfo.lclNum, info.compCompHnd->getArgClass(&info.compMethodInfo->args, param));
     }
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
     else if (varTypeIsStruct(lcl->GetType()) &&
              abiGetStructParamType(lcl->GetLayout(), info.compIsVarArgs).kind == SPK_ByReference)
     {
-        JITDUMP("Marking V%02u as a byref parameter\n", paramInfo.varNum);
+        JITDUMP("Marking V%02u as a byref parameter\n", paramInfo.lclNum);
         lcl->lvIsImplicitByRef = true;
 
         // TODO-MIKE-Cleanup: If it's implicit-by-ref we know that it needs a single integer
@@ -660,7 +660,7 @@ void Compiler::lvaInitUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAND
 
 #ifdef UNIX_AMD64_ABI
 
-void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl)
+void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl)
 {
     unsigned paramSize  = lvaGetParamAllocSize(param, &info.compMethodInfo->args);
     bool     isRegParam = false;
@@ -669,7 +669,7 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
     {
         assert(varTypeSize(lcl->GetType()) <= REGSIZE_BYTES);
 
-        if (paramInfo.canEnreg(lcl->GetType()))
+        if (paramInfo.CanEnregister(lcl->GetType()))
         {
             lcl->SetParamReg(paramInfo.AllocReg(lcl->GetType()));
 
@@ -697,8 +697,8 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
                 }
             }
 
-            if (((intRegCount == 0) || paramInfo.canEnreg(TYP_INT, intRegCount)) &&
-                ((floatRegCount == 0) || paramInfo.canEnreg(TYP_FLOAT, floatRegCount)))
+            if (((intRegCount == 0) || paramInfo.CanEnregister(TYP_INT, intRegCount)) &&
+                ((floatRegCount == 0) || paramInfo.CanEnregister(TYP_FLOAT, floatRegCount)))
             {
                 lcl->SetParamReg(0, paramInfo.AllocReg(lcl->GetLayout()->GetSysVAmd64AbiRegType(0)));
 
@@ -717,7 +717,7 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
     {
         lcl->lvIsRegArg = true;
 
-        JITDUMP("Param V%02u registers: %s", paramInfo.varNum, getRegName(lcl->GetParamReg(0)));
+        JITDUMP("Param V%02u registers: %s", paramInfo.lclNum, getRegName(lcl->GetParamReg(0)));
 
         if (lcl->GetParamReg(1) == REG_NA)
         {
@@ -730,14 +730,14 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
     }
     else
     {
-        unsigned offset = paramInfo.stackArgSize;
+        unsigned offset = paramInfo.stackSize;
 
         assert((offset % REGSIZE_BYTES) == 0);
 
         lcl->SetStackOffset(offset);
-        paramInfo.stackArgSize = offset + paramSize;
+        paramInfo.stackSize = offset + paramSize;
 
-        JITDUMP("Param V%02u offset: %u\n", paramInfo.varNum, offset);
+        JITDUMP("Param V%02u offset: %u\n", paramInfo.lclNum, offset);
     }
 
     assert((paramSize % REGSIZE_BYTES) == 0);
@@ -752,7 +752,7 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
 #elif defined(WINDOWS_AMD64_ABI)
 
-void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl)
+void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl)
 {
     var_types regType = lcl->GetType();
 
@@ -761,12 +761,12 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
         regType = TYP_INT;
     }
 
-    if (paramInfo.canEnreg(regType))
+    if (paramInfo.CanEnregister(regType))
     {
         lcl->lvIsRegArg = true;
         lcl->SetParamReg(paramInfo.AllocReg(regType));
 
-        JITDUMP("Param V%02u register: %s\n", paramInfo.varNum, getRegName(lcl->GetParamReg()));
+        JITDUMP("Param V%02u register: %s\n", paramInfo.lclNum, getRegName(lcl->GetParamReg()));
 
         // TODO-MIKE-Review: Note that on win-x64 reg params do have a home but this
         // code doesn't assign a stack offset in this case. It looks like the offset
@@ -778,14 +778,14 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
     }
     else
     {
-        unsigned offset = paramInfo.stackArgSize;
+        unsigned offset = paramInfo.stackSize;
 
         assert((offset % REGSIZE_BYTES) == 0);
 
         lcl->SetStackOffset(offset);
-        paramInfo.stackArgSize = offset + REGSIZE_BYTES;
+        paramInfo.stackSize = offset + REGSIZE_BYTES;
 
-        JITDUMP("Param V%02u offset: %u\n", paramInfo.varNum, offset);
+        JITDUMP("Param V%02u offset: %u\n", paramInfo.lclNum, offset);
     }
 
     paramInfo.size += REGSIZE_BYTES;
@@ -802,7 +802,7 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
 #elif defined(TARGET_ARM64)
 
-void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl)
+void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl)
 {
     unsigned  paramSize = lvaGetParamAllocSize(param, &info.compMethodInfo->args);
     var_types regType   = lcl->GetType();
@@ -817,7 +817,7 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
         assert(paramSize <= 2 * REGSIZE_BYTES);
 
         regType     = TYP_INT;
-        regCount    = (paramSize > REGSIZE_BYTES) && paramInfo.canEnreg(TYP_INT, 2) ? 2 : 1;
+        regCount    = (paramSize > REGSIZE_BYTES) && paramInfo.CanEnregister(TYP_INT, 2) ? 2 : 1;
         minRegCount = 1;
     }
     else
@@ -844,13 +844,13 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
         minRegCount = regCount;
     }
 
-    if (paramInfo.canEnreg(regType, minRegCount))
+    if (paramInfo.CanEnregister(regType, minRegCount))
     {
         lcl->lvIsRegArg      = true;
         lcl->lvIsMultiRegArg = regCount > 1;
         lcl->SetParamReg(paramInfo.AllocRegs(regType, regCount));
 
-        JITDUMP("Param V%02u registers: ", paramInfo.varNum);
+        JITDUMP("Param V%02u registers: ", paramInfo.lclNum);
 
 #ifdef DEBUG
         if (verbose)
@@ -873,9 +873,9 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
     }
     else
     {
-        paramInfo.SetAllRegsUsed(regType);
+        paramInfo.SetHasStackParam(regType);
 
-        unsigned offset    = paramInfo.stackArgSize;
+        unsigned offset    = paramInfo.stackSize;
         unsigned alignment = lvaGetParamAlignment(lcl->GetType(), (regType == TYP_FLOAT));
 
 #ifdef OSX_ARM64_ABI
@@ -889,9 +889,9 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
         assert((offset % alignment) == 0);
 
         lcl->SetStackOffset(offset);
-        paramInfo.stackArgSize = offset + paramSize;
+        paramInfo.stackSize = offset + paramSize;
 
-        JITDUMP("Param V%02u offset: %u\n", paramInfo.varNum, offset);
+        JITDUMP("Param V%02u offset: %u\n", paramInfo.lclNum, offset);
     }
 
     paramInfo.size += paramSize;
@@ -905,19 +905,19 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
 #elif defined(TARGET_X86)
 
-void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl)
+void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl)
 {
     unsigned  paramSize = lvaGetParamAllocSize(param, &info.compMethodInfo->args);
     var_types regType   = lcl->GetType();
 
     if ((varTypeIsI(varActualType(regType)) ||
          ((regType == TYP_STRUCT) && isTrivialPointerSizedStruct(lcl->GetLayout()))) &&
-        paramInfo.canEnreg(TYP_INT))
+        paramInfo.CanEnregister(TYP_INT))
     {
         lcl->lvIsRegArg = true;
         lcl->SetParamReg(paramInfo.AllocReg(TYP_INT));
 
-        JITDUMP("Param V%02u register: %s\n", paramInfo.varNum, getRegName(lcl->GetParamReg()));
+        JITDUMP("Param V%02u register: %s\n", paramInfo.lclNum, getRegName(lcl->GetParamReg()));
     }
     else
     {
@@ -946,7 +946,7 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
 #elif defined(TARGET_ARM)
 
-void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl)
+void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl)
 {
     unsigned  paramSize      = lvaGetParamAllocSize(param, &info.compMethodInfo->args);
     var_types regType        = lcl->GetType();
@@ -1003,19 +1003,19 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
             minRegCount = 1;
             preSpill    = true;
 
-            if (!paramInfo.canEnreg(TYP_INT, regCount) && paramInfo.canEnreg(TYP_INT, 1) &&
+            if (!paramInfo.CanEnregister(TYP_INT, regCount) && paramInfo.CanEnregister(TYP_INT, 1) &&
                 paramInfo.HasFloatStackParams())
             {
-                paramInfo.SetAllRegsUsed(TYP_INT);
+                paramInfo.SetHasStackParam(TYP_INT);
                 minRegCount = regCount;
                 preSpill    = false;
             }
         }
     }
 
-    paramInfo.size += paramInfo.alignReg(regType, regAlign) * REGSIZE_BYTES;
+    paramInfo.size += paramInfo.AlignReg(regType, regAlign) * REGSIZE_BYTES;
 
-    if (paramInfo.canEnreg(regType, minRegCount))
+    if (paramInfo.CanEnregister(regType, minRegCount))
     {
         lcl->lvIsRegArg = true;
 
@@ -1039,7 +1039,7 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
             for (unsigned i = 0; i < regCount; i++)
             {
-                regMask |= genMapIntRegArgNumToRegMask(paramInfo.regArgNum(TYP_INT) + i);
+                regMask |= genMapIntRegArgNumToRegMask(paramInfo.GetRegIndex(TYP_INT) + i);
             }
 
             if (regAlign == 2)
@@ -1052,7 +1052,7 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
         lcl->SetParamReg(paramInfo.AllocRegs(regType, regCount));
 
-        JITDUMP("Param V%02u registers: ", paramInfo.varNum);
+        JITDUMP("Param V%02u registers: ", paramInfo.lclNum);
 
 #ifdef DEBUG
         if (verbose)
@@ -1090,7 +1090,7 @@ void Compiler::lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HAN
     }
     else
     {
-        paramInfo.SetAllRegsUsed(regType);
+        paramInfo.SetHasStackParam(regType);
 
         if (varTypeUsesFloatReg(regType))
         {

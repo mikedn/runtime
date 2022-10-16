@@ -67,7 +67,7 @@ struct InfoHdr;            // defined in GCInfo.h
 struct escapeMapping_t;    // defined in fgdiagnostic.cpp
 class emitter;             // defined in emit.h
 struct ShadowParamVarInfo; // defined in GSChecks.cpp
-struct InitVarDscInfo;     // defined in register_arg_convention.h
+struct ParamAllocInfo;     // defined in register_arg_convention.h
 class FgStack;             // defined in fgbasic.cpp
 class Instrumentor;        // defined in fgprofile.cpp
 class SpanningTreeVisitor; // defined in fgprofile.cpp
@@ -3945,13 +3945,13 @@ public:
     void lvaInitInline();
 
     void lvaInitParams(bool hasRetBufParam);
-    void lvaInitThisParam(InitVarDscInfo& paramInfo);
-    void lvaInitRetBufParam(InitVarDscInfo& paramInfo, bool useFixedRetBufReg);
-    void lvaInitGenericsContextParam(InitVarDscInfo& paramInfo);
-    void lvaInitVarargsHandleParam(InitVarDscInfo& paramInfo);
-    void lvaInitUserParams(InitVarDscInfo& paramInfo, bool skipFirstParam);
-    void lvaInitUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param);
-    void lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl);
+    void lvaInitThisParam(ParamAllocInfo& paramInfo);
+    void lvaInitRetBufParam(ParamAllocInfo& paramInfo, bool useFixedRetBufReg);
+    void lvaInitGenericsContextParam(ParamAllocInfo& paramInfo);
+    void lvaInitVarargsHandleParam(ParamAllocInfo& paramInfo);
+    void lvaInitUserParams(ParamAllocInfo& paramInfo, bool skipFirstParam);
+    void lvaInitUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param);
+    void lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl);
 #ifdef TARGET_ARM
     void lvaAlignPreSpillParams(regMaskTP doubleAlignMask);
 #endif
