@@ -1538,8 +1538,10 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
 
             unsigned argStartOffset = put->GetSlotOffset();
             unsigned argEndOffset   = argStartOffset + put->GetArgSize();
-#ifndef WINDOWS_AMD64_ABI
-            int baseOff = -1; // Stack offset of first arg on stack
+#ifdef WINDOWS_AMD64_ABI
+            int firstStackParamOffset = 0;
+#else
+            int firstStackParamOffset = -1;
 #endif
 
             for (unsigned paramLclNum = 0; paramLclNum < comp->info.GetParamCount(); paramLclNum++)
@@ -1551,26 +1553,29 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
                     continue;
                 }
 
-#ifdef WINDOWS_AMD64_ABI
-                // On Windows x64, the argument position determines the stack slot uniquely, and even the
-                // register args take up space in the stack frame (shadow space).
-                unsigned paramStartOffset = paramLclNum * REGSIZE_BYTES;
-                unsigned paramEndOffset   = paramStartOffset + REGSIZE_BYTES;
-#else
                 assert(paramLcl->GetStackOffset() != BAD_STK_OFFS);
 
-                if (baseOff == -1)
+#ifdef WINDOWS_AMD64_ABI
+                // On win-x64, the argument position determines the stack slot uniquely, and
+                // even the register args take up space in the stack frame (shadow space).
+                assert(paramLcl->GetStackOffset() == static_cast<int>(paramLclNum) * REGSIZE_BYTES);
+#else
+                if (firstStackParamOffset == -1)
                 {
-                    baseOff = paramLcl->GetStackOffset();
+                    firstStackParamOffset = paramLcl->GetStackOffset();
                 }
 
                 // On all ABIs where we fast tail call the stack args should come in order.
-                assert(baseOff <= paramLcl->GetStackOffset());
+                assert(firstStackParamOffset <= paramLcl->GetStackOffset());
+#endif
 
                 // Compute offset of this stack argument relative to the first stack arg.
                 // This will be its offset into the incoming arg space area.
-                unsigned paramStartOffset = static_cast<unsigned>(paramLcl->GetStackOffset() - baseOff);
-                unsigned paramEndOffset   = paramStartOffset + comp->lvaLclSize(paramLclNum);
+                unsigned paramStartOffset = static_cast<unsigned>(paramLcl->GetStackOffset() - firstStackParamOffset);
+#ifdef WINDOWS_AMD64_ABI
+                unsigned paramEndOffset = paramStartOffset + REGSIZE_BYTES;
+#else
+                unsigned paramEndOffset = paramStartOffset + comp->lvaLclSize(paramLclNum);
 #endif
 
                 // If ranges do not overlap then this PUTARG_STK will not mess up the arg.

@@ -111,7 +111,7 @@ public:
     //
 
     unsigned lclFrameSize; // secObject + lclBlk + locals + temps
-#ifdef TARGET_X86
+#ifdef TARGET_XARCH
     unsigned paramsStackSize; // total size of parameters passed in stack
 #else
     unsigned paramsSize; // total size of parameters in bytes (including register params (lvIsRegArg))
