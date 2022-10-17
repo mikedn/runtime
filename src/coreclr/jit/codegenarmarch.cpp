@@ -683,7 +683,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArg)
         assert(putArg->GetCall()->IsFastTailCall());
 
         outArgLclNum  = GetFirstStackParamLclNum();
-        outArgLclSize = paramsSize;
+        outArgLclSize = paramsStackSize;
 
         noway_assert(outArgLclNum != BAD_VAR_NUM);
     }

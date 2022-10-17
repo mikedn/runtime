@@ -5390,12 +5390,8 @@ void CodeGen::genReportGenericContextArg(regNumber initReg, bool* pInitRegZeroed
             // which is always the last parameter (and we know that the frame pointer is also
             // pushed, in addition to the return address).
             noway_assert(varDsc->GetStackOffset() == 2 * REGSIZE_BYTES);
-#elif defined(TARGET_AMD64)
-            noway_assert((0 < varDsc->GetStackOffset()) && (size_t(varDsc->GetStackOffset()) < paramsStackSize));
 #else
-            // GetStackOffset() is always valid for incoming stack-arguments, even if the argument
-            // will become enregistered.
-            noway_assert((0 < varDsc->GetStackOffset()) && (size_t(varDsc->GetStackOffset()) < paramsSize));
+            noway_assert((0 < varDsc->GetStackOffset()) && (size_t(varDsc->GetStackOffset()) < paramsStackSize));
 #endif
         }
 
