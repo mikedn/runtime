@@ -4027,8 +4027,6 @@ public:
 #endif
                         );
 
-    bool lvaIsParameter(unsigned varNum);
-    bool lvaIsRegArgument(unsigned varNum);
     bool lvaIsOriginalThisArg(unsigned varNum); // Is this varNum the original this argument?
 
     bool lvaIsImplicitByRefLocal(unsigned varNum)

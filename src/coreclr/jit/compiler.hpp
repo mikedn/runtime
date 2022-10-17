@@ -1614,26 +1614,6 @@ inline int Compiler::lvaCachedGenericContextArgOffset()
     return lvaCachedGenericContextArgOffs;
 }
 
-inline bool Compiler::lvaIsParameter(unsigned varNum)
-{
-    LclVarDsc* varDsc;
-
-    assert(varNum < lvaCount);
-    varDsc = lvaTable + varNum;
-
-    return varDsc->lvIsParam;
-}
-
-inline bool Compiler::lvaIsRegArgument(unsigned varNum)
-{
-    LclVarDsc* varDsc;
-
-    assert(varNum < lvaCount);
-    varDsc = lvaTable + varNum;
-
-    return varDsc->lvIsRegArg;
-}
-
 inline bool Compiler::lvaIsOriginalThisArg(unsigned varNum)
 {
     assert(varNum < lvaCount);

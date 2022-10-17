@@ -2124,6 +2124,7 @@ inline UNATIVE_OFFSET emitter::emitInsSizeSV(code_t code, int var, int dsp)
     }
     else
     {
+        LclVarDsc* lcl = emitComp->lvaGetDesc(var);
 
         /* Get the frame offset of the (non-temp) variable */
 
@@ -2138,10 +2139,10 @@ inline UNATIVE_OFFSET emitter::emitInsSizeSV(code_t code, int var, int dsp)
 
         /* Is this a stack parameter reference? */
 
-        if ((emitComp->lvaIsParameter(var)
+        if ((lcl->IsParam()
 #if !defined(TARGET_AMD64) || defined(UNIX_AMD64_ABI)
-             && !emitComp->lvaIsRegArgument(var)
-#endif // !TARGET_AMD64 || UNIX_AMD64_ABI
+             && !lcl->IsRegParam()
+#endif
                  ) ||
             (static_cast<unsigned>(var) == emitComp->lvaRetAddrVar))
         {
@@ -2180,8 +2181,7 @@ inline UNATIVE_OFFSET emitter::emitInsSizeSV(code_t code, int var, int dsp)
                     CLANG_FORMAT_COMMENT_ANCHOR;
 
 #ifdef UNIX_AMD64_ABI
-                    LclVarDsc* varDsc         = emitComp->lvaTable + var;
-                    bool       isRegPassedArg = varDsc->lvIsParam && varDsc->lvIsRegArg;
+                    bool isRegPassedArg = lcl->IsParam() && lcl->IsRegParam();
                     // Register passed args could have a stack offset of 0.
                     noway_assert((int)offs < 0 || isRegPassedArg || emitComp->opts.IsOSR());
 #else  // !UNIX_AMD64_ABI

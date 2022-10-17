@@ -5371,9 +5371,9 @@ void CodeGen::genReportGenericContextArg(regNumber initReg, bool* pInitRegZeroed
 #endif
 
     // Load from the argument register only if it is not prespilled.
-    if (compiler->lvaIsRegArgument(contextArg) && !isPrespilledForProfiling)
+    if (varDsc->IsRegParam() && !isPrespilledForProfiling)
     {
-        reg = varDsc->GetArgReg();
+        reg = varDsc->GetParamReg();
     }
     else
     {
