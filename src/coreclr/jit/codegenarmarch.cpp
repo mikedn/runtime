@@ -653,29 +653,43 @@ void CodeGen::genIntrinsic(GenTreeIntrinsic* node)
     DefReg(node);
 }
 
-//---------------------------------------------------------------------
-// genPutArgStk - Generate code for a GT_PUTARG_STK node
-//
-// Arguments
-//    putArg - the GT_PUTARG_STK node
-//
+#if FEATURE_FASTTAILCALL
+unsigned CodeGen::GetFirstStackParamLclNum()
+{
+    for (unsigned i = 0; i < compiler->info.compArgsCount; i++)
+    {
+        LclVarDsc* lcl = compiler->lvaGetDesc(i);
+
+        assert(lcl->IsParam());
+
+        if (lcl->GetParamReg() == REG_STK)
+        {
+            return i;
+        }
+    }
+
+    return BAD_VAR_NUM;
+}
+#endif // FEATURE_FASTTAILCALL
+
 void CodeGen::genPutArgStk(GenTreePutArgStk* putArg)
 {
     unsigned outArgLclNum;
     unsigned outArgLclSize;
 
+#if FEATURE_FASTTAILCALL
     if (putArg->PutInIncomingArgArea())
     {
-#if FEATURE_FASTTAILCALL
         assert(putArg->GetCall()->IsFastTailCall());
-#endif
-        // Fast tail calls implemented as epilog+jmp - stack arg is setup in incoming arg area.
-        outArgLclNum  = getFirstArgWithStackSlot();
+
+        outArgLclNum  = GetFirstStackParamLclNum();
         outArgLclSize = paramsSize;
+
+        noway_assert(outArgLclNum != BAD_VAR_NUM);
     }
     else
+#endif
     {
-        // All other calls - stack arg is setup in out-going arg area.
         outArgLclNum  = compiler->lvaOutgoingArgSpaceVar;
         outArgLclSize = compiler->lvaOutgoingArgSpaceSize;
     }

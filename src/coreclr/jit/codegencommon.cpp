@@ -8556,53 +8556,6 @@ void CodeGen::genVzeroupperIfNeeded(bool check256bitOnly /* = true*/)
 
 #endif // defined(TARGET_XARCH)
 
-//------------------------------------------------------------------------------------------------ //
-// getFirstArgWithStackSlot - returns the first argument with stack slot on the caller's frame.
-//
-// Return value:
-//    The number of the first argument with stack slot on the caller's frame.
-//
-// Note:
-//    On x64 Windows the caller always creates slots (homing space) in its frame for the
-//    first 4 arguments of a callee (register passed args). So, the the variable number
-//    (lclNum) for the first argument with a stack slot is always 0.
-//    For System V systems or armarch, there is no such calling convention requirement, and the code
-//    needs to find the first stack passed argument from the caller. This is done by iterating over
-//    all the lvParam variables and finding the first with GetArgReg() equals to REG_STK.
-//
-unsigned CodeGen::getFirstArgWithStackSlot()
-{
-#if defined(UNIX_AMD64_ABI) || defined(TARGET_ARMARCH)
-    unsigned baseVarNum = 0;
-    // Iterate over all the lvParam variables in the Lcl var table until we find the first one
-    // that's passed on the stack.
-    LclVarDsc* varDsc = nullptr;
-    for (unsigned i = 0; i < compiler->info.compArgsCount; i++)
-    {
-        varDsc = &(compiler->lvaTable[i]);
-
-        // We should have found a stack parameter (and broken out of this loop) before
-        // we find any non-parameters.
-        assert(varDsc->lvIsParam);
-
-        if (varDsc->GetArgReg() == REG_STK)
-        {
-            baseVarNum = i;
-            break;
-        }
-    }
-    assert(varDsc != nullptr);
-
-    return baseVarNum;
-#elif defined(TARGET_AMD64)
-    return 0;
-#else  // TARGET_X86
-    // Not implemented for x86.
-    NYI_X86("getFirstArgWithStackSlot not yet implemented for x86.");
-    return BAD_VAR_NUM;
-#endif // TARGET_X86
-}
-
 //------------------------------------------------------------------------
 // genSinglePush: Report a change in stack level caused by a single word-sized push instruction
 //

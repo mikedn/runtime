@@ -6569,71 +6569,6 @@ void CodeGen::genCodeForBitCast(GenTreeUnOp* bitcast)
     genProduceReg(bitcast);
 }
 
-//-------------------------------------------------------------------------- //
-// getBaseVarForPutArgStk - returns the baseVarNum for passing a stack arg.
-//
-// Arguments
-//    treeNode - the GT_PUTARG_STK node
-//
-// Return shift:
-//    The number of the base variable.
-//
-// Note:
-//    If tail call the outgoing args are placed in the caller's incoming arg stack space.
-//    Otherwise, they go in the outgoing arg area on the current frame.
-//
-//    On Windows the caller always creates slots (homing space) in its frame for the
-//    first 4 arguments of a callee (register passed args). So, the baseVarNum is always 0.
-//    For System V systems there is no such calling convention requirement, and the code needs to find
-//    the first stack passed argument from the caller. This is done by iterating over
-//    all the lvParam variables and finding the first with GetArgReg() equals to REG_STK.
-//
-unsigned CodeGen::getBaseVarForPutArgStk(GenTree* treeNode)
-{
-    assert(treeNode->OperGet() == GT_PUTARG_STK);
-
-    unsigned baseVarNum;
-
-    // Whether to setup stk arg in incoming or out-going arg area?
-    // Fast tail calls implemented as epilog+jmp = stk arg is setup in incoming arg area.
-    // All other calls - stk arg is setup in out-going arg area.
-    if (treeNode->AsPutArgStk()->PutInIncomingArgArea())
-    {
-        // See the note in the function header re: finding the first stack passed argument.
-        baseVarNum = getFirstArgWithStackSlot();
-        assert(baseVarNum != BAD_VAR_NUM);
-
-#ifdef DEBUG
-        // This must be a fast tail call.
-        assert(treeNode->AsPutArgStk()->GetCall()->IsFastTailCall());
-
-        // Since it is a fast tail call, the existence of first incoming arg is guaranteed
-        // because fast tail call requires that in-coming arg area of caller is >= out-going
-        // arg area required for tail call.
-        LclVarDsc* varDsc = &(compiler->lvaTable[baseVarNum]);
-        assert(varDsc != nullptr);
-
-#ifdef UNIX_AMD64_ABI
-        assert(!varDsc->lvIsRegArg && varDsc->GetArgReg() == REG_STK);
-#else  // !UNIX_AMD64_ABI
-        // On Windows this assert is always true. The first argument will always be in REG_ARG_0 or REG_FLTARG_0.
-        assert(varDsc->lvIsRegArg && (varDsc->GetArgReg() == REG_ARG_0 || varDsc->GetArgReg() == REG_FLTARG_0));
-#endif // !UNIX_AMD64_ABI
-#endif // !DEBUG
-    }
-    else
-    {
-#if FEATURE_FIXED_OUT_ARGS
-        baseVarNum = compiler->lvaOutgoingArgSpaceVar;
-#else  // !FEATURE_FIXED_OUT_ARGS
-        assert(!"No BaseVarForPutArgStk on x86");
-        baseVarNum = BAD_VAR_NUM;
-#endif // !FEATURE_FIXED_OUT_ARGS
-    }
-
-    return baseVarNum;
-}
-
 //---------------------------------------------------------------------
 // genAlignStackBeforeCall: Align the stack if necessary before a call.
 //
@@ -6961,19 +6896,56 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
 }
 #endif // TARGET_X86
 
-//---------------------------------------------------------------------
-// genPutArgStk - Generate code for passing an arg on the stack.
-//
-// Arguments
-//    putArgStk - the GT_PUTARG_STK node
-//
+#if FEATURE_FASTTAILCALL
+unsigned CodeGen::GetFirstStackParamLclNum()
+{
+#ifdef WINDOWS_AMD64_ABI
+    // On win-x64 all params have home locations on caller's frame, even if they're passed in registers.
+    INDEBUG(LclVarDsc* lcl = compiler->lvaGetDesc(0u));
+    assert(lcl->IsRegParam() && (lcl->GetParamReg() == REG_ECX) || (lcl->GetParamReg() == REG_XMM0));
+
+    return 0;
+#else
+    for (unsigned lclNum = 0; lclNum < compiler->info.compArgsCount; lclNum++)
+    {
+        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
+
+        assert(lcl->IsParam());
+
+        if (!lcl->IsRegParam())
+        {
+            assert(lcl->GetParamReg() == REG_STK);
+
+            return lclNum;
+        }
+    }
+
+    return BAD_VAR_NUM;
+#endif
+}
+#endif // FEATURE_FASTTAILCALL
+
 void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
 {
     GenTree*  src     = putArgStk->GetOp(0);
     var_types srcType = varActualType(src->GetType());
 
-#if defined(TARGET_AMD64)
-    unsigned outArgLclNum  = getBaseVarForPutArgStk(putArgStk);
+#ifdef TARGET_AMD64
+    unsigned outArgLclNum;
+
+    if (putArgStk->PutInIncomingArgArea())
+    {
+        assert(putArgStk->GetCall()->IsFastTailCall());
+
+        outArgLclNum = GetFirstStackParamLclNum();
+
+        noway_assert(outArgLclNum != BAD_VAR_NUM);
+    }
+    else
+    {
+        outArgLclNum = compiler->lvaOutgoingArgSpaceVar;
+    }
+
     unsigned outArgLclOffs = putArgStk->GetSlotOffset();
 #else
     // On a 32-bit target, all of the long arguments are handled with FIELD_LISTs of TYP_INT.

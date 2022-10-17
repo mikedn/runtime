@@ -953,17 +953,14 @@ protected:
     void genCkfinite(GenTree* treeNode);
     void genCodeForCompare(GenTreeOp* tree);
     void genIntrinsic(GenTreeIntrinsic* node);
-    void genPutArgStk(GenTreePutArgStk* treeNode);
     void genPutArgReg(GenTreeUnOp* putArg);
+    void genPutArgStk(GenTreePutArgStk* treeNode);
+#if FEATURE_FASTTAILCALL
+    unsigned GetFirstStackParamLclNum();
+#endif
 #if FEATURE_ARG_SPLIT
     void genPutArgSplit(GenTreePutArgSplit* treeNode);
-#endif // FEATURE_ARG_SPLIT
-
-#if defined(TARGET_XARCH)
-    unsigned getBaseVarForPutArgStk(GenTree* treeNode);
-#endif // TARGET_XARCH
-
-    unsigned getFirstArgWithStackSlot();
+#endif
 
     void genCompareFloat(GenTree* treeNode);
     void genCompareInt(GenTree* treeNode);
