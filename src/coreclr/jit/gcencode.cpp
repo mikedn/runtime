@@ -1603,11 +1603,9 @@ size_t GCInfo::gcInfoBlockHdrSave(
         assert(header->revPInvokeOffset != INVALID_REV_PINVOKE_OFFSET);
     }
 
-    assert((compiler->codeGen->paramsSize & 0x3) == 0);
+    assert(compiler->codeGen->paramsStackSize % REGSIZE_BYTES == 0);
 
-    size_t argCount =
-        (compiler->codeGen->paramsSize - (compiler->codeGen->intRegState.rsCalleeRegArgCount * REGSIZE_BYTES)) /
-        REGSIZE_BYTES;
+    size_t argCount = compiler->codeGen->paramsStackSize / REGSIZE_BYTES;
     assert(argCount <= MAX_USHORT_SIZE_T);
     header->argCount = static_cast<unsigned short>(argCount);
 

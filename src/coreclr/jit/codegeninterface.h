@@ -111,7 +111,11 @@ public:
     //
 
     unsigned lclFrameSize; // secObject + lclBlk + locals + temps
-    unsigned paramsSize;   // total size of parameters in bytes (including register params (lvIsRegArg))
+#ifdef TARGET_X86
+    unsigned paramsStackSize; // total size of parameters passed in stack
+#else
+    unsigned paramsSize; // total size of parameters in bytes (including register params (lvIsRegArg))
+#endif
 
     // Count of callee-saved regs we pushed in the prolog.
     // Does not include EBP for isFramePointerUsed() and double-aligned frames.

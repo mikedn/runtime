@@ -5385,6 +5385,11 @@ void CodeGen::genReportGenericContextArg(regNumber initReg, bool* pInitRegZeroed
             // On Arm compiler->compArgSize doesn't include r11 and lr sizes and hence we need to add 2*REGSIZE_BYTES
             noway_assert((2 * REGSIZE_BYTES <= varDsc->GetStackOffset()) &&
                          (size_t(varDsc->GetStackOffset()) < paramsSize + 2 * REGSIZE_BYTES));
+#elif defined(TARGET_X86)
+            // It cannot be `this` since it's passed in a register so it has to be TypeCtxtArg
+            // which is always the last parameter (and we know that the frame pointer is also
+            // pushed, in addition to the return address).
+            noway_assert(varDsc->GetStackOffset() == 2 * REGSIZE_BYTES);
 #else
             // GetStackOffset() is always valid for incoming stack-arguments, even if the argument
             // will become enregistered.
@@ -7434,10 +7439,9 @@ void CodeGen::genFnEpilog(BasicBlock* block)
 
         if (fCalleePop)
         {
-            noway_assert(paramsSize >= intRegState.rsCalleeRegArgCount * REGSIZE_BYTES);
-            stkArgSize = paramsSize - intRegState.rsCalleeRegArgCount * REGSIZE_BYTES;
+            stkArgSize = paramsStackSize;
 
-            noway_assert(paramsSize < 0x10000); // "ret" only has 2 byte operand
+            noway_assert(paramsStackSize < 0x10000); // "ret" only has 2 byte operand
         }
 #endif // TARGET_X86
 
@@ -8971,7 +8975,7 @@ void CodeGen::genSetScopeInfo(unsigned       which,
 
         noway_assert(cookieOffset < varOffset);
         unsigned offset     = varOffset - cookieOffset;
-        unsigned stkArgSize = paramsSize - intRegState.rsCalleeRegArgCount * REGSIZE_BYTES;
+        unsigned stkArgSize = paramsStackSize;
         noway_assert(offset < stkArgSize);
         offset = stkArgSize - offset;
 

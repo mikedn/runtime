@@ -3438,7 +3438,6 @@ public:
     GenTreeIntCon* GetVarargsStackParamOffset(GenTreeLclVarCommon* lclNode) const
     {
         int stkOffs = m_compiler->lvaGetDesc(lclNode)->GetStackOffset();
-        stkOffs -= static_cast<int>(m_compiler->codeGen->intRegState.rsCalleeRegArgCount) * REGSIZE_BYTES;
         int lclOffs = lclNode->OperIs(GT_LCL_VAR, GT_LCL_VAR_ADDR) ? 0 : lclNode->AsLclFld()->GetLclOffs();
         return m_compiler->gtNewIconNode(-stkOffs + lclOffs, TYP_I_IMPL);
     }

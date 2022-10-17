@@ -380,7 +380,11 @@ void Compiler::lvaInitParams(bool hasRetBufParam)
     noway_assert(paramInfo.lclNum == info.compArgsCount);
     assert(paramInfo.intRegIndex <= MAX_REG_ARG);
 
-    codeGen->paramsSize                        = paramInfo.size;
+#ifdef TARGET_X86
+    codeGen->paramsStackSize = paramInfo.size;
+#else
+    codeGen->paramsSize = paramInfo.size;
+#endif
     codeGen->intRegState.rsCalleeRegArgCount   = paramInfo.intRegIndex;
     codeGen->floatRegState.rsCalleeRegArgCount = paramInfo.floatRegIndex;
 
@@ -436,7 +440,9 @@ void Compiler::lvaInitThisParam(ParamAllocInfo& paramInfo)
 
     JITDUMP("'this' passed in register %s\n", getRegName(lcl->GetArgReg()));
 
+#ifndef TARGET_X86
     paramInfo.size += REGSIZE_BYTES;
+#endif
     paramInfo.lclNum++;
 }
 
@@ -475,20 +481,22 @@ void Compiler::lvaInitRetBufParam(ParamAllocInfo& paramInfo, bool useFixedRetBuf
     {
         lcl->lvIsRegArg = true;
         lcl->SetParamReg(paramInfo.AllocReg(TYP_INT));
-    }
-
 #ifdef UNIX_AMD64_ABI
-    lcl->SetParamReg(1, REG_NA);
+        lcl->SetParamReg(1, REG_NA);
 #endif
 
-    assert(!lcl->lvIsRegArg || isValidIntArgReg(lcl->GetArgReg()));
-
-    if (lcl->lvIsRegArg)
-    {
-        JITDUMP("'__retBuf' passed in register %s\n", getRegName(lcl->GetArgReg()));
+        JITDUMP("'__retBuf' passed in register %s\n", getRegName(lcl->GetParamReg()));
     }
+#ifdef TARGET_X86
+    else
+    {
+        paramInfo.size += REGSIZE_BYTES;
+    }
+#endif
 
+#ifndef TARGET_X86
     paramInfo.size += REGSIZE_BYTES;
+#endif
     paramInfo.lclNum++;
 }
 
@@ -523,9 +531,15 @@ void Compiler::lvaInitGenericsContextParam(ParamAllocInfo& paramInfo)
         lcl->SetStackOffset(paramInfo.stackSize);
         paramInfo.stackSize += REGSIZE_BYTES;
 #endif
+
+#ifdef TARGET_X86
+        paramInfo.size += REGSIZE_BYTES;
+#endif
     }
 
+#ifndef TARGET_X86
     paramInfo.size += REGSIZE_BYTES;
+#endif
     paramInfo.lclNum++;
 
 #ifdef TARGET_X86
@@ -586,9 +600,15 @@ void Compiler::lvaInitVarargsHandleParam(ParamAllocInfo& paramInfo)
         lcl->SetStackOffset(paramInfo.stackSize);
         paramInfo.stackSize += REGSIZE_BYTES;
 #endif
+
+#ifdef TARGET_X86
+        paramInfo.size += REGSIZE_BYTES;
+#endif
     }
 
+#ifndef TARGET_X86
     paramInfo.size += REGSIZE_BYTES;
+#endif
     paramInfo.lclNum++;
 
 #ifdef TARGET_X86
@@ -934,13 +954,13 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
         JITDUMP("Param V%02u offset: %u\n", paramInfo.varNum, offset);
 #endif // FEATURE_FASTTAILCALL
-    }
 
-    paramInfo.size += paramSize;
+        paramInfo.size += paramSize;
 
-    if (info.compIsVarArgs)
-    {
-        lcl->SetStackOffset(paramInfo.size);
+        if (info.compIsVarArgs)
+        {
+            lcl->SetStackOffset(paramInfo.size);
+        }
     }
 }
 
@@ -3831,7 +3851,7 @@ void Compiler::lvaAssignPromotedFieldsVirtualFrameOffsets()
 void Compiler::lvaAssignParamsVirtualFrameOffsets()
 {
     noway_assert(codeGen->intRegState.rsCalleeRegArgCount <= MAX_REG_ARG);
-#ifndef OSX_ARM64_ABI
+#if !defined(OSX_ARM64_ABI) && !defined(TARGET_X86)
     noway_assert(codeGen->paramsSize >= codeGen->intRegState.rsCalleeRegArgCount * REGSIZE_BYTES);
 #endif
 
@@ -3848,10 +3868,7 @@ void Compiler::lvaAssignParamsVirtualFrameOffsets()
 #ifdef TARGET_X86
     if (info.compCallConv == CorInfoCallConvExtension::Managed)
     {
-        argOffs = codeGen->paramsSize;
-
-        // Update the argOffs to reflect arguments that are passed in registers.
-        argOffs -= codeGen->intRegState.rsCalleeRegArgCount * REGSIZE_BYTES;
+        argOffs = codeGen->paramsStackSize;
     }
 #endif
 

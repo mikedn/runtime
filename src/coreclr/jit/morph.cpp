@@ -7533,8 +7533,7 @@ void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
     // The tail call helper lives in vm\i386\jithelp.asm. See that function for more details
     // on the custom calling convention.
 
-    GenTree* numOldStackSlotsArg = gtNewIconNode(static_cast<int>(
-        (codeGen->paramsSize - (codeGen->intRegState.rsCalleeRegArgCount * REGSIZE_BYTES)) / REGSIZE_BYTES));
+    GenTree* numOldStackSlotsArg = gtNewIconNode(static_cast<int>(codeGen->paramsStackSize / REGSIZE_BYTES));
     // We haven't yet morphed the args so we don't know the number of stack slots this call uses.
     // Lowering will change this to the correct value.
     GenTree* numNewStackSlotsArg = gtNewIconNode(0);
