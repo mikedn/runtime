@@ -1205,19 +1205,12 @@ protected:
     void genPreAdjustStackForPutArgStk(unsigned argSize);
     void genPushReg(var_types type, regNumber srcReg);
     void genPutArgStkFieldList(GenTreePutArgStk* putArgStk);
-#endif // TARGET_X86
-
-    void genPutStructArgStk(GenTreePutArgStk* treeNode
-#ifndef TARGET_X86
-                            ,
-                            unsigned outArgLclNum,
-                            unsigned outArgLclOffs
-#ifdef TARGET_ARMARCH
-                            ,
-                            unsigned outArgLclSize
+    void genPutStructArgStk(GenTreePutArgStk* putArgStk);
+#else
+    void genPutStructArgStk(GenTreePutArgStk* putArgStk,
+                            unsigned          outArgLclNum,
+                            unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize));
 #endif
-#endif
-                            );
 
     void GenDynBlk(GenTreeDynBlk* store);
     void GenStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout);

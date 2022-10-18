@@ -6932,18 +6932,22 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
 
 #ifdef TARGET_AMD64
     unsigned outArgLclNum;
+    unsigned outArgLclSize;
 
     if (putArgStk->PutInIncomingArgArea())
     {
         assert(putArgStk->GetCall()->IsFastTailCall());
 
         outArgLclNum = GetFirstStackParamLclNum();
+        // TODO-MIKE-Cleanup: Use paramsStackSize instead of compArgStackSize.
+        outArgLclSize = compiler->info.compArgStackSize + INIT_ARG_STACK_SLOT * REGSIZE_BYTES;
 
         noway_assert(outArgLclNum != BAD_VAR_NUM);
     }
     else
     {
-        outArgLclNum = compiler->lvaOutgoingArgSpaceVar;
+        outArgLclNum  = compiler->lvaOutgoingArgSpaceVar;
+        outArgLclSize = compiler->lvaOutgoingArgSpaceSize;
     }
 
     unsigned outArgLclOffs = putArgStk->GetSlotOffset();
@@ -6956,15 +6960,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
 
     if (src->OperIs(GT_FIELD_LIST))
     {
-#if defined(TARGET_AMD64)
-#if FEATURE_FASTTAILCALL
-        // TODO-MIKE-Cleanup: This seems to be sligtly different from ARMARCH's outArgLclSize.
-        INDEBUG(unsigned outArgLclSize = putArgStk->PutInIncomingArgArea()
-                                             ? compiler->info.compArgStackSize + INIT_ARG_STACK_SLOT * REGSIZE_BYTES
-                                             : compiler->lvaLclSize(outArgLclNum);)
-#else
-        INDEBUG(unsigned outArgLclSize = compiler->lvaLclSize(outArgLclNum);)
-#endif
+#ifdef TARGET_AMD64
         genPutArgStkFieldList(putArgStk, outArgLclNum, outArgLclOffs DEBUGARG(outArgLclSize));
 #else
         genPutArgStkFieldList(putArgStk);
@@ -7000,8 +6996,8 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
 
     if (srcType == TYP_STRUCT)
     {
-#if defined(TARGET_AMD64)
-        genPutStructArgStk(putArgStk, outArgLclNum, outArgLclOffs);
+#ifdef TARGET_AMD64
+        genPutStructArgStk(putArgStk, outArgLclNum, outArgLclOffs DEBUGARG(outArgLclSize));
 #else
         genPutStructArgStk(putArgStk);
 #endif
@@ -7227,14 +7223,13 @@ void CodeGen::genPushReg(var_types type, regNumber srcReg)
 }
 #endif // TARGET_X86
 
-//---------------------------------------------------------------------
-// genPutStructArgStk - Generate code for copying a struct arg on the stack by shift.
-//
-// Arguments
-//    putArgStk - the GT_PUTARG_STK node
-//
-void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk NOT_X86_ARG(unsigned outArgLclNum)
-                                     NOT_X86_ARG(unsigned outArgLclOffs))
+void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk
+#ifndef TARGET_X86
+                                 ,
+                                 unsigned outArgLclNum,
+                                 unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize)
+#endif
+                                     )
 {
     GenTree* src = putArgStk->GetOp(0);
 

@@ -3100,6 +3100,8 @@ void Compiler::lvaIncrementFrameSize(unsigned size)
         BADCODE("Frame size overflow");
     }
 
+    JITDUMP("lclFrameSize: %u + %u\n", codeGen->lclFrameSize, size);
+
     codeGen->lclFrameSize += size;
 }
 

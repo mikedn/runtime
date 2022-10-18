@@ -675,23 +675,23 @@ unsigned CodeGen::GetFirstStackParamLclNum()
 void CodeGen::genPutArgStk(GenTreePutArgStk* putArg)
 {
     unsigned outArgLclNum;
-    unsigned outArgLclSize;
+    INDEBUG(unsigned outArgLclSize);
 
 #if FEATURE_FASTTAILCALL
     if (putArg->PutInIncomingArgArea())
     {
         assert(putArg->GetCall()->IsFastTailCall());
 
-        outArgLclNum  = GetFirstStackParamLclNum();
-        outArgLclSize = paramsStackSize;
+        outArgLclNum = GetFirstStackParamLclNum();
+        INDEBUG(outArgLclSize = paramsStackSize);
 
         noway_assert(outArgLclNum != BAD_VAR_NUM);
     }
     else
 #endif
     {
-        outArgLclNum  = compiler->lvaOutgoingArgSpaceVar;
-        outArgLclSize = compiler->lvaOutgoingArgSpaceSize;
+        outArgLclNum = compiler->lvaOutgoingArgSpaceVar;
+        INDEBUG(outArgLclSize = compiler->lvaOutgoingArgSpaceSize);
     }
 
     unsigned outArgLclOffs = putArg->GetSlotOffset();
@@ -707,7 +707,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArg)
 
     if (srcType == TYP_STRUCT)
     {
-        genPutStructArgStk(putArg, outArgLclNum, outArgLclOffs, outArgLclSize);
+        genPutStructArgStk(putArg, outArgLclNum, outArgLclOffs DEBUGARG(outArgLclSize));
         return;
     }
 
@@ -765,16 +765,9 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArg)
 #endif // TARGET_ARM
 }
 
-//---------------------------------------------------------------------
-// genPutStructArgStk - Generate code for a STRUCT GT_PUTARG_STK node
-//
-// Arguments
-//    putArg - the GT_PUTARG_STK node
-//
 void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk,
                                  unsigned          outArgLclNum,
-                                 unsigned          outArgLclOffs,
-                                 unsigned          outArgLclSize)
+                                 unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize))
 {
     GenTree* src = putArgStk->GetOp(0);
 
