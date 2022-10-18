@@ -380,11 +380,7 @@ void Compiler::lvaInitParams(bool hasRetBufParam)
     noway_assert(paramInfo.lclNum == info.compArgsCount);
     assert(paramInfo.intRegIndex <= MAX_REG_ARG);
 
-#ifndef TARGET_ARM
-    codeGen->paramsStackSize = paramInfo.size;
-#else
-    codeGen->paramsSize = paramInfo.size;
-#endif
+    codeGen->paramsStackSize                   = paramInfo.size;
     codeGen->intRegState.rsCalleeRegArgCount   = paramInfo.intRegIndex;
     codeGen->floatRegState.rsCalleeRegArgCount = paramInfo.floatRegIndex;
 
@@ -440,7 +436,7 @@ void Compiler::lvaInitThisParam(ParamAllocInfo& paramInfo)
 
     JITDUMP("'this' passed in register %s\n", getRegName(lcl->GetArgReg()));
 
-#if !defined(TARGET_X86) && !defined(UNIX_AMD64_ABI) && !defined(TARGET_ARM64)
+#ifdef WINDOWS_AMD64_ABI
     paramInfo.size += REGSIZE_BYTES;
 #endif
     paramInfo.lclNum++;
@@ -486,17 +482,16 @@ void Compiler::lvaInitRetBufParam(ParamAllocInfo& paramInfo, bool useFixedRetBuf
 #endif
 
         JITDUMP("'__retBuf' passed in register %s\n", getRegName(lcl->GetParamReg()));
+
+#ifdef WINDOWS_AMD64_ABI
+        paramInfo.size += REGSIZE_BYTES;
+#endif
     }
-#if defined(TARGET_X86) || defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
     else
     {
         paramInfo.size += REGSIZE_BYTES;
     }
-#endif
 
-#if !defined(TARGET_X86) && !defined(UNIX_AMD64_ABI) && !defined(TARGET_ARM64)
-    paramInfo.size += REGSIZE_BYTES;
-#endif
     paramInfo.lclNum++;
 }
 
@@ -524,6 +519,10 @@ void Compiler::lvaInitGenericsContextParam(ParamAllocInfo& paramInfo)
 #endif
 
         JITDUMP("'GenCtxt' passed in register %s\n", getRegName(lcl->GetArgReg()));
+
+#ifdef WINDOWS_AMD64_ABI
+        paramInfo.size += REGSIZE_BYTES;
+#endif
     }
     else
     {
@@ -532,14 +531,9 @@ void Compiler::lvaInitGenericsContextParam(ParamAllocInfo& paramInfo)
         paramInfo.stackSize += REGSIZE_BYTES;
 #endif
 
-#if defined(TARGET_X86) || defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
         paramInfo.size += REGSIZE_BYTES;
-#endif
     }
 
-#if !defined(TARGET_X86) && !defined(UNIX_AMD64_ABI) && !defined(TARGET_ARM64)
-    paramInfo.size += REGSIZE_BYTES;
-#endif
     paramInfo.lclNum++;
 
 #ifdef TARGET_X86
@@ -593,6 +587,10 @@ void Compiler::lvaInitVarargsHandleParam(ParamAllocInfo& paramInfo)
 #endif // TARGET_ARM
 
         JITDUMP("'VarArgHnd' passed in register %s\n", getRegName(lcl->GetArgReg()));
+
+#ifdef WINDOWS_AMD64_ABI
+        paramInfo.size += REGSIZE_BYTES;
+#endif
     }
     else
     {
@@ -601,14 +599,9 @@ void Compiler::lvaInitVarargsHandleParam(ParamAllocInfo& paramInfo)
         paramInfo.stackSize += REGSIZE_BYTES;
 #endif
 
-#if defined(TARGET_X86) || defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
         paramInfo.size += REGSIZE_BYTES;
-#endif
     }
 
-#if !defined(TARGET_X86) && !defined(UNIX_AMD64_ABI) && !defined(TARGET_ARM64)
-    paramInfo.size += REGSIZE_BYTES;
-#endif
     paramInfo.lclNum++;
 
 #ifdef TARGET_X86
@@ -1025,7 +1018,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
         }
     }
 
-    paramInfo.size += paramInfo.AlignReg(regType, regAlign) * REGSIZE_BYTES;
+    paramInfo.AlignReg(regType, regAlign);
 
     if (paramInfo.CanEnregister(regType, minRegCount))
     {
@@ -1066,6 +1059,11 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
         }
 
         lcl->SetParamReg(paramInfo.AllocRegs(regType, regCount));
+
+        if (!varTypeIsFloating(regType) && (regCount * REGSIZE_BYTES < paramSize))
+        {
+            paramInfo.size += paramSize / REGSIZE_BYTES - regCount;
+        }
 
         JITDUMP("Param V%02u registers: ", paramInfo.lclNum);
 
@@ -1120,9 +1118,9 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
         JITDUMP("Param V%02u offset: %u\n", paramInfo.varNum, offset);
 #endif // FEATURE_FASTTAILCALL
-    }
 
-    paramInfo.size += paramSize;
+        paramInfo.size += paramSize;
+    }
 
     if (info.compIsVarArgs || softFPPreSpill)
     {
@@ -3851,9 +3849,6 @@ void Compiler::lvaAssignPromotedFieldsVirtualFrameOffsets()
 void Compiler::lvaAssignParamsVirtualFrameOffsets()
 {
     noway_assert(codeGen->intRegState.rsCalleeRegArgCount <= MAX_REG_ARG);
-#ifdef TARGET_ARM
-    noway_assert(codeGen->paramsSize >= codeGen->intRegState.rsCalleeRegArgCount * REGSIZE_BYTES);
-#endif
 
     // Assign stack offsets to arguments (in reverse order of passing).
     //
@@ -5510,7 +5505,12 @@ bool Compiler::compRsvdRegCheck()
     JITDUMP("Returning true (ARM64)\n\n");
     return true; // just always assume we'll need it, for now
 #else
-    JITDUMP("\ncompRsvdRegCheck - frame size = %u, compArgSize = %u\n", frameSize, codeGen->paramsSize);
+    // TODO-MIKE-Fix: paramsStackSize does not include prespilled params.
+    // Also note that the old paramsSize was bogus anyway, as it included
+    // alignment registers and float param registers, which are never pre
+    // spilled.
+    unsigned paramsSize = codeGen->paramsStackSize;
+    JITDUMP("\ncompRsvdRegCheck - frame size = %u, compArgSize = %u\n", frameSize, paramsSize);
 
     if (opts.MinOpts())
     {
@@ -5559,7 +5559,7 @@ bool Compiler::compRsvdRegCheck()
     JITDUMP("  maxR11NegativeEncodingOffset     = %6d\n", maxR11NegativeEncodingOffset);
 
     // -1 because otherwise we are computing the address just beyond the last argument, which we don't need to do.
-    unsigned maxR11PositiveOffset = codeGen->paramsSize + (2 * REGSIZE_BYTES) - 1;
+    unsigned maxR11PositiveOffset = paramsSize + (2 * REGSIZE_BYTES) - 1;
     JITDUMP("  maxR11PositiveOffset             = %6d\n", maxR11PositiveOffset);
 
     // The value is positive, but represents a negative offset from R11.
@@ -5590,8 +5590,8 @@ bool Compiler::compRsvdRegCheck()
     JITDUMP("  maxSPPositiveEncodingOffset      = %6d\n", maxSPPositiveEncodingOffset);
 
     // -1 because otherwise we are computing the address just beyond the last argument, which we don't need to do.
-    assert(codeGen->paramsSize + frameSize > 0);
-    unsigned maxSPPositiveOffset = codeGen->paramsSize + frameSize - 1;
+    assert(paramsSize + frameSize > 0);
+    unsigned maxSPPositiveOffset = paramsSize + frameSize - 1;
 
     if (codeGen->isFramePointerUsed())
     {
