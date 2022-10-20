@@ -498,6 +498,8 @@ void Compiler::lvaInitGenericsContextParam(ParamAllocInfo& paramInfo)
         return;
     }
 
+    noway_assert(!info.compIsVarArgs);
+
     info.compTypeCtxtArg = paramInfo.lclNum;
 
     LclVarDsc* lcl = lvaGetDesc(paramInfo.lclNum);
@@ -531,13 +533,6 @@ void Compiler::lvaInitGenericsContextParam(ParamAllocInfo& paramInfo)
     }
 
     paramInfo.lclNum++;
-
-#ifdef TARGET_X86
-    if (info.compIsVarArgs)
-    {
-        lcl->SetStackOffset(paramInfo.size);
-    }
-#endif
 }
 
 void Compiler::lvaInitVarargsHandleParam(ParamAllocInfo& paramInfo)
@@ -596,12 +591,14 @@ void Compiler::lvaInitVarargsHandleParam(ParamAllocInfo& paramInfo)
 #endif
 
         paramInfo.size += REGSIZE_BYTES;
+#ifdef TARGET_X86
+        lcl->SetStackOffset(paramInfo.size);
+#endif
     }
 
     paramInfo.lclNum++;
 
 #ifdef TARGET_X86
-    lcl->SetStackOffset(paramInfo.size);
     lvaVarargsBaseOfStkArgs = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("Varargs BaseOfStkArgs"));
 #endif
 }
@@ -935,26 +932,21 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
     }
     else
     {
-#if FEATURE_FASTTAILCALL
-        // TODO-MIKE-Cleanup: Consider enabling this independently of FEATURE_FASTTAILCALL.
-        // We eventually have to set the stack offset for codegen so we may as well just do
-        // it here. And varargs needs it early anyway.
-        unsigned offset = paramInfo.stackArgSize;
-
-        assert((offset % REGSIZE_BYTES) == 0);
-
-        lcl->SetStackOffset(offset);
-        paramInfo.stackArgSize = offset + paramSize;
-
-        JITDUMP("Param V%02u offset: %u\n", paramInfo.varNum, offset);
-#endif // FEATURE_FASTTAILCALL
+        // TODO-MIKE-Cleanup: Note that this offset isn't the real offset, relative
+        // to the frame pointer (e.g. [ebp+8] for the first param) because the managed
+        // x86 ABI pushes the arguments from left to right rather than right to left
+        // like all other ABIs. Ideally this should be the real offset, so we don't
+        // have to compute it again in lvaAssignParamsVirtualFrameOffsets and to make
+        // things less confusing. However, IndirectParamMorphVisitor depends on this
+        // offset because it starts with the pointer to the first param and subtracts
+        // this offset to access other params. Besides, we need another pass through
+        // params to fix this offset, since we don't know the size of the stack params
+        // in advance.
 
         paramInfo.size += paramSize;
+        lcl->SetStackOffset(paramInfo.size);
 
-        if (info.compIsVarArgs)
-        {
-            lcl->SetStackOffset(paramInfo.size);
-        }
+        JITDUMP("Param V%02u offset: %u\n", paramInfo.lclNum, lcl->GetStackOffset());
     }
 }
 
