@@ -863,6 +863,13 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
         JITDUMP("Param V%02u registers: ", paramInfo.lclNum);
 
+#ifdef TARGET_WINDOWS
+        if (info.compIsVarArgs && (regCount * REGSIZE_BYTES < paramSize))
+        {
+            paramInfo.size += REGSIZE_BYTES;
+        }
+#endif
+
 #ifdef DEBUG
         if (verbose)
         {
