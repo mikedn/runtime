@@ -6932,22 +6932,21 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
 
 #ifdef TARGET_AMD64
     unsigned outArgLclNum;
-    unsigned outArgLclSize;
+    INDEBUG(unsigned outArgLclSize);
 
     if (putArgStk->PutInIncomingArgArea())
     {
         assert(putArgStk->GetCall()->IsFastTailCall());
 
         outArgLclNum = GetFirstStackParamLclNum();
-        // TODO-MIKE-Cleanup: Use paramsStackSize instead of compArgStackSize.
-        outArgLclSize = compiler->info.compArgStackSize + INIT_ARG_STACK_SLOT * REGSIZE_BYTES;
+        INDEBUG(outArgLclSize = paramsStackSize);
 
         noway_assert(outArgLclNum != BAD_VAR_NUM);
     }
     else
     {
-        outArgLclNum  = compiler->lvaOutgoingArgSpaceVar;
-        outArgLclSize = compiler->lvaOutgoingArgSpaceSize;
+        outArgLclNum = compiler->lvaOutgoingArgSpaceVar;
+        INDEBUG(outArgLclSize = compiler->lvaOutgoingArgSpaceSize);
     }
 
     unsigned outArgLclOffs = putArgStk->GetSlotOffset();
