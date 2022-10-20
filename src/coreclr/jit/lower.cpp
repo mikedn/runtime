@@ -1538,11 +1538,6 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
 
             unsigned argStartOffset = put->GetSlotOffset();
             unsigned argEndOffset   = argStartOffset + put->GetArgSize();
-#ifdef WINDOWS_AMD64_ABI
-            int firstStackParamOffset = 0;
-#else
-            int firstStackParamOffset = -1;
-#endif
 
             for (unsigned paramLclNum = 0; paramLclNum < comp->info.GetParamCount(); paramLclNum++)
             {
@@ -1555,23 +1550,7 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
 
                 assert(paramLcl->GetStackOffset() != BAD_STK_OFFS);
 
-#ifdef WINDOWS_AMD64_ABI
-                // On win-x64, the argument position determines the stack slot uniquely, and
-                // even the register args take up space in the stack frame (shadow space).
-                assert(paramLcl->GetStackOffset() == static_cast<int>(paramLclNum) * REGSIZE_BYTES);
-#else
-                if (firstStackParamOffset == -1)
-                {
-                    firstStackParamOffset = paramLcl->GetStackOffset();
-                }
-
-                // On all ABIs where we fast tail call the stack args should come in order.
-                assert(firstStackParamOffset <= paramLcl->GetStackOffset());
-#endif
-
-                // Compute offset of this stack argument relative to the first stack arg.
-                // This will be its offset into the incoming arg space area.
-                unsigned paramStartOffset = static_cast<unsigned>(paramLcl->GetStackOffset() - firstStackParamOffset);
+                unsigned paramStartOffset = static_cast<unsigned>(paramLcl->GetStackOffset());
 #ifdef WINDOWS_AMD64_ABI
                 unsigned paramEndOffset = paramStartOffset + REGSIZE_BYTES;
 #else
