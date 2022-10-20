@@ -384,10 +384,6 @@ void Compiler::lvaInitParams(bool hasRetBufParam)
     codeGen->intRegState.rsCalleeRegArgCount   = paramInfo.intRegIndex;
     codeGen->floatRegState.rsCalleeRegArgCount = paramInfo.floatRegIndex;
 
-#if FEATURE_FASTTAILCALL
-    info.compArgStackSize = paramInfo.stackSize;
-#endif
-
 #ifdef TARGET_X86
     // The x86 ret instruction has a 16 bit immediate so we cannot easily pop more than
     // 2^16 bytes of stack arguments. Could be handled correctly but it will be very

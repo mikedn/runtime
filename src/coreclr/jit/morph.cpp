@@ -5829,17 +5829,26 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
 
     fgInitArgInfo(callee);
 
-    fgArgInfo* argInfo = callee->fgArgInfo;
-
     unsigned calleeArgStackSize = 0;
-    unsigned callerArgStackSize = info.compArgStackSize;
+    unsigned callerArgStackSize = codeGen->paramsStackSize;
 
-    for (unsigned index = 0; index < argInfo->GetArgCount(); ++index)
+    // TODO-MIKE-Cleanup: This can probably be replaced with callee->GetInfo()->GetNextSlotNum().
+
+    for (unsigned index = 0; index < callee->GetInfo()->GetArgCount(); ++index)
     {
-        fgArgTabEntry* arg = callee->GetArgInfoByArgNum(index);
+        CallArgInfo* arg = callee->GetArgInfoByArgNum(index);
 
-        calleeArgStackSize += arg->GetSlotCount() * REGSIZE_BYTES;
+        if (arg->GetSlotCount() != 0)
+        {
+            unsigned argEndOffset = (arg->GetSlotNum() + arg->GetSlotCount()) * REGSIZE_BYTES;
+
+            if (argEndOffset > calleeArgStackSize)
+            {
+                calleeArgStackSize = argEndOffset;
+            }
+        }
     }
+
     calleeArgStackSize = roundUp(calleeArgStackSize, REGSIZE_BYTES);
 
     auto reportFastTailCallDecision = [&](const char* thisFailReason) {

@@ -1521,10 +1521,6 @@ struct CompiledMethodInfo
     // The following holds the class attributes for the method we're compiling.
     unsigned compClassAttr;
 
-#if FEATURE_FASTTAILCALL
-    unsigned compArgStackSize; // Incoming argument stack size in bytes
-#endif
-
     unsigned compRetBuffArg;  // position of hidden return param var (0, 1) (BAD_VAR_NUM means not present);
     unsigned compTypeCtxtArg; // position of hidden param for type context for generic code (CORINFO_CALLCONV_PARAMTYPE)
     unsigned compThisArg;     // position of implicit this pointer param (not to be confused with lvaArg0Var)
