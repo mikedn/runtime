@@ -524,11 +524,9 @@ void Compiler::lvaInitGenericsContextParam(ParamAllocInfo& paramInfo)
     }
     else
     {
-#if FEATURE_FASTTAILCALL
-        lcl->SetStackOffset(paramInfo.stackSize);
-        paramInfo.stackSize += REGSIZE_BYTES;
-#endif
+        assert((paramInfo.size % REGSIZE_BYTES) == 0);
 
+        lcl->SetStackOffset(paramInfo.size);
         paramInfo.size += REGSIZE_BYTES;
     }
 
@@ -585,15 +583,10 @@ void Compiler::lvaInitVarargsHandleParam(ParamAllocInfo& paramInfo)
     }
     else
     {
-#if FEATURE_FASTTAILCALL
-        lcl->SetStackOffset(paramInfo.stackSize);
-        paramInfo.stackSize += REGSIZE_BYTES;
-#endif
+        assert((paramInfo.size % REGSIZE_BYTES) == 0);
 
-        paramInfo.size += REGSIZE_BYTES;
-#ifdef TARGET_X86
         lcl->SetStackOffset(paramInfo.size);
-#endif
+        paramInfo.size += REGSIZE_BYTES;
     }
 
     paramInfo.lclNum++;
@@ -736,17 +729,15 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
     }
     else
     {
-        unsigned offset = paramInfo.stackSize;
+        unsigned offset = paramInfo.size;
 
-        assert((offset % REGSIZE_BYTES) == 0);
-        assert((paramSize % REGSIZE_BYTES) == 0);
+        assert(offset % REGSIZE_BYTES == 0);
+        assert(paramSize % REGSIZE_BYTES == 0);
 
         lcl->SetStackOffset(offset);
-        paramInfo.stackSize = offset + paramSize;
+        paramInfo.size = offset + paramSize;
 
-        JITDUMP("Param V%02u offset: %u\n", paramInfo.lclNum, offset);
-
-        paramInfo.size += paramSize;
+        JITDUMP("Param V%02u offset: %u\n", paramInfo.lclNum, lcl->GetStackOffset());
     }
 
     if (info.compIsVarArgs)
@@ -773,25 +764,12 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
         lcl->SetParamReg(paramInfo.AllocReg(regType));
 
         JITDUMP("Param V%02u register: %s\n", paramInfo.lclNum, getRegName(lcl->GetParamReg()));
-
-        // TODO-MIKE-Review: Note that on win-x64 reg params do have a home but this
-        // code doesn't assign a stack offset in this case. It looks like the offset
-        // we set here is only used by LowerFastTailCall, were it's actually ignored
-        // for WINDOWS_AMD64_ABI. It would be better to just set the offset correctly
-        // here and remove the special casing from LowerFastTailCall.
-        // Also note that info.compArgStackSize does not seem to include the size of
-        // the 4 reg params.
-    }
-    else
-    {
-        assert((paramInfo.stackSize % REGSIZE_BYTES) == 0);
-
-        paramInfo.stackSize += REGSIZE_BYTES;
     }
 
-    assert((paramInfo.size % REGSIZE_BYTES) == 0);
+    assert(paramInfo.size % REGSIZE_BYTES == 0);
     lcl->SetStackOffset(paramInfo.size);
     paramInfo.size += REGSIZE_BYTES;
+
     JITDUMP("Param V%02u offset: %u\n", paramInfo.lclNum, lcl->GetStackOffset());
 
     if (info.compIsVarArgs)
@@ -854,10 +832,10 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
         lcl->lvIsMultiRegArg = regCount > 1;
         lcl->SetParamReg(paramInfo.AllocRegs(regType, regCount));
 
-        JITDUMP("Param V%02u registers: ", paramInfo.lclNum);
-
 #ifdef TARGET_WINDOWS
-        if (info.compIsVarArgs && (regCount * REGSIZE_BYTES < paramSize))
+        bool isSplit = info.compIsVarArgs && (regCount * REGSIZE_BYTES < paramSize);
+
+        if (isSplit)
         {
             paramInfo.size += REGSIZE_BYTES;
         }
@@ -866,13 +844,15 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
 #ifdef DEBUG
         if (verbose)
         {
+            printf("Param V%02u registers: ", paramInfo.lclNum);
+
             for (unsigned i = 0; i < regCount; i++)
             {
                 printf("%s%s", i > 0 ? ", " : "", getRegName(static_cast<regNumber>(lcl->GetParamReg() + i)));
             }
 
 #ifdef TARGET_WINDOWS
-            if (info.compIsVarArgs && (regCount * REGSIZE_BYTES < paramSize))
+            if (isSplit)
             {
                 printf("+ 1 stack slot");
             }
@@ -886,7 +866,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
     {
         paramInfo.SetHasStackParam(regType);
 
-        unsigned offset    = paramInfo.stackSize;
+        unsigned offset    = paramInfo.size;
         unsigned alignment = lvaGetParamAlignment(lcl->GetType(), (regType == TYP_FLOAT));
 
 #ifdef OSX_ARM64_ABI
@@ -896,15 +876,13 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
         offset = roundUp(offset, alignment);
 #endif
 
-        assert((paramSize % alignment) == 0);
-        assert((offset % alignment) == 0);
+        assert(paramSize % alignment == 0);
+        assert(offset % alignment == 0);
 
         lcl->SetStackOffset(offset);
-        paramInfo.stackSize = offset + paramSize;
+        paramInfo.size = offset + paramSize;
 
-        JITDUMP("Param V%02u offset: %u\n", paramInfo.lclNum, offset);
-
-        paramInfo.size += paramSize;
+        JITDUMP("Param V%02u offset: %u\n", paramInfo.lclNum, lcl->GetStackOffset());
     }
 
     if (info.compIsVarArgs)
@@ -943,6 +921,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
         // params to fix this offset, since we don't know the size of the stack params
         // in advance.
 
+        assert(paramInfo.size % REGSIZE_BYTES == 0);
         paramInfo.size += paramSize;
         lcl->SetStackOffset(paramInfo.size);
 
@@ -1020,6 +999,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
         lcl->lvIsRegArg = true;
 
         bool preSpill = softFPPreSpill;
+        bool isSplit  = false;
 
         if (lcl->TypeIs(TYP_STRUCT))
         {
@@ -1031,7 +1011,12 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
             {
                 assert(regType == TYP_INT);
 
-                regCount = min(regCount, paramInfo.GetAvailableRegCount(TYP_INT));
+                if (regCount > paramInfo.GetAvailableRegCount(TYP_INT))
+                {
+                    regCount = paramInfo.GetAvailableRegCount(TYP_INT);
+                    isSplit  = true;
+                }
+
                 preSpill = true;
             }
         }
@@ -1055,16 +1040,16 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
         lcl->SetParamReg(paramInfo.AllocRegs(regType, regCount));
 
-        if (!varTypeIsFloating(regType) && (regCount * REGSIZE_BYTES < paramSize))
+        if (isSplit)
         {
-            paramInfo.size += paramSize / REGSIZE_BYTES - regCount;
+            paramInfo.size += paramSize - regCount * REGSIZE_BYTES;
         }
-
-        JITDUMP("Param V%02u registers: ", paramInfo.lclNum);
 
 #ifdef DEBUG
         if (verbose)
         {
+            printf("Param V%02u registers: ", paramInfo.lclNum);
+
             for (unsigned i = 0; i < regCount; i++)
             {
                 if (i > 0)
@@ -1087,7 +1072,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
                 }
             }
 
-            if (!varTypeIsFloating(regType) && (regCount * REGSIZE_BYTES < paramSize))
+            if (isSplit)
             {
                 printf(" + %u stack slots", paramSize / REGSIZE_BYTES - regCount);
             }
@@ -1100,21 +1085,12 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
     {
         paramInfo.SetHasStackParam(regType);
 
-#if FEATURE_FASTTAILCALL
-        // TODO-MIKE-Cleanup: Consider enabling this independently of FEATURE_FASTTAILCALL.
-        // We eventually have to set the stack offset for codegen so we may as well just do
-        // it here. And varargs needs it early anyway.
-        unsigned offset = paramInfo.stackArgSize;
+        // TODO-MIKE-Fix: This probably needs to deal with "double align". Check assign virtual offset.
 
-        assert((offset % REGSIZE_BYTES) == 0);
-
-        lcl->SetStackOffset(offset);
-        paramInfo.stackArgSize = offset + paramSize;
-
-        JITDUMP("Param V%02u offset: %u\n", paramInfo.varNum, offset);
-#endif // FEATURE_FASTTAILCALL
-
+        lcl->SetStackOffset(paramInfo.size);
         paramInfo.size += paramSize;
+
+        JITDUMP("Param V%02u offset: %u\n", paramInfo.lclNum, lcl->GetStackOffset());
     }
 
     if (info.compIsVarArgs || softFPPreSpill)

@@ -5,13 +5,8 @@
 
 struct ParamAllocInfo
 {
-    unsigned lclNum = 0;
-
-    unsigned size = 0;
-#if FEATURE_FASTTAILCALL
-    unsigned stackSize = 0;
-#endif
-
+    unsigned lclNum        = 0;
+    unsigned size          = 0;
     unsigned intRegIndex   = 0;
     unsigned floatRegIndex = 0;
     unsigned intRegCount;
