@@ -370,7 +370,7 @@ void Compiler::lvaInitParams(bool hasRetBufParam)
     lvaInitUserParams(paramInfo, skipFirstParam);
 
     ARM_ONLY(lvaAlignPreSpillParams(paramInfo.doubleAlignMask));
-    paramInfo.size = roundUp(paramInfo.size, REGSIZE_BYTES);
+    paramInfo.stackOffset = roundUp(paramInfo.stackOffset, REGSIZE_BYTES);
 
 #ifdef TARGET_X86
     lvaInitGenericsContextParam(paramInfo);
@@ -380,7 +380,7 @@ void Compiler::lvaInitParams(bool hasRetBufParam)
     noway_assert(paramInfo.lclNum == info.compArgsCount);
     assert(paramInfo.intRegIndex <= MAX_REG_ARG);
 
-    codeGen->paramsStackSize                   = paramInfo.size;
+    codeGen->paramsStackSize                   = paramInfo.stackOffset;
     codeGen->intRegState.rsCalleeRegArgCount   = paramInfo.intRegIndex;
     codeGen->floatRegState.rsCalleeRegArgCount = paramInfo.floatRegIndex;
 
@@ -388,7 +388,7 @@ void Compiler::lvaInitParams(bool hasRetBufParam)
     // The x86 ret instruction has a 16 bit immediate so we cannot easily pop more than
     // 2^16 bytes of stack arguments. Could be handled correctly but it will be very
     // difficult for fully interruptible code
-    if (paramInfo.size >= (1u << 16))
+    if (paramInfo.stackOffset >= (1u << 16))
     {
         IMPL_LIMITATION("Too many arguments for the \"ret\" instruction to pop");
     }
@@ -433,7 +433,7 @@ void Compiler::lvaInitThisParam(ParamAllocInfo& paramInfo)
     JITDUMP("'this' passed in register %s\n", getRegName(lcl->GetArgReg()));
 
 #ifdef WINDOWS_AMD64_ABI
-    paramInfo.size += REGSIZE_BYTES;
+    paramInfo.stackOffset += REGSIZE_BYTES;
 #endif
     paramInfo.lclNum++;
 }
@@ -480,12 +480,12 @@ void Compiler::lvaInitRetBufParam(ParamAllocInfo& paramInfo, bool useFixedRetBuf
         JITDUMP("'__retBuf' passed in register %s\n", getRegName(lcl->GetParamReg()));
 
 #ifdef WINDOWS_AMD64_ABI
-        paramInfo.size += REGSIZE_BYTES;
+        paramInfo.stackOffset += REGSIZE_BYTES;
 #endif
     }
     else
     {
-        paramInfo.size += REGSIZE_BYTES;
+        paramInfo.stackOffset += REGSIZE_BYTES;
     }
 
     paramInfo.lclNum++;
@@ -519,15 +519,15 @@ void Compiler::lvaInitGenericsContextParam(ParamAllocInfo& paramInfo)
         JITDUMP("'GenCtxt' passed in register %s\n", getRegName(lcl->GetArgReg()));
 
 #ifdef WINDOWS_AMD64_ABI
-        paramInfo.size += REGSIZE_BYTES;
+        paramInfo.stackOffset += REGSIZE_BYTES;
 #endif
     }
     else
     {
-        assert((paramInfo.size % REGSIZE_BYTES) == 0);
+        assert(paramInfo.stackOffset % REGSIZE_BYTES == 0);
 
-        lcl->SetStackOffset(paramInfo.size);
-        paramInfo.size += REGSIZE_BYTES;
+        lcl->SetStackOffset(paramInfo.stackOffset);
+        paramInfo.stackOffset += REGSIZE_BYTES;
     }
 
     paramInfo.lclNum++;
@@ -578,15 +578,15 @@ void Compiler::lvaInitVarargsHandleParam(ParamAllocInfo& paramInfo)
         JITDUMP("'VarArgHnd' passed in register %s\n", getRegName(lcl->GetArgReg()));
 
 #ifdef WINDOWS_AMD64_ABI
-        paramInfo.size += REGSIZE_BYTES;
+        paramInfo.stackOffset += REGSIZE_BYTES;
 #endif
     }
     else
     {
-        assert((paramInfo.size % REGSIZE_BYTES) == 0);
+        assert(paramInfo.stackOffset % REGSIZE_BYTES == 0);
 
-        lcl->SetStackOffset(paramInfo.size);
-        paramInfo.size += REGSIZE_BYTES;
+        lcl->SetStackOffset(paramInfo.stackOffset);
+        paramInfo.stackOffset += REGSIZE_BYTES;
     }
 
     paramInfo.lclNum++;
@@ -729,13 +729,13 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
     }
     else
     {
-        unsigned offset = paramInfo.size;
+        unsigned offset = paramInfo.stackOffset;
 
         assert(offset % REGSIZE_BYTES == 0);
         assert(paramSize % REGSIZE_BYTES == 0);
 
         lcl->SetStackOffset(offset);
-        paramInfo.size = offset + paramSize;
+        paramInfo.stackOffset = offset + paramSize;
 
         JITDUMP("Param V%02u offset: %u\n", paramInfo.lclNum, lcl->GetStackOffset());
     }
@@ -766,9 +766,9 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
         JITDUMP("Param V%02u register: %s\n", paramInfo.lclNum, getRegName(lcl->GetParamReg()));
     }
 
-    assert(paramInfo.size % REGSIZE_BYTES == 0);
-    lcl->SetStackOffset(paramInfo.size);
-    paramInfo.size += REGSIZE_BYTES;
+    assert(paramInfo.stackOffset % REGSIZE_BYTES == 0);
+    lcl->SetStackOffset(paramInfo.stackOffset);
+    paramInfo.stackOffset += REGSIZE_BYTES;
 
     JITDUMP("Param V%02u offset: %u\n", paramInfo.lclNum, lcl->GetStackOffset());
 
@@ -837,7 +837,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
         if (isSplit)
         {
-            paramInfo.size += REGSIZE_BYTES;
+            paramInfo.stackOffset += REGSIZE_BYTES;
         }
 #endif
 
@@ -866,7 +866,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
     {
         paramInfo.SetHasStackParam(regType);
 
-        unsigned offset    = paramInfo.size;
+        unsigned offset    = paramInfo.stackOffset;
         unsigned alignment = lvaGetParamAlignment(lcl->GetType(), (regType == TYP_FLOAT));
 
 #ifdef OSX_ARM64_ABI
@@ -880,7 +880,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
         assert(offset % alignment == 0);
 
         lcl->SetStackOffset(offset);
-        paramInfo.size = offset + paramSize;
+        paramInfo.stackOffset = offset + paramSize;
 
         JITDUMP("Param V%02u offset: %u\n", paramInfo.lclNum, lcl->GetStackOffset());
     }
@@ -921,9 +921,9 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
         // params to fix this offset, since we don't know the size of the stack params
         // in advance.
 
-        assert(paramInfo.size % REGSIZE_BYTES == 0);
-        paramInfo.size += paramSize;
-        lcl->SetStackOffset(paramInfo.size);
+        assert(paramInfo.stackOffset % REGSIZE_BYTES == 0);
+        paramInfo.stackOffset += paramSize;
+        lcl->SetStackOffset(paramInfo.stackOffset);
 
         JITDUMP("Param V%02u offset: %u\n", paramInfo.lclNum, lcl->GetStackOffset());
     }
@@ -1042,7 +1042,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
         if (isSplit)
         {
-            paramInfo.size += paramSize - regCount * REGSIZE_BYTES;
+            paramInfo.stackOffset += paramSize - regCount * REGSIZE_BYTES;
         }
 
 #ifdef DEBUG
@@ -1087,8 +1087,8 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
         // TODO-MIKE-Fix: This probably needs to deal with "double align". Check assign virtual offset.
 
-        lcl->SetStackOffset(paramInfo.size);
-        paramInfo.size += paramSize;
+        lcl->SetStackOffset(paramInfo.stackOffset);
+        paramInfo.stackOffset += paramSize;
 
         JITDUMP("Param V%02u offset: %u\n", paramInfo.lclNum, lcl->GetStackOffset());
     }

@@ -6,7 +6,7 @@
 struct ParamAllocInfo
 {
     unsigned lclNum        = 0;
-    unsigned size          = 0;
+    unsigned stackOffset   = 0;
     unsigned intRegIndex   = 0;
     unsigned floatRegIndex = 0;
     unsigned intRegCount;
