@@ -392,6 +392,39 @@ void Compiler::lvaInitParams(bool hasRetBufParam)
     {
         IMPL_LIMITATION("Too many arguments for the \"ret\" instruction to pop");
     }
+
+    // The managed x86 calling convention pushes the arguments from left to right
+    // so the last arguments end up having offset 0. We would need to traverse the
+    // params from right to left to assign correct offsets but then we also need
+    // to assign registers and that require left to right traversal. So we process
+    // from left to right and now we fix up the offsets.
+    // TODO-MIKE-Cleanup: We have to traverse the params twice anyway, it may be
+    // better to just compute the correct offsets in the second traversal, while
+    // the first traversal only assigns registers.
+    if (info.compCallConv == CorInfoCallConvExtension::Managed)
+    {
+        unsigned oldOffset = paramInfo.stackOffset;
+        unsigned newOffset = 0;
+
+        for (unsigned i = info.compArgsCount - 1; i != UINT32_MAX; i--)
+        {
+            LclVarDsc* lcl = lvaGetDesc(i);
+
+            assert(lcl->IsParam());
+
+            if (!lcl->IsRegParam())
+            {
+                unsigned offset = static_cast<unsigned>(lcl->GetStackOffset());
+                unsigned size   = oldOffset - offset;
+
+                oldOffset = offset;
+                lcl->SetStackOffset(newOffset);
+                newOffset += size;
+            }
+        }
+
+        assert(newOffset == paramInfo.stackOffset);
+    }
 #endif
 }
 
@@ -487,6 +520,7 @@ void Compiler::lvaInitRetBufParam(ParamAllocInfo& paramInfo, bool useFixedRetBuf
     }
     else
     {
+        lcl->SetStackOffset(paramInfo.stackOffset);
         paramInfo.stackOffset += REGSIZE_BYTES;
     }
 
@@ -899,8 +933,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
 void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl)
 {
-    unsigned  paramSize = lvaGetParamAllocSize(param, &info.compMethodInfo->args);
-    var_types regType   = lcl->GetType();
+    var_types regType = lcl->GetType();
 
     if ((varTypeIsI(varActualType(regType)) ||
          ((regType == TYP_STRUCT) && isTrivialPointerSizedStruct(lcl->GetLayout()))) &&
@@ -913,20 +946,16 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
     }
     else
     {
-        // TODO-MIKE-Cleanup: Note that this offset isn't the real offset, relative
-        // to the frame pointer (e.g. [ebp+8] for the first param) because the managed
-        // x86 ABI pushes the arguments from left to right rather than right to left
-        // like all other ABIs. Ideally this should be the real offset, so we don't
-        // have to compute it again in lvaAssignParamsVirtualFrameOffsets and to make
-        // things less confusing. However, IndirectParamMorphVisitor depends on this
-        // offset because it starts with the pointer to the first param and subtracts
-        // this offset to access other params. Besides, we need another pass through
-        // params to fix this offset, since we don't know the size of the stack params
-        // in advance.
+        unsigned paramSize = lvaGetParamAllocSize(param, &info.compMethodInfo->args);
+
+        // Note that the x86 managed calling convention pushes the args from left to
+        // right and since we also traverse the params from left to right the offset
+        // we compute here is incorrect. We'll fix it up afterwards.
 
         assert(paramInfo.stackOffset % REGSIZE_BYTES == 0);
-        paramInfo.stackOffset += paramSize;
+
         lcl->SetStackOffset(paramInfo.stackOffset);
+        paramInfo.stackOffset += paramSize;
 
         JITDUMP("Param V%02u offset: %u\n", paramInfo.lclNum, lcl->GetStackOffset());
     }
@@ -3602,7 +3631,7 @@ void Compiler::lvaAssignFrameOffsets(FrameLayoutState curState)
     assert(lvaOutgoingArgSpaceVar != BAD_VAR_NUM);
 #endif
 
-#ifndef TARGET_AMD64
+#ifdef TARGET_ARMARCH
     lvaAssignParamsVirtualFrameOffsets();
 #endif
     lvaAssignLocalsVirtualFrameOffsets();
@@ -3831,29 +3860,13 @@ void Compiler::lvaAssignPromotedFieldsVirtualFrameOffsets()
     }
 }
 
-#ifndef TARGET_AMD64
+#ifdef TARGET_ARMARCH
 
 // Assign virtual stack offsets to the arguments, and implicit arguments
 // (this ptr, return buffer, generics, and varargs).
 void Compiler::lvaAssignParamsVirtualFrameOffsets()
 {
-    // Assign stack offsets to arguments (in reverse order of passing).
-    //
-    // This means that if we pass arguments left->right, we start at
-    // the end of the list and work backwards, for right->left we start
-    // with the first argument and move forward.
-    //
-    // This is all relative to our Virtual '0'
-
-    int argOffs = 0;
-
-#ifdef TARGET_X86
-    if (info.compCallConv == CorInfoCallConvExtension::Managed)
-    {
-        argOffs = codeGen->paramsStackSize;
-    }
-#endif
-
+    int                     argOffs   = 0;
     unsigned                lclNum    = 0;
     CORINFO_ARG_LIST_HANDLE argLst    = info.compMethodInfo->args.args;
     unsigned                argSigLen = info.compMethodInfo->args.numArgs;
@@ -3862,25 +3875,16 @@ void Compiler::lvaAssignParamsVirtualFrameOffsets()
     {
         noway_assert(lclNum == info.compThisArg);
 
-#ifndef TARGET_X86
         argOffs = lvaAssignParamVirtualFrameOffset(lclNum, REGSIZE_BYTES, argOffs);
-#endif
-
         lclNum++;
     }
 
-#if defined(TARGET_WINDOWS) && !defined(TARGET_ARM)
+#if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
     // In the native instance method calling convention on Windows,
     // the this parameter comes before the hidden return buffer parameter.
     if (callConvIsInstanceMethodCallConv(info.compCallConv))
     {
-#ifdef TARGET_X86
-        if (!lvaGetDesc(lclNum)->IsRegParam())
-#endif
-        {
-            argOffs = lvaAssignParamVirtualFrameOffset(lclNum, REGSIZE_BYTES, argOffs);
-        }
-
+        argOffs = lvaAssignParamVirtualFrameOffset(lclNum, REGSIZE_BYTES, argOffs);
         lclNum++;
         argLst = info.compCompHnd->getArgNext(argLst);
         argSigLen--;
@@ -3894,7 +3898,6 @@ void Compiler::lvaAssignParamsVirtualFrameOffsets()
         argOffs = lvaAssignParamVirtualFrameOffset(lclNum++, REGSIZE_BYTES, argOffs);
     }
 
-#ifndef TARGET_X86
     if (info.compMethodInfo->args.hasTypeArg())
     {
         noway_assert(lclNum == info.compTypeCtxtArg);
@@ -3906,7 +3909,6 @@ void Compiler::lvaAssignParamsVirtualFrameOffsets()
     {
         argOffs = lvaAssignParamVirtualFrameOffset(lclNum++, REGSIZE_BYTES, argOffs);
     }
-#endif // !TARGET_X86
 
 #ifdef TARGET_ARM
     // struct_n { int; int; ... n times };
@@ -3980,20 +3982,6 @@ void Compiler::lvaAssignParamsVirtualFrameOffsets()
 
         argOffs = lvaAssignParamVirtualFrameOffset(lclNum++, argSize, argOffs);
     }
-
-#ifdef TARGET_X86
-    if (info.compMethodInfo->args.hasTypeArg())
-    {
-        noway_assert(lclNum == info.compTypeCtxtArg);
-
-        argOffs = lvaAssignParamVirtualFrameOffset(lclNum++, REGSIZE_BYTES, argOffs);
-    }
-
-    if (info.compIsVarArgs)
-    {
-        argOffs = lvaAssignParamVirtualFrameOffset(lclNum++, REGSIZE_BYTES, argOffs);
-    }
-#endif // TARGET_X86
 #endif // !TARGET_ARM
 }
 
@@ -4021,35 +4009,6 @@ int Compiler::lvaAssignParamVirtualFrameOffset(LclVarDsc* lcl, unsigned size, in
     lcl->SetStackOffset(offset);
 
     return offset + size;
-}
-
-#elif defined(TARGET_X86)
-
-int Compiler::lvaAssignParamVirtualFrameOffset(LclVarDsc* lcl, unsigned size, int offset)
-{
-    if (lcl->IsRegParam())
-    {
-        assert(size == REGSIZE_BYTES);
-
-        return offset;
-    }
-
-    assert(size % REGSIZE_BYTES == 0);
-    assert(offset % REGSIZE_BYTES == 0);
-
-    if (info.compCallConv == CorInfoCallConvExtension::Managed)
-    {
-        offset -= size;
-    }
-
-    lcl->SetStackOffset(offset);
-
-    if (info.compCallConv != CorInfoCallConvExtension::Managed)
-    {
-        offset += size;
-    }
-
-    return offset;
 }
 
 #elif defined(TARGET_ARM)
@@ -4243,7 +4202,7 @@ int Compiler::lvaAssignParamVirtualFrameOffset(unsigned lclNum, unsigned size, i
     return lvaAssignParamVirtualFrameOffset(lcl, size, offset);
 }
 
-#endif // !TARGET_AMD64
+#endif // TARGET_ARMARCH
 
 // Assign virtual stack offsets to locals, temps, and anything else.
 // These will all be negative offsets (stack grows down) relative to the virtual '0' address.

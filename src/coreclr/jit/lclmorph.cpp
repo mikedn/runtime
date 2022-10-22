@@ -3439,7 +3439,7 @@ public:
     {
         int stkOffs = m_compiler->lvaGetDesc(lclNode)->GetStackOffset();
         int lclOffs = lclNode->OperIs(GT_LCL_VAR, GT_LCL_VAR_ADDR) ? 0 : lclNode->AsLclFld()->GetLclOffs();
-        return m_compiler->gtNewIconNode(-stkOffs + lclOffs, TYP_I_IMPL);
+        return m_compiler->gtNewIconNode(stkOffs + lclOffs - m_compiler->codeGen->paramsStackSize, TYP_INT);
     }
 #endif // !TARGET_X86
 };

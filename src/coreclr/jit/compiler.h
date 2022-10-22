@@ -3887,7 +3887,7 @@ public:
     void lvaAssignFrameOffsets(FrameLayoutState curState);
     void lvaFixVirtualFrameOffsets();
     void lvaUpdateArgsWithInitialReg();
-#ifndef TARGET_AMD64
+#ifdef TARGET_ARMARCH
     void lvaAssignParamsVirtualFrameOffsets();
     int lvaAssignParamVirtualFrameOffset(LclVarDsc* lcl, unsigned size, int offset);
     int lvaAssignParamVirtualFrameOffset(unsigned lclNum, unsigned size, int offset);
