@@ -3710,6 +3710,18 @@ void Compiler::lvaFixVirtualFrameOffsets()
             continue;
         }
 
+#ifdef DEBUG
+        if (lcl->GetStackOffset() == BAD_STK_OFFS)
+        {
+            assert(lcl->IsRegParam());
+
+            // TODO-MIKE-Cleanup: Unused reg params not have a stack offset assigned but
+            // the logic below doesn't filter out them properly and we end up computing
+            // a bogus offset.
+            continue;
+        }
+#endif
+
         JITDUMP("-- V%02u was %d, now %d\n", lclNum, lcl->GetStackOffset(), lcl->GetStackOffset() + delta);
 
         lcl->SetStackOffset(lcl->GetStackOffset() + delta);
@@ -3728,8 +3740,7 @@ void Compiler::lvaFixVirtualFrameOffsets()
         }
 #endif
 
-        // On System V environments the stack offset could be 0 for params passed in registers.
-        // For normal methods only EBP relative references can have negative offsets.
+        // For normal methods only frame pointer relative references can have negative offsets.
         assert(codeGen->isFramePointerUsed() || (lcl->GetStackOffset() >= 0));
     }
 
@@ -3990,19 +4001,13 @@ void Compiler::lvaAssignParamsVirtualFrameOffsets()
 
 int Compiler::lvaAssignParamVirtualFrameOffset(LclVarDsc* lcl, unsigned size, int offset)
 {
-    assert((size % REGSIZE_BYTES) == 0);
-    assert((offset % REGSIZE_BYTES) == 0);
-
     if (lcl->IsRegParam())
     {
-        // Argument is passed in a register, don't count it, when updating the current offset on the stack.
-        // The offset for args needs to be set only for the stack homed arguments for System V.
-        // TODO-MIKE-Review: The offset shouldn't be set if not homed but there's a broken assert in codegen...
-
-        lcl->SetStackOffset(lcl->lvOnFrame ? offset : 0);
-
         return offset;
     }
+
+    assert(size % REGSIZE_BYTES == 0);
+    assert(offset % REGSIZE_BYTES == 0);
 
     lcl->SetStackOffset(offset);
 
@@ -4014,7 +4019,7 @@ int Compiler::lvaAssignParamVirtualFrameOffset(LclVarDsc* lcl, unsigned size, in
 int Compiler::lvaAssignParamVirtualFrameOffset(LclVarDsc* lcl, unsigned size, int offset)
 {
     assert(size == REGSIZE_BYTES);
-    assert((offset % REGSIZE_BYTES) == 0);
+    assert(offset % REGSIZE_BYTES == 0);
 
     lcl->SetStackOffset(offset);
 
@@ -4039,8 +4044,8 @@ int Compiler::lvaAssignParamVirtualFrameOffset(LclVarDsc* lcl, unsigned size, in
     unsigned align = REGSIZE_BYTES;
 #endif
 
-    assert((size % align) == 0);
-    assert((offset % align) == 0);
+    assert(size % align == 0);
+    assert(offset % align == 0);
 
     lcl->SetStackOffset(offset);
 
@@ -4051,15 +4056,15 @@ int Compiler::lvaAssignParamVirtualFrameOffset(LclVarDsc* lcl, unsigned size, in
 
 int Compiler::lvaAssignParamVirtualFrameOffset(LclVarDsc* lcl, unsigned size, int offset)
 {
-    assert((size % REGSIZE_BYTES) == 0);
-    assert((offset % REGSIZE_BYTES) == 0);
-
     if (lcl->IsRegParam())
     {
         assert(size == REGSIZE_BYTES);
 
         return offset;
     }
+
+    assert(size % REGSIZE_BYTES == 0);
+    assert(offset % REGSIZE_BYTES == 0);
 
     if (info.compCallConv == CorInfoCallConvExtension::Managed)
     {
