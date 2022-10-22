@@ -3830,8 +3830,6 @@ void Compiler::lvaAssignPromotedFieldsVirtualFrameOffsets()
 // (this ptr, return buffer, generics, and varargs).
 void Compiler::lvaAssignParamsVirtualFrameOffsets()
 {
-    noway_assert(codeGen->intRegState.rsCalleeRegArgCount <= MAX_REG_ARG);
-
     // Assign stack offsets to arguments (in reverse order of passing).
     //
     // This means that if we pass arguments left->right, we start at
