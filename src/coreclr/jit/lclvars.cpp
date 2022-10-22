@@ -433,6 +433,7 @@ void Compiler::lvaInitThisParam(ParamAllocInfo& paramInfo)
     JITDUMP("'this' passed in register %s\n", getRegName(lcl->GetArgReg()));
 
 #ifdef WINDOWS_AMD64_ABI
+    lcl->SetStackOffset(paramInfo.stackOffset);
     paramInfo.stackOffset += REGSIZE_BYTES;
 #endif
     paramInfo.lclNum++;
@@ -480,6 +481,7 @@ void Compiler::lvaInitRetBufParam(ParamAllocInfo& paramInfo, bool useFixedRetBuf
         JITDUMP("'__retBuf' passed in register %s\n", getRegName(lcl->GetParamReg()));
 
 #ifdef WINDOWS_AMD64_ABI
+        lcl->SetStackOffset(paramInfo.stackOffset);
         paramInfo.stackOffset += REGSIZE_BYTES;
 #endif
     }
@@ -519,6 +521,7 @@ void Compiler::lvaInitGenericsContextParam(ParamAllocInfo& paramInfo)
         JITDUMP("'GenCtxt' passed in register %s\n", getRegName(lcl->GetArgReg()));
 
 #ifdef WINDOWS_AMD64_ABI
+        lcl->SetStackOffset(paramInfo.stackOffset);
         paramInfo.stackOffset += REGSIZE_BYTES;
 #endif
     }
@@ -3599,7 +3602,9 @@ void Compiler::lvaAssignFrameOffsets(FrameLayoutState curState)
     assert(lvaOutgoingArgSpaceVar != BAD_VAR_NUM);
 #endif
 
+#ifndef TARGET_AMD64
     lvaAssignParamsVirtualFrameOffsets();
+#endif
     lvaAssignLocalsVirtualFrameOffsets();
     lvaAlignFrame();
     lvaFixVirtualFrameOffsets();
@@ -3826,6 +3831,8 @@ void Compiler::lvaAssignPromotedFieldsVirtualFrameOffsets()
     }
 }
 
+#ifndef TARGET_AMD64
+
 // Assign virtual stack offsets to the arguments, and implicit arguments
 // (this ptr, return buffer, generics, and varargs).
 void Compiler::lvaAssignParamsVirtualFrameOffsets()
@@ -3962,12 +3969,7 @@ void Compiler::lvaAssignParamsVirtualFrameOffsets()
             argOffs          = lvaAssignParamVirtualFrameOffset(lclNum + i, argSize, argOffs);
         }
     }
-#elif defined(WINDOWS_AMD64_ABI)
-    for (unsigned i = 0; i < argSigLen; i++)
-    {
-        argOffs = lvaAssignParamVirtualFrameOffset(lclNum++, REGSIZE_BYTES, argOffs);
-    }
-#else // !TARGET_ARM && !WINDOWS_AMD64_ABI
+#else
     for (unsigned i = 0; i < argSigLen; i++, argLst = info.compCompHnd->getArgNext(argLst))
     {
         unsigned argSize = lvaGetParamAllocSize(argLst, &info.compMethodInfo->args);
@@ -3995,36 +3997,7 @@ void Compiler::lvaAssignParamsVirtualFrameOffsets()
 #endif // !TARGET_ARM
 }
 
-#ifdef UNIX_AMD64_ABI
-
-int Compiler::lvaAssignParamVirtualFrameOffset(LclVarDsc* lcl, unsigned size, int offset)
-{
-    if (lcl->IsRegParam())
-    {
-        return offset;
-    }
-
-    assert(size % REGSIZE_BYTES == 0);
-    assert(offset % REGSIZE_BYTES == 0);
-
-    lcl->SetStackOffset(offset);
-
-    return offset + size;
-}
-
-#elif defined(WINDOWS_AMD64_ABI)
-
-int Compiler::lvaAssignParamVirtualFrameOffset(LclVarDsc* lcl, unsigned size, int offset)
-{
-    assert(size == REGSIZE_BYTES);
-    assert(offset % REGSIZE_BYTES == 0);
-
-    lcl->SetStackOffset(offset);
-
-    return offset + REGSIZE_BYTES;
-}
-
-#elif defined(TARGET_ARM64)
+#ifdef TARGET_ARM64
 
 int Compiler::lvaAssignParamVirtualFrameOffset(LclVarDsc* lcl, unsigned size, int offset)
 {
@@ -4269,6 +4242,8 @@ int Compiler::lvaAssignParamVirtualFrameOffset(unsigned lclNum, unsigned size, i
 
     return lvaAssignParamVirtualFrameOffset(lcl, size, offset);
 }
+
+#endif // !TARGET_AMD64
 
 // Assign virtual stack offsets to locals, temps, and anything else.
 // These will all be negative offsets (stack grows down) relative to the virtual '0' address.
