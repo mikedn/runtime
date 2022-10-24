@@ -532,11 +532,6 @@ regMaskTP Compiler::compHelperCallKillSet(CorInfoHelpFunc helper)
     }
 }
 
-regNumber CodeGenInterface::genGetThisArgReg(GenTreeCall* call) const
-{
-    return REG_ARG_0;
-}
-
 //----------------------------------------------------------------------
 // getSpillTempDsc: get the TempDsc corresponding to a spilled tree.
 //

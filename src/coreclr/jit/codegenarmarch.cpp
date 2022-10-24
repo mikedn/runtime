@@ -2475,13 +2475,13 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     // Insert a null check on "this" pointer if asked.
     if (call->NeedsNullCheck())
     {
-        const regNumber regThis = genGetThisArgReg(call);
+        assert(call->GetArgInfoByArgNum(0)->GetRegNum() == REG_R0);
 
 #if defined(TARGET_ARM)
         const regNumber tmpReg = call->ExtractTempReg();
-        GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, tmpReg, regThis, 0);
+        GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, tmpReg, REG_R0, 0);
 #elif defined(TARGET_ARM64)
-        GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, REG_ZR, regThis, 0);
+        GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, REG_ZR, REG_R0, 0);
 #endif
     }
 

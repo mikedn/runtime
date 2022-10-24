@@ -4808,8 +4808,9 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     // Insert a null check on "this" pointer if asked.
     if (call->NeedsNullCheck())
     {
-        const regNumber regThis = genGetThisArgReg(call);
-        GetEmitter()->emitIns_AR_R(INS_cmp, EA_4BYTE, regThis, regThis, 0);
+        assert(call->GetArgInfoByArgNum(0)->GetRegNum() == REG_ARG_0);
+
+        GetEmitter()->emitIns_AR_R(INS_cmp, EA_4BYTE, REG_ARG_0, REG_ARG_0, 0);
     }
 
     CORINFO_METHOD_HANDLE methHnd;

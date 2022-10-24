@@ -149,10 +149,6 @@ public:
     {
         m_cgFramePointerUsed = value;
     }
-    void resetFramePointerUsedWritePhase()
-    {
-        m_cgFramePointerUsed.ResetWritePhase();
-    }
 
     virtual VARSET_VALARG_TP GetLiveSet() const = 0;
 
@@ -182,9 +178,6 @@ public:
     bool IsSaveFpLrWithAllCalleeSavedRegisters() const;
     bool genSaveFpLrWithAllCalleeSavedRegisters = false;
 #endif
-
-    regNumber genGetThisArgReg(GenTreeCall* call) const;
-
 #ifdef TARGET_XARCH
 #ifdef TARGET_AMD64
     // There are no reloc hints on x86

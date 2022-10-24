@@ -2654,7 +2654,7 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call X86_ARG(GenTree* ins
                                                   &vtabOffsAfterIndirection, &isRelative);
 
     CallArgInfo* thisArgInfo = call->GetArgInfoByArgNum(0);
-    assert(thisArgInfo->GetRegNum() == comp->codeGen->genGetThisArgReg(call));
+    assert(thisArgInfo->GetRegNum() == REG_ARG_0);
     assert(thisArgInfo->GetNode()->OperIs(GT_PUTARG_REG));
     GenTree* thisPtr = thisArgInfo->GetNode()->AsUnOp()->GetOp(0);
 
