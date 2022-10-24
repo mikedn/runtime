@@ -16,7 +16,19 @@ class CodeGen final : public CodeGenInterface
     friend class DisAssembler;
     friend class CodeGenLivenessUpdater;
 
-    class LinearScan*      m_lsra = nullptr;
+    //  The following holds information about instr offsets in terms of generated code.
+    struct IPmappingDsc
+    {
+        IPmappingDsc* ipmdNext;      // next line# record
+        emitLocation  ipmdNativeLoc; // the emitter location of the native code corresponding to the IL offset
+        IL_OFFSETX    ipmdILoffsx;   // the instr offset
+        bool          ipmdIsLabel;   // Can this code be a branch label?
+    };
+
+    class LinearScan* m_lsra           = nullptr;
+    IPmappingDsc*     genIPmappingList = nullptr;
+    IPmappingDsc*     genIPmappingLast = nullptr;
+
     CodeGenLivenessUpdater m_liveness;
 
 public:
@@ -28,6 +40,18 @@ public:
     void genGenerateMachineCode();
     void genEmitMachineCode();
     void genEmitUnwindDebugGCandEH();
+
+#ifdef TARGET_XARCH
+#ifdef TARGET_AMD64
+    // There are no reloc hints on x86
+    unsigned short genAddrRelocTypeHint(size_t addr);
+#endif
+    bool genDataIndirAddrCanBeEncodedAsPCRelOffset(size_t addr);
+    bool genCodeIndirAddrCanBeEncodedAsPCRelOffset(size_t addr);
+    bool genCodeIndirAddrCanBeEncodedAsZeroRelOffset(size_t addr);
+    bool genCodeIndirAddrNeedsReloc(size_t addr);
+    bool genCodeAddrNeedsReloc(size_t addr);
+#endif
 
     virtual VARSET_VALARG_TP GetLiveSet() const
     {

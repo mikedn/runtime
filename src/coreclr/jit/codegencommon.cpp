@@ -566,7 +566,7 @@ TempDsc* CodeGen::getSpillTempDsc(GenTree* tree)
 // Returns
 //    relocation type hint
 //
-unsigned short CodeGenInterface::genAddrRelocTypeHint(size_t addr)
+unsigned short CodeGen::genAddrRelocTypeHint(size_t addr)
 {
     return compiler->eeGetRelocTypeHint((void*)addr);
 }
@@ -583,7 +583,7 @@ unsigned short CodeGenInterface::genAddrRelocTypeHint(size_t addr)
 // Returns
 //    true if indir data addr could be encoded as IP-relative offset.
 //
-bool CodeGenInterface::genDataIndirAddrCanBeEncodedAsPCRelOffset(size_t addr)
+bool CodeGen::genDataIndirAddrCanBeEncodedAsPCRelOffset(size_t addr)
 {
 #ifdef TARGET_AMD64
     return genAddrRelocTypeHint(addr) == IMAGE_REL_BASED_REL32;
@@ -604,7 +604,7 @@ bool CodeGenInterface::genDataIndirAddrCanBeEncodedAsPCRelOffset(size_t addr)
 // Returns
 //    true if indir code addr could be encoded as IP-relative offset.
 //
-bool CodeGenInterface::genCodeIndirAddrCanBeEncodedAsPCRelOffset(size_t addr)
+bool CodeGen::genCodeIndirAddrCanBeEncodedAsPCRelOffset(size_t addr)
 {
 #ifdef TARGET_AMD64
     return genAddrRelocTypeHint(addr) == IMAGE_REL_BASED_REL32;
@@ -625,7 +625,7 @@ bool CodeGenInterface::genCodeIndirAddrCanBeEncodedAsPCRelOffset(size_t addr)
 // Returns
 //    true if absolute indir code addr could be encoded as 32-bit displacement relative to zero.
 //
-bool CodeGenInterface::genCodeIndirAddrCanBeEncodedAsZeroRelOffset(size_t addr)
+bool CodeGen::genCodeIndirAddrCanBeEncodedAsZeroRelOffset(size_t addr)
 {
     return GenTreeIntConCommon::FitsInI32((ssize_t)addr);
 }
@@ -638,7 +638,7 @@ bool CodeGenInterface::genCodeIndirAddrCanBeEncodedAsZeroRelOffset(size_t addr)
 // Returns
 //    true if indir code addr needs a relocation recorded with VM
 //
-bool CodeGenInterface::genCodeIndirAddrNeedsReloc(size_t addr)
+bool CodeGen::genCodeIndirAddrNeedsReloc(size_t addr)
 {
     // If generating relocatable ngen code, then all code addr should go through relocation
     if (compiler->opts.compReloc)
@@ -671,7 +671,7 @@ bool CodeGenInterface::genCodeIndirAddrNeedsReloc(size_t addr)
 // Returns
 //    true if direct code addr needs a relocation recorded with VM
 //
-bool CodeGenInterface::genCodeAddrNeedsReloc(size_t addr)
+bool CodeGen::genCodeAddrNeedsReloc(size_t addr)
 {
     // If generating relocatable ngen code, then all code addr should go through relocation
     if (compiler->opts.compReloc)

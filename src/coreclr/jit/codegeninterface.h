@@ -81,19 +81,6 @@ public:
 
     Compiler* compiler;
 
-    //  The following holds information about instr offsets in terms of generated code.
-    struct IPmappingDsc
-    {
-        IPmappingDsc* ipmdNext;      // next line# record
-        emitLocation  ipmdNativeLoc; // the emitter location of the native code corresponding to the IL offset
-        IL_OFFSETX    ipmdILoffsx;   // the instr offset
-        bool          ipmdIsLabel;   // Can this code be a branch label?
-    };
-
-    // Record the instr offset mapping to the generated code
-    IPmappingDsc* genIPmappingList = nullptr;
-    IPmappingDsc* genIPmappingLast = nullptr;
-
     //  The following is used to create the 'method JIT info' block.
     size_t compInfoBlkSize;
     BYTE*  compInfoBlkAddr;
@@ -110,7 +97,7 @@ public:
     //  need to pop when we return.
     //
 
-    unsigned lclFrameSize; // secObject + lclBlk + locals + temps
+    unsigned lclFrameSize;    // secObject + lclBlk + locals + temps
     unsigned paramsStackSize; // total size of parameters passed in stack
 
     // Count of callee-saved regs we pushed in the prolog.
@@ -177,17 +164,6 @@ public:
     void SetSaveFpLrWithAllCalleeSavedRegisters(bool value);
     bool IsSaveFpLrWithAllCalleeSavedRegisters() const;
     bool genSaveFpLrWithAllCalleeSavedRegisters = false;
-#endif
-#ifdef TARGET_XARCH
-#ifdef TARGET_AMD64
-    // There are no reloc hints on x86
-    unsigned short genAddrRelocTypeHint(size_t addr);
-#endif
-    bool genDataIndirAddrCanBeEncodedAsPCRelOffset(size_t addr);
-    bool genCodeIndirAddrCanBeEncodedAsPCRelOffset(size_t addr);
-    bool genCodeIndirAddrCanBeEncodedAsZeroRelOffset(size_t addr);
-    bool genCodeIndirAddrNeedsReloc(size_t addr);
-    bool genCodeAddrNeedsReloc(size_t addr);
 #endif
 
     // If both isFramePointerRequired() and isFrameRequired() are false, the method is eligible
