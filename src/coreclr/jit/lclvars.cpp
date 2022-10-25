@@ -463,7 +463,7 @@ void Compiler::lvaInitThisParam(ParamAllocInfo& paramInfo)
     lcl->SetParamReg(1, REG_NA);
 #endif
 
-    JITDUMP("'this' passed in register %s\n", getRegName(lcl->GetArgReg()));
+    JITDUMP("'this' passed in register %s\n", getRegName(lcl->GetParamReg()));
 
 #ifdef WINDOWS_AMD64_ABI
     lcl->SetStackOffset(paramInfo.stackOffset);
@@ -552,7 +552,7 @@ void Compiler::lvaInitGenericsContextParam(ParamAllocInfo& paramInfo)
         lcl->SetParamReg(1, REG_NA);
 #endif
 
-        JITDUMP("'GenCtxt' passed in register %s\n", getRegName(lcl->GetArgReg()));
+        JITDUMP("'GenCtxt' passed in register %s\n", getRegName(lcl->GetParamReg()));
 
 #ifdef WINDOWS_AMD64_ABI
         lcl->SetStackOffset(paramInfo.stackOffset);
@@ -600,7 +600,7 @@ void Compiler::lvaInitVarargsHandleParam(ParamAllocInfo& paramInfo)
         lcl->SetParamReg(1, REG_NA);
 #endif
 
-        JITDUMP("'VarArgHnd' passed in register %s\n", getRegName(lcl->GetArgReg()));
+        JITDUMP("'VarArgHnd' passed in register %s\n", getRegName(lcl->GetParamReg()));
 
 #ifdef WINDOWS_AMD64_ABI
         lcl->SetStackOffset(paramInfo.stackOffset);
@@ -3944,7 +3944,7 @@ void Compiler::lvaAssignParamsVirtualFrameOffsets()
             argOffs          = lvaAssignParamVirtualFrameOffset(lclNum + i, argSize, argOffs);
 
             // Early out if we can. If size is 8 and base reg is 2, then the mask is 0x1100
-            tempMask |= (((1 << (roundUp(argSize, REGSIZE_BYTES) / REGSIZE_BYTES))) - 1) << lcl->GetArgReg();
+            tempMask |= (((1 << (roundUp(argSize, REGSIZE_BYTES) / REGSIZE_BYTES))) - 1) << lcl->GetParamReg();
 
             if (tempMask == preSpillMask)
             {
@@ -4016,7 +4016,7 @@ int Compiler::lvaAssignParamVirtualFrameOffset(LclVarDsc* lcl, unsigned size, in
         // On ARM we spill the registers in codeGen->regSet.rsMaskPreSpillRegArg
         // in the prolog, so we have to assign them frame offsets.
 
-        regMaskTP regMask = genRegMask(lcl->GetArgReg());
+        regMaskTP regMask = genRegMask(lcl->GetParamReg());
 
         if ((codeGen->regSet.rsMaskPreSpillRegArg & regMask) == 0)
         {
@@ -4715,10 +4715,10 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
                 }
 
 #ifdef TARGET_ARM64
-                if (info.compIsVarArgs && (lcl->GetArgReg() != RET_BUFF_ARGNUM))
+                if (info.compIsVarArgs && (lcl->GetParamReg() != RET_BUFF_ARGNUM))
                 {
                     // Stack offset to varargs (parameters) should point to home area which will be preallocated.
-                    unsigned regNum = genMapIntRegNumToRegArgNum(lcl->GetArgReg());
+                    unsigned regNum = genMapIntRegNumToRegArgNum(lcl->GetParamReg());
                     lcl->SetStackOffset(-initialStkOffs + regNum * REGSIZE_BYTES);
 
                     continue;
@@ -4726,7 +4726,7 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
 #elif defined(TARGET_ARM)
                 // On ARM we spill the registers in codeGen->regSet.rsMaskPreSpillRegArg
                 // in the prolog, thus they don't need stack frame space.
-                if ((codeGen->regSet.rsMaskPreSpillRegs(false) & genRegMask(lcl->GetArgReg())) != 0)
+                if ((codeGen->regSet.rsMaskPreSpillRegs(false) & genRegMask(lcl->GetParamReg())) != 0)
                 {
                     assert(lcl->GetStackOffset() != BAD_STK_OFFS);
 

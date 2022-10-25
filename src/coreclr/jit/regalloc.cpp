@@ -113,7 +113,7 @@ bool Compiler::shouldDoubleAlign(unsigned             refCntStk,
 // by linear scan. (It is not shared for System V AMD64 platform.)
 regNumber Compiler::raUpdateRegStateForArg(RegState* regState, bool isFloatRegState, LclVarDsc* argDsc)
 {
-    regNumber inArgReg  = argDsc->GetArgReg();
+    regNumber inArgReg  = argDsc->GetParamReg();
     regMaskTP inArgMask = genRegMask(inArgReg);
 
     if (isFloatRegState)

@@ -408,7 +408,7 @@ public:
 #ifdef TARGET_ARM
     bool IsPreSpilledRegParam(regMaskTP preSpillMask) const
     {
-        return lvIsRegArg && (preSpillMask & genRegMask(GetArgReg()));
+        return lvIsRegArg && (preSpillMask & genRegMask(GetParamReg()));
     }
 #endif
 
@@ -622,11 +622,6 @@ public:
     {
         _lvRegNum = (regNumberSmall)reg;
         assert(_lvRegNum == reg);
-    }
-
-    regNumber GetArgReg() const
-    {
-        return static_cast<regNumber>(m_paramRegs[0]);
     }
 
     regNumber GetParamReg() const

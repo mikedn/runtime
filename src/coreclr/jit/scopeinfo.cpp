@@ -1549,32 +1549,32 @@ void CodeGen::psiBegProlog()
                     regType = lclVarDsc->GetLayout()->GetHfaElementType();
                 }
 
-                assert(genMapRegNumToRegArgNum(lclVarDsc->GetArgReg(), regType) != UINT32_MAX);
+                assert(genMapRegNumToRegArgNum(lclVarDsc->GetParamReg(), regType) != UINT32_MAX);
 #endif // DEBUG
 
 #ifdef USING_SCOPE_INFO
                 newScope->scRegister  = true;
-                newScope->u1.scRegNum = (regNumberSmall)lclVarDsc->GetArgReg();
-#endif // USING_SCOPE_INFO
+                newScope->u1.scRegNum = static_cast<regNumberSmall>(lclVarDsc->GetParamReg());
+#endif
 #ifdef USING_VARIABLE_LIVE_RANGE
-                varLocation.storeVariableInRegisters(lclVarDsc->GetArgReg(), REG_NA);
-#endif // USING_VARIABLE_LIVE_RANGE
+                varLocation.storeVariableInRegisters(lclVarDsc->GetParamReg(), REG_NA);
+#endif
             }
         }
         else
         {
 #ifdef USING_SCOPE_INFO
             psiSetScopeOffset(newScope, lclVarDsc);
-#endif // USING_SCOPE_INFO
+#endif
 #ifdef USING_VARIABLE_LIVE_RANGE
             varLocation.storeVariableOnStack(REG_SPBASE, psiGetVarStackOffset(lclVarDsc));
-#endif // USING_VARIABLE_LIVE_RANGE
+#endif
         }
 
 #ifdef USING_VARIABLE_LIVE_RANGE
         // Start a VariableLiveRange for this LclVarDsc on the built location
         varLiveKeeper->psiStartVariableLiveRange(varLocation, varScope->vsdVarNum);
-#endif // USING_VARIABLE_LIVE_RANGE
+#endif
     }
 }
 
@@ -1798,10 +1798,9 @@ void CodeGen::psiMoveToStack(unsigned varNum)
         if (scope->scSlotNum != varNum)
             continue;
 
-        /* The param must be currently sitting in the register in which it
-           was passed in */
+        // The param must be currently sitting in the register in which it was passed in.
         assert(scope->scRegister);
-        assert(scope->u1.scRegNum == compiler->lvaTable[varNum].GetArgReg());
+        assert(scope->u1.scRegNum == compiler->lvaGetDesc(varNum)->GetParamReg());
 
         psiScope* newScope     = psiNewPrologScope(scope->scLVnum, scope->scSlotNum);
         newScope->scRegister   = false;

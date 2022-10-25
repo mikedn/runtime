@@ -2807,7 +2807,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
             //
             // If we need to generate a tail call profiler hook, then spill all
             // arg regs to free them up for the callback.
-            if (!compiler->compIsProfilerHookNeeded() && (varDsc->GetRegNum() == varDsc->GetArgReg()))
+            if (!compiler->compIsProfilerHookNeeded() && (varDsc->GetRegNum() == varDsc->GetParamReg()))
             {
                 continue;
             }
@@ -2883,7 +2883,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 
         // Is register argument already in the right register?
         // If not load it from its stack location.
-        regNumber argReg     = varDsc->GetArgReg(); // incoming arg register
+        regNumber argReg     = varDsc->GetParamReg();
         regNumber argRegNext = REG_NA;
 
 #ifdef TARGET_ARM64

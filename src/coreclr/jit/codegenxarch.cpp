@@ -5371,14 +5371,12 @@ void CodeGen::genJmpMethod(GenTree* jmp)
             assert(varDsc->GetLayout()->GetSysVAmd64AbiRegCount() != 0);
 
             // Move the values into the right registers.
-            //
 
-            // Update varDsc->GetArgReg() and lvOtherArgReg life and GC Info to indicate varDsc stack slot is dead and
-            // argReg is going live. Note that we cannot modify varDsc->GetRegNum() and lvOtherArgReg here
-            // because another basic block may not be expecting it.
-            // Therefore manually update life of argReg.  Note that GT_JMP marks
-            // the end of the basic block and after which reg life and gc info will be recomputed for the new block in
-            // genCodeForBBList().
+            // Update varDsc->GetParamReg() and lvOtherArgReg life and GC Info to indicate varDsc stack
+            // slot is dead and argReg is going live. Note that we cannot modify varDsc->GetRegNum() and
+            // lvOtherArgReg here because another basic block may not be expecting it.
+            // Therefore manually update life of argReg. Note that JMP marks the end of the basic block
+            // and after which reg life and gc info will be recomputed for the new block in genCodeForBBList.
 
             var_types type = varActualType(varDsc->GetLayout()->GetSysVAmd64AbiRegType(0));
             regNumber reg  = varDsc->GetParamReg(0);
@@ -5426,7 +5424,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
             }
 #endif
 
-            regNumber argReg = varDsc->GetArgReg(); // incoming arg register
+            regNumber argReg = varDsc->GetParamReg();
 
             if (varDsc->GetRegNum() != argReg)
             {
@@ -5467,7 +5465,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
         {
             regNumber intArgReg;
             var_types loadType = varDsc->lvaArgType();
-            regNumber argReg   = varDsc->GetArgReg(); // incoming arg register
+            regNumber argReg   = varDsc->GetParamReg();
 
             if (varTypeIsFloating(loadType))
             {
@@ -8313,7 +8311,7 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
         }
 
         var_types loadType = varDsc->lvaArgType();
-        regNumber argReg   = varDsc->GetArgReg();
+        regNumber argReg   = varDsc->GetParamReg();
 
         instruction load_ins = ins_Load(loadType);
 

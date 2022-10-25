@@ -2934,11 +2934,11 @@ void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
         fieldLcl->lvIsRegArg = true;
 
 #if !FEATURE_MULTIREG_ARGS
-        fieldLcl->SetParamReg(lcl->GetArgReg());
+        fieldLcl->SetParamReg(lcl->GetParamReg());
 #else
         if (lcl->IsImplicitByRefParam())
         {
-            fieldLcl->SetParamReg(lcl->GetArgReg());
+            fieldLcl->SetParamReg(lcl->GetParamReg());
             continue;
         }
 
@@ -2978,7 +2978,7 @@ void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
             // TODO-ARMARCH: Need to determine if/how to handle split args.
         }
 
-        fieldLcl->SetParamReg(static_cast<regNumber>(lcl->GetArgReg() + regIndex));
+        fieldLcl->SetParamReg(static_cast<regNumber>(lcl->GetParamReg() + regIndex));
 #endif // !UNIX_AMD64_ABI
 #endif // FEATURE_MULTIREG_ARGS
     }
