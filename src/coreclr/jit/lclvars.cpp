@@ -594,23 +594,11 @@ void Compiler::lvaInitVarargsHandleParam(ParamAllocInfo& paramInfo)
 
     if (paramInfo.CanEnregister(TYP_I_IMPL))
     {
-        unsigned regIndex = paramInfo.AllocRegIndex(TYP_I_IMPL);
-
         lcl->lvIsRegArg = true;
-        lcl->SetParamReg(genMapIntRegArgNumToRegNum(regIndex));
+        lcl->SetParamReg(paramInfo.AllocReg(TYP_I_IMPL));
 #ifdef UNIX_AMD64_ABI
         lcl->SetParamReg(1, REG_NA);
 #endif
-
-#ifdef TARGET_ARM
-        // This has to be spilled right in front of the user params and we have
-        // to pre-spill all the register params explicitly because we only have
-        // have symbols for the declared ones, not any potential variadic ones.
-        for (unsigned ix = regIndex; ix < ArrLen(intArgMasks); ix++)
-        {
-            codeGen->regSet.rsMaskPreSpillRegArg |= intArgMasks[ix];
-        }
-#endif // TARGET_ARM
 
         JITDUMP("'VarArgHnd' passed in register %s\n", getRegName(lcl->GetArgReg()));
 
@@ -630,6 +618,12 @@ void Compiler::lvaInitVarargsHandleParam(ParamAllocInfo& paramInfo)
 
 #ifdef TARGET_X86
     lvaVarargsBaseOfStkArgs = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("Varargs BaseOfStkArgs"));
+#endif
+
+#ifdef TARGET_ARM
+    // We have to pre-spill all the register params explicitly because we only
+    // have have symbols for the declared ones, not any potential variadic ones.
+    codeGen->regSet.rsMaskPreSpillRegArg |= RBM_ARG_REGS;
 #endif
 }
 
@@ -973,7 +967,6 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
     bool      isHfa          = false;
     bool      softFPPreSpill = false;
 
-    assert(!info.compIsVarArgs);
     assert(!varTypeIsSIMD(regType));
 
     if (varTypeIsFloating(regType))
