@@ -603,6 +603,7 @@ void Compiler::lvaInitVarargsHandleParam(ParamAllocInfo& paramInfo)
         JITDUMP("'VarArgHnd' passed in register %s\n", getRegName(lcl->GetArgReg()));
 
 #ifdef WINDOWS_AMD64_ABI
+        lcl->SetStackOffset(paramInfo.stackOffset);
         paramInfo.stackOffset += REGSIZE_BYTES;
 #endif
     }
