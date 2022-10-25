@@ -2797,9 +2797,10 @@ void CodeGen::genJmpMethod(GenTree* jmp)
             unsigned fieldVarNum = varDsc->lvFieldLclStart;
             varDsc               = compiler->lvaTable + fieldVarNum;
         }
-        noway_assert(varDsc->lvIsParam);
 
-        if (varDsc->lvIsRegArg && (varDsc->GetRegNum() != REG_STK))
+        noway_assert(varDsc->IsParam());
+
+        if (varDsc->IsRegParam() && (varDsc->GetRegNum() != REG_STK))
         {
             // Skip reg args which are already in its right register for jmp call.
             // If not, we will spill such args to their stack locations.
@@ -2807,7 +2808,9 @@ void CodeGen::genJmpMethod(GenTree* jmp)
             // If we need to generate a tail call profiler hook, then spill all
             // arg regs to free them up for the callback.
             if (!compiler->compIsProfilerHookNeeded() && (varDsc->GetRegNum() == varDsc->GetArgReg()))
+            {
                 continue;
+            }
         }
         else if (varDsc->GetRegNum() == REG_STK)
         {
@@ -2866,11 +2869,14 @@ void CodeGen::genJmpMethod(GenTree* jmp)
             unsigned fieldVarNum = varDsc->lvFieldLclStart;
             varDsc               = compiler->lvaTable + fieldVarNum;
         }
-        noway_assert(varDsc->lvIsParam);
+
+        noway_assert(varDsc->IsParam());
 
         // Skip if arg not passed in a register.
-        if (!varDsc->lvIsRegArg)
+        if (!varDsc->IsRegParam())
+        {
             continue;
+        }
 
         // Register argument
         noway_assert(isRegParamType(genActualType(varDsc->TypeGet())));

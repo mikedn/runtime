@@ -1817,7 +1817,8 @@ void LinearScan::insertZeroInitRefPositions()
     while (iter.NextElem(&varIndex))
     {
         LclVarDsc* varDsc = compiler->lvaGetDescByTrackedIndex(varIndex);
-        if (!varDsc->lvIsParam && varDsc->IsRegCandidate())
+
+        if (!varDsc->IsParam() && varDsc->IsRegCandidate())
         {
             JITDUMP("V%02u was live in to first block:", compiler->lvaTrackedIndexToLclNum(varIndex));
             Interval* interval = getIntervalForLocalVar(varIndex);
@@ -1854,7 +1855,8 @@ void LinearScan::insertZeroInitRefPositions()
         while (iter.NextElem(&varIndex))
         {
             LclVarDsc* varDsc = compiler->lvaGetDescByTrackedIndex(varIndex);
-            if (!varDsc->lvIsParam && varDsc->IsRegCandidate())
+
+            if (!varDsc->IsParam() && varDsc->IsRegCandidate())
             {
                 JITDUMP("V%02u is a finally var:", compiler->lvaTrackedIndexToLclNum(varIndex));
                 Interval* interval = getIntervalForLocalVar(varIndex);
@@ -2063,7 +2065,7 @@ void LinearScan::buildIntervals()
     {
         LclVarDsc* argDsc = compiler->lvaGetDescByTrackedIndex(varIndex);
 
-        if (!argDsc->lvIsParam)
+        if (!argDsc->IsParam())
         {
             continue;
         }
@@ -2079,7 +2081,7 @@ void LinearScan::buildIntervals()
             continue;
         }
 
-        if (argDsc->lvIsRegArg)
+        if (argDsc->IsRegParam())
         {
             updateRegStateForArg(argDsc);
         }
@@ -2089,15 +2091,17 @@ void LinearScan::buildIntervals()
             Interval*       interval = getIntervalForLocalVar(varIndex);
             const var_types regType  = argDsc->GetRegisterType();
             regMaskTP       mask     = allRegs(regType);
-            if (argDsc->lvIsRegArg)
+
+            if (argDsc->IsRegParam())
             {
                 // Set this interval as currently assigned to that register
-                regNumber inArgReg = argDsc->GetArgReg();
+                regNumber inArgReg = argDsc->GetParamReg();
                 assert(inArgReg < REG_COUNT);
                 mask = genRegMask(inArgReg);
                 assignPhysReg(inArgReg, interval);
                 INDEBUG(registersToDump |= getRegMask(inArgReg, interval->registerType));
             }
+
             RefPosition* pos = newRefPosition(interval, MinLocation, RefTypeParamDef, nullptr, mask);
             pos->setRegOptional(true);
         }
@@ -2120,8 +2124,8 @@ void LinearScan::buildIntervals()
         else
         {
             // We can overwrite the register (i.e. codegen saves it on entry)
-            assert(argDsc->lvRefCnt() == 0 || !argDsc->lvIsRegArg || argDsc->lvDoNotEnregister ||
-                   !argDsc->lvLRACandidate || (varTypeIsFloating(argDsc->TypeGet()) && compiler->opts.compDbgCode));
+            assert(argDsc->GetRefCount() == 0 || !argDsc->IsRegParam() || argDsc->lvDoNotEnregister ||
+                   !argDsc->lvLRACandidate || (varTypeIsFloating(argDsc->GetType()) && compiler->opts.compDbgCode));
         }
     }
 
@@ -2139,8 +2143,10 @@ void LinearScan::buildIntervals()
                  fieldVarNum < argDsc->lvFieldLclStart + argDsc->lvFieldCnt; ++fieldVarNum)
             {
                 LclVarDsc* fieldVarDsc = compiler->lvaGetDesc(fieldVarNum);
-                noway_assert(fieldVarDsc->lvIsParam);
-                if (!fieldVarDsc->lvTracked && fieldVarDsc->lvIsRegArg)
+
+                noway_assert(fieldVarDsc->IsParam());
+
+                if (!fieldVarDsc->HasLiveness() && fieldVarDsc->IsRegParam())
                 {
                     updateRegStateForArg(fieldVarDsc);
                 }
@@ -2148,8 +2154,9 @@ void LinearScan::buildIntervals()
         }
         else
         {
-            noway_assert(argDsc->lvIsParam);
-            if (!argDsc->lvTracked && argDsc->lvIsRegArg)
+            noway_assert(argDsc->IsParam());
+
+            if (!argDsc->HasLiveness() && argDsc->IsRegParam())
             {
                 updateRegStateForArg(argDsc);
             }

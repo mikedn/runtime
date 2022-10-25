@@ -931,9 +931,9 @@ inline GenTreeIndir* Compiler::gtNewFieldIndir(var_types type, GenTreeFieldAddr*
         // once, at the start of the method, to copy the arg value to a local.
         // However, GTF_GLOB_REF will be discarded during the actual promotion
         // so this may be a problem only between import and promote phases.
-        if (varDsc->lvIsParam
-#if defined(TARGET_X86)
-            && info.compIsVarArgs && !varDsc->lvIsRegArg && (lclNum != lvaVarargsHandleArg)
+        if (varDsc->IsParam()
+#ifdef TARGET_X86
+            && info.compIsVarArgs && !varDsc->IsRegParam() && (lclNum != lvaVarargsHandleArg)
 #else
             && varTypeIsStruct(varDsc->GetType())
 #endif
@@ -2698,7 +2698,7 @@ inline void Compiler::CLR_API_Leave(API_ICorJitInfo_Names ename)
 bool Compiler::fgVarIsNeverZeroInitializedInProlog(unsigned varNum)
 {
     LclVarDsc* varDsc = lvaGetDesc(varNum);
-    bool       result = varDsc->lvIsParam || lvaIsOSRLocal(varNum) || (varNum == lvaGSSecurityCookie) ||
+    bool       result = varDsc->IsParam() || lvaIsOSRLocal(varNum) || (varNum == lvaGSSecurityCookie) ||
                   (varNum == lvaInlinedPInvokeFrameVar) || (varNum == lvaStubArgumentVar) || (varNum == lvaRetAddrVar);
 
 #if FEATURE_FIXED_OUT_ARGS

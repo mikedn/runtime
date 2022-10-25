@@ -1143,12 +1143,12 @@ void CodeGen::genExitCode(BasicBlock* block)
 
             /* Figure out which register parameters hold pointers */
 
-            for (varNum = 0, varDsc = compiler->lvaTable; varNum < compiler->lvaCount && varDsc->lvIsRegArg;
+            for (varNum = 0, varDsc = compiler->lvaTable; varNum < compiler->lvaCount && varDsc->IsRegParam();
                  varNum++, varDsc++)
             {
-                noway_assert(varDsc->lvIsParam);
+                noway_assert(varDsc->IsParam());
 
-                gcInfo.gcMarkRegPtrVal(varDsc->GetArgReg(), varDsc->TypeGet());
+                gcInfo.gcMarkRegPtrVal(varDsc->GetParamReg(), varDsc->GetType());
             }
 
             GetEmitter()->emitThisGCrefRegs = GetEmitter()->emitInitGCrefRegs = gcInfo.gcRegGCrefSetCur;
@@ -6013,7 +6013,7 @@ void CodeGen::genFnProlog()
 
     for (varNum = 0, varDsc = compiler->lvaTable; varNum < compiler->lvaCount; varNum++, varDsc++)
     {
-        if (varDsc->lvIsParam && !varDsc->lvIsRegArg)
+        if (varDsc->IsParam() && !varDsc->IsRegParam())
         {
             continue;
         }
@@ -8891,7 +8891,7 @@ void CodeGen::genSetScopeInfoUsingVariableRanges()
                     UNATIVE_OFFSET startOffs = liveRange.m_StartEmitLocation.CodeOffset(GetEmitter());
                     UNATIVE_OFFSET endOffs   = liveRange.m_EndEmitLocation.CodeOffset(GetEmitter());
 
-                    if (varDsc->lvIsParam && (startOffs == endOffs))
+                    if (varDsc->IsParam() && (startOffs == endOffs))
                     {
                         // If the length is zero, it means that the prolog is empty. In that case,
                         // CodeGen::genSetScopeInfo will report the liveness of all arguments
@@ -8944,8 +8944,8 @@ void CodeGen::genSetScopeInfo(unsigned       which,
     // so we don't need this code.
 
     // Is this a varargs function?
-    if (compiler->info.compIsVarArgs && varNum != compiler->lvaVarargsHandleArg &&
-        varNum < compiler->info.compArgsCount && !compiler->lvaTable[varNum].lvIsRegArg)
+    if (compiler->info.compIsVarArgs && (varNum != compiler->lvaVarargsHandleArg) &&
+        (varNum < compiler->info.compArgsCount) && !compiler->lvaGetDesc(varNum)->IsRegParam())
     {
         noway_assert(varLoc->vlType == VLT_STK || varLoc->vlType == VLT_STK2);
 
@@ -10731,7 +10731,8 @@ void CodeGen::genPoisonFrame(regMaskTP regLiveIn)
     for (unsigned varNum = 0; varNum < compiler->info.compLocalsCount; varNum++)
     {
         LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
-        if (varDsc->lvIsParam || varDsc->lvMustInit || !varDsc->lvAddrExposed)
+
+        if (varDsc->IsParam() || varDsc->lvMustInit || !varDsc->IsAddressExposed())
         {
             continue;
         }

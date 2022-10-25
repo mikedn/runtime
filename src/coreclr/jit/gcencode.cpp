@@ -2190,9 +2190,10 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
 #if DOUBLE_ALIGN
                 // For genDoubleAlign(), locals are addressed relative to ESP and
                 // arguments are addressed relative to EBP.
-
-                if (compiler->codeGen->doDoubleAlign() && varDsc->lvIsParam && !varDsc->lvIsRegArg)
+                if (compiler->codeGen->doDoubleAlign() && varDsc->IsParam() && !varDsc->IsRegParam())
+                {
                     offset += compiler->codeGen->genTotalFrameSize();
+                }
 #endif
 
                 // The lower bits of the offset encode properties of the stk ptr
@@ -2239,8 +2240,7 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
 #if DOUBLE_ALIGN
                     // For genDoubleAlign(), locals are addressed relative to ESP and
                     // arguments are addressed relative to EBP.
-
-                    if (compiler->codeGen->doDoubleAlign() && varDsc->lvIsParam && !varDsc->lvIsRegArg)
+                    if (compiler->codeGen->doDoubleAlign() && varDsc->IsParam() && !varDsc->IsRegParam())
                     {
                         offset += compiler->codeGen->genTotalFrameSize();
                     }
@@ -4084,7 +4084,7 @@ void GCInfo::gcMakeRegPtrTable(
         if (varTypeIsGC(varDsc->TypeGet()))
         {
             // Do we have an argument or local variable?
-            if (!varDsc->lvIsParam)
+            if (!varDsc->IsParam())
             {
                 // If is is pinned, it must be an untracked local.
                 assert(!varDsc->lvPinned || !varDsc->lvTracked);
@@ -4117,7 +4117,7 @@ void GCInfo::gcMakeRegPtrTable(
                 }
                 else
                 {
-                    if (varDsc->lvIsRegArg && varDsc->lvTracked)
+                    if (varDsc->IsRegParam() && varDsc->HasLiveness())
                     {
                         // If this register-passed arg is tracked, then
                         // it has been allocated space near the other
@@ -4192,9 +4192,10 @@ void GCInfo::gcMakeRegPtrTable(
 #if DOUBLE_ALIGN
                 // For genDoubleAlign(), locals are addressed relative to ESP and
                 // arguments are addressed relative to EBP.
-
-                if (compiler->genDoubleAlign() && varDsc->lvIsParam && !varDsc->lvIsRegArg)
+                if (compiler->genDoubleAlign() && varDsc->IsParam() && !varDsc->IsRegParam())
+                {
                     offset += compiler->codeGen->genTotalFrameSize();
+                }
 #endif
                 GcSlotFlags flags = GC_SLOT_UNTRACKED;
                 if (layout->GetGCPtrType(i) == TYP_BYREF)

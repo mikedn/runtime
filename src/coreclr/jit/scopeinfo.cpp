@@ -1477,20 +1477,21 @@ void CodeGen::psiBegProlog()
     VarScopeDsc* varScope;
     while ((varScope = compiler->compGetNextEnterScope(0)) != nullptr)
     {
-        LclVarDsc* lclVarDsc = &compiler->lvaTable[varScope->vsdVarNum];
+        LclVarDsc* lclVarDsc = compiler->lvaGetDesc(varScope->vsdVarNum);
 
-        if (!lclVarDsc->lvIsParam)
+        if (!lclVarDsc->IsParam())
         {
             continue;
         }
+
 #ifdef USING_SCOPE_INFO
         psiScope* newScope = psiNewPrologScope(varScope->vsdLVnum, varScope->vsdVarNum);
-#endif // USING_SCOPE_INFO
+#endif
 #ifdef USING_VARIABLE_LIVE_RANGE
         siVarLoc varLocation;
-#endif // USING_VARIABLE_LIVE_RANGE
+#endif
 
-        if (lclVarDsc->lvIsRegArg)
+        if (lclVarDsc->IsRegParam())
         {
             bool isStructHandled = false;
 
@@ -1641,9 +1642,10 @@ void CodeGen::psiAdjustStackLevel(unsigned size)
     {
         if (scope->scRegister)
         {
-            assert(compiler->lvaTable[scope->scSlotNum].lvIsRegArg);
+            assert(compiler->lvaGetDesc(scope->scSlotNum)->IsRegParam());
             continue;
         }
+
         assert(scope->u2.scBaseReg == REG_SPBASE);
 
         psiScope* newScope     = psiNewPrologScope(scope->scLVnum, scope->scSlotNum);
@@ -1684,9 +1686,10 @@ void CodeGen::psiMoveESPtoEBP()
     {
         if (scope->scRegister)
         {
-            assert(compiler->lvaTable[scope->scSlotNum].lvIsRegArg);
+            assert(compiler->lvaGetDesc(scope->scSlotNum)->IsRegParam());
             continue;
         }
+
         assert(scope->u2.scBaseReg == REG_SPBASE);
 
         psiScope* newScope     = psiNewPrologScope(scope->scLVnum, scope->scSlotNum);
@@ -1781,8 +1784,8 @@ void CodeGen::psiMoveToStack(unsigned varNum)
     }
 
     assert(compiler->compGeneratingProlog);
-    assert(compiler->lvaTable[varNum].lvIsRegArg);
-    assert(!compiler->lvaTable[varNum].lvRegister);
+    assert(compiler->lvaGetDesc(varNum)->IsRegParam());
+    assert(!compiler->lvaGetDesc(varNum)->lvRegister);
 
 #ifdef ACCURATE_PROLOG_DEBUG_INFO
 

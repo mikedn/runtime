@@ -1349,7 +1349,7 @@ void LinearScan::identifyCandidatesExceptionDataflow()
 
         assert(varDsc->lvLiveInOutOfHndlr);
 
-        if (varTypeIsGC(varDsc) && VarSetOps::IsMember(compiler, finallyVars, varIndex) && !varDsc->lvIsParam)
+        if (varTypeIsGC(varDsc) && VarSetOps::IsMember(compiler, finallyVars, varIndex) && !varDsc->IsParam())
         {
             assert(varDsc->lvMustInit);
         }
@@ -1539,7 +1539,7 @@ void LinearScan::identifyCandidates()
 #if DOUBLE_ALIGN
         if (checkDoubleAlign)
         {
-            if (varDsc->lvIsParam && !varDsc->lvIsRegArg)
+            if (varDsc->IsParam() && !varDsc->IsRegParam())
             {
                 refCntStkParam += varDsc->lvRefCnt();
             }
@@ -1665,7 +1665,8 @@ void LinearScan::identifyCandidates()
             {
                 floatVarCount++;
                 BasicBlock::weight_t refCntWtd = varDsc->lvRefCntWtd();
-                if (varDsc->lvIsRegArg)
+
+                if (varDsc->IsRegParam())
                 {
                     // Don't count the initial reference for register params.  In those cases,
                     // using a callee-save causes an extra copy.
@@ -2662,9 +2663,11 @@ bool LinearScan::canSpillReg(RegRecord* physRegRecord, LsraLocation refLocation)
         assert(!isRefPositionActive(recentAssignedRef, refLocation));
         return true;
     }
+
     // recentAssignedRef can only be null if this is a parameter that has not yet been
     // moved to a register (or stack), in which case we can't spill it yet.
-    assert(physRegRecord->assignedInterval->getLocalVar(compiler)->lvIsParam);
+    assert(physRegRecord->assignedInterval->getLocalVar(compiler)->IsParam());
+
     return false;
 }
 
@@ -4328,7 +4331,8 @@ void LinearScan::allocateRegisters()
         if (currentInterval->isLocalVar)
         {
             LclVarDsc* varDsc = currentInterval->getLocalVar(compiler);
-            if (varDsc->lvIsRegArg && currentInterval->firstRefPosition != nullptr)
+
+            if (varDsc->IsRegParam() && (currentInterval->firstRefPosition != nullptr))
             {
                 currentInterval->isActive = true;
             }
@@ -6772,7 +6776,7 @@ void LinearScan::resolveRegisters()
 
                 // Determine initial position for parameters
 
-                if (varDsc->lvIsParam)
+                if (varDsc->IsParam())
                 {
                     regMaskTP initialRegMask = interval->firstRefPosition->registerAssignment;
                     regNumber initialReg     = (initialRegMask == RBM_NONE || interval->firstRefPosition->spillAfter)
@@ -9172,7 +9176,7 @@ void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
                 LclVarDsc* varDsc = &(compiler->lvaTable[interval->varNum]);
                 printf("(");
                 regNumber assignedReg = varDsc->GetRegNum();
-                regNumber argReg      = (varDsc->lvIsRegArg) ? varDsc->GetArgReg() : REG_STK;
+                regNumber argReg      = varDsc->IsRegParam() ? varDsc->GetParamReg() : REG_STK;
 
                 assert(reg == assignedReg || varDsc->lvRegister == false);
                 if (reg != argReg)

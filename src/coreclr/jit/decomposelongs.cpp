@@ -2134,7 +2134,7 @@ void DecomposeLongs::PromoteLongVars()
 
         JITDUMP("\nPromoting long local V%02u:", lclNum);
 
-        bool isParam = varDsc->lvIsParam;
+        bool isParam = varDsc->IsParam();
 
         for (unsigned index = 0; index < 2; ++index)
         {

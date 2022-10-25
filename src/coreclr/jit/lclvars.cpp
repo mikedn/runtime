@@ -2025,7 +2025,7 @@ public:
 
         if (weight1 != 0)
         {
-            if (dsc1->lvIsRegArg)
+            if (dsc1->IsRegParam())
             {
                 weight1 += 2 * BB_UNITY_WEIGHT_UNSIGNED;
             }
@@ -2038,7 +2038,7 @@ public:
 
         if (weight2 != 0)
         {
-            if (dsc2->lvIsRegArg)
+            if (dsc2->IsRegParam())
             {
                 weight2 += 2 * BB_UNITY_WEIGHT_UNSIGNED;
             }
@@ -2114,12 +2114,12 @@ public:
         }
 #endif
 
-        if ((weight1 != 0) && dsc1->lvIsRegArg)
+        if ((weight1 != 0) && dsc1->IsRegParam())
         {
             weight1 += 2 * BB_UNITY_WEIGHT;
         }
 
-        if ((weight2 != 0) && dsc2->lvIsRegArg)
+        if ((weight2 != 0) && dsc2->IsRegParam())
         {
             weight2 += 2 * BB_UNITY_WEIGHT;
         }

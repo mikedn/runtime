@@ -459,7 +459,7 @@ bool GCInfo::gcIsUntrackedLocalOrNonEnregisteredArg(unsigned varNum, bool* pKeep
                 return false;
             }
         }
-        else if (varDsc->lvIsRegArg && varDsc->lvTracked)
+        else if (varDsc->IsRegParam() && varDsc->HasLiveness())
         {
             // If this register-passed arg is tracked, then it has been allocated space near the other pointer variables
             // and we have accurate life-time info. It will be reported with gcVarPtrList in the "tracked-pointer"

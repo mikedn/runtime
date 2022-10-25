@@ -5276,25 +5276,25 @@ void CodeGen::genJmpMethod(GenTree* jmp)
     // are not frequent.
     for (varNum = 0; (varNum < compiler->info.compArgsCount); varNum++)
     {
-        varDsc = compiler->lvaTable + varNum;
+        varDsc = compiler->lvaGetDesc(varNum);
 
-        if (varDsc->lvPromoted)
+        if (varDsc->IsPromoted())
         {
-            noway_assert(varDsc->lvFieldCnt == 1); // We only handle one field here
+            noway_assert(varDsc->GetPromotedFieldCount() == 1); // We only handle one field here
 
-            unsigned fieldVarNum = varDsc->lvFieldLclStart;
-            varDsc               = compiler->lvaTable + fieldVarNum;
+            varDsc = compiler->lvaGetDesc(varDsc->GetPromotedFieldLclNum(0));
         }
-        noway_assert(varDsc->lvIsParam);
 
-        if (varDsc->lvIsRegArg && (varDsc->GetRegNum() != REG_STK))
+        noway_assert(varDsc->IsParam());
+
+        if (varDsc->IsRegParam() && (varDsc->GetRegNum() != REG_STK))
         {
             // Skip reg args which are already in its right register for jmp call.
             // If not, we will spill such args to their stack locations.
             //
             // If we need to generate a tail call profiler hook, then spill all
             // arg regs to free them up for the callback.
-            if (!compiler->compIsProfilerHookNeeded() && (varDsc->GetRegNum() == varDsc->GetArgReg()))
+            if (!compiler->compIsProfilerHookNeeded() && (varDsc->GetRegNum() == varDsc->GetParamReg()))
             {
                 continue;
             }
@@ -5346,20 +5346,21 @@ void CodeGen::genJmpMethod(GenTree* jmp)
     // Next move any un-enregistered register arguments back to their register.
     regMaskTP fixedIntArgMask = RBM_NONE;    // tracks the int arg regs occupying fixed args in case of a vararg method.
     unsigned  firstArgVarNum  = BAD_VAR_NUM; // varNum of the first argument in case of a vararg method.
-    for (varNum = 0; (varNum < compiler->info.compArgsCount); varNum++)
+    for (varNum = 0; varNum < compiler->info.compArgsCount; varNum++)
     {
-        varDsc = compiler->lvaTable + varNum;
-        if (varDsc->lvPromoted)
-        {
-            noway_assert(varDsc->lvFieldCnt == 1); // We only handle one field here
+        varDsc = compiler->lvaGetDesc(varNum);
 
-            unsigned fieldVarNum = varDsc->lvFieldLclStart;
-            varDsc               = compiler->lvaTable + fieldVarNum;
+        if (varDsc->IsPromoted())
+        {
+            noway_assert(varDsc->GetPromotedFieldCount() == 1); // We only handle one field here
+
+            varDsc = compiler->lvaGetDesc(varDsc->GetPromotedFieldLclNum(0));
         }
-        noway_assert(varDsc->lvIsParam);
+
+        noway_assert(varDsc->IsParam());
 
         // Skip if arg not passed in a register.
-        if (!varDsc->lvIsRegArg)
+        if (!varDsc->IsRegParam())
         {
             continue;
         }
@@ -8234,15 +8235,15 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
     {
         for (varNum = 0, varDsc = compiler->lvaTable; varNum < compiler->info.compArgsCount; varNum++, varDsc++)
         {
-            noway_assert(varDsc->lvIsParam);
+            noway_assert(varDsc->IsParam());
 
-            if (!varDsc->lvIsRegArg)
+            if (!varDsc->IsRegParam())
             {
                 continue;
             }
 
             var_types storeType = varDsc->lvaArgType();
-            regNumber argReg    = varDsc->GetArgReg();
+            regNumber argReg    = varDsc->GetParamReg();
 
             instruction store_ins = ins_Store(storeType);
 
@@ -8304,9 +8305,9 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
     //   - if floating point type, also reload it into corresponding integer reg
     for (varNum = 0, varDsc = compiler->lvaTable; varNum < compiler->info.compArgsCount; varNum++, varDsc++)
     {
-        noway_assert(varDsc->lvIsParam);
+        noway_assert(varDsc->IsParam());
 
-        if (!varDsc->lvIsRegArg)
+        if (!varDsc->IsRegParam())
         {
             continue;
         }
@@ -8470,7 +8471,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
         // method to have at least a single arg so that we can use it to obtain caller's
         // SP.
         LclVarDsc* varDsc = compiler->lvaTable;
-        NYI_IF((varDsc == nullptr) || !varDsc->lvIsParam, "Profiler ELT callback for a method without any params");
+        NYI_IF((varDsc == nullptr) || !varDsc->IsParam(), "Profiler ELT callback for a method without any params");
 
         // lea rdx, [FramePointer + Arg0's offset]
         GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, REG_ARG_1, 0, 0);
@@ -8510,7 +8511,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
     else
     {
         LclVarDsc* varDsc = compiler->lvaTable;
-        NYI_IF((varDsc == nullptr) || !varDsc->lvIsParam, "Profiler ELT callback for a method without any params");
+        NYI_IF((varDsc == nullptr) || !varDsc->IsParam(), "Profiler ELT callback for a method without any params");
 
         // lea rdx, [FramePointer + Arg0's offset]
         GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, REG_ARG_1, 0, 0);

@@ -5832,7 +5832,7 @@ unsigned emitter::emitEndCodeGen(Compiler* comp,
 
         for (num = 0, dsc = emitComp->lvaTable, cnt = emitComp->lvaCount; num < cnt; num++, dsc++)
         {
-            if (!dsc->lvOnFrame || (dsc->lvIsParam && !dsc->lvIsRegArg))
+            if (!dsc->lvOnFrame || (dsc->IsParam() && !dsc->IsRegParam()))
             {
                 continue;
             }

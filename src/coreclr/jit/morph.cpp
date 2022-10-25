@@ -6129,7 +6129,7 @@ bool Compiler::fgCallHasMustCopyByrefParameter(CallInfo* callInfo)
                 return true;
             }
 
-            if (argNode2->OperIs(GT_LCL_VAR) && lvaGetDesc(argNode2->AsLclVar())->lvIsParam)
+            if (argNode2->OperIs(GT_LCL_VAR) && lvaGetDesc(argNode2->AsLclVar())->IsParam())
             {
                 // Other params can't alias implicit byref params.
 
@@ -6314,7 +6314,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
                 return nullptr;
             }
 
-            if (lcl->lvPromoted && lcl->lvIsParam)
+            if (lcl->lvPromoted && lcl->IsParam())
             {
                 failTailCall("Has Struct Promoted Param", lclNum);
                 return nullptr;
@@ -6329,7 +6329,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
             }
         }
 
-        if (varTypeIsStruct(lcl->TypeGet()) && lcl->lvIsParam)
+        if (varTypeIsStruct(lcl->GetType()) && lcl->IsParam())
         {
             hasStructParam = true;
             // This prevents transforming a recursive tail call into a loop
@@ -7770,13 +7770,15 @@ void Compiler::fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCa
             {
                 continue;
             }
-#endif // FEATURE_FIXED_OUT_ARGS
-            if (!varDsc->lvIsParam)
+#endif
+
+            if (!varDsc->IsParam())
             {
-                var_types lclType            = varDsc->TypeGet();
+                var_types lclType            = varDsc->GetType();
                 bool      isUserLocal        = (varNum < info.compLocalsCount);
                 bool      structWithGCFields = ((lclType == TYP_STRUCT) && varDsc->GetLayout()->HasGCPtr());
                 bool      hadSuppressedInit  = varDsc->lvSuppressedZeroInit;
+
                 if ((info.compInitMem && (isUserLocal || structWithGCFields)) || hadSuppressedInit)
                 {
                     GenTree* lcl  = gtNewLclvNode(varNum, lclType);
@@ -7862,11 +7864,11 @@ Statement* Compiler::fgAssignRecursiveCallArgToCallerParam(GenTree*       arg,
         // The argument is already assigned to a temp or is a const.
         argInTemp = arg;
     }
-    else if (arg->OperGet() == GT_LCL_VAR)
+    else if (arg->OperIs(GT_LCL_VAR))
     {
         unsigned   lclNum = arg->AsLclVar()->GetLclNum();
-        LclVarDsc* varDsc = &lvaTable[lclNum];
-        if (!varDsc->lvIsParam)
+        LclVarDsc* varDsc = lvaGetDesc(lclNum);
+        if (!varDsc->IsParam())
         {
             // The argument is a non-parameter local so it doesn't need to be assigned to a temp.
             argInTemp = arg;
