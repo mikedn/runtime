@@ -453,15 +453,11 @@ void Compiler::lvaInitThisParam(ParamAllocInfo& paramInfo)
         lvaSetClass(paramInfo.lclNum, info.compClassHnd);
     }
 
-    lcl->lvIsParam  = true;
-    lcl->lvIsPtr    = true;
-    lcl->lvIsRegArg = true;
-    lcl->lvOnFrame  = true;
+    lcl->lvIsParam = true;
+    lcl->lvIsPtr   = true;
+    lcl->lvOnFrame = true;
 
-    lcl->SetParamReg(paramInfo.AllocReg(TYP_INT));
-#ifdef UNIX_AMD64_ABI
-    lcl->SetParamReg(1, REG_NA);
-#endif
+    lcl->SetParamRegs(paramInfo.AllocReg(TYP_INT));
 
     JITDUMP("'this' passed in register %s\n", getRegName(lcl->GetParamReg()));
 
@@ -498,18 +494,13 @@ void Compiler::lvaInitRetBufParam(ParamAllocInfo& paramInfo, bool useFixedRetBuf
 #ifdef TARGET_ARM64
     if (useFixedRetBufReg)
     {
-        lcl->lvIsRegArg = true;
-        lcl->SetParamReg(REG_ARG_RET_BUFF);
+        lcl->SetParamRegs(REG_ARG_RET_BUFF);
     }
     else
 #endif
         if (paramInfo.CanEnregister(TYP_INT))
     {
-        lcl->lvIsRegArg = true;
-        lcl->SetParamReg(paramInfo.AllocReg(TYP_INT));
-#ifdef UNIX_AMD64_ABI
-        lcl->SetParamReg(1, REG_NA);
-#endif
+        lcl->SetParamRegs(paramInfo.AllocReg(TYP_INT));
 
         JITDUMP("'__retBuf' passed in register %s\n", getRegName(lcl->GetParamReg()));
 
@@ -546,11 +537,7 @@ void Compiler::lvaInitGenericsContextParam(ParamAllocInfo& paramInfo)
 
     if (paramInfo.CanEnregister(TYP_I_IMPL))
     {
-        lcl->lvIsRegArg = true;
-        lcl->SetParamReg(paramInfo.AllocReg(TYP_I_IMPL));
-#ifdef UNIX_AMD64_ABI
-        lcl->SetParamReg(1, REG_NA);
-#endif
+        lcl->SetParamRegs(paramInfo.AllocReg(TYP_I_IMPL));
 
         JITDUMP("'GenCtxt' passed in register %s\n", getRegName(lcl->GetParamReg()));
 
@@ -594,11 +581,7 @@ void Compiler::lvaInitVarargsHandleParam(ParamAllocInfo& paramInfo)
 
     if (paramInfo.CanEnregister(TYP_I_IMPL))
     {
-        lcl->lvIsRegArg = true;
-        lcl->SetParamReg(paramInfo.AllocReg(TYP_I_IMPL));
-#ifdef UNIX_AMD64_ABI
-        lcl->SetParamReg(1, REG_NA);
-#endif
+        lcl->SetParamRegs(paramInfo.AllocReg(TYP_I_IMPL));
 
         JITDUMP("'VarArgHnd' passed in register %s\n", getRegName(lcl->GetParamReg()));
 
@@ -702,7 +685,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
         if (paramInfo.CanEnregister(lcl->GetType()))
         {
-            lcl->SetParamReg(paramInfo.AllocReg(lcl->GetType()));
+            lcl->SetParamRegs(paramInfo.AllocReg(lcl->GetType()));
 
             isRegParam = true;
         }
@@ -731,23 +714,23 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
             if (((intRegCount == 0) || paramInfo.CanEnregister(TYP_INT, intRegCount)) &&
                 ((floatRegCount == 0) || paramInfo.CanEnregister(TYP_FLOAT, floatRegCount)))
             {
-                lcl->SetParamReg(0, paramInfo.AllocReg(lcl->GetLayout()->GetSysVAmd64AbiRegType(0)));
+                regNumber reg0 = paramInfo.AllocReg(lcl->GetLayout()->GetSysVAmd64AbiRegType(0));
+                regNumber reg1 = REG_NA;
 
                 if (lcl->GetLayout()->GetSysVAmd64AbiRegCount() >= 2)
                 {
-                    lcl->SetParamReg(1, paramInfo.AllocReg(lcl->GetLayout()->GetSysVAmd64AbiRegType(1)));
+                    reg1                 = paramInfo.AllocReg(lcl->GetLayout()->GetSysVAmd64AbiRegType(1));
                     lcl->lvIsMultiRegArg = true;
                 }
 
                 isRegParam = true;
+                lcl->SetParamRegs(reg0, reg1);
             }
         }
     }
 
     if (isRegParam)
     {
-        lcl->lvIsRegArg = true;
-
         JITDUMP("Param V%02u registers: %s", paramInfo.lclNum, getRegName(lcl->GetParamReg(0)));
 
         if (lcl->GetParamReg(1) == REG_NA)
@@ -792,8 +775,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
     if (paramInfo.CanEnregister(regType))
     {
-        lcl->lvIsRegArg = true;
-        lcl->SetParamReg(paramInfo.AllocReg(regType));
+        lcl->SetParamRegs(paramInfo.AllocReg(regType));
 
         JITDUMP("Param V%02u register: %s\n", paramInfo.lclNum, getRegName(lcl->GetParamReg()));
     }
@@ -860,9 +842,8 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
     if (paramInfo.CanEnregister(regType, minRegCount))
     {
-        lcl->lvIsRegArg      = true;
         lcl->lvIsMultiRegArg = regCount > 1;
-        lcl->SetParamReg(paramInfo.AllocRegs(regType, regCount));
+        lcl->SetParamRegs(paramInfo.AllocRegs(regType, regCount), regCount);
 
 #ifdef TARGET_WINDOWS
         bool isSplit = info.compIsVarArgs && (regCount * REGSIZE_BYTES < paramSize);
@@ -934,8 +915,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
          ((regType == TYP_STRUCT) && isTrivialPointerSizedStruct(lcl->GetLayout()))) &&
         paramInfo.CanEnregister(TYP_INT))
     {
-        lcl->lvIsRegArg = true;
-        lcl->SetParamReg(paramInfo.AllocReg(TYP_INT));
+        lcl->SetParamRegs(paramInfo.AllocReg(TYP_INT));
 
         JITDUMP("Param V%02u register: %s\n", paramInfo.lclNum, getRegName(lcl->GetParamReg()));
     }
@@ -1022,8 +1002,6 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
     if (paramInfo.CanEnregister(regType, minRegCount))
     {
-        lcl->lvIsRegArg = true;
-
         bool preSpill = softFPPreSpill;
         bool isSplit  = false;
 
@@ -1064,7 +1042,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
             codeGen->regSet.rsMaskPreSpillRegArg |= regMask;
         }
 
-        lcl->SetParamReg(paramInfo.AllocRegs(regType, regCount));
+        lcl->SetParamRegs(paramInfo.AllocRegs(regType, regCount), regCount);
 
         if (isSplit)
         {
@@ -1234,6 +1212,8 @@ void Compiler::lvaInitVarDsc(LclVarDsc* varDsc, unsigned varNum, CorInfoType cor
     INDEBUG(varDsc->SetStackOffset(BAD_STK_OFFS);)
 
 #ifdef UNIX_AMD64_ABI
+    // TODO-MIKE-Cleanup: See if this can be removed, m_paramRegs should
+    // really be initialized to {REG_NA, REG_NA}, not {REG_STK, REG_STK}.
     varDsc->SetParamReg(1, REG_NA);
 #endif
 }

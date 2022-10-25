@@ -330,8 +330,13 @@ public:
 
     var_types lvType;
 
-    unsigned char lvIsParam : 1;           // is this a parameter?
-    unsigned char lvIsRegArg : 1;          // is this an argument that was passed by register?
+    unsigned char lvIsParam : 1;  // is this a parameter?
+    unsigned char lvIsRegArg : 1; // is this an argument that was passed by register?
+#ifdef TARGET_ARM64
+    unsigned char m_paramRegCount : 3;
+#elif defined(TARGET_ARM)
+    unsigned char m_paramRegCount : 4;
+#endif
     unsigned char lvFramePointerBased : 1; // 0 = off of REG_SPBASE (e.g., ESP), 1 = off of REG_FPBASE (e.g., EBP)
 
     unsigned char lvOnFrame : 1;  // (part of) the variable lives on the frame
@@ -629,15 +634,11 @@ public:
         return static_cast<regNumber>(m_paramRegs[0]);
     }
 
-    void SetParamReg(regNumber reg)
-    {
-        m_paramRegs[0] = static_cast<regNumberSmall>(reg);
-    }
-
 #ifdef UNIX_AMD64_ABI
     regNumber GetParamReg(unsigned index) const
     {
         assert(index < _countof(m_paramRegs));
+
         return static_cast<regNumber>(m_paramRegs[index]);
     }
 
@@ -647,12 +648,82 @@ public:
         m_paramRegs[index] = static_cast<regNumberSmall>(reg);
     }
 
-    void SetParamRegs(regNumber reg0, regNumber reg1)
+    void SetParamRegs(regNumber reg0, regNumber reg1 = REG_NA)
     {
+        assert(lvIsParam);
+
+        lvIsRegArg = true;
+
         m_paramRegs[0] = static_cast<regNumberSmall>(reg0);
         m_paramRegs[1] = static_cast<regNumberSmall>(reg1);
     }
+
+    void ClearParamRegs()
+    {
+        assert(lvIsParam);
+
+        lvIsRegArg      = false;
+        lvIsMultiRegArg = false;
+
+        m_paramRegs[0] = REG_NA;
+        m_paramRegs[1] = REG_NA;
+    }
+#elif defined(TARGET_XARCH)
+    void SetParamRegs(regNumber reg)
+    {
+        assert(lvIsParam);
+
+        lvIsRegArg = true;
+
+        m_paramRegs[0] = static_cast<regNumberSmall>(reg);
+    }
+
+    void ClearParamRegs()
+    {
+        lvIsRegArg      = false;
+        lvIsMultiRegArg = false;
+
+        m_paramRegs[0] = REG_NA;
+    }
+#elif defined(TARGET_ARMARCH)
+    void SetParamRegs(regNumber reg0, unsigned regCount = 1)
+    {
+#ifdef TARGET_ARM64
+        assert(regCount <= MAX_ARG_REG_COUNT);
+#else
+        // TODO-MIKE-Cleanup: On ARM we count a DOUBLE reg as 2 FLOAT regs.
+        // Can this be avoided somehow? It complicates lvIsMultiRegArg because
+        // a HFA with a single DOUBLE element uses 2 regs but lvIsMultiRegArg
+        // is false for it.
+        assert(regCount <= MAX_ARG_REG_COUNT * 2);
 #endif
+
+        lvIsRegArg = true;
+
+        m_paramRegs[0]  = static_cast<regNumberSmall>(reg0);
+        m_paramRegCount = regCount;
+    }
+
+    void ClearParamRegs()
+    {
+        lvIsRegArg      = false;
+        lvIsMultiRegArg = false;
+
+        m_paramRegs[0]  = REG_NA;
+        m_paramRegCount = 0;
+    }
+#endif // TARGET_ARMARCH
+
+    unsigned GetParamRegCount() const
+    {
+#ifdef UNIX_AMD64_ABI
+        return !lvIsRegArg ? 0 : (1 + ((m_paramRegs[1] != REG_STK) && (m_paramRegs[1] != REG_NA)));
+#elif defined(TARGET_XARCH)
+        return !lvIsRegArg ? 0 : 1;
+#elif defined(TARGET_ARMARCH)
+        return m_paramRegCount;
+#endif
+    }
 
     regNumber GetParamInitialReg() const
     {

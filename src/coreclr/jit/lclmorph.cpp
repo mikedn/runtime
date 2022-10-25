@@ -2931,14 +2931,13 @@ void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
             continue;
         }
 
-        fieldLcl->lvIsRegArg = true;
-
 #if !FEATURE_MULTIREG_ARGS
-        fieldLcl->SetParamReg(lcl->GetParamReg());
+        fieldLcl->SetParamRegs(lcl->GetParamReg());
 #else
         if (lcl->IsImplicitByRefParam())
         {
-            fieldLcl->SetParamReg(lcl->GetParamReg());
+            fieldLcl->SetParamRegs(lcl->GetParamReg());
+
             continue;
         }
 
@@ -2951,7 +2950,7 @@ void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
         {
             assert(field.offset == REGSIZE_BYTES * index);
 
-            fieldLcl->SetParamRegs(lcl->GetParamReg(index), REG_NA);
+            fieldLcl->SetParamRegs(lcl->GetParamReg(index));
         }
 #else // !UNIX_AMD64_ABI
         unsigned regIndex = index;
@@ -2978,7 +2977,7 @@ void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
             // TODO-ARMARCH: Need to determine if/how to handle split args.
         }
 
-        fieldLcl->SetParamReg(static_cast<regNumber>(lcl->GetParamReg() + regIndex));
+        fieldLcl->SetParamRegs(static_cast<regNumber>(lcl->GetParamReg() + regIndex));
 #endif // !UNIX_AMD64_ABI
 #endif // FEATURE_MULTIREG_ARGS
     }
@@ -3575,13 +3574,8 @@ void Compiler::lvaRetypeImplicitByRefParams()
                     assert(fieldLcl->lvParentLcl == lclNum);
 
                     // The fields shouldn't inherit any register preferences from the parameter.
-                    fieldLcl->lvIsParam       = false;
-                    fieldLcl->lvIsRegArg      = false;
-                    fieldLcl->lvIsMultiRegArg = false;
-                    fieldLcl->SetParamReg(REG_NA);
-#ifdef UNIX_AMD64_ABI
-                    fieldLcl->SetParamReg(1, REG_NA);
-#endif
+                    fieldLcl->lvIsParam = false;
+                    fieldLcl->ClearParamRegs();
                 }
 
                 // Reset lvPromoted since the param is no longer promoted but keep lvFieldLclStart
@@ -3635,13 +3629,8 @@ void Compiler::lvaRetypeImplicitByRefParams()
                     fieldLcl->lvParentLcl = structLclNum;
 
                     // The fields shouldn't inherit any register preferences from the parameter.
-                    fieldLcl->lvIsParam       = false;
-                    fieldLcl->lvIsRegArg      = false;
-                    fieldLcl->lvIsMultiRegArg = false;
-                    fieldLcl->SetParamReg(REG_NA);
-#ifdef UNIX_AMD64_ABI
-                    fieldLcl->SetParamReg(1, REG_NA);
-#endif
+                    fieldLcl->lvIsParam = false;
+                    fieldLcl->ClearParamRegs();
                 }
 
                 // Reset lvPromoted since the param is no longer promoted but set lvFieldLclStart
