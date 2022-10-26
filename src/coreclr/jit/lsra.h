@@ -1040,6 +1040,7 @@ private:
 
     // Update reg state for an incoming register argument
     void updateRegStateForArg(LclVarDsc* argDsc);
+    regNumber UpdateRegStateForRegParam(RegState* regState, bool isFloatRegState, LclVarDsc* argDsc);
 
     inline bool isCandidateLclVar(GenTree* tree)
     {

@@ -1978,14 +1978,103 @@ void LinearScan::updateRegStateForArg(LclVarDsc* argDsc)
         if (isFloat)
         {
             JITDUMP("Float arg V%02u in reg %s\n", (argDsc - compiler->lvaTable), getRegName(argDsc->GetParamReg()));
-            compiler->raUpdateRegStateForArg(floatRegState, true, argDsc);
+            UpdateRegStateForRegParam(floatRegState, true, argDsc);
         }
         else
         {
             JITDUMP("Int arg V%02u in reg %s\n", (argDsc - compiler->lvaTable), getRegName(argDsc->GetParamReg()));
-            compiler->raUpdateRegStateForArg(intRegState, false, argDsc);
+            UpdateRegStateForRegParam(intRegState, false, argDsc);
         }
     }
+}
+
+// The code to set the regState for each arg is outlined for shared use
+// by linear scan. (It is not shared for System V AMD64 platform.)
+regNumber LinearScan::UpdateRegStateForRegParam(RegState* regState, bool isFloatRegState, LclVarDsc* argDsc)
+{
+    regNumber inArgReg  = argDsc->GetParamReg();
+    regMaskTP inArgMask = genRegMask(inArgReg);
+
+    if (isFloatRegState)
+    {
+        noway_assert(inArgMask & RBM_FLTARG_REGS);
+    }
+    else //  regState is for the integer registers
+    {
+#ifdef TARGET_ARM64
+        // This might be the fixed return buffer register argument (on ARM64)
+        // We check and allow inArgReg to be REG_ARG_RET_BUFF
+        if (inArgReg == REG_ARG_RET_BUFF)
+        {
+            // We should have a TYP_BYREF or TYP_I_IMPL arg and not a TYP_STRUCT arg
+            noway_assert(argDsc->TypeIs(TYP_BYREF, TYP_I_IMPL));
+            // We should have recorded the variable number for the return buffer arg
+            noway_assert(compiler->info.compRetBuffArg != BAD_VAR_NUM);
+        }
+        else
+#endif
+        {
+            noway_assert(inArgMask & RBM_ARG_REGS);
+        }
+    }
+
+    regState->rsCalleeRegArgMaskLiveIn |= inArgMask;
+
+#ifdef TARGET_ARM
+    if (argDsc->TypeIs(TYP_DOUBLE))
+    {
+        if (compiler->info.compIsVarArgs || compiler->opts.compUseSoftFP)
+        {
+            assert((inArgReg == REG_R0) || (inArgReg == REG_R2));
+            assert(!isFloatRegState);
+        }
+        else
+        {
+            assert(isFloatRegState);
+            assert(emitter::isDoubleReg(inArgReg));
+        }
+        regState->rsCalleeRegArgMaskLiveIn |= genRegMask((regNumber)(inArgReg + 1));
+    }
+    else if (argDsc->TypeIs(TYP_LONG))
+    {
+        assert((inArgReg == REG_R0) || (inArgReg == REG_R2));
+        assert(!isFloatRegState);
+        regState->rsCalleeRegArgMaskLiveIn |= genRegMask((regNumber)(inArgReg + 1));
+    }
+#endif // TARGET_ARM
+
+#if FEATURE_MULTIREG_ARGS
+    if (varTypeIsStruct(argDsc->GetType()))
+    {
+        if (argDsc->IsHfaRegParam())
+        {
+            assert(isFloatRegState);
+            unsigned regCount = argDsc->GetLayout()->GetHfaRegCount();
+
+            for (unsigned i = 1; i < regCount; i++)
+            {
+                assert(inArgReg + i <= LAST_FP_ARGREG);
+                regState->rsCalleeRegArgMaskLiveIn |= genRegMask(static_cast<regNumber>(inArgReg + i));
+            }
+        }
+        else
+        {
+            assert(!isFloatRegState);
+            unsigned cSlots = argDsc->lvSize() / TARGET_POINTER_SIZE;
+            for (unsigned i = 1; i < cSlots; i++)
+            {
+                regNumber nextArgReg = (regNumber)(inArgReg + i);
+                if (nextArgReg > REG_ARG_LAST)
+                {
+                    break;
+                }
+                regState->rsCalleeRegArgMaskLiveIn |= genRegMask(nextArgReg);
+            }
+        }
+    }
+#endif // FEATURE_MULTIREG_ARGS
+
+    return inArgReg;
 }
 
 //------------------------------------------------------------------------
