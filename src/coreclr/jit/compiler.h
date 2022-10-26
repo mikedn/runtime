@@ -693,6 +693,13 @@ public:
         m_paramRegs[0] = REG_NA;
     }
 #elif defined(TARGET_ARMARCH)
+    regNumber GetParamReg(unsigned index) const
+    {
+        assert(index < m_paramRegCount);
+
+        return static_cast<regNumber>(m_paramRegs[0] + index);
+    }
+
     void SetParamRegs(regNumber reg0, unsigned regCount = 1)
     {
 #ifdef TARGET_ARM64

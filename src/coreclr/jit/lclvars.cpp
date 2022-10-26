@@ -861,7 +861,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
             for (unsigned i = 0; i < regCount; i++)
             {
-                printf("%s%s", i > 0 ? ", " : "", getRegName(static_cast<regNumber>(lcl->GetParamReg() + i)));
+                printf("%s%s", i > 0 ? ", " : "", getRegName(lcl->GetParamReg(i)));
             }
 
 #ifdef TARGET_WINDOWS
@@ -1061,7 +1061,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
                     printf(", ");
                 }
 
-                regNumber reg = static_cast<regNumber>(lcl->GetParamReg() + i);
+                regNumber reg = lcl->GetParamReg(i);
 
                 if (regType == TYP_DOUBLE)
                 {

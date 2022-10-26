@@ -2966,6 +2966,8 @@ void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
             if (lcl->GetLayout()->GetHfaElementType() == TYP_DOUBLE)
             {
                 // On ARM we count FLOAT rather than DOUBLE registers.
+                // TODO-MIKE-Fix: We also need to pass regCount = 2 to SetParamRegs below.
+                // This is dead code since we don't currently promoted params on ARM.
                 regIndex *= 2;
             }
 #endif
@@ -2977,7 +2979,7 @@ void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
             // TODO-ARMARCH: Need to determine if/how to handle split args.
         }
 
-        fieldLcl->SetParamRegs(static_cast<regNumber>(lcl->GetParamReg() + regIndex));
+        fieldLcl->SetParamRegs(lcl->GetParamReg(regIndex));
 #endif // !UNIX_AMD64_ABI
 #endif // FEATURE_MULTIREG_ARGS
     }
