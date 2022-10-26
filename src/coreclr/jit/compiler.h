@@ -679,6 +679,13 @@ public:
         m_paramRegs[1] = REG_NA;
     }
 #elif defined(TARGET_XARCH)
+    regNumber GetParamReg(unsigned index) const
+    {
+        assert(index < _countof(m_paramRegs));
+
+        return static_cast<regNumber>(m_paramRegs[index]);
+    }
+
     void SetParamRegs(regNumber reg)
     {
         assert(lvIsParam);

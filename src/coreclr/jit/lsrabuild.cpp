@@ -1884,197 +1884,19 @@ void LinearScan::insertZeroInitRefPositions()
     }
 }
 
-#if defined(UNIX_AMD64_ABI)
-//------------------------------------------------------------------------
-// unixAmd64UpdateRegStateForArg: Sets the register state for an argument of type STRUCT for System V systems.
-//
-// Arguments:
-//    argDsc - the LclVarDsc for the argument of interest
-//
-// Notes:
-//     See Compiler::raUpdateRegStateForArg  for how state for argument is updated
-//     for unix non-structs and Windows AMD64 structs.
-//
-void LinearScan::unixAmd64UpdateRegStateForArg(LclVarDsc* argDsc)
+void LinearScan::UpdateRegStateForParam(LclVarDsc* lcl)
 {
-    assert(varTypeIsStruct(argDsc->GetType()));
-    assert(argDsc->IsRegParam());
+    assert(lcl->IsRegParam());
 
-    RegState* intRegState   = &compiler->codeGen->intRegState;
-    RegState* floatRegState = &compiler->codeGen->floatRegState;
-    regNumber reg0          = argDsc->GetParamReg(0);
-    regNumber reg1          = argDsc->GetParamReg(1);
+    regMaskTP mask = RBM_NONE;
 
-    assert(reg0 != REG_NA);
-
-    if (genRegMask(reg0) & RBM_ALLFLOAT)
+    for (unsigned i = 0, count = lcl->GetParamRegCount(); i < count; i++)
     {
-        assert(genRegMask(reg0) & RBM_FLTARG_REGS);
-        floatRegState->rsCalleeRegArgMaskLiveIn |= genRegMask(reg0);
-    }
-    else
-    {
-        assert(genRegMask(reg0) & RBM_ARG_REGS);
-        intRegState->rsCalleeRegArgMaskLiveIn |= genRegMask(reg0);
+        mask |= genRegMask(lcl->GetParamReg(i));
     }
 
-    if (reg1 != REG_NA)
-    {
-        if (genRegMask(reg1) & RBM_ALLFLOAT)
-        {
-            assert(genRegMask(reg1) & RBM_FLTARG_REGS);
-            floatRegState->rsCalleeRegArgMaskLiveIn |= genRegMask(reg1);
-        }
-        else
-        {
-            assert(genRegMask(reg1) & RBM_ARG_REGS);
-            intRegState->rsCalleeRegArgMaskLiveIn |= genRegMask(reg1);
-        }
-    }
-}
-
-#endif // defined(UNIX_AMD64_ABI)
-
-//------------------------------------------------------------------------
-// updateRegStateForArg: Updates rsCalleeRegArgMaskLiveIn for the appropriate
-//    regState (either compiler->intRegState or compiler->floatRegState),
-//    with the lvArgReg on "argDsc"
-//
-// Arguments:
-//    argDsc - the argument for which the state is to be updated.
-//
-// Return Value: None
-//
-// Assumptions:
-//    The argument is live on entry to the function
-//    (or is untracked and therefore assumed live)
-//
-// Notes:
-//    This relies on a method in regAlloc.cpp that is shared between LSRA
-//    and regAlloc.  It is further abstracted here because regState is updated
-//    separately for tracked and untracked variables in LSRA.
-//
-void LinearScan::updateRegStateForArg(LclVarDsc* argDsc)
-{
-#if defined(UNIX_AMD64_ABI)
-    // For System V AMD64 calls the argDsc can have 2 registers (for structs.)
-    // Handle them here.
-    if (varTypeIsStruct(argDsc))
-    {
-        unixAmd64UpdateRegStateForArg(argDsc);
-    }
-    else
-#endif // defined(UNIX_AMD64_ABI)
-    {
-        RegState* intRegState   = &compiler->codeGen->intRegState;
-        RegState* floatRegState = &compiler->codeGen->floatRegState;
-        bool      isFloat       = emitter::isFloatReg(argDsc->GetParamReg());
-
-        if (argDsc->IsHfaRegParam())
-        {
-            isFloat = true;
-        }
-
-        if (isFloat)
-        {
-            JITDUMP("Float arg V%02u in reg %s\n", (argDsc - compiler->lvaTable), getRegName(argDsc->GetParamReg()));
-            UpdateRegStateForRegParam(floatRegState, true, argDsc);
-        }
-        else
-        {
-            JITDUMP("Int arg V%02u in reg %s\n", (argDsc - compiler->lvaTable), getRegName(argDsc->GetParamReg()));
-            UpdateRegStateForRegParam(intRegState, false, argDsc);
-        }
-    }
-}
-
-// The code to set the regState for each arg is outlined for shared use
-// by linear scan. (It is not shared for System V AMD64 platform.)
-regNumber LinearScan::UpdateRegStateForRegParam(RegState* regState, bool isFloatRegState, LclVarDsc* argDsc)
-{
-    regNumber inArgReg  = argDsc->GetParamReg();
-    regMaskTP inArgMask = genRegMask(inArgReg);
-
-    if (isFloatRegState)
-    {
-        noway_assert(inArgMask & RBM_FLTARG_REGS);
-    }
-    else //  regState is for the integer registers
-    {
-#ifdef TARGET_ARM64
-        // This might be the fixed return buffer register argument (on ARM64)
-        // We check and allow inArgReg to be REG_ARG_RET_BUFF
-        if (inArgReg == REG_ARG_RET_BUFF)
-        {
-            // We should have a TYP_BYREF or TYP_I_IMPL arg and not a TYP_STRUCT arg
-            noway_assert(argDsc->TypeIs(TYP_BYREF, TYP_I_IMPL));
-            // We should have recorded the variable number for the return buffer arg
-            noway_assert(compiler->info.compRetBuffArg != BAD_VAR_NUM);
-        }
-        else
-#endif
-        {
-            noway_assert(inArgMask & RBM_ARG_REGS);
-        }
-    }
-
-    regState->rsCalleeRegArgMaskLiveIn |= inArgMask;
-
-#ifdef TARGET_ARM
-    if (argDsc->TypeIs(TYP_DOUBLE))
-    {
-        if (compiler->info.compIsVarArgs || compiler->opts.compUseSoftFP)
-        {
-            assert((inArgReg == REG_R0) || (inArgReg == REG_R2));
-            assert(!isFloatRegState);
-        }
-        else
-        {
-            assert(isFloatRegState);
-            assert(emitter::isDoubleReg(inArgReg));
-        }
-        regState->rsCalleeRegArgMaskLiveIn |= genRegMask((regNumber)(inArgReg + 1));
-    }
-    else if (argDsc->TypeIs(TYP_LONG))
-    {
-        assert((inArgReg == REG_R0) || (inArgReg == REG_R2));
-        assert(!isFloatRegState);
-        regState->rsCalleeRegArgMaskLiveIn |= genRegMask((regNumber)(inArgReg + 1));
-    }
-#endif // TARGET_ARM
-
-#if FEATURE_MULTIREG_ARGS
-    if (varTypeIsStruct(argDsc->GetType()))
-    {
-        if (argDsc->IsHfaRegParam())
-        {
-            assert(isFloatRegState);
-            unsigned regCount = argDsc->GetLayout()->GetHfaRegCount();
-
-            for (unsigned i = 1; i < regCount; i++)
-            {
-                assert(inArgReg + i <= LAST_FP_ARGREG);
-                regState->rsCalleeRegArgMaskLiveIn |= genRegMask(static_cast<regNumber>(inArgReg + i));
-            }
-        }
-        else
-        {
-            assert(!isFloatRegState);
-            unsigned cSlots = argDsc->lvSize() / TARGET_POINTER_SIZE;
-            for (unsigned i = 1; i < cSlots; i++)
-            {
-                regNumber nextArgReg = (regNumber)(inArgReg + i);
-                if (nextArgReg > REG_ARG_LAST)
-                {
-                    break;
-                }
-                regState->rsCalleeRegArgMaskLiveIn |= genRegMask(nextArgReg);
-            }
-        }
-    }
-#endif // FEATURE_MULTIREG_ARGS
-
-    return inArgReg;
+    compiler->codeGen->intRegState.rsCalleeRegArgMaskLiveIn |= mask & ~RBM_ALLFLOAT;
+    compiler->codeGen->floatRegState.rsCalleeRegArgMaskLiveIn |= mask & RBM_ALLFLOAT;
 }
 
 //------------------------------------------------------------------------
@@ -2172,7 +1994,7 @@ void LinearScan::buildIntervals()
 
         if (argDsc->IsRegParam())
         {
-            updateRegStateForArg(argDsc);
+            UpdateRegStateForParam(argDsc);
         }
 
         if (argDsc->IsRegCandidate())
@@ -2237,7 +2059,7 @@ void LinearScan::buildIntervals()
 
                 if (!fieldVarDsc->HasLiveness() && fieldVarDsc->IsRegParam())
                 {
-                    updateRegStateForArg(fieldVarDsc);
+                    UpdateRegStateForParam(fieldVarDsc);
                 }
             }
         }
@@ -2247,7 +2069,7 @@ void LinearScan::buildIntervals()
 
             if (!argDsc->HasLiveness() && argDsc->IsRegParam())
             {
-                updateRegStateForArg(argDsc);
+                UpdateRegStateForParam(argDsc);
             }
         }
     }
