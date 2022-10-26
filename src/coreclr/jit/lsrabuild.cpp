@@ -1898,27 +1898,27 @@ void LinearScan::insertZeroInitRefPositions()
 void LinearScan::unixAmd64UpdateRegStateForArg(LclVarDsc* argDsc)
 {
     assert(varTypeIsStruct(argDsc->GetType()));
+    assert(argDsc->IsRegParam());
 
     RegState* intRegState   = &compiler->codeGen->intRegState;
     RegState* floatRegState = &compiler->codeGen->floatRegState;
     regNumber reg0          = argDsc->GetParamReg(0);
     regNumber reg1          = argDsc->GetParamReg(1);
 
-    if ((reg0 != REG_STK) && (reg0 != REG_NA))
+    assert(reg0 != REG_NA);
+
+    if (genRegMask(reg0) & RBM_ALLFLOAT)
     {
-        if (genRegMask(reg0) & RBM_ALLFLOAT)
-        {
-            assert(genRegMask(reg0) & RBM_FLTARG_REGS);
-            floatRegState->rsCalleeRegArgMaskLiveIn |= genRegMask(reg0);
-        }
-        else
-        {
-            assert(genRegMask(reg0) & RBM_ARG_REGS);
-            intRegState->rsCalleeRegArgMaskLiveIn |= genRegMask(reg0);
-        }
+        assert(genRegMask(reg0) & RBM_FLTARG_REGS);
+        floatRegState->rsCalleeRegArgMaskLiveIn |= genRegMask(reg0);
+    }
+    else
+    {
+        assert(genRegMask(reg0) & RBM_ARG_REGS);
+        intRegState->rsCalleeRegArgMaskLiveIn |= genRegMask(reg0);
     }
 
-    if ((reg1 != REG_STK) && (reg1 != REG_NA))
+    if (reg1 != REG_NA)
     {
         if (genRegMask(reg1) & RBM_ALLFLOAT)
         {

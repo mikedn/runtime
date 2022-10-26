@@ -1210,12 +1210,6 @@ void Compiler::lvaInitVarDsc(LclVarDsc* varDsc, unsigned varNum, CorInfoType cor
     }
 
     INDEBUG(varDsc->SetStackOffset(BAD_STK_OFFS);)
-
-#ifdef UNIX_AMD64_ABI
-    // TODO-MIKE-Cleanup: See if this can be removed, m_paramRegs should
-    // really be initialized to {REG_NA, REG_NA}, not {REG_STK, REG_STK}.
-    varDsc->SetParamReg(1, REG_NA);
-#endif
 }
 
 /*****************************************************************************

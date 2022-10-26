@@ -653,16 +653,21 @@ void CodeGen::genIntrinsic(GenTreeIntrinsic* node)
     DefReg(node);
 }
 
-#if FEATURE_FASTTAILCALL
+#ifdef TARGET_ARM64
 unsigned CodeGen::GetFirstStackParamLclNum()
 {
+#ifdef TARGET_WINDOWS
+    // This can't deal with split params.
+    assert(!compiler->info.compIsVarArgs);
+#endif
+
     for (unsigned i = 0; i < compiler->info.compArgsCount; i++)
     {
         LclVarDsc* lcl = compiler->lvaGetDesc(i);
 
         assert(lcl->IsParam());
 
-        if (lcl->GetParamReg() == REG_STK)
+        if (!lcl->IsRegParam())
         {
             return i;
         }
@@ -670,7 +675,7 @@ unsigned CodeGen::GetFirstStackParamLclNum()
 
     return BAD_VAR_NUM;
 }
-#endif // FEATURE_FASTTAILCALL
+#endif // TARGET_ARM64
 
 void CodeGen::genPutArgStk(GenTreePutArgStk* putArg)
 {

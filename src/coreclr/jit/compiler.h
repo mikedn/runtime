@@ -612,9 +612,9 @@ private:
                               // lifetime).
 
 #ifdef UNIX_AMD64_ABI
-    regNumberSmall m_paramRegs[2]{REG_STK, REG_STK};
+    regNumberSmall m_paramRegs[2]{REG_NA, REG_NA};
 #else
-    regNumberSmall m_paramRegs[1]{REG_STK};
+    regNumberSmall m_paramRegs[1]{REG_NA};
 #endif
 
     regNumberSmall m_paramInitialReg; // the register into which the argument is loaded at entry
@@ -652,12 +652,15 @@ public:
     void SetParamReg(unsigned index, regNumber reg)
     {
         assert(index < _countof(m_paramRegs));
+        assert(reg != REG_STK);
+
         m_paramRegs[index] = static_cast<regNumberSmall>(reg);
     }
 
     void SetParamRegs(regNumber reg0, regNumber reg1 = REG_NA)
     {
         assert(lvIsParam);
+        assert((reg0 != REG_STK) && (reg0 != REG_NA) && (reg1 != REG_STK));
 
         lvIsRegArg = true;
 
@@ -679,6 +682,7 @@ public:
     void SetParamRegs(regNumber reg)
     {
         assert(lvIsParam);
+        assert((reg != REG_STK) && (reg != REG_NA));
 
         lvIsRegArg = true;
 
@@ -702,6 +706,7 @@ public:
 
     void SetParamRegs(regNumber reg0, unsigned regCount = 1)
     {
+        assert((reg0 != REG_STK) && (reg0 != REG_NA));
 #ifdef TARGET_ARM64
         assert(regCount <= MAX_ARG_REG_COUNT);
 #else
@@ -731,7 +736,7 @@ public:
     unsigned GetParamRegCount() const
     {
 #ifdef UNIX_AMD64_ABI
-        return !lvIsRegArg ? 0 : (1 + ((m_paramRegs[1] != REG_STK) && (m_paramRegs[1] != REG_NA)));
+        return !lvIsRegArg ? 0 : (1 + (m_paramRegs[1] != REG_NA));
 #elif defined(TARGET_XARCH)
         return !lvIsRegArg ? 0 : 1;
 #elif defined(TARGET_ARMARCH)
