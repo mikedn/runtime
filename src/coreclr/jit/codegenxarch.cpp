@@ -6914,8 +6914,6 @@ unsigned CodeGen::GetFirstStackParamLclNum()
 
         if (!lcl->IsRegParam())
         {
-            assert(lcl->GetParamReg() == REG_STK);
-
             return lclNum;
         }
     }
