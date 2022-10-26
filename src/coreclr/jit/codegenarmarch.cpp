@@ -2859,15 +2859,15 @@ void CodeGen::genJmpMethod(GenTree* jmp)
     // Next move any un-enregistered register arguments back to their register.
     regMaskTP fixedIntArgMask = RBM_NONE;    // tracks the int arg regs occupying fixed args in case of a vararg method.
     unsigned  firstArgVarNum  = BAD_VAR_NUM; // varNum of the first argument in case of a vararg method.
-    for (varNum = 0; (varNum < compiler->info.compArgsCount); varNum++)
+    for (unsigned varNum = 0; varNum < compiler->info.compArgsCount; varNum++)
     {
-        varDsc = compiler->lvaTable + varNum;
-        if (varDsc->lvPromoted)
-        {
-            noway_assert(varDsc->lvFieldCnt == 1); // We only handle one field here
+        varDsc = compiler->lvaGetDesc(varNum);
 
-            unsigned fieldVarNum = varDsc->lvFieldLclStart;
-            varDsc               = compiler->lvaTable + fieldVarNum;
+        if (varDsc->IsPromoted())
+        {
+            noway_assert(varDsc->GetPromotedFieldCount() == 1); // We only handle one field here
+
+            varDsc = compiler->lvaGetDesc(varDsc->GetPromotedFieldLclNum(0));
         }
 
         noway_assert(varDsc->IsParam());
@@ -2879,7 +2879,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
         }
 
         // Register argument
-        noway_assert(isRegParamType(genActualType(varDsc->TypeGet())));
+        noway_assert(isRegParamType(varActualType(varDsc->GetType())));
 
         // Is register argument already in the right register?
         // If not load it from its stack location.
@@ -2889,7 +2889,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 #ifdef TARGET_ARM64
         if (varDsc->GetRegNum() != argReg)
         {
-            if (varDsc->lvIsHfaRegArg())
+            if (varDsc->IsHfaRegParam())
             {
                 // Note that for HFA, the argument is currently marked address exposed so lvRegNum will always be
                 // REG_STK. We home the incoming HFA argument registers in the prolog. Then we'll load them back
@@ -2961,7 +2961,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
         {
             // In case of a jmp call to a vararg method ensure only integer registers are passed.
             assert((genRegMask(argReg) & (RBM_ARG_REGS | RBM_ARG_RET_BUFF)) != RBM_NONE);
-            assert(!varDsc->lvIsHfaRegArg());
+            assert(!varDsc->IsHfaRegParam());
 
             fixedIntArgMask |= genRegMask(argReg);
 
@@ -3010,7 +3010,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
                 fixedIntArgMask |= genRegMask(argRegNext);
             }
         }
-        else if (varDsc->lvIsHfaRegArg())
+        else if (varDsc->IsHfaRegParam())
         {
             loadType           = varDsc->GetLayout()->GetHfaElementType();
             regNumber fieldReg = argReg;

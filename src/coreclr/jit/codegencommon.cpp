@@ -2556,7 +2556,7 @@ regMaskTP CodeGen::genPrologBuildParamRegsTable(
             var_types regType = lcl->GetType();
 
 #ifdef TARGET_ARMARCH
-            if (lcl->lvIsHfaRegArg())
+            if (lcl->IsHfaRegParam())
             {
 #if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
                 assert(!compiler->info.compIsVarArgs);
@@ -2592,7 +2592,7 @@ regMaskTP CodeGen::genPrologBuildParamRegsTable(
 #elif defined(TARGET_ARM64)
             if (compiler->lvaIsMultiRegStructParam(lcl))
             {
-                if (lcl->lvIsHfaRegArg())
+                if (lcl->IsHfaRegParam())
                 {
                     regCount = lcl->GetLayout()->GetHfaRegCount();
                 }
@@ -2767,7 +2767,7 @@ void CodeGen::genPrologMarkParamRegsCircularDependencies(ParamRegInfo* paramRegs
                 destRegNum = lcl->GetRegNum();
             }
 #ifdef TARGET_ARM64
-            else if (lcl->lvIsHfaRegArg())
+            else if (lcl->IsHfaRegParam())
             {
                 // This must be a SIMD type that's fully enregistered, but is passed as an HFA.
                 // Each field will be inserted into the same destination register.
@@ -2920,7 +2920,7 @@ regMaskTP CodeGen::genPrologSpillParamRegs(ParamRegInfo* paramRegs, unsigned par
             storeType = paramRegs[paramRegIndex].type;
 #else
 
-            if (lcl->lvIsHfaRegArg())
+            if (lcl->IsHfaRegParam())
             {
 #ifdef TARGET_ARM
                 // On ARM32 the storeType for HFA args is always TYP_FLOAT
@@ -3485,7 +3485,7 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
             }
 #endif
 
-            if (lcl->lvIsHfaRegArg())
+            if (lcl->IsHfaRegParam())
             {
                 // This includes both fixed-size SIMD types that are independently promoted, as well
                 // as other HFA structs.

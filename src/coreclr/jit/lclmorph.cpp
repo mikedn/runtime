@@ -2729,7 +2729,7 @@ bool StructPromotionHelper::ShouldPromoteStructLocal(unsigned lclNum)
         return false;
     }
 
-    if (lcl->IsParam() && !lcl->IsImplicitByRefParam() && !lcl->lvIsHfa())
+    if (lcl->IsParam() && !lcl->IsImplicitByRefParam() && !lcl->IsHfaParam())
     {
 #if FEATURE_MULTIREG_STRUCT_PROMOTE
         if (compiler->lvaIsMultiRegStructParam(lcl))
@@ -2955,7 +2955,7 @@ void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
 #else // !UNIX_AMD64_ABI
         unsigned regIndex = index;
 
-        if (lcl->lvIsHfa())
+        if (lcl->IsHfaParam())
         {
             // We've sorted the field by offset so for HFA's we should have a 1:1 mapping
             // between fields and registers. Also, ensure that we didn't promote a HFA

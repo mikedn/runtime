@@ -417,6 +417,31 @@ public:
     }
 #endif
 
+    void SetIsHfa(bool isHfa)
+    {
+#ifdef FEATURE_HFA
+        m_isHfa = isHfa;
+#endif
+    }
+
+    bool IsHfaParam() const
+    {
+#ifdef FEATURE_HFA
+        return m_isHfa;
+#else
+        return false;
+#endif
+    }
+
+    bool IsHfaRegParam() const
+    {
+#ifdef FEATURE_HFA
+        return lvIsRegArg && m_isHfa;
+#else
+        return false;
+#endif
+    }
+
     bool IsPinning() const
     {
         return lvPinned;
@@ -578,24 +603,6 @@ public:
     }
 
     INDEBUG(char lvSingleDefDisqualifyReason = 'H';)
-
-    bool lvIsHfa() const
-    {
-#ifdef FEATURE_HFA
-        return m_isHfa;
-#else
-        return false;
-#endif
-    }
-
-    bool lvIsHfaRegArg() const
-    {
-#ifdef FEATURE_HFA
-        return lvIsRegArg && lvIsHfa();
-#else
-        return false;
-#endif
-    }
 
 private:
     regNumberSmall _lvRegNum; // Used to store the register this variable is in (or, the low register of a
@@ -962,14 +969,7 @@ public:
 
     bool IsFloatRegType() const
     {
-        return varTypeUsesFloatReg(lvType) || lvIsHfaRegArg();
-    }
-
-    void SetIsHfa(bool isHfa)
-    {
-#ifdef FEATURE_HFA
-        m_isHfa = isHfa;
-#endif
+        return varTypeUsesFloatReg(lvType) || IsHfaRegParam();
     }
 
     var_types lvaArgType();

@@ -167,7 +167,7 @@ regNumber Compiler::raUpdateRegStateForArg(RegState* regState, bool isFloatRegSt
 #if FEATURE_MULTIREG_ARGS
     if (varTypeIsStruct(argDsc->GetType()))
     {
-        if (argDsc->lvIsHfaRegArg())
+        if (argDsc->IsHfaRegParam())
         {
             assert(isFloatRegState);
             unsigned regCount = argDsc->GetLayout()->GetHfaRegCount();

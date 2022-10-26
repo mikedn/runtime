@@ -2326,7 +2326,8 @@ unsigned LclVarDsc::lvSize() const // Size needed for storage representation. On
     if (lvIsParam)
     {
         assert(varTypeIsStruct(lvType));
-        bool     isFloatHfa   = lvIsHfa() && (m_layout->GetHfaElementType() == TYP_FLOAT);
+
+        bool     isFloatHfa   = IsHfaParam() && (m_layout->GetHfaElementType() == TYP_FLOAT);
         unsigned argAlignment = Compiler::lvaGetParamAlignment(lvType, isFloatHfa);
         return roundUp(size, argAlignment);
     }
@@ -3970,7 +3971,7 @@ int Compiler::lvaAssignParamVirtualFrameOffset(LclVarDsc* lcl, unsigned size, in
 
 #ifdef OSX_ARM64_ABI
     unsigned align =
-        lvaGetParamAlignment(lcl->GetType(), lcl->lvIsHfa() && (lcl->GetLayout()->GetHfaElementType() == TYP_FLOAT));
+        lvaGetParamAlignment(lcl->GetType(), lcl->IsHfaParam() && (lcl->GetLayout()->GetHfaElementType() == TYP_FLOAT));
 
     offset = roundUp(offset, align);
 #else

@@ -1544,7 +1544,7 @@ void CodeGen::psiBegProlog()
                 regType = compiler->mangleVarArgsType(regType);
 #endif
 
-                if (lclVarDsc->lvIsHfaRegArg())
+                if (lclVarDsc->IsHfaRegParam())
                 {
                     regType = lclVarDsc->GetLayout()->GetHfaElementType();
                 }
