@@ -1530,7 +1530,7 @@ void LinearScan::identifyCandidates()
 
         if (!enregisterLocalVars)
         {
-            varDsc->lvLRACandidate = false;
+            assert(!varDsc->IsRegCandidate());
             continue;
         }
 
