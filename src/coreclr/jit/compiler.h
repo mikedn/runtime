@@ -771,11 +771,6 @@ public:
 #endif
     }
 
-    bool lvIsRegCandidate() const
-    {
-        return IsRegCandidate();
-    }
-
     bool IsRegCandidate() const
     {
         return lvLRACandidate != 0;
@@ -783,7 +778,7 @@ public:
 
     bool lvIsInReg() const
     {
-        return lvIsRegCandidate() && (GetRegNum() != REG_STK);
+        return lvLRACandidate && (GetRegNum() != REG_STK);
     }
 
     regMaskTP lvRegMask() const

@@ -570,7 +570,7 @@ void CodeGen::genCodeForBBlist()
         while (mismatchLiveVarIter.NextElem(&mismatchLiveVarIndex))
         {
             LclVarDsc* varDsc = compiler->lvaGetDescByTrackedIndex(mismatchLiveVarIndex);
-            if (varDsc->lvIsRegCandidate())
+            if (varDsc->IsRegCandidate())
             {
                 if (!foundMismatchedRegVar)
                 {

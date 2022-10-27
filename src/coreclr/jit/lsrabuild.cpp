@@ -2022,7 +2022,7 @@ void LinearScan::buildIntervals()
                  fieldVarNum < argDsc->lvFieldLclStart + argDsc->lvFieldCnt; ++fieldVarNum)
             {
                 LclVarDsc* fieldVarDsc = &(compiler->lvaTable[fieldVarNum]);
-                if (fieldVarDsc->lvLRACandidate)
+                if (fieldVarDsc->IsRegCandidate())
                 {
                     assert(fieldVarDsc->lvTracked);
                     Interval*    interval = getIntervalForLocalVar(fieldVarDsc->lvVarIndex);
@@ -2035,8 +2035,8 @@ void LinearScan::buildIntervals()
         else
         {
             // We can overwrite the register (i.e. codegen saves it on entry)
-            assert(argDsc->GetRefCount() == 0 || !argDsc->IsRegParam() || argDsc->lvDoNotEnregister ||
-                   !argDsc->lvLRACandidate || (varTypeIsFloating(argDsc->GetType()) && compiler->opts.compDbgCode));
+            assert((argDsc->GetRefCount() == 0) || !argDsc->IsRegParam() || argDsc->lvDoNotEnregister ||
+                   !argDsc->IsRegCandidate() || (varTypeIsFloating(argDsc->GetType()) && compiler->opts.compDbgCode));
         }
     }
 
@@ -2429,7 +2429,7 @@ void LinearScan::buildIntervals()
             for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
             {
                 LclVarDsc* varDsc = compiler->lvaGetDesc(lclNum);
-                if (varDsc->lvLRACandidate)
+                if (varDsc->IsRegCandidate())
                 {
                     JITDUMP("Adding exposed use of V%02u for LsraExtendLifetimes\n", lclNum);
                     Interval*    interval = getIntervalForLocalVar(varDsc->lvVarIndex);
@@ -2482,7 +2482,7 @@ void LinearScan::validateIntervals()
     {
         for (unsigned i = 0; i < compiler->lvaTrackedCount; i++)
         {
-            if (!compiler->lvaGetDescByTrackedIndex(i)->lvLRACandidate)
+            if (!compiler->lvaGetDescByTrackedIndex(i)->IsRegCandidate())
             {
                 continue;
             }

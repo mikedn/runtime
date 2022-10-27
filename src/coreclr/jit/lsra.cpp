@@ -1562,7 +1562,7 @@ void LinearScan::identifyCandidates()
 
         // Start with the assumption that it's a candidate.
 
-        varDsc->lvLRACandidate = 1;
+        varDsc->lvLRACandidate = true;
 
         // Start with lvRegister as false - set it true only if the variable gets
         // the same register assignment throughout
@@ -1570,7 +1570,7 @@ void LinearScan::identifyCandidates()
 
         if (!regCandidate)
         {
-            varDsc->lvLRACandidate = 0;
+            varDsc->lvLRACandidate = false;
             if (varDsc->lvTracked)
             {
                 localVarIntervals[varDsc->lvVarIndex] = nullptr;
@@ -1597,7 +1597,7 @@ void LinearScan::identifyCandidates()
                         JITDUMP(" V%02u", parentVarDsc->lvFieldLclStart + i);
                         if (fieldVarDsc->lvTracked)
                         {
-                            fieldVarDsc->lvLRACandidate                = 0;
+                            fieldVarDsc->lvLRACandidate                = false;
                             fieldVarDsc->lvDoNotEnregister             = true;
                             localVarIntervals[fieldVarDsc->lvVarIndex] = nullptr;
                             VarSetOps::RemoveElemD(compiler, registerCandidateVars, fieldVarDsc->lvVarIndex);
@@ -1613,7 +1613,7 @@ void LinearScan::identifyCandidates()
             continue;
         }
 
-        if (varDsc->lvLRACandidate)
+        if (varDsc->IsRegCandidate())
         {
             var_types type = varDsc->GetActualRegisterType();
             if (varTypeUsesFloatReg(type))
@@ -2075,7 +2075,7 @@ void LinearScan::checkLastUses(BasicBlock* block)
     while (liveInNotComputedLiveIter.NextElem(&liveInNotComputedLiveIndex))
     {
         LclVarDsc* varDesc = compiler->lvaGetDescByTrackedIndex(liveInNotComputedLiveIndex);
-        if (varDesc->lvLRACandidate)
+        if (varDesc->IsRegCandidate())
         {
             JITDUMP(FMT_BB ": V%02u is in LiveIn set, but not computed live.\n", block->bbNum,
                     compiler->lvaTrackedIndexToLclNum(liveInNotComputedLiveIndex));
@@ -2090,7 +2090,7 @@ void LinearScan::checkLastUses(BasicBlock* block)
     while (computedLiveNotLiveInIter.NextElem(&computedLiveNotLiveInIndex))
     {
         LclVarDsc* varDesc = compiler->lvaGetDescByTrackedIndex(computedLiveNotLiveInIndex);
-        if (varDesc->lvLRACandidate)
+        if (varDesc->IsRegCandidate())
         {
             JITDUMP(FMT_BB ": V%02u is computed live, but not in LiveIn set.\n", block->bbNum,
                     compiler->lvaTrackedIndexToLclNum(computedLiveNotLiveInIndex));
@@ -2288,8 +2288,8 @@ void LinearScan::dumpVarRefPositions(const char* title)
         {
             printf("--- V%02u", i);
 
-            LclVarDsc* varDsc = compiler->lvaTable + i;
-            if (varDsc->lvIsRegCandidate())
+            LclVarDsc* varDsc = compiler->lvaGetDesc(i);
+            if (varDsc->IsRegCandidate())
             {
                 Interval* interval = getIntervalForLocalVar(varDsc->lvVarIndex);
                 printf("  (Interval %d)\n", interval->intervalIndex);
@@ -3880,7 +3880,7 @@ void LinearScan::processBlockStartLocations(BasicBlock* currentBlock)
     unsigned        varIndex = 0;
     while (iter.NextElem(&varIndex))
     {
-        if (!compiler->lvaGetDescByTrackedIndex(varIndex)->lvLRACandidate)
+        if (!compiler->lvaGetDescByTrackedIndex(varIndex)->IsRegCandidate())
         {
             continue;
         }
@@ -5334,7 +5334,7 @@ void LinearScan::allocateRegisters()
     if (enregisterLocalVars && compiler->lvaKeepAliveAndReportThis())
     {
         LclVarDsc* thisVarDsc = compiler->lvaGetDesc(compiler->info.compThisArg);
-        if (thisVarDsc->lvLRACandidate)
+        if (thisVarDsc->IsRegCandidate())
         {
             Interval* interval = getIntervalForLocalVar(thisVarDsc->lvVarIndex);
             if (interval->isSplit)
@@ -6400,7 +6400,7 @@ void LinearScan::resolveRegisters()
             }
             else
             {
-                assert(!compiler->lvaGetDescByTrackedIndex(varIndex)->lvLRACandidate);
+                assert(!compiler->lvaGetDescByTrackedIndex(varIndex)->IsRegCandidate());
             }
         }
     }
@@ -9034,8 +9034,8 @@ void LinearScan::lsraDispNode(GenTree* tree, LsraTupleDumpMode mode, bool hasDes
     if (tree->IsLocal())
     {
         varNum = tree->AsLclVarCommon()->GetLclNum();
-        varDsc = &(compiler->lvaTable[varNum]);
-        if (varDsc->lvLRACandidate)
+        varDsc = compiler->lvaGetDesc(varNum);
+        if (varDsc->IsRegCandidate())
         {
             hasDest = false;
         }
@@ -9051,7 +9051,7 @@ void LinearScan::lsraDispNode(GenTree* tree, LsraTupleDumpMode mode, bool hasDes
     }
     if (varDsc != nullptr)
     {
-        if (varDsc->lvLRACandidate)
+        if (varDsc->IsRegCandidate())
         {
             if (mode == LSRA_DUMP_REFPOS)
             {
@@ -10110,7 +10110,7 @@ void LinearScan::verifyFinalAllocation()
                         {
                             if (localVarIntervals[varIndex] == nullptr)
                             {
-                                assert(!compiler->lvaGetDescByTrackedIndex(varIndex)->lvLRACandidate);
+                                assert(!compiler->lvaGetDescByTrackedIndex(varIndex)->IsRegCandidate());
                                 continue;
                             }
                             regNumber regNum = getVarReg(outVarToRegMap, varIndex);
@@ -10148,7 +10148,7 @@ void LinearScan::verifyFinalAllocation()
                         {
                             if (localVarIntervals[varIndex] == nullptr)
                             {
-                                assert(!compiler->lvaGetDescByTrackedIndex(varIndex)->lvLRACandidate);
+                                assert(!compiler->lvaGetDescByTrackedIndex(varIndex)->IsRegCandidate());
                                 continue;
                             }
                             regNumber regNum                  = getVarReg(inVarToRegMap, varIndex);
@@ -10466,7 +10466,7 @@ void LinearScan::verifyFinalAllocation()
             {
                 if (localVarIntervals[varIndex] == nullptr)
                 {
-                    assert(!compiler->lvaGetDescByTrackedIndex(varIndex)->lvLRACandidate);
+                    assert(!compiler->lvaGetDescByTrackedIndex(varIndex)->IsRegCandidate());
                     continue;
                 }
                 regNumber regNum                  = getVarReg(inVarToRegMap, varIndex);
@@ -10499,7 +10499,7 @@ void LinearScan::verifyFinalAllocation()
                 {
                     if (localVarIntervals[varIndex] == nullptr)
                     {
-                        assert(!compiler->lvaGetDescByTrackedIndex(varIndex)->lvLRACandidate);
+                        assert(!compiler->lvaGetDescByTrackedIndex(varIndex)->IsRegCandidate());
                         continue;
                     }
                     regNumber regNum   = getVarReg(outVarToRegMap, varIndex);

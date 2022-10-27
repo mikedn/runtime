@@ -22,7 +22,7 @@ void CodeGenLivenessUpdater::Begin()
     {
         LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
 
-        if (lcl->HasLiveness() || lcl->lvIsRegCandidate())
+        if (lcl->HasLiveness() || lcl->IsRegCandidate())
         {
             if (!lcl->lvRegister && compiler->lvaIsGCTracked(lcl))
             {
