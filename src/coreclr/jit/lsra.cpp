@@ -1512,25 +1512,25 @@ void LinearScan::identifyCandidates()
     }
 #endif // DOUBLE_ALIGN
 
-    // Check whether register variables are permitted.
     if (!enregisterLocalVars)
     {
         localVarIntervals = nullptr;
     }
-    else if (compiler->lvaTrackedCount > 0)
+    else
     {
-        // initialize mapping from tracked local to interval
         localVarIntervals = new (compiler, CMK_LSRA) Interval*[compiler->lvaTrackedCount];
     }
 
     INTRACK_STATS(regCandidateVarCount = 0);
     for (lclNum = 0, varDsc = compiler->lvaTable; lclNum < compiler->lvaCount; lclNum++, varDsc++)
     {
+        assert(!varDsc->IsRegCandidate());
+        assert(!varDsc->lvRegister);
+
         varDsc->SetRegNum(REG_STK);
 
         if (!enregisterLocalVars)
         {
-            assert(!varDsc->IsRegCandidate());
             continue;
         }
 
@@ -1560,21 +1560,13 @@ void LinearScan::identifyCandidates()
         }
 #endif // DOUBLE_ALIGN
 
-        // Start with the assumption that it's a candidate.
-
-        varDsc->lvLRACandidate = true;
-
-        // Start with lvRegister as false - set it true only if the variable gets
-        // the same register assignment throughout
-        varDsc->lvRegister = false;
-
         if (!regCandidate)
         {
-            varDsc->lvLRACandidate = false;
             if (varDsc->lvTracked)
             {
                 localVarIntervals[varDsc->lvVarIndex] = nullptr;
             }
+
             // The current implementation of multi-reg structs that are referenced collectively
             // (i.e. by refering to the parent lclVar rather than each field separately) relies
             // on all or none of the fields being candidates.
@@ -1610,84 +1602,81 @@ void LinearScan::identifyCandidates()
                     JITDUMP("\n");
                 }
             }
+
             continue;
         }
 
-        if (varDsc->IsRegCandidate())
+        varDsc->lvLRACandidate = true;
+
+        var_types type = varDsc->GetActualRegisterType();
+        if (varTypeUsesFloatReg(type))
         {
-            var_types type = varDsc->GetActualRegisterType();
-            if (varTypeUsesFloatReg(type))
-            {
-                compiler->compFloatingPointUsed = true;
-            }
-            Interval* newInt = newInterval(type);
-            newInt->setLocalNumber(compiler, lclNum, this);
-            VarSetOps::AddElemD(compiler, registerCandidateVars, varDsc->lvVarIndex);
+            compiler->compFloatingPointUsed = true;
+        }
+        Interval* newInt = newInterval(type);
+        newInt->setLocalNumber(compiler, lclNum, this);
+        VarSetOps::AddElemD(compiler, registerCandidateVars, varDsc->lvVarIndex);
 
-            // we will set this later when we have determined liveness
-            varDsc->lvMustInit = false;
+        // we will set this later when we have determined liveness
+        varDsc->lvMustInit = false;
 
-            if (varDsc->lvIsStructField)
-            {
-                newInt->isStructField = true;
-            }
+        if (varDsc->lvIsStructField)
+        {
+            newInt->isStructField = true;
+        }
 
-            if (varDsc->lvLiveInOutOfHndlr)
-            {
-                newInt->isWriteThru = varDsc->lvSingleDefRegCandidate;
-                setIntervalAsSpilled(newInt);
-            }
+        if (varDsc->lvLiveInOutOfHndlr)
+        {
+            newInt->isWriteThru = varDsc->lvSingleDefRegCandidate;
+            setIntervalAsSpilled(newInt);
+        }
 
-            INTRACK_STATS(regCandidateVarCount++);
+        INTRACK_STATS(regCandidateVarCount++);
 
-            // We maintain two sets of FP vars - those that meet the first threshold of weighted ref Count,
-            // and those that meet the second (see the definitions of thresholdFPRefCntWtd and maybeFPRefCntWtd
-            // above).
-            CLANG_FORMAT_COMMENT_ANCHOR;
+        // We maintain two sets of FP vars - those that meet the first threshold of weighted ref Count,
+        // and those that meet the second (see the definitions of thresholdFPRefCntWtd and maybeFPRefCntWtd
+        // above).
+        CLANG_FORMAT_COMMENT_ANCHOR;
 
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-            // Additionally, when we are generating code for a target with partial SIMD callee-save
-            // (AVX on non-UNIX amd64 and 16-byte vectors on arm64), we keep a separate set of the
-            // LargeVectorType vars.
-            if (Compiler::varTypeNeedsPartialCalleeSave(varDsc->GetRegisterType()))
+        // Additionally, when we are generating code for a target with partial SIMD callee-save
+        // (AVX on non-UNIX amd64 and 16-byte vectors on arm64), we keep a separate set of the
+        // LargeVectorType vars.
+        if (Compiler::varTypeNeedsPartialCalleeSave(varDsc->GetRegisterType()))
+        {
+            largeVectorVarCount++;
+            VarSetOps::AddElemD(compiler, largeVectorVars, varDsc->lvVarIndex);
+            BasicBlock::weight_t refCntWtd = varDsc->lvRefCntWtd();
+            if (refCntWtd >= thresholdLargeVectorRefCntWtd)
             {
-                largeVectorVarCount++;
-                VarSetOps::AddElemD(compiler, largeVectorVars, varDsc->lvVarIndex);
-                BasicBlock::weight_t refCntWtd = varDsc->lvRefCntWtd();
-                if (refCntWtd >= thresholdLargeVectorRefCntWtd)
-                {
-                    VarSetOps::AddElemD(compiler, largeVectorCalleeSaveCandidateVars, varDsc->lvVarIndex);
-                }
+                VarSetOps::AddElemD(compiler, largeVectorCalleeSaveCandidateVars, varDsc->lvVarIndex);
             }
-            else
-#endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-                if (regType(type) == FloatRegisterType)
-            {
-                floatVarCount++;
-                BasicBlock::weight_t refCntWtd = varDsc->lvRefCntWtd();
-
-                if (varDsc->IsRegParam())
-                {
-                    // Don't count the initial reference for register params.  In those cases,
-                    // using a callee-save causes an extra copy.
-                    refCntWtd -= BB_UNITY_WEIGHT;
-                }
-                if (refCntWtd >= thresholdFPRefCntWtd)
-                {
-                    VarSetOps::AddElemD(compiler, fpCalleeSaveCandidateVars, varDsc->lvVarIndex);
-                }
-                else if (refCntWtd >= maybeFPRefCntWtd)
-                {
-                    VarSetOps::AddElemD(compiler, fpMaybeCandidateVars, varDsc->lvVarIndex);
-                }
-            }
-            JITDUMP("  ");
-            DBEXEC(VERBOSE, newInt->dump());
         }
         else
+#endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
+            if (regType(type) == FloatRegisterType)
         {
-            localVarIntervals[varDsc->lvVarIndex] = nullptr;
+            floatVarCount++;
+            BasicBlock::weight_t refCntWtd = varDsc->lvRefCntWtd();
+
+            if (varDsc->IsRegParam())
+            {
+                // Don't count the initial reference for register params.  In those cases,
+                // using a callee-save causes an extra copy.
+                refCntWtd -= BB_UNITY_WEIGHT;
+            }
+            if (refCntWtd >= thresholdFPRefCntWtd)
+            {
+                VarSetOps::AddElemD(compiler, fpCalleeSaveCandidateVars, varDsc->lvVarIndex);
+            }
+            else if (refCntWtd >= maybeFPRefCntWtd)
+            {
+                VarSetOps::AddElemD(compiler, fpMaybeCandidateVars, varDsc->lvVarIndex);
+            }
         }
+
+        JITDUMP("  ");
+        DBEXEC(VERBOSE, newInt->dump());
     }
 
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
@@ -6768,123 +6757,120 @@ void LinearScan::resolveRegisters()
         {
             if (!varDsc->IsRegCandidate())
             {
-                varDsc->SetRegNum(REG_STK);
+                assert(varDsc->GetRegNum() == REG_STK);
+                continue;
             }
-            else
+
+            Interval* interval = getIntervalForLocalVar(varDsc->lvVarIndex);
+
+            // Determine initial position for parameters
+
+            if (varDsc->IsParam())
             {
-                Interval* interval = getIntervalForLocalVar(varDsc->lvVarIndex);
-
-                // Determine initial position for parameters
-
-                if (varDsc->IsParam())
-                {
-                    regMaskTP initialRegMask = interval->firstRefPosition->registerAssignment;
-                    regNumber initialReg     = (initialRegMask == RBM_NONE || interval->firstRefPosition->spillAfter)
-                                               ? REG_STK
-                                               : genRegNumFromMask(initialRegMask);
+                regMaskTP initialRegMask = interval->firstRefPosition->registerAssignment;
+                regNumber initialReg     = (initialRegMask == RBM_NONE || interval->firstRefPosition->spillAfter)
+                                           ? REG_STK
+                                           : genRegNumFromMask(initialRegMask);
 
 #ifdef TARGET_ARM
-                    if (varTypeIsMultiReg(varDsc))
-                    {
-                        // TODO-ARM-NYI: Map the hi/lo intervals back to lvRegNum and GetOtherReg() (these should NYI
-                        // before this)
-                        assert(!"Multi-reg types not yet supported");
-                    }
-                    else
+                if (varTypeIsMultiReg(varDsc))
+                {
+                    // TODO-ARM-NYI: Map the hi/lo intervals back to lvRegNum and GetOtherReg() (these should NYI
+                    // before this)
+                    assert(!"Multi-reg types not yet supported");
+                }
+                else
 #endif // TARGET_ARM
-                    {
-                        varDsc->SetParamInitialReg(initialReg);
-                        JITDUMP("  Set V%02u parameter initial register to %s\n", lclNum, getRegName(initialReg));
-                    }
-
-                    // Stack args that are part of dependently-promoted structs should never be register candidates (see
-                    // LinearScan::isRegCandidate).
-                    assert(varDsc->IsRegParam() || !varDsc->IsDependentPromotedField(compiler));
+                {
+                    varDsc->SetParamInitialReg(initialReg);
+                    JITDUMP("  Set V%02u parameter initial register to %s\n", lclNum, getRegName(initialReg));
                 }
 
-                // If lvRegNum is REG_STK, that means that either no register
-                // was assigned, or (more likely) that the same register was not
-                // used for all references.  In that case, codegen gets the register
-                // from the tree node.
-                if (varDsc->GetRegNum() == REG_STK || interval->isSpilled || interval->isSplit)
-                {
-                    // For codegen purposes, we'll set lvRegNum to whatever register
-                    // it's currently in as we go.
-                    // However, we never mark an interval as lvRegister if it has either been spilled
-                    // or split.
-                    varDsc->lvRegister = false;
+                // Stack args that are part of dependently-promoted structs should never be register candidates (see
+                // LinearScan::isRegCandidate).
+                assert(varDsc->IsRegParam() || !varDsc->IsDependentPromotedField(compiler));
+            }
 
-                    // Skip any dead defs or exposed uses
-                    // (first use exposed will only occur when there is no explicit initialization)
-                    RefPosition* firstRefPosition = interval->firstRefPosition;
-                    while ((firstRefPosition != nullptr) && (firstRefPosition->refType == RefTypeExpUse))
+            // If lvRegNum is REG_STK, that means that either no register
+            // was assigned, or (more likely) that the same register was not
+            // used for all references.  In that case, codegen gets the register
+            // from the tree node.
+            if (varDsc->GetRegNum() == REG_STK || interval->isSpilled || interval->isSplit)
+            {
+                // For codegen purposes, we'll set lvRegNum to whatever register
+                // it's currently in as we go.
+                // However, we never mark an interval as lvRegister if it has either been spilled
+                // or split.
+                varDsc->lvRegister = false;
+
+                // Skip any dead defs or exposed uses
+                // (first use exposed will only occur when there is no explicit initialization)
+                RefPosition* firstRefPosition = interval->firstRefPosition;
+                while ((firstRefPosition != nullptr) && (firstRefPosition->refType == RefTypeExpUse))
+                {
+                    firstRefPosition = firstRefPosition->nextRefPosition;
+                }
+                if (firstRefPosition == nullptr)
+                {
+                    // Dead interval
+                    varDsc->lvLRACandidate = false;
+                    if (varDsc->lvRefCnt() == 0)
                     {
-                        firstRefPosition = firstRefPosition->nextRefPosition;
-                    }
-                    if (firstRefPosition == nullptr)
-                    {
-                        // Dead interval
-                        varDsc->lvLRACandidate = false;
-                        if (varDsc->lvRefCnt() == 0)
-                        {
-                            varDsc->lvOnFrame = false;
-                        }
-                        else
-                        {
-                            // We may encounter cases where a lclVar actually has no references, but
-                            // a non-zero refCnt.  For safety (in case this is some "hidden" lclVar that we're
-                            // not correctly recognizing), we'll mark those as needing a stack location.
-                            // TODO-Cleanup: Make this an assert if/when we correct the refCnt
-                            // updating.
-                            varDsc->lvOnFrame = true;
-                        }
+                        varDsc->lvOnFrame = false;
                     }
                     else
                     {
-                        // If the interval was not spilled, it doesn't need a stack location.
-                        if (!interval->isSpilled)
-                        {
-                            varDsc->lvOnFrame = false;
-                        }
-                        if (firstRefPosition->registerAssignment == RBM_NONE || firstRefPosition->spillAfter)
-                        {
-                            // Either this RefPosition is spilled, or regOptional or it is not a "real" def or use
-                            assert(
-                                firstRefPosition->spillAfter || firstRefPosition->RegOptional() ||
-                                (firstRefPosition->refType != RefTypeDef && firstRefPosition->refType != RefTypeUse));
-                            varDsc->SetRegNum(REG_STK);
-                        }
-                        else
-                        {
-                            varDsc->SetRegNum(firstRefPosition->assignedReg());
-                        }
+                        // We may encounter cases where a lclVar actually has no references, but
+                        // a non-zero refCnt.  For safety (in case this is some "hidden" lclVar that we're
+                        // not correctly recognizing), we'll mark those as needing a stack location.
+                        // TODO-Cleanup: Make this an assert if/when we correct the refCnt
+                        // updating.
+                        varDsc->lvOnFrame = true;
                     }
                 }
                 else
                 {
+                    // If the interval was not spilled, it doesn't need a stack location.
+                    if (!interval->isSpilled)
                     {
-                        varDsc->lvRegister = true;
-                        varDsc->lvOnFrame  = false;
+                        varDsc->lvOnFrame = false;
                     }
-#ifdef DEBUG
-                    regMaskTP registerAssignment = genRegMask(varDsc->GetRegNum());
-                    assert(!interval->isSpilled && !interval->isSplit);
-                    RefPosition* refPosition = interval->firstRefPosition;
-                    assert(refPosition != nullptr);
-
-                    while (refPosition != nullptr)
+                    if (firstRefPosition->registerAssignment == RBM_NONE || firstRefPosition->spillAfter)
                     {
-                        // All RefPositions must match, except for dead definitions,
-                        // copyReg/moveReg and RefTypeExpUse positions
-                        if (refPosition->registerAssignment != RBM_NONE && !refPosition->copyReg &&
-                            !refPosition->moveReg && refPosition->refType != RefTypeExpUse)
-                        {
-                            assert(refPosition->registerAssignment == registerAssignment);
-                        }
-                        refPosition = refPosition->nextRefPosition;
+                        // Either this RefPosition is spilled, or regOptional or it is not a "real" def or use
+                        assert(firstRefPosition->spillAfter || firstRefPosition->RegOptional() ||
+                               (firstRefPosition->refType != RefTypeDef && firstRefPosition->refType != RefTypeUse));
+                        varDsc->SetRegNum(REG_STK);
                     }
-#endif // DEBUG
+                    else
+                    {
+                        varDsc->SetRegNum(firstRefPosition->assignedReg());
+                    }
                 }
+            }
+            else
+            {
+                varDsc->lvRegister = true;
+                varDsc->lvOnFrame  = false;
+
+#ifdef DEBUG
+                regMaskTP registerAssignment = genRegMask(varDsc->GetRegNum());
+                assert(!interval->isSpilled && !interval->isSplit);
+                RefPosition* refPosition = interval->firstRefPosition;
+                assert(refPosition != nullptr);
+
+                while (refPosition != nullptr)
+                {
+                    // All RefPositions must match, except for dead definitions,
+                    // copyReg/moveReg and RefTypeExpUse positions
+                    if (refPosition->registerAssignment != RBM_NONE && !refPosition->copyReg && !refPosition->moveReg &&
+                        refPosition->refType != RefTypeExpUse)
+                    {
+                        assert(refPosition->registerAssignment == registerAssignment);
+                    }
+                    refPosition = refPosition->nextRefPosition;
+                }
+#endif // DEBUG
             }
         }
     }
