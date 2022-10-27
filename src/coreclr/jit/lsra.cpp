@@ -1526,8 +1526,10 @@ void LinearScan::identifyCandidates()
     {
         assert(!varDsc->IsRegCandidate());
         assert(!varDsc->lvRegister);
+        assert(!varDsc->lvOnFrame);
 
         varDsc->SetRegNum(REG_STK);
+        varDsc->lvOnFrame = true;
 
         if (!enregisterLocalVars)
         {

@@ -1436,7 +1436,6 @@ inline unsigned Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* re
 
     LclVarDsc* lcl = new (&lvaTable[lclNum]) LclVarDsc();
     lcl->lvIsTemp  = shortLifetime;
-    lcl->lvOnFrame = true;
     INDEBUG(lcl->lvReason = reason;)
 
     // TODO-MIKE-Review: Minopts needs this because it does not do a ref count,
@@ -1492,8 +1491,7 @@ inline unsigned Compiler::lvaGrabTemps(unsigned count DEBUGARG(const char* reaso
     for (unsigned i = 0; i < count; i++)
     {
         LclVarDsc* lcl = new (&lvaTable[lclNum + i]) LclVarDsc();
-        assert(lcl->lvIsTemp == false);
-        lcl->lvOnFrame = true;
+        assert(!lcl->lvIsTemp);
         INDEBUG(lcl->lvReason = reason;)
 
         if (opts.OptimizationDisabled())

@@ -190,8 +190,6 @@ void Compiler::lvaInitLocals()
             }
         }
 
-        varDsc->lvOnFrame = true;
-
         if (corInfoType == CORINFO_TYPE_CLASS)
         {
             lvaSetClass(varNum, info.compCompHnd->getArgClass(&info.compMethodInfo->locals, localsSig));
@@ -455,7 +453,6 @@ void Compiler::lvaInitThisParam(ParamAllocInfo& paramInfo)
 
     lcl->lvIsParam = true;
     lcl->lvIsPtr   = true;
-    lcl->lvOnFrame = true;
 
     lcl->SetParamRegs(paramInfo.AllocReg(TYP_INT));
 
@@ -489,7 +486,6 @@ void Compiler::lvaInitRetBufParam(ParamAllocInfo& paramInfo, bool useFixedRetBuf
 
     lcl->SetType(TYP_BYREF);
     lcl->lvIsParam = true;
-    lcl->lvOnFrame = true;
 
 #ifdef TARGET_ARM64
     if (useFixedRetBufReg)
@@ -533,7 +529,6 @@ void Compiler::lvaInitGenericsContextParam(ParamAllocInfo& paramInfo)
 
     lcl->SetType(TYP_I_IMPL);
     lcl->lvIsParam = true;
-    lcl->lvOnFrame = true;
 
     if (paramInfo.CanEnregister(TYP_I_IMPL))
     {
@@ -570,7 +565,6 @@ void Compiler::lvaInitVarargsHandleParam(ParamAllocInfo& paramInfo)
 
     lcl->SetType(TYP_I_IMPL);
     lcl->lvIsParam = true;
-    lcl->lvOnFrame = true;
 
     // Make sure this lives in the stack, address may be reported to the VM.
     // TODO-CQ: This should probably be only DNER but that causes problems,
@@ -642,7 +636,6 @@ void Compiler::lvaInitUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAND
     LclVarDsc* lcl = lvaGetDesc(paramInfo.lclNum);
 
     lcl->lvIsParam = true;
-    lcl->lvOnFrame = true;
     lvaInitVarDsc(lcl, paramInfo.lclNum, corType, typeHnd);
 
     if (opts.IsOSR() && info.compPatchpointInfo->IsExposed(paramInfo.lclNum))
@@ -5822,12 +5815,12 @@ void Compiler::lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth)
         {
             printf("           ");
         }
-        else if (varDsc->lvRegister != 0)
+        else if (varDsc->lvRegister)
         {
             // It's always a register, and always in the same register.
             lvaDumpRegLocation(lclNum);
         }
-        else if (varDsc->lvOnFrame == 0)
+        else if (!varDsc->lvOnFrame)
         {
             printf("registers  ");
         }
