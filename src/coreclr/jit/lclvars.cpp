@@ -4170,6 +4170,95 @@ int Compiler::lvaAssignParamVirtualFrameOffset(unsigned lclNum, unsigned size, i
 // These will all be negative offsets (stack grows down) relative to the virtual '0' address.
 void Compiler::lvaAssignLocalsVirtualFrameOffsets()
 {
+    codeGen->lclFrameSize = 0;
+
+    int stkOffs              = 0;
+    int originalFrameStkOffs = 0;
+    int originalFrameSize    = 0;
+
+#ifdef TARGET_XARCH
+    // On x86/amd64, the return address has already been pushed by the call instruction in the caller.
+    stkOffs -= REGSIZE_BYTES;
+
+    if (lvaRetAddrVar != BAD_VAR_NUM)
+    {
+        lvaGetDesc(lvaRetAddrVar)->SetStackOffset(stkOffs);
+    }
+
+    // If we are an OSR method, we "inherit" the frame of the original method, and the stack
+    // is already double aligned on entry (since the return address push and any special
+    // alignment push happened "before").
+    if (opts.IsOSR())
+    {
+        originalFrameSize    = info.compPatchpointInfo->FpToSpDelta();
+        originalFrameStkOffs = stkOffs;
+        stkOffs -= originalFrameSize;
+    }
+
+    // TODO-AMD64-CQ: for X64 eventually this should be pushed with all the other callee regs.
+    // When you fix this, you'll also need to fix the assert at the bottom of this method.
+    if (codeGen->doubleAlignOrFramePointerUsed())
+    {
+        stkOffs -= REGSIZE_BYTES;
+    }
+
+    stkOffs -= codeGen->calleeRegsPushed * REGSIZE_BYTES;
+
+#ifdef TARGET_AMD64
+    // In case of AMD64 compCalleeRegsPushed includes float regs (XMM6-XMM15) that
+    // need to be pushed. But AMD64 doesn't support push/pop of XMM registers.
+    // Instead we need to allocate space for them on the stack and save them in prolog.
+    // Therefore, we consider XMM registers being saved while computing stack offsets
+    // but space for XMM registers is considered part of compLclFrameSize.
+    // Notes
+    //  1) We need to save the entire 128-bits of XMM register to stack, since AMD64
+    //     prolog unwind codes allow encoding of an instruction that stores the entire
+    //     XMM reg at an offset relative to SP.
+    //  2) We adjust frame size so that SP is aligned at 16-bytes after pushing integer registers.
+    //     This means while saving the first XMM register to its allocated stack location we might
+    //     have to skip 8-bytes. The reason for padding is to use efficient MOVAPS to save/restore
+    //     XMM registers to/from stack to match JIT64 codegen. Without the aligning on 16-byte
+    //     boundary we would have to use MOVUPS when offset turns out unaligned. MOVAPS is more
+    //     performant than MOVUPS.
+    const unsigned calleeFPRegsSavedSize = genCountBits(codeGen->calleeFPRegsSavedMask) * XMM_REGSIZE_BYTES;
+
+    // For OSR the alignment pad computation should not take the original frame into account.
+    // Original frame size includes the pseudo-saved RA and so is always = 8 mod 16.
+    const int offsetForAlign = -(stkOffs + originalFrameSize);
+
+    if ((calleeFPRegsSavedSize > 0) && ((offsetForAlign % XMM_REGSIZE_BYTES) != 0))
+    {
+        int alignPad = static_cast<int>(AlignmentPad(static_cast<unsigned>(offsetForAlign), XMM_REGSIZE_BYTES));
+        assert(alignPad != 0);
+
+        lvaIncrementFrameSize(alignPad);
+        stkOffs -= alignPad;
+    }
+
+    lvaIncrementFrameSize(calleeFPRegsSavedSize);
+    stkOffs -= calleeFPRegsSavedSize;
+#else //  TARGET_X86
+    const int preSpillSize    = 0;
+    bool      mustDoubleAlign = false;
+
+#if DOUBLE_ALIGN
+    if (codeGen->doDoubleAlign())
+    {
+        mustDoubleAlign = true;
+
+        if ((stkOffs + preSpillSize) % (2 * REGSIZE_BYTES) != 0)
+        {
+            lvaIncrementFrameSize(REGSIZE_BYTES);
+            stkOffs -= REGSIZE_BYTES;
+
+            assert((stkOffs + preSpillSize) % (2 * REGSIZE_BYTES) == 0);
+        }
+    }
+#endif // DOUBLE_ALIGN
+#endif // TARGET_X86
+
+#elif defined(TARGET_ARMARCH)
+
 #ifdef TARGET_ARM64
     // Decide where to save FP and LR registers. We store FP/LR registers at the bottom of the frame if there is
     // a frame pointer used (so we get positive offsets from the frame pointer to access locals), but not if we
@@ -4193,54 +4282,7 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
             codeGen->SetSaveFpLrWithAllCalleeSavedRegisters(true);
             break;
     }
-#endif // TARGET_ARM64
 
-    int stkOffs              = 0;
-    int originalFrameStkOffs = 0;
-    int originalFrameSize    = 0;
-
-#ifdef TARGET_XARCH
-    // On x86/amd64, the return address has already been pushed by the call instruction in the caller.
-    stkOffs -= REGSIZE_BYTES; // return address;
-
-    if (lvaRetAddrVar != BAD_VAR_NUM)
-    {
-        lvaGetDesc(lvaRetAddrVar)->SetStackOffset(stkOffs);
-    }
-
-    // If we are an OSR method, we "inherit" the frame of the original method, and the stack
-    // is already double aligned on entry (since the return address push and any special
-    // alignment push happened "before").
-    if (opts.IsOSR())
-    {
-        originalFrameSize    = info.compPatchpointInfo->FpToSpDelta();
-        originalFrameStkOffs = stkOffs;
-        stkOffs -= originalFrameSize;
-    }
-
-    // TODO-AMD64-CQ: for X64 eventually this should be pushed with all the other callee regs.
-    // When you fix this, you'll also need to fix the assert at the bottom of this method.
-    if (codeGen->doubleAlignOrFramePointerUsed())
-    {
-        stkOffs -= REGSIZE_BYTES;
-    }
-#endif // TARGET_XARCH
-
-#ifdef TARGET_ARM
-    int  preSpillSize    = genCountBits(codeGen->regSet.rsMaskPreSpillRegs(true)) * REGSIZE_BYTES;
-    bool mustDoubleAlign = true;
-#elif defined(TARGET_X86)
-    int  preSpillSize    = 0;
-    bool mustDoubleAlign = false;
-#if DOUBLE_ALIGN
-    if (codeGen->doDoubleAlign())
-    {
-        mustDoubleAlign = true;
-    }
-#endif
-#endif
-
-#ifdef TARGET_ARM64
     // If the frame pointer is used, then we'll save FP/LR at the bottom of the stack.
     // Otherwise, we won't store FP, and we'll store LR at the top, with the other callee-save
     // registers (if any).
@@ -4267,56 +4309,16 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
 
         stkOffs -= (codeGen->calleeRegsPushed - 2) * REGSIZE_BYTES;
     }
-#else // !TARGET_ARM64
-#ifdef TARGET_ARM
+#else  // TARGET_ARM
     // On ARM32 LR is part of the pushed registers and is always stored at the top.
     if (lvaRetAddrVar != BAD_VAR_NUM)
     {
         lvaGetDesc(lvaRetAddrVar)->SetStackOffset(stkOffs - REGSIZE_BYTES);
     }
-#endif
 
     stkOffs -= codeGen->calleeRegsPushed * REGSIZE_BYTES;
-#endif // !TARGET_ARM64
+#endif // TARGET_ARM
 
-    codeGen->lclFrameSize = 0;
-
-#ifdef TARGET_AMD64
-    // In case of AMD64 compCalleeRegsPushed includes float regs (XMM6-XMM15) that
-    // need to be pushed. But AMD64 doesn't support push/pop of XMM registers.
-    // Instead we need to allocate space for them on the stack and save them in prolog.
-    // Therefore, we consider XMM registers being saved while computing stack offsets
-    // but space for XMM registers is considered part of compLclFrameSize.
-    // Notes
-    //  1) We need to save the entire 128-bits of XMM register to stack, since AMD64
-    //     prolog unwind codes allow encoding of an instruction that stores the entire
-    //     XMM reg at an offset relative to SP.
-    //  2) We adjust frame size so that SP is aligned at 16-bytes after pushing integer registers.
-    //     This means while saving the first XMM register to its allocated stack location we might
-    //     have to skip 8-bytes. The reason for padding is to use efficient MOVAPS to save/restore
-    //     XMM registers to/from stack to match JIT64 codegen. Without the aligning on 16-byte
-    //     boundary we would have to use MOVUPS when offset turns out unaligned. MOVAPS is more
-    //     performant than MOVUPS.
-    unsigned calleeFPRegsSavedSize = genCountBits(codeGen->calleeFPRegsSavedMask) * XMM_REGSIZE_BYTES;
-
-    // For OSR the alignment pad computation should not take the original frame into account.
-    // Original frame size includes the pseudo-saved RA and so is always = 8 mod 16.
-    const int offsetForAlign = -(stkOffs + originalFrameSize);
-
-    if ((calleeFPRegsSavedSize > 0) && ((offsetForAlign % XMM_REGSIZE_BYTES) != 0))
-    {
-        int alignPad = static_cast<int>(AlignmentPad(static_cast<unsigned>(offsetForAlign), XMM_REGSIZE_BYTES));
-        assert(alignPad != 0);
-
-        lvaIncrementFrameSize(alignPad);
-        stkOffs -= alignPad;
-    }
-
-    lvaIncrementFrameSize(calleeFPRegsSavedSize);
-    stkOffs -= calleeFPRegsSavedSize;
-#endif // TARGET_AMD64
-
-#if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARMARCH)
     if (lvaPSPSym != BAD_VAR_NUM)
     {
         // On ARM/ARM64, if we need a PSPSym, allocate it first, before anything else, including
@@ -4327,40 +4329,38 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
 
         stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaPSPSym, REGSIZE_BYTES, stkOffs);
     }
-#endif // FEATURE_EH_FUNCLETS && defined(TARGET_ARMARCH)
 
-#ifndef TARGET_64BIT
-    if (mustDoubleAlign)
-    {
 #ifdef TARGET_ARM
-        if (lvaDoneFrameLayout != FINAL_FRAME_LAYOUT)
+    const int  preSpillSize    = genCountBits(codeGen->regSet.rsMaskPreSpillRegs(true)) * REGSIZE_BYTES;
+    const bool mustDoubleAlign = true;
+
+    if (lvaDoneFrameLayout != FINAL_FRAME_LAYOUT)
+    {
+        lvaIncrementFrameSize(REGSIZE_BYTES);
+        stkOffs -= REGSIZE_BYTES;
+
+        // If we have any LONG, DOUBLE or double aligned structs then we need
+        // to allocate a second pointer sized stack slot, since we may need to
+        // double align that LclVar when we see it in the loop below. We will
+        // just always do this so that the offsets that we calculate for the
+        // stack frame will always be greater (or equal) to what they can be
+        // in the final layout.
+
+        lvaIncrementFrameSize(REGSIZE_BYTES);
+        stkOffs -= REGSIZE_BYTES;
+    }
+    else
+    {
+        if ((stkOffs + preSpillSize) % (2 * REGSIZE_BYTES) != 0)
         {
             lvaIncrementFrameSize(REGSIZE_BYTES);
             stkOffs -= REGSIZE_BYTES;
-
-            // If we have any LONG, DOUBLE or double aligned structs then we need
-            // to allocate a second pointer sized stack slot, since we may need to
-            // double align that LclVar when we see it in the loop below. We will
-            // just always do this so that the offsets that we calculate for the
-            // stack frame will always be greater (or equal) to what they can be
-            // in the final layout.
-
-            lvaIncrementFrameSize(REGSIZE_BYTES);
-            stkOffs -= REGSIZE_BYTES;
-        }
-        else
-#endif
-        {
-            if ((stkOffs + preSpillSize) % (2 * REGSIZE_BYTES) != 0)
-            {
-                lvaIncrementFrameSize(REGSIZE_BYTES);
-                stkOffs -= REGSIZE_BYTES;
-            }
 
             assert((stkOffs + preSpillSize) % (2 * REGSIZE_BYTES) == 0);
         }
     }
-#endif // !TARGET_64BIT
+#endif // TARGET_ARM
+#endif // TARGET_ARMARCH
 
     if (lvaMonAcquired != BAD_VAR_NUM)
     {
