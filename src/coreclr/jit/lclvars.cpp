@@ -4283,19 +4283,16 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
             break;
     }
 
-    // If the frame pointer is used, then we'll save FP/LR at the bottom of the stack.
-    // Otherwise, we won't store FP, and we'll store LR at the top, with the other callee-save
-    // registers (if any).
-
-    int initialStkOffs = 0;
-
+    // For varargs we always save all of the integer register arguments
+    // so that they are contiguous with the incoming stack arguments.
     if (info.compIsVarArgs)
     {
-        // For varargs we always save all of the integer register arguments
-        // so that they are contiguous with the incoming stack arguments.
-        initialStkOffs = MAX_REG_ARG * REGSIZE_BYTES;
-        stkOffs -= initialStkOffs;
+        stkOffs -= MAX_REG_ARG * REGSIZE_BYTES;
     }
+
+    // If the frame pointer is used, then we'll save FP/LR at the bottom of the stack.
+    // Otherwise, we won't store FP, and we'll store LR at the top, with the other
+    // callee-save registers (if any).
 
     if (codeGen->IsSaveFpLrWithAllCalleeSavedRegisters() ||
         !codeGen->isFramePointerUsed()) // Note that currently we always have a frame pointer
@@ -4680,9 +4677,10 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
 #ifdef TARGET_ARM64
                 if (info.compIsVarArgs && (lcl->GetParamReg() != RET_BUFF_ARGNUM))
                 {
+                    assert(genIsValidIntReg(lcl->GetParamReg()));
+
                     // Stack offset to varargs (parameters) should point to home area which will be preallocated.
-                    unsigned regNum = genMapIntRegNumToRegArgNum(lcl->GetParamReg());
-                    lcl->SetStackOffset(-initialStkOffs + regNum * REGSIZE_BYTES);
+                    lcl->SetStackOffset(((lcl->GetParamReg() - REG_R0) - MAX_REG_ARG) * REGSIZE_BYTES);
 
                     continue;
                 }
