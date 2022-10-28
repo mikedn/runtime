@@ -4631,7 +4631,7 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
             // These need to be located as the very first variables (highest memory address)
             // and so they have already been assigned an offset
 
-            if (
+            if (lclNum == lvaMonAcquired ||
 #ifdef FEATURE_EH_FUNCLETS
                 lclNum == lvaPSPSym ||
 #else
@@ -4644,11 +4644,6 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
             {
                 assert(lcl->GetStackOffset() != BAD_STK_OFFS);
 
-                continue;
-            }
-
-            if (lclNum == lvaMonAcquired)
-            {
                 continue;
             }
 
