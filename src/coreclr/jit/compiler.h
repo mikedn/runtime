@@ -3966,7 +3966,6 @@ public:
     static unsigned lvaGetParamAlignment(var_types type, bool isFloatHfa);
     void lvaAssignFrameOffsets(FrameLayoutState curState);
     void lvaFixVirtualFrameOffsets();
-    void lvaUpdateArgsWithInitialReg();
 #ifdef TARGET_ARMARCH
     void lvaAssignParamsVirtualFrameOffsets();
     int lvaAssignParamVirtualFrameOffset(LclVarDsc* lcl, unsigned size, int offset);
@@ -7038,7 +7037,6 @@ public:
     bool fgLocalVarLivenessDone    = false; // Note that this one is used outside of debug.
     bool ssaForm                   = false;
     bool csePhase                  = false; // True when we are executing the CSE phase
-    bool compLSRADone              = false;
     bool compRationalIRForm        = false;
     bool compUsesThrowHelper       = false; // There is a call to a THROW_HELPER for the compiled method.
     bool compNeedsGSSecurityCookie = false; // There is an unsafe buffer (or localloc) on the stack.

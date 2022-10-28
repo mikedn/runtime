@@ -478,6 +478,7 @@ protected:
     void genReserveEpilog(BasicBlock* block);
     void genFnProlog();
     void genFnEpilog(BasicBlock* block);
+    void UpdateParamsWithInitialReg();
 
 #if defined(FEATURE_EH_FUNCLETS)
 

@@ -5587,12 +5587,8 @@ void CodeGen::genReserveFuncletEpilog(BasicBlock* block)
 
 #endif // FEATURE_EH_FUNCLETS
 
-// For each argument variable descriptor, update its curent
-// register with the initial register as assigned by LSRA.
-void Compiler::lvaUpdateArgsWithInitialReg()
+void CodeGen::UpdateParamsWithInitialReg()
 {
-    assert(compLSRADone);
-
     auto setParamReg = [](LclVarDsc* lcl) {
         assert(lcl->IsParam());
 
@@ -5602,15 +5598,15 @@ void Compiler::lvaUpdateArgsWithInitialReg()
         }
     };
 
-    for (unsigned lclNum = 0; lclNum < info.compArgsCount; lclNum++)
+    for (unsigned lclNum = 0; lclNum < compiler->info.compArgsCount; lclNum++)
     {
-        LclVarDsc* lcl = lvaGetDesc(lclNum);
+        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
 
         if (lcl->lvPromotedStruct())
         {
             for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
             {
-                setParamReg(lvaGetDesc(lcl->GetPromotedFieldLclNum(i)));
+                setParamReg(compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i)));
             }
         }
         else
@@ -5805,7 +5801,7 @@ void CodeGen::genFinalizeFrame()
     }
 #endif // DEBUG
 
-    compiler->lvaUpdateArgsWithInitialReg();
+    UpdateParamsWithInitialReg();
 
     /* Assign the final offsets to things living on the stack frame */
 
@@ -6476,7 +6472,7 @@ void CodeGen::genFnProlog()
     genClearStackVec3ArgUpperBits();
 #endif // UNIX_AMD64_ABI && FEATURE_SIMD
 
-    compiler->lvaUpdateArgsWithInitialReg();
+    UpdateParamsWithInitialReg();
 
     // Home incoming arguments and generate any required inits.
     // OSR handles this by moving the values from the original frame.

@@ -1215,8 +1215,6 @@ void LinearScan::doLinearScan()
 #endif // TRACK_LSRA_STATS
 
     DBEXEC(VERBOSE, TupleStyleDump(LSRA_DUMP_POST));
-
-    compiler->compLSRADone = true;
 }
 
 //------------------------------------------------------------------------
