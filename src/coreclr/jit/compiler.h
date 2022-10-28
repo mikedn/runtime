@@ -311,7 +311,7 @@ public:
     }
 };
 
-enum RefCountState
+enum RefCountState : uint8_t
 {
     RCS_INVALID, // not valid to get/set ref counts
     RCS_MORPH,   // morphing uses the 2 LclVarDsc ref count members for implicit by ref optimizations
@@ -3801,6 +3801,9 @@ public:
 
     BasicBlock* bbNewBasicBlock(BBjumpKinds jumpKind);
 
+    Phases      mostRecentlyActivePhase = PHASE_PRE_IMPORT;        // the most recently active phase
+    PhaseChecks activePhaseChecks       = PhaseChecks::CHECK_NONE; // the currently active phase checks
+
     /*
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -3824,12 +3827,15 @@ public:
 
 public:
     RefCountState lvaRefCountState = RCS_INVALID; // Current local ref count state
-
-    bool lvaAddressExposedLocalsMarked = false;
+    bool          lvaEnregEHVars;
+    bool          lvaAddressExposedLocalsMarked = false;
 #if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
     bool lvaHasImplicitByRefParams;
 #endif
     bool lvaGenericsContextInUse = false;
+    // The highest frame layout state that we've completed. During frame
+    // layout calculations, this is the level we are currently computing.
+    FrameLayoutState lvaDoneFrameLayout = NO_FRAME_LAYOUT;
 
     bool lvaLocalVarRefCounted() const
     {
@@ -7051,15 +7057,6 @@ public:
     {
         compNeedsGSSecurityCookie = true;
     }
-
-    // The highest frame layout state that we've completed. During frame
-    // layout calculations, this is the level we are currently computing.
-    FrameLayoutState lvaDoneFrameLayout = NO_FRAME_LAYOUT;
-
-    bool lvaEnregEHVars;
-
-    Phases      mostRecentlyActivePhase = PHASE_PRE_IMPORT;        // the most recently active phase
-    PhaseChecks activePhaseChecks       = PhaseChecks::CHECK_NONE; // the currently active phase checks
 
     CompilerOptions opts;
 
