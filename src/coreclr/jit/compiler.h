@@ -4544,6 +4544,10 @@ public:
     bool fgGlobalMorph = false; // indicates if we are during the global morphing phase
                                 // since fgMorphTree can be called from several places
 
+    bool fgLoopCallMarked       = false; // The following check for loops that don't execute calls
+    bool fgHasLoops             = false; // True if this method has any loops, set in fgComputeReachability
+    bool fgLocalVarLivenessDone = false; // Note that this one is used outside of debug.
+
 #ifdef DEBUG
     bool jitFallbackCompile; // Are we doing a fallback compile? That is, have we executed a NO_WAY assert,
                              //   and we are trying to compile again in a "safer", minopts mode?
@@ -4621,6 +4625,9 @@ public:
 
     // The number of separate return points in the method.
     unsigned fgReturnCount = 0;
+
+    // Maximum number of call args
+    unsigned fgPtrArgCntMax = 0;
 
     void fgAddInternal();
 
@@ -5367,10 +5374,9 @@ protected:
 
 public:
     const char*                            fgPgoFailReason              = nullptr;
-    bool                                   fgPgoDisabled                = false;
-    ICorJitInfo::PgoSource                 fgPgoSource                  = ICorJitInfo::PgoSource::Unknown;
     ICorJitInfo::PgoInstrumentationSchema* fgPgoSchema                  = nullptr;
     BYTE*                                  fgPgoData                    = nullptr;
+    ICorJitInfo::PgoSource                 fgPgoSource                  = ICorJitInfo::PgoSource::Unknown;
     UINT32                                 fgPgoSchemaCount             = 0;
     HRESULT                                fgPgoQueryResult             = E_FAIL;
     UINT32                                 fgNumProfileRuns             = 0;
@@ -5445,10 +5451,6 @@ private:
     void fgCheckTreeSeq(GenTree* tree, bool isLIR = false);
     void fgSetStmtSeq(Statement* stmt);
     void fgSetBlockOrder(BasicBlock* block);
-
-    //------------------------- Morphing --------------------------------------
-
-    unsigned fgPtrArgCntMax = 0;
 
 public:
     //------------------------------------------------------------------------
@@ -7038,9 +7040,6 @@ public:
 
     bool fgNoStructPromotion       = false; // Set to true to turn off struct promotion for this method.
     bool optLoopsMarked            = false;
-    bool fgLoopCallMarked          = false; // The following check for loops that don't execute calls
-    bool fgHasLoops                = false; // True if this method has any loops, set in fgComputeReachability
-    bool fgLocalVarLivenessDone    = false; // Note that this one is used outside of debug.
     bool ssaForm                   = false;
     bool csePhase                  = false; // True when we are executing the CSE phase
     bool compRationalIRForm        = false;

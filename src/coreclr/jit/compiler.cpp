@@ -1802,7 +1802,6 @@ void Compiler::compInitPgo()
             fgPgoQueryResult = E_FAIL;
             fgPgoData        = nullptr;
             fgPgoSchema      = nullptr;
-            fgPgoDisabled    = true;
         }
 #ifdef DEBUG
         // Optionally, enable use of profile data for only some methods.
@@ -1822,7 +1821,6 @@ void Compiler::compInitPgo()
                 fgPgoQueryResult = E_FAIL;
                 fgPgoData        = nullptr;
                 fgPgoSchema      = nullptr;
-                fgPgoDisabled    = true;
             }
         }
 
