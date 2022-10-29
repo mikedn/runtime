@@ -1180,12 +1180,6 @@ void LinearScan::doLinearScan()
 {
     splitBBNumToTargetBBNumMap = nullptr;
 
-    // This is complicated by the fact that physical registers have refs associated
-    // with locations where they are killed (e.g. calls), but we don't want to
-    // count these as being touched.
-
-    compiler->codeGen->regSet.rsClearRegsModified();
-
     initMaxSpill();
     buildIntervals();
     DBEXEC(VERBOSE, TupleStyleDump(LSRA_DUMP_REFPOS));

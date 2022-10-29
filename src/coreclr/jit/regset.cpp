@@ -104,25 +104,9 @@ void RegSet::verifyRegistersUsed(regMaskTP regMask)
     rsSetRegsModified(regMask);
 }
 
-void RegSet::rsClearRegsModified()
-{
-    assert(m_rsCompiler->lvaDoneFrameLayout < Compiler::FINAL_FRAME_LAYOUT);
-
-#ifdef DEBUG
-    if (m_rsCompiler->verbose)
-    {
-        printf("Clearing modified regs.\n");
-    }
-    rsModifiedRegsMaskInitialized = true;
-#endif // DEBUG
-
-    rsModifiedRegsMask = RBM_NONE;
-}
-
 void RegSet::rsSetRegsModified(regMaskTP mask DEBUGARG(bool suppressDump))
 {
     assert(mask != RBM_NONE);
-    assert(rsModifiedRegsMaskInitialized);
 
     // We can't update the modified registers set after final frame layout (that is, during code
     // generation and after). Ignore prolog and epilog generation: they call register tracking to
@@ -156,7 +140,6 @@ void RegSet::rsSetRegsModified(regMaskTP mask DEBUGARG(bool suppressDump))
 void RegSet::rsRemoveRegsModified(regMaskTP mask)
 {
     assert(mask != RBM_NONE);
-    assert(rsModifiedRegsMaskInitialized);
 
     // See comment in rsSetRegsModified().
     assert((m_rsCompiler->lvaDoneFrameLayout < Compiler::FINAL_FRAME_LAYOUT) ||

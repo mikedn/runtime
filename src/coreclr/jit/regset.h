@@ -67,20 +67,13 @@ private:
     //
 
 private:
-    regMaskTP rsModifiedRegsMask; // mask of the registers modified by the current function.
-
-#ifdef DEBUG
-    bool rsModifiedRegsMaskInitialized = false; // Has rsModifiedRegsMask been initialized? Guards against illegal use.
-#endif
+    regMaskTP rsModifiedRegsMask = RBM_NONE; // mask of the registers modified by the current function.
 
 public:
     regMaskTP rsGetModifiedRegsMask() const
     {
-        assert(rsModifiedRegsMaskInitialized);
         return rsModifiedRegsMask;
     }
-
-    void rsClearRegsModified();
 
     void rsSetRegsModified(regMaskTP mask DEBUGARG(bool suppressDump = false));
 
@@ -88,7 +81,6 @@ public:
 
     bool rsRegsModified(regMaskTP mask) const
     {
-        assert(rsModifiedRegsMaskInitialized);
         return (rsModifiedRegsMask & mask) != 0;
     }
 
