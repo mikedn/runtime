@@ -2573,38 +2573,7 @@ regMaskTP CodeGen::genPrologBuildParamRegsTable(
             // and the regiter may be x7, so we treat an integer register as a float one.
 
             paramRegIndex = genMapRegNumToRegArgNum(lcl->GetParamReg(), regType);
-            regCount      = 1;
-
-#ifdef TARGET_ARM
-            unsigned lclSize = compiler->lvaLclSize(lclNum);
-
-            if (lclSize > REGSIZE_BYTES)
-            {
-                unsigned maxParamRegCount = isFloat ? MAX_FLOAT_REG_ARG : MAX_REG_ARG;
-
-                regCount = lclSize / REGSIZE_BYTES;
-
-                if (paramRegIndex + regCount > maxParamRegCount)
-                {
-                    regCount = maxParamRegCount - paramRegIndex;
-                }
-            }
-#elif defined(TARGET_ARM64)
-            if (compiler->lvaIsMultiRegStructParam(lcl))
-            {
-                if (lcl->IsHfaRegParam())
-                {
-                    regCount = lcl->GetLayout()->GetHfaRegCount();
-                }
-                else
-                {
-                    // Currently all non-HFA multireg structs are two registers in size
-                    assert(lcl->lvSize() == 2 * REGSIZE_BYTES);
-
-                    regCount = 2;
-                }
-            }
-#endif // TARGET_ARM64
+            regCount      = lcl->GetParamRegCount();
 
             noway_assert(paramRegIndex + regCount <= paramRegCount);
 
