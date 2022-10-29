@@ -2775,95 +2775,20 @@ void CodeGen::genJmpMethod(GenTree* jmp)
         return;
     }
 
-    // Make sure register arguments are in their initial registers
-    // and stack arguments are put back as well.
-    unsigned   varNum;
-    LclVarDsc* varDsc;
-
-    // First move any en-registered stack arguments back to the stack.
-    // At the same time any reg arg not in correct reg is moved back to its stack location.
-    //
-    // We are not strictly required to spill reg args that are not in the desired reg for a jmp call
-    // But that would require us to deal with circularity while moving values around.  Spilling
-    // to stack makes the implementation simple, which is not a bad trade off given Jmp calls
-    // are not frequent.
-    for (varNum = 0; (varNum < compiler->info.compArgsCount); varNum++)
-    {
-        varDsc = compiler->lvaTable + varNum;
-
-        if (varDsc->lvPromoted)
-        {
-            noway_assert(varDsc->lvFieldCnt == 1); // We only handle one field here
-
-            unsigned fieldVarNum = varDsc->lvFieldLclStart;
-            varDsc               = compiler->lvaTable + fieldVarNum;
-        }
-
-        noway_assert(varDsc->IsParam());
-
-        if (varDsc->IsRegParam() && (varDsc->GetRegNum() != REG_STK))
-        {
-            // Skip reg args which are already in its right register for jmp call.
-            // If not, we will spill such args to their stack locations.
-            //
-            // If we need to generate a tail call profiler hook, then spill all
-            // arg regs to free them up for the callback.
-            if (!compiler->compIsProfilerHookNeeded() && (varDsc->GetRegNum() == varDsc->GetParamReg()))
-            {
-                continue;
-            }
-        }
-        else if (varDsc->GetRegNum() == REG_STK)
-        {
-            // Skip args which are currently living in stack.
-            continue;
-        }
-
-        // If we came here it means either a reg argument not in the right register or
-        // a stack argument currently living in a register.  In either case the following
-        // assert should hold.
-        assert(varDsc->GetRegNum() != REG_STK);
-        assert(varDsc->TypeGet() != TYP_STRUCT);
-        var_types storeType = genActualType(varDsc->TypeGet());
-        emitAttr  storeSize = emitActualTypeSize(storeType);
-
-#ifdef TARGET_ARM
-        // TODO-MIKE-Cleanup: This is likely dead code.
-        if (varDsc->TypeGet() == TYP_LONG)
-        {
-            // long - at least the low half must be enregistered
-            GetEmitter()->emitIns_S_R(INS_str, EA_4BYTE, varDsc->GetRegNum(), varNum, 0);
-        }
-        else
-#endif // TARGET_ARM
-        {
-            GetEmitter()->emitIns_S_R(ins_Store(storeType), storeSize, varDsc->GetRegNum(), varNum, 0);
-        }
-        // Update lvRegNum life and GC info to indicate lvRegNum is dead and varDsc stack slot is going live.
-        // Note that we cannot modify varDsc->GetRegNum() here because another basic block may not be expecting it.
-        // Therefore manually update life of varDsc->GetRegNum().
-        regMaskTP tempMask = genRegMask(varDsc->GetRegNum());
-        regSet.RemoveMaskVars(tempMask);
-        gcInfo.gcMarkRegSetNpt(tempMask);
-        if (compiler->lvaIsGCTracked(varDsc))
-        {
-            VarSetOps::AddElemD(compiler, gcInfo.gcVarPtrSetCur, varNum);
-        }
-    }
-
 #ifdef PROFILING_SUPPORTED
     // At this point all arg regs are free.
     // Emit tail call profiler callback.
     genProfilingLeaveCallback(CORINFO_HELP_PROF_FCN_TAILCALL);
 #endif
 
-    // Next move any un-enregistered register arguments back to their register.
+    // Move any register parameters back to their register.
+
     regMaskTP fixedIntArgMask = RBM_NONE;    // tracks the int arg regs occupying fixed args in case of a vararg method.
     unsigned  firstArgVarNum  = BAD_VAR_NUM; // varNum of the first argument in case of a vararg method.
 
     for (unsigned varNum = 0; varNum < compiler->info.compArgsCount; varNum++)
     {
-        varDsc = compiler->lvaGetDesc(varNum);
+        LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
 
         if (varDsc->IsPromoted())
         {
