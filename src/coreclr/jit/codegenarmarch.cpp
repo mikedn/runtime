@@ -2879,12 +2879,9 @@ void CodeGen::genJmpMethod(GenTree* jmp)
             continue;
         }
 
-        // Register argument
-        noway_assert(isRegParamType(varActualType(varDsc->GetType())));
-
         if (varDsc->IsHfaRegParam())
         {
-            // Note that for HFA, the argument is currently marked address exposed so lvRegNum will always be
+            // Note that for HFA, the argument is currently marked DNER so locals's register will always be
             // REG_STK. We home the incoming HFA argument registers in the prolog. Then we'll load them back
             // here, whether they are already in the correct registers or not. This is such a corner case that
             // it is not worth optimizing it.
