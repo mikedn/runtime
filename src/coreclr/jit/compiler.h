@@ -4117,8 +4117,6 @@ public:
         return lvaGetDesc(varNum)->IsImplicitByRefParam();
     }
 
-    bool lvaIsMultiRegStructParam(LclVarDsc* lcl);
-
     void lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsafeBuffer);
     void lvaSetStruct(unsigned lclNum, CORINFO_CLASS_HANDLE classHandle, bool checkUnsafeBuffer);
 

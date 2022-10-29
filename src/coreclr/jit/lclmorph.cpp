@@ -2732,7 +2732,13 @@ bool StructPromotionHelper::ShouldPromoteStructLocal(unsigned lclNum)
     if (lcl->IsParam() && !lcl->IsImplicitByRefParam() && !lcl->IsHfaParam())
     {
 #if defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
-        if (compiler->lvaIsMultiRegStructParam(lcl))
+        // TODO-MIKE-Review: This is dubious. These checks are more suitable for reg params
+        // but it looks like they are applied to all params. Stack params would have very
+        // different restrictions, mostly around small int fields that cannot be widened
+        // to INT when doing independent promotion. But that may actually work fine too,
+        // since such promoted field are still marked as params they'd end up "normalized
+        // on load".
+        if (compiler->abiGetStructParamType(lcl->GetLayout(), compiler->info.compIsVarArgs).kind == SPK_ByValue)
         {
             if ((info.fieldCount != 2) && ((info.fieldCount != 1) || !varTypeIsSIMD(info.fields[0].type)))
             {

@@ -1461,39 +1461,6 @@ void Compiler::lvaSetLiveInOutOfHandler(unsigned lclNum)
     }
 }
 
-bool Compiler::lvaIsMultiRegStructParam(LclVarDsc* lcl)
-{
-    assert(lcl->IsParam());
-
-    if (!varTypeIsStruct(lcl->GetType()))
-    {
-        return false;
-    }
-
-    // TODO-MIKE-Throughput: Isn't there enough information in LclVarDsc
-    // to avoid calling abiGetStructParamType again?
-
-    switch (abiGetStructParamType(lcl->GetLayout(), info.compIsVarArgs).kind)
-    {
-#ifdef FEATURE_HFA
-        case SPK_ByValueAsHfa:
-            return true;
-#endif
-#if defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
-        case SPK_ByValue:
-            // TODO-MIKE-Review: Why is this excluded on ARM? And how exactly does SPK_ByValue
-            // imply multireg? Such params can be passed on stack on UNIX_AMD64_ABI. Maybe
-            // it's not that ARM is excluded, maybe it's that UNIX_AMD64_ABI shouldn't be
-            // included because only on ARM64 SPK_ByValue implies multireg. Though the same
-            // is true about HFA, SPK_ByValueAsHfa doesn't actually mean that the parameter
-            // is passed in registers.
-            return true;
-#endif
-        default:
-            return false;
-    }
-}
-
 void Compiler::lvaSetStruct(unsigned lclNum, CORINFO_CLASS_HANDLE classHandle, bool checkUnsafeBuffer)
 {
     lvaSetStruct(lclNum, typGetObjLayout(classHandle), checkUnsafeBuffer);
