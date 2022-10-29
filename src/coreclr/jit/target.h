@@ -501,49 +501,6 @@ extern const regMaskTP raRbmCalleeSaveOrder[CNT_CALLEE_SAVED];
 // This method takes a "compact" bitset of the callee-saved registers, and "expands" it to a full register mask.
 regMaskSmall genRegMaskFromCalleeSavedMask(unsigned short);
 
-/*****************************************************************************
- *
- *  Assumes that "reg" is of the given "type". Return the next unused reg number after "reg"
- *  of this type, else REG_NA if there are no more.
- */
-
-inline regNumber regNextOfType(regNumber reg, var_types type)
-{
-    regNumber regReturn;
-
-#ifdef TARGET_ARM
-    if (type == TYP_DOUBLE)
-    {
-        // Skip odd FP registers for double-precision types
-        assert(floatRegCanHoldType(reg, type));
-        regReturn = regNumber(reg + 2);
-    }
-    else
-    {
-        regReturn = REG_NEXT(reg);
-    }
-#else // TARGET_ARM
-    regReturn = REG_NEXT(reg);
-#endif
-
-    if (varTypeUsesFloatReg(type))
-    {
-        if (regReturn > REG_FP_LAST)
-        {
-            regReturn = REG_NA;
-        }
-    }
-    else
-    {
-        if (regReturn > REG_INT_LAST)
-        {
-            regReturn = REG_NA;
-        }
-    }
-
-    return regReturn;
-}
-
 // If the WINDOWS_AMD64_ABI is defined make sure that TARGET_AMD64 is also defined.
 #if defined(WINDOWS_AMD64_ABI)
 #if !defined(TARGET_AMD64)

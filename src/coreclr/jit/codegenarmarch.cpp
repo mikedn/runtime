@@ -2882,6 +2882,37 @@ void CodeGen::genJmpMethod(GenTree* jmp)
         // Register argument
         noway_assert(isRegParamType(varActualType(varDsc->GetType())));
 
+        if (varDsc->IsHfaRegParam())
+        {
+            // Note that for HFA, the argument is currently marked address exposed so lvRegNum will always be
+            // REG_STK. We home the incoming HFA argument registers in the prolog. Then we'll load them back
+            // here, whether they are already in the correct registers or not. This is such a corner case that
+            // it is not worth optimizing it.
+
+            assert(varDsc->GetRegNum() == REG_STK);
+            assert(varTypeIsStruct(varDsc->GetType()));
+            assert(!compiler->info.compIsVarArgs ARM_ONLY(&&!compiler->opts.UseSoftFP()));
+
+            var_types type = varDsc->GetLayout()->GetHfaElementType();
+            emitAttr  size = emitTypeSize(type);
+#ifdef TARGET_ARM64
+            instruction ins             = INS_ldr;
+            unsigned    elementRegCount = 1;
+#else
+            instruction ins             = INS_vldr;
+            unsigned    elementRegCount = type == TYP_DOUBLE ? 2 : 1;
+#endif
+
+            for (unsigned i = 0, regCount = varDsc->GetParamRegCount(); i < regCount; i += elementRegCount)
+            {
+                regNumber reg = varDsc->GetParamReg(i);
+                assert(genIsValidFloatReg(reg));
+                GetEmitter()->emitIns_R_S(ins, size, reg, varNum, i / elementRegCount * EA_SIZE(size));
+            }
+
+            continue;
+        }
+
         // Is register argument already in the right register?
         // If not load it from its stack location.
         regNumber argReg     = varDsc->GetParamReg();
@@ -2890,72 +2921,48 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 #ifdef TARGET_ARM64
         if (varDsc->GetRegNum() != argReg)
         {
-            if (varDsc->IsHfaRegParam())
+            var_types loadType;
+
+            if (varTypeIsStruct(varDsc->GetType()))
             {
-                // Note that for HFA, the argument is currently marked address exposed so lvRegNum will always be
-                // REG_STK. We home the incoming HFA argument registers in the prolog. Then we'll load them back
-                // here, whether they are already in the correct registers or not. This is such a corner case that
-                // it is not worth optimizing it.
-
-                assert(!compiler->info.compIsVarArgs);
-
-                var_types loadType = varDsc->GetLayout()->GetHfaElementType();
-                regNumber fieldReg = argReg;
-                emitAttr  loadSize = emitActualTypeSize(loadType);
-                unsigned  regCount = varDsc->GetLayout()->GetHfaRegCount();
-
-                for (unsigned ofs = 0, i = 0; i < regCount; i++, ofs += EA_SIZE(loadSize))
-                {
-                    GetEmitter()->emitIns_R_S(ins_Load(loadType), loadSize, fieldReg, varNum, ofs);
-                    assert(genIsValidFloatReg(fieldReg)); // No GC register tracking for floating point registers.
-                    fieldReg = regNextOfType(fieldReg, loadType);
-                }
+                // Must be <= 16 bytes or else it wouldn't be passed in registers, except for HFA,
+                // which can be bigger (and is handled above).
+                noway_assert(EA_SIZE_IN_BYTES(varDsc->lvSize()) <= 16);
+                loadType = varDsc->GetLayout()->GetGCPtrType(0);
             }
             else
             {
-                var_types loadType;
+                loadType = compiler->mangleVarArgsType(genActualType(varDsc->TypeGet()));
+            }
 
-                if (varTypeIsStruct(varDsc->GetType()))
-                {
-                    // Must be <= 16 bytes or else it wouldn't be passed in registers, except for HFA,
-                    // which can be bigger (and is handled above).
-                    noway_assert(EA_SIZE_IN_BYTES(varDsc->lvSize()) <= 16);
-                    loadType = varDsc->GetLayout()->GetGCPtrType(0);
-                }
-                else
-                {
-                    loadType = compiler->mangleVarArgsType(genActualType(varDsc->TypeGet()));
-                }
+            emitAttr loadSize = emitActualTypeSize(loadType);
+            GetEmitter()->emitIns_R_S(ins_Load(loadType), loadSize, argReg, varNum, 0);
 
-                emitAttr loadSize = emitActualTypeSize(loadType);
-                GetEmitter()->emitIns_R_S(ins_Load(loadType), loadSize, argReg, varNum, 0);
+            // Update argReg life and GC Info to indicate varDsc stack slot is dead and argReg is going live.
+            // Note that we cannot modify varDsc->GetRegNum() here because another basic block may not be
+            // expecting it. Therefore manually update life of argReg.  Note that GT_JMP marks the end of
+            // the basic block and after which reg life and gc info will be recomputed for the new block
+            // in genCodeForBBList().
+            regSet.AddMaskVars(genRegMask(argReg));
+            gcInfo.gcMarkRegPtrVal(argReg, loadType);
 
-                // Update argReg life and GC Info to indicate varDsc stack slot is dead and argReg is going live.
-                // Note that we cannot modify varDsc->GetRegNum() here because another basic block may not be
-                // expecting it. Therefore manually update life of argReg.  Note that GT_JMP marks the end of
-                // the basic block and after which reg life and gc info will be recomputed for the new block
-                // in genCodeForBBList().
-                regSet.AddMaskVars(genRegMask(argReg));
-                gcInfo.gcMarkRegPtrVal(argReg, loadType);
+            if (compiler->lvaIsMultiRegStructParam(varDsc))
+            {
+                // Restore the second register.
+                // TODO-MIKE-Fix: Hah, they forgot about varargs split params and loaded x8...
+                argRegNext = REG_NEXT(argReg);
 
-                if (compiler->lvaIsMultiRegStructParam(varDsc))
-                {
-                    // Restore the second register.
-                    // TODO-MIKE-Fix: Hah, they forgot about varargs split params and loaded x8...
-                    argRegNext = REG_NEXT(argReg);
+                loadType = varDsc->GetLayout()->GetGCPtrType(1);
+                loadSize = emitActualTypeSize(loadType);
+                GetEmitter()->emitIns_R_S(ins_Load(loadType), loadSize, argRegNext, varNum, TARGET_POINTER_SIZE);
 
-                    loadType = varDsc->GetLayout()->GetGCPtrType(1);
-                    loadSize = emitActualTypeSize(loadType);
-                    GetEmitter()->emitIns_R_S(ins_Load(loadType), loadSize, argRegNext, varNum, TARGET_POINTER_SIZE);
+                regSet.AddMaskVars(genRegMask(argRegNext));
+                gcInfo.gcMarkRegPtrVal(argRegNext, loadType);
+            }
 
-                    regSet.AddMaskVars(genRegMask(argRegNext));
-                    gcInfo.gcMarkRegPtrVal(argRegNext, loadType);
-                }
-
-                if (compiler->lvaIsGCTracked(varDsc))
-                {
-                    VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex);
-                }
+            if (compiler->lvaIsGCTracked(varDsc))
+            {
+                VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex);
             }
         }
 
@@ -3010,23 +3017,6 @@ void CodeGen::genJmpMethod(GenTree* jmp)
             {
                 fixedIntArgMask |= genRegMask(argReg);
                 fixedIntArgMask |= genRegMask(argRegNext);
-            }
-        }
-        else if (varDsc->IsHfaRegParam())
-        {
-            loadType           = varDsc->GetLayout()->GetHfaElementType();
-            regNumber fieldReg = argReg;
-            emitAttr  loadSize = emitActualTypeSize(loadType);
-            unsigned  maxSize  = min(varDsc->lvSize(), (LAST_FP_ARGREG + 1 - argReg) * REGSIZE_BYTES);
-
-            for (unsigned ofs = 0; ofs < maxSize; ofs += (unsigned)loadSize)
-            {
-                if (varDsc->GetRegNum() != argReg)
-                {
-                    GetEmitter()->emitIns_R_S(ins_Load(loadType), loadSize, fieldReg, varNum, ofs);
-                }
-                assert(genIsValidFloatReg(fieldReg)); // we don't use register tracking for FP
-                fieldReg = regNextOfType(fieldReg, loadType);
             }
         }
         else if (varTypeIsStruct(varDsc))
