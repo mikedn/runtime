@@ -2731,7 +2731,7 @@ bool StructPromotionHelper::ShouldPromoteStructLocal(unsigned lclNum)
 
     if (lcl->IsParam() && !lcl->IsImplicitByRefParam() && !lcl->IsHfaParam())
     {
-#if FEATURE_MULTIREG_STRUCT_PROMOTE
+#if defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
         if (compiler->lvaIsMultiRegStructParam(lcl))
         {
             if ((info.fieldCount != 2) && ((info.fieldCount != 1) || !varTypeIsSIMD(info.fields[0].type)))
@@ -2741,8 +2741,7 @@ bool StructPromotionHelper::ShouldPromoteStructLocal(unsigned lclNum)
             }
         }
         else
-#endif // !FEATURE_MULTIREG_STRUCT_PROMOTE
-
+#endif
             // TODO-PERF - Implement struct promotion for incoming single-register structs.
             //             Also the implementation of jmp uses the 4 byte move to store
             //             byte parameters to the stack, so that if we have a byte field
