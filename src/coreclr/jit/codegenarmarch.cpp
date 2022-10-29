@@ -2873,20 +2873,17 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 
         noway_assert(varDsc->IsParam());
 
-        // Skip if arg not passed in a register.
         if (!varDsc->IsRegParam())
         {
             continue;
         }
 
+        // We expect all params to be DNER, otherwise we'd need to deal with moving between
+        // assigned registers and param registers and potential circular dependencies.
+        noway_assert(varDsc->lvDoNotEnregister);
+
         if (varDsc->IsHfaRegParam())
         {
-            // Note that for HFA, the argument is currently marked DNER so locals's register will always be
-            // REG_STK. We home the incoming HFA argument registers in the prolog. Then we'll load them back
-            // here, whether they are already in the correct registers or not. This is such a corner case that
-            // it is not worth optimizing it.
-
-            assert(varDsc->GetRegNum() == REG_STK);
             assert(varTypeIsStruct(varDsc->GetType()));
             assert(!compiler->info.compIsVarArgs ARM_ONLY(&&!compiler->opts.UseSoftFP()));
 
@@ -2912,7 +2909,6 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 
         if (varTypeIsStruct(varDsc->GetType()))
         {
-            assert(varDsc->lvDoNotEnregister);
             assert(!compiler->lvaIsGCTracked(varDsc));
 
             ClassLayout* layout = varDsc->GetLayout();
@@ -2945,32 +2941,26 @@ void CodeGen::genJmpMethod(GenTree* jmp)
             continue;
         }
 
-        // Is register argument already in the right register?
-        // If not load it from its stack location.
-        regNumber argReg     = varDsc->GetParamReg();
-        regNumber argRegNext = REG_NA;
+        regNumber argReg = varDsc->GetParamReg();
 
 #ifdef TARGET_ARM64
-        if (varDsc->GetRegNum() != argReg)
+        assert(varDsc->GetParamRegCount() == 1);
+
+        var_types loadType = compiler->mangleVarArgsType(genActualType(varDsc->TypeGet()));
+        emitAttr  loadSize = emitActualTypeSize(loadType);
+        GetEmitter()->emitIns_R_S(ins_Load(loadType), loadSize, argReg, varNum, 0);
+
+        // Update argReg life and GC Info to indicate varDsc stack slot is dead and argReg is going live.
+        // Note that we cannot modify varDsc->GetRegNum() here because another basic block may not be
+        // expecting it. Therefore manually update life of argReg.  Note that GT_JMP marks the end of
+        // the basic block and after which reg life and gc info will be recomputed for the new block
+        // in genCodeForBBList().
+        regSet.AddMaskVars(genRegMask(argReg));
+        gcInfo.gcMarkRegPtrVal(argReg, loadType);
+
+        if (compiler->lvaIsGCTracked(varDsc))
         {
-            assert(varDsc->GetParamRegCount() == 1);
-
-            var_types loadType = compiler->mangleVarArgsType(genActualType(varDsc->TypeGet()));
-            emitAttr  loadSize = emitActualTypeSize(loadType);
-            GetEmitter()->emitIns_R_S(ins_Load(loadType), loadSize, argReg, varNum, 0);
-
-            // Update argReg life and GC Info to indicate varDsc stack slot is dead and argReg is going live.
-            // Note that we cannot modify varDsc->GetRegNum() here because another basic block may not be
-            // expecting it. Therefore manually update life of argReg.  Note that GT_JMP marks the end of
-            // the basic block and after which reg life and gc info will be recomputed for the new block
-            // in genCodeForBBList().
-            regSet.AddMaskVars(genRegMask(argReg));
-            gcInfo.gcMarkRegPtrVal(argReg, loadType);
-
-            if (compiler->lvaIsGCTracked(varDsc))
-            {
-                VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex);
-            }
+            VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex);
         }
 
         if (compiler->info.compIsVarArgs)
@@ -3635,9 +3625,11 @@ void CodeGen::genPushCalleeSavedRegisters()
     // changes in GC suspension architecture.
     //
     // We would need to guarantee that a tight loop calling a virtual leaf method can be suspended for GC. Today, we
-    // generate partially interruptible code for both the method that contains the tight loop with the call and the leaf
+    // generate partially interruptible code for both the method that contains the tight loop with the call and the
+    // leaf
     // method. GC suspension depends on return address hijacking in this case. Return address hijacking depends
-    // on the return address to be saved on the stack. If we skipped pushing/popping lr, the return address would never
+    // on the return address to be saved on the stack. If we skipped pushing/popping lr, the return address would
+    // never
     // be saved on the stack and the GC suspension would time out.
     //
     // So if we wanted to skip pushing pushing/popping lr for leaf frames, we would also need to do one of
@@ -3688,7 +3680,8 @@ void CodeGen::genPushCalleeSavedRegisters()
     //
     // For most frames, generate, e.g.:
     //      stp fp,  lr,  [sp,-0x80]!   // predecrement SP with full frame attr, and store FP/LR pair.
-    //      stp r19, r20, [sp, 0x60]    // store at positive offset from SP established above, into callee-saved area
+    //      stp r19, r20, [sp, 0x60]    // store at positive offset from SP established above, into callee-saved
+    //      area
     //                                  // at top of frame (highest addresses).
     //      stp r21, r22, [sp, 0x70]
     //
@@ -3788,7 +3781,8 @@ void CodeGen::genPushCalleeSavedRegisters()
     // generate based on various sizes.
     int frameType = 0;
 
-    // The amount to subtract from SP before starting to store the callee-saved registers. It might be folded into the
+    // The amount to subtract from SP before starting to store the callee-saved registers. It might be folded into
+    // the
     // first save instruction as a "predecrement" amount, if possible.
     int calleeSaveSPDelta = 0;
 
@@ -3809,7 +3803,8 @@ void CodeGen::genPushCalleeSavedRegisters()
         // After the frame is allocated, the frame pointer is established, pointing at the saved frame pointer to
         // create a frame pointer chain.
         //
-        // Do we need another frame pointer register to get good code quality in the case of having the frame pointer
+        // Do we need another frame pointer register to get good code quality in the case of having the frame
+        // pointer
         // point high in the frame, so we can take advantage of arm64's preference for positive offsets? C++ native
         // code dedicates callee-saved x19 to this, so generates:
         //      mov x19, sp
@@ -3884,7 +3879,8 @@ void CodeGen::genPushCalleeSavedRegisters()
 
                 // Generate:
                 //      sub sp,sp,#framesz
-                //      stp fp,lr,[sp,#outsz]   // note that by necessity, #outsz <= #framesz - 16, so #outsz <= 496.
+                //      stp fp,lr,[sp,#outsz]   // note that by necessity, #outsz <= #framesz - 16, so #outsz <=
+                //      496.
 
                 assert(totalFrameSize - compiler->lvaOutgoingArgSpaceSize <= STACK_PROBE_BOUNDARY_THRESHOLD_BYTES);
 
@@ -3962,7 +3958,8 @@ void CodeGen::genPushCalleeSavedRegisters()
             //      sub sp,sp,rX
             // )
             //
-            // Note that even if we align the SP alterations, that does not imply that we are creating empty alignment
+            // Note that even if we align the SP alterations, that does not imply that we are creating empty
+            // alignment
             // slots. In fact, we are not; any empty alignment slots were calculated in
             // Compiler::lvaAssignFrameOffsets() and its callees.
 
@@ -3972,7 +3969,8 @@ void CodeGen::genPushCalleeSavedRegisters()
                 JITDUMP("Frame type 5 (save FP/LR at top). #outsz=%d; #framesz=%d; LclFrameSize=%d\n",
                         unsigned(compiler->lvaOutgoingArgSpaceSize), totalFrameSize, lclFrameSize);
 
-                // This case is much simpler, because we allocate space for the callee-saved register area, including
+                // This case is much simpler, because we allocate space for the callee-saved register area,
+                // including
                 // FP/LR. Note the SP adjustment might be SUB or be folded into the first store as a predecrement.
                 // Then, we use a single SUB to establish the rest of the frame. We need to be careful about where
                 // to establish the frame pointer, as there is a limit of 2040 bytes offset from SP to FP in the
@@ -4139,7 +4137,8 @@ void CodeGen::genPushCalleeSavedRegisters()
 
         JITDUMP("    remainingFrameSz=%d\n", remainingFrameSz);
 
-        // We've already established the frame pointer, so no need to report the stack pointer change to unwind info.
+        // We've already established the frame pointer, so no need to report the stack pointer change to unwind
+        // info.
         genStackPointerAdjustment(-remainingFrameSz, initReg, pInitRegZeroed, /* reportUnwindData */ false);
         offset += remainingFrameSz;
     }
