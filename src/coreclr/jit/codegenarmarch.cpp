@@ -2860,6 +2860,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
     // Next move any un-enregistered register arguments back to their register.
     regMaskTP fixedIntArgMask = RBM_NONE;    // tracks the int arg regs occupying fixed args in case of a vararg method.
     unsigned  firstArgVarNum  = BAD_VAR_NUM; // varNum of the first argument in case of a vararg method.
+
     for (unsigned varNum = 0; varNum < compiler->info.compArgsCount; varNum++)
     {
         varDsc = compiler->lvaGetDesc(varNum);
@@ -2903,11 +2904,8 @@ void CodeGen::genJmpMethod(GenTree* jmp)
                 assert(genIsValidFloatReg(reg));
                 GetEmitter()->emitIns_R_S(ins, size, reg, varNum, i / elementRegCount * EA_SIZE(size));
             }
-
-            continue;
         }
-
-        if (varTypeIsStruct(varDsc->GetType()))
+        else if (varTypeIsStruct(varDsc->GetType()))
         {
             assert(!compiler->lvaIsGCTracked(varDsc));
 
@@ -2937,102 +2935,67 @@ void CodeGen::genJmpMethod(GenTree* jmp)
                     }
                 }
             }
-
-            continue;
         }
-
-        regNumber argReg = varDsc->GetParamReg();
-
-#ifdef TARGET_ARM64
-        assert(varDsc->GetParamRegCount() == 1);
-
-        var_types loadType = compiler->mangleVarArgsType(genActualType(varDsc->TypeGet()));
-        emitAttr  loadSize = emitActualTypeSize(loadType);
-        GetEmitter()->emitIns_R_S(ins_Load(loadType), loadSize, argReg, varNum, 0);
-
-        // Update argReg life and GC Info to indicate varDsc stack slot is dead and argReg is going live.
-        // Note that we cannot modify varDsc->GetRegNum() here because another basic block may not be
-        // expecting it. Therefore manually update life of argReg.  Note that GT_JMP marks the end of
-        // the basic block and after which reg life and gc info will be recomputed for the new block
-        // in genCodeForBBList().
-        regSet.AddMaskVars(genRegMask(argReg));
-        gcInfo.gcMarkRegPtrVal(argReg, loadType);
-
-        if (compiler->lvaIsGCTracked(varDsc))
+#ifdef TARGET_ARM
+        else if (varDsc->TypeIs(TYP_LONG) ||
+                 (varDsc->TypeIs(TYP_DOUBLE) && (compiler->info.compIsVarArgs || compiler->opts.UseSoftFP())))
         {
-            VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex);
-        }
+            assert(varDsc->GetParamRegCount() == 2);
 
-        if (compiler->info.compIsVarArgs)
-        {
-            // In case of a jmp call to a vararg method ensure only integer registers are passed.
-            assert((genRegMask(argReg) & (RBM_ARG_REGS | RBM_ARG_RET_BUFF)) != RBM_NONE);
-            assert(!varDsc->IsHfaRegParam());
+            regNumber regs[]{varDsc->GetParamReg(0), varDsc->GetParamReg(1)};
 
-            fixedIntArgMask |= genRegMask(argReg);
+            assert(genIsValidIntReg(regs[0]) && genIsValidIntReg(regs[1]));
 
-            if (argReg == REG_ARG_0)
+            GetEmitter()->emitIns_R_S(INS_ldr, EA_4BYTE, regs[0], varNum, 0);
+            GetEmitter()->emitIns_R_S(INS_ldr, EA_4BYTE, regs[1], varNum, 4);
+
+            if (compiler->info.compIsVarArgs)
             {
-                assert(firstArgVarNum == BAD_VAR_NUM);
-                firstArgVarNum = varNum;
+                fixedIntArgMask |= genRegMask(regs[0]) | genRegMask(regs[1]);
+
+                if (regs[0] == REG_R0)
+                {
+                    assert(firstArgVarNum == BAD_VAR_NUM);
+                    firstArgVarNum = varNum;
+                }
             }
         }
-
-#else  // !TARGET_ARM64
-
-        bool      twoParts = false;
-        var_types loadType = TYP_UNDEF;
-        if (varDsc->TypeGet() == TYP_LONG)
+#endif
+        else
         {
-            twoParts = true;
-        }
-        else if (varDsc->TypeGet() == TYP_DOUBLE)
-        {
-            if (compiler->info.compIsVarArgs || compiler->opts.compUseSoftFP)
+            assert(varDsc->GetParamRegCount() == 1);
+
+            regNumber reg  = varDsc->GetParamReg();
+            var_types type = compiler->mangleVarArgsType(varActualType(varDsc->GetType()));
+
+            GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, varNum, 0);
+
+            // Update argReg life and GC Info to indicate varDsc stack slot is dead and argReg is going live.
+            // Note that we cannot modify varDsc->GetRegNum() here because another basic block may not be
+            // expecting it. Therefore manually update life of argReg.  Note that GT_JMP marks the end of
+            // the basic block and after which reg life and gc info will be recomputed for the new block
+            // in genCodeForBBList().
+            regSet.AddMaskVars(genRegMask(reg));
+            gcInfo.gcMarkRegPtrVal(reg, type);
+
+            if (compiler->lvaIsGCTracked(varDsc))
             {
-                twoParts = true;
-            }
-        }
-
-        if (twoParts)
-        {
-            argRegNext = REG_NEXT(argReg);
-
-            if (varDsc->GetRegNum() != argReg)
-            {
-                GetEmitter()->emitIns_R_S(INS_ldr, EA_PTRSIZE, argReg, varNum, 0);
-                GetEmitter()->emitIns_R_S(INS_ldr, EA_PTRSIZE, argRegNext, varNum, REGSIZE_BYTES);
+                VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex);
             }
 
             if (compiler->info.compIsVarArgs)
             {
-                fixedIntArgMask |= genRegMask(argReg);
-                fixedIntArgMask |= genRegMask(argRegNext);
+                assert(genIsValidIntReg(reg));
+
+                fixedIntArgMask |= genRegMask(reg);
+
+                if (reg == REG_R0)
+                {
+                    assert(firstArgVarNum == BAD_VAR_NUM);
+                    firstArgVarNum = varNum;
+                }
             }
         }
-        else
-        {
-            loadType = compiler->mangleVarArgsType(genActualType(varDsc->TypeGet()));
-
-            if (varDsc->GetRegNum() != argReg)
-            {
-                GetEmitter()->emitIns_R_S(ins_Load(loadType), emitTypeSize(loadType), argReg, varNum, 0);
-            }
-
-            regSet.AddMaskVars(genRegMask(argReg));
-            gcInfo.gcMarkRegPtrVal(argReg, loadType);
-
-            if (genIsValidIntReg(argReg) && compiler->info.compIsVarArgs)
-            {
-                fixedIntArgMask |= genRegMask(argReg);
-            }
-        }
-
-        if (compiler->lvaIsGCTracked(varDsc))
-        {
-            VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex);
-        }
-#endif // !TARGET_ARM64
     }
 
     // Jmp call to a vararg method - if the method has fewer than fixed arguments that can be max attr of reg,
@@ -3310,7 +3273,7 @@ void CodeGen::genFloatToFloatCast(GenTreeCast* cast)
         instruction ins  = INS_fcvt;
         insOpts     opts = (srcType == TYP_FLOAT) ? INS_OPTS_S_TO_D : INS_OPTS_D_TO_S;
 #else
-        instruction ins = (srcType == TYP_FLOAT) ? INS_vcvt_f2d : INS_vcvt_d2f;
+        instruction     ins             = (srcType == TYP_FLOAT) ? INS_vcvt_f2d : INS_vcvt_d2f;
 #endif
         GetEmitter()->emitIns_R_R(ins, insSize, dstReg, srcReg ARM64_ARG(opts));
     }
@@ -3319,7 +3282,7 @@ void CodeGen::genFloatToFloatCast(GenTreeCast* cast)
 #ifdef TARGET_ARM64
         instruction ins = INS_mov;
 #else
-        instruction ins = INS_vmov;
+        instruction     ins             = INS_vmov;
 #endif
         // TODO-MIKE-Review: How come we end up with a FLOAT-to-FLOAT cast in RayTracer.dll!?!
         GetEmitter()->emitIns_Mov(ins, insSize, dstReg, srcReg, /*canSkip*/ true);
