@@ -3497,7 +3497,7 @@ int LinearScan::BuildPutArgReg(GenTreeUnOp* putArg)
     {
         assert(src->OperIs(GT_BITCAST));
 
-        regMaskTP nextArgRegMask = genRegMask(genRegArgNext(argReg));
+        regMaskTP nextArgRegMask = genRegMask(REG_NEXT(argReg));
 
         BuildUse(src, nextArgRegMask, 1);
         srcCount++;

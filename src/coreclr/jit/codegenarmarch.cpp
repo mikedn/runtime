@@ -2719,13 +2719,9 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
                 // TCB in REG_PINVOKE_TCB. fgMorphCall() sets the correct argument registers.
                 returnReg = REG_PINVOKE_TCB;
             }
-            else if (compiler->opts.compUseSoftFP)
-            {
-                returnReg = REG_INTRET;
-            }
             else
-#endif // TARGET_ARM
-                if (varTypeUsesFloatArgReg(returnType))
+#endif
+                if (varTypeUsesFloatArgReg(returnType) ARM_ONLY(&&!compiler->opts.compUseSoftFP))
             {
                 returnReg = REG_FLOATRET;
             }
@@ -2734,19 +2730,19 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
                 returnReg = REG_INTRET;
             }
 
-            if (call->GetRegNum() != returnReg)
-            {
 #ifdef TARGET_ARM
-                if (compiler->opts.compUseSoftFP && returnType == TYP_DOUBLE)
-                {
-                    inst_RV_RV_RV(INS_vmov_i2d, call->GetRegNum(), returnReg, genRegArgNext(returnReg), EA_8BYTE);
-                }
-                else if (compiler->opts.compUseSoftFP && returnType == TYP_FLOAT)
-                {
-                    inst_Mov(returnType, call->GetRegNum(), returnReg, /* canSkip */ false);
-                }
-                else
+            if (compiler->opts.compUseSoftFP && (returnType == TYP_DOUBLE))
+            {
+                inst_RV_RV_RV(INS_vmov_i2d, call->GetRegNum(), REG_R0, REG_R1, EA_8BYTE);
+            }
+            else if (compiler->opts.compUseSoftFP && (returnType == TYP_FLOAT))
+            {
+                inst_Mov(returnType, call->GetRegNum(), REG_R0, /* canSkip */ false);
+            }
+            else
 #endif
+                if (call->GetRegNum() != returnReg)
+            {
                 {
                     inst_Mov(returnType, call->GetRegNum(), returnReg, /* canSkip */ false);
                 }
@@ -2945,7 +2941,8 @@ void CodeGen::genJmpMethod(GenTree* jmp)
                 if (compiler->lvaIsMultiRegStructParam(varDsc))
                 {
                     // Restore the second register.
-                    argRegNext = genRegArgNext(argReg);
+                    // TODO-MIKE-Fix: Hah, they forgot about varargs split params and loaded x8...
+                    argRegNext = REG_NEXT(argReg);
 
                     loadType = varDsc->GetLayout()->GetGCPtrType(1);
                     loadSize = emitActualTypeSize(loadType);
@@ -3001,7 +2998,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 
         if (twoParts)
         {
-            argRegNext = genRegArgNext(argReg);
+            argRegNext = REG_NEXT(argReg);
 
             if (varDsc->GetRegNum() != argReg)
             {
@@ -3056,7 +3053,8 @@ void CodeGen::genJmpMethod(GenTree* jmp)
                     fixedIntArgMask |= genRegMask(slotReg);
                 }
 
-                slotReg = genRegArgNext(slotReg);
+                // TODO-MIKE-Cleanup: Use varDsc->GetParamReg(i) instead of REG_NEXT.
+                slotReg = REG_NEXT(slotReg);
             }
         }
         else

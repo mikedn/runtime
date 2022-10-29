@@ -681,12 +681,14 @@ int LinearScan::BuildNode(GenTree* tree)
                 srcCount = 0;
             }
 
-            regNumber argReg  = tree->GetRegNum();
+            regNumber argReg  = tree->GetRegNum(0);
             regMaskTP argMask = argReg == REG_NA ? RBM_NONE : genRegMask(argReg);
 
             if (tree->TypeIs(TYP_LONG))
             {
-                assert(genRegArgNext(argReg) == REG_NEXT(argReg));
+                // TODO-MIKE-Cleanup: This should probably use tree->GetRegNum(1) instead of REG_NEXT
+                // to be on the safe side. REG_NEXT happens to work because such BITCAST nodes are
+                // used only as call args so the registers are consecutive.
                 regMaskTP argMaskNext = argReg == REG_NA ? RBM_NONE : genRegMask(REG_NEXT(argReg));
 
                 BuildDef(tree, TYP_INT, argMask, 0);

@@ -353,13 +353,6 @@ inline bool isValidIntArgReg(regNumber reg)
 }
 
 //-------------------------------------------------------------------------------------------
-// genRegArgNext:
-//     Given a register that is an integer or floating point argument register
-//     returns the next argument register
-//
-regNumber genRegArgNext(regNumber argReg);
-
-//-------------------------------------------------------------------------------------------
 // isValidFloatArgReg:
 //     Returns true if the register is a valid floating-point argument register
 //
