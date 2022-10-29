@@ -2783,9 +2783,6 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 
     // Move any register parameters back to their register.
 
-    regMaskTP fixedIntArgMask = RBM_NONE;    // tracks the int arg regs occupying fixed args in case of a vararg method.
-    unsigned  firstArgVarNum  = BAD_VAR_NUM; // varNum of the first argument in case of a vararg method.
-
     for (unsigned varNum = 0; varNum < compiler->info.compArgsCount; varNum++)
     {
         LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
@@ -2848,17 +2845,6 @@ void CodeGen::genJmpMethod(GenTree* jmp)
                 GetEmitter()->emitIns_R_S(INS_ldr, emitTypeSize(type), reg, varNum, i * REGSIZE_BYTES);
                 regSet.AddMaskVars(genRegMask(reg));
                 gcInfo.gcMarkRegPtrVal(reg, type);
-
-                if (compiler->info.compIsVarArgs)
-                {
-                    fixedIntArgMask |= genRegMask(reg);
-
-                    if (reg == REG_R0)
-                    {
-                        assert(firstArgVarNum == BAD_VAR_NUM);
-                        firstArgVarNum = varNum;
-                    }
-                }
             }
         }
 #ifdef TARGET_ARM
@@ -2873,17 +2859,6 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 
             GetEmitter()->emitIns_R_S(INS_ldr, EA_4BYTE, regs[0], varNum, 0);
             GetEmitter()->emitIns_R_S(INS_ldr, EA_4BYTE, regs[1], varNum, 4);
-
-            if (compiler->info.compIsVarArgs)
-            {
-                fixedIntArgMask |= genRegMask(regs[0]) | genRegMask(regs[1]);
-
-                if (regs[0] == REG_R0)
-                {
-                    assert(firstArgVarNum == BAD_VAR_NUM);
-                    firstArgVarNum = varNum;
-                }
-            }
         }
 #endif
         else
@@ -2907,20 +2882,12 @@ void CodeGen::genJmpMethod(GenTree* jmp)
             {
                 VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex);
             }
-
-            if (compiler->info.compIsVarArgs)
-            {
-                assert(genIsValidIntReg(reg));
-
-                fixedIntArgMask |= genRegMask(reg);
-
-                if (reg == REG_R0)
-                {
-                    assert(firstArgVarNum == BAD_VAR_NUM);
-                    firstArgVarNum = varNum;
-                }
-            }
         }
+    }
+
+    if (!compiler->info.compIsVarArgs)
+    {
+        return;
     }
 
     // Jmp call to a vararg method - if the method has fewer than fixed arguments that can be max attr of reg,
@@ -2932,31 +2899,49 @@ void CodeGen::genJmpMethod(GenTree* jmp)
     // The caller could have passed gc-ref/byref type var args.  Since these are var args
     // the callee no way of knowing their gc-ness.  Therefore, mark the region that loads
     // remaining arg registers from shadow stack slots as non-gc interruptible.
-    if (fixedIntArgMask != RBM_NONE)
+
+    regMaskTP varargsIntRegMask   = RBM_ARG_REGS;
+    unsigned  firstRegParamLclNum = BAD_VAR_NUM;
+
+    for (unsigned lclNum = 0; lclNum < compiler->info.compArgsCount; lclNum++)
     {
-        assert(compiler->info.compIsVarArgs);
-        assert(firstArgVarNum != BAD_VAR_NUM);
+        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
 
-        regMaskTP remainingIntArgMask = RBM_ARG_REGS & ~fixedIntArgMask;
-        if (remainingIntArgMask != RBM_NONE)
+        if (lcl->IsRegParam())
         {
-            GetEmitter()->emitDisableGC();
-            for (int argNum = 0, argOffset = 0; argNum < MAX_REG_ARG; ++argNum)
+            regNumber reg = lcl->GetParamReg();
+            assert(genIsValidReg(reg));
+            varargsIntRegMask &= ~genRegMask(reg);
+
+            if (firstRegParamLclNum == BAD_VAR_NUM)
             {
-                regNumber argReg     = intArgRegs[argNum];
-                regMaskTP argRegMask = genRegMask(argReg);
-
-                if ((remainingIntArgMask & argRegMask) != 0)
-                {
-                    remainingIntArgMask &= ~argRegMask;
-                    GetEmitter()->emitIns_R_S(INS_ldr, EA_PTRSIZE, argReg, firstArgVarNum, argOffset);
-                }
-
-                argOffset += REGSIZE_BYTES;
+                assert(reg == REG_R0);
+                firstRegParamLclNum = lclNum;
             }
-            GetEmitter()->emitEnableGC();
         }
     }
+
+    if (varargsIntRegMask == RBM_NONE)
+    {
+        return;
+    }
+
+    noway_assert(firstRegParamLclNum != BAD_VAR_NUM);
+
+    GetEmitter()->emitDisableGC();
+
+    for (int i = 0; i < MAX_REG_ARG; ++i)
+    {
+        regNumber reg  = static_cast<regNumber>(REG_R0 + i);
+        regMaskTP mask = genRegMask(reg);
+
+        if ((varargsIntRegMask & mask) != 0)
+        {
+            GetEmitter()->emitIns_R_S(INS_ldr, EA_PTRSIZE, reg, firstRegParamLclNum, i * REGSIZE_BYTES);
+        }
+    }
+
+    GetEmitter()->emitEnableGC();
 }
 
 //------------------------------------------------------------------------
