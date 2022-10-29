@@ -2910,6 +2910,41 @@ void CodeGen::genJmpMethod(GenTree* jmp)
             continue;
         }
 
+        if (varTypeIsStruct(varDsc->GetType()))
+        {
+            assert(varDsc->lvDoNotEnregister);
+            assert(!compiler->lvaIsGCTracked(varDsc));
+
+            ClassLayout* layout = varDsc->GetLayout();
+
+            assert(varDsc->GetParamRegCount() <= layout->GetSlotCount());
+
+            for (unsigned i = 0, regCount = varDsc->GetParamRegCount(); i < regCount; i++)
+            {
+                regNumber reg  = varDsc->GetParamReg(i);
+                var_types type = layout->GetGCPtrType(i);
+
+                assert(genIsValidIntReg(reg));
+
+                GetEmitter()->emitIns_R_S(INS_ldr, emitTypeSize(type), reg, varNum, i * REGSIZE_BYTES);
+                regSet.AddMaskVars(genRegMask(reg));
+                gcInfo.gcMarkRegPtrVal(reg, type);
+
+                if (compiler->info.compIsVarArgs)
+                {
+                    fixedIntArgMask |= genRegMask(reg);
+
+                    if (reg == REG_R0)
+                    {
+                        assert(firstArgVarNum == BAD_VAR_NUM);
+                        firstArgVarNum = varNum;
+                    }
+                }
+            }
+
+            continue;
+        }
+
         // Is register argument already in the right register?
         // If not load it from its stack location.
         regNumber argReg     = varDsc->GetParamReg();
@@ -2918,21 +2953,10 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 #ifdef TARGET_ARM64
         if (varDsc->GetRegNum() != argReg)
         {
-            var_types loadType;
+            assert(varDsc->GetParamRegCount() == 1);
 
-            if (varTypeIsStruct(varDsc->GetType()))
-            {
-                // Must be <= 16 bytes or else it wouldn't be passed in registers, except for HFA,
-                // which can be bigger (and is handled above).
-                noway_assert(EA_SIZE_IN_BYTES(varDsc->lvSize()) <= 16);
-                loadType = varDsc->GetLayout()->GetGCPtrType(0);
-            }
-            else
-            {
-                loadType = compiler->mangleVarArgsType(genActualType(varDsc->TypeGet()));
-            }
-
-            emitAttr loadSize = emitActualTypeSize(loadType);
+            var_types loadType = compiler->mangleVarArgsType(genActualType(varDsc->TypeGet()));
+            emitAttr  loadSize = emitActualTypeSize(loadType);
             GetEmitter()->emitIns_R_S(ins_Load(loadType), loadSize, argReg, varNum, 0);
 
             // Update argReg life and GC Info to indicate varDsc stack slot is dead and argReg is going live.
@@ -2942,20 +2966,6 @@ void CodeGen::genJmpMethod(GenTree* jmp)
             // in genCodeForBBList().
             regSet.AddMaskVars(genRegMask(argReg));
             gcInfo.gcMarkRegPtrVal(argReg, loadType);
-
-            if (compiler->lvaIsMultiRegStructParam(varDsc))
-            {
-                // Restore the second register.
-                // TODO-MIKE-Fix: Hah, they forgot about varargs split params and loaded x8...
-                argRegNext = REG_NEXT(argReg);
-
-                loadType = varDsc->GetLayout()->GetGCPtrType(1);
-                loadSize = emitActualTypeSize(loadType);
-                GetEmitter()->emitIns_R_S(ins_Load(loadType), loadSize, argRegNext, varNum, TARGET_POINTER_SIZE);
-
-                regSet.AddMaskVars(genRegMask(argRegNext));
-                gcInfo.gcMarkRegPtrVal(argRegNext, loadType);
-            }
 
             if (compiler->lvaIsGCTracked(varDsc))
             {
@@ -2970,12 +2980,6 @@ void CodeGen::genJmpMethod(GenTree* jmp)
             assert(!varDsc->IsHfaRegParam());
 
             fixedIntArgMask |= genRegMask(argReg);
-
-            if (compiler->lvaIsMultiRegStructParam(varDsc))
-            {
-                assert(argRegNext != REG_NA);
-                fixedIntArgMask |= genRegMask(argRegNext);
-            }
 
             if (argReg == REG_ARG_0)
             {
@@ -3014,34 +3018,6 @@ void CodeGen::genJmpMethod(GenTree* jmp)
             {
                 fixedIntArgMask |= genRegMask(argReg);
                 fixedIntArgMask |= genRegMask(argRegNext);
-            }
-        }
-        else if (varTypeIsStruct(varDsc))
-        {
-            regNumber slotReg = argReg;
-            unsigned  maxSize = min(varDsc->lvSize(), (REG_ARG_LAST + 1 - argReg) * REGSIZE_BYTES);
-
-            for (unsigned ofs = 0; ofs < maxSize; ofs += REGSIZE_BYTES)
-            {
-                unsigned idx = ofs / REGSIZE_BYTES;
-                loadType     = varDsc->GetLayout()->GetGCPtrType(idx);
-
-                if (varDsc->GetRegNum() != argReg)
-                {
-                    emitAttr loadSize = emitActualTypeSize(loadType);
-
-                    GetEmitter()->emitIns_R_S(ins_Load(loadType), loadSize, slotReg, varNum, ofs);
-                }
-
-                regSet.AddMaskVars(genRegMask(slotReg));
-                gcInfo.gcMarkRegPtrVal(slotReg, loadType);
-                if (genIsValidIntReg(slotReg) && compiler->info.compIsVarArgs)
-                {
-                    fixedIntArgMask |= genRegMask(slotReg);
-                }
-
-                // TODO-MIKE-Cleanup: Use varDsc->GetParamReg(i) instead of REG_NEXT.
-                slotReg = REG_NEXT(slotReg);
             }
         }
         else
