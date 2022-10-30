@@ -2439,14 +2439,14 @@ unsigned genGetParamRegIndex(regNumber regNum)
 {
     if (emitter::isFloatReg(regNum))
     {
-        assert((genRegMask(regNum) & RBM_FLTARG_REGS) != RBM_NONE);
+        assert(isValidFloatArgReg(regNum));
 
         return regNum - FIRST_FP_ARGREG;
     }
 
-    assert((genRegMask(regNum) & fullIntArgRegMask()) != RBM_NONE);
-
 #ifdef TARGET_ARMARCH
+    assert(isValidIntArgReg(regNum));
+
     return regNum - REG_ARG_0;
 #elif defined(TARGET_XARCH)
     switch (regNum)
@@ -2468,6 +2468,7 @@ unsigned genGetParamRegIndex(regNumber regNum)
             return 5;
 #endif
         default:
+            assert(!"Invalid int param reg");
             return UINT32_MAX;
     }
 #endif // TARGET_XARCH
