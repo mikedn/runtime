@@ -1030,7 +1030,7 @@ private:
     void buildUpperVectorRestoreRefPosition(Interval* lclVarInterval, LsraLocation currentLoc, GenTree* node);
 #endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
 
-    void UpdateRegStateForParam(LclVarDsc* lcl);
+    void AddLiveParamRegs(LclVarDsc* lcl);
 
     inline bool isCandidateLclVar(GenTree* tree)
     {

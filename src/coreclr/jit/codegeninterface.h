@@ -35,19 +35,14 @@
 #define USING_VARIABLE_LIVE_RANGE
 #endif
 
-// Forward reference types
-
-class CodeGenInterface;
 class emitter;
 
-// Small helper types
-
-//-------------------- Register selection ---------------------------------
-
-struct RegState
+struct ParamRegState
 {
-    regMaskTP rsCalleeRegArgMaskLiveIn = RBM_NONE; // mask of register arguments (live on entry to method)
-    unsigned  rsCalleeRegArgCount      = 0; // total number of incoming register arguments of this kind (int or float)
+    unsigned  intRegCount    = 0;
+    unsigned  floatRegCount  = 0;
+    regMaskTP intRegLiveIn   = RBM_NONE;
+    regMaskTP floatRegLiveIn = RBM_NONE;
 };
 
 //-------------------- CodeGenInterface ---------------------------------
@@ -87,9 +82,8 @@ public:
 
     GCInfo gcInfo;
 
-    RegSet   regSet;
-    RegState intRegState;
-    RegState floatRegState;
+    RegSet        regSet;
+    ParamRegState paramRegState;
 
     //-------------------------------------------------------------------------
     //  The following keeps track of how many bytes of local frame space we've

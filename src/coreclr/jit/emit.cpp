@@ -5751,37 +5751,34 @@ unsigned emitter::emitEndCodeGen(Compiler* comp,
         assert(emitComp->lvaIsOriginalThisArg(0));
         LclVarDsc* thisDsc = &emitComp->lvaTable[0];
 
-        /* If "this" (which is passed in as a register argument in REG_ARG_0)
-           is enregistered, we normally spot the "mov REG_ARG_0 -> thisReg"
-           in the prolog and note the location of "this" at that point.
-           However, if 'this' is enregistered into REG_ARG_0 itself, no code
-           will be generated in the prolog, so we explicitly need to note
-           the location of "this" here.
-           NOTE that we can do this even if "this" is not enregistered in
-           REG_ARG_0, and it will result in more accurate "this" info over the
-           prolog. However, as methods are not interruptible over the prolog,
-           we try to save space by avoiding that.
-         */
+        // If "this" (which is passed in as a register argument in REG_ARG_0)
+        // is enregistered, we normally spot the "mov REG_ARG_0 -> thisReg"
+        // in the prolog and note the location of "this" at that point.
+        // However, if 'this' is enregistered into REG_ARG_0 itself, no code
+        // will be generated in the prolog, so we explicitly need to note
+        // the location of "this" here.
+        // NOTE that we can do this even if "this" is not enregistered in
+        // REG_ARG_0, and it will result in more accurate "this" info over the
+        // prolog. However, as methods are not interruptible over the prolog,
+        // we try to save space by avoiding that.
 
         if (thisDsc->lvRegister)
         {
             emitSyncThisObjReg = thisDsc->GetRegNum();
 
-            if (emitSyncThisObjReg == (int)REG_ARG_0 &&
-                (codeGen->intRegState.rsCalleeRegArgMaskLiveIn & genRegMask(REG_ARG_0)))
+            if ((emitSyncThisObjReg == REG_ARG_0) && ((codeGen->paramRegState.intRegLiveIn & RBM_ARG_0) != RBM_NONE))
             {
                 if (emitFullGCinfo)
                 {
-                    emitGCregLiveSet(GCT_GCREF, genRegMask(REG_ARG_0),
+                    emitGCregLiveSet(GCT_GCREF, RBM_ARG_0,
                                      emitCodeBlock, // from offset 0
                                      true);
                 }
                 else
                 {
-                    /* If emitFullGCinfo==false, then we don't use any
-                       regPtrDsc's and so explictly note the location
-                       of "this" in GCEncode.cpp
-                     */
+                    // If emitFullGCinfo==false, then we don't use any
+                    // regPtrDsc's and so explictly note the location
+                    // of "this" in GCEncode.cpp
                 }
             }
         }

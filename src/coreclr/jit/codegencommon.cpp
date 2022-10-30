@@ -3827,7 +3827,7 @@ void CodeGen::genCheckUseBlockInit()
 
     if (genUseBlockInit)
     {
-        regMaskTP maskCalleeRegArgMask = intRegState.rsCalleeRegArgMaskLiveIn;
+        regMaskTP maskCalleeRegArgMask = paramRegState.intRegLiveIn;
 
         // If there is a secret stub param, don't count it, as it will no longer
         // be live when we do block init.
@@ -4606,11 +4606,12 @@ void CodeGen::genZeroInitFrame(int untrLclHi, int untrLclLo, regNumber initReg, 
         regNumber rCnt = REG_NA; // Invalid
         regMaskTP regMask;
 
-        regMaskTP availMask = regSet.rsGetModifiedRegsMask() | RBM_INT_CALLEE_TRASH; // Set of available registers
-        availMask &= ~intRegState.rsCalleeRegArgMaskLiveIn; // Remove all of the incoming argument registers as they are
-                                                            // currently live
-        availMask &= ~genRegMask(initReg); // Remove the pre-calculated initReg as we will zero it and maybe use it for
-                                           // a large constant.
+        // Set of available registers
+        regMaskTP availMask = regSet.rsGetModifiedRegsMask() | RBM_INT_CALLEE_TRASH;
+        // Remove all of the incoming argument registers as they are currently live
+        availMask &= ~paramRegState.intRegLiveIn;
+        // Remove the pre-calculated initReg as we will zero it and maybe use it for a large constant.
+        availMask &= ~genRegMask(initReg);
 
         if (compiler->compLocallocUsed)
         {
@@ -4625,8 +4626,9 @@ void CodeGen::genZeroInitFrame(int untrLclHi, int untrLclLo, regNumber initReg, 
         regMask = genFindLowestBit(availMask);
         rZero2  = genRegNumFromMask(regMask);
         availMask &= ~regMask;
-        assert((genRegMask(rZero2) & intRegState.rsCalleeRegArgMaskLiveIn) == 0); // rZero2 is not a live incoming
-                                                                                  // argument reg
+
+        // rZero2 is not a live incoming argument reg
+        assert((genRegMask(rZero2) & paramRegState.intRegLiveIn) == RBM_NONE);
 
         // We pick the next lowest register number for rAddr
         noway_assert(availMask != RBM_NONE);
@@ -4656,7 +4658,7 @@ void CodeGen::genZeroInitFrame(int untrLclHi, int untrLclLo, regNumber initReg, 
         }
 
         // rAddr is not a live incoming argument reg
-        assert((genRegMask(rAddr) & intRegState.rsCalleeRegArgMaskLiveIn) == 0);
+        assert((genRegMask(rAddr) & paramRegState.intRegLiveIn) == RBM_NONE);
 
         if (arm_Valid_Imm_For_Add(untrLclLo, INS_FLAGS_DONT_CARE))
         {
@@ -4673,8 +4675,9 @@ void CodeGen::genZeroInitFrame(int untrLclHi, int untrLclLo, regNumber initReg, 
         if (useLoop)
         {
             noway_assert(uCntSlots >= 2);
-            assert((genRegMask(rCnt) & intRegState.rsCalleeRegArgMaskLiveIn) == 0); // rCnt is not a live incoming
-                                                                                    // argument reg
+            // rCnt is not a live incoming param reg
+            assert((genRegMask(rCnt) & paramRegState.intRegLiveIn) == RBM_NONE);
+
             instGen_Set_Reg_To_Imm(EA_PTRSIZE, rCnt, (ssize_t)uCntSlots / 2);
         }
 
@@ -4893,8 +4896,8 @@ void CodeGen::genZeroInitFrame(int untrLclHi, int untrLclLo, regNumber initReg, 
 
         assert(blkSize >= 0);
         noway_assert((blkSize % sizeof(int)) == 0);
-        // initReg is not a live incoming argument reg
-        assert((genRegMask(initReg) & intRegState.rsCalleeRegArgMaskLiveIn) == 0);
+        // initReg is not a live incoming param reg
+        assert((genRegMask(initReg) & paramRegState.intRegLiveIn) == RBM_NONE);
 #if defined(TARGET_AMD64)
         // We will align on x64 so can use the aligned mov
         instruction simdMov = simdAlignedMovIns();
@@ -5117,10 +5120,10 @@ void CodeGen::genZeroInitFrame(int untrLclHi, int untrLclLo, regNumber initReg, 
     }
     else if (genInitStkLclCnt > 0)
     {
-        assert((genRegMask(initReg) & intRegState.rsCalleeRegArgMaskLiveIn) == 0); // initReg is not a live incoming
-                                                                                   // argument reg
+        // initReg is not a live incoming param reg
+        assert((genRegMask(initReg) & paramRegState.intRegLiveIn) == RBM_NONE);
 
-        /* Initialize any lvMustInit vars on the stack */
+        // Initialize any lvMustInit vars on the stack
 
         LclVarDsc* varDsc;
         unsigned   varNum;
@@ -6161,27 +6164,21 @@ void CodeGen::genFnProlog()
     // TODO-Cleanup: Add suitable assert for the OSR case.
     assert(compiler->opts.IsOSR() || ((genInitStkLclCnt > 0) == hasUntrLcl));
 
-#ifdef DEBUG
-    if (verbose)
+    if (genInitStkLclCnt > 0)
     {
-        if (genInitStkLclCnt > 0)
-        {
-            printf("Found %u lvMustInit int-sized stack slots, frame offsets %d through %d\n", genInitStkLclCnt,
-                   -untrLclLo, -untrLclHi);
-        }
+        JITDUMP("Found %u lvMustInit int-sized stack slots, frame offsets %d through %d\n", genInitStkLclCnt,
+                -untrLclLo, -untrLclHi);
     }
-#endif
 
 #ifdef TARGET_ARM
     // On the ARM we will spill any incoming struct args in the first instruction in the prolog
     // Ditto for all enregistered user arguments in a varargs method.
     // These registers will be available to use for the initReg.  We just remove
     // all of these registers from the rsCalleeRegArgMaskLiveIn.
-    //
-    intRegState.rsCalleeRegArgMaskLiveIn &= ~regSet.rsMaskPreSpillRegs(false);
+    paramRegState.intRegLiveIn &= ~regSet.rsMaskPreSpillRegs(false);
 #endif
 
-    /* Choose the register to use for zero initialization */
+    // Choose the register to use for zero initialization
 
     regNumber initReg = REG_SCRATCH; // Unless we find a better register below
 
@@ -6189,7 +6186,7 @@ void CodeGen::genFnProlog()
     // If initReg is ever set to zero, this variable is set to true and zero initializing initReg
     // will be skipped.
     bool      initRegZeroed = false;
-    regMaskTP excludeMask   = intRegState.rsCalleeRegArgMaskLiveIn;
+    regMaskTP excludeMask   = paramRegState.intRegLiveIn;
     regMaskTP tempMask;
 
     // We should not use the special PINVOKE registers as the initReg
@@ -6345,7 +6342,7 @@ void CodeGen::genFnProlog()
 
     if (maskStackAlloc == RBM_NONE)
     {
-        genAllocLclFrame(lclFrameSize, initReg, &initRegZeroed, intRegState.rsCalleeRegArgMaskLiveIn);
+        genAllocLclFrame(lclFrameSize, initReg, &initRegZeroed, paramRegState.intRegLiveIn);
     }
 #endif // !TARGET_ARM64
 
@@ -6390,6 +6387,8 @@ void CodeGen::genFnProlog()
 
     if (compiler->info.compPublishStubParam)
     {
+        assert((paramRegState.intRegLiveIn & RBM_SECRET_STUB_PARAM) != RBM_NONE);
+
 #ifndef TARGET_XARCH
         GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, REG_SECRET_STUB_PARAM,
                                   compiler->lvaStubArgumentVar, 0);
@@ -6398,10 +6397,9 @@ void CodeGen::genFnProlog()
         GetEmitter()->emitIns_AR_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, REG_SECRET_STUB_PARAM, genFramePointerReg(),
                                    compiler->lvaTable[compiler->lvaStubArgumentVar].GetStackOffset());
 #endif
-        assert(intRegState.rsCalleeRegArgMaskLiveIn & RBM_SECRET_STUB_PARAM);
 
         // It's no longer live; clear it out so it can be used after this in the prolog
-        intRegState.rsCalleeRegArgMaskLiveIn &= ~RBM_SECRET_STUB_PARAM;
+        paramRegState.intRegLiveIn &= ~RBM_SECRET_STUB_PARAM;
     }
 
     //
@@ -6487,7 +6485,7 @@ void CodeGen::genFnProlog()
     // OSR handles this by moving the values from the original frame.
     if (!compiler->opts.IsOSR())
     {
-        if (intRegState.rsCalleeRegArgMaskLiveIn != RBM_NONE)
+        if (paramRegState.intRegLiveIn != RBM_NONE)
         {
             // If we need an extra register to shuffle around the incoming registers
             // we will use xtraReg (initReg) and set the xtraRegClobbered flag,
@@ -6505,8 +6503,8 @@ void CodeGen::genFnProlog()
                 initRegZeroed = false;
             }
 
-            genPrologMoveParamRegs(intRegState.rsCalleeRegArgCount, intRegState.rsCalleeRegArgMaskLiveIn, false,
-                                   xtraReg, &xtraRegClobbered);
+            genPrologMoveParamRegs(paramRegState.intRegCount, paramRegState.intRegLiveIn, false, xtraReg,
+                                   &xtraRegClobbered);
 
             if (xtraRegClobbered)
             {
@@ -6515,12 +6513,12 @@ void CodeGen::genFnProlog()
         }
 
 #ifndef TARGET_X86
-        if (floatRegState.rsCalleeRegArgMaskLiveIn != RBM_NONE)
+        if (paramRegState.floatRegLiveIn != RBM_NONE)
         {
             bool xtraRegClobbered = false;
 
-            genPrologMoveParamRegs(floatRegState.rsCalleeRegArgCount, floatRegState.rsCalleeRegArgMaskLiveIn, true,
-                                   REG_NA, &xtraRegClobbered);
+            genPrologMoveParamRegs(paramRegState.floatRegCount, paramRegState.floatRegLiveIn, true, REG_NA,
+                                   &xtraRegClobbered);
 
             // TODO-MIKE-Review: This should probably be done only for integer registers.
             if (xtraRegClobbered)

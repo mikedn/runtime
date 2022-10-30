@@ -1884,7 +1884,7 @@ void LinearScan::insertZeroInitRefPositions()
     }
 }
 
-void LinearScan::UpdateRegStateForParam(LclVarDsc* lcl)
+void LinearScan::AddLiveParamRegs(LclVarDsc* lcl)
 {
     assert(lcl->IsRegParam());
 
@@ -1895,8 +1895,8 @@ void LinearScan::UpdateRegStateForParam(LclVarDsc* lcl)
         mask |= genRegMask(lcl->GetParamReg(i));
     }
 
-    compiler->codeGen->intRegState.rsCalleeRegArgMaskLiveIn |= mask & ~RBM_ALLFLOAT;
-    compiler->codeGen->floatRegState.rsCalleeRegArgMaskLiveIn |= mask & RBM_ALLFLOAT;
+    compiler->codeGen->paramRegState.intRegLiveIn |= mask & ~RBM_ALLFLOAT;
+    compiler->codeGen->paramRegState.floatRegLiveIn |= mask & RBM_ALLFLOAT;
 }
 
 //------------------------------------------------------------------------
@@ -1980,7 +1980,7 @@ void LinearScan::buildIntervals()
 
         if (argDsc->IsRegParam())
         {
-            UpdateRegStateForParam(argDsc);
+            AddLiveParamRegs(argDsc);
         }
 
         if (argDsc->IsRegCandidate())
@@ -2023,7 +2023,7 @@ void LinearScan::buildIntervals()
 
                 if (!fieldVarDsc->HasLiveness() && fieldVarDsc->IsRegParam())
                 {
-                    UpdateRegStateForParam(fieldVarDsc);
+                    AddLiveParamRegs(fieldVarDsc);
                 }
             }
         }
@@ -2033,7 +2033,7 @@ void LinearScan::buildIntervals()
 
             if (!argDsc->HasLiveness() && argDsc->IsRegParam())
             {
-                UpdateRegStateForParam(argDsc);
+                AddLiveParamRegs(argDsc);
             }
         }
     }
@@ -2041,7 +2041,7 @@ void LinearScan::buildIntervals()
     // If there is a secret stub param, it is also live in
     if (compiler->info.compPublishStubParam)
     {
-        compiler->codeGen->intRegState.rsCalleeRegArgMaskLiveIn |= RBM_SECRET_STUB_PARAM;
+        compiler->codeGen->paramRegState.intRegLiveIn |= RBM_SECRET_STUB_PARAM;
     }
 
     BasicBlock* predBlock = nullptr;

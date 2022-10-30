@@ -378,9 +378,9 @@ void Compiler::lvaInitParams(bool hasRetBufParam)
     noway_assert(paramInfo.lclNum == info.compArgsCount);
     assert(paramInfo.intRegIndex <= MAX_REG_ARG);
 
-    codeGen->paramsStackSize                   = paramInfo.stackOffset;
-    codeGen->intRegState.rsCalleeRegArgCount   = paramInfo.intRegIndex;
-    codeGen->floatRegState.rsCalleeRegArgCount = paramInfo.floatRegIndex;
+    codeGen->paramsStackSize             = paramInfo.stackOffset;
+    codeGen->paramRegState.intRegCount   = paramInfo.intRegIndex;
+    codeGen->paramRegState.floatRegCount = paramInfo.floatRegIndex;
 
 #ifdef TARGET_X86
     // The x86 ret instruction has a 16 bit immediate so we cannot easily pop more than

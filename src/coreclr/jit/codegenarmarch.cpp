@@ -3476,7 +3476,7 @@ void CodeGen::genPushCalleeSavedRegisters()
     // registers have been saved. So instead of letting genAllocLclFrame use initReg as a temporary register,
     // always use REG_SCRATCH. We don't care if it trashes it, so ignore the initRegZeroed output argument.
     bool ignoreInitRegZeroed = false;
-    genAllocLclFrame(lclFrameSize, REG_SCRATCH, &ignoreInitRegZeroed, intRegState.rsCalleeRegArgMaskLiveIn);
+    genAllocLclFrame(lclFrameSize, REG_SCRATCH, &ignoreInitRegZeroed, paramRegState.intRegLiveIn);
 #endif
 
     regMaskTP rsPushRegs = regSet.rsGetModifiedRegsMask() & RBM_CALLEE_SAVED;
