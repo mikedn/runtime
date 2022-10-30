@@ -2603,11 +2603,17 @@ regMaskTP CodeGen::genPrologBuildParamRegsTable(
 #endif
                 regType = lcl->GetLayout()->GetHfaElementType();
             }
+#if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
+            else if (compiler->info.compIsVarArgs && varTypeIsSIMD(regType))
+            {
+                regType = TYP_LONG;
+            }
+#endif
             else
             {
                 regType = compiler->mangleVarArgsType(regType);
             }
-#endif
+#endif // TARGET_ARMARCH
 
             paramRegIndex = genGetParamRegIndex(lcl->GetParamReg());
             regCount      = lcl->GetParamRegCount();
@@ -2626,9 +2632,6 @@ regMaskTP CodeGen::genPrologBuildParamRegsTable(
 
         for (unsigned i = 0; i < regCount; i++)
         {
-            // TODO-MIKE-Fix: This is messed up for for win-arm64 varargs. regType may be SIMD12/16
-            // and the register may be x7, so we treat an integer register as a float one.
-
             var_types regType = paramRegs[paramRegIndex + i].type;
             regNumber regNum  = genMapRegArgNumToRegNum(paramRegIndex + i, regType);
             regMaskTP regMask = genRegMask(regNum);
