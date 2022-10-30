@@ -342,30 +342,17 @@ inline regMaskTP fullIntArgRegMask()
 #endif
 }
 
-//-------------------------------------------------------------------------------------------
-// isValidIntArgReg:
-//     Returns true if the register is a valid integer argument register
-//     Note this method also returns true on Arm64 when 'reg' is the RetBuff register
-//
+// Returns true if the register is a valid integer argument register
+// Note this method also returns true on Arm64 when 'reg' is the RetBuff register
 inline bool isValidIntArgReg(regNumber reg)
 {
     return (genRegMask(reg) & fullIntArgRegMask()) != 0;
 }
 
-//-------------------------------------------------------------------------------------------
-// isValidFloatArgReg:
-//     Returns true if the register is a valid floating-point argument register
-//
+// Returns true if the register is a valid floating-point argument register
 inline bool isValidFloatArgReg(regNumber reg)
 {
-    if (reg == REG_NA)
-    {
-        return false;
-    }
-    else
-    {
-        return (reg >= FIRST_FP_ARGREG) && (reg <= LAST_FP_ARGREG);
-    }
+    return (reg >= FIRST_FP_ARGREG) && (reg <= LAST_FP_ARGREG);
 }
 
 /*****************************************************************************

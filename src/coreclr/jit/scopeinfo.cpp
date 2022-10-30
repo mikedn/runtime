@@ -1493,46 +1493,26 @@ void CodeGen::psiBegProlog()
 
         if (lclVarDsc->IsRegParam())
         {
-            bool isStructHandled = false;
+            regNumber regs[2]{lclVarDsc->GetParamReg(), REG_NA};
 
 #ifdef UNIX_AMD64_ABI
-            if (varTypeIsStruct(lclVarDsc->GetType()))
+            if (lclVarDsc->GetParamRegCount() > 1)
             {
-                regNumber regNum[2]{REG_NA, REG_NA};
+                regs[1] = lclVarDsc->GetParamReg(1);
+            }
+#endif
 
-                for (unsigned i = 0; i < lclVarDsc->GetParamRegCount(); i++)
-                {
-                    regNum[i] = lclVarDsc->GetParamReg(i);
-
-                    assert(genGetParamRegIndex(regNum[i]) != UINT32_MAX);
-                }
+            assert(isValidIntArgReg(regs[0]) || isValidFloatArgReg(regs[0]));
+            assert((regs[1] == REG_NA) || isValidIntArgReg(regs[1]) || isValidFloatArgReg(regs[1]));
 
 #ifdef USING_SCOPE_INFO
-                newScope->scRegister    = true;
-                newScope->u1.scRegNum   = static_cast<regNumberSmall>(regNum[0]);
-                newScope->u1.scOtherReg = static_cast<regNumberSmall>(regNum[1]);
-#endif
-
-#ifdef USING_VARIABLE_LIVE_RANGE
-                varLocation.storeVariableInRegisters(regNum[0], regNum[1]);
-#endif
-
-                isStructHandled = true;
-            }
-#endif // UNIX_AMD64_ABI
-
-            if (!isStructHandled)
-            {
-                assert(genGetParamRegIndex(lclVarDsc->GetParamReg()) != UINT32_MAX);
-
-#ifdef USING_SCOPE_INFO
-                newScope->scRegister  = true;
-                newScope->u1.scRegNum = static_cast<regNumberSmall>(lclVarDsc->GetParamReg());
+            newScope->scRegister    = true;
+            newScope->u1.scRegNum   = static_cast<regNumberSmall>(regs[0]);
+            newScope->u1.scOtherReg = static_cast<regNumberSmall>(regs[1]);
 #endif
 #ifdef USING_VARIABLE_LIVE_RANGE
-                varLocation.storeVariableInRegisters(lclVarDsc->GetParamReg(), REG_NA);
+            varLocation.storeVariableInRegisters(regs[0], regs[1]);
 #endif
-            }
         }
         else
         {
