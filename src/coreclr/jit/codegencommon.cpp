@@ -2362,10 +2362,11 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 // Generates code for moving incoming register arguments to their
 // assigned location, in the function prolog.
-void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, regNumber tempReg, bool* tempRegClobbered)
+void CodeGen::genPrologMoveParamRegs(
+    unsigned regCount, regMaskTP regLiveIn, bool isFloat, regNumber tempReg, bool* tempRegClobbered)
 {
     assert(generatingProlog);
-    assert(regState.rsCalleeRegArgMaskLiveIn != RBM_NONE);
+    assert(regLiveIn != RBM_NONE);
 
     JITDUMP("*************** In genPrologMoveParamRegs() for %s regs\n", isFloat ? "float" : "int");
 
@@ -2385,23 +2386,21 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
     //    If a fixed return buffer (in r8) was also present then the first one would become:
     //          r0, r2, r4 and r8 as valid integer arguments with argMax as 9
 
-    unsigned paramRegCount = regState.rsCalleeRegArgCount;
-
     // If necessary we will select a correct xtraReg for circular floating point args later.
     if (isFloat)
     {
         assert(tempReg == REG_NA);
 
-        noway_assert(paramRegCount <= MAX_FLOAT_REG_ARG);
+        noway_assert(regCount <= MAX_FLOAT_REG_ARG);
     }
     else // we are doing the integer registers
     {
-        noway_assert(paramRegCount <= MAX_REG_ARG);
+        noway_assert(regCount <= MAX_REG_ARG);
 
 #ifdef TARGET_ARM64
-        paramRegCount = RET_BUFF_ARGNUM + 1;
+        regCount = RET_BUFF_ARGNUM + 1;
 
-        assert(paramRegCount == MAX_REG_ARG + 1);
+        assert(regCount == MAX_REG_ARG + 1);
 #endif
     }
 
@@ -2417,20 +2416,18 @@ void CodeGen::genPrologMoveParamRegs(const RegState& regState, bool isFloat, reg
 
     ParamRegInfo paramRegs[max(MAX_REG_ARG + 1, MAX_FLOAT_REG_ARG)]{};
 
-    regMaskTP liveParamRegs = regState.rsCalleeRegArgMaskLiveIn;
-    liveParamRegs           = genPrologBuildParamRegsTable(paramRegs, paramRegCount, liveParamRegs, isFloat, tempReg);
+    regMaskTP liveParamRegs = genPrologBuildParamRegsTable(paramRegs, regCount, regLiveIn, isFloat, tempReg);
 
     if (liveParamRegs != RBM_NONE)
     {
-        genPrologMarkParamRegsCircularDependencies(paramRegs, paramRegCount, liveParamRegs);
+        genPrologMarkParamRegsCircularDependencies(paramRegs, regCount, liveParamRegs);
     }
 
-    liveParamRegs = regState.rsCalleeRegArgMaskLiveIn;
-    liveParamRegs = genPrologSpillParamRegs(paramRegs, paramRegCount, liveParamRegs);
+    liveParamRegs = genPrologSpillParamRegs(paramRegs, regCount, regLiveIn);
 
     if (liveParamRegs != RBM_NONE)
     {
-        genPrologMoveParamRegs(paramRegs, paramRegCount, liveParamRegs, isFloat, tempReg, tempRegClobbered);
+        genPrologMoveParamRegs(paramRegs, regCount, liveParamRegs, isFloat, tempReg, tempRegClobbered);
     }
 }
 
@@ -6508,7 +6505,8 @@ void CodeGen::genFnProlog()
                 initRegZeroed = false;
             }
 
-            genPrologMoveParamRegs(intRegState, false, xtraReg, &xtraRegClobbered);
+            genPrologMoveParamRegs(intRegState.rsCalleeRegArgCount, intRegState.rsCalleeRegArgMaskLiveIn, false,
+                                   xtraReg, &xtraRegClobbered);
 
             if (xtraRegClobbered)
             {
@@ -6521,7 +6519,8 @@ void CodeGen::genFnProlog()
         {
             bool xtraRegClobbered = false;
 
-            genPrologMoveParamRegs(floatRegState, true, REG_NA, &xtraRegClobbered);
+            genPrologMoveParamRegs(floatRegState.rsCalleeRegArgCount, floatRegState.rsCalleeRegArgMaskLiveIn, true,
+                                   REG_NA, &xtraRegClobbered);
 
             // TODO-MIKE-Review: This should probably be done only for integer registers.
             if (xtraRegClobbered)

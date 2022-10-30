@@ -270,7 +270,8 @@ protected:
         var_types type;
     };
 
-    void genPrologMoveParamRegs(const RegState& regState, bool isFloat, regNumber tempReg, bool* tempRegClobbered);
+    void genPrologMoveParamRegs(
+        unsigned regCount, regMaskTP regLiveIn, bool isFloat, regNumber tempReg, bool* tempRegClobbered);
     regMaskTP genPrologBuildParamRegsTable(
         ParamRegInfo* paramRegs, unsigned paramRegCount, regMaskTP liveParamRegs, bool isFloat, regNumber tempReg);
     void genPrologMarkParamRegsCircularDependencies(ParamRegInfo* paramRegs,
