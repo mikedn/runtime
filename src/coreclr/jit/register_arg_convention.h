@@ -63,7 +63,7 @@ public:
         {
             regMaskTP regMask = genFindLowestBit(floatAlignPadMask);
             floatAlignPadMask &= ~regMask;
-            unsigned regIndex = genMapFloatRegNumToRegArgNum(genRegNumFromMask(regMask));
+            unsigned regIndex = genRegNumFromMask(regMask) - REG_F0;
             assert(regIndex < MAX_FLOAT_REG_ARG);
 
             return regIndex;

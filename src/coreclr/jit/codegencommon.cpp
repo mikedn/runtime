@@ -2521,7 +2521,7 @@ regMaskTP CodeGen::genPrologBuildParamRegsTable(
                     regType = varActualType(lcl->GetLayout()->GetSysVAmd64AbiRegType(regIndex));
                 }
 
-                paramRegIndex = genMapRegNumToRegArgNum(regNum, regType);
+                paramRegIndex = genGetParamRegIndex(regNum);
 
                 if (regCount == 0)
                 {
@@ -2569,10 +2569,7 @@ regMaskTP CodeGen::genPrologBuildParamRegsTable(
             }
 #endif
 
-            // TODO-MIKE-Fix: This is messed up for for win-arm64 varargs. regType may be SIMD12/16
-            // and the regiter may be x7, so we treat an integer register as a float one.
-
-            paramRegIndex = genMapRegNumToRegArgNum(lcl->GetParamReg(), regType);
+            paramRegIndex = genGetParamRegIndex(lcl->GetParamReg());
             regCount      = lcl->GetParamRegCount();
 
             noway_assert(paramRegIndex + regCount <= paramRegCount);
@@ -2589,6 +2586,9 @@ regMaskTP CodeGen::genPrologBuildParamRegsTable(
 
         for (unsigned i = 0; i < regCount; i++)
         {
+            // TODO-MIKE-Fix: This is messed up for for win-arm64 varargs. regType may be SIMD12/16
+            // and the register may be x7, so we treat an integer register as a float one.
+
             var_types regType = paramRegs[paramRegIndex + i].type;
             regNumber regNum  = genMapRegArgNumToRegNum(paramRegIndex + i, regType);
             regMaskTP regMask = genRegMask(regNum);
@@ -2791,7 +2791,7 @@ void CodeGen::genPrologMarkParamRegsCircularDependencies(ParamRegInfo* paramRegs
             {
                 // We are trashing a live argument register - record it.
 
-                unsigned destRegArgNum = genMapRegNumToRegArgNum(destRegNum, regType);
+                unsigned destRegArgNum = genGetParamRegIndex(destRegNum);
                 noway_assert(destRegArgNum < paramRegCount);
                 paramRegs[destRegArgNum].trashBy = paramRegIndex;
             }

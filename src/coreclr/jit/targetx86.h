@@ -70,6 +70,8 @@
 
   #define REG_FP_FIRST             REG_XMM0
   #define REG_FP_LAST              REG_XMM7
+
+  // TODO-MIKE-Review: Why the heck are these defined on x86?
   #define FIRST_FP_ARGREG          REG_XMM0
   #define LAST_FP_ARGREG           REG_XMM3
   #define REG_FLTARG_0             REG_XMM0

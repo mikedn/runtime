@@ -2606,9 +2606,9 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                     // Back-fill the register.
                     isBackFilled              = true;
                     regMaskTP backFillBitMask = genFindLowestBit(fltArgSkippedRegMask);
-                    fltArgSkippedRegMask &=
-                        ~backFillBitMask; // Remove the back-filled register(s) from the skipped mask
-                    nextFltArgRegNum = genMapFloatRegNumToRegArgNum(genRegNumFromMask(backFillBitMask));
+                    // Remove the back-filled register(s) from the skipped mask
+                    fltArgSkippedRegMask &= ~backFillBitMask;
+                    nextFltArgRegNum = genRegNumFromMask(backFillBitMask) - REG_F0;
                     assert(nextFltArgRegNum < MAX_FLOAT_REG_ARG);
                 }
 

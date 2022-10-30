@@ -1532,4 +1532,43 @@ public:
     INDEBUG(void DumpDisasmHeader() const;)
 };
 
+// Map a parameter register to a parameter register index.
+inline unsigned genGetParamRegIndex(regNumber regNum)
+{
+    if (emitter::isFloatReg(regNum))
+    {
+        assert((genRegMask(regNum) & RBM_FLTARG_REGS) != RBM_NONE);
+
+        return regNum - FIRST_FP_ARGREG;
+    }
+
+    assert((genRegMask(regNum) & fullIntArgRegMask()) != RBM_NONE);
+
+#ifdef TARGET_ARMARCH
+    return regNum - REG_ARG_0;
+#elif defined(TARGET_XARCH)
+    switch (regNum)
+    {
+        case REG_ARG_0:
+            return 0;
+        case REG_ARG_1:
+            return 1;
+#ifdef TARGET_AMD64
+        case REG_ARG_2:
+            return 2;
+        case REG_ARG_3:
+            return 3;
+#endif
+#ifdef UNIX_AMD64_ABI
+        case REG_ARG_4:
+            return 4;
+        case REG_ARG_5:
+            return 5;
+#endif
+        default:
+            return UINT32_MAX;
+    }
+#endif // TARGET_XARCH
+}
+
 #endif // CODEGEN_H
