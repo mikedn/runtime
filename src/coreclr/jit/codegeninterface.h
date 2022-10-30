@@ -46,8 +46,8 @@ class emitter;
 
 struct RegState
 {
-    regMaskTP rsCalleeRegArgMaskLiveIn; // mask of register arguments (live on entry to method)
-    unsigned  rsCalleeRegArgCount;      // total number of incoming register arguments of this kind (int or float)
+    regMaskTP rsCalleeRegArgMaskLiveIn = RBM_NONE; // mask of register arguments (live on entry to method)
+    unsigned  rsCalleeRegArgCount      = 0; // total number of incoming register arguments of this kind (int or float)
 };
 
 //-------------------- CodeGenInterface ---------------------------------
