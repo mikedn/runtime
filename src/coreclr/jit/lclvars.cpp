@@ -2108,9 +2108,9 @@ void Compiler::lvaMarkLivenessTrackedLocals()
         // Start by assuming that the variable will be tracked.
         lcl->lvTracked = 1;
 
-        if (lcl->lvRefCnt() == 0)
+        if (lcl->GetRefCount() == 0)
         {
-            assert(lcl->lvRefCntWtd() == 0);
+            assert(lcl->GetRefWeight() == 0);
 
             lcl->lvTracked = 0;
         }

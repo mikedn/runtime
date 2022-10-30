@@ -1967,22 +1967,13 @@ void LinearScan::buildIntervals()
     // Assign these RefPositions to the (nonexistent) BB0.
     curBBNum = 0;
 
-    for (unsigned int varIndex = 0; varIndex < compiler->lvaTrackedCount; varIndex++)
+    for (unsigned varIndex = 0; varIndex < compiler->lvaTrackedCount; varIndex++)
     {
         LclVarDsc* argDsc = compiler->lvaGetDescByTrackedIndex(varIndex);
 
-        if (!argDsc->IsParam())
-        {
-            continue;
-        }
+        assert(argDsc->HasLiveness() && !argDsc->IsPromoted());
 
-        // Only reserve a register if the argument is actually used.
-        // Is it dead on entry? If compJmpOpUsed is true, then the arguments
-        // have to be kept alive, so we have to consider it as live on entry.
-        // Use lvRefCnt instead of checking bbLiveIn because if it's volatile we
-        // won't have done dataflow on it, but it needs to be marked as live-in so
-        // it will get saved in the prolog.
-        if (!compiler->compJmpOpUsed && argDsc->lvRefCnt() == 0 && !compiler->opts.compDbgCode)
+        if (!argDsc->IsParam() || (argDsc->GetRefCount() == 0))
         {
             continue;
         }
@@ -2010,28 +2001,6 @@ void LinearScan::buildIntervals()
 
             RefPosition* pos = newRefPosition(interval, MinLocation, RefTypeParamDef, nullptr, mask);
             pos->setRegOptional(true);
-        }
-        else if (varTypeIsStruct(argDsc->GetType()))
-        {
-            for (unsigned fieldVarNum = argDsc->lvFieldLclStart;
-                 fieldVarNum < argDsc->lvFieldLclStart + argDsc->lvFieldCnt; ++fieldVarNum)
-            {
-                LclVarDsc* fieldVarDsc = &(compiler->lvaTable[fieldVarNum]);
-                if (fieldVarDsc->IsRegCandidate())
-                {
-                    assert(fieldVarDsc->lvTracked);
-                    Interval*    interval = getIntervalForLocalVar(fieldVarDsc->lvVarIndex);
-                    RefPosition* pos =
-                        newRefPosition(interval, MinLocation, RefTypeParamDef, nullptr, allRegs(TypeGet(fieldVarDsc)));
-                    pos->setRegOptional(true);
-                }
-            }
-        }
-        else
-        {
-            // We can overwrite the register (i.e. codegen saves it on entry)
-            assert((argDsc->GetRefCount() == 0) || !argDsc->IsRegParam() || argDsc->lvDoNotEnregister ||
-                   !argDsc->IsRegCandidate() || (varTypeIsFloating(argDsc->GetType()) && compiler->opts.compDbgCode));
         }
     }
 
