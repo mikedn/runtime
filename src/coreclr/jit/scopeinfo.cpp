@@ -1498,37 +1498,24 @@ void CodeGen::psiBegProlog()
 #ifdef UNIX_AMD64_ABI
             if (varTypeIsStruct(lclVarDsc->GetType()))
             {
-                if (lclVarDsc->GetLayout()->GetSysVAmd64AbiRegCount() != 0)
+                regNumber regNum[2]{REG_NA, REG_NA};
+
+                for (unsigned i = 0; i < lclVarDsc->GetParamRegCount(); i++)
                 {
-                    regNumber regNum[2]{REG_NA, REG_NA};
+                    regNum[i] = lclVarDsc->GetParamReg(i);
 
-                    for (unsigned i = 0; i < lclVarDsc->GetLayout()->GetSysVAmd64AbiRegCount(); i++)
-                    {
-                        regNum[i] = lclVarDsc->GetParamReg(i);
-
-                        assert(genGetParamRegIndex(regNum[i]) != UINT32_MAX);
-                    }
+                    assert(genGetParamRegIndex(regNum[i]) != UINT32_MAX);
+                }
 
 #ifdef USING_SCOPE_INFO
-                    newScope->scRegister    = true;
-                    newScope->u1.scRegNum   = static_cast<regNumberSmall>(regNum[0]);
-                    newScope->u1.scOtherReg = static_cast<regNumberSmall>(regNum[1]);
+                newScope->scRegister    = true;
+                newScope->u1.scRegNum   = static_cast<regNumberSmall>(regNum[0]);
+                newScope->u1.scOtherReg = static_cast<regNumberSmall>(regNum[1]);
 #endif
 
 #ifdef USING_VARIABLE_LIVE_RANGE
-                    varLocation.storeVariableInRegisters(regNum[0], regNum[1]);
+                varLocation.storeVariableInRegisters(regNum[0], regNum[1]);
 #endif
-                }
-                else
-                {
-// Stack passed argument. Get the offset from the  caller's frame.
-#ifdef USING_SCOPE_INFO
-                    psiSetScopeOffset(newScope, lclVarDsc);
-#endif // USING_SCOPE_INFO
-#ifdef USING_VARIABLE_LIVE_RANGE
-                    varLocation.storeVariableOnStack(REG_SPBASE, psiGetVarStackOffset(lclVarDsc));
-#endif // USING_VARIABLE_LIVE_RANGE
-                }
 
                 isStructHandled = true;
             }
