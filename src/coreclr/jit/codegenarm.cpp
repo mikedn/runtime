@@ -1858,4 +1858,80 @@ regNumber CodeGen::emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, 
     return dst->GetRegNum();
 }
 
+//---------------------------------------------------------------------
+// genTotalFrameSize - return the "total" size of the stack frame, including local size
+// and callee-saved register size. There are a few things "missing" depending on the
+// platform. The function genCallerSPtoInitialSPdelta() includes those things.
+//
+// For ARM, this doesn't include the prespilled registers.
+//
+// For x86, this doesn't include the frame pointer if codeGen->isFramePointerUsed() is true.
+// It also doesn't include the pushed return address.
+//
+// Return value:
+//    Frame size
+
+int CodeGenInterface::genTotalFrameSize() const
+{
+    assert(!IsUninitialized(calleeRegsPushed));
+
+    int totalFrameSize = calleeRegsPushed * REGSIZE_BYTES + lclFrameSize;
+
+    assert(totalFrameSize >= 0);
+    return totalFrameSize;
+}
+
+//---------------------------------------------------------------------
+// genSPtoFPdelta - return the offset from SP to the frame pointer.
+// This number is going to be positive, since SP must be at the lowest
+// address.
+//
+// There must be a frame pointer to call this function!
+
+int CodeGenInterface::genSPtoFPdelta() const
+{
+    assert(isFramePointerUsed());
+
+    int delta = -genCallerSPtoInitialSPdelta() + genCallerSPtoFPdelta();
+
+    assert(delta >= 0);
+    return delta;
+}
+
+//---------------------------------------------------------------------
+// genCallerSPtoFPdelta - return the offset from Caller-SP to the frame pointer.
+// This number is going to be negative, since the Caller-SP is at a higher
+// address than the frame pointer.
+//
+// There must be a frame pointer to call this function!
+
+int CodeGenInterface::genCallerSPtoFPdelta() const
+{
+    assert(isFramePointerUsed());
+    int callerSPtoFPdelta = 0;
+
+    // On ARM, we first push the prespill registers, then store LR, then R11 (FP), and point R11 at the saved R11.
+    callerSPtoFPdelta -= genCountBits(regSet.rsMaskPreSpillRegs(true)) * REGSIZE_BYTES;
+    callerSPtoFPdelta -= 2 * REGSIZE_BYTES;
+
+    assert(callerSPtoFPdelta <= 0);
+    return callerSPtoFPdelta;
+}
+
+//---------------------------------------------------------------------
+// genCallerSPtoInitialSPdelta - return the offset from Caller-SP to Initial SP.
+//
+// This number will be negative.
+
+int CodeGenInterface::genCallerSPtoInitialSPdelta() const
+{
+    int callerSPtoSPdelta = 0;
+
+    callerSPtoSPdelta -= genCountBits(regSet.rsMaskPreSpillRegs(true)) * REGSIZE_BYTES;
+    callerSPtoSPdelta -= genTotalFrameSize();
+
+    assert(callerSPtoSPdelta <= 0);
+    return callerSPtoSPdelta;
+}
+
 #endif // TARGET_ARM
