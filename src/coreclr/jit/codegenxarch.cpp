@@ -6247,21 +6247,75 @@ void CodeGen::genCkfinite(GenTree* treeNode)
     genProduceReg(treeNode);
 }
 
+// Return the "total" size of the stack frame, including local size and
+// callee-saved register size. There are a few things "missing" depending on
+// the platform. The function genCallerSPtoInitialSPdelta() includes those things.
+// It doesn't include the pushed return address.
+// For x86, this doesn't include the frame pointer if isFramePointerUsed is true.
+int CodeGenInterface::genTotalFrameSize() const
+{
+    assert(!IsUninitialized(calleeRegsPushed));
+
+    int totalFrameSize = calleeRegsPushed * REGSIZE_BYTES + lclFrameSize;
+
+    assert(totalFrameSize >= 0);
+    return totalFrameSize;
+}
+
+// Return the offset from Caller-SP to Initial SP.
+// This number will be negative.
+int CodeGenInterface::genCallerSPtoInitialSPdelta() const
+{
+    int callerSPtoSPdelta = 0;
+
+    callerSPtoSPdelta -= genTotalFrameSize();
+    callerSPtoSPdelta -= REGSIZE_BYTES; // caller-pushed return address
+
+    // compCalleeRegsPushed does not account for the frame pointer
+    // TODO-Cleanup: shouldn't this be part of genTotalFrameSize?
+    if (isFramePointerUsed())
+    {
+        callerSPtoSPdelta -= REGSIZE_BYTES;
+    }
+
+    assert(callerSPtoSPdelta <= 0);
+    return callerSPtoSPdelta;
+}
+
+// Return the offset from Caller-SP to the frame pointer.
+// This number is going to be negative, since the Caller-SP is at a higher
+// address than the frame pointer.
+//
+// We can't compute this directly from the Caller-SP, since the frame pointer
+// is based on a maximum delta from Initial-SP, so first we find SP, then
+// compute the FP offset.
+int CodeGenInterface::genCallerSPtoFPdelta() const
+{
+    assert(isFramePointerUsed());
+
 #ifdef TARGET_AMD64
+    int callerSPtoFPdelta = genCallerSPtoInitialSPdelta() + genSPtoFPdelta();
+    assert(callerSPtoFPdelta <= 0);
+    return callerSPtoFPdelta;
+#else
+    // Thanks to ebp chaining, the difference between ebp-based addresses
+    // and caller-SP-relative addresses is just the 2 pointers: the return
+    // address and the pushed frame pointer.
+    return -2 * REGSIZE_BYTES;
+#endif
+}
+
+// Return the offset from SP to the frame pointer.
+// This number is going to be positive, since SP must be at the lowest
+// address.
 int CodeGenInterface::genSPtoFPdelta() const
 {
-    int delta;
-
-#ifdef UNIX_AMD64_ABI
-
-    // We require frame chaining on Unix to support native tool unwinding (such as
-    // unwinding by the native debugger). We have a CLR-only extension to the
-    // unwind codes (UWOP_SET_FPREG_LARGE) to support SP->FP offsets larger than 240.
-    // If Unix ever supports EnC, the RSP == RBP assumption will have to be reevaluated.
-    delta = genTotalFrameSize();
-
-#else // !UNIX_AMD64_ABI
-
+#ifdef TARGET_X86
+    int delta = -genCallerSPtoInitialSPdelta() + genCallerSPtoFPdelta();
+    assert(delta >= 0);
+    return delta;
+#elif defined(TARGET_AMD64)
+#ifdef WINDOWS_AMD64_ABI
     // As per Amd64 ABI, RBP offset from initial RSP can be between 0 and 240 if
     // RBP needs to be reported in unwind codes.  This case would arise for methods
     // with localloc.
@@ -6274,176 +6328,23 @@ int CodeGenInterface::genSPtoFPdelta() const
         //
         // To be predictive and so as never to under-estimate offset of vars from FP
         // we will always position FP at min(240, outgoing arg area size).
-        delta = Min(240, (int)compiler->lvaOutgoingArgSpaceSize);
+        return Min(240, (int)compiler->lvaOutgoingArgSpaceSize);
     }
-    else if (compiler->opts.compDbgEnC)
+
+    if (compiler->opts.compDbgEnC)
     {
         // vm assumption on EnC methods is that rsp and rbp are equal
-        delta = 0;
+        return 0;
     }
-    else
-    {
-        delta = genTotalFrameSize();
-    }
+#endif // WINDOWS_AMD64_ABI
 
-#endif // !UNIX_AMD64_ABI
-
-    return delta;
+    // We require frame chaining on Unix to support native tool unwinding (such as
+    // unwinding by the native debugger). We have a CLR-only extension to the
+    // unwind codes (UWOP_SET_FPREG_LARGE) to support SP->FP offsets larger than 240.
+    // If Unix ever supports EnC, the RSP == RBP assumption will have to be reevaluated.
+    return genTotalFrameSize();
+#endif
 }
-
-//---------------------------------------------------------------------
-// genTotalFrameSize - return the total size of the stack frame, including local size,
-// callee-saved register size, etc. For AMD64, this does not include the caller-pushed
-// return address.
-//
-// Return shift:
-//    Total frame size
-//
-
-int CodeGenInterface::genTotalFrameSize() const
-{
-    assert(!IsUninitialized(calleeRegsPushed));
-
-    int totalFrameSize = calleeRegsPushed * REGSIZE_BYTES + lclFrameSize;
-
-    assert(totalFrameSize >= 0);
-    return totalFrameSize;
-}
-
-//---------------------------------------------------------------------
-// genCallerSPtoFPdelta - return the offset from Caller-SP to the frame pointer.
-// This number is going to be negative, since the Caller-SP is at a higher
-// address than the frame pointer.
-//
-// There must be a frame pointer to call this function!
-//
-// We can't compute this directly from the Caller-SP, since the frame pointer
-// is based on a maximum delta from Initial-SP, so first we find SP, then
-// compute the FP offset.
-
-int CodeGenInterface::genCallerSPtoFPdelta() const
-{
-    assert(isFramePointerUsed());
-    int callerSPtoFPdelta;
-
-    callerSPtoFPdelta = genCallerSPtoInitialSPdelta() + genSPtoFPdelta();
-
-    assert(callerSPtoFPdelta <= 0);
-    return callerSPtoFPdelta;
-}
-
-//---------------------------------------------------------------------
-// genCallerSPtoInitialSPdelta - return the offset from Caller-SP to Initial SP.
-//
-// This number will be negative.
-
-int CodeGenInterface::genCallerSPtoInitialSPdelta() const
-{
-    int callerSPtoSPdelta = 0;
-
-    callerSPtoSPdelta -= genTotalFrameSize();
-    callerSPtoSPdelta -= REGSIZE_BYTES; // caller-pushed return address
-
-    // compCalleeRegsPushed does not account for the frame pointer
-    // TODO-Cleanup: shouldn't this be part of genTotalFrameSize?
-    if (isFramePointerUsed())
-    {
-        callerSPtoSPdelta -= REGSIZE_BYTES;
-    }
-
-    assert(callerSPtoSPdelta <= 0);
-    return callerSPtoSPdelta;
-}
-#endif // TARGET_AMD64
-
-#ifdef TARGET_X86
-
-//---------------------------------------------------------------------
-// genTotalFrameSize - return the "total" size of the stack frame, including local size
-// and callee-saved register size. There are a few things "missing" depending on the
-// platform. The function genCallerSPtoInitialSPdelta() includes those things.
-//
-// For ARM, this doesn't include the prespilled registers.
-//
-// For x86, this doesn't include the frame pointer if codeGen->isFramePointerUsed() is true.
-// It also doesn't include the pushed return address.
-//
-// Return value:
-//    Frame size
-
-int CodeGenInterface::genTotalFrameSize() const
-{
-    assert(!IsUninitialized(calleeRegsPushed));
-
-    int totalFrameSize = calleeRegsPushed * REGSIZE_BYTES + lclFrameSize;
-
-    assert(totalFrameSize >= 0);
-    return totalFrameSize;
-}
-
-//---------------------------------------------------------------------
-// genSPtoFPdelta - return the offset from SP to the frame pointer.
-// This number is going to be positive, since SP must be at the lowest
-// address.
-//
-// There must be a frame pointer to call this function!
-
-int CodeGenInterface::genSPtoFPdelta() const
-{
-    assert(isFramePointerUsed());
-
-    int delta = -genCallerSPtoInitialSPdelta() + genCallerSPtoFPdelta();
-
-    assert(delta >= 0);
-    return delta;
-}
-
-//---------------------------------------------------------------------
-// genCallerSPtoFPdelta - return the offset from Caller-SP to the frame pointer.
-// This number is going to be negative, since the Caller-SP is at a higher
-// address than the frame pointer.
-//
-// There must be a frame pointer to call this function!
-
-int CodeGenInterface::genCallerSPtoFPdelta() const
-{
-    assert(isFramePointerUsed());
-    int callerSPtoFPdelta = 0;
-
-    // Thanks to ebp chaining, the difference between ebp-based addresses
-    // and caller-SP-relative addresses is just the 2 pointers:
-    //     return address
-    //     pushed ebp
-    callerSPtoFPdelta -= 2 * REGSIZE_BYTES;
-
-    assert(callerSPtoFPdelta <= 0);
-    return callerSPtoFPdelta;
-}
-
-//---------------------------------------------------------------------
-// genCallerSPtoInitialSPdelta - return the offset from Caller-SP to Initial SP.
-//
-// This number will be negative.
-
-int CodeGenInterface::genCallerSPtoInitialSPdelta() const
-{
-    int callerSPtoSPdelta = 0;
-
-    callerSPtoSPdelta -= genTotalFrameSize();
-    callerSPtoSPdelta -= REGSIZE_BYTES; // caller-pushed return address
-
-    // compCalleeRegsPushed does not account for the frame pointer
-    // TODO-Cleanup: shouldn't this be part of genTotalFrameSize?
-    if (isFramePointerUsed())
-    {
-        callerSPtoSPdelta -= REGSIZE_BYTES;
-    }
-
-    assert(callerSPtoSPdelta <= 0);
-    return callerSPtoSPdelta;
-}
-
-#endif // TARGET_X86
 
 //-----------------------------------------------------------------------------------------
 // genSSE41RoundOp - generate SSE41 code for the given tree as a round operation
