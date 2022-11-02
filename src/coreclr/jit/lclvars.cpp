@@ -5714,7 +5714,11 @@ void Compiler::lvaDumpFrameLocation(unsigned lclNum)
     baseReg = EBPbased ? REG_FPBASE : REG_SPBASE;
 #endif
 
+#ifdef TARGET_ARM64
+    printf("[%s,#%d]  ", getRegName(baseReg), offset);
+#else
     printf("[%2s%1s%02XH]  ", getRegName(baseReg), (offset < 0 ? "-" : "+"), (offset < 0 ? -offset : offset));
+#endif
 }
 
 void Compiler::lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth)
@@ -5790,7 +5794,6 @@ void Compiler::lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth)
         }
         else if (varDsc->lvRegister)
         {
-            // It's always a register, and always in the same register.
             lvaDumpRegLocation(lclNum);
         }
         else if (!varDsc->lvOnFrame)
@@ -5799,8 +5802,6 @@ void Compiler::lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth)
         }
         else
         {
-            // For RyuJIT backend, it might be in a register part of the time, but it will
-            // definitely have a stack home location. Otherwise, it's always on the stack.
             lvaDumpFrameLocation(lclNum);
         }
     }
