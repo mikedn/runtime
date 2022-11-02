@@ -429,9 +429,6 @@ void Compiler::gsParamsToShadows()
 
             shadowLcl->lvIsMultiRegArg = lcl->lvIsMultiRegArg;
             shadowLcl->lvIsMultiRegRet = lcl->lvIsMultiRegRet;
-#ifdef FEATURE_SIMD
-            shadowLcl->lvUsedInSIMDIntrinsic = lcl->lvUsedInSIMDIntrinsic;
-#endif
         }
         else if (type == TYP_BLK)
         {
