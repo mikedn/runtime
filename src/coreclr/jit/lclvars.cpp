@@ -5574,24 +5574,14 @@ int Compiler::lvaToCallerSPRelativeOffset(int offset, bool isFpBased, bool forRo
 }
 
 #ifdef TARGET_AMD64
-// Return the Initial-SP-relative stack offset of a local/parameter.
-int Compiler::lvaGetInitialSPRelativeOffset(unsigned lclNum)
+int Compiler::lvaGetPSPSymInitialSPRelativeOffset()
 {
     assert(lvaDoneFrameLayout == FINAL_FRAME_LAYOUT);
 
-    LclVarDsc* lcl = lvaGetDesc(lclNum);
+    LclVarDsc* lcl = lvaGetDesc(lvaPSPSym);
     assert(lcl->lvOnFrame);
-    return lvaToInitialSPRelativeOffset(lcl->GetStackOffset(), lcl->lvFramePointerBased);
-}
 
-// Given a local variable offset, and whether that offset is frame-pointer based,
-// return its offset from Initial-SP. This is used, for example, to figure out
-// the offset of the frame pointer from Initial-SP.
-int Compiler::lvaToInitialSPRelativeOffset(unsigned offset, bool isFpBased)
-{
-    assert(lvaDoneFrameLayout == FINAL_FRAME_LAYOUT);
-
-    if (isFpBased)
+    if (lcl->lvFramePointerBased)
     {
         // Currently, the frame starts by pushing ebp, ebp points to the saved ebp
         // (so we have ebp pointer chaining). Add the fixed-size frame size plus the
@@ -5599,14 +5589,12 @@ int Compiler::lvaToInitialSPRelativeOffset(unsigned offset, bool isFpBased)
 
         assert(codeGen->isFramePointerUsed());
 
-        offset += codeGen->genSPtoFPdelta();
+        return lcl->GetStackOffset() + codeGen->genSPtoFPdelta();
     }
     else
     {
-        // The offset is correct already!
+        return lcl->GetStackOffset();
     }
-
-    return offset;
 }
 #endif // TARGET_AMD64
 

@@ -7882,11 +7882,7 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
                                                                           // finalized
     assert(calleeFPRegsSavedMask != (regMaskTP)-1); // The float registers to be preserved is finalized
 
-    // Even though lvaToInitialSPRelativeOffset() depends on compLclFrameSize,
-    // that's ok, because we're figuring out an offset in the parent frame.
-    genFuncletInfo.fiFunction_InitialSP_to_FP_delta =
-        compiler->lvaToInitialSPRelativeOffset(0, true); // trick to find the Initial-SP-relative offset of the frame
-                                                         // pointer.
+    genFuncletInfo.fiFunction_InitialSP_to_FP_delta = genSPtoFPdelta();
 
     assert(compiler->lvaOutgoingArgSpaceSize % REGSIZE_BYTES == 0);
 #ifndef UNIX_AMD64_ABI
@@ -7940,9 +7936,8 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
 
     if (compiler->lvaPSPSym != BAD_VAR_NUM)
     {
-        assert(genFuncletInfo.fiPSP_slot_InitialSP_offset ==
-               compiler->lvaGetInitialSPRelativeOffset(compiler->lvaPSPSym)); // same offset used in main function and
-                                                                              // funclet!
+        // same offset used in main function and funclet!
+        assert(genFuncletInfo.fiPSP_slot_InitialSP_offset == compiler->lvaGetPSPSymInitialSPRelativeOffset());
     }
 #endif // DEBUG
 }

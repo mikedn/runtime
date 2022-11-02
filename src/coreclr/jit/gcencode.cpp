@@ -3958,7 +3958,7 @@ void GCInfo::gcInfoBlockHdrSave(GcInfoEncoder* gcInfoEncoder, unsigned methodSiz
     {
 #ifdef TARGET_AMD64
         // The PSPSym is relative to InitialSP on X64 and CallerSP on other platforms.
-        gcInfoEncoderWithLog->SetPSPSymStackSlot(compiler->lvaGetInitialSPRelativeOffset(compiler->lvaPSPSym));
+        gcInfoEncoderWithLog->SetPSPSymStackSlot(compiler->lvaGetPSPSymInitialSPRelativeOffset());
 #else  // !TARGET_AMD64
         gcInfoEncoderWithLog->SetPSPSymStackSlot(compiler->lvaGetCallerSPRelativeOffset(compiler->lvaPSPSym));
 #endif // !TARGET_AMD64

@@ -4011,8 +4011,7 @@ public:
     // Returns the caller-SP-relative offset for the SP/FP relative offset determined by FP based.
     int lvaToCallerSPRelativeOffset(int offs, bool isFpBased, bool forRootFrame = true) const;
 #ifdef TARGET_AMD64
-    int lvaGetInitialSPRelativeOffset(unsigned lclNum);
-    int lvaToInitialSPRelativeOffset(unsigned offset, bool isFpBased);
+    int lvaGetPSPSymInitialSPRelativeOffset();
 #endif
 
     // True if this is an OSR compilation and this local is potentially
