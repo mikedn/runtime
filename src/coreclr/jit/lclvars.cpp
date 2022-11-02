@@ -3920,6 +3920,12 @@ int Compiler::lvaAssignParamVirtualFrameOffset(LclVarDsc* lcl, unsigned size, in
 {
     if (lcl->IsRegParam())
     {
+        // win-arm64 varargs can split a param between X7 and a stack slot.
+        if (info.compIsVarArgs && (lcl->GetParamReg() == REG_R7) && (size > REGSIZE_BYTES))
+        {
+            offset += REGSIZE_BYTES;
+        }
+
         return offset;
     }
 
