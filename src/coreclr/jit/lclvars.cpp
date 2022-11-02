@@ -3920,10 +3920,19 @@ int Compiler::lvaAssignParamVirtualFrameOffset(LclVarDsc* lcl, unsigned size, in
 {
     if (lcl->IsRegParam())
     {
-        // win-arm64 varargs can split a param between X7 and a stack slot.
-        if (info.compIsVarArgs && (lcl->GetParamReg() == REG_R7) && (size > REGSIZE_BYTES))
+        if (info.compIsVarArgs && (lcl->GetParamReg() != REG_ARG_RET_BUFF))
         {
-            offset += REGSIZE_BYTES;
+            assert(genIsValidIntReg(lcl->GetParamReg()));
+
+            // For varargs, reg parameters are "pre-spilled" right below stack parameters
+            // so they all form a contiguous area.
+            lcl->SetStackOffset(((lcl->GetParamReg() - REG_R0) - MAX_REG_ARG) * REGSIZE_BYTES);
+
+            // win-arm64 varargs can split a param between X7 and a stack slot.
+            if ((lcl->GetParamReg() == REG_R7) && (size > REGSIZE_BYTES))
+            {
+                offset += REGSIZE_BYTES;
+            }
         }
 
         return offset;
@@ -4650,10 +4659,8 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
 #ifdef TARGET_ARM64
                 if (info.compIsVarArgs && (lcl->GetParamReg() != RET_BUFF_ARGNUM))
                 {
-                    assert(genIsValidIntReg(lcl->GetParamReg()));
-
-                    // Stack offset to varargs (parameters) should point to home area which will be preallocated.
-                    lcl->SetStackOffset(((lcl->GetParamReg() - REG_R0) - MAX_REG_ARG) * REGSIZE_BYTES);
+                    // For varargs we've already assigned offsets.
+                    assert(lcl->GetStackOffset() != BAD_STK_OFFS);
 
                     continue;
                 }
