@@ -2335,6 +2335,60 @@ private:
 #endif
 };
 
+#ifdef FEATURE_SIMD
+// Mark locals used by SIMD intrinsics to prevent struct promotion.
+void Compiler::lvaRecordSimdIntrinsicUse(GenTree* op)
+{
+    if (op->OperIs(GT_OBJ, GT_IND))
+    {
+        GenTree* addr = op->AsIndir()->GetAddr();
+
+        if (addr->OperIs(GT_LCL_VAR_ADDR))
+        {
+            lvaRecordSimdIntrinsicUse(addr->AsLclVar());
+        }
+    }
+    else if (op->OperIs(GT_LCL_VAR))
+    {
+        lvaRecordSimdIntrinsicUse(op->AsLclVar());
+    }
+}
+
+void Compiler::lvaRecordSimdIntrinsicUse(GenTreeLclVar* lclVar)
+{
+    lvaRecordSimdIntrinsicUse(lclVar->GetLclNum());
+}
+
+void Compiler::lvaRecordSimdIntrinsicUse(unsigned lclNum)
+{
+    lvaGetDesc(lclNum)->lvUsedInSIMDIntrinsic = true;
+}
+
+void Compiler::lvaRecordSimdIntrinsicDef(GenTreeLclVar* lclVar, GenTreeHWIntrinsic* src)
+{
+    lvaRecordSimdIntrinsicDef(lclVar->GetLclNum(), src);
+}
+
+void Compiler::lvaRecordSimdIntrinsicDef(unsigned lclNum, GenTreeHWIntrinsic* src)
+{
+    // Don't block promotion due to Create/Zero intrinsics, we can promote these.
+    switch (src->GetIntrinsic())
+    {
+#ifdef TARGET_ARM64
+        case NI_Vector64_Create:
+        case NI_Vector64_get_Zero:
+#endif
+        case NI_Vector128_Create:
+        case NI_Vector128_get_Zero:
+            return;
+        default:
+            break;
+    }
+
+    lvaGetDesc(lclNum)->lvUsedInSIMDIntrinsic = true;
+}
+#endif // FEATURE_SIMD
+
 bool StructPromotionHelper::TryPromoteStructLocal(unsigned lclNum)
 {
     if (CanPromoteStructLocal(lclNum) && ShouldPromoteStructLocal(lclNum))
