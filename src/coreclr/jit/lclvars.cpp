@@ -3941,41 +3941,18 @@ void Compiler::lvaAssignParamsVirtualFrameOffsets()
 
 int Compiler::lvaAssignParamVirtualFrameOffset(LclVarDsc* lcl, unsigned size, int offset)
 {
-    if (lcl->IsRegParam())
+    // We only need to assign offsets to reg parameters of varargs methods, which are
+    // "pre-spilled" right below stack parameters so they all form a contiguous area.
+    // Stack parameters have already been assigned offsets during the initial import.
+
+    if (info.compIsVarArgs && lcl->IsRegParam() && (lcl->GetParamReg() != REG_ARG_RET_BUFF))
     {
-        if (info.compIsVarArgs && (lcl->GetParamReg() != REG_ARG_RET_BUFF))
-        {
-            assert(genIsValidIntReg(lcl->GetParamReg()));
+        assert(genIsValidIntReg(lcl->GetParamReg()));
 
-            // For varargs, reg parameters are "pre-spilled" right below stack parameters
-            // so they all form a contiguous area.
-            lcl->SetStackOffset(((lcl->GetParamReg() - REG_R0) - MAX_REG_ARG) * REGSIZE_BYTES);
-
-            // win-arm64 varargs can split a param between X7 and a stack slot.
-            if ((lcl->GetParamReg() == REG_R7) && (size > REGSIZE_BYTES))
-            {
-                offset += REGSIZE_BYTES;
-            }
-        }
-
-        return offset;
+        lcl->SetStackOffset(((lcl->GetParamReg() - REG_R0) - MAX_REG_ARG) * REGSIZE_BYTES);
     }
 
-#ifdef OSX_ARM64_ABI
-    unsigned align =
-        lvaGetParamAlignment(lcl->GetType(), lcl->IsHfaParam() && (lcl->GetLayout()->GetHfaElementType() == TYP_FLOAT));
-
-    offset = roundUp(offset, align);
-#else
-    unsigned align = REGSIZE_BYTES;
-#endif
-
-    assert(size % align == 0);
-    assert(offset % align == 0);
-
-    lcl->SetStackOffset(offset);
-
-    return offset + size;
+    return offset;
 }
 
 #elif defined(TARGET_ARM)
