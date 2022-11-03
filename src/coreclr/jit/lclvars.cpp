@@ -3565,6 +3565,15 @@ void Compiler::lvaAssignFrameOffsets(FrameLayoutState curState)
 #endif
     lvaAssignLocalsVirtualFrameOffsets();
     lvaAlignFrame();
+
+#ifdef TARGET_ARMARCH
+    // Frame size estimation does not need real offsets.
+    if (curState == REGALLOC_FRAME_LAYOUT)
+    {
+        return;
+    }
+#endif
+
     lvaFixVirtualFrameOffsets();
     lvaAssignPromotedFieldsVirtualFrameOffsets();
 }
@@ -3703,8 +3712,16 @@ void Compiler::lvaFixVirtualFrameOffsets()
         }
 #endif
 
+// TODO-MIKE-Review: See if this assert can be re-enabled for ARMARCH.
+// The above filtering code is messed up and we try to fix the offset
+// of locals that either haven't been assigned a stack offset (and do
+// not need one) or have been assigned an offset during frame size
+// estimation, which is no longer correct during final frame layout.
+
+#ifndef TARGET_ARMARCH
         // For normal methods only frame pointer relative references can have negative offsets.
         assert(codeGen->isFramePointerUsed() || (lcl->GetStackOffset() >= 0));
+#endif
     }
 
     assert(codeGen->regSet.tmpAllFree());
