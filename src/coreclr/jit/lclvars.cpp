@@ -3561,8 +3561,14 @@ void Compiler::lvaAssignFrameOffsets(FrameLayoutState curState)
 #endif
 
 #ifdef TARGET_ARMARCH
-    lvaAssignParamsVirtualFrameOffsets();
+    // Param frame offsets are not affected by register allocation so
+    // they can be assigned only once, during frame size estimation.
+    if (curState == REGALLOC_FRAME_LAYOUT)
+    {
+        lvaAssignParamsVirtualFrameOffsets();
+    }
 #endif
+
     lvaAssignLocalsVirtualFrameOffsets();
     lvaAlignFrame();
 
