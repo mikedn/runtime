@@ -3812,7 +3812,31 @@ void Compiler::lvaAssignPromotedFieldsVirtualFrameOffsets()
     }
 }
 
-#ifdef TARGET_ARMARCH
+#ifdef TARGET_ARM64
+
+void Compiler::lvaAssignParamsVirtualFrameOffsets()
+{
+    // We only need to assign offsets to reg parameters of varargs methods, which are
+    // "pre-spilled" right below stack parameters so they all form a contiguous area.
+    // Stack parameters have already been assigned offsets during the initial import.
+
+    if (info.compIsVarArgs)
+    {
+        for (unsigned i = 0; i < info.compArgsCount; i++)
+        {
+            LclVarDsc* lcl = lvaGetDesc(i);
+
+            if (lcl->IsRegParam() && (lcl->GetParamReg() != REG_ARG_RET_BUFF))
+            {
+                assert(genIsValidIntReg(lcl->GetParamReg()));
+
+                lcl->SetStackOffset(((lcl->GetParamReg() - REG_R0) - MAX_REG_ARG) * REGSIZE_BYTES);
+            }
+        }
+    }
+}
+
+#elif defined(TARGET_ARM)
 
 // Assign virtual stack offsets to the arguments, and implicit arguments
 // (this ptr, return buffer, generics, and varargs).
@@ -3830,18 +3854,6 @@ void Compiler::lvaAssignParamsVirtualFrameOffsets()
         argOffs = lvaAssignParamVirtualFrameOffset(lclNum, REGSIZE_BYTES, argOffs);
         lclNum++;
     }
-
-#if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
-    // In the native instance method calling convention on Windows,
-    // the this parameter comes before the hidden return buffer parameter.
-    if (callConvIsInstanceMethodCallConv(info.compCallConv))
-    {
-        argOffs = lvaAssignParamVirtualFrameOffset(lclNum, REGSIZE_BYTES, argOffs);
-        lclNum++;
-        argLst = info.compCompHnd->getArgNext(argLst);
-        argSigLen--;
-    }
-#endif
 
     if (info.compRetBuffArg != BAD_VAR_NUM)
     {
@@ -3862,7 +3874,6 @@ void Compiler::lvaAssignParamsVirtualFrameOffsets()
         argOffs = lvaAssignParamVirtualFrameOffset(lclNum++, REGSIZE_BYTES, argOffs);
     }
 
-#ifdef TARGET_ARM
     // struct_n { int; int; ... n times };
     //
     // Consider signature:
@@ -3923,39 +3934,7 @@ void Compiler::lvaAssignParamsVirtualFrameOffsets()
             argOffs          = lvaAssignParamVirtualFrameOffset(lclNum + i, argSize, argOffs);
         }
     }
-#else
-    for (unsigned i = 0; i < argSigLen; i++, argLst = info.compCompHnd->getArgNext(argLst))
-    {
-        unsigned argSize = lvaGetParamAllocSize(argLst, &info.compMethodInfo->args);
-
-#ifndef OSX_ARM64_ABI
-        assert(argSize % REGSIZE_BYTES == 0);
-#endif
-
-        argOffs = lvaAssignParamVirtualFrameOffset(lclNum++, argSize, argOffs);
-    }
-#endif // !TARGET_ARM
 }
-
-#ifdef TARGET_ARM64
-
-int Compiler::lvaAssignParamVirtualFrameOffset(LclVarDsc* lcl, unsigned size, int offset)
-{
-    // We only need to assign offsets to reg parameters of varargs methods, which are
-    // "pre-spilled" right below stack parameters so they all form a contiguous area.
-    // Stack parameters have already been assigned offsets during the initial import.
-
-    if (info.compIsVarArgs && lcl->IsRegParam() && (lcl->GetParamReg() != REG_ARG_RET_BUFF))
-    {
-        assert(genIsValidIntReg(lcl->GetParamReg()));
-
-        lcl->SetStackOffset(((lcl->GetParamReg() - REG_R0) - MAX_REG_ARG) * REGSIZE_BYTES);
-    }
-
-    return offset;
-}
-
-#elif defined(TARGET_ARM)
 
 int Compiler::lvaAssignParamVirtualFrameOffset(LclVarDsc* lcl, unsigned size, int offset)
 {
@@ -4132,8 +4111,6 @@ int Compiler::lvaAssignParamVirtualFrameOffset(LclVarDsc* lcl, unsigned size, in
     return offset + size;
 }
 
-#endif
-
 int Compiler::lvaAssignParamVirtualFrameOffset(unsigned lclNum, unsigned size, int offset)
 {
     assert(lclNum < info.compArgsCount);
@@ -4146,7 +4123,7 @@ int Compiler::lvaAssignParamVirtualFrameOffset(unsigned lclNum, unsigned size, i
     return lvaAssignParamVirtualFrameOffset(lcl, size, offset);
 }
 
-#endif // TARGET_ARMARCH
+#endif // TARGET_ARM
 
 // Assign virtual stack offsets to locals, temps, and anything else.
 // These will all be negative offsets (stack grows down) relative to the virtual '0' address.
