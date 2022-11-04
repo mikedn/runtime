@@ -933,9 +933,13 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
 void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl)
 {
-    unsigned  paramSize      = lvaGetParamAllocSize(param, &info.compMethodInfo->args);
-    var_types regType        = lcl->GetType();
-    unsigned  regAlign       = 1;
+    unsigned paramSize = lvaGetParamAllocSize(param, &info.compMethodInfo->args);
+    unsigned alignment = REGSIZE_BYTES;
+
+    assert(paramSize % alignment == 0);
+    assert(paramInfo.stackOffset % alignment == 0);
+
+    var_types regType        = varActualType(lcl->GetType());
     unsigned  regCount       = paramSize / REGSIZE_BYTES;
     unsigned  minRegCount    = regCount;
     bool      isHfa          = false;
@@ -947,7 +951,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
     {
         if (regType == TYP_DOUBLE)
         {
-            regAlign = 2;
+            alignment = 2 * REGSIZE_BYTES;
         }
 
         if (opts.UseSoftFP() || info.compIsVarArgs)
@@ -958,14 +962,14 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
     }
     else if (regType == TYP_LONG)
     {
-        regType  = TYP_INT;
-        regAlign = 2;
+        alignment = 2 * REGSIZE_BYTES;
+        regType   = TYP_INT;
     }
     else if (regType == TYP_STRUCT)
     {
         if (lcl->lvStructDoubleAlign)
         {
-            regAlign = 2;
+            alignment = 2 * REGSIZE_BYTES;
         }
 
         if (lcl->GetLayout()->IsHfa() && !info.compIsVarArgs)
@@ -977,7 +981,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
             isHfa       = true;
             minRegCount = regCount;
 
-            assert((regAlign == 2) == (regType == TYP_DOUBLE));
+            assert((alignment == 2 * REGSIZE_BYTES) == (regType == TYP_DOUBLE));
         }
         else
         {
@@ -991,7 +995,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
         }
     }
 
-    paramInfo.AlignReg(regType, regAlign);
+    paramInfo.AlignReg(regType, alignment / REGSIZE_BYTES);
 
     if (paramInfo.CanEnregister(regType, minRegCount))
     {
@@ -1027,7 +1031,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
                 regMask |= genMapIntRegArgNumToRegMask(paramInfo.GetRegIndex(TYP_INT) + i);
             }
 
-            if (regAlign == 2)
+            if (alignment == 2 * REGSIZE_BYTES)
             {
                 paramInfo.doubleAlignMask |= regMask;
             }
@@ -1082,10 +1086,9 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
     {
         paramInfo.SetHasStackParam(regType);
 
-        // TODO-MIKE-Fix: This probably needs to deal with "double align". Check assign virtual offset.
-
-        lcl->SetStackOffset(paramInfo.stackOffset);
-        paramInfo.stackOffset += paramSize;
+        unsigned offset = roundUp(paramInfo.stackOffset, alignment);
+        lcl->SetStackOffset(offset);
+        paramInfo.stackOffset = offset + paramSize;
 
         JITDUMP("Param V%02u offset: %u\n", paramInfo.lclNum, lcl->GetStackOffset());
     }
