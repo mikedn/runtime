@@ -3974,10 +3974,6 @@ public:
     void lvaFixVirtualFrameOffsets();
 #ifdef TARGET_ARMARCH
     void lvaAssignParamsVirtualFrameOffsets();
-#ifdef TARGET_ARM
-    int lvaAssignParamVirtualFrameOffset(LclVarDsc* lcl, unsigned size, int offset);
-    int lvaAssignParamVirtualFrameOffset(unsigned lclNum, unsigned size, int offset);
-#endif
 #endif
     void lvaAssignLocalsVirtualFrameOffsets();
     int lvaAllocLocalAndSetVirtualOffset(unsigned lclNum, unsigned size, int stkOffs);
