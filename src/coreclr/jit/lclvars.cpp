@@ -4106,10 +4106,9 @@ int Compiler::lvaAssignParamVirtualFrameOffset(LclVarDsc* lcl, unsigned size, in
             roundUp(static_cast<unsigned>(argOffsWithoutPreSpillRegArgs), 2 * REGSIZE_BYTES) + sizeofPreSpillRegArgs;
     }
 
-    assert((size % REGSIZE_BYTES) == 0);
-    assert((offset % REGSIZE_BYTES) == 0);
-
-    lcl->SetStackOffset(offset);
+    assert(size % REGSIZE_BYTES == 0);
+    assert(offset % REGSIZE_BYTES == 0);
+    assert(lcl->GetStackOffset() == offset - sizeofPreSpillRegArgs);
 
     return offset + size;
 }
