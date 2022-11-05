@@ -4361,38 +4361,19 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
                 continue;
             }
 
-            if (lcl->IsParam())
+            // On win-x64 reg params have homes in the callers frame so they have
+            // already been assigned an offset. On ARM targets, reg params may be
+            // "pre-spilled" and then they also have offsets already assigned.
+            if (lcl->IsParam()
+#ifndef WINDOWS_AMD64_ABI
+                && (!lcl->IsRegParam() ARM64_ONLY(|| (info.compIsVarArgs && (lcl->GetParamReg() != RET_BUFF_ARGNUM)))
+                         ARM_ONLY(|| lcl->IsPreSpilledRegParam(codeGen->regSet.rsMaskPreSpillRegs(false))))
+#endif
+                    )
             {
-#ifdef WINDOWS_AMD64_ABI
-                // On Windows AMD64 we can use the caller-reserved stack area that is already setup
                 assert(lcl->GetStackOffset() != BAD_STK_OFFS);
 
                 continue;
-#else
-                if (!lcl->IsRegParam())
-                {
-                    continue;
-                }
-
-#ifdef TARGET_ARM64
-                if (info.compIsVarArgs && (lcl->GetParamReg() != RET_BUFF_ARGNUM))
-                {
-                    // For varargs we've already assigned offsets.
-                    assert(lcl->GetStackOffset() != BAD_STK_OFFS);
-
-                    continue;
-                }
-#elif defined(TARGET_ARM)
-                // On ARM we spill the registers in codeGen->regSet.rsMaskPreSpillRegArg
-                // in the prolog, thus they don't need stack frame space.
-                if ((codeGen->regSet.rsMaskPreSpillRegs(false) & genRegMask(lcl->GetParamReg())) != 0)
-                {
-                    assert(lcl->GetStackOffset() != BAD_STK_OFFS);
-
-                    continue;
-                }
-#endif
-#endif // !WINDOWS_AMD64_ABI
             }
 
             if (lcl->lvIsUnsafeBuffer && compGSReorderStackLayout)
