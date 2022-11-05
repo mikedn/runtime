@@ -5278,21 +5278,24 @@ void CodeGen::genReportGenericContextArg(regNumber initReg, bool* pInitRegZeroed
     }
     else
     {
+#if !defined(TARGET_X86) && !defined(TARGET_ARM)
+        // On most targets we have enough param regs that the type context param
+        // is always passed in a register.
+        unreached();
+#else
         if (isFramePointerUsed())
         {
-#if defined(TARGET_ARM)
+#ifdef TARGET_ARM
             // GetStackOffset() is always valid for incoming stack-arguments, even if the argument
-            // will become enregistered.
-            // On Arm compiler->compArgSize doesn't include r11 and lr sizes and hence we need to add 2*REGSIZE_BYTES
+            // will become enregistered. On ARM paramsStackSize doesn't include fp and lr sizes
+            // and hence we need to add 2 * REGSIZE_BYTES.
             noway_assert((2 * REGSIZE_BYTES <= varDsc->GetStackOffset()) &&
-                         (size_t(varDsc->GetStackOffset()) < paramsSize + 2 * REGSIZE_BYTES));
-#elif defined(TARGET_X86)
-            // It cannot be `this` since it's passed in a register so it has to be TypeCtxtArg
+                         (size_t(varDsc->GetStackOffset()) < paramsStackSize + 2 * REGSIZE_BYTES));
+#else
+            // It cannot be `this` since that's passed in a register so it has to be TypeCtxtArg
             // which is always the last parameter (and we know that the frame pointer is also
             // pushed, in addition to the return address).
             noway_assert(varDsc->GetStackOffset() == 2 * REGSIZE_BYTES);
-#else
-            noway_assert((0 < varDsc->GetStackOffset()) && (size_t(varDsc->GetStackOffset()) < paramsStackSize));
 #endif
         }
 
@@ -5305,6 +5308,7 @@ void CodeGen::genReportGenericContextArg(regNumber initReg, bool* pInitRegZeroed
         GetEmitter()->emitIns_R_AR(ins_Load(TYP_I_IMPL), EA_PTRSIZE, reg, genFramePointerReg(),
                                    varDsc->GetStackOffset());
         regSet.verifyRegUsed(reg);
+#endif // defined(TARGET_X86) || defined(TARGET_ARM)
     }
 
 #if defined(TARGET_ARM64)
