@@ -2999,13 +2999,6 @@ bool Compiler::lvaTempsHaveLargerOffsetThanVars()
 #endif
 }
 
-unsigned Compiler::lvaGetMaxSpillTempSize()
-{
-    assert(lvaDoneFrameLayout != NO_FRAME_LAYOUT);
-
-    return codeGen->regSet.tmpGetTotalSize();
-}
-
 // Returns the number of bytes required for the given parameter.
 // Usually this is just the param type size, rounded up to the register size
 // but there are special case like implicit by ref params and osx-arm64 weird
@@ -4827,7 +4820,7 @@ int Compiler::lvaAllocateTemps(int stkOffs
 
 #ifdef TARGET_ARM
     // Only required for the ARM platform that we have an accurate estimate for the spillTempSize
-    noway_assert(spillTempSize <= lvaGetMaxSpillTempSize());
+    noway_assert(spillTempSize <= codeGen->regSet.tmpGetTotalSize());
 #endif
 
     return stkOffs;
