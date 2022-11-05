@@ -1538,7 +1538,7 @@ void Compiler::lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsa
 
         unsigned classAttribs = info.compCompHnd->getClassAttribs(layout->GetClassHandle());
 
-        varDsc->lvOverlappingFields = StructHasOverlappingFields(classAttribs);
+        varDsc->lvOverlappingFields = (classAttribs & CORINFO_FLG_OVERLAPPING_FIELDS) != 0;
 
         // Check whether this local is an unsafe value type and requires GS cookie protection.
         // GS checks require the stack to be re-ordered, which can't be done with EnC.
@@ -1588,7 +1588,7 @@ void Compiler::makeExtraStructQueries(CORINFO_CLASS_HANDLE structHandle, int lev
     ClassLayout* layout = typGetObjLayout(structHandle);
 
     uint32_t typeFlags = info.compCompHnd->getClassAttribs(structHandle);
-    if (StructHasNoPromotionFlagSet(typeFlags))
+    if ((typeFlags & CORINFO_FLG_DONT_PROMOTE) != 0)
     {
         // In AOT ReadyToRun compilation, don't query fields of types
         // outside of the current version bubble.

@@ -5516,7 +5516,7 @@ GenTreeFieldAddr* Importer::impImportFieldAddr(GenTree*                      add
         field->SetLayoutNum(0);
     }
 
-    if (StructHasOverlappingFields(info.compCompHnd->getClassAttribs(resolvedToken.hClass)))
+    if ((info.compCompHnd->getClassAttribs(resolvedToken.hClass) & CORINFO_FLG_OVERLAPPING_FIELDS) != 0)
     {
         field->SetMayOverlap();
     }

@@ -2984,13 +2984,8 @@ void GenTree::VisitBinOpOperands(TVisitor visitor)
     }
 }
 
-/*****************************************************************************
- *  operator new
- *
- *  Note that compiler's allocator is an arena allocator that returns memory that is
- *  not zero-initialized and can contain data from a prior allocation lifetime.
- */
-
+// Note that compiler's allocator is an arena allocator that returns memory that is
+// not zero-initialized and can contain data from a prior allocation lifetime.
 inline void* __cdecl operator new(size_t sz, Compiler* compiler, CompMemKind cmk)
 {
     return compiler->getAllocator(cmk).allocate<char>(sz);
@@ -3001,26 +2996,11 @@ inline void* __cdecl operator new[](size_t sz, Compiler* compiler, CompMemKind c
     return compiler->getAllocator(cmk).allocate<char>(sz);
 }
 
-inline static bool StructHasOverlappingFields(DWORD attribs)
-{
-    return ((attribs & CORINFO_FLG_OVERLAPPING_FIELDS) != 0);
-}
-
-inline static bool StructHasNoPromotionFlagSet(DWORD attribs)
-{
-    return ((attribs & CORINFO_FLG_DONT_PROMOTE) != 0);
-}
-
-/*****************************************************************************
- * This node should not be referenced by anyone now. Set its values to garbage
- * to catch extra references
- */
-
+// This node should not be referenced by anyone now. Set its values to garbage
+// to catch extra references
 inline void DEBUG_DESTROY_NODE(GenTree* tree)
 {
 #ifdef DEBUG
-    // printf("DEBUG_DESTROY_NODE for [0x%08x]\n", tree);
-
     // Save gtOper in case we want to find out what this node was
     tree->gtOperSave = tree->gtOper;
 
