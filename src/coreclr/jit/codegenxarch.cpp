@@ -5247,6 +5247,42 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 #endif
 }
 
+var_types LclVarDsc::lvaArgType()
+{
+    var_types type = lvType;
+
+#ifdef TARGET_AMD64
+    // TODO-MIKE-Review: Shouldn't this check for SIMD12/16/32? They're passed by ref.
+    if (type == TYP_STRUCT)
+    {
+#ifdef UNIX_AMD64_ABI
+        unreached();
+#else
+        switch (m_layout->GetSize())
+        {
+            case 1:
+                type = TYP_BYTE;
+                break;
+            case 2:
+                type = TYP_SHORT;
+                break;
+            case 4:
+                type = TYP_INT;
+                break;
+            case 8:
+                type = m_layout->GetGCPtrType(0);
+                break;
+            default:
+                type = TYP_BYREF;
+                break;
+        }
+#endif
+    }
+#endif // TARGET_AMD64
+
+    return type;
+}
+
 // Produce code for a GT_JMP node.
 // The arguments of the caller needs to be transferred to the callee before exiting caller.
 // The actual jump to callee is generated as part of caller epilog sequence.
