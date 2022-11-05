@@ -725,7 +725,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
     else
     {
         unsigned offset = paramInfo.stackOffset;
-        unsigned size   = lvaGetParamAllocSize(param, &info.compMethodInfo->args);
+        unsigned size   = lvaGetParamAllocSize(lcl);
 
         assert(offset % REGSIZE_BYTES == 0);
         assert(size % REGSIZE_BYTES == 0);
@@ -781,7 +781,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
 void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl)
 {
-    unsigned  paramSize = lvaGetParamAllocSize(param, &info.compMethodInfo->args);
+    unsigned  paramSize = lvaGetParamAllocSize(lcl);
     var_types regType   = lcl->GetType();
     unsigned  regCount;
     unsigned  minRegCount;
@@ -902,7 +902,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
     }
     else
     {
-        unsigned paramSize = lvaGetParamAllocSize(param, &info.compMethodInfo->args);
+        unsigned paramSize = lvaGetParamAllocSize(lcl);
 
         // Note that the x86 managed calling convention pushes the args from left to
         // right and since we also traverse the params from left to right the offset
@@ -921,7 +921,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
 void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl)
 {
-    unsigned paramSize = lvaGetParamAllocSize(param, &info.compMethodInfo->args);
+    unsigned paramSize = lvaGetParamAllocSize(lcl);
     unsigned alignment = REGSIZE_BYTES;
 
     assert(paramSize % alignment == 0);
@@ -3010,16 +3010,17 @@ unsigned Compiler::lvaGetMaxSpillTempSize()
 // Usually this is just the param type size, rounded up to the register size
 // but there are special case like implicit by ref params and osx-arm64 weird
 // parameter packing.
-unsigned Compiler::lvaGetParamAllocSize(CORINFO_ARG_LIST_HANDLE param, CORINFO_SIG_INFO* sig)
+unsigned Compiler::lvaGetParamAllocSize(LclVarDsc* lcl)
 {
+    assert(lcl->IsParam());
+
 #ifdef WINDOWS_AMD64_ABI
     return REGSIZE_BYTES;
 #else
-    CORINFO_CLASS_HANDLE paramClass;
-    var_types            paramType = CorTypeToVarType(strip(info.compCompHnd->getArgType(sig, param, &paramClass)));
-    unsigned             paramSize;
+    var_types paramType = lcl->GetType();
+    unsigned  paramSize;
 #ifdef TARGET_ARM64
-    var_types            hfaType = TYP_UNDEF;
+    var_types hfaType = TYP_UNDEF;
 #endif
 
     if (!varTypeIsStruct(paramType))
@@ -3028,7 +3029,7 @@ unsigned Compiler::lvaGetParamAllocSize(CORINFO_ARG_LIST_HANDLE param, CORINFO_S
     }
     else
     {
-        ClassLayout* layout = typGetObjLayout(paramClass);
+        ClassLayout* layout = lcl->GetLayout();
 
         paramSize = layout->GetSize();
 

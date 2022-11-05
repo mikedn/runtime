@@ -3970,7 +3970,7 @@ public:
     unsigned lvaNewObjArrayArgs = BAD_VAR_NUM; // variable with arguments for new MD array helper
 
     unsigned lvaGetMaxSpillTempSize();
-    unsigned lvaGetParamAllocSize(CORINFO_ARG_LIST_HANDLE param, CORINFO_SIG_INFO* sig);
+    unsigned lvaGetParamAllocSize(LclVarDsc* lcl);
     static unsigned lvaGetParamAlignment(var_types type, bool isFloatHfa);
     void lvaAssignFrameOffsets(FrameLayoutState curState);
     void lvaFixVirtualFrameOffsets();
