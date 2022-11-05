@@ -116,19 +116,19 @@ private:
 
 #ifdef TARGET_ARMARCH
     regMaskTP rsMaskCalleeSaved = RBM_NONE; // mask of the registers pushed/popped in the prolog/epilog
-#endif
 
-public:                               // TODO-Cleanup: Should be private, but Compiler uses it
+public:
     regMaskTP rsMaskResvd = RBM_NONE; // mask of the registers that are reserved for special purposes (typically empty)
 
-public: // The PreSpill masks are used in LclVars.cpp
 #ifdef TARGET_ARM
     regMaskTP rsMaskPreSpillAlign = RBM_NONE; // Mask of alignment padding added to prespill to keep double aligned args
                                               // at aligned stack addresses.
     regMaskTP rsMaskPreSpillRegArg = RBM_NONE; // mask of incoming registers that are spilled at the start of the prolog
                                                // This includes registers used to pass a struct (or part of a struct)
                                                // and all enregistered user arguments in a varargs call
-#endif
+
+#endif // TARGET_ARM
+#endif // TARGET_ARMARCH
 
 private:
     //-------------------------------------------------------------------------

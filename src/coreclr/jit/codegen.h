@@ -116,21 +116,20 @@ private:
     void genCodeForLockAdd(GenTreeOp* node);
 #endif
 
-#ifdef REG_OPT_RSVD
+#ifdef TARGET_ARMARCH
     // On some targets such as the ARM we may need to have an extra reserved register
-    //  that is used when addressing stack based locals and stack based temps.
-    //  This method returns the regNumber that should be used when an extra register
-    //  is needed to access the stack based locals and stack based temps.
-    //
+    // that is used when addressing stack based locals and stack based temps.
+    // This method returns the regNumber that should be used when an extra register
+    // is needed to access the stack based locals and stack based temps.
     regNumber rsGetRsvdReg()
     {
         // We should have already added this register to the mask
-        //  of reserved registers in regSet.rdMaskResvd
+        // of reserved registers in regSet.rdMaskResvd
         noway_assert((regSet.rsMaskResvd & RBM_OPT_RSVD) != 0);
 
         return REG_OPT_RSVD;
     }
-#endif // REG_OPT_RSVD
+#endif // TARGET_ARMARCH
 
     //-------------------------------------------------------------------------
 

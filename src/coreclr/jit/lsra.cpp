@@ -630,15 +630,16 @@ LinearScan::LinearScan(Compiler* theCompiler)
 #endif // 0
 #endif // DEBUG
 
+    availableIntRegs = RBM_ALLINT;
 #ifdef TARGET_ARM64
-    availableIntRegs = (RBM_ALLINT & ~(RBM_PR | RBM_FP | RBM_LR) & ~compiler->codeGen->regSet.rsMaskResvd);
-#else
-    availableIntRegs   = (RBM_ALLINT & ~compiler->codeGen->regSet.rsMaskResvd);
+    availableIntRegs &= ~(RBM_PR | RBM_FP | RBM_LR);
 #endif
-
+#ifdef TARGET_ARMARCH
+    availableIntRegs &= ~compiler->codeGen->regSet.rsMaskResvd;
+#endif
 #if ETW_EBP_FRAMED
     availableIntRegs &= ~RBM_FPBASE;
-#endif // ETW_EBP_FRAMED
+#endif
 
     availableFloatRegs  = RBM_ALLFLOAT;
     availableDoubleRegs = RBM_ALLDOUBLE;

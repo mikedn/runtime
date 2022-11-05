@@ -3207,7 +3207,7 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
         // We reserve REG_SAVED_LOCALLOC_SP to store SP on entry for stack unwinding
         codeGen->regSet.rsMaskResvd |= RBM_SAVED_LOCALLOC_SP;
     }
-#endif // TARGET_ARM
+#endif
 
     // Assign registers to variables, etc.
 

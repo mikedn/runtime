@@ -5640,7 +5640,7 @@ void CodeGen::genFinalizeFrame()
     //
     maskCalleeRegsPushed |= RBM_LR;
 
-#if defined(TARGET_ARM)
+#ifdef TARGET_ARM
     // TODO-ARM64-Bug?: enable some variant of this for FP on ARM64?
     regMaskTP maskPushRegsFloat = maskCalleeRegsPushed & RBM_ALLFLOAT;
     regMaskTP maskPushRegsInt   = maskCalleeRegsPushed & ~maskPushRegsFloat;
@@ -6112,7 +6112,10 @@ void CodeGen::genFnProlog()
     }
 #endif // TARGET_ARM
 
-    tempMask = initRegs & ~excludeMask & ~regSet.rsMaskResvd;
+    tempMask = initRegs & ~excludeMask;
+#ifdef TARGET_ARMARCH
+    tempMask &= ~regSet.rsMaskResvd;
+#endif
 
     if (tempMask != RBM_NONE)
     {
@@ -6125,7 +6128,11 @@ void CodeGen::genFnProlog()
     // If they aren't available we use one of the caller-saved integer registers.
     else
     {
-        tempMask = regSet.rsGetModifiedRegsMask() & RBM_ALLINT & ~excludeMask & ~regSet.rsMaskResvd;
+        tempMask = regSet.rsGetModifiedRegsMask() & RBM_ALLINT & ~excludeMask;
+#ifdef TARGET_ARMARCH
+        tempMask &= ~regSet.rsMaskResvd;
+#endif
+
         if (tempMask != RBM_NONE)
         {
             // We pick the lowest register number
@@ -6136,7 +6143,7 @@ void CodeGen::genFnProlog()
 
     noway_assert(!compiler->compMethodRequiresPInvokeFrame() || (initReg != REG_PINVOKE_FRAME));
 
-#if defined(TARGET_AMD64)
+#ifdef TARGET_AMD64
     // If we are a varargs call, in order to set up the arguments correctly this
     // must be done in a 2 step process. As per the x64 ABI:
     // a) The caller sets up the argument shadow space (just before the return
@@ -6152,7 +6159,6 @@ void CodeGen::genFnProlog()
     {
         GetEmitter()->spillIntArgRegsToShadowSlots();
     }
-
 #endif // TARGET_AMD64
 
 #ifdef TARGET_ARM
