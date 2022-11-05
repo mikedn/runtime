@@ -24,6 +24,11 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "emit.h"
 #include "codegen.h"
 
+static bool IsDisp8(ssize_t disp)
+{
+    return (-128 <= disp) && (disp <= 127);
+}
+
 static bool IsShiftCL(instruction ins)
 {
     switch (ins)
@@ -2078,182 +2083,31 @@ inline UNATIVE_OFFSET emitter::emitInsSizeRR(instruction ins, regNumber reg1, re
     return sz;
 }
 
-/*****************************************************************************/
-
-inline UNATIVE_OFFSET emitter::emitInsSizeSV(code_t code, int var, int dsp)
+unsigned emitter::emitInsSizeSV(code_t code, int lclNum, int offs)
 {
-    UNATIVE_OFFSET size = emitInsSize(code, /* includeRexPrefixSize */ true);
-    UNATIVE_OFFSET offs;
-    bool           EBPbased = true;
+    unsigned size = emitInsSize(code, /* includeRexPrefixSize */ true);
 
-    /*  Is this a temporary? */
+    bool ebpBased;
+    int  disp = emitComp->lvaFrameAddress(lclNum, &ebpBased) + offs;
 
-    if (var < 0)
+    if (!ebpBased)
     {
-        /* An address off of ESP takes an extra byte */
-
-        if (!emitHasFramePtr)
-        {
-            size++;
-        }
-
-        // The offset is already assigned. Find the temp.
-        TempDsc* tmp = codeGen->regSet.tmpFindNum(var, RegSet::TEMP_USAGE_USED);
-        if (tmp == nullptr)
-        {
-            // It might be in the free lists, if we're working on zero initializing the temps.
-            tmp = codeGen->regSet.tmpFindNum(var, RegSet::TEMP_USAGE_FREE);
-        }
-        assert(tmp != nullptr);
-        offs = tmp->tdTempOffs();
-
-        // We only care about the magnitude of the offset here, to determine instruction size.
-        if (codeGen->isFramePointerUsed())
-        {
-            if ((int)offs < 0)
-            {
-                offs = -(int)offs;
-            }
-        }
-        else
-        {
-            // SP-based offsets must already be positive.
-            assert((int)offs >= 0);
-        }
-    }
-    else
-    {
-        LclVarDsc* lcl = emitComp->lvaGetDesc(var);
-
-        /* Get the frame offset of the (non-temp) variable */
-
-        offs = dsp + emitComp->lvaFrameAddress(var, &EBPbased);
-
-        /* An address off of ESP takes an extra byte */
-
-        if (!EBPbased)
-        {
-            ++size;
-        }
-
-        /* Is this a stack parameter reference? */
-
-        if ((lcl->IsParam()
-#if !defined(TARGET_AMD64) || defined(UNIX_AMD64_ABI)
-             && !lcl->IsRegParam()
-#endif
-                 ) ||
-            (static_cast<unsigned>(var) == emitComp->lvaRetAddrVar))
-        {
-            /* If no EBP frame, arguments and ret addr are off of ESP, above temps */
-
-            if (!EBPbased)
-            {
-                assert((int)offs >= 0);
-
-                offs += codeGen->regSet.tmpGetTotalSize();
-            }
-        }
-        else
-        {
-            /* Locals off of EBP are at negative offsets */
-
-            if (EBPbased)
-            {
-#if defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)
-                // If localloc is not used, then ebp chaining is done and hence
-                // offset of locals will be at negative offsets, Otherwise offsets
-                // will be positive.  In future, when RBP gets positioned in the
-                // middle of the frame so as to optimize instruction encoding size,
-                // the below asserts needs to be modified appropriately.
-                // However, for Unix platforms, we always do frame pointer chaining,
-                // so offsets from the frame pointer will always be negative.
-                if (emitComp->compLocallocUsed || emitComp->opts.compDbgEnC)
-                {
-                    noway_assert((int)offs >= 0);
-                }
-                else
-#endif
-                {
-                    // Dev10 804810 - failing this assert can lead to bad codegen and runtime crashes
-                    CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef UNIX_AMD64_ABI
-                    bool isRegPassedArg = lcl->IsParam() && lcl->IsRegParam();
-                    // Register passed args could have a stack offset of 0.
-                    noway_assert((int)offs < 0 || isRegPassedArg || emitComp->opts.IsOSR());
-#else  // !UNIX_AMD64_ABI
-
-                    // OSR transitioning to RBP frame currently can have mid-frame FP
-                    noway_assert(((int)offs < 0) || emitComp->opts.IsOSR());
-#endif // !UNIX_AMD64_ABI
-                }
-
-                assert(emitComp->lvaTempsHaveLargerOffsetThanVars());
-
-                // lvaInlinedPInvokeFrameVar and lvaStubArgumentVar are placed below the temps
-                if (unsigned(var) == emitComp->lvaInlinedPInvokeFrameVar ||
-                    unsigned(var) == emitComp->lvaStubArgumentVar)
-                {
-                    offs -= codeGen->regSet.tmpGetTotalSize();
-                }
-
-                if ((int)offs < 0)
-                {
-                    // offset is negative
-                    return size + ((int(offs) >= SCHAR_MIN) ? sizeof(char) : sizeof(int));
-                }
-#ifdef TARGET_AMD64
-                // This case arises for localloc frames
-                else
-                {
-                    return size + ((offs <= SCHAR_MAX) ? sizeof(char) : sizeof(int));
-                }
-#endif
-            }
-
-            if (!emitComp->lvaTempsHaveLargerOffsetThanVars())
-            {
-                offs += codeGen->regSet.tmpGetTotalSize();
-            }
-        }
-    }
-
-    assert((int)offs >= 0);
-
 #if !FEATURE_FIXED_OUT_ARGS
-
-    /* Are we addressing off of ESP? */
-
-    if (!emitHasFramePtr)
-    {
-        /* Adjust the effective offset if necessary */
-
-        if (emitCntStackDepth)
-            offs += emitCurStackLvl;
-
-        // we could (and used to) check for the special case [sp] here but the stack offset
-        // estimator was off, and there is very little harm in overestimating for such a
-        // rare case.
-    }
-
-#endif // !FEATURE_FIXED_OUT_ARGS
-
-#ifdef TARGET_AMD64
-    bool useSmallEncoding = (SCHAR_MIN <= (int)offs) && ((int)offs <= SCHAR_MAX);
-#else
-    bool useSmallEncoding = (offs <= size_t(SCHAR_MAX));
+        disp += emitCurStackLvl;
 #endif
+        assert(disp >= 0);
 
-    // If it is ESP based, and the offset is zero, we will not encode the disp part.
-    if (!EBPbased && offs == 0)
-    {
-        return size;
+        // ESP based addressing modes always require a SIB byte.
+        size++;
     }
-    else
+
+    // EBP based addressing modes always require displacement.
+    if (ebpBased || (disp != 0))
     {
-        return size + (useSmallEncoding ? sizeof(char) : sizeof(int));
+        size += IsDisp8(disp) ? 1 : 4;
     }
+
+    return size;
 }
 
 inline UNATIVE_OFFSET emitter::emitInsSizeSV(instrDesc* id, code_t code, int var, int dsp)
@@ -9168,12 +9022,6 @@ DONE:
 
 BYTE* emitter::emitOutputSV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
 {
-    int  adr;
-    int  dsp;
-    bool EBPbased;
-    bool dspInByte;
-    bool dspIsZero;
-
     instruction ins  = id->idIns();
     emitAttr    size = id->idOpSize();
     size_t      opsz = EA_SIZE_IN_BYTES(size);
@@ -9358,18 +9206,18 @@ BYTE* emitter::emitOutputSV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
     // Figure out the variable's frame position
     int varNum = id->idAddr()->iiaLclVar.lvaVarNum();
 
-    adr = emitComp->lvaFrameAddress(varNum, &EBPbased);
-    dsp = adr + id->idAddr()->iiaLclVar.lvaOffset();
+    bool ebpBased;
+    int  adr = emitComp->lvaFrameAddress(varNum, &ebpBased);
+    int  dsp = adr + id->idAddr()->iiaLclVar.lvaOffset();
 
-    dspInByte = ((signed char)dsp == (int)dsp);
-    dspIsZero = (dsp == 0);
-
-    // for stack varaibles the dsp should never be a reloc
+    // for stack variables the dsp should never be a reloc
     assert(id->idIsDspReloc() == 0);
 
-    if (EBPbased)
+    if (ebpBased)
     {
-        // EBP-based variable: does the offset fit in a byte?
+        bool dspInByte = IsDisp8(dsp);
+        bool dspIsZero = (dsp == 0);
+
         if (EncodedBySSE38orSSE3A(ins) || (ins == INS_crc32))
         {
             if (dspInByte)
@@ -9399,16 +9247,14 @@ BYTE* emitter::emitOutputSV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
     }
     else
     {
-
 #if !FEATURE_FIXED_OUT_ARGS
         // Adjust the offset by the amount currently pushed on the CPU stack
         dsp += emitCurStackLvl;
 #endif
 
-        dspInByte = ((signed char)dsp == (int)dsp);
-        dspIsZero = (dsp == 0);
+        bool dspInByte = IsDisp8(dsp);
+        bool dspIsZero = (dsp == 0);
 
-        // Does the offset fit in a byte?
         if (EncodedBySSE38orSSE3A(ins) || (ins == INS_crc32))
         {
             if (dspInByte)
