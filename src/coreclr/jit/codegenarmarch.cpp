@@ -3488,10 +3488,11 @@ void CodeGen::genPushCalleeSavedRegisters()
     }
 #endif
 
-#ifdef TARGET_ARMARCH
     // On ARM we push the FP (frame-pointer) here along with all other callee saved registers
     if (isFramePointerUsed())
+    {
         rsPushRegs |= RBM_FPBASE;
+    }
 
     //
     // It may be possible to skip pushing/popping lr for leaf methods. However, such optimization would require
@@ -3517,7 +3518,6 @@ void CodeGen::genPushCalleeSavedRegisters()
     rsPushRegs |= RBM_LR; // We must save the return address (in the LR register)
 
     regSet.rsMaskCalleeSaved = rsPushRegs;
-#endif // TARGET_ARMARCH
 
 #ifdef DEBUG
     if (calleeRegsPushed != genCountBits(rsPushRegs))
