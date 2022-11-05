@@ -669,8 +669,8 @@ void Compiler::lvaInitUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAND
 
 void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl)
 {
-    unsigned paramSize  = lvaGetParamAllocSize(param, &info.compMethodInfo->args);
-    bool     isRegParam = false;
+    regNumber reg0 = REG_NA;
+    regNumber reg1 = REG_NA;
 
     if (!varTypeIsStruct(lcl->GetType()))
     {
@@ -678,9 +678,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
         if (paramInfo.CanEnregister(lcl->GetType()))
         {
-            lcl->SetParamRegs(paramInfo.AllocReg(lcl->GetType()));
-
-            isRegParam = true;
+            reg0 = paramInfo.AllocReg(lcl->GetType());
         }
     }
     else
@@ -707,43 +705,34 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
             if (((intRegCount == 0) || paramInfo.CanEnregister(TYP_INT, intRegCount)) &&
                 ((floatRegCount == 0) || paramInfo.CanEnregister(TYP_FLOAT, floatRegCount)))
             {
-                regNumber reg0 = paramInfo.AllocReg(lcl->GetLayout()->GetSysVAmd64AbiRegType(0));
-                regNumber reg1 = REG_NA;
+                reg0 = paramInfo.AllocReg(lcl->GetLayout()->GetSysVAmd64AbiRegType(0));
 
                 if (lcl->GetLayout()->GetSysVAmd64AbiRegCount() >= 2)
                 {
-                    reg1                 = paramInfo.AllocReg(lcl->GetLayout()->GetSysVAmd64AbiRegType(1));
-                    lcl->lvIsMultiRegArg = true;
+                    reg1 = paramInfo.AllocReg(lcl->GetLayout()->GetSysVAmd64AbiRegType(1));
                 }
-
-                isRegParam = true;
-                lcl->SetParamRegs(reg0, reg1);
             }
         }
     }
 
-    if (isRegParam)
+    if (reg0 != REG_NA)
     {
-        JITDUMP("Param V%02u registers: %s", paramInfo.lclNum, getRegName(lcl->GetParamReg(0)));
+        lcl->SetParamRegs(reg0, reg1);
+        lcl->lvIsMultiRegArg = reg1 != REG_NA;
 
-        if (lcl->GetParamReg(1) == REG_NA)
-        {
-            JITDUMP("\n");
-        }
-        else
-        {
-            JITDUMP(", %s\n", getRegName(lcl->GetParamReg(1)));
-        }
+        JITDUMP("Param V%02u registers: %s%s%s\n", paramInfo.lclNum, getRegName(reg0), reg1 == REG_NA ? "" : ", ",
+                reg1 == REG_NA ? "" : getRegName(reg1));
     }
     else
     {
         unsigned offset = paramInfo.stackOffset;
+        unsigned size   = lvaGetParamAllocSize(param, &info.compMethodInfo->args);
 
         assert(offset % REGSIZE_BYTES == 0);
-        assert(paramSize % REGSIZE_BYTES == 0);
+        assert(size % REGSIZE_BYTES == 0);
 
         lcl->SetStackOffset(offset);
-        paramInfo.stackOffset = offset + paramSize;
+        paramInfo.stackOffset = offset + size;
 
         JITDUMP("Param V%02u offset: %u\n", paramInfo.lclNum, lcl->GetStackOffset());
     }
