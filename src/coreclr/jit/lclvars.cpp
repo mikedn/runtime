@@ -2292,22 +2292,18 @@ unsigned LclVarDsc::lvSize() const // Size needed for storage representation. On
     return roundUp(size, TARGET_POINTER_SIZE);
 }
 
-/**********************************************************************************
-* Get type of a variable when passed as an argument.
-*/
+#ifdef TARGET_XARCH
 var_types LclVarDsc::lvaArgType()
 {
     var_types type = lvType;
 
 #ifdef TARGET_AMD64
+    // TODO-MIKE-Review: Shouldn't this check for SIMD12/16/32? They're passed by ref.
+    if (type == TYP_STRUCT)
+    {
 #ifdef UNIX_AMD64_ABI
-    if (type == TYP_STRUCT)
-    {
-        NYI("lvaArgType");
-    }
-#else  //! UNIX_AMD64_ABI
-    if (type == TYP_STRUCT)
-    {
+        unreached();
+#else
         switch (m_layout->GetSize())
         {
             case 1:
@@ -2326,21 +2322,13 @@ var_types LclVarDsc::lvaArgType()
                 type = TYP_BYREF;
                 break;
         }
+#endif
     }
-#endif // !UNIX_AMD64_ABI
-#elif defined(TARGET_ARM64)
-    if (type == TYP_STRUCT)
-    {
-        NYI("lvaArgType");
-    }
-#elif defined(TARGET_X86)
-// Nothing to do; use the type as is.
-#else
-    NYI("lvaArgType");
 #endif // TARGET_AMD64
 
     return type;
 }
+#endif // TARGET_XARCH
 
 //------------------------------------------------------------------------
 // GetRegisterType: Determine register type for this local var.
