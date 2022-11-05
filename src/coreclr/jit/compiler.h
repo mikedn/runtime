@@ -4036,7 +4036,7 @@ public:
     void lvaAlignPreSpillParams(regMaskTP doubleAlignMask);
 #endif
 
-    void lvaInitVarDsc(LclVarDsc* varDsc, unsigned varNum, CorInfoType corInfoType, CORINFO_CLASS_HANDLE typeHnd);
+    void lvaInitVarDsc(LclVarDsc* lcl, CorInfoType corType, CORINFO_CLASS_HANDLE typeHnd);
 
     LclVarDsc* lvaGetDesc(unsigned lclNum)
     {
@@ -4114,8 +4114,9 @@ public:
         return lvaGetDesc(varNum)->IsImplicitByRefParam();
     }
 
-    void lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsafeBuffer);
     void lvaSetStruct(unsigned lclNum, CORINFO_CLASS_HANDLE classHandle, bool checkUnsafeBuffer);
+    void lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsafeBuffer);
+    void lvaSetStruct(LclVarDsc* lcl, ClassLayout* layout, bool checkUnsafeBuffer);
 
     // If the local is TYP_REF, set or update the associated class information.
     void lvaSetClass(unsigned varNum, CORINFO_CLASS_HANDLE clsHnd, bool isExact = false);

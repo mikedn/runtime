@@ -162,47 +162,46 @@ void Compiler::lvaInitTable()
 
 void Compiler::lvaInitLocals()
 {
-    CORINFO_ARG_LIST_HANDLE localsSig = info.compMethodInfo->locals.args;
-    unsigned                varNum    = info.compArgsCount;
+    CORINFO_ARG_LIST_HANDLE local      = info.compMethodInfo->locals.args;
+    unsigned                localCount = info.compMethodInfo->locals.numArgs;
 
-    for (unsigned i = 0; i < info.compMethodInfo->locals.numArgs;
-         i++, varNum++, localsSig = info.compCompHnd->getArgNext(localsSig))
+    for (unsigned i = 0; i < localCount; i++, local = info.compCompHnd->getArgNext(local))
     {
-        LclVarDsc* varDsc = lvaGetDesc(varNum);
+        CORINFO_CLASS_HANDLE typeHnd    = NO_CLASS_HANDLE;
+        CorInfoTypeWithMod   corTypeMod = info.compCompHnd->getArgType(&info.compMethodInfo->locals, local, &typeHnd);
+        CorInfoType          corType    = strip(corTypeMod);
 
-        CORINFO_CLASS_HANDLE typeHnd;
-        CorInfoTypeWithMod   corInfoTypeWithMod =
-            info.compCompHnd->getArgType(&info.compMethodInfo->locals, localsSig, &typeHnd);
-        CorInfoType corInfoType = strip(corInfoTypeWithMod);
+        unsigned   lclNum = info.compArgsCount + i;
+        LclVarDsc* lcl    = lvaGetDesc(lclNum);
 
-        lvaInitVarDsc(varDsc, varNum, corInfoType, typeHnd);
+        lvaInitVarDsc(lcl, corType, typeHnd);
 
-        if ((corInfoTypeWithMod & CORINFO_TYPE_MOD_PINNED) != 0)
+        if ((corTypeMod & CORINFO_TYPE_MOD_PINNED) != 0)
         {
-            if ((corInfoType == CORINFO_TYPE_CLASS) || (corInfoType == CORINFO_TYPE_BYREF))
+            if ((corType == CORINFO_TYPE_CLASS) || (corType == CORINFO_TYPE_BYREF))
             {
-                JITDUMP("Setting lvPinned for V%02u\n", varNum);
-                varDsc->lvPinned = true;
+                JITDUMP("Setting lvPinned for V%02u\n", lclNum);
+                lcl->lvPinned = true;
             }
             else
             {
-                JITDUMP("Ignoring pin for non-GC type V%02u\n", varNum);
+                JITDUMP("Ignoring pin for non-GC type V%02u\n", lclNum);
             }
         }
 
-        if (corInfoType == CORINFO_TYPE_CLASS)
+        if (corType == CORINFO_TYPE_CLASS)
         {
-            lvaSetClass(varNum, info.compCompHnd->getArgClass(&info.compMethodInfo->locals, localsSig));
+            lvaSetClass(lclNum, info.compCompHnd->getArgClass(&info.compMethodInfo->locals, local));
         }
 
-        if (opts.IsOSR() && info.compPatchpointInfo->IsExposed(varNum))
+        if (opts.IsOSR() && info.compPatchpointInfo->IsExposed(lclNum))
         {
-            JITDUMP("-- V%02u is OSR exposed\n", varNum);
-            varDsc->lvHasLdAddrOp = true;
+            JITDUMP("-- V%02u is OSR exposed\n", lclNum);
+            lcl->lvHasLdAddrOp = true;
 
-            if (!varDsc->TypeIs(TYP_STRUCT))
+            if (!lcl->TypeIs(TYP_STRUCT))
             {
-                lvaSetVarAddrExposed(varNum);
+                lvaSetVarAddrExposed(lclNum);
             }
         }
     }
@@ -630,13 +629,13 @@ void Compiler::lvaInitUserParams(ParamAllocInfo& paramInfo, bool skipFirstParam)
 
 void Compiler::lvaInitUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param)
 {
-    CORINFO_CLASS_HANDLE typeHnd = nullptr;
+    CORINFO_CLASS_HANDLE typeHnd = NO_CLASS_HANDLE;
     CorInfoType          corType = strip(info.compCompHnd->getArgType(&info.compMethodInfo->args, param, &typeHnd));
 
     LclVarDsc* lcl = lvaGetDesc(paramInfo.lclNum);
 
     lcl->lvIsParam = true;
-    lvaInitVarDsc(lcl, paramInfo.lclNum, corType, typeHnd);
+    lvaInitVarDsc(lcl, corType, typeHnd);
 
     if (opts.IsOSR() && info.compPatchpointInfo->IsExposed(paramInfo.lclNum))
     {
@@ -1122,11 +1121,9 @@ void Compiler::lvaAlignPreSpillParams(regMaskTP doubleAlignMask)
 }
 #endif // TARGET_ARM
 
-void Compiler::lvaInitVarDsc(LclVarDsc* varDsc, unsigned varNum, CorInfoType corInfoType, CORINFO_CLASS_HANDLE typeHnd)
+void Compiler::lvaInitVarDsc(LclVarDsc* lcl, CorInfoType corType, CORINFO_CLASS_HANDLE typeHnd)
 {
-    noway_assert(varDsc == &lvaTable[varNum]);
-
-    switch (corInfoType)
+    switch (corType)
     {
         // Mark types that looks like a pointer for doing shadow-copying of
         // parameters if we have an unsafe buffer.
@@ -1142,28 +1139,28 @@ void Compiler::lvaInitVarDsc(LclVarDsc* varDsc, unsigned varNum, CorInfoType cor
         case CORINFO_TYPE_STRING:
         case CORINFO_TYPE_VAR:
         case CORINFO_TYPE_REFANY:
-            varDsc->lvIsPtr = true;
+            lcl->lvIsPtr = true;
             break;
         default:
             break;
     }
 
-    var_types type = JITtype2varType(corInfoType);
+    var_types type = CorTypeToVarType(corType);
 
     if (varTypeIsStruct(type))
     {
-        lvaSetStruct(varNum, typeHnd, true);
+        lvaSetStruct(lcl, typGetObjLayout(typeHnd), true);
 
 #if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
         if (info.compIsVarArgs)
         {
-            varDsc->SetIsHfa(false);
+            lcl->SetIsHfa(false);
         }
 #endif
     }
     else
     {
-        varDsc->SetType(type);
+        lcl->SetType(type);
 
         if (varTypeIsFloating(type))
         {
@@ -1172,7 +1169,7 @@ void Compiler::lvaInitVarDsc(LclVarDsc* varDsc, unsigned varNum, CorInfoType cor
 #if OPT_BOOL_OPS
         else if (type == TYP_BOOL)
         {
-            varDsc->lvIsBoolean = true;
+            lcl->lvIsBoolean = true;
         }
 #endif
 
@@ -1190,11 +1187,11 @@ void Compiler::lvaInitVarDsc(LclVarDsc* varDsc, unsigned varNum, CorInfoType cor
 
             assert(info.compCompHnd->getTypeForPrimitiveValueClass(typeHnd) == CORINFO_TYPE_UNDEF);
 
-            varDsc->lvImpTypeInfo = typeInfo(TI_STRUCT, typeHnd);
+            lcl->lvImpTypeInfo = typeInfo(TI_STRUCT, typeHnd);
         }
     }
 
-    INDEBUG(varDsc->SetStackOffset(BAD_STK_OFFS);)
+    INDEBUG(lcl->SetStackOffset(BAD_STK_OFFS);)
 }
 
 /*****************************************************************************
@@ -1460,13 +1457,16 @@ void Compiler::lvaSetStruct(unsigned lclNum, CORINFO_CLASS_HANDLE classHandle, b
 
 void Compiler::lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsafeBuffer)
 {
-    assert(!layout->IsBlockLayout());
-
     noway_assert(lclNum < lvaCount);
 
-    LclVarDsc* varDsc = lvaGetDesc(lclNum);
+    lvaSetStruct(lvaGetDesc(lclNum), layout, checkUnsafeBuffer);
+}
 
-    if (varDsc->lvExactSize != 0)
+void Compiler::lvaSetStruct(LclVarDsc* lcl, ClassLayout* layout, bool checkUnsafeBuffer)
+{
+    assert(!layout->IsBlockLayout());
+
+    if (lcl->lvExactSize != 0)
     {
         // TODO-MIKE-Cleanup: Normally we should not attemp to call lvaSetStruct on a local that
         // already has struct type. Some trivial cases have been fixed but there are a at least
@@ -1502,15 +1502,15 @@ void Compiler::lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsa
         // provided class handle. This catches attempts to change between STRUCT and SIMD types
         // that would leave LclVarDsc in a weird state.
 
-        assert(varDsc->GetType() == typGetStructType(layout));
-        assert(varDsc->lvExactSize == layout->GetSize());
+        assert(lcl->GetType() == typGetStructType(layout));
+        assert(lcl->lvExactSize == layout->GetSize());
     }
     else
     {
-        varDsc->lvType = TYP_STRUCT;
-        varDsc->SetLayout(layout);
-        varDsc->lvExactSize   = layout->GetSize();
-        varDsc->lvImpTypeInfo = typeInfo(TI_STRUCT, layout->GetClassHandle());
+        lcl->lvType = TYP_STRUCT;
+        lcl->SetLayout(layout);
+        lcl->lvExactSize   = layout->GetSize();
+        lcl->lvImpTypeInfo = typeInfo(TI_STRUCT, layout->GetClassHandle());
 
         if (layout->IsValueClass())
         {
@@ -1520,25 +1520,25 @@ void Compiler::lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsa
             if (simdType != TYP_STRUCT)
             {
                 assert(varTypeIsSIMD(simdType));
-                varDsc->lvType = simdType;
+                lcl->lvType = simdType;
             }
 #endif
 
             // TODO-MIKE-Cleanup: This should only be needed on params and only if HFAs are
             // available (i.e. not in varargs methods on win-arm64).
             layout->EnsureHfaInfo(this);
-            varDsc->SetIsHfa(layout->IsHfa());
+            lcl->SetIsHfa(layout->IsHfa());
         }
     }
 
-    if (!varTypeIsSIMD(varDsc->GetType()))
+    if (!varTypeIsSIMD(lcl->GetType()))
     {
         // TODO-MIKE-Throughput: ClassLayout already queries class attributes, it should store
         // "overlapping fields" and "unsafe value class" bits so we don't have to do it again.
 
         unsigned classAttribs = info.compCompHnd->getClassAttribs(layout->GetClassHandle());
 
-        varDsc->lvOverlappingFields = (classAttribs & CORINFO_FLG_OVERLAPPING_FIELDS) != 0;
+        lcl->lvOverlappingFields = (classAttribs & CORINFO_FLG_OVERLAPPING_FIELDS) != 0;
 
         // Check whether this local is an unsafe value type and requires GS cookie protection.
         // GS checks require the stack to be re-ordered, which can't be done with EnC.
@@ -1546,7 +1546,7 @@ void Compiler::lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsa
         {
             setNeedsGSSecurityCookie();
             compGSReorderStackLayout = true;
-            varDsc->lvIsUnsafeBuffer = true;
+            lcl->lvIsUnsafeBuffer    = true;
         }
     }
 
@@ -1557,8 +1557,7 @@ void Compiler::lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsa
 #endif
     if (info.compCompHnd->getClassAlignmentRequirement(layout->GetClassHandle(), doubleAlignHint) == 8)
     {
-        JITDUMP("Marking struct in V%02i with double align flag\n", lclNum);
-        varDsc->lvStructDoubleAlign = 1;
+        lcl->lvStructDoubleAlign = 1;
     }
 #endif
 
