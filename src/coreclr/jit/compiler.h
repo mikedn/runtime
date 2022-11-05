@@ -981,11 +981,6 @@ public:
                !(lvIsParam || lvAddrExposed || lvIsStructField);
     }
 
-    bool IsFloatRegType() const
-    {
-        return varTypeUsesFloatReg(lvType) || IsHfaRegParam();
-    }
-
 #ifdef TARGET_XARCH
     var_types lvaArgType();
 #endif

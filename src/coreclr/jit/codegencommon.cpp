@@ -5981,7 +5981,8 @@ void CodeGen::genFnProlog()
         if (isInReg)
         {
             regMaskTP regMask = genRegMask(varDsc->GetRegNum());
-            if (!varDsc->IsFloatRegType())
+
+            if (!varTypeUsesFloatReg(varDsc->GetType()) && !varDsc->IsHfaRegParam())
             {
                 initRegs |= regMask;
 

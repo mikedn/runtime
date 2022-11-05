@@ -52,13 +52,10 @@ void CodeGen::genInitializeRegisterState()
             continue;
         }
 
-        // Is this a floating-point argument?
-        if (varDsc->IsFloatRegType())
+        if (varTypeUsesFloatReg(varDsc->GetType()) || varDsc->IsHfaRegParam())
         {
             continue;
         }
-
-        noway_assert(!varTypeUsesFloatReg(varDsc->TypeGet()));
 
         // Mark the register as holding the variable
         assert(varDsc->GetRegNum() != REG_STK);
