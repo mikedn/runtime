@@ -414,20 +414,17 @@ TempDsc* RegSet::tmpGetTemp(var_types type)
     return temp;
 }
 
-/*****************************************************************************
- * Preallocate 'count' temps of type 'type'. This type must be a normalized
- * type (by the definition of tmpNormalizeType()).
- *
- * This is used at the end of LSRA, which knows precisely the maximum concurrent
- * number of each type of spill temp needed, before code generation. Code generation
- * then uses these preallocated temp. If code generation ever asks for more than
- * has been preallocated, it is a fatal error.
- */
-
+// Preallocate 'count' temps of type 'type'. This type must be a normalized
+// type (by the definition of tmpNormalizeType()).
+//
+// This is used at the end of LSRA, which knows precisely the maximum concurrent
+// number of each type of spill temp needed, before code generation. Code generation
+// then uses these preallocated temp. If code generation ever asks for more than
+// has been preallocated, it is a fatal error.
 void RegSet::tmpPreAllocateTemps(var_types type, unsigned count)
 {
     assert(type == tmpNormalizeType(type));
-    unsigned size = genTypeSize(type);
+    unsigned size = varTypeSize(type);
 
     // If TYP_STRUCT ever gets in here we do bad things (tmpSlot returns -1)
     noway_assert(size >= sizeof(int));
@@ -441,55 +438,27 @@ void RegSet::tmpPreAllocateTemps(var_types type, unsigned count)
     for (unsigned i = 0; i < count; i++)
     {
         tmpCount++;
-        tmpSize += size;
-
-#ifdef TARGET_ARM
-        if (type == TYP_DOUBLE)
-        {
-            // Adjust tmpSize to accommodate possible alignment padding.
-            // Note that at this point the offsets aren't yet finalized, so we don't yet know if it will be required.
-            tmpSize += TARGET_POINTER_SIZE;
-        }
-#endif // TARGET_ARM
 
         TempDsc* temp = new (m_rsCompiler, CMK_Unknown) TempDsc(-((int)tmpCount), size, type);
-
-#ifdef DEBUG
-        if (m_rsCompiler->verbose)
-        {
-            printf("pre-allocated temp #%u, slot %u, size = %u\n", -temp->tdTempNum(), slot, temp->tdTempSize());
-        }
-#endif // DEBUG
-
-        // Add it to the front of the appropriate slot list.
         temp->tdNext  = tmpFree[slot];
         tmpFree[slot] = temp;
+
+        JITDUMP("pre-allocated temp #%u, slot %u, size = %u\n", -temp->tdTempNum(), slot, temp->tdTempSize());
     }
 }
 
-/*****************************************************************************
- *
- *  Release the given temp.
- */
-
+// Release the given temp.
 void RegSet::tmpRlsTemp(TempDsc* temp)
 {
     assert(temp != nullptr);
 
-    unsigned slot;
+    // Add the temp to the 'free' list
 
-    /* Add the temp to the 'free' list */
+    unsigned slot = tmpSlot(temp->tdTempSize());
 
-    slot = tmpSlot(temp->tdTempSize());
-
-#ifdef DEBUG
-    if (m_rsCompiler->verbose)
-    {
-        printf("release temp #%u, slot %u, size = %u\n", -temp->tdTempNum(), slot, temp->tdTempSize());
-    }
-    assert(tmpGetCount);
-    tmpGetCount--;
-#endif
+    JITDUMP("release temp #%u, slot %u, size = %u\n", -temp->tdTempNum(), slot, temp->tdTempSize());
+    assert(tmpGetCount != 0);
+    INDEBUG(tmpGetCount--);
 
     // Remove it from the 'used' list.
 
@@ -637,16 +606,11 @@ bool RegSet::tmpAllFree() const
 
 #endif // DEBUG
 
-/*****************************************************************************
- *
- *  The following table determines the order in which callee-saved registers
- *  are encoded in GC information at call sites (perhaps among other things).
- *  In any case, they establish a mapping from ordinal callee-save reg "indices" to
- *  register numbers and corresponding bitmaps.
- */
-
-const regNumber raRegCalleeSaveOrder[] = {REG_CALLEE_SAVED_ORDER};
-const regMaskTP raRbmCalleeSaveOrder[] = {RBM_CALLEE_SAVED_ORDER};
+// The following table determines the order in which callee-saved registers
+// are encoded in GC information at call sites (perhaps among other things).
+// In any case, they establish a mapping from ordinal callee-save reg "indices" to
+// register numbers and corresponding bitmaps.
+const regMaskTP raRbmCalleeSaveOrder[]{RBM_CALLEE_SAVED_ORDER};
 
 regMaskSmall genRegMaskFromCalleeSavedMask(unsigned short calleeSaveMask)
 {

@@ -178,18 +178,10 @@ public:
 
     void tmpPreAllocateTemps(var_types type, unsigned count);
 
-    unsigned tmpGetTotalSize()
-    {
-        return tmpSize;
-    }
-
 private:
-    unsigned tmpCount = 0; // Number of temps
-    unsigned tmpSize  = 0; // Size of all the temps
-#ifdef DEBUG
-    // Used by RegSet::rsSpillChk()
-    unsigned tmpGetCount = 0; // Temps which haven't been released yet
-#endif
+    unsigned tmpCount = 0;             // Number of temps
+    INDEBUG(unsigned tmpGetCount = 0;) // Temps which haven't been released yet
+
     static unsigned tmpSlot(unsigned size); // which slot in tmpFree[] or tmpUsed[] to use
 
     enum TEMP_CONSTANTS : unsigned

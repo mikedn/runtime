@@ -4818,11 +4818,6 @@ int Compiler::lvaAllocateTemps(int stkOffs
         temp->tdSetTempOffs(stkOffs);
     }
 
-#ifdef TARGET_ARM
-    // Only required for the ARM platform that we have an accurate estimate for the spillTempSize
-    noway_assert(spillTempSize <= codeGen->regSet.tmpGetTotalSize());
-#endif
-
     return stkOffs;
 }
 
