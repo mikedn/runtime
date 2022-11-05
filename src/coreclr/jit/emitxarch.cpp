@@ -2084,8 +2084,7 @@ inline UNATIVE_OFFSET emitter::emitInsSizeSV(code_t code, int var, int dsp)
 {
     UNATIVE_OFFSET size = emitInsSize(code, /* includeRexPrefixSize */ true);
     UNATIVE_OFFSET offs;
-    bool           offsIsUpperBound = true;
-    bool           EBPbased         = true;
+    bool           EBPbased = true;
 
     /*  Is this a temporary? */
 
@@ -2152,8 +2151,7 @@ inline UNATIVE_OFFSET emitter::emitInsSizeSV(code_t code, int var, int dsp)
             {
                 assert((int)offs >= 0);
 
-                offsIsUpperBound = false; // since #temps can increase
-                offs += emitMaxTmpSize;
+                offs += codeGen->regSet.tmpGetTotalSize();
             }
         }
         else
@@ -2197,7 +2195,7 @@ inline UNATIVE_OFFSET emitter::emitInsSizeSV(code_t code, int var, int dsp)
                 if (unsigned(var) == emitComp->lvaInlinedPInvokeFrameVar ||
                     unsigned(var) == emitComp->lvaStubArgumentVar)
                 {
-                    offs -= emitMaxTmpSize;
+                    offs -= codeGen->regSet.tmpGetTotalSize();
                 }
 
                 if ((int)offs < 0)
@@ -2214,9 +2212,9 @@ inline UNATIVE_OFFSET emitter::emitInsSizeSV(code_t code, int var, int dsp)
 #endif
             }
 
-            if (emitComp->lvaTempsHaveLargerOffsetThanVars() == false)
+            if (!emitComp->lvaTempsHaveLargerOffsetThanVars())
             {
-                offs += emitMaxTmpSize;
+                offs += codeGen->regSet.tmpGetTotalSize();
             }
         }
     }
@@ -2240,9 +2238,6 @@ inline UNATIVE_OFFSET emitter::emitInsSizeSV(code_t code, int var, int dsp)
     }
 
 #endif // !FEATURE_FIXED_OUT_ARGS
-
-//  printf("lcl = %04X, tmp = %04X, stk = %04X, offs = %04X\n",
-//         emitLclSize, emitMaxTmpSize, emitCurStackLvl, offs);
 
 #ifdef TARGET_AMD64
     bool useSmallEncoding = (SCHAR_MIN <= (int)offs) && ((int)offs <= SCHAR_MAX);

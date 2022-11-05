@@ -1030,8 +1030,6 @@ void emitter::emitBegFN()
 
     emitHasFramePtr = codeGen->isFramePointerUsed();
 
-    emitMaxTmpSize = codeGen->regSet.tmpGetTotalSize();
-
     INDEBUG(emitChkAlign =
                 (emitComp->compCodeOpt() != SMALL_CODE) && !emitComp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT));
 
