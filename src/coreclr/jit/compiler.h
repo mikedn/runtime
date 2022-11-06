@@ -3992,7 +3992,7 @@ public:
     void lvaIncrementFrameSize(unsigned size);
 
 #ifdef TARGET_ARMARCH
-    bool     compRsvdRegCheck();
+    bool     lvaHasLargeFrameOffset();
     unsigned lvaEstimateFrameSize();
 #endif
 

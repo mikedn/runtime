@@ -2368,7 +2368,7 @@ void LinearScan::setFrameType()
 
 #ifdef TARGET_ARMARCH
     // Determine whether we need to reserve a register for large lclVar offsets.
-    if (compiler->compRsvdRegCheck())
+    if (compiler->lvaHasLargeFrameOffset())
     {
         // We reserve R10/IP1 in this case to hold the offsets in load/store instructions
         compiler->codeGen->regSet.rsMaskResvd |= RBM_OPT_RSVD;

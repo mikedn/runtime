@@ -4954,16 +4954,12 @@ int Compiler::lvaFrameAddress(int varNum,
 
 #ifdef TARGET_ARMARCH
 
-// Function compRsvdRegCheck:
-//  given a curState to use for calculating the total frame size
-//  it will return true if the REG_OPT_RSVD should be reserved so
-//  that it can be use to form large offsets when accessing stack
-//  based LclVar including both incoming and out going argument areas.
-//
-//  The method advances the frame layout state to curState by calling
-//  lvaEstimateFrameSize(curState).
-//
-bool Compiler::compRsvdRegCheck()
+// Returns true if the REG_OPT_RSVD should be reserved so that it
+// can be used to form large offsets when accessing stack based
+// LclVar including both incoming and out going argument areas.
+// The method advances the frame layout state to curState by calling
+// lvaEstimateFrameSize().
+bool Compiler::lvaHasLargeFrameOffset()
 {
     // Always do the layout even if returning early. Callers might
     // depend on us to do the layout.
