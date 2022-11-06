@@ -4961,13 +4961,13 @@ int Compiler::lvaFrameAddress(int varNum,
 //  based LclVar including both incoming and out going argument areas.
 //
 //  The method advances the frame layout state to curState by calling
-//  lvaFrameSize(curState).
+//  lvaEstimateFrameSize(curState).
 //
 bool Compiler::compRsvdRegCheck()
 {
     // Always do the layout even if returning early. Callers might
     // depend on us to do the layout.
-    unsigned frameSize = lvaFrameSize();
+    unsigned frameSize = lvaEstimateFrameSize();
 
 #ifdef TARGET_ARM64
     // TODO-ARM64-CQ: update this!
@@ -5116,7 +5116,7 @@ bool Compiler::compRsvdRegCheck()
 // including the callee-saved registers. This is only used by LSRA to check if a
 // temporary register needs to be reserved for frame offsets that are to large to
 // be encoded in a load/store instruction.
-unsigned Compiler::lvaFrameSize()
+unsigned Compiler::lvaEstimateFrameSize()
 {
     assert(lvaDoneFrameLayout < FINAL_FRAME_LAYOUT);
 

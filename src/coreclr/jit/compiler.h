@@ -3993,7 +3993,7 @@ public:
 
 #ifdef TARGET_ARMARCH
     bool     compRsvdRegCheck();
-    unsigned lvaFrameSize();
+    unsigned lvaEstimateFrameSize();
 #endif
 
     // Returns the caller-SP-relative offset for the local variable "varNum."
