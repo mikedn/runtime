@@ -2801,8 +2801,8 @@ void CodeGen::GenJmp(GenTree* jmp)
             instruction ins             = INS_ldr;
             unsigned    elementRegCount = 1;
 #else
-            instruction ins             = INS_vldr;
-            unsigned    elementRegCount = type == TYP_DOUBLE ? 2 : 1;
+            instruction ins              = INS_vldr;
+            unsigned    elementRegCount  = type == TYP_DOUBLE ? 2 : 1;
 #endif
 
             for (unsigned i = 0, regCount = lcl->GetParamRegCount(); i < regCount; i += elementRegCount)
@@ -2877,8 +2877,7 @@ void CodeGen::GenJmp(GenTree* jmp)
 
     // For varargs we need to load all arg registers, not just those associated with parameters.
 
-    regMaskTP varargsIntRegMask   = RBM_ARG_REGS;
-    unsigned  firstRegParamLclNum = BAD_VAR_NUM;
+    regMaskTP varargsIntRegMask = RBM_ARG_REGS;
 
     for (unsigned lclNum = 0; lclNum < compiler->info.compArgsCount; lclNum++)
     {
@@ -2892,12 +2891,6 @@ void CodeGen::GenJmp(GenTree* jmp)
                 assert(isValidIntArgReg(reg));
                 varargsIntRegMask &= ~genRegMask(reg);
             }
-
-            if (firstRegParamLclNum == BAD_VAR_NUM)
-            {
-                assert(lcl->GetParamReg(0) == REG_R0);
-                firstRegParamLclNum = lclNum;
-            }
         }
     }
 
@@ -2906,7 +2899,11 @@ void CodeGen::GenJmp(GenTree* jmp)
         return;
     }
 
-    noway_assert(firstRegParamLclNum != BAD_VAR_NUM);
+#ifdef TARGET_ARM64
+    unsigned firstParamLclNum = compiler->info.compRetBuffArg == 0 ? 1 : 0;
+#else
+    unsigned            firstParamLclNum = 0;
+#endif
 
     // We have no way of knowing if args contain GC references.
     GetEmitter()->emitDisableGC();
@@ -2917,7 +2914,7 @@ void CodeGen::GenJmp(GenTree* jmp)
 
         if ((varargsIntRegMask & genRegMask(reg)) != 0)
         {
-            GetEmitter()->emitIns_R_S(INS_ldr, EA_PTRSIZE, reg, firstRegParamLclNum, i * REGSIZE_BYTES);
+            GetEmitter()->emitIns_R_S(INS_ldr, EA_PTRSIZE, reg, firstParamLclNum, i * REGSIZE_BYTES);
         }
     }
 
