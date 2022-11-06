@@ -1613,7 +1613,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_JMP:
-            genJmpMethod(treeNode);
+            GenJmp(treeNode);
             break;
 
         case GT_LOCKADD:
@@ -5247,7 +5247,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 // The arguments of the caller needs to be transferred to the callee before exiting caller.
 // The actual jump to callee is generated as part of caller epilog sequence.
 // Therefore the codegen of GT_JMP is to ensure that the callee arguments are correctly setup.
-void CodeGen::genJmpMethod(GenTree* jmp)
+void CodeGen::GenJmp(GenTree* jmp)
 {
     assert(jmp->OperIs(GT_JMP));
     assert(compiler->compJmpOpUsed);
@@ -5258,88 +5258,75 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 
     // Move any register parameters back to their register.
 
-    for (unsigned varNum = 0; varNum < compiler->info.compArgsCount; varNum++)
+    for (unsigned lclNum = 0; lclNum < compiler->info.compArgsCount; lclNum++)
     {
-        LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
+        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
 
-        noway_assert(varDsc->IsParam() && !varDsc->IsPromoted());
+        noway_assert(lcl->IsParam() && !lcl->IsPromoted());
 
-        if (!varDsc->IsRegParam())
+        if (!lcl->IsRegParam())
         {
             continue;
         }
 
         // We expect all params to be DNER, otherwise we'd need to deal with moving between
         // assigned registers and param registers and potential circular dependencies.
-        noway_assert(varDsc->lvDoNotEnregister);
+        noway_assert(lcl->lvDoNotEnregister);
 
 #ifdef UNIX_AMD64_ABI
-        if (varTypeIsStruct(varDsc->GetType()))
+        if (varTypeIsStruct(lcl->GetType()))
         {
-            assert(varDsc->GetLayout()->GetSysVAmd64AbiRegCount() != 0);
+            assert(lcl->GetLayout()->GetSysVAmd64AbiRegCount() != 0);
 
-            // Move the values into the right registers.
+            var_types type = varActualType(lcl->GetLayout()->GetSysVAmd64AbiRegType(0));
+            regNumber reg  = lcl->GetParamReg(0);
 
-            // Update varDsc->GetParamReg() and lvOtherArgReg life and GC Info to indicate varDsc stack
-            // slot is dead and argReg is going live. Note that we cannot modify varDsc->GetRegNum() and
-            // lvOtherArgReg here because another basic block may not be expecting it.
-            // Therefore manually update life of argReg. Note that JMP marks the end of the basic block
-            // and after which reg life and gc info will be recomputed for the new block in genCodeForBBList.
-
-            var_types type = varActualType(varDsc->GetLayout()->GetSysVAmd64AbiRegType(0));
-            regNumber reg  = varDsc->GetParamReg(0);
-
-            GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, varNum, 0);
+            GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, lclNum, 0);
             regSet.AddMaskVars(genRegMask(reg));
             gcInfo.gcMarkRegPtrVal(reg, type);
 
-            if (varDsc->GetLayout()->GetSysVAmd64AbiRegCount() > 1)
+            if (lcl->GetLayout()->GetSysVAmd64AbiRegCount() > 1)
             {
-                type = varActualType(varDsc->GetLayout()->GetSysVAmd64AbiRegType(1));
-                reg  = varDsc->GetParamReg(1);
+                type = varActualType(lcl->GetLayout()->GetSysVAmd64AbiRegType(1));
+                reg  = lcl->GetParamReg(1);
 
-                GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, varNum, 8);
+                GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, lclNum, 8);
                 regSet.AddMaskVars(genRegMask(reg));
                 gcInfo.gcMarkRegPtrVal(reg, type);
             }
 
-            if (varDsc->lvTracked)
+            if (lcl->HasLiveness())
             {
-                VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex);
+                VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, lcl->GetLivenessBitIndex());
             }
 
             continue;
         }
 #endif // UNIX_AMD64_ABI
 
-        var_types type = varDsc->GetType();
+        var_types type = lcl->GetType();
 
         if (varTypeIsStruct(type))
         {
-            assert(varDsc->GetLayout()->GetSize() <= REGSIZE_BYTES);
+            assert(lcl->GetLayout()->GetSize() <= REGSIZE_BYTES);
 
 #ifdef TARGET_X86
             type = TYP_INT;
 #else
-            type                     = varDsc->GetLayout()->GetSize() <= 4 ? TYP_INT : varDsc->GetLayout()->GetGCPtrType(0);
+            type                     = lcl->GetLayout()->GetSize() <= 4 ? TYP_INT : lcl->GetLayout()->GetGCPtrType(0);
 #endif
         }
 
-        regNumber reg = varDsc->GetParamReg();
-        assert(genIsValidReg(reg));
-        GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, varNum, 0);
+        regNumber reg = lcl->GetParamReg();
+        assert(isValidIntArgReg(reg) || isValidFloatArgReg(reg));
 
-        // Update argReg life and GC Info to indicate varDsc stack slot is dead and argReg is going live.
-        // Note that we cannot modify varDsc->GetRegNum() here because another basic block may not be
-        // expecting it. Therefore manually update life of argReg.  Note that GT_JMP marks the end of the
-        // basic block and after which reg life and gc info will be recomputed for the new block in
-        // genCodeForBBList().
+        GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, lclNum, 0);
         regSet.AddMaskVars(genRegMask(reg));
         gcInfo.gcMarkRegPtrVal(reg, type);
 
-        if (compiler->lvaIsGCTracked(varDsc))
+        if (compiler->lvaIsGCTracked(lcl))
         {
-            VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex);
+            VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, lcl->GetLivenessBitIndex());
         }
     }
 
@@ -5349,15 +5336,9 @@ void CodeGen::genJmpMethod(GenTree* jmp)
         return;
     }
 
-    // Jmp call to a vararg method - if the method has fewer than 4 fixed arguments,
-    // load the remaining arg registers (both int and float) from the corresponding
-    // shadow stack slots.  This is for the reason that we don't know the number and type
-    // of non-fixed params passed by the caller, therefore we have to assume the worst case
-    // of caller passing float/double args both in int and float arg regs.
-    //
-    // The caller could have passed gc-ref/byref type var args.  Since these are var args
-    // the callee no way of knowing their gc-ness.  Therefore, mark the region that loads
-    // remaining arg registers from shadow stack slots as non-gc interruptible.
+    // For varargs we need to load all arg registers, not just those associated with parameters.
+    // x86 does not need this because the variable arguments of a varargs methods are never
+    // passed in registers.
 
     regMaskTP varargsIntRegMask = RBM_ARG_REGS;
 
@@ -5388,6 +5369,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 
     assert(compiler->lvaGetDesc(0u)->GetParamReg() == REG_RCX);
 
+    // We have no way of knowing if args contain GC references.
     GetEmitter()->emitDisableGC();
 
     for (unsigned i = 0; i < MAX_REG_ARG; ++i)
@@ -5401,6 +5383,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
         }
     }
 
+    // The epilog, which is not interruptible, should follow right after this code.
     GetEmitter()->emitEnableGC();
 #endif // WINDOWS_AMD64_ABI
 }

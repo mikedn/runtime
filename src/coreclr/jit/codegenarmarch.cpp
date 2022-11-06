@@ -321,7 +321,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
 #endif // TARGET_ARM64
 
         case GT_JMP:
-            genJmpMethod(treeNode);
+            GenJmp(treeNode);
             break;
 
         case GT_CKFINITE:
@@ -2764,7 +2764,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 // The arguments of the caller needs to be transferred to the callee before exiting caller.
 // The actual jump to callee is generated as part of caller epilog sequence.
 // Therefore the codegen of GT_JMP is to ensure that the callee arguments are correctly setup.
-void CodeGen::genJmpMethod(GenTree* jmp)
+void CodeGen::GenJmp(GenTree* jmp)
 {
     assert(jmp->OperIs(GT_JMP));
     assert(compiler->compJmpOpUsed);
@@ -2775,27 +2775,27 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 
     // Move any register parameters back to their register.
 
-    for (unsigned varNum = 0; varNum < compiler->info.compArgsCount; varNum++)
+    for (unsigned lclNum = 0; lclNum < compiler->info.compArgsCount; lclNum++)
     {
-        LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
+        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
 
-        noway_assert(varDsc->IsParam() && !varDsc->IsPromoted());
+        noway_assert(lcl->IsParam() && !lcl->IsPromoted());
 
-        if (!varDsc->IsRegParam())
+        if (!lcl->IsRegParam())
         {
             continue;
         }
 
         // We expect all params to be DNER, otherwise we'd need to deal with moving between
         // assigned registers and param registers and potential circular dependencies.
-        noway_assert(varDsc->lvDoNotEnregister);
+        noway_assert(lcl->lvDoNotEnregister);
 
-        if (varDsc->IsHfaRegParam())
+        if (lcl->IsHfaRegParam())
         {
-            assert(varTypeIsStruct(varDsc->GetType()));
+            assert(varTypeIsStruct(lcl->GetType()));
             assert(!compiler->info.compIsVarArgs ARM_ONLY(&&!compiler->opts.UseSoftFP()));
 
-            var_types type = varDsc->GetLayout()->GetHfaElementType();
+            var_types type = lcl->GetLayout()->GetHfaElementType();
             emitAttr  size = emitTypeSize(type);
 #ifdef TARGET_ARM64
             instruction ins             = INS_ldr;
@@ -2805,55 +2805,55 @@ void CodeGen::genJmpMethod(GenTree* jmp)
             unsigned    elementRegCount = type == TYP_DOUBLE ? 2 : 1;
 #endif
 
-            for (unsigned i = 0, regCount = varDsc->GetParamRegCount(); i < regCount; i += elementRegCount)
+            for (unsigned i = 0, regCount = lcl->GetParamRegCount(); i < regCount; i += elementRegCount)
             {
-                regNumber reg = varDsc->GetParamReg(i);
+                regNumber reg = lcl->GetParamReg(i);
                 assert(genIsValidFloatReg(reg));
-                GetEmitter()->emitIns_R_S(ins, size, reg, varNum, i / elementRegCount * EA_SIZE(size));
+                GetEmitter()->emitIns_R_S(ins, size, reg, lclNum, i / elementRegCount * EA_SIZE(size));
             }
         }
-        else if (varTypeIsStruct(varDsc->GetType()))
+        else if (varTypeIsStruct(lcl->GetType()))
         {
-            assert(!compiler->lvaIsGCTracked(varDsc));
+            assert(!compiler->lvaIsGCTracked(lcl));
 
-            ClassLayout* layout = varDsc->GetLayout();
+            ClassLayout* layout = lcl->GetLayout();
 
-            assert(varDsc->GetParamRegCount() <= layout->GetSlotCount());
+            assert(lcl->GetParamRegCount() <= layout->GetSlotCount());
 
-            for (unsigned i = 0, regCount = varDsc->GetParamRegCount(); i < regCount; i++)
+            for (unsigned i = 0, regCount = lcl->GetParamRegCount(); i < regCount; i++)
             {
-                regNumber reg  = varDsc->GetParamReg(i);
+                regNumber reg  = lcl->GetParamReg(i);
                 var_types type = layout->GetGCPtrType(i);
 
-                assert(genIsValidIntReg(reg));
+                assert(isValidIntArgReg(reg));
 
-                GetEmitter()->emitIns_R_S(INS_ldr, emitTypeSize(type), reg, varNum, i * REGSIZE_BYTES);
+                GetEmitter()->emitIns_R_S(INS_ldr, emitTypeSize(type), reg, lclNum, i * REGSIZE_BYTES);
                 regSet.AddMaskVars(genRegMask(reg));
                 gcInfo.gcMarkRegPtrVal(reg, type);
             }
         }
 #ifdef TARGET_ARM
-        else if (varDsc->TypeIs(TYP_LONG) ||
-                 (varDsc->TypeIs(TYP_DOUBLE) && (compiler->info.compIsVarArgs || compiler->opts.UseSoftFP())))
+        else if (lcl->TypeIs(TYP_LONG) ||
+                 (lcl->TypeIs(TYP_DOUBLE) && (compiler->info.compIsVarArgs || compiler->opts.UseSoftFP())))
         {
-            assert(varDsc->GetParamRegCount() == 2);
+            assert(lcl->GetParamRegCount() == 2);
 
-            regNumber regs[]{varDsc->GetParamReg(0), varDsc->GetParamReg(1)};
+            regNumber regs[]{lcl->GetParamReg(0), lcl->GetParamReg(1)};
 
-            assert(genIsValidIntReg(regs[0]) && genIsValidIntReg(regs[1]));
+            assert(isValidIntArgReg(regs[0]) && isValidIntArgReg(regs[1]));
 
-            GetEmitter()->emitIns_R_S(INS_ldr, EA_4BYTE, regs[0], varNum, 0);
-            GetEmitter()->emitIns_R_S(INS_ldr, EA_4BYTE, regs[1], varNum, 4);
+            GetEmitter()->emitIns_R_S(INS_ldr, EA_4BYTE, regs[0], lclNum, 0);
+            GetEmitter()->emitIns_R_S(INS_ldr, EA_4BYTE, regs[1], lclNum, 4);
         }
 #endif
         else
         {
-            assert(varDsc->GetParamRegCount() == 1);
+            assert(lcl->GetParamRegCount() == 1);
 
-            regNumber reg  = varDsc->GetParamReg();
-            var_types type = compiler->mangleVarArgsType(varActualType(varDsc->GetType()));
+            regNumber reg  = lcl->GetParamReg();
+            var_types type = compiler->mangleVarArgsType(varActualType(lcl->GetType()));
 
-            GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, varNum, 0);
+            GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, lclNum, 0);
 
             // Update argReg life and GC Info to indicate varDsc stack slot is dead and argReg is going live.
             // Note that we cannot modify varDsc->GetRegNum() here because another basic block may not be
@@ -2863,9 +2863,9 @@ void CodeGen::genJmpMethod(GenTree* jmp)
             regSet.AddMaskVars(genRegMask(reg));
             gcInfo.gcMarkRegPtrVal(reg, type);
 
-            if (compiler->lvaIsGCTracked(varDsc))
+            if (compiler->lvaIsGCTracked(lcl))
             {
-                VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex);
+                VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, lcl->GetLivenessBitIndex());
             }
         }
     }
@@ -2875,15 +2875,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
         return;
     }
 
-    // Jmp call to a vararg method - if the method has fewer than fixed arguments that can be max attr of reg,
-    // load the remaining integer arg registers from the corresponding
-    // shadow stack slots.  This is for the reason that we don't know the number and type
-    // of non-fixed params passed by the caller, therefore we have to assume the worst case
-    // of caller passing all integer arg regs that can be max attr of reg.
-    //
-    // The caller could have passed gc-ref/byref type var args.  Since these are var args
-    // the callee no way of knowing their gc-ness.  Therefore, mark the region that loads
-    // remaining arg registers from shadow stack slots as non-gc interruptible.
+    // For varargs we need to load all arg registers, not just those associated with parameters.
 
     regMaskTP varargsIntRegMask   = RBM_ARG_REGS;
     unsigned  firstRegParamLclNum = BAD_VAR_NUM;
@@ -2895,7 +2887,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
         if (lcl->IsRegParam())
         {
             regNumber reg = lcl->GetParamReg();
-            assert(genIsValidReg(reg));
+            assert(isValidIntArgReg(reg));
             varargsIntRegMask &= ~genRegMask(reg);
 
             if (firstRegParamLclNum == BAD_VAR_NUM)
@@ -2913,6 +2905,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 
     noway_assert(firstRegParamLclNum != BAD_VAR_NUM);
 
+    // We have no way of knowing if args contain GC references.
     GetEmitter()->emitDisableGC();
 
     for (int i = 0; i < MAX_REG_ARG; ++i)
@@ -2925,6 +2918,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
         }
     }
 
+    // The epilog, which is not interruptible, should follow right after this code.
     GetEmitter()->emitEnableGC();
 }
 

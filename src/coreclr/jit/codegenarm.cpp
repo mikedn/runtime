@@ -1404,8 +1404,8 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
         // For the tail call case, the helper call is introduced during lower,
         // so the allocator will arrange things so R0 is not in use here.
         //
-        // For the tail jump case, all reg args have been spilled via genJmpMethod,
-        // so R0 is likewise not in use.
+        // For the tail jump case we expect to generate the profiler call
+        // before register args are loaded so R0 should not be in use.
         r0InUse = false;
     }
     else

@@ -1261,7 +1261,7 @@ protected:
     instruction genGetInsForOper(genTreeOps oper);
     bool genEmitOptimizedGCWriteBarrier(GCInfo::WriteBarrierForm writeBarrierForm, GenTree* addr, GenTree* data);
     void genCallInstruction(GenTreeCall* call);
-    void genJmpMethod(GenTree* jmp);
+    void GenJmp(GenTree* jmp);
     void GenJmpEpilog(BasicBlock* block
 #ifdef TARGET_ARMARCH
                       ,
