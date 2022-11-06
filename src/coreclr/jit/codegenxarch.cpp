@@ -5362,58 +5362,53 @@ void CodeGen::genJmpMethod(GenTree* jmp)
             {
                 VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex);
             }
+
+            continue;
         }
-        else
-#endif // !defined(UNIX_AMD64_ABI)
-        {
-            var_types type = varDsc->lvaArgType();
+#endif // UNIX_AMD64_ABI
+
+        var_types type = varDsc->lvaArgType();
 
 #ifdef TARGET_X86
-            if (varTypeIsStruct(varDsc->TypeGet()))
-            {
-                // Treat trivial pointer-sized structs as a pointer sized primitive
-                // for the purposes of registers.
-                type = TYP_INT;
-            }
+        if (varTypeIsStruct(varDsc->TypeGet()))
+        {
+            // Treat trivial pointer-sized structs as a pointer sized primitive
+            // for the purposes of registers.
+            type = TYP_INT;
+        }
 #endif
 
-            regNumber reg = varDsc->GetParamReg();
-            assert(genIsValidReg(reg));
-            GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, varNum, 0);
+        regNumber reg = varDsc->GetParamReg();
+        assert(genIsValidReg(reg));
+        GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, varNum, 0);
 
-            // Update argReg life and GC Info to indicate varDsc stack slot is dead and argReg is going live.
-            // Note that we cannot modify varDsc->GetRegNum() here because another basic block may not be
-            // expecting it. Therefore manually update life of argReg.  Note that GT_JMP marks the end of the
-            // basic block and after which reg life and gc info will be recomputed for the new block in
-            // genCodeForBBList().
-            regSet.AddMaskVars(genRegMask(reg));
-            gcInfo.gcMarkRegPtrVal(reg, type);
+        // Update argReg life and GC Info to indicate varDsc stack slot is dead and argReg is going live.
+        // Note that we cannot modify varDsc->GetRegNum() here because another basic block may not be
+        // expecting it. Therefore manually update life of argReg.  Note that GT_JMP marks the end of the
+        // basic block and after which reg life and gc info will be recomputed for the new block in
+        // genCodeForBBList().
+        regSet.AddMaskVars(genRegMask(reg));
+        gcInfo.gcMarkRegPtrVal(reg, type);
 
-            if (compiler->lvaIsGCTracked(varDsc))
-            {
-                VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex);
-            }
+        if (compiler->lvaIsGCTracked(varDsc))
+        {
+            VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex);
         }
 
 #ifdef WINDOWS_AMD64_ABI
-        // In case of a jmp call to a vararg method also pass the float/double arg in the corresponding int arg
-        // register. This is due to the AMD64 ABI which requires floating point values passed to varargs functions to
-        // be passed in both integer and floating point registers. It doesn't apply to x86, which passes floating point
-        // values on the stack.
+        // FLOAT/DOUBLE args also need to be loaded in the corresponding integer registers for win-x64 varargs.
         if (compiler->info.compIsVarArgs)
         {
             regNumber intArgReg;
-            var_types loadType = varDsc->lvaArgType();
-            regNumber argReg   = varDsc->GetParamReg();
 
-            if (varTypeIsFloating(loadType))
+            if (varTypeIsFloating(type))
             {
-                intArgReg = MapVarargsParamFloatRegToIntReg(argReg);
-                inst_Mov(TYP_LONG, intArgReg, argReg, /* canSkip */ false, emitActualTypeSize(loadType));
+                intArgReg = MapVarargsParamFloatRegToIntReg(reg);
+                inst_Mov(TYP_LONG, intArgReg, reg, /* canSkip */ false, emitTypeSize(type));
             }
             else
             {
-                intArgReg = argReg;
+                intArgReg = reg;
             }
 
             fixedIntArgMask |= genRegMask(intArgReg);
