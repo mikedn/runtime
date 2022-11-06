@@ -5273,16 +5273,8 @@ void CodeGen::genJmpMethod(GenTree* jmp)
     {
         LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
 
-        if (varDsc->IsPromoted())
-        {
-            noway_assert(varDsc->GetPromotedFieldCount() == 1); // We only handle one field here
+        noway_assert(varDsc->IsParam() && !varDsc->IsPromoted());
 
-            varDsc = compiler->lvaGetDesc(varDsc->GetPromotedFieldLclNum(0));
-        }
-
-        noway_assert(varDsc->IsParam());
-
-        // Skip if arg not passed in a register.
         if (!varDsc->IsRegParam())
         {
             continue;
