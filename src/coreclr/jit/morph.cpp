@@ -2585,14 +2585,8 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         unsigned argAlignBytes = lvaGetParamAlignment(sigType, hfaType == TYP_FLOAT);
 #endif
 
-//
-// Figure out if the argument will be passed in a register.
-//
-
 #ifdef TARGET_X86
-        if ((isRegParamType(argx->GetType()) && !isStructArg) || (isStructArg && isTrivialPointerSizedStruct(layout)))
-#else
-        if (isRegParamType(argx->GetType()))
+        if (!isStructArg ? varTypeIsI(varActualType(argx->GetType())) : isTrivialPointerSizedStruct(layout))
 #endif
         {
 #ifdef TARGET_ARM

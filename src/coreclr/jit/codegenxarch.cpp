@@ -5367,16 +5367,6 @@ void CodeGen::genJmpMethod(GenTree* jmp)
         else
 #endif // !defined(UNIX_AMD64_ABI)
         {
-            // Register argument
-            CLANG_FORMAT_COMMENT_ANCHOR;
-#ifdef TARGET_X86
-            noway_assert(
-                isRegParamType(genActualType(varDsc->TypeGet())) ||
-                (varTypeIsStruct(varDsc->TypeGet()) && compiler->isTrivialPointerSizedStruct(varDsc->GetLayout())));
-#else
-            noway_assert(isRegParamType(genActualType(varDsc->TypeGet())));
-#endif // TARGET_X86
-
             // Is register argument already in the right register?
             // If not load it from its stack location.
             var_types loadType = varDsc->lvaArgType();

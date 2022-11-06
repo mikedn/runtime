@@ -41,7 +41,7 @@ public:
 
     bool CanEnregister(var_types type, unsigned count = 1) const
     {
-        return isRegParamType(type) && AreRegsAvailable(type, count);
+        return AreRegsAvailable(type, count);
     }
 
     regNumber AllocReg(var_types type)

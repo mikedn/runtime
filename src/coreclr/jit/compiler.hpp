@@ -550,19 +550,6 @@ inline var_types genActualType(var_types type)
     return varActualType(type);
 }
 
-/*****************************************************************************
- *  Can this type be passed as a parameter in a register?
- */
-
-inline bool isRegParamType(var_types type)
-{
-#if defined(TARGET_X86)
-    return (type <= TYP_INT || type == TYP_REF || type == TYP_BYREF);
-#else  // !TARGET_X86
-    return true;
-#endif // !TARGET_X86
-}
-
 #ifdef DEBUG
 
 inline const char* varTypeGCstring(var_types type)

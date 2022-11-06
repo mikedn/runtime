@@ -529,9 +529,9 @@ void Compiler::lvaInitGenericsContextParam(ParamAllocInfo& paramInfo)
     lcl->SetType(TYP_I_IMPL);
     lcl->lvIsParam = true;
 
-    if (paramInfo.CanEnregister(TYP_I_IMPL))
+    if (paramInfo.CanEnregister(TYP_INT))
     {
-        lcl->SetParamRegs(paramInfo.AllocReg(TYP_I_IMPL));
+        lcl->SetParamRegs(paramInfo.AllocReg(TYP_INT));
 
         JITDUMP("'GenCtxt' passed in register %s\n", getRegName(lcl->GetParamReg()));
 
@@ -572,9 +572,9 @@ void Compiler::lvaInitVarargsHandleParam(ParamAllocInfo& paramInfo)
     // that other problems are fixed.
     lvaSetAddressExposed(lcl);
 
-    if (paramInfo.CanEnregister(TYP_I_IMPL))
+    if (paramInfo.CanEnregister(TYP_INT))
     {
-        lcl->SetParamRegs(paramInfo.AllocReg(TYP_I_IMPL));
+        lcl->SetParamRegs(paramInfo.AllocReg(TYP_INT));
 
         JITDUMP("'VarArgHnd' passed in register %s\n", getRegName(lcl->GetParamReg()));
 
@@ -892,8 +892,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
 {
     var_types regType = lcl->GetType();
 
-    if ((varTypeIsI(varActualType(regType)) ||
-         ((regType == TYP_STRUCT) && isTrivialPointerSizedStruct(lcl->GetLayout()))) &&
+    if ((regType != TYP_STRUCT ? varTypeIsI(varActualType(regType)) : isTrivialPointerSizedStruct(lcl->GetLayout())) &&
         paramInfo.CanEnregister(TYP_INT))
     {
         lcl->SetParamRegs(paramInfo.AllocReg(TYP_INT));
