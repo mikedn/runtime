@@ -814,7 +814,7 @@ private:
         // a ByRef to an INT32 when they actually write a SIZE_T or INT64. There are cases where
         // overwriting these extra 4 bytes corrupts some data (such as a saved register) that leads
         // to A/V. Wheras previously the JIT64 codegen did not lead to an A/V.
-        if (!lcl->IsParam() && !lcl->IsPromotedField() && (varActualType(lcl->GetType()) == TYP_INT))
+        if (!lcl->IsParam() && !lcl->IsPromotedField() && varActualTypeIsInt(lcl->GetType()))
         {
             // TODO-Cleanup: This should simply check if the user is a call node, not if a call ancestor exists.
             if (Compiler::gtHasCallOnStack(&m_ancestors))

@@ -1810,15 +1810,20 @@ unsigned Compiler::lvaLclSize(unsigned lclNum)
         case TYP_STRUCT:
             return lcl->lvSize();
 
+#ifdef FEATURE_SIMD
+        case TYP_SIMD12:
+            return 16;
+#endif
+
         default:
 #ifdef TARGET_64BIT
             if (lcl->lvQuirkToLong)
             {
-                noway_assert(lcl->lvAddrExposed);
-                return genTypeStSz(TYP_LONG) * sizeof(int); // return 8  (2 * 4)
+                noway_assert(varActualTypeIsInt(lcl->GetType()) && lcl->IsAddressExposed());
+                return 8;
             }
 #endif
-            return genTypeStSz(lcl->GetType()) * sizeof(int);
+            return varTypeSize(varActualType(lcl->GetType()));
     }
 }
 

@@ -521,26 +521,6 @@ inline unsigned genTypeSize(T value)
 
 /*****************************************************************************
  *
- *  Return the "stack slot count" of the given type.
- *      returns 1 for 32-bit types and 2 for 64-bit types.
- */
-
-extern const BYTE genTypeStSzs[TYP_COUNT];
-
-inline unsigned genTypeStSz(var_types type)
-{
-    assert((unsigned)type < _countof(genTypeStSzs));
-
-    return genTypeStSzs[type];
-}
-
-/*****************************************************************************
- *
- *  Return the number of registers required to hold a value of the given type.
- */
-
-/*****************************************************************************
- *
  *  The following function maps a 'precise' type to an actual type as seen
  *  by the VM (for example, 'byte' maps to 'int').
  */

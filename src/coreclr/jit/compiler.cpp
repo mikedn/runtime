@@ -87,22 +87,17 @@ inline bool _our_GetThreadCycles(unsigned __int64* cycleOut)
 #endif // which host OS
 
 const uint8_t genTypeSizes[]{
-#define DEF_TP(tn, nm, jitType, sz, sze, asze, st, al, tf) sz,
+#define DEF_TP(tn, nm, jitType, sz, sze, asze, al, tf) sz,
 #include "typelist.h"
 };
 
 const uint8_t genTypeAlignments[]{
-#define DEF_TP(tn, nm, jitType, sz, sze, asze, st, al, tf) al,
-#include "typelist.h"
-};
-
-const uint8_t genTypeStSzs[]{
-#define DEF_TP(tn, nm, jitType, sz, sze, asze, st, al, tf) st,
+#define DEF_TP(tn, nm, jitType, sz, sze, asze, al, tf) al,
 #include "typelist.h"
 };
 
 const uint8_t genActualTypes[]{
-#define DEF_TP(tn, nm, jitType, sz, sze, asze, st, al, tf) jitType,
+#define DEF_TP(tn, nm, jitType, sz, sze, asze, al, tf) jitType,
 #include "typelist.h"
 };
 

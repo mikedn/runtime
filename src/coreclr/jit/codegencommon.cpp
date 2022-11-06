@@ -1587,7 +1587,7 @@ void CodeGen::genEmitMachineCode()
     {
         unsigned maxAllowedStackDepth = compiler->fgGetPtrArgCntMax() + // Max number of pointer-sized stack arguments.
                                         compiler->compHndBBtabCount +   // Return address for locally-called finallys
-                                        genTypeStSz(TYP_LONG) + // longs/doubles may be transferred via stack, etc
+                                        2 + // longs/doubles may be transferred via stack, etc
                                         (compiler->compTailCallUsed ? 4 : 0); // CORINFO_HELP_TAILCALL args
 #if defined(UNIX_X86_ABI)
         // Convert maxNestedAlignment to DWORD count before adding to maxAllowedStackDepth.
@@ -8193,9 +8193,6 @@ regMaskTP CodeGen::genPushRegs(regMaskTP regs, regMaskTP* byrefRegs, regMaskTP* 
 
 #else // FEATURE_FIXED_OUT_ARGS
 
-    noway_assert(genTypeStSz(TYP_REF) == genTypeStSz(TYP_I_IMPL));
-    noway_assert(genTypeStSz(TYP_BYREF) == genTypeStSz(TYP_I_IMPL));
-
     regMaskTP pushedRegs = regs;
 
     for (regNumber reg = REG_INT_FIRST; regs != RBM_NONE; reg = REG_NEXT(reg))
@@ -8265,9 +8262,6 @@ void CodeGen::genPopRegs(regMaskTP regs, regMaskTP byrefRegs, regMaskTP noRefReg
     noway_assert((regs & byrefRegs) == byrefRegs);
     noway_assert((regs & noRefRegs) == noRefRegs);
     noway_assert((regs & (gcInfo.gcRegGCrefSetCur | gcInfo.gcRegByrefSetCur)) == RBM_NONE);
-
-    noway_assert(genTypeStSz(TYP_REF) == genTypeStSz(TYP_INT));
-    noway_assert(genTypeStSz(TYP_BYREF) == genTypeStSz(TYP_INT));
 
     // Walk the registers in the reverse order as genPushRegs()
     for (regNumber reg = REG_INT_LAST; regs != RBM_NONE; reg = REG_PREV(reg))

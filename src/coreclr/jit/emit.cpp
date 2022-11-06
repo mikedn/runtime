@@ -507,12 +507,12 @@ void emitterStats(FILE* fout)
 /*****************************************************************************/
 
 const uint16_t emitTypeSizes[]{
-#define DEF_TP(tn, nm, jitType, sz, sze, asze, st, al, tf) sze,
+#define DEF_TP(tn, nm, jitType, sz, sze, asze, al, tf) sze,
 #include "typelist.h"
 };
 
 const uint16_t emitTypeActSz[]{
-#define DEF_TP(tn, nm, jitType, sz, sze, asze, st, al, tf) asze,
+#define DEF_TP(tn, nm, jitType, sz, sze, asze, al, tf) asze,
 #include "typelist.h"
 };
 

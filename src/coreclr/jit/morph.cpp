@@ -2537,7 +2537,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             size = 1;
 #else
             // On 32 bit targets LONG and DOUBLE are passed in 2 regs/slots.
-            size = genTypeStSz(argx->GetType());
+            size = argx->TypeIs(TYP_LONG, TYP_DOUBLE) ? 2 : 1;
 #endif
         }
 
