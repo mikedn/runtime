@@ -3417,6 +3417,7 @@ void emitter::emitIns_I(instruction ins, emitAttr attr, cnsval_ssize_t val)
             break;
 
         case INS_ret:
+            assert((0 <= val) && (val < (1 << 16)));
             sz = 3;
             break;
 

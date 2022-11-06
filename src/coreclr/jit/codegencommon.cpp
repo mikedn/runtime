@@ -7341,8 +7341,6 @@ void CodeGen::genFnEpilog(BasicBlock* block)
         if (fCalleePop)
         {
             stkArgSize = paramsStackSize;
-
-            noway_assert(paramsStackSize < 0x10000); // "ret" only has 2 byte operand
         }
 #endif // TARGET_X86
 
