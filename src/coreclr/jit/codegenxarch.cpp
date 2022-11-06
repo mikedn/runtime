@@ -5367,16 +5367,18 @@ void CodeGen::genJmpMethod(GenTree* jmp)
         }
 #endif // UNIX_AMD64_ABI
 
-        var_types type = varDsc->lvaArgType();
+        var_types type = varDsc->GetType();
+
+        if (varTypeIsStruct(type))
+        {
+            assert(varDsc->GetLayout()->GetSize() <= REGSIZE_BYTES);
 
 #ifdef TARGET_X86
-        if (varTypeIsStruct(varDsc->TypeGet()))
-        {
-            // Treat trivial pointer-sized structs as a pointer sized primitive
-            // for the purposes of registers.
             type = TYP_INT;
-        }
+#else
+            type                     = varDsc->GetLayout()->GetSize() <= 4 ? TYP_INT : varDsc->GetLayout()->GetGCPtrType(0);
 #endif
+        }
 
         regNumber reg = varDsc->GetParamReg();
         assert(genIsValidReg(reg));
