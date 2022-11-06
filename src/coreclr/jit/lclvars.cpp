@@ -434,6 +434,7 @@ void Compiler::lvaInitThisParam(ParamAllocInfo& paramInfo)
 
     assert(paramInfo.lclNum == 0);
     assert(paramInfo.intRegIndex == 0);
+    assert(paramInfo.stackOffset == 0);
 
     lvaArg0Var       = 0;
     info.compThisArg = 0;

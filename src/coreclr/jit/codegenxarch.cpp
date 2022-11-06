@@ -5266,8 +5266,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 
     // Move any register parameters back to their register.
 
-    regMaskTP fixedIntArgMask = RBM_NONE;    // tracks the int arg regs occupying fixed args in case of a vararg method.
-    unsigned  firstArgVarNum  = BAD_VAR_NUM; // varNum of the first argument in case of a vararg method.
+    regMaskTP fixedIntArgMask = RBM_NONE; // tracks the int arg regs occupying fixed args in case of a vararg method.
 
     for (unsigned varNum = 0; varNum < compiler->info.compArgsCount; varNum++)
     {
@@ -5370,12 +5369,6 @@ void CodeGen::genJmpMethod(GenTree* jmp)
             }
 
             fixedIntArgMask |= genRegMask(intArgReg);
-
-            if (intArgReg == REG_ARG_0)
-            {
-                assert(firstArgVarNum == BAD_VAR_NUM);
-                firstArgVarNum = varNum;
-            }
         }
 #endif // WINDOWS_AMD64_ABI
     }
@@ -5396,7 +5389,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
     if (fixedIntArgMask != RBM_NONE)
     {
         assert(compiler->info.compIsVarArgs);
-        assert(firstArgVarNum != BAD_VAR_NUM);
+        assert(compiler->lvaGetDesc(0u)->GetParamReg() == REG_RCX);
 
         regMaskTP remainingIntArgMask = RBM_ARG_REGS & ~fixedIntArgMask;
         if (remainingIntArgMask != RBM_NONE)
@@ -5409,7 +5402,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 
                 if ((remainingIntArgMask & genRegMask(argReg)) != 0)
                 {
-                    GetEmitter()->emitIns_R_S(INS_mov, EA_8BYTE, argReg, firstArgVarNum, argNum * REGSIZE_BYTES);
+                    GetEmitter()->emitIns_R_S(INS_mov, EA_8BYTE, argReg, 0, argNum * REGSIZE_BYTES);
 
                     // also load it in corresponding float arg reg
                     regNumber floatReg = MapVarargsParamIntRegToFloatReg(argReg);
