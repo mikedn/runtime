@@ -2816,7 +2816,7 @@ regMaskTP CodeGen::genPrologSpillParamRegs(ParamRegInfo* paramRegs, unsigned par
 
 #if FEATURE_MULTIREG_ARGS
             // Must be <= MAX_PASS_MULTIREG_BYTES or else it wouldn't be passed in registers
-            noway_assert(lcl->lvSize() <= MAX_PASS_MULTIREG_BYTES);
+            noway_assert(lcl->GetLayout()->GetSize() <= MAX_PASS_MULTIREG_BYTES);
 #endif
 
 #ifdef UNIX_AMD64_ABI
