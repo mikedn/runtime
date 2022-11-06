@@ -2766,18 +2766,10 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 // Therefore the codegen of GT_JMP is to ensure that the callee arguments are correctly setup.
 void CodeGen::genJmpMethod(GenTree* jmp)
 {
-    assert(jmp->OperGet() == GT_JMP);
+    assert(jmp->OperIs(GT_JMP));
     assert(compiler->compJmpOpUsed);
 
-    // If no arguments, nothing to do
-    if (compiler->info.compArgsCount == 0)
-    {
-        return;
-    }
-
 #ifdef PROFILING_SUPPORTED
-    // At this point all arg regs are free.
-    // Emit tail call profiler callback.
     genProfilingLeaveCallback(CORINFO_HELP_PROF_FCN_TAILCALL);
 #endif
 
