@@ -7326,26 +7326,18 @@ void CodeGen::genFnEpilog(BasicBlock* block)
     }
     else
     {
-        unsigned stkArgSize = 0; // Zero on all platforms except x86
-
-#if defined(TARGET_X86)
-        bool     fCalleePop = true;
-
-        // varargs has caller pop
-        if (compiler->info.compIsVarArgs)
-            fCalleePop = false;
-
-        if (IsCallerPop(compiler->info.compCallConv))
-            fCalleePop = false;
-
-        if (fCalleePop)
+#ifndef TARGET_X86
+        instGen(INS_ret);
+#else
+        if ((paramsStackSize == 0) || compiler->info.compIsVarArgs || IsCallerPop(compiler->info.compCallConv))
         {
-            stkArgSize = paramsStackSize;
+            instGen(INS_ret);
+        }
+        else
+        {
+            GetEmitter()->emitIns_I(INS_ret, EA_4BYTE, paramsStackSize);
         }
 #endif // TARGET_X86
-
-        /* Return, popping our arguments (if any) */
-        instGen_Return(stkArgSize);
     }
 }
 
@@ -7851,12 +7843,7 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
 
 void CodeGen::genFuncletEpilog()
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In genFuncletEpilog()\n");
-    }
-#endif
+    JITDUMP("*************** In genFuncletEpilog()\n");
 
     ScopedSetVariable<bool> _setGeneratingEpilog(&generatingEpilog, true);
 
@@ -7866,7 +7853,7 @@ void CodeGen::genFuncletEpilog()
     inst_RV_IV(INS_add, REG_SPBASE, genFuncletInfo.fiSpDelta, EA_PTRSIZE);
     genPopCalleeSavedRegisters();
     inst_RV(INS_pop, REG_EBP, TYP_I_IMPL);
-    instGen_Return(0);
+    instGen(INS_ret);
 }
 
 /*****************************************************************************

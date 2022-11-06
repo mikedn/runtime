@@ -1458,8 +1458,6 @@ public:
     instruction ins_FloatSqrt(var_types type);
 #endif
 
-    void instGen_Return(unsigned stkArgSize);
-
     enum BarrierKind
     {
         BARRIER_FULL,      // full barrier

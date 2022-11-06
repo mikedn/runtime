@@ -380,8 +380,7 @@ void CodeGen::genEHFinallyOrFilterRet(BasicBlock* block)
     {
         assert(block->bbJumpKind == BBJ_EHFILTERRET);
 
-        // The return shift has already been computed.
-        instGen_Return(0);
+        instGen(INS_ret);
     }
 }
 
