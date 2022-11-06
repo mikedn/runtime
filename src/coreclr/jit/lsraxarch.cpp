@@ -923,8 +923,7 @@ int LinearScan::BuildCall(GenTreeCall* call)
 {
     int srcCount = 0;
 
-#if FEATURE_VARARG
-    // TODO-MIKE-Review: Why the crap is this code enabled on x86?!!
+#ifdef WINDOWS_AMD64_ABI
     bool varargsHasFloatRegArgs = false;
 
     if (call->IsVarargs())
@@ -952,7 +951,7 @@ int LinearScan::BuildCall(GenTreeCall* call)
             }
         }
     }
-#endif // FEATURE_VARARG
+#endif // WINDOWS_AMD64_ABI
 
     for (GenTreeCall::Use& arg : call->LateArgs())
     {
@@ -1024,14 +1023,14 @@ int LinearScan::BuildCall(GenTreeCall* call)
         }
 #endif // TARGET_X86
 
-#if FEATURE_VARARG
+#ifdef WINDOWS_AMD64_ABI
         // If it is a fast tail call, it is already preferenced to use RAX.
         // Therefore, no need set src candidates on call tgt again.
         if (varargsHasFloatRegArgs && !call->IsFastTailCall())
         {
             // Don't assign the call target to any of the argument registers because
             // we will use them to also pass floating point arguments as required
-            // by Amd64 ABI.
+            // by win-x64 ABI.
             ctrlExprCandidates = allRegs(TYP_INT) & ~RBM_ARG_REGS;
         }
 #endif
@@ -1076,26 +1075,22 @@ int LinearScan::BuildCall(GenTreeCall* call)
     return srcCount;
 }
 
-#if FEATURE_VARARG
+#ifdef WINDOWS_AMD64_ABI
 bool LinearScan::HandleFloatVarArgs(GenTreeCall* call, GenTree* argNode)
 {
     assert(call->IsVarargs());
 
-    if (varTypeIsFloating(argNode->GetType()))
+    if (!varTypeIsFloating(argNode->GetType()))
     {
-        // For varargs calls on win-x64 we need to pass floating point register arguments in 2 registers:
-        // the XMM reg that's normally used to pass a floating point arg and the GPR that's normally used
-        // to pass an integer argument at the same position.
-
-        regNumber argReg    = argNode->GetRegNum();
-        regNumber argIntReg = compiler->getCallArgIntRegister(argReg);
-
-        buildInternalIntRegisterDefForNode(call, genRegMask(argIntReg));
-
-        return true;
+        return false;
     }
 
-    return false;
+    regNumber floatReg = argNode->GetRegNum();
+    regNumber intReg   = MapVarargsParamFloatRegToIntReg(floatReg);
+
+    BuildInternalIntDef(call, genRegMask(intReg));
+
+    return true;
 }
 #endif
 

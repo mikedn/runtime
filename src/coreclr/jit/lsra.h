@@ -1876,7 +1876,7 @@ private:
     int BuildDelayFreeUses(GenTree* node, GenTree* rmwNode = nullptr, regMaskTP candidates = RBM_NONE);
     int BuildIndirUses(GenTreeIndir* indirTree, regMaskTP candidates = RBM_NONE);
     int BuildAddrUses(GenTree* addr, regMaskTP candidates = RBM_NONE);
-#if defined(TARGET_XARCH) && FEATURE_VARARG
+#ifdef WINDOWS_AMD64_ABI
     bool HandleFloatVarArgs(GenTreeCall* call, GenTree* argNode);
 #endif
     RefPosition* BuildDef(GenTree* node, regMaskTP regCandidates = RBM_NONE);

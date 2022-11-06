@@ -490,6 +490,45 @@ regMaskSmall genRegMaskFromCalleeSavedMask(unsigned short);
 #endif
 #endif
 
+#ifdef WINDOWS_AMD64_ABI
+// For varargs calls on win-x64 we need to pass floating point register arguments in 2 registers:
+// the XMM reg that's normally used to pass a floating point arg and the GPR that's normally used
+// to pass an integer argument at the same position.
+inline regNumber MapVarargsParamFloatRegToIntReg(regNumber floatReg)
+{
+    switch (floatReg)
+    {
+        case REG_XMM0:
+            return REG_RCX;
+        case REG_XMM1:
+            return REG_RDX;
+        case REG_XMM2:
+            return REG_R8;
+        case REG_XMM3:
+            return REG_R9;
+        default:
+            unreached();
+    }
+}
+
+inline regNumber MapVarargsParamIntRegToFloatReg(regNumber intReg)
+{
+    switch (intReg)
+    {
+        case REG_RCX:
+            return REG_XMM0;
+        case REG_RDX:
+            return REG_XMM1;
+        case REG_R8:
+            return REG_XMM2;
+        case REG_R9:
+            return REG_XMM3;
+        default:
+            unreached();
+    }
+}
+#endif // WINDOWS_AMD64_ABI
+
 /*****************************************************************************/
 // Some sanity checks on some of the register masks
 // Stack pointer is never part of RBM_ALLINT

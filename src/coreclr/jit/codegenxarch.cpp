@@ -4782,13 +4782,10 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 
         assert(argReg == argInfo->GetRegNum());
 
-#if FEATURE_VARARG
+#ifdef WINDOWS_AMD64_ABI
         if (call->IsVarargs() && varTypeIsFloating(argNode->GetType()))
         {
-            // For varargs calls on win-x64 we need to pass floating point register arguments in 2 registers:
-            // the XMM reg that's normally used to pass a floating point arg and the GPR that's normally used
-            // to pass an integer argument at the same position.
-            regNumber intArgReg = compiler->getCallArgIntRegister(argReg);
+            regNumber intArgReg = MapVarargsParamFloatRegToIntReg(argReg);
             GetEmitter()->emitIns_Mov(INS_movd, emitTypeSize(argNode->GetType()), intArgReg, argReg,
                                       /* canSkip */ false);
         }
@@ -5398,7 +5395,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
             }
         }
 
-#if FEATURE_VARARG && defined(TARGET_AMD64)
+#ifdef WINDOWS_AMD64_ABI
         // In case of a jmp call to a vararg method also pass the float/double arg in the corresponding int arg
         // register. This is due to the AMD64 ABI which requires floating point values passed to varargs functions to
         // be passed in both integer and floating point registers. It doesn't apply to x86, which passes floating point
@@ -5411,7 +5408,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 
             if (varTypeIsFloating(loadType))
             {
-                intArgReg = compiler->getCallArgIntRegister(argReg);
+                intArgReg = MapVarargsParamFloatRegToIntReg(argReg);
                 inst_Mov(TYP_LONG, intArgReg, argReg, /* canSkip */ false, emitActualTypeSize(loadType));
             }
             else
@@ -5427,10 +5424,10 @@ void CodeGen::genJmpMethod(GenTree* jmp)
                 firstArgVarNum = varNum;
             }
         }
-#endif // FEATURE_VARARG
+#endif // WINDOWS_AMD64_ABI
     }
 
-#if FEATURE_VARARG && defined(TARGET_AMD64)
+#ifdef WINDOWS_AMD64_ABI
     // Jmp call to a vararg method - if the method has fewer than 4 fixed arguments,
     // load the remaining arg registers (both int and float) from the corresponding
     // shadow stack slots.  This is for the reason that we don't know the number and type
@@ -5463,7 +5460,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
                     GetEmitter()->emitIns_R_S(INS_mov, EA_8BYTE, argReg, firstArgVarNum, argOffset);
 
                     // also load it in corresponding float arg reg
-                    regNumber floatReg = compiler->getCallArgFloatRegister(argReg);
+                    regNumber floatReg = MapVarargsParamIntRegToFloatReg(argReg);
                     inst_RV_RV(ins_Copy(argReg, TYP_DOUBLE), floatReg, argReg, TYP_I_IMPL);
                 }
 
@@ -5472,7 +5469,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
             GetEmitter()->emitEnableGC();
         }
     }
-#endif // FEATURE_VARARG
+#endif // WINDOWS_AMD64_ABI
 }
 
 void CodeGen::GenJmpEpilog(BasicBlock* block)
@@ -8387,13 +8384,13 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
 
         GetEmitter()->emitIns_R_S(load_ins, emitTypeSize(loadType), argReg, varNum, 0);
 
-#if FEATURE_VARARG
+#ifdef WINDOWS_AMD64_ABI
         if (compiler->info.compIsVarArgs && varTypeIsFloating(loadType))
         {
-            regNumber intArgReg = compiler->getCallArgIntRegister(argReg);
+            regNumber intArgReg = MapVarargsParamFloatRegToIntReg(argReg);
             inst_Mov(TYP_LONG, intArgReg, argReg, /* canSkip */ false, emitActualTypeSize(loadType));
         }
-#endif //  FEATURE_VARARG
+#endif // WINDOWS_AMD64_ABI
     }
 
     // If initReg is one of RBM_CALLEE_TRASH, then it needs to be zero'ed before using.

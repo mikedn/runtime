@@ -1690,55 +1690,6 @@ inline var_types Compiler::mangleVarArgsType(var_types type)
 }
 #endif // TARGET_ARMARCH
 
-// For CORECLR there is no vararg on System V systems.
-#if FEATURE_VARARG
-inline regNumber Compiler::getCallArgIntRegister(regNumber floatReg)
-{
-#ifdef TARGET_AMD64
-    switch (floatReg)
-    {
-        case REG_XMM0:
-            return REG_RCX;
-        case REG_XMM1:
-            return REG_RDX;
-        case REG_XMM2:
-            return REG_R8;
-        case REG_XMM3:
-            return REG_R9;
-        default:
-            unreached();
-    }
-#else  // !TARGET_AMD64
-    // How will float args be passed for RyuJIT/x86?
-    NYI("getCallArgIntRegister for RyuJIT/x86");
-    return REG_NA;
-#endif // !TARGET_AMD64
-}
-
-inline regNumber Compiler::getCallArgFloatRegister(regNumber intReg)
-{
-#ifdef TARGET_AMD64
-    switch (intReg)
-    {
-        case REG_RCX:
-            return REG_XMM0;
-        case REG_RDX:
-            return REG_XMM1;
-        case REG_R8:
-            return REG_XMM2;
-        case REG_R9:
-            return REG_XMM3;
-        default:
-            unreached();
-    }
-#else  // !TARGET_AMD64
-    // How will float args be passed for RyuJIT/x86?
-    NYI("getCallArgFloatRegister for RyuJIT/x86");
-    return REG_NA;
-#endif // !TARGET_AMD64
-}
-#endif // FEATURE_VARARG
-
 /*
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX

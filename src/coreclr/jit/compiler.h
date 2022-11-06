@@ -4295,18 +4295,10 @@ private:
     var_types mangleVarArgsType(var_types type);
 #endif
 
-#if FEATURE_VARARG
-    regNumber getCallArgIntRegister(regNumber floatReg);
-    regNumber getCallArgFloatRegister(regNumber intReg);
-#endif // FEATURE_VARARG
-
-#if defined(DEBUG)
-    static unsigned jitTotalMethodCompiled;
-#endif
-
 #ifdef DEBUG
-    static LONG jitNestingLevel;
-#endif // DEBUG
+    static unsigned jitTotalMethodCompiled;
+    static LONG     jitNestingLevel;
+#endif
 
     static GenTreeLclVar* impIsAddressInLocal(GenTree* tree);
     static GenTreeLclVarCommon* impIsLocalAddrExpr(GenTree* node);
