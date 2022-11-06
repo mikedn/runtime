@@ -1806,7 +1806,8 @@ unsigned Compiler::lvaLclSize(unsigned lclNum)
                 return lvaOutgoingArgSpaceSize.GetValue();
             }
 #endif
-            FALLTHROUGH;
+            return roundUp(lcl->lvExactSize, REGSIZE_BYTES);
+
         case TYP_STRUCT:
             return lcl->lvSize();
 
