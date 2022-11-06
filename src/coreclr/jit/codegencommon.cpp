@@ -6590,10 +6590,7 @@ void CodeGen::genFnProlog()
 
 void CodeGen::genFnEpilog(BasicBlock* block)
 {
-#ifdef DEBUG
-    if (verbose)
-        printf("*************** In genFnEpilog()\n");
-#endif // DEBUG
+    JITDUMP("*************** In genFnEpilog()\n");
 
     ScopedSetVariable<bool> _setGeneratingEpilog(&generatingEpilog, true);
 
@@ -6728,162 +6725,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
 
     if (jmpEpilog)
     {
-        SetHasTailCalls(true);
-
-        noway_assert(block->bbJumpKind == BBJ_RETURN);
-        noway_assert(block->GetFirstLIRNode() != nullptr);
-
-        /* figure out what jump we have */
-        GenTree* jmpNode = lastNode;
-#if !FEATURE_FASTTAILCALL
-        noway_assert(jmpNode->gtOper == GT_JMP);
-#else  // FEATURE_FASTTAILCALL
-        // armarch
-        // If jmpNode is GT_JMP then gtNext must be null.
-        // If jmpNode is a fast tail call, gtNext need not be null since it could have embedded stmts.
-        noway_assert((jmpNode->gtOper != GT_JMP) || (jmpNode->gtNext == nullptr));
-
-        // Could either be a "jmp method" or "fast tail call" implemented as epilog+jmp
-        noway_assert((jmpNode->gtOper == GT_JMP) ||
-                     ((jmpNode->gtOper == GT_CALL) && jmpNode->AsCall()->IsFastTailCall()));
-
-        // The next block is associated with this "if" stmt
-        if (jmpNode->gtOper == GT_JMP)
-#endif // FEATURE_FASTTAILCALL
-        {
-            // Simply emit a jump to the methodHnd. This is similar to a call so we can use
-            // the same descriptor with some minor adjustments.
-            assert(methHnd != nullptr);
-            assert(addrInfo.addr != nullptr);
-
-#ifdef TARGET_ARMARCH
-            emitter::EmitCallType callType;
-            void*                 addr;
-            regNumber             indCallReg;
-            switch (addrInfo.accessType)
-            {
-                case IAT_VALUE:
-                    if (validImmForBL((ssize_t)addrInfo.addr))
-                    {
-                        // Simple direct call
-                        callType   = emitter::EC_FUNC_TOKEN;
-                        addr       = addrInfo.addr;
-                        indCallReg = REG_NA;
-                        break;
-                    }
-
-                    // otherwise the target address doesn't fit in an immediate
-                    // so we have to burn a register...
-                    FALLTHROUGH;
-
-                case IAT_PVALUE:
-                    // Load the address into a register, load indirect and call  through a register
-                    // We have to use R12 since we assume the argument registers are in use
-                    callType   = emitter::EC_INDIR_R;
-                    indCallReg = REG_INDIRECT_CALL_TARGET_REG;
-                    addr       = NULL;
-                    instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, indCallReg, (ssize_t)addrInfo.addr);
-                    if (addrInfo.accessType == IAT_PVALUE)
-                    {
-                        GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, indCallReg, indCallReg, 0);
-                        regSet.verifyRegUsed(indCallReg);
-                    }
-                    break;
-
-                case IAT_RELPVALUE:
-                {
-                    // Load the address into a register, load relative indirect and call through a register
-                    // We have to use R12 since we assume the argument registers are in use
-                    // LR is used as helper register right before it is restored from stack, thus,
-                    // all relative address calculations are performed before LR is restored.
-                    callType   = emitter::EC_INDIR_R;
-                    indCallReg = REG_R12;
-                    addr       = NULL;
-
-                    regSet.verifyRegUsed(indCallReg);
-                    break;
-                }
-
-                case IAT_PPVALUE:
-                default:
-                    NO_WAY("Unsupported JMP indirection");
-            }
-
-            /* Simply emit a jump to the methodHnd. This is similar to a call so we can use
-             * the same descriptor with some minor adjustments.
-             */
-
-            // clang-format off
-            GetEmitter()->emitIns_Call(callType,
-                                       methHnd
-                                       DEBUGARG(nullptr),
-                                       addr,
-                                       0,          // argSize
-                                       EA_UNKNOWN, // retSize
-#ifdef TARGET_ARM64
-                                       EA_UNKNOWN, // secondRetSize
-#endif
-                                       gcInfo.gcVarPtrSetCur,
-                                       gcInfo.gcRegGCrefSetCur,
-                                       gcInfo.gcRegByrefSetCur,
-                                       BAD_IL_OFFSET, // IL offset
-                                       indCallReg,    // ireg
-#ifdef TARGET_XARCH
-                                       REG_NA,        // xreg
-                                       0,             // xmul
-                                       0,             // disp
-#endif
-                                       true);         // isJump
-            // clang-format on
-            CLANG_FORMAT_COMMENT_ANCHOR;
-#endif // TARGET_ARMARCH
-        }
-#if FEATURE_FASTTAILCALL
-        else
-        {
-            // Fast tail call.
-            GenTreeCall* call = jmpNode->AsCall();
-
-            assert(!call->IsHelperCall());
-
-            // Try to dispatch this as a direct branch; this is possible when the call is
-            // truly direct. In this case, the control expression will be null and the direct
-            // target address will be in gtDirectCallAddress. It is still possible that calls
-            // to user funcs require indirection, in which case the control expression will
-            // be non-null.
-            if (call->IsUserCall() && (call->gtControlExpr == nullptr))
-            {
-                assert(call->GetMethodHandle() != nullptr);
-
-                // clang-format off
-                GetEmitter()->emitIns_Call(emitter::EC_FUNC_TOKEN,
-                                           call->GetMethodHandle()
-                                           DEBUGARG(nullptr),
-                                           call->gtDirectCallAddress,
-                                           0,          // argSize
-                                           EA_UNKNOWN  // retSize
-                                           ARM64_ARG(EA_UNKNOWN), // secondRetSize
-                                           gcInfo.gcVarPtrSetCur,
-                                           gcInfo.gcRegGCrefSetCur,
-                                           gcInfo.gcRegByrefSetCur,
-                                           BAD_IL_OFFSET, // IL offset
-                                           REG_NA,        // ireg
-#ifdef TARGET_XARCH
-                                           REG_NA,        // xreg
-                                           0,             // xmul
-                                           0,             // disp
-#endif
-                                           true);         // isJump
-                // clang-format on
-            }
-            else
-            {
-                // Target requires indirection to obtain. genCallInstruction will have materialized
-                // it into REG_FASTTAILCALL_TARGET already, so just branch to it.
-                GetEmitter()->emitIns_R(INS_br, EA_PTRSIZE, REG_FASTTAILCALL_TARGET);
-            }
-        }
-#endif // FEATURE_FASTTAILCALL
+        GenJmpEpilog(block, methHnd, addrInfo);
     }
     else
     {
@@ -6908,12 +6750,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
 
 void CodeGen::genFnEpilog(BasicBlock* block)
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In genFnEpilog()\n");
-    }
-#endif
+    JITDUMP("*************** In genFnEpilog()\n");
 
     ScopedSetVariable<bool> _setGeneratingEpilog(&generatingEpilog, true);
 
@@ -7188,157 +7025,25 @@ void CodeGen::genFnEpilog(BasicBlock* block)
 
     GetEmitter()->emitStartExitSeq(); // Mark the start of the "return" sequence
 
-    /* Check if this a special return block i.e.
-     * CEE_JMP instruction */
-
     if (jmpEpilog)
     {
-        noway_assert(block->bbJumpKind == BBJ_RETURN);
-        noway_assert(block->GetFirstLIRNode());
+        GenJmpEpilog(block);
 
-        // figure out what jump we have
-        GenTree* jmpNode = block->lastNode();
-#if !FEATURE_FASTTAILCALL
-        // x86
-        noway_assert(jmpNode->gtOper == GT_JMP);
+        return;
+    }
+
+#ifndef TARGET_X86
+    instGen(INS_ret);
 #else
-        // amd64
-        // If jmpNode is GT_JMP then gtNext must be null.
-        // If jmpNode is a fast tail call, gtNext need not be null since it could have embedded stmts.
-        noway_assert((jmpNode->gtOper != GT_JMP) || (jmpNode->gtNext == nullptr));
-
-        // Could either be a "jmp method" or "fast tail call" implemented as epilog+jmp
-        noway_assert((jmpNode->gtOper == GT_JMP) ||
-                     ((jmpNode->gtOper == GT_CALL) && jmpNode->AsCall()->IsFastTailCall()));
-
-        // The next block is associated with this "if" stmt
-        if (jmpNode->gtOper == GT_JMP)
-#endif
-        {
-            // Simply emit a jump to the methodHnd. This is similar to a call so we can use
-            // the same descriptor with some minor adjustments.
-            CORINFO_METHOD_HANDLE methHnd = (CORINFO_METHOD_HANDLE)jmpNode->AsVal()->gtVal1;
-
-            CORINFO_CONST_LOOKUP addrInfo;
-            compiler->info.compCompHnd->getFunctionEntryPoint(methHnd, &addrInfo);
-            if (addrInfo.accessType != IAT_VALUE && addrInfo.accessType != IAT_PVALUE)
-            {
-                NO_WAY("Unsupported JMP indirection");
-            }
-
-            // If we have IAT_PVALUE we might need to jump via register indirect, as sometimes the
-            // indirection cell can't be reached by the jump.
-            emitter::EmitCallType callType;
-            void*                 addr;
-            regNumber             indCallReg;
-
-            if (addrInfo.accessType == IAT_PVALUE)
-            {
-                if (genCodeIndirAddrCanBeEncodedAsPCRelOffset((size_t)addrInfo.addr))
-                {
-                    // 32 bit displacement will work
-                    callType   = emitter::EC_FUNC_TOKEN_INDIR;
-                    addr       = addrInfo.addr;
-                    indCallReg = REG_NA;
-                }
-                else
-                {
-                    // 32 bit displacement won't work
-                    callType   = emitter::EC_INDIR_ARD;
-                    indCallReg = REG_RAX;
-                    addr       = nullptr;
-                    instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, indCallReg, (ssize_t)addrInfo.addr);
-                    regSet.verifyRegUsed(indCallReg);
-                }
-            }
-            else
-            {
-                callType   = emitter::EC_FUNC_TOKEN;
-                addr       = addrInfo.addr;
-                indCallReg = REG_NA;
-            }
-
-            // clang-format off
-            GetEmitter()->emitIns_Call(callType,
-                                       methHnd
-                                       DEBUGARG(nullptr),
-                                       addr,
-                                       0,                                                      // argSize
-                                       EA_UNKNOWN                                              // retSize
-                                       MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(EA_UNKNOWN),        // secondRetSize
-                                       gcInfo.gcVarPtrSetCur,
-                                       gcInfo.gcRegGCrefSetCur,
-                                       gcInfo.gcRegByrefSetCur,
-                                       BAD_IL_OFFSET, indCallReg, REG_NA, 0, 0,  /* iloffset, ireg, xreg, xmul, disp */
-                                       true /* isJump */
-            );
-            // clang-format on
-        }
-#if FEATURE_FASTTAILCALL
-        else
-        {
-#ifdef TARGET_AMD64
-            // Fast tail call.
-            GenTreeCall* call = jmpNode->AsCall();
-
-            assert(!call->IsHelperCall());
-
-            // Calls to a user func can be dispatched as an RIP-relative jump when they are
-            // truly direct; in this case, the control expression will be null and the direct
-            // target address will be in gtDirectCallAddress. It is still possible that calls
-            // to user funcs require indirection, in which case the control expression will
-            // be non-null.
-            if (call->IsUserCall() && (call->gtControlExpr == nullptr))
-            {
-                assert(call->GetMethodHandle() != nullptr);
-
-                // clang-format off
-                GetEmitter()->emitIns_Call(
-                        emitter::EC_FUNC_TOKEN,
-                        call->GetMethodHandle()
-                        DEBUGARG(nullptr),
-                        call->gtDirectCallAddress,
-                        0,                                              // argSize
-                        EA_UNKNOWN                                      // retSize
-                        MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(EA_UNKNOWN),// secondRetSize
-                        gcInfo.gcVarPtrSetCur,
-                        gcInfo.gcRegGCrefSetCur,
-                        gcInfo.gcRegByrefSetCur,
-                        BAD_IL_OFFSET, REG_NA, REG_NA, 0, 0,  /* iloffset, ireg, xreg, xmul, disp */
-                        true /* isJump */
-                );
-                // clang-format on
-            }
-            else
-            {
-                // Target requires indirection to obtain. genCallInstruction will have materialized
-                // it into RAX already, so just jump to it. The stack walker requires that a register
-                // indirect tail call be rex.w prefixed.
-                GetEmitter()->emitIns_R(INS_rex_jmp, EA_PTRSIZE, REG_RAX);
-            }
-
-#else
-            assert(!"Fast tail call as epilog+jmp");
-            unreached();
-#endif // TARGET_AMD64
-        }
-#endif // FEATURE_FASTTAILCALL
+    if ((paramsStackSize == 0) || compiler->info.compIsVarArgs || IsCallerPop(compiler->info.compCallConv))
+    {
+        instGen(INS_ret);
     }
     else
     {
-#ifndef TARGET_X86
-        instGen(INS_ret);
-#else
-        if ((paramsStackSize == 0) || compiler->info.compIsVarArgs || IsCallerPop(compiler->info.compCallConv))
-        {
-            instGen(INS_ret);
-        }
-        else
-        {
-            GetEmitter()->emitIns_I(INS_ret, EA_4BYTE, paramsStackSize);
-        }
-#endif // TARGET_X86
+        GetEmitter()->emitIns_I(INS_ret, EA_4BYTE, paramsStackSize);
     }
+#endif // TARGET_X86
 }
 
 #else // TARGET*
