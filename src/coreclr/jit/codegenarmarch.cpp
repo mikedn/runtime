@@ -2886,13 +2886,16 @@ void CodeGen::GenJmp(GenTree* jmp)
 
         if (lcl->IsRegParam())
         {
-            regNumber reg = lcl->GetParamReg();
-            assert(isValidIntArgReg(reg));
-            varargsIntRegMask &= ~genRegMask(reg);
+            for (unsigned i = 0; i < lcl->GetParamRegCount(); i++)
+            {
+                regNumber reg = lcl->GetParamReg(i);
+                assert(isValidIntArgReg(reg));
+                varargsIntRegMask &= ~genRegMask(reg);
+            }
 
             if (firstRegParamLclNum == BAD_VAR_NUM)
             {
-                assert(reg == REG_R0);
+                assert(lcl->GetParamReg(0) == REG_R0);
                 firstRegParamLclNum = lclNum;
             }
         }
