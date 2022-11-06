@@ -5370,7 +5370,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
             if (varTypeIsFloating(type))
             {
                 intArgReg = MapVarargsParamFloatRegToIntReg(reg);
-                inst_Mov(TYP_LONG, intArgReg, reg, /* canSkip */ false, emitTypeSize(type));
+                GetEmitter()->emitIns_Mov(INS_movd, emitTypeSize(type), intArgReg, reg, /*canSkip*/ false);
             }
             else
             {
@@ -5410,23 +5410,21 @@ void CodeGen::genJmpMethod(GenTree* jmp)
         if (remainingIntArgMask != RBM_NONE)
         {
             GetEmitter()->emitDisableGC();
-            for (int argNum = 0, argOffset = 0; argNum < MAX_REG_ARG; ++argNum)
-            {
-                regNumber argReg     = intArgRegs[argNum];
-                regMaskTP argRegMask = genRegMask(argReg);
 
-                if ((remainingIntArgMask & argRegMask) != 0)
+            for (int argNum = 0; argNum < MAX_REG_ARG; ++argNum)
+            {
+                regNumber argReg = intArgRegs[argNum];
+
+                if ((remainingIntArgMask & genRegMask(argReg)) != 0)
                 {
-                    remainingIntArgMask &= ~argRegMask;
-                    GetEmitter()->emitIns_R_S(INS_mov, EA_8BYTE, argReg, firstArgVarNum, argOffset);
+                    GetEmitter()->emitIns_R_S(INS_mov, EA_8BYTE, argReg, firstArgVarNum, argNum * REGSIZE_BYTES);
 
                     // also load it in corresponding float arg reg
                     regNumber floatReg = MapVarargsParamIntRegToFloatReg(argReg);
-                    inst_RV_RV(ins_Copy(argReg, TYP_DOUBLE), floatReg, argReg, TYP_I_IMPL);
+                    GetEmitter()->emitIns_Mov(INS_movd, EA_8BYTE, floatReg, argReg, /*canSkip*/ false);
                 }
-
-                argOffset += REGSIZE_BYTES;
             }
+
             GetEmitter()->emitEnableGC();
         }
     }
