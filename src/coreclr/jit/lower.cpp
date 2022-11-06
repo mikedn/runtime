@@ -4688,17 +4688,7 @@ void Lowering::CheckAllLocalsImplicitlyReferenced()
         assert(!lcl->lvMustInit);
     }
 }
-#endif // DEBUG
 
-#ifdef DEBUG
-
-//------------------------------------------------------------------------
-// Lowering::CheckCallArg: check that a call argument is in an expected
-//                         form after lowering.
-//
-// Arguments:
-//   arg - the argument to check.
-//
 void Lowering::CheckCallArg(GenTree* arg)
 {
     if (!arg->IsValue() && !arg->OperIsPutArgStk())
@@ -4727,15 +4717,6 @@ void Lowering::CheckCallArg(GenTree* arg)
     }
 }
 
-//------------------------------------------------------------------------
-// Lowering::CheckCall: check that a call is in an expected form after
-//                      lowering. Currently this amounts to checking its
-//                      arguments, but could be expanded to verify more
-//                      properties in the future.
-//
-// Arguments:
-//   call - the call to check.
-//
 void Lowering::CheckCall(GenTreeCall* call)
 {
     if (call->gtCallThisArg != nullptr)
@@ -4754,15 +4735,7 @@ void Lowering::CheckCall(GenTreeCall* call)
     }
 }
 
-//------------------------------------------------------------------------
-// Lowering::CheckNode: check that an LIR node is in an expected form
-//                      after lowering.
-//
-// Arguments:
-//   compiler - the compiler context.
-//   node - the node to check.
-//
-void Lowering::CheckNode(Compiler* compiler, GenTree* node)
+void Lowering::CheckNode(GenTree* node)
 {
     switch (node->OperGet())
     {
@@ -4774,28 +4747,22 @@ void Lowering::CheckNode(Compiler* compiler, GenTree* node)
         case GT_HWINTRINSIC:
             assert(!node->TypeIs(TYP_SIMD12));
             break;
-#endif // FEATURE_SIMD
+#endif
 
         case GT_LCL_VAR:
         case GT_STORE_LCL_VAR:
         {
-            LclVarDsc* lcl = compiler->lvaGetDesc(node->AsLclVar());
-#if defined(FEATURE_SIMD) && defined(TARGET_64BIT)
-            if (node->TypeIs(TYP_SIMD12))
-            {
-                assert(lcl->IsDependentPromotedField(compiler) || (lcl->lvSize() == 12));
-            }
-#endif // FEATURE_SIMD && TARGET_64BIT
-            if (lcl->lvPromoted)
-            {
-                assert(lcl->lvDoNotEnregister || lcl->lvIsMultiRegRet);
-            }
+            LclVarDsc* lcl = comp->lvaGetDesc(node->AsLclVar());
+#ifdef FEATURE_SIMD
+            assert(!node->TypeIs(TYP_SIMD12) || !CanWidenSimd12ToSimd16(lcl));
+#endif
+            assert(!lcl->IsPromoted() || lcl->lvDoNotEnregister || lcl->lvIsMultiRegRet);
         }
         break;
 
         case GT_LCL_VAR_ADDR:
         case GT_LCL_FLD_ADDR:
-            assert(compiler->lvaGetDesc(node->AsLclVarCommon())->IsAddressExposed());
+            assert(comp->lvaGetDesc(node->AsLclVarCommon())->IsAddressExposed());
             break;
 
         case GT_PHI:
@@ -4805,7 +4772,7 @@ void Lowering::CheckNode(Compiler* compiler, GenTree* node)
 
         case GT_LCL_FLD:
         case GT_STORE_LCL_FLD:
-            assert(compiler->lvaGetDesc(node->AsLclFld())->lvDoNotEnregister);
+            assert(comp->lvaGetDesc(node->AsLclFld())->lvDoNotEnregister);
             break;
 
         default:
@@ -4813,27 +4780,19 @@ void Lowering::CheckNode(Compiler* compiler, GenTree* node)
     }
 }
 
-//------------------------------------------------------------------------
-// Lowering::CheckBlock: check that the contents of an LIR block are in an
-//                       expected form after lowering.
-//
-// Arguments:
-//   compiler - the compiler context.
-//   block    - the block to check.
-//
-bool Lowering::CheckBlock(Compiler* compiler, BasicBlock* block)
+bool Lowering::CheckBlock(BasicBlock* block)
 {
     assert(block->isEmpty() || block->IsLIR());
 
     for (GenTree* node : LIR::AsRange(block))
     {
-        CheckNode(compiler, node);
+        CheckNode(node);
     }
 
-    assert(LIR::AsRange(block).CheckLIR(compiler, true));
+    assert(LIR::AsRange(block).CheckLIR(comp, true));
     return true;
 }
-#endif
+#endif // DEBUG
 
 //------------------------------------------------------------------------
 // Lowering::LowerBlock: Lower all the nodes in a BasicBlock
@@ -4861,7 +4820,7 @@ void Lowering::LowerBlock(BasicBlock* block)
         node = LowerNode(node);
     }
 
-    assert(CheckBlock(comp, block));
+    assert(CheckBlock(block));
 }
 
 #if FEATURE_MULTIREG_RET

@@ -81,10 +81,10 @@ private:
 #endif // FEATURE_HW_INTRINSICS
 
 #ifdef DEBUG
-    static void CheckCallArg(GenTree* arg);
-    static void CheckCall(GenTreeCall* call);
-    static void CheckNode(Compiler* compiler, GenTree* node);
-    static bool CheckBlock(Compiler* compiler, BasicBlock* block);
+    void CheckCallArg(GenTree* arg);
+    void CheckCall(GenTreeCall* call);
+    void CheckNode(GenTree* node);
+    bool CheckBlock(BasicBlock* block);
 #endif // DEBUG
 
     void LowerBlock(BasicBlock* block);
