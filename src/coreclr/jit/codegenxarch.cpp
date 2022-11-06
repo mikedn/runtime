@@ -5331,7 +5331,7 @@ void CodeGen::genJmpMethod(GenTree* jmp)
         // assigned registers and param registers and potential circular dependencies.
         noway_assert(varDsc->lvDoNotEnregister);
 
-#if defined(UNIX_AMD64_ABI)
+#ifdef UNIX_AMD64_ABI
         if (varTypeIsStruct(varDsc->GetType()))
         {
             assert(varDsc->GetLayout()->GetSysVAmd64AbiRegCount() != 0);
@@ -5346,16 +5346,18 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 
             var_types type = varActualType(varDsc->GetLayout()->GetSysVAmd64AbiRegType(0));
             regNumber reg  = varDsc->GetParamReg(0);
+
             GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, varNum, 0);
-            regSet.SetMaskVars(regSet.GetMaskVars() | genRegMask(reg));
+            regSet.AddMaskVars(genRegMask(reg));
             gcInfo.gcMarkRegPtrVal(reg, type);
 
             if (varDsc->GetLayout()->GetSysVAmd64AbiRegCount() > 1)
             {
                 type = varActualType(varDsc->GetLayout()->GetSysVAmd64AbiRegType(1));
                 reg  = varDsc->GetParamReg(1);
+
                 GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, varNum, 8);
-                regSet.SetMaskVars(regSet.GetMaskVars() | genRegMask(reg));
+                regSet.AddMaskVars(genRegMask(reg));
                 gcInfo.gcMarkRegPtrVal(reg, type);
             }
 
@@ -5367,48 +5369,32 @@ void CodeGen::genJmpMethod(GenTree* jmp)
         else
 #endif // !defined(UNIX_AMD64_ABI)
         {
-            // Is register argument already in the right register?
-            // If not load it from its stack location.
-            var_types loadType = varDsc->lvaArgType();
+            var_types type = varDsc->lvaArgType();
 
 #ifdef TARGET_X86
             if (varTypeIsStruct(varDsc->TypeGet()))
             {
                 // Treat trivial pointer-sized structs as a pointer sized primitive
                 // for the purposes of registers.
-                loadType = TYP_I_IMPL;
+                type = TYP_INT;
             }
 #endif
 
-            regNumber argReg = varDsc->GetParamReg();
+            regNumber reg = varDsc->GetParamReg();
+            assert(genIsValidReg(reg));
+            GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, varNum, 0);
 
-            if (varDsc->GetRegNum() != argReg)
+            // Update argReg life and GC Info to indicate varDsc stack slot is dead and argReg is going live.
+            // Note that we cannot modify varDsc->GetRegNum() here because another basic block may not be
+            // expecting it. Therefore manually update life of argReg.  Note that GT_JMP marks the end of the
+            // basic block and after which reg life and gc info will be recomputed for the new block in
+            // genCodeForBBList().
+            regSet.AddMaskVars(genRegMask(reg));
+            gcInfo.gcMarkRegPtrVal(reg, type);
+
+            if (compiler->lvaIsGCTracked(varDsc))
             {
-                assert(genIsValidReg(argReg));
-                GetEmitter()->emitIns_R_S(ins_Load(loadType), emitTypeSize(loadType), argReg, varNum, 0);
-
-                // Update argReg life and GC Info to indicate varDsc stack slot is dead and argReg is going live.
-                // Note that we cannot modify varDsc->GetRegNum() here because another basic block may not be
-                // expecting it. Therefore manually update life of argReg.  Note that GT_JMP marks the end of the
-                // basic block and after which reg life and gc info will be recomputed for the new block in
-                // genCodeForBBList().
-                regSet.AddMaskVars(genRegMask(argReg));
-                gcInfo.gcMarkRegPtrVal(argReg, loadType);
-                if (compiler->lvaIsGCTracked(varDsc))
-                {
-#ifdef DEBUG
-                    if (VarSetOps::IsMember(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex))
-                    {
-                        JITDUMP("V%02u becoming dead\n", varNum);
-                    }
-                    else
-                    {
-                        JITDUMP("V%02u continuing dead\n", varNum);
-                    }
-#endif // DEBUG
-
-                    VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex);
-                }
+                VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex);
             }
         }
 

@@ -1037,7 +1037,7 @@ bool ClassLayout::AreCompatible(const ClassLayout* layout1, const ClassLayout* l
 
 #ifdef TARGET_X86
 
-// Check if the given struct type contains only one pointer-sized integer value type.
+// Check if the given struct type contains only one INT field.
 bool Compiler::isTrivialPointerSizedStruct(ClassLayout* layout) const
 {
     assert(layout->IsValueClass());
