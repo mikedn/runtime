@@ -981,10 +981,6 @@ public:
                !(lvIsParam || lvAddrExposed || lvIsStructField);
     }
 
-#ifdef TARGET_XARCH
-    var_types lvaArgType();
-#endif
-
     // Returns true if this variable contains GC pointers (including being a GC pointer itself).
     bool HasGCPtr() const
     {

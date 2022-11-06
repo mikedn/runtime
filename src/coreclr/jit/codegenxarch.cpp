@@ -5243,42 +5243,6 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 #endif
 }
 
-var_types LclVarDsc::lvaArgType()
-{
-    var_types type = lvType;
-
-#ifdef TARGET_AMD64
-    // TODO-MIKE-Review: Shouldn't this check for SIMD12/16/32? They're passed by ref.
-    if (type == TYP_STRUCT)
-    {
-#ifdef UNIX_AMD64_ABI
-        unreached();
-#else
-        switch (m_layout->GetSize())
-        {
-            case 1:
-                type = TYP_BYTE;
-                break;
-            case 2:
-                type = TYP_SHORT;
-                break;
-            case 4:
-                type = TYP_INT;
-                break;
-            case 8:
-                type = m_layout->GetGCPtrType(0);
-                break;
-            default:
-                type = TYP_BYREF;
-                break;
-        }
-#endif
-    }
-#endif // TARGET_AMD64
-
-    return type;
-}
-
 // Produce code for a GT_JMP node.
 // The arguments of the caller needs to be transferred to the callee before exiting caller.
 // The actual jump to callee is generated as part of caller epilog sequence.
@@ -8270,8 +8234,7 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
         return;
     }
 
-#if !defined(UNIX_AMD64_ABI)
-
+#ifdef WINDOWS_AMD64_ABI
     unsigned   varNum;
     LclVarDsc* varDsc;
 
@@ -8297,19 +8260,17 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
                 continue;
             }
 
-            var_types storeType = varDsc->lvaArgType();
-            regNumber argReg    = varDsc->GetParamReg();
+            var_types type = varActualType(varDsc->GetType());
+            regNumber reg  = varDsc->GetParamReg();
 
-            instruction store_ins = ins_Store(storeType);
-
-#ifdef FEATURE_SIMD
-            if ((storeType == TYP_SIMD8) && genIsValidIntReg(argReg))
+            if (varTypeIsStruct(type))
             {
-                store_ins = INS_mov;
-            }
-#endif // FEATURE_SIMD
+                assert(isValidIntArgReg(reg));
 
-            GetEmitter()->emitIns_S_R(store_ins, emitTypeSize(storeType), argReg, varNum, 0);
+                type = varDsc->GetLayout()->GetSize() <= 4 ? TYP_INT : varDsc->GetLayout()->GetGCPtrType(0);
+            }
+
+            GetEmitter()->emitIns_S_R(ins_Store(type), emitTypeSize(type), reg, varNum, 0);
         }
     }
 
@@ -8367,27 +8328,23 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
             continue;
         }
 
-        var_types loadType = varDsc->lvaArgType();
-        regNumber argReg   = varDsc->GetParamReg();
+        var_types type = varActualType(varDsc->GetType());
+        regNumber reg  = varDsc->GetParamReg();
 
-        instruction load_ins = ins_Load(loadType);
-
-#ifdef FEATURE_SIMD
-        if ((loadType == TYP_SIMD8) && genIsValidIntReg(argReg))
+        if (varTypeIsStruct(type))
         {
-            load_ins = INS_mov;
+            assert(isValidIntArgReg(reg));
+
+            type = varDsc->GetLayout()->GetSize() <= 4 ? TYP_INT : varDsc->GetLayout()->GetGCPtrType(0);
         }
-#endif // FEATURE_SIMD
 
-        GetEmitter()->emitIns_R_S(load_ins, emitTypeSize(loadType), argReg, varNum, 0);
+        GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, varNum, 0);
 
-#ifdef WINDOWS_AMD64_ABI
-        if (compiler->info.compIsVarArgs && varTypeIsFloating(loadType))
+        if (compiler->info.compIsVarArgs && varTypeIsFloating(type))
         {
-            regNumber intArgReg = MapVarargsParamFloatRegToIntReg(argReg);
-            inst_Mov(TYP_LONG, intArgReg, argReg, /* canSkip */ false, emitActualTypeSize(loadType));
+            regNumber intArgReg = MapVarargsParamFloatRegToIntReg(reg);
+            inst_Mov(TYP_LONG, intArgReg, reg, /* canSkip */ false, emitActualTypeSize(type));
         }
-#endif // WINDOWS_AMD64_ABI
     }
 
     // If initReg is one of RBM_CALLEE_TRASH, then it needs to be zero'ed before using.
@@ -8396,7 +8353,7 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
         *pInitRegZeroed = false;
     }
 
-#else // !defined(UNIX_AMD64_ABI)
+#else // UNIX_AMD64_ABI
 
     // Emit profiler EnterCallback(ProfilerMethHnd, caller's SP)
     // R14 = ProfilerMethHnd
@@ -8442,7 +8399,7 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
         *pInitRegZeroed = false;
     }
 
-#endif // !defined(UNIX_AMD64_ABI)
+#endif // UNIX_AMD64_ABI
 }
 
 //-----------------------------------------------------------------------------------
