@@ -5,13 +5,12 @@
 
 struct ParamAllocInfo
 {
-    unsigned lclNum        = 0;
-    unsigned stackOffset   = 0;
-    unsigned intRegIndex   = 0;
-    unsigned floatRegIndex = 0;
-    unsigned intRegCount;
-    unsigned floatRegCount;
-
+    const unsigned intRegCount;
+    const unsigned floatRegCount;
+    unsigned       lclNum        = 0;
+    unsigned       intRegIndex   = 0;
+    unsigned       floatRegIndex = 0;
+    unsigned       stackOffset   = 0;
 #ifdef TARGET_ARM
     regMaskTP doubleAlignMask   = RBM_NONE;
     regMaskTP floatAlignPadMask = RBM_NONE;
