@@ -976,7 +976,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
             regType = TYP_INT;
 
             if (!paramInfo.CanEnregister(TYP_INT, regCount) && paramInfo.CanEnregister(TYP_INT) &&
-                !paramInfo.HasFloatStackParams())
+                (paramInfo.stackOffset == 0))
             {
                 minRegCount = 1;
             }

@@ -13,9 +13,8 @@ struct ParamAllocInfo
     unsigned floatRegCount;
 
 #ifdef TARGET_ARM
-    regMaskTP doubleAlignMask     = RBM_NONE;
-    regMaskTP floatAlignPadMask   = RBM_NONE;
-    bool      hasFloatStackParams = false;
+    regMaskTP doubleAlignMask   = RBM_NONE;
+    regMaskTP floatAlignPadMask = RBM_NONE;
 #endif
 
 public:
@@ -102,11 +101,6 @@ public:
 
         return 1;
     }
-
-    bool HasFloatStackParams() const
-    {
-        return hasFloatStackParams;
-    }
 #endif // TARGET_ARM
 
 #ifdef TARGET_ARMARCH
@@ -117,8 +111,7 @@ public:
 #ifdef TARGET_ARM
         if (varTypeIsFloating(type))
         {
-            hasFloatStackParams = true;
-            floatAlignPadMask   = RBM_NONE;
+            floatAlignPadMask = RBM_NONE;
         }
 #endif
     }
