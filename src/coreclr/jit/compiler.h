@@ -4118,35 +4118,6 @@ public:
 
     bool lvaIsGCTracked(const LclVarDsc* varDsc);
 
-#if defined(FEATURE_SIMD)
-    bool lvaMapSimd12ToSimd16(const LclVarDsc* varDsc)
-    {
-        assert(varDsc->TypeIs(TYP_SIMD12));
-        assert(varDsc->GetSize() == 12);
-#if defined(TARGET_64BIT) && !defined(OSX_ARM64_ABI)
-        assert(varDsc->lvSize() == 16);
-#endif
-
-        // We make local variable SIMD12 types 16 bytes instead of just 12.
-        // lvSize() will return 16 bytes for SIMD12, even for fields.
-        // However, we can't do that mapping if the var is a dependently promoted struct field.
-        // Such a field must remain its exact size within its parent struct unless it is a single
-        // field *and* it is the only field in a struct of 16 bytes.
-        if (varDsc->lvSize() != 16)
-        {
-            return false;
-        }
-
-        if (varDsc->IsDependentPromotedField(this))
-        {
-            LclVarDsc* parentLcl = lvaGetDesc(varDsc->GetPromotedFieldParentLclNum());
-            return (parentLcl->GetPromotedFieldCount() == 1) && (parentLcl->lvSize() == 16);
-        }
-
-        return true;
-    }
-#endif // defined(FEATURE_SIMD)
-
     unsigned lvaGSSecurityCookie = BAD_VAR_NUM; // LclVar number
     bool     lvaTempsHaveLargerOffsetThanVars();
 

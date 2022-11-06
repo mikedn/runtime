@@ -223,6 +223,7 @@ private:
 
 #ifdef FEATURE_SIMD
     void WidenSIMD12IfNecessary(GenTreeLclVar* node);
+    bool CanWidenSimd12ToSimd16(const LclVarDsc* lcl);
 #endif
 #if FEATURE_MULTIREG_RET
     void MakeMultiRegStoreLclVar(GenTreeLclVar* store, GenTree* value);

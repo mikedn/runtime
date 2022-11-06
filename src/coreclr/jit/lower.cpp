@@ -4405,7 +4405,7 @@ void Lowering::WidenSIMD12IfNecessary(GenTreeLclVar* node)
     // as a return buffer pointer. The callee doesn't write the high 4 bytes, and we don't need to clear
     // it either.
 
-    if (comp->lvaMapSimd12ToSimd16(comp->lvaGetDesc(node)))
+    if (CanWidenSimd12ToSimd16(comp->lvaGetDesc(node)))
     {
         JITDUMP("Mapping TYP_SIMD12 lclvar node to TYP_SIMD16:\n");
         DISPNODE(node);
@@ -4413,6 +4413,33 @@ void Lowering::WidenSIMD12IfNecessary(GenTreeLclVar* node)
 
         node->SetType(TYP_SIMD16);
     }
+}
+
+bool Lowering::CanWidenSimd12ToSimd16(const LclVarDsc* lcl)
+{
+    assert(lcl->TypeIs(TYP_SIMD12));
+    assert(lcl->GetSize() == 12);
+#if defined(TARGET_64BIT) && !defined(OSX_ARM64_ABI)
+    assert(lcl->lvSize() == 16);
+#endif
+
+    // We make local variable SIMD12 types 16 bytes instead of just 12.
+    // lvSize() will return 16 bytes for SIMD12, even for fields.
+    // However, we can't do that mapping if the var is a dependently promoted struct field.
+    // Such a field must remain its exact size within its parent struct unless it is a single
+    // field *and* it is the only field in a struct of 16 bytes.
+    if (lcl->lvSize() != 16)
+    {
+        return false;
+    }
+
+    if (lcl->IsDependentPromotedField(comp))
+    {
+        LclVarDsc* parentLcl = comp->lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
+        return (parentLcl->GetPromotedFieldCount() == 1) && (parentLcl->lvSize() == 16);
+    }
+
+    return true;
 }
 #endif // FEATURE_SIMD
 
