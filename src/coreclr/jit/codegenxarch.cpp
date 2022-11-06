@@ -5266,8 +5266,6 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 
     // Move any register parameters back to their register.
 
-    regMaskTP fixedIntArgMask = RBM_NONE; // tracks the int arg regs occupying fixed args in case of a vararg method.
-
     for (unsigned varNum = 0; varNum < compiler->info.compArgsCount; varNum++)
     {
         LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
@@ -5351,68 +5349,67 @@ void CodeGen::genJmpMethod(GenTree* jmp)
         {
             VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, varDsc->lvVarIndex);
         }
-
-#ifdef WINDOWS_AMD64_ABI
-        // FLOAT/DOUBLE args also need to be loaded in the corresponding integer registers for win-x64 varargs.
-        if (compiler->info.compIsVarArgs)
-        {
-            regNumber intArgReg;
-
-            if (varTypeIsFloating(type))
-            {
-                intArgReg = MapVarargsParamFloatRegToIntReg(reg);
-                GetEmitter()->emitIns_Mov(INS_movd, emitTypeSize(type), intArgReg, reg, /*canSkip*/ false);
-            }
-            else
-            {
-                intArgReg = reg;
-            }
-
-            fixedIntArgMask |= genRegMask(intArgReg);
-        }
-#endif // WINDOWS_AMD64_ABI
     }
 
 #ifdef WINDOWS_AMD64_ABI
+    if (!compiler->info.compIsVarArgs)
+    {
+        return;
+    }
+
     // Jmp call to a vararg method - if the method has fewer than 4 fixed arguments,
     // load the remaining arg registers (both int and float) from the corresponding
     // shadow stack slots.  This is for the reason that we don't know the number and type
     // of non-fixed params passed by the caller, therefore we have to assume the worst case
     // of caller passing float/double args both in int and float arg regs.
     //
-    // This doesn't apply to x86, which doesn't pass floating point values in floating
-    // point registers.
-    //
     // The caller could have passed gc-ref/byref type var args.  Since these are var args
     // the callee no way of knowing their gc-ness.  Therefore, mark the region that loads
     // remaining arg registers from shadow stack slots as non-gc interruptible.
-    if (fixedIntArgMask != RBM_NONE)
+
+    regMaskTP varargsIntRegMask = RBM_ARG_REGS;
+
+    for (unsigned lclNum = 0; lclNum < compiler->info.compArgsCount; lclNum++)
     {
-        assert(compiler->info.compIsVarArgs);
-        assert(compiler->lvaGetDesc(0u)->GetParamReg() == REG_RCX);
+        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
 
-        regMaskTP remainingIntArgMask = RBM_ARG_REGS & ~fixedIntArgMask;
-        if (remainingIntArgMask != RBM_NONE)
+        if (lcl->IsRegParam())
         {
-            GetEmitter()->emitDisableGC();
+            regNumber reg = lcl->GetParamReg();
 
-            for (int argNum = 0; argNum < MAX_REG_ARG; ++argNum)
+            if (emitter::isFloatReg(reg))
             {
-                regNumber argReg = intArgRegs[argNum];
-
-                if ((remainingIntArgMask & genRegMask(argReg)) != 0)
-                {
-                    GetEmitter()->emitIns_R_S(INS_mov, EA_8BYTE, argReg, 0, argNum * REGSIZE_BYTES);
-
-                    // also load it in corresponding float arg reg
-                    regNumber floatReg = MapVarargsParamIntRegToFloatReg(argReg);
-                    GetEmitter()->emitIns_Mov(INS_movd, EA_8BYTE, floatReg, argReg, /*canSkip*/ false);
-                }
+                regNumber intReg = MapVarargsParamFloatRegToIntReg(reg);
+                GetEmitter()->emitIns_Mov(INS_movd, EA_8BYTE, intReg, reg, /*canSkip*/ false);
+                reg = intReg;
             }
 
-            GetEmitter()->emitEnableGC();
+            assert(isValidIntArgReg(reg));
+            varargsIntRegMask &= ~genRegMask(reg);
         }
     }
+
+    if (varargsIntRegMask == RBM_NONE)
+    {
+        return;
+    }
+
+    assert(compiler->lvaGetDesc(0u)->GetParamReg() == REG_RCX);
+
+    GetEmitter()->emitDisableGC();
+
+    for (unsigned i = 0; i < MAX_REG_ARG; ++i)
+    {
+        regNumber reg = intArgRegs[i];
+
+        if ((varargsIntRegMask & genRegMask(reg)) != 0)
+        {
+            GetEmitter()->emitIns_R_S(INS_mov, EA_8BYTE, reg, 0, i * REGSIZE_BYTES);
+            GetEmitter()->emitIns_Mov(INS_movd, EA_8BYTE, MapVarargsParamIntRegToFloatReg(reg), reg, /*canSkip*/ false);
+        }
+    }
+
+    GetEmitter()->emitEnableGC();
 #endif // WINDOWS_AMD64_ABI
 }
 

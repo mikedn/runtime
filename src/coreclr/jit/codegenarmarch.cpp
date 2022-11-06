@@ -2925,10 +2925,9 @@ void CodeGen::genJmpMethod(GenTree* jmp)
 
     for (int i = 0; i < MAX_REG_ARG; ++i)
     {
-        regNumber reg  = static_cast<regNumber>(REG_R0 + i);
-        regMaskTP mask = genRegMask(reg);
+        regNumber reg = static_cast<regNumber>(REG_R0 + i);
 
-        if ((varargsIntRegMask & mask) != 0)
+        if ((varargsIntRegMask & genRegMask(reg)) != 0)
         {
             GetEmitter()->emitIns_R_S(INS_ldr, EA_PTRSIZE, reg, firstRegParamLclNum, i * REGSIZE_BYTES);
         }
