@@ -2581,7 +2581,7 @@ void Compiler::fgSimpleLowering()
 
     assert((outgoingArgSpaceSize % TARGET_POINTER_SIZE) == 0);
 
-    lvaOutgoingArgSpaceSize.SetFinalValue(outgoingArgSpaceSize);
+    codeGen->outgoingArgSpaceSize.SetFinalValue(outgoingArgSpaceSize);
     lvaGetDesc(lvaOutgoingArgSpaceVar)->SetBlockType(outgoingArgSpaceSize);
 #endif // FEATURE_FIXED_OUT_ARGS
 

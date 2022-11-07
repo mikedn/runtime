@@ -696,7 +696,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArg)
 #endif
     {
         outArgLclNum = compiler->lvaOutgoingArgSpaceVar;
-        INDEBUG(outArgLclSize = compiler->lvaOutgoingArgSpaceSize);
+        INDEBUG(outArgLclSize = outgoingArgSpaceSize);
     }
 
     unsigned outArgLclOffs = putArg->GetSlotOffset();
@@ -994,7 +994,7 @@ void CodeGen::genCodeForBitCast(GenTreeUnOp* bitcast)
 void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
 {
     const unsigned outArgLclNum  = compiler->lvaOutgoingArgSpaceVar;
-    const unsigned outArgLclSize = compiler->lvaOutgoingArgSpaceSize;
+    const unsigned outArgLclSize = outgoingArgSpaceSize;
     const unsigned outArgLclOffs = putArg->GetSlotOffset();
 
     GenTree* src = putArg->GetOp(0);
@@ -3822,8 +3822,7 @@ void CodeGen::genPushCalleeSavedRegisters()
         // not do this. That means that negative offsets from FP might need to use the reserved register to form
         // the local variable offset for an addressing mode.
 
-        if (((compiler->lvaOutgoingArgSpaceSize == 0) && (totalFrameSize <= 504)) &&
-            !genSaveFpLrWithAllCalleeSavedRegisters)
+        if (((outgoingArgSpaceSize == 0) && (totalFrameSize <= 504)) && !genSaveFpLrWithAllCalleeSavedRegisters)
         {
             // Case #1.
             //
@@ -3868,7 +3867,7 @@ void CodeGen::genPushCalleeSavedRegisters()
             if (genSaveFpLrWithAllCalleeSavedRegisters)
             {
                 JITDUMP("Frame type 4 (save FP/LR at top). #outsz=%d; #framesz=%d; LclFrameSize=%d\n",
-                        unsigned(compiler->lvaOutgoingArgSpaceSize), totalFrameSize, lclFrameSize);
+                        static_cast<unsigned>(outgoingArgSpaceSize), totalFrameSize, lclFrameSize);
 
                 frameType = 4;
 
@@ -3883,7 +3882,7 @@ void CodeGen::genPushCalleeSavedRegisters()
             else
             {
                 JITDUMP("Frame type 2 (save FP/LR at bottom). #outsz=%d; #framesz=%d; LclFrameSize=%d\n",
-                        unsigned(compiler->lvaOutgoingArgSpaceSize), totalFrameSize, lclFrameSize);
+                        static_cast<unsigned>(outgoingArgSpaceSize), totalFrameSize, lclFrameSize);
 
                 frameType = 2;
 
@@ -3892,16 +3891,15 @@ void CodeGen::genPushCalleeSavedRegisters()
                 //      stp fp,lr,[sp,#outsz]   // note that by necessity, #outsz <= #framesz - 16, so #outsz <=
                 //      496.
 
-                assert(totalFrameSize - compiler->lvaOutgoingArgSpaceSize <= STACK_PROBE_BOUNDARY_THRESHOLD_BYTES);
+                assert(totalFrameSize - outgoingArgSpaceSize <= STACK_PROBE_BOUNDARY_THRESHOLD_BYTES);
 
                 GetEmitter()->emitIns_R_R_I(INS_sub, EA_PTRSIZE, REG_SPBASE, REG_SPBASE, totalFrameSize);
                 compiler->unwindAllocStack(totalFrameSize);
 
-                assert(compiler->lvaOutgoingArgSpaceSize + 2 * REGSIZE_BYTES <= (unsigned)totalFrameSize);
+                assert(outgoingArgSpaceSize + 2 * REGSIZE_BYTES <= (unsigned)totalFrameSize);
 
-                GetEmitter()->emitIns_R_R_R_I(INS_stp, EA_PTRSIZE, REG_FP, REG_LR, REG_SPBASE,
-                                              compiler->lvaOutgoingArgSpaceSize);
-                compiler->unwindSaveRegPair(REG_FP, REG_LR, compiler->lvaOutgoingArgSpaceSize);
+                GetEmitter()->emitIns_R_R_R_I(INS_stp, EA_PTRSIZE, REG_FP, REG_LR, REG_SPBASE, outgoingArgSpaceSize);
+                compiler->unwindSaveRegPair(REG_FP, REG_LR, outgoingArgSpaceSize);
 
                 maskSaveRegsInt &= ~(RBM_FP | RBM_LR);          // We've already saved FP/LR
                 offset = (int)lclFrameSize + 2 * REGSIZE_BYTES; // 2 for FP/LR
@@ -3977,7 +3975,7 @@ void CodeGen::genPushCalleeSavedRegisters()
             if (genSaveFpLrWithAllCalleeSavedRegisters)
             {
                 JITDUMP("Frame type 5 (save FP/LR at top). #outsz=%d; #framesz=%d; LclFrameSize=%d\n",
-                        unsigned(compiler->lvaOutgoingArgSpaceSize), totalFrameSize, lclFrameSize);
+                        static_cast<unsigned>(outgoingArgSpaceSize), totalFrameSize, lclFrameSize);
 
                 // This case is much simpler, because we allocate space for the callee-saved register area,
                 // including
@@ -3990,7 +3988,7 @@ void CodeGen::genPushCalleeSavedRegisters()
             else
             {
                 JITDUMP("Frame type 3 (save FP/LR at bottom). #outsz=%d; #framesz=%d; LclFrameSize=%d\n",
-                        unsigned(compiler->lvaOutgoingArgSpaceSize), totalFrameSize, lclFrameSize);
+                        static_cast<unsigned>(outgoingArgSpaceSize), totalFrameSize, lclFrameSize);
 
                 frameType = 3;
 
@@ -4067,7 +4065,7 @@ void CodeGen::genPushCalleeSavedRegisters()
     {
         assert(!genSaveFpLrWithAllCalleeSavedRegisters);
 
-        offsetSpToSavedFp = compiler->lvaOutgoingArgSpaceSize;
+        offsetSpToSavedFp = outgoingArgSpaceSize;
     }
     else if (frameType == 3)
     {
@@ -4078,14 +4076,14 @@ void CodeGen::genPushCalleeSavedRegisters()
         assert((remainingFrameSz % 16) == 0); // this is guaranteed to be 16-byte aligned because each component --
                                               // totalFrameSize and calleeSaveSPDelta -- is 16-byte aligned.
 
-        if (compiler->lvaOutgoingArgSpaceSize > 504)
+        if (outgoingArgSpaceSize > 504)
         {
             // We can't do "stp fp,lr,[sp,#outsz]" because #outsz is too big.
             // If compiler->lvaOutgoingArgSpaceSize is not aligned, we need to align the SP adjustment.
-            assert(remainingFrameSz > (int)compiler->lvaOutgoingArgSpaceSize);
-            int spAdjustment2Unaligned = remainingFrameSz - compiler->lvaOutgoingArgSpaceSize;
-            int spAdjustment2          = (int)roundUp((unsigned)spAdjustment2Unaligned, STACK_ALIGN);
-            int alignmentAdjustment2   = spAdjustment2 - spAdjustment2Unaligned;
+            assert(remainingFrameSz > static_cast<int>(outgoingArgSpaceSize));
+            int spAdjustment2Unaligned = remainingFrameSz - outgoingArgSpaceSize;
+            int spAdjustment2 = static_cast<int>(roundUp(static_cast<unsigned>(spAdjustment2Unaligned), STACK_ALIGN));
+            int alignmentAdjustment2 = spAdjustment2 - spAdjustment2Unaligned;
             assert((alignmentAdjustment2 == 0) || (alignmentAdjustment2 == 8));
 
             JITDUMP("    spAdjustment2=%d\n", spAdjustment2);
@@ -4096,7 +4094,7 @@ void CodeGen::genPushCalleeSavedRegisters()
             // Now subtract off the #outsz (or the rest of the #outsz if it was unaligned, and the above "sub"
             // included some of it)
 
-            int spAdjustment3 = compiler->lvaOutgoingArgSpaceSize - alignmentAdjustment2;
+            int spAdjustment3 = outgoingArgSpaceSize - alignmentAdjustment2;
             assert(spAdjustment3 > 0);
             assert((spAdjustment3 % 16) == 0);
 
@@ -4115,11 +4113,11 @@ void CodeGen::genPushCalleeSavedRegisters()
         }
         else
         {
-            genPrologSaveRegPair(REG_FP, REG_LR, compiler->lvaOutgoingArgSpaceSize, -remainingFrameSz, false, initReg,
+            genPrologSaveRegPair(REG_FP, REG_LR, outgoingArgSpaceSize, -remainingFrameSz, false, initReg,
                                  pInitRegZeroed);
             offset += remainingFrameSz;
 
-            offsetSpToSavedFp = compiler->lvaOutgoingArgSpaceSize;
+            offsetSpToSavedFp = outgoingArgSpaceSize;
         }
     }
     else if (frameType == 4)

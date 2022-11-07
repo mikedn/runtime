@@ -3921,8 +3921,7 @@ public:
                                        // we will redirect all "ldarg(a) 0" and "starg 0" to this temp.
 
 #if FEATURE_FIXED_OUT_ARGS
-    unsigned            lvaOutgoingArgSpaceVar = BAD_VAR_NUM; // TYP_BLK local for fixed outgoing argument space
-    PhasedVar<unsigned> lvaOutgoingArgSpaceSize;              // size of fixed outgoing argument space
+    unsigned lvaOutgoingArgSpaceVar = BAD_VAR_NUM; // TYP_BLK local for fixed outgoing argument space
 #endif
 
     // Variable representing the return address. The helper-based tailcall

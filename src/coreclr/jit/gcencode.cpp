@@ -3983,7 +3983,7 @@ void GCInfo::gcInfoBlockHdrSave(GcInfoEncoder* gcInfoEncoder, unsigned methodSiz
 
 #if FEATURE_FIXED_OUT_ARGS
     // outgoing stack area size
-    gcInfoEncoderWithLog->SetSizeOfStackOutgoingAndScratchArea(compiler->lvaOutgoingArgSpaceSize);
+    gcInfoEncoderWithLog->SetSizeOfStackOutgoingAndScratchArea(compiler->codeGen->outgoingArgSpaceSize);
 #endif // FEATURE_FIXED_OUT_ARGS
 
 #if DISPLAY_SIZES

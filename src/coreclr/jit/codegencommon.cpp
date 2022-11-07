@@ -4118,8 +4118,7 @@ void CodeGen::genPopCalleeSavedRegistersAndFreeLclFrame(bool jmpEpilog)
 
     if (isFramePointerUsed())
     {
-        if ((compiler->lvaOutgoingArgSpaceSize == 0) && (totalFrameSize <= 504) &&
-            !genSaveFpLrWithAllCalleeSavedRegisters)
+        if ((outgoingArgSpaceSize == 0) && (totalFrameSize <= 504) && !genSaveFpLrWithAllCalleeSavedRegisters)
         {
             JITDUMP("Frame type 1. #outsz=0; #framesz=%d; localloc? %s\n", totalFrameSize,
                     dspBool(compiler->compLocallocUsed));
@@ -4153,7 +4152,7 @@ void CodeGen::genPopCalleeSavedRegistersAndFreeLclFrame(bool jmpEpilog)
             if (genSaveFpLrWithAllCalleeSavedRegisters)
             {
                 JITDUMP("Frame type 4 (save FP/LR at top). #outsz=%d; #framesz=%d; localloc? %s\n",
-                        unsigned(compiler->lvaOutgoingArgSpaceSize), totalFrameSize,
+                        static_cast<unsigned>(outgoingArgSpaceSize), totalFrameSize,
                         dspBool(compiler->compLocallocUsed));
 
                 frameType = 4;
@@ -4166,7 +4165,7 @@ void CodeGen::genPopCalleeSavedRegistersAndFreeLclFrame(bool jmpEpilog)
             else
             {
                 JITDUMP("Frame type 2 (save FP/LR at bottom). #outsz=%d; #framesz=%d; localloc? %s\n",
-                        unsigned(compiler->lvaOutgoingArgSpaceSize), totalFrameSize,
+                        static_cast<unsigned>(outgoingArgSpaceSize), totalFrameSize,
                         dspBool(compiler->compLocallocUsed));
 
                 frameType = 2;
@@ -4181,7 +4180,7 @@ void CodeGen::genPopCalleeSavedRegistersAndFreeLclFrame(bool jmpEpilog)
         else if (!genSaveFpLrWithAllCalleeSavedRegisters)
         {
             JITDUMP("Frame type 3 (save FP/LR at bottom). #outsz=%d; #framesz=%d; localloc? %s\n",
-                    unsigned(compiler->lvaOutgoingArgSpaceSize), totalFrameSize, dspBool(compiler->compLocallocUsed));
+                    static_cast<unsigned>(outgoingArgSpaceSize), totalFrameSize, dspBool(compiler->compLocallocUsed));
 
             frameType = 3;
 
@@ -4198,14 +4197,15 @@ void CodeGen::genPopCalleeSavedRegistersAndFreeLclFrame(bool jmpEpilog)
             int remainingFrameSz = totalFrameSize - calleeSaveSPDelta;
             assert(remainingFrameSz > 0);
 
-            if (compiler->lvaOutgoingArgSpaceSize > 504)
+            if (outgoingArgSpaceSize > 504)
             {
                 // We can't do "ldp fp,lr,[sp,#outsz]" because #outsz is too big.
                 // If compiler->lvaOutgoingArgSpaceSize is not aligned, we need to align the SP adjustment.
-                assert(remainingFrameSz > (int)compiler->lvaOutgoingArgSpaceSize);
-                int spAdjustment2Unaligned = remainingFrameSz - compiler->lvaOutgoingArgSpaceSize;
-                int spAdjustment2          = (int)roundUp((unsigned)spAdjustment2Unaligned, STACK_ALIGN);
-                int alignmentAdjustment2   = spAdjustment2 - spAdjustment2Unaligned;
+                assert(remainingFrameSz > static_cast<int>(outgoingArgSpaceSize));
+                int spAdjustment2Unaligned = remainingFrameSz - static_cast<int>(outgoingArgSpaceSize);
+                int spAdjustment2 =
+                    static_cast<int>(roundUp(static_cast<unsigned>(spAdjustment2Unaligned), STACK_ALIGN));
+                int alignmentAdjustment2 = spAdjustment2 - spAdjustment2Unaligned;
                 assert((alignmentAdjustment2 == 0) || (alignmentAdjustment2 == REGSIZE_BYTES));
 
                 // Restore sp from fp. No need to update sp after this since we've set up fp before adjusting sp
@@ -4228,7 +4228,7 @@ void CodeGen::genPopCalleeSavedRegistersAndFreeLclFrame(bool jmpEpilog)
                     // Restore sp from fp; here that's #outsz from SP
                     //      sub sp, fp, #outsz
                     int SPtoFPdelta = genSPtoFPdelta();
-                    assert(SPtoFPdelta == (int)compiler->lvaOutgoingArgSpaceSize);
+                    assert(SPtoFPdelta == static_cast<int>(outgoingArgSpaceSize));
                     GetEmitter()->emitIns_R_R_I(INS_sub, EA_PTRSIZE, REG_SPBASE, REG_FPBASE, SPtoFPdelta);
                     compiler->unwindSetFrameReg(REG_FPBASE, SPtoFPdelta);
                 }
@@ -4240,8 +4240,8 @@ void CodeGen::genPopCalleeSavedRegistersAndFreeLclFrame(bool jmpEpilog)
 
                 JITDUMP("    remainingFrameSz=%d\n", remainingFrameSz);
 
-                genEpilogRestoreRegPair(REG_FP, REG_LR, compiler->lvaOutgoingArgSpaceSize, remainingFrameSz, false,
-                                        REG_IP1, nullptr);
+                genEpilogRestoreRegPair(REG_FP, REG_LR, outgoingArgSpaceSize, remainingFrameSz, false, REG_IP1,
+                                        nullptr);
             }
 
             // Unlike frameType=1 or frameType=2 that restore SP at the end,
@@ -4253,7 +4253,7 @@ void CodeGen::genPopCalleeSavedRegistersAndFreeLclFrame(bool jmpEpilog)
         else
         {
             JITDUMP("Frame type 5 (save FP/LR at top). #outsz=%d; #framesz=%d; localloc? %s\n",
-                    unsigned(compiler->lvaOutgoingArgSpaceSize), totalFrameSize, dspBool(compiler->compLocallocUsed));
+                    static_cast<unsigned>(outgoingArgSpaceSize), totalFrameSize, dspBool(compiler->compLocallocUsed));
 
             frameType = 5;
 
@@ -4302,9 +4302,8 @@ void CodeGen::genPopCalleeSavedRegistersAndFreeLclFrame(bool jmpEpilog)
         //      ldr fp,lr,[sp,#outsz]
         //      add sp,sp,#framesz
 
-        GetEmitter()->emitIns_R_R_R_I(INS_ldp, EA_PTRSIZE, REG_FP, REG_LR, REG_SPBASE,
-                                      compiler->lvaOutgoingArgSpaceSize);
-        compiler->unwindSaveRegPair(REG_FP, REG_LR, compiler->lvaOutgoingArgSpaceSize);
+        GetEmitter()->emitIns_R_R_R_I(INS_ldp, EA_PTRSIZE, REG_FP, REG_LR, REG_SPBASE, outgoingArgSpaceSize);
+        compiler->unwindSaveRegPair(REG_FP, REG_LR, outgoingArgSpaceSize);
 
         GetEmitter()->emitIns_R_R_I(INS_add, EA_PTRSIZE, REG_SPBASE, REG_SPBASE, totalFrameSize);
         compiler->unwindAllocStack(totalFrameSize);
@@ -7330,17 +7329,16 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
         regMaskTP rsMaskSaveRegs = regSet.rsMaskCalleeSaved;
         unsigned  saveRegsCount  = genCountBits(rsMaskSaveRegs);
         unsigned  saveRegsSize   = saveRegsCount * REGSIZE_BYTES; // bytes of regs we're saving
-        assert(compiler->lvaOutgoingArgSpaceSize % REGSIZE_BYTES == 0);
+        assert(outgoingArgSpaceSize % REGSIZE_BYTES == 0);
         unsigned funcletFrameSize =
-            preSpillRegArgSize + saveRegsSize + REGSIZE_BYTES /* PSP slot */ + compiler->lvaOutgoingArgSpaceSize;
+            preSpillRegArgSize + saveRegsSize + REGSIZE_BYTES /* PSP slot */ + outgoingArgSpaceSize;
 
         unsigned funcletFrameSizeAligned  = roundUp(funcletFrameSize, STACK_ALIGN);
         unsigned funcletFrameAlignmentPad = funcletFrameSizeAligned - funcletFrameSize;
         unsigned spDelta                  = funcletFrameSizeAligned - saveRegsSize;
 
-        unsigned PSP_slot_SP_offset = compiler->lvaOutgoingArgSpaceSize + funcletFrameAlignmentPad;
-        int      PSP_slot_CallerSP_offset =
-            -(int)(funcletFrameSize - compiler->lvaOutgoingArgSpaceSize); // NOTE: it's negative!
+        unsigned PSP_slot_SP_offset       = outgoingArgSpaceSize + funcletFrameAlignmentPad;
+        int      PSP_slot_CallerSP_offset = -(int)(funcletFrameSize - outgoingArgSpaceSize); // NOTE: it's negative!
 
         /* Now save it for future use */
 
@@ -7583,14 +7581,13 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
 
     genFuncletInfo.fiFunction_InitialSP_to_FP_delta = genSPtoFPdelta();
 
-    assert(compiler->lvaOutgoingArgSpaceSize % REGSIZE_BYTES == 0);
+    assert(outgoingArgSpaceSize % REGSIZE_BYTES == 0);
 #ifndef UNIX_AMD64_ABI
-    // No 4 slots for outgoing params on the stack for System V systems.
-    assert((compiler->lvaOutgoingArgSpaceSize == 0) ||
-           (compiler->lvaOutgoingArgSpaceSize >= (4 * REGSIZE_BYTES))); // On AMD64, we always have 4 outgoing argument
-// slots if there are any calls in the function.
-#endif // UNIX_AMD64_ABI
-    unsigned offset = compiler->lvaOutgoingArgSpaceSize;
+    // On win-x64, we always have 4 outgoing argument slots if there are any calls in the function.
+    assert((outgoingArgSpaceSize == 0) || (outgoingArgSpaceSize >= 4 * REGSIZE_BYTES));
+#endif
+
+    unsigned offset = outgoingArgSpaceSize;
 
     genFuncletInfo.fiPSP_slot_InitialSP_offset = offset;
 
@@ -7611,16 +7608,16 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
     totalFrameSize += FPRegsPad               // Padding before pushing entire xmm regs
                       + calleeFPRegsSavedSize // pushed callee-saved float regs
                       // below calculated 'pad' will go here
-                      + PSPSymSize                        // PSPSym
-                      + compiler->lvaOutgoingArgSpaceSize // outgoing arg space
+                      + PSPSymSize           // PSPSym
+                      + outgoingArgSpaceSize // outgoing arg space
         ;
 
     unsigned pad = AlignmentPad(totalFrameSize, 16);
 
-    genFuncletInfo.fiSpDelta = FPRegsPad                           // Padding to align SP on XMM_REGSIZE_BYTES boundary
-                               + calleeFPRegsSavedSize             // Callee saved xmm regs
-                               + pad + PSPSymSize                  // PSPSym
-                               + compiler->lvaOutgoingArgSpaceSize // outgoing arg space
+    genFuncletInfo.fiSpDelta = FPRegsPad               // Padding to align SP on XMM_REGSIZE_BYTES boundary
+                               + calleeFPRegsSavedSize // Callee saved xmm regs
+                               + pad + PSPSymSize      // PSPSym
+                               + outgoingArgSpaceSize  // outgoing arg space
         ;
 
 #ifdef DEBUG

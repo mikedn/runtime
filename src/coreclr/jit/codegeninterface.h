@@ -93,6 +93,9 @@ public:
 
     unsigned lclFrameSize;    // secObject + lclBlk + locals + temps
     unsigned paramsStackSize; // total size of parameters passed in stack
+#if FEATURE_FIXED_OUT_ARGS
+    PhasedVar<unsigned> outgoingArgSpaceSize; // size of fixed outgoing argument space
+#endif
 
     // Count of callee-saved regs we pushed in the prolog.
     // Does not include EBP for isFramePointerUsed() and double-aligned frames.

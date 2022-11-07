@@ -2190,10 +2190,10 @@ void CodeGen::genLclHeap(GenTree* tree)
     //      Therefore, we will pop off the out-going arg area from RSP before allocating the localloc space.
     //  ii) Method has no out-going arg area.
     //      Nothing to pop off from the stack.
-    if (compiler->lvaOutgoingArgSpaceSize > 0)
+    if (outgoingArgSpaceSize > 0)
     {
-        assert((compiler->lvaOutgoingArgSpaceSize % STACK_ALIGN) == 0); // This must be true for the stack to remain
-                                                                        // aligned
+        // This must be true for the stack to remain aligned
+        assert(outgoingArgSpaceSize % STACK_ALIGN == 0);
 
         // If the localloc amount is a small enough constant, and we're not initializing the allocated
         // memory, then don't bother popping off the ougoing arg space first; just allocate the amount
@@ -2203,12 +2203,12 @@ void CodeGen::genLclHeap(GenTree* tree)
         {
             lastTouchDelta      = genStackPointerConstantAdjustmentLoopWithProbe(-(ssize_t)amount, REG_NA);
             stackAdjustment     = 0;
-            locAllocStackOffset = (target_size_t)compiler->lvaOutgoingArgSpaceSize;
+            locAllocStackOffset = static_cast<target_size_t>(outgoingArgSpaceSize);
             goto ALLOC_DONE;
         }
 
-        inst_RV_IV(INS_add, REG_SPBASE, compiler->lvaOutgoingArgSpaceSize, EA_PTRSIZE);
-        stackAdjustment += (target_size_t)compiler->lvaOutgoingArgSpaceSize;
+        inst_RV_IV(INS_add, REG_SPBASE, outgoingArgSpaceSize, EA_PTRSIZE);
+        stackAdjustment += static_cast<target_size_t>(outgoingArgSpaceSize);
         locAllocStackOffset = stackAdjustment;
     }
 #endif
@@ -6385,7 +6385,7 @@ int CodeGenInterface::genSPtoFPdelta() const
         //
         // To be predictive and so as never to under-estimate offset of vars from FP
         // we will always position FP at min(240, outgoing arg area size).
-        return Min(240, (int)compiler->lvaOutgoingArgSpaceSize);
+        return Min(240, static_cast<int>(outgoingArgSpaceSize));
     }
 
     if (compiler->opts.compDbgEnC)
@@ -6922,7 +6922,7 @@ void CodeGen::genPutArgStk(GenTreePutArgStk* putArgStk)
     else
     {
         outArgLclNum = compiler->lvaOutgoingArgSpaceVar;
-        INDEBUG(outArgLclSize = compiler->lvaOutgoingArgSpaceSize);
+        INDEBUG(outArgLclSize = outgoingArgSpaceSize);
     }
 
     unsigned outArgLclOffs = putArgStk->GetSlotOffset();
@@ -8195,7 +8195,7 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
 
     // Since the method needs to make a profiler callback, it should have out-going arg space allocated.
     noway_assert(compiler->lvaOutgoingArgSpaceVar != BAD_VAR_NUM);
-    noway_assert(compiler->lvaOutgoingArgSpaceSize >= (4 * REGSIZE_BYTES));
+    noway_assert(outgoingArgSpaceSize >= 4 * REGSIZE_BYTES);
 
     // Home all arguments passed in arg registers (RCX, RDX, R8 and R9).
     // In case of vararg methods, arg regs are already homed.
@@ -8383,7 +8383,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 
     // Since the method needs to make a profiler callback, it should have out-going arg space allocated.
     noway_assert(compiler->lvaOutgoingArgSpaceVar != BAD_VAR_NUM);
-    noway_assert(compiler->lvaOutgoingArgSpaceSize >= (4 * REGSIZE_BYTES));
+    noway_assert(outgoingArgSpaceSize >= 4 * REGSIZE_BYTES);
 
     // If thisPtr needs to be kept alive and reported, it cannot be one of the callee trash
     // registers that profiler callback kills.

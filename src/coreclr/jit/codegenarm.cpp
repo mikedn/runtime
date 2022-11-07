@@ -411,15 +411,15 @@ void CodeGen::genLclHeap(GenTree* tree)
 
     // If we have an outgoing arg area then we must adjust the SP by popping off the
     // outgoing arg area. We will restore it right before we return from this method.
-    if (compiler->lvaOutgoingArgSpaceSize > 0)
+    if (outgoingArgSpaceSize > 0)
     {
         // This must be true for the stack to remain aligned
-        assert((compiler->lvaOutgoingArgSpaceSize % STACK_ALIGN) == 0);
+        assert(outgoingArgSpaceSize % STACK_ALIGN == 0);
 
         // We're guaranteed (by LinearScan::BuildLclHeap()) to have a legal regTmp if we need one.
-        genStackPointerAdjustment(compiler->lvaOutgoingArgSpaceSize, regTmp);
+        genStackPointerAdjustment(outgoingArgSpaceSize, regTmp);
 
-        stackAdjustment += compiler->lvaOutgoingArgSpaceSize;
+        stackAdjustment += outgoingArgSpaceSize;
     }
 
     // Put aligned allocation size to regCnt

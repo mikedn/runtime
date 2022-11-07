@@ -1803,7 +1803,7 @@ unsigned Compiler::lvaLclSize(unsigned lclNum)
 #if FEATURE_FIXED_OUT_ARGS
             if (lclNum == lvaOutgoingArgSpaceVar)
             {
-                return lvaOutgoingArgSpaceSize.GetValue();
+                return codeGen->outgoingArgSpaceSize.GetValue();
             }
 #endif
             return roundUp(lcl->lvExactSize, REGSIZE_BYTES);
@@ -3541,7 +3541,7 @@ void Compiler::lvaFixVirtualFrameOffsets()
 
         assert(lcl->lvFramePointerBased && !lcl->lvMustInit);
 
-        lcl->SetStackOffset(codeGen->genCallerSPtoInitialSPdelta() + lvaOutgoingArgSpaceSize);
+        lcl->SetStackOffset(codeGen->genCallerSPtoInitialSPdelta() + codeGen->outgoingArgSpaceSize);
 
         // With OSR the new frame RBP points at the base of the new frame, but the virtual offsets
         // are from the base of the old frame. Adjust.
@@ -4488,18 +4488,18 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
 #endif // TARGET_ARM64
 
 #if FEATURE_FIXED_OUT_ARGS
-    if (lvaOutgoingArgSpaceSize > 0)
+    if (codeGen->outgoingArgSpaceSize > 0)
     {
-        noway_assert(lvaOutgoingArgSpaceSize % REGSIZE_BYTES == 0);
+        noway_assert(codeGen->outgoingArgSpaceSize % REGSIZE_BYTES == 0);
 #ifdef WINDOWS_AMD64_ABI
-        noway_assert(lvaOutgoingArgSpaceSize >= 4 * REGSIZE_BYTES);
+        noway_assert(codeGen->outgoingArgSpaceSize >= 4 * REGSIZE_BYTES);
 #endif
 
         // Give it a value so we can avoid asserts in CHK builds.
         // Since this will always use an SP relative offset of zero
         // at the end of lvaFixVirtualFrameOffsets, it will be set to absolute '0'
 
-        stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaOutgoingArgSpaceVar, lvaOutgoingArgSpaceSize, stkOffs);
+        stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaOutgoingArgSpaceVar, codeGen->outgoingArgSpaceSize, stkOffs);
     }
 #endif // FEATURE_FIXED_OUT_ARGS
 
@@ -5328,9 +5328,9 @@ void Compiler::lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth)
 #if FEATURE_FIXED_OUT_ARGS
         else if (lclNum == lvaOutgoingArgSpaceVar)
         {
-            if (lvaOutgoingArgSpaceSize.HasFinalValue())
+            if (codeGen->outgoingArgSpaceSize.HasFinalValue())
             {
-                printf("<%u>", lvaOutgoingArgSpaceSize.GetValue());
+                printf("<%u>", codeGen->outgoingArgSpaceSize.GetValue());
             }
             else
             {
