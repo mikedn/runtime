@@ -522,16 +522,18 @@ protected:
     void genAmd64EmitterUnitTests();
 #endif
 
-    //-------------------------------------------------------------------------
-    //
-    // End prolog/epilog generation
-    //
-    //-------------------------------------------------------------------------
+//-------------------------------------------------------------------------
+//
+// End prolog/epilog generation
+//
+//-------------------------------------------------------------------------
 
+#ifdef TARGET_XARCH
     void      genSinglePush();
     void      genSinglePop();
     regMaskTP genPushRegs(regMaskTP regs, regMaskTP* byrefRegs, regMaskTP* noRefRegs);
     void genPopRegs(regMaskTP regs, regMaskTP byrefRegs, regMaskTP noRefRegs);
+#endif
 
 /*
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
