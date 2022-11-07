@@ -257,9 +257,9 @@ void Compiler::raMarkStkVars()
 
     ON_STK:
 #if FEATURE_FIXED_OUT_ARGS
-        noway_assert((lclNum == lvaOutgoingArgSpaceVar) || lvaLclSize(lclNum) != 0);
+        noway_assert((lclNum == lvaOutgoingArgSpaceVar) || (lcl->GetFrameSize() != 0));
 #else
-        noway_assert(lvaLclSize(lclNum) != 0);
+        noway_assert(lcl->GetFrameSize() != 0);
 #endif
 
     NOT_STK:;

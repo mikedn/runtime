@@ -1793,17 +1793,15 @@ void Compiler::lvaUpdateClass(unsigned varNum, GenTree* tree, CORINFO_CLASS_HAND
 }
 
 // Returns the number of bytes needed on the frame for the local variable lclNum
-unsigned Compiler::lvaLclSize(unsigned lclNum)
+unsigned LclVarDsc::GetFrameSize() const
 {
-    LclVarDsc* lcl = lvaGetDesc(lclNum);
-
-    switch (lcl->GetType())
+    switch (lvType)
     {
         case TYP_BLK:
-            return roundUp(lcl->lvExactSize, REGSIZE_BYTES);
+            return roundUp(lvExactSize, REGSIZE_BYTES);
 
         case TYP_STRUCT:
-            return lcl->lvSize();
+            return lvSize();
 
 #ifdef FEATURE_SIMD
         case TYP_SIMD12:
@@ -1812,13 +1810,13 @@ unsigned Compiler::lvaLclSize(unsigned lclNum)
 
         default:
 #ifdef TARGET_64BIT
-            if (lcl->lvQuirkToLong)
+            if (lvQuirkToLong)
             {
-                noway_assert(varActualTypeIsInt(lcl->GetType()) && lcl->IsAddressExposed());
+                noway_assert(varActualTypeIsInt(lvType) && lvAddrExposed);
                 return 8;
             }
 #endif
-            return varTypeSize(varActualType(lcl->GetType()));
+            return varTypeSize(varActualType(lvType));
     }
 }
 
@@ -3996,7 +3994,7 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
         // This var must go first, in what is called the 'frame header' for EnC so that it is
         // preserved when remapping occurs.  See vm\eetwain.cpp for detailed comment specifying frame
         // layout requirements for EnC to work.
-        stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaMonAcquired, lvaLclSize(lvaMonAcquired), stkOffs);
+        stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaMonAcquired, lvaGetDesc(lvaMonAcquired)->GetFrameSize(), stkOffs);
     }
 
 #ifdef JIT32_GCENCODER
@@ -4082,7 +4080,8 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
             }
         }
 
-        stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaShadowSPslotsVar, lvaLclSize(lvaShadowSPslotsVar), stkOffs);
+        stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaShadowSPslotsVar, lvaGetDesc(lvaShadowSPslotsVar)->GetFrameSize(),
+                                                   stkOffs);
     }
 #endif // !FEATURE_EH_FUNCLETS
 
@@ -4379,7 +4378,7 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
             }
 #endif // !TARGET_64BIT
 
-            stkOffs = lvaAllocLocalAndSetVirtualOffset(lclNum, lvaLclSize(lclNum), stkOffs);
+            stkOffs = lvaAllocLocalAndSetVirtualOffset(lclNum, lcl->GetFrameSize(), stkOffs);
         }
     }
 
@@ -4419,8 +4418,8 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
     {
         noway_assert(codeGen->isFramePointerUsed());
 
-        stkOffs =
-            lvaAllocLocalAndSetVirtualOffset(lvaInlinedPInvokeFrameVar, lvaLclSize(lvaInlinedPInvokeFrameVar), stkOffs);
+        stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaInlinedPInvokeFrameVar,
+                                                   lvaGetDesc(lvaInlinedPInvokeFrameVar)->GetFrameSize(), stkOffs);
     }
 
 #ifndef TARGET_64BIT
@@ -5337,7 +5336,7 @@ void Compiler::lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth)
     {
         if (varTypeIsStruct(type) || (type == TYP_BLK))
         {
-            printf("<%2u>  ", lvaLclSize(lclNum));
+            printf("<%2u>  ", varDsc->GetFrameSize());
         }
         else
         {

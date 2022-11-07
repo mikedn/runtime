@@ -964,6 +964,8 @@ public:
         }
     }
 
+    unsigned GetFrameSize() const;
+
     bool lvNormalizeOnLoad() const
     {
         return varTypeIsSmall(lvType) &&
@@ -4051,8 +4053,6 @@ public:
     {
         return lvaGetDesc(lvaTrackedIndexToLclNum(trackedIndex));
     }
-
-    unsigned lvaLclSize(unsigned varNum);
 
     bool lvaHaveManyLocals() const;
 

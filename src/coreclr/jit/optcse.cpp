@@ -1330,7 +1330,7 @@ public:
                 continue;
             }
 
-            frameSize += compiler->lvaLclSize(lclNum);
+            frameSize += lcl->GetFrameSize();
 
 #ifdef TARGET_XARCH
             if (frameSize > 128)

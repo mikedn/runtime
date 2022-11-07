@@ -458,14 +458,14 @@ BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
 
     // The last slot is reserved for ICodeManager::FixContext(ppEndRegion)
     unsigned filterEndOffsetSlotOffs;
-    filterEndOffsetSlotOffs = (unsigned)(compiler->lvaLclSize(compiler->lvaShadowSPslotsVar) - TARGET_POINTER_SIZE);
+    filterEndOffsetSlotOffs = compiler->lvaGetDesc(compiler->lvaShadowSPslotsVar)->GetFrameSize() - REGSIZE_BYTES;
 
     unsigned curNestingSlotOffs;
-    curNestingSlotOffs = (unsigned)(filterEndOffsetSlotOffs - ((finallyNesting + 1) * TARGET_POINTER_SIZE));
+    curNestingSlotOffs = (unsigned)(filterEndOffsetSlotOffs - ((finallyNesting + 1) * REGSIZE_BYTES));
 
     // Zero out the slot for the next nesting level
-    GetEmitter()->emitIns_S_I(INS_mov, EA_PTRSIZE, compiler->lvaShadowSPslotsVar,
-                              curNestingSlotOffs - TARGET_POINTER_SIZE, 0);
+    GetEmitter()->emitIns_S_I(INS_mov, EA_PTRSIZE, compiler->lvaShadowSPslotsVar, curNestingSlotOffs - REGSIZE_BYTES,
+                              0);
     GetEmitter()->emitIns_S_I(INS_mov, EA_PTRSIZE, compiler->lvaShadowSPslotsVar, curNestingSlotOffs, LCL_FINALLY_MARK);
 
     // Now push the address where the finally funclet should return to directly.
@@ -1844,13 +1844,12 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
 
             // The last slot is reserved for ICodeManager::FixContext(ppEndRegion)
             unsigned filterEndOffsetSlotOffs;
-            PREFIX_ASSUME(compiler->lvaLclSize(compiler->lvaShadowSPslotsVar) >
-                          TARGET_POINTER_SIZE); // below doesn't underflow.
+            PREFIX_ASSUME(compiler->lvaGetDesc(compiler->lvaShadowSPslotsVar)->GetFrameSize() > REGSIZE_BYTES);
             filterEndOffsetSlotOffs =
-                (unsigned)(compiler->lvaLclSize(compiler->lvaShadowSPslotsVar) - TARGET_POINTER_SIZE);
+                compiler->lvaGetDesc(compiler->lvaShadowSPslotsVar)->GetFrameSize() - REGSIZE_BYTES;
 
             size_t curNestingSlotOffs;
-            curNestingSlotOffs = filterEndOffsetSlotOffs - ((finallyNesting + 1) * TARGET_POINTER_SIZE);
+            curNestingSlotOffs = filterEndOffsetSlotOffs - ((finallyNesting + 1) * REGSIZE_BYTES);
             GetEmitter()->emitIns_S_I(INS_mov, EA_PTRSIZE, compiler->lvaShadowSPslotsVar, (unsigned)curNestingSlotOffs,
                                       0);
             break;

@@ -1554,7 +1554,7 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
 #ifdef WINDOWS_AMD64_ABI
                 unsigned paramEndOffset = paramStartOffset + REGSIZE_BYTES;
 #else
-                unsigned paramEndOffset = paramStartOffset + comp->lvaLclSize(paramLclNum);
+                unsigned paramEndOffset = paramStartOffset + paramLcl->GetFrameSize();
 #endif
 
                 // If ranges do not overlap then this PUTARG_STK will not mess up the arg.

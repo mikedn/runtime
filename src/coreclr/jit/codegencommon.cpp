@@ -3613,8 +3613,7 @@ void CodeGen::genCheckUseBlockInit()
                             if (!varDsc->lvIsInReg() || varDsc->lvLiveInOutOfHndlr)
                             {
                                 // Var is on the stack at entry.
-                                initStkLclCnt +=
-                                    roundUp(compiler->lvaLclSize(varNum), TARGET_POINTER_SIZE) / sizeof(int);
+                                initStkLclCnt += roundUp(varDsc->GetFrameSize(), REGSIZE_BYTES) / 4;
                                 counted = true;
                             }
                         }
@@ -3662,7 +3661,7 @@ void CodeGen::genCheckUseBlockInit()
 
                     if (!counted)
                     {
-                        initStkLclCnt += roundUp(compiler->lvaLclSize(varNum), TARGET_POINTER_SIZE) / sizeof(int);
+                        initStkLclCnt += roundUp(varDsc->GetFrameSize(), REGSIZE_BYTES) / 4;
                         counted = true;
                     }
                 }
@@ -5063,7 +5062,7 @@ void CodeGen::genZeroInitFrame(int untrLclHi, int untrLclLo, regNumber initReg, 
                 regNumber zeroReg = genGetZeroReg(initReg, pInitRegZeroed);
 
                 // zero out the whole thing rounded up to a single stack slot size
-                unsigned lclSize = roundUp(compiler->lvaLclSize(varNum), (unsigned)sizeof(int));
+                unsigned lclSize = roundUp(varDsc->GetFrameSize(), 4);
                 unsigned i;
                 for (i = 0; i + REGSIZE_BYTES <= lclSize; i += REGSIZE_BYTES)
                 {
@@ -5930,7 +5929,7 @@ void CodeGen::genFnProlog()
         }
 
         signed int loOffs = varDsc->GetStackOffset();
-        signed int hiOffs = varDsc->GetStackOffset() + compiler->lvaLclSize(varNum);
+        signed int hiOffs = varDsc->GetStackOffset() + varDsc->GetFrameSize();
 
         // We need to know the offset range of tracked stack GC refs
         // We assume that the GC reference can be anywhere in the TYP_STRUCT
@@ -6322,10 +6321,11 @@ void CodeGen::genFnProlog()
     if (compiler->ehNeedsShadowSPslots() && !compiler->info.compInitMem)
     {
         // The last slot is reserved for ICodeManager::FixContext(ppEndRegion)
-        unsigned filterEndOffsetSlotOffs = compiler->lvaLclSize(compiler->lvaShadowSPslotsVar) - TARGET_POINTER_SIZE;
+        unsigned filterEndOffsetSlotOffs =
+            compiler->lvaGetDesc(compiler->lvaShadowSPslotsVar)->GetFrameSize() - REGSIZE_BYTES;
 
         // Zero out the slot for nesting level 0
-        unsigned firstSlotOffs = filterEndOffsetSlotOffs - TARGET_POINTER_SIZE;
+        unsigned firstSlotOffs = filterEndOffsetSlotOffs - REGSIZE_BYTES;
 
         if (!initRegZeroed)
         {
@@ -10189,7 +10189,7 @@ void CodeGen::genPoisonFrame(regMaskTP regLiveIn)
 #else
         int addr = 0;
 #endif
-        int size = (int)compiler->lvaLclSize(varNum);
+        int size = varDsc->GetFrameSize();
         int end  = addr + size;
         for (int offs = addr; offs < end;)
         {
