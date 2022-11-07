@@ -1801,7 +1801,19 @@ unsigned LclVarDsc::GetFrameSize() const
             return roundUp(lvExactSize, REGSIZE_BYTES);
 
         case TYP_STRUCT:
-            return lvSize();
+        {
+            unsigned size = m_layout->GetSize();
+
+            if (lvIsParam)
+            {
+                bool     isFloatHfa = IsHfaParam() && (m_layout->GetHfaElementType() == TYP_FLOAT);
+                unsigned alignment  = Compiler::lvaGetParamAlignment(lvType, isFloatHfa);
+
+                return roundUp(size, alignment);
+            }
+
+            return roundUp(size, REGSIZE_BYTES);
+        }
 
 #ifdef FEATURE_SIMD
         case TYP_SIMD12:
@@ -2249,34 +2261,6 @@ void Compiler::lvaMarkLivenessTrackedLocals()
     lvaCurEpoch++;
     lvaTrackedCountInSizeTUnits =
         roundUp(lvaTrackedCount, static_cast<unsigned>(sizeof(size_t) * 8)) / static_cast<unsigned>(sizeof(size_t) * 8);
-}
-
-unsigned LclVarDsc::lvSize() const // Size needed for storage representation. Only used for structs.
-{
-    // TODO-Review: Sometimes we get called on ARM with HFA struct variables that have been promoted,
-    // where the struct itself is no longer used because all access is via its member fields.
-    // When that happens, the struct is marked as unused and its type has been changed to
-    // TYP_INT (to keep the GC tracking code from looking at it).
-    // See Compiler::raAssignVars() for details. For example:
-    //      N002 (  4,  3) [00EA067C] -------------               return    struct $346
-    //      N001 (  3,  2) [00EA0628] -------------                  lclVar    struct(U) V03 loc2
-    //                                                                        float  V03.f1 (offs=0x00) -> V12 tmp7
-    //                                                                        f8 (last use) (last use) $345
-    // Here, the "struct(U)" shows that the "V03 loc2" variable is unused. Not shown is that V03
-    // is now TYP_INT in the local variable table. It's not really unused, because it's in the tree.
-
-    assert(lvType == TYP_STRUCT);
-
-    unsigned size = m_layout->GetSize();
-
-    if (lvIsParam)
-    {
-        bool     isFloatHfa   = IsHfaParam() && (m_layout->GetHfaElementType() == TYP_FLOAT);
-        unsigned argAlignment = Compiler::lvaGetParamAlignment(lvType, isFloatHfa);
-        return roundUp(size, argAlignment);
-    }
-
-    return roundUp(size, TARGET_POINTER_SIZE);
 }
 
 //------------------------------------------------------------------------
