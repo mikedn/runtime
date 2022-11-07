@@ -3320,14 +3320,14 @@ void Compiler::generatePatchpointInfo()
     //
     if (lvaReportParamTypeArg())
     {
-        const int offset = lvaCachedGenericContextArgOffset();
+        const int offset = codeGen->cachedGenericContextArgOffset;
         patchpointInfo->SetGenericContextArgOffset(offset);
         JITDUMP("--OSR-- cached generic context offset is FP %d\n", patchpointInfo->GenericContextArgOffset());
     }
 
     if (lvaKeepAliveAndReportThis())
     {
-        const int offset = lvaCachedGenericContextArgOffset();
+        const int offset = codeGen->cachedGenericContextArgOffset;
         patchpointInfo->SetKeptAliveThisOffset(offset);
         JITDUMP("--OSR-- kept-alive this offset is FP %d\n", patchpointInfo->KeptAliveThisOffset());
     }

@@ -5311,16 +5311,16 @@ void CodeGen::genReportGenericContextArg(regNumber initReg, bool* pInitRegZeroed
     }
 
 #if defined(TARGET_ARM64)
-    genInstrWithConstant(ins_Store(TYP_I_IMPL), EA_PTRSIZE, reg, genFramePointerReg(),
-                         compiler->lvaCachedGenericContextArgOffset(), rsGetRsvdReg());
+    genInstrWithConstant(ins_Store(TYP_I_IMPL), EA_PTRSIZE, reg, genFramePointerReg(), cachedGenericContextArgOffset,
+                         rsGetRsvdReg());
 #elif defined(TARGET_ARM)
     // ARM's emitIns_R_R_I automatically uses the reserved register if necessary.
     GetEmitter()->emitIns_R_R_I(ins_Store(TYP_I_IMPL), EA_PTRSIZE, reg, genFramePointerReg(),
-                                compiler->lvaCachedGenericContextArgOffset());
+                                cachedGenericContextArgOffset);
 #else  // !ARM64 !ARM
     // mov [ebp-lvaCachedGenericContextArgOffset()], reg
     GetEmitter()->emitIns_AR_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, reg, genFramePointerReg(),
-                               compiler->lvaCachedGenericContextArgOffset());
+                               cachedGenericContextArgOffset);
 #endif // !ARM64 !ARM
 }
 

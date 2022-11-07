@@ -96,6 +96,8 @@ public:
 #if FEATURE_FIXED_OUT_ARGS
     PhasedVar<unsigned> outgoingArgSpaceSize; // size of fixed outgoing argument space
 #endif
+    // For CORINFO_CALLCONV_PARAMTYPE and if generic context is passed as THIS pointer
+    int cachedGenericContextArgOffset;
 
     // Count of callee-saved regs we pushed in the prolog.
     // Does not include EBP for isFramePointerUsed() and double-aligned frames.

@@ -1570,15 +1570,6 @@ inline bool Compiler::lvaReportParamTypeArg()
     return false;
 }
 
-//*****************************************************************************
-
-inline int Compiler::lvaCachedGenericContextArgOffset()
-{
-    assert(lvaDoneFrameLayout == FINAL_FRAME_LAYOUT);
-
-    return lvaCachedGenericContextArgOffs;
-}
-
 inline bool Compiler::lvaIsOriginalThisArg(unsigned varNum)
 {
     assert(varNum < lvaCount);

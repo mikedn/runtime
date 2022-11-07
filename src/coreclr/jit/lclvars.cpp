@@ -3678,7 +3678,7 @@ void Compiler::lvaFixVirtualFrameOffsets()
         temp->tdAdjustTempOffs(delta);
     }
 
-    lvaCachedGenericContextArgOffs += delta;
+    codeGen->cachedGenericContextArgOffset += delta;
 
 #if FEATURE_FIXED_OUT_ARGS
     if (lvaOutgoingArgSpaceVar != BAD_VAR_NUM)
@@ -4031,7 +4031,7 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
         {
             PatchpointInfo* ppInfo = info.compPatchpointInfo;
             assert(ppInfo->HasGenericContextArgOffset());
-            lvaCachedGenericContextArgOffs = originalFrameStkOffs + ppInfo->GenericContextArgOffset();
+            codeGen->cachedGenericContextArgOffset = originalFrameStkOffs + ppInfo->GenericContextArgOffset();
         }
         else
         {
@@ -4039,7 +4039,7 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
             lvaIncrementFrameSize(REGSIZE_BYTES);
             stkOffs -= REGSIZE_BYTES;
 
-            lvaCachedGenericContextArgOffs = stkOffs;
+            codeGen->cachedGenericContextArgOffset = stkOffs;
         }
     }
 #ifndef JIT32_GCENCODER
@@ -4053,8 +4053,8 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
 
             if (ppInfo->HasKeptAliveThis())
             {
-                lvaCachedGenericContextArgOffs = originalFrameStkOffs + ppInfo->KeptAliveThisOffset();
-                canUseExistingSlot             = true;
+                codeGen->cachedGenericContextArgOffset = originalFrameStkOffs + ppInfo->KeptAliveThisOffset();
+                canUseExistingSlot                     = true;
             }
         }
 
@@ -4064,7 +4064,7 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
             lvaIncrementFrameSize(REGSIZE_BYTES);
             stkOffs -= REGSIZE_BYTES;
 
-            lvaCachedGenericContextArgOffs = stkOffs;
+            codeGen->cachedGenericContextArgOffset = stkOffs;
         }
     }
 #endif

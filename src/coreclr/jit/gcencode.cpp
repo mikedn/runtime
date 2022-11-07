@@ -3879,7 +3879,7 @@ void GCInfo::gcInfoBlockHdrSave(GcInfoEncoder* gcInfoEncoder, unsigned methodSiz
                 assert(false);
         }
 
-        const int offset = compiler->lvaToCallerSPRelativeOffset(compiler->lvaCachedGenericContextArgOffset(),
+        const int offset = compiler->lvaToCallerSPRelativeOffset(compiler->codeGen->cachedGenericContextArgOffset,
                                                                  compiler->codeGen->isFramePointerUsed());
 
 #ifdef DEBUG
@@ -3916,7 +3916,7 @@ void GCInfo::gcInfoBlockHdrSave(GcInfoEncoder* gcInfoEncoder, unsigned methodSiz
         }
 
         const int offset =
-            compiler->lvaToCallerSPRelativeOffset(compiler->lvaCachedGenericContextArgOffset(),
+            compiler->lvaToCallerSPRelativeOffset(compiler->codeGen->cachedGenericContextArgOffset,
                                                   compiler->codeGen->isFramePointerUsed(), useRootFrameSlot);
 
 #ifdef DEBUG
@@ -4270,7 +4270,8 @@ void GCInfo::gcMakeRegPtrTable(
 
             GcStackSlotBase stackSlotBase = compiler->codeGen->isFramePointerUsed() ? GC_FRAMEREG_REL : GC_SP_REL;
 
-            gcInfoEncoderWithLog->GetStackSlotId(compiler->lvaCachedGenericContextArgOffset(), flags, stackSlotBase);
+            gcInfoEncoderWithLog->GetStackSlotId(compiler->codeGen->cachedGenericContextArgOffset, flags,
+                                                 stackSlotBase);
         }
     }
 

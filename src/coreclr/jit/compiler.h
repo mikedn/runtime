@@ -3948,10 +3948,6 @@ public:
     unsigned lvaShadowSPslotsVar = BAD_VAR_NUM; // TYP_BLK variable for all the shadow SP slots
 #endif
 
-    int lvaCachedGenericContextArgOffs;
-    int lvaCachedGenericContextArgOffset(); // For CORINFO_CALLCONV_PARAMTYPE and if generic context is passed as
-                                            // THIS pointer
-
 #ifdef JIT32_GCENCODER
     // variable which stores the value of ESP after the the last alloca/localloc
     unsigned lvaLocAllocSPvar = BAD_VAR_NUM;
