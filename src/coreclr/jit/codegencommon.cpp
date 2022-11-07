@@ -2865,10 +2865,11 @@ regMaskTP CodeGen::genPrologSpillParamRegs(ParamRegInfo* paramRegs, unsigned par
             GetEmitter()->emitIns_S_R(ins_Store(storeType), size, srcRegNum, lclNum, baseOffset);
 
 #ifndef UNIX_AMD64_ABI
+            // TODO-MIKE-Cleanup: This should be valid on unix-x64 too.
             // Check if we are writing past the end of the struct
             if (varTypeIsStruct(lcl->GetType()))
             {
-                assert(lcl->lvSize() >= baseOffset + static_cast<unsigned>(size));
+                assert(baseOffset + EA_SIZE_IN_BYTES(size) <= lcl->GetFrameSize());
             }
 #endif
 

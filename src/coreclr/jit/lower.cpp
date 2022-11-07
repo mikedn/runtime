@@ -4419,7 +4419,7 @@ bool Lowering::CanWidenSimd12ToSimd16(const LclVarDsc* lcl)
 {
     assert(lcl->TypeIs(TYP_SIMD12));
 
-    if (lcl->lvSize() < 16)
+    if (lcl->GetFrameSize() < 16)
     {
         return false;
     }
@@ -4431,7 +4431,7 @@ bool Lowering::CanWidenSimd12ToSimd16(const LclVarDsc* lcl)
     if (lcl->IsDependentPromotedField(comp))
     {
         LclVarDsc* parentLcl = comp->lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
-        return (parentLcl->GetPromotedFieldCount() == 1) && (parentLcl->lvSize() == 16);
+        return (parentLcl->GetPromotedFieldCount() == 1) && (parentLcl->GetFrameSize() == 16);
     }
 
     return true;

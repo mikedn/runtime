@@ -1805,6 +1805,9 @@ unsigned LclVarDsc::GetFrameSize() const
 
 #ifdef FEATURE_SIMD
         case TYP_SIMD12:
+            // TODO-MIKE-Fix: This is messed up in some cases (e.g. on x86 SIMD12 params
+            // have only 12 bytes). lvSize() dealt with this but for some reason it was
+            // only called for structs. CanWidenSimd12ToSimd16 is broken due to this.
             return 16;
 #endif
 
@@ -2248,7 +2251,7 @@ void Compiler::lvaMarkLivenessTrackedLocals()
         roundUp(lvaTrackedCount, static_cast<unsigned>(sizeof(size_t) * 8)) / static_cast<unsigned>(sizeof(size_t) * 8);
 }
 
-unsigned LclVarDsc::lvSize() const // Size needed for storage representation. Only used for structs or TYP_BLK.
+unsigned LclVarDsc::lvSize() const // Size needed for storage representation. Only used for structs.
 {
     // TODO-Review: Sometimes we get called on ARM with HFA struct variables that have been promoted,
     // where the struct itself is no longer used because all access is via its member fields.
@@ -2262,30 +2265,16 @@ unsigned LclVarDsc::lvSize() const // Size needed for storage representation. On
     // Here, the "struct(U)" shows that the "V03 loc2" variable is unused. Not shown is that V03
     // is now TYP_INT in the local variable table. It's not really unused, because it's in the tree.
 
-    assert(varTypeIsStruct(lvType) || (lvType == TYP_BLK));
+    assert(lvType == TYP_STRUCT);
 
-    unsigned size = GetTypeSize();
+    unsigned size = m_layout->GetSize();
 
     if (lvIsParam)
     {
-        assert(varTypeIsStruct(lvType));
-
         bool     isFloatHfa   = IsHfaParam() && (m_layout->GetHfaElementType() == TYP_FLOAT);
         unsigned argAlignment = Compiler::lvaGetParamAlignment(lvType, isFloatHfa);
         return roundUp(size, argAlignment);
     }
-
-#if defined(FEATURE_SIMD) && !defined(TARGET_64BIT)
-    // For 32-bit architectures, we make local variable SIMD12 types 16 bytes instead of just 12. We can't do
-    // this for arguments, which must be passed according the defined ABI. We don't want to do this for
-    // dependently promoted struct fields, but we don't know that here. See lvaMapSimd12ToSimd16().
-    // (Note that for 64-bits, we are already rounding up to 16.)
-    if (lvType == TYP_SIMD12)
-    {
-        assert(size == 12);
-        return 16;
-    }
-#endif // defined(FEATURE_SIMD) && !defined(TARGET_64BIT)
 
     return roundUp(size, TARGET_POINTER_SIZE);
 }
