@@ -3725,7 +3725,7 @@ private:
             target_size_t offset   = m_vnStore->ConstantValue<target_size_t>(lclAddr.m_args[1]);
             FieldSeqNode* fieldSeq = m_vnStore->FieldSeqVNToFieldSeq(lclAddr.m_args[2]);
 
-            if ((offset > UINT16_MAX) || (offset >= m_compiler->lvaGetDesc(lclNum)->GetSize()))
+            if ((offset > UINT16_MAX) || (offset >= m_compiler->lvaGetDesc(lclNum)->GetTypeSize()))
             {
                 return false;
             }

@@ -1228,7 +1228,7 @@ private:
 
         GenTree* addr = val.Node();
 
-        if ((val.Offset() > UINT16_MAX) || (val.Offset() >= varDsc->GetSize()))
+        if ((val.Offset() > UINT16_MAX) || (val.Offset() >= varDsc->GetTypeSize()))
         {
             // The offset is too large to store in a LCL_FLD_ADDR node,
             // use ADD(LCL_VAR_ADDR, offset) instead.
@@ -1673,7 +1673,7 @@ private:
 
             if (indir->OperIs(GT_LCL_FLD))
             {
-                if ((val.Offset() != 0) || (indirSize < m_compiler->lvaGetDesc(val.LclNum())->GetSize()))
+                if ((val.Offset() != 0) || (indirSize < m_compiler->lvaGetDesc(val.LclNum())->GetTypeSize()))
                 {
                     flags |= GTF_VAR_USEASG;
                 }

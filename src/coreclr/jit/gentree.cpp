@@ -11903,7 +11903,7 @@ bool GenTree::IsPartialLclFld(Compiler* comp)
         return true;
     }
 
-    unsigned lclSize = comp->lvaGetDesc(AsLclFld())->GetSize();
+    unsigned lclSize = comp->lvaGetDesc(AsLclFld())->GetTypeSize();
     unsigned lclFldSize;
 
     if (gtType == TYP_STRUCT)

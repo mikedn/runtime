@@ -4574,7 +4574,7 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
 
     unsigned lclNum    = arg->GetLclNum();
     unsigned lclOffset = arg->OperIs(GT_LCL_FLD) ? arg->AsLclFld()->GetLclOffs() : 0;
-    unsigned lclSize   = lcl->GetSize();
+    unsigned lclSize   = lcl->GetTypeSize();
 #ifdef FEATURE_SIMD
     bool lclIsSIMD = varTypeIsSIMD(lcl->GetType()) && !lcl->IsPromoted() && !lcl->lvDoNotEnregister;
 #endif
@@ -8467,7 +8467,7 @@ GenTree* Compiler::fgMorphInitStruct(GenTreeOp* asg)
 
     if ((destLclVar != nullptr) && (destSize != 0) && (destLclVar->GetType() != TYP_BLK))
     {
-        unsigned destLclVarSize = destLclVar->GetSize();
+        unsigned destLclVarSize = destLclVar->GetTypeSize();
 
         if (destLclVar->lvPromoted && (destLclOffs == 0) && (destSize == destLclVarSize))
         {
@@ -9406,7 +9406,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
     }
 
     if ((destLclVar != nullptr) && destLclVar->IsPromoted() && (destLclOffs == 0) &&
-        (destLclVar->GetSize() == destSize) &&
+        (destLclVar->GetTypeSize() == destSize) &&
         (!destLclVar->lvDoNotEnregister || (destLclVar->GetPromotedFieldCount() == 1)))
     {
         assert(varTypeIsStruct(destLclVar->GetType()));
@@ -9416,7 +9416,8 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         JITDUMP("dest is promoted local\n");
     }
 
-    if ((srcLclVar != nullptr) && srcLclVar->IsPromoted() && (srcLclOffs == 0) && (srcLclVar->GetSize() == destSize) &&
+    if ((srcLclVar != nullptr) && srcLclVar->IsPromoted() && (srcLclOffs == 0) &&
+        (srcLclVar->GetTypeSize() == destSize) &&
         (!srcLclVar->lvDoNotEnregister || (srcLclVar->GetPromotedFieldCount() == 1)))
     {
         assert(varTypeIsStruct(srcLclVar->GetType()));
@@ -9640,7 +9641,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
                     // The maximum offset depends on the last promoted field offset, not the struct
                     // size. But such cases are so rare that it's not worth the trouble to get the
                     // last field offset.
-                    maxOffset -= promotedLcl->GetSize();
+                    maxOffset -= promotedLcl->GetTypeSize();
 
                     if ((offset->GetValue() > 0) && (offset->GetValue() <= maxOffset))
                     {

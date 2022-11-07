@@ -945,7 +945,7 @@ public:
         return lvExactSize;
     }
 
-    unsigned GetSize() const
+    unsigned GetTypeSize() const
     {
         switch (lvType)
         {

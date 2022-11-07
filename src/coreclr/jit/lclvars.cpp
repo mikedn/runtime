@@ -2266,7 +2266,7 @@ unsigned LclVarDsc::lvSize() const // Size needed for storage representation. On
 
     assert(varTypeIsStruct(lvType) || (lvType == TYP_BLK));
 
-    unsigned size = GetSize();
+    unsigned size = GetTypeSize();
 
     if (lvIsParam)
     {
