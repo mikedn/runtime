@@ -3293,7 +3293,8 @@ bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
         }
         else if (arg->OperIs(GT_LCL_FLD))
         {
-            canRetype = arg->AsLclFld()->GetLclOffs() + varTypeSize(argType) <= lvaGetDesc(arg->AsLclFld())->lvSize();
+            canRetype =
+                arg->AsLclFld()->GetLclOffs() + varTypeSize(argType) <= lvaGetDesc(arg->AsLclFld())->GetTypeSize();
 
             if (canRetype)
             {
