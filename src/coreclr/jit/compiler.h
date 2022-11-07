@@ -915,6 +915,12 @@ public:
         return lvType;
     }
 
+    // [[deprecated]]
+    var_types TypeGet() const
+    {
+        return lvType;
+    }
+
     bool TypeIs(var_types type) const
     {
         return lvType == type;
@@ -958,25 +964,16 @@ public:
         }
     }
 
-    var_types TypeGet() const
-    {
-        return (var_types)lvType;
-    }
-    bool lvStackAligned() const
-    {
-        assert(lvIsStructField);
-        return ((lvFldOffset % TARGET_POINTER_SIZE) == 0);
-    }
     bool lvNormalizeOnLoad() const
     {
-        return varTypeIsSmall(TypeGet()) &&
+        return varTypeIsSmall(lvType) &&
                // lvIsStructField is treated the same as the aliased local, see fgMorphNormalizeLclVarStore.
                (lvIsParam || lvAddrExposed || lvIsStructField);
     }
 
     bool lvNormalizeOnStore() const
     {
-        return varTypeIsSmall(TypeGet()) &&
+        return varTypeIsSmall(lvType) &&
                // lvIsStructField is treated the same as the aliased local, see fgMorphNormalizeLclVarStore.
                !(lvIsParam || lvAddrExposed || lvIsStructField);
     }
