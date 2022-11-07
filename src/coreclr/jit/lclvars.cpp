@@ -1800,12 +1800,6 @@ unsigned Compiler::lvaLclSize(unsigned lclNum)
     switch (lcl->GetType())
     {
         case TYP_BLK:
-#if FEATURE_FIXED_OUT_ARGS
-            if (lclNum == lvaOutgoingArgSpaceVar)
-            {
-                return codeGen->outgoingArgSpaceSize.GetValue();
-            }
-#endif
             return roundUp(lcl->lvExactSize, REGSIZE_BYTES);
 
         case TYP_STRUCT:
