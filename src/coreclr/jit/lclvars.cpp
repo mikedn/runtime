@@ -3967,7 +3967,10 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
         // This var must go first, in what is called the 'frame header' for EnC so that it is
         // preserved when remapping occurs.  See vm\eetwain.cpp for detailed comment specifying frame
         // layout requirements for EnC to work.
-        stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaMonAcquired, lvaGetDesc(lvaMonAcquired)->GetFrameSize(), stkOffs);
+        // TODO-MIKE-Review: lvaMonAcquired is INT so in theory it needs only 4 bytes, even on
+        // 64 bit targets. But lvQuirkToLong used to (unnecessarily) affect this so we allocate
+        // 8 bytes on 64 targets.
+        stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaMonAcquired, REGSIZE_BYTES, stkOffs);
     }
 
 #ifdef JIT32_GCENCODER
@@ -4053,7 +4056,7 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
             }
         }
 
-        stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaShadowSPslotsVar, lvaGetDesc(lvaShadowSPslotsVar)->GetFrameSize(),
+        stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaShadowSPslotsVar, lvaGetDesc(lvaShadowSPslotsVar)->GetBlockSize(),
                                                    stkOffs);
     }
 #endif // !FEATURE_EH_FUNCLETS
@@ -4392,7 +4395,7 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
         noway_assert(codeGen->isFramePointerUsed());
 
         stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaInlinedPInvokeFrameVar,
-                                                   lvaGetDesc(lvaInlinedPInvokeFrameVar)->GetFrameSize(), stkOffs);
+                                                   lvaGetDesc(lvaInlinedPInvokeFrameVar)->GetBlockSize(), stkOffs);
     }
 
 #ifndef TARGET_64BIT
@@ -4496,10 +4499,12 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
 int Compiler::lvaAllocLocalAndSetVirtualOffset(unsigned lclNum, unsigned size, int stkOffs)
 {
     noway_assert(lclNum != BAD_VAR_NUM);
-    assert(size != 0);
+    assert((size != 0) && (size % 4 == 0));
     assert(stkOffs <= 0);
 
     LclVarDsc* lcl = lvaGetDesc(lclNum);
+
+    assert(size >= lcl->GetTypeSize());
 
 #ifdef TARGET_64BIT
     if (size >= 8)

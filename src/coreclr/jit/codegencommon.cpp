@@ -6323,7 +6323,7 @@ void CodeGen::genFnProlog()
     {
         // The last slot is reserved for ICodeManager::FixContext(ppEndRegion)
         unsigned filterEndOffsetSlotOffs =
-            compiler->lvaGetDesc(compiler->lvaShadowSPslotsVar)->GetFrameSize() - REGSIZE_BYTES;
+            compiler->lvaGetDesc(compiler->lvaShadowSPslotsVar)->GetBlockSize() - REGSIZE_BYTES;
 
         // Zero out the slot for nesting level 0
         unsigned firstSlotOffs = filterEndOffsetSlotOffs - REGSIZE_BYTES;

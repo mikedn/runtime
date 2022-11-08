@@ -2294,7 +2294,8 @@ void Compiler::fgAddInternal()
         }
 
         lvaInlinedPInvokeFrameVar = lvaGrabTemp(false DEBUGARG("PInvokeFrame"));
-        lvaGetDesc(lvaInlinedPInvokeFrameVar)->SetBlockType(eeGetEEInfo()->inlinedCallFrameInfo.size);
+        lvaGetDesc(lvaInlinedPInvokeFrameVar)
+            ->SetBlockType(roundUp(eeGetEEInfo()->inlinedCallFrameInfo.size, REGSIZE_BYTES));
     }
 
     // Do we need to insert a "JustMyCode" callback?

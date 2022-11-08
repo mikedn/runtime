@@ -458,7 +458,7 @@ BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
 
     // The last slot is reserved for ICodeManager::FixContext(ppEndRegion)
     unsigned filterEndOffsetSlotOffs;
-    filterEndOffsetSlotOffs = compiler->lvaGetDesc(compiler->lvaShadowSPslotsVar)->GetFrameSize() - REGSIZE_BYTES;
+    filterEndOffsetSlotOffs = compiler->lvaGetDesc(compiler->lvaShadowSPslotsVar)->GetBlockSize() - REGSIZE_BYTES;
 
     unsigned curNestingSlotOffs;
     curNestingSlotOffs = (unsigned)(filterEndOffsetSlotOffs - ((finallyNesting + 1) * REGSIZE_BYTES));
@@ -1844,9 +1844,9 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
 
             // The last slot is reserved for ICodeManager::FixContext(ppEndRegion)
             unsigned filterEndOffsetSlotOffs;
-            PREFIX_ASSUME(compiler->lvaGetDesc(compiler->lvaShadowSPslotsVar)->GetFrameSize() > REGSIZE_BYTES);
+            PREFIX_ASSUME(compiler->lvaGetDesc(compiler->lvaShadowSPslotsVar)->GetBlockSize() > REGSIZE_BYTES);
             filterEndOffsetSlotOffs =
-                compiler->lvaGetDesc(compiler->lvaShadowSPslotsVar)->GetFrameSize() - REGSIZE_BYTES;
+                compiler->lvaGetDesc(compiler->lvaShadowSPslotsVar)->GetBlockSize() - REGSIZE_BYTES;
 
             size_t curNestingSlotOffs;
             curNestingSlotOffs = filterEndOffsetSlotOffs - ((finallyNesting + 1) * REGSIZE_BYTES);
