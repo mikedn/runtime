@@ -4623,10 +4623,6 @@ void Compiler::lvaAlignFrame()
     bool regPushedCountAligned = lvaIsCalleeSavedIntRegCountEven();
     bool lclFrameSizeAligned   = (codeGen->lclFrameSize % 16) == 0;
 
-    // If this isn't the final frame layout, assume we have to push an extra QWORD
-    // Just so the offsets are true upper limits.
-    CLANG_FORMAT_COMMENT_ANCHOR;
-
 #ifdef UNIX_AMD64_ABI
     // The compNeedToAlignFrame flag  is indicating if there is a need to align the frame.
     // On AMD64-Windows, if there are calls, 4 slots for the outgoing ars are allocated, except for
