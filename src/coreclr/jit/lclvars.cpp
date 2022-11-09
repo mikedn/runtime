@@ -4635,8 +4635,7 @@ void Compiler::lvaAlignFrame()
     bool stackNeedsAlignment = codeGen->lclFrameSize != 0;
 #endif
 
-    if ((!codeGen->isFramePointerUsed() && (lvaDoneFrameLayout != FINAL_FRAME_LAYOUT)) ||
-        (stackNeedsAlignment && (regPushedCountAligned == lclFrameSizeAligned)))
+    if (stackNeedsAlignment && (regPushedCountAligned == lclFrameSizeAligned))
     {
         lvaIncrementFrameSize(REGSIZE_BYTES);
     }
