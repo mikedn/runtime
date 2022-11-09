@@ -4697,24 +4697,17 @@ void Compiler::lvaAlignFrame()
     }
 #endif
 
-    if (STACK_ALIGN > REGSIZE_BYTES)
+#ifdef UNIX_X86_ABI
+    // UNIX_X86_ABI requires 16 byte alignment.
+
+    int pushCount = 1 + (codeGen->doubleAlignOrFramePointerUsed() ? 1 : 0) + codeGen->calleeRegsPushed;
+    int frameSize = codeGen->lclFrameSize + (pushCount * REGSIZE_BYTES) % STACK_ALIGN;
+
+    if (frameSize % STACK_ALIGN != 0)
     {
-        // Align the stack with STACK_ALIGN value.
-        int  adjustFrameSize = codeGen->lclFrameSize;
-#if defined(UNIX_X86_ABI)
-        bool isEbpPushed     = codeGen->isFramePointerUsed();
-#if DOUBLE_ALIGN
-        isEbpPushed |= genDoubleAlign();
-#endif
-        // we need to consider spilled register(s) plus return address and/or EBP
-        int adjustCount = compCalleeRegsPushed + 1 + (isEbpPushed ? 1 : 0);
-        adjustFrameSize += (adjustCount * REGSIZE_BYTES) % STACK_ALIGN;
-#endif
-        if ((adjustFrameSize % STACK_ALIGN) != 0)
-        {
-            lvaIncrementFrameSize(STACK_ALIGN - (adjustFrameSize % STACK_ALIGN));
-        }
+        lvaIncrementFrameSize(STACK_ALIGN - frameSize % STACK_ALIGN);
     }
+#endif // UNIX_X86_ABI
 
 #else
     NYI("TARGET specific lvaAlignFrame");
