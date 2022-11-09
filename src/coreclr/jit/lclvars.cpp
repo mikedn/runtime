@@ -4472,8 +4472,10 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
     }
 #endif // FEATURE_FIXED_OUT_ARGS
 
-    // compLclFrameSize equals our negated virtual stack offset minus the pushed registers and return address
-    // and the pushed frame pointer register which for some strange reason isn't part of 'compCalleeRegsPushed'.
+    // Now -stkOffs should be equal to the frame size - the space allocated for locals (lclFrameSize),
+    // the original frame size for OSR compilation and the space allocated for call preserved registers.
+    // Note that this does not include padding required to maintain frame alignment, that will be added
+    // later to the space allocated for locals.
     int pushedCount = codeGen->calleeRegsPushed;
 
 #ifdef TARGET_ARM64
@@ -4492,8 +4494,8 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
     pushedCount++; // pushed PC (return address)
 #endif
 
-    noway_assert(codeGen->lclFrameSize + originalFrameSize ==
-                 static_cast<unsigned>(-(stkOffs + pushedCount * REGSIZE_BYTES)));
+    noway_assert(codeGen->lclFrameSize + originalFrameSize + pushedCount * REGSIZE_BYTES ==
+                 static_cast<unsigned>(-stkOffs));
 }
 
 int Compiler::lvaAllocLocalAndSetVirtualOffset(unsigned lclNum, unsigned size, int stkOffs)
