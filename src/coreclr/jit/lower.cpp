@@ -1255,7 +1255,7 @@ void Lowering::LowerCall(GenTreeCall* call)
 #ifdef UNIX_AMD64_ABI
     if (!call->IsFastTailCall())
     {
-        comp->opts.compNeedToAlignFrame = true;
+        comp->codeGen->needToAlignFrame = true;
     }
 #endif
 
@@ -4589,6 +4589,15 @@ GenTree* Lowering::LowerArrElem(GenTree* node)
 
 PhaseStatus Lowering::DoPhase()
 {
+#ifdef PROFILING_SUPPORTED
+#ifdef UNIX_AMD64_ABI
+    if (comp->compIsProfilerHookNeeded())
+    {
+        comp->codeGen->needToAlignFrame = true;
+    }
+#endif
+#endif // PROFILING_SUPPORTED
+
     // If we have any PInvoke calls, insert the one-time prolog code. We'll inserted the epilog code in the
     // appropriate spots later. NOTE: there is a minor optimization opportunity here, as we still create p/invoke
     // data structures and setup/teardown even if we've eliminated all p/invoke calls due to dead code elimination.

@@ -1639,13 +1639,6 @@ void Compiler::compInitOptions()
         compProfilerMethHnd           = (void*)DummyProfilerELTStub;
         compProfilerMethHndIndirected = false;
     }
-
-#ifdef UNIX_AMD64_ABI
-    if (compIsProfilerHookNeeded())
-    {
-        opts.compNeedToAlignFrame = true;
-    }
-#endif
 #endif // PROFILING_SUPPORTED
 
     ARM_ONLY(opts.compUseSoftFP = jitFlags->IsSet(JitFlags::JIT_FLAG_SOFTFP_ABI) || JitConfig.JitSoftFP();)

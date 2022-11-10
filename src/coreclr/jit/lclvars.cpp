@@ -4621,18 +4621,18 @@ void Compiler::lvaAlignFrame()
     // And don't forget that compCalleeRegsPused does *not* include RBP if we are
     // using it as the frame pointer.
     bool regPushedCountAligned = lvaIsCalleeSavedIntRegCountEven();
-    bool lclFrameSizeAligned   = (codeGen->lclFrameSize % 16) == 0;
+    bool lclFrameSizeAligned   = codeGen->lclFrameSize % 16 == 0;
+    bool stackNeedsAlignment   = codeGen->lclFrameSize != 0;
 
 #ifdef UNIX_AMD64_ABI
-    // The compNeedToAlignFrame flag  is indicating if there is a need to align the frame.
-    // On AMD64-Windows, if there are calls, 4 slots for the outgoing ars are allocated, except for
-    // FastTailCall. This slots makes the frame size non-zero, so alignment logic will be called.
-    // On AMD64-Unix, there are no such slots. There is a possibility to have calls in the method with frame size of 0.
-    // The frame alignment logic won't kick in. This flags takes care of the AMD64-Unix case by remembering that there
-    // are calls and making sure the frame alignment logic is executed.
-    bool stackNeedsAlignment = (codeGen->lclFrameSize != 0 || opts.compNeedToAlignFrame);
-#else
-    bool stackNeedsAlignment = codeGen->lclFrameSize != 0;
+    // The needToAlignFrame flag is indicating if there is a need to align the frame.
+    // On AMD64-Windows, if there are calls, 4 slots for the outgoing ars are allocated,
+    // except for FastTailCall. This slots makes the frame size non-zero, so alignment logic
+    // will be called. On AMD64-Unix, there are no such slots. There is a possibility to have
+    // calls in the method with frame size of 0. The frame alignment logic won't kick in.
+    // This flags takes care of the AMD64-Unix case by remembering that there are calls and
+    // making sure the frame alignment logic is executed.
+    stackNeedsAlignment |= codeGen->needToAlignFrame;
 #endif
 
     if (stackNeedsAlignment && (regPushedCountAligned == lclFrameSizeAligned))
