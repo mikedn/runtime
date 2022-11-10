@@ -4607,23 +4607,17 @@ bool Compiler::lvaIsCalleeSavedIntRegCountEven()
 void Compiler::lvaAlignFrame()
 {
 #if defined(TARGET_AMD64)
+    // On x64 the stack must be 16 byte aligned.
+
     // Leaf frames do not need full alignment, but the unwind info is smaller if we
     // are at least 8 byte aligned (and we assert as much)
-    if ((codeGen->lclFrameSize % 8) != 0)
+    if (codeGen->lclFrameSize % 8 != 0)
     {
         lvaIncrementFrameSize(8 - codeGen->lclFrameSize % 8);
+        assert(codeGen->lclFrameSize % 8 == 0);
     }
 
-    assert(codeGen->lclFrameSize % 8 == 0);
-
-    // Ensure that the stack is always 16-byte aligned by grabbing an unused QWORD
-    // if needed, but off by 8 because of the return value.
-    // And don't forget that compCalleeRegsPused does *not* include RBP if we are
-    // using it as the frame pointer.
-    bool regPushedCountAligned = lvaIsCalleeSavedIntRegCountEven();
-    bool lclFrameSizeAligned   = codeGen->lclFrameSize % 16 == 0;
-    bool stackNeedsAlignment   = codeGen->lclFrameSize != 0;
-
+    bool stackNeedsAlignment = codeGen->lclFrameSize != 0;
 #ifdef UNIX_AMD64_ABI
     // The needToAlignFrame flag is indicating if there is a need to align the frame.
     // On AMD64-Windows, if there are calls, 4 slots for the outgoing ars are allocated,
@@ -4635,53 +4629,66 @@ void Compiler::lvaAlignFrame()
     stackNeedsAlignment |= codeGen->needToAlignFrame;
 #endif
 
-    if (stackNeedsAlignment && (regPushedCountAligned == lclFrameSizeAligned))
+    if (stackNeedsAlignment)
     {
-        lvaIncrementFrameSize(REGSIZE_BYTES);
+        unsigned pushCount = 1 + (codeGen->isFramePointerUsed() ? 1 : 0) + codeGen->calleeRegsPushed;
+        unsigned frameSize = codeGen->lclFrameSize + pushCount * REGSIZE_BYTES;
+
+        if (frameSize % 16 != 0)
+        {
+            lvaIncrementFrameSize(8);
+            assert((codeGen->lclFrameSize + pushCount * REGSIZE_BYTES) % 16 == 0);
+        }
+    }
+#elif defined(TARGET_ARM64)
+    // On arm64 the stack must be 16 byte aligned.
+
+    if (lvaDoneFrameLayout == REGALLOC_FRAME_LAYOUT)
+    {
+        // When we estimate the frame size we don't know the exact value of lclFrameSize
+        // and thus do not know how much we will need to add in order to be aligned. Just
+        // assume the worst and add 16.
+        lvaIncrementFrameSize(16);
+
+        return;
     }
 
-#elif defined(TARGET_ARM64)
-    // The stack on ARM64 must be 16 byte aligned.
-
-    // First, align up to 8.
+    // First, align up to 8 (lclFrameSize may be only 4 byte aligned and we need 8 for
+    // callee pushed regs).
     if (codeGen->lclFrameSize % 8 != 0)
     {
         lvaIncrementFrameSize(8 - codeGen->lclFrameSize % 8);
+        assert(codeGen->lclFrameSize % 8 == 0);
     }
-    else if (lvaDoneFrameLayout != FINAL_FRAME_LAYOUT)
+
+    unsigned pushCount = codeGen->calleeRegsPushed;
+    unsigned frameSize = codeGen->lclFrameSize + pushCount * REGSIZE_BYTES;
+
+    if (frameSize % 16 != 0)
     {
-        // If we are not doing final layout, we don't know the exact value of compLclFrameSize
-        // and thus do not know how much we will need to add in order to be aligned.
-        // We add 8 so compLclFrameSize is still a multiple of 8.
         lvaIncrementFrameSize(8);
-    }
-    assert(codeGen->lclFrameSize % 8 == 0);
-
-    // Ensure that the stack is always 16-byte aligned by grabbing an unused QWORD
-    // if needed.
-    bool regPushedCountAligned = (codeGen->calleeRegsPushed % (16 / REGSIZE_BYTES)) == 0;
-    bool lclFrameSizeAligned   = (codeGen->lclFrameSize % 16) == 0;
-
-    // If this isn't the final frame layout, assume we have to push an extra QWORD
-    // Just so the offsets are true upper limits.
-    if ((lvaDoneFrameLayout != FINAL_FRAME_LAYOUT) || (regPushedCountAligned != lclFrameSizeAligned))
-    {
-        lvaIncrementFrameSize(REGSIZE_BYTES);
+        assert((codeGen->lclFrameSize + pushCount * REGSIZE_BYTES) % 16 == 0);
     }
 
 #elif defined(TARGET_ARM)
+    // On arm the stack must be 8 byte aligned.
 
-    // Ensure that stack offsets will be double-aligned by grabbing an unused DWORD if needed.
-    bool lclFrameSizeAligned   = (codeGen->lclFrameSize % sizeof(double)) == 0;
-    bool regPushedCountAligned = ((codeGen->calleeRegsPushed + genCountBits(codeGen->regSet.rsMaskPreSpillRegs(true))) %
-                                  (sizeof(double) / TARGET_POINTER_SIZE)) == 0;
+    // TODO-MIKE-Review: What about REGALLOC_FRAME_LAYOUT?
 
-    if (regPushedCountAligned != lclFrameSizeAligned)
+    unsigned pushCount = codeGen->calleeRegsPushed + genCountBits(codeGen->regSet.rsMaskPreSpillRegs(true));
+    unsigned frameSize = codeGen->lclFrameSize + pushCount * REGSIZE_BYTES;
+
+    if (frameSize % 8 != 0)
     {
-        lvaIncrementFrameSize(TARGET_POINTER_SIZE);
+        lvaIncrementFrameSize(4);
+        assert((codeGen->lclFrameSize + pushCount * REGSIZE_BYTES) % 8 == 0);
     }
 
 #elif defined(TARGET_X86)
+    // On win-x86 the stack must be 4 byte aligned and it should already be,
+    // we allocate in 4 byte slots.
+
+    assert(codeGen->lclFrameSize % 4 == 0);
 
 #if DOUBLE_ALIGN
     if (codeGen->doDoubleAlign())
@@ -4691,22 +4698,23 @@ void Compiler::lvaAlignFrame()
         if (codeGen->lclFrameSize == 0)
         {
             // This can only happen with JitStress=1 or JitDoubleAlign=2
-            lvaIncrementFrameSize(TARGET_POINTER_SIZE);
+            lvaIncrementFrameSize(4);
         }
     }
 #endif
 
 #ifdef UNIX_X86_ABI
-    // UNIX_X86_ABI requires 16 byte alignment.
+    // On unix-x86 the stack must be 16 byte alignment.
 
     int pushCount = 1 + (codeGen->doubleAlignOrFramePointerUsed() ? 1 : 0) + codeGen->calleeRegsPushed;
-    int frameSize = codeGen->lclFrameSize + (pushCount * REGSIZE_BYTES) % STACK_ALIGN;
+    int frameSize = codeGen->lclFrameSize + (pushCount * REGSIZE_BYTES) % 16;
 
-    if (frameSize % STACK_ALIGN != 0)
+    if (frameSize % 16 != 0)
     {
-        lvaIncrementFrameSize(STACK_ALIGN - frameSize % STACK_ALIGN);
+        lvaIncrementFrameSize(16 - frameSize % 16);
+        assert((codeGen->lclFrameSize + pushCount * REGSIZE_BYTES) % 16 == 0);
     }
-#endif // UNIX_X86_ABI
+#endif
 
 #else
     NYI("TARGET specific lvaAlignFrame");
