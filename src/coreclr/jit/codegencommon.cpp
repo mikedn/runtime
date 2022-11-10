@@ -5929,13 +5929,11 @@ void CodeGen::genFnProlog()
             continue;
         }
 
-        signed int loOffs = varDsc->GetStackOffset();
-        signed int hiOffs = varDsc->GetStackOffset() + varDsc->GetFrameSize();
+        int loOffs = varDsc->GetStackOffset();
 
-        // We need to know the offset range of tracked stack GC refs
-        // We assume that the GC reference can be anywhere in the TYP_STRUCT
+        // We need to know the offset range of tracked stack GC refs. STRUCTs are not GC tracked.
 
-        if (varDsc->HasGCPtr() && varDsc->HasLiveness() && !varDsc->TypeIs(TYP_STRUCT) && varDsc->lvOnFrame)
+        if (varTypeIsGC(varDsc->GetType()) && varDsc->HasLiveness() && varDsc->lvOnFrame)
         {
             // Dependent promoted fields should have been taken care of by the parent struct.
             if (!varDsc->IsDependentPromotedField(compiler))
@@ -5946,9 +5944,9 @@ void CodeGen::genFnProlog()
                 {
                     GCrefLo = loOffs;
                 }
-                if (hiOffs > GCrefHi)
+                if (loOffs + REGSIZE_BYTES > GCrefHi)
                 {
-                    GCrefHi = hiOffs;
+                    GCrefHi = loOffs + REGSIZE_BYTES;
                 }
             }
         }
@@ -6015,6 +6013,9 @@ void CodeGen::genFnProlog()
             {
                 untrLclLo = loOffs;
             }
+
+            int hiOffs = loOffs + varDsc->GetFrameSize();
+
             if (hiOffs > untrLclHi)
             {
                 untrLclHi = hiOffs;
