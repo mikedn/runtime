@@ -637,6 +637,7 @@ void Compiler::lvaInitUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAND
 
     lcl->lvIsParam = true;
     lvaInitVarDsc(lcl, corType, typeHnd);
+    lvaAllocUserParam(paramInfo, lcl);
 
     if (opts.IsOSR() && info.compPatchpointInfo->IsExposed(paramInfo.lclNum))
     {
@@ -650,19 +651,6 @@ void Compiler::lvaInitUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAND
     {
         lvaSetClass(paramInfo.lclNum, info.compCompHnd->getArgClass(&info.compMethodInfo->args, param));
     }
-#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-    else if (varTypeIsStruct(lcl->GetType()) &&
-             abiGetStructParamType(lcl->GetLayout(), info.compIsVarArgs).kind == SPK_ByReference)
-    {
-        JITDUMP("Marking V%02u as a byref parameter\n", paramInfo.lclNum);
-        lcl->lvIsImplicitByRef = true;
-
-        // TODO-MIKE-Cleanup: If it's implicit-by-ref we know that it needs a single integer
-        // register or stack slot and can skip a lot of the mess below, like HFA checks.
-    }
-#endif
-
-    lvaAllocUserParam(paramInfo, lcl);
 }
 
 #ifdef UNIX_AMD64_ABI
@@ -752,7 +740,13 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, LclVarDsc* lcl)
 
     if (varTypeIsStruct(regType))
     {
-        regType = TYP_INT;
+        regType = abiGetStructIntegerRegisterType(lcl->GetLayout());
+
+        if (regType == TYP_UNDEF)
+        {
+            lcl->lvIsImplicitByRef = true;
+            regType                = TYP_INT;
+        }
     }
 
     if (paramInfo.CanEnregister(regType))
@@ -782,6 +776,12 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, LclVarDsc* lcl)
 
 void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, LclVarDsc* lcl)
 {
+    if (varTypeIsStruct(lcl->GetType()) &&
+        abiGetStructParamType(lcl->GetLayout(), info.compIsVarArgs).kind == SPK_ByReference)
+    {
+        lcl->lvIsImplicitByRef = true;
+    }
+
     unsigned  paramSize = lvaGetParamAllocSize(lcl);
     var_types regType   = lcl->GetType();
     unsigned  regCount;
