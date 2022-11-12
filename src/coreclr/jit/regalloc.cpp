@@ -195,74 +195,42 @@ void Compiler::raMarkStkVars()
         // offsets.
         if (lvaIsX86VarargsStackParam(lclNum))
         {
-            assert((lcl->lvRefCnt() == 0) && !lcl->lvRegister);
+            assert((lcl->GetRefCount() == 0) && !lcl->lvRegister);
 
             lcl->lvOnFrame  = false;
             lcl->lvMustInit = false;
-
-            goto NOT_STK;
         }
-
-        if (lcl->IsDependentPromotedField(this))
+        else if (lcl->IsDependentPromotedField(this))
         {
             noway_assert(!lcl->lvRegister);
 
             lcl->lvOnFrame = true;
-
-            goto ON_STK;
         }
-
-        // Fully enregistered variables don't need any frame space.
-        if (lcl->lvRegister)
+        else if (lcl->GetRefCount() == 0)
         {
-            goto NOT_STK;
-        }
+            // Unreferenced locals will get a frame location if they're address exposed.
+            // TODO-MIKE-Review: Why? Probably because AX is sometimes used simply to
+            // block optimizations and require frame allocation. Sounds like "implicitly
+            // referenced" should be used instead.
 
-        if (lcl->lvRefCnt() != 0)
-        {
-            if (lcl->lvOnFrame)
+            assert(!opts.compDbgCode);
+            assert(!lcl->lvRegister);
+#if FEATURE_FIXED_OUT_ARGS
+            // lvaOutgoingArgSpaceVar is implicitly referenced.
+            assert(lclNum != lvaOutgoingArgSpaceVar);
+#endif
+
+            if (lcl->IsAddressExposed())
             {
-                goto ON_STK;
+                lcl->lvOnFrame = true;
             }
             else
             {
-                goto NOT_STK;
+                lcl->lvOnFrame  = false;
+                lcl->lvMustInit = false;
             }
         }
 
-        // Unreferenced locals will get a frame location if they're address exposed.
-        // TODO-MIKE-Review: Why? Probably because AX is sometimes used simply to
-        // block optimizations and require frame allocation. Sounds like "implicitly
-        // referenced" should be used instead.
-
-        assert(!opts.compDbgCode);
-#if FEATURE_FIXED_OUT_ARGS
-        // lvaOutgoingArgSpaceVar is implicitly referenced.
-        assert(lclNum != lvaOutgoingArgSpaceVar);
-#endif
-
-        if (lcl->IsAddressExposed())
-        {
-            lcl->lvOnFrame = true;
-
-            goto ON_STK;
-        }
-        else
-        {
-            lcl->lvOnFrame  = false;
-            lcl->lvMustInit = false;
-
-            goto NOT_STK;
-        }
-
-    ON_STK:
-#if FEATURE_FIXED_OUT_ARGS
-        noway_assert((lclNum == lvaOutgoingArgSpaceVar) || (lcl->GetFrameSize() != 0));
-#else
-        noway_assert(lcl->GetFrameSize() != 0);
-#endif
-
-    NOT_STK:;
         lcl->lvFramePointerBased = codeGen->isFramePointerUsed();
 
 #if DOUBLE_ALIGN
@@ -278,7 +246,7 @@ void Compiler::raMarkStkVars()
 #endif
 
         // It must be in a register, on frame, or have zero references.
-        noway_assert(lcl->lvIsInReg() || lcl->lvOnFrame || (lcl->lvRefCnt() == 0));
+        noway_assert(lcl->lvIsInReg() || lcl->lvOnFrame || (lcl->GetRefCount() == 0));
         // We can't have both lvRegister and lvOnFrame
         noway_assert(!lcl->lvRegister || !lcl->lvOnFrame);
     }
