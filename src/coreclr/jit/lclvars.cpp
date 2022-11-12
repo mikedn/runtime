@@ -2978,55 +2978,52 @@ unsigned Compiler::lvaGetParamAllocSize(LclVarDsc* lcl)
 {
     assert(lcl->IsParam());
 
-#ifdef WINDOWS_AMD64_ABI
-    return REGSIZE_BYTES;
-#else
-    var_types paramType = lcl->GetType();
-    unsigned  paramSize;
-#ifdef TARGET_ARM64
-    var_types hfaType = TYP_UNDEF;
+#ifndef TARGET_64BIT
+    if (lcl->TypeIs(TYP_LONG, TYP_DOUBLE))
+    {
+        return 2 * REGSIZE_BYTES;
+    }
 #endif
 
-    if (!varTypeIsStruct(paramType))
-    {
-        paramSize = varTypeSize(paramType);
-    }
-    else
+#ifndef WINDOWS_AMD64_ABI
+    if (varTypeIsStruct(lcl->GetType()))
     {
         ClassLayout* layout = lcl->GetLayout();
-
-        paramSize = layout->GetSize();
+        unsigned     size   = layout->GetSize();
 
 #ifdef TARGET_ARM64
-        if (paramSize > MAX_PASS_MULTIREG_BYTES)
+        if (size <= MAX_PASS_MULTIREG_BYTES)
         {
-            return REGSIZE_BYTES;
-        }
-
-        layout->EnsureHfaInfo(this);
+            layout->EnsureHfaInfo(this);
 
 #ifdef TARGET_WINDOWS
-        if (layout->IsHfa() && !info.compIsVarArgs)
+            if (layout->IsHfa() && !info.compIsVarArgs)
 #else
-        if (layout->IsHfa())
+            if (layout->IsHfa())
 #endif
-        {
-            hfaType = layout->GetHfaElementType();
+            {
+#ifndef OSX_ARM64_ABI
+                size = roundUp(size, REGSIZE_BYTES);
+#endif
+                return size;
+            }
         }
 
-        if ((paramSize > 2 * REGSIZE_BYTES) && (hfaType == TYP_UNDEF))
+        if (size > 2 * REGSIZE_BYTES)
         {
+            assert(lcl->IsImplicitByRefParam());
+
             return REGSIZE_BYTES;
         }
 #endif // TARGET_ARM64
-    }
 
-#ifdef OSX_ARM64_ABI
-    return roundUp(paramSize, lvaGetParamAlignment(paramType, (hfaType == TYP_FLOAT)));
-#else
-    return roundUp(paramSize, REGSIZE_BYTES);
-#endif
-#endif // !WINDOWS_AMD64_ABI
+        return roundUp(size, REGSIZE_BYTES);
+    }
+#endif // WINDOWS_AMD64_ABI
+
+    assert((lcl->GetTypeSize() <= REGSIZE_BYTES) || lcl->IsImplicitByRefParam());
+
+    return REGSIZE_BYTES;
 }
 
 // Return alignment for a parameter of the given type.
