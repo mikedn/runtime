@@ -4005,7 +4005,7 @@ public:
     void lvaInitVarargsHandleParam(ParamAllocInfo& paramInfo);
     void lvaInitUserParams(ParamAllocInfo& paramInfo, bool skipFirstParam);
     void lvaInitUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param);
-    void lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl);
+    void lvaAllocUserParam(ParamAllocInfo& paramInfo, LclVarDsc* lcl);
 #ifdef TARGET_ARM
     void lvaAlignPreSpillParams(regMaskTP doubleAlignMask);
 #endif

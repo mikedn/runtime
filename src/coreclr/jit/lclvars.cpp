@@ -662,12 +662,12 @@ void Compiler::lvaInitUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAND
     }
 #endif
 
-    lvaAllocUserParam(paramInfo, param, lcl);
+    lvaAllocUserParam(paramInfo, lcl);
 }
 
 #ifdef UNIX_AMD64_ABI
 
-void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl)
+void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, LclVarDsc* lcl)
 {
     regNumber reg0 = REG_NA;
     regNumber reg1 = REG_NA;
@@ -746,7 +746,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
 #elif defined(WINDOWS_AMD64_ABI)
 
-void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl)
+void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, LclVarDsc* lcl)
 {
     var_types regType = lcl->GetType();
 
@@ -780,7 +780,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
 #elif defined(TARGET_ARM64)
 
-void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl)
+void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, LclVarDsc* lcl)
 {
     unsigned  paramSize = lvaGetParamAllocSize(lcl);
     var_types regType   = lcl->GetType();
@@ -889,7 +889,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
 #elif defined(TARGET_X86)
 
-void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl)
+void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, LclVarDsc* lcl)
 {
     var_types regType = lcl->GetType();
 
@@ -919,7 +919,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAN
 
 #elif defined(TARGET_ARM)
 
-void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl)
+void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, LclVarDsc* lcl)
 {
     unsigned paramSize = lvaGetParamAllocSize(lcl);
     unsigned alignment = REGSIZE_BYTES;
