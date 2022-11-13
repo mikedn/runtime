@@ -3661,23 +3661,10 @@ void CodeGen::CheckUseBlockInit()
         {
             lcl->lvMustInit = true;
 
-            if (lcl->lvOnFrame)
+            if (lcl->lvOnFrame && (!lcl->lvIsInReg() || lcl->lvLiveInOutOfHndlr))
             {
-                if (!lcl->lvRegister)
-                {
-                    if (!lcl->lvIsInReg() || lcl->lvLiveInOutOfHndlr)
-                    {
-                        slotCount += roundUp(lcl->GetFrameSize(), REGSIZE_BYTES) / 4;
-                        counted = true;
-                    }
-                }
-                else
-                {
-                    noway_assert(varTypeSize(lcl->GetType()) > 4);
-
-                    slotCount += 4;
-                    counted = true;
-                }
+                slotCount += roundUp(lcl->GetFrameSize(), REGSIZE_BYTES) / 4;
+                counted = true;
             }
         }
 
