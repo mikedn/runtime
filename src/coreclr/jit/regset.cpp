@@ -566,6 +566,44 @@ TempDsc* RegSet::tmpListNxt(TempDsc* curTemp, TEMP_USAGE_TYPE usageType /* = TEM
     return temp;
 }
 
+unsigned RegSet::tmpSlot(unsigned size)
+{
+    noway_assert(size >= sizeof(int));
+    noway_assert(size <= TEMP_MAX_SIZE);
+    assert((size % sizeof(int)) == 0);
+
+    assert(size < UINT32_MAX);
+    return size / sizeof(int) - 1;
+}
+
+void RegSet::tmpEnd()
+{
+#ifdef DEBUG
+    if (m_rsCompiler->verbose && (tmpCount > 0))
+    {
+        printf("%d tmps used\n", tmpCount);
+    }
+#endif
+}
+
+void RegSet::tmpDone()
+{
+#ifdef DEBUG
+    unsigned count;
+    TempDsc* temp;
+
+    assert(tmpAllFree());
+    for (temp = tmpListBeg(), count = temp ? 1 : 0; temp; temp = tmpListNxt(temp), count += temp ? 1 : 0)
+    {
+        assert(temp->tdLegalOffset());
+    }
+
+    // Make sure that all the temps were released
+    assert(count == tmpCount);
+    assert(tmpGetCount == 0);
+#endif
+}
+
 #ifdef DEBUG
 /*****************************************************************************
  * Return 'true' if all allocated temps are free (not in use).
