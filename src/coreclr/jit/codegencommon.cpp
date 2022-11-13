@@ -3594,7 +3594,7 @@ void CodeGen::MarkStackLocals()
 // enregistered locals for their register state on entry to the function.
 //
 // At the same time we set lvMustInit for locals (enregistered or on stack)
-// that must be initialized (e.g. initialize memory (compInitMem),untracked
+// that must be initialized (e.g. initialize memory (compInitMem), untracked
 // pointers or disable DFA)
 void CodeGen::CheckUseBlockInit()
 {
@@ -3654,60 +3654,53 @@ void CodeGen::CheckUseBlockInit()
         }
 
         const bool isTracked = lcl->lvTracked;
-        bool       counted   = false;
+        bool       blockInit = false;
 
         if (isTracked && (lcl->lvMustInit ||
                           VarSetOps::IsMember(compiler, compiler->fgFirstBB->bbLiveIn, lcl->GetLivenessBitIndex())))
         {
-            lcl->lvMustInit = true;
-
-            if (lcl->lvOnFrame && (!lcl->lvIsInReg() || lcl->lvLiveInOutOfHndlr))
+            if (!lcl->lvOnFrame || (lcl->lvIsInReg() && !lcl->lvLiveInOutOfHndlr))
             {
-                slotCount += roundUp(lcl->GetFrameSize(), REGSIZE_BYTES) / 4;
-                counted = true;
+                // We only need to init the register the local is in.
+                lcl->lvMustInit = true;
+
+                continue;
+            }
+
+            blockInit = true;
+        }
+        else if (lcl->lvOnFrame)
+        {
+            if (hasGCPtr && !isTracked)
+            {
+                JITDUMP("must init V%02u because it has a GC ref\n", lclNum);
+
+                blockInit = true;
+            }
+            else if (hasGCPtr && varTypeIsStruct(lcl->GetType()))
+            {
+                // TODO-1stClassStructs: support precise liveness reporting for such structs.
+                JITDUMP("must init a tracked V%02u because it a struct with a GC ref\n", lclNum);
+
+                blockInit = true;
+            }
+            else if (!isTracked)
+            {
+                assert(!hasGCPtr && !isTemp);
+
+                if (compInitMem)
+                {
+                    JITDUMP("must init V%02u because compInitMem is set and it is not a temp\n", lclNum);
+
+                    blockInit = true;
+                }
             }
         }
 
-        if (!lcl->lvOnFrame)
-        {
-            continue;
-        }
-
-        bool mustInit = false;
-
-        if (hasGCPtr && !isTracked)
-        {
-            JITDUMP("must init V%02u because it has a GC ref\n", lclNum);
-
-            mustInit = true;
-        }
-        else if (hasGCPtr && varTypeIsStruct(lcl->GetType()))
-        {
-            // TODO-1stClassStructs: support precise liveness reporting for such structs.
-            JITDUMP("must init a tracked V%02u because it a struct with a GC ref\n", lclNum);
-
-            mustInit = true;
-        }
-        else if (!isTracked)
-        {
-            assert(!hasGCPtr && !isTemp);
-
-            if (compInitMem)
-            {
-                JITDUMP("must init V%02u because compInitMem is set and it is not a temp\n", lclNum);
-
-                mustInit = true;
-            }
-        }
-
-        if (mustInit)
+        if (blockInit)
         {
             lcl->lvMustInit = true;
-
-            if (!counted)
-            {
-                slotCount += roundUp(lcl->GetFrameSize(), REGSIZE_BYTES) / 4;
-            }
+            slotCount += roundUp(lcl->GetFrameSize(), REGSIZE_BYTES) / 4;
         }
     }
 
