@@ -2477,7 +2477,7 @@ bool Compiler::fgVarNeedsExplicitZeroInit(unsigned varNum, bool bbInALoop, bool 
         }
 
         // Below conditions guarantee block initialization, which will initialize
-        // all struct fields. If the logic for block initialization in CodeGen::genCheckUseBlockInit()
+        // all struct fields. If the logic for block initialization in CodeGen::CheckUseBlockInit()
         // changes, these conditions need to be updated.
         unsigned intSlots = roundUp(varDsc->GetFrameSize(), REGSIZE_BYTES) / 4;
 

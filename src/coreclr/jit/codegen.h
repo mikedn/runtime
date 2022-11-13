@@ -284,7 +284,7 @@ protected:
                                 regNumber     tempReg,
                                 bool*         tempRegClobbered);
     void genPrologEnregisterIncomingStackParams();
-    void genCheckUseBlockInit();
+    void CheckUseBlockInit();
 #if defined(UNIX_AMD64_ABI) && defined(FEATURE_SIMD)
     void genClearStackVec3ArgUpperBits();
 #endif // UNIX_AMD64_ABI && FEATURE_SIMD

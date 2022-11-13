@@ -3513,188 +3513,169 @@ void CodeGen::genPrologEnregisterIncomingStackParams()
     }
 }
 
-/*-------------------------------------------------------------------------
- *
- *  We have to decide whether we're going to use block initialization
- *  in the prolog before we assign final stack offsets. This is because
- *  when using block initialization we may need additional callee-saved
- *  registers which need to be saved on the frame, thus increasing the
- *  frame size.
- *
- *  We'll count the number of locals we have to initialize,
- *  and if there are lots of them we'll use block initialization.
- *  Thus, the local variable table must have accurate register location
- *  information for enregistered locals for their register state on entry
- *  to the function.
- *
- *  At the same time we set lvMustInit for locals (enregistered or on stack)
- *  that must be initialized (e.g. initialize memory (comInitMem),
- *  untracked pointers or disable DFA)
- */
-void CodeGen::genCheckUseBlockInit()
+// We have to decide whether we're going to use block initialization in
+// the prolog before we assign final stack offsets because when we may
+// need additional callee-saved registers which need to be saved on the
+// frame, thus increasing the frame size.
+//
+// We'll count the number of locals we have to initialize, and if there
+// are lots of them we'll use block initialization. Thus, the local
+// variable table must have accurate register location information for
+// enregistered locals for their register state on entry to the function.
+//
+// At the same time we set lvMustInit for locals (enregistered or on stack)
+// that must be initialized (e.g. initialize memory (compInitMem),untracked
+// pointers or disable DFA)
+void CodeGen::CheckUseBlockInit()
 {
     assert(!generatingProlog);
 
-    unsigned initStkLclCnt = 0; // The number of int-sized stack local variables that need to be initialized (variables
-                                // larger than int count for more than 1).
+    const bool compInitMem = compiler->info.compInitMem;
+    // The number of int-sized stack slots that need to be initialized.
+    unsigned slotCount = 0;
 
-    unsigned   varNum;
-    LclVarDsc* varDsc;
-
-    for (varNum = 0, varDsc = compiler->lvaTable; varNum < compiler->lvaCount; varNum++, varDsc++)
+    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
     {
-        // The logic below is complex. Make sure we are not
-        // double-counting the initialization impact of any locals.
-        bool counted = false;
+        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
 
-        if (!varDsc->lvIsInReg() && !varDsc->lvOnFrame)
+        if (!lcl->lvIsInReg() && !lcl->lvOnFrame)
         {
-            noway_assert(varDsc->lvRefCnt() == 0);
+            noway_assert(lcl->GetRefCount() == 0);
             continue;
         }
 
         // Initialization of OSR locals must be handled specially
-        if (compiler->lvaIsOSRLocal(varNum))
+        if (compiler->lvaIsOSRLocal(lclNum))
         {
-            varDsc->lvMustInit = 0;
+            lcl->lvMustInit = false;
             continue;
         }
 
-        if (compiler->lvaIsNeverZeroInitializedInProlog(varNum))
+        if (compiler->lvaIsNeverZeroInitializedInProlog(lclNum))
         {
             continue;
         }
 
-        if (varDsc->IsDependentPromotedField(compiler))
+        if (lcl->IsDependentPromotedField(compiler))
         {
             // For dependent promotion, the whole struct should have been initialized
             // by the parent struct. No need to set the lvMustInit bit in the fields.
             continue;
         }
 
-        if (varDsc->lvHasExplicitInit)
+        if (lcl->lvHasExplicitInit)
         {
-            varDsc->lvMustInit = 0;
+            lcl->lvMustInit = false;
             continue;
         }
 
-        const bool isTemp      = varDsc->lvIsTemp;
-        const bool hasGCPtr    = varDsc->HasGCPtr();
-        const bool isTracked   = varDsc->lvTracked;
-        const bool isStruct    = varTypeIsStruct(varDsc);
-        const bool compInitMem = compiler->info.compInitMem;
+        const bool isTemp   = lcl->lvIsTemp;
+        const bool hasGCPtr = lcl->HasGCPtr();
 
         if (isTemp && !hasGCPtr)
         {
-            varDsc->lvMustInit = 0;
+            lcl->lvMustInit = false;
             continue;
         }
 
-        if (compInitMem || hasGCPtr || varDsc->lvMustInit)
+        if (!compInitMem && !hasGCPtr && !lcl->lvMustInit)
         {
-            if (isTracked)
+            continue;
+        }
+
+        const bool isTracked = lcl->lvTracked;
+        bool       counted   = false;
+
+        if (isTracked && (lcl->lvMustInit ||
+                          VarSetOps::IsMember(compiler, compiler->fgFirstBB->bbLiveIn, lcl->GetLivenessBitIndex())))
+        {
+            lcl->lvMustInit = true;
+
+            if (lcl->lvOnFrame)
             {
-                /* For uninitialized use of tracked variables, the liveness
-                 * will bubble to the top (compiler->fgFirstBB) in fgInterBlockLocalVarLiveness()
-                 */
-                if (varDsc->lvMustInit ||
-                    VarSetOps::IsMember(compiler, compiler->fgFirstBB->bbLiveIn, varDsc->lvVarIndex))
+                if (!lcl->lvRegister)
                 {
-                    /* This var must be initialized */
-
-                    varDsc->lvMustInit = 1;
-
-                    /* See if the variable is on the stack will be initialized
-                     * using rep stos - compute the total size to be zero-ed */
-
-                    if (varDsc->lvOnFrame)
+                    if (!lcl->lvIsInReg() || lcl->lvLiveInOutOfHndlr)
                     {
-                        if (!varDsc->lvRegister)
-                        {
-                            if (!varDsc->lvIsInReg() || varDsc->lvLiveInOutOfHndlr)
-                            {
-                                // Var is on the stack at entry.
-                                initStkLclCnt += roundUp(varDsc->GetFrameSize(), REGSIZE_BYTES) / 4;
-                                counted = true;
-                            }
-                        }
-                        else
-                        {
-                            // Var is partially enregistered
-                            noway_assert(varTypeSize(varDsc->GetType()) > 4);
-                            initStkLclCnt += 4;
-                            counted = true;
-                        }
-                    }
-                }
-            }
-
-            if (varDsc->lvOnFrame)
-            {
-                bool mustInitThisVar = false;
-                if (hasGCPtr && !isTracked)
-                {
-                    JITDUMP("must init V%02u because it has a GC ref\n", varNum);
-                    mustInitThisVar = true;
-                }
-                else if (hasGCPtr && isStruct)
-                {
-                    // TODO-1stClassStructs: support precise liveness reporting for such structs.
-                    JITDUMP("must init a tracked V%02u because it a struct with a GC ref\n", varNum);
-                    mustInitThisVar = true;
-                }
-                else
-                {
-                    // We are done with tracked or GC vars, now look at untracked vars without GC refs.
-                    if (!isTracked)
-                    {
-                        assert(!hasGCPtr && !isTemp);
-                        if (compInitMem)
-                        {
-                            JITDUMP("must init V%02u because compInitMem is set and it is not a temp\n", varNum);
-                            mustInitThisVar = true;
-                        }
-                    }
-                }
-                if (mustInitThisVar)
-                {
-                    varDsc->lvMustInit = true;
-
-                    if (!counted)
-                    {
-                        initStkLclCnt += roundUp(varDsc->GetFrameSize(), REGSIZE_BYTES) / 4;
+                        slotCount += roundUp(lcl->GetFrameSize(), REGSIZE_BYTES) / 4;
                         counted = true;
                     }
                 }
+                else
+                {
+                    noway_assert(varTypeSize(lcl->GetType()) > 4);
+
+                    slotCount += 4;
+                    counted = true;
+                }
+            }
+        }
+
+        if (!lcl->lvOnFrame)
+        {
+            continue;
+        }
+
+        bool mustInit = false;
+
+        if (hasGCPtr && !isTracked)
+        {
+            JITDUMP("must init V%02u because it has a GC ref\n", lclNum);
+
+            mustInit = true;
+        }
+        else if (hasGCPtr && varTypeIsStruct(lcl->GetType()))
+        {
+            // TODO-1stClassStructs: support precise liveness reporting for such structs.
+            JITDUMP("must init a tracked V%02u because it a struct with a GC ref\n", lclNum);
+
+            mustInit = true;
+        }
+        else if (!isTracked)
+        {
+            assert(!hasGCPtr && !isTemp);
+
+            if (compInitMem)
+            {
+                JITDUMP("must init V%02u because compInitMem is set and it is not a temp\n", lclNum);
+
+                mustInit = true;
+            }
+        }
+
+        if (mustInit)
+        {
+            lcl->lvMustInit = true;
+
+            if (!counted)
+            {
+                slotCount += roundUp(lcl->GetFrameSize(), REGSIZE_BYTES) / 4;
             }
         }
     }
 
-    /* Don't forget about spill temps that hold pointers */
     assert(regSet.tmpAllFree());
+
     for (TempDsc* tempThis = regSet.tmpListBeg(); tempThis != nullptr; tempThis = regSet.tmpListNxt(tempThis))
     {
         if (varTypeIsGC(tempThis->tdTempType()))
         {
-            initStkLclCnt++;
+            slotCount++;
         }
     }
-
-    // Record number of 4 byte slots that need zeroing.
-    genInitStkLclCnt = initStkLclCnt;
 
     // Decide if we will do block initialization in the prolog, or use
     // a series of individual stores.
     //
     // Primary factor is the number of slots that need zeroing. We've
-    // been counting by sizeof(int) above. We assume for now we can
+    // been counting by 4 byte slots above. We assume for now we can
     // only zero register width bytes per store.
     //
     // Current heuristic is to use block init when more than 4 stores
     // are required.
     //
-    // TODO: Consider taking into account the presence of large structs that
-    // potentially only need some fields set to zero.
+    // TODO: Consider taking into account the presence of large structs
+    // that potentially only need some fields set to zero.
     //
     // Compiler::fgVarNeedsExplicitZeroInit relies on this logic to
     // find structs that are guaranteed to be block initialized.
@@ -3702,49 +3683,52 @@ void CodeGen::genCheckUseBlockInit()
     // to be modified.
     CLANG_FORMAT_COMMENT_ANCHOR;
 
-#ifdef TARGET_64BIT
-#if defined(TARGET_AMD64)
-
-    // We can clear using aligned SIMD so the threshold is lower,
-    // and clears in order which is better for auto-prefetching
-    genUseBlockInit = (genInitStkLclCnt > 4);
-
-#else // !defined(TARGET_AMD64)
-
-    genUseBlockInit = (genInitStkLclCnt > 8);
-#endif
+#ifdef TARGET_AMD64
+    // We can clear using aligned XMM stores so the threshold is lower.
+    genUseBlockInit = slotCount > 4;
+#elif defined(TARGET_64BIT)
+    genUseBlockInit = slotCount > 8;
 #else
+    genUseBlockInit        = slotCount > 4;
+#endif
 
-    genUseBlockInit = (genInitStkLclCnt > 4);
-
-#endif // TARGET_64BIT
-
-    if (genUseBlockInit)
-    {
-        regMaskTP maskCalleeRegArgMask = paramRegState.intRegLiveIn;
-
-        // If there is a secret stub param, don't count it, as it will no longer
-        // be live when we do block init.
-        if (compiler->info.compPublishStubParam)
-        {
-            maskCalleeRegArgMask &= ~RBM_SECRET_STUB_PARAM;
-        }
+    genInitStkLclCnt = slotCount;
 
 #ifdef TARGET_ARM
-        //
-        // On the Arm if we are using a block init to initialize, then we
-        // must force spill R4/R5/R6 so that we can use them during
-        // zero-initialization process.
-        //
-        int forceSpillRegCount = genCountBits(maskCalleeRegArgMask & ~regSet.rsMaskPreSpillRegs(false)) - 1;
-        if (forceSpillRegCount > 0)
+    if (genUseBlockInit)
+    {
+        // If we are using block init on ARM, then we may need save R4/R5/R6
+        // so that we can use them during zero-initialization process.
+
+        regMaskTP liveRegs = paramRegState.intRegLiveIn;
+
+        liveRegs &= ~regSet.rsMaskPreSpillRegs(false);
+
+        // Don't count the secret stub param, it will no longer be live when
+        // we do block init.
+        if (compiler->info.compPublishStubParam)
+        {
+            liveRegs &= ~RBM_SECRET_STUB_PARAM;
+        }
+
+        unsigned liveRegCount = genCountBits(liveRegs);
+
+        if (liveRegCount >= 2)
+        {
             regSet.rsSetRegsModified(RBM_R4);
-        if (forceSpillRegCount > 1)
-            regSet.rsSetRegsModified(RBM_R5);
-        if (forceSpillRegCount > 2)
-            regSet.rsSetRegsModified(RBM_R6);
-#endif // TARGET_ARM
+
+            if (liveRegCount >= 3)
+            {
+                regSet.rsSetRegsModified(RBM_R5);
+
+                if (liveRegCount >= 4)
+                {
+                    regSet.rsSetRegsModified(RBM_R6);
+                }
+            }
+        }
     }
+#endif // TARGET_ARM
 }
 
 #if defined(TARGET_ARM)
@@ -5541,7 +5525,7 @@ void CodeGen::genFinalizeFrame()
     // locations on entry to the function.
     m_lsra->recordVarLocationsAtStartOfBB(compiler->fgFirstBB);
 
-    genCheckUseBlockInit();
+    CheckUseBlockInit();
 
     // Set various registers as "modified" for special code generation scenarios: Edit & Continue, P/Invoke calls, etc.
     CLANG_FORMAT_COMMENT_ANCHOR;
