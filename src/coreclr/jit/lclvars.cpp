@@ -4322,6 +4322,7 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
             {
                 noway_assert((codeGen->lclFrameSize % REGSIZE_BYTES) == 0);
 
+#ifdef TARGET_ARM
                 if ((lvaDoneFrameLayout != FINAL_FRAME_LAYOUT) && !haveLclDoubleAlign)
                 {
                     // If this is the first LONG, DOUBLE or double aligned struct that
@@ -4333,6 +4334,7 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
                     stkOffs -= REGSIZE_BYTES;
                 }
                 else
+#endif
                 {
                     if ((stkOffs + preSpillSize) % (2 * REGSIZE_BYTES) != 0)
                     {
@@ -5082,7 +5084,7 @@ bool Compiler::lvaHasLargeFrameOffset()
 // be encoded in a load/store instruction.
 unsigned Compiler::lvaEstimateFrameSize()
 {
-    assert(lvaDoneFrameLayout < FINAL_FRAME_LAYOUT);
+    assert(lvaDoneFrameLayout == NO_FRAME_LAYOUT);
 
     // Layout the stack frame conservatively.
     // Assume all callee-saved registers are spilled to stack.
