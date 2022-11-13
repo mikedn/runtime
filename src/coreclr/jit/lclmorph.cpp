@@ -3666,14 +3666,6 @@ void Compiler::lvaRetypeImplicitByRefParams()
                 structLcl->lvLiveInOutOfHndlr = lcl->lvLiveInOutOfHndlr;
 #endif // DEBUG
 
-#if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
-                // TODO-MIKE-Review: What do varargs/HFA have to do with this temp?!?
-                if (info.compIsVarArgs)
-                {
-                    structLcl->SetIsHfa(false);
-                }
-#endif
-
                 fgEnsureFirstBBisScratch();
                 GenTree* lhs  = gtNewLclvNode(structLclNum, lcl->GetType());
                 GenTree* addr = gtNewLclvNode(lclNum, TYP_BYREF);

@@ -417,12 +417,12 @@ public:
     }
 #endif
 
-    void SetIsHfa(bool isHfa)
-    {
 #ifdef FEATURE_HFA
-        m_isHfa = isHfa;
-#endif
+    void SetIsHfa()
+    {
+        m_isHfa = true;
     }
+#endif
 
     bool IsHfaParam() const
     {

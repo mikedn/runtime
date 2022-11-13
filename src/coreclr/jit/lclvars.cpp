@@ -809,6 +809,8 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, LclVarDsc* lcl)
     }
     else if (lcl->GetLayout()->IsHfa())
     {
+        lcl->SetIsHfa();
+
         regType     = lcl->GetLayout()->GetHfaElementType();
         regCount    = lcl->GetLayout()->GetHfaElementCount();
         minRegCount = regCount;
@@ -963,6 +965,8 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, LclVarDsc* lcl)
         if (lcl->GetLayout()->IsHfa() && !info.compIsVarArgs)
         {
             assert(!opts.UseSoftFP());
+
+            lcl->SetIsHfa();
 
             regType     = lcl->GetLayout()->GetHfaElementType();
             regCount    = lcl->GetLayout()->GetHfaRegCount();
@@ -1150,13 +1154,6 @@ void Compiler::lvaInitVarDsc(LclVarDsc* lcl, CorInfoType corType, CORINFO_CLASS_
     if (varTypeIsStruct(type))
     {
         lvaSetStruct(lcl, typGetObjLayout(typeHnd), true);
-
-#if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
-        if (info.compIsVarArgs)
-        {
-            lcl->SetIsHfa(false);
-        }
-#endif
     }
     else
     {
@@ -1524,10 +1521,9 @@ void Compiler::lvaSetStruct(LclVarDsc* lcl, ClassLayout* layout, bool checkUnsaf
             }
 #endif
 
-            // TODO-MIKE-Cleanup: This should only be needed on params and only if HFAs are
-            // available (i.e. not in varargs methods on win-arm64).
+            // TODO-MIKE-Cleanup: This should be in lvaAllocUserParam but
+            // there may be a few places that rely on this being here.
             layout->EnsureHfaInfo(this);
-            lcl->SetIsHfa(layout->IsHfa());
         }
     }
 
