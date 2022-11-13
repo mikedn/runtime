@@ -3051,19 +3051,20 @@ unsigned Compiler::lvaGetParamAlignment(var_types type, bool isFloatHfa)
 // Check whether the variable is never zero initialized in the prolog.
 bool Compiler::lvaIsNeverZeroInitializedInProlog(unsigned lclNum)
 {
-    LclVarDsc* varDsc = lvaGetDesc(lclNum);
-    bool       result = varDsc->IsParam() || lvaIsOSRLocal(lclNum) || (lclNum == lvaGSSecurityCookie) ||
-                  (lclNum == lvaInlinedPInvokeFrameVar) || (lclNum == lvaStubArgumentVar) || (lclNum == lvaRetAddrVar);
-
+    if ((lclNum == lvaGSSecurityCookie) ||
 #if FEATURE_FIXED_OUT_ARGS
-    result = result || (lclNum == lvaOutgoingArgSpaceVar);
+        (lclNum == lvaOutgoingArgSpaceVar) ||
 #endif
-
-#if defined(FEATURE_EH_FUNCLETS)
-    result = result || (lclNum == lvaPSPSym);
+#ifdef FEATURE_EH_FUNCLETS
+        (lclNum == lvaPSPSym) ||
 #endif
+        (lclNum == lvaInlinedPInvokeFrameVar) || (lclNum == lvaStubArgumentVar) || (lclNum == lvaRetAddrVar) ||
+        lvaIsOSRLocal(lclNum))
+    {
+        return true;
+    }
 
-    return result;
+    return lvaGetDesc(lclNum)->IsParam();
 }
 
 // clang-format off
