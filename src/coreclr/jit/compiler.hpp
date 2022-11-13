@@ -2485,34 +2485,6 @@ inline void Compiler::CLR_API_Leave(API_ICorJitInfo_Names ename)
 #endif // MEASURE_CLRAPI_CALLS
 
 //------------------------------------------------------------------------------
-// fgVarIsNeverZeroInitializedInProlog : Check whether the variable is never zero initialized in the prolog.
-//
-// Arguments:
-//    varNum     -       local variable number
-//
-// Returns:
-//             true if this is a special variable that is never zero initialized in the prolog;
-//             false otherwise
-//
-
-bool Compiler::fgVarIsNeverZeroInitializedInProlog(unsigned varNum)
-{
-    LclVarDsc* varDsc = lvaGetDesc(varNum);
-    bool       result = varDsc->IsParam() || lvaIsOSRLocal(varNum) || (varNum == lvaGSSecurityCookie) ||
-                  (varNum == lvaInlinedPInvokeFrameVar) || (varNum == lvaStubArgumentVar) || (varNum == lvaRetAddrVar);
-
-#if FEATURE_FIXED_OUT_ARGS
-    result = result || (varNum == lvaOutgoingArgSpaceVar);
-#endif
-
-#if defined(FEATURE_EH_FUNCLETS)
-    result = result || (varNum == lvaPSPSym);
-#endif
-
-    return result;
-}
-
-//------------------------------------------------------------------------------
 // fgVarNeedsExplicitZeroInit : Check whether the variable needs an explicit zero initialization.
 //
 // Arguments:
@@ -2548,7 +2520,7 @@ bool Compiler::fgVarNeedsExplicitZeroInit(unsigned varNum, bool bbInALoop, bool 
         return true;
     }
 
-    if (fgVarIsNeverZeroInitializedInProlog(varNum))
+    if (lvaIsNeverZeroInitializedInProlog(varNum))
     {
         return true;
     }

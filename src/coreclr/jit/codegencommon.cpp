@@ -3560,7 +3560,7 @@ void CodeGen::genCheckUseBlockInit()
             continue;
         }
 
-        if (compiler->fgVarIsNeverZeroInitializedInProlog(varNum))
+        if (compiler->lvaIsNeverZeroInitializedInProlog(varNum))
         {
             continue;
         }
