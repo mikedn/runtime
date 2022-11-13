@@ -3513,6 +3513,76 @@ void CodeGen::genPrologEnregisterIncomingStackParams()
     }
 }
 
+void CodeGen::MarkStackLocals()
+{
+    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
+    {
+        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
+
+        // X86 varargs methods must not contain direct references to parameters
+        // other than 'this', the arglist parameter (which is not a GC pointer)
+        // and the struct return buffer parameter, if present. We cannot report
+        // any other parameters to the GC becaue they do not have correct frame
+        // offsets.
+        if (compiler->lvaIsX86VarargsStackParam(lclNum))
+        {
+            assert((lcl->GetRefCount() == 0) && !lcl->lvRegister);
+
+            lcl->lvOnFrame  = false;
+            lcl->lvMustInit = false;
+        }
+        else if (lcl->IsDependentPromotedField(compiler))
+        {
+            noway_assert(!lcl->lvRegister);
+
+            lcl->lvOnFrame = true;
+        }
+        else if (lcl->GetRefCount() == 0)
+        {
+            // Unreferenced locals will get a frame location if they're address exposed.
+            // TODO-MIKE-Review: Why? Probably because AX is sometimes used simply to
+            // block optimizations and require frame allocation. Sounds like "implicitly
+            // referenced" should be used instead.
+
+            assert(!compiler->opts.compDbgCode);
+            assert(!lcl->lvRegister);
+#if FEATURE_FIXED_OUT_ARGS
+            // lvaOutgoingArgSpaceVar is implicitly referenced.
+            assert(lclNum != compiler->lvaOutgoingArgSpaceVar);
+#endif
+
+            if (lcl->IsAddressExposed())
+            {
+                lcl->lvOnFrame = true;
+            }
+            else
+            {
+                lcl->lvOnFrame  = false;
+                lcl->lvMustInit = false;
+            }
+        }
+
+        lcl->lvFramePointerBased = isFramePointerUsed();
+
+#if DOUBLE_ALIGN
+        if (doDoubleAlign())
+        {
+            noway_assert(!isFramePointerUsed());
+
+            if (lcl->IsParam() && !lcl->IsRegParam())
+            {
+                lcl->lvFramePointerBased = true;
+            }
+        }
+#endif
+
+        // It must be in a register, on frame, or have zero references.
+        noway_assert(lcl->lvIsInReg() || lcl->lvOnFrame || (lcl->GetRefCount() == 0));
+        // We can't have both lvRegister and lvOnFrame
+        noway_assert(!lcl->lvRegister || !lcl->lvOnFrame);
+    }
+}
+
 // We have to decide whether we're going to use block initialization in
 // the prolog before we assign final stack offsets because when we may
 // need additional callee-saved registers which need to be saved on the
@@ -5525,6 +5595,7 @@ void CodeGen::genFinalizeFrame()
     // locations on entry to the function.
     m_lsra->recordVarLocationsAtStartOfBB(compiler->fgFirstBB);
 
+    MarkStackLocals();
     CheckUseBlockInit();
 
     // Set various registers as "modified" for special code generation scenarios: Edit & Continue, P/Invoke calls, etc.

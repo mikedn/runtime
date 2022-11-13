@@ -6333,8 +6333,6 @@ protected:
     */
 
 public:
-    void raMarkStkVars();
-
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
 #if defined(TARGET_AMD64)
     static bool varTypeNeedsPartialCalleeSave(var_types type)

@@ -6880,7 +6880,6 @@ void LinearScan::resolveRegisters()
     verifyFinalAllocation();
 #endif // DEBUG
 
-    compiler->raMarkStkVars();
     recordMaxSpill();
 
     // TODO-CQ: Review this comment and address as needed.
