@@ -120,7 +120,7 @@ public:
 #endif
 
     // Maximum number of call args
-    unsigned fgPtrArgCntMax = 0;
+    INDEBUG(unsigned fgPtrArgCntMax = 0;)
 
     FrameType rpFrameType;
 
