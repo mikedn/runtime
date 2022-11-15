@@ -30,25 +30,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "patchpointinfo.h"
 #include "lsra.h"
 
-void CodeGenInterface::setFramePointerRequiredEH(bool value)
-{
-    m_cgFramePointerRequired = value;
-
-#ifndef JIT32_GCENCODER
-    if (value)
-    {
-        // EnumGcRefs will only enumerate slots in aborted frames
-        // if they are fully-interruptible.  So if we have a catch
-        // or finally that will keep frame-vars alive, we need to
-        // force fully-interruptible.
-
-        JITDUMP("Method has EH, marking method as fully interruptible\n");
-
-        m_cgInterruptible = true;
-    }
-#endif
-}
-
 void Compiler::codeGenInit()
 {
     codeGen = new (this, CMK_Codegen) CodeGen(this);

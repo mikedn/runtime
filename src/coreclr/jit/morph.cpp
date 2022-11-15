@@ -14566,41 +14566,19 @@ void Compiler::fgMergeBlockReturn(BasicBlock* block)
     }
 }
 
-/*****************************************************************************
- *
- *  Make some decisions about the kind of code to generate.
- */
-
 void Compiler::fgSetOptions()
 {
+    if (opts.compDbgCode
+#ifdef UNIX_X86_ABI
+        || (info.compXcptnsCount > 0)
+#endif
 #ifdef DEBUG
-    /* Should we force fully interruptible code ? */
-    if (JitConfig.JitFullyInt() || compStressCompile(STRESS_GENERIC_VARN, 30))
+        || JitConfig.JitFullyInt() || compStressCompile(STRESS_GENERIC_VARN, 30)
+#endif
+            )
     {
-        noway_assert(!codeGen->isGCTypeFixed());
         codeGen->SetInterruptible(true);
     }
-#endif
-
-    if (opts.compDbgCode)
-    {
-        assert(!codeGen->isGCTypeFixed());
-        codeGen->SetInterruptible(true); // debugging is easier this way ...
-    }
-
-    /* Assume we won't need an explicit stack frame if this is allowed */
-
-    if (compLocallocUsed)
-    {
-        codeGen->setFramePointerRequired(true);
-    }
-
-#ifdef TARGET_X86
-
-    if (compTailCallUsed)
-        codeGen->setFramePointerRequired(true);
-
-#endif // TARGET_X86
 
     // Assert that the EH table has been initialized by now. Note that
     // compHndBBtabAllocCount never decreases; it is a high-water mark
@@ -14610,7 +14588,6 @@ void Compiler::fgSetOptions()
     assert(compHndBBtabAllocCount >= info.compXcptnsCount);
 
 #ifdef TARGET_X86
-
     // Note: this case, and the !X86 case below, should both use the
     // !X86 path. This would require a few more changes for X86 to use
     // compHndBBtabCount (the current number of EH clauses) instead of
@@ -14621,58 +14598,33 @@ void Compiler::fgSetOptions()
     // to use a frame pointer because of EH. But until all the code uses
     // the same test, leave info.compXcptnsCount here.
     if (info.compXcptnsCount > 0)
-    {
-        codeGen->setFramePointerRequiredEH(true);
-    }
-
-#else // !TARGET_X86
-
+#else
     if (compHndBBtabCount > 0)
+#endif
     {
-        codeGen->setFramePointerRequiredEH(true);
+        codeGen->setFramePointerRequired(true);
+
+#ifndef JIT32_GCENCODER
+        // EnumGcRefs will only enumerate slots in aborted frames
+        // if they are fully-interruptible.  So if we have a catch
+        // or finally that will keep frame-vars alive, we need to
+        // force fully-interruptible.
+        JITDUMP("Method has EH, marking method as fully interruptible\n");
+        codeGen->SetInterruptible(true);
+#endif
     }
-
-#endif // TARGET_X86
-
-#ifdef UNIX_X86_ABI
-    if (info.compXcptnsCount > 0)
-    {
-        assert(!codeGen->isGCTypeFixed());
-        // Enforce fully interruptible codegen for funclet unwinding
-        SetInterruptible(true);
-    }
-#endif // UNIX_X86_ABI
-
-    if (compMethodRequiresPInvokeFrame())
-    {
-        codeGen->setFramePointerRequired(true); // Setup of Pinvoke frame currently requires an EBP style frame
-    }
-
-    if (info.compPublishStubParam)
-    {
-        codeGen->setFramePointerRequiredGCInfo(true);
-    }
-
-    if (compIsProfilerHookNeeded())
+    else if (compMethodRequiresPInvokeFrame() || compIsProfilerHookNeeded() || compLocallocUsed
+#ifdef TARGET_X86
+             || compTailCallUsed
+#endif
+#ifdef JIT32_GCENCODER
+             || info.compPublishStubParam || info.compIsVarArgs || lvaReportParamTypeArg()
+#endif
+                 )
     {
         codeGen->setFramePointerRequired(true);
     }
-
-    if (info.compIsVarArgs)
-    {
-        // Code that initializes lvaVarargsBaseOfStkArgs requires this to be EBP relative.
-        codeGen->setFramePointerRequiredGCInfo(true);
-    }
-
-    if (lvaReportParamTypeArg())
-    {
-        codeGen->setFramePointerRequiredGCInfo(true);
-    }
-
-    // printf("method will %s be fully interruptible\n", GetInterruptible() ? "   " : "not");
 }
-
-/*****************************************************************************/
 
 GenTree* Compiler::fgInitThisClass()
 {

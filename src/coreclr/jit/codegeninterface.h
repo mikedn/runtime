@@ -208,15 +208,6 @@ public:
         m_cgFramePointerRequired.ResetWritePhase();
     }
 
-    void setFramePointerRequiredEH(bool value);
-
-    void setFramePointerRequiredGCInfo(bool value)
-    {
-#ifdef JIT32_GCENCODER
-        m_cgFramePointerRequired = value;
-#endif
-    }
-
 #if DOUBLE_ALIGN
     // The following property indicates whether we going to double-align the frame.
     // Arguments are accessed relative to the Frame Pointer (EBP), and
