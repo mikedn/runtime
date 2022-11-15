@@ -1158,23 +1158,8 @@ inline void Compiler::fgMarkLoopHead(BasicBlock* block)
 
     assert(!codeGen->isGCTypeFixed());
 
-    if (!compCanEncodePtrArgCntMax())
-    {
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("a callsite with more than 1023 pushed args exists\n");
-        }
-#endif
-        return;
-    }
+    JITDUMP("no guaranteed callsite exits, marking method as fully interruptible\n");
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("no guaranteed callsite exits, marking method as fully interruptible\n");
-    }
-#endif
     codeGen->SetInterruptible(true);
 }
 
@@ -3400,15 +3385,7 @@ void Compiler::fgSetBlockOrder()
 
             if (!partiallyInterruptible)
             {
-                // DDB 204533:
-                // The GC encoding for fully interruptible methods does not
-                // support more than 1023 pushed arguments, so we can't set
-                // SetInterruptible() here when we have 1024 or more pushed args
-                //
-                if (compCanEncodePtrArgCntMax())
-                {
-                    codeGen->SetInterruptible(true);
-                }
+                codeGen->SetInterruptible(true);
                 break;
             }
 #undef EDGE_IS_GC_SAFE
