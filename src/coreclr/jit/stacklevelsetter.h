@@ -26,6 +26,7 @@ private:
     void PopArg(GenTreePutArgStk* putArgStk);
 
     void CheckArgCnt();
+    bool CanEncodePtrArgCntMax() const;
     void CheckAdditionalArgs();
 
 private:

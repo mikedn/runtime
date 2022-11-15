@@ -286,7 +286,7 @@ void StackLevelSetter::PopArg(GenTreePutArgStk* putArgStk)
 //
 void StackLevelSetter::CheckArgCnt()
 {
-    if (!comp->compCanEncodePtrArgCntMax())
+    if (!CanEncodePtrArgCntMax())
     {
 #ifdef DEBUG
         if (comp->verbose)
@@ -307,6 +307,19 @@ void StackLevelSetter::CheckArgCnt()
 #endif
         comp->codeGen->setFramePointerRequired(true);
     }
+}
+
+bool StackLevelSetter::CanEncodePtrArgCntMax() const
+{
+#ifdef JIT32_GCENCODER
+    // DDB 204533:
+    // The GC encoding for fully interruptible methods does not
+    // support more than 1023 pushed arguments, so we have to
+    // use a partially interruptible GC info/encoding.
+    return comp->fgPtrArgCntMax < MAX_PTRARG_OFS;
+#else
+    return true;
+#endif
 }
 
 //------------------------------------------------------------------------
