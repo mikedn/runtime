@@ -2,20 +2,14 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
-
 #include "stacklevelsetter.h"
 
 StackLevelSetter::StackLevelSetter(Compiler* compiler)
     : Phase(compiler, PHASE_STACK_LEVEL_SETTER)
-    , currentStackLevel(0)
-    , maxStackLevel(0)
 #if !FEATURE_FIXED_OUT_ARGS
     , framePointerRequired(compiler->codeGen->isFramePointerRequired())
     , throwHelperBlocksUsed(comp->fgUseThrowHelperBlocks() && comp->compUsesThrowHelper)
-#endif // !FEATURE_FIXED_OUT_ARGS
+#endif
 {
     // The constructor reads this value to skip iterations that could set it if it is already set.
     compiler->codeGen->resetWritePhaseForFramePointerRequired();
@@ -286,40 +280,25 @@ void StackLevelSetter::PopArg(GenTreePutArgStk* putArgStk)
 //
 void StackLevelSetter::CheckArgCnt()
 {
-    if (!CanEncodePtrArgCntMax())
-    {
-#ifdef DEBUG
-        if (comp->verbose)
-        {
-            printf("Too many pushed arguments for fully interruptible encoding, marking method as partially "
-                   "interruptible\n");
-        }
-#endif
-        comp->codeGen->SetInterruptible(false);
-    }
-    if (maxStackLevel >= sizeof(unsigned))
-    {
-#ifdef DEBUG
-        if (comp->verbose)
-        {
-            printf("Too many pushed arguments for an ESP based encoding, forcing an EBP frame\n");
-        }
-#endif
-        comp->codeGen->setFramePointerRequired(true);
-    }
-}
-
-bool StackLevelSetter::CanEncodePtrArgCntMax() const
-{
 #ifdef JIT32_GCENCODER
-    // DDB 204533:
     // The GC encoding for fully interruptible methods does not
     // support more than 1023 pushed arguments, so we have to
     // use a partially interruptible GC info/encoding.
-    return maxStackLevel < MAX_PTRARG_OFS;
-#else
-    return true;
+    if (maxStackLevel >= MAX_PTRARG_OFS)
+    {
+        JITDUMP("Too many pushed arguments for fully interruptible encoding, marking method as partially "
+                "interruptible\n");
+
+        comp->codeGen->SetInterruptible(false);
+    }
 #endif
+
+    if (maxStackLevel >= 4)
+    {
+        JITDUMP("Too many pushed arguments for an ESP based encoding, forcing an EBP frame\n");
+
+        comp->codeGen->setFramePointerRequired(true);
+    }
 }
 
 //------------------------------------------------------------------------

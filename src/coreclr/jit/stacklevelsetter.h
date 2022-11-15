@@ -26,12 +26,11 @@ private:
     void PopArg(GenTreePutArgStk* putArgStk);
 
     void CheckArgCnt();
-    bool CanEncodePtrArgCntMax() const;
     void CheckAdditionalArgs();
 
 private:
-    unsigned currentStackLevel; // current number of stack slots used by arguments.
-    unsigned maxStackLevel;     // max number of stack slots for arguments.
+    unsigned currentStackLevel = 0; // current number of stack slots used by arguments.
+    unsigned maxStackLevel = 0;     // max number of stack slots for arguments.
 
 #if !FEATURE_FIXED_OUT_ARGS
     bool framePointerRequired;  // Is frame pointer required based on the analysis made by this phase.
