@@ -4557,9 +4557,6 @@ public:
     // The number of separate return points in the method.
     unsigned fgReturnCount = 0;
 
-    // Maximum number of call args
-    unsigned fgPtrArgCntMax = 0;
-
     void fgAddInternal();
 
     bool fgFoldConditional(BasicBlock* block);
@@ -5382,30 +5379,6 @@ private:
     void fgCheckTreeSeq(GenTree* tree, bool isLIR = false);
     void fgSetStmtSeq(Statement* stmt);
     void fgSetBlockOrder(BasicBlock* block);
-
-public:
-    //------------------------------------------------------------------------
-    // fgGetPtrArgCntMax: Return the maximum number of pointer-sized stack arguments that calls inside this method
-    // can push on the stack. This value is calculated during morph.
-    //
-    // Return Value:
-    //    Returns fgPtrArgCntMax, that is a private field.
-    //
-    unsigned fgGetPtrArgCntMax() const
-    {
-        return fgPtrArgCntMax;
-    }
-
-    //------------------------------------------------------------------------
-    // fgSetPtrArgCntMax: Set the maximum number of pointer-sized stack arguments that calls inside this method
-    // can push on the stack. This function is used during StackLevelSetter to fix incorrect morph calculations.
-    //
-    void fgSetPtrArgCntMax(unsigned argCntMax)
-    {
-        fgPtrArgCntMax = argCntMax;
-    }
-
-    bool compCanEncodePtrArgCntMax();
 
 private:
 #ifndef TARGET_X86

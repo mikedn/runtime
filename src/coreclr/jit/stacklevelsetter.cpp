@@ -54,7 +54,7 @@ PhaseStatus StackLevelSetter::DoPhase()
 
     CheckAdditionalArgs();
 
-    comp->fgSetPtrArgCntMax(maxStackLevel);
+    comp->codeGen->fgPtrArgCntMax = maxStackLevel;
     CheckArgCnt();
 
     // Might want an "other" category for things like this...
@@ -316,7 +316,7 @@ bool StackLevelSetter::CanEncodePtrArgCntMax() const
     // The GC encoding for fully interruptible methods does not
     // support more than 1023 pushed arguments, so we have to
     // use a partially interruptible GC info/encoding.
-    return comp->fgPtrArgCntMax < MAX_PTRARG_OFS;
+    return comp->codeGen->fgPtrArgCntMax < MAX_PTRARG_OFS;
 #else
     return true;
 #endif
