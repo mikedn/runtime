@@ -1149,14 +1149,10 @@ inline void Compiler::fgMarkLoopHead(BasicBlock* block)
         }
     }
 
-    /*
-     *  We have to make this method fully interruptible since we can not
-     *  ensure that this loop will execute a call every time it loops.
-     *
-     *  We'll also need to generate a full register map for this method.
-     */
-
-    assert(!codeGen->isGCTypeFixed());
+    // We have to make this method fully interruptible since we can not
+    // ensure that this loop will execute a call every time it loops.
+    //
+    // We'll also need to generate a full register map for this method.
 
     JITDUMP("no guaranteed callsite exits, marking method as fully interruptible\n");
 

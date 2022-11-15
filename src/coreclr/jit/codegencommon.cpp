@@ -1301,8 +1301,6 @@ void CodeGen::genGenerateMachineCode()
     compiler->fgBBcountAtCodegen = compiler->fgBBcount;
     compiler->fgDebugCheckLinks();
     compiler->fgDebugCheckBBlist();
-
-    genInterruptibleUsed = true;
 #endif
 
     genFinalizeFrame();
@@ -5824,10 +5822,6 @@ void CodeGen::genFnProlog()
     }
 #endif
 
-#ifdef DEBUG
-    genInterruptibleUsed = true;
-#endif
-
     assert(compiler->lvaDoneFrameLayout == Compiler::FINAL_FRAME_LAYOUT);
 
     /* Ready to start on the prolog proper */
@@ -6768,10 +6762,6 @@ void CodeGen::genFnEpilog(BasicBlock* block)
     gcInfo.gcRegByrefSetCur = GetEmitter()->emitInitByrefRegs;
 
     noway_assert(!compiler->opts.MinOpts() || isFramePointerUsed()); // FPO not allowed with minOpts
-
-#ifdef DEBUG
-    genInterruptibleUsed = true;
-#endif
 
     bool jmpEpilog = ((block->bbFlags & BBF_HAS_JMP) != 0);
 

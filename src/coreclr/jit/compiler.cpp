@@ -1498,7 +1498,6 @@ void Compiler::compInitConfigOptions()
         expensiveDebugCheckLevel = 1;
     }
 
-    assert(!codeGen->isGCTypeFixed());
     opts.compGcChecks = (JitConfig.JitGCChecks() != 0) || compStressCompile(STRESS_GENERIC_VARN, 5);
 
 #ifdef TARGET_XARCH

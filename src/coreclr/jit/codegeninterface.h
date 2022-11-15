@@ -228,28 +228,14 @@ public:
 
 private:
     bool m_cgDoubleAlign;
-#else // !DOUBLE_ALIGN
+#else  // !DOUBLE_ALIGN
 
 public:
     bool doubleAlignOrFramePointerUsed() const
     {
         return isFramePointerUsed();
     }
-
 #endif // !DOUBLE_ALIGN
-
-#ifdef DEBUG
-    // The following is used to make sure the value of 'GetInterruptible()' isn't
-    // changed after it's been used by any logic that depends on its value.
-public:
-    bool isGCTypeFixed()
-    {
-        return genInterruptibleUsed;
-    }
-
-protected:
-    bool genInterruptibleUsed = false;
-#endif
 
 public:
     // Methods to abstract target information

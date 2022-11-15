@@ -133,7 +133,6 @@ void CodeGen::genCodeForBBlist()
         compiler->lvaTableDump();
     }
 
-    genInterruptibleUsed = true;
     // You have to be careful if you create basic blocks from now on
     compiler->fgSafeBasicBlockCreation = false;
 
