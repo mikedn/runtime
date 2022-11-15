@@ -14620,7 +14620,7 @@ void Compiler::fgSetOptions()
 #ifdef JIT32_GCENCODER
              || info.compPublishStubParam || info.compIsVarArgs || lvaReportParamTypeArg()
 #endif
-                 )
+             || opts.compDbgEnC)
     {
         codeGen->setFramePointerRequired(true);
     }

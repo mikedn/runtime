@@ -2691,22 +2691,6 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     fgRemoveEH();
 #endif // !FEATURE_EH
 
-    // We could allow ESP frames. Just need to reserve space for
-    // pushing EBP if the method becomes an EBP-frame after an edit.
-    // Note that requiring a EBP Frame disallows double alignment.  Thus if we change this
-    // we either have to disallow double alignment for E&C some other way or handle it in EETwain.
-
-    if (opts.compDbgEnC)
-    {
-        codeGen->setFramePointerRequired(true);
-
-        // We don't care about localloc right now. If we do support it,
-        // EECodeManager::FixContextForEnC() needs to handle it smartly
-        // in case the localloc was actually executed.
-        //
-        // compLocallocUsed            = true;
-    }
-
     // Start phases that are broadly called morphing, and includes
     // global morph, as well as other phases that massage the trees so
     // that we can generate code out of them.
