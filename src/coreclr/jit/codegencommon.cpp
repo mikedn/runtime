@@ -30,8 +30,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "patchpointinfo.h"
 #include "lsra.h"
 
-/*****************************************************************************/
-
 void CodeGenInterface::setFramePointerRequiredEH(bool value)
 {
     m_cgFramePointerRequired = value;
@@ -43,18 +41,12 @@ void CodeGenInterface::setFramePointerRequiredEH(bool value)
         // if they are fully-interruptible.  So if we have a catch
         // or finally that will keep frame-vars alive, we need to
         // force fully-interruptible.
-        CLANG_FORMAT_COMMENT_ANCHOR;
 
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("Method has EH, marking method as fully interruptible\n");
-        }
-#endif
+        JITDUMP("Method has EH, marking method as fully interruptible\n");
 
         m_cgInterruptible = true;
     }
-#endif // JIT32_GCENCODER
+#endif
 }
 
 void Compiler::codeGenInit()

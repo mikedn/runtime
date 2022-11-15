@@ -151,7 +151,7 @@ public:
     // The following property indicates whether the current method requires
     // an explicit frame. Does not prohibit double alignment of the stack.
 private:
-    PhasedVar<bool> m_cgFrameRequired;
+    PhasedVar<bool> m_cgFrameRequired{false};
 
 public:
     bool isFrameRequired() const
@@ -183,7 +183,7 @@ public:
     // accessible relative to the Frame Pointer. Prohibits double alignment
     // of the stack.
 private:
-    PhasedVar<bool> m_cgFramePointerRequired;
+    PhasedVar<bool> m_cgFramePointerRequired{false};
 
 public:
     bool isFramePointerRequired() const

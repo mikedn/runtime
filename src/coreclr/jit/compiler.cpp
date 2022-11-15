@@ -2399,9 +2399,6 @@ void Compiler::compSetOptimizationLevel(const ILStats& ilStats)
         opts.optFlags = CLFLG_MINOPT;
     }
 
-    codeGen->setFramePointerRequired(false);
-    codeGen->setFrameRequired(false);
-
     if (opts.OptimizationDisabled())
     {
         codeGen->setFrameRequired(true);
