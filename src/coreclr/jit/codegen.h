@@ -530,8 +530,6 @@ protected:
 //-------------------------------------------------------------------------
 
 #ifdef TARGET_XARCH
-    void      genSinglePush();
-    void      genSinglePop();
     regMaskTP genPushRegs(regMaskTP regs, regMaskTP* byrefRegs, regMaskTP* noRefRegs);
     void genPopRegs(regMaskTP regs, regMaskTP byrefRegs, regMaskTP noRefRegs);
 #endif

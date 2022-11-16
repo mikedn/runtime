@@ -213,22 +213,6 @@ void CodeGen::genEmitGSCookieCheck(bool pushReg)
 }
 
 //------------------------------------------------------------------------
-// genSinglePush: Report a change in stack level caused by a single word-sized push instruction
-//
-void CodeGen::genSinglePush()
-{
-    AddStackLevel(REGSIZE_BYTES);
-}
-
-//------------------------------------------------------------------------
-// genSinglePop: Report a change in stack level caused by a single word-sized pop instruction
-//
-void CodeGen::genSinglePop()
-{
-    SubtractStackLevel(REGSIZE_BYTES);
-}
-
-//------------------------------------------------------------------------
 // genPushRegs: Push the given registers.
 //
 // Arguments:
@@ -290,7 +274,7 @@ regMaskTP CodeGen::genPushRegs(regMaskTP regs, regMaskTP* byrefRegs, regMaskTP* 
 
         inst_RV(INS_push, reg, type);
 
-        genSinglePush();
+        AddStackLevel(REGSIZE_BYTES);
         gcInfo.gcMarkRegSetNpt(regBit);
 
         regs &= ~regBit;
@@ -352,7 +336,7 @@ void CodeGen::genPopRegs(regMaskTP regs, regMaskTP byrefRegs, regMaskTP noRefReg
         }
 
         inst_RV(INS_pop, reg, type);
-        genSinglePop();
+        SubtractStackLevel(REGSIZE_BYTES);
 
         if (type != TYP_INT)
             gcInfo.gcMarkRegPtrVal(reg, type);
@@ -8286,7 +8270,8 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
     {
         inst_IV(INS_push, (size_t)compiler->compProfilerMethHnd);
     }
-    genSinglePush();
+
+    AddStackLevel(REGSIZE_BYTES);
 
 #if defined(UNIX_X86_ABI)
     int argSize = -REGSIZE_BYTES; // negative means caller-pop (cdecl)
