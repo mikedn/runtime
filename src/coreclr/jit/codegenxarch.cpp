@@ -136,7 +136,12 @@ void CodeGen::genEmitGSCookieCheck(bool pushReg)
     }
 
     regNumber regGSCheck;
-    regMaskTP regMaskGSCheck = RBM_NONE;
+#ifdef TARGET_X86
+    regMaskTP regMaskGSCheck  = RBM_NONE;
+    regMaskTP byrefPushedRegs = RBM_NONE;
+    regMaskTP norefPushedRegs = RBM_NONE;
+    regMaskTP pushedRegs      = RBM_NONE;
+#endif
 
     if (!pushReg)
     {
@@ -163,21 +168,17 @@ void CodeGen::genEmitGSCookieCheck(bool pushReg)
         // TODO-CQ: Can we optimize the choice of register to avoid doing the push/pop sometimes?
         regGSCheck     = REG_EAX;
         regMaskGSCheck = RBM_EAX;
-#else  // !TARGET_X86
+#else
         // Jmp calls: specify method handle using which JIT queries VM for its entry point
         // address and hence it can neither be a VSD call nor PInvoke calli with cookie
         // parameter.  Therefore, in case of jmp calls it is safe to use R11.
         regGSCheck = REG_R11;
-#endif // !TARGET_X86
+#endif
     }
-
-    regMaskTP byrefPushedRegs = RBM_NONE;
-    regMaskTP norefPushedRegs = RBM_NONE;
-    regMaskTP pushedRegs      = RBM_NONE;
 
     if (compiler->gsGlobalSecurityCookieAddr == nullptr)
     {
-#if defined(TARGET_AMD64)
+#ifdef TARGET_AMD64
         // If GS cookie shift fits within 32-bits we can use 'cmp mem64, imm32'.
         // Otherwise, load the shift into a reg and use 'cmp mem64, reg64'.
         if ((int)compiler->gsGlobalSecurityCookieVal != (ssize_t)compiler->gsGlobalSecurityCookieVal)
@@ -186,18 +187,18 @@ void CodeGen::genEmitGSCookieCheck(bool pushReg)
             GetEmitter()->emitIns_S_R(INS_cmp, EA_PTRSIZE, regGSCheck, compiler->lvaGSSecurityCookie, 0);
         }
         else
-#endif // defined(TARGET_AMD64)
+#endif
         {
             assert((int)compiler->gsGlobalSecurityCookieVal == (ssize_t)compiler->gsGlobalSecurityCookieVal);
             GetEmitter()->emitIns_S_I(INS_cmp, EA_PTRSIZE, compiler->lvaGSSecurityCookie, 0,
                                       (int)compiler->gsGlobalSecurityCookieVal);
         }
     }
-    else
+    else // Ngen case - GS cookie shift needs to be accessed through an indirection.
     {
-        // Ngen case - GS cookie shift needs to be accessed through an indirection.
-
+#ifdef TARGET_X86
         pushedRegs = genPushRegs(regMaskGSCheck, &byrefPushedRegs, &norefPushedRegs);
+#endif
 
         instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, regGSCheck, (ssize_t)compiler->gsGlobalSecurityCookieAddr);
         GetEmitter()->emitIns_R_AR(ins_Load(TYP_I_IMPL), EA_PTRSIZE, regGSCheck, regGSCheck, 0);
@@ -209,9 +210,12 @@ void CodeGen::genEmitGSCookieCheck(bool pushReg)
     genEmitHelperCall(CORINFO_HELP_FAIL_FAST, 0, EA_UNKNOWN);
     genDefineTempLabel(gsCheckBlk);
 
+#ifdef TARGET_X86
     genPopRegs(pushedRegs, byrefPushedRegs, norefPushedRegs);
+#endif
 }
 
+#ifdef TARGET_X86
 //------------------------------------------------------------------------
 // genPushRegs: Push the given registers.
 //
@@ -346,6 +350,7 @@ void CodeGen::genPopRegs(regMaskTP regs, regMaskTP byrefRegs, regMaskTP noRefReg
 
 #endif // FEATURE_FIXED_OUT_ARGS
 }
+#endif // TARGET_X86
 
 BasicBlock* CodeGen::genCallFinally(BasicBlock* block)
 {
