@@ -350,6 +350,70 @@ void CodeGen::genPopRegs(regMaskTP regs, regMaskTP byrefRegs, regMaskTP noRefReg
 
 #endif // FEATURE_FIXED_OUT_ARGS
 }
+
+// Adjust the stack level, if required, for a throw helper block
+// Must be called just prior to generating code for 'block'.
+void CodeGen::genAdjustStackLevel(BasicBlock* block)
+{
+    // Check for inserted throw blocks and adjust genStackLevel.
+    CLANG_FORMAT_COMMENT_ANCHOR;
+
+#ifdef UNIX_X86_ABI
+    if (isFramePointerUsed() && compiler->fgIsThrowHlpBlk(block))
+    {
+        // x86/Linux requires stack frames to be 16-byte aligned, but SP may be unaligned
+        // at this point if a jump to this block is made in the middle of pushing arugments.
+        //
+        // Here we restore SP to prevent potential stack alignment issues.
+        GetEmitter()->emitIns_R_AR(INS_lea, EA_PTRSIZE, REG_SPBASE, REG_FPBASE, -genSPtoFPdelta());
+    }
+#endif
+
+    if (!isFramePointerUsed() && compiler->fgIsThrowHlpBlk(block))
+    {
+        noway_assert(block->bbFlags & BBF_HAS_LABEL);
+
+        SetStackLevel(compiler->fgThrowHlpBlkStkLevel(block) * sizeof(int));
+
+        if (genStackLevel != 0)
+        {
+            GetEmitter()->emitMarkStackLvl(genStackLevel);
+            inst_RV_IV(INS_add, REG_SPBASE, genStackLevel, EA_PTRSIZE);
+            SetStackLevel(0);
+        }
+    }
+}
+
+void CodeGen::SubtractStackLevel(unsigned adjustment)
+{
+    assert(genStackLevel >= adjustment);
+    unsigned newStackLevel = genStackLevel - adjustment;
+    if (genStackLevel != newStackLevel)
+    {
+        JITDUMP("Adjusting stack level from %d to %d\n", genStackLevel, newStackLevel);
+    }
+    genStackLevel = newStackLevel;
+}
+
+void CodeGen::AddStackLevel(unsigned adjustment)
+{
+    unsigned newStackLevel = genStackLevel + adjustment;
+    if (genStackLevel != newStackLevel)
+    {
+        JITDUMP("Adjusting stack level from %d to %d\n", genStackLevel, newStackLevel);
+    }
+    genStackLevel = newStackLevel;
+}
+
+void CodeGen::SetStackLevel(unsigned newStackLevel)
+{
+    if (genStackLevel != newStackLevel)
+    {
+        JITDUMP("Setting stack level from %d to %d\n", genStackLevel, newStackLevel);
+    }
+    genStackLevel = newStackLevel;
+}
+
 #endif // TARGET_X86
 
 BasicBlock* CodeGen::genCallFinally(BasicBlock* block)

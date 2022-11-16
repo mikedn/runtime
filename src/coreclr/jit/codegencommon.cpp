@@ -683,56 +683,6 @@ void CodeGen::genDefineInlineTempLabel(BasicBlock* label)
     label->bbEmitCookie = GetEmitter()->emitAddInlineLabel();
 }
 
-#if !FEATURE_FIXED_OUT_ARGS
-//------------------------------------------------------------------------
-// genAdjustStackLevel: Adjust the stack level, if required, for a throw helper block
-//
-// Arguments:
-//    block - The BasicBlock for which we are about to generate code.
-//
-// Assumptions:
-//    Must be called just prior to generating code for 'block'.
-//
-// Notes:
-//    This only makes an adjustment if !FEATURE_FIXED_OUT_ARGS, if there is no frame pointer,
-//    and if 'block' is a throw helper block with a non-zero stack level.
-
-void CodeGen::genAdjustStackLevel(BasicBlock* block)
-{
-    // Check for inserted throw blocks and adjust genStackLevel.
-    CLANG_FORMAT_COMMENT_ANCHOR;
-
-#if defined(UNIX_X86_ABI)
-    if (isFramePointerUsed() && compiler->fgIsThrowHlpBlk(block))
-    {
-        // x86/Linux requires stack frames to be 16-byte aligned, but SP may be unaligned
-        // at this point if a jump to this block is made in the middle of pushing arugments.
-        //
-        // Here we restore SP to prevent potential stack alignment issues.
-        GetEmitter()->emitIns_R_AR(INS_lea, EA_PTRSIZE, REG_SPBASE, REG_FPBASE, -genSPtoFPdelta());
-    }
-#endif
-
-    if (!isFramePointerUsed() && compiler->fgIsThrowHlpBlk(block))
-    {
-        noway_assert(block->bbFlags & BBF_HAS_LABEL);
-
-        SetStackLevel(compiler->fgThrowHlpBlkStkLevel(block) * sizeof(int));
-
-        if (genStackLevel != 0)
-        {
-#ifdef TARGET_X86
-            GetEmitter()->emitMarkStackLvl(genStackLevel);
-            inst_RV_IV(INS_add, REG_SPBASE, genStackLevel, EA_PTRSIZE);
-            SetStackLevel(0);
-#else  // TARGET_X86
-            NYI("Need emitMarkStackLvl()");
-#endif // TARGET_X86
-        }
-    }
-}
-#endif // !FEATURE_FIXED_OUT_ARGS
-
 bool AddrMode::IsIndexScale(size_t value)
 {
     return (value == 1) || (value == 2) || (value == 4) || (value == 8);

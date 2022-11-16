@@ -137,38 +137,10 @@ private:
     unsigned genInitStkLclCnt; // The count of local variables that we need to zero init
 
 #if !FEATURE_FIXED_OUT_ARGS
-    void SubtractStackLevel(unsigned adjustment)
-    {
-        assert(genStackLevel >= adjustment);
-        unsigned newStackLevel = genStackLevel - adjustment;
-        if (genStackLevel != newStackLevel)
-        {
-            JITDUMP("Adjusting stack level from %d to %d\n", genStackLevel, newStackLevel);
-        }
-        genStackLevel = newStackLevel;
-    }
-
-    void AddStackLevel(unsigned adjustment)
-    {
-        unsigned newStackLevel = genStackLevel + adjustment;
-        if (genStackLevel != newStackLevel)
-        {
-            JITDUMP("Adjusting stack level from %d to %d\n", genStackLevel, newStackLevel);
-        }
-        genStackLevel = newStackLevel;
-    }
-
-    void SetStackLevel(unsigned newStackLevel)
-    {
-        if (genStackLevel != newStackLevel)
-        {
-            JITDUMP("Setting stack level from %d to %d\n", genStackLevel, newStackLevel);
-        }
-        genStackLevel = newStackLevel;
-    }
-#endif // !FEATURE_FIXED_OUT_ARGS
-
-    //-------------------------------------------------------------------------
+    void SubtractStackLevel(unsigned adjustment);
+    void AddStackLevel(unsigned adjustment);
+    void SetStackLevel(unsigned newStackLevel);
+#endif
 
     void genReportEH();
 
