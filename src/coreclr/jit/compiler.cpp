@@ -857,19 +857,10 @@ void Compiler::compShutdown()
 #endif // MEASURE_FATAL
 }
 
-/*****************************************************************************
- *  Display static data structure sizes.
- */
-
-/* static */
 void Compiler::compDisplayStaticSizes(FILE* fout)
 {
 #if MEASURE_NODE_SIZE
     GenTree::DumpNodeSizes(fout);
-#endif
-
-#if EMITTER_STATS
-    emitterStaticStats(fout);
 #endif
 }
 

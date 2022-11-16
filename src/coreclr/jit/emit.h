@@ -41,7 +41,6 @@
 
 #if EMITTER_STATS
 void emitterStats(FILE* fout);
-void emitterStaticStats(FILE* fout); // Static stats about the emitter (data structure offsets, sizes, etc.)
 #endif
 
 #ifdef DEBUG
@@ -2299,7 +2298,6 @@ public:
 #if EMITTER_STATS
 
     friend void emitterStats(FILE* fout);
-    friend void emitterStaticStats(FILE* fout);
 
     static size_t emitSizeMethod;
 
