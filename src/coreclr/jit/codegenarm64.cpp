@@ -3426,10 +3426,7 @@ bool CodeGenInterface::IsSaveFpLrWithAllCalleeSavedRegisters() const
     return genSaveFpLrWithAllCalleeSavedRegisters;
 }
 
-void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper,
-                                int             argSize,
-                                emitAttr        retSize,
-                                regNumber       callTargetReg /*= REG_NA */)
+void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNumber callTargetReg /*= REG_NA */)
 {
     void* addr  = nullptr;
     void* pAddr = nullptr;
@@ -3469,9 +3466,9 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper,
         callType = emitter::EC_INDIR_R;
     }
 
-    GetEmitter()->emitIns_Call(callType, Compiler::eeFindHelper(helper) DEBUGARG(nullptr), addr, argSize, retSize,
-                               EA_UNKNOWN, gcInfo.gcVarPtrSetCur, gcInfo.gcRegGCrefSetCur, gcInfo.gcRegByrefSetCur,
-                               BAD_IL_OFFSET, callTarget, false);
+    GetEmitter()->emitIns_Call(callType, Compiler::eeFindHelper(helper) DEBUGARG(nullptr), addr, retSize, EA_UNKNOWN,
+                               gcInfo.gcVarPtrSetCur, gcInfo.gcRegGCrefSetCur, gcInfo.gcRegByrefSetCur, BAD_IL_OFFSET,
+                               callTarget, false);
 
     regMaskTP killMask = compiler->compHelperCallKillSet(helper);
     regSet.verifyRegistersUsed(killMask);

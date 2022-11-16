@@ -301,7 +301,6 @@ enum EmitCallType
 void emitIns_Call(EmitCallType          callType,
                   CORINFO_METHOD_HANDLE methHnd DEBUGARG(CORINFO_SIG_INFO* sigInfo),
                   void*            addr,
-                  int              argSize,
                   emitAttr         retSize,
                   VARSET_VALARG_TP ptrVars,
                   regMaskTP        gcrefRegs,

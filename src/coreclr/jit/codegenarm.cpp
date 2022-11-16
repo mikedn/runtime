@@ -1224,10 +1224,7 @@ void CodeGen::genFloatToIntCast(GenTreeCast* cast)
     genProduceReg(cast);
 }
 
-void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper,
-                                int             argSize,
-                                emitAttr        retSize,
-                                regNumber       callTargetReg /*= REG_NA */)
+void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNumber callTargetReg /*= REG_NA */)
 {
     // Can we call the helper function directly
 
@@ -1268,14 +1265,14 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper,
         }
 
         GetEmitter()->emitIns_Call(emitter::EC_INDIR_R, Compiler::eeFindHelper(helper) DEBUGARG(nullptr), nullptr,
-                                   argSize, retSize, gcInfo.gcVarPtrSetCur, gcInfo.gcRegGCrefSetCur,
-                                   gcInfo.gcRegByrefSetCur, BAD_IL_OFFSET, callTargetReg, false);
+                                   retSize, gcInfo.gcVarPtrSetCur, gcInfo.gcRegGCrefSetCur, gcInfo.gcRegByrefSetCur,
+                                   BAD_IL_OFFSET, callTargetReg, false);
     }
     else
     {
         GetEmitter()->emitIns_Call(emitter::EC_FUNC_TOKEN, Compiler::eeFindHelper(helper) DEBUGARG(nullptr), addr,
-                                   argSize, retSize, gcInfo.gcVarPtrSetCur, gcInfo.gcRegGCrefSetCur,
-                                   gcInfo.gcRegByrefSetCur, BAD_IL_OFFSET, REG_NA, false);
+                                   retSize, gcInfo.gcVarPtrSetCur, gcInfo.gcRegGCrefSetCur, gcInfo.gcRegByrefSetCur,
+                                   BAD_IL_OFFSET, REG_NA, false);
     }
 
     regSet.verifyRegistersUsed(RBM_CALLEE_TRASH);

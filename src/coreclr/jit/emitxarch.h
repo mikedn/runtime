@@ -500,7 +500,9 @@ void emitIns_Call(EmitCallType          callType,
                   CORINFO_METHOD_HANDLE methHnd
                   DEBUGARG(CORINFO_SIG_INFO* sigInfo), 
                   void*                 addr,
+#ifdef TARGET_X86
                   ssize_t               argSize,
+#endif
                   emitAttr              retSize
                   MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize),
                   VARSET_VALARG_TP      ptrVars,

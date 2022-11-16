@@ -2659,7 +2659,6 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         methHnd
         DEBUGARG(call->IsHelperCall() ? nullptr : call->callSig),
         callAddr,
-        0,
         retSize
         MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
         gcInfo.gcVarPtrSetCur,
@@ -3013,7 +3012,6 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
             methHnd
             DEBUGARG(nullptr),
             addr,
-            0,          // argSize
             EA_UNKNOWN, // retSize
 #ifdef TARGET_ARM64
             EA_UNKNOWN, // secondRetSize
@@ -3023,11 +3021,6 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
             gcInfo.gcRegByrefSetCur,
             BAD_IL_OFFSET, // IL offset
             indCallReg,    // ireg
-#ifdef TARGET_XARCH
-            REG_NA,        // xreg
-            0,             // xmul
-            0,             // disp
-#endif
             true);         // isJump
         // clang-format on
         CLANG_FORMAT_COMMENT_ANCHOR;
@@ -3055,7 +3048,6 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
                 call->GetMethodHandle()
                 DEBUGARG(nullptr),
                 call->gtDirectCallAddress,
-                0,          // argSize
                 EA_UNKNOWN  // retSize
                 ARM64_ARG(EA_UNKNOWN), // secondRetSize
                 gcInfo.gcVarPtrSetCur,
@@ -3063,11 +3055,6 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
                 gcInfo.gcRegByrefSetCur,
                 BAD_IL_OFFSET, // IL offset
                 REG_NA,        // ireg
-#ifdef TARGET_XARCH
-                REG_NA,        // xreg
-                0,             // xmul
-                0,             // disp
-#endif
                 true);         // isJump
             // clang-format on
         }

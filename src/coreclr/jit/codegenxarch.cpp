@@ -5061,8 +5061,6 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     {
         argSizeForEmitter = -stackArgBytes;
     }
-#else
-    target_ssize_t argSizeForEmitter = 0;
 #endif
 
     // When it's a PInvoke call and the call type is USER function, we issue VZEROUPPER here
@@ -5196,7 +5194,9 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         methHnd
         DEBUGARG(call->IsHelperCall() ? nullptr : call->callSig),
         callAddr,
+#ifdef TARGET_X86
         argSizeForEmitter,
+#endif
         retSize
         MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
         gcInfo.gcVarPtrSetCur,
@@ -5452,7 +5452,7 @@ void CodeGen::GenJmp(GenTree* jmp)
 #ifdef TARGET_X86
             type = TYP_INT;
 #else
-            type                     = lcl->GetLayout()->GetSize() <= 4 ? TYP_INT : lcl->GetLayout()->GetGCPtrType(0);
+            type = lcl->GetLayout()->GetSize() <= 4 ? TYP_INT : lcl->GetLayout()->GetGCPtrType(0);
 #endif
         }
 
@@ -5598,7 +5598,9 @@ void CodeGen::GenJmpEpilog(BasicBlock* block)
             methHnd
             DEBUGARG(nullptr),
             addr,
+#ifdef TARGET_X86
             0,                                                      // argSize
+#endif
             EA_UNKNOWN                                              // retSize
             MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(EA_UNKNOWN),        // secondRetSize
             gcInfo.gcVarPtrSetCur,
@@ -5633,7 +5635,9 @@ void CodeGen::GenJmpEpilog(BasicBlock* block)
                 call->GetMethodHandle()
                 DEBUGARG(nullptr),
                 call->gtDirectCallAddress,
+#ifdef TARGET_X86
                 0,                                              // argSize
+#endif
                 EA_UNKNOWN                                      // retSize
                 MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(EA_UNKNOWN),// secondRetSize
                 gcInfo.gcVarPtrSetCur,
@@ -7969,7 +7973,11 @@ void CodeGen::genCreateAndStoreGCInfoX64(unsigned codeSize, unsigned prologSize 
 }
 #endif // !JIT32_GCENCODER
 
+#ifdef TARGET_X86
 void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, int argSize, emitAttr retSize, regNumber callTargetReg)
+#else
+void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNumber callTargetReg)
+#endif
 {
     void* addr  = nullptr;
     void* pAddr = nullptr;
@@ -8029,7 +8037,9 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, int argSize, emitAttr re
     GetEmitter()->emitIns_Call(callType,
                                Compiler::eeFindHelper(helper)
                                DEBUGARG(nullptr), addr,
+#ifdef TARGET_X86
                                argSize,
+#endif
                                retSize
                                MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(EA_UNKNOWN),
                                gcInfo.gcVarPtrSetCur,

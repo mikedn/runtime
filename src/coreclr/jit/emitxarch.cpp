@@ -5812,7 +5812,9 @@ void emitter::emitIns_Call(EmitCallType          callType,
                            CORINFO_METHOD_HANDLE methHnd
                            DEBUGARG(CORINFO_SIG_INFO* sigInfo),
                            void*                 addr,
+#ifdef TARGET_X86
                            ssize_t               argSize,
+#endif
                            emitAttr              retSize
                            MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize),
                            VARSET_VALARG_TP      ptrVars,
@@ -5831,7 +5833,7 @@ void emitter::emitIns_Call(EmitCallType          callType,
     assert(callType < EC_INDIR_R || callType == EC_INDIR_ARD || addr == nullptr);
     assert(callType != EC_INDIR_R || (ireg < REG_COUNT && xreg == REG_NA && xmul == 0 && disp == 0));
 
-#if !FEATURE_FIXED_OUT_ARGS
+#ifdef TARGET_X86
     // Our stack level should be always greater than the bytes of arguments we push. Just
     // a sanity test.
     assert((unsigned)abs((signed)argSize) <= codeGen->genStackLevel);
@@ -5879,8 +5881,12 @@ void emitter::emitIns_Call(EmitCallType          callType,
 
     instrDesc* id;
 
+#ifdef TARGET_X86
     assert(argSize % REGSIZE_BYTES == 0);
     int argCnt = (int)(argSize / (int)REGSIZE_BYTES); // we need a signed-divide
+#else
+    int argCnt = 0;
+#endif
 
     if ((callType == EC_INDIR_R) || (callType == EC_INDIR_ARD))
     {
