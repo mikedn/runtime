@@ -3128,15 +3128,12 @@ void emitter::emitSetSecondRetRegGCType(instrDescCGCA* id, emitAttr secondRetSiz
  *  address mode displacement.
  */
 
-emitter::instrDesc* emitter::emitNewInstrCallInd(
-#ifdef TARGET_XARCH
-    int argCnt,
-#endif
-    ssize_t          disp,
-    VARSET_VALARG_TP GCvars,
-    regMaskTP        gcrefRegs,
-    regMaskTP        byrefRegs,
-    emitAttr retSizeIn MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize))
+emitter::instrDesc* emitter::emitNewInstrCallInd(ssize_t          disp,
+                                                 VARSET_VALARG_TP GCvars,
+                                                 regMaskTP        gcrefRegs,
+                                                 regMaskTP        byrefRegs,
+                                                 emitAttr retSizeIn X86_ARG(int argCnt)
+                                                     MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize))
 {
     emitAttr retSize = (retSizeIn != EA_UNKNOWN) ? retSizeIn : EA_PTRSIZE;
 
@@ -3155,10 +3152,7 @@ emitter::instrDesc* emitter::emitNewInstrCallInd(
         (byrefRegs != 0) ||                      // any register byrefs live
         (disp < AM_DISP_MIN) ||                  // displacement too negative
         (disp > AM_DISP_MAX)                     // displacement too positive
-#ifdef TARGET_XARCH
-        || (argCnt > ID_MAX_SMALL_CNS) || // too many args
-        (argCnt < 0)                      // caller pops arguments
-#endif
+        X86_ONLY(|| (argCnt > ID_MAX_SMALL_CNS) || (argCnt < 0))
         // There is a second ref/byref return register.
         MULTIREG_HAS_SECOND_GC_RET_ONLY(|| EA_IS_GCREF_OR_BYREF(secondRetSize)))
     {
@@ -3169,7 +3163,7 @@ emitter::instrDesc* emitter::emitNewInstrCallInd(
         id->idcGcrefRegs = gcrefRegs;
         id->idcByrefRegs = byrefRegs;
         id->idcDisp      = disp;
-#ifdef TARGET_XARCH
+#ifdef TARGET_X86
         id->idcArgCnt = argCnt;
 #endif
 #if MULTIREG_HAS_SECOND_GC_RET
@@ -3180,7 +3174,7 @@ emitter::instrDesc* emitter::emitNewInstrCallInd(
     }
     else
     {
-#ifdef TARGET_XARCH
+#ifdef TARGET_X86
         instrDesc* id = emitNewInstrCns(retSize, argCnt);
 #else
         instrDesc* id              = emitAllocInstr(retSize);
@@ -3211,14 +3205,11 @@ emitter::instrDesc* emitter::emitNewInstrCallInd(
  *  and an arbitrarily large argument count.
  */
 
-emitter::instrDesc* emitter::emitNewInstrCallDir(
-#ifdef TARGET_XARCH
-    int argCnt,
-#endif
-    VARSET_VALARG_TP GCvars,
-    regMaskTP        gcrefRegs,
-    regMaskTP        byrefRegs,
-    emitAttr retSizeIn MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize))
+emitter::instrDesc* emitter::emitNewInstrCallDir(VARSET_VALARG_TP GCvars,
+                                                 regMaskTP        gcrefRegs,
+                                                 regMaskTP        byrefRegs,
+                                                 emitAttr retSizeIn X86_ARG(int argCnt)
+                                                     MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize))
 {
     emitAttr retSize = (retSizeIn != EA_UNKNOWN) ? retSizeIn : EA_PTRSIZE;
 
@@ -3235,10 +3226,7 @@ emitter::instrDesc* emitter::emitNewInstrCallDir(
     if (!VarSetOps::IsEmpty(emitComp, GCvars) || // any frame GCvars live
         gcRefRegsInScratch ||                    // any register gc refs live in scratch regs
         (byrefRegs != 0)                         // any register byrefs live
-#ifdef TARGET_XARCH
-        || (argCnt > ID_MAX_SMALL_CNS) || // too many args
-        (argCnt < 0)                      // caller pops arguments
-#endif
+        X86_ONLY(|| (argCnt > ID_MAX_SMALL_CNS) || (argCnt < 0))
         // There is a second ref/byref return register.
         MULTIREG_HAS_SECOND_GC_RET_ONLY(|| EA_IS_GCREF_OR_BYREF(secondRetSize)))
     {
@@ -3249,7 +3237,7 @@ emitter::instrDesc* emitter::emitNewInstrCallDir(
         id->idcGcrefRegs = gcrefRegs;
         id->idcByrefRegs = byrefRegs;
         id->idcDisp      = 0;
-#ifdef TARGET_XARCH
+#ifdef TARGET_X86
         id->idcArgCnt = argCnt;
 #endif
 #if MULTIREG_HAS_SECOND_GC_RET
@@ -3260,7 +3248,7 @@ emitter::instrDesc* emitter::emitNewInstrCallDir(
     }
     else
     {
-#ifdef TARGET_XARCH
+#ifdef TARGET_X86
         instrDesc* id = emitNewInstrCns(retSize, argCnt);
 #else
         instrDesc* id              = emitAllocInstr(retSize);
@@ -6416,7 +6404,7 @@ void emitter::emitGenGCInfoIfFuncletRetTarget(insGroup* ig, BYTE* cp)
     {
         // We don't actually have a call instruction in this case, so we don't have
         // a real size for that instruction.  We'll use 1.
-        emitStackPop(cp, /*isCall*/ true, /*callInstrSize*/ 1, /*args*/ 0);
+        emitStackPop(cp, /*isCall*/ true, /*callInstrSize*/ 1);
 
         /* Do we need to record a call location for GC purposes? */
         if (!emitFullGCinfo)
@@ -8368,12 +8356,13 @@ void emitter::emitStackPushN(BYTE* addr, unsigned count)
  *  Record a pop of the given number of dwords from the stack.
  */
 
-void emitter::emitStackPop(BYTE* addr, bool isCall, unsigned char callInstrSize, unsigned count)
+void emitter::emitStackPop(BYTE* addr, bool isCall, unsigned char callInstrSize X86_ARG(unsigned count))
 {
-    assert(emitCurStackLvl / sizeof(int) >= count);
     assert(!isCall || callInstrSize > 0);
+#ifdef TARGET_X86
+    assert(emitCurStackLvl / sizeof(int) >= count);
 
-    if (count)
+    if (count != 0)
     {
         if (emitSimpleStkUsed)
         {
@@ -8395,6 +8384,7 @@ void emitter::emitStackPop(BYTE* addr, bool isCall, unsigned char callInstrSize,
         emitCurStackLvl -= count * sizeof(int);
     }
     else
+#endif // TARGET_X86
     {
         assert(isCall);
 
@@ -8403,7 +8393,7 @@ void emitter::emitStackPop(BYTE* addr, bool isCall, unsigned char callInstrSize,
         if (emitFullGCinfo
 #ifndef JIT32_GCENCODER
             || (codeGen->IsFullPtrRegMapRequired() && !codeGen->GetInterruptible() && isCall)
-#endif // JIT32_GCENCODER
+#endif
                 )
         {
             emitStackPopLargeStk(addr, isCall, callInstrSize, 0);

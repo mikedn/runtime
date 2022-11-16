@@ -5687,6 +5687,8 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount /* = 0 
     emitAdjustStackDepthPushPop(ins);
 }
 
+#ifdef TARGET_X86
+
 int emitter::emitGetInsCDinfo(instrDesc* id)
 {
     if (id->idIsLargeCall())
@@ -5722,6 +5724,8 @@ unsigned emitter::emitGetInsCIargs(instrDesc* id)
         return (unsigned)cns;
     }
 }
+
+#endif // TARGET_X86
 
 #if !FEATURE_FIXED_OUT_ARGS
 
@@ -5884,21 +5888,19 @@ void emitter::emitIns_Call(EmitCallType          callType,
 #ifdef TARGET_X86
     assert(argSize % REGSIZE_BYTES == 0);
     int argCnt = (int)(argSize / (int)REGSIZE_BYTES); // we need a signed-divide
-#else
-    int argCnt = 0;
 #endif
 
     if ((callType == EC_INDIR_R) || (callType == EC_INDIR_ARD))
     {
-        id = emitNewInstrCallInd(argCnt, disp, ptrVars, gcrefRegs, byrefRegs,
-                                 retSize MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize));
+        id = emitNewInstrCallInd(disp, ptrVars, gcrefRegs, byrefRegs,
+                                 retSize X86_ARG(argCnt) MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize));
     }
     else
     {
         assert(callType == EC_FUNC_TOKEN || callType == EC_FUNC_TOKEN_INDIR || callType == EC_FUNC_ADDR);
 
-        id = emitNewInstrCallDir(argCnt, ptrVars, gcrefRegs, byrefRegs,
-                                 retSize MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize));
+        id = emitNewInstrCallDir(ptrVars, gcrefRegs, byrefRegs,
+                                 retSize X86_ARG(argCnt) MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize));
     }
 
     /* Update the emitter's live GC ref sets */
@@ -11473,8 +11475,8 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
     {
         code_t   code;
         unsigned regcode;
-        int      args;
-        CnsVal   cnsVal;
+        X86_ONLY(int args);
+        CnsVal cnsVal;
 
         BYTE* addr;
         bool  recCall;
@@ -11589,7 +11591,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             recCall = true;
 
             // Get hold of the argument count and field Handle
-            args = emitGetInsCDinfo(id);
+            X86_ONLY(args = emitGetInsCDinfo(id));
 
             // Is this a "fat" call descriptor?
             if (id->idIsLargeCall())
@@ -11749,20 +11751,22 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 emitUpdateLiveGCregs(GCT_BYREF, byrefRegs, dst);
             }
 
-            if (recCall || args)
+            if (recCall X86_ONLY(|| (args != 0)))
             {
                 // For callee-pop, all arguments will be popped  after the call.
                 // For caller-pop, any GC arguments will go dead after the call.
 
                 assert(callInstrSize != 0);
 
-                if (args >= 0)
-                {
-                    emitStackPop(dst, /*isCall*/ true, callInstrSize, args);
-                }
-                else
+#ifdef TARGET_X86
+                if (args < 0)
                 {
                     emitStackKillArgs(dst, -args, callInstrSize);
+                }
+                else
+#endif
+                {
+                    emitStackPop(dst, /*isCall*/ true, callInstrSize X86_ARG(args));
                 }
             }
 
@@ -11994,7 +11998,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
                 IND_CALL:
                     // Get hold of the argument count and method handle
-                    args = emitGetInsCIargs(id);
+                    X86_ONLY(args = emitGetInsCIargs(id));
 
                     // Is this a "fat" call descriptor?
                     if (id->idIsLargeCall())

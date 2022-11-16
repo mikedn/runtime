@@ -1418,7 +1418,7 @@ protected:
         ssize_t   idcDisp;      // ... big addrmode disp
         regMaskTP idcGcrefRegs; // ... gcref registers
         regMaskTP idcByrefRegs; // ... byref registers
-#ifdef TARGET_XARCH
+#ifdef TARGET_X86
         unsigned idcArgCnt; // ... lots of args or (<0 ==> caller pops args)
 #endif
 
@@ -1478,18 +1478,16 @@ protected:
     size_t emitGetInstrDescSizeSC(const instrDesc* id);
 
 #ifdef TARGET_XARCH
-
     ssize_t emitGetInsCns(instrDesc* id);
     ssize_t emitGetInsDsp(instrDesc* id);
     ssize_t emitGetInsAmd(instrDesc* id);
-
     ssize_t emitGetInsCIdisp(instrDesc* id);
+#endif
+
+#ifdef TARGET_X86
     unsigned emitGetInsCIargs(instrDesc* id);
-
-    // Return the argument count for a direct call "id".
     int emitGetInsCDinfo(instrDesc* id);
-
-#endif // TARGET_XARCH
+#endif
 
     cnsval_ssize_t emitGetInsSC(instrDesc* id);
     unsigned emitInsCount;
@@ -2173,7 +2171,7 @@ public:
 
     void emitStackPushN(BYTE* addr, unsigned count);
 
-    void emitStackPop(BYTE* addr, bool isCall, unsigned char callInstrSize, unsigned count = 1);
+    void emitStackPop(BYTE* addr, bool isCall, unsigned char callInstrSize X86_ARG(unsigned count));
 
     void emitStackKillArgs(BYTE* addr, unsigned count, unsigned char callInstrSize);
 

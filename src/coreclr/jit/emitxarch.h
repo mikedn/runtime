@@ -241,18 +241,18 @@ void emitSetAmdDisp(instrDescAmd* id, ssize_t dsp);
 instrDesc* emitNewInstrAmd(emitAttr attr, ssize_t dsp);
 instrDesc* emitNewInstrAmdCns(emitAttr attr, ssize_t dsp, int cns);
 
-instrDesc* emitNewInstrCallDir(int              argCnt,
-                               VARSET_VALARG_TP GCvars,
+instrDesc* emitNewInstrCallDir(VARSET_VALARG_TP GCvars,
                                regMaskTP        gcrefRegs,
                                regMaskTP        byrefRegs,
-                               emitAttr retSize MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize));
+                               emitAttr retSize X86_ARG(int argCnt)
+                                   MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize));
 
-instrDesc* emitNewInstrCallInd(int              argCnt,
-                               ssize_t          disp,
+instrDesc* emitNewInstrCallInd(ssize_t          disp,
                                VARSET_VALARG_TP GCvars,
                                regMaskTP        gcrefRegs,
                                regMaskTP        byrefRegs,
-                               emitAttr retSize MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize));
+                               emitAttr retSize X86_ARG(int argCnt)
+                                   MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize));
 
 void emitGetInsCns(instrDesc* id, CnsVal* cv);
 ssize_t emitGetInsAmdCns(instrDesc* id, CnsVal* cv);
