@@ -47,8 +47,6 @@ PhaseStatus StackLevelSetter::DoPhase()
     }
 #endif
 
-    INDEBUG(comp->codeGen->fgPtrArgCntMax = maxStackLevel);
-
     // TODO-MIKE-Review: What does "maxStackLevel >= 4" has to do with x64 or any other non-x86
     // architectures? This condition does reduce code size but it appears to do so by accident:
     // EBP based address modes have smaller encoding than ESP based ones but then this basically

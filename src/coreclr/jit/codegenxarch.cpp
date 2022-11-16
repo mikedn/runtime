@@ -8226,15 +8226,10 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
                       0,           // argSize. Again, we have to lie about it
                       EA_UNKNOWN); // retSize
 
-    // Check that we have place for the push.
-    assert(fgPtrArgCntMax >= 1);
-
-#if defined(UNIX_X86_ABI)
+#ifdef UNIX_X86_ABI
     // Restoring alignment manually. This is similar to CodeGen::genRemoveAlignmentAfterCall
     GetEmitter()->emitIns_R_I(INS_add, EA_4BYTE, REG_SPBASE, 0x10);
-#endif // UNIX_X86_ABI
-
-    /* Restore the stack level */
+#endif
 
     SetStackLevel(saveStackLvl2);
 }
@@ -8300,17 +8295,13 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 #endif
     genEmitHelperCall(helper, argSize, EA_UNKNOWN /* retSize */);
 
-    // Check that we have place for the push.
-    assert(fgPtrArgCntMax >= 1);
-
-#if defined(UNIX_X86_ABI)
+#ifdef UNIX_X86_ABI
     // Restoring alignment manually. This is similar to CodeGen::genRemoveAlignmentAfterCall
     GetEmitter()->emitIns_R_I(INS_add, EA_4BYTE, REG_SPBASE, 0x10);
     SubtractStackLevel(0x10);
     SubtractNestedAlignment(0xC);
-#endif // UNIX_X86_ABI
+#endif
 
-    /* Restore the stack level */
     SetStackLevel(saveStackLvl2);
 }
 

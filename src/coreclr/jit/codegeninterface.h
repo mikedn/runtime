@@ -119,9 +119,6 @@ public:
     bool needToAlignFrame = false;
 #endif
 
-    // Maximum number of call args
-    INDEBUG(unsigned fgPtrArgCntMax = 0;)
-
     FrameType rpFrameType;
 
     bool generatingProlog = false;
