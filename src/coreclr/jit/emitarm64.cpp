@@ -8386,17 +8386,16 @@ void emitter::emitIns_Call(EmitCallType          callType,
     instrDesc* id;
 
     assert(argSize % REGSIZE_BYTES == 0);
-    int argCnt = (int)(argSize / (int)REGSIZE_BYTES);
 
     if (callType == EC_INDIR_R)
     {
-        id = emitNewInstrCallInd(argCnt, 0, ptrVars, gcrefRegs, byrefRegs, retSize, secondRetSize);
+        id = emitNewInstrCallInd(0, ptrVars, gcrefRegs, byrefRegs, retSize, secondRetSize);
     }
     else
     {
         assert((callType == EC_FUNC_TOKEN) || (callType == EC_FUNC_ADDR));
 
-        id = emitNewInstrCallDir(argCnt, ptrVars, gcrefRegs, byrefRegs, retSize, secondRetSize);
+        id = emitNewInstrCallDir(ptrVars, gcrefRegs, byrefRegs, retSize, secondRetSize);
     }
 
     /* Update the emitter's live GC ref sets */

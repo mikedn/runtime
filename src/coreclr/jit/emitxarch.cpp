@@ -5687,6 +5687,42 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount /* = 0 
     emitAdjustStackDepthPushPop(ins);
 }
 
+int emitter::emitGetInsCDinfo(instrDesc* id)
+{
+    if (id->idIsLargeCall())
+    {
+        return ((instrDescCGCA*)id)->idcArgCnt;
+    }
+    else
+    {
+        assert(!id->idIsLargeDsp());
+        assert(!id->idIsLargeCns());
+        ssize_t cns = emitGetInsCns(id);
+
+        // We only encode 32-bit ints, so this is safe
+        noway_assert((int)cns == cns);
+
+        return (int)cns;
+    }
+}
+
+unsigned emitter::emitGetInsCIargs(instrDesc* id)
+{
+    if (id->idIsLargeCall())
+    {
+        return ((instrDescCGCA*)id)->idcArgCnt;
+    }
+    else
+    {
+        assert(id->idIsLargeDsp() == false);
+        assert(id->idIsLargeCns() == false);
+
+        ssize_t cns = emitGetInsCns(id);
+        assert((unsigned)cns == (size_t)cns);
+        return (unsigned)cns;
+    }
+}
+
 #if !FEATURE_FIXED_OUT_ARGS
 
 //------------------------------------------------------------------------

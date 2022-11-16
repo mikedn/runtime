@@ -103,25 +103,6 @@ inline regNumber emitter::inst3opImulReg(instruction ins)
 
 #ifdef TARGET_XARCH
 
-inline int emitter::emitGetInsCDinfo(instrDesc* id)
-{
-    if (id->idIsLargeCall())
-    {
-        return ((instrDescCGCA*)id)->idcArgCnt;
-    }
-    else
-    {
-        assert(!id->idIsLargeDsp());
-        assert(!id->idIsLargeCns());
-        ssize_t cns = emitGetInsCns(id);
-
-        // We only encode 32-bit ints, so this is safe
-        noway_assert((int)cns == cns);
-
-        return (int)cns;
-    }
-}
-
 inline void emitter::emitGetInsCns(instrDesc* id, CnsVal* cv)
 {
     cv->cnsReloc = id->idIsCnsReloc();

@@ -1418,7 +1418,9 @@ protected:
         ssize_t   idcDisp;      // ... big addrmode disp
         regMaskTP idcGcrefRegs; // ... gcref registers
         regMaskTP idcByrefRegs; // ... byref registers
-        unsigned  idcArgCnt;    // ... lots of args or (<0 ==> caller pops args)
+#ifdef TARGET_XARCH
+        unsigned idcArgCnt; // ... lots of args or (<0 ==> caller pops args)
+#endif
 
 #if MULTIREG_HAS_SECOND_GC_RET
         // This method handle the GC-ness of the second register in a 2 register returned struct on System V.
@@ -2733,28 +2735,6 @@ inline ssize_t emitter::emitGetInsDsp(instrDesc* id)
         return ((instrDescDsp*)id)->iddDspVal;
     }
     return 0;
-}
-
-/*****************************************************************************
- *
- *  Get hold of the argument count for an indirect call.
- */
-
-inline unsigned emitter::emitGetInsCIargs(instrDesc* id)
-{
-    if (id->idIsLargeCall())
-    {
-        return ((instrDescCGCA*)id)->idcArgCnt;
-    }
-    else
-    {
-        assert(id->idIsLargeDsp() == false);
-        assert(id->idIsLargeCns() == false);
-
-        ssize_t cns = emitGetInsCns(id);
-        assert((unsigned)cns == (size_t)cns);
-        return (unsigned)cns;
-    }
 }
 
 #endif // TARGET_XARCH

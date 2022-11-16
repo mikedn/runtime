@@ -3128,13 +3128,15 @@ void emitter::emitSetSecondRetRegGCType(instrDescCGCA* id, emitAttr secondRetSiz
  *  address mode displacement.
  */
 
-emitter::instrDesc* emitter::emitNewInstrCallInd(int              argCnt,
-                                                 ssize_t          disp,
-                                                 VARSET_VALARG_TP GCvars,
-                                                 regMaskTP        gcrefRegs,
-                                                 regMaskTP        byrefRegs,
-                                                 emitAttr         retSizeIn
-                                                     MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize))
+emitter::instrDesc* emitter::emitNewInstrCallInd(
+#ifdef TARGET_XARCH
+    int argCnt,
+#endif
+    ssize_t          disp,
+    VARSET_VALARG_TP GCvars,
+    regMaskTP        gcrefRegs,
+    regMaskTP        byrefRegs,
+    emitAttr retSizeIn MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize))
 {
     emitAttr retSize = (retSizeIn != EA_UNKNOWN) ? retSizeIn : EA_PTRSIZE;
 
@@ -3152,35 +3154,37 @@ emitter::instrDesc* emitter::emitNewInstrCallInd(int              argCnt,
         (gcRefRegsInScratch) ||                  // any register gc refs live in scratch regs
         (byrefRegs != 0) ||                      // any register byrefs live
         (disp < AM_DISP_MIN) ||                  // displacement too negative
-        (disp > AM_DISP_MAX) ||                  // displacement too positive
-        (argCnt > ID_MAX_SMALL_CNS) ||           // too many args
-        (argCnt < 0)                             // caller pops arguments
-                                                 // There is a second ref/byref return register.
+        (disp > AM_DISP_MAX)                     // displacement too positive
+#ifdef TARGET_XARCH
+        || (argCnt > ID_MAX_SMALL_CNS) || // too many args
+        (argCnt < 0)                      // caller pops arguments
+#endif
+        // There is a second ref/byref return register.
         MULTIREG_HAS_SECOND_GC_RET_ONLY(|| EA_IS_GCREF_OR_BYREF(secondRetSize)))
     {
-        instrDescCGCA* id;
-
-        id = emitAllocInstrCGCA(retSize);
-
+        instrDescCGCA* id = emitAllocInstrCGCA(retSize);
         id->idSetIsLargeCall();
 
         VarSetOps::Assign(emitComp, id->idcGCvars, GCvars);
         id->idcGcrefRegs = gcrefRegs;
         id->idcByrefRegs = byrefRegs;
-        id->idcArgCnt    = argCnt;
         id->idcDisp      = disp;
-
+#ifdef TARGET_XARCH
+        id->idcArgCnt = argCnt;
+#endif
 #if MULTIREG_HAS_SECOND_GC_RET
         emitSetSecondRetRegGCType(id, secondRetSize);
-#endif // MULTIREG_HAS_SECOND_GC_RET
+#endif
 
         return id;
     }
     else
     {
-        instrDesc* id;
-
-        id = emitNewInstrCns(retSize, argCnt);
+#ifdef TARGET_XARCH
+        instrDesc* id = emitNewInstrCns(retSize, argCnt);
+#else
+        instrDesc* id              = emitAllocInstr(retSize);
+#endif
 
         /* Make sure we didn't waste space unexpectedly */
         assert(!id->idIsLargeCns());
@@ -3207,12 +3211,14 @@ emitter::instrDesc* emitter::emitNewInstrCallInd(int              argCnt,
  *  and an arbitrarily large argument count.
  */
 
-emitter::instrDesc* emitter::emitNewInstrCallDir(int              argCnt,
-                                                 VARSET_VALARG_TP GCvars,
-                                                 regMaskTP        gcrefRegs,
-                                                 regMaskTP        byrefRegs,
-                                                 emitAttr         retSizeIn
-                                                     MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize))
+emitter::instrDesc* emitter::emitNewInstrCallDir(
+#ifdef TARGET_XARCH
+    int argCnt,
+#endif
+    VARSET_VALARG_TP GCvars,
+    regMaskTP        gcrefRegs,
+    regMaskTP        byrefRegs,
+    emitAttr retSizeIn MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize))
 {
     emitAttr retSize = (retSizeIn != EA_UNKNOWN) ? retSizeIn : EA_PTRSIZE;
 
@@ -3228,33 +3234,37 @@ emitter::instrDesc* emitter::emitNewInstrCallDir(int              argCnt,
 
     if (!VarSetOps::IsEmpty(emitComp, GCvars) || // any frame GCvars live
         gcRefRegsInScratch ||                    // any register gc refs live in scratch regs
-        (byrefRegs != 0) ||                      // any register byrefs live
-        (argCnt > ID_MAX_SMALL_CNS) ||           // too many args
-        (argCnt < 0)                             // caller pops arguments
-                                                 // There is a second ref/byref return register.
+        (byrefRegs != 0)                         // any register byrefs live
+#ifdef TARGET_XARCH
+        || (argCnt > ID_MAX_SMALL_CNS) || // too many args
+        (argCnt < 0)                      // caller pops arguments
+#endif
+        // There is a second ref/byref return register.
         MULTIREG_HAS_SECOND_GC_RET_ONLY(|| EA_IS_GCREF_OR_BYREF(secondRetSize)))
     {
         instrDescCGCA* id = emitAllocInstrCGCA(retSize);
-
-        // printf("Direct call with GC vars / big arg cnt / explicit scope\n");
-
         id->idSetIsLargeCall();
 
         VarSetOps::Assign(emitComp, id->idcGCvars, GCvars);
         id->idcGcrefRegs = gcrefRegs;
         id->idcByrefRegs = byrefRegs;
         id->idcDisp      = 0;
-        id->idcArgCnt    = argCnt;
-
+#ifdef TARGET_XARCH
+        id->idcArgCnt = argCnt;
+#endif
 #if MULTIREG_HAS_SECOND_GC_RET
         emitSetSecondRetRegGCType(id, secondRetSize);
-#endif // MULTIREG_HAS_SECOND_GC_RET
+#endif
 
         return id;
     }
     else
     {
+#ifdef TARGET_XARCH
         instrDesc* id = emitNewInstrCns(retSize, argCnt);
+#else
+        instrDesc* id              = emitAllocInstr(retSize);
+#endif
 
         // printf("Direct call w/o  GC vars / big arg cnt / explicit scope\n");
 
@@ -3293,8 +3303,8 @@ const unsigned emitter::emitFmtCount = _countof(emitFmtToOps);
 const size_t basicIndent     = 7;
 const size_t hexEncodingSize = 21;
 #elif defined(TARGET_X86)
-const size_t basicIndent     = 7;
-const size_t hexEncodingSize = 13;
+const size_t       basicIndent     = 7;
+const size_t       hexEncodingSize = 13;
 #elif defined(TARGET_ARM64)
 const size_t basicIndent     = 12;
 const size_t hexEncodingSize = 19;
