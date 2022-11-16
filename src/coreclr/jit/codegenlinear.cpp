@@ -365,7 +365,9 @@ void CodeGen::genCodeForBBlist()
 
         // Both stacks are always empty on entry to a basic block.
         assert(genStackLevel == 0);
+#if !FEATURE_FIXED_OUT_ARGS
         genAdjustStackLevel(block);
+#endif
         savedStkLvl = genStackLevel;
 
         // Needed when jitting debug code

@@ -697,6 +697,7 @@ void CodeGen::genAdjustSP(target_ssize_t delta)
         inst_RV_IV(INS_add, REG_SPBASE, delta, EA_PTRSIZE);
 }
 
+#if !FEATURE_FIXED_OUT_ARGS
 //------------------------------------------------------------------------
 // genAdjustStackLevel: Adjust the stack level, if required, for a throw helper block
 //
@@ -712,7 +713,6 @@ void CodeGen::genAdjustSP(target_ssize_t delta)
 
 void CodeGen::genAdjustStackLevel(BasicBlock* block)
 {
-#if !FEATURE_FIXED_OUT_ARGS
     // Check for inserted throw blocks and adjust genStackLevel.
     CLANG_FORMAT_COMMENT_ANCHOR;
 
@@ -744,8 +744,8 @@ void CodeGen::genAdjustStackLevel(BasicBlock* block)
 #endif // TARGET_X86
         }
     }
-#endif // !FEATURE_FIXED_OUT_ARGS
 }
+#endif // !FEATURE_FIXED_OUT_ARGS
 
 bool AddrMode::IsIndexScale(size_t value)
 {
