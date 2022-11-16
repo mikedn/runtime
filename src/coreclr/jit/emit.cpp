@@ -520,8 +520,6 @@ void emitter::emitGenIG(insGroup* ig)
 
     emitCurIG = ig;
 
-#if EMIT_TRACK_STACK_DEPTH
-
     /* Record the stack level on entry to this group */
 
     ig->igStkLvl = emitCurStackLvl;
@@ -533,9 +531,7 @@ void emitter::emitGenIG(insGroup* ig)
         IMPL_LIMITATION("Too many arguments pushed on stack");
     }
 
-//  printf("Start IG #%02u [stk=%02u]\n", ig->igNum, emitCurStackLvl);
-
-#endif
+    //  printf("Start IG #%02u [stk=%02u]\n", ig->igNum, emitCurStackLvl);
 
     if (emitNoGCIG)
     {
@@ -1000,12 +996,9 @@ void emitter::emitBegFN()
 
     /* The stack is empty now */
 
-    emitCurStackLvl = 0;
-
-#if EMIT_TRACK_STACK_DEPTH
+    emitCurStackLvl   = 0;
     emitMaxStackDepth = 0;
     emitCntStackDepth = sizeof(int);
-#endif
 
 #ifdef PSEUDORANDOM_NOP_INSERTION
     // for random NOP insertion
@@ -1163,9 +1156,8 @@ void emitter::dispIns(instrDesc* id)
         emitDispIns(id, true);
     }
 
-#if EMIT_TRACK_STACK_DEPTH
     assert((int)emitCurStackLvl >= 0);
-#endif
+
     size_t sz = emitSizeOfInsDsc(id);
     assert(id->idDebugOnlyInfo()->idSize == sz);
 #endif // DEBUG
@@ -1452,15 +1444,11 @@ void emitter::emitBegProlog()
 {
     assert(codeGen->generatingProlog);
 
-#if EMIT_TRACK_STACK_DEPTH
-
     /* Don't measure stack depth inside the prolog, it's misleading */
 
     emitCntStackDepth = 0;
 
     assert(emitCurStackLvl == 0);
-
-#endif
 
     emitNoGCIG     = true;
     emitForceNewIG = false;
@@ -1531,12 +1519,10 @@ void emitter::emitEndProlog()
         emitSavIG();
     }
 
-#if EMIT_TRACK_STACK_DEPTH
     /* Reset the stack depth values */
 
     emitCurStackLvl   = 0;
     emitCntStackDepth = sizeof(int);
-#endif
 }
 
 /*****************************************************************************
@@ -1904,15 +1890,11 @@ void emitter::emitBegPrologEpilog(insGroup* igPh)
 
     emitGenIG(ig);
 
-#if EMIT_TRACK_STACK_DEPTH
-
     /* Don't measure stack depth inside the prolog / epilog, it's misleading */
 
     emitCntStackDepth = 0;
 
     assert(emitCurStackLvl == 0);
-
-#endif
 }
 
 /*****************************************************************************
@@ -1933,12 +1915,10 @@ void emitter::emitEndPrologEpilog()
 
     assert(emitCurIGsize <= MAX_PLACEHOLDER_IG_SIZE);
 
-#if EMIT_TRACK_STACK_DEPTH
     /* Reset the stack depth values */
 
     emitCurStackLvl   = 0;
     emitCntStackDepth = sizeof(int);
-#endif
 }
 
 /*****************************************************************************
@@ -3644,19 +3624,11 @@ size_t emitter::emitIssue1Instr(insGroup* ig, instrDesc* id, BYTE** dp)
     ig->igPerfScore += insPerfScore;
 #endif // defined(DEBUG) || defined(LATE_DISASM)
 
-// printf("[S=%02u]\n", emitCurStackLvl);
-
-#if EMIT_TRACK_STACK_DEPTH
-
-    /*
-        If we're generating a full pointer map and the stack
-        is empty, there better not be any "pending" argument
-        push entries.
-     */
+    // If we're generating a full pointer map and the stack
+    // is empty, there better not be any "pending" argument
+    // push entries.
 
     assert(emitFullGCinfo == false || emitCurStackLvl != 0 || u2.emitGcArgTrackCnt == 0);
-
-#endif
 
     /* Did the size of the instruction match our expectations? */
 
@@ -5390,12 +5362,10 @@ unsigned emitter::emitEndCodeGen(Compiler* comp,
     stkDepthTable.record(emitMaxStackDepth);
 #endif // EMITTER_STATS
 
-    // Default values, correct even if EMIT_TRACK_STACK_DEPTH is 0.
     emitSimpleStkUsed         = true;
     u1.emitSimpleStkMask      = 0;
     u1.emitSimpleByrefStkMask = 0;
 
-#if EMIT_TRACK_STACK_DEPTH
     /* Convert max. stack depth from # of bytes to # of entries */
 
     unsigned maxStackDepthIn4ByteElements = emitMaxStackDepth / sizeof(int);
@@ -5425,7 +5395,6 @@ unsigned emitter::emitEndCodeGen(Compiler* comp,
         u2.emitArgTrackTop   = u2.emitArgTrackTab;
         u2.emitGcArgTrackCnt = 0;
     }
-#endif
 
     if (emitEpilogCnt == 0)
     {
@@ -5592,11 +5561,8 @@ unsigned emitter::emitEndCodeGen(Compiler* comp,
     *consAddr = emitConsBlock = consBlock;
 
     /* Nothing has been pushed on the stack */
-    CLANG_FORMAT_COMMENT_ANCHOR;
 
-#if EMIT_TRACK_STACK_DEPTH
     emitCurStackLvl = 0;
-#endif
 
     /* Assume no live GC ref variables on entry */
 
@@ -5895,8 +5861,6 @@ unsigned emitter::emitEndCodeGen(Compiler* comp,
         ig->igOffs = emitCurCodeOffs(cp);
         assert(IsCodeAligned(ig->igOffs));
 
-#if EMIT_TRACK_STACK_DEPTH
-
         /* Set the proper stack level if appropriate */
 
         if (ig->igStkLvl != emitCurStackLvl)
@@ -5906,8 +5870,6 @@ unsigned emitter::emitEndCodeGen(Compiler* comp,
             assert((unsigned)ig->igStkLvl > (unsigned)emitCurStackLvl);
             emitStackPushN(cp, (ig->igStkLvl - (unsigned)emitCurStackLvl) / sizeof(int));
         }
-
-#endif
 
         /* Update current GC information for IG's that do not extend the previous IG */
 
@@ -6092,9 +6054,7 @@ unsigned emitter::emitEndCodeGen(Compiler* comp,
         ig->igSize = (unsigned short)(cp - bp);
     }
 
-#if EMIT_TRACK_STACK_DEPTH
     assert(emitCurStackLvl == 0);
-#endif
 
     /* Output any initialized data we may have */
 
@@ -7240,10 +7200,11 @@ void emitter::emitRecordGCcall(BYTE* codePos, unsigned char callInstrSize)
     // using the general encoder.
     if (regs == 0)
     {
-#if EMIT_TRACK_STACK_DEPTH
         if (emitCurStackLvl == 0)
+        {
             return;
-#endif
+        }
+
         /* Nope, only interesting calls get recorded */
 
         if (emitSimpleStkUsed)
@@ -7294,10 +7255,8 @@ void emitter::emitRecordGCcall(BYTE* codePos, unsigned char callInstrSize)
     call->cdGCrefRegs = (regMaskSmall)emitThisGCrefRegs;
     call->cdByrefRegs = (regMaskSmall)emitThisByrefRegs;
 
-#if EMIT_TRACK_STACK_DEPTH
 #ifndef UNIX_AMD64_ABI
     noway_assert(FitsIn<USHORT>(emitCurStackLvl / ((unsigned)sizeof(unsigned))));
-#endif // UNIX_AMD64_ABI
 #endif
 
     // Append the call descriptor to the list */
@@ -8182,13 +8141,7 @@ BYTE* emitter::emitGetInsRelocValue(instrDesc* id)
 
 #endif // TARGET_ARM
 
-/*****************************************************************************/
-#if EMIT_TRACK_STACK_DEPTH
-/*****************************************************************************
- *
- *  Record a push of a single dword on the stack.
- */
-
+// Record a push of a single dword on the stack.
 void emitter::emitStackPush(BYTE* addr, GCtype gcType)
 {
 #ifdef DEBUG
@@ -8216,11 +8169,7 @@ void emitter::emitStackPush(BYTE* addr, GCtype gcType)
     emitCurStackLvl += sizeof(int);
 }
 
-/*****************************************************************************
- *
- *  Record a push of a bunch of non-GC dwords on the stack.
- */
-
+// Record a push of a bunch of non-GC dwords on the stack.
 void emitter::emitStackPushN(BYTE* addr, unsigned count)
 {
     assert(count);
@@ -8240,11 +8189,7 @@ void emitter::emitStackPushN(BYTE* addr, unsigned count)
     emitCurStackLvl += count * sizeof(int);
 }
 
-/*****************************************************************************
- *
- *  Record a pop of the given number of dwords from the stack.
- */
-
+// Record a pop of the given number of dwords from the stack.
 void emitter::emitStackPop(BYTE* addr, bool isCall, unsigned char callInstrSize X86_ARG(unsigned count))
 {
     assert(!isCall || callInstrSize > 0);
@@ -8290,11 +8235,7 @@ void emitter::emitStackPop(BYTE* addr, bool isCall, unsigned char callInstrSize 
     }
 }
 
-/*****************************************************************************
- *
- *  Record a push of a single word on the stack for a full pointer map.
- */
-
+// Record a push of a single word on the stack for a full pointer map.
 void emitter::emitStackPushLargeStk(BYTE* addr, GCtype gcType, unsigned count)
 {
     S_UINT32 level(emitCurStackLvl / sizeof(int));
@@ -8344,12 +8285,7 @@ void emitter::emitStackPushLargeStk(BYTE* addr, GCtype gcType, unsigned count)
     } while (--count);
 }
 
-/*****************************************************************************
- *
- *  Record a pop of the given number of words from the stack for a full ptr
- *  map.
- */
-
+// Record a pop of the given number of words from the stack for a full ptr map.
 void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned char callInstrSize, unsigned count)
 {
     assert(emitIssuing);
@@ -8467,12 +8403,8 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned char callIn
     regPtrNext->rpdPtrArg        = argRecCnt.Value();
 }
 
-/*****************************************************************************
- *  For caller-pop arguments, we report the arguments as pending arguments.
- *  However, any GC arguments are now dead, so we need to report them
- *  as non-GC.
- */
-
+// For caller-pop arguments, we report the arguments as pending arguments.
+// However, any GC arguments are now dead, so we need to report them as non-GC.
 void emitter::emitStackKillArgs(BYTE* addr, unsigned count, unsigned char callInstrSize)
 {
     assert(count > 0);
@@ -8554,9 +8486,7 @@ void emitter::emitStackKillArgs(BYTE* addr, unsigned count, unsigned char callIn
     }
 }
 
-/*****************************************************************************
- *  A helper for recording a relocation with the EE.
- */
+// A helper for recording a relocation with the EE.
 void emitter::emitRecordRelocation(void* location,            /* IN */
                                    void* target,              /* IN */
                                    WORD  fRelocType,          /* IN */
@@ -8572,20 +8502,19 @@ void emitter::emitRecordRelocation(void* location,            /* IN */
         void* locationRW = (BYTE*)location + writeableOffset;
         emitCmpHandle->recordRelocation(location, locationRW, target, fRelocType, slotNum, addlDelta);
     }
-#if defined(LATE_DISASM)
+
+#ifdef LATE_DISASM
     codeGen->getDisAssembler().disRecordRelocation((size_t)location, (size_t)target);
-#endif // defined(LATE_DISASM)
+#endif
 }
 
 #ifdef TARGET_ARM
-/*****************************************************************************
- *  A helper for handling a Thumb-Mov32 of position-independent (PC-relative) value
- *
- *  This routine either records relocation for the location with the EE,
- *  or creates a virtual relocation entry to perform offset fixup during
- *  compilation without recording it with EE - depending on which of
- *  absolute/relocative relocations mode are used for code section.
- */
+// A helper for handling a Thumb-Mov32 of position-independent (PC-relative) value
+//
+// This routine either records relocation for the location with the EE,
+// or creates a virtual relocation entry to perform offset fixup during
+// compilation without recording it with EE - depending on which of
+// absolute/relocative relocations mode are used for code section.
 void emitter::emitHandlePCRelativeMov32(void* location, /* IN */
                                         void* target)   /* IN */
 {
@@ -8600,14 +8529,12 @@ void emitter::emitHandlePCRelativeMov32(void* location, /* IN */
 }
 #endif // TARGET_ARM
 
-/*****************************************************************************
- *  A helper for recording a call site with the EE.
- */
+// A helper for recording a call site with the EE.
 void emitter::emitRecordCallSite(ULONG                 instrOffset,  /* IN */
                                  CORINFO_SIG_INFO*     callSig,      /* IN */
                                  CORINFO_METHOD_HANDLE methodHandle) /* IN */
 {
-#if defined(DEBUG)
+#ifdef DEBUG
     // Since CORINFO_SIG_INFO is a heavyweight structure, in most cases we can
     // lazily obtain it here using the given method handle (we only save the sig
     // info when we explicitly need it, i.e. for CALLI calls, vararg calls, and
@@ -8626,13 +8553,8 @@ void emitter::emitRecordCallSite(ULONG                 instrOffset,  /* IN */
     }
 
     emitCmpHandle->recordCallSite(instrOffset, callSig, methodHandle);
-#endif // defined(DEBUG)
+#endif // DEBUG
 }
-
-/*****************************************************************************/
-#endif // EMIT_TRACK_STACK_DEPTH
-/*****************************************************************************/
-/*****************************************************************************/
 
 #ifdef DEBUG
 

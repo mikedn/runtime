@@ -5799,7 +5799,7 @@ void emitter::emitAdjustStackDepth(instruction ins, ssize_t val)
     }
 }
 
-#endif // EMIT_TRACK_STACK_DEPTH
+#endif // !FEATURE_FIXED_OUT_ARGS
 
 // Add a call instruction (direct or indirect).
 //

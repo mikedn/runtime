@@ -299,9 +299,8 @@ struct insGroup
         insPlaceholderGroupData* igPhData; // when igFlags & IGF_PLACEHOLDER
     };
 
-#if EMIT_TRACK_STACK_DEPTH
     unsigned igStkLvl; // stack level on entry
-#endif
+
     regMaskSmall  igGCregs; // set of registers with live GC refs
     unsigned char igInsCnt; // # of instructions  in this group
 
@@ -314,9 +313,7 @@ struct insGroup
         insPlaceholderGroupData* igPhData; // when igFlags & IGF_PLACEHOLDER
     };
 
-#if EMIT_TRACK_STACK_DEPTH
     unsigned igStkLvl; // stack level on entry
-#endif
 
     unsigned char igInsCnt; // # of instructions  in this group
 
@@ -2132,10 +2129,8 @@ public:
     // Gets a register mask that represent the kill set for a NoGC helper call.
     regMaskTP emitGetGCRegsKilledByNoGCCall(CorInfoHelpFunc helper);
 
-#if EMIT_TRACK_STACK_DEPTH
     unsigned emitCntStackDepth; // 0 in prolog/epilog, One DWORD elsewhere
     unsigned emitMaxStackDepth; // actual computed max. stack depth
-#endif
 
     /* Stack modelling wrt GC */
 
@@ -2163,24 +2158,13 @@ public:
 
     unsigned emitCurStackLvl; // amount of bytes pushed on stack
 
-#if EMIT_TRACK_STACK_DEPTH
-    /* Functions for stack tracking */
-
     void emitStackPush(BYTE* addr, GCtype gcType);
-
     void emitStackPushN(BYTE* addr, unsigned count);
-
     void emitStackPop(BYTE* addr, bool isCall, unsigned char callInstrSize X86_ARG(unsigned count));
-
     void emitStackKillArgs(BYTE* addr, unsigned count, unsigned char callInstrSize);
-
     void emitRecordGCcall(BYTE* codePos, unsigned char callInstrSize);
-
-    // Helpers for the above
-
     void emitStackPushLargeStk(BYTE* addr, GCtype gcType, unsigned count = 1);
     void emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned char callInstrSize, unsigned count = 1);
-#endif // EMIT_TRACK_STACK_DEPTH
 
     /* Liveness of stack variables, and registers */
 
@@ -2759,14 +2743,8 @@ inline GCtype emitter::emitRegGCtype(regNumber reg)
 }
 
 #ifdef DEBUG
-
-#if EMIT_TRACK_STACK_DEPTH
 #define CHECK_STACK_DEPTH() assert((int)emitCurStackLvl >= 0)
-#else
-#define CHECK_STACK_DEPTH()
 #endif
-
-#endif // DEBUG
 
 /*****************************************************************************
  *

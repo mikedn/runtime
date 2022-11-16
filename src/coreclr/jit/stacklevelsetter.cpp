@@ -93,8 +93,7 @@ void StackLevelSetter::ProcessBlock(BasicBlock* block)
 {
     // TODO-MIKE-Cleanup: Investigate why we need to run StackLevelSetter at all in the
     // FEATURE_FIXED_OUT_ARGS case. It should not be needed since the stack level doesn't
-    // change. Apparently this is mingled together with EMIT_TRACK_STACK_DEPTH which is
-    // also suspect in the FEATURE_FIXED_OUT_ARGS case.
+    // change.
 
     assert(currentStackLevel == 0);
     for (GenTree* node : LIR::AsRange(block))
@@ -119,9 +118,9 @@ void StackLevelSetter::ProcessBlock(BasicBlock* block)
         if (GenTreeCall* call = node->IsCall())
         {
             unsigned usedStackSlotsCount = PopArgumentsFromCall(call);
-#if defined(UNIX_X86_ABI)
+#ifdef UNIX_X86_ABI
             call->fgArgInfo->SetStkSizeBytes(usedStackSlotsCount * TARGET_POINTER_SIZE);
-#endif // UNIX_X86_ABI
+#endif
         }
     }
     assert(currentStackLevel == 0);

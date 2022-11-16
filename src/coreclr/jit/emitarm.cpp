@@ -6365,16 +6365,14 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 emitUpdateLiveGCregs(GCT_BYREF, byrefRegs, dst);
 
             // Some helper calls may be marked as not requiring GC info to be recorded.
-            if ((!id->idIsNoGC()))
+            if (!id->idIsNoGC())
             {
                 // On ARM, as on AMD64, we don't change the stack pointer to push/pop args.
-                // So we're not really doing a "stack pop" here (note that "args" is 0), but we use this mechanism
-                // to record the call for GC info purposes.  (It might be best to use an alternate call,
-                // and protect "emitStackPop" under the EMIT_TRACK_STACK_DEPTH preprocessor variable.)
+                // So we're not really doing a "stack pop" here (note that "args" is 0),
+                // but we use this mechanism to record the call for GC info purposes.
                 emitStackPop(dst, /*isCall*/ true, callInstrSize);
 
-                /* Do we need to record a call location for GC purposes? */
-
+                // Do we need to record a call location for GC purposes?
                 if (!emitFullGCinfo)
                 {
                     emitRecordGCcall(dst, callInstrSize);
