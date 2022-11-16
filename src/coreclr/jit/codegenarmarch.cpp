@@ -1555,7 +1555,7 @@ void CodeGen::GenDynBlk(GenTreeDynBlk* store)
         instGen_MemoryBarrier();
     }
 
-    genEmitHelperCall(store->OperIs(GT_COPY_BLK) ? CORINFO_HELP_MEMCPY : CORINFO_HELP_MEMSET, 0, EA_UNKNOWN);
+    genEmitHelperCall(store->OperIs(GT_COPY_BLK) ? CORINFO_HELP_MEMCPY : CORINFO_HELP_MEMSET);
 
     if (store->IsVolatile() && store->OperIs(GT_COPY_BLK))
     {
@@ -1636,7 +1636,7 @@ void CodeGen::GenStructStoreMemSet(GenTree* store, ClassLayout* layout)
         instGen_MemoryBarrier();
     }
 
-    genEmitHelperCall(CORINFO_HELP_MEMSET, 0, EA_UNKNOWN);
+    genEmitHelperCall(CORINFO_HELP_MEMSET);
 }
 
 void CodeGen::GenStructStoreMemCpy(GenTree* store, ClassLayout* layout)
@@ -1650,7 +1650,7 @@ void CodeGen::GenStructStoreMemCpy(GenTree* store, ClassLayout* layout)
         instGen_MemoryBarrier();
     }
 
-    genEmitHelperCall(CORINFO_HELP_MEMCPY, 0, EA_UNKNOWN);
+    genEmitHelperCall(CORINFO_HELP_MEMCPY);
 
     if (store->IsIndir() && store->AsIndir()->IsVolatile())
     {
@@ -2296,7 +2296,7 @@ void CodeGen::GenStructStoreUnrollCopyWB(GenTree* store, ClassLayout* layout)
             // TODO-MIKE-Cleanup: Remove bogus BYREF write barriers.
             if (layout->IsGCPtr(i))
             {
-                genEmitHelperCall(CORINFO_HELP_ASSIGN_BYREF, 0, EA_PTRSIZE);
+                genEmitHelperCall(CORINFO_HELP_ASSIGN_BYREF, EA_PTRSIZE);
             }
 #ifdef TARGET_ARM64
             else if ((i + 1 < slotCount) && !layout->IsGCPtr(i + 1))
@@ -2369,7 +2369,7 @@ void CodeGen::GenStructStoreUnrollRegsWB(GenTreeObj* store)
 
         gcInfo.gcRegGCrefSetCur = inGCrefRegSet;
         gcInfo.gcRegByrefSetCur = inByrefRegSet | RBM_WRITE_BARRIER_DST;
-        genEmitHelperCall(CORINFO_HELP_CHECKED_ASSIGN_REF, 0, EA_PTRSIZE);
+        genEmitHelperCall(CORINFO_HELP_CHECKED_ASSIGN_REF, EA_PTRSIZE);
         gcInfo.gcRegGCrefSetCur = outGCrefRegSet;
         gcInfo.gcRegByrefSetCur = outByrefRegSet;
     }
@@ -2381,7 +2381,7 @@ void CodeGen::GenStructStoreUnrollRegsWB(GenTreeObj* store)
     if (layout->IsGCRef(1))
     {
         inst_Mov(TYP_REF, REG_WRITE_BARRIER_SRC, valReg1, true);
-        genEmitHelperCall(CORINFO_HELP_CHECKED_ASSIGN_REF, 0, EA_PTRSIZE);
+        genEmitHelperCall(CORINFO_HELP_CHECKED_ASSIGN_REF, EA_PTRSIZE);
     }
     else
     {

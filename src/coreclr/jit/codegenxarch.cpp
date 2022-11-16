@@ -207,7 +207,7 @@ void CodeGen::genEmitGSCookieCheck(bool pushReg)
 
     BasicBlock* gsCheckBlk = genCreateTempLabel();
     inst_JMP(EJ_je, gsCheckBlk);
-    genEmitHelperCall(CORINFO_HELP_FAIL_FAST, 0, EA_UNKNOWN);
+    genEmitHelperCall(CORINFO_HELP_FAIL_FAST);
     genDefineTempLabel(gsCheckBlk);
 
 #ifdef TARGET_X86
@@ -1445,7 +1445,7 @@ void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
     regNumber tmpReg = tree->GetSingleTempReg(RBM_ALLINT);
     assert(genIsValidIntReg(tmpReg));
 
-    genEmitHelperCall(CORINFO_HELP_STOP_FOR_GC, 0, EA_UNKNOWN, tmpReg);
+    genEmitHelperCall(CORINFO_HELP_STOP_FOR_GC, EA_UNKNOWN, tmpReg);
     genDefineTempLabel(skipLabel);
 }
 
@@ -1967,7 +1967,7 @@ void CodeGen::genAllocLclFrame(unsigned frameSize, regNumber initReg, bool* pIni
         GetEmitter()->emitIns_R_AR(INS_lea, EA_PTRSIZE, REG_STACK_PROBE_HELPER_ARG, REG_SPBASE, spOffset);
         regSet.verifyRegUsed(REG_STACK_PROBE_HELPER_ARG);
 
-        genEmitHelperCall(CORINFO_HELP_STACK_PROBE, 0, EA_UNKNOWN);
+        genEmitHelperCall(CORINFO_HELP_STACK_PROBE);
 
         if (compiler->info.compPublishStubParam)
         {
@@ -1985,7 +1985,7 @@ void CodeGen::genAllocLclFrame(unsigned frameSize, regNumber initReg, bool* pIni
         GetEmitter()->emitIns_R_AR(INS_lea, EA_PTRSIZE, REG_STACK_PROBE_HELPER_ARG, REG_SPBASE, -(int)frameSize);
         regSet.verifyRegUsed(REG_STACK_PROBE_HELPER_ARG);
 
-        genEmitHelperCall(CORINFO_HELP_STACK_PROBE, 0, EA_UNKNOWN);
+        genEmitHelperCall(CORINFO_HELP_STACK_PROBE);
 
         if (initReg == REG_DEFAULT_HELPER_CALL_TARGET)
         {
@@ -2522,11 +2522,11 @@ void CodeGen::GenDynBlk(GenTreeDynBlk* store)
 #ifdef TARGET_AMD64
         case StructStoreKind::MemSet:
             ConsumeDynBlk(store, REG_ARG_0, REG_ARG_1, REG_ARG_2);
-            genEmitHelperCall(CORINFO_HELP_MEMSET, 0, EA_UNKNOWN);
+            genEmitHelperCall(CORINFO_HELP_MEMSET);
             break;
         case StructStoreKind::MemCpy:
             ConsumeDynBlk(store, REG_ARG_0, REG_ARG_1, REG_ARG_2);
-            genEmitHelperCall(CORINFO_HELP_MEMCPY, 0, EA_UNKNOWN);
+            genEmitHelperCall(CORINFO_HELP_MEMCPY);
             break;
 #endif
         case StructStoreKind::RepStos:
@@ -2665,7 +2665,7 @@ void CodeGen::GenStructStore(GenTree* store, StructStoreKind kind, ClassLayout* 
 void CodeGen::GenStructStoreMemSet(GenTree* store, ClassLayout* layout)
 {
     ConsumeStructStore(store, layout, REG_ARG_0, REG_ARG_1, REG_ARG_2);
-    genEmitHelperCall(CORINFO_HELP_MEMSET, 0, EA_UNKNOWN);
+    genEmitHelperCall(CORINFO_HELP_MEMSET);
 }
 
 void CodeGen::GenStructStoreMemCpy(GenTree* store, ClassLayout* layout)
@@ -2673,7 +2673,7 @@ void CodeGen::GenStructStoreMemCpy(GenTree* store, ClassLayout* layout)
     assert(!layout->HasGCPtr());
 
     ConsumeStructStore(store, layout, REG_ARG_0, REG_ARG_1, REG_ARG_2);
-    genEmitHelperCall(CORINFO_HELP_MEMCPY, 0, EA_UNKNOWN);
+    genEmitHelperCall(CORINFO_HELP_MEMCPY);
 }
 
 #endif // TARGET_AMD64
@@ -3276,7 +3276,7 @@ void CodeGen::GenStructStoreUnrollCopyWB(GenTree* store, ClassLayout* layout)
             // TODO-MIKE-Cleanup: Remove bogus BYREF write barriers.
             if (layout->IsGCPtr(i))
             {
-                genEmitHelperCall(CORINFO_HELP_ASSIGN_BYREF, 0, EA_PTRSIZE);
+                genEmitHelperCall(CORINFO_HELP_ASSIGN_BYREF, EA_PTRSIZE);
             }
             else
             {
@@ -3347,7 +3347,7 @@ void CodeGen::GenStructStoreUnrollRegsWB(GenTreeObj* store)
 
         gcInfo.gcRegGCrefSetCur = inGCrefRegSet | genRegMask(tempReg);
         gcInfo.gcRegByrefSetCur = inByrefRegSet;
-        genEmitHelperCall(CORINFO_HELP_CHECKED_ASSIGN_REF, 0, EA_PTRSIZE);
+        genEmitHelperCall(CORINFO_HELP_CHECKED_ASSIGN_REF, EA_PTRSIZE);
         gcInfo.gcRegGCrefSetCur = outGCrefRegSet;
         gcInfo.gcRegByrefSetCur = outByrefRegSet;
     }
@@ -3362,7 +3362,7 @@ void CodeGen::GenStructStoreUnrollRegsWB(GenTreeObj* store)
     {
         emit->emitIns_R_AR(INS_lea, emitTypeSize(addr->GetType()), REG_ARG_0, addrReg, addrOffset);
         inst_Mov(TYP_REF, REG_ARG_1, valReg1, true);
-        genEmitHelperCall(CORINFO_HELP_CHECKED_ASSIGN_REF, 0, EA_PTRSIZE);
+        genEmitHelperCall(CORINFO_HELP_CHECKED_ASSIGN_REF, EA_PTRSIZE);
     }
     else
     {
@@ -4867,9 +4867,7 @@ bool CodeGen::genEmitOptimizedGCWriteBarrier(GCInfo::WriteBarrierForm writeBarri
         tgtAnywhere = 1;
     }
 
-    genEmitHelperCall(regToHelper[tgtAnywhere][reg],
-                      0,           // argSize
-                      EA_PTRSIZE); // retSize
+    genEmitHelperCall(regToHelper[tgtAnywhere][reg], EA_PTRSIZE);
 
     return true;
 #else  // !defined(TARGET_X86) || !NOGC_WRITE_BARRIERS
@@ -8220,9 +8218,7 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
     // This will emit either
     // "call ip-relative 32-bit offset" or
     // "mov rax, helper addr; call rax"
-    genEmitHelperCall(CORINFO_HELP_PROF_FCN_ENTER,
-                      0,           // argSize. Again, we have to lie about it
-                      EA_UNKNOWN); // retSize
+    genEmitHelperCall(CORINFO_HELP_PROF_FCN_ENTER);
 
 #ifdef UNIX_X86_ABI
     // Restoring alignment manually. This is similar to CodeGen::genRemoveAlignmentAfterCall
@@ -8287,7 +8283,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 
     AddStackLevel(REGSIZE_BYTES);
 
-#if defined(UNIX_X86_ABI)
+#ifdef UNIX_X86_ABI
     int argSize = -REGSIZE_BYTES; // negative means caller-pop (cdecl)
 #else
     int argSize = REGSIZE_BYTES;
@@ -8403,7 +8399,7 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
     // This will emit either
     // "call ip-relative 32-bit offset" or
     // "mov rax, helper addr; call rax"
-    genEmitHelperCall(CORINFO_HELP_PROF_FCN_ENTER, 0, EA_UNKNOWN);
+    genEmitHelperCall(CORINFO_HELP_PROF_FCN_ENTER);
 
     // TODO-AMD64-CQ: Rather than reloading, see if this could be optimized by combining with prolog
     // generation logic that moves args around as required by first BB entry point conditions
@@ -8486,7 +8482,7 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
     // We use R11 here. This will emit either
     // "call ip-relative 32-bit offset" or
     // "mov r11, helper addr; call r11"
-    genEmitHelperCall(CORINFO_HELP_PROF_FCN_ENTER, 0, EA_UNKNOWN, REG_DEFAULT_PROFILER_CALL_TARGET);
+    genEmitHelperCall(CORINFO_HELP_PROF_FCN_ENTER, EA_UNKNOWN, REG_DEFAULT_PROFILER_CALL_TARGET);
 
     // If initReg is one of RBM_CALLEE_TRASH, then it needs to be zero'ed before using.
     if ((RBM_CALLEE_TRASH & genRegMask(initReg)) != 0)
@@ -8588,7 +8584,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
     // We use R8 here. This will emit either
     // "call ip-relative 32-bit offset" or
     // "mov r8, helper addr; call r8"
-    genEmitHelperCall(helper, 0, EA_UNKNOWN, REG_ARG_2);
+    genEmitHelperCall(helper, EA_UNKNOWN, REG_ARG_2);
 
 #else // !defined(UNIX_AMD64_ABI)
 
@@ -8628,7 +8624,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
     // We use R11 here. This will emit either
     // "call ip-relative 32-bit offset" or
     // "mov r11, helper addr; call r11"
-    genEmitHelperCall(helper, 0, EA_UNKNOWN, REG_DEFAULT_PROFILER_CALL_TARGET);
+    genEmitHelperCall(helper, EA_UNKNOWN, REG_DEFAULT_PROFILER_CALL_TARGET);
 
 #endif // !defined(UNIX_AMD64_ABI)
 }

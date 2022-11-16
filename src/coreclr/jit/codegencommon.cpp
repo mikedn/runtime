@@ -960,7 +960,7 @@ void CodeGen::genEmitGSCookieCheck(bool pushReg)
     BasicBlock* gsCheckBlk = genCreateTempLabel();
     inst_JMP(EJ_eq, gsCheckBlk);
     // regGSConst and regGSValue aren't needed anymore, we can use them for helper call
-    genEmitHelperCall(CORINFO_HELP_FAIL_FAST, 0, EA_UNKNOWN, regGSConst);
+    genEmitHelperCall(CORINFO_HELP_FAIL_FAST, EA_UNKNOWN, regGSConst);
     genDefineTempLabel(gsCheckBlk);
 }
 #endif // TARGET_ARMARCH
@@ -1083,7 +1083,7 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind jumpKind, SpecialCodeKind codeKi
             inst_JMP(reverseJumpKind, tgtBlk);
         }
 
-        genEmitHelperCall(Compiler::acdHelper(codeKind), 0, EA_UNKNOWN);
+        genEmitHelperCall(Compiler::acdHelper(codeKind));
 
         // Define the spot for the normal non-exception case to jump to.
         if (tgtBlk != nullptr)
@@ -2198,7 +2198,7 @@ void CodeGen::genGCWriteBarrier(GenTreeStoreInd* store, GCInfo::WriteBarrierForm
 {
     CorInfoHelpFunc helper = genWriteBarrierHelperForWriteBarrierForm(store, wbf);
 
-    genEmitHelperCall(helper, 0, EA_PTRSIZE);
+    genEmitHelperCall(helper, EA_PTRSIZE);
 }
 
 /*

@@ -217,6 +217,11 @@ public:
     void SpillRegCandidateLclVar(GenTreeLclVar* node);
 
 protected:
+    void genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize = EA_UNKNOWN, regNumber callTarget = REG_NA)
+    {
+        genEmitHelperCall(helper, 0, retSize, callTarget);
+    }
+
     void genEmitHelperCall(CorInfoHelpFunc helper, int argSize, emitAttr retSize, regNumber callTarget = REG_NA);
 
     void genGCWriteBarrier(GenTreeStoreInd* store, GCInfo::WriteBarrierForm wbf);

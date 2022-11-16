@@ -1000,7 +1000,7 @@ void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
 
     // emit the call to the EE-helper that stops for GC (or other reasons)
 
-    genEmitHelperCall(CORINFO_HELP_STOP_FOR_GC, 0, EA_UNKNOWN);
+    genEmitHelperCall(CORINFO_HELP_STOP_FOR_GC);
     genDefineTempLabel(skipLabel);
 }
 
@@ -1362,9 +1362,7 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
         instGen_Set_Reg_To_Imm(EA_4BYTE, argReg, (ssize_t)compiler->compProfilerMethHnd);
     }
 
-    genEmitHelperCall(CORINFO_HELP_PROF_FCN_ENTER,
-                      0,           // argSize. Again, we have to lie about it
-                      EA_UNKNOWN); // retSize
+    genEmitHelperCall(CORINFO_HELP_PROF_FCN_ENTER);
 
     if (initReg == argReg)
     {
@@ -1453,9 +1451,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
     gcInfo.gcMarkRegSetNpt(RBM_R0);
     regSet.verifyRegUsed(REG_R0);
 
-    genEmitHelperCall(helper,
-                      0,           // argSize
-                      EA_UNKNOWN); // retSize
+    genEmitHelperCall(helper);
 
     // Restore state that existed before profiler callback
     if (r0InUse)
@@ -1526,7 +1522,7 @@ void CodeGen::genAllocLclFrame(unsigned frameSize, regNumber initReg, bool* pIni
         genInstrWithConstant(INS_sub, EA_PTRSIZE, REG_STACK_PROBE_HELPER_ARG, REG_SPBASE, frameSize,
                              INS_FLAGS_DONT_CARE, REG_STACK_PROBE_HELPER_ARG);
         regSet.verifyRegUsed(REG_STACK_PROBE_HELPER_ARG);
-        genEmitHelperCall(CORINFO_HELP_STACK_PROBE, 0, EA_UNKNOWN, REG_STACK_PROBE_HELPER_CALL_TARGET);
+        genEmitHelperCall(CORINFO_HELP_STACK_PROBE, EA_UNKNOWN, REG_STACK_PROBE_HELPER_CALL_TARGET);
         compiler->unwindPadding();
         GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, REG_SPBASE, REG_STACK_PROBE_HELPER_ARG, /* canSkip */ false);
 

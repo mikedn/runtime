@@ -2856,7 +2856,7 @@ void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
     inst_JMP(EJ_eq, skipLabel);
     // emit the call to the EE-helper that stops for GC (or other reasons)
 
-    genEmitHelperCall(CORINFO_HELP_STOP_FOR_GC, 0, EA_UNKNOWN);
+    genEmitHelperCall(CORINFO_HELP_STOP_FOR_GC);
     genDefineTempLabel(skipLabel);
 }
 
@@ -3622,7 +3622,7 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
     genInstrWithConstant(INS_add, EA_PTRSIZE, REG_PROFILER_ENTER_ARG_CALLER_SP, genFramePointerReg(),
                          (ssize_t)(-callerSPOffset), REG_PROFILER_ENTER_ARG_CALLER_SP);
 
-    genEmitHelperCall(CORINFO_HELP_PROF_FCN_ENTER, 0, EA_UNKNOWN);
+    genEmitHelperCall(CORINFO_HELP_PROF_FCN_ENTER);
 
     if ((genRegMask(initReg) & RBM_PROFILER_ENTER_TRASH) != RBM_NONE)
     {
@@ -3662,7 +3662,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 
     gcInfo.gcMarkRegSetNpt(RBM_PROFILER_LEAVE_ARG_CALLER_SP);
 
-    genEmitHelperCall(helper, 0, EA_UNKNOWN);
+    genEmitHelperCall(helper);
 }
 
 #endif // PROFILING_SUPPORTED
