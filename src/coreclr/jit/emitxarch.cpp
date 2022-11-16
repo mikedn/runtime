@@ -12556,9 +12556,9 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 #if !FEATURE_FIXED_OUT_ARGS
     bool updateStackLevel = !emitIGisInProlog(ig) && !emitIGisInEpilog(ig);
 
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
     updateStackLevel = updateStackLevel && !emitIGisInFuncletProlog(ig) && !emitIGisInFuncletEpilog(ig);
-#endif // FEATURE_EH_FUNCLETS
+#endif
 
     // Make sure we keep the current stack level up to date
     if (updateStackLevel)
@@ -12599,9 +12599,8 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         }
     }
 
-#endif // !FEATURE_FIXED_OUT_ARGS
-
     assert((int)emitCurStackLvl >= 0);
+#endif // !FEATURE_FIXED_OUT_ARGS
 
     // Only epilog "instructions" and some pseudo-instrs
     // are allowed not to generate any code

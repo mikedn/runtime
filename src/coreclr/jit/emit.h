@@ -313,7 +313,9 @@ struct insGroup
         insPlaceholderGroupData* igPhData; // when igFlags & IGF_PLACEHOLDER
     };
 
+#if !FEATURE_FIXED_OUT_ARGS
     unsigned igStkLvl; // stack level on entry
+#endif
 
     unsigned char igInsCnt; // # of instructions  in this group
 
@@ -2129,9 +2131,6 @@ public:
     // Gets a register mask that represent the kill set for a NoGC helper call.
     regMaskTP emitGetGCRegsKilledByNoGCCall(CorInfoHelpFunc helper);
 
-    unsigned emitCntStackDepth; // 0 in prolog/epilog, One DWORD elsewhere
-    unsigned emitMaxStackDepth; // actual computed max. stack depth
-
     /* Stack modelling wrt GC */
 
     bool emitSimpleStkUsed; // using the "simple" stack table?
@@ -2156,7 +2155,11 @@ public:
         } u2;
     };
 
-    unsigned emitCurStackLvl; // amount of bytes pushed on stack
+#if !FEATURE_FIXED_OUT_ARGS
+    unsigned emitCntStackDepth; // 0 in prolog/epilog, One DWORD elsewhere
+    unsigned emitMaxStackDepth; // actual computed max. stack depth
+    unsigned emitCurStackLvl;   // amount of bytes pushed on stack
+#endif
 
     void emitStackPush(BYTE* addr, GCtype gcType);
     void emitStackPushN(BYTE* addr, unsigned count);

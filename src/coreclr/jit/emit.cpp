@@ -520,18 +520,9 @@ void emitter::emitGenIG(insGroup* ig)
 
     emitCurIG = ig;
 
-    /* Record the stack level on entry to this group */
-
+#if !FEATURE_FIXED_OUT_ARGS
     ig->igStkLvl = emitCurStackLvl;
-
-    // If we don't have enough bits in igStkLvl, refuse to compile
-
-    if (ig->igStkLvl != emitCurStackLvl)
-    {
-        IMPL_LIMITATION("Too many arguments pushed on stack");
-    }
-
-    //  printf("Start IG #%02u [stk=%02u]\n", ig->igNum, emitCurStackLvl);
+#endif
 
     if (emitNoGCIG)
     {
@@ -994,11 +985,11 @@ void emitter::emitBegFN()
 
     emitInsCount = 0;
 
-    /* The stack is empty now */
-
+#if !FEATURE_FIXED_OUT_ARGS
     emitCurStackLvl   = 0;
     emitMaxStackDepth = 0;
     emitCntStackDepth = sizeof(int);
+#endif
 
 #ifdef PSEUDORANDOM_NOP_INSERTION
     // for random NOP insertion
@@ -1156,7 +1147,9 @@ void emitter::dispIns(instrDesc* id)
         emitDispIns(id, true);
     }
 
+#if !FEATURE_FIXED_OUT_ARGS
     assert((int)emitCurStackLvl >= 0);
+#endif
 
     size_t sz = emitSizeOfInsDsc(id);
     assert(id->idDebugOnlyInfo()->idSize == sz);
@@ -1444,11 +1437,13 @@ void emitter::emitBegProlog()
 {
     assert(codeGen->generatingProlog);
 
-    /* Don't measure stack depth inside the prolog, it's misleading */
+#if !FEATURE_FIXED_OUT_ARGS
+    // Don't measure stack depth inside the prolog, it's misleading.
 
     emitCntStackDepth = 0;
 
     assert(emitCurStackLvl == 0);
+#endif
 
     emitNoGCIG     = true;
     emitForceNewIG = false;
@@ -1519,10 +1514,10 @@ void emitter::emitEndProlog()
         emitSavIG();
     }
 
-    /* Reset the stack depth values */
-
+#if !FEATURE_FIXED_OUT_ARGS
     emitCurStackLvl   = 0;
-    emitCntStackDepth = sizeof(int);
+    emitCntStackDepth = 4;
+#endif
 }
 
 /*****************************************************************************
@@ -1890,11 +1885,13 @@ void emitter::emitBegPrologEpilog(insGroup* igPh)
 
     emitGenIG(ig);
 
-    /* Don't measure stack depth inside the prolog / epilog, it's misleading */
+#if !FEATURE_FIXED_OUT_ARGS
+    // Don't measure stack depth inside the prolog / epilog, it's misleading.
 
     emitCntStackDepth = 0;
 
     assert(emitCurStackLvl == 0);
+#endif
 }
 
 /*****************************************************************************
@@ -1915,10 +1912,12 @@ void emitter::emitEndPrologEpilog()
 
     assert(emitCurIGsize <= MAX_PLACEHOLDER_IG_SIZE);
 
-    /* Reset the stack depth values */
+#if !FEATURE_FIXED_OUT_ARGS
+    // Reset the stack depth values.
 
     emitCurStackLvl   = 0;
     emitCntStackDepth = sizeof(int);
+#endif
 }
 
 /*****************************************************************************
@@ -3624,11 +3623,15 @@ size_t emitter::emitIssue1Instr(insGroup* ig, instrDesc* id, BYTE** dp)
     ig->igPerfScore += insPerfScore;
 #endif // defined(DEBUG) || defined(LATE_DISASM)
 
-    // If we're generating a full pointer map and the stack
-    // is empty, there better not be any "pending" argument
-    // push entries.
+// If we're generating a full pointer map and the stack
+// is empty, there better not be any "pending" argument
+// push entries.
 
-    assert(emitFullGCinfo == false || emitCurStackLvl != 0 || u2.emitGcArgTrackCnt == 0);
+#if !FEATURE_FIXED_OUT_ARGS
+    assert(!emitFullGCinfo || (emitCurStackLvl != 0) || (u2.emitGcArgTrackCnt == 0));
+#else
+    assert(!emitFullGCinfo || (u2.emitGcArgTrackCnt == 0));
+#endif
 
     /* Did the size of the instruction match our expectations? */
 
@@ -5366,30 +5369,37 @@ unsigned emitter::emitEndCodeGen(Compiler* comp,
     u1.emitSimpleStkMask      = 0;
     u1.emitSimpleByrefStkMask = 0;
 
-    /* Convert max. stack depth from # of bytes to # of entries */
+#if !FEATURE_FIXED_OUT_ARGS
+    // Convert max. stack depth from # of bytes to # of entries.
 
-    unsigned maxStackDepthIn4ByteElements = emitMaxStackDepth / sizeof(int);
+    unsigned maxStackDepthIn4ByteElements = emitMaxStackDepth / REGSIZE_BYTES;
     JITDUMP("Converting emitMaxStackDepth from bytes (%d) to elements (%d)\n", emitMaxStackDepth,
             maxStackDepthIn4ByteElements);
     emitMaxStackDepth = maxStackDepthIn4ByteElements;
+#endif
 
     /* Should we use the simple stack */
 
-    if (emitMaxStackDepth > MAX_SIMPLE_STK_DEPTH || emitFullGCinfo)
+    if (
+#if !FEATURE_FIXED_OUT_ARGS
+        (emitMaxStackDepth > MAX_SIMPLE_STK_DEPTH) ||
+#endif
+        emitFullGCinfo)
     {
         /* We won't use the "simple" argument table */
 
         emitSimpleStkUsed = false;
 
-        /* Allocate the argument tracking table */
-
-        if (emitMaxStackDepth <= sizeof(u2.emitArgTrackLcl))
+#if !FEATURE_FIXED_OUT_ARGS
+        if (emitMaxStackDepth > sizeof(u2.emitArgTrackLcl))
         {
-            u2.emitArgTrackTab = (BYTE*)u2.emitArgTrackLcl;
+            // Allocate the argument tracking table.
+            u2.emitArgTrackTab = (BYTE*)emitGetMem(roundUp(emitMaxStackDepth));
         }
         else
+#endif
         {
-            u2.emitArgTrackTab = (BYTE*)emitGetMem(roundUp(emitMaxStackDepth));
+            u2.emitArgTrackTab = (BYTE*)u2.emitArgTrackLcl;
         }
 
         u2.emitArgTrackTop   = u2.emitArgTrackTab;
@@ -5560,9 +5570,11 @@ unsigned emitter::emitEndCodeGen(Compiler* comp,
     *coldCodeAddr = emitColdCodeBlock = coldCodeBlock;
     *consAddr = emitConsBlock = consBlock;
 
-    /* Nothing has been pushed on the stack */
+#if !FEATURE_FIXED_OUT_ARGS
+    // Nothing has been pushed on the stack.
 
     emitCurStackLvl = 0;
+#endif
 
     /* Assume no live GC ref variables on entry */
 
@@ -5861,8 +5873,7 @@ unsigned emitter::emitEndCodeGen(Compiler* comp,
         ig->igOffs = emitCurCodeOffs(cp);
         assert(IsCodeAligned(ig->igOffs));
 
-        /* Set the proper stack level if appropriate */
-
+#if !FEATURE_FIXED_OUT_ARGS
         if (ig->igStkLvl != emitCurStackLvl)
         {
             /* We are pushing stuff implicitly at this label */
@@ -5870,6 +5881,7 @@ unsigned emitter::emitEndCodeGen(Compiler* comp,
             assert((unsigned)ig->igStkLvl > (unsigned)emitCurStackLvl);
             emitStackPushN(cp, (ig->igStkLvl - (unsigned)emitCurStackLvl) / sizeof(int));
         }
+#endif
 
         /* Update current GC information for IG's that do not extend the previous IG */
 
@@ -6054,7 +6066,9 @@ unsigned emitter::emitEndCodeGen(Compiler* comp,
         ig->igSize = (unsigned short)(cp - bp);
     }
 
+#if !FEATURE_FIXED_OUT_ARGS
     assert(emitCurStackLvl == 0);
+#endif
 
     /* Output any initialized data we may have */
 
@@ -7224,7 +7238,11 @@ void emitter::emitRecordGCcall(BYTE* codePos, unsigned char callInstrSize)
 
     if (EMIT_GC_VERBOSE)
     {
+#if !FEATURE_FIXED_OUT_ARGS
         printf("; Call at %04X [stk=%u], GCvars=", offs - callInstrSize, emitCurStackLvl);
+#else
+        printf("; Call at %04X GCvars=", offs - callInstrSize);
+#endif
         emitDispVarSet();
         printf(", gcrefRegs=");
         printRegMaskInt(emitThisGCrefRegs);
@@ -7255,8 +7273,8 @@ void emitter::emitRecordGCcall(BYTE* codePos, unsigned char callInstrSize)
     call->cdGCrefRegs = (regMaskSmall)emitThisGCrefRegs;
     call->cdByrefRegs = (regMaskSmall)emitThisByrefRegs;
 
-#ifndef UNIX_AMD64_ABI
-    noway_assert(FitsIn<USHORT>(emitCurStackLvl / ((unsigned)sizeof(unsigned))));
+#if !FEATURE_FIXED_OUT_ARGS
+    noway_assert(FitsIn<uint16_t>(emitCurStackLvl / 4));
 #endif
 
     // Append the call descriptor to the list */
@@ -7297,6 +7315,7 @@ void emitter::emitRecordGCcall(BYTE* codePos, unsigned char callInstrSize)
 
         call->cdArgTable = new (emitComp, CMK_GC) unsigned[u2.emitGcArgTrackCnt];
 
+#if !FEATURE_FIXED_OUT_ARGS
         unsigned gcArgs = 0;
         unsigned stkLvl = emitCurStackLvl / sizeof(int);
 
@@ -7317,7 +7336,10 @@ void emitter::emitRecordGCcall(BYTE* codePos, unsigned char callInstrSize)
             }
         }
 
-        assert(gcArgs == u2.emitGcArgTrackCnt);
+        assert(u2.emitGcArgTrackCnt == gcArgs);
+#else
+        assert(u2.emitGcArgTrackCnt == 0);
+#endif
     }
 }
 
@@ -8141,6 +8163,8 @@ BYTE* emitter::emitGetInsRelocValue(instrDesc* id)
 
 #endif // TARGET_ARM
 
+#if !FEATURE_FIXED_OUT_ARGS
+
 // Record a push of a single dword on the stack.
 void emitter::emitStackPush(BYTE* addr, GCtype gcType)
 {
@@ -8189,6 +8213,8 @@ void emitter::emitStackPushN(BYTE* addr, unsigned count)
     emitCurStackLvl += count * sizeof(int);
 }
 
+#endif // !FEATURE_FIXED_OUT_ARGS
+
 // Record a pop of the given number of dwords from the stack.
 void emitter::emitStackPop(BYTE* addr, bool isCall, unsigned char callInstrSize X86_ARG(unsigned count))
 {
@@ -8234,6 +8260,8 @@ void emitter::emitStackPop(BYTE* addr, bool isCall, unsigned char callInstrSize 
         }
     }
 }
+
+#if !FEATURE_FIXED_OUT_ARGS
 
 // Record a push of a single word on the stack for a full pointer map.
 void emitter::emitStackPushLargeStk(BYTE* addr, GCtype gcType, unsigned count)
@@ -8285,6 +8313,8 @@ void emitter::emitStackPushLargeStk(BYTE* addr, GCtype gcType, unsigned count)
     } while (--count);
 }
 
+#endif // !FEATURE_FIXED_OUT_ARGS
+
 // Record a pop of the given number of words from the stack for a full ptr map.
 void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned char callInstrSize, unsigned count)
 {
@@ -8321,7 +8351,11 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned char callIn
     }
 
     assert(u2.emitArgTrackTop >= u2.emitArgTrackTab);
+#if !FEATURE_FIXED_OUT_ARGS
     assert(u2.emitArgTrackTop == u2.emitArgTrackTab + emitCurStackLvl / sizeof(int) - count);
+#else
+    assert(u2.emitArgTrackTop == u2.emitArgTrackTab - count);
+#endif
     noway_assert(!argRecCnt.IsOverflow());
 
     /* We're about to pop the corresponding arg records */
@@ -8413,10 +8447,12 @@ void emitter::emitStackKillArgs(BYTE* addr, unsigned count, unsigned char callIn
     {
         assert(!emitFullGCinfo); // Simple stk not used for emitFullGCInfo
 
-        /* We don't need to report this to the GC info, but we do need
-           to kill mark the ptrs on the stack as non-GC */
+/* We don't need to report this to the GC info, but we do need
+   to kill mark the ptrs on the stack as non-GC */
 
+#if !FEATURE_FIXED_OUT_ARGS
         assert(emitCurStackLvl / sizeof(int) >= count);
+#endif
 
         for (unsigned lvl = 0; lvl < count; lvl++)
         {
