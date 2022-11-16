@@ -6766,7 +6766,14 @@ void CodeGen::genRemoveAlignmentAfterCall(GenTreeCall* call, unsigned bias)
 #else
     if (bias != 0)
     {
-        genAdjustSP(bias);
+        if (bias == 4)
+        {
+            inst_RV(INS_pop, REG_ECX, TYP_INT);
+        }
+        else
+        {
+            inst_RV_IV(INS_add, REG_SPBASE, bias, EA_PTRSIZE);
+        }
     }
 #endif
 }

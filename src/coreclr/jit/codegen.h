@@ -228,8 +228,6 @@ protected:
     void genDefineTempLabel(BasicBlock* label);
     void genDefineInlineTempLabel(BasicBlock* label);
 
-    void genAdjustSP(target_ssize_t delta);
-
 #if !FEATURE_FIXED_OUT_ARGS
     void genAdjustStackLevel(BasicBlock* block);
 #endif

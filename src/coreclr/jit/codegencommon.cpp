@@ -680,23 +680,6 @@ void CodeGen::genDefineInlineTempLabel(BasicBlock* label)
     label->bbEmitCookie = GetEmitter()->emitAddInlineLabel();
 }
 
-/*****************************************************************************
- *
- *  Adjust the stack pointer by the given value; assumes that this follows
- *  a call so only callee-saved registers (and registers that may hold a
- *  return value) are used at this point.
- */
-
-void CodeGen::genAdjustSP(target_ssize_t delta)
-{
-#if defined(TARGET_X86) && !defined(UNIX_X86_ABI)
-    if (delta == sizeof(int))
-        inst_RV(INS_pop, REG_ECX, TYP_INT);
-    else
-#endif
-        inst_RV_IV(INS_add, REG_SPBASE, delta, EA_PTRSIZE);
-}
-
 #if !FEATURE_FIXED_OUT_ARGS
 //------------------------------------------------------------------------
 // genAdjustStackLevel: Adjust the stack level, if required, for a throw helper block
