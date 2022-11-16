@@ -2136,7 +2136,9 @@ void CodeGen::genLclHeap(GenTree* tree)
         ILLEGAL_LAST_TOUCH_DELTA; // The number of bytes from SP to the last stack address probed.
 
     noway_assert(isFramePointerUsed()); // localloc requires Frame Pointer to be established since SP changes
-    noway_assert(genStackLevel == 0);   // Can't have anything on the stack
+#if !FEATURE_FIXED_OUT_ARGS
+    noway_assert(genStackLevel == 0); // Can't have anything on the stack
+#endif
 
     // compute the amount of memory to allocate to properly STACK_ALIGN.
     size_t amount = 0;

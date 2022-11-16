@@ -5795,9 +5795,11 @@ void emitter::emitIns_Call(EmitCallType          callType,
     assert(callType < EC_INDIR_R || callType == EC_INDIR_ARD || addr == nullptr);
     assert(callType != EC_INDIR_R || (ireg < REG_COUNT && xreg == REG_NA && xmul == 0 && disp == 0));
 
+#if !FEATURE_FIXED_OUT_ARGS
     // Our stack level should be always greater than the bytes of arguments we push. Just
     // a sanity test.
     assert((unsigned)abs((signed)argSize) <= codeGen->genStackLevel);
+#endif
 
     // Trim out any callee-trashed registers from the live set.
     regMaskTP savedSet = emitGetGCRegsSavedOrModified(methHnd);

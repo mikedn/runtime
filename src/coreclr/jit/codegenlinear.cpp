@@ -100,9 +100,11 @@ void CodeGen::genInitialize()
 
     genInitializeRegisterState();
 
+#if !FEATURE_FIXED_OUT_ARGS
     // We initialize the stack level before first "BasicBlock" code is generated in case we need to report stack
     // variable needs home and so its stack offset.
     SetStackLevel(0);
+#endif
 
     m_liveness.Begin();
 }
@@ -120,8 +122,6 @@ void CodeGen::genInitialize()
 //
 void CodeGen::genCodeForBBlist()
 {
-    unsigned savedStkLvl;
-
 #ifdef DEBUG
     if (compiler->opts.disAsm)
     {
@@ -363,12 +363,11 @@ void CodeGen::genCodeForBBlist()
             GetEmitter()->emitSetFirstColdIGCookie(block->bbEmitCookie);
         }
 
-        // Both stacks are always empty on entry to a basic block.
-        assert(genStackLevel == 0);
 #if !FEATURE_FIXED_OUT_ARGS
+        assert(genStackLevel == 0);
         genAdjustStackLevel(block);
+        unsigned savedStkLvl = genStackLevel;
 #endif
-        savedStkLvl = genStackLevel;
 
         // Needed when jitting debug code
         siBeginBlock(block);
@@ -552,7 +551,9 @@ void CodeGen::genCodeForBBlist()
 #endif // USING_SCOPE_INFO
         }
 
+#if !FEATURE_FIXED_OUT_ARGS
         SubtractStackLevel(savedStkLvl);
+#endif
 
 #ifdef DEBUG
         // Current live set should be equal to the liveOut set, except that we don't keep
@@ -585,8 +586,10 @@ void CodeGen::genCodeForBBlist()
         }
 #endif
 
-        /* Both stacks should always be empty on exit from a basic block */
+#if !FEATURE_FIXED_OUT_ARGS
+        // Both stacks should always be empty on exit from a basic block.
         noway_assert(genStackLevel == 0);
+#endif
 
 #ifdef TARGET_AMD64
         // On AMD64, we need to generate a NOP after a call that is the last instruction of the block, in several

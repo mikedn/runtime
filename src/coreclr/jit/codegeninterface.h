@@ -475,17 +475,24 @@ public:
     };
 
 public:
-    siVarLoc getSiVarLoc(const LclVarDsc* varDsc, unsigned int stackLevel) const;
+    siVarLoc getSiVarLoc(const LclVarDsc* varDsc
+#if !FEATURE_FIXED_OUT_ARGS
+                         ,
+                         unsigned stackLevel
+#endif
+                         ) const;
 
 #ifdef DEBUG
     void dumpSiVarLoc(const siVarLoc* varLoc) const;
 #endif
 
+#if !FEATURE_FIXED_OUT_ARGS
     unsigned getCurrentStackLevel() const;
 
 protected:
     //  Keeps track of how many bytes we've pushed on the processor's stack.
-    unsigned genStackLevel;
+    unsigned genStackLevel = 0;
+#endif
 
 public:
 #ifdef USING_VARIABLE_LIVE_RANGE

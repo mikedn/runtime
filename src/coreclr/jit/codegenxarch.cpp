@@ -2233,7 +2233,9 @@ void CodeGen::genLclHeap(GenTree* tree)
 #endif
 
     noway_assert(isFramePointerUsed()); // localloc requires Frame Pointer to be established since SP changes
-    noway_assert(genStackLevel == 0);   // Can't have anything on the stack
+#if !FEATURE_FIXED_OUT_ARGS
+    noway_assert(genStackLevel == 0); // Can't have anything on the stack
+#endif
 
     target_size_t stackAdjustment     = 0;
     target_size_t locAllocStackOffset = 0;

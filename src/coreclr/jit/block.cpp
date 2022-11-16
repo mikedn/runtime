@@ -752,9 +752,9 @@ bool BasicBlock::CloneBlockState(
     to->bbCodeOffs    = from->bbCodeOffs;
     to->bbCodeOffsEnd = from->bbCodeOffsEnd;
     to->bbNatLoopNum  = from->bbNatLoopNum;
-#ifdef DEBUG
-    to->bbTgtStkDepth = from->bbTgtStkDepth;
-#endif // DEBUG
+#if !FEATURE_FIXED_OUT_ARGS
+    INDEBUG(to->bbTgtStkDepth = from->bbTgtStkDepth);
+#endif
 
     for (Statement* const fromStmt : from->Statements())
     {

@@ -468,7 +468,12 @@ CodeGenInterface::siVarLoc::siVarLoc(const LclVarDsc* varDsc, regNumber baseReg,
 //    A "siVarLoc" representing the variable location, which could live
 //    in a register, an stack position, or a combination of both.
 //
-CodeGenInterface::siVarLoc CodeGenInterface::getSiVarLoc(const LclVarDsc* varDsc, unsigned int stackLevel) const
+CodeGenInterface::siVarLoc CodeGenInterface::getSiVarLoc(const LclVarDsc* varDsc
+#if !FEATURE_FIXED_OUT_ARGS
+                                                         ,
+                                                         unsigned stackLevel
+#endif
+                                                         ) const
 {
     // For stack vars, find the base register, and offset
 
@@ -478,7 +483,9 @@ CodeGenInterface::siVarLoc CodeGenInterface::getSiVarLoc(const LclVarDsc* varDsc
     if (!varDsc->lvFramePointerBased)
     {
         baseReg = REG_SPBASE;
+#if !FEATURE_FIXED_OUT_ARGS
         offset += stackLevel;
+#endif
     }
     else
     {

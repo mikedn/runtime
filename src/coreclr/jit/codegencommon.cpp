@@ -626,9 +626,12 @@ BasicBlock* CodeGen::genCreateTempLabel()
 #ifdef UNIX_X86_ABI
     block->bbTgtStkDepth = (genStackLevel - curNestedAlignment) / sizeof(int);
 #else
+#if !FEATURE_FIXED_OUT_ARGS
     block->bbTgtStkDepth = genStackLevel / sizeof(int);
 #endif
 #endif
+#endif
+
     return block;
 }
 
@@ -9350,10 +9353,12 @@ void CodeGen::genStackPointerCheck(unsigned lvaStackPointerVar)
 
 #endif // defined(DEBUG) && defined(TARGET_XARCH)
 
+#if !FEATURE_FIXED_OUT_ARGS
 unsigned CodeGenInterface::getCurrentStackLevel() const
 {
     return genStackLevel;
 }
+#endif
 
 #ifdef USING_VARIABLE_LIVE_RANGE
 #ifdef DEBUG
@@ -9804,7 +9809,12 @@ void CodeGenInterface::VariableLiveKeeper::siStartVariableLiveRange(const LclVar
     {
         // Build siVarLoc for this born "varDsc"
         CodeGenInterface::siVarLoc varLocation =
-            m_Compiler->codeGen->getSiVarLoc(varDsc, m_Compiler->codeGen->getCurrentStackLevel());
+            m_Compiler->codeGen->getSiVarLoc(varDsc
+#if !FEATURE_FIXED_OUT_ARGS
+                                             ,
+                                             m_Compiler->codeGen->getCurrentStackLevel()
+#endif
+                                                 );
 
         VariableLiveDescriptor* varLiveDsc = &m_vlrLiveDsc[varNum];
         // this variable live range is valid from this point
@@ -9871,7 +9881,12 @@ void CodeGenInterface::VariableLiveKeeper::siUpdateVariableLiveRange(const LclVa
     {
         // Build the location of the variable
         CodeGenInterface::siVarLoc siVarLoc =
-            m_Compiler->codeGen->getSiVarLoc(varDsc, m_Compiler->codeGen->getCurrentStackLevel());
+            m_Compiler->codeGen->getSiVarLoc(varDsc
+#if !FEATURE_FIXED_OUT_ARGS
+                                             ,
+                                             m_Compiler->codeGen->getCurrentStackLevel()
+#endif
+                                                 );
 
         // Report the home change for this variable
         VariableLiveDescriptor* varLiveDsc = &m_vlrLiveDsc[varNum];
