@@ -7016,20 +7016,12 @@ void emitter::emitDispDataSec(dataSecDsc* section)
 void emitter::emitGCvarLiveSet(int offs, GCtype gcType, BYTE* addr, ssize_t disp)
 {
     assert(emitIssuing);
+    assert((size_t)disp < emitGCrFrameOffsCnt);
 
     varPtrDsc* desc;
 
     assert((abs(offs) % TARGET_POINTER_SIZE) == 0);
     assert(needsGC(gcType));
-
-    /* Compute the index into the GC frame table if the caller didn't do it */
-
-    if (disp == -1)
-    {
-        disp = (offs - emitGCrFrameOffsMin) / TARGET_POINTER_SIZE;
-    }
-
-    assert((size_t)disp < emitGCrFrameOffsCnt);
 
     /* Allocate a lifetime record */
 
@@ -7089,19 +7081,11 @@ void emitter::emitGCvarLiveSet(int offs, GCtype gcType, BYTE* addr, ssize_t disp
 void emitter::emitGCvarDeadSet(int offs, BYTE* addr, ssize_t disp)
 {
     assert(emitIssuing);
+    assert((unsigned)disp < emitGCrFrameOffsCnt);
 
     varPtrDsc* desc;
 
     assert(abs(offs) % sizeof(int) == 0);
-
-    /* Compute the index into the GC frame table if the caller didn't do it */
-
-    if (disp == -1)
-    {
-        disp = (offs - emitGCrFrameOffsMin) / TARGET_POINTER_SIZE;
-    }
-
-    assert((unsigned)disp < emitGCrFrameOffsCnt);
 
     /* Get hold of the lifetime descriptor and clear the entry */
 
