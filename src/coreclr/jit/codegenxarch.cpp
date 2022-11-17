@@ -356,20 +356,24 @@ void CodeGen::genPopRegs(regMaskTP regs, regMaskTP byrefRegs, regMaskTP noRefReg
 void CodeGen::genAdjustStackLevel(BasicBlock* block)
 {
     // Check for inserted throw blocks and adjust genStackLevel.
-    CLANG_FORMAT_COMMENT_ANCHOR;
+
+    if (!compiler->fgIsThrowHlpBlk(block))
+    {
+        return;
+    }
 
 #ifdef UNIX_X86_ABI
-    if (isFramePointerUsed() && compiler->fgIsThrowHlpBlk(block))
+    if (isFramePointerUsed())
     {
         // x86/Linux requires stack frames to be 16-byte aligned, but SP may be unaligned
-        // at this point if a jump to this block is made in the middle of pushing arugments.
+        // at this point if a jump to this block is made in the middle of pushing arguments.
         //
         // Here we restore SP to prevent potential stack alignment issues.
         GetEmitter()->emitIns_R_AR(INS_lea, EA_PTRSIZE, REG_SPBASE, REG_FPBASE, -genSPtoFPdelta());
     }
 #endif
 
-    if (!isFramePointerUsed() && compiler->fgIsThrowHlpBlk(block))
+    if (!isFramePointerUsed())
     {
         noway_assert(block->bbFlags & BBF_HAS_LABEL);
 
