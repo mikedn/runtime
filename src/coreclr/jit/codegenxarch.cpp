@@ -110,19 +110,14 @@ void CodeGen::genSetGSSecurityCookie(regNumber initReg, bool* pInitRegZeroed)
     }
 }
 
-/*****************************************************************************
- *
- *   Generate code to check that the GS cookie wasn't thrashed by a buffer
- *   overrun.  If pushReg is true, preserve all registers around code sequence.
- *   Otherwise ECX could be modified.
- *
- *   Implementation Note: pushReg = true, in case of tail calls.
- */
-void CodeGen::genEmitGSCookieCheck(bool pushReg)
+// Generate code to check that the GS cookie wasn't thrashed by a buffer
+// overrun. For tail calls, preserve all registers around code sequence.
+// Otherwise ECX could be modified.
+void CodeGen::genEmitGSCookieCheck(bool tailCallEpilog)
 {
     noway_assert(compiler->gsGlobalSecurityCookieAddr || compiler->gsGlobalSecurityCookieVal);
 
-    if (!pushReg && !varTypeUsesFloatReg(compiler->info.GetRetSigType()))
+    if (!tailCallEpilog && !varTypeUsesFloatReg(compiler->info.GetRetSigType()))
     {
         // Return registers that contain GC references must be reported
         // as live while the GC cookie is checked.
@@ -136,14 +131,8 @@ void CodeGen::genEmitGSCookieCheck(bool pushReg)
     }
 
     regNumber regGSCheck;
-#ifdef TARGET_X86
-    regMaskTP regMaskGSCheck  = RBM_NONE;
-    regMaskTP byrefPushedRegs = RBM_NONE;
-    regMaskTP norefPushedRegs = RBM_NONE;
-    regMaskTP pushedRegs      = RBM_NONE;
-#endif
 
-    if (!pushReg)
+    if (!tailCallEpilog)
     {
         // Non-tail call: we can use any callee trash register that is not
         // a return register or contain 'this' pointer (keep alive this), since
@@ -166,8 +155,7 @@ void CodeGen::genEmitGSCookieCheck(bool pushReg)
         // It doesn't matter which register we pick, since we're going to save and restore it
         // around the check.
         // TODO-CQ: Can we optimize the choice of register to avoid doing the push/pop sometimes?
-        regGSCheck     = REG_EAX;
-        regMaskGSCheck = RBM_EAX;
+        regGSCheck = REG_EAX;
 #else
         // Jmp calls: specify method handle using which JIT queries VM for its entry point
         // address and hence it can neither be a VSD call nor PInvoke calli with cookie
@@ -175,6 +163,10 @@ void CodeGen::genEmitGSCookieCheck(bool pushReg)
         regGSCheck = REG_R11;
 #endif
     }
+
+#ifdef TARGET_X86
+    var_types pushedRegType = TYP_UNDEF;
+#endif
 
     if (compiler->gsGlobalSecurityCookieAddr == nullptr)
     {
@@ -197,11 +189,14 @@ void CodeGen::genEmitGSCookieCheck(bool pushReg)
     else // Ngen case - GS cookie shift needs to be accessed through an indirection.
     {
 #ifdef TARGET_X86
-        pushedRegs = genPushRegs(regMaskGSCheck, &byrefPushedRegs, &norefPushedRegs);
+        if (tailCallEpilog)
+        {
+            pushedRegType = PushTempReg(regGSCheck);
+        }
 #endif
 
         instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, regGSCheck, (ssize_t)compiler->gsGlobalSecurityCookieAddr);
-        GetEmitter()->emitIns_R_AR(ins_Load(TYP_I_IMPL), EA_PTRSIZE, regGSCheck, regGSCheck, 0);
+        GetEmitter()->emitIns_R_AR(INS_mov, EA_PTRSIZE, regGSCheck, regGSCheck, 0);
         GetEmitter()->emitIns_S_R(INS_cmp, EA_PTRSIZE, regGSCheck, compiler->lvaGSSecurityCookie, 0);
     }
 
@@ -211,144 +206,51 @@ void CodeGen::genEmitGSCookieCheck(bool pushReg)
     genDefineTempLabel(gsCheckBlk);
 
 #ifdef TARGET_X86
-    genPopRegs(pushedRegs, byrefPushedRegs, norefPushedRegs);
+    if (pushedRegType != TYP_UNDEF)
+    {
+        PopTempReg(regGSCheck, pushedRegType);
+    }
 #endif
 }
 
 #ifdef TARGET_X86
-//------------------------------------------------------------------------
-// genPushRegs: Push the given registers.
-//
-// Arguments:
-//    regs - mask or registers to push
-//    byrefRegs - OUT arg. Set to byref registers that were pushed.
-//    noRefRegs - OUT arg. Set to non-GC ref registers that were pushed.
-//
-// Return Value:
-//    Mask of registers pushed.
-//
-// Notes:
-//    This function does not check if the register is marked as used, etc.
-//
-regMaskTP CodeGen::genPushRegs(regMaskTP regs, regMaskTP* byrefRegs, regMaskTP* noRefRegs)
+
+var_types CodeGen::PushTempReg(regNumber reg)
 {
-    *byrefRegs = RBM_NONE;
-    *noRefRegs = RBM_NONE;
+    regMaskTP regMask = genRegMask(reg);
+    var_types type;
 
-    if (regs == RBM_NONE)
+    if ((gcInfo.gcRegGCrefSetCur & regMask) != RBM_NONE)
     {
-        return RBM_NONE;
+        type = TYP_REF;
+    }
+    else if ((gcInfo.gcRegByrefSetCur & regMask) != RBM_NONE)
+    {
+        type = TYP_BYREF;
+    }
+    else
+    {
+        type = TYP_INT;
     }
 
-#if FEATURE_FIXED_OUT_ARGS
+    GetEmitter()->emitIns_R(INS_push, emitTypeSize(type), reg);
+    AddStackLevel(REGSIZE_BYTES);
+    gcInfo.gcMarkRegSetNpt(regMask);
 
-    NYI("Don't call genPushRegs with real regs!");
-    return RBM_NONE;
-
-#else // FEATURE_FIXED_OUT_ARGS
-
-    regMaskTP pushedRegs = regs;
-
-    for (regNumber reg = REG_INT_FIRST; regs != RBM_NONE; reg = REG_NEXT(reg))
-    {
-        regMaskTP regBit = regMaskTP(1) << reg;
-
-        if ((regBit & regs) == RBM_NONE)
-            continue;
-
-        var_types type;
-        if (regBit & gcInfo.gcRegGCrefSetCur)
-        {
-            type = TYP_REF;
-        }
-        else if (regBit & gcInfo.gcRegByrefSetCur)
-        {
-            *byrefRegs |= regBit;
-            type = TYP_BYREF;
-        }
-        else if (noRefRegs != NULL)
-        {
-            *noRefRegs |= regBit;
-            type = TYP_I_IMPL;
-        }
-        else
-        {
-            continue;
-        }
-
-        inst_RV(INS_push, reg, type);
-
-        AddStackLevel(REGSIZE_BYTES);
-        gcInfo.gcMarkRegSetNpt(regBit);
-
-        regs &= ~regBit;
-    }
-
-    return pushedRegs;
-
-#endif // FEATURE_FIXED_OUT_ARGS
+    return type;
 }
 
-//------------------------------------------------------------------------
-// genPopRegs: Pop the registers that were pushed by genPushRegs().
-//
-// Arguments:
-//    regs - mask of registers to pop
-//    byrefRegs - The byref registers that were pushed by genPushRegs().
-//    noRefRegs - The non-GC ref registers that were pushed by genPushRegs().
-//
-// Return Value:
-//    None
-//
-void CodeGen::genPopRegs(regMaskTP regs, regMaskTP byrefRegs, regMaskTP noRefRegs)
+void CodeGen::PopTempReg(regNumber reg, var_types type)
 {
-    if (regs == RBM_NONE)
+    assert(varTypeIsI(type));
+
+    GetEmitter()->emitIns_R(INS_pop, emitTypeSize(type), reg);
+    SubtractStackLevel(REGSIZE_BYTES);
+
+    if (varTypeIsGC(type))
     {
-        return;
+        gcInfo.gcMarkRegPtrVal(reg, type);
     }
-
-#if FEATURE_FIXED_OUT_ARGS
-
-    NYI("Don't call genPopRegs with real regs!");
-
-#else // FEATURE_FIXED_OUT_ARGS
-
-    noway_assert((regs & byrefRegs) == byrefRegs);
-    noway_assert((regs & noRefRegs) == noRefRegs);
-    noway_assert((regs & (gcInfo.gcRegGCrefSetCur | gcInfo.gcRegByrefSetCur)) == RBM_NONE);
-
-    // Walk the registers in the reverse order as genPushRegs()
-    for (regNumber reg = REG_INT_LAST; regs != RBM_NONE; reg = REG_PREV(reg))
-    {
-        regMaskTP regBit = regMaskTP(1) << reg;
-
-        if ((regBit & regs) == RBM_NONE)
-            continue;
-
-        var_types type;
-        if (regBit & byrefRegs)
-        {
-            type = TYP_BYREF;
-        }
-        else if (regBit & noRefRegs)
-        {
-            type = TYP_INT;
-        }
-        else
-        {
-            type = TYP_REF;
-        }
-
-        inst_RV(INS_pop, reg, type);
-        SubtractStackLevel(REGSIZE_BYTES);
-
-        if (type != TYP_INT)
-            gcInfo.gcMarkRegPtrVal(reg, type);
-
-        regs &= ~regBit;
-    }
-
-#endif // FEATURE_FIXED_OUT_ARGS
 }
 
 // Adjust the stack level, if required, for a throw helper block

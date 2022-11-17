@@ -507,8 +507,8 @@ protected:
 #endif
 
 #ifdef TARGET_X86
-    regMaskTP genPushRegs(regMaskTP regs, regMaskTP* byrefRegs, regMaskTP* noRefRegs);
-    void genPopRegs(regMaskTP regs, regMaskTP byrefRegs, regMaskTP noRefRegs);
+    var_types PushTempReg(regNumber reg);
+    void PopTempReg(regNumber reg, var_types type);
 #endif
 
 /*
