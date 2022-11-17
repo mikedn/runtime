@@ -7016,11 +7016,11 @@ void emitter::emitDispDataSec(dataSecDsc* section)
 void emitter::emitGCvarLiveSet(int offs, GCtype gcType, BYTE* addr, ssize_t disp)
 {
     assert(emitIssuing);
+    assert(abs(offs) % REGSIZE_BYTES == 0);
     assert((size_t)disp < emitGCrFrameOffsCnt);
 
     varPtrDsc* desc;
 
-    assert((abs(offs) % TARGET_POINTER_SIZE) == 0);
     assert(needsGC(gcType));
 
     /* Allocate a lifetime record */
@@ -7081,11 +7081,10 @@ void emitter::emitGCvarLiveSet(int offs, GCtype gcType, BYTE* addr, ssize_t disp
 void emitter::emitGCvarDeadSet(int offs, BYTE* addr, ssize_t disp)
 {
     assert(emitIssuing);
+    assert(abs(offs) % REGSIZE_BYTES == 0);
     assert((unsigned)disp < emitGCrFrameOffsCnt);
 
     varPtrDsc* desc;
-
-    assert(abs(offs) % sizeof(int) == 0);
 
     /* Get hold of the lifetime descriptor and clear the entry */
 
@@ -7800,7 +7799,7 @@ void emitter::emitGCregDeadUpd(regNumber reg, BYTE* addr)
 
 void emitter::emitGCvarLiveUpd(int offs, int varNum, GCtype gcType, BYTE* addr DEBUG_ARG(unsigned actualVarNum))
 {
-    assert(abs(offs) % sizeof(int) == 0);
+    assert(abs(offs) % REGSIZE_BYTES == 0);
     assert(needsGC(gcType));
 
 #if FEATURE_FIXED_OUT_ARGS
@@ -7893,7 +7892,7 @@ void emitter::emitGCvarLiveUpd(int offs, int varNum, GCtype gcType, BYTE* addr D
 void emitter::emitGCvarDeadUpd(int offs, BYTE* addr DEBUG_ARG(unsigned varNum))
 {
     assert(emitIssuing);
-    assert(abs(offs) % sizeof(int) == 0);
+    assert(abs(offs) % REGSIZE_BYTES == 0);
 
     /* Is the frame offset within the "interesting" range? */
 
