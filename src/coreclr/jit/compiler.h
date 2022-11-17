@@ -5537,9 +5537,9 @@ public:
         unsigned        acdData;
         SpecialCodeKind acdKind; // what kind of a special block is this?
 #if !FEATURE_FIXED_OUT_ARGS
-        bool     acdStkLvlInit; // has acdStkLvl value been already set?
-        unsigned acdStkLvl;     // stack level in stack slots.
-#endif                          // !FEATURE_FIXED_OUT_ARGS
+        bool     acdStkLvlInit = false; // has acdStkLvl value been already set?
+        unsigned acdStkLvl     = 0;     // stack level in stack slots.
+#endif
     };
 
 private:

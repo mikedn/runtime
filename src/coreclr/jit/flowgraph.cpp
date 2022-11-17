@@ -3129,10 +3129,6 @@ BasicBlock* Compiler::fgAddCodeRef(BasicBlock* srcBlk, unsigned refData, Special
     add->acdData = refData;
     add->acdKind = kind;
     add->acdNext = fgAddCodeList;
-#if !FEATURE_FIXED_OUT_ARGS
-    add->acdStkLvl     = 0;
-    add->acdStkLvlInit = false;
-#endif // !FEATURE_FIXED_OUT_ARGS
 
     fgAddCodeList = add;
 
