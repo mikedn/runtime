@@ -7040,7 +7040,7 @@ void emitter::emitGCvarLiveSet(int offs, GCtype gcType, BYTE* addr, ssize_t disp
     desc->vpdEndOfs = 0xFACEDEAD;
 #endif
 
-    desc->vpdVarNum = offs;
+    desc->frameOffset = offs;
 
     desc->vpdNext = nullptr;
 
@@ -7049,13 +7049,13 @@ void emitter::emitGCvarLiveSet(int offs, GCtype gcType, BYTE* addr, ssize_t disp
 
     if (offs == emitSyncThisObjOffs)
     {
-        desc->vpdVarNum |= this_OFFSET_FLAG;
+        desc->frameOffset |= this_OFFSET_FLAG;
     }
 #endif
 
     if (gcType == GCT_BYREF)
     {
-        desc->vpdVarNum |= byref_OFFSET_FLAG;
+        desc->frameOffset |= byref_OFFSET_FLAG;
     }
 
     /* Append the new entry to the end of the list */
@@ -7109,7 +7109,7 @@ void emitter::emitGCvarDeadSet(int offs, BYTE* addr, ssize_t disp)
     emitGCrFrameLiveTab[disp] = nullptr;
 
     assert(desc);
-    assert((desc->vpdVarNum & ~OFFSET_MASK) == (unsigned)offs);
+    assert((desc->frameOffset & ~OFFSET_MASK) == (unsigned)offs);
 
     /* Record the death code offset */
 

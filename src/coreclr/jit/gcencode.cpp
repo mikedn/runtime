@@ -111,7 +111,7 @@ void GCInfo::gcMarkFilterVarsPinned()
             for (varPtrDsc* varTmp = gcVarPtrList; varTmp != nullptr; varTmp = varTmp->vpdNext)
             {
                 // Get hold of the variable's flags.
-                const unsigned lowBits = varTmp->vpdVarNum & OFFSET_MASK;
+                const unsigned lowBits = varTmp->frameOffset & OFFSET_MASK;
 
                 // Compute the actual lifetime offsets.
                 const unsigned begOffs = varTmp->vpdBegOfs;
@@ -157,15 +157,15 @@ void GCInfo::gcMarkFilterVarsPinned()
                         }
 #endif // DEBUG
 
-                        varPtrDsc* desc1 = new (compiler, CMK_GC) varPtrDsc;
-                        desc1->vpdVarNum = varTmp->vpdVarNum | pinned_OFFSET_FLAG;
-                        desc1->vpdBegOfs = filterBeg;
-                        desc1->vpdEndOfs = filterEnd;
+                        varPtrDsc* desc1   = new (compiler, CMK_GC) varPtrDsc;
+                        desc1->frameOffset = varTmp->frameOffset | pinned_OFFSET_FLAG;
+                        desc1->vpdBegOfs   = filterBeg;
+                        desc1->vpdEndOfs   = filterEnd;
 
-                        varPtrDsc* desc2 = new (compiler, CMK_GC) varPtrDsc;
-                        desc2->vpdVarNum = varTmp->vpdVarNum;
-                        desc2->vpdBegOfs = filterEnd;
-                        desc2->vpdEndOfs = endOffs;
+                        varPtrDsc* desc2   = new (compiler, CMK_GC) varPtrDsc;
+                        desc2->frameOffset = varTmp->frameOffset;
+                        desc2->vpdBegOfs   = filterEnd;
+                        desc2->vpdEndOfs   = endOffs;
 
                         varTmp->vpdEndOfs = filterBeg;
 
@@ -200,10 +200,10 @@ void GCInfo::gcMarkFilterVarsPinned()
                         }
 #endif // DEBUG
 
-                        varPtrDsc* desc = new (compiler, CMK_GC) varPtrDsc;
-                        desc->vpdVarNum = varTmp->vpdVarNum | pinned_OFFSET_FLAG;
-                        desc->vpdBegOfs = filterBeg;
-                        desc->vpdEndOfs = endOffs;
+                        varPtrDsc* desc   = new (compiler, CMK_GC) varPtrDsc;
+                        desc->frameOffset = varTmp->frameOffset | pinned_OFFSET_FLAG;
+                        desc->vpdBegOfs   = filterBeg;
+                        desc->vpdEndOfs   = endOffs;
 
                         varTmp->vpdEndOfs = filterBeg;
 
@@ -240,19 +240,19 @@ void GCInfo::gcMarkFilterVarsPinned()
 
                         varPtrDsc* desc = new (compiler, CMK_GC) varPtrDsc;
 #ifndef JIT32_GCENCODER
-                        desc->vpdVarNum = varTmp->vpdVarNum | pinned_OFFSET_FLAG;
-                        desc->vpdBegOfs = begOffs;
-                        desc->vpdEndOfs = filterEnd;
+                        desc->frameOffset = varTmp->frameOffset | pinned_OFFSET_FLAG;
+                        desc->vpdBegOfs   = begOffs;
+                        desc->vpdEndOfs   = filterEnd;
 
                         varTmp->vpdBegOfs = filterEnd;
 #else
                         // Mark varTmp as pinned and generated use varPtrDsc(desc) as non-pinned
                         // since gcInsertVarPtrDscSplit requires that varTmp->vpdBegOfs must precede desc->vpdBegOfs
-                        desc->vpdVarNum = varTmp->vpdVarNum;
-                        desc->vpdBegOfs = filterEnd;
-                        desc->vpdEndOfs = endOffs;
+                        desc->frameOffset = varTmp->frameOffset;
+                        desc->vpdBegOfs   = filterEnd;
+                        desc->vpdEndOfs   = endOffs;
 
-                        varTmp->vpdVarNum = varTmp->vpdVarNum | pinned_OFFSET_FLAG;
+                        varTmp->frameOffset |= pinned_OFFSET_FLAG;
                         varTmp->vpdEndOfs = filterEnd;
 #endif
 
@@ -281,7 +281,7 @@ void GCInfo::gcMarkFilterVarsPinned()
                         }
 #endif // DEBUG
 
-                        varTmp->vpdVarNum |= pinned_OFFSET_FLAG;
+                        varTmp->frameOffset |= pinned_OFFSET_FLAG;
 #ifdef DEBUG
                         if (compiler->verbose)
                         {
@@ -344,9 +344,9 @@ void GCInfo::gcInsertVarPtrDscSplit(varPtrDsc* desc, varPtrDsc* begin)
 
 void GCInfo::gcDumpVarPtrDsc(varPtrDsc* desc)
 {
-    const int    offs   = (desc->vpdVarNum & ~OFFSET_MASK);
-    const GCtype gcType = (desc->vpdVarNum & byref_OFFSET_FLAG) ? GCT_BYREF : GCT_GCREF;
-    const bool   isPin  = (desc->vpdVarNum & pinned_OFFSET_FLAG) != 0;
+    const int    offs   = (desc->frameOffset & ~OFFSET_MASK);
+    const GCtype gcType = (desc->frameOffset & byref_OFFSET_FLAG) ? GCT_BYREF : GCT_GCREF;
+    const bool   isPin  = (desc->frameOffset & pinned_OFFSET_FLAG) != 0;
 
     printf("[%08X] %s%s var at [%s", dspPtr(desc), GCtypeStr(gcType), isPin ? "pinned-ptr" : "",
            compiler->codeGen->isFramePointerUsed() ? STR_FPBASE : STR_SPBASE);
@@ -2374,12 +2374,12 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
 
             /* Get hold of the variable's stack offset */
 
-            lowBits = varTmp->vpdVarNum & OFFSET_MASK;
+            lowBits = varTmp->frameOffset & OFFSET_MASK;
 
             /* For negative stack offsets we must reset the low bits,
              * take abs and then set them back */
 
-            varOffs = abs(static_cast<int>(varTmp->vpdVarNum & ~OFFSET_MASK));
+            varOffs = abs(static_cast<int>(varTmp->frameOffset & ~OFFSET_MASK));
             varOffs |= lowBits;
 
             /* Compute the actual lifetime offsets */
@@ -4674,7 +4674,7 @@ void GCInfo::gcMakeVarPtrTable(GcInfoEncoder* gcInfoEncoder, MakeRegPtrMode mode
         // Check it now before we potentially add some pinned flags.
         for (varPtrDsc* varTmp = gcVarPtrList; varTmp != nullptr; varTmp = varTmp->vpdNext)
         {
-            const unsigned flags = varTmp->vpdVarNum & OFFSET_MASK;
+            const unsigned flags = varTmp->frameOffset & OFFSET_MASK;
             assert((flags & pinned_OFFSET_FLAG) == 0);
             assert((flags & this_OFFSET_FLAG) == 0);
         }
@@ -4693,10 +4693,10 @@ void GCInfo::gcMakeVarPtrTable(GcInfoEncoder* gcInfoEncoder, MakeRegPtrMode mode
 
         // Get hold of the variable's stack offset.
 
-        unsigned lowBits = varTmp->vpdVarNum & OFFSET_MASK;
+        unsigned lowBits = varTmp->frameOffset & OFFSET_MASK;
 
         // For negative stack offsets we must reset the low bits
-        int varOffs = static_cast<int>(varTmp->vpdVarNum & ~OFFSET_MASK);
+        int varOffs = static_cast<int>(varTmp->frameOffset & ~OFFSET_MASK);
 
         // Compute the actual lifetime offsets.
         unsigned begOffs = varTmp->vpdBegOfs;

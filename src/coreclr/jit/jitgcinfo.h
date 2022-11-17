@@ -120,7 +120,7 @@ public:
     {
         varPtrDsc* vpdNext;
 
-        unsigned vpdVarNum; // which variable is this about?
+        unsigned frameOffset;
 
         unsigned vpdBegOfs; // the offset where life starts
         unsigned vpdEndOfs; // the offset where life starts
