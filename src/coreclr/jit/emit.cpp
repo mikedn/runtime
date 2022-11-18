@@ -7037,34 +7037,23 @@ void emitter::emitGCvarLiveSet(int offs, GCtype gcType, BYTE* addr, unsigned ind
     codeGen->gcInfo.AddFrameLifetime(lifetime);
 }
 
-/*****************************************************************************
- *
- *  Record the fact that the given variable no longer contains a live GC ref.
- */
-
-void emitter::emitGCvarDeadSet(int offs, BYTE* addr, ssize_t disp)
+// Record the fact that the given variable no longer contains a live GC ref.
+void emitter::emitGCvarDeadSet(int offs, BYTE* addr, unsigned index)
 {
     assert(emitIssuing);
     assert(abs(offs) % REGSIZE_BYTES == 0);
-    assert((unsigned)disp < emitGCrFrameOffsCnt);
+    assert(index < emitGCrFrameOffsCnt);
+    assert(emitGCrFrameLiveTab[index] != nullptr);
 
-    GCFrameLifetime* desc;
+    GCFrameLifetime* lifetime = emitGCrFrameLiveTab[index];
 
-    /* Get hold of the lifetime descriptor and clear the entry */
+    assert(static_cast<int>(lifetime->frameOffset & ~OFFSET_MASK) == offs);
+    assert(lifetime->vpdEndOfs == 0xFACEDEAD);
 
-    desc                      = emitGCrFrameLiveTab[disp];
-    emitGCrFrameLiveTab[disp] = nullptr;
+    lifetime->vpdEndOfs = emitCurCodeOffs(addr);
 
-    assert(desc);
-    assert((desc->frameOffset & ~OFFSET_MASK) == (unsigned)offs);
-
-    /* Record the death code offset */
-
-    assert(desc->vpdEndOfs == 0xFACEDEAD);
-    desc->vpdEndOfs = emitCurCodeOffs(addr);
-
-    /* The "global" live GC variable mask is no longer up-to-date */
-
+    emitGCrFrameLiveTab[index] = nullptr;
+    // The "global" live GC variable mask is no longer up-to-date.
     emitThisGCrefVset = false;
 }
 

@@ -2190,7 +2190,7 @@ public:
     void emitGCvarLiveUpd(int offs, int varNum, GCtype gcType, BYTE* addr DEBUG_ARG(unsigned lclNum));
     void emitGCvarLiveSet(int offs, GCtype gcType, BYTE* addr, unsigned index);
     void emitGCvarDeadUpd(int offs, BYTE* addr DEBUG_ARG(unsigned lclNum));
-    void emitGCvarDeadSet(int offs, BYTE* addr, ssize_t disp = -1);
+    void emitGCvarDeadSet(int offs, BYTE* addr, unsigned index);
 
     GCtype emitRegGCtype(regNumber reg);
 
