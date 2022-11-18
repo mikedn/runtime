@@ -7146,16 +7146,17 @@ void emitter::emitUpdateLiveGCvars(VARSET_VALARG_TP vars, BYTE* addr)
         }
 
         int offs = val & ~OFFSET_MASK;
+        INDEBUG(unsigned lclNum = emitComp->lvaTrackedIndexToLclNum(trackedLclIndex));
 
         if (VarSetOps::IsMember(emitComp, vars, trackedLclIndex))
         {
             GCtype gcType = (val & byref_OFFSET_FLAG) != 0 ? GCT_BYREF : GCT_GCREF;
 
-            emitGCvarLiveUpd(offs, INT_MAX, gcType, addr DEBUG_ARG(trackedLclIndex));
+            emitGCvarLiveUpd(offs, INT_MAX, gcType, addr DEBUG_ARG(lclNum));
         }
         else
         {
-            emitGCvarDeadUpd(offs, addr DEBUG_ARG(trackedLclIndex));
+            emitGCvarDeadUpd(offs, addr DEBUG_ARG(lclNum));
         }
     }
 
@@ -7781,7 +7782,7 @@ void emitter::emitGCregDeadUpd(regNumber reg, BYTE* addr)
 // varNum may be INT_MAX or negative (indicating a spill temp) only if
 // offs is guaranteed to be the offset of a tracked GC ref. Else we
 // need a valid value to check if the variable is tracked or not.
-void emitter::emitGCvarLiveUpd(int offs, int varNum, GCtype gcType, BYTE* addr DEBUG_ARG(unsigned actualVarNum))
+void emitter::emitGCvarLiveUpd(int offs, int varNum, GCtype gcType, BYTE* addr DEBUG_ARG(unsigned lclNum))
 {
     assert(abs(offs) % REGSIZE_BYTES == 0);
     assert(needsGC(gcType));
@@ -7847,16 +7848,16 @@ void emitter::emitGCvarLiveUpd(int offs, int varNum, GCtype gcType, BYTE* addr D
     emitGCvarLiveSet(offs, gcType, addr, index);
 
 #ifdef DEBUG
-    if ((EMIT_GC_VERBOSE || emitComp->opts.disasmWithGC) && (actualVarNum < emitComp->lvaCount) &&
-        emitComp->lvaGetDesc(actualVarNum)->lvTracked)
+    if ((EMIT_GC_VERBOSE || emitComp->opts.disasmWithGC) && (lclNum < emitComp->lvaCount) &&
+        emitComp->lvaGetDesc(lclNum)->HasLiveness())
     {
-        VarSetOps::AddElemD(emitComp, debugThisGCrefVars, emitComp->lvaGetDesc(actualVarNum)->lvVarIndex);
+        VarSetOps::AddElemD(emitComp, debugThisGCrefVars, emitComp->lvaGetDesc(lclNum)->GetLivenessBitIndex());
     }
 #endif
 }
 
 // Record the fact that the given variable no longer contains a live GC ref.
-void emitter::emitGCvarDeadUpd(int offs, BYTE* addr DEBUG_ARG(unsigned varNum))
+void emitter::emitGCvarDeadUpd(int offs, BYTE* addr DEBUG_ARG(unsigned lclNum))
 {
     assert(emitIssuing);
     assert(abs(offs) % REGSIZE_BYTES == 0);
@@ -7881,10 +7882,10 @@ void emitter::emitGCvarDeadUpd(int offs, BYTE* addr DEBUG_ARG(unsigned varNum))
     emitGCvarDeadSet(offs, addr, index);
 
 #ifdef DEBUG
-    if ((EMIT_GC_VERBOSE || emitComp->opts.disasmWithGC) && (varNum < emitComp->lvaCount) &&
-        emitComp->lvaGetDesc(varNum)->lvTracked)
+    if ((EMIT_GC_VERBOSE || emitComp->opts.disasmWithGC) && (lclNum < emitComp->lvaCount) &&
+        emitComp->lvaGetDesc(lclNum)->HasLiveness())
     {
-        VarSetOps::RemoveElemD(emitComp, debugThisGCrefVars, emitComp->lvaGetDesc(varNum)->lvVarIndex);
+        VarSetOps::RemoveElemD(emitComp, debugThisGCrefVars, emitComp->lvaGetDesc(lclNum)->GetLivenessBitIndex());
     }
 #endif
 }
