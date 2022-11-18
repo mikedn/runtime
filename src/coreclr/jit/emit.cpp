@@ -7867,42 +7867,38 @@ void emitter::emitGCvarLiveUpd(int offs, int varNum, GCtype gcType, BYTE* addr D
 #endif
 }
 
-/*****************************************************************************
- *
- *  Record the fact that the given variable no longer contains a live GC ref.
- */
-
+// Record the fact that the given variable no longer contains a live GC ref.
 void emitter::emitGCvarDeadUpd(int offs, BYTE* addr DEBUG_ARG(unsigned varNum))
 {
     assert(emitIssuing);
     assert(abs(offs) % REGSIZE_BYTES == 0);
 
-    /* Is the frame offset within the "interesting" range? */
-
-    if (offs >= emitGCrFrameOffsMin && offs < emitGCrFrameOffsMax)
+    if ((offs < emitGCrFrameOffsMin) || (emitGCrFrameOffsMax <= offs))
     {
-        size_t disp;
-
-        /* Compute the index into the GC frame table */
-
-        disp = (offs - emitGCrFrameOffsMin) / TARGET_POINTER_SIZE;
-        assert(disp < emitGCrFrameOffsCnt);
-
-        /* If the variable is currently live, mark it as dead */
-
-        if (emitGCrFrameLiveTab[disp] != nullptr)
-        {
-            assert(!emitComp->lvaKeepAliveAndReportThis() || (offs != emitSyncThisObjOffs));
-            emitGCvarDeadSet(offs, addr, disp);
-#ifdef DEBUG
-            if ((EMIT_GC_VERBOSE || emitComp->opts.disasmWithGC) && (varNum < emitComp->lvaCount) &&
-                emitComp->lvaGetDesc(varNum)->lvTracked)
-            {
-                VarSetOps::RemoveElemD(emitComp, debugThisGCrefVars, emitComp->lvaGetDesc(varNum)->lvVarIndex);
-            }
-#endif
-        }
+        return;
     }
+
+    unsigned index = (offs - emitGCrFrameOffsMin) / REGSIZE_BYTES;
+    assert(index < emitGCrFrameOffsCnt);
+
+    if (emitGCrFrameLiveTab[index] == nullptr)
+    {
+        // The GC slot is not live.
+
+        return;
+    }
+
+    assert(!emitComp->lvaKeepAliveAndReportThis() || (offs != emitSyncThisObjOffs));
+
+    emitGCvarDeadSet(offs, addr, index);
+
+#ifdef DEBUG
+    if ((EMIT_GC_VERBOSE || emitComp->opts.disasmWithGC) && (varNum < emitComp->lvaCount) &&
+        emitComp->lvaGetDesc(varNum)->lvTracked)
+    {
+        VarSetOps::RemoveElemD(emitComp, debugThisGCrefVars, emitComp->lvaGetDesc(varNum)->lvVarIndex);
+    }
+#endif
 }
 
 /*****************************************************************************
