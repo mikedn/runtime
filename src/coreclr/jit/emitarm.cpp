@@ -6441,31 +6441,17 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
     if (emitInsWritesToLclVarStackLoc(id))
     {
         int       varNum = id->idAddr()->iiaLclVar.lvaVarNum();
-        unsigned  ofs    = AlignDown(id->idAddr()->iiaLclVar.lvaOffset(), TARGET_POINTER_SIZE);
+        unsigned  ofs    = AlignDown(id->idAddr()->iiaLclVar.lvaOffset(), REGSIZE_BYTES);
         regNumber regBase;
-        int adr = emitComp->lvaFrameAddress(varNum, true, ofs, /* isFloatUsage */ false, &regBase); // no float GC refs
+        int       adr = emitComp->lvaFrameAddress(varNum, true, ofs, /* isFloatUsage */ false, &regBase) + ofs;
+
         if (id->idGCref() != GCT_NONE)
         {
-            emitGCvarLiveUpd(adr + ofs, varNum, id->idGCref(), dst DEBUG_ARG(varNum));
+            emitGCvarLiveUpd(adr, varNum, id->idGCref(), dst DEBUG_ARG(varNum));
         }
-        else
+        else if ((varNum >= 0) && varTypeIsGC(emitComp->lvaGetDesc(varNum)->GetType()))
         {
-            // If the type of the local is a gc ref type, update the liveness.
-            var_types vt;
-
-            if (varNum >= 0)
-            {
-                vt = emitComp->lvaGetDesc(varNum)->GetType();
-            }
-            else
-            {
-                vt = codeGen->regSet.tmpFindNum(varNum)->tdTempType();
-            }
-
-            if (varTypeIsGC(vt))
-            {
-                emitGCvarDeadUpd(adr + ofs, dst DEBUG_ARG(varNum));
-            }
+            emitGCvarDeadUpd(adr, dst DEBUG_ARG(varNum));
         }
     }
 

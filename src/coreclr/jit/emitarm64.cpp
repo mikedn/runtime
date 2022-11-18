@@ -11290,23 +11290,9 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         {
             emitGCvarLiveUpd(adr, varNum, id->idGCref(), dst DEBUG_ARG(varNum));
         }
-        else
+        else if ((varNum >= 0) && varTypeIsGC(emitComp->lvaGetDesc(varNum)->GetType()))
         {
-            var_types vt;
-
-            if (varNum >= 0)
-            {
-                vt = emitComp->lvaGetDesc(varNum)->GetType();
-            }
-            else
-            {
-                vt = codeGen->regSet.tmpFindNum(varNum)->tdTempType();
-            }
-
-            if (varTypeIsGC(vt))
-            {
-                emitGCvarDeadUpd(adr, dst DEBUG_ARG(varNum));
-            }
+            emitGCvarDeadUpd(adr, dst DEBUG_ARG(varNum));
         }
 
         if (emitInsWritesToLclVarStackLocPair(id))
@@ -11317,23 +11303,10 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             {
                 emitGCvarLiveUpd(adr, varNum, id->idGCrefReg2(), dst DEBUG_ARG(varNum));
             }
-            else
+            // TODO-MIKE-Review: This looks bogus, using STP to store to a local implies that the local is STRUCT.
+            else if ((varNum >= 0) && emitComp->lvaGetDesc(varNum)->GetType())
             {
-                var_types vt;
-
-                if (varNum >= 0)
-                {
-                    vt = emitComp->lvaGetDesc(varNum)->GetType();
-                }
-                else
-                {
-                    vt = codeGen->regSet.tmpFindNum(varNum)->tdTempType();
-                }
-
-                if (varTypeIsGC(vt))
-                {
-                    emitGCvarDeadUpd(adr, dst DEBUG_ARG(varNum));
-                }
+                emitGCvarDeadUpd(adr, dst DEBUG_ARG(varNum));
             }
         }
     }
