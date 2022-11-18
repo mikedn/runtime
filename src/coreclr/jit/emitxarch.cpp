@@ -9385,60 +9385,37 @@ BYTE* emitter::emitOutputSV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
         }
     }
 
-    // Does this instruction operate on a GC ref value?
-    if (id->idGCref())
+    if (id->idGCref() != GCT_NONE)
     {
-        // Factor in the sub-variable offset
-        adr += AlignDown(id->idAddr()->iiaLclVar.lvaOffset(), TARGET_POINTER_SIZE);
+        adr += AlignDown(id->idAddr()->iiaLclVar.lvaOffset(), REGSIZE_BYTES);
 
         switch (id->idInsFmt())
         {
-            case IF_SRD:
-                // Read  stack                    -- no change
-                break;
-
-            case IF_SWR: // Stack Write (So we need to update GC live for stack var)
-                // Write stack                    -- GC var may be born
+            // TODO-MIKE-Review: What instructions have SWR format and can produce a GC pointer?!?
+            // Why even bother with formats - there are very few instructions that can produce
+            // a GC pointer - mov, add, sub.
+            case IF_SWR:
+            case IF_SWR_RRD:
                 emitGCvarLiveUpd(adr, varNum, id->idGCref(), dst DEBUG_ARG(varNum));
                 break;
 
+            case IF_RRW_SRD:
+                assert((id->idGCref() == GCT_BYREF) && ((ins == INS_add) || (ins == INS_sub)));
+                FALLTHROUGH;
+            case IF_RWR_SRD:
+                emitGCregLiveUpd(id->idGCref(), id->idReg1(), dst);
+                break;
+
+            case IF_SRD:
             case IF_SRD_CNS:
-                // Read  stack                    -- no change
-                break;
-
-            case IF_SWR_CNS:
-                // Write stack                    -- no change
-                break;
-
             case IF_SRD_RRD:
             case IF_RRD_SRD:
-                // Read  stack   , read  register -- no change
-                break;
-
-            case IF_RWR_SRD: // Register Write, Stack Read (So we need to update GC live for register)
-
-                // Read  stack   , write register -- GC reg may be born
-                emitGCregLiveUpd(id->idGCref(), id->idReg1(), dst);
-                break;
-
-            case IF_SWR_RRD: // Stack Write, Register Read (So we need to update GC live for stack var)
-                // Read  register, write stack    -- GC var may be born
-                emitGCvarLiveUpd(adr, varNum, id->idGCref(), dst DEBUG_ARG(varNum));
-                break;
-
-            case IF_RRW_SRD: // Register Read/Write, Stack Read (So we need to update GC live for register)
-
-                // reg could have been a GCREF as GCREF + int=BYREF
-                //                             or BYREF+/-int=BYREF
-                assert(id->idGCref() == GCT_BYREF && (ins == INS_add || ins == INS_sub));
-                emitGCregLiveUpd(id->idGCref(), id->idReg1(), dst);
-                break;
-
+            // Constants aren't GC pointers.
+            case IF_SWR_CNS:
+            // We assume that since we also read it was written previously so it's already live.
+            case IF_SRW:
             case IF_SRW_CNS:
             case IF_SRW_RRD:
-            // += -= of a byref, no change
-
-            case IF_SRW:
                 break;
 
             default:
@@ -9446,35 +9423,41 @@ BYTE* emitter::emitOutputSV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
                 assert(!"unexpected GC ref instruction format");
         }
     }
-    else
+    else if (!emitInsCanOnlyWriteSSE2OrAVXReg(id))
     {
-        if (!emitInsCanOnlyWriteSSE2OrAVXReg(id))
+        switch (id->idInsFmt())
         {
-            switch (id->idInsFmt())
-            {
-                case IF_RWR_SRD: // Register Write, Stack Read
-                case IF_RRW_SRD: // Register Read/Write, Stack Read
-                case IF_RWR_RRD_SRD:
-                    emitGCregDeadUpd(id->idReg1(), dst);
-                    break;
-                default:
-                    break;
-            }
+            case IF_RWR_SRD:
+            case IF_RRW_SRD:
+            case IF_RWR_RRD_SRD:
+                emitGCregDeadUpd(id->idReg1(), dst);
+                break;
 
-            if (ins == INS_mulEAX || ins == INS_imulEAX)
-            {
-                emitGCregDeadUpd(REG_EAX, dst);
-                emitGCregDeadUpd(REG_EDX, dst);
-            }
+            default:
+                // TODO-MIKE-Review: The ARMARCH version of this code calls emitGCvarDeadUpd for
+                // non GC stores, it's not clear why the inconsistency. Nor it's clear how a GC
+                // slot could ever become dead via such stores because the store type is normally
+                // the type of the local/temp we're storing into and that doesn't change, except
+                // in the case of outgoing args, but those seem to be handled in a different way.
+                // One could think that perhaps a null store won't have a GC type and it would mark
+                // the GC slot as dead but that isn't the case, in fact the GC slot becomes live!
+                //
+                // It's likely that the ARMARCH code is bogus and the XARCH code is correct.
+                // A GC slot can really become dead only when liveness tells us that it is dead.
+                // In fact, even the GC store case is messed up - a dead store would end up making
+                // the GC slot live. But that's rare since dead stores are normally eliminated.
+                break;
+        }
 
-            // For the three operand imul instruction the target register
-            // is encoded in the opcode
+        if ((ins == INS_mulEAX) || (ins == INS_imulEAX))
+        {
+            emitGCregDeadUpd(REG_EAX, dst);
+            emitGCregDeadUpd(REG_EDX, dst);
+        }
 
-            if (instrIs3opImul(ins))
-            {
-                regNumber tgtReg = inst3opImulReg(ins);
-                emitGCregDeadUpd(tgtReg, dst);
-            }
+        if (instrIs3opImul(ins))
+        {
+            emitGCregDeadUpd(inst3opImulReg(ins), dst);
         }
     }
 
