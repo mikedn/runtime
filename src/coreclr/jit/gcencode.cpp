@@ -157,15 +157,10 @@ void GCInfo::gcMarkFilterVarsPinned()
                         }
 #endif // DEBUG
 
-                        varPtrDsc* desc1   = new (compiler, CMK_GC) varPtrDsc;
-                        desc1->frameOffset = varTmp->frameOffset | pinned_OFFSET_FLAG;
-                        desc1->vpdBegOfs   = filterBeg;
-                        desc1->vpdEndOfs   = filterEnd;
-
-                        varPtrDsc* desc2   = new (compiler, CMK_GC) varPtrDsc;
-                        desc2->frameOffset = varTmp->frameOffset;
-                        desc2->vpdBegOfs   = filterEnd;
-                        desc2->vpdEndOfs   = endOffs;
+                        FrameLifetime* desc1 = new (compiler, CMK_GC)
+                            FrameLifetime(varTmp->frameOffset | pinned_OFFSET_FLAG, filterBeg, filterEnd);
+                        FrameLifetime* desc2 =
+                            new (compiler, CMK_GC) FrameLifetime(varTmp->frameOffset, filterEnd, endOffs);
 
                         varTmp->vpdEndOfs = filterBeg;
 
@@ -200,11 +195,8 @@ void GCInfo::gcMarkFilterVarsPinned()
                         }
 #endif // DEBUG
 
-                        varPtrDsc* desc   = new (compiler, CMK_GC) varPtrDsc;
-                        desc->frameOffset = varTmp->frameOffset | pinned_OFFSET_FLAG;
-                        desc->vpdBegOfs   = filterBeg;
-                        desc->vpdEndOfs   = endOffs;
-
+                        FrameLifetime* desc = new (compiler, CMK_GC)
+                            FrameLifetime(varTmp->frameOffset | pinned_OFFSET_FLAG, filterBeg, endOffs);
                         varTmp->vpdEndOfs = filterBeg;
 
                         gcInsertVarPtrDscSplit(desc, varTmp);
@@ -238,20 +230,18 @@ void GCInfo::gcMarkFilterVarsPinned()
                         }
 #endif // DEBUG
 
-                        varPtrDsc* desc = new (compiler, CMK_GC) varPtrDsc;
 #ifndef JIT32_GCENCODER
-                        desc->frameOffset = varTmp->frameOffset | pinned_OFFSET_FLAG;
-                        desc->vpdBegOfs   = begOffs;
-                        desc->vpdEndOfs   = filterEnd;
+                        FrameLifetime* desc = new (compiler, CMK_GC)
+                            FrameLifetime(varTmp->frameOffset | pinned_OFFSET_FLAG, begOffs, filterEnd);
 
                         varTmp->vpdBegOfs = filterEnd;
 #else
-                        // Mark varTmp as pinned and generated use varPtrDsc(desc) as non-pinned
-                        // since gcInsertVarPtrDscSplit requires that varTmp->vpdBegOfs must precede desc->vpdBegOfs
-                        desc->frameOffset = varTmp->frameOffset;
-                        desc->vpdBegOfs   = filterEnd;
-                        desc->vpdEndOfs   = endOffs;
+                        FrameLifetime* desc =
+                            new (compiler, CMK_GC) FrameLifetime(varTmp->frameOffset, filterEnd, endOffs);
 
+                        // Mark varTmp as pinned and generated use varPtrDsc(desc) as non-pinned
+                        // since gcInsertVarPtrDscSplit requires that varTmp->vpdBegOfs must
+                        // precede desc->vpdBegOfs.
                         varTmp->frameOffset |= pinned_OFFSET_FLAG;
                         varTmp->vpdEndOfs = filterEnd;
 #endif

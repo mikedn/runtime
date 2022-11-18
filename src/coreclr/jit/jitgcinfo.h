@@ -116,18 +116,34 @@ public:
     //  hold pointers.
     //
 
-    struct varPtrDsc
+    struct FrameLifetime
     {
-        varPtrDsc* vpdNext;
+        FrameLifetime* vpdNext = nullptr;
 
         unsigned frameOffset;
 
         unsigned vpdBegOfs; // the offset where life starts
         unsigned vpdEndOfs; // the offset where life starts
+
+        FrameLifetime(unsigned frameOffset, unsigned beginCodeOffset)
+            : frameOffset(frameOffset)
+            , vpdBegOfs(beginCodeOffset)
+#ifdef DEBUG
+            , vpdEndOfs(0xFACEDEAD)
+#endif
+        {
+        }
+
+        FrameLifetime(unsigned frameOffset, unsigned beginCodeOffset, unsigned endCodeOffset)
+            : frameOffset(frameOffset), vpdBegOfs(beginCodeOffset), vpdEndOfs(endCodeOffset)
+        {
+        }
     };
 
-    varPtrDsc* gcVarPtrList;
-    varPtrDsc* gcVarPtrLast;
+    typedef FrameLifetime varPtrDsc;
+
+    FrameLifetime* gcVarPtrList;
+    FrameLifetime* gcVarPtrLast;
 
     void gcVarPtrSetInit();
 
@@ -383,6 +399,24 @@ private:
 public:
     // This method updates the appropriate reg masks when a variable is moved.
     void gcUpdateForRegVarMove(regMaskTP srcMask, regMaskTP dstMask, LclVarDsc* varDsc);
+
+    void AddFrameLifetime(varPtrDsc* lifetime)
+    {
+        if (gcVarPtrLast == nullptr)
+        {
+            assert(gcVarPtrList == nullptr);
+
+            gcVarPtrList = lifetime;
+        }
+        else
+        {
+            assert(gcVarPtrList != nullptr);
+
+            gcVarPtrLast->vpdNext = lifetime;
+        }
+
+        gcVarPtrLast = lifetime;
+    }
 
 private:
     ReturnKind getReturnKind();

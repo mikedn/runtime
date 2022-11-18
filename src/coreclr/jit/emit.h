@@ -433,9 +433,9 @@ protected:
     /*                        Miscellaneous stuff                           */
     /************************************************************************/
 
-    typedef GCInfo::varPtrDsc varPtrDsc;
-    typedef GCInfo::regPtrDsc regPtrDsc;
-    typedef GCInfo::CallDsc   callDsc;
+    typedef GCInfo::FrameLifetime GCFrameLifetime;
+    typedef GCInfo::regPtrDsc     regPtrDsc;
+    typedef GCInfo::CallDsc       callDsc;
 
     void* emitGetMem(size_t sz);
 
@@ -2064,11 +2064,11 @@ private:
     unsigned emitTrkVarCnt;
     int*     emitGCrFrameOffsTab; // Offsets of tracked stack ptr vars (varTrkIndex -> stkOffs)
 
-    unsigned    emitGCrFrameOffsCnt; // Number of       tracked stack ptr vars
-    int         emitGCrFrameOffsMin; // Min offset of a tracked stack ptr var
-    int         emitGCrFrameOffsMax; // Max offset of a tracked stack ptr var
-    bool        emitContTrkPtrLcls;  // All lcl between emitGCrFrameOffsMin/Max are only tracked stack ptr vars
-    varPtrDsc** emitGCrFrameLiveTab; // Cache of currently live varPtrs (stkOffs -> varPtrDsc)
+    unsigned          emitGCrFrameOffsCnt; // Number of       tracked stack ptr vars
+    int               emitGCrFrameOffsMin; // Min offset of a tracked stack ptr var
+    int               emitGCrFrameOffsMax; // Max offset of a tracked stack ptr var
+    bool              emitContTrkPtrLcls;  // All lcl between emitGCrFrameOffsMin/Max are only tracked stack ptr vars
+    GCFrameLifetime** emitGCrFrameLiveTab; // Cache of currently live varPtrs (stkOffs -> varPtrDsc)
 
     int emitArgFrameOffsMin;
     int emitArgFrameOffsMax;
@@ -2188,7 +2188,7 @@ public:
     void emitGCregDeadSet(GCtype gcType, regMaskTP mask, BYTE* addr);
 
     void emitGCvarLiveUpd(int offs, int varNum, GCtype gcType, BYTE* addr DEBUG_ARG(unsigned lclNum));
-    void emitGCvarLiveSet(int offs, GCtype gcType, BYTE* addr, ssize_t disp = -1);
+    void emitGCvarLiveSet(int offs, GCtype gcType, BYTE* addr, unsigned index);
     void emitGCvarDeadUpd(int offs, BYTE* addr DEBUG_ARG(unsigned lclNum));
     void emitGCvarDeadSet(int offs, BYTE* addr, ssize_t disp = -1);
 

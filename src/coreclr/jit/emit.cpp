@@ -5673,7 +5673,7 @@ unsigned emitter::emitEndCodeGen(Compiler* comp,
          */
 
         siz                 = emitGCrFrameOffsCnt * sizeof(*emitGCrFrameLiveTab);
-        emitGCrFrameLiveTab = (varPtrDsc**)emitGetMem(roundUp(siz));
+        emitGCrFrameLiveTab = (GCFrameLifetime**)emitGetMem(roundUp(siz));
         memset(emitGCrFrameLiveTab, 0, siz);
 
         /* Allocate and fill in emitGCrFrameOffsTab[]. This is the table
@@ -6081,9 +6081,9 @@ unsigned emitter::emitEndCodeGen(Compiler* comp,
 
     if (emitGCrFrameOffsCnt != 0)
     {
-        unsigned    vn;
-        int         of;
-        varPtrDsc** dp;
+        unsigned          vn;
+        int               of;
+        GCFrameLifetime** dp;
 
         for (vn = 0, of = emitGCrFrameOffsMin, dp = emitGCrFrameLiveTab; vn < emitGCrFrameOffsCnt;
              vn++, of += TARGET_POINTER_SIZE, dp++)
@@ -7007,70 +7007,34 @@ void emitter::emitDispDataSec(dataSecDsc* section)
 }
 #endif
 
-/*****************************************************************************/
-/*****************************************************************************
- *
- *  Record the fact that the given variable now contains a live GC ref.
- */
-
-void emitter::emitGCvarLiveSet(int offs, GCtype gcType, BYTE* addr, ssize_t disp)
+// Record the fact that the given variable now contains a live GC ref.
+void emitter::emitGCvarLiveSet(int offs, GCtype gcType, BYTE* addr, unsigned index)
 {
     assert(emitIssuing);
     assert(abs(offs) % REGSIZE_BYTES == 0);
-    assert((size_t)disp < emitGCrFrameOffsCnt);
-
-    varPtrDsc* desc;
-
     assert(needsGC(gcType));
-
-    /* Allocate a lifetime record */
-
-    desc = new (emitComp, CMK_GC) varPtrDsc;
-
-    desc->vpdBegOfs = emitCurCodeOffs(addr);
-#ifdef DEBUG
-    desc->vpdEndOfs = 0xFACEDEAD;
-#endif
-
-    desc->frameOffset = offs;
-
-    desc->vpdNext = nullptr;
+    assert(index < emitGCrFrameOffsCnt);
+    assert(emitGCrFrameLiveTab[index] == nullptr);
 
 #if !defined(JIT32_GCENCODER) || !defined(FEATURE_EH_FUNCLETS)
-    /* the lower 2 bits encode props about the stk ptr */
-
     if (offs == emitSyncThisObjOffs)
     {
-        desc->frameOffset |= this_OFFSET_FLAG;
+        offs |= this_OFFSET_FLAG;
     }
 #endif
 
     if (gcType == GCT_BYREF)
     {
-        desc->frameOffset |= byref_OFFSET_FLAG;
+        offs |= byref_OFFSET_FLAG;
     }
 
-    /* Append the new entry to the end of the list */
-    if (codeGen->gcInfo.gcVarPtrLast == nullptr)
-    {
-        assert(codeGen->gcInfo.gcVarPtrList == nullptr);
-        codeGen->gcInfo.gcVarPtrList = codeGen->gcInfo.gcVarPtrLast = desc;
-    }
-    else
-    {
-        assert(codeGen->gcInfo.gcVarPtrList != nullptr);
-        codeGen->gcInfo.gcVarPtrLast->vpdNext = desc;
-        codeGen->gcInfo.gcVarPtrLast          = desc;
-    }
+    GCFrameLifetime* lifetime = new (emitComp, CMK_GC) GCFrameLifetime(offs, emitCurCodeOffs(addr));
 
-    /* Record the variable descriptor in the table */
-
-    assert(emitGCrFrameLiveTab[disp] == nullptr);
-    emitGCrFrameLiveTab[disp] = desc;
-
-    /* The "global" live GC variable mask is no longer up-to-date */
-
+    emitGCrFrameLiveTab[index] = lifetime;
+    // The "global" live GC variable mask is no longer up-to-date.
     emitThisGCrefVset = false;
+
+    codeGen->gcInfo.AddFrameLifetime(lifetime);
 }
 
 /*****************************************************************************
@@ -7084,7 +7048,7 @@ void emitter::emitGCvarDeadSet(int offs, BYTE* addr, ssize_t disp)
     assert(abs(offs) % REGSIZE_BYTES == 0);
     assert((unsigned)disp < emitGCrFrameOffsCnt);
 
-    varPtrDsc* desc;
+    GCFrameLifetime* desc;
 
     /* Get hold of the lifetime descriptor and clear the entry */
 
