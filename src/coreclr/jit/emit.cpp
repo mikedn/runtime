@@ -7789,99 +7789,82 @@ void emitter::emitGCregDeadUpd(regNumber reg, BYTE* addr)
     }
 }
 
-/*****************************************************************************
- *
- *  Record the fact that the given variable now contains a live GC ref.
- *  varNum may be INT_MAX or negative (indicating a spill temp) only if
- *    offs is guaranteed to be the offset of a tracked GC ref. Else we
- *    need a valid value to check if the variable is tracked or not.
- */
-
+// Record the fact that the given variable now contains a live GC ref.
+// varNum may be INT_MAX or negative (indicating a spill temp) only if
+// offs is guaranteed to be the offset of a tracked GC ref. Else we
+// need a valid value to check if the variable is tracked or not.
 void emitter::emitGCvarLiveUpd(int offs, int varNum, GCtype gcType, BYTE* addr DEBUG_ARG(unsigned actualVarNum))
 {
     assert(abs(offs) % REGSIZE_BYTES == 0);
     assert(needsGC(gcType));
 
 #if FEATURE_FIXED_OUT_ARGS
-    if ((unsigned)varNum == emitComp->lvaOutgoingArgSpaceVar)
+    if (static_cast<unsigned>(varNum) == emitComp->lvaOutgoingArgSpaceVar)
     {
         if (emitFullGCinfo)
         {
-            /* Append an "arg push" entry to track a GC written to the
-               outgoing argument space.
-               Allocate a new ptr arg entry and fill it in */
+            noway_assert(FitsIn<uint16_t>(offs));
 
-            regPtrDsc* regPtrNext = gcInfo->gcRegPtrAllocDsc();
-            regPtrNext->rpdGCtype = gcType;
-            regPtrNext->rpdOffs   = emitCurCodeOffs(addr);
-            regPtrNext->rpdArg    = true;
-            regPtrNext->rpdCall   = false;
-            noway_assert(FitsIn<unsigned short>(offs));
-            regPtrNext->rpdPtrArg  = (unsigned short)offs;
-            regPtrNext->rpdArgType = (unsigned short)GCInfo::rpdARG_PUSH;
+            // Append an "arg push" entry to track a GC written to the outgoing argument space.
+
+            regPtrDsc* regPtrNext  = gcInfo->gcRegPtrAllocDsc();
+            regPtrNext->rpdGCtype  = gcType;
+            regPtrNext->rpdOffs    = emitCurCodeOffs(addr);
+            regPtrNext->rpdArg     = true;
+            regPtrNext->rpdCall    = false;
+            regPtrNext->rpdPtrArg  = static_cast<uint16_t>(offs);
+            regPtrNext->rpdArgType = GCInfo::rpdARG_PUSH;
             regPtrNext->rpdIsThis  = false;
         }
+
+        return;
     }
-    else
 #endif // FEATURE_FIXED_OUT_ARGS
+
+    if ((offs < emitGCrFrameOffsMin) || (emitGCrFrameOffsMax <= offs))
     {
-        /* Is the frame offset within the "interesting" range? */
-
-        if (offs >= emitGCrFrameOffsMin && offs < emitGCrFrameOffsMax)
-        {
-            /* Normally all variables in this range must be tracked stack
-               pointers. However, for EnC, we relax this condition. So we
-               must check if this is not such a variable.
-               Note that varNum might be negative, indicating a spill temp.
-            */
-
-            if (varNum != INT_MAX)
-            {
-                bool isTracked = false;
-                if (varNum >= 0)
-                {
-                    // This is NOT a spill temp
-                    LclVarDsc* varDsc = &emitComp->lvaTable[varNum];
-                    isTracked         = emitComp->lvaIsGCTracked(varDsc);
-                }
-
-                if (!isTracked)
-                {
-#if DOUBLE_ALIGN
-                    assert(!emitContTrkPtrLcls ||
-                           // EBP based variables in the double-aligned frames are indeed input arguments.
-                           // and we don't require them to fall into the "interesting" range.
-                           ((codeGen->rpFrameType == FT_DOUBLE_ALIGN_FRAME) && (varNum >= 0) &&
-                            (emitComp->lvaTable[varNum].lvFramePointerBased == 1)));
-#else
-                    assert(!emitContTrkPtrLcls);
-#endif
-                    return;
-                }
-            }
-
-            size_t disp;
-
-            /* Compute the index into the GC frame table */
-
-            disp = (offs - emitGCrFrameOffsMin) / TARGET_POINTER_SIZE;
-            assert(disp < emitGCrFrameOffsCnt);
-
-            /* If the variable is currently dead, mark it as live */
-
-            if (emitGCrFrameLiveTab[disp] == nullptr)
-            {
-                emitGCvarLiveSet(offs, gcType, addr, disp);
-#ifdef DEBUG
-                if ((EMIT_GC_VERBOSE || emitComp->opts.disasmWithGC) && (actualVarNum < emitComp->lvaCount) &&
-                    emitComp->lvaGetDesc(actualVarNum)->lvTracked)
-                {
-                    VarSetOps::AddElemD(emitComp, debugThisGCrefVars, emitComp->lvaGetDesc(actualVarNum)->lvVarIndex);
-                }
-#endif
-            }
-        }
+        return;
     }
+
+    // Normally all variables in this range must be tracked stack pointers.
+    // However, for EnC, we relax this condition. So we must check if this
+    // is not such a variable. Note that varNum might be negative, indicating
+    // a spill temp.
+
+    if ((varNum != INT_MAX) && ((varNum < 0) || !emitComp->lvaIsGCTracked(emitComp->lvaGetDesc(varNum))))
+    {
+#if DOUBLE_ALIGN
+        assert(!emitContTrkPtrLcls ||
+               // EBP based variables in the double-aligned frames are indeed input arguments.
+               // and we don't require them to fall into the "interesting" range.
+               ((codeGen->rpFrameType == FT_DOUBLE_ALIGN_FRAME) && (varNum >= 0) &&
+                emitComp->lvaGetDesc(varNum)->lvFramePointerBased));
+#else
+        assert(!emitContTrkPtrLcls);
+#endif
+
+        return;
+    }
+
+    unsigned index = (offs - emitGCrFrameOffsMin) / REGSIZE_BYTES;
+    assert(index < emitGCrFrameOffsCnt);
+
+    if (emitGCrFrameLiveTab[index] != nullptr)
+    {
+        // The GC slot is already live.
+
+        return;
+    }
+
+    emitGCvarLiveSet(offs, gcType, addr, index);
+
+#ifdef DEBUG
+    if ((EMIT_GC_VERBOSE || emitComp->opts.disasmWithGC) && (actualVarNum < emitComp->lvaCount) &&
+        emitComp->lvaGetDesc(actualVarNum)->lvTracked)
+    {
+        VarSetOps::AddElemD(emitComp, debugThisGCrefVars, emitComp->lvaGetDesc(actualVarNum)->lvVarIndex);
+    }
+#endif
 }
 
 /*****************************************************************************
