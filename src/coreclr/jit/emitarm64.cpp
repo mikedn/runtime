@@ -11282,16 +11282,16 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
     if (emitInsWritesToLclVarStackLoc(id) || emitInsWritesToLclVarStackLocPair(id))
     {
         int      varNum = id->idAddr()->iiaLclVar.lvaVarNum();
-        unsigned ofs    = AlignDown(id->idAddr()->iiaLclVar.lvaOffset(), TARGET_POINTER_SIZE);
+        unsigned ofs    = AlignDown(id->idAddr()->iiaLclVar.lvaOffset(), REGSIZE_BYTES);
         bool     FPbased;
-        int      adr = emitComp->lvaFrameAddress(varNum, &FPbased);
+        int      adr = emitComp->lvaFrameAddress(varNum, &FPbased) + ofs;
+
         if (id->idGCref() != GCT_NONE)
         {
-            emitGCvarLiveUpd(adr + ofs, varNum, id->idGCref(), dst DEBUG_ARG(varNum));
+            emitGCvarLiveUpd(adr, varNum, id->idGCref(), dst DEBUG_ARG(varNum));
         }
         else
         {
-            // If the type of the local is a gc ref type, update the liveness.
             var_types vt;
 
             if (varNum >= 0)
@@ -11305,19 +11305,20 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
             if (varTypeIsGC(vt))
             {
-                emitGCvarDeadUpd(adr + ofs, dst DEBUG_ARG(varNum));
+                emitGCvarDeadUpd(adr, dst DEBUG_ARG(varNum));
             }
         }
+
         if (emitInsWritesToLclVarStackLocPair(id))
         {
-            unsigned ofs2 = ofs + TARGET_POINTER_SIZE;
+            adr += REGSIZE_BYTES;
+
             if (id->idGCrefReg2() != GCT_NONE)
             {
-                emitGCvarLiveUpd(adr + ofs2, varNum, id->idGCrefReg2(), dst DEBUG_ARG(varNum));
+                emitGCvarLiveUpd(adr, varNum, id->idGCrefReg2(), dst DEBUG_ARG(varNum));
             }
             else
             {
-                // If the type of the local is a gc ref type, update the liveness.
                 var_types vt;
 
                 if (varNum >= 0)
@@ -11331,7 +11332,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
                 if (varTypeIsGC(vt))
                 {
-                    emitGCvarDeadUpd(adr + ofs2, dst DEBUG_ARG(varNum));
+                    emitGCvarDeadUpd(adr, dst DEBUG_ARG(varNum));
                 }
             }
         }
