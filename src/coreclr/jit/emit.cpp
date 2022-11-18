@@ -7104,22 +7104,16 @@ void emitter::emitGCvarDeadSet(int offs, BYTE* addr, ssize_t disp)
     emitThisGCrefVset = false;
 }
 
-/*****************************************************************************
- *
- *  Record a new set of live GC ref variables.
- */
-
+// Record a new set of live GC ref variables.
 void emitter::emitUpdateLiveGCvars(VARSET_VALARG_TP vars, BYTE* addr)
 {
     assert(emitIssuing);
 
-    // Don't track GC changes in epilogs
+    // Don't track GC changes in epilogs.
     if (emitIGisInEpilog(emitCurIG))
     {
         return;
     }
-
-    /* Is the current set accurate and unchanged? */
 
     if (emitThisGCrefVset && VarSetOps::Equal(emitComp, emitThisGCrefVars, vars))
     {
@@ -7135,39 +7129,33 @@ void emitter::emitUpdateLiveGCvars(VARSET_VALARG_TP vars, BYTE* addr)
 
     VarSetOps::Assign(emitComp, emitThisGCrefVars, vars);
 
-    /* Are there any GC ref variables on the stack? */
-
-    if (emitGCrFrameOffsCnt)
+    if (emitGCrFrameOffsCnt == 0)
     {
-        int*     tab;
-        unsigned cnt = emitTrkVarCnt;
-        unsigned num;
+        emitThisGCrefVset = true;
 
-        /* Test all the tracked variable bits in the mask */
+        return;
+    }
 
-        for (num = 0, tab = emitGCrFrameOffsTab; num < cnt; num++, tab++)
+    for (unsigned trackedLclIndex = 0; trackedLclIndex < emitTrkVarCnt; trackedLclIndex++)
+    {
+        int val = emitGCrFrameOffsTab[trackedLclIndex];
+
+        if (val == -1)
         {
-            int val = *tab;
+            continue;
+        }
 
-            if (val != -1)
-            {
-                // byref_OFFSET_FLAG and this_OFFSET_FLAG are set
-                //  in the table-offsets for byrefs and this-ptr
+        int offs = val & ~OFFSET_MASK;
 
-                int offs = val & ~OFFSET_MASK;
+        if (VarSetOps::IsMember(emitComp, vars, trackedLclIndex))
+        {
+            GCtype gcType = (val & byref_OFFSET_FLAG) != 0 ? GCT_BYREF : GCT_GCREF;
 
-                // printf("var #%2u at %3d is now %s\n", num, offs, (vars & 1) ? "live" : "dead");
-
-                if (VarSetOps::IsMember(emitComp, vars, num))
-                {
-                    GCtype gcType = (val & byref_OFFSET_FLAG) ? GCT_BYREF : GCT_GCREF;
-                    emitGCvarLiveUpd(offs, INT_MAX, gcType, addr DEBUG_ARG(num));
-                }
-                else
-                {
-                    emitGCvarDeadUpd(offs, addr DEBUG_ARG(num));
-                }
-            }
+            emitGCvarLiveUpd(offs, INT_MAX, gcType, addr DEBUG_ARG(trackedLclIndex));
+        }
+        else
+        {
+            emitGCvarDeadUpd(offs, addr DEBUG_ARG(trackedLclIndex));
         }
     }
 
