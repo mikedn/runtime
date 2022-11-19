@@ -5820,6 +5820,24 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount /* = 0 
     emitAdjustStackDepthPushPop(ins);
 }
 
+ssize_t emitter::emitGetInsCns(instrDesc* id)
+{
+    return id->idIsLargeCns() ? ((instrDescCns*)id)->idcCnsVal : id->idSmallCns();
+}
+
+ssize_t emitter::emitGetInsDsp(instrDesc* id)
+{
+    if (id->idIsLargeDsp())
+    {
+        if (id->idIsLargeCns())
+        {
+            return ((instrDescCnsDsp*)id)->iddcDspVal;
+        }
+        return ((instrDescDsp*)id)->iddDspVal;
+    }
+    return 0;
+}
+
 void emitter::emitGetInsCns(instrDesc* id, CnsVal* cv)
 {
     cv->cnsReloc = id->idIsCnsReloc();
@@ -5937,6 +5955,24 @@ unsigned emitter::emitGetInsCIargs(instrDesc* id)
 }
 
 #endif // TARGET_X86
+
+GCtype emitter::emitRegGCtype(regNumber reg)
+{
+    assert(emitIssuing);
+
+    if ((emitThisGCrefRegs & genRegMask(reg)) != 0)
+    {
+        return GCT_GCREF;
+    }
+    else if ((emitThisByrefRegs & genRegMask(reg)) != 0)
+    {
+        return GCT_BYREF;
+    }
+    else
+    {
+        return GCT_NONE;
+    }
+}
 
 #if !FEATURE_FIXED_OUT_ARGS
 

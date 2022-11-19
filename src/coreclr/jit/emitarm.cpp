@@ -5393,6 +5393,38 @@ BYTE* emitter::emitOutputIT(BYTE* dst, instruction ins, insFormat fmt, code_t co
 
 #endif // FEATURE_ITINSTRUCTION
 
+size_t emitter::emitGetInstrDescSizeSC(const instrDesc* id)
+{
+    if (id->idIsSmallDsc())
+    {
+        return SMALL_IDSC_SIZE;
+    }
+    else if (id->idIsLargeCns())
+    {
+        return sizeof(instrDescCns);
+    }
+    else
+    {
+        return sizeof(instrDesc);
+    }
+}
+
+emitter::instrDesc* emitter::emitNewInstrReloc(emitAttr attr, BYTE* addr)
+{
+    assert(EA_IS_RELOC(attr));
+
+    instrDescReloc* id = (instrDescReloc*)emitAllocAnyInstr(sizeof(instrDescReloc), attr);
+    assert(id->idIsReloc());
+
+    id->idrRelocVal = addr;
+
+#if EMITTER_STATS
+    emitTotalIDescRelocCnt++;
+#endif // EMITTER_STATS
+
+    return id;
+}
+
 /*****************************************************************************
 *
  *  Append the machine code corresponding to the given instruction descriptor
