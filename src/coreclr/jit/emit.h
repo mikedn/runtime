@@ -2066,8 +2066,6 @@ private:
 
 public:
     void emitSetFrameRangeGCRs(int offsLo, int offsHi);
-    void emitSetFrameRangeLcls(int offsLo, int offsHi);
-    void emitSetFrameRangeArgs(int offsLo, int offsHi);
 
     static instruction emitJumpKindToIns(emitJumpKind jumpKind);
     static emitJumpKind emitInsToJumpKind(instruction ins);

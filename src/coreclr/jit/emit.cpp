@@ -2160,26 +2160,6 @@ void emitter::emitSetFrameRangeGCRs(int offsLo, int offsHi)
 
 /*****************************************************************************
  *
- *  The code generator tells us the range of local variables through this
- *  method.
- */
-
-void emitter::emitSetFrameRangeLcls(int offsLo, int offsHi)
-{
-}
-
-/*****************************************************************************
- *
- *  The code generator tells us the range of used arguments through this
- *  method.
- */
-
-void emitter::emitSetFrameRangeArgs(int offsLo, int offsHi)
-{
-}
-
-/*****************************************************************************
- *
  *  A conversion table used to map an operand size value (in bytes) into its
  *  small encoding (0 through 3), and vice versa.
  */
