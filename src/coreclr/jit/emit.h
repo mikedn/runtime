@@ -2584,15 +2584,6 @@ inline emitter::instrDesc* emitter::emitNewInstrSC(emitAttr attr, cnsval_ssize_t
     }
 }
 
-#ifdef DEBUG
-#define CHECK_STACK_DEPTH() assert((int)emitCurStackLvl >= 0)
-#endif
-
-/*****************************************************************************
- *
- *  Return true when a given code offset is properly aligned for the target
- */
-
 inline bool IsCodeAligned(UNATIVE_OFFSET offset)
 {
     return ((offset & (CODE_ALIGN - 1)) == 0);
