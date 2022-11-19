@@ -7862,22 +7862,9 @@ void emitter::emitIns_S_S_R_R(
     appendToCurIG(id);
 }
 
-/*****************************************************************************
- *
- *  Add an instruction referencing stack-based local variable and an immediate
- */
-void emitter::emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, int val)
-{
-    NYI("emitIns_S_I");
-}
-
-/*****************************************************************************
- *
- *  Add an instruction with a register + static member operands.
- *  Constant is stored into JIT data which is adjacent to code.
- *  No relocation is needed. PC-relative offset will be encoded directly into instruction.
- *
- */
+// Add an instruction with a register + static member operands.
+// Constant is stored into JIT data which is adjacent to code.
+// No relocation is needed. PC-relative offset will be encoded directly into instruction.
 void emitter::emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, regNumber addrReg, CORINFO_FIELD_HANDLE fldHnd)
 {
     emitAttr      size = EA_SIZE(attr);
