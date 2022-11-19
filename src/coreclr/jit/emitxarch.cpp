@@ -5687,6 +5687,84 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount /* = 0 
     emitAdjustStackDepthPushPop(ins);
 }
 
+void emitter::emitGetInsCns(instrDesc* id, CnsVal* cv)
+{
+    cv->cnsReloc = id->idIsCnsReloc();
+    if (id->idIsLargeCns())
+    {
+        cv->cnsVal = ((instrDescCns*)id)->idcCnsVal;
+    }
+    else
+    {
+        cv->cnsVal = id->idSmallCns();
+    }
+}
+
+ssize_t emitter::emitGetInsAmdCns(instrDesc* id, CnsVal* cv)
+{
+    cv->cnsReloc = id->idIsCnsReloc();
+    if (id->idIsLargeDsp())
+    {
+        if (id->idIsLargeCns())
+        {
+            cv->cnsVal = ((instrDescCnsAmd*)id)->idacCnsVal;
+            return ((instrDescCnsAmd*)id)->idacAmdVal;
+        }
+        else
+        {
+            cv->cnsVal = id->idSmallCns();
+            return ((instrDescAmd*)id)->idaAmdVal;
+        }
+    }
+    else
+    {
+        if (id->idIsLargeCns())
+        {
+            cv->cnsVal = ((instrDescCns*)id)->idcCnsVal;
+        }
+        else
+        {
+            cv->cnsVal = id->idSmallCns();
+        }
+
+        return id->idAddr()->iiaAddrMode.amDisp;
+    }
+}
+
+void emitter::emitGetInsDcmCns(instrDesc* id, CnsVal* cv)
+{
+    cv->cnsReloc = id->idIsCnsReloc();
+    if (id->idIsLargeCns())
+    {
+        if (id->idIsLargeDsp())
+        {
+            cv->cnsVal = ((instrDescCnsDsp*)id)->iddcCnsVal;
+        }
+        else
+        {
+            cv->cnsVal = ((instrDescCns*)id)->idcCnsVal;
+        }
+    }
+    else
+    {
+        cv->cnsVal = id->idSmallCns();
+    }
+}
+
+ssize_t emitter::emitGetInsAmdAny(instrDesc* id)
+{
+    if (id->idIsLargeDsp())
+    {
+        if (id->idIsLargeCns())
+        {
+            return ((instrDescCnsAmd*)id)->idacAmdVal;
+        }
+        return ((instrDescAmd*)id)->idaAmdVal;
+    }
+
+    return id->idAddr()->iiaAddrMode.amDisp;
+}
+
 #ifdef TARGET_X86
 
 int emitter::emitGetInsCDinfo(instrDesc* id)
