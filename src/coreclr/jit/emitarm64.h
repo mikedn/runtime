@@ -87,6 +87,10 @@ static bool emitInsIsVectorWide(instruction ins);
 emitAttr emitInsTargetRegSize(instrDesc* id);
 emitAttr emitInsLoadStoreSize(instrDesc* id);
 
+void Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum, int varOffs);
+void Ins_R_R_S(
+    instruction ins, emitAttr attr1, emitAttr attr2, regNumber reg1, regNumber reg2, int varNum, int varOffs);
+
 emitter::insFormat emitInsFormat(instruction ins);
 emitter::code_t emitInsCode(instruction ins, insFormat fmt);
 

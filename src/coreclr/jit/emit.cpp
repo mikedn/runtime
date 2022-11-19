@@ -8018,27 +8018,17 @@ void emitter::emitNxtIG(bool extend)
 
 cnsval_ssize_t emitter::emitGetInsSC(instrDesc* id)
 {
-#ifdef TARGET_ARM // should it be TARGET_ARMARCH? Why do we need this? Note that on ARM64 we store scaled immediates
-                  // for some formats
+#ifdef TARGET_ARM
     if (id->idIsLclVar())
     {
         int varNum = id->idAddr()->iiaLclVar.lvaVarNum();
 
         regNumber baseReg;
         int       offs = id->idAddr()->iiaLclVar.lvaOffset();
-#if defined(TARGET_ARM)
-        int adr = emitComp->lvaFrameAddress(varNum, id->idIsLclFPBase(), offs, instIsFP(id->idIns()), &baseReg);
-        int dsp = adr + offs;
+        int       adr  = emitComp->lvaFrameAddress(varNum, id->idIsLclFPBase(), offs, instIsFP(id->idIns()), &baseReg);
+        int       dsp  = adr + offs;
         if ((id->idIns() == INS_sub) || (id->idIns() == INS_subw))
             dsp = -dsp;
-#elif defined(TARGET_ARM64)
-        // TODO-ARM64-Cleanup: this is currently unreachable. Do we need it?
-        bool FPbased;
-        int  adr = emitComp->lvaFrameAddress(varNum, &FPbased);
-        int  dsp = adr + offs;
-        if (id->idIns() == INS_sub)
-            dsp = -dsp;
-#endif
         return dsp;
     }
     else

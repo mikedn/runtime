@@ -3669,27 +3669,35 @@ void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg, int var
             unreached();
     }
 
-    bool      mustBeFpBased = emitComp->funCurrentFunc()->funKind != FUNC_ROOT;
+    Ins_R_S(ins, attr, reg, varNum, varOffs);
+}
+
+void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, int varNum, int varOffs)
+{
+    switch (ins)
+    {
+        case INS_str:
+        case INS_strh:
+        case INS_strb:
+        case INS_vstr:
+            break;
+        default:
+            unreached();
+    }
+
+    Ins_R_S(ins, attr, reg, varNum, varOffs);
+}
+
+void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum, int varOffs)
+{
+    bool      mustBeFpBased    = emitComp->funCurrentFunc()->funKind != FUNC_ROOT;
+    bool      isFloatLoadStore = (ins == INS_vldr) || (ins == INS_vstr);
     regNumber baseReg;
-    int       imm = emitComp->lvaFrameAddress(varNum, mustBeFpBased, varOffs, ins == INS_vldr, &baseReg) + varOffs;
+    int       imm = emitComp->lvaFrameAddress(varNum, mustBeFpBased, varOffs, isFloatLoadStore, &baseReg) + varOffs;
 
     insFormat fmt;
 
-    if (ins == INS_vldr)
-    {
-        if (!IsSignedImm8(imm, 2))
-        {
-            regNumber tempReg = codeGen->rsGetRsvdReg();
-            MovRegStackOffset(tempReg, baseReg, imm, varNum, varOffs);
-            emitIns_R_R(INS_add, EA_4BYTE, tempReg, baseReg);
-            emitIns_R_R_I(ins, attr, reg, tempReg, 0);
-
-            return;
-        }
-
-        fmt = IF_T2_VLDST;
-    }
-    else if (ins == INS_lea)
+    if (ins == INS_lea)
     {
         if (isLowRegister(reg) && (baseReg == REG_SP) && IsUnsignedImm8(imm, 2))
         {
@@ -3719,65 +3727,7 @@ void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg, int var
             return;
         }
     }
-    else if ((ins == INS_ldr) && isLowRegister(reg) && (baseReg == REG_SP) && IsUnsignedImm8(imm, 2))
-    {
-        fmt = IF_T1_J2;
-    }
-    else if (IsUnsignedImm12(imm))
-    {
-        fmt = IF_T2_K1;
-    }
-    else if (IsSignedImm8(imm))
-    {
-        fmt = IF_T2_H0;
-    }
-    else
-    {
-        MovRegStackOffset(codeGen->rsGetRsvdReg(), baseReg, imm, varNum, varOffs);
-
-        fmt = IF_T2_E0;
-    }
-
-    instrDesc* id = emitNewInstrCns(attr, imm);
-    id->idIns(ins);
-    id->idInsFmt(fmt);
-    id->idInsSize(emitInsSize(fmt));
-    id->idInsFlags(INS_FLAGS_NOT_SET);
-    id->idInsOpt(INS_OPTS_NONE);
-    id->idReg1(reg);
-    id->idReg2(baseReg);
-    id->idAddr()->iiaLclVar.initLclVarAddr(varNum, varOffs);
-    id->idSetIsLclVar();
-
-    if (baseReg == REG_FP)
-    {
-        id->idSetIsLclFPBase();
-    }
-
-    dispIns(id);
-    appendToCurIG(id);
-}
-
-void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, int varNum, int varOffs)
-{
-    switch (ins)
-    {
-        case INS_str:
-        case INS_strh:
-        case INS_strb:
-        case INS_vstr:
-            break;
-        default:
-            unreached();
-    }
-
-    bool      mustBeFpBased = emitComp->funCurrentFunc()->funKind != FUNC_ROOT;
-    regNumber baseReg;
-    int       imm = emitComp->lvaFrameAddress(varNum, mustBeFpBased, varOffs, ins == INS_vstr, &baseReg) + varOffs;
-
-    insFormat fmt;
-
-    if (ins == INS_vstr)
+    else if (isFloatLoadStore)
     {
         if (!IsSignedImm8(imm, 2))
         {
@@ -3791,7 +3741,8 @@ void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, int var
 
         fmt = IF_T2_VLDST;
     }
-    else if ((ins == INS_str) && isLowRegister(reg) && (baseReg == REG_SP) && IsUnsignedImm8(imm, 2))
+    else if (((ins == INS_ldr) || (ins == INS_str)) && isLowRegister(reg) && (baseReg == REG_SP) &&
+             IsUnsignedImm8(imm, 2))
     {
         fmt = IF_T1_J2;
     }

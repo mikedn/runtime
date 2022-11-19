@@ -7395,6 +7395,39 @@ void emitter::emitIns_BARR(instruction ins, insBarrier barrier)
     appendToCurIG(id);
 }
 
+void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum, int varOffs)
+{
+    assert((ins == INS_ldrb) || (ins == INS_ldrsb) || (ins == INS_ldrh) || (ins == INS_ldrsh) || (ins == INS_ldrsw) ||
+           (ins == INS_ldr) || (ins == INS_lea));
+    assert(varOffs >= 0);
+
+    Ins_R_S(ins, attr, reg, varNum, varOffs);
+}
+
+void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, int varNum, int varOffs)
+{
+    assert((ins == INS_strb) || (ins == INS_strh) || (ins == INS_str));
+    assert(varOffs >= 0);
+
+    Ins_R_S(ins, attr, reg, varNum, varOffs);
+}
+
+void emitter::emitIns_R_R_S_S(
+    instruction ins, emitAttr attr1, emitAttr attr2, regNumber reg1, regNumber reg2, int varNum, int varOffs)
+{
+    assert((ins == INS_ldp) || (ins == INS_ldnp));
+
+    Ins_R_R_S(ins, attr1, attr2, reg1, reg2, varNum, varOffs);
+}
+
+void emitter::emitIns_S_S_R_R(
+    instruction ins, emitAttr attr1, emitAttr attr2, regNumber reg1, regNumber reg2, int varNum, int varOffs)
+{
+    assert((ins == INS_stp) || (ins == INS_stnp));
+
+    Ins_R_R_S(ins, attr1, attr2, reg1, reg2, varNum, varOffs);
+}
+
 constexpr bool IsSignedImm9(int imm)
 {
     return (-256 <= imm) && (imm <= 255);
@@ -7410,10 +7443,8 @@ constexpr bool IsSignedImm7(int imm, unsigned shift)
     return ((imm & ((1 << shift) - 1)) == 0) && (-64 <= (imm >> shift)) && ((imm >> shift) < 64);
 }
 
-void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum, int varOffs)
+void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum, int varOffs)
 {
-    assert(varOffs >= 0);
-
     bool fpBased;
     int  imm = emitComp->lvaFrameAddress(varNum, &fpBased) + varOffs;
 
@@ -7425,20 +7456,27 @@ void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg, int var
         case INS_ldrb:
         case INS_ldrsb:
             assert(isGeneralRegister(reg));
+            FALLTHROUGH;
+        case INS_strb:
+            assert(isGeneralRegisterOrZR(reg));
             scale = 0;
             break;
         case INS_ldrh:
         case INS_ldrsh:
             assert(isGeneralRegister(reg));
+            FALLTHROUGH;
+        case INS_strh:
+            assert(isGeneralRegisterOrZR(reg));
             scale = 1;
+            break;
+        case INS_ldr:
+        case INS_str:
+            scale = genLog2(EA_SIZE_IN_BYTES(size));
+            assert((2 <= scale) && (scale <= 4));
             break;
         case INS_ldrsw:
             assert((size == EA_8BYTE) && isGeneralRegister(reg));
             scale = 2;
-            break;
-        case INS_ldr:
-            scale = genLog2(EA_SIZE_IN_BYTES(size));
-            assert((2 <= scale) && (scale <= 4));
             break;
         case INS_lea:
             assert((size == EA_8BYTE) && isGeneralRegister(reg));
@@ -7518,145 +7556,9 @@ void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg, int var
     appendToCurIG(id);
 }
 
-void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, int varNum, int varOffs)
-{
-    assert(varOffs >= 0);
-
-    bool fpBased;
-    int  imm = emitComp->lvaFrameAddress(varNum, &fpBased) + varOffs;
-
-    emitAttr size = EA_SIZE(attr);
-    unsigned scale;
-
-    switch (ins)
-    {
-        case INS_strb:
-            assert(isGeneralRegisterOrZR(reg));
-            scale = 0;
-            break;
-        case INS_strh:
-            assert(isGeneralRegisterOrZR(reg));
-            scale = 1;
-            break;
-        case INS_str:
-            scale = genLog2(EA_SIZE_IN_BYTES(size));
-            assert((2 <= scale) && (scale <= 4));
-            break;
-        default:
-            unreached();
-    }
-
-    insFormat fmt;
-
-    if (imm == 0)
-    {
-        fmt = IF_LS_2A;
-    }
-    else if (IsUnsignedImm12(imm, scale))
-    {
-        imm >>= scale;
-        fmt = IF_LS_2B;
-    }
-    else if (IsSignedImm9(imm))
-    {
-        fmt = IF_LS_2C;
-    }
-    else
-    {
-        // The reserved register is not stored in idReg3() since that field overlaps with iiaLclVar.
-        // It is instead implicit when idSetIsLclVar() is set, with this encoding format.
-
-        codeGen->instGen_Set_Reg_To_Imm(EA_8BYTE, codeGen->rsGetRsvdReg(), imm);
-        fmt = IF_LS_3A;
-
-        // TODO-MIKE-Review: Shouldn't imm be set to 0 in this case?!
-    }
-
-    // TODO-ARM64-CQ: with compLocallocUsed, should we use REG_SAVED_LOCALLOC_SP instead?
-    regNumber baseReg = fpBased ? REG_FP : REG_ZR;
-
-    if (emitComp->opts.OptimizationEnabled() && IsRedundantLdStr(ins, reg, baseReg, imm, size, fmt))
-    {
-        return;
-    }
-
-    instrDesc* id = emitNewInstrCns(attr, imm);
-    id->idIns(ins);
-    id->idInsFmt(fmt);
-    id->idInsOpt(INS_OPTS_NONE);
-    id->idReg1(reg);
-    id->idReg2(baseReg);
-    id->idAddr()->iiaLclVar.initLclVarAddr(varNum, varOffs);
-    id->idSetIsLclVar();
-
-    dispIns(id);
-    appendToCurIG(id);
-}
-
-void emitter::emitIns_R_R_S_S(
+void emitter::Ins_R_R_S(
     instruction ins, emitAttr attr1, emitAttr attr2, regNumber reg1, regNumber reg2, int varNum, int varOffs)
 {
-    assert((ins == INS_ldp) || (ins == INS_ldnp));
-    assert((EA_SIZE(attr1) == EA_8BYTE) || (attr1 == EA_4BYTE) || (isVectorRegister(reg1) && (attr1 == EA_16BYTE)));
-    assert((EA_SIZE(attr2) == EA_8BYTE) || (attr2 == EA_4BYTE) || (isVectorRegister(reg2) && (attr2 == EA_16BYTE)));
-    assert(EA_SIZE(attr1) == EA_SIZE(attr2));
-    assert(varOffs >= 0);
-
-    bool fpBased;
-    int  imm = emitComp->lvaFrameAddress(varNum, &fpBased) + varOffs;
-
-    unsigned  scale   = genLog2(EA_SIZE_IN_BYTES(attr1));
-    regNumber baseReg = fpBased ? REG_FP : REG_ZR;
-    insFormat fmt;
-
-    if (imm == 0)
-    {
-        fmt = IF_LS_3B;
-    }
-    else if (IsSignedImm7(imm, scale))
-    {
-        imm >>= scale;
-        fmt = IF_LS_3C;
-    }
-    else
-    {
-        regNumber tempReg = codeGen->rsGetRsvdReg();
-        emitIns_R_R_Imm(INS_add, EA_8BYTE, tempReg, baseReg, imm);
-        baseReg = tempReg;
-        imm     = 0;
-        fmt     = IF_LS_3B;
-    }
-
-    GCtype reg2Type = GCT_NONE;
-
-    if (EA_IS_GCREF(attr2))
-    {
-        reg2Type = GCT_GCREF;
-    }
-    else if (EA_IS_BYREF(attr2))
-    {
-        reg2Type = GCT_BYREF;
-    }
-
-    instrDesc* id = emitNewInstrCns(attr1, imm);
-    id->idIns(ins);
-    id->idInsFmt(fmt);
-    id->idInsOpt(INS_OPTS_NONE);
-    id->idGCrefReg2(reg2Type);
-    id->idReg1(reg1);
-    id->idReg2(reg2);
-    id->idReg3(baseReg);
-    id->idAddr()->iiaLclVar.initLclVarAddr(varNum, varOffs);
-    id->idSetIsLclVar();
-
-    dispIns(id);
-    appendToCurIG(id);
-}
-
-void emitter::emitIns_S_S_R_R(
-    instruction ins, emitAttr attr1, emitAttr attr2, regNumber reg1, regNumber reg2, int varNum, int varOffs)
-{
-    assert((ins == INS_stp) || (ins == INS_stnp));
     assert((EA_SIZE(attr1) == EA_8BYTE) || (attr1 == EA_4BYTE) || (isVectorRegister(reg1) && (attr1 == EA_16BYTE)));
     assert((EA_SIZE(attr2) == EA_8BYTE) || (attr2 == EA_4BYTE) || (isVectorRegister(reg2) && (attr2 == EA_16BYTE)));
     assert(EA_SIZE(attr1) == EA_SIZE(attr2));
