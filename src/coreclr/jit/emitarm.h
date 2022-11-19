@@ -82,7 +82,6 @@ static bool emitInsIsCompare(instruction ins);
 static bool emitInsIsLoad(instruction ins);
 static bool emitInsIsStore(instruction ins);
 static bool emitInsIsLoadOrStore(instruction ins);
-
 emitter::insFormat emitInsFormat(instruction ins);
 emitter::code_t emitInsCode(instruction ins, insFormat fmt);
 
@@ -91,6 +90,8 @@ static bool isModImmConst(int imm);
 static int encodeModImmConst(int imm);
 
 static int insUnscaleImm(instruction ins, int imm);
+
+void MovRegStackOffset(regNumber reg, regNumber baseReg, int imm, int varNum, int varOffs);
 
 /************************************************************************/
 /*           Public inline informational methods                        */
@@ -267,11 +268,9 @@ void emitIns_R_R_R_I(instruction ins,
 
 void emitIns_R_R_R_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, regNumber reg4);
 
-void emitIns_genStackOffset(regNumber r, int varx, int offs, bool isFloatUsage, regNumber* pBaseReg);
+void emitIns_S_R(instruction ins, emitAttr attr, regNumber ireg, int varNum, int varOffs);
 
-void emitIns_S_R(instruction ins, emitAttr attr, regNumber ireg, int varx, int offs);
-
-void emitIns_R_S(instruction ins, emitAttr attr, regNumber ireg, int varx, int offs, regNumber* pBaseReg = nullptr);
+void emitIns_R_S(instruction ins, emitAttr attr, regNumber ireg, int varNum, int varOffs);
 
 void emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO_FIELD_HANDLE fldHnd);
 

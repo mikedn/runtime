@@ -3603,224 +3603,163 @@ void emitter::emitIns_R_R_R_R(
     appendToCurIG(id);
 }
 
-//-------------------------------------------------------------------------------------
-// emitIns_R_S: Add an instruction referencing a register and a stack-based local variable.
-//
-// Arguments:
-//    ins      - The instruction to add.
-//    attr     - Oeration size.
-//    varx     - The variable to generate offset for.
-//    offs     - The offset of variable or field in stack.
-//    pBaseReg - The base register that is used while calculating the offset. For example, if the offset
-//               with "stack pointer" can't be encoded in instruction, "frame pointer" can be used to get
-//               the offset of the field. In such case, pBaseReg will store the "fp".
-//
-// Return Value:
-//    The pBaseReg that holds the base register that was used to calculate the offset.
-//
-void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg1, int varx, int offs, regNumber* pBaseReg)
+void emitter::MovRegStackOffset(regNumber reg, regNumber baseReg, int imm, int varNum, int varOffs)
 {
-    if (ins == INS_mov)
-    {
-        assert(!"Please use ins_Load() to select the correct instruction");
-    }
+    auto mov = [&](instruction ins) {
+        instrDesc* id = emitNewInstrCns(EA_4BYTE, imm);
+        id->idIns(ins);
+        id->idInsFmt(IF_T2_N);
+        id->idInsSize(ISZ_32BIT);
+        id->idInsFlags(INS_FLAGS_NOT_SET);
+        id->idInsOpt(INS_OPTS_NONE);
+        id->idReg1(reg);
+        id->idAddr()->iiaLclVar.initLclVarAddr(varNum, varOffs);
+        id->idSetIsLclVar();
 
+        if (baseReg == REG_FP)
+        {
+            id->idSetIsLclFPBase();
+        }
+
+        dispIns(id);
+        appendToCurIG(id);
+    };
+
+    mov(INS_movw);
+
+    if ((imm >> 16) != 0)
+    {
+        mov(INS_movt);
+    }
+}
+
+constexpr bool IsUnsignedImm8(int imm, unsigned shift = 0)
+{
+    return (imm & ~(255 << shift)) == 0;
+}
+
+constexpr bool IsSignedImm8(int imm, unsigned shift = 0)
+{
+    return (unsigned_abs(imm) & ~(255 << shift)) == 0;
+}
+
+constexpr bool IsUnsignedImm12(int imm)
+{
+    return (imm & ~4095) == 0;
+}
+
+constexpr bool IsSignedImm12(int imm)
+{
+    return (unsigned_abs(imm) & ~4095) == 0;
+}
+
+void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum, int varOffs)
+{
     switch (ins)
     {
-        case INS_add:
+        case INS_lea:
         case INS_ldr:
         case INS_ldrh:
         case INS_ldrb:
         case INS_ldrsh:
         case INS_ldrsb:
         case INS_vldr:
-        case INS_vmov:
-        case INS_movw:
-        case INS_movt:
             break;
-
-        case INS_lea:
-            ins = INS_add;
-            break;
-
         default:
-            NYI("emitIns_R_S");
-            return;
+            unreached();
     }
 
-    insFormat fmt = IF_NONE;
-    insFlags  sf  = INS_FLAGS_NOT_SET;
-    regNumber reg2;
-    regNumber baseRegUsed;
+    bool      mustBeFpBased = emitComp->funCurrentFunc()->funKind != FUNC_ROOT;
+    regNumber baseReg;
+    int       imm = emitComp->lvaFrameAddress(varNum, mustBeFpBased, varOffs, ins == INS_vldr, &baseReg) + varOffs;
 
-    /* Figure out the variable's frame position */
-    int      base;
-    int      disp;
-    unsigned undisp;
+    insFormat fmt;
 
-    base =
-        emitComp->lvaFrameAddress(varx, emitComp->funCurrentFunc()->funKind != FUNC_ROOT, offs, instIsFP(ins), &reg2);
-    if (pBaseReg != nullptr)
+    if (ins == INS_vldr)
     {
-        *pBaseReg = reg2;
-    }
-
-    disp   = base + offs;
-    undisp = unsigned_abs(disp);
-
-    if (instIsFP(ins))
-    {
-        // all fp mem ops take 8 bit immediate, multiplied by 4, plus sign
-        //
-        // Note if undisp is not a multiple of four we will fail later on
-        //   when we try to encode this instruction
-        // Its better to fail later with a better error message than
-        //   to fail here when the RBM_OPT_RSVD is not available
-        //
-        if (undisp <= 0x03fc)
+        if (!IsSignedImm8(imm, 2))
         {
-            fmt = IF_T2_VLDST;
-        }
-        else
-        {
-            regNumber rsvdReg = codeGen->rsGetRsvdReg();
-            emitIns_genStackOffset(rsvdReg, varx, offs, /* isFloatUsage */ true, &baseRegUsed);
-            emitIns_R_R(INS_add, EA_4BYTE, rsvdReg, baseRegUsed);
-            emitIns_R_R_I(ins, attr, reg1, rsvdReg, 0);
+            regNumber tempReg = codeGen->rsGetRsvdReg();
+            MovRegStackOffset(tempReg, baseReg, imm, varNum, varOffs);
+            emitIns_R_R(INS_add, EA_4BYTE, tempReg, baseReg);
+            emitIns_R_R_I(ins, attr, reg, tempReg, 0);
+
             return;
         }
-    }
-    else if (emitInsIsLoadOrStore(ins))
-    {
-        if (isLowRegister(reg1) && (reg2 == REG_SP) && (ins == INS_ldr) && ((disp & 0x03fc) == disp))
-        {
-            fmt = IF_T1_J2;
-        }
-        else if (disp >= 0 && disp <= 0x0fff)
-        {
-            fmt = IF_T2_K1;
-        }
-        else if (undisp <= 0x0ff)
-        {
-            fmt = IF_T2_H0;
-        }
-        else
-        {
-            // Load disp into a register
-            regNumber rsvdReg = codeGen->rsGetRsvdReg();
-            emitIns_genStackOffset(rsvdReg, varx, offs, /* isFloatUsage */ false, &baseRegUsed);
-            fmt = IF_T2_E0;
 
-            // Ensure the baseReg calculated is correct.
-            assert(baseRegUsed == reg2);
-        }
+        fmt = IF_T2_VLDST;
     }
-    else if (ins == INS_add)
+    else if (ins == INS_lea)
     {
-        if (isLowRegister(reg1) && (reg2 == REG_SP) && ((disp & 0x03fc) == disp))
+        if (isLowRegister(reg) && (baseReg == REG_SP) && IsUnsignedImm8(imm, 2))
         {
+            ins = INS_add;
             fmt = IF_T1_J2;
         }
-        else if (undisp <= 0x0fff)
+        else if (IsSignedImm12(imm))
         {
-            if (disp < 0)
+            if (imm >= 0)
             {
-                ins  = INS_sub;
-                disp = -disp;
+                ins = INS_addw;
             }
-            // add/sub => addw/subw instruction
-            // Note that even when using the w prefix the immediate is still only 12 bits?
-            ins = (ins == INS_add) ? INS_addw : INS_subw;
+            else
+            {
+                ins = INS_subw;
+                imm = -imm;
+            }
+
             fmt = IF_T2_M0;
         }
         else
         {
-            // Load disp into a register
-            regNumber rsvdReg = codeGen->rsGetRsvdReg();
-            emitIns_genStackOffset(rsvdReg, varx, offs, /* isFloatUsage */ false, &baseRegUsed);
+            regNumber tempReg = codeGen->rsGetRsvdReg();
+            MovRegStackOffset(tempReg, baseReg, imm, varNum, varOffs);
+            emitIns_R_R_R(INS_add, attr, reg, baseReg, tempReg);
 
-            // Ensure the baseReg calculated is correct.
-            assert(baseRegUsed == reg2);
-            emitIns_R_R_R(ins, attr, reg1, reg2, rsvdReg);
             return;
         }
     }
-    else if (ins == INS_movw || ins == INS_movt)
+    else if ((ins == INS_ldr) && isLowRegister(reg) && (baseReg == REG_SP) && IsUnsignedImm8(imm, 2))
     {
-        fmt = IF_T2_N;
+        fmt = IF_T1_J2;
+    }
+    else if (IsUnsignedImm12(imm))
+    {
+        fmt = IF_T2_K1;
+    }
+    else if (IsSignedImm8(imm))
+    {
+        fmt = IF_T2_H0;
+    }
+    else
+    {
+        MovRegStackOffset(codeGen->rsGetRsvdReg(), baseReg, imm, varNum, varOffs);
+
+        fmt = IF_T2_E0;
     }
 
-    assert((fmt == IF_T1_J2) || (fmt == IF_T2_E0) || (fmt == IF_T2_H0) || (fmt == IF_T2_K1) || (fmt == IF_T2_L0) ||
-           (fmt == IF_T2_N) || (fmt == IF_T2_VLDST) || (fmt == IF_T2_M0));
-    assert(sf != INS_FLAGS_DONT_CARE);
-
-    instrDesc* id  = emitNewInstrCns(attr, disp);
-    insSize    isz = emitInsSize(fmt);
-
+    instrDesc* id = emitNewInstrCns(attr, imm);
     id->idIns(ins);
     id->idInsFmt(fmt);
-    id->idInsSize(isz);
-    id->idInsFlags(sf);
+    id->idInsSize(emitInsSize(fmt));
+    id->idInsFlags(INS_FLAGS_NOT_SET);
     id->idInsOpt(INS_OPTS_NONE);
-    id->idReg1(reg1);
-    id->idReg2(reg2);
-    id->idAddr()->iiaLclVar.initLclVarAddr(varx, offs);
+    id->idReg1(reg);
+    id->idReg2(baseReg);
+    id->idAddr()->iiaLclVar.initLclVarAddr(varNum, varOffs);
     id->idSetIsLclVar();
-    if (reg2 == REG_FP)
+
+    if (baseReg == REG_FP)
+    {
         id->idSetIsLclFPBase();
+    }
 
     dispIns(id);
     appendToCurIG(id);
 }
 
-//-------------------------------------------------------------------------------------
-// emitIns_genStackOffset: Generate the offset of &varx + offs into a register
-//
-// Arguments:
-//    r            - Register in which offset calculation result is stored.
-//    varx         - The variable to generate offset for.
-//    offs         - The offset of variable or field in stack.
-//    isFloatUsage - True if the instruction being generated is a floating point instruction. This requires using
-//                   floating-point offset restrictions. Note that a variable can be non-float, e.g., struct, but
-//                   accessed as a float local field.
-//    pBaseReg     - The base register that is used while calculating the offset. For example, if the offset with
-//                   "stack pointer" can't be encoded in instruction, "frame pointer" can be used to get the offset
-//                   of the field. In such case, pBaseReg will store the "fp".
-//
-// Return Value:
-//    The pBaseReg that holds the base register that was used to calculate the offset.
-//
-void emitter::emitIns_genStackOffset(regNumber r, int varx, int offs, bool isFloatUsage, regNumber* pBaseReg)
+void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, int varNum, int varOffs)
 {
-    regNumber regBase;
-    int       base;
-    int       disp;
-
-    base =
-        emitComp->lvaFrameAddress(varx, emitComp->funCurrentFunc()->funKind != FUNC_ROOT, offs, isFloatUsage, &regBase);
-    disp = base + offs;
-
-    emitIns_R_S(INS_movw, EA_4BYTE, r, varx, offs, pBaseReg);
-
-    if ((disp & 0xffff) != disp)
-    {
-        regNumber regBaseUsedInMovT;
-        emitIns_R_S(INS_movt, EA_4BYTE, r, varx, offs, &regBaseUsedInMovT);
-        assert(*pBaseReg == regBaseUsedInMovT);
-    }
-}
-
-/*****************************************************************************
- *
- *  Add an instruction referencing a stack-based local variable and a register
- */
-void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg1, int varx, int offs)
-{
-    if (ins == INS_mov)
-    {
-        assert(!"Please use ins_Store() to select the correct instruction");
-    }
-
     switch (ins)
     {
         case INS_str:
@@ -3828,92 +3767,64 @@ void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg1, int va
         case INS_strb:
         case INS_vstr:
             break;
-
         default:
-            NYI("emitIns_R_S");
-            return;
+            unreached();
     }
 
-    insFormat fmt = IF_NONE;
-    insFlags  sf  = INS_FLAGS_NOT_SET;
-    regNumber reg2;
-    regNumber baseRegUsed;
+    bool      mustBeFpBased = emitComp->funCurrentFunc()->funKind != FUNC_ROOT;
+    regNumber baseReg;
+    int       imm = emitComp->lvaFrameAddress(varNum, mustBeFpBased, varOffs, ins == INS_vstr, &baseReg) + varOffs;
 
-    /* Figure out the variable's frame position */
-    int      base;
-    int      disp;
-    unsigned undisp;
+    insFormat fmt;
 
-    base =
-        emitComp->lvaFrameAddress(varx, emitComp->funCurrentFunc()->funKind != FUNC_ROOT, offs, instIsFP(ins), &reg2);
-
-    disp   = base + offs;
-    undisp = unsigned_abs(disp);
-
-    if (instIsFP(ins))
+    if (ins == INS_vstr)
     {
-        // all fp mem ops take 8 bit immediate, multiplied by 4, plus sign
-        //
-        // Note if undisp is not a multiple of four we will fail later on
-        //   when we try to encode this instruction
-        // Its better to fail later with a better error message than
-        //   to fail here when the RBM_OPT_RSVD is not available
-        //
-        if (undisp <= 0x03fc)
+        if (!IsSignedImm8(imm, 2))
         {
-            fmt = IF_T2_VLDST;
-        }
-        else
-        {
-            regNumber rsvdReg = codeGen->rsGetRsvdReg();
-            emitIns_genStackOffset(rsvdReg, varx, offs, /* isFloatUsage */ true, &baseRegUsed);
+            regNumber tempReg = codeGen->rsGetRsvdReg();
+            MovRegStackOffset(tempReg, baseReg, imm, varNum, varOffs);
+            emitIns_R_R(INS_add, EA_4BYTE, tempReg, baseReg);
+            emitIns_R_R_I(ins, attr, reg, tempReg, 0);
 
-            // Ensure the baseReg calculated is correct.
-            assert(baseRegUsed == reg2);
-            emitIns_R_R(INS_add, EA_4BYTE, rsvdReg, reg2);
-            emitIns_R_R_I(ins, attr, reg1, rsvdReg, 0);
             return;
         }
+
+        fmt = IF_T2_VLDST;
     }
-    else if (isLowRegister(reg1) && (reg2 == REG_SP) && (ins == INS_str) && ((disp & 0x03fc) == disp))
+    else if ((ins == INS_str) && isLowRegister(reg) && (baseReg == REG_SP) && IsUnsignedImm8(imm, 2))
     {
         fmt = IF_T1_J2;
     }
-    else if (disp >= 0 && disp <= 0x0fff)
+    else if (IsUnsignedImm12(imm))
     {
         fmt = IF_T2_K1;
     }
-    else if (undisp <= 0x0ff)
+    else if (IsSignedImm8(imm))
     {
         fmt = IF_T2_H0;
     }
     else
     {
-        // Load disp into a register
-        regNumber rsvdReg = codeGen->rsGetRsvdReg();
-        emitIns_genStackOffset(rsvdReg, varx, offs, /* isFloatUsage */ false, &baseRegUsed);
+        MovRegStackOffset(codeGen->rsGetRsvdReg(), baseReg, imm, varNum, varOffs);
+
         fmt = IF_T2_E0;
-
-        // Ensure the baseReg calculated is correct.
-        assert(baseRegUsed == reg2);
     }
-    assert((fmt == IF_T1_J2) || (fmt == IF_T2_E0) || (fmt == IF_T2_H0) || (fmt == IF_T2_VLDST) || (fmt == IF_T2_K1));
-    assert(sf != INS_FLAGS_DONT_CARE);
 
-    instrDesc* id  = emitNewInstrCns(attr, disp);
-    insSize    isz = emitInsSize(fmt);
-
+    instrDesc* id = emitNewInstrCns(attr, imm);
     id->idIns(ins);
     id->idInsFmt(fmt);
-    id->idInsSize(isz);
-    id->idInsFlags(sf);
+    id->idInsSize(emitInsSize(fmt));
+    id->idInsFlags(INS_FLAGS_NOT_SET);
     id->idInsOpt(INS_OPTS_NONE);
-    id->idReg1(reg1);
-    id->idReg2(reg2);
-    id->idAddr()->iiaLclVar.initLclVarAddr(varx, offs);
+    id->idReg1(reg);
+    id->idReg2(baseReg);
+    id->idAddr()->iiaLclVar.initLclVarAddr(varNum, varOffs);
     id->idSetIsLclVar();
-    if (reg2 == REG_FP)
+
+    if (baseReg == REG_FP)
+    {
         id->idSetIsLclFPBase();
+    }
 
     dispIns(id);
     appendToCurIG(id);

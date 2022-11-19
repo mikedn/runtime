@@ -7395,457 +7395,318 @@ void emitter::emitIns_BARR(instruction ins, insBarrier barrier)
     appendToCurIG(id);
 }
 
-/*****************************************************************************
- *
- *  Add an instruction referencing a register and a stack-based local variable.
- */
-void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg1, int varx, int offs)
+constexpr bool IsSignedImm9(int imm)
 {
-    emitAttr  size  = EA_SIZE(attr);
-    insFormat fmt   = IF_NONE;
-    int       disp  = 0;
-    unsigned  scale = 0;
+    return (-256 <= imm) && (imm <= 255);
+}
 
-    assert(offs >= 0);
+constexpr bool IsUnsignedImm12(int imm, unsigned shift = 0)
+{
+    return (imm & ~(((1 << 12) - 1) << shift)) == 0;
+}
 
-    // TODO-ARM64-CQ: use unscaled loads?
+constexpr bool IsSignedImm7(int imm, unsigned shift)
+{
+    return ((imm & ((1 << shift) - 1)) == 0) && (-64 <= (imm >> shift)) && ((imm >> shift) < 64);
+}
+
+void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum, int varOffs)
+{
+    assert(varOffs >= 0);
+
+    bool fpBased;
+    int  imm = emitComp->lvaFrameAddress(varNum, &fpBased) + varOffs;
+
+    emitAttr size = EA_SIZE(attr);
+    unsigned scale;
 
     switch (ins)
     {
         case INS_ldrb:
         case INS_ldrsb:
+            assert(isGeneralRegister(reg));
             scale = 0;
             break;
         case INS_ldrh:
         case INS_ldrsh:
+            assert(isGeneralRegister(reg));
             scale = 1;
             break;
         case INS_ldrsw:
+            assert((size == EA_8BYTE) && isGeneralRegister(reg));
             scale = 2;
             break;
         case INS_ldr:
-            assert(isValidGeneralDatasize(size) || isValidVectorDatasize(size));
             scale = genLog2(EA_SIZE_IN_BYTES(size));
+            assert((2 <= scale) && (scale <= 4));
             break;
         case INS_lea:
-            assert(size == EA_8BYTE);
+            assert((size == EA_8BYTE) && isGeneralRegister(reg));
             scale = 0;
             break;
         default:
             unreached();
     }
 
-    /* Figure out the variable's frame position */
-    ssize_t imm;
-    int     base;
-    bool    FPbased;
-
-    base = emitComp->lvaFrameAddress(varx, &FPbased);
-    disp = base + offs;
-    assert((scale >= 0) && (scale <= 4));
-
-    regNumber reg2 = FPbased ? REG_FPBASE : REG_SPBASE;
-    reg2           = encodingSPtoZR(reg2);
+    insFormat fmt;
 
     if (ins == INS_lea)
     {
-        if (disp >= 0)
+        if (imm >= 0)
         {
             ins = INS_add;
-            imm = disp;
         }
         else
         {
             ins = INS_sub;
-            imm = -disp;
+            imm = -imm;
         }
 
-        if (imm <= 0x0fff)
+        if (IsUnsignedImm12(imm))
         {
-            fmt = IF_DI_2A; // add reg1,reg2,#disp
+            fmt = IF_DI_2A;
         }
         else
         {
-            regNumber rsvdReg = codeGen->rsGetRsvdReg();
-            codeGen->instGen_Set_Reg_To_Imm(EA_PTRSIZE, rsvdReg, imm);
-            fmt = IF_DR_3A; // add reg1,reg2,rsvdReg
+            regNumber tempReg = codeGen->rsGetRsvdReg();
+            codeGen->instGen_Set_Reg_To_Imm(EA_8BYTE, tempReg, imm);
+            fmt = IF_DR_3A;
         }
+    }
+    else if (imm == 0)
+    {
+        fmt = IF_LS_2A;
+    }
+    else if (IsUnsignedImm12(imm, scale))
+    {
+        imm >>= scale;
+        fmt = IF_LS_2B;
+    }
+    else if (IsSignedImm9(imm))
+    {
+        fmt = IF_LS_2C;
     }
     else
     {
-        bool    useRegForImm = false;
-        ssize_t mask         = (1 << scale) - 1; // the mask of low bits that must be zero to encode the immediate
+        // The reserved register is not stored in idReg3() since that field overlaps with iiaLclVar.
+        // It is instead implicit when idSetIsLclVar() is set, with this encoding format.
 
-        imm = disp;
-        if (imm == 0)
-        {
-            fmt = IF_LS_2A;
-        }
-        else if ((imm < 0) || ((imm & mask) != 0))
-        {
-            if ((imm >= -256) && (imm <= 255))
-            {
-                fmt = IF_LS_2C;
-            }
-            else
-            {
-                useRegForImm = true;
-            }
-        }
-        else if (imm > 0)
-        {
-            if (((imm & mask) == 0) && ((imm >> scale) < 0x1000))
-            {
-                imm >>= scale; // The immediate is scaled by the size of the ld/st
+        codeGen->instGen_Set_Reg_To_Imm(EA_8BYTE, codeGen->rsGetRsvdReg(), imm);
+        fmt = IF_LS_3A;
 
-                fmt = IF_LS_2B;
-            }
-            else
-            {
-                useRegForImm = true;
-            }
-        }
-
-        if (useRegForImm)
-        {
-            regNumber rsvdReg = codeGen->rsGetRsvdReg();
-            codeGen->instGen_Set_Reg_To_Imm(EA_PTRSIZE, rsvdReg, imm);
-            fmt = IF_LS_3A;
-        }
+        // TODO-MIKE-Review: Shouldn't imm be set to 0 in this case?!
     }
 
-    // Is the ldr/str even necessary?
-    if (emitComp->opts.OptimizationEnabled() && IsRedundantLdStr(ins, reg1, reg2, imm, size, fmt))
+    // TODO-ARM64-CQ: with compLocallocUsed, should we use REG_SAVED_LOCALLOC_SP instead?
+    regNumber baseReg = fpBased ? REG_FP : REG_ZR;
+
+    if (emitComp->opts.OptimizationEnabled() && IsRedundantLdStr(ins, reg, baseReg, imm, size, fmt))
     {
         return;
     }
 
-    assert(fmt != IF_NONE);
-
     instrDesc* id = emitNewInstrCns(attr, imm);
-
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idInsOpt(INS_OPTS_NONE);
-
-    id->idReg1(reg1);
-    id->idReg2(reg2);
-    id->idAddr()->iiaLclVar.initLclVarAddr(varx, offs);
+    id->idReg1(reg);
+    id->idReg2(baseReg);
+    id->idAddr()->iiaLclVar.initLclVarAddr(varNum, varOffs);
     id->idSetIsLclVar();
 
     dispIns(id);
     appendToCurIG(id);
 }
 
-/*****************************************************************************
- *
- *  Add an instruction referencing two register and consectutive stack-based local variable slots.
- */
-void emitter::emitIns_R_R_S_S(
-    instruction ins, emitAttr attr1, emitAttr attr2, regNumber reg1, regNumber reg2, int varx, int offs)
+void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, int varNum, int varOffs)
 {
-    assert((ins == INS_ldp) || (ins == INS_ldnp));
-    assert(EA_8BYTE == EA_SIZE(attr1));
-    assert(EA_8BYTE == EA_SIZE(attr2));
-    assert(isGeneralRegisterOrZR(reg1));
-    assert(isGeneralRegisterOrZR(reg2));
-    assert(offs >= 0);
+    assert(varOffs >= 0);
 
-    insFormat      fmt   = IF_LS_3B;
-    int            disp  = 0;
-    const unsigned scale = 3;
+    bool fpBased;
+    int  imm = emitComp->lvaFrameAddress(varNum, &fpBased) + varOffs;
 
-    /* Figure out the variable's frame position */
-    int  base;
-    bool FPbased;
+    emitAttr size = EA_SIZE(attr);
+    unsigned scale;
 
-    base = emitComp->lvaFrameAddress(varx, &FPbased);
-    disp = base + offs;
-
-    // TODO-ARM64-CQ: with compLocallocUsed, should we use REG_SAVED_LOCALLOC_SP instead?
-    regNumber reg3 = FPbased ? REG_FPBASE : REG_SPBASE;
-    reg3           = encodingSPtoZR(reg3);
-
-    bool    useRegForAdr = true;
-    ssize_t imm          = disp;
-    ssize_t mask         = (1 << scale) - 1; // the mask of low bits that must be zero to encode the immediate
-    if (imm == 0)
-    {
-        useRegForAdr = false;
-    }
-    else
-    {
-        if ((imm & mask) == 0)
-        {
-            ssize_t immShift = imm >> scale; // The immediate is scaled by the size of the ld/st
-
-            if ((immShift >= -64) && (immShift <= 63))
-            {
-                fmt          = IF_LS_3C;
-                useRegForAdr = false;
-                imm          = immShift;
-            }
-        }
-    }
-
-    if (useRegForAdr)
-    {
-        regNumber rsvd = codeGen->rsGetRsvdReg();
-        emitIns_R_R_Imm(INS_add, EA_PTRSIZE, rsvd, reg3, imm);
-        reg3 = rsvd;
-        imm  = 0;
-    }
-
-    assert(fmt != IF_NONE);
-
-    instrDesc* id = emitNewInstrCns(attr1, imm);
-
-    id->idIns(ins);
-    id->idInsFmt(fmt);
-    id->idInsOpt(INS_OPTS_NONE);
-
-    // Record the attribute for the second register in the pair
-    if (EA_IS_GCREF(attr2))
-    {
-        id->idGCrefReg2(GCT_GCREF);
-    }
-    else if (EA_IS_BYREF(attr2))
-    {
-        id->idGCrefReg2(GCT_BYREF);
-    }
-    else
-    {
-        id->idGCrefReg2(GCT_NONE);
-    }
-
-    id->idReg1(reg1);
-    id->idReg2(reg2);
-    id->idReg3(reg3);
-    id->idAddr()->iiaLclVar.initLclVarAddr(varx, offs);
-    id->idSetIsLclVar();
-
-    dispIns(id);
-    appendToCurIG(id);
-}
-
-/*****************************************************************************
- *
- *  Add an instruction referencing a stack-based local variable and a register
- */
-void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg1, int varx, int offs)
-{
-    assert(offs >= 0);
-    emitAttr  size          = EA_SIZE(attr);
-    insFormat fmt           = IF_NONE;
-    int       disp          = 0;
-    unsigned  scale         = 0;
-    bool      isVectorStore = false;
-
-    // TODO-ARM64-CQ: use unscaled loads?
-    /* Figure out the encoding format of the instruction */
     switch (ins)
     {
         case INS_strb:
+            assert(isGeneralRegisterOrZR(reg));
             scale = 0;
-            assert(isGeneralRegisterOrZR(reg1));
             break;
-
         case INS_strh:
+            assert(isGeneralRegisterOrZR(reg));
             scale = 1;
-            assert(isGeneralRegisterOrZR(reg1));
             break;
-
         case INS_str:
-            if (isGeneralRegisterOrZR(reg1))
-            {
-                assert(isValidGeneralDatasize(size));
-                scale = (size == EA_8BYTE) ? 3 : 2;
-            }
-            else
-            {
-                assert(isVectorRegister(reg1));
-                assert(isValidVectorLSDatasize(size));
-                scale         = NaturalScale_helper(size);
-                isVectorStore = true;
-            }
+            scale = genLog2(EA_SIZE_IN_BYTES(size));
+            assert((2 <= scale) && (scale <= 4));
             break;
-
         default:
-            NYI("emitIns_S_R"); // FP locals?
-            return;
-
-    } // end switch (ins)
-
-    /* Figure out the variable's frame position */
-    int  base;
-    bool FPbased;
-
-    base = emitComp->lvaFrameAddress(varx, &FPbased);
-    disp = base + offs;
-    assert(scale >= 0);
-    if (isVectorStore)
-    {
-        assert(scale <= 4);
-    }
-    else
-    {
-        assert(scale <= 3);
+            unreached();
     }
 
-    // TODO-ARM64-CQ: with compLocallocUsed, should we use REG_SAVED_LOCALLOC_SP instead?
-    regNumber reg2 = FPbased ? REG_FPBASE : REG_SPBASE;
-    reg2           = encodingSPtoZR(reg2);
+    insFormat fmt;
 
-    bool    useRegForImm = false;
-    ssize_t imm          = disp;
-    ssize_t mask         = (1 << scale) - 1; // the mask of low bits that must be zero to encode the immediate
     if (imm == 0)
     {
         fmt = IF_LS_2A;
     }
-    else if ((imm < 0) || ((imm & mask) != 0))
+    else if (IsUnsignedImm12(imm, scale))
     {
-        if ((imm >= -256) && (imm <= 255))
-        {
-            fmt = IF_LS_2C;
-        }
-        else
-        {
-            useRegForImm = true;
-        }
+        imm >>= scale;
+        fmt = IF_LS_2B;
     }
-    else if (imm > 0)
+    else if (IsSignedImm9(imm))
     {
-        if (((imm & mask) == 0) && ((imm >> scale) < 0x1000))
-        {
-            imm >>= scale; // The immediate is scaled by the size of the ld/st
-
-            fmt = IF_LS_2B;
-        }
-        else
-        {
-            useRegForImm = true;
-        }
+        fmt = IF_LS_2C;
     }
-
-    if (useRegForImm)
+    else
     {
         // The reserved register is not stored in idReg3() since that field overlaps with iiaLclVar.
         // It is instead implicit when idSetIsLclVar() is set, with this encoding format.
-        regNumber rsvdReg = codeGen->rsGetRsvdReg();
-        codeGen->instGen_Set_Reg_To_Imm(EA_PTRSIZE, rsvdReg, imm);
+
+        codeGen->instGen_Set_Reg_To_Imm(EA_8BYTE, codeGen->rsGetRsvdReg(), imm);
         fmt = IF_LS_3A;
+
+        // TODO-MIKE-Review: Shouldn't imm be set to 0 in this case?!
     }
 
-    // Is the ldr/str even necessary?
-    if (emitComp->opts.OptimizationEnabled() && IsRedundantLdStr(ins, reg1, reg2, imm, size, fmt))
+    // TODO-ARM64-CQ: with compLocallocUsed, should we use REG_SAVED_LOCALLOC_SP instead?
+    regNumber baseReg = fpBased ? REG_FP : REG_ZR;
+
+    if (emitComp->opts.OptimizationEnabled() && IsRedundantLdStr(ins, reg, baseReg, imm, size, fmt))
     {
         return;
     }
 
-    assert(fmt != IF_NONE);
-
     instrDesc* id = emitNewInstrCns(attr, imm);
-
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idInsOpt(INS_OPTS_NONE);
-
-    id->idReg1(reg1);
-    id->idReg2(reg2);
-    id->idAddr()->iiaLclVar.initLclVarAddr(varx, offs);
+    id->idReg1(reg);
+    id->idReg2(baseReg);
+    id->idAddr()->iiaLclVar.initLclVarAddr(varNum, varOffs);
     id->idSetIsLclVar();
 
     dispIns(id);
     appendToCurIG(id);
 }
 
-/*****************************************************************************
- *
- *  Add an instruction referencing consecutive stack-based local variable slots and two registers
- */
-void emitter::emitIns_S_S_R_R(
-    instruction ins, emitAttr attr1, emitAttr attr2, regNumber reg1, regNumber reg2, int varx, int offs)
+void emitter::emitIns_R_R_S_S(
+    instruction ins, emitAttr attr1, emitAttr attr2, regNumber reg1, regNumber reg2, int varNum, int varOffs)
 {
-    assert((ins == INS_stp) || (ins == INS_stnp));
-    assert((EA_SIZE(attr1) == EA_8BYTE) ||
-           (!isGeneralRegisterOrZR(reg1) && ((attr1 == EA_4BYTE) || (attr1 == EA_16BYTE))));
-    assert((EA_SIZE(attr1) == EA_8BYTE) ||
-           (!isGeneralRegisterOrZR(reg2) && ((attr2 == EA_4BYTE) || (attr2 == EA_16BYTE))));
-    assert(offs >= 0);
+    assert((ins == INS_ldp) || (ins == INS_ldnp));
+    assert((EA_SIZE(attr1) == EA_8BYTE) || (attr1 == EA_4BYTE) || (isVectorRegister(reg1) && (attr1 == EA_16BYTE)));
+    assert((EA_SIZE(attr2) == EA_8BYTE) || (attr2 == EA_4BYTE) || (isVectorRegister(reg2) && (attr2 == EA_16BYTE)));
+    assert(EA_SIZE(attr1) == EA_SIZE(attr2));
+    assert(varOffs >= 0);
 
-    insFormat fmt   = IF_LS_3B;
-    int       disp  = 0;
-    unsigned  scale = genLog2(EA_SIZE(attr1));
+    bool fpBased;
+    int  imm = emitComp->lvaFrameAddress(varNum, &fpBased) + varOffs;
 
-    /* Figure out the variable's frame position */
-    int  base;
-    bool FPbased;
+    unsigned  scale   = genLog2(EA_SIZE_IN_BYTES(attr1));
+    regNumber baseReg = fpBased ? REG_FP : REG_ZR;
+    insFormat fmt;
 
-    base = emitComp->lvaFrameAddress(varx, &FPbased);
-    disp = base + offs;
-
-    // TODO-ARM64-CQ: with compLocallocUsed, should we use REG_SAVED_LOCALLOC_SP instead?
-    regNumber reg3 = FPbased ? REG_FPBASE : REG_SPBASE;
-
-    bool    useRegForAdr = true;
-    ssize_t imm          = disp;
-    ssize_t mask         = (1 << scale) - 1; // the mask of low bits that must be zero to encode the immediate
     if (imm == 0)
     {
-        useRegForAdr = false;
+        fmt = IF_LS_3B;
+    }
+    else if (IsSignedImm7(imm, scale))
+    {
+        imm >>= scale;
+        fmt = IF_LS_3C;
     }
     else
     {
-        if ((imm & mask) == 0)
-        {
-            ssize_t immShift = imm >> scale; // The immediate is scaled by the size of the ld/st
-
-            if ((immShift >= -64) && (immShift <= 63))
-            {
-                fmt          = IF_LS_3C;
-                useRegForAdr = false;
-                imm          = immShift;
-            }
-        }
+        regNumber tempReg = codeGen->rsGetRsvdReg();
+        emitIns_R_R_Imm(INS_add, EA_8BYTE, tempReg, baseReg, imm);
+        baseReg = tempReg;
+        imm     = 0;
+        fmt     = IF_LS_3B;
     }
 
-    if (useRegForAdr)
-    {
-        regNumber rsvd = codeGen->rsGetRsvdReg();
-        emitIns_R_R_Imm(INS_add, EA_PTRSIZE, rsvd, reg3, imm);
-        reg3 = rsvd;
-        imm  = 0;
-    }
+    GCtype reg2Type = GCT_NONE;
 
-    assert(fmt != IF_NONE);
-
-    instrDesc* id = emitNewInstrCns(attr1, imm);
-
-    id->idIns(ins);
-    id->idInsFmt(fmt);
-    id->idInsOpt(INS_OPTS_NONE);
-
-    // Record the attribute for the second register in the pair
     if (EA_IS_GCREF(attr2))
     {
-        id->idGCrefReg2(GCT_GCREF);
+        reg2Type = GCT_GCREF;
     }
     else if (EA_IS_BYREF(attr2))
     {
-        id->idGCrefReg2(GCT_BYREF);
+        reg2Type = GCT_BYREF;
+    }
+
+    instrDesc* id = emitNewInstrCns(attr1, imm);
+    id->idIns(ins);
+    id->idInsFmt(fmt);
+    id->idInsOpt(INS_OPTS_NONE);
+    id->idGCrefReg2(reg2Type);
+    id->idReg1(reg1);
+    id->idReg2(reg2);
+    id->idReg3(baseReg);
+    id->idAddr()->iiaLclVar.initLclVarAddr(varNum, varOffs);
+    id->idSetIsLclVar();
+
+    dispIns(id);
+    appendToCurIG(id);
+}
+
+void emitter::emitIns_S_S_R_R(
+    instruction ins, emitAttr attr1, emitAttr attr2, regNumber reg1, regNumber reg2, int varNum, int varOffs)
+{
+    assert((ins == INS_stp) || (ins == INS_stnp));
+    assert((EA_SIZE(attr1) == EA_8BYTE) || (attr1 == EA_4BYTE) || (isVectorRegister(reg1) && (attr1 == EA_16BYTE)));
+    assert((EA_SIZE(attr2) == EA_8BYTE) || (attr2 == EA_4BYTE) || (isVectorRegister(reg2) && (attr2 == EA_16BYTE)));
+    assert(EA_SIZE(attr1) == EA_SIZE(attr2));
+    assert(varOffs >= 0);
+
+    bool fpBased;
+    int  imm = emitComp->lvaFrameAddress(varNum, &fpBased) + varOffs;
+
+    unsigned  scale   = genLog2(EA_SIZE_IN_BYTES(attr1));
+    regNumber baseReg = fpBased ? REG_FP : REG_ZR;
+    insFormat fmt;
+
+    if (imm == 0)
+    {
+        fmt = IF_LS_3B;
+    }
+    else if (IsSignedImm7(imm, scale))
+    {
+        imm >>= scale;
+        fmt = IF_LS_3C;
     }
     else
     {
-        id->idGCrefReg2(GCT_NONE);
+        regNumber tempReg = codeGen->rsGetRsvdReg();
+        emitIns_R_R_Imm(INS_add, EA_8BYTE, tempReg, baseReg, imm);
+        baseReg = tempReg;
+        imm     = 0;
+        fmt     = IF_LS_3B;
     }
 
-    reg3 = encodingSPtoZR(reg3);
+    GCtype reg2Type = GCT_NONE;
 
+    if (EA_IS_GCREF(attr2))
+    {
+        reg2Type = GCT_GCREF;
+    }
+    else if (EA_IS_BYREF(attr2))
+    {
+        reg2Type = GCT_BYREF;
+    }
+
+    instrDesc* id = emitNewInstrCns(attr1, imm);
+    id->idIns(ins);
+    id->idInsFmt(fmt);
+    id->idInsOpt(INS_OPTS_NONE);
+    id->idGCrefReg2(reg2Type);
     id->idReg1(reg1);
     id->idReg2(reg2);
-    id->idReg3(reg3);
-    id->idAddr()->iiaLclVar.initLclVarAddr(varx, offs);
+    id->idReg3(baseReg);
+    id->idAddr()->iiaLclVar.initLclVarAddr(varNum, varOffs);
     id->idSetIsLclVar();
 
     dispIns(id);

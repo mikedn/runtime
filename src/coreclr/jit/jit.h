@@ -572,9 +572,9 @@ inline unsigned int roundUp(unsigned size, unsigned mult)
 }
 #endif // HOST_64BIT
 
-inline unsigned int unsigned_abs(int x)
+constexpr unsigned unsigned_abs(int x)
 {
-    return ((unsigned int)abs(x));
+    return static_cast<unsigned>(x < 0 ? -x : x);
 }
 
 #ifdef TARGET_64BIT
