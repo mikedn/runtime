@@ -3017,8 +3017,6 @@ emitter::instrDesc* emitter::emitNewInstrCallInd(
         id->idcByrefRegs = byrefRegs;
 #ifdef TARGET_XARCH
         id->idcDisp = disp;
-#else
-        id->idcDisp                = 0;
 #endif
 #ifdef TARGET_X86
         id->idcArgCnt = argCnt;
@@ -3092,7 +3090,9 @@ emitter::instrDesc* emitter::emitNewInstrCallDir(VARSET_VALARG_TP GCvars,
         VarSetOps::Assign(emitComp, id->idcGCvars, GCvars);
         id->idcGcrefRegs = gcrefRegs;
         id->idcByrefRegs = byrefRegs;
-        id->idcDisp      = 0;
+#ifdef TARGET_XARCH
+        id->idcDisp = 0;
+#endif
 #ifdef TARGET_X86
         id->idcArgCnt = argCnt;
 #endif

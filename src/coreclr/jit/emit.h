@@ -1401,8 +1401,10 @@ protected:
 
     struct instrDescCGCA : instrDesc // call with ...
     {
-        VARSET_TP idcGCvars;    // ... updated GC vars or
-        ssize_t   idcDisp;      // ... big addrmode disp
+        VARSET_TP idcGCvars; // ... updated GC vars or
+#ifdef TARGET_XARCH
+        ssize_t idcDisp; // ... big addrmode disp
+#endif
         regMaskTP idcGcrefRegs; // ... gcref registers
         regMaskTP idcByrefRegs; // ... byref registers
 #ifdef TARGET_X86

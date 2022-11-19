@@ -1271,7 +1271,7 @@ inline ssize_t emitter::emitGetInsCIdisp(instrDesc* id)
 {
     if (id->idIsLargeCall())
     {
-        return ((instrDescCGCA*)id)->idcDisp;
+        return static_cast<instrDescCGCA*>(id)->idcDisp;
     }
     else
     {
