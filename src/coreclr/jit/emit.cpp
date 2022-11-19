@@ -7777,7 +7777,7 @@ void emitter::emitGCvarLiveUpd(int offs, unsigned lclNum, GCtype gcType, BYTE* a
         assert(!emitContTrkPtrLcls ||
                // EBP based variables in the double-aligned frames are indeed input arguments.
                // and we don't require them to fall into the "interesting" range.
-               ((codeGen->rpFrameType == FT_DOUBLE_ALIGN_FRAME) && emitComp->lvaGetDesc(varNum)->lvFramePointerBased));
+               ((codeGen->rpFrameType == FT_DOUBLE_ALIGN_FRAME) && emitComp->lvaGetDesc(lclNum)->lvFramePointerBased));
 #else
         assert(!emitContTrkPtrLcls);
 #endif
