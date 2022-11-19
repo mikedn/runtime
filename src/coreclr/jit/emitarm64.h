@@ -63,13 +63,8 @@ void emitDispIns(instrDesc* id,
 private:
 instrDesc* emitNewInstrCallDir(
     VARSET_VALARG_TP GCvars, regMaskTP gcrefRegs, regMaskTP byrefRegs, emitAttr retSize, emitAttr secondRetSize);
-
-instrDesc* emitNewInstrCallInd(ssize_t          disp,
-                               VARSET_VALARG_TP GCvars,
-                               regMaskTP        gcrefRegs,
-                               regMaskTP        byrefRegs,
-                               emitAttr         retSize,
-                               emitAttr         secondRetSize);
+instrDesc* emitNewInstrCallInd(
+    VARSET_VALARG_TP GCvars, regMaskTP gcrefRegs, regMaskTP byrefRegs, emitAttr retSize, emitAttr secondRetSize);
 
 /************************************************************************/
 /*               Private helpers for instruction output                 */

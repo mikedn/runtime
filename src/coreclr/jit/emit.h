@@ -509,6 +509,7 @@ protected:
         IF_COUNT
     };
 
+#ifdef TARGET_XARCH
 #define AM_DISP_BITS ((sizeof(unsigned) * 8) - 2 * (REGNUM_BITS + 1) - 2)
 #define AM_DISP_BIG_VAL (-(1 << (AM_DISP_BITS - 1)))
 #define AM_DISP_MIN (-((1 << (AM_DISP_BITS - 1)) - 1))
@@ -521,6 +522,7 @@ protected:
         emitter::opSize amScale : 2;
         int             amDisp : AM_DISP_BITS;
     };
+#endif // TARGET_XARCH
 
 #ifdef DEBUG // This information is used in DEBUG builds to display the method name for call instructions
 
@@ -806,8 +808,9 @@ protected:
             // as for IF_LARGEJMP pseudo-branch instructions.
             int iiaEncodedInstrCount;
 
-            // XARCH address mode
+#ifdef TARGET_XARCH
             emitAddrMode iiaAddrMode;
+#endif
 
 #if defined(TARGET_XARCH) || defined(TARGET_ARM)
             emitLclVarAddr iiaLclVar;

@@ -8118,7 +8118,7 @@ void emitter::emitIns_Call(EmitCallType          callType,
 
     if (callType == EC_INDIR_R)
     {
-        id = emitNewInstrCallInd(0, ptrVars, gcrefRegs, byrefRegs, retSize, secondRetSize);
+        id = emitNewInstrCallInd(ptrVars, gcrefRegs, byrefRegs, retSize, secondRetSize);
     }
     else
     {

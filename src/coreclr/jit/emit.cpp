@@ -1308,11 +1308,13 @@ void* emitter::emitAllocAnyInstr(size_t sz, emitAttr opsz)
 #endif
 
     // Make sure that idAddrUnion is just a union of various pointer sized things
-    C_ASSERT(sizeof(CORINFO_FIELD_HANDLE) <= sizeof(void*));
-    C_ASSERT(sizeof(CORINFO_METHOD_HANDLE) <= sizeof(void*));
-    C_ASSERT(sizeof(emitter::emitAddrMode) <= sizeof(void*));
-    C_ASSERT(sizeof(emitLclVarAddr) <= sizeof(void*));
-    C_ASSERT(sizeof(emitter::instrDesc) == (SMALL_IDSC_SIZE + sizeof(void*)));
+    static_assert_no_msg(sizeof(CORINFO_FIELD_HANDLE) <= sizeof(void*));
+    static_assert_no_msg(sizeof(CORINFO_METHOD_HANDLE) <= sizeof(void*));
+    static_assert_no_msg(sizeof(emitLclVarAddr) <= sizeof(void*));
+    static_assert_no_msg(sizeof(emitter::instrDesc) == (SMALL_IDSC_SIZE + sizeof(void*)));
+#ifdef TARGET_XARCH
+    static_assert_no_msg(sizeof(emitter::emitAddrMode) <= sizeof(void*));
+#endif
 
     emitInsCount++;
 
@@ -2976,16 +2978,16 @@ void emitter::emitSetSecondRetRegGCType(instrDescCGCA* id, emitAttr secondRetSiz
  *  address mode displacement.
  */
 
-emitter::instrDesc* emitter::emitNewInstrCallInd(ssize_t          disp,
-                                                 VARSET_VALARG_TP GCvars,
-                                                 regMaskTP        gcrefRegs,
-                                                 regMaskTP        byrefRegs,
-                                                 emitAttr retSizeIn X86_ARG(int argCnt)
-                                                     MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize))
+emitter::instrDesc* emitter::emitNewInstrCallInd(
+#ifdef TARGET_XARCH
+    ssize_t disp,
+#endif
+    VARSET_VALARG_TP GCvars,
+    regMaskTP        gcrefRegs,
+    regMaskTP        byrefRegs,
+    emitAttr retSizeIn X86_ARG(int argCnt) MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize))
 {
     emitAttr retSize = (retSizeIn != EA_UNKNOWN) ? retSizeIn : EA_PTRSIZE;
-
-    bool gcRefRegsInScratch = ((gcrefRegs & RBM_CALLEE_TRASH) != 0);
 
     // Allocate a larger descriptor if any GC values need to be saved
     // or if we have an absurd number of arguments or a large address
@@ -2995,12 +2997,15 @@ emitter::instrDesc* emitter::emitNewInstrCallInd(ssize_t          disp,
     // call returns a two-register-returned struct and the second
     // register (RDX) is a GCRef or ByRef pointer.
 
-    if (!VarSetOps::IsEmpty(emitComp, GCvars) || // any frame GCvars live
-        (gcRefRegsInScratch) ||                  // any register gc refs live in scratch regs
-        (byrefRegs != 0) ||                      // any register byrefs live
-        (disp < AM_DISP_MIN) ||                  // displacement too negative
-        (disp > AM_DISP_MAX)                     // displacement too positive
-        X86_ONLY(|| (argCnt > ID_MAX_SMALL_CNS) || (argCnt < 0))
+    if (!VarSetOps::IsEmpty(emitComp, GCvars) ||        // any frame GCvars live
+        ((gcrefRegs & RBM_CALLEE_TRASH) != RBM_NONE) || // any register gc refs live in scratch regs
+        (byrefRegs != RBM_NONE)                         // any register byrefs live
+#ifdef TARGET_XARCH
+        || (disp < AM_DISP_MIN) || (disp > AM_DISP_MAX)
+#endif
+#ifdef TARGET_X86
+        || (argCnt > ID_MAX_SMALL_CNS) || (argCnt < 0)
+#endif
         // There is a second ref/byref return register.
         MULTIREG_HAS_SECOND_GC_RET_ONLY(|| EA_IS_GCREF_OR_BYREF(secondRetSize)))
     {
@@ -3010,7 +3015,11 @@ emitter::instrDesc* emitter::emitNewInstrCallInd(ssize_t          disp,
         VarSetOps::Assign(emitComp, id->idcGCvars, GCvars);
         id->idcGcrefRegs = gcrefRegs;
         id->idcByrefRegs = byrefRegs;
-        id->idcDisp      = disp;
+#ifdef TARGET_XARCH
+        id->idcDisp = disp;
+#else
+        id->idcDisp                = 0;
+#endif
 #ifdef TARGET_X86
         id->idcArgCnt = argCnt;
 #endif
@@ -3020,26 +3029,25 @@ emitter::instrDesc* emitter::emitNewInstrCallInd(ssize_t          disp,
 
         return id;
     }
-    else
-    {
+
 #ifdef TARGET_X86
-        instrDesc* id = emitNewInstrCns(retSize, argCnt);
+    instrDesc* id = emitNewInstrCns(retSize, argCnt);
 #else
-        instrDesc* id              = emitAllocInstr(retSize);
+    instrDesc*     id              = emitAllocInstr(retSize);
 #endif
 
-        /* Make sure we didn't waste space unexpectedly */
-        assert(!id->idIsLargeCns());
+    /* Make sure we didn't waste space unexpectedly */
+    assert(!id->idIsLargeCns());
 
-        /* Store the displacement and make sure the value fit */
-        id->idAddr()->iiaAddrMode.amDisp = disp;
-        assert(id->idAddr()->iiaAddrMode.amDisp == disp);
+#ifdef TARGET_XARCH
+    id->idAddr()->iiaAddrMode.amDisp = disp;
+    assert(id->idAddr()->iiaAddrMode.amDisp == disp);
+#endif
 
-        /* Save the the live GC registers in the unused register fields */
-        emitEncodeCallGCregs(gcrefRegs, id);
+    /* Save the the live GC registers in the unused register fields */
+    emitEncodeCallGCregs(gcrefRegs, id);
 
-        return id;
-    }
+    return id;
 }
 
 /*****************************************************************************
