@@ -791,66 +791,64 @@ protected:
         void checkSizes();
 
         union idAddrUnion {
-// TODO-Cleanup: We should really add a DEBUG-only tag to this union so we can add asserts
-// about reading what we think is here, to avoid unexpected corruption issues.
+            // TODO-Cleanup: We should really add a DEBUG-only tag to this union so we can add asserts
+            // about reading what we think is here, to avoid unexpected corruption issues.
 
-#ifndef TARGET_ARM64
-            emitLclVarAddr iiaLclVar;
-#endif
-            BasicBlock*  iiaBBlabel;
-            insGroup*    iiaIGlabel;
-            BYTE*        iiaAddr;
+            BasicBlock* iiaBBlabel;
+            insGroup*   iiaIGlabel;
+            BYTE*       iiaAddr;
+
+            // Used to encode an offset into the JIT data constant area
+            CORINFO_FIELD_HANDLE iiaFieldHnd;
+
+            // Used to specify an instruction count for jumps, instead of using
+            // a label and multiple blocks. This is used in the prolog as well
+            // as for IF_LARGEJMP pseudo-branch instructions.
+            int iiaEncodedInstrCount;
+
+            // XARCH address mode
             emitAddrMode iiaAddrMode;
 
-            CORINFO_FIELD_HANDLE iiaFieldHnd; // iiaFieldHandle is also used to encode
-                                              // an offset into the JIT data constant area
+#if defined(TARGET_XARCH) || defined(TARGET_ARM)
+            emitLclVarAddr iiaLclVar;
+
+            struct
+            {
+                regNumber _idReg3 : REGNUM_BITS;
+                regNumber _idReg4 : REGNUM_BITS;
+            };
+#elif defined(TARGET_ARM64)
+            struct
+            {
+                emitLclVarAddr iiaLclVar;
+                unsigned       _idReg3Scaled : 1; // Reg3 is scaled by idOpSize bits
+                GCtype         _idGCref2 : 2;
+                regNumber      _idReg3 : REGNUM_BITS;
+                regNumber      _idReg4 : REGNUM_BITS;
+            };
+#endif
+
             bool iiaIsJitDataOffset() const;
             int  iiaGetJitDataOffset() const;
-
-            // iiaEncodedInstrCount and its accessor functions are used to specify an instruction
-            // count for jumps, instead of using a label and multiple blocks. This is used in the
-            // prolog as well as for IF_LARGEJMP pseudo-branch instructions.
-            int iiaEncodedInstrCount;
 
             bool iiaHasInstrCount() const
             {
                 return (iiaEncodedInstrCount & iaut_MASK) == iaut_INST_COUNT;
             }
+
             int iiaGetInstrCount() const
             {
                 assert(iiaHasInstrCount());
                 return (iiaEncodedInstrCount >> iaut_SHIFT);
             }
+
             void iiaSetInstrCount(int count)
             {
                 assert(abs(count) < 10);
                 iiaEncodedInstrCount = (count << iaut_SHIFT) | iaut_INST_COUNT;
             }
-
-#ifdef TARGET_ARMARCH
-
-            struct
-            {
-#ifdef TARGET_ARM64
-                // For 64-bit architecture this 32-bit structure can pack with these unsigned bit fields
-                emitLclVarAddr iiaLclVar;
-                unsigned       _idReg3Scaled : 1; // Reg3 is scaled by idOpSize bits
-                GCtype         _idGCref2 : 2;
-#endif
-                regNumber _idReg3 : REGNUM_BITS;
-                regNumber _idReg4 : REGNUM_BITS;
-            };
-#elif defined(TARGET_XARCH)
-            struct
-            {
-                regNumber _idReg3 : REGNUM_BITS;
-                regNumber _idReg4 : REGNUM_BITS;
-            };
-#endif // defined(TARGET_XARCH)
-
         } _idAddrUnion;
 
-        /* Trivial wrappers to return properly typed enums */
     public:
         bool idIsSmallDsc() const
         {
