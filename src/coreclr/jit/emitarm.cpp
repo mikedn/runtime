@@ -6440,18 +6440,23 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
     // ref or overwritten one.
     if (emitInsWritesToLclVarStackLoc(id))
     {
-        int       varNum = id->idAddr()->iiaLclVar.lvaVarNum();
-        unsigned  ofs    = AlignDown(id->idAddr()->iiaLclVar.lvaOffset(), REGSIZE_BYTES);
-        regNumber regBase;
-        int       adr = emitComp->lvaFrameAddress(varNum, true, ofs, /* isFloatUsage */ false, &regBase) + ofs;
+        int varNum = id->idAddr()->iiaLclVar.lvaVarNum();
 
-        if (id->idGCref() != GCT_NONE)
+        if (varNum >= 0)
         {
-            emitGCvarLiveUpd(adr, varNum, id->idGCref(), dst DEBUG_ARG(varNum));
-        }
-        else if ((varNum >= 0) && varTypeIsGC(emitComp->lvaGetDesc(varNum)->GetType()))
-        {
-            emitGCvarDeadUpd(adr, dst DEBUG_ARG(varNum));
+            unsigned  lclNum = static_cast<unsigned>(varNum);
+            unsigned  ofs    = AlignDown(id->idAddr()->iiaLclVar.lvaOffset(), REGSIZE_BYTES);
+            regNumber regBase;
+            int       adr = emitComp->lvaFrameAddress(lclNum, true, ofs, /* isFloatUsage */ false, &regBase) + ofs;
+
+            if (id->idGCref() != GCT_NONE)
+            {
+                emitGCvarLiveUpd(adr, lclNum, id->idGCref(), dst);
+            }
+            else if ((varNum >= 0) && varTypeIsGC(emitComp->lvaGetDesc(lclNum)->GetType()))
+            {
+                emitGCvarDeadUpd(adr, dst DEBUG_ARG(lclNum));
+            }
         }
     }
 

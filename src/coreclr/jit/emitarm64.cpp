@@ -11281,32 +11281,37 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
     // ref or overwritten one.
     if (emitInsWritesToLclVarStackLoc(id) || emitInsWritesToLclVarStackLocPair(id))
     {
-        int      varNum = id->idAddr()->iiaLclVar.lvaVarNum();
-        unsigned ofs    = AlignDown(id->idAddr()->iiaLclVar.lvaOffset(), REGSIZE_BYTES);
-        bool     FPbased;
-        int      adr = emitComp->lvaFrameAddress(varNum, &FPbased) + ofs;
+        int varNum = id->idAddr()->iiaLclVar.lvaVarNum();
 
-        if (id->idGCref() != GCT_NONE)
+        if (varNum >= 0)
         {
-            emitGCvarLiveUpd(adr, varNum, id->idGCref(), dst DEBUG_ARG(varNum));
-        }
-        else if ((varNum >= 0) && varTypeIsGC(emitComp->lvaGetDesc(varNum)->GetType()))
-        {
-            emitGCvarDeadUpd(adr, dst DEBUG_ARG(varNum));
-        }
+            unsigned lclNum = static_cast<unsigned>(varNum);
+            unsigned ofs    = AlignDown(id->idAddr()->iiaLclVar.lvaOffset(), REGSIZE_BYTES);
+            bool     FPbased;
+            int      adr = emitComp->lvaFrameAddress(varNum, &FPbased) + ofs;
 
-        if (emitInsWritesToLclVarStackLocPair(id))
-        {
-            adr += REGSIZE_BYTES;
-
-            if (id->idGCrefReg2() != GCT_NONE)
+            if (id->idGCref() != GCT_NONE)
             {
-                emitGCvarLiveUpd(adr, varNum, id->idGCrefReg2(), dst DEBUG_ARG(varNum));
+                emitGCvarLiveUpd(adr, lclNum, id->idGCref(), dst);
             }
-            // TODO-MIKE-Review: This looks bogus, using STP to store to a local implies that the local is STRUCT.
-            else if ((varNum >= 0) && emitComp->lvaGetDesc(varNum)->GetType())
+            else if ((varNum >= 0) && varTypeIsGC(emitComp->lvaGetDesc(varNum)->GetType()))
             {
-                emitGCvarDeadUpd(adr, dst DEBUG_ARG(varNum));
+                emitGCvarDeadUpd(adr, dst DEBUG_ARG(lclNum));
+            }
+
+            if (emitInsWritesToLclVarStackLocPair(id))
+            {
+                adr += REGSIZE_BYTES;
+
+                if (id->idGCrefReg2() != GCT_NONE)
+                {
+                    emitGCvarLiveUpd(adr, lclNum, id->idGCrefReg2(), dst);
+                }
+                // TODO-MIKE-Review: This looks bogus, using STP to store to a local implies that the local is STRUCT.
+                else if ((varNum >= 0) && emitComp->lvaGetDesc(lclNum)->GetType())
+                {
+                    emitGCvarDeadUpd(adr, dst DEBUG_ARG(lclNum));
+                }
             }
         }
     }

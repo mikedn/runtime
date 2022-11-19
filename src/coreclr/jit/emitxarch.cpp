@@ -9396,7 +9396,10 @@ BYTE* emitter::emitOutputSV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
             // a GC pointer - mov, add, sub.
             case IF_SWR:
             case IF_SWR_RRD:
-                emitGCvarLiveUpd(adr, varNum, id->idGCref(), dst DEBUG_ARG(varNum));
+                if (varNum >= 0)
+                {
+                    emitGCvarLiveUpd(adr, static_cast<unsigned>(varNum), id->idGCref(), dst);
+                }
                 break;
 
             case IF_RRW_SRD:

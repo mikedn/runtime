@@ -7098,14 +7098,14 @@ void emitter::emitUpdateLiveGCvars(VARSET_VALARG_TP vars, BYTE* addr)
             continue;
         }
 
-        int offs = val & ~OFFSET_MASK;
-        INDEBUG(unsigned lclNum = emitComp->lvaTrackedIndexToLclNum(trackedLclIndex));
+        int      offs   = val & ~OFFSET_MASK;
+        unsigned lclNum = emitComp->lvaTrackedIndexToLclNum(trackedLclIndex);
 
         if (VarSetOps::IsMember(emitComp, vars, trackedLclIndex))
         {
             GCtype gcType = (val & byref_OFFSET_FLAG) != 0 ? GCT_BYREF : GCT_GCREF;
 
-            emitGCvarLiveUpd(offs, INT_MAX, gcType, addr DEBUG_ARG(lclNum));
+            emitGCvarLiveUpd(offs, lclNum, gcType, addr);
         }
         else
         {
@@ -7735,13 +7735,13 @@ void emitter::emitGCregDeadUpd(regNumber reg, BYTE* addr)
 // varNum may be INT_MAX or negative (indicating a spill temp) only if
 // offs is guaranteed to be the offset of a tracked GC ref. Else we
 // need a valid value to check if the variable is tracked or not.
-void emitter::emitGCvarLiveUpd(int offs, int varNum, GCtype gcType, BYTE* addr DEBUG_ARG(unsigned lclNum))
+void emitter::emitGCvarLiveUpd(int offs, unsigned lclNum, GCtype gcType, BYTE* addr)
 {
     assert(abs(offs) % REGSIZE_BYTES == 0);
     assert(needsGC(gcType));
 
 #if FEATURE_FIXED_OUT_ARGS
-    if (static_cast<unsigned>(varNum) == emitComp->lvaOutgoingArgSpaceVar)
+    if (lclNum == emitComp->lvaOutgoingArgSpaceVar)
     {
         if (emitFullGCinfo)
         {
@@ -7769,18 +7769,15 @@ void emitter::emitGCvarLiveUpd(int offs, int varNum, GCtype gcType, BYTE* addr D
     }
 
     // Normally all variables in this range must be tracked stack pointers.
-    // However, for EnC, we relax this condition. So we must check if this
-    // is not such a variable. Note that varNum might be negative, indicating
-    // a spill temp.
+    // However, for EnC, we relax this condition.
 
-    if ((varNum != INT_MAX) && ((varNum < 0) || !emitComp->lvaIsGCTracked(emitComp->lvaGetDesc(varNum))))
+    if (!emitComp->lvaIsGCTracked(emitComp->lvaGetDesc(lclNum)))
     {
 #if DOUBLE_ALIGN
         assert(!emitContTrkPtrLcls ||
                // EBP based variables in the double-aligned frames are indeed input arguments.
                // and we don't require them to fall into the "interesting" range.
-               ((codeGen->rpFrameType == FT_DOUBLE_ALIGN_FRAME) && (varNum >= 0) &&
-                emitComp->lvaGetDesc(varNum)->lvFramePointerBased));
+               ((codeGen->rpFrameType == FT_DOUBLE_ALIGN_FRAME) && emitComp->lvaGetDesc(varNum)->lvFramePointerBased));
 #else
         assert(!emitContTrkPtrLcls);
 #endif
@@ -7801,8 +7798,7 @@ void emitter::emitGCvarLiveUpd(int offs, int varNum, GCtype gcType, BYTE* addr D
     emitGCvarLiveSet(offs, gcType, addr, index);
 
 #ifdef DEBUG
-    if ((EMIT_GC_VERBOSE || emitComp->opts.disasmWithGC) && (lclNum < emitComp->lvaCount) &&
-        emitComp->lvaGetDesc(lclNum)->HasLiveness())
+    if ((EMIT_GC_VERBOSE || emitComp->opts.disasmWithGC) && emitComp->lvaGetDesc(lclNum)->HasLiveness())
     {
         VarSetOps::AddElemD(emitComp, debugThisGCrefVars, emitComp->lvaGetDesc(lclNum)->GetLivenessBitIndex());
     }
@@ -7835,8 +7831,7 @@ void emitter::emitGCvarDeadUpd(int offs, BYTE* addr DEBUG_ARG(unsigned lclNum))
     emitGCvarDeadSet(offs, addr, index);
 
 #ifdef DEBUG
-    if ((EMIT_GC_VERBOSE || emitComp->opts.disasmWithGC) && (lclNum < emitComp->lvaCount) &&
-        emitComp->lvaGetDesc(lclNum)->HasLiveness())
+    if ((EMIT_GC_VERBOSE || emitComp->opts.disasmWithGC) && emitComp->lvaGetDesc(lclNum)->HasLiveness())
     {
         VarSetOps::RemoveElemD(emitComp, debugThisGCrefVars, emitComp->lvaGetDesc(lclNum)->GetLivenessBitIndex());
     }
