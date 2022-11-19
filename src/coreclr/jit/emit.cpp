@@ -8011,31 +8011,11 @@ void emitter::emitNxtIG(bool extend)
 #endif
 }
 
-/*****************************************************************************
- *
- *  emitGetInsSC: Get the instruction's constant value.
- */
-
 cnsval_ssize_t emitter::emitGetInsSC(instrDesc* id)
 {
-#ifdef TARGET_ARM
-    if (id->idIsLclVar())
+    if (id->idIsLargeCns())
     {
-        int varNum = id->idAddr()->iiaLclVar.lvaVarNum();
-
-        regNumber baseReg;
-        int       offs = id->idAddr()->iiaLclVar.lvaOffset();
-        int       adr  = emitComp->lvaFrameAddress(varNum, id->idIsLclFPBase(), offs, instIsFP(id->idIns()), &baseReg);
-        int       dsp  = adr + offs;
-        if ((id->idIns() == INS_sub) || (id->idIns() == INS_subw))
-            dsp = -dsp;
-        return dsp;
-    }
-    else
-#endif // TARGET_ARM
-        if (id->idIsLargeCns())
-    {
-        return ((instrDescCns*)id)->idcCnsVal;
+        return static_cast<instrDescCns*>(id)->idcCnsVal;
     }
     else
     {

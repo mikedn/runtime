@@ -3603,7 +3603,7 @@ void emitter::emitIns_R_R_R_R(
     appendToCurIG(id);
 }
 
-void emitter::MovRegStackOffset(regNumber reg, regNumber baseReg, int imm, int varNum, int varOffs)
+void emitter::MovRegStackOffset(regNumber reg, int imm, int varNum, int varOffs)
 {
     auto mov = [&](instruction ins) {
         instrDesc* id = emitNewInstrCns(EA_4BYTE, imm);
@@ -3615,11 +3615,6 @@ void emitter::MovRegStackOffset(regNumber reg, regNumber baseReg, int imm, int v
         id->idReg1(reg);
         id->idAddr()->iiaLclVar.initLclVarAddr(varNum, varOffs);
         id->idSetIsLclVar();
-
-        if (baseReg == REG_FP)
-        {
-            id->idSetIsLclFPBase();
-        }
 
         dispIns(id);
         appendToCurIG(id);
@@ -3721,7 +3716,7 @@ void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum,
         else
         {
             regNumber tempReg = codeGen->rsGetRsvdReg();
-            MovRegStackOffset(tempReg, baseReg, imm, varNum, varOffs);
+            MovRegStackOffset(tempReg, imm, varNum, varOffs);
             emitIns_R_R_R(INS_add, attr, reg, baseReg, tempReg);
 
             return;
@@ -3732,7 +3727,7 @@ void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum,
         if (!IsSignedImm8(imm, 2))
         {
             regNumber tempReg = codeGen->rsGetRsvdReg();
-            MovRegStackOffset(tempReg, baseReg, imm, varNum, varOffs);
+            MovRegStackOffset(tempReg, imm, varNum, varOffs);
             emitIns_R_R(INS_add, EA_4BYTE, tempReg, baseReg);
             emitIns_R_R_I(ins, attr, reg, tempReg, 0);
 
@@ -3756,7 +3751,7 @@ void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum,
     }
     else
     {
-        MovRegStackOffset(codeGen->rsGetRsvdReg(), baseReg, imm, varNum, varOffs);
+        MovRegStackOffset(codeGen->rsGetRsvdReg(), imm, varNum, varOffs);
 
         fmt = IF_T2_E0;
     }
@@ -3771,11 +3766,6 @@ void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum,
     id->idReg2(baseReg);
     id->idAddr()->iiaLclVar.initLclVarAddr(varNum, varOffs);
     id->idSetIsLclVar();
-
-    if (baseReg == REG_FP)
-    {
-        id->idSetIsLclFPBase();
-    }
 
     dispIns(id);
     appendToCurIG(id);

@@ -91,7 +91,7 @@ static int encodeModImmConst(int imm);
 
 static int insUnscaleImm(instruction ins, int imm);
 
-void MovRegStackOffset(regNumber reg, regNumber baseReg, int imm, int varNum, int varOffs);
+void MovRegStackOffset(regNumber reg, int imm, int varNum, int varOffs);
 void Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum, int varOffs);
 
 /************************************************************************/

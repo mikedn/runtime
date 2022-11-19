@@ -681,14 +681,13 @@ protected:
 #endif
 
 #ifdef TARGET_ARM
-        insSize  _idInsSize : 2;   // size of instruction: 16, 32 or 48 bits
-        insFlags _idInsFlags : 1;  // will this instruction set the flags
-        unsigned _idLclVar : 1;    // access a local on stack
-        unsigned _idLclFPBase : 1; // access a local on stack - SP based offset
-        insOpts  _idInsOpt : 3;    // options for Load/Store instructions
+        insSize  _idInsSize : 2;  // size of instruction: 16, 32 or 48 bits
+        insFlags _idInsFlags : 1; // will this instruction set the flags
+        unsigned _idLclVar : 1;   // access a local on stack
+        insOpts  _idInsOpt : 3;   // options for Load/Store instructions
 
-// For arm we have used 16 bits
-#define ID_EXTRA_BITFIELD_BITS (16)
+// For arm we have used 17 bits
+#define ID_EXTRA_BITFIELD_BITS (17)
 
 #elif defined(TARGET_ARM64)
 // For Arm64, we have used 17 bits from the second DWORD.
@@ -1149,17 +1148,6 @@ protected:
             _idLclVar = 1;
         }
 #endif // TARGET_ARMARCH
-
-#if defined(TARGET_ARM)
-        bool idIsLclFPBase() const
-        {
-            return _idLclFPBase != 0;
-        }
-        void idSetIsLclFPBase()
-        {
-            _idLclFPBase = 1;
-        }
-#endif // defined(TARGET_ARM)
 
         bool idIsCnsReloc() const
         {
