@@ -7409,41 +7409,31 @@ void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg1, int va
     assert(offs >= 0);
 
     // TODO-ARM64-CQ: use unscaled loads?
-    /* Figure out the encoding format of the instruction */
+
     switch (ins)
     {
-        case INS_strb:
         case INS_ldrb:
         case INS_ldrsb:
             scale = 0;
             break;
-
-        case INS_strh:
         case INS_ldrh:
         case INS_ldrsh:
             scale = 1;
             break;
-
         case INS_ldrsw:
             scale = 2;
             break;
-
-        case INS_str:
         case INS_ldr:
             assert(isValidGeneralDatasize(size) || isValidVectorDatasize(size));
             scale = genLog2(EA_SIZE_IN_BYTES(size));
             break;
-
         case INS_lea:
             assert(size == EA_8BYTE);
             scale = 0;
             break;
-
         default:
-            NYI("emitIns_R_S"); // FP locals?
-            return;
-
-    } // end switch (ins)
+            unreached();
+    }
 
     /* Figure out the variable's frame position */
     ssize_t imm;
