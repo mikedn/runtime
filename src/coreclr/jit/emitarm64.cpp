@@ -115,7 +115,6 @@ size_t emitter::emitSizeOfInsDsc(instrDesc* id)
             }
             else
             {
-                assert(!id->idIsLargeDsp());
                 assert(!id->idIsLargeCns());
                 return sizeof(instrDesc);
             }
@@ -128,17 +127,11 @@ size_t emitter::emitSizeOfInsDsc(instrDesc* id)
 
     if (id->idIsLargeCns())
     {
-        if (id->idIsLargeDsp())
-            return sizeof(instrDescCnsDsp);
-        else
-            return sizeof(instrDescCns);
+        return sizeof(instrDescCns);
     }
     else
     {
-        if (id->idIsLargeDsp())
-            return sizeof(instrDescDsp);
-        else
-            return sizeof(instrDesc);
+        return sizeof(instrDesc);
     }
 }
 
@@ -9745,7 +9738,6 @@ unsigned emitter::emitOutputCall(insGroup* ig, BYTE* dst, instrDesc* id, code_t 
     }
     else
     {
-        assert(!id->idIsLargeDsp());
         assert(!id->idIsLargeCns());
 
         gcrefRegs = emitDecodeCallGCregs(id);

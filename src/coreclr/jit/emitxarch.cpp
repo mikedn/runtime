@@ -2413,7 +2413,7 @@ UNATIVE_OFFSET emitter::emitInsSizeAM(instrDesc* id, code_t code)
     return size;
 }
 
-inline UNATIVE_OFFSET emitter::emitInsSizeAM(instrDesc* id, code_t code, int val)
+UNATIVE_OFFSET emitter::emitInsSizeAM(instrDesc* id, code_t code, int val)
 {
     assert(id->idIns() != INS_invalid);
     instruction    ins       = id->idIns();
@@ -2454,7 +2454,7 @@ inline UNATIVE_OFFSET emitter::emitInsSizeAM(instrDesc* id, code_t code, int val
     return valSize + emitInsSizeAM(id, code);
 }
 
-inline UNATIVE_OFFSET emitter::emitInsSizeCV(instrDesc* id, code_t code)
+UNATIVE_OFFSET emitter::emitInsSizeCV(instrDesc* id, code_t code)
 {
     assert(id->idIns() != INS_invalid);
     instruction ins      = id->idIns();
@@ -2480,7 +2480,7 @@ inline UNATIVE_OFFSET emitter::emitInsSizeCV(instrDesc* id, code_t code)
     return size + emitInsSize(code, includeRexPrefixSize);
 }
 
-inline UNATIVE_OFFSET emitter::emitInsSizeCV(instrDesc* id, code_t code, int val)
+UNATIVE_OFFSET emitter::emitInsSizeCV(instrDesc* id, code_t code, int val)
 {
     instruction    ins       = id->idIns();
     UNATIVE_OFFSET valSize   = EA_SIZE_IN_BYTES(id->idOpSize());
@@ -2517,12 +2517,145 @@ inline UNATIVE_OFFSET emitter::emitInsSizeCV(instrDesc* id, code_t code, int val
     return valSize + emitInsSizeCV(id, code);
 }
 
-/*****************************************************************************
- *
- *  Allocate instruction descriptors for instructions with address modes.
- */
+emitter::instrDescDsp* emitter::emitAllocInstrDsp(emitAttr attr)
+{
+#if EMITTER_STATS
+    emitTotalIDescDspCnt++;
+#endif
 
-inline emitter::instrDesc* emitter::emitNewInstrAmd(emitAttr size, ssize_t dsp)
+    return (instrDescDsp*)emitAllocAnyInstr(sizeof(instrDescDsp), attr);
+}
+
+emitter::instrDescCnsDsp* emitter::emitAllocInstrCnsDsp(emitAttr attr)
+{
+#if EMITTER_STATS
+    emitTotalIDescCnsDspCnt++;
+#endif
+
+    return (instrDescCnsDsp*)emitAllocAnyInstr(sizeof(instrDescCnsDsp), attr);
+}
+
+emitter::instrDescAmd* emitter::emitAllocInstrAmd(emitAttr attr)
+{
+#if EMITTER_STATS
+    emitTotalIDescAmdCnt++;
+#endif
+
+    return (instrDescAmd*)emitAllocAnyInstr(sizeof(instrDescAmd), attr);
+}
+
+emitter::instrDescCnsAmd* emitter::emitAllocInstrCnsAmd(emitAttr attr)
+{
+#if EMITTER_STATS
+    emitTotalIDescCnsAmdCnt++;
+#endif
+
+    return (instrDescCnsAmd*)emitAllocAnyInstr(sizeof(instrDescCnsAmd), attr);
+}
+
+emitter::instrDesc* emitter::emitNewInstrCnsDsp(emitAttr size, target_ssize_t cns, int dsp)
+{
+    if (dsp == 0)
+    {
+        if (instrDesc::fitsInSmallCns(cns))
+        {
+            instrDesc* id = emitAllocInstr(size);
+
+            id->idSmallCns(cns);
+
+#if EMITTER_STATS
+            emitSmallCnsCnt++;
+            if ((cns - ID_MIN_SMALL_CNS) >= (SMALL_CNS_TSZ - 1))
+                emitSmallCns[SMALL_CNS_TSZ - 1]++;
+            else
+                emitSmallCns[cns - ID_MIN_SMALL_CNS]++;
+            emitSmallDspCnt++;
+#endif
+
+            return id;
+        }
+        else
+        {
+            instrDescCns* id = emitAllocInstrCns(size, cns);
+
+#if EMITTER_STATS
+            emitLargeCnsCnt++;
+            emitSmallDspCnt++;
+#endif
+
+            return id;
+        }
+    }
+    else
+    {
+        if (instrDesc::fitsInSmallCns(cns))
+        {
+            instrDescDsp* id = emitAllocInstrDsp(size);
+
+            id->idSetIsLargeDsp();
+            id->iddDspVal = dsp;
+
+            id->idSmallCns(cns);
+
+#if EMITTER_STATS
+            emitLargeDspCnt++;
+            emitSmallCnsCnt++;
+            if ((cns - ID_MIN_SMALL_CNS) >= (SMALL_CNS_TSZ - 1))
+                emitSmallCns[SMALL_CNS_TSZ - 1]++;
+            else
+                emitSmallCns[cns - ID_MIN_SMALL_CNS]++;
+#endif
+
+            return id;
+        }
+        else
+        {
+            instrDescCnsDsp* id = emitAllocInstrCnsDsp(size);
+
+            id->idSetIsLargeCns();
+            id->iddcCnsVal = cns;
+
+            id->idSetIsLargeDsp();
+            id->iddcDspVal = dsp;
+
+#if EMITTER_STATS
+            emitLargeDspCnt++;
+            emitLargeCnsCnt++;
+#endif
+
+            return id;
+        }
+    }
+}
+
+emitter::instrDesc* emitter::emitNewInstrDsp(emitAttr attr, target_ssize_t dsp)
+{
+    if (dsp == 0)
+    {
+        instrDesc* id = emitAllocInstr(attr);
+
+#if EMITTER_STATS
+        emitSmallDspCnt++;
+#endif
+
+        return id;
+    }
+    else
+    {
+        instrDescDsp* id = emitAllocInstrDsp(attr);
+
+        id->idSetIsLargeDsp();
+        id->iddDspVal = dsp;
+
+#if EMITTER_STATS
+        emitLargeDspCnt++;
+#endif
+
+        return id;
+    }
+}
+
+emitter::instrDesc* emitter::emitNewInstrAmd(emitAttr size, ssize_t dsp)
 {
     if (dsp < AM_DISP_MIN || dsp > AM_DISP_MAX)
     {
@@ -2552,7 +2685,7 @@ inline emitter::instrDesc* emitter::emitNewInstrAmd(emitAttr size, ssize_t dsp)
  *  Set the displacement field in an instruction. Only handles instrDescAmd type.
  */
 
-inline void emitter::emitSetAmdDisp(instrDescAmd* id, ssize_t dsp)
+void emitter::emitSetAmdDisp(instrDescAmd* id, ssize_t dsp)
 {
     if (dsp < AM_DISP_MIN || dsp > AM_DISP_MAX)
     {

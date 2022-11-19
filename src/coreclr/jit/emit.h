@@ -662,15 +662,13 @@ protected:
         // amd64: 38 bits
         // arm:   32 bits
         // arm64: 31 bits
-        CLANG_FORMAT_COMMENT_ANCHOR;
 
         unsigned _idSmallDsc : 1;  // is this a "small" descriptor?
         unsigned _idLargeCns : 1;  // does a large constant     follow?
-        unsigned _idLargeDsp : 1;  // does a large displacement follow?
         unsigned _idLargeCall : 1; // large call descriptor used
-
-        unsigned _idBound : 1; // jump target / frame offset bound
+        unsigned _idBound : 1;     // jump target / frame offset bound
 #ifdef TARGET_XARCH
+        unsigned _idLargeDsp : 1;   // does a large displacement follow?
         unsigned _idCallRegPtr : 1; // IL indirect calls: addr in reg
 #endif
         INDEBUG(unsigned _idCallAddr : 1;) // IL indirect calls: can make a direct call to iiaAddr
@@ -688,12 +686,12 @@ protected:
         unsigned _idLclVar : 1;   // access a local on stack
         insOpts  _idInsOpt : 3;   // options for Load/Store instructions
 
-// For arm we have used 17 bits
-#define ID_EXTRA_BITFIELD_BITS (17)
+// For arm we have used 16 bits
+#define ID_EXTRA_BITFIELD_BITS (16)
 
 #elif defined(TARGET_ARM64)
-// For Arm64, we have used 17 bits from the second DWORD.
-#define ID_EXTRA_BITFIELD_BITS (17)
+// For Arm64, we have used 16 bits from the second DWORD.
+#define ID_EXTRA_BITFIELD_BITS (16)
 #elif defined(TARGET_XARCH)
                                    // For xarch, we have used 14 bits from the second DWORD.
 #define ID_EXTRA_BITFIELD_BITS (14)
@@ -1074,6 +1072,7 @@ protected:
             _idLargeCns = 1;
         }
 
+#ifdef TARGET_XARCH
         bool idIsLargeDsp() const
         {
             return _idLargeDsp != 0;
@@ -1086,6 +1085,7 @@ protected:
         {
             _idLargeDsp = 0;
         }
+#endif // TARGET_XARCH
 
         bool idIsLargeCall() const
         {
@@ -1373,6 +1373,7 @@ protected:
         cnsval_ssize_t idcCnsVal;
     };
 
+#ifdef TARGET_XARCH
     struct instrDescDsp : instrDesc // large displacement
     {
         target_ssize_t iddDspVal;
@@ -1384,8 +1385,6 @@ protected:
         int            iddcDspVal;
     };
 
-#ifdef TARGET_XARCH
-
     struct instrDescAmd : instrDesc // large addrmode disp
     {
         ssize_t idaAmdVal;
@@ -1396,7 +1395,6 @@ protected:
         ssize_t idacCnsVal;
         ssize_t idacAmdVal;
     };
-
 #endif // TARGET_XARCH
 
     struct instrDescCGCA : instrDesc // call with ...
@@ -1968,40 +1966,11 @@ private:
         return result;
     }
 
-    instrDescDsp* emitAllocInstrDsp(emitAttr attr)
-    {
-#if EMITTER_STATS
-        emitTotalIDescDspCnt++;
-#endif // EMITTER_STATS
-        return (instrDescDsp*)emitAllocAnyInstr(sizeof(instrDescDsp), attr);
-    }
-
-    instrDescCnsDsp* emitAllocInstrCnsDsp(emitAttr attr)
-    {
-#if EMITTER_STATS
-        emitTotalIDescCnsDspCnt++;
-#endif // EMITTER_STATS
-        return (instrDescCnsDsp*)emitAllocAnyInstr(sizeof(instrDescCnsDsp), attr);
-    }
-
 #ifdef TARGET_XARCH
-
-    instrDescAmd* emitAllocInstrAmd(emitAttr attr)
-    {
-#if EMITTER_STATS
-        emitTotalIDescAmdCnt++;
-#endif // EMITTER_STATS
-        return (instrDescAmd*)emitAllocAnyInstr(sizeof(instrDescAmd), attr);
-    }
-
-    instrDescCnsAmd* emitAllocInstrCnsAmd(emitAttr attr)
-    {
-#if EMITTER_STATS
-        emitTotalIDescCnsAmdCnt++;
-#endif // EMITTER_STATS
-        return (instrDescCnsAmd*)emitAllocAnyInstr(sizeof(instrDescCnsAmd), attr);
-    }
-
+    instrDescDsp* emitAllocInstrDsp(emitAttr attr);
+    instrDescCnsDsp* emitAllocInstrCnsDsp(emitAttr attr);
+    instrDescAmd* emitAllocInstrAmd(emitAttr attr);
+    instrDescCnsAmd* emitAllocInstrCnsAmd(emitAttr attr);
 #endif // TARGET_XARCH
 
     instrDescCGCA* emitAllocInstrCGCA(emitAttr attr)
@@ -2518,33 +2487,6 @@ inline emitter::instrDescLbl* emitter::emitNewInstrLbl()
     return emitAllocInstrLbl();
 }
 #endif // !TARGET_ARM64
-
-inline emitter::instrDesc* emitter::emitNewInstrDsp(emitAttr attr, target_ssize_t dsp)
-{
-    if (dsp == 0)
-    {
-        instrDesc* id = emitAllocInstr(attr);
-
-#if EMITTER_STATS
-        emitSmallDspCnt++;
-#endif
-
-        return id;
-    }
-    else
-    {
-        instrDescDsp* id = emitAllocInstrDsp(attr);
-
-        id->idSetIsLargeDsp();
-        id->iddDspVal = dsp;
-
-#if EMITTER_STATS
-        emitLargeDspCnt++;
-#endif
-
-        return id;
-    }
-}
 
 /*****************************************************************************
  *
