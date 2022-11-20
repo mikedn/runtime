@@ -198,9 +198,6 @@ unsigned emitter::emitTotalIGExtend;
 unsigned emitter::emitTotalIDescSmallCnt;
 unsigned emitter::emitTotalIDescCnt;
 unsigned emitter::emitTotalIDescJmpCnt;
-#if !defined(TARGET_ARM64)
-unsigned emitter::emitTotalIDescLblCnt;
-#endif // !defined(TARGET_ARM64)
 unsigned emitter::emitTotalIDescCnsCnt;
 unsigned emitter::emitTotalIDescDspCnt;
 unsigned emitter::emitTotalIDescCnsDspCnt;
@@ -316,10 +313,6 @@ void emitterStats(FILE* fout)
                 100.0 * emitter::emitTotalIDescCnt / emitter::emitTotalInsCnt);
         fprintf(fout, "Total instrDescJmp:    %8u (%5.2f%%)\n", emitter::emitTotalIDescJmpCnt,
                 100.0 * emitter::emitTotalIDescJmpCnt / emitter::emitTotalInsCnt);
-#if !defined(TARGET_ARM64)
-        fprintf(fout, "Total instrDescLbl:    %8u (%5.2f%%)\n", emitter::emitTotalIDescLblCnt,
-                100.0 * emitter::emitTotalIDescLblCnt / emitter::emitTotalInsCnt);
-#endif // !defined(TARGET_ARM64)
         fprintf(fout, "Total instrDescCns:    %8u (%5.2f%%)\n", emitter::emitTotalIDescCnsCnt,
                 100.0 * emitter::emitTotalIDescCnsCnt / emitter::emitTotalInsCnt);
         fprintf(fout, "Total instrDescDsp:    %8u (%5.2f%%)\n", emitter::emitTotalIDescDspCnt,
@@ -3834,7 +3827,7 @@ AGAIN:
         UNATIVE_OFFSET sizeDif;
 
 #ifdef TARGET_XARCH
-        assert(jmp->idInsFmt() == IF_LABEL || jmp->idInsFmt() == IF_RWR_LABEL || jmp->idInsFmt() == IF_SWR_LABEL);
+        assert((jmp->idInsFmt() == IF_LABEL) || (jmp->idInsFmt() == IF_RWR_LABEL));
 
         /* Figure out the smallest size we can end up with */
 
@@ -6020,7 +6013,7 @@ unsigned emitter::emitEndCodeGen(Compiler* comp,
         for (instrDescJmp* jmp = emitJumpList; jmp != nullptr; jmp = jmp->idjNext)
         {
 #ifdef TARGET_XARCH
-            assert(jmp->idInsFmt() == IF_LABEL || jmp->idInsFmt() == IF_RWR_LABEL || jmp->idInsFmt() == IF_SWR_LABEL);
+            assert((jmp->idInsFmt() == IF_LABEL) || (jmp->idInsFmt() == IF_RWR_LABEL));
 #endif
             insGroup* tgt = jmp->idAddr()->iiaIGlabel;
 

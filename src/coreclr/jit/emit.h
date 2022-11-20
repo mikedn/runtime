@@ -1361,13 +1361,6 @@ protected:
     };
 #endif
 
-#if !defined(TARGET_ARM64) // This shouldn't be needed for ARM32, either, but I don't want to touch the ARM32 JIT.
-    struct instrDescLbl : instrDescJmp
-    {
-        emitLclVarAddr dstLclVar;
-    };
-#endif // !TARGET_ARM64
-
     struct instrDescCns : instrDesc // large const
     {
         cnsval_ssize_t idcCnsVal;

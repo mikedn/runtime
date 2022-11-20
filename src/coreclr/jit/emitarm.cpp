@@ -112,9 +112,6 @@ size_t emitter::emitSizeOfInsDsc(instrDesc* id)
         case ID_OP_JMP:
             return sizeof(instrDescJmp);
 
-        case ID_OP_LBL:
-            return sizeof(instrDescLbl);
-
         case ID_OP_CALL:
         case ID_OP_SPEC:
             assert(isCallIns || maybeCallIns);
@@ -6019,7 +6016,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             assert(id->idIsBound());
 
             dst = emitOutputLJ(ig, dst, id);
-            sz  = sizeof(instrDescLbl);
+            sz  = sizeof(instrDesc);
             break;
 
         case IF_T1_K:  // T1_K    ....cccciiiiiiii                       Branch              imm8, cond4

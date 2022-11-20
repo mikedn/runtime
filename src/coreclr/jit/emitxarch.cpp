@@ -6379,9 +6379,6 @@ size_t emitter::emitSizeOfInsDsc(instrDesc* id)
 #endif
             break;
 
-        case ID_OP_LBL:
-            return sizeof(instrDescLbl);
-
         case ID_OP_JMP:
             return sizeof(instrDescJmp);
 
@@ -8150,21 +8147,9 @@ void emitter::emitDispIns(
 
         case IF_LABEL:
         case IF_RWR_LABEL:
-        case IF_SWR_LABEL:
-
             if (ins == INS_lea)
             {
                 printf("%s, ", emitRegName(id->idReg1(), attr));
-            }
-            else if (ins == INS_mov)
-            {
-                /* mov   dword ptr [frame.callSiteReturnAddress], label */
-                assert(id->idInsFmt() == IF_SWR_LABEL);
-                instrDescLbl* idlbl = (instrDescLbl*)id;
-
-                emitDispFrameRef(idlbl->dstLclVar, asmfm);
-
-                printf(", ");
             }
 
             if (((instrDescJmp*)id)->idjShort)
@@ -11572,25 +11557,6 @@ BYTE* emitter::emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i)
             assert(insCodeMI(INS_push) == 0x68);
             code = 0x68;
         }
-        else if (ins == INS_mov)
-        {
-            // Make it look like IF_SWR_CNS so that emitOutputSV emits the r/m32 for us
-            insFormat tmpInsFmt   = id->idInsFmt();
-            insGroup* tmpIGlabel  = id->idAddr()->iiaIGlabel;
-            bool      tmpDspReloc = id->idIsDspReloc();
-
-            id->idInsFmt(IF_SWR_CNS);
-            id->idAddr()->iiaLclVar = ((instrDescLbl*)id)->dstLclVar;
-            id->idSetIsDspReloc(false);
-
-            dst = emitOutputSV(dst, id, insCodeMI(ins));
-
-            // Restore id fields with original values
-            id->idInsFmt(tmpInsFmt);
-            id->idAddr()->iiaIGlabel = tmpIGlabel;
-            id->idSetIsDspReloc(tmpDspReloc);
-            code = 0xCC;
-        }
         else if (ins == INS_lea)
         {
             // Make an instrDesc that looks like IF_RWR_ARD so that emitOutputAM emits the r/m32 for us.
@@ -11811,13 +11777,12 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
         case IF_LABEL:
         case IF_RWR_LABEL:
-        case IF_SWR_LABEL:
             assert(id->idGCref() == GCT_NONE);
             assert(id->idIsBound());
 
             // TODO-XArch-Cleanup: handle IF_RWR_LABEL in emitOutputLJ() or change it to emitOutputAM()?
             dst = emitOutputLJ(ig, dst, id);
-            sz  = (id->idInsFmt() == IF_SWR_LABEL ? sizeof(instrDescLbl) : sizeof(instrDescJmp));
+            sz  = sizeof(instrDescJmp);
             break;
 
         case IF_METHOD:
@@ -13065,7 +13030,6 @@ emitter::insFormat emitter::getMemoryOperation(instrDesc* id)
         case IF_SWR_CNS:
         case IF_SWR_RRD:
         case IF_SWR_RRD_CNS:
-        case IF_SWR_LABEL:
             // Stack [RSP] - write
             result = IF_SWR;
             break;

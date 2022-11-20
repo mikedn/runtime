@@ -80,7 +80,6 @@ IF_DEF(NONE,        IS_NONE,                    NONE)     // no operands
 
 IF_DEF(LABEL,       IS_NONE,                    JMP )     // label
 IF_DEF(RWR_LABEL,   IS_R1_WR,                   JMP )     // write label to register
-IF_DEF(SWR_LABEL,   IS_SF_WR,                   LBL )     // write label to stack
 
 IF_DEF(METHOD,      IS_NONE,                    CALL)     // method
 IF_DEF(METHPTR,     IS_NONE,                    CALL)     // method ptr (glbl)
