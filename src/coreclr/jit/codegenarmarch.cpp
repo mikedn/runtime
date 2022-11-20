@@ -497,7 +497,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
 
         case GT_LABEL:
             genPendingCallLabel = genCreateTempLabel();
-#if defined(TARGET_ARM)
+#ifdef TARGET_ARM
             genMov32RelocatableDisplacement(genPendingCallLabel, targetReg);
 #else
             emit->emitIns_R_L(INS_adr, EA_PTRSIZE, genPendingCallLabel, targetReg);
