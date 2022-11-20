@@ -3603,8 +3603,6 @@ void emitter::MovRegStackOffset(regNumber reg, int imm, int varNum, int varOffs)
         id->idIns(ins);
         id->idInsFmt(IF_T2_N);
         id->idInsSize(ISZ_32BIT);
-        id->idInsFlags(INS_FLAGS_NOT_SET);
-        id->idInsOpt(INS_OPTS_NONE);
         id->idReg1(reg);
         id->idAddr()->iiaLclVar.initLclVarAddr(varNum, varOffs);
         id->idSetIsLclVar();
@@ -3753,8 +3751,6 @@ void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum,
     id->idIns(ins);
     id->idInsFmt(fmt);
     id->idInsSize(emitInsSize(fmt));
-    id->idInsFlags(INS_FLAGS_NOT_SET);
-    id->idInsOpt(INS_OPTS_NONE);
     id->idReg1(reg);
     id->idReg2(baseReg);
     id->idAddr()->iiaLclVar.initLclVarAddr(varNum, varOffs);

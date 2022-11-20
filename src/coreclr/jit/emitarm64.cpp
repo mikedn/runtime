@@ -7596,7 +7596,6 @@ void emitter::Ins_R_R_S(
     instrDesc* id = emitNewInstrCns(attr1, imm);
     id->idIns(ins);
     id->idInsFmt(fmt);
-    id->idInsOpt(INS_OPTS_NONE);
     id->idGCrefReg2(reg2Type);
     id->idReg1(reg1);
     id->idReg2(reg2);
