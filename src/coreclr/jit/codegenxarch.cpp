@@ -5057,7 +5057,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     regNumber             amBaseReg    = REG_NA;
     regNumber             amIndexReg   = REG_NA;
     unsigned              amIndexScale = 0;
-    ssize_t               amOffset     = 0;
+    int32_t               amOffset     = 0;
 
     if (target != nullptr)
     {

@@ -247,7 +247,7 @@ instrDesc* emitNewInstrCallDir(VARSET_VALARG_TP GCvars,
                                emitAttr retSize X86_ARG(int argCnt)
                                    MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize));
 
-instrDesc* emitNewInstrCallInd(ssize_t          disp,
+instrDesc* emitNewInstrCallInd(int32_t          disp,
                                VARSET_VALARG_TP GCvars,
                                regMaskTP        gcrefRegs,
                                regMaskTP        byrefRegs,
@@ -495,26 +495,28 @@ enum EmitCallType
     EC_INDIR_ARD         // Indirect call via an addressing mode
 };
 
-// clang-format off
 void emitIns_Call(EmitCallType          callType,
-                  CORINFO_METHOD_HANDLE methHnd
-                  DEBUGARG(CORINFO_SIG_INFO* sigInfo), 
-                  void*                 addr,
-#ifdef TARGET_X86
-                  ssize_t               argSize,
+                  CORINFO_METHOD_HANDLE methHnd,
+#ifdef DEBUG
+                  CORINFO_SIG_INFO* sigInfo,
 #endif
-                  emitAttr              retSize
-                  MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize),
-                  VARSET_VALARG_TP      ptrVars,
-                  regMaskTP             gcrefRegs,
-                  regMaskTP             byrefRegs,
-                  IL_OFFSETX            ilOffset = BAD_IL_OFFSET,
-                  regNumber             ireg     = REG_NA,
-                  regNumber             xreg     = REG_NA,
-                  unsigned              xmul     = 0,
-                  ssize_t               disp     = 0,
-                  bool                  isJump   = false);
-// clang-format on
+                  void* addr,
+#ifdef TARGET_X86
+                  ssize_t argSize,
+#endif
+                  emitAttr retSize,
+#ifdef UNIX_AMD64_ABI
+                  emitAttr secondRetSize,
+#endif
+                  VARSET_VALARG_TP ptrVars,
+                  regMaskTP        gcrefRegs,
+                  regMaskTP        byrefRegs,
+                  IL_OFFSETX       ilOffset = BAD_IL_OFFSET,
+                  regNumber        amBase   = REG_NA,
+                  regNumber        amIndex  = REG_NA,
+                  unsigned         amScale  = 0,
+                  int32_t          amDisp   = 0,
+                  bool             isJump   = false);
 
 #ifdef TARGET_AMD64
 // Is the last instruction emitted a call instruction?

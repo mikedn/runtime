@@ -2899,7 +2899,7 @@ void emitter::emitSetSecondRetRegGCType(instrDescCGCA* id, emitAttr secondRetSiz
 
 emitter::instrDesc* emitter::emitNewInstrCallInd(
 #ifdef TARGET_XARCH
-    ssize_t disp,
+    int32_t disp,
 #endif
     VARSET_VALARG_TP GCvars,
     regMaskTP        gcrefRegs,

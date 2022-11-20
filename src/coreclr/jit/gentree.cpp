@@ -5327,13 +5327,8 @@ GenTree* Compiler::gtCloneExpr(
                 break;
 
             case GT_LEA:
-            {
-                GenTreeAddrMode* addrModeOp = tree->AsAddrMode();
-                copy                        = new (this, GT_LEA)
-                    GenTreeAddrMode(addrModeOp->TypeGet(), addrModeOp->GetBase(), addrModeOp->GetIndex(),
-                                    addrModeOp->GetScale(), static_cast<unsigned>(addrModeOp->GetOffset()));
-            }
-            break;
+                copy = new (this, GT_LEA) GenTreeAddrMode(tree->AsAddrMode());
+                break;
 
             case GT_COPY:
             case GT_RELOAD:

@@ -520,7 +520,7 @@ protected:
         regNumber       amBaseReg : REGNUM_BITS + 1;
         regNumber       amIndxReg : REGNUM_BITS + 1;
         emitter::opSize amScale : 2;
-        int             amDisp : AM_DISP_BITS;
+        int32_t         amDisp : AM_DISP_BITS;
     };
 #endif // TARGET_XARCH
 
@@ -1401,7 +1401,7 @@ protected:
     {
         VARSET_TP idcGCvars; // ... updated GC vars or
 #ifdef TARGET_XARCH
-        ssize_t idcDisp; // ... big addrmode disp
+        int32_t idcDisp; // ... big addrmode disp
 #endif
         regMaskTP idcGcrefRegs; // ... gcref registers
         regMaskTP idcByrefRegs; // ... byref registers

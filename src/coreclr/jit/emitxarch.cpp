@@ -6058,31 +6058,33 @@ void emitter::emitAdjustStackDepth(instruction ins, ssize_t val)
 // EC_INDIR_R          : call ireg (addr has to be null)
 // EC_INDIR_ARD        : call [ireg + xreg * xmul + disp] (addr has to be null)
 //
-// clang-format off
 void emitter::emitIns_Call(EmitCallType          callType,
-                           CORINFO_METHOD_HANDLE methHnd
-                           DEBUGARG(CORINFO_SIG_INFO* sigInfo),
-                           void*                 addr,
-#ifdef TARGET_X86
-                           ssize_t               argSize,
+                           CORINFO_METHOD_HANDLE methHnd,
+#ifdef DEBUG
+                           CORINFO_SIG_INFO* sigInfo,
 #endif
-                           emitAttr              retSize
-                           MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize),
-                           VARSET_VALARG_TP      ptrVars,
-                           regMaskTP             gcrefRegs,
-                           regMaskTP             byrefRegs,
-                           IL_OFFSETX            ilOffset, 
-                           regNumber             ireg,     
-                           regNumber             xreg,     
-                           unsigned              xmul,     
-                           ssize_t               disp,     
-                           bool                  isJump)
-// clang-format on
+                           void* addr,
+#ifdef TARGET_X86
+                           ssize_t argSize,
+#endif
+                           emitAttr retSize,
+#ifdef UNIX_AMD64_ABI
+                           emitAttr secondRetSize,
+#endif
+                           VARSET_VALARG_TP ptrVars,
+                           regMaskTP        gcrefRegs,
+                           regMaskTP        byrefRegs,
+                           IL_OFFSETX       ilOffset,
+                           regNumber        amBase,
+                           regNumber        amIndex,
+                           unsigned         amScale,
+                           int32_t          amDisp,
+                           bool             isJump)
 {
     assert((callType != EC_FUNC_TOKEN && callType != EC_FUNC_TOKEN_INDIR && callType != EC_FUNC_ADDR) ||
-           (ireg == REG_NA && xreg == REG_NA && xmul == 0 && disp == 0));
+           (amBase == REG_NA && amIndex == REG_NA && amScale == 0 && amDisp == 0));
     assert(callType < EC_INDIR_R || callType == EC_INDIR_ARD || addr == nullptr);
-    assert(callType != EC_INDIR_R || (ireg < REG_COUNT && xreg == REG_NA && xmul == 0 && disp == 0));
+    assert(callType != EC_INDIR_R || (amBase < REG_COUNT && amIndex == REG_NA && amScale == 0 && amDisp == 0));
 
 #ifdef TARGET_X86
     // Our stack level should be always greater than the bytes of arguments we push. Just
@@ -6139,7 +6141,7 @@ void emitter::emitIns_Call(EmitCallType          callType,
 
     if ((callType == EC_INDIR_R) || (callType == EC_INDIR_ARD))
     {
-        id = emitNewInstrCallInd(disp, ptrVars, gcrefRegs, byrefRegs,
+        id = emitNewInstrCallInd(amDisp, ptrVars, gcrefRegs, byrefRegs,
                                  retSize X86_ARG(argCnt) MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize));
     }
     else
@@ -6187,15 +6189,15 @@ void emitter::emitIns_Call(EmitCallType          callType,
         }
 
         id->idInsFmt(IF_ARD);
-        id->idAddr()->iiaAddrMode.amBaseReg = ireg;
-        id->idAddr()->iiaAddrMode.amIndxReg = xreg;
-        id->idAddr()->iiaAddrMode.amScale   = xmul ? emitEncodeScale(xmul) : emitter::OPSZ1;
+        id->idAddr()->iiaAddrMode.amBaseReg = amBase;
+        id->idAddr()->iiaAddrMode.amIndxReg = amIndex;
+        id->idAddr()->iiaAddrMode.amScale   = amScale ? emitEncodeScale(amScale) : emitter::OPSZ1;
 
         sz = emitInsSizeAM(id, insCodeMR(INS_call));
 
-        if ((ireg == REG_NA) && (xreg == REG_NA))
+        if ((amBase == REG_NA) && (amIndex == REG_NA))
         {
-            if (codeGen->genCodeIndirAddrNeedsReloc(disp))
+            if (codeGen->genCodeIndirAddrNeedsReloc(amDisp))
             {
                 id->idSetIsDspReloc();
             }
