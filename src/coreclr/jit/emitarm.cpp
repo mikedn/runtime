@@ -4182,41 +4182,16 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount /* = 0 
     appendToCurIG(id);
 }
 
-/*****************************************************************************
- *
- *  Add a label instruction.
- */
-
 void emitter::emitIns_R_L(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg)
 {
-    assert(dst->bbFlags & BBF_HAS_LABEL);
+    assert((ins == INS_movt) || (ins == INS_movw));
+    assert((dst->bbFlags & BBF_HAS_LABEL) != 0);
 
-    insFormat     fmt = IF_NONE;
-    instrDescJmp* id;
-
-    /* Figure out the encoding format of the instruction */
-    switch (ins)
-    {
-        case INS_adr:
-            id  = emitNewInstrLbl();
-            fmt = IF_T2_M1;
-            break;
-        case INS_movt:
-        case INS_movw:
-            id  = emitNewInstrJmp();
-            fmt = IF_T2_N1;
-            break;
-        default:
-            unreached();
-    }
-    assert((fmt == IF_T2_M1) || (fmt == IF_T2_N1));
-
-    insSize isz = emitInsSize(fmt);
-
+    instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
     id->idReg1(reg);
-    id->idInsFmt(fmt);
-    id->idInsSize(isz);
+    id->idInsFmt(IF_T2_N1);
+    id->idInsSize(emitInsSize(IF_T2_N1));
 
 #ifdef DEBUG
     // Mark the catch return
@@ -4227,32 +4202,16 @@ void emitter::emitIns_R_L(instruction ins, emitAttr attr, BasicBlock* dst, regNu
 #endif // DEBUG
 
     id->idAddr()->iiaBBlabel = dst;
-    id->idjShort             = false;
 
-    if (ins == INS_adr)
-    {
-        id->idReg2(REG_PC);
-        id->idjKeepLong = emitComp->fgInDifferentRegions(emitComp->compCurBB, dst);
-    }
-    else
-    {
-        id->idjKeepLong = true;
-    }
-
-    /* Record the jump's IG and offset within it */
-
-    id->idjIG   = emitCurIG;
-    id->idjOffs = emitCurIGsize;
-
-    /* Append this jump to this IG's jump list */
-
+    id->idjShort     = false;
+    id->idjKeepLong  = true;
+    id->idjIG        = emitCurIG;
+    id->idjOffs      = emitCurIGsize;
     id->idjNext      = emitCurIGjmpList;
     emitCurIGjmpList = id;
 
     if (emitComp->opts.compReloc)
     {
-        // Set the relocation flags - these give hint to zap to perform
-        // relocation of the specified 32bit address.
         id->idSetRelocFlags(attr);
     }
 
@@ -4264,28 +4223,18 @@ void emitter::emitIns_R_L(instruction ins, emitAttr attr, BasicBlock* dst, regNu
     appendToCurIG(id);
 }
 
-/*****************************************************************************
- *
- *  Add a data label instruction.
- */
-
 void emitter::emitIns_R_D(instruction ins, emitAttr attr, unsigned offs, regNumber reg)
 {
-    noway_assert((ins == INS_movw) || (ins == INS_movt));
+    assert((ins == INS_movw) || (ins == INS_movt));
 
-    insFormat  fmt = IF_T2_N2;
-    instrDesc* id  = emitNewInstrSC(attr, offs);
-    insSize    isz = emitInsSize(fmt);
-
+    instrDesc* id = emitNewInstrSC(attr, offs);
     id->idIns(ins);
     id->idReg1(reg);
-    id->idInsFmt(fmt);
-    id->idInsSize(isz);
+    id->idInsFmt(IF_T2_N2);
+    id->idInsSize(emitInsSize(IF_T2_N2));
 
     if (emitComp->opts.compReloc)
     {
-        // Set the relocation flags - these give hint to zap to perform
-        // relocation of the specified 32bit address.
         id->idSetRelocFlags(attr);
     }
 

@@ -1940,16 +1940,6 @@ private:
         return (instrDescJmp*)emitAllocAnyInstr(sizeof(instrDescJmp), EA_1BYTE);
     }
 
-#if !defined(TARGET_ARM64)
-    instrDescLbl* emitAllocInstrLbl()
-    {
-#if EMITTER_STATS
-        emitTotalIDescLblCnt++;
-#endif // EMITTER_STATS
-        return (instrDescLbl*)emitAllocAnyInstr(sizeof(instrDescLbl), EA_4BYTE);
-    }
-#endif // !TARGET_ARM64
-
     instrDescCns* emitAllocInstrCns(emitAttr attr)
     {
 #if EMITTER_STATS
@@ -2000,12 +1990,8 @@ private:
     instrDesc* emitNewInstrCnsDsp(emitAttr attr, target_ssize_t cns, int dsp);
 #ifdef TARGET_ARM
     instrDesc* emitNewInstrReloc(emitAttr attr, BYTE* addr);
-#endif // TARGET_ARM
+#endif
     instrDescJmp* emitNewInstrJmp();
-
-#if !defined(TARGET_ARM64)
-    instrDescLbl* emitNewInstrLbl();
-#endif // !TARGET_ARM64
 
     static const BYTE emitFmtToOps[];
 
@@ -2480,13 +2466,6 @@ inline emitter::instrDescAlign* emitter::emitNewInstrAlign()
     return newInstr;
 }
 #endif
-
-#if !defined(TARGET_ARM64)
-inline emitter::instrDescLbl* emitter::emitNewInstrLbl()
-{
-    return emitAllocInstrLbl();
-}
-#endif // !TARGET_ARM64
 
 /*****************************************************************************
  *
