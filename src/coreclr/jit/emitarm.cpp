@@ -3598,12 +3598,13 @@ void emitter::emitIns_R_R_R_R(
 
 void emitter::MovRegStackOffset(regNumber reg, int imm, int varNum, int varOffs)
 {
-    auto mov = [&](instruction ins) {
+    auto mov = [&](instruction ins, int imm) {
         instrDesc* id = emitNewInstrCns(EA_4BYTE, imm);
         id->idIns(ins);
         id->idInsFmt(IF_T2_N);
         id->idInsSize(ISZ_32BIT);
         id->idReg1(reg);
+        // TODO-MIKE-Cleanup: Only disassembly uses this...
         id->idAddr()->iiaLclVar.initLclVarAddr(varNum, varOffs);
         id->idSetIsLclVar();
 
@@ -3611,11 +3612,11 @@ void emitter::MovRegStackOffset(regNumber reg, int imm, int varNum, int varOffs)
         appendToCurIG(id);
     };
 
-    mov(INS_movw);
+    mov(INS_movw, imm & 0xFFFF);
 
     if ((imm >> 16) != 0)
     {
-        mov(INS_movt);
+        mov(INS_movt, (imm >> 16) & 0xFFFF);
     }
 }
 
@@ -5890,25 +5891,11 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             break;
 
         case IF_T2_N: // T2_N    .....i......iiii .iiiddddiiiiiiii       R1                 imm16
+            assert(!id->idIsReloc());
             sz   = emitGetInstrDescSizeSC(id);
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_D(id->idReg1());
-            imm = emitGetInsSC(id);
-            if (id->idIsLclVar())
-            {
-                if (ins == INS_movw)
-                {
-                    imm &= 0xffff;
-                }
-                else
-                {
-                    assert(ins == INS_movt);
-                    imm = (imm >> 16) & 0xffff;
-                }
-            }
-
-            assert(!id->idIsReloc());
-            code |= insEncodeImmT2_Mov(imm);
+            code |= insEncodeImmT2_Mov(emitGetInsSC(id));
             dst += emitOutput_Thumb2Instr(dst, code);
             break;
 
