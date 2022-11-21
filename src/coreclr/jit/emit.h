@@ -526,8 +526,6 @@ protected:
 
 #ifdef DEBUG // This information is used in DEBUG builds to display the method name for call instructions
 
-    struct instrDesc;
-
     struct instrDescDebugInfo
     {
         unsigned          idNum;
@@ -555,10 +553,7 @@ protected:
     unsigned insEncodeShiftOpts(insOpts opt);
     unsigned insEncodePUW_G0(insOpts opt, int imm);
     unsigned insEncodePUW_H0(insOpts opt, int imm);
-
 #endif // TARGET_ARM
-
-    struct instrDescCns;
 
     struct instrDesc
     {
@@ -849,6 +844,8 @@ protected:
                 iiaEncodedInstrCount = (count << iaut_SHIFT) | iaut_INST_COUNT;
             }
         } _idAddrUnion;
+
+        static_assert_no_msg(sizeof(idAddrUnion) <= sizeof(void*));
 
     public:
         bool idIsSmallDsc() const

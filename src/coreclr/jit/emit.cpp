@@ -1300,15 +1300,6 @@ void* emitter::emitAllocAnyInstr(size_t sz, emitAttr opsz)
     assert(id->idCodeSize() == 0);
 #endif
 
-    // Make sure that idAddrUnion is just a union of various pointer sized things
-    static_assert_no_msg(sizeof(CORINFO_FIELD_HANDLE) <= sizeof(void*));
-    static_assert_no_msg(sizeof(CORINFO_METHOD_HANDLE) <= sizeof(void*));
-    static_assert_no_msg(sizeof(emitLclVarAddr) <= sizeof(void*));
-    static_assert_no_msg(sizeof(emitter::instrDesc) == (SMALL_IDSC_SIZE + sizeof(void*)));
-#ifdef TARGET_XARCH
-    static_assert_no_msg(sizeof(emitter::emitAddrMode) <= sizeof(void*));
-#endif
-
     emitInsCount++;
 
 #if defined(DEBUG)
