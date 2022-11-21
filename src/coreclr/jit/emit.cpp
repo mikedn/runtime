@@ -3034,20 +3034,16 @@ emitter::instrDesc* emitter::emitNewInstrCallDir(VARSET_VALARG_TP GCvars,
     }
 }
 
-/*****************************************************************************
- *
- *  Be very careful, some instruction descriptors are allocated as "tiny" and
- *  don't have some of the tail fields of instrDesc (in particular, "idInfo").
- */
-
-const BYTE emitter::emitFmtToOps[] = {
+ID_OPS emitter::GetFormatOp(insFormat format)
+{
+    static const ID_OPS ops[]{
 #define IF_DEF(en, op1, op2) ID_OP_##op2,
 #include "emitfmts.h"
-};
+    };
 
-#ifdef DEBUG
-const unsigned emitter::emitFmtCount = _countof(emitFmtToOps);
-#endif
+    assert(format < _countof(ops));
+    return ops[format];
+}
 
 //------------------------------------------------------------------------
 // Interleaved GC info dumping.

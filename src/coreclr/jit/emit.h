@@ -1986,11 +1986,7 @@ private:
 #endif
     instrDescJmp* emitNewInstrJmp();
 
-    static const BYTE emitFmtToOps[];
-
-#ifdef DEBUG
-    static const unsigned emitFmtCount;
-#endif
+    static ID_OPS GetFormatOp(insFormat format);
 
     bool emitIsScnsInsDsc(instrDesc* id);
 

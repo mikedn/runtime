@@ -78,21 +78,18 @@ const emitJumpKind emitReverseJumpKinds[] = {
     return emitReverseJumpKinds[jumpKind];
 }
 
-/*****************************************************************************
- *
- *  Return the allocated size (in bytes) of the given instruction descriptor.
- */
-
+// Return the allocated size (in bytes) of the given instruction descriptor.
 size_t emitter::emitSizeOfInsDsc(instrDesc* id)
 {
     if (emitIsScnsInsDsc(id))
+    {
         return SMALL_IDSC_SIZE;
+    }
 
-    assert((unsigned)id->idInsFmt() < emitFmtCount);
+    ID_OPS idOp = GetFormatOp(id->idInsFmt());
 
-    ID_OPS idOp         = (ID_OPS)emitFmtToOps[id->idInsFmt()];
-    bool   isCallIns    = (id->idIns() == INS_bl) || (id->idIns() == INS_blx);
-    bool   maybeCallIns = (id->idIns() == INS_b) || (id->idIns() == INS_bx);
+    bool isCallIns    = (id->idIns() == INS_bl) || (id->idIns() == INS_blx);
+    bool maybeCallIns = (id->idIns() == INS_b) || (id->idIns() == INS_bx);
 
     // An INS_call instruction may use a "fat" direct/indirect call descriptor
     // except for a local call to a label (i.e. call to a finally).

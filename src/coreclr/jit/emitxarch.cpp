@@ -6312,14 +6312,13 @@ void emitter::emitIns_Call(EmitCallType          callType,
 }
 
 #ifdef DEBUG
-/*****************************************************************************
- *
- *  The following called for each recorded instruction -- use for debugging.
- */
+// The following called for each recorded instruction -- use for debugging.
 void emitter::emitInsSanityCheck(instrDesc* id)
 {
     // make certain you only try to put relocs on things that can have them.
-    ID_OPS idOp = (ID_OPS)emitFmtToOps[id->idInsFmt()];
+
+    ID_OPS idOp = GetFormatOp(id->idInsFmt());
+
     if ((idOp == ID_OP_SCNS) && id->idIsLargeCns())
     {
         idOp = ID_OP_CNS;
@@ -6340,11 +6339,7 @@ void emitter::emitInsSanityCheck(instrDesc* id)
 }
 #endif
 
-/*****************************************************************************
- *
- *  Return the allocated size (in bytes) of the given instruction descriptor.
- */
-
+// Return the allocated size (in bytes) of the given instruction descriptor.
 size_t emitter::emitSizeOfInsDsc(instrDesc* id)
 {
     if (emitIsScnsInsDsc(id))
@@ -6352,9 +6347,7 @@ size_t emitter::emitSizeOfInsDsc(instrDesc* id)
         return SMALL_IDSC_SIZE;
     }
 
-    assert((unsigned)id->idInsFmt() < emitFmtCount);
-
-    ID_OPS idOp = (ID_OPS)emitFmtToOps[id->idInsFmt()];
+    ID_OPS idOp = GetFormatOp(id->idInsFmt());
 
     // An INS_call instruction may use a "fat" direct/indirect call descriptor
     // except for a local call to a label (i.e. call to a finally)
