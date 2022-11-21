@@ -9434,11 +9434,12 @@ BYTE* emitter::emitOutputSV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
     dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
 
     // Figure out the variable's frame position
-    int varNum = id->idAddr()->iiaLclVar.lvaVarNum();
+    const int      varNum  = id->idAddr()->iiaLclVar.lvaVarNum();
+    const unsigned varOffs = id->idAddr()->iiaLclVar.lvaOffset();
 
     bool ebpBased;
     int  adr = emitComp->lvaFrameAddress(varNum, &ebpBased);
-    int  dsp = adr + id->idAddr()->iiaLclVar.lvaOffset();
+    int  dsp = adr + varOffs;
 
     // for stack variables the dsp should never be a reloc
     assert(id->idIsDspReloc() == 0);
@@ -9570,7 +9571,7 @@ BYTE* emitter::emitOutputSV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
 
     if (id->idGCref() != GCT_NONE)
     {
-        adr += AlignDown(id->idAddr()->iiaLclVar.lvaOffset(), REGSIZE_BYTES);
+        adr += AlignDown(varOffs, REGSIZE_BYTES);
 
         switch (id->idInsFmt())
         {
