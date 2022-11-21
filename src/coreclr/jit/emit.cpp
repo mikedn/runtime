@@ -1219,7 +1219,7 @@ size_t emitter::emitGenEpilogLst(size_t (*fp)(void*, unsigned), void* cp)
  *  The following series of methods allocates instruction descriptors.
  */
 
-void* emitter::emitAllocAnyInstr(size_t sz, emitAttr opsz)
+void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz)
 {
     instrDesc* id;
 
@@ -1302,21 +1302,7 @@ void* emitter::emitAllocAnyInstr(size_t sz, emitAttr opsz)
 
     emitInsCount++;
 
-#if defined(DEBUG)
-    /* In debug mode we clear/set some additional fields */
-
-    instrDescDebugInfo* info = (instrDescDebugInfo*)emitGetMem(sizeof(*info));
-
-    info->idNum         = emitInsCount;
-    info->idSize        = sz;
-    info->idMemCookie   = 0;
-    info->idFinallyCall = false;
-    info->idCatchRet    = false;
-    info->idCallSig     = nullptr;
-
-    id->idDebugOnlyInfo(info);
-
-#endif // defined(DEBUG)
+    INDEBUG(id->idDebugOnlyInfo(new (emitComp, CMK_DebugOnly) instrDescDebugInfo(emitInsCount, sz)));
 
     /* Store the size and handle the two special values
        that indicate GCref and ByRef */

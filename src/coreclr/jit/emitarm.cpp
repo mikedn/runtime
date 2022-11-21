@@ -3599,8 +3599,7 @@ void emitter::MovRegStackOffset(regNumber reg, int imm, int varNum, int varOffs)
         id->idInsSize(ISZ_32BIT);
         id->idReg1(reg);
         // TODO-MIKE-Cleanup: Only disassembly uses this...
-        id->idAddr()->iiaLclVar.initLclVarAddr(varNum, varOffs);
-        id->idSetIsLclVar();
+        id->SetVarAddr(varNum, varOffs);
 
         dispIns(id);
         appendToCurIG(id);
@@ -3748,8 +3747,7 @@ void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum,
     id->idInsSize(emitInsSize(fmt));
     id->idReg1(reg);
     id->idReg2(baseReg);
-    id->idAddr()->iiaLclVar.initLclVarAddr(varNum, varOffs);
-    id->idSetIsLclVar();
+    id->SetVarAddr(varNum, varOffs);
 
     dispIns(id);
     appendToCurIG(id);
@@ -7295,8 +7293,7 @@ void emitter::emitDispInsHelp(
 
     if (id->idIsLclVar())
     {
-        printf("\t// ");
-        emitDispFrameRef(id->idAddr()->iiaLclVar);
+        emitDispFrameRef(id);
     }
 
     printf("\n");
@@ -7376,27 +7373,26 @@ void emitter::emitDispIns(
     }
 }
 
-/*****************************************************************************
- *
- *  Display a stack frame reference.
- */
-
-void emitter::emitDispFrameRef(const emitLclVarAddr& lcl)
+void emitter::emitDispFrameRef(instrDesc* id)
 {
-    printf("[");
+    int varNum  = id->idDebugOnlyInfo()->varNum;
+    int varOffs = id->idDebugOnlyInfo()->varOffs;
 
-    int varx = lcl.lvaVarNum();
-    int disp = static_cast<int>(lcl.lvaOffset());
+    printf("\t// [");
 
-    if (varx < 0)
-        printf("TEMP_%02u", -varx);
+    if (varNum < 0)
+    {
+        printf("TEMP_%02d", -varNum);
+    }
     else
-        emitComp->gtDispLclVar(+varx, false);
+    {
+        emitComp->gtDispLclVar(static_cast<unsigned>(varNum), false);
+    }
 
-    if (disp < 0)
-        printf("-0x%02x", -disp);
-    else if (disp > 0)
-        printf("+0x%02x", +disp);
+    if (varOffs != 0)
+    {
+        printf("%c0x%02x", varOffs < 0 ? '-' : '+', abs(varOffs));
+    }
 
     printf("]");
 }

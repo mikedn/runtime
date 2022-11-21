@@ -525,16 +525,22 @@ protected:
 #endif // TARGET_XARCH
 
 #ifdef DEBUG // This information is used in DEBUG builds to display the method name for call instructions
-
     struct instrDescDebugInfo
     {
         unsigned          idNum;
-        size_t            idSize;        // size of the instruction descriptor
-        size_t            idMemCookie;   // for display of method name  (also used by switch table)
-        GenTreeFlags      idFlags;       // for determining type of handle in idMemCookie
-        bool              idFinallyCall; // Branch instruction is a call to finally
-        bool              idCatchRet;    // Instruction is for a catch 'return'
-        CORINFO_SIG_INFO* idCallSig;     // Used to report native call site signatures to the EE
+        uint16_t          idSize;                    // size of the instruction descriptor
+        bool              idFinallyCall = false;     // Branch instruction is a call to finally
+        bool              idCatchRet    = false;     // Instruction is for a catch 'return'
+        GenTreeFlags      idFlags       = GTF_EMPTY; // for determining type of handle in idMemCookie
+        int               varNum        = INT_MIN;
+        int               varOffs       = 0;
+        CORINFO_SIG_INFO* idCallSig     = nullptr; // Used to report native call site signatures to the EE
+        size_t            idMemCookie   = 0;       // for display of method name (also used by switch table)
+
+        instrDescDebugInfo(unsigned num, unsigned size) : idNum(num), idSize(static_cast<uint16_t>(size))
+        {
+            assert(size <= UINT16_MAX);
+        }
     };
 
 #endif // DEBUG
@@ -1141,11 +1147,7 @@ protected:
         {
             return _idLclVar != 0;
         }
-        void idSetIsLclVar()
-        {
-            _idLclVar = 1;
-        }
-#endif // TARGET_ARMARCH
+#endif
 
         bool idIsCnsReloc() const
         {
@@ -1182,13 +1184,25 @@ protected:
         inline const idAddrUnion* idAddr() const
         {
             assert(!idIsSmallDsc());
-            return &this->_idAddrUnion;
+            return &_idAddrUnion;
         }
 
         inline idAddrUnion* idAddr()
         {
             assert(!idIsSmallDsc());
-            return &this->_idAddrUnion;
+            return &_idAddrUnion;
+        }
+
+        void SetVarAddr(int varNum, int varOffs)
+        {
+            idAddr()->iiaLclVar.initLclVarAddr(varNum, varOffs);
+#ifdef TARGET_ARMARCH
+            _idLclVar = true;
+#endif
+#ifdef DEBUG
+            _idDebugOnlyInfo->varNum  = varNum;
+            _idDebugOnlyInfo->varOffs = varOffs;
+#endif
         }
     }; // End of  struct instrDesc
 
@@ -1504,9 +1518,9 @@ protected:
     void emitDispGCinfo();
     void emitDispClsVar(CORINFO_FIELD_HANDLE fldHnd, ssize_t offs, bool reloc = false);
 #ifdef TARGET_XARCH
-    void emitDispFrameRef(const emitLclVarAddr& lcl, bool asmfm);
+    void emitDispFrameRef(instrDesc* id, bool asmfm);
 #else
-    void emitDispFrameRef(const emitLclVarAddr& lcl);
+    void emitDispFrameRef(instrDesc* id);
 #endif
     void emitDispInsAddr(BYTE* code);
     void emitDispInsOffs(unsigned offs, bool doffs);
@@ -1912,7 +1926,7 @@ private:
     // The emitters themselves use emitNewXXX, which might be thin wrappers over the emitAllocXXX functions.
     //
 
-    void* emitAllocAnyInstr(size_t sz, emitAttr attr);
+    void* emitAllocAnyInstr(unsigned sz, emitAttr attr);
 
     instrDesc* emitAllocInstr(emitAttr attr)
     {

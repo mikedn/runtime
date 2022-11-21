@@ -4191,7 +4191,7 @@ void emitter::emitIns_R_S_I(instruction ins, emitAttr attr, regNumber reg1, int 
     id->idIns(ins);
     id->idInsFmt(IF_RRW_SRD_CNS);
     id->idReg1(reg1);
-    id->idAddr()->iiaLclVar.initLclVarAddr(varx, offs);
+    id->SetVarAddr(varx, offs);
 
     unsigned sz = emitInsSizeSV(id, insCodeRM(ins), varx, offs, ival);
     id->idCodeSize(sz);
@@ -4334,7 +4334,7 @@ void emitter::emitIns_R_R_S(instruction ins, emitAttr attr, regNumber reg1, regN
     id->idInsFmt(IF_RWR_RRD_SRD);
     id->idReg1(reg1);
     id->idReg2(reg2);
-    id->idAddr()->iiaLclVar.initLclVarAddr(varx, offs);
+    id->SetVarAddr(varx, offs);
 
     unsigned sz = emitInsSizeSV(id, insCodeRM(ins), varx, offs);
     id->idCodeSize(sz);
@@ -4454,7 +4454,7 @@ void emitter::emitIns_R_R_S_I(
     id->idInsFmt(IF_RWR_RRD_SRD_CNS);
     id->idReg1(reg1);
     id->idReg2(reg2);
-    id->idAddr()->iiaLclVar.initLclVarAddr(varx, offs);
+    id->SetVarAddr(varx, offs);
 
     unsigned sz = emitInsSizeSV(id, insCodeRM(ins), varx, offs, ival);
     id->idCodeSize(sz);
@@ -4559,7 +4559,7 @@ void emitter::emitIns_R_R_S_R(
     id->idReg2(op1Reg);
 
     id->idInsFmt(IF_RWR_RRD_SRD_RRD);
-    id->idAddr()->iiaLclVar.initLclVarAddr(varx, offs);
+    id->SetVarAddr(varx, offs);
 
     unsigned sz = emitInsSizeSV(id, insCodeRM(ins), varx, offs, imm);
     id->idCodeSize(sz);
@@ -4884,7 +4884,7 @@ void emitter::emitIns_S_R_I(instruction ins, emitAttr attr, int varNum, int offs
     id->idIns(ins);
     id->idInsFmt(IF_SWR_RRD_CNS);
     id->idReg1(reg);
-    id->idAddr()->iiaLclVar.initLclVarAddr(varNum, offs);
+    id->SetVarAddr(varNum, offs);
 
     unsigned sz = emitInsSizeSV(id, insCodeMR(ins), varNum, offs, ival);
     id->idCodeSize(sz);
@@ -5555,7 +5555,7 @@ void emitter::emitIns_S(instruction ins, emitAttr attr, int varx, int offs)
     instrDesc* id = emitNewInstr(attr);
     id->idIns(ins);
     id->idInsFmt(emitInsModeFormat(ins, IF_SRD));
-    id->idAddr()->iiaLclVar.initLclVarAddr(varx, offs);
+    id->SetVarAddr(varx, offs);
 
     unsigned sz = emitInsSizeSV(id, insCodeMR(ins), varx, offs);
     id->idCodeSize(sz);
@@ -5578,7 +5578,7 @@ void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber ireg, int va
     id->idIns(ins);
     id->idInsFmt(emitInsModeFormat(ins, IF_SRD_RRD));
     id->idReg1(ireg);
-    id->idAddr()->iiaLclVar.initLclVarAddr(varx, offs);
+    id->SetVarAddr(varx, offs);
 
     unsigned sz = emitInsSizeSV(id, insCodeMR(ins), varx, offs);
     id->idCodeSize(sz);
@@ -5594,7 +5594,7 @@ void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber ireg, int va
     id->idIns(ins);
     id->idInsFmt(emitInsModeFormat(ins, IF_RRD_SRD));
     id->idReg1(ireg);
-    id->idAddr()->iiaLclVar.initLclVarAddr(varx, offs);
+    id->SetVarAddr(varx, offs);
 
     unsigned sz = emitInsSizeSV(id, insCodeRM(ins), varx, offs);
     id->idCodeSize(sz);
@@ -5626,7 +5626,7 @@ void emitter::emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, in
     instrDesc* id = emitNewInstrCns(attr, val);
     id->idIns(ins);
     id->idInsFmt(fmt);
-    id->idAddr()->iiaLclVar.initLclVarAddr(varx, offs);
+    id->SetVarAddr(varx, offs);
 
     unsigned sz = emitInsSizeSV(id, insCodeMI(ins), varx, offs, val);
     id->idCodeSize(sz);
@@ -6683,82 +6683,40 @@ void emitter::emitDispClsVar(CORINFO_FIELD_HANDLE fldHnd, ssize_t offs, bool rel
     printf("]");
 }
 
-/*****************************************************************************
- *
- *  Display a stack frame reference.
- */
-
-void emitter::emitDispFrameRef(const emitLclVarAddr& lcl, bool asmfm)
+void emitter::emitDispFrameRef(instrDesc* id, bool asmfm)
 {
-    int  varx = lcl.lvaVarNum();
-    int  disp = static_cast<int>(lcl.lvaOffset());
-    int  addr;
-    bool bEBP;
+    int varNum  = id->idDebugOnlyInfo()->varNum;
+    int varOffs = id->idDebugOnlyInfo()->varOffs;
 
     printf("[");
 
     if (!asmfm)
     {
-        if (varx < 0)
+        printf("%s%02d", varNum < 0 ? "TEMP_" : "V", abs(varNum));
+
+        if (varOffs != 0)
         {
-            printf("TEMP_%02u", -varx);
-        }
-        else
-        {
-            printf("V%02u", +varx);
+            printf("-0x%X", varOffs < 0 ? '-' : '+', abs(varOffs));
         }
 
-        if (disp < 0)
-        {
-            printf("-0x%X", -disp);
-        }
-        else if (disp > 0)
-        {
-            printf("+0x%X", +disp);
-        }
-    }
-
-    if (!asmfm)
-    {
         printf(" ");
     }
 
-    addr = emitComp->lvaFrameAddress(varx, &bEBP) + disp;
+    bool ebpBase;
+    int  disp = emitComp->lvaFrameAddress(varNum, &ebpBase) + varOffs;
 
-    if (bEBP)
-    {
-        printf(STR_FPBASE);
-
-        if (addr < 0)
-        {
-            printf("-%02XH", -addr);
-        }
-        else if (addr > 0)
-        {
-            printf("+%02XH", addr);
-        }
-    }
-    else
-    {
-        /* Adjust the offset by amount currently pushed on the stack */
-
-        printf(STR_SPBASE);
-
-        if (addr < 0)
-        {
-            printf("-%02XH", -addr);
-        }
-        else if (addr > 0)
-        {
-            printf("+%02XH", addr);
-        }
+    printf("%s", getRegName(ebpBase ? REG_EBP : REG_ESP));
 
 #if !FEATURE_FIXED_OUT_ARGS
+    if (!ebpBase && (emitCurStackLvl != 0))
+    {
+        printf("+%02XH", emitCurStackLvl);
+    }
+#endif
 
-        if (emitCurStackLvl)
-            printf("+%02XH", emitCurStackLvl);
-
-#endif // !FEATURE_FIXED_OUT_ARGS
+    if (disp != 0)
+    {
+        printf("%c%02XH", disp < 0 ? '-' : '+', abs(disp));
     }
 
     printf("]");
@@ -7083,8 +7041,7 @@ void emitter::emitDispIns(
 
     if (emitComp->verbose)
     {
-        unsigned idNum = id->idDebugOnlyInfo()->idNum;
-        printf("IN%04x: ", idNum);
+        printf("IN%04x: ", id->idDebugOnlyInfo()->idNum);
     }
 
 #define ID_INFO_DSP_RELOC ((bool)(id->idIsDspReloc()))
@@ -7587,7 +7544,7 @@ void emitter::emitDispIns(
                 emitCurStackLvl -= sizeof(int);
 #endif
 
-            emitDispFrameRef(id->idAddr()->iiaLclVar, asmfm);
+            emitDispFrameRef(id, asmfm);
 
 #if !FEATURE_FIXED_OUT_ARGS
             if (ins == INS_pop)
@@ -7603,7 +7560,7 @@ void emitter::emitDispIns(
 
             printf("%s", sstr);
 
-            emitDispFrameRef(id->idAddr()->iiaLclVar, asmfm);
+            emitDispFrameRef(id, asmfm);
 
             printf(", %s", emitRegName(id->idReg1(), attr));
             break;
@@ -7615,7 +7572,7 @@ void emitter::emitDispIns(
 
             printf("%s", sstr);
 
-            emitDispFrameRef(id->idAddr()->iiaLclVar, asmfm);
+            emitDispFrameRef(id, asmfm);
 
             emitGetInsCns(id, &cnsVal);
             val = cnsVal.cnsVal;
@@ -7648,7 +7605,7 @@ void emitter::emitDispIns(
 
             printf("%s", sstr);
 
-            emitDispFrameRef(id->idAddr()->iiaLclVar, asmfm);
+            emitDispFrameRef(id, asmfm);
 
             printf(", %s", emitRegName(id->idReg1(), attr));
 
@@ -7687,7 +7644,7 @@ void emitter::emitDispIns(
             }
 
             printf("%s, %s", emitRegName(id->idReg1(), attr), sstr);
-            emitDispFrameRef(id->idAddr()->iiaLclVar, asmfm);
+            emitDispFrameRef(id, asmfm);
 
             break;
 
@@ -7695,7 +7652,7 @@ void emitter::emitDispIns(
         case IF_RWR_SRD_CNS:
         {
             printf("%s, %s", emitRegName(id->idReg1(), attr), sstr);
-            emitDispFrameRef(id->idAddr()->iiaLclVar, asmfm);
+            emitDispFrameRef(id, asmfm);
             emitGetInsCns(id, &cnsVal);
 
             val = cnsVal.cnsVal;
@@ -7714,13 +7671,13 @@ void emitter::emitDispIns(
 
         case IF_RWR_RRD_SRD:
             printf("%s, %s, %s", emitRegName(id->idReg1(), attr), emitRegName(id->idReg2(), attr), sstr);
-            emitDispFrameRef(id->idAddr()->iiaLclVar, asmfm);
+            emitDispFrameRef(id, asmfm);
             break;
 
         case IF_RWR_RRD_SRD_CNS:
         {
             printf("%s, %s, %s", emitRegName(id->idReg1(), attr), emitRegName(id->idReg2(), attr), sstr);
-            emitDispFrameRef(id->idAddr()->iiaLclVar, asmfm);
+            emitDispFrameRef(id, asmfm);
             emitGetInsCns(id, &cnsVal);
 
             val = cnsVal.cnsVal;
@@ -7741,7 +7698,7 @@ void emitter::emitDispIns(
         {
             printf("%s, ", emitRegName(id->idReg1(), attr));
             printf("%s, ", emitRegName(id->idReg2(), attr));
-            emitDispFrameRef(id->idAddr()->iiaLclVar, asmfm);
+            emitDispFrameRef(id, asmfm);
             emitGetInsCns(id, &cnsVal);
             val = (cnsVal.cnsVal >> 4) + XMMBASE;
             printf(", %s", emitRegName((regNumber)val, attr));
