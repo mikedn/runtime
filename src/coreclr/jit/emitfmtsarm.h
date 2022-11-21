@@ -36,13 +36,9 @@ enum ID_OPS : uint8_t
 //                  (unused)
 //////////////////////////////////////////////////////////////////////////////
 
-IF_DEF(NONE,        IS_NONE,               NONE)     //
+IF_DEF(NONE,        IS_NONE,               NONE)
 
-IF_DEF(LABEL,       IS_NONE,               JMP )     // label
-//IF_DEF(SWR_LABEL,   IS_NONE,               LBL )     // write label to stack
-//IF_DEF(METHOD,      IS_NONE,               CALL)     // method
-//IF_DEF(CNS,         IS_NONE,               SCNS)     // const
-
+IF_DEF(LABEL,       IS_NONE,               JMP)      // label
 IF_DEF(LARGEJMP,    IS_NONE,               JMP)      // large conditional branch pseudo-op
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////

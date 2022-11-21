@@ -6327,8 +6327,7 @@ void emitter::emitInsSanityCheck(instrDesc* id)
     if (id->idIsDspReloc())
     {
         assert(idOp == ID_OP_NONE || idOp == ID_OP_AMD || idOp == ID_OP_DSP || idOp == ID_OP_DSP_CNS ||
-               idOp == ID_OP_AMD_CNS || idOp == ID_OP_SPEC || idOp == ID_OP_CALL || idOp == ID_OP_JMP ||
-               idOp == ID_OP_LBL);
+               idOp == ID_OP_AMD_CNS || idOp == ID_OP_SPEC || idOp == ID_OP_CALL || idOp == ID_OP_JMP);
     }
 
     if (id->idIsCnsReloc())

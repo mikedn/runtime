@@ -26,7 +26,6 @@ enum ID_OPS : uint8_t
     ID_OP_AMD,                              // addrmode with dsp
     ID_OP_AMD_CNS,                          // addrmode with dsp + constant
     ID_OP_JMP,                              // local jump
-    ID_OP_LBL,                              // label operand
     ID_OP_CALL,                             // direct method call
     ID_OP_SPEC,                             // special handling required
 };
