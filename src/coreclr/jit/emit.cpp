@@ -5943,44 +5943,33 @@ unsigned emitter::emitEndCodeGen(Compiler* comp,
     assert(emitCurStackLvl == 0);
 #endif
 
-    /* Output any initialized data we may have */
-
+    // Output any initialized data we may have.
     if (emitConsDsc.dsdOffs != 0)
     {
         emitOutputDataSec(&emitConsDsc, consBlock);
     }
 
-    /* Make sure all GC ref variables are marked as dead */
-
-    if (emitGCrFrameOffsCnt != 0)
+    // Make sure all GC ref variables are marked as dead.
+    for (unsigned i = 0; i < emitGCrFrameOffsCnt; i++)
     {
-        unsigned          vn;
-        int               of;
-        GCFrameLifetime** dp;
-
-        for (vn = 0, of = emitGCrFrameOffsMin, dp = emitGCrFrameLiveTab; vn < emitGCrFrameOffsCnt;
-             vn++, of += TARGET_POINTER_SIZE, dp++)
+        if (emitGCrFrameLiveTab[i] != nullptr)
         {
-            if (*dp)
-            {
-                emitGCvarDeadSet(of, cp, vn);
-            }
+            emitGCvarDeadSet(emitGCrFrameOffsMin + i * REGSIZE_BYTES, cp, i);
         }
     }
 
-    /* No GC registers are live any more */
-
+    // No GC registers are live any more.
     if (emitThisByrefRegs)
     {
         emitUpdateLiveGCregs(GCT_BYREF, RBM_NONE, cp);
     }
+
     if (emitThisGCrefRegs)
     {
         emitUpdateLiveGCregs(GCT_GCREF, RBM_NONE, cp);
     }
 
-    /* Patch any forward jumps */
-
+    // Patch any forward jumps.
     if (emitFwdJumps)
     {
         for (instrDescJmp* jmp = emitJumpList; jmp != nullptr; jmp = jmp->idjNext)
