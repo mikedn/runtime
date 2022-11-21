@@ -122,7 +122,7 @@ void Compiler::optAddCopies()
 
         bool paramFoundImportantUse = false;
 
-        JITDUMP("Trying to add a copy for %s V%02u, avg_wtd = %s\n", lclNum, varDsc->IsParam() ? "param" : "local",
+        JITDUMP("Trying to add a copy for %s V%02u, avg_wtd = %s\n", varDsc->IsParam() ? "param" : "local", lclNum,
                 refCntWtd2str(paramAvgWtdRefDiv2));
 
         //
