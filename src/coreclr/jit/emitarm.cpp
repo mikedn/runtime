@@ -6237,7 +6237,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
     // Now we determine if the instruction has written to a (local variable) stack location, and either written a GC
     // ref or overwritten one.
-    if (emitInsWritesToLclVarStackLoc(id))
+    if ((id->idGCref() != GCT_NONE) && emitInsWritesToLclVarStackLoc(id))
     {
         int varNum = id->idAddr()->iiaLclVar.lvaVarNum();
 
@@ -6248,14 +6248,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             regNumber regBase;
             int       adr = emitComp->lvaFrameAddress(lclNum, true, ofs, /* isFloatUsage */ false, &regBase) + ofs;
 
-            if (id->idGCref() != GCT_NONE)
-            {
-                emitGCvarLiveUpd(adr, lclNum, id->idGCref(), dst);
-            }
-            else if ((varNum >= 0) && varTypeIsGC(emitComp->lvaGetDesc(lclNum)->GetType()))
-            {
-                emitGCvarDeadUpd(adr, dst DEBUG_ARG(lclNum));
-            }
+            emitGCvarLiveUpd(adr, lclNum, id->idGCref(), dst);
         }
     }
 

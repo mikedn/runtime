@@ -9621,18 +9621,6 @@ BYTE* emitter::emitOutputSV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
                 break;
 
             default:
-                // TODO-MIKE-Review: The ARMARCH version of this code calls emitGCvarDeadUpd for
-                // non GC stores, it's not clear why the inconsistency. Nor it's clear how a GC
-                // slot could ever become dead via such stores because the store type is normally
-                // the type of the local/temp we're storing into and that doesn't change, except
-                // in the case of outgoing args, but those seem to be handled in a different way.
-                // One could think that perhaps a null store won't have a GC type and it would mark
-                // the GC slot as dead but that isn't the case, in fact the GC slot becomes live!
-                //
-                // It's likely that the ARMARCH code is bogus and the XARCH code is correct.
-                // A GC slot can really become dead only when liveness tells us that it is dead.
-                // In fact, even the GC store case is messed up - a dead store would end up making
-                // the GC slot live. But that's rare since dead stores are normally eliminated.
                 break;
         }
 
