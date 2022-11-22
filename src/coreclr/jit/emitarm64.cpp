@@ -11021,7 +11021,9 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 emitGCvarLiveUpd(adr, lclNum, id->idGCref(), dst);
             }
 
-            // TODO-MIKE-Review: This looks bogus, using STP to store to a local implies that the local is STRUCT.
+            // STP is used to copy structs and we don't currently GC-track struct locals. But
+            // it's also used to copy structs to the outgoing arg area, and those do require
+            // (special) GC tracking.
             if (emitInsWritesToLclVarStackLocPair(id) && (id->idGCrefReg2() != GCT_NONE))
             {
                 adr += REGSIZE_BYTES;
