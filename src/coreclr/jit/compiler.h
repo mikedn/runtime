@@ -4069,9 +4069,6 @@ public:
 #endif
 
     int lvaFrameAddress(int varNum, bool* pFPbased);
-#ifdef TARGET_ARM
-    int lvaFrameAddress(int varNum, bool mustBeFPBased, int lclOffset, bool isFloatUsage, regNumber* baseReg);
-#endif
 
     bool lvaIsOriginalThisArg(unsigned varNum); // Is this varNum the original this argument?
 

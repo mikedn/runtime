@@ -3670,10 +3670,23 @@ void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, int var
 
 void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum, int varOffs)
 {
-    bool      mustBeFpBased    = emitComp->funCurrentFunc()->funKind != FUNC_ROOT;
     bool      isFloatLoadStore = (ins == INS_vldr) || (ins == INS_vstr);
+    bool      fpBased;
+    int       imm = emitComp->lvaFrameAddress(varNum, &fpBased) + varOffs;
     regNumber baseReg;
-    int       imm = emitComp->lvaFrameAddress(varNum, mustBeFpBased, varOffs, isFloatLoadStore, &baseReg) + varOffs;
+
+    if (!fpBased)
+    {
+        baseReg = REG_SP;
+    }
+    else if (emitComp->funCurrentFunc()->funKind != FUNC_ROOT)
+    {
+        baseReg = REG_FPBASE;
+    }
+    else
+    {
+        imm = OptimizeFrameAddress(imm, isFloatLoadStore, &baseReg);
+    }
 
     insFormat fmt;
 
@@ -3751,6 +3764,30 @@ void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum,
 
     dispIns(id);
     appendToCurIG(id);
+}
+
+// Change frame pointer based addressing to SP-based addressing when possible because it has smaller encoding.
+int emitter::OptimizeFrameAddress(int fpOffset, bool isFloatLoadStore, regNumber* baseReg)
+{
+    int spOffset = fpOffset + codeGen->genSPtoFPdelta();
+
+    int encodingLimitUpper = isFloatLoadStore ? 1020 : 4095;
+    int encodingLimitLower = isFloatLoadStore ? -1020 : -255;
+
+    // TODO-MIKE-Review: It's not clear what's the minopts check for.
+    // Maybe it was supposed to be !MinOpts()?
+
+    if (emitComp->opts.MinOpts() || (spOffset <= encodingLimitUpper) || (fpOffset < encodingLimitLower) ||
+        (fpOffset > encodingLimitUpper))
+    {
+        *baseReg = emitComp->compLocallocUsed ? REG_SAVED_LOCALLOC_SP : REG_SP;
+        return spOffset;
+    }
+    else
+    {
+        *baseReg = REG_FPBASE;
+        return fpOffset;
+    }
 }
 
 /*****************************************************************************
