@@ -4812,16 +4812,7 @@ int Compiler::lvaAllocateTemps(int stkOffs
 
 // Determine the stack frame offset of the given local,
 // and how to generate an address to that local's stack location.
-int Compiler::lvaFrameAddress(int varNum,
-#ifdef TARGET_ARM
-                              bool       mustBeFPBased,
-                              int        addrModeOffset,
-                              bool       isFloatUsage,
-                              regNumber* baseReg
-#else
-                              bool* pFPbased
-#endif
-                              )
+int Compiler::lvaFrameAddress(int varNum, bool* pFPbased)
 {
     assert(lvaDoneFrameLayout == FINAL_FRAME_LAYOUT);
 
@@ -4886,60 +4877,70 @@ int Compiler::lvaFrameAddress(int varNum,
         varOffset = tmpDsc->tdTempOffs();
     }
 
-#ifndef TARGET_ARM
     *pFPbased = fpBased;
-#else
+    return varOffset;
+}
+
+#ifdef TARGET_ARM
+int Compiler::lvaFrameAddress(int varNum, bool mustBeFPBased, int addrModeOffset, bool isFloatUsage, regNumber* baseReg)
+{
+    bool fpBased;
+    int  varOffset = lvaFrameAddress(varNum, &fpBased);
+
     if (!fpBased)
     {
         *baseReg = REG_SPBASE;
+
+        return varOffset;
     }
-    else if (mustBeFPBased)
+
+    if (mustBeFPBased)
+    {
+        *baseReg = REG_FPBASE;
+
+        return varOffset;
+    }
+
+    // Change the Frame Pointer (R11)-based addressing to the SP-based addressing when
+    // possible because it generates smaller code on ARM. See frame picture above for
+    // the math.
+
+    // If it is the final frame layout phase, we don't have a choice, we should stick
+    // to either FP based or SP based that we decided in the earlier phase. Because
+    // we have already selected the instruction. MinOpts will always reserve R10, so
+    // for MinOpts always use SP-based offsets, using R10 as necessary, for simplicity.
+
+    int spVarOffset        = varOffset + codeGen->genSPtoFPdelta();
+    int actualSPOffset     = spVarOffset + addrModeOffset;
+    int actualFPOffset     = varOffset + addrModeOffset;
+    int encodingLimitUpper = isFloatUsage ? 0x3FC : 0xFFF;
+    int encodingLimitLower = isFloatUsage ? -0x3FC : -0xFF;
+
+    // Use SP-based encoding. During encoding, we'll pick the best encoding for the actual offset we have.
+    if (opts.MinOpts() || (actualSPOffset <= encodingLimitUpper))
+    {
+        *baseReg = compLocallocUsed ? REG_SAVED_LOCALLOC_SP : REG_SPBASE;
+
+        varOffset = spVarOffset;
+    }
+    // Use Frame Pointer (R11)-based encoding.
+    else if ((encodingLimitLower <= actualFPOffset) && (actualFPOffset <= encodingLimitUpper))
     {
         *baseReg = REG_FPBASE;
     }
+    // Otherwise, use SP-based encoding. This is either (1) a small positive offset using a single movw,
+    // (2) a large offset using movw/movt. In either case, we must have already reserved
+    // the "reserved register", which will get used during encoding.
     else
     {
-        // Change the Frame Pointer (R11)-based addressing to the SP-based addressing when
-        // possible because it generates smaller code on ARM. See frame picture above for
-        // the math.
+        *baseReg = compLocallocUsed ? REG_SAVED_LOCALLOC_SP : REG_SPBASE;
 
-        // If it is the final frame layout phase, we don't have a choice, we should stick
-        // to either FP based or SP based that we decided in the earlier phase. Because
-        // we have already selected the instruction. MinOpts will always reserve R10, so
-        // for MinOpts always use SP-based offsets, using R10 as necessary, for simplicity.
-
-        int spVarOffset        = varOffset + codeGen->genSPtoFPdelta();
-        int actualSPOffset     = spVarOffset + addrModeOffset;
-        int actualFPOffset     = varOffset + addrModeOffset;
-        int encodingLimitUpper = isFloatUsage ? 0x3FC : 0xFFF;
-        int encodingLimitLower = isFloatUsage ? -0x3FC : -0xFF;
-
-        // Use SP-based encoding. During encoding, we'll pick the best encoding for the actual offset we have.
-        if (opts.MinOpts() || (actualSPOffset <= encodingLimitUpper))
-        {
-            *baseReg = compLocallocUsed ? REG_SAVED_LOCALLOC_SP : REG_SPBASE;
-
-            varOffset = spVarOffset;
-        }
-        // Use Frame Pointer (R11)-based encoding.
-        else if ((encodingLimitLower <= actualFPOffset) && (actualFPOffset <= encodingLimitUpper))
-        {
-            *baseReg = REG_FPBASE;
-        }
-        // Otherwise, use SP-based encoding. This is either (1) a small positive offset using a single movw,
-        // (2) a large offset using movw/movt. In either case, we must have already reserved
-        // the "reserved register", which will get used during encoding.
-        else
-        {
-            *baseReg = compLocallocUsed ? REG_SAVED_LOCALLOC_SP : REG_SPBASE;
-
-            varOffset = spVarOffset;
-        }
+        varOffset = spVarOffset;
     }
-#endif
 
     return varOffset;
 }
+#endif // TARGET_ARM
 
 #ifdef TARGET_ARMARCH
 
@@ -5248,16 +5249,9 @@ void Compiler::lvaDumpRegLocation(unsigned lclNum)
 // It's the home location, even though the variable doesn't always live in its home location.
 void Compiler::lvaDumpFrameLocation(unsigned lclNum)
 {
-    int       offset;
-    regNumber baseReg;
-
-#ifdef TARGET_ARM
-    offset = lvaFrameAddress(lclNum, compLocallocUsed, 0, /* isFloatUsage */ false, &baseReg);
-#else
-    bool EBPbased;
-    offset  = lvaFrameAddress(lclNum, &EBPbased);
-    baseReg = EBPbased ? REG_FPBASE : REG_SPBASE;
-#endif
+    bool      fpBased;
+    int       offset  = lvaFrameAddress(lclNum, &fpBased);
+    regNumber baseReg = fpBased ? REG_FPBASE : REG_SPBASE;
 
 #ifdef TARGET_ARM64
     printf("[%s,#%d]  ", getRegName(baseReg), offset);

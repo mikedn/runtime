@@ -6243,10 +6243,10 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
         if (varNum >= 0)
         {
-            unsigned  lclNum = static_cast<unsigned>(varNum);
-            unsigned  ofs    = AlignDown(id->idAddr()->iiaLclVar.lvaOffset(), REGSIZE_BYTES);
-            regNumber regBase;
-            int       adr = emitComp->lvaFrameAddress(lclNum, true, ofs, /* isFloatUsage */ false, &regBase) + ofs;
+            unsigned lclNum = static_cast<unsigned>(varNum);
+            unsigned ofs    = AlignDown(id->idAddr()->iiaLclVar.lvaOffset(), REGSIZE_BYTES);
+            bool     fpBased;
+            int      adr = emitComp->lvaFrameAddress(lclNum, &fpBased) + ofs;
 
             emitGCvarLiveUpd(adr, lclNum, id->idGCref(), dst);
         }
