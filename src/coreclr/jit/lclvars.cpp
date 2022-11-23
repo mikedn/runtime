@@ -4816,13 +4816,17 @@ int Compiler::lvaFrameAddress(int varNum, bool* pFPbased)
 {
     assert(lvaDoneFrameLayout == FINAL_FRAME_LAYOUT);
 
-    int  varOffset;
     bool fpBased;
+    int  varOffset;
 
     if (varNum >= 0)
     {
         LclVarDsc* lcl = lvaGetDesc(static_cast<unsigned>(varNum));
 
+        fpBased   = lcl->lvFramePointerBased;
+        varOffset = lcl->GetStackOffset();
+
+#ifdef DEBUG
         bool isPrespilledArg = false;
 #if defined(TARGET_ARM) && defined(PROFILING_SUPPORTED)
         isPrespilledArg = lcl->IsParam() && compIsProfilerHookNeeded() &&
@@ -4838,8 +4842,6 @@ int Compiler::lvaFrameAddress(int varNum, bool* pFPbased)
             assert((lcl->IsParam() && !lcl->IsRegParam()) || isPrespilledArg);
 #endif
         }
-
-        fpBased = lcl->lvFramePointerBased;
 
 #if FEATURE_FIXED_OUT_ARGS
         if (static_cast<unsigned>(varNum) == lvaOutgoingArgSpaceVar)
@@ -4858,13 +4860,10 @@ int Compiler::lvaFrameAddress(int varNum, bool* pFPbased)
 #endif
 #endif
         }
-
-        varOffset = lcl->GetStackOffset();
+#endif // DEBUG
     }
-    else // Its a spill-temp
+    else
     {
-        fpBased = codeGen->isFramePointerUsed();
-
         TempDsc* tmpDsc = codeGen->regSet.tmpFindNum(varNum);
 
         // The temp might be in use, since this might be during code generation.
@@ -4874,6 +4873,7 @@ int Compiler::lvaFrameAddress(int varNum, bool* pFPbased)
             assert(tmpDsc != nullptr);
         }
 
+        fpBased   = codeGen->isFramePointerUsed();
         varOffset = tmpDsc->tdTempOffs();
     }
 
