@@ -397,9 +397,6 @@ private:
 #endif // DUMP_GC_TABLES
 
 public:
-    // This method updates the appropriate reg masks when a variable is moved.
-    void gcUpdateForRegVarMove(regMaskTP srcMask, regMaskTP dstMask, LclVarDsc* varDsc);
-
     void AddFrameLifetime(varPtrDsc* lifetime)
     {
         if (gcVarPtrLast == nullptr)
