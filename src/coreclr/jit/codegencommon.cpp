@@ -35,12 +35,11 @@ void Compiler::codeGenInit()
     codeGen = new (this, CMK_Codegen) CodeGen(this);
 }
 
-CodeGenInterface::CodeGenInterface(Compiler* compiler) : compiler(compiler), gcInfo(compiler), regSet(compiler)
+CodeGenInterface::CodeGenInterface(Compiler* compiler) : compiler(compiler), regSet(compiler)
 {
-    gcInfo.regSet = &regSet;
 }
 
-CodeGen::CodeGen(Compiler* compiler) : CodeGenInterface(compiler), m_liveness(compiler)
+CodeGen::CodeGen(Compiler* compiler) : CodeGenInterface(compiler), m_liveness(compiler), gcInfo(compiler, &regSet)
 {
     m_cgEmitter = new (compiler->getAllocator()) emitter(compiler, this, gcInfo, compiler->info.compCompHnd);
 

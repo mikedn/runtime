@@ -79,11 +79,13 @@ class GCInfo
     friend class CodeGen;
 
 private:
-    Compiler* compiler;
-    RegSet*   regSet = nullptr;
+    Compiler* const compiler;
+    RegSet* const   regSet;
 
 public:
-    GCInfo(Compiler* theCompiler);
+    GCInfo(Compiler* compiler, RegSet* regSet) : compiler(compiler), regSet(regSet)
+    {
+    }
 
     void gcResetForBB();
 

@@ -16,10 +16,6 @@ size_t GCInfo::s_gcRegPtrDscSize   = 0;
 size_t GCInfo::s_gcTotalPtrTabSize = 0;
 #endif
 
-GCInfo::GCInfo(Compiler* theCompiler) : compiler(theCompiler)
-{
-}
-
 // Reset tracking info at the start of a basic block.
 void GCInfo::gcResetForBB()
 {

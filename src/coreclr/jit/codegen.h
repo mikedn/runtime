@@ -32,6 +32,8 @@ class CodeGen final : public CodeGenInterface
     CodeGenLivenessUpdater m_liveness;
 
 public:
+    GCInfo gcInfo;
+
     CodeGen(Compiler* compiler);
 
     virtual void genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize);
