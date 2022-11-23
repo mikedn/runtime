@@ -4426,19 +4426,6 @@ void GCInfo::gcMakeRegPtrTable(
             // Figure out the code offset of this entry.
             unsigned nextOffset = call->cdOffs;
 
-            // As far as I (DLD, 2010) can determine by asking around, the "call->u1.cdArgMask"
-            // and "cdArgCnt" cases are to handle x86 situations in which a call expression is nested as an
-            // argument to an outer call.  The "natural" (evaluation-order-preserving) thing to do is to
-            // evaluate the outer call's arguments, pushing those that are not enregistered, until you
-            // encounter the nested call.  These parts of the call description, then, describe the "pending"
-            // pushed arguments.  This situation does not exist outside of x86, where we're going to use a
-            // fixed-size stack frame: in situations like this nested call, we would evaluate the pending
-            // arguments to temporaries, and only "push" them (really, write them to the outgoing argument section
-            // of the stack frame) when it's the outer call's "turn."  So we can assert that these
-            // situations never occur.
-            assert(call->u1.cdArgMask == 0 && call->cdArgCnt == 0);
-
-            // Other than that, we just have to deal with the regmasks.
             regMaskSmall gcrefRegMask = call->cdGCrefRegs & RBM_CALLEE_SAVED;
             regMaskSmall byrefRegMask = call->cdByrefRegs & RBM_CALLEE_SAVED;
 

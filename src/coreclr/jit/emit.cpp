@@ -3502,8 +3502,6 @@ size_t emitter::emitIssue1Instr(insGroup* ig, instrDesc* id, BYTE** dp)
 
 #if !FEATURE_FIXED_OUT_ARGS
     assert(!emitFullGCinfo || (emitCurStackLvl != 0) || (u2.emitGcArgTrackCnt == 0));
-#else
-    assert(!emitFullGCinfo || (u2.emitGcArgTrackCnt == 0));
 #endif
 
     /* Did the size of the instruction match our expectations? */
@@ -5238,9 +5236,11 @@ unsigned emitter::emitEndCodeGen(Compiler* comp,
     stkDepthTable.record(emitMaxStackDepth);
 #endif // EMITTER_STATS
 
+#if !FEATURE_FIXED_OUT_ARGS
     emitSimpleStkUsed         = true;
     u1.emitSimpleStkMask      = 0;
     u1.emitSimpleByrefStkMask = 0;
+#endif
 
 #if !FEATURE_FIXED_OUT_ARGS
     // Convert max. stack depth from # of bytes to # of entries.
@@ -5251,26 +5251,16 @@ unsigned emitter::emitEndCodeGen(Compiler* comp,
     emitMaxStackDepth = maxStackDepthIn4ByteElements;
 #endif
 
-    /* Should we use the simple stack */
-
-    if (
 #if !FEATURE_FIXED_OUT_ARGS
-        (emitMaxStackDepth > MAX_SIMPLE_STK_DEPTH) ||
-#endif
-        emitFullGCinfo)
+    if ((emitMaxStackDepth > MAX_SIMPLE_STK_DEPTH) || emitFullGCinfo)
     {
-        /* We won't use the "simple" argument table */
-
         emitSimpleStkUsed = false;
 
-#if !FEATURE_FIXED_OUT_ARGS
         if (emitMaxStackDepth > sizeof(u2.emitArgTrackLcl))
         {
-            // Allocate the argument tracking table.
             u2.emitArgTrackTab = (BYTE*)emitGetMem(roundUp(emitMaxStackDepth));
         }
         else
-#endif
         {
             u2.emitArgTrackTab = (BYTE*)u2.emitArgTrackLcl;
         }
@@ -5278,6 +5268,7 @@ unsigned emitter::emitEndCodeGen(Compiler* comp,
         u2.emitArgTrackTop   = u2.emitArgTrackTab;
         u2.emitGcArgTrackCnt = 0;
     }
+#endif // !FEATURE_FIXED_OUT_ARGS
 
     if (emitEpilogCnt == 0)
     {
@@ -7076,6 +7067,7 @@ void emitter::emitRecordGCcall(BYTE* codePos, unsigned char callInstrSize)
         codeGen->gcInfo.gcCallDescLast         = call;
     }
 
+#if !FEATURE_FIXED_OUT_ARGS
     /* Record the current "pending" argument list */
 
     if (emitSimpleStkUsed)
@@ -7101,7 +7093,6 @@ void emitter::emitRecordGCcall(BYTE* codePos, unsigned char callInstrSize)
 
         call->cdArgTable = new (emitComp, CMK_GC) unsigned[u2.emitGcArgTrackCnt];
 
-#if !FEATURE_FIXED_OUT_ARGS
         unsigned gcArgs = 0;
         unsigned stkLvl = emitCurStackLvl / sizeof(int);
 
@@ -7123,10 +7114,8 @@ void emitter::emitRecordGCcall(BYTE* codePos, unsigned char callInstrSize)
         }
 
         assert(u2.emitGcArgTrackCnt == gcArgs);
-#else
-        assert(u2.emitGcArgTrackCnt == 0);
-#endif
     }
+#endif //! FEATURE_FIXED_OUT_ARGS
 }
 
 /*****************************************************************************
@@ -7917,7 +7906,7 @@ void emitter::emitStackPush(BYTE* addr, GCtype gcType)
     }
     else
     {
-        emitStackPushLargeStk(addr, gcType);
+        emitStackPushLargeStk(addr, gcType, 1);
     }
 
     emitCurStackLvl += sizeof(int);
@@ -7986,7 +7975,7 @@ void emitter::emitStackPop(BYTE* addr, bool isCall, unsigned char callInstrSize 
 #endif
                 )
         {
-            emitStackPopLargeStk(addr, isCall, callInstrSize, 0);
+            emitStackPopLargeStk(addr, isCall, callInstrSize X86_ARG(0));
         }
     }
 }
@@ -8046,23 +8035,21 @@ void emitter::emitStackPushLargeStk(BYTE* addr, GCtype gcType, unsigned count)
 #endif // !FEATURE_FIXED_OUT_ARGS
 
 // Record a pop of the given number of words from the stack for a full ptr map.
-void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned char callInstrSize, unsigned count)
+void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned char callInstrSize X86_ARG(unsigned count))
 {
     assert(emitIssuing);
-
-    unsigned argStkCnt;
-    S_UINT16 argRecCnt(0); // arg count for ESP, ptr-arg count for EBP
-    unsigned gcrefRegs, byrefRegs;
-
 #ifdef JIT32_GCENCODER
     // For the general encoder, we always need to record calls, so we make this call
     // even when emitSimpleStkUsed is true.
     assert(!emitSimpleStkUsed);
 #endif
 
+#if !FEATURE_FIXED_OUT_ARGS
+    S_UINT16 argRecCnt(0); // arg count for ESP, ptr-arg count for EBP
+
     /* Count how many pointer records correspond to this "pop" */
 
-    for (argStkCnt = count; argStkCnt; argStkCnt--)
+    for (unsigned argStkCnt = count; argStkCnt != 0; argStkCnt--)
     {
         assert(u2.emitArgTrackTop > u2.emitArgTrackTab);
 
@@ -8081,26 +8068,25 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned char callIn
     }
 
     assert(u2.emitArgTrackTop >= u2.emitArgTrackTab);
-#if !FEATURE_FIXED_OUT_ARGS
     assert(u2.emitArgTrackTop == u2.emitArgTrackTab + emitCurStackLvl / sizeof(int) - count);
-#else
-    assert(u2.emitArgTrackTop == u2.emitArgTrackTab - count);
-#endif
     noway_assert(!argRecCnt.IsOverflow());
 
-    /* We're about to pop the corresponding arg records */
-
+    // We're about to pop the corresponding arg records
     u2.emitGcArgTrackCnt -= argRecCnt.Value();
+#endif
 
 #ifdef JIT32_GCENCODER
     // For the general encoder, we always have to record calls, so we don't take this early return.
     if (!emitFullGCinfo)
+    {
         return;
+    }
 #endif
 
     // Do we have any interesting (i.e., callee-saved) registers live here?
 
-    gcrefRegs = byrefRegs = 0;
+    unsigned gcrefRegs = 0;
+    unsigned byrefRegs = 0;
 
     // We make a bitmask whose bits correspond to callee-saved register indices (in the sequence
     // of callee-saved registers only).
@@ -8136,6 +8122,7 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned char callIn
     }
 #endif // JIT32_GCENCODER
 
+#if !FEATURE_FIXED_OUT_ARGS
     /* Only calls may pop more than one value */
     // More detail:
     // _cdecl calls accomplish this popping via a post-call-instruction SP adjustment.
@@ -8143,8 +8130,10 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned char callIn
     // call-related popping, even if it's not itself a call".  Therefore, we don't just
     // use the "isCall" input argument, which means that the instruction actually is a call --
     // we use the OR of "isCall" or the "pops more than one value."
-
     bool isCallRelatedPop = (argRecCnt.Value() > 1);
+#else
+    bool isCallRelatedPop = false;
+#endif
 
     /* Allocate a new ptr arg entry and fill it in */
 
@@ -8163,9 +8152,15 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned char callIn
     regPtrNext->rpdCallGCrefRegs = gcrefRegs;
     regPtrNext->rpdCallByrefRegs = byrefRegs;
     regPtrNext->rpdArg           = true;
-    regPtrNext->rpdArgType       = (unsigned short)GCInfo::rpdARG_POP;
-    regPtrNext->rpdPtrArg        = argRecCnt.Value();
+    regPtrNext->rpdArgType       = GCInfo::rpdARG_POP;
+#if !FEATURE_FIXED_OUT_ARGS
+    regPtrNext->rpdPtrArg = argRecCnt.Value();
+#else
+    regPtrNext->rpdPtrArg = 0;
+#endif
 }
+
+#if !FEATURE_FIXED_OUT_ARGS
 
 // For caller-pop arguments, we report the arguments as pending arguments.
 // However, any GC arguments are now dead, so we need to report them as non-GC.
@@ -8177,80 +8172,80 @@ void emitter::emitStackKillArgs(BYTE* addr, unsigned count, unsigned char callIn
     {
         assert(!emitFullGCinfo); // Simple stk not used for emitFullGCInfo
 
-/* We don't need to report this to the GC info, but we do need
-   to kill mark the ptrs on the stack as non-GC */
+        // We don't need to report this to the GC info, but we do need
+        // to kill mark the ptrs on the stack as non-GC.
 
-#if !FEATURE_FIXED_OUT_ARGS
         assert(emitCurStackLvl / sizeof(int) >= count);
-#endif
 
         for (unsigned lvl = 0; lvl < count; lvl++)
         {
             u1.emitSimpleStkMask &= ~(1 << lvl);
             u1.emitSimpleByrefStkMask &= ~(1 << lvl);
         }
+
+        return;
     }
-    else
+
+    BYTE*    argTrackTop = u2.emitArgTrackTop;
+    S_UINT16 gcCnt(0);
+
+    for (unsigned i = 0; i < count; i++)
     {
-        BYTE*    argTrackTop = u2.emitArgTrackTop;
-        S_UINT16 gcCnt(0);
+        assert(argTrackTop > u2.emitArgTrackTab);
 
-        for (unsigned i = 0; i < count; i++)
+        --argTrackTop;
+
+        GCtype gcType = (GCtype)(*argTrackTop);
+        assert(IsValidGCtype(gcType));
+
+        if (needsGC(gcType))
         {
-            assert(argTrackTop > u2.emitArgTrackTab);
+            // printf("Killed %s at lvl %u\n", GCtypeStr(gcType), argTrackTop - emitArgTrackTab);
 
-            --argTrackTop;
-
-            GCtype gcType = (GCtype)(*argTrackTop);
-            assert(IsValidGCtype(gcType));
-
-            if (needsGC(gcType))
-            {
-                // printf("Killed %s at lvl %u\n", GCtypeStr(gcType), argTrackTop - emitArgTrackTab);
-
-                *argTrackTop = GCT_NONE;
-                gcCnt += 1;
-            }
+            *argTrackTop = GCT_NONE;
+            gcCnt += 1;
         }
-
-        noway_assert(!gcCnt.IsOverflow());
-
-        /* We're about to kill the corresponding (pointer) arg records */
-
-        if (!emitFullArgInfo)
-        {
-            u2.emitGcArgTrackCnt -= gcCnt.Value();
-        }
-
-        if (!emitFullGCinfo)
-        {
-            return;
-        }
-
-        /* Right after the call, the arguments are still sitting on the
-           stack, but they are effectively dead. For fully-interruptible
-           methods, we need to report that */
-
-        if (gcCnt.Value())
-        {
-            /* Allocate a new ptr arg entry and fill it in */
-
-            regPtrDsc* regPtrNext = codeGen->gcInfo.gcRegPtrAllocDsc();
-            regPtrNext->rpdGCtype = GCT_GCREF; // Kills need a non-0 value (??)
-
-            regPtrNext->rpdOffs = emitCurCodeOffs(addr);
-
-            regPtrNext->rpdArg     = TRUE;
-            regPtrNext->rpdArgType = (unsigned short)GCInfo::rpdARG_KILL;
-            regPtrNext->rpdPtrArg  = gcCnt.Value();
-        }
-
-        /* Now that ptr args have been marked as non-ptrs, we need to record
-           the call itself as one that has no arguments. */
-
-        emitStackPopLargeStk(addr, true, callInstrSize, 0);
     }
+
+    noway_assert(!gcCnt.IsOverflow());
+
+    /* We're about to kill the corresponding (pointer) arg records */
+
+    if (!emitFullArgInfo)
+    {
+        u2.emitGcArgTrackCnt -= gcCnt.Value();
+    }
+
+    if (!emitFullGCinfo)
+    {
+        return;
+    }
+
+    /* Right after the call, the arguments are still sitting on the
+       stack, but they are effectively dead. For fully-interruptible
+       methods, we need to report that */
+
+    if (gcCnt.Value())
+    {
+        /* Allocate a new ptr arg entry and fill it in */
+
+        regPtrDsc* regPtrNext = codeGen->gcInfo.gcRegPtrAllocDsc();
+        regPtrNext->rpdGCtype = GCT_GCREF; // Kills need a non-0 value (??)
+
+        regPtrNext->rpdOffs = emitCurCodeOffs(addr);
+
+        regPtrNext->rpdArg     = TRUE;
+        regPtrNext->rpdArgType = (unsigned short)GCInfo::rpdARG_KILL;
+        regPtrNext->rpdPtrArg  = gcCnt.Value();
+    }
+
+    // Now that ptr args have been marked as non-ptrs, we need to
+    // record the call itself as one that has no arguments.
+
+    emitStackPopLargeStk(addr, true, callInstrSize, 0);
 }
+
+#endif // !FEATURE_FIXED_OUT_ARGS
 
 // A helper for recording a relocation with the EE.
 void emitter::emitRecordRelocation(void* location,            /* IN */

@@ -284,13 +284,16 @@ public:
 
     struct CallDsc
     {
-        CallDsc* cdNext;
-        unsigned cdOffs; // the offset     of the call
+        CallDsc*     cdNext;
+        regMaskSmall cdGCrefRegs;
+        regMaskSmall cdByrefRegs;
+        unsigned     cdOffs;
 #ifndef JIT32_GCENCODER
-        unsigned short cdCallInstrSize; // the size       of the call instruction.
+        uint16_t cdCallInstrSize;
 #endif
 
-        unsigned short cdArgCnt;
+#if !FEATURE_FIXED_OUT_ARGS
+        uint16_t cdArgCnt;
 
         union {
             struct // used if cdArgCnt == 0
@@ -301,9 +304,7 @@ public:
 
             unsigned* cdArgTable; // used if cdArgCnt != 0
         };
-
-        regMaskSmall cdGCrefRegs;
-        regMaskSmall cdByrefRegs;
+#endif // !FEATURE_FIXED_OUT_ARGS
     };
 
     CallDsc* gcCallDescList = nullptr;

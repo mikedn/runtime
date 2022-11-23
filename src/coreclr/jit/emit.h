@@ -2075,8 +2075,7 @@ public:
     // Gets a register mask that represent the kill set for a NoGC helper call.
     regMaskTP emitGetGCRegsKilledByNoGCCall(CorInfoHelpFunc helper);
 
-    /* Stack modelling wrt GC */
-
+#if !FEATURE_FIXED_OUT_ARGS
     bool emitSimpleStkUsed; // using the "simple" stack table?
 
     union {
@@ -2099,19 +2098,18 @@ public:
         } u2;
     };
 
-#if !FEATURE_FIXED_OUT_ARGS
     unsigned emitCntStackDepth; // 0 in prolog/epilog, One DWORD elsewhere
     unsigned emitMaxStackDepth; // actual computed max. stack depth
     unsigned emitCurStackLvl;   // amount of bytes pushed on stack
-#endif
 
     void emitStackPush(BYTE* addr, GCtype gcType);
     void emitStackPushN(BYTE* addr, unsigned count);
-    void emitStackPop(BYTE* addr, bool isCall, unsigned char callInstrSize X86_ARG(unsigned count));
+    void emitStackPushLargeStk(BYTE* addr, GCtype gcType, unsigned count);
     void emitStackKillArgs(BYTE* addr, unsigned count, unsigned char callInstrSize);
+#endif // !FEATURE_FIXED_OUT_ARGS
+    void emitStackPop(BYTE* addr, bool isCall, unsigned char callInstrSize X86_ARG(unsigned count));
+    void emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned char callInstrSize X86_ARG(unsigned count));
     void emitRecordGCcall(BYTE* codePos, unsigned char callInstrSize);
-    void emitStackPushLargeStk(BYTE* addr, GCtype gcType, unsigned count = 1);
-    void emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned char callInstrSize, unsigned count = 1);
 
     /* Liveness of stack variables, and registers */
 
