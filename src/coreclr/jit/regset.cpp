@@ -178,15 +178,11 @@ void RegSet::SetMaskVars(regMaskTP newMaskVars)
     _rsMaskVars = newMaskVars;
 }
 
-RegSet::RegSet(Compiler* compiler, GCInfo& gcInfo) : m_rsCompiler(compiler), m_rsGCInfo(gcInfo)
+RegSet::RegSet(Compiler* compiler) : m_rsCompiler(compiler)
 {
 }
 
-/*****************************************************************************
- *
- *  Finds the SpillDsc corresponding to 'tree' assuming it was spilled from 'reg'.
- */
-
+// Finds the SpillDsc corresponding to 'tree' assuming it was spilled from 'reg'.
 RegSet::SpillDsc* RegSet::rsGetSpillInfo(GenTree* tree, regNumber reg, SpillDsc** pPrevDsc)
 {
     /* Normally, trees are unspilled in the order of being spilled due to
@@ -223,88 +219,6 @@ TempDsc* RegSet::AllocSpillTemp(GenTree* node, regNumber reg, var_types type)
 
     return temp;
 }
-
-void RegSet::SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex)
-{
-    assert(!node->IsMultiRegLclVar());
-    assert(!varTypeIsMultiReg(regType));
-    assert(node->IsRegSpill(regIndex));
-
-    regNumber reg  = node->GetRegNum(regIndex);
-    TempDsc*  temp = AllocSpillTemp(node, reg, regType);
-
-    JITDUMP("Spilling register %s after [%06u]\n", getRegName(reg), node->GetID());
-
-    regType          = temp->GetType();
-    instruction ins  = m_rsCompiler->codeGen->ins_Store(regType);
-    emitAttr    attr = emitActualTypeSize(regType);
-
-    m_rsCompiler->codeGen->GetEmitter()->emitIns_S_R(ins, attr, reg, temp->tdTempNum(), 0);
-
-    node->SetRegSpill(regIndex, false);
-    node->SetRegSpilled(regIndex, true);
-
-    m_rsGCInfo.gcMarkRegSetNpt(genRegMask(reg));
-}
-
-#ifdef TARGET_X86
-void RegSet::SpillST0(GenTree* node)
-{
-    var_types type = node->GetType();
-    regNumber reg  = node->GetRegNum();
-    TempDsc*  temp = AllocSpillTemp(node, reg, type);
-
-    JITDUMP("Spilling register ST0 after [%06u]\n", node->GetID());
-
-    m_rsCompiler->codeGen->GetEmitter()->emitIns_S(INS_fstp, emitTypeSize(type), temp->tdTempNum(), 0);
-
-    node->SetRegSpill(0, false);
-    node->SetRegSpilled(0, true);
-}
-#endif // TARGET_X86
-
-void RegSet::UnspillNodeReg(GenTree* node, regNumber reg, unsigned regIndex)
-{
-    assert(!node->IsCopyOrReload());
-    assert(!node->IsMultiRegLclVar());
-
-    regNumber oldReg = node->GetRegNum(regIndex);
-    SpillDsc* prevDsc;
-    SpillDsc* spillDsc = rsGetSpillInfo(node, oldReg, &prevDsc);
-    TempDsc*  temp     = rsGetSpillTempWord(oldReg, spillDsc, prevDsc);
-
-    node->SetRegSpilled(regIndex, false);
-
-    JITDUMP("Unspilling register %s from [%06u]\n", getRegName(oldReg), node->GetID());
-
-    var_types   regType = temp->GetType();
-    instruction ins     = m_rsCompiler->codeGen->ins_Load(regType);
-    emitAttr    attr    = emitActualTypeSize(regType);
-
-    m_rsCompiler->codeGen->GetEmitter()->emitIns_R_S(ins, attr, reg, temp->GetTempNum(), 0);
-
-    tmpRlsTemp(temp);
-
-    m_rsGCInfo.gcMarkRegPtrVal(reg, regType);
-}
-
-#ifdef TARGET_X86
-void RegSet::UnspillST0(GenTree* node)
-{
-    regNumber oldReg = node->GetRegNum();
-    SpillDsc* prevDsc;
-    SpillDsc* spillDsc = rsGetSpillInfo(node, oldReg, &prevDsc);
-    TempDsc*  temp     = rsGetSpillTempWord(oldReg, spillDsc, prevDsc);
-
-    node->SetRegSpilled(0, false);
-
-    JITDUMP("Unspilling ST0 from [%06u]\n", getRegName(oldReg), node->GetID());
-
-    var_types regType = temp->GetType();
-    m_rsCompiler->codeGen->GetEmitter()->emitIns_S(INS_fld, emitTypeSize(regType), temp->GetTempNum(), 0);
-    tmpRlsTemp(temp);
-}
-#endif // TARGET_X86
 
 /*****************************************************************************
  *

@@ -37,10 +37,9 @@ class RegSet
 
 private:
     Compiler* m_rsCompiler;
-    GCInfo&   m_rsGCInfo;
 
 public:
-    RegSet(Compiler* compiler, GCInfo& gcInfo);
+    RegSet(Compiler* compiler);
 
 #ifdef TARGET_ARM
     regMaskTP rsMaskPreSpillRegs(bool includeAlignment) const
@@ -49,7 +48,6 @@ public:
     }
 #endif // TARGET_ARM
 
-private:
     // The same descriptor is also used for 'multi-use' register tracking, BTW.
     struct SpillDsc
     {
@@ -146,13 +144,7 @@ private:
     void rsSpillEnd();
 
     TempDsc* AllocSpillTemp(GenTree* node, regNumber reg, var_types type);
-    void SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex);
-    X86_ONLY(void SpillST0(GenTree* node);)
-    void UnspillNodeReg(GenTree* node, regNumber reg, unsigned regIndex);
-    X86_ONLY(void UnspillST0(GenTree* node);)
-
     SpillDsc* rsGetSpillInfo(GenTree* tree, regNumber reg, SpillDsc** pPrevDsc = nullptr);
-
     TempDsc* rsGetSpillTempWord(regNumber oldReg, SpillDsc* dsc, SpillDsc* prevDsc);
 
 public:

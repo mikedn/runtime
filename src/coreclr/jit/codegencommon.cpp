@@ -35,7 +35,7 @@ void Compiler::codeGenInit()
     codeGen = new (this, CMK_Codegen) CodeGen(this);
 }
 
-CodeGenInterface::CodeGenInterface(Compiler* compiler) : compiler(compiler), gcInfo(compiler), regSet(compiler, gcInfo)
+CodeGenInterface::CodeGenInterface(Compiler* compiler) : compiler(compiler), gcInfo(compiler), regSet(compiler)
 {
     gcInfo.regSet = &regSet;
 }

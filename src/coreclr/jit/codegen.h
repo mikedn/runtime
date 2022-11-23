@@ -1071,8 +1071,10 @@ protected:
     regMaskTP genGetRegMask(const LclVarDsc* varDsc);
     regMaskTP genGetRegMask(GenTree* tree);
 
-    // Do liveness update for register produced by the current node in codegen after
-    // code has been emitted for it.
+    void SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex);
+    X86_ONLY(void SpillST0(GenTree* node);)
+    void UnspillNodeReg(GenTree* node, regNumber reg, unsigned regIndex);
+    X86_ONLY(void UnspillST0(GenTree* node);)
     void genProduceReg(GenTree* node);
     void DefReg(GenTree* node);
     void DefLclVarReg(GenTreeLclVar* lclVar);

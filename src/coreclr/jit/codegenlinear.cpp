@@ -1133,7 +1133,7 @@ void CodeGen::UnspillRegIfNeeded(GenTree* node)
 
     if (unspillNode->IsAnyRegSpilled())
     {
-        regSet.UnspillNodeReg(unspillNode, node->GetRegNum(), 0);
+        UnspillNodeReg(unspillNode, node->GetRegNum(), 0);
     }
 }
 
@@ -1323,7 +1323,7 @@ void CodeGen::UnspillRegIfNeeded(GenTree* node, unsigned regIndex)
         node->SetRegNum(regIndex, reg);
     }
 
-    regSet.UnspillNodeReg(unspillNode, reg, regIndex);
+    UnspillNodeReg(unspillNode, reg, regIndex);
 }
 
 void CodeGen::UseRegs(GenTree* node)
@@ -1694,6 +1694,88 @@ void CodeGen::ConsumeDynBlk(GenTreeDynBlk* store, regNumber dstReg, regNumber sr
     genCopyRegIfNeeded(size, sizeReg);
 }
 
+void CodeGen::SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex)
+{
+    assert(!node->IsMultiRegLclVar());
+    assert(!varTypeIsMultiReg(regType));
+    assert(node->IsRegSpill(regIndex));
+
+    regNumber reg  = node->GetRegNum(regIndex);
+    TempDsc*  temp = regSet.AllocSpillTemp(node, reg, regType);
+
+    JITDUMP("Spilling register %s after [%06u]\n", getRegName(reg), node->GetID());
+
+    regType          = temp->GetType();
+    instruction ins  = ins_Store(regType);
+    emitAttr    attr = emitActualTypeSize(regType);
+
+    GetEmitter()->emitIns_S_R(ins, attr, reg, temp->tdTempNum(), 0);
+
+    node->SetRegSpill(regIndex, false);
+    node->SetRegSpilled(regIndex, true);
+
+    gcInfo.gcMarkRegSetNpt(genRegMask(reg));
+}
+
+#ifdef TARGET_X86
+void CodeGen::SpillST0(GenTree* node)
+{
+    var_types type = node->GetType();
+    regNumber reg  = node->GetRegNum();
+    TempDsc*  temp = regSet.AllocSpillTemp(node, reg, type);
+
+    JITDUMP("Spilling register ST0 after [%06u]\n", node->GetID());
+
+    GetEmitter()->emitIns_S(INS_fstp, emitTypeSize(type), temp->tdTempNum(), 0);
+
+    node->SetRegSpill(0, false);
+    node->SetRegSpilled(0, true);
+}
+#endif // TARGET_X86
+
+void CodeGen::UnspillNodeReg(GenTree* node, regNumber reg, unsigned regIndex)
+{
+    assert(!node->IsCopyOrReload());
+    assert(!node->IsMultiRegLclVar());
+
+    regNumber         oldReg = node->GetRegNum(regIndex);
+    RegSet::SpillDsc* prevDsc;
+    RegSet::SpillDsc* spillDsc = regSet.rsGetSpillInfo(node, oldReg, &prevDsc);
+    TempDsc*          temp     = regSet.rsGetSpillTempWord(oldReg, spillDsc, prevDsc);
+
+    node->SetRegSpilled(regIndex, false);
+
+    JITDUMP("Unspilling register %s from [%06u]\n", getRegName(oldReg), node->GetID());
+
+    var_types   regType = temp->GetType();
+    instruction ins     = ins_Load(regType);
+    emitAttr    attr    = emitActualTypeSize(regType);
+
+    GetEmitter()->emitIns_R_S(ins, attr, reg, temp->GetTempNum(), 0);
+
+    regSet.tmpRlsTemp(temp);
+
+    gcInfo.gcMarkRegPtrVal(reg, regType);
+}
+
+#ifdef TARGET_X86
+void CodeGen::UnspillST0(GenTree* node)
+{
+    regNumber         oldReg = node->GetRegNum();
+    RegSet::SpillDsc* prevDsc;
+    RegSet::SpillDsc* spillDsc = regSet.rsGetSpillInfo(node, oldReg, &prevDsc);
+    TempDsc*          temp     = regSet.rsGetSpillTempWord(oldReg, spillDsc, prevDsc);
+
+    node->SetRegSpilled(0, false);
+
+    JITDUMP("Unspilling ST0 from [%06u]\n", getRegName(oldReg), node->GetID());
+
+    var_types regType = temp->GetType();
+    GetEmitter()->emitIns_S(INS_fld, emitTypeSize(regType), temp->GetTempNum(), 0);
+    regSet.tmpRlsTemp(temp);
+}
+#endif // TARGET_X86
+
 void CodeGen::genProduceReg(GenTree* node)
 {
     DefReg(node);
@@ -1714,7 +1796,7 @@ void CodeGen::DefReg(GenTree* node)
 
     if (node->IsAnyRegSpill())
     {
-        regSet.SpillNodeReg(node, node->GetType(), 0);
+        SpillNodeReg(node, node->GetType(), 0);
     }
     // TODO-MIKE-Review: This check is likely bogus, nodes that use this function
     // likely always have a reg...
@@ -1744,7 +1826,7 @@ void CodeGen::DefLclVarReg(GenTreeLclVar* lclVar)
         }
         else
         {
-            regSet.SpillNodeReg(lclVar, lclVar->GetType(), 0);
+            SpillNodeReg(lclVar, lclVar->GetType(), 0);
 
             return;
         }
@@ -1795,7 +1877,7 @@ void CodeGen::DefPutArgSplitRegs(GenTreePutArgSplit* arg)
         {
             if (arg->IsRegSpill(i))
             {
-                regSet.SpillNodeReg(arg, arg->GetRegType(i), i);
+                SpillNodeReg(arg, arg->GetRegType(i), i);
             }
         }
     }
@@ -1828,7 +1910,7 @@ void CodeGen::DefCallRegs(GenTreeCall* call)
             {
                 if (call->IsRegSpill(i))
                 {
-                    regSet.SpillNodeReg(call, call->GetRegType(i), i);
+                    SpillNodeReg(call, call->GetRegType(i), i);
                 }
             }
         }
@@ -1841,7 +1923,7 @@ void CodeGen::DefCallRegs(GenTreeCall* call)
                 regType = call->GetRegType(0);
             }
 
-            regSet.SpillNodeReg(call, regType, 0);
+            SpillNodeReg(call, regType, 0);
         }
     }
     else
@@ -1869,12 +1951,12 @@ void CodeGen::DefLongRegs(GenTree* node)
 
     if (node->IsRegSpill(0))
     {
-        regSet.SpillNodeReg(node, TYP_INT, 0);
+        SpillNodeReg(node, TYP_INT, 0);
     }
 
     if (node->IsRegSpill(1))
     {
-        regSet.SpillNodeReg(node, TYP_INT, 1);
+        SpillNodeReg(node, TYP_INT, 1);
     }
 
     gcInfo.gcMarkRegSetNpt(genRegMask(node->GetRegNum(0)) | genRegMask(node->GetRegNum(1)));

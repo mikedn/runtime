@@ -1245,8 +1245,8 @@ void CodeGen::genFloatReturn(GenTree* src)
         // TODO-X86-CQ: Deal with things that are already spilled or in memory.
 
         src->SetRegSpill(0, true);
-        regSet.SpillNodeReg(src, srcType, 0);
-        regSet.UnspillST0(src);
+        SpillNodeReg(src, srcType, 0);
+        UnspillST0(src);
     }
 }
 
@@ -5207,7 +5207,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
             // it doesn't know about this spill and thinks that whatever register it
             // allocated to the call is in use, when in fact it will only be in use
             // when the user calls genConsumeReg.
-            regSet.SpillST0(call);
+            SpillST0(call);
         }
         else
 #endif // TARGET_X86
