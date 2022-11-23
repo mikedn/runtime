@@ -289,6 +289,7 @@ void GCInfo::gcCountForHeader(UNALIGNED unsigned int* pUntrackedCount, UNALIGNED
 
     // Also count spill temps that hold pointers.
 
+    RegSet* regSet = &compiler->codeGen->regSet;
     assert(regSet->tmpAllFree());
     for (TempDsc* tempThis = regSet->tmpListBeg(); tempThis != nullptr; tempThis = regSet->tmpListNxt(tempThis))
     {

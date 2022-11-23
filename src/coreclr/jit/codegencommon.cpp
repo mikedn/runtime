@@ -39,7 +39,7 @@ CodeGenInterface::CodeGenInterface(Compiler* compiler) : compiler(compiler), reg
 {
 }
 
-CodeGen::CodeGen(Compiler* compiler) : CodeGenInterface(compiler), m_liveness(compiler), gcInfo(compiler, &regSet)
+CodeGen::CodeGen(Compiler* compiler) : CodeGenInterface(compiler), m_liveness(compiler), gcInfo(compiler)
 {
     m_cgEmitter = new (compiler->getAllocator()) emitter(compiler, this, gcInfo, compiler->info.compCompHnd);
 

@@ -79,11 +79,10 @@ class GCInfo
     friend class CodeGen;
 
     Compiler* const compiler;
-    RegSet* const   regSet;
     regMaskTP       liveLclRegs;
 
 public:
-    GCInfo(Compiler* compiler, RegSet* regSet) : compiler(compiler), regSet(regSet)
+    GCInfo(Compiler* compiler) : compiler(compiler)
     {
     }
 
