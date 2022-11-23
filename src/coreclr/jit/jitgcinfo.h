@@ -80,7 +80,7 @@ class GCInfo
 
 private:
     Compiler* compiler;
-    RegSet*   regSet;
+    RegSet*   regSet = nullptr;
 
 public:
     GCInfo(Compiler* theCompiler);
@@ -142,8 +142,8 @@ public:
 
     typedef FrameLifetime varPtrDsc;
 
-    FrameLifetime* gcVarPtrList;
-    FrameLifetime* gcVarPtrLast;
+    FrameLifetime* gcVarPtrList = nullptr;
+    FrameLifetime* gcVarPtrLast = nullptr;
 
     void gcVarPtrSetInit();
 
@@ -205,9 +205,9 @@ public:
 #endif
     };
 
-    regPtrDsc* gcRegPtrList;
-    regPtrDsc* gcRegPtrLast;
-    unsigned   gcPtrArgCnt;
+    regPtrDsc* gcRegPtrList = nullptr;
+    regPtrDsc* gcRegPtrLast = nullptr;
+    unsigned   gcPtrArgCnt  = 0;
 
 #ifndef JIT32_GCENCODER
     enum MakeRegPtrMode
@@ -288,8 +288,8 @@ public:
         regMaskSmall cdByrefRegs;
     };
 
-    CallDsc* gcCallDescList;
-    CallDsc* gcCallDescLast;
+    CallDsc* gcCallDescList = nullptr;
+    CallDsc* gcCallDescLast = nullptr;
 
 //-------------------------------------------------------------------------
 
@@ -300,8 +300,8 @@ public:
 
     size_t gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, unsigned codeSize, size_t* pArgTabOffset);
 #else
-    RegSlotMap*   m_regSlotMap;
-    StackSlotMap* m_stackSlotMap;
+    RegSlotMap*   m_regSlotMap   = nullptr;
+    StackSlotMap* m_stackSlotMap = nullptr;
     // This method has two modes.  In the "assign slots" mode, it figures out what registers and stack
     // locations are used to contain GC references, and whether those locations contain byrefs or pinning
     // references, building up mappings from tuples of <reg/offset X byref/pinning> to the corresponding
@@ -345,7 +345,7 @@ public:
 
 #ifdef JIT32_GCENCODER
 private:
-    BYTE* gcEpilogTable;
+    BYTE* gcEpilogTable = nullptr;
 
     unsigned gcEpilogPrevOffset;
 

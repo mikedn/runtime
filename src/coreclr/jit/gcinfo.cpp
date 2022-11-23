@@ -1,74 +1,26 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                          GCInfo                                           XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
-
 #include "gcinfo.h"
 #include "emit.h"
 #include "jitgcinfo.h"
-
 #ifdef TARGET_AMD64
 #include "gcinfoencoder.h" //this includes a LOT of other files too
 #endif
 
-/*****************************************************************************/
-/*****************************************************************************/
-
-/*****************************************************************************/
-
 extern int JITGcBarrierCall;
 
-/*****************************************************************************/
-
 #if MEASURE_PTRTAB_SIZE
-/* static */ size_t GCInfo::s_gcRegPtrDscSize   = 0;
-/* static */ size_t GCInfo::s_gcTotalPtrTabSize = 0;
-#endif // MEASURE_PTRTAB_SIZE
-
-/*
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                          GCInfo                                           XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
+size_t GCInfo::s_gcRegPtrDscSize   = 0;
+size_t GCInfo::s_gcTotalPtrTabSize = 0;
+#endif
 
 GCInfo::GCInfo(Compiler* theCompiler) : compiler(theCompiler)
 {
-    regSet         = nullptr;
-    gcVarPtrList   = nullptr;
-    gcVarPtrLast   = nullptr;
-    gcRegPtrList   = nullptr;
-    gcRegPtrLast   = nullptr;
-    gcPtrArgCnt    = 0;
-    gcCallDescList = nullptr;
-    gcCallDescLast = nullptr;
-#ifdef JIT32_GCENCODER
-    gcEpilogTable = nullptr;
-#else  // !JIT32_GCENCODER
-    m_regSlotMap   = nullptr;
-    m_stackSlotMap = nullptr;
-#endif // JIT32_GCENCODER
 }
 
-/*****************************************************************************/
-/*****************************************************************************
- *  Reset tracking info at the start of a basic block.
- */
-
+// Reset tracking info at the start of a basic block.
 void GCInfo::gcResetForBB()
 {
     gcRegGCrefSetCur = RBM_NONE;
