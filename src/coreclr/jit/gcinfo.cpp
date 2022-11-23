@@ -131,8 +131,6 @@ void GCInfo::gcMarkRegPtrVal(regNumber reg, var_types type)
     }
 }
 
-/*****************************************************************************/
-
 GCInfo::WriteBarrierForm GCInfo::GetWriteBarrierForm(GenTreeStoreInd* store)
 {
     if (!store->TypeIs(TYP_REF))
@@ -158,7 +156,7 @@ GCInfo::WriteBarrierForm GCInfo::GetWriteBarrierForm(GenTreeStoreInd* store)
         return WBF_NoBarrier;
     }
 
-    WriteBarrierForm form = gcWriteBarrierFormFromTargetAddress(store->GetAddr());
+    WriteBarrierForm form = GetWriteBarrierFormFromAddress(store->GetAddr());
 
     if (form == WBF_BarrierUnknown)
     {
@@ -506,7 +504,7 @@ void GCInfo::gcRegPtrSetInit()
 
 #endif // JIT32_GCENCODER
 
-GCInfo::WriteBarrierForm GCInfo::gcWriteBarrierFormFromTargetAddress(GenTree* addr)
+GCInfo::WriteBarrierForm GCInfo::GetWriteBarrierFormFromAddress(GenTree* addr)
 {
     if (addr->IsIntegralConst(0))
     {

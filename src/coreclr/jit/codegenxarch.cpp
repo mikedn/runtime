@@ -4568,7 +4568,7 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* store)
 
     assert(IsValidSourceType(type, value->GetType()));
 
-    GCInfo::WriteBarrierForm writeBarrierForm = gcInfo.GetWriteBarrierForm(store);
+    GCInfo::WriteBarrierForm writeBarrierForm = GCInfo::GetWriteBarrierForm(store);
     if (writeBarrierForm != GCInfo::WBF_NoBarrier)
     {
         regNumber addrReg = UseReg(addr);

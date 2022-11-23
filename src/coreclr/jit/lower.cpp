@@ -5217,7 +5217,7 @@ void Lowering::LowerStoreIndir(GenTreeStoreInd* store)
 
     TryCreateAddrMode(store->GetAddr(), true);
 
-    if (comp->codeGen->gcInfo.GetWriteBarrierForm(store) == GCInfo::WBF_NoBarrier)
+    if (GCInfo::GetWriteBarrierForm(store) == GCInfo::WBF_NoBarrier)
     {
         LowerStoreIndirArch(store);
     }
