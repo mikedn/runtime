@@ -185,7 +185,7 @@ void CodeGen::genCodeForBBlist()
 
         // Figure out which registers hold variables on entry to this block
 
-        regSet.ClearMaskVars();
+        gcInfo.ClearLiveLclRegs();
         gcInfo.gcRegGCrefSetCur = RBM_NONE;
         gcInfo.gcRegByrefSetCur = RBM_NONE;
 
@@ -249,7 +249,7 @@ void CodeGen::genCodeForBBlist()
             }
         }
 
-        regSet.SetMaskVars(newLiveRegSet);
+        gcInfo.SetLiveLclRegs(newLiveRegSet);
 
 #ifdef DEBUG
         if (compiler->verbose)
@@ -458,7 +458,8 @@ void CodeGen::genCodeForBBlist()
         /* Make sure we didn't bungle pointer register tracking */
 
         regMaskTP ptrRegs       = gcInfo.gcRegGCrefSetCur | gcInfo.gcRegByrefSetCur;
-        regMaskTP nonVarPtrRegs = ptrRegs & ~regSet.GetMaskVars();
+        regMaskTP liveLclRegs   = gcInfo.GetLiveLclRegs();
+        regMaskTP nonVarPtrRegs = ptrRegs & ~liveLclRegs;
 
         // If return is a GC-type, clear it.  Note that if a common
         // epilog is generated (genReturnBB) it has a void return
@@ -473,17 +474,17 @@ void CodeGen::genCodeForBBlist()
             nonVarPtrRegs &= ~RBM_INTRET;
         }
 
-        if (nonVarPtrRegs)
+        if (nonVarPtrRegs != RBM_NONE)
         {
             printf("Regset after " FMT_BB " gcr=", block->bbNum);
-            printRegMaskInt(gcInfo.gcRegGCrefSetCur & ~regSet.GetMaskVars());
-            compiler->GetEmitter()->emitDispRegSet(gcInfo.gcRegGCrefSetCur & ~regSet.GetMaskVars());
+            printRegMaskInt(gcInfo.gcRegGCrefSetCur & ~liveLclRegs);
+            compiler->GetEmitter()->emitDispRegSet(gcInfo.gcRegGCrefSetCur & ~liveLclRegs);
             printf(", byr=");
-            printRegMaskInt(gcInfo.gcRegByrefSetCur & ~regSet.GetMaskVars());
-            compiler->GetEmitter()->emitDispRegSet(gcInfo.gcRegByrefSetCur & ~regSet.GetMaskVars());
+            printRegMaskInt(gcInfo.gcRegByrefSetCur & ~liveLclRegs);
+            compiler->GetEmitter()->emitDispRegSet(gcInfo.gcRegByrefSetCur & ~liveLclRegs);
             printf(", regVars=");
-            printRegMaskInt(regSet.GetMaskVars());
-            compiler->GetEmitter()->emitDispRegSet(regSet.GetMaskVars());
+            printRegMaskInt(liveLclRegs);
+            compiler->GetEmitter()->emitDispRegSet(liveLclRegs);
             printf("\n");
         }
 
@@ -1220,7 +1221,7 @@ void CodeGen::UnspillRegCandidateLclVar(GenTreeLclVar* node)
 
         JITDUMP("V%02u in reg %s is becoming live at [%06u]\n", lclNum, getRegName(lcl->GetRegNum()), node->GetID());
 
-        regSet.AddMaskVars(genGetRegMask(lcl));
+        gcInfo.AddLiveLclRegs(genGetRegMask(lcl));
     }
 
     gcInfo.gcMarkRegPtrVal(dstReg, regType);

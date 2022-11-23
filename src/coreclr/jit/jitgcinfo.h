@@ -78,13 +78,35 @@ class GCInfo
     friend class CodeGenInterface;
     friend class CodeGen;
 
-private:
     Compiler* const compiler;
     RegSet* const   regSet;
+    regMaskTP       liveLclRegs;
 
 public:
     GCInfo(Compiler* compiler, RegSet* regSet) : compiler(compiler), regSet(regSet)
     {
+    }
+
+    regMaskTP GetLiveLclRegs() const
+    {
+        return liveLclRegs;
+    }
+
+    void SetLiveLclRegs(regMaskTP regs);
+
+    void AddLiveLclRegs(regMaskTP regs)
+    {
+        SetLiveLclRegs(liveLclRegs | regs);
+    }
+
+    void RemoveLiveLclRegs(regMaskTP regs)
+    {
+        SetLiveLclRegs(liveLclRegs & ~regs);
+    }
+
+    void ClearLiveLclRegs()
+    {
+        liveLclRegs = RBM_NONE;
     }
 
     void gcResetForBB();

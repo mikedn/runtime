@@ -84,6 +84,13 @@ void GCInfo::gcMarkRegSetByref(regMaskTP regMask DEBUGARG(bool forceOutput))
     gcRegGCrefSetCur = gcRegGCrefSetNew;
 }
 
+void GCInfo::SetLiveLclRegs(regMaskTP regs)
+{
+    DBEXEC(compiler->verbose, compiler->GetEmitter()->emitDispRegSetDiff("Live regs: ", liveLclRegs, regs);)
+
+    liveLclRegs = regs;
+}
+
 /*****************************************************************************
  *
  *  Mark the set of registers given by the specified mask as holding
@@ -94,8 +101,8 @@ void GCInfo::gcMarkRegSetNpt(regMaskTP regMask DEBUGARG(bool forceOutput))
 {
     /* NOTE: don't unmark any live register variables */
 
-    regMaskTP gcRegByrefSetNew = gcRegByrefSetCur & ~(regMask & ~regSet->GetMaskVars());
-    regMaskTP gcRegGCrefSetNew = gcRegGCrefSetCur & ~(regMask & ~regSet->GetMaskVars());
+    regMaskTP gcRegByrefSetNew = gcRegByrefSetCur & ~(regMask & ~liveLclRegs);
+    regMaskTP gcRegGCrefSetNew = gcRegGCrefSetCur & ~(regMask & ~liveLclRegs);
 
     INDEBUG(gcDspGCrefSetChanges(gcRegGCrefSetNew, forceOutput));
     INDEBUG(gcDspByrefSetChanges(gcRegByrefSetNew, forceOutput));

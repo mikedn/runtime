@@ -39,7 +39,9 @@ private:
     Compiler* m_rsCompiler;
 
 public:
-    RegSet(Compiler* compiler);
+    RegSet::RegSet(Compiler* compiler) : m_rsCompiler(compiler)
+    {
+    }
 
 #ifdef TARGET_ARM
     regMaskTP rsMaskPreSpillRegs(bool includeAlignment) const
@@ -86,32 +88,7 @@ public:
 
     void verifyRegistersUsed(regMaskTP regMask);
 
-public:
-    regMaskTP GetMaskVars() const // 'get' property function for rsMaskVars property
-    {
-        return _rsMaskVars;
-    }
-
-    void SetMaskVars(regMaskTP newMaskVars); // 'put' property function for rsMaskVars property
-
-    void AddMaskVars(regMaskTP addMaskVars) // union 'addMaskVars' with the rsMaskVars set
-    {
-        SetMaskVars(_rsMaskVars | addMaskVars);
-    }
-
-    void RemoveMaskVars(regMaskTP removeMaskVars) // remove 'removeMaskVars' from the rsMaskVars set (like bitset DiffD)
-    {
-        SetMaskVars(_rsMaskVars & ~removeMaskVars);
-    }
-
-    void ClearMaskVars() // Like SetMaskVars(RBM_NONE), but without any debug output.
-    {
-        _rsMaskVars = RBM_NONE;
-    }
-
 private:
-    regMaskTP _rsMaskVars; // backing store for rsMaskVars property
-
 #ifdef TARGET_ARMARCH
     regMaskTP rsMaskCalleeSaved = RBM_NONE; // mask of the registers pushed/popped in the prolog/epilog
 

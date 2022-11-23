@@ -276,16 +276,16 @@ void CodeGen::genUpdateRegLife(const LclVarDsc* varDsc, bool isBorn, bool isDyin
     {
         // We'd like to be able to assert the following, however if we are walking
         // through a qmark/colon tree, we may encounter multiple last-use nodes.
-        // assert((regSet.GetMaskVars() & regMask) == regMask);
-        regSet.RemoveMaskVars(regMask);
+        // assert((gcInfo.GetLiveLclRegs() & regMask) == regMask);
+        gcInfo.RemoveLiveLclRegs(regMask);
     }
     else
     {
         // If this is going live, the register must not have a variable in it, except
         // in the case of an exception or "spill at single-def" variable, which may be already treated
         // as live in the register.
-        assert(varDsc->IsAlwaysAliveInMemory() || ((regSet.GetMaskVars() & regMask) == 0));
-        regSet.AddMaskVars(regMask);
+        assert(varDsc->IsAlwaysAliveInMemory() || ((gcInfo.GetLiveLclRegs() & regMask) == RBM_NONE));
+        gcInfo.AddLiveLclRegs(regMask);
     }
 }
 

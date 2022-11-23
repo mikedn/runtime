@@ -170,18 +170,6 @@ void RegSet::rsRemoveRegsModified(regMaskTP mask)
     rsModifiedRegsMask &= ~mask;
 }
 
-void RegSet::SetMaskVars(regMaskTP newMaskVars)
-{
-    DBEXEC(m_rsCompiler->verbose,
-           m_rsCompiler->GetEmitter()->emitDispRegSetDiff("Live regs: ", _rsMaskVars, newMaskVars);)
-
-    _rsMaskVars = newMaskVars;
-}
-
-RegSet::RegSet(Compiler* compiler) : m_rsCompiler(compiler)
-{
-}
-
 // Finds the SpillDsc corresponding to 'tree' assuming it was spilled from 'reg'.
 RegSet::SpillDsc* RegSet::rsGetSpillInfo(GenTree* tree, regNumber reg, SpillDsc** pPrevDsc)
 {

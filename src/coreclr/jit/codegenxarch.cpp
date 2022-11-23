@@ -5391,7 +5391,7 @@ void CodeGen::GenJmp(GenTree* jmp)
             regNumber reg  = lcl->GetParamReg(0);
 
             GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, lclNum, 0);
-            regSet.AddMaskVars(genRegMask(reg));
+            gcInfo.AddLiveLclRegs(genRegMask(reg));
             gcInfo.gcMarkRegPtrVal(reg, type);
 
             if (lcl->GetLayout()->GetSysVAmd64AbiRegCount() > 1)
@@ -5400,7 +5400,7 @@ void CodeGen::GenJmp(GenTree* jmp)
                 reg  = lcl->GetParamReg(1);
 
                 GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, lclNum, 8);
-                regSet.AddMaskVars(genRegMask(reg));
+                gcInfo.AddLiveLclRegs(genRegMask(reg));
                 gcInfo.gcMarkRegPtrVal(reg, type);
             }
 
@@ -5430,7 +5430,7 @@ void CodeGen::GenJmp(GenTree* jmp)
         assert(isValidIntArgReg(reg) || isValidFloatArgReg(reg));
 
         GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, lclNum, 0);
-        regSet.AddMaskVars(genRegMask(reg));
+        gcInfo.AddLiveLclRegs(genRegMask(reg));
         gcInfo.gcMarkRegPtrVal(reg, type);
 
         if (compiler->lvaIsGCTracked(lcl))
@@ -7993,7 +7993,7 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
                 // The call target must not overwrite any live variable, though it may not be in the
                 // kill set for the call.
                 regMaskTP callTargetMask = genRegMask(callTargetReg);
-                noway_assert((callTargetMask & regSet.GetMaskVars()) == RBM_NONE);
+                noway_assert((callTargetMask & gcInfo.GetLiveLclRegs()) == RBM_NONE);
             }
 #endif
 

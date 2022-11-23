@@ -2827,7 +2827,7 @@ void CodeGen::GenJmp(GenTree* jmp)
                 assert(isValidIntArgReg(reg));
 
                 GetEmitter()->emitIns_R_S(INS_ldr, emitTypeSize(type), reg, lclNum, i * REGSIZE_BYTES);
-                regSet.AddMaskVars(genRegMask(reg));
+                gcInfo.AddLiveLclRegs(genRegMask(reg));
                 gcInfo.gcMarkRegPtrVal(reg, type);
             }
         }
@@ -2859,7 +2859,7 @@ void CodeGen::GenJmp(GenTree* jmp)
             // expecting it. Therefore manually update life of argReg.  Note that GT_JMP marks the end of
             // the basic block and after which reg life and gc info will be recomputed for the new block
             // in genCodeForBBList().
-            regSet.AddMaskVars(genRegMask(reg));
+            gcInfo.AddLiveLclRegs(genRegMask(reg));
             gcInfo.gcMarkRegPtrVal(reg, type);
 
             if (compiler->lvaIsGCTracked(lcl))
