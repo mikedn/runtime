@@ -7050,8 +7050,7 @@ void emitter::emitRecordGCcall(BYTE* codePos, unsigned char callInstrSize)
 
     call = new (emitComp, CMK_GC) callDsc;
 
-    call->cdBlock = nullptr;
-    call->cdOffs  = offs;
+    call->cdOffs = offs;
 #ifndef JIT32_GCENCODER
     call->cdCallInstrSize = callInstrSize;
 #endif

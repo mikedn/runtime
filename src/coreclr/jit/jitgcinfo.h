@@ -14,8 +14,6 @@
 #include "gcinfoencoder.h"
 #endif
 
-/*****************************************************************************/
-
 #ifndef JIT32_GCENCODER
 // Shash typedefs
 struct RegSlotIdKey
@@ -70,8 +68,6 @@ struct StackSlotIdKey
 typedef JitHashTable<RegSlotIdKey, RegSlotIdKey, GcSlotId>     RegSlotMap;
 typedef JitHashTable<StackSlotIdKey, StackSlotIdKey, GcSlotId> StackSlotMap;
 #endif
-
-typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, VARSET_TP*> NodeToVarsetPtrMap;
 
 class GCInfo
 {
@@ -289,8 +285,7 @@ public:
     struct CallDsc
     {
         CallDsc* cdNext;
-        void*    cdBlock; // the code block of the call
-        unsigned cdOffs;  // the offset     of the call
+        unsigned cdOffs; // the offset     of the call
 #ifndef JIT32_GCENCODER
         unsigned short cdCallInstrSize; // the size       of the call instruction.
 #endif

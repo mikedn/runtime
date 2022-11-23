@@ -9,8 +9,6 @@
 #include "gcinfoencoder.h" //this includes a LOT of other files too
 #endif
 
-extern int JITGcBarrierCall;
-
 #if MEASURE_PTRTAB_SIZE
 size_t GCInfo::s_gcRegPtrDscSize   = 0;
 size_t GCInfo::s_gcTotalPtrTabSize = 0;
