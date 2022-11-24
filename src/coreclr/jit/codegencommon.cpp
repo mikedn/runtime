@@ -1227,13 +1227,16 @@ void CodeGen::genAllocateRegisters()
     m_lsra = new (compiler, CMK_LSRA) LinearScan(compiler);
     m_lsra->doLinearScan();
 
+    regMaskTP modifiedRegs = m_lsra->GetAllocatedRegs();
+
 #ifdef TARGET_ARMARCH
     reservedRegs = m_lsra->GetReservedRegs();
+    modifiedRegs |= reservedRegs;
 #endif
 
-    if (m_lsra->GetAllocatedRegs() != RBM_NONE)
+    if (modifiedRegs != RBM_NONE)
     {
-        regSet.rsSetRegsModified(m_lsra->GetAllocatedRegs());
+        regSet.rsSetRegsModified(modifiedRegs);
     }
 }
 
@@ -5463,11 +5466,6 @@ void CodeGen::genFinalizeFrame()
     {
         regSet.rsSetRegsModified(RBM_STACK_PROBE_HELPER_ARG | RBM_STACK_PROBE_HELPER_CALL_TARGET |
                                  RBM_STACK_PROBE_HELPER_TRASH);
-    }
-
-    if (reservedRegs != RBM_NONE)
-    {
-        regSet.rsSetRegsModified(reservedRegs);
     }
 #endif // TARGET_ARM
 
