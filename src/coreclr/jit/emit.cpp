@@ -897,8 +897,6 @@ void emitter::emitBegFN()
 
     /* Record stack frame info (the temp size is just an estimate) */
 
-    emitHasFramePtr = codeGen->isFramePointerUsed();
-
     INDEBUG(emitChkAlign =
                 (emitComp->compCodeOpt() != SMALL_CODE) && !emitComp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT));
 
@@ -2707,7 +2705,7 @@ unsigned emitter::emitGetInstructionSize(emitLocation* emitLoc)
 
 const char* emitter::emitGetFrameReg()
 {
-    if (emitHasFramePtr)
+    if (codeGen->isFramePointerUsed())
     {
         return STR_FPBASE;
     }
@@ -5225,7 +5223,7 @@ unsigned emitter::emitEndCodeGen(Compiler* comp,
     emitFullGCinfo = fullPtrMap;
 
 #ifndef UNIX_X86_ABI
-    emitFullArgInfo = !emitHasFramePtr;
+    emitFullArgInfo = !codeGen->isFramePointerUsed();
 #else
     emitFullArgInfo = fullPtrMap;
 #endif

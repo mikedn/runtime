@@ -1691,8 +1691,6 @@ public:
     size_t emitIssue1Instr(insGroup* ig, instrDesc* id, BYTE** dp);
     size_t emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp);
 
-    bool emitHasFramePtr;
-
 #ifdef PSEUDORANDOM_NOP_INSERTION
     bool emitInInstrumentation;
 #endif // PSEUDORANDOM_NOP_INSERTION
