@@ -2014,12 +2014,6 @@ private:
     bool              emitContTrkPtrLcls;  // All lcl between emitGCrFrameOffsMin/Max are only tracked stack ptr vars
     GCFrameLifetime** emitGCrFrameLiveTab; // Cache of currently live varPtrs (stkOffs -> varPtrDsc)
 
-    int emitArgFrameOffsMin;
-    int emitArgFrameOffsMax;
-
-    int emitLclFrameOffsMin;
-    int emitLclFrameOffsMax;
-
     int emitSyncThisObjOffs; // what is the offset of "this" for synchronized methods?
 
 public:
