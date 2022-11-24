@@ -87,6 +87,30 @@ public:
     // Registers reserved for special purposes, that cannot be allocated by LSRA.
     regMaskTP reservedRegs = RBM_NONE;
 #endif
+#ifdef TARGET_ARM
+    // Registers that are spilled at the start of the prolog, right below stack params,
+    // such that they form a contiguous area useful to handle varargs and split params
+    // but also to take advantage of ARM's multi reg push instruction. Normally these
+    // are registers allocated to parameters but some unused registers might have to be
+    // spilled to maintain alignment.
+    regMaskTP preSpillParamRegs = RBM_NONE;
+    regMaskTP preSpillAlignRegs = RBM_NONE;
+
+    regMaskTP GetPreSpillRegs() const
+    {
+        return preSpillParamRegs | preSpillAlignRegs;
+    }
+
+    unsigned GetPreSpillRegCount() const
+    {
+        return genCountBits(preSpillParamRegs | preSpillAlignRegs);
+    }
+
+    unsigned GetPreSpillSize() const
+    {
+        return GetPreSpillRegCount() * REGSIZE_BYTES;
+    }
+#endif
 
     //-------------------------------------------------------------------------
     //  The following keeps track of how many bytes of local frame space we've

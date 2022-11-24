@@ -43,13 +43,6 @@ public:
     {
     }
 
-#ifdef TARGET_ARM
-    regMaskTP rsMaskPreSpillRegs(bool includeAlignment) const
-    {
-        return includeAlignment ? (rsMaskPreSpillRegArg | rsMaskPreSpillAlign) : rsMaskPreSpillRegArg;
-    }
-#endif // TARGET_ARM
-
     // The same descriptor is also used for 'multi-use' register tracking, BTW.
     struct SpillDsc
     {
@@ -87,14 +80,6 @@ public:
     void verifyRegUsed(regNumber reg);
 
     void verifyRegistersUsed(regMaskTP regMask);
-
-#ifdef TARGET_ARM
-    regMaskTP rsMaskPreSpillAlign = RBM_NONE; // Mask of alignment padding added to prespill to keep double aligned args
-                                              // at aligned stack addresses.
-    regMaskTP rsMaskPreSpillRegArg = RBM_NONE; // mask of incoming registers that are spilled at the start of the prolog
-                                               // This includes registers used to pass a struct (or part of a struct)
-                                               // and all enregistered user arguments in a varargs call
-#endif
 
 private:
     //-------------------------------------------------------------------------

@@ -218,37 +218,6 @@ inline regMaskTP genFindLowestReg(regMaskTP value)
 
 /*****************************************************************************
  *
- *  A rather simple routine that counts the number of bits in a given number.
- */
-
-template <typename T>
-inline unsigned genCountBits(T bits)
-{
-    unsigned cnt = 0;
-
-    while (bits)
-    {
-        cnt++;
-        bits -= genFindLowestBit(bits);
-    }
-
-    return cnt;
-}
-
-template <>
-inline unsigned genCountBits<uint64_t>(uint64_t c)
-{
-    return BitSetSupport::CountBitsInIntegral(c);
-}
-
-template <>
-inline unsigned genCountBits<uint32_t>(uint32_t c)
-{
-    return BitSetSupport::CountBitsInIntegral(c);
-}
-
-/*****************************************************************************
- *
  *  Given 3 masks value, end, start, returns the bits of value between start
  *  and end (exclusive).
  *

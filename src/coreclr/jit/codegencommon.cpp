@@ -2475,7 +2475,7 @@ regMaskTP CodeGen::genPrologBuildParamRegsTable(
             // On the ARM when the lcl is a struct arg (or pre-spilled due to varargs) the initReg/xtraReg
             // could be equal to the param reg. The pre-spilled registers are also not considered live either
             // since they've already been spilled.
-            if ((regSet.rsMaskPreSpillRegs(false) & regMask) == RBM_NONE)
+            if ((preSpillParamRegs & regMask) == RBM_NONE)
 #endif
             {
 #ifndef UNIX_AMD64_ABI
@@ -3387,8 +3387,7 @@ void CodeGen::genPrologEnregisterIncomingStackParams()
         // parameter and hence here we need to load it from its prespilled location.
         bool isPrespilledForProfiling = false;
 #if defined(TARGET_ARM) && defined(PROFILING_SUPPORTED)
-        isPrespilledForProfiling =
-            compiler->compIsProfilerHookNeeded() && lcl->IsPreSpilledRegParam(regSet.rsMaskPreSpillRegs(false));
+        isPrespilledForProfiling = compiler->compIsProfilerHookNeeded() && lcl->IsPreSpilledRegParam(preSpillParamRegs);
 #endif
 
         if (lcl->IsRegParam() && !isPrespilledForProfiling)
@@ -3658,7 +3657,7 @@ void CodeGen::CheckUseBlockInit()
 
         regMaskTP liveRegs = paramRegState.intRegLiveIn;
 
-        liveRegs &= ~regSet.rsMaskPreSpillRegs(false);
+        liveRegs &= ~preSpillParamRegs;
 
         // Don't count the secret stub param, it will no longer be live when
         // we do block init.
@@ -3931,10 +3930,7 @@ bool CodeGen::genCanUsePopToReturn(regMaskTP maskPopRegsInt, bool jmpEpilog)
 {
     assert(generatingEpilog);
 
-    if (!jmpEpilog && regSet.rsMaskPreSpillRegs(true) == RBM_NONE)
-        return true;
-    else
-        return false;
+    return !jmpEpilog && (GetPreSpillRegs() == RBM_NONE);
 }
 
 void CodeGen::genPopCalleeSavedRegisters(bool jmpEpilog)
@@ -5159,8 +5155,7 @@ void CodeGen::genReportGenericContextArg(regNumber initReg, bool* pInitRegZeroed
 
     bool isPrespilledForProfiling = false;
 #if defined(TARGET_ARM) && defined(PROFILING_SUPPORTED)
-    isPrespilledForProfiling =
-        compiler->compIsProfilerHookNeeded() && varDsc->IsPreSpilledRegParam(regSet.rsMaskPreSpillRegs(false));
+    isPrespilledForProfiling = compiler->compIsProfilerHookNeeded() && varDsc->IsPreSpilledRegParam(preSpillParamRegs);
 #endif
 
     // Load from the argument register only if it is not prespilled.
@@ -5545,7 +5540,7 @@ void CodeGen::genFinalizeFrame()
         (compiler->opts.MinOpts() && ((reservedRegs & maskCalleeRegsPushed & RBM_OPT_RSVD) != RBM_NONE)))
     {
         // Here we try to keep stack double-aligned before the vpush
-        if ((genCountBits(regSet.rsMaskPreSpillRegs(true) | maskPushRegsInt) % 2) != 0)
+        if ((genCountBits(GetPreSpillRegs() | maskPushRegsInt) % 2) != 0)
         {
             regNumber extraPushedReg = REG_R4;
             while (maskPushRegsInt & genRegMask(extraPushedReg))
@@ -5963,7 +5958,7 @@ void CodeGen::genFnProlog()
     // Ditto for all enregistered user arguments in a varargs method.
     // These registers will be available to use for the initReg.  We just remove
     // all of these registers from the rsCalleeRegArgMaskLiveIn.
-    paramRegState.intRegLiveIn &= ~regSet.rsMaskPreSpillRegs(false);
+    paramRegState.intRegLiveIn &= ~preSpillParamRegs;
 #endif
 
     // Choose the register to use for zero initialization
@@ -6061,10 +6056,10 @@ void CodeGen::genFnProlog()
      * Now start emitting the part of the prolog which sets up the frame
      */
 
-    if (regSet.rsMaskPreSpillRegs(true) != RBM_NONE)
+    if (regMaskTP preSpillRegs = GetPreSpillRegs())
     {
-        inst_IV(INS_push, (int)regSet.rsMaskPreSpillRegs(true));
-        compiler->unwindPushMaskInt(regSet.rsMaskPreSpillRegs(true));
+        inst_IV(INS_push, static_cast<int>(preSpillRegs));
+        compiler->unwindPushMaskInt(preSpillRegs);
     }
 #endif // TARGET_ARM
 
@@ -6591,12 +6586,11 @@ void CodeGen::genFnEpilog(BasicBlock* block)
 
     genPopCalleeSavedRegisters(jmpEpilog);
 
-    if (regSet.rsMaskPreSpillRegs(true) != RBM_NONE)
+    if (unsigned preSpillRegArgSize = GetPreSpillSize())
     {
         // We better not have used a pop PC to return otherwise this will be unreachable code
         noway_assert(!genUsedPopToReturn);
 
-        int preSpillRegArgSize = genCountBits(regSet.rsMaskPreSpillRegs(true)) * REGSIZE_BYTES;
         inst_RV_IV(INS_add, REG_SPBASE, preSpillRegArgSize, EA_PTRSIZE);
         compiler->unwindAllocStack(preSpillRegArgSize);
     }
@@ -7211,7 +7205,7 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
         // (also assumed in genFnProlog()).
         assert((calleeSavedRegs & (RBM_R12 | RBM_R13)) == RBM_NONE);
 
-        unsigned preSpillRegArgSize                = genCountBits(regSet.rsMaskPreSpillRegs(true)) * REGSIZE_BYTES;
+        unsigned preSpillRegArgSize                = GetPreSpillSize();
         genFuncletInfo.fiFunctionCallerSPtoFPdelta = preSpillRegArgSize + 2 * REGSIZE_BYTES;
 
         regMaskTP rsMaskSaveRegs = calleeSavedRegs;

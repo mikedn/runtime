@@ -1381,7 +1381,7 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
     // The call target register could be any free register.
     regNumber argReg     = REG_PROFILER_ENTER_ARG;
     regMaskTP argRegMask = genRegMask(argReg);
-    assert((regSet.rsMaskPreSpillRegArg & argRegMask) != 0);
+    assert((preSpillParamRegs & argRegMask) != 0);
 
     if (compiler->compProfilerMethHndIndirected)
     {
@@ -1940,7 +1940,7 @@ int CodeGenInterface::genCallerSPtoFPdelta() const
     int callerSPtoFPdelta = 0;
 
     // On ARM, we first push the prespill registers, then store LR, then R11 (FP), and point R11 at the saved R11.
-    callerSPtoFPdelta -= genCountBits(regSet.rsMaskPreSpillRegs(true)) * REGSIZE_BYTES;
+    callerSPtoFPdelta -= GetPreSpillSize();
     callerSPtoFPdelta -= 2 * REGSIZE_BYTES;
 
     assert(callerSPtoFPdelta <= 0);
@@ -1956,7 +1956,7 @@ int CodeGenInterface::genCallerSPtoInitialSPdelta() const
 {
     int callerSPtoSPdelta = 0;
 
-    callerSPtoSPdelta -= genCountBits(regSet.rsMaskPreSpillRegs(true)) * REGSIZE_BYTES;
+    callerSPtoSPdelta -= GetPreSpillSize();
     callerSPtoSPdelta -= genTotalFrameSize();
 
     assert(callerSPtoSPdelta <= 0);

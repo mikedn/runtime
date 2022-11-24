@@ -276,7 +276,7 @@ void Compiler::lvaInitParams(bool hasRetBufParam)
     // Prespill all argument regs on to stack in case of Arm when under profiler.
     if (compIsProfilerHookNeeded())
     {
-        codeGen->regSet.rsMaskPreSpillRegArg |= RBM_ARG_REGS;
+        codeGen->preSpillParamRegs |= RBM_ARG_REGS;
     }
 #endif
 
@@ -601,7 +601,7 @@ void Compiler::lvaInitVarargsHandleParam(ParamAllocInfo& paramInfo)
 #ifdef TARGET_ARM
     // We have to pre-spill all the register params explicitly because we only
     // have have symbols for the declared ones, not any potential variadic ones.
-    codeGen->regSet.rsMaskPreSpillRegArg |= RBM_ARG_REGS;
+    codeGen->preSpillParamRegs |= RBM_ARG_REGS;
 #endif
 }
 
@@ -1028,7 +1028,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, LclVarDsc* lcl)
                 paramInfo.doubleAlignMask |= regMask;
             }
 
-            codeGen->regSet.rsMaskPreSpillRegArg |= regMask;
+            codeGen->preSpillParamRegs |= regMask;
         }
 
         lcl->SetParamRegs(paramInfo.AllocRegs(regType, regCount), regCount);
@@ -1115,12 +1115,11 @@ void Compiler::lvaAlignPreSpillParams(regMaskTP doubleAlignMask)
     // ; -c r0    r0   <-- misaligned.
     // ; callee saved regs
     bool startsAtR0 = (doubleAlignMask & RBM_R0) == RBM_R0;
-    bool r2XorR3    = ((codeGen->regSet.rsMaskPreSpillRegArg & RBM_R2) == 0) !=
-                   ((codeGen->regSet.rsMaskPreSpillRegArg & RBM_R3) == 0);
+    bool r2XorR3    = ((codeGen->preSpillParamRegs & RBM_R2) == 0) != ((codeGen->preSpillParamRegs & RBM_R3) == 0);
 
     if (startsAtR0 && r2XorR3)
     {
-        codeGen->regSet.rsMaskPreSpillAlign = (~codeGen->regSet.rsMaskPreSpillRegArg & ~doubleAlignMask) & RBM_ARG_REGS;
+        codeGen->preSpillAlignRegs = (~codeGen->preSpillParamRegs & ~doubleAlignMask) & RBM_ARG_REGS;
     }
 }
 #endif // TARGET_ARM
@@ -3597,7 +3596,7 @@ void Compiler::lvaFixVirtualFrameOffsets()
 #if defined(TARGET_ARM) && defined(PROFILING_SUPPORTED)
                                     && compIsProfilerHookNeeded() &&
                                     // We need assign stack offsets for prespilled arguments
-                                    !lcl->IsPreSpilledRegParam(codeGen->regSet.rsMaskPreSpillRegs(false))
+                                    !lcl->IsPreSpilledRegParam(codeGen->preSpillParamRegs)
 #endif
                                         )
 #endif // !TARGET_AMD64
@@ -3758,8 +3757,8 @@ void Compiler::lvaAssignParamsVirtualFrameOffsets()
 
 void Compiler::lvaAssignParamsVirtualFrameOffsets()
 {
-    regMaskTP preSpillRegs = codeGen->regSet.rsMaskPreSpillRegs(true);
-    int       preSpillSize = genCountBits(preSpillRegs) * REGSIZE_BYTES;
+    regMaskTP preSpillRegs = codeGen->GetPreSpillRegs();
+    int       preSpillSize = codeGen->GetPreSpillSize();
 
     for (unsigned i = 0; i < info.compArgsCount; i++)
     {
@@ -3943,7 +3942,7 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
     }
 
 #ifdef TARGET_ARM
-    const int  preSpillSize    = genCountBits(codeGen->regSet.rsMaskPreSpillRegs(true)) * REGSIZE_BYTES;
+    const int  preSpillSize    = codeGen->GetPreSpillSize();
     const bool mustDoubleAlign = true;
 
     if (lvaDoneFrameLayout != FINAL_FRAME_LAYOUT)
@@ -4286,7 +4285,7 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
             if (lcl->IsParam()
 #ifndef WINDOWS_AMD64_ABI
                 && (!lcl->IsRegParam() ARM64_ONLY(|| (info.compIsVarArgs && (lcl->GetParamReg() != RET_BUFF_ARGNUM)))
-                         ARM_ONLY(|| lcl->IsPreSpilledRegParam(codeGen->regSet.rsMaskPreSpillRegs(false))))
+                         ARM_ONLY(|| lcl->IsPreSpilledRegParam(codeGen->preSpillParamRegs)))
 #endif
                     )
             {
@@ -4689,7 +4688,7 @@ void Compiler::lvaAlignFrame()
 
     // TODO-MIKE-Review: What about REGALLOC_FRAME_LAYOUT?
 
-    unsigned pushCount = codeGen->calleeRegsPushed + genCountBits(codeGen->regSet.rsMaskPreSpillRegs(true));
+    unsigned pushCount = codeGen->calleeRegsPushed + codeGen->GetPreSpillRegCount();
     unsigned frameSize = codeGen->lclFrameSize + pushCount * REGSIZE_BYTES;
 
     if (frameSize % 8 != 0)
@@ -4757,7 +4756,7 @@ int Compiler::lvaAllocateTemps(int stkOffs
 
 #ifdef TARGET_ARM
     unsigned spillTempSize = 0;
-    int      preSpillSize  = genCountBits(codeGen->regSet.rsMaskPreSpillRegs(true)) * REGSIZE_BYTES;
+    int      preSpillSize  = codeGen->GetPreSpillSize();
 #else
     int preSpillSize = 0;
 #endif
@@ -4829,8 +4828,8 @@ int Compiler::lvaFrameAddress(int varNum, bool* pFPbased)
 #ifdef DEBUG
         bool isPrespilledArg = false;
 #if defined(TARGET_ARM) && defined(PROFILING_SUPPORTED)
-        isPrespilledArg = lcl->IsParam() && compIsProfilerHookNeeded() &&
-                          lcl->IsPreSpilledRegParam(codeGen->regSet.rsMaskPreSpillRegs(false));
+        isPrespilledArg =
+            lcl->IsParam() && compIsProfilerHookNeeded() && lcl->IsPreSpilledRegParam(codeGen->preSpillParamRegs);
 #endif
 
         if (!lcl->lvOnFrame)
