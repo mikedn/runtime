@@ -4293,45 +4293,6 @@ void CodeGen::genPopCalleeSavedRegisters(bool jmpEpilog)
     noway_assert(calleeRegsPushed == popCount);
 }
 
-#elif defined(TARGET_X86)
-
-void CodeGen::genPopCalleeSavedRegisters(bool jmpEpilog)
-{
-    assert(compiler->compGeneratingEpilog);
-
-    unsigned popCount = 0;
-
-    /*  NOTE:   The EBP-less frame code below depends on the fact that
-                all of the pops are generated right at the start and
-                each takes one byte of machine code.
-     */
-
-    if (regSet.rsRegsModified(RBM_FPBASE))
-    {
-        // EBP cannot be directly modified for EBP frame and double-aligned frames
-        noway_assert(!doubleAlignOrFramePointerUsed());
-
-        inst_RV(INS_pop, REG_EBP, TYP_I_IMPL);
-        popCount++;
-    }
-    if (regSet.rsRegsModified(RBM_EBX))
-    {
-        popCount++;
-        inst_RV(INS_pop, REG_EBX, TYP_I_IMPL);
-    }
-    if (regSet.rsRegsModified(RBM_ESI))
-    {
-        popCount++;
-        inst_RV(INS_pop, REG_ESI, TYP_I_IMPL);
-    }
-    if (regSet.rsRegsModified(RBM_EDI))
-    {
-        popCount++;
-        inst_RV(INS_pop, REG_EDI, TYP_I_IMPL);
-    }
-    noway_assert(compiler->compCalleeRegsPushed == popCount);
-}
-
 #endif // TARGET*
 
 // We need a register with value zero. Zero the initReg, if necessary, and set *pInitRegZeroed if so.
