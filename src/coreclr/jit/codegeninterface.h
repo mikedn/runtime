@@ -83,10 +83,6 @@ public:
     RegSet        regSet;
     ParamRegState paramRegState;
 
-#ifdef TARGET_ARMARCH
-    // Registers reserved for special purposes, that cannot be allocated by LSRA.
-    regMaskTP reservedRegs = RBM_NONE;
-#endif
 #ifdef TARGET_ARM
     // Registers that are spilled at the start of the prolog, right below stack params,
     // such that they form a contiguous area useful to handle varargs and split params
