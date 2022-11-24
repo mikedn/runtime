@@ -8868,62 +8868,23 @@ void CodeGen::genPopCalleeSavedRegisters(bool jmpEpilog)
 {
     assert(generatingEpilog);
 
-    unsigned popCount = 0;
-    if (regSet.rsRegsModified(RBM_EBX))
-    {
-        popCount++;
-        inst_RV(INS_pop, REG_EBX, TYP_I_IMPL);
-    }
-    if (regSet.rsRegsModified(RBM_FPBASE))
-    {
-        // EBP cannot be directly modified for EBP frame and double-aligned frames
-        assert(!doubleAlignOrFramePointerUsed());
+    regMaskTP popRegs  = regSet.rsGetModifiedRegsMask() & RBM_INT_CALLEE_SAVED;
+    unsigned  popCount = 0;
 
-        popCount++;
-        inst_RV(INS_pop, REG_EBP, TYP_I_IMPL);
-    }
+    // EBP cannot be directly modified for EBP frame and double-aligned frames
+    assert(((popRegs & RBM_EBP) == RBM_NONE) || !doubleAlignOrFramePointerUsed());
 
-#ifndef UNIX_AMD64_ABI
-    // For System V AMD64 calling convention ESI and EDI are volatile registers.
-    if (regSet.rsRegsModified(RBM_ESI))
+    for (regNumber reg = REG_INT_FIRST; popRegs != RBM_NONE; reg = REG_NEXT(reg))
     {
-        popCount++;
-        inst_RV(INS_pop, REG_ESI, TYP_I_IMPL);
-    }
-    if (regSet.rsRegsModified(RBM_EDI))
-    {
-        popCount++;
-        inst_RV(INS_pop, REG_EDI, TYP_I_IMPL);
-    }
-#endif // !defined(UNIX_AMD64_ABI)
+        regMaskTP regMask = genRegMask(reg);
 
-#ifdef TARGET_AMD64
-    if (regSet.rsRegsModified(RBM_R12))
-    {
-        popCount++;
-        inst_RV(INS_pop, REG_R12, TYP_I_IMPL);
+        if ((popRegs & regMask) != 0)
+        {
+            popRegs &= ~regMask;
+            popCount++;
+            GetEmitter()->emitIns_R(INS_pop, EA_PTRSIZE, reg);
+        }
     }
-    if (regSet.rsRegsModified(RBM_R13))
-    {
-        popCount++;
-        inst_RV(INS_pop, REG_R13, TYP_I_IMPL);
-    }
-    if (regSet.rsRegsModified(RBM_R14))
-    {
-        popCount++;
-        inst_RV(INS_pop, REG_R14, TYP_I_IMPL);
-    }
-    if (regSet.rsRegsModified(RBM_R15))
-    {
-        popCount++;
-        inst_RV(INS_pop, REG_R15, TYP_I_IMPL);
-    }
-#endif // TARGET_AMD64
-
-    // Amd64/x86 doesn't support push/pop of xmm registers.
-    // These will get saved to stack separately after allocating
-    // space on stack in prolog sequence.  PopCount is essentially
-    // tracking the count of integer registers pushed.
 
     noway_assert(calleeRegsPushed == popCount);
 }
