@@ -3164,7 +3164,7 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     if (compLocallocUsed)
     {
         // We reserve REG_SAVED_LOCALLOC_SP to store SP on entry for stack unwinding
-        codeGen->regSet.rsMaskResvd |= RBM_SAVED_LOCALLOC_SP;
+        codeGen->reservedRegs |= RBM_SAVED_LOCALLOC_SP;
     }
 #endif
 

@@ -5461,10 +5461,9 @@ void CodeGen::genFinalizeFrame()
                                  RBM_STACK_PROBE_HELPER_TRASH);
     }
 
-    // If there are any reserved registers, add them to the modified set.
-    if (regSet.rsMaskResvd != RBM_NONE)
+    if (reservedRegs != RBM_NONE)
     {
-        regSet.rsSetRegsModified(regSet.rsMaskResvd);
+        regSet.rsSetRegsModified(reservedRegs);
     }
 #endif // TARGET_ARM
 
@@ -5543,7 +5542,7 @@ void CodeGen::genFinalizeFrame()
     regMaskTP maskPushRegsInt   = maskCalleeRegsPushed & ~maskPushRegsFloat;
 
     if ((maskPushRegsFloat != RBM_NONE) ||
-        (compiler->opts.MinOpts() && (regSet.rsMaskResvd & maskCalleeRegsPushed & RBM_OPT_RSVD)))
+        (compiler->opts.MinOpts() && ((reservedRegs & maskCalleeRegsPushed & RBM_OPT_RSVD) != RBM_NONE)))
     {
         // Here we try to keep stack double-aligned before the vpush
         if ((genCountBits(regSet.rsMaskPreSpillRegs(true) | maskPushRegsInt) % 2) != 0)
@@ -6009,7 +6008,7 @@ void CodeGen::genFnProlog()
 
     tempMask = initRegs & ~excludeMask;
 #ifdef TARGET_ARMARCH
-    tempMask &= ~regSet.rsMaskResvd;
+    tempMask &= ~reservedRegs;
 #endif
 
     if (tempMask != RBM_NONE)
@@ -6025,7 +6024,7 @@ void CodeGen::genFnProlog()
     {
         tempMask = regSet.rsGetModifiedRegsMask() & RBM_ALLINT & ~excludeMask;
 #ifdef TARGET_ARMARCH
-        tempMask &= ~regSet.rsMaskResvd;
+        tempMask &= ~reservedRegs;
 #endif
 
         if (tempMask != RBM_NONE)

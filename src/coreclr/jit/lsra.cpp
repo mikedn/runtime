@@ -635,7 +635,7 @@ LinearScan::LinearScan(Compiler* theCompiler)
     availableIntRegs &= ~(RBM_PR | RBM_FP | RBM_LR);
 #endif
 #ifdef TARGET_ARMARCH
-    availableIntRegs &= ~compiler->codeGen->regSet.rsMaskResvd;
+    availableIntRegs &= ~compiler->codeGen->reservedRegs;
 #endif
 #if ETW_EBP_FRAMED
     availableIntRegs &= ~RBM_FPBASE;
@@ -2371,7 +2371,7 @@ void LinearScan::setFrameType()
     if (compiler->lvaHasLargeFrameOffset())
     {
         // We reserve R10/IP1 in this case to hold the offsets in load/store instructions
-        compiler->codeGen->regSet.rsMaskResvd |= RBM_OPT_RSVD;
+        compiler->codeGen->reservedRegs |= RBM_OPT_RSVD;
         assert(REG_OPT_RSVD != REG_FP);
         JITDUMP("  Reserved REG_OPT_RSVD (%s) due to large frame\n", getRegName(REG_OPT_RSVD));
         removeMask |= RBM_OPT_RSVD;

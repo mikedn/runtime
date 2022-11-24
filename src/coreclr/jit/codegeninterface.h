@@ -83,6 +83,11 @@ public:
     RegSet        regSet;
     ParamRegState paramRegState;
 
+#ifdef TARGET_ARMARCH
+    // Registers reserved for special purposes, that cannot be allocated by LSRA.
+    regMaskTP reservedRegs = RBM_NONE;
+#endif
+
     //-------------------------------------------------------------------------
     //  The following keeps track of how many bytes of local frame space we've
     //  grabbed so far in the current function, and how many argument bytes we

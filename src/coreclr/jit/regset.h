@@ -88,20 +88,13 @@ public:
 
     void verifyRegistersUsed(regMaskTP regMask);
 
-private:
-#ifdef TARGET_ARMARCH
-public:
-    regMaskTP rsMaskResvd = RBM_NONE; // mask of the registers that are reserved for special purposes (typically empty)
-
 #ifdef TARGET_ARM
     regMaskTP rsMaskPreSpillAlign = RBM_NONE; // Mask of alignment padding added to prespill to keep double aligned args
                                               // at aligned stack addresses.
     regMaskTP rsMaskPreSpillRegArg = RBM_NONE; // mask of incoming registers that are spilled at the start of the prolog
                                                // This includes registers used to pass a struct (or part of a struct)
                                                // and all enregistered user arguments in a varargs call
-
-#endif // TARGET_ARM
-#endif // TARGET_ARMARCH
+#endif
 
 private:
     //-------------------------------------------------------------------------

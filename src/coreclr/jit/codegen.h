@@ -130,7 +130,7 @@ private:
     {
         // We should have already added this register to the mask
         // of reserved registers in regSet.rdMaskResvd
-        noway_assert((regSet.rsMaskResvd & RBM_OPT_RSVD) != 0);
+        noway_assert((reservedRegs & RBM_OPT_RSVD) != 0);
 
         return REG_OPT_RSVD;
     }
