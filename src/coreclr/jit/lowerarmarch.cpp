@@ -616,7 +616,7 @@ bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
         assert(varTypeIsFloating(node->GetSimdBaseType()));
         assert(castOp == nullptr);
 
-        return comp->GetEmitter()->emitIns_valid_imm_for_fmov(dcon->GetValue());
+        return emitter::emitIns_valid_imm_for_fmov(dcon->GetValue());
     }
 
     return false;
@@ -1370,7 +1370,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 
                         const double dataValue = intrin.op3->AsDblCon()->GetValue();
 
-                        if (comp->GetEmitter()->emitIns_valid_imm_for_fmov(dataValue))
+                        if (emitter::emitIns_valid_imm_for_fmov(dataValue))
                         {
                             MakeSrcContained(node, intrin.op3);
                         }
