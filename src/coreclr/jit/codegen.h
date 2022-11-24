@@ -30,6 +30,9 @@ class CodeGen final : public CodeGenInterface
     IPmappingDsc*     genIPmappingLast = nullptr;
 
     CodeGenLivenessUpdater m_liveness;
+#ifdef TARGET_ARMARCH
+    regMaskTP calleeSavedRegs = RBM_NONE; // Registers saved/restored in prolog/epilog.
+#endif
 
 public:
     GCInfo gcInfo;

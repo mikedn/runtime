@@ -90,8 +90,6 @@ public:
 
 private:
 #ifdef TARGET_ARMARCH
-    regMaskTP rsMaskCalleeSaved = RBM_NONE; // mask of the registers pushed/popped in the prolog/epilog
-
 public:
     regMaskTP rsMaskResvd = RBM_NONE; // mask of the registers that are reserved for special purposes (typically empty)
 

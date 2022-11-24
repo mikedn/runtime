@@ -3641,7 +3641,7 @@ void CodeGen::genPushCalleeSavedRegisters()
     //
     rsPushRegs |= RBM_LR; // We must save the return address (in the LR register)
 
-    regSet.rsMaskCalleeSaved = rsPushRegs;
+    calleeSavedRegs = rsPushRegs;
 
 #ifdef DEBUG
     if (calleeRegsPushed != genCountBits(rsPushRegs))

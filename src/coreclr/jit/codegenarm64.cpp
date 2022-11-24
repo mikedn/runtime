@@ -1351,7 +1351,7 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
 
     genFuncletInfo.fiFunction_CallerSP_to_FP_delta = genCallerSPtoFPdelta();
 
-    regMaskTP rsMaskSaveRegs = regSet.rsMaskCalleeSaved;
+    regMaskTP rsMaskSaveRegs = calleeSavedRegs;
     assert((rsMaskSaveRegs & RBM_LR) != 0);
     assert((rsMaskSaveRegs & RBM_FP) != 0);
 

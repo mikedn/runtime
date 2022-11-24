@@ -7210,11 +7210,12 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
         // of adding the number of callee-saved regs to CallerSP, we add 1 for lr and 1 for r11
         // (plus the "pre spill regs"). Note that we assume r12 and r13 aren't saved
         // (also assumed in genFnProlog()).
-        assert((regSet.rsMaskCalleeSaved & (RBM_R12 | RBM_R13)) == 0);
+        assert((calleeSavedRegs & (RBM_R12 | RBM_R13)) == RBM_NONE);
+
         unsigned preSpillRegArgSize                = genCountBits(regSet.rsMaskPreSpillRegs(true)) * REGSIZE_BYTES;
         genFuncletInfo.fiFunctionCallerSPtoFPdelta = preSpillRegArgSize + 2 * REGSIZE_BYTES;
 
-        regMaskTP rsMaskSaveRegs = regSet.rsMaskCalleeSaved;
+        regMaskTP rsMaskSaveRegs = calleeSavedRegs;
         unsigned  saveRegsCount  = genCountBits(rsMaskSaveRegs);
         unsigned  saveRegsSize   = saveRegsCount * REGSIZE_BYTES; // bytes of regs we're saving
         assert(outgoingArgSpaceSize % REGSIZE_BYTES == 0);
