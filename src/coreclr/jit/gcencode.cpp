@@ -1504,11 +1504,11 @@ size_t GCInfo::gcInfoBlockHdrSave(
         IMPL_LIMITATION("emitGetEpilogCnt() does not fit in InfoHdr::epilogCount");
     header->epilogAtEnd = compiler->GetEmitter()->emitHasEpilogEnd();
 
-    if (compiler->codeGen->regSet.rsRegsModified(RBM_EDI))
+    if (compiler->codeGen->IsRegModified(REG_EDI))
         header->ediSaved = 1;
-    if (compiler->codeGen->regSet.rsRegsModified(RBM_ESI))
+    if (compiler->codeGen->IsRegModified(REG_ESI))
         header->esiSaved = 1;
-    if (compiler->codeGen->regSet.rsRegsModified(RBM_EBX))
+    if (compiler->codeGen->IsRegModified(REG_EBX))
         header->ebxSaved = 1;
 
     header->interruptible = compiler->codeGen->GetInterruptible();
@@ -1519,10 +1519,10 @@ size_t GCInfo::gcInfoBlockHdrSave(
         if (compiler->codeGen->doDoubleAlign())
         {
             header->ebpSaved = true;
-            assert(!compiler->codeGen->regSet.rsRegsModified(RBM_EBP));
+            assert(!compiler->codeGen->IsRegModified(REG_EBP));
         }
 #endif
-        if (compiler->codeGen->regSet.rsRegsModified(RBM_EBP))
+        if (compiler->codeGen->IsRegModified(REG_EBP))
         {
             header->ebpSaved = true;
         }

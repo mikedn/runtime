@@ -80,8 +80,13 @@ public:
     size_t compInfoBlkSize;
     BYTE*  compInfoBlkAddr;
 
-    RegSet        regSet;
     ParamRegState paramRegState;
+    RegSet        regSet;
+
+    bool IsRegModified(regNumber reg) const
+    {
+        return regSet.rsRegsModified(genRegMask(reg));
+    }
 
 #ifdef TARGET_ARM
     // Registers that are spilled at the start of the prolog, right below stack params,
