@@ -2105,11 +2105,12 @@ public:
     void emitStackPush(BYTE* addr, GCtype gcType);
     void emitStackPushN(BYTE* addr, unsigned count);
     void emitStackPushLargeStk(BYTE* addr, GCtype gcType, unsigned count);
-    void emitStackKillArgs(BYTE* addr, unsigned count, unsigned char callInstrSize);
+    void emitStackKillArgs(BYTE* addr, unsigned count, unsigned callInstrSize);
+    void emitStackPop(BYTE* addr, bool isCall, unsigned callInstrSize, unsigned count);
+    void emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSize, unsigned count);
 #endif // !FEATURE_FIXED_OUT_ARGS
-    void emitStackPop(BYTE* addr, bool isCall, unsigned char callInstrSize X86_ARG(unsigned count));
-    void emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned char callInstrSize X86_ARG(unsigned count));
-    void emitRecordGCcall(BYTE* codePos, unsigned char callInstrSize);
+    void emitRecordGCCallPop(BYTE* addr, unsigned callInstrSize);
+    void emitRecordGCcall(BYTE* codePos, unsigned callInstrSize);
 
     /* Liveness of stack variables, and registers */
 

@@ -11830,14 +11830,12 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             }
 
         DONE_CALL:
+            // We update the variable (not register) GC info before the call as the variables cannot be
+            // used by the call. Killing variables before the call helps with
+            // boundary conditions if the call is CORINFO_HELP_THROW - see bug 50029.
+            // If we ever track aliased variables (which could be used by the
+            // call), we would have to keep them alive past the call.
 
-            /* We update the variable (not register) GC info before the call as the variables cannot be
-               used by the call. Killing variables before the call helps with
-               boundary conditions if the call is CORINFO_HELP_THROW - see bug 50029.
-               If we ever track aliased variables (which could be used by the
-               call), we would have to keep them alive past the call.
-             */
-            assert(FitsIn<unsigned char>(dst - *dp));
             callInstrSize = static_cast<unsigned char>(dst - *dp);
 
             // Note the use of address `*dp`, the call instruction address, instead of `dst`, the post-call-instruction
@@ -11902,10 +11900,12 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                     emitStackKillArgs(dst, -args, callInstrSize);
                 }
                 else
-#endif
                 {
-                    emitStackPop(dst, /*isCall*/ true, callInstrSize X86_ARG(args));
+                    emitStackPop(dst, /*isCall*/ true, callInstrSize, args);
                 }
+#else
+                emitRecordGCCallPop(dst, callInstrSize);
+#endif
             }
 
             // Do we need to record a call location for GC purposes?

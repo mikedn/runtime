@@ -9802,10 +9802,7 @@ unsigned emitter::emitOutputCall(insGroup* ig, BYTE* dst, instrDesc* id, code_t 
     // Some helper calls may be marked as not requiring GC info to be recorded.
     if (!id->idIsNoGC())
     {
-        // On ARM64, as on AMD64, we don't change the stack pointer to push/pop args.
-        // So we're not really doing a "stack pop" here (note that "args" is 0),
-        // but we use this mechanism to record the call for GC info purposes.
-        emitStackPop(dst, /*isCall*/ true, callInstrSize);
+        emitRecordGCCallPop(dst, callInstrSize);
 
         // Do we need to record a call location for GC purposes?
         if (!emitFullGCinfo)

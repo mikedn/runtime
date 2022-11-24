@@ -6120,7 +6120,7 @@ void emitter::emitGenGCInfoIfFuncletRetTarget(insGroup* ig, BYTE* cp)
     {
         // We don't actually have a call instruction in this case, so we don't have
         // a real size for that instruction.  We'll use 1.
-        emitStackPop(cp, /*isCall*/ true, /*callInstrSize*/ 1);
+        emitRecordGCCallPop(cp, /*callInstrSize*/ 1);
 
         /* Do we need to record a call location for GC purposes? */
         if (!emitFullGCinfo)
@@ -6969,13 +6969,53 @@ void emitter::emitUpdateLiveGCvars(VARSET_VALARG_TP vars, BYTE* addr)
     emitThisGCrefVset = true;
 }
 
-/*****************************************************************************
- *
- *  Record a call location for GC purposes (we know that this is a method that
- *  will not be fully interruptible).
- */
+#if FEATURE_FIXED_OUT_ARGS
 
-void emitter::emitRecordGCcall(BYTE* codePos, unsigned char callInstrSize)
+void emitter::emitRecordGCCallPop(BYTE* addr, unsigned callInstrSize)
+{
+    assert(emitIssuing);
+    assert((0 < callInstrSize) && (callInstrSize <= UINT8_MAX));
+
+    if (!emitFullGCinfo && (!codeGen->IsFullPtrRegMapRequired() || codeGen->GetInterruptible()))
+    {
+        return;
+    }
+
+    unsigned gcrefRegs = 0;
+    unsigned byrefRegs = 0;
+
+    for (unsigned i = 0; i < CNT_CALLEE_SAVED; i++)
+    {
+        regMaskTP calleeSaved = raRbmCalleeSaveOrder[i];
+
+        if ((emitThisGCrefRegs & calleeSaved) != RBM_NONE)
+        {
+            gcrefRegs |= (1 << i);
+        }
+
+        if ((emitThisByrefRegs & calleeSaved) != RBM_NONE)
+        {
+            byrefRegs |= (1 << i);
+        }
+    }
+
+    regPtrDsc* regPtrNext        = codeGen->gcInfo.gcRegPtrAllocDsc();
+    regPtrNext->rpdOffs          = emitCurCodeOffs(addr);
+    regPtrNext->rpdPtrArg        = 0;
+    regPtrNext->rpdCallInstrSize = static_cast<uint8_t>(callInstrSize);
+    regPtrNext->rpdArg           = true;
+    regPtrNext->rpdArgType       = GCInfo::rpdARG_POP;
+    regPtrNext->rpdGCtype        = GCT_GCREF;
+    regPtrNext->rpdCall          = true;
+    regPtrNext->rpdCallGCrefRegs = static_cast<uint16_t>(gcrefRegs);
+    regPtrNext->rpdCallByrefRegs = static_cast<uint16_t>(byrefRegs);
+}
+
+#endif // FEATURE_FIXED_OUT_ARGS
+
+// Record a call location for GC purposes (we know that this is a method that
+// will not be fully interruptible).
+void emitter::emitRecordGCcall(BYTE* codePos, unsigned callInstrSize)
 {
     assert(emitIssuing);
     assert(!emitFullGCinfo);
@@ -7043,7 +7083,7 @@ void emitter::emitRecordGCcall(BYTE* codePos, unsigned char callInstrSize)
 
     call->cdOffs = offs;
 #ifndef JIT32_GCENCODER
-    call->cdCallInstrSize = callInstrSize;
+    call->cdCallInstrSize = static_cast<uint16_t>(callInstrSize);
 #endif
     call->cdNext = nullptr;
 
@@ -7932,10 +7972,8 @@ void emitter::emitStackPushN(BYTE* addr, unsigned count)
     emitCurStackLvl += count * sizeof(int);
 }
 
-#endif // !FEATURE_FIXED_OUT_ARGS
-
 // Record a pop of the given number of dwords from the stack.
-void emitter::emitStackPop(BYTE* addr, bool isCall, unsigned char callInstrSize X86_ARG(unsigned count))
+void emitter::emitStackPop(BYTE* addr, bool isCall, unsigned callInstrSize, unsigned count)
 {
     assert(!isCall || callInstrSize > 0);
 #ifdef TARGET_X86
@@ -7975,12 +8013,10 @@ void emitter::emitStackPop(BYTE* addr, bool isCall, unsigned char callInstrSize 
 #endif
                 )
         {
-            emitStackPopLargeStk(addr, isCall, callInstrSize X86_ARG(0));
+            emitStackPopLargeStk(addr, isCall, callInstrSize, 0);
         }
     }
 }
-
-#if !FEATURE_FIXED_OUT_ARGS
 
 // Record a push of a single word on the stack for a full pointer map.
 void emitter::emitStackPushLargeStk(BYTE* addr, GCtype gcType, unsigned count)
@@ -8032,10 +8068,8 @@ void emitter::emitStackPushLargeStk(BYTE* addr, GCtype gcType, unsigned count)
     } while (--count);
 }
 
-#endif // !FEATURE_FIXED_OUT_ARGS
-
 // Record a pop of the given number of words from the stack for a full ptr map.
-void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned char callInstrSize X86_ARG(unsigned count))
+void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSize, unsigned count)
 {
     assert(emitIssuing);
 #ifdef JIT32_GCENCODER
@@ -8044,7 +8078,6 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned char callIn
     assert(!emitSimpleStkUsed);
 #endif
 
-#if !FEATURE_FIXED_OUT_ARGS
     S_UINT16 argRecCnt(0); // arg count for ESP, ptr-arg count for EBP
 
     /* Count how many pointer records correspond to this "pop" */
@@ -8073,7 +8106,6 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned char callIn
 
     // We're about to pop the corresponding arg records
     u2.emitGcArgTrackCnt -= argRecCnt.Value();
-#endif
 
 #ifdef JIT32_GCENCODER
     // For the general encoder, we always have to record calls, so we don't take this early return.
@@ -8122,7 +8154,6 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned char callIn
     }
 #endif // JIT32_GCENCODER
 
-#if !FEATURE_FIXED_OUT_ARGS
     /* Only calls may pop more than one value */
     // More detail:
     // _cdecl calls accomplish this popping via a post-call-instruction SP adjustment.
@@ -8131,9 +8162,6 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned char callIn
     // use the "isCall" input argument, which means that the instruction actually is a call --
     // we use the OR of "isCall" or the "pops more than one value."
     bool isCallRelatedPop = (argRecCnt.Value() > 1);
-#else
-    bool isCallRelatedPop = false;
-#endif
 
     /* Allocate a new ptr arg entry and fill it in */
 
@@ -8153,18 +8181,12 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned char callIn
     regPtrNext->rpdCallByrefRegs = byrefRegs;
     regPtrNext->rpdArg           = true;
     regPtrNext->rpdArgType       = GCInfo::rpdARG_POP;
-#if !FEATURE_FIXED_OUT_ARGS
-    regPtrNext->rpdPtrArg = argRecCnt.Value();
-#else
-    regPtrNext->rpdPtrArg = 0;
-#endif
+    regPtrNext->rpdPtrArg        = argRecCnt.Value();
 }
-
-#if !FEATURE_FIXED_OUT_ARGS
 
 // For caller-pop arguments, we report the arguments as pending arguments.
 // However, any GC arguments are now dead, so we need to report them as non-GC.
-void emitter::emitStackKillArgs(BYTE* addr, unsigned count, unsigned char callInstrSize)
+void emitter::emitStackKillArgs(BYTE* addr, unsigned count, unsigned callInstrSize)
 {
     assert(count > 0);
 
