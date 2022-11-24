@@ -608,6 +608,11 @@ public:
     // This is the main driver
     void doLinearScan();
 
+    regMaskTP GetAllocatedRegs() const
+    {
+        return m_allocateRegs;
+    }
+
     static bool isSingleRegister(regMaskTP regMask)
     {
         return (genExactlyOneBit(regMask));
@@ -1665,6 +1670,8 @@ private:
     //-----------------------------------------------------------------------
 
     regMaskTP m_AvailableRegs;
+    regMaskTP m_allocateRegs = RBM_NONE;
+
     regNumber getRegForType(regNumber reg, var_types regType)
     {
 #ifdef TARGET_ARM

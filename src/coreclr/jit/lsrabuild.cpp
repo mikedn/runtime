@@ -1100,7 +1100,7 @@ bool LinearScan::buildKillPositionsForNode(GenTree* tree, LsraLocation currentLo
         // CORINFO_HELP_ASSIGN_BYREF helper, which kills callee-saved RSI and RDI, if
         // LSRA doesn't assign RSI/RDI, they wouldn't get marked as modified until codegen,
         // which is too late.
-        compiler->codeGen->regSet.rsSetRegsModified(killMask DEBUGARG(true));
+        m_allocateRegs |= killMask;
 
         addRefsForPhysRegMask(killMask, currentLoc, RefTypeKill, true);
 

@@ -2955,7 +2955,7 @@ void LinearScan::checkAndAssignInterval(RegRecord* regRec, Interval* interval)
 void LinearScan::assignPhysReg(RegRecord* regRec, Interval* interval)
 {
     regMaskTP assignedRegMask = genRegMask(regRec->regNum);
-    compiler->codeGen->regSet.rsSetRegsModified(assignedRegMask DEBUGARG(true));
+    m_allocateRegs |= assignedRegMask;
 
     interval->assignedReg = regRec;
     checkAndAssignInterval(regRec, interval);
@@ -8273,7 +8273,8 @@ void LinearScan::resolveEdge(BasicBlock*      fromBlock,
                 }
                 else
                 {
-                    compiler->codeGen->regSet.rsSetRegsModified(genRegMask(tempReg) DEBUGARG(true));
+                    // TODO-MIKE-Review: Does this handling for DOUBLE on ARM?
+                    m_allocateRegs |= genRegMask(tempReg);
 #ifdef TARGET_ARM
                     if (sourceIntervals[fromReg]->registerType == TYP_DOUBLE)
                     {
@@ -11460,9 +11461,8 @@ regMaskTP LinearScan::RegisterSelection::select(Interval*    currentInterval,
         if (currentInterval->isWriteThru)
         {
             // We'll only prefer a callee-save register if it's already been used.
-            regMaskTP unusedCalleeSaves =
-                calleeSaveCandidates & ~(linearScan->compiler->codeGen->regSet.rsGetModifiedRegsMask());
-            callerCalleePrefs = calleeSaveCandidates & ~unusedCalleeSaves;
+            regMaskTP unusedCalleeSaves = calleeSaveCandidates & ~linearScan->m_allocateRegs;
+            callerCalleePrefs           = calleeSaveCandidates & ~unusedCalleeSaves;
             preferences &= ~unusedCalleeSaves;
         }
         else

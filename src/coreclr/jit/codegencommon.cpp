@@ -1226,6 +1226,11 @@ void CodeGen::genAllocateRegisters()
 {
     m_lsra = new (compiler, CMK_LSRA) LinearScan(compiler);
     m_lsra->doLinearScan();
+
+    if (m_lsra->GetAllocatedRegs() != RBM_NONE)
+    {
+        regSet.rsSetRegsModified(m_lsra->GetAllocatedRegs());
+    }
 }
 
 void CodeGen::genGenerateMachineCode()
