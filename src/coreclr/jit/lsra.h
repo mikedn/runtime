@@ -613,6 +613,13 @@ public:
         return m_allocateRegs;
     }
 
+#ifdef TARGET_ARMARCH
+    regMaskTP GetReservedRegs() const
+    {
+        return m_reservedRegs;
+    }
+#endif
+
     static bool isSingleRegister(regMaskTP regMask)
     {
         return (genExactlyOneBit(regMask));
@@ -1671,6 +1678,9 @@ private:
 
     regMaskTP m_AvailableRegs;
     regMaskTP m_allocateRegs = RBM_NONE;
+#ifdef TARGET_ARMARCH
+    regMaskTP m_reservedRegs = RBM_NONE;
+#endif
 
     regNumber getRegForType(regNumber reg, var_types regType)
     {

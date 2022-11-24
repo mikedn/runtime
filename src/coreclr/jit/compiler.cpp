@@ -3160,14 +3160,6 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     // call and register argument info, flowgraph and loop info, etc.
     compJitStats();
 
-#ifdef TARGET_ARM
-    if (compLocallocUsed)
-    {
-        // We reserve REG_SAVED_LOCALLOC_SP to store SP on entry for stack unwinding
-        codeGen->reservedRegs |= RBM_SAVED_LOCALLOC_SP;
-    }
-#endif
-
     // Assign registers to variables, etc.
 
     ///////////////////////////////////////////////////////////////////////////////
