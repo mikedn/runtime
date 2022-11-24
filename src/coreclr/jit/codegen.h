@@ -1432,14 +1432,12 @@ public:
     void inst_R_AM(instruction ins, emitAttr size, regNumber reg, const GenAddrMode& addrMode, unsigned offset = 0);
     void inst_AM_R(instruction ins, emitAttr size, regNumber reg, const GenAddrMode& addrMode, unsigned offset = 0);
 
-#ifdef TARGET_ARM
-    bool arm_Valid_Imm_For_Add(target_ssize_t imm, insFlags flag);
-    bool arm_Valid_Imm_For_Add_SP(target_ssize_t imm);
-#endif
-
     bool isMoveIns(instruction ins);
     instruction ins_Move_Extend(var_types srcType, bool srcInReg);
 
+    instruction ins_Load(var_types srcType, bool aligned = false);
+    instruction ins_Store(var_types dstType, bool aligned = false);
+    instruction ins_StoreFromSrc(regNumber srcReg, var_types dstType, bool aligned = false);
     instruction ins_Copy(var_types dstType);
     instruction ins_Copy(regNumber srcReg, var_types dstType);
 #ifdef TARGET_XARCH

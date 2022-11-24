@@ -76,6 +76,8 @@ instrDesc* emitNewInstrCallInd(VARSET_VALARG_TP GCvars, regMaskTP gcrefRegs, reg
 /************************************************************************/
 
 private:
+static bool validImmForInstr(instruction ins, target_ssize_t imm, insFlags flags = INS_FLAGS_DONT_CARE);
+static bool validDispForLdSt(target_ssize_t disp, var_types type);
 static bool emitInsIsCompare(instruction ins);
 static bool emitInsIsLoad(instruction ins);
 static bool emitInsIsStore(instruction ins);

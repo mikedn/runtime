@@ -257,7 +257,7 @@ void CodeGen::inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emi
 #endif
 
 #ifdef TARGET_ARM
-    if (validImmForInstr(ins, val, INS_FLAGS_DONT_CARE))
+    if (emitter::validImmForInstr(ins, val, INS_FLAGS_DONT_CARE))
     {
         GetEmitter()->emitIns_R_I(ins, size, reg, val, INS_FLAGS_DONT_CARE);
     }
@@ -653,83 +653,6 @@ void CodeGen::inst_RV_RV_TT(
 #endif // TARGET_XARCH
 
 #ifdef TARGET_ARM
-bool CodeGenInterface::validImmForInstr(instruction ins, target_ssize_t imm, insFlags flags)
-{
-    if (emitter::emitInsIsLoadOrStore(ins) && !emitter::instIsFP(ins))
-    {
-        return validDispForLdSt(imm, TYP_INT);
-    }
-
-    switch (ins)
-    {
-        case INS_cmp:
-        case INS_cmn:
-            return validImmForAlu(imm) || validImmForAlu(-imm);
-        case INS_and:
-        case INS_bic:
-        case INS_orr:
-        case INS_orn:
-        case INS_mvn:
-            return validImmForAlu(imm) || validImmForAlu(~imm);
-        case INS_mov:
-            return validImmForMov(imm);
-        case INS_addw:
-        case INS_subw:
-            return (unsigned_abs(imm) <= 0x00000fff) && (flags != INS_FLAGS_SET); // 12-bit immediate
-        case INS_add:
-        case INS_sub:
-            return validImmForAdd(imm, flags);
-        case INS_tst:
-        case INS_eor:
-        case INS_teq:
-        case INS_adc:
-        case INS_sbc:
-        case INS_rsb:
-            return validImmForAlu(imm);
-        case INS_asr:
-        case INS_lsl:
-        case INS_lsr:
-        case INS_ror:
-            return (imm > 0) && (imm <= 32);
-        case INS_vstr:
-        case INS_vldr:
-            return (imm & 0x3FC) == imm;
-        default:
-            return false;
-    }
-}
-
-bool CodeGenInterface::validDispForLdSt(target_ssize_t disp, var_types type)
-{
-    return varTypeIsFloating(type) ? ((disp & 0x3FC) == disp) : ((disp >= -0x00ff) && (disp <= 0x0fff));
-}
-
-bool CodeGenInterface::validImmForAlu(target_ssize_t imm)
-{
-    return emitter::emitIns_valid_imm_for_alu(imm);
-}
-
-bool CodeGenInterface::validImmForMov(target_ssize_t imm)
-{
-    return emitter::emitIns_valid_imm_for_mov(imm);
-}
-
-bool CodeGenInterface::validImmForAdd(target_ssize_t imm, insFlags flags)
-{
-    return emitter::emitIns_valid_imm_for_add(imm, flags);
-}
-
-bool CodeGen::arm_Valid_Imm_For_Add(target_ssize_t imm, insFlags flags)
-{
-    return emitter::emitIns_valid_imm_for_add(imm, flags);
-}
-
-// Check "add Rd,SP,i10"
-bool CodeGen::arm_Valid_Imm_For_Add_SP(target_ssize_t imm)
-{
-    return emitter::emitIns_valid_imm_for_add_sp(imm);
-}
-
 bool CodeGenInterface::validImmForBL(ssize_t addr)
 {
     return
@@ -836,7 +759,7 @@ instruction CodeGen::ins_Move_Extend(var_types srcType, bool srcInReg)
 }
 
 // Get the machine dependent instruction for performing a load for srcType
-instruction CodeGenInterface::ins_Load(var_types srcType, bool aligned)
+instruction CodeGen::ins_Load(var_types srcType, bool aligned)
 {
     assert(srcType != TYP_STRUCT);
 
@@ -948,7 +871,7 @@ instruction CodeGen::ins_Copy(regNumber srcReg, var_types dstType)
 }
 
 // Get the machine dependent instruction for performing a store for dstType
-instruction CodeGenInterface::ins_Store(var_types dstType, bool aligned)
+instruction CodeGen::ins_Store(var_types dstType, bool aligned)
 {
 #if defined(TARGET_XARCH)
     if (varTypeIsSIMD(dstType))
@@ -1007,7 +930,7 @@ instruction CodeGenInterface::ins_Store(var_types dstType, bool aligned)
 // Return Value:
 //   the instruction to use
 //
-instruction CodeGenInterface::ins_StoreFromSrc(regNumber srcReg, var_types dstType, bool aligned /*=false*/)
+instruction CodeGen::ins_StoreFromSrc(regNumber srcReg, var_types dstType, bool aligned /*=false*/)
 {
     assert(srcReg != REG_NA);
 

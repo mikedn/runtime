@@ -926,7 +926,7 @@ private:
         {
             case GT_CNS_INT:
 #ifdef TARGET_ARM
-                if (!compiler->codeGen->validImmForMov(op2->AsIntCon()->GetInt32Value()))
+                if (!emitter::emitIns_valid_imm_for_mov(op2->AsIntCon()->GetInt32Value()))
                 {
                     return NO_ASSERTION_INDEX;
                 }

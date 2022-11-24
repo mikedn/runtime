@@ -2109,16 +2109,16 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                     costSz = 4 + 4;
                     costEx = 1 + 1;
 
-                    if (!codeGen->validImmForInstr(INS_mov, (target_ssize_t)hiVal) &&
-                        !codeGen->validImmForInstr(INS_mvn, (target_ssize_t)hiVal))
+                    if (!emitter::validImmForInstr(INS_mov, (target_ssize_t)hiVal) &&
+                        !emitter::validImmForInstr(INS_mvn, (target_ssize_t)hiVal))
                     {
                         // Needs extra instruction: movw/movt
                         costSz += 4;
                         costEx += 1;
                     }
 
-                    if (!codeGen->validImmForInstr(INS_mov, (target_ssize_t)loVal) &&
-                        !codeGen->validImmForInstr(INS_mvn, (target_ssize_t)loVal))
+                    if (!emitter::validImmForInstr(INS_mov, (target_ssize_t)loVal) &&
+                        !emitter::validImmForInstr(INS_mvn, (target_ssize_t)loVal))
                     {
                         // Needs extra instruction: movw/movt
                         costSz += 4;
@@ -2144,13 +2144,13 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                     costSz = 8;
                     costEx = 2;
                 }
-                else if (codeGen->validImmForInstr(INS_add, conVal))
+                else if (emitter::validImmForInstr(INS_add, conVal))
                 {
                     // Typically included with parent oper
                     costSz = 2;
                     costEx = 1;
                 }
-                else if (codeGen->validImmForInstr(INS_mov, conVal) || codeGen->validImmForInstr(INS_mvn, conVal))
+                else if (emitter::validImmForInstr(INS_mov, conVal) || emitter::validImmForInstr(INS_mvn, conVal))
                 {
                     // Uses mov or mvn
                     costSz = 4;

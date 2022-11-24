@@ -144,8 +144,6 @@ public:
         m_cgFramePointerUsed = value;
     }
 
-    virtual VARSET_VALARG_TP GetLiveSet() const = 0;
-
     // The following property indicates whether the current method requires
     // an explicit frame. Does not prohibit double alignment of the stack.
 private:
@@ -233,18 +231,7 @@ public:
 #endif // !DOUBLE_ALIGN
 
 public:
-    // Methods to abstract target information
-
-    bool validImmForInstr(instruction ins, target_ssize_t val, insFlags flags = INS_FLAGS_DONT_CARE);
-    bool validDispForLdSt(target_ssize_t disp, var_types type);
-    bool validImmForAdd(target_ssize_t imm, insFlags flags);
-    bool validImmForAlu(target_ssize_t imm);
-    bool validImmForMov(target_ssize_t imm);
     bool validImmForBL(ssize_t addr);
-
-    instruction ins_Load(var_types srcType, bool aligned = false);
-    instruction ins_Store(var_types dstType, bool aligned = false);
-    instruction ins_StoreFromSrc(regNumber srcReg, var_types dstType, bool aligned = false);
 
 public:
     emitter* GetEmitter() const

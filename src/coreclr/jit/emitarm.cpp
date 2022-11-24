@@ -1338,6 +1338,57 @@ DONE:
     return (int)result;
 }
 
+bool emitter::validImmForInstr(instruction ins, target_ssize_t imm, insFlags flags)
+{
+    if (emitInsIsLoadOrStore(ins) && !instIsFP(ins))
+    {
+        return validDispForLdSt(imm, TYP_INT);
+    }
+
+    switch (ins)
+    {
+        case INS_cmp:
+        case INS_cmn:
+            return emitIns_valid_imm_for_alu(imm) || emitIns_valid_imm_for_alu(-imm);
+        case INS_and:
+        case INS_bic:
+        case INS_orr:
+        case INS_orn:
+        case INS_mvn:
+            return emitIns_valid_imm_for_alu(imm) || emitIns_valid_imm_for_alu(~imm);
+        case INS_mov:
+            return emitIns_valid_imm_for_mov(imm);
+        case INS_addw:
+        case INS_subw:
+            return (unsigned_abs(imm) <= 0x00000fff) && (flags != INS_FLAGS_SET); // 12-bit immediate
+        case INS_add:
+        case INS_sub:
+            return emitIns_valid_imm_for_add(imm, flags);
+        case INS_tst:
+        case INS_eor:
+        case INS_teq:
+        case INS_adc:
+        case INS_sbc:
+        case INS_rsb:
+            return emitIns_valid_imm_for_alu(imm);
+        case INS_asr:
+        case INS_lsl:
+        case INS_lsr:
+        case INS_ror:
+            return (imm > 0) && (imm <= 32);
+        case INS_vstr:
+        case INS_vldr:
+            return (imm & 0x3FC) == imm;
+        default:
+            return false;
+    }
+}
+
+bool emitter::validDispForLdSt(target_ssize_t disp, var_types type)
+{
+    return varTypeIsFloating(type) ? ((disp & 0x3FC) == disp) : ((disp >= -0x00ff) && (disp <= 0x0fff));
+}
+
 /*****************************************************************************
  *
  *  emitIns_valid_imm_for_alu() returns true when the immediate 'imm'

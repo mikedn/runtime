@@ -61,7 +61,7 @@ bool CodeGen::genInstrWithConstant(
     {
         case INS_add:
         case INS_sub:
-            immFitsInIns = validImmForInstr(ins, (target_ssize_t)imm, flags);
+            immFitsInIns = emitter::validImmForInstr(ins, (target_ssize_t)imm, flags);
             break;
 
         default:
@@ -216,7 +216,7 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
     {
         // TODO-CrossBitness: we wouldn't need the cast below if we had CodeGen::instGen_Set_Reg_To_Reloc_Imm.
         const int val32 = (int)imm;
-        if (validImmForMov(val32))
+        if (emitter::emitIns_valid_imm_for_mov(val32))
         {
             GetEmitter()->emitIns_R_I(INS_mov, size, reg, val32, flags);
         }
@@ -225,7 +225,7 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
             const int imm_lo16 = val32 & 0xffff;
             const int imm_hi16 = (val32 >> 16) & 0xffff;
 
-            assert(validImmForMov(imm_lo16));
+            assert(emitter::emitIns_valid_imm_for_mov(imm_lo16));
             assert(imm_hi16 != 0);
 
             GetEmitter()->emitIns_R_I(INS_movw, size, reg, imm_lo16);
@@ -1894,7 +1894,7 @@ regNumber CodeGen::emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, 
 //
 // For ARM, this doesn't include the prespilled registers.
 //
-// For x86, this doesn't include the frame pointer if codeGen->isFramePointerUsed() is true.
+// For x86, this doesn't include the frame pointer if isFramePointerUsed() is true.
 // It also doesn't include the pushed return address.
 //
 // Return value:

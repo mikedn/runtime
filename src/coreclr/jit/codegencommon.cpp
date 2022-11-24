@@ -3755,7 +3755,7 @@ void CodeGen::genFreeLclFrame(unsigned frameSize, /* IN OUT */ bool* pUnwindStar
     // need an unwind code. We don't want to generate a "NOP" code for this
     // temp register load; we want the unwind codes to start after that.
 
-    if (validImmForInstr(INS_add, frameSize, INS_FLAGS_DONT_CARE))
+    if (emitter::validImmForInstr(INS_add, frameSize, INS_FLAGS_DONT_CARE))
     {
         if (!*pUnwindStarted)
         {
@@ -4446,7 +4446,7 @@ void CodeGen::genZeroInitFrame(int untrLclHi, int untrLclLo, regNumber initReg, 
         // rAddr is not a live incoming argument reg
         assert((genRegMask(rAddr) & paramRegState.intRegLiveIn) == RBM_NONE);
 
-        if (arm_Valid_Imm_For_Add(untrLclLo, INS_FLAGS_DONT_CARE))
+        if (emitter::emitIns_valid_imm_for_add(untrLclLo, INS_FLAGS_DONT_CARE))
         {
             GetEmitter()->emitIns_R_R_I(INS_add, EA_PTRSIZE, rAddr, genFramePointerReg(), untrLclLo);
         }
@@ -5645,7 +5645,7 @@ void CodeGen::genEstablishFramePointer(int delta, bool reportUnwindData)
 
 #elif defined(TARGET_ARM)
 
-    assert(arm_Valid_Imm_For_Add_SP(delta));
+    assert(emitter::emitIns_valid_imm_for_add_sp(delta));
     GetEmitter()->emitIns_R_R_I(INS_add, EA_PTRSIZE, REG_FPBASE, REG_SPBASE, delta);
 
     if (reportUnwindData)
@@ -6112,7 +6112,7 @@ void CodeGen::genFnProlog()
 
         int SPtoFPdelta          = (calleeRegsPushed - 2) * REGSIZE_BYTES;
         afterLclFrameSPtoFPdelta = SPtoFPdelta + lclFrameSize;
-        if (!arm_Valid_Imm_For_Add_SP(afterLclFrameSPtoFPdelta))
+        if (!emitter::emitIns_valid_imm_for_add_sp(afterLclFrameSPtoFPdelta))
         {
             // Oh well, it looks too big. Go ahead and establish the frame pointer here.
             genEstablishFramePointer(SPtoFPdelta, /*reportUnwindData*/ true);
@@ -6162,7 +6162,7 @@ void CodeGen::genFnProlog()
     if (doubleAlignOrFramePointerUsed())
     {
         const bool reportUnwindData = compiler->compLocallocUsed || compiler->opts.compDbgEnC;
-        genEstablishFramePointer(compiler->codeGen->genSPtoFPdelta(), reportUnwindData);
+        genEstablishFramePointer(genSPtoFPdelta(), reportUnwindData);
     }
 #endif // TARGET_AMD64
 
@@ -7747,7 +7747,7 @@ void CodeGen::genSetPSPSym(regNumber initReg, bool* pInitRegZeroed)
     int       callerSPOffs;
     regNumber regBase;
 
-    if (arm_Valid_Imm_For_Add_SP(SPtoCallerSPdelta))
+    if (emitter::emitIns_valid_imm_for_add_sp(SPtoCallerSPdelta))
     {
         // use the "add <reg>, sp, imm" form
 
@@ -7759,7 +7759,7 @@ void CodeGen::genSetPSPSym(regNumber initReg, bool* pInitRegZeroed)
         // use the "add <reg>, r11, imm" form
 
         int FPtoCallerSPdelta = -genCallerSPtoFPdelta();
-        noway_assert(arm_Valid_Imm_For_Add(FPtoCallerSPdelta, INS_FLAGS_DONT_CARE));
+        noway_assert(emitter::emitIns_valid_imm_for_add(FPtoCallerSPdelta, INS_FLAGS_DONT_CARE));
 
         callerSPOffs = FPtoCallerSPdelta;
         regBase      = REG_FPBASE;
