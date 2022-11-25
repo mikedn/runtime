@@ -3682,17 +3682,19 @@ void CodeGen::CheckUseBlockInit()
 
         if (liveRegCount >= 2)
         {
-            regSet.rsSetRegsModified(RBM_R4);
+            regMaskTP initRegs = RBM_R4;
 
             if (liveRegCount >= 3)
             {
-                regSet.rsSetRegsModified(RBM_R5);
+                initRegs |= RBM_R5;
 
                 if (liveRegCount >= 4)
                 {
-                    regSet.rsSetRegsModified(RBM_R6);
+                    initRegs |= RBM_R6;
                 }
             }
+
+            regSet.rsSetRegsModified(initRegs);
         }
     }
 #endif // TARGET_ARM
@@ -5339,7 +5341,8 @@ void CodeGen::genFinalizeFrame()
     // Mark various registers as "modified" for special code generation scenarios:
     // Edit & Continue, P/Invoke calls, stack probing, profiler hooks etc.
     // Note that CheckUseBlockInit above may have added more such special registers.
-    CLANG_FORMAT_COMMENT_ANCHOR;
+    const regMaskTP modifiedRegs = regSet.rsGetModifiedRegsMask();
+    regMaskTP       specialRegs  = RBM_NONE;
 
 #ifdef TARGET_X86
     if (compiler->compTailCallUsed)
@@ -5349,7 +5352,7 @@ void CodeGen::genFinalizeFrame()
         // registers (ebx, esi, edi). So, we need to make sure all the callee-saved registers
         // actually get saved.
 
-        regSet.rsSetRegsModified(RBM_INT_CALLEE_SAVED);
+        specialRegs |= RBM_INT_CALLEE_SAVED & ~RBM_FPBASE;
     }
 #endif
 
@@ -5357,8 +5360,7 @@ void CodeGen::genFinalizeFrame()
     if (lclFrameSize >= compiler->eeGetPageSize())
     {
         // Make sure that callee-saved registers used by the stack probing helper call are saved.
-        regSet.rsSetRegsModified(RBM_STACK_PROBE_HELPER_ARG | RBM_STACK_PROBE_HELPER_CALL_TARGET |
-                                 RBM_STACK_PROBE_HELPER_TRASH);
+        specialRegs |= RBM_STACK_PROBE_HELPER_ARG | RBM_STACK_PROBE_HELPER_CALL_TARGET | RBM_STACK_PROBE_HELPER_TRASH;
     }
 #endif
 
@@ -5367,14 +5369,14 @@ void CodeGen::genFinalizeFrame()
         noway_assert(isFramePointerUsed());
 
         // If we have any P/Invoke calls, we might trash everything.
-        regSet.rsSetRegsModified(RBM_INT_CALLEE_SAVED & ~RBM_FPBASE);
+        specialRegs |= RBM_INT_CALLEE_SAVED & ~RBM_FPBASE;
     }
 
 #ifdef UNIX_AMD64_ABI
     if (compiler->compIsProfilerHookNeeded())
     {
         // On Unix x64 we also save R14 and R15 for ELT profiler hook generation.
-        regSet.rsSetRegsModified(RBM_PROFILER_ENTER_ARG_0 | RBM_PROFILER_ENTER_ARG_1);
+        specialRegs |= RBM_PROFILER_ENTER_ARG_0 | RBM_PROFILER_ENTER_ARG_1;
     }
 #endif
 
@@ -5387,26 +5389,26 @@ void CodeGen::genFinalizeFrame()
         // TODO-MIKE-Review: This assumes that compDbgEnC implies no PInvoke frame
         // and relies on the VM also requesting debug code and not requesting EnC
         // in PInvoke IL stubs.
-        noway_assert(!regSet.rsRegsModified(~(RBM_CALLEE_TRASH | RBM_RSI | RBM_RDI)));
+        noway_assert(((modifiedRegs | specialRegs) & ~(RBM_CALLEE_TRASH | RBM_RSI | RBM_RDI)) == RBM_NONE);
 
-        regSet.rsSetRegsModified(RBM_RSI | RBM_RDI);
+        specialRegs |= RBM_RSI | RBM_RDI;
 #else
         // We save all callee-saved registers so the saved reg area size is consistent.
-        regSet.rsSetRegsModified(RBM_INT_CALLEE_SAVED & ~RBM_FPBASE);
+        specialRegs |= RBM_INT_CALLEE_SAVED & ~RBM_FPBASE;
 #endif
     }
 
-    noway_assert(!doubleAlignOrFramePointerUsed() || !regSet.rsRegsModified(RBM_FPBASE));
+    noway_assert(!doubleAlignOrFramePointerUsed() || ((modifiedRegs & RBM_FPBASE) == RBM_NONE));
 #if ETW_EBP_FRAMED
-    noway_assert(!regSet.rsRegsModified(RBM_FPBASE));
+    noway_assert((modifiedRegs & RBM_FPBASE) == RBM_NONE);
 #endif
 
-    regMaskTP pushedRegs = regSet.rsGetModifiedRegsMask() & RBM_CALLEE_SAVED;
+    regMaskTP pushedRegs = (modifiedRegs | specialRegs) & RBM_CALLEE_SAVED;
 
 #ifdef TARGET_ARMARCH
     if (isFramePointerUsed())
     {
-        assert(!regSet.rsRegsModified(RBM_FPBASE));
+        assert((modifiedRegs & RBM_FPBASE) == RBM_NONE);
 
         pushedRegs |= RBM_FPBASE;
     }
@@ -5438,8 +5440,7 @@ void CodeGen::genFinalizeFrame()
             if (extraIntReg < REG_R11)
             {
                 pushedRegs |= genRegMask(extraIntReg);
-
-                regSet.rsSetRegsModified(genRegMask(extraIntReg));
+                specialRegs |= genRegMask(extraIntReg);
             }
         }
     }
@@ -5461,11 +5462,12 @@ void CodeGen::genFinalizeFrame()
         {
             regMaskTP extraFloatRegs = contiguousFloatRegs - pushedFloatRegs;
             pushedRegs |= extraFloatRegs;
-
-            regSet.rsSetRegsModified(extraFloatRegs);
+            specialRegs |= extraFloatRegs;
         }
     }
 #endif // TARGET_ARM
+
+    assert((specialRegs & RBM_FPBASE) == RBM_NONE);
 
 #ifdef TARGET_XARCH
     calleeFPRegsSavedMask = pushedRegs & RBM_ALLFLOAT;
@@ -5477,13 +5479,18 @@ void CodeGen::genFinalizeFrame()
 #ifdef DEBUG
     if (verbose)
     {
-        printf("Modified regs: ");
-        dspRegMask(regSet.rsGetModifiedRegsMask());
+        printf("Special regs: ");
+        dspRegMask(specialRegs);
         printf("\nCallee-saved registers pushed: %u ", calleeRegsPushed);
         dspRegMask(pushedRegs);
         printf("\n");
     }
 #endif
+
+    if (specialRegs != RBM_NONE)
+    {
+        regSet.rsSetRegsModified(specialRegs);
+    }
 
     UpdateParamsWithInitialReg();
 
