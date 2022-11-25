@@ -5341,8 +5341,15 @@ void CodeGen::genFinalizeFrame()
     // Mark various registers as "modified" for special code generation scenarios:
     // Edit & Continue, P/Invoke calls, stack probing, profiler hooks etc.
     // Note that CheckUseBlockInit above may have added more such special registers.
+
     const regMaskTP modifiedRegs = regSet.rsGetModifiedRegsMask();
-    regMaskTP       specialRegs  = RBM_NONE;
+
+    noway_assert(!doubleAlignOrFramePointerUsed() || ((modifiedRegs & RBM_FPBASE) == RBM_NONE));
+#if ETW_EBP_FRAMED
+    noway_assert((modifiedRegs & RBM_FPBASE) == RBM_NONE);
+#endif
+
+    regMaskTP specialRegs = RBM_NONE;
 
 #ifdef TARGET_X86
     if (compiler->compTailCallUsed)
@@ -5398,18 +5405,11 @@ void CodeGen::genFinalizeFrame()
 #endif
     }
 
-    noway_assert(!doubleAlignOrFramePointerUsed() || ((modifiedRegs & RBM_FPBASE) == RBM_NONE));
-#if ETW_EBP_FRAMED
-    noway_assert((modifiedRegs & RBM_FPBASE) == RBM_NONE);
-#endif
-
     regMaskTP pushedRegs = (modifiedRegs | specialRegs) & RBM_CALLEE_SAVED;
 
 #ifdef TARGET_ARMARCH
     if (isFramePointerUsed())
     {
-        assert((modifiedRegs & RBM_FPBASE) == RBM_NONE);
-
         pushedRegs |= RBM_FPBASE;
     }
 
