@@ -5363,11 +5363,12 @@ void CodeGen::genFinalizeFrame()
     }
 #endif
 
-#ifdef TARGET_ARM
+#if defined(TARGET_ARM) || defined(TARGET_XARCH)
     if (lclFrameSize >= compiler->eeGetPageSize())
     {
         // Make sure that callee-saved registers used by the stack probing helper call are saved.
-        specialRegs |= RBM_STACK_PROBE_HELPER_ARG | RBM_STACK_PROBE_HELPER_CALL_TARGET | RBM_STACK_PROBE_HELPER_TRASH;
+        specialRegs |= RBM_STACK_PROBE_HELPER_ARG | RBM_STACK_PROBE_HELPER_TRASH;
+        ARM_ONLY(specialRegs |= RBM_STACK_PROBE_HELPER_CALL_TARGET);
     }
 #endif
 

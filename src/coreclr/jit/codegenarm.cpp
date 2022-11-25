@@ -1535,21 +1535,6 @@ void CodeGen::genAllocLclFrame(unsigned frameSize, regNumber initReg, bool* pIni
     }
     else
     {
-        // Generate the following code:
-        //
-        //    movw  r4, #frameSize
-        //    sub   r4, sp, r4
-        //    bl    CORINFO_HELP_STACK_PROBE
-        //    mov   sp, r4
-        //
-        // If frameSize can not be encoded by movw immediate this becomes:
-        //
-        //    movw  r4, #frameSizeLo16
-        //    movt  r4, #frameSizeHi16
-        //    sub   r4, sp, r4
-        //    bl    CORINFO_HELP_STACK_PROBE
-        //    mov   sp, r4
-
         genInstrWithConstant(INS_sub, EA_PTRSIZE, REG_STACK_PROBE_HELPER_ARG, REG_SPBASE, frameSize,
                              INS_FLAGS_DONT_CARE, REG_STACK_PROBE_HELPER_ARG);
         regSet.verifyRegUsed(REG_STACK_PROBE_HELPER_ARG);
