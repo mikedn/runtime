@@ -3605,13 +3605,6 @@ void CodeGen::genPushCalleeSavedRegisters()
 
     regMaskTP rsPushRegs = regSet.rsGetModifiedRegsMask() & RBM_CALLEE_SAVED;
 
-#if ETW_EBP_FRAMED
-    if (!isFramePointerUsed() && regSet.rsRegsModified(RBM_FPBASE))
-    {
-        noway_assert(!"Used register RBM_FPBASE as a scratch register!");
-    }
-#endif
-
     // On ARM we push the FP (frame-pointer) here along with all other callee saved registers
     if (isFramePointerUsed())
     {

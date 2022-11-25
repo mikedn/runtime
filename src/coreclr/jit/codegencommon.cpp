@@ -3970,7 +3970,6 @@ void CodeGen::genPopCalleeSavedRegisters(bool jmpEpilog)
 
     if (isFramePointerUsed())
     {
-        assert(!regSet.rsRegsModified(RBM_FPBASE));
         maskPopRegsInt |= RBM_FPBASE;
     }
 
@@ -5966,7 +5965,6 @@ void CodeGen::genFnProlog()
         if (doDoubleAlign())
         {
             noway_assert(!isFramePointerUsed());
-            noway_assert(!regSet.rsRegsModified(RBM_FPBASE)); /* Trashing EBP is out.    */
 
             inst_RV_IV(INS_and, REG_SPBASE, -8, EA_PTRSIZE);
         }
@@ -7237,7 +7235,6 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
     }
 #endif
 
-    assert(!regSet.rsRegsModified(RBM_FPBASE));
     assert(block != nullptr);
     assert(block->bbFlags & BBF_FUNCLET_BEG);
     assert(isFramePointerUsed());

@@ -8819,13 +8819,6 @@ void CodeGen::genPushCalleeSavedRegisters()
     // here.
     regMaskTP rsPushRegs = regSet.rsGetModifiedRegsMask() & RBM_INT_CALLEE_SAVED;
 
-#if ETW_EBP_FRAMED
-    if (!isFramePointerUsed() && regSet.rsRegsModified(RBM_FPBASE))
-    {
-        noway_assert(!"Used register RBM_FPBASE as a scratch register!");
-    }
-#endif
-
     // On X86/X64 we have already pushed the FP (frame-pointer) prior to calling this method
     if (isFramePointerUsed())
     {
@@ -8870,9 +8863,6 @@ void CodeGen::genPopCalleeSavedRegisters(bool jmpEpilog)
 
     regMaskTP popRegs  = regSet.rsGetModifiedRegsMask() & RBM_INT_CALLEE_SAVED;
     unsigned  popCount = 0;
-
-    // EBP cannot be directly modified for EBP frame and double-aligned frames
-    assert(((popRegs & RBM_EBP) == RBM_NONE) || !doubleAlignOrFramePointerUsed());
 
     for (regNumber reg = REG_INT_FIRST; popRegs != RBM_NONE; reg = REG_NEXT(reg))
     {
