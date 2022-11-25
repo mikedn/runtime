@@ -1236,7 +1236,7 @@ void CodeGen::genAllocateRegisters()
 
     if (modifiedRegs != RBM_NONE)
     {
-        regSet.rsSetRegsModified(modifiedRegs);
+        regSet.AddModifiedRegs(modifiedRegs);
     }
 }
 
@@ -3694,7 +3694,7 @@ void CodeGen::CheckUseBlockInit()
                 }
             }
 
-            regSet.rsSetRegsModified(initRegs);
+            regSet.AddModifiedRegs(initRegs);
         }
     }
 #endif // TARGET_ARM
@@ -5490,7 +5490,7 @@ void CodeGen::genFinalizeFrame()
 
     if (specialRegs != RBM_NONE)
     {
-        regSet.rsSetRegsModified(specialRegs);
+        regSet.AddModifiedRegs(specialRegs);
     }
 
     UpdateParamsWithInitialReg();

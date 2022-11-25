@@ -68,7 +68,7 @@ public:
         return rsModifiedRegsMask;
     }
 
-    void rsSetRegsModified(regMaskTP mask DEBUGARG(bool suppressDump = false));
+    void AddModifiedRegs(regMaskTP mask DEBUGARG(bool suppressDump = false));
 
     bool rsRegsModified(regMaskTP mask) const
     {

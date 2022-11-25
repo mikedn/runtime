@@ -66,7 +66,7 @@ void RegSet::verifyRegUsed(regNumber reg)
 {
     // TODO-Cleanup: we need to identify the places where the register
     //               is not marked as used when this is called.
-    rsSetRegsModified(genRegMask(reg));
+    AddModifiedRegs(genRegMask(reg));
 }
 
 //------------------------------------------------------------------------
@@ -101,10 +101,10 @@ void RegSet::verifyRegistersUsed(regMaskTP regMask)
 
     // TODO-Cleanup: we need to identify the places where the registers
     //               are not marked as used when this is called.
-    rsSetRegsModified(regMask);
+    AddModifiedRegs(regMask);
 }
 
-void RegSet::rsSetRegsModified(regMaskTP mask DEBUGARG(bool suppressDump))
+void RegSet::AddModifiedRegs(regMaskTP mask DEBUGARG(bool suppressDump))
 {
     assert(mask != RBM_NONE);
 
@@ -123,7 +123,7 @@ void RegSet::rsSetRegsModified(regMaskTP mask DEBUGARG(bool suppressDump))
     {
         if (rsModifiedRegsMask != (rsModifiedRegsMask | mask))
         {
-            printf("Marking regs modified: ");
+            printf("Adding modified regs: ");
             dspRegMask(mask);
             printf(" (");
             dspRegMask(rsModifiedRegsMask);
