@@ -52,7 +52,7 @@ CodeGen::CodeGen(Compiler* compiler) : CodeGenInterface(compiler), m_liveness(co
     calleeRegsPushed = UninitializedWord<unsigned>(compiler);
 
 #ifdef TARGET_XARCH
-    // Shouldn't be used before it is set in genFnProlog()
+    // Shouldn't be used before it is set in genFinalizeFrame.
     calleeFPRegsSavedMask = (regMaskTP)-1;
 #endif
 #endif
@@ -5320,12 +5320,9 @@ void CodeGen::UpdateParamsWithInitialReg()
     }
 }
 
-/*****************************************************************************
- *  Finalize the frame size and offset assignments.
- *
- *  No changes can be made to the modified register set after this, since that can affect how many
- *  callee-saved registers get saved.
- */
+// Finalize the frame size and offset assignments.
+// No changes can be made to the modified register set after this,
+// since that can affect how many callee-saved registers get saved.
 void CodeGen::genFinalizeFrame()
 {
     JITDUMP("Finalizing stack frame\n");
@@ -5339,11 +5336,12 @@ void CodeGen::genFinalizeFrame()
     MarkStackLocals();
     CheckUseBlockInit();
 
-    // Set various registers as "modified" for special code generation scenarios: Edit & Continue, P/Invoke calls, etc.
+    // Mark various registers as "modified" for special code generation scenarios:
+    // Edit & Continue, P/Invoke calls, stack probing, profiler hooks etc.
+    // Note that CheckUseBlockInit above may have added more such special registers.
     CLANG_FORMAT_COMMENT_ANCHOR;
 
-#if defined(TARGET_X86)
-
+#ifdef TARGET_X86
     if (compiler->compTailCallUsed)
     {
         // If we are generating a helper-based tailcall, we've set the tailcall helper "flags"
@@ -5353,156 +5351,141 @@ void CodeGen::genFinalizeFrame()
 
         regSet.rsSetRegsModified(RBM_INT_CALLEE_SAVED);
     }
-#endif // TARGET_X86
+#endif
 
 #ifdef TARGET_ARM
-    // Make sure that callee-saved registers used by call to a stack probing helper generated are pushed on stack.
     if (lclFrameSize >= compiler->eeGetPageSize())
     {
+        // Make sure that callee-saved registers used by the stack probing helper call are saved.
         regSet.rsSetRegsModified(RBM_STACK_PROBE_HELPER_ARG | RBM_STACK_PROBE_HELPER_CALL_TARGET |
                                  RBM_STACK_PROBE_HELPER_TRASH);
     }
+#endif
+
+    if (compiler->compMethodRequiresPInvokeFrame())
+    {
+        noway_assert(isFramePointerUsed());
+
+        // If we have any P/Invoke calls, we might trash everything.
+        regSet.rsSetRegsModified(RBM_INT_CALLEE_SAVED & ~RBM_FPBASE);
+    }
+
+#ifdef UNIX_AMD64_ABI
+    if (compiler->compIsProfilerHookNeeded())
+    {
+        // On Unix x64 we also save R14 and R15 for ELT profiler hook generation.
+        regSet.rsSetRegsModified(RBM_PROFILER_ENTER_ARG_0 | RBM_PROFILER_ENTER_ARG_1);
+    }
+#endif
+
+    if (compiler->opts.compDbgEnC)
+    {
+        noway_assert(isFramePointerUsed());
+
+#ifdef TARGET_AMD64
+        // On x64 we always save only RSI and RDI for EnC.
+        // TODO-MIKE-Review: This assumes that compDbgEnC implies no PInvoke frame
+        // and relies on the VM also requesting debug code and not requesting EnC
+        // in PInvoke IL stubs.
+        noway_assert(!regSet.rsRegsModified(~(RBM_CALLEE_TRASH | RBM_RSI | RBM_RDI)));
+
+        regSet.rsSetRegsModified(RBM_RSI | RBM_RDI);
+#else
+        // We save all callee-saved registers so the saved reg area size is consistent.
+        regSet.rsSetRegsModified(RBM_INT_CALLEE_SAVED & ~RBM_FPBASE);
+#endif
+    }
+
+    noway_assert(!doubleAlignOrFramePointerUsed() || !regSet.rsRegsModified(RBM_FPBASE));
+#if ETW_EBP_FRAMED
+    noway_assert(!regSet.rsRegsModified(RBM_FPBASE));
+#endif
+
+    regMaskTP pushedRegs = regSet.rsGetModifiedRegsMask() & RBM_CALLEE_SAVED;
+
+#ifdef TARGET_ARMARCH
+    if (isFramePointerUsed())
+    {
+        assert(!regSet.rsRegsModified(RBM_FPBASE));
+
+        pushedRegs |= RBM_FPBASE;
+    }
+
+    // We always push LR currently, even in leaf frames.
+    pushedRegs |= RBM_LR;
+#endif
+
+#ifdef TARGET_ARM
+    regMaskTP pushedFloatRegs = pushedRegs & RBM_ALLFLOAT;
+    regMaskTP pushedIntRegs   = pushedRegs & ~RBM_ALLFLOAT;
+
+    if ((pushedFloatRegs != RBM_NONE) ||
+        (compiler->opts.MinOpts() && ((reservedRegs & pushedRegs & RBM_OPT_RSVD) != RBM_NONE)))
+    {
+        if ((genCountBits(GetPreSpillRegs() | pushedIntRegs) % 2) != 0)
+        {
+            // Try to keep the stack double-aligned for VPUSH by pushing
+            // one more non-volatile int register, if available.
+            // TODO-MIKE-Review: What do minopts and reserved regs have to do with this?
+
+            regNumber extraIntReg = REG_R4;
+
+            while ((pushedIntRegs & genRegMask(extraIntReg)) != RBM_NONE)
+            {
+                extraIntReg = REG_NEXT(extraIntReg);
+            }
+
+            if (extraIntReg < REG_R11)
+            {
+                pushedRegs |= genRegMask(extraIntReg);
+
+                regSet.rsSetRegsModified(genRegMask(extraIntReg));
+            }
+        }
+    }
+
+    // We currently make a single VPUSH/VPOP with consecutive, double-sized
+    // registers, we'll mark more registers as modified if needed.
+
+    if (pushedFloatRegs != RBM_NONE)
+    {
+        regMaskTP contiguousFloatRegs = genRegMaskFloat(REG_F16, TYP_DOUBLE);
+
+        while (pushedFloatRegs > contiguousFloatRegs)
+        {
+            contiguousFloatRegs <<= 2;
+            contiguousFloatRegs |= genRegMaskFloat(REG_F16, TYP_DOUBLE);
+        }
+
+        if (pushedFloatRegs != contiguousFloatRegs)
+        {
+            regMaskTP extraFloatRegs = contiguousFloatRegs - pushedFloatRegs;
+            pushedRegs |= extraFloatRegs;
+
+            regSet.rsSetRegsModified(extraFloatRegs);
+        }
+    }
 #endif // TARGET_ARM
+
+#ifdef TARGET_XARCH
+    calleeFPRegsSavedMask = pushedRegs & RBM_ALLFLOAT;
+    pushedRegs &= ~RBM_ALLFLOAT;
+#endif
+
+    calleeRegsPushed = genCountBits(pushedRegs);
 
 #ifdef DEBUG
     if (verbose)
     {
         printf("Modified regs: ");
         dspRegMask(regSet.rsGetModifiedRegsMask());
+        printf("\nCallee-saved registers pushed: %u ", calleeRegsPushed);
+        dspRegMask(pushedRegs);
         printf("\n");
     }
-#endif // DEBUG
-
-    // Set various registers as "modified" for special code generation scenarios: Edit & Continue, P/Invoke calls, etc.
-    if (compiler->opts.compDbgEnC)
-    {
-        // We always save FP.
-        noway_assert(isFramePointerUsed());
-#ifdef TARGET_AMD64
-        // On x64 we always save exactly RBP, RSI and RDI for EnC.
-        regMaskTP okRegs = (RBM_CALLEE_TRASH | RBM_FPBASE | RBM_RSI | RBM_RDI);
-        regSet.rsSetRegsModified(RBM_RSI | RBM_RDI);
-        noway_assert((regSet.rsGetModifiedRegsMask() & ~okRegs) == 0);
-#else  // !TARGET_AMD64
-        // On x86 we save all callee saved regs so the saved reg area size is consistent
-        regSet.rsSetRegsModified(RBM_INT_CALLEE_SAVED & ~RBM_FPBASE);
-#endif // !TARGET_AMD64
-    }
-
-    /* If we have any pinvoke calls, we might potentially trash everything */
-    if (compiler->compMethodRequiresPInvokeFrame())
-    {
-        noway_assert(isFramePointerUsed()); // Setup of Pinvoke frame currently requires an EBP style frame
-        regSet.rsSetRegsModified(RBM_INT_CALLEE_SAVED & ~RBM_FPBASE);
-    }
-
-#ifdef UNIX_AMD64_ABI
-    // On Unix x64 we also save R14 and R15 for ELT profiler hook generation.
-    if (compiler->compIsProfilerHookNeeded())
-    {
-        regSet.rsSetRegsModified(RBM_PROFILER_ENTER_ARG_0 | RBM_PROFILER_ENTER_ARG_1);
-    }
 #endif
-
-    /* Count how many callee-saved registers will actually be saved (pushed) */
-
-    // EBP cannot be (directly) modified for EBP frame and double-aligned frames
-    noway_assert(!doubleAlignOrFramePointerUsed() || !regSet.rsRegsModified(RBM_FPBASE));
-
-#if ETW_EBP_FRAMED
-    // EBP cannot be (directly) modified
-    noway_assert(!regSet.rsRegsModified(RBM_FPBASE));
-#endif
-
-    regMaskTP maskCalleeRegsPushed = regSet.rsGetModifiedRegsMask() & RBM_CALLEE_SAVED;
-
-#ifdef TARGET_ARMARCH
-    if (isFramePointerUsed())
-    {
-        // For a FP based frame we have to push/pop the FP register
-        //
-        maskCalleeRegsPushed |= RBM_FPBASE;
-
-        // This assert check that we are not using REG_FP
-        // as both the frame pointer and as a codegen register
-        //
-        assert(!regSet.rsRegsModified(RBM_FPBASE));
-    }
-
-    // we always push LR.  See genPushCalleeSavedRegisters
-    //
-    maskCalleeRegsPushed |= RBM_LR;
-
-#ifdef TARGET_ARM
-    // TODO-ARM64-Bug?: enable some variant of this for FP on ARM64?
-    regMaskTP maskPushRegsFloat = maskCalleeRegsPushed & RBM_ALLFLOAT;
-    regMaskTP maskPushRegsInt   = maskCalleeRegsPushed & ~maskPushRegsFloat;
-
-    if ((maskPushRegsFloat != RBM_NONE) ||
-        (compiler->opts.MinOpts() && ((reservedRegs & maskCalleeRegsPushed & RBM_OPT_RSVD) != RBM_NONE)))
-    {
-        // Here we try to keep stack double-aligned before the vpush
-        if ((genCountBits(GetPreSpillRegs() | maskPushRegsInt) % 2) != 0)
-        {
-            regNumber extraPushedReg = REG_R4;
-            while (maskPushRegsInt & genRegMask(extraPushedReg))
-            {
-                extraPushedReg = REG_NEXT(extraPushedReg);
-            }
-            if (extraPushedReg < REG_R11)
-            {
-                maskPushRegsInt |= genRegMask(extraPushedReg);
-                regSet.rsSetRegsModified(genRegMask(extraPushedReg));
-            }
-        }
-        maskCalleeRegsPushed = maskPushRegsInt | maskPushRegsFloat;
-    }
-
-    // We currently only expect to push/pop consecutive FP registers
-    // and these have to be double-sized registers as well.
-    // Here we will insure that maskPushRegsFloat obeys these requirements.
-    //
-    if (maskPushRegsFloat != RBM_NONE)
-    {
-        regMaskTP contiguousMask = genRegMaskFloat(REG_F16, TYP_DOUBLE);
-        while (maskPushRegsFloat > contiguousMask)
-        {
-            contiguousMask <<= 2;
-            contiguousMask |= genRegMaskFloat(REG_F16, TYP_DOUBLE);
-        }
-        if (maskPushRegsFloat != contiguousMask)
-        {
-            regMaskTP maskExtraRegs = contiguousMask - maskPushRegsFloat;
-            maskPushRegsFloat |= maskExtraRegs;
-            regSet.rsSetRegsModified(maskExtraRegs);
-            maskCalleeRegsPushed |= maskExtraRegs;
-        }
-    }
-#endif // TARGET_ARM
-#endif // TARGET_ARMARCH
-
-#if defined(TARGET_XARCH)
-    // Compute the count of callee saved float regs saved on stack.
-    // On Amd64 we push only integer regs. Callee saved float (xmm6-xmm15)
-    // regs are stack allocated and preserved in their stack locations.
-    calleeFPRegsSavedMask = maskCalleeRegsPushed & RBM_FLT_CALLEE_SAVED;
-    maskCalleeRegsPushed &= ~RBM_FLT_CALLEE_SAVED;
-#endif // defined(TARGET_XARCH)
-
-    calleeRegsPushed = genCountBits(maskCalleeRegsPushed);
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("Callee-saved registers pushed: %d ", calleeRegsPushed);
-        dspRegMask(maskCalleeRegsPushed);
-        printf("\n");
-    }
-#endif // DEBUG
 
     UpdateParamsWithInitialReg();
-
-    /* Assign the final offsets to things living on the stack frame */
 
     compiler->lvaAssignFrameOffsets(Compiler::FINAL_FRAME_LAYOUT);
 }

@@ -72,7 +72,7 @@ public:
 
     bool rsRegsModified(regMaskTP mask) const
     {
-        return (rsModifiedRegsMask & mask) != 0;
+        return (rsModifiedRegsMask & mask) != RBM_NONE;
     }
 
     void verifyRegUsed(regNumber reg);
