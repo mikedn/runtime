@@ -137,39 +137,6 @@ void RegSet::rsSetRegsModified(regMaskTP mask DEBUGARG(bool suppressDump))
     rsModifiedRegsMask |= mask;
 }
 
-void RegSet::rsRemoveRegsModified(regMaskTP mask)
-{
-    assert(mask != RBM_NONE);
-
-    // See comment in rsSetRegsModified().
-    assert((m_rsCompiler->lvaDoneFrameLayout < Compiler::FINAL_FRAME_LAYOUT) ||
-           m_rsCompiler->codeGen->generatingProlog || m_rsCompiler->codeGen->generatingEpilog ||
-           (((rsModifiedRegsMask & ~mask) & RBM_CALLEE_SAVED) == (rsModifiedRegsMask & RBM_CALLEE_SAVED)));
-
-#ifdef DEBUG
-    if (m_rsCompiler->verbose)
-    {
-        printf("Removing modified regs: ");
-        dspRegMask(mask);
-        if (rsModifiedRegsMask == (rsModifiedRegsMask & ~mask))
-        {
-            printf(" (unchanged)");
-        }
-        else
-        {
-            printf(" (");
-            dspRegMask(rsModifiedRegsMask);
-            printf(" => ");
-            dspRegMask(rsModifiedRegsMask & ~mask);
-            printf(")");
-        }
-        printf("\n");
-    }
-#endif // DEBUG
-
-    rsModifiedRegsMask &= ~mask;
-}
-
 // Finds the SpillDsc corresponding to 'tree' assuming it was spilled from 'reg'.
 RegSet::SpillDsc* RegSet::rsGetSpillInfo(GenTree* tree, regNumber reg, SpillDsc** pPrevDsc)
 {

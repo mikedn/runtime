@@ -70,8 +70,6 @@ public:
 
     void rsSetRegsModified(regMaskTP mask DEBUGARG(bool suppressDump = false));
 
-    void rsRemoveRegsModified(regMaskTP mask);
-
     bool rsRegsModified(regMaskTP mask) const
     {
         return (rsModifiedRegsMask & mask) != 0;
