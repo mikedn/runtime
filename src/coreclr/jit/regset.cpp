@@ -106,7 +106,10 @@ void RegSet::verifyRegistersUsed(regMaskTP regMask)
 
 void RegSet::AddModifiedRegs(regMaskTP mask DEBUGARG(bool suppressDump))
 {
-    assert(mask != RBM_NONE);
+    if (mask == RBM_NONE)
+    {
+        return;
+    }
 
     // We can't update the modified registers set after final frame layout (that is, during code
     // generation and after). Ignore prolog and epilog generation: they call register tracking to

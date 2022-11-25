@@ -1234,10 +1234,7 @@ void CodeGen::genAllocateRegisters()
     modifiedRegs |= reservedRegs;
 #endif
 
-    if (modifiedRegs != RBM_NONE)
-    {
-        regSet.AddModifiedRegs(modifiedRegs);
-    }
+    regSet.AddModifiedRegs(modifiedRegs);
 }
 
 void CodeGen::genGenerateMachineCode()
@@ -5488,10 +5485,7 @@ void CodeGen::genFinalizeFrame()
     }
 #endif
 
-    if (specialRegs != RBM_NONE)
-    {
-        regSet.AddModifiedRegs(specialRegs);
-    }
+    regSet.AddModifiedRegs(specialRegs);
 
     UpdateParamsWithInitialReg();
 
