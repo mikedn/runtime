@@ -6655,9 +6655,9 @@ void CodeGen::genFnEpilog(BasicBlock* block)
     {
         noway_assert(doubleAlignOrFramePointerUsed());
 
-        /* Tear down the stack frame */
-
+#ifdef TARGET_X86 // "mov esp, ebp" is not allowed in AMD64 epilogs
         bool needMovEspEbp = false;
+#endif
 
 #if DOUBLE_ALIGN
         if (doDoubleAlign())
@@ -6742,9 +6742,6 @@ void CodeGen::genFnEpilog(BasicBlock* block)
             }
         }
 
-        //
-        // Pop the callee-saved registers (if any)
-        //
         genPopCalleeSavedRegisters();
 
 #ifdef TARGET_AMD64
@@ -6764,17 +6761,15 @@ void CodeGen::genFnEpilog(BasicBlock* block)
             // need to change.
             inst_RV_IV(INS_add, REG_SPBASE, originalFrameSize + TARGET_POINTER_SIZE, EA_PTRSIZE);
         }
+#endif
 
-        assert(!needMovEspEbp); // "mov esp, ebp" is not allowed in AMD64 epilogs
-#else  // !TARGET_AMD64
+#ifdef TARGET_X86
         if (needMovEspEbp)
         {
-            // mov esp, ebp
-            inst_Mov(TYP_I_IMPL, REG_SPBASE, REG_FPBASE, /* canSkip */ false);
+            inst_Mov(TYP_INT, REG_ESP, REG_EBP, /* canSkip */ false);
         }
-#endif // !TARGET_AMD64
+#endif
 
-        // pop ebp
         inst_RV(INS_pop, REG_EBP, TYP_I_IMPL);
     }
 
