@@ -477,12 +477,6 @@ inline regMaskTP genRegMask(regNumber regNum, var_types type)
 #endif
 }
 
-// This array lists the callee-saved register masks for the current architecture.
-extern const regMaskTP raRbmCalleeSaveOrder[CNT_CALLEE_SAVED];
-
-// This method takes a "compact" bitset of the callee-saved registers, and "expands" it to a full register mask.
-regMaskSmall genRegMaskFromCalleeSavedMask(unsigned short);
-
 // If the WINDOWS_AMD64_ABI is defined make sure that TARGET_AMD64 is also defined.
 #if defined(WINDOWS_AMD64_ABI)
 #if !defined(TARGET_AMD64)

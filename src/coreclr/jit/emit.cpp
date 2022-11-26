@@ -6984,7 +6984,7 @@ void emitter::emitRecordGCCallPop(BYTE* addr, unsigned callInstrSize)
 
     for (unsigned i = 0; i < CNT_CALLEE_SAVED; i++)
     {
-        regMaskTP calleeSaved = raRbmCalleeSaveOrder[i];
+        regMaskTP calleeSaved = GCInfo::raRbmCalleeSaveOrder[i];
 
         if ((emitThisGCrefRegs & calleeSaved) != RBM_NONE)
         {
@@ -8122,7 +8122,7 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSi
     // of callee-saved registers only).
     for (unsigned calleeSavedRegIdx = 0; calleeSavedRegIdx < CNT_CALLEE_SAVED; calleeSavedRegIdx++)
     {
-        regMaskTP calleeSavedRbm = raRbmCalleeSaveOrder[calleeSavedRegIdx];
+        regMaskTP calleeSavedRbm = GCInfo::raRbmCalleeSaveOrder[calleeSavedRegIdx];
         if (emitThisGCrefRegs & calleeSavedRbm)
         {
             gcrefRegs |= (1 << calleeSavedRegIdx);

@@ -571,3 +571,18 @@ GCInfo::WriteBarrierForm GCInfo::GetWriteBarrierFormFromAddress(GenTree* addr)
 
     return GCInfo::WBF_BarrierUnknown;
 }
+
+const regMaskTP GCInfo::raRbmCalleeSaveOrder[]{RBM_CALLEE_SAVED_ORDER};
+
+regMaskSmall GCInfo::RegMaskFromCalleeSavedMask(unsigned short calleeSaveMask)
+{
+    regMaskSmall res = 0;
+    for (int i = 0; i < CNT_CALLEE_SAVED; i++)
+    {
+        if ((calleeSaveMask & ((regMaskTP)1 << i)) != 0)
+        {
+            res |= raRbmCalleeSaveOrder[i];
+        }
+    }
+    return res;
+}

@@ -8839,6 +8839,13 @@ void CodeGen::genPushCalleeSavedRegisters()
 
     // Push backwards so we match the order we will pop them in the epilog
     // and all the other code that expects it to be in this order.
+    //
+    // TODO-MIKE-Review: On x86 this doesn't match REG_CALLEE_SAVED_ORDER,
+    // which is supposedly what the VM expects. But the difference is due
+    // to EBP being after EBX instead of before, so it looks like this is
+    // not an issue because ETW_EBP_FRAMED is defined so we never use EBP,
+    // even in ESP based frames.
+
     for (regNumber reg = REG_INT_LAST; rsPushRegs != RBM_NONE; reg = REG_PREV(reg))
     {
         regMaskTP regBit = genRegMask(reg);

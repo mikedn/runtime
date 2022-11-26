@@ -517,25 +517,6 @@ bool RegSet::rsSpillChk() const
 
 #endif // DEBUG
 
-// The following table determines the order in which callee-saved registers
-// are encoded in GC information at call sites (perhaps among other things).
-// In any case, they establish a mapping from ordinal callee-save reg "indices" to
-// register numbers and corresponding bitmaps.
-const regMaskTP raRbmCalleeSaveOrder[]{RBM_CALLEE_SAVED_ORDER};
-
-regMaskSmall genRegMaskFromCalleeSavedMask(unsigned short calleeSaveMask)
-{
-    regMaskSmall res = 0;
-    for (int i = 0; i < CNT_CALLEE_SAVED; i++)
-    {
-        if ((calleeSaveMask & ((regMaskTP)1 << i)) != 0)
-        {
-            res |= raRbmCalleeSaveOrder[i];
-        }
-    }
-    return res;
-}
-
 // inline
 RegSet::SpillDsc* RegSet::SpillDsc::alloc(RegSet* regSet)
 {

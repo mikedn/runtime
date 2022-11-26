@@ -4519,9 +4519,8 @@ void GCInfo::gcMakeRegPtrTable(
                 {
                     // This is a true call site.
 
-                    regMaskSmall gcrefRegMask = genRegMaskFromCalleeSavedMask(genRegPtrTemp->rpdCallGCrefRegs);
-
-                    regMaskSmall byrefRegMask = genRegMaskFromCalleeSavedMask(genRegPtrTemp->rpdCallByrefRegs);
+                    regMaskSmall gcrefRegMask = GCInfo::RegMaskFromCalleeSavedMask(genRegPtrTemp->rpdCallGCrefRegs);
+                    regMaskSmall byrefRegMask = GCInfo::RegMaskFromCalleeSavedMask(genRegPtrTemp->rpdCallByrefRegs);
 
                     assert((gcrefRegMask & byrefRegMask) == 0);
 

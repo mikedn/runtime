@@ -224,6 +224,15 @@ public:
 #endif
     };
 
+    // The following table determines the order in which callee-saved registers
+    // are encoded in GC information at call sites (perhaps among other things).
+    // In any case, they establish a mapping from ordinal callee-save reg "indices" to
+    // register numbers and corresponding bitmaps.
+    static const regMaskTP raRbmCalleeSaveOrder[];
+
+    // This method takes a "compact" bitset of the callee-saved registers, and "expands" it to a full register mask.
+    static regMaskSmall RegMaskFromCalleeSavedMask(unsigned short calleeSaveMask);
+
     regPtrDsc* gcRegPtrList = nullptr;
     regPtrDsc* gcRegPtrLast = nullptr;
     unsigned   gcPtrArgCnt  = 0;
