@@ -56,17 +56,6 @@ inline UINT32 forceCastToUInt32(double d)
     return u;
 }
 
-/*****************************************************************************
- *
- *  Return the lowest bit that is set
- */
-
-template <typename T>
-inline T genFindLowestBit(T value)
-{
-    return (value & (0 - value));
-}
-
 /*****************************************************************************/
 /*****************************************************************************
  *

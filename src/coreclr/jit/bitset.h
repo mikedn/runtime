@@ -458,6 +458,12 @@ public:
 #define BSUInt64Class 2
 
 template <typename T>
+inline T genFindLowestBit(T value)
+{
+    return (value & (0 - value));
+}
+
+template <typename T>
 inline unsigned genCountBits(T bits)
 {
     unsigned cnt = 0;
