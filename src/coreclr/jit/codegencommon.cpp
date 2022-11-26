@@ -1648,13 +1648,7 @@ void CodeGen::genEmitUnwindDebugGCandEH()
 
 #endif // DEBUG
 
-    /* Shut down the spill logic */
-
-    regSet.rsSpillDone();
-
-    /* Shut down the temp logic */
-
-    regSet.tmpDone();
+    INDEBUG(regSet.tmpDone());
 
 #if DISPLAY_SIZES
 

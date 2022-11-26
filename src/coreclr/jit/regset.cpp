@@ -438,19 +438,22 @@ unsigned RegSet::tmpSlot(unsigned size)
     return size / sizeof(int) - 1;
 }
 
-void RegSet::tmpEnd()
-{
 #ifdef DEBUG
-    if (m_rsCompiler->verbose && (tmpCount > 0))
+
+void RegSet::tmpEnd() const
+{
+    assert(rsSpillChk());
+
+    if (tmpCount > 0)
     {
-        printf("%d tmps used\n", tmpCount);
+        JITDUMP("%d tmps used\n", tmpCount);
     }
-#endif
 }
 
-void RegSet::tmpDone()
+void RegSet::tmpDone() const
 {
-#ifdef DEBUG
+    assert(rsSpillChk());
+
     unsigned count;
     TempDsc* temp;
 
@@ -463,13 +466,9 @@ void RegSet::tmpDone()
     // Make sure that all the temps were released
     assert(count == tmpCount);
     assert(tmpGetCount == 0);
-#endif
 }
 
-#ifdef DEBUG
-/*****************************************************************************
- * Return 'true' if all allocated temps are free (not in use).
- */
+// Return 'true' if all allocated temps are free (not in use).
 bool RegSet::tmpAllFree() const
 {
     // The 'tmpGetCount' should equal the number of things in the 'tmpUsed' lists. This is a convenient place
@@ -489,6 +488,25 @@ bool RegSet::tmpAllFree() const
     for (unsigned i = 0; i < _countof(tmpUsed); i++)
     {
         if (tmpUsed[i] != nullptr)
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+// Ensure that all spill temps are free.
+bool RegSet::rsSpillChk() const
+{
+    if (tmpGetCount != 0)
+    {
+        return false;
+    }
+
+    for (regNumber reg = REG_FIRST; reg < REG_COUNT; reg = REG_NEXT(reg))
+    {
+        if (rsSpillDesc[reg] != nullptr)
         {
             return false;
         }
@@ -517,39 +535,6 @@ regMaskSmall genRegMaskFromCalleeSavedMask(unsigned short calleeSaveMask)
     }
     return res;
 }
-
-void RegSet::rsSpillDone()
-{
-    rsSpillChk();
-}
-
-/*****************************************************************************
- *
- *  Begin tracking spills - should be called each time before a pass is made
- *  over a function body.
- */
-
-// inline
-void RegSet::rsSpillBeg()
-{
-    rsSpillChk();
-}
-
-/*****************************************************************************
- *
- *  Finish tracking spills - should be called each time after a pass is made
- *  over a function body.
- */
-
-// inline
-void RegSet::rsSpillEnd()
-{
-    rsSpillChk();
-}
-
-//****************************************************************************
-//  Create a new SpillDsc or get one off the free list
-//
 
 // inline
 RegSet::SpillDsc* RegSet::SpillDsc::alloc(RegSet* regSet)
@@ -582,32 +567,3 @@ void RegSet::SpillDsc::freeDsc(RegSet* regSet, RegSet::SpillDsc* spillDsc)
     spillDsc->spillNext = regSet->rsSpillFree;
     regSet->rsSpillFree = spillDsc;
 }
-
-/*****************************************************************************
- *
- *  Make sure no spills are currently active - used for debugging of the code
- *  generator.
- */
-
-#ifdef DEBUG
-
-// inline
-void RegSet::rsSpillChk()
-{
-    // All grabbed temps should have been released
-    assert(tmpGetCount == 0);
-
-    for (regNumber reg = REG_FIRST; reg < REG_COUNT; reg = REG_NEXT(reg))
-    {
-        assert(rsSpillDesc[reg] == nullptr);
-    }
-}
-
-#else
-
-// inline
-void RegSet::rsSpillChk()
-{
-}
-
-#endif

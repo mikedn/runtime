@@ -48,9 +48,7 @@ void CodeGen::genInitialize()
     gcInfo.gcRegPtrSetInit();
     gcInfo.gcVarPtrSetInit();
 
-    // Initialize the spill tracking logic
-
-    regSet.rsSpillBeg();
+    assert(regSet.rsSpillChk());
 
 #if !FEATURE_FIXED_OUT_ARGS
     // We initialize the stack level before first "BasicBlock" code is generated in case we need to report stack
@@ -405,7 +403,7 @@ void CodeGen::genCodeForBBlist()
         // be done by using the map maintained by LSRA (operandToLocationInfoMap) to mark a node
         // somehow when, after the execution of that node, there will be no live non-variable registers.
 
-        regSet.rsSpillChk();
+        assert(regSet.rsSpillChk());
 
         /* Make sure we didn't bungle pointer register tracking */
 
@@ -754,13 +752,7 @@ void CodeGen::genCodeForBBlist()
     // This call is for cleaning the GC refs
     m_liveness.ChangeLife(this, VarSetOps::MakeEmpty(compiler));
 
-    /* Finalize the spill  tracking logic */
-
-    regSet.rsSpillEnd();
-
-    /* Finalize the temp   tracking logic */
-
-    regSet.tmpEnd();
+    INDEBUG(regSet.tmpEnd());
 
 #ifdef DEBUG
     if (compiler->verbose)

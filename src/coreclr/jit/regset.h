@@ -82,11 +82,6 @@ private:
     SpillDsc* rsSpillDesc[REG_COUNT] = {};
     SpillDsc* rsSpillFree            = nullptr; // list of unused spill descriptors
 
-    void rsSpillChk();
-    void rsSpillDone();
-    void rsSpillBeg();
-    void rsSpillEnd();
-
     TempDsc* AllocSpillTemp(GenTree* node, regNumber reg, var_types type);
     SpillDsc* rsGetSpillInfo(GenTree* tree, regNumber reg, SpillDsc** pPrevDsc = nullptr);
     TempDsc* rsGetSpillTempWord(regNumber oldReg, SpillDsc* dsc, SpillDsc* prevDsc);
@@ -103,14 +98,15 @@ public:
     void tmpRlsTemp(TempDsc* temp);
     TempDsc* tmpFindNum(int temp, TEMP_USAGE_TYPE usageType = TEMP_USAGE_FREE) const;
 
-    void     tmpEnd();
     TempDsc* tmpListBeg(TEMP_USAGE_TYPE usageType = TEMP_USAGE_FREE) const;
     TempDsc* tmpListNxt(TempDsc* curTemp, TEMP_USAGE_TYPE usageType = TEMP_USAGE_FREE) const;
-    void tmpDone();
 
 #ifdef DEBUG
     bool tmpAllFree() const;
-#endif // DEBUG
+    bool rsSpillChk() const;
+    void tmpDone() const;
+    void tmpEnd() const;
+#endif
 
     void tmpPreAllocateTemps(var_types type, unsigned count);
 
