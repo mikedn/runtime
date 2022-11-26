@@ -3657,44 +3657,6 @@ void CodeGen::CheckUseBlockInit()
 #endif
 
     genInitStkLclCnt = slotCount;
-
-#ifdef TARGET_ARM
-    if (genUseBlockInit)
-    {
-        // If we are using block init on ARM, then we may need save R4/R5/R6
-        // so that we can use them during zero-initialization process.
-
-        regMaskTP liveRegs = paramRegState.intRegLiveIn;
-
-        liveRegs &= ~preSpillParamRegs;
-
-        // Don't count the secret stub param, it will no longer be live when
-        // we do block init.
-        if (compiler->info.compPublishStubParam)
-        {
-            liveRegs &= ~RBM_SECRET_STUB_PARAM;
-        }
-
-        unsigned liveRegCount = genCountBits(liveRegs);
-
-        if (liveRegCount >= 2)
-        {
-            regMaskTP initRegs = RBM_R4;
-
-            if (liveRegCount >= 3)
-            {
-                initRegs |= RBM_R5;
-
-                if (liveRegCount >= 4)
-                {
-                    initRegs |= RBM_R6;
-                }
-            }
-
-            regSet.AddModifiedRegs(initRegs);
-        }
-    }
-#endif // TARGET_ARM
 }
 
 #if defined(TARGET_ARM)
@@ -5336,7 +5298,6 @@ void CodeGen::genFinalizeFrame()
 
     // Mark various registers as "modified" for special code generation scenarios:
     // Edit & Continue, P/Invoke calls, stack probing, profiler hooks etc.
-    // Note that CheckUseBlockInit above may have added more such special registers.
 
     const regMaskTP modifiedRegs = regSet.rsGetModifiedRegsMask();
 
@@ -5358,6 +5319,42 @@ void CodeGen::genFinalizeFrame()
         specialRegs |= RBM_INT_CALLEE_SAVED & ~RBM_FPBASE;
     }
 #endif
+
+#ifdef TARGET_ARM
+    if (genUseBlockInit)
+    {
+        // If we are using block init on ARM, then we may need save R4/R5/R6
+        // so that we can use them during zero-initialization process.
+
+        regMaskTP liveRegs = paramRegState.intRegLiveIn;
+
+        liveRegs &= ~preSpillParamRegs;
+
+        // Don't count the secret stub param, it will no longer be live when
+        // we do block init.
+        if (compiler->info.compPublishStubParam)
+        {
+            liveRegs &= ~RBM_SECRET_STUB_PARAM;
+        }
+
+        unsigned liveRegCount = genCountBits(liveRegs);
+
+        if (liveRegCount >= 2)
+        {
+            specialRegs |= RBM_R4;
+
+            if (liveRegCount >= 3)
+            {
+                specialRegs |= RBM_R5;
+
+                if (liveRegCount >= 4)
+                {
+                    specialRegs |= RBM_R6;
+                }
+            }
+        }
+    }
+#endif // TARGET_ARM
 
 #if defined(TARGET_ARM) || defined(TARGET_XARCH)
     if (lclFrameSize >= compiler->eeGetPageSize())
