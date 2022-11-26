@@ -6688,26 +6688,26 @@ void CodeGen::genFnEpilog(BasicBlock* block)
                 //    lea esp, [ebp - compiler->compCalleeRegsPushed * REGSIZE_BYTES]
                 needLea = true;
             }
-            else if (lclFrameSize == 0)
+            else if (lclFrameSize != 0)
             {
-                // do nothing before popping the callee-saved registers
-            }
 #ifdef TARGET_X86
-            else if (!regSet.rsRegsModified(RBM_CALLEE_SAVED))
-            {
-                // We will just generate "mov esp, ebp" and be done with it.
-                needMovEspEbp = true;
-            }
-            else if (lclFrameSize == REGSIZE_BYTES)
-            {
-                // Pop a scratch register, it's smaller than LEA.
-                GetEmitter()->emitIns_R(INS_pop, EA_4BYTE, REG_ECX);
-            }
+                if (!regSet.rsRegsModified(RBM_CALLEE_SAVED))
+                {
+                    // We will just generate "mov esp, ebp" and be done with it.
+                    needMovEspEbp = true;
+                }
+                else if (lclFrameSize == REGSIZE_BYTES)
+                {
+                    // Pop a scratch register, it's smaller than LEA.
+                    GetEmitter()->emitIns_R(INS_pop, EA_4BYTE, REG_ECX);
+                }
+                else
 #endif // TARGET_X86
-            else
-            {
-                // We need to make ESP point to the callee-saved registers
-                needLea = true;
+
+                {
+                    // We need to make ESP point to the callee-saved registers
+                    needLea = true;
+                }
             }
 
             if (needLea)
