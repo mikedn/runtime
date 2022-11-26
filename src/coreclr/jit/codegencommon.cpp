@@ -6700,9 +6700,8 @@ void CodeGen::genFnEpilog(BasicBlock* block)
             }
             else if (lclFrameSize == REGSIZE_BYTES)
             {
-                // "pop ecx" will make ESP point to the callee-saved registers
-                inst_RV(INS_pop, REG_ECX, TYP_I_IMPL);
-                regSet.verifyRegUsed(REG_ECX);
+                // Pop a scratch register, it's smaller than LEA.
+                GetEmitter()->emitIns_R(INS_pop, EA_4BYTE, REG_ECX);
             }
 #endif // TARGET_X86
             else
