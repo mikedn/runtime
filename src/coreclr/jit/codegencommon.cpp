@@ -6587,29 +6587,20 @@ void CodeGen::genFnEpilog(BasicBlock* block)
 
     if (!removeEbpFrame)
     {
-        // We have an ESP frame */
+        noway_assert(!compiler->compLocallocUsed);
 
-        noway_assert(compiler->compLocallocUsed == false); // Only used with frame-pointer
-
-        /* Get rid of our local variables */
-
-        if (lclFrameSize)
+        if (lclFrameSize != 0)
         {
 #ifdef TARGET_X86
-            /* Add 'compiler->compLclFrameSize' to ESP */
-            /* Use pop ECX to increment ESP by 4, unless compiler->compJmpOpUsed is true */
-
-            if ((lclFrameSize == TARGET_POINTER_SIZE) && !compiler->compJmpOpUsed)
+            if ((lclFrameSize == REGSIZE_BYTES) && !compiler->compJmpOpUsed)
             {
-                inst_RV(INS_pop, REG_ECX, TYP_I_IMPL);
-                regSet.verifyRegUsed(REG_ECX);
+                // Pop a scratch register, it's smaller than ADD.
+                GetEmitter()->emitIns_R(INS_pop, EA_4BYTE, REG_ECX);
             }
             else
 #endif // TARGET_X86
             {
-                /* Add 'compiler->compLclFrameSize' to ESP */
-                /* Generate "add esp, <stack-size>" */
-                inst_RV_IV(INS_add, REG_SPBASE, lclFrameSize, EA_PTRSIZE);
+                GetEmitter()->emitIns_R_I(INS_add, EA_PTRSIZE, REG_RSP, static_cast<int>(lclFrameSize));
             }
         }
 
@@ -6618,9 +6609,9 @@ void CodeGen::genFnEpilog(BasicBlock* block)
 #ifdef TARGET_AMD64
         // In the case where we have an RSP frame, and no frame pointer reported in the OS unwind info,
         // but we do have a pushed frame pointer and established frame chain, we do need to pop RBP.
-        if (doubleAlignOrFramePointerUsed())
+        if (isFramePointerUsed())
         {
-            inst_RV(INS_pop, REG_EBP, TYP_I_IMPL);
+            GetEmitter()->emitIns_R(INS_pop, EA_8BYTE, REG_RBP);
         }
 #endif // TARGET_AMD64
 
