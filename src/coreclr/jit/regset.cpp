@@ -94,23 +94,13 @@ void RegSet::verifyRegistersUsed(regMaskTP regMask)
         return;
     }
 
-    if (regMask == RBM_NONE)
-    {
-        return;
-    }
-
     // TODO-Cleanup: we need to identify the places where the registers
     //               are not marked as used when this is called.
     AddModifiedRegs(regMask);
 }
 
-void RegSet::AddModifiedRegs(regMaskTP mask DEBUGARG(bool suppressDump))
+void RegSet::AddModifiedRegs(regMaskTP mask)
 {
-    if (mask == RBM_NONE)
-    {
-        return;
-    }
-
     // We can't update the modified registers set after final frame layout (that is, during code
     // generation and after). Ignore prolog and epilog generation: they call register tracking to
     // modify rbp, for example, even in functions that use rbp as a frame pointer. Make sure normal
@@ -122,7 +112,7 @@ void RegSet::AddModifiedRegs(regMaskTP mask DEBUGARG(bool suppressDump))
            (((rsModifiedRegsMask | mask) & RBM_CALLEE_SAVED) == (rsModifiedRegsMask & RBM_CALLEE_SAVED)));
 
 #ifdef DEBUG
-    if (m_rsCompiler->verbose && !suppressDump)
+    if (m_rsCompiler->verbose)
     {
         if (rsModifiedRegsMask != (rsModifiedRegsMask | mask))
         {

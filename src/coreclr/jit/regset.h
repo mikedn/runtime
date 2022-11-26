@@ -68,7 +68,7 @@ public:
         return rsModifiedRegsMask;
     }
 
-    void AddModifiedRegs(regMaskTP mask DEBUGARG(bool suppressDump = false));
+    void AddModifiedRegs(regMaskTP mask);
     void verifyRegUsed(regNumber reg);
     void verifyRegistersUsed(regMaskTP regMask);
 
