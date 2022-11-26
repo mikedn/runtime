@@ -51,7 +51,7 @@ CodeGen::CodeGen(Compiler* compiler) : CodeGenInterface(compiler), m_liveness(co
     // Shouldn't be used before it is set in genFnProlog()
     calleeRegsPushed = UninitializedWord<unsigned>(compiler);
 
-#ifdef TARGET_XARCH
+#ifdef WINDOWS_AMD64_ABI
     // Shouldn't be used before it is set in genFinalizeFrame.
     calleeFPRegsSavedMask = (regMaskTP)-1;
 #endif
@@ -5457,7 +5457,7 @@ void CodeGen::genFinalizeFrame()
 
     assert((specialRegs & RBM_FPBASE) == RBM_NONE);
 
-#ifdef TARGET_XARCH
+#ifdef WINDOWS_AMD64_ABI
     calleeFPRegsSavedMask = pushedRegs & RBM_ALLFLOAT;
     pushedRegs &= ~RBM_ALLFLOAT;
 #endif
@@ -7311,9 +7311,10 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
     // because we're not going to allocate the same size frame as the parent.
 
     assert(isFramePointerUsed());
-    assert(compiler->lvaDoneFrameLayout == Compiler::FINAL_FRAME_LAYOUT); // The frame size and offsets must be
-                                                                          // finalized
+    assert(compiler->lvaDoneFrameLayout == Compiler::FINAL_FRAME_LAYOUT);
+#ifdef WINDOWS_AMD64_ABI
     assert(calleeFPRegsSavedMask != (regMaskTP)-1); // The float registers to be preserved is finalized
+#endif
 
     genFuncletInfo.fiFunction_InitialSP_to_FP_delta = genSPtoFPdelta();
 
@@ -7334,27 +7335,28 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
                               + REGSIZE_BYTES                       // pushed EBP
                               + (calleeRegsPushed * REGSIZE_BYTES); // pushed callee-saved int regs, not including EBP
 
-    // Entire 128-bits of XMM register is saved to stack due to ABI encoding requirement.
-    // Copying entire XMM register to/from memory will be performant if SP is aligned at XMM_REGSIZE_BYTES boundary.
-    unsigned calleeFPRegsSavedSize = genCountBits(calleeFPRegsSavedMask) * XMM_REGSIZE_BYTES;
-    unsigned FPRegsPad             = (calleeFPRegsSavedSize > 0) ? AlignmentPad(totalFrameSize, XMM_REGSIZE_BYTES) : 0;
+    genFuncletInfo.fiSpDelta = 0;
+
+#ifdef WINDOWS_AMD64_ABI
+    if (calleeFPRegsSavedMask != RBM_NONE)
+    {
+        // Entire 128-bits of XMM register is saved to stack due to ABI encoding requirement.
+        // Copying entire XMM register to/from memory will be performant if SP is aligned at XMM_REGSIZE_BYTES boundary.
+        unsigned calleeFPRegsSavedSize = genCountBits(calleeFPRegsSavedMask) * XMM_REGSIZE_BYTES;
+        // Alignment padding before pushing entire xmm regs
+        unsigned xmmRegsPad = AlignmentPad(totalFrameSize, XMM_REGSIZE_BYTES);
+
+        totalFrameSize += xmmRegsPad + calleeFPRegsSavedSize;
+        genFuncletInfo.fiSpDelta += xmmRegsPad + calleeFPRegsSavedSize;
+    }
+#endif
 
     unsigned PSPSymSize = (compiler->lvaPSPSym != BAD_VAR_NUM) ? REGSIZE_BYTES : 0;
 
-    totalFrameSize += FPRegsPad               // Padding before pushing entire xmm regs
-                      + calleeFPRegsSavedSize // pushed callee-saved float regs
-                      // below calculated 'pad' will go here
-                      + PSPSymSize           // PSPSym
-                      + outgoingArgSpaceSize // outgoing arg space
-        ;
+    totalFrameSize += PSPSymSize + outgoingArgSpaceSize;
 
-    unsigned pad = AlignmentPad(totalFrameSize, 16);
-
-    genFuncletInfo.fiSpDelta = FPRegsPad               // Padding to align SP on XMM_REGSIZE_BYTES boundary
-                               + calleeFPRegsSavedSize // Callee saved xmm regs
-                               + pad + PSPSymSize      // PSPSym
-                               + outgoingArgSpaceSize  // outgoing arg space
-        ;
+    genFuncletInfo.fiSpDelta += AlignmentPad(totalFrameSize, 16);
+    genFuncletInfo.fiSpDelta += PSPSymSize + outgoingArgSpaceSize;
 
 #ifdef DEBUG
     if (verbose)

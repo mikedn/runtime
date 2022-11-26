@@ -3818,7 +3818,7 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
 
     stkOffs -= codeGen->calleeRegsPushed * REGSIZE_BYTES;
 
-#ifdef TARGET_AMD64
+#ifdef WINDOWS_AMD64_ABI
     // In case of AMD64 compCalleeRegsPushed includes float regs (XMM6-XMM15) that
     // need to be pushed. But AMD64 doesn't support push/pop of XMM registers.
     // Instead we need to allocate space for them on the stack and save them in prolog.
@@ -3851,7 +3851,7 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
 
     lvaIncrementFrameSize(calleeFPRegsSavedSize);
     stkOffs -= calleeFPRegsSavedSize;
-#else //  TARGET_X86
+#elif defined(TARGET_X86)
     const int preSpillSize    = 0;
     bool      mustDoubleAlign = false;
 

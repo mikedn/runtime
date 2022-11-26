@@ -127,7 +127,7 @@ public:
     // In case of Amd64 this doesn't include float regs saved on stack.
     unsigned calleeRegsPushed;
 
-#ifdef TARGET_XARCH
+#ifdef WINDOWS_AMD64_ABI
     // Mask of callee saved float regs on stack.
     regMaskTP calleeFPRegsSavedMask;
 #endif

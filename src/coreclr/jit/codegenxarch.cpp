@@ -8891,6 +8891,10 @@ void CodeGen::genPopCalleeSavedRegisters(bool jmpEpilog)
 void CodeGen::genPreserveCalleeSavedFltRegs(unsigned lclFrameSize)
 {
     genVzeroupperIfNeeded(false);
+
+#ifndef WINDOWS_AMD64_ABI
+    static_assert_no_msg(RBM_FLT_CALLEE_SAVED == RBM_NONE);
+#else
     regMaskTP regMask = calleeFPRegsSavedMask;
 
     // Only callee saved floating point registers should be in regMask
@@ -8902,33 +8906,25 @@ void CodeGen::genPreserveCalleeSavedFltRegs(unsigned lclFrameSize)
         return;
     }
 
-#ifdef TARGET_AMD64
     unsigned firstFPRegPadding = compiler->lvaIsCalleeSavedIntRegCountEven() ? REGSIZE_BYTES : 0;
     unsigned offset            = lclFrameSize - firstFPRegPadding - XMM_REGSIZE_BYTES;
 
     // Offset is 16-byte aligned since we use movaps for preserving xmm regs.
     assert((offset % 16) == 0);
-    instruction copyIns = ins_Copy(TYP_FLOAT);
-#else  // !TARGET_AMD64
-    unsigned    offset            = lclFrameSize - XMM_REGSIZE_BYTES;
-    instruction copyIns           = INS_movupd;
-#endif // !TARGET_AMD64
 
     for (regNumber reg = REG_FLT_CALLEE_SAVED_FIRST; regMask != RBM_NONE; reg = REG_NEXT(reg))
     {
         regMaskTP regBit = genRegMask(reg);
+
         if ((regBit & regMask) != 0)
         {
-            // ABI requires us to preserve lower 128-bits of YMM register.
-            GetEmitter()->emitIns_AR_R(copyIns,
-                                       EA_8BYTE, // TODO-XArch-Cleanup: size specified here doesn't matter but should be
-                                       // EA_16BYTE
-                                       reg, REG_SPBASE, offset);
+            GetEmitter()->emitIns_AR_R(INS_movaps, EA_16BYTE, reg, REG_RSP, offset);
             compiler->unwindSaveReg(reg, offset);
             regMask &= ~regBit;
             offset -= XMM_REGSIZE_BYTES;
         }
     }
+#endif // WINDOWS_AMD64_ABI
 }
 
 // Save/Restore compCalleeFPRegsPushed with the smallest register number saved at [RSP+offset], working
@@ -8941,6 +8937,9 @@ void CodeGen::genPreserveCalleeSavedFltRegs(unsigned lclFrameSize)
 //             funclet frames: this will be FuncletInfo.fiSpDelta.
 void CodeGen::genRestoreCalleeSavedFltRegs(unsigned lclFrameSize)
 {
+#ifndef WINDOWS_AMD64_ABI
+    static_assert_no_msg(RBM_FLT_CALLEE_SAVED == RBM_NONE);
+#else
     regMaskTP regMask = calleeFPRegsSavedMask;
 
     // Only callee saved floating point registers should be in regMask
@@ -8953,16 +8952,10 @@ void CodeGen::genRestoreCalleeSavedFltRegs(unsigned lclFrameSize)
         return;
     }
 
-#ifdef TARGET_AMD64
-    unsigned    firstFPRegPadding = compiler->lvaIsCalleeSavedIntRegCountEven() ? REGSIZE_BYTES : 0;
-    instruction copyIns           = ins_Copy(TYP_FLOAT);
-#else  // !TARGET_AMD64
-    unsigned    firstFPRegPadding = 0;
-    instruction copyIns           = INS_movupd;
-#endif // !TARGET_AMD64
-
+    unsigned  firstFPRegPadding = compiler->lvaIsCalleeSavedIntRegCountEven() ? REGSIZE_BYTES : 0;
     unsigned  offset;
     regNumber regBase;
+
     if (compiler->compLocallocUsed)
     {
         // localloc frame: use frame pointer relative offset
@@ -8972,29 +8965,26 @@ void CodeGen::genRestoreCalleeSavedFltRegs(unsigned lclFrameSize)
     }
     else
     {
-        regBase = REG_SPBASE;
+        regBase = REG_RSP;
         offset  = lclFrameSize - firstFPRegPadding - XMM_REGSIZE_BYTES;
     }
 
-#ifdef TARGET_AMD64
     // Offset is 16-byte aligned since we use movaps for restoring xmm regs
     assert((offset % 16) == 0);
-#endif // TARGET_AMD64
 
     for (regNumber reg = REG_FLT_CALLEE_SAVED_FIRST; regMask != RBM_NONE; reg = REG_NEXT(reg))
     {
         regMaskTP regBit = genRegMask(reg);
+
         if ((regBit & regMask) != 0)
         {
-            // ABI requires us to restore lower 128-bits of YMM register.
-            GetEmitter()->emitIns_R_AR(copyIns,
-                                       EA_8BYTE, // TODO-XArch-Cleanup: size specified here doesn't matter but should be
-                                       // EA_16BYTE
-                                       reg, regBase, offset);
+            GetEmitter()->emitIns_R_AR(INS_movaps, EA_16BYTE, reg, regBase, offset);
             regMask &= ~regBit;
             offset -= XMM_REGSIZE_BYTES;
         }
     }
+#endif // WINDOWS_AMD64_ABI
+
     genVzeroupperIfNeeded();
 }
 
