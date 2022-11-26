@@ -83,11 +83,6 @@ public:
     ParamRegState paramRegState;
     RegSet        regSet;
 
-    bool IsRegModified(regNumber reg) const
-    {
-        return regSet.rsRegsModified(genRegMask(reg));
-    }
-
 #ifdef TARGET_ARM
     // Registers that are spilled at the start of the prolog, right below stack params,
     // such that they form a contiguous area useful to handle varargs and split params

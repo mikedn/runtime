@@ -69,14 +69,7 @@ public:
     }
 
     void AddModifiedRegs(regMaskTP mask DEBUGARG(bool suppressDump = false));
-
-    bool rsRegsModified(regMaskTP mask) const
-    {
-        return (rsModifiedRegsMask & mask) != RBM_NONE;
-    }
-
     void verifyRegUsed(regNumber reg);
-
     void verifyRegistersUsed(regMaskTP regMask);
 
 private:

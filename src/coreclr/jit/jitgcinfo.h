@@ -365,13 +365,14 @@ private:
 
     unsigned gcEpilogPrevOffset;
 
-    size_t gcInfoBlockHdrSave(BYTE*    dest,
-                              int      mask,
-                              unsigned methodSize,
-                              unsigned prologSize,
-                              unsigned epilogSize,
-                              InfoHdr* header,
-                              int*     s_cached);
+    size_t gcInfoBlockHdrSave(BYTE*     dest,
+                              int       mask,
+                              unsigned  methodSize,
+                              unsigned  prologSize,
+                              unsigned  epilogSize,
+                              regMaskTP savedRegs,
+                              InfoHdr*  header,
+                              int*      s_cached);
 
 public:
     static void gcInitEncoderLookupTable();

@@ -7756,7 +7756,8 @@ void* CodeGen::genCreateAndStoreGCInfoJIT32(unsigned codeSize,
 #ifdef DEBUG
     size_t headerSize =
 #endif
-        compInfoBlkSize = gcInfo.gcInfoBlockHdrSave(headerBuf, 0, codeSize, prologSize, epilogSize, &header, &s_cached);
+        compInfoBlkSize = gcInfo.gcInfoBlockHdrSave(headerBuf, 0, codeSize, prologSize, epilogSize,
+                                                    regSet.rsGetModifiedRegsMask(), &header, &s_cached);
 
     size_t argTabOffset = 0;
     size_t ptrMapSize   = gcInfo.gcPtrTableSize(header, codeSize, &argTabOffset);
@@ -7806,8 +7807,8 @@ void* CodeGen::genCreateAndStoreGCInfoJIT32(unsigned codeSize,
 
     /* Create the method info block: header followed by GC tracking tables */
 
-    compInfoBlkAddr +=
-        gcInfo.gcInfoBlockHdrSave(compInfoBlkAddr, -1, codeSize, prologSize, epilogSize, &header, &s_cached);
+    compInfoBlkAddr += gcInfo.gcInfoBlockHdrSave(compInfoBlkAddr, -1, codeSize, prologSize, epilogSize,
+                                                 regSet.rsGetModifiedRegsMask(), &header, &s_cached);
 
     assert(compInfoBlkAddr == (BYTE*)infoPtr + headerSize);
     compInfoBlkAddr = gcInfo.gcPtrTableSave(compInfoBlkAddr, header, codeSize, &argTabOffset);
@@ -8908,7 +8909,7 @@ void CodeGen::genPreserveCalleeSavedFltRegs(unsigned lclFrameSize)
     // Offset is 16-byte aligned since we use movaps for preserving xmm regs.
     assert((offset % 16) == 0);
     instruction copyIns = ins_Copy(TYP_FLOAT);
-#else // !TARGET_AMD64
+#else  // !TARGET_AMD64
     unsigned    offset            = lclFrameSize - XMM_REGSIZE_BYTES;
     instruction copyIns           = INS_movupd;
 #endif // !TARGET_AMD64

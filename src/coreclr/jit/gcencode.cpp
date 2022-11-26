@@ -1443,20 +1443,20 @@ BYTE FASTCALL encodeHeaderFirst(const InfoHdr& header, InfoHdr* state, int* more
     return 0x80 | nearest;
 }
 
-/*****************************************************************************
- *
- *  Write the initial part of the method info block. This is called twice;
- *  first to compute the size needed for the info (mask=0), the second time
- *  to actually generate the contents of the table (mask=-1,dest!=NULL).
- */
-
-size_t GCInfo::gcInfoBlockHdrSave(
-    BYTE* dest, int mask, unsigned methodSize, unsigned prologSize, unsigned epilogSize, InfoHdr* header, int* pCached)
+// Write the initial part of the method info block. This is called twice;
+// first to compute the size needed for the info (mask=0), the second time
+// to actually generate the contents of the table (mask=-1,dest!=NULL).
+size_t GCInfo::gcInfoBlockHdrSave(BYTE*     dest,
+                                  int       mask,
+                                  unsigned  methodSize,
+                                  unsigned  prologSize,
+                                  unsigned  epilogSize,
+                                  regMaskTP savedRegs,
+                                  InfoHdr*  header,
+                                  int*      pCached)
 {
-#ifdef DEBUG
-    if (compiler->verbose)
-        printf("*************** In gcInfoBlockHdrSave()\n");
-#endif
+    JITDUMP("*************** In gcInfoBlockHdrSave()\n");
+
     size_t size = 0;
 
 #if VERIFY_GC_TABLES
@@ -1504,12 +1504,20 @@ size_t GCInfo::gcInfoBlockHdrSave(
         IMPL_LIMITATION("emitGetEpilogCnt() does not fit in InfoHdr::epilogCount");
     header->epilogAtEnd = compiler->GetEmitter()->emitHasEpilogEnd();
 
-    if (compiler->codeGen->IsRegModified(REG_EDI))
+    if ((savedRegs & RBM_EDI) != RBM_NONE)
+    {
         header->ediSaved = 1;
-    if (compiler->codeGen->IsRegModified(REG_ESI))
+    }
+
+    if ((savedRegs & RBM_ESI) != RBM_NONE)
+    {
         header->esiSaved = 1;
-    if (compiler->codeGen->IsRegModified(REG_EBX))
+    }
+
+    if ((savedRegs & RBM_EBX) != RBM_NONE)
+    {
         header->ebxSaved = 1;
+    }
 
     header->interruptible = compiler->codeGen->GetInterruptible();
 
@@ -1519,10 +1527,10 @@ size_t GCInfo::gcInfoBlockHdrSave(
         if (compiler->codeGen->doDoubleAlign())
         {
             header->ebpSaved = true;
-            assert(!compiler->codeGen->IsRegModified(REG_EBP));
+            assert((savedRegs & RBM_EBP) == RBM_NONE);
         }
 #endif
-        if (compiler->codeGen->IsRegModified(REG_EBP))
+        if ((savedRegs & RBM_EBP) != RBM_NONE)
         {
             header->ebpSaved = true;
         }
