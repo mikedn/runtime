@@ -6691,7 +6691,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
             else if (lclFrameSize != 0)
             {
 #ifdef TARGET_X86
-                if (!regSet.rsRegsModified(RBM_CALLEE_SAVED))
+                if (calleeRegsPushed == 0)
                 {
                     // We will just generate "mov esp, ebp" and be done with it.
                     needMovEspEbp = true;
