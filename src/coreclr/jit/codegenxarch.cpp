@@ -8879,4 +8879,152 @@ void CodeGen::genPopCalleeSavedRegisters(bool jmpEpilog)
     noway_assert(calleeRegsPushed == popCount);
 }
 
+// Save compCalleeFPRegsPushed with the smallest register number saved at [RSP+offset], working
+// down the stack to the largest register number stored at [RSP+offset-(genCountBits(regMask)-1)*XMM_REG_SIZE]
+// Here offset = 16-byte aligned offset after pushing integer registers.
+//
+// Params
+//   lclFrameSize - Fixed frame size excluding callee pushed int regs.
+//             non-funclet: this will be compLclFrameSize.
+//             funclet frames: this will be FuncletInfo.fiSpDelta.
+void CodeGen::genPreserveCalleeSavedFltRegs(unsigned lclFrameSize)
+{
+    genVzeroupperIfNeeded(false);
+    regMaskTP regMask = calleeFPRegsSavedMask;
+
+    // Only callee saved floating point registers should be in regMask
+    assert((regMask & RBM_FLT_CALLEE_SAVED) == regMask);
+
+    // fast path return
+    if (regMask == RBM_NONE)
+    {
+        return;
+    }
+
+#ifdef TARGET_AMD64
+    unsigned firstFPRegPadding = compiler->lvaIsCalleeSavedIntRegCountEven() ? REGSIZE_BYTES : 0;
+    unsigned offset            = lclFrameSize - firstFPRegPadding - XMM_REGSIZE_BYTES;
+
+    // Offset is 16-byte aligned since we use movaps for preserving xmm regs.
+    assert((offset % 16) == 0);
+    instruction copyIns = ins_Copy(TYP_FLOAT);
+#else // !TARGET_AMD64
+    unsigned    offset            = lclFrameSize - XMM_REGSIZE_BYTES;
+    instruction copyIns           = INS_movupd;
+#endif // !TARGET_AMD64
+
+    for (regNumber reg = REG_FLT_CALLEE_SAVED_FIRST; regMask != RBM_NONE; reg = REG_NEXT(reg))
+    {
+        regMaskTP regBit = genRegMask(reg);
+        if ((regBit & regMask) != 0)
+        {
+            // ABI requires us to preserve lower 128-bits of YMM register.
+            GetEmitter()->emitIns_AR_R(copyIns,
+                                       EA_8BYTE, // TODO-XArch-Cleanup: size specified here doesn't matter but should be
+                                       // EA_16BYTE
+                                       reg, REG_SPBASE, offset);
+            compiler->unwindSaveReg(reg, offset);
+            regMask &= ~regBit;
+            offset -= XMM_REGSIZE_BYTES;
+        }
+    }
+}
+
+// Save/Restore compCalleeFPRegsPushed with the smallest register number saved at [RSP+offset], working
+// down the stack to the largest register number stored at [RSP+offset-(genCountBits(regMask)-1)*XMM_REG_SIZE]
+// Here offset = 16-byte aligned offset after pushing integer registers.
+//
+// Params
+//   lclFrameSize - Fixed frame size excluding callee pushed int regs.
+//             non-funclet: this will be compLclFrameSize.
+//             funclet frames: this will be FuncletInfo.fiSpDelta.
+void CodeGen::genRestoreCalleeSavedFltRegs(unsigned lclFrameSize)
+{
+    regMaskTP regMask = calleeFPRegsSavedMask;
+
+    // Only callee saved floating point registers should be in regMask
+    assert((regMask & RBM_FLT_CALLEE_SAVED) == regMask);
+
+    // fast path return
+    if (regMask == RBM_NONE)
+    {
+        genVzeroupperIfNeeded();
+        return;
+    }
+
+#ifdef TARGET_AMD64
+    unsigned    firstFPRegPadding = compiler->lvaIsCalleeSavedIntRegCountEven() ? REGSIZE_BYTES : 0;
+    instruction copyIns           = ins_Copy(TYP_FLOAT);
+#else  // !TARGET_AMD64
+    unsigned    firstFPRegPadding = 0;
+    instruction copyIns           = INS_movupd;
+#endif // !TARGET_AMD64
+
+    unsigned  offset;
+    regNumber regBase;
+    if (compiler->compLocallocUsed)
+    {
+        // localloc frame: use frame pointer relative offset
+        assert(isFramePointerUsed());
+        regBase = REG_FPBASE;
+        offset  = lclFrameSize - genSPtoFPdelta() - firstFPRegPadding - XMM_REGSIZE_BYTES;
+    }
+    else
+    {
+        regBase = REG_SPBASE;
+        offset  = lclFrameSize - firstFPRegPadding - XMM_REGSIZE_BYTES;
+    }
+
+#ifdef TARGET_AMD64
+    // Offset is 16-byte aligned since we use movaps for restoring xmm regs
+    assert((offset % 16) == 0);
+#endif // TARGET_AMD64
+
+    for (regNumber reg = REG_FLT_CALLEE_SAVED_FIRST; regMask != RBM_NONE; reg = REG_NEXT(reg))
+    {
+        regMaskTP regBit = genRegMask(reg);
+        if ((regBit & regMask) != 0)
+        {
+            // ABI requires us to restore lower 128-bits of YMM register.
+            GetEmitter()->emitIns_R_AR(copyIns,
+                                       EA_8BYTE, // TODO-XArch-Cleanup: size specified here doesn't matter but should be
+                                       // EA_16BYTE
+                                       reg, regBase, offset);
+            regMask &= ~regBit;
+            offset -= XMM_REGSIZE_BYTES;
+        }
+    }
+    genVzeroupperIfNeeded();
+}
+
+// Generate Vzeroupper instruction as needed to zero out upper 128b-bit of all YMM registers so that the
+// AVX/Legacy SSE transition penalties can be avoided. This function is been used in genPreserveCalleeSavedFltRegs
+// (prolog) and genRestoreCalleeSavedFltRegs (epilog). Issue VZEROUPPER in Prolog if the method contains
+// 128-bit or 256-bit AVX code, to avoid legacy SSE to AVX transition penalty, which could happen when native
+// code contains legacy SSE code calling into JIT AVX code (e.g. reverse pinvoke). Issue VZEROUPPER in Epilog
+// if the method contains 256-bit AVX code, to avoid AVX to legacy SSE transition penalty.
+//
+// Params
+//   check256bitOnly  - true to check if the function contains 256-bit AVX instruction and generate Vzeroupper
+//      instruction, false to check if the function contains AVX instruciton (either 128-bit or 256-bit).
+//
+void CodeGen::genVzeroupperIfNeeded(bool check256bitOnly /* = true*/)
+{
+    bool emitVzeroUpper = false;
+    if (check256bitOnly)
+    {
+        emitVzeroUpper = GetEmitter()->Contains256bitAVX();
+    }
+    else
+    {
+        emitVzeroUpper = GetEmitter()->ContainsAVX();
+    }
+
+    if (emitVzeroUpper)
+    {
+        assert(compiler->canUseVexEncoding());
+        instGen(INS_vzeroupper);
+    }
+}
+
 #endif // TARGET_XARCH
