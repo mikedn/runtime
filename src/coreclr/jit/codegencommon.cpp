@@ -6688,25 +6688,16 @@ void CodeGen::genFnEpilog(BasicBlock* block)
                 //    lea esp, [ebp - compiler->compCalleeRegsPushed * REGSIZE_BYTES]
                 needLea = true;
             }
-            else if (!regSet.rsRegsModified(RBM_CALLEE_SAVED))
-            {
-                if (lclFrameSize != 0)
-                {
-#ifdef TARGET_AMD64
-                    // AMD64 can't use "mov esp, ebp", according to the ABI specification describing epilogs. So,
-                    // do an LEA to "pop off" the frame allocation.
-                    needLea = true;
-#else  // !TARGET_AMD64
-                    // We will just generate "mov esp, ebp" and be done with it.
-                    needMovEspEbp = true;
-#endif // !TARGET_AMD64
-                }
-            }
             else if (lclFrameSize == 0)
             {
                 // do nothing before popping the callee-saved registers
             }
 #ifdef TARGET_X86
+            else if (!regSet.rsRegsModified(RBM_CALLEE_SAVED))
+            {
+                // We will just generate "mov esp, ebp" and be done with it.
+                needMovEspEbp = true;
+            }
             else if (lclFrameSize == REGSIZE_BYTES)
             {
                 // "pop ecx" will make ESP point to the callee-saved registers
