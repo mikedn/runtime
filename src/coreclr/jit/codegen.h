@@ -188,9 +188,6 @@ protected:
     unsigned genOffsetOfMDArrayDimensionSize(var_types elemType, unsigned rank, unsigned dimension);
 
     void genInitialize();
-
-    void genInitializeRegisterState();
-
     void genCodeForBBlist();
 
 public:

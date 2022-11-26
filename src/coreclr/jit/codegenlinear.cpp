@@ -19,54 +19,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "lsra.h"
 
 //------------------------------------------------------------------------
-// genInitializeRegisterState: Initialize the register state contained in 'regSet'.
-//
-// Assumptions:
-//    On exit the "rsModifiedRegsMask" (in "regSet") holds all the registers' masks hosting an argument on the function
-//    and elements of "rsSpillDesc" (in "regSet") are setted to nullptr.
-//
-// Notes:
-//    This method is intended to be called only from initializeStructuresBeforeBlockCodeGeneration.
-void CodeGen::genInitializeRegisterState()
-{
-    // Initialize the spill tracking logic
-
-    regSet.rsSpillBeg();
-
-    // If any arguments live in registers, mark those regs as such
-
-    unsigned   varNum;
-    LclVarDsc* varDsc;
-
-    for (varNum = 0, varDsc = compiler->lvaTable; varNum < compiler->lvaCount; varNum++, varDsc++)
-    {
-        // Is this variable a parameter assigned to a register?
-        if (!varDsc->IsParam() || !varDsc->lvRegister)
-        {
-            continue;
-        }
-
-        // Is the argument live on entry to the method?
-        if (!VarSetOps::IsMember(compiler, compiler->fgFirstBB->bbLiveIn, varDsc->lvVarIndex))
-        {
-            continue;
-        }
-
-        if (varTypeUsesFloatReg(varDsc->GetType()) || varDsc->IsHfaRegParam())
-        {
-            continue;
-        }
-
-        // Mark the register as holding the variable
-        assert(varDsc->GetRegNum() != REG_STK);
-        if (!varDsc->lvAddrExposed)
-        {
-            regSet.verifyRegUsed(varDsc->GetRegNum());
-        }
-    }
-}
-
-//------------------------------------------------------------------------
 // genInitialize: Initialize Scopes, registers, gcInfo and current liveness variables structures
 // used in the generation of blocks' code before.
 //
@@ -96,9 +48,9 @@ void CodeGen::genInitialize()
     gcInfo.gcRegPtrSetInit();
     gcInfo.gcVarPtrSetInit();
 
-    // Initialize the register set logic
+    // Initialize the spill tracking logic
 
-    genInitializeRegisterState();
+    regSet.rsSpillBeg();
 
 #if !FEATURE_FIXED_OUT_ARGS
     // We initialize the stack level before first "BasicBlock" code is generated in case we need to report stack
