@@ -1481,7 +1481,7 @@ protected:
 #endif
 
     cnsval_ssize_t emitGetInsSC(instrDesc* id);
-    unsigned emitInsCount;
+    unsigned emitInsCount = 0;
 
     /************************************************************************/
     /*           A few routines used for debug display purposes             */
@@ -1503,9 +1503,9 @@ protected:
     // what the state was at the last time it was output (instruction or label).
     VARSET_TP  debugPrevGCrefVars;
     VARSET_TP  debugThisGCrefVars;
-    regPtrDsc* debugPrevRegPtrDsc;
-    regMaskTP  debugPrevGCrefRegs;
-    regMaskTP  debugPrevByrefRegs;
+    regPtrDsc* debugPrevRegPtrDsc = nullptr;
+    regMaskTP  debugPrevGCrefRegs = RBM_NONE;
+    regMaskTP  debugPrevByrefRegs = RBM_NONE;
     void emitDispGCDeltaTitle(const char* title);
     void emitDispGCRegDelta(const char* title, regMaskTP prevRegs, regMaskTP curRegs);
     void emitDispGCVarDelta();
@@ -1536,19 +1536,19 @@ protected:
 
     unsigned emitPrologEndPos;
 
-    unsigned       emitEpilogCnt;
-    UNATIVE_OFFSET emitEpilogSize;
+    unsigned       emitEpilogCnt  = 0;
+    UNATIVE_OFFSET emitEpilogSize = 0;
 
 #ifdef TARGET_XARCH
 
     void           emitStartExitSeq(); // Mark the start of the "return" sequence
     emitLocation   emitExitSeqBegLoc;
-    UNATIVE_OFFSET emitExitSeqSize; // minimum size of any return sequence - the 'ret' after the epilog
+    UNATIVE_OFFSET emitExitSeqSize = INT_MAX; // minimum size of any return sequence - the 'ret' after the epilog
 
 #endif // TARGET_XARCH
 
-    insGroup* emitPlaceholderList; // per method placeholder list - head
-    insGroup* emitPlaceholderLast; // per method placeholder list - tail
+    insGroup* emitPlaceholderList = nullptr; // per method placeholder list - head
+    insGroup* emitPlaceholderLast = nullptr; // per method placeholder list - tail
 
 #ifdef JIT32_GCENCODER
 
@@ -1565,8 +1565,8 @@ protected:
         }
     };
 
-    EpilogList* emitEpilogList; // per method epilog list - head
-    EpilogList* emitEpilogLast; // per method epilog list - tail
+    EpilogList* emitEpilogList = nullptr; // per method epilog list - head
+    EpilogList* emitEpilogLast = nullptr; // per method epilog list - tail
 
 public:
     void emitStartEpilog();
@@ -1600,14 +1600,12 @@ public:
     unsigned emitFindInsNum(insGroup* ig, instrDesc* id);
     UNATIVE_OFFSET emitFindOffset(insGroup* ig, unsigned insNum);
 
-/************************************************************************/
-/*        Members and methods used to issue (encode) instructions.      */
-/************************************************************************/
+    /************************************************************************/
+    /*        Members and methods used to issue (encode) instructions.      */
+    /************************************************************************/
 
-#ifdef DEBUG
     // If we have started issuing instructions from the list of instrDesc, this is set
-    bool emitIssuing;
-#endif
+    INDEBUG(bool emitIssuing = false;)
 
     BYTE*  emitCodeBlock;     // Hot code block
     BYTE*  emitColdCodeBlock; // Cold code block
@@ -1692,8 +1690,8 @@ public:
     size_t emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp);
 
 #ifdef PSEUDORANDOM_NOP_INSERTION
-    bool emitInInstrumentation;
-#endif // PSEUDORANDOM_NOP_INSERTION
+    bool emitInInstrumentation = false;
+#endif
 
 #ifdef DEBUG
     bool emitChkAlign; // perform some alignment checks
@@ -1730,25 +1728,25 @@ private:
 #define SC_IG_BUFFER_SIZE (50 * sizeof(emitter::instrDesc) + 14 * SMALL_IDSC_SIZE)
 #endif // !TARGET_ARMARCH
 
-    size_t emitIGbuffSize;
+    size_t emitIGbuffSize = 0;
 
-    insGroup* emitIGlist; // first  instruction group
-    insGroup* emitIGlast; // last   instruction group
-    insGroup* emitIGthis; // issued instruction group
+    insGroup* emitIGlist = nullptr; // first  instruction group
+    insGroup* emitIGlast = nullptr; // last   instruction group
+    insGroup* emitIGthis;           // issued instruction group
 
     insGroup* emitPrologIG; // prolog instruction group
 
-    instrDescJmp* emitJumpList;       // list of local jumps in method
-    instrDescJmp* emitJumpLast;       // last of local jumps in method
-    void          emitJumpDistBind(); // Bind all the local jumps in method
+    instrDescJmp* emitJumpList = nullptr; // list of local jumps in method
+    instrDescJmp* emitJumpLast = nullptr; // last of local jumps in method
+    void          emitJumpDistBind();     // Bind all the local jumps in method
 
 #if FEATURE_LOOP_ALIGN
-    instrDescAlign* emitCurIGAlignList;   // list of align instructions in current IG
-    unsigned        emitLastLoopStart;    // Start IG of last inner loop
-    unsigned        emitLastLoopEnd;      // End IG of last inner loop
-    unsigned        emitLastAlignedIgNum; // last IG that has align instruction
-    instrDescAlign* emitAlignList;        // list of local align instructions in method
-    instrDescAlign* emitAlignLast;        // last align instruction in method
+    instrDescAlign* emitCurIGAlignList   = nullptr; // list of align instructions in current IG
+    unsigned        emitLastLoopStart    = 0;       // Start IG of last inner loop
+    unsigned        emitLastLoopEnd      = 0;       // End IG of last inner loop
+    unsigned        emitLastAlignedIgNum = 0;       // last IG that has align instruction
+    instrDescAlign* emitAlignList        = nullptr; // list of local align instructions in method
+    instrDescAlign* emitAlignLast        = nullptr; // last align instruction in method
     unsigned getLoopSize(insGroup* igLoopHeader,
                          unsigned maxLoopSize DEBUG_ARG(bool isAlignAdjusted)); // Get the smallest loop size
     void emitLoopAlignment();
@@ -1760,21 +1758,24 @@ private:
 
     void emitCheckFuncletBranch(instrDesc* jmp, insGroup* jmpIG); // Check for illegal branches between funclets
 
-    bool emitFwdJumps;   // forward jumps present?
-    bool emitNoGCIG;     // Are we generating IGF_NOGCINTERRUPT insGroups (for prologs, epilogs, etc.)
-    bool emitForceNewIG; // If we generate an instruction, and not another instruction group, force create a new emitAdd
-                         // instruction group.
+    // Are forward jumps present?
+    bool emitFwdJumps = false;
+    // Are we generating IGF_NOGCINTERRUPT insGroups (for prologs, epilogs, etc.)
+    bool emitNoGCIG = false;
+    // If we generate an instruction, and not another instruction group, force create a new emitAdd
+    // instruction group.
+    bool emitForceNewIG = false;
 
-    BYTE* emitCurIGfreeNext; // next available byte in buffer
-    BYTE* emitCurIGfreeEndp; // one byte past the last available byte in buffer
-    BYTE* emitCurIGfreeBase; // first byte address
+    BYTE* emitCurIGfreeNext;           // next available byte in buffer
+    BYTE* emitCurIGfreeEndp;           // one byte past the last available byte in buffer
+    BYTE* emitCurIGfreeBase = nullptr; // first byte address
 
-    unsigned       emitCurIGinsCnt;   // # of collected instr's in buffer
-    unsigned       emitCurIGsize;     // estimated code size of current group in bytes
-    UNATIVE_OFFSET emitCurCodeOffset; // current code offset within group
-    UNATIVE_OFFSET emitTotalCodeSize; // bytes of code in entire method
+    unsigned       emitCurIGinsCnt;       // # of collected instr's in buffer
+    unsigned       emitCurIGsize;         // estimated code size of current group in bytes
+    UNATIVE_OFFSET emitCurCodeOffset = 0; // current code offset within group
+    UNATIVE_OFFSET emitTotalCodeSize = 0; // bytes of code in entire method
 
-    insGroup* emitFirstColdIG; // first cold instruction group
+    insGroup* emitFirstColdIG = nullptr; // first cold instruction group
 
     void emitSetFirstColdIGCookie(void* bbEmitCookie)
     {
@@ -1783,7 +1784,7 @@ private:
 
     int emitOffsAdj; // current code offset adjustment
 
-    instrDescJmp* emitCurIGjmpList; // list of jumps   in current IG
+    instrDescJmp* emitCurIGjmpList = nullptr; // list of jumps   in current IG
 
     // emitPrev* and emitInit* are only used during code generation, not during
     // emission (issuing), to determine what GC values to store into an IG.
@@ -1792,17 +1793,17 @@ private:
     // out, and GCrefRegs is always saved.
 
     VARSET_TP emitPrevGCrefVars;
-    regMaskTP emitPrevGCrefRegs;
-    regMaskTP emitPrevByrefRegs;
+    regMaskTP emitPrevGCrefRegs = RBM_NONE;
+    regMaskTP emitPrevByrefRegs = RBM_NONE;
 
     VARSET_TP emitInitGCrefVars;
-    regMaskTP emitInitGCrefRegs;
-    regMaskTP emitInitByrefRegs;
+    regMaskTP emitInitGCrefRegs = RBM_NONE;
+    regMaskTP emitInitByrefRegs = RBM_NONE;
 
     // If this is set, we ignore comparing emitPrev* and emitInit* to determine
     // whether to save GC state (to save space in the IG), and always save it.
 
-    bool emitForceStoreGCState;
+    bool emitForceStoreGCState = false;
 
     // emitThis* variables are used during emission, to track GC updates
     // on a per-instruction basis. During code generation, per-instruction
@@ -1815,8 +1816,8 @@ private:
     // used due to bugs.
 
     VARSET_TP emitThisGCrefVars;
-    regMaskTP emitThisGCrefRegs; // Current set of registers holding GC references
-    regMaskTP emitThisByrefRegs; // Current set of registers holding BYREF references
+    regMaskTP emitThisGCrefRegs = RBM_NONE; // Current set of registers holding GC references
+    regMaskTP emitThisByrefRegs = RBM_NONE; // Current set of registers holding BYREF references
 
     bool emitThisGCrefVset; // Is "emitThisGCrefVars" up to date?
 
@@ -1869,7 +1870,7 @@ private:
         return (emitCurIG && emitCurIGfreeNext > emitCurIGfreeBase);
     }
 
-    instrDesc* emitLastIns;
+    instrDesc* emitLastIns = nullptr;
 
 #ifdef DEBUG
     void emitCheckIGoffsets();
@@ -2008,11 +2009,11 @@ private:
     unsigned emitTrkVarCnt;
     int*     emitGCrFrameOffsTab; // Offsets of tracked stack ptr vars (varTrkIndex -> stkOffs)
 
-    unsigned          emitGCrFrameOffsCnt; // Number of       tracked stack ptr vars
-    int               emitGCrFrameOffsMin; // Min offset of a tracked stack ptr var
-    int               emitGCrFrameOffsMax; // Max offset of a tracked stack ptr var
-    bool              emitContTrkPtrLcls;  // All lcl between emitGCrFrameOffsMin/Max are only tracked stack ptr vars
-    GCFrameLifetime** emitGCrFrameLiveTab; // Cache of currently live varPtrs (stkOffs -> varPtrDsc)
+    unsigned          emitGCrFrameOffsCnt = 0; // Number of       tracked stack ptr vars
+    int               emitGCrFrameOffsMin = 0; // Min offset of a tracked stack ptr var
+    int               emitGCrFrameOffsMax = 0; // Max offset of a tracked stack ptr var
+    bool              emitContTrkPtrLcls; // All lcl between emitGCrFrameOffsMin/Max are only tracked stack ptr vars
+    GCFrameLifetime** emitGCrFrameLiveTab = nullptr; // Cache of currently live varPtrs (stkOffs -> varPtrDsc)
 
     int emitSyncThisObjOffs; // what is the offset of "this" for synchronized methods?
 
@@ -2090,9 +2091,9 @@ public:
         } u2;
     };
 
-    unsigned emitCntStackDepth; // 0 in prolog/epilog, One DWORD elsewhere
-    unsigned emitMaxStackDepth; // actual computed max. stack depth
-    unsigned emitCurStackLvl;   // amount of bytes pushed on stack
+    unsigned emitCntStackDepth;     // 0 in prolog/epilog, One DWORD elsewhere
+    unsigned emitMaxStackDepth = 0; // actual computed max. stack depth
+    unsigned emitCurStackLvl   = 0; // amount of bytes pushed on stack
 
     void emitStackPush(BYTE* addr, GCtype gcType);
     void emitStackPushN(BYTE* addr, unsigned count);
@@ -2207,11 +2208,9 @@ public:
                             CORINFO_SIG_INFO*     callSig,       /* IN */
                             CORINFO_METHOD_HANDLE methodHandle); /* IN */
 
-#ifdef DEBUG
     // This is a scratch buffer used to minimize the number of sig info structs
     // we have to allocate for recordCallSite.
-    CORINFO_SIG_INFO* emitScratchSigInfo;
-#endif // DEBUG
+    INDEBUG(CORINFO_SIG_INFO* emitScratchSigInfo = nullptr;)
 
 /************************************************************************/
 /*               Logic to collect and display statistics                */
@@ -2571,18 +2570,9 @@ inline BYTE* emitter::emitCodeWithInstructionSize(BYTE* codePtrBefore, BYTE* new
     return newCodePointer;
 }
 
-/*****************************************************************************
- *
- *  Add a new IG to the current list, and get it ready to receive code.
- */
-
 inline void emitter::emitNewIG()
 {
-    insGroup* ig = emitAllocAndLinkIG();
-
-    /* It's linked in. Now, set it up to accept code */
-
-    emitGenIG(ig);
+    emitGenIG(emitAllocAndLinkIG());
 }
 
 #if !defined(JIT32_GCENCODER)

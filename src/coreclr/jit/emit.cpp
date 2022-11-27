@@ -864,108 +864,18 @@ insGroup* emitter::emitSavIG(bool emitAdd)
     return ig;
 }
 
-/*****************************************************************************
- *
- *  Start generating code to be scheduled; called once per method.
- */
-
 void emitter::emitBegFN()
 {
-    VarSetOps::AssignNoCopy(emitComp, emitPrevGCrefVars, VarSetOps::MakeEmpty(emitComp));
-    VarSetOps::AssignNoCopy(emitComp, emitInitGCrefVars, VarSetOps::MakeEmpty(emitComp));
-    VarSetOps::AssignNoCopy(emitComp, emitThisGCrefVars, VarSetOps::MakeEmpty(emitComp));
+    emitPrevGCrefVars = VarSetOps::MakeEmpty(emitComp);
+    emitInitGCrefVars = VarSetOps::MakeEmpty(emitComp);
+    emitThisGCrefVars = VarSetOps::MakeEmpty(emitComp);
 #ifdef DEBUG
-    VarSetOps::AssignNoCopy(emitComp, debugPrevGCrefVars, VarSetOps::MakeEmpty(emitComp));
-    VarSetOps::AssignNoCopy(emitComp, debugThisGCrefVars, VarSetOps::MakeEmpty(emitComp));
-    debugPrevRegPtrDsc = nullptr;
-    debugPrevGCrefRegs = RBM_NONE;
-    debugPrevByrefRegs = RBM_NONE;
+    debugPrevGCrefVars = VarSetOps::MakeEmpty(emitComp);
+    debugThisGCrefVars = VarSetOps::MakeEmpty(emitComp);
+
+    emitChkAlign =
+        (emitComp->compCodeOpt() != SMALL_CODE) && !emitComp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT);
 #endif
-
-    insGroup* ig;
-
-    /* Assume we won't need the temp instruction buffer */
-
-    emitCurIGfreeBase = nullptr;
-    emitIGbuffSize    = 0;
-
-#if FEATURE_LOOP_ALIGN
-    emitLastAlignedIgNum = 0;
-    emitLastLoopStart    = 0;
-    emitLastLoopEnd      = 0;
-#endif
-
-    /* Record stack frame info (the temp size is just an estimate) */
-
-    INDEBUG(emitChkAlign =
-                (emitComp->compCodeOpt() != SMALL_CODE) && !emitComp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT));
-
-    /* We have no epilogs yet */
-
-    emitEpilogSize = 0;
-    emitEpilogCnt  = 0;
-
-#ifdef TARGET_XARCH
-    emitExitSeqBegLoc.Init();
-    emitExitSeqSize = INT_MAX;
-#endif // TARGET_XARCH
-
-    emitPlaceholderList = emitPlaceholderLast = nullptr;
-
-#ifdef JIT32_GCENCODER
-    emitEpilogList = emitEpilogLast = nullptr;
-#endif // JIT32_GCENCODER
-
-    /* We don't have any jumps */
-
-    emitJumpList = emitJumpLast = nullptr;
-    emitCurIGjmpList            = nullptr;
-
-    emitFwdJumps   = false;
-    emitNoGCIG     = false;
-    emitForceNewIG = false;
-
-#if FEATURE_LOOP_ALIGN
-    /* We don't have any align instructions */
-
-    emitAlignList = emitAlignLast = nullptr;
-    emitCurIGAlignList            = nullptr;
-#endif
-
-    /* We have not recorded any live sets */
-
-    assert(VarSetOps::IsEmpty(emitComp, emitThisGCrefVars));
-    assert(VarSetOps::IsEmpty(emitComp, emitInitGCrefVars));
-    assert(VarSetOps::IsEmpty(emitComp, emitPrevGCrefVars));
-    emitThisGCrefRegs = RBM_NONE;
-    emitInitGCrefRegs = RBM_NONE;
-    emitPrevGCrefRegs = RBM_NONE;
-    emitThisByrefRegs = RBM_NONE;
-    emitInitByrefRegs = RBM_NONE;
-    emitPrevByrefRegs = RBM_NONE;
-
-    emitForceStoreGCState = false;
-
-#ifdef DEBUG
-
-    emitIssuing = false;
-
-#endif
-
-    /* Assume there will be no GC ref variables */
-
-    emitGCrFrameOffsMin = emitGCrFrameOffsMax = emitGCrFrameOffsCnt = 0;
-#ifdef DEBUG
-    emitGCrFrameLiveTab = nullptr;
-#endif
-
-    /* We have no groups / code at this point */
-
-    emitIGlist = emitIGlast = nullptr;
-
-    emitCurCodeOffset = 0;
-    emitFirstColdIG   = nullptr;
-    emitTotalCodeSize = 0;
 
 #if EMITTER_STATS
     emitTotalIGmcnt++;
@@ -974,38 +884,29 @@ void emitter::emitBegFN()
     emitCurPrologIGSize = 0;
 #endif
 
-    emitInsCount = 0;
-
 #if !FEATURE_FIXED_OUT_ARGS
-    emitCurStackLvl   = 0;
-    emitMaxStackDepth = 0;
-    emitCntStackDepth = sizeof(int);
+    emitCntStackDepth = 4;
 #endif
 
 #ifdef PSEUDORANDOM_NOP_INSERTION
-    // for random NOP insertion
-
     emitEnableRandomNops();
     emitComp->info.compRNG.Init(emitComp->info.compChecksum);
-    emitNextNop           = emitNextRandomNop();
-    emitInInstrumentation = false;
-#endif // PSEUDORANDOM_NOP_INSERTION
+    emitNextNop = emitNextRandomNop();
+#endif
 
-    /* Create the first IG, it will be used for the prolog */
+    // Create the first IG, it will be used for the prolog.
 
     emitNxtIGnum = 1;
 
-    emitPrologIG = emitIGlist = emitIGlast = emitCurIG = ig = emitAllocIG();
+    insGroup* ig = emitAllocIG();
+    ig->igNext   = nullptr;
 
-    emitLastIns = nullptr;
+    emitPrologIG = ig;
+    emitIGlist   = ig;
+    emitIGlast   = ig;
+    emitCurIG    = ig;
 
-    ig->igNext = nullptr;
-
-#ifdef DEBUG
-    emitScratchSigInfo = nullptr;
-#endif // DEBUG
-
-    /* Append another group, to start generating the method body */
+    // Append another group, to start generating the method body
 
     emitNewIG();
 }
