@@ -1304,7 +1304,7 @@ void CodeGen::genEmitMachineCode()
     // On arm due to prespilling of arguments, tracked stk-ptrs may not be contiguous
     trackedStackPtrsContig = !compiler->opts.compDbgEnC && !compiler->compIsProfilerHookNeeded();
 #else
-    trackedStackPtrsContig = !compiler->opts.compDbgEnC;
+    trackedStackPtrsContig    = !compiler->opts.compDbgEnC;
 #endif
 
     codeSize = GetEmitter()->emitEndCodeGen(compiler, trackedStackPtrsContig, GetInterruptible(),
@@ -3508,7 +3508,7 @@ void CodeGen::CheckUseBlockInit()
 #elif defined(TARGET_64BIT)
     genUseBlockInit = slotCount > 8;
 #else
-    genUseBlockInit        = slotCount > 4;
+    genUseBlockInit           = slotCount > 4;
 #endif
 
     genInitStkLclCnt = slotCount;
@@ -3649,103 +3649,6 @@ regMaskTP CodeGen::genStackAllocRegisterMask(unsigned frameSize, regMaskTP maskC
 }
 
 #endif // TARGET_ARM
-
-/*****************************************************************************
- *
- *  initFltRegs -- The mask of float regs to be zeroed.
- *  initDblRegs -- The mask of double regs to be zeroed.
- *  initReg -- A zero initialized integer reg to copy from.
- *
- *  Does best effort to move between VFP/xmm regs if one is already
- *  initialized to 0. (Arm Only) Else copies from the integer register which
- *  is slower.
- */
-void CodeGen::genZeroInitFltRegs(const regMaskTP& initFltRegs, const regMaskTP& initDblRegs, const regNumber& initReg)
-{
-    assert(generatingProlog);
-
-    // The first float/double reg that is initialized to 0. So they can be used to
-    // initialize the remaining registers.
-    regNumber fltInitReg = REG_NA;
-    regNumber dblInitReg = REG_NA;
-
-    // Iterate through float/double registers and initialize them to 0 or
-    // copy from already initialized register of the same type.
-    regMaskTP regMask = genRegMask(REG_FP_FIRST);
-    for (regNumber reg = REG_FP_FIRST; reg <= REG_FP_LAST; reg = REG_NEXT(reg), regMask <<= 1)
-    {
-        if (regMask & initFltRegs)
-        {
-            // Do we have a float register already set to 0?
-            if (fltInitReg != REG_NA)
-            {
-                // Copy from float.
-                inst_Mov(TYP_FLOAT, reg, fltInitReg, /* canSkip */ false);
-            }
-            else
-            {
-#ifdef TARGET_ARM
-                // Do we have a double register initialized to 0?
-                if (dblInitReg != REG_NA)
-                {
-                    // Copy from double.
-                    inst_RV_RV(INS_vcvt_d2f, reg, dblInitReg, TYP_FLOAT);
-                }
-                else
-                {
-                    // Copy from int.
-                    inst_Mov(TYP_FLOAT, reg, initReg, /* canSkip */ false);
-                }
-#elif defined(TARGET_XARCH)
-                // XORPS is the fastest and smallest way to initialize a XMM register to zero.
-                inst_RV_RV(INS_xorps, reg, reg, TYP_DOUBLE);
-                dblInitReg = reg;
-#elif defined(TARGET_ARM64)
-                // We will just zero out the entire vector register. This sets it to a double/float zero value
-                GetEmitter()->emitIns_R_I(INS_movi, EA_16BYTE, reg, 0x00, INS_OPTS_16B);
-#else // TARGET*
-#error Unsupported or unset target architecture
-#endif
-                fltInitReg = reg;
-            }
-        }
-        else if (regMask & initDblRegs)
-        {
-            // Do we have a double register already set to 0?
-            if (dblInitReg != REG_NA)
-            {
-                // Copy from double.
-                inst_Mov(TYP_DOUBLE, reg, dblInitReg, /* canSkip */ false);
-            }
-            else
-            {
-#ifdef TARGET_ARM
-                // Do we have a float register initialized to 0?
-                if (fltInitReg != REG_NA)
-                {
-                    // Copy from float.
-                    inst_RV_RV(INS_vcvt_f2d, reg, fltInitReg, TYP_DOUBLE);
-                }
-                else
-                {
-                    // Copy from int.
-                    inst_RV_RV_RV(INS_vmov_i2d, reg, initReg, initReg, EA_8BYTE);
-                }
-#elif defined(TARGET_XARCH)
-                // XORPS is the fastest and smallest way to initialize a XMM register to zero.
-                inst_RV_RV(INS_xorps, reg, reg, TYP_DOUBLE);
-                fltInitReg = reg;
-#elif defined(TARGET_ARM64)
-                // We will just zero out the entire vector register. This sets it to a double/float zero value
-                GetEmitter()->emitIns_R_I(INS_movi, EA_16BYTE, reg, 0x00, INS_OPTS_16B);
-#else // TARGET*
-#error Unsupported or unset target architecture
-#endif
-                dblInitReg = reg;
-            }
-        }
-    }
-}
 
 /*-----------------------------------------------------------------------------
  *
@@ -5502,7 +5405,9 @@ void CodeGen::genFnProlog()
 
     regMaskTP initRegs    = RBM_NONE; // Registers which must be init'ed.
     regMaskTP initFltRegs = RBM_NONE; // FP registers which must be init'ed.
+#ifdef TARGET_ARM
     regMaskTP initDblRegs = RBM_NONE;
+#endif
 
     unsigned   varNum;
     LclVarDsc* varDsc;
@@ -5585,10 +5490,12 @@ void CodeGen::genFnProlog()
                     goto INIT_STK;
                 }
             }
+#ifdef TARGET_ARM
             else if (varDsc->TypeGet() == TYP_DOUBLE)
             {
                 initDblRegs |= regMask;
             }
+#endif
             else
             {
                 initFltRegs |= regMask;
@@ -6054,8 +5961,9 @@ void CodeGen::genFnProlog()
         }
     }
 
-    if (initFltRegs | initDblRegs)
+    if ((initFltRegs ARM_ONLY(| initDblRegs)) != RBM_NONE)
     {
+#ifdef TARGET_ARM
         // If initReg is not in initRegs then we will use REG_SCRATCH
         if ((genRegMask(initReg) & initRegs) == 0)
         {
@@ -6063,24 +5971,19 @@ void CodeGen::genFnProlog()
             initRegZeroed = false;
         }
 
-#ifdef TARGET_ARM
-        // This is needed only for Arm since it can use a zero initialized int register
-        // to initialize vfp registers.
         if (!initRegZeroed)
         {
             instGen_Set_Reg_To_Zero(EA_PTRSIZE, initReg);
             initRegZeroed = true;
         }
-#endif // TARGET_ARM
 
-        genZeroInitFltRegs(initFltRegs, initDblRegs, initReg);
+        PrologZeroFloatRegs(initFltRegs, initDblRegs, initReg);
+#else
+        PrologZeroFloatRegs(initFltRegs);
+#endif
     }
 
-    //-----------------------------------------------------------------------------
-
-    //
     // Increase the prolog size here only if fully interruptible.
-    //
 
     if (GetInterruptible())
     {
@@ -6104,7 +6007,7 @@ void CodeGen::genFnProlog()
 #ifdef TARGET_X86
     if (compiler->info.compIsVarArgs && (compiler->lvaGetDesc(compiler->lvaVarargsBaseOfStkArgs)->GetRefCount() > 0))
     {
-        InitVarargsStackParamsBaseOffset();
+        PrologInitVarargsStackParamsBaseOffset();
     }
 #endif
 

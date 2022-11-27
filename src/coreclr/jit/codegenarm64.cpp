@@ -8888,4 +8888,27 @@ regNumber CodeGen::emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, 
     return dst->GetRegNum();
 }
 
+void CodeGen::PrologZeroFloatRegs(regMaskTP floatRegs)
+{
+    // TODO-MIKE-CQ: Copying from another reg instead of just zeroing with movi is dubious...
+    regNumber zeroReg = REG_NA;
+
+    for (regNumber reg = REG_FP_FIRST; reg <= REG_FP_LAST; reg = REG_NEXT(reg))
+    {
+        if ((floatRegs & genRegMask(reg)) == RBM_NONE)
+        {
+            continue;
+        }
+
+        if (zeroReg == REG_NA)
+        {
+            GetEmitter()->emitIns_R_I(INS_movi, EA_16BYTE, reg, 0, INS_OPTS_16B);
+            zeroReg = reg;
+            continue;
+        }
+
+        GetEmitter()->emitIns_Mov(INS_fmov, EA_8BYTE, reg, zeroReg, /* canSkip */ false);
+    }
+}
+
 #endif // TARGET_ARM64

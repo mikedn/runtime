@@ -1920,4 +1920,53 @@ int CodeGenInterface::genCallerSPtoInitialSPdelta() const
     return callerSPtoSPdelta;
 }
 
+void CodeGen::PrologZeroFloatRegs(regMaskTP floatRegs, regMaskTP doubleRegs, regNumber initReg)
+{
+    regNumber fltInitReg = REG_NA;
+    regNumber dblInitReg = REG_NA;
+    regMaskTP regMask    = genRegMask(REG_FP_FIRST);
+
+    for (regNumber reg = REG_FP_FIRST; reg <= REG_FP_LAST; reg = REG_NEXT(reg), regMask <<= 1)
+    {
+        if ((regMask & floatRegs) != RBM_NONE)
+        {
+            if (fltInitReg == REG_NA)
+            {
+                if (dblInitReg != REG_NA)
+                {
+                    GetEmitter()->emitIns_R_R(INS_vcvt_d2f, EA_4BYTE, reg, dblInitReg);
+                }
+                else
+                {
+                    GetEmitter()->emitIns_Mov(INS_vmov_i2f, EA_4BYTE, reg, initReg, /* canSkip */ false);
+                }
+
+                fltInitReg = reg;
+                continue;
+            }
+
+            GetEmitter()->emitIns_Mov(INS_vmov, EA_4BYTE, reg, fltInitReg, /* canSkip */ false);
+        }
+        else if ((regMask & doubleRegs) != RBM_NONE)
+        {
+            if (dblInitReg == REG_NA)
+            {
+                if (fltInitReg != REG_NA)
+                {
+                    GetEmitter()->emitIns_R_R(INS_vcvt_f2d, EA_8BYTE, reg, fltInitReg);
+                }
+                else
+                {
+                    GetEmitter()->emitIns_R_R_R(INS_vmov_i2d, EA_8BYTE, reg, initReg, initReg);
+                }
+
+                dblInitReg = reg;
+                continue;
+            }
+
+            GetEmitter()->emitIns_Mov(INS_vmov, EA_8BYTE, reg, dblInitReg, /* canSkip */ false);
+        }
+    }
+}
+
 #endif // TARGET_ARM

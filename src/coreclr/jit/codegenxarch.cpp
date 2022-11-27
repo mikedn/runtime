@@ -9103,10 +9103,33 @@ void CodeGen::genVzeroupperIfNeeded(bool check256bitOnly /* = true*/)
     }
 }
 
-#ifdef TARGET_X86
-void CodeGen::InitVarargsStackParamsBaseOffset()
+void CodeGen::PrologZeroFloatRegs(regMaskTP floatRegs)
 {
-    JITDUMP("; InitVarargsStackParamsBaseOffset\n");
+    // TODO-MIKE-CQ: Copying from another reg instead of just zeroing with xorps is dubious...
+    regNumber zeroReg = REG_NA;
+
+    for (regNumber reg = REG_FP_FIRST; reg <= REG_FP_LAST; reg = REG_NEXT(reg))
+    {
+        if ((floatRegs & genRegMask(reg)) == RBM_NONE)
+        {
+            continue;
+        }
+
+        if (zeroReg == REG_NA)
+        {
+            GetEmitter()->emitIns_R_R(INS_xorps, EA_16BYTE, reg, reg);
+            zeroReg = reg;
+            continue;
+        }
+
+        GetEmitter()->emitIns_Mov(INS_movaps, EA_16BYTE, reg, zeroReg, /* canSkip */ false);
+    }
+}
+
+#ifdef TARGET_X86
+void CodeGen::PrologInitVarargsStackParamsBaseOffset()
+{
+    JITDUMP("; PrologInitVarargsStackParamsBaseOffset\n");
 
     LclVarDsc* varDsc = compiler->lvaGetDesc(compiler->lvaVarargsBaseOfStkArgs);
 

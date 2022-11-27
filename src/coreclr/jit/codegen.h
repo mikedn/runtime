@@ -428,7 +428,11 @@ protected:
 
 #endif // TARGET_XARCH
 
-    void genZeroInitFltRegs(const regMaskTP& initFltRegs, const regMaskTP& initDblRegs, const regNumber& initReg);
+#ifdef TARGET_ARM
+    void PrologZeroFloatRegs(regMaskTP floatRegs, regMaskTP doubleRegs, regNumber initReg);
+#else
+    void PrologZeroFloatRegs(regMaskTP floatRegs);
+#endif
 
     regNumber genGetZeroReg(regNumber initReg, bool* pInitRegZeroed);
 
@@ -468,7 +472,7 @@ protected:
     void genFnEpilog(BasicBlock* block);
     void UpdateParamsWithInitialReg();
 #ifdef TARGET_X86
-    void InitVarargsStackParamsBaseOffset();
+    void PrologInitVarargsStackParamsBaseOffset();
 #endif
 
 #ifdef FEATURE_EH_FUNCLETS
