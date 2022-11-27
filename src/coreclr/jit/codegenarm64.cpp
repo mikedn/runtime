@@ -1604,72 +1604,65 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
         // This emits a pair of adrp/add (two instructions) with fix-ups.
         GetEmitter()->emitIns_R_AI(INS_adrp, size, reg, imm DEBUGARG(targetHandle) DEBUGARG(gtFlags));
     }
-    else if (imm == 0)
+    else if ((imm == 0) || emitter::emitIns_valid_imm_for_mov(imm, size))
     {
-        instGen_Set_Reg_To_Zero(size, reg);
+        GetEmitter()->emitIns_R_I(INS_mov, size, reg, imm);
     }
     else
     {
-        if (emitter::emitIns_valid_imm_for_mov(imm, size))
+        // Arm64 allows any arbitrary 16-bit constant to be loaded into a register halfword
+        // There are three forms
+        //    movk which loads into any halfword preserving the remaining halfwords
+        //    movz which loads into any halfword zeroing the remaining halfwords
+        //    movn which loads into any halfword zeroing the remaining halfwords then bitwise inverting the register
+        // In some cases it is preferable to use movn, because it has the side effect of filling the other halfwords
+        // with ones
+
+        // Determine whether movn or movz will require the fewest instructions to populate the immediate
+        int preferMovn = 0;
+
+        for (int i = (size == EA_8BYTE) ? 48 : 16; i >= 0; i -= 16)
         {
-            GetEmitter()->emitIns_R_I(INS_mov, size, reg, imm);
+            if (uint16_t(imm >> i) == 0xffff)
+                ++preferMovn; // a single movk 0xffff could be skipped if movn was used
+            else if (uint16_t(imm >> i) == 0x0000)
+                --preferMovn; // a single movk 0 could be skipped if movz was used
         }
-        else
+
+        // Select the first instruction.  Any additional instruction will use movk
+        instruction ins = (preferMovn > 0) ? INS_movn : INS_movz;
+
+        // Initial movz or movn will fill the remaining bytes with the skipVal
+        // This can allow skipping filling a halfword
+        uint16_t skipVal = (preferMovn > 0) ? 0xffff : 0;
+
+        unsigned bits = (size == EA_8BYTE) ? 64 : 32;
+
+        // Iterate over imm examining 16 bits at a time
+        for (unsigned i = 0; i < bits; i += 16)
         {
-            // Arm64 allows any arbitrary 16-bit constant to be loaded into a register halfword
-            // There are three forms
-            //    movk which loads into any halfword preserving the remaining halfwords
-            //    movz which loads into any halfword zeroing the remaining halfwords
-            //    movn which loads into any halfword zeroing the remaining halfwords then bitwise inverting the register
-            // In some cases it is preferable to use movn, because it has the side effect of filling the other halfwords
-            // with ones
+            uint16_t imm16 = uint16_t(imm >> i);
 
-            // Determine whether movn or movz will require the fewest instructions to populate the immediate
-            int preferMovn = 0;
-
-            for (int i = (size == EA_8BYTE) ? 48 : 16; i >= 0; i -= 16)
+            if (imm16 != skipVal)
             {
-                if (uint16_t(imm >> i) == 0xffff)
-                    ++preferMovn; // a single movk 0xffff could be skipped if movn was used
-                else if (uint16_t(imm >> i) == 0x0000)
-                    --preferMovn; // a single movk 0 could be skipped if movz was used
-            }
-
-            // Select the first instruction.  Any additional instruction will use movk
-            instruction ins = (preferMovn > 0) ? INS_movn : INS_movz;
-
-            // Initial movz or movn will fill the remaining bytes with the skipVal
-            // This can allow skipping filling a halfword
-            uint16_t skipVal = (preferMovn > 0) ? 0xffff : 0;
-
-            unsigned bits = (size == EA_8BYTE) ? 64 : 32;
-
-            // Iterate over imm examining 16 bits at a time
-            for (unsigned i = 0; i < bits; i += 16)
-            {
-                uint16_t imm16 = uint16_t(imm >> i);
-
-                if (imm16 != skipVal)
+                if (ins == INS_movn)
                 {
-                    if (ins == INS_movn)
-                    {
-                        // For the movn case, we need to bitwise invert the immediate.  This is because
-                        //   (movn x0, ~imm16) === (movz x0, imm16; or x0, x0, #0xffff`ffff`ffff`0000)
-                        imm16 = ~imm16;
-                    }
-
-                    GetEmitter()->emitIns_R_I_I(ins, size, reg, imm16, i, INS_OPTS_LSL);
-
-                    // Once the initial movz/movn is emitted the remaining instructions will all use movk
-                    ins = INS_movk;
+                    // For the movn case, we need to bitwise invert the immediate.  This is because
+                    //   (movn x0, ~imm16) === (movz x0, imm16; or x0, x0, #0xffff`ffff`ffff`0000)
+                    imm16 = ~imm16;
                 }
-            }
 
-            // We must emit a movn or movz or we have not done anything
-            // The cases which hit this assert should be (emitIns_valid_imm_for_mov() == true) and
-            // should not be in this else condition
-            assert(ins == INS_movk);
+                GetEmitter()->emitIns_R_I_I(ins, size, reg, imm16, i, INS_OPTS_LSL);
+
+                // Once the initial movz/movn is emitted the remaining instructions will all use movk
+                ins = INS_movk;
+            }
         }
+
+        // We must emit a movn or movz or we have not done anything
+        // The cases which hit this assert should be (emitIns_valid_imm_for_mov() == true) and
+        // should not be in this else condition
+        assert(ins == INS_movk);
     }
 
     regSet.verifyRegUsed(reg);
@@ -2313,26 +2306,26 @@ void CodeGen::genLclHeap(GenTree* tree)
         BasicBlock* done = genCreateTempLabel();
 
         //       subs  regCnt, SP, regCnt      // regCnt now holds ultimate SP
-        GetEmitter()->emitIns_R_R_R(INS_subs, EA_PTRSIZE, regCnt, REG_SPBASE, regCnt);
+        GetEmitter()->emitIns_R_R_R(INS_subs, EA_8BYTE, regCnt, REG_SP, regCnt);
 
         inst_JMP(EJ_vc, loop); // branch if the V flag is not set
 
         // Overflow, set regCnt to lowest possible value
-        instGen_Set_Reg_To_Zero(EA_PTRSIZE, regCnt);
+        GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, regCnt, 0);
 
         genDefineTempLabel(loop);
 
         // tickle the page - Read from the updated SP - this triggers a page fault when on the guard page
-        GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, REG_ZR, REG_SPBASE, 0);
+        GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, REG_ZR, REG_SP, 0);
 
         // decrement SP by eeGetPageSize()
-        GetEmitter()->emitIns_R_R_I(INS_sub, EA_PTRSIZE, regTmp, REG_SPBASE, compiler->eeGetPageSize());
+        GetEmitter()->emitIns_R_R_I(INS_sub, EA_8BYTE, regTmp, REG_SP, compiler->eeGetPageSize());
 
-        GetEmitter()->emitIns_R_R(INS_cmp, EA_PTRSIZE, regTmp, regCnt);
+        GetEmitter()->emitIns_R_R(INS_cmp, EA_8BYTE, regTmp, regCnt);
         inst_JMP(EJ_lo, done);
 
         // Update SP to be at the next page of stack that we will tickle
-        GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, REG_SPBASE, regTmp, /* canSkip */ false);
+        GetEmitter()->emitIns_Mov(INS_mov, EA_8BYTE, REG_SP, regTmp, /* canSkip */ false);
 
         // Jump to loop and tickle new stack address
         inst_JMP(EJ_jmp, loop);
@@ -2341,7 +2334,7 @@ void CodeGen::genLclHeap(GenTree* tree)
         genDefineTempLabel(done);
 
         // Now just move the final value to SP
-        GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, REG_SPBASE, regCnt, /* canSkip */ false);
+        GetEmitter()->emitIns_Mov(INS_mov, EA_8BYTE, REG_SP, regCnt, /* canSkip */ false);
 
         // lastTouchDelta is dynamic, and can be up to a page. So if we have outgoing arg space,
         // we're going to assume the worst and probe.

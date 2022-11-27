@@ -207,11 +207,12 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
     }
     else if (imm == 0)
     {
-        instGen_Set_Reg_To_Zero(size, reg);
+        GetEmitter()->emitIns_R_I(INS_mov, size, reg, 0);
     }
     else
     {
         // TODO-CrossBitness: we wouldn't need the cast below if we had CodeGen::instGen_Set_Reg_To_Reloc_Imm.
+        // TODO-MIKE-Review: Why the crap does ARM use ssize_t for imm?!?
         const int val32 = (int)imm;
         if (emitter::emitIns_valid_imm_for_mov(val32))
         {
@@ -455,7 +456,7 @@ void CodeGen::genLclHeap(GenTree* tree)
         target_size_t pushCount = amount / REGSIZE_BYTES;
         if (pushCount <= 4)
         {
-            instGen_Set_Reg_To_Zero(EA_PTRSIZE, regCnt);
+            GetEmitter()->emitIns_R_I(INS_mov, EA_4BYTE, regCnt, 0);
 
             while (pushCount != 0)
             {
@@ -497,7 +498,7 @@ void CodeGen::genLclHeap(GenTree* tree)
         // Since we have to zero out the allocated memory AND ensure that the stack pointer is always valid
         // by tickling the pages, we will just push 0's on the stack.
 
-        instGen_Set_Reg_To_Zero(EA_PTRSIZE, regTmp);
+        GetEmitter()->emitIns_R_I(INS_mov, EA_4BYTE, regTmp, 0);
 
         // Loop:
         BasicBlock* loop = genCreateTempLabel();
@@ -557,7 +558,7 @@ void CodeGen::genLclHeap(GenTree* tree)
         inst_JMP(EJ_vc, loop); // branch if the V flag is not set
 
         // Overflow, set regCnt to lowest possible value
-        instGen_Set_Reg_To_Zero(EA_PTRSIZE, regCnt);
+        GetEmitter()->emitIns_R_I(INS_mov, EA_4BYTE, regCnt, 0);
 
         genDefineTempLabel(loop);
 

@@ -781,7 +781,7 @@ void CodeGen::genCodeForLongUMod(GenTreeOp* node)
     const regNumber tempReg = node->GetSingleTempReg();
     inst_Mov(TYP_INT, tempReg, REG_EAX, /* canSkip */ false);
     inst_Mov(TYP_INT, REG_EAX, REG_EDX, /* canSkip */ false);
-    instGen_Set_Reg_To_Zero(EA_PTRSIZE, REG_EDX);
+    GetEmitter()->emitIns_R_R(INS_xor, EA_4BYTE, REG_EDX, REG_EDX);
     inst_RV(INS_div, divisor->GetRegNum(), TYP_INT);
     inst_Mov(TYP_INT, REG_EAX, tempReg, /* canSkip */ false);
 
@@ -837,17 +837,17 @@ void CodeGen::genCodeForDivMod(GenTreeOp* treeNode)
     genCopyRegIfNeeded(dividend, REG_RAX);
 
     // zero or sign extend rax to rdx
-    if (oper == GT_UMOD || oper == GT_UDIV ||
-        (dividend->IsIntegralConst() && (dividend->AsIntConCommon()->IconValue() > 0)))
+    if ((oper == GT_UMOD) || (oper == GT_UDIV) ||
+        (dividend->IsIntegralConst() && (dividend->AsIntCon()->GetValue() > 0)))
     {
-        instGen_Set_Reg_To_Zero(EA_PTRSIZE, REG_EDX);
+        GetEmitter()->emitIns_R_R(INS_xor, EA_4BYTE, REG_EDX, REG_EDX);
     }
     else
     {
         emit->emitIns(INS_cdq, size);
-        // the cdq instruction writes RDX, So clear the gcInfo for RDX
-        gcInfo.gcMarkRegSetNpt(RBM_RDX);
     }
+
+    gcInfo.gcMarkRegSetNpt(RBM_RDX);
 
     emitInsUnary((oper == GT_UMOD) || (oper == GT_UDIV) ? INS_div : INS_idiv, size, divisor);
 
@@ -2141,7 +2141,7 @@ void CodeGen::genStackPointerDynamicAdjustmentWithProbe(regNumber regSpDelta, re
     inst_RV_RV(INS_add, regSpDelta, REG_SPBASE, TYP_I_IMPL);
     inst_JMP(EJ_jb, loop);
 
-    instGen_Set_Reg_To_Zero(EA_PTRSIZE, regSpDelta);
+    GetEmitter()->emitIns_R_R(INS_xor, EA_4BYTE, regSpDelta, regSpDelta);
 
     genDefineTempLabel(loop);
 
