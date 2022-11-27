@@ -1620,7 +1620,11 @@ void CodeGen::ConsumeStructStore(
     {
         assert(store->HasTempReg(sizeReg));
 
-        genSetRegToIcon(sizeReg, layout->GetSize());
+#ifdef TARGET_XARCH
+        GetEmitter()->emitIns_R_I(INS_mov, EA_4BYTE, sizeReg, static_cast<ssize_t>(layout->GetSize()));
+#else
+        instGen_Set_Reg_To_Imm(EA_4BYTE, sizeReg, static_cast<ssize_t>(layout->GetSize()));
+#endif
     }
 }
 

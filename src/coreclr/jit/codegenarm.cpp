@@ -271,7 +271,12 @@ void CodeGen::genSetRegToConst(regNumber targetReg, var_types targetType, GenTre
             }
             else
             {
-                genSetRegToIcon(targetReg, cnsVal, targetType);
+                // The only TYP_REF constant that can come this path is a managed 'null' since it is not
+                // relocatable.  Other ref type constants (e.g. string objects) go through a different
+                // code path.
+                noway_assert(targetType != TYP_REF || cnsVal == 0);
+
+                instGen_Set_Reg_To_Imm(emitActualTypeSize(targetType), targetReg, cnsVal);
             }
         }
         break;
@@ -287,7 +292,7 @@ void CodeGen::genSetRegToConst(regNumber targetReg, var_types targetType, GenTre
                 regNumber tmpReg = tree->GetSingleTempReg();
 
                 float f = forceCastToFloat(constValue);
-                genSetRegToIcon(tmpReg, *((int*)(&f)));
+                instGen_Set_Reg_To_Imm(EA_4BYTE, tmpReg, jitstd::bit_cast<int32_t>(f));
                 GetEmitter()->emitIns_Mov(INS_vmov_i2f, EA_4BYTE, targetReg, tmpReg, /* canSkip */ false);
             }
             else
@@ -300,8 +305,8 @@ void CodeGen::genSetRegToConst(regNumber targetReg, var_types targetType, GenTre
                 regNumber tmpReg1 = tree->ExtractTempReg();
                 regNumber tmpReg2 = tree->GetSingleTempReg();
 
-                genSetRegToIcon(tmpReg1, cv[0]);
-                genSetRegToIcon(tmpReg2, cv[1]);
+                instGen_Set_Reg_To_Imm(EA_4BYTE, tmpReg1, cv[0]);
+                instGen_Set_Reg_To_Imm(EA_4BYTE, tmpReg2, cv[1]);
 
                 GetEmitter()->emitIns_R_R_R(INS_vmov_i2d, EA_8BYTE, targetReg, tmpReg1, tmpReg2);
             }
@@ -482,7 +487,7 @@ void CodeGen::genLclHeap(GenTree* tree)
         }
 
         // regCnt will be the total number of bytes to locAlloc
-        genSetRegToIcon(regCnt, amount);
+        instGen_Set_Reg_To_Imm(EA_4BYTE, regCnt, amount);
     }
     else
     {

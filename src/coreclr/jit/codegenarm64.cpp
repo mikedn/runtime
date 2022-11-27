@@ -1692,7 +1692,12 @@ void CodeGen::genSetRegToConst(regNumber targetReg, var_types targetType, GenTre
             }
             else
             {
-                genSetRegToIcon(targetReg, cnsVal, targetType);
+                // The only TYP_REF constant that can come this path is a managed 'null' since it is not
+                // relocatable.  Other ref type constants (e.g. string objects) go through a different
+                // code path.
+                noway_assert(targetType != TYP_REF || cnsVal == 0);
+
+                instGen_Set_Reg_To_Imm(emitActualTypeSize(targetType), targetReg, cnsVal);
             }
         }
         break;
@@ -2238,7 +2243,8 @@ void CodeGen::genLclHeap(GenTree* tree)
         {
             regCnt = tree->ExtractTempReg();
         }
-        genSetRegToIcon(regCnt, amount, ((unsigned int)amount == amount) ? TYP_INT : TYP_LONG);
+
+        instGen_Set_Reg_To_Imm(amount > UINT32_MAX ? EA_8BYTE : EA_4BYTE, regCnt, amount);
     }
 
     if (compiler->info.compInitMem)
@@ -3587,12 +3593,13 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
     if (compiler->compProfilerMethHndIndirected)
     {
         instGen_Set_Reg_To_Imm(EA_PTR_DSP_RELOC, REG_PROFILER_ENTER_ARG_FUNC_ID,
-                               (ssize_t)compiler->compProfilerMethHnd);
+                               reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd));
         GetEmitter()->emitIns_R_R(INS_ldr, EA_PTRSIZE, REG_PROFILER_ENTER_ARG_FUNC_ID, REG_PROFILER_ENTER_ARG_FUNC_ID);
     }
     else
     {
-        genSetRegToIcon(REG_PROFILER_ENTER_ARG_FUNC_ID, (ssize_t)compiler->compProfilerMethHnd, TYP_I_IMPL);
+        instGen_Set_Reg_To_Imm(EA_8BYTE, REG_PROFILER_ENTER_ARG_FUNC_ID,
+                               reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd));
     }
 
     int callerSPOffset = compiler->lvaToCallerSPRelativeOffset(0, isFramePointerUsed());
@@ -3623,12 +3630,13 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
     if (compiler->compProfilerMethHndIndirected)
     {
         instGen_Set_Reg_To_Imm(EA_PTR_DSP_RELOC, REG_PROFILER_LEAVE_ARG_FUNC_ID,
-                               (ssize_t)compiler->compProfilerMethHnd);
+                               reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd));
         GetEmitter()->emitIns_R_R(INS_ldr, EA_PTRSIZE, REG_PROFILER_LEAVE_ARG_FUNC_ID, REG_PROFILER_LEAVE_ARG_FUNC_ID);
     }
     else
     {
-        genSetRegToIcon(REG_PROFILER_LEAVE_ARG_FUNC_ID, (ssize_t)compiler->compProfilerMethHnd, TYP_I_IMPL);
+        instGen_Set_Reg_To_Imm(EA_8BYTE, REG_PROFILER_LEAVE_ARG_FUNC_ID,
+                               reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd));
     }
 
     gcInfo.gcMarkRegSetNpt(RBM_PROFILER_LEAVE_ARG_FUNC_ID);

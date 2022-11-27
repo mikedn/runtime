@@ -23,28 +23,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "gcinfoencoder.h"
 #include "patchpointinfo.h"
 
-// Generate code that will set the given register to the integer constant.
-void CodeGen::genSetRegToIcon(regNumber reg, ssize_t val, var_types type DEBUGARG(GenTreeFlags gtFlags))
-{
-    // Reg cannot be a FP reg
-    assert(!genIsValidFloatReg(reg));
-
-    // The only TYP_REF constant that can come this path is a managed 'null' since it is not
-    // relocatable.  Other ref type constants (e.g. string objects) go through a different
-    // code path.
-    noway_assert(type != TYP_REF || val == 0);
-
-    if (val == 0)
-    {
-        instGen_Set_Reg_To_Zero(emitActualTypeSize(type), reg);
-    }
-    else
-    {
-        // TODO-XArch-CQ: needs all the optimized cases
-        GetEmitter()->emitIns_R_I(INS_mov, emitActualTypeSize(type), reg, val DEBUGARG(gtFlags));
-    }
-}
-
 void CodeGen::instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg)
 {
     GetEmitter()->emitIns_R_R(INS_xor, size, reg, reg);
@@ -80,12 +58,12 @@ void CodeGen::genSetGSSecurityCookie(regNumber initReg, bool* pInitRegZeroed)
     if (compiler->gsGlobalSecurityCookieAddr == nullptr)
     {
         noway_assert(compiler->gsGlobalSecurityCookieVal != 0);
+
 #ifdef TARGET_AMD64
-        if ((int)compiler->gsGlobalSecurityCookieVal != compiler->gsGlobalSecurityCookieVal)
+        if (!FitsIn<int32_t>(compiler->gsGlobalSecurityCookieVal))
         {
-            // initReg = #GlobalSecurityCookieVal64; [frame.GSSecurityCookie] = initReg
-            genSetRegToIcon(initReg, compiler->gsGlobalSecurityCookieVal, TYP_I_IMPL);
-            GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, initReg, compiler->lvaGSSecurityCookie, 0);
+            GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, initReg, compiler->gsGlobalSecurityCookieVal);
+            GetEmitter()->emitIns_S_R(INS_mov, EA_8BYTE, initReg, compiler->lvaGSSecurityCookie, 0);
             *pInitRegZeroed = false;
         }
         else
@@ -173,12 +151,10 @@ void CodeGen::genEmitGSCookieCheck(bool tailCallEpilog)
     if (compiler->gsGlobalSecurityCookieAddr == nullptr)
     {
 #ifdef TARGET_AMD64
-        // If GS cookie shift fits within 32-bits we can use 'cmp mem64, imm32'.
-        // Otherwise, load the shift into a reg and use 'cmp mem64, reg64'.
-        if ((int)compiler->gsGlobalSecurityCookieVal != (ssize_t)compiler->gsGlobalSecurityCookieVal)
+        if (!FitsIn<int32_t>(compiler->gsGlobalSecurityCookieVal))
         {
-            genSetRegToIcon(regGSCheck, compiler->gsGlobalSecurityCookieVal, TYP_I_IMPL);
-            GetEmitter()->emitIns_S_R(INS_cmp, EA_PTRSIZE, regGSCheck, compiler->lvaGSSecurityCookie, 0);
+            GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, regGSCheck, compiler->gsGlobalSecurityCookieVal);
+            GetEmitter()->emitIns_S_R(INS_cmp, EA_8BYTE, regGSCheck, compiler->lvaGSSecurityCookie, 0);
         }
         else
 #endif
@@ -566,7 +542,21 @@ void CodeGen::genSetRegToConst(regNumber targetReg, var_types targetType, GenTre
             }
             else
             {
-                genSetRegToIcon(targetReg, cnsVal, targetType DEBUGARG(tree->gtFlags));
+                // The only TYP_REF constant that can come this path is a managed 'null' since it is not
+                // relocatable.  Other ref type constants (e.g. string objects) go through a different
+                // code path.
+                noway_assert(targetType != TYP_REF || cnsVal == 0);
+
+                if (cnsVal == 0)
+                {
+                    instGen_Set_Reg_To_Zero(emitActualTypeSize(targetType), targetReg);
+                }
+                else
+                {
+                    // TODO-XArch-CQ: needs all the optimized cases
+                    GetEmitter()->emitIns_R_I(INS_mov, emitActualTypeSize(targetType), targetReg,
+                                              cnsVal DEBUGARG(tree->gtFlags));
+                }
             }
         }
         break;
@@ -2382,7 +2372,8 @@ void CodeGen::genLclHeap(GenTree* tree)
             amount /= STACK_ALIGN;
         }
 
-        genSetRegToIcon(regCnt, amount, ((int)amount == amount) ? TYP_INT : TYP_LONG);
+        GetEmitter()->emitIns_R_I(INS_mov, AMD64_ONLY(amount > UINT32_MAX ? EA_8BYTE :) EA_4BYTE, regCnt,
+                                  static_cast<ssize_t>(amount));
     }
 
     if (compiler->info.compInitMem)
@@ -7991,9 +7982,10 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
             }
 #endif
 
+            GetEmitter()->emitIns_R_I(INS_mov, EA_PTRSIZE, callTargetReg, reinterpret_cast<ssize_t>(pAddr));
+
+            callType   = emitter::EC_INDIR_ARD;
             callTarget = callTargetReg;
-            genSetRegToIcon(callTarget, (ssize_t)pAddr, TYP_I_IMPL);
-            callType = emitter::EC_INDIR_ARD;
         }
     }
 
@@ -8347,18 +8339,15 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
         // Profiler handle needs to be accessed through an indirection of a pointer.
         GetEmitter()->emitIns_R_AI(INS_mov, EA_PTR_DSP_RELOC, REG_ARG_0, (ssize_t)compiler->compProfilerMethHnd);
     }
+    else if (compiler->opts.compJitELTHookEnabled)
+    {
+        // COMPlus_JitELTHookEnabled does not require relocations.
+        GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, REG_ARG_0,
+                                  reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd));
+    }
     else
     {
-        // No need to record relocations, if we are generating ELT hooks under the influence
-        // of COMPlus_JitELTHookEnabled=1
-        if (compiler->opts.compJitELTHookEnabled)
-        {
-            genSetRegToIcon(REG_ARG_0, (ssize_t)compiler->compProfilerMethHnd, TYP_I_IMPL);
-        }
-        else
-        {
-            instGen_Set_Reg_To_Imm(EA_8BYTE, REG_ARG_0, (ssize_t)compiler->compProfilerMethHnd);
-        }
+        instGen_Set_Reg_To_Imm(EA_8BYTE, REG_ARG_0, (ssize_t)compiler->compProfilerMethHnd);
     }
 
     // RDX = caller's SP
@@ -8429,18 +8418,15 @@ void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
         GetEmitter()->emitIns_R_AI(INS_mov, EA_PTR_DSP_RELOC, REG_PROFILER_ENTER_ARG_0,
                                    (ssize_t)compiler->compProfilerMethHnd);
     }
+    else if (compiler->opts.compJitELTHookEnabled)
+    {
+        // COMPlus_JitELTHookEnabled does not require relocations.
+        GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, REG_PROFILER_ENTER_ARG_0,
+                                  reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd));
+    }
     else
     {
-        // No need to record relocations, if we are generating ELT hooks under the influence
-        // of COMPlus_JitELTHookEnabled=1
-        if (compiler->opts.compJitELTHookEnabled)
-        {
-            genSetRegToIcon(REG_PROFILER_ENTER_ARG_0, (ssize_t)compiler->compProfilerMethHnd, TYP_I_IMPL);
-        }
-        else
-        {
-            instGen_Set_Reg_To_Imm(EA_8BYTE, REG_PROFILER_ENTER_ARG_0, (ssize_t)compiler->compProfilerMethHnd);
-        }
+        instGen_Set_Reg_To_Imm(EA_8BYTE, REG_PROFILER_ENTER_ARG_0, (ssize_t)compiler->compProfilerMethHnd);
     }
 
     // R15 = caller's SP
@@ -8517,18 +8503,15 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
         // Profiler handle needs to be accessed through an indirection of an address.
         GetEmitter()->emitIns_R_AI(INS_mov, EA_PTR_DSP_RELOC, REG_ARG_0, (ssize_t)compiler->compProfilerMethHnd);
     }
+    else if (compiler->opts.compJitELTHookEnabled)
+    {
+        // COMPlus_JitELTHookEnabled does not require relocations.
+        GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, REG_ARG_0,
+                                  reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd));
+    }
     else
     {
-        // Don't record relocations, if we are generating ELT hooks under the influence
-        // of COMPlus_JitELTHookEnabled=1
-        if (compiler->opts.compJitELTHookEnabled)
-        {
-            genSetRegToIcon(REG_ARG_0, (ssize_t)compiler->compProfilerMethHnd, TYP_I_IMPL);
-        }
-        else
-        {
-            instGen_Set_Reg_To_Imm(EA_8BYTE, REG_ARG_0, (ssize_t)compiler->compProfilerMethHnd);
-        }
+        instGen_Set_Reg_To_Imm(EA_8BYTE, REG_ARG_0, (ssize_t)compiler->compProfilerMethHnd);
     }
 
     // RDX = caller's SP
@@ -8569,7 +8552,9 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
     }
     else if (compiler->opts.compJitELTHookEnabled)
     {
-        genSetRegToIcon(REG_ARG_0, (ssize_t)compiler->compProfilerMethHnd, TYP_I_IMPL);
+        // COMPlus_JitELTHookEnabled does not require relocations.
+        GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, REG_ARG_0,
+                                  reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd));
     }
     else
     {

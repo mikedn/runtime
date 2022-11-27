@@ -1123,9 +1123,6 @@ protected:
     void genConsumeHWIntrinsicOperands(GenTreeHWIntrinsic* tree);
 #endif
     void genEmitGSCookieCheck(bool pushReg);
-    void genSetRegToIcon(regNumber reg,
-                         ssize_t   val,
-                         var_types type = TYP_INT DEBUGARG(GenTreeFlags gtFlags = GTF_EMPTY));
     void genCodeForShift(GenTreeOp* shift);
 
 #if defined(TARGET_X86) || defined(TARGET_ARM)

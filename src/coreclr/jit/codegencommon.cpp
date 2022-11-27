@@ -890,9 +890,7 @@ void CodeGen::genEmitGSCookieCheck(bool pushReg)
 
     if (compiler->gsGlobalSecurityCookieAddr == nullptr)
     {
-        // load the GS cookie constant into a reg
-        //
-        genSetRegToIcon(regGSConst, compiler->gsGlobalSecurityCookieVal, TYP_I_IMPL);
+        instGen_Set_Reg_To_Imm(EA_PTRSIZE, regGSConst, compiler->gsGlobalSecurityCookieVal);
     }
     else
     {
@@ -9740,7 +9738,13 @@ void CodeGen::genPoisonFrame(regMaskTP regLiveIn)
 
     // The first time we need to poison something we will initialize a register to the largest immediate cccccccc that
     // we can fit.
-    bool hasPoisonImm = false;
+    regNumber immReg = REG_NA;
+#ifdef TARGET_64BIT
+    const ssize_t imm = 0xcdcdcdcdcdcdcdcd;
+#else
+    const int imm = 0xcdcdcdcd;
+#endif
+
     for (unsigned varNum = 0; varNum < compiler->info.compLocalsCount; varNum++)
     {
         LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
@@ -9752,14 +9756,15 @@ void CodeGen::genPoisonFrame(regMaskTP regLiveIn)
 
         assert(varDsc->lvOnFrame);
 
-        if (!hasPoisonImm)
+        if (immReg == REG_NA)
         {
-#ifdef TARGET_64BIT
-            genSetRegToIcon(REG_SCRATCH, (ssize_t)0xcdcdcdcdcdcdcdcd, TYP_LONG);
+            immReg = REG_SCRATCH;
+
+#ifdef TARGET_XARCH
+            GetEmitter()->emitIns_R_I(INS_mov, EA_PTRSIZE, immReg, imm);
 #else
-            genSetRegToIcon(REG_SCRATCH, (ssize_t)0xcdcdcdcd, TYP_INT);
+            instGen_Set_Reg_To_Imm(EA_PTRSIZE, immReg, imm);
 #endif
-            hasPoisonImm = true;
         }
 
 // For 64-bit we check if the local is 8-byte aligned. For 32-bit, we assume everything is always 4-byte aligned.
@@ -9776,14 +9781,14 @@ void CodeGen::genPoisonFrame(regMaskTP regLiveIn)
 #ifdef TARGET_64BIT
             if ((offs % 8) == 0 && end - offs >= 8)
             {
-                GetEmitter()->emitIns_S_R(ins_Store(TYP_LONG), EA_8BYTE, REG_SCRATCH, (int)varNum, offs - addr);
+                GetEmitter()->emitIns_S_R(ins_Store(TYP_LONG), EA_8BYTE, immReg, (int)varNum, offs - addr);
                 offs += 8;
                 continue;
             }
 #endif
 
             assert((offs % 4) == 0 && end - offs >= 4);
-            GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, REG_SCRATCH, (int)varNum, offs - addr);
+            GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, immReg, (int)varNum, offs - addr);
             offs += 4;
         }
     }
