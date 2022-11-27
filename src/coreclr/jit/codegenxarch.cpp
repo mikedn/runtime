@@ -2212,18 +2212,13 @@ void CodeGen::genLclHeap(GenTree* tree)
 
     // compute the amount of memory to allocate to properly STACK_ALIGN.
     size_t amount = 0;
-    if (size->IsCnsIntOrI())
-    {
-        // If size is a constant, then it must be contained.
-        assert(size->isContained());
 
-        // If amount is zero then return null in targetReg
-        amount = size->AsIntCon()->gtIconVal;
-        if (amount == 0)
-        {
-            instGen_Set_Reg_To_Zero(EA_PTRSIZE, targetReg);
-            goto BAILOUT;
-        }
+    if (GenTreeIntCon* intCon = size->IsIntCon())
+    {
+        assert(intCon->isContained());
+
+        amount = intCon->GetValue();
+        assert(amount != 0);
 
         // 'amount' is the total number of bytes to localloc to properly STACK_ALIGN
         amount = AlignUp(amount, STACK_ALIGN);
@@ -2462,8 +2457,6 @@ ALLOC_DONE:
     {
         genDefineTempLabel(endLabel);
     }
-
-BAILOUT:
 
 #ifdef JIT32_GCENCODER
     if (compiler->lvaLocAllocSPvar != BAD_VAR_NUM)

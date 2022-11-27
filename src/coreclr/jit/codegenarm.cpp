@@ -407,20 +407,10 @@ void CodeGen::genLclHeap(GenTree* tree)
     noway_assert(genStackLevel == 0); // Can't have anything on the stack
 #endif
 
-    // Check to 0 size allocations
-    // size_t amount = 0;
-    if (size->IsCnsIntOrI())
+    if (GenTreeIntCon* intCon = size->IsIntCon())
     {
-        // If size is a constant, then it must be contained.
-        assert(size->isContained());
-
-        // If amount is zero then return null in regCnt
-        size_t amount = size->AsIntCon()->gtIconVal;
-        if (amount == 0)
-        {
-            instGen_Set_Reg_To_Zero(EA_PTRSIZE, regCnt);
-            goto BAILOUT;
-        }
+        assert(intCon->isContained());
+        assert(intCon->GetValue() != 0);
     }
     else
     {
@@ -624,9 +614,10 @@ ALLOC_DONE:
         inst_Mov(TYP_I_IMPL, regCnt, REG_SPBASE, /* canSkip */ false);
     }
 
-BAILOUT:
     if (endLabel != nullptr)
+    {
         genDefineTempLabel(endLabel);
+    }
 
     genProduceReg(tree);
 }

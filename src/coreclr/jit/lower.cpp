@@ -319,7 +319,7 @@ GenTree* Lowering::LowerNode(GenTree* node)
             break;
 
         case GT_LCLHEAP:
-            ContainCheckLclHeap(node->AsOp());
+            LowerLclHeap(node->AsUnOp());
             break;
 
 #ifdef TARGET_XARCH
@@ -4908,19 +4908,21 @@ void Lowering::ContainCheckArrOffset(GenTreeArrOffs* node)
     }
 }
 
-//------------------------------------------------------------------------
-// ContainCheckLclHeap: determine whether the source of a GT_LCLHEAP node should be contained.
-//
-// Arguments:
-//    node - pointer to the node
-//
-void Lowering::ContainCheckLclHeap(GenTreeOp* node)
+void Lowering::LowerLclHeap(GenTreeUnOp* node)
 {
-    assert(node->OperIs(GT_LCLHEAP));
-    GenTree* size = node->AsOp()->gtOp1;
-    if (size->IsCnsIntOrI())
+    assert(node->OperIs(GT_LCLHEAP) && node->TypeIs(TYP_I_IMPL));
+
+    if (GenTreeIntCon* size = node->GetOp(0)->IsIntCon())
     {
-        MakeSrcContained(node, size);
+        if (size->GetValue() == 0)
+        {
+            node->ChangeToIntCon(0);
+            BlockRange().Remove(size);
+        }
+        else
+        {
+            size->SetContained();
+        }
     }
 }
 

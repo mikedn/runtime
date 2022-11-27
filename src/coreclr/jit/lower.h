@@ -51,7 +51,7 @@ private:
     void ContainCheckDivOrMod(GenTreeOp* node);
     void ContainCheckReturnTrap(GenTreeOp* node);
     void ContainCheckArrOffset(GenTreeArrOffs* node);
-    void ContainCheckLclHeap(GenTreeOp* node);
+    void LowerLclHeap(GenTreeUnOp* node);
     void ContainCheckRet(GenTreeUnOp* ret);
     void ContainCheckJTrue(GenTreeUnOp* node);
 
