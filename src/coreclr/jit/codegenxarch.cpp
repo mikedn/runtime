@@ -9103,4 +9103,37 @@ void CodeGen::genVzeroupperIfNeeded(bool check256bitOnly /* = true*/)
     }
 }
 
+#ifdef TARGET_X86
+void CodeGen::InitVarargsStackParamsBaseOffset()
+{
+    JITDUMP("; InitVarargsStackParamsBaseOffset\n");
+
+    LclVarDsc* varDsc = compiler->lvaGetDesc(compiler->lvaVarargsBaseOfStkArgs);
+
+    noway_assert(compiler->info.compArgsCount > 0);
+
+    GetEmitter()->emitIns_R_S(INS_mov, EA_4BYTE, REG_EAX, compiler->info.compArgsCount - 1, 0);
+    regSet.verifyRegUsed(REG_EAX);
+    GetEmitter()->emitIns_R_AR(INS_mov, EA_4BYTE, REG_EAX, REG_EAX, 0);
+
+    LclVarDsc* lastArg = compiler->lvaGetDesc(compiler->info.compArgsCount - 1);
+    noway_assert(!lastArg->lvRegister);
+    signed offset = lastArg->GetStackOffset();
+    assert(offset != BAD_STK_OFFS);
+    noway_assert(lastArg->lvFramePointerBased);
+
+    GetEmitter()->emitIns_R_ARR(INS_lea, EA_4BYTE, REG_EAX, genFramePointerReg(), REG_EAX, offset);
+
+    if (varDsc->lvIsInReg())
+    {
+        GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, varDsc->GetRegNum(), REG_EAX, /* canSkip */ true);
+        regSet.verifyRegUsed(varDsc->GetRegNum());
+    }
+    else
+    {
+        GetEmitter()->emitIns_S_R(INS_mov, EA_4BYTE, REG_EAX, compiler->lvaVarargsBaseOfStkArgs, 0);
+    }
+}
+#endif // TARGET_X86
+
 #endif // TARGET_XARCH

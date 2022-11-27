@@ -467,9 +467,11 @@ protected:
     void genFnProlog();
     void genFnEpilog(BasicBlock* block);
     void UpdateParamsWithInitialReg();
+#ifdef TARGET_X86
+    void InitVarargsStackParamsBaseOffset();
+#endif
 
-#if defined(FEATURE_EH_FUNCLETS)
-
+#ifdef FEATURE_EH_FUNCLETS
     void genReserveFuncletProlog(BasicBlock* block);
     void genReserveFuncletEpilog(BasicBlock* block);
     void genFuncletProlog(BasicBlock* block);
@@ -479,7 +481,7 @@ protected:
     void genSetPSPSym(regNumber initReg, bool* pInitRegZeroed);
 
     void genUpdateCurrentFunclet(BasicBlock* block);
-#if defined(TARGET_ARM)
+#ifdef TARGET_ARM
     void genInsertNopForUnwinder(BasicBlock* block);
 #endif
 

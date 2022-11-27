@@ -6101,58 +6101,12 @@ void CodeGen::genFnProlog()
         noway_assert(GCrefHi == -INT_MAX);
     }
 
-#ifdef DEBUG
-    if (compiler->opts.dspCode)
+#ifdef TARGET_X86
+    if (compiler->info.compIsVarArgs && (compiler->lvaGetDesc(compiler->lvaVarargsBaseOfStkArgs)->GetRefCount() > 0))
     {
-        printf("\n");
+        InitVarargsStackParamsBaseOffset();
     }
 #endif
-
-#ifdef TARGET_X86
-    // On non-x86 the VARARG cookie does not need any special treatment.
-
-    // Load up the VARARG argument pointer register so it doesn't get clobbered.
-    // only do this if we actually access any statically declared args
-    // (our argument pointer register has a refcount > 0).
-    unsigned argsStartVar = compiler->lvaVarargsBaseOfStkArgs;
-
-    if (compiler->info.compIsVarArgs && compiler->lvaTable[argsStartVar].lvRefCnt() > 0)
-    {
-        varDsc = &compiler->lvaTable[argsStartVar];
-
-        noway_assert(compiler->info.compArgsCount > 0);
-
-        // MOV EAX, <VARARGS HANDLE>
-        GetEmitter()->emitIns_R_S(ins_Load(TYP_I_IMPL), EA_PTRSIZE, REG_EAX, compiler->info.compArgsCount - 1, 0);
-        regSet.verifyRegUsed(REG_EAX);
-
-        // MOV EAX, [EAX]
-        GetEmitter()->emitIns_R_AR(ins_Load(TYP_I_IMPL), EA_PTRSIZE, REG_EAX, REG_EAX, 0);
-
-        // EDX might actually be holding something here.  So make sure to only use EAX for this code
-        // sequence.
-
-        LclVarDsc* lastArg = &compiler->lvaTable[compiler->info.compArgsCount - 1];
-        noway_assert(!lastArg->lvRegister);
-        signed offset = lastArg->GetStackOffset();
-        assert(offset != BAD_STK_OFFS);
-        noway_assert(lastArg->lvFramePointerBased);
-
-        // LEA EAX, &<VARARGS HANDLE> + EAX
-        GetEmitter()->emitIns_R_ARR(INS_lea, EA_PTRSIZE, REG_EAX, genFramePointerReg(), REG_EAX, offset);
-
-        if (varDsc->lvIsInReg())
-        {
-            GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, varDsc->GetRegNum(), REG_EAX, /* canSkip */ true);
-            regSet.verifyRegUsed(varDsc->GetRegNum());
-        }
-        else
-        {
-            GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, REG_EAX, argsStartVar, 0);
-        }
-    }
-
-#endif // TARGET_X86
 
 #if defined(DEBUG) && defined(TARGET_XARCH)
     if (compiler->lvaReturnSpCheck != BAD_VAR_NUM)
