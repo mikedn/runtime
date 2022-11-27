@@ -468,6 +468,140 @@ void CodeGen::genEHFinallyOrFilterRet(BasicBlock* block)
 
 #endif // !FEATURE_EH_FUNCLETS
 
+#ifdef TARGET_AMD64
+// Returns relocation type hint for an addr.
+// Note that there are no reloc hints on x86.
+//
+// Arguments
+//    addr  -  data address
+//
+// Returns
+//    relocation type hint
+//
+unsigned short CodeGen::genAddrRelocTypeHint(size_t addr)
+{
+    return compiler->eeGetRelocTypeHint((void*)addr);
+}
+#endif // TARGET_AMD64
+
+// Return true if an absolute indirect data address can be encoded as IP-relative.
+// offset. Note that this method should be used only when the caller knows that
+// the address is an icon value that VM has given and there is no GenTree node
+// representing it. Otherwise, one should always use FitsInAddrBase().
+//
+// Arguments
+//    addr  -  an absolute indirect data address
+//
+// Returns
+//    true if indir data addr could be encoded as IP-relative offset.
+//
+bool CodeGen::genDataIndirAddrCanBeEncodedAsPCRelOffset(size_t addr)
+{
+#ifdef TARGET_AMD64
+    return genAddrRelocTypeHint(addr) == IMAGE_REL_BASED_REL32;
+#else
+    // x86: PC-relative addressing is available only for control flow instructions (jmp and call)
+    return false;
+#endif
+}
+
+// Return true if an indirect code address can be encoded as IP-relative offset.
+// Note that this method should be used only when the caller knows that the
+// address is an icon value that VM has given and there is no GenTree node
+// representing it. Otherwise, one should always use FitsInAddrBase().
+//
+// Arguments
+//    addr  -  an absolute indirect code address
+//
+// Returns
+//    true if indir code addr could be encoded as IP-relative offset.
+//
+bool CodeGen::genCodeIndirAddrCanBeEncodedAsPCRelOffset(size_t addr)
+{
+#ifdef TARGET_AMD64
+    return genAddrRelocTypeHint(addr) == IMAGE_REL_BASED_REL32;
+#else
+    // x86: PC-relative addressing is available only for control flow instructions (jmp and call)
+    return true;
+#endif
+}
+
+// Return true if an indirect code address can be encoded as 32-bit displacement
+// relative to zero. Note that this method should be used only when the caller
+// knows that the address is an icon value that VM has given and there is no
+// GenTree node representing it. Otherwise, one should always use FitsInAddrBase().
+//
+// Arguments
+//    addr  -  absolute indirect code address
+//
+// Returns
+//    true if absolute indir code addr could be encoded as 32-bit displacement relative to zero.
+//
+bool CodeGen::genCodeIndirAddrCanBeEncodedAsZeroRelOffset(size_t addr)
+{
+    return GenTreeIntConCommon::FitsInI32((ssize_t)addr);
+}
+
+// Return true if an absolute indirect code address needs a relocation recorded with VM.
+//
+// Arguments
+//    addr  -  an absolute indirect code address
+//
+// Returns
+//    true if indir code addr needs a relocation recorded with VM
+//
+bool CodeGen::genCodeIndirAddrNeedsReloc(size_t addr)
+{
+    // If generating relocatable ngen code, then all code addr should go through relocation
+    if (compiler->opts.compReloc)
+    {
+        return true;
+    }
+
+#ifdef TARGET_AMD64
+    // See if the code indir addr can be encoded as 32-bit displacement relative to zero.
+    // We don't need a relocation in that case.
+    if (genCodeIndirAddrCanBeEncodedAsZeroRelOffset(addr))
+    {
+        return false;
+    }
+
+    // Else we need a relocation.
+    return true;
+#else  // TARGET_X86
+    // On x86 there is no need to record or ask for relocations during jitting,
+    // because all addrs fit within 32-bits.
+    return false;
+#endif // TARGET_X86
+}
+
+// Return true if a direct code address needs to be marked as relocatable.
+//
+// Arguments
+//    addr  -  absolute direct code address
+//
+// Returns
+//    true if direct code addr needs a relocation recorded with VM
+//
+bool CodeGen::genCodeAddrNeedsReloc(size_t addr)
+{
+    // If generating relocatable ngen code, then all code addr should go through relocation
+    if (compiler->opts.compReloc)
+    {
+        return true;
+    }
+
+#ifdef TARGET_AMD64
+    // By default all direct code addresses go through relocation so that VM will setup
+    // a jump stub if addr cannot be encoded as pc-relative offset.
+    return true;
+#else  // TARGET_X86
+    // On x86 there is no need for recording relocations during jitting,
+    // because all addrs fit within 32-bits.
+    return false;
+#endif // TARGET_X86
+}
+
 void CodeGen::instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg)
 {
     GetEmitter()->emitIns_R_R(INS_xor, size, reg, reg);
