@@ -428,13 +428,13 @@ void CodeGen::genCodeForBBlist()
         {
             printf("Regset after " FMT_BB " gcr=", block->bbNum);
             printRegMaskInt(gcInfo.gcRegGCrefSetCur & ~liveLclRegs);
-            compiler->GetEmitter()->emitDispRegSet(gcInfo.gcRegGCrefSetCur & ~liveLclRegs);
+            emitter::emitDispRegSet(gcInfo.gcRegGCrefSetCur & ~liveLclRegs);
             printf(", byr=");
             printRegMaskInt(gcInfo.gcRegByrefSetCur & ~liveLclRegs);
-            compiler->GetEmitter()->emitDispRegSet(gcInfo.gcRegByrefSetCur & ~liveLclRegs);
+            emitter::emitDispRegSet(gcInfo.gcRegByrefSetCur & ~liveLclRegs);
             printf(", regVars=");
             printRegMaskInt(liveLclRegs);
-            compiler->GetEmitter()->emitDispRegSet(liveLclRegs);
+            emitter::emitDispRegSet(liveLclRegs);
             printf("\n");
         }
 

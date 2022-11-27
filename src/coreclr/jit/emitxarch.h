@@ -225,8 +225,8 @@ void emitDispIns(instrDesc* id,
                  size_t     sz    = 0,
                  insGroup*  ig    = nullptr);
 
-const char* emitXMMregName(unsigned reg);
-const char* emitYMMregName(unsigned reg);
+static const char* emitXMMregName(unsigned reg);
+static const char* emitYMMregName(unsigned reg);
 
 #endif
 

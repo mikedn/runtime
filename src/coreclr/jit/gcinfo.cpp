@@ -28,7 +28,7 @@ void GCInfo::gcDspGCrefSetChanges(regMaskTP gcRegGCrefSetNew DEBUGARG(bool force
 {
     if (compiler->verbose && (forceOutput || (gcRegGCrefSetCur != gcRegGCrefSetNew)))
     {
-        compiler->GetEmitter()->emitDispRegSetDiff("GC regs: ", gcRegGCrefSetCur, gcRegGCrefSetNew);
+        emitter::emitDispRegSetDiff("GC regs: ", gcRegGCrefSetCur, gcRegGCrefSetNew);
     }
 }
 
@@ -36,7 +36,7 @@ void GCInfo::gcDspByrefSetChanges(regMaskTP gcRegByrefSetNew DEBUGARG(bool force
 {
     if (compiler->verbose && (forceOutput || (gcRegByrefSetCur != gcRegByrefSetNew)))
     {
-        compiler->GetEmitter()->emitDispRegSetDiff("Byref regs: ", gcRegByrefSetCur, gcRegByrefSetNew);
+        emitter::emitDispRegSetDiff("Byref regs: ", gcRegByrefSetCur, gcRegByrefSetNew);
     }
 }
 
@@ -84,7 +84,7 @@ void GCInfo::gcMarkRegSetByref(regMaskTP regMask DEBUGARG(bool forceOutput))
 
 void GCInfo::SetLiveLclRegs(regMaskTP regs)
 {
-    DBEXEC(compiler->verbose, compiler->GetEmitter()->emitDispRegSetDiff("Live regs: ", liveLclRegs, regs);)
+    DBEXEC(compiler->verbose, emitter::emitDispRegSetDiff("Live regs: ", liveLclRegs, regs);)
 
     liveLclRegs = regs;
 }

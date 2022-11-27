@@ -6367,10 +6367,10 @@ void CodeGen::genFnEpilog(BasicBlock* block)
         dumpConvertedVarSet(compiler, gcInfo.gcVarPtrSetCur);
         printf(", gcRegGCrefSetCur=");
         printRegMaskInt(gcInfo.gcRegGCrefSetCur);
-        GetEmitter()->emitDispRegSet(gcInfo.gcRegGCrefSetCur);
+        emitter::emitDispRegSet(gcInfo.gcRegGCrefSetCur);
         printf(", gcRegByrefSetCur=");
         printRegMaskInt(gcInfo.gcRegByrefSetCur);
-        GetEmitter()->emitDispRegSet(gcInfo.gcRegByrefSetCur);
+        emitter::emitDispRegSet(gcInfo.gcRegByrefSetCur);
         printf("\n");
     }
 #endif // DEBUG
@@ -6532,10 +6532,10 @@ void CodeGen::genFnEpilog(BasicBlock* block)
         dumpConvertedVarSet(compiler, gcInfo.gcVarPtrSetCur);
         printf(", gcRegGCrefSetCur=");
         printRegMaskInt(gcInfo.gcRegGCrefSetCur);
-        GetEmitter()->emitDispRegSet(gcInfo.gcRegGCrefSetCur);
+        emitter::emitDispRegSet(gcInfo.gcRegGCrefSetCur);
         printf(", gcRegByrefSetCur=");
         printRegMaskInt(gcInfo.gcRegByrefSetCur);
-        GetEmitter()->emitDispRegSet(gcInfo.gcRegByrefSetCur);
+        emitter::emitDispRegSet(gcInfo.gcRegByrefSetCur);
         printf("\n");
     }
 #endif

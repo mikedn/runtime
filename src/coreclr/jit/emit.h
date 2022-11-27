@@ -1496,7 +1496,7 @@ protected:
 #endif // defined(DEBUG) || EMITTER_STATS
 
 #ifdef DEBUG
-    const char* emitRegName(regNumber reg, emitAttr size = EA_PTRSIZE);
+    static const char* emitRegName(regNumber reg, emitAttr size = EA_PTRSIZE);
 
     // GC Info changes are not readily available at each instruction.
     // We use debug-only sets to track the per-instruction state, and to remember
@@ -2111,9 +2111,9 @@ public:
 
 #ifdef DEBUG
     const char* emitGetFrameReg();
-    void emitDispRegSet(regMaskTP regs);
-    void emitDispRegSetDiff(const char* name, regMaskTP from, regMaskTP to);
-    void emitDispVarSet();
+    void        emitDispVarSet();
+    static void emitDispRegSet(regMaskTP regs);
+    static void emitDispRegSetDiff(const char* name, regMaskTP from, regMaskTP to);
 #endif
 
     void emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr);
