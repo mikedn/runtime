@@ -512,78 +512,51 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
     regSet.verifyRegUsed(reg);
 }
 
-/***********************************************************************************
- *
- * Generate code to set a register 'targetReg' of type 'type' to the constant
- * specified by the constant (GT_CNS_INT or GT_CNS_DBL) in 'tree'. This does not call
- * genProduceReg() on the target register.
- */
-void CodeGen::genSetRegToConst(regNumber targetReg, var_types targetType, GenTree* tree)
+void CodeGen::GenIntCon(GenTreeIntCon* node, regNumber reg, var_types type)
 {
-    switch (tree->gtOper)
+    if (node->ImmedValNeedsReloc(compiler))
     {
-        case GT_CNS_INT:
+        emitAttr size = EA_HANDLE_CNS_RELOC;
+
+        // TODO-MIKE-Review: Who cares about byref on a constant?!?
+        if (type == TYP_BYREF)
         {
-            // relocatable values tend to come down as a CNS_INT of native int type
-            // so the line between these two opcodes is kind of blurry
-            GenTreeIntCon* con    = tree->AsIntCon();
-            ssize_t        cnsVal = con->GetValue();
-
-            if (con->ImmedValNeedsReloc(compiler))
-            {
-                emitAttr size = EA_HANDLE_CNS_RELOC;
-
-                if (targetType == TYP_BYREF)
-                {
-                    size = EA_SET_FLG(size, EA_BYREF_FLG);
-                }
-
-                instGen_Set_Reg_To_Imm(size, targetReg, cnsVal);
-            }
-            else
-            {
-                // The only TYP_REF constant that can come this path is a managed 'null' since it is not
-                // relocatable.  Other ref type constants (e.g. string objects) go through a different
-                // code path.
-                noway_assert(targetType != TYP_REF || cnsVal == 0);
-
-                if (cnsVal == 0)
-                {
-                    instGen_Set_Reg_To_Zero(emitActualTypeSize(targetType), targetReg);
-                }
-                else
-                {
-                    // TODO-XArch-CQ: needs all the optimized cases
-                    GetEmitter()->emitIns_R_I(INS_mov, emitActualTypeSize(targetType), targetReg,
-                                              cnsVal DEBUGARG(tree->gtFlags));
-                }
-            }
+            size = EA_SET_FLG(size, EA_BYREF_FLG);
         }
-        break;
 
-        case GT_CNS_DBL:
-        {
-            emitter* emit       = GetEmitter();
-            emitAttr size       = emitTypeSize(targetType);
-            double   constValue = tree->AsDblCon()->gtDconVal;
+        instGen_Set_Reg_To_Imm(size, reg, node->GetValue());
 
-            // Make sure we use "xorps reg, reg" only for +ve zero constant (0.0) and not for -ve zero (-0.0)
-            if (*(__int64*)&constValue == 0)
-            {
-                // A faster/smaller way to generate 0
-                emit->emitIns_R_R(INS_xorps, size, targetReg, targetReg);
-            }
-            else
-            {
-                CORINFO_FIELD_HANDLE hnd = emit->emitFltOrDblConst(constValue, size);
-                emit->emitIns_R_C(ins_Load(targetType), size, targetReg, hnd);
-            }
-        }
-        break;
-
-        default:
-            unreached();
+        return;
     }
+
+    if (node->GetValue() == 0)
+    {
+        instGen_Set_Reg_To_Zero(emitActualTypeSize(type), reg);
+
+        return;
+    }
+
+    // The only REF constant that can come this path is a 'null' since it is not
+    // relocatable. Other REF type constants (e.g. string objects) go through a
+    // different code path.
+    noway_assert(type != TYP_REF);
+
+    // TODO-XArch-CQ: needs all the optimized cases
+    GetEmitter()->emitIns_R_I(INS_mov, emitActualTypeSize(type), reg, node->GetValue() DEBUGARG(node->gtFlags));
+}
+
+void CodeGen::GenDblCon(GenTreeDblCon* node, regNumber reg, var_types type)
+{
+    if (node->IsPositiveZero())
+    {
+        GetEmitter()->emitIns_R_R(INS_xorps, EA_16BYTE, reg, reg);
+
+        return;
+    }
+
+    emitAttr             size = emitTypeSize(node->GetType());
+    CORINFO_FIELD_HANDLE data = GetEmitter()->emitFltOrDblConst(node->GetValue(), size);
+    GetEmitter()->emitIns_R_C(ins_Load(type), size, reg, data);
 }
 
 void CodeGen::genCodeForNegNot(GenTreeUnOp* node)
@@ -1417,21 +1390,7 @@ void CodeGen::genCodeForReturnTrap(GenTreeOp* tree)
  */
 void CodeGen::genCodeForTreeNode(GenTree* treeNode)
 {
-    regNumber targetReg;
-#if !defined(TARGET_64BIT)
-    if (treeNode->TypeGet() == TYP_LONG)
-    {
-        // All long enregistered nodes will have been decomposed into their
-        // constituent lo and hi nodes.
-        targetReg = REG_NA;
-    }
-    else
-#endif // !defined(TARGET_64BIT)
-    {
-        targetReg = treeNode->GetRegNum();
-    }
-    var_types targetType = treeNode->TypeGet();
-    emitter*  emit       = GetEmitter();
+    emitter* emit = GetEmitter();
 
 #ifdef DEBUG
     // Validate that all the operands for the current node are consumed in order.
@@ -1497,11 +1456,13 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
 #ifdef WINDOWS_X86_ABI
             assert(!treeNode->IsIconHandle(GTF_ICON_TLS_HDL));
 #endif
-            FALLTHROUGH;
+            GenIntCon(treeNode->AsIntCon(), treeNode->GetRegNum(), treeNode->GetType());
+            DefReg(treeNode);
+            break;
 
         case GT_CNS_DBL:
-            genSetRegToConst(targetReg, targetType, treeNode);
-            genProduceReg(treeNode);
+            GenDblCon(treeNode->AsDblCon(), treeNode->GetRegNum(), treeNode->GetType());
+            DefReg(treeNode);
             break;
 
         case GT_FNEG:
@@ -1845,7 +1806,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_CLS_VAR_ADDR:
-            emit->emitIns_R_C(INS_lea, EA_PTRSIZE, targetReg, treeNode->AsClsVar()->gtClsVarHnd);
+            emit->emitIns_R_C(INS_lea, EA_PTRSIZE, treeNode->GetRegNum(), treeNode->AsClsVar()->GetFieldHandle());
             genProduceReg(treeNode);
             break;
 
@@ -4214,6 +4175,8 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
 
     if (!src->isUsedFromReg())
     {
+        assert(src->GetRegNum() == REG_NA);
+
         // Currently, we assume that the non-reg source of a GT_STORE_LCL_VAR writing to a register
         // must be a constant. However, in the future we might want to support an operand used from
         // memory. This is a bit tricky because we have to decide it can be used from memory before
@@ -4221,9 +4184,14 @@ void CodeGen::GenStoreLclVar(GenTreeLclVar* store)
         // that node as always requiring a register - which we always assume now anyway, but once we
         // "optimize" that we'll have to take cases like this into account.
 
-        assert((src->GetRegNum() == REG_NA) && src->OperIsConst());
-
-        genSetRegToConst(dstReg, lclRegType, src);
+        if (GenTreeIntCon* intCon = src->IsIntCon())
+        {
+            GenIntCon(intCon, dstReg, lclRegType);
+        }
+        else
+        {
+            GenDblCon(src->AsDblCon(), dstReg, lclRegType);
+        }
     }
     else
     {
@@ -6927,7 +6895,7 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
                 }
                 else
                 {
-                    genSetRegToConst(intTmpReg, fieldNode->TypeGet(), fieldNode->AsIntCon());
+                    GenIntCon(fieldNode->AsIntCon(), intTmpReg, fieldNode->GetType());
                 }
 
                 if (pushStkArg)

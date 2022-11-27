@@ -247,75 +247,53 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
     regSet.verifyRegUsed(reg);
 }
 
-//------------------------------------------------------------------------
-// genSetRegToConst: Generate code to set a register 'targetReg' of type 'targetType'
-//    to the constant specified by the constant (GT_CNS_INT or GT_CNS_DBL) in 'tree'.
-//
-// Notes:
-//    This does not call genProduceReg() on the target register.
-//
-void CodeGen::genSetRegToConst(regNumber targetReg, var_types targetType, GenTree* tree)
+void CodeGen::GenIntCon(GenTreeIntCon* node)
 {
-    switch (tree->gtOper)
+    if (node->ImmedValNeedsReloc(compiler))
     {
-        case GT_CNS_INT:
-        {
-            // relocatable values tend to come down as a CNS_INT of native int type
-            // so the line between these two opcodes is kind of blurry
-            GenTreeIntCon* con    = tree->AsIntCon();
-            ssize_t        cnsVal = con->GetValue();
-
-            if (con->ImmedValNeedsReloc(compiler))
-            {
-                instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, targetReg, cnsVal);
-            }
-            else
-            {
-                // The only TYP_REF constant that can come this path is a managed 'null' since it is not
-                // relocatable.  Other ref type constants (e.g. string objects) go through a different
-                // code path.
-                noway_assert(targetType != TYP_REF || cnsVal == 0);
-
-                instGen_Set_Reg_To_Imm(emitActualTypeSize(targetType), targetReg, cnsVal);
-            }
-        }
-        break;
-
-        case GT_CNS_DBL:
-        {
-            GenTreeDblCon* dblConst   = tree->AsDblCon();
-            double         constValue = dblConst->AsDblCon()->gtDconVal;
-            // TODO-ARM-CQ: Do we have a faster/smaller way to generate 0.0 in thumb2 ISA ?
-            if (targetType == TYP_FLOAT)
-            {
-                // Get a temp integer register
-                regNumber tmpReg = tree->GetSingleTempReg();
-
-                float f = forceCastToFloat(constValue);
-                instGen_Set_Reg_To_Imm(EA_4BYTE, tmpReg, jitstd::bit_cast<int32_t>(f));
-                GetEmitter()->emitIns_Mov(INS_vmov_i2f, EA_4BYTE, targetReg, tmpReg, /* canSkip */ false);
-            }
-            else
-            {
-                assert(targetType == TYP_DOUBLE);
-
-                unsigned* cv = (unsigned*)&constValue;
-
-                // Get two temp integer registers
-                regNumber tmpReg1 = tree->ExtractTempReg();
-                regNumber tmpReg2 = tree->GetSingleTempReg();
-
-                instGen_Set_Reg_To_Imm(EA_4BYTE, tmpReg1, cv[0]);
-                instGen_Set_Reg_To_Imm(EA_4BYTE, tmpReg2, cv[1]);
-
-                GetEmitter()->emitIns_R_R_R(INS_vmov_i2d, EA_8BYTE, targetReg, tmpReg1, tmpReg2);
-            }
-        }
-        break;
-
-        default:
-            unreached();
+        instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, node->GetRegNum(), node->GetValue());
     }
+    else
+    {
+        // The only REF constant that can come this path is a 'null' since it is not
+        // relocatable. Other REF type constants (e.g. string objects) go through a
+        // different code path.
+        noway_assert(!node->TypeIs(TYP_REF) || (node->GetValue() == 0));
+
+        instGen_Set_Reg_To_Imm(emitActualTypeSize(node->GetType()), node->GetRegNum(), node->GetValue());
+    }
+
+    DefReg(node);
+}
+
+void CodeGen::GenDblCon(GenTreeDblCon* node)
+{
+    // TODO-ARM-CQ: Do we have a faster/smaller way to generate 0.0 in thumb2 ISA ?
+
+    if (node->TypeIs(TYP_FLOAT))
+    {
+        uint32_t bits = node->GetFloatBits();
+
+        regNumber temp = node->GetSingleTempReg();
+        instGen_Set_Reg_To_Imm(EA_4BYTE, temp, static_cast<int32_t>(bits));
+
+        GetEmitter()->emitIns_Mov(INS_vmov_i2f, EA_4BYTE, node->GetRegNum(), temp, /* canSkip */ false);
+    }
+    else
+    {
+        assert(node->TypeIs(TYP_DOUBLE));
+
+        uint64_t bits = node->GetDoubleBits();
+
+        regNumber temp1 = node->ExtractTempReg();
+        regNumber temp2 = node->GetSingleTempReg();
+        instGen_Set_Reg_To_Imm(EA_4BYTE, temp1, static_cast<int32_t>(bits & UINT32_MAX));
+        instGen_Set_Reg_To_Imm(EA_4BYTE, temp2, static_cast<int32_t>(bits >> 32));
+
+        GetEmitter()->emitIns_R_R_R(INS_vmov_i2d, EA_8BYTE, node->GetRegNum(), temp1, temp2);
+    }
+
+    DefReg(node);
 }
 
 void CodeGen::genCodeForBinary(GenTreeOp* treeNode)

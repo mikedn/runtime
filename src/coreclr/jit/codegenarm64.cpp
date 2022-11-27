@@ -1668,76 +1668,46 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
     regSet.verifyRegUsed(reg);
 }
 
-/***********************************************************************************
- *
- * Generate code to set a register 'targetReg' of type 'targetType' to the constant
- * specified by the constant (GT_CNS_INT or GT_CNS_DBL) in 'tree'. This does not call
- * genProduceReg() on the target register.
- */
-void CodeGen::genSetRegToConst(regNumber targetReg, var_types targetType, GenTree* tree)
+void CodeGen::GenIntCon(GenTreeIntCon* node)
 {
-    switch (tree->gtOper)
+    if (node->ImmedValNeedsReloc(compiler))
     {
-        case GT_CNS_INT:
-        {
-            // relocatable values tend to come down as a CNS_INT of native int type
-            // so the line between these two opcodes is kind of blurry
-            GenTreeIntCon* con    = tree->AsIntCon();
-            ssize_t        cnsVal = con->GetValue();
-
-            if (con->ImmedValNeedsReloc(compiler))
-            {
-                instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, targetReg, cnsVal DEBUGARG(tree->AsIntCon()->gtTargetHandle)
-                                                                           DEBUGARG(tree->AsIntCon()->gtFlags));
-            }
-            else
-            {
-                // The only TYP_REF constant that can come this path is a managed 'null' since it is not
-                // relocatable.  Other ref type constants (e.g. string objects) go through a different
-                // code path.
-                noway_assert(targetType != TYP_REF || cnsVal == 0);
-
-                instGen_Set_Reg_To_Imm(emitActualTypeSize(targetType), targetReg, cnsVal);
-            }
-        }
-        break;
-
-        case GT_CNS_DBL:
-        {
-            emitter* emit       = GetEmitter();
-            emitAttr size       = emitActualTypeSize(tree);
-            double   constValue = tree->AsDblCon()->gtDconVal;
-
-            // Make sure we use "movi reg, 0x00"  only for positive zero (0.0) and not for negative zero (-0.0)
-            if (*(__int64*)&constValue == 0)
-            {
-                // A faster/smaller way to generate 0.0
-                // We will just zero out the entire vector register for both float and double
-                emit->emitIns_R_I(INS_movi, EA_16BYTE, targetReg, 0x00, INS_OPTS_16B);
-            }
-            else if (emitter::emitIns_valid_imm_for_fmov(constValue))
-            {
-                // We can load the FP constant using the fmov FP-immediate for this constValue
-                emit->emitIns_R_F(INS_fmov, size, targetReg, constValue);
-            }
-            else
-            {
-                // Get a temp integer register to compute long address.
-                regNumber addrReg = tree->GetSingleTempReg();
-
-                // We must load the FP constant from the constant pool
-                // Emit a data section constant for the float or double constant.
-                CORINFO_FIELD_HANDLE hnd = emit->emitFltOrDblConst(constValue, size);
-                // For long address (default): `adrp + ldr + fmov` will be emitted.
-                // For short address (proven later), `ldr` will be emitted.
-                emit->emitIns_R_C(INS_ldr, size, targetReg, addrReg, hnd);
-            }
-        }
-        break;
-
-        default:
-            unreached();
+        instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, node->GetRegNum(),
+                               node->GetValue() DEBUGARG(node->gtTargetHandle) DEBUGARG(node->gtFlags));
     }
+    else
+    {
+        // The only REF constant that can come this path is a 'null' since it is not
+        // relocatable. Other REF type constants (e.g. string objects) go through a
+        // different code path.
+        noway_assert(!node->TypeIs(TYP_REF) || (node->GetValue() == 0));
+
+        instGen_Set_Reg_To_Imm(emitActualTypeSize(node->GetType()), node->GetRegNum(), node->GetValue());
+    }
+
+    DefReg(node);
+}
+
+void CodeGen::GenDblCon(GenTreeDblCon* node)
+{
+    if (node->IsPositiveZero())
+    {
+        GetEmitter()->emitIns_R_I(INS_movi, EA_16BYTE, node->GetRegNum(), 0x00, INS_OPTS_16B);
+    }
+    else if (emitter::emitIns_valid_imm_for_fmov(node->GetValue()))
+    {
+        GetEmitter()->emitIns_R_F(INS_fmov, emitTypeSize(node->GetType()), node->GetRegNum(), node->GetValue());
+    }
+    else
+    {
+        emitAttr             size = emitTypeSize(node->GetType());
+        regNumber            temp = node->GetSingleTempReg();
+        CORINFO_FIELD_HANDLE data = GetEmitter()->emitFltOrDblConst(node->GetValue(), size);
+
+        GetEmitter()->emitIns_R_C(INS_ldr, size, node->GetRegNum(), temp, data);
+    }
+
+    DefReg(node);
 }
 
 // Produce code for a GT_INC_SATURATE node.

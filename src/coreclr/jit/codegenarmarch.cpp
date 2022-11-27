@@ -118,9 +118,7 @@ target_ssize_t CodeGen::genStackPointerConstantAdjustmentLoopWithProbe(ssize_t s
 //
 void CodeGen::genCodeForTreeNode(GenTree* treeNode)
 {
-    regNumber targetReg  = treeNode->GetRegNum();
-    var_types targetType = treeNode->TypeGet();
-    emitter*  emit       = GetEmitter();
+    emitter* emit = GetEmitter();
 
 #ifdef DEBUG
     // Validate that all the operands for the current node are consumed in order.
@@ -181,9 +179,11 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_CNS_INT:
+            GenIntCon(treeNode->AsIntCon());
+            break;
+
         case GT_CNS_DBL:
-            genSetRegToConst(targetReg, targetType, treeNode);
-            genProduceReg(treeNode);
+            GenDblCon(treeNode->AsDblCon());
             break;
 
         case GT_FNEG:
@@ -494,9 +494,9 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
         case GT_LABEL:
             genPendingCallLabel = genCreateTempLabel();
 #ifdef TARGET_ARM
-            genMov32RelocatableDisplacement(genPendingCallLabel, targetReg);
+            genMov32RelocatableDisplacement(genPendingCallLabel, treeNode->GetRegNum());
 #else
-            emit->emitIns_R_L(INS_adr, EA_PTRSIZE, genPendingCallLabel, targetReg);
+            emit->emitIns_R_L(INS_adr, EA_PTRSIZE, genPendingCallLabel, treeNode->GetRegNum());
 #endif
             break;
 
@@ -528,9 +528,9 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
 
         case GT_CLS_VAR_ADDR:
 #ifdef TARGET_ARM
-            emit->emitIns_R_C(INS_lea, EA_4BYTE, targetReg, treeNode->AsClsVar()->GetFieldHandle());
+            emit->emitIns_R_C(INS_lea, EA_4BYTE, treeNode->GetRegNum(), treeNode->AsClsVar()->GetFieldHandle());
 #else
-            emit->emitIns_R_C(INS_adr, EA_8BYTE, targetReg, REG_NA, treeNode->AsClsVar()->GetFieldHandle());
+            emit->emitIns_R_C(INS_adr, EA_8BYTE, treeNode->GetRegNum(), REG_NA, treeNode->AsClsVar()->GetFieldHandle());
 #endif
             genProduceReg(treeNode);
             break;

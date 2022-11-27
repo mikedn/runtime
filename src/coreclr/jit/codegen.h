@@ -824,7 +824,13 @@ protected:
     unsigned           genTrnslLocalVarCount = 0;
 #endif
 
-    void genSetRegToConst(regNumber targetReg, var_types targetType, GenTree* tree);
+#ifdef TARGET_XARCH
+    void GenIntCon(GenTreeIntCon* node, regNumber reg, var_types type);
+    void GenDblCon(GenTreeDblCon* node, regNumber reg, var_types type);
+#else
+    void GenIntCon(GenTreeIntCon* node);
+    void GenDblCon(GenTreeDblCon* node);
+#endif
     void genCodeForTreeNode(GenTree* treeNode);
     void genCodeForBinary(GenTreeOp* treeNode);
     void GenFloatNegate(GenTreeUnOp* node);
