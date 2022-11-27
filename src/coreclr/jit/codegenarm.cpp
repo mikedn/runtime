@@ -273,7 +273,6 @@ void CodeGen::genSetRegToConst(regNumber targetReg, var_types targetType, GenTre
             if (con->ImmedValNeedsReloc(compiler))
             {
                 instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, targetReg, cnsVal);
-                regSet.verifyRegUsed(targetReg);
             }
             else
             {
@@ -1473,6 +1472,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
     if (compiler->compProfilerMethHndIndirected)
     {
         GetEmitter()->emitIns_R_AI(INS_ldr, EA_PTR_DSP_RELOC, REG_R0, (ssize_t)compiler->compProfilerMethHnd);
+        regSet.verifyRegUsed(REG_R0);
     }
     else
     {
@@ -1480,7 +1480,6 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
     }
 
     gcInfo.gcMarkRegSetNpt(RBM_R0);
-    regSet.verifyRegUsed(REG_R0);
 
     genEmitHelperCall(helper);
 

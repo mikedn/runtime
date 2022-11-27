@@ -120,7 +120,6 @@ bool CodeGen::genInstrWithConstant(instruction ins,
 
         // first we load the immediate into tmpReg
         instGen_Set_Reg_To_Imm(size, tmpReg, imm);
-        regSet.verifyRegUsed(tmpReg);
 
         // when we are in an unwind code region
         // we record the extra instructions using unwindPadding()
@@ -1704,7 +1703,6 @@ void CodeGen::genSetRegToConst(regNumber targetReg, var_types targetType, GenTre
                 instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, targetReg, cnsVal,
                                        INS_FLAGS_DONT_CARE DEBUGARG(tree->AsIntCon()->gtTargetHandle)
                                            DEBUGARG(tree->AsIntCon()->gtFlags));
-                regSet.verifyRegUsed(targetReg);
             }
             else
             {
@@ -8396,7 +8394,6 @@ void CodeGen::genAllocLclFrame(unsigned frameSize, regNumber initReg, bool* pIni
 
             instGen_Set_Reg_To_Imm(EA_PTRSIZE, initReg, -(ssize_t)probeOffset);
             GetEmitter()->emitIns_R_R_R(INS_ldr, EA_4BYTE, REG_ZR, REG_SPBASE, initReg);
-            regSet.verifyRegUsed(initReg);
             *pInitRegZeroed = false; // The initReg does not contain zero
 
             lastTouchDelta -= pageSize;
@@ -8464,7 +8461,6 @@ void CodeGen::genAllocLclFrame(unsigned frameSize, regNumber initReg, bool* pIni
         GetEmitter()->emitIns_R_R_R(INS_ldr, EA_4BYTE, REG_ZR, REG_SPBASE, initReg);
         compiler->unwindPadding();
 
-        regSet.verifyRegUsed(initReg);
         *pInitRegZeroed = false; // The initReg does not contain zero
     }
 }

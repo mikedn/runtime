@@ -514,24 +514,24 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
     if ((imm == 0) && !EA_IS_RELOC(size))
     {
         instGen_Set_Reg_To_Zero(size, reg, flags);
+        return;
+    }
+
+    if (genDataIndirAddrCanBeEncodedAsPCRelOffset(imm))
+    {
+        emitAttr newSize = EA_PTR_DSP_RELOC;
+        if (EA_IS_BYREF(size))
+        {
+            newSize = EA_SET_FLG(newSize, EA_BYREF_FLG);
+        }
+
+        GetEmitter()->emitIns_R_AI(INS_lea, newSize, reg, imm);
     }
     else
     {
-        if (genDataIndirAddrCanBeEncodedAsPCRelOffset(imm))
-        {
-            emitAttr newSize = EA_PTR_DSP_RELOC;
-            if (EA_IS_BYREF(size))
-            {
-                newSize = EA_SET_FLG(newSize, EA_BYREF_FLG);
-            }
-
-            GetEmitter()->emitIns_R_AI(INS_lea, newSize, reg, imm);
-        }
-        else
-        {
-            GetEmitter()->emitIns_R_I(INS_mov, size, reg, imm);
-        }
+        GetEmitter()->emitIns_R_I(INS_mov, size, reg, imm);
     }
+
     regSet.verifyRegUsed(reg);
 }
 
@@ -562,7 +562,6 @@ void CodeGen::genSetRegToConst(regNumber targetReg, var_types targetType, GenTre
                 }
 
                 instGen_Set_Reg_To_Imm(size, targetReg, cnsVal);
-                regSet.verifyRegUsed(targetReg);
             }
             else
             {
@@ -5552,8 +5551,8 @@ void CodeGen::GenJmpEpilog(BasicBlock* block)
                 callType   = emitter::EC_INDIR_ARD;
                 indCallReg = REG_RAX;
                 addr       = nullptr;
+
                 instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, indCallReg, (ssize_t)addrInfo.addr);
-                regSet.verifyRegUsed(indCallReg);
             }
         }
         else
