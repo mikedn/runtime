@@ -1590,8 +1590,7 @@ void CodeGen::genEHCatchRet(BasicBlock* block)
 
 void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
                                      regNumber reg,
-                                     ssize_t   imm,
-                                     insFlags flags DEBUGARG(size_t targetHandle) DEBUGARG(GenTreeFlags gtFlags))
+                                     ssize_t imm DEBUGARG(size_t targetHandle) DEBUGARG(GenTreeFlags gtFlags))
 {
     // reg cannot be a FP register
     assert(!genIsValidFloatReg(reg));
@@ -1607,7 +1606,7 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
     }
     else if (imm == 0)
     {
-        instGen_Set_Reg_To_Zero(size, reg, flags);
+        instGen_Set_Reg_To_Zero(size, reg);
     }
     else
     {
@@ -1671,11 +1670,6 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
             // should not be in this else condition
             assert(ins == INS_movk);
         }
-        // The caller may have requested that the flags be set on this mov (rarely/never)
-        if (flags == INS_FLAGS_SET)
-        {
-            GetEmitter()->emitIns_R_I(INS_tst, size, reg, 0);
-        }
     }
 
     regSet.verifyRegUsed(reg);
@@ -1700,9 +1694,8 @@ void CodeGen::genSetRegToConst(regNumber targetReg, var_types targetType, GenTre
 
             if (con->ImmedValNeedsReloc(compiler))
             {
-                instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, targetReg, cnsVal,
-                                       INS_FLAGS_DONT_CARE DEBUGARG(tree->AsIntCon()->gtTargetHandle)
-                                           DEBUGARG(tree->AsIntCon()->gtFlags));
+                instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, targetReg, cnsVal DEBUGARG(tree->AsIntCon()->gtTargetHandle)
+                                                                           DEBUGARG(tree->AsIntCon()->gtFlags));
             }
             else
             {

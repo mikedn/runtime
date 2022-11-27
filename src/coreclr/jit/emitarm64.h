@@ -743,11 +743,6 @@ void emitIns_Mov(
 
 void emitIns_R_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, insOpts opt = INS_OPTS_NONE);
 
-void emitIns_R_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, insFlags flags)
-{
-    emitIns_R_R(ins, attr, reg1, reg2);
-}
-
 void emitIns_R_I_I(
     instruction ins, emitAttr attr, regNumber reg1, ssize_t imm1, ssize_t imm2, insOpts opt = INS_OPTS_NONE);
 

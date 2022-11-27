@@ -349,7 +349,7 @@ protected:
 #if defined(TARGET_ARM)
 
     bool genInstrWithConstant(
-        instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, ssize_t imm, insFlags flags, regNumber tmpReg);
+        instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, ssize_t imm, regNumber tmpReg);
 
     bool genStackPointerAdjustment(ssize_t spAdjustment, regNumber tmpReg);
 
@@ -1125,8 +1125,7 @@ protected:
     void genEmitGSCookieCheck(bool pushReg);
     void genSetRegToIcon(regNumber reg,
                          ssize_t   val,
-                         var_types type = TYP_INT,
-                         insFlags flags = INS_FLAGS_DONT_CARE DEBUGARG(GenTreeFlags gtFlags = GTF_EMPTY));
+                         var_types type = TYP_INT DEBUGARG(GenTreeFlags gtFlags = GTF_EMPTY));
     void genCodeForShift(GenTreeOp* shift);
 
 #if defined(TARGET_X86) || defined(TARGET_ARM)
@@ -1322,16 +1321,14 @@ public:
                   regNumber dstReg,
                   regNumber srcReg,
                   bool      canSkip,
-                  emitAttr  size  = EA_UNKNOWN,
-                  insFlags  flags = INS_FLAGS_DONT_CARE);
+                  emitAttr size = EA_UNKNOWN ARM_ARG(insFlags flags = INS_FLAGS_DONT_CARE));
 
     void inst_Mov_Extend(var_types srcType,
                          bool      srcInReg,
                          regNumber dstReg,
                          regNumber srcReg,
                          bool      canSkip,
-                         emitAttr  size  = EA_UNKNOWN,
-                         insFlags  flags = INS_FLAGS_DONT_CARE);
+                         emitAttr size = EA_UNKNOWN ARM_ARG(insFlags flags = INS_FLAGS_DONT_CARE));
 
     void inst_RV_RV(instruction ins, regNumber reg1, regNumber reg2, var_types type, emitAttr size = EA_UNKNOWN);
     void inst_RV_RV_RV(instruction ins, regNumber reg1, regNumber reg2, regNumber reg3, emitAttr size);
@@ -1456,12 +1453,10 @@ public:
 
     void instGen_MemoryBarrier(BarrierKind barrierKind = BARRIER_FULL);
 
-    void instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg, insFlags flags = INS_FLAGS_DONT_CARE);
-
+    void instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg);
     void instGen_Set_Reg_To_Imm(emitAttr  size,
                                 regNumber reg,
-                                ssize_t   imm,
-                                insFlags flags = INS_FLAGS_DONT_CARE DEBUGARG(size_t targetHandle = 0)
+                                ssize_t imm DEBUGARG(size_t targetHandle = 0)
                                     DEBUGARG(GenTreeFlags gtFlags = GTF_EMPTY));
 
 #ifdef TARGET_XARCH

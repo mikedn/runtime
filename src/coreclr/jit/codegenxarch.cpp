@@ -23,12 +23,8 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "gcinfoencoder.h"
 #include "patchpointinfo.h"
 
-/*****************************************************************************
- *
- *  Generate code that will set the given register to the integer constant.
- */
-
-void CodeGen::genSetRegToIcon(regNumber reg, ssize_t val, var_types type, insFlags flags DEBUGARG(GenTreeFlags gtFlags))
+// Generate code that will set the given register to the integer constant.
+void CodeGen::genSetRegToIcon(regNumber reg, ssize_t val, var_types type DEBUGARG(GenTreeFlags gtFlags))
 {
     // Reg cannot be a FP reg
     assert(!genIsValidFloatReg(reg));
@@ -40,7 +36,7 @@ void CodeGen::genSetRegToIcon(regNumber reg, ssize_t val, var_types type, insFla
 
     if (val == 0)
     {
-        instGen_Set_Reg_To_Zero(emitActualTypeSize(type), reg, flags);
+        instGen_Set_Reg_To_Zero(emitActualTypeSize(type), reg);
     }
     else
     {
@@ -500,8 +496,7 @@ void CodeGen::genEHFinallyOrFilterRet(BasicBlock* block)
 
 void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
                                      regNumber reg,
-                                     ssize_t   imm,
-                                     insFlags flags DEBUGARG(size_t targetHandle) DEBUGARG(GenTreeFlags gtFlags))
+                                     ssize_t imm DEBUGARG(size_t targetHandle) DEBUGARG(GenTreeFlags gtFlags))
 {
     // reg cannot be a FP register
     assert(!genIsValidFloatReg(reg));
@@ -513,7 +508,7 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
 
     if ((imm == 0) && !EA_IS_RELOC(size))
     {
-        instGen_Set_Reg_To_Zero(size, reg, flags);
+        instGen_Set_Reg_To_Zero(size, reg);
         return;
     }
 
@@ -565,7 +560,7 @@ void CodeGen::genSetRegToConst(regNumber targetReg, var_types targetType, GenTre
             }
             else
             {
-                genSetRegToIcon(targetReg, cnsVal, targetType, INS_FLAGS_DONT_CARE DEBUGARG(tree->gtFlags));
+                genSetRegToIcon(targetReg, cnsVal, targetType DEBUGARG(tree->gtFlags));
             }
         }
         break;
@@ -7998,7 +7993,7 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
 #endif
 
             callTarget = callTargetReg;
-            CodeGen::genSetRegToIcon(callTarget, (ssize_t)pAddr, TYP_I_IMPL);
+            genSetRegToIcon(callTarget, (ssize_t)pAddr, TYP_I_IMPL);
             callType = emitter::EC_INDIR_ARD;
         }
     }
@@ -8573,16 +8568,13 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
     {
         GetEmitter()->emitIns_R_AI(INS_mov, EA_PTR_DSP_RELOC, REG_ARG_0, (ssize_t)compiler->compProfilerMethHnd);
     }
+    else if (compiler->opts.compJitELTHookEnabled)
+    {
+        genSetRegToIcon(REG_ARG_0, (ssize_t)compiler->compProfilerMethHnd, TYP_I_IMPL);
+    }
     else
     {
-        if (compiler->opts.compJitELTHookEnabled)
-        {
-            genSetRegToIcon(REG_ARG_0, (ssize_t)compiler->compProfilerMethHnd, TYP_I_IMPL);
-        }
-        else
-        {
-            instGen_Set_Reg_To_Imm(EA_8BYTE, REG_ARG_0, (ssize_t)compiler->compProfilerMethHnd);
-        }
+        instGen_Set_Reg_To_Imm(EA_8BYTE, REG_ARG_0, (ssize_t)compiler->compProfilerMethHnd);
     }
 
     // RSI = caller's SP

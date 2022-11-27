@@ -179,16 +179,9 @@ void CodeGen::inst_RV(instruction ins, regNumber reg, var_types type, emitAttr s
     GetEmitter()->emitIns_R(ins, size, reg);
 }
 
-/*****************************************************************************
- *
- *  Generate a "mov reg1, reg2" instruction.
- */
-void CodeGen::inst_Mov(var_types dstType,
-                       regNumber dstReg,
-                       regNumber srcReg,
-                       bool      canSkip,
-                       emitAttr  size,
-                       insFlags  flags /* = INS_FLAGS_DONT_CARE */)
+// Generate a "mov reg1, reg2" instruction.
+void CodeGen::inst_Mov(
+    var_types dstType, regNumber dstReg, regNumber srcReg, bool canSkip, emitAttr size ARM_ARG(insFlags flags))
 {
     instruction ins = ins_Copy(srcReg, dstType);
 
@@ -204,17 +197,13 @@ void CodeGen::inst_Mov(var_types dstType,
 #endif
 }
 
-/*****************************************************************************
- *
- *  Generate a "mov reg1, reg2" instruction.
- */
+// Generate a "mov reg1, reg2" instruction.
 void CodeGen::inst_Mov_Extend(var_types srcType,
                               bool      srcInReg,
                               regNumber dstReg,
                               regNumber srcReg,
                               bool      canSkip,
-                              emitAttr  size,
-                              insFlags  flags /* = INS_FLAGS_DONT_CARE */)
+                              emitAttr size ARM_ARG(insFlags flags))
 {
     instruction ins = ins_Move_Extend(srcType, srcInReg);
 
@@ -991,12 +980,12 @@ void CodeGen::instGen_MemoryBarrier(BarrierKind barrierKind)
 #endif
 }
 
-void CodeGen::instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg, insFlags flags)
+void CodeGen::instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg)
 {
 #if defined(TARGET_XARCH)
     GetEmitter()->emitIns_R_R(INS_xor, size, reg, reg);
 #elif defined(TARGET_ARMARCH)
-    GetEmitter()->emitIns_R_I(INS_mov, size, reg, 0 ARM_ARG(flags));
+    GetEmitter()->emitIns_R_I(INS_mov, size, reg, 0);
 #else
 #error "Unknown TARGET"
 #endif

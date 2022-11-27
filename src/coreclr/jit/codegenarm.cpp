@@ -40,7 +40,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 //    attr                - operation size and GC attribute
 //    reg1, reg2          - first and second register operands
 //    imm                 - immediate value (third operand when it fits)
-//    flags               - whether flags are set
 //    tmpReg              - temp register to use when the 'imm' doesn't fit. Can be REG_NA
 //                          if caller knows for certain the constant will fit.
 //
@@ -49,7 +48,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 //    returns false meaning the immediate was too large and tmpReg was used and modified.
 //
 bool CodeGen::genInstrWithConstant(
-    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, ssize_t imm, insFlags flags, regNumber tmpReg)
+    instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, ssize_t imm, regNumber tmpReg)
 {
     bool immFitsInIns = false;
 
@@ -61,7 +60,7 @@ bool CodeGen::genInstrWithConstant(
     {
         case INS_add:
         case INS_sub:
-            immFitsInIns = emitter::validImmForInstr(ins, (target_ssize_t)imm, flags);
+            immFitsInIns = emitter::validImmForInstr(ins, (target_ssize_t)imm);
             break;
 
         default:
@@ -108,8 +107,7 @@ bool CodeGen::genStackPointerAdjustment(ssize_t spDelta, regNumber tmpReg)
 {
     // Even though INS_add is specified here, the encoder will choose either
     // an INS_add or an INS_sub and encode the immediate as a positive value
-    //
-    return genInstrWithConstant(INS_add, EA_PTRSIZE, REG_SPBASE, REG_SPBASE, spDelta, INS_FLAGS_DONT_CARE, tmpReg);
+    return genInstrWithConstant(INS_add, EA_PTRSIZE, REG_SPBASE, REG_SPBASE, spDelta, tmpReg);
 }
 
 //------------------------------------------------------------------------
@@ -192,8 +190,7 @@ void CodeGen::genMov32RelocatableImmediate(emitAttr size, BYTE* addr, regNumber 
 // Move an immediate value into an integer register.
 void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
                                      regNumber reg,
-                                     ssize_t   imm,
-                                     insFlags flags DEBUGARG(size_t targetHandle) DEBUGARG(GenTreeFlags gtFlags))
+                                     ssize_t imm DEBUGARG(size_t targetHandle) DEBUGARG(GenTreeFlags gtFlags))
 {
     // reg cannot be a FP register
     assert(!genIsValidFloatReg(reg));
@@ -210,7 +207,7 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
     }
     else if (imm == 0)
     {
-        instGen_Set_Reg_To_Zero(size, reg, flags);
+        instGen_Set_Reg_To_Zero(size, reg);
     }
     else
     {
@@ -218,7 +215,7 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
         const int val32 = (int)imm;
         if (emitter::emitIns_valid_imm_for_mov(val32))
         {
-            GetEmitter()->emitIns_R_I(INS_mov, size, reg, val32, flags);
+            GetEmitter()->emitIns_R_I(INS_mov, size, reg, val32);
         }
         else // We have to use a movw/movt pair of instructions
         {
@@ -243,9 +240,6 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
             {
                 GetEmitter()->emitIns_R_I(INS_movt, size, reg, imm_hi16);
             }
-
-            if (flags == INS_FLAGS_SET)
-                GetEmitter()->emitIns_Mov(INS_mov, size, reg, reg, /* canSkip */ false, INS_FLAGS_SET);
         }
     }
 
@@ -497,7 +491,7 @@ void CodeGen::genLclHeap(GenTree* tree)
         }
 
         // regCnt will be the total number of bytes to locAlloc
-        genSetRegToIcon(regCnt, amount, TYP_INT);
+        genSetRegToIcon(regCnt, amount);
     }
     else
     {
@@ -622,8 +616,7 @@ ALLOC_DONE:
 
         // Return the stackalloc'ed address in result register.
         // regCnt = SP + stackAdjustment.
-        genInstrWithConstant(INS_add, EA_PTRSIZE, regCnt, REG_SPBASE, (ssize_t)stackAdjustment, INS_FLAGS_DONT_CARE,
-                             regTmp);
+        genInstrWithConstant(INS_add, EA_PTRSIZE, regCnt, REG_SPBASE, (ssize_t)stackAdjustment, regTmp);
     }
     else // stackAdjustment == 0
     {
@@ -1535,7 +1528,7 @@ void CodeGen::genAllocLclFrame(unsigned frameSize, regNumber initReg, bool* pIni
     else
     {
         genInstrWithConstant(INS_sub, EA_PTRSIZE, REG_STACK_PROBE_HELPER_ARG, REG_SPBASE, frameSize,
-                             INS_FLAGS_DONT_CARE, REG_STACK_PROBE_HELPER_ARG);
+                             REG_STACK_PROBE_HELPER_ARG);
         regSet.verifyRegUsed(REG_STACK_PROBE_HELPER_ARG);
         genEmitHelperCall(CORINFO_HELP_STACK_PROBE, EA_UNKNOWN, REG_STACK_PROBE_HELPER_CALL_TARGET);
         compiler->unwindPadding();

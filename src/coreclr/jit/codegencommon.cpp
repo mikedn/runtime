@@ -897,8 +897,8 @@ void CodeGen::genEmitGSCookieCheck(bool pushReg)
     else
     {
         // Ngen case - GS cookie constant needs to be accessed through an indirection.
-        instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, regGSConst, (ssize_t)compiler->gsGlobalSecurityCookieAddr,
-                               INS_FLAGS_DONT_CARE DEBUGARG((size_t)THT_GSCookieCheck) DEBUGARG(GTF_EMPTY));
+        instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, regGSConst, (ssize_t)compiler->gsGlobalSecurityCookieAddr DEBUGARG(
+                                                                    (size_t)THT_GSCookieCheck) DEBUGARG(GTF_EMPTY));
         GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, regGSConst, regGSConst, 0);
     }
     // Load this method's GS value from the stack frame
@@ -3721,7 +3721,7 @@ void CodeGen::genFreeLclFrame(unsigned frameSize, /* IN OUT */ bool* pUnwindStar
     // need an unwind code. We don't want to generate a "NOP" code for this
     // temp register load; we want the unwind codes to start after that.
 
-    if (emitter::validImmForInstr(INS_add, frameSize, INS_FLAGS_DONT_CARE))
+    if (emitter::validImmForInstr(INS_add, frameSize))
     {
         if (!*pUnwindStarted)
         {
@@ -3729,7 +3729,7 @@ void CodeGen::genFreeLclFrame(unsigned frameSize, /* IN OUT */ bool* pUnwindStar
             *pUnwindStarted = true;
         }
 
-        GetEmitter()->emitIns_R_I(INS_add, EA_PTRSIZE, REG_SPBASE, frameSize, INS_FLAGS_DONT_CARE);
+        GetEmitter()->emitIns_R_I(INS_add, EA_PTRSIZE, REG_SPBASE, frameSize);
     }
     else
     {
@@ -3750,7 +3750,7 @@ void CodeGen::genFreeLclFrame(unsigned frameSize, /* IN OUT */ bool* pUnwindStar
             *pUnwindStarted = true;
         }
 
-        GetEmitter()->emitIns_R_R(INS_add, EA_PTRSIZE, REG_SPBASE, tmpReg, INS_FLAGS_DONT_CARE);
+        GetEmitter()->emitIns_R_R(INS_add, EA_PTRSIZE, REG_SPBASE, tmpReg);
     }
 
     compiler->unwindAllocStack(frameSize);
@@ -4303,7 +4303,7 @@ void CodeGen::genZeroInitFrame(int untrLclHi, int untrLclLo, regNumber initReg, 
         // rAddr is not a live incoming argument reg
         assert((genRegMask(rAddr) & paramRegState.intRegLiveIn) == RBM_NONE);
 
-        if (emitter::emitIns_valid_imm_for_add(untrLclLo, INS_FLAGS_DONT_CARE))
+        if (emitter::emitIns_valid_imm_for_add(untrLclLo))
         {
             GetEmitter()->emitIns_R_R_I(INS_add, EA_PTRSIZE, rAddr, genFramePointerReg(), untrLclLo);
         }
@@ -7600,7 +7600,7 @@ void CodeGen::genSetPSPSym(regNumber initReg, bool* pInitRegZeroed)
         // use the "add <reg>, r11, imm" form
 
         int FPtoCallerSPdelta = -genCallerSPtoFPdelta();
-        noway_assert(emitter::emitIns_valid_imm_for_add(FPtoCallerSPdelta, INS_FLAGS_DONT_CARE));
+        noway_assert(emitter::emitIns_valid_imm_for_add(FPtoCallerSPdelta));
 
         callerSPOffs = FPtoCallerSPdelta;
         regBase      = REG_FPBASE;

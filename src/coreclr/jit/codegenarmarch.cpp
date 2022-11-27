@@ -43,11 +43,7 @@ void CodeGen::genStackPointerConstantAdjustment(ssize_t spDelta, regNumber regTm
     // function that does a probe, which will in turn call this function.
     assert((target_size_t)(-spDelta) <= compiler->eeGetPageSize());
 
-#ifdef TARGET_ARM64
-    genInstrWithConstant(INS_sub, EA_PTRSIZE, REG_SPBASE, REG_SPBASE, -spDelta, regTmp);
-#else
-    genInstrWithConstant(INS_sub, EA_PTRSIZE, REG_SPBASE, REG_SPBASE, -spDelta, INS_FLAGS_DONT_CARE, regTmp);
-#endif
+    genInstrWithConstant(INS_sub, EA_PTRSIZE, REG_SP, REG_SP, -spDelta, regTmp);
 }
 
 //------------------------------------------------------------------------
@@ -558,10 +554,8 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
     }
 }
 
-//------------------------------------------------------------------------
-// genSetRegToIcon: Generate code that will set the given register to the integer constant.
-//
-void CodeGen::genSetRegToIcon(regNumber reg, ssize_t val, var_types type, insFlags flags DEBUGARG(GenTreeFlags gtFlags))
+// Generate code that will set the given register to the integer constant.
+void CodeGen::genSetRegToIcon(regNumber reg, ssize_t val, var_types type DEBUGARG(GenTreeFlags gtFlags))
 {
     // Reg cannot be a FP reg
     assert(!genIsValidFloatReg(reg));
@@ -571,7 +565,7 @@ void CodeGen::genSetRegToIcon(regNumber reg, ssize_t val, var_types type, insFla
     // code path.
     noway_assert(type != TYP_REF || val == 0);
 
-    instGen_Set_Reg_To_Imm(emitActualTypeSize(type), reg, val, flags);
+    instGen_Set_Reg_To_Imm(emitActualTypeSize(type), reg, val);
 }
 
 //---------------------------------------------------------------------
@@ -603,8 +597,8 @@ void CodeGen::genSetGSSecurityCookie(regNumber initReg, bool* pInitRegZeroed)
     }
     else
     {
-        instGen_Set_Reg_To_Imm(EA_PTR_DSP_RELOC, initReg, (ssize_t)compiler->gsGlobalSecurityCookieAddr,
-                               INS_FLAGS_DONT_CARE DEBUGARG((size_t)THT_SetGSCookie) DEBUGARG(GTF_EMPTY));
+        instGen_Set_Reg_To_Imm(EA_PTR_DSP_RELOC, initReg, (ssize_t)compiler->gsGlobalSecurityCookieAddr DEBUGARG(
+                                                              (size_t)THT_SetGSCookie) DEBUGARG(GTF_EMPTY));
         GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, initReg, initReg, 0);
         GetEmitter()->emitIns_S_R(INS_str, EA_PTRSIZE, initReg, compiler->lvaGSSecurityCookie, 0);
     }
@@ -1528,7 +1522,7 @@ void CodeGen::genCodeForIndexAddr(GenTreeIndexAddr* node)
     else // we have to load the element attr and use a MADD (multiply-add) instruction
     {
         // tmpReg = element attr
-        CodeGen::genSetRegToIcon(tmpReg, (ssize_t)node->GetElemSize(), TYP_INT);
+        genSetRegToIcon(tmpReg, (ssize_t)node->GetElemSize());
 
         // dest = index * tmpReg + base
         GetEmitter()->emitIns_R_R_R_R(INS_MULADD, emitActualTypeSize(node), node->GetRegNum(), indexReg, tmpReg,
@@ -3496,12 +3490,9 @@ void CodeGen::genScaledAdd(emitAttr attr, regNumber targetReg, regNumber baseReg
     }
     else
     {
-// target = base + index<<scale
-#if defined(TARGET_ARM)
-        emit->emitIns_R_R_R_I(INS_add, attr, targetReg, baseReg, indexReg, scale, INS_FLAGS_DONT_CARE, INS_OPTS_LSL);
-#elif defined(TARGET_ARM64)
-        emit->emitIns_R_R_R_I(INS_add, attr, targetReg, baseReg, indexReg, scale, INS_OPTS_LSL);
-#endif
+        // target = base + index<<scale
+        emit->emitIns_R_R_R_I(INS_add, attr, targetReg, baseReg, indexReg, scale ARM_ARG(INS_FLAGS_DONT_CARE),
+                              INS_OPTS_LSL);
     }
 }
 
