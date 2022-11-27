@@ -463,7 +463,6 @@ protected:
     // Common or driving functions
     //
 
-    void genReserveProlog(BasicBlock* block); // currently unused
     void genReserveEpilog(BasicBlock* block);
     void genFnProlog();
     void genFnEpilog(BasicBlock* block);

@@ -5028,27 +5028,6 @@ ret
 
 *****************************************************************************/
 
-/*****************************************************************************
- *
- *  Reserve space for a function prolog.
- */
-
-void CodeGen::genReserveProlog(BasicBlock* block)
-{
-    assert(block != nullptr);
-
-    JITDUMP("Reserving prolog IG for block " FMT_BB "\n", block->bbNum);
-
-    /* Nothing is live on entry to the prolog */
-
-    GetEmitter()->emitCreatePlaceholderIG(IGPT_PROLOG, block, VarSetOps::MakeEmpty(compiler), 0, 0, false);
-}
-
-/*****************************************************************************
- *
- *  Reserve space for a function epilog.
- */
-
 void CodeGen::genReserveEpilog(BasicBlock* block)
 {
     JITDUMP("Reserving epilog IG for block " FMT_BB "\n", block->bbNum);
@@ -5058,11 +5037,6 @@ void CodeGen::genReserveEpilog(BasicBlock* block)
 }
 
 #if defined(FEATURE_EH_FUNCLETS)
-
-/*****************************************************************************
- *
- *  Reserve space for a funclet prolog.
- */
 
 void CodeGen::genReserveFuncletProlog(BasicBlock* block)
 {
@@ -5088,11 +5062,6 @@ void CodeGen::genReserveFuncletProlog(BasicBlock* block)
     GetEmitter()->emitCreatePlaceholderIG(IGPT_FUNCLET_PROLOG, block, gcInfo.gcVarPtrSetCur, gcInfo.gcRegGCrefSetCur,
                                           gcInfo.gcRegByrefSetCur, false);
 }
-
-/*****************************************************************************
- *
- *  Reserve space for a funclet epilog.
- */
 
 void CodeGen::genReserveFuncletEpilog(BasicBlock* block)
 {

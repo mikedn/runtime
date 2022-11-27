@@ -1615,35 +1615,26 @@ void emitter::emitGeneratePrologEpilog()
 
         switch (igPh->igPhData->igPhType)
         {
-            case IGPT_PROLOG: // currently unused
-                INDEBUG(++prologCnt);
-                break;
-
             case IGPT_EPILOG:
                 INDEBUG(++epilogCnt);
                 emitBegFnEpilog(igPh);
                 codeGen->genFnEpilog(igPhBB);
                 emitEndFnEpilog();
                 break;
-
-#if defined(FEATURE_EH_FUNCLETS)
-
+#ifdef FEATURE_EH_FUNCLETS
             case IGPT_FUNCLET_PROLOG:
                 INDEBUG(++funcletPrologCnt);
                 emitBegFuncletProlog(igPh);
                 codeGen->genFuncletProlog(igPhBB);
                 emitEndFuncletProlog();
                 break;
-
             case IGPT_FUNCLET_EPILOG:
                 INDEBUG(++funcletEpilogCnt);
                 emitBegFuncletEpilog(igPh);
                 codeGen->genFuncletEpilog();
                 emitEndFuncletEpilog();
                 break;
-
 #endif // FEATURE_EH_FUNCLETS
-
             default:
                 unreached();
         }
@@ -3156,20 +3147,17 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
         const char* pszType;
         switch (igPh->igPhData->igPhType)
         {
-            case IGPT_PROLOG:
-                pszType = "prolog";
-                break;
             case IGPT_EPILOG:
                 pszType = "epilog";
                 break;
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
             case IGPT_FUNCLET_PROLOG:
                 pszType = "funclet prolog";
                 break;
             case IGPT_FUNCLET_EPILOG:
                 pszType = "funclet epilog";
                 break;
-#endif // FEATURE_EH_FUNCLETS
+#endif
             default:
                 pszType = "UNKNOWN";
                 break;

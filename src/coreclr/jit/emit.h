@@ -204,14 +204,13 @@ private:
 /*          The following describes an instruction group                */
 /************************************************************************/
 
-enum insGroupPlaceholderType : unsigned char
+enum insGroupPlaceholderType : uint8_t
 {
-    IGPT_PROLOG, // currently unused
     IGPT_EPILOG,
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
     IGPT_FUNCLET_PROLOG,
     IGPT_FUNCLET_EPILOG,
-#endif // FEATURE_EH_FUNCLETS
+#endif
 };
 
 #if defined(_MSC_VER) && defined(TARGET_ARM)
