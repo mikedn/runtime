@@ -23,12 +23,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "gcinfoencoder.h"
 #include "patchpointinfo.h"
 
-void CodeGen::instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg)
-{
-    GetEmitter()->emitIns_R_R(INS_xor, size, reg, reg);
-    regSet.verifyRegUsed(reg);
-}
-
 //---------------------------------------------------------------------
 // genSetGSSecurityCookie: Set the "GS" security cookie in the prolog.
 //
@@ -474,7 +468,11 @@ void CodeGen::genEHFinallyOrFilterRet(BasicBlock* block)
 
 #endif // !FEATURE_EH_FUNCLETS
 
-//  Move an immediate shift into an integer register
+void CodeGen::instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg)
+{
+    GetEmitter()->emitIns_R_R(INS_xor, size, reg, reg);
+    regSet.verifyRegUsed(reg);
+}
 
 void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
                                      regNumber reg,
@@ -490,11 +488,9 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
 
     if ((imm == 0) && !EA_IS_RELOC(size))
     {
-        instGen_Set_Reg_To_Zero(size, reg);
-        return;
+        GetEmitter()->emitIns_R_R(INS_xor, size, reg, reg);
     }
-
-    if (genDataIndirAddrCanBeEncodedAsPCRelOffset(imm))
+    else if (genDataIndirAddrCanBeEncodedAsPCRelOffset(imm))
     {
         emitAttr newSize = EA_PTR_DSP_RELOC;
         if (EA_IS_BYREF(size))
@@ -531,7 +527,12 @@ void CodeGen::GenIntCon(GenTreeIntCon* node, regNumber reg, var_types type)
 
     if (node->GetValue() == 0)
     {
-        instGen_Set_Reg_To_Zero(emitActualTypeSize(type), reg);
+        // TODO-MIKE-Cleanup: The size should be EA_4BYTE, since the entire register
+        // is zeroed out anyway on x64. However, this results in diffs in the GC info
+        // because managed null isn't reported anymore. It doesn't need to be reported
+        // but then DefReg reports it and we end up with inconsistencies at call sites
+        // and block boundaries. It's not clear if that could cause problems or not.
+        GetEmitter()->emitIns_R_R(INS_xor, emitActualTypeSize(type), reg, reg);
 
         return;
     }
