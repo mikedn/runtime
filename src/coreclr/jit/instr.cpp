@@ -979,15 +979,3 @@ void CodeGen::instGen_MemoryBarrier(BarrierKind barrierKind)
 #error "Unknown TARGET"
 #endif
 }
-
-void CodeGen::instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg)
-{
-#if defined(TARGET_XARCH)
-    GetEmitter()->emitIns_R_R(INS_xor, size, reg, reg);
-#elif defined(TARGET_ARMARCH)
-    GetEmitter()->emitIns_R_I(INS_mov, size, reg, 0);
-#else
-#error "Unknown TARGET"
-#endif
-    regSet.verifyRegUsed(reg);
-}

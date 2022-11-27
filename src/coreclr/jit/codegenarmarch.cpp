@@ -4193,4 +4193,10 @@ void CodeGen::genCodeForNegNot(GenTreeUnOp* node)
     DefReg(node);
 }
 
+void CodeGen::instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg)
+{
+    GetEmitter()->emitIns_R_I(INS_mov, size, reg, 0);
+    regSet.verifyRegUsed(reg);
+}
+
 #endif // TARGET_ARMARCH

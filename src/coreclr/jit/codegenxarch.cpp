@@ -45,6 +45,12 @@ void CodeGen::genSetRegToIcon(regNumber reg, ssize_t val, var_types type DEBUGAR
     }
 }
 
+void CodeGen::instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg)
+{
+    GetEmitter()->emitIns_R_R(INS_xor, size, reg, reg);
+    regSet.verifyRegUsed(reg);
+}
+
 //---------------------------------------------------------------------
 // genSetGSSecurityCookie: Set the "GS" security cookie in the prolog.
 //
