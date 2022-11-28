@@ -1957,6 +1957,153 @@ void CodeGen::genPopFltRegs(regMaskTP regMask)
     GetEmitter()->emitIns_R_I(INS_vpop, EA_8BYTE, lowReg, slots / 2);
 }
 
+void CodeGen::PrologBlockInitLocals(int untrLclHi, int untrLclLo, regNumber initReg, bool* pInitRegZeroed)
+{
+    assert(generatingProlog && genUseBlockInit);
+    assert(untrLclHi > untrLclLo);
+
+    // Generate the following code:
+    //
+    // For cnt less than 10
+    //
+    //            mov     rZero1, 0
+    //            mov     rZero2, 0
+    //            mov     rCnt,  <cnt>
+    //            stm     <rZero1,rZero2>,[rAddr!]
+    // <optional> stm     <rZero1,rZero2>,[rAddr!]
+    // <optional> stm     <rZero1,rZero2>,[rAddr!]
+    // <optional> stm     <rZero1,rZero2>,[rAddr!]
+    // <optional> str     rZero1,[rAddr]
+    //
+    // For rCnt greater than or equal to 10
+    //
+    //            mov     rZero1, 0
+    //            mov     rZero2, 0
+    //            mov     rCnt,  <cnt/2>
+    //            sub     rAddr, sp, OFFS
+    //
+    //        loop:
+    //            stm     <rZero1,rZero2>,[rAddr!]
+    //            sub     rCnt,rCnt,1
+    //            jnz     loop
+    //
+    // <optional> str     rZero1,[rAddr]   // When cnt is odd
+
+    regNumber rAddr;
+    regNumber rCnt = REG_NA; // Invalid
+    regMaskTP regMask;
+
+    // Set of available registers
+    regMaskTP availMask = regSet.rsGetModifiedRegsMask() | RBM_INT_CALLEE_TRASH;
+    // Remove all of the incoming argument registers as they are currently live
+    availMask &= ~paramRegState.intRegLiveIn;
+    // Remove the pre-calculated initReg as we will zero it and maybe use it for a large constant.
+    availMask &= ~genRegMask(initReg);
+
+    if (compiler->compLocallocUsed)
+    {
+        availMask &= ~RBM_SAVED_LOCALLOC_SP; // Remove the register reserved when we have a localloc frame
+    }
+
+    regNumber rZero1; // We're going to use initReg for rZero1
+    regNumber rZero2;
+
+    // We pick the next lowest register number for rZero2
+    noway_assert(availMask != RBM_NONE);
+    regMask = genFindLowestBit(availMask);
+    rZero2  = genRegNumFromMask(regMask);
+    availMask &= ~regMask;
+
+    // rZero2 is not a live incoming argument reg
+    assert((genRegMask(rZero2) & paramRegState.intRegLiveIn) == RBM_NONE);
+
+    // We pick the next lowest register number for rAddr
+    noway_assert(availMask != RBM_NONE);
+    regMask = genFindLowestBit(availMask);
+    rAddr   = genRegNumFromMask(regMask);
+    availMask &= ~regMask;
+
+    bool     useLoop   = false;
+    unsigned uCntBytes = untrLclHi - untrLclLo;
+    assert((uCntBytes % sizeof(int)) == 0);         // The smallest stack slot is always 4 bytes.
+    unsigned uCntSlots = uCntBytes / REGSIZE_BYTES; // How many register sized stack slots we're going to use.
+
+    // When uCntSlots is 9 or less, we will emit a sequence of stm/stp instructions inline.
+    // When it is 10 or greater, we will emit a loop containing a stm/stp instruction.
+    // In both of these cases the stm/stp instruction will write two zeros to memory
+    // and we will use a single str instruction at the end whenever we have an odd count.
+    if (uCntSlots >= 10)
+        useLoop = true;
+
+    if (useLoop)
+    {
+        // We pick the next lowest register number for rCnt
+        noway_assert(availMask != RBM_NONE);
+        regMask = genFindLowestBit(availMask);
+        rCnt    = genRegNumFromMask(regMask);
+        availMask &= ~regMask;
+    }
+
+    // rAddr is not a live incoming argument reg
+    assert((genRegMask(rAddr) & paramRegState.intRegLiveIn) == RBM_NONE);
+
+    if (emitter::emitIns_valid_imm_for_add(untrLclLo))
+    {
+        GetEmitter()->emitIns_R_R_I(INS_add, EA_PTRSIZE, rAddr, genFramePointerReg(), untrLclLo);
+    }
+    else
+    {
+        // Load immediate into the InitReg register
+        instGen_Set_Reg_To_Imm(EA_PTRSIZE, initReg, (ssize_t)untrLclLo);
+        GetEmitter()->emitIns_R_R_R(INS_add, EA_PTRSIZE, rAddr, genFramePointerReg(), initReg);
+        *pInitRegZeroed = false;
+    }
+
+    if (useLoop)
+    {
+        noway_assert(uCntSlots >= 2);
+        // rCnt is not a live incoming param reg
+        assert((genRegMask(rCnt) & paramRegState.intRegLiveIn) == RBM_NONE);
+
+        instGen_Set_Reg_To_Imm(EA_PTRSIZE, rCnt, (ssize_t)uCntSlots / 2);
+    }
+
+    if (!*pInitRegZeroed)
+    {
+        instGen_Set_Reg_To_Zero(EA_PTRSIZE, initReg);
+        *pInitRegZeroed = true;
+    }
+
+    rZero1 = initReg;
+
+    instGen_Set_Reg_To_Zero(EA_PTRSIZE, rZero2);
+    target_ssize_t stmImm = (target_ssize_t)(genRegMask(rZero1) | genRegMask(rZero2));
+
+    if (!useLoop)
+    {
+        while (uCntBytes >= REGSIZE_BYTES * 2)
+        {
+            GetEmitter()->emitIns_R_I(INS_stm, EA_PTRSIZE, rAddr, stmImm);
+            uCntBytes -= REGSIZE_BYTES * 2;
+        }
+    }
+    else
+    {
+        GetEmitter()->emitIns_R_I(INS_stm, EA_PTRSIZE, rAddr, stmImm); // zero stack slots
+        GetEmitter()->emitIns_R_I(INS_sub, EA_PTRSIZE, rCnt, 1, INS_FLAGS_SET);
+        GetEmitter()->emitIns_J(INS_bhi, NULL, -3);
+        uCntBytes %= REGSIZE_BYTES * 2;
+    }
+
+    if (uCntBytes >= REGSIZE_BYTES) // check and zero the last register-sized stack slot (odd number)
+    {
+        GetEmitter()->emitIns_R_R_I(INS_str, EA_PTRSIZE, rZero1, rAddr, 0);
+        uCntBytes -= REGSIZE_BYTES;
+    }
+
+    noway_assert(uCntBytes == 0);
+}
+
 void CodeGen::PrologZeroFloatRegs(regMaskTP floatRegs, regMaskTP doubleRegs, regNumber initReg)
 {
     regNumber fltInitReg = REG_NA;

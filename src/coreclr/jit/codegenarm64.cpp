@@ -8888,6 +8888,190 @@ regNumber CodeGen::emitInsTernary(instruction ins, emitAttr attr, GenTree* dst, 
     return dst->GetRegNum();
 }
 
+void CodeGen::PrologBlockInitLocals(int untrLclHi, int untrLclLo, regNumber initReg, bool* pInitRegZeroed)
+{
+    assert(generatingProlog && genUseBlockInit);
+    assert(untrLclHi > untrLclLo);
+
+    int bytesToWrite = untrLclHi - untrLclLo;
+
+    const regNumber zeroSimdReg          = REG_ZERO_INIT_FRAME_SIMD;
+    bool            simdRegZeroed        = false;
+    const int       simdRegPairSizeBytes = 2 * FP_REGSIZE_BYTES;
+
+    regNumber addrReg = REG_ZERO_INIT_FRAME_REG1;
+
+    if (addrReg == initReg)
+    {
+        *pInitRegZeroed = false;
+    }
+
+    int addrOffset = 0;
+
+    // The following invariants are held below:
+    //
+    //   1) [addrReg, #addrOffset] points at a location where next chunk of zero bytes will be written;
+    //   2) bytesToWrite specifies the number of bytes on the frame to initialize;
+    //   3) if simdRegZeroed is true then 128-bit wide zeroSimdReg contains zeroes.
+
+    const int bytesUseZeroingLoop = 192;
+
+    if (bytesToWrite >= bytesUseZeroingLoop)
+    {
+        // Generates the following code:
+        //
+        // When the size of the region is greater than or equal to 256 bytes
+        // **and** DC ZVA instruction use is permitted
+        // **and** the instruction block size is configured to 64 bytes:
+        //
+        //    movi    v16.16b, #0
+        //    add     x9, fp, #(untrLclLo+64)
+        //    add     x10, fp, #(untrLclHi-64)
+        //    stp     q16, q16, [x9, #-64]
+        //    stp     q16, q16, [x9, #-32]
+        //    bfm     x9, xzr, #0, #5
+        //
+        // loop:
+        //    dc      zva, x9
+        //    add     x9, x9, #64
+        //    cmp     x9, x10
+        //    blo     loop
+        //
+        //    stp     q16, q16, [x10]
+        //    stp     q16, q16, [x10, #32]
+        //
+        // Otherwise:
+        //
+        //     movi    v16.16b, #0
+        //     add     x9, fp, #(untrLclLo-32)
+        //     mov     x10, #(bytesToWrite-64)
+        //
+        // loop:
+        //     stp     q16, q16, [x9, #32]
+        //     stp     q16, q16, [x9, #64]!
+        //     subs    x10, x10, #64
+        //     bge     loop
+
+        const int bytesUseDataCacheZeroInstruction = 256;
+
+        GetEmitter()->emitIns_R_I(INS_movi, EA_16BYTE, zeroSimdReg, 0, INS_OPTS_16B);
+        simdRegZeroed = true;
+
+        if ((bytesToWrite >= bytesUseDataCacheZeroInstruction) &&
+            compiler->compOpportunisticallyDependsOn(InstructionSet_Dczva))
+        {
+            // The first and the last 64 bytes should be written with two stp q-reg instructions.
+            // This is in order to avoid **unintended** zeroing of the data by dc zva
+            // outside of [fp+untrLclLo, fp+untrLclHi) memory region.
+
+            genInstrWithConstant(INS_add, EA_PTRSIZE, addrReg, genFramePointerReg(), untrLclLo + 64, addrReg);
+            addrOffset = -64;
+
+            const regNumber endAddrReg = REG_ZERO_INIT_FRAME_REG2;
+
+            if (endAddrReg == initReg)
+            {
+                *pInitRegZeroed = false;
+            }
+
+            genInstrWithConstant(INS_add, EA_PTRSIZE, endAddrReg, genFramePointerReg(), untrLclHi - 64, endAddrReg);
+
+            GetEmitter()->emitIns_R_R_R_I(INS_stp, EA_16BYTE, zeroSimdReg, zeroSimdReg, addrReg, addrOffset);
+            addrOffset += simdRegPairSizeBytes;
+
+            GetEmitter()->emitIns_R_R_R_I(INS_stp, EA_16BYTE, zeroSimdReg, zeroSimdReg, addrReg, addrOffset);
+            addrOffset += simdRegPairSizeBytes;
+
+            assert(addrOffset == 0);
+
+            GetEmitter()->emitIns_R_R_I_I(INS_bfm, EA_PTRSIZE, addrReg, REG_ZR, 0, 5);
+            // addrReg points at the beginning of a cache line.
+
+            GetEmitter()->emitIns_R(INS_dczva, EA_PTRSIZE, addrReg);
+            GetEmitter()->emitIns_R_R_I(INS_add, EA_PTRSIZE, addrReg, addrReg, 64);
+            GetEmitter()->emitIns_R_R(INS_cmp, EA_PTRSIZE, addrReg, endAddrReg);
+            GetEmitter()->emitIns_J(INS_blo, NULL, -4);
+
+            addrReg      = endAddrReg;
+            bytesToWrite = 64;
+        }
+        else
+        {
+            genInstrWithConstant(INS_add, EA_PTRSIZE, addrReg, genFramePointerReg(), untrLclLo - 32, addrReg);
+            addrOffset = 32;
+
+            const regNumber countReg = REG_ZERO_INIT_FRAME_REG2;
+
+            if (countReg == initReg)
+            {
+                *pInitRegZeroed = false;
+            }
+
+            instGen_Set_Reg_To_Imm(EA_PTRSIZE, countReg, bytesToWrite - 64);
+
+            GetEmitter()->emitIns_R_R_R_I(INS_stp, EA_16BYTE, zeroSimdReg, zeroSimdReg, addrReg, 32);
+            GetEmitter()->emitIns_R_R_R_I(INS_stp, EA_16BYTE, zeroSimdReg, zeroSimdReg, addrReg, 64,
+                                          INS_OPTS_PRE_INDEX);
+
+            GetEmitter()->emitIns_R_R_I(INS_subs, EA_PTRSIZE, countReg, countReg, 64);
+            GetEmitter()->emitIns_J(INS_bge, NULL, -4);
+
+            bytesToWrite %= 64;
+        }
+    }
+    else
+    {
+        genInstrWithConstant(INS_add, EA_PTRSIZE, addrReg, genFramePointerReg(), untrLclLo, addrReg);
+    }
+
+    if (bytesToWrite >= simdRegPairSizeBytes)
+    {
+        // Generates the following code:
+        //
+        //     movi    v16.16b, #0
+        //     stp     q16, q16, [x9, #addrOffset]
+        //     stp     q16, q16, [x9, #(addrOffset+32)]
+        // ...
+        //     stp     q16, q16, [x9, #(addrOffset+roundDown(bytesToWrite, 32))]
+
+        if (!simdRegZeroed)
+        {
+            GetEmitter()->emitIns_R_I(INS_movi, EA_16BYTE, zeroSimdReg, 0, INS_OPTS_16B);
+            simdRegZeroed = true;
+        }
+
+        for (; bytesToWrite >= simdRegPairSizeBytes; bytesToWrite -= simdRegPairSizeBytes)
+        {
+            GetEmitter()->emitIns_R_R_R_I(INS_stp, EA_16BYTE, zeroSimdReg, zeroSimdReg, addrReg, addrOffset);
+            addrOffset += simdRegPairSizeBytes;
+        }
+    }
+
+    const int regPairSizeBytes = 2 * REGSIZE_BYTES;
+
+    if (bytesToWrite >= regPairSizeBytes)
+    {
+        GetEmitter()->emitIns_R_R_R_I(INS_stp, EA_PTRSIZE, REG_ZR, REG_ZR, addrReg, addrOffset);
+        addrOffset += regPairSizeBytes;
+        bytesToWrite -= regPairSizeBytes;
+    }
+
+    if (bytesToWrite >= REGSIZE_BYTES)
+    {
+        GetEmitter()->emitIns_R_R_I(INS_str, EA_PTRSIZE, REG_ZR, addrReg, addrOffset);
+        addrOffset += REGSIZE_BYTES;
+        bytesToWrite -= REGSIZE_BYTES;
+    }
+
+    if (bytesToWrite == sizeof(int))
+    {
+        GetEmitter()->emitIns_R_R_I(INS_str, EA_4BYTE, REG_ZR, addrReg, addrOffset);
+        bytesToWrite = 0;
+    }
+
+    assert(bytesToWrite == 0);
+}
+
 void CodeGen::PrologZeroFloatRegs(regMaskTP floatRegs)
 {
     // TODO-MIKE-CQ: Copying from another reg instead of just zeroing with movi is dubious...
