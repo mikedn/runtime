@@ -434,8 +434,6 @@ protected:
     void PrologZeroFloatRegs(regMaskTP floatRegs);
 #endif
 
-    regNumber genGetZeroReg(regNumber initReg, bool* pInitRegZeroed);
-
     void PrologBlockInitLocals(int untrackedHi, int untrackedLo, regNumber initReg, bool* initRegZeroed);
     void PrologZeroInitUntrackedLocals(regNumber initReg, bool* initRegZeroed);
     void PrologInitOsrLocals();

@@ -3514,22 +3514,6 @@ void CodeGen::CheckUseBlockInit()
     genInitStkLclCnt = slotCount;
 }
 
-// We need a register with value zero. Zero the initReg, if necessary, and set *pInitRegZeroed if so.
-// Return the register to use. On ARM64, we never touch the initReg, and always just return REG_ZR.
-regNumber CodeGen::genGetZeroReg(regNumber initReg, bool* pInitRegZeroed)
-{
-#ifdef TARGET_ARM64
-    return REG_ZR;
-#else  // !TARGET_ARM64
-    if (*pInitRegZeroed == false)
-    {
-        instGen_Set_Reg_To_Zero(EA_PTRSIZE, initReg);
-        *pInitRegZeroed = true;
-    }
-    return initReg;
-#endif // !TARGET_ARM64
-}
-
 #ifdef TARGET_ARM
 
 void CodeGen::PrologBlockInitLocals(int untrLclHi, int untrLclLo, regNumber initReg, bool* pInitRegZeroed)
@@ -3643,7 +3627,14 @@ void CodeGen::PrologBlockInitLocals(int untrLclHi, int untrLclLo, regNumber init
         instGen_Set_Reg_To_Imm(EA_PTRSIZE, rCnt, (ssize_t)uCntSlots / 2);
     }
 
-    rZero1 = genGetZeroReg(initReg, pInitRegZeroed);
+    if (!*pInitRegZeroed)
+    {
+        instGen_Set_Reg_To_Zero(EA_PTRSIZE, initReg);
+        *pInitRegZeroed = true;
+    }
+
+    rZero1 = initReg;
+
     instGen_Set_Reg_To_Zero(EA_PTRSIZE, rZero2);
     target_ssize_t stmImm = (target_ssize_t)(genRegMask(rZero1) | genRegMask(rZero2));
 
@@ -3892,9 +3883,20 @@ void CodeGen::PrologBlockInitLocals(int untrLclHi, int untrLclLo, regNumber init
     instruction simdMov      = simdUnalignedMovIns();
     int         alignedLclLo = untrLclLo;
 #endif
+
+    auto GetZeroReg = [this, initReg, pInitRegZeroed]() {
+        if (!*pInitRegZeroed)
+        {
+            instGen_Set_Reg_To_Zero(EA_PTRSIZE, initReg);
+            *pInitRegZeroed = true;
+        }
+
+        return initReg;
+    };
+
     if (blkSize < minSimdSize)
     {
-        zeroReg = genGetZeroReg(initReg, pInitRegZeroed);
+        zeroReg = GetZeroReg();
 
         int i = 0;
         for (; i + REGSIZE_BYTES <= blkSize; i += REGSIZE_BYTES)
@@ -3956,7 +3958,7 @@ void CodeGen::PrologBlockInitLocals(int untrLclHi, int untrLclLo, regNumber init
             assert(alignmentLoBlkSize < XMM_REGSIZE_BYTES);
             assert((alignedLclLo - alignmentLoBlkSize) == untrLclLo);
 
-            zeroReg = genGetZeroReg(initReg, pInitRegZeroed);
+            zeroReg = GetZeroReg();
 
             int i = 0;
             for (; i + REGSIZE_BYTES <= alignmentLoBlkSize; i += REGSIZE_BYTES)
@@ -4072,7 +4074,7 @@ void CodeGen::PrologBlockInitLocals(int untrLclHi, int untrLclLo, regNumber init
             assert(alignmentHiBlkSize < XMM_REGSIZE_BYTES);
             assert((alignedLclHi + alignmentHiBlkSize) == untrLclHi);
 
-            zeroReg = genGetZeroReg(initReg, pInitRegZeroed);
+            zeroReg = GetZeroReg();
 
             int i = 0;
             for (; i + REGSIZE_BYTES <= alignmentHiBlkSize; i += REGSIZE_BYTES)
@@ -4100,7 +4102,19 @@ void CodeGen::PrologZeroInitUntrackedLocals(regNumber initReg, bool* initRegZero
     // initReg is not a live incoming param reg
     assert((genRegMask(initReg) & paramRegState.intRegLiveIn) == RBM_NONE);
 
-    // Initialize any lvMustInit vars on the stack
+    auto GetZeroReg = [this, initReg, initRegZeroed]() {
+#ifdef TARGET_ARM64
+        return REG_ZR;
+#else
+        if (!*initRegZeroed)
+        {
+            instGen_Set_Reg_To_Zero(EA_PTRSIZE, initReg);
+            *initRegZeroed = true;
+        }
+
+        return initReg;
+#endif
+    };
 
     LclVarDsc* varDsc;
     unsigned   varNum;
@@ -4137,14 +4151,14 @@ void CodeGen::PrologZeroInitUntrackedLocals(regNumber initReg, bool* initRegZero
             {
                 if (layout->IsGCPtr(i))
                 {
-                    GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, genGetZeroReg(initReg, initRegZeroed),
-                                              varNum, i * REGSIZE_BYTES);
+                    GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, GetZeroReg(), varNum,
+                                              i * REGSIZE_BYTES);
                 }
             }
         }
         else
         {
-            regNumber zeroReg = genGetZeroReg(initReg, initRegZeroed);
+            regNumber zeroReg = GetZeroReg();
 
             // zero out the whole thing rounded up to a single stack slot size
             unsigned lclSize = roundUp(varDsc->GetFrameSize(), 4);
@@ -4174,10 +4188,7 @@ void CodeGen::PrologZeroInitUntrackedLocals(regNumber initReg, bool* initRegZero
             continue;
         }
 
-        // printf("initialize untracked spillTmp [EBP-%04X]\n", stkOffs);
-
-        GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, genGetZeroReg(initReg, initRegZeroed),
-                                  tempThis->tdTempNum(), 0);
+        GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, GetZeroReg(), tempThis->tdTempNum(), 0);
     }
 }
 
