@@ -274,6 +274,13 @@ protected:
     void genPrologEnregisterIncomingStackParams();
     void MarkStackLocals();
     void CheckUseBlockInit();
+    void MarkGCTrackedSlots(int&       untrLclLo,
+                            int&       untrLclHi,
+                            int&       GCrefLo,
+                            int&       GCrefHi,
+                            bool&      hasGCRef,
+                            regMaskTP& initRegs,
+                            regMaskTP& initFltRegs ARM_ARG(regMaskTP& initDblRegs));
 #if defined(UNIX_AMD64_ABI) && defined(FEATURE_SIMD)
     void genClearStackVec3ArgUpperBits();
 #endif // UNIX_AMD64_ABI && FEATURE_SIMD

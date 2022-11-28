@@ -3514,6 +3514,202 @@ void CodeGen::CheckUseBlockInit()
     genInitStkLclCnt = slotCount;
 }
 
+void CodeGen::MarkGCTrackedSlots(int&       untrLclLo,
+                                 int&       untrLclHi,
+                                 int&       GCrefLo,
+                                 int&       GCrefHi,
+                                 bool&      hasGCRef,
+                                 regMaskTP& initRegs,
+                                 regMaskTP& initFltRegs ARM_ARG(regMaskTP& initDblRegs))
+{
+    /*-------------------------------------------------------------------------
+     *
+     *  Record the stack frame ranges that will cover all of the tracked
+     *  and untracked pointer variables.
+     *  Also find which registers will need to be zero-initialized.
+     *
+     *  'initRegs': - Generally, enregistered variables should not need to be
+     *                zero-inited. They only need to be zero-inited when they
+     *                have a possibly uninitialized read on some control
+     *                flow path. Apparently some of the IL_STUBs that we
+     *                generate have this property.
+     */
+
+    untrLclLo = +INT_MAX;
+    untrLclHi = -INT_MAX;
+    // 'hasUntrLcl' is true if there are any stack locals which must be init'ed.
+    // Note that they may be tracked, but simply not allocated to a register.
+    bool hasUntrLcl = false;
+
+    GCrefLo  = +INT_MAX;
+    GCrefHi  = -INT_MAX;
+    hasGCRef = false;
+
+    initRegs    = RBM_NONE; // Registers which must be init'ed.
+    initFltRegs = RBM_NONE; // FP registers which must be init'ed.
+#ifdef TARGET_ARM
+    initDblRegs = RBM_NONE;
+#endif
+
+    unsigned   varNum;
+    LclVarDsc* varDsc;
+
+    for (varNum = 0, varDsc = compiler->lvaTable; varNum < compiler->lvaCount; varNum++, varDsc++)
+    {
+        if (varDsc->IsParam() && !varDsc->IsRegParam())
+        {
+            continue;
+        }
+
+        if (!varDsc->lvIsInReg() && !varDsc->lvOnFrame)
+        {
+            noway_assert(varDsc->lvRefCnt() == 0);
+            continue;
+        }
+
+        int loOffs = varDsc->GetStackOffset();
+
+        // We need to know the offset range of tracked stack GC refs. STRUCTs are not GC tracked.
+
+        if (varTypeIsGC(varDsc->GetType()) && varDsc->HasLiveness() && varDsc->lvOnFrame)
+        {
+            // Dependent promoted fields should have been taken care of by the parent struct.
+            if (!varDsc->IsDependentPromotedField(compiler))
+            {
+                hasGCRef = true;
+
+                if (loOffs < GCrefLo)
+                {
+                    GCrefLo = loOffs;
+                }
+                if (loOffs + REGSIZE_BYTES > GCrefHi)
+                {
+                    GCrefHi = loOffs + REGSIZE_BYTES;
+                }
+            }
+        }
+
+        /* For lvMustInit vars, gather pertinent info */
+
+        if (!varDsc->lvMustInit)
+        {
+            continue;
+        }
+
+        bool isInReg    = varDsc->lvIsInReg();
+        bool isInMemory = !isInReg || varDsc->lvLiveInOutOfHndlr;
+
+        // Note that 'lvIsInReg()' will only be accurate for variables that are actually live-in to
+        // the first block. This will include all possibly-uninitialized locals, whose liveness
+        // will naturally propagate up to the entry block. However, we also set 'lvMustInit' for
+        // locals that are live-in to a finally block, and those may not be live-in to the first
+        // block. For those, we don't want to initialize the register, as it will not actually be
+        // occupying it on entry.
+        if (isInReg)
+        {
+            if (compiler->lvaEnregEHVars && varDsc->lvLiveInOutOfHndlr)
+            {
+                isInReg = VarSetOps::IsMember(compiler, compiler->fgFirstBB->bbLiveIn, varDsc->lvVarIndex);
+            }
+            else
+            {
+                assert(VarSetOps::IsMember(compiler, compiler->fgFirstBB->bbLiveIn, varDsc->lvVarIndex));
+            }
+        }
+
+        if (isInReg)
+        {
+            regMaskTP regMask = genRegMask(varDsc->GetRegNum());
+
+            if (!varTypeUsesFloatReg(varDsc->GetType()) && !varDsc->IsHfaRegParam())
+            {
+                initRegs |= regMask;
+
+                if (varTypeIsMultiReg(varDsc))
+                {
+                    // Upper DWORD is on the stack, and needs to be inited
+                    loOffs += sizeof(int);
+                    goto INIT_STK;
+                }
+            }
+#ifdef TARGET_ARM
+            else if (varDsc->TypeGet() == TYP_DOUBLE)
+            {
+                initDblRegs |= regMask;
+            }
+#endif
+            else
+            {
+                initFltRegs |= regMask;
+            }
+        }
+        if (isInMemory)
+        {
+        INIT_STK:
+
+            hasUntrLcl = true;
+
+            if (loOffs < untrLclLo)
+            {
+                untrLclLo = loOffs;
+            }
+
+            int hiOffs = loOffs + varDsc->GetFrameSize();
+
+            if (hiOffs > untrLclHi)
+            {
+                untrLclHi = hiOffs;
+            }
+        }
+    }
+
+    /* Don't forget about spill temps that hold pointers */
+
+    assert(regSet.tmpAllFree());
+    for (TempDsc* tempThis = regSet.tmpListBeg(); tempThis != nullptr; tempThis = regSet.tmpListNxt(tempThis))
+    {
+        if (!varTypeIsGC(tempThis->tdTempType()))
+        {
+            continue;
+        }
+
+        signed int loOffs = tempThis->tdTempOffs();
+        signed int hiOffs = loOffs + TARGET_POINTER_SIZE;
+
+        // If there is a frame pointer used, due to frame pointer chaining it will point to the stored value of the
+        // previous frame pointer. Thus, stkOffs can't be zero.
+        CLANG_FORMAT_COMMENT_ANCHOR;
+
+#if !defined(TARGET_AMD64)
+        // However, on amd64 there is no requirement to chain frame pointers.
+
+        noway_assert(!isFramePointerUsed() || loOffs != 0);
+#endif // !defined(TARGET_AMD64)
+
+        // printf("    Untracked tmp at [EBP-%04X]\n", -stkOffs);
+
+        hasUntrLcl = true;
+
+        if (loOffs < untrLclLo)
+        {
+            untrLclLo = loOffs;
+        }
+        if (hiOffs > untrLclHi)
+        {
+            untrLclHi = hiOffs;
+        }
+    }
+
+    // TODO-Cleanup: Add suitable assert for the OSR case.
+    assert(compiler->opts.IsOSR() || ((genInitStkLclCnt > 0) == hasUntrLcl));
+
+    if (genInitStkLclCnt > 0)
+    {
+        JITDUMP("Found %u lvMustInit int-sized stack slots, frame offsets %d through %d\n", genInitStkLclCnt,
+                -untrLclLo, -untrLclHi);
+    }
+}
+
 void CodeGen::PrologZeroInitUntrackedLocals(regNumber initReg, bool* initRegZeroed)
 {
     assert(genInitStkLclCnt > 0);
@@ -4381,192 +4577,18 @@ void CodeGen::genFnProlog()
 
 #endif // FEATURE_EH_FUNCLETS && DEBUG
 
-    /*-------------------------------------------------------------------------
-     *
-     *  Record the stack frame ranges that will cover all of the tracked
-     *  and untracked pointer variables.
-     *  Also find which registers will need to be zero-initialized.
-     *
-     *  'initRegs': - Generally, enregistered variables should not need to be
-     *                zero-inited. They only need to be zero-inited when they
-     *                have a possibly uninitialized read on some control
-     *                flow path. Apparently some of the IL_STUBs that we
-     *                generate have this property.
-     */
-
-    int untrLclLo = +INT_MAX;
-    int untrLclHi = -INT_MAX;
-    // 'hasUntrLcl' is true if there are any stack locals which must be init'ed.
-    // Note that they may be tracked, but simply not allocated to a register.
-    bool hasUntrLcl = false;
-
-    int  GCrefLo  = +INT_MAX;
-    int  GCrefHi  = -INT_MAX;
-    bool hasGCRef = false;
-
-    regMaskTP initRegs    = RBM_NONE; // Registers which must be init'ed.
-    regMaskTP initFltRegs = RBM_NONE; // FP registers which must be init'ed.
+    int       untrLclLo;
+    int       untrLclHi;
+    int       GCrefLo;
+    int       GCrefHi;
+    bool      hasGCRef;
+    regMaskTP initRegs;
+    regMaskTP initFltRegs;
 #ifdef TARGET_ARM
-    regMaskTP initDblRegs = RBM_NONE;
+    regMaskTP initDblRegs;
 #endif
 
-    unsigned   varNum;
-    LclVarDsc* varDsc;
-
-    for (varNum = 0, varDsc = compiler->lvaTable; varNum < compiler->lvaCount; varNum++, varDsc++)
-    {
-        if (varDsc->IsParam() && !varDsc->IsRegParam())
-        {
-            continue;
-        }
-
-        if (!varDsc->lvIsInReg() && !varDsc->lvOnFrame)
-        {
-            noway_assert(varDsc->lvRefCnt() == 0);
-            continue;
-        }
-
-        int loOffs = varDsc->GetStackOffset();
-
-        // We need to know the offset range of tracked stack GC refs. STRUCTs are not GC tracked.
-
-        if (varTypeIsGC(varDsc->GetType()) && varDsc->HasLiveness() && varDsc->lvOnFrame)
-        {
-            // Dependent promoted fields should have been taken care of by the parent struct.
-            if (!varDsc->IsDependentPromotedField(compiler))
-            {
-                hasGCRef = true;
-
-                if (loOffs < GCrefLo)
-                {
-                    GCrefLo = loOffs;
-                }
-                if (loOffs + REGSIZE_BYTES > GCrefHi)
-                {
-                    GCrefHi = loOffs + REGSIZE_BYTES;
-                }
-            }
-        }
-
-        /* For lvMustInit vars, gather pertinent info */
-
-        if (!varDsc->lvMustInit)
-        {
-            continue;
-        }
-
-        bool isInReg    = varDsc->lvIsInReg();
-        bool isInMemory = !isInReg || varDsc->lvLiveInOutOfHndlr;
-
-        // Note that 'lvIsInReg()' will only be accurate for variables that are actually live-in to
-        // the first block. This will include all possibly-uninitialized locals, whose liveness
-        // will naturally propagate up to the entry block. However, we also set 'lvMustInit' for
-        // locals that are live-in to a finally block, and those may not be live-in to the first
-        // block. For those, we don't want to initialize the register, as it will not actually be
-        // occupying it on entry.
-        if (isInReg)
-        {
-            if (compiler->lvaEnregEHVars && varDsc->lvLiveInOutOfHndlr)
-            {
-                isInReg = VarSetOps::IsMember(compiler, compiler->fgFirstBB->bbLiveIn, varDsc->lvVarIndex);
-            }
-            else
-            {
-                assert(VarSetOps::IsMember(compiler, compiler->fgFirstBB->bbLiveIn, varDsc->lvVarIndex));
-            }
-        }
-
-        if (isInReg)
-        {
-            regMaskTP regMask = genRegMask(varDsc->GetRegNum());
-
-            if (!varTypeUsesFloatReg(varDsc->GetType()) && !varDsc->IsHfaRegParam())
-            {
-                initRegs |= regMask;
-
-                if (varTypeIsMultiReg(varDsc))
-                {
-                    // Upper DWORD is on the stack, and needs to be inited
-                    loOffs += sizeof(int);
-                    goto INIT_STK;
-                }
-            }
-#ifdef TARGET_ARM
-            else if (varDsc->TypeGet() == TYP_DOUBLE)
-            {
-                initDblRegs |= regMask;
-            }
-#endif
-            else
-            {
-                initFltRegs |= regMask;
-            }
-        }
-        if (isInMemory)
-        {
-        INIT_STK:
-
-            hasUntrLcl = true;
-
-            if (loOffs < untrLclLo)
-            {
-                untrLclLo = loOffs;
-            }
-
-            int hiOffs = loOffs + varDsc->GetFrameSize();
-
-            if (hiOffs > untrLclHi)
-            {
-                untrLclHi = hiOffs;
-            }
-        }
-    }
-
-    /* Don't forget about spill temps that hold pointers */
-
-    assert(regSet.tmpAllFree());
-    for (TempDsc* tempThis = regSet.tmpListBeg(); tempThis != nullptr; tempThis = regSet.tmpListNxt(tempThis))
-    {
-        if (!varTypeIsGC(tempThis->tdTempType()))
-        {
-            continue;
-        }
-
-        signed int loOffs = tempThis->tdTempOffs();
-        signed int hiOffs = loOffs + TARGET_POINTER_SIZE;
-
-        // If there is a frame pointer used, due to frame pointer chaining it will point to the stored value of the
-        // previous frame pointer. Thus, stkOffs can't be zero.
-        CLANG_FORMAT_COMMENT_ANCHOR;
-
-#if !defined(TARGET_AMD64)
-        // However, on amd64 there is no requirement to chain frame pointers.
-
-        noway_assert(!isFramePointerUsed() || loOffs != 0);
-#endif // !defined(TARGET_AMD64)
-
-        // printf("    Untracked tmp at [EBP-%04X]\n", -stkOffs);
-
-        hasUntrLcl = true;
-
-        if (loOffs < untrLclLo)
-        {
-            untrLclLo = loOffs;
-        }
-        if (hiOffs > untrLclHi)
-        {
-            untrLclHi = hiOffs;
-        }
-    }
-
-    // TODO-Cleanup: Add suitable assert for the OSR case.
-    assert(compiler->opts.IsOSR() || ((genInitStkLclCnt > 0) == hasUntrLcl));
-
-    if (genInitStkLclCnt > 0)
-    {
-        JITDUMP("Found %u lvMustInit int-sized stack slots, frame offsets %d through %d\n", genInitStkLclCnt,
-                -untrLclLo, -untrLclHi);
-    }
+    MarkGCTrackedSlots(untrLclLo, untrLclHi, GCrefLo, GCrefHi, hasGCRef, initRegs, initFltRegs ARM_ARG(initDblRegs));
 
 #ifdef TARGET_ARM
     // On the ARM we will spill any incoming struct args in the first instruction in the prolog
