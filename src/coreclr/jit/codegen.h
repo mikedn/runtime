@@ -278,7 +278,6 @@ protected:
                             int&       untrLclHi,
                             int&       GCrefLo,
                             int&       GCrefHi,
-                            bool&      hasGCRef,
                             regMaskTP& initRegs,
                             regMaskTP& initFltRegs ARM_ARG(regMaskTP& initDblRegs));
 #if defined(UNIX_AMD64_ABI) && defined(FEATURE_SIMD)

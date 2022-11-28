@@ -3511,7 +3511,6 @@ void CodeGen::MarkGCTrackedSlots(int&       untrLclLo,
                                  int&       untrLclHi,
                                  int&       GCrefLo,
                                  int&       GCrefHi,
-                                 bool&      hasGCRef,
                                  regMaskTP& initRegs,
                                  regMaskTP& initFltRegs ARM_ARG(regMaskTP& initDblRegs))
 {
@@ -3534,9 +3533,8 @@ void CodeGen::MarkGCTrackedSlots(int&       untrLclLo,
     // Note that they may be tracked, but simply not allocated to a register.
     bool hasUntrLcl = false;
 
-    GCrefLo  = +INT_MAX;
-    GCrefHi  = -INT_MAX;
-    hasGCRef = false;
+    GCrefLo = INT_MAX;
+    GCrefHi = INT_MIN;
 
     initRegs    = RBM_NONE; // Registers which must be init'ed.
     initFltRegs = RBM_NONE; // FP registers which must be init'ed.
@@ -3569,15 +3567,14 @@ void CodeGen::MarkGCTrackedSlots(int&       untrLclLo,
             // Dependent promoted fields should have been taken care of by the parent struct.
             if (!varDsc->IsDependentPromotedField(compiler))
             {
-                hasGCRef = true;
-
                 if (loOffs < GCrefLo)
                 {
                     GCrefLo = loOffs;
                 }
-                if (loOffs + REGSIZE_BYTES > GCrefHi)
+
+                if (loOffs > GCrefHi)
                 {
-                    GCrefHi = loOffs + REGSIZE_BYTES;
+                    GCrefHi = loOffs;
                 }
             }
         }
@@ -4549,14 +4546,13 @@ void CodeGen::genFnProlog()
     int       untrLclHi;
     int       GCrefLo;
     int       GCrefHi;
-    bool      hasGCRef;
     regMaskTP initRegs;
     regMaskTP initFltRegs;
 #ifdef TARGET_ARM
     regMaskTP initDblRegs;
 #endif
 
-    MarkGCTrackedSlots(untrLclLo, untrLclHi, GCrefLo, GCrefHi, hasGCRef, initRegs, initFltRegs ARM_ARG(initDblRegs));
+    MarkGCTrackedSlots(untrLclLo, untrLclHi, GCrefLo, GCrefHi, initRegs, initFltRegs ARM_ARG(initDblRegs));
 
 #ifdef TARGET_ARM
     // On the ARM we will spill any incoming struct args in the first instruction in the prolog
@@ -4795,14 +4791,9 @@ void CodeGen::genFnProlog()
         psiEndProlog();
     }
 
-    if (hasGCRef)
+    if (GCrefHi != INT_MIN)
     {
-        GetEmitter()->emitSetFrameRangeGCRs(GCrefLo, GCrefHi);
-    }
-    else
-    {
-        noway_assert(GCrefLo == +INT_MAX);
-        noway_assert(GCrefHi == -INT_MAX);
+        GetEmitter()->emitSetFrameRangeGCRs(GCrefLo, GCrefHi + REGSIZE_BYTES);
     }
 
 #ifdef TARGET_X86
