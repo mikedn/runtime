@@ -473,6 +473,7 @@ protected:
     void genFnProlog();
     void genFnEpilog(BasicBlock* block);
     void UpdateParamsWithInitialReg();
+    void PrologMoveParams(regNumber initReg, bool* initRegZeroed);
 #ifdef TARGET_X86
     void PrologInitVarargsStackParamsBaseOffset();
 #endif

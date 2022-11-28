@@ -2024,6 +2024,54 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
+void CodeGen::PrologMoveParams(regNumber initReg, bool* initRegZeroed)
+{
+    if (paramRegState.intRegLiveIn != RBM_NONE)
+    {
+        // If we need an extra register to shuffle around the incoming registers
+        // we will use xtraReg (initReg) and set the xtraRegClobbered flag,
+        // if we don't need to use the xtraReg then this flag will stay false
+        regNumber xtraReg;
+        bool      xtraRegClobbered = false;
+
+        if ((genRegMask(initReg) & RBM_ARG_REGS) != 0)
+        {
+            xtraReg = initReg;
+        }
+        else
+        {
+            xtraReg        = REG_SCRATCH;
+            *initRegZeroed = false;
+        }
+
+        genPrologMoveParamRegs(paramRegState.intRegCount, paramRegState.intRegLiveIn, false, xtraReg,
+                               &xtraRegClobbered);
+
+        if (xtraRegClobbered)
+        {
+            *initRegZeroed = false;
+        }
+    }
+
+#ifndef TARGET_X86
+    if (paramRegState.floatRegLiveIn != RBM_NONE)
+    {
+        bool xtraRegClobbered = false;
+
+        genPrologMoveParamRegs(paramRegState.floatRegCount, paramRegState.floatRegLiveIn, true, REG_NA,
+                               &xtraRegClobbered);
+
+        // TODO-MIKE-Review: This should probably be done only for integer registers.
+        if (xtraRegClobbered)
+        {
+            *initRegZeroed = false;
+        }
+    }
+#endif
+
+    genPrologEnregisterIncomingStackParams();
+}
+
 // Generates code for moving incoming register arguments to their
 // assigned location, in the function prolog.
 void CodeGen::genPrologMoveParamRegs(
@@ -4917,50 +4965,7 @@ void CodeGen::genFnProlog()
     // OSR handles this by moving the values from the original frame.
     if (!compiler->opts.IsOSR())
     {
-        if (paramRegState.intRegLiveIn != RBM_NONE)
-        {
-            // If we need an extra register to shuffle around the incoming registers
-            // we will use xtraReg (initReg) and set the xtraRegClobbered flag,
-            // if we don't need to use the xtraReg then this flag will stay false
-            regNumber xtraReg;
-            bool      xtraRegClobbered = false;
-
-            if ((genRegMask(initReg) & RBM_ARG_REGS) != 0)
-            {
-                xtraReg = initReg;
-            }
-            else
-            {
-                xtraReg       = REG_SCRATCH;
-                initRegZeroed = false;
-            }
-
-            genPrologMoveParamRegs(paramRegState.intRegCount, paramRegState.intRegLiveIn, false, xtraReg,
-                                   &xtraRegClobbered);
-
-            if (xtraRegClobbered)
-            {
-                initRegZeroed = false;
-            }
-        }
-
-#ifndef TARGET_X86
-        if (paramRegState.floatRegLiveIn != RBM_NONE)
-        {
-            bool xtraRegClobbered = false;
-
-            genPrologMoveParamRegs(paramRegState.floatRegCount, paramRegState.floatRegLiveIn, true, REG_NA,
-                                   &xtraRegClobbered);
-
-            // TODO-MIKE-Review: This should probably be done only for integer registers.
-            if (xtraRegClobbered)
-            {
-                initRegZeroed = false;
-            }
-        }
-#endif
-
-        genPrologEnregisterIncomingStackParams();
+        PrologMoveParams(initReg, &initRegZeroed);
     }
 
     if ((initRegs | initFltRegs ARM_ONLY(| initDblRegs)) != RBM_NONE)
