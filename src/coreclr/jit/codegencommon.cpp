@@ -4523,6 +4523,77 @@ void CodeGen::genEstablishFramePointer(int delta, bool reportUnwindData)
 #endif
 }
 
+regNumber CodeGen::PrologFindInitReg(regMaskTP initRegs)
+{
+    // Choose the register to use for zero initialization
+
+    regNumber initReg     = REG_SCRATCH; // Unless we find a better register below
+    regMaskTP excludeMask = paramRegState.intRegLiveIn;
+    regMaskTP tempMask;
+
+    // We should not use the special PINVOKE registers as the initReg
+    // since they are trashed by the jithelper call to setup the PINVOKE frame
+    if (compiler->compMethodRequiresPInvokeFrame())
+    {
+        excludeMask |= RBM_PINVOKE_FRAME;
+
+        assert((!compiler->opts.ShouldUsePInvokeHelpers()) || (compiler->lvaPInvokeFrameListVar == BAD_VAR_NUM));
+        if (!compiler->opts.ShouldUsePInvokeHelpers())
+        {
+            excludeMask |= (RBM_PINVOKE_TCB | RBM_PINVOKE_SCRATCH);
+
+            // We also must exclude the register used by lvaPInvokeFrameListVar when it is enregistered
+            LclVarDsc* varDsc = compiler->lvaGetDesc(compiler->lvaPInvokeFrameListVar);
+            if (varDsc->lvRegister)
+            {
+                excludeMask |= genRegMask(varDsc->GetRegNum());
+            }
+        }
+    }
+
+#ifdef TARGET_ARM
+    // If we have a variable sized frame (compLocallocUsed is true)
+    // then using REG_SAVED_LOCALLOC_SP in the prolog is not allowed
+    if (compiler->compLocallocUsed)
+    {
+        excludeMask |= RBM_SAVED_LOCALLOC_SP;
+    }
+#endif // TARGET_ARM
+
+    tempMask = initRegs & ~excludeMask;
+#ifdef TARGET_ARMARCH
+    tempMask &= ~reservedRegs;
+#endif
+
+    if (tempMask != RBM_NONE)
+    {
+        // We will use one of the registers that we were planning to zero init anyway.
+        // We pick the lowest register number.
+        tempMask = genFindLowestBit(tempMask);
+        initReg  = genRegNumFromMask(tempMask);
+    }
+    // Next we prefer to use one of the unused argument registers.
+    // If they aren't available we use one of the caller-saved integer registers.
+    else
+    {
+        tempMask = regSet.rsGetModifiedRegsMask() & RBM_ALLINT & ~excludeMask;
+#ifdef TARGET_ARMARCH
+        tempMask &= ~reservedRegs;
+#endif
+
+        if (tempMask != RBM_NONE)
+        {
+            // We pick the lowest register number
+            tempMask = genFindLowestBit(tempMask);
+            initReg  = genRegNumFromMask(tempMask);
+        }
+    }
+
+    noway_assert(!compiler->compMethodRequiresPInvokeFrame() || (initReg != REG_PINVOKE_FRAME));
+
+    return initReg;
+}
+
 /*****************************************************************************
  *
  *  Generates code for a function prolog.
@@ -4646,76 +4717,7 @@ void CodeGen::genFnProlog()
     paramRegState.intRegLiveIn &= ~preSpillParamRegs;
 #endif
 
-    // Choose the register to use for zero initialization
-
-    regNumber initReg = REG_SCRATCH; // Unless we find a better register below
-
-    // Track if initReg holds non-zero value. Start conservative and assume it has non-zero value.
-    // If initReg is ever set to zero, this variable is set to true and zero initializing initReg
-    // will be skipped.
-    bool      initRegZeroed = false;
-    regMaskTP excludeMask   = paramRegState.intRegLiveIn;
-    regMaskTP tempMask;
-
-    // We should not use the special PINVOKE registers as the initReg
-    // since they are trashed by the jithelper call to setup the PINVOKE frame
-    if (compiler->compMethodRequiresPInvokeFrame())
-    {
-        excludeMask |= RBM_PINVOKE_FRAME;
-
-        assert((!compiler->opts.ShouldUsePInvokeHelpers()) || (compiler->lvaPInvokeFrameListVar == BAD_VAR_NUM));
-        if (!compiler->opts.ShouldUsePInvokeHelpers())
-        {
-            excludeMask |= (RBM_PINVOKE_TCB | RBM_PINVOKE_SCRATCH);
-
-            // We also must exclude the register used by lvaPInvokeFrameListVar when it is enregistered
-            LclVarDsc* varDsc = compiler->lvaGetDesc(compiler->lvaPInvokeFrameListVar);
-            if (varDsc->lvRegister)
-            {
-                excludeMask |= genRegMask(varDsc->GetRegNum());
-            }
-        }
-    }
-
-#ifdef TARGET_ARM
-    // If we have a variable sized frame (compLocallocUsed is true)
-    // then using REG_SAVED_LOCALLOC_SP in the prolog is not allowed
-    if (compiler->compLocallocUsed)
-    {
-        excludeMask |= RBM_SAVED_LOCALLOC_SP;
-    }
-#endif // TARGET_ARM
-
-    tempMask = initRegs & ~excludeMask;
-#ifdef TARGET_ARMARCH
-    tempMask &= ~reservedRegs;
-#endif
-
-    if (tempMask != RBM_NONE)
-    {
-        // We will use one of the registers that we were planning to zero init anyway.
-        // We pick the lowest register number.
-        tempMask = genFindLowestBit(tempMask);
-        initReg  = genRegNumFromMask(tempMask);
-    }
-    // Next we prefer to use one of the unused argument registers.
-    // If they aren't available we use one of the caller-saved integer registers.
-    else
-    {
-        tempMask = regSet.rsGetModifiedRegsMask() & RBM_ALLINT & ~excludeMask;
-#ifdef TARGET_ARMARCH
-        tempMask &= ~reservedRegs;
-#endif
-
-        if (tempMask != RBM_NONE)
-        {
-            // We pick the lowest register number
-            tempMask = genFindLowestBit(tempMask);
-            initReg  = genRegNumFromMask(tempMask);
-        }
-    }
-
-    noway_assert(!compiler->compMethodRequiresPInvokeFrame() || (initReg != REG_PINVOKE_FRAME));
+    regNumber initReg = PrologFindInitReg(initRegs);
 
 #ifdef TARGET_AMD64
     // If we are a varargs call, in order to set up the arguments correctly this
@@ -4770,6 +4772,11 @@ void CodeGen::genFnProlog()
 #endif // DOUBLE_ALIGN
     }
 #endif // TARGET_XARCH
+
+    // Track if initReg holds non-zero value. Start conservative and assume it has non-zero value.
+    // If initReg is ever set to zero, this variable is set to true and zero initializing initReg
+    // will be skipped.
+    bool initRegZeroed = false;
 
 #ifdef TARGET_ARM64
     genPushCalleeSavedRegisters(initReg, &initRegZeroed);

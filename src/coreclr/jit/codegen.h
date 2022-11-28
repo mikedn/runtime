@@ -435,6 +435,7 @@ protected:
 
 #endif // TARGET_XARCH
 
+    regNumber PrologFindInitReg(regMaskTP initRegs);
     void PrologBlockInitLocals(int untrackedHi, int untrackedLo, regNumber initReg, bool* initRegZeroed);
     void PrologZeroInitUntrackedLocals(regNumber initReg, bool* initRegZeroed);
     void PrologInitOsrLocals();
