@@ -3605,21 +3605,18 @@ void CodeGen::MarkGCTrackedSlots(int&       untrLclLo,
 
         if (isInReg)
         {
+#ifndef TARGET_64BIT
+            assert(!varDsc->TypeIs(TYP_LONG));
+#endif
+
             regMaskTP regMask = genRegMask(varDsc->GetRegNum());
 
             if (!varTypeUsesFloatReg(varDsc->GetType()) && !varDsc->IsHfaRegParam())
             {
                 initRegs |= regMask;
-
-                if (varTypeIsMultiReg(varDsc))
-                {
-                    // Upper DWORD is on the stack, and needs to be inited
-                    loOffs += sizeof(int);
-                    goto INIT_STK;
-                }
             }
 #ifdef TARGET_ARM
-            else if (varDsc->TypeGet() == TYP_DOUBLE)
+            else if (varDsc->TypeIs(TYP_DOUBLE))
             {
                 initDblRegs |= regMask;
             }
@@ -3629,9 +3626,9 @@ void CodeGen::MarkGCTrackedSlots(int&       untrLclLo,
                 initFltRegs |= regMask;
             }
         }
+
         if (isInMemory)
         {
-        INIT_STK:
             if (loOffs < untrLclLo)
             {
                 untrLclLo = loOffs;
