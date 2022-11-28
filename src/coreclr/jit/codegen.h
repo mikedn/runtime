@@ -276,8 +276,6 @@ protected:
     void CheckUseBlockInit();
     void MarkGCTrackedSlots(int&       untrLclLo,
                             int&       untrLclHi,
-                            int&       GCrefLo,
-                            int&       GCrefHi,
                             regMaskTP& initRegs,
                             regMaskTP& initFltRegs ARM_ARG(regMaskTP& initDblRegs));
 #if defined(UNIX_AMD64_ABI) && defined(FEATURE_SIMD)

@@ -3509,8 +3509,6 @@ void CodeGen::CheckUseBlockInit()
 
 void CodeGen::MarkGCTrackedSlots(int&       untrLclLo,
                                  int&       untrLclHi,
-                                 int&       GCrefLo,
-                                 int&       GCrefHi,
                                  regMaskTP& initRegs,
                                  regMaskTP& initFltRegs ARM_ARG(regMaskTP& initDblRegs))
 {
@@ -3529,14 +3527,15 @@ void CodeGen::MarkGCTrackedSlots(int&       untrLclLo,
 
     untrLclLo = INT_MAX;
     untrLclHi = INT_MIN;
-    GCrefLo   = INT_MAX;
-    GCrefHi   = INT_MIN;
 
     initRegs    = RBM_NONE; // Registers which must be init'ed.
     initFltRegs = RBM_NONE; // FP registers which must be init'ed.
 #ifdef TARGET_ARM
     initDblRegs = RBM_NONE;
 #endif
+
+    int GCrefLo = INT_MAX;
+    int GCrefHi = INT_MIN;
 
     unsigned   varNum;
     LclVarDsc* varDsc;
@@ -3683,6 +3682,11 @@ void CodeGen::MarkGCTrackedSlots(int&       untrLclLo,
     {
         JITDUMP("Found %u lvMustInit int-sized stack slots, frame offsets %d through %d\n", genInitStkLclCnt,
                 -untrLclLo, -untrLclHi);
+    }
+
+    if (GCrefHi != INT_MIN)
+    {
+        GetEmitter()->emitSetFrameRangeGCRs(GCrefLo, GCrefHi + REGSIZE_BYTES);
     }
 }
 
@@ -4530,15 +4534,13 @@ void CodeGen::genFnProlog()
 
     int       untrLclLo;
     int       untrLclHi;
-    int       GCrefLo;
-    int       GCrefHi;
     regMaskTP initRegs;
     regMaskTP initFltRegs;
 #ifdef TARGET_ARM
     regMaskTP initDblRegs;
 #endif
 
-    MarkGCTrackedSlots(untrLclLo, untrLclHi, GCrefLo, GCrefHi, initRegs, initFltRegs ARM_ARG(initDblRegs));
+    MarkGCTrackedSlots(untrLclLo, untrLclHi, initRegs, initFltRegs ARM_ARG(initDblRegs));
 
 #ifdef TARGET_ARM
     // On the ARM we will spill any incoming struct args in the first instruction in the prolog
@@ -4775,11 +4777,6 @@ void CodeGen::genFnProlog()
     if (compiler->opts.compScopeInfo && (compiler->info.compVarScopesCount > 0))
     {
         psiEndProlog();
-    }
-
-    if (GCrefHi != INT_MIN)
-    {
-        GetEmitter()->emitSetFrameRangeGCRs(GCrefLo, GCrefHi + REGSIZE_BYTES);
     }
 
 #ifdef TARGET_X86
