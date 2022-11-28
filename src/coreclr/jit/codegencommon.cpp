@@ -3507,10 +3507,7 @@ void CodeGen::CheckUseBlockInit()
     genInitStkLclCnt = slotCount;
 }
 
-void CodeGen::MarkGCTrackedSlots(int&       untrLclLo,
-                                 int&       untrLclHi,
-                                 regMaskTP& initRegs,
-                                 regMaskTP& initFltRegs ARM_ARG(regMaskTP& initDblRegs))
+void CodeGen::MarkGCTrackedSlots(int& untrLclLo, int& untrLclHi, regMaskTP& initRegs ARM_ARG(regMaskTP& initDblRegs))
 {
     /*-------------------------------------------------------------------------
      *
@@ -3528,8 +3525,7 @@ void CodeGen::MarkGCTrackedSlots(int&       untrLclLo,
     untrLclLo = INT_MAX;
     untrLclHi = INT_MIN;
 
-    initRegs    = RBM_NONE; // Registers which must be init'ed.
-    initFltRegs = RBM_NONE; // FP registers which must be init'ed.
+    initRegs = RBM_NONE; // Registers which must be init'ed.
 #ifdef TARGET_ARM
     initDblRegs = RBM_NONE;
 #endif
@@ -3604,25 +3600,20 @@ void CodeGen::MarkGCTrackedSlots(int&       untrLclLo,
 
         if (isInReg)
         {
+            assert(!varDsc->TypeIs(TYP_STRUCT));
 #ifndef TARGET_64BIT
             assert(!varDsc->TypeIs(TYP_LONG));
 #endif
 
-            regMaskTP regMask = genRegMask(varDsc->GetRegNum());
-
-            if (!varTypeUsesFloatReg(varDsc->GetType()) && !varDsc->IsHfaRegParam())
-            {
-                initRegs |= regMask;
-            }
 #ifdef TARGET_ARM
-            else if (varDsc->TypeIs(TYP_DOUBLE))
+            if (varDsc->TypeIs(TYP_DOUBLE))
             {
-                initDblRegs |= regMask;
+                initDblRegs |= genRegMaskFloat(varDsc->GetRegNum());
             }
-#endif
             else
+#endif
             {
-                initFltRegs |= regMask;
+                initRegs |= genRegMask(varDsc->GetRegNum());
             }
         }
 
@@ -4392,7 +4383,7 @@ regNumber CodeGen::PrologFindInitReg(regMaskTP initRegs)
     // Choose the register to use for zero initialization
 
     regNumber initReg     = REG_SCRATCH; // Unless we find a better register below
-    regMaskTP excludeMask = paramRegState.intRegLiveIn;
+    regMaskTP excludeMask = paramRegState.intRegLiveIn | RBM_ALLFLOAT;
     regMaskTP tempMask;
 
     // We should not use the special PINVOKE registers as the initReg
@@ -4535,12 +4526,11 @@ void CodeGen::genFnProlog()
     int       untrLclLo;
     int       untrLclHi;
     regMaskTP initRegs;
-    regMaskTP initFltRegs;
 #ifdef TARGET_ARM
     regMaskTP initDblRegs;
 #endif
 
-    MarkGCTrackedSlots(untrLclLo, untrLclHi, initRegs, initFltRegs ARM_ARG(initDblRegs));
+    MarkGCTrackedSlots(untrLclLo, untrLclHi, initRegs ARM_ARG(initDblRegs));
 
 #ifdef TARGET_ARM
     // On the ARM we will spill any incoming struct args in the first instruction in the prolog
@@ -4763,9 +4753,9 @@ void CodeGen::genFnProlog()
         PrologMoveParams(initReg, &initRegZeroed);
     }
 
-    if ((initRegs | initFltRegs ARM_ONLY(| initDblRegs)) != RBM_NONE)
+    if ((initRegs ARM_ONLY(| initDblRegs)) != RBM_NONE)
     {
-        PrologZeroRegs(initRegs, initRegZeroed ? initReg : REG_NA, initFltRegs ARM_ARG(initDblRegs));
+        PrologZeroRegs(initRegs, initRegZeroed ? initReg : REG_NA ARM_ARG(initDblRegs));
     }
 
     // Increase the prolog size here only if fully interruptible.

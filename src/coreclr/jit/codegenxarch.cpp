@@ -9362,11 +9362,11 @@ void CodeGen::PrologBlockInitLocals(int untrLclHi, int untrLclLo, regNumber init
     }
 }
 
-void CodeGen::PrologZeroRegs(regMaskTP intRegs, regNumber initReg, regMaskTP floatRegs)
+void CodeGen::PrologZeroRegs(regMaskTP initRegs, regNumber initReg)
 {
     for (regNumber reg = REG_INT_FIRST; reg <= REG_INT_LAST; reg = REG_NEXT(reg))
     {
-        if (((intRegs & genRegMask(reg)) == RBM_NONE) || (reg == initReg))
+        if (((initRegs & genRegMask(reg)) == RBM_NONE) || (reg == initReg))
         {
             continue;
         }
@@ -9379,7 +9379,7 @@ void CodeGen::PrologZeroRegs(regMaskTP intRegs, regNumber initReg, regMaskTP flo
 
     for (regNumber reg = REG_FP_FIRST; reg <= REG_FP_LAST; reg = REG_NEXT(reg))
     {
-        if ((floatRegs & genRegMask(reg)) == RBM_NONE)
+        if ((initRegs & genRegMask(reg)) == RBM_NONE)
         {
             continue;
         }

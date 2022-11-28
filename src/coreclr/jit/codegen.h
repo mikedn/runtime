@@ -274,13 +274,10 @@ protected:
     void genPrologEnregisterIncomingStackParams();
     void MarkStackLocals();
     void CheckUseBlockInit();
-    void MarkGCTrackedSlots(int&       untrLclLo,
-                            int&       untrLclHi,
-                            regMaskTP& initRegs,
-                            regMaskTP& initFltRegs ARM_ARG(regMaskTP& initDblRegs));
-#if defined(UNIX_AMD64_ABI) && defined(FEATURE_SIMD)
+    void MarkGCTrackedSlots(int& untrLclLo, int& untrLclHi, regMaskTP& initRegs ARM_ARG(regMaskTP& initDblRegs));
+#ifdef UNIX_AMD64_ABI
     void PrologClearVector3StackParamUpperBits();
-#endif // UNIX_AMD64_ABI && FEATURE_SIMD
+#endif
 
 #if defined(TARGET_ARM64)
     bool genInstrWithConstant(instruction ins,
@@ -436,7 +433,7 @@ protected:
     void PrologBlockInitLocals(int untrackedHi, int untrackedLo, regNumber initReg, bool* initRegZeroed);
     void PrologZeroInitUntrackedLocals(regNumber initReg, bool* initRegZeroed);
     void PrologInitOsrLocals();
-    void PrologZeroRegs(regMaskTP intRegs, regNumber initReg, regMaskTP floatRegs ARM_ARG(regMaskTP doubleRegs));
+    void PrologZeroRegs(regMaskTP initRegs, regNumber initReg ARM_ARG(regMaskTP doubleRegs));
 
     void PrologReportGenericContextArg(regNumber initReg, bool* pInitRegZeroed);
 

@@ -2119,11 +2119,11 @@ void CodeGen::PrologBlockInitLocals(int untrLclHi, int untrLclLo, regNumber init
     noway_assert(uCntBytes == 0);
 }
 
-void CodeGen::PrologZeroRegs(regMaskTP intRegs, regNumber initReg, regMaskTP floatRegs, regMaskTP doubleRegs)
+void CodeGen::PrologZeroRegs(regMaskTP initRegs, regNumber initReg, regMaskTP doubleRegs)
 {
     for (regNumber reg = REG_INT_FIRST; reg <= REG_INT_LAST; reg = REG_NEXT(reg))
     {
-        if (((intRegs & genRegMask(reg)) == RBM_NONE) || (reg == initReg))
+        if (((initRegs & genRegMask(reg)) == RBM_NONE) || (reg == initReg))
         {
             continue;
         }
@@ -2132,7 +2132,7 @@ void CodeGen::PrologZeroRegs(regMaskTP intRegs, regNumber initReg, regMaskTP flo
         initReg = reg;
     }
 
-    if ((floatRegs | doubleRegs) == RBM_NONE)
+    if (((initRegs & RBM_ALLFLOAT) | doubleRegs) == RBM_NONE)
     {
         return;
     }
@@ -2149,7 +2149,7 @@ void CodeGen::PrologZeroRegs(regMaskTP intRegs, regNumber initReg, regMaskTP flo
 
     for (regNumber reg = REG_FP_FIRST; reg <= REG_FP_LAST; reg = REG_NEXT(reg), regMask <<= 1)
     {
-        if ((regMask & floatRegs) != RBM_NONE)
+        if ((initRegs & regMask) != RBM_NONE)
         {
             if (fltInitReg == REG_NA)
             {
@@ -2182,10 +2182,14 @@ void CodeGen::PrologZeroRegs(regMaskTP intRegs, regNumber initReg, regMaskTP flo
                 }
 
                 dblInitReg = reg;
-                continue;
+            }
+            else
+            {
+                GetEmitter()->emitIns_Mov(INS_vmov, EA_8BYTE, reg, dblInitReg, /* canSkip */ false);
             }
 
-            GetEmitter()->emitIns_Mov(INS_vmov, EA_8BYTE, reg, dblInitReg, /* canSkip */ false);
+            reg = REG_NEXT(reg);
+            regMask <<= 1;
         }
     }
 }
