@@ -4963,53 +4963,9 @@ void CodeGen::genFnProlog()
         genPrologEnregisterIncomingStackParams();
     }
 
-    /* Initialize any must-init registers variables now */
-
-    if (initRegs)
+    if ((initRegs | initFltRegs ARM_ONLY(| initDblRegs)) != RBM_NONE)
     {
-        regMaskTP regMask = 0x1;
-
-        for (regNumber reg = REG_INT_FIRST; reg <= REG_INT_LAST; reg = REG_NEXT(reg), regMask <<= 1)
-        {
-            if (regMask & initRegs)
-            {
-                // Check if we have already zeroed this register
-                if ((reg == initReg) && initRegZeroed)
-                {
-                    continue;
-                }
-                else
-                {
-                    instGen_Set_Reg_To_Zero(EA_PTRSIZE, reg);
-                    if (reg == initReg)
-                    {
-                        initRegZeroed = true;
-                    }
-                }
-            }
-        }
-    }
-
-    if ((initFltRegs ARM_ONLY(| initDblRegs)) != RBM_NONE)
-    {
-#ifdef TARGET_ARM
-        // If initReg is not in initRegs then we will use REG_SCRATCH
-        if ((genRegMask(initReg) & initRegs) == 0)
-        {
-            initReg       = REG_SCRATCH;
-            initRegZeroed = false;
-        }
-
-        if (!initRegZeroed)
-        {
-            instGen_Set_Reg_To_Zero(EA_PTRSIZE, initReg);
-            initRegZeroed = true;
-        }
-
-        PrologZeroFloatRegs(initFltRegs, initDblRegs, initReg);
-#else
-        PrologZeroFloatRegs(initFltRegs);
-#endif
+        PrologZeroRegs(initRegs, initRegZeroed ? initReg : REG_NA, initFltRegs ARM_ARG(initDblRegs));
     }
 
     // Increase the prolog size here only if fully interruptible.

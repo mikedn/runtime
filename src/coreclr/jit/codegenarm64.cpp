@@ -9072,8 +9072,18 @@ void CodeGen::PrologBlockInitLocals(int untrLclHi, int untrLclLo, regNumber init
     assert(bytesToWrite == 0);
 }
 
-void CodeGen::PrologZeroFloatRegs(regMaskTP floatRegs)
+void CodeGen::PrologZeroRegs(regMaskTP intRegs, regNumber initReg, regMaskTP floatRegs)
 {
+    for (regNumber reg = REG_INT_FIRST; reg <= REG_INT_LAST; reg = REG_NEXT(reg))
+    {
+        if (((intRegs & genRegMask(reg)) == RBM_NONE) || (reg == initReg))
+        {
+            continue;
+        }
+
+        instGen_Set_Reg_To_Zero(EA_8BYTE, reg);
+    }
+
     // TODO-MIKE-CQ: Copying from another reg instead of just zeroing with movi is dubious...
     regNumber zeroReg = REG_NA;
 

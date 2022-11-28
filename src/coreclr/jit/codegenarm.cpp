@@ -2104,8 +2104,30 @@ void CodeGen::PrologBlockInitLocals(int untrLclHi, int untrLclLo, regNumber init
     noway_assert(uCntBytes == 0);
 }
 
-void CodeGen::PrologZeroFloatRegs(regMaskTP floatRegs, regMaskTP doubleRegs, regNumber initReg)
+void CodeGen::PrologZeroRegs(regMaskTP intRegs, regNumber initReg, regMaskTP floatRegs, regMaskTP doubleRegs)
 {
+    for (regNumber reg = REG_INT_FIRST; reg <= REG_INT_LAST; reg = REG_NEXT(reg))
+    {
+        if (((intRegs & genRegMask(reg)) == RBM_NONE) || (reg == initReg))
+        {
+            continue;
+        }
+
+        instGen_Set_Reg_To_Zero(EA_PTRSIZE, reg);
+        initReg = reg;
+    }
+
+    if ((floatRegs | doubleRegs) == RBM_NONE)
+    {
+        return;
+    }
+
+    if (initReg == REG_NA)
+    {
+        initReg = REG_SCRATCH;
+        instGen_Set_Reg_To_Zero(EA_PTRSIZE, initReg);
+    }
+
     regNumber fltInitReg = REG_NA;
     regNumber dblInitReg = REG_NA;
     regMaskTP regMask    = genRegMask(REG_FP_FIRST);

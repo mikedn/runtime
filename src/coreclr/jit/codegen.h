@@ -435,15 +435,10 @@ protected:
 
 #endif // TARGET_XARCH
 
-#ifdef TARGET_ARM
-    void PrologZeroFloatRegs(regMaskTP floatRegs, regMaskTP doubleRegs, regNumber initReg);
-#else
-    void PrologZeroFloatRegs(regMaskTP floatRegs);
-#endif
-
     void PrologBlockInitLocals(int untrackedHi, int untrackedLo, regNumber initReg, bool* initRegZeroed);
     void PrologZeroInitUntrackedLocals(regNumber initReg, bool* initRegZeroed);
     void PrologInitOsrLocals();
+    void PrologZeroRegs(regMaskTP intRegs, regNumber initReg, regMaskTP floatRegs ARM_ARG(regMaskTP doubleRegs));
 
     void genReportGenericContextArg(regNumber initReg, bool* pInitRegZeroed);
 

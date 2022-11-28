@@ -9346,8 +9346,18 @@ void CodeGen::PrologBlockInitLocals(int untrLclHi, int untrLclLo, regNumber init
     }
 }
 
-void CodeGen::PrologZeroFloatRegs(regMaskTP floatRegs)
+void CodeGen::PrologZeroRegs(regMaskTP intRegs, regNumber initReg, regMaskTP floatRegs)
 {
+    for (regNumber reg = REG_INT_FIRST; reg <= REG_INT_LAST; reg = REG_NEXT(reg))
+    {
+        if (((intRegs & genRegMask(reg)) == RBM_NONE) || (reg == initReg))
+        {
+            continue;
+        }
+
+        instGen_Set_Reg_To_Zero(EA_PTRSIZE, reg);
+    }
+
     // TODO-MIKE-CQ: Copying from another reg instead of just zeroing with xorps is dubious...
     regNumber zeroReg = REG_NA;
 
