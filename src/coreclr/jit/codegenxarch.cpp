@@ -2061,6 +2061,30 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
 #endif // USING_SCOPE_INFO
 }
 
+void CodeGen::PrologEstablishFramePointer(int delta, bool reportUnwindData)
+{
+    if (delta == 0)
+    {
+        GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, REG_FPBASE, REG_ESP, /* canSkip */ false);
+
+#ifdef USING_SCOPE_INFO
+        psiMoveESPtoEBP();
+#endif
+    }
+    else
+    {
+        GetEmitter()->emitIns_R_AR(INS_lea, EA_PTRSIZE, REG_FPBASE, REG_ESP, delta);
+
+        // We don't update prolog scope info (there is no function to handle lea),
+        // but that is currently dead code anyway.
+    }
+
+    if (reportUnwindData)
+    {
+        compiler->unwindSetFrameReg(REG_FPBASE, delta);
+    }
+}
+
 //------------------------------------------------------------------------
 // genStackPointerConstantAdjustment: add a specified constant shift to the stack pointer.
 // No probe is done.

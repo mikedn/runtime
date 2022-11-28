@@ -587,6 +587,55 @@ void CodeGen::PrologSetGSSecurityCookie(regNumber initReg, bool* pInitRegZeroed)
     *pInitRegZeroed = false;
 }
 
+void CodeGen::genEmitGSCookieCheck(bool pushReg)
+{
+    noway_assert(compiler->gsGlobalSecurityCookieAddr || compiler->gsGlobalSecurityCookieVal);
+
+    if (!pushReg)
+    {
+        // Return registers that contain GC references must be reported
+        // as live while the GC cookie is checked.
+
+        ReturnTypeDesc& retDesc = compiler->info.retDesc;
+
+        for (unsigned i = 0; i < retDesc.GetRegCount(); ++i)
+        {
+            gcInfo.gcMarkRegPtrVal(retDesc.GetRegNum(i), retDesc.GetRegType(i));
+        }
+    }
+
+    // We need two temporary registers, to load the GS cookie values and compare them. We can't use
+    // any argument registers if 'pushReg' is true (meaning we have a JMP call). They should be
+    // callee-trash registers, which should not contain anything interesting at this point.
+    // We don't have any IR node representing this check, so LSRA can't communicate registers
+    // for us to use.
+
+    regNumber regGSConst = REG_GSCOOKIE_TMP_0;
+    regNumber regGSValue = REG_GSCOOKIE_TMP_1;
+
+    if (compiler->gsGlobalSecurityCookieAddr == nullptr)
+    {
+        instGen_Set_Reg_To_Imm(EA_PTRSIZE, regGSConst, compiler->gsGlobalSecurityCookieVal);
+    }
+    else
+    {
+        // Ngen case - GS cookie constant needs to be accessed through an indirection.
+        instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, regGSConst, (ssize_t)compiler->gsGlobalSecurityCookieAddr DEBUGARG(
+                                                                    (size_t)THT_GSCookieCheck) DEBUGARG(GTF_EMPTY));
+        GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, regGSConst, regGSConst, 0);
+    }
+    // Load this method's GS value from the stack frame
+    GetEmitter()->emitIns_R_S(INS_ldr, EA_PTRSIZE, regGSValue, compiler->lvaGSSecurityCookie, 0);
+    // Compare with the GC cookie constant
+    GetEmitter()->emitIns_R_R(INS_cmp, EA_PTRSIZE, regGSConst, regGSValue);
+
+    BasicBlock* gsCheckBlk = genCreateTempLabel();
+    inst_JMP(EJ_eq, gsCheckBlk);
+    // regGSConst and regGSValue aren't needed anymore, we can use them for helper call
+    genEmitHelperCall(CORINFO_HELP_FAIL_FAST, EA_UNKNOWN, regGSConst);
+    genDefineTempLabel(gsCheckBlk);
+}
+
 void CodeGen::genIntrinsic(GenTreeIntrinsic* node)
 {
     assert(varTypeIsFloating(node->GetType()));

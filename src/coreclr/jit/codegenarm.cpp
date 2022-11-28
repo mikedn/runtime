@@ -1533,6 +1533,18 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
 #endif // USING_SCOPE_INFO
 }
 
+void CodeGen::PrologEstablishFramePointer(int delta, bool reportUnwindData)
+{
+    assert(emitter::emitIns_valid_imm_for_add_sp(delta));
+
+    GetEmitter()->emitIns_R_R_I(INS_add, EA_4BYTE, REG_FP, REG_SP, delta);
+
+    if (reportUnwindData)
+    {
+        compiler->unwindPadding();
+    }
+}
+
 void CodeGen::genCodeForInstr(GenTreeInstr* instr)
 {
     unreached();

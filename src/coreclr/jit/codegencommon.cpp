@@ -720,61 +720,6 @@ void AddrMode::Extract(Compiler* compiler)
     assert((base != nullptr) || ((index != nullptr) && (scale > 1)));
 }
 
-#ifdef TARGET_ARMARCH
-//------------------------------------------------------------------------
-// genEmitGSCookieCheck: Generate code to check that the GS cookie
-// wasn't thrashed by a buffer overrun. Common code for ARM32 and ARM64.
-//
-void CodeGen::genEmitGSCookieCheck(bool pushReg)
-{
-    noway_assert(compiler->gsGlobalSecurityCookieAddr || compiler->gsGlobalSecurityCookieVal);
-
-    if (!pushReg)
-    {
-        // Return registers that contain GC references must be reported
-        // as live while the GC cookie is checked.
-
-        ReturnTypeDesc& retDesc = compiler->info.retDesc;
-
-        for (unsigned i = 0; i < retDesc.GetRegCount(); ++i)
-        {
-            gcInfo.gcMarkRegPtrVal(retDesc.GetRegNum(i), retDesc.GetRegType(i));
-        }
-    }
-
-    // We need two temporary registers, to load the GS cookie values and compare them. We can't use
-    // any argument registers if 'pushReg' is true (meaning we have a JMP call). They should be
-    // callee-trash registers, which should not contain anything interesting at this point.
-    // We don't have any IR node representing this check, so LSRA can't communicate registers
-    // for us to use.
-
-    regNumber regGSConst = REG_GSCOOKIE_TMP_0;
-    regNumber regGSValue = REG_GSCOOKIE_TMP_1;
-
-    if (compiler->gsGlobalSecurityCookieAddr == nullptr)
-    {
-        instGen_Set_Reg_To_Imm(EA_PTRSIZE, regGSConst, compiler->gsGlobalSecurityCookieVal);
-    }
-    else
-    {
-        // Ngen case - GS cookie constant needs to be accessed through an indirection.
-        instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, regGSConst, (ssize_t)compiler->gsGlobalSecurityCookieAddr DEBUGARG(
-                                                                    (size_t)THT_GSCookieCheck) DEBUGARG(GTF_EMPTY));
-        GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, regGSConst, regGSConst, 0);
-    }
-    // Load this method's GS value from the stack frame
-    GetEmitter()->emitIns_R_S(INS_ldr, EA_PTRSIZE, regGSValue, compiler->lvaGSSecurityCookie, 0);
-    // Compare with the GC cookie constant
-    GetEmitter()->emitIns_R_R(INS_cmp, EA_PTRSIZE, regGSConst, regGSValue);
-
-    BasicBlock* gsCheckBlk = genCreateTempLabel();
-    inst_JMP(EJ_eq, gsCheckBlk);
-    // regGSConst and regGSValue aren't needed anymore, we can use them for helper call
-    genEmitHelperCall(CORINFO_HELP_FAIL_FAST, EA_UNKNOWN, regGSConst);
-    genDefineTempLabel(gsCheckBlk);
-}
-#endif // TARGET_ARMARCH
-
 /*****************************************************************************
  *
  *  Generate an exit sequence for a return from a method (note: when compiling
@@ -4453,69 +4398,6 @@ void CodeGen::genFinalizeFrame()
     UpdateParamsWithInitialReg();
 
     compiler->lvaAssignFrameOffsets(Compiler::FINAL_FRAME_LAYOUT);
-}
-
-//------------------------------------------------------------------------
-// PrologEstablishFramePointer: Set up the frame pointer by adding an offset to the stack pointer.
-//
-// Arguments:
-//    delta - the offset to add to the current stack pointer to establish the frame pointer
-//    reportUnwindData - true if establishing the frame pointer should be reported in the OS unwind data.
-
-void CodeGen::PrologEstablishFramePointer(int delta, bool reportUnwindData)
-{
-    assert(generatingProlog);
-
-#if defined(TARGET_XARCH)
-
-    if (delta == 0)
-    {
-        GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, REG_FPBASE, REG_SPBASE, /* canSkip */ false);
-#ifdef USING_SCOPE_INFO
-        psiMoveESPtoEBP();
-#endif // USING_SCOPE_INFO
-    }
-    else
-    {
-        GetEmitter()->emitIns_R_AR(INS_lea, EA_PTRSIZE, REG_FPBASE, REG_SPBASE, delta);
-        // We don't update prolog scope info (there is no function to handle lea), but that is currently dead code
-        // anyway.
-    }
-
-    if (reportUnwindData)
-    {
-        compiler->unwindSetFrameReg(REG_FPBASE, delta);
-    }
-
-#elif defined(TARGET_ARM)
-
-    assert(emitter::emitIns_valid_imm_for_add_sp(delta));
-    GetEmitter()->emitIns_R_R_I(INS_add, EA_PTRSIZE, REG_FPBASE, REG_SPBASE, delta);
-
-    if (reportUnwindData)
-    {
-        compiler->unwindPadding();
-    }
-
-#elif defined(TARGET_ARM64)
-
-    if (delta == 0)
-    {
-        GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, REG_FPBASE, REG_SPBASE, /* canSkip */ false);
-    }
-    else
-    {
-        GetEmitter()->emitIns_R_R_I(INS_add, EA_PTRSIZE, REG_FPBASE, REG_SPBASE, delta);
-    }
-
-    if (reportUnwindData)
-    {
-        compiler->unwindSetFrameReg(REG_FPBASE, delta);
-    }
-
-#else
-    NYI("establish frame pointer");
-#endif
 }
 
 regNumber CodeGen::PrologFindInitReg(regMaskTP initRegs)

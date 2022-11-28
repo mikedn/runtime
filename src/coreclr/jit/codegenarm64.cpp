@@ -8432,6 +8432,23 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
     }
 }
 
+void CodeGen::PrologEstablishFramePointer(int delta, bool reportUnwindData)
+{
+    if (delta == 0)
+    {
+        GetEmitter()->emitIns_Mov(INS_mov, EA_8BYTE, REG_FP, REG_SP, /* canSkip */ false);
+    }
+    else
+    {
+        GetEmitter()->emitIns_R_R_I(INS_add, EA_8BYTE, REG_FP, REG_SP, delta);
+    }
+
+    if (reportUnwindData)
+    {
+        compiler->unwindSetFrameReg(REG_FP, delta);
+    }
+}
+
 void CodeGen::genCodeForInstr(GenTreeInstr* instr)
 {
     instruction ins  = instr->GetIns();
