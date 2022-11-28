@@ -1304,7 +1304,7 @@ void CodeGen::genEmitMachineCode()
     // On arm due to prespilling of arguments, tracked stk-ptrs may not be contiguous
     trackedStackPtrsContig = !compiler->opts.compDbgEnC && !compiler->compIsProfilerHookNeeded();
 #else
-    trackedStackPtrsContig    = !compiler->opts.compDbgEnC;
+    trackedStackPtrsContig = !compiler->opts.compDbgEnC;
 #endif
 
     codeSize = GetEmitter()->emitEndCodeGen(compiler, trackedStackPtrsContig, GetInterruptible(),
@@ -3508,7 +3508,7 @@ void CodeGen::CheckUseBlockInit()
 #elif defined(TARGET_64BIT)
     genUseBlockInit = slotCount > 8;
 #else
-    genUseBlockInit           = slotCount > 4;
+    genUseBlockInit        = slotCount > 4;
 #endif
 
     genInitStkLclCnt = slotCount;
@@ -3530,654 +3530,659 @@ regNumber CodeGen::genGetZeroReg(regNumber initReg, bool* pInitRegZeroed)
 #endif // !TARGET_ARM64
 }
 
-//-----------------------------------------------------------------------------
-// genZeroInitFrame: Zero any untracked pointer locals and/or initialize memory for locspace
-//
-// Arguments:
-//    untrLclHi      - (Untracked locals High-Offset)  The upper bound offset at which the zero init
-//                                                     code will end initializing memory (not inclusive).
-//    untrLclLo      - (Untracked locals Low-Offset)   The lower bound at which the zero init code will
-//                                                     start zero initializing memory.
-//    initReg        - A scratch register (that gets set to zero on some platforms).
-//    pInitRegZeroed - OUT parameter. *pInitRegZeroed is set to 'true' if this method sets initReg register to zero,
-//                     'false' if initReg was set to a non-zero value, and left unchanged if initReg was not touched.
-void CodeGen::genZeroInitFrame(int untrLclHi, int untrLclLo, regNumber initReg, bool* pInitRegZeroed)
-{
-    assert(generatingProlog);
-
-    if (genUseBlockInit)
-    {
-        assert(untrLclHi > untrLclLo);
 #ifdef TARGET_ARM
-        // Generate the following code:
-        //
-        // For cnt less than 10
-        //
-        //            mov     rZero1, 0
-        //            mov     rZero2, 0
-        //            mov     rCnt,  <cnt>
-        //            stm     <rZero1,rZero2>,[rAddr!]
-        // <optional> stm     <rZero1,rZero2>,[rAddr!]
-        // <optional> stm     <rZero1,rZero2>,[rAddr!]
-        // <optional> stm     <rZero1,rZero2>,[rAddr!]
-        // <optional> str     rZero1,[rAddr]
-        //
-        // For rCnt greater than or equal to 10
-        //
-        //            mov     rZero1, 0
-        //            mov     rZero2, 0
-        //            mov     rCnt,  <cnt/2>
-        //            sub     rAddr, sp, OFFS
-        //
-        //        loop:
-        //            stm     <rZero1,rZero2>,[rAddr!]
-        //            sub     rCnt,rCnt,1
-        //            jnz     loop
-        //
-        // <optional> str     rZero1,[rAddr]   // When cnt is odd
 
-        regNumber rAddr;
-        regNumber rCnt = REG_NA; // Invalid
-        regMaskTP regMask;
+void CodeGen::PrologBlockInitLocals(int untrLclHi, int untrLclLo, regNumber initReg, bool* pInitRegZeroed)
+{
+    assert(generatingProlog && genUseBlockInit);
+    assert(untrLclHi > untrLclLo);
 
-        // Set of available registers
-        regMaskTP availMask = regSet.rsGetModifiedRegsMask() | RBM_INT_CALLEE_TRASH;
-        // Remove all of the incoming argument registers as they are currently live
-        availMask &= ~paramRegState.intRegLiveIn;
-        // Remove the pre-calculated initReg as we will zero it and maybe use it for a large constant.
-        availMask &= ~genRegMask(initReg);
+    // Generate the following code:
+    //
+    // For cnt less than 10
+    //
+    //            mov     rZero1, 0
+    //            mov     rZero2, 0
+    //            mov     rCnt,  <cnt>
+    //            stm     <rZero1,rZero2>,[rAddr!]
+    // <optional> stm     <rZero1,rZero2>,[rAddr!]
+    // <optional> stm     <rZero1,rZero2>,[rAddr!]
+    // <optional> stm     <rZero1,rZero2>,[rAddr!]
+    // <optional> str     rZero1,[rAddr]
+    //
+    // For rCnt greater than or equal to 10
+    //
+    //            mov     rZero1, 0
+    //            mov     rZero2, 0
+    //            mov     rCnt,  <cnt/2>
+    //            sub     rAddr, sp, OFFS
+    //
+    //        loop:
+    //            stm     <rZero1,rZero2>,[rAddr!]
+    //            sub     rCnt,rCnt,1
+    //            jnz     loop
+    //
+    // <optional> str     rZero1,[rAddr]   // When cnt is odd
 
-        if (compiler->compLocallocUsed)
-        {
-            availMask &= ~RBM_SAVED_LOCALLOC_SP; // Remove the register reserved when we have a localloc frame
-        }
+    regNumber rAddr;
+    regNumber rCnt = REG_NA; // Invalid
+    regMaskTP regMask;
 
-        regNumber rZero1; // We're going to use initReg for rZero1
-        regNumber rZero2;
+    // Set of available registers
+    regMaskTP availMask = regSet.rsGetModifiedRegsMask() | RBM_INT_CALLEE_TRASH;
+    // Remove all of the incoming argument registers as they are currently live
+    availMask &= ~paramRegState.intRegLiveIn;
+    // Remove the pre-calculated initReg as we will zero it and maybe use it for a large constant.
+    availMask &= ~genRegMask(initReg);
 
-        // We pick the next lowest register number for rZero2
+    if (compiler->compLocallocUsed)
+    {
+        availMask &= ~RBM_SAVED_LOCALLOC_SP; // Remove the register reserved when we have a localloc frame
+    }
+
+    regNumber rZero1; // We're going to use initReg for rZero1
+    regNumber rZero2;
+
+    // We pick the next lowest register number for rZero2
+    noway_assert(availMask != RBM_NONE);
+    regMask = genFindLowestBit(availMask);
+    rZero2  = genRegNumFromMask(regMask);
+    availMask &= ~regMask;
+
+    // rZero2 is not a live incoming argument reg
+    assert((genRegMask(rZero2) & paramRegState.intRegLiveIn) == RBM_NONE);
+
+    // We pick the next lowest register number for rAddr
+    noway_assert(availMask != RBM_NONE);
+    regMask = genFindLowestBit(availMask);
+    rAddr   = genRegNumFromMask(regMask);
+    availMask &= ~regMask;
+
+    bool     useLoop   = false;
+    unsigned uCntBytes = untrLclHi - untrLclLo;
+    assert((uCntBytes % sizeof(int)) == 0);         // The smallest stack slot is always 4 bytes.
+    unsigned uCntSlots = uCntBytes / REGSIZE_BYTES; // How many register sized stack slots we're going to use.
+
+    // When uCntSlots is 9 or less, we will emit a sequence of stm/stp instructions inline.
+    // When it is 10 or greater, we will emit a loop containing a stm/stp instruction.
+    // In both of these cases the stm/stp instruction will write two zeros to memory
+    // and we will use a single str instruction at the end whenever we have an odd count.
+    if (uCntSlots >= 10)
+        useLoop = true;
+
+    if (useLoop)
+    {
+        // We pick the next lowest register number for rCnt
         noway_assert(availMask != RBM_NONE);
         regMask = genFindLowestBit(availMask);
-        rZero2  = genRegNumFromMask(regMask);
+        rCnt    = genRegNumFromMask(regMask);
         availMask &= ~regMask;
+    }
 
-        // rZero2 is not a live incoming argument reg
-        assert((genRegMask(rZero2) & paramRegState.intRegLiveIn) == RBM_NONE);
+    // rAddr is not a live incoming argument reg
+    assert((genRegMask(rAddr) & paramRegState.intRegLiveIn) == RBM_NONE);
 
-        // We pick the next lowest register number for rAddr
-        noway_assert(availMask != RBM_NONE);
-        regMask = genFindLowestBit(availMask);
-        rAddr   = genRegNumFromMask(regMask);
-        availMask &= ~regMask;
+    if (emitter::emitIns_valid_imm_for_add(untrLclLo))
+    {
+        GetEmitter()->emitIns_R_R_I(INS_add, EA_PTRSIZE, rAddr, genFramePointerReg(), untrLclLo);
+    }
+    else
+    {
+        // Load immediate into the InitReg register
+        instGen_Set_Reg_To_Imm(EA_PTRSIZE, initReg, (ssize_t)untrLclLo);
+        GetEmitter()->emitIns_R_R_R(INS_add, EA_PTRSIZE, rAddr, genFramePointerReg(), initReg);
+        *pInitRegZeroed = false;
+    }
 
-        bool     useLoop   = false;
-        unsigned uCntBytes = untrLclHi - untrLclLo;
-        assert((uCntBytes % sizeof(int)) == 0);         // The smallest stack slot is always 4 bytes.
-        unsigned uCntSlots = uCntBytes / REGSIZE_BYTES; // How many register sized stack slots we're going to use.
+    if (useLoop)
+    {
+        noway_assert(uCntSlots >= 2);
+        // rCnt is not a live incoming param reg
+        assert((genRegMask(rCnt) & paramRegState.intRegLiveIn) == RBM_NONE);
 
-        // When uCntSlots is 9 or less, we will emit a sequence of stm/stp instructions inline.
-        // When it is 10 or greater, we will emit a loop containing a stm/stp instruction.
-        // In both of these cases the stm/stp instruction will write two zeros to memory
-        // and we will use a single str instruction at the end whenever we have an odd count.
-        if (uCntSlots >= 10)
-            useLoop = true;
+        instGen_Set_Reg_To_Imm(EA_PTRSIZE, rCnt, (ssize_t)uCntSlots / 2);
+    }
 
-        if (useLoop)
+    rZero1 = genGetZeroReg(initReg, pInitRegZeroed);
+    instGen_Set_Reg_To_Zero(EA_PTRSIZE, rZero2);
+    target_ssize_t stmImm = (target_ssize_t)(genRegMask(rZero1) | genRegMask(rZero2));
+
+    if (!useLoop)
+    {
+        while (uCntBytes >= REGSIZE_BYTES * 2)
         {
-            // We pick the next lowest register number for rCnt
-            noway_assert(availMask != RBM_NONE);
-            regMask = genFindLowestBit(availMask);
-            rCnt    = genRegNumFromMask(regMask);
-            availMask &= ~regMask;
+            GetEmitter()->emitIns_R_I(INS_stm, EA_PTRSIZE, rAddr, stmImm);
+            uCntBytes -= REGSIZE_BYTES * 2;
         }
+    }
+    else
+    {
+        GetEmitter()->emitIns_R_I(INS_stm, EA_PTRSIZE, rAddr, stmImm); // zero stack slots
+        GetEmitter()->emitIns_R_I(INS_sub, EA_PTRSIZE, rCnt, 1, INS_FLAGS_SET);
+        GetEmitter()->emitIns_J(INS_bhi, NULL, -3);
+        uCntBytes %= REGSIZE_BYTES * 2;
+    }
 
-        // rAddr is not a live incoming argument reg
-        assert((genRegMask(rAddr) & paramRegState.intRegLiveIn) == RBM_NONE);
+    if (uCntBytes >= REGSIZE_BYTES) // check and zero the last register-sized stack slot (odd number)
+    {
+        GetEmitter()->emitIns_R_R_I(INS_str, EA_PTRSIZE, rZero1, rAddr, 0);
+        uCntBytes -= REGSIZE_BYTES;
+    }
 
-        if (emitter::emitIns_valid_imm_for_add(untrLclLo))
-        {
-            GetEmitter()->emitIns_R_R_I(INS_add, EA_PTRSIZE, rAddr, genFramePointerReg(), untrLclLo);
-        }
-        else
-        {
-            // Load immediate into the InitReg register
-            instGen_Set_Reg_To_Imm(EA_PTRSIZE, initReg, (ssize_t)untrLclLo);
-            GetEmitter()->emitIns_R_R_R(INS_add, EA_PTRSIZE, rAddr, genFramePointerReg(), initReg);
-            *pInitRegZeroed = false;
-        }
-
-        if (useLoop)
-        {
-            noway_assert(uCntSlots >= 2);
-            // rCnt is not a live incoming param reg
-            assert((genRegMask(rCnt) & paramRegState.intRegLiveIn) == RBM_NONE);
-
-            instGen_Set_Reg_To_Imm(EA_PTRSIZE, rCnt, (ssize_t)uCntSlots / 2);
-        }
-
-        rZero1 = genGetZeroReg(initReg, pInitRegZeroed);
-        instGen_Set_Reg_To_Zero(EA_PTRSIZE, rZero2);
-        target_ssize_t stmImm = (target_ssize_t)(genRegMask(rZero1) | genRegMask(rZero2));
-
-        if (!useLoop)
-        {
-            while (uCntBytes >= REGSIZE_BYTES * 2)
-            {
-                GetEmitter()->emitIns_R_I(INS_stm, EA_PTRSIZE, rAddr, stmImm);
-                uCntBytes -= REGSIZE_BYTES * 2;
-            }
-        }
-        else
-        {
-            GetEmitter()->emitIns_R_I(INS_stm, EA_PTRSIZE, rAddr, stmImm); // zero stack slots
-            GetEmitter()->emitIns_R_I(INS_sub, EA_PTRSIZE, rCnt, 1, INS_FLAGS_SET);
-            GetEmitter()->emitIns_J(INS_bhi, NULL, -3);
-            uCntBytes %= REGSIZE_BYTES * 2;
-        }
-
-        if (uCntBytes >= REGSIZE_BYTES) // check and zero the last register-sized stack slot (odd number)
-        {
-            GetEmitter()->emitIns_R_R_I(INS_str, EA_PTRSIZE, rZero1, rAddr, 0);
-            uCntBytes -= REGSIZE_BYTES;
-        }
-
-        noway_assert(uCntBytes == 0);
+    noway_assert(uCntBytes == 0);
+}
 
 #elif defined(TARGET_ARM64)
-        int bytesToWrite = untrLclHi - untrLclLo;
 
-        const regNumber zeroSimdReg          = REG_ZERO_INIT_FRAME_SIMD;
-        bool            simdRegZeroed        = false;
-        const int       simdRegPairSizeBytes = 2 * FP_REGSIZE_BYTES;
+void CodeGen::PrologBlockInitLocals(int untrLclHi, int untrLclLo, regNumber initReg, bool* pInitRegZeroed)
+{
+    assert(generatingProlog && genUseBlockInit);
+    assert(untrLclHi > untrLclLo);
 
-        regNumber addrReg = REG_ZERO_INIT_FRAME_REG1;
+    int bytesToWrite = untrLclHi - untrLclLo;
 
-        if (addrReg == initReg)
-        {
-            *pInitRegZeroed = false;
-        }
+    const regNumber zeroSimdReg          = REG_ZERO_INIT_FRAME_SIMD;
+    bool            simdRegZeroed        = false;
+    const int       simdRegPairSizeBytes = 2 * FP_REGSIZE_BYTES;
 
-        int addrOffset = 0;
+    regNumber addrReg = REG_ZERO_INIT_FRAME_REG1;
 
-        // The following invariants are held below:
+    if (addrReg == initReg)
+    {
+        *pInitRegZeroed = false;
+    }
+
+    int addrOffset = 0;
+
+    // The following invariants are held below:
+    //
+    //   1) [addrReg, #addrOffset] points at a location where next chunk of zero bytes will be written;
+    //   2) bytesToWrite specifies the number of bytes on the frame to initialize;
+    //   3) if simdRegZeroed is true then 128-bit wide zeroSimdReg contains zeroes.
+
+    const int bytesUseZeroingLoop = 192;
+
+    if (bytesToWrite >= bytesUseZeroingLoop)
+    {
+        // Generates the following code:
         //
-        //   1) [addrReg, #addrOffset] points at a location where next chunk of zero bytes will be written;
-        //   2) bytesToWrite specifies the number of bytes on the frame to initialize;
-        //   3) if simdRegZeroed is true then 128-bit wide zeroSimdReg contains zeroes.
+        // When the size of the region is greater than or equal to 256 bytes
+        // **and** DC ZVA instruction use is permitted
+        // **and** the instruction block size is configured to 64 bytes:
+        //
+        //    movi    v16.16b, #0
+        //    add     x9, fp, #(untrLclLo+64)
+        //    add     x10, fp, #(untrLclHi-64)
+        //    stp     q16, q16, [x9, #-64]
+        //    stp     q16, q16, [x9, #-32]
+        //    bfm     x9, xzr, #0, #5
+        //
+        // loop:
+        //    dc      zva, x9
+        //    add     x9, x9, #64
+        //    cmp     x9, x10
+        //    blo     loop
+        //
+        //    stp     q16, q16, [x10]
+        //    stp     q16, q16, [x10, #32]
+        //
+        // Otherwise:
+        //
+        //     movi    v16.16b, #0
+        //     add     x9, fp, #(untrLclLo-32)
+        //     mov     x10, #(bytesToWrite-64)
+        //
+        // loop:
+        //     stp     q16, q16, [x9, #32]
+        //     stp     q16, q16, [x9, #64]!
+        //     subs    x10, x10, #64
+        //     bge     loop
 
-        const int bytesUseZeroingLoop = 192;
+        const int bytesUseDataCacheZeroInstruction = 256;
 
-        if (bytesToWrite >= bytesUseZeroingLoop)
+        GetEmitter()->emitIns_R_I(INS_movi, EA_16BYTE, zeroSimdReg, 0, INS_OPTS_16B);
+        simdRegZeroed = true;
+
+        if ((bytesToWrite >= bytesUseDataCacheZeroInstruction) &&
+            compiler->compOpportunisticallyDependsOn(InstructionSet_Dczva))
         {
-            // Generates the following code:
-            //
-            // When the size of the region is greater than or equal to 256 bytes
-            // **and** DC ZVA instruction use is permitted
-            // **and** the instruction block size is configured to 64 bytes:
-            //
-            //    movi    v16.16b, #0
-            //    add     x9, fp, #(untrLclLo+64)
-            //    add     x10, fp, #(untrLclHi-64)
-            //    stp     q16, q16, [x9, #-64]
-            //    stp     q16, q16, [x9, #-32]
-            //    bfm     x9, xzr, #0, #5
-            //
-            // loop:
-            //    dc      zva, x9
-            //    add     x9, x9, #64
-            //    cmp     x9, x10
-            //    blo     loop
-            //
-            //    stp     q16, q16, [x10]
-            //    stp     q16, q16, [x10, #32]
-            //
-            // Otherwise:
-            //
-            //     movi    v16.16b, #0
-            //     add     x9, fp, #(untrLclLo-32)
-            //     mov     x10, #(bytesToWrite-64)
-            //
-            // loop:
-            //     stp     q16, q16, [x9, #32]
-            //     stp     q16, q16, [x9, #64]!
-            //     subs    x10, x10, #64
-            //     bge     loop
+            // The first and the last 64 bytes should be written with two stp q-reg instructions.
+            // This is in order to avoid **unintended** zeroing of the data by dc zva
+            // outside of [fp+untrLclLo, fp+untrLclHi) memory region.
 
-            const int bytesUseDataCacheZeroInstruction = 256;
+            genInstrWithConstant(INS_add, EA_PTRSIZE, addrReg, genFramePointerReg(), untrLclLo + 64, addrReg);
+            addrOffset = -64;
 
-            GetEmitter()->emitIns_R_I(INS_movi, EA_16BYTE, zeroSimdReg, 0, INS_OPTS_16B);
-            simdRegZeroed = true;
+            const regNumber endAddrReg = REG_ZERO_INIT_FRAME_REG2;
 
-            if ((bytesToWrite >= bytesUseDataCacheZeroInstruction) &&
-                compiler->compOpportunisticallyDependsOn(InstructionSet_Dczva))
+            if (endAddrReg == initReg)
             {
-                // The first and the last 64 bytes should be written with two stp q-reg instructions.
-                // This is in order to avoid **unintended** zeroing of the data by dc zva
-                // outside of [fp+untrLclLo, fp+untrLclHi) memory region.
-
-                genInstrWithConstant(INS_add, EA_PTRSIZE, addrReg, genFramePointerReg(), untrLclLo + 64, addrReg);
-                addrOffset = -64;
-
-                const regNumber endAddrReg = REG_ZERO_INIT_FRAME_REG2;
-
-                if (endAddrReg == initReg)
-                {
-                    *pInitRegZeroed = false;
-                }
-
-                genInstrWithConstant(INS_add, EA_PTRSIZE, endAddrReg, genFramePointerReg(), untrLclHi - 64, endAddrReg);
-
-                GetEmitter()->emitIns_R_R_R_I(INS_stp, EA_16BYTE, zeroSimdReg, zeroSimdReg, addrReg, addrOffset);
-                addrOffset += simdRegPairSizeBytes;
-
-                GetEmitter()->emitIns_R_R_R_I(INS_stp, EA_16BYTE, zeroSimdReg, zeroSimdReg, addrReg, addrOffset);
-                addrOffset += simdRegPairSizeBytes;
-
-                assert(addrOffset == 0);
-
-                GetEmitter()->emitIns_R_R_I_I(INS_bfm, EA_PTRSIZE, addrReg, REG_ZR, 0, 5);
-                // addrReg points at the beginning of a cache line.
-
-                GetEmitter()->emitIns_R(INS_dczva, EA_PTRSIZE, addrReg);
-                GetEmitter()->emitIns_R_R_I(INS_add, EA_PTRSIZE, addrReg, addrReg, 64);
-                GetEmitter()->emitIns_R_R(INS_cmp, EA_PTRSIZE, addrReg, endAddrReg);
-                GetEmitter()->emitIns_J(INS_blo, NULL, -4);
-
-                addrReg      = endAddrReg;
-                bytesToWrite = 64;
+                *pInitRegZeroed = false;
             }
-            else
-            {
-                genInstrWithConstant(INS_add, EA_PTRSIZE, addrReg, genFramePointerReg(), untrLclLo - 32, addrReg);
-                addrOffset = 32;
 
-                const regNumber countReg = REG_ZERO_INIT_FRAME_REG2;
+            genInstrWithConstant(INS_add, EA_PTRSIZE, endAddrReg, genFramePointerReg(), untrLclHi - 64, endAddrReg);
 
-                if (countReg == initReg)
-                {
-                    *pInitRegZeroed = false;
-                }
+            GetEmitter()->emitIns_R_R_R_I(INS_stp, EA_16BYTE, zeroSimdReg, zeroSimdReg, addrReg, addrOffset);
+            addrOffset += simdRegPairSizeBytes;
 
-                instGen_Set_Reg_To_Imm(EA_PTRSIZE, countReg, bytesToWrite - 64);
+            GetEmitter()->emitIns_R_R_R_I(INS_stp, EA_16BYTE, zeroSimdReg, zeroSimdReg, addrReg, addrOffset);
+            addrOffset += simdRegPairSizeBytes;
 
-                GetEmitter()->emitIns_R_R_R_I(INS_stp, EA_16BYTE, zeroSimdReg, zeroSimdReg, addrReg, 32);
-                GetEmitter()->emitIns_R_R_R_I(INS_stp, EA_16BYTE, zeroSimdReg, zeroSimdReg, addrReg, 64,
-                                              INS_OPTS_PRE_INDEX);
+            assert(addrOffset == 0);
 
-                GetEmitter()->emitIns_R_R_I(INS_subs, EA_PTRSIZE, countReg, countReg, 64);
-                GetEmitter()->emitIns_J(INS_bge, NULL, -4);
+            GetEmitter()->emitIns_R_R_I_I(INS_bfm, EA_PTRSIZE, addrReg, REG_ZR, 0, 5);
+            // addrReg points at the beginning of a cache line.
 
-                bytesToWrite %= 64;
-            }
+            GetEmitter()->emitIns_R(INS_dczva, EA_PTRSIZE, addrReg);
+            GetEmitter()->emitIns_R_R_I(INS_add, EA_PTRSIZE, addrReg, addrReg, 64);
+            GetEmitter()->emitIns_R_R(INS_cmp, EA_PTRSIZE, addrReg, endAddrReg);
+            GetEmitter()->emitIns_J(INS_blo, NULL, -4);
+
+            addrReg      = endAddrReg;
+            bytesToWrite = 64;
         }
         else
         {
-            genInstrWithConstant(INS_add, EA_PTRSIZE, addrReg, genFramePointerReg(), untrLclLo, addrReg);
-        }
+            genInstrWithConstant(INS_add, EA_PTRSIZE, addrReg, genFramePointerReg(), untrLclLo - 32, addrReg);
+            addrOffset = 32;
 
-        if (bytesToWrite >= simdRegPairSizeBytes)
-        {
-            // Generates the following code:
-            //
-            //     movi    v16.16b, #0
-            //     stp     q16, q16, [x9, #addrOffset]
-            //     stp     q16, q16, [x9, #(addrOffset+32)]
-            // ...
-            //     stp     q16, q16, [x9, #(addrOffset+roundDown(bytesToWrite, 32))]
+            const regNumber countReg = REG_ZERO_INIT_FRAME_REG2;
 
-            if (!simdRegZeroed)
+            if (countReg == initReg)
             {
-                GetEmitter()->emitIns_R_I(INS_movi, EA_16BYTE, zeroSimdReg, 0, INS_OPTS_16B);
-                simdRegZeroed = true;
+                *pInitRegZeroed = false;
             }
 
-            for (; bytesToWrite >= simdRegPairSizeBytes; bytesToWrite -= simdRegPairSizeBytes)
-            {
-                GetEmitter()->emitIns_R_R_R_I(INS_stp, EA_16BYTE, zeroSimdReg, zeroSimdReg, addrReg, addrOffset);
-                addrOffset += simdRegPairSizeBytes;
-            }
+            instGen_Set_Reg_To_Imm(EA_PTRSIZE, countReg, bytesToWrite - 64);
+
+            GetEmitter()->emitIns_R_R_R_I(INS_stp, EA_16BYTE, zeroSimdReg, zeroSimdReg, addrReg, 32);
+            GetEmitter()->emitIns_R_R_R_I(INS_stp, EA_16BYTE, zeroSimdReg, zeroSimdReg, addrReg, 64,
+                                          INS_OPTS_PRE_INDEX);
+
+            GetEmitter()->emitIns_R_R_I(INS_subs, EA_PTRSIZE, countReg, countReg, 64);
+            GetEmitter()->emitIns_J(INS_bge, NULL, -4);
+
+            bytesToWrite %= 64;
         }
+    }
+    else
+    {
+        genInstrWithConstant(INS_add, EA_PTRSIZE, addrReg, genFramePointerReg(), untrLclLo, addrReg);
+    }
 
-        const int regPairSizeBytes = 2 * REGSIZE_BYTES;
+    if (bytesToWrite >= simdRegPairSizeBytes)
+    {
+        // Generates the following code:
+        //
+        //     movi    v16.16b, #0
+        //     stp     q16, q16, [x9, #addrOffset]
+        //     stp     q16, q16, [x9, #(addrOffset+32)]
+        // ...
+        //     stp     q16, q16, [x9, #(addrOffset+roundDown(bytesToWrite, 32))]
 
-        if (bytesToWrite >= regPairSizeBytes)
+        if (!simdRegZeroed)
         {
-            GetEmitter()->emitIns_R_R_R_I(INS_stp, EA_PTRSIZE, REG_ZR, REG_ZR, addrReg, addrOffset);
-            addrOffset += regPairSizeBytes;
-            bytesToWrite -= regPairSizeBytes;
+            GetEmitter()->emitIns_R_I(INS_movi, EA_16BYTE, zeroSimdReg, 0, INS_OPTS_16B);
+            simdRegZeroed = true;
         }
 
-        if (bytesToWrite >= REGSIZE_BYTES)
+        for (; bytesToWrite >= simdRegPairSizeBytes; bytesToWrite -= simdRegPairSizeBytes)
         {
-            GetEmitter()->emitIns_R_R_I(INS_str, EA_PTRSIZE, REG_ZR, addrReg, addrOffset);
-            addrOffset += REGSIZE_BYTES;
-            bytesToWrite -= REGSIZE_BYTES;
+            GetEmitter()->emitIns_R_R_R_I(INS_stp, EA_16BYTE, zeroSimdReg, zeroSimdReg, addrReg, addrOffset);
+            addrOffset += simdRegPairSizeBytes;
         }
+    }
 
-        if (bytesToWrite == sizeof(int))
-        {
-            GetEmitter()->emitIns_R_R_I(INS_str, EA_4BYTE, REG_ZR, addrReg, addrOffset);
-            bytesToWrite = 0;
-        }
+    const int regPairSizeBytes = 2 * REGSIZE_BYTES;
 
-        assert(bytesToWrite == 0);
+    if (bytesToWrite >= regPairSizeBytes)
+    {
+        GetEmitter()->emitIns_R_R_R_I(INS_stp, EA_PTRSIZE, REG_ZR, REG_ZR, addrReg, addrOffset);
+        addrOffset += regPairSizeBytes;
+        bytesToWrite -= regPairSizeBytes;
+    }
+
+    if (bytesToWrite >= REGSIZE_BYTES)
+    {
+        GetEmitter()->emitIns_R_R_I(INS_str, EA_PTRSIZE, REG_ZR, addrReg, addrOffset);
+        addrOffset += REGSIZE_BYTES;
+        bytesToWrite -= REGSIZE_BYTES;
+    }
+
+    if (bytesToWrite == sizeof(int))
+    {
+        GetEmitter()->emitIns_R_R_I(INS_str, EA_4BYTE, REG_ZR, addrReg, addrOffset);
+        bytesToWrite = 0;
+    }
+
+    assert(bytesToWrite == 0);
+}
+
 #elif defined(TARGET_XARCH)
-        emitter*  emit        = GetEmitter();
-        regNumber frameReg    = genFramePointerReg();
-        regNumber zeroReg     = REG_NA;
-        int       blkSize     = untrLclHi - untrLclLo;
-        int       minSimdSize = XMM_REGSIZE_BYTES;
 
-        assert(blkSize >= 0);
-        noway_assert((blkSize % sizeof(int)) == 0);
-        // initReg is not a live incoming param reg
-        assert((genRegMask(initReg) & paramRegState.intRegLiveIn) == RBM_NONE);
+void CodeGen::PrologBlockInitLocals(int untrLclHi, int untrLclLo, regNumber initReg, bool* pInitRegZeroed)
+{
+    assert(generatingProlog && genUseBlockInit);
+    assert(untrLclHi > untrLclLo);
+
+    emitter*  emit        = GetEmitter();
+    regNumber frameReg    = genFramePointerReg();
+    regNumber zeroReg     = REG_NA;
+    int       blkSize     = untrLclHi - untrLclLo;
+    int       minSimdSize = XMM_REGSIZE_BYTES;
+
+    assert(blkSize >= 0);
+    noway_assert((blkSize % sizeof(int)) == 0);
+    // initReg is not a live incoming param reg
+    assert((genRegMask(initReg) & paramRegState.intRegLiveIn) == RBM_NONE);
 #if defined(TARGET_AMD64)
-        // We will align on x64 so can use the aligned mov
-        instruction simdMov = simdAlignedMovIns();
-        // Aligning low we want to move up to next boundary
-        int alignedLclLo = (untrLclLo + (XMM_REGSIZE_BYTES - 1)) & -XMM_REGSIZE_BYTES;
+    // We will align on x64 so can use the aligned mov
+    instruction simdMov = simdAlignedMovIns();
+    // Aligning low we want to move up to next boundary
+    int alignedLclLo = (untrLclLo + (XMM_REGSIZE_BYTES - 1)) & -XMM_REGSIZE_BYTES;
 
-        if ((untrLclLo != alignedLclLo) && (blkSize < 2 * XMM_REGSIZE_BYTES))
-        {
-            // If unaligned and smaller then 2 x SIMD size we won't bother trying to align
-            assert((alignedLclLo - untrLclLo) < XMM_REGSIZE_BYTES);
-            simdMov = simdUnalignedMovIns();
-        }
+    if ((untrLclLo != alignedLclLo) && (blkSize < 2 * XMM_REGSIZE_BYTES))
+    {
+        // If unaligned and smaller then 2 x SIMD size we won't bother trying to align
+        assert((alignedLclLo - untrLclLo) < XMM_REGSIZE_BYTES);
+        simdMov = simdUnalignedMovIns();
+    }
 #else // !defined(TARGET_AMD64)
-        // We aren't going to try and align on x86
-        instruction simdMov      = simdUnalignedMovIns();
-        int         alignedLclLo = untrLclLo;
+    // We aren't going to try and align on x86
+    instruction simdMov      = simdUnalignedMovIns();
+    int         alignedLclLo = untrLclLo;
 #endif
-        if (blkSize < minSimdSize)
+    if (blkSize < minSimdSize)
+    {
+        zeroReg = genGetZeroReg(initReg, pInitRegZeroed);
+
+        int i = 0;
+        for (; i + REGSIZE_BYTES <= blkSize; i += REGSIZE_BYTES)
         {
+            emit->emitIns_AR_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, zeroReg, frameReg, untrLclLo + i);
+        }
+#if defined(TARGET_AMD64)
+        assert((i == blkSize) || (i + (int)sizeof(int) == blkSize));
+        if (i != blkSize)
+        {
+            emit->emitIns_AR_R(ins_Store(TYP_INT), EA_4BYTE, zeroReg, frameReg, untrLclLo + i);
+            i += sizeof(int);
+        }
+#endif // defined(TARGET_AMD64)
+        assert(i == blkSize);
+    }
+    else
+    {
+        // Grab a non-argument, non-callee saved XMM reg
+        CLANG_FORMAT_COMMENT_ANCHOR;
+#ifdef UNIX_AMD64_ABI
+        // System V x64 first temp reg is xmm8
+        regNumber zeroSIMDReg = genRegNumFromMask(RBM_XMM8);
+#else
+        // Windows first temp reg is xmm4
+        regNumber zeroSIMDReg = genRegNumFromMask(RBM_XMM4);
+#endif // UNIX_AMD64_ABI
+
+#if defined(TARGET_AMD64)
+        int       alignedLclHi;
+        int       alignmentHiBlkSize;
+
+        if ((blkSize < 2 * XMM_REGSIZE_BYTES) || (untrLclLo == alignedLclLo))
+        {
+            // Either aligned or smaller then 2 x SIMD size so we won't try to align
+            // However, we still want to zero anything that is not in a 16 byte chunk at end
+            int alignmentBlkSize = blkSize & -XMM_REGSIZE_BYTES;
+            alignmentHiBlkSize   = blkSize - alignmentBlkSize;
+            alignedLclHi         = untrLclLo + alignmentBlkSize;
+            alignedLclLo         = untrLclLo;
+            blkSize              = alignmentBlkSize;
+
+            assert((blkSize + alignmentHiBlkSize) == (untrLclHi - untrLclLo));
+        }
+        else
+        {
+            // We are going to align
+
+            // Aligning high we want to move down to previous boundary
+            alignedLclHi = untrLclHi & -XMM_REGSIZE_BYTES;
+            // Zero out the unaligned portions
+            alignmentHiBlkSize     = untrLclHi - alignedLclHi;
+            int alignmentLoBlkSize = alignedLclLo - untrLclLo;
+            blkSize                = alignedLclHi - alignedLclLo;
+
+            assert((blkSize + alignmentLoBlkSize + alignmentHiBlkSize) == (untrLclHi - untrLclLo));
+
+            assert(alignmentLoBlkSize > 0);
+            assert(alignmentLoBlkSize < XMM_REGSIZE_BYTES);
+            assert((alignedLclLo - alignmentLoBlkSize) == untrLclLo);
+
             zeroReg = genGetZeroReg(initReg, pInitRegZeroed);
 
             int i = 0;
-            for (; i + REGSIZE_BYTES <= blkSize; i += REGSIZE_BYTES)
+            for (; i + REGSIZE_BYTES <= alignmentLoBlkSize; i += REGSIZE_BYTES)
             {
                 emit->emitIns_AR_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, zeroReg, frameReg, untrLclLo + i);
             }
-#if defined(TARGET_AMD64)
-            assert((i == blkSize) || (i + (int)sizeof(int) == blkSize));
-            if (i != blkSize)
+            assert((i == alignmentLoBlkSize) || (i + (int)sizeof(int) == alignmentLoBlkSize));
+            if (i != alignmentLoBlkSize)
             {
                 emit->emitIns_AR_R(ins_Store(TYP_INT), EA_4BYTE, zeroReg, frameReg, untrLclLo + i);
                 i += sizeof(int);
             }
-#endif // defined(TARGET_AMD64)
+
+            assert(i == alignmentLoBlkSize);
+        }
+#else // !defined(TARGET_AMD64)
+        // While we aren't aligning the start, we still want to
+        // zero anything that is not in a 16 byte chunk at end
+        int alignmentBlkSize   = blkSize & -XMM_REGSIZE_BYTES;
+        int alignmentHiBlkSize = blkSize - alignmentBlkSize;
+        int alignedLclHi       = untrLclLo + alignmentBlkSize;
+        blkSize                = alignmentBlkSize;
+
+        assert((blkSize + alignmentHiBlkSize) == (untrLclHi - untrLclLo));
+#endif
+        // The loop is unrolled 3 times so we do not move to the loop block until it
+        // will loop at least once so the threshold is 6.
+        if (blkSize < (6 * XMM_REGSIZE_BYTES))
+        {
+            // Generate the following code:
+            //
+            //   xorps   xmm4, xmm4
+            //   movups  xmmword ptr [ebp/esp-OFFS], xmm4
+            //   ...
+            //   movups  xmmword ptr [ebp/esp-OFFS], xmm4
+            //   mov      qword ptr [ebp/esp-OFFS], rax
+
+            emit->emitIns_R_R(INS_xorps, EA_ATTR(XMM_REGSIZE_BYTES), zeroSIMDReg, zeroSIMDReg);
+
+            int i = 0;
+            for (; i < blkSize; i += XMM_REGSIZE_BYTES)
+            {
+                emit->emitIns_AR_R(simdMov, EA_ATTR(XMM_REGSIZE_BYTES), zeroSIMDReg, frameReg, alignedLclLo + i);
+            }
+
             assert(i == blkSize);
         }
         else
         {
-            // Grab a non-argument, non-callee saved XMM reg
-            CLANG_FORMAT_COMMENT_ANCHOR;
-#ifdef UNIX_AMD64_ABI
-            // System V x64 first temp reg is xmm8
-            regNumber zeroSIMDReg = genRegNumFromMask(RBM_XMM8);
-#else
-            // Windows first temp reg is xmm4
-            regNumber zeroSIMDReg = genRegNumFromMask(RBM_XMM4);
-#endif // UNIX_AMD64_ABI
+            // Generate the following code:
+            //
+            //    xorps    xmm4, xmm4
+            //    ;movaps xmmword ptr[ebp/esp-loOFFS], xmm4          ; alignment to 3x
+            //    ;movaps xmmword ptr[ebp/esp-loOFFS + 10H], xmm4    ;
+            //    mov rax, - <size>                                  ; start offset from hi
+            //    movaps xmmword ptr[rbp + rax + hiOFFS      ], xmm4 ; <--+
+            //    movaps xmmword ptr[rbp + rax + hiOFFS + 10H], xmm4 ;    |
+            //    movaps xmmword ptr[rbp + rax + hiOFFS + 20H], xmm4 ;    | Loop
+            //    add rax, 48                                        ;    |
+            //    jne SHORT  -5 instr                                ; ---+
 
-#if defined(TARGET_AMD64)
-            int       alignedLclHi;
-            int       alignmentHiBlkSize;
+            emit->emitIns_R_R(INS_xorps, EA_ATTR(XMM_REGSIZE_BYTES), zeroSIMDReg, zeroSIMDReg);
 
-            if ((blkSize < 2 * XMM_REGSIZE_BYTES) || (untrLclLo == alignedLclLo))
+            // How many extra don't fit into the 3x unroll
+            int extraSimd = (blkSize % (XMM_REGSIZE_BYTES * 3)) / XMM_REGSIZE_BYTES;
+            if (extraSimd != 0)
             {
-                // Either aligned or smaller then 2 x SIMD size so we won't try to align
-                // However, we still want to zero anything that is not in a 16 byte chunk at end
-                int alignmentBlkSize = blkSize & -XMM_REGSIZE_BYTES;
-                alignmentHiBlkSize   = blkSize - alignmentBlkSize;
-                alignedLclHi         = untrLclLo + alignmentBlkSize;
-                alignedLclLo         = untrLclLo;
-                blkSize              = alignmentBlkSize;
-
-                assert((blkSize + alignmentHiBlkSize) == (untrLclHi - untrLclLo));
-            }
-            else
-            {
-                // We are going to align
-
-                // Aligning high we want to move down to previous boundary
-                alignedLclHi = untrLclHi & -XMM_REGSIZE_BYTES;
-                // Zero out the unaligned portions
-                alignmentHiBlkSize     = untrLclHi - alignedLclHi;
-                int alignmentLoBlkSize = alignedLclLo - untrLclLo;
-                blkSize                = alignedLclHi - alignedLclLo;
-
-                assert((blkSize + alignmentLoBlkSize + alignmentHiBlkSize) == (untrLclHi - untrLclLo));
-
-                assert(alignmentLoBlkSize > 0);
-                assert(alignmentLoBlkSize < XMM_REGSIZE_BYTES);
-                assert((alignedLclLo - alignmentLoBlkSize) == untrLclLo);
-
-                zeroReg = genGetZeroReg(initReg, pInitRegZeroed);
-
-                int i = 0;
-                for (; i + REGSIZE_BYTES <= alignmentLoBlkSize; i += REGSIZE_BYTES)
-                {
-                    emit->emitIns_AR_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, zeroReg, frameReg, untrLclLo + i);
-                }
-                assert((i == alignmentLoBlkSize) || (i + (int)sizeof(int) == alignmentLoBlkSize));
-                if (i != alignmentLoBlkSize)
-                {
-                    emit->emitIns_AR_R(ins_Store(TYP_INT), EA_4BYTE, zeroReg, frameReg, untrLclLo + i);
-                    i += sizeof(int);
-                }
-
-                assert(i == alignmentLoBlkSize);
-            }
-#else // !defined(TARGET_AMD64)
-            // While we aren't aligning the start, we still want to
-            // zero anything that is not in a 16 byte chunk at end
-            int alignmentBlkSize   = blkSize & -XMM_REGSIZE_BYTES;
-            int alignmentHiBlkSize = blkSize - alignmentBlkSize;
-            int alignedLclHi       = untrLclLo + alignmentBlkSize;
-            blkSize                = alignmentBlkSize;
-
-            assert((blkSize + alignmentHiBlkSize) == (untrLclHi - untrLclLo));
-#endif
-            // The loop is unrolled 3 times so we do not move to the loop block until it
-            // will loop at least once so the threshold is 6.
-            if (blkSize < (6 * XMM_REGSIZE_BYTES))
-            {
-                // Generate the following code:
-                //
-                //   xorps   xmm4, xmm4
-                //   movups  xmmword ptr [ebp/esp-OFFS], xmm4
-                //   ...
-                //   movups  xmmword ptr [ebp/esp-OFFS], xmm4
-                //   mov      qword ptr [ebp/esp-OFFS], rax
-
-                emit->emitIns_R_R(INS_xorps, EA_ATTR(XMM_REGSIZE_BYTES), zeroSIMDReg, zeroSIMDReg);
-
-                int i = 0;
-                for (; i < blkSize; i += XMM_REGSIZE_BYTES)
-                {
-                    emit->emitIns_AR_R(simdMov, EA_ATTR(XMM_REGSIZE_BYTES), zeroSIMDReg, frameReg, alignedLclLo + i);
-                }
-
-                assert(i == blkSize);
-            }
-            else
-            {
-                // Generate the following code:
-                //
-                //    xorps    xmm4, xmm4
-                //    ;movaps xmmword ptr[ebp/esp-loOFFS], xmm4          ; alignment to 3x
-                //    ;movaps xmmword ptr[ebp/esp-loOFFS + 10H], xmm4    ;
-                //    mov rax, - <size>                                  ; start offset from hi
-                //    movaps xmmword ptr[rbp + rax + hiOFFS      ], xmm4 ; <--+
-                //    movaps xmmword ptr[rbp + rax + hiOFFS + 10H], xmm4 ;    |
-                //    movaps xmmword ptr[rbp + rax + hiOFFS + 20H], xmm4 ;    | Loop
-                //    add rax, 48                                        ;    |
-                //    jne SHORT  -5 instr                                ; ---+
-
-                emit->emitIns_R_R(INS_xorps, EA_ATTR(XMM_REGSIZE_BYTES), zeroSIMDReg, zeroSIMDReg);
-
-                // How many extra don't fit into the 3x unroll
-                int extraSimd = (blkSize % (XMM_REGSIZE_BYTES * 3)) / XMM_REGSIZE_BYTES;
-                if (extraSimd != 0)
+                blkSize -= XMM_REGSIZE_BYTES;
+                // Not a multiple of 3 so add stores at low end of block
+                emit->emitIns_AR_R(simdMov, EA_ATTR(XMM_REGSIZE_BYTES), zeroSIMDReg, frameReg, alignedLclLo);
+                if (extraSimd == 2)
                 {
                     blkSize -= XMM_REGSIZE_BYTES;
-                    // Not a multiple of 3 so add stores at low end of block
-                    emit->emitIns_AR_R(simdMov, EA_ATTR(XMM_REGSIZE_BYTES), zeroSIMDReg, frameReg, alignedLclLo);
-                    if (extraSimd == 2)
-                    {
-                        blkSize -= XMM_REGSIZE_BYTES;
-                        // one more store needed
-                        emit->emitIns_AR_R(simdMov, EA_ATTR(XMM_REGSIZE_BYTES), zeroSIMDReg, frameReg,
-                                           alignedLclLo + XMM_REGSIZE_BYTES);
-                    }
+                    // one more store needed
+                    emit->emitIns_AR_R(simdMov, EA_ATTR(XMM_REGSIZE_BYTES), zeroSIMDReg, frameReg,
+                                       alignedLclLo + XMM_REGSIZE_BYTES);
                 }
-
-                // Exact multiple of 3 simd lengths (or loop end condition will not be met)
-                noway_assert((blkSize % (3 * XMM_REGSIZE_BYTES)) == 0);
-
-                // At least 3 simd lengths remain (as loop is 3x unrolled and we want it to loop at least once)
-                assert(blkSize >= (3 * XMM_REGSIZE_BYTES));
-                // In range at start of loop
-                assert((alignedLclHi - blkSize) >= untrLclLo);
-                assert(((alignedLclHi - blkSize) + (XMM_REGSIZE_BYTES * 2)) < (untrLclHi - XMM_REGSIZE_BYTES));
-                // In range at end of loop
-                assert((alignedLclHi - (3 * XMM_REGSIZE_BYTES) + (2 * XMM_REGSIZE_BYTES)) <=
-                       (untrLclHi - XMM_REGSIZE_BYTES));
-                assert((alignedLclHi - (blkSize + extraSimd * XMM_REGSIZE_BYTES)) == alignedLclLo);
-
-                // Set loop counter
-                emit->emitIns_R_I(INS_mov, EA_PTRSIZE, initReg, -(ssize_t)blkSize);
-                // Loop start
-                emit->emitIns_ARX_R(simdMov, EA_ATTR(XMM_REGSIZE_BYTES), zeroSIMDReg, frameReg, initReg, 1,
-                                    alignedLclHi);
-                emit->emitIns_ARX_R(simdMov, EA_ATTR(XMM_REGSIZE_BYTES), zeroSIMDReg, frameReg, initReg, 1,
-                                    alignedLclHi + XMM_REGSIZE_BYTES);
-                emit->emitIns_ARX_R(simdMov, EA_ATTR(XMM_REGSIZE_BYTES), zeroSIMDReg, frameReg, initReg, 1,
-                                    alignedLclHi + 2 * XMM_REGSIZE_BYTES);
-
-                emit->emitIns_R_I(INS_add, EA_PTRSIZE, initReg, XMM_REGSIZE_BYTES * 3);
-                // Loop until counter is 0
-                emit->emitIns_J(INS_jne, nullptr, -5);
-
-                // initReg will be zero at end of the loop
-                *pInitRegZeroed = true;
             }
 
-            if (untrLclHi != alignedLclHi)
+            // Exact multiple of 3 simd lengths (or loop end condition will not be met)
+            noway_assert((blkSize % (3 * XMM_REGSIZE_BYTES)) == 0);
+
+            // At least 3 simd lengths remain (as loop is 3x unrolled and we want it to loop at least once)
+            assert(blkSize >= (3 * XMM_REGSIZE_BYTES));
+            // In range at start of loop
+            assert((alignedLclHi - blkSize) >= untrLclLo);
+            assert(((alignedLclHi - blkSize) + (XMM_REGSIZE_BYTES * 2)) < (untrLclHi - XMM_REGSIZE_BYTES));
+            // In range at end of loop
+            assert((alignedLclHi - (3 * XMM_REGSIZE_BYTES) + (2 * XMM_REGSIZE_BYTES)) <=
+                   (untrLclHi - XMM_REGSIZE_BYTES));
+            assert((alignedLclHi - (blkSize + extraSimd * XMM_REGSIZE_BYTES)) == alignedLclLo);
+
+            // Set loop counter
+            emit->emitIns_R_I(INS_mov, EA_PTRSIZE, initReg, -(ssize_t)blkSize);
+            // Loop start
+            emit->emitIns_ARX_R(simdMov, EA_ATTR(XMM_REGSIZE_BYTES), zeroSIMDReg, frameReg, initReg, 1, alignedLclHi);
+            emit->emitIns_ARX_R(simdMov, EA_ATTR(XMM_REGSIZE_BYTES), zeroSIMDReg, frameReg, initReg, 1,
+                                alignedLclHi + XMM_REGSIZE_BYTES);
+            emit->emitIns_ARX_R(simdMov, EA_ATTR(XMM_REGSIZE_BYTES), zeroSIMDReg, frameReg, initReg, 1,
+                                alignedLclHi + 2 * XMM_REGSIZE_BYTES);
+
+            emit->emitIns_R_I(INS_add, EA_PTRSIZE, initReg, XMM_REGSIZE_BYTES * 3);
+            // Loop until counter is 0
+            emit->emitIns_J(INS_jne, nullptr, -5);
+
+            // initReg will be zero at end of the loop
+            *pInitRegZeroed = true;
+        }
+
+        if (untrLclHi != alignedLclHi)
+        {
+            assert(alignmentHiBlkSize > 0);
+            assert(alignmentHiBlkSize < XMM_REGSIZE_BYTES);
+            assert((alignedLclHi + alignmentHiBlkSize) == untrLclHi);
+
+            zeroReg = genGetZeroReg(initReg, pInitRegZeroed);
+
+            int i = 0;
+            for (; i + REGSIZE_BYTES <= alignmentHiBlkSize; i += REGSIZE_BYTES)
             {
-                assert(alignmentHiBlkSize > 0);
-                assert(alignmentHiBlkSize < XMM_REGSIZE_BYTES);
-                assert((alignedLclHi + alignmentHiBlkSize) == untrLclHi);
-
-                zeroReg = genGetZeroReg(initReg, pInitRegZeroed);
-
-                int i = 0;
-                for (; i + REGSIZE_BYTES <= alignmentHiBlkSize; i += REGSIZE_BYTES)
-                {
-                    emit->emitIns_AR_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, zeroReg, frameReg, alignedLclHi + i);
-                }
+                emit->emitIns_AR_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, zeroReg, frameReg, alignedLclHi + i);
+            }
 #if defined(TARGET_AMD64)
-                assert((i == alignmentHiBlkSize) || (i + (int)sizeof(int) == alignmentHiBlkSize));
-                if (i != alignmentHiBlkSize)
-                {
-                    emit->emitIns_AR_R(ins_Store(TYP_INT), EA_4BYTE, zeroReg, frameReg, alignedLclHi + i);
-                    i += sizeof(int);
-                }
+            assert((i == alignmentHiBlkSize) || (i + (int)sizeof(int) == alignmentHiBlkSize));
+            if (i != alignmentHiBlkSize)
+            {
+                emit->emitIns_AR_R(ins_Store(TYP_INT), EA_4BYTE, zeroReg, frameReg, alignedLclHi + i);
+                i += sizeof(int);
+            }
 #endif // defined(TARGET_AMD64)
-                assert(i == alignmentHiBlkSize);
+            assert(i == alignmentHiBlkSize);
+        }
+    }
+}
+
+#endif // TARGET_XARCH
+
+void CodeGen::PrologZeroInitUntrackedLocals(regNumber initReg, bool* initRegZeroed)
+{
+    assert(genInitStkLclCnt > 0);
+    // initReg is not a live incoming param reg
+    assert((genRegMask(initReg) & paramRegState.intRegLiveIn) == RBM_NONE);
+
+    // Initialize any lvMustInit vars on the stack
+
+    LclVarDsc* varDsc;
+    unsigned   varNum;
+
+    for (varNum = 0, varDsc = compiler->lvaTable; varNum < compiler->lvaCount; varNum++, varDsc++)
+    {
+        if (!varDsc->lvMustInit)
+        {
+            continue;
+        }
+
+        // TODO-Review: I'm not sure that we're correctly handling the mustInit case for
+        // partially-enregistered vars in the case where we don't use a block init.
+        noway_assert(varDsc->lvIsInReg() || varDsc->lvOnFrame);
+
+        // lvMustInit can only be set for GC types or TYP_STRUCT types
+        // or when compInitMem is true
+        // or when in debug code
+
+        noway_assert(varTypeIsGC(varDsc->TypeGet()) || (varDsc->TypeGet() == TYP_STRUCT) ||
+                     compiler->info.compInitMem || compiler->opts.compDbgCode);
+
+        if (!varDsc->lvOnFrame)
+        {
+            continue;
+        }
+
+        if (varDsc->TypeIs(TYP_STRUCT) && !compiler->info.compInitMem && varDsc->HasGCPtr())
+        {
+            // We only initialize the GC variables in the TYP_STRUCT
+            ClassLayout* layout = varDsc->GetLayout();
+
+            for (unsigned i = 0; i < layout->GetSlotCount(); i++)
+            {
+                if (layout->IsGCPtr(i))
+                {
+                    GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, genGetZeroReg(initReg, initRegZeroed),
+                                              varNum, i * REGSIZE_BYTES);
+                }
             }
         }
-#else  // TARGET*
-#error Unsupported or unset target architecture
-#endif // TARGET*
-    }
-    else if (genInitStkLclCnt > 0)
-    {
-        // initReg is not a live incoming param reg
-        assert((genRegMask(initReg) & paramRegState.intRegLiveIn) == RBM_NONE);
-
-        // Initialize any lvMustInit vars on the stack
-
-        LclVarDsc* varDsc;
-        unsigned   varNum;
-
-        for (varNum = 0, varDsc = compiler->lvaTable; varNum < compiler->lvaCount; varNum++, varDsc++)
+        else
         {
-            if (!varDsc->lvMustInit)
+            regNumber zeroReg = genGetZeroReg(initReg, initRegZeroed);
+
+            // zero out the whole thing rounded up to a single stack slot size
+            unsigned lclSize = roundUp(varDsc->GetFrameSize(), 4);
+            unsigned i;
+            for (i = 0; i + REGSIZE_BYTES <= lclSize; i += REGSIZE_BYTES)
             {
-                continue;
+                GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, zeroReg, varNum, i);
             }
-
-            // TODO-Review: I'm not sure that we're correctly handling the mustInit case for
-            // partially-enregistered vars in the case where we don't use a block init.
-            noway_assert(varDsc->lvIsInReg() || varDsc->lvOnFrame);
-
-            // lvMustInit can only be set for GC types or TYP_STRUCT types
-            // or when compInitMem is true
-            // or when in debug code
-
-            noway_assert(varTypeIsGC(varDsc->TypeGet()) || (varDsc->TypeGet() == TYP_STRUCT) ||
-                         compiler->info.compInitMem || compiler->opts.compDbgCode);
-
-            if (!varDsc->lvOnFrame)
-            {
-                continue;
-            }
-
-            if (varDsc->TypeIs(TYP_STRUCT) && !compiler->info.compInitMem && varDsc->HasGCPtr())
-            {
-                // We only initialize the GC variables in the TYP_STRUCT
-                ClassLayout* layout = varDsc->GetLayout();
-
-                for (unsigned i = 0; i < layout->GetSlotCount(); i++)
-                {
-                    if (layout->IsGCPtr(i))
-                    {
-                        GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE,
-                                                  genGetZeroReg(initReg, pInitRegZeroed), varNum, i * REGSIZE_BYTES);
-                    }
-                }
-            }
-            else
-            {
-                regNumber zeroReg = genGetZeroReg(initReg, pInitRegZeroed);
-
-                // zero out the whole thing rounded up to a single stack slot size
-                unsigned lclSize = roundUp(varDsc->GetFrameSize(), 4);
-                unsigned i;
-                for (i = 0; i + REGSIZE_BYTES <= lclSize; i += REGSIZE_BYTES)
-                {
-                    GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, zeroReg, varNum, i);
-                }
 
 #ifdef TARGET_64BIT
-                assert(i == lclSize || (i + sizeof(int) == lclSize));
-                if (i != lclSize)
-                {
-                    GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, zeroReg, varNum, i);
-                    i += sizeof(int);
-                }
-#endif // TARGET_64BIT
-                assert(i == lclSize);
-            }
-        }
-
-        assert(regSet.tmpAllFree());
-        for (TempDsc* tempThis = regSet.tmpListBeg(); tempThis != nullptr; tempThis = regSet.tmpListNxt(tempThis))
-        {
-            if (!varTypeIsGC(tempThis->tdTempType()))
+            assert(i == lclSize || (i + sizeof(int) == lclSize));
+            if (i != lclSize)
             {
-                continue;
+                GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, zeroReg, varNum, i);
+                i += sizeof(int);
             }
-
-            // printf("initialize untracked spillTmp [EBP-%04X]\n", stkOffs);
-
-            GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, genGetZeroReg(initReg, pInitRegZeroed),
-                                      tempThis->tdTempNum(), 0);
+#endif // TARGET_64BIT
+            assert(i == lclSize);
         }
     }
 
+    assert(regSet.tmpAllFree());
+    for (TempDsc* tempThis = regSet.tmpListBeg(); tempThis != nullptr; tempThis = regSet.tmpListNxt(tempThis))
+    {
+        if (!varTypeIsGC(tempThis->tdTempType()))
+        {
+            continue;
+        }
+
+        // printf("initialize untracked spillTmp [EBP-%04X]\n", stkOffs);
+
+        GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, genGetZeroReg(initReg, initRegZeroed),
+                                  tempThis->tdTempNum(), 0);
+    }
+}
+
+void CodeGen::PrologInitOsrLocals()
+{
     // Initialize args and locals for OSR. Note this may include promoted fields.
     if (compiler->opts.IsOSR())
     {
@@ -5371,17 +5376,23 @@ void CodeGen::genFnProlog()
         paramRegState.intRegLiveIn &= ~RBM_SECRET_STUB_PARAM;
     }
 
-    //
-    // Zero out the frame as needed
-    //
+    if (genUseBlockInit)
+    {
+        PrologBlockInitLocals(untrLclHi, untrLclLo, initReg, &initRegZeroed);
+    }
+    else if (genInitStkLclCnt > 0)
+    {
+        PrologZeroInitUntrackedLocals(initReg, &initRegZeroed);
+    }
 
-    genZeroInitFrame(untrLclHi, untrLclLo, initReg, &initRegZeroed);
+    if (compiler->opts.IsOSR())
+    {
+        PrologInitOsrLocals();
+    }
 
 #if defined(FEATURE_EH_FUNCLETS)
-
     genSetPSPSym(initReg, &initRegZeroed);
-
-#else // !FEATURE_EH_FUNCLETS
+#else
 
     // when compInitMem is true the genZeroInitFrame will zero out the shadow SP slots
     if (compiler->ehNeedsShadowSPslots() && !compiler->info.compInitMem)

@@ -436,7 +436,9 @@ protected:
 
     regNumber genGetZeroReg(regNumber initReg, bool* pInitRegZeroed);
 
-    void genZeroInitFrame(int untrLclHi, int untrLclLo, regNumber initReg, bool* pInitRegZeroed);
+    void PrologBlockInitLocals(int untrackedHi, int untrackedLo, regNumber initReg, bool* initRegZeroed);
+    void PrologZeroInitUntrackedLocals(regNumber initReg, bool* initRegZeroed);
+    void PrologInitOsrLocals();
 
     void genReportGenericContextArg(regNumber initReg, bool* pInitRegZeroed);
 
