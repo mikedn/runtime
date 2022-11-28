@@ -1920,6 +1920,43 @@ int CodeGenInterface::genCallerSPtoInitialSPdelta() const
     return callerSPtoSPdelta;
 }
 
+void CodeGen::genPushFltRegs(regMaskTP regMask)
+{
+    assert(regMask != 0);                        // Don't call uness we have some registers to push
+    assert((regMask & RBM_ALLFLOAT) == regMask); // Only floasting point registers should be in regMask
+
+    regNumber lowReg = genRegNumFromMask(genFindLowestBit(regMask));
+    int       slots  = genCountBits(regMask);
+    // regMask should be contiguously set
+    regMaskTP tmpMask = ((regMask >> lowReg) + 1); // tmpMask should have a single bit set
+    assert((tmpMask & (tmpMask - 1)) == 0);
+    assert(lowReg == REG_F16); // Currently we expect to start at F16 in the unwind codes
+
+    // Our calling convention requires that we only use vpush for TYP_DOUBLE registers
+    noway_assert(floatRegCanHoldType(lowReg, TYP_DOUBLE));
+    noway_assert((slots % 2) == 0);
+
+    GetEmitter()->emitIns_R_I(INS_vpush, EA_8BYTE, lowReg, slots / 2);
+}
+
+void CodeGen::genPopFltRegs(regMaskTP regMask)
+{
+    assert(regMask != 0);                        // Don't call uness we have some registers to pop
+    assert((regMask & RBM_ALLFLOAT) == regMask); // Only floasting point registers should be in regMask
+
+    regNumber lowReg = genRegNumFromMask(genFindLowestBit(regMask));
+    int       slots  = genCountBits(regMask);
+    // regMask should be contiguously set
+    regMaskTP tmpMask = ((regMask >> lowReg) + 1); // tmpMask should have a single bit set
+    assert((tmpMask & (tmpMask - 1)) == 0);
+
+    // Our calling convention requires that we only use vpop for TYP_DOUBLE registers
+    noway_assert(floatRegCanHoldType(lowReg, TYP_DOUBLE));
+    noway_assert((slots % 2) == 0);
+
+    GetEmitter()->emitIns_R_I(INS_vpop, EA_8BYTE, lowReg, slots / 2);
+}
+
 void CodeGen::PrologZeroFloatRegs(regMaskTP floatRegs, regMaskTP doubleRegs, regNumber initReg)
 {
     regNumber fltInitReg = REG_NA;
@@ -1967,6 +2004,155 @@ void CodeGen::PrologZeroFloatRegs(regMaskTP floatRegs, regMaskTP doubleRegs, reg
             GetEmitter()->emitIns_Mov(INS_vmov, EA_8BYTE, reg, dblInitReg, /* canSkip */ false);
         }
     }
+}
+
+//------------------------------------------------------------------------
+// genFreeLclFrame: free the local stack frame by adding `frameSize` to SP.
+//
+// Arguments:
+//   frameSize - the frame size to free;
+//   pUnwindStarted - was epilog unwind started or not.
+//
+// Notes:
+//   If epilog unwind hasn't been started, and we generate code, we start unwind
+//    and set* pUnwindStarted = true.
+//
+void CodeGen::genFreeLclFrame(unsigned frameSize, /* IN OUT */ bool* pUnwindStarted)
+{
+    assert(generatingEpilog);
+
+    if (frameSize == 0)
+        return;
+
+    // Add 'frameSize' to SP.
+    //
+    // Unfortunately, we can't just use:
+    //
+    //      inst_RV_IV(INS_add, REG_SPBASE, frameSize, EA_PTRSIZE);
+    //
+    // because we need to generate proper unwind codes for each instruction generated,
+    // and large frame sizes might generate a temp register load which might
+    // need an unwind code. We don't want to generate a "NOP" code for this
+    // temp register load; we want the unwind codes to start after that.
+
+    if (emitter::validImmForInstr(INS_add, frameSize))
+    {
+        if (!*pUnwindStarted)
+        {
+            compiler->unwindBegEpilog();
+            *pUnwindStarted = true;
+        }
+
+        GetEmitter()->emitIns_R_I(INS_add, EA_PTRSIZE, REG_SPBASE, frameSize);
+    }
+    else
+    {
+        // R12 doesn't hold arguments or return values, so can be used as temp.
+        regNumber tmpReg = REG_R12;
+        instGen_Set_Reg_To_Imm(EA_PTRSIZE, tmpReg, frameSize);
+        if (*pUnwindStarted)
+        {
+            compiler->unwindPadding();
+        }
+
+        // We're going to generate an unwindable instruction, so check again if
+        // we need to start the unwind codes.
+
+        if (!*pUnwindStarted)
+        {
+            compiler->unwindBegEpilog();
+            *pUnwindStarted = true;
+        }
+
+        GetEmitter()->emitIns_R_R(INS_add, EA_PTRSIZE, REG_SPBASE, tmpReg);
+    }
+
+    compiler->unwindAllocStack(frameSize);
+}
+
+/*-----------------------------------------------------------------------------
+ *
+ *  Returns register mask to push/pop to allocate a small stack frame,
+ *  instead of using "sub sp" / "add sp". Returns RBM_NONE if either frame size
+ *  is zero, or if we should use "sub sp" / "add sp" instead of push/pop.
+ */
+regMaskTP CodeGen::genStackAllocRegisterMask(unsigned frameSize, regMaskTP maskCalleeSavedFloat)
+{
+    assert(generatingProlog || generatingEpilog);
+
+    // We can't do this optimization with callee saved floating point registers because
+    // the stack would be allocated in a wrong spot.
+    if (maskCalleeSavedFloat != RBM_NONE)
+        return RBM_NONE;
+
+    // Allocate space for small frames by pushing extra registers. It generates smaller and faster code
+    // that extra sub sp,XXX/add sp,XXX.
+    // R0 and R1 may be used by return value. Keep things simple and just skip the optimization
+    // for the 3*REGSIZE_BYTES and 4*REGSIZE_BYTES cases. They are less common and they have more
+    // significant negative side-effects (more memory bus traffic).
+    switch (frameSize)
+    {
+        case REGSIZE_BYTES:
+            return RBM_R3;
+        case 2 * REGSIZE_BYTES:
+            return RBM_R2 | RBM_R3;
+        default:
+            return RBM_NONE;
+    }
+}
+
+bool CodeGen::genCanUsePopToReturn(regMaskTP maskPopRegsInt, bool jmpEpilog)
+{
+    assert(generatingEpilog);
+
+    return !jmpEpilog && (GetPreSpillRegs() == RBM_NONE);
+}
+
+void CodeGen::genPopCalleeSavedRegisters(bool jmpEpilog)
+{
+    assert(generatingEpilog);
+
+    regMaskTP maskPopRegs      = regSet.rsGetModifiedRegsMask() & RBM_CALLEE_SAVED;
+    regMaskTP maskPopRegsFloat = maskPopRegs & RBM_ALLFLOAT;
+    regMaskTP maskPopRegsInt   = maskPopRegs & ~maskPopRegsFloat;
+
+    // First, pop float registers
+
+    if (maskPopRegsFloat != RBM_NONE)
+    {
+        genPopFltRegs(maskPopRegsFloat);
+        compiler->unwindPopMaskFloat(maskPopRegsFloat);
+    }
+
+    // Next, pop integer registers
+
+    if (!jmpEpilog)
+    {
+        regMaskTP maskStackAlloc = genStackAllocRegisterMask(lclFrameSize, maskPopRegsFloat);
+        maskPopRegsInt |= maskStackAlloc;
+    }
+
+    if (isFramePointerUsed())
+    {
+        maskPopRegsInt |= RBM_FPBASE;
+    }
+
+    if (genCanUsePopToReturn(maskPopRegsInt, jmpEpilog))
+    {
+        maskPopRegsInt |= RBM_PC;
+        // Record the fact that we use a pop to the PC to perform the return
+        genUsedPopToReturn = true;
+    }
+    else
+    {
+        maskPopRegsInt |= RBM_LR;
+        // Record the fact that we did not use a pop to the PC to perform the return
+        genUsedPopToReturn = false;
+    }
+
+    assert(FitsIn<int>(maskPopRegsInt));
+    inst_IV(INS_pop, (int)maskPopRegsInt);
+    compiler->unwindPopMaskInt(maskPopRegsInt);
 }
 
 #endif // TARGET_ARM
