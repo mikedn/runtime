@@ -3527,14 +3527,10 @@ void CodeGen::MarkGCTrackedSlots(int&       untrLclLo,
      *                generate have this property.
      */
 
-    untrLclLo = +INT_MAX;
-    untrLclHi = -INT_MAX;
-    // 'hasUntrLcl' is true if there are any stack locals which must be init'ed.
-    // Note that they may be tracked, but simply not allocated to a register.
-    bool hasUntrLcl = false;
-
-    GCrefLo = INT_MAX;
-    GCrefHi = INT_MIN;
+    untrLclLo = INT_MAX;
+    untrLclHi = INT_MIN;
+    GCrefLo   = INT_MAX;
+    GCrefHi   = INT_MIN;
 
     initRegs    = RBM_NONE; // Registers which must be init'ed.
     initFltRegs = RBM_NONE; // FP registers which must be init'ed.
@@ -3636,9 +3632,6 @@ void CodeGen::MarkGCTrackedSlots(int&       untrLclLo,
         if (isInMemory)
         {
         INIT_STK:
-
-            hasUntrLcl = true;
-
             if (loOffs < untrLclLo)
             {
                 untrLclLo = loOffs;
@@ -3663,8 +3656,7 @@ void CodeGen::MarkGCTrackedSlots(int&       untrLclLo,
             continue;
         }
 
-        signed int loOffs = tempThis->tdTempOffs();
-        signed int hiOffs = loOffs + TARGET_POINTER_SIZE;
+        int loOffs = tempThis->tdTempOffs();
 
         // If there is a frame pointer used, due to frame pointer chaining it will point to the stored value of the
         // previous frame pointer. Thus, stkOffs can't be zero.
@@ -3676,22 +3668,19 @@ void CodeGen::MarkGCTrackedSlots(int&       untrLclLo,
         noway_assert(!isFramePointerUsed() || loOffs != 0);
 #endif // !defined(TARGET_AMD64)
 
-        // printf("    Untracked tmp at [EBP-%04X]\n", -stkOffs);
-
-        hasUntrLcl = true;
-
         if (loOffs < untrLclLo)
         {
             untrLclLo = loOffs;
         }
-        if (hiOffs > untrLclHi)
+
+        if (loOffs + REGSIZE_BYTES > untrLclHi)
         {
-            untrLclHi = hiOffs;
+            untrLclHi = loOffs + REGSIZE_BYTES;
         }
     }
 
     // TODO-Cleanup: Add suitable assert for the OSR case.
-    assert(compiler->opts.IsOSR() || ((genInitStkLclCnt > 0) == hasUntrLcl));
+    assert(compiler->opts.IsOSR() || ((genInitStkLclCnt > 0) == (untrLclHi != INT_MIN)));
 
     if (genInitStkLclCnt > 0)
     {
