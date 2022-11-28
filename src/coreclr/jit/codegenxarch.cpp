@@ -24,7 +24,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "patchpointinfo.h"
 
 //---------------------------------------------------------------------
-// genSetGSSecurityCookie: Set the "GS" security cookie in the prolog.
+// PrologSetGSSecurityCookie: Set the "GS" security cookie in the prolog.
 //
 // Arguments:
 //     initReg        - register to use as a scratch register
@@ -34,20 +34,9 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 // Return Value:
 //     None
 //
-void CodeGen::genSetGSSecurityCookie(regNumber initReg, bool* pInitRegZeroed)
+void CodeGen::PrologSetGSSecurityCookie(regNumber initReg, bool* pInitRegZeroed)
 {
-    assert(generatingProlog);
-
-    if (!compiler->getNeedsGSSecurityCookie())
-    {
-        return;
-    }
-
-    if (compiler->opts.IsOSR() && compiler->info.compPatchpointInfo->HasSecurityCookie())
-    {
-        // Security cookie is on original frame and was initialized there.
-        return;
-    }
+    assert(compiler->getNeedsGSSecurityCookie());
 
     if (compiler->gsGlobalSecurityCookieAddr == nullptr)
     {
@@ -1964,7 +1953,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
 }
 
 //------------------------------------------------------------------------
-// genAllocLclFrame: Probe the stack and allocate the local stack frame - subtract from SP.
+// PrologAllocLclFrame: Probe the stack and allocate the local stack frame - subtract from SP.
 //
 // Arguments:
 //      frameSize         - the size of the stack frame being allocated.
@@ -1976,7 +1965,10 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
 // Return shift:
 //      None
 //
-void CodeGen::genAllocLclFrame(unsigned frameSize, regNumber initReg, bool* pInitRegZeroed, regMaskTP maskArgRegsLiveIn)
+void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
+                                  regNumber initReg,
+                                  bool*     pInitRegZeroed,
+                                  regMaskTP maskArgRegsLiveIn)
 {
     assert(generatingProlog);
 
@@ -3427,9 +3419,9 @@ void CodeGen::GenStructStoreUnrollRegsWB(GenTreeObj* store)
 // and there is no way to know if the caller is native or not. So, the upper
 // 32 bits of Vector argument on stack are always cleared to zero.
 #if defined(UNIX_AMD64_ABI) && defined(FEATURE_SIMD)
-void CodeGen::genClearStackVec3ArgUpperBits()
+void CodeGen::PrologClearVector3StackParamUpperBits()
 {
-    JITDUMP("*************** In genClearStackVec3ArgUpperBits()\n");
+    JITDUMP("*************** In PrologClearVector3StackParamUpperBits()\n");
 
     assert(generatingProlog);
 
@@ -6847,7 +6839,7 @@ void CodeGen::genRemoveAlignmentAfterCall(GenTreeCall* call, unsigned bias)
 //
 void CodeGen::genPreAdjustStackForPutArgStk(unsigned argSize)
 {
-    // If argSize is large, we need to probe the stack like we do in the prolog (genAllocLclFrame)
+    // If argSize is large, we need to probe the stack like we do in the prolog (PrologAllocLclFrame)
     // or for localloc (genLclHeap), to ensure we touch the stack pages sequentially, and don't miss
     // the stack guard pages. The prolog probes, but we don't know at this point how much higher
     // the last probed stack pointer shift is. We default a threshold. Any size below this threshold
@@ -8231,7 +8223,7 @@ void CodeGen::genAmd64EmitterUnitTests()
 #ifdef TARGET_X86
 
 //-----------------------------------------------------------------------------------
-// genProfilingEnterCallback: Generate the profiling function enter callback.
+// PrologProfilingEnterCallback: Generate the profiling function enter callback.
 //
 // Arguments:
 //     initReg        - register to use as scratch register
@@ -8254,7 +8246,7 @@ void CodeGen::genAmd64EmitterUnitTests()
 // 4. All registers are preserved.
 // 5. The helper pops the FunctionIDOrClientID argument from the stack.
 //
-void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
+void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
 {
     assert(generatingProlog);
 
@@ -8374,7 +8366,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 #ifdef TARGET_AMD64
 
 //-----------------------------------------------------------------------------------
-// genProfilingEnterCallback: Generate the profiling function enter callback.
+// PrologProfilingEnterCallback: Generate the profiling function enter callback.
 //
 // Arguments:
 //     initReg        - register to use as scratch register
@@ -8384,7 +8376,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 // Return Value:
 //     None
 //
-void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
+void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
 {
     assert(generatingProlog);
 
@@ -8887,9 +8879,9 @@ void CodeGen::genSIMDUpperUnspill(GenTreeUnOp* node)
 #endif // FEATURE_SIMD
 
 //------------------------------------------------------------------------
-// genPushCalleeSavedRegisters: Push any callee-saved registers we have used.
+// PrologPushCalleeSavedRegisters: Push any callee-saved registers we have used.
 //
-void CodeGen::genPushCalleeSavedRegisters()
+void CodeGen::PrologPushCalleeSavedRegisters()
 {
     assert(generatingProlog);
 
@@ -8973,7 +8965,7 @@ void CodeGen::genPopCalleeSavedRegisters(bool jmpEpilog)
 //   lclFrameSize - Fixed frame size excluding callee pushed int regs.
 //             non-funclet: this will be compLclFrameSize.
 //             funclet frames: this will be FuncletInfo.fiSpDelta.
-void CodeGen::genPreserveCalleeSavedFltRegs(unsigned lclFrameSize)
+void CodeGen::PrologPreserveCalleeSavedFloatRegs(unsigned lclFrameSize)
 {
     genVzeroupperIfNeeded(false);
 
@@ -9074,7 +9066,7 @@ void CodeGen::genRestoreCalleeSavedFltRegs(unsigned lclFrameSize)
 }
 
 // Generate Vzeroupper instruction as needed to zero out upper 128b-bit of all YMM registers so that the
-// AVX/Legacy SSE transition penalties can be avoided. This function is been used in genPreserveCalleeSavedFltRegs
+// AVX/Legacy SSE transition penalties can be avoided. This function is been used in PrologPreserveCalleeSavedFloatRegs
 // (prolog) and genRestoreCalleeSavedFltRegs (epilog). Issue VZEROUPPER in Prolog if the method contains
 // 128-bit or 256-bit AVX code, to avoid legacy SSE to AVX transition penalty, which could happen when native
 // code contains legacy SSE code calling into JIT AVX code (e.g. reverse pinvoke). Issue VZEROUPPER in Epilog

@@ -239,7 +239,7 @@ protected:
     // Prolog functions and data (there are a few exceptions for more generally used things)
     //
 
-    void genEstablishFramePointer(int delta, bool reportUnwindData);
+    void PrologEstablishFramePointer(int delta, bool reportUnwindData);
 
     struct ParamRegInfo
     {
@@ -282,7 +282,7 @@ protected:
                             regMaskTP& initRegs,
                             regMaskTP& initFltRegs ARM_ARG(regMaskTP& initDblRegs));
 #if defined(UNIX_AMD64_ABI) && defined(FEATURE_SIMD)
-    void genClearStackVec3ArgUpperBits();
+    void PrologClearVector3StackParamUpperBits();
 #endif // UNIX_AMD64_ABI && FEATURE_SIMD
 
 #if defined(TARGET_ARM64)
@@ -344,12 +344,12 @@ protected:
     void genSaveCalleeSavedRegistersHelp(regMaskTP regsToSaveMask, int lowestCalleeSavedOffset, int spDelta);
     void genRestoreCalleeSavedRegistersHelp(regMaskTP regsToRestoreMask, int lowestCalleeSavedOffset, int spDelta);
 
-    void genPushCalleeSavedRegisters(regNumber initReg, bool* pInitRegZeroed);
+    void PrologPushCalleeSavedRegisters(regNumber initReg, bool* pInitRegZeroed);
 #else
-    void genPushCalleeSavedRegisters();
+    void PrologPushCalleeSavedRegisters();
 #endif
 
-    void genAllocLclFrame(unsigned frameSize, regNumber initReg, bool* pInitRegZeroed, regMaskTP maskArgRegsLiveIn);
+    void PrologAllocLclFrame(unsigned frameSize, regNumber initReg, bool* pInitRegZeroed, regMaskTP maskArgRegsLiveIn);
 
     void genPoisonFrame(regMaskTP bbRegLiveIn);
 
@@ -428,7 +428,7 @@ protected:
 #if defined(TARGET_XARCH)
 
     // Save/Restore callee saved float regs to stack
-    void genPreserveCalleeSavedFltRegs(unsigned lclFrameSize);
+    void PrologPreserveCalleeSavedFloatRegs(unsigned lclFrameSize);
     void genRestoreCalleeSavedFltRegs(unsigned lclFrameSize);
     // Generate VZeroupper instruction to avoid AVX/SSE transition penalty
     void genVzeroupperIfNeeded(bool check256bitOnly = true);
@@ -441,14 +441,14 @@ protected:
     void PrologInitOsrLocals();
     void PrologZeroRegs(regMaskTP intRegs, regNumber initReg, regMaskTP floatRegs ARM_ARG(regMaskTP doubleRegs));
 
-    void genReportGenericContextArg(regNumber initReg, bool* pInitRegZeroed);
+    void PrologReportGenericContextArg(regNumber initReg, bool* pInitRegZeroed);
 
-    void genSetGSSecurityCookie(regNumber initReg, bool* pInitRegZeroed);
+    void PrologSetGSSecurityCookie(regNumber initReg, bool* pInitRegZeroed);
 
     void genFinalizeFrame();
 
 #ifdef PROFILING_SUPPORTED
-    void genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed);
+    void PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed);
     void genProfilingLeaveCallback(CorInfoHelpFunc helper);
 #endif // PROFILING_SUPPORTED
 
@@ -486,7 +486,7 @@ protected:
     void genFuncletEpilog();
     void genCaptureFuncletPrologEpilogInfo();
 
-    void genSetPSPSym(regNumber initReg, bool* pInitRegZeroed);
+    void PrologSetPSPSym(regNumber initReg, bool* pInitRegZeroed);
 
     void genUpdateCurrentFunclet(BasicBlock* block);
 #ifdef TARGET_ARM

@@ -1708,7 +1708,7 @@ private:
     CORINFO_FIELD_HANDLE emitFltOrDblConst(double constValue, emitAttr attr);
     insFormat emitMapFmtForIns(insFormat fmt, instruction ins);
     insFormat emitMapFmtAtoM(insFormat fmt);
-    void spillIntArgRegsToShadowSlots();
+    void PrologSpillParamRegsToShadowSlots();
 
 /************************************************************************/
 /*      The logic that creates and keeps track of instruction groups    */

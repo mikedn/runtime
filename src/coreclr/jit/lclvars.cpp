@@ -3877,7 +3877,7 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
     // Decide where to save FP and LR registers. We store FP/LR registers at the bottom of the frame if there is
     // a frame pointer used (so we get positive offsets from the frame pointer to access locals), but not if we
     // need a GS cookie AND localloc is used, since we need the GS cookie to protect the saved return value,
-    // and also the saved frame pointer. See CodeGen::genPushCalleeSavedRegisters() for more details about the
+    // and also the saved frame pointer. See CodeGen::PrologPushCalleeSavedRegisters() for more details about the
     // frame types. Since saving FP/LR at high addresses is a relatively rare case, force using it during stress.
     // (It should be legal to use these frame types for every frame).
     switch (opts.compJitSaveFpLrWithCalleeSavedRegisters)
@@ -5054,7 +5054,7 @@ unsigned Compiler::lvaEstimateFrameSize()
         codeGen->calleeRegsPushed += CNT_CALLEE_SAVED_FLOAT;
     }
 
-    codeGen->calleeRegsPushed++; // We always push LR, see genPushCalleeSavedRegisters.
+    codeGen->calleeRegsPushed++; // We always push LR, see PrologPushCalleeSavedRegisters.
 
     lvaAssignFrameOffsets(REGALLOC_FRAME_LAYOUT);
     DBEXEC(verbose, lvaTableDump());
@@ -5068,7 +5068,7 @@ unsigned Compiler::lvaEstimateFrameSize()
         frameSize += CALLEE_SAVED_FLOAT_MAXSZ;
     }
 
-    frameSize += REGSIZE_BYTES; // We always push LR, see genPushCalleeSavedRegisters.
+    frameSize += REGSIZE_BYTES; // We always push LR, see PrologPushCalleeSavedRegisters.
 
     return frameSize;
 }

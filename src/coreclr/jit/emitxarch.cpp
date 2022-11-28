@@ -3127,7 +3127,7 @@ void emitter::SetInstrAddrMode(instrDesc* id, insFormat fmt, instruction ins, Ge
 
 // Takes care of storing all incoming register parameters
 // into its corresponding shadow space (defined by the x64 ABI)
-void emitter::spillIntArgRegsToShadowSlots()
+void emitter::PrologSpillParamRegsToShadowSlots()
 {
     assert(codeGen->generatingProlog);
 

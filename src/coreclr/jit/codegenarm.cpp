@@ -1328,7 +1328,7 @@ void CodeGen::genFloatReturn(GenTree* src)
 #ifdef PROFILING_SUPPORTED
 
 //-----------------------------------------------------------------------------------
-// genProfilingEnterCallback: Generate the profiling function enter callback.
+// PrologProfilingEnterCallback: Generate the profiling function enter callback.
 //
 // Arguments:
 //     initReg        - register to use as scratch register
@@ -1338,7 +1338,7 @@ void CodeGen::genFloatReturn(GenTree* src)
 // Return Value:
 //     None
 //
-void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
+void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
 {
     assert(generatingProlog);
 
@@ -1468,13 +1468,13 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 #endif // PROFILING_SUPPORTED
 
 //------------------------------------------------------------------------
-// genAllocLclFrame: Probe the stack and allocate the local stack frame - subtract from SP.
+// PrologAllocLclFrame: Probe the stack and allocate the local stack frame - subtract from SP.
 //
 // Notes:
 //      The first instruction of the prolog is always a push (which touches the lowest address
 //      of the stack), either of the LR register or of some argument registers, e.g., in the case of
 //      pre-spilling. The LR register is always pushed because we require it to allow for GC return
-//      address hijacking (see the comment in CodeGen::genPushCalleeSavedRegisters()). These pushes
+//      address hijacking (see the comment in CodeGen::PrologPushCalleeSavedRegisters()). These pushes
 //      happen immediately before calling this function, so the SP at the current location has already
 //      been touched.
 //
@@ -1488,7 +1488,10 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 // Return value:
 //      None
 //
-void CodeGen::genAllocLclFrame(unsigned frameSize, regNumber initReg, bool* pInitRegZeroed, regMaskTP maskArgRegsLiveIn)
+void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
+                                  regNumber initReg,
+                                  bool*     pInitRegZeroed,
+                                  regMaskTP maskArgRegsLiveIn)
 {
     assert(generatingProlog);
 
@@ -2245,14 +2248,16 @@ void CodeGen::genFreeLclFrame(unsigned frameSize, /* IN OUT */ bool* pUnwindStar
  *  instead of using "sub sp" / "add sp". Returns RBM_NONE if either frame size
  *  is zero, or if we should use "sub sp" / "add sp" instead of push/pop.
  */
-regMaskTP CodeGen::genStackAllocRegisterMask(unsigned frameSize, regMaskTP maskCalleeSavedFloat)
+regMaskTP CodeGen::genStackAllocRegisterMask(unsigned frameSize, regMaskTP modifiedRegs)
 {
     assert(generatingProlog || generatingEpilog);
 
     // We can't do this optimization with callee saved floating point registers because
     // the stack would be allocated in a wrong spot.
-    if (maskCalleeSavedFloat != RBM_NONE)
+    if ((modifiedRegs & RBM_FLT_CALLEE_SAVED) != RBM_NONE)
+    {
         return RBM_NONE;
+    }
 
     // Allocate space for small frames by pushing extra registers. It generates smaller and faster code
     // that extra sub sp,XXX/add sp,XXX.

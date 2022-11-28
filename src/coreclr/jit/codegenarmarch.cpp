@@ -555,7 +555,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
 }
 
 //---------------------------------------------------------------------
-// genSetGSSecurityCookie: Set the "GS" security cookie in the prolog.
+// PrologSetGSSecurityCookie: Set the "GS" security cookie in the prolog.
 //
 // Arguments:
 //     initReg        - register to use as a scratch register
@@ -565,14 +565,9 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
 // Return Value:
 //     None
 //
-void CodeGen::genSetGSSecurityCookie(regNumber initReg, bool* pInitRegZeroed)
+void CodeGen::PrologSetGSSecurityCookie(regNumber initReg, bool* pInitRegZeroed)
 {
-    assert(generatingProlog);
-
-    if (!compiler->getNeedsGSSecurityCookie())
-    {
-        return;
-    }
+    assert(compiler->getNeedsGSSecurityCookie());
 
     if (compiler->gsGlobalSecurityCookieAddr == nullptr)
     {
@@ -3551,7 +3546,7 @@ void CodeGen::genLeaInstruction(GenTreeAddrMode* lea)
 }
 
 //------------------------------------------------------------------------
-// genPushCalleeSavedRegisters: Push any callee-saved registers we have used.
+// PrologPushCalleeSavedRegisters: Push any callee-saved registers we have used.
 //
 // Arguments (arm64):
 //    initReg        - A scratch register (that gets set to zero on some platforms).
@@ -3559,23 +3554,23 @@ void CodeGen::genLeaInstruction(GenTreeAddrMode* lea)
 //                     'false' if initReg was set to a non-zero value, and left unchanged if initReg was not touched.
 //
 #if defined(TARGET_ARM64)
-void CodeGen::genPushCalleeSavedRegisters(regNumber initReg, bool* pInitRegZeroed)
+void CodeGen::PrologPushCalleeSavedRegisters(regNumber initReg, bool* pInitRegZeroed)
 #else
-void CodeGen::genPushCalleeSavedRegisters()
+void CodeGen::PrologPushCalleeSavedRegisters()
 #endif
 {
     assert(generatingProlog);
 
 #ifdef TARGET_ARM64
-    // Probe large frames now, if necessary, since genPushCalleeSavedRegisters() will allocate the frame. Note that
-    // for arm64, genAllocLclFrame only probes the frame; it does not actually allocate it (it does not change SP).
+    // Probe large frames now, if necessary, since PrologPushCalleeSavedRegisters() will allocate the frame. Note that
+    // for arm64, PrologAllocLclFrame only probes the frame; it does not actually allocate it (it does not change SP).
     // For arm64, we are probing the frame before the callee-saved registers are saved. The 'initReg' might have
     // been calculated to be one of the callee-saved registers (say, if all the integer argument registers are
     // in use, and perhaps with other conditions being satisfied). This is ok in other cases, after the callee-saved
-    // registers have been saved. So instead of letting genAllocLclFrame use initReg as a temporary register,
+    // registers have been saved. So instead of letting PrologAllocLclFrame use initReg as a temporary register,
     // always use REG_SCRATCH. We don't care if it trashes it, so ignore the initRegZeroed output argument.
     bool ignoreInitRegZeroed = false;
-    genAllocLclFrame(lclFrameSize, REG_SCRATCH, &ignoreInitRegZeroed, paramRegState.intRegLiveIn);
+    PrologAllocLclFrame(lclFrameSize, REG_SCRATCH, &ignoreInitRegZeroed, paramRegState.intRegLiveIn);
 #endif
 
     regMaskTP rsPushRegs = regSet.rsGetModifiedRegsMask() & RBM_CALLEE_SAVED;
@@ -4054,7 +4049,7 @@ void CodeGen::genPushCalleeSavedRegisters()
             assert((spAdjustment3 % 16) == 0);
 
             JITDUMP("    alignmentAdjustment2=%d\n", alignmentAdjustment2);
-            genEstablishFramePointer(alignmentAdjustment2, /* reportUnwindData */ true);
+            PrologEstablishFramePointer(alignmentAdjustment2, /* reportUnwindData */ true);
 
             // We just established the frame pointer chain; don't do it again.
             establishFramePointer = false;
@@ -4088,7 +4083,7 @@ void CodeGen::genPushCalleeSavedRegisters()
         offsetSpToSavedFp = calleeSaveSPDelta - (compiler->info.compIsVarArgs ? MAX_REG_ARG * REGSIZE_BYTES : 0) -
                             2 * REGSIZE_BYTES; // -2 for FP, LR
         JITDUMP("    offsetSpToSavedFp=%d\n", offsetSpToSavedFp);
-        genEstablishFramePointer(offsetSpToSavedFp, /* reportUnwindData */ true);
+        PrologEstablishFramePointer(offsetSpToSavedFp, /* reportUnwindData */ true);
 
         // We just established the frame pointer chain; don't do it again.
         establishFramePointer = false;
@@ -4113,7 +4108,7 @@ void CodeGen::genPushCalleeSavedRegisters()
     if (establishFramePointer)
     {
         JITDUMP("    offsetSpToSavedFp=%d\n", offsetSpToSavedFp);
-        genEstablishFramePointer(offsetSpToSavedFp, /* reportUnwindData */ true);
+        PrologEstablishFramePointer(offsetSpToSavedFp, /* reportUnwindData */ true);
     }
 
     assert(offset == totalFrameSize);

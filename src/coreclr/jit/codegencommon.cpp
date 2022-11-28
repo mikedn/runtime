@@ -3988,15 +3988,10 @@ void CodeGen::PrologInitOsrLocals()
  *  ICodeManager::GetParamTypeArg().
  */
 
-void CodeGen::genReportGenericContextArg(regNumber initReg, bool* pInitRegZeroed)
+void CodeGen::PrologReportGenericContextArg(regNumber initReg, bool* pInitRegZeroed)
 {
     // For OSR the original method has set this up for us.
-    if (compiler->opts.IsOSR())
-    {
-        return;
-    }
-
-    assert(generatingProlog);
+    assert(!compiler->opts.IsOSR());
 
     bool reportArg = compiler->lvaReportParamTypeArg();
 
@@ -4461,13 +4456,13 @@ void CodeGen::genFinalizeFrame()
 }
 
 //------------------------------------------------------------------------
-// genEstablishFramePointer: Set up the frame pointer by adding an offset to the stack pointer.
+// PrologEstablishFramePointer: Set up the frame pointer by adding an offset to the stack pointer.
 //
 // Arguments:
 //    delta - the offset to add to the current stack pointer to establish the frame pointer
 //    reportUnwindData - true if establishing the frame pointer should be reported in the OS unwind data.
 
-void CodeGen::genEstablishFramePointer(int delta, bool reportUnwindData)
+void CodeGen::PrologEstablishFramePointer(int delta, bool reportUnwindData)
 {
     assert(generatingProlog);
 
@@ -4594,52 +4589,33 @@ regNumber CodeGen::PrologFindInitReg(regMaskTP initRegs)
     return initReg;
 }
 
-/*****************************************************************************
- *
- *  Generates code for a function prolog.
- *
- *  NOTE REGARDING CHANGES THAT IMPACT THE DEBUGGER:
- *
- *  The debugger relies on decoding ARM instructions to be able to successfully step through code. It does not
- *  implement decoding all ARM instructions. It only implements decoding the instructions which the JIT emits, and
- *  only instructions which result in control not going to the next instruction. Basically, any time execution would
- *  not continue at the next instruction (such as B, BL, BX, BLX, POP{pc}, etc.), the debugger has to be able to
- *  decode that instruction. If any of this is changed on ARM, the debugger team needs to be notified so that it
- *  can ensure stepping isn't broken. This is also a requirement for x86 and amd64.
- *
- *  If any changes are made in the prolog, epilog, calls, returns, and branches, it is a good idea to notify the
- *  debugger team to ensure that stepping still works.
- *
- *  ARM stepping code is here: debug\ee\arm\armwalker.cpp, vm\arm\armsinglestepper.cpp.
- */
-
-#ifdef _PREFAST_
-#pragma warning(push)
-#pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
-#endif
+// Generates code for a function prolog.
+//
+// NOTE REGARDING CHANGES THAT IMPACT THE DEBUGGER:
+//
+// The debugger relies on decoding ARM instructions to be able to successfully step through code. It does not
+// implement decoding all ARM instructions. It only implements decoding the instructions which the JIT emits, and
+// only instructions which result in control not going to the next instruction. Basically, any time execution would
+// not continue at the next instruction (such as B, BL, BX, BLX, POP{pc}, etc.), the debugger has to be able to
+// decode that instruction. If any of this is changed on ARM, the debugger team needs to be notified so that it
+// can ensure stepping isn't broken. This is also a requirement for x86 and amd64.
+//
+// If any changes are made in the prolog, epilog, calls, returns, and branches, it is a good idea to notify the
+// debugger team to ensure that stepping still works.
+//
+// ARM stepping code is here: debug\ee\arm\armwalker.cpp, vm\arm\armsinglestepper.cpp.
+//
 void CodeGen::genFnProlog()
 {
+    JITDUMP("*************** In genFnProlog()\n");
+
     ScopedSetVariable<bool> _setGeneratingProlog(&generatingProlog, true);
-
     compiler->funSetCurrentFunc(0);
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In genFnProlog()\n");
-    }
-#endif
-
-    assert(compiler->lvaDoneFrameLayout == Compiler::FINAL_FRAME_LAYOUT);
-
-    /* Ready to start on the prolog proper */
-
     GetEmitter()->emitBegProlog();
     compiler->unwindBegProlog();
 
-    // Do this so we can put the prolog instruction group ahead of
-    // other instruction groups
-    genIPmappingAddToFront((IL_OFFSETX)ICorDebugInfo::PROLOG);
+    // Do this so we can put the prolog instruction group ahead of other instruction groups.
+    genIPmappingAddToFront(static_cast<IL_OFFSETX>(ICorDebugInfo::PROLOG));
 
 #ifdef DEBUG
     if (compiler->opts.dspCode)
@@ -4654,7 +4630,7 @@ void CodeGen::genFnProlog()
         psiBegProlog();
     }
 
-#if defined(TARGET_XARCH)
+#ifdef TARGET_XARCH
     // For OSR there is a "phantom prolog" to account for the actions taken
     // in the original frame that impact RBP and RSP on entry to the OSR method.
     if (compiler->opts.IsOSR())
@@ -4668,33 +4644,24 @@ void CodeGen::genFnProlog()
 #endif
 
 #ifdef DEBUG
-
     if (compiler->compJitHaltMethod())
     {
-        /* put a nop first because the debugger and other tools are likely to
-           put an int3 at the beginning and we don't want to confuse them */
-
+        // Put a nop first because the debugger and other tools are likely to
+        // put an int3 at the beginning and we don't want to confuse them.
         instGen(INS_nop);
         instGen(INS_BREAKPOINT);
 
 #ifdef TARGET_ARMARCH
         // Avoid asserts in the unwind info because these instructions aren't accounted for.
         compiler->unwindPadding();
-#endif // TARGET_ARMARCH
+#endif
     }
+
+#ifdef FEATURE_EH_FUNCLETS
+    // We cannot force 0-initialization of the PSPSym as it will overwrite the real value.
+    assert((compiler->lvaPSPSym == BAD_VAR_NUM) || !compiler->lvaGetDesc(compiler->lvaPSPSym)->lvMustInit);
+#endif
 #endif // DEBUG
-
-#if defined(FEATURE_EH_FUNCLETS) && defined(DEBUG)
-
-    // We cannot force 0-initialization of the PSPSym
-    // as it will overwrite the real value
-    if (compiler->lvaPSPSym != BAD_VAR_NUM)
-    {
-        LclVarDsc* varDsc = &compiler->lvaTable[compiler->lvaPSPSym];
-        assert(!varDsc->lvMustInit);
-    }
-
-#endif // FEATURE_EH_FUNCLETS && DEBUG
 
     int       untrLclLo;
     int       untrLclHi;
@@ -4715,63 +4682,47 @@ void CodeGen::genFnProlog()
     // These registers will be available to use for the initReg.  We just remove
     // all of these registers from the rsCalleeRegArgMaskLiveIn.
     paramRegState.intRegLiveIn &= ~preSpillParamRegs;
-#endif
-
-    regNumber initReg = PrologFindInitReg(initRegs);
-
-#ifdef TARGET_AMD64
-    // If we are a varargs call, in order to set up the arguments correctly this
-    // must be done in a 2 step process. As per the x64 ABI:
-    // a) The caller sets up the argument shadow space (just before the return
-    //    address, 4 pointer sized slots).
-    // b) The callee is responsible to home the arguments on the shadow space
-    //    provided by the caller.
-    // This way, the varargs iterator will be able to retrieve the
-    // call arguments properly since both the arg regs and the stack allocated
-    // args will be contiguous.
-    //
-    // OSR methods can skip this, as the setup is done by the orignal method.
-    if (compiler->info.compIsVarArgs && !compiler->opts.IsOSR())
-    {
-        GetEmitter()->spillIntArgRegsToShadowSlots();
-    }
-#endif // TARGET_AMD64
-
-#ifdef TARGET_ARM
-    /*-------------------------------------------------------------------------
-     *
-     * Now start emitting the part of the prolog which sets up the frame
-     */
 
     if (regMaskTP preSpillRegs = GetPreSpillRegs())
     {
-        inst_IV(INS_push, static_cast<int>(preSpillRegs));
+        GetEmitter()->emitIns_I(INS_push, EA_4BYTE, static_cast<int>(preSpillRegs));
         compiler->unwindPushMaskInt(preSpillRegs);
     }
-#endif // TARGET_ARM
+#endif
 
 #ifdef TARGET_XARCH
+#ifdef TARGET_AMD64
+    if (compiler->info.compIsVarArgs && !compiler->opts.IsOSR())
+    {
+        GetEmitter()->PrologSpillParamRegsToShadowSlots();
+    }
+#endif
+
     if (doubleAlignOrFramePointerUsed())
     {
-        inst_RV(INS_push, REG_FPBASE, TYP_REF);
+        GetEmitter()->emitIns_R(INS_push, EA_PTRSIZE, REG_FPBASE);
         compiler->unwindPush(REG_FPBASE);
+
 #ifdef USING_SCOPE_INFO
         psiAdjustStackLevel(REGSIZE_BYTES);
-#endif               // USING_SCOPE_INFO
-#ifndef TARGET_AMD64 // On AMD64, establish the frame pointer after the "sub rsp"
-        genEstablishFramePointer(0, /*reportUnwindData*/ true);
-#endif // !TARGET_AMD64
+#endif
+
+#ifndef TARGET_AMD64
+        PrologEstablishFramePointer(0, /*reportUnwindData*/ true);
+#endif
 
 #if DOUBLE_ALIGN
         if (doDoubleAlign())
         {
             noway_assert(!isFramePointerUsed());
 
-            inst_RV_IV(INS_and, REG_SPBASE, -8, EA_PTRSIZE);
+            GetEmitter()->emitIns_R_I(INS_and, EA_4BYTE, REG_ESP, -8);
         }
-#endif // DOUBLE_ALIGN
+#endif
     }
 #endif // TARGET_XARCH
+
+    regNumber initReg = PrologFindInitReg(initRegs);
 
     // Track if initReg holds non-zero value. Start conservative and assume it has non-zero value.
     // If initReg is ever set to zero, this variable is set to true and zero initializing initReg
@@ -4779,15 +4730,16 @@ void CodeGen::genFnProlog()
     bool initRegZeroed = false;
 
 #ifdef TARGET_ARM64
-    genPushCalleeSavedRegisters(initReg, &initRegZeroed);
-#else  // !TARGET_ARM64
-    genPushCalleeSavedRegisters();
-#endif // !TARGET_ARM64
+    PrologPushCalleeSavedRegisters(initReg, &initRegZeroed);
+#endif
 
 #ifdef TARGET_ARM
+    PrologPushCalleeSavedRegisters();
+
     bool needToEstablishFP        = false;
     int  afterLclFrameSPtoFPdelta = 0;
-    if (doubleAlignOrFramePointerUsed())
+
+    if (isFramePointerUsed())
     {
         needToEstablishFP = true;
 
@@ -4797,85 +4749,55 @@ void CodeGen::genFnProlog()
 
         int SPtoFPdelta          = (calleeRegsPushed - 2) * REGSIZE_BYTES;
         afterLclFrameSPtoFPdelta = SPtoFPdelta + lclFrameSize;
+
         if (!emitter::emitIns_valid_imm_for_add_sp(afterLclFrameSPtoFPdelta))
         {
-            // Oh well, it looks too big. Go ahead and establish the frame pointer here.
-            genEstablishFramePointer(SPtoFPdelta, /*reportUnwindData*/ true);
+            PrologEstablishFramePointer(SPtoFPdelta, /*reportUnwindData*/ true);
             needToEstablishFP = false;
         }
     }
-#endif // TARGET_ARM
 
-    //-------------------------------------------------------------------------
-    //
-    // Subtract the local frame size from SP.
-    //
-    //-------------------------------------------------------------------------
-    CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifndef TARGET_ARM64
-    regMaskTP maskStackAlloc = RBM_NONE;
-
-#ifdef TARGET_ARM
-    maskStackAlloc = genStackAllocRegisterMask(lclFrameSize, regSet.rsGetModifiedRegsMask() & RBM_FLT_CALLEE_SAVED);
-#endif // TARGET_ARM
-
-    if (maskStackAlloc == RBM_NONE)
+    if (genStackAllocRegisterMask(lclFrameSize, regSet.rsGetModifiedRegsMask()) == RBM_NONE)
     {
-        genAllocLclFrame(lclFrameSize, initReg, &initRegZeroed, paramRegState.intRegLiveIn);
+        PrologAllocLclFrame(lclFrameSize, initReg, &initRegZeroed, paramRegState.intRegLiveIn);
     }
-#endif // !TARGET_ARM64
 
-//-------------------------------------------------------------------------
-
-#ifdef TARGET_ARM
     if (compiler->compLocallocUsed)
     {
         GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_SAVED_LOCALLOC_SP, REG_SPBASE, /* canSkip */ false);
         regSet.verifyRegUsed(REG_SAVED_LOCALLOC_SP);
         compiler->unwindSetFrameReg(REG_SAVED_LOCALLOC_SP, 0);
     }
-#endif // TARGET_ARMARCH
 
-#if defined(TARGET_XARCH)
-    // Preserve callee saved float regs to stack.
-    genPreserveCalleeSavedFltRegs(lclFrameSize);
-#endif // defined(TARGET_XARCH)
-
-#ifdef TARGET_AMD64
-    // Establish the AMD64 frame pointer after the OS-reported prolog.
-    if (doubleAlignOrFramePointerUsed())
-    {
-        const bool reportUnwindData = compiler->compLocallocUsed || compiler->opts.compDbgEnC;
-        genEstablishFramePointer(genSPtoFPdelta(), reportUnwindData);
-    }
-#endif // TARGET_AMD64
-
-//-------------------------------------------------------------------------
-//
-// This is the end of the OS-reported prolog for purposes of unwinding
-//
-//-------------------------------------------------------------------------
-
-#ifdef TARGET_ARM
     if (needToEstablishFP)
     {
-        genEstablishFramePointer(afterLclFrameSPtoFPdelta, /*reportUnwindData*/ false);
-        needToEstablishFP = false; // nobody uses this later, but set it anyway, just to be explicit
+        PrologEstablishFramePointer(afterLclFrameSPtoFPdelta, /*reportUnwindData*/ false);
     }
-#endif // TARGET_ARM
+#endif
+
+#ifdef TARGET_XARCH
+    PrologPushCalleeSavedRegisters();
+    PrologAllocLclFrame(lclFrameSize, initReg, &initRegZeroed, paramRegState.intRegLiveIn);
+    PrologPreserveCalleeSavedFloatRegs(lclFrameSize);
+
+#ifdef TARGET_AMD64
+    if (isFramePointerUsed())
+    {
+        const bool reportUnwindData = compiler->compLocallocUsed || compiler->opts.compDbgEnC;
+        PrologEstablishFramePointer(genSPtoFPdelta(), reportUnwindData);
+    }
+#endif
+#endif // TARGET_XARCH
 
     if (compiler->info.compPublishStubParam)
     {
         assert((paramRegState.intRegLiveIn & RBM_SECRET_STUB_PARAM) != RBM_NONE);
 
-#ifndef TARGET_XARCH
-        GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, REG_SECRET_STUB_PARAM,
-                                  compiler->lvaStubArgumentVar, 0);
+#ifdef TARGET_XARCH
+        GetEmitter()->emitIns_AR_R(INS_mov, EA_PTRSIZE, REG_SECRET_STUB_PARAM, genFramePointerReg(),
+                                   compiler->lvaGetDesc(compiler->lvaStubArgumentVar)->GetStackOffset());
 #else
-        // mov [lvaStubArgumentVar], EAX
-        GetEmitter()->emitIns_AR_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, REG_SECRET_STUB_PARAM, genFramePointerReg(),
-                                   compiler->lvaTable[compiler->lvaStubArgumentVar].GetStackOffset());
+        GetEmitter()->emitIns_S_R(INS_str, EA_PTRSIZE, REG_SECRET_STUB_PARAM, compiler->lvaStubArgumentVar, 0);
 #endif
 
         // It's no longer live; clear it out so it can be used after this in the prolog
@@ -4896,11 +4818,13 @@ void CodeGen::genFnProlog()
         PrologInitOsrLocals();
     }
 
-#if defined(FEATURE_EH_FUNCLETS)
-    genSetPSPSym(initReg, &initRegZeroed);
+#ifdef FEATURE_EH_FUNCLETS
+    if (compiler->lvaPSPSym != BAD_VAR_NUM)
+    {
+        PrologSetPSPSym(initReg, &initRegZeroed);
+    }
 #else
-
-    // when compInitMem is true the genZeroInitFrame will zero out the shadow SP slots
+    // When compInitMem is true the PrologBlockInitLocals will zero out the shadow SP slots.
     if (compiler->ehNeedsShadowSPslots() && !compiler->info.compInitMem)
     {
         // The last slot is reserved for ICodeManager::FixContext(ppEndRegion)
@@ -4916,36 +4840,34 @@ void CodeGen::genFnProlog()
             initRegZeroed = true;
         }
 
-        GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, initReg, compiler->lvaShadowSPslotsVar,
-                                  firstSlotOffs);
+        GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, initReg, compiler->lvaShadowSPslotsVar, firstSlotOffs);
     }
-
 #endif // !FEATURE_EH_FUNCLETS
 
-    genReportGenericContextArg(initReg, &initRegZeroed);
-
-#ifdef JIT32_GCENCODER
-    // Initialize the LocalAllocSP slot if there is localloc in the function.
-    if (compiler->lvaLocAllocSPvar != BAD_VAR_NUM)
-    {
-        GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, REG_SPBASE, compiler->lvaLocAllocSPvar, 0);
-    }
-#endif // JIT32_GCENCODER
-
-    // Set up the GS security cookie
-
-    genSetGSSecurityCookie(initReg, &initRegZeroed);
-
-#ifdef PROFILING_SUPPORTED
-
-    // Insert a function entry callback for profiling, if requested.
-    // OSR methods aren't called, so don't have enter hooks.
     if (!compiler->opts.IsOSR())
     {
-        genProfilingEnterCallback(initReg, &initRegZeroed);
+        PrologReportGenericContextArg(initReg, &initRegZeroed);
     }
 
-#endif // PROFILING_SUPPORTED
+#ifdef JIT32_GCENCODER
+    if (compiler->lvaLocAllocSPvar != BAD_VAR_NUM)
+    {
+        GetEmitter()->emitIns_S_R(INS_mov, EA_4BYTE, REG_ESP, compiler->lvaLocAllocSPvar, 0);
+    }
+#endif
+
+    if (compiler->getNeedsGSSecurityCookie() &&
+        (!compiler->opts.IsOSR() || !compiler->info.compPatchpointInfo->HasSecurityCookie()))
+    {
+        PrologSetGSSecurityCookie(initReg, &initRegZeroed);
+    }
+
+#ifdef PROFILING_SUPPORTED
+    if (!compiler->opts.IsOSR())
+    {
+        PrologProfilingEnterCallback(initReg, &initRegZeroed);
+    }
+#endif
 
     if (!GetInterruptible())
     {
@@ -4956,15 +4878,15 @@ void CodeGen::genFnProlog()
         GetEmitter()->emitMarkPrologEnd();
     }
 
-#if defined(UNIX_AMD64_ABI) && defined(FEATURE_SIMD)
+#ifdef UNIX_AMD64_ABI
     // The unused bits of Vector3 arguments must be cleared
     // since native compiler doesn't initize the upper bits to zeros.
     //
     // TODO-Cleanup: This logic can be implemented in
     // genPrologMoveParamRegs() for argument registers and
     // genPrologEnregisterIncomingStackParams() for stack arguments.
-    genClearStackVec3ArgUpperBits();
-#endif // UNIX_AMD64_ABI && FEATURE_SIMD
+    PrologClearVector3StackParamUpperBits();
+#endif
 
     UpdateParamsWithInitialReg();
 
@@ -5015,14 +4937,11 @@ void CodeGen::genFnProlog()
         assert(lcl->lvOnFrame && lcl->lvDoNotEnregister);
         GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, REG_SPBASE, compiler->lvaReturnSpCheck, 0);
     }
-#endif // defined(DEBUG) && defined(TARGET_XARCH)
+#endif
 
     GetEmitter()->emitEndProlog();
     compiler->unwindEndProlog();
 }
-#ifdef _PREFAST_
-#pragma warning(pop)
-#endif
 
 /*****************************************************************************
  *
@@ -5624,7 +5543,7 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
 
     if (maskStackAlloc == RBM_NONE)
     {
-        genAllocLclFrame(genFuncletInfo.fiSpDelta, initReg, &initRegZeroed, maskArgRegsLiveIn);
+        PrologAllocLclFrame(genFuncletInfo.fiSpDelta, initReg, &initRegZeroed, maskArgRegsLiveIn);
     }
 
     // This is the end of the OS-reported prolog for purposes of unwinding
@@ -5908,7 +5827,7 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
     compiler->unwindPush(REG_FPBASE);
 
     // Callee saved int registers are pushed to stack.
-    genPushCalleeSavedRegisters();
+    PrologPushCalleeSavedRegisters();
 
     regMaskTP maskArgRegsLiveIn;
     if ((block->bbCatchTyp == BBCT_FINALLY) || (block->bbCatchTyp == BBCT_FAULT))
@@ -5923,11 +5842,11 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
     regNumber initReg       = REG_EBP; // We already saved EBP, so it can be trashed
     bool      initRegZeroed = false;
 
-    genAllocLclFrame(genFuncletInfo.fiSpDelta, initReg, &initRegZeroed, maskArgRegsLiveIn);
+    PrologAllocLclFrame(genFuncletInfo.fiSpDelta, initReg, &initRegZeroed, maskArgRegsLiveIn);
 
     // Callee saved float registers are copied to stack in their assigned stack slots
     // after allocating space for them as part of funclet frame.
-    genPreserveCalleeSavedFltRegs(genFuncletInfo.fiSpDelta);
+    PrologPreserveCalleeSavedFloatRegs(genFuncletInfo.fiSpDelta);
 
     // This is the end of the OS-reported prolog for purposes of unwinding
     compiler->unwindEndProlog();
@@ -6246,16 +6165,10 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
  *  correctly reported, the PSPSym could be omitted in some cases.)
  ***********************************
  */
-void CodeGen::genSetPSPSym(regNumber initReg, bool* pInitRegZeroed)
+void CodeGen::PrologSetPSPSym(regNumber initReg, bool* pInitRegZeroed)
 {
-    assert(generatingProlog);
-
-    if (compiler->lvaPSPSym == BAD_VAR_NUM)
-    {
-        return;
-    }
-
-    noway_assert(isFramePointerUsed()); // We need an explicit frame pointer
+    assert(compiler->lvaPSPSym != BAD_VAR_NUM);
+    noway_assert(isFramePointerUsed());
 
 #if defined(TARGET_ARM)
 

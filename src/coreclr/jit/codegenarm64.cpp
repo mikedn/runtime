@@ -2258,7 +2258,7 @@ void CodeGen::genLclHeap(GenTree* tree)
         // case SP is on the last byte of the guard page.  Thus you must
         // touch SP-0 first not SP-0x1000.
         //
-        // This is similar to the prolog code in CodeGen::genAllocLclFrame().
+        // This is similar to the prolog code in CodeGen::PrologAllocLclFrame().
         //
         // Note that we go through a few hoops so that SP never points to
         // illegal pages at any time during the tickling process.
@@ -3545,7 +3545,7 @@ void CodeGen::LoadSIMD12(GenTree* load)
 #ifdef PROFILING_SUPPORTED
 
 //-----------------------------------------------------------------------------------
-// genProfilingEnterCallback: Generate the profiling function enter callback.
+// PrologProfilingEnterCallback: Generate the profiling function enter callback.
 //
 // Arguments:
 //     initReg        - register to use as scratch register
@@ -3555,7 +3555,7 @@ void CodeGen::LoadSIMD12(GenTree* load)
 // Return Value:
 //     None
 //
-void CodeGen::genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
+void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
 {
     assert(generatingProlog);
 
@@ -8293,7 +8293,7 @@ void CodeGen::genArm64EmitterUnitTests()
 #endif // defined(DEBUG)
 
 //------------------------------------------------------------------------
-// genAllocLclFrame: Probe the stack.
+// PrologAllocLclFrame: Probe the stack.
 //
 // Notes:
 //      This only does the probing; allocating the frame is done when callee-saved registers are saved.
@@ -8315,7 +8315,10 @@ void CodeGen::genArm64EmitterUnitTests()
 // Return value:
 //      None
 //
-void CodeGen::genAllocLclFrame(unsigned frameSize, regNumber initReg, bool* pInitRegZeroed, regMaskTP maskArgRegsLiveIn)
+void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
+                                  regNumber initReg,
+                                  bool*     pInitRegZeroed,
+                                  regMaskTP maskArgRegsLiveIn)
 {
     assert(generatingProlog);
 
