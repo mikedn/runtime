@@ -241,41 +241,25 @@ void CodeGen::inst_IV(instruction ins, cnsval_ssize_t val)
 
 void CodeGen::inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size)
 {
-#if !defined(TARGET_64BIT)
+    assert(ins != INS_mov);
+#ifndef TARGET_64BIT
     assert(size != EA_8BYTE);
 #endif
 
 #ifdef TARGET_ARM
-    if (emitter::validImmForInstr(ins, val, INS_FLAGS_DONT_CARE))
-    {
-        GetEmitter()->emitIns_R_I(ins, size, reg, val, INS_FLAGS_DONT_CARE);
-    }
-    else if (ins == INS_mov)
-    {
-        instGen_Set_Reg_To_Imm(size, reg, val);
-    }
-    else
-    {
-        // TODO-Cleanup: Add a comment about why this is unreached() for RyuJIT backend.
-        unreached();
-    }
+    noway_assert(emitter::validImmForInstr(ins, val, INS_FLAGS_DONT_CARE));
+    GetEmitter()->emitIns_R_I(ins, size, reg, val, INS_FLAGS_DONT_CARE);
 #elif defined(TARGET_ARM64)
     // TODO-Arm64-Bug: handle large constants!
     // Probably need something like the ARM case above: if (validImmForInstr(ins, val)) ...
     assert(ins != INS_cmp);
     assert(ins != INS_tst);
-    assert(ins != INS_mov);
     GetEmitter()->emitIns_R_R_I(ins, size, reg, reg, val);
 #else // !TARGET_ARM
 #ifdef TARGET_AMD64
     // Instead of an 8-byte immediate load, a 4-byte immediate will do fine
     // as the high 4 bytes will be zero anyway.
-    if (size == EA_8BYTE && ins == INS_mov && ((val & 0xFFFFFFFF00000000LL) == 0))
-    {
-        size = EA_4BYTE;
-        GetEmitter()->emitIns_R_I(ins, size, reg, val);
-    }
-    else if (EA_SIZE(size) == EA_8BYTE && ins != INS_mov && (((int)val != val) || EA_IS_CNS_RELOC(size)))
+    if (EA_SIZE(size) == EA_8BYTE && (((int)val != val) || EA_IS_CNS_RELOC(size)))
     {
         assert(!"Invalid immediate for inst_RV_IV");
     }
