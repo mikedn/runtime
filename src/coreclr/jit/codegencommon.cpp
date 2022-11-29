@@ -4407,15 +4407,6 @@ regNumber CodeGen::PrologFindInitReg(regMaskTP initRegs)
         }
     }
 
-#ifdef TARGET_ARM
-    // If we have a variable sized frame (compLocallocUsed is true)
-    // then using REG_SAVED_LOCALLOC_SP in the prolog is not allowed
-    if (compiler->compLocallocUsed)
-    {
-        excludeMask |= RBM_SAVED_LOCALLOC_SP;
-    }
-#endif // TARGET_ARM
-
     regMaskTP tempMask = initRegs & ~excludeMask;
     regNumber initReg  = REG_SCRATCH; // Unless we find a better register below
 
