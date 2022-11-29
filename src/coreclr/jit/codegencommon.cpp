@@ -4408,30 +4408,13 @@ regNumber CodeGen::PrologFindInitReg(regMaskTP initRegs)
     }
 
     regMaskTP tempMask = initRegs & ~excludeMask;
-    regNumber initReg  = REG_SCRATCH; // Unless we find a better register below
 
-    if (tempMask != RBM_NONE)
-    {
-        // We will use one of the registers that we were planning to zero init anyway.
-        // We pick the lowest register number.
-        tempMask = genFindLowestBit(tempMask);
-        initReg  = genRegNumFromMask(tempMask);
-    }
-    // Next we prefer to use one of the unused argument registers.
-    // If they aren't available we use one of the caller-saved integer registers.
-    else
+    if (tempMask == RBM_NONE)
     {
         tempMask = regSet.rsGetModifiedRegsMask() & RBM_ALLINT & ~excludeMask;
-
-        if (tempMask != RBM_NONE)
-        {
-            // We pick the lowest register number
-            tempMask = genFindLowestBit(tempMask);
-            initReg  = genRegNumFromMask(tempMask);
-        }
     }
 
-    return initReg;
+    return tempMask == RBM_NONE ? REG_SCRATCH : genRegNumFromMask(genFindLowestBit(tempMask));
 }
 
 // Generates code for a function prolog.
