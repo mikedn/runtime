@@ -4382,9 +4382,10 @@ regNumber CodeGen::PrologFindInitReg(regMaskTP initRegs)
 {
     // Choose the register to use for zero initialization
 
-    regNumber initReg     = REG_SCRATCH; // Unless we find a better register below
     regMaskTP excludeMask = paramRegState.intRegLiveIn | RBM_ALLFLOAT;
-    regMaskTP tempMask;
+#ifdef TARGET_ARMARCH
+    excludeMask |= reservedRegs;
+#endif
 
     // We should not use the special PINVOKE registers as the initReg
     // since they are trashed by the jithelper call to setup the PINVOKE frame
@@ -4415,10 +4416,8 @@ regNumber CodeGen::PrologFindInitReg(regMaskTP initRegs)
     }
 #endif // TARGET_ARM
 
-    tempMask = initRegs & ~excludeMask;
-#ifdef TARGET_ARMARCH
-    tempMask &= ~reservedRegs;
-#endif
+    regMaskTP tempMask = initRegs & ~excludeMask;
+    regNumber initReg  = REG_SCRATCH; // Unless we find a better register below
 
     if (tempMask != RBM_NONE)
     {
@@ -4432,9 +4431,6 @@ regNumber CodeGen::PrologFindInitReg(regMaskTP initRegs)
     else
     {
         tempMask = regSet.rsGetModifiedRegsMask() & RBM_ALLINT & ~excludeMask;
-#ifdef TARGET_ARMARCH
-        tempMask &= ~reservedRegs;
-#endif
 
         if (tempMask != RBM_NONE)
         {
