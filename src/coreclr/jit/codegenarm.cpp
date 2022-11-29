@@ -1249,7 +1249,10 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
         addr = compiler->compGetHelperFtn(helper, (void**)&pAddr);
     }
 
-    if (!addr || !validImmForBL((ssize_t)addr))
+    emitter::EmitCallType callKind;
+    void*                 callAddr;
+
+    if ((addr == nullptr) || !validImmForBL(reinterpret_cast<ssize_t>(addr)))
     {
         if (callTargetReg == REG_NA)
         {
@@ -1259,25 +1262,39 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
         }
 
         // Load the address into a register and call through a register
-        if (addr)
+        if (addr != nullptr)
         {
-            instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, callTargetReg, (ssize_t)addr);
+            instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, callTargetReg, reinterpret_cast<ssize_t>(addr));
         }
         else
         {
-            GetEmitter()->emitIns_R_AI(INS_ldr, EA_PTR_DSP_RELOC, callTargetReg, (ssize_t)pAddr);
+            GetEmitter()->emitIns_R_AI(INS_ldr, EA_PTR_DSP_RELOC, callTargetReg, reinterpret_cast<ssize_t>(pAddr));
         }
 
-        GetEmitter()->emitIns_Call(emitter::EC_INDIR_R, Compiler::eeFindHelper(helper) DEBUGARG(nullptr), nullptr,
-                                   retSize, gcInfo.gcVarPtrSetCur, gcInfo.gcRegGCrefSetCur, gcInfo.gcRegByrefSetCur,
-                                   BAD_IL_OFFSET, callTargetReg, false);
+        callKind = emitter::EC_INDIR_R;
+        callAddr = nullptr;
     }
     else
     {
-        GetEmitter()->emitIns_Call(emitter::EC_FUNC_TOKEN, Compiler::eeFindHelper(helper) DEBUGARG(nullptr), addr,
-                                   retSize, gcInfo.gcVarPtrSetCur, gcInfo.gcRegGCrefSetCur, gcInfo.gcRegByrefSetCur,
-                                   BAD_IL_OFFSET, REG_NA, false);
+        callKind      = emitter::EC_FUNC_TOKEN;
+        callAddr      = addr;
+        callTargetReg = REG_NA;
     }
+
+    // clang-format off
+    GetEmitter()->emitIns_Call(
+        callKind,
+        Compiler::eeFindHelper(helper)
+        DEBUGARG(nullptr),
+        callAddr,
+        retSize,
+        gcInfo.gcVarPtrSetCur,
+        gcInfo.gcRegGCrefSetCur,
+        gcInfo.gcRegByrefSetCur,
+        BAD_IL_OFFSET,
+        callTargetReg,
+        false);
+    // clang-format on
 
     regSet.verifyRegistersUsed(RBM_CALLEE_TRASH);
 }
