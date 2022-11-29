@@ -4378,43 +4378,42 @@ void CodeGen::genFinalizeFrame()
     compiler->lvaAssignFrameOffsets(Compiler::FINAL_FRAME_LAYOUT);
 }
 
-regNumber CodeGen::PrologFindInitReg(regMaskTP initRegs)
+regNumber CodeGen::PrologChooseInitReg(regMaskTP initRegs)
 {
-    // Choose the register to use for zero initialization
-
-    regMaskTP excludeMask = paramRegState.intRegLiveIn | RBM_ALLFLOAT;
+    regMaskTP excludeRegs = paramRegState.intRegLiveIn | RBM_ALLFLOAT;
 #ifdef TARGET_ARMARCH
-    excludeMask |= reservedRegs;
+    excludeRegs |= reservedRegs;
 #endif
 
-    // We should not use the special PINVOKE registers as the initReg
-    // since they are trashed by the jithelper call to setup the PINVOKE frame
+    // TODO-MIKE-Cleanup: This is bogus, the P/Invoke frame helper call
+    // is in the first block, not in prolog.
     if (compiler->compMethodRequiresPInvokeFrame())
     {
-        excludeMask |= RBM_PINVOKE_FRAME;
+        excludeRegs |= RBM_PINVOKE_FRAME;
 
         assert((!compiler->opts.ShouldUsePInvokeHelpers()) || (compiler->lvaPInvokeFrameListVar == BAD_VAR_NUM));
+
         if (!compiler->opts.ShouldUsePInvokeHelpers())
         {
-            excludeMask |= (RBM_PINVOKE_TCB | RBM_PINVOKE_SCRATCH);
+            excludeRegs |= (RBM_PINVOKE_TCB | RBM_PINVOKE_SCRATCH);
 
-            // We also must exclude the register used by lvaPInvokeFrameListVar when it is enregistered
-            LclVarDsc* varDsc = compiler->lvaGetDesc(compiler->lvaPInvokeFrameListVar);
-            if (varDsc->lvRegister)
+            LclVarDsc* lcl = compiler->lvaGetDesc(compiler->lvaPInvokeFrameListVar);
+
+            if (lcl->lvRegister)
             {
-                excludeMask |= genRegMask(varDsc->GetRegNum());
+                excludeRegs |= genRegMask(lcl->GetRegNum());
             }
         }
     }
 
-    regMaskTP tempMask = initRegs & ~excludeMask;
+    regMaskTP candidateRegs = initRegs & ~excludeRegs;
 
-    if (tempMask == RBM_NONE)
+    if (candidateRegs == RBM_NONE)
     {
-        tempMask = regSet.rsGetModifiedRegsMask() & RBM_ALLINT & ~excludeMask;
+        candidateRegs = regSet.rsGetModifiedRegsMask() & RBM_ALLINT & ~excludeRegs;
     }
 
-    return tempMask == RBM_NONE ? REG_SCRATCH : genRegNumFromMask(genFindLowestBit(tempMask));
+    return candidateRegs == RBM_NONE ? REG_SCRATCH : genRegNumFromMask(genFindLowestBit(candidateRegs));
 }
 
 // Generates code for a function prolog.
@@ -4546,7 +4545,7 @@ void CodeGen::genFnProlog()
     }
 #endif // TARGET_XARCH
 
-    regNumber initReg = PrologFindInitReg(initRegs);
+    regNumber initReg = PrologChooseInitReg(initRegs);
 
     // Track if initReg holds non-zero value. Start conservative and assume it has non-zero value.
     // If initReg is ever set to zero, this variable is set to true and zero initializing initReg
