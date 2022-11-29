@@ -2782,8 +2782,6 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
             }
 
             GetEmitter()->emitIns_R_R(INS_xchg, size, srcLcl->GetRegNum(), srcLcl->GetParamReg());
-            regSet.verifyRegUsed(srcLcl->GetRegNum());
-            regSet.verifyRegUsed(srcLcl->GetParamReg());
 
             paramRegs[destRegIndex].processed = true;
             paramRegs[srcRegIndex].processed  = true;
@@ -2853,7 +2851,6 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
 
         regNumber begRegNum = genMapRegArgNumToRegNum(beginRegIndex, destMemType);
         GetEmitter()->emitIns_Mov(insCopy, size, tempReg, begRegNum, /* canSkip */ false);
-        regSet.verifyRegUsed(tempReg);
 
         *tempRegClobbered = true;
 #ifdef USING_SCOPE_INFO
@@ -2870,11 +2867,10 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
 
             GetEmitter()->emitIns_Mov(insCopy, size, destRegNum, srcRegNum, /* canSkip */ false);
 
-            regSet.verifyRegUsed(destRegNum);
-
             // Mark src as processed.
             noway_assert(srcRegIndex < paramRegCount);
             paramRegs[srcRegIndex].processed = true;
+
 #ifdef TARGET_ARM
             if (size == EA_8BYTE)
             {
@@ -2922,7 +2918,7 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
         // move the dest reg (begReg) in the extra reg
         regNumber destRegNum = genMapRegArgNumToRegNum(destRegIndex, destMemType);
         GetEmitter()->emitIns_Mov(insCopy, size, destRegNum, tempReg, /* canSkip */ false);
-        regSet.verifyRegUsed(destRegNum);
+
 #ifdef USING_SCOPE_INFO
         psiMoveToReg(srcLclNum);
 #endif
@@ -3267,7 +3263,6 @@ void CodeGen::genPrologEnregisterIncomingStackParams()
         var_types regType = lcl->GetActualRegisterType();
 
         GetEmitter()->emitIns_R_S(ins_Load(regType), emitTypeSize(regType), regNum, lclNum, 0);
-        regSet.verifyRegUsed(regNum);
 
 #ifdef USING_SCOPE_INFO
         psiMoveToReg(lclNum);
@@ -3982,7 +3977,6 @@ void CodeGen::PrologReportGenericContextArg(regNumber initReg, bool* pInitRegZer
         // mov reg, [compiler->info.compTypeCtxtArg]
         GetEmitter()->emitIns_R_AR(ins_Load(TYP_I_IMPL), EA_PTRSIZE, reg, genFramePointerReg(),
                                    varDsc->GetStackOffset());
-        regSet.verifyRegUsed(reg);
 #endif // defined(TARGET_X86) || defined(TARGET_ARM)
     }
 
@@ -4588,7 +4582,6 @@ void CodeGen::genFnProlog()
     if (compiler->compLocallocUsed)
     {
         GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_SAVED_LOCALLOC_SP, REG_SPBASE, /* canSkip */ false);
-        regSet.verifyRegUsed(REG_SAVED_LOCALLOC_SP);
         compiler->unwindSetFrameReg(REG_SAVED_LOCALLOC_SP, 0);
     }
 
@@ -5373,7 +5366,6 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
         // This is the first block of a filter
 
         GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, REG_R1, REG_R1, genFuncletInfo.fiPSP_slot_CallerSP_offset);
-        regSet.verifyRegUsed(REG_R1);
         GetEmitter()->emitIns_R_R_I(INS_str, EA_PTRSIZE, REG_R1, REG_SPBASE, genFuncletInfo.fiPSP_slot_SP_offset);
         GetEmitter()->emitIns_R_R_I(INS_sub, EA_PTRSIZE, REG_FPBASE, REG_R1,
                                     genFuncletInfo.fiFunctionCallerSPtoFPdelta);
@@ -5383,7 +5375,6 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
         // This is a non-filter funclet
         GetEmitter()->emitIns_R_R_I(INS_add, EA_PTRSIZE, REG_R3, REG_FPBASE,
                                     genFuncletInfo.fiFunctionCallerSPtoFPdelta);
-        regSet.verifyRegUsed(REG_R3);
         GetEmitter()->emitIns_R_R_I(INS_str, EA_PTRSIZE, REG_R3, REG_SPBASE, genFuncletInfo.fiPSP_slot_SP_offset);
     }
 }

@@ -190,7 +190,6 @@ void CodeGen::genMov32RelocatableImmediate(emitAttr size, BYTE* addr, regNumber 
 void CodeGen::instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg)
 {
     GetEmitter()->emitIns_R_I(INS_mov, size, reg, 0);
-    regSet.verifyRegUsed(reg);
 }
 
 void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
@@ -1267,7 +1266,6 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
         else
         {
             GetEmitter()->emitIns_R_AI(INS_ldr, EA_PTR_DSP_RELOC, callTargetReg, (ssize_t)pAddr);
-            regSet.verifyRegUsed(callTargetReg);
         }
 
         GetEmitter()->emitIns_Call(emitter::EC_INDIR_R, Compiler::eeFindHelper(helper) DEBUGARG(nullptr), nullptr,
@@ -1351,14 +1349,13 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
     // On Arm arguments are prespilled on stack, which frees r0-r3.
     // For generating Enter callout we would need two registers and one of them has to be r0 to pass profiler handle.
     // The call target register could be any free register.
-    regNumber argReg     = REG_PROFILER_ENTER_ARG;
-    regMaskTP argRegMask = genRegMask(argReg);
-    assert((preSpillParamRegs & argRegMask) != 0);
+    regNumber argReg = REG_PROFILER_ENTER_ARG;
+
+    assert((preSpillParamRegs & genRegMask(argReg)) != RBM_NONE);
 
     if (compiler->compProfilerMethHndIndirected)
     {
         GetEmitter()->emitIns_R_AI(INS_ldr, EA_PTR_DSP_RELOC, argReg, (ssize_t)compiler->compProfilerMethHnd);
-        regSet.verifyRegUsed(argReg);
     }
     else
     {
@@ -1439,13 +1436,11 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
         // profiler handle. Therefore, r0 is moved to REG_PROFILER_RETURN_SCRATCH as per contract.
         GetEmitter()->emitIns_Mov(INS_mov, attr, REG_PROFILER_RET_SCRATCH, REG_R0, /* canSkip */ false);
         genTransferRegGCState(REG_PROFILER_RET_SCRATCH, REG_R0);
-        regSet.verifyRegUsed(REG_PROFILER_RET_SCRATCH);
     }
 
     if (compiler->compProfilerMethHndIndirected)
     {
         GetEmitter()->emitIns_R_AI(INS_ldr, EA_PTR_DSP_RELOC, REG_R0, (ssize_t)compiler->compProfilerMethHnd);
-        regSet.verifyRegUsed(REG_R0);
     }
     else
     {
@@ -1512,7 +1507,6 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
     {
         genInstrWithConstant(INS_sub, EA_PTRSIZE, REG_STACK_PROBE_HELPER_ARG, REG_SPBASE, frameSize,
                              REG_STACK_PROBE_HELPER_ARG);
-        regSet.verifyRegUsed(REG_STACK_PROBE_HELPER_ARG);
         genEmitHelperCall(CORINFO_HELP_STACK_PROBE, EA_UNKNOWN, REG_STACK_PROBE_HELPER_CALL_TARGET);
         compiler->unwindPadding();
         GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, REG_SPBASE, REG_STACK_PROBE_HELPER_ARG, /* canSkip */ false);
@@ -2032,8 +2026,10 @@ void CodeGen::PrologBlockInitLocals(int untrLclHi, int untrLclLo, regNumber init
     // rZero2 is not a live incoming argument reg
     assert((genRegMask(rZero2) & paramRegState.intRegLiveIn) == RBM_NONE);
 
-    // We pick the next lowest register number for rAddr
+    // There should always be some available registers, genFinalizeFrame
+    // adds callee saved registers if needed.
     noway_assert(availMask != RBM_NONE);
+
     regMask = genFindLowestBit(availMask);
     rAddr   = genRegNumFromMask(regMask);
     availMask &= ~regMask;

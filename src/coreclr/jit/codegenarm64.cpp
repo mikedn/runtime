@@ -1197,7 +1197,6 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
             // function)
             genInstrWithConstant(INS_ldr, EA_PTRSIZE, REG_R1, REG_R1, genFuncletInfo.fiCallerSP_to_PSP_slot_delta,
                                  REG_R2, false);
-            regSet.verifyRegUsed(REG_R1);
 
             // Store the PSP value (aka CallerSP)
             genInstrWithConstant(INS_str, EA_PTRSIZE, REG_R1, REG_SPBASE, genFuncletInfo.fiSP_to_PSP_slot_delta, REG_R2,
@@ -1214,7 +1213,6 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
             // compute the CallerSP, given the frame pointer. x3 is scratch.
             genInstrWithConstant(INS_add, EA_PTRSIZE, REG_R3, REG_FPBASE,
                                  -genFuncletInfo.fiFunction_CallerSP_to_FP_delta, REG_R2, false);
-            regSet.verifyRegUsed(REG_R3);
 
             genInstrWithConstant(INS_str, EA_PTRSIZE, REG_R3, REG_SPBASE, genFuncletInfo.fiSP_to_PSP_slot_delta, REG_R2,
                                  false);
@@ -1589,7 +1587,6 @@ void CodeGen::genEHCatchRet(BasicBlock* block)
 void CodeGen::instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg)
 {
     GetEmitter()->emitIns_R_I(INS_mov, size, reg, 0);
-    regSet.verifyRegUsed(reg);
 }
 
 void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,

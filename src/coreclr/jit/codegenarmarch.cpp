@@ -3007,18 +3007,14 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
                 break;
 
             case IAT_RELPVALUE:
-            {
                 // Load the address into a register, load relative indirect and call through a register
                 // We have to use R12 since we assume the argument registers are in use
                 // LR is used as helper register right before it is restored from stack, thus,
                 // all relative address calculations are performed before LR is restored.
                 callType   = emitter::EC_INDIR_R;
                 indCallReg = REG_R12;
-                addr       = NULL;
-
-                regSet.verifyRegUsed(indCallReg);
+                addr       = nullptr;
                 break;
-            }
 
             case IAT_PPVALUE:
             default:

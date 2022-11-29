@@ -64,8 +64,8 @@ void CodeGen::PrologSetGSSecurityCookie(regNumber initReg, bool* pInitRegZeroed)
         //  mov   eax, dword ptr [compiler->gsGlobalSecurityCookieAddr]
         //  mov   dword ptr [frame.GSSecurityCookie], eax
         GetEmitter()->emitIns_R_AI(INS_mov, EA_PTR_DSP_RELOC, REG_EAX, (ssize_t)compiler->gsGlobalSecurityCookieAddr);
-        regSet.verifyRegUsed(REG_EAX);
         GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, REG_EAX, compiler->lvaGSSecurityCookie, 0);
+
         if (initReg == REG_EAX)
         {
             *pInitRegZeroed = false;
@@ -594,7 +594,6 @@ bool CodeGen::genCodeAddrNeedsReloc(size_t addr)
 void CodeGen::instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg)
 {
     GetEmitter()->emitIns_R_R(INS_xor, size, reg, reg);
-    regSet.verifyRegUsed(reg);
 }
 
 void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
@@ -1030,7 +1029,6 @@ void CodeGen::genCodeForBinary(GenTreeOp* node)
 
         inst_Mov(op1->GetType(), dstReg, op1reg, /* canSkip */ false);
 
-        regSet.verifyRegUsed(dstReg);
         gcInfo.gcMarkRegPtrVal(dstReg, op1->GetType());
 
         dst = node;
@@ -2013,8 +2011,6 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
         }
 
         GetEmitter()->emitIns_R_AR(INS_lea, EA_PTRSIZE, REG_STACK_PROBE_HELPER_ARG, REG_SPBASE, spOffset);
-        regSet.verifyRegUsed(REG_STACK_PROBE_HELPER_ARG);
-
         genEmitHelperCall(CORINFO_HELP_STACK_PROBE);
 
         if (compiler->info.compPublishStubParam)
@@ -2031,8 +2027,6 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
                              RBM_NONE);
 
         GetEmitter()->emitIns_R_AR(INS_lea, EA_PTRSIZE, REG_STACK_PROBE_HELPER_ARG, REG_SPBASE, -(int)frameSize);
-        regSet.verifyRegUsed(REG_STACK_PROBE_HELPER_ARG);
-
         genEmitHelperCall(CORINFO_HELP_STACK_PROBE);
 
         if (initReg == REG_DEFAULT_HELPER_CALL_TARGET)
@@ -9405,7 +9399,6 @@ void CodeGen::PrologInitVarargsStackParamsBaseOffset()
     noway_assert(compiler->info.compArgsCount > 0);
 
     GetEmitter()->emitIns_R_S(INS_mov, EA_4BYTE, REG_EAX, compiler->info.compArgsCount - 1, 0);
-    regSet.verifyRegUsed(REG_EAX);
     GetEmitter()->emitIns_R_AR(INS_mov, EA_4BYTE, REG_EAX, REG_EAX, 0);
 
     LclVarDsc* lastArg = compiler->lvaGetDesc(compiler->info.compArgsCount - 1);
@@ -9419,7 +9412,6 @@ void CodeGen::PrologInitVarargsStackParamsBaseOffset()
     if (varDsc->lvIsInReg())
     {
         GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, varDsc->GetRegNum(), REG_EAX, /* canSkip */ true);
-        regSet.verifyRegUsed(varDsc->GetRegNum());
     }
     else
     {
