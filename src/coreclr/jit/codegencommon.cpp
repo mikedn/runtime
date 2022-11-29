@@ -4431,8 +4431,6 @@ regNumber CodeGen::PrologFindInitReg(regMaskTP initRegs)
         }
     }
 
-    noway_assert(!compiler->compMethodRequiresPInvokeFrame() || (initReg != REG_PINVOKE_FRAME));
-
     return initReg;
 }
 
