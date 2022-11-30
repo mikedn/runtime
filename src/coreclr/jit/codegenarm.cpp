@@ -2311,6 +2311,70 @@ bool CodeGen::genCanUsePopToReturn(regMaskTP maskPopRegsInt, bool jmpEpilog)
     return !jmpEpilog && (GetPreSpillRegs() == RBM_NONE);
 }
 
+void CodeGen::PrologPushCalleeSavedRegisters()
+{
+    assert(generatingProlog);
+
+    regMaskTP rsPushRegs = regSet.rsGetModifiedRegsMask() & RBM_CALLEE_SAVED;
+
+    // On ARM we push the FP (frame-pointer) here along with all other callee saved registers
+    if (isFramePointerUsed())
+    {
+        rsPushRegs |= RBM_FPBASE;
+    }
+
+    //
+    // It may be possible to skip pushing/popping lr for leaf methods. However, such optimization would require
+    // changes in GC suspension architecture.
+    //
+    // We would need to guarantee that a tight loop calling a virtual leaf method can be suspended for GC. Today, we
+    // generate partially interruptible code for both the method that contains the tight loop with the call and the
+    // leaf
+    // method. GC suspension depends on return address hijacking in this case. Return address hijacking depends
+    // on the return address to be saved on the stack. If we skipped pushing/popping lr, the return address would
+    // never
+    // be saved on the stack and the GC suspension would time out.
+    //
+    // So if we wanted to skip pushing pushing/popping lr for leaf frames, we would also need to do one of
+    // the following to make GC suspension work in the above scenario:
+    // - Make return address hijacking work even when lr is not saved on the stack.
+    // - Generate fully interruptible code for loops that contains calls
+    // - Generate fully interruptible code for leaf methods
+    //
+    // Given the limited benefit from this optimization (<10k for CoreLib NGen image), the extra complexity
+    // is not worth it.
+    //
+    rsPushRegs |= RBM_LR; // We must save the return address (in the LR register)
+
+    calleeSavedRegs = rsPushRegs;
+
+#ifdef DEBUG
+    if (calleeRegsPushed != genCountBits(rsPushRegs))
+    {
+        printf("Error: unexpected number of callee-saved registers to push. Expected: %d. Got: %d ", calleeRegsPushed,
+               genCountBits(rsPushRegs));
+        dspRegMask(rsPushRegs);
+        printf("\n");
+        assert(calleeRegsPushed == genCountBits(rsPushRegs));
+    }
+#endif // DEBUG
+
+    regMaskTP maskPushRegsFloat = rsPushRegs & RBM_ALLFLOAT;
+    regMaskTP maskPushRegsInt   = rsPushRegs & ~maskPushRegsFloat;
+
+    maskPushRegsInt |= genStackAllocRegisterMask(lclFrameSize, maskPushRegsFloat);
+
+    assert(FitsIn<int>(maskPushRegsInt));
+    inst_IV(INS_push, (int)maskPushRegsInt);
+    compiler->unwindPushMaskInt(maskPushRegsInt);
+
+    if (maskPushRegsFloat != 0)
+    {
+        genPushFltRegs(maskPushRegsFloat);
+        compiler->unwindPushMaskFloat(maskPushRegsFloat);
+    }
+}
+
 void CodeGen::genPopCalleeSavedRegisters(bool jmpEpilog)
 {
     assert(generatingEpilog);
@@ -2356,6 +2420,472 @@ void CodeGen::genPopCalleeSavedRegisters(bool jmpEpilog)
     assert(FitsIn<int>(maskPopRegsInt));
     inst_IV(INS_pop, (int)maskPopRegsInt);
     compiler->unwindPopMaskInt(maskPopRegsInt);
+}
+
+/*****************************************************************************
+ *
+ *  Generates code for an EH funclet prolog.
+ *
+ *  Funclets have the following incoming arguments:
+ *
+ *      catch:          r0 = the exception object that was caught (see GT_CATCH_ARG)
+ *      filter:         r0 = the exception object to filter (see GT_CATCH_ARG), r1 = CallerSP of the containing function
+ *      finally/fault:  none
+ *
+ *  Funclets set the following registers on exit:
+ *
+ *      catch:          r0 = the address at which execution should resume (see BBJ_EHCATCHRET)
+ *      filter:         r0 = non-zero if the handler should handle the exception, zero otherwise (see GT_RETFILT)
+ *      finally/fault:  none
+ *
+ *  The ARM funclet prolog sequence is:
+ *
+ *     push {regs,lr}   ; We push the callee-saved regs and 'lr'.
+ *                      ;   TODO-ARM-CQ: We probably only need to save lr, plus any callee-save registers that we
+ *                      ;         actually use in the funclet. Currently, we save the same set of callee-saved regs
+ *                      ;         calculated for the entire function.
+ *     sub sp, XXX      ; Establish the rest of the frame.
+ *                      ;   XXX is determined by lvaOutgoingArgSpaceSize plus space for the PSP slot, aligned
+ *                      ;   up to preserve stack alignment. If we push an odd number of registers, we also
+ *                      ;   generate this, to keep the stack aligned.
+ *
+ *     ; Fill the PSP slot, for use by the VM (it gets reported with the GC info), or by code generation of nested
+ *     ;     filters.
+ *     ; This is not part of the "OS prolog"; it has no associated unwind data, and is not reversed in the funclet
+ *     ;     epilog.
+ *
+ *     if (this is a filter funclet)
+ *     {
+ *          // r1 on entry to a filter funclet is CallerSP of the containing function:
+ *          // either the main function, or the funclet for a handler that this filter is dynamically nested within.
+ *          // Note that a filter can be dynamically nested within a funclet even if it is not statically within
+ *          // a funclet. Consider:
+ *          //
+ *          //    try {
+ *          //        try {
+ *          //            throw new Exception();
+ *          //        } catch(Exception) {
+ *          //            throw new Exception();     // The exception thrown here ...
+ *          //        }
+ *          //    } filter {                         // ... will be processed here, while the "catch" funclet frame is
+ *          //                                       // still on the stack
+ *          //    } filter-handler {
+ *          //    }
+ *          //
+ *          // Because of this, we need a PSP in the main function anytime a filter funclet doesn't know whether the
+ *          // enclosing frame will be a funclet or main function. We won't know any time there is a filter protecting
+ *          // nested EH. To simplify, we just always create a main function PSP for any function with a filter.
+ *
+ *          ldr r1, [r1 - PSP_slot_CallerSP_offset]     ; Load the CallerSP of the main function (stored in the PSP of
+ *                                                      ; the dynamically containing funclet or function)
+ *          str r1, [sp + PSP_slot_SP_offset]           ; store the PSP
+ *          sub r11, r1, Function_CallerSP_to_FP_delta  ; re-establish the frame pointer
+ *     }
+ *     else
+ *     {
+ *          // This is NOT a filter funclet. The VM re-establishes the frame pointer on entry.
+ *          // TODO-ARM-CQ: if VM set r1 to CallerSP on entry, like for filters, we could save an instruction.
+ *
+ *          add r3, r11, Function_CallerSP_to_FP_delta  ; compute the CallerSP, given the frame pointer. r3 is scratch.
+ *          str r3, [sp + PSP_slot_SP_offset]           ; store the PSP
+ *     }
+ *
+ *  The epilog sequence is then:
+ *
+ *     add sp, XXX      ; if necessary
+ *     pop {regs,pc}
+ *
+ *  If it is worth it, we could push r0, r1, r2, r3 instead of using an additional add/sub instruction.
+ *  Code size would be smaller, but we would be writing to / reading from the stack, which might be slow.
+ *
+ *  The funclet frame is thus:
+ *
+ *      |                       |
+ *      |-----------------------|
+ *      |       incoming        |
+ *      |       arguments       |
+ *      +=======================+ <---- Caller's SP
+ *      |Callee saved registers |
+ *      |-----------------------|
+ *      |Pre-spill regs space   |   // This is only necessary to keep the PSP slot at the same offset
+ *      |                       |   // in function and funclet
+ *      |-----------------------|
+ *      |        PSP slot       |   // Omitted in CoreRT ABI
+ *      |-----------------------|
+ *      ~  possible 4 byte pad  ~
+ *      ~     for alignment     ~
+ *      |-----------------------|
+ *      |   Outgoing arg space  |
+ *      |-----------------------| <---- Ambient SP
+ *      |       |               |
+ *      ~       | Stack grows   ~
+ *      |       | downward      |
+ *              V
+ */
+
+void CodeGen::genFuncletProlog(BasicBlock* block)
+{
+#ifdef DEBUG
+    if (verbose)
+        printf("*************** In genFuncletProlog()\n");
+#endif
+
+    assert(block != NULL);
+    assert(block->bbFlags & BBF_FUNCLET_BEG);
+
+    ScopedSetVariable<bool> _setGeneratingProlog(&generatingProlog, true);
+
+    gcInfo.gcResetForBB();
+
+    compiler->unwindBegProlog();
+
+    regMaskTP maskPushRegsFloat = genFuncletInfo.fiSaveRegs & RBM_ALLFLOAT;
+    regMaskTP maskPushRegsInt   = genFuncletInfo.fiSaveRegs & ~maskPushRegsFloat;
+
+    regMaskTP maskStackAlloc = genStackAllocRegisterMask(genFuncletInfo.fiSpDelta, maskPushRegsFloat);
+    maskPushRegsInt |= maskStackAlloc;
+
+    assert(FitsIn<int>(maskPushRegsInt));
+    inst_IV(INS_push, (int)maskPushRegsInt);
+    compiler->unwindPushMaskInt(maskPushRegsInt);
+
+    if (maskPushRegsFloat != RBM_NONE)
+    {
+        genPushFltRegs(maskPushRegsFloat);
+        compiler->unwindPushMaskFloat(maskPushRegsFloat);
+    }
+
+    bool isFilter = (block->bbCatchTyp == BBCT_FILTER);
+
+    regMaskTP maskArgRegsLiveIn;
+    if (isFilter)
+    {
+        maskArgRegsLiveIn = RBM_R0 | RBM_R1;
+    }
+    else if ((block->bbCatchTyp == BBCT_FINALLY) || (block->bbCatchTyp == BBCT_FAULT))
+    {
+        maskArgRegsLiveIn = RBM_NONE;
+    }
+    else
+    {
+        maskArgRegsLiveIn = RBM_R0;
+    }
+
+    regNumber initReg       = REG_R3; // R3 is never live on entry to a funclet, so it can be trashed
+    bool      initRegZeroed = false;
+
+    if (maskStackAlloc == RBM_NONE)
+    {
+        PrologAllocLclFrame(genFuncletInfo.fiSpDelta, initReg, &initRegZeroed, maskArgRegsLiveIn);
+    }
+
+    // This is the end of the OS-reported prolog for purposes of unwinding
+    compiler->unwindEndProlog();
+
+    // If there is no PSPSym (CoreRT ABI), we are done.
+    if (compiler->lvaPSPSym == BAD_VAR_NUM)
+    {
+        return;
+    }
+
+    if (isFilter)
+    {
+        // This is the first block of a filter
+
+        GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, REG_R1, REG_R1, genFuncletInfo.fiPSP_slot_CallerSP_offset);
+        GetEmitter()->emitIns_R_R_I(INS_str, EA_PTRSIZE, REG_R1, REG_SPBASE, genFuncletInfo.fiPSP_slot_SP_offset);
+        GetEmitter()->emitIns_R_R_I(INS_sub, EA_PTRSIZE, REG_FPBASE, REG_R1,
+                                    genFuncletInfo.fiFunctionCallerSPtoFPdelta);
+    }
+    else
+    {
+        // This is a non-filter funclet
+        GetEmitter()->emitIns_R_R_I(INS_add, EA_PTRSIZE, REG_R3, REG_FPBASE,
+                                    genFuncletInfo.fiFunctionCallerSPtoFPdelta);
+        GetEmitter()->emitIns_R_R_I(INS_str, EA_PTRSIZE, REG_R3, REG_SPBASE, genFuncletInfo.fiPSP_slot_SP_offset);
+    }
+}
+
+/*****************************************************************************
+ *
+ *  Generates code for an EH funclet epilog.
+ */
+
+void CodeGen::genFuncletEpilog()
+{
+#ifdef DEBUG
+    if (verbose)
+        printf("*************** In genFuncletEpilog()\n");
+#endif
+
+    ScopedSetVariable<bool> _setGeneratingEpilog(&generatingEpilog, true);
+
+    // Just as for the main function, we delay starting the unwind codes until we have
+    // an instruction which we know needs an unwind code. This is to support code like
+    // this:
+    //      movw    r3, 0x38e0
+    //      add     sp, r3
+    //      pop     {r4,r5,r6,r10,r11,pc}
+    // where the "movw" shouldn't be part of the unwind codes. See genFnEpilog() for more details.
+
+    bool unwindStarted = false;
+
+    /* The saved regs info saves the LR register. We need to pop the PC register to return */
+    assert(genFuncletInfo.fiSaveRegs & RBM_LR);
+
+    regMaskTP maskPopRegsFloat = genFuncletInfo.fiSaveRegs & RBM_ALLFLOAT;
+    regMaskTP maskPopRegsInt   = genFuncletInfo.fiSaveRegs & ~maskPopRegsFloat;
+
+    regMaskTP maskStackAlloc = genStackAllocRegisterMask(genFuncletInfo.fiSpDelta, maskPopRegsFloat);
+    maskPopRegsInt |= maskStackAlloc;
+
+    if (maskStackAlloc == RBM_NONE)
+    {
+        genFreeLclFrame(genFuncletInfo.fiSpDelta, &unwindStarted);
+    }
+
+    if (!unwindStarted)
+    {
+        // We'll definitely generate an unwindable instruction next
+        compiler->unwindBegEpilog();
+        unwindStarted = true;
+    }
+
+    maskPopRegsInt &= ~RBM_LR;
+    maskPopRegsInt |= RBM_PC;
+
+    if (maskPopRegsFloat != RBM_NONE)
+    {
+        genPopFltRegs(maskPopRegsFloat);
+        compiler->unwindPopMaskFloat(maskPopRegsFloat);
+    }
+
+    assert(FitsIn<int>(maskPopRegsInt));
+    inst_IV(INS_pop, (int)maskPopRegsInt);
+    compiler->unwindPopMaskInt(maskPopRegsInt);
+
+    compiler->unwindEndEpilog();
+}
+
+/*****************************************************************************
+ *
+ *  Capture the information used to generate the funclet prologs and epilogs.
+ *  Note that all funclet prologs are identical, and all funclet epilogs are
+ *  identical (per type: filters are identical, and non-filters are identical).
+ *  Thus, we compute the data used for these just once.
+ *
+ *  See genFuncletProlog() for more information about the prolog/epilog sequences.
+ */
+
+void CodeGen::genCaptureFuncletPrologEpilogInfo()
+{
+    if (compiler->ehAnyFunclets())
+    {
+        assert(isFramePointerUsed());
+        assert(compiler->lvaDoneFrameLayout == Compiler::FINAL_FRAME_LAYOUT); // The frame size and offsets must be
+        // finalized
+
+        // Frame pointer doesn't point at the end, it points at the pushed r11. So, instead
+        // of adding the number of callee-saved regs to CallerSP, we add 1 for lr and 1 for r11
+        // (plus the "pre spill regs"). Note that we assume r12 and r13 aren't saved
+        // (also assumed in genFnProlog()).
+        assert((calleeSavedRegs & (RBM_R12 | RBM_R13)) == RBM_NONE);
+
+        unsigned preSpillRegArgSize                = GetPreSpillSize();
+        genFuncletInfo.fiFunctionCallerSPtoFPdelta = preSpillRegArgSize + 2 * REGSIZE_BYTES;
+
+        regMaskTP rsMaskSaveRegs = calleeSavedRegs;
+        unsigned  saveRegsCount  = genCountBits(rsMaskSaveRegs);
+        unsigned  saveRegsSize   = saveRegsCount * REGSIZE_BYTES; // bytes of regs we're saving
+        assert(outgoingArgSpaceSize % REGSIZE_BYTES == 0);
+        unsigned funcletFrameSize =
+            preSpillRegArgSize + saveRegsSize + REGSIZE_BYTES /* PSP slot */ + outgoingArgSpaceSize;
+
+        unsigned funcletFrameSizeAligned  = roundUp(funcletFrameSize, STACK_ALIGN);
+        unsigned funcletFrameAlignmentPad = funcletFrameSizeAligned - funcletFrameSize;
+        unsigned spDelta                  = funcletFrameSizeAligned - saveRegsSize;
+
+        unsigned PSP_slot_SP_offset       = outgoingArgSpaceSize + funcletFrameAlignmentPad;
+        int      PSP_slot_CallerSP_offset = -(int)(funcletFrameSize - outgoingArgSpaceSize); // NOTE: it's negative!
+
+        /* Now save it for future use */
+
+        genFuncletInfo.fiSaveRegs                 = rsMaskSaveRegs;
+        genFuncletInfo.fiSpDelta                  = spDelta;
+        genFuncletInfo.fiPSP_slot_SP_offset       = PSP_slot_SP_offset;
+        genFuncletInfo.fiPSP_slot_CallerSP_offset = PSP_slot_CallerSP_offset;
+
+#ifdef DEBUG
+        if (verbose)
+        {
+            printf("\n");
+            printf("Funclet prolog / epilog info\n");
+            printf("    Function CallerSP-to-FP delta: %d\n", genFuncletInfo.fiFunctionCallerSPtoFPdelta);
+            printf("                        Save regs: ");
+            dspRegMask(rsMaskSaveRegs);
+            printf("\n");
+            printf("                         SP delta: %d\n", genFuncletInfo.fiSpDelta);
+            printf("               PSP slot SP offset: %d\n", genFuncletInfo.fiPSP_slot_SP_offset);
+            printf("        PSP slot Caller SP offset: %d\n", genFuncletInfo.fiPSP_slot_CallerSP_offset);
+
+            if (PSP_slot_CallerSP_offset != compiler->lvaGetCallerSPRelativeOffset(compiler->lvaPSPSym))
+            {
+                printf("lvaGetCallerSPRelativeOffset(lvaPSPSym): %d\n",
+                       compiler->lvaGetCallerSPRelativeOffset(compiler->lvaPSPSym));
+            }
+        }
+#endif // DEBUG
+
+        assert(PSP_slot_CallerSP_offset < 0);
+        if (compiler->lvaPSPSym != BAD_VAR_NUM)
+        {
+            assert(PSP_slot_CallerSP_offset ==
+                   compiler->lvaGetCallerSPRelativeOffset(compiler->lvaPSPSym)); // same offset used in main
+            // function and funclet!
+        }
+    }
+}
+
+void CodeGen::genFnEpilog(BasicBlock* block)
+{
+    JITDUMP("*************** In genFnEpilog()\n");
+
+    ScopedSetVariable<bool> _setGeneratingEpilog(&generatingEpilog, true);
+
+    VarSetOps::Assign(compiler, gcInfo.gcVarPtrSetCur, GetEmitter()->emitInitGCrefVars);
+    gcInfo.gcRegGCrefSetCur = GetEmitter()->emitInitGCrefRegs;
+    gcInfo.gcRegByrefSetCur = GetEmitter()->emitInitByrefRegs;
+
+#ifdef DEBUG
+    if (compiler->opts.dspCode)
+        printf("\n__epilog:\n");
+
+    if (verbose)
+    {
+        printf("gcVarPtrSetCur=%s ", VarSetOps::ToString(compiler, gcInfo.gcVarPtrSetCur));
+        dumpConvertedVarSet(compiler, gcInfo.gcVarPtrSetCur);
+        printf(", gcRegGCrefSetCur=");
+        printRegMaskInt(gcInfo.gcRegGCrefSetCur);
+        emitter::emitDispRegSet(gcInfo.gcRegGCrefSetCur);
+        printf(", gcRegByrefSetCur=");
+        printRegMaskInt(gcInfo.gcRegByrefSetCur);
+        emitter::emitDispRegSet(gcInfo.gcRegByrefSetCur);
+        printf("\n");
+    }
+#endif // DEBUG
+
+    bool jmpEpilog = ((block->bbFlags & BBF_HAS_JMP) != 0);
+
+    GenTree* lastNode = block->lastNode();
+
+    // Method handle and address info used in case of jump epilog
+    CORINFO_METHOD_HANDLE methHnd = nullptr;
+    CORINFO_CONST_LOOKUP  addrInfo;
+    addrInfo.addr       = nullptr;
+    addrInfo.accessType = IAT_VALUE;
+
+    if (jmpEpilog && lastNode->gtOper == GT_JMP)
+    {
+        methHnd = (CORINFO_METHOD_HANDLE)lastNode->AsVal()->gtVal1;
+        compiler->info.compCompHnd->getFunctionEntryPoint(methHnd, &addrInfo);
+    }
+
+    // We delay starting the unwind codes until we have an instruction which we know
+    // needs an unwind code. In particular, for large stack frames in methods without
+    // localloc, the sequence might look something like this:
+    //      movw    r3, 0x38e0
+    //      add     sp, r3
+    //      pop     {r4,r5,r6,r10,r11,pc}
+    // In this case, the "movw" should not be part of the unwind codes, since it will
+    // be a NOP, and it is a waste to start with a NOP. Note that calling unwindBegEpilog()
+    // also sets the current location as the beginning offset of the epilog, so every
+    // instruction afterwards needs an unwind code. In the case above, if you call
+    // unwindBegEpilog() before the "movw", then you must generate a NOP for the "movw".
+
+    bool unwindStarted = false;
+
+    // Tear down the stack frame
+
+    if (compiler->compLocallocUsed)
+    {
+        if (!unwindStarted)
+        {
+            compiler->unwindBegEpilog();
+            unwindStarted = true;
+        }
+
+        // mov R9 into SP
+        inst_Mov(TYP_I_IMPL, REG_SP, REG_SAVED_LOCALLOC_SP, /* canSkip */ false);
+        compiler->unwindSetFrameReg(REG_SAVED_LOCALLOC_SP, 0);
+    }
+
+    if (jmpEpilog ||
+        genStackAllocRegisterMask(lclFrameSize, regSet.rsGetModifiedRegsMask() & RBM_FLT_CALLEE_SAVED) == RBM_NONE)
+    {
+        genFreeLclFrame(lclFrameSize, &unwindStarted);
+    }
+
+    if (!unwindStarted)
+    {
+        // If we haven't generated anything yet, we're certainly going to generate a "pop" next.
+        compiler->unwindBegEpilog();
+        unwindStarted = true;
+    }
+
+    if (jmpEpilog && lastNode->gtOper == GT_JMP && addrInfo.accessType == IAT_RELPVALUE)
+    {
+        // IAT_RELPVALUE jump at the end is done using relative indirection, so,
+        // additional helper register is required.
+        // We use LR just before it is going to be restored from stack, i.e.
+        //
+        //     movw r12, laddr
+        //     movt r12, haddr
+        //     mov lr, r12
+        //     ldr r12, [r12]
+        //     add r12, r12, lr
+        //     pop {lr}
+        //     ...
+        //     bx r12
+
+        regNumber indCallReg = REG_R12;
+        regNumber vptrReg1   = REG_LR;
+
+        instGen_Set_Reg_To_Imm(EA_HANDLE_CNS_RELOC, indCallReg, (ssize_t)addrInfo.addr);
+        GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, vptrReg1, indCallReg, /* canSkip */ false);
+        GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, indCallReg, indCallReg, 0);
+        GetEmitter()->emitIns_R_R(INS_add, EA_PTRSIZE, indCallReg, vptrReg1);
+    }
+
+    genPopCalleeSavedRegisters(jmpEpilog);
+
+    if (unsigned preSpillRegArgSize = GetPreSpillSize())
+    {
+        // We better not have used a pop PC to return otherwise this will be unreachable code
+        noway_assert(!genUsedPopToReturn);
+
+        inst_RV_IV(INS_add, REG_SPBASE, preSpillRegArgSize, EA_PTRSIZE);
+        compiler->unwindAllocStack(preSpillRegArgSize);
+    }
+
+    if (jmpEpilog)
+    {
+        // We better not have used a pop PC to return otherwise this will be unreachable code
+        noway_assert(!genUsedPopToReturn);
+    }
+
+    if (jmpEpilog)
+    {
+        GenJmpEpilog(block, methHnd, addrInfo);
+    }
+    else if (!genUsedPopToReturn)
+    {
+        // If we did not use a pop to return, then we did a "pop {..., lr}" instead of "pop {..., pc}",
+        // so we need a "bx lr" instruction to return from the function.
+        inst_RV(INS_bx, REG_LR, TYP_I_IMPL);
+        compiler->unwindBranch16();
+    }
+
+    compiler->unwindEndEpilog();
 }
 
 #endif // TARGET_ARM

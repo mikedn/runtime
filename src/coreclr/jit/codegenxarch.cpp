@@ -9420,4 +9420,531 @@ void CodeGen::PrologInitVarargsStackParamsBaseOffset()
 }
 #endif // TARGET_X86
 
+#ifdef FEATURE_EH_FUNCLETS
+
+/*****************************************************************************
+ *
+ *  Generates code for an EH funclet prolog.
+ *
+ *  Funclets have the following incoming arguments:
+ *
+ *      catch/filter-handler: rcx = InitialSP, rdx = the exception object that was caught (see GT_CATCH_ARG)
+ *      filter:               rcx = InitialSP, rdx = the exception object to filter (see GT_CATCH_ARG)
+ *      finally/fault:        rcx = InitialSP
+ *
+ *  Funclets set the following registers on exit:
+ *
+ *      catch/filter-handler: rax = the address at which execution should resume (see BBJ_EHCATCHRET)
+ *      filter:               rax = non-zero if the handler should handle the exception, zero otherwise (see GT_RETFILT)
+ *      finally/fault:        none
+ *
+ *  The AMD64 funclet prolog sequence is:
+ *
+ *     push ebp
+ *     push callee-saved regs
+ *                      ; TODO-AMD64-CQ: We probably only need to save any callee-save registers that we actually use
+ *                      ;         in the funclet. Currently, we save the same set of callee-saved regs calculated for
+ *                      ;         the entire function.
+ *     sub sp, XXX      ; Establish the rest of the frame.
+ *                      ;   XXX is determined by lvaOutgoingArgSpaceSize plus space for the PSP slot, aligned
+ *                      ;   up to preserve stack alignment. If we push an odd number of registers, we also
+ *                      ;   generate this, to keep the stack aligned.
+ *
+ *     ; Fill the PSP slot, for use by the VM (it gets reported with the GC info), or by code generation of nested
+ *     ;    filters.
+ *     ; This is not part of the "OS prolog"; it has no associated unwind data, and is not reversed in the funclet
+ *     ;    epilog.
+ *     ; Also, re-establish the frame pointer from the PSP.
+ *
+ *     mov rbp, [rcx + PSP_slot_InitialSP_offset]       ; Load the PSP (InitialSP of the main function stored in the
+ *                                                      ; PSP of the dynamically containing funclet or function)
+ *     mov [rsp + PSP_slot_InitialSP_offset], rbp       ; store the PSP in our frame
+ *     lea ebp, [rbp + Function_InitialSP_to_FP_delta]  ; re-establish the frame pointer of the parent frame. If
+ *                                                      ; Function_InitialSP_to_FP_delta==0, we don't need this
+ *                                                      ; instruction.
+ *
+ *  The epilog sequence is then:
+ *
+ *     add rsp, XXX
+ *     pop callee-saved regs    ; if necessary
+ *     pop rbp
+ *     ret
+ *
+ *  The funclet frame is thus:
+ *
+ *      |                       |
+ *      |-----------------------|
+ *      |       incoming        |
+ *      |       arguments       |
+ *      +=======================+ <---- Caller's SP
+ *      |    Return address     |
+ *      |-----------------------|
+ *      |      Saved EBP        |
+ *      |-----------------------|
+ *      |Callee saved registers |
+ *      |-----------------------|
+ *      ~  possible 8 byte pad  ~
+ *      ~     for alignment     ~
+ *      |-----------------------|
+ *      |        PSP slot       | // Omitted in CoreRT ABI
+ *      |-----------------------|
+ *      |   Outgoing arg space  | // this only exists if the function makes a call
+ *      |-----------------------| <---- Initial SP
+ *      |       |               |
+ *      ~       | Stack grows   ~
+ *      |       | downward      |
+ *              V
+ *
+ * TODO-AMD64-Bug?: the frame pointer should really point to the PSP slot (the debugger seems to assume this
+ * in DacDbiInterfaceImpl::InitParentFrameInfo()), or someplace above Initial-SP. There is an AMD64
+ * UNWIND_INFO restriction that it must be within 240 bytes of Initial-SP. See jit64\amd64\inc\md.h
+ * "FRAMEPTR OFFSETS" for details.
+ */
+
+void CodeGen::genFuncletProlog(BasicBlock* block)
+{
+#ifdef DEBUG
+    if (verbose)
+    {
+        printf("*************** In genFuncletProlog()\n");
+    }
+#endif
+
+    assert(block != nullptr);
+    assert(block->bbFlags & BBF_FUNCLET_BEG);
+    assert(isFramePointerUsed());
+
+    ScopedSetVariable<bool> _setGeneratingProlog(&generatingProlog, true);
+
+    gcInfo.gcResetForBB();
+
+    compiler->unwindBegProlog();
+
+    // We need to push ebp, since it's callee-saved.
+    // We need to push the callee-saved registers. We only need to push the ones that we need, but we don't
+    // keep track of that on a per-funclet basis, so we push the same set as in the main function.
+    // The only fixed-size frame we need to allocate is whatever is big enough for the PSPSym, since nothing else
+    // is stored here (all temps are allocated in the parent frame).
+    // We do need to allocate the outgoing argument space, in case there are calls here. This must be the same
+    // size as the parent frame's outgoing argument space, to keep the PSPSym offset the same.
+
+    inst_RV(INS_push, REG_FPBASE, TYP_REF);
+    compiler->unwindPush(REG_FPBASE);
+
+    // Callee saved int registers are pushed to stack.
+    PrologPushCalleeSavedRegisters();
+
+    regMaskTP maskArgRegsLiveIn;
+    if ((block->bbCatchTyp == BBCT_FINALLY) || (block->bbCatchTyp == BBCT_FAULT))
+    {
+        maskArgRegsLiveIn = RBM_ARG_0;
+    }
+    else
+    {
+        maskArgRegsLiveIn = RBM_ARG_0 | RBM_ARG_2;
+    }
+
+    regNumber initReg       = REG_EBP; // We already saved EBP, so it can be trashed
+    bool      initRegZeroed = false;
+
+    PrologAllocLclFrame(genFuncletInfo.fiSpDelta, initReg, &initRegZeroed, maskArgRegsLiveIn);
+
+    // Callee saved float registers are copied to stack in their assigned stack slots
+    // after allocating space for them as part of funclet frame.
+    PrologPreserveCalleeSavedFloatRegs(genFuncletInfo.fiSpDelta);
+
+    // This is the end of the OS-reported prolog for purposes of unwinding
+    compiler->unwindEndProlog();
+
+    // If there is no PSPSym (CoreRT ABI), we are done.
+    if (compiler->lvaPSPSym == BAD_VAR_NUM)
+    {
+        return;
+    }
+
+    GetEmitter()->emitIns_R_AR(INS_mov, EA_PTRSIZE, REG_FPBASE, REG_ARG_0, genFuncletInfo.fiPSP_slot_InitialSP_offset);
+    GetEmitter()->emitIns_AR_R(INS_mov, EA_PTRSIZE, REG_FPBASE, REG_SPBASE, genFuncletInfo.fiPSP_slot_InitialSP_offset);
+
+    if (genFuncletInfo.fiFunction_InitialSP_to_FP_delta != 0)
+    {
+        GetEmitter()->emitIns_R_AR(INS_lea, EA_PTRSIZE, REG_FPBASE, REG_FPBASE,
+                                   genFuncletInfo.fiFunction_InitialSP_to_FP_delta);
+    }
+}
+
+/*****************************************************************************
+ *
+ *  Generates code for an EH funclet epilog.
+ *
+ *  Note that we don't do anything with unwind codes, because AMD64 only cares about unwind codes for the prolog.
+ */
+
+void CodeGen::genFuncletEpilog()
+{
+    JITDUMP("*************** In genFuncletEpilog()\n");
+
+    ScopedSetVariable<bool> _setGeneratingEpilog(&generatingEpilog, true);
+
+    // Restore callee saved XMM regs from their stack slots before modifying SP
+    // to position at callee saved int regs.
+    genRestoreCalleeSavedFltRegs(genFuncletInfo.fiSpDelta);
+    inst_RV_IV(INS_add, REG_SPBASE, genFuncletInfo.fiSpDelta, EA_PTRSIZE);
+    genPopCalleeSavedRegisters();
+    inst_RV(INS_pop, REG_EBP, TYP_I_IMPL);
+    instGen(INS_ret);
+}
+
+/*****************************************************************************
+ *
+ *  Capture the information used to generate the funclet prologs and epilogs.
+ */
+
+void CodeGen::genCaptureFuncletPrologEpilogInfo()
+{
+    if (!compiler->ehAnyFunclets())
+    {
+        return;
+    }
+
+    // Note that compLclFrameSize can't be used (for can we call functions that depend on it),
+    // because we're not going to allocate the same size frame as the parent.
+
+    assert(isFramePointerUsed());
+    assert(compiler->lvaDoneFrameLayout == Compiler::FINAL_FRAME_LAYOUT);
+#ifdef WINDOWS_AMD64_ABI
+    assert(calleeFPRegsSavedMask != (regMaskTP)-1); // The float registers to be preserved is finalized
+#endif
+
+    genFuncletInfo.fiFunction_InitialSP_to_FP_delta = genSPtoFPdelta();
+
+    assert(outgoingArgSpaceSize % REGSIZE_BYTES == 0);
+#ifndef UNIX_AMD64_ABI
+    // On win-x64, we always have 4 outgoing argument slots if there are any calls in the function.
+    assert((outgoingArgSpaceSize == 0) || (outgoingArgSpaceSize >= 4 * REGSIZE_BYTES));
+#endif
+
+    unsigned offset = outgoingArgSpaceSize;
+
+    genFuncletInfo.fiPSP_slot_InitialSP_offset = offset;
+
+    // How much stack do we allocate in the funclet?
+    // We need to 16-byte align the stack.
+
+    unsigned totalFrameSize = REGSIZE_BYTES                         // return address
+                              + REGSIZE_BYTES                       // pushed EBP
+                              + (calleeRegsPushed * REGSIZE_BYTES); // pushed callee-saved int regs, not including EBP
+
+    genFuncletInfo.fiSpDelta = 0;
+
+#ifdef WINDOWS_AMD64_ABI
+    if (calleeFPRegsSavedMask != RBM_NONE)
+    {
+        // Entire 128-bits of XMM register is saved to stack due to ABI encoding requirement.
+        // Copying entire XMM register to/from memory will be performant if SP is aligned at XMM_REGSIZE_BYTES boundary.
+        unsigned calleeFPRegsSavedSize = genCountBits(calleeFPRegsSavedMask) * XMM_REGSIZE_BYTES;
+        // Alignment padding before pushing entire xmm regs
+        unsigned xmmRegsPad = AlignmentPad(totalFrameSize, XMM_REGSIZE_BYTES);
+
+        totalFrameSize += xmmRegsPad + calleeFPRegsSavedSize;
+        genFuncletInfo.fiSpDelta += xmmRegsPad + calleeFPRegsSavedSize;
+    }
+#endif
+
+    unsigned PSPSymSize = (compiler->lvaPSPSym != BAD_VAR_NUM) ? REGSIZE_BYTES : 0;
+
+    totalFrameSize += PSPSymSize + outgoingArgSpaceSize;
+
+    genFuncletInfo.fiSpDelta += AlignmentPad(totalFrameSize, 16);
+    genFuncletInfo.fiSpDelta += PSPSymSize + outgoingArgSpaceSize;
+
+#ifdef DEBUG
+    if (verbose)
+    {
+        printf("\n");
+        printf("Funclet prolog / epilog info\n");
+        printf("   Function InitialSP-to-FP delta: %d\n", genFuncletInfo.fiFunction_InitialSP_to_FP_delta);
+        printf("                         SP delta: %d\n", genFuncletInfo.fiSpDelta);
+        printf("       PSP slot Initial SP offset: %d\n", genFuncletInfo.fiPSP_slot_InitialSP_offset);
+    }
+
+    if (compiler->lvaPSPSym != BAD_VAR_NUM)
+    {
+        // same offset used in main function and funclet!
+        assert(genFuncletInfo.fiPSP_slot_InitialSP_offset == compiler->lvaGetPSPSymInitialSPRelativeOffset());
+    }
+#endif // DEBUG
+}
+
+#endif // FEATURE_EH_FUNCLETS
+
+void CodeGen::genFnEpilog(BasicBlock* block)
+{
+    JITDUMP("*************** In genFnEpilog()\n");
+
+    ScopedSetVariable<bool> _setGeneratingEpilog(&generatingEpilog, true);
+
+    VarSetOps::Assign(compiler, gcInfo.gcVarPtrSetCur, GetEmitter()->emitInitGCrefVars);
+    gcInfo.gcRegGCrefSetCur = GetEmitter()->emitInitGCrefRegs;
+    gcInfo.gcRegByrefSetCur = GetEmitter()->emitInitByrefRegs;
+
+    noway_assert(!compiler->opts.MinOpts() || isFramePointerUsed()); // FPO not allowed with minOpts
+
+    bool jmpEpilog = ((block->bbFlags & BBF_HAS_JMP) != 0);
+
+#ifdef DEBUG
+    if (compiler->opts.dspCode)
+    {
+        printf("\n__epilog:\n");
+    }
+
+    if (verbose)
+    {
+        printf("gcVarPtrSetCur=%s ", VarSetOps::ToString(compiler, gcInfo.gcVarPtrSetCur));
+        dumpConvertedVarSet(compiler, gcInfo.gcVarPtrSetCur);
+        printf(", gcRegGCrefSetCur=");
+        printRegMaskInt(gcInfo.gcRegGCrefSetCur);
+        emitter::emitDispRegSet(gcInfo.gcRegGCrefSetCur);
+        printf(", gcRegByrefSetCur=");
+        printRegMaskInt(gcInfo.gcRegByrefSetCur);
+        emitter::emitDispRegSet(gcInfo.gcRegByrefSetCur);
+        printf("\n");
+    }
+#endif
+
+    // Restore float registers that were saved to stack before SP is modified.
+    genRestoreCalleeSavedFltRegs(lclFrameSize);
+
+#ifdef JIT32_GCENCODER
+    // When using the JIT32 GC encoder, we do not start the OS-reported portion of the epilog until after
+    // the above call to `genRestoreCalleeSavedFltRegs` because that function
+    //   a) does not actually restore any registers: there are none when targeting the Windows x86 ABI,
+    //      which is the only target that uses the JIT32 GC encoder
+    //   b) may issue a `vzeroupper` instruction to eliminate AVX -> SSE transition penalties.
+    // Because the `vzeroupper` instruction is not recognized by the VM's unwinder and there are no
+    // callee-save FP restores that the unwinder would need to see, we can avoid the need to change the
+    // unwinder (and break binary compat with older versions of the runtime) by starting the epilog
+    // after any `vzeroupper` instruction has been emitted. If either of the above conditions changes,
+    // we will need to rethink this.
+    GetEmitter()->emitStartEpilog();
+#endif
+
+    /* Compute the size in bytes we've pushed/popped */
+
+    bool removeEbpFrame = doubleAlignOrFramePointerUsed();
+
+#ifdef TARGET_AMD64
+    // We only remove the EBP frame using the frame pointer (using `lea rsp, [rbp + const]`)
+    // if we reported the frame pointer in the prolog. The Windows x64 unwinding ABI specifically
+    // disallows this `lea` form:
+    //
+    //    See https://docs.microsoft.com/en-us/cpp/build/prolog-and-epilog?view=msvc-160#epilog-code
+    //
+    //    "When a frame pointer is not used, the epilog must use add RSP,constant to deallocate the fixed part of the
+    //    stack. It may not use lea RSP,constant[RSP] instead. This restriction exists so the unwind code has fewer
+    //    patterns to recognize when searching for epilogs."
+    //
+    // Otherwise, we must use `add RSP, constant`, as stated. So, we need to use the same condition
+    // as genFnProlog() used in determining whether to report the frame pointer in the unwind data.
+    // This is a subset of the `doubleAlignOrFramePointerUsed()` cases.
+    //
+    if (removeEbpFrame)
+    {
+        const bool reportUnwindData = compiler->compLocallocUsed || compiler->opts.compDbgEnC;
+        removeEbpFrame              = removeEbpFrame && reportUnwindData;
+    }
+#endif // TARGET_AMD64
+
+    if (!removeEbpFrame)
+    {
+        noway_assert(!compiler->compLocallocUsed);
+
+        if (lclFrameSize != 0)
+        {
+#ifdef TARGET_X86
+            if ((lclFrameSize == REGSIZE_BYTES) && !compiler->compJmpOpUsed)
+            {
+                // Pop a scratch register, it's smaller than ADD.
+                GetEmitter()->emitIns_R(INS_pop, EA_4BYTE, REG_ECX);
+            }
+            else
+#endif // TARGET_X86
+            {
+                GetEmitter()->emitIns_R_I(INS_add, EA_PTRSIZE, REG_RSP, static_cast<int>(lclFrameSize));
+            }
+        }
+
+        genPopCalleeSavedRegisters();
+
+#ifdef TARGET_AMD64
+        // In the case where we have an RSP frame, and no frame pointer reported in the OS unwind info,
+        // but we do have a pushed frame pointer and established frame chain, we do need to pop RBP.
+        if (isFramePointerUsed())
+        {
+            GetEmitter()->emitIns_R(INS_pop, EA_8BYTE, REG_RBP);
+        }
+#endif // TARGET_AMD64
+
+        // Extra OSR adjust to get to where RBP was saved by the original frame, and
+        // restore RBP.
+        //
+        // Note the other callee saves made in that frame are dead, the OSR method
+        // will save and restore what it needs.
+        if (compiler->opts.IsOSR())
+        {
+            PatchpointInfo* patchpointInfo    = compiler->info.compPatchpointInfo;
+            const int       originalFrameSize = patchpointInfo->FpToSpDelta();
+
+            // Use add since we know the SP-to-FP delta of the original method.
+            //
+            // If we ever allow the original method to have localloc this will
+            // need to change.
+            inst_RV_IV(INS_add, REG_SPBASE, originalFrameSize, EA_PTRSIZE);
+            inst_RV(INS_pop, REG_EBP, TYP_I_IMPL);
+        }
+    }
+    else
+    {
+        noway_assert(doubleAlignOrFramePointerUsed());
+
+#ifdef TARGET_X86 // "mov esp, ebp" is not allowed in AMD64 epilogs
+        bool needMovEspEbp = false;
+#endif
+
+#if DOUBLE_ALIGN
+        if (doDoubleAlign())
+        {
+            //
+            // add esp, compLclFrameSize
+            //
+            // We need not do anything (except the "mov esp, ebp") if
+            // compiler->compCalleeRegsPushed==0. However, this is unlikely, and it
+            // also complicates the code manager. Hence, we ignore that case.
+
+            noway_assert(lclFrameSize != 0);
+            inst_RV_IV(INS_add, REG_SPBASE, lclFrameSize, EA_PTRSIZE);
+
+            needMovEspEbp = true;
+        }
+        else
+#endif // DOUBLE_ALIGN
+        {
+            bool needLea = false;
+
+            if (compiler->compLocallocUsed)
+            {
+                // OSR not yet ready for localloc
+                assert(!compiler->opts.IsOSR());
+
+                // ESP may be variable if a localloc was actually executed. Reset it.
+                //    lea esp, [ebp - compiler->compCalleeRegsPushed * REGSIZE_BYTES]
+                needLea = true;
+            }
+            else if (lclFrameSize != 0)
+            {
+#ifdef TARGET_X86
+                if (calleeRegsPushed == 0)
+                {
+                    // We will just generate "mov esp, ebp" and be done with it.
+                    needMovEspEbp = true;
+                }
+                else if (lclFrameSize == REGSIZE_BYTES)
+                {
+                    // Pop a scratch register, it's smaller than LEA.
+                    GetEmitter()->emitIns_R(INS_pop, EA_4BYTE, REG_ECX);
+                }
+                else
+#endif // TARGET_X86
+
+                {
+                    // We need to make ESP point to the callee-saved registers
+                    needLea = true;
+                }
+            }
+
+            if (needLea)
+            {
+                int offset;
+
+#ifdef TARGET_AMD64
+                // lea esp, [ebp + compiler->compLclFrameSize - genSPtoFPdelta]
+                //
+                // Case 1: localloc not used.
+                // genSPToFPDelta = compiler->compCalleeRegsPushed * REGSIZE_BYTES + compiler->compLclFrameSize
+                // offset = compiler->compCalleeRegsPushed * REGSIZE_BYTES;
+                // The amount to be subtracted from RBP to point at callee saved int regs.
+                //
+                // Case 2: localloc used
+                // genSPToFPDelta = Min(240, (int)compiler->lvaOutgoingArgSpaceSize)
+                // Offset = Amount to be added to RBP to point at callee saved int regs.
+                offset = genSPtoFPdelta() - lclFrameSize;
+
+                // Offset should fit within a byte if localloc is not used.
+                if (!compiler->compLocallocUsed)
+                {
+                    noway_assert(offset < UCHAR_MAX);
+                }
+#else
+                // lea esp, [ebp - compiler->compCalleeRegsPushed * REGSIZE_BYTES]
+                offset = calleeRegsPushed * REGSIZE_BYTES;
+                noway_assert(offset < UCHAR_MAX); // the offset fits in a byte
+#endif
+
+                GetEmitter()->emitIns_R_AR(INS_lea, EA_PTRSIZE, REG_SPBASE, REG_FPBASE, -offset);
+            }
+        }
+
+        genPopCalleeSavedRegisters();
+
+#ifdef TARGET_AMD64
+        // Extra OSR adjust to get to where RBP was saved by the original frame.
+        //
+        // Note the other callee saves made in that frame are dead, the current method
+        // will save and restore what it needs.
+        if (compiler->opts.IsOSR())
+        {
+            PatchpointInfo* patchpointInfo    = compiler->info.compPatchpointInfo;
+            const int       originalFrameSize = patchpointInfo->FpToSpDelta();
+
+            // Use add since we know the SP-to-FP delta of the original method.
+            // We also need to skip over the slot where we pushed RBP.
+            //
+            // If we ever allow the original method to have localloc this will
+            // need to change.
+            inst_RV_IV(INS_add, REG_SPBASE, originalFrameSize + TARGET_POINTER_SIZE, EA_PTRSIZE);
+        }
+#endif
+
+#ifdef TARGET_X86
+        if (needMovEspEbp)
+        {
+            inst_Mov(TYP_INT, REG_ESP, REG_EBP, /* canSkip */ false);
+        }
+#endif
+
+        inst_RV(INS_pop, REG_EBP, TYP_I_IMPL);
+    }
+
+    GetEmitter()->emitStartExitSeq(); // Mark the start of the "return" sequence
+
+    if (jmpEpilog)
+    {
+        GenJmpEpilog(block);
+
+        return;
+    }
+
+#ifndef TARGET_X86
+    instGen(INS_ret);
+#else
+    if ((paramsStackSize == 0) || compiler->info.compIsVarArgs || IsCallerPop(compiler->info.compCallConv))
+    {
+        instGen(INS_ret);
+    }
+    else
+    {
+        GetEmitter()->emitIns_I(INS_ret, EA_4BYTE, paramsStackSize);
+    }
+#endif // TARGET_X86
+}
+
 #endif // TARGET_XARCH
