@@ -3819,39 +3819,22 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
     stkOffs -= codeGen->calleeRegsPushed * REGSIZE_BYTES;
 
 #ifdef WINDOWS_AMD64_ABI
-    // In case of AMD64 compCalleeRegsPushed includes float regs (XMM6-XMM15) that
-    // need to be pushed. But AMD64 doesn't support push/pop of XMM registers.
-    // Instead we need to allocate space for them on the stack and save them in prolog.
-    // Therefore, we consider XMM registers being saved while computing stack offsets
-    // but space for XMM registers is considered part of compLclFrameSize.
-    // Notes
-    //  1) We need to save the entire 128-bits of XMM register to stack, since AMD64
-    //     prolog unwind codes allow encoding of an instruction that stores the entire
-    //     XMM reg at an offset relative to SP.
-    //  2) We adjust frame size so that SP is aligned at 16-bytes after pushing integer registers.
-    //     This means while saving the first XMM register to its allocated stack location we might
-    //     have to skip 8-bytes. The reason for padding is to use efficient MOVAPS to save/restore
-    //     XMM registers to/from stack to match JIT64 codegen. Without the aligning on 16-byte
-    //     boundary we would have to use MOVUPS when offset turns out unaligned. MOVAPS is more
-    //     performant than MOVUPS.
-    const unsigned calleeFPRegsSavedSize =
-        genCountBits(codeGen->calleeSavedModifiedRegs & RBM_ALLFLOAT) * XMM_REGSIZE_BYTES;
-
-    // For OSR the alignment pad computation should not take the original frame into account.
-    // Original frame size includes the pseudo-saved RA and so is always = 8 mod 16.
-    const int offsetForAlign = -(stkOffs + originalFrameSize);
-
-    if ((calleeFPRegsSavedSize > 0) && ((offsetForAlign % XMM_REGSIZE_BYTES) != 0))
+    if ((codeGen->calleeSavedModifiedRegs & RBM_ALLFLOAT) != RBM_NONE)
     {
-        int alignPad = static_cast<int>(AlignmentPad(static_cast<unsigned>(offsetForAlign), XMM_REGSIZE_BYTES));
-        assert(alignPad != 0);
+        unsigned floatRegsSaveAreaSize =
+            genCountBits(codeGen->calleeSavedModifiedRegs & RBM_ALLFLOAT) * XMM_REGSIZE_BYTES;
 
-        lvaIncrementFrameSize(alignPad);
-        stkOffs -= alignPad;
+        // Add extra space to keep the float register load/stores 16 byte aligned.
+        // For OSR the alignment computation should not take the original frame into account.
+        // Original frame size includes the pseudo-saved RA and so is always = 8 mod 16.
+        if (-(stkOffs + originalFrameSize) % XMM_REGSIZE_BYTES != 0)
+        {
+            floatRegsSaveAreaSize += REGSIZE_BYTES;
+        }
+
+        lvaIncrementFrameSize(floatRegsSaveAreaSize);
+        stkOffs -= floatRegsSaveAreaSize;
     }
-
-    lvaIncrementFrameSize(calleeFPRegsSavedSize);
-    stkOffs -= calleeFPRegsSavedSize;
 #elif defined(TARGET_X86)
     const int preSpillSize    = 0;
     bool      mustDoubleAlign = false;
