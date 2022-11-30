@@ -2687,9 +2687,7 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
 
         // Frame pointer doesn't point at the end, it points at the pushed r11. So, instead
         // of adding the number of callee-saved regs to CallerSP, we add 1 for lr and 1 for r11
-        // (plus the "pre spill regs"). Note that we assume r12 and r13 aren't saved
-        // (also assumed in genFnProlog()).
-        assert((calleeSavedRegs & (RBM_R12 | RBM_R13)) == RBM_NONE);
+        // (plus the "pre spill regs").
 
         unsigned preSpillRegArgSize                = GetPreSpillSize();
         genFuncletInfo.fiFunctionCallerSPtoFPdelta = preSpillRegArgSize + 2 * REGSIZE_BYTES;
