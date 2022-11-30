@@ -3834,7 +3834,8 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
     //     XMM registers to/from stack to match JIT64 codegen. Without the aligning on 16-byte
     //     boundary we would have to use MOVUPS when offset turns out unaligned. MOVAPS is more
     //     performant than MOVUPS.
-    const unsigned calleeFPRegsSavedSize = genCountBits(codeGen->calleeFPRegsSavedMask) * XMM_REGSIZE_BYTES;
+    const unsigned calleeFPRegsSavedSize =
+        genCountBits(codeGen->calleeSavedModifiedRegs & RBM_ALLFLOAT) * XMM_REGSIZE_BYTES;
 
     // For OSR the alignment pad computation should not take the original frame into account.
     // Original frame size includes the pseudo-saved RA and so is always = 8 mod 16.

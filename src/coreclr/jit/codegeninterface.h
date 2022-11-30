@@ -127,10 +127,13 @@ public:
     // In case of Amd64 this doesn't include float regs saved on stack.
     unsigned calleeRegsPushed;
 
-#ifdef WINDOWS_AMD64_ABI
-    // Mask of callee saved float regs on stack.
-    regMaskTP calleeFPRegsSavedMask;
-#endif
+    // Callee saved registers that are modified by the compiled method, and thus
+    // need to be saved in prolog and restored in epilog.
+    // These are registers that have been allocated by LSRA and registers used in
+    // prolog for various purposes (e.g. block initialization), without registers
+    // having special uses (frame/stack pointer, link register on ARM64) that too
+    // have to be saved and restored.
+    regMaskTP calleeSavedModifiedRegs = RBM_NONE;
 
 #ifdef UNIX_AMD64_ABI
     // This flag  is indicating if there is a need to align the frame.

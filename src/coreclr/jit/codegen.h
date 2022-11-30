@@ -34,13 +34,6 @@ class CodeGen final : public CodeGenInterface
     // Registers reserved for special purposes, that cannot be allocated by LSRA.
     regMaskTP reservedRegs = RBM_NONE;
 #endif
-    // Callee saved registers that are modified by the compiled method, and thus
-    // need to be saved in prolog and restored in epilog.
-    // These are registers that have been allocated by LSRA and registers used in
-    // prolog for various purposes (e.g. block initialization), without registers
-    // having special uses (frame/stack pointer, link register on ARM64) that too
-    // have to be saved and restored.
-    regMaskTP calleeSavedModifiedRegs = RBM_NONE;
 
 public:
     GCInfo gcInfo;

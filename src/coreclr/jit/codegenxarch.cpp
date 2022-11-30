@@ -8985,12 +8985,8 @@ void CodeGen::PrologPreserveCalleeSavedFloatRegs(unsigned lclFrameSize)
 #ifndef WINDOWS_AMD64_ABI
     static_assert_no_msg(RBM_FLT_CALLEE_SAVED == RBM_NONE);
 #else
-    regMaskTP regMask = calleeFPRegsSavedMask;
+    regMaskTP regMask = calleeSavedModifiedRegs & RBM_ALLFLOAT;
 
-    // Only callee saved floating point registers should be in regMask
-    assert((regMask & RBM_FLT_CALLEE_SAVED) == regMask);
-
-    // fast path return
     if (regMask == RBM_NONE)
     {
         return;
@@ -9030,12 +9026,8 @@ void CodeGen::genRestoreCalleeSavedFltRegs(unsigned lclFrameSize)
 #ifndef WINDOWS_AMD64_ABI
     static_assert_no_msg(RBM_FLT_CALLEE_SAVED == RBM_NONE);
 #else
-    regMaskTP regMask = calleeFPRegsSavedMask;
+    regMaskTP regMask = calleeSavedModifiedRegs & RBM_ALLFLOAT;
 
-    // Only callee saved floating point registers should be in regMask
-    assert((regMask & RBM_FLT_CALLEE_SAVED) == regMask);
-
-    // fast path return
     if (regMask == RBM_NONE)
     {
         genVzeroupperIfNeeded();
@@ -9606,9 +9598,6 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
 
     assert(isFramePointerUsed());
     assert(compiler->lvaDoneFrameLayout == Compiler::FINAL_FRAME_LAYOUT);
-#ifdef WINDOWS_AMD64_ABI
-    assert(calleeFPRegsSavedMask != (regMaskTP)-1); // The float registers to be preserved is finalized
-#endif
 
     genFuncletInfo.fiFunction_InitialSP_to_FP_delta = genSPtoFPdelta();
 
@@ -9632,11 +9621,11 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
     genFuncletInfo.fiSpDelta = 0;
 
 #ifdef WINDOWS_AMD64_ABI
-    if (calleeFPRegsSavedMask != RBM_NONE)
+    if ((calleeSavedModifiedRegs & RBM_ALLFLOAT) != RBM_NONE)
     {
         // Entire 128-bits of XMM register is saved to stack due to ABI encoding requirement.
         // Copying entire XMM register to/from memory will be performant if SP is aligned at XMM_REGSIZE_BYTES boundary.
-        unsigned calleeFPRegsSavedSize = genCountBits(calleeFPRegsSavedMask) * XMM_REGSIZE_BYTES;
+        unsigned calleeFPRegsSavedSize = genCountBits(calleeSavedModifiedRegs & RBM_ALLFLOAT) * XMM_REGSIZE_BYTES;
         // Alignment padding before pushing entire xmm regs
         unsigned xmmRegsPad = AlignmentPad(totalFrameSize, XMM_REGSIZE_BYTES);
 

@@ -47,15 +47,8 @@ CodeGen::CodeGen(Compiler* compiler) : CodeGenInterface(compiler), m_liveness(co
     getDisAssembler().disInit(compiler);
 #endif
 
-#ifdef DEBUG
     // Shouldn't be used before it is set in genFnProlog()
-    calleeRegsPushed = UninitializedWord<unsigned>(compiler);
-
-#ifdef WINDOWS_AMD64_ABI
-    // Shouldn't be used before it is set in genFinalizeFrame.
-    calleeFPRegsSavedMask = (regMaskTP)-1;
-#endif
-#endif
+    INDEBUG(calleeRegsPushed = UninitializedWord<unsigned>(compiler));
 }
 
 //------------------------------------------------------------------------
@@ -4350,7 +4343,6 @@ void CodeGen::genFinalizeFrame()
     calleeSavedModifiedRegs = pushedRegs & RBM_CALLEE_SAVED;
 
 #ifdef WINDOWS_AMD64_ABI
-    calleeFPRegsSavedMask = pushedRegs & RBM_ALLFLOAT;
     pushedRegs &= ~RBM_ALLFLOAT;
 #endif
 
