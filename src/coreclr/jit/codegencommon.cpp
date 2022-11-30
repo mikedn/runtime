@@ -1040,7 +1040,7 @@ void CodeGen::genAllocateRegisters()
     modifiedRegs |= reservedRegs;
 #endif
 
-    regSet.AddModifiedRegs(modifiedRegs);
+    calleeSavedModifiedRegs = modifiedRegs & RBM_CALLEE_SAVED;
 }
 
 void CodeGen::genGenerateMachineCode()
@@ -4183,7 +4183,7 @@ void CodeGen::genFinalizeFrame()
     // Mark various registers as "modified" for special code generation scenarios:
     // Edit & Continue, P/Invoke calls, stack probing, profiler hooks etc.
 
-    const regMaskTP modifiedRegs = regSet.rsGetModifiedRegsMask();
+    const regMaskTP modifiedRegs = calleeSavedModifiedRegs;
 
     noway_assert(!doubleAlignOrFramePointerUsed() || ((modifiedRegs & RBM_FPBASE) == RBM_NONE));
 #if ETW_EBP_FRAMED
@@ -4347,6 +4347,8 @@ void CodeGen::genFinalizeFrame()
 
     assert((specialRegs & RBM_FPBASE) == RBM_NONE);
 
+    calleeSavedModifiedRegs = pushedRegs & RBM_CALLEE_SAVED;
+
 #ifdef WINDOWS_AMD64_ABI
     calleeFPRegsSavedMask = pushedRegs & RBM_ALLFLOAT;
     pushedRegs &= ~RBM_ALLFLOAT;
@@ -4364,8 +4366,6 @@ void CodeGen::genFinalizeFrame()
         printf("\n");
     }
 #endif
-
-    regSet.AddModifiedRegs(specialRegs);
 
     UpdateParamsWithInitialReg();
 
@@ -4404,7 +4404,7 @@ regNumber CodeGen::PrologChooseInitReg(regMaskTP initRegs)
 
     if (candidateRegs == RBM_NONE)
     {
-        candidateRegs = regSet.rsGetModifiedRegsMask() & RBM_ALLINT & ~excludeRegs;
+        candidateRegs = (RBM_INT_CALLEE_TRASH | (calleeSavedModifiedRegs & RBM_ALLINT)) & ~excludeRegs;
     }
 
     return candidateRegs == RBM_NONE ? REG_SCRATCH : genRegNumFromMask(genFindLowestBit(candidateRegs));
@@ -4574,7 +4574,7 @@ void CodeGen::genFnProlog()
         }
     }
 
-    if (genStackAllocRegisterMask(lclFrameSize, regSet.rsGetModifiedRegsMask()) == RBM_NONE)
+    if (genStackAllocRegisterMask(lclFrameSize, calleeSavedModifiedRegs) == RBM_NONE)
     {
         PrologAllocLclFrame(lclFrameSize, initReg, &initRegZeroed, paramRegState.intRegLiveIn);
     }

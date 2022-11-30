@@ -1348,7 +1348,7 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
 
     genFuncletInfo.fiFunction_CallerSP_to_FP_delta = genCallerSPtoFPdelta();
 
-    regMaskTP rsMaskSaveRegs = regSet.rsGetModifiedRegsMask() & RBM_CALLEE_SAVED;
+    regMaskTP rsMaskSaveRegs = calleeSavedModifiedRegs;
 
     if (isFramePointerUsed())
     {
@@ -1670,8 +1670,6 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
         // should not be in this else condition
         assert(ins == INS_movk);
     }
-
-    regSet.verifyRegUsed(reg);
 }
 
 void CodeGen::GenIntCon(GenTreeIntCon* node)
@@ -3431,9 +3429,6 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
     GetEmitter()->emitIns_Call(callType, Compiler::eeFindHelper(helper) DEBUGARG(nullptr), addr, retSize, EA_UNKNOWN,
                                gcInfo.gcVarPtrSetCur, gcInfo.gcRegGCrefSetCur, gcInfo.gcRegByrefSetCur, BAD_IL_OFFSET,
                                callTarget, false);
-
-    regMaskTP killMask = compiler->compHelperCallKillSet(helper);
-    regSet.verifyRegistersUsed(killMask);
 }
 
 #ifdef FEATURE_SIMD
@@ -8377,7 +8372,7 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
         // until this is complete since the tickles could cause a stack overflow, and we need to be able to crawl
         // the stack afterward (which means the stack pointer needs to be known).
 
-        regMaskTP availMask = RBM_ALLINT & (regSet.rsGetModifiedRegsMask() | ~RBM_INT_CALLEE_SAVED);
+        regMaskTP availMask = RBM_INT_CALLEE_TRASH;
         availMask &= ~maskArgRegsLiveIn;   // Remove all of the incoming argument registers as they are currently live
         availMask &= ~genRegMask(initReg); // Remove the pre-calculated initReg
 
@@ -8924,7 +8919,7 @@ void CodeGen::PrologPushCalleeSavedRegisters(regNumber initReg, bool* pInitRegZe
     bool ignoreInitRegZeroed = false;
     PrologAllocLclFrame(lclFrameSize, REG_SCRATCH, &ignoreInitRegZeroed, paramRegState.intRegLiveIn);
 
-    regMaskTP rsPushRegs = regSet.rsGetModifiedRegsMask() & RBM_CALLEE_SAVED;
+    regMaskTP rsPushRegs = calleeSavedModifiedRegs;
 
     // On ARM we push the FP (frame-pointer) here along with all other callee saved registers
     if (isFramePointerUsed())
@@ -9668,11 +9663,11 @@ void CodeGen::genPopCalleeSavedRegistersAndFreeLclFrame(bool jmpEpilog)
 {
     assert(generatingEpilog);
 
-    regMaskTP rsRestoreRegs = regSet.rsGetModifiedRegsMask() & RBM_CALLEE_SAVED;
+    regMaskTP rsRestoreRegs = calleeSavedModifiedRegs;
 
     if (isFramePointerUsed())
     {
-        rsRestoreRegs |= RBM_FPBASE;
+        rsRestoreRegs |= RBM_FP;
     }
 
     rsRestoreRegs |= RBM_LR; // We must save/restore the return address (in the LR register)

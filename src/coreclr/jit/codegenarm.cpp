@@ -247,8 +247,6 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
             }
         }
     }
-
-    regSet.verifyRegUsed(reg);
 }
 
 void CodeGen::GenIntCon(GenTreeIntCon* node)
@@ -1295,8 +1293,6 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
         callTargetReg,
         false);
     // clang-format on
-
-    regSet.verifyRegistersUsed(RBM_CALLEE_TRASH);
 }
 
 //------------------------------------------------------------------------
@@ -2020,7 +2016,7 @@ void CodeGen::PrologBlockInitLocals(int untrLclHi, int untrLclLo, regNumber init
     regMaskTP regMask;
 
     // Set of available registers
-    regMaskTP availMask = regSet.rsGetModifiedRegsMask() | RBM_INT_CALLEE_TRASH;
+    regMaskTP availMask = (calleeSavedModifiedRegs & RBM_ALLINT) | RBM_INT_CALLEE_TRASH;
     // Remove all of the incoming argument registers as they are currently live
     availMask &= ~paramRegState.intRegLiveIn;
     // Remove the pre-calculated initReg as we will zero it and maybe use it for a large constant.
@@ -2315,7 +2311,7 @@ void CodeGen::PrologPushCalleeSavedRegisters()
 {
     assert(generatingProlog);
 
-    regMaskTP rsPushRegs = regSet.rsGetModifiedRegsMask() & RBM_CALLEE_SAVED;
+    regMaskTP rsPushRegs = calleeSavedModifiedRegs;
 
     // On ARM we push the FP (frame-pointer) here along with all other callee saved registers
     if (isFramePointerUsed())
@@ -2377,7 +2373,7 @@ void CodeGen::genPopCalleeSavedRegisters(bool jmpEpilog)
 {
     assert(generatingEpilog);
 
-    regMaskTP maskPopRegs      = regSet.rsGetModifiedRegsMask() & RBM_CALLEE_SAVED;
+    regMaskTP maskPopRegs      = calleeSavedModifiedRegs;
     regMaskTP maskPopRegsFloat = maskPopRegs & RBM_ALLFLOAT;
     regMaskTP maskPopRegsInt   = maskPopRegs & ~maskPopRegsFloat;
 
@@ -2690,7 +2686,7 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
         unsigned preSpillRegArgSize                = GetPreSpillSize();
         genFuncletInfo.fiFunctionCallerSPtoFPdelta = preSpillRegArgSize + 2 * REGSIZE_BYTES;
 
-        regMaskTP rsMaskSaveRegs = regSet.rsGetModifiedRegsMask() & RBM_CALLEE_SAVED;
+        regMaskTP rsMaskSaveRegs = calleeSavedModifiedRegs;
 
         if (isFramePointerUsed())
         {
@@ -2823,8 +2819,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
         compiler->unwindSetFrameReg(REG_SAVED_LOCALLOC_SP, 0);
     }
 
-    if (jmpEpilog ||
-        genStackAllocRegisterMask(lclFrameSize, regSet.rsGetModifiedRegsMask() & RBM_FLT_CALLEE_SAVED) == RBM_NONE)
+    if (jmpEpilog || genStackAllocRegisterMask(lclFrameSize, calleeSavedModifiedRegs) == RBM_NONE)
     {
         genFreeLclFrame(lclFrameSize, &unwindStarted);
     }

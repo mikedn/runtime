@@ -626,8 +626,6 @@ void CodeGen::instGen_Set_Reg_To_Imm(emitAttr  size,
     {
         GetEmitter()->emitIns_R_I(INS_mov, size, reg, imm);
     }
-
-    regSet.verifyRegUsed(reg);
 }
 
 void CodeGen::GenIntCon(GenTreeIntCon* node, regNumber reg, var_types type)
@@ -7854,7 +7852,7 @@ void* CodeGen::genCreateAndStoreGCInfoJIT32(unsigned codeSize,
     size_t headerSize =
 #endif
         compInfoBlkSize = gcInfo.gcInfoBlockHdrSave(headerBuf, 0, codeSize, prologSize, epilogSize,
-                                                    regSet.rsGetModifiedRegsMask(), &header, &s_cached);
+                                                    calleeSavedModifiedRegs, &header, &s_cached);
 
     size_t argTabOffset = 0;
     size_t ptrMapSize   = gcInfo.gcPtrTableSize(header, codeSize, &argTabOffset);
@@ -7905,7 +7903,7 @@ void* CodeGen::genCreateAndStoreGCInfoJIT32(unsigned codeSize,
     /* Create the method info block: header followed by GC tracking tables */
 
     compInfoBlkAddr += gcInfo.gcInfoBlockHdrSave(compInfoBlkAddr, -1, codeSize, prologSize, epilogSize,
-                                                 regSet.rsGetModifiedRegsMask(), &header, &s_cached);
+                                                 calleeSavedModifiedRegs, &header, &s_cached);
 
     assert(compInfoBlkAddr == (BYTE*)infoPtr + headerSize);
     compInfoBlkAddr = gcInfo.gcPtrTableSave(compInfoBlkAddr, header, codeSize, &argTabOffset);
@@ -8053,7 +8051,6 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
     emitter::EmitCallType callType = emitter::EC_FUNC_TOKEN;
     addr                           = compiler->compGetHelperFtn(helper, &pAddr);
     regNumber callTarget           = REG_NA;
-    regMaskTP killMask             = compiler->compHelperCallKillSet(helper);
 
     if (!addr)
     {
@@ -8084,7 +8081,7 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
                 // this is only a valid assumption if the helper call is known to kill REG_DEFAULT_HELPER_CALL_TARGET.
                 callTargetReg            = REG_DEFAULT_HELPER_CALL_TARGET;
                 regMaskTP callTargetMask = genRegMask(callTargetReg);
-                noway_assert((callTargetMask & killMask) == callTargetMask);
+                noway_assert((callTargetMask & compiler->compHelperCallKillSet(helper)) == callTargetMask);
             }
             else
             {
@@ -8120,8 +8117,6 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
                                false         // isJump
                                );
     // clang-format on
-
-    regSet.verifyRegistersUsed(killMask);
 }
 
 /*****************************************************************************
@@ -8906,7 +8901,7 @@ void CodeGen::PrologPushCalleeSavedRegisters()
     // x86/x64 doesn't support push of xmm/ymm regs, therefore consider only integer registers for pushing onto stack
     // here. Space for float registers to be preserved is stack allocated and saved as part of prolog sequence and not
     // here.
-    regMaskTP rsPushRegs = regSet.rsGetModifiedRegsMask() & RBM_INT_CALLEE_SAVED;
+    regMaskTP rsPushRegs = calleeSavedModifiedRegs & RBM_ALLINT;
 
     // On X86/X64 we have already pushed the FP (frame-pointer) prior to calling this method
     if (isFramePointerUsed())
@@ -8957,7 +8952,7 @@ void CodeGen::genPopCalleeSavedRegisters(bool jmpEpilog)
 {
     assert(generatingEpilog);
 
-    regMaskTP popRegs  = regSet.rsGetModifiedRegsMask() & RBM_INT_CALLEE_SAVED;
+    regMaskTP popRegs  = calleeSavedModifiedRegs & RBM_ALLINT;
     unsigned  popCount = 0;
 
     for (regNumber reg = REG_INT_FIRST; popRegs != RBM_NONE; reg = REG_NEXT(reg))

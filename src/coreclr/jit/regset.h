@@ -54,24 +54,6 @@ public:
         static void freeDsc(RegSet* regSet, SpillDsc* spillDsc);
     };
 
-    //-------------------------------------------------------------------------
-    //
-    //  Track the status of the registers
-    //
-
-private:
-    regMaskTP rsModifiedRegsMask = RBM_NONE; // mask of the registers modified by the current function.
-
-public:
-    regMaskTP rsGetModifiedRegsMask() const
-    {
-        return rsModifiedRegsMask;
-    }
-
-    void AddModifiedRegs(regMaskTP mask);
-    void verifyRegUsed(regNumber reg);
-    void verifyRegistersUsed(regMaskTP regMask);
-
 private:
     //-------------------------------------------------------------------------
     //
