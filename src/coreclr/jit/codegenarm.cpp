@@ -2346,8 +2346,6 @@ void CodeGen::PrologPushCalleeSavedRegisters()
     //
     rsPushRegs |= RBM_LR; // We must save the return address (in the LR register)
 
-    calleeSavedRegs = rsPushRegs;
-
 #ifdef DEBUG
     if (calleeRegsPushed != genCountBits(rsPushRegs))
     {
@@ -2692,9 +2690,17 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
         unsigned preSpillRegArgSize                = GetPreSpillSize();
         genFuncletInfo.fiFunctionCallerSPtoFPdelta = preSpillRegArgSize + 2 * REGSIZE_BYTES;
 
-        regMaskTP rsMaskSaveRegs = calleeSavedRegs;
-        unsigned  saveRegsCount  = genCountBits(rsMaskSaveRegs);
-        unsigned  saveRegsSize   = saveRegsCount * REGSIZE_BYTES; // bytes of regs we're saving
+        regMaskTP rsMaskSaveRegs = regSet.rsGetModifiedRegsMask() & RBM_CALLEE_SAVED;
+
+        if (isFramePointerUsed())
+        {
+            rsMaskSaveRegs |= RBM_FP;
+        }
+
+        rsMaskSaveRegs |= RBM_LR;
+
+        unsigned saveRegsCount = genCountBits(rsMaskSaveRegs);
+        unsigned saveRegsSize  = saveRegsCount * REGSIZE_BYTES; // bytes of regs we're saving
         assert(outgoingArgSpaceSize % REGSIZE_BYTES == 0);
         unsigned funcletFrameSize =
             preSpillRegArgSize + saveRegsSize + REGSIZE_BYTES /* PSP slot */ + outgoingArgSpaceSize;

@@ -1348,9 +1348,14 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
 
     genFuncletInfo.fiFunction_CallerSP_to_FP_delta = genCallerSPtoFPdelta();
 
-    regMaskTP rsMaskSaveRegs = calleeSavedRegs;
-    assert((rsMaskSaveRegs & RBM_LR) != 0);
-    assert((rsMaskSaveRegs & RBM_FP) != 0);
+    regMaskTP rsMaskSaveRegs = regSet.rsGetModifiedRegsMask() & RBM_CALLEE_SAVED;
+
+    if (isFramePointerUsed())
+    {
+        rsMaskSaveRegs |= RBM_FP;
+    }
+
+    rsMaskSaveRegs |= RBM_LR;
 
     unsigned PSPSize = (compiler->lvaPSPSym != BAD_VAR_NUM) ? REGSIZE_BYTES : 0;
 
@@ -8949,8 +8954,6 @@ void CodeGen::PrologPushCalleeSavedRegisters(regNumber initReg, bool* pInitRegZe
     // is not worth it.
     //
     rsPushRegs |= RBM_LR; // We must save the return address (in the LR register)
-
-    calleeSavedRegs = rsPushRegs;
 
 #ifdef DEBUG
     if (calleeRegsPushed != genCountBits(rsPushRegs))

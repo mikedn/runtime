@@ -31,8 +31,6 @@ class CodeGen final : public CodeGenInterface
 
     CodeGenLivenessUpdater m_liveness;
 #ifdef TARGET_ARMARCH
-    // Registers saved/restored in prolog/epilog.
-    regMaskTP calleeSavedRegs = RBM_NONE;
     // Registers reserved for special purposes, that cannot be allocated by LSRA.
     regMaskTP reservedRegs = RBM_NONE;
 #endif
