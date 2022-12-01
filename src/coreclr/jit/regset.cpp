@@ -102,7 +102,7 @@ SpillTemp* SpillTempSet::AllocTemp(var_types type)
     noway_assert(temp != nullptr);
 
     JITDUMP("Using temp #%d\n", -temp->GetNum());
-    INDEBUG(usedTempCount++);
+    INDEBUG(defCount++);
 
     temp->next           = usedTemps[listIndex];
     usedTemps[listIndex] = temp;
@@ -113,10 +113,10 @@ SpillTemp* SpillTempSet::AllocTemp(var_types type)
 void SpillTempSet::ReleaseTemp(SpillTemp* temp)
 {
     assert(temp != nullptr);
-    assert(usedTempCount != 0);
+    assert(defCount != 0);
 
     JITDUMP("Releasing temp #%d\n", -temp->GetNum());
-    INDEBUG(usedTempCount--);
+    INDEBUG(defCount--);
 
     unsigned    listIndex = GetTempListIndex(temp->GetSize());
     SpillTemp** last      = &usedTemps[listIndex];
@@ -182,65 +182,3 @@ SpillTemp* SpillTempSet::UseSpillTemp(GenTree* node, unsigned regIndex)
 
     return def->temp;
 }
-
-#ifdef DEBUG
-
-bool SpillTempSet::AreAllTempsFree() const
-{
-    if (usedTempCount != 0)
-    {
-        return false;
-    }
-
-    for (unsigned i = 0; i < _countof(usedTemps); i++)
-    {
-        if (usedTemps[i] != nullptr)
-        {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-bool SpillTempSet::AreAllSpillDefsFree() const
-{
-    if (usedTempCount != 0)
-    {
-        return false;
-    }
-
-    for (unsigned i = 0; i < _countof(regDefMap); i++)
-    {
-        if (regDefMap[i] != nullptr)
-        {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-void SpillTempSet::End() const
-{
-    assert(AreAllSpillDefsFree());
-
-    if (tempCount > 0)
-    {
-        JITDUMP("%u tmps used\n", tempCount);
-    }
-}
-
-void SpillTempSet::Done() const
-{
-    assert(AreAllSpillDefsFree());
-    assert(AreAllTempsFree());
-    assert(usedTempCount == 0);
-
-    for (SpillTemp& temp : *this)
-    {
-        assert(temp.IsAllocated());
-    }
-}
-
-#endif // DEBUG

@@ -48,8 +48,6 @@ void CodeGen::genInitialize()
     gcInfo.gcRegPtrSetInit();
     gcInfo.gcVarPtrSetInit();
 
-    assert(spillTemps.AreAllSpillDefsFree());
-
 #if !FEATURE_FIXED_OUT_ARGS
     // We initialize the stack level before first "BasicBlock" code is generated in case we need to report stack
     // variable needs home and so its stack offset.
@@ -394,17 +392,10 @@ void CodeGen::genCodeForBBlist()
             }
         }
 
+        // Nodes do not have uses accross blocks so no spill temps should be live at the end of a block.
+        assert(spillTemps.GetDefCount() == 0);
+
 #ifdef DEBUG
-        // The following set of register spill checks and GC pointer tracking checks used to be
-        // performed at statement boundaries. Now, with LIR, there are no statements, so they are
-        // performed at the end of each block.
-        // TODO: could these checks be performed more frequently? E.g., at each location where
-        // the register allocator says there are no live non-variable registers. Perhaps this could
-        // be done by using the map maintained by LSRA (operandToLocationInfoMap) to mark a node
-        // somehow when, after the execution of that node, there will be no live non-variable registers.
-
-        assert(spillTemps.AreAllSpillDefsFree());
-
         /* Make sure we didn't bungle pointer register tracking */
 
         regMaskTP ptrRegs       = gcInfo.gcRegGCrefSetCur | gcInfo.gcRegByrefSetCur;
@@ -751,8 +742,6 @@ void CodeGen::genCodeForBBlist()
     // There could be variables alive at this point. For example see lvaKeepAliveAndReportThis.
     // This call is for cleaning the GC refs
     m_liveness.ChangeLife(this, VarSetOps::MakeEmpty(compiler));
-
-    INDEBUG(spillTemps.End());
 
 #ifdef DEBUG
     if (compiler->verbose)

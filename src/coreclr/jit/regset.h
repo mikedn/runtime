@@ -98,7 +98,7 @@ class SpillTempSet
     SpillTemp*      usedTemps[TempListCount]{};
     SpillTemp*      temps     = nullptr;
     unsigned        tempCount = 0;
-    INDEBUG(unsigned usedTempCount = 0;)
+    INDEBUG(unsigned defCount = 0;)
 
     enum TempState
     {
@@ -130,10 +130,10 @@ public:
     }
 
 #ifdef DEBUG
-    bool AreAllTempsFree() const;
-    bool AreAllSpillDefsFree() const;
-    void End() const;
-    void Done() const;
+    unsigned GetDefCount() const
+    {
+        return defCount;
+    }
 #endif
 
 private:

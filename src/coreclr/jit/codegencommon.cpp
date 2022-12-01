@@ -1425,8 +1425,6 @@ void CodeGen::genEmitUnwindDebugGCandEH()
 
 #endif // DEBUG
 
-    INDEBUG(spillTemps.Done());
-
 #if DISPLAY_SIZES
 
     size_t dataSize = GetEmitter()->emitDataSize();
