@@ -103,36 +103,20 @@ SpillTemp* SpillTempSet::AllocTemp(var_types type)
 
     JITDUMP("Using temp #%d\n", -temp->GetNum());
     INDEBUG(defCount++);
-
-    temp->next           = usedTemps[listIndex];
-    usedTemps[listIndex] = temp;
+    INDEBUG(temp->next = nullptr);
 
     return temp;
 }
 
 void SpillTempSet::ReleaseTemp(SpillTemp* temp)
 {
-    assert(temp != nullptr);
+    assert((temp != nullptr) && (temp->next == nullptr));
     assert(defCount != 0);
 
     JITDUMP("Releasing temp #%d\n", -temp->GetNum());
     INDEBUG(defCount--);
 
-    unsigned    listIndex = GetTempListIndex(temp->GetSize());
-    SpillTemp** last      = &usedTemps[listIndex];
-    SpillTemp*  t;
-
-    for (t = *last; t != nullptr; last = &t->next, t = *last)
-    {
-        if (t == temp)
-        {
-            *last = t->next;
-            break;
-        }
-    }
-
-    assert(t != nullptr);
-
+    unsigned listIndex   = GetTempListIndex(temp->GetSize());
     temp->next           = freeTemps[listIndex];
     freeTemps[listIndex] = temp;
 }
