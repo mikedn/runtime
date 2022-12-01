@@ -21,20 +21,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 #include "emit.h"
 
-/*****************************************************************************/
-
-#ifdef TARGET_ARM64
-const regMaskSmall regMasks[] = {
-#define REGDEF(name, rnum, mask, xname, wname) mask,
-#include "register.h"
-};
-#else // !TARGET_ARM64
-const regMaskSmall regMasks[] = {
-#define REGDEF(name, rnum, mask, sname) mask,
-#include "register.h"
-};
-#endif
-
 // Finds the SpillDsc corresponding to 'tree' assuming it was spilled from 'reg'.
 RegSet::SpillDsc* RegSet::rsGetSpillInfo(GenTree* tree, regNumber reg, SpillDsc** pPrevDsc)
 {

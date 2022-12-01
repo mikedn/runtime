@@ -22,4 +22,9 @@ const regNumber fltArgRegs [] = {REG_V0, REG_V1, REG_V2, REG_V3, REG_V4, REG_V5,
 const regMaskTP fltArgMasks[] = {RBM_V0, RBM_V1, RBM_V2, RBM_V3, RBM_V4, RBM_V5, RBM_V6, RBM_V7 };
 // clang-format on
 
+const regMaskSmall regMasks[]{
+#define REGDEF(name, rnum, mask, xname, wname) mask,
+#include "register.h"
+};
+
 #endif // TARGET_ARM64

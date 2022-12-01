@@ -28,4 +28,9 @@ const regMaskTP fltArgMasks[] = { RBM_XMM0, RBM_XMM1, RBM_XMM2, RBM_XMM3 };
 #endif // !UNIX_AMD64_ABI
 // clang-format on
 
+const regMaskSmall regMasks[]{
+#define REGDEF(name, rnum, mask, sname) mask,
+#include "register.h"
+};
+
 #endif // TARGET_AMD64
