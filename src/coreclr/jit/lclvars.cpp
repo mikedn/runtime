@@ -4746,7 +4746,7 @@ int Compiler::lvaAllocateTemps(int stkOffs
     for (SpillTemp& temp : codeGen->spillTemps)
     {
         var_types type = temp.GetType();
-        unsigned  size = temp.GetSize();
+        unsigned  size = varTypeSize(type);
 
 #ifdef TARGET_64BIT
         if (varTypeIsGC(type) && ((stkOffs % REGSIZE_BYTES) != 0))

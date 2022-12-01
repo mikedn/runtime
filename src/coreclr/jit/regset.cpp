@@ -16,10 +16,10 @@ var_types SpillTempSet::GetTempType(var_types type)
     return varActualType(type);
 }
 
-unsigned SpillTempSet::GetTempListIndex(unsigned size)
+unsigned SpillTempSet::GetTempListIndex(var_types type)
 {
+    unsigned size = varTypeSize(type);
     noway_assert((TempMinSize <= size) && (size <= TempMaxSize) && (size % TempMinSize == 0));
-
     return genLog2(size / TempMinSize);
 }
 
@@ -57,12 +57,11 @@ void SpillTempSet::PreAllocateTemps(const unsigned* typeSpillCounts)
             continue;
         }
 
-        unsigned size      = varTypeSize(type);
-        unsigned listIndex = GetTempListIndex(size);
+        unsigned listIndex = GetTempListIndex(type);
 
         for (unsigned i = 0; i < spillCount; i++, tempIndex++)
         {
-            SpillTemp* temp = new (&temps[tempIndex]) SpillTemp(-static_cast<int>(tempIndex + 1), size, type);
+            SpillTemp* temp = new (&temps[tempIndex]) SpillTemp(-static_cast<int>(tempIndex + 1), type);
 
             temp->next           = freeTemps[listIndex];
             freeTemps[listIndex] = temp;
@@ -86,7 +85,7 @@ SpillTemp* SpillTempSet::AllocTemp(var_types type)
 {
     type = GetTempType(type);
 
-    unsigned    listIndex = GetTempListIndex(varTypeSize(type));
+    unsigned    listIndex = GetTempListIndex(type);
     SpillTemp** last      = &freeTemps[listIndex];
     SpillTemp*  temp;
 
@@ -116,7 +115,7 @@ void SpillTempSet::ReleaseTemp(SpillTemp* temp)
     JITDUMP("Releasing temp #%d\n", -temp->GetNum());
     INDEBUG(defCount--);
 
-    unsigned listIndex   = GetTempListIndex(temp->GetSize());
+    unsigned listIndex   = GetTempListIndex(temp->GetType());
     temp->next           = freeTemps[listIndex];
     freeTemps[listIndex] = temp;
 }
@@ -141,7 +140,7 @@ SpillTemp* SpillTempSet::DefSpillTemp(GenTree* node, unsigned regIndex, var_type
     regDefMap[regIndex] = def;
 
     def->node = node;
-    def->temp = AllocTemp(type);
+    def->temp = AllocTemp(GetTempType(type));
 
     return def->temp;
 }

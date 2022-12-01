@@ -15,16 +15,14 @@ class SpillTemp
     SpillTemp*      next;
     const int       num;
     int             offset;
-    const uint8_t   size;
     const var_types type;
 
 public:
-    SpillTemp(int num, unsigned size, var_types type)
+    SpillTemp(int num, var_types type)
         : num(num)
 #ifdef DEBUG
         , offset(BAD_TEMP_OFFSET)
 #endif
-        , size(static_cast<uint8_t>(size))
         , type(type)
     {
         assert(num < 0);
@@ -39,11 +37,6 @@ public:
     var_types GetType() const
     {
         return type;
-    }
-
-    unsigned GetSize() const
-    {
-        return size;
     }
 
 #ifdef DEBUG
@@ -137,5 +130,5 @@ public:
 
 private:
     SpillTemp* AllocTemp(var_types type);
-    static unsigned GetTempListIndex(unsigned size);
+    static unsigned GetTempListIndex(var_types type);
 };
