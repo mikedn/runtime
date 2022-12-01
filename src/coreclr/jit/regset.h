@@ -9,26 +9,86 @@
 #include "target.h"
 
 class LclVarDsc;
-class TempDsc;
 class Compiler;
 class CodeGen;
 class GCInfo;
 
-/*
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                           RegSet                                          XX
-XX                                                                           XX
-XX  Represents the register set, and their states during code generation     XX
-XX  Can select an unused register, keeps track of the contents of the        XX
-XX  registers, and can spill registers                                       XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
+class TempDsc
+{
+public:
+    TempDsc* tdNext;
 
-/*****************************************************************************/
+private:
+    int tdOffs;
+#ifdef DEBUG
+    static const int BAD_TEMP_OFFSET = 0xDDDDDDDD; // used as a sentinel "bad value" for tdOffs in DEBUG
+#endif                                             // DEBUG
+
+    int       tdNum;
+    BYTE      tdSize;
+    var_types tdType;
+
+public:
+    TempDsc(int _tdNum, unsigned _tdSize, var_types _tdType) : tdNum(_tdNum), tdSize((BYTE)_tdSize), tdType(_tdType)
+    {
+#ifdef DEBUG
+        // temps must have a negative number (so they have a different number from all local variables)
+        assert(tdNum < 0);
+        tdOffs = BAD_TEMP_OFFSET;
+#endif // DEBUG
+        if (tdNum != _tdNum)
+        {
+            IMPL_LIMITATION("too many spill temps");
+        }
+    }
+
+#ifdef DEBUG
+    bool tdLegalOffset() const
+    {
+        return tdOffs != BAD_TEMP_OFFSET;
+    }
+#endif // DEBUG
+
+    int tdTempOffs() const
+    {
+        assert(tdLegalOffset());
+        return tdOffs;
+    }
+    void tdSetTempOffs(int offs)
+    {
+        tdOffs = offs;
+        assert(tdLegalOffset());
+    }
+    void tdAdjustTempOffs(int offs)
+    {
+        tdOffs += offs;
+        assert(tdLegalOffset());
+    }
+
+    int tdTempNum() const
+    {
+        assert(tdNum < 0);
+        return tdNum;
+    }
+    unsigned tdTempSize() const
+    {
+        return tdSize;
+    }
+    var_types tdTempType() const
+    {
+        return tdType;
+    }
+
+    unsigned GetTempNum() const
+    {
+        return tdNum;
+    }
+
+    var_types GetType() const
+    {
+        return tdType;
+    }
+};
 
 class RegSet
 {
