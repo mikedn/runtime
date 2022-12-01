@@ -1176,9 +1176,6 @@ BasicBlock* LinearScan::getNextBlock()
 
 void LinearScan::doLinearScan()
 {
-    splitBBNumToTargetBBNumMap = nullptr;
-
-    initMaxSpill();
     buildIntervals();
     DBEXEC(VERBOSE, TupleStyleDump(LSRA_DUMP_REFPOS));
     compiler->EndPhase(PHASE_LINEAR_SCAN_BUILD);
@@ -6166,32 +6163,6 @@ void LinearScan::insertUpperVectorRestore(GenTree*     tree,
     JITDUMP("\n");
 }
 #endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-
-//------------------------------------------------------------------------
-// initMaxSpill: Initializes the LinearScan members used to track the max number
-//               of concurrent spills.  This is needed so that we can set the
-//               fields in Compiler, so that the code generator, in turn can
-//               allocate the right number of spill locations.
-//
-// Arguments:
-//    None.
-//
-// Return Value:
-//    None.
-//
-// Assumptions:
-//    This is called before any calls to updateMaxSpill().
-
-void LinearScan::initMaxSpill()
-{
-    needDoubleTmpForFPCall = false;
-    needFloatTmpForFPCall  = false;
-    for (int i = 0; i < TYP_COUNT; i++)
-    {
-        maxSpill[i]     = 0;
-        currentSpill[i] = 0;
-    }
-}
 
 //------------------------------------------------------------------------
 // recordMaxSpill: Sets the fields in Compiler for the max number of concurrent spills.

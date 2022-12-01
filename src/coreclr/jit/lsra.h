@@ -708,15 +708,14 @@ public:
     void resolveEdges();
 
     // Keep track of how many temp locations we'll need for spill
-    void initMaxSpill();
     void updateMaxSpill(RefPosition* refPosition);
     void recordMaxSpill();
 
     // max simultaneous spill locations used of every type
-    unsigned int maxSpill[TYP_COUNT];
-    unsigned int currentSpill[TYP_COUNT];
-    bool         needFloatTmpForFPCall;
-    bool         needDoubleTmpForFPCall;
+    unsigned maxSpill[TYP_COUNT]{};
+    unsigned currentSpill[TYP_COUNT]{};
+    bool     needFloatTmpForFPCall  = false;
+    bool     needDoubleTmpForFPCall = false;
 
 #ifdef DEBUG
 private:
@@ -1360,7 +1359,7 @@ private:
         unsigned toBBNum;
     };
     typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, SplitEdgeInfo> SplitBBNumToTargetBBNumMap;
-    SplitBBNumToTargetBBNumMap* splitBBNumToTargetBBNumMap;
+    SplitBBNumToTargetBBNumMap* splitBBNumToTargetBBNumMap = nullptr;
     SplitBBNumToTargetBBNumMap* getSplitBBNumToTargetBBNumMap()
     {
         if (splitBBNumToTargetBBNumMap == nullptr)
