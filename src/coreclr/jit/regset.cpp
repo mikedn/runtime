@@ -42,11 +42,19 @@ void SpillTempSet::tmpPreAllocateTemps(var_types type, unsigned count)
     }
 }
 
-SpillTemp* SpillTempSet::tmpFindNum(int num, TempState state) const
+SpillTemp* SpillTempSet::tmpFindNum(int num) const
 {
     assert(num < 0);
 
-    for (SpillTemp* temp = tmpListBeg(state); temp != nullptr; temp = tmpListNxt(temp, state))
+    for (SpillTemp* temp = tmpListBeg(Free); temp != nullptr; temp = tmpListNxt(temp, Free))
+    {
+        if (temp->tdTempNum() == num)
+        {
+            return temp;
+        }
+    }
+
+    for (SpillTemp* temp = tmpListBeg(Used); temp != nullptr; temp = tmpListNxt(temp, Used))
     {
         if (temp->tdTempNum() == num)
         {
@@ -59,7 +67,7 @@ SpillTemp* SpillTempSet::tmpFindNum(int num, TempState state) const
 
 SpillTemp* SpillTempSet::tmpListBeg(TempState state) const
 {
-    SpillTemp* const* lists     = state == TEMP_USAGE_FREE ? freeTemps : usedTemps;
+    SpillTemp* const* lists     = state == Free ? freeTemps : usedTemps;
     unsigned          listIndex = 0;
 
     while ((listIndex < TempListCount - 1) && (lists[listIndex] == nullptr))
@@ -81,7 +89,7 @@ SpillTemp* SpillTempSet::tmpListNxt(SpillTemp* temp, TempState state) const
         return next;
     }
 
-    SpillTemp* const* lists     = state == TEMP_USAGE_FREE ? freeTemps : usedTemps;
+    SpillTemp* const* lists     = state == Free ? freeTemps : usedTemps;
     unsigned          listIndex = GetTempListIndex(temp->tdTempSize());
 
     while ((++listIndex < TempListCount) && (next == nullptr))
@@ -199,7 +207,7 @@ bool SpillTempSet::tmpAllFree() const
 {
     unsigned usedCount = 0;
 
-    for (SpillTemp* temp = tmpListBeg(TEMP_USAGE_USED); temp != nullptr; temp = tmpListNxt(temp, TEMP_USAGE_USED))
+    for (SpillTemp* temp = tmpListBeg(Used); temp != nullptr; temp = tmpListNxt(temp, Used))
     {
         ++usedCount;
     }

@@ -4847,17 +4847,10 @@ int Compiler::lvaFrameAddress(int varNum, bool* pFPbased)
     }
     else
     {
-        TempDsc* tmpDsc = codeGen->regSet.tmpFindNum(varNum);
-
-        // The temp might be in use, since this might be during code generation.
-        if (tmpDsc == nullptr)
-        {
-            tmpDsc = codeGen->regSet.tmpFindNum(varNum, RegSet::TEMP_USAGE_USED);
-            assert(tmpDsc != nullptr);
-        }
+        TempDsc* temp = codeGen->regSet.tmpFindNum(varNum);
 
         fpBased   = codeGen->isFramePointerUsed();
-        varOffset = tmpDsc->tdTempOffs();
+        varOffset = temp->tdTempOffs();
     }
 
     *pFPbased = fpBased;

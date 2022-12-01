@@ -114,22 +114,22 @@ class SpillTempSet
     unsigned        tempCount = 0;
     INDEBUG(unsigned usedTempCount = 0;)
 
+    enum TempState
+    {
+        Free,
+        Used
+    };
+
 public:
     SpillTempSet(class Compiler* compiler) : compiler(compiler)
     {
     }
 
-    enum TempState
-    {
-        TEMP_USAGE_FREE,
-        TEMP_USAGE_USED
-    };
-
     static var_types tmpNormalizeType(var_types type);
     void tmpPreAllocateTemps(var_types type, unsigned count);
-    SpillTemp* tmpFindNum(int num, TempState state = TEMP_USAGE_FREE) const;
-    SpillTemp* tmpListBeg(TempState state = TEMP_USAGE_FREE) const;
-    SpillTemp* tmpListNxt(SpillTemp* temp, TempState state = TEMP_USAGE_FREE) const;
+    SpillTemp* tmpFindNum(int num) const;
+    SpillTemp* tmpListBeg(TempState state = Free) const;
+    SpillTemp* tmpListNxt(SpillTemp* temp, TempState state = Free) const;
     void tmpRlsTemp(SpillTemp* temp);
 
     SpillTemp* DefSpillTemp(GenTree* node, unsigned regIndex, var_types type);
