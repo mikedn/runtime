@@ -32,22 +32,38 @@ void SpillTempSet::PreAllocateTemps(const unsigned* typeSpillCounts)
         var_types type       = static_cast<var_types>(t);
         unsigned  spillCount = typeSpillCounts[t];
 
+        // Only normalized types should have anything in the spill count array.
+        assert((spillCount == 0) || (type == GetTempType(type)));
+
+        tempCount += spillCount;
+    }
+
+    if (tempCount == 0)
+    {
+        return;
+    }
+
+    temps = compiler->getAllocator(CMK_SpillTemp).allocate<SpillTemp>(tempCount);
+
+    unsigned tempIndex = 0;
+
+    for (int t = 0; t < TYP_COUNT; t++)
+    {
+        var_types type       = static_cast<var_types>(t);
+        unsigned  spillCount = typeSpillCounts[t];
+
         if (spillCount == 0)
         {
             continue;
         }
 
-        // Only normalized types should have anything in the spill count array.
-        assert(type == GetTempType(type));
-
         unsigned size      = varTypeSize(type);
         unsigned listIndex = GetTempListIndex(size);
 
-        for (unsigned i = 0; i < spillCount; i++)
+        for (unsigned i = 0; i < spillCount; i++, tempIndex++)
         {
-            tempCount++;
+            SpillTemp* temp = new (&temps[tempIndex]) SpillTemp(-static_cast<int>(tempIndex + 1), size, type);
 
-            SpillTemp* temp      = new (compiler, CMK_SpillTemp) SpillTemp(-static_cast<int>(tempCount), size, type);
             temp->next           = freeTemps[listIndex];
             freeTemps[listIndex] = temp;
 

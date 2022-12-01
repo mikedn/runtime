@@ -96,6 +96,7 @@ class SpillTempSet
     SpillTempDef*   regDefMap[MAX_MULTIREG_COUNT]{};
     SpillTemp*      freeTemps[TempListCount]{};
     SpillTemp*      usedTemps[TempListCount]{};
+    SpillTemp*      temps     = nullptr;
     unsigned        tempCount = 0;
     INDEBUG(unsigned usedTempCount = 0;)
 
