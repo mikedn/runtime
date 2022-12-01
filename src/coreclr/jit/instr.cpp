@@ -276,8 +276,9 @@ bool CodeGen::IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclO
     if (op->isUsedFromSpillTemp())
     {
         assert(op->IsRegOptional());
+        assert(op->IsRegSpilled(0));
 
-        TempDsc* tmpDsc = getSpillTempDsc(op);
+        TempDsc* tmpDsc = regSet.UseSpillTemp(op, op->GetRegNum());
         *lclNum         = tmpDsc->tdTempNum();
         *lclOffs        = 0;
         regSet.tmpRlsTemp(tmpDsc);

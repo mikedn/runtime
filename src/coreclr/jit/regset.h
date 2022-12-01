@@ -123,8 +123,6 @@ public:
         TEMP_USAGE_USED
     };
 
-    using SpillDsc = SpillTempDef;
-
     static var_types tmpNormalizeType(var_types type);
     void tmpPreAllocateTemps(var_types type, unsigned count);
     SpillTemp* tmpFindNum(int num, TempState state = TEMP_USAGE_FREE) const;
@@ -133,8 +131,7 @@ public:
     void tmpRlsTemp(SpillTemp* temp);
 
     SpillTemp* AllocSpillTemp(GenTree* node, regNumber reg, var_types type);
-    SpillTempDef* rsGetSpillInfo(GenTree* node, regNumber reg, SpillTempDef** prevDef = nullptr);
-    SpillTemp* rsGetSpillTempWord(regNumber oldReg, SpillTempDef* def, SpillTempDef* prevDef);
+    SpillTemp* UseSpillTemp(GenTree* node, regNumber reg);
 
 #ifdef DEBUG
     bool tmpAllFree() const;
@@ -147,7 +144,6 @@ private:
     SpillTemp* AllocTemp(var_types type);
     static unsigned GetTempListIndex(unsigned size);
     SpillTempDef* AllocDef();
-    void FreeDef(SpillTempDef* def);
 };
 
 using TempDsc = SpillTemp;

@@ -162,12 +162,6 @@ SpillTempDef* SpillTempSet::AllocDef()
     return new (compiler, CMK_SpillTemp) SpillTempDef();
 }
 
-void SpillTempSet::FreeDef(SpillTempDef* def)
-{
-    def->next   = defFreeList;
-    defFreeList = def;
-}
-
 SpillTemp* SpillTempSet::AllocSpillTemp(GenTree* node, regNumber reg, var_types type)
 {
     SpillTemp* temp = AllocTemp(type);
@@ -181,43 +175,22 @@ SpillTemp* SpillTempSet::AllocSpillTemp(GenTree* node, regNumber reg, var_types 
     return temp;
 }
 
-SpillTempDef* SpillTempSet::rsGetSpillInfo(GenTree* node, regNumber reg, SpillTempDef** prevDef)
+SpillTemp* SpillTempSet::UseSpillTemp(GenTree* node, regNumber reg)
 {
-    SpillTempDef* prev = nullptr;
-    SpillTempDef* def  = regDefMap[reg];
+    SpillTempDef** prevLink = &regDefMap[reg];
+    SpillTempDef*  def      = *prevLink;
 
-    for (; def != nullptr; prev = def, def = def->next)
+    while (def->node != node)
     {
-        if (def->node == node)
-        {
-            break;
-        }
+        prevLink = &def->next;
+        def      = def->next;
     }
 
-    if (prevDef != nullptr)
-    {
-        *prevDef = prev;
-    }
+    *prevLink = def->next;
 
-    return def;
-}
-
-SpillTemp* SpillTempSet::rsGetSpillTempWord(regNumber reg, SpillTempDef* def, SpillTempDef* prevDef)
-{
-    assert((prevDef == nullptr) || (prevDef->next == def));
-
-    if (prevDef != nullptr)
-    {
-        prevDef->next = def->next;
-    }
-    else
-    {
-        regDefMap[reg] = def->next;
-    }
-
-    SpillTemp* temp = def->temp;
-    FreeDef(def);
-    return temp;
+    def->next   = defFreeList;
+    defFreeList = def;
+    return def->temp;
 }
 
 #ifdef DEBUG

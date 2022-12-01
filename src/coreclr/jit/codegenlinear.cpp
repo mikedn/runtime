@@ -1687,10 +1687,8 @@ void CodeGen::UnspillNodeReg(GenTree* node, regNumber reg, unsigned regIndex)
     assert(!node->IsCopyOrReload());
     assert(!node->IsMultiRegLclVar());
 
-    regNumber         oldReg = node->GetRegNum(regIndex);
-    RegSet::SpillDsc* prevDsc;
-    RegSet::SpillDsc* spillDsc = regSet.rsGetSpillInfo(node, oldReg, &prevDsc);
-    TempDsc*          temp     = regSet.rsGetSpillTempWord(oldReg, spillDsc, prevDsc);
+    regNumber oldReg = node->GetRegNum(regIndex);
+    TempDsc*  temp   = regSet.UseSpillTemp(node, oldReg);
 
     node->SetRegSpilled(regIndex, false);
 
@@ -1710,10 +1708,8 @@ void CodeGen::UnspillNodeReg(GenTree* node, regNumber reg, unsigned regIndex)
 #ifdef TARGET_X86
 void CodeGen::UnspillST0(GenTree* node)
 {
-    regNumber         oldReg = node->GetRegNum();
-    RegSet::SpillDsc* prevDsc;
-    RegSet::SpillDsc* spillDsc = regSet.rsGetSpillInfo(node, oldReg, &prevDsc);
-    TempDsc*          temp     = regSet.rsGetSpillTempWord(oldReg, spillDsc, prevDsc);
+    regNumber oldReg = node->GetRegNum();
+    TempDsc*  temp   = regSet.UseSpillTemp(node, oldReg);
 
     node->SetRegSpilled(0, false);
 

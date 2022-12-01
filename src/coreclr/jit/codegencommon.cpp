@@ -391,28 +391,6 @@ regMaskTP Compiler::compHelperCallKillSet(CorInfoHelpFunc helper)
     }
 }
 
-//----------------------------------------------------------------------
-// getSpillTempDsc: get the TempDsc corresponding to a spilled tree.
-//
-// Arguments:
-//   tree  -  spilled GenTree node
-//
-// Return Value:
-//   TempDsc corresponding to tree
-TempDsc* CodeGen::getSpillTempDsc(GenTree* tree)
-{
-    assert(tree->IsRegSpilled(0));
-
-    // Get the tree's SpillDsc.
-    RegSet::SpillDsc* prevDsc;
-    RegSet::SpillDsc* spillDsc = regSet.rsGetSpillInfo(tree, tree->GetRegNum(), &prevDsc);
-    assert(spillDsc != nullptr);
-
-    // Get the temp desc.
-    TempDsc* temp = regSet.rsGetSpillTempWord(tree->GetRegNum(), spillDsc, prevDsc);
-    return temp;
-}
-
 //------------------------------------------------------------------------
 // genOffsetOfMDArrayLowerBound: Returns the offset from the Array object to the
 //   lower bound for the given dimension.

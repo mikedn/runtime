@@ -1339,8 +1339,6 @@ public:
     void inst_IV(instruction ins, cnsval_ssize_t val);
     void inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size);
 
-    // The following method is used by xarch emitter for handling contained tree temps.
-    TempDsc* getSpillTempDsc(GenTree* node);
     bool IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs);
 
 #ifdef TARGET_XARCH
