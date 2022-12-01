@@ -8,22 +8,15 @@
 
 class SpillTemp
 {
-    INDEBUG(static constexpr int BAD_TEMP_OFFSET = 0xDDDDDDDD;)
-
     friend class SpillTempSet;
 
-    SpillTemp*      next;
-    const int       num;
-    int             offset;
+    SpillTemp* next;
+    const int  num;
+    int offset      INDEBUG(= INT_MIN);
     const var_types type;
 
 public:
-    SpillTemp(int num, var_types type)
-        : num(num)
-#ifdef DEBUG
-        , offset(BAD_TEMP_OFFSET)
-#endif
-        , type(type)
+    SpillTemp(int num, var_types type) : num(num), type(type)
     {
         assert(num < 0);
     }
@@ -39,16 +32,9 @@ public:
         return type;
     }
 
-#ifdef DEBUG
-    bool IsAllocated() const
-    {
-        return offset != BAD_TEMP_OFFSET;
-    }
-#endif
-
     int GetOffset() const
     {
-        assert(IsAllocated());
+        assert(offset != INT_MIN);
         return offset;
     }
 
