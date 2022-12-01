@@ -24,6 +24,8 @@
 #include "jitgcinfo.h"
 #include "emit.h"
 
+class LclVarDsc;
+
 #if 0
 // Enable USING_SCOPE_INFO flag to use psiScope/siScope info to report variables' locations.
 #define USING_SCOPE_INFO

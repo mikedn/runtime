@@ -1421,7 +1421,6 @@ XX    o  Optimizer                                                           XX
 XX    o  RegAlloc                                                            XX
 XX    o  EEInterface                                                         XX
 XX    o  TempsInfo                                                           XX
-XX    o  RegSet                                                              XX
 XX    o  GCInfo                                                              XX
 XX    o  Instruction                                                         XX
 XX    o  ScopeInfo                                                           XX
@@ -2848,7 +2847,6 @@ class Compiler
     friend class CodeGenInterface;
     friend class CodeGen;
     friend class LclVarDsc;
-    friend class TempDsc;
     friend class LIR;
     friend class ObjectAllocator;
     friend class LocalAddressVisitor;
