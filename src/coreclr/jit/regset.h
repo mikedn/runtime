@@ -114,12 +114,20 @@ public:
     static var_types GetTempType(var_types type);
     void PreAllocateTemps(const unsigned* typeSpillCounts);
     SpillTemp* FindTempByNum(int num) const;
-    SpillTemp* GetFirstTemp(TempState state = Free) const;
-    SpillTemp* GetNextTemp(SpillTemp* temp, TempState state = Free) const;
     void ReleaseTemp(SpillTemp* temp);
 
     SpillTemp* DefSpillTemp(GenTree* node, unsigned regIndex, var_types type);
     SpillTemp* UseSpillTemp(GenTree* node, unsigned regIndex);
+
+    SpillTemp* begin() const
+    {
+        return temps;
+    }
+
+    SpillTemp* end() const
+    {
+        return temps + tempCount;
+    }
 
 #ifdef DEBUG
     bool AreAllTempsFree() const;

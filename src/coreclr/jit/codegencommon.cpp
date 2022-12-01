@@ -3432,11 +3432,9 @@ void CodeGen::CheckUseBlockInit()
         }
     }
 
-    assert(spillTemps.AreAllTempsFree());
-
-    for (SpillTemp* temp = spillTemps.GetFirstTemp(); temp != nullptr; temp = spillTemps.GetNextTemp(temp))
+    for (SpillTemp& temp : spillTemps)
     {
-        if (varTypeIsGC(temp->GetType()))
+        if (varTypeIsGC(temp.GetType()))
         {
             slotCount++;
         }
@@ -3599,16 +3597,14 @@ void CodeGen::MarkGCTrackedSlots(int& untrLclLo, int& untrLclHi, regMaskTP& init
         }
     }
 
-    assert(spillTemps.AreAllTempsFree());
-
-    for (SpillTemp* temp = spillTemps.GetFirstTemp(); temp != nullptr; temp = spillTemps.GetNextTemp(temp))
+    for (SpillTemp& temp : spillTemps)
     {
-        if (!varTypeIsGC(temp->GetType()))
+        if (!varTypeIsGC(temp.GetType()))
         {
             continue;
         }
 
-        int offset = temp->GetOffset();
+        int offset = temp.GetOffset();
 
         if (offset < untrLclLo)
         {
@@ -3720,16 +3716,14 @@ void CodeGen::PrologZeroInitUntrackedLocals(regNumber initReg, bool* initRegZero
         }
     }
 
-    assert(spillTemps.AreAllTempsFree());
-
-    for (SpillTemp* temp = spillTemps.GetFirstTemp(); temp != nullptr; temp = spillTemps.GetNextTemp(temp))
+    for (SpillTemp& temp : spillTemps)
     {
-        if (!varTypeIsGC(temp->GetType()))
+        if (!varTypeIsGC(temp.GetType()))
         {
             continue;
         }
 
-        GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, GetZeroReg(), temp->GetNum(), 0);
+        GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, GetZeroReg(), temp.GetNum(), 0);
     }
 }
 

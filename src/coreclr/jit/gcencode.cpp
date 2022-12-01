@@ -2267,19 +2267,16 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
 
         // Count & write spill temps that hold pointers.
 
-        SpillTempSet& spillTemps = compiler->codeGen->spillTemps;
-        assert(spillTemps.AreAllTempsFree());
-
-        for (SpillTemp* temp = spillTemps.GetFirstTemp(); temp != nullptr; temp = spillTemps.GetNextTemp(temp))
+        for (SpillTemp& temp : compiler->codeGen->spillTemps)
         {
-            if (!varTypeIsGC(temp->GetType()))
+            if (!varTypeIsGC(temp.GetType()))
             {
                 continue;
             }
 
-            int offset = temp->GetOffset();
+            int offset = temp.GetOffset();
 
-            if (temp->GetType() == TYP_BYREF)
+            if (temp.GetType() == TYP_BYREF)
             {
                 offset |= byref_OFFSET_FLAG;
             }
@@ -4223,21 +4220,18 @@ void GCInfo::gcMakeRegPtrTable(
     {
         // Count & write spill temps that hold pointers.
 
-        SpillTempSet& spillTemps = compiler->codeGen->spillTemps;
-        assert(spillTemps.AreAllTempsFree());
-
-        for (SpillTemp* temp = spillTemps.GetFirstTemp(); temp != nullptr; temp = spillTemps.GetNextTemp(temp))
+        for (SpillTemp& temp : compiler->codeGen->spillTemps)
         {
-            if (!varTypeIsGC(temp->GetType()))
+            if (!varTypeIsGC(temp.GetType()))
             {
                 continue;
             }
 
-            int offset = temp->GetOffset();
+            int offset = temp.GetOffset();
 
             GcSlotFlags flags = GC_SLOT_UNTRACKED;
 
-            if (temp->GetType() == TYP_BYREF)
+            if (temp.GetType() == TYP_BYREF)
             {
                 flags = (GcSlotFlags)(flags | GC_SLOT_INTERIOR);
             }

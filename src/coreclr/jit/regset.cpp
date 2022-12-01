@@ -82,41 +82,6 @@ SpillTemp* SpillTempSet::FindTempByNum(int num) const
     return temp;
 }
 
-SpillTemp* SpillTempSet::GetFirstTemp(TempState state) const
-{
-    SpillTemp* const* lists     = state == Free ? freeTemps : usedTemps;
-    unsigned          listIndex = 0;
-
-    while ((listIndex < TempListCount - 1) && (lists[listIndex] == nullptr))
-    {
-        listIndex++;
-    }
-
-    return lists[listIndex];
-}
-
-SpillTemp* SpillTempSet::GetNextTemp(SpillTemp* temp, TempState state) const
-{
-    assert(temp != nullptr);
-
-    SpillTemp* next = temp->next;
-
-    if (next != nullptr)
-    {
-        return next;
-    }
-
-    SpillTemp* const* lists     = state == Free ? freeTemps : usedTemps;
-    unsigned          listIndex = GetTempListIndex(temp->GetSize());
-
-    while ((++listIndex < TempListCount) && (next == nullptr))
-    {
-        next = lists[listIndex];
-    }
-
-    return next;
-}
-
 SpillTemp* SpillTempSet::AllocTemp(var_types type)
 {
     type = GetTempType(type);
@@ -222,15 +187,6 @@ SpillTemp* SpillTempSet::UseSpillTemp(GenTree* node, unsigned regIndex)
 
 bool SpillTempSet::AreAllTempsFree() const
 {
-    unsigned usedCount = 0;
-
-    for (SpillTemp* temp = GetFirstTemp(Used); temp != nullptr; temp = GetNextTemp(temp, Used))
-    {
-        ++usedCount;
-    }
-
-    assert(usedCount == usedTempCount);
-
     if (usedTempCount != 0)
     {
         return false;
@@ -279,17 +235,12 @@ void SpillTempSet::Done() const
 {
     assert(AreAllSpillDefsFree());
     assert(AreAllTempsFree());
-
-    unsigned   count;
-    SpillTemp* temp;
-
-    for (temp = GetFirstTemp(), count = temp ? 1 : 0; temp != nullptr; temp = GetNextTemp(temp), count += temp ? 1 : 0)
-    {
-        assert(temp->IsAllocated());
-    }
-
-    assert(count == tempCount);
     assert(usedTempCount == 0);
+
+    for (SpillTemp& temp : *this)
+    {
+        assert(temp.IsAllocated());
+    }
 }
 
 #endif // DEBUG

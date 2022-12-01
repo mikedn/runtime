@@ -287,12 +287,9 @@ void GCInfo::gcCountForHeader(UNALIGNED unsigned int* pUntrackedCount, UNALIGNED
 
     // Also count spill temps that hold pointers.
 
-    SpillTempSet& spillTemps = compiler->codeGen->spillTemps;
-    assert(spillTemps.AreAllTempsFree());
-
-    for (SpillTemp* temp = spillTemps.GetFirstTemp(); temp != nullptr; temp = spillTemps.GetNextTemp(temp))
+    for (SpillTemp& temp : compiler->codeGen->spillTemps)
     {
-        if (!varTypeIsGC(temp->GetType()))
+        if (!varTypeIsGC(temp.GetType()))
         {
             continue;
         }
@@ -300,7 +297,7 @@ void GCInfo::gcCountForHeader(UNALIGNED unsigned int* pUntrackedCount, UNALIGNED
 #ifdef DEBUG
         if (compiler->verbose)
         {
-            int offs = temp->GetOffset();
+            int offs = temp.GetOffset();
 
             printf("GCINFO: untrck %s Temp at [%s", varTypeGCstring(varDsc->TypeGet()),
                    compiler->GetEmitter()->emitGetFrameReg());

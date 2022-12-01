@@ -3647,12 +3647,9 @@ void Compiler::lvaFixVirtualFrameOffsets()
 #endif
     }
 
-    SpillTempSet& spillTemps = codeGen->spillTemps;
-    assert(spillTemps.AreAllTempsFree());
-
-    for (SpillTemp* temp = spillTemps.GetFirstTemp(); temp != nullptr; temp = spillTemps.GetNextTemp(temp))
+    for (SpillTemp& temp : codeGen->spillTemps)
     {
-        temp->AdjustOffset(delta);
+        temp.AdjustOffset(delta);
     }
 
     codeGen->cachedGenericContextArgOffset += delta;
@@ -4746,13 +4743,10 @@ int Compiler::lvaAllocateTemps(int stkOffs
     int preSpillSize = 0;
 #endif
 
-    SpillTempSet& spillTemps = codeGen->spillTemps;
-    assert(spillTemps.AreAllTempsFree());
-
-    for (SpillTemp* temp = spillTemps.GetFirstTemp(); temp != nullptr; temp = spillTemps.GetNextTemp(temp))
+    for (SpillTemp& temp : codeGen->spillTemps)
     {
-        var_types type = temp->GetType();
-        unsigned  size = temp->GetSize();
+        var_types type = temp.GetType();
+        unsigned  size = temp.GetSize();
 
 #ifdef TARGET_64BIT
         if (varTypeIsGC(type) && ((stkOffs % REGSIZE_BYTES) != 0))
@@ -4789,7 +4783,7 @@ int Compiler::lvaAllocateTemps(int stkOffs
         spillTempSize += size;
 #endif
 
-        temp->SetOffset(stkOffs);
+        temp.SetOffset(stkOffs);
     }
 
     return stkOffs;
@@ -5433,13 +5427,11 @@ void Compiler::lvaTableDump()
         lvaDumpEntry(lclNum, refCntWtdWidth);
     }
 
-    SpillTempSet& spillTemps = codeGen->spillTemps;
-
-    for (SpillTemp* temp = spillTemps.GetFirstTemp(); temp != nullptr; temp = spillTemps.GetNextTemp(temp))
+    for (SpillTemp& temp : codeGen->spillTemps)
     {
-        printf("; T%02u %25s%*s%7s      [%2s%1s%02XH]\n", -temp->GetNum(), " ", refCntWtdWidth, " ",
-               varTypeName(temp->GetType()), codeGen->isFramePointerUsed() ? STR_FPBASE : STR_SPBASE,
-               temp->GetOffset() < 0 ? "-" : "+", abs(temp->GetOffset()));
+        printf("; T%02u %25s%*s%7s      [%2s%1s%02XH]\n", -temp.GetNum(), " ", refCntWtdWidth, " ",
+               varTypeName(temp.GetType()), codeGen->isFramePointerUsed() ? STR_FPBASE : STR_SPBASE,
+               temp.GetOffset() < 0 ? "-" : "+", abs(temp.GetOffset()));
     }
 
     if (lvaDoneFrameLayout == FINAL_FRAME_LAYOUT)
