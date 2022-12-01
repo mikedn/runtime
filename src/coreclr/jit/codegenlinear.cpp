@@ -1688,8 +1688,6 @@ void CodeGen::UnspillNodeReg(GenTree* node, regNumber reg, unsigned regIndex)
 
     GetEmitter()->emitIns_R_S(ins, attr, reg, temp->GetNum(), 0);
 
-    spillTemps.ReleaseTemp(temp);
-
     gcInfo.gcMarkRegPtrVal(reg, regType);
 }
 
@@ -1705,7 +1703,6 @@ void CodeGen::UnspillST0(GenTree* node)
 
     var_types regType = temp->GetType();
     GetEmitter()->emitIns_S(INS_fld, emitTypeSize(regType), temp->GetNum(), 0);
-    spillTemps.ReleaseTemp(temp);
 }
 #endif // TARGET_X86
 

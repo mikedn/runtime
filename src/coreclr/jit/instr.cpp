@@ -278,11 +278,9 @@ bool CodeGen::IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclO
         assert(op->IsRegOptional());
         assert(op->IsRegSpilled(0));
 
-        SpillTemp* temp    = spillTemps.UseSpillTemp(op, 0);
-        int        tempNum = temp->GetNum();
-        spillTemps.ReleaseTemp(temp);
+        SpillTemp* temp = spillTemps.UseSpillTemp(op, 0);
 
-        *lclNum  = tempNum;
+        *lclNum  = temp->GetNum();
         *lclOffs = 0;
 
         return true;

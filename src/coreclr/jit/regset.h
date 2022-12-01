@@ -92,7 +92,6 @@ public:
     static var_types GetTempType(var_types type);
     void PreAllocateTemps(const unsigned* typeSpillCounts);
     SpillTemp* FindTempByNum(int num) const;
-    void ReleaseTemp(SpillTemp* temp);
 
     SpillTemp* DefSpillTemp(GenTree* node, unsigned regIndex, var_types type);
     SpillTemp* UseSpillTemp(GenTree* node, unsigned regIndex);
@@ -116,5 +115,6 @@ public:
 
 private:
     SpillTemp* AllocTemp(var_types type);
+    void ReleaseTemp(SpillTemp* temp);
     static unsigned GetTempListIndex(var_types type);
 };

@@ -100,8 +100,6 @@ SpillTemp* SpillTempSet::AllocTemp(var_types type)
 
     noway_assert(temp != nullptr);
 
-    JITDUMP("Using temp #%d\n", -temp->GetNum());
-    INDEBUG(defCount++);
     INDEBUG(temp->next = nullptr);
 
     return temp;
@@ -109,12 +107,6 @@ SpillTemp* SpillTempSet::AllocTemp(var_types type)
 
 void SpillTempSet::ReleaseTemp(SpillTemp* temp)
 {
-    assert((temp != nullptr) && (temp->next == nullptr));
-    assert(defCount != 0);
-
-    JITDUMP("Releasing temp #%d\n", -temp->GetNum());
-    INDEBUG(defCount--);
-
     unsigned listIndex   = GetTempListIndex(temp->GetType());
     temp->next           = freeTemps[listIndex];
     freeTemps[listIndex] = temp;
@@ -142,6 +134,9 @@ SpillTemp* SpillTempSet::DefSpillTemp(GenTree* node, unsigned regIndex, var_type
     def->node = node;
     def->temp = AllocTemp(GetTempType(type));
 
+    JITDUMP("Spill temp #%d def\n", -def->temp->GetNum());
+    INDEBUG(defCount++);
+
     return def->temp;
 }
 
@@ -162,6 +157,11 @@ SpillTemp* SpillTempSet::UseSpillTemp(GenTree* node, unsigned regIndex)
 
     def->next   = defFreeList;
     defFreeList = def;
+
+    JITDUMP("Spill temp #%d use\n", -def->temp->GetNum());
+    INDEBUG(defCount--);
+
+    ReleaseTemp(def->temp);
 
     return def->temp;
 }
