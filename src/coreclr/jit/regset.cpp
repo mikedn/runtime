@@ -23,22 +23,36 @@ unsigned SpillTempSet::GetTempListIndex(unsigned size)
     return genLog2(size / TempMinSize);
 }
 
-void SpillTempSet::PreAllocateTemps(var_types type, unsigned count)
+void SpillTempSet::PreAllocateTemps(const unsigned* typeSpillCounts)
 {
-    assert(type == GetTempType(type));
+    JITDUMP("Creating spill temps:\n");
 
-    unsigned size = varTypeSize(type);
-    unsigned slot = GetTempListIndex(size);
-
-    for (unsigned i = 0; i < count; i++)
+    for (int t = 0; t < TYP_COUNT; t++)
     {
-        tempCount++;
+        var_types type       = static_cast<var_types>(t);
+        unsigned  spillCount = typeSpillCounts[t];
 
-        SpillTemp* temp = new (compiler, CMK_SpillTemp) SpillTemp(-static_cast<int>(tempCount), size, type);
-        temp->next      = freeTemps[slot];
-        freeTemps[slot] = temp;
+        if (spillCount == 0)
+        {
+            continue;
+        }
 
-        JITDUMP("pre-allocated temp #%u, slot %u, size = %u\n", -temp->GetNum(), slot, temp->GetSize());
+        // Only normalized types should have anything in the spill count array.
+        assert(type == GetTempType(type));
+
+        unsigned size      = varTypeSize(type);
+        unsigned listIndex = GetTempListIndex(size);
+
+        for (unsigned i = 0; i < spillCount; i++)
+        {
+            tempCount++;
+
+            SpillTemp* temp      = new (compiler, CMK_SpillTemp) SpillTemp(-static_cast<int>(tempCount), size, type);
+            temp->next           = freeTemps[listIndex];
+            freeTemps[listIndex] = temp;
+
+            JITDUMP("Temp #%u %s\n", -temp->GetNum(), varTypeName(type));
+        }
     }
 }
 

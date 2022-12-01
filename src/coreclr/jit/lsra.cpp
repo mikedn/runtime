@@ -6209,9 +6209,6 @@ void LinearScan::initMaxSpill()
 
 void LinearScan::recordMaxSpill()
 {
-    // Note: due to the temp normalization process (see SpillTempSet::GetTempType)
-    // only a few types should actually be seen here.
-    JITDUMP("Recording the maximum number of concurrent spills:\n");
 #ifdef TARGET_X86
     var_types returnType = SpillTempSet::GetTempType(compiler->info.compRetType);
     if (needDoubleTmpForFPCall || (returnType == TYP_DOUBLE))
@@ -6225,21 +6222,9 @@ void LinearScan::recordMaxSpill()
         maxSpill[TYP_FLOAT] += 1;
     }
 #endif // TARGET_X86
-    for (int i = 0; i < TYP_COUNT; i++)
-    {
-        if (var_types(i) != SpillTempSet::GetTempType(var_types(i)))
-        {
-            // Only normalized types should have anything in the maxSpill array.
-            // We assume here that if type 'i' does not normalize to itself, then
-            // nothing else normalizes to 'i', either.
-            assert(maxSpill[i] == 0);
-        }
-        if (maxSpill[i] != 0)
-        {
-            JITDUMP("  %s: %d\n", varTypeName(var_types(i)), maxSpill[i]);
-            compiler->codeGen->spillTemps.PreAllocateTemps(var_types(i), maxSpill[i]);
-        }
-    }
+
+    compiler->codeGen->spillTemps.PreAllocateTemps(maxSpill);
+
     JITDUMP("\n");
 }
 

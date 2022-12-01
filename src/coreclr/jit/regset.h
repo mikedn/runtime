@@ -111,7 +111,7 @@ public:
     }
 
     static var_types GetTempType(var_types type);
-    void PreAllocateTemps(var_types type, unsigned count);
+    void PreAllocateTemps(const unsigned* typeSpillCounts);
     SpillTemp* FindTempByNum(int num) const;
     SpillTemp* GetFirstTemp(TempState state = Free) const;
     SpillTemp* GetNextTemp(SpillTemp* temp, TempState state = Free) const;
