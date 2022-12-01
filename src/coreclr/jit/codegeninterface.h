@@ -83,7 +83,7 @@ public:
     BYTE*  compInfoBlkAddr;
 
     ParamRegState paramRegState;
-    RegSet        regSet;
+    SpillTempSet  spillTemps;
 
 #ifdef TARGET_ARM
     // Registers that are spilled at the start of the prolog, right below stack params,

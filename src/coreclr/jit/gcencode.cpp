@@ -2265,38 +2265,37 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
             }
         }
 
-        /* Count&Write spill temps that hold pointers */
+        // Count & write spill temps that hold pointers.
 
-        assert(compiler->codeGen->regSet.tmpAllFree());
-        for (TempDsc* tempItem = compiler->codeGen->regSet.tmpListBeg(); tempItem != nullptr;
-             tempItem          = compiler->codeGen->regSet.tmpListNxt(tempItem))
+        SpillTempSet& spillTemps = compiler->codeGen->spillTemps;
+        assert(spillTemps.AreAllTempsFree());
+
+        for (SpillTemp* temp = spillTemps.GetFirstTemp(); temp != nullptr; temp = spillTemps.GetNextTemp(temp))
         {
-            if (varTypeIsGC(tempItem->tdTempType()))
+            if (!varTypeIsGC(temp->GetType()))
             {
-                {
-                    int offset;
+                continue;
+            }
 
-                    offset = tempItem->tdTempOffs();
+            int offset = temp->GetOffset();
 
-                    if (tempItem->tdTempType() == TYP_BYREF)
-                    {
-                        offset |= byref_OFFSET_FLAG;
-                    }
+            if (temp->GetType() == TYP_BYREF)
+            {
+                offset |= byref_OFFSET_FLAG;
+            }
 
-                    int encodedoffset = lastoffset - offset;
-                    lastoffset        = offset;
+            int encodedoffset = lastoffset - offset;
+            lastoffset        = offset;
 
-                    if (mask == 0)
-                    {
-                        totalSize += encodeSigned(NULL, encodedoffset);
-                    }
-                    else
-                    {
-                        unsigned sz = encodeSigned(dest, encodedoffset);
-                        dest += sz;
-                        totalSize += sz;
-                    }
-                }
+            if (mask == 0)
+            {
+                totalSize += encodeSigned(nullptr, encodedoffset);
+            }
+            else
+            {
+                unsigned sz = encodeSigned(dest, encodedoffset);
+                dest += sz;
+                totalSize += sz;
             }
         }
     }
@@ -4222,34 +4221,38 @@ void GCInfo::gcMakeRegPtrTable(
 
     if (mode == MAKE_REG_PTR_MODE_ASSIGN_SLOTS)
     {
-        // Count&Write spill temps that hold pointers.
+        // Count & write spill temps that hold pointers.
 
-        assert(compiler->codeGen->regSet.tmpAllFree());
-        for (TempDsc* tempItem = compiler->codeGen->regSet.tmpListBeg(); tempItem != nullptr;
-             tempItem          = compiler->codeGen->regSet.tmpListNxt(tempItem))
+        SpillTempSet& spillTemps = compiler->codeGen->spillTemps;
+        assert(spillTemps.AreAllTempsFree());
+
+        for (SpillTemp* temp = spillTemps.GetFirstTemp(); temp != nullptr; temp = spillTemps.GetNextTemp(temp))
         {
-            if (varTypeIsGC(tempItem->tdTempType()))
+            if (!varTypeIsGC(temp->GetType()))
             {
-                int offset = tempItem->tdTempOffs();
+                continue;
+            }
 
-                GcSlotFlags flags = GC_SLOT_UNTRACKED;
-                if (tempItem->tdTempType() == TYP_BYREF)
-                {
-                    flags = (GcSlotFlags)(flags | GC_SLOT_INTERIOR);
-                }
+            int offset = temp->GetOffset();
 
-                GcStackSlotBase stackSlotBase = GC_SP_REL;
-                if (compiler->codeGen->isFramePointerUsed())
-                {
-                    stackSlotBase = GC_FRAMEREG_REL;
-                }
-                StackSlotIdKey sskey(offset, (stackSlotBase == GC_FRAMEREG_REL), flags);
-                GcSlotId       varSlotId;
-                if (!m_stackSlotMap->Lookup(sskey, &varSlotId))
-                {
-                    varSlotId = gcInfoEncoderWithLog->GetStackSlotId(offset, flags, stackSlotBase);
-                    m_stackSlotMap->Set(sskey, varSlotId);
-                }
+            GcSlotFlags flags = GC_SLOT_UNTRACKED;
+
+            if (temp->GetType() == TYP_BYREF)
+            {
+                flags = (GcSlotFlags)(flags | GC_SLOT_INTERIOR);
+            }
+
+            GcStackSlotBase stackSlotBase = GC_SP_REL;
+            if (compiler->codeGen->isFramePointerUsed())
+            {
+                stackSlotBase = GC_FRAMEREG_REL;
+            }
+            StackSlotIdKey sskey(offset, (stackSlotBase == GC_FRAMEREG_REL), flags);
+            GcSlotId       varSlotId;
+            if (!m_stackSlotMap->Lookup(sskey, &varSlotId))
+            {
+                varSlotId = gcInfoEncoderWithLog->GetStackSlotId(offset, flags, stackSlotBase);
+                m_stackSlotMap->Set(sskey, varSlotId);
             }
         }
 

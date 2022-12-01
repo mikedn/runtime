@@ -4,7 +4,7 @@
 #include "jitpch.h"
 #include "emit.h"
 
-var_types SpillTempSet::tmpNormalizeType(var_types type)
+var_types SpillTempSet::GetTempType(var_types type)
 {
 #ifdef FEATURE_SIMD
     if (type == TYP_SIMD12)
@@ -23,9 +23,9 @@ unsigned SpillTempSet::GetTempListIndex(unsigned size)
     return genLog2(size / TempMinSize);
 }
 
-void SpillTempSet::tmpPreAllocateTemps(var_types type, unsigned count)
+void SpillTempSet::PreAllocateTemps(var_types type, unsigned count)
 {
-    assert(type == tmpNormalizeType(type));
+    assert(type == GetTempType(type));
 
     unsigned size = varTypeSize(type);
     unsigned slot = GetTempListIndex(size);
@@ -35,28 +35,28 @@ void SpillTempSet::tmpPreAllocateTemps(var_types type, unsigned count)
         tempCount++;
 
         SpillTemp* temp = new (compiler, CMK_SpillTemp) SpillTemp(-static_cast<int>(tempCount), size, type);
-        temp->tdNext    = freeTemps[slot];
+        temp->next      = freeTemps[slot];
         freeTemps[slot] = temp;
 
-        JITDUMP("pre-allocated temp #%u, slot %u, size = %u\n", -temp->tdTempNum(), slot, temp->tdTempSize());
+        JITDUMP("pre-allocated temp #%u, slot %u, size = %u\n", -temp->GetNum(), slot, temp->GetSize());
     }
 }
 
-SpillTemp* SpillTempSet::tmpFindNum(int num) const
+SpillTemp* SpillTempSet::FindTempByNum(int num) const
 {
     assert(num < 0);
 
-    for (SpillTemp* temp = tmpListBeg(Free); temp != nullptr; temp = tmpListNxt(temp, Free))
+    for (SpillTemp* temp = GetFirstTemp(Free); temp != nullptr; temp = GetNextTemp(temp, Free))
     {
-        if (temp->tdTempNum() == num)
+        if (temp->GetNum() == num)
         {
             return temp;
         }
     }
 
-    for (SpillTemp* temp = tmpListBeg(Used); temp != nullptr; temp = tmpListNxt(temp, Used))
+    for (SpillTemp* temp = GetFirstTemp(Used); temp != nullptr; temp = GetNextTemp(temp, Used))
     {
-        if (temp->tdTempNum() == num)
+        if (temp->GetNum() == num)
         {
             return temp;
         }
@@ -65,7 +65,7 @@ SpillTemp* SpillTempSet::tmpFindNum(int num) const
     return nullptr;
 }
 
-SpillTemp* SpillTempSet::tmpListBeg(TempState state) const
+SpillTemp* SpillTempSet::GetFirstTemp(TempState state) const
 {
     SpillTemp* const* lists     = state == Free ? freeTemps : usedTemps;
     unsigned          listIndex = 0;
@@ -78,11 +78,11 @@ SpillTemp* SpillTempSet::tmpListBeg(TempState state) const
     return lists[listIndex];
 }
 
-SpillTemp* SpillTempSet::tmpListNxt(SpillTemp* temp, TempState state) const
+SpillTemp* SpillTempSet::GetNextTemp(SpillTemp* temp, TempState state) const
 {
     assert(temp != nullptr);
 
-    SpillTemp* next = temp->tdNext;
+    SpillTemp* next = temp->next;
 
     if (next != nullptr)
     {
@@ -90,7 +90,7 @@ SpillTemp* SpillTempSet::tmpListNxt(SpillTemp* temp, TempState state) const
     }
 
     SpillTemp* const* lists     = state == Free ? freeTemps : usedTemps;
-    unsigned          listIndex = GetTempListIndex(temp->tdTempSize());
+    unsigned          listIndex = GetTempListIndex(temp->GetSize());
 
     while ((++listIndex < TempListCount) && (next == nullptr))
     {
@@ -102,56 +102,56 @@ SpillTemp* SpillTempSet::tmpListNxt(SpillTemp* temp, TempState state) const
 
 SpillTemp* SpillTempSet::AllocTemp(var_types type)
 {
-    type = tmpNormalizeType(type);
+    type = GetTempType(type);
 
     unsigned    listIndex = GetTempListIndex(varTypeSize(type));
     SpillTemp** last      = &freeTemps[listIndex];
     SpillTemp*  temp;
 
-    for (temp = *last; temp != nullptr; last = &temp->tdNext, temp = *last)
+    for (temp = *last; temp != nullptr; last = &temp->next, temp = *last)
     {
-        if (temp->tdTempType() == type)
+        if (temp->GetType() == type)
         {
-            *last = temp->tdNext;
+            *last = temp->next;
             break;
         }
     }
 
     noway_assert(temp != nullptr);
 
-    JITDUMP("Using temp #%d\n", -temp->tdTempNum());
+    JITDUMP("Using temp #%d\n", -temp->GetNum());
     INDEBUG(usedTempCount++);
 
-    temp->tdNext         = usedTemps[listIndex];
+    temp->next           = usedTemps[listIndex];
     usedTemps[listIndex] = temp;
 
     return temp;
 }
 
-void SpillTempSet::tmpRlsTemp(SpillTemp* temp)
+void SpillTempSet::ReleaseTemp(SpillTemp* temp)
 {
     assert(temp != nullptr);
     assert(usedTempCount != 0);
 
-    JITDUMP("Releasing temp #%d\n", -temp->tdTempNum());
+    JITDUMP("Releasing temp #%d\n", -temp->GetNum());
     INDEBUG(usedTempCount--);
 
-    unsigned    listIndex = GetTempListIndex(temp->tdTempSize());
+    unsigned    listIndex = GetTempListIndex(temp->GetSize());
     SpillTemp** last      = &usedTemps[listIndex];
     SpillTemp*  t;
 
-    for (t = *last; t != nullptr; last = &t->tdNext, t = *last)
+    for (t = *last; t != nullptr; last = &t->next, t = *last)
     {
         if (t == temp)
         {
-            *last = t->tdNext;
+            *last = t->next;
             break;
         }
     }
 
     assert(t != nullptr);
 
-    temp->tdNext         = freeTemps[listIndex];
+    temp->next           = freeTemps[listIndex];
     freeTemps[listIndex] = temp;
 }
 
@@ -203,11 +203,11 @@ SpillTemp* SpillTempSet::UseSpillTemp(GenTree* node, unsigned regIndex)
 
 #ifdef DEBUG
 
-bool SpillTempSet::tmpAllFree() const
+bool SpillTempSet::AreAllTempsFree() const
 {
     unsigned usedCount = 0;
 
-    for (SpillTemp* temp = tmpListBeg(Used); temp != nullptr; temp = tmpListNxt(temp, Used))
+    for (SpillTemp* temp = GetFirstTemp(Used); temp != nullptr; temp = GetNextTemp(temp, Used))
     {
         ++usedCount;
     }
@@ -230,7 +230,7 @@ bool SpillTempSet::tmpAllFree() const
     return true;
 }
 
-bool SpillTempSet::rsSpillChk() const
+bool SpillTempSet::AreAllSpillDefsFree() const
 {
     if (usedTempCount != 0)
     {
@@ -248,9 +248,9 @@ bool SpillTempSet::rsSpillChk() const
     return true;
 }
 
-void SpillTempSet::tmpEnd() const
+void SpillTempSet::End() const
 {
-    assert(rsSpillChk());
+    assert(AreAllSpillDefsFree());
 
     if (tempCount > 0)
     {
@@ -258,17 +258,17 @@ void SpillTempSet::tmpEnd() const
     }
 }
 
-void SpillTempSet::tmpDone() const
+void SpillTempSet::Done() const
 {
-    assert(rsSpillChk());
-    assert(tmpAllFree());
+    assert(AreAllSpillDefsFree());
+    assert(AreAllTempsFree());
 
     unsigned   count;
     SpillTemp* temp;
 
-    for (temp = tmpListBeg(), count = temp ? 1 : 0; temp != nullptr; temp = tmpListNxt(temp), count += temp ? 1 : 0)
+    for (temp = GetFirstTemp(), count = temp ? 1 : 0; temp != nullptr; temp = GetNextTemp(temp), count += temp ? 1 : 0)
     {
-        assert(temp->tdLegalOffset());
+        assert(temp->IsAllocated());
     }
 
     assert(count == tempCount);

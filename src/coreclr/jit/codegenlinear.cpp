@@ -48,7 +48,7 @@ void CodeGen::genInitialize()
     gcInfo.gcRegPtrSetInit();
     gcInfo.gcVarPtrSetInit();
 
-    assert(regSet.rsSpillChk());
+    assert(spillTemps.AreAllSpillDefsFree());
 
 #if !FEATURE_FIXED_OUT_ARGS
     // We initialize the stack level before first "BasicBlock" code is generated in case we need to report stack
@@ -403,7 +403,7 @@ void CodeGen::genCodeForBBlist()
         // be done by using the map maintained by LSRA (operandToLocationInfoMap) to mark a node
         // somehow when, after the execution of that node, there will be no live non-variable registers.
 
-        assert(regSet.rsSpillChk());
+        assert(spillTemps.AreAllSpillDefsFree());
 
         /* Make sure we didn't bungle pointer register tracking */
 
@@ -752,7 +752,7 @@ void CodeGen::genCodeForBBlist()
     // This call is for cleaning the GC refs
     m_liveness.ChangeLife(this, VarSetOps::MakeEmpty(compiler));
 
-    INDEBUG(regSet.tmpEnd());
+    INDEBUG(spillTemps.End());
 
 #ifdef DEBUG
     if (compiler->verbose)
@@ -1649,8 +1649,8 @@ void CodeGen::SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex)
     assert(!varTypeIsMultiReg(regType));
     assert(node->IsRegSpill(regIndex));
 
-    regNumber reg  = node->GetRegNum(regIndex);
-    TempDsc*  temp = regSet.DefSpillTemp(node, regIndex, regType);
+    regNumber  reg  = node->GetRegNum(regIndex);
+    SpillTemp* temp = spillTemps.DefSpillTemp(node, regIndex, regType);
 
     JITDUMP("Spilling register %s after [%06u]\n", getRegName(reg), node->GetID());
 
@@ -1658,7 +1658,7 @@ void CodeGen::SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex)
     instruction ins  = ins_Store(regType);
     emitAttr    attr = emitActualTypeSize(regType);
 
-    GetEmitter()->emitIns_S_R(ins, attr, reg, temp->tdTempNum(), 0);
+    GetEmitter()->emitIns_S_R(ins, attr, reg, temp->GetNum(), 0);
 
     node->SetRegSpill(regIndex, false);
     node->SetRegSpilled(regIndex, true);
@@ -1669,12 +1669,12 @@ void CodeGen::SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex)
 #ifdef TARGET_X86
 void CodeGen::SpillST0(GenTree* node)
 {
-    var_types type = node->GetType();
-    TempDsc*  temp = regSet.DefSpillTemp(node, 0, type);
+    var_types  type = node->GetType();
+    SpillTemp* temp = spillTemps.DefSpillTemp(node, 0, type);
 
     JITDUMP("Spilling register ST0 after [%06u]\n", node->GetID());
 
-    GetEmitter()->emitIns_S(INS_fstp, emitTypeSize(type), temp->tdTempNum(), 0);
+    GetEmitter()->emitIns_S(INS_fstp, emitTypeSize(type), temp->GetNum(), 0);
 
     node->SetRegSpill(0, false);
     node->SetRegSpilled(0, true);
@@ -1686,8 +1686,8 @@ void CodeGen::UnspillNodeReg(GenTree* node, regNumber reg, unsigned regIndex)
     assert(!node->IsCopyOrReload());
     assert(!node->IsMultiRegLclVar());
 
-    regNumber oldReg = node->GetRegNum(regIndex);
-    TempDsc*  temp   = regSet.UseSpillTemp(node, regIndex);
+    regNumber  oldReg = node->GetRegNum(regIndex);
+    SpillTemp* temp   = spillTemps.UseSpillTemp(node, regIndex);
 
     node->SetRegSpilled(regIndex, false);
 
@@ -1697,9 +1697,9 @@ void CodeGen::UnspillNodeReg(GenTree* node, regNumber reg, unsigned regIndex)
     instruction ins     = ins_Load(regType);
     emitAttr    attr    = emitActualTypeSize(regType);
 
-    GetEmitter()->emitIns_R_S(ins, attr, reg, temp->GetTempNum(), 0);
+    GetEmitter()->emitIns_R_S(ins, attr, reg, temp->GetNum(), 0);
 
-    regSet.tmpRlsTemp(temp);
+    spillTemps.ReleaseTemp(temp);
 
     gcInfo.gcMarkRegPtrVal(reg, regType);
 }
@@ -1707,16 +1707,16 @@ void CodeGen::UnspillNodeReg(GenTree* node, regNumber reg, unsigned regIndex)
 #ifdef TARGET_X86
 void CodeGen::UnspillST0(GenTree* node)
 {
-    regNumber oldReg = node->GetRegNum();
-    TempDsc*  temp   = regSet.UseSpillTemp(node, 0);
+    regNumber  oldReg = node->GetRegNum();
+    SpillTemp* temp   = spillTemps.UseSpillTemp(node, 0);
 
     node->SetRegSpilled(0, false);
 
     JITDUMP("Unspilling ST0 from [%06u]\n", getRegName(oldReg), node->GetID());
 
     var_types regType = temp->GetType();
-    GetEmitter()->emitIns_S(INS_fld, emitTypeSize(regType), temp->GetTempNum(), 0);
-    regSet.tmpRlsTemp(temp);
+    GetEmitter()->emitIns_S(INS_fld, emitTypeSize(regType), temp->GetNum(), 0);
+    spillTemps.ReleaseTemp(temp);
 }
 #endif // TARGET_X86
 

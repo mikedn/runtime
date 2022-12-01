@@ -8,80 +8,65 @@
 
 class SpillTemp
 {
+    INDEBUG(static constexpr int BAD_TEMP_OFFSET = 0xDDDDDDDD;)
+
+    friend class SpillTempSet;
+
+    SpillTemp*      next;
+    const int       num;
+    int             offset;
+    const uint8_t   size;
+    const var_types type;
+
 public:
-    SpillTemp* tdNext;
-
-private:
-    INDEBUG(static const int BAD_TEMP_OFFSET = 0xDDDDDDDD;)
-
-    const int       tdNum;
-    int             tdOffs;
-    const uint8_t   tdSize;
-    const var_types tdType;
-
-public:
-    SpillTemp(int tdNum, unsigned tdSize, var_types tdType)
-        : tdNum(tdNum)
-        ,
+    SpillTemp(int num, unsigned size, var_types type)
+        : num(num)
 #ifdef DEBUG
-        tdOffs(BAD_TEMP_OFFSET)
-        ,
+        , offset(BAD_TEMP_OFFSET)
 #endif
-        tdSize(static_cast<uint8_t>(tdSize))
-        , tdType(tdType)
+        , size(static_cast<uint8_t>(size))
+        , type(type)
     {
-        assert(tdNum < 0);
+        assert(num < 0);
     }
 
-    int tdTempNum() const
+    int GetNum() const
     {
-        assert(tdNum < 0);
-        return tdNum;
-    }
-
-#ifdef DEBUG
-    bool tdLegalOffset() const
-    {
-        return tdOffs != BAD_TEMP_OFFSET;
-    }
-#endif
-
-    int tdTempOffs() const
-    {
-        assert(tdLegalOffset());
-        return tdOffs;
-    }
-
-    void tdSetTempOffs(int offs)
-    {
-        tdOffs = offs;
-        assert(tdLegalOffset());
-    }
-
-    void tdAdjustTempOffs(int offs)
-    {
-        tdOffs += offs;
-        assert(tdLegalOffset());
-    }
-
-    unsigned tdTempSize() const
-    {
-        return tdSize;
-    }
-
-    var_types tdTempType() const
-    {
-        return tdType;
-    }
-
-    unsigned GetTempNum() const
-    {
-        return tdNum;
+        assert(num < 0);
+        return num;
     }
 
     var_types GetType() const
     {
-        return tdType;
+        return type;
+    }
+
+    unsigned GetSize() const
+    {
+        return size;
+    }
+
+#ifdef DEBUG
+    bool IsAllocated() const
+    {
+        return offset != BAD_TEMP_OFFSET;
+    }
+#endif
+
+    int GetOffset() const
+    {
+        assert(IsAllocated());
+        return offset;
+    }
+
+    void SetOffset(int offs)
+    {
+        offset = offs;
+    }
+
+    void AdjustOffset(int delta)
+    {
+        offset += delta;
     }
 };
 
@@ -125,27 +110,24 @@ public:
     {
     }
 
-    static var_types tmpNormalizeType(var_types type);
-    void tmpPreAllocateTemps(var_types type, unsigned count);
-    SpillTemp* tmpFindNum(int num) const;
-    SpillTemp* tmpListBeg(TempState state = Free) const;
-    SpillTemp* tmpListNxt(SpillTemp* temp, TempState state = Free) const;
-    void tmpRlsTemp(SpillTemp* temp);
+    static var_types GetTempType(var_types type);
+    void PreAllocateTemps(var_types type, unsigned count);
+    SpillTemp* FindTempByNum(int num) const;
+    SpillTemp* GetFirstTemp(TempState state = Free) const;
+    SpillTemp* GetNextTemp(SpillTemp* temp, TempState state = Free) const;
+    void ReleaseTemp(SpillTemp* temp);
 
     SpillTemp* DefSpillTemp(GenTree* node, unsigned regIndex, var_types type);
     SpillTemp* UseSpillTemp(GenTree* node, unsigned regIndex);
 
 #ifdef DEBUG
-    bool tmpAllFree() const;
-    bool rsSpillChk() const;
-    void tmpEnd() const;
-    void tmpDone() const;
+    bool AreAllTempsFree() const;
+    bool AreAllSpillDefsFree() const;
+    void End() const;
+    void Done() const;
 #endif
 
 private:
     SpillTemp* AllocTemp(var_types type);
     static unsigned GetTempListIndex(unsigned size);
 };
-
-using TempDsc = SpillTemp;
-using RegSet  = SpillTempSet;

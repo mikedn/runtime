@@ -35,7 +35,7 @@ void Compiler::codeGenInit()
     codeGen = new (this, CMK_Codegen) CodeGen(this);
 }
 
-CodeGenInterface::CodeGenInterface(Compiler* compiler) : compiler(compiler), regSet(compiler)
+CodeGenInterface::CodeGenInterface(Compiler* compiler) : compiler(compiler), spillTemps(compiler)
 {
 }
 
@@ -1425,7 +1425,7 @@ void CodeGen::genEmitUnwindDebugGCandEH()
 
 #endif // DEBUG
 
-    INDEBUG(regSet.tmpDone());
+    INDEBUG(spillTemps.Done());
 
 #if DISPLAY_SIZES
 
@@ -3432,11 +3432,11 @@ void CodeGen::CheckUseBlockInit()
         }
     }
 
-    assert(regSet.tmpAllFree());
+    assert(spillTemps.AreAllTempsFree());
 
-    for (TempDsc* tempThis = regSet.tmpListBeg(); tempThis != nullptr; tempThis = regSet.tmpListNxt(tempThis))
+    for (SpillTemp* temp = spillTemps.GetFirstTemp(); temp != nullptr; temp = spillTemps.GetNextTemp(temp))
     {
-        if (varTypeIsGC(tempThis->tdTempType()))
+        if (varTypeIsGC(temp->GetType()))
         {
             slotCount++;
         }
@@ -3599,36 +3599,25 @@ void CodeGen::MarkGCTrackedSlots(int& untrLclLo, int& untrLclHi, regMaskTP& init
         }
     }
 
-    /* Don't forget about spill temps that hold pointers */
+    assert(spillTemps.AreAllTempsFree());
 
-    assert(regSet.tmpAllFree());
-    for (TempDsc* tempThis = regSet.tmpListBeg(); tempThis != nullptr; tempThis = regSet.tmpListNxt(tempThis))
+    for (SpillTemp* temp = spillTemps.GetFirstTemp(); temp != nullptr; temp = spillTemps.GetNextTemp(temp))
     {
-        if (!varTypeIsGC(tempThis->tdTempType()))
+        if (!varTypeIsGC(temp->GetType()))
         {
             continue;
         }
 
-        int loOffs = tempThis->tdTempOffs();
+        int offset = temp->GetOffset();
 
-        // If there is a frame pointer used, due to frame pointer chaining it will point to the stored value of the
-        // previous frame pointer. Thus, stkOffs can't be zero.
-        CLANG_FORMAT_COMMENT_ANCHOR;
-
-#if !defined(TARGET_AMD64)
-        // However, on amd64 there is no requirement to chain frame pointers.
-
-        noway_assert(!isFramePointerUsed() || loOffs != 0);
-#endif // !defined(TARGET_AMD64)
-
-        if (loOffs < untrLclLo)
+        if (offset < untrLclLo)
         {
-            untrLclLo = loOffs;
+            untrLclLo = offset;
         }
 
-        if (loOffs + REGSIZE_BYTES > untrLclHi)
+        if (offset + REGSIZE_BYTES > untrLclHi)
         {
-            untrLclHi = loOffs + REGSIZE_BYTES;
+            untrLclHi = offset + REGSIZE_BYTES;
         }
     }
 
@@ -3731,15 +3720,16 @@ void CodeGen::PrologZeroInitUntrackedLocals(regNumber initReg, bool* initRegZero
         }
     }
 
-    assert(regSet.tmpAllFree());
-    for (TempDsc* tempThis = regSet.tmpListBeg(); tempThis != nullptr; tempThis = regSet.tmpListNxt(tempThis))
+    assert(spillTemps.AreAllTempsFree());
+
+    for (SpillTemp* temp = spillTemps.GetFirstTemp(); temp != nullptr; temp = spillTemps.GetNextTemp(temp))
     {
-        if (!varTypeIsGC(tempThis->tdTempType()))
+        if (!varTypeIsGC(temp->GetType()))
         {
             continue;
         }
 
-        GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, GetZeroReg(), tempThis->tdTempNum(), 0);
+        GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, GetZeroReg(), temp->GetNum(), 0);
     }
 }
 

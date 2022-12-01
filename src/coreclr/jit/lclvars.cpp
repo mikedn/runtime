@@ -3647,11 +3647,12 @@ void Compiler::lvaFixVirtualFrameOffsets()
 #endif
     }
 
-    assert(codeGen->regSet.tmpAllFree());
+    SpillTempSet& spillTemps = codeGen->spillTemps;
+    assert(spillTemps.AreAllTempsFree());
 
-    for (TempDsc* temp = codeGen->regSet.tmpListBeg(); temp != nullptr; temp = codeGen->regSet.tmpListNxt(temp))
+    for (SpillTemp* temp = spillTemps.GetFirstTemp(); temp != nullptr; temp = spillTemps.GetNextTemp(temp))
     {
-        temp->tdAdjustTempOffs(delta);
+        temp->AdjustOffset(delta);
     }
 
     codeGen->cachedGenericContextArgOffset += delta;
@@ -4745,12 +4746,13 @@ int Compiler::lvaAllocateTemps(int stkOffs
     int preSpillSize = 0;
 #endif
 
-    assert(codeGen->regSet.tmpAllFree());
+    SpillTempSet& spillTemps = codeGen->spillTemps;
+    assert(spillTemps.AreAllTempsFree());
 
-    for (TempDsc* temp = codeGen->regSet.tmpListBeg(); temp != nullptr; temp = codeGen->regSet.tmpListNxt(temp))
+    for (SpillTemp* temp = spillTemps.GetFirstTemp(); temp != nullptr; temp = spillTemps.GetNextTemp(temp))
     {
-        var_types type = temp->tdTempType();
-        unsigned  size = temp->tdTempSize();
+        var_types type = temp->GetType();
+        unsigned  size = temp->GetSize();
 
 #ifdef TARGET_64BIT
         if (varTypeIsGC(type) && ((stkOffs % REGSIZE_BYTES) != 0))
@@ -4787,7 +4789,7 @@ int Compiler::lvaAllocateTemps(int stkOffs
         spillTempSize += size;
 #endif
 
-        temp->tdSetTempOffs(stkOffs);
+        temp->SetOffset(stkOffs);
     }
 
     return stkOffs;
@@ -4847,10 +4849,10 @@ int Compiler::lvaFrameAddress(int varNum, bool* pFPbased)
     }
     else
     {
-        TempDsc* temp = codeGen->regSet.tmpFindNum(varNum);
+        SpillTemp* temp = codeGen->spillTemps.FindTempByNum(varNum);
 
         fpBased   = codeGen->isFramePointerUsed();
-        varOffset = temp->tdTempOffs();
+        varOffset = temp->GetOffset();
     }
 
     *pFPbased = fpBased;
@@ -5431,13 +5433,13 @@ void Compiler::lvaTableDump()
         lvaDumpEntry(lclNum, refCntWtdWidth);
     }
 
-    for (TempDsc* temp = codeGen->regSet.tmpListBeg(); temp != nullptr; temp = codeGen->regSet.tmpListNxt(temp))
+    SpillTempSet& spillTemps = codeGen->spillTemps;
+
+    for (SpillTemp* temp = spillTemps.GetFirstTemp(); temp != nullptr; temp = spillTemps.GetNextTemp(temp))
     {
-        printf("; T%02u %25s%*s%7s     ", -temp->tdTempNum(), " ", refCntWtdWidth, " ",
-               varTypeName(temp->tdTempType()));
-        int offset = temp->tdTempOffs();
-        printf(" [%2s%1s%02XH]\n", codeGen->isFramePointerUsed() ? STR_FPBASE : STR_SPBASE, offset < 0 ? "-" : "+",
-               abs(offset));
+        printf("; T%02u %25s%*s%7s      [%2s%1s%02XH]\n", -temp->GetNum(), " ", refCntWtdWidth, " ",
+               varTypeName(temp->GetType()), codeGen->isFramePointerUsed() ? STR_FPBASE : STR_SPBASE,
+               temp->GetOffset() < 0 ? "-" : "+", abs(temp->GetOffset()));
     }
 
     if (lvaDoneFrameLayout == FINAL_FRAME_LAYOUT)

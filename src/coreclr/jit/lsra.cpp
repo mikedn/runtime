@@ -6209,11 +6209,11 @@ void LinearScan::initMaxSpill()
 
 void LinearScan::recordMaxSpill()
 {
-    // Note: due to the temp normalization process (see tmpNormalizeType)
+    // Note: due to the temp normalization process (see SpillTempSet::GetTempType)
     // only a few types should actually be seen here.
     JITDUMP("Recording the maximum number of concurrent spills:\n");
 #ifdef TARGET_X86
-    var_types returnType = RegSet::tmpNormalizeType(compiler->info.compRetType);
+    var_types returnType = SpillTempSet::GetTempType(compiler->info.compRetType);
     if (needDoubleTmpForFPCall || (returnType == TYP_DOUBLE))
     {
         JITDUMP("Adding a spill temp for moving a double call/return value between xmm reg and x87 stack.\n");
@@ -6227,7 +6227,7 @@ void LinearScan::recordMaxSpill()
 #endif // TARGET_X86
     for (int i = 0; i < TYP_COUNT; i++)
     {
-        if (var_types(i) != RegSet::tmpNormalizeType(var_types(i)))
+        if (var_types(i) != SpillTempSet::GetTempType(var_types(i)))
         {
             // Only normalized types should have anything in the maxSpill array.
             // We assume here that if type 'i' does not normalize to itself, then
@@ -6237,7 +6237,7 @@ void LinearScan::recordMaxSpill()
         if (maxSpill[i] != 0)
         {
             JITDUMP("  %s: %d\n", varTypeName(var_types(i)), maxSpill[i]);
-            compiler->codeGen->regSet.tmpPreAllocateTemps(var_types(i), maxSpill[i]);
+            compiler->codeGen->spillTemps.PreAllocateTemps(var_types(i), maxSpill[i]);
         }
     }
     JITDUMP("\n");
@@ -6305,7 +6305,7 @@ void LinearScan::updateMaxSpill(RefPosition* refPosition)
             // LSRA is agnostic to those choices but needs
             // to know what they are here.
 
-            var_types type = RegSet::tmpNormalizeType(interval->registerType);
+            var_types type = SpillTempSet::GetTempType(interval->registerType);
 
             if (refPosition->spillAfter && !refPosition->reload)
             {
