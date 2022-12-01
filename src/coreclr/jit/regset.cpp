@@ -74,25 +74,12 @@ void SpillTempSet::PreAllocateTemps(const unsigned* typeSpillCounts)
 
 SpillTemp* SpillTempSet::FindTempByNum(int num) const
 {
-    assert(num < 0);
+    unsigned index = static_cast<unsigned>(-num) - 1;
+    assert(index < tempCount);
 
-    for (SpillTemp* temp = GetFirstTemp(Free); temp != nullptr; temp = GetNextTemp(temp, Free))
-    {
-        if (temp->GetNum() == num)
-        {
-            return temp;
-        }
-    }
-
-    for (SpillTemp* temp = GetFirstTemp(Used); temp != nullptr; temp = GetNextTemp(temp, Used))
-    {
-        if (temp->GetNum() == num)
-        {
-            return temp;
-        }
-    }
-
-    return nullptr;
+    SpillTemp* temp = &temps[index];
+    assert(temp->GetNum() == num);
+    return temp;
 }
 
 SpillTemp* SpillTempSet::GetFirstTemp(TempState state) const
