@@ -130,7 +130,7 @@ public:
     SpillTemp* tmpListNxt(SpillTemp* temp, TempState state = TEMP_USAGE_FREE) const;
     void tmpRlsTemp(SpillTemp* temp);
 
-    SpillTemp* AllocSpillTemp(GenTree* node, regNumber reg, var_types type);
+    SpillTemp* DefSpillTemp(GenTree* node, regNumber reg, var_types type);
     SpillTemp* UseSpillTemp(GenTree* node, regNumber reg);
 
 #ifdef DEBUG
@@ -143,7 +143,6 @@ public:
 private:
     SpillTemp* AllocTemp(var_types type);
     static unsigned GetTempListIndex(unsigned size);
-    SpillTempDef* AllocDef();
 };
 
 using TempDsc = SpillTemp;

@@ -1650,7 +1650,7 @@ void CodeGen::SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex)
     assert(node->IsRegSpill(regIndex));
 
     regNumber reg  = node->GetRegNum(regIndex);
-    TempDsc*  temp = regSet.AllocSpillTemp(node, reg, regType);
+    TempDsc*  temp = regSet.DefSpillTemp(node, reg, regType);
 
     JITDUMP("Spilling register %s after [%06u]\n", getRegName(reg), node->GetID());
 
@@ -1671,7 +1671,7 @@ void CodeGen::SpillST0(GenTree* node)
 {
     var_types type = node->GetType();
     regNumber reg  = node->GetRegNum();
-    TempDsc*  temp = regSet.AllocSpillTemp(node, reg, type);
+    TempDsc*  temp = regSet.DefSpillTemp(node, reg, type);
 
     JITDUMP("Spilling register ST0 after [%06u]\n", node->GetID());
 

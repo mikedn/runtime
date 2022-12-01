@@ -150,29 +150,27 @@ void SpillTempSet::tmpRlsTemp(SpillTemp* temp)
     freeTemps[listIndex] = temp;
 }
 
-SpillTempDef* SpillTempSet::AllocDef()
+SpillTemp* SpillTempSet::DefSpillTemp(GenTree* node, regNumber reg, var_types type)
 {
+    SpillTempDef* def;
+
     if (defFreeList != nullptr)
     {
-        SpillTempDef* def = defFreeList;
-        defFreeList       = def->next;
-        return def;
+        def         = defFreeList;
+        defFreeList = def->next;
+    }
+    else
+    {
+        def = new (compiler, CMK_SpillTemp) SpillTempDef;
     }
 
-    return new (compiler, CMK_SpillTemp) SpillTempDef();
-}
+    def->next      = regDefMap[reg];
+    regDefMap[reg] = def;
 
-SpillTemp* SpillTempSet::AllocSpillTemp(GenTree* node, regNumber reg, var_types type)
-{
-    SpillTemp* temp = AllocTemp(type);
+    def->node = node;
+    def->temp = AllocTemp(type);
 
-    SpillTempDef* def = AllocDef();
-    def->temp         = temp;
-    def->node         = node;
-    def->next         = regDefMap[reg];
-    regDefMap[reg]    = def;
-
-    return temp;
+    return def->temp;
 }
 
 SpillTemp* SpillTempSet::UseSpillTemp(GenTree* node, regNumber reg)
@@ -190,6 +188,7 @@ SpillTemp* SpillTempSet::UseSpillTemp(GenTree* node, regNumber reg)
 
     def->next   = defFreeList;
     defFreeList = def;
+
     return def->temp;
 }
 
