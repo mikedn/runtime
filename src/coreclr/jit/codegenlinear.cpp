@@ -1650,7 +1650,7 @@ void CodeGen::SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex)
     assert(node->IsRegSpill(regIndex));
 
     regNumber reg  = node->GetRegNum(regIndex);
-    TempDsc*  temp = regSet.DefSpillTemp(node, reg, regType);
+    TempDsc*  temp = regSet.DefSpillTemp(node, regIndex, regType);
 
     JITDUMP("Spilling register %s after [%06u]\n", getRegName(reg), node->GetID());
 
@@ -1670,8 +1670,7 @@ void CodeGen::SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex)
 void CodeGen::SpillST0(GenTree* node)
 {
     var_types type = node->GetType();
-    regNumber reg  = node->GetRegNum();
-    TempDsc*  temp = regSet.DefSpillTemp(node, reg, type);
+    TempDsc*  temp = regSet.DefSpillTemp(node, 0, type);
 
     JITDUMP("Spilling register ST0 after [%06u]\n", node->GetID());
 
@@ -1688,7 +1687,7 @@ void CodeGen::UnspillNodeReg(GenTree* node, regNumber reg, unsigned regIndex)
     assert(!node->IsMultiRegLclVar());
 
     regNumber oldReg = node->GetRegNum(regIndex);
-    TempDsc*  temp   = regSet.UseSpillTemp(node, oldReg);
+    TempDsc*  temp   = regSet.UseSpillTemp(node, regIndex);
 
     node->SetRegSpilled(regIndex, false);
 
@@ -1709,7 +1708,7 @@ void CodeGen::UnspillNodeReg(GenTree* node, regNumber reg, unsigned regIndex)
 void CodeGen::UnspillST0(GenTree* node)
 {
     regNumber oldReg = node->GetRegNum();
-    TempDsc*  temp   = regSet.UseSpillTemp(node, oldReg);
+    TempDsc*  temp   = regSet.UseSpillTemp(node, 0);
 
     node->SetRegSpilled(0, false);
 

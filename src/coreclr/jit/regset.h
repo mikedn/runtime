@@ -96,17 +96,19 @@ class SpillTempSet
 {
     static constexpr unsigned TempMinSize = 4;
 #ifdef TARGET_ARM64
-    static constexpr unsigned TempMaxSize = FP_REGSIZE_BYTES;
+    static constexpr unsigned TempMaxSize   = FP_REGSIZE_BYTES;
+    static constexpr unsigned TempListCount = 3; // 4, 8, 16
 #elif defined(TARGET_XARCH) && defined(FEATURE_SIMD)
-    static constexpr unsigned TempMaxSize = YMM_REGSIZE_BYTES;
+    static constexpr unsigned TempMaxSize   = YMM_REGSIZE_BYTES;
+    static constexpr unsigned TempListCount = 4; // 4, 8, 16, 32
 #else
-    static constexpr unsigned TempMaxSize = 8;
+    static constexpr unsigned TempMaxSize   = 8;
+    static constexpr unsigned TempListCount = 2; // 4, 8
 #endif
-    static constexpr unsigned TempListCount = TempMaxSize / TempMinSize;
 
     class Compiler* compiler;
     SpillTempDef*   defFreeList = nullptr;
-    SpillTempDef*   regDefMap[REG_COUNT]{};
+    SpillTempDef*   regDefMap[MAX_MULTIREG_COUNT]{};
     SpillTemp*      freeTemps[TempListCount]{};
     SpillTemp*      usedTemps[TempListCount]{};
     unsigned        tempCount = 0;
@@ -130,8 +132,8 @@ public:
     SpillTemp* tmpListNxt(SpillTemp* temp, TempState state = TEMP_USAGE_FREE) const;
     void tmpRlsTemp(SpillTemp* temp);
 
-    SpillTemp* DefSpillTemp(GenTree* node, regNumber reg, var_types type);
-    SpillTemp* UseSpillTemp(GenTree* node, regNumber reg);
+    SpillTemp* DefSpillTemp(GenTree* node, unsigned regIndex, var_types type);
+    SpillTemp* UseSpillTemp(GenTree* node, unsigned regIndex);
 
 #ifdef DEBUG
     bool tmpAllFree() const;

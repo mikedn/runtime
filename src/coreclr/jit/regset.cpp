@@ -20,7 +20,7 @@ unsigned SpillTempSet::GetTempListIndex(unsigned size)
 {
     noway_assert((TempMinSize <= size) && (size <= TempMaxSize) && (size % TempMinSize == 0));
 
-    return size / TempMinSize - 1;
+    return genLog2(size / TempMinSize);
 }
 
 void SpillTempSet::tmpPreAllocateTemps(var_types type, unsigned count)
@@ -81,16 +81,13 @@ SpillTemp* SpillTempSet::tmpListNxt(SpillTemp* temp, TempState state) const
         return next;
     }
 
-    SpillTemp* const* lists = state == TEMP_USAGE_FREE ? freeTemps : usedTemps;
-    unsigned          size  = temp->tdTempSize();
+    SpillTemp* const* lists     = state == TEMP_USAGE_FREE ? freeTemps : usedTemps;
+    unsigned          listIndex = GetTempListIndex(temp->tdTempSize());
 
-    while ((size < TempMaxSize) && (next == nullptr))
+    while ((++listIndex < TempListCount) && (next == nullptr))
     {
-        size += TempMinSize;
-        next = lists[GetTempListIndex(size)];
+        next = lists[listIndex];
     }
-
-    assert((next == nullptr) || (next->tdTempSize() == size));
 
     return next;
 }
@@ -150,8 +147,10 @@ void SpillTempSet::tmpRlsTemp(SpillTemp* temp)
     freeTemps[listIndex] = temp;
 }
 
-SpillTemp* SpillTempSet::DefSpillTemp(GenTree* node, regNumber reg, var_types type)
+SpillTemp* SpillTempSet::DefSpillTemp(GenTree* node, unsigned regIndex, var_types type)
 {
+    assert(regIndex < _countof(regDefMap));
+
     SpillTempDef* def;
 
     if (defFreeList != nullptr)
@@ -164,8 +163,8 @@ SpillTemp* SpillTempSet::DefSpillTemp(GenTree* node, regNumber reg, var_types ty
         def = new (compiler, CMK_SpillTemp) SpillTempDef;
     }
 
-    def->next      = regDefMap[reg];
-    regDefMap[reg] = def;
+    def->next           = regDefMap[regIndex];
+    regDefMap[regIndex] = def;
 
     def->node = node;
     def->temp = AllocTemp(type);
@@ -173,9 +172,11 @@ SpillTemp* SpillTempSet::DefSpillTemp(GenTree* node, regNumber reg, var_types ty
     return def->temp;
 }
 
-SpillTemp* SpillTempSet::UseSpillTemp(GenTree* node, regNumber reg)
+SpillTemp* SpillTempSet::UseSpillTemp(GenTree* node, unsigned regIndex)
 {
-    SpillTempDef** prevLink = &regDefMap[reg];
+    assert(regIndex < _countof(regDefMap));
+
+    SpillTempDef** prevLink = &regDefMap[regIndex];
     SpillTempDef*  def      = *prevLink;
 
     while (def->node != node)
@@ -228,9 +229,9 @@ bool SpillTempSet::rsSpillChk() const
         return false;
     }
 
-    for (regNumber reg = REG_FIRST; reg < REG_COUNT; reg = REG_NEXT(reg))
+    for (unsigned i = 0; i < _countof(regDefMap); i++)
     {
-        if (regDefMap[reg] != nullptr)
+        if (regDefMap[i] != nullptr)
         {
             return false;
         }
