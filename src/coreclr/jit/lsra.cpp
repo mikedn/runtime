@@ -6181,13 +6181,12 @@ void LinearScan::insertUpperVectorRestore(GenTree*     tree,
 void LinearScan::recordMaxSpill()
 {
 #ifdef TARGET_X86
-    var_types returnType = SpillTempSet::GetTempType(compiler->info.compRetType);
-    if (needDoubleTmpForFPCall || (returnType == TYP_DOUBLE))
+    if (needDoubleTmpForFPCall || (compiler->info.compRetType == TYP_DOUBLE))
     {
         JITDUMP("Adding a spill temp for moving a double call/return value between xmm reg and x87 stack.\n");
         maxSpill[TYP_DOUBLE] += 1;
     }
-    if (needFloatTmpForFPCall || (returnType == TYP_FLOAT))
+    if (needFloatTmpForFPCall || (compiler->info.compRetType == TYP_FLOAT))
     {
         JITDUMP("Adding a spill temp for moving a float call/return value between xmm reg and x87 stack.\n");
         maxSpill[TYP_FLOAT] += 1;
