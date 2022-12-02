@@ -407,6 +407,8 @@ enum idAddrUnionTag
     iaut_SHIFT = 2
 };
 
+class CodeGen;
+
 class emitter
 {
     friend class emitLocation;
