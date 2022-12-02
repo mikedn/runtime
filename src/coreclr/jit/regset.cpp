@@ -27,16 +27,39 @@ void SpillTempSet::PreAllocateTemps(const unsigned* typeSpillCounts)
 {
     JITDUMP("Creating spill temps:\n");
 
+    // Maintain the original temp list order - due to the type size buckets and single
+    // linked list use the old code ended up allocating temps in a partially reversed
+    // order - {INT}, {BYREF, REF, LONG} rather than {INT}, {LONG, REF, BYREF}.
+    // So we need to know where the size bucket lists end in the temp array to be able
+    // to fill lists backwards.
+    // TODO-MIKE-Cleanup: This order isn't special in any way but a different ordering
+    // results in some diffs. Otherwise this is just unncessary complication.
+    unsigned listEnds[TempListCount]{};
+
     for (int t = 0; t < TYP_COUNT; t++)
     {
-        var_types type       = static_cast<var_types>(t);
-        unsigned  spillCount = typeSpillCounts[t];
+        unsigned spillCount = typeSpillCounts[t];
+
+        if (spillCount == 0)
+        {
+            continue;
+        }
+
+        var_types type      = static_cast<var_types>(t);
+        unsigned  listIndex = GetTempListIndex(type);
 
         // Only normalized types should have anything in the spill count array.
-        assert((spillCount == 0) || (type == GetTempType(type)));
+        assert(type == GetTempType(type));
 
-        tempCount += spillCount;
+        listEnds[listIndex] += spillCount;
     }
+
+    for (unsigned i = 1; i < _countof(listEnds); i++)
+    {
+        listEnds[i] += listEnds[i - 1];
+    }
+
+    tempCount = listEnds[_countof(listEnds) - 1];
 
     if (tempCount == 0)
     {
@@ -45,23 +68,22 @@ void SpillTempSet::PreAllocateTemps(const unsigned* typeSpillCounts)
 
     temps = compiler->getAllocator(CMK_SpillTemp).allocate<SpillTemp>(tempCount);
 
-    unsigned tempIndex = 0;
-
     for (int t = 0; t < TYP_COUNT; t++)
     {
-        var_types type       = static_cast<var_types>(t);
-        unsigned  spillCount = typeSpillCounts[t];
+        unsigned spillCount = typeSpillCounts[t];
 
         if (spillCount == 0)
         {
             continue;
         }
 
-        unsigned listIndex = GetTempListIndex(type);
+        var_types type      = static_cast<var_types>(t);
+        unsigned  listIndex = GetTempListIndex(type);
 
-        for (unsigned i = 0; i < spillCount; i++, tempIndex++)
+        for (unsigned i = 0; i < spillCount; i++)
         {
-            SpillTemp* temp = new (&temps[tempIndex]) SpillTemp(-static_cast<int>(tempIndex + 1), type);
+            unsigned   n    = --listEnds[listIndex];
+            SpillTemp* temp = new (&temps[n]) SpillTemp(n, type);
 
             temp->next           = freeTemps[listIndex];
             freeTemps[listIndex] = temp;

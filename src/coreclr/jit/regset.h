@@ -10,21 +10,19 @@ class SpillTemp
 {
     friend class SpillTempSet;
 
-    SpillTemp* next;
-    const int  num;
+    SpillTemp*     next;
+    const unsigned index;
     int offset      INDEBUG(= INT_MIN);
     const var_types type;
 
 public:
-    SpillTemp(int num, var_types type) : num(num), type(type)
+    SpillTemp(unsigned index, var_types type) : index(index), type(type)
     {
-        assert(num < 0);
     }
 
     int GetNum() const
     {
-        assert(num < 0);
-        return num;
+        return -static_cast<int>(index) - 1;
     }
 
     var_types GetType() const
