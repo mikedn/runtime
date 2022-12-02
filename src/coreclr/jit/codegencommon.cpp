@@ -1009,6 +1009,8 @@ void CodeGen::genAllocateRegisters()
 #endif
 
     calleeSavedModifiedRegs = modifiedRegs & RBM_CALLEE_SAVED;
+
+    spillTemps.PreAllocateTemps(m_lsra->GetTypeSpillCounts());
 }
 
 void CodeGen::genGenerateMachineCode()

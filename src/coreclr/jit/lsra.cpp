@@ -6192,10 +6192,6 @@ void LinearScan::recordMaxSpill()
         maxSpill[TYP_FLOAT] += 1;
     }
 #endif // TARGET_X86
-
-    compiler->codeGen->spillTemps.PreAllocateTemps(maxSpill);
-
-    JITDUMP("\n");
 }
 
 //------------------------------------------------------------------------

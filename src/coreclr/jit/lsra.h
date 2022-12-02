@@ -613,6 +613,11 @@ public:
         return m_allocateRegs;
     }
 
+    const unsigned* GetTypeSpillCounts() const
+    {
+        return maxSpill;
+    }
+
 #ifdef TARGET_ARMARCH
     regMaskTP GetReservedRegs() const
     {
