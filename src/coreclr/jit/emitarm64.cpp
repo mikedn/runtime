@@ -12819,7 +12819,7 @@ void emitter::emitDispFrameRef(instrDesc* id)
 
     if (varNum < 0)
     {
-        printf("TEMP_%02d", -varNum);
+        printf("T%02d", -varNum);
     }
     else
     {

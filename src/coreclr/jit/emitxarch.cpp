@@ -6692,7 +6692,7 @@ void emitter::emitDispFrameRef(instrDesc* id, bool asmfm)
 
     if (!asmfm)
     {
-        printf("%s%02d", varNum < 0 ? "TEMP_" : "V", abs(varNum));
+        printf("%s%02d", varNum < 0 ? "T" : "V", abs(varNum));
 
         if (varOffs != 0)
         {

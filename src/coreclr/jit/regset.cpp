@@ -25,8 +25,6 @@ unsigned SpillTempSet::GetTempListIndex(var_types type)
 
 void SpillTempSet::PreAllocateTemps(const unsigned* typeSpillCounts)
 {
-    JITDUMP("Creating spill temps:\n");
-
     // Maintain the original temp list order - due to the type size buckets and single
     // linked list use the old code ended up allocating temps in a partially reversed
     // order - {INT}, {BYREF, REF, LONG} rather than {INT}, {LONG, REF, BYREF}.
@@ -65,6 +63,8 @@ void SpillTempSet::PreAllocateTemps(const unsigned* typeSpillCounts)
     {
         return;
     }
+
+    JITDUMP("Creating %u spill temps:\n", tempCount);
 
     temps = compiler->getAllocator(CMK_SpillTemp).allocate<SpillTemp>(tempCount);
 
@@ -156,7 +156,7 @@ SpillTemp* SpillTempSet::DefSpillTemp(GenTree* node, unsigned regIndex, var_type
     def->node = node;
     def->temp = AllocTemp(GetTempType(type));
 
-    JITDUMP("Spill temp #%d def\n", -def->temp->GetNum());
+    JITDUMP("Spill temp T%02d def\n", -def->temp->GetNum());
     INDEBUG(defCount++);
 
     return def->temp;
@@ -180,7 +180,7 @@ SpillTemp* SpillTempSet::UseSpillTemp(GenTree* node, unsigned regIndex)
     def->next   = defFreeList;
     defFreeList = def;
 
-    JITDUMP("Spill temp #%d use\n", -def->temp->GetNum());
+    JITDUMP("Spill temp T%02d use\n", -def->temp->GetNum());
     INDEBUG(defCount--);
 
     ReleaseTemp(def->temp);
