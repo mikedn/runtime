@@ -46,9 +46,6 @@ CodeGen::CodeGen(Compiler* compiler) : CodeGenInterface(compiler), m_liveness(co
 #ifdef LATE_DISASM
     getDisAssembler().disInit(compiler);
 #endif
-
-    // Shouldn't be used before it is set in genFnProlog()
-    INDEBUG(calleeRegsPushed = UninitializedWord<unsigned>(compiler));
 }
 
 //------------------------------------------------------------------------
