@@ -300,14 +300,11 @@ enum EmitCallType
 
 void emitIns_Call(EmitCallType          callType,
                   CORINFO_METHOD_HANDLE methHnd DEBUGARG(CORINFO_SIG_INFO* sigInfo),
-                  void*            addr,
-                  emitAttr         retSize,
-                  VARSET_VALARG_TP ptrVars,
-                  regMaskTP        gcrefRegs,
-                  regMaskTP        byrefRegs,
-                  IL_OFFSETX       ilOffset = BAD_IL_OFFSET,
-                  regNumber        ireg     = REG_NA,
-                  bool             isJump   = false);
+                  void*      addr,
+                  emitAttr   retSize,
+                  IL_OFFSETX ilOffset = BAD_IL_OFFSET,
+                  regNumber  ireg     = REG_NA,
+                  bool       isJump   = false);
 
 /*****************************************************************************
  *

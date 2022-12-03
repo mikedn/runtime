@@ -2684,9 +2684,6 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         callAddr,
         retSize
         MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
-        gcInfo.gcVarPtrSetCur,
-        gcInfo.gcRegGCrefSetCur,
-        gcInfo.gcRegByrefSetCur,
         ilOffset,
         callReg,
         false);
@@ -3034,9 +3031,6 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
 #ifdef TARGET_ARM64
             EA_UNKNOWN, // secondRetSize
 #endif
-            gcInfo.gcVarPtrSetCur,
-            gcInfo.gcRegGCrefSetCur,
-            gcInfo.gcRegByrefSetCur,
             BAD_IL_OFFSET, // IL offset
             indCallReg,    // ireg
             true);         // isJump
@@ -3068,9 +3062,6 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
                 call->gtDirectCallAddress,
                 EA_UNKNOWN  // retSize
                 ARM64_ARG(EA_UNKNOWN), // secondRetSize
-                gcInfo.gcVarPtrSetCur,
-                gcInfo.gcRegGCrefSetCur,
-                gcInfo.gcRegByrefSetCur,
                 BAD_IL_OFFSET, // IL offset
                 REG_NA,        // ireg
                 true);         // isJump

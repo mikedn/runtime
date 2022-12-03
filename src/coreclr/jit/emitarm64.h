@@ -826,15 +826,12 @@ enum EmitCallType
 
 void emitIns_Call(EmitCallType          callType,
                   CORINFO_METHOD_HANDLE methHnd DEBUGARG(CORINFO_SIG_INFO* sigInfo),
-                  void*            addr,
-                  emitAttr         retSize,
-                  emitAttr         secondRetSize,
-                  VARSET_VALARG_TP ptrVars,
-                  regMaskTP        gcrefRegs,
-                  regMaskTP        byrefRegs,
-                  IL_OFFSETX       ilOffset = BAD_IL_OFFSET,
-                  regNumber        ireg     = REG_NA,
-                  bool             isJump   = false);
+                  void*      addr,
+                  emitAttr   retSize,
+                  emitAttr   secondRetSize,
+                  IL_OFFSETX ilOffset = BAD_IL_OFFSET,
+                  regNumber  ireg     = REG_NA,
+                  bool       isJump   = false);
 
 BYTE* emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i);
 unsigned emitOutputCall(insGroup* ig, BYTE* dst, instrDesc* i, code_t code);

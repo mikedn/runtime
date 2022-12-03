@@ -5264,9 +5264,6 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 #endif
         retSize
         MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
-        gcInfo.gcVarPtrSetCur,
-        gcInfo.gcRegGCrefSetCur,
-        gcInfo.gcRegByrefSetCur,
         ilOffset,
         amBaseReg,
         amIndexReg,
@@ -5668,9 +5665,6 @@ void CodeGen::GenJmpEpilog(BasicBlock* block)
 #endif
             EA_UNKNOWN                                              // retSize
             MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(EA_UNKNOWN),        // secondRetSize
-            gcInfo.gcVarPtrSetCur,
-            gcInfo.gcRegGCrefSetCur,
-            gcInfo.gcRegByrefSetCur,
             BAD_IL_OFFSET, indCallReg, REG_NA, 0, 0,  /* iloffset, ireg, xreg, xmul, disp */
             true /* isJump */
         );
@@ -5705,9 +5699,6 @@ void CodeGen::GenJmpEpilog(BasicBlock* block)
 #endif
                 EA_UNKNOWN                                      // retSize
                 MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(EA_UNKNOWN),// secondRetSize
-                gcInfo.gcVarPtrSetCur,
-                gcInfo.gcRegGCrefSetCur,
-                gcInfo.gcRegByrefSetCur,
                 BAD_IL_OFFSET, REG_NA, REG_NA, 0, 0,  /* iloffset, ireg, xreg, xmul, disp */
                 true /* isJump */
             );
@@ -8108,9 +8099,6 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
 #endif
                                retSize
                                MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(EA_UNKNOWN),
-                               gcInfo.gcVarPtrSetCur,
-                               gcInfo.gcRegGCrefSetCur,
-                               gcInfo.gcRegByrefSetCur,
                                BAD_IL_OFFSET, // IL offset
                                callTarget,    // ireg
                                REG_NA, 0, 0,  // xreg, xmul, disp

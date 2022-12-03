@@ -4379,18 +4379,19 @@ void emitter::emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* dst, regNu
 //
 void emitter::emitIns_Call(EmitCallType          callType,
                            CORINFO_METHOD_HANDLE methHnd DEBUGARG(CORINFO_SIG_INFO* sigInfo),
-                           void*            addr,
-                           emitAttr         retSize,
-                           VARSET_VALARG_TP ptrVars,
-                           regMaskTP        gcrefRegs,
-                           regMaskTP        byrefRegs,
-                           IL_OFFSETX       ilOffset,
-                           regNumber        ireg,
-                           bool             isJump)
+                           void*      addr,
+                           emitAttr   retSize,
+                           IL_OFFSETX ilOffset,
+                           regNumber  ireg,
+                           bool       isJump)
 {
     assert((callType == EC_INDIR_R) || (ireg == REG_NA));
     assert((callType != EC_INDIR_R) || (addr == nullptr));
     assert((callType != EC_INDIR_R) || (ireg != REG_NA));
+
+    VARSET_VALARG_TP ptrVars   = codeGen->gcInfo.gcVarPtrSetCur;
+    regMaskTP        gcrefRegs = codeGen->gcInfo.gcRegGCrefSetCur;
+    regMaskTP        byrefRegs = codeGen->gcInfo.gcRegByrefSetCur;
 
     // Trim out any callee-trashed registers from the live set.
     regMaskTP savedSet = emitGetGCRegsSavedOrModified(methHnd);

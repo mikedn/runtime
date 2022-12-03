@@ -6071,15 +6071,12 @@ void emitter::emitIns_Call(EmitCallType          callType,
 #ifdef UNIX_AMD64_ABI
                            emitAttr secondRetSize,
 #endif
-                           VARSET_VALARG_TP ptrVars,
-                           regMaskTP        gcrefRegs,
-                           regMaskTP        byrefRegs,
-                           IL_OFFSETX       ilOffset,
-                           regNumber        amBase,
-                           regNumber        amIndex,
-                           unsigned         amScale,
-                           int32_t          amDisp,
-                           bool             isJump)
+                           IL_OFFSETX ilOffset,
+                           regNumber  amBase,
+                           regNumber  amIndex,
+                           unsigned   amScale,
+                           int32_t    amDisp,
+                           bool       isJump)
 {
     assert((callType != EC_FUNC_TOKEN && callType != EC_FUNC_TOKEN_INDIR && callType != EC_FUNC_ADDR) ||
            (amBase == REG_NA && amIndex == REG_NA && amScale == 0 && amDisp == 0));
@@ -6091,6 +6088,10 @@ void emitter::emitIns_Call(EmitCallType          callType,
     // a sanity test.
     assert((unsigned)abs((signed)argSize) <= codeGen->genStackLevel);
 #endif
+
+    VARSET_VALARG_TP ptrVars   = codeGen->gcInfo.gcVarPtrSetCur;
+    regMaskTP        gcrefRegs = codeGen->gcInfo.gcRegGCrefSetCur;
+    regMaskTP        byrefRegs = codeGen->gcInfo.gcRegByrefSetCur;
 
     // Trim out any callee-trashed registers from the live set.
     regMaskTP savedSet = emitGetGCRegsSavedOrModified(methHnd);
