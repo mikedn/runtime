@@ -9,9 +9,7 @@ void emitBegFN();
 
 void emitComputeCodeSizes();
 
-unsigned emitEndCodeGen(Compiler* comp,
-                        bool      contTrkPtrLcls,
-                        bool      fullyInt,
+unsigned emitEndCodeGen(bool      fullyInt,
                         bool      fullPtrMap,
                         unsigned  xcptnsCount,
                         unsigned* prologSize,

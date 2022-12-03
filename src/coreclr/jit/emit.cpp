@@ -5054,8 +5054,6 @@ void emitter::emitComputeCodeSizes()
 // emitEndCodeGen: called at end of code generation to create code, data, and gc info
 //
 // Arguments:
-//    comp - compiler instance
-//    contTrkPtrLcls - true if tracked stack pointers are contiguous on the stack
 //    fullInt - true if method has fully interruptible gc reporting
 //    fullPtrMap - true if gc reporting should use full register pointer map
 //    xcptnsCount - number of EH clauses to report for the method
@@ -5073,9 +5071,7 @@ void emitter::emitComputeCodeSizes()
 // Returns:
 //    size of the method code, in bytes
 //
-unsigned emitter::emitEndCodeGen(Compiler* comp,
-                                 bool      contTrkPtrLcls,
-                                 bool      fullyInt,
+unsigned emitter::emitEndCodeGen(bool      fullyInt,
                                  bool      fullPtrMap,
                                  unsigned  xcptnsCount,
                                  unsigned* prologSize,
@@ -5084,12 +5080,7 @@ unsigned emitter::emitEndCodeGen(Compiler* comp,
                                  void**    coldCodeAddr,
                                  void** consAddr DEBUGARG(unsigned* instrCount))
 {
-#ifdef DEBUG
-    if (emitComp->verbose)
-    {
-        printf("*************** In emitEndCodeGen()\n");
-    }
-#endif
+    JITDUMP("*************** In emitEndCodeGen()\n");
 
     BYTE* consBlock;
     BYTE* consBlockRW;
@@ -5399,11 +5390,7 @@ unsigned emitter::emitEndCodeGen(Compiler* comp,
     }
 #endif // JIT32_GCENCODER
 
-    emitContTrkPtrLcls = contTrkPtrLcls;
-
-    /* Are there any GC ref variables on the stack? */
-
-    if (emitGCrFrameOffsCnt)
+    if (emitGCrFrameOffsCnt != 0)
     {
         size_t     siz;
         unsigned   cnt;
@@ -5457,53 +5444,40 @@ unsigned emitter::emitEndCodeGen(Compiler* comp,
 
             int offs = dsc->GetStackOffset();
 
-            /* Is it within the interesting range of offsets */
-
-            if (offs >= emitGCrFrameOffsMin && offs < emitGCrFrameOffsMax)
+            if ((offs < emitGCrFrameOffsMin) || (offs >= emitGCrFrameOffsMax))
             {
-                /* Are tracked stack ptr locals laid out contiguously?
-                   If not, skip non-ptrs. The emitter is optimized to work
-                   with contiguous ptrs, but for EditNContinue, the variables
-                   are laid out in the order they occur in the local-sig.
-                 */
+                continue;
+            }
 
-                if (!emitContTrkPtrLcls)
-                {
-                    if (!emitComp->lvaIsGCTracked(dsc))
-                    {
-                        continue;
-                    }
-                }
+            if (!emitComp->lvaIsGCTracked(dsc))
+            {
+                continue;
+            }
 
-                unsigned indx = dsc->lvVarIndex;
+            unsigned indx = dsc->lvVarIndex;
 
-                assert(!dsc->lvRegister);
-                assert(dsc->lvTracked);
-                assert(dsc->lvRefCnt() != 0);
-
-                assert(dsc->TypeGet() == TYP_REF || dsc->TypeGet() == TYP_BYREF);
-
-                assert(indx < emitComp->lvaTrackedCount);
-
-// printf("Variable #%2u/%2u is at stack offset %d\n", num, indx, offs);
+            assert(!dsc->lvRegister);
+            assert(dsc->lvTracked);
+            assert(dsc->lvRefCnt() != 0);
+            assert(dsc->TypeGet() == TYP_REF || dsc->TypeGet() == TYP_BYREF);
+            assert(indx < emitComp->lvaTrackedCount);
 
 #ifdef JIT32_GCENCODER
 #ifndef FEATURE_EH_FUNCLETS
-                // Remember the frame offset of the "this" argument for synchronized methods.
-                if (emitComp->lvaIsOriginalThisArg(num) && emitComp->lvaKeepAliveAndReportThis())
-                {
-                    emitSyncThisObjOffs = offs;
-                    offs |= this_OFFSET_FLAG;
-                }
+            // Remember the frame offset of the "this" argument for synchronized methods.
+            if (emitComp->lvaIsOriginalThisArg(num) && emitComp->lvaKeepAliveAndReportThis())
+            {
+                emitSyncThisObjOffs = offs;
+                offs |= this_OFFSET_FLAG;
+            }
 #endif
 #endif // JIT32_GCENCODER
 
-                if (dsc->TypeGet() == TYP_BYREF)
-                {
-                    offs |= byref_OFFSET_FLAG;
-                }
-                tab[indx] = offs;
+            if (dsc->TypeGet() == TYP_BYREF)
+            {
+                offs |= byref_OFFSET_FLAG;
             }
+            tab[indx] = offs;
         }
     }
     else
@@ -7545,20 +7519,8 @@ void emitter::emitGCvarLiveUpd(int offs, unsigned lclNum, GCtype gcType, BYTE* a
         return;
     }
 
-    // Normally all variables in this range must be tracked stack pointers.
-    // However, for EnC, we relax this condition.
-
     if (!emitComp->lvaIsGCTracked(emitComp->lvaGetDesc(lclNum)))
     {
-#if DOUBLE_ALIGN
-        assert(!emitContTrkPtrLcls ||
-               // EBP based variables in the double-aligned frames are indeed input arguments.
-               // and we don't require them to fall into the "interesting" range.
-               ((codeGen->rpFrameType == FT_DOUBLE_ALIGN_FRAME) && emitComp->lvaGetDesc(lclNum)->lvFramePointerBased));
-#else
-        assert(!emitContTrkPtrLcls);
-#endif
-
         return;
     }
 

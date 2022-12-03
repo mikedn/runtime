@@ -2010,10 +2010,9 @@ private:
     unsigned emitTrkVarCnt;
     int*     emitGCrFrameOffsTab; // Offsets of tracked stack ptr vars (varTrkIndex -> stkOffs)
 
-    unsigned          emitGCrFrameOffsCnt = 0; // Number of       tracked stack ptr vars
-    int               emitGCrFrameOffsMin = 0; // Min offset of a tracked stack ptr var
-    int               emitGCrFrameOffsMax = 0; // Max offset of a tracked stack ptr var
-    bool              emitContTrkPtrLcls; // All lcl between emitGCrFrameOffsMin/Max are only tracked stack ptr vars
+    unsigned          emitGCrFrameOffsCnt = 0;       // Number of       tracked stack ptr vars
+    int               emitGCrFrameOffsMin = 0;       // Min offset of a tracked stack ptr var
+    int               emitGCrFrameOffsMax = 0;       // Max offset of a tracked stack ptr var
     GCFrameLifetime** emitGCrFrameLiveTab = nullptr; // Cache of currently live varPtrs (stkOffs -> varPtrDsc)
 
     int emitSyncThisObjOffs; // what is the offset of "this" for synchronized methods?

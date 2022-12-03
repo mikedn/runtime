@@ -1211,20 +1211,9 @@ void CodeGen::genEmitMachineCode()
 
     compiler->unwindReserve();
 
-    bool trackedStackPtrsContig; // are tracked stk-ptrs contiguous ?
-
-#if defined(TARGET_AMD64) || defined(TARGET_ARM64)
-    trackedStackPtrsContig = false;
-#elif defined(TARGET_ARM)
-    // On arm due to prespilling of arguments, tracked stk-ptrs may not be contiguous
-    trackedStackPtrsContig = !compiler->opts.compDbgEnC && !compiler->compIsProfilerHookNeeded();
-#else
-    trackedStackPtrsContig = !compiler->opts.compDbgEnC;
-#endif
-
-    codeSize = GetEmitter()->emitEndCodeGen(compiler, trackedStackPtrsContig, GetInterruptible(),
-                                            IsFullPtrRegMapRequired(), compiler->compHndBBtabCount, &prologSize,
-                                            &epilogSize, codePtr, &coldCodePtr, &consPtr DEBUGARG(&instrCount));
+    codeSize =
+        GetEmitter()->emitEndCodeGen(GetInterruptible(), IsFullPtrRegMapRequired(), compiler->compHndBBtabCount,
+                                     &prologSize, &epilogSize, codePtr, &coldCodePtr, &consPtr DEBUGARG(&instrCount));
 
 #ifdef DEBUG
     assert(compiler->compCodeGenDone == false);
@@ -3462,7 +3451,7 @@ void CodeGen::CheckUseBlockInit()
 #elif defined(TARGET_64BIT)
     genUseBlockInit = slotCount > 8;
 #else
-    genUseBlockInit        = slotCount > 4;
+    genUseBlockInit = slotCount > 4;
 #endif
 
     genInitStkLclCnt = slotCount;
