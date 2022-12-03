@@ -584,3 +584,97 @@ regMaskSmall GCInfo::RegMaskFromCalleeSavedMask(unsigned short calleeSaveMask)
     }
     return res;
 }
+
+void GCInfo::BeginBlockCodeGen(BasicBlock* block)
+{
+    regMaskTP newLiveRegSet  = RBM_NONE;
+    regMaskTP newRegGCrefSet = RBM_NONE;
+    regMaskTP newRegByrefSet = RBM_NONE;
+#ifdef DEBUG
+    VARSET_TP removedGCVars(VarSetOps::MakeEmpty(compiler));
+    VARSET_TP addedGCVars(VarSetOps::MakeEmpty(compiler));
+#endif
+    VarSetOps::Iter iter(compiler, block->bbLiveIn);
+    unsigned        varIndex = 0;
+    while (iter.NextElem(&varIndex))
+    {
+        LclVarDsc* varDsc = compiler->lvaGetDescByTrackedIndex(varIndex);
+
+        if (varDsc->lvIsInReg())
+        {
+            newLiveRegSet |= varDsc->lvRegMask();
+
+            if (varDsc->TypeIs(TYP_REF))
+            {
+                newRegGCrefSet |= varDsc->lvRegMask();
+            }
+            else if (varDsc->TypeIs(TYP_BYREF))
+            {
+                newRegByrefSet |= varDsc->lvRegMask();
+            }
+
+            if (!varDsc->IsAlwaysAliveInMemory())
+            {
+#ifdef DEBUG
+                if (compiler->verbose && VarSetOps::IsMember(compiler, gcVarPtrSetCur, varIndex))
+                {
+                    VarSetOps::AddElemD(compiler, removedGCVars, varIndex);
+                }
+#endif // DEBUG
+                VarSetOps::RemoveElemD(compiler, gcVarPtrSetCur, varIndex);
+            }
+        }
+        if ((!varDsc->lvIsInReg() || varDsc->IsAlwaysAliveInMemory()) && compiler->lvaIsGCTracked(varDsc))
+        {
+#ifdef DEBUG
+            if (compiler->verbose && !VarSetOps::IsMember(compiler, gcVarPtrSetCur, varIndex))
+            {
+                VarSetOps::AddElemD(compiler, addedGCVars, varIndex);
+            }
+#endif // DEBUG
+            VarSetOps::AddElemD(compiler, gcVarPtrSetCur, varIndex);
+        }
+    }
+
+    SetLiveLclRegs(newLiveRegSet);
+
+#ifdef DEBUG
+    if (compiler->verbose)
+    {
+        if (!VarSetOps::IsEmpty(compiler, addedGCVars))
+        {
+            printf("Added GCVars: ");
+            dumpConvertedVarSet(compiler, addedGCVars);
+            printf("\n");
+        }
+        if (!VarSetOps::IsEmpty(compiler, removedGCVars))
+        {
+            printf("Removed GCVars: ");
+            dumpConvertedVarSet(compiler, removedGCVars);
+            printf("\n");
+        }
+    }
+#endif // DEBUG
+
+    gcMarkRegSetGCref(newRegGCrefSet DEBUGARG(true));
+    gcMarkRegSetByref(newRegByrefSet DEBUGARG(true));
+
+    /* Blocks with handlerGetsXcptnObj()==true use GT_CATCH_ARG to
+       represent the exception object (TYP_REF).
+       We mark REG_EXCEPTION_OBJECT as holding a GC object on entry
+       to the block,  it will be the first thing evaluated
+       (thanks to GTF_ORDER_SIDEEFF).
+     */
+
+    if (handlerGetsXcptnObj(block->bbCatchTyp))
+    {
+        for (GenTree* node : LIR::AsRange(block))
+        {
+            if (node->OperGet() == GT_CATCH_ARG)
+            {
+                gcMarkRegSetGCref(RBM_EXCEPTION_OBJECT);
+                break;
+            }
+        }
+    }
+}

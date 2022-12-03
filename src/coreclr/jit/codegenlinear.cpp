@@ -147,97 +147,7 @@ void CodeGen::genCodeForBBlist()
         // genUpdateLife will update the registers live due to liveness changes. But what about registers that didn't
         // change? We cleared them out above. Maybe we should just not clear them out, but update the ones that change
         // here. That would require handling the changes in recordVarLocationsAtStartOfBB().
-
-        regMaskTP newLiveRegSet  = RBM_NONE;
-        regMaskTP newRegGCrefSet = RBM_NONE;
-        regMaskTP newRegByrefSet = RBM_NONE;
-#ifdef DEBUG
-        VARSET_TP removedGCVars(VarSetOps::MakeEmpty(compiler));
-        VARSET_TP addedGCVars(VarSetOps::MakeEmpty(compiler));
-#endif
-        VarSetOps::Iter iter(compiler, block->bbLiveIn);
-        unsigned        varIndex = 0;
-        while (iter.NextElem(&varIndex))
-        {
-            LclVarDsc* varDsc = compiler->lvaGetDescByTrackedIndex(varIndex);
-
-            if (varDsc->lvIsInReg())
-            {
-                newLiveRegSet |= varDsc->lvRegMask();
-
-                if (varDsc->TypeIs(TYP_REF))
-                {
-                    newRegGCrefSet |= varDsc->lvRegMask();
-                }
-                else if (varDsc->TypeIs(TYP_BYREF))
-                {
-                    newRegByrefSet |= varDsc->lvRegMask();
-                }
-
-                if (!varDsc->IsAlwaysAliveInMemory())
-                {
-#ifdef DEBUG
-                    if (verbose && VarSetOps::IsMember(compiler, gcInfo.gcVarPtrSetCur, varIndex))
-                    {
-                        VarSetOps::AddElemD(compiler, removedGCVars, varIndex);
-                    }
-#endif // DEBUG
-                    VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, varIndex);
-                }
-            }
-            if ((!varDsc->lvIsInReg() || varDsc->IsAlwaysAliveInMemory()) && compiler->lvaIsGCTracked(varDsc))
-            {
-#ifdef DEBUG
-                if (verbose && !VarSetOps::IsMember(compiler, gcInfo.gcVarPtrSetCur, varIndex))
-                {
-                    VarSetOps::AddElemD(compiler, addedGCVars, varIndex);
-                }
-#endif // DEBUG
-                VarSetOps::AddElemD(compiler, gcInfo.gcVarPtrSetCur, varIndex);
-            }
-        }
-
-        gcInfo.SetLiveLclRegs(newLiveRegSet);
-
-#ifdef DEBUG
-        if (compiler->verbose)
-        {
-            if (!VarSetOps::IsEmpty(compiler, addedGCVars))
-            {
-                printf("Added GCVars: ");
-                dumpConvertedVarSet(compiler, addedGCVars);
-                printf("\n");
-            }
-            if (!VarSetOps::IsEmpty(compiler, removedGCVars))
-            {
-                printf("Removed GCVars: ");
-                dumpConvertedVarSet(compiler, removedGCVars);
-                printf("\n");
-            }
-        }
-#endif // DEBUG
-
-        gcInfo.gcMarkRegSetGCref(newRegGCrefSet DEBUGARG(true));
-        gcInfo.gcMarkRegSetByref(newRegByrefSet DEBUGARG(true));
-
-        /* Blocks with handlerGetsXcptnObj()==true use GT_CATCH_ARG to
-           represent the exception object (TYP_REF).
-           We mark REG_EXCEPTION_OBJECT as holding a GC object on entry
-           to the block,  it will be the first thing evaluated
-           (thanks to GTF_ORDER_SIDEEFF).
-         */
-
-        if (handlerGetsXcptnObj(block->bbCatchTyp))
-        {
-            for (GenTree* node : LIR::AsRange(block))
-            {
-                if (node->OperGet() == GT_CATCH_ARG)
-                {
-                    gcInfo.gcMarkRegSetGCref(RBM_EXCEPTION_OBJECT);
-                    break;
-                }
-            }
-        }
+        gcInfo.BeginBlockCodeGen(block);
 
 #if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
         genInsertNopForUnwinder(block);
@@ -340,7 +250,7 @@ void CodeGen::genCodeForBBlist()
         // We cannot emit this code in the prolog as it might make the prolog too large.
         if (compiler->compShouldPoisonFrame() && compiler->fgBBisScratch(block))
         {
-            genPoisonFrame(newLiveRegSet);
+            genPoisonFrame(gcInfo.GetLiveLclRegs());
         }
 
 #ifdef DEBUG
