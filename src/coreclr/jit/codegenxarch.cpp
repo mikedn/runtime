@@ -9650,36 +9650,20 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
 void CodeGen::genFnEpilog(BasicBlock* block)
 {
     JITDUMP("*************** In genFnEpilog()\n");
-
-    ScopedSetVariable<bool> _setGeneratingEpilog(&generatingEpilog, true);
-
-    VarSetOps::Assign(compiler, gcInfo.gcVarPtrSetCur, GetEmitter()->emitInitGCrefVars);
-    gcInfo.gcRegGCrefSetCur = GetEmitter()->emitInitGCrefRegs;
-    gcInfo.gcRegByrefSetCur = GetEmitter()->emitInitByrefRegs;
-
-    noway_assert(!compiler->opts.MinOpts() || isFramePointerUsed()); // FPO not allowed with minOpts
-
-    bool jmpEpilog = ((block->bbFlags & BBF_HAS_JMP) != 0);
-
 #ifdef DEBUG
     if (compiler->opts.dspCode)
     {
         printf("\n__epilog:\n");
     }
-
-    if (verbose)
-    {
-        printf("gcVarPtrSetCur=%s ", VarSetOps::ToString(compiler, gcInfo.gcVarPtrSetCur));
-        dumpConvertedVarSet(compiler, gcInfo.gcVarPtrSetCur);
-        printf(", gcRegGCrefSetCur=");
-        printRegMaskInt(gcInfo.gcRegGCrefSetCur);
-        emitter::emitDispRegSet(gcInfo.gcRegGCrefSetCur);
-        printf(", gcRegByrefSetCur=");
-        printRegMaskInt(gcInfo.gcRegByrefSetCur);
-        emitter::emitDispRegSet(gcInfo.gcRegByrefSetCur);
-        printf("\n");
-    }
 #endif
+
+    noway_assert(!compiler->opts.MinOpts() || isFramePointerUsed()); // FPO not allowed with minOpts
+
+    ScopedSetVariable<bool> _setGeneratingEpilog(&generatingEpilog, true);
+
+    gcInfo.BeginMethodEpilogCodeGen();
+
+    bool jmpEpilog = ((block->bbFlags & BBF_HAS_JMP) != 0);
 
     // Restore float registers that were saved to stack before SP is modified.
     genRestoreCalleeSavedFltRegs(lclFrameSize);

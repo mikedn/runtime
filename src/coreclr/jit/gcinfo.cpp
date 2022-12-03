@@ -678,3 +678,27 @@ void GCInfo::BeginBlockCodeGen(BasicBlock* block)
         }
     }
 }
+
+void GCInfo::BeginMethodEpilogCodeGen()
+{
+    emitter* emitter = compiler->codeGen->GetEmitter();
+
+    VarSetOps::Assign(compiler, gcVarPtrSetCur, emitter->emitInitGCrefVars);
+    gcRegGCrefSetCur = emitter->emitInitGCrefRegs;
+    gcRegByrefSetCur = emitter->emitInitByrefRegs;
+
+#ifdef DEBUG
+    if (compiler->verbose)
+    {
+        printf("gcVarPtrSetCur=%s ", VarSetOps::ToString(compiler, gcVarPtrSetCur));
+        dumpConvertedVarSet(compiler, gcVarPtrSetCur);
+        printf(", gcRegGCrefSetCur=");
+        printRegMaskInt(gcRegGCrefSetCur);
+        emitter::emitDispRegSet(gcRegGCrefSetCur);
+        printf(", gcRegByrefSetCur=");
+        printRegMaskInt(gcRegByrefSetCur);
+        emitter::emitDispRegSet(gcRegByrefSetCur);
+        printf("\n");
+    }
+#endif
+}

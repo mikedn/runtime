@@ -106,6 +106,7 @@ public:
 
     void gcResetForBB();
     void BeginBlockCodeGen(BasicBlock* block);
+    void BeginMethodEpilogCodeGen();
 
     void gcMarkRegSetGCref(regMaskTP regMask DEBUGARG(bool forceOutput = false));
     void gcMarkRegSetByref(regMaskTP regMask DEBUGARG(bool forceOutput = false));

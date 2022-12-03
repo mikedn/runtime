@@ -415,6 +415,7 @@ class emitter
     friend class Compiler;
     friend class CodeGen;
     friend class CodeGenInterface;
+    friend class GCInfo;
 
     Compiler*    emitComp;
     GCInfo*      gcInfo;

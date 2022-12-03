@@ -2746,34 +2746,19 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
 void CodeGen::genFnEpilog(BasicBlock* block)
 {
     JITDUMP("*************** In genFnEpilog()\n");
+#ifdef DEBUG
+    if (compiler->opts.dspCode)
+    {
+        printf("\n__epilog:\n");
+    }
+#endif
 
     ScopedSetVariable<bool> _setGeneratingEpilog(&generatingEpilog, true);
 
-    VarSetOps::Assign(compiler, gcInfo.gcVarPtrSetCur, GetEmitter()->emitInitGCrefVars);
-    gcInfo.gcRegGCrefSetCur = GetEmitter()->emitInitGCrefRegs;
-    gcInfo.gcRegByrefSetCur = GetEmitter()->emitInitByrefRegs;
+    gcInfo.BeginMethodEpilogCodeGen();
 
-#ifdef DEBUG
-    if (compiler->opts.dspCode)
-        printf("\n__epilog:\n");
-
-    if (verbose)
-    {
-        printf("gcVarPtrSetCur=%s ", VarSetOps::ToString(compiler, gcInfo.gcVarPtrSetCur));
-        dumpConvertedVarSet(compiler, gcInfo.gcVarPtrSetCur);
-        printf(", gcRegGCrefSetCur=");
-        printRegMaskInt(gcInfo.gcRegGCrefSetCur);
-        emitter::emitDispRegSet(gcInfo.gcRegGCrefSetCur);
-        printf(", gcRegByrefSetCur=");
-        printRegMaskInt(gcInfo.gcRegByrefSetCur);
-        emitter::emitDispRegSet(gcInfo.gcRegByrefSetCur);
-        printf("\n");
-    }
-#endif // DEBUG
-
-    bool jmpEpilog = ((block->bbFlags & BBF_HAS_JMP) != 0);
-
-    GenTree* lastNode = block->lastNode();
+    bool     jmpEpilog = ((block->bbFlags & BBF_HAS_JMP) != 0);
+    GenTree* lastNode  = block->lastNode();
 
     // Method handle and address info used in case of jump epilog
     CORINFO_METHOD_HANDLE methHnd = nullptr;
