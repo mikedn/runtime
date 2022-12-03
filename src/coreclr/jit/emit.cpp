@@ -2105,11 +2105,12 @@ bool emitter::emitNoGChelper(CORINFO_METHOD_HANDLE methHnd)
  *  Mark the current spot as having a label.
  */
 
-void* emitter::emitAddLabel(VARSET_VALARG_TP GCvars,
-                            regMaskTP        gcrefRegs,
-                            regMaskTP        byrefRegs,
-                            bool isFinallyTarget DEBUG_ARG(BasicBlock* block))
+void* emitter::emitAddLabel(bool isFinallyTarget DEBUG_ARG(BasicBlock* block))
 {
+    VARSET_VALARG_TP GCvars    = codeGen->gcInfo.gcVarPtrSetCur;
+    regMaskTP        gcrefRegs = codeGen->gcInfo.gcRegGCrefSetCur;
+    regMaskTP        byrefRegs = codeGen->gcInfo.gcRegByrefSetCur;
+
     /* Create a new IG if the current one is non-empty */
 
     if (emitCurIGnonEmpty())
