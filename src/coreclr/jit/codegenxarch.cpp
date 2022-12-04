@@ -9086,7 +9086,7 @@ void CodeGen::genVzeroupperIfNeeded(bool check256bitOnly /* = true*/)
     }
 }
 
-void CodeGen::PrologBlockInitLocals(int untrLclHi, int untrLclLo, regNumber initReg, bool* pInitRegZeroed)
+void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber initReg, bool* pInitRegZeroed)
 {
     assert(generatingProlog && genUseBlockInit);
     assert(untrLclHi > untrLclLo);

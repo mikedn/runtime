@@ -272,7 +272,9 @@ protected:
     void genPrologEnregisterIncomingStackParams();
     void MarkStackLocals();
     void CheckUseBlockInit();
-    void MarkGCTrackedSlots(int& untrLclLo, int& untrLclHi, regMaskTP& initRegs ARM_ARG(regMaskTP& initDblRegs));
+    void MarkGCTrackedSlots(int&       minBlockInitOffset,
+                            int&       maxBlockInitOffset,
+                            regMaskTP& initRegs ARM_ARG(regMaskTP& initDblRegs));
 #ifdef UNIX_AMD64_ABI
     void PrologClearVector3StackParamUpperBits();
 #endif
@@ -428,7 +430,7 @@ protected:
 #endif // TARGET_XARCH
 
     regNumber PrologChooseInitReg(regMaskTP initRegs);
-    void PrologBlockInitLocals(int untrackedHi, int untrackedLo, regNumber initReg, bool* initRegZeroed);
+    void PrologBlockInitLocals(int untrackedLo, int untrackedHi, regNumber initReg, bool* initRegZeroed);
     void PrologZeroInitUntrackedLocals(regNumber initReg, bool* initRegZeroed);
     void PrologInitOsrLocals();
     void PrologZeroRegs(regMaskTP initRegs, regNumber initReg ARM_ARG(regMaskTP doubleRegs));

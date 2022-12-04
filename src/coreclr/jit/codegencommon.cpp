@@ -3453,131 +3453,99 @@ void CodeGen::CheckUseBlockInit()
 #endif
 
     genInitStkLclCnt = slotCount;
+
+    JITDUMP("Found %u MustInit int-sized stack slots, %susing block init\n", slotCount, genUseBlockInit ? "" : "not ");
 }
 
-void CodeGen::MarkGCTrackedSlots(int& untrLclLo, int& untrLclHi, regMaskTP& initRegs ARM_ARG(regMaskTP& initDblRegs))
+// Record the stack frame ranges that will cover all of the GC tracked
+// and untracked pointer variables.
+// Also find which registers will need to be zero-initialized. This
+// sometimes happens in IL_STUBs that we generate or VB code, they
+// rely on .localsinit rather than explicit initialization of locals.
+void CodeGen::MarkGCTrackedSlots(int&       minBlockInitOffset,
+                                 int&       maxBlockInitOffset,
+                                 regMaskTP& initRegs ARM_ARG(regMaskTP& initDblRegs))
 {
-    /*-------------------------------------------------------------------------
-     *
-     *  Record the stack frame ranges that will cover all of the tracked
-     *  and untracked pointer variables.
-     *  Also find which registers will need to be zero-initialized.
-     *
-     *  'initRegs': - Generally, enregistered variables should not need to be
-     *                zero-inited. They only need to be zero-inited when they
-     *                have a possibly uninitialized read on some control
-     *                flow path. Apparently some of the IL_STUBs that we
-     *                generate have this property.
-     */
+    minBlockInitOffset = INT_MAX;
+    maxBlockInitOffset = INT_MIN;
+    initRegs           = RBM_NONE;
+    ARM_ONLY(initDblRegs = RBM_NONE);
 
-    untrLclLo = INT_MAX;
-    untrLclHi = INT_MIN;
+    int minGCTrackedOffset = INT_MAX;
+    int maxGCTrackedOffset = INT_MIN;
 
-    initRegs = RBM_NONE; // Registers which must be init'ed.
-#ifdef TARGET_ARM
-    initDblRegs = RBM_NONE;
-#endif
-
-    int GCrefLo = INT_MAX;
-    int GCrefHi = INT_MIN;
-
-    unsigned   varNum;
-    LclVarDsc* varDsc;
-
-    for (varNum = 0, varDsc = compiler->lvaTable; varNum < compiler->lvaCount; varNum++, varDsc++)
+    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
     {
-        if (varDsc->IsParam() && !varDsc->IsRegParam())
+        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
+
+        if (lcl->IsParam() && !lcl->IsRegParam())
         {
             continue;
         }
 
-        if (!varDsc->lvIsInReg() && !varDsc->lvOnFrame)
+        if (!lcl->lvIsInReg() && !lcl->lvOnFrame)
         {
-            noway_assert(varDsc->lvRefCnt() == 0);
+            noway_assert(lcl->GetRefCount() == 0);
             continue;
         }
 
-        int loOffs = varDsc->GetStackOffset();
+        int offset = lcl->GetStackOffset();
 
-        // We need to know the offset range of tracked stack GC refs. STRUCTs are not GC tracked.
-
-        if (varTypeIsGC(varDsc->GetType()) && varDsc->HasLiveness() && varDsc->lvOnFrame)
+        if (varTypeIsGC(lcl->GetType()) && lcl->HasLiveness() && lcl->lvOnFrame &&
+            !lcl->IsDependentPromotedField(compiler))
         {
-            // Dependent promoted fields should have been taken care of by the parent struct.
-            if (!varDsc->IsDependentPromotedField(compiler))
-            {
-                if (loOffs < GCrefLo)
-                {
-                    GCrefLo = loOffs;
-                }
-
-                if (loOffs > GCrefHi)
-                {
-                    GCrefHi = loOffs;
-                }
-            }
+            minGCTrackedOffset = Min(minGCTrackedOffset, offset);
+            maxGCTrackedOffset = Max(maxGCTrackedOffset, offset);
         }
 
-        /* For lvMustInit vars, gather pertinent info */
-
-        if (!varDsc->lvMustInit)
+        if (!lcl->lvMustInit)
         {
             continue;
         }
 
-        bool isInReg    = varDsc->lvIsInReg();
-        bool isInMemory = !isInReg || varDsc->lvLiveInOutOfHndlr;
-
-        // Note that 'lvIsInReg()' will only be accurate for variables that are actually live-in to
-        // the first block. This will include all possibly-uninitialized locals, whose liveness
-        // will naturally propagate up to the entry block. However, we also set 'lvMustInit' for
-        // locals that are live-in to a finally block, and those may not be live-in to the first
-        // block. For those, we don't want to initialize the register, as it will not actually be
-        // occupying it on entry.
-        if (isInReg)
-        {
-            if (compiler->lvaEnregEHVars && varDsc->lvLiveInOutOfHndlr)
-            {
-                isInReg = VarSetOps::IsMember(compiler, compiler->fgFirstBB->bbLiveIn, varDsc->lvVarIndex);
-            }
-            else
-            {
-                assert(VarSetOps::IsMember(compiler, compiler->fgFirstBB->bbLiveIn, varDsc->lvVarIndex));
-            }
-        }
-
-        if (isInReg)
-        {
-            assert(!varDsc->TypeIs(TYP_STRUCT));
-#ifndef TARGET_64BIT
-            assert(!varDsc->TypeIs(TYP_LONG));
-#endif
-
-#ifdef TARGET_ARM
-            if (varDsc->TypeIs(TYP_DOUBLE))
-            {
-                initDblRegs |= genRegMaskFloat(varDsc->GetRegNum());
-            }
-            else
-#endif
-            {
-                initRegs |= genRegMask(varDsc->GetRegNum());
-            }
-        }
+        bool isInReg    = lcl->lvIsInReg();
+        bool isInMemory = !isInReg || lcl->lvLiveInOutOfHndlr;
 
         if (isInMemory)
         {
-            if (loOffs < untrLclLo)
-            {
-                untrLclLo = loOffs;
-            }
+            minBlockInitOffset = Min(minBlockInitOffset, offset);
+            maxBlockInitOffset = Max(maxBlockInitOffset, offset + static_cast<int>(lcl->GetFrameSize()));
+        }
 
-            int hiOffs = loOffs + varDsc->GetFrameSize();
+        if (!isInReg)
+        {
+            continue;
+        }
 
-            if (hiOffs > untrLclHi)
-            {
-                untrLclHi = hiOffs;
-            }
+        // Note that lvIsInReg will only be accurate for variables that are actually live-in to
+        // the first block. This will include all possibly-uninitialized locals, whose liveness
+        // will naturally propagate up to the entry block. However, we also set lvMustInit for
+        // locals that are live-in to a finally block, and those may not be live-in to the first
+        // block. For those, we don't want to initialize the register, as it will not actually be
+        // occupying it on entry.
+        // TODO-MIKE-Review: So why would lvIsInReg be true for such variables?
+
+        if (!VarSetOps::IsMember(compiler, compiler->fgFirstBB->bbLiveIn, lcl->GetLivenessBitIndex()))
+        {
+            assert(compiler->lvaEnregEHVars && lcl->lvLiveInOutOfHndlr);
+
+            continue;
+        }
+
+        assert(!lcl->TypeIs(TYP_STRUCT));
+#ifndef TARGET_64BIT
+        assert(!lcl->TypeIs(TYP_LONG));
+#endif
+
+#ifdef TARGET_ARM
+        if (lcl->TypeIs(TYP_DOUBLE))
+        {
+            initDblRegs |= genRegMaskFloat(lcl->GetRegNum());
+        }
+        else
+#endif
+        {
+            initRegs |= genRegMask(lcl->GetRegNum());
         }
     }
 
@@ -3590,29 +3558,23 @@ void CodeGen::MarkGCTrackedSlots(int& untrLclLo, int& untrLclHi, regMaskTP& init
 
         int offset = temp.GetOffset();
 
-        if (offset < untrLclLo)
-        {
-            untrLclLo = offset;
-        }
-
-        if (offset + REGSIZE_BYTES > untrLclHi)
-        {
-            untrLclHi = offset + REGSIZE_BYTES;
-        }
+        minBlockInitOffset = Min(minBlockInitOffset, offset);
+        maxBlockInitOffset = Max(maxBlockInitOffset, offset + REGSIZE_BYTES);
     }
 
     // TODO-Cleanup: Add suitable assert for the OSR case.
-    assert(compiler->opts.IsOSR() || ((genInitStkLclCnt > 0) == (untrLclHi != INT_MIN)));
+    assert(compiler->opts.IsOSR() || ((genInitStkLclCnt > 0) == (maxBlockInitOffset != INT_MIN)));
 
-    if (genInitStkLclCnt > 0)
+    JITDUMP("GC tracked slot offsets in [%d..%d)\n", minGCTrackedOffset, maxGCTrackedOffset + REGSIZE_BYTES);
+
+    if (genUseBlockInit)
     {
-        JITDUMP("Found %u lvMustInit int-sized stack slots, frame offsets %d through %d\n", genInitStkLclCnt,
-                -untrLclLo, -untrLclHi);
+        JITDUMP("Block init slot offsets in [%d..%d)\n", minBlockInitOffset, maxBlockInitOffset + REGSIZE_BYTES);
     }
 
-    if (GCrefHi != INT_MIN)
+    if (maxGCTrackedOffset != INT_MIN)
     {
-        GetEmitter()->emitSetFrameRangeGCRs(GCrefLo, GCrefHi + REGSIZE_BYTES);
+        GetEmitter()->emitSetFrameRangeGCRs(minGCTrackedOffset, maxGCTrackedOffset + REGSIZE_BYTES);
     }
 }
 
@@ -4422,14 +4384,14 @@ void CodeGen::genFnProlog()
 #endif
 #endif // DEBUG
 
-    int       untrLclLo;
-    int       untrLclHi;
+    int       minBlockInitOffset;
+    int       maxBlockInitOffset;
     regMaskTP initRegs;
 #ifdef TARGET_ARM
     regMaskTP initDblRegs;
 #endif
 
-    MarkGCTrackedSlots(untrLclLo, untrLclHi, initRegs ARM_ARG(initDblRegs));
+    MarkGCTrackedSlots(minBlockInitOffset, maxBlockInitOffset, initRegs ARM_ARG(initDblRegs));
 
 #ifdef TARGET_ARM
     // On the ARM we will spill any incoming struct args in the first instruction in the prolog
@@ -4560,7 +4522,7 @@ void CodeGen::genFnProlog()
 
     if (genUseBlockInit)
     {
-        PrologBlockInitLocals(untrLclHi, untrLclLo, initReg, &initRegZeroed);
+        PrologBlockInitLocals(minBlockInitOffset, maxBlockInitOffset, initReg, &initRegZeroed);
     }
     else if (genInitStkLclCnt > 0)
     {

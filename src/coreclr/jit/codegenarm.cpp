@@ -1976,7 +1976,7 @@ void CodeGen::genPopFltRegs(regMaskTP regMask)
     GetEmitter()->emitIns_R_I(INS_vpop, EA_8BYTE, lowReg, slots / 2);
 }
 
-void CodeGen::PrologBlockInitLocals(int untrLclHi, int untrLclLo, regNumber initReg, bool* pInitRegZeroed)
+void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber initReg, bool* pInitRegZeroed)
 {
     assert(generatingProlog && genUseBlockInit);
     assert(untrLclHi > untrLclLo);
