@@ -1892,15 +1892,7 @@ bool CodeGenInterface::genUseOptimizedWriteBarriers()
 #endif
 }
 
-//----------------------------------------------------------------------
-// genWriteBarrierHelperForWriteBarrierForm: Given a write node requiring a write
-// barrier, and the write barrier form required, determine the helper to call.
-//
-// Note: do not call this function to get an optimized write barrier helper (e.g.,
-// for x86).
-//
-CorInfoHelpFunc CodeGenInterface::genWriteBarrierHelperForWriteBarrierForm(GenTreeStoreInd*         store,
-                                                                           GCInfo::WriteBarrierForm wbf)
+CorInfoHelpFunc CodeGenInterface::GetWriteBarrierHelperCall(GCInfo::WriteBarrierForm wbf)
 {
     assert(wbf != GCInfo::WBF_NoBarrier);
 
@@ -1909,9 +1901,7 @@ CorInfoHelpFunc CodeGenInterface::genWriteBarrierHelperForWriteBarrierForm(GenTr
 
 void CodeGen::genGCWriteBarrier(GenTreeStoreInd* store, GCInfo::WriteBarrierForm wbf)
 {
-    CorInfoHelpFunc helper = genWriteBarrierHelperForWriteBarrierForm(store, wbf);
-
-    genEmitHelperCall(helper, EA_PTRSIZE);
+    genEmitHelperCall(GetWriteBarrierHelperCall(wbf), EA_PTRSIZE);
 }
 
 /*

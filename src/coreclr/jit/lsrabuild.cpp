@@ -724,9 +724,7 @@ regMaskTP LinearScan::getKillSetForStoreInd(GenTreeStoreInd* tree)
         else
         {
             // Figure out which helper we're going to use, and then get the kill set for that helper.
-            CorInfoHelpFunc helper =
-                compiler->codeGen->genWriteBarrierHelperForWriteBarrierForm(tree, writeBarrierForm);
-            killMask = compiler->compHelperCallKillSet(helper);
+            killMask = compiler->compHelperCallKillSet(CodeGenInterface::GetWriteBarrierHelperCall(writeBarrierForm));
         }
     }
     return killMask;
