@@ -768,7 +768,7 @@ void CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
         genUpdateRegLife(lcl, /*isBorn*/ false, /*isDying*/ true DEBUGARG(lclVar));
         gcInfo.gcMarkRegSetNpt(lcl->lvRegMask());
 
-        if (lcl->HasStackGCPtrLiveness())
+        if (lcl->HasGCSlotLiveness())
         {
             if (!VarSetOps::IsMember(compiler, gcInfo.gcVarPtrSetCur, lcl->GetLivenessBitIndex()))
             {

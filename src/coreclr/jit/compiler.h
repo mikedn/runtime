@@ -343,7 +343,7 @@ public:
     unsigned char lvRegister : 1; // assigned to live in a register? For RyuJIT backend, this is only set if the
                                   // variable is in the same register for the entire function.
     unsigned char lvTracked : 1;  // is this a tracked variable?
-    unsigned char m_hasStackGCPtrLiveness : 1;
+    unsigned char m_hasGCLiveness : 1;
     unsigned char lvPinned : 1; // is this a pinned variable?
 
     unsigned char lvMustInit : 1;    // must be initialized
@@ -808,20 +808,26 @@ public:
         return lvTracked;
     }
 
-    bool HasStackGCPtrLiveness() const
-    {
-        return m_hasStackGCPtrLiveness;
-    }
-
-    void SetHasStackGCPtrLiveness()
-    {
-        m_hasStackGCPtrLiveness = true;
-    }
-
     unsigned GetLivenessBitIndex() const
     {
         assert(lvTracked);
         return lvVarIndex;
+    }
+
+    void SetHasGCLiveness()
+    {
+        assert(lvTracked && varTypeIsGC(lvType));
+        m_hasGCLiveness = true;
+    }
+
+    bool HasGCLiveness() const
+    {
+        return m_hasGCLiveness;
+    }
+
+    bool HasGCSlotLiveness() const
+    {
+        return m_hasGCLiveness && lvOnFrame;
     }
 
 private:

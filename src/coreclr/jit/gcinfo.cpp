@@ -584,7 +584,7 @@ void GCInfo::BeginBlockCodeGen(BasicBlock* block)
                 VarSetOps::RemoveElemD(compiler, gcVarPtrSetCur, varIndex);
             }
         }
-        if ((!varDsc->lvIsInReg() || varDsc->IsAlwaysAliveInMemory()) && compiler->lvaIsGCTracked(varDsc))
+        if ((!varDsc->lvIsInReg() || varDsc->IsAlwaysAliveInMemory()) && varDsc->HasGCSlotLiveness())
         {
 #ifdef DEBUG
             if (compiler->verbose && !VarSetOps::IsMember(compiler, gcVarPtrSetCur, varIndex))

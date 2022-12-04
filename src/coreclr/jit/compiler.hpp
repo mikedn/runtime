@@ -2309,13 +2309,7 @@ inline bool Compiler::compIsForInlining() const
 //    This is because struct variables are never tracked as a whole for GC purposes.
 //    It is up to the caller to ensure that the fields of struct variables are
 //    correctly tracked.
-//    On Amd64, we never GC-track fields of dependently promoted structs, even
-//    though they may be tracked for optimization purposes.
-//    It seems that on x86 and arm, we simply don't track these
-//    fields, though I have not verified that.  I attempted to make these GC-tracked,
-//    but there was too much logic that depends on these being untracked, so changing
-//    this would require non-trivial effort.
-
+//
 inline bool Compiler::lvaIsGCTracked(const LclVarDsc* varDsc)
 {
     if (!varDsc->lvTracked || !varTypeIsGC(varDsc->GetType()))
@@ -2329,11 +2323,7 @@ inline bool Compiler::lvaIsGCTracked(const LclVarDsc* varDsc)
         return false;
     }
 
-#ifdef TARGET_AMD64
     return !varDsc->IsDependentPromotedField(this);
-#else
-    return true;
-#endif
 }
 
 /*****************************************************************************/

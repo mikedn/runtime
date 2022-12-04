@@ -5452,7 +5452,7 @@ unsigned emitter::emitEndCodeGen(bool      fullyInt,
                 continue;
             }
 
-            if (!emitComp->lvaIsGCTracked(dsc))
+            if (!dsc->HasGCSlotLiveness())
             {
                 continue;
             }
@@ -7522,7 +7522,7 @@ void emitter::emitGCvarLiveUpd(int offs, unsigned lclNum, GCtype gcType, BYTE* a
         return;
     }
 
-    if (!emitComp->lvaIsGCTracked(emitComp->lvaGetDesc(lclNum)))
+    if (!emitComp->lvaGetDesc(lclNum)->HasGCSlotLiveness())
     {
         return;
     }

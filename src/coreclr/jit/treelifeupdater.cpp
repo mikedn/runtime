@@ -98,7 +98,7 @@ void CodeGenLivenessUpdater::ChangeLife(CodeGen* codeGen, VARSET_VALARG_TP newLi
                 codeGen->gcInfo.gcRegByrefSetCur |= regMask;
             }
         }
-        else if (compiler->lvaIsGCTracked(lcl))
+        else if (lcl->HasGCLiveness())
         {
             VarSetOps::AddElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, e.Current());
         }
@@ -195,7 +195,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
 
         if (changed)
         {
-            if (isInMemory && lcl->HasStackGCPtrLiveness())
+            if (isInMemory && lcl->HasGCSlotLiveness())
             {
                 if (isBorn)
                 {
@@ -229,7 +229,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
         // then it's not clear why would a last-use need spilling to begin with.
         codeGen->SpillRegCandidateLclVar(lclNode->AsLclVar());
 
-        if (lcl->HasStackGCPtrLiveness() &&
+        if (lcl->HasGCSlotLiveness() &&
             VarSetOps::TryAddElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, lcl->lvVarIndex))
         {
             JITDUMP("GC pointer V%02u becoming live on stack\n", lclNode->GetLclNum());
@@ -270,7 +270,7 @@ void CodeGenLivenessUpdater::UpdateLifeMultiReg(CodeGen* codeGen, GenTreeLclVar*
             VarSetOps::AddElemD(compiler, currentLife, fieldLcl->GetLivenessBitIndex());
         }
 
-        if (isInMemory && fieldLcl->HasStackGCPtrLiveness())
+        if (isInMemory && fieldLcl->HasGCSlotLiveness())
         {
             // TODO-MIKE-Review: Should we remove the local from the GC var set when the field is dying?
             // The "scalar" version of this code doesn't do it, it checks "isBorn" instead of "isDying".
@@ -340,7 +340,7 @@ void CodeGenLivenessUpdater::UpdateLifePromoted(CodeGen* codeGen, GenTreeLclVarC
             VarSetOps::AddElemD(compiler, currentLife, fieldLcl->GetLivenessBitIndex());
         }
 
-        if (fieldLcl->HasStackGCPtrLiveness())
+        if (fieldLcl->HasGCSlotLiveness())
         {
             // TODO-MIKE-Review: Should we remove the local from the GC var set when the field is dying?
             // The "scalar" version of this code doesn't do it, it checks "isBorn" instead of "isDying".

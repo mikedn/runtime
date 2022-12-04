@@ -3274,9 +3274,9 @@ void CodeGen::MarkStackLocals()
         // We can't have both lvRegister and lvOnFrame
         noway_assert(!lcl->lvRegister || !lcl->lvOnFrame);
 
-        if (!lcl->lvRegister && compiler->lvaIsGCTracked(lcl))
+        if (compiler->lvaIsGCTracked(lcl))
         {
-            lcl->SetHasStackGCPtrLiveness();
+            lcl->SetHasGCLiveness();
         }
     }
 }
@@ -3477,8 +3477,7 @@ void CodeGen::MarkGCTrackedSlots(int&       minBlockInitOffset,
 
         int offset = lcl->GetStackOffset();
 
-        if (varTypeIsGC(lcl->GetType()) && lcl->HasLiveness() && lcl->lvOnFrame &&
-            !lcl->IsDependentPromotedField(compiler))
+        if (lcl->HasGCSlotLiveness())
         {
             minGCTrackedOffset = Min(minGCTrackedOffset, offset);
             maxGCTrackedOffset = Max(maxGCTrackedOffset, offset);

@@ -2833,7 +2833,7 @@ void CodeGen::GenJmp(GenTree* jmp)
         }
         else if (varTypeIsStruct(lcl->GetType()))
         {
-            assert(!compiler->lvaIsGCTracked(lcl));
+            assert(!lcl->HasGCLiveness());
 
             ClassLayout* layout = lcl->GetLayout();
 
@@ -2882,7 +2882,7 @@ void CodeGen::GenJmp(GenTree* jmp)
             gcInfo.AddLiveLclRegs(genRegMask(reg));
             gcInfo.gcMarkRegPtrVal(reg, type);
 
-            if (compiler->lvaIsGCTracked(lcl))
+            if (lcl->HasGCSlotLiveness())
             {
                 VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, lcl->GetLivenessBitIndex());
             }
