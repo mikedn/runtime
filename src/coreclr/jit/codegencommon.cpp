@@ -3212,6 +3212,20 @@ void CodeGen::MarkStackLocals()
     {
         LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
 
+        lcl->lvFramePointerBased = isFramePointerUsed();
+
+#if DOUBLE_ALIGN
+        if (doDoubleAlign())
+        {
+            noway_assert(!isFramePointerUsed());
+
+            if (lcl->IsParam() && !lcl->IsRegParam())
+            {
+                lcl->lvFramePointerBased = true;
+            }
+        }
+#endif
+
         // X86 varargs methods must not contain direct references to parameters
         // other than 'this', the arglist parameter (which is not a GC pointer)
         // and the struct return buffer parameter, if present. We cannot report
@@ -3223,14 +3237,20 @@ void CodeGen::MarkStackLocals()
 
             lcl->lvOnFrame  = false;
             lcl->lvMustInit = false;
+
+            continue;
         }
-        else if (lcl->IsDependentPromotedField(compiler))
+
+        if (lcl->IsDependentPromotedField(compiler))
         {
             noway_assert(!lcl->lvRegister);
 
             lcl->lvOnFrame = true;
+
+            continue;
         }
-        else if (lcl->GetRefCount() == 0)
+
+        if (lcl->GetRefCount() == 0)
         {
             // Unreferenced locals will get a frame location if they're address exposed.
             // TODO-MIKE-Review: Why? Probably because AX is sometimes used simply to
@@ -3253,29 +3273,16 @@ void CodeGen::MarkStackLocals()
                 lcl->lvOnFrame  = false;
                 lcl->lvMustInit = false;
             }
+
+            continue;
         }
-
-        lcl->lvFramePointerBased = isFramePointerUsed();
-
-#if DOUBLE_ALIGN
-        if (doDoubleAlign())
-        {
-            noway_assert(!isFramePointerUsed());
-
-            if (lcl->IsParam() && !lcl->IsRegParam())
-            {
-                lcl->lvFramePointerBased = true;
-            }
-        }
-#endif
 
         // It must be in a register, on frame, or have zero references.
         noway_assert(lcl->lvIsInReg() || lcl->lvOnFrame || (lcl->GetRefCount() == 0));
         // We can't have both lvRegister and lvOnFrame
         noway_assert(!lcl->lvRegister || !lcl->lvOnFrame);
 
-        if (varTypeIsGC(lcl->GetType()) && lcl->lvTracked && (!lcl->IsParam() || lcl->IsRegParam()) &&
-            !lcl->IsDependentPromotedField(compiler))
+        if (varTypeIsGC(lcl->GetType()) && lcl->lvTracked && (!lcl->IsParam() || lcl->IsRegParam()))
         {
             lcl->SetHasGCLiveness();
         }
