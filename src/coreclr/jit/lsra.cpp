@@ -1231,17 +1231,18 @@ void LinearScan::recordVarLocationsAtStartOfBB(BasicBlock* bb)
     VarToRegMap map   = getInVarToRegMap(bb->bbNum);
     unsigned    count = 0;
 
-    VarSetOps::AssignNoCopy(compiler, currentLiveVars,
-                            VarSetOps::Intersection(compiler, registerCandidateVars, bb->bbLiveIn));
-    VarSetOps::Iter iter(compiler, currentLiveVars);
-    unsigned        varIndex = 0;
-    while (iter.NextElem(&varIndex))
+    for (VarSetOps::Enumerator en(compiler, bb->bbLiveIn); en.MoveNext();)
     {
-        unsigned   varNum = compiler->lvaTrackedIndexToLclNum(varIndex);
+        unsigned   varNum = compiler->lvaTrackedIndexToLclNum(en.Current());
         LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
 
+        if (!varDsc->IsRegCandidate())
+        {
+            continue;
+        }
+
         regNumber oldRegNum = varDsc->GetRegNum();
-        regNumber newRegNum = getVarReg(map, varIndex);
+        regNumber newRegNum = getVarReg(map, en.Current());
 
         if (oldRegNum != newRegNum)
         {
@@ -1250,7 +1251,7 @@ void LinearScan::recordVarLocationsAtStartOfBB(BasicBlock* bb)
             count++;
 
 #ifdef USING_VARIABLE_LIVE_RANGE
-            if (bb->bbPrev != nullptr && VarSetOps::IsMember(compiler, bb->bbPrev->bbLiveOut, varIndex))
+            if (bb->bbPrev != nullptr && VarSetOps::IsMember(compiler, bb->bbPrev->bbLiveOut, en.Current()))
             {
                 // varDsc was alive on previous block end ("bb->bbPrev->bbLiveOut"), so it has an open
                 // "VariableLiveRange" which should change to be according "getInVarToRegMap"
