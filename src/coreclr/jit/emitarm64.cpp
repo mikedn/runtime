@@ -2366,6 +2366,15 @@ emitter::MoviImm emitter::EncodeMoviImm(uint64_t value, insOpts opt)
     return false; // not encodable
 }
 
+bool emitter::validImmForBL(ssize_t addr, Compiler* compiler)
+{
+    // On arm64, we always assume a call target is in range and generate a 28-bit relative
+    // 'bl' instruction. If this isn't sufficient range, the VM will generate a jump stub when
+    // we call recordRelocation(). See the IMAGE_REL_ARM64_BRANCH26 case in jitinterface.cpp
+    // (for JIT) or zapinfo.cpp (for NGEN). If we cannot allocate a jump stub, it is fatal.
+    return true;
+}
+
 /************************************************************************
  *
  *   A helper method to return the natural scale for an EA 'size'

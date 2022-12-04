@@ -2652,7 +2652,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         assert(callAddr != nullptr);
 
 #ifdef TARGET_ARM
-        if (!validImmForBL(reinterpret_cast<ssize_t>(callAddr)))
+        if (!emitter::validImmForBL(reinterpret_cast<ssize_t>(callAddr), compiler))
         {
             emitCallType = emitter::EC_INDIR_R;
             callReg      = call->GetSingleTempReg();
@@ -2977,7 +2977,7 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
         switch (addrInfo.accessType)
         {
             case IAT_VALUE:
-                if (validImmForBL((ssize_t)addrInfo.addr))
+                if (emitter::validImmForBL(reinterpret_cast<ssize_t>(addrInfo.addr), compiler))
                 {
                     // Simple direct call
                     callType   = emitter::EC_FUNC_TOKEN;

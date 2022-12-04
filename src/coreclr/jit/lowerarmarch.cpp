@@ -31,15 +31,9 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "hwintrinsic.h"
 #endif
 
-//------------------------------------------------------------------------
-// IsCallTargetInRange: Can a call target address be encoded in-place?
-//
-// Return Value:
-//    True if the addr fits into the range.
-//
 bool Lowering::IsCallTargetInRange(void* addr)
 {
-    return comp->codeGen->validImmForBL((ssize_t)addr);
+    return emitter::validImmForBL(reinterpret_cast<ssize_t>(addr), comp);
 }
 
 //------------------------------------------------------------------------

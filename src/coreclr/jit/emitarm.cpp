@@ -1389,6 +1389,15 @@ bool emitter::validDispForLdSt(target_ssize_t disp, var_types type)
     return varTypeIsFloating(type) ? ((disp & 0x3FC) == disp) : ((disp >= -0x00ff) && (disp <= 0x0fff));
 }
 
+bool emitter::validImmForBL(ssize_t addr, Compiler* compiler)
+{
+    return
+        // If we are running the altjit for NGEN, then assume we can use the "BL" instruction.
+        // This matches the usual behavior for NGEN, since we normally do generate "BL".
+        (!compiler->info.compMatchedVM && compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT)) ||
+        (compiler->eeGetRelocTypeHint((void*)addr) == IMAGE_REL_BASED_THUMB_BRANCH24);
+}
+
 /*****************************************************************************
  *
  *  emitIns_valid_imm_for_alu() returns true when the immediate 'imm'
@@ -4480,7 +4489,7 @@ void emitter::emitIns_Call(EmitCallType          callType,
     {
         assert((callType == EC_FUNC_TOKEN) || (callType == EC_FUNC_ADDR));
         // if addr is nullptr then this call is treated as a recursive call.
-        assert((addr == nullptr) || codeGen->validImmForBL((ssize_t)addr));
+        assert((addr == nullptr) || validImmForBL(reinterpret_cast<ssize_t>(addr), emitComp));
 
         if (isJump)
         {

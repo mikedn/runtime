@@ -261,9 +261,6 @@ public:
 #endif // !DOUBLE_ALIGN
 
 public:
-    bool validImmForBL(ssize_t addr);
-
-public:
     emitter* GetEmitter() const
     {
         return m_cgEmitter;

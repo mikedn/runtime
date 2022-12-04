@@ -75,9 +75,10 @@ instrDesc* emitNewInstrCallInd(VARSET_VALARG_TP GCvars, regMaskTP gcrefRegs, reg
 /*               Private helpers for instruction output                 */
 /************************************************************************/
 
-private:
+public:
 static bool validImmForInstr(instruction ins, target_ssize_t imm, insFlags flags = INS_FLAGS_DONT_CARE);
 static bool validDispForLdSt(target_ssize_t disp, var_types type);
+static bool validImmForBL(ssize_t addr, Compiler* compiler);
 static bool emitInsIsCompare(instruction ins);
 static bool emitInsIsLoad(instruction ins);
 static bool emitInsIsStore(instruction ins);

@@ -626,29 +626,6 @@ void CodeGen::inst_RV_RV_TT(
 }
 #endif // TARGET_XARCH
 
-#ifdef TARGET_ARM
-bool CodeGenInterface::validImmForBL(ssize_t addr)
-{
-    return
-        // If we are running the altjit for NGEN, then assume we can use the "BL" instruction.
-        // This matches the usual behavior for NGEN, since we normally do generate "BL".
-        (!compiler->info.compMatchedVM && compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT)) ||
-        (compiler->eeGetRelocTypeHint((void*)addr) == IMAGE_REL_BASED_THUMB_BRANCH24);
-}
-
-#endif // TARGET_ARM
-
-#ifdef TARGET_ARM64
-bool CodeGenInterface::validImmForBL(ssize_t addr)
-{
-    // On arm64, we always assume a call target is in range and generate a 28-bit relative
-    // 'bl' instruction. If this isn't sufficient range, the VM will generate a jump stub when
-    // we call recordRelocation(). See the IMAGE_REL_ARM64_BRANCH26 case in jitinterface.cpp
-    // (for JIT) or zapinfo.cpp (for NGEN). If we cannot allocate a jump stub, it is fatal.
-    return true;
-}
-#endif // TARGET_ARM64
-
 // Get the machine dependent instruction for performing sign/zero extension.
 instruction CodeGen::ins_Move_Extend(var_types srcType, bool srcInReg)
 {

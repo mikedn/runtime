@@ -1250,7 +1250,7 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
     emitter::EmitCallType callKind;
     void*                 callAddr;
 
-    if ((addr == nullptr) || !validImmForBL(reinterpret_cast<ssize_t>(addr)))
+    if ((addr == nullptr) || !emitter::validImmForBL(reinterpret_cast<ssize_t>(addr), compiler))
     {
         if (callTargetReg == REG_NA)
         {
