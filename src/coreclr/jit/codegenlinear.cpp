@@ -57,6 +57,65 @@ void CodeGen::genInitialize()
     m_liveness.Begin();
 }
 
+void CodeGen::UpdateLclBlockLiveInRegs(BasicBlock* block)
+{
+    VarToRegMap map = m_lsra->GetBlockLiveInRegMap(block);
+
+    if (map == nullptr)
+    {
+        assert(compiler->lvaTrackedCount == 0);
+        return;
+    }
+
+    JITDUMP("Updating local regs at start of " FMT_BB "\n", block->bbNum);
+    INDEBUG(unsigned count = 0);
+
+    for (VarSetOps::Enumerator en(compiler, block->bbLiveIn); en.MoveNext();)
+    {
+        unsigned   lclNum = compiler->lvaTrackedIndexToLclNum(en.Current());
+        LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+
+        if (!lcl->IsRegCandidate())
+        {
+            continue;
+        }
+
+        regNumber oldRegNum = lcl->GetRegNum();
+        regNumber newRegNum = static_cast<regNumber>(map[en.Current()]);
+
+        if (oldRegNum != newRegNum)
+        {
+            lcl->SetRegNum(newRegNum);
+
+            JITDUMP("  V%02u (%s -> %s)", lclNum, getRegName(oldRegNum), getRegName(newRegNum));
+            INDEBUG(count++);
+
+#ifdef USING_VARIABLE_LIVE_RANGE
+            if ((block->bbPrev != nullptr) && VarSetOps::IsMember(compiler, block->bbPrev->bbLiveOut, en.Current()))
+            {
+                // lcl was alive on previous block end ("bb->bbPrev->bbLiveOut"), so it has an open
+                // "VariableLiveRange" which should change to be according "getInVarToRegMap"
+                getVariableLiveKeeper()->siUpdateVariableLiveRange(lcl, lclNum);
+            }
+#endif // USING_VARIABLE_LIVE_RANGE
+        }
+        else if (newRegNum != REG_STK)
+        {
+            JITDUMP("  V%02u (%s)", lclNum, getRegName(newRegNum));
+            INDEBUG(count++);
+        }
+    }
+
+#ifdef DEBUG
+    if (count == 0)
+    {
+        JITDUMP("  <none>\n");
+    }
+
+    JITDUMP("\n");
+#endif
+}
+
 //------------------------------------------------------------------------
 // genCodeForBBlist: Generate code for all the blocks in a method
 //
@@ -137,7 +196,7 @@ void CodeGen::genCodeForBBlist()
         gcInfo.gcRegGCrefSetCur = RBM_NONE;
         gcInfo.gcRegByrefSetCur = RBM_NONE;
 
-        m_lsra->recordVarLocationsAtStartOfBB(block);
+        UpdateLclBlockLiveInRegs(block);
 
         // Updating variable liveness after last instruction of previous block was emitted
         // and before first of the current block is emitted

@@ -1206,72 +1206,9 @@ void LinearScan::doLinearScan()
     DBEXEC(VERBOSE, TupleStyleDump(LSRA_DUMP_POST));
 }
 
-//------------------------------------------------------------------------
-// recordVarLocationsAtStartOfBB: Update live-in LclVarDscs with the appropriate
-//    register location at the start of a block, during codegen.
-//
-// Arguments:
-//    bb - the block for which code is about to be generated.
-//
-// Return Value:
-//    None.
-//
-// Assumptions:
-//    CodeGen will take care of updating the reg masks and the current var liveness,
-//    after calling this method.
-//    This is because we need to kill off the dead registers before setting the newly live ones.
-
-void LinearScan::recordVarLocationsAtStartOfBB(BasicBlock* bb)
+VarToRegMap LinearScan::GetBlockLiveInRegMap(BasicBlock* bb)
 {
-    if (!enregisterLocalVars)
-    {
-        return;
-    }
-    JITDUMP("Recording Var Locations at start of " FMT_BB "\n", bb->bbNum);
-    VarToRegMap map   = getInVarToRegMap(bb->bbNum);
-    unsigned    count = 0;
-
-    for (VarSetOps::Enumerator en(compiler, bb->bbLiveIn); en.MoveNext();)
-    {
-        unsigned   varNum = compiler->lvaTrackedIndexToLclNum(en.Current());
-        LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
-
-        if (!varDsc->IsRegCandidate())
-        {
-            continue;
-        }
-
-        regNumber oldRegNum = varDsc->GetRegNum();
-        regNumber newRegNum = getVarReg(map, en.Current());
-
-        if (oldRegNum != newRegNum)
-        {
-            JITDUMP("  V%02u(%s->%s)", varNum, getRegName(oldRegNum), getRegName(newRegNum));
-            varDsc->SetRegNum(newRegNum);
-            count++;
-
-#ifdef USING_VARIABLE_LIVE_RANGE
-            if (bb->bbPrev != nullptr && VarSetOps::IsMember(compiler, bb->bbPrev->bbLiveOut, en.Current()))
-            {
-                // varDsc was alive on previous block end ("bb->bbPrev->bbLiveOut"), so it has an open
-                // "VariableLiveRange" which should change to be according "getInVarToRegMap"
-                compiler->codeGen->getVariableLiveKeeper()->siUpdateVariableLiveRange(varDsc, varNum);
-            }
-#endif // USING_VARIABLE_LIVE_RANGE
-        }
-        else if (newRegNum != REG_STK)
-        {
-            JITDUMP("  V%02u(%s)", varNum, getRegName(newRegNum));
-            count++;
-        }
-    }
-
-    if (count == 0)
-    {
-        JITDUMP("  <none>\n");
-    }
-
-    JITDUMP("\n");
+    return enregisterLocalVars ? getInVarToRegMap(bb->bbNum) : nullptr;
 }
 
 void Interval::setLocalNumber(Compiler* compiler, unsigned lclNum, LinearScan* linScan)

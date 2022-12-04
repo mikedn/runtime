@@ -640,8 +640,7 @@ public:
     // but updating the blockSequence during the first iteration if it is not fully computed.
     BasicBlock* getNextBlock();
 
-    // This is called during code generation to update the location of variables
-    void recordVarLocationsAtStartOfBB(BasicBlock* bb);
+    VarToRegMap GetBlockLiveInRegMap(BasicBlock* bb);
 
     // This does the dataflow analysis and builds the intervals
     void buildIntervals();

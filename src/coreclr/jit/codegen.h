@@ -186,6 +186,7 @@ protected:
     unsigned genOffsetOfMDArrayDimensionSize(var_types elemType, unsigned rank, unsigned dimension);
 
     void genInitialize();
+    void UpdateLclBlockLiveInRegs(BasicBlock* block);
     void genCodeForBBlist();
 
 public:
