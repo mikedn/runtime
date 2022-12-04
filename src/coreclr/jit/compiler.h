@@ -3993,8 +3993,6 @@ public:
     void lvaUpdateClass(unsigned varNum, CORINFO_CLASS_HANDLE clsHnd, bool isExact = false);
     void lvaUpdateClass(unsigned varNum, GenTree* tree, CORINFO_CLASS_HANDLE stackHandle = nullptr);
 
-    bool lvaIsGCTracked(const LclVarDsc* varDsc);
-
     unsigned lvaGSSecurityCookie = BAD_VAR_NUM; // LclVar number
     bool     lvaTempsHaveLargerOffsetThanVars();
 

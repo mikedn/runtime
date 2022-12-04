@@ -2294,39 +2294,6 @@ inline bool Compiler::compIsForInlining() const
     return (impInlineInfo != nullptr);
 }
 
-//------------------------------------------------------------------------
-// lvaIsGCTracked: Determine whether this var should be reported
-//    as tracked for GC purposes.
-//
-// Arguments:
-//    varDsc - the LclVarDsc for the var in question.
-//
-// Return Value:
-//    Returns true if the variable should be reported as tracked in the GC info.
-//
-// Notes:
-//    This never returns true for struct variables, even if they are tracked.
-//    This is because struct variables are never tracked as a whole for GC purposes.
-//    It is up to the caller to ensure that the fields of struct variables are
-//    correctly tracked.
-//
-inline bool Compiler::lvaIsGCTracked(const LclVarDsc* varDsc)
-{
-    if (!varDsc->lvTracked || !varTypeIsGC(varDsc->GetType()))
-    {
-        return false;
-    }
-
-    // Stack parameters are always untracked w.r.t. GC reportings
-    if (varDsc->IsParam() && !varDsc->IsRegParam())
-    {
-        return false;
-    }
-
-    return !varDsc->IsDependentPromotedField(this);
-}
-
-/*****************************************************************************/
 #if MEASURE_CLRAPI_CALLS
 
 inline void Compiler::CLRApiCallEnter(unsigned apix)

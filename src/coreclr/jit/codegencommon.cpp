@@ -3274,7 +3274,8 @@ void CodeGen::MarkStackLocals()
         // We can't have both lvRegister and lvOnFrame
         noway_assert(!lcl->lvRegister || !lcl->lvOnFrame);
 
-        if (compiler->lvaIsGCTracked(lcl))
+        if (varTypeIsGC(lcl->GetType()) && lcl->lvTracked && (!lcl->IsParam() || lcl->IsRegParam()) &&
+            !lcl->IsDependentPromotedField(compiler))
         {
             lcl->SetHasGCLiveness();
         }
