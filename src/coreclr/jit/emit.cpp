@@ -5344,10 +5344,6 @@ unsigned emitter::emitEndCodeGen(bool      fullyInt,
 
 #endif
 
-    /* Initialize the GC ref variable lifetime tracking logic */
-
-    codeGen->gcInfo.gcVarPtrSetInit();
-
     emitSyncThisObjOffs = -1;     /* -1  means no offset set */
     emitSyncThisObjReg  = REG_NA; /* REG_NA  means not set */
 

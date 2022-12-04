@@ -43,9 +43,6 @@ void CodeGen::genInitialize()
 
     genPendingCallLabel = nullptr;
 
-    // Initialize the pointer tracking code
-
-    gcInfo.gcRegPtrSetInit();
     gcInfo.gcVarPtrSetInit();
 
 #if !FEATURE_FIXED_OUT_ARGS

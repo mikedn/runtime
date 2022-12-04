@@ -162,17 +162,9 @@ GCInfo::WriteBarrierForm GCInfo::GetWriteBarrierForm(GenTreeStoreInd* store)
     return form;
 }
 
-/*****************************************************************************
- *
- *  Initialize the non-register pointer variable tracking logic.
- */
-
 void GCInfo::gcVarPtrSetInit()
 {
     gcVarPtrSetCur = VarSetOps::MakeEmpty(compiler);
-
-    /* Initialize the list of lifetime entries */
-    gcVarPtrList = gcVarPtrLast = nullptr;
 }
 
 /*****************************************************************************
@@ -447,30 +439,6 @@ BYTE* GCInfo::gcPtrTableSave(BYTE* destPtr, const InfoHdr& header, unsigned code
 
     return destPtr + gcMakeRegPtrTable(destPtr, -1, header, codeSize, pArgTabOffset);
 }
-
-#endif // JIT32_GCENCODER
-
-/*****************************************************************************
- *
- *  Initialize the 'pointer value' register/argument tracking logic.
- */
-
-void GCInfo::gcRegPtrSetInit()
-{
-    gcRegGCrefSetCur = gcRegByrefSetCur = 0;
-
-    if (compiler->codeGen->IsFullPtrRegMapRequired())
-    {
-        gcRegPtrList = gcRegPtrLast = nullptr;
-    }
-    else
-    {
-        /* Initialize the 'call descriptor' list */
-        gcCallDescList = gcCallDescLast = nullptr;
-    }
-}
-
-#ifdef JIT32_GCENCODER
 
 /*****************************************************************************
  *

@@ -126,8 +126,8 @@ public:
     //  values.
     //
 
-    regMaskTP gcRegGCrefSetCur; // current regs holding GCrefs
-    regMaskTP gcRegByrefSetCur; // current regs holding Byrefs
+    regMaskTP gcRegGCrefSetCur = RBM_NONE; // current regs holding GCrefs
+    regMaskTP gcRegByrefSetCur = RBM_NONE; // current regs holding Byrefs
 
     VARSET_TP gcVarPtrSetCur; // current stack locals holding GC pointers
 
@@ -348,8 +348,6 @@ public:
     size_t gcPtrTableSize(const InfoHdr& header, unsigned codeSize, size_t* pArgTabOffset);
     BYTE* gcPtrTableSave(BYTE* destPtr, const InfoHdr& header, unsigned codeSize, size_t* pArgTabOffset);
 #endif
-    void gcRegPtrSetInit();
-    /*****************************************************************************/
 
     // This enumeration yields the result of the analysis below, whether a store
     // requires a write barrier:
