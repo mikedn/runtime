@@ -104,7 +104,7 @@ public:
         liveLclRegs = RBM_NONE;
     }
 
-    void gcResetForBB();
+    void BeginPrologCodeGen();
     void BeginBlockCodeGen(BasicBlock* block);
     void BeginMethodEpilogCodeGen();
 

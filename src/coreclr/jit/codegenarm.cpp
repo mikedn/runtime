@@ -2526,7 +2526,7 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
 
     ScopedSetVariable<bool> _setGeneratingProlog(&generatingProlog, true);
 
-    gcInfo.gcResetForBB();
+    gcInfo.BeginPrologCodeGen();
 
     compiler->unwindBegProlog();
 

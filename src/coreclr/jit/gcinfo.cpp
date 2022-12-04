@@ -14,14 +14,6 @@ size_t GCInfo::s_gcRegPtrDscSize   = 0;
 size_t GCInfo::s_gcTotalPtrTabSize = 0;
 #endif
 
-// Reset tracking info at the start of a basic block.
-void GCInfo::gcResetForBB()
-{
-    gcRegGCrefSetCur = RBM_NONE;
-    gcRegByrefSetCur = RBM_NONE;
-    VarSetOps::AssignNoCopy(compiler, gcVarPtrSetCur, VarSetOps::MakeEmpty(compiler));
-}
-
 #ifdef DEBUG
 
 void GCInfo::gcDspGCrefSetChanges(regMaskTP gcRegGCrefSetNew DEBUGARG(bool forceOutput))
@@ -677,6 +669,13 @@ void GCInfo::BeginBlockCodeGen(BasicBlock* block)
             }
         }
     }
+}
+
+void GCInfo::BeginPrologCodeGen()
+{
+    gcRegGCrefSetCur = RBM_NONE;
+    gcRegByrefSetCur = RBM_NONE;
+    VarSetOps::AssignNoCopy(compiler, gcVarPtrSetCur, VarSetOps::MakeEmpty(compiler));
 }
 
 void GCInfo::BeginMethodEpilogCodeGen()
