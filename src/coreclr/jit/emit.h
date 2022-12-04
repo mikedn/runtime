@@ -1823,6 +1823,8 @@ private:
 
     bool emitThisGCrefVset; // Is "emitThisGCrefVars" up to date?
 
+    VARSET_TP emitEmptyGCrefVars = VarSetOps::UninitVal();
+
     regNumber emitSyncThisObjReg; // where is "this" enregistered for synchronized methods?
 
 #if MULTIREG_HAS_SECOND_GC_RET

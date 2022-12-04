@@ -11608,7 +11608,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
     assert(ins != INS_imul || size >= EA_4BYTE);                  // Has no 'w' bit
     assert(instrIs3opImul(id->idIns()) == 0 || size >= EA_4BYTE); // Has no 'w' bit
 
-    VARSET_TP GCvars(VarSetOps::UninitVal());
+    VARSET_TP GCvars = VarSetOps::UninitVal();
 
     // What instruction format have we got?
     switch (id->idInsFmt())
@@ -11735,11 +11735,12 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             // Is this a "fat" call descriptor?
             if (id->idIsLargeCall())
             {
-                instrDescCGCA* idCall = (instrDescCGCA*)id;
-                gcrefRegs             = idCall->idcGcrefRegs;
-                byrefRegs             = idCall->idcByrefRegs;
-                VarSetOps::Assign(emitComp, GCvars, idCall->idcGCvars);
-                sz = sizeof(instrDescCGCA);
+                instrDescCGCA* idCall = static_cast<instrDescCGCA*>(id);
+
+                gcrefRegs = idCall->idcGcrefRegs;
+                byrefRegs = idCall->idcByrefRegs;
+                GCvars    = idCall->idcGCvars;
+                sz        = sizeof(instrDescCGCA);
             }
             else
             {
@@ -11747,9 +11748,9 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 assert(!id->idIsLargeCns());
 
                 gcrefRegs = emitDecodeCallGCregs(id);
-                byrefRegs = 0;
-                VarSetOps::AssignNoCopy(emitComp, GCvars, VarSetOps::MakeEmpty(emitComp));
-                sz = sizeof(instrDesc);
+                byrefRegs = RBM_NONE;
+                GCvars    = emitEmptyGCrefVars;
+                sz        = sizeof(instrDesc);
             }
 
             addr = (BYTE*)id->idAddr()->iiaAddr;
@@ -12142,12 +12143,12 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                     // Is this a "fat" call descriptor?
                     if (id->idIsLargeCall())
                     {
-                        instrDescCGCA* idCall = (instrDescCGCA*)id;
+                        instrDescCGCA* idCall = static_cast<instrDescCGCA*>(id);
 
                         gcrefRegs = idCall->idcGcrefRegs;
                         byrefRegs = idCall->idcByrefRegs;
-                        VarSetOps::Assign(emitComp, GCvars, idCall->idcGCvars);
-                        sz = sizeof(instrDescCGCA);
+                        GCvars    = idCall->idcGCvars;
+                        sz        = sizeof(instrDescCGCA);
                     }
                     else
                     {
@@ -12155,9 +12156,9 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                         assert(!id->idIsLargeCns());
 
                         gcrefRegs = emitDecodeCallGCregs(id);
-                        byrefRegs = 0;
-                        VarSetOps::AssignNoCopy(emitComp, GCvars, VarSetOps::MakeEmpty(emitComp));
-                        sz = sizeof(instrDesc);
+                        byrefRegs = RBM_NONE;
+                        GCvars    = emitEmptyGCrefVars;
+                        sz        = sizeof(instrDesc);
                     }
 
                     recCall = true;

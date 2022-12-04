@@ -2808,10 +2808,15 @@ emitter::instrDesc* emitter::emitNewInstrCallInd(
         return id;
     }
 
+    if (VarSetOps::MayBeUninit(emitEmptyGCrefVars))
+    {
+        emitEmptyGCrefVars = VarSetOps::MakeEmpty(emitComp);
+    }
+
 #ifdef TARGET_X86
     instrDesc* id = emitNewInstrCns(retSize, argCnt);
 #else
-    instrDesc*     id              = emitAllocInstr(retSize);
+    instrDesc* id              = emitAllocInstr(retSize);
 #endif
 
     /* Make sure we didn't waste space unexpectedly */
@@ -2867,7 +2872,7 @@ emitter::instrDesc* emitter::emitNewInstrCallDir(VARSET_VALARG_TP GCvars,
         instrDescCGCA* id = emitAllocInstrCGCA(retSize);
         id->idSetIsLargeCall();
 
-        VarSetOps::Assign(emitComp, id->idcGCvars, GCvars);
+        id->idcGCvars    = VarSetOps::MakeCopy(emitComp, GCvars);
         id->idcGcrefRegs = gcrefRegs;
         id->idcByrefRegs = byrefRegs;
 #ifdef TARGET_XARCH
@@ -2882,24 +2887,25 @@ emitter::instrDesc* emitter::emitNewInstrCallDir(VARSET_VALARG_TP GCvars,
 
         return id;
     }
-    else
+
+    if (VarSetOps::MayBeUninit(emitEmptyGCrefVars))
     {
+        emitEmptyGCrefVars = VarSetOps::MakeEmpty(emitComp);
+    }
+
 #ifdef TARGET_X86
-        instrDesc* id = emitNewInstrCns(retSize, argCnt);
+    instrDesc* id = emitNewInstrCns(retSize, argCnt);
 #else
-        instrDesc* id              = emitAllocInstr(retSize);
+    instrDesc* id              = emitAllocInstr(retSize);
 #endif
 
-        // printf("Direct call w/o  GC vars / big arg cnt / explicit scope\n");
+    /* Make sure we didn't waste space unexpectedly */
+    assert(!id->idIsLargeCns());
 
-        /* Make sure we didn't waste space unexpectedly */
-        assert(!id->idIsLargeCns());
+    /* Save the the live GC registers in the unused register fields */
+    emitEncodeCallGCregs(gcrefRegs, id);
 
-        /* Save the the live GC registers in the unused register fields */
-        emitEncodeCallGCregs(gcrefRegs, id);
-
-        return id;
-    }
+    return id;
 }
 
 ID_OPS emitter::GetFormatOp(insFormat format)
@@ -2923,8 +2929,8 @@ ID_OPS emitter::GetFormatOp(insFormat format)
 const size_t basicIndent     = 7;
 const size_t hexEncodingSize = 21;
 #elif defined(TARGET_X86)
-const size_t       basicIndent     = 7;
-const size_t       hexEncodingSize = 13;
+const size_t   basicIndent     = 7;
+const size_t   hexEncodingSize = 13;
 #elif defined(TARGET_ARM64)
 const size_t basicIndent     = 12;
 const size_t hexEncodingSize = 19;

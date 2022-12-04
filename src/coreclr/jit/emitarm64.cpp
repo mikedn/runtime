@@ -9730,23 +9730,24 @@ unsigned emitter::emitOutputCall(insGroup* ig, BYTE* dst, instrDesc* id, code_t 
     regMaskTP           gcrefRegs;
     regMaskTP           byrefRegs;
 
-    VARSET_TP GCvars(VarSetOps::UninitVal());
+    VARSET_TP GCvars = VarSetOps::UninitVal();
 
     // Is this a "fat" call descriptor?
     if (id->idIsLargeCall())
     {
-        instrDescCGCA* idCall = (instrDescCGCA*)id;
-        gcrefRegs             = idCall->idcGcrefRegs;
-        byrefRegs             = idCall->idcByrefRegs;
-        VarSetOps::Assign(emitComp, GCvars, idCall->idcGCvars);
+        instrDescCGCA* idCall = static_cast<instrDescCGCA*>(id);
+
+        gcrefRegs = idCall->idcGcrefRegs;
+        byrefRegs = idCall->idcByrefRegs;
+        GCvars    = idCall->idcGCvars;
     }
     else
     {
         assert(!id->idIsLargeCns());
 
         gcrefRegs = emitDecodeCallGCregs(id);
-        byrefRegs = 0;
-        VarSetOps::AssignNoCopy(emitComp, GCvars, VarSetOps::MakeEmpty(emitComp));
+        byrefRegs = RBM_NONE;
+        GCvars    = emitEmptyGCrefVars;
     }
 
     /* We update the GC info before the call as the variables cannot be

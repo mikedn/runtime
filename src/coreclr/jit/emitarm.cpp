@@ -5487,7 +5487,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
     assert(REG_NA == (int)REG_NA);
 
-    VARSET_TP GCvars(VarSetOps::UninitVal());
+    VARSET_TP GCvars = VarSetOps::UninitVal();
 
     /* What instruction format have we got? */
 
@@ -6139,20 +6139,21 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
             if (id->idIsLargeCall())
             {
-                instrDescCGCA* idCall = (instrDescCGCA*)id;
-                gcrefRegs             = idCall->idcGcrefRegs;
-                byrefRegs             = idCall->idcByrefRegs;
-                VarSetOps::Assign(emitComp, GCvars, idCall->idcGCvars);
-                sz = sizeof(instrDescCGCA);
+                instrDescCGCA* idCall = static_cast<instrDescCGCA*>(id);
+
+                gcrefRegs = idCall->idcGcrefRegs;
+                byrefRegs = idCall->idcByrefRegs;
+                GCvars    = idCall->idcGCvars;
+                sz        = sizeof(instrDescCGCA);
             }
             else
             {
                 assert(!id->idIsLargeCns());
 
                 gcrefRegs = emitDecodeCallGCregs(id);
-                byrefRegs = 0;
-                VarSetOps::AssignNoCopy(emitComp, GCvars, VarSetOps::MakeEmpty(emitComp));
-                sz = sizeof(instrDesc);
+                byrefRegs = RBM_NONE;
+                GCvars    = emitEmptyGCrefVars;
+                sz        = sizeof(instrDesc);
             }
 
             code = emitInsCode(ins, fmt);
@@ -6167,20 +6168,21 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
             if (id->idIsLargeCall())
             {
-                instrDescCGCA* idCall = (instrDescCGCA*)id;
-                gcrefRegs             = idCall->idcGcrefRegs;
-                byrefRegs             = idCall->idcByrefRegs;
-                VarSetOps::Assign(emitComp, GCvars, idCall->idcGCvars);
-                sz = sizeof(instrDescCGCA);
+                instrDescCGCA* idCall = static_cast<instrDescCGCA*>(id);
+
+                gcrefRegs = idCall->idcGcrefRegs;
+                byrefRegs = idCall->idcByrefRegs;
+                GCvars    = idCall->idcGCvars;
+                sz        = sizeof(instrDescCGCA);
             }
             else
             {
                 assert(!id->idIsLargeCns());
 
                 gcrefRegs = emitDecodeCallGCregs(id);
-                byrefRegs = 0;
-                VarSetOps::AssignNoCopy(emitComp, GCvars, VarSetOps::MakeEmpty(emitComp));
-                sz = sizeof(instrDesc);
+                byrefRegs = RBM_NONE;
+                GCvars    = emitEmptyGCrefVars;
+                sz        = sizeof(instrDesc);
             }
 
             if (id->idAddr()->iiaAddr == NULL) /* a recursive call */
