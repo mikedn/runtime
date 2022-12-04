@@ -1874,16 +1874,7 @@ void CodeGen::genReportEH()
     assert(XTnum == EHCount);
 }
 
-//----------------------------------------------------------------------
-// genUseOptimizedWriteBarriers: Determine if an optimized write barrier
-// helper should be used.
-//
-// Return Value:
-//   true if an optimized write barrier helper should be used, false otherwise.
-//   Note: only x86 implements register-specific source optimized write
-//   barriers currently.
-//
-bool CodeGenInterface::genUseOptimizedWriteBarriers()
+bool CodeGenInterface::UseOptimizedWriteBarriers()
 {
 #if defined(TARGET_X86) && NOGC_WRITE_BARRIERS
     return true;

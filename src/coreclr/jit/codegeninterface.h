@@ -156,7 +156,7 @@ protected:
     bool m_genAlignLoops;
 
 public:
-    bool            genUseOptimizedWriteBarriers();
+    static bool            UseOptimizedWriteBarriers();
     static CorInfoHelpFunc GetWriteBarrierHelperCall(GCInfo::WriteBarrierForm wbf);
 
     // The following property indicates whether the current method sets up

@@ -4869,7 +4869,7 @@ bool CodeGen::genEmitOptimizedGCWriteBarrier(GCInfo::WriteBarrierForm writeBarri
     assert(writeBarrierForm != GCInfo::WBF_NoBarrier);
 
 #if defined(TARGET_X86) && NOGC_WRITE_BARRIERS
-    if (!genUseOptimizedWriteBarriers())
+    if (!UseOptimizedWriteBarriers())
     {
         return false;
     }
