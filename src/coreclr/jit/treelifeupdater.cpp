@@ -13,23 +13,6 @@ void CodeGenLivenessUpdater::Begin()
     scratchSet2 = VarSetOps::MakeEmpty(compiler);
     epoch       = compiler->GetCurLVEpoch();
 #endif
-
-    // Also, initialize "HasStackGCPtrLiveness" for all tracked variables that do not fully
-    // live in a register (i.e. they live on the stack for all or part of their lifetime).
-    // Note that lvRegister indicates that a lclVar is in a register for its entire lifetime.
-
-    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
-    {
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
-        if (lcl->HasLiveness() || lcl->IsRegCandidate())
-        {
-            if (!lcl->lvRegister && compiler->lvaIsGCTracked(lcl))
-            {
-                lcl->SetHasStackGCPtrLiveness();
-            }
-        }
-    }
 }
 
 void CodeGenLivenessUpdater::ChangeLife(CodeGen* codeGen, VARSET_VALARG_TP newLife)
