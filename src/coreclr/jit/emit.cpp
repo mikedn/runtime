@@ -5350,9 +5350,6 @@ unsigned emitter::emitEndCodeGen(bool      fullyInt,
 
 #endif
 
-    emitSyncThisObjOffs = -1;     /* -1  means no offset set */
-    emitSyncThisObjReg  = REG_NA; /* REG_NA  means not set */
-
 #ifdef JIT32_GCENCODER
     if (emitComp->lvaKeepAliveAndReportThis())
     {
@@ -5395,99 +5392,33 @@ unsigned emitter::emitEndCodeGen(bool      fullyInt,
 
     if (emitGCrFrameOffsCnt != 0)
     {
-        size_t     siz;
-        unsigned   cnt;
-        unsigned   num;
-        LclVarDsc* dsc;
-        int*       tab;
+        // Allocate and clear emitGCrFrameLiveTab[]. This is the table
+        // mapping "stkOffs -> varPtrDsc". It holds a pointer to
+        // the liveness descriptor that was created when the
+        // variable became alive. When the variable becomes dead, the
+        // descriptor will be appended to the liveness descriptor list, and
+        // the entry in emitGCrFrameLiveTab[] will be made NULL.
+        //
+        // Note that if all GC refs are assigned consecutively,
+        // emitGCrFrameLiveTab[] can be only as big as the number of GC refs
+        // present, instead of lvaTrackedCount.
 
-        /* Allocate and clear emitGCrFrameLiveTab[]. This is the table
-           mapping "stkOffs -> varPtrDsc". It holds a pointer to
-           the liveness descriptor that was created when the
-           variable became alive. When the variable becomes dead, the
-           descriptor will be appended to the liveness descriptor list, and
-           the entry in emitGCrFrameLiveTab[] will be made NULL.
-
-           Note that if all GC refs are assigned consecutively,
-           emitGCrFrameLiveTab[] can be only as big as the number of GC refs
-           present, instead of lvaTrackedCount.
-         */
-
-        siz                 = emitGCrFrameOffsCnt * sizeof(*emitGCrFrameLiveTab);
+        size_t siz          = emitGCrFrameOffsCnt * sizeof(*emitGCrFrameLiveTab);
         emitGCrFrameLiveTab = (GCFrameLifetime**)emitGetMem(roundUp(siz));
         memset(emitGCrFrameLiveTab, 0, siz);
 
-        /* Allocate and fill in emitGCrFrameOffsTab[]. This is the table
-           mapping "varIndex -> stkOffs".
-           Non-ptrs or reg vars have entries of -1.
-           Entries of Tracked stack byrefs have the lower bit set to 1.
-        */
-
-        emitTrkVarCnt = cnt = emitComp->lvaTrackedCount;
-        assert(cnt);
-        emitGCrFrameOffsTab = tab = (int*)emitGetMem(cnt * sizeof(int));
-
-        memset(emitGCrFrameOffsTab, -1, cnt * sizeof(int));
-
-        /* Now fill in all the actual used entries */
-
-        for (num = 0, dsc = emitComp->lvaTable, cnt = emitComp->lvaCount; num < cnt; num++, dsc++)
+#if defined(JIT32_GCENCODER) && !defined(FEATURE_EH_FUNCLETS)
+        if (emitComp->lvaKeepAliveAndReportThis())
         {
-            if (!dsc->lvOnFrame || (dsc->IsParam() && !dsc->IsRegParam()))
+            assert(emitComp->lvaIsOriginalThisArg(emitComp->info.compThisArg));
+
+            LclVarDsc* thisParam = emitComp->lvaGetDesc(emitComp->info.compThisArg);
+
+            if (thisParam->HasGCSlotLiveness())
             {
-                continue;
+                emitSyncThisObjOffs = thisParam->GetStackOffset();
             }
-
-#if FEATURE_FIXED_OUT_ARGS
-            if (num == emitComp->lvaOutgoingArgSpaceVar)
-            {
-                continue;
-            }
-#endif // FEATURE_FIXED_OUT_ARGS
-
-            int offs = dsc->GetStackOffset();
-
-            if ((offs < emitGCrFrameOffsMin) || (offs >= emitGCrFrameOffsMax))
-            {
-                continue;
-            }
-
-            if (!dsc->HasGCSlotLiveness())
-            {
-                continue;
-            }
-
-            unsigned indx = dsc->lvVarIndex;
-
-            assert(!dsc->lvRegister);
-            assert(dsc->lvTracked);
-            assert(dsc->lvRefCnt() != 0);
-            assert(dsc->TypeGet() == TYP_REF || dsc->TypeGet() == TYP_BYREF);
-            assert(indx < emitComp->lvaTrackedCount);
-
-#ifdef JIT32_GCENCODER
-#ifndef FEATURE_EH_FUNCLETS
-            // Remember the frame offset of the "this" argument for synchronized methods.
-            if (emitComp->lvaIsOriginalThisArg(num) && emitComp->lvaKeepAliveAndReportThis())
-            {
-                emitSyncThisObjOffs = offs;
-                offs |= this_OFFSET_FLAG;
-            }
-#endif
-#endif // JIT32_GCENCODER
-
-            if (dsc->TypeGet() == TYP_BYREF)
-            {
-                offs |= byref_OFFSET_FLAG;
-            }
-            tab[indx] = offs;
         }
-    }
-    else
-    {
-#ifdef DEBUG
-        emitTrkVarCnt       = 0;
-        emitGCrFrameOffsTab = nullptr;
 #endif
     }
 
@@ -6733,7 +6664,7 @@ void emitter::emitGCvarLiveSet(int offs, GCtype gcType, BYTE* addr, unsigned ind
     assert(index < emitGCrFrameOffsCnt);
     assert(emitGCrFrameLiveTab[index] == nullptr);
 
-#if !defined(JIT32_GCENCODER) || !defined(FEATURE_EH_FUNCLETS)
+#if defined(JIT32_GCENCODER) && !defined(FEATURE_EH_FUNCLETS)
     if (offs == emitSyncThisObjOffs)
     {
         offs |= this_OFFSET_FLAG;
@@ -6806,21 +6737,21 @@ void emitter::emitUpdateLiveGCvars(VARSET_VALARG_TP vars, BYTE* addr)
         return;
     }
 
-    for (unsigned trackedLclIndex = 0; trackedLclIndex < emitTrkVarCnt; trackedLclIndex++)
+    for (unsigned trackedLclIndex = 0, count = emitComp->lvaTrackedCount; trackedLclIndex < count; trackedLclIndex++)
     {
-        int val = emitGCrFrameOffsTab[trackedLclIndex];
+        unsigned   lclNum = emitComp->lvaTrackedIndexToLclNum(trackedLclIndex);
+        LclVarDsc* lcl    = emitComp->lvaGetDesc(lclNum);
 
-        if (val == -1)
+        if (!lcl->HasGCSlotLiveness())
         {
             continue;
         }
 
-        int      offs   = val & ~OFFSET_MASK;
-        unsigned lclNum = emitComp->lvaTrackedIndexToLclNum(trackedLclIndex);
+        int offs = lcl->GetStackOffset();
 
         if (VarSetOps::IsMember(emitComp, vars, trackedLclIndex))
         {
-            GCtype gcType = (val & byref_OFFSET_FLAG) != 0 ? GCT_BYREF : GCT_GCREF;
+            GCtype gcType = lcl->TypeIs(TYP_BYREF) ? GCT_BYREF : GCT_GCREF;
 
             emitGCvarLiveUpd(offs, lclNum, gcType, addr);
         }
@@ -7568,7 +7499,9 @@ void emitter::emitGCvarDeadUpd(int offs, BYTE* addr DEBUG_ARG(unsigned lclNum))
         return;
     }
 
+#if defined(JIT32_GCENCODER) && !defined(FEATURE_EH_FUNCLETS)
     assert(!emitComp->lvaKeepAliveAndReportThis() || (offs != emitSyncThisObjOffs));
+#endif
 
     emitGCvarDeadSet(offs, addr, index);
 

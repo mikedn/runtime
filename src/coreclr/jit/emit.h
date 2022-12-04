@@ -1825,7 +1825,7 @@ private:
 
     VARSET_TP emitEmptyGCrefVars = VarSetOps::UninitVal();
 
-    regNumber emitSyncThisObjReg; // where is "this" enregistered for synchronized methods?
+    regNumber emitSyncThisObjReg = REG_NA; // where is "this" enregistered for synchronized methods?
 
 #if MULTIREG_HAS_SECOND_GC_RET
     void emitSetSecondRetRegGCType(instrDescCGCA* id, emitAttr secondRetSize);
@@ -2007,15 +2007,14 @@ private:
     /*        The following keeps track of stack-based GC values            */
     /************************************************************************/
 
-    unsigned emitTrkVarCnt;
-    int*     emitGCrFrameOffsTab; // Offsets of tracked stack ptr vars (varTrkIndex -> stkOffs)
-
     unsigned          emitGCrFrameOffsCnt = 0;       // Number of       tracked stack ptr vars
     int               emitGCrFrameOffsMin = 0;       // Min offset of a tracked stack ptr var
     int               emitGCrFrameOffsMax = 0;       // Max offset of a tracked stack ptr var
     GCFrameLifetime** emitGCrFrameLiveTab = nullptr; // Cache of currently live varPtrs (stkOffs -> varPtrDsc)
 
-    int emitSyncThisObjOffs; // what is the offset of "this" for synchronized methods?
+#if defined(JIT32_GCENCODER) && !defined(FEATURE_EH_FUNCLETS)
+    int emitSyncThisObjOffs = INT_MIN; // what is the offset of "this" for synchronized methods?
+#endif
 
 public:
     void emitSetFrameRangeGCRs(int offsLo, int offsHi);
