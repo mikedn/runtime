@@ -169,7 +169,7 @@ GCInfo::WriteBarrierForm GCInfo::GetWriteBarrierForm(GenTreeStoreInd* store)
 
 void GCInfo::gcVarPtrSetInit()
 {
-    VarSetOps::AssignNoCopy(compiler, gcVarPtrSetCur, VarSetOps::MakeEmpty(compiler));
+    gcVarPtrSetCur = VarSetOps::MakeEmpty(compiler);
 
     /* Initialize the list of lifetime entries */
     gcVarPtrList = gcVarPtrLast = nullptr;
@@ -675,7 +675,7 @@ void GCInfo::BeginPrologCodeGen()
 {
     gcRegGCrefSetCur = RBM_NONE;
     gcRegByrefSetCur = RBM_NONE;
-    VarSetOps::AssignNoCopy(compiler, gcVarPtrSetCur, VarSetOps::MakeEmpty(compiler));
+    VarSetOps::ClearD(compiler, gcVarPtrSetCur);
 }
 
 void GCInfo::BeginMethodEpilogCodeGen()
