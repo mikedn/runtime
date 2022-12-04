@@ -3293,12 +3293,9 @@ void CodeGen::MarkStackLocals()
         // We can't have both lvRegister and lvOnFrame
         noway_assert(!lcl->lvRegister || !lcl->lvOnFrame);
 
-        if (lcl->HasLiveness() || lcl->IsRegCandidate())
+        if (!lcl->lvRegister && compiler->lvaIsGCTracked(lcl))
         {
-            if (!lcl->lvRegister && compiler->lvaIsGCTracked(lcl))
-            {
-                lcl->SetHasStackGCPtrLiveness();
-            }
+            lcl->SetHasStackGCPtrLiveness();
         }
     }
 }
