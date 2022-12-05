@@ -12709,12 +12709,9 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         if (JitConfig.JitEmitPrintRefRegs() != 0)
         {
             printf("Before emitOutputInstr for id->idDebugOnlyInfo()->idNum=0x%02x\n", id->idDebugOnlyInfo()->idNum);
-            printf("  emitThisGCrefRegs(0x%p)=", emitComp->dspPtr(&emitThisGCrefRegs));
-            printRegMaskInt(emitThisGCrefRegs);
+            printf("  emitThisGCrefRegs");
             emitDispRegSet(emitThisGCrefRegs);
-            printf("\n");
-            printf("  emitThisByrefRegs(0x%p)=", emitComp->dspPtr(&emitThisByrefRegs));
-            printRegMaskInt(emitThisByrefRegs);
+            printf("\n  emitThisByrefRegs");
             emitDispRegSet(emitThisByrefRegs);
             printf("\n");
         }

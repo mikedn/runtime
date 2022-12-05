@@ -657,13 +657,11 @@ void GCInfo::BeginMethodEpilogCodeGen()
 #ifdef DEBUG
     if (compiler->verbose)
     {
-        printf("gcVarPtrSetCur=%s ", VarSetOps::ToString(compiler, gcVarPtrSetCur));
+        printf("gcVarPtrSetCur ");
         dumpConvertedVarSet(compiler, gcVarPtrSetCur);
-        printf(", gcRegGCrefSetCur=");
-        printRegMaskInt(gcRegGCrefSetCur);
+        printf(", gcRegGCrefSetCur");
         emitter::emitDispRegSet(gcRegGCrefSetCur);
-        printf(", gcRegByrefSetCur=");
-        printRegMaskInt(gcRegByrefSetCur);
+        printf(", gcRegByrefSetCur");
         emitter::emitDispRegSet(gcRegByrefSetCur);
         printf("\n");
     }

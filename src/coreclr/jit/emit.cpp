@@ -2142,13 +2142,11 @@ void* emitter::emitAddLabel(bool isFinallyTarget DEBUG_ARG(BasicBlock* block))
 
     if (EMIT_GC_VERBOSE)
     {
-        printf("Label: IG%02u, GCvars=%s ", emitCurIG->igNum, VarSetOps::ToString(emitComp, GCvars));
+        printf("Label: IG%02u, GCvars ", emitCurIG->igNum);
         dumpConvertedVarSet(emitComp, GCvars);
-        printf(", gcrefRegs=");
-        printRegMaskInt(gcrefRegs);
+        printf(", gcrefRegs");
         emitDispRegSet(gcrefRegs);
-        printf(", byrefRegs=");
-        printRegMaskInt(byrefRegs);
+        printf(", byrefRegs");
         emitDispRegSet(byrefRegs);
         printf("\n");
     }
@@ -2774,13 +2772,11 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
 #ifdef DEBUG
     if (EMIT_GC_VERBOSE)
     {
-        printf("Call: GCvars=%s ", VarSetOps::ToString(emitComp, GCvars));
+        printf("Call: GCvars ");
         dumpConvertedVarSet(emitComp, GCvars);
-        printf(", gcrefRegs=");
-        printRegMaskInt(gcrefRegs);
+        printf(", gcrefRegs");
         emitDispRegSet(gcrefRegs);
-        printf(", byrefRegs=");
-        printRegMaskInt(byrefRegs);
+        printf(", byrefRegs");
         emitDispRegSet(byrefRegs);
         printf("\n");
     }
@@ -3144,25 +3140,19 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
         }
         printf("\n");
 
-        printf("%*s;   PrevGCVars=%s ", strlen(buff), "",
-               VarSetOps::ToString(emitComp, igPh->igPhData->igPhPrevGCrefVars));
+        printf("%*s;   PrevGCVars ", strlen(buff), "");
         dumpConvertedVarSet(emitComp, igPh->igPhData->igPhPrevGCrefVars);
-        printf(", PrevGCrefRegs=");
-        printRegMaskInt(igPh->igPhData->igPhPrevGCrefRegs);
+        printf(", PrevGCrefRegs");
         emitDispRegSet(igPh->igPhData->igPhPrevGCrefRegs);
-        printf(", PrevByrefRegs=");
-        printRegMaskInt(igPh->igPhData->igPhPrevByrefRegs);
+        printf(", PrevByrefRegs");
         emitDispRegSet(igPh->igPhData->igPhPrevByrefRegs);
         printf("\n");
 
-        printf("%*s;   InitGCVars=%s ", strlen(buff), "",
-               VarSetOps::ToString(emitComp, igPh->igPhData->igPhInitGCrefVars));
+        printf("%*s;   InitGCVars ", strlen(buff), "");
         dumpConvertedVarSet(emitComp, igPh->igPhData->igPhInitGCrefVars);
-        printf(", InitGCrefRegs=");
-        printRegMaskInt(igPh->igPhData->igPhInitGCrefRegs);
+        printf(", InitGCrefRegs");
         emitDispRegSet(igPh->igPhData->igPhInitGCrefRegs);
-        printf(", InitByrefRegs=");
-        printRegMaskInt(igPh->igPhData->igPhInitByrefRegs);
+        printf(", InitByrefRegs");
         emitDispRegSet(igPh->igPhData->igPhInitByrefRegs);
         printf("\n");
 
@@ -3187,23 +3177,21 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
 
         if (ig->igFlags & IGF_GC_VARS)
         {
-            printf("%sgcVars=%s ", separator, VarSetOps::ToString(emitComp, ig->igGCvars()));
+            printf("%sgcVars ", separator);
             dumpConvertedVarSet(emitComp, ig->igGCvars());
             separator = ", ";
         }
 
         if (!(ig->igFlags & IGF_EXTEND))
         {
-            printf("%sgcrefRegs=", separator);
-            printRegMaskInt(ig->igGCregs);
+            printf("%sgcrefRegs", separator);
             emitDispRegSet(ig->igGCregs);
             separator = ", ";
         }
 
         if (ig->igFlags & IGF_BYREF_REGS)
         {
-            printf("%sbyrefRegs=", separator);
-            printRegMaskInt(ig->igByrefRegs());
+            printf("%sbyrefRegs", separator);
             emitDispRegSet(ig->igByrefRegs());
             separator = ", ";
         }
@@ -3277,30 +3265,28 @@ void emitter::emitDispIGlist(bool verbose)
 void emitter::emitDispGCinfo()
 {
     printf("Emitter GC tracking info:");
+
     printf("\n  emitPrevGCrefVars ");
     dumpConvertedVarSet(emitComp, emitPrevGCrefVars);
-    printf("\n  emitPrevGCrefRegs(0x%p)=", dspPtr(&emitPrevGCrefRegs));
-    printRegMaskInt(emitPrevGCrefRegs);
+    printf("\n  emitPrevGCrefRegs");
     emitDispRegSet(emitPrevGCrefRegs);
-    printf("\n  emitPrevByrefRegs(0x%p)=", dspPtr(&emitPrevByrefRegs));
-    printRegMaskInt(emitPrevByrefRegs);
+    printf("\n  emitPrevByrefRegs");
     emitDispRegSet(emitPrevByrefRegs);
+
     printf("\n  emitInitGCrefVars ");
     dumpConvertedVarSet(emitComp, emitInitGCrefVars);
-    printf("\n  emitInitGCrefRegs(0x%p)=", dspPtr(&emitInitGCrefRegs));
-    printRegMaskInt(emitInitGCrefRegs);
+    printf("\n  emitInitGCrefRegs");
     emitDispRegSet(emitInitGCrefRegs);
-    printf("\n  emitInitByrefRegs(0x%p)=", dspPtr(&emitInitByrefRegs));
-    printRegMaskInt(emitInitByrefRegs);
+    printf("\n  emitInitByrefRegs");
     emitDispRegSet(emitInitByrefRegs);
+
     printf("\n  emitThisGCrefVars ");
     dumpConvertedVarSet(emitComp, emitThisGCrefVars);
-    printf("\n  emitThisGCrefRegs(0x%p)=", dspPtr(&emitThisGCrefRegs));
-    printRegMaskInt(emitThisGCrefRegs);
+    printf("\n  emitThisGCrefRegs");
     emitDispRegSet(emitThisGCrefRegs);
-    printf("\n  emitThisByrefRegs(0x%p)=", dspPtr(&emitThisByrefRegs));
-    printRegMaskInt(emitThisByrefRegs);
+    printf("\n  emitThisByrefRegs");
     emitDispRegSet(emitThisByrefRegs);
+
     printf("\n\n");
 }
 
@@ -6792,28 +6778,21 @@ void emitter::emitRecordGCcall(BYTE* codePos, unsigned callInstrSize)
 #endif // JIT32_GCENCODER
 
 #ifdef DEBUG
-
     if (EMIT_GC_VERBOSE)
     {
-#if !FEATURE_FIXED_OUT_ARGS
-        printf("; Call at %04X [stk=%u], GCvars=", offs - callInstrSize, emitCurStackLvl);
+#if FEATURE_FIXED_OUT_ARGS
+        printf("; Call at %04X GCvars ", offs - callInstrSize);
 #else
-        printf("; Call at %04X GCvars=", offs - callInstrSize);
+        printf("; Call at %04X [stk=%u], GCvars ", offs - callInstrSize, emitCurStackLvl);
 #endif
         emitDispVarSet();
-        printf(", gcrefRegs=");
-        printRegMaskInt(emitThisGCrefRegs);
+        printf(", gcrefRegs");
         emitDispRegSet(emitThisGCrefRegs);
-        // printRegMaskInt(emitThisGCrefRegs & ~RBM_INTRET & RBM_CALLEE_SAVED);    // only display callee-saved
-        // emitDispRegSet (emitThisGCrefRegs & ~RBM_INTRET & RBM_CALLEE_SAVED);    // only display callee-saved
-        printf(", byrefRegs=");
-        printRegMaskInt(emitThisByrefRegs);
+        printf(", byrefRegs");
         emitDispRegSet(emitThisByrefRegs);
-        // printRegMaskInt(emitThisByrefRegs & ~RBM_INTRET & RBM_CALLEE_SAVED);    // only display callee-saved
-        // emitDispRegSet (emitThisByrefRegs & ~RBM_INTRET & RBM_CALLEE_SAVED);    // only display callee-saved
+
         printf("\n");
     }
-
 #endif
 
     /* Allocate a 'call site' descriptor and start filling it in */
@@ -8158,8 +8137,7 @@ regMaskTP emitter::emitGetGCRegsSavedOrModified(CORINFO_METHOD_HANDLE methHnd)
 #ifdef DEBUG
         if (emitComp->verbose)
         {
-            printf("NoGC Call: savedSet=");
-            printRegMaskInt(savedSet);
+            printf("NoGC Call: saved regs");
             emitDispRegSet(savedSet);
             printf("\n");
         }

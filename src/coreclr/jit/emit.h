@@ -43,18 +43,6 @@
 void emitterStats(FILE* fout);
 #endif
 
-#ifdef DEBUG
-
-inline void printRegMaskInt(regMaskTP mask)
-{
-    printf(REG_MASK_INT_FMT, (mask & RBM_ALLINT));
-}
-
-#endif // DEBUG
-
-/*****************************************************************************/
-/* Forward declarations */
-
 class emitLocation;
 class emitter;
 struct insGroup;

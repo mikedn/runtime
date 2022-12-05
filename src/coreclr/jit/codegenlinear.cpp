@@ -382,14 +382,11 @@ void CodeGen::genCodeForBBlist()
 
         if (nonVarPtrRegs != RBM_NONE)
         {
-            printf("Regset after " FMT_BB " gcr=", block->bbNum);
-            printRegMaskInt(gcInfo.gcRegGCrefSetCur & ~liveLclRegs);
+            printf("Regset after " FMT_BB " gcr", block->bbNum);
             emitter::emitDispRegSet(gcInfo.gcRegGCrefSetCur & ~liveLclRegs);
-            printf(", byr=");
-            printRegMaskInt(gcInfo.gcRegByrefSetCur & ~liveLclRegs);
+            printf(", byr");
             emitter::emitDispRegSet(gcInfo.gcRegByrefSetCur & ~liveLclRegs);
-            printf(", regVars=");
-            printRegMaskInt(liveLclRegs);
+            printf(", regVars");
             emitter::emitDispRegSet(liveLclRegs);
             printf("\n");
         }
