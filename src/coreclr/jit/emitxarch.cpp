@@ -6058,8 +6058,8 @@ void emitter::emitAdjustStackDepth(instruction ins, ssize_t val)
 // EC_INDIR_R          : call ireg (addr has to be null)
 // EC_INDIR_ARD        : call [ireg + xreg * xmul + disp] (addr has to be null)
 //
-void emitter::emitIns_Call(EmitCallType          callType,
-                           CORINFO_METHOD_HANDLE methHnd,
+void emitter::emitIns_Call(EmitCallType          kind,
+                           CORINFO_METHOD_HANDLE methodHandle,
 #ifdef DEBUG
                            CORINFO_SIG_INFO* sigInfo,
 #endif
@@ -6067,9 +6067,9 @@ void emitter::emitIns_Call(EmitCallType          callType,
 #ifdef TARGET_X86
                            ssize_t argSize,
 #endif
-                           emitAttr retSize,
+                           emitAttr retRegAttr,
 #ifdef UNIX_AMD64_ABI
-                           emitAttr secondRetSize,
+                           emitAttr retReg2Attr,
 #endif
                            IL_OFFSETX ilOffset,
                            regNumber  amBase,
@@ -6078,59 +6078,53 @@ void emitter::emitIns_Call(EmitCallType          callType,
                            int32_t    amDisp,
                            bool       isJump)
 {
-    assert((callType != EC_FUNC_TOKEN && callType != EC_FUNC_TOKEN_INDIR && callType != EC_FUNC_ADDR) ||
+    assert((kind != EC_FUNC_TOKEN && kind != EC_FUNC_TOKEN_INDIR && kind != EC_FUNC_ADDR) ||
            (amBase == REG_NA && amIndex == REG_NA && amScale == 0 && amDisp == 0));
-    assert(callType < EC_INDIR_R || callType == EC_INDIR_ARD || addr == nullptr);
-    assert(callType != EC_INDIR_R || (amBase < REG_COUNT && amIndex == REG_NA && amScale == 0 && amDisp == 0));
+    assert(kind < EC_INDIR_R || kind == EC_INDIR_ARD || addr == nullptr);
+    assert(kind != EC_INDIR_R || (amBase < REG_COUNT && amIndex == REG_NA && amScale == 0 && amDisp == 0));
 
 #ifdef TARGET_X86
-    // Our stack level should be always greater than the bytes of arguments we push. Just
-    // a sanity test.
-    assert((unsigned)abs((signed)argSize) <= codeGen->genStackLevel);
+    // Our stack level should be always greater than the bytes of arguments we push.
+    assert(static_cast<unsigned>(abs(static_cast<int>(argSize))) <= codeGen->genStackLevel);
     assert(argSize % REGSIZE_BYTES == 0);
 
-    int argCnt = (int)(argSize / (int)REGSIZE_BYTES); // we need a signed-divide
+    int argSlotCount = static_cast<int>(argSize / REGSIZE_BYTES);
 #endif
 
-    if (emitComp->opts.compDbgInfo && ilOffset != BAD_IL_OFFSET)
+    if (emitComp->opts.compDbgInfo && (ilOffset != BAD_IL_OFFSET))
     {
         codeGen->genIPmappingAdd(ilOffset, false);
     }
 
-    if ((callType != EC_INDIR_R) && (callType != EC_INDIR_ARD))
-    {
-        assert(callType == EC_FUNC_TOKEN || callType == EC_FUNC_TOKEN_INDIR || callType == EC_FUNC_ADDR);
-        assert(amDisp == 0);
+    instrDesc* id = emitNewInstrCall(methodHandle, retRegAttr,
+#ifdef UNIX_AMD64_ABI
+                                     retReg2Attr,
+#endif
+#ifdef TARGET_X86
+                                     argSlotCount,
+#endif
+                                     (kind == EC_INDIR_R) || (kind == EC_INDIR_ARD) ? amDisp : 0);
 
-        amDisp = 0;
+    if (!isJump)
+    {
+        id->idIns(INS_call);
+    }
+    else if (kind == EC_FUNC_TOKEN)
+    {
+        id->idIns(INS_l_jmp);
+    }
+    else
+    {
+        assert((kind == EC_FUNC_TOKEN_INDIR) || (kind == EC_INDIR_ARD));
+
+        id->idIns(INS_i_jmp);
     }
 
-    instrDesc* id =
-        emitNewInstrCall(methHnd, amDisp, retSize X86_ARG(argCnt) MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize));
-    instruction ins = INS_call;
+    unsigned insSize;
 
-    if (isJump)
+    if ((kind == EC_INDIR_R) || (kind == EC_INDIR_ARD))
     {
-        assert(callType == EC_FUNC_TOKEN || callType == EC_FUNC_TOKEN_INDIR || callType == EC_INDIR_ARD);
-
-        if (callType == EC_FUNC_TOKEN)
-        {
-            ins = INS_l_jmp;
-        }
-        else
-        {
-            ins = INS_i_jmp;
-        }
-    }
-
-    id->idIns(ins);
-
-    unsigned sz;
-
-    // Record the address: method, indirection, or funcptr
-    if ((callType == EC_INDIR_R) || (callType == EC_INDIR_ARD))
-    {
-        if (callType == EC_INDIR_R)
+        if (kind == EC_INDIR_R)
         {
             id->idSetIsCallRegPtr();
         }
@@ -6140,7 +6134,7 @@ void emitter::emitIns_Call(EmitCallType          callType,
         id->idAddr()->iiaAddrMode.amIndxReg = amIndex;
         id->idAddr()->iiaAddrMode.amScale   = amScale ? emitEncodeScale(amScale) : emitter::OPSZ1;
 
-        sz = emitInsSizeAM(id, insCodeMR(INS_call));
+        insSize = emitInsSizeAM(id, insCodeMR(INS_call));
 
         if ((amBase == REG_NA) && (amIndex == REG_NA))
         {
@@ -6151,94 +6145,94 @@ void emitter::emitIns_Call(EmitCallType          callType,
 #ifdef TARGET_AMD64
             else
             {
-                // An absolute indir address that doesn't need reloc should fit within 32-bits
-                // to be encoded as offset relative to zero.  This addr mode requires an extra
-                // SIB byte
-                noway_assert(static_cast<int>(reinterpret_cast<intptr_t>(addr)) == (size_t)addr);
-                sz++;
+                // An absolute indir address that doesn't need reloc should fit within
+                // 32-bits to be encoded as offset relative to zero.
+                noway_assert(FitsIn<int32_t>(reinterpret_cast<intptr_t>(addr)));
+
+                // This addr mode requires an extra SIB byte.
+                insSize++;
             }
 #endif
         }
     }
-    else if (callType == EC_FUNC_TOKEN_INDIR)
+    else if (kind == EC_FUNC_TOKEN_INDIR)
     {
         assert(addr != nullptr);
 
         id->idInsFmt(IF_METHPTR);
-        id->idAddr()->iiaAddr = (BYTE*)addr;
-        sz                    = 6;
+        id->idAddr()->iiaAddr = reinterpret_cast<uint8_t*>(addr);
+
+        insSize = 6;
 
         // Since this is an indirect call through a pointer and we don't
         // currently pass in emitAttr into this function, we query codegen
         // whether addr needs a reloc.
-        if (codeGen->genCodeIndirAddrNeedsReloc((size_t)addr))
+        if (codeGen->genCodeIndirAddrNeedsReloc(reinterpret_cast<size_t>(addr)))
         {
             id->idSetIsDspReloc();
         }
 #ifdef TARGET_AMD64
         else
         {
-            // An absolute indir address that doesn't need reloc should fit within 32-bits
-            // to be encoded as offset relative to zero.  This addr mode requires an extra
-            // SIB byte
-            noway_assert(static_cast<int>(reinterpret_cast<intptr_t>(addr)) == (size_t)addr);
-            sz++;
+            // An absolute indir address that doesn't need reloc should fit within
+            // 32-bits to be encoded as offset relative to zero.
+            noway_assert(FitsIn<int32_t>(reinterpret_cast<intptr_t>(addr)));
+
+            // This addr mode requires an extra SIB byte.
+            insSize++;
         }
-#endif // TARGET_AMD64
+#endif
     }
     else
     {
-        assert((callType == EC_FUNC_TOKEN) || (callType == EC_FUNC_ADDR));
+        assert((kind == EC_FUNC_TOKEN) || (kind == EC_FUNC_ADDR));
         assert(addr != nullptr);
 
         id->idInsFmt(IF_METHOD);
-        sz = 5;
-
-        id->idAddr()->iiaAddr = (BYTE*)addr;
+        id->idAddr()->iiaAddr = reinterpret_cast<uint8_t*>(addr);
 
 #ifdef DEBUG
-        if (callType == EC_FUNC_ADDR)
+        if (kind == EC_FUNC_ADDR)
         {
             id->idSetIsCallAddr();
         }
 #endif
 
         // Direct call to a method and no addr indirection is needed.
-        if (codeGen->genCodeAddrNeedsReloc((size_t)addr))
+        if (codeGen->genCodeAddrNeedsReloc(reinterpret_cast<size_t>(addr)))
         {
             id->idSetIsDspReloc();
         }
+
+        insSize = 5;
     }
 
 #ifdef DEBUG
-    id->idDebugOnlyInfo()->idMemCookie = (size_t)methHnd; // method token
+    id->idDebugOnlyInfo()->idMemCookie = reinterpret_cast<size_t>(methodHandle);
     id->idDebugOnlyInfo()->idCallSig   = sigInfo;
-#endif // DEBUG
+#endif
 
 #ifdef LATE_DISASM
     if (addr != nullptr)
     {
-        codeGen->getDisAssembler().disSetMethod((size_t)addr, methHnd);
+        codeGen->getDisAssembler().disSetMethod(reinterpret_cast<size_t>(addr), methodHandle);
     }
-#endif // LATE_DISASM
+#endif
 
-    id->idCodeSize(sz);
+    id->idCodeSize(insSize);
 
     dispIns(id);
-    emitCurIGsize += sz;
+    emitCurIGsize += insSize;
 
 #if !FEATURE_FIXED_OUT_ARGS
-
-    /* The call will pop the arguments */
-
-    if (emitCntStackDepth && argSize > 0)
+    if (emitCntStackDepth && (argSize > 0))
     {
-        noway_assert((ssize_t)emitCurStackLvl >= argSize);
-        emitCurStackLvl -= (int)argSize;
-        assert((int)emitCurStackLvl >= 0);
-    }
+        noway_assert(argSize <= static_cast<ssize_t>(emitCurStackLvl));
 
-#endif // !FEATURE_FIXED_OUT_ARGS
+        emitCurStackLvl -= static_cast<int>(argSize);
+        assert(emitCurStackLvl <= INT_MAX);
+    }
+#endif
 }
 
 #ifdef DEBUG

@@ -2748,11 +2748,20 @@ void emitter::emitSetSecondRetRegGCType(instrDescCGCA* id, emitAttr secondRetSiz
 #endif // MULTIREG_HAS_SECOND_GC_RET
 
 emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle,
-#ifdef TARGET_XARCH
-                                              int32_t disp,
+                                              emitAttr              retRegAttr
+#if MULTIREG_HAS_SECOND_GC_RET
+                                              ,
+                                              emitAttr retReg2Attr
 #endif
-                                              emitAttr retSizeIn X86_ARG(int argCnt)
-                                                  MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize))
+#ifdef TARGET_X86
+                                              ,
+                                              int argSlotCount
+#endif
+#ifdef TARGET_XARCH
+                                              ,
+                                              int32_t disp
+#endif
+                                              )
 {
     VARSET_VALARG_TP GCvars    = codeGen->gcInfo.gcVarPtrSetCur;
     regMaskTP        gcrefRegs = codeGen->gcInfo.gcRegGCrefSetCur;
@@ -2777,19 +2786,26 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
     }
 #endif
 
-    emitAttr   retSize = (retSizeIn != EA_UNKNOWN) ? retSizeIn : EA_PTRSIZE;
+    if (retRegAttr == EA_UNKNOWN)
+    {
+        retRegAttr = EA_PTRSIZE;
+    }
+
     instrDesc* id;
 
     if (!VarSetOps::IsEmpty(emitComp, GCvars) || ((gcrefRegs & RBM_CALLEE_TRASH) != RBM_NONE) || (byrefRegs != RBM_NONE)
+#if MULTIREG_HAS_SECOND_GC_RET
+        || EA_IS_GCREF_OR_BYREF(retReg2Attr)
+#endif
+#ifdef TARGET_X86
+        || (argSlotCount > ID_MAX_SMALL_CNS) || (argSlotCount < 0)
+#endif
 #ifdef TARGET_XARCH
         || (disp < AM_DISP_MIN) || (disp > AM_DISP_MAX)
 #endif
-#ifdef TARGET_X86
-        || (argCnt > ID_MAX_SMALL_CNS) || (argCnt < 0)
-#endif
-                                              MULTIREG_HAS_SECOND_GC_RET_ONLY(|| EA_IS_GCREF_OR_BYREF(secondRetSize)))
+            )
     {
-        instrDescCGCA* idc = emitAllocInstrCGCA(retSize);
+        instrDescCGCA* idc = emitAllocInstrCGCA(retRegAttr);
         idc->idSetIsLargeCall();
         idc->idcGCvars    = VarSetOps::MakeCopy(emitComp, GCvars);
         idc->idcGcrefRegs = gcrefRegs;
@@ -2798,10 +2814,10 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
         idc->idcDisp = disp;
 #endif
 #ifdef TARGET_X86
-        idc->idcArgCnt = argCnt;
+        idc->idcArgCnt = argSlotCount;
 #endif
 #if MULTIREG_HAS_SECOND_GC_RET
-        emitSetSecondRetRegGCType(idc, secondRetSize);
+        emitSetSecondRetRegGCType(idc, retReg2Attr);
 #endif
 
         id = idc;
@@ -2814,9 +2830,9 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
         }
 
 #ifdef TARGET_X86
-        id = emitNewInstrCns(retSize, argCnt);
+        id = emitNewInstrCns(retRegAttr, argSlotCount);
 #else
-        id                   = emitAllocInstr(retSize);
+        id                   = emitAllocInstr(retRegAttr);
 #endif
 
         emitEncodeCallGCregs(gcrefRegs, id);

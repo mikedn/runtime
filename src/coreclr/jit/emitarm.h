@@ -298,12 +298,12 @@ enum EmitCallType
     EC_INDIR_R     // Indirect call via register
 };
 
-void emitIns_Call(EmitCallType          callType,
-                  CORINFO_METHOD_HANDLE methHnd DEBUGARG(CORINFO_SIG_INFO* sigInfo),
+void emitIns_Call(EmitCallType          kind,
+                  CORINFO_METHOD_HANDLE methodHandle DEBUGARG(CORINFO_SIG_INFO* sigInfo),
                   void*      addr,
-                  emitAttr   retSize,
+                  emitAttr   retRegAttr,
                   IL_OFFSETX ilOffset = BAD_IL_OFFSET,
-                  regNumber  ireg     = REG_NA,
+                  regNumber  reg      = REG_NA,
                   bool       isJump   = false);
 
 /*****************************************************************************

@@ -242,9 +242,14 @@ instrDesc* emitNewInstrAmd(emitAttr attr, ssize_t dsp);
 instrDesc* emitNewInstrAmdCns(emitAttr attr, ssize_t dsp, int cns);
 
 instrDesc* emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle,
-                            int32_t               disp,
-                            emitAttr retSize X86_ARG(int argCnt)
-                                MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize));
+                            emitAttr              retRegAttr,
+#ifdef UNIX_AMD64_ABI
+                            emitAttr retReg2Attr,
+#endif
+#ifdef TARGET_X86
+                            int argSlotCount,
+#endif
+                            int32_t disp);
 
 void emitGetInsCns(instrDesc* id, CnsVal* cv);
 ssize_t emitGetInsAmdCns(instrDesc* id, CnsVal* cv);
@@ -487,8 +492,8 @@ enum EmitCallType
     EC_INDIR_ARD         // Indirect call via an addressing mode
 };
 
-void emitIns_Call(EmitCallType          callType,
-                  CORINFO_METHOD_HANDLE methHnd,
+void emitIns_Call(EmitCallType          kind,
+                  CORINFO_METHOD_HANDLE methodHandle,
 #ifdef DEBUG
                   CORINFO_SIG_INFO* sigInfo,
 #endif
@@ -496,9 +501,9 @@ void emitIns_Call(EmitCallType          callType,
 #ifdef TARGET_X86
                   ssize_t argSize,
 #endif
-                  emitAttr retSize,
+                  emitAttr retRegAttr,
 #ifdef UNIX_AMD64_ABI
-                  emitAttr secondRetSize,
+                  emitAttr retReg2Attr,
 #endif
                   IL_OFFSETX ilOffset = BAD_IL_OFFSET,
                   regNumber  amBase   = REG_NA,

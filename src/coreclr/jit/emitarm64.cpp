@@ -8065,66 +8065,43 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount)
 //
 // Please consult the "debugger team notification" comment in genFnProlog().
 //
-void emitter::emitIns_Call(EmitCallType          callType,
-                           CORINFO_METHOD_HANDLE methHnd DEBUGARG(CORINFO_SIG_INFO* sigInfo),
+void emitter::emitIns_Call(EmitCallType          kind,
+                           CORINFO_METHOD_HANDLE methodHandle DEBUGARG(CORINFO_SIG_INFO* sigInfo),
                            void*      addr,
-                           emitAttr   retSize,
-                           emitAttr   secondRetSize,
+                           emitAttr   retRegAttr,
+                           emitAttr   retReg2Attr,
                            IL_OFFSETX ilOffset,
-                           regNumber  ireg,
+                           regNumber  reg,
                            bool       isJump)
 {
-    assert((callType == EC_INDIR_R) || (ireg == REG_NA));
-    assert((callType != EC_INDIR_R) || (addr == nullptr));
-    assert((callType != EC_INDIR_R) || (ireg != REG_NA));
+    assert((kind == EC_INDIR_R) || (reg == REG_NA));
+    assert((kind != EC_INDIR_R) || (addr == nullptr));
+    assert((kind != EC_INDIR_R) || (reg != REG_NA));
 
-    if (emitComp->opts.compDbgInfo && ilOffset != BAD_IL_OFFSET)
+    if (emitComp->opts.compDbgInfo && (ilOffset != BAD_IL_OFFSET))
     {
         codeGen->genIPmappingAdd(ilOffset, false);
     }
 
-    instrDesc*  id = emitNewInstrCall(methHnd, retSize, secondRetSize);
-    instruction ins;
-    insFormat   fmt = IF_NONE;
+    instrDesc* id = emitNewInstrCall(methodHandle, retRegAttr, retReg2Attr);
 
-    if (callType == EC_INDIR_R)
+    if (kind == EC_INDIR_R)
     {
-        if (isJump)
-        {
-            ins = INS_br_tail; // INS_br_tail  Reg
-        }
-        else
-        {
-            ins = INS_blr; // INS_blr Reg
-        }
-        fmt = IF_BR_1B;
-
-        id->idIns(ins);
-        id->idInsFmt(fmt);
-        id->idReg3(ireg);
+        id->idIns(isJump ? INS_br_tail : INS_blr);
+        id->idInsFmt(IF_BR_1B);
+        id->idReg3(reg);
     }
     else
     {
-        assert((callType == EC_FUNC_TOKEN) || (callType == EC_FUNC_ADDR));
-        assert(addr != NULL);
+        assert((kind == EC_FUNC_TOKEN) || (kind == EC_FUNC_ADDR));
+        assert(addr != nullptr);
 
-        if (isJump)
-        {
-            ins = INS_b_tail; // INS_b_tail imm28
-        }
-        else
-        {
-            ins = INS_bl; // INS_bl imm28
-        }
-        fmt = IF_BI_0C;
-
-        id->idIns(ins);
-        id->idInsFmt(fmt);
-
-        id->idAddr()->iiaAddr = (BYTE*)addr;
+        id->idIns(isJump ? INS_b_tail : INS_bl);
+        id->idInsFmt(IF_BI_0C);
+        id->idAddr()->iiaAddr = reinterpret_cast<uint8_t*>(addr);
 
 #ifdef DEBUG
-        if (callType == EC_FUNC_ADDR)
+        if (kind == EC_FUNC_ADDR)
         {
             id->idSetIsCallAddr();
         }
@@ -8137,16 +8114,16 @@ void emitter::emitIns_Call(EmitCallType          callType,
     }
 
 #ifdef DEBUG
-    id->idDebugOnlyInfo()->idMemCookie = (size_t)methHnd; // method token
+    id->idDebugOnlyInfo()->idMemCookie = reinterpret_cast<size_t>(methodHandle);
     id->idDebugOnlyInfo()->idCallSig   = sigInfo;
-#endif // DEBUG
+#endif
 
 #ifdef LATE_DISASM
     if (addr != nullptr)
     {
-        codeGen->getDisAssembler().disSetMethod((size_t)addr, methHnd);
+        codeGen->getDisAssembler().disSetMethod(reinterpret_cast<size_t>(addr), methodHandle);
     }
-#endif // LATE_DISASM
+#endif
 
     dispIns(id);
     appendToCurIG(id);
