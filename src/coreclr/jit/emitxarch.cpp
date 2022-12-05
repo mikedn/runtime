@@ -6211,23 +6211,6 @@ void emitter::emitIns_Call(EmitCallType          callType,
     }
 
 #ifdef DEBUG
-    if (emitComp->verbose && 0)
-    {
-        if (id->idIsLargeCall())
-        {
-            if (callType >= EC_INDIR_R)
-            {
-                printf("[%02u] Rec call GC vars = %s\n", id->idDebugOnlyInfo()->idNum,
-                       VarSetOps::ToString(emitComp, ((instrDescCGCA*)id)->idcGCvars));
-            }
-            else
-            {
-                printf("[%02u] Rec call GC vars = %s\n", id->idDebugOnlyInfo()->idNum,
-                       VarSetOps::ToString(emitComp, ((instrDescCGCA*)id)->idcGCvars));
-            }
-        }
-    }
-
     id->idDebugOnlyInfo()->idMemCookie = (size_t)methHnd; // method token
     id->idDebugOnlyInfo()->idCallSig   = sigInfo;
 #endif // DEBUG
