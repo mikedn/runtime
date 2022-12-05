@@ -6071,12 +6071,11 @@ void emitter::emitIns_Call(EmitCallType          kind,
 #ifdef UNIX_AMD64_ABI
                            emitAttr retReg2Attr,
 #endif
-                           IL_OFFSETX ilOffset,
-                           regNumber  amBase,
-                           regNumber  amIndex,
-                           unsigned   amScale,
-                           int32_t    amDisp,
-                           bool       isJump)
+                           regNumber amBase,
+                           regNumber amIndex,
+                           unsigned  amScale,
+                           int32_t   amDisp,
+                           bool      isJump)
 {
     assert((kind != EC_FUNC_TOKEN && kind != EC_FUNC_TOKEN_INDIR && kind != EC_FUNC_ADDR) ||
            (amBase == REG_NA && amIndex == REG_NA && amScale == 0 && amDisp == 0));
@@ -6090,11 +6089,6 @@ void emitter::emitIns_Call(EmitCallType          kind,
 
     int argSlotCount = static_cast<int>(argSize / REGSIZE_BYTES);
 #endif
-
-    if (emitComp->opts.compDbgInfo && (ilOffset != BAD_IL_OFFSET))
-    {
-        codeGen->genIPmappingAdd(ilOffset, false);
-    }
 
     instrDesc* id = emitNewInstrCall(methodHandle, retRegAttr,
 #ifdef UNIX_AMD64_ABI

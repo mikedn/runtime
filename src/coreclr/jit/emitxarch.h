@@ -505,12 +505,11 @@ void emitIns_Call(EmitCallType          kind,
 #ifdef UNIX_AMD64_ABI
                   emitAttr retReg2Attr,
 #endif
-                  IL_OFFSETX ilOffset = BAD_IL_OFFSET,
-                  regNumber  amBase   = REG_NA,
-                  regNumber  amIndex  = REG_NA,
-                  unsigned   amScale  = 0,
-                  int32_t    amDisp   = 0,
-                  bool       isJump   = false);
+                  regNumber amBase  = REG_NA,
+                  regNumber amIndex = REG_NA,
+                  unsigned  amScale = 0,
+                  int32_t   amDisp  = 0,
+                  bool      isJump  = false);
 
 #ifdef TARGET_AMD64
 // Is the last instruction emitted a call instruction?

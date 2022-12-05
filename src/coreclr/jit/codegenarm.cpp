@@ -1286,7 +1286,6 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
         DEBUGARG(nullptr),
         callAddr,
         retSize,
-        BAD_IL_OFFSET,
         callTargetReg,
         false);
     // clang-format on

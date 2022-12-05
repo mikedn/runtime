@@ -3426,8 +3426,16 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
         callType = emitter::EC_INDIR_R;
     }
 
-    GetEmitter()->emitIns_Call(callType, Compiler::eeFindHelper(helper) DEBUGARG(nullptr), addr, retSize, EA_UNKNOWN,
-                               BAD_IL_OFFSET, callTarget, false);
+    // clang-format off
+    GetEmitter()->emitIns_Call(
+        callType,
+        Compiler::eeFindHelper(helper)
+        DEBUGARG(nullptr),
+        addr,
+        retSize, EA_UNKNOWN,
+        callTarget,
+        false);
+    // clang-format on
 }
 
 #ifdef FEATURE_SIMD

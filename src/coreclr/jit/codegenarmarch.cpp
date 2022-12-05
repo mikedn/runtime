@@ -2676,15 +2676,18 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 #endif
     }
 
+    if (compiler->opts.compDbgInfo && (ilOffset != BAD_IL_OFFSET))
+    {
+        genIPmappingAdd(ilOffset, false);
+    }
+
     // clang-format off
     GetEmitter()->emitIns_Call(
         emitCallType,
         methHnd
         DEBUGARG(call->IsHelperCall() ? nullptr : call->callSig),
         callAddr,
-        retSize
-        MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
-        ilOffset,
+        retSize MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
         callReg,
         false);
     // clang-format on
@@ -3023,17 +3026,14 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
          */
 
         // clang-format off
-        GetEmitter()->emitIns_Call(callType,
+        GetEmitter()->emitIns_Call(
+            callType,
             methHnd
             DEBUGARG(nullptr),
             addr,
-            EA_UNKNOWN, // retSize
-#ifdef TARGET_ARM64
-            EA_UNKNOWN, // secondRetSize
-#endif
-            BAD_IL_OFFSET, // IL offset
-            indCallReg,    // ireg
-            true);         // isJump
+            EA_UNKNOWN ARM64_ARG(EA_UNKNOWN),
+            indCallReg, 
+            true);
         // clang-format on
         CLANG_FORMAT_COMMENT_ANCHOR;
 #endif // TARGET_ARMARCH
@@ -3056,15 +3056,14 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
             assert(call->GetMethodHandle() != nullptr);
 
             // clang-format off
-            GetEmitter()->emitIns_Call(emitter::EC_FUNC_TOKEN,
+            GetEmitter()->emitIns_Call(
+                emitter::EC_FUNC_TOKEN,
                 call->GetMethodHandle()
                 DEBUGARG(nullptr),
                 call->gtDirectCallAddress,
-                EA_UNKNOWN  // retSize
-                ARM64_ARG(EA_UNKNOWN), // secondRetSize
-                BAD_IL_OFFSET, // IL offset
-                REG_NA,        // ireg
-                true);         // isJump
+                EA_UNKNOWN ARM64_ARG(EA_UNKNOWN),
+                REG_NA,
+                true);
             // clang-format on
         }
         else

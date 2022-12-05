@@ -8067,21 +8067,15 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount)
 //
 void emitter::emitIns_Call(EmitCallType          kind,
                            CORINFO_METHOD_HANDLE methodHandle DEBUGARG(CORINFO_SIG_INFO* sigInfo),
-                           void*      addr,
-                           emitAttr   retRegAttr,
-                           emitAttr   retReg2Attr,
-                           IL_OFFSETX ilOffset,
-                           regNumber  reg,
-                           bool       isJump)
+                           void*     addr,
+                           emitAttr  retRegAttr,
+                           emitAttr  retReg2Attr,
+                           regNumber reg,
+                           bool      isJump)
 {
     assert((kind == EC_INDIR_R) || (reg == REG_NA));
     assert((kind != EC_INDIR_R) || (addr == nullptr));
     assert((kind != EC_INDIR_R) || (reg != REG_NA));
-
-    if (emitComp->opts.compDbgInfo && (ilOffset != BAD_IL_OFFSET))
-    {
-        codeGen->genIPmappingAdd(ilOffset, false);
-    }
 
     instrDesc* id = emitNewInstrCall(methodHandle, retRegAttr, retReg2Attr);
 

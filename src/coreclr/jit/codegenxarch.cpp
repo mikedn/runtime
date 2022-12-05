@@ -5253,6 +5253,11 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         assert(callAddr != nullptr);
     }
 
+    if (compiler->opts.compDbgInfo && (ilOffset != BAD_IL_OFFSET))
+    {
+        genIPmappingAdd(ilOffset, false);
+    }
+
     // clang-format off
     GetEmitter()->emitIns_Call(
         emitCallType,
@@ -5262,9 +5267,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 #ifdef TARGET_X86
         argSizeForEmitter,
 #endif
-        retSize
-        MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
-        ilOffset,
+        retSize MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
         amBaseReg,
         amIndexReg,
         amIndexScale,
@@ -5654,17 +5657,17 @@ void CodeGen::GenJmpEpilog(BasicBlock* block)
         }
 
         // clang-format off
-        GetEmitter()->emitIns_Call(callType,
+        GetEmitter()->emitIns_Call(
+            callType,
             methHnd
             DEBUGARG(nullptr),
             addr,
 #ifdef TARGET_X86
-            0,                                                      // argSize
+            0,                                                      
 #endif
-            EA_UNKNOWN                                              // retSize
-            MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(EA_UNKNOWN),        // secondRetSize
-            BAD_IL_OFFSET, indCallReg, REG_NA, 0, 0,  /* iloffset, ireg, xreg, xmul, disp */
-            true /* isJump */
+            EA_UNKNOWN MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(EA_UNKNOWN),        
+            indCallReg, REG_NA, 0, 0, 
+            true 
         );
         // clang-format on
     }
@@ -5693,12 +5696,11 @@ void CodeGen::GenJmpEpilog(BasicBlock* block)
                 DEBUGARG(nullptr),
                 call->gtDirectCallAddress,
 #ifdef TARGET_X86
-                0,                                              // argSize
+                0,        
 #endif
-                EA_UNKNOWN                                      // retSize
-                MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(EA_UNKNOWN),// secondRetSize
-                BAD_IL_OFFSET, REG_NA, REG_NA, 0, 0,  /* iloffset, ireg, xreg, xmul, disp */
-                true /* isJump */
+                EA_UNKNOWN MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(EA_UNKNOWN),
+                REG_NA, REG_NA, 0, 0,
+                true
             );
             // clang-format on
         }
@@ -8089,19 +8091,17 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
     }
 
     // clang-format off
-    GetEmitter()->emitIns_Call(callType,
-                               Compiler::eeFindHelper(helper)
-                               DEBUGARG(nullptr), addr,
+    GetEmitter()->emitIns_Call(
+        callType,
+        Compiler::eeFindHelper(helper)
+        DEBUGARG(nullptr),
+        addr,
 #ifdef TARGET_X86
-                               argSize,
+        argSize,
 #endif
-                               retSize
-                               MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(EA_UNKNOWN),
-                               BAD_IL_OFFSET, // IL offset
-                               callTarget,    // ireg
-                               REG_NA, 0, 0,  // xreg, xmul, disp
-                               false         // isJump
-                               );
+        retSize MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(EA_UNKNOWN),
+        callTarget, REG_NA, 0, 0,
+        false);
     // clang-format on
 }
 
