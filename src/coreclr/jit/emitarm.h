@@ -68,8 +68,8 @@ void emitDispIns(instrDesc* id,
 /************************************************************************/
 
 private:
-instrDesc* emitNewInstrCallDir(VARSET_VALARG_TP GCvars, regMaskTP gcrefRegs, regMaskTP byrefRegs, emitAttr retSize);
-instrDesc* emitNewInstrCallInd(VARSET_VALARG_TP GCvars, regMaskTP gcrefRegs, regMaskTP byrefRegs, emitAttr retSize);
+instrDesc* emitNewInstrCallDir(CORINFO_METHOD_HANDLE methodHandle, emitAttr retSize);
+instrDesc* emitNewInstrCallInd(CORINFO_METHOD_HANDLE methodHandle, emitAttr retSize);
 
 /************************************************************************/
 /*               Private helpers for instruction output                 */

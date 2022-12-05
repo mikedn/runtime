@@ -8078,65 +8078,26 @@ void emitter::emitIns_Call(EmitCallType          callType,
     assert((callType != EC_INDIR_R) || (addr == nullptr));
     assert((callType != EC_INDIR_R) || (ireg != REG_NA));
 
-    VARSET_VALARG_TP ptrVars   = codeGen->gcInfo.gcVarPtrSetCur;
-    regMaskTP        gcrefRegs = codeGen->gcInfo.gcRegGCrefSetCur;
-    regMaskTP        byrefRegs = codeGen->gcInfo.gcRegByrefSetCur;
-
-    // Trim out any callee-trashed registers from the live set.
-    regMaskTP savedSet = emitGetGCRegsSavedOrModified(methHnd);
-    gcrefRegs &= savedSet;
-    byrefRegs &= savedSet;
-
-#ifdef DEBUG
-    if (EMIT_GC_VERBOSE)
-    {
-        printf("Call: GCvars=%s ", VarSetOps::ToString(emitComp, ptrVars));
-        dumpConvertedVarSet(emitComp, ptrVars);
-        printf(", gcrefRegs=");
-        printRegMaskInt(gcrefRegs);
-        emitDispRegSet(gcrefRegs);
-        printf(", byrefRegs=");
-        printRegMaskInt(byrefRegs);
-        emitDispRegSet(byrefRegs);
-        printf("\n");
-    }
-#endif
-
-    /* Managed RetVal: emit sequence point for the call */
     if (emitComp->opts.compDbgInfo && ilOffset != BAD_IL_OFFSET)
     {
         codeGen->genIPmappingAdd(ilOffset, false);
     }
 
-    // We need to allocate the appropriate instruction descriptor based
-    // on whether this is a direct/indirect call, and whether we need to
-    // record an updated set of live GC variables.
     instrDesc* id;
 
     if (callType == EC_INDIR_R)
     {
-        id = emitNewInstrCallInd(ptrVars, gcrefRegs, byrefRegs, retSize, secondRetSize);
+        id = emitNewInstrCallInd(methHnd, retSize, secondRetSize);
     }
     else
     {
         assert((callType == EC_FUNC_TOKEN) || (callType == EC_FUNC_ADDR));
 
-        id = emitNewInstrCallDir(ptrVars, gcrefRegs, byrefRegs, retSize, secondRetSize);
+        id = emitNewInstrCallDir(methHnd, retSize, secondRetSize);
     }
 
-    /* Update the emitter's live GC ref sets */
-
-    VarSetOps::Assign(emitComp, emitThisGCrefVars, ptrVars);
-    emitThisGCrefRegs = gcrefRegs;
-    emitThisByrefRegs = byrefRegs;
-
-    id->idSetIsNoGC(emitNoGChelper(methHnd));
-
-    /* Set the instruction - special case jumping a function */
     instruction ins;
     insFormat   fmt = IF_NONE;
-
-    /* Record the address: method, indirection, or funcptr */
 
     if (callType == EC_INDIR_R)
     {

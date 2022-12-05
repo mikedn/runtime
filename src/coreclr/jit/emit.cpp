@@ -2758,24 +2758,38 @@ void emitter::emitSetSecondRetRegGCType(instrDescCGCA* id, emitAttr secondRetSiz
  *  address mode displacement.
  */
 
-emitter::instrDesc* emitter::emitNewInstrCallInd(
+emitter::instrDesc* emitter::emitNewInstrCallInd(CORINFO_METHOD_HANDLE methodHandle,
 #ifdef TARGET_XARCH
-    int32_t disp,
+                                                 int32_t disp,
 #endif
-    VARSET_VALARG_TP GCvars,
-    regMaskTP        gcrefRegs,
-    regMaskTP        byrefRegs,
-    emitAttr retSizeIn X86_ARG(int argCnt) MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize))
+                                                 emitAttr retSizeIn X86_ARG(int argCnt)
+                                                     MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize))
 {
-    emitAttr retSize = (retSizeIn != EA_UNKNOWN) ? retSizeIn : EA_PTRSIZE;
+    VARSET_VALARG_TP GCvars    = codeGen->gcInfo.gcVarPtrSetCur;
+    regMaskTP        gcrefRegs = codeGen->gcInfo.gcRegGCrefSetCur;
+    regMaskTP        byrefRegs = codeGen->gcInfo.gcRegByrefSetCur;
 
-    // Allocate a larger descriptor if any GC values need to be saved
-    // or if we have an absurd number of arguments or a large address
-    // mode displacement, or we have some byref registers
-    //
-    // On Amd64 System V OSs a larger descriptor is also needed if the
-    // call returns a two-register-returned struct and the second
-    // register (RDX) is a GCRef or ByRef pointer.
+    regMaskTP savedSet = emitGetGCRegsSavedOrModified(methodHandle);
+    gcrefRegs &= savedSet;
+    byrefRegs &= savedSet;
+
+#ifdef DEBUG
+    if (EMIT_GC_VERBOSE)
+    {
+        printf("Call: GCvars=%s ", VarSetOps::ToString(emitComp, GCvars));
+        dumpConvertedVarSet(emitComp, GCvars);
+        printf(", gcrefRegs=");
+        printRegMaskInt(gcrefRegs);
+        emitDispRegSet(gcrefRegs);
+        printf(", byrefRegs=");
+        printRegMaskInt(byrefRegs);
+        emitDispRegSet(byrefRegs);
+        printf("\n");
+    }
+#endif
+
+    emitAttr   retSize = (retSizeIn != EA_UNKNOWN) ? retSizeIn : EA_PTRSIZE;
+    instrDesc* id;
 
     if (!VarSetOps::IsEmpty(emitComp, GCvars) ||        // any frame GCvars live
         ((gcrefRegs & RBM_CALLEE_TRASH) != RBM_NONE) || // any register gc refs live in scratch regs
@@ -2789,46 +2803,54 @@ emitter::instrDesc* emitter::emitNewInstrCallInd(
         // There is a second ref/byref return register.
         MULTIREG_HAS_SECOND_GC_RET_ONLY(|| EA_IS_GCREF_OR_BYREF(secondRetSize)))
     {
-        instrDescCGCA* id = emitAllocInstrCGCA(retSize);
-        id->idSetIsLargeCall();
+        instrDescCGCA* idc = emitAllocInstrCGCA(retSize);
+        idc->idSetIsLargeCall();
 
-        VarSetOps::Assign(emitComp, id->idcGCvars, GCvars);
-        id->idcGcrefRegs = gcrefRegs;
-        id->idcByrefRegs = byrefRegs;
+        VarSetOps::Assign(emitComp, idc->idcGCvars, GCvars);
+        idc->idcGcrefRegs = gcrefRegs;
+        idc->idcByrefRegs = byrefRegs;
 #ifdef TARGET_XARCH
-        id->idcDisp = disp;
+        idc->idcDisp = disp;
 #endif
 #ifdef TARGET_X86
-        id->idcArgCnt = argCnt;
+        idc->idcArgCnt = argCnt;
 #endif
 #if MULTIREG_HAS_SECOND_GC_RET
-        emitSetSecondRetRegGCType(id, secondRetSize);
+        emitSetSecondRetRegGCType(idc, secondRetSize);
 #endif
 
-        return id;
+        id = idc;
     }
-
-    if (VarSetOps::MayBeUninit(emitEmptyGCrefVars))
+    else
     {
-        emitEmptyGCrefVars = VarSetOps::MakeEmpty(emitComp);
-    }
+        if (VarSetOps::MayBeUninit(emitEmptyGCrefVars))
+        {
+            emitEmptyGCrefVars = VarSetOps::MakeEmpty(emitComp);
+        }
 
 #ifdef TARGET_X86
-    instrDesc* id = emitNewInstrCns(retSize, argCnt);
+        id = emitNewInstrCns(retSize, argCnt);
 #else
-    instrDesc* id              = emitAllocInstr(retSize);
+        id                   = emitAllocInstr(retSize);
 #endif
 
-    /* Make sure we didn't waste space unexpectedly */
-    assert(!id->idIsLargeCns());
+        /* Make sure we didn't waste space unexpectedly */
+        assert(!id->idIsLargeCns());
 
 #ifdef TARGET_XARCH
-    id->idAddr()->iiaAddrMode.amDisp = disp;
-    assert(id->idAddr()->iiaAddrMode.amDisp == disp);
+        id->idAddr()->iiaAddrMode.amDisp = disp;
+        assert(id->idAddr()->iiaAddrMode.amDisp == disp);
 #endif
 
-    /* Save the the live GC registers in the unused register fields */
-    emitEncodeCallGCregs(gcrefRegs, id);
+        /* Save the the live GC registers in the unused register fields */
+        emitEncodeCallGCregs(gcrefRegs, id);
+    }
+
+    VarSetOps::Assign(emitComp, emitThisGCrefVars, GCvars);
+    emitThisGCrefRegs = gcrefRegs;
+    emitThisByrefRegs = byrefRegs;
+
+    id->idSetIsNoGC(emitNoGChelper(methodHandle));
 
     return id;
 }
@@ -2844,66 +2866,86 @@ emitter::instrDesc* emitter::emitNewInstrCallInd(
  *  and an arbitrarily large argument count.
  */
 
-emitter::instrDesc* emitter::emitNewInstrCallDir(VARSET_VALARG_TP GCvars,
-                                                 regMaskTP        gcrefRegs,
-                                                 regMaskTP        byrefRegs,
+emitter::instrDesc* emitter::emitNewInstrCallDir(CORINFO_METHOD_HANDLE methodHandle,
                                                  emitAttr retSizeIn X86_ARG(int argCnt)
                                                      MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize))
 {
-    emitAttr retSize = (retSizeIn != EA_UNKNOWN) ? retSizeIn : EA_PTRSIZE;
+    VARSET_VALARG_TP GCvars    = codeGen->gcInfo.gcVarPtrSetCur;
+    regMaskTP        gcrefRegs = codeGen->gcInfo.gcRegGCrefSetCur;
+    regMaskTP        byrefRegs = codeGen->gcInfo.gcRegByrefSetCur;
 
-    // Allocate a larger descriptor if new GC values need to be saved
-    // or if we have an absurd number of arguments or if we need to
-    // save the scope.
-    //
-    // On Amd64 System V OSs a larger descriptor is also needed if the
-    // call returns a two-register-returned struct and the second
-    // register (RDX) is a GCRef or ByRef pointer.
+    regMaskTP savedSet = emitGetGCRegsSavedOrModified(methodHandle);
+    gcrefRegs &= savedSet;
+    byrefRegs &= savedSet;
 
-    bool gcRefRegsInScratch = ((gcrefRegs & RBM_CALLEE_TRASH) != 0);
+#ifdef DEBUG
+    if (EMIT_GC_VERBOSE)
+    {
+        printf("Call: GCvars=%s ", VarSetOps::ToString(emitComp, GCvars));
+        dumpConvertedVarSet(emitComp, GCvars);
+        printf(", gcrefRegs=");
+        printRegMaskInt(gcrefRegs);
+        emitDispRegSet(gcrefRegs);
+        printf(", byrefRegs=");
+        printRegMaskInt(byrefRegs);
+        emitDispRegSet(byrefRegs);
+        printf("\n");
+    }
+#endif
+
+    emitAttr   retSize = (retSizeIn != EA_UNKNOWN) ? retSizeIn : EA_PTRSIZE;
+    instrDesc* id;
 
     if (!VarSetOps::IsEmpty(emitComp, GCvars) || // any frame GCvars live
-        gcRefRegsInScratch ||                    // any register gc refs live in scratch regs
+        ((gcrefRegs & RBM_CALLEE_TRASH) != 0) || // any register gc refs live in scratch regs
         (byrefRegs != 0)                         // any register byrefs live
         X86_ONLY(|| (argCnt > ID_MAX_SMALL_CNS) || (argCnt < 0))
         // There is a second ref/byref return register.
         MULTIREG_HAS_SECOND_GC_RET_ONLY(|| EA_IS_GCREF_OR_BYREF(secondRetSize)))
     {
-        instrDescCGCA* id = emitAllocInstrCGCA(retSize);
-        id->idSetIsLargeCall();
+        instrDescCGCA* idc = emitAllocInstrCGCA(retSize);
+        idc->idSetIsLargeCall();
 
-        id->idcGCvars    = VarSetOps::MakeCopy(emitComp, GCvars);
-        id->idcGcrefRegs = gcrefRegs;
-        id->idcByrefRegs = byrefRegs;
+        idc->idcGCvars    = VarSetOps::MakeCopy(emitComp, GCvars);
+        idc->idcGcrefRegs = gcrefRegs;
+        idc->idcByrefRegs = byrefRegs;
 #ifdef TARGET_XARCH
-        id->idcDisp = 0;
+        idc->idcDisp = 0;
 #endif
 #ifdef TARGET_X86
-        id->idcArgCnt = argCnt;
+        idc->idcArgCnt = argCnt;
 #endif
 #if MULTIREG_HAS_SECOND_GC_RET
-        emitSetSecondRetRegGCType(id, secondRetSize);
+        emitSetSecondRetRegGCType(idc, secondRetSize);
 #endif
 
-        return id;
+        id = idc;
     }
-
-    if (VarSetOps::MayBeUninit(emitEmptyGCrefVars))
+    else
     {
-        emitEmptyGCrefVars = VarSetOps::MakeEmpty(emitComp);
-    }
+        if (VarSetOps::MayBeUninit(emitEmptyGCrefVars))
+        {
+            emitEmptyGCrefVars = VarSetOps::MakeEmpty(emitComp);
+        }
 
 #ifdef TARGET_X86
-    instrDesc* id = emitNewInstrCns(retSize, argCnt);
+        id = emitNewInstrCns(retSize, argCnt);
 #else
-    instrDesc* id              = emitAllocInstr(retSize);
+        id                   = emitAllocInstr(retSize);
 #endif
 
-    /* Make sure we didn't waste space unexpectedly */
-    assert(!id->idIsLargeCns());
+        /* Make sure we didn't waste space unexpectedly */
+        assert(!id->idIsLargeCns());
 
-    /* Save the the live GC registers in the unused register fields */
-    emitEncodeCallGCregs(gcrefRegs, id);
+        /* Save the the live GC registers in the unused register fields */
+        emitEncodeCallGCregs(gcrefRegs, id);
+    }
+
+    VarSetOps::Assign(emitComp, emitThisGCrefVars, GCvars);
+    emitThisGCrefRegs = gcrefRegs;
+    emitThisByrefRegs = byrefRegs;
+
+    id->idSetIsNoGC(emitNoGChelper(methodHandle));
 
     return id;
 }
@@ -2929,8 +2971,8 @@ ID_OPS emitter::GetFormatOp(insFormat format)
 const size_t basicIndent     = 7;
 const size_t hexEncodingSize = 21;
 #elif defined(TARGET_X86)
-const size_t   basicIndent     = 7;
-const size_t   hexEncodingSize = 13;
+const size_t basicIndent     = 7;
+const size_t hexEncodingSize = 13;
 #elif defined(TARGET_ARM64)
 const size_t basicIndent     = 12;
 const size_t hexEncodingSize = 19;

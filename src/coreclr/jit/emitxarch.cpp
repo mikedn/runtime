@@ -6087,79 +6087,30 @@ void emitter::emitIns_Call(EmitCallType          callType,
     // Our stack level should be always greater than the bytes of arguments we push. Just
     // a sanity test.
     assert((unsigned)abs((signed)argSize) <= codeGen->genStackLevel);
+    assert(argSize % REGSIZE_BYTES == 0);
+
+    int argCnt = (int)(argSize / (int)REGSIZE_BYTES); // we need a signed-divide
 #endif
 
-    VARSET_VALARG_TP ptrVars   = codeGen->gcInfo.gcVarPtrSetCur;
-    regMaskTP        gcrefRegs = codeGen->gcInfo.gcRegGCrefSetCur;
-    regMaskTP        byrefRegs = codeGen->gcInfo.gcRegByrefSetCur;
-
-    // Trim out any callee-trashed registers from the live set.
-    regMaskTP savedSet = emitGetGCRegsSavedOrModified(methHnd);
-    gcrefRegs &= savedSet;
-    byrefRegs &= savedSet;
-
-#ifdef DEBUG
-    if (EMIT_GC_VERBOSE)
-    {
-        printf("Call: GCvars=%s ", VarSetOps::ToString(emitComp, ptrVars));
-        dumpConvertedVarSet(emitComp, ptrVars);
-        printf(", gcrefRegs=");
-        printRegMaskInt(gcrefRegs);
-        emitDispRegSet(gcrefRegs);
-        printf(", byrefRegs=");
-        printRegMaskInt(byrefRegs);
-        emitDispRegSet(byrefRegs);
-        printf("\n");
-    }
-#endif
-
-    /* Managed RetVal: emit sequence point for the call */
     if (emitComp->opts.compDbgInfo && ilOffset != BAD_IL_OFFSET)
     {
         codeGen->genIPmappingAdd(ilOffset, false);
     }
 
-    /*
-        We need to allocate the appropriate instruction descriptor based
-        on whether this is a direct/indirect call, and whether we need to
-        record an updated set of live GC variables.
-
-        The stats for a ton of classes is as follows:
-
-            Direct call w/o  GC vars        220,216
-            Indir. call w/o  GC vars        144,781
-
-            Direct call with GC vars          9,440
-            Indir. call with GC vars          5,768
-     */
-
     instrDesc* id;
-
-#ifdef TARGET_X86
-    assert(argSize % REGSIZE_BYTES == 0);
-    int argCnt = (int)(argSize / (int)REGSIZE_BYTES); // we need a signed-divide
-#endif
 
     if ((callType == EC_INDIR_R) || (callType == EC_INDIR_ARD))
     {
-        id = emitNewInstrCallInd(amDisp, ptrVars, gcrefRegs, byrefRegs,
+        id = emitNewInstrCallInd(methHnd, amDisp,
                                  retSize X86_ARG(argCnt) MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize));
     }
     else
     {
         assert(callType == EC_FUNC_TOKEN || callType == EC_FUNC_TOKEN_INDIR || callType == EC_FUNC_ADDR);
 
-        id = emitNewInstrCallDir(ptrVars, gcrefRegs, byrefRegs,
-                                 retSize X86_ARG(argCnt) MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize));
+        id = emitNewInstrCallDir(methHnd, retSize X86_ARG(argCnt) MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize));
     }
 
-    /* Update the emitter's live GC ref sets */
-
-    VarSetOps::Assign(emitComp, emitThisGCrefVars, ptrVars);
-    emitThisGCrefRegs = gcrefRegs;
-    emitThisByrefRegs = byrefRegs;
-
-    /* Set the instruction - special case jumping a function */
     instruction ins = INS_call;
 
     if (isJump)
@@ -6177,7 +6128,6 @@ void emitter::emitIns_Call(EmitCallType          callType,
     }
 
     id->idIns(ins);
-    id->idSetIsNoGC(emitNoGChelper(methHnd));
 
     unsigned sz;
 

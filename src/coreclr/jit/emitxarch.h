@@ -241,16 +241,12 @@ void emitSetAmdDisp(instrDescAmd* id, ssize_t dsp);
 instrDesc* emitNewInstrAmd(emitAttr attr, ssize_t dsp);
 instrDesc* emitNewInstrAmdCns(emitAttr attr, ssize_t dsp, int cns);
 
-instrDesc* emitNewInstrCallDir(VARSET_VALARG_TP GCvars,
-                               regMaskTP        gcrefRegs,
-                               regMaskTP        byrefRegs,
+instrDesc* emitNewInstrCallDir(CORINFO_METHOD_HANDLE methodHandle,
                                emitAttr retSize X86_ARG(int argCnt)
                                    MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize));
 
-instrDesc* emitNewInstrCallInd(int32_t          disp,
-                               VARSET_VALARG_TP GCvars,
-                               regMaskTP        gcrefRegs,
-                               regMaskTP        byrefRegs,
+instrDesc* emitNewInstrCallInd(CORINFO_METHOD_HANDLE methodHandle,
+                               int32_t               disp,
                                emitAttr retSize X86_ARG(int argCnt)
                                    MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize));
 
