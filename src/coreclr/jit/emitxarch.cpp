@@ -6097,20 +6097,16 @@ void emitter::emitIns_Call(EmitCallType          callType,
         codeGen->genIPmappingAdd(ilOffset, false);
     }
 
-    instrDesc* id;
-
-    if ((callType == EC_INDIR_R) || (callType == EC_INDIR_ARD))
-    {
-        id = emitNewInstrCallInd(methHnd, amDisp,
-                                 retSize X86_ARG(argCnt) MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize));
-    }
-    else
+    if ((callType != EC_INDIR_R) && (callType != EC_INDIR_ARD))
     {
         assert(callType == EC_FUNC_TOKEN || callType == EC_FUNC_TOKEN_INDIR || callType == EC_FUNC_ADDR);
+        assert(amDisp == 0);
 
-        id = emitNewInstrCallDir(methHnd, retSize X86_ARG(argCnt) MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize));
+        amDisp = 0;
     }
 
+    instrDesc* id =
+        emitNewInstrCall(methHnd, amDisp, retSize X86_ARG(argCnt) MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize));
     instruction ins = INS_call;
 
     if (isJump)

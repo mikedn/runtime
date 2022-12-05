@@ -68,8 +68,7 @@ void emitDispIns(instrDesc* id,
 /************************************************************************/
 
 private:
-instrDesc* emitNewInstrCallDir(CORINFO_METHOD_HANDLE methodHandle, emitAttr retSize);
-instrDesc* emitNewInstrCallInd(CORINFO_METHOD_HANDLE methodHandle, emitAttr retSize);
+instrDesc* emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle, emitAttr retSize);
 
 /************************************************************************/
 /*               Private helpers for instruction output                 */

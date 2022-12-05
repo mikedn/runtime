@@ -8083,19 +8083,7 @@ void emitter::emitIns_Call(EmitCallType          callType,
         codeGen->genIPmappingAdd(ilOffset, false);
     }
 
-    instrDesc* id;
-
-    if (callType == EC_INDIR_R)
-    {
-        id = emitNewInstrCallInd(methHnd, retSize, secondRetSize);
-    }
-    else
-    {
-        assert((callType == EC_FUNC_TOKEN) || (callType == EC_FUNC_ADDR));
-
-        id = emitNewInstrCallDir(methHnd, retSize, secondRetSize);
-    }
-
+    instrDesc*  id = emitNewInstrCall(methHnd, retSize, secondRetSize);
     instruction ins;
     insFormat   fmt = IF_NONE;
 
