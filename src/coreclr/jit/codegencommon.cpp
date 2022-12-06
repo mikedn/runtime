@@ -225,32 +225,6 @@ regMaskTP CodeGen::genGetRegMask(const LclVarDsc* varDsc)
     return regMask;
 }
 
-// Return the register mask for the given lclVar or regVar tree node
-// inline
-regMaskTP CodeGen::genGetRegMask(GenTree* tree)
-{
-    assert(tree->gtOper == GT_LCL_VAR);
-
-    regMaskTP        regMask = RBM_NONE;
-    const LclVarDsc* varDsc  = compiler->lvaTable + tree->AsLclVarCommon()->GetLclNum();
-    if (varDsc->lvPromoted)
-    {
-        for (unsigned i = varDsc->lvFieldLclStart; i < varDsc->lvFieldLclStart + varDsc->lvFieldCnt; ++i)
-        {
-            noway_assert(compiler->lvaTable[i].lvIsStructField);
-            if (compiler->lvaTable[i].lvIsInReg())
-            {
-                regMask |= genGetRegMask(&compiler->lvaTable[i]);
-            }
-        }
-    }
-    else if (varDsc->lvIsInReg())
-    {
-        regMask = genGetRegMask(varDsc);
-    }
-    return regMask;
-}
-
 // The given lclVar is either going live (being born) or dying.
 // It might be both going live and dying (that is, it is a dead store) under MinOpts.
 // Update regSet.GetMaskVars() accordingly.

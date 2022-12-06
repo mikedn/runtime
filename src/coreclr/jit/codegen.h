@@ -1084,7 +1084,6 @@ protected:
     void genUpdateLife(GenTreeLclVarCommon* tree);
     void genUpdateRegLife(const LclVarDsc* varDsc, bool isBorn, bool isDying DEBUGARG(GenTree* tree));
     regMaskTP genGetRegMask(const LclVarDsc* varDsc);
-    regMaskTP genGetRegMask(GenTree* tree);
 
     void SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex);
     X86_ONLY(void SpillST0(GenTree* node);)
