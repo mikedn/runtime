@@ -1393,17 +1393,18 @@ void emitter::emitEndProlog()
 
 void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock* igBB)
 {
-    VARSET_TP GCvars;
-    regMaskTP gcrefRegs;
-    regMaskTP byrefRegs;
-    bool      extend;
-    bool      last;
+    bool last;
 
     if (igType == IGPT_FUNCLET_PROLOG)
     {
-        GCvars    = codeGen->gcInfo.gcVarPtrSetCur;
-        gcrefRegs = codeGen->gcInfo.gcRegGCrefSetCur;
-        byrefRegs = codeGen->gcInfo.gcRegByrefSetCur;
+        if (emitCurIGnonEmpty())
+        {
+            emitNxtIG(false);
+        }
+
+        VARSET_TP GCvars    = codeGen->gcInfo.gcVarPtrSetCur;
+        regMaskTP gcrefRegs = codeGen->gcInfo.gcRegGCrefSetCur;
+        regMaskTP byrefRegs = codeGen->gcInfo.gcRegByrefSetCur;
 
         // Currently, no registers are live on entry to the prolog, except maybe
         // the exception object. There might be some live stack vars, but they
@@ -1419,8 +1420,15 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
         noway_assert((gcrefRegs & RBM_EXCEPTION_OBJECT) == gcrefRegs);
         noway_assert(byrefRegs == RBM_NONE);
 
-        extend = false;
-        last   = false;
+        VarSetOps::Assign(emitComp, emitInitGCrefVars, GCvars);
+        emitInitGCrefRegs = gcrefRegs;
+        emitInitByrefRegs = byrefRegs;
+
+        VarSetOps::Assign(emitComp, emitThisGCrefVars, GCvars);
+        emitThisGCrefRegs = gcrefRegs;
+        emitThisByrefRegs = byrefRegs;
+
+        last = false;
     }
     else
     {
@@ -1429,30 +1437,17 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
 #else
         assert(igType == IGPT_EPILOG);
 #endif
+
 #ifdef TARGET_AMD64
         emitOutputPreEpilogNOP();
 #endif
 
-        // GC sets are ignored on epilogs.
-        GCvars    = VarSetOps::UninitVal();
-        gcrefRegs = RBM_NONE;
-        byrefRegs = RBM_NONE;
+        if (emitCurIGnonEmpty())
+        {
+            emitNxtIG(true);
+        }
 
-        extend = true;
-        last   = igBB->bbNext == nullptr;
-    }
-
-    if (emitCurIGnonEmpty())
-    {
-        emitNxtIG(extend);
-    }
-
-    if (!extend)
-    {
-        VarSetOps::Assign(emitComp, emitThisGCrefVars, GCvars);
-        VarSetOps::Assign(emitComp, emitInitGCrefVars, GCvars);
-        emitThisGCrefRegs = emitInitGCrefRegs = gcrefRegs;
-        emitThisByrefRegs = emitInitByrefRegs = byrefRegs;
+        last = igBB->bbNext == nullptr;
     }
 
     /* Convert the group to a placeholder group */
@@ -1479,13 +1474,11 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
     igPh->igPhData->igPhType = igType;
     igPh->igPhData->igPhBB   = igBB;
 
-    VarSetOps::AssignNoCopy(emitComp, igPh->igPhData->igPhPrevGCrefVars, VarSetOps::UninitVal());
-    VarSetOps::Assign(emitComp, igPh->igPhData->igPhPrevGCrefVars, emitPrevGCrefVars);
+    igPh->igPhData->igPhPrevGCrefVars = VarSetOps::MakeCopy(emitComp, emitPrevGCrefVars);
     igPh->igPhData->igPhPrevGCrefRegs = emitPrevGCrefRegs;
     igPh->igPhData->igPhPrevByrefRegs = emitPrevByrefRegs;
 
-    VarSetOps::AssignNoCopy(emitComp, igPh->igPhData->igPhInitGCrefVars, VarSetOps::UninitVal());
-    VarSetOps::Assign(emitComp, igPh->igPhData->igPhInitGCrefVars, emitInitGCrefVars);
+    igPh->igPhData->igPhInitGCrefVars = VarSetOps::MakeCopy(emitComp, emitInitGCrefVars);
     igPh->igPhData->igPhInitGCrefRegs = emitInitGCrefRegs;
     igPh->igPhData->igPhInitByrefRegs = emitInitByrefRegs;
 
@@ -2121,15 +2114,11 @@ bool emitter::emitNoGChelper(CORINFO_METHOD_HANDLE methHnd)
 
 void* emitter::emitAddLabel(bool isFinallyTarget DEBUG_ARG(BasicBlock* block))
 {
-    VARSET_VALARG_TP GCvars    = codeGen->gcInfo.gcVarPtrSetCur;
-    regMaskTP        gcrefRegs = codeGen->gcInfo.gcRegGCrefSetCur;
-    regMaskTP        byrefRegs = codeGen->gcInfo.gcRegByrefSetCur;
-
     /* Create a new IG if the current one is non-empty */
 
     if (emitCurIGnonEmpty())
     {
-        emitNxtIG();
+        emitNxtIG(false);
     }
 #if defined(DEBUG) || defined(LATE_DISASM)
     else
@@ -2139,17 +2128,24 @@ void* emitter::emitAddLabel(bool isFinallyTarget DEBUG_ARG(BasicBlock* block))
     }
 #endif
 
-    VarSetOps::Assign(emitComp, emitThisGCrefVars, GCvars);
-    VarSetOps::Assign(emitComp, emitInitGCrefVars, GCvars);
-    emitThisGCrefRegs = emitInitGCrefRegs = gcrefRegs;
-    emitThisByrefRegs = emitInitByrefRegs = byrefRegs;
-
 #if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
     if (isFinallyTarget)
     {
         emitCurIG->igFlags |= IGF_FINALLY_TARGET;
     }
-#endif // defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
+#endif
+
+    VARSET_TP GCvars    = codeGen->gcInfo.gcVarPtrSetCur;
+    regMaskTP gcrefRegs = codeGen->gcInfo.gcRegGCrefSetCur;
+    regMaskTP byrefRegs = codeGen->gcInfo.gcRegByrefSetCur;
+
+    VarSetOps::Assign(emitComp, emitInitGCrefVars, GCvars);
+    emitInitGCrefRegs = gcrefRegs;
+    emitInitByrefRegs = byrefRegs;
+
+    VarSetOps::Assign(emitComp, emitThisGCrefVars, GCvars);
+    emitThisGCrefRegs = gcrefRegs;
+    emitThisByrefRegs = byrefRegs;
 
 #ifdef DEBUG
     JITDUMP("Mapped " FMT_BB " to %s\n", block->bbNum, emitLabelString(emitCurIG));
@@ -7588,16 +7584,6 @@ void emitter::emitNxtIG(bool extend)
     /* First save the current group */
 
     emitSavIG(extend);
-
-    /* Update the GC live sets for the group's start
-     * Do it only if not an extension block */
-
-    if (!extend)
-    {
-        VarSetOps::Assign(emitComp, emitInitGCrefVars, emitThisGCrefVars);
-        emitInitGCrefRegs = emitThisGCrefRegs;
-        emitInitByrefRegs = emitThisByrefRegs;
-    }
 
     /* Start generating the new group */
 

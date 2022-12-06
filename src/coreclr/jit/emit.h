@@ -1855,7 +1855,7 @@ private:
 
     void emitGenIG(insGroup* ig);
     insGroup* emitSavIG(bool emitAdd = false);
-    void emitNxtIG(bool extend = false);
+    void emitNxtIG(bool extend);
 
     bool emitCurIGnonEmpty()
     {
