@@ -1391,47 +1391,61 @@ void emitter::emitEndProlog()
 #endif
 }
 
-/*****************************************************************************
- *
- *  Create a placeholder instruction group to be used by a prolog or epilog,
- *  either for the main function, or a funclet.
- */
-
-void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType,
-                                      BasicBlock*             igBB,
-                                      VARSET_VALARG_TP        GCvars,
-                                      regMaskTP               gcrefRegs,
-                                      regMaskTP               byrefRegs,
-                                      bool                    last)
+void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock* igBB)
 {
-    assert(igBB != nullptr);
+    VARSET_TP GCvars;
+    regMaskTP gcrefRegs;
+    regMaskTP byrefRegs;
+    bool      extend;
+    bool      last;
 
-    bool extend = false;
-
-    if (igType == IGPT_EPILOG
-#if defined(FEATURE_EH_FUNCLETS)
-        || igType == IGPT_FUNCLET_EPILOG
-#endif // FEATURE_EH_FUNCLETS
-        )
+    if (igType == IGPT_FUNCLET_PROLOG)
     {
+        GCvars    = codeGen->gcInfo.gcVarPtrSetCur;
+        gcrefRegs = codeGen->gcInfo.gcRegGCrefSetCur;
+        byrefRegs = codeGen->gcInfo.gcRegByrefSetCur;
+
+        // Currently, no registers are live on entry to the prolog, except maybe
+        // the exception object. There might be some live stack vars, but they
+        // cannot be accessed until after the frame pointer is re-established.
+        // In order to potentially prevent emitting a death before the prolog
+        // and a birth right after it, we just report it as live during the
+        // prolog, and rely on the prolog being non-interruptible. Trust
+        // genCodeForBBlist to correctly initialize all the sets.
+        //
+        // We might need to relax these asserts if the VM ever starts
+        // restoring any registers, then we could have live-in reg vars.
+
+        noway_assert((gcrefRegs & RBM_EXCEPTION_OBJECT) == gcrefRegs);
+        noway_assert(byrefRegs == RBM_NONE);
+
+        extend = false;
+        last   = false;
+    }
+    else
+    {
+#ifdef FEATURE_EH_FUNCLETS
+        assert((igType == IGPT_EPILOG) || (igType == IGPT_FUNCLET_EPILOG));
+#else
+        assert(igType == IGPT_EPILOG);
+#endif
 #ifdef TARGET_AMD64
         emitOutputPreEpilogNOP();
-#endif // TARGET_AMD64
+#endif
 
         // GC sets are ignored on epilogs.
-        assert(GCvars == VarSetOps::UninitVal());
-        assert(gcrefRegs == RBM_NONE);
-        assert(byrefRegs == RBM_NONE);
+        GCvars    = VarSetOps::UninitVal();
+        gcrefRegs = RBM_NONE;
+        byrefRegs = RBM_NONE;
 
         extend = true;
+        last   = igBB->bbNext == nullptr;
     }
 
     if (emitCurIGnonEmpty())
     {
         emitNxtIG(extend);
     }
-
-    /* Update GC tracking for the beginning of the placeholder IG */
 
     if (!extend)
     {

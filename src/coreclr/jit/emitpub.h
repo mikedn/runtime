@@ -32,12 +32,7 @@ unsigned emitGetPrologOffsetEstimate();
 void     emitMarkPrologEnd();
 void     emitEndProlog();
 
-void emitCreatePlaceholderIG(insGroupPlaceholderType igType,
-                             BasicBlock*             igBB,
-                             VARSET_VALARG_TP        GCvars,
-                             regMaskTP               gcrefRegs,
-                             regMaskTP               byrefRegs,
-                             bool                    last);
+void emitCreatePlaceholderIG(insGroupPlaceholderType kind, BasicBlock* block);
 
 void emitGeneratePrologEpilog();
 void emitStartPrologEpilogGeneration();

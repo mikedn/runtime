@@ -3986,45 +3986,23 @@ void CodeGen::genReserveEpilog(BasicBlock* block)
 {
     JITDUMP("Reserving epilog IG for block " FMT_BB "\n", block->bbNum);
 
-    bool last = (block->bbNext == nullptr);
-    GetEmitter()->emitCreatePlaceholderIG(IGPT_EPILOG, block, VarSetOps::UninitVal(), RBM_NONE, RBM_NONE, last);
+    GetEmitter()->emitCreatePlaceholderIG(IGPT_EPILOG, block);
 }
 
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
 
 void CodeGen::genReserveFuncletProlog(BasicBlock* block)
 {
-    assert(block != nullptr);
-
-    /* Currently, no registers are live on entry to the prolog, except maybe
-       the exception object. There might be some live stack vars, but they
-       cannot be accessed until after the frame pointer is re-established.
-       In order to potentially prevent emitting a death before the prolog
-       and a birth right after it, we just report it as live during the
-       prolog, and rely on the prolog being non-interruptible. Trust
-       genCodeForBBlist to correctly initialize all the sets.
-
-       We might need to relax these asserts if the VM ever starts
-       restoring any registers, then we could have live-in reg vars...
-    */
-
-    noway_assert((gcInfo.gcRegGCrefSetCur & RBM_EXCEPTION_OBJECT) == gcInfo.gcRegGCrefSetCur);
-    noway_assert(gcInfo.gcRegByrefSetCur == 0);
-
     JITDUMP("Reserving funclet prolog IG for block " FMT_BB "\n", block->bbNum);
 
-    GetEmitter()->emitCreatePlaceholderIG(IGPT_FUNCLET_PROLOG, block, gcInfo.gcVarPtrSetCur, gcInfo.gcRegGCrefSetCur,
-                                          gcInfo.gcRegByrefSetCur, false);
+    GetEmitter()->emitCreatePlaceholderIG(IGPT_FUNCLET_PROLOG, block);
 }
 
 void CodeGen::genReserveFuncletEpilog(BasicBlock* block)
 {
-    assert(block != nullptr);
-
     JITDUMP("Reserving funclet epilog IG for block " FMT_BB "\n", block->bbNum);
 
-    bool last = (block->bbNext == nullptr);
-    GetEmitter()->emitCreatePlaceholderIG(IGPT_FUNCLET_EPILOG, block, VarSetOps::UninitVal(), RBM_NONE, RBM_NONE, last);
+    GetEmitter()->emitCreatePlaceholderIG(IGPT_FUNCLET_EPILOG, block);
 }
 
 #endif // FEATURE_EH_FUNCLETS
