@@ -56,7 +56,7 @@ void CodeGenLivenessUpdater::ChangeLife(CodeGen* codeGen, VARSET_VALARG_TP newLi
             codeGen->genUpdateRegLife(lcl, false /*isBorn*/, true /*isDying*/ DEBUGARG(nullptr));
         }
 
-        if (isInMemory && (isGCRef || isByRef))
+        if (isInMemory && (isGCRef || isByRef) && lcl->HasGCSlotLiveness())
         {
             VarSetOps::RemoveElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, e.Current());
         }
@@ -80,7 +80,7 @@ void CodeGenLivenessUpdater::ChangeLife(CodeGen* codeGen, VARSET_VALARG_TP newLi
         {
             // If this variable is going live in a register, it is no longer live on the stack,
             // unless it is an EH var, which always remains live on the stack.
-            if (!lcl->IsAlwaysAliveInMemory())
+            if (!lcl->IsAlwaysAliveInMemory() && lcl->HasGCSlotLiveness())
             {
                 VarSetOps::RemoveElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, e.Current());
             }
@@ -98,7 +98,7 @@ void CodeGenLivenessUpdater::ChangeLife(CodeGen* codeGen, VARSET_VALARG_TP newLi
                 codeGen->gcInfo.gcRegByrefSetCur |= regMask;
             }
         }
-        else if (lcl->HasGCLiveness())
+        else if (lcl->HasGCSlotLiveness())
         {
             VarSetOps::AddElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, e.Current());
         }
