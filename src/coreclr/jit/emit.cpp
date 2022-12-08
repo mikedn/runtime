@@ -1395,6 +1395,7 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
 {
     bool last;
 
+#ifdef FEATURE_EH_FUNCLETS
     if (igType == IGPT_FUNCLET_PROLOG)
     {
         if (emitCurIGnonEmpty())
@@ -1432,10 +1433,10 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
     }
     else
     {
-#ifdef FEATURE_EH_FUNCLETS
         assert((igType == IGPT_EPILOG) || (igType == IGPT_FUNCLET_EPILOG));
 #else
-        assert(igType == IGPT_EPILOG);
+    assert(igType == IGPT_EPILOG);
+    {
 #endif
 
 #ifdef TARGET_AMD64
