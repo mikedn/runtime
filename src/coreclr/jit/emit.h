@@ -2107,6 +2107,9 @@ public:
     void emitGCregDeadUpd(regNumber reg, BYTE* addr);
     void emitGCregDeadSet(GCtype gcType, regMaskTP mask, BYTE* addr);
 
+#if FEATURE_FIXED_OUT_ARGS
+    void emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum));
+#endif
     void emitGCvarLiveUpd(int offs, unsigned lclNum, GCtype gcType, BYTE* addr);
     void emitGCvarLiveSet(int offs, GCtype gcType, BYTE* addr, unsigned index);
     void emitGCvarDeadUpd(int offs, BYTE* addr DEBUG_ARG(unsigned lclNum));

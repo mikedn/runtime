@@ -6245,7 +6245,14 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             bool     fpBased;
             int      adr = emitComp->lvaFrameAddress(lclNum, &fpBased) + ofs;
 
-            emitGCvarLiveUpd(adr, lclNum, id->idGCref(), dst);
+            if (lclNum == emitComp->lvaOutgoingArgSpaceVar)
+            {
+                emitGCargLiveUpd(adr, id->idGCref(), dst DEBUGARG(lclNum));
+            }
+            else
+            {
+                emitGCvarLiveUpd(adr, lclNum, id->idGCref(), dst);
+            }
         }
     }
 

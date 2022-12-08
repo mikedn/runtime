@@ -10937,7 +10937,14 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
             if (id->idGCref() != GCT_NONE)
             {
-                emitGCvarLiveUpd(adr, lclNum, id->idGCref(), dst);
+                if (lclNum == emitComp->lvaOutgoingArgSpaceVar)
+                {
+                    emitGCargLiveUpd(adr, id->idGCref(), dst DEBUGARG(lclNum));
+                }
+                else
+                {
+                    emitGCvarLiveUpd(adr, lclNum, id->idGCref(), dst);
+                }
             }
 
             // STP is used to copy structs and we don't currently GC-track struct locals. But
@@ -10947,7 +10954,17 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             {
                 adr += REGSIZE_BYTES;
 
-                emitGCvarLiveUpd(adr, lclNum, id->idGCrefReg2(), dst);
+                // TODO-MIKE-Review: This should probably be an assert since we don't
+                // currently GC track struct locals so we shouldn't ever see a STP
+                // involving anything other that the outgoing arg area.
+                if (lclNum == emitComp->lvaOutgoingArgSpaceVar)
+                {
+                    emitGCargLiveUpd(adr, id->idGCrefReg2(), dst DEBUGARG(lclNum));
+                }
+                else
+                {
+                    emitGCvarLiveUpd(adr, lclNum, id->idGCrefReg2(), dst);
+                }
             }
         }
     }

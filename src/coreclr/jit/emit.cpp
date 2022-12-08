@@ -7348,37 +7348,38 @@ void emitter::emitGCregDeadUpd(regNumber reg, BYTE* addr)
     }
 }
 
-// Record the fact that the given variable now contains a live GC ref.
-// varNum may be INT_MAX or negative (indicating a spill temp) only if
-// offs is guaranteed to be the offset of a tracked GC ref. Else we
-// need a valid value to check if the variable is tracked or not.
+#if FEATURE_FIXED_OUT_ARGS
+void emitter::emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum))
+{
+    assert(abs(offs) % REGSIZE_BYTES == 0);
+    assert(needsGC(gcType));
+    assert(lclNum == emitComp->lvaOutgoingArgSpaceVar);
+
+    if (emitFullGCinfo)
+    {
+        noway_assert(FitsIn<uint16_t>(offs));
+
+        // Append an "arg push" entry to track a GC written to the outgoing argument space.
+
+        regPtrDsc* regPtrNext  = gcInfo->gcRegPtrAllocDsc();
+        regPtrNext->rpdGCtype  = gcType;
+        regPtrNext->rpdOffs    = emitCurCodeOffs(addr);
+        regPtrNext->rpdArg     = true;
+        regPtrNext->rpdCall    = false;
+        regPtrNext->rpdPtrArg  = static_cast<uint16_t>(offs);
+        regPtrNext->rpdArgType = GCInfo::rpdARG_PUSH;
+        regPtrNext->rpdIsThis  = false;
+    }
+}
+#endif // FEATURE_FIXED_OUT_ARGS
+
 void emitter::emitGCvarLiveUpd(int offs, unsigned lclNum, GCtype gcType, BYTE* addr)
 {
     assert(abs(offs) % REGSIZE_BYTES == 0);
     assert(needsGC(gcType));
-
 #if FEATURE_FIXED_OUT_ARGS
-    if (lclNum == emitComp->lvaOutgoingArgSpaceVar)
-    {
-        if (emitFullGCinfo)
-        {
-            noway_assert(FitsIn<uint16_t>(offs));
-
-            // Append an "arg push" entry to track a GC written to the outgoing argument space.
-
-            regPtrDsc* regPtrNext  = gcInfo->gcRegPtrAllocDsc();
-            regPtrNext->rpdGCtype  = gcType;
-            regPtrNext->rpdOffs    = emitCurCodeOffs(addr);
-            regPtrNext->rpdArg     = true;
-            regPtrNext->rpdCall    = false;
-            regPtrNext->rpdPtrArg  = static_cast<uint16_t>(offs);
-            regPtrNext->rpdArgType = GCInfo::rpdARG_PUSH;
-            regPtrNext->rpdIsThis  = false;
-        }
-
-        return;
-    }
-#endif // FEATURE_FIXED_OUT_ARGS
+    assert(lclNum != emitComp->lvaOutgoingArgSpaceVar);
+#endif
 
     if ((offs < emitGCrFrameOffsMin) || (emitGCrFrameOffsMax <= offs))
     {

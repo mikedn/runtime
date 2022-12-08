@@ -9500,7 +9500,18 @@ BYTE* emitter::emitOutputSV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
             case IF_SWR_RRD:
                 if (varNum >= 0)
                 {
-                    emitGCvarLiveUpd(adr, static_cast<unsigned>(varNum), id->idGCref(), dst);
+                    unsigned lclNum = static_cast<unsigned>(varNum);
+
+#if FEATURE_FIXED_OUT_ARGS
+                    if (lclNum == emitComp->lvaOutgoingArgSpaceVar)
+                    {
+                        emitGCargLiveUpd(adr, id->idGCref(), dst DEBUGARG(lclNum));
+                    }
+                    else
+#endif
+                    {
+                        emitGCvarLiveUpd(adr, lclNum, id->idGCref(), dst);
+                    }
                 }
                 break;
 
