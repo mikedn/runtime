@@ -5124,7 +5124,9 @@ void JitTimer::PrintCsvHeader()
             InlineStrategy::DumpCsvHeader(s_csvFile);
 
             fprintf(s_csvFile, "\"Executable Code Bytes\",");
+#ifdef JIT32_GCENCODER
             fprintf(s_csvFile, "\"GC Info Bytes\",");
+#endif
             fprintf(s_csvFile, "\"Total Bytes Allocated\",");
             fprintf(s_csvFile, "\"Total Cycles\",");
             fprintf(s_csvFile, "\"CPS\"\n");
@@ -5208,10 +5210,12 @@ void JitTimer::PrintCsvMethodStats(Compiler* comp)
 
     fprintf(s_csvFile, "%u,", comp->info.compNativeCodeSize);
 
+#ifdef JIT32_GCENCODER
     if (comp->codeGen != nullptr)
     {
         fprintf(s_csvFile, "%Iu,", comp->codeGen->compInfoBlkSize);
     }
+#endif
 
     fprintf(s_csvFile, "%Iu,", comp->compGetArenaAllocator()->getTotalBytesAllocated());
     fprintf(s_csvFile, "%I64u,", m_info.m_totalCycles);

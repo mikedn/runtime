@@ -1355,25 +1355,13 @@ void CodeGen::genEmitUnwindDebugGCandEH()
             fprintf(dmpf, "    Const at %p [%04X bytes]\n", dspPtr(consPtr), consSize);
         }
 #ifdef JIT32_GCENCODER
-        size_t infoSize = compInfoBlkSize;
-        if (infoSize)
-            fprintf(dmpf, "    Info  at %p [%04X bytes]\n", dspPtr(infoPtr), infoSize);
-#endif // JIT32_GCENCODER
+        if (compInfoBlkSize != 0)
+        {
+            fprintf(dmpf, "    Info  at %p [%04X bytes]\n", dspPtr(infoPtr), compInfoBlkSize);
+        }
+#endif
 
         fprintf(dmpf, "\n");
-
-        if (codeSize)
-        {
-            hexDump(dmpf, "Code", (BYTE*)*codePtr, codeSize);
-        }
-        if (consSize)
-        {
-            hexDump(dmpf, "Const", (BYTE*)consPtr, consSize);
-        }
-#ifdef JIT32_GCENCODER
-        if (infoSize)
-            hexDump(dmpf, "Info", (BYTE*)infoPtr, infoSize);
-#endif // JIT32_GCENCODER
 
         fflush(dmpf);
     }

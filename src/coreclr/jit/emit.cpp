@@ -2945,7 +2945,6 @@ void emitter::emitDispGCVarDelta()
     if (!VarSetOps::Equal(emitComp, debugPrevGCrefVars, debugThisGCrefVars))
     {
         emitDispGCDeltaTitle("GC ptr vars");
-        VARSET_TP sameGCrefVars(VarSetOps::Intersection(emitComp, debugPrevGCrefVars, debugThisGCrefVars));
         VARSET_TP GCrefVarsRemoved(VarSetOps::Diff(emitComp, debugPrevGCrefVars, debugThisGCrefVars));
         VARSET_TP GCrefVarsAdded(VarSetOps::Diff(emitComp, debugThisGCrefVars, debugPrevGCrefVars));
         if (!VarSetOps::IsEmpty(emitComp, GCrefVarsRemoved))

@@ -78,9 +78,9 @@ public:
 
     Compiler* compiler;
 
-    //  The following is used to create the 'method JIT info' block.
+#ifdef JIT32_GCENCODER
     size_t compInfoBlkSize;
-    BYTE*  compInfoBlkAddr;
+#endif
 
     ParamRegState paramRegState;
     SpillTempSet  spillTemps;

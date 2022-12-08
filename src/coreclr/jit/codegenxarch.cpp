@@ -7867,7 +7867,7 @@ void* CodeGen::genCreateAndStoreGCInfoJIT32(unsigned codeSize,
 
     /* Allocate the info block for the method */
 
-    compInfoBlkAddr = (BYTE*)compiler->info.compCompHnd->allocGCInfo(compInfoBlkSize);
+    BYTE* infoBlkAddr = (BYTE*)compiler->info.compCompHnd->allocGCInfo(compInfoBlkSize);
 
 #if 0 // VERBOSE_SIZES
     // TODO-X86-Cleanup: 'dataSize', below, is not defined
@@ -7889,23 +7889,23 @@ void* CodeGen::genCreateAndStoreGCInfoJIT32(unsigned codeSize,
 
     /* Fill in the info block and return it to the caller */
 
-    void* infoPtr = compInfoBlkAddr;
+    void* infoPtr = infoBlkAddr;
 
     /* Create the method info block: header followed by GC tracking tables */
 
-    compInfoBlkAddr += gcInfo.gcInfoBlockHdrSave(compInfoBlkAddr, -1, codeSize, prologSize, epilogSize,
-                                                 calleeSavedModifiedRegs, &header, &s_cached);
+    infoBlkAddr += gcInfo.gcInfoBlockHdrSave(infoBlkAddr, -1, codeSize, prologSize, epilogSize, calleeSavedModifiedRegs,
+                                             &header, &s_cached);
 
-    assert(compInfoBlkAddr == (BYTE*)infoPtr + headerSize);
-    compInfoBlkAddr = gcInfo.gcPtrTableSave(compInfoBlkAddr, header, codeSize, &argTabOffset);
-    assert(compInfoBlkAddr == (BYTE*)infoPtr + headerSize + ptrMapSize);
+    assert(infoBlkAddr == (BYTE*)infoPtr + headerSize);
+    infoBlkAddr = gcInfo.gcPtrTableSave(infoBlkAddr, header, codeSize, &argTabOffset);
+    assert(infoBlkAddr == (BYTE*)infoPtr + headerSize + ptrMapSize);
 
 #ifdef DEBUG
 
     if (0)
     {
         BYTE*  temp = (BYTE*)infoPtr;
-        size_t size = compInfoBlkAddr - temp;
+        size_t size = infoBlkAddr - temp;
         BYTE*  ptab = temp + headerSize;
 
         noway_assert(size == headerSize + ptrMapSize);
@@ -7934,7 +7934,6 @@ void* CodeGen::genCreateAndStoreGCInfoJIT32(unsigned codeSize,
 #endif // DEBUG
 
 #if DUMP_GC_TABLES
-
     if (compiler->opts.dspGCtbls)
     {
         const BYTE* base = (BYTE*)infoPtr;
@@ -7949,21 +7948,17 @@ void* CodeGen::genCreateAndStoreGCInfoJIT32(unsigned codeSize,
         // printf("size of header encoding is %3u\n", size);
         printf("\n");
 
-        if (compiler->opts.dspGCtbls)
-        {
-            base += size;
-            size = gcInfo.gcDumpPtrTable(base, dumpHeader, methodSize);
-            // printf("size of pointer table is %3u\n", size);
-            printf("\n");
-            noway_assert(compInfoBlkAddr == (base + size));
-        }
+        base += size;
+        size = gcInfo.gcDumpPtrTable(base, dumpHeader, methodSize);
+        // printf("size of pointer table is %3u\n", size);
+        printf("\n");
+        noway_assert(infoBlkAddr == (base + size));
     }
-
 #endif // DUMP_GC_TABLES
 
     /* Make sure we ended up generating the expected number of bytes */
 
-    noway_assert(compInfoBlkAddr == (BYTE*)infoPtr + compInfoBlkSize);
+    noway_assert(infoBlkAddr == (BYTE*)infoPtr + compInfoBlkSize);
 
     return infoPtr;
 }
@@ -8025,8 +8020,7 @@ void CodeGen::genCreateAndStoreGCInfoX64(unsigned codeSize, unsigned prologSize 
 
     // GC Encoder automatically puts the GC info in the right spot using ICorJitInfo::allocGCInfo(size_t)
     // let's save the values anyway for debugging purposes
-    compInfoBlkAddr = gcInfoEncoder->Emit();
-    compInfoBlkSize = 0; // not exposed by the GCEncoder interface
+    gcInfoEncoder->Emit();
 }
 #endif // !JIT32_GCENCODER
 
