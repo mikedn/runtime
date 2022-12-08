@@ -411,10 +411,7 @@ class emitter
     ICorJitInfo* emitCmpHandle;
 
 public:
-    emitter(Compiler* compiler, CodeGen* codeGen, GCInfo& gcInfo, ICorJitInfo* jitInfo)
-        : emitComp(compiler), gcInfo(&gcInfo), codeGen(codeGen), emitCmpHandle(jitInfo)
-    {
-    }
+    emitter(Compiler* compiler, CodeGen* codeGen, GCInfo& gcInfo, ICorJitInfo* jitInfo);
 
 #include "emitpub.h"
 
@@ -1491,8 +1488,8 @@ protected:
     // GC Info changes are not readily available at each instruction.
     // We use debug-only sets to track the per-instruction state, and to remember
     // what the state was at the last time it was output (instruction or label).
-    VARSET_TP  debugPrevGCrefVars;
-    VARSET_TP  debugThisGCrefVars;
+    ArrayStack<GCFrameLifetime*> debugGCSlotChanges;
+
     regPtrDsc* debugPrevRegPtrDsc = nullptr;
     regMaskTP  debugPrevGCrefRegs = RBM_NONE;
     regMaskTP  debugPrevByrefRegs = RBM_NONE;

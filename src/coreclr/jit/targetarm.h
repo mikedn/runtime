@@ -235,7 +235,7 @@
 
   #define REG_FPBASE               REG_R11
   #define RBM_FPBASE               RBM_R11
-  #define STR_FPBASE               "r11"
+  #define STR_FPBASE               "fp"
   #define REG_SPBASE               REG_SP
   #define RBM_SPBASE               RBM_SP
   #define STR_SPBASE               "sp"

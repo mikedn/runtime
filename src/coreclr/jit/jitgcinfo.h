@@ -150,7 +150,7 @@ public:
             : frameOffset(frameOffset)
             , vpdBegOfs(beginCodeOffset)
 #ifdef DEBUG
-            , vpdEndOfs(0xFACEDEAD)
+            , vpdEndOfs(0)
 #endif
         {
         }

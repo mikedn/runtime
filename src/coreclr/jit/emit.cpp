@@ -20,6 +20,17 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "emit.h"
 #include "codegen.h"
 
+emitter::emitter(Compiler* compiler, CodeGen* codeGen, GCInfo& gcInfo, ICorJitInfo* jitInfo)
+    : emitComp(compiler)
+    , gcInfo(&gcInfo)
+    , codeGen(codeGen)
+    , emitCmpHandle(jitInfo)
+#ifdef DEBUG
+    , debugGCSlotChanges(compiler->getAllocator(CMK_DebugOnly))
+#endif
+{
+}
+
 /*****************************************************************************
  *
  *  Represent an emitter location.
@@ -870,9 +881,6 @@ void emitter::emitBegFN()
     emitInitGCrefVars = VarSetOps::MakeEmpty(emitComp);
     emitThisGCrefVars = VarSetOps::MakeEmpty(emitComp);
 #ifdef DEBUG
-    debugPrevGCrefVars = VarSetOps::MakeEmpty(emitComp);
-    debugThisGCrefVars = VarSetOps::MakeEmpty(emitComp);
-
     emitChkAlign =
         (emitComp->compCodeOpt() != SMALL_CODE) && !emitComp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT);
 #endif
@@ -2933,31 +2941,25 @@ void emitter::emitDispGCRegDelta(const char* title, regMaskTP prevRegs, regMaskT
     }
 }
 
-//------------------------------------------------------------------------
-// emitDispGCVarDelta: Print a delta for GC variables
-//
-// Notes:
-//    Uses the debug-only variables 'debugThisGCrefVars' and 'debugPrevGCrefVars'.
-//    to print deltas from the last time this was called.
-//
 void emitter::emitDispGCVarDelta()
 {
-    if (!VarSetOps::Equal(emitComp, debugPrevGCrefVars, debugThisGCrefVars))
+    if (!debugGCSlotChanges.Empty())
     {
-        emitDispGCDeltaTitle("GC ptr vars");
-        VARSET_TP GCrefVarsRemoved(VarSetOps::Diff(emitComp, debugPrevGCrefVars, debugThisGCrefVars));
-        VARSET_TP GCrefVarsAdded(VarSetOps::Diff(emitComp, debugThisGCrefVars, debugPrevGCrefVars));
-        if (!VarSetOps::IsEmpty(emitComp, GCrefVarsRemoved))
+        emitDispGCDeltaTitle("GC slots:");
+
+        while (!debugGCSlotChanges.Empty())
         {
-            printf(" -");
-            dumpConvertedVarSet(emitComp, GCrefVarsRemoved);
+            GCFrameLifetime* lifetime = debugGCSlotChanges.Pop();
+            int              offset   = lifetime->frameOffset & ~OFFSET_MASK;
+
+#ifdef TARGET_ARMARCH
+            printf(" %c[%s,#%d]", lifetime->vpdEndOfs == 0 ? '+' : '-', emitGetFrameReg(), offset);
+#else
+            printf(" %c[%s%c%02XH]", lifetime->vpdEndOfs == 0 ? '+' : '-', emitGetFrameReg(), offset < 0 ? '-' : '+',
+                   abs(offset));
+#endif
         }
-        if (!VarSetOps::IsEmpty(emitComp, GCrefVarsAdded))
-        {
-            printf(" +");
-            dumpConvertedVarSet(emitComp, GCrefVarsAdded);
-        }
-        VarSetOps::Assign(emitComp, debugPrevGCrefVars, debugThisGCrefVars);
+
         printf("\n");
     }
 }
@@ -6623,6 +6625,8 @@ void emitter::emitGCvarLiveSet(int offs, GCtype gcType, BYTE* addr, unsigned ind
     emitThisGCrefVset = false;
 
     codeGen->gcInfo.AddFrameLifetime(lifetime);
+
+    INDEBUG(debugGCSlotChanges.Push(lifetime));
 }
 
 // Record the fact that the given variable no longer contains a live GC ref.
@@ -6636,13 +6640,15 @@ void emitter::emitGCvarDeadSet(int offs, BYTE* addr, unsigned index)
     GCFrameLifetime* lifetime = emitGCrFrameLiveTab[index];
 
     assert(static_cast<int>(lifetime->frameOffset & ~OFFSET_MASK) == offs);
-    assert(lifetime->vpdEndOfs == 0xFACEDEAD);
+    assert(lifetime->vpdEndOfs == 0);
 
     lifetime->vpdEndOfs = emitCurCodeOffs(addr);
 
     emitGCrFrameLiveTab[index] = nullptr;
     // The "global" live GC variable mask is no longer up-to-date.
     emitThisGCrefVset = false;
+
+    INDEBUG(debugGCSlotChanges.Push(lifetime));
 }
 
 // Record a new set of live GC ref variables.
@@ -6660,13 +6666,6 @@ void emitter::emitUpdateLiveGCvars(VARSET_VALARG_TP vars, BYTE* addr)
     {
         return;
     }
-
-#ifdef DEBUG
-    if (EMIT_GC_VERBOSE || emitComp->opts.disasmWithGC)
-    {
-        VarSetOps::Assign(emitComp, debugThisGCrefVars, vars);
-    }
-#endif
 
     VarSetOps::Assign(emitComp, emitThisGCrefVars, vars);
 
@@ -7402,13 +7401,6 @@ void emitter::emitGCvarLiveUpd(int offs, unsigned lclNum, GCtype gcType, BYTE* a
     }
 
     emitGCvarLiveSet(offs, gcType, addr, index);
-
-#ifdef DEBUG
-    if ((EMIT_GC_VERBOSE || emitComp->opts.disasmWithGC) && emitComp->lvaGetDesc(lclNum)->HasLiveness())
-    {
-        VarSetOps::AddElemD(emitComp, debugThisGCrefVars, emitComp->lvaGetDesc(lclNum)->GetLivenessBitIndex());
-    }
-#endif
 }
 
 // Record the fact that the given variable no longer contains a live GC ref.
@@ -7437,13 +7429,6 @@ void emitter::emitGCvarDeadUpd(int offs, BYTE* addr DEBUG_ARG(unsigned lclNum))
 #endif
 
     emitGCvarDeadSet(offs, addr, index);
-
-#ifdef DEBUG
-    if ((EMIT_GC_VERBOSE || emitComp->opts.disasmWithGC) && emitComp->lvaGetDesc(lclNum)->HasLiveness())
-    {
-        VarSetOps::RemoveElemD(emitComp, debugThisGCrefVars, emitComp->lvaGetDesc(lclNum)->GetLivenessBitIndex());
-    }
-#endif
 }
 
 /*****************************************************************************
