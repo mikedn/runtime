@@ -7376,16 +7376,12 @@ void emitter::emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsi
 void emitter::emitGCvarLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum))
 {
     assert(abs(offs) % REGSIZE_BYTES == 0);
+    assert((emitGCrFrameOffsMin <= offs) && (offs < emitGCrFrameOffsMax));
     assert(needsGC(gcType));
     assert(emitComp->lvaGetDesc(lclNum)->HasGCSlotLiveness());
 #if FEATURE_FIXED_OUT_ARGS
     assert(lclNum != emitComp->lvaOutgoingArgSpaceVar);
 #endif
-
-    if ((offs < emitGCrFrameOffsMin) || (emitGCrFrameOffsMax <= offs))
-    {
-        return;
-    }
 
     unsigned index = (offs - emitGCrFrameOffsMin) / REGSIZE_BYTES;
     assert(index < emitGCrFrameOffsCnt);
@@ -7405,11 +7401,11 @@ void emitter::emitGCvarDeadUpd(int offs, BYTE* addr DEBUG_ARG(unsigned lclNum))
 {
     assert(emitIssuing);
     assert(abs(offs) % REGSIZE_BYTES == 0);
-
-    if ((offs < emitGCrFrameOffsMin) || (emitGCrFrameOffsMax <= offs))
-    {
-        return;
-    }
+    assert((emitGCrFrameOffsMin <= offs) && (offs < emitGCrFrameOffsMax));
+    assert(emitComp->lvaGetDesc(lclNum)->HasGCSlotLiveness());
+#if FEATURE_FIXED_OUT_ARGS
+    assert(lclNum != emitComp->lvaOutgoingArgSpaceVar);
+#endif
 
     unsigned index = (offs - emitGCrFrameOffsMin) / REGSIZE_BYTES;
     assert(index < emitGCrFrameOffsCnt);
