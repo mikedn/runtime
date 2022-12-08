@@ -5677,12 +5677,14 @@ unsigned emitter::emitEndCodeGen(bool      fullyInt,
         emitOutputDataSec(&emitConsDsc, consBlock);
     }
 
+    unsigned endCodeOffs = emitCurCodeOffs(cp);
+
     // Make sure all GC ref variables are marked as dead.
     for (unsigned i = 0; i < emitGCrFrameOffsCnt; i++)
     {
         if (emitGCrFrameLiveTab[i] != nullptr)
         {
-            emitGCvarDeadSet(emitGCrFrameOffsMin + i * REGSIZE_BYTES, cp, i);
+            emitGCvarDeadSet(emitGCrFrameOffsMin + i * REGSIZE_BYTES, endCodeOffs, i);
         }
     }
 
@@ -6598,27 +6600,27 @@ void emitter::emitDispDataSec(dataSecDsc* section)
 #endif
 
 // Record the fact that the given variable now contains a live GC ref.
-void emitter::emitGCvarLiveSet(int offs, GCtype gcType, BYTE* addr, unsigned index)
+void emitter::emitGCvarLiveSet(int slotOffs, GCtype gcType, unsigned codeOffs, unsigned index)
 {
     assert(emitIssuing);
-    assert(abs(offs) % REGSIZE_BYTES == 0);
+    assert(abs(slotOffs) % REGSIZE_BYTES == 0);
     assert(needsGC(gcType));
     assert(index < emitGCrFrameOffsCnt);
     assert(emitGCrFrameLiveTab[index] == nullptr);
 
 #if defined(JIT32_GCENCODER) && !defined(FEATURE_EH_FUNCLETS)
-    if (offs == emitSyncThisObjOffs)
+    if (slotOffs == emitSyncThisObjOffs)
     {
-        offs |= this_OFFSET_FLAG;
+        slotOffs |= this_OFFSET_FLAG;
     }
 #endif
 
     if (gcType == GCT_BYREF)
     {
-        offs |= byref_OFFSET_FLAG;
+        slotOffs |= byref_OFFSET_FLAG;
     }
 
-    GCFrameLifetime* lifetime = new (emitComp, CMK_GC) GCFrameLifetime(offs, emitCurCodeOffs(addr));
+    GCFrameLifetime* lifetime = new (emitComp, CMK_GC) GCFrameLifetime(slotOffs, codeOffs);
 
     emitGCrFrameLiveTab[index] = lifetime;
     // The "global" live GC variable mask is no longer up-to-date.
@@ -6630,19 +6632,19 @@ void emitter::emitGCvarLiveSet(int offs, GCtype gcType, BYTE* addr, unsigned ind
 }
 
 // Record the fact that the given variable no longer contains a live GC ref.
-void emitter::emitGCvarDeadSet(int offs, BYTE* addr, unsigned index)
+void emitter::emitGCvarDeadSet(int slotOffs, unsigned codeOffs, unsigned index)
 {
     assert(emitIssuing);
-    assert(abs(offs) % REGSIZE_BYTES == 0);
+    assert(abs(slotOffs) % REGSIZE_BYTES == 0);
     assert(index < emitGCrFrameOffsCnt);
     assert(emitGCrFrameLiveTab[index] != nullptr);
 
     GCFrameLifetime* lifetime = emitGCrFrameLiveTab[index];
 
-    assert(static_cast<int>(lifetime->frameOffset & ~OFFSET_MASK) == offs);
+    assert(static_cast<int>(lifetime->frameOffset & ~OFFSET_MASK) == slotOffs);
     assert(lifetime->vpdEndOfs == 0);
 
-    lifetime->vpdEndOfs = emitCurCodeOffs(addr);
+    lifetime->vpdEndOfs = codeOffs;
 
     emitGCrFrameLiveTab[index] = nullptr;
     // The "global" live GC variable mask is no longer up-to-date.
@@ -7393,7 +7395,7 @@ void emitter::emitGCvarLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsi
         return;
     }
 
-    emitGCvarLiveSet(offs, gcType, addr, index);
+    emitGCvarLiveSet(offs, gcType, emitCurCodeOffs(addr), index);
 }
 
 // Record the fact that the given variable no longer contains a live GC ref.
@@ -7421,7 +7423,7 @@ void emitter::emitGCvarDeadUpd(int offs, BYTE* addr DEBUG_ARG(unsigned lclNum))
     assert(!emitComp->lvaKeepAliveAndReportThis() || (offs != emitSyncThisObjOffs));
 #endif
 
-    emitGCvarDeadSet(offs, addr, index);
+    emitGCvarDeadSet(offs, emitCurCodeOffs(addr), index);
 }
 
 /*****************************************************************************
