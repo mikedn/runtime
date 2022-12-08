@@ -6692,7 +6692,7 @@ void emitter::emitUpdateLiveGCvars(VARSET_VALARG_TP vars, BYTE* addr)
         {
             GCtype gcType = lcl->TypeIs(TYP_BYREF) ? GCT_BYREF : GCT_GCREF;
 
-            emitGCvarLiveUpd(offs, lclNum, gcType, addr);
+            emitGCvarLiveUpd(offs, gcType, addr DEBUGARG(lclNum));
         }
         else
         {
@@ -7373,20 +7373,16 @@ void emitter::emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsi
 }
 #endif // FEATURE_FIXED_OUT_ARGS
 
-void emitter::emitGCvarLiveUpd(int offs, unsigned lclNum, GCtype gcType, BYTE* addr)
+void emitter::emitGCvarLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum))
 {
     assert(abs(offs) % REGSIZE_BYTES == 0);
     assert(needsGC(gcType));
+    assert(emitComp->lvaGetDesc(lclNum)->HasGCSlotLiveness());
 #if FEATURE_FIXED_OUT_ARGS
     assert(lclNum != emitComp->lvaOutgoingArgSpaceVar);
 #endif
 
     if ((offs < emitGCrFrameOffsMin) || (emitGCrFrameOffsMax <= offs))
-    {
-        return;
-    }
-
-    if (!emitComp->lvaGetDesc(lclNum)->HasGCSlotLiveness())
     {
         return;
     }

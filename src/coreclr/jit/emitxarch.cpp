@@ -9509,8 +9509,9 @@ BYTE* emitter::emitOutputSV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
                     }
                     else
 #endif
+                        if (emitComp->lvaGetDesc(lclNum)->HasGCSlotLiveness())
                     {
-                        emitGCvarLiveUpd(adr, lclNum, id->idGCref(), dst);
+                        emitGCvarLiveUpd(adr, id->idGCref(), dst DEBUGARG(lclNum));
                     }
                 }
                 break;

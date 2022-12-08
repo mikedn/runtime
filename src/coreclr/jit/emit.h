@@ -2110,7 +2110,7 @@ public:
 #if FEATURE_FIXED_OUT_ARGS
     void emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum));
 #endif
-    void emitGCvarLiveUpd(int offs, unsigned lclNum, GCtype gcType, BYTE* addr);
+    void emitGCvarLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum));
     void emitGCvarLiveSet(int offs, GCtype gcType, BYTE* addr, unsigned index);
     void emitGCvarDeadUpd(int offs, BYTE* addr DEBUG_ARG(unsigned lclNum));
     void emitGCvarDeadSet(int offs, BYTE* addr, unsigned index);

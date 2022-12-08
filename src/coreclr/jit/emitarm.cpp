@@ -6249,9 +6249,9 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             {
                 emitGCargLiveUpd(adr, id->idGCref(), dst DEBUGARG(lclNum));
             }
-            else
+            else if (emitComp->lvaGetDesc(lclNum)->HasGCSlotLiveness())
             {
-                emitGCvarLiveUpd(adr, lclNum, id->idGCref(), dst);
+                emitGCvarLiveUpd(adr, id->idGCref(), dst DEBUGARG(lclNum));
             }
         }
     }
