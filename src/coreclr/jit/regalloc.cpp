@@ -114,7 +114,12 @@ bool Compiler::rpMustCreateEBPFrame()
     bool result = false;
     INDEBUG(const char* reason = nullptr);
 
-    if (opts.OptimizationDisabled())
+    if (opts.IsFramePointerRequired())
+    {
+        INDEBUG(reason = "FramePointerRequired");
+        result = true;
+    }
+    else if (opts.OptimizationDisabled())
     {
         INDEBUG(reason = "Debug Code");
         result = true;
