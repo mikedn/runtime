@@ -147,8 +147,6 @@ public:
     bool needToAlignFrame = false;
 #endif
 
-    FrameType rpFrameType;
-
     bool generatingProlog = false;
     bool generatingEpilog = false;
 

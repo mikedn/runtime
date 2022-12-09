@@ -652,7 +652,6 @@ LinearScan::LinearScan(Compiler* theCompiler)
         availableDoubleRegs &= ~RBM_CALLEE_SAVED;
     }
 #endif // TARGET_AMD64
-    compiler->codeGen->rpFrameType = FT_NOT_SET;
 
     // Block sequencing (the order in which we schedule).
     // Note that we don't initialize the bbVisitedSet until we do the first traversal
@@ -2230,50 +2229,22 @@ void LinearScan::dumpVarRefPositions(const char* title)
 //
 void LinearScan::setFrameType()
 {
-    FrameType frameType;
+    regMaskTP removeMask = RBM_NONE;
 
 #if DOUBLE_ALIGN
     if (doDoubleAlign)
     {
-        frameType = FT_DOUBLE_ALIGN_FRAME;
+        noway_assert(!compiler->codeGen->isFramePointerRequired());
+
+        compiler->codeGen->setDoubleAlign(true);
     }
     else
 #endif
         if (compiler->codeGen->isFramePointerRequired() || compiler->rpMustCreateEBPFrame())
     {
-        frameType = FT_EBP_FRAME;
-    }
-    else
-    {
-        frameType = FT_ESP_FRAME;
-    }
-
-    switch (frameType)
-    {
-        default:
-            assert(frameType == FT_ESP_FRAME);
-            noway_assert(!compiler->codeGen->isFramePointerRequired());
-            break;
-        case FT_EBP_FRAME:
-            compiler->codeGen->setFramePointerUsed(true);
-            break;
-#if DOUBLE_ALIGN
-        case FT_DOUBLE_ALIGN_FRAME:
-            noway_assert(!compiler->codeGen->isFramePointerRequired());
-            compiler->codeGen->setDoubleAlign(true);
-            break;
-#endif
-    }
-
-    // If we are using FPBASE as the frame register, we cannot also use it for
-    // a local var.
-    regMaskTP removeMask = RBM_NONE;
-    if (frameType == FT_EBP_FRAME)
-    {
+        compiler->codeGen->setFramePointerUsed(true);
         removeMask |= RBM_FPBASE;
     }
-
-    compiler->codeGen->rpFrameType = frameType;
 
 #ifdef TARGET_ARMARCH
     // Determine whether we need to reserve a register for large lclVar offsets.

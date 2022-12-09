@@ -3771,23 +3771,19 @@ void Compiler::compCompileFinish()
             printf("   | ");
         }
 
-        if (codeGen->rpFrameType == FT_EBP_FRAME)
+        if (codeGen->isFramePointerUsed())
         {
             printf("%3s | ", STR_FPBASE);
         }
-        else if (codeGen->rpFrameType == FT_ESP_FRAME)
-        {
-            printf("%3s | ", STR_SPBASE);
-        }
 #if DOUBLE_ALIGN
-        else if (codeGen->rpFrameType == FT_DOUBLE_ALIGN_FRAME)
+        else if (codeGen->doDoubleAlign())
         {
             printf("dbl | ");
         }
 #endif
-        else // (codeGen->rpFrameType == FT_NOT_SET)
+        else
         {
-            printf("??? | ");
+            printf("%3s | ", STR_SPBASE);
         }
 
         if (fgHasLoops)
