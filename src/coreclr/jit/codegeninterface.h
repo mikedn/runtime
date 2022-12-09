@@ -157,19 +157,18 @@ public:
     static bool            UseOptimizedWriteBarriers();
     static CorInfoHelpFunc GetWriteBarrierHelperCall(GCInfo::WriteBarrierForm wbf);
 
-    // The following property indicates whether the current method sets up
-    // an explicit stack frame or not.
 private:
-    PhasedVar<bool> m_cgFramePointerUsed{false};
+    bool m_cgFramePointerUsed = false;
 
 public:
     bool isFramePointerUsed() const
     {
         return m_cgFramePointerUsed;
     }
-    void setFramePointerUsed(bool value)
+
+    void setFramePointerUsed()
     {
-        m_cgFramePointerUsed = value;
+        m_cgFramePointerUsed = true;
     }
 
 public:
@@ -188,30 +187,30 @@ public:
     // The following property indicates whether we going to double-align the frame.
     // Arguments are accessed relative to the Frame Pointer (EBP), and
     // locals are accessed relative to the Stack Pointer (ESP).
+private:
+    bool m_cgDoubleAlign = false;
+
 public:
     bool doDoubleAlign() const
     {
         return m_cgDoubleAlign;
     }
-    void setDoubleAlign(bool value)
+
+    void setDoubleAlign()
     {
-        m_cgDoubleAlign = value;
+        m_cgDoubleAlign = true;
     }
+
     bool doubleAlignOrFramePointerUsed() const
     {
         return isFramePointerUsed() || doDoubleAlign();
     }
-
-private:
-    bool m_cgDoubleAlign = false;
-#else  // !DOUBLE_ALIGN
-
-public:
+#else
     bool doubleAlignOrFramePointerUsed() const
     {
         return isFramePointerUsed();
     }
-#endif // !DOUBLE_ALIGN
+#endif
 
 public:
     emitter* GetEmitter() const

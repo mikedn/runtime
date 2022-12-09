@@ -2238,13 +2238,13 @@ void LinearScan::setFrameType()
     {
         noway_assert(!compiler->opts.IsFramePointerRequired());
 
-        compiler->codeGen->setDoubleAlign(true);
+        compiler->codeGen->setDoubleAlign();
     }
     else
 #endif
         if (compiler->opts.IsFramePointerRequired() || compiler->rpMustCreateEBPFrame())
     {
-        compiler->codeGen->setFramePointerUsed(true);
+        compiler->codeGen->setFramePointerUsed();
         removeMask |= RBM_FPBASE;
     }
 
