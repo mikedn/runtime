@@ -7,12 +7,10 @@
 StackLevelSetter::StackLevelSetter(Compiler* compiler)
     : Phase(compiler, PHASE_STACK_LEVEL_SETTER)
 #if !FEATURE_FIXED_OUT_ARGS
-    , framePointerRequired(compiler->codeGen->isFramePointerRequired())
+    , framePointerRequired(compiler->opts.IsFramePointerRequired())
     , throwHelperBlocksUsed(comp->fgUseThrowHelperBlocks() && comp->compUsesThrowHelper)
 #endif
 {
-    // The constructor reads this value to skip iterations that could set it if it is already set.
-    compiler->codeGen->resetWritePhaseForFramePointerRequired();
 }
 
 //------------------------------------------------------------------------
@@ -59,7 +57,7 @@ PhaseStatus StackLevelSetter::DoPhase()
 #endif
         )
     {
-        comp->codeGen->setFramePointerRequired(true);
+        comp->opts.SetFramePointerRequired();
     }
 
 #ifdef JIT32_GCENCODER

@@ -1590,7 +1590,8 @@ struct CompilerOptions
     int compJitSaveFpLrWithCalleeSavedRegisters;
 #endif
 
-    OptFlags     optFlags;
+    OptFlags     optFlags : 6;
+    bool         framePointerRequired : 1;
     codeOptimize compCodeOpt; // what type of code optimizations
 
 // optimize maximally and/or favor speed over size?
@@ -1692,6 +1693,16 @@ struct CompilerOptions
     bool IsReversePInvoke()
     {
         return jitFlags->IsSet(JitFlags::JIT_FLAG_REVERSE_PINVOKE);
+    }
+
+    bool IsFramePointerRequired() const
+    {
+        return framePointerRequired;
+    }
+
+    void SetFramePointerRequired()
+    {
+        framePointerRequired = true;
     }
 
     bool compScopeInfo : 1; // Generate the LocalVar info ?

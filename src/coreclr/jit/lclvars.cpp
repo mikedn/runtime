@@ -4935,7 +4935,7 @@ bool Compiler::lvaHasLargeFrameOffset()
     unsigned maxR11NegativeOffset = frameSize - (2 * REGSIZE_BYTES);
     JITDUMP("  maxR11NegativeOffset             = %6d\n", maxR11NegativeOffset);
 
-    if (codeGen->isFramePointerRequired())
+    if (opts.IsFramePointerRequired())
     {
         if (maxR11NegativeOffset > maxR11NegativeEncodingOffset)
         {

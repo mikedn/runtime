@@ -14602,7 +14602,7 @@ void Compiler::fgSetOptions()
     if (compHndBBtabCount > 0)
 #endif
     {
-        codeGen->setFramePointerRequired(true);
+        opts.SetFramePointerRequired();
 
 #ifndef JIT32_GCENCODER
         // EnumGcRefs will only enumerate slots in aborted frames
@@ -14622,7 +14622,7 @@ void Compiler::fgSetOptions()
 #endif
              || opts.compDbgEnC)
     {
-        codeGen->setFramePointerRequired(true);
+        opts.SetFramePointerRequired();
     }
 }
 

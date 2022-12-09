@@ -184,29 +184,6 @@ public:
     bool genSaveFpLrWithAllCalleeSavedRegisters = false;
 #endif
 
-private:
-    PhasedVar<bool> m_cgFramePointerRequired{false};
-
-public:
-    bool isFramePointerRequired() const
-    {
-        return m_cgFramePointerRequired;
-    }
-
-    void setFramePointerRequired(bool value)
-    {
-        m_cgFramePointerRequired = value;
-    }
-
-    //------------------------------------------------------------------------
-    // resetWritePhaseForFramePointerRequired: Return m_cgFramePointerRequired into the write phase.
-    // It is used only before the first phase, that locks this value, currently it is LSRA.
-    // Use it if you want to skip checks that set this value to true if the value is already true.
-    void resetWritePhaseForFramePointerRequired()
-    {
-        m_cgFramePointerRequired.ResetWritePhase();
-    }
-
 #if DOUBLE_ALIGN
     // The following property indicates whether we going to double-align the frame.
     // Arguments are accessed relative to the Frame Pointer (EBP), and

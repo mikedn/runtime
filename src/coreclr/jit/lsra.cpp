@@ -1410,9 +1410,11 @@ void LinearScan::identifyCandidates()
     BasicBlock::weight_t refCntWtdReg    = 0;
     unsigned             refCntStkParam  = 0; // sum of     ref counts for all stack based parameters
     BasicBlock::weight_t refCntWtdStkDbl = 0; // sum of wtd ref counts for stack based doubles
-    doDoubleAlign                        = false;
-    bool checkDoubleAlign                = true;
-    if (compiler->codeGen->isFramePointerRequired() || compiler->opts.MinOpts())
+
+    doDoubleAlign         = false;
+    bool checkDoubleAlign = true;
+
+    if (compiler->opts.IsFramePointerRequired() || compiler->opts.MinOpts())
     {
         checkDoubleAlign = false;
     }
@@ -2234,13 +2236,13 @@ void LinearScan::setFrameType()
 #if DOUBLE_ALIGN
     if (doDoubleAlign)
     {
-        noway_assert(!compiler->codeGen->isFramePointerRequired());
+        noway_assert(!compiler->opts.IsFramePointerRequired());
 
         compiler->codeGen->setDoubleAlign(true);
     }
     else
 #endif
-        if (compiler->codeGen->isFramePointerRequired() || compiler->rpMustCreateEBPFrame())
+        if (compiler->opts.IsFramePointerRequired() || compiler->rpMustCreateEBPFrame())
     {
         compiler->codeGen->setFramePointerUsed(true);
         removeMask |= RBM_FPBASE;

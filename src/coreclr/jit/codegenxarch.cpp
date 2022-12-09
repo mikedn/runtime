@@ -438,12 +438,12 @@ void CodeGen::genEHFinallyOrFilterRet(BasicBlock* block)
     if (block->bbJumpKind == BBJ_EHFINALLYRET)
     {
         assert(block->lastNode()->AsOp()->gtOp1 == nullptr); // op1 == nullptr means endfinally
+        noway_assert(isFramePointerUsed());
 
         // Return using a pop-jmp sequence. As the "try" block calls
         // the finally with a jmp, this leaves the x86 call-ret stack
         // balanced in the normal flow of path.
 
-        noway_assert(isFramePointerRequired());
         inst_RV(INS_pop_hide, REG_EAX, TYP_I_IMPL);
         inst_RV(INS_i_jmp, REG_EAX, TYP_I_IMPL);
     }
