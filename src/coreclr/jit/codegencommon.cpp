@@ -3520,8 +3520,6 @@ void CodeGen::MarkGCTrackedSlots(int&       minBlockInitOffset,
     // TODO-Cleanup: Add suitable assert for the OSR case.
     assert(compiler->opts.IsOSR() || ((genInitStkLclCnt > 0) == (maxBlockInitOffset != INT_MIN)));
 
-    JITDUMP("GC tracked slot offsets in [%d..%d)\n", minGCTrackedOffset, maxGCTrackedOffset + REGSIZE_BYTES);
-
     if (genUseBlockInit)
     {
         JITDUMP("Block init slot offsets in [%d..%d)\n", minBlockInitOffset, maxBlockInitOffset + REGSIZE_BYTES);
@@ -3529,7 +3527,21 @@ void CodeGen::MarkGCTrackedSlots(int&       minBlockInitOffset,
 
     if (maxGCTrackedOffset != INT_MIN)
     {
+        JITDUMP("%u tracked GC refs in frame range ", (maxGCTrackedOffset - minGCTrackedOffset) / REGSIZE_BYTES + 1);
+#ifdef TARGET_ARMARCH
+        JITDUMP("[%s,#%d] - [%s,#%d]\n", GetEmitter()->emitGetFrameReg(), minGCTrackedOffset,
+                GetEmitter()->emitGetFrameReg(), maxGCTrackedOffset);
+#else
+        JITDUMP("[%s%c%02XH] - [%s%c%02XH]\n", GetEmitter()->emitGetFrameReg(), minGCTrackedOffset < 0 ? '-' : '+',
+                abs(minGCTrackedOffset), GetEmitter()->emitGetFrameReg(), maxGCTrackedOffset < 0 ? '-' : '+',
+                abs(maxGCTrackedOffset));
+#endif
+
         GetEmitter()->emitSetFrameRangeGCRs(minGCTrackedOffset, maxGCTrackedOffset + REGSIZE_BYTES);
+    }
+    else
+    {
+        JITDUMP("No tracked GC refs\n");
     }
 }
 

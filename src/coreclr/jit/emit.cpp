@@ -1969,10 +1969,9 @@ void emitter::emitStartExitSeq()
 
 void emitter::emitSetFrameRangeGCRs(int offsLo, int offsHi)
 {
-    assert(codeGen->generatingProlog);
     assert(offsHi > offsLo);
-
-#ifdef DEBUG
+    assert(offsLo % REGSIZE_BYTES == 0);
+    assert(offsHi % REGSIZE_BYTES == 0);
 
     //  A total of    47254 methods compiled.
     //
@@ -1990,50 +1989,9 @@ void emitter::emitSetFrameRangeGCRs(int offsLo, int offsHi)
     //     257 ..    512 ===>      4 count (100% of total)
     //     513 ..   1024 ===>      0 count (100% of total)
 
-    if (emitComp->verbose)
-    {
-        unsigned count = (offsHi - offsLo) / TARGET_POINTER_SIZE;
-        printf("%u tracked GC refs are at stack offsets ", count);
-
-        if (offsLo >= 0)
-        {
-            printf(" %04X ...  %04X\n", offsLo, offsHi);
-            assert(offsHi >= 0);
-        }
-        else
-#if defined(TARGET_ARM) && defined(PROFILING_SUPPORTED)
-            if (!emitComp->compIsProfilerHookNeeded())
-#endif
-        {
-#ifdef TARGET_AMD64
-            // doesn't have to be all negative on amd
-            printf("-%04X ... %04X\n", -offsLo, offsHi);
-#else
-            printf("-%04X ... -%04X\n", -offsLo, -offsHi);
-            assert(offsHi <= 0);
-#endif
-        }
-#if defined(TARGET_ARM) && defined(PROFILING_SUPPORTED)
-        else
-        {
-            // Under profiler due to prespilling of arguments, offHi need not be < 0
-            if (offsHi < 0)
-                printf("-%04X ... -%04X\n", -offsLo, -offsHi);
-            else
-                printf("-%04X ... %04X\n", -offsLo, offsHi);
-        }
-#endif
-    }
-
-#endif // DEBUG
-
-    assert(((offsHi - offsLo) % TARGET_POINTER_SIZE) == 0);
-    assert((offsLo % TARGET_POINTER_SIZE) == 0);
-    assert((offsHi % TARGET_POINTER_SIZE) == 0);
-
     emitGCrFrameOffsMin = offsLo;
     emitGCrFrameOffsMax = offsHi;
-    emitGCrFrameOffsCnt = (offsHi - offsLo) / TARGET_POINTER_SIZE;
+    emitGCrFrameOffsCnt = (offsHi - offsLo) / REGSIZE_BYTES;
 }
 
 /*****************************************************************************
