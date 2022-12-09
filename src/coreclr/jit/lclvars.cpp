@@ -3536,7 +3536,7 @@ void Compiler::lvaFixVirtualFrameOffsets()
 
     JITDUMP("--- delta bump %d for RA\n", REGSIZE_BYTES);
 
-    if (codeGen->doubleAlignOrFramePointerUsed())
+    if (codeGen->IsFramePointerRequired())
     {
         JITDUMP("--- delta bump %d for FP\n", REGSIZE_BYTES);
 
@@ -3583,7 +3583,7 @@ void Compiler::lvaFixVirtualFrameOffsets()
         LclVarDsc* lcl = lvaGetDesc(lclNum);
 
         // Can't be relative to EBP unless we have an EBP
-        noway_assert(!lcl->lvFramePointerBased || codeGen->doubleAlignOrFramePointerUsed());
+        noway_assert(!lcl->lvFramePointerBased || codeGen->IsFramePointerRequired());
 
         if (lcl->IsDependentPromotedField(this))
         {
@@ -3809,7 +3809,7 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
 
     // TODO-AMD64-CQ: for X64 eventually this should be pushed with all the other callee regs.
     // When you fix this, you'll also need to fix the assert at the bottom of this method.
-    if (codeGen->doubleAlignOrFramePointerUsed())
+    if (codeGen->IsFramePointerRequired())
     {
         stkOffs -= REGSIZE_BYTES;
     }
@@ -4481,7 +4481,7 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
 #endif
 
 #ifdef TARGET_XARCH
-    if (codeGen->doubleAlignOrFramePointerUsed())
+    if (codeGen->IsFramePointerRequired())
     {
         pushedCount++; // pushed EBP (frame pointer)
     }
@@ -4701,7 +4701,7 @@ void Compiler::lvaAlignFrame()
 #ifdef UNIX_X86_ABI
     // On unix-x86 the stack must be 16 byte alignment.
 
-    int pushCount = 1 + (codeGen->doubleAlignOrFramePointerUsed() ? 1 : 0) + codeGen->calleeRegsPushed;
+    int pushCount = 1 + (codeGen->IsFramePointerRequired() ? 1 : 0) + codeGen->calleeRegsPushed;
     int frameSize = codeGen->lclFrameSize + (pushCount * REGSIZE_BYTES) % 16;
 
     if (frameSize % 16 != 0)

@@ -1529,7 +1529,7 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
 
     compiler->unwindAllocStack(frameSize);
 #ifdef USING_SCOPE_INFO
-    if (!doubleAlignOrFramePointerUsed())
+    if (!IsFramePointerRequired())
     {
         psiAdjustStackLevel(frameSize);
     }

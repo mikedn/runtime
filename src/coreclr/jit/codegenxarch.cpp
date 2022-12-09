@@ -2046,7 +2046,7 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
     }
 
 #ifdef USING_SCOPE_INFO
-    if (!doubleAlignOrFramePointerUsed())
+    if (!IsFramePointerRequired())
     {
         psiAdjustStackLevel(frameSize);
     }
@@ -8918,7 +8918,7 @@ void CodeGen::PrologPushCalleeSavedRegisters()
             inst_RV(INS_push, reg, TYP_REF);
             compiler->unwindPush(reg);
 #ifdef USING_SCOPE_INFO
-            if (!doubleAlignOrFramePointerUsed())
+            if (!IsFramePointerRequired())
             {
                 psiAdjustStackLevel(REGSIZE_BYTES);
             }
@@ -9678,7 +9678,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
 
     /* Compute the size in bytes we've pushed/popped */
 
-    bool removeEbpFrame = doubleAlignOrFramePointerUsed();
+    bool removeEbpFrame = IsFramePointerRequired();
 
 #ifdef TARGET_AMD64
     // We only remove the EBP frame using the frame pointer (using `lea rsp, [rbp + const]`)
@@ -9693,7 +9693,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
     //
     // Otherwise, we must use `add RSP, constant`, as stated. So, we need to use the same condition
     // as genFnProlog() used in determining whether to report the frame pointer in the unwind data.
-    // This is a subset of the `doubleAlignOrFramePointerUsed()` cases.
+    // This is a subset of the `IsFramePointerRequired()` cases.
     //
     if (removeEbpFrame)
     {
@@ -9752,7 +9752,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
     }
     else
     {
-        noway_assert(doubleAlignOrFramePointerUsed());
+        noway_assert(IsFramePointerRequired());
 
 #ifdef TARGET_X86 // "mov esp, ebp" is not allowed in AMD64 epilogs
         bool needMovEspEbp = false;

@@ -200,19 +200,17 @@ public:
     {
         m_cgDoubleAlign = true;
     }
-
-    bool doubleAlignOrFramePointerUsed() const
-    {
-        return isFramePointerUsed() || doDoubleAlign();
-    }
-#else
-    bool doubleAlignOrFramePointerUsed() const
-    {
-        return isFramePointerUsed();
-    }
 #endif
 
-public:
+    bool IsFramePointerRequired() const
+    {
+        return isFramePointerUsed()
+#if DOUBLE_ALIGN
+               || doDoubleAlign()
+#endif
+            ;
+    }
+
     emitter* GetEmitter() const
     {
         return m_cgEmitter;

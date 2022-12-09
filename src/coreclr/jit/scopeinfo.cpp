@@ -1444,7 +1444,7 @@ NATIVE_OFFSET CodeGen::psiGetVarStackOffset(const LclVarDsc* lclVarDsc) const
     stackOffset = compiler->lvaToCallerSPRelativeOffset(lclVarDsc->GetStackOffset(), lclVarDsc->lvFramePointerBased) +
                   REGSIZE_BYTES;
 #else  // !TARGET_AMD64
-    if (doubleAlignOrFramePointerUsed())
+    if (IsFramePointerRequired())
     {
         // REGSIZE_BYTES - for the pushed value of EBP
         stackOffset = lclVarDsc->GetStackOffset() - REGSIZE_BYTES;
@@ -1634,7 +1634,7 @@ void CodeGen::psiMoveESPtoEBP()
     }
 
     assert(compiler->compGeneratingProlog);
-    assert(doubleAlignOrFramePointerUsed());
+    assert(IsFramePointerRequired());
 
 #ifdef ACCURATE_PROLOG_DEBUG_INFO
 

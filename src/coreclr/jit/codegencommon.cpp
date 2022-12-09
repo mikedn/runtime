@@ -4019,7 +4019,7 @@ void CodeGen::genFinalizeFrame()
 
     const regMaskTP modifiedRegs = calleeSavedModifiedRegs;
 
-    noway_assert(!doubleAlignOrFramePointerUsed() || ((modifiedRegs & RBM_FPBASE) == RBM_NONE));
+    noway_assert(!IsFramePointerRequired() || ((modifiedRegs & RBM_FPBASE) == RBM_NONE));
 #if ETW_EBP_FRAMED
     noway_assert((modifiedRegs & RBM_FPBASE) == RBM_NONE);
 #endif
@@ -4349,7 +4349,7 @@ void CodeGen::genFnProlog()
     }
 #endif
 
-    if (doubleAlignOrFramePointerUsed())
+    if (IsFramePointerRequired())
     {
         GetEmitter()->emitIns_R(INS_push, EA_PTRSIZE, REG_FPBASE);
         compiler->unwindPush(REG_FPBASE);
