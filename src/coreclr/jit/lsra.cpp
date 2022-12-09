@@ -2230,31 +2230,24 @@ void LinearScan::dumpVarRefPositions(const char* title)
 //
 void LinearScan::setFrameType()
 {
-    FrameType frameType = FT_NOT_SET;
+    FrameType frameType;
+
 #if DOUBLE_ALIGN
-    compiler->codeGen->setDoubleAlign(false);
     if (doDoubleAlign)
     {
         frameType = FT_DOUBLE_ALIGN_FRAME;
-        compiler->codeGen->setDoubleAlign(true);
     }
     else
-#endif // DOUBLE_ALIGN
+#endif
         if (compiler->codeGen->isFramePointerRequired())
     {
         frameType = FT_EBP_FRAME;
     }
     else
     {
-        if (!rpMustCreateEBPCalled)
+        if (compiler->rpMustCreateEBPFrame())
         {
-            rpMustCreateEBPCalled = true;
-            INDEBUG(const char* reason);
-            if (compiler->rpMustCreateEBPFrame(INDEBUG(&reason)))
-            {
-                JITDUMP("; Decided to create an EBP based frame for ETW stackwalking (%s)\n", reason);
-                compiler->codeGen->setFrameRequired(true);
-            }
+            compiler->codeGen->setFrameRequired(true);
         }
 
         if (compiler->codeGen->isFrameRequired())
@@ -2269,10 +2262,10 @@ void LinearScan::setFrameType()
 
     switch (frameType)
     {
-        case FT_ESP_FRAME:
+        default:
+            assert(frameType == FT_ESP_FRAME);
             noway_assert(!compiler->codeGen->isFramePointerRequired());
             noway_assert(!compiler->codeGen->isFrameRequired());
-            compiler->codeGen->setFramePointerUsed(false);
             break;
         case FT_EBP_FRAME:
             compiler->codeGen->setFramePointerUsed(true);
@@ -2280,12 +2273,9 @@ void LinearScan::setFrameType()
 #if DOUBLE_ALIGN
         case FT_DOUBLE_ALIGN_FRAME:
             noway_assert(!compiler->codeGen->isFramePointerRequired());
-            compiler->codeGen->setFramePointerUsed(false);
+            compiler->codeGen->setDoubleAlign(true);
             break;
-#endif // DOUBLE_ALIGN
-        default:
-            noway_assert(!"rpFrameType not set correctly!");
-            break;
+#endif
     }
 
     // If we are using FPBASE as the frame register, we cannot also use it for

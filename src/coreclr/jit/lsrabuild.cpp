@@ -1931,12 +1931,6 @@ void LinearScan::buildIntervals()
     }
 #endif // DEBUG
 
-#if DOUBLE_ALIGN
-    // We will determine whether we should double align the frame during
-    // identifyCandidates(), but we initially assume that we will not.
-    doDoubleAlign = false;
-#endif
-
     identifyCandidates();
 
     // Figure out if we're going to use a frame pointer. We need to do this before building

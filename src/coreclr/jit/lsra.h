@@ -1583,7 +1583,7 @@ private:
     }
 
 #if DOUBLE_ALIGN
-    bool doDoubleAlign;
+    bool doDoubleAlign = false;
 #endif
 
     // A map from bbNum to the block information used during register allocation.
@@ -1861,8 +1861,6 @@ private:
     // 'pendingDelayFree' to true as they are created, and clearing it as a new node is
     // handled in 'BuildNode'.
     bool pendingDelayFree;
-
-    bool rpMustCreateEBPCalled = false; // Set to true after we have called rpMustCreateEBPFrame once
 
     // This method clears the "build state" before starting to handle a new node.
     void clearBuildState()

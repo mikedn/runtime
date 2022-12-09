@@ -6222,7 +6222,7 @@ public:
 #endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
 
 protected:
-    bool rpMustCreateEBPFrame(INDEBUG(const char** wbReason));
+    bool rpMustCreateEBPFrame();
 
 private:
     bool lvaIsX86VarargsStackParam(unsigned lclNum);

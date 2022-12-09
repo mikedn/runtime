@@ -109,73 +109,65 @@ bool Compiler::shouldDoubleAlign(unsigned             refCntStk,
 }
 #endif // DOUBLE_ALIGN
 
-/* Returns true when we must create an EBP frame
-   This is used to force most managed methods to have EBP based frames
-   which allows the ETW kernel stackwalker to walk the stacks of managed code
-   this allows the kernel to perform light weight profiling
- */
-bool Compiler::rpMustCreateEBPFrame(INDEBUG(const char** wbReason))
+bool Compiler::rpMustCreateEBPFrame()
 {
     bool result = false;
-#ifdef DEBUG
-    const char* reason = nullptr;
-#endif
+    INDEBUG(const char* reason = nullptr);
 
 #if ETW_EBP_FRAMED
-    if (!result && opts.OptimizationDisabled())
+    if (opts.OptimizationDisabled())
     {
         INDEBUG(reason = "Debug Code");
         result = true;
     }
-    if (!result && (info.compMethodInfo->ILCodeSize > DEFAULT_MAX_INLINE_SIZE))
+    else if (info.compMethodInfo->ILCodeSize > DEFAULT_MAX_INLINE_SIZE)
     {
         INDEBUG(reason = "IL Code Size");
         result = true;
     }
-    if (!result && (fgBBcount > 3))
+    else if (fgBBcount > 3)
     {
         INDEBUG(reason = "BasicBlock Count");
         result = true;
     }
-    if (!result && fgHasLoops)
+    else if (fgHasLoops)
     {
         INDEBUG(reason = "Method has Loops");
         result = true;
     }
-    if (!result && (optCallCount >= 2))
+    else if (optCallCount >= 2)
     {
         INDEBUG(reason = "Call Count");
         result = true;
     }
-    if (!result && (optIndirectCallCount >= 1))
+    else if (optIndirectCallCount >= 1)
     {
         INDEBUG(reason = "Indirect Call");
         result = true;
     }
-#endif // ETW_EBP_FRAMED
-
-    // VM wants to identify the containing frame of an InlinedCallFrame always
-    // via the frame register never the stack register so we need a frame.
-    if (!result && (optNativeCallCount != 0))
+    else
+#endif
+        if (optNativeCallCount != 0)
     {
+        // VM wants to identify the containing frame of an InlinedCallFrame always
+        // via the frame register never the stack register so we need a frame.
         INDEBUG(reason = "Uses PInvoke");
         result = true;
     }
-
 #ifdef TARGET_ARM64
-    // TODO-ARM64-NYI: This is temporary: force a frame pointer-based frame until genFnProlog can handle non-frame
-    // pointer frames.
-    if (!result)
+    else
     {
+        // TODO-ARM64-NYI: This is temporary: force a frame pointer-based frame
+        // until genFnProlog can handle non-frame pointer frames.
         INDEBUG(reason = "Temporary ARM64 force frame pointer");
         result = true;
     }
 #endif // TARGET_ARM64
 
 #ifdef DEBUG
-    if ((result == true) && (wbReason != nullptr))
+    if (result)
     {
-        *wbReason = reason;
+        JITDUMP("; Decided to create an EBP based frame, reason = '%s'\n", reason);
     }
 #endif
 

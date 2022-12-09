@@ -162,7 +162,7 @@ public:
     // The following property indicates whether the current method sets up
     // an explicit stack frame or not.
 private:
-    PhasedVar<bool> m_cgFramePointerUsed;
+    PhasedVar<bool> m_cgFramePointerUsed{false};
 
 public:
     bool isFramePointerUsed() const
@@ -250,7 +250,7 @@ public:
     }
 
 private:
-    bool m_cgDoubleAlign;
+    bool m_cgDoubleAlign = false;
 #else  // !DOUBLE_ALIGN
 
 public:
