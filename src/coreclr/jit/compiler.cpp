@@ -2389,22 +2389,6 @@ void Compiler::compSetOptimizationLevel(const ILStats& ilStats)
         opts.optFlags = CLFLG_MINOPT;
     }
 
-    if (opts.OptimizationDisabled())
-    {
-        codeGen->setFrameRequired(true);
-    }
-
-#if !defined(TARGET_AMD64)
-    // The VM sets JitFlags::JIT_FLAG_FRAMED for two reasons: (1) the COMPlus_JitFramed variable is set, or
-    // (2) the function is marked "noinline". The reason for #2 is that people mark functions
-    // noinline to ensure the show up on in a stack walk. But for AMD64, we don't need a frame
-    // pointer for the frame to show up in stack walk.
-    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_FRAMED))
-    {
-        codeGen->setFrameRequired(true);
-    }
-#endif
-
     if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
     {
         // The JIT doesn't currently support loop alignment for prejitted images.

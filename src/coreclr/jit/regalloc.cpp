@@ -114,12 +114,25 @@ bool Compiler::rpMustCreateEBPFrame()
     bool result = false;
     INDEBUG(const char* reason = nullptr);
 
-#if ETW_EBP_FRAMED
     if (opts.OptimizationDisabled())
     {
         INDEBUG(reason = "Debug Code");
         result = true;
     }
+#ifndef TARGET_AMD64
+    else if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_FRAMED))
+    {
+        // The VM sets JitFlags::JIT_FLAG_FRAMED for two reasons:
+        // (1) the COMPlus_JitFramed variable is set, or
+        // (2) the function is marked "noinline".
+        // The reason for #2 is that people mark functions noinline to ensure they
+        // show up on in a stack walk. But for AMD64, we don't need a frame pointer
+        // for the frame to show up in stack walk.
+        INDEBUG(reason = "JIT_FLAG_FRAMED");
+        result = true;
+    }
+#endif
+#if ETW_EBP_FRAMED
     else if (info.compMethodInfo->ILCodeSize > DEFAULT_MAX_INLINE_SIZE)
     {
         INDEBUG(reason = "IL Code Size");
@@ -145,9 +158,8 @@ bool Compiler::rpMustCreateEBPFrame()
         INDEBUG(reason = "Indirect Call");
         result = true;
     }
-    else
 #endif
-        if (optNativeCallCount != 0)
+    else if (optNativeCallCount != 0)
     {
         // VM wants to identify the containing frame of an InlinedCallFrame always
         // via the frame register never the stack register so we need a frame.

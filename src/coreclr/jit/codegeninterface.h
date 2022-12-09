@@ -174,21 +174,6 @@ public:
         m_cgFramePointerUsed = value;
     }
 
-    // The following property indicates whether the current method requires
-    // an explicit frame. Does not prohibit double alignment of the stack.
-private:
-    PhasedVar<bool> m_cgFrameRequired{false};
-
-public:
-    bool isFrameRequired() const
-    {
-        return m_cgFrameRequired;
-    }
-    void setFrameRequired(bool value)
-    {
-        m_cgFrameRequired = value;
-    }
-
 public:
     int genCallerSPtoFPdelta() const;
     int genCallerSPtoInitialSPdelta() const;
@@ -201,13 +186,6 @@ public:
     bool genSaveFpLrWithAllCalleeSavedRegisters = false;
 #endif
 
-    // If both isFramePointerRequired() and isFrameRequired() are false, the method is eligible
-    // for Frame-Pointer-Omission (FPO).
-
-    // The following property indicates whether the current method requires
-    // an explicit stack frame, and all arguments and locals to be
-    // accessible relative to the Frame Pointer. Prohibits double alignment
-    // of the stack.
 private:
     PhasedVar<bool> m_cgFramePointerRequired{false};
 

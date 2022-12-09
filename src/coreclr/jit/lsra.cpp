@@ -2239,25 +2239,13 @@ void LinearScan::setFrameType()
     }
     else
 #endif
-        if (compiler->codeGen->isFramePointerRequired())
+        if (compiler->codeGen->isFramePointerRequired() || compiler->rpMustCreateEBPFrame())
     {
         frameType = FT_EBP_FRAME;
     }
     else
     {
-        if (compiler->rpMustCreateEBPFrame())
-        {
-            compiler->codeGen->setFrameRequired(true);
-        }
-
-        if (compiler->codeGen->isFrameRequired())
-        {
-            frameType = FT_EBP_FRAME;
-        }
-        else
-        {
-            frameType = FT_ESP_FRAME;
-        }
+        frameType = FT_ESP_FRAME;
     }
 
     switch (frameType)
@@ -2265,7 +2253,6 @@ void LinearScan::setFrameType()
         default:
             assert(frameType == FT_ESP_FRAME);
             noway_assert(!compiler->codeGen->isFramePointerRequired());
-            noway_assert(!compiler->codeGen->isFrameRequired());
             break;
         case FT_EBP_FRAME:
             compiler->codeGen->setFramePointerUsed(true);
