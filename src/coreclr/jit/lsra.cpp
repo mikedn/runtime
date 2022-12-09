@@ -2239,6 +2239,7 @@ void LinearScan::setFrameType()
         noway_assert(!compiler->opts.IsFramePointerRequired());
 
         compiler->codeGen->setDoubleAlign();
+        removeMask |= RBM_FPBASE;
     }
     else
 #endif
