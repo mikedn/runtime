@@ -6469,7 +6469,7 @@ void emitter::emitGCvarLiveSet(int slotOffs, GCtype gcType, unsigned codeOffs, u
 {
     assert(emitIssuing);
     assert(abs(slotOffs) % REGSIZE_BYTES == 0);
-    assert(needsGC(gcType));
+    assert(gcType != GCT_NONE);
     assert(index < emitGCrFrameOffsCnt);
     assert(emitGCrFrameLiveTab[index] == nullptr);
 
@@ -6543,6 +6543,8 @@ void emitter::emitUpdateLiveGCvars(VARSET_VALARG_TP vars, BYTE* addr)
         return;
     }
 
+    unsigned codeOffs = emitCurCodeOffs(addr);
+
     for (unsigned trackedLclIndex = 0, count = emitComp->lvaTrackedCount; trackedLclIndex < count; trackedLclIndex++)
     {
         unsigned   lclNum = emitComp->lvaTrackedIndexToLclNum(trackedLclIndex);
@@ -6553,17 +6555,33 @@ void emitter::emitUpdateLiveGCvars(VARSET_VALARG_TP vars, BYTE* addr)
             continue;
         }
 
+        assert(varTypeIsGC(lcl->GetType()));
+
         int offs = lcl->GetStackOffset();
+
+        assert(abs(offs) % REGSIZE_BYTES == 0);
+        assert((emitGCrFrameOffsMin <= offs) && (offs < emitGCrFrameOffsMax));
+
+        unsigned index = (offs - emitGCrFrameOffsMin) / REGSIZE_BYTES;
+        assert(index < emitGCrFrameOffsCnt);
 
         if (VarSetOps::IsMember(emitComp, vars, trackedLclIndex))
         {
-            GCtype gcType = lcl->TypeIs(TYP_BYREF) ? GCT_BYREF : GCT_GCREF;
-
-            emitGCvarLiveUpd(offs, gcType, addr DEBUGARG(lclNum));
+            if (emitGCrFrameLiveTab[index] == nullptr)
+            {
+                emitGCvarLiveSet(offs, lcl->TypeIs(TYP_BYREF) ? GCT_BYREF : GCT_GCREF, codeOffs, index);
+            }
         }
         else
         {
-            emitGCvarDeadUpd(offs, addr DEBUG_ARG(lclNum));
+            if (emitGCrFrameLiveTab[index] != nullptr)
+            {
+#if defined(JIT32_GCENCODER) && !defined(FEATURE_EH_FUNCLETS)
+                assert(!emitComp->lvaKeepAliveAndReportThis() || (offs != emitSyncThisObjOffs));
+#endif
+
+                emitGCvarDeadSet(offs, codeOffs, index);
+            }
         }
     }
 
@@ -7219,7 +7237,7 @@ void emitter::emitGCregDeadUpd(regNumber reg, BYTE* addr)
 void emitter::emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum))
 {
     assert(abs(offs) % REGSIZE_BYTES == 0);
-    assert(needsGC(gcType));
+    assert(gcType != GCT_NONE);
     assert(lclNum == emitComp->lvaOutgoingArgSpaceVar);
 
     if (emitFullGCinfo)
@@ -7244,31 +7262,7 @@ void emitter::emitGCvarLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsi
 {
     assert(abs(offs) % REGSIZE_BYTES == 0);
     assert((emitGCrFrameOffsMin <= offs) && (offs < emitGCrFrameOffsMax));
-    assert(needsGC(gcType));
-    assert(emitComp->lvaGetDesc(lclNum)->HasGCSlotLiveness());
-#if FEATURE_FIXED_OUT_ARGS
-    assert(lclNum != emitComp->lvaOutgoingArgSpaceVar);
-#endif
-
-    unsigned index = (offs - emitGCrFrameOffsMin) / REGSIZE_BYTES;
-    assert(index < emitGCrFrameOffsCnt);
-
-    if (emitGCrFrameLiveTab[index] != nullptr)
-    {
-        // The GC slot is already live.
-
-        return;
-    }
-
-    emitGCvarLiveSet(offs, gcType, emitCurCodeOffs(addr), index);
-}
-
-// Record the fact that the given variable no longer contains a live GC ref.
-void emitter::emitGCvarDeadUpd(int offs, BYTE* addr DEBUG_ARG(unsigned lclNum))
-{
-    assert(emitIssuing);
-    assert(abs(offs) % REGSIZE_BYTES == 0);
-    assert((emitGCrFrameOffsMin <= offs) && (offs < emitGCrFrameOffsMax));
+    assert(gcType != GCT_NONE);
     assert(emitComp->lvaGetDesc(lclNum)->HasGCSlotLiveness());
 #if FEATURE_FIXED_OUT_ARGS
     assert(lclNum != emitComp->lvaOutgoingArgSpaceVar);
@@ -7279,16 +7273,8 @@ void emitter::emitGCvarDeadUpd(int offs, BYTE* addr DEBUG_ARG(unsigned lclNum))
 
     if (emitGCrFrameLiveTab[index] == nullptr)
     {
-        // The GC slot is not live.
-
-        return;
+        emitGCvarLiveSet(offs, gcType, emitCurCodeOffs(addr), index);
     }
-
-#if defined(JIT32_GCENCODER) && !defined(FEATURE_EH_FUNCLETS)
-    assert(!emitComp->lvaKeepAliveAndReportThis() || (offs != emitSyncThisObjOffs));
-#endif
-
-    emitGCvarDeadSet(offs, emitCurCodeOffs(addr), index);
 }
 
 /*****************************************************************************

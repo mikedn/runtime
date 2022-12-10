@@ -2114,7 +2114,6 @@ public:
 #endif
     void emitGCvarLiveUpd(int slotOffs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum));
     void emitGCvarLiveSet(int slotOffs, GCtype gcType, unsigned codeOffs, unsigned index);
-    void emitGCvarDeadUpd(int slotOffs, BYTE* addr DEBUG_ARG(unsigned lclNum));
     void emitGCvarDeadSet(int slotOffs, unsigned codeOffs, unsigned index);
 
     GCtype emitRegGCtype(regNumber reg);
