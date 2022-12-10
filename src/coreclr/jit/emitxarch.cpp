@@ -2083,12 +2083,12 @@ inline UNATIVE_OFFSET emitter::emitInsSizeRR(instruction ins, regNumber reg1, re
     return sz;
 }
 
-unsigned emitter::emitInsSizeSV(code_t code, int lclNum, int offs)
+unsigned emitter::emitInsSizeSV_AM(instrDesc* id, code_t code)
 {
     unsigned size = emitInsSize(code, /* includeRexPrefixSize */ true);
 
-    bool ebpBased;
-    int  disp = emitComp->lvaFrameAddress(lclNum, &ebpBased) + offs;
+    bool ebpBased = id->idAddr()->isEbpBased;
+    int  disp     = id->idAddr()->lclOffset;
 
     if (!ebpBased)
     {
@@ -2110,7 +2110,7 @@ unsigned emitter::emitInsSizeSV(code_t code, int lclNum, int offs)
     return size;
 }
 
-inline UNATIVE_OFFSET emitter::emitInsSizeSV(instrDesc* id, code_t code, int var, int dsp)
+inline UNATIVE_OFFSET emitter::emitInsSizeSV(instrDesc* id, code_t code)
 {
     assert(id->idIns() != INS_invalid);
     instruction    ins      = id->idIns();
@@ -2124,10 +2124,10 @@ inline UNATIVE_OFFSET emitter::emitInsSizeSV(instrDesc* id, code_t code, int var
         prefix += emitGetRexPrefixSize(ins);
     }
 
-    return prefix + emitInsSizeSV(code, var, dsp);
+    return prefix + emitInsSizeSV_AM(id, code);
 }
 
-inline UNATIVE_OFFSET emitter::emitInsSizeSV(instrDesc* id, code_t code, int var, int dsp, int val)
+inline UNATIVE_OFFSET emitter::emitInsSizeSV(instrDesc* id, code_t code, int val)
 {
     assert(id->idIns() != INS_invalid);
     instruction    ins       = id->idIns();
@@ -2169,7 +2169,7 @@ inline UNATIVE_OFFSET emitter::emitInsSizeSV(instrDesc* id, code_t code, int var
         prefix += emitGetRexPrefixSize(ins);
     }
 
-    return prefix + valSize + emitInsSizeSV(code, var, dsp);
+    return prefix + valSize + emitInsSizeSV_AM(id, code);
 }
 
 /*****************************************************************************/
@@ -4217,7 +4217,7 @@ void emitter::emitIns_R_S_I(instruction ins, emitAttr attr, regNumber reg1, int 
     id->idReg1(reg1);
     SetInstrLclAddrMode(id, varx, offs);
 
-    unsigned sz = emitInsSizeSV(id, insCodeRM(ins), varx, offs, ival);
+    unsigned sz = emitInsSizeSV(id, insCodeRM(ins), ival);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -4360,7 +4360,7 @@ void emitter::emitIns_R_R_S(instruction ins, emitAttr attr, regNumber reg1, regN
     id->idReg2(reg2);
     SetInstrLclAddrMode(id, varx, offs);
 
-    unsigned sz = emitInsSizeSV(id, insCodeRM(ins), varx, offs);
+    unsigned sz = emitInsSizeSV(id, insCodeRM(ins));
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -4480,7 +4480,7 @@ void emitter::emitIns_R_R_S_I(
     id->idReg2(reg2);
     SetInstrLclAddrMode(id, varx, offs);
 
-    unsigned sz = emitInsSizeSV(id, insCodeRM(ins), varx, offs, ival);
+    unsigned sz = emitInsSizeSV(id, insCodeRM(ins), ival);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -4584,7 +4584,7 @@ void emitter::emitIns_R_R_S_R(
     id->idInsFmt(IF_RWR_RRD_SRD_RRD);
     SetInstrLclAddrMode(id, varx, offs);
 
-    unsigned sz = emitInsSizeSV(id, insCodeRM(ins), varx, offs, imm);
+    unsigned sz = emitInsSizeSV(id, insCodeRM(ins), imm);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -4909,7 +4909,7 @@ void emitter::emitIns_S_R_I(instruction ins, emitAttr attr, int varNum, int offs
     id->idReg1(reg);
     SetInstrLclAddrMode(id, varNum, offs);
 
-    unsigned sz = emitInsSizeSV(id, insCodeMR(ins), varNum, offs, ival);
+    unsigned sz = emitInsSizeSV(id, insCodeMR(ins), ival);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -5580,7 +5580,7 @@ void emitter::emitIns_S(instruction ins, emitAttr attr, int varx, int offs)
     id->idInsFmt(emitInsModeFormat(ins, IF_SRD));
     SetInstrLclAddrMode(id, varx, offs);
 
-    unsigned sz = emitInsSizeSV(id, insCodeMR(ins), varx, offs);
+    unsigned sz = emitInsSizeSV(id, insCodeMR(ins));
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -5603,7 +5603,7 @@ void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber ireg, int va
     id->idReg1(ireg);
     SetInstrLclAddrMode(id, varx, offs);
 
-    unsigned sz = emitInsSizeSV(id, insCodeMR(ins), varx, offs);
+    unsigned sz = emitInsSizeSV(id, insCodeMR(ins));
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -5619,7 +5619,7 @@ void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber ireg, int va
     id->idReg1(ireg);
     SetInstrLclAddrMode(id, varx, offs);
 
-    unsigned sz = emitInsSizeSV(id, insCodeRM(ins), varx, offs);
+    unsigned sz = emitInsSizeSV(id, insCodeRM(ins));
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
@@ -5651,7 +5651,7 @@ void emitter::emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, in
     id->idInsFmt(fmt);
     SetInstrLclAddrMode(id, varx, offs);
 
-    unsigned sz = emitInsSizeSV(id, insCodeMI(ins), varx, offs, val);
+    unsigned sz = emitInsSizeSV(id, insCodeMI(ins), val);
     id->idCodeSize(sz);
     dispIns(id);
     emitCurIGsize += sz;
