@@ -3035,12 +3035,7 @@ void emitter::SetInstrLclAddrMode(instrDesc* id, int varNum, int varOffs)
     id->idAddr()->lclOffset  = offset;
     id->idAddr()->isEbpBased = ebpBased;
 
-    // TODO-MIKE-Review: What instructions have SWR format and can produce a GC pointer?!?
-    // INC/DEC can be BYREF but they are IF_SRW, not IF_SWR. And we ignore IF_SRW because
-    // we assume that if it's read the GC slot is already live and we don't need to report
-    // it again.
-
-    if ((varNum >= 0) && (id->idGCref() != GCT_NONE) && ((id->idInsFmt() == IF_SWR) || (id->idInsFmt() == IF_SWR_RRD)))
+    if ((varNum >= 0) && (id->idGCref() != GCT_NONE) && (id->idInsFmt() == IF_SWR_RRD))
     {
 #if FEATURE_FIXED_OUT_ARGS
         id->idAddr()->isGCArgStore = static_cast<unsigned>(varNum) == emitComp->lvaOutgoingArgSpaceVar;
@@ -9512,10 +9507,9 @@ BYTE* emitter::emitOutputSV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
 #endif
         )
     {
-        assert((id->idInsFmt() == IF_SWR) || (id->idInsFmt() == IF_SWR_RRD));
+        assert((id->idIns() == INS_mov) && (id->idInsFmt() == IF_SWR_RRD));
 
         INDEBUG(unsigned lclNum = id->idDebugOnlyInfo()->varNum);
-        dsp = static_cast<int>(AlignDown(static_cast<unsigned>(dsp), REGSIZE_BYTES));
 
 #if FEATURE_FIXED_OUT_ARGS
         if (id->idAddr()->isGCArgStore)
