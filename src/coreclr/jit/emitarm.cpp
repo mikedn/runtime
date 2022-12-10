@@ -3724,7 +3724,8 @@ void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum,
 {
     bool      isFloatLoadStore = (ins == INS_vldr) || (ins == INS_vstr);
     bool      fpBased;
-    int       imm = emitComp->lvaFrameAddress(varNum, &fpBased) + varOffs;
+    int       baseOffset = emitComp->lvaFrameAddress(varNum, &fpBased);
+    int       imm        = baseOffset + varOffs;
     regNumber baseReg;
 
     if (!fpBased)
@@ -3813,6 +3814,19 @@ void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum,
     id->idReg1(reg);
     id->idReg2(baseReg);
     id->SetVarAddr(varNum, varOffs);
+
+    if ((varNum >= 0) && InsMayBeGCSlotStore(ins) && EA_IS_GCREF_OR_BYREF(attr))
+    {
+        // TODO-MIKE-Cleanup: AlignDown is dubious, you can't really store something
+        // in the middle of a GC slot and expect it to work just fine. Similarly,
+        // InsMayBeGCSlotStore checks for STRB, STRH and other nonsensical stuff.
+        // One could take the address of a GC local and use indirect stores to end
+        // up with such crap but then we shouldn't be tracking the local.
+
+        id->idAddr()->lclOffset            = baseOffset + AlignDown(static_cast<unsigned>(varOffs), REGSIZE_BYTES);
+        id->idAddr()->isGCArgStore         = static_cast<unsigned>(varNum) == emitComp->lvaOutgoingArgSpaceVar;
+        id->idAddr()->isTrackedGCSlotStore = emitComp->lvaGetDesc(static_cast<unsigned>(varNum))->HasGCSlotLiveness();
+    }
 
     dispIns(id);
     appendToCurIG(id);
@@ -6226,25 +6240,19 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
     // Now we determine if the instruction has written to a (local variable) stack location, and either written a GC
     // ref or overwritten one.
-    if (id->idIsLclVar() && (id->idGCref() != GCT_NONE) && InsMayBeGCSlotStore(id->idIns()))
+    if (id->idIsLclVar() && (id->idAddr()->isTrackedGCSlotStore || id->idAddr()->isGCArgStore))
     {
-        int varNum = id->idAddr()->iiaLclVar.lvaVarNum();
+        bool isArg = id->idAddr()->isGCArgStore;
+        int  adr   = id->idAddr()->lclOffset;
+        INDEBUG(unsigned lclNum = id->idDebugOnlyInfo()->varNum);
 
-        if (varNum >= 0)
+        if (isArg)
         {
-            unsigned lclNum = static_cast<unsigned>(varNum);
-            unsigned ofs    = AlignDown(id->idAddr()->iiaLclVar.lvaOffset(), REGSIZE_BYTES);
-            bool     fpBased;
-            int      adr = emitComp->lvaFrameAddress(lclNum, &fpBased) + ofs;
-
-            if (lclNum == emitComp->lvaOutgoingArgSpaceVar)
-            {
-                emitGCargLiveUpd(adr, id->idGCref(), dst DEBUGARG(lclNum));
-            }
-            else if (emitComp->lvaGetDesc(lclNum)->HasGCSlotLiveness())
-            {
-                emitGCvarLiveUpd(adr, id->idGCref(), dst DEBUGARG(lclNum));
-            }
+            emitGCargLiveUpd(adr, id->idGCref(), dst DEBUGARG(lclNum));
+        }
+        else
+        {
+            emitGCvarLiveUpd(adr, id->idGCref(), dst DEBUGARG(lclNum));
         }
     }
 

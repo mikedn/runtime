@@ -357,7 +357,7 @@ struct insGroup
 #include "emitfmts.h"
 #undef DEFINE_ID_OPS
 
-#ifndef TARGET_ARM64
+#ifndef TARGET_ARMARCH
 enum LclVarAddrTag
 {
     LVA_STANDARD_ENCODING = 0,
@@ -384,7 +384,7 @@ protected:
     unsigned _lvaExtra : 15;  // Usually the lvaOffset
     unsigned _lvaTag : 2;     // tag field to support larger varnums
 };
-#endif // !TARGET_ARM64
+#endif // !TARGET_ARMARCH
 
 enum idAddrUnionTag
 {
@@ -808,7 +808,12 @@ protected:
 #endif
 
 #ifdef TARGET_ARM
-            emitLclVarAddr iiaLclVar;
+            struct
+            {
+                unsigned isTrackedGCSlotStore : 1;
+                unsigned isGCArgStore : 1;
+                int      lclOffset : 30;
+            };
 
             struct
             {
@@ -1195,11 +1200,10 @@ protected:
 
         void SetVarAddr(int varNum, int varOffs)
         {
-#ifndef TARGET_ARM64
-            idAddr()->iiaLclVar.initLclVarAddr(varNum, varOffs);
-#endif
 #ifdef TARGET_ARMARCH
             _idLclVar = true;
+#else
+            idAddr()->iiaLclVar.initLclVarAddr(varNum, varOffs);
 #endif
 #ifdef DEBUG
             _idDebugOnlyInfo->varNum  = varNum;
