@@ -3025,6 +3025,30 @@ ssize_t emitter::GetAddrModeDisp(GenTree* addr)
     return 0;
 }
 
+void emitter::SetInstrLclAddrMode(instrDesc* id, int varNum, int varOffs)
+{
+    id->SetVarAddr(varNum, varOffs);
+
+    bool ebpBased;
+    int  offset = emitComp->lvaFrameAddress(varNum, &ebpBased) + varOffs;
+
+    id->idAddr()->lclOffset  = offset;
+    id->idAddr()->isEbpBased = ebpBased;
+
+    // TODO-MIKE-Review: What instructions have SWR format and can produce a GC pointer?!?
+    // INC/DEC can be BYREF but they are IF_SRW, not IF_SWR. And we ignore IF_SRW because
+    // we assume that if it's read the GC slot is already live and we don't need to report
+    // it again.
+
+    if ((varNum >= 0) && (id->idGCref() != GCT_NONE) && ((id->idInsFmt() == IF_SWR) || (id->idInsFmt() == IF_SWR_RRD)))
+    {
+#if FEATURE_FIXED_OUT_ARGS
+        id->idAddr()->isGCArgStore = static_cast<unsigned>(varNum) == emitComp->lvaOutgoingArgSpaceVar;
+#endif
+        id->idAddr()->isTrackedGCSlotStore = emitComp->lvaGetDesc(static_cast<unsigned>(varNum))->HasGCSlotLiveness();
+    }
+}
+
 //------------------------------------------------------------------------
 // Fill in the address mode fields of the instrDesc.
 //
@@ -4191,7 +4215,7 @@ void emitter::emitIns_R_S_I(instruction ins, emitAttr attr, regNumber reg1, int 
     id->idIns(ins);
     id->idInsFmt(IF_RRW_SRD_CNS);
     id->idReg1(reg1);
-    id->SetVarAddr(varx, offs);
+    SetInstrLclAddrMode(id, varx, offs);
 
     unsigned sz = emitInsSizeSV(id, insCodeRM(ins), varx, offs, ival);
     id->idCodeSize(sz);
@@ -4334,7 +4358,7 @@ void emitter::emitIns_R_R_S(instruction ins, emitAttr attr, regNumber reg1, regN
     id->idInsFmt(IF_RWR_RRD_SRD);
     id->idReg1(reg1);
     id->idReg2(reg2);
-    id->SetVarAddr(varx, offs);
+    SetInstrLclAddrMode(id, varx, offs);
 
     unsigned sz = emitInsSizeSV(id, insCodeRM(ins), varx, offs);
     id->idCodeSize(sz);
@@ -4454,7 +4478,7 @@ void emitter::emitIns_R_R_S_I(
     id->idInsFmt(IF_RWR_RRD_SRD_CNS);
     id->idReg1(reg1);
     id->idReg2(reg2);
-    id->SetVarAddr(varx, offs);
+    SetInstrLclAddrMode(id, varx, offs);
 
     unsigned sz = emitInsSizeSV(id, insCodeRM(ins), varx, offs, ival);
     id->idCodeSize(sz);
@@ -4557,9 +4581,8 @@ void emitter::emitIns_R_R_S_R(
     id->idIns(ins);
     id->idReg1(targetReg);
     id->idReg2(op1Reg);
-
     id->idInsFmt(IF_RWR_RRD_SRD_RRD);
-    id->SetVarAddr(varx, offs);
+    SetInstrLclAddrMode(id, varx, offs);
 
     unsigned sz = emitInsSizeSV(id, insCodeRM(ins), varx, offs, imm);
     id->idCodeSize(sz);
@@ -4884,7 +4907,7 @@ void emitter::emitIns_S_R_I(instruction ins, emitAttr attr, int varNum, int offs
     id->idIns(ins);
     id->idInsFmt(IF_SWR_RRD_CNS);
     id->idReg1(reg);
-    id->SetVarAddr(varNum, offs);
+    SetInstrLclAddrMode(id, varNum, offs);
 
     unsigned sz = emitInsSizeSV(id, insCodeMR(ins), varNum, offs, ival);
     id->idCodeSize(sz);
@@ -5555,7 +5578,7 @@ void emitter::emitIns_S(instruction ins, emitAttr attr, int varx, int offs)
     instrDesc* id = emitNewInstr(attr);
     id->idIns(ins);
     id->idInsFmt(emitInsModeFormat(ins, IF_SRD));
-    id->SetVarAddr(varx, offs);
+    SetInstrLclAddrMode(id, varx, offs);
 
     unsigned sz = emitInsSizeSV(id, insCodeMR(ins), varx, offs);
     id->idCodeSize(sz);
@@ -5578,7 +5601,7 @@ void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber ireg, int va
     id->idIns(ins);
     id->idInsFmt(emitInsModeFormat(ins, IF_SRD_RRD));
     id->idReg1(ireg);
-    id->SetVarAddr(varx, offs);
+    SetInstrLclAddrMode(id, varx, offs);
 
     unsigned sz = emitInsSizeSV(id, insCodeMR(ins), varx, offs);
     id->idCodeSize(sz);
@@ -5594,7 +5617,7 @@ void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber ireg, int va
     id->idIns(ins);
     id->idInsFmt(emitInsModeFormat(ins, IF_RRD_SRD));
     id->idReg1(ireg);
-    id->SetVarAddr(varx, offs);
+    SetInstrLclAddrMode(id, varx, offs);
 
     unsigned sz = emitInsSizeSV(id, insCodeRM(ins), varx, offs);
     id->idCodeSize(sz);
@@ -5626,7 +5649,7 @@ void emitter::emitIns_S_I(instruction ins, emitAttr attr, int varx, int offs, in
     instrDesc* id = emitNewInstrCns(attr, val);
     id->idIns(ins);
     id->idInsFmt(fmt);
-    id->SetVarAddr(varx, offs);
+    SetInstrLclAddrMode(id, varx, offs);
 
     unsigned sz = emitInsSizeSV(id, insCodeMI(ins), varx, offs, val);
     id->idCodeSize(sz);
@@ -9351,13 +9374,9 @@ BYTE* emitter::emitOutputSV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
     // Output the REX prefix
     dst += emitOutputRexOrVexPrefixIfNeeded(ins, dst, code);
 
-    // Figure out the variable's frame position
-    const int      varNum  = id->idAddr()->iiaLclVar.lvaVarNum();
-    const unsigned varOffs = id->idAddr()->iiaLclVar.lvaOffset();
-
-    bool ebpBased;
-    int  adr = emitComp->lvaFrameAddress(varNum, &ebpBased);
-    int  dsp = adr + varOffs;
+    bool ebpBased  = id->idAddr()->isEbpBased;
+    int  lclOffset = id->idAddr()->lclOffset;
+    int  dsp       = lclOffset;
 
     // for stack variables the dsp should never be a reloc
     assert(id->idIsDspReloc() == 0);
@@ -9487,35 +9506,35 @@ BYTE* emitter::emitOutputSV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
         }
     }
 
-    if (id->idGCref() != GCT_NONE)
+    if (id->idAddr()->isTrackedGCSlotStore
+#if FEATURE_FIXED_OUT_ARGS
+        || id->idAddr()->isGCArgStore
+#endif
+        )
     {
-        adr += AlignDown(varOffs, REGSIZE_BYTES);
+        assert((id->idInsFmt() == IF_SWR) || (id->idInsFmt() == IF_SWR_RRD));
 
-        switch (id->idInsFmt())
-        {
-            // TODO-MIKE-Review: What instructions have SWR format and can produce a GC pointer?!?
-            // Why even bother with formats - there are very few instructions that can produce
-            // a GC pointer - mov, add, sub.
-            case IF_SWR:
-            case IF_SWR_RRD:
-                if (varNum >= 0)
-                {
-                    unsigned lclNum = static_cast<unsigned>(varNum);
+        INDEBUG(unsigned lclNum = id->idDebugOnlyInfo()->varNum);
+        dsp = static_cast<int>(AlignDown(static_cast<unsigned>(dsp), REGSIZE_BYTES));
 
 #if FEATURE_FIXED_OUT_ARGS
-                    if (lclNum == emitComp->lvaOutgoingArgSpaceVar)
-                    {
-                        emitGCargLiveUpd(adr, id->idGCref(), dst DEBUGARG(lclNum));
-                    }
-                    else
+        if (id->idAddr()->isGCArgStore)
+        {
+            emitGCargLiveUpd(lclOffset, id->idGCref(), dst DEBUGARG(lclNum));
+        }
+        else
 #endif
-                        if (emitComp->lvaGetDesc(lclNum)->HasGCSlotLiveness())
-                    {
-                        emitGCvarLiveUpd(adr, id->idGCref(), dst DEBUGARG(lclNum));
-                    }
-                }
-                break;
+        {
+            emitGCvarLiveUpd(lclOffset, id->idGCref(), dst DEBUGARG(lclNum));
+        }
 
+        return dst;
+    }
+
+    if (id->idGCref() != GCT_NONE)
+    {
+        switch (id->idInsFmt())
+        {
             case IF_RRW_SRD:
                 assert((id->idGCref() == GCT_BYREF) && ((ins == INS_add) || (ins == INS_sub)));
                 FALLTHROUGH;
@@ -9533,6 +9552,9 @@ BYTE* emitter::emitOutputSV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
             case IF_SRW:
             case IF_SRW_CNS:
             case IF_SRW_RRD:
+            // Already handled above.
+            case IF_SWR:
+            case IF_SWR_RRD:
                 break;
 
             default:

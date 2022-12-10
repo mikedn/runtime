@@ -235,6 +235,7 @@ static const char* emitYMMregName(unsigned reg);
 /************************************************************************/
 
 private:
+void SetInstrLclAddrMode(instrDesc* id, int varNum, int varOffs);
 ssize_t GetAddrModeDisp(GenTree* addr);
 void SetInstrAddrMode(instrDesc* id, insFormat fmt, instruction ins, GenTree* addr);
 void emitSetAmdDisp(instrDescAmd* id, ssize_t dsp);

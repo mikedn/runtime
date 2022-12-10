@@ -254,8 +254,7 @@ void Compiler::lvaInitLocals()
     }
 
 #if FEATURE_FIXED_OUT_ARGS
-    // Allocate the lvaOutgoingArgSpaceVar now because we can run into problems in the
-    // emitter when the varNum is greater that 32767 (see emitLclVarAddr::initLclVarAddr)
+    // TODO-MIKE-Cleanup: Consider allocating this in lowering.
     lvaOutgoingArgSpaceVar = lvaGrabTemp(false DEBUGARG("outgoing args area"));
     lvaGetDesc(lvaOutgoingArgSpaceVar)->SetBlockType(0);
     lvaSetImplicitlyReferenced(lvaOutgoingArgSpaceVar);

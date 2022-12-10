@@ -357,35 +357,6 @@ struct insGroup
 #include "emitfmts.h"
 #undef DEFINE_ID_OPS
 
-#ifndef TARGET_ARMARCH
-enum LclVarAddrTag
-{
-    LVA_STANDARD_ENCODING = 0,
-    LVA_LARGE_OFFSET      = 1,
-    LVA_COMPILER_TEMP     = 2,
-    LVA_LARGE_VARNUM      = 3
-};
-
-struct emitLclVarAddr
-{
-    // Constructor
-    void initLclVarAddr(int varNum, unsigned offset);
-
-    int lvaVarNum() const; // Returns the variable to access. Note that it returns a negative number for compiler spill
-                           // temps.
-    unsigned lvaOffset() const; // returns the offset into the variable to access
-
-    // This struct should be 32 bits in size for the release build.
-    // We have this constraint because this type is used in a union
-    // with several other pointer sized types in the instrDesc struct.
-    //
-protected:
-    unsigned _lvaVarNum : 15; // Usually the lvaVarNum
-    unsigned _lvaExtra : 15;  // Usually the lvaOffset
-    unsigned _lvaTag : 2;     // tag field to support larger varnums
-};
-#endif // !TARGET_ARMARCH
-
 enum idAddrUnionTag
 {
     iaut_ALIGNED_POINTER = 0x0,
@@ -796,17 +767,6 @@ protected:
             // as for IF_LARGEJMP pseudo-branch instructions.
             int iiaEncodedInstrCount;
 
-#ifdef TARGET_XARCH
-            emitAddrMode   iiaAddrMode;
-            emitLclVarAddr iiaLclVar;
-
-            struct
-            {
-                regNumber _idReg3 : REGNUM_BITS;
-                regNumber _idReg4 : REGNUM_BITS;
-            };
-#endif
-
 #ifdef TARGET_ARM
             struct
             {
@@ -819,6 +779,37 @@ protected:
             {
                 regNumber _idReg3 : REGNUM_BITS;
                 regNumber _idReg4 : REGNUM_BITS;
+            };
+#endif
+
+#ifdef TARGET_X86
+            emitAddrMode iiaAddrMode;
+
+            struct
+            {
+                unsigned isTrackedGCSlotStore : 1;
+                unsigned isEbpBased : 1;
+                int      lclOffset : 30;
+            };
+
+            struct
+            {
+                regNumber _idReg3 : REGNUM_BITS;
+                regNumber _idReg4 : REGNUM_BITS;
+            };
+#endif
+
+#ifdef TARGET_AMD64
+            emitAddrMode iiaAddrMode;
+
+            struct
+            {
+                regNumber _idReg3 : REGNUM_BITS;
+                regNumber _idReg4 : REGNUM_BITS;
+                unsigned  isTrackedGCSlotStore : 1;
+                unsigned  isGCArgStore : 1;
+                unsigned  isEbpBased : 1;
+                int       lclOffset;
             };
 #endif
 
@@ -1202,8 +1193,6 @@ protected:
         {
 #ifdef TARGET_ARMARCH
             _idLclVar = true;
-#else
-            idAddr()->iiaLclVar.initLclVarAddr(varNum, varOffs);
 #endif
 #ifdef DEBUG
             _idDebugOnlyInfo->varNum  = varNum;
