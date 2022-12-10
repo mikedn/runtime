@@ -584,16 +584,8 @@ bool emitter::emitInsMayWriteToGCReg(instrDesc* id)
     }
 }
 
-bool emitter::emitInsWritesToLclVarStackLoc(instrDesc* id)
+bool InsMayBeGCSlotStore(instruction ins)
 {
-    if (!id->idIsLclVar())
-        return false;
-
-    instruction ins = id->idIns();
-
-    // This list is related to the list of instructions used to store local vars in emitIns_S_R().
-    // We don't accept writing to float local vars.
-
     switch (ins)
     {
         case INS_strb:
@@ -6234,7 +6226,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
     // Now we determine if the instruction has written to a (local variable) stack location, and either written a GC
     // ref or overwritten one.
-    if ((id->idGCref() != GCT_NONE) && emitInsWritesToLclVarStackLoc(id))
+    if (id->idIsLclVar() && (id->idGCref() != GCT_NONE) && InsMayBeGCSlotStore(id->idIns()))
     {
         int varNum = id->idAddr()->iiaLclVar.lvaVarNum();
 

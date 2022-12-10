@@ -425,10 +425,8 @@ void* emitter::emitGetMem(size_t sz)
     return emitComp->getAllocator(CMK_InstDesc).allocate<char>(sz);
 }
 
-/*****************************************************************************
- *
- *  emitLclVarAddr support methods
- */
+#ifndef TARGET_ARM64
+
 void emitLclVarAddr::initLclVarAddr(int varNum, unsigned offset)
 {
     if (varNum < 32768)
@@ -517,6 +515,8 @@ unsigned emitLclVarAddr::lvaOffset() const // returns the offset into the variab
             return _lvaExtra;
     }
 }
+
+#endif // !TARGET_ARM64
 
 void emitter::emitGenIG(insGroup* ig)
 {

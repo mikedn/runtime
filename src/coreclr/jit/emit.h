@@ -357,6 +357,7 @@ struct insGroup
 #include "emitfmts.h"
 #undef DEFINE_ID_OPS
 
+#ifndef TARGET_ARM64
 enum LclVarAddrTag
 {
     LVA_STANDARD_ENCODING = 0,
@@ -383,6 +384,7 @@ protected:
     unsigned _lvaExtra : 15;  // Usually the lvaOffset
     unsigned _lvaTag : 2;     // tag field to support larger varnums
 };
+#endif // !TARGET_ARM64
 
 enum idAddrUnionTag
 {
@@ -795,10 +797,7 @@ protected:
             int iiaEncodedInstrCount;
 
 #ifdef TARGET_XARCH
-            emitAddrMode iiaAddrMode;
-#endif
-
-#if defined(TARGET_XARCH) || defined(TARGET_ARM)
+            emitAddrMode   iiaAddrMode;
             emitLclVarAddr iiaLclVar;
 
             struct
@@ -806,14 +805,28 @@ protected:
                 regNumber _idReg3 : REGNUM_BITS;
                 regNumber _idReg4 : REGNUM_BITS;
             };
-#elif defined(TARGET_ARM64)
+#endif
+
+#ifdef TARGET_ARM
+            emitLclVarAddr iiaLclVar;
+
             struct
             {
-                emitLclVarAddr iiaLclVar;
-                unsigned       _idReg3Scaled : 1; // Reg3 is scaled by idOpSize bits
-                GCtype         _idGCref2 : 2;
-                regNumber      _idReg3 : REGNUM_BITS;
-                regNumber      _idReg4 : REGNUM_BITS;
+                regNumber _idReg3 : REGNUM_BITS;
+                regNumber _idReg4 : REGNUM_BITS;
+            };
+#endif
+
+#ifdef TARGET_ARM64
+            struct
+            {
+                regNumber _idReg3 : REGNUM_BITS;
+                regNumber _idReg4 : REGNUM_BITS;
+                unsigned  _idReg3Scaled : 1;
+                GCtype    _idGCref2 : 2;
+                unsigned  isTrackedGCSlotStore : 1;
+                unsigned  isGCArgStore : 1;
+                int       lclOffset;
             };
 #endif
 
@@ -1182,7 +1195,9 @@ protected:
 
         void SetVarAddr(int varNum, int varOffs)
         {
+#ifndef TARGET_ARM64
             idAddr()->iiaLclVar.initLclVarAddr(varNum, varOffs);
+#endif
 #ifdef TARGET_ARMARCH
             _idLclVar = true;
 #endif
@@ -2022,14 +2037,8 @@ public:
     // This may return false positives.
     bool emitInsMayWriteToGCReg(instrDesc* id);
 
-    // Returns "true" if instruction "id->idIns()" writes to a LclVar stack location.
-    bool emitInsWritesToLclVarStackLoc(instrDesc* id);
-
     // Returns true if the instruction may write to more than one register.
     bool emitInsMayWriteMultipleRegs(instrDesc* id);
-
-    // Returns "true" if instruction "id->idIns()" writes to a LclVar stack slot pair.
-    bool emitInsWritesToLclVarStackLocPair(instrDesc* id);
 #endif // TARGET_ARMARCH
 
     /************************************************************************/

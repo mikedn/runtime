@@ -1018,50 +1018,6 @@ bool emitter::emitInsMayWriteToGCReg(instrDesc* id)
     }
 }
 
-bool emitter::emitInsWritesToLclVarStackLoc(instrDesc* id)
-{
-    if (!id->idIsLclVar())
-        return false;
-
-    instruction ins = id->idIns();
-
-    // This list is related to the list of instructions used to store local vars in emitIns_S_R().
-    // We don't accept writing to float local vars.
-
-    switch (ins)
-    {
-        case INS_strb:
-        case INS_strh:
-        case INS_str:
-        case INS_stur:
-        case INS_sturb:
-        case INS_sturh:
-            return true;
-        default:
-            return false;
-    }
-}
-
-bool emitter::emitInsWritesToLclVarStackLocPair(instrDesc* id)
-{
-    if (!id->idIsLclVar())
-        return false;
-
-    instruction ins = id->idIns();
-
-    // This list is related to the list of instructions used to store local vars in emitIns_S_S_R_R().
-    // We don't accept writing to float local vars.
-
-    switch (ins)
-    {
-        case INS_stnp:
-        case INS_stp:
-            return true;
-        default:
-            return false;
-    }
-}
-
 bool emitter::emitInsMayWriteMultipleRegs(instrDesc* id)
 {
     instruction ins = id->idIns();
@@ -7428,12 +7384,41 @@ constexpr bool IsSignedImm7(int imm, unsigned shift)
     return ((imm & ((1 << shift) - 1)) == 0) && (-64 <= (imm >> shift)) && ((imm >> shift) < 64);
 }
 
+bool InsMayBeGCSlotStore(instruction ins)
+{
+    switch (ins)
+    {
+        case INS_strb:
+        case INS_strh:
+        case INS_str:
+        case INS_stur:
+        case INS_sturb:
+        case INS_sturh:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool InsMayBeGCSlotStorePair(instruction ins)
+{
+    switch (ins)
+    {
+        case INS_stnp:
+        case INS_stp:
+            return true;
+        default:
+            return false;
+    }
+}
+
 void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum, int varOffs)
 {
     bool fpBased;
-    int  imm = emitComp->lvaFrameAddress(varNum, &fpBased) + varOffs;
+    int  baseOffset = emitComp->lvaFrameAddress(varNum, &fpBased);
 
     emitAttr size = EA_SIZE(attr);
+    int      imm  = baseOffset + varOffs;
     unsigned scale;
 
     switch (ins)
@@ -7541,6 +7526,19 @@ void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum,
         id->idReg3Scaled(false);
     }
 
+    if ((varNum >= 0) && InsMayBeGCSlotStore(ins) && EA_IS_GCREF_OR_BYREF(attr))
+    {
+        // TODO-MIKE-Cleanup: AlignDown is dubious, you can't really store something
+        // in the middle of a GC slot and expect it to work just fine. Similarly,
+        // InsMayBeGCSlotStore checks for STRB, STRH and other nonsensical stuff.
+        // One could take the address of a GC local and use indirect stores to end
+        // up with such crap but then we shouldn't be tracking the local.
+
+        id->idAddr()->lclOffset            = baseOffset + AlignDown(static_cast<unsigned>(varOffs), REGSIZE_BYTES);
+        id->idAddr()->isGCArgStore         = static_cast<unsigned>(varNum) == emitComp->lvaOutgoingArgSpaceVar;
+        id->idAddr()->isTrackedGCSlotStore = emitComp->lvaGetDesc(static_cast<unsigned>(varNum))->HasGCSlotLiveness();
+    }
+
     dispIns(id);
     appendToCurIG(id);
 }
@@ -7554,10 +7552,11 @@ void emitter::Ins_R_R_S(
     assert(varOffs >= 0);
 
     bool fpBased;
-    int  imm = emitComp->lvaFrameAddress(varNum, &fpBased) + varOffs;
+    int  baseOffset = emitComp->lvaFrameAddress(varNum, &fpBased);
 
-    unsigned  scale   = genLog2(EA_SIZE_IN_BYTES(attr1));
     regNumber baseReg = fpBased ? REG_FP : REG_ZR;
+    int       imm     = baseOffset + varOffs;
+    unsigned  scale   = genLog2(EA_SIZE_IN_BYTES(attr1));
     insFormat fmt;
 
     if (imm == 0)
@@ -7597,6 +7596,13 @@ void emitter::Ins_R_R_S(
     id->idReg2(reg2);
     id->idReg3(baseReg);
     id->SetVarAddr(varNum, varOffs);
+
+    if ((varNum >= 0) && InsMayBeGCSlotStorePair(ins) && (EA_IS_GCREF_OR_BYREF(attr1) || EA_IS_GCREF_OR_BYREF(attr2)))
+    {
+        id->idAddr()->lclOffset            = baseOffset + AlignDown(static_cast<unsigned>(varOffs), REGSIZE_BYTES);
+        id->idAddr()->isGCArgStore         = static_cast<unsigned>(varNum) == emitComp->lvaOutgoingArgSpaceVar;
+        id->idAddr()->isTrackedGCSlotStore = emitComp->lvaGetDesc(static_cast<unsigned>(varNum))->HasGCSlotLiveness();
+    }
 
     dispIns(id);
     appendToCurIG(id);
@@ -9751,13 +9757,13 @@ unsigned emitter::emitOutput_Instr(BYTE* dst, code_t code)
 
 size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 {
-    BYTE*       dst  = *dp;
-    BYTE*       odst = dst;
-    code_t      code = 0;
-    size_t      sz   = emitGetInstrDescSize(id); // TODO-ARM64-Cleanup: on ARM, this is set in each case. why?
-    instruction ins  = id->idIns();
-    insFormat   fmt  = id->idInsFmt();
-    emitAttr    size = id->idOpSize();
+    BYTE*             dst  = *dp;
+    BYTE*             odst = dst;
+    code_t            code = 0;
+    const instruction ins  = id->idIns();
+    const insFormat   fmt  = id->idInsFmt();
+    const emitAttr    size = id->idOpSize();
+    size_t            sz   = emitGetInstrDescSize(id); // TODO-ARM64-Cleanup: on ARM, this is set in each case. why?
 
 #ifdef DEBUG
 #if DUMP_GC_TABLES
@@ -10901,47 +10907,41 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
     // Now we determine if the instruction has written to a (local variable) stack location, and either written a GC
     // ref or overwritten one.
-    if (emitInsWritesToLclVarStackLoc(id) || emitInsWritesToLclVarStackLocPair(id))
+    if (id->idIsLclVar() && (id->idAddr()->isTrackedGCSlotStore || id->idAddr()->isGCArgStore))
     {
-        int varNum = id->idAddr()->iiaLclVar.lvaVarNum();
+        bool isArg = id->idAddr()->isGCArgStore;
+        int  adr   = id->idAddr()->lclOffset;
+        INDEBUG(unsigned lclNum = id->idDebugOnlyInfo()->varNum);
 
-        if (varNum >= 0)
+        if (id->idGCref() != GCT_NONE)
         {
-            unsigned lclNum = static_cast<unsigned>(varNum);
-            unsigned ofs    = AlignDown(id->idAddr()->iiaLclVar.lvaOffset(), REGSIZE_BYTES);
-            bool     fpBased;
-            int      adr = emitComp->lvaFrameAddress(varNum, &fpBased) + ofs;
-
-            if (id->idGCref() != GCT_NONE)
+            if (isArg)
             {
-                if (lclNum == emitComp->lvaOutgoingArgSpaceVar)
-                {
-                    emitGCargLiveUpd(adr, id->idGCref(), dst DEBUGARG(lclNum));
-                }
-                else if (emitComp->lvaGetDesc(lclNum)->HasGCSlotLiveness())
-                {
-                    emitGCvarLiveUpd(adr, id->idGCref(), dst DEBUGARG(lclNum));
-                }
+                emitGCargLiveUpd(adr, id->idGCref(), dst DEBUGARG(lclNum));
             }
-
-            // STP is used to copy structs and we don't currently GC-track struct locals. But
-            // it's also used to copy structs to the outgoing arg area, and those do require
-            // (special) GC tracking.
-            if (emitInsWritesToLclVarStackLocPair(id) && (id->idGCrefReg2() != GCT_NONE))
+            else
             {
-                adr += REGSIZE_BYTES;
+                emitGCvarLiveUpd(adr, id->idGCref(), dst DEBUGARG(lclNum));
+            }
+        }
 
-                // TODO-MIKE-Review: This should probably be an assert since we don't
-                // currently GC track struct locals so we shouldn't ever see a STP
-                // involving anything other that the outgoing arg area.
-                if (lclNum == emitComp->lvaOutgoingArgSpaceVar)
-                {
-                    emitGCargLiveUpd(adr, id->idGCrefReg2(), dst DEBUGARG(lclNum));
-                }
-                else if (emitComp->lvaGetDesc(lclNum)->HasGCSlotLiveness())
-                {
-                    emitGCvarLiveUpd(adr, id->idGCrefReg2(), dst DEBUGARG(lclNum));
-                }
+        // STP is used to copy structs and we don't currently GC-track struct locals. But
+        // it's also used to copy structs to the outgoing arg area, and those do require
+        // (special) GC tracking.
+        if (InsMayBeGCSlotStorePair(ins) && (id->idGCrefReg2() != GCT_NONE))
+        {
+            adr += REGSIZE_BYTES;
+
+            // TODO-MIKE-Review: This should probably be an assert since we don't
+            // currently GC track struct locals so we shouldn't ever see a STP
+            // involving anything other that the outgoing arg area.
+            if (isArg)
+            {
+                emitGCargLiveUpd(adr, id->idGCrefReg2(), dst DEBUGARG(lclNum));
+            }
+            else
+            {
+                emitGCvarLiveUpd(adr, id->idGCrefReg2(), dst DEBUGARG(lclNum));
             }
         }
     }
