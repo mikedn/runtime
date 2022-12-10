@@ -241,14 +241,7 @@ void emitter::emitInsSanityCheck(instrDesc* id)
             assert(isIntegerRegister(id->idReg1()) || // ZR
                    isVectorRegister(id->idReg1()));
             assert(isIntegerRegister(id->idReg2())); // SP
-            if (id->idIsLclVar())
-            {
-                assert(isGeneralRegister(codeGen->rsGetRsvdReg()));
-            }
-            else
-            {
-                assert(isGeneralRegister(id->idReg3()));
-            }
+            assert(isGeneralRegister(id->idReg3()));
             assert(insOptsLSExtend(id->idInsOpt()));
             break;
 
@@ -468,14 +461,7 @@ void emitter::emitInsSanityCheck(instrDesc* id)
             assert(isValidGeneralDatasize(id->idOpSize()));
             assert(isIntegerRegister(id->idReg1())); // SP
             assert(isIntegerRegister(id->idReg2())); // SP
-            if (id->idIsLclVar())
-            {
-                assert(isGeneralRegister(codeGen->rsGetRsvdReg()));
-            }
-            else
-            {
-                assert(isGeneralRegister(id->idReg3()));
-            }
+            assert(isGeneralRegister(id->idReg3()));
             assert(insOptsNone(id->idInsOpt()));
             break;
 
@@ -7486,6 +7472,7 @@ void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum,
     }
 
     insFormat fmt;
+    regNumber offsReg = REG_NA;
 
     if (ins == INS_lea)
     {
@@ -7505,9 +7492,10 @@ void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum,
         }
         else
         {
-            regNumber tempReg = codeGen->rsGetRsvdReg();
-            codeGen->instGen_Set_Reg_To_Imm(EA_8BYTE, tempReg, imm);
+            offsReg = codeGen->rsGetRsvdReg();
+            codeGen->instGen_Set_Reg_To_Imm(EA_8BYTE, offsReg, imm);
             fmt = IF_DR_3A;
+            imm = 0;
         }
     }
     else if (imm == 0)
@@ -7525,13 +7513,10 @@ void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum,
     }
     else
     {
-        // The reserved register is not stored in idReg3() since that field overlaps with iiaLclVar.
-        // It is instead implicit when idSetIsLclVar() is set, with this encoding format.
-
-        codeGen->instGen_Set_Reg_To_Imm(EA_8BYTE, codeGen->rsGetRsvdReg(), imm);
+        offsReg = codeGen->rsGetRsvdReg();
+        codeGen->instGen_Set_Reg_To_Imm(EA_8BYTE, offsReg, imm);
         fmt = IF_LS_3A;
-
-        // TODO-MIKE-Review: Shouldn't imm be set to 0 in this case?!
+        imm = 0;
     }
 
     // TODO-ARM64-CQ: with compLocallocUsed, should we use REG_SAVED_LOCALLOC_SP instead?
@@ -7549,6 +7534,12 @@ void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum,
     id->idReg1(reg);
     id->idReg2(baseReg);
     id->SetVarAddr(varNum, varOffs);
+
+    if (offsReg != REG_NA)
+    {
+        id->idReg3(offsReg);
+        id->idReg3Scaled(false);
+    }
 
     dispIns(id);
     appendToCurIG(id);
@@ -9957,17 +9948,10 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 code |= insEncodeDatasizeLS(code, id->idOpSize()); // .X.......X
                 code |= insEncodeReg_Rt(id->idReg1());             // ttttt
             }
-            code |= insEncodeExtend(id->idInsOpt()); // ooo
-            code |= insEncodeReg_Rn(id->idReg2());   // nnnnn
-            if (id->idIsLclVar())
-            {
-                code |= insEncodeReg_Rm(codeGen->rsGetRsvdReg()); // mmmmm
-            }
-            else
-            {
-                code |= insEncodeReg3Scale(id->idReg3Scaled()); // S
-                code |= insEncodeReg_Rm(id->idReg3());          // mmmmm
-            }
+            code |= insEncodeExtend(id->idInsOpt());        // ooo
+            code |= insEncodeReg_Rn(id->idReg2());          // nnnnn
+            code |= insEncodeReg3Scale(id->idReg3Scaled()); // S
+            code |= insEncodeReg_Rm(id->idReg3());          // mmmmm
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -10358,14 +10342,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             code |= insEncodeDatasize(id->idOpSize()); // X
             code |= insEncodeReg_Rd(id->idReg1());     // ddddd
             code |= insEncodeReg_Rn(id->idReg2());     // nnnnn
-            if (id->idIsLclVar())
-            {
-                code |= insEncodeReg_Rm(codeGen->rsGetRsvdReg()); // mmmmm
-            }
-            else
-            {
-                code |= insEncodeReg_Rm(id->idReg3()); // mmmmm
-            }
+            code |= insEncodeReg_Rm(id->idReg3());     // mmmmm
             dst += emitOutput_Instr(dst, code);
             break;
 
@@ -11898,14 +11875,7 @@ void emitter::emitDispIns(
         case IF_LS_3A: // LS_3A   .X.......X.mmmmm oooS..nnnnnttttt      Rt Rn Rm ext(Rm) LSL {}
             assert(insOptsLSExtend(id->idInsOpt()));
             emitDispReg(id->idReg1(), emitInsTargetRegSize(id), true);
-            if (id->idIsLclVar())
-            {
-                emitDispAddrRRExt(id->idReg2(), codeGen->rsGetRsvdReg(), id->idInsOpt(), false, size);
-            }
-            else
-            {
-                emitDispAddrRRExt(id->idReg2(), id->idReg3(), id->idInsOpt(), id->idReg3Scaled(), size);
-            }
+            emitDispAddrRRExt(id->idReg2(), id->idReg3(), id->idInsOpt(), id->idReg3Scaled(), size);
             break;
 
         case IF_LS_3B: // LS_3B   X............... .aaaaannnnnddddd      Rt Ra Rn
@@ -12190,15 +12160,7 @@ void emitter::emitDispIns(
                 emitDispReg(id->idReg2(), size, true);
             }
 
-            if (id->idIsLclVar())
-            {
-                emitDispReg(codeGen->rsGetRsvdReg(), size, false);
-            }
-            else
-            {
-                emitDispReg(id->idReg3(), size, false);
-            }
-
+            emitDispReg(id->idReg3(), size, false);
             break;
 
         case IF_DR_3B: // DR_3B   X.......sh.mmmmm ssssssnnnnnddddd      Rd Rn Rm {LSL,LSR,ASR} imm(0-63)
