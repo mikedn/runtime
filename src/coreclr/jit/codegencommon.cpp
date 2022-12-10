@@ -3539,10 +3539,10 @@ void CodeGen::PrologZeroInitUntrackedLocals(regNumber initReg, bool* initRegZero
     // initReg is not a live incoming param reg
     assert((genRegMask(initReg) & paramRegState.intRegLiveIn) == RBM_NONE);
 
-    auto GetZeroReg = [this, initReg, initRegZeroed]() {
 #ifdef TARGET_ARM64
-        return REG_ZR;
+    auto GetZeroReg = []() { return REG_ZR; };
 #else
+    auto GetZeroReg = [this, initReg, initRegZeroed]() {
         if (!*initRegZeroed)
         {
             instGen_Set_Reg_To_Zero(EA_PTRSIZE, initReg);
@@ -3550,8 +3550,8 @@ void CodeGen::PrologZeroInitUntrackedLocals(regNumber initReg, bool* initRegZero
         }
 
         return initReg;
-#endif
     };
+#endif
 
     LclVarDsc* varDsc;
     unsigned   varNum;
