@@ -1052,8 +1052,8 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
 
     if (GenTreeFieldList* fieldList = src->IsFieldList())
     {
-        unsigned dstOffset = outArgLclOffs;
-        unsigned regIndex  = 0;
+        unsigned regSize  = putArg->GetRegCount() * REGSIZE_BYTES;
+        unsigned regIndex = 0;
         for (GenTreeFieldList::Use& use : fieldList->Uses())
         {
             GenTree* fieldNode = use.GetNode();
@@ -1064,9 +1064,9 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* putArg)
                 var_types type     = fieldNode->GetType();
                 emitAttr  attr     = emitTypeSize(type);
 
+                unsigned dstOffset = outArgLclOffs + use.GetOffset() - regSize;
+                assert(dstOffset + EA_SIZE_IN_BYTES(attr) <= outArgLclSize);
                 GetEmitter()->emitIns_S_R(ins_Store(type), attr, fieldReg, outArgLclNum, dstOffset);
-                dstOffset += EA_SIZE_IN_BYTES(attr);
-                assert(dstOffset <= outArgLclSize); // We can't write beyond the outgoing area area
 
                 continue;
             }
