@@ -4419,22 +4419,46 @@ bool Lowering::CanWidenSimd12ToSimd16(const LclVarDsc* lcl)
 {
     assert(lcl->TypeIs(TYP_SIMD12));
 
-    if (lcl->GetFrameSize() < 16)
-    {
-        return false;
-    }
-
-    // lvSize returns 16 bytes for SIMD12, even for fields.
-    // However, we can't do that mapping if the var is a dependently promoted struct field.
-    // Such a field must remain its exact size within its parent struct unless it is a single
-    // field *and* it is the only field in a struct of 16 bytes.
     if (lcl->IsDependentPromotedField(comp))
     {
-        LclVarDsc* parentLcl = comp->lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
-        return (parentLcl->GetPromotedFieldCount() == 1) && (parentLcl->GetFrameSize() == 16);
+        lcl = comp->lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
+
+        if (lcl->GetPromotedFieldCount() > 1)
+        {
+            return false;
+        }
     }
 
-    return true;
+    // TODO-MIKE-Cleanup: Maybe this should be solely based on GetFrameSize?
+    // But GetFrameSize's primary purpose is to return the local size for our
+    // own frame allocation needs, it shouldn't have to deal with param sizes
+    // which are ABI specific (except for reg params, which may have allocated
+    // space on our own frame).
+    // Use lvaGetParamAllocSize perhaps? Originally that was kind of expensive
+    // but now it's probably reasonable enough, though it would still repeat
+    // the same computation for every node we try to widen.
+    // Ideally, we'd just compute the local allocation size once and store it
+    // int LclVarDsc, but that would increase the size of LclVarDsc and it's
+    // not need often enough to justify that.
+
+    if (lcl->IsParam())
+    {
+#if defined(OSX_ARM64_ABI)
+        // Vector3 HFA size isn't rounded up to 16 bytes on osx-arm64 when
+        // passed in stack.
+        return !lcl->IsRegParam();
+#elif defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
+        return true;
+#else
+        // x86 Vector3 params are always 12 byte in size so we can't widen.
+        // ARM32 doesn't support SIMD but it would have the same restriction
+        // for stack params (though not for reg params).
+        // For anything else we're just being conservative.
+        return false;
+#endif
+    }
+
+    return lcl->GetFrameSize() == 16;
 }
 #endif // FEATURE_SIMD
 

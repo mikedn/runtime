@@ -1811,9 +1811,6 @@ unsigned LclVarDsc::GetFrameSize() const
 
 #ifdef FEATURE_SIMD
         case TYP_SIMD12:
-            // TODO-MIKE-Fix: This is messed up in some cases (e.g. on x86 SIMD12 params
-            // have only 12 bytes). lvSize() dealt with this but for some reason it was
-            // only called for structs. CanWidenSimd12ToSimd16 is broken due to this.
             return 16;
 #endif
 
