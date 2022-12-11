@@ -2351,7 +2351,8 @@ bool Compiler::fgVarNeedsExplicitZeroInit(unsigned varNum, bool bbInALoop, bool 
     {
         // Fields of dependently promoted structs may only be initialized in the prolog
         // when the whole struct is initialized in the prolog.
-        return fgVarNeedsExplicitZeroInit(varDsc->lvParentLcl, bbInALoop, bbIsReturn);
+        varNum = varDsc->GetPromotedFieldParentLclNum();
+        varDsc = lvaGetDesc(varNum);
     }
 
     if (bbInALoop && !bbIsReturn)
