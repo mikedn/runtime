@@ -3824,11 +3824,12 @@ void CodeGen::PrologReportGenericContextArg(regNumber initReg, bool* pInitRegZer
         if (isFramePointerUsed())
         {
 #ifdef TARGET_ARM
-            // GetStackOffset() is always valid for incoming stack-arguments, even if the argument
-            // will become enregistered. On ARM paramsStackSize doesn't include fp and lr sizes
-            // and hence we need to add 2 * REGSIZE_BYTES.
+            // On ARM both `this` and TypeCtxtArg are always reg params but due
+            // to pre-spilling done for profiler we need to load from the stack,
+            // the offset should be in the pre-spill param area, right above FP
+            // and LR.
             noway_assert((2 * REGSIZE_BYTES <= varDsc->GetStackOffset()) &&
-                         (size_t(varDsc->GetStackOffset()) < paramsStackSize + 2 * REGSIZE_BYTES));
+                         (size_t(varDsc->GetStackOffset()) < GetPreSpillSize() + 2 * REGSIZE_BYTES));
 #else
             // It cannot be `this` since that's passed in a register so it has to be TypeCtxtArg
             // which is always the last parameter (and we know that the frame pointer is also
