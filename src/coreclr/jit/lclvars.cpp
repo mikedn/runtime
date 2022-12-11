@@ -5237,7 +5237,11 @@ void Compiler::lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth)
             printf("      ");
         }
 
-        if ((lvaRefCountState == RCS_NORMAL) && (varDsc->GetRefCount() == 0))
+        if (varDsc->IsParam() && !varDsc->IsRegParam())
+        {
+            lvaDumpFrameLocation(lclNum);
+        }
+        else if (varDsc->GetRefCount() == 0)
         {
             printf("           ");
         }
