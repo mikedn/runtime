@@ -1789,6 +1789,12 @@ void Compiler::lvaUpdateClass(unsigned varNum, GenTree* tree, CORINFO_CLASS_HAND
 // Returns the number of bytes needed on the frame for the local variable lclNum
 unsigned LclVarDsc::GetFrameSize() const
 {
+    // TODO-MIKE-Cleanup: This should reject stack params and P-DEP fields.
+    // It probably should reject split params as well, though it's seems a
+    // bit problematic to detect those due to split params.
+    // Note that below we always return 16 for SIMD12 locals, that's not
+    // always correct for params.
+
     switch (lvType)
     {
         case TYP_BLK:
@@ -1803,8 +1809,14 @@ unsigned LclVarDsc::GetFrameSize() const
                 bool     isFloatHfa = IsHfaParam() && (m_layout->GetHfaElementType() == TYP_FLOAT);
                 unsigned alignment  = Compiler::lvaGetParamAlignment(lvType, isFloatHfa);
 
+                // TODO-MIKE-CQ: This is messed up for reg params on osx-arm64,
+                // it prevents widening of SIMD12 to 16 bytes.
+
                 return roundUp(size, alignment);
             }
+
+            // TODO-MIKE-CQ: This is messed up for structs with a single SIMD12
+            // field on x86, it prevents widening of SIMD12 to 16 bytes.
 
             return roundUp(size, REGSIZE_BYTES);
         }
