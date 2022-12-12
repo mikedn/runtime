@@ -2949,6 +2949,10 @@ void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
 
     SortFields();
 
+#ifdef TARGET_ARMARCH
+    unsigned regIndex = 0;
+#endif
+
     for (unsigned index = 0; index < info.fieldCount; ++index)
     {
         const FieldInfo& field = info.fields[index];
@@ -2985,6 +2989,15 @@ void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
 
         fieldLcl->lvIsParam = lcl->IsParam();
 
+#ifdef TARGET_ARM64
+        // TODO-MIKE-Fix: This is rather stupid but some code (the genPrologMoveParamRegs garbage
+        // in particular) depends on vector params being marked as HFA even when they're not HFAs.
+        if (lcl->IsHfaParam() && varTypeIsSIMD(fieldLcl->GetType()))
+        {
+            fieldLcl->SetIsHfaParam();
+        }
+#endif
+
         if (!lcl->IsRegParam())
         {
             continue;
@@ -3012,7 +3025,7 @@ void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
             fieldLcl->SetParamRegs(lcl->GetParamReg(index));
         }
 #else // !UNIX_AMD64_ABI
-        unsigned regIndex = index;
+        unsigned regCount = 1;
 
         if (lcl->IsHfaParam())
         {
@@ -3025,9 +3038,14 @@ void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
             if (lcl->GetLayout()->GetHfaElementType() == TYP_DOUBLE)
             {
                 // On ARM we count FLOAT rather than DOUBLE registers.
-                // TODO-MIKE-Fix: We also need to pass regCount = 2 to SetParamRegs below.
-                // This is dead code since we don't currently promoted params on ARM.
-                regIndex *= 2;
+                regCount = 2;
+            }
+#elif defined(TARGET_ARM64)
+            if ((lcl->GetLayout()->GetHfaElementType() == TYP_FLOAT) && !fieldLcl->TypeIs(TYP_FLOAT))
+            {
+                assert(varTypeIsSIMD(fieldLcl->GetType()));
+
+                regCount = varTypeSize(fieldLcl->GetType()) / 4;
             }
 #endif
         }
@@ -3038,7 +3056,8 @@ void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
             // TODO-ARMARCH: Need to determine if/how to handle split args.
         }
 
-        fieldLcl->SetParamRegs(lcl->GetParamReg(regIndex));
+        fieldLcl->SetParamRegs(lcl->GetParamReg(regIndex), regCount);
+        regIndex += regCount;
 #endif // !UNIX_AMD64_ABI
 #endif // FEATURE_MULTIREG_ARGS
     }

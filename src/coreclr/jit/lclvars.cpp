@@ -808,7 +808,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, LclVarDsc* lcl)
     }
     else if (lcl->GetLayout()->IsHfa())
     {
-        lcl->SetIsHfa();
+        lcl->SetIsHfaParam();
 
         regType     = lcl->GetLayout()->GetHfaElementType();
         regCount    = lcl->GetLayout()->GetHfaElementCount();
@@ -961,11 +961,12 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, LclVarDsc* lcl)
             alignment = 2 * REGSIZE_BYTES;
         }
 
+#ifdef FEATURE_HFA
         if (lcl->GetLayout()->IsHfa() && !info.compIsVarArgs)
         {
             assert(!opts.UseSoftFP());
 
-            lcl->SetIsHfa();
+            lcl->SetIsHfaParam();
 
             regType     = lcl->GetLayout()->GetHfaElementType();
             regCount    = lcl->GetLayout()->GetHfaRegCount();
@@ -975,6 +976,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, LclVarDsc* lcl)
             assert((alignment == 2 * REGSIZE_BYTES) == (regType == TYP_DOUBLE));
         }
         else
+#endif
         {
             regType = TYP_INT;
 
