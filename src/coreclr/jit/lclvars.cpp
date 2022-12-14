@@ -956,11 +956,6 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, LclVarDsc* lcl)
     }
     else if (regType == TYP_STRUCT)
     {
-        if (lcl->lvStructDoubleAlign)
-        {
-            alignment = 2 * REGSIZE_BYTES;
-        }
-
 #ifdef FEATURE_HFA
         if (lcl->GetLayout()->IsHfa() && !info.compIsVarArgs)
         {
@@ -973,12 +968,21 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, LclVarDsc* lcl)
             isHfa       = true;
             minRegCount = regCount;
 
-            assert((alignment == 2 * REGSIZE_BYTES) == (regType == TYP_DOUBLE));
+            if (regType == TYP_DOUBLE)
+            {
+                alignment = 2 * REGSIZE_BYTES;
+            }
         }
         else
 #endif
         {
             regType = TYP_INT;
+
+            if (lcl->lvStructDoubleAlign)
+            {
+                alignment = 2 * REGSIZE_BYTES;
+                paramInfo.AlignReg(TYP_INT, 2);
+            }
 
             if (!paramInfo.CanEnregister(TYP_INT, regCount) && paramInfo.CanEnregister(TYP_INT) &&
                 (paramInfo.stackOffset == 0))
