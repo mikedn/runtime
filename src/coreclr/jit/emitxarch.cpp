@@ -3038,9 +3038,16 @@ void emitter::SetInstrLclAddrMode(instrDesc* id, int varNum, int varOffs)
     if ((varNum >= 0) && (id->idGCref() != GCT_NONE) && (id->idInsFmt() == IF_SWR_RRD))
     {
 #if FEATURE_FIXED_OUT_ARGS
-        id->idAddr()->isGCArgStore = static_cast<unsigned>(varNum) == emitComp->lvaOutgoingArgSpaceVar;
+        if (static_cast<unsigned>(varNum) == emitComp->lvaOutgoingArgSpaceVar)
+        {
+            id->idAddr()->isGCArgStore = true;
+        }
+        else
 #endif
-        id->idAddr()->isTrackedGCSlotStore = emitComp->lvaGetDesc(static_cast<unsigned>(varNum))->HasGCSlotLiveness();
+            if ((varOffs == 0) && (emitComp->lvaGetDesc(static_cast<unsigned>(varNum))->HasGCSlotLiveness()))
+        {
+            id->idAddr()->isTrackedGCSlotStore = true;
+        }
     }
 }
 
@@ -6628,11 +6635,11 @@ void emitter::emitDispFrameRef(instrDesc* id, bool asmfm)
 
     if (!asmfm)
     {
-        printf("%s%02d", varNum < 0 ? "T" : "V", abs(varNum));
+        printf("%c%02d", varNum < 0 ? 'T' : 'V', abs(varNum));
 
         if (varOffs != 0)
         {
-            printf("-0x%X", varOffs < 0 ? '-' : '+', abs(varOffs));
+            printf("%c0x%X", varOffs < 0 ? '-' : '+', abs(varOffs));
         }
 
         printf(" ");

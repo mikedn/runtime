@@ -3804,9 +3804,16 @@ void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum,
 
     if ((varNum >= 0) && (ins == INS_str) && EA_IS_GCREF_OR_BYREF(attr))
     {
-        id->idAddr()->lclOffset            = baseOffset;
-        id->idAddr()->isGCArgStore         = static_cast<unsigned>(varNum) == emitComp->lvaOutgoingArgSpaceVar;
-        id->idAddr()->isTrackedGCSlotStore = emitComp->lvaGetDesc(static_cast<unsigned>(varNum))->HasGCSlotLiveness();
+        id->idAddr()->lclOffset = baseOffset;
+
+        if (static_cast<unsigned>(varNum) == emitComp->lvaOutgoingArgSpaceVar)
+        {
+            id->idAddr()->isGCArgStore = true;
+        }
+        else if ((varOffs == 0) && (emitComp->lvaGetDesc(static_cast<unsigned>(varNum))->HasGCSlotLiveness()))
+        {
+            id->idAddr()->isTrackedGCSlotStore = true;
+        }
     }
 
     dispIns(id);

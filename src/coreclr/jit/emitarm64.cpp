@@ -7510,9 +7510,16 @@ void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum,
 
     if ((varNum >= 0) && InsMayBeGCSlotStore(ins) && EA_IS_GCREF_OR_BYREF(attr))
     {
-        id->idAddr()->lclOffset            = baseOffset;
-        id->idAddr()->isGCArgStore         = static_cast<unsigned>(varNum) == emitComp->lvaOutgoingArgSpaceVar;
-        id->idAddr()->isTrackedGCSlotStore = emitComp->lvaGetDesc(static_cast<unsigned>(varNum))->HasGCSlotLiveness();
+        id->idAddr()->lclOffset = baseOffset;
+
+        if (static_cast<unsigned>(varNum) == emitComp->lvaOutgoingArgSpaceVar)
+        {
+            id->idAddr()->isGCArgStore = true;
+        }
+        else if ((varOffs == 0) && (emitComp->lvaGetDesc(static_cast<unsigned>(varNum))->HasGCSlotLiveness()))
+        {
+            id->idAddr()->isTrackedGCSlotStore = true;
+        }
     }
 
     dispIns(id);
@@ -7575,9 +7582,16 @@ void emitter::Ins_R_R_S(
 
     if ((varNum >= 0) && InsMayBeGCSlotStorePair(ins) && (EA_IS_GCREF_OR_BYREF(attr1) || EA_IS_GCREF_OR_BYREF(attr2)))
     {
-        id->idAddr()->lclOffset            = baseOffset;
-        id->idAddr()->isGCArgStore         = static_cast<unsigned>(varNum) == emitComp->lvaOutgoingArgSpaceVar;
-        id->idAddr()->isTrackedGCSlotStore = emitComp->lvaGetDesc(static_cast<unsigned>(varNum))->HasGCSlotLiveness();
+        id->idAddr()->lclOffset = baseOffset;
+
+        if (static_cast<unsigned>(varNum) == emitComp->lvaOutgoingArgSpaceVar)
+        {
+            id->idAddr()->isGCArgStore = true;
+        }
+        else if ((varOffs == 0) && (emitComp->lvaGetDesc(static_cast<unsigned>(varNum))->HasGCSlotLiveness()))
+        {
+            id->idAddr()->isTrackedGCSlotStore = true;
+        }
     }
 
     dispIns(id);
