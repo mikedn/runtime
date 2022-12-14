@@ -457,6 +457,36 @@ public:
 #define BSShortLong 1
 #define BSUInt64Class 2
 
-/*****************************************************************************/
+template <typename T>
+inline T genFindLowestBit(T value)
+{
+    return (value & (0 - value));
+}
+
+template <typename T>
+inline unsigned genCountBits(T bits)
+{
+    unsigned cnt = 0;
+
+    while (bits)
+    {
+        cnt++;
+        bits -= genFindLowestBit(bits);
+    }
+
+    return cnt;
+}
+
+template <>
+inline unsigned genCountBits<uint64_t>(uint64_t c)
+{
+    return BitSetSupport::CountBitsInIntegral(c);
+}
+
+template <>
+inline unsigned genCountBits<uint32_t>(uint32_t c)
+{
+    return BitSetSupport::CountBitsInIntegral(c);
+}
+
 #endif // _BITSET_H_
-/*****************************************************************************/

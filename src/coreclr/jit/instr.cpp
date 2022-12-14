@@ -179,16 +179,9 @@ void CodeGen::inst_RV(instruction ins, regNumber reg, var_types type, emitAttr s
     GetEmitter()->emitIns_R(ins, size, reg);
 }
 
-/*****************************************************************************
- *
- *  Generate a "mov reg1, reg2" instruction.
- */
-void CodeGen::inst_Mov(var_types dstType,
-                       regNumber dstReg,
-                       regNumber srcReg,
-                       bool      canSkip,
-                       emitAttr  size,
-                       insFlags  flags /* = INS_FLAGS_DONT_CARE */)
+// Generate a "mov reg1, reg2" instruction.
+void CodeGen::inst_Mov(
+    var_types dstType, regNumber dstReg, regNumber srcReg, bool canSkip, emitAttr size ARM_ARG(insFlags flags))
 {
     instruction ins = ins_Copy(srcReg, dstType);
 
@@ -204,17 +197,13 @@ void CodeGen::inst_Mov(var_types dstType,
 #endif
 }
 
-/*****************************************************************************
- *
- *  Generate a "mov reg1, reg2" instruction.
- */
+// Generate a "mov reg1, reg2" instruction.
 void CodeGen::inst_Mov_Extend(var_types srcType,
                               bool      srcInReg,
                               regNumber dstReg,
                               regNumber srcReg,
                               bool      canSkip,
-                              emitAttr  size,
-                              insFlags  flags /* = INS_FLAGS_DONT_CARE */)
+                              emitAttr size ARM_ARG(insFlags flags))
 {
     instruction ins = ins_Move_Extend(srcType, srcInReg);
 
@@ -252,41 +241,25 @@ void CodeGen::inst_IV(instruction ins, cnsval_ssize_t val)
 
 void CodeGen::inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size)
 {
-#if !defined(TARGET_64BIT)
+    assert(ins != INS_mov);
+#ifndef TARGET_64BIT
     assert(size != EA_8BYTE);
 #endif
 
 #ifdef TARGET_ARM
-    if (validImmForInstr(ins, val, INS_FLAGS_DONT_CARE))
-    {
-        GetEmitter()->emitIns_R_I(ins, size, reg, val, INS_FLAGS_DONT_CARE);
-    }
-    else if (ins == INS_mov)
-    {
-        instGen_Set_Reg_To_Imm(size, reg, val);
-    }
-    else
-    {
-        // TODO-Cleanup: Add a comment about why this is unreached() for RyuJIT backend.
-        unreached();
-    }
+    noway_assert(emitter::validImmForInstr(ins, val, INS_FLAGS_DONT_CARE));
+    GetEmitter()->emitIns_R_I(ins, size, reg, val, INS_FLAGS_DONT_CARE);
 #elif defined(TARGET_ARM64)
     // TODO-Arm64-Bug: handle large constants!
     // Probably need something like the ARM case above: if (validImmForInstr(ins, val)) ...
     assert(ins != INS_cmp);
     assert(ins != INS_tst);
-    assert(ins != INS_mov);
     GetEmitter()->emitIns_R_R_I(ins, size, reg, reg, val);
 #else // !TARGET_ARM
 #ifdef TARGET_AMD64
     // Instead of an 8-byte immediate load, a 4-byte immediate will do fine
     // as the high 4 bytes will be zero anyway.
-    if (size == EA_8BYTE && ins == INS_mov && ((val & 0xFFFFFFFF00000000LL) == 0))
-    {
-        size = EA_4BYTE;
-        GetEmitter()->emitIns_R_I(ins, size, reg, val);
-    }
-    else if (EA_SIZE(size) == EA_8BYTE && ins != INS_mov && (((int)val != val) || EA_IS_CNS_RELOC(size)))
+    if (EA_SIZE(size) == EA_8BYTE && (((int)val != val) || EA_IS_CNS_RELOC(size)))
     {
         assert(!"Invalid immediate for inst_RV_IV");
     }
@@ -303,11 +276,12 @@ bool CodeGen::IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclO
     if (op->isUsedFromSpillTemp())
     {
         assert(op->IsRegOptional());
+        assert(op->IsRegSpilled(0));
 
-        TempDsc* tmpDsc = getSpillTempDsc(op);
-        *lclNum         = tmpDsc->tdTempNum();
-        *lclOffs        = 0;
-        regSet.tmpRlsTemp(tmpDsc);
+        SpillTemp* temp = spillTemps.UseSpillTemp(op, 0);
+
+        *lclNum  = temp->GetNum();
+        *lclOffs = 0;
 
         return true;
     }
@@ -652,106 +626,6 @@ void CodeGen::inst_RV_RV_TT(
 }
 #endif // TARGET_XARCH
 
-#ifdef TARGET_ARM
-bool CodeGenInterface::validImmForInstr(instruction ins, target_ssize_t imm, insFlags flags)
-{
-    if (emitter::emitInsIsLoadOrStore(ins) && !emitter::instIsFP(ins))
-    {
-        return validDispForLdSt(imm, TYP_INT);
-    }
-
-    switch (ins)
-    {
-        case INS_cmp:
-        case INS_cmn:
-            return validImmForAlu(imm) || validImmForAlu(-imm);
-        case INS_and:
-        case INS_bic:
-        case INS_orr:
-        case INS_orn:
-        case INS_mvn:
-            return validImmForAlu(imm) || validImmForAlu(~imm);
-        case INS_mov:
-            return validImmForMov(imm);
-        case INS_addw:
-        case INS_subw:
-            return (unsigned_abs(imm) <= 0x00000fff) && (flags != INS_FLAGS_SET); // 12-bit immediate
-        case INS_add:
-        case INS_sub:
-            return validImmForAdd(imm, flags);
-        case INS_tst:
-        case INS_eor:
-        case INS_teq:
-        case INS_adc:
-        case INS_sbc:
-        case INS_rsb:
-            return validImmForAlu(imm);
-        case INS_asr:
-        case INS_lsl:
-        case INS_lsr:
-        case INS_ror:
-            return (imm > 0) && (imm <= 32);
-        case INS_vstr:
-        case INS_vldr:
-            return (imm & 0x3FC) == imm;
-        default:
-            return false;
-    }
-}
-
-bool CodeGenInterface::validDispForLdSt(target_ssize_t disp, var_types type)
-{
-    return varTypeIsFloating(type) ? ((disp & 0x3FC) == disp) : ((disp >= -0x00ff) && (disp <= 0x0fff));
-}
-
-bool CodeGenInterface::validImmForAlu(target_ssize_t imm)
-{
-    return emitter::emitIns_valid_imm_for_alu(imm);
-}
-
-bool CodeGenInterface::validImmForMov(target_ssize_t imm)
-{
-    return emitter::emitIns_valid_imm_for_mov(imm);
-}
-
-bool CodeGenInterface::validImmForAdd(target_ssize_t imm, insFlags flags)
-{
-    return emitter::emitIns_valid_imm_for_add(imm, flags);
-}
-
-bool CodeGen::arm_Valid_Imm_For_Add(target_ssize_t imm, insFlags flags)
-{
-    return emitter::emitIns_valid_imm_for_add(imm, flags);
-}
-
-// Check "add Rd,SP,i10"
-bool CodeGen::arm_Valid_Imm_For_Add_SP(target_ssize_t imm)
-{
-    return emitter::emitIns_valid_imm_for_add_sp(imm);
-}
-
-bool CodeGenInterface::validImmForBL(ssize_t addr)
-{
-    return
-        // If we are running the altjit for NGEN, then assume we can use the "BL" instruction.
-        // This matches the usual behavior for NGEN, since we normally do generate "BL".
-        (!compiler->info.compMatchedVM && compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT)) ||
-        (compiler->eeGetRelocTypeHint((void*)addr) == IMAGE_REL_BASED_THUMB_BRANCH24);
-}
-
-#endif // TARGET_ARM
-
-#ifdef TARGET_ARM64
-bool CodeGenInterface::validImmForBL(ssize_t addr)
-{
-    // On arm64, we always assume a call target is in range and generate a 28-bit relative
-    // 'bl' instruction. If this isn't sufficient range, the VM will generate a jump stub when
-    // we call recordRelocation(). See the IMAGE_REL_ARM64_BRANCH26 case in jitinterface.cpp
-    // (for JIT) or zapinfo.cpp (for NGEN). If we cannot allocate a jump stub, it is fatal.
-    return true;
-}
-#endif // TARGET_ARM64
-
 // Get the machine dependent instruction for performing sign/zero extension.
 instruction CodeGen::ins_Move_Extend(var_types srcType, bool srcInReg)
 {
@@ -836,7 +710,7 @@ instruction CodeGen::ins_Move_Extend(var_types srcType, bool srcInReg)
 }
 
 // Get the machine dependent instruction for performing a load for srcType
-instruction CodeGenInterface::ins_Load(var_types srcType, bool aligned)
+instruction CodeGen::ins_Load(var_types srcType, bool aligned)
 {
     assert(srcType != TYP_STRUCT);
 
@@ -948,7 +822,7 @@ instruction CodeGen::ins_Copy(regNumber srcReg, var_types dstType)
 }
 
 // Get the machine dependent instruction for performing a store for dstType
-instruction CodeGenInterface::ins_Store(var_types dstType, bool aligned)
+instruction CodeGen::ins_Store(var_types dstType, bool aligned)
 {
 #if defined(TARGET_XARCH)
     if (varTypeIsSIMD(dstType))
@@ -1007,7 +881,7 @@ instruction CodeGenInterface::ins_Store(var_types dstType, bool aligned)
 // Return Value:
 //   the instruction to use
 //
-instruction CodeGenInterface::ins_StoreFromSrc(regNumber srcReg, var_types dstType, bool aligned /*=false*/)
+instruction CodeGen::ins_StoreFromSrc(regNumber srcReg, var_types dstType, bool aligned /*=false*/)
 {
     assert(srcReg != REG_NA);
 
@@ -1042,32 +916,6 @@ instruction CodeGenInterface::ins_StoreFromSrc(regNumber srcReg, var_types dstTy
     }
 }
 
-void CodeGen::instGen_Return(unsigned stkArgSize)
-{
-#if defined(TARGET_XARCH)
-    if (stkArgSize == 0)
-    {
-        instGen(INS_ret);
-    }
-    else
-    {
-        inst_IV(INS_ret, stkArgSize);
-    }
-#elif defined(TARGET_ARM)
-// The return on ARM is folded into the pop multiple instruction
-// and as we do not know the exact set of registers that we will
-// need to restore (pop) when we first call instGen_Return we will
-// instead just not emit anything for this method on the ARM
-// The return will be part of the pop multiple and that will be
-// part of the epilog that is generated by genFnEpilog()
-#elif defined(TARGET_ARM64)
-    // This function shouldn't be used on ARM64.
-    unreached();
-#else
-#error "Unknown TARGET"
-#endif
-}
-
 void CodeGen::instGen_MemoryBarrier(BarrierKind barrierKind)
 {
 #ifdef DEBUG
@@ -1092,16 +940,4 @@ void CodeGen::instGen_MemoryBarrier(BarrierKind barrierKind)
 #else
 #error "Unknown TARGET"
 #endif
-}
-
-void CodeGen::instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg, insFlags flags)
-{
-#if defined(TARGET_XARCH)
-    GetEmitter()->emitIns_R_R(INS_xor, size, reg, reg);
-#elif defined(TARGET_ARMARCH)
-    GetEmitter()->emitIns_R_I(INS_mov, size, reg, 0 ARM_ARG(flags));
-#else
-#error "Unknown TARGET"
-#endif
-    regSet.verifyRegUsed(reg);
 }

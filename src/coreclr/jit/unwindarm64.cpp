@@ -235,7 +235,7 @@ void Compiler::unwindAllocStack(unsigned size)
 #if defined(TARGET_UNIX)
     if (generateCFIUnwindCodes())
     {
-        if (compGeneratingProlog)
+        if (codeGen->generatingProlog)
         {
             unwindAllocStackCFI(size);
         }
@@ -279,7 +279,7 @@ void Compiler::unwindSetFrameReg(regNumber reg, unsigned offset)
 #if defined(TARGET_UNIX)
     if (generateCFIUnwindCodes())
     {
-        if (compGeneratingProlog)
+        if (codeGen->generatingProlog)
         {
             unwindSetFrameRegCFI(reg, offset);
         }
@@ -351,7 +351,7 @@ void Compiler::unwindSaveRegPair(regNumber reg1, regNumber reg2, int offset)
 #if defined(TARGET_UNIX)
     if (generateCFIUnwindCodes())
     {
-        if (compGeneratingProlog)
+        if (codeGen->generatingProlog)
         {
             FuncInfoDsc*   func     = funCurrentFunc();
             UNATIVE_OFFSET cbProlog = unwindGetCurrentOffset(func);
@@ -433,7 +433,7 @@ void Compiler::unwindSaveRegPairPreindexed(regNumber reg1, regNumber reg2, int o
 #if defined(TARGET_UNIX)
     if (generateCFIUnwindCodes())
     {
-        if (compGeneratingProlog)
+        if (codeGen->generatingProlog)
         {
             FuncInfoDsc*   func     = funCurrentFunc();
             UNATIVE_OFFSET cbProlog = unwindGetCurrentOffset(func);
@@ -522,7 +522,7 @@ void Compiler::unwindSaveReg(regNumber reg, int offset)
 #if defined(TARGET_UNIX)
     if (generateCFIUnwindCodes())
     {
-        if (compGeneratingProlog)
+        if (codeGen->generatingProlog)
         {
             FuncInfoDsc*   func     = funCurrentFunc();
             UNATIVE_OFFSET cbProlog = unwindGetCurrentOffset(func);
@@ -576,7 +576,7 @@ void Compiler::unwindSaveRegPreindexed(regNumber reg, int offset)
 #if defined(TARGET_UNIX)
     if (generateCFIUnwindCodes())
     {
-        if (compGeneratingProlog)
+        if (codeGen->generatingProlog)
         {
             FuncInfoDsc*   func     = funCurrentFunc();
             UNATIVE_OFFSET cbProlog = unwindGetCurrentOffset(func);

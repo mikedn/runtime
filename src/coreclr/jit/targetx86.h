@@ -18,12 +18,7 @@
                                            // of contiguous non-gc slots that trigger generating rep movsq instead of
                                            // sequences of movsq instructions
 
-#ifdef FEATURE_SIMD
-  #define ALIGN_SIMD_TYPES         1       // whether SIMD type locals are to be aligned
-#endif // FEATURE_SIMD
-
   #define FEATURE_FIXED_OUT_ARGS   0       // X86 uses push instructions to pass args
-  #define FEATURE_MULTIREG_STRUCT_PROMOTE  0  // True when we want to promote fields of a multireg struct into registers
   #define FEATURE_FASTTAILCALL     0       // Tail calls made as epilog+jmp
   #define FEATURE_TAILCALL_OPT     0       // opportunistic Tail calls (without ".tail" prefix) made as fast tail calls.
   #define FEATURE_MULTIREG_ARGS_OR_RET  1  // Support for passing and/or returning single values in more than one register
@@ -54,8 +49,6 @@
   #define NOGC_WRITE_BARRIERS      0       // Do not modify this -- modify the definition above.  (If we're not using
                                            // ASM barriers we definitely don't have NOGC barriers).
 #endif
-  #define USER_ARGS_COME_LAST      0
-  #define EMIT_TRACK_STACK_DEPTH   1
   #define TARGET_POINTER_SIZE      4       // equal to sizeof(void*) and the managed pointer size in bytes for this
                                            // target
   #define FEATURE_EH               1       // To aid platform bring-up, eliminate exceptional EH clauses (catch, filter,
@@ -76,6 +69,8 @@
 
   #define REG_FP_FIRST             REG_XMM0
   #define REG_FP_LAST              REG_XMM7
+
+  // TODO-MIKE-Review: Why the heck are these defined on x86?
   #define FIRST_FP_ARGREG          REG_XMM0
   #define LAST_FP_ARGREG           REG_XMM3
   #define REG_FLTARG_0             REG_XMM0

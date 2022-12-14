@@ -70,7 +70,7 @@ void Compiler::optAddCopies()
         // Note that this effectively disables this optimization for all local variables
         // as C# sets InitLocals all the time starting in Whidbey.
 
-        if (!varDsc->lvIsParam && info.compInitMem)
+        if (!varDsc->IsParam() && info.compInitMem)
         {
             continue;
         }
@@ -88,7 +88,7 @@ void Compiler::optAddCopies()
         bool isFloatParam = false;
 
 #ifdef TARGET_X86
-        isFloatParam = varDsc->lvIsParam && varTypeIsFloating(typ);
+        isFloatParam = varDsc->IsParam() && varTypeIsFloating(typ);
 #endif
 
         if (!isFloatParam && !varDsc->lvEHLive)
@@ -122,13 +122,8 @@ void Compiler::optAddCopies()
 
         bool paramFoundImportantUse = false;
 
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("Trying to add a copy for V%02u %s, avg_wtd = %s\n", lclNum,
-                   varDsc->lvIsParam ? "an arg" : "a local", refCntWtd2str(paramAvgWtdRefDiv2));
-        }
-#endif
+        JITDUMP("Trying to add a copy for %s V%02u, avg_wtd = %s\n", varDsc->IsParam() ? "param" : "local", lclNum,
+                refCntWtd2str(paramAvgWtdRefDiv2));
 
         //
         // We must have a ref in a block that is dominated only by the entry block
@@ -154,7 +149,7 @@ void Compiler::optAddCopies()
             }
             noway_assert(block && (block->bbNum == bbNum));
 
-            bool     importantUseInBlock = (varDsc->lvIsParam) && (block->getBBWeight(this) > paramAvgWtdRefDiv2);
+            bool     importantUseInBlock = varDsc->IsParam() && (block->getBBWeight(this) > paramAvgWtdRefDiv2);
             bool     isPreHeaderBlock    = ((block->bbFlags & BBF_LOOP_PREHEADER) != 0);
             BlockSet blockDom(BlockSetOps::UninitVal());
             BlockSet blockDomSub0(BlockSetOps::UninitVal());
@@ -217,7 +212,7 @@ void Compiler::optAddCopies()
         }
 
         // We should have found at least one heavier-than-averageDiv2 block.
-        if (varDsc->lvIsParam)
+        if (varDsc->IsParam())
         {
             if (!paramFoundImportantUse)
             {
@@ -239,7 +234,7 @@ void Compiler::optAddCopies()
         if (compStressCompile(STRESS_GENERIC_VARN, 30))
         {
             // Ensure that we preserve the invariants required by the subsequent code.
-            if (varDsc->lvIsParam || isDominatedByFirstBB)
+            if (varDsc->IsParam() || isDominatedByFirstBB)
             {
                 doCopy = true;
             }
@@ -269,7 +264,7 @@ void Compiler::optAddCopies()
 
         Statement* stmt;
 
-        if (varDsc->lvIsParam)
+        if (varDsc->IsParam())
         {
             noway_assert((varDsc->lvDefStmt == nullptr) || varDsc->lvIsStructField);
 
@@ -931,7 +926,7 @@ private:
         {
             case GT_CNS_INT:
 #ifdef TARGET_ARM
-                if (!compiler->codeGen->validImmForMov(op2->AsIntCon()->GetInt32Value()))
+                if (!emitter::emitIns_valid_imm_for_mov(op2->AsIntCon()->GetInt32Value()))
                 {
                     return NO_ASSERTION_INDEX;
                 }
@@ -3730,7 +3725,7 @@ private:
             target_size_t offset   = m_vnStore->ConstantValue<target_size_t>(lclAddr.m_args[1]);
             FieldSeqNode* fieldSeq = m_vnStore->FieldSeqVNToFieldSeq(lclAddr.m_args[2]);
 
-            if ((offset > UINT16_MAX) || (offset >= m_compiler->lvaGetDesc(lclNum)->GetSize()))
+            if ((offset > UINT16_MAX) || (offset >= m_compiler->lvaGetDesc(lclNum)->GetTypeSize()))
             {
                 return false;
             }

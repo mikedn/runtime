@@ -814,7 +814,7 @@ private:
         // a ByRef to an INT32 when they actually write a SIZE_T or INT64. There are cases where
         // overwriting these extra 4 bytes corrupts some data (such as a saved register) that leads
         // to A/V. Wheras previously the JIT64 codegen did not lead to an A/V.
-        if (!lcl->IsParam() && !lcl->IsPromotedField() && (varActualType(lcl->GetType()) == TYP_INT))
+        if (!lcl->IsParam() && !lcl->IsPromotedField() && varActualTypeIsInt(lcl->GetType()))
         {
             // TODO-Cleanup: This should simply check if the user is a call node, not if a call ancestor exists.
             if (Compiler::gtHasCallOnStack(&m_ancestors))
@@ -1228,7 +1228,7 @@ private:
 
         GenTree* addr = val.Node();
 
-        if ((val.Offset() > UINT16_MAX) || (val.Offset() >= varDsc->GetSize()))
+        if ((val.Offset() > UINT16_MAX) || (val.Offset() >= varDsc->GetTypeSize()))
         {
             // The offset is too large to store in a LCL_FLD_ADDR node,
             // use ADD(LCL_VAR_ADDR, offset) instead.
@@ -1673,7 +1673,7 @@ private:
 
             if (indir->OperIs(GT_LCL_FLD))
             {
-                if ((val.Offset() != 0) || (indirSize < m_compiler->lvaGetDesc(val.LclNum())->GetSize()))
+                if ((val.Offset() != 0) || (indirSize < m_compiler->lvaGetDesc(val.LclNum())->GetTypeSize()))
                 {
                     flags |= GTF_VAR_USEASG;
                 }
@@ -2335,6 +2335,60 @@ private:
 #endif
 };
 
+#ifdef FEATURE_SIMD
+// Mark locals used by SIMD intrinsics to prevent struct promotion.
+void Compiler::lvaRecordSimdIntrinsicUse(GenTree* op)
+{
+    if (op->OperIs(GT_OBJ, GT_IND))
+    {
+        GenTree* addr = op->AsIndir()->GetAddr();
+
+        if (addr->OperIs(GT_LCL_VAR_ADDR))
+        {
+            lvaRecordSimdIntrinsicUse(addr->AsLclVar());
+        }
+    }
+    else if (op->OperIs(GT_LCL_VAR))
+    {
+        lvaRecordSimdIntrinsicUse(op->AsLclVar());
+    }
+}
+
+void Compiler::lvaRecordSimdIntrinsicUse(GenTreeLclVar* lclVar)
+{
+    lvaRecordSimdIntrinsicUse(lclVar->GetLclNum());
+}
+
+void Compiler::lvaRecordSimdIntrinsicUse(unsigned lclNum)
+{
+    lvaGetDesc(lclNum)->lvUsedInSIMDIntrinsic = true;
+}
+
+void Compiler::lvaRecordSimdIntrinsicDef(GenTreeLclVar* lclVar, GenTreeHWIntrinsic* src)
+{
+    lvaRecordSimdIntrinsicDef(lclVar->GetLclNum(), src);
+}
+
+void Compiler::lvaRecordSimdIntrinsicDef(unsigned lclNum, GenTreeHWIntrinsic* src)
+{
+    // Don't block promotion due to Create/Zero intrinsics, we can promote these.
+    switch (src->GetIntrinsic())
+    {
+#ifdef TARGET_ARM64
+        case NI_Vector64_Create:
+        case NI_Vector64_get_Zero:
+#endif
+        case NI_Vector128_Create:
+        case NI_Vector128_get_Zero:
+            return;
+        default:
+            break;
+    }
+
+    lvaGetDesc(lclNum)->lvUsedInSIMDIntrinsic = true;
+}
+#endif // FEATURE_SIMD
+
 bool StructPromotionHelper::TryPromoteStructLocal(unsigned lclNum)
 {
     if (CanPromoteStructLocal(lclNum) && ShouldPromoteStructLocal(lclNum))
@@ -2729,10 +2783,16 @@ bool StructPromotionHelper::ShouldPromoteStructLocal(unsigned lclNum)
         return false;
     }
 
-    if (lcl->IsParam() && !lcl->IsImplicitByRefParam() && !lcl->lvIsHfa())
+    if (lcl->IsParam() && !lcl->IsImplicitByRefParam() && !lcl->IsHfaParam())
     {
-#if FEATURE_MULTIREG_STRUCT_PROMOTE
-        if (compiler->lvaIsMultiRegStructParam(lcl))
+#if defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
+        // TODO-MIKE-Review: This is dubious. These checks are more suitable for reg params
+        // but it looks like they are applied to all params. Stack params would have very
+        // different restrictions, mostly around small int fields that cannot be widened
+        // to INT when doing independent promotion. But that may actually work fine too,
+        // since such promoted field are still marked as params they'd end up "normalized
+        // on load".
+        if (compiler->abiGetStructParamType(lcl->GetLayout(), compiler->info.compIsVarArgs).kind == SPK_ByValue)
         {
             if ((info.fieldCount != 2) && ((info.fieldCount != 1) || !varTypeIsSIMD(info.fields[0].type)))
             {
@@ -2741,8 +2801,7 @@ bool StructPromotionHelper::ShouldPromoteStructLocal(unsigned lclNum)
             }
         }
         else
-#endif // !FEATURE_MULTIREG_STRUCT_PROMOTE
-
+#endif
             // TODO-PERF - Implement struct promotion for incoming single-register structs.
             //             Also the implementation of jmp uses the 4 byte move to store
             //             byte parameters to the stack, so that if we have a byte field
@@ -2890,6 +2949,10 @@ void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
 
     SortFields();
 
+#ifdef TARGET_ARMARCH
+    unsigned regIndex = 0;
+#endif
+
     for (unsigned index = 0; index < info.fieldCount; ++index)
     {
         const FieldInfo& field = info.fields[index];
@@ -2926,38 +2989,45 @@ void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
 
         fieldLcl->lvIsParam = lcl->IsParam();
 
+#ifdef TARGET_ARM64
+        // TODO-MIKE-Fix: This is rather stupid but some code (the genPrologMoveParamRegs garbage
+        // in particular) depends on vector params being marked as HFA even when they're not HFAs.
+        if (lcl->IsHfaParam() && varTypeIsSIMD(fieldLcl->GetType()))
+        {
+            fieldLcl->SetIsHfaParam();
+        }
+#endif
+
         if (!lcl->IsRegParam())
         {
             continue;
         }
 
-        fieldLcl->lvIsRegArg = true;
-
 #if !FEATURE_MULTIREG_ARGS
-        fieldLcl->SetArgReg(lcl->GetArgReg());
+        fieldLcl->SetParamRegs(lcl->GetParamReg());
 #else
         if (lcl->IsImplicitByRefParam())
         {
-            fieldLcl->SetArgReg(lcl->GetArgReg());
+            fieldLcl->SetParamRegs(lcl->GetParamReg());
+
             continue;
         }
 
 #ifdef UNIX_AMD64_ABI
         if (varTypeIsSIMD(fieldLcl->GetType()) && (lcl->GetPromotedFieldCount() == 1))
         {
-            fieldLcl->SetParamReg(0, lcl->GetParamReg(0));
-            fieldLcl->SetParamReg(1, lcl->GetParamReg(1));
+            fieldLcl->SetParamRegs(lcl->GetParamReg(0), lcl->GetParamReg(1));
         }
         else
         {
             assert(field.offset == REGSIZE_BYTES * index);
 
-            fieldLcl->SetParamReg(0, lcl->GetParamReg(index));
+            fieldLcl->SetParamRegs(lcl->GetParamReg(index));
         }
 #else // !UNIX_AMD64_ABI
-        unsigned regIndex = index;
+        unsigned regCount = 1;
 
-        if (lcl->lvIsHfa())
+        if (lcl->IsHfaParam())
         {
             // We've sorted the field by offset so for HFA's we should have a 1:1 mapping
             // between fields and registers. Also, ensure that we didn't promote a HFA
@@ -2968,7 +3038,14 @@ void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
             if (lcl->GetLayout()->GetHfaElementType() == TYP_DOUBLE)
             {
                 // On ARM we count FLOAT rather than DOUBLE registers.
-                regIndex *= 2;
+                regCount = 2;
+            }
+#elif defined(TARGET_ARM64)
+            if ((lcl->GetLayout()->GetHfaElementType() == TYP_FLOAT) && !fieldLcl->TypeIs(TYP_FLOAT))
+            {
+                assert(varTypeIsSIMD(fieldLcl->GetType()));
+
+                regCount = varTypeSize(fieldLcl->GetType()) / 4;
             }
 #endif
         }
@@ -2979,7 +3056,8 @@ void StructPromotionHelper::PromoteStructLocal(unsigned lclNum)
             // TODO-ARMARCH: Need to determine if/how to handle split args.
         }
 
-        fieldLcl->SetArgReg(static_cast<regNumber>(lcl->GetArgReg() + regIndex));
+        fieldLcl->SetParamRegs(lcl->GetParamReg(regIndex), regCount);
+        regIndex += regCount;
 #endif // !UNIX_AMD64_ABI
 #endif // FEATURE_MULTIREG_ARGS
     }
@@ -3439,9 +3517,8 @@ public:
     GenTreeIntCon* GetVarargsStackParamOffset(GenTreeLclVarCommon* lclNode) const
     {
         int stkOffs = m_compiler->lvaGetDesc(lclNode)->GetStackOffset();
-        stkOffs -= static_cast<int>(m_compiler->codeGen->intRegState.rsCalleeRegArgCount) * REGSIZE_BYTES;
         int lclOffs = lclNode->OperIs(GT_LCL_VAR, GT_LCL_VAR_ADDR) ? 0 : lclNode->AsLclFld()->GetLclOffs();
-        return m_compiler->gtNewIconNode(-stkOffs + lclOffs, TYP_I_IMPL);
+        return m_compiler->gtNewIconNode(stkOffs + lclOffs - m_compiler->codeGen->paramsStackSize, TYP_INT);
     }
 #endif // !TARGET_X86
 };
@@ -3577,13 +3654,8 @@ void Compiler::lvaRetypeImplicitByRefParams()
                     assert(fieldLcl->lvParentLcl == lclNum);
 
                     // The fields shouldn't inherit any register preferences from the parameter.
-                    fieldLcl->lvIsParam       = false;
-                    fieldLcl->lvIsRegArg      = false;
-                    fieldLcl->lvIsMultiRegArg = false;
-                    fieldLcl->SetArgReg(REG_NA);
-#if FEATURE_MULTIREG_ARGS
-                    fieldLcl->SetOtherArgReg(REG_NA);
-#endif
+                    fieldLcl->lvIsParam = false;
+                    fieldLcl->ClearParamRegs();
                 }
 
                 // Reset lvPromoted since the param is no longer promoted but keep lvFieldLclStart
@@ -3613,14 +3685,6 @@ void Compiler::lvaRetypeImplicitByRefParams()
                 structLcl->lvLiveInOutOfHndlr = lcl->lvLiveInOutOfHndlr;
 #endif // DEBUG
 
-#if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
-                // TODO-MIKE-Review: What do varargs/HFA have to do with this temp?!?
-                if (info.compIsVarArgs)
-                {
-                    structLcl->SetIsHfa(false);
-                }
-#endif
-
                 fgEnsureFirstBBisScratch();
                 GenTree* lhs  = gtNewLclvNode(structLclNum, lcl->GetType());
                 GenTree* addr = gtNewLclvNode(lclNum, TYP_BYREF);
@@ -3637,13 +3701,8 @@ void Compiler::lvaRetypeImplicitByRefParams()
                     fieldLcl->lvParentLcl = structLclNum;
 
                     // The fields shouldn't inherit any register preferences from the parameter.
-                    fieldLcl->lvIsParam       = false;
-                    fieldLcl->lvIsRegArg      = false;
-                    fieldLcl->lvIsMultiRegArg = false;
-                    fieldLcl->SetArgReg(REG_NA);
-#if FEATURE_MULTIREG_ARGS
-                    fieldLcl->SetOtherArgReg(REG_NA);
-#endif
+                    fieldLcl->lvIsParam = false;
+                    fieldLcl->ClearParamRegs();
                 }
 
                 // Reset lvPromoted since the param is no longer promoted but set lvFieldLclStart

@@ -436,18 +436,6 @@ public:
         m_value = value;
     }
 
-    // We've decided that this variable can go back to write phase, even if it has been
-    // written. This can be used, for example, for variables set and read during frame
-    // layout calculation, as long as it is before final layout, such that anything
-    // being calculated is just an estimate anyway. Obviously, it must be used carefully,
-    // since it overrides the main benefit of this class.
-    void ResetWritePhase()
-    {
-#ifdef DEBUG
-        m_writePhase = true;
-#endif // DEBUG
-    }
-
 private:
     // Don't allow a copy constructor. (This could be allowed, but only add it once it is actually needed.)
 

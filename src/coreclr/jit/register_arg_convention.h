@@ -1,101 +1,143 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#ifndef __register_arg_convention__
-#define __register_arg_convention__
+#pragma once
 
-struct InitVarDscInfo
+struct ParamAllocInfo
 {
-    unsigned varNum         = 0;
-    unsigned intRegArgNum   = 0;
-    unsigned floatRegArgNum = 0;
-    unsigned maxIntRegArgNum;
-    unsigned maxFloatRegArgNum;
-
+    const unsigned intRegCount;
+    const unsigned floatRegCount;
+    unsigned       lclNum        = 0;
+    unsigned       intRegIndex   = 0;
+    unsigned       floatRegIndex = 0;
+    unsigned       stackOffset   = 0;
 #ifdef TARGET_ARM
-    regMaskTP doubleAlignMask = RBM_NONE;
-    // Support back-filling of FP parameters. This is similar to code in gtMorphArgs() that
-    // handles arguments.
-    regMaskTP fltArgSkippedRegMask = RBM_NONE;
-    bool      anyFloatStackArgs    = false;
-#endif
-
-#if FEATURE_FASTTAILCALL
-    // It is used to calculate argument stack size information in byte
-    unsigned stackArgSize       = 0;
-    bool     hasMultiSlotStruct = false;
+    regMaskTP doubleAlignMask   = RBM_NONE;
+    regMaskTP floatAlignPadMask = RBM_NONE;
 #endif
 
 public:
-    InitVarDscInfo(unsigned maxIntRegArgNum, unsigned maxFloatRegArgNum)
-        : maxIntRegArgNum(maxIntRegArgNum), maxFloatRegArgNum(maxFloatRegArgNum)
+    ParamAllocInfo(unsigned intRegCount, unsigned floatRegCount)
+        : intRegCount(intRegCount), floatRegCount(floatRegCount)
     {
     }
 
-    // return ref to current register arg for this type
-    unsigned& regArgNum(var_types type)
+    unsigned GetRegCount(var_types type) const
     {
-        return varTypeUsesFloatArgReg(type) ? floatRegArgNum : intRegArgNum;
+        return varTypeUsesFloatArgReg(type) ? floatRegCount : intRegCount;
     }
 
-    // Allocate a set of contiguous argument registers. "type" is either an integer
-    // type, indicating to use the integer registers, or a floating-point type, indicating
-    // to use the floating-point registers. The actual type (TYP_FLOAT vs. TYP_DOUBLE) is
-    // ignored. "numRegs" is the number of registers to allocate. Thus, on ARM, to allocate
-    // a double-precision floating-point register, you need to pass numRegs=2. For an HFA,
-    // pass the number of slots/registers needed.
-    // This routine handles floating-point register back-filling on ARM.
-    // Returns the first argument register of the allocated set.
-    unsigned allocRegArg(var_types type, unsigned numRegs = 1);
+    unsigned GetAvailableRegCount(var_types type) const
+    {
+        return GetRegCount(type) - GetRegIndex(type);
+    }
+
+    unsigned GetRegIndex(var_types type) const
+    {
+        return varTypeUsesFloatArgReg(type) ? floatRegIndex : intRegIndex;
+    }
+
+    bool CanEnregister(var_types type, unsigned count = 1) const
+    {
+        return AreRegsAvailable(type, count);
+    }
+
+    regNumber AllocReg(var_types type)
+    {
+        return genMapRegArgNumToRegNum(AllocRegIndex(type), type);
+    }
+
+    regNumber AllocRegs(var_types type, unsigned count)
+    {
+        return genMapRegArgNumToRegNum(AllocRegIndex(type, count), type);
+    }
+
+    unsigned AllocRegIndex(var_types type, unsigned count = 1)
+    {
+        assert(count > 0);
 
 #ifdef TARGET_ARM
-    // We are aligning the register to an ABI-required boundary, such as putting
-    // double-precision floats in even-numbered registers, by skipping one register.
-    // "requiredRegAlignment" is the amount to align to: 1 for no alignment (everything
-    // is 1-aligned), 2 for "double" alignment.
-    // Returns the number of registers skipped.
-    unsigned alignReg(var_types type, unsigned requiredRegAlignment);
-#endif // TARGET_ARM
+        if (varTypeIsFloating(type) && (count == 1) && (floatAlignPadMask != RBM_NONE))
+        {
+            regMaskTP regMask = genFindLowestBit(floatAlignPadMask);
+            floatAlignPadMask &= ~regMask;
+            unsigned regIndex = genRegNumFromMask(regMask) - REG_F0;
+            assert(regIndex < MAX_FLOAT_REG_ARG);
 
-    // Return true if it is an enregisterable type and there is room.
-    // Note that for "type", we only care if it is float or not. In particular,
-    // "numRegs" must be "2" to allocate an ARM double-precision floating-point register.
-    bool canEnreg(var_types type, unsigned numRegs = 1);
+            return regIndex;
+        }
+#endif
 
-    // Set the fact that we have used up all remaining registers of 'type'
-    //
-    void setAllRegArgUsed(var_types type)
-    {
-        regArgNum(type) = maxRegArgNum(type);
+        unsigned regIndex = GetRegIndex(type);
+
+#ifdef WINDOWS_AMD64_ABI
+        NextReg(TYP_INT, count);
+        NextReg(TYP_FLOAT, count);
+#else
+        NextReg(type, count);
+#endif
+
+        return regIndex;
     }
 
 #ifdef TARGET_ARM
-
-    void setAnyFloatStackArgs()
+    unsigned AlignReg(var_types type, unsigned align)
     {
-        anyFloatStackArgs = true;
-    }
+        assert((align == 1) || (align == 2));
 
-    bool existAnyFloatStackArgs()
-    {
-        return anyFloatStackArgs;
-    }
+        if ((align == 1) || ((GetRegIndex(type) & 1) == 0))
+        {
+            return 0;
+        }
 
+        if (varTypeIsFloating(type))
+        {
+            floatAlignPadMask |= genMapFloatRegArgNumToRegMask(floatRegIndex);
+        }
+
+        assert(GetRegIndex(type) + 1 <= GetRegCount(type));
+        RegIndex(type) += 1;
+
+        return 1;
+    }
 #endif // TARGET_ARM
+
+#ifdef TARGET_ARMARCH
+    void SetHasStackParam(var_types type)
+    {
+        RegIndex(type) = GetRegCount(type);
+
+#ifdef TARGET_ARM
+        if (varTypeIsFloating(type))
+        {
+            floatAlignPadMask = RBM_NONE;
+        }
+#endif
+    }
+#endif // TARGET_ARMARCH
 
 private:
-    // return max register arg for this type
-    unsigned maxRegArgNum(var_types type)
+    bool AreRegsAvailable(var_types type, unsigned count = 1) const
     {
-        return varTypeUsesFloatArgReg(type) ? maxFloatRegArgNum : maxIntRegArgNum;
+        assert(count > 0);
+
+#ifdef TARGET_ARM
+        if (varTypeIsFloating(type) && (count == 1) && (floatAlignPadMask != RBM_NONE))
+        {
+            return GetRegIndex(type) <= GetRegCount(type);
+        }
+#endif
+
+        return GetRegIndex(type) + count <= GetRegCount(type);
     }
 
-    bool enoughAvailRegs(var_types type, unsigned numRegs = 1);
-
-    void nextReg(var_types type, unsigned numRegs = 1)
+    void NextReg(var_types type, unsigned count = 1)
     {
-        regArgNum(type) = min(regArgNum(type) + numRegs, maxRegArgNum(type));
+        RegIndex(type) = min(GetRegIndex(type) + count, GetRegCount(type));
+    }
+
+    unsigned& RegIndex(var_types type)
+    {
+        return varTypeUsesFloatArgReg(type) ? floatRegIndex : intRegIndex;
     }
 };
-
-#endif // __register_arg_convention__

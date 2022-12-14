@@ -2,23 +2,15 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
-
 #include "stacklevelsetter.h"
 
 StackLevelSetter::StackLevelSetter(Compiler* compiler)
     : Phase(compiler, PHASE_STACK_LEVEL_SETTER)
-    , currentStackLevel(0)
-    , maxStackLevel(0)
 #if !FEATURE_FIXED_OUT_ARGS
-    , framePointerRequired(compiler->codeGen->isFramePointerRequired())
+    , framePointerRequired(compiler->opts.IsFramePointerRequired())
     , throwHelperBlocksUsed(comp->fgUseThrowHelperBlocks() && comp->compUsesThrowHelper)
-#endif // !FEATURE_FIXED_OUT_ARGS
+#endif
 {
-    // The constructor reads this value to skip iterations that could set it if it is already set.
-    compiler->codeGen->resetWritePhaseForFramePointerRequired();
 }
 
 //------------------------------------------------------------------------
@@ -45,19 +37,42 @@ PhaseStatus StackLevelSetter::DoPhase()
         ProcessBlock(block);
     }
 
-#if !FEATURE_FIXED_OUT_ARGS
-    if (framePointerRequired)
+#ifdef TARGET_X86
+    // Profiler hook calls do not appear in the IR and do push an argument.
+    if (comp->compIsProfilerHookNeeded() && (maxStackLevel == 0))
     {
-        comp->codeGen->setFramePointerRequired(true);
+        maxStackLevel = 1;
     }
-#endif // !FEATURE_FIXED_OUT_ARGS
+#endif
 
-    CheckAdditionalArgs();
+    // TODO-MIKE-Review: What does "maxStackLevel >= 4" has to do with x64 or any other non-x86
+    // architectures? This condition does reduce code size but it appears to do so by accident:
+    // EBP based address modes have smaller encoding than ESP based ones but then this basically
+    // counts arg stores and those always use ESP. What we really need is the number of non-arg
+    // stack references that exist, and this has nothing to do with that.
 
-    comp->fgSetPtrArgCntMax(maxStackLevel);
-    CheckArgCnt();
+    if (maxStackLevel >= 4
+#if !FEATURE_FIXED_OUT_ARGS
+        || framePointerRequired
+#endif
+        )
+    {
+        comp->opts.SetFramePointerRequired();
+    }
 
-    // Might want an "other" category for things like this...
+#ifdef JIT32_GCENCODER
+    // The GC encoding for fully interruptible methods does not
+    // support more than 1023 pushed arguments, so we have to
+    // use a partially interruptible GC info/encoding.
+    if (maxStackLevel >= MAX_PTRARG_OFS)
+    {
+        JITDUMP("Too many pushed arguments for fully interruptible encoding, marking method as partially "
+                "interruptible\n");
+
+        comp->codeGen->SetInterruptible(false);
+    }
+#endif
+
     return PhaseStatus::MODIFIED_NOTHING;
 }
 
@@ -76,8 +91,7 @@ void StackLevelSetter::ProcessBlock(BasicBlock* block)
 {
     // TODO-MIKE-Cleanup: Investigate why we need to run StackLevelSetter at all in the
     // FEATURE_FIXED_OUT_ARGS case. It should not be needed since the stack level doesn't
-    // change. Apparently this is mingled together with EMIT_TRACK_STACK_DEPTH which is
-    // also suspect in the FEATURE_FIXED_OUT_ARGS case.
+    // change.
 
     assert(currentStackLevel == 0);
     for (GenTree* node : LIR::AsRange(block))
@@ -102,9 +116,9 @@ void StackLevelSetter::ProcessBlock(BasicBlock* block)
         if (GenTreeCall* call = node->IsCall())
         {
             unsigned usedStackSlotsCount = PopArgumentsFromCall(call);
-#if defined(UNIX_X86_ABI)
+#ifdef UNIX_X86_ABI
             call->fgArgInfo->SetStkSizeBytes(usedStackSlotsCount * TARGET_POINTER_SIZE);
-#endif // UNIX_X86_ABI
+#endif
         }
     }
     assert(currentStackLevel == 0);
@@ -198,26 +212,20 @@ void StackLevelSetter::SetThrowHelperBlock(SpecialCodeKind kind, BasicBlock* blo
         // has been added, and the stack level at each call to fgAddCodeRef()
         // is known, or can be recalculated.
         CLANG_FORMAT_COMMENT_ANCHOR;
-#if defined(UNIX_X86_ABI)
-        framePointerRequired = true;
-#else  // !defined(UNIX_X86_ABI)
+
+#ifndef UNIX_X86_ABI
         if (add->acdStkLvl != currentStackLevel)
+#endif
         {
             framePointerRequired = true;
         }
-#endif // !defined(UNIX_X86_ABI)
     }
     else
     {
         add->acdStkLvlInit = true;
-        if (add->acdStkLvl != currentStackLevel)
-        {
-            JITDUMP("Wrong stack level was set for " FMT_BB "\n", add->acdDstBlk->bbNum);
-        }
-#ifdef DEBUG
-        add->acdDstBlk->bbTgtStkDepth = currentStackLevel;
-#endif // Debug
-        add->acdStkLvl = currentStackLevel;
+        add->acdStkLvl     = currentStackLevel;
+
+        INDEBUG(add->acdDstBlk->bbTgtStkDepth = currentStackLevel);
     }
 }
 
@@ -269,62 +277,4 @@ void StackLevelSetter::PopArg(GenTreePutArgStk* putArgStk)
 {
     assert(currentStackLevel >= putArgStk->GetSlotCount());
     currentStackLevel -= putArgStk->GetSlotCount();
-}
-
-//------------------------------------------------------------------------
-// CheckArgCnt: Check whether the maximum arg size will change codegen requirements.
-//
-// Notes:
-//    CheckArgCnt records the maximum number of pushed arguments.
-//    Depending upon this value of the maximum number of pushed arguments
-//    we may need to use an EBP frame or be partially interuptible.
-//    This functionality has to be called after maxStackLevel is set.
-//
-// Assumptions:
-//    This must be called when isFramePointerRequired() is in a write phase, because it is a
-//    phased variable (can only be written before it has been read).
-//
-void StackLevelSetter::CheckArgCnt()
-{
-    if (!comp->compCanEncodePtrArgCntMax())
-    {
-#ifdef DEBUG
-        if (comp->verbose)
-        {
-            printf("Too many pushed arguments for fully interruptible encoding, marking method as partially "
-                   "interruptible\n");
-        }
-#endif
-        comp->SetInterruptible(false);
-    }
-    if (maxStackLevel >= sizeof(unsigned))
-    {
-#ifdef DEBUG
-        if (comp->verbose)
-        {
-            printf("Too many pushed arguments for an ESP based encoding, forcing an EBP frame\n");
-        }
-#endif
-        comp->codeGen->setFramePointerRequired(true);
-    }
-}
-
-//------------------------------------------------------------------------
-// CheckAdditionalArgs: Check if there are additional args that need stack slots.
-//
-// Notes:
-//    Currently only x86 profiler hook needs it.
-//
-void StackLevelSetter::CheckAdditionalArgs()
-{
-#if defined(TARGET_X86)
-    if (comp->compIsProfilerHookNeeded())
-    {
-        if (maxStackLevel == 0)
-        {
-            JITDUMP("Upping fgPtrArgCntMax from %d to 1\n", maxStackLevel);
-            maxStackLevel = 1;
-        }
-    }
-#endif // TARGET_X86
 }

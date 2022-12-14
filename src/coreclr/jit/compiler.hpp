@@ -56,17 +56,6 @@ inline UINT32 forceCastToUInt32(double d)
     return u;
 }
 
-/*****************************************************************************
- *
- *  Return the lowest bit that is set
- */
-
-template <typename T>
-inline T genFindLowestBit(T value)
-{
-    return (value & (0 - value));
-}
-
 /*****************************************************************************/
 /*****************************************************************************
  *
@@ -214,37 +203,6 @@ inline unsigned genLog2(unsigned __int64 value)
 inline regMaskTP genFindLowestReg(regMaskTP value)
 {
     return (regMaskTP)genFindLowestBit(value);
-}
-
-/*****************************************************************************
- *
- *  A rather simple routine that counts the number of bits in a given number.
- */
-
-template <typename T>
-inline unsigned genCountBits(T bits)
-{
-    unsigned cnt = 0;
-
-    while (bits)
-    {
-        cnt++;
-        bits -= genFindLowestBit(bits);
-    }
-
-    return cnt;
-}
-
-template <>
-inline unsigned genCountBits<uint64_t>(uint64_t c)
-{
-    return BitSetSupport::CountBitsInIntegral(c);
-}
-
-template <>
-inline unsigned genCountBits<uint32_t>(uint32_t c)
-{
-    return BitSetSupport::CountBitsInIntegral(c);
 }
 
 /*****************************************************************************
@@ -521,26 +479,6 @@ inline unsigned genTypeSize(T value)
 
 /*****************************************************************************
  *
- *  Return the "stack slot count" of the given type.
- *      returns 1 for 32-bit types and 2 for 64-bit types.
- */
-
-extern const BYTE genTypeStSzs[TYP_COUNT];
-
-inline unsigned genTypeStSz(var_types type)
-{
-    assert((unsigned)type < _countof(genTypeStSzs));
-
-    return genTypeStSzs[type];
-}
-
-/*****************************************************************************
- *
- *  Return the number of registers required to hold a value of the given type.
- */
-
-/*****************************************************************************
- *
  *  The following function maps a 'precise' type to an actual type as seen
  *  by the VM (for example, 'byte' maps to 'int').
  */
@@ -548,19 +486,6 @@ inline unsigned genTypeStSz(var_types type)
 inline var_types genActualType(var_types type)
 {
     return varActualType(type);
-}
-
-/*****************************************************************************
- *  Can this type be passed as a parameter in a register?
- */
-
-inline bool isRegParamType(var_types type)
-{
-#if defined(TARGET_X86)
-    return (type <= TYP_INT || type == TYP_REF || type == TYP_BYREF);
-#else  // !TARGET_X86
-    return true;
-#endif // !TARGET_X86
 }
 
 #ifdef DEBUG
@@ -931,9 +856,9 @@ inline GenTreeIndir* Compiler::gtNewFieldIndir(var_types type, GenTreeFieldAddr*
         // once, at the start of the method, to copy the arg value to a local.
         // However, GTF_GLOB_REF will be discarded during the actual promotion
         // so this may be a problem only between import and promote phases.
-        if (varDsc->lvIsParam
-#if defined(TARGET_X86)
-            && info.compIsVarArgs && !varDsc->lvIsRegArg && (lclNum != lvaVarargsHandleArg)
+        if (varDsc->IsParam()
+#ifdef TARGET_X86
+            && info.compIsVarArgs && !varDsc->IsRegParam() && (lclNum != lvaVarargsHandleArg)
 #else
             && varTypeIsStruct(varDsc->GetType())
 #endif
@@ -1425,7 +1350,7 @@ inline unsigned Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* re
     }
 
     // You cannot allocate more space after frame layout!
-    noway_assert(lvaDoneFrameLayout < Compiler::TENTATIVE_FRAME_LAYOUT);
+    noway_assert(lvaDoneFrameLayout < FINAL_FRAME_LAYOUT);
 
     if (lvaCount + 1 > lvaTableSize)
     {
@@ -1436,7 +1361,6 @@ inline unsigned Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* re
 
     LclVarDsc* lcl = new (&lvaTable[lclNum]) LclVarDsc();
     lcl->lvIsTemp  = shortLifetime;
-    lcl->lvOnFrame = true;
     INDEBUG(lcl->lvReason = reason;)
 
     // TODO-MIKE-Review: Minopts needs this because it does not do a ref count,
@@ -1479,7 +1403,7 @@ inline unsigned Compiler::lvaGrabTemps(unsigned count DEBUGARG(const char* reaso
         return lclNum;
     }
 
-    noway_assert(lvaDoneFrameLayout < Compiler::TENTATIVE_FRAME_LAYOUT);
+    noway_assert(lvaDoneFrameLayout < FINAL_FRAME_LAYOUT);
 
     if (lvaCount + count > lvaTableSize)
     {
@@ -1492,8 +1416,7 @@ inline unsigned Compiler::lvaGrabTemps(unsigned count DEBUGARG(const char* reaso
     for (unsigned i = 0; i < count; i++)
     {
         LclVarDsc* lcl = new (&lvaTable[lclNum + i]) LclVarDsc();
-        assert(lcl->lvIsTemp == false);
-        lcl->lvOnFrame = true;
+        assert(!lcl->lvIsTemp);
         INDEBUG(lcl->lvReason = reason;)
 
         if (opts.OptimizationDisabled())
@@ -1605,246 +1528,6 @@ inline bool Compiler::lvaReportParamTypeArg()
     return false;
 }
 
-//*****************************************************************************
-
-inline int Compiler::lvaCachedGenericContextArgOffset()
-{
-    assert(lvaDoneFrameLayout == FINAL_FRAME_LAYOUT);
-
-    return lvaCachedGenericContextArgOffs;
-}
-
-//------------------------------------------------------------------------
-// lvaFrameAddress: Determine the stack frame offset of the given variable,
-// and how to generate an address to that stack frame.
-//
-// Arguments:
-//    varNum         - The variable to inquire about. Positive for user variables
-//                     or arguments, negative for spill-temporaries.
-//    mustBeFPBased  - [TARGET_ARM only] True if the base register must be FP.
-//                     After FINAL_FRAME_LAYOUT, if false, it also requires SP base register.
-//    pBaseReg       - [TARGET_ARM only] Out arg. *pBaseReg is set to the base
-//                     register to use.
-//    addrModeOffset - [TARGET_ARM only] The mode offset within the variable that we need to address.
-//                     For example, for a large struct local, and a struct field reference, this will be the offset
-//                     of the field. Thus, for V02 + 0x28, if V02 itself is at offset SP + 0x10
-//                     then addrModeOffset is what gets added beyond that, here 0x28.
-//    isFloatUsage   - [TARGET_ARM only] True if the instruction being generated is a floating
-//                     point instruction. This requires using floating-point offset restrictions.
-//                     Note that a variable can be non-float, e.g., struct, but accessed as a
-//                     float local field.
-//    pFPbased       - [non-TARGET_ARM] Out arg. Set *FPbased to true if the
-//                     variable is addressed off of FP, false if it's addressed
-//                     off of SP.
-//
-// Return Value:
-//    Returns the variable offset from the given base register.
-//
-inline
-#ifdef TARGET_ARM
-    int
-    Compiler::lvaFrameAddress(
-        int varNum, bool mustBeFPBased, regNumber* pBaseReg, int addrModeOffset, bool isFloatUsage)
-#else
-    int
-    Compiler::lvaFrameAddress(int varNum, bool* pFPbased)
-#endif
-{
-    assert(lvaDoneFrameLayout != NO_FRAME_LAYOUT);
-
-    int  varOffset;
-    bool FPbased;
-    bool fConservative = false;
-    if (varNum >= 0)
-    {
-        LclVarDsc* varDsc;
-
-        assert((unsigned)varNum < lvaCount);
-        varDsc               = lvaTable + varNum;
-        bool isPrespilledArg = false;
-#if defined(TARGET_ARM) && defined(PROFILING_SUPPORTED)
-        isPrespilledArg = varDsc->lvIsParam && compIsProfilerHookNeeded() &&
-                          lvaIsPreSpilled(varNum, codeGen->regSet.rsMaskPreSpillRegs(false));
-#endif
-
-        // If we have finished with register allocation, and this isn't a stack-based local,
-        // check that this has a valid stack location.
-        if (lvaDoneFrameLayout > REGALLOC_FRAME_LAYOUT && !varDsc->lvOnFrame)
-        {
-#ifdef TARGET_AMD64
-#ifndef UNIX_AMD64_ABI
-            // On amd64, every param has a stack location, except on Unix-like systems.
-            assert(varDsc->lvIsParam);
-#endif // UNIX_AMD64_ABI
-#else  // !TARGET_AMD64
-            // For other targets, a stack parameter that is enregistered or prespilled
-            // for profiling on ARM will have a stack location.
-            assert((varDsc->lvIsParam && !varDsc->lvIsRegArg) || isPrespilledArg);
-#endif // !TARGET_AMD64
-        }
-
-        FPbased = varDsc->lvFramePointerBased;
-
-#ifdef DEBUG
-#if FEATURE_FIXED_OUT_ARGS
-        if ((unsigned)varNum == lvaOutgoingArgSpaceVar)
-        {
-            assert(FPbased == false);
-        }
-        else
-#endif
-        {
-#if DOUBLE_ALIGN
-            assert(FPbased == (isFramePointerUsed() || (genDoubleAlign() && varDsc->lvIsParam && !varDsc->lvIsRegArg)));
-#else
-#ifdef TARGET_X86
-            assert(FPbased == isFramePointerUsed());
-#endif
-#endif
-        }
-#endif // DEBUG
-
-        varOffset = varDsc->GetStackOffset();
-    }
-    else // Its a spill-temp
-    {
-        FPbased = isFramePointerUsed();
-        if (lvaDoneFrameLayout == Compiler::FINAL_FRAME_LAYOUT)
-        {
-            TempDsc* tmpDsc = codeGen->regSet.tmpFindNum(varNum);
-            // The temp might be in use, since this might be during code generation.
-            if (tmpDsc == nullptr)
-            {
-                tmpDsc = codeGen->regSet.tmpFindNum(varNum, RegSet::TEMP_USAGE_USED);
-            }
-            assert(tmpDsc != nullptr);
-            varOffset = tmpDsc->tdTempOffs();
-        }
-        else
-        {
-            // This value is an estimate until we calculate the
-            // offset after the final frame layout
-            // ---------------------------------------------------
-            //   :                         :
-            //   +-------------------------+ base --+
-            //   | LR, ++N for ARM         |        |   frameBaseOffset (= N)
-            //   +-------------------------+        |
-            //   | R11, ++N for ARM        | <---FP |
-            //   +-------------------------+      --+
-            //   | compCalleeRegsPushed - N|        |   lclFrameOffset
-            //   +-------------------------+      --+
-            //   | lclVars                 |        |
-            //   +-------------------------+        |
-            //   | tmp[MAX_SPILL_TEMP]     |        |
-            //   | tmp[1]                  |        |
-            //   | tmp[0]                  |        |   compLclFrameSize
-            //   +-------------------------+        |
-            //   | outgoingArgSpaceSize    |        |
-            //   +-------------------------+      --+
-            //   |                         | <---SP
-            //   :                         :
-            // ---------------------------------------------------
-
-            fConservative = true;
-            if (!FPbased)
-            {
-                // Worst case stack based offset.
-                CLANG_FORMAT_COMMENT_ANCHOR;
-#if FEATURE_FIXED_OUT_ARGS
-                int outGoingArgSpaceSize = lvaOutgoingArgSpaceSize;
-#else
-                int outGoingArgSpaceSize = 0;
-#endif
-                varOffset = outGoingArgSpaceSize + max(-varNum * TARGET_POINTER_SIZE, (int)lvaGetMaxSpillTempSize());
-            }
-            else
-            {
-                // Worst case FP based offset.
-                CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef TARGET_ARM
-                varOffset = codeGen->genCallerSPtoInitialSPdelta() - codeGen->genCallerSPtoFPdelta();
-#else
-                varOffset                = -(codeGen->genTotalFrameSize());
-#endif
-            }
-        }
-    }
-
-#ifdef TARGET_ARM
-    if (FPbased)
-    {
-        if (mustBeFPBased)
-        {
-            *pBaseReg = REG_FPBASE;
-        }
-        // Change the Frame Pointer (R11)-based addressing to the SP-based addressing when possible because
-        // it generates smaller code on ARM. See frame picture above for the math.
-        else
-        {
-            // If it is the final frame layout phase, we don't have a choice, we should stick
-            // to either FP based or SP based that we decided in the earlier phase. Because
-            // we have already selected the instruction. MinOpts will always reserve R10, so
-            // for MinOpts always use SP-based offsets, using R10 as necessary, for simplicity.
-
-            int spVarOffset        = fConservative ? compLclFrameSize : varOffset + codeGen->genSPtoFPdelta();
-            int actualSPOffset     = spVarOffset + addrModeOffset;
-            int actualFPOffset     = varOffset + addrModeOffset;
-            int encodingLimitUpper = isFloatUsage ? 0x3FC : 0xFFF;
-            int encodingLimitLower = isFloatUsage ? -0x3FC : -0xFF;
-
-            // Use SP-based encoding. During encoding, we'll pick the best encoding for the actual offset we have.
-            if (opts.MinOpts() || (actualSPOffset <= encodingLimitUpper))
-            {
-                varOffset = spVarOffset;
-                *pBaseReg = compLocallocUsed ? REG_SAVED_LOCALLOC_SP : REG_SPBASE;
-            }
-            // Use Frame Pointer (R11)-based encoding.
-            else if ((encodingLimitLower <= actualFPOffset) && (actualFPOffset <= encodingLimitUpper))
-            {
-                *pBaseReg = REG_FPBASE;
-            }
-            // Otherwise, use SP-based encoding. This is either (1) a small positive offset using a single movw,
-            // (2) a large offset using movw/movt. In either case, we must have already reserved
-            // the "reserved register", which will get used during encoding.
-            else
-            {
-                varOffset = spVarOffset;
-                *pBaseReg = compLocallocUsed ? REG_SAVED_LOCALLOC_SP : REG_SPBASE;
-            }
-        }
-    }
-    else
-    {
-        *pBaseReg = REG_SPBASE;
-    }
-#else
-    *pFPbased                            = FPbased;
-#endif
-
-    return varOffset;
-}
-
-inline bool Compiler::lvaIsParameter(unsigned varNum)
-{
-    LclVarDsc* varDsc;
-
-    assert(varNum < lvaCount);
-    varDsc = lvaTable + varNum;
-
-    return varDsc->lvIsParam;
-}
-
-inline bool Compiler::lvaIsRegArgument(unsigned varNum)
-{
-    LclVarDsc* varDsc;
-
-    assert(varNum < lvaCount);
-    varDsc = lvaTable + varNum;
-
-    return varDsc->lvIsRegArg;
-}
-
 inline bool Compiler::lvaIsOriginalThisArg(unsigned varNum)
 {
     assert(varNum < lvaCount);
@@ -1936,55 +1619,6 @@ inline var_types Compiler::mangleVarArgsType(var_types type)
 }
 #endif // TARGET_ARMARCH
 
-// For CORECLR there is no vararg on System V systems.
-#if FEATURE_VARARG
-inline regNumber Compiler::getCallArgIntRegister(regNumber floatReg)
-{
-#ifdef TARGET_AMD64
-    switch (floatReg)
-    {
-        case REG_XMM0:
-            return REG_RCX;
-        case REG_XMM1:
-            return REG_RDX;
-        case REG_XMM2:
-            return REG_R8;
-        case REG_XMM3:
-            return REG_R9;
-        default:
-            unreached();
-    }
-#else  // !TARGET_AMD64
-    // How will float args be passed for RyuJIT/x86?
-    NYI("getCallArgIntRegister for RyuJIT/x86");
-    return REG_NA;
-#endif // !TARGET_AMD64
-}
-
-inline regNumber Compiler::getCallArgFloatRegister(regNumber intReg)
-{
-#ifdef TARGET_AMD64
-    switch (intReg)
-    {
-        case REG_RCX:
-            return REG_XMM0;
-        case REG_RDX:
-            return REG_XMM1;
-        case REG_R8:
-            return REG_XMM2;
-        case REG_R9:
-            return REG_XMM3;
-        default:
-            unreached();
-    }
-#else  // !TARGET_AMD64
-    // How will float args be passed for RyuJIT/x86?
-    NYI("getCallArgFloatRegister for RyuJIT/x86");
-    return REG_NA;
-#endif // !TARGET_AMD64
-}
-#endif // FEATURE_VARARG
-
 /*
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -1995,20 +1629,6 @@ XX                                                                           XX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
-
-inline bool Compiler::compCanEncodePtrArgCntMax()
-{
-#ifdef JIT32_GCENCODER
-    // DDB 204533:
-    // The GC encoding for fully interruptible methods does not
-    // support more than 1023 pushed arguments, so we have to
-    // use a partially interruptible GC info/encoding.
-    //
-    return (fgPtrArgCntMax < MAX_PTRARG_OFS);
-#else // JIT32_GCENCODER
-    return true;
-#endif
-}
 
 /*****************************************************************************
  *
@@ -2181,68 +1801,6 @@ inline bool Compiler::fgIsBigOffset(size_t offset)
     return (offset > compMaxUncheckedOffsetForNullObject);
 }
 
-/*
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                          TempsInfo                                        XX
-XX                      Inline functions                                     XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
-/*****************************************************************************/
-
-/* static */ inline unsigned RegSet::tmpSlot(unsigned size)
-{
-    noway_assert(size >= sizeof(int));
-    noway_assert(size <= TEMP_MAX_SIZE);
-    assert((size % sizeof(int)) == 0);
-
-    assert(size < UINT32_MAX);
-    return size / sizeof(int) - 1;
-}
-
-/*****************************************************************************
- *
- *  Finish allocating temps - should be called each time after a pass is made
- *  over a function body.
- */
-
-inline void RegSet::tmpEnd()
-{
-#ifdef DEBUG
-    if (m_rsCompiler->verbose && (tmpCount > 0))
-    {
-        printf("%d tmps used\n", tmpCount);
-    }
-#endif // DEBUG
-}
-
-/*****************************************************************************
- *
- *  Shuts down the temp-tracking code. Should be called once per function
- *  compiled.
- */
-
-inline void RegSet::tmpDone()
-{
-#ifdef DEBUG
-    unsigned count;
-    TempDsc* temp;
-
-    assert(tmpAllFree());
-    for (temp = tmpListBeg(), count = temp ? 1 : 0; temp; temp = tmpListNxt(temp), count += temp ? 1 : 0)
-    {
-        assert(temp->tdLegalOffset());
-    }
-
-    // Make sure that all the temps were released
-    assert(count == tmpCount);
-    assert(tmpGetCount == 0);
-#endif // DEBUG
-}
-
 #ifdef DEBUG
 /*****************************************************************************
  *  Should we enable JitStress mode?
@@ -2271,10 +1829,12 @@ inline int getJitStressLevel()
 
 inline regNumber genMapIntRegArgNumToRegNum(unsigned argNum)
 {
-    if (hasFixedRetBuffReg() && (argNum == theFixedRetBuffArgNum()))
+#ifdef TARGET_ARM64
+    if (argNum == RET_BUFF_ARGNUM)
     {
-        return theFixedRetBuffReg();
+        return REG_ARG_RET_BUFF;
     }
+#endif
 
     assert(argNum < ArrLen(intArgRegs));
 
@@ -2324,171 +1884,6 @@ inline regMaskTP genMapFloatRegArgNumToRegMask(unsigned argNum)
     assert(argNum < ArrLen(fltArgMasks));
 
     return fltArgMasks[argNum];
-#else
-    assert(!"no x86 float arg regs\n");
-    return RBM_NONE;
-#endif
-}
-
-__forceinline regMaskTP genMapArgNumToRegMask(unsigned argNum, var_types type)
-{
-    regMaskTP result;
-    if (varTypeUsesFloatArgReg(type))
-    {
-        result = genMapFloatRegArgNumToRegMask(argNum);
-#ifdef TARGET_ARM
-        if (type == TYP_DOUBLE)
-        {
-            assert((result & RBM_DBL_REGS) != 0);
-            result |= (result << 1);
-        }
-#endif
-    }
-    else
-    {
-        result = genMapIntRegArgNumToRegMask(argNum);
-    }
-    return result;
-}
-
-/*****************************************************************************/
-/* Map a register number ("RegNum") to a register argument number ("RegArgNum")
- * If we have a fixed return buffer register we return theFixedRetBuffArgNum
- */
-
-inline unsigned genMapIntRegNumToRegArgNum(regNumber regNum)
-{
-    assert(genRegMask(regNum) & fullIntArgRegMask());
-
-    switch (regNum)
-    {
-        case REG_ARG_0:
-            return 0;
-#if MAX_REG_ARG >= 2
-        case REG_ARG_1:
-            return 1;
-#if MAX_REG_ARG >= 3
-        case REG_ARG_2:
-            return 2;
-#if MAX_REG_ARG >= 4
-        case REG_ARG_3:
-            return 3;
-#if MAX_REG_ARG >= 5
-        case REG_ARG_4:
-            return 4;
-#if MAX_REG_ARG >= 6
-        case REG_ARG_5:
-            return 5;
-#if MAX_REG_ARG >= 7
-        case REG_ARG_6:
-            return 6;
-#if MAX_REG_ARG >= 8
-        case REG_ARG_7:
-            return 7;
-#endif
-#endif
-#endif
-#endif
-#endif
-#endif
-#endif
-        default:
-            // Check for the Arm64 fixed return buffer argument register
-            if (hasFixedRetBuffReg() && (regNum == theFixedRetBuffReg()))
-            {
-                return theFixedRetBuffArgNum();
-            }
-            else
-            {
-                assert(!"invalid register arg register");
-                return BAD_VAR_NUM;
-            }
-    }
-}
-
-inline unsigned genMapFloatRegNumToRegArgNum(regNumber regNum)
-{
-    assert(genRegMask(regNum) & RBM_FLTARG_REGS);
-
-#ifdef TARGET_ARM
-    return regNum - REG_F0;
-#elif defined(TARGET_ARM64)
-    return regNum - REG_V0;
-#elif defined(UNIX_AMD64_ABI)
-    return regNum - REG_FLTARG_0;
-#else
-
-#if MAX_FLOAT_REG_ARG >= 1
-    switch (regNum)
-    {
-        case REG_FLTARG_0:
-            return 0;
-#if MAX_REG_ARG >= 2
-        case REG_FLTARG_1:
-            return 1;
-#if MAX_REG_ARG >= 3
-        case REG_FLTARG_2:
-            return 2;
-#if MAX_REG_ARG >= 4
-        case REG_FLTARG_3:
-            return 3;
-#if MAX_REG_ARG >= 5
-        case REG_FLTARG_4:
-            return 4;
-#endif
-#endif
-#endif
-#endif
-        default:
-            assert(!"invalid register arg register");
-            return BAD_VAR_NUM;
-    }
-#else
-    assert(!"flt reg args not allowed");
-    return BAD_VAR_NUM;
-#endif
-#endif // !arm
-}
-
-inline unsigned genMapRegNumToRegArgNum(regNumber regNum, var_types type)
-{
-    if (varTypeUsesFloatArgReg(type))
-    {
-        return genMapFloatRegNumToRegArgNum(regNum);
-    }
-    else
-    {
-        return genMapIntRegNumToRegArgNum(regNum);
-    }
-}
-
-/*****************************************************************************/
-/* Return a register mask with the first 'numRegs' argument registers set.
- */
-
-inline regMaskTP genIntAllRegArgMask(unsigned numRegs)
-{
-    assert(numRegs <= MAX_REG_ARG);
-
-    regMaskTP result = RBM_NONE;
-    for (unsigned i = 0; i < numRegs; i++)
-    {
-        result |= intArgMasks[i];
-    }
-    return result;
-}
-
-inline regMaskTP genFltAllRegArgMask(unsigned numRegs)
-{
-#ifndef TARGET_X86
-    assert(numRegs <= MAX_FLOAT_REG_ARG);
-
-    regMaskTP result = RBM_NONE;
-    for (unsigned i = 0; i < numRegs; i++)
-    {
-        result |= fltArgMasks[i];
-    }
-    return result;
 #else
     assert(!"no x86 float arg regs\n");
     return RBM_NONE;
@@ -2899,49 +2294,6 @@ inline bool Compiler::compIsForInlining() const
     return (impInlineInfo != nullptr);
 }
 
-//------------------------------------------------------------------------
-// lvaIsGCTracked: Determine whether this var should be reported
-//    as tracked for GC purposes.
-//
-// Arguments:
-//    varDsc - the LclVarDsc for the var in question.
-//
-// Return Value:
-//    Returns true if the variable should be reported as tracked in the GC info.
-//
-// Notes:
-//    This never returns true for struct variables, even if they are tracked.
-//    This is because struct variables are never tracked as a whole for GC purposes.
-//    It is up to the caller to ensure that the fields of struct variables are
-//    correctly tracked.
-//    On Amd64, we never GC-track fields of dependently promoted structs, even
-//    though they may be tracked for optimization purposes.
-//    It seems that on x86 and arm, we simply don't track these
-//    fields, though I have not verified that.  I attempted to make these GC-tracked,
-//    but there was too much logic that depends on these being untracked, so changing
-//    this would require non-trivial effort.
-
-inline bool Compiler::lvaIsGCTracked(const LclVarDsc* varDsc)
-{
-    if (!varDsc->lvTracked || !varTypeIsGC(varDsc->GetType()))
-    {
-        return false;
-    }
-
-    // Stack parameters are always untracked w.r.t. GC reportings
-    if (varDsc->IsParam() && !varDsc->IsRegParam())
-    {
-        return false;
-    }
-
-#ifdef TARGET_AMD64
-    return !varDsc->IsDependentPromotedField(this);
-#else
-    return true;
-#endif
-}
-
-/*****************************************************************************/
 #if MEASURE_CLRAPI_CALLS
 
 inline void Compiler::CLRApiCallEnter(unsigned apix)
@@ -2972,34 +2324,6 @@ inline void Compiler::CLR_API_Leave(API_ICorJitInfo_Names ename)
 #endif // MEASURE_CLRAPI_CALLS
 
 //------------------------------------------------------------------------------
-// fgVarIsNeverZeroInitializedInProlog : Check whether the variable is never zero initialized in the prolog.
-//
-// Arguments:
-//    varNum     -       local variable number
-//
-// Returns:
-//             true if this is a special variable that is never zero initialized in the prolog;
-//             false otherwise
-//
-
-bool Compiler::fgVarIsNeverZeroInitializedInProlog(unsigned varNum)
-{
-    LclVarDsc* varDsc = lvaGetDesc(varNum);
-    bool       result = varDsc->lvIsParam || lvaIsOSRLocal(varNum) || (varNum == lvaGSSecurityCookie) ||
-                  (varNum == lvaInlinedPInvokeFrameVar) || (varNum == lvaStubArgumentVar) || (varNum == lvaRetAddrVar);
-
-#if FEATURE_FIXED_OUT_ARGS
-    result = result || (varNum == lvaOutgoingArgSpaceVar);
-#endif
-
-#if defined(FEATURE_EH_FUNCLETS)
-    result = result || (varNum == lvaPSPSym);
-#endif
-
-    return result;
-}
-
-//------------------------------------------------------------------------------
 // fgVarNeedsExplicitZeroInit : Check whether the variable needs an explicit zero initialization.
 //
 // Arguments:
@@ -3027,7 +2351,8 @@ bool Compiler::fgVarNeedsExplicitZeroInit(unsigned varNum, bool bbInALoop, bool 
     {
         // Fields of dependently promoted structs may only be initialized in the prolog
         // when the whole struct is initialized in the prolog.
-        return fgVarNeedsExplicitZeroInit(varDsc->lvParentLcl, bbInALoop, bbIsReturn);
+        varNum = varDsc->GetPromotedFieldParentLclNum();
+        varDsc = lvaGetDesc(varNum);
     }
 
     if (bbInALoop && !bbIsReturn)
@@ -3035,17 +2360,17 @@ bool Compiler::fgVarNeedsExplicitZeroInit(unsigned varNum, bool bbInALoop, bool 
         return true;
     }
 
-    if (fgVarIsNeverZeroInitializedInProlog(varNum))
+    if (lvaIsNeverZeroInitializedInProlog(varNum))
     {
         return true;
     }
 
-    if (varTypeIsGC(varDsc->lvType))
+    if (varTypeIsGC(varDsc->GetType()))
     {
         return false;
     }
 
-    if ((varDsc->lvType == TYP_STRUCT) && varDsc->HasGCPtr())
+    if (varDsc->TypeIs(TYP_STRUCT) && varDsc->HasGCPtr())
     {
         ClassLayout* layout = varDsc->GetLayout();
         if (layout->GetSlotCount() == layout->GetGCPtrCount())
@@ -3054,9 +2379,9 @@ bool Compiler::fgVarNeedsExplicitZeroInit(unsigned varNum, bool bbInALoop, bool 
         }
 
         // Below conditions guarantee block initialization, which will initialize
-        // all struct fields. If the logic for block initialization in CodeGen::genCheckUseBlockInit()
+        // all struct fields. If the logic for block initialization in CodeGen::CheckUseBlockInit()
         // changes, these conditions need to be updated.
-        unsigned intSlots = roundUp(varDsc->lvSize(), TARGET_POINTER_SIZE) / sizeof(int);
+        unsigned intSlots = roundUp(varDsc->GetFrameSize(), REGSIZE_BYTES) / 4;
 
 #ifndef TARGET_64BIT
         if (intSlots > 4)
@@ -3380,13 +2705,8 @@ void GenTree::VisitBinOpOperands(TVisitor visitor)
     }
 }
 
-/*****************************************************************************
- *  operator new
- *
- *  Note that compiler's allocator is an arena allocator that returns memory that is
- *  not zero-initialized and can contain data from a prior allocation lifetime.
- */
-
+// Note that compiler's allocator is an arena allocator that returns memory that is
+// not zero-initialized and can contain data from a prior allocation lifetime.
 inline void* __cdecl operator new(size_t sz, Compiler* compiler, CompMemKind cmk)
 {
     return compiler->getAllocator(cmk).allocate<char>(sz);
@@ -3397,26 +2717,11 @@ inline void* __cdecl operator new[](size_t sz, Compiler* compiler, CompMemKind c
     return compiler->getAllocator(cmk).allocate<char>(sz);
 }
 
-inline static bool StructHasOverlappingFields(DWORD attribs)
-{
-    return ((attribs & CORINFO_FLG_OVERLAPPING_FIELDS) != 0);
-}
-
-inline static bool StructHasNoPromotionFlagSet(DWORD attribs)
-{
-    return ((attribs & CORINFO_FLG_DONT_PROMOTE) != 0);
-}
-
-/*****************************************************************************
- * This node should not be referenced by anyone now. Set its values to garbage
- * to catch extra references
- */
-
+// This node should not be referenced by anyone now. Set its values to garbage
+// to catch extra references
 inline void DEBUG_DESTROY_NODE(GenTree* tree)
 {
 #ifdef DEBUG
-    // printf("DEBUG_DESTROY_NODE for [0x%08x]\n", tree);
-
     // Save gtOper in case we want to find out what this node was
     tree->gtOperSave = tree->gtOper;
 

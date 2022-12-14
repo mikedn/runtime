@@ -2188,6 +2188,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     //
     CLANG_FORMAT_COMMENT_ANCHOR;
 
+#ifdef TARGET_ARM64
     if (call->HasFixedRetBufArg())
     {
         GenTreeCall::Use* args = call->gtCallArgs;
@@ -2195,8 +2196,9 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
         // We don't increment numArgs here, since we already counted this argument above.
 
-        nonStandardArgs.Add(args->GetNode(), theFixedRetBuffReg());
+        nonStandardArgs.Add(args->GetNode(), REG_ARG_RET_BUFF);
     }
+#endif
 
     // We are allowed to have a Fixed Return Buffer argument combined
     // with any of the remaining non-standard arguments
@@ -2535,7 +2537,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             size = 1;
 #else
             // On 32 bit targets LONG and DOUBLE are passed in 2 regs/slots.
-            size = genTypeStSz(argx->GetType());
+            size = argx->TypeIs(TYP_LONG, TYP_DOUBLE) ? 2 : 1;
 #endif
         }
 
@@ -2549,7 +2551,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             {
                 if (fltArgRegNum % 2 == 1)
                 {
-                    fltArgSkippedRegMask |= genMapArgNumToRegMask(fltArgRegNum, TYP_FLOAT);
+                    fltArgSkippedRegMask |= genMapFloatRegArgNumToRegMask(fltArgRegNum);
                     fltArgRegNum++;
                 }
             }
@@ -2557,7 +2559,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             {
                 if (intArgRegNum % 2 == 1)
                 {
-                    argSkippedRegMask |= genMapArgNumToRegMask(intArgRegNum, TYP_I_IMPL);
+                    argSkippedRegMask |= genMapIntRegArgNumToRegMask(intArgRegNum);
                     intArgRegNum++;
                 }
             }
@@ -2579,21 +2581,12 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         regNumber nonStdRegNum     = REG_NA;
         unsigned  nextFltArgRegNum = fltArgRegNum; // This is the next floating-point argument register number to use
 
-#if defined(OSX_ARM64_ABI)
-        // Arm64 Apple has a special ABI for passing small size arguments on stack,
-        // bytes are aligned to 1-byte, shorts to 2-byte, int/float to 4-byte, etc.
-        // It means passing 8 1-byte arguments on stack can take as small as 8 bytes.
-        unsigned argAlignBytes = eeGetArgAlignment(sigType, hfaType == TYP_FLOAT);
+#ifdef OSX_ARM64_ABI
+        unsigned argAlignBytes = lvaGetParamAlignment(sigType, hfaType == TYP_FLOAT);
 #endif
 
-//
-// Figure out if the argument will be passed in a register.
-//
-
 #ifdef TARGET_X86
-        if ((isRegParamType(argx->GetType()) && !isStructArg) || (isStructArg && isTrivialPointerSizedStruct(layout)))
-#else
-        if (isRegParamType(argx->GetType()))
+        if (!isStructArg ? varTypeIsI(varActualType(argx->GetType())) : isTrivialPointerSizedStruct(layout))
 #endif
         {
 #ifdef TARGET_ARM
@@ -2607,9 +2600,9 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                     // Back-fill the register.
                     isBackFilled              = true;
                     regMaskTP backFillBitMask = genFindLowestBit(fltArgSkippedRegMask);
-                    fltArgSkippedRegMask &=
-                        ~backFillBitMask; // Remove the back-filled register(s) from the skipped mask
-                    nextFltArgRegNum = genMapFloatRegNumToRegArgNum(genRegNumFromMask(backFillBitMask));
+                    // Remove the back-filled register(s) from the skipped mask
+                    fltArgSkippedRegMask &= ~backFillBitMask;
+                    nextFltArgRegNum = genRegNumFromMask(backFillBitMask) - REG_F0;
                     assert(nextFltArgRegNum < MAX_FLOAT_REG_ARG);
                 }
 
@@ -2752,7 +2745,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         {
             for (; fltArgRegNum < MAX_FLOAT_REG_ARG; ++fltArgRegNum)
             {
-                fltArgSkippedRegMask |= genMapArgNumToRegMask(fltArgRegNum, TYP_FLOAT);
+                fltArgSkippedRegMask |= genMapFloatRegArgNumToRegMask(fltArgRegNum);
             }
         }
 
@@ -2768,7 +2761,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             // Skip the rest of the integer argument registers
             for (; intArgRegNum < MAX_REG_ARG; ++intArgRegNum)
             {
-                argSkippedRegMask |= genMapArgNumToRegMask(intArgRegNum, TYP_I_IMPL);
+                argSkippedRegMask |= genMapIntRegArgNumToRegMask(intArgRegNum);
             }
         }
 #endif // TARGET_ARM
@@ -3300,7 +3293,8 @@ bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
         }
         else if (arg->OperIs(GT_LCL_FLD))
         {
-            canRetype = arg->AsLclFld()->GetLclOffs() + varTypeSize(argType) <= lvaGetDesc(arg->AsLclFld())->lvSize();
+            canRetype =
+                arg->AsLclFld()->GetLclOffs() + varTypeSize(argType) <= lvaGetDesc(arg->AsLclFld())->GetTypeSize();
 
             if (canRetype)
             {
@@ -4581,7 +4575,7 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
 
     unsigned lclNum    = arg->GetLclNum();
     unsigned lclOffset = arg->OperIs(GT_LCL_FLD) ? arg->AsLclFld()->GetLclOffs() : 0;
-    unsigned lclSize   = lcl->GetSize();
+    unsigned lclSize   = lcl->GetTypeSize();
 #ifdef FEATURE_SIMD
     bool lclIsSIMD = varTypeIsSIMD(lcl->GetType()) && !lcl->IsPromoted() && !lcl->lvDoNotEnregister;
 #endif
@@ -5830,18 +5824,27 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
 
     fgInitArgInfo(callee);
 
-    fgArgInfo* argInfo = callee->fgArgInfo;
-
     unsigned calleeArgStackSize = 0;
-    unsigned callerArgStackSize = info.compArgStackSize;
+    unsigned callerArgStackSize = codeGen->paramsStackSize;
 
-    for (unsigned index = 0; index < argInfo->GetArgCount(); ++index)
+    // TODO-MIKE-Cleanup: This can probably be replaced with callee->GetInfo()->GetNextSlotNum().
+
+    for (unsigned index = 0; index < callee->GetInfo()->GetArgCount(); ++index)
     {
-        fgArgTabEntry* arg = callee->GetArgInfoByArgNum(index);
+        CallArgInfo* arg = callee->GetArgInfoByArgNum(index);
 
-        calleeArgStackSize += arg->GetSlotCount() * REGSIZE_BYTES;
+        if (arg->GetSlotCount() != 0)
+        {
+            unsigned argEndOffset = (arg->GetSlotNum() + arg->GetSlotCount()) * REGSIZE_BYTES;
+
+            if (argEndOffset > calleeArgStackSize)
+            {
+                calleeArgStackSize = argEndOffset;
+            }
+        }
     }
-    calleeArgStackSize = GetOutgoingArgByteSize(calleeArgStackSize);
+
+    calleeArgStackSize = roundUp(calleeArgStackSize, REGSIZE_BYTES);
 
     auto reportFastTailCallDecision = [&](const char* thisFailReason) {
         if (failReason != nullptr)
@@ -6121,7 +6124,7 @@ bool Compiler::fgCallHasMustCopyByrefParameter(CallInfo* callInfo)
                 return true;
             }
 
-            if (argNode2->OperIs(GT_LCL_VAR) && lvaGetDesc(argNode2->AsLclVar())->lvIsParam)
+            if (argNode2->OperIs(GT_LCL_VAR) && lvaGetDesc(argNode2->AsLclVar())->IsParam())
             {
                 // Other params can't alias implicit byref params.
 
@@ -6306,7 +6309,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
                 return nullptr;
             }
 
-            if (lcl->lvPromoted && lcl->lvIsParam)
+            if (lcl->lvPromoted && lcl->IsParam())
             {
                 failTailCall("Has Struct Promoted Param", lclNum);
                 return nullptr;
@@ -6321,7 +6324,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
             }
         }
 
-        if (varTypeIsStruct(lcl->TypeGet()) && lcl->lvIsParam)
+        if (varTypeIsStruct(lcl->GetType()) && lcl->IsParam())
         {
             hasStructParam = true;
             // This prevents transforming a recursive tail call into a loop
@@ -7534,8 +7537,7 @@ void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
     // The tail call helper lives in vm\i386\jithelp.asm. See that function for more details
     // on the custom calling convention.
 
-    GenTree* numOldStackSlotsArg = gtNewIconNode(
-        static_cast<int>((compArgSize - (codeGen->intRegState.rsCalleeRegArgCount * REGSIZE_BYTES)) / REGSIZE_BYTES));
+    GenTree* numOldStackSlotsArg = gtNewIconNode(static_cast<int>(codeGen->paramsStackSize / REGSIZE_BYTES));
     // We haven't yet morphed the args so we don't know the number of stack slots this call uses.
     // Lowering will change this to the correct value.
     GenTree* numNewStackSlotsArg = gtNewIconNode(0);
@@ -7763,13 +7765,15 @@ void Compiler::fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCa
             {
                 continue;
             }
-#endif // FEATURE_FIXED_OUT_ARGS
-            if (!varDsc->lvIsParam)
+#endif
+
+            if (!varDsc->IsParam())
             {
-                var_types lclType            = varDsc->TypeGet();
+                var_types lclType            = varDsc->GetType();
                 bool      isUserLocal        = (varNum < info.compLocalsCount);
                 bool      structWithGCFields = ((lclType == TYP_STRUCT) && varDsc->GetLayout()->HasGCPtr());
                 bool      hadSuppressedInit  = varDsc->lvSuppressedZeroInit;
+
                 if ((info.compInitMem && (isUserLocal || structWithGCFields)) || hadSuppressedInit)
                 {
                     GenTree* lcl  = gtNewLclvNode(varNum, lclType);
@@ -7855,11 +7859,11 @@ Statement* Compiler::fgAssignRecursiveCallArgToCallerParam(GenTree*       arg,
         // The argument is already assigned to a temp or is a const.
         argInTemp = arg;
     }
-    else if (arg->OperGet() == GT_LCL_VAR)
+    else if (arg->OperIs(GT_LCL_VAR))
     {
         unsigned   lclNum = arg->AsLclVar()->GetLclNum();
-        LclVarDsc* varDsc = &lvaTable[lclNum];
-        if (!varDsc->lvIsParam)
+        LclVarDsc* varDsc = lvaGetDesc(lclNum);
+        if (!varDsc->IsParam())
         {
             // The argument is a non-parameter local so it doesn't need to be assigned to a temp.
             argInTemp = arg;
@@ -7894,9 +7898,9 @@ Statement* Compiler::fgAssignRecursiveCallArgToCallerParam(GenTree*       arg,
         }
 
         // Now assign the temp to the parameter.
-        LclVarDsc* paramDsc = lvaTable + originalArgNum;
-        assert(paramDsc->lvIsParam);
-        GenTree* paramDest       = gtNewLclvNode(originalArgNum, paramDsc->lvType);
+        LclVarDsc* paramDsc = lvaGetDesc(originalArgNum);
+        assert(paramDsc->IsParam());
+        GenTree* paramDest       = gtNewLclvNode(originalArgNum, paramDsc->GetType());
         GenTree* paramAssignNode = gtNewAssignNode(paramDest, argInTemp);
         paramAssignStmt          = gtNewStmt(paramAssignNode, callILOffset);
 
@@ -8464,7 +8468,7 @@ GenTree* Compiler::fgMorphInitStruct(GenTreeOp* asg)
 
     if ((destLclVar != nullptr) && (destSize != 0) && (destLclVar->GetType() != TYP_BLK))
     {
-        unsigned destLclVarSize = destLclVar->GetSize();
+        unsigned destLclVarSize = destLclVar->GetTypeSize();
 
         if (destLclVar->lvPromoted && (destLclOffs == 0) && (destSize == destLclVarSize))
         {
@@ -9403,7 +9407,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
     }
 
     if ((destLclVar != nullptr) && destLclVar->IsPromoted() && (destLclOffs == 0) &&
-        (destLclVar->GetSize() == destSize) &&
+        (destLclVar->GetTypeSize() == destSize) &&
         (!destLclVar->lvDoNotEnregister || (destLclVar->GetPromotedFieldCount() == 1)))
     {
         assert(varTypeIsStruct(destLclVar->GetType()));
@@ -9413,7 +9417,8 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
         JITDUMP("dest is promoted local\n");
     }
 
-    if ((srcLclVar != nullptr) && srcLclVar->IsPromoted() && (srcLclOffs == 0) && (srcLclVar->GetSize() == destSize) &&
+    if ((srcLclVar != nullptr) && srcLclVar->IsPromoted() && (srcLclOffs == 0) &&
+        (srcLclVar->GetTypeSize() == destSize) &&
         (!srcLclVar->lvDoNotEnregister || (srcLclVar->GetPromotedFieldCount() == 1)))
     {
         assert(varTypeIsStruct(srcLclVar->GetType()));
@@ -9637,7 +9642,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTreeOp* asg)
                     // The maximum offset depends on the last promoted field offset, not the struct
                     // size. But such cases are so rare that it's not worth the trouble to get the
                     // last field offset.
-                    maxOffset -= promotedLcl->GetSize();
+                    maxOffset -= promotedLcl->GetTypeSize();
 
                     if ((offset->GetValue() > 0) && (offset->GetValue() <= maxOffset))
                     {
@@ -14561,41 +14566,19 @@ void Compiler::fgMergeBlockReturn(BasicBlock* block)
     }
 }
 
-/*****************************************************************************
- *
- *  Make some decisions about the kind of code to generate.
- */
-
 void Compiler::fgSetOptions()
 {
-#ifdef DEBUG
-    /* Should we force fully interruptible code ? */
-    if (JitConfig.JitFullyInt() || compStressCompile(STRESS_GENERIC_VARN, 30))
-    {
-        noway_assert(!codeGen->isGCTypeFixed());
-        SetInterruptible(true);
-    }
+    if (opts.compDbgCode
+#ifdef UNIX_X86_ABI
+        || (info.compXcptnsCount > 0)
 #endif
-
-    if (opts.compDbgCode)
+#ifdef DEBUG
+        || JitConfig.JitFullyInt() || compStressCompile(STRESS_GENERIC_VARN, 30)
+#endif
+            )
     {
-        assert(!codeGen->isGCTypeFixed());
-        SetInterruptible(true); // debugging is easier this way ...
+        codeGen->SetInterruptible(true);
     }
-
-    /* Assume we won't need an explicit stack frame if this is allowed */
-
-    if (compLocallocUsed)
-    {
-        codeGen->setFramePointerRequired(true);
-    }
-
-#ifdef TARGET_X86
-
-    if (compTailCallUsed)
-        codeGen->setFramePointerRequired(true);
-
-#endif // TARGET_X86
 
     // Assert that the EH table has been initialized by now. Note that
     // compHndBBtabAllocCount never decreases; it is a high-water mark
@@ -14605,7 +14588,6 @@ void Compiler::fgSetOptions()
     assert(compHndBBtabAllocCount >= info.compXcptnsCount);
 
 #ifdef TARGET_X86
-
     // Note: this case, and the !X86 case below, should both use the
     // !X86 path. This would require a few more changes for X86 to use
     // compHndBBtabCount (the current number of EH clauses) instead of
@@ -14616,58 +14598,33 @@ void Compiler::fgSetOptions()
     // to use a frame pointer because of EH. But until all the code uses
     // the same test, leave info.compXcptnsCount here.
     if (info.compXcptnsCount > 0)
-    {
-        codeGen->setFramePointerRequiredEH(true);
-    }
-
-#else // !TARGET_X86
-
+#else
     if (compHndBBtabCount > 0)
+#endif
     {
-        codeGen->setFramePointerRequiredEH(true);
+        opts.SetFramePointerRequired();
+
+#ifndef JIT32_GCENCODER
+        // EnumGcRefs will only enumerate slots in aborted frames
+        // if they are fully-interruptible.  So if we have a catch
+        // or finally that will keep frame-vars alive, we need to
+        // force fully-interruptible.
+        JITDUMP("Method has EH, marking method as fully interruptible\n");
+        codeGen->SetInterruptible(true);
+#endif
     }
-
-#endif // TARGET_X86
-
-#ifdef UNIX_X86_ABI
-    if (info.compXcptnsCount > 0)
+    else if (compMethodRequiresPInvokeFrame() || compIsProfilerHookNeeded() || compLocallocUsed
+#ifdef TARGET_X86
+             || compTailCallUsed
+#endif
+#ifdef JIT32_GCENCODER
+             || info.compPublishStubParam || info.compIsVarArgs || lvaReportParamTypeArg()
+#endif
+             || opts.compDbgEnC)
     {
-        assert(!codeGen->isGCTypeFixed());
-        // Enforce fully interruptible codegen for funclet unwinding
-        SetInterruptible(true);
+        opts.SetFramePointerRequired();
     }
-#endif // UNIX_X86_ABI
-
-    if (compMethodRequiresPInvokeFrame())
-    {
-        codeGen->setFramePointerRequired(true); // Setup of Pinvoke frame currently requires an EBP style frame
-    }
-
-    if (info.compPublishStubParam)
-    {
-        codeGen->setFramePointerRequiredGCInfo(true);
-    }
-
-    if (compIsProfilerHookNeeded())
-    {
-        codeGen->setFramePointerRequired(true);
-    }
-
-    if (info.compIsVarArgs)
-    {
-        // Code that initializes lvaVarargsBaseOfStkArgs requires this to be EBP relative.
-        codeGen->setFramePointerRequiredGCInfo(true);
-    }
-
-    if (lvaReportParamTypeArg())
-    {
-        codeGen->setFramePointerRequiredGCInfo(true);
-    }
-
-    // printf("method will %s be fully interruptible\n", GetInterruptible() ? "   " : "not");
 }
-
-/*****************************************************************************/
 
 GenTree* Compiler::fgInitThisClass()
 {

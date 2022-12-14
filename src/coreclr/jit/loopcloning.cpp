@@ -63,7 +63,7 @@ GenTree* LC_Array::ToGenTree(Compiler* comp, BasicBlock* bb)
     if (type == Jagged)
     {
         // Create a a[i][j][k].length type node.
-        GenTree* arr  = comp->gtNewLclvNode(arrIndex->arrLcl, comp->lvaTable[arrIndex->arrLcl].lvType);
+        GenTree* arr  = comp->gtNewLclvNode(arrIndex->arrLcl, comp->lvaGetDesc(arrIndex->arrLcl)->GetType());
         int      rank = GetDimRank();
         for (int i = 0; i < rank; ++i)
         {
@@ -130,7 +130,7 @@ GenTree* LC_Ident::ToGenTree(Compiler* comp, BasicBlock* bb)
             assert(constant <= INT32_MAX);
             return comp->gtNewIconNode(constant);
         case Var:
-            return comp->gtNewLclvNode(constant, comp->lvaTable[constant].lvType);
+            return comp->gtNewLclvNode(constant, comp->lvaGetDesc(constant)->GetType());
         case ArrLen:
             return arrLen.ToGenTree(comp, bb);
         case Null:

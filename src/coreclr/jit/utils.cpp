@@ -106,18 +106,16 @@ extern const OPCODE_FORMAT opcodeArgKinds[]
 #endif
 // clang-format on
 
-const BYTE varTypeClassification[] = {
-#define DEF_TP(tn, nm, jitType, verType, sz, sze, asze, st, al, tf) tf,
+const BYTE varTypeClassification[]{
+#define DEF_TP(tn, nm, jitType, sz, sze, asze, al, tf) tf,
 #include "typelist.h"
-#undef DEF_TP
 };
 
 const char* varTypeName(var_types type)
 {
-    static const char* const varTypeNames[] = {
-#define DEF_TP(tn, nm, jitType, verType, sz, sze, asze, st, al, tf) nm,
+    static const char* const varTypeNames[]{
+#define DEF_TP(tn, nm, jitType, sz, sze, asze, al, tf) nm,
 #include "typelist.h"
-#undef DEF_TP
     };
 
     return type < _countof(varTypeNames) ? varTypeNames[type] : "TYP_???";

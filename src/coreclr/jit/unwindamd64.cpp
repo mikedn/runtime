@@ -148,7 +148,7 @@ void Compiler::unwindBegProlog()
 
 void Compiler::unwindBegPrologWindows()
 {
-    assert(compGeneratingProlog);
+    assert(codeGen->generatingProlog);
 
     FuncInfoDsc* func = funCurrentFunc();
 
@@ -176,7 +176,7 @@ void Compiler::unwindBegPrologWindows()
 //
 void Compiler::unwindEndProlog()
 {
-    assert(compGeneratingProlog);
+    assert(codeGen->generatingProlog);
 }
 
 //------------------------------------------------------------------------
@@ -185,7 +185,7 @@ void Compiler::unwindEndProlog()
 //
 void Compiler::unwindBegEpilog()
 {
-    assert(compGeneratingEpilog);
+    assert(codeGen->generatingEpilog);
 }
 
 //------------------------------------------------------------------------
@@ -194,7 +194,7 @@ void Compiler::unwindBegEpilog()
 //
 void Compiler::unwindEndEpilog()
 {
-    assert(compGeneratingEpilog);
+    assert(codeGen->generatingEpilog);
 }
 
 //------------------------------------------------------------------------
@@ -219,7 +219,7 @@ void Compiler::unwindPush(regNumber reg)
 
 void Compiler::unwindPushWindows(regNumber reg)
 {
-    assert(compGeneratingProlog);
+    assert(codeGen->generatingProlog);
 
     FuncInfoDsc* func = funCurrentFunc();
 
@@ -277,7 +277,7 @@ void Compiler::unwindAllocStack(unsigned size)
 
 void Compiler::unwindAllocStackWindows(unsigned size)
 {
-    assert(compGeneratingProlog);
+    assert(codeGen->generatingProlog);
 
     FuncInfoDsc* func = funCurrentFunc();
 
@@ -338,7 +338,7 @@ void Compiler::unwindSetFrameReg(regNumber reg, unsigned offset)
 
 void Compiler::unwindSetFrameRegWindows(regNumber reg, unsigned offset)
 {
-    assert(compGeneratingProlog);
+    assert(codeGen->generatingProlog);
 
     FuncInfoDsc* func = funCurrentFunc();
 
@@ -404,7 +404,7 @@ void Compiler::unwindSaveReg(regNumber reg, unsigned offset)
 
 void Compiler::unwindSaveRegWindows(regNumber reg, unsigned offset)
 {
-    assert(compGeneratingProlog);
+    assert(codeGen->generatingProlog);
 
     FuncInfoDsc* func = funCurrentFunc();
 
@@ -449,7 +449,7 @@ void Compiler::unwindSaveRegWindows(regNumber reg, unsigned offset)
 #ifdef UNIX_AMD64_ABI
 void Compiler::unwindSaveRegCFI(regNumber reg, unsigned offset)
 {
-    assert(compGeneratingProlog);
+    assert(codeGen->generatingProlog);
 
     if (RBM_CALLEE_SAVED & genRegMask(reg))
     {
@@ -637,8 +637,8 @@ void DumpUnwindInfo(bool                     isHotCode,
 //
 void Compiler::unwindReserve()
 {
-    assert(!compGeneratingProlog);
-    assert(!compGeneratingEpilog);
+    assert(!codeGen->generatingProlog);
+    assert(!codeGen->generatingEpilog);
 
     assert(compFuncInfoCount > 0);
     for (unsigned funcIdx = 0; funcIdx < compFuncInfoCount; funcIdx++)
@@ -727,8 +727,8 @@ void Compiler::unwindReserveFuncHelper(FuncInfoDsc* func, bool isHotCode)
 //
 void Compiler::unwindEmit(void* pHotCode, void* pColdCode)
 {
-    assert(!compGeneratingProlog);
-    assert(!compGeneratingEpilog);
+    assert(!codeGen->generatingProlog);
+    assert(!codeGen->generatingEpilog);
 
     assert(compFuncInfoCount > 0);
     for (unsigned funcIdx = 0; funcIdx < compFuncInfoCount; funcIdx++)

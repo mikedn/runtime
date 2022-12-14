@@ -39,9 +39,9 @@ struct CnsVal
 };
 
 UNATIVE_OFFSET emitInsSize(code_t code, bool includeRexPrefixSize);
-UNATIVE_OFFSET emitInsSizeSV(code_t code, int var, int dsp);
-UNATIVE_OFFSET emitInsSizeSV(instrDesc* id, code_t code, int var, int dsp);
-UNATIVE_OFFSET emitInsSizeSV(instrDesc* id, code_t code, int var, int dsp, int val);
+UNATIVE_OFFSET emitInsSizeSV_AM(instrDesc* id, code_t code);
+UNATIVE_OFFSET emitInsSizeSV(instrDesc* id, code_t code);
+UNATIVE_OFFSET emitInsSizeSV(instrDesc* id, code_t code, int val);
 UNATIVE_OFFSET emitInsSizeRR(instrDesc* id, code_t code);
 UNATIVE_OFFSET emitInsSizeRR(instrDesc* id, code_t code, int val);
 UNATIVE_OFFSET emitInsSizeRR(instruction ins, regNumber reg1, regNumber reg2, emitAttr attr);
@@ -225,8 +225,8 @@ void emitDispIns(instrDesc* id,
                  size_t     sz    = 0,
                  insGroup*  ig    = nullptr);
 
-const char* emitXMMregName(unsigned reg);
-const char* emitYMMregName(unsigned reg);
+static const char* emitXMMregName(unsigned reg);
+static const char* emitYMMregName(unsigned reg);
 
 #endif
 
@@ -235,24 +235,22 @@ const char* emitYMMregName(unsigned reg);
 /************************************************************************/
 
 private:
+void SetInstrLclAddrMode(instrDesc* id, int varNum, int varOffs);
 ssize_t GetAddrModeDisp(GenTree* addr);
 void SetInstrAddrMode(instrDesc* id, insFormat fmt, instruction ins, GenTree* addr);
 void emitSetAmdDisp(instrDescAmd* id, ssize_t dsp);
 instrDesc* emitNewInstrAmd(emitAttr attr, ssize_t dsp);
 instrDesc* emitNewInstrAmdCns(emitAttr attr, ssize_t dsp, int cns);
 
-instrDesc* emitNewInstrCallDir(int              argCnt,
-                               VARSET_VALARG_TP GCvars,
-                               regMaskTP        gcrefRegs,
-                               regMaskTP        byrefRegs,
-                               emitAttr retSize MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize));
-
-instrDesc* emitNewInstrCallInd(int              argCnt,
-                               ssize_t          disp,
-                               VARSET_VALARG_TP GCvars,
-                               regMaskTP        gcrefRegs,
-                               regMaskTP        byrefRegs,
-                               emitAttr retSize MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize));
+instrDesc* emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle,
+                            emitAttr              retRegAttr,
+#ifdef UNIX_AMD64_ABI
+                            emitAttr retReg2Attr,
+#endif
+#ifdef TARGET_X86
+                            int argSlotCount,
+#endif
+                            int32_t disp);
 
 void emitGetInsCns(instrDesc* id, CnsVal* cv);
 ssize_t emitGetInsAmdCns(instrDesc* id, CnsVal* cv);
@@ -495,24 +493,24 @@ enum EmitCallType
     EC_INDIR_ARD         // Indirect call via an addressing mode
 };
 
-// clang-format off
-void emitIns_Call(EmitCallType          callType,
-                  CORINFO_METHOD_HANDLE methHnd
-                  DEBUGARG(CORINFO_SIG_INFO* sigInfo), 
-                  void*                 addr,
-                  ssize_t               argSize,
-                  emitAttr              retSize
-                  MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(emitAttr secondRetSize),
-                  VARSET_VALARG_TP      ptrVars,
-                  regMaskTP             gcrefRegs,
-                  regMaskTP             byrefRegs,
-                  IL_OFFSETX            ilOffset = BAD_IL_OFFSET,
-                  regNumber             ireg     = REG_NA,
-                  regNumber             xreg     = REG_NA,
-                  unsigned              xmul     = 0,
-                  ssize_t               disp     = 0,
-                  bool                  isJump   = false);
-// clang-format on
+void emitIns_Call(EmitCallType          kind,
+                  CORINFO_METHOD_HANDLE methodHandle,
+#ifdef DEBUG
+                  CORINFO_SIG_INFO* sigInfo,
+#endif
+                  void* addr,
+#ifdef TARGET_X86
+                  ssize_t argSize,
+#endif
+                  emitAttr retRegAttr,
+#ifdef UNIX_AMD64_ABI
+                  emitAttr retReg2Attr,
+#endif
+                  regNumber amBase  = REG_NA,
+                  regNumber amIndex = REG_NA,
+                  unsigned  amScale = 0,
+                  int32_t   amDisp  = 0,
+                  bool      isJump  = false);
 
 #ifdef TARGET_AMD64
 // Is the last instruction emitted a call instruction?

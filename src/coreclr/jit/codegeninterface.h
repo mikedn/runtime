@@ -24,6 +24,8 @@
 #include "jitgcinfo.h"
 #include "emit.h"
 
+class LclVarDsc;
+
 #if 0
 // Enable USING_SCOPE_INFO flag to use psiScope/siScope info to report variables' locations.
 #define USING_SCOPE_INFO
@@ -35,20 +37,14 @@
 #define USING_VARIABLE_LIVE_RANGE
 #endif
 
-// Forward reference types
-
-class CodeGenInterface;
 class emitter;
 
-// Small helper types
-
-//-------------------- Register selection ---------------------------------
-
-struct RegState
+struct ParamRegState
 {
-    regMaskTP rsCalleeRegArgMaskLiveIn; // mask of register arguments (live on entry to method)
-    unsigned  rsCalleeRegArgCount;      // total number of incoming register arguments of this kind (int or float)
-    bool      rsIsFloat;                // true for float argument registers, false for integer argument registers
+    unsigned  intRegCount    = 0;
+    unsigned  floatRegCount  = 0;
+    regMaskTP intRegLiveIn   = RBM_NONE;
+    regMaskTP floatRegLiveIn = RBM_NONE;
 };
 
 //-------------------- CodeGenInterface ---------------------------------
@@ -82,80 +78,97 @@ public:
 
     Compiler* compiler;
 
-    //  The following holds information about instr offsets in terms of generated code.
-    struct IPmappingDsc
-    {
-        IPmappingDsc* ipmdNext;      // next line# record
-        emitLocation  ipmdNativeLoc; // the emitter location of the native code corresponding to the IL offset
-        IL_OFFSETX    ipmdILoffsx;   // the instr offset
-        bool          ipmdIsLabel;   // Can this code be a branch label?
-    };
-
-    // Record the instr offset mapping to the generated code
-    IPmappingDsc* genIPmappingList = nullptr;
-    IPmappingDsc* genIPmappingLast = nullptr;
-
-    //  The following is used to create the 'method JIT info' block.
+#ifdef JIT32_GCENCODER
     size_t compInfoBlkSize;
-    BYTE*  compInfoBlkAddr;
+#endif
 
-    GCInfo gcInfo;
+    ParamRegState paramRegState;
+    SpillTempSet  spillTemps;
 
-    RegSet   regSet;
-    RegState intRegState;
-    RegState floatRegState;
+#ifdef TARGET_ARM
+    // Registers that are spilled at the start of the prolog, right below stack params,
+    // such that they form a contiguous area useful to handle varargs and split params
+    // but also to take advantage of ARM's multi reg push instruction. Normally these
+    // are registers allocated to parameters but some unused registers might have to be
+    // spilled to maintain alignment.
+    regMaskTP preSpillParamRegs = RBM_NONE;
+    regMaskTP preSpillAlignRegs = RBM_NONE;
 
-    FrameType rpFrameType;
+    regMaskTP GetPreSpillRegs() const
+    {
+        return preSpillParamRegs | preSpillAlignRegs;
+    }
+
+    unsigned GetPreSpillRegCount() const
+    {
+        return genCountBits(preSpillParamRegs | preSpillAlignRegs);
+    }
+
+    unsigned GetPreSpillSize() const
+    {
+        return GetPreSpillRegCount() * REGSIZE_BYTES;
+    }
+#endif
+
+    //-------------------------------------------------------------------------
+    //  The following keeps track of how many bytes of local frame space we've
+    //  grabbed so far in the current function, and how many argument bytes we
+    //  need to pop when we return.
+    //
+
+    unsigned lclFrameSize;    // secObject + lclBlk + locals + temps
+    unsigned paramsStackSize; // total size of parameters passed in stack
+#if FEATURE_FIXED_OUT_ARGS
+    PhasedVar<unsigned> outgoingArgSpaceSize; // size of fixed outgoing argument space
+#endif
+    // For CORINFO_CALLCONV_PARAMTYPE and if generic context is passed as THIS pointer
+    int cachedGenericContextArgOffset;
+
+    // Count of callee-saved regs we pushed in the prolog.
+    // Does not include EBP for isFramePointerUsed() and double-aligned frames.
+    // In case of Amd64 this doesn't include float regs saved on stack.
+    unsigned calleeRegsPushed;
+
+    // Callee saved registers that are modified by the compiled method, and thus
+    // need to be saved in prolog and restored in epilog.
+    // These are registers that have been allocated by LSRA and registers used in
+    // prolog for various purposes (e.g. block initialization), without registers
+    // having special uses (frame/stack pointer, link register on ARM64) that too
+    // have to be saved and restored.
+    regMaskTP calleeSavedModifiedRegs = RBM_NONE;
+
+#ifdef UNIX_AMD64_ABI
+    // This flag  is indicating if there is a need to align the frame.
+    // On AMD64-Windows, if there are calls, 4 slots for the outgoing ars are allocated, except for
+    // FastTailCall. This slots makes the frame size non-zero, so alignment logic will be called.
+    // On AMD64-Unix, there are no such slots. There is a possibility to have calls in the method with frame size of
+    // 0. The frame alignment logic won't kick in. This flags takes care of the AMD64-Unix case by remembering that
+    // there are calls and making sure the frame alignment logic is executed.
+    bool needToAlignFrame = false;
+#endif
+
+    bool generatingProlog = false;
+    bool generatingEpilog = false;
 
 protected:
     bool m_genAlignLoops;
 
-#ifdef DEBUG
-    VARSET_TP genTempOldLife;
-    bool      genTempLiveChg = true;
-#endif
-
-    VARSET_TP genLastLiveSet;  // A one element map (genLastLiveSet-> genLastLiveMask)
-    regMaskTP genLastLiveMask; // these two are used in genLiveMask
-
 public:
-    bool            genUseOptimizedWriteBarriers();
-    CorInfoHelpFunc genWriteBarrierHelperForWriteBarrierForm(GenTreeStoreInd* store, GCInfo::WriteBarrierForm wbf);
+    static bool            UseOptimizedWriteBarriers();
+    static CorInfoHelpFunc GetWriteBarrierHelperCall(GCInfo::WriteBarrierForm wbf);
 
-    // The following property indicates whether the current method sets up
-    // an explicit stack frame or not.
 private:
-    PhasedVar<bool> m_cgFramePointerUsed;
+    bool m_cgFramePointerUsed = false;
 
 public:
     bool isFramePointerUsed() const
     {
         return m_cgFramePointerUsed;
     }
-    void setFramePointerUsed(bool value)
-    {
-        m_cgFramePointerUsed = value;
-    }
-    void resetFramePointerUsedWritePhase()
-    {
-        m_cgFramePointerUsed.ResetWritePhase();
-    }
 
-    virtual VARSET_VALARG_TP GetLiveSet() const = 0;
-
-    // The following property indicates whether the current method requires
-    // an explicit frame. Does not prohibit double alignment of the stack.
-private:
-    PhasedVar<bool> m_cgFrameRequired;
-
-public:
-    bool isFrameRequired() const
+    void setFramePointerUsed()
     {
-        return m_cgFrameRequired;
-    }
-    void setFrameRequired(bool value)
-    {
-        m_cgFrameRequired = value;
+        m_cgFramePointerUsed = true;
     }
 
 public:
@@ -165,121 +178,39 @@ public:
     int genTotalFrameSize() const;
 
 #ifdef TARGET_ARM64
-    virtual void SetSaveFpLrWithAllCalleeSavedRegisters(bool value) = 0;
-    virtual bool IsSaveFpLrWithAllCalleeSavedRegisters() const      = 0;
-#endif // TARGET_ARM64
-
-    regNumber genGetThisArgReg(GenTreeCall* call) const;
-
-#ifdef TARGET_XARCH
-#ifdef TARGET_AMD64
-    // There are no reloc hints on x86
-    unsigned short genAddrRelocTypeHint(size_t addr);
+    void SetSaveFpLrWithAllCalleeSavedRegisters(bool value);
+    bool IsSaveFpLrWithAllCalleeSavedRegisters() const;
+    bool genSaveFpLrWithAllCalleeSavedRegisters = false;
 #endif
-    bool genDataIndirAddrCanBeEncodedAsPCRelOffset(size_t addr);
-    bool genCodeIndirAddrCanBeEncodedAsPCRelOffset(size_t addr);
-    bool genCodeIndirAddrCanBeEncodedAsZeroRelOffset(size_t addr);
-    bool genCodeIndirAddrNeedsReloc(size_t addr);
-    bool genCodeAddrNeedsReloc(size_t addr);
-#endif
-
-    // If both isFramePointerRequired() and isFrameRequired() are false, the method is eligible
-    // for Frame-Pointer-Omission (FPO).
-
-    // The following property indicates whether the current method requires
-    // an explicit stack frame, and all arguments and locals to be
-    // accessible relative to the Frame Pointer. Prohibits double alignment
-    // of the stack.
-private:
-    PhasedVar<bool> m_cgFramePointerRequired;
-
-public:
-    bool isFramePointerRequired() const
-    {
-        return m_cgFramePointerRequired;
-    }
-
-    void setFramePointerRequired(bool value)
-    {
-        m_cgFramePointerRequired = value;
-    }
-
-    //------------------------------------------------------------------------
-    // resetWritePhaseForFramePointerRequired: Return m_cgFramePointerRequired into the write phase.
-    // It is used only before the first phase, that locks this value, currently it is LSRA.
-    // Use it if you want to skip checks that set this value to true if the value is already true.
-    void resetWritePhaseForFramePointerRequired()
-    {
-        m_cgFramePointerRequired.ResetWritePhase();
-    }
-
-    void setFramePointerRequiredEH(bool value);
-
-    void setFramePointerRequiredGCInfo(bool value)
-    {
-#ifdef JIT32_GCENCODER
-        m_cgFramePointerRequired = value;
-#endif
-    }
 
 #if DOUBLE_ALIGN
     // The following property indicates whether we going to double-align the frame.
     // Arguments are accessed relative to the Frame Pointer (EBP), and
     // locals are accessed relative to the Stack Pointer (ESP).
+private:
+    bool m_cgDoubleAlign = false;
+
 public:
     bool doDoubleAlign() const
     {
         return m_cgDoubleAlign;
     }
-    void setDoubleAlign(bool value)
+
+    void setDoubleAlign()
     {
-        m_cgDoubleAlign = value;
+        m_cgDoubleAlign = true;
     }
-    bool doubleAlignOrFramePointerUsed() const
-    {
-        return isFramePointerUsed() || doDoubleAlign();
-    }
-
-private:
-    bool m_cgDoubleAlign;
-#else // !DOUBLE_ALIGN
-
-public:
-    bool doubleAlignOrFramePointerUsed() const
-    {
-        return isFramePointerUsed();
-    }
-
-#endif // !DOUBLE_ALIGN
-
-#ifdef DEBUG
-    // The following is used to make sure the value of 'GetInterruptible()' isn't
-    // changed after it's been used by any logic that depends on its value.
-public:
-    bool isGCTypeFixed()
-    {
-        return genInterruptibleUsed;
-    }
-
-protected:
-    bool genInterruptibleUsed = false;
 #endif
 
-public:
-    // Methods to abstract target information
+    bool IsFramePointerRequired() const
+    {
+        return isFramePointerUsed()
+#if DOUBLE_ALIGN
+               || doDoubleAlign()
+#endif
+            ;
+    }
 
-    bool validImmForInstr(instruction ins, target_ssize_t val, insFlags flags = INS_FLAGS_DONT_CARE);
-    bool validDispForLdSt(target_ssize_t disp, var_types type);
-    bool validImmForAdd(target_ssize_t imm, insFlags flags);
-    bool validImmForAlu(target_ssize_t imm);
-    bool validImmForMov(target_ssize_t imm);
-    bool validImmForBL(ssize_t addr);
-
-    instruction ins_Load(var_types srcType, bool aligned = false);
-    instruction ins_Store(var_types dstType, bool aligned = false);
-    instruction ins_StoreFromSrc(regNumber srcReg, var_types dstType, bool aligned = false);
-
-public:
     emitter* GetEmitter() const
     {
         return m_cgEmitter;
@@ -312,7 +243,7 @@ public:
     // is to be fully interruptible.
     //
 public:
-    bool GetInterruptible()
+    bool GetInterruptible() const
     {
         return m_cgInterruptible;
     }
@@ -322,8 +253,7 @@ public:
     }
 
 #ifdef TARGET_ARMARCH
-
-    bool GetHasTailCalls()
+    bool GetHasTailCalls() const
     {
         return m_cgHasTailCalls;
     }
@@ -346,16 +276,12 @@ private:
     //        for fully interruptible methods)
     //
 public:
-    bool IsFullPtrRegMapRequired()
+    bool IsFullPtrRegMapRequired() const
     {
         return m_cgFullPtrRegMap;
     }
-    void SetFullPtrRegMapRequired(bool value)
-    {
-        m_cgFullPtrRegMap = value;
-    }
 
-private:
+protected:
     bool m_cgFullPtrRegMap;
 
 public:
@@ -511,17 +437,24 @@ public:
     };
 
 public:
-    siVarLoc getSiVarLoc(const LclVarDsc* varDsc, unsigned int stackLevel) const;
+    siVarLoc getSiVarLoc(const LclVarDsc* varDsc
+#if !FEATURE_FIXED_OUT_ARGS
+                         ,
+                         unsigned stackLevel
+#endif
+                         ) const;
 
 #ifdef DEBUG
     void dumpSiVarLoc(const siVarLoc* varLoc) const;
 #endif
 
+#if !FEATURE_FIXED_OUT_ARGS
     unsigned getCurrentStackLevel() const;
 
 protected:
     //  Keeps track of how many bytes we've pushed on the processor's stack.
-    unsigned genStackLevel;
+    unsigned genStackLevel = 0;
+#endif
 
 public:
 #ifdef USING_VARIABLE_LIVE_RANGE
@@ -725,9 +658,6 @@ public:
 
     virtual const char* siStackVarName(size_t offs, size_t size, unsigned reg, unsigned stkOffs) = 0;
 #endif // LATE_DISASM
-
-public:
-    class LinearScanInterface* m_pLinearScan = nullptr;
 };
 
 StructStoreKind GetStructStoreKind(bool isLocalStore, ClassLayout* layout, GenTree* src);

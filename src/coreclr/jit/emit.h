@@ -41,20 +41,7 @@
 
 #if EMITTER_STATS
 void emitterStats(FILE* fout);
-void emitterStaticStats(FILE* fout); // Static stats about the emitter (data structure offsets, sizes, etc.)
 #endif
-
-#ifdef DEBUG
-
-inline void printRegMaskInt(regMaskTP mask)
-{
-    printf(REG_MASK_INT_FMT, (mask & RBM_ALLINT));
-}
-
-#endif // DEBUG
-
-/*****************************************************************************/
-/* Forward declarations */
 
 class emitLocation;
 class emitter;
@@ -205,14 +192,13 @@ private:
 /*          The following describes an instruction group                */
 /************************************************************************/
 
-enum insGroupPlaceholderType : unsigned char
+enum insGroupPlaceholderType : uint8_t
 {
-    IGPT_PROLOG, // currently unused
     IGPT_EPILOG,
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
     IGPT_FUNCLET_PROLOG,
     IGPT_FUNCLET_EPILOG,
-#endif // FEATURE_EH_FUNCLETS
+#endif
 };
 
 #if defined(_MSC_VER) && defined(TARGET_ARM)
@@ -300,9 +286,8 @@ struct insGroup
         insPlaceholderGroupData* igPhData; // when igFlags & IGF_PLACEHOLDER
     };
 
-#if EMIT_TRACK_STACK_DEPTH
     unsigned igStkLvl; // stack level on entry
-#endif
+
     regMaskSmall  igGCregs; // set of registers with live GC refs
     unsigned char igInsCnt; // # of instructions  in this group
 
@@ -315,7 +300,7 @@ struct insGroup
         insPlaceholderGroupData* igPhData; // when igFlags & IGF_PLACEHOLDER
     };
 
-#if EMIT_TRACK_STACK_DEPTH
+#if !FEATURE_FIXED_OUT_ARGS
     unsigned igStkLvl; // stack level on entry
 #endif
 
@@ -372,33 +357,6 @@ struct insGroup
 #include "emitfmts.h"
 #undef DEFINE_ID_OPS
 
-enum LclVarAddrTag
-{
-    LVA_STANDARD_ENCODING = 0,
-    LVA_LARGE_OFFSET      = 1,
-    LVA_COMPILER_TEMP     = 2,
-    LVA_LARGE_VARNUM      = 3
-};
-
-struct emitLclVarAddr
-{
-    // Constructor
-    void initLclVarAddr(int varNum, unsigned offset);
-
-    int lvaVarNum() const; // Returns the variable to access. Note that it returns a negative number for compiler spill
-                           // temps.
-    unsigned lvaOffset() const; // returns the offset into the variable to access
-
-    // This struct should be 32 bits in size for the release build.
-    // We have this constraint because this type is used in a union
-    // with several other pointer sized types in the instrDesc struct.
-    //
-protected:
-    unsigned _lvaVarNum : 15; // Usually the lvaVarNum
-    unsigned _lvaExtra : 15;  // Usually the lvaOffset
-    unsigned _lvaTag : 2;     // tag field to support larger varnums
-};
-
 enum idAddrUnionTag
 {
     iaut_ALIGNED_POINTER = 0x0,
@@ -410,12 +368,15 @@ enum idAddrUnionTag
     iaut_SHIFT = 2
 };
 
+class CodeGen;
+
 class emitter
 {
     friend class emitLocation;
     friend class Compiler;
     friend class CodeGen;
     friend class CodeGenInterface;
+    friend class GCInfo;
 
     Compiler*    emitComp;
     GCInfo*      gcInfo;
@@ -423,10 +384,7 @@ class emitter
     ICorJitInfo* emitCmpHandle;
 
 public:
-    emitter(Compiler* compiler, CodeGen* codeGen, GCInfo& gcInfo, ICorJitInfo* jitInfo)
-        : emitComp(compiler), gcInfo(&gcInfo), codeGen(codeGen), emitCmpHandle(jitInfo)
-    {
-    }
+    emitter(Compiler* compiler, CodeGen* codeGen, GCInfo& gcInfo, ICorJitInfo* jitInfo);
 
 #include "emitpub.h"
 
@@ -435,9 +393,9 @@ protected:
     /*                        Miscellaneous stuff                           */
     /************************************************************************/
 
-    typedef GCInfo::varPtrDsc varPtrDsc;
-    typedef GCInfo::regPtrDsc regPtrDsc;
-    typedef GCInfo::CallDsc   callDsc;
+    typedef GCInfo::FrameLifetime GCFrameLifetime;
+    typedef GCInfo::regPtrDsc     regPtrDsc;
+    typedef GCInfo::CallDsc       callDsc;
 
     void* emitGetMem(size_t sz);
 
@@ -511,6 +469,7 @@ protected:
         IF_COUNT
     };
 
+#ifdef TARGET_XARCH
 #define AM_DISP_BITS ((sizeof(unsigned) * 8) - 2 * (REGNUM_BITS + 1) - 2)
 #define AM_DISP_BIG_VAL (-(1 << (AM_DISP_BITS - 1)))
 #define AM_DISP_MIN (-((1 << (AM_DISP_BITS - 1)) - 1))
@@ -521,22 +480,27 @@ protected:
         regNumber       amBaseReg : REGNUM_BITS + 1;
         regNumber       amIndxReg : REGNUM_BITS + 1;
         emitter::opSize amScale : 2;
-        int             amDisp : AM_DISP_BITS;
+        int32_t         amDisp : AM_DISP_BITS;
     };
+#endif // TARGET_XARCH
 
 #ifdef DEBUG // This information is used in DEBUG builds to display the method name for call instructions
-
-    struct instrDesc;
-
     struct instrDescDebugInfo
     {
         unsigned          idNum;
-        size_t            idSize;        // size of the instruction descriptor
-        size_t            idMemCookie;   // for display of method name  (also used by switch table)
-        GenTreeFlags      idFlags;       // for determining type of handle in idMemCookie
-        bool              idFinallyCall; // Branch instruction is a call to finally
-        bool              idCatchRet;    // Instruction is for a catch 'return'
-        CORINFO_SIG_INFO* idCallSig;     // Used to report native call site signatures to the EE
+        uint16_t          idSize;                    // size of the instruction descriptor
+        bool              idFinallyCall = false;     // Branch instruction is a call to finally
+        bool              idCatchRet    = false;     // Instruction is for a catch 'return'
+        GenTreeFlags      idFlags       = GTF_EMPTY; // for determining type of handle in idMemCookie
+        int               varNum        = INT_MIN;
+        int               varOffs       = 0;
+        CORINFO_SIG_INFO* idCallSig     = nullptr; // Used to report native call site signatures to the EE
+        size_t            idMemCookie   = 0;       // for display of method name (also used by switch table)
+
+        instrDescDebugInfo(unsigned num, unsigned size) : idNum(num), idSize(static_cast<uint16_t>(size))
+        {
+            assert(size <= UINT16_MAX);
+        }
     };
 
 #endif // DEBUG
@@ -555,10 +519,7 @@ protected:
     unsigned insEncodeShiftOpts(insOpts opt);
     unsigned insEncodePUW_G0(insOpts opt, int imm);
     unsigned insEncodePUW_H0(insOpts opt, int imm);
-
 #endif // TARGET_ARM
-
-    struct instrDescCns;
 
     struct instrDesc
     {
@@ -662,15 +623,13 @@ protected:
         // amd64: 38 bits
         // arm:   32 bits
         // arm64: 31 bits
-        CLANG_FORMAT_COMMENT_ANCHOR;
 
         unsigned _idSmallDsc : 1;  // is this a "small" descriptor?
         unsigned _idLargeCns : 1;  // does a large constant     follow?
-        unsigned _idLargeDsp : 1;  // does a large displacement follow?
         unsigned _idLargeCall : 1; // large call descriptor used
-
-        unsigned _idBound : 1; // jump target / frame offset bound
+        unsigned _idBound : 1;     // jump target / frame offset bound
 #ifdef TARGET_XARCH
+        unsigned _idLargeDsp : 1;   // does a large displacement follow?
         unsigned _idCallRegPtr : 1; // IL indirect calls: addr in reg
 #endif
         INDEBUG(unsigned _idCallAddr : 1;) // IL indirect calls: can make a direct call to iiaAddr
@@ -683,18 +642,17 @@ protected:
 #endif
 
 #ifdef TARGET_ARM
-        insSize  _idInsSize : 2;   // size of instruction: 16, 32 or 48 bits
-        insFlags _idInsFlags : 1;  // will this instruction set the flags
-        unsigned _idLclVar : 1;    // access a local on stack
-        unsigned _idLclFPBase : 1; // access a local on stack - SP based offset
-        insOpts  _idInsOpt : 3;    // options for Load/Store instructions
+        insSize  _idInsSize : 2;  // size of instruction: 16, 32 or 48 bits
+        insFlags _idInsFlags : 1; // will this instruction set the flags
+        unsigned _idLclVar : 1;   // access a local on stack
+        insOpts  _idInsOpt : 3;   // options for Load/Store instructions
 
 // For arm we have used 16 bits
 #define ID_EXTRA_BITFIELD_BITS (16)
 
 #elif defined(TARGET_ARM64)
-// For Arm64, we have used 17 bits from the second DWORD.
-#define ID_EXTRA_BITFIELD_BITS (17)
+// For Arm64, we have used 16 bits from the second DWORD.
+#define ID_EXTRA_BITFIELD_BITS (16)
 #elif defined(TARGET_XARCH)
                                    // For xarch, we have used 14 bits from the second DWORD.
 #define ID_EXTRA_BITFIELD_BITS (14)
@@ -794,66 +752,103 @@ protected:
         void checkSizes();
 
         union idAddrUnion {
-// TODO-Cleanup: We should really add a DEBUG-only tag to this union so we can add asserts
-// about reading what we think is here, to avoid unexpected corruption issues.
+            // TODO-Cleanup: We should really add a DEBUG-only tag to this union so we can add asserts
+            // about reading what we think is here, to avoid unexpected corruption issues.
 
-#ifndef TARGET_ARM64
-            emitLclVarAddr iiaLclVar;
+            BasicBlock* iiaBBlabel;
+            insGroup*   iiaIGlabel;
+            BYTE*       iiaAddr;
+
+            // Used to encode an offset into the JIT data constant area
+            CORINFO_FIELD_HANDLE iiaFieldHnd;
+
+            // Used to specify an instruction count for jumps, instead of using
+            // a label and multiple blocks. This is used in the prolog as well
+            // as for IF_LARGEJMP pseudo-branch instructions.
+            int iiaEncodedInstrCount;
+
+#ifdef TARGET_ARM
+            struct
+            {
+                unsigned isTrackedGCSlotStore : 1;
+                unsigned isGCArgStore : 1;
+                int      lclOffset : 30;
+            };
+
+            struct
+            {
+                regNumber _idReg3 : REGNUM_BITS;
+                regNumber _idReg4 : REGNUM_BITS;
+            };
 #endif
-            BasicBlock*  iiaBBlabel;
-            insGroup*    iiaIGlabel;
-            BYTE*        iiaAddr;
+
+#ifdef TARGET_X86
             emitAddrMode iiaAddrMode;
 
-            CORINFO_FIELD_HANDLE iiaFieldHnd; // iiaFieldHandle is also used to encode
-                                              // an offset into the JIT data constant area
+            struct
+            {
+                unsigned isTrackedGCSlotStore : 1;
+                unsigned isEbpBased : 1;
+                int      lclOffset : 30;
+            };
+
+            struct
+            {
+                regNumber _idReg3 : REGNUM_BITS;
+                regNumber _idReg4 : REGNUM_BITS;
+            };
+#endif
+
+#ifdef TARGET_AMD64
+            emitAddrMode iiaAddrMode;
+
+            struct
+            {
+                regNumber _idReg3 : REGNUM_BITS;
+                regNumber _idReg4 : REGNUM_BITS;
+                unsigned  isTrackedGCSlotStore : 1;
+                unsigned  isGCArgStore : 1;
+                unsigned  isEbpBased : 1;
+                int       lclOffset;
+            };
+#endif
+
+#ifdef TARGET_ARM64
+            struct
+            {
+                regNumber _idReg3 : REGNUM_BITS;
+                regNumber _idReg4 : REGNUM_BITS;
+                unsigned  _idReg3Scaled : 1;
+                GCtype    _idGCref2 : 2;
+                unsigned  isTrackedGCSlotStore : 1;
+                unsigned  isGCArgStore : 1;
+                int       lclOffset;
+            };
+#endif
+
             bool iiaIsJitDataOffset() const;
             int  iiaGetJitDataOffset() const;
-
-            // iiaEncodedInstrCount and its accessor functions are used to specify an instruction
-            // count for jumps, instead of using a label and multiple blocks. This is used in the
-            // prolog as well as for IF_LARGEJMP pseudo-branch instructions.
-            int iiaEncodedInstrCount;
 
             bool iiaHasInstrCount() const
             {
                 return (iiaEncodedInstrCount & iaut_MASK) == iaut_INST_COUNT;
             }
+
             int iiaGetInstrCount() const
             {
                 assert(iiaHasInstrCount());
                 return (iiaEncodedInstrCount >> iaut_SHIFT);
             }
+
             void iiaSetInstrCount(int count)
             {
                 assert(abs(count) < 10);
                 iiaEncodedInstrCount = (count << iaut_SHIFT) | iaut_INST_COUNT;
             }
-
-#ifdef TARGET_ARMARCH
-
-            struct
-            {
-#ifdef TARGET_ARM64
-                // For 64-bit architecture this 32-bit structure can pack with these unsigned bit fields
-                emitLclVarAddr iiaLclVar;
-                unsigned       _idReg3Scaled : 1; // Reg3 is scaled by idOpSize bits
-                GCtype         _idGCref2 : 2;
-#endif
-                regNumber _idReg3 : REGNUM_BITS;
-                regNumber _idReg4 : REGNUM_BITS;
-            };
-#elif defined(TARGET_XARCH)
-            struct
-            {
-                regNumber _idReg3 : REGNUM_BITS;
-                regNumber _idReg4 : REGNUM_BITS;
-            };
-#endif // defined(TARGET_XARCH)
-
         } _idAddrUnion;
 
-        /* Trivial wrappers to return properly typed enums */
+        static_assert_no_msg(sizeof(idAddrUnion) <= sizeof(void*));
+
     public:
         bool idIsSmallDsc() const
         {
@@ -1076,6 +1071,7 @@ protected:
             _idLargeCns = 1;
         }
 
+#ifdef TARGET_XARCH
         bool idIsLargeDsp() const
         {
             return _idLargeDsp != 0;
@@ -1088,6 +1084,7 @@ protected:
         {
             _idLargeDsp = 0;
         }
+#endif // TARGET_XARCH
 
         bool idIsLargeCall() const
         {
@@ -1146,22 +1143,7 @@ protected:
         {
             return _idLclVar != 0;
         }
-        void idSetIsLclVar()
-        {
-            _idLclVar = 1;
-        }
-#endif // TARGET_ARMARCH
-
-#if defined(TARGET_ARM)
-        bool idIsLclFPBase() const
-        {
-            return _idLclFPBase != 0;
-        }
-        void idSetIsLclFPBase()
-        {
-            _idLclFPBase = 1;
-        }
-#endif // defined(TARGET_ARM)
+#endif
 
         bool idIsCnsReloc() const
         {
@@ -1198,13 +1180,24 @@ protected:
         inline const idAddrUnion* idAddr() const
         {
             assert(!idIsSmallDsc());
-            return &this->_idAddrUnion;
+            return &_idAddrUnion;
         }
 
         inline idAddrUnion* idAddr()
         {
             assert(!idIsSmallDsc());
-            return &this->_idAddrUnion;
+            return &_idAddrUnion;
+        }
+
+        void SetVarAddr(int varNum, int varOffs)
+        {
+#ifdef TARGET_ARMARCH
+            _idLclVar = true;
+#endif
+#ifdef DEBUG
+            _idDebugOnlyInfo->varNum  = varNum;
+            _idDebugOnlyInfo->varOffs = varOffs;
+#endif
         }
     }; // End of  struct instrDesc
 
@@ -1374,18 +1367,12 @@ protected:
     };
 #endif
 
-#if !defined(TARGET_ARM64) // This shouldn't be needed for ARM32, either, but I don't want to touch the ARM32 JIT.
-    struct instrDescLbl : instrDescJmp
-    {
-        emitLclVarAddr dstLclVar;
-    };
-#endif // !TARGET_ARM64
-
     struct instrDescCns : instrDesc // large const
     {
         cnsval_ssize_t idcCnsVal;
     };
 
+#ifdef TARGET_XARCH
     struct instrDescDsp : instrDesc // large displacement
     {
         target_ssize_t iddDspVal;
@@ -1397,8 +1384,6 @@ protected:
         int            iddcDspVal;
     };
 
-#ifdef TARGET_XARCH
-
     struct instrDescAmd : instrDesc // large addrmode disp
     {
         ssize_t idaAmdVal;
@@ -1409,16 +1394,19 @@ protected:
         ssize_t idacCnsVal;
         ssize_t idacAmdVal;
     };
-
 #endif // TARGET_XARCH
 
     struct instrDescCGCA : instrDesc // call with ...
     {
-        VARSET_TP idcGCvars;    // ... updated GC vars or
-        ssize_t   idcDisp;      // ... big addrmode disp
+        VARSET_TP idcGCvars; // ... updated GC vars or
+#ifdef TARGET_XARCH
+        int32_t idcDisp; // ... big addrmode disp
+#endif
         regMaskTP idcGcrefRegs; // ... gcref registers
         regMaskTP idcByrefRegs; // ... byref registers
-        unsigned  idcArgCnt;    // ... lots of args or (<0 ==> caller pops args)
+#ifdef TARGET_X86
+        unsigned idcArgCnt; // ... lots of args or (<0 ==> caller pops args)
+#endif
 
 #if MULTIREG_HAS_SECOND_GC_RET
         // This method handle the GC-ness of the second register in a 2 register returned struct on System V.
@@ -1476,21 +1464,19 @@ protected:
     size_t emitGetInstrDescSizeSC(const instrDesc* id);
 
 #ifdef TARGET_XARCH
-
     ssize_t emitGetInsCns(instrDesc* id);
     ssize_t emitGetInsDsp(instrDesc* id);
     ssize_t emitGetInsAmd(instrDesc* id);
-
     ssize_t emitGetInsCIdisp(instrDesc* id);
+#endif
+
+#ifdef TARGET_X86
     unsigned emitGetInsCIargs(instrDesc* id);
-
-    // Return the argument count for a direct call "id".
     int emitGetInsCDinfo(instrDesc* id);
-
-#endif // TARGET_XARCH
+#endif
 
     cnsval_ssize_t emitGetInsSC(instrDesc* id);
-    unsigned emitInsCount;
+    unsigned emitInsCount = 0;
 
     /************************************************************************/
     /*           A few routines used for debug display purposes             */
@@ -1505,16 +1491,16 @@ protected:
 #endif // defined(DEBUG) || EMITTER_STATS
 
 #ifdef DEBUG
-    const char* emitRegName(regNumber reg, emitAttr size = EA_PTRSIZE);
+    static const char* emitRegName(regNumber reg, emitAttr size = EA_PTRSIZE);
 
     // GC Info changes are not readily available at each instruction.
     // We use debug-only sets to track the per-instruction state, and to remember
     // what the state was at the last time it was output (instruction or label).
-    VARSET_TP  debugPrevGCrefVars;
-    VARSET_TP  debugThisGCrefVars;
-    regPtrDsc* debugPrevRegPtrDsc;
-    regMaskTP  debugPrevGCrefRegs;
-    regMaskTP  debugPrevByrefRegs;
+    ArrayStack<GCFrameLifetime*> debugGCSlotChanges;
+
+    regPtrDsc* debugPrevRegPtrDsc = nullptr;
+    regMaskTP  debugPrevGCrefRegs = RBM_NONE;
+    regMaskTP  debugPrevByrefRegs = RBM_NONE;
     void emitDispGCDeltaTitle(const char* title);
     void emitDispGCRegDelta(const char* title, regMaskTP prevRegs, regMaskTP curRegs);
     void emitDispGCVarDelta();
@@ -1527,9 +1513,9 @@ protected:
     void emitDispGCinfo();
     void emitDispClsVar(CORINFO_FIELD_HANDLE fldHnd, ssize_t offs, bool reloc = false);
 #ifdef TARGET_XARCH
-    void emitDispFrameRef(const emitLclVarAddr& lcl, bool asmfm);
+    void emitDispFrameRef(instrDesc* id, bool asmfm);
 #else
-    void emitDispFrameRef(const emitLclVarAddr& lcl);
+    void emitDispFrameRef(instrDesc* id);
 #endif
     void emitDispInsAddr(BYTE* code);
     void emitDispInsOffs(unsigned offs, bool doffs);
@@ -1545,19 +1531,19 @@ protected:
 
     unsigned emitPrologEndPos;
 
-    unsigned       emitEpilogCnt;
-    UNATIVE_OFFSET emitEpilogSize;
+    unsigned       emitEpilogCnt  = 0;
+    UNATIVE_OFFSET emitEpilogSize = 0;
 
 #ifdef TARGET_XARCH
 
     void           emitStartExitSeq(); // Mark the start of the "return" sequence
     emitLocation   emitExitSeqBegLoc;
-    UNATIVE_OFFSET emitExitSeqSize; // minimum size of any return sequence - the 'ret' after the epilog
+    UNATIVE_OFFSET emitExitSeqSize = INT_MAX; // minimum size of any return sequence - the 'ret' after the epilog
 
 #endif // TARGET_XARCH
 
-    insGroup* emitPlaceholderList; // per method placeholder list - head
-    insGroup* emitPlaceholderLast; // per method placeholder list - tail
+    insGroup* emitPlaceholderList = nullptr; // per method placeholder list - head
+    insGroup* emitPlaceholderLast = nullptr; // per method placeholder list - tail
 
 #ifdef JIT32_GCENCODER
 
@@ -1574,8 +1560,8 @@ protected:
         }
     };
 
-    EpilogList* emitEpilogList; // per method epilog list - head
-    EpilogList* emitEpilogLast; // per method epilog list - tail
+    EpilogList* emitEpilogList = nullptr; // per method epilog list - head
+    EpilogList* emitEpilogLast = nullptr; // per method epilog list - tail
 
 public:
     void emitStartEpilog();
@@ -1609,14 +1595,12 @@ public:
     unsigned emitFindInsNum(insGroup* ig, instrDesc* id);
     UNATIVE_OFFSET emitFindOffset(insGroup* ig, unsigned insNum);
 
-/************************************************************************/
-/*        Members and methods used to issue (encode) instructions.      */
-/************************************************************************/
+    /************************************************************************/
+    /*        Members and methods used to issue (encode) instructions.      */
+    /************************************************************************/
 
-#ifdef DEBUG
     // If we have started issuing instructions from the list of instrDesc, this is set
-    bool emitIssuing;
-#endif
+    INDEBUG(bool emitIssuing = false;)
 
     BYTE*  emitCodeBlock;     // Hot code block
     BYTE*  emitColdCodeBlock; // Cold code block
@@ -1700,13 +1684,9 @@ public:
     size_t emitIssue1Instr(insGroup* ig, instrDesc* id, BYTE** dp);
     size_t emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp);
 
-    bool emitHasFramePtr;
-
 #ifdef PSEUDORANDOM_NOP_INSERTION
-    bool emitInInstrumentation;
-#endif // PSEUDORANDOM_NOP_INSERTION
-
-    unsigned emitMaxTmpSize;
+    bool emitInInstrumentation = false;
+#endif
 
 #ifdef DEBUG
     bool emitChkAlign; // perform some alignment checks
@@ -1724,7 +1704,7 @@ private:
     CORINFO_FIELD_HANDLE emitFltOrDblConst(double constValue, emitAttr attr);
     insFormat emitMapFmtForIns(insFormat fmt, instruction ins);
     insFormat emitMapFmtAtoM(insFormat fmt);
-    void spillIntArgRegsToShadowSlots();
+    void PrologSpillParamRegsToShadowSlots();
 
 /************************************************************************/
 /*      The logic that creates and keeps track of instruction groups    */
@@ -1743,25 +1723,25 @@ private:
 #define SC_IG_BUFFER_SIZE (50 * sizeof(emitter::instrDesc) + 14 * SMALL_IDSC_SIZE)
 #endif // !TARGET_ARMARCH
 
-    size_t emitIGbuffSize;
+    size_t emitIGbuffSize = 0;
 
-    insGroup* emitIGlist; // first  instruction group
-    insGroup* emitIGlast; // last   instruction group
-    insGroup* emitIGthis; // issued instruction group
+    insGroup* emitIGlist = nullptr; // first  instruction group
+    insGroup* emitIGlast = nullptr; // last   instruction group
+    insGroup* emitIGthis;           // issued instruction group
 
     insGroup* emitPrologIG; // prolog instruction group
 
-    instrDescJmp* emitJumpList;       // list of local jumps in method
-    instrDescJmp* emitJumpLast;       // last of local jumps in method
-    void          emitJumpDistBind(); // Bind all the local jumps in method
+    instrDescJmp* emitJumpList = nullptr; // list of local jumps in method
+    instrDescJmp* emitJumpLast = nullptr; // last of local jumps in method
+    void          emitJumpDistBind();     // Bind all the local jumps in method
 
 #if FEATURE_LOOP_ALIGN
-    instrDescAlign* emitCurIGAlignList;   // list of align instructions in current IG
-    unsigned        emitLastLoopStart;    // Start IG of last inner loop
-    unsigned        emitLastLoopEnd;      // End IG of last inner loop
-    unsigned        emitLastAlignedIgNum; // last IG that has align instruction
-    instrDescAlign* emitAlignList;        // list of local align instructions in method
-    instrDescAlign* emitAlignLast;        // last align instruction in method
+    instrDescAlign* emitCurIGAlignList   = nullptr; // list of align instructions in current IG
+    unsigned        emitLastLoopStart    = 0;       // Start IG of last inner loop
+    unsigned        emitLastLoopEnd      = 0;       // End IG of last inner loop
+    unsigned        emitLastAlignedIgNum = 0;       // last IG that has align instruction
+    instrDescAlign* emitAlignList        = nullptr; // list of local align instructions in method
+    instrDescAlign* emitAlignLast        = nullptr; // last align instruction in method
     unsigned getLoopSize(insGroup* igLoopHeader,
                          unsigned maxLoopSize DEBUG_ARG(bool isAlignAdjusted)); // Get the smallest loop size
     void emitLoopAlignment();
@@ -1773,21 +1753,24 @@ private:
 
     void emitCheckFuncletBranch(instrDesc* jmp, insGroup* jmpIG); // Check for illegal branches between funclets
 
-    bool emitFwdJumps;   // forward jumps present?
-    bool emitNoGCIG;     // Are we generating IGF_NOGCINTERRUPT insGroups (for prologs, epilogs, etc.)
-    bool emitForceNewIG; // If we generate an instruction, and not another instruction group, force create a new emitAdd
-                         // instruction group.
+    // Are forward jumps present?
+    bool emitFwdJumps = false;
+    // Are we generating IGF_NOGCINTERRUPT insGroups (for prologs, epilogs, etc.)
+    bool emitNoGCIG = false;
+    // If we generate an instruction, and not another instruction group, force create a new emitAdd
+    // instruction group.
+    bool emitForceNewIG = false;
 
-    BYTE* emitCurIGfreeNext; // next available byte in buffer
-    BYTE* emitCurIGfreeEndp; // one byte past the last available byte in buffer
-    BYTE* emitCurIGfreeBase; // first byte address
+    BYTE* emitCurIGfreeNext;           // next available byte in buffer
+    BYTE* emitCurIGfreeEndp;           // one byte past the last available byte in buffer
+    BYTE* emitCurIGfreeBase = nullptr; // first byte address
 
-    unsigned       emitCurIGinsCnt;   // # of collected instr's in buffer
-    unsigned       emitCurIGsize;     // estimated code size of current group in bytes
-    UNATIVE_OFFSET emitCurCodeOffset; // current code offset within group
-    UNATIVE_OFFSET emitTotalCodeSize; // bytes of code in entire method
+    unsigned       emitCurIGinsCnt;       // # of collected instr's in buffer
+    unsigned       emitCurIGsize;         // estimated code size of current group in bytes
+    UNATIVE_OFFSET emitCurCodeOffset = 0; // current code offset within group
+    UNATIVE_OFFSET emitTotalCodeSize = 0; // bytes of code in entire method
 
-    insGroup* emitFirstColdIG; // first cold instruction group
+    insGroup* emitFirstColdIG = nullptr; // first cold instruction group
 
     void emitSetFirstColdIGCookie(void* bbEmitCookie)
     {
@@ -1796,7 +1779,7 @@ private:
 
     int emitOffsAdj; // current code offset adjustment
 
-    instrDescJmp* emitCurIGjmpList; // list of jumps   in current IG
+    instrDescJmp* emitCurIGjmpList = nullptr; // list of jumps   in current IG
 
     // emitPrev* and emitInit* are only used during code generation, not during
     // emission (issuing), to determine what GC values to store into an IG.
@@ -1805,17 +1788,17 @@ private:
     // out, and GCrefRegs is always saved.
 
     VARSET_TP emitPrevGCrefVars;
-    regMaskTP emitPrevGCrefRegs;
-    regMaskTP emitPrevByrefRegs;
+    regMaskTP emitPrevGCrefRegs = RBM_NONE;
+    regMaskTP emitPrevByrefRegs = RBM_NONE;
 
     VARSET_TP emitInitGCrefVars;
-    regMaskTP emitInitGCrefRegs;
-    regMaskTP emitInitByrefRegs;
+    regMaskTP emitInitGCrefRegs = RBM_NONE;
+    regMaskTP emitInitByrefRegs = RBM_NONE;
 
     // If this is set, we ignore comparing emitPrev* and emitInit* to determine
     // whether to save GC state (to save space in the IG), and always save it.
 
-    bool emitForceStoreGCState;
+    bool emitForceStoreGCState = false;
 
     // emitThis* variables are used during emission, to track GC updates
     // on a per-instruction basis. During code generation, per-instruction
@@ -1828,12 +1811,14 @@ private:
     // used due to bugs.
 
     VARSET_TP emitThisGCrefVars;
-    regMaskTP emitThisGCrefRegs; // Current set of registers holding GC references
-    regMaskTP emitThisByrefRegs; // Current set of registers holding BYREF references
+    regMaskTP emitThisGCrefRegs = RBM_NONE; // Current set of registers holding GC references
+    regMaskTP emitThisByrefRegs = RBM_NONE; // Current set of registers holding BYREF references
 
     bool emitThisGCrefVset; // Is "emitThisGCrefVars" up to date?
 
-    regNumber emitSyncThisObjReg; // where is "this" enregistered for synchronized methods?
+    VARSET_TP emitEmptyGCrefVars = VarSetOps::UninitVal();
+
+    regNumber emitSyncThisObjReg = REG_NA; // where is "this" enregistered for synchronized methods?
 
 #if MULTIREG_HAS_SECOND_GC_RET
     void emitSetSecondRetRegGCType(instrDescCGCA* id, emitAttr secondRetSize);
@@ -1875,14 +1860,14 @@ private:
 
     void emitGenIG(insGroup* ig);
     insGroup* emitSavIG(bool emitAdd = false);
-    void emitNxtIG(bool extend = false);
+    void emitNxtIG(bool extend);
 
     bool emitCurIGnonEmpty()
     {
         return (emitCurIG && emitCurIGfreeNext > emitCurIGfreeBase);
     }
 
-    instrDesc* emitLastIns;
+    instrDesc* emitLastIns = nullptr;
 
 #ifdef DEBUG
     void emitCheckIGoffsets();
@@ -1893,10 +1878,7 @@ private:
     // Sets the emitter's record of the currently live GC variables
     // and registers.  The "isFinallyTarget" parameter indicates that the current location is
     // the start of a basic block that is returned to after a finally clause in non-exceptional execution.
-    void* emitAddLabel(VARSET_VALARG_TP GCvars,
-                       regMaskTP        gcrefRegs,
-                       regMaskTP        byrefRegs,
-                       bool             isFinallyTarget = false DEBUG_ARG(BasicBlock* block = nullptr));
+    void* emitAddLabel(bool isFinallyTarget = false DEBUG_ARG(BasicBlock* block = nullptr));
 
     // Same as above, except the label is added and is conceptually "inline" in
     // the current block. Thus it extends the previous block and the emitter
@@ -1937,7 +1919,7 @@ private:
     // The emitters themselves use emitNewXXX, which might be thin wrappers over the emitAllocXXX functions.
     //
 
-    void* emitAllocAnyInstr(size_t sz, emitAttr attr);
+    void* emitAllocAnyInstr(unsigned sz, emitAttr attr);
 
     instrDesc* emitAllocInstr(emitAttr attr)
     {
@@ -1955,16 +1937,6 @@ private:
         return (instrDescJmp*)emitAllocAnyInstr(sizeof(instrDescJmp), EA_1BYTE);
     }
 
-#if !defined(TARGET_ARM64)
-    instrDescLbl* emitAllocInstrLbl()
-    {
-#if EMITTER_STATS
-        emitTotalIDescLblCnt++;
-#endif // EMITTER_STATS
-        return (instrDescLbl*)emitAllocAnyInstr(sizeof(instrDescLbl), EA_4BYTE);
-    }
-#endif // !TARGET_ARM64
-
     instrDescCns* emitAllocInstrCns(emitAttr attr)
     {
 #if EMITTER_STATS
@@ -1981,40 +1953,11 @@ private:
         return result;
     }
 
-    instrDescDsp* emitAllocInstrDsp(emitAttr attr)
-    {
-#if EMITTER_STATS
-        emitTotalIDescDspCnt++;
-#endif // EMITTER_STATS
-        return (instrDescDsp*)emitAllocAnyInstr(sizeof(instrDescDsp), attr);
-    }
-
-    instrDescCnsDsp* emitAllocInstrCnsDsp(emitAttr attr)
-    {
-#if EMITTER_STATS
-        emitTotalIDescCnsDspCnt++;
-#endif // EMITTER_STATS
-        return (instrDescCnsDsp*)emitAllocAnyInstr(sizeof(instrDescCnsDsp), attr);
-    }
-
 #ifdef TARGET_XARCH
-
-    instrDescAmd* emitAllocInstrAmd(emitAttr attr)
-    {
-#if EMITTER_STATS
-        emitTotalIDescAmdCnt++;
-#endif // EMITTER_STATS
-        return (instrDescAmd*)emitAllocAnyInstr(sizeof(instrDescAmd), attr);
-    }
-
-    instrDescCnsAmd* emitAllocInstrCnsAmd(emitAttr attr)
-    {
-#if EMITTER_STATS
-        emitTotalIDescCnsAmdCnt++;
-#endif // EMITTER_STATS
-        return (instrDescCnsAmd*)emitAllocAnyInstr(sizeof(instrDescCnsAmd), attr);
-    }
-
+    instrDescDsp* emitAllocInstrDsp(emitAttr attr);
+    instrDescCnsDsp* emitAllocInstrCnsDsp(emitAttr attr);
+    instrDescAmd* emitAllocInstrAmd(emitAttr attr);
+    instrDescCnsAmd* emitAllocInstrCnsAmd(emitAttr attr);
 #endif // TARGET_XARCH
 
     instrDescCGCA* emitAllocInstrCGCA(emitAttr attr)
@@ -2044,18 +1987,10 @@ private:
     instrDesc* emitNewInstrCnsDsp(emitAttr attr, target_ssize_t cns, int dsp);
 #ifdef TARGET_ARM
     instrDesc* emitNewInstrReloc(emitAttr attr, BYTE* addr);
-#endif // TARGET_ARM
+#endif
     instrDescJmp* emitNewInstrJmp();
 
-#if !defined(TARGET_ARM64)
-    instrDescLbl* emitNewInstrLbl();
-#endif // !TARGET_ARM64
-
-    static const BYTE emitFmtToOps[];
-
-#ifdef DEBUG
-    static const unsigned emitFmtCount;
-#endif
+    static ID_OPS GetFormatOp(insFormat format);
 
     bool emitIsScnsInsDsc(instrDesc* id);
 
@@ -2065,27 +2000,17 @@ private:
     /*        The following keeps track of stack-based GC values            */
     /************************************************************************/
 
-    unsigned emitTrkVarCnt;
-    int*     emitGCrFrameOffsTab; // Offsets of tracked stack ptr vars (varTrkIndex -> stkOffs)
+    unsigned          emitGCrFrameOffsCnt = 0;       // Number of       tracked stack ptr vars
+    int               emitGCrFrameOffsMin = 0;       // Min offset of a tracked stack ptr var
+    int               emitGCrFrameOffsMax = 0;       // Max offset of a tracked stack ptr var
+    GCFrameLifetime** emitGCrFrameLiveTab = nullptr; // Cache of currently live varPtrs (stkOffs -> varPtrDsc)
 
-    unsigned    emitGCrFrameOffsCnt; // Number of       tracked stack ptr vars
-    int         emitGCrFrameOffsMin; // Min offset of a tracked stack ptr var
-    int         emitGCrFrameOffsMax; // Max offset of a tracked stack ptr var
-    bool        emitContTrkPtrLcls;  // All lcl between emitGCrFrameOffsMin/Max are only tracked stack ptr vars
-    varPtrDsc** emitGCrFrameLiveTab; // Cache of currently live varPtrs (stkOffs -> varPtrDsc)
-
-    int emitArgFrameOffsMin;
-    int emitArgFrameOffsMax;
-
-    int emitLclFrameOffsMin;
-    int emitLclFrameOffsMax;
-
-    int emitSyncThisObjOffs; // what is the offset of "this" for synchronized methods?
+#if defined(JIT32_GCENCODER) && !defined(FEATURE_EH_FUNCLETS)
+    int emitSyncThisObjOffs = INT_MIN; // what is the offset of "this" for synchronized methods?
+#endif
 
 public:
     void emitSetFrameRangeGCRs(int offsLo, int offsHi);
-    void emitSetFrameRangeLcls(int offsLo, int offsHi);
-    void emitSetFrameRangeArgs(int offsLo, int offsHi);
 
     static instruction emitJumpKindToIns(emitJumpKind jumpKind);
     static emitJumpKind emitInsToJumpKind(instruction ins);
@@ -2105,14 +2030,8 @@ public:
     // This may return false positives.
     bool emitInsMayWriteToGCReg(instrDesc* id);
 
-    // Returns "true" if instruction "id->idIns()" writes to a LclVar stack location.
-    bool emitInsWritesToLclVarStackLoc(instrDesc* id);
-
     // Returns true if the instruction may write to more than one register.
     bool emitInsMayWriteMultipleRegs(instrDesc* id);
-
-    // Returns "true" if instruction "id->idIns()" writes to a LclVar stack slot pair.
-    bool emitInsWritesToLclVarStackLocPair(instrDesc* id);
 #endif // TARGET_ARMARCH
 
     /************************************************************************/
@@ -2135,13 +2054,7 @@ public:
     // Gets a register mask that represent the kill set for a NoGC helper call.
     regMaskTP emitGetGCRegsKilledByNoGCCall(CorInfoHelpFunc helper);
 
-#if EMIT_TRACK_STACK_DEPTH
-    unsigned emitCntStackDepth; // 0 in prolog/epilog, One DWORD elsewhere
-    unsigned emitMaxStackDepth; // actual computed max. stack depth
-#endif
-
-    /* Stack modelling wrt GC */
-
+#if !FEATURE_FIXED_OUT_ARGS
     bool emitSimpleStkUsed; // using the "simple" stack table?
 
     union {
@@ -2164,26 +2077,19 @@ public:
         } u2;
     };
 
-    unsigned emitCurStackLvl; // amount of bytes pushed on stack
-
-#if EMIT_TRACK_STACK_DEPTH
-    /* Functions for stack tracking */
+    unsigned emitCntStackDepth;     // 0 in prolog/epilog, One DWORD elsewhere
+    unsigned emitMaxStackDepth = 0; // actual computed max. stack depth
+    unsigned emitCurStackLvl   = 0; // amount of bytes pushed on stack
 
     void emitStackPush(BYTE* addr, GCtype gcType);
-
     void emitStackPushN(BYTE* addr, unsigned count);
-
-    void emitStackPop(BYTE* addr, bool isCall, unsigned char callInstrSize, unsigned count = 1);
-
-    void emitStackKillArgs(BYTE* addr, unsigned count, unsigned char callInstrSize);
-
-    void emitRecordGCcall(BYTE* codePos, unsigned char callInstrSize);
-
-    // Helpers for the above
-
-    void emitStackPushLargeStk(BYTE* addr, GCtype gcType, unsigned count = 1);
-    void emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned char callInstrSize, unsigned count = 1);
-#endif // EMIT_TRACK_STACK_DEPTH
+    void emitStackPushLargeStk(BYTE* addr, GCtype gcType, unsigned count);
+    void emitStackKillArgs(BYTE* addr, unsigned count, unsigned callInstrSize);
+    void emitStackPop(BYTE* addr, bool isCall, unsigned callInstrSize, unsigned count);
+    void emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSize, unsigned count);
+#endif // !FEATURE_FIXED_OUT_ARGS
+    void emitRecordGCCallPop(BYTE* addr, unsigned callInstrSize);
+    void emitRecordGCcall(BYTE* codePos, unsigned callInstrSize);
 
     /* Liveness of stack variables, and registers */
 
@@ -2192,9 +2098,9 @@ public:
 
 #ifdef DEBUG
     const char* emitGetFrameReg();
-    void emitDispRegSet(regMaskTP regs);
-    void emitDispRegSetDiff(const char* name, regMaskTP from, regMaskTP to);
-    void emitDispVarSet();
+    void        emitDispVarSet();
+    static void emitDispRegSet(regMaskTP regs);
+    static void emitDispRegSetDiff(const char* name, regMaskTP from, regMaskTP to);
 #endif
 
     void emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr);
@@ -2203,10 +2109,12 @@ public:
     void emitGCregDeadUpd(regNumber reg, BYTE* addr);
     void emitGCregDeadSet(GCtype gcType, regMaskTP mask, BYTE* addr);
 
-    void emitGCvarLiveUpd(int offs, int varNum, GCtype gcType, BYTE* addr DEBUG_ARG(unsigned actualVarNum));
-    void emitGCvarLiveSet(int offs, GCtype gcType, BYTE* addr, ssize_t disp = -1);
-    void emitGCvarDeadUpd(int offs, BYTE* addr DEBUG_ARG(unsigned varNum));
-    void emitGCvarDeadSet(int offs, BYTE* addr, ssize_t disp = -1);
+#if FEATURE_FIXED_OUT_ARGS
+    void emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum));
+#endif
+    void emitGCvarLiveUpd(int slotOffs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum));
+    void emitGCvarLiveSet(int slotOffs, GCtype gcType, unsigned codeOffs, unsigned index);
+    void emitGCvarDeadSet(int slotOffs, unsigned codeOffs, unsigned index);
 
     GCtype emitRegGCtype(regNumber reg);
 
@@ -2288,11 +2196,9 @@ public:
                             CORINFO_SIG_INFO*     callSig,       /* IN */
                             CORINFO_METHOD_HANDLE methodHandle); /* IN */
 
-#ifdef DEBUG
     // This is a scratch buffer used to minimize the number of sig info structs
     // we have to allocate for recordCallSite.
-    CORINFO_SIG_INFO* emitScratchSigInfo;
-#endif // DEBUG
+    INDEBUG(CORINFO_SIG_INFO* emitScratchSigInfo = nullptr;)
 
 /************************************************************************/
 /*               Logic to collect and display statistics                */
@@ -2301,7 +2207,6 @@ public:
 #if EMITTER_STATS
 
     friend void emitterStats(FILE* fout);
-    friend void emitterStaticStats(FILE* fout);
 
     static size_t emitSizeMethod;
 
@@ -2360,22 +2265,6 @@ public:
  */
 
 #include "emitdef.h"
-
-    // It would be better if this were a constructor, but that would entail revamping the allocation
-    // infrastructure of the entire JIT...
-    void Init()
-    {
-        VarSetOps::AssignNoCopy(emitComp, emitPrevGCrefVars, VarSetOps::MakeEmpty(emitComp));
-        VarSetOps::AssignNoCopy(emitComp, emitInitGCrefVars, VarSetOps::MakeEmpty(emitComp));
-        VarSetOps::AssignNoCopy(emitComp, emitThisGCrefVars, VarSetOps::MakeEmpty(emitComp));
-#if defined(DEBUG)
-        VarSetOps::AssignNoCopy(emitComp, debugPrevGCrefVars, VarSetOps::MakeEmpty(emitComp));
-        VarSetOps::AssignNoCopy(emitComp, debugThisGCrefVars, VarSetOps::MakeEmpty(emitComp));
-        debugPrevRegPtrDsc = nullptr;
-        debugPrevGCrefRegs = RBM_NONE;
-        debugPrevByrefRegs = RBM_NONE;
-#endif
-    }
 };
 
 /*****************************************************************************
@@ -2556,40 +2445,6 @@ inline emitter::instrDescAlign* emitter::emitNewInstrAlign()
 }
 #endif
 
-#if !defined(TARGET_ARM64)
-inline emitter::instrDescLbl* emitter::emitNewInstrLbl()
-{
-    return emitAllocInstrLbl();
-}
-#endif // !TARGET_ARM64
-
-inline emitter::instrDesc* emitter::emitNewInstrDsp(emitAttr attr, target_ssize_t dsp)
-{
-    if (dsp == 0)
-    {
-        instrDesc* id = emitAllocInstr(attr);
-
-#if EMITTER_STATS
-        emitSmallDspCnt++;
-#endif
-
-        return id;
-    }
-    else
-    {
-        instrDescDsp* id = emitAllocInstrDsp(attr);
-
-        id->idSetIsLargeDsp();
-        id->iddDspVal = dsp;
-
-#if EMITTER_STATS
-        emitLargeDspCnt++;
-#endif
-
-        return id;
-    }
-}
-
 /*****************************************************************************
  *
  *  Allocate an instruction descriptor for an instruction with a constant operand.
@@ -2686,135 +2541,6 @@ inline emitter::instrDesc* emitter::emitNewInstrSC(emitAttr attr, cnsval_ssize_t
     }
 }
 
-/*****************************************************************************
- *
- *  Get the instrDesc size for something that contains a constant
- */
-
-inline size_t emitter::emitGetInstrDescSizeSC(const instrDesc* id)
-{
-    if (id->idIsSmallDsc())
-    {
-        return SMALL_IDSC_SIZE;
-    }
-    else if (id->idIsLargeCns())
-    {
-        return sizeof(instrDescCns);
-    }
-    else
-    {
-        return sizeof(instrDesc);
-    }
-}
-
-#ifdef TARGET_ARM
-
-inline emitter::instrDesc* emitter::emitNewInstrReloc(emitAttr attr, BYTE* addr)
-{
-    assert(EA_IS_RELOC(attr));
-
-    instrDescReloc* id = (instrDescReloc*)emitAllocAnyInstr(sizeof(instrDescReloc), attr);
-    assert(id->idIsReloc());
-
-    id->idrRelocVal = addr;
-
-#if EMITTER_STATS
-    emitTotalIDescRelocCnt++;
-#endif // EMITTER_STATS
-
-    return id;
-}
-
-#endif // TARGET_ARM
-
-#ifdef TARGET_XARCH
-
-/*****************************************************************************
- *
- *  The following helpers should be used to access the various values that
- *  get stored in different places within the instruction descriptor.
- */
-
-inline ssize_t emitter::emitGetInsCns(instrDesc* id)
-{
-    return id->idIsLargeCns() ? ((instrDescCns*)id)->idcCnsVal : id->idSmallCns();
-}
-
-inline ssize_t emitter::emitGetInsDsp(instrDesc* id)
-{
-    if (id->idIsLargeDsp())
-    {
-        if (id->idIsLargeCns())
-        {
-            return ((instrDescCnsDsp*)id)->iddcDspVal;
-        }
-        return ((instrDescDsp*)id)->iddDspVal;
-    }
-    return 0;
-}
-
-/*****************************************************************************
- *
- *  Get hold of the argument count for an indirect call.
- */
-
-inline unsigned emitter::emitGetInsCIargs(instrDesc* id)
-{
-    if (id->idIsLargeCall())
-    {
-        return ((instrDescCGCA*)id)->idcArgCnt;
-    }
-    else
-    {
-        assert(id->idIsLargeDsp() == false);
-        assert(id->idIsLargeCns() == false);
-
-        ssize_t cns = emitGetInsCns(id);
-        assert((unsigned)cns == (size_t)cns);
-        return (unsigned)cns;
-    }
-}
-
-#endif // TARGET_XARCH
-
-/*****************************************************************************
- *
- *  Returns true if the given register contains a live GC ref.
- */
-
-inline GCtype emitter::emitRegGCtype(regNumber reg)
-{
-    assert(emitIssuing);
-
-    if ((emitThisGCrefRegs & genRegMask(reg)) != 0)
-    {
-        return GCT_GCREF;
-    }
-    else if ((emitThisByrefRegs & genRegMask(reg)) != 0)
-    {
-        return GCT_BYREF;
-    }
-    else
-    {
-        return GCT_NONE;
-    }
-}
-
-#ifdef DEBUG
-
-#if EMIT_TRACK_STACK_DEPTH
-#define CHECK_STACK_DEPTH() assert((int)emitCurStackLvl >= 0)
-#else
-#define CHECK_STACK_DEPTH()
-#endif
-
-#endif // DEBUG
-
-/*****************************************************************************
- *
- *  Return true when a given code offset is properly aligned for the target
- */
-
 inline bool IsCodeAligned(UNATIVE_OFFSET offset)
 {
     return ((offset & (CODE_ALIGN - 1)) == 0);
@@ -2832,18 +2558,9 @@ inline BYTE* emitter::emitCodeWithInstructionSize(BYTE* codePtrBefore, BYTE* new
     return newCodePointer;
 }
 
-/*****************************************************************************
- *
- *  Add a new IG to the current list, and get it ready to receive code.
- */
-
 inline void emitter::emitNewIG()
 {
-    insGroup* ig = emitAllocAndLinkIG();
-
-    /* It's linked in. Now, set it up to accept code */
-
-    emitGenIG(ig);
+    emitGenIG(emitAllocAndLinkIG());
 }
 
 #if !defined(JIT32_GCENCODER)

@@ -12,8 +12,7 @@
 
 #include "target.h"
 
-const char*            Target::g_tgtCPUName  = "arm";
-const Target::ArgOrder Target::g_tgtArgOrder = ARG_ORDER_R2L;
+const char* Target::g_tgtCPUName = "arm";
 
 // clang-format off
 const regNumber intArgRegs [] {REG_R0, REG_R1, REG_R2, REG_R3};
@@ -24,5 +23,10 @@ const regMaskTP fltArgMasks[] {RBM_F0, RBM_F1, RBM_F2, RBM_F3, RBM_F4, RBM_F5, R
 
 const regNumber initPInvokeFrameArgRegs[] { REG_PINVOKE_FRAME };
 // clang-format on
+
+const regMaskSmall regMasks[]{
+#define REGDEF(name, rnum, mask, sname) mask,
+#include "register.h"
+};
 
 #endif // TARGET_ARM

@@ -58,6 +58,7 @@ CompMemKindMacro(EarlyProp)
 CompMemKindMacro(ZeroInit)
 CompMemKindMacro(Pgo)
 CompMemKindMacro(MorphAssertion)
+CompMemKindMacro(SpillTemp)
 //clang-format on
 
 #undef CompMemKindMacro

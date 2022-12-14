@@ -51,7 +51,7 @@ private:
     void ContainCheckDivOrMod(GenTreeOp* node);
     void ContainCheckReturnTrap(GenTreeOp* node);
     void ContainCheckArrOffset(GenTreeArrOffs* node);
-    void ContainCheckLclHeap(GenTreeOp* node);
+    void LowerLclHeap(GenTreeUnOp* node);
     void ContainCheckRet(GenTreeUnOp* ret);
     void ContainCheckJTrue(GenTreeUnOp* node);
 
@@ -81,10 +81,10 @@ private:
 #endif // FEATURE_HW_INTRINSICS
 
 #ifdef DEBUG
-    static void CheckCallArg(GenTree* arg);
-    static void CheckCall(GenTreeCall* call);
-    static void CheckNode(Compiler* compiler, GenTree* node);
-    static bool CheckBlock(Compiler* compiler, BasicBlock* block);
+    void CheckCallArg(GenTree* arg);
+    void CheckCall(GenTreeCall* call);
+    void CheckNode(GenTree* node);
+    bool CheckBlock(BasicBlock* block);
 #endif // DEBUG
 
     void LowerBlock(BasicBlock* block);
@@ -223,6 +223,7 @@ private:
 
 #ifdef FEATURE_SIMD
     void WidenSIMD12IfNecessary(GenTreeLclVar* node);
+    bool CanWidenSimd12ToSimd16(const LclVarDsc* lcl);
 #endif
 #if FEATURE_MULTIREG_RET
     void MakeMultiRegStoreLclVar(GenTreeLclVar* store, GenTree* value);

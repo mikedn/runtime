@@ -12,12 +12,11 @@
 
 #undef  DEFINE_ID_OPS
 
-enum    ID_OPS
+enum ID_OPS : uint8_t
 {
     ID_OP_NONE,                             // no additional arguments
     ID_OP_SCNS,                             // small const  operand (21-bits or less, no reloc)
     ID_OP_JMP,                              // local jump
-    ID_OP_LBL,                              // label operand
     ID_OP_CALL,                             // direct method call
     ID_OP_SPEC,                             // special handling required
 };
@@ -37,13 +36,9 @@ enum    ID_OPS
 //                  (unused)
 //////////////////////////////////////////////////////////////////////////////
 
-IF_DEF(NONE,        IS_NONE,               NONE)     //
+IF_DEF(NONE,        IS_NONE,               NONE)
 
-IF_DEF(LABEL,       IS_NONE,               JMP )     // label
-//IF_DEF(SWR_LABEL,   IS_NONE,               LBL )     // write label to stack
-//IF_DEF(METHOD,      IS_NONE,               CALL)     // method
-//IF_DEF(CNS,         IS_NONE,               SCNS)     // const
-
+IF_DEF(LABEL,       IS_NONE,               JMP)      // label
 IF_DEF(LARGEJMP,    IS_NONE,               JMP)      // large conditional branch pseudo-op
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -86,7 +81,7 @@ IF_DEF(T1_I,        IS_NONE,               JMP )     // T1_I    ......i.iiiiinnn
 IF_DEF(T1_J0,       IS_NONE,               NONE)     // T1_J    .....dddiiiiiiii                       R1                  imm8
 IF_DEF(T1_J1,       IS_NONE,               NONE)     // T1_J    .....dddiiiiiiii                       R1                  <regmask8>
 IF_DEF(T1_J2,       IS_NONE,               NONE)     // T1_J    .....dddiiiiiiii                       R1  SP              imm8
-IF_DEF(T1_J3,       IS_NONE,               LBL )     // T1_J    .....dddiiiiiiii                       R1  PC              imm8
+IF_DEF(T1_J3,       IS_NONE,               NONE)     // T1_J    .....dddiiiiiiii                       R1  PC              imm8
 IF_DEF(T1_K,        IS_NONE,               JMP )     // T1_K    ....cccciiiiiiii                       Branch              imm8, cond4
 IF_DEF(T1_L0,       IS_NONE,               NONE)     // T1_L0   ........iiiiiiii                                           imm8
 IF_DEF(T1_L1,       IS_NONE,               NONE)     // T1_L1   ........rrrrrrrr                                           <regmask8>
@@ -131,7 +126,7 @@ IF_DEF(T2_L0,       IS_NONE,               NONE)     // T2_L0   .....i.....Snnnn
 IF_DEF(T2_L1,       IS_NONE,               NONE)     // T2_L1   .....i.....S.... .iiiddddiiiiiiii       R1              S, imm8<<imm4
 IF_DEF(T2_L2,       IS_NONE,               NONE)     // T2_L2   .....i......nnnn .iii....iiiiiiii       R1                 imm8<<imm4
 IF_DEF(T2_M0,       IS_NONE,               NONE)     // T2_M0   .....i......nnnn .iiiddddiiiiiiii       R1  R2             imm12
-IF_DEF(T2_M1,       IS_NONE,               LBL )     // T2_M1   .....i.......... .iiiddddiiiiiiii       R1  PC             imm12
+IF_DEF(T2_M1,       IS_NONE,               NONE)     // T2_M1   .....i.......... .iiiddddiiiiiiii       R1  PC             imm12
 IF_DEF(T2_N,        IS_NONE,               NONE)     // T2_N    .....i......iiii .iiiddddiiiiiiii       R1                 imm16    ; movw/movt
 IF_DEF(T2_N1,       IS_NONE,               JMP)      // T2_N1   .....i......iiii .iiiddddiiiiiiii       R1                 imm16    ; movw/movt of a code address
 IF_DEF(T2_N2,       IS_NONE,               NONE)     // T2_N2   .....i......iiii .iiiddddiiiiiiii       R1                 imm16    ; movw/movt of a data address

@@ -19,21 +19,18 @@ private:
 #if !FEATURE_FIXED_OUT_ARGS
     void SetThrowHelperBlocks(GenTree* node, BasicBlock* block);
     void SetThrowHelperBlock(SpecialCodeKind kind, BasicBlock* block);
-#endif // !FEATURE_FIXED_OUT_ARGS
+#endif
 
     unsigned PopArgumentsFromCall(GenTreeCall* call);
     void PushArg(GenTreePutArgStk* putArgStk);
     void PopArg(GenTreePutArgStk* putArgStk);
 
-    void CheckArgCnt();
-    void CheckAdditionalArgs();
-
 private:
-    unsigned currentStackLevel; // current number of stack slots used by arguments.
-    unsigned maxStackLevel;     // max number of stack slots for arguments.
+    unsigned currentStackLevel = 0; // current number of stack slots used by arguments.
+    unsigned maxStackLevel     = 0; // max number of stack slots for arguments.
 
 #if !FEATURE_FIXED_OUT_ARGS
     bool framePointerRequired;  // Is frame pointer required based on the analysis made by this phase.
     bool throwHelperBlocksUsed; // Were any throw helper blocks created for this method.
-#endif                          // !FEATURE_FIXED_OUT_ARGS
+#endif
 };

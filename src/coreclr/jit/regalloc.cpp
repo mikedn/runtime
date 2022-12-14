@@ -109,265 +109,84 @@ bool Compiler::shouldDoubleAlign(unsigned             refCntStk,
 }
 #endif // DOUBLE_ALIGN
 
-// The code to set the regState for each arg is outlined for shared use
-// by linear scan. (It is not shared for System V AMD64 platform.)
-regNumber Compiler::raUpdateRegStateForArg(RegState* regState, LclVarDsc* argDsc)
-{
-    regNumber inArgReg  = argDsc->GetArgReg();
-    regMaskTP inArgMask = genRegMask(inArgReg);
-
-    if (regState->rsIsFloat)
-    {
-        noway_assert(inArgMask & RBM_FLTARG_REGS);
-    }
-    else //  regState is for the integer registers
-    {
-        // This might be the fixed return buffer register argument (on ARM64)
-        // We check and allow inArgReg to be theFixedRetBuffReg
-        if (hasFixedRetBuffReg() && (inArgReg == theFixedRetBuffReg()))
-        {
-            // We should have a TYP_BYREF or TYP_I_IMPL arg and not a TYP_STRUCT arg
-            noway_assert(argDsc->lvType == TYP_BYREF || argDsc->lvType == TYP_I_IMPL);
-            // We should have recorded the variable number for the return buffer arg
-            noway_assert(info.compRetBuffArg != BAD_VAR_NUM);
-        }
-        else // we have a regular arg
-        {
-            noway_assert(inArgMask & RBM_ARG_REGS);
-        }
-    }
-
-    regState->rsCalleeRegArgMaskLiveIn |= inArgMask;
-
-#ifdef TARGET_ARM
-    if (argDsc->lvType == TYP_DOUBLE)
-    {
-        if (info.compIsVarArgs || opts.compUseSoftFP)
-        {
-            assert((inArgReg == REG_R0) || (inArgReg == REG_R2));
-            assert(!regState->rsIsFloat);
-        }
-        else
-        {
-            assert(regState->rsIsFloat);
-            assert(emitter::isDoubleReg(inArgReg));
-        }
-        regState->rsCalleeRegArgMaskLiveIn |= genRegMask((regNumber)(inArgReg + 1));
-    }
-    else if (argDsc->lvType == TYP_LONG)
-    {
-        assert((inArgReg == REG_R0) || (inArgReg == REG_R2));
-        assert(!regState->rsIsFloat);
-        regState->rsCalleeRegArgMaskLiveIn |= genRegMask((regNumber)(inArgReg + 1));
-    }
-#endif // TARGET_ARM
-
-#if FEATURE_MULTIREG_ARGS
-    if (varTypeIsStruct(argDsc->GetType()))
-    {
-        if (argDsc->lvIsHfaRegArg())
-        {
-            assert(regState->rsIsFloat);
-            unsigned regCount = argDsc->GetLayout()->GetHfaRegCount();
-
-            for (unsigned i = 1; i < regCount; i++)
-            {
-                assert(inArgReg + i <= LAST_FP_ARGREG);
-                regState->rsCalleeRegArgMaskLiveIn |= genRegMask(static_cast<regNumber>(inArgReg + i));
-            }
-        }
-        else
-        {
-            assert(!regState->rsIsFloat);
-            unsigned cSlots = argDsc->lvSize() / TARGET_POINTER_SIZE;
-            for (unsigned i = 1; i < cSlots; i++)
-            {
-                regNumber nextArgReg = (regNumber)(inArgReg + i);
-                if (nextArgReg > REG_ARG_LAST)
-                {
-                    break;
-                }
-                regState->rsCalleeRegArgMaskLiveIn |= genRegMask(nextArgReg);
-            }
-        }
-    }
-#endif // FEATURE_MULTIREG_ARGS
-
-    return inArgReg;
-}
-
-/****************************************************************************/
-/* Returns true when we must create an EBP frame
-   This is used to force most managed methods to have EBP based frames
-   which allows the ETW kernel stackwalker to walk the stacks of managed code
-   this allows the kernel to perform light weight profiling
- */
-bool Compiler::rpMustCreateEBPFrame(INDEBUG(const char** wbReason))
+bool Compiler::rpMustCreateEBPFrame()
 {
     bool result = false;
-#ifdef DEBUG
-    const char* reason = nullptr;
-#endif
+    INDEBUG(const char* reason = nullptr);
 
-#if ETW_EBP_FRAMED
-    if (!result && opts.OptimizationDisabled())
+    if (opts.IsFramePointerRequired())
+    {
+        INDEBUG(reason = "FramePointerRequired");
+        result = true;
+    }
+    else if (opts.OptimizationDisabled())
     {
         INDEBUG(reason = "Debug Code");
         result = true;
     }
-    if (!result && (info.compMethodInfo->ILCodeSize > DEFAULT_MAX_INLINE_SIZE))
+#ifndef TARGET_AMD64
+    else if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_FRAMED))
+    {
+        // The VM sets JitFlags::JIT_FLAG_FRAMED for two reasons:
+        // (1) the COMPlus_JitFramed variable is set, or
+        // (2) the function is marked "noinline".
+        // The reason for #2 is that people mark functions noinline to ensure they
+        // show up on in a stack walk. But for AMD64, we don't need a frame pointer
+        // for the frame to show up in stack walk.
+        INDEBUG(reason = "JIT_FLAG_FRAMED");
+        result = true;
+    }
+#endif
+#if ETW_EBP_FRAMED
+    else if (info.compMethodInfo->ILCodeSize > DEFAULT_MAX_INLINE_SIZE)
     {
         INDEBUG(reason = "IL Code Size");
         result = true;
     }
-    if (!result && (fgBBcount > 3))
+    else if (fgBBcount > 3)
     {
         INDEBUG(reason = "BasicBlock Count");
         result = true;
     }
-    if (!result && fgHasLoops)
+    else if (fgHasLoops)
     {
         INDEBUG(reason = "Method has Loops");
         result = true;
     }
-    if (!result && (optCallCount >= 2))
+    else if (optCallCount >= 2)
     {
         INDEBUG(reason = "Call Count");
         result = true;
     }
-    if (!result && (optIndirectCallCount >= 1))
+    else if (optIndirectCallCount >= 1)
     {
         INDEBUG(reason = "Indirect Call");
         result = true;
     }
-#endif // ETW_EBP_FRAMED
-
-    // VM wants to identify the containing frame of an InlinedCallFrame always
-    // via the frame register never the stack register so we need a frame.
-    if (!result && (optNativeCallCount != 0))
+#endif
+    else if (optNativeCallCount != 0)
     {
+        // VM wants to identify the containing frame of an InlinedCallFrame always
+        // via the frame register never the stack register so we need a frame.
         INDEBUG(reason = "Uses PInvoke");
         result = true;
     }
-
 #ifdef TARGET_ARM64
-    // TODO-ARM64-NYI: This is temporary: force a frame pointer-based frame until genFnProlog can handle non-frame
-    // pointer frames.
-    if (!result)
+    else
     {
+        // TODO-ARM64-NYI: This is temporary: force a frame pointer-based frame
+        // until genFnProlog can handle non-frame pointer frames.
         INDEBUG(reason = "Temporary ARM64 force frame pointer");
         result = true;
     }
 #endif // TARGET_ARM64
 
 #ifdef DEBUG
-    if ((result == true) && (wbReason != nullptr))
+    if (result)
     {
-        *wbReason = reason;
+        JITDUMP("; Decided to create an EBP based frame, reason = '%s'\n", reason);
     }
 #endif
 
     return result;
-}
-
-void Compiler::raMarkStkVars()
-{
-    for (unsigned lclNum = 0; lclNum < lvaCount; lclNum++)
-    {
-        LclVarDsc* lcl = lvaGetDesc(lclNum);
-
-        // X86 varargs methods must not contain direct references to parameters
-        // other than 'this', the arglist parameter (which is not a GC pointer)
-        // and the struct return buffer parameter, if present. We cannot report
-        // any other parameters to the GC becaue they do not have correct frame
-        // offsets.
-        if (lvaIsX86VarargsStackParam(lclNum))
-        {
-            assert((lcl->lvRefCnt() == 0) && !lcl->lvRegister);
-
-            lcl->lvOnFrame  = false;
-            lcl->lvMustInit = false;
-
-            goto NOT_STK;
-        }
-
-        if (lcl->IsDependentPromotedField(this))
-        {
-            noway_assert(!lcl->lvRegister);
-
-            lcl->lvOnFrame = true;
-
-            goto ON_STK;
-        }
-
-        // Fully enregistered variables don't need any frame space.
-        if (lcl->lvRegister)
-        {
-            goto NOT_STK;
-        }
-
-        if (lcl->lvRefCnt() != 0)
-        {
-            if (lcl->lvOnFrame)
-            {
-                goto ON_STK;
-            }
-            else
-            {
-                goto NOT_STK;
-            }
-        }
-
-        // Unreferenced locals will get a frame location if they're address exposed.
-        // TODO-MIKE-Review: Why? Probably because AX is sometimes used simply to
-        // block optimizations and require frame allocation. Sounds like "implicitly
-        // referenced" should be used instead.
-
-        assert(!opts.compDbgCode);
-#if FEATURE_FIXED_OUT_ARGS
-        // lvaOutgoingArgSpaceVar is implicitly referenced.
-        assert(lclNum != lvaOutgoingArgSpaceVar);
-#endif
-
-        if (lcl->IsAddressExposed())
-        {
-            lcl->lvOnFrame = true;
-
-            goto ON_STK;
-        }
-        else
-        {
-            lcl->lvOnFrame  = false;
-            lcl->lvMustInit = false;
-
-            goto NOT_STK;
-        }
-
-    ON_STK:
-#if FEATURE_FIXED_OUT_ARGS
-        noway_assert((lclNum == lvaOutgoingArgSpaceVar) || lvaLclSize(lclNum) != 0);
-#else
-        noway_assert(lvaLclSize(lclNum) != 0);
-#endif
-
-    NOT_STK:;
-        lcl->lvFramePointerBased = codeGen->isFramePointerUsed();
-
-#if DOUBLE_ALIGN
-        if (codeGen->doDoubleAlign())
-        {
-            noway_assert(!codeGen->isFramePointerUsed());
-
-            if (lcl->IsParam() && !lcl->IsRegParam())
-            {
-                lcl->lvFramePointerBased = true;
-            }
-        }
-#endif
-
-        // It must be in a register, on frame, or have zero references.
-        noway_assert(lcl->lvIsInReg() || lcl->lvOnFrame || (lcl->lvRefCnt() == 0));
-        // We can't have both lvRegister and lvOnFrame
-        noway_assert(!lcl->lvRegister || !lcl->lvOnFrame);
-    }
 }

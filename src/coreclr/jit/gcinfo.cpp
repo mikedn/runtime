@@ -1,80 +1,18 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                          GCInfo                                           XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
-
 #include "gcinfo.h"
 #include "emit.h"
 #include "jitgcinfo.h"
-
 #ifdef TARGET_AMD64
 #include "gcinfoencoder.h" //this includes a LOT of other files too
 #endif
 
-/*****************************************************************************/
-/*****************************************************************************/
-
-/*****************************************************************************/
-
-extern int JITGcBarrierCall;
-
-/*****************************************************************************/
-
 #if MEASURE_PTRTAB_SIZE
-/* static */ size_t GCInfo::s_gcRegPtrDscSize   = 0;
-/* static */ size_t GCInfo::s_gcTotalPtrTabSize = 0;
-#endif // MEASURE_PTRTAB_SIZE
-
-/*
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                          GCInfo                                           XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
-GCInfo::GCInfo(Compiler* theCompiler) : compiler(theCompiler)
-{
-    regSet         = nullptr;
-    gcVarPtrList   = nullptr;
-    gcVarPtrLast   = nullptr;
-    gcRegPtrList   = nullptr;
-    gcRegPtrLast   = nullptr;
-    gcPtrArgCnt    = 0;
-    gcCallDescList = nullptr;
-    gcCallDescLast = nullptr;
-#ifdef JIT32_GCENCODER
-    gcEpilogTable = nullptr;
-#else  // !JIT32_GCENCODER
-    m_regSlotMap   = nullptr;
-    m_stackSlotMap = nullptr;
-#endif // JIT32_GCENCODER
-}
-
-/*****************************************************************************/
-/*****************************************************************************
- *  Reset tracking info at the start of a basic block.
- */
-
-void GCInfo::gcResetForBB()
-{
-    gcRegGCrefSetCur = RBM_NONE;
-    gcRegByrefSetCur = RBM_NONE;
-    VarSetOps::AssignNoCopy(compiler, gcVarPtrSetCur, VarSetOps::MakeEmpty(compiler));
-}
+size_t GCInfo::s_gcRegPtrDscSize   = 0;
+size_t GCInfo::s_gcTotalPtrTabSize = 0;
+#endif
 
 #ifdef DEBUG
 
@@ -82,7 +20,7 @@ void GCInfo::gcDspGCrefSetChanges(regMaskTP gcRegGCrefSetNew DEBUGARG(bool force
 {
     if (compiler->verbose && (forceOutput || (gcRegGCrefSetCur != gcRegGCrefSetNew)))
     {
-        compiler->GetEmitter()->emitDispRegSetDiff("GC regs: ", gcRegGCrefSetCur, gcRegGCrefSetNew);
+        emitter::emitDispRegSetDiff("GC regs: ", gcRegGCrefSetCur, gcRegGCrefSetNew);
     }
 }
 
@@ -90,7 +28,7 @@ void GCInfo::gcDspByrefSetChanges(regMaskTP gcRegByrefSetNew DEBUGARG(bool force
 {
     if (compiler->verbose && (forceOutput || (gcRegByrefSetCur != gcRegByrefSetNew)))
     {
-        compiler->GetEmitter()->emitDispRegSetDiff("Byref regs: ", gcRegByrefSetCur, gcRegByrefSetNew);
+        emitter::emitDispRegSetDiff("Byref regs: ", gcRegByrefSetCur, gcRegByrefSetNew);
     }
 }
 
@@ -136,6 +74,13 @@ void GCInfo::gcMarkRegSetByref(regMaskTP regMask DEBUGARG(bool forceOutput))
     gcRegGCrefSetCur = gcRegGCrefSetNew;
 }
 
+void GCInfo::SetLiveLclRegs(regMaskTP regs)
+{
+    DBEXEC(compiler->verbose, emitter::emitDispRegSetDiff("Live regs: ", liveLclRegs, regs);)
+
+    liveLclRegs = regs;
+}
+
 /*****************************************************************************
  *
  *  Mark the set of registers given by the specified mask as holding
@@ -146,8 +91,8 @@ void GCInfo::gcMarkRegSetNpt(regMaskTP regMask DEBUGARG(bool forceOutput))
 {
     /* NOTE: don't unmark any live register variables */
 
-    regMaskTP gcRegByrefSetNew = gcRegByrefSetCur & ~(regMask & ~regSet->GetMaskVars());
-    regMaskTP gcRegGCrefSetNew = gcRegGCrefSetCur & ~(regMask & ~regSet->GetMaskVars());
+    regMaskTP gcRegByrefSetNew = gcRegByrefSetCur & ~(regMask & ~liveLclRegs);
+    regMaskTP gcRegGCrefSetNew = gcRegGCrefSetCur & ~(regMask & ~liveLclRegs);
 
     INDEBUG(gcDspGCrefSetChanges(gcRegGCrefSetNew, forceOutput));
     INDEBUG(gcDspByrefSetChanges(gcRegByrefSetNew, forceOutput));
@@ -179,8 +124,6 @@ void GCInfo::gcMarkRegPtrVal(regNumber reg, var_types type)
     }
 }
 
-/*****************************************************************************/
-
 GCInfo::WriteBarrierForm GCInfo::GetWriteBarrierForm(GenTreeStoreInd* store)
 {
     if (!store->TypeIs(TYP_REF))
@@ -206,7 +149,7 @@ GCInfo::WriteBarrierForm GCInfo::GetWriteBarrierForm(GenTreeStoreInd* store)
         return WBF_NoBarrier;
     }
 
-    WriteBarrierForm form = gcWriteBarrierFormFromTargetAddress(store->GetAddr());
+    WriteBarrierForm form = GetWriteBarrierFormFromAddress(store->GetAddr());
 
     if (form == WBF_BarrierUnknown)
     {
@@ -219,17 +162,9 @@ GCInfo::WriteBarrierForm GCInfo::GetWriteBarrierForm(GenTreeStoreInd* store)
     return form;
 }
 
-/*****************************************************************************
- *
- *  Initialize the non-register pointer variable tracking logic.
- */
-
 void GCInfo::gcVarPtrSetInit()
 {
-    VarSetOps::AssignNoCopy(compiler, gcVarPtrSetCur, VarSetOps::MakeEmpty(compiler));
-
-    /* Initialize the list of lifetime entries */
-    gcVarPtrList = gcVarPtrLast = nullptr;
+    gcVarPtrSetCur = VarSetOps::MakeEmpty(compiler);
 }
 
 /*****************************************************************************
@@ -242,7 +177,7 @@ GCInfo::regPtrDsc* GCInfo::gcRegPtrAllocDsc()
 {
     regPtrDsc* regPtrNext;
 
-    assert(compiler->IsFullPtrRegMapRequired());
+    assert(compiler->codeGen->IsFullPtrRegMapRequired());
 
     /* Allocate a new entry and initialize it */
 
@@ -336,10 +271,9 @@ void GCInfo::gcCountForHeader(UNALIGNED unsigned int* pUntrackedCount, UNALIGNED
 
     // Also count spill temps that hold pointers.
 
-    assert(regSet->tmpAllFree());
-    for (TempDsc* tempThis = regSet->tmpListBeg(); tempThis != nullptr; tempThis = regSet->tmpListNxt(tempThis))
+    for (SpillTemp& temp : compiler->codeGen->spillTemps)
     {
-        if (varTypeIsGC(tempThis->tdTempType()) == false)
+        if (!varTypeIsGC(temp.GetType()))
         {
             continue;
         }
@@ -347,7 +281,7 @@ void GCInfo::gcCountForHeader(UNALIGNED unsigned int* pUntrackedCount, UNALIGNED
 #ifdef DEBUG
         if (compiler->verbose)
         {
-            int offs = tempThis->tdTempOffs();
+            int offs = temp.GetOffset();
 
             printf("GCINFO: untrck %s Temp at [%s", varTypeGCstring(varDsc->TypeGet()),
                    compiler->GetEmitter()->emitGetFrameReg());
@@ -459,7 +393,7 @@ bool GCInfo::gcIsUntrackedLocalOrNonEnregisteredArg(unsigned varNum, bool* pKeep
                 return false;
             }
         }
-        else if (varDsc->lvIsRegArg && varDsc->lvTracked)
+        else if (varDsc->IsRegParam() && varDsc->HasLiveness())
         {
             // If this register-passed arg is tracked, then it has been allocated space near the other pointer variables
             // and we have accurate life-time info. It will be reported with gcVarPtrList in the "tracked-pointer"
@@ -506,30 +440,6 @@ BYTE* GCInfo::gcPtrTableSave(BYTE* destPtr, const InfoHdr& header, unsigned code
     return destPtr + gcMakeRegPtrTable(destPtr, -1, header, codeSize, pArgTabOffset);
 }
 
-#endif // JIT32_GCENCODER
-
-/*****************************************************************************
- *
- *  Initialize the 'pointer value' register/argument tracking logic.
- */
-
-void GCInfo::gcRegPtrSetInit()
-{
-    gcRegGCrefSetCur = gcRegByrefSetCur = 0;
-
-    if (compiler->IsFullPtrRegMapRequired())
-    {
-        gcRegPtrList = gcRegPtrLast = nullptr;
-    }
-    else
-    {
-        /* Initialize the 'call descriptor' list */
-        gcCallDescList = gcCallDescLast = nullptr;
-    }
-}
-
-#ifdef JIT32_GCENCODER
-
 /*****************************************************************************
  *
  *  Helper passed to genEmitter.emitGenEpilogLst() to generate
@@ -554,7 +464,7 @@ void GCInfo::gcRegPtrSetInit()
 
 #endif // JIT32_GCENCODER
 
-GCInfo::WriteBarrierForm GCInfo::gcWriteBarrierFormFromTargetAddress(GenTree* addr)
+GCInfo::WriteBarrierForm GCInfo::GetWriteBarrierFormFromAddress(GenTree* addr)
 {
     if (addr->IsIntegralConst(0))
     {
@@ -620,72 +530,140 @@ GCInfo::WriteBarrierForm GCInfo::gcWriteBarrierFormFromTargetAddress(GenTree* ad
     return GCInfo::WBF_BarrierUnknown;
 }
 
-//------------------------------------------------------------------------
-// gcUpdateForRegVarMove: Update the masks when a variable is moved
-//
-// Arguments:
-//    srcMask - The register mask for the register(s) from which it is being moved
-//    dstMask - The register mask for the register(s) to which it is being moved
-//    type    - The type of the variable
-//
-// Return Value:
-//    None
-//
-// Notes:
-//    This is called during codegen when a var is moved due to an LSRA_ASG.
-//    It is also called by LinearScan::recordVarLocationAtStartOfBB() which is in turn called by
-//    CodeGen::genCodeForBBList() at the block boundary.
+const regMaskTP GCInfo::raRbmCalleeSaveOrder[]{RBM_CALLEE_SAVED_ORDER};
 
-void GCInfo::gcUpdateForRegVarMove(regMaskTP srcMask, regMaskTP dstMask, LclVarDsc* varDsc)
+regMaskSmall GCInfo::RegMaskFromCalleeSavedMask(unsigned short calleeSaveMask)
 {
-    var_types type    = varDsc->TypeGet();
-    bool      isGCRef = (type == TYP_REF);
-    bool      isByRef = (type == TYP_BYREF);
+    regMaskSmall res = 0;
+    for (int i = 0; i < CNT_CALLEE_SAVED; i++)
+    {
+        if ((calleeSaveMask & ((regMaskTP)1 << i)) != 0)
+        {
+            res |= raRbmCalleeSaveOrder[i];
+        }
+    }
+    return res;
+}
 
-    if (srcMask != RBM_NONE)
+void GCInfo::BeginBlockCodeGen(BasicBlock* block)
+{
+    regMaskTP newLiveRegSet  = RBM_NONE;
+    regMaskTP newRegGCrefSet = RBM_NONE;
+    regMaskTP newRegByrefSet = RBM_NONE;
+#ifdef DEBUG
+    VARSET_TP removedGCVars(VarSetOps::MakeEmpty(compiler));
+    VARSET_TP addedGCVars(VarSetOps::MakeEmpty(compiler));
+#endif
+    VarSetOps::Iter iter(compiler, block->bbLiveIn);
+    unsigned        varIndex = 0;
+    while (iter.NextElem(&varIndex))
     {
-        regSet->RemoveMaskVars(srcMask);
-        if (isGCRef)
+        LclVarDsc* varDsc = compiler->lvaGetDescByTrackedIndex(varIndex);
+
+        if (varDsc->lvIsInReg())
         {
-            assert((gcRegByrefSetCur & srcMask) == 0);
-            gcRegGCrefSetCur &= ~srcMask;
-            gcRegGCrefSetCur |= dstMask; // safe if no dst, i.e. RBM_NONE
-        }
-        else if (isByRef)
-        {
-            assert((gcRegGCrefSetCur & srcMask) == 0);
-            gcRegByrefSetCur &= ~srcMask;
-            gcRegByrefSetCur |= dstMask; // safe if no dst, i.e. RBM_NONE
-        }
-    }
-    else if (isGCRef || isByRef)
-    {
-        // In this case, we are moving it from the stack to a register,
-        // so remove it from the set of live stack gc refs
-        VarSetOps::RemoveElemD(compiler, gcVarPtrSetCur, varDsc->lvVarIndex);
-    }
-    if (dstMask != RBM_NONE)
-    {
-        regSet->AddMaskVars(dstMask);
-        // If the source is a reg, then the gc sets have been set appropriately
-        // Otherwise, we have to determine whether to set them
-        if (srcMask == RBM_NONE)
-        {
-            if (isGCRef)
+            newLiveRegSet |= varDsc->lvRegMask();
+
+            if (varDsc->TypeIs(TYP_REF))
             {
-                gcRegGCrefSetCur |= dstMask;
+                newRegGCrefSet |= varDsc->lvRegMask();
             }
-            else if (isByRef)
+            else if (varDsc->TypeIs(TYP_BYREF))
             {
-                gcRegByrefSetCur |= dstMask;
+                newRegByrefSet |= varDsc->lvRegMask();
+            }
+
+            if (!varDsc->IsAlwaysAliveInMemory())
+            {
+#ifdef DEBUG
+                if (compiler->verbose && VarSetOps::IsMember(compiler, gcVarPtrSetCur, varIndex))
+                {
+                    VarSetOps::AddElemD(compiler, removedGCVars, varIndex);
+                }
+#endif // DEBUG
+                VarSetOps::RemoveElemD(compiler, gcVarPtrSetCur, varIndex);
             }
         }
+        if ((!varDsc->lvIsInReg() || varDsc->IsAlwaysAliveInMemory()) && varDsc->HasGCSlotLiveness())
+        {
+#ifdef DEBUG
+            if (compiler->verbose && !VarSetOps::IsMember(compiler, gcVarPtrSetCur, varIndex))
+            {
+                VarSetOps::AddElemD(compiler, addedGCVars, varIndex);
+            }
+#endif // DEBUG
+            VarSetOps::AddElemD(compiler, gcVarPtrSetCur, varIndex);
+        }
     }
-    else if (isGCRef || isByRef)
+
+    SetLiveLclRegs(newLiveRegSet);
+
+#ifdef DEBUG
+    if (compiler->verbose)
     {
-        VarSetOps::AddElemD(compiler, gcVarPtrSetCur, varDsc->lvVarIndex);
+        if (!VarSetOps::IsEmpty(compiler, addedGCVars))
+        {
+            printf("Added GCVars: ");
+            dumpConvertedVarSet(compiler, addedGCVars);
+            printf("\n");
+        }
+        if (!VarSetOps::IsEmpty(compiler, removedGCVars))
+        {
+            printf("Removed GCVars: ");
+            dumpConvertedVarSet(compiler, removedGCVars);
+            printf("\n");
+        }
+    }
+#endif // DEBUG
+
+    gcMarkRegSetGCref(newRegGCrefSet DEBUGARG(true));
+    gcMarkRegSetByref(newRegByrefSet DEBUGARG(true));
+
+    /* Blocks with handlerGetsXcptnObj()==true use GT_CATCH_ARG to
+       represent the exception object (TYP_REF).
+       We mark REG_EXCEPTION_OBJECT as holding a GC object on entry
+       to the block,  it will be the first thing evaluated
+       (thanks to GTF_ORDER_SIDEEFF).
+     */
+
+    if (handlerGetsXcptnObj(block->bbCatchTyp))
+    {
+        for (GenTree* node : LIR::AsRange(block))
+        {
+            if (node->OperGet() == GT_CATCH_ARG)
+            {
+                gcMarkRegSetGCref(RBM_EXCEPTION_OBJECT);
+                break;
+            }
+        }
     }
 }
 
-/*****************************************************************************/
-/*****************************************************************************/
+void GCInfo::BeginPrologCodeGen()
+{
+    gcRegGCrefSetCur = RBM_NONE;
+    gcRegByrefSetCur = RBM_NONE;
+    VarSetOps::ClearD(compiler, gcVarPtrSetCur);
+}
+
+void GCInfo::BeginMethodEpilogCodeGen()
+{
+    emitter* emitter = compiler->codeGen->GetEmitter();
+
+    VarSetOps::Assign(compiler, gcVarPtrSetCur, emitter->emitInitGCrefVars);
+    gcRegGCrefSetCur = emitter->emitInitGCrefRegs;
+    gcRegByrefSetCur = emitter->emitInitByrefRegs;
+
+#ifdef DEBUG
+    if (compiler->verbose)
+    {
+        printf("gcVarPtrSetCur ");
+        dumpConvertedVarSet(compiler, gcVarPtrSetCur);
+        printf(", gcRegGCrefSetCur");
+        emitter::emitDispRegSet(gcRegGCrefSetCur);
+        printf(", gcRegByrefSetCur");
+        emitter::emitDispRegSet(gcRegByrefSetCur);
+        printf("\n");
+    }
+#endif
+}

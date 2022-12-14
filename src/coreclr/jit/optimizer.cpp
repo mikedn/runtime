@@ -5137,17 +5137,18 @@ public:
 
         for (unsigned i = 0; i < comp->lvaCount; i++)
         {
-            LclVarDsc* varDsc = comp->lvaGetDesc(i);
-            if (varDsc->lvTracked)
+            LclVarDsc* lcl = comp->lvaGetDesc(i);
+
+            if (lcl->HasLiveness())
             {
-                if (varTypeIsFloating(varDsc->lvType))
+                if (varTypeIsFloating(lcl->GetType()))
                 {
-                    VarSetOps::AddElemD(comp, lvaFloatVars, varDsc->lvVarIndex);
+                    VarSetOps::AddElemD(comp, lvaFloatVars, lcl->GetLivenessBitIndex());
                 }
 #ifndef TARGET_64BIT
-                else if (varTypeIsLong(varDsc->lvType))
+                else if (lcl->TypeIs(TYP_LONG))
                 {
-                    VarSetOps::AddElemD(comp, lvaLongVars, varDsc->lvVarIndex);
+                    VarSetOps::AddElemD(comp, lvaLongVars, lcl->GetLivenessBitIndex());
                 }
 #endif
             }
@@ -7942,7 +7943,7 @@ void Compiler::optRemoveRedundantZeroInits()
                             // If compMethodRequiresPInvokeFrame() returns true, lower may later
                             // insert a call to CORINFO_HELP_INIT_PINVOKE_FRAME which is a gc-safe point.
                             if (!lclDsc->HasGCPtr() ||
-                                (!GetInterruptible() && !hasGCSafePoint && !compMethodRequiresPInvokeFrame()))
+                                (!codeGen->GetInterruptible() && !hasGCSafePoint && !compMethodRequiresPInvokeFrame()))
                             {
                                 // The local hasn't been used and won't be reported to the gc between
                                 // the prolog and this explicit intialization. Therefore, it doesn't

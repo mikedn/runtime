@@ -307,10 +307,10 @@ void CodeGenInterface::siVarLoc::siFillStackVarLoc(
             //
             // Now, the VM expects a special enum for these type of local vars: VLT_STK_BYREF
             // to accomodate for this situation.
-            if (varDsc->lvIsImplicitByRef)
+            if (varDsc->IsImplicitByRefParam())
             {
-                assert(varDsc->lvIsParam);
-                assert(varDsc->lvType == TYP_BYREF);
+                assert(varDsc->IsParam() || varDsc->TypeIs(TYP_BYREF));
+
                 this->vlType = VLT_STK_BYREF;
             }
             else
@@ -468,7 +468,12 @@ CodeGenInterface::siVarLoc::siVarLoc(const LclVarDsc* varDsc, regNumber baseReg,
 //    A "siVarLoc" representing the variable location, which could live
 //    in a register, an stack position, or a combination of both.
 //
-CodeGenInterface::siVarLoc CodeGenInterface::getSiVarLoc(const LclVarDsc* varDsc, unsigned int stackLevel) const
+CodeGenInterface::siVarLoc CodeGenInterface::getSiVarLoc(const LclVarDsc* varDsc
+#if !FEATURE_FIXED_OUT_ARGS
+                                                         ,
+                                                         unsigned stackLevel
+#endif
+                                                         ) const
 {
     // For stack vars, find the base register, and offset
 
@@ -478,7 +483,9 @@ CodeGenInterface::siVarLoc CodeGenInterface::getSiVarLoc(const LclVarDsc* varDsc
     if (!varDsc->lvFramePointerBased)
     {
         baseReg = REG_SPBASE;
+#if !FEATURE_FIXED_OUT_ARGS
         offset += stackLevel;
+#endif
     }
     else
     {
@@ -1437,7 +1444,7 @@ NATIVE_OFFSET CodeGen::psiGetVarStackOffset(const LclVarDsc* lclVarDsc) const
     stackOffset = compiler->lvaToCallerSPRelativeOffset(lclVarDsc->GetStackOffset(), lclVarDsc->lvFramePointerBased) +
                   REGSIZE_BYTES;
 #else  // !TARGET_AMD64
-    if (doubleAlignOrFramePointerUsed())
+    if (IsFramePointerRequired())
     {
         // REGSIZE_BYTES - for the pushed value of EBP
         stackOffset = lclVarDsc->GetStackOffset() - REGSIZE_BYTES;
@@ -1463,7 +1470,7 @@ NATIVE_OFFSET CodeGen::psiGetVarStackOffset(const LclVarDsc* lclVarDsc) const
 //
 void CodeGen::psiBegProlog()
 {
-    assert(compiler->compGeneratingProlog);
+    assert(generatingProlog);
 
 #ifdef USING_SCOPE_INFO
     psiOpenScopeList.scNext = nullptr;
@@ -1477,103 +1484,57 @@ void CodeGen::psiBegProlog()
     VarScopeDsc* varScope;
     while ((varScope = compiler->compGetNextEnterScope(0)) != nullptr)
     {
-        LclVarDsc* lclVarDsc = &compiler->lvaTable[varScope->vsdVarNum];
+        LclVarDsc* lclVarDsc = compiler->lvaGetDesc(varScope->vsdVarNum);
 
-        if (!lclVarDsc->lvIsParam)
+        if (!lclVarDsc->IsParam())
         {
             continue;
         }
+
 #ifdef USING_SCOPE_INFO
         psiScope* newScope = psiNewPrologScope(varScope->vsdLVnum, varScope->vsdVarNum);
-#endif // USING_SCOPE_INFO
+#endif
 #ifdef USING_VARIABLE_LIVE_RANGE
         siVarLoc varLocation;
-#endif // USING_VARIABLE_LIVE_RANGE
+#endif
 
-        if (lclVarDsc->lvIsRegArg)
+        if (lclVarDsc->IsRegParam())
         {
-            bool isStructHandled = false;
+            regNumber regs[2]{lclVarDsc->GetParamReg(), REG_NA};
 
 #ifdef UNIX_AMD64_ABI
-            if (varTypeIsStruct(lclVarDsc->GetType()))
+            if (lclVarDsc->GetParamRegCount() > 1)
             {
-                if (lclVarDsc->GetLayout()->GetSysVAmd64AbiRegCount() != 0)
-                {
-                    regNumber regNum[2]{REG_NA, REG_NA};
-
-                    for (unsigned i = 0; i < lclVarDsc->GetLayout()->GetSysVAmd64AbiRegCount(); i++)
-                    {
-                        regNum[i] = lclVarDsc->GetParamReg(i);
-
-                        INDEBUG(var_types regType = lclVarDsc->GetLayout()->GetSysVAmd64AbiRegType(i));
-                        assert(genMapRegNumToRegArgNum(regNum[i], regType) != UINT32_MAX);
-                    }
-
-#ifdef USING_SCOPE_INFO
-                    newScope->scRegister    = true;
-                    newScope->u1.scRegNum   = static_cast<regNumberSmall>(regNum[0]);
-                    newScope->u1.scOtherReg = static_cast<regNumberSmall>(regNum[1]);
-#endif
-
-#ifdef USING_VARIABLE_LIVE_RANGE
-                    varLocation.storeVariableInRegisters(regNum[0], regNum[1]);
-#endif
-                }
-                else
-                {
-// Stack passed argument. Get the offset from the  caller's frame.
-#ifdef USING_SCOPE_INFO
-                    psiSetScopeOffset(newScope, lclVarDsc);
-#endif // USING_SCOPE_INFO
-#ifdef USING_VARIABLE_LIVE_RANGE
-                    varLocation.storeVariableOnStack(REG_SPBASE, psiGetVarStackOffset(lclVarDsc));
-#endif // USING_VARIABLE_LIVE_RANGE
-                }
-
-                isStructHandled = true;
+                regs[1] = lclVarDsc->GetParamReg(1);
             }
-#endif // UNIX_AMD64_ABI
-
-            if (!isStructHandled)
-            {
-#ifdef DEBUG
-                var_types regType = lclVarDsc->GetType();
-
-#ifdef TARGET_ARMARCH
-                regType = compiler->mangleVarArgsType(regType);
 #endif
 
-                if (lclVarDsc->lvIsHfaRegArg())
-                {
-                    regType = lclVarDsc->GetLayout()->GetHfaElementType();
-                }
-
-                assert(genMapRegNumToRegArgNum(lclVarDsc->GetArgReg(), regType) != UINT32_MAX);
-#endif // DEBUG
+            assert(isValidIntArgReg(regs[0]) || isValidFloatArgReg(regs[0]));
+            assert((regs[1] == REG_NA) || isValidIntArgReg(regs[1]) || isValidFloatArgReg(regs[1]));
 
 #ifdef USING_SCOPE_INFO
-                newScope->scRegister  = true;
-                newScope->u1.scRegNum = (regNumberSmall)lclVarDsc->GetArgReg();
-#endif // USING_SCOPE_INFO
+            newScope->scRegister    = true;
+            newScope->u1.scRegNum   = static_cast<regNumberSmall>(regs[0]);
+            newScope->u1.scOtherReg = static_cast<regNumberSmall>(regs[1]);
+#endif
 #ifdef USING_VARIABLE_LIVE_RANGE
-                varLocation.storeVariableInRegisters(lclVarDsc->GetArgReg(), REG_NA);
-#endif // USING_VARIABLE_LIVE_RANGE
-            }
+            varLocation.storeVariableInRegisters(regs[0], regs[1]);
+#endif
         }
         else
         {
 #ifdef USING_SCOPE_INFO
             psiSetScopeOffset(newScope, lclVarDsc);
-#endif // USING_SCOPE_INFO
+#endif
 #ifdef USING_VARIABLE_LIVE_RANGE
             varLocation.storeVariableOnStack(REG_SPBASE, psiGetVarStackOffset(lclVarDsc));
-#endif // USING_VARIABLE_LIVE_RANGE
+#endif
         }
 
 #ifdef USING_VARIABLE_LIVE_RANGE
         // Start a VariableLiveRange for this LclVarDsc on the built location
         varLiveKeeper->psiStartVariableLiveRange(varLocation, varScope->vsdVarNum);
-#endif // USING_VARIABLE_LIVE_RANGE
+#endif
     }
 }
 
@@ -1586,7 +1547,7 @@ void CodeGen::psiBegProlog()
 //
 void CodeGen::psiEndProlog()
 {
-    assert(compiler->compGeneratingProlog);
+    assert(generatingProlog);
 #ifdef USING_SCOPE_INFO
     for (psiScope* scope = psiOpenScopeList.scNext; scope; scope = psiOpenScopeList.scNext)
     {
@@ -1641,9 +1602,10 @@ void CodeGen::psiAdjustStackLevel(unsigned size)
     {
         if (scope->scRegister)
         {
-            assert(compiler->lvaTable[scope->scSlotNum].lvIsRegArg);
+            assert(compiler->lvaGetDesc(scope->scSlotNum)->IsRegParam());
             continue;
         }
+
         assert(scope->u2.scBaseReg == REG_SPBASE);
 
         psiScope* newScope     = psiNewPrologScope(scope->scLVnum, scope->scSlotNum);
@@ -1672,7 +1634,7 @@ void CodeGen::psiMoveESPtoEBP()
     }
 
     assert(compiler->compGeneratingProlog);
-    assert(doubleAlignOrFramePointerUsed());
+    assert(IsFramePointerRequired());
 
 #ifdef ACCURATE_PROLOG_DEBUG_INFO
 
@@ -1684,9 +1646,10 @@ void CodeGen::psiMoveESPtoEBP()
     {
         if (scope->scRegister)
         {
-            assert(compiler->lvaTable[scope->scSlotNum].lvIsRegArg);
+            assert(compiler->lvaGetDesc(scope->scSlotNum)->IsRegParam());
             continue;
         }
+
         assert(scope->u2.scBaseReg == REG_SPBASE);
 
         psiScope* newScope     = psiNewPrologScope(scope->scLVnum, scope->scSlotNum);
@@ -1781,8 +1744,8 @@ void CodeGen::psiMoveToStack(unsigned varNum)
     }
 
     assert(compiler->compGeneratingProlog);
-    assert(compiler->lvaTable[varNum].lvIsRegArg);
-    assert(!compiler->lvaTable[varNum].lvRegister);
+    assert(compiler->lvaGetDesc(varNum)->IsRegParam());
+    assert(!compiler->lvaGetDesc(varNum)->lvRegister);
 
 #ifdef ACCURATE_PROLOG_DEBUG_INFO
 
@@ -1795,10 +1758,9 @@ void CodeGen::psiMoveToStack(unsigned varNum)
         if (scope->scSlotNum != varNum)
             continue;
 
-        /* The param must be currently sitting in the register in which it
-           was passed in */
+        // The param must be currently sitting in the register in which it was passed in.
         assert(scope->scRegister);
-        assert(scope->u1.scRegNum == compiler->lvaTable[varNum].GetArgReg());
+        assert(scope->u1.scRegNum == compiler->lvaGetDesc(varNum)->GetParamReg());
 
         psiScope* newScope     = psiNewPrologScope(scope->scLVnum, scope->scSlotNum);
         newScope->scRegister   = false;

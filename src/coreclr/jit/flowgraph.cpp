@@ -1100,7 +1100,7 @@ inline void Compiler::fgMarkLoopHead(BasicBlock* block)
 
     /* Have we decided to generate fully interruptible code already? */
 
-    if (GetInterruptible())
+    if (codeGen->GetInterruptible())
     {
 #ifdef DEBUG
         if (verbose)
@@ -1149,33 +1149,14 @@ inline void Compiler::fgMarkLoopHead(BasicBlock* block)
         }
     }
 
-    /*
-     *  We have to make this method fully interruptible since we can not
-     *  ensure that this loop will execute a call every time it loops.
-     *
-     *  We'll also need to generate a full register map for this method.
-     */
+    // We have to make this method fully interruptible since we can not
+    // ensure that this loop will execute a call every time it loops.
+    //
+    // We'll also need to generate a full register map for this method.
 
-    assert(!codeGen->isGCTypeFixed());
+    JITDUMP("no guaranteed callsite exits, marking method as fully interruptible\n");
 
-    if (!compCanEncodePtrArgCntMax())
-    {
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("a callsite with more than 1023 pushed args exists\n");
-        }
-#endif
-        return;
-    }
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("no guaranteed callsite exits, marking method as fully interruptible\n");
-    }
-#endif
-    SetInterruptible(true);
+    codeGen->SetInterruptible(true);
 }
 
 GenTree* Compiler::fgGetCritSectOfStaticMethod()
@@ -2294,7 +2275,8 @@ void Compiler::fgAddInternal()
         }
 
         lvaInlinedPInvokeFrameVar = lvaGrabTemp(false DEBUGARG("PInvokeFrame"));
-        lvaGetDesc(lvaInlinedPInvokeFrameVar)->SetBlockType(eeGetEEInfo()->inlinedCallFrameInfo.size);
+        lvaGetDesc(lvaInlinedPInvokeFrameVar)
+            ->SetBlockType(roundUp(eeGetEEInfo()->inlinedCallFrameInfo.size, REGSIZE_BYTES));
     }
 
     // Do we need to insert a "JustMyCode" callback?
@@ -2343,7 +2325,7 @@ void Compiler::fgAddInternal()
         }
         else
         {
-            noway_assert(lvaTable[info.compThisArg].lvType == TYP_REF);
+            noway_assert(lvaGetDesc(info.compThisArg)->TypeIs(TYP_REF));
 
             tree = gtNewLclvNode(info.compThisArg, TYP_REF);
 
@@ -2579,9 +2561,9 @@ void Compiler::fgSimpleLowering()
         JITDUMP("Bumping outgoingArgSpaceSize to %u for localloc", outgoingArgSpaceSize);
     }
 
-    assert((outgoingArgSpaceSize % TARGET_POINTER_SIZE) == 0);
+    assert(outgoingArgSpaceSize % REGSIZE_BYTES == 0);
 
-    lvaOutgoingArgSpaceSize.SetFinalValue(outgoingArgSpaceSize);
+    codeGen->outgoingArgSpaceSize.SetFinalValue(outgoingArgSpaceSize);
     lvaGetDesc(lvaOutgoingArgSpaceVar)->SetBlockType(outgoingArgSpaceSize);
 #endif // FEATURE_FIXED_OUT_ARGS
 
@@ -3147,10 +3129,6 @@ BasicBlock* Compiler::fgAddCodeRef(BasicBlock* srcBlk, unsigned refData, Special
     add->acdData = refData;
     add->acdKind = kind;
     add->acdNext = fgAddCodeList;
-#if !FEATURE_FIXED_OUT_ARGS
-    add->acdStkLvl     = 0;
-    add->acdStkLvlInit = false;
-#endif // !FEATURE_FIXED_OUT_ARGS
 
     fgAddCodeList = add;
 
@@ -3399,15 +3377,7 @@ void Compiler::fgSetBlockOrder()
 
             if (!partiallyInterruptible)
             {
-                // DDB 204533:
-                // The GC encoding for fully interruptible methods does not
-                // support more than 1023 pushed arguments, so we can't set
-                // SetInterruptible() here when we have 1024 or more pushed args
-                //
-                if (compCanEncodePtrArgCntMax())
-                {
-                    SetInterruptible(true);
-                }
+                codeGen->SetInterruptible(true);
                 break;
             }
 #undef EDGE_IS_GC_SAFE
@@ -3425,7 +3395,7 @@ void Compiler::fgSetBlockOrder()
             // loop.  Thus we need to either add a poll, or make the method
             // fully interruptible.  I chose the later because that's what
             // JIT64 does.
-            SetInterruptible(true);
+            codeGen->SetInterruptible(true);
         }
 #endif // !JIT32_GCENCODER
 #endif // FEATURE_FASTTAILCALL

@@ -4,16 +4,6 @@
 #ifndef REGALLOC_H_
 #define REGALLOC_H_
 
-enum FrameType : uint8_t
-{
-    FT_NOT_SET,
-    FT_ESP_FRAME,
-    FT_EBP_FRAME,
-#if DOUBLE_ALIGN
-    FT_DOUBLE_ALIGN_FRAME,
-#endif
-};
-
 #if DOUBLE_ALIGN
 enum CanDoubleAlign : uint8_t
 {

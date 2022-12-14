@@ -86,28 +86,19 @@ inline bool _our_GetThreadCycles(unsigned __int64* cycleOut)
 
 #endif // which host OS
 
-const BYTE genTypeSizes[] = {
-#define DEF_TP(tn, nm, jitType, verType, sz, sze, asze, st, al, tf) sz,
+const uint8_t genTypeSizes[]{
+#define DEF_TP(tn, nm, jitType, sz, sze, asze, al, tf) sz,
 #include "typelist.h"
-#undef DEF_TP
 };
 
-const BYTE genTypeAlignments[] = {
-#define DEF_TP(tn, nm, jitType, verType, sz, sze, asze, st, al, tf) al,
+const uint8_t genTypeAlignments[]{
+#define DEF_TP(tn, nm, jitType, sz, sze, asze, al, tf) al,
 #include "typelist.h"
-#undef DEF_TP
 };
 
-const BYTE genTypeStSzs[] = {
-#define DEF_TP(tn, nm, jitType, verType, sz, sze, asze, st, al, tf) st,
+const uint8_t genActualTypes[]{
+#define DEF_TP(tn, nm, jitType, sz, sze, asze, al, tf) jitType,
 #include "typelist.h"
-#undef DEF_TP
-};
-
-const BYTE genActualTypes[] = {
-#define DEF_TP(tn, nm, jitType, verType, sz, sze, asze, st, al, tf) jitType,
-#include "typelist.h"
-#undef DEF_TP
 };
 
 #endif // FEATURE_JIT_METHOD_PERF
@@ -866,19 +857,10 @@ void Compiler::compShutdown()
 #endif // MEASURE_FATAL
 }
 
-/*****************************************************************************
- *  Display static data structure sizes.
- */
-
-/* static */
 void Compiler::compDisplayStaticSizes(FILE* fout)
 {
 #if MEASURE_NODE_SIZE
     GenTree::DumpNodeSizes(fout);
-#endif
-
-#if EMITTER_STATS
-    emitterStaticStats(fout);
 #endif
 }
 
@@ -1413,13 +1395,12 @@ void Compiler::compInitConfigOptions()
 
         if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
         {
-            opts.dspOrder      = (cfg.NgenOrder() & 1) == 1;
-            opts.dspGCtbls     = cfg.NgenGCDump().contains(methodName, className, methodParams);
-            opts.disAsm        = cfg.NgenDisasm().contains(methodName, className, methodParams);
-            opts.disAsmSpilled = cfg.NgenDisasm().contains("SPILLED", nullptr, nullptr);
-            opts.dspUnwind     = cfg.NgenUnwindDump().contains(methodName, className, methodParams);
-            opts.dspEHTable    = cfg.NgenEHDump().contains(methodName, className, methodParams);
-            opts.dspDebugInfo  = cfg.NgenDebugDump().contains(methodName, className, methodParams);
+            opts.dspOrder     = (cfg.NgenOrder() & 1) == 1;
+            opts.dspGCtbls    = cfg.NgenGCDump().contains(methodName, className, methodParams);
+            opts.disAsm       = cfg.NgenDisasm().contains(methodName, className, methodParams);
+            opts.dspUnwind    = cfg.NgenUnwindDump().contains(methodName, className, methodParams);
+            opts.dspEHTable   = cfg.NgenEHDump().contains(methodName, className, methodParams);
+            opts.dspDebugInfo = cfg.NgenDebugDump().contains(methodName, className, methodParams);
         }
         else
         {
@@ -1444,13 +1425,12 @@ void Compiler::compInitConfigOptions()
 
             if (disEnabled)
             {
-                opts.dspOrder      = (cfg.JitOrder() & 1) == 1;
-                opts.dspGCtbls     = cfg.JitGCDump().contains(methodName, className, methodParams);
-                opts.disAsm        = cfg.JitDisasm().contains(methodName, className, methodParams);
-                opts.disAsmSpilled = cfg.JitDisasm().contains("SPILLED", nullptr, nullptr);
-                opts.dspUnwind     = cfg.JitUnwindDump().contains(methodName, className, methodParams);
-                opts.dspEHTable    = cfg.JitEHDump().contains(methodName, className, methodParams);
-                opts.dspDebugInfo  = cfg.JitDebugDump().contains(methodName, className, methodParams);
+                opts.dspOrder     = (cfg.JitOrder() & 1) == 1;
+                opts.dspGCtbls    = cfg.JitGCDump().contains(methodName, className, methodParams);
+                opts.disAsm       = cfg.JitDisasm().contains(methodName, className, methodParams);
+                opts.dspUnwind    = cfg.JitUnwindDump().contains(methodName, className, methodParams);
+                opts.dspEHTable   = cfg.JitEHDump().contains(methodName, className, methodParams);
+                opts.dspDebugInfo = cfg.JitDebugDump().contains(methodName, className, methodParams);
             }
         }
 
@@ -1509,7 +1489,6 @@ void Compiler::compInitConfigOptions()
         expensiveDebugCheckLevel = 1;
     }
 
-    assert(!codeGen->isGCTypeFixed());
     opts.compGcChecks = (JitConfig.JitGCChecks() != 0) || compStressCompile(STRESS_GENERIC_VARN, 5);
 
 #ifdef TARGET_XARCH
@@ -1650,13 +1629,6 @@ void Compiler::compInitOptions()
         compProfilerMethHnd           = (void*)DummyProfilerELTStub;
         compProfilerMethHndIndirected = false;
     }
-
-#ifdef UNIX_AMD64_ABI
-    if (compIsProfilerHookNeeded())
-    {
-        opts.compNeedToAlignFrame = true;
-    }
-#endif
 #endif // PROFILING_SUPPORTED
 
     ARM_ONLY(opts.compUseSoftFP = jitFlags->IsSet(JitFlags::JIT_FLAG_SOFTFP_ABI) || JitConfig.JitSoftFP();)
@@ -1808,7 +1780,6 @@ void Compiler::compInitPgo()
             fgPgoQueryResult = E_FAIL;
             fgPgoData        = nullptr;
             fgPgoSchema      = nullptr;
-            fgPgoDisabled    = true;
         }
 #ifdef DEBUG
         // Optionally, enable use of profile data for only some methods.
@@ -1828,7 +1799,6 @@ void Compiler::compInitPgo()
                 fgPgoQueryResult = E_FAIL;
                 fgPgoData        = nullptr;
                 fgPgoSchema      = nullptr;
-                fgPgoDisabled    = true;
             }
         }
 
@@ -2419,25 +2389,6 @@ void Compiler::compSetOptimizationLevel(const ILStats& ilStats)
         opts.optFlags = CLFLG_MINOPT;
     }
 
-    codeGen->setFramePointerRequired(false);
-    codeGen->setFrameRequired(false);
-
-    if (opts.OptimizationDisabled())
-    {
-        codeGen->setFrameRequired(true);
-    }
-
-#if !defined(TARGET_AMD64)
-    // The VM sets JitFlags::JIT_FLAG_FRAMED for two reasons: (1) the COMPlus_JitFramed variable is set, or
-    // (2) the function is marked "noinline". The reason for #2 is that people mark functions
-    // noinline to ensure the show up on in a stack walk. But for AMD64, we don't need a frame
-    // pointer for the frame to show up in stack walk.
-    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_FRAMED))
-    {
-        codeGen->setFrameRequired(true);
-    }
-#endif
-
     if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
     {
         // The JIT doesn't currently support loop alignment for prejitted images.
@@ -2459,176 +2410,6 @@ void Compiler::compSetOptimizationLevel(const ILStats& ilStats)
     opts.compExpandCallsEarly = (JitConfig.JitExpandCallsEarly() != 0);
 #endif
 }
-
-#ifdef TARGET_ARMARCH
-// Function compRsvdRegCheck:
-//  given a curState to use for calculating the total frame size
-//  it will return true if the REG_OPT_RSVD should be reserved so
-//  that it can be use to form large offsets when accessing stack
-//  based LclVar including both incoming and out going argument areas.
-//
-//  The method advances the frame layout state to curState by calling
-//  lvaFrameSize(curState).
-//
-bool Compiler::compRsvdRegCheck(FrameLayoutState curState)
-{
-    // Always do the layout even if returning early. Callers might
-    // depend on us to do the layout.
-    unsigned frameSize = lvaFrameSize(curState);
-    JITDUMP("\n"
-            "compRsvdRegCheck\n"
-            "  frame size  = %6d\n"
-            "  compArgSize = %6d\n",
-            frameSize, compArgSize);
-
-    if (opts.MinOpts())
-    {
-        // Have a recovery path in case we fail to reserve REG_OPT_RSVD and go
-        // over the limit of SP and FP offset ranges due to large
-        // temps.
-        JITDUMP(" Returning true (MinOpts)\n\n");
-        return true;
-    }
-
-    unsigned calleeSavedRegMaxSz = CALLEE_SAVED_REG_MAXSZ;
-    if (compFloatingPointUsed)
-    {
-        calleeSavedRegMaxSz += CALLEE_SAVED_FLOAT_MAXSZ;
-    }
-    calleeSavedRegMaxSz += REGSIZE_BYTES; // we always push LR.  See genPushCalleeSavedRegisters
-
-    noway_assert(frameSize >= calleeSavedRegMaxSz);
-
-#if defined(TARGET_ARM64)
-
-    // TODO-ARM64-CQ: update this!
-    JITDUMP(" Returning true (ARM64)\n\n");
-    return true; // just always assume we'll need it, for now
-
-#else  // TARGET_ARM
-
-    // frame layout:
-    //
-    //         ... high addresses ...
-    //                         frame contents       size
-    //                         -------------------  ------------------------
-    //                         inArgs               compArgSize (includes prespill)
-    //  caller SP --->
-    //                         prespill
-    //                         LR                   REGSIZE_BYTES
-    //  R11    --->            R11                  REGSIZE_BYTES
-    //                         callee saved regs    CALLEE_SAVED_REG_MAXSZ   (32 bytes)
-    //                     optional saved fp regs   CALLEE_SAVED_FLOAT_MAXSZ (64 bytes)
-    //                         lclSize
-    //                             incl. TEMPS      MAX_SPILL_TEMP_SIZE
-    //                             incl. outArgs
-    //  SP     --->
-    //          ... low addresses ...
-    //
-    // When codeGen->isFramePointerRequired is true, R11 will be established as a frame pointer.
-    // We can then use R11 to access incoming args with positive offsets, and LclVars with
-    // negative offsets.
-    //
-    // In functions with EH, in the non-funclet (or main) region, even though we will have a
-    // frame pointer, we can use SP with positive offsets to access any or all locals or arguments
-    // that we can reach with SP-relative encodings. The funclet region might require the reserved
-    // register, since it must use offsets from R11 to access the parent frame.
-
-    unsigned maxR11PositiveEncodingOffset = compFloatingPointUsed ? 0x03FC : 0x0FFF;
-    JITDUMP("  maxR11PositiveEncodingOffset     = %6d\n", maxR11PositiveEncodingOffset);
-
-    // Floating point load/store instructions (VLDR/VSTR) can address up to -0x3FC from R11, but we
-    // don't know if there are either no integer locals, or if we don't need large negative offsets
-    // for the integer locals, so we must use the integer max negative offset, which is a
-    // smaller (absolute value) number.
-    unsigned maxR11NegativeEncodingOffset = 0x00FF; // This is a negative offset from R11.
-    JITDUMP("  maxR11NegativeEncodingOffset     = %6d\n", maxR11NegativeEncodingOffset);
-
-    // -1 because otherwise we are computing the address just beyond the last argument, which we don't need to do.
-    unsigned maxR11PositiveOffset = compArgSize + (2 * REGSIZE_BYTES) - 1;
-    JITDUMP("  maxR11PositiveOffset             = %6d\n", maxR11PositiveOffset);
-
-    // The value is positive, but represents a negative offset from R11.
-    // frameSize includes callee-saved space for R11 and LR, which are at non-negative offsets from R11
-    // (+0 and +4, respectively), so don't include those in the max possible negative offset.
-    assert(frameSize >= (2 * REGSIZE_BYTES));
-    unsigned maxR11NegativeOffset = frameSize - (2 * REGSIZE_BYTES);
-    JITDUMP("  maxR11NegativeOffset             = %6d\n", maxR11NegativeOffset);
-
-    if (codeGen->isFramePointerRequired())
-    {
-        if (maxR11NegativeOffset > maxR11NegativeEncodingOffset)
-        {
-            JITDUMP(" Returning true (frame required and maxR11NegativeOffset)\n\n");
-            return true;
-        }
-        if (maxR11PositiveOffset > maxR11PositiveEncodingOffset)
-        {
-            JITDUMP(" Returning true (frame required and maxR11PositiveOffset)\n\n");
-            return true;
-        }
-    }
-
-    // Now consider the SP based frame case. Note that we will use SP based offsets to access the stack in R11 based
-    // frames in the non-funclet main code area.
-
-    unsigned maxSPPositiveEncodingOffset = compFloatingPointUsed ? 0x03FC : 0x0FFF;
-    JITDUMP("  maxSPPositiveEncodingOffset      = %6d\n", maxSPPositiveEncodingOffset);
-
-    // -1 because otherwise we are computing the address just beyond the last argument, which we don't need to do.
-    assert(compArgSize + frameSize > 0);
-    unsigned maxSPPositiveOffset = compArgSize + frameSize - 1;
-
-    if (codeGen->isFramePointerUsed())
-    {
-        // We have a frame pointer, so we can use it to access part of the stack, even if SP can't reach those parts.
-        // We will still generate SP-relative offsets if SP can reach.
-
-        // First, check that the stack between R11 and SP can be fully reached, either via negative offset from FP
-        // or positive offset from SP. Don't count stored R11 or LR, which are reached from positive offsets from FP.
-
-        unsigned maxSPLocalsCombinedOffset = frameSize - (2 * REGSIZE_BYTES) - 1;
-        JITDUMP("  maxSPLocalsCombinedOffset        = %6d\n", maxSPLocalsCombinedOffset);
-
-        if (maxSPLocalsCombinedOffset > maxSPPositiveEncodingOffset)
-        {
-            // Can R11 help?
-            unsigned maxRemainingLocalsCombinedOffset = maxSPLocalsCombinedOffset - maxSPPositiveEncodingOffset;
-            JITDUMP("  maxRemainingLocalsCombinedOffset = %6d\n", maxRemainingLocalsCombinedOffset);
-
-            if (maxRemainingLocalsCombinedOffset > maxR11NegativeEncodingOffset)
-            {
-                JITDUMP(" Returning true (frame pointer exists; R11 and SP can't reach entire stack between them)\n\n");
-                return true;
-            }
-
-            // Otherwise, yes, we can address the remaining parts of the locals frame with negative offsets from R11.
-        }
-
-        // Check whether either R11 or SP can access the arguments.
-        if ((maxR11PositiveOffset > maxR11PositiveEncodingOffset) &&
-            (maxSPPositiveOffset > maxSPPositiveEncodingOffset))
-        {
-            JITDUMP(" Returning true (frame pointer exists; R11 and SP can't reach all arguments)\n\n");
-            return true;
-        }
-    }
-    else
-    {
-        if (maxSPPositiveOffset > maxSPPositiveEncodingOffset)
-        {
-            JITDUMP(" Returning true (no frame pointer exists; SP can't reach all of frame)\n\n");
-            return true;
-        }
-    }
-
-    // We won't need to reserve REG_OPT_RSVD.
-    //
-    JITDUMP(" Returning false\n\n");
-    return false;
-#endif // TARGET_ARM
-}
-#endif // TARGET_ARMARCH
 
 #ifdef DEBUG
 //------------------------------------------------------------------------
@@ -2884,22 +2665,6 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     // we can pass tests that contain try/catch EH, but don't actually throw any exceptions.
     fgRemoveEH();
 #endif // !FEATURE_EH
-
-    // We could allow ESP frames. Just need to reserve space for
-    // pushing EBP if the method becomes an EBP-frame after an edit.
-    // Note that requiring a EBP Frame disallows double alignment.  Thus if we change this
-    // we either have to disallow double alignment for E&C some other way or handle it in EETwain.
-
-    if (opts.compDbgEnC)
-    {
-        codeGen->setFramePointerRequired(true);
-
-        // We don't care about localloc right now. If we do support it,
-        // EECodeManager::FixContextForEnC() needs to handle it smartly
-        // in case the localloc was actually executed.
-        //
-        // compLocallocUsed            = true;
-    }
 
     // Start phases that are broadly called morphing, and includes
     // global morph, as well as other phases that massage the trees so
@@ -3379,14 +3144,6 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     // call and register argument info, flowgraph and loop info, etc.
     compJitStats();
 
-#ifdef TARGET_ARM
-    if (compLocallocUsed)
-    {
-        // We reserve REG_SAVED_LOCALLOC_SP to store SP on entry for stack unwinding
-        codeGen->regSet.rsMaskResvd |= RBM_SAVED_LOCALLOC_SP;
-    }
-#endif // TARGET_ARM
-
     // Assign registers to variables, etc.
 
     ///////////////////////////////////////////////////////////////////////////////
@@ -3406,26 +3163,7 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     stackLevelSetter.Run();
 #endif // !OSX_ARM64_ABI
 
-    LinearScanInterface* lsra = getLinearScanAllocator(this);
-    codeGen->m_pLinearScan    = lsra;
-    DoPhase(this, PHASE_LINEAR_SCAN, [lsra]() { lsra->doLinearScan(); });
-
-    // Copied from rpPredictRegUse()
-    SetFullPtrRegMapRequired(codeGen->GetInterruptible() || !codeGen->isFramePointerUsed());
-
-#ifdef DEBUG
-    fgDebugCheckLinks();
-#endif
-
-    // Generate code
     codeGen->genGenerateCode(nativeCode, nativeCodeSize);
-
-#if TRACK_LSRA_STATS
-    if (JitConfig.DisplayLsraStats() == 2)
-    {
-        lsra->dumpLsraStatsCsv(jitstdout);
-    }
-#endif // TRACK_LSRA_STATS
 
     // We're done -- set the active phase to the last phase
     // (which isn't really a phase)
@@ -3522,14 +3260,14 @@ void Compiler::generatePatchpointInfo()
     //
     if (lvaReportParamTypeArg())
     {
-        const int offset = lvaCachedGenericContextArgOffset();
+        const int offset = codeGen->cachedGenericContextArgOffset;
         patchpointInfo->SetGenericContextArgOffset(offset);
         JITDUMP("--OSR-- cached generic context offset is FP %d\n", patchpointInfo->GenericContextArgOffset());
     }
 
     if (lvaKeepAliveAndReportThis())
     {
-        const int offset = lvaCachedGenericContextArgOffset();
+        const int offset = codeGen->cachedGenericContextArgOffset;
         patchpointInfo->SetKeptAliveThisOffset(offset);
         JITDUMP("--OSR-- kept-alive this offset is FP %d\n", patchpointInfo->KeptAliveThisOffset());
     }
@@ -4033,23 +3771,19 @@ void Compiler::compCompileFinish()
             printf("   | ");
         }
 
-        if (codeGen->rpFrameType == FT_EBP_FRAME)
+        if (codeGen->isFramePointerUsed())
         {
             printf("%3s | ", STR_FPBASE);
         }
-        else if (codeGen->rpFrameType == FT_ESP_FRAME)
-        {
-            printf("%3s | ", STR_SPBASE);
-        }
 #if DOUBLE_ALIGN
-        else if (codeGen->rpFrameType == FT_DOUBLE_ALIGN_FRAME)
+        else if (codeGen->doDoubleAlign())
         {
             printf("dbl | ");
         }
 #endif
-        else // (codeGen->rpFrameType == FT_NOT_SET)
+        else
         {
-            printf("??? | ");
+            printf("%3s | ", STR_SPBASE);
         }
 
         if (fgHasLoops)
@@ -4247,12 +3981,10 @@ CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCode
     {
         bool unused;
         info.compCallConv = info.compCompHnd->getUnmanagedCallConv(info.compMethodInfo->ftn, nullptr, &unused);
-        info.compArgOrder = Target::ARG_ORDER_R2L;
     }
     else
     {
         info.compCallConv = CorInfoCallConvExtension::Managed;
-        info.compArgOrder = Target::g_tgtArgOrder;
     }
 
     switch (info.compMethodInfo->args.getCallConv())
@@ -5372,7 +5104,9 @@ void JitTimer::PrintCsvHeader()
             InlineStrategy::DumpCsvHeader(s_csvFile);
 
             fprintf(s_csvFile, "\"Executable Code Bytes\",");
+#ifdef JIT32_GCENCODER
             fprintf(s_csvFile, "\"GC Info Bytes\",");
+#endif
             fprintf(s_csvFile, "\"Total Bytes Allocated\",");
             fprintf(s_csvFile, "\"Total Cycles\",");
             fprintf(s_csvFile, "\"CPS\"\n");
@@ -5456,10 +5190,12 @@ void JitTimer::PrintCsvMethodStats(Compiler* comp)
 
     fprintf(s_csvFile, "%u,", comp->info.compNativeCodeSize);
 
+#ifdef JIT32_GCENCODER
     if (comp->codeGen != nullptr)
     {
         fprintf(s_csvFile, "%Iu,", comp->codeGen->compInfoBlkSize);
     }
+#endif
 
     fprintf(s_csvFile, "%Iu,", comp->compGetArenaAllocator()->getTotalBytesAllocated());
     fprintf(s_csvFile, "%I64u,", m_info.m_totalCycles);
@@ -5717,7 +5453,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
  *      cVar,        dVar           : Display a local variable given its number (call lvaDumpEntry()).
  *      cVarDsc,     dVarDsc        : Display a local variable given a LclVarDsc* (call lvaDumpEntry()).
  *      cVars,       dVars          : Display the local variable table (call lvaTableDump()).
- *      cVarsFinal,  dVarsFinal     : Display the local variable table (call lvaTableDump(FINAL_FRAME_LAYOUT)).
  *      cBlockCheapPreds, dBlockCheapPreds : Display a block's cheap predecessors (call block->dspCheapPreds()).
  *      cBlockPreds, dBlockPreds    : Display a block's predecessors (call block->dspPreds()).
  *      cBlockSuccs, dBlockSuccs    : Display a block's successors (call block->dspSuccs(compiler)).
@@ -5811,13 +5546,6 @@ void cVars(Compiler* comp)
     static unsigned sequenceNumber = 0; // separate calls with a number to indicate this function has been called
     printf("===================================================================== *Vars %u\n", sequenceNumber++);
     comp->lvaTableDump();
-}
-
-void cVarsFinal(Compiler* comp)
-{
-    static unsigned sequenceNumber = 0; // separate calls with a number to indicate this function has been called
-    printf("===================================================================== *Vars %u\n", sequenceNumber++);
-    comp->lvaTableDump(Compiler::FINAL_FRAME_LAYOUT);
 }
 
 void cBlockCheapPreds(Compiler* comp, BasicBlock* block)
@@ -5945,11 +5673,6 @@ void dVarDsc(LclVarDsc* varDsc)
 void dVars()
 {
     cVars(JitTls::GetCompiler());
-}
-
-void dVarsFinal()
-{
-    cVarsFinal(JitTls::GetCompiler());
 }
 
 void dBlockPreds(BasicBlock* block)

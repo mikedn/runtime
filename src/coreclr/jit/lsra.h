@@ -594,7 +594,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 // to the next RefPosition in code order
 // THIS IS THE OPTION CURRENTLY BEING PURSUED
 
-class LinearScan : public LinearScanInterface
+class LinearScan
 {
     friend class RefPosition;
     friend class Interval;
@@ -606,7 +606,24 @@ public:
     LinearScan(Compiler* theCompiler);
 
     // This is the main driver
-    virtual void doLinearScan();
+    void doLinearScan();
+
+    regMaskTP GetAllocatedRegs() const
+    {
+        return m_allocateRegs;
+    }
+
+    const unsigned* GetTypeSpillCounts() const
+    {
+        return maxSpill;
+    }
+
+#ifdef TARGET_ARMARCH
+    regMaskTP GetReservedRegs() const
+    {
+        return m_reservedRegs;
+    }
+#endif
 
     static bool isSingleRegister(regMaskTP regMask)
     {
@@ -623,8 +640,7 @@ public:
     // but updating the blockSequence during the first iteration if it is not fully computed.
     BasicBlock* getNextBlock();
 
-    // This is called during code generation to update the location of variables
-    virtual void recordVarLocationsAtStartOfBB(BasicBlock* bb);
+    VarToRegMap GetBlockLiveInRegMap(BasicBlock* bb);
 
     // This does the dataflow analysis and builds the intervals
     void buildIntervals();
@@ -696,15 +712,14 @@ public:
     void resolveEdges();
 
     // Keep track of how many temp locations we'll need for spill
-    void initMaxSpill();
     void updateMaxSpill(RefPosition* refPosition);
     void recordMaxSpill();
 
     // max simultaneous spill locations used of every type
-    unsigned int maxSpill[TYP_COUNT];
-    unsigned int currentSpill[TYP_COUNT];
-    bool         needFloatTmpForFPCall;
-    bool         needDoubleTmpForFPCall;
+    unsigned maxSpill[TYP_COUNT]{};
+    unsigned currentSpill[TYP_COUNT]{};
+    bool     needFloatTmpForFPCall  = false;
+    bool     needDoubleTmpForFPCall = false;
 
 #ifdef DEBUG
 private:
@@ -721,8 +736,14 @@ private:
     unsigned lsraStressMask;
 
     // This controls the registers available for allocation
-    enum LsraStressLimitRegs{LSRA_LIMIT_NONE = 0, LSRA_LIMIT_CALLEE = 0x1, LSRA_LIMIT_CALLER = 0x2,
-                             LSRA_LIMIT_SMALL_SET = 0x3, LSRA_LIMIT_MASK = 0x3};
+    enum LsraStressLimitRegs
+    {
+        LSRA_LIMIT_NONE      = 0,
+        LSRA_LIMIT_CALLEE    = 0x1,
+        LSRA_LIMIT_CALLER    = 0x2,
+        LSRA_LIMIT_SMALL_SET = 0x3,
+        LSRA_LIMIT_MASK      = 0x3
+    };
 
     // When LSRA_LIMIT_SMALL_SET is specified, it is desirable to select a "mixed" set of caller- and callee-save
     // registers, so as to get different coverage than limiting to callee or caller.
@@ -767,8 +788,14 @@ private:
 
     // This controls the heuristics used to select registers
     // These can be combined.
-    enum LsraSelect{LSRA_SELECT_DEFAULT = 0, LSRA_SELECT_REVERSE_HEURISTICS = 0x04,
-                    LSRA_SELECT_REVERSE_CALLER_CALLEE = 0x08, LSRA_SELECT_NEAREST = 0x10, LSRA_SELECT_MASK = 0x1c};
+    enum LsraSelect
+    {
+        LSRA_SELECT_DEFAULT               = 0,
+        LSRA_SELECT_REVERSE_HEURISTICS    = 0x04,
+        LSRA_SELECT_REVERSE_CALLER_CALLEE = 0x08,
+        LSRA_SELECT_NEAREST               = 0x10,
+        LSRA_SELECT_MASK                  = 0x1c
+    };
     LsraSelect getSelectionHeuristics()
     {
         return (LsraSelect)(lsraStressMask & LSRA_SELECT_MASK);
@@ -787,9 +814,14 @@ private:
     }
 
     // This controls the order in which basic blocks are visited during allocation
-    enum LsraTraversalOrder{LSRA_TRAVERSE_LAYOUT = 0x20, LSRA_TRAVERSE_PRED_FIRST = 0x40,
-                            LSRA_TRAVERSE_RANDOM  = 0x60, // NYI
-                            LSRA_TRAVERSE_DEFAULT = LSRA_TRAVERSE_PRED_FIRST, LSRA_TRAVERSE_MASK = 0x60};
+    enum LsraTraversalOrder
+    {
+        LSRA_TRAVERSE_LAYOUT     = 0x20,
+        LSRA_TRAVERSE_PRED_FIRST = 0x40,
+        LSRA_TRAVERSE_RANDOM     = 0x60, // NYI
+        LSRA_TRAVERSE_DEFAULT    = LSRA_TRAVERSE_PRED_FIRST,
+        LSRA_TRAVERSE_MASK       = 0x60
+    };
     LsraTraversalOrder getLsraTraversalOrder()
     {
         if ((lsraStressMask & LSRA_TRAVERSE_MASK) == 0)
@@ -809,7 +841,12 @@ private:
 
     // This controls whether lifetimes should be extended to the entire method.
     // Note that this has no effect under MinOpts
-    enum LsraExtendLifetimes{LSRA_DONT_EXTEND = 0, LSRA_EXTEND_LIFETIMES = 0x80, LSRA_EXTEND_LIFETIMES_MASK = 0x80};
+    enum LsraExtendLifetimes
+    {
+        LSRA_DONT_EXTEND           = 0,
+        LSRA_EXTEND_LIFETIMES      = 0x80,
+        LSRA_EXTEND_LIFETIMES_MASK = 0x80
+    };
     LsraExtendLifetimes getLsraExtendLifeTimes()
     {
         return (LsraExtendLifetimes)(lsraStressMask & LSRA_EXTEND_LIFETIMES_MASK);
@@ -822,8 +859,13 @@ private:
     // This controls whether variables locations should be set to the previous block in layout order
     // (LSRA_BLOCK_BOUNDARY_LAYOUT), or to that of the highest-weight predecessor (LSRA_BLOCK_BOUNDARY_PRED -
     // the default), or rotated (LSRA_BLOCK_BOUNDARY_ROTATE).
-    enum LsraBlockBoundaryLocations{LSRA_BLOCK_BOUNDARY_PRED = 0, LSRA_BLOCK_BOUNDARY_LAYOUT = 0x100,
-                                    LSRA_BLOCK_BOUNDARY_ROTATE = 0x200, LSRA_BLOCK_BOUNDARY_MASK = 0x300};
+    enum LsraBlockBoundaryLocations
+    {
+        LSRA_BLOCK_BOUNDARY_PRED   = 0,
+        LSRA_BLOCK_BOUNDARY_LAYOUT = 0x100,
+        LSRA_BLOCK_BOUNDARY_ROTATE = 0x200,
+        LSRA_BLOCK_BOUNDARY_MASK   = 0x300
+    };
     LsraBlockBoundaryLocations getLsraBlockBoundaryLocations()
     {
         return (LsraBlockBoundaryLocations)(lsraStressMask & LSRA_BLOCK_BOUNDARY_MASK);
@@ -832,7 +874,12 @@ private:
 
     // This controls whether we always insert a GT_RELOAD instruction after a spill
     // Note that this can be combined with LSRA_SPILL_ALWAYS (or not)
-    enum LsraReload{LSRA_NO_RELOAD_IF_SAME = 0, LSRA_ALWAYS_INSERT_RELOAD = 0x400, LSRA_RELOAD_MASK = 0x400};
+    enum LsraReload
+    {
+        LSRA_NO_RELOAD_IF_SAME    = 0,
+        LSRA_ALWAYS_INSERT_RELOAD = 0x400,
+        LSRA_RELOAD_MASK          = 0x400
+    };
     LsraReload getLsraReload()
     {
         return (LsraReload)(lsraStressMask & LSRA_RELOAD_MASK);
@@ -843,7 +890,12 @@ private:
     }
 
     // This controls whether we spill everywhere
-    enum LsraSpill{LSRA_DONT_SPILL_ALWAYS = 0, LSRA_SPILL_ALWAYS = 0x800, LSRA_SPILL_MASK = 0x800};
+    enum LsraSpill
+    {
+        LSRA_DONT_SPILL_ALWAYS = 0,
+        LSRA_SPILL_ALWAYS      = 0x800,
+        LSRA_SPILL_MASK        = 0x800
+    };
     LsraSpill getLsraSpill()
     {
         return (LsraSpill)(lsraStressMask & LSRA_SPILL_MASK);
@@ -855,8 +907,12 @@ private:
 
     // This controls whether RefPositions that lower/codegen indicated as reg optional be
     // allocated a reg at all.
-    enum LsraRegOptionalControl{LSRA_REG_OPTIONAL_DEFAULT = 0, LSRA_REG_OPTIONAL_NO_ALLOC = 0x1000,
-                                LSRA_REG_OPTIONAL_MASK = 0x1000};
+    enum LsraRegOptionalControl
+    {
+        LSRA_REG_OPTIONAL_DEFAULT  = 0,
+        LSRA_REG_OPTIONAL_NO_ALLOC = 0x1000,
+        LSRA_REG_OPTIONAL_MASK     = 0x1000
+    };
 
     LsraRegOptionalControl getLsraRegOptionalControl()
     {
@@ -989,16 +1045,7 @@ private:
     void buildUpperVectorRestoreRefPosition(Interval* lclVarInterval, LsraLocation currentLoc, GenTree* node);
 #endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
 
-#if defined(UNIX_AMD64_ABI)
-    // For AMD64 on SystemV machines. This method
-    // is called as replacement for raUpdateRegStateForArg
-    // that is used on Windows. On System V systems a struct can be passed
-    // partially using registers from the 2 register files.
-    void unixAmd64UpdateRegStateForArg(LclVarDsc* argDsc);
-#endif // defined(UNIX_AMD64_ABI)
-
-    // Update reg state for an incoming register argument
-    void updateRegStateForArg(LclVarDsc* argDsc);
+    void AddLiveParamRegs(LclVarDsc* lcl);
 
     inline bool isCandidateLclVar(GenTree* tree)
     {
@@ -1316,7 +1363,7 @@ private:
         unsigned toBBNum;
     };
     typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, SplitEdgeInfo> SplitBBNumToTargetBBNumMap;
-    SplitBBNumToTargetBBNumMap* splitBBNumToTargetBBNumMap;
+    SplitBBNumToTargetBBNumMap* splitBBNumToTargetBBNumMap = nullptr;
     SplitBBNumToTargetBBNumMap* getSplitBBNumToTargetBBNumMap()
     {
         if (splitBBNumToTargetBBNumMap == nullptr)
@@ -1357,7 +1404,12 @@ private:
     //   - In LSRA_DUMP_POST, which is after register allocation, the registers are
     //     shown.
 
-    enum LsraTupleDumpMode{LSRA_DUMP_PRE, LSRA_DUMP_REFPOS, LSRA_DUMP_POST};
+    enum LsraTupleDumpMode
+    {
+        LSRA_DUMP_PRE,
+        LSRA_DUMP_REFPOS,
+        LSRA_DUMP_POST
+    };
     void lsraGetOperandString(GenTree* tree, LsraTupleDumpMode mode, char* operandString, unsigned operandStringLength);
     void lsraDispNode(GenTree* tree, LsraTupleDumpMode mode, bool hasDest);
     void DumpOperandDefs(
@@ -1413,29 +1465,54 @@ private:
     void dumpIntervalName(Interval* interval);
 
     // Events during the allocation phase that cause some dump output
-    enum LsraDumpEvent{
+    enum LsraDumpEvent
+    {
         // Conflicting def/use
-        LSRA_EVENT_DEFUSE_CONFLICT, LSRA_EVENT_DEFUSE_FIXED_DELAY_USE, LSRA_EVENT_DEFUSE_CASE1, LSRA_EVENT_DEFUSE_CASE2,
-        LSRA_EVENT_DEFUSE_CASE3, LSRA_EVENT_DEFUSE_CASE4, LSRA_EVENT_DEFUSE_CASE5, LSRA_EVENT_DEFUSE_CASE6,
+        LSRA_EVENT_DEFUSE_CONFLICT,
+        LSRA_EVENT_DEFUSE_FIXED_DELAY_USE,
+        LSRA_EVENT_DEFUSE_CASE1,
+        LSRA_EVENT_DEFUSE_CASE2,
+        LSRA_EVENT_DEFUSE_CASE3,
+        LSRA_EVENT_DEFUSE_CASE4,
+        LSRA_EVENT_DEFUSE_CASE5,
+        LSRA_EVENT_DEFUSE_CASE6,
 
         // Spilling
-        LSRA_EVENT_SPILL, LSRA_EVENT_SPILL_EXTENDED_LIFETIME, LSRA_EVENT_RESTORE_PREVIOUS_INTERVAL,
-        LSRA_EVENT_RESTORE_PREVIOUS_INTERVAL_AFTER_SPILL, LSRA_EVENT_DONE_KILL_GC_REFS, LSRA_EVENT_NO_GC_KILLS,
+        LSRA_EVENT_SPILL,
+        LSRA_EVENT_SPILL_EXTENDED_LIFETIME,
+        LSRA_EVENT_RESTORE_PREVIOUS_INTERVAL,
+        LSRA_EVENT_RESTORE_PREVIOUS_INTERVAL_AFTER_SPILL,
+        LSRA_EVENT_DONE_KILL_GC_REFS,
+        LSRA_EVENT_NO_GC_KILLS,
 
         // Block boundaries
-        LSRA_EVENT_START_BB, LSRA_EVENT_END_BB,
+        LSRA_EVENT_START_BB,
+        LSRA_EVENT_END_BB,
 
         // Miscellaneous
-        LSRA_EVENT_FREE_REGS, LSRA_EVENT_UPPER_VECTOR_SAVE, LSRA_EVENT_UPPER_VECTOR_RESTORE,
+        LSRA_EVENT_FREE_REGS,
+        LSRA_EVENT_UPPER_VECTOR_SAVE,
+        LSRA_EVENT_UPPER_VECTOR_RESTORE,
 
         // Characteristics of the current RefPosition
         LSRA_EVENT_INCREMENT_RANGE_END, // ???
-        LSRA_EVENT_LAST_USE, LSRA_EVENT_LAST_USE_DELAYED, LSRA_EVENT_NEEDS_NEW_REG,
+        LSRA_EVENT_LAST_USE,
+        LSRA_EVENT_LAST_USE_DELAYED,
+        LSRA_EVENT_NEEDS_NEW_REG,
 
         // Allocation decisions
-        LSRA_EVENT_FIXED_REG, LSRA_EVENT_EXP_USE, LSRA_EVENT_ZERO_REF, LSRA_EVENT_NO_ENTRY_REG_ALLOCATED,
-        LSRA_EVENT_KEPT_ALLOCATION, LSRA_EVENT_COPY_REG, LSRA_EVENT_MOVE_REG, LSRA_EVENT_ALLOC_REG,
-        LSRA_EVENT_NO_REG_ALLOCATED, LSRA_EVENT_RELOAD, LSRA_EVENT_SPECIAL_PUTARG, LSRA_EVENT_REUSE_REG,
+        LSRA_EVENT_FIXED_REG,
+        LSRA_EVENT_EXP_USE,
+        LSRA_EVENT_ZERO_REF,
+        LSRA_EVENT_NO_ENTRY_REG_ALLOCATED,
+        LSRA_EVENT_KEPT_ALLOCATION,
+        LSRA_EVENT_COPY_REG,
+        LSRA_EVENT_MOVE_REG,
+        LSRA_EVENT_ALLOC_REG,
+        LSRA_EVENT_NO_REG_ALLOCATED,
+        LSRA_EVENT_RELOAD,
+        LSRA_EVENT_SPECIAL_PUTARG,
+        LSRA_EVENT_REUSE_REG,
     };
     void dumpLsraAllocationEvent(LsraDumpEvent event,
                                  Interval*     interval      = nullptr,
@@ -1454,8 +1531,8 @@ private:
     LsraStat firstRegSelStat = STAT_FREE;
 
 public:
-    virtual void dumpLsraStatsCsv(FILE* file);
-    virtual void dumpLsraStatsSummary(FILE* file);
+    void dumpLsraStatsCsv(FILE* file);
+    void dumpLsraStatsSummary(FILE* file);
     static const char* getStatName(unsigned stat);
 
 #define INTRACK_STATS(x) x
@@ -1506,7 +1583,7 @@ private:
     }
 
 #if DOUBLE_ALIGN
-    bool doDoubleAlign;
+    bool doDoubleAlign = false;
 #endif
 
     // A map from bbNum to the block information used during register allocation.
@@ -1603,6 +1680,11 @@ private:
     //-----------------------------------------------------------------------
 
     regMaskTP m_AvailableRegs;
+    regMaskTP m_allocateRegs = RBM_NONE;
+#ifdef TARGET_ARMARCH
+    regMaskTP m_reservedRegs = RBM_NONE;
+#endif
+
     regNumber getRegForType(regNumber reg, var_types regType)
     {
 #ifdef TARGET_ARM
@@ -1780,8 +1862,6 @@ private:
     // handled in 'BuildNode'.
     bool pendingDelayFree;
 
-    bool rpMustCreateEBPCalled = false; // Set to true after we have called rpMustCreateEBPFrame once
-
     // This method clears the "build state" before starting to handle a new node.
     void clearBuildState()
     {
@@ -1814,7 +1894,7 @@ private:
     int BuildDelayFreeUses(GenTree* node, GenTree* rmwNode = nullptr, regMaskTP candidates = RBM_NONE);
     int BuildIndirUses(GenTreeIndir* indirTree, regMaskTP candidates = RBM_NONE);
     int BuildAddrUses(GenTree* addr, regMaskTP candidates = RBM_NONE);
-#if defined(TARGET_XARCH) && FEATURE_VARARG
+#ifdef WINDOWS_AMD64_ABI
     bool HandleFloatVarArgs(GenTreeCall* call, GenTree* argNode);
 #endif
     RefPosition* BuildDef(GenTree* node, regMaskTP regCandidates = RBM_NONE);

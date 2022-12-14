@@ -12,8 +12,7 @@
 
 #include "target.h"
 
-const char*            Target::g_tgtCPUName  = "x86";
-const Target::ArgOrder Target::g_tgtArgOrder = ARG_ORDER_L2R;
+const char* Target::g_tgtCPUName = "x86";
 
 // clang-format off
 const regNumber intArgRegs [] {REG_ECX, REG_EDX};
@@ -22,5 +21,10 @@ const regMaskTP intArgMasks[] {RBM_ECX, RBM_EDX};
 const regNumber longShiftHelperArgRegs[] { REG_EAX, REG_EDX, REG_ECX };
 const regNumber initPInvokeFrameArgRegs[] { REG_PINVOKE_FRAME };
 // clang-format on
+
+const regMaskSmall regMasks[]{
+#define REGDEF(name, rnum, mask, sname) mask,
+#include "register.h"
+};
 
 #endif // TARGET_X86

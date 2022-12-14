@@ -78,21 +78,18 @@ const emitJumpKind emitReverseJumpKinds[] = {
     return emitReverseJumpKinds[jumpKind];
 }
 
-/*****************************************************************************
- *
- *  Return the allocated size (in bytes) of the given instruction descriptor.
- */
-
+// Return the allocated size (in bytes) of the given instruction descriptor.
 size_t emitter::emitSizeOfInsDsc(instrDesc* id)
 {
     if (emitIsScnsInsDsc(id))
+    {
         return SMALL_IDSC_SIZE;
+    }
 
-    assert((unsigned)id->idInsFmt() < emitFmtCount);
+    ID_OPS idOp = GetFormatOp(id->idInsFmt());
 
-    ID_OPS idOp         = (ID_OPS)emitFmtToOps[id->idInsFmt()];
-    bool   isCallIns    = (id->idIns() == INS_bl) || (id->idIns() == INS_blx);
-    bool   maybeCallIns = (id->idIns() == INS_b) || (id->idIns() == INS_bx);
+    bool isCallIns    = (id->idIns() == INS_bl) || (id->idIns() == INS_blx);
+    bool maybeCallIns = (id->idIns() == INS_b) || (id->idIns() == INS_bx);
 
     // An INS_call instruction may use a "fat" direct/indirect call descriptor
     // except for a local call to a label (i.e. call to a finally).
@@ -112,9 +109,6 @@ size_t emitter::emitSizeOfInsDsc(instrDesc* id)
         case ID_OP_JMP:
             return sizeof(instrDescJmp);
 
-        case ID_OP_LBL:
-            return sizeof(instrDescLbl);
-
         case ID_OP_CALL:
         case ID_OP_SPEC:
             assert(isCallIns || maybeCallIns);
@@ -125,7 +119,6 @@ size_t emitter::emitSizeOfInsDsc(instrDesc* id)
             }
             else
             {
-                assert(!id->idIsLargeDsp());
                 assert(!id->idIsLargeCns());
                 return sizeof(instrDesc);
             }
@@ -144,17 +137,11 @@ size_t emitter::emitSizeOfInsDsc(instrDesc* id)
 
     if (id->idIsLargeCns())
     {
-        if (id->idIsLargeDsp())
-            return sizeof(instrDescCnsDsp);
-        else
-            return sizeof(instrDescCns);
+        return sizeof(instrDescCns);
     }
     else
     {
-        if (id->idIsLargeDsp())
-            return sizeof(instrDescDsp);
-        else
-            return sizeof(instrDesc);
+        return sizeof(instrDesc);
     }
 }
 
@@ -592,27 +579,6 @@ bool emitter::emitInsMayWriteToGCReg(instrDesc* id)
             assert(id->idGCref() == GCT_NONE);
             return (ins == INS_vmov_d2i);
 
-        default:
-            return false;
-    }
-}
-
-bool emitter::emitInsWritesToLclVarStackLoc(instrDesc* id)
-{
-    if (!id->idIsLclVar())
-        return false;
-
-    instruction ins = id->idIns();
-
-    // This list is related to the list of instructions used to store local vars in emitIns_S_R().
-    // We don't accept writing to float local vars.
-
-    switch (ins)
-    {
-        case INS_strb:
-        case INS_strh:
-        case INS_str:
-            return true;
         default:
             return false;
     }
@@ -1349,6 +1315,66 @@ DONE:
     assert(result <= 0x0fff);
     assert(result >= 0);
     return (int)result;
+}
+
+bool emitter::validImmForInstr(instruction ins, target_ssize_t imm, insFlags flags)
+{
+    if (emitInsIsLoadOrStore(ins) && !instIsFP(ins))
+    {
+        return validDispForLdSt(imm, TYP_INT);
+    }
+
+    switch (ins)
+    {
+        case INS_cmp:
+        case INS_cmn:
+            return emitIns_valid_imm_for_alu(imm) || emitIns_valid_imm_for_alu(-imm);
+        case INS_and:
+        case INS_bic:
+        case INS_orr:
+        case INS_orn:
+        case INS_mvn:
+            return emitIns_valid_imm_for_alu(imm) || emitIns_valid_imm_for_alu(~imm);
+        case INS_mov:
+            return emitIns_valid_imm_for_mov(imm);
+        case INS_addw:
+        case INS_subw:
+            return (unsigned_abs(imm) <= 0x00000fff) && (flags != INS_FLAGS_SET); // 12-bit immediate
+        case INS_add:
+        case INS_sub:
+            return emitIns_valid_imm_for_add(imm, flags);
+        case INS_tst:
+        case INS_eor:
+        case INS_teq:
+        case INS_adc:
+        case INS_sbc:
+        case INS_rsb:
+            return emitIns_valid_imm_for_alu(imm);
+        case INS_asr:
+        case INS_lsl:
+        case INS_lsr:
+        case INS_ror:
+            return (imm > 0) && (imm <= 32);
+        case INS_vstr:
+        case INS_vldr:
+            return (imm & 0x3FC) == imm;
+        default:
+            return false;
+    }
+}
+
+bool emitter::validDispForLdSt(target_ssize_t disp, var_types type)
+{
+    return varTypeIsFloating(type) ? ((disp & 0x3FC) == disp) : ((disp >= -0x00ff) && (disp <= 0x0fff));
+}
+
+bool emitter::validImmForBL(ssize_t addr, Compiler* compiler)
+{
+    return
+        // If we are running the altjit for NGEN, then assume we can use the "BL" instruction.
+        // This matches the usual behavior for NGEN, since we normally do generate "BL".
+        (!compiler->info.compMatchedVM && compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT)) ||
+        (compiler->eeGetRelocTypeHint((void*)addr) == IMAGE_REL_BASED_THUMB_BRANCH24);
 }
 
 /*****************************************************************************
@@ -3603,224 +3629,70 @@ void emitter::emitIns_R_R_R_R(
     appendToCurIG(id);
 }
 
-//-------------------------------------------------------------------------------------
-// emitIns_R_S: Add an instruction referencing a register and a stack-based local variable.
-//
-// Arguments:
-//    ins      - The instruction to add.
-//    attr     - Oeration size.
-//    varx     - The variable to generate offset for.
-//    offs     - The offset of variable or field in stack.
-//    pBaseReg - The base register that is used while calculating the offset. For example, if the offset
-//               with "stack pointer" can't be encoded in instruction, "frame pointer" can be used to get
-//               the offset of the field. In such case, pBaseReg will store the "fp".
-//
-// Return Value:
-//    The pBaseReg that holds the base register that was used to calculate the offset.
-//
-void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg1, int varx, int offs, regNumber* pBaseReg)
+void emitter::MovRegStackOffset(regNumber reg, int imm, int varNum, int varOffs)
 {
-    if (ins == INS_mov)
-    {
-        assert(!"Please use ins_Load() to select the correct instruction");
-    }
+    auto mov = [&](instruction ins, int imm) {
+        instrDesc* id = emitNewInstrCns(EA_4BYTE, imm);
+        id->idIns(ins);
+        id->idInsFmt(IF_T2_N);
+        id->idInsSize(ISZ_32BIT);
+        id->idReg1(reg);
+        // TODO-MIKE-Cleanup: Only disassembly uses this...
+        id->SetVarAddr(varNum, varOffs);
 
+        dispIns(id);
+        appendToCurIG(id);
+    };
+
+    mov(INS_movw, imm & 0xFFFF);
+
+    if ((imm >> 16) != 0)
+    {
+        mov(INS_movt, (imm >> 16) & 0xFFFF);
+    }
+}
+
+constexpr bool IsUnsignedImm8(int imm, unsigned shift = 0)
+{
+    return (imm & ~(255 << shift)) == 0;
+}
+
+constexpr bool IsSignedImm8(int imm, unsigned shift = 0)
+{
+    return (unsigned_abs(imm) & ~(255 << shift)) == 0;
+}
+
+constexpr bool IsUnsignedImm12(int imm)
+{
+    return (imm & ~4095) == 0;
+}
+
+constexpr bool IsSignedImm12(int imm)
+{
+    return (unsigned_abs(imm) & ~4095) == 0;
+}
+
+void emitter::emitIns_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum, int varOffs)
+{
     switch (ins)
     {
-        case INS_add:
+        case INS_lea:
         case INS_ldr:
         case INS_ldrh:
         case INS_ldrb:
         case INS_ldrsh:
         case INS_ldrsb:
         case INS_vldr:
-        case INS_vmov:
-        case INS_movw:
-        case INS_movt:
             break;
-
-        case INS_lea:
-            ins = INS_add;
-            break;
-
         default:
-            NYI("emitIns_R_S");
-            return;
+            unreached();
     }
 
-    insFormat fmt = IF_NONE;
-    insFlags  sf  = INS_FLAGS_NOT_SET;
-    regNumber reg2;
-    regNumber baseRegUsed;
-
-    /* Figure out the variable's frame position */
-    int      base;
-    int      disp;
-    unsigned undisp;
-
-    base =
-        emitComp->lvaFrameAddress(varx, emitComp->funCurrentFunc()->funKind != FUNC_ROOT, &reg2, offs, instIsFP(ins));
-    if (pBaseReg != nullptr)
-    {
-        *pBaseReg = reg2;
-    }
-
-    disp   = base + offs;
-    undisp = unsigned_abs(disp);
-
-    if (instIsFP(ins))
-    {
-        // all fp mem ops take 8 bit immediate, multiplied by 4, plus sign
-        //
-        // Note if undisp is not a multiple of four we will fail later on
-        //   when we try to encode this instruction
-        // Its better to fail later with a better error message than
-        //   to fail here when the RBM_OPT_RSVD is not available
-        //
-        if (undisp <= 0x03fc)
-        {
-            fmt = IF_T2_VLDST;
-        }
-        else
-        {
-            regNumber rsvdReg = codeGen->rsGetRsvdReg();
-            emitIns_genStackOffset(rsvdReg, varx, offs, /* isFloatUsage */ true, &baseRegUsed);
-            emitIns_R_R(INS_add, EA_4BYTE, rsvdReg, baseRegUsed);
-            emitIns_R_R_I(ins, attr, reg1, rsvdReg, 0);
-            return;
-        }
-    }
-    else if (emitInsIsLoadOrStore(ins))
-    {
-        if (isLowRegister(reg1) && (reg2 == REG_SP) && (ins == INS_ldr) && ((disp & 0x03fc) == disp))
-        {
-            fmt = IF_T1_J2;
-        }
-        else if (disp >= 0 && disp <= 0x0fff)
-        {
-            fmt = IF_T2_K1;
-        }
-        else if (undisp <= 0x0ff)
-        {
-            fmt = IF_T2_H0;
-        }
-        else
-        {
-            // Load disp into a register
-            regNumber rsvdReg = codeGen->rsGetRsvdReg();
-            emitIns_genStackOffset(rsvdReg, varx, offs, /* isFloatUsage */ false, &baseRegUsed);
-            fmt = IF_T2_E0;
-
-            // Ensure the baseReg calculated is correct.
-            assert(baseRegUsed == reg2);
-        }
-    }
-    else if (ins == INS_add)
-    {
-        if (isLowRegister(reg1) && (reg2 == REG_SP) && ((disp & 0x03fc) == disp))
-        {
-            fmt = IF_T1_J2;
-        }
-        else if (undisp <= 0x0fff)
-        {
-            if (disp < 0)
-            {
-                ins  = INS_sub;
-                disp = -disp;
-            }
-            // add/sub => addw/subw instruction
-            // Note that even when using the w prefix the immediate is still only 12 bits?
-            ins = (ins == INS_add) ? INS_addw : INS_subw;
-            fmt = IF_T2_M0;
-        }
-        else
-        {
-            // Load disp into a register
-            regNumber rsvdReg = codeGen->rsGetRsvdReg();
-            emitIns_genStackOffset(rsvdReg, varx, offs, /* isFloatUsage */ false, &baseRegUsed);
-
-            // Ensure the baseReg calculated is correct.
-            assert(baseRegUsed == reg2);
-            emitIns_R_R_R(ins, attr, reg1, reg2, rsvdReg);
-            return;
-        }
-    }
-    else if (ins == INS_movw || ins == INS_movt)
-    {
-        fmt = IF_T2_N;
-    }
-
-    assert((fmt == IF_T1_J2) || (fmt == IF_T2_E0) || (fmt == IF_T2_H0) || (fmt == IF_T2_K1) || (fmt == IF_T2_L0) ||
-           (fmt == IF_T2_N) || (fmt == IF_T2_VLDST) || (fmt == IF_T2_M0));
-    assert(sf != INS_FLAGS_DONT_CARE);
-
-    instrDesc* id  = emitNewInstrCns(attr, disp);
-    insSize    isz = emitInsSize(fmt);
-
-    id->idIns(ins);
-    id->idInsFmt(fmt);
-    id->idInsSize(isz);
-    id->idInsFlags(sf);
-    id->idInsOpt(INS_OPTS_NONE);
-    id->idReg1(reg1);
-    id->idReg2(reg2);
-    id->idAddr()->iiaLclVar.initLclVarAddr(varx, offs);
-    id->idSetIsLclVar();
-    if (reg2 == REG_FP)
-        id->idSetIsLclFPBase();
-
-    dispIns(id);
-    appendToCurIG(id);
+    Ins_R_S(ins, attr, reg, varNum, varOffs);
 }
 
-//-------------------------------------------------------------------------------------
-// emitIns_genStackOffset: Generate the offset of &varx + offs into a register
-//
-// Arguments:
-//    r            - Register in which offset calculation result is stored.
-//    varx         - The variable to generate offset for.
-//    offs         - The offset of variable or field in stack.
-//    isFloatUsage - True if the instruction being generated is a floating point instruction. This requires using
-//                   floating-point offset restrictions. Note that a variable can be non-float, e.g., struct, but
-//                   accessed as a float local field.
-//    pBaseReg     - The base register that is used while calculating the offset. For example, if the offset with
-//                   "stack pointer" can't be encoded in instruction, "frame pointer" can be used to get the offset
-//                   of the field. In such case, pBaseReg will store the "fp".
-//
-// Return Value:
-//    The pBaseReg that holds the base register that was used to calculate the offset.
-//
-void emitter::emitIns_genStackOffset(regNumber r, int varx, int offs, bool isFloatUsage, regNumber* pBaseReg)
+void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg, int varNum, int varOffs)
 {
-    regNumber regBase;
-    int       base;
-    int       disp;
-
-    base =
-        emitComp->lvaFrameAddress(varx, emitComp->funCurrentFunc()->funKind != FUNC_ROOT, &regBase, offs, isFloatUsage);
-    disp = base + offs;
-
-    emitIns_R_S(INS_movw, EA_4BYTE, r, varx, offs, pBaseReg);
-
-    if ((disp & 0xffff) != disp)
-    {
-        regNumber regBaseUsedInMovT;
-        emitIns_R_S(INS_movt, EA_4BYTE, r, varx, offs, &regBaseUsedInMovT);
-        assert(*pBaseReg == regBaseUsedInMovT);
-    }
-}
-
-/*****************************************************************************
- *
- *  Add an instruction referencing a stack-based local variable and a register
- */
-void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg1, int varx, int offs)
-{
-    if (ins == INS_mov)
-    {
-        assert(!"Please use ins_Store() to select the correct instruction");
-    }
-
     switch (ins)
     {
         case INS_str:
@@ -3828,95 +3700,148 @@ void emitter::emitIns_S_R(instruction ins, emitAttr attr, regNumber reg1, int va
         case INS_strb:
         case INS_vstr:
             break;
-
         default:
-            NYI("emitIns_R_S");
-            return;
+            unreached();
     }
 
-    insFormat fmt = IF_NONE;
-    insFlags  sf  = INS_FLAGS_NOT_SET;
-    regNumber reg2;
-    regNumber baseRegUsed;
+    Ins_R_S(ins, attr, reg, varNum, varOffs);
+}
 
-    /* Figure out the variable's frame position */
-    int      base;
-    int      disp;
-    unsigned undisp;
+void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum, int varOffs)
+{
+    bool      isFloatLoadStore = (ins == INS_vldr) || (ins == INS_vstr);
+    bool      fpBased;
+    int       baseOffset = emitComp->lvaFrameAddress(varNum, &fpBased) + varOffs;
+    int       imm        = baseOffset;
+    regNumber baseReg;
 
-    base =
-        emitComp->lvaFrameAddress(varx, emitComp->funCurrentFunc()->funKind != FUNC_ROOT, &reg2, offs, instIsFP(ins));
-
-    disp   = base + offs;
-    undisp = unsigned_abs(disp);
-
-    if (instIsFP(ins))
+    if (!fpBased)
     {
-        // all fp mem ops take 8 bit immediate, multiplied by 4, plus sign
-        //
-        // Note if undisp is not a multiple of four we will fail later on
-        //   when we try to encode this instruction
-        // Its better to fail later with a better error message than
-        //   to fail here when the RBM_OPT_RSVD is not available
-        //
-        if (undisp <= 0x03fc)
+        baseReg = REG_SP;
+    }
+    else if (emitComp->funCurrentFunc()->funKind != FUNC_ROOT)
+    {
+        baseReg = REG_FPBASE;
+    }
+    else
+    {
+        imm = OptimizeFrameAddress(imm, isFloatLoadStore, &baseReg);
+    }
+
+    insFormat fmt;
+
+    if (ins == INS_lea)
+    {
+        if (isLowRegister(reg) && (baseReg == REG_SP) && IsUnsignedImm8(imm, 2))
         {
-            fmt = IF_T2_VLDST;
+            ins = INS_add;
+            fmt = IF_T1_J2;
+        }
+        else if (IsSignedImm12(imm))
+        {
+            if (imm >= 0)
+            {
+                ins = INS_addw;
+            }
+            else
+            {
+                ins = INS_subw;
+                imm = -imm;
+            }
+
+            fmt = IF_T2_M0;
         }
         else
         {
-            regNumber rsvdReg = codeGen->rsGetRsvdReg();
-            emitIns_genStackOffset(rsvdReg, varx, offs, /* isFloatUsage */ true, &baseRegUsed);
+            regNumber tempReg = codeGen->rsGetRsvdReg();
+            MovRegStackOffset(tempReg, imm, varNum, varOffs);
+            emitIns_R_R_R(INS_add, attr, reg, baseReg, tempReg);
 
-            // Ensure the baseReg calculated is correct.
-            assert(baseRegUsed == reg2);
-            emitIns_R_R(INS_add, EA_4BYTE, rsvdReg, reg2);
-            emitIns_R_R_I(ins, attr, reg1, rsvdReg, 0);
             return;
         }
     }
-    else if (isLowRegister(reg1) && (reg2 == REG_SP) && (ins == INS_str) && ((disp & 0x03fc) == disp))
+    else if (isFloatLoadStore)
+    {
+        if (!IsSignedImm8(imm, 2))
+        {
+            regNumber tempReg = codeGen->rsGetRsvdReg();
+            MovRegStackOffset(tempReg, imm, varNum, varOffs);
+            emitIns_R_R(INS_add, EA_4BYTE, tempReg, baseReg);
+            emitIns_R_R_I(ins, attr, reg, tempReg, 0);
+
+            return;
+        }
+
+        fmt = IF_T2_VLDST;
+    }
+    else if (((ins == INS_ldr) || (ins == INS_str)) && isLowRegister(reg) && (baseReg == REG_SP) &&
+             IsUnsignedImm8(imm, 2))
     {
         fmt = IF_T1_J2;
     }
-    else if (disp >= 0 && disp <= 0x0fff)
+    else if (IsUnsignedImm12(imm))
     {
         fmt = IF_T2_K1;
     }
-    else if (undisp <= 0x0ff)
+    else if (IsSignedImm8(imm))
     {
         fmt = IF_T2_H0;
     }
     else
     {
-        // Load disp into a register
-        regNumber rsvdReg = codeGen->rsGetRsvdReg();
-        emitIns_genStackOffset(rsvdReg, varx, offs, /* isFloatUsage */ false, &baseRegUsed);
+        MovRegStackOffset(codeGen->rsGetRsvdReg(), imm, varNum, varOffs);
+
         fmt = IF_T2_E0;
-
-        // Ensure the baseReg calculated is correct.
-        assert(baseRegUsed == reg2);
     }
-    assert((fmt == IF_T1_J2) || (fmt == IF_T2_E0) || (fmt == IF_T2_H0) || (fmt == IF_T2_VLDST) || (fmt == IF_T2_K1));
-    assert(sf != INS_FLAGS_DONT_CARE);
 
-    instrDesc* id  = emitNewInstrCns(attr, disp);
-    insSize    isz = emitInsSize(fmt);
-
+    instrDesc* id = emitNewInstrCns(attr, imm);
     id->idIns(ins);
     id->idInsFmt(fmt);
-    id->idInsSize(isz);
-    id->idInsFlags(sf);
-    id->idInsOpt(INS_OPTS_NONE);
-    id->idReg1(reg1);
-    id->idReg2(reg2);
-    id->idAddr()->iiaLclVar.initLclVarAddr(varx, offs);
-    id->idSetIsLclVar();
-    if (reg2 == REG_FP)
-        id->idSetIsLclFPBase();
+    id->idInsSize(emitInsSize(fmt));
+    id->idReg1(reg);
+    id->idReg2(baseReg);
+    id->SetVarAddr(varNum, varOffs);
+
+    if ((varNum >= 0) && (ins == INS_str) && EA_IS_GCREF_OR_BYREF(attr))
+    {
+        id->idAddr()->lclOffset = baseOffset;
+
+        if (static_cast<unsigned>(varNum) == emitComp->lvaOutgoingArgSpaceVar)
+        {
+            id->idAddr()->isGCArgStore = true;
+        }
+        else if ((varOffs == 0) && (emitComp->lvaGetDesc(static_cast<unsigned>(varNum))->HasGCSlotLiveness()))
+        {
+            id->idAddr()->isTrackedGCSlotStore = true;
+        }
+    }
 
     dispIns(id);
     appendToCurIG(id);
+}
+
+// Change frame pointer based addressing to SP-based addressing when possible because it has smaller encoding.
+int emitter::OptimizeFrameAddress(int fpOffset, bool isFloatLoadStore, regNumber* baseReg)
+{
+    int spOffset = fpOffset + codeGen->genSPtoFPdelta();
+
+    int encodingLimitUpper = isFloatLoadStore ? 1020 : 4095;
+    int encodingLimitLower = isFloatLoadStore ? -1020 : -255;
+
+    // TODO-MIKE-Review: It's not clear what's the minopts check for.
+    // Maybe it was supposed to be !MinOpts()?
+
+    if (emitComp->opts.MinOpts() || (spOffset <= encodingLimitUpper) || (fpOffset < encodingLimitLower) ||
+        (fpOffset > encodingLimitUpper))
+    {
+        *baseReg = emitComp->compLocallocUsed ? REG_SAVED_LOCALLOC_SP : REG_SP;
+        return spOffset;
+    }
+    else
+    {
+        *baseReg = REG_FPBASE;
+        return fpOffset;
+    }
 }
 
 /*****************************************************************************
@@ -4340,41 +4265,16 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount /* = 0 
     appendToCurIG(id);
 }
 
-/*****************************************************************************
- *
- *  Add a label instruction.
- */
-
 void emitter::emitIns_R_L(instruction ins, emitAttr attr, BasicBlock* dst, regNumber reg)
 {
-    assert(dst->bbFlags & BBF_HAS_LABEL);
+    assert((ins == INS_movt) || (ins == INS_movw));
+    assert((dst->bbFlags & BBF_HAS_LABEL) != 0);
 
-    insFormat     fmt = IF_NONE;
-    instrDescJmp* id;
-
-    /* Figure out the encoding format of the instruction */
-    switch (ins)
-    {
-        case INS_adr:
-            id  = emitNewInstrLbl();
-            fmt = IF_T2_M1;
-            break;
-        case INS_movt:
-        case INS_movw:
-            id  = emitNewInstrJmp();
-            fmt = IF_T2_N1;
-            break;
-        default:
-            unreached();
-    }
-    assert((fmt == IF_T2_M1) || (fmt == IF_T2_N1));
-
-    insSize isz = emitInsSize(fmt);
-
+    instrDescJmp* id = emitNewInstrJmp();
     id->idIns(ins);
     id->idReg1(reg);
-    id->idInsFmt(fmt);
-    id->idInsSize(isz);
+    id->idInsFmt(IF_T2_N1);
+    id->idInsSize(emitInsSize(IF_T2_N1));
 
 #ifdef DEBUG
     // Mark the catch return
@@ -4385,32 +4285,16 @@ void emitter::emitIns_R_L(instruction ins, emitAttr attr, BasicBlock* dst, regNu
 #endif // DEBUG
 
     id->idAddr()->iiaBBlabel = dst;
-    id->idjShort             = false;
 
-    if (ins == INS_adr)
-    {
-        id->idReg2(REG_PC);
-        id->idjKeepLong = emitComp->fgInDifferentRegions(emitComp->compCurBB, dst);
-    }
-    else
-    {
-        id->idjKeepLong = true;
-    }
-
-    /* Record the jump's IG and offset within it */
-
-    id->idjIG   = emitCurIG;
-    id->idjOffs = emitCurIGsize;
-
-    /* Append this jump to this IG's jump list */
-
+    id->idjShort     = false;
+    id->idjKeepLong  = true;
+    id->idjIG        = emitCurIG;
+    id->idjOffs      = emitCurIGsize;
     id->idjNext      = emitCurIGjmpList;
     emitCurIGjmpList = id;
 
     if (emitComp->opts.compReloc)
     {
-        // Set the relocation flags - these give hint to zap to perform
-        // relocation of the specified 32bit address.
         id->idSetRelocFlags(attr);
     }
 
@@ -4422,28 +4306,18 @@ void emitter::emitIns_R_L(instruction ins, emitAttr attr, BasicBlock* dst, regNu
     appendToCurIG(id);
 }
 
-/*****************************************************************************
- *
- *  Add a data label instruction.
- */
-
 void emitter::emitIns_R_D(instruction ins, emitAttr attr, unsigned offs, regNumber reg)
 {
-    noway_assert((ins == INS_movw) || (ins == INS_movt));
+    assert((ins == INS_movw) || (ins == INS_movt));
 
-    insFormat  fmt = IF_T2_N2;
-    instrDesc* id  = emitNewInstrSC(attr, offs);
-    insSize    isz = emitInsSize(fmt);
-
+    instrDesc* id = emitNewInstrSC(attr, offs);
     id->idIns(ins);
     id->idReg1(reg);
-    id->idInsFmt(fmt);
-    id->idInsSize(isz);
+    id->idInsFmt(IF_T2_N2);
+    id->idInsSize(emitInsSize(IF_T2_N2));
 
     if (emitComp->opts.compReloc)
     {
-        // Set the relocation flags - these give hint to zap to perform
-        // relocation of the specified 32bit address.
         id->idSetRelocFlags(attr);
     }
 
@@ -4506,137 +4380,39 @@ void emitter::emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* dst, regNu
 //
 // Please consult the "debugger team notification" comment in genFnProlog().
 //
-void emitter::emitIns_Call(EmitCallType          callType,
-                           CORINFO_METHOD_HANDLE methHnd DEBUGARG(CORINFO_SIG_INFO* sigInfo),
-                           void*            addr,
-                           int              argSize,
-                           emitAttr         retSize,
-                           VARSET_VALARG_TP ptrVars,
-                           regMaskTP        gcrefRegs,
-                           regMaskTP        byrefRegs,
-                           IL_OFFSETX       ilOffset,
-                           regNumber        ireg,
-                           bool             isJump)
+void emitter::emitIns_Call(EmitCallType          kind,
+                           CORINFO_METHOD_HANDLE methodHandle DEBUGARG(CORINFO_SIG_INFO* sigInfo),
+                           void*     addr,
+                           emitAttr  retSize,
+                           regNumber reg,
+                           bool      isJump)
 {
-    assert((callType == EC_INDIR_R) || (ireg == REG_NA));
-    assert((callType != EC_INDIR_R) || (addr == nullptr));
-    assert((callType != EC_INDIR_R) || (ireg != REG_NA));
+    assert((kind == EC_INDIR_R) || (reg == REG_NA));
+    assert((kind != EC_INDIR_R) || (addr == nullptr));
+    assert((kind != EC_INDIR_R) || (reg != REG_NA));
 
-    // Our stack level should be always greater than the bytes of arguments we push. Just
-    // a sanity test.
-    assert((unsigned)abs(argSize) <= codeGen->genStackLevel);
+    instrDesc* id = emitNewInstrCall(methodHandle, retSize);
 
-    // Trim out any callee-trashed registers from the live set.
-    regMaskTP savedSet = emitGetGCRegsSavedOrModified(methHnd);
-    gcrefRegs &= savedSet;
-    byrefRegs &= savedSet;
-
-#ifdef DEBUG
-    if (EMIT_GC_VERBOSE)
+    if (kind == EC_INDIR_R)
     {
-        printf("Call: GCvars=%s ", VarSetOps::ToString(emitComp, ptrVars));
-        dumpConvertedVarSet(emitComp, ptrVars);
-        printf(", gcrefRegs=");
-        printRegMaskInt(gcrefRegs);
-        emitDispRegSet(gcrefRegs);
-        printf(", byrefRegs=");
-        printRegMaskInt(byrefRegs);
-        emitDispRegSet(byrefRegs);
-        printf("\n");
-    }
-#endif
-
-    /* Managed RetVal: emit sequence point for the call */
-    if (emitComp->opts.compDbgInfo && ilOffset != BAD_IL_OFFSET)
-    {
-        codeGen->genIPmappingAdd(ilOffset, false);
-    }
-
-    /*
-        We need to allocate the appropriate instruction descriptor based
-        on whether this is a direct/indirect call, and whether we need to
-        record an updated set of live GC variables.
-
-        The stats for a ton of classes is as follows:
-
-            Direct call w/o  GC vars        220,216
-            Indir. call w/o  GC vars        144,781
-
-            Direct call with GC vars          9,440
-            Indir. call with GC vars          5,768
-     */
-    instrDesc* id;
-
-    assert(argSize % REGSIZE_BYTES == 0);
-    int argCnt = argSize / REGSIZE_BYTES;
-
-    if (callType == EC_INDIR_R)
-    {
-        id = emitNewInstrCallInd(argCnt, 0, ptrVars, gcrefRegs, byrefRegs, retSize);
+        id->idIns(isJump ? INS_bx : INS_blx);
+        id->idInsFmt(IF_T1_D2);
+        id->idInsSize(emitInsSize(IF_T1_D2));
+        id->idReg3(reg);
     }
     else
     {
-        assert((callType == EC_FUNC_TOKEN) || (callType == EC_FUNC_ADDR));
-
-        id = emitNewInstrCallDir(argCnt, ptrVars, gcrefRegs, byrefRegs, retSize);
-    }
-
-    /* Update the emitter's live GC ref sets */
-
-    VarSetOps::Assign(emitComp, emitThisGCrefVars, ptrVars);
-    emitThisGCrefRegs = gcrefRegs;
-    emitThisByrefRegs = byrefRegs;
-
-    id->idSetIsNoGC(emitNoGChelper(methHnd));
-
-    /* Set the instruction - special case jumping a function */
-    instruction ins;
-    insFormat   fmt = IF_NONE;
-
-    /* Record the address: method, indirection, or funcptr */
-
-    if (callType == EC_INDIR_R)
-    {
-        if (isJump)
-        {
-            ins = INS_bx; // INS_bx  Reg
-        }
-        else
-        {
-            ins = INS_blx; // INS_blx Reg
-        }
-        fmt = IF_T1_D2;
-
-        id->idIns(ins);
-        id->idInsFmt(fmt);
-        id->idInsSize(emitInsSize(fmt));
-        id->idReg3(ireg);
-    }
-    else
-    {
-        assert((callType == EC_FUNC_TOKEN) || (callType == EC_FUNC_ADDR));
+        assert((kind == EC_FUNC_TOKEN) || (kind == EC_FUNC_ADDR));
         // if addr is nullptr then this call is treated as a recursive call.
-        assert((addr == nullptr) || codeGen->validImmForBL((ssize_t)addr));
+        assert((addr == nullptr) || validImmForBL(reinterpret_cast<ssize_t>(addr), emitComp));
 
-        if (isJump)
-        {
-            ins = INS_b; // INS_b imm24
-        }
-        else
-        {
-            ins = INS_bl; // INS_bl imm24
-        }
-
-        fmt = IF_T2_J3;
-
-        id->idIns(ins);
-        id->idInsFmt(fmt);
-        id->idInsSize(emitInsSize(fmt));
-
-        id->idAddr()->iiaAddr = (BYTE*)addr;
+        id->idIns(isJump ? INS_b : INS_bl);
+        id->idInsFmt(IF_T2_J3);
+        id->idInsSize(emitInsSize(IF_T2_J3));
+        id->idAddr()->iiaAddr = reinterpret_cast<uint8_t*>(addr);
 
 #ifdef DEBUG
-        if (callType == EC_FUNC_ADDR)
+        if (kind == EC_FUNC_ADDR)
         {
             id->idSetIsCallAddr();
         }
@@ -4653,25 +4429,16 @@ void emitter::emitIns_Call(EmitCallType          callType,
     }
 
 #ifdef DEBUG
-    if (EMIT_GC_VERBOSE)
-    {
-        if (id->idIsLargeCall())
-        {
-            printf("[%02u] Rec call GC vars = %s\n", id->idDebugOnlyInfo()->idNum,
-                   VarSetOps::ToString(emitComp, ((instrDescCGCA*)id)->idcGCvars));
-        }
-    }
-
-    id->idDebugOnlyInfo()->idMemCookie = (size_t)methHnd; // method token
+    id->idDebugOnlyInfo()->idMemCookie = reinterpret_cast<size_t>(methodHandle);
     id->idDebugOnlyInfo()->idCallSig   = sigInfo;
-#endif // DEBUG
+#endif
 
 #ifdef LATE_DISASM
     if (addr != nullptr)
     {
-        codeGen->getDisAssembler().disSetMethod((size_t)addr, methHnd);
+        codeGen->getDisAssembler().disSetMethod(reinterpret_cast<size_t>(addr), methodHandle);
     }
-#endif // LATE_DISASM
+#endif
 
     dispIns(id);
     appendToCurIG(id);
@@ -5556,6 +5323,38 @@ BYTE* emitter::emitOutputIT(BYTE* dst, instruction ins, insFormat fmt, code_t co
 
 #endif // FEATURE_ITINSTRUCTION
 
+size_t emitter::emitGetInstrDescSizeSC(const instrDesc* id)
+{
+    if (id->idIsSmallDsc())
+    {
+        return SMALL_IDSC_SIZE;
+    }
+    else if (id->idIsLargeCns())
+    {
+        return sizeof(instrDescCns);
+    }
+    else
+    {
+        return sizeof(instrDesc);
+    }
+}
+
+emitter::instrDesc* emitter::emitNewInstrReloc(emitAttr attr, BYTE* addr)
+{
+    assert(EA_IS_RELOC(attr));
+
+    instrDescReloc* id = (instrDescReloc*)emitAllocAnyInstr(sizeof(instrDescReloc), attr);
+    assert(id->idIsReloc());
+
+    id->idrRelocVal = addr;
+
+#if EMITTER_STATS
+    emitTotalIDescRelocCnt++;
+#endif // EMITTER_STATS
+
+    return id;
+}
+
 /*****************************************************************************
 *
  *  Append the machine code corresponding to the given instruction descriptor
@@ -5582,7 +5381,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
     assert(REG_NA == (int)REG_NA);
 
-    VARSET_TP GCvars(VarSetOps::UninitVal());
+    VARSET_TP GCvars = VarSetOps::UninitVal();
 
     /* What instruction format have we got? */
 
@@ -6025,25 +5824,11 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             break;
 
         case IF_T2_N: // T2_N    .....i......iiii .iiiddddiiiiiiii       R1                 imm16
+            assert(!id->idIsReloc());
             sz   = emitGetInstrDescSizeSC(id);
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_D(id->idReg1());
-            imm = emitGetInsSC(id);
-            if (id->idIsLclVar())
-            {
-                if (ins == INS_movw)
-                {
-                    imm &= 0xffff;
-                }
-                else
-                {
-                    assert(ins == INS_movt);
-                    imm = (imm >> 16) & 0xffff;
-                }
-            }
-
-            assert(!id->idIsReloc());
-            code |= insEncodeImmT2_Mov(imm);
+            code |= insEncodeImmT2_Mov(emitGetInsSC(id));
             dst += emitOutput_Thumb2Instr(dst, code);
             break;
 
@@ -6218,7 +6003,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             assert(id->idIsBound());
 
             dst = emitOutputLJ(ig, dst, id);
-            sz  = sizeof(instrDescLbl);
+            sz  = sizeof(instrDesc);
             break;
 
         case IF_T1_K:  // T1_K    ....cccciiiiiiii                       Branch              imm8, cond4
@@ -6248,21 +6033,21 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
             if (id->idIsLargeCall())
             {
-                instrDescCGCA* idCall = (instrDescCGCA*)id;
-                gcrefRegs             = idCall->idcGcrefRegs;
-                byrefRegs             = idCall->idcByrefRegs;
-                VarSetOps::Assign(emitComp, GCvars, idCall->idcGCvars);
-                sz = sizeof(instrDescCGCA);
+                instrDescCGCA* idCall = static_cast<instrDescCGCA*>(id);
+
+                gcrefRegs = idCall->idcGcrefRegs;
+                byrefRegs = idCall->idcByrefRegs;
+                GCvars    = idCall->idcGCvars;
+                sz        = sizeof(instrDescCGCA);
             }
             else
             {
-                assert(!id->idIsLargeDsp());
                 assert(!id->idIsLargeCns());
 
                 gcrefRegs = emitDecodeCallGCregs(id);
-                byrefRegs = 0;
-                VarSetOps::AssignNoCopy(emitComp, GCvars, VarSetOps::MakeEmpty(emitComp));
-                sz = sizeof(instrDesc);
+                byrefRegs = RBM_NONE;
+                GCvars    = emitEmptyGCrefVars;
+                sz        = sizeof(instrDesc);
             }
 
             code = emitInsCode(ins, fmt);
@@ -6277,21 +6062,21 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
             if (id->idIsLargeCall())
             {
-                instrDescCGCA* idCall = (instrDescCGCA*)id;
-                gcrefRegs             = idCall->idcGcrefRegs;
-                byrefRegs             = idCall->idcByrefRegs;
-                VarSetOps::Assign(emitComp, GCvars, idCall->idcGCvars);
-                sz = sizeof(instrDescCGCA);
+                instrDescCGCA* idCall = static_cast<instrDescCGCA*>(id);
+
+                gcrefRegs = idCall->idcGcrefRegs;
+                byrefRegs = idCall->idcByrefRegs;
+                GCvars    = idCall->idcGCvars;
+                sz        = sizeof(instrDescCGCA);
             }
             else
             {
-                assert(!id->idIsLargeDsp());
                 assert(!id->idIsLargeCns());
 
                 gcrefRegs = emitDecodeCallGCregs(id);
-                byrefRegs = 0;
-                VarSetOps::AssignNoCopy(emitComp, GCvars, VarSetOps::MakeEmpty(emitComp));
-                sz = sizeof(instrDesc);
+                byrefRegs = RBM_NONE;
+                GCvars    = emitEmptyGCrefVars;
+                sz        = sizeof(instrDesc);
             }
 
             if (id->idAddr()->iiaAddr == NULL) /* a recursive call */
@@ -6373,16 +6158,11 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 emitUpdateLiveGCregs(GCT_BYREF, byrefRegs, dst);
 
             // Some helper calls may be marked as not requiring GC info to be recorded.
-            if ((!id->idIsNoGC()))
+            if (!id->idIsNoGC())
             {
-                // On ARM, as on AMD64, we don't change the stack pointer to push/pop args.
-                // So we're not really doing a "stack pop" here (note that "args" is 0), but we use this mechanism
-                // to record the call for GC info purposes.  (It might be best to use an alternate call,
-                // and protect "emitStackPop" under the EMIT_TRACK_STACK_DEPTH preprocessor variable.)
-                emitStackPop(dst, /*isCall*/ true, callInstrSize, /*args*/ 0);
+                emitRecordGCCallPop(dst, callInstrSize);
 
-                /* Do we need to record a call location for GC purposes? */
-
+                // Do we need to record a call location for GC purposes?
                 if (!emitFullGCinfo)
                 {
                     emitRecordGCcall(dst, callInstrSize);
@@ -6448,32 +6228,19 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
     // Now we determine if the instruction has written to a (local variable) stack location, and either written a GC
     // ref or overwritten one.
-    if (emitInsWritesToLclVarStackLoc(id))
+    if (id->idIsLclVar() && (id->idAddr()->isTrackedGCSlotStore || id->idAddr()->isGCArgStore))
     {
-        int       varNum = id->idAddr()->iiaLclVar.lvaVarNum();
-        unsigned  ofs    = AlignDown(id->idAddr()->iiaLclVar.lvaOffset(), TARGET_POINTER_SIZE);
-        regNumber regBase;
-        int adr = emitComp->lvaFrameAddress(varNum, true, &regBase, ofs, /* isFloatUsage */ false); // no float GC refs
-        if (id->idGCref() != GCT_NONE)
+        bool isArg = id->idAddr()->isGCArgStore;
+        int  adr   = id->idAddr()->lclOffset;
+        INDEBUG(unsigned lclNum = id->idDebugOnlyInfo()->varNum);
+
+        if (isArg)
         {
-            emitGCvarLiveUpd(adr + ofs, varNum, id->idGCref(), dst DEBUG_ARG(varNum));
+            emitGCargLiveUpd(adr, id->idGCref(), dst DEBUGARG(lclNum));
         }
         else
         {
-            // If the type of the local is a gc ref type, update the liveness.
-            var_types vt;
-            if (varNum >= 0)
-            {
-                // "Regular" (non-spill-temp) local.
-                vt = var_types(emitComp->lvaTable[varNum].lvType);
-            }
-            else
-            {
-                TempDsc* tmpDsc = codeGen->regSet.tmpFindNum(varNum);
-                vt              = tmpDsc->tdTempType();
-            }
-            if (vt == TYP_REF || vt == TYP_BYREF)
-                emitGCvarDeadUpd(adr + ofs, dst DEBUG_ARG(varNum));
+            emitGCvarLiveUpd(adr, id->idGCref(), dst DEBUGARG(lclNum));
         }
     }
 
@@ -6495,12 +6262,9 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         if (JitConfig.JitEmitPrintRefRegs() != 0)
         {
             printf("Before emitOutputInstr for id->idDebugOnlyInfo()->idNum=0x%02x\n", id->idDebugOnlyInfo()->idNum);
-            printf("  emitThisGCrefRegs(0x%p)=", dspPtr(&emitThisGCrefRegs));
-            printRegMaskInt(emitThisGCrefRegs);
+            printf("  emitThisGCrefRegs");
             emitDispRegSet(emitThisGCrefRegs);
-            printf("\n");
-            printf("  emitThisByrefRegs(0x%p)=", dspPtr(&emitThisByrefRegs));
-            printRegMaskInt(emitThisByrefRegs);
+            printf("\n  emitThisByrefRegs");
             emitDispRegSet(emitThisByrefRegs);
             printf("\n");
         }
@@ -7511,8 +7275,7 @@ void emitter::emitDispInsHelp(
 
     if (id->idIsLclVar())
     {
-        printf("\t// ");
-        emitDispFrameRef(id->idAddr()->iiaLclVar);
+        emitDispFrameRef(id);
     }
 
     printf("\n");
@@ -7592,27 +7355,26 @@ void emitter::emitDispIns(
     }
 }
 
-/*****************************************************************************
- *
- *  Display a stack frame reference.
- */
-
-void emitter::emitDispFrameRef(const emitLclVarAddr& lcl)
+void emitter::emitDispFrameRef(instrDesc* id)
 {
-    printf("[");
+    int varNum  = id->idDebugOnlyInfo()->varNum;
+    int varOffs = id->idDebugOnlyInfo()->varOffs;
 
-    int varx = lcl.lvaVarNum();
-    int disp = static_cast<int>(lcl.lvaOffset());
+    printf("\t// [");
 
-    if (varx < 0)
-        printf("TEMP_%02u", -varx);
+    if (varNum < 0)
+    {
+        printf("T%02d", -varNum);
+    }
     else
-        emitComp->gtDispLclVar(+varx, false);
+    {
+        emitComp->gtDispLclVar(static_cast<unsigned>(varNum), false);
+    }
 
-    if (disp < 0)
-        printf("-0x%02x", -disp);
-    else if (disp > 0)
-        printf("+0x%02x", +disp);
+    if (varOffs != 0)
+    {
+        printf("%c0x%02x", varOffs < 0 ? '-' : '+', abs(varOffs));
+    }
 
     printf("]");
 }

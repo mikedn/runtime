@@ -13,23 +13,6 @@ void CodeGenLivenessUpdater::Begin()
     scratchSet2 = VarSetOps::MakeEmpty(compiler);
     epoch       = compiler->GetCurLVEpoch();
 #endif
-
-    // Also, initialize "HasStackGCPtrLiveness" for all tracked variables that do not fully
-    // live in a register (i.e. they live on the stack for all or part of their lifetime).
-    // Note that lvRegister indicates that a lclVar is in a register for its entire lifetime.
-
-    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
-    {
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
-        if (lcl->HasLiveness() || lcl->lvIsRegCandidate())
-        {
-            if (!lcl->lvRegister && compiler->lvaIsGCTracked(lcl))
-            {
-                lcl->SetHasStackGCPtrLiveness();
-            }
-        }
-    }
 }
 
 void CodeGenLivenessUpdater::ChangeLife(CodeGen* codeGen, VARSET_VALARG_TP newLife)
@@ -73,7 +56,7 @@ void CodeGenLivenessUpdater::ChangeLife(CodeGen* codeGen, VARSET_VALARG_TP newLi
             codeGen->genUpdateRegLife(lcl, false /*isBorn*/, true /*isDying*/ DEBUGARG(nullptr));
         }
 
-        if (isInMemory && (isGCRef || isByRef))
+        if (isInMemory && (isGCRef || isByRef) && lcl->HasGCSlotLiveness())
         {
             VarSetOps::RemoveElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, e.Current());
         }
@@ -97,7 +80,7 @@ void CodeGenLivenessUpdater::ChangeLife(CodeGen* codeGen, VARSET_VALARG_TP newLi
         {
             // If this variable is going live in a register, it is no longer live on the stack,
             // unless it is an EH var, which always remains live on the stack.
-            if (!lcl->IsAlwaysAliveInMemory())
+            if (!lcl->IsAlwaysAliveInMemory() && lcl->HasGCSlotLiveness())
             {
                 VarSetOps::RemoveElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, e.Current());
             }
@@ -115,7 +98,7 @@ void CodeGenLivenessUpdater::ChangeLife(CodeGen* codeGen, VARSET_VALARG_TP newLi
                 codeGen->gcInfo.gcRegByrefSetCur |= regMask;
             }
         }
-        else if (compiler->lvaIsGCTracked(lcl))
+        else if (lcl->HasGCSlotLiveness())
         {
             VarSetOps::AddElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, e.Current());
         }
@@ -212,7 +195,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
 
         if (changed)
         {
-            if (isInMemory && lcl->HasStackGCPtrLiveness())
+            if (isInMemory && lcl->HasGCSlotLiveness())
             {
                 if (isBorn)
                 {
@@ -246,7 +229,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
         // then it's not clear why would a last-use need spilling to begin with.
         codeGen->SpillRegCandidateLclVar(lclNode->AsLclVar());
 
-        if (lcl->HasStackGCPtrLiveness() &&
+        if (lcl->HasGCSlotLiveness() &&
             VarSetOps::TryAddElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, lcl->lvVarIndex))
         {
             JITDUMP("GC pointer V%02u becoming live on stack\n", lclNode->GetLclNum());
@@ -287,7 +270,7 @@ void CodeGenLivenessUpdater::UpdateLifeMultiReg(CodeGen* codeGen, GenTreeLclVar*
             VarSetOps::AddElemD(compiler, currentLife, fieldLcl->GetLivenessBitIndex());
         }
 
-        if (isInMemory && fieldLcl->HasStackGCPtrLiveness())
+        if (isInMemory && fieldLcl->HasGCSlotLiveness())
         {
             // TODO-MIKE-Review: Should we remove the local from the GC var set when the field is dying?
             // The "scalar" version of this code doesn't do it, it checks "isBorn" instead of "isDying".
@@ -357,7 +340,7 @@ void CodeGenLivenessUpdater::UpdateLifePromoted(CodeGen* codeGen, GenTreeLclVarC
             VarSetOps::AddElemD(compiler, currentLife, fieldLcl->GetLivenessBitIndex());
         }
 
-        if (fieldLcl->HasStackGCPtrLiveness())
+        if (fieldLcl->HasGCSlotLiveness())
         {
             // TODO-MIKE-Review: Should we remove the local from the GC var set when the field is dying?
             // The "scalar" version of this code doesn't do it, it checks "isBorn" instead of "isDying".

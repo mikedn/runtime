@@ -532,7 +532,7 @@ void Compiler::morphAssertionGenerateEqual(GenTreeLclVar* lclVar, GenTree* val)
     {
         case GT_CNS_INT:
 #ifdef TARGET_ARM
-            if (!codeGen->validImmForMov(val->AsIntCon()->GetInt32Value()))
+            if (!emitter::emitIns_valid_imm_for_mov(val->AsIntCon()->GetInt32Value()))
             {
                 return;
             }

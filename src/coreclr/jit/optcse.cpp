@@ -1286,6 +1286,8 @@ public:
             // may affect them from the stack pointer).
             // TODO-MIKE-Cleanup: This is likely pointless, lvaOutgoingArgSpaceVar should
             // have ref count 0 at this point so we skip it anyway above.
+            // P.S. Yeah, except we treat it as implicitly referenced so it actually has
+            // ref count 1.
             assert(compiler->lvaOutgoingArgSpaceVar != BAD_VAR_NUM);
 
             if (lclNum == compiler->lvaOutgoingArgSpaceVar)
@@ -1330,7 +1332,9 @@ public:
                 continue;
             }
 
-            frameSize += compiler->lvaLclSize(lclNum);
+            // TODO-MIKE-Review: This doesn't ignore P-DEP field and it probably should,
+            // now the size is added twice so the total frame size is overestimated.
+            frameSize += lcl->GetFrameSize();
 
 #ifdef TARGET_XARCH
             if (frameSize > 128)

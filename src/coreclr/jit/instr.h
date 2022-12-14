@@ -74,7 +74,7 @@ enum GCtype : unsigned
     GCT_BYREF
 };
 
-#if defined(TARGET_XARCH)
+#ifdef TARGET_XARCH
 
 enum insFlags : uint32_t
 {
@@ -119,25 +119,19 @@ enum insFlags : uint32_t
 
     // Avx
     INS_Flags_IsDstDstSrcAVXInstruction = 1 << 25,
-    INS_Flags_IsDstSrcSrcAVXInstruction = 1 << 26,
-
-    // TODO-Cleanup:  Remove this flag and its usage from TARGET_XARCH
-    INS_FLAGS_DONT_CARE = 0x00,
+    INS_Flags_IsDstSrcSrcAVXInstruction = 1 << 26
 };
 
-#elif defined(TARGET_ARM) || defined(TARGET_ARM64)
-// TODO-Cleanup: Move 'insFlags' under TARGET_ARM
+#endif // TARGET_XARCH
+#ifdef TARGET_ARM
+
 enum insFlags : unsigned
 {
     INS_FLAGS_NOT_SET   = 0x00,
     INS_FLAGS_SET       = 0x01,
     INS_FLAGS_DONT_CARE = 0x02,
 };
-#else
-#error Unsupported target architecture
-#endif
 
-#if defined(TARGET_ARM)
 enum insOpts : unsigned
 {
     INS_OPTS_NONE,
@@ -153,7 +147,9 @@ enum insOpts : unsigned
 
 INDEBUG(const char* insOptsName(insOpts opt);)
 
-#elif defined(TARGET_ARM64)
+#endif // TARGET_ARM
+#ifdef TARGET_ARM64
+
 enum insOpts : unsigned
 {
     INS_OPTS_NONE,
@@ -274,7 +270,7 @@ enum insBarrier : unsigned
     INS_BARRIER_ST = 14,
     INS_BARRIER_SY = 15,
 };
-#endif
+#endif // TARGET_ARM64
 
 #undef EA_UNKNOWN
 enum emitAttr : unsigned

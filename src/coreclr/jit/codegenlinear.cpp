@@ -16,57 +16,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 #include "emit.h"
 #include "codegen.h"
-
-//------------------------------------------------------------------------
-// genInitializeRegisterState: Initialize the register state contained in 'regSet'.
-//
-// Assumptions:
-//    On exit the "rsModifiedRegsMask" (in "regSet") holds all the registers' masks hosting an argument on the function
-//    and elements of "rsSpillDesc" (in "regSet") are setted to nullptr.
-//
-// Notes:
-//    This method is intended to be called only from initializeStructuresBeforeBlockCodeGeneration.
-void CodeGen::genInitializeRegisterState()
-{
-    // Initialize the spill tracking logic
-
-    regSet.rsSpillBeg();
-
-    // If any arguments live in registers, mark those regs as such
-
-    unsigned   varNum;
-    LclVarDsc* varDsc;
-
-    for (varNum = 0, varDsc = compiler->lvaTable; varNum < compiler->lvaCount; varNum++, varDsc++)
-    {
-        // Is this variable a parameter assigned to a register?
-        if (!varDsc->lvIsParam || !varDsc->lvRegister)
-        {
-            continue;
-        }
-
-        // Is the argument live on entry to the method?
-        if (!VarSetOps::IsMember(compiler, compiler->fgFirstBB->bbLiveIn, varDsc->lvVarIndex))
-        {
-            continue;
-        }
-
-        // Is this a floating-point argument?
-        if (varDsc->IsFloatRegType())
-        {
-            continue;
-        }
-
-        noway_assert(!varTypeUsesFloatReg(varDsc->TypeGet()));
-
-        // Mark the register as holding the variable
-        assert(varDsc->GetRegNum() != REG_STK);
-        if (!varDsc->lvAddrExposed)
-        {
-            regSet.verifyRegUsed(varDsc->GetRegNum());
-        }
-    }
-}
+#include "lsra.h"
 
 //------------------------------------------------------------------------
 // genInitialize: Initialize Scopes, registers, gcInfo and current liveness variables structures
@@ -93,18 +43,74 @@ void CodeGen::genInitialize()
 
     genPendingCallLabel = nullptr;
 
-    // Initialize the pointer tracking code
-
-    gcInfo.gcRegPtrSetInit();
     gcInfo.gcVarPtrSetInit();
 
-    // Initialize the register set logic
-
-    genInitializeRegisterState();
-
+#if !FEATURE_FIXED_OUT_ARGS
     // We initialize the stack level before first "BasicBlock" code is generated in case we need to report stack
     // variable needs home and so its stack offset.
     SetStackLevel(0);
+#endif
+
+    m_liveness.Begin();
+}
+
+void CodeGen::UpdateLclBlockLiveInRegs(BasicBlock* block)
+{
+    VarToRegMap map = m_lsra->GetBlockLiveInRegMap(block);
+
+    if (map == nullptr)
+    {
+        assert(compiler->lvaTrackedCount == 0);
+        return;
+    }
+
+    JITDUMP("Updating local regs at start of " FMT_BB "\n", block->bbNum);
+    INDEBUG(unsigned count = 0);
+
+    for (VarSetOps::Enumerator en(compiler, block->bbLiveIn); en.MoveNext();)
+    {
+        unsigned   lclNum = compiler->lvaTrackedIndexToLclNum(en.Current());
+        LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+
+        if (!lcl->IsRegCandidate())
+        {
+            continue;
+        }
+
+        regNumber oldRegNum = lcl->GetRegNum();
+        regNumber newRegNum = static_cast<regNumber>(map[en.Current()]);
+
+        if (oldRegNum != newRegNum)
+        {
+            lcl->SetRegNum(newRegNum);
+
+            JITDUMP("  V%02u (%s -> %s)", lclNum, getRegName(oldRegNum), getRegName(newRegNum));
+            INDEBUG(count++);
+
+#ifdef USING_VARIABLE_LIVE_RANGE
+            if ((block->bbPrev != nullptr) && VarSetOps::IsMember(compiler, block->bbPrev->bbLiveOut, en.Current()))
+            {
+                // lcl was alive on previous block end ("bb->bbPrev->bbLiveOut"), so it has an open
+                // "VariableLiveRange" which should change to be according "getInVarToRegMap"
+                getVariableLiveKeeper()->siUpdateVariableLiveRange(lcl, lclNum);
+            }
+#endif // USING_VARIABLE_LIVE_RANGE
+        }
+        else if (newRegNum != REG_STK)
+        {
+            JITDUMP("  V%02u (%s)", lclNum, getRegName(newRegNum));
+            INDEBUG(count++);
+        }
+    }
+
+#ifdef DEBUG
+    if (count == 0)
+    {
+        JITDUMP("  <none>\n");
+    }
+
+    JITDUMP("\n");
+#endif
 }
 
 //------------------------------------------------------------------------
@@ -120,10 +126,17 @@ void CodeGen::genInitialize()
 //
 void CodeGen::genCodeForBBlist()
 {
-    unsigned savedStkLvl;
-
 #ifdef DEBUG
-    genInterruptibleUsed = true;
+    if (compiler->opts.disAsm)
+    {
+        DumpDisasmHeader();
+    }
+
+    if (compiler->opts.disAsm || compiler->opts.dspCode || verbose)
+    {
+        compiler->lvaTableDump();
+    }
+
     // You have to be careful if you create basic blocks from now on
     compiler->fgSafeBasicBlockCreation = false;
 
@@ -176,11 +189,11 @@ void CodeGen::genCodeForBBlist()
 
         // Figure out which registers hold variables on entry to this block
 
-        regSet.ClearMaskVars();
+        gcInfo.ClearLiveLclRegs();
         gcInfo.gcRegGCrefSetCur = RBM_NONE;
         gcInfo.gcRegByrefSetCur = RBM_NONE;
 
-        m_pLinearScan->recordVarLocationsAtStartOfBB(block);
+        UpdateLclBlockLiveInRegs(block);
 
         // Updating variable liveness after last instruction of previous block was emitted
         // and before first of the current block is emitted
@@ -190,95 +203,7 @@ void CodeGen::genCodeForBBlist()
         // genUpdateLife will update the registers live due to liveness changes. But what about registers that didn't
         // change? We cleared them out above. Maybe we should just not clear them out, but update the ones that change
         // here. That would require handling the changes in recordVarLocationsAtStartOfBB().
-
-        regMaskTP newLiveRegSet  = RBM_NONE;
-        regMaskTP newRegGCrefSet = RBM_NONE;
-        regMaskTP newRegByrefSet = RBM_NONE;
-#ifdef DEBUG
-        VARSET_TP removedGCVars(VarSetOps::MakeEmpty(compiler));
-        VARSET_TP addedGCVars(VarSetOps::MakeEmpty(compiler));
-#endif
-        VarSetOps::Iter iter(compiler, block->bbLiveIn);
-        unsigned        varIndex = 0;
-        while (iter.NextElem(&varIndex))
-        {
-            LclVarDsc* varDsc = compiler->lvaGetDescByTrackedIndex(varIndex);
-
-            if (varDsc->lvIsInReg())
-            {
-                newLiveRegSet |= varDsc->lvRegMask();
-                if (varDsc->lvType == TYP_REF)
-                {
-                    newRegGCrefSet |= varDsc->lvRegMask();
-                }
-                else if (varDsc->lvType == TYP_BYREF)
-                {
-                    newRegByrefSet |= varDsc->lvRegMask();
-                }
-                if (!varDsc->IsAlwaysAliveInMemory())
-                {
-#ifdef DEBUG
-                    if (verbose && VarSetOps::IsMember(compiler, gcInfo.gcVarPtrSetCur, varIndex))
-                    {
-                        VarSetOps::AddElemD(compiler, removedGCVars, varIndex);
-                    }
-#endif // DEBUG
-                    VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, varIndex);
-                }
-            }
-            if ((!varDsc->lvIsInReg() || varDsc->IsAlwaysAliveInMemory()) && compiler->lvaIsGCTracked(varDsc))
-            {
-#ifdef DEBUG
-                if (verbose && !VarSetOps::IsMember(compiler, gcInfo.gcVarPtrSetCur, varIndex))
-                {
-                    VarSetOps::AddElemD(compiler, addedGCVars, varIndex);
-                }
-#endif // DEBUG
-                VarSetOps::AddElemD(compiler, gcInfo.gcVarPtrSetCur, varIndex);
-            }
-        }
-
-        regSet.SetMaskVars(newLiveRegSet);
-
-#ifdef DEBUG
-        if (compiler->verbose)
-        {
-            if (!VarSetOps::IsEmpty(compiler, addedGCVars))
-            {
-                printf("Added GCVars: ");
-                dumpConvertedVarSet(compiler, addedGCVars);
-                printf("\n");
-            }
-            if (!VarSetOps::IsEmpty(compiler, removedGCVars))
-            {
-                printf("Removed GCVars: ");
-                dumpConvertedVarSet(compiler, removedGCVars);
-                printf("\n");
-            }
-        }
-#endif // DEBUG
-
-        gcInfo.gcMarkRegSetGCref(newRegGCrefSet DEBUGARG(true));
-        gcInfo.gcMarkRegSetByref(newRegByrefSet DEBUGARG(true));
-
-        /* Blocks with handlerGetsXcptnObj()==true use GT_CATCH_ARG to
-           represent the exception object (TYP_REF).
-           We mark REG_EXCEPTION_OBJECT as holding a GC object on entry
-           to the block,  it will be the first thing evaluated
-           (thanks to GTF_ORDER_SIDEEFF).
-         */
-
-        if (handlerGetsXcptnObj(block->bbCatchTyp))
-        {
-            for (GenTree* node : LIR::AsRange(block))
-            {
-                if (node->OperGet() == GT_CATCH_ARG)
-                {
-                    gcInfo.gcMarkRegSetGCref(RBM_EXCEPTION_OBJECT);
-                    break;
-                }
-            }
-        }
+        gcInfo.BeginBlockCodeGen(block);
 
 #if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
         genInsertNopForUnwinder(block);
@@ -341,8 +266,7 @@ void CodeGen::genCodeForBBlist()
         {
             // Mark a label and update the current set of live GC refs
 
-            block->bbEmitCookie = GetEmitter()->emitAddLabel(gcInfo.gcVarPtrSetCur, gcInfo.gcRegGCrefSetCur,
-                                                             gcInfo.gcRegByrefSetCur, false DEBUG_ARG(block));
+            block->bbEmitCookie = GetEmitter()->emitAddLabel(false DEBUG_ARG(block));
         }
 
         if (block == compiler->fgFirstColdBlock)
@@ -352,10 +276,11 @@ void CodeGen::genCodeForBBlist()
             GetEmitter()->emitSetFirstColdIGCookie(block->bbEmitCookie);
         }
 
-        // Both stacks are always empty on entry to a basic block.
+#if !FEATURE_FIXED_OUT_ARGS
         assert(genStackLevel == 0);
         genAdjustStackLevel(block);
-        savedStkLvl = genStackLevel;
+        unsigned savedStkLvl = genStackLevel;
+#endif
 
         // Needed when jitting debug code
         siBeginBlock(block);
@@ -381,7 +306,7 @@ void CodeGen::genCodeForBBlist()
         // We cannot emit this code in the prolog as it might make the prolog too large.
         if (compiler->compShouldPoisonFrame() && compiler->fgBBisScratch(block))
         {
-            genPoisonFrame(newLiveRegSet);
+            genPoisonFrame(gcInfo.GetLiveLclRegs());
         }
 
 #ifdef DEBUG
@@ -432,21 +357,15 @@ void CodeGen::genCodeForBBlist()
             }
         }
 
+        // Nodes do not have uses accross blocks so no spill temps should be live at the end of a block.
+        assert(spillTemps.GetDefCount() == 0);
+
 #ifdef DEBUG
-        // The following set of register spill checks and GC pointer tracking checks used to be
-        // performed at statement boundaries. Now, with LIR, there are no statements, so they are
-        // performed at the end of each block.
-        // TODO: could these checks be performed more frequently? E.g., at each location where
-        // the register allocator says there are no live non-variable registers. Perhaps this could
-        // be done by using the map maintained by LSRA (operandToLocationInfoMap) to mark a node
-        // somehow when, after the execution of that node, there will be no live non-variable registers.
-
-        regSet.rsSpillChk();
-
         /* Make sure we didn't bungle pointer register tracking */
 
         regMaskTP ptrRegs       = gcInfo.gcRegGCrefSetCur | gcInfo.gcRegByrefSetCur;
-        regMaskTP nonVarPtrRegs = ptrRegs & ~regSet.GetMaskVars();
+        regMaskTP liveLclRegs   = gcInfo.GetLiveLclRegs();
+        regMaskTP nonVarPtrRegs = ptrRegs & ~liveLclRegs;
 
         // If return is a GC-type, clear it.  Note that if a common
         // epilog is generated (genReturnBB) it has a void return
@@ -461,17 +380,14 @@ void CodeGen::genCodeForBBlist()
             nonVarPtrRegs &= ~RBM_INTRET;
         }
 
-        if (nonVarPtrRegs)
+        if (nonVarPtrRegs != RBM_NONE)
         {
-            printf("Regset after " FMT_BB " gcr=", block->bbNum);
-            printRegMaskInt(gcInfo.gcRegGCrefSetCur & ~regSet.GetMaskVars());
-            compiler->GetEmitter()->emitDispRegSet(gcInfo.gcRegGCrefSetCur & ~regSet.GetMaskVars());
-            printf(", byr=");
-            printRegMaskInt(gcInfo.gcRegByrefSetCur & ~regSet.GetMaskVars());
-            compiler->GetEmitter()->emitDispRegSet(gcInfo.gcRegByrefSetCur & ~regSet.GetMaskVars());
-            printf(", regVars=");
-            printRegMaskInt(regSet.GetMaskVars());
-            compiler->GetEmitter()->emitDispRegSet(regSet.GetMaskVars());
+            printf("Regset after " FMT_BB " gcr", block->bbNum);
+            emitter::emitDispRegSet(gcInfo.gcRegGCrefSetCur & ~liveLclRegs);
+            printf(", byr");
+            emitter::emitDispRegSet(gcInfo.gcRegByrefSetCur & ~liveLclRegs);
+            printf(", regVars");
+            emitter::emitDispRegSet(liveLclRegs);
             printf("\n");
         }
 
@@ -539,7 +455,9 @@ void CodeGen::genCodeForBBlist()
 #endif // USING_SCOPE_INFO
         }
 
+#if !FEATURE_FIXED_OUT_ARGS
         SubtractStackLevel(savedStkLvl);
+#endif
 
 #ifdef DEBUG
         // Current live set should be equal to the liveOut set, except that we don't keep
@@ -555,7 +473,7 @@ void CodeGen::genCodeForBBlist()
         while (mismatchLiveVarIter.NextElem(&mismatchLiveVarIndex))
         {
             LclVarDsc* varDsc = compiler->lvaGetDescByTrackedIndex(mismatchLiveVarIndex);
-            if (varDsc->lvIsRegCandidate())
+            if (varDsc->IsRegCandidate())
             {
                 if (!foundMismatchedRegVar)
                 {
@@ -572,8 +490,10 @@ void CodeGen::genCodeForBBlist()
         }
 #endif
 
-        /* Both stacks should always be empty on exit from a basic block */
+#if !FEATURE_FIXED_OUT_ARGS
+        // Both stacks should always be empty on exit from a basic block.
         noway_assert(genStackLevel == 0);
+#endif
 
 #ifdef TARGET_AMD64
         // On AMD64, we need to generate a NOP after a call that is the last instruction of the block, in several
@@ -785,14 +705,6 @@ void CodeGen::genCodeForBBlist()
     // This call is for cleaning the GC refs
     m_liveness.ChangeLife(this, VarSetOps::MakeEmpty(compiler));
 
-    /* Finalize the spill  tracking logic */
-
-    regSet.rsSpillEnd();
-
-    /* Finalize the temp   tracking logic */
-
-    regSet.tmpEnd();
-
 #ifdef DEBUG
     if (compiler->verbose)
     {
@@ -844,7 +756,7 @@ void CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
             // a local may be allocated to a register that is not addressable at the granularity of the
             // local's defined type (e.g. x86).
             var_types   type = lcl->GetActualRegisterType();
-            instruction ins  = ins_Store(type, compiler->lvaIsSimdTypedLocalAligned(lclNum));
+            instruction ins  = ins_Store(type, IsSimdLocalAligned(lclNum));
 
             GetEmitter()->emitIns_S_R(ins, emitTypeSize(type), lclVar->GetRegNum(), lclNum, 0);
         }
@@ -853,7 +765,7 @@ void CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
         genUpdateRegLife(lcl, /*isBorn*/ false, /*isDying*/ true DEBUGARG(lclVar));
         gcInfo.gcMarkRegSetNpt(lcl->lvRegMask());
 
-        if (lcl->HasStackGCPtrLiveness())
+        if (lcl->HasGCSlotLiveness())
         {
             if (!VarSetOps::IsMember(compiler, gcInfo.gcVarPtrSetCur, lcl->GetLivenessBitIndex()))
             {
@@ -1117,7 +1029,7 @@ void CodeGen::UnspillRegIfNeeded(GenTree* node)
 
     if (unspillNode->IsAnyRegSpilled())
     {
-        regSet.UnspillNodeReg(unspillNode, node->GetRegNum(), 0);
+        UnspillNodeReg(unspillNode, node->GetRegNum(), 0);
     }
 }
 
@@ -1159,7 +1071,7 @@ void CodeGen::UnspillRegCandidateLclVar(GenTreeLclVar* node)
     regNumber dstReg = node->GetRegNum();
     unsigned  lclNum = node->GetLclNum();
 
-    instruction ins = ins_Load(regType, compiler->lvaIsSimdTypedLocalAligned(lclNum));
+    instruction ins = ins_Load(regType, IsSimdLocalAligned(lclNum));
     GetEmitter()->emitIns_R_S(ins, emitTypeSize(regType), dstReg, lclNum, 0);
 
     // TODO-Review: We would like to call:
@@ -1204,7 +1116,7 @@ void CodeGen::UnspillRegCandidateLclVar(GenTreeLclVar* node)
 
         JITDUMP("V%02u in reg %s is becoming live at [%06u]\n", lclNum, getRegName(lcl->GetRegNum()), node->GetID());
 
-        regSet.AddMaskVars(genGetRegMask(lcl));
+        gcInfo.AddLiveLclRegs(genGetRegMask(lcl));
     }
 
     gcInfo.gcMarkRegPtrVal(dstReg, regType);
@@ -1307,7 +1219,7 @@ void CodeGen::UnspillRegIfNeeded(GenTree* node, unsigned regIndex)
         node->SetRegNum(regIndex, reg);
     }
 
-    regSet.UnspillNodeReg(unspillNode, reg, regIndex);
+    UnspillNodeReg(unspillNode, reg, regIndex);
 }
 
 void CodeGen::UseRegs(GenTree* node)
@@ -1659,7 +1571,11 @@ void CodeGen::ConsumeStructStore(
     {
         assert(store->HasTempReg(sizeReg));
 
-        genSetRegToIcon(sizeReg, layout->GetSize());
+#ifdef TARGET_XARCH
+        GetEmitter()->emitIns_R_I(INS_mov, EA_4BYTE, sizeReg, static_cast<ssize_t>(layout->GetSize()));
+#else
+        instGen_Set_Reg_To_Imm(EA_4BYTE, sizeReg, static_cast<ssize_t>(layout->GetSize()));
+#endif
     }
 }
 
@@ -1677,6 +1593,80 @@ void CodeGen::ConsumeDynBlk(GenTreeDynBlk* store, regNumber dstReg, regNumber sr
     genCopyRegIfNeeded(value, srcReg);
     genCopyRegIfNeeded(size, sizeReg);
 }
+
+void CodeGen::SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex)
+{
+    assert(!node->IsMultiRegLclVar());
+    assert(!varTypeIsMultiReg(regType));
+    assert(node->IsRegSpill(regIndex));
+
+    regNumber  reg  = node->GetRegNum(regIndex);
+    SpillTemp* temp = spillTemps.DefSpillTemp(node, regIndex, regType);
+
+    JITDUMP("Spilling register %s after [%06u]\n", getRegName(reg), node->GetID());
+
+    regType          = temp->GetType();
+    instruction ins  = ins_Store(regType);
+    emitAttr    attr = emitActualTypeSize(regType);
+
+    GetEmitter()->emitIns_S_R(ins, attr, reg, temp->GetNum(), 0);
+
+    node->SetRegSpill(regIndex, false);
+    node->SetRegSpilled(regIndex, true);
+
+    gcInfo.gcMarkRegSetNpt(genRegMask(reg));
+}
+
+#ifdef TARGET_X86
+void CodeGen::SpillST0(GenTree* node)
+{
+    var_types  type = node->GetType();
+    SpillTemp* temp = spillTemps.DefSpillTemp(node, 0, type);
+
+    JITDUMP("Spilling register ST0 after [%06u]\n", node->GetID());
+
+    GetEmitter()->emitIns_S(INS_fstp, emitTypeSize(type), temp->GetNum(), 0);
+
+    node->SetRegSpill(0, false);
+    node->SetRegSpilled(0, true);
+}
+#endif // TARGET_X86
+
+void CodeGen::UnspillNodeReg(GenTree* node, regNumber reg, unsigned regIndex)
+{
+    assert(!node->IsCopyOrReload());
+    assert(!node->IsMultiRegLclVar());
+
+    regNumber  oldReg = node->GetRegNum(regIndex);
+    SpillTemp* temp   = spillTemps.UseSpillTemp(node, regIndex);
+
+    node->SetRegSpilled(regIndex, false);
+
+    JITDUMP("Unspilling register %s from [%06u]\n", getRegName(oldReg), node->GetID());
+
+    var_types   regType = temp->GetType();
+    instruction ins     = ins_Load(regType);
+    emitAttr    attr    = emitActualTypeSize(regType);
+
+    GetEmitter()->emitIns_R_S(ins, attr, reg, temp->GetNum(), 0);
+
+    gcInfo.gcMarkRegPtrVal(reg, regType);
+}
+
+#ifdef TARGET_X86
+void CodeGen::UnspillST0(GenTree* node)
+{
+    regNumber  oldReg = node->GetRegNum();
+    SpillTemp* temp   = spillTemps.UseSpillTemp(node, 0);
+
+    node->SetRegSpilled(0, false);
+
+    JITDUMP("Unspilling ST0 from [%06u]\n", getRegName(oldReg), node->GetID());
+
+    var_types regType = temp->GetType();
+    GetEmitter()->emitIns_S(INS_fld, emitTypeSize(regType), temp->GetNum(), 0);
+}
+#endif // TARGET_X86
 
 void CodeGen::genProduceReg(GenTree* node)
 {
@@ -1698,7 +1688,7 @@ void CodeGen::DefReg(GenTree* node)
 
     if (node->IsAnyRegSpill())
     {
-        regSet.SpillNodeReg(node, node->GetType(), 0);
+        SpillNodeReg(node, node->GetType(), 0);
     }
     // TODO-MIKE-Review: This check is likely bogus, nodes that use this function
     // likely always have a reg...
@@ -1728,7 +1718,7 @@ void CodeGen::DefLclVarReg(GenTreeLclVar* lclVar)
         }
         else
         {
-            regSet.SpillNodeReg(lclVar, lclVar->GetType(), 0);
+            SpillNodeReg(lclVar, lclVar->GetType(), 0);
 
             return;
         }
@@ -1764,8 +1754,7 @@ void CodeGen::SpillLclVarReg(unsigned lclNum, var_types type, GenTreeLclVar* lcl
         return;
     }
 
-    GetEmitter()->emitIns_S_R(ins_Store(type, compiler->lvaIsSimdTypedLocalAligned(lclNum)), emitTypeSize(type), reg,
-                              lclNum, 0);
+    GetEmitter()->emitIns_S_R(ins_Store(type, IsSimdLocalAligned(lclNum)), emitTypeSize(type), reg, lclNum, 0);
 }
 
 #if FEATURE_ARG_SPLIT
@@ -1780,7 +1769,7 @@ void CodeGen::DefPutArgSplitRegs(GenTreePutArgSplit* arg)
         {
             if (arg->IsRegSpill(i))
             {
-                regSet.SpillNodeReg(arg, arg->GetRegType(i), i);
+                SpillNodeReg(arg, arg->GetRegType(i), i);
             }
         }
     }
@@ -1813,7 +1802,7 @@ void CodeGen::DefCallRegs(GenTreeCall* call)
             {
                 if (call->IsRegSpill(i))
                 {
-                    regSet.SpillNodeReg(call, call->GetRegType(i), i);
+                    SpillNodeReg(call, call->GetRegType(i), i);
                 }
             }
         }
@@ -1826,7 +1815,7 @@ void CodeGen::DefCallRegs(GenTreeCall* call)
                 regType = call->GetRegType(0);
             }
 
-            regSet.SpillNodeReg(call, regType, 0);
+            SpillNodeReg(call, regType, 0);
         }
     }
     else
@@ -1854,12 +1843,12 @@ void CodeGen::DefLongRegs(GenTree* node)
 
     if (node->IsRegSpill(0))
     {
-        regSet.SpillNodeReg(node, TYP_INT, 0);
+        SpillNodeReg(node, TYP_INT, 0);
     }
 
     if (node->IsRegSpill(1))
     {
-        regSet.SpillNodeReg(node, TYP_INT, 1);
+        SpillNodeReg(node, TYP_INT, 1);
     }
 
     gcInfo.gcMarkRegSetNpt(genRegMask(node->GetRegNum(0)) | genRegMask(node->GetRegNum(1)));
@@ -2283,3 +2272,61 @@ bool CodeGen::IsValidSourceType(var_types instrType, var_types sourceType)
     }
 }
 #endif
+
+// Returns true if the TYP_SIMD locals on stack are aligned at their
+// preferred byte boundary specified by lvaGetSimdTypedLocalPreferredAlignment().
+//
+// As per the Intel manual, the preferred alignment for AVX vectors is
+// 32-bytes. It is not clear whether additional stack space used in
+// aligning stack is worth the benefit and for now will use 16-byte
+// alignment for AVX 256-bit vectors with unaligned load/stores to/from
+// memory. On x86, the stack frame is aligned to 4 bytes. We need to extend
+// existing support for double (8-byte) alignment to 16 or 32 byte
+// alignment for frames with local SIMD vars, if that is determined to be
+// profitable.
+//
+// On Amd64 and SysV, RSP+8 is aligned on entry to the function (before
+// prolog has run). This means that in RBP-based frames RBP will be 16-byte
+// aligned. For RSP-based frames these are only sometimes aligned, depending
+// on the frame size.
+//
+bool CodeGen::IsSimdLocalAligned(unsigned lclNum)
+{
+#ifndef FEATURE_SIMD
+    return false;
+#else
+    LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
+
+    if (!varTypeIsSIMD(lcl->GetType()))
+    {
+        return false;
+    }
+
+    int alignment = compiler->lvaGetSimdTypedLocalPreferredAlignment(lcl);
+
+    if (alignment > STACK_ALIGN)
+    {
+        return false;
+    }
+
+    bool rbpBased;
+    int  off = compiler->lvaFrameAddress(lclNum, &rbpBased);
+    // On SysV and Winx64 ABIs RSP+8 will be 16-byte aligned at the
+    // first instruction of a function. If our frame is RBP based
+    // then RBP will always be 16 bytes aligned, so we can simply
+    // check the offset.
+    if (rbpBased)
+    {
+        return (off % alignment) == 0;
+    }
+
+    // For RSP-based frame the alignment of RSP depends on our
+    // locals. rsp+8 is aligned on entry and we just subtract frame
+    // size so it is not hard to compute. Note that the compiler
+    // tries hard to make sure the frame size means RSP will be
+    // 16-byte aligned, but for leaf functions without locals (i.e.
+    // frameSize = 0) it will not be.
+    int frameSize = genTotalFrameSize();
+    return ((8 - frameSize + off) % alignment) == 0;
+#endif
+}

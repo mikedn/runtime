@@ -319,7 +319,7 @@ GenTree* Lowering::LowerNode(GenTree* node)
             break;
 
         case GT_LCLHEAP:
-            ContainCheckLclHeap(node->AsOp());
+            LowerLclHeap(node->AsUnOp());
             break;
 
 #ifdef TARGET_XARCH
@@ -1255,7 +1255,7 @@ void Lowering::LowerCall(GenTreeCall* call)
 #ifdef UNIX_AMD64_ABI
     if (!call->IsFastTailCall())
     {
-        comp->opts.compNeedToAlignFrame = true;
+        comp->codeGen->needToAlignFrame = true;
     }
 #endif
 
@@ -1538,9 +1538,6 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
 
             unsigned argStartOffset = put->GetSlotOffset();
             unsigned argEndOffset   = argStartOffset + put->GetArgSize();
-#ifndef WINDOWS_AMD64_ABI
-            int baseOff = -1; // Stack offset of first arg on stack
-#endif
 
             for (unsigned paramLclNum = 0; paramLclNum < comp->info.GetParamCount(); paramLclNum++)
             {
@@ -1551,26 +1548,13 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
                     continue;
                 }
 
-#ifdef WINDOWS_AMD64_ABI
-                // On Windows x64, the argument position determines the stack slot uniquely, and even the
-                // register args take up space in the stack frame (shadow space).
-                unsigned paramStartOffset = paramLclNum * REGSIZE_BYTES;
-                unsigned paramEndOffset   = paramStartOffset + REGSIZE_BYTES;
-#else
                 assert(paramLcl->GetStackOffset() != BAD_STK_OFFS);
 
-                if (baseOff == -1)
-                {
-                    baseOff = paramLcl->GetStackOffset();
-                }
-
-                // On all ABIs where we fast tail call the stack args should come in order.
-                assert(baseOff <= paramLcl->GetStackOffset());
-
-                // Compute offset of this stack argument relative to the first stack arg.
-                // This will be its offset into the incoming arg space area.
-                unsigned paramStartOffset = static_cast<unsigned>(paramLcl->GetStackOffset() - baseOff);
-                unsigned paramEndOffset   = paramStartOffset + comp->lvaLclSize(paramLclNum);
+                unsigned paramStartOffset = static_cast<unsigned>(paramLcl->GetStackOffset());
+#ifdef WINDOWS_AMD64_ABI
+                unsigned paramEndOffset = paramStartOffset + REGSIZE_BYTES;
+#else
+                unsigned paramEndOffset = paramStartOffset + paramLcl->GetFrameSize();
 #endif
 
                 // If ranges do not overlap then this PUTARG_STK will not mess up the arg.
@@ -2670,7 +2654,7 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call X86_ARG(GenTree* ins
                                                   &vtabOffsAfterIndirection, &isRelative);
 
     CallArgInfo* thisArgInfo = call->GetArgInfoByArgNum(0);
-    assert(thisArgInfo->GetRegNum() == comp->codeGen->genGetThisArgReg(call));
+    assert(thisArgInfo->GetRegNum() == REG_ARG_0);
     assert(thisArgInfo->GetNode()->OperIs(GT_PUTARG_REG));
     GenTree* thisPtr = thisArgInfo->GetNode()->AsUnOp()->GetOp(0);
 
@@ -4421,7 +4405,7 @@ void Lowering::WidenSIMD12IfNecessary(GenTreeLclVar* node)
     // as a return buffer pointer. The callee doesn't write the high 4 bytes, and we don't need to clear
     // it either.
 
-    if (comp->lvaMapSimd12ToSimd16(comp->lvaGetDesc(node)))
+    if (CanWidenSimd12ToSimd16(comp->lvaGetDesc(node)))
     {
         JITDUMP("Mapping TYP_SIMD12 lclvar node to TYP_SIMD16:\n");
         DISPNODE(node);
@@ -4429,6 +4413,52 @@ void Lowering::WidenSIMD12IfNecessary(GenTreeLclVar* node)
 
         node->SetType(TYP_SIMD16);
     }
+}
+
+bool Lowering::CanWidenSimd12ToSimd16(const LclVarDsc* lcl)
+{
+    assert(lcl->TypeIs(TYP_SIMD12));
+
+    if (lcl->IsDependentPromotedField(comp))
+    {
+        lcl = comp->lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
+
+        if (lcl->GetPromotedFieldCount() > 1)
+        {
+            return false;
+        }
+    }
+
+    // TODO-MIKE-Cleanup: Maybe this should be solely based on GetFrameSize?
+    // But GetFrameSize's primary purpose is to return the local size for our
+    // own frame allocation needs, it shouldn't have to deal with param sizes
+    // which are ABI specific (except for reg params, which may have allocated
+    // space on our own frame).
+    // Use lvaGetParamAllocSize perhaps? Originally that was kind of expensive
+    // but now it's probably reasonable enough, though it would still repeat
+    // the same computation for every node we try to widen.
+    // Ideally, we'd just compute the local allocation size once and store it
+    // int LclVarDsc, but that would increase the size of LclVarDsc and it's
+    // not need often enough to justify that.
+
+    if (lcl->IsParam())
+    {
+#if defined(OSX_ARM64_ABI)
+        // Vector3 HFA size isn't rounded up to 16 bytes on osx-arm64 when
+        // passed in stack.
+        return !lcl->IsRegParam();
+#elif defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
+        return true;
+#else
+        // x86 Vector3 params are always 12 byte in size so we can't widen.
+        // ARM32 doesn't support SIMD but it would have the same restriction
+        // for stack params (though not for reg params).
+        // For anything else we're just being conservative.
+        return false;
+#endif
+    }
+
+    return lcl->GetFrameSize() == 16;
 }
 #endif // FEATURE_SIMD
 
@@ -4583,6 +4613,15 @@ GenTree* Lowering::LowerArrElem(GenTree* node)
 
 PhaseStatus Lowering::DoPhase()
 {
+#ifdef PROFILING_SUPPORTED
+#ifdef UNIX_AMD64_ABI
+    if (comp->compIsProfilerHookNeeded())
+    {
+        comp->codeGen->needToAlignFrame = true;
+    }
+#endif
+#endif // PROFILING_SUPPORTED
+
     // If we have any PInvoke calls, insert the one-time prolog code. We'll inserted the epilog code in the
     // appropriate spots later. NOTE: there is a minor optimization opportunity here, as we still create p/invoke
     // data structures and setup/teardown even if we've eliminated all p/invoke calls due to dead code elimination.
@@ -4682,17 +4721,7 @@ void Lowering::CheckAllLocalsImplicitlyReferenced()
         assert(!lcl->lvMustInit);
     }
 }
-#endif // DEBUG
 
-#ifdef DEBUG
-
-//------------------------------------------------------------------------
-// Lowering::CheckCallArg: check that a call argument is in an expected
-//                         form after lowering.
-//
-// Arguments:
-//   arg - the argument to check.
-//
 void Lowering::CheckCallArg(GenTree* arg)
 {
     if (!arg->IsValue() && !arg->OperIsPutArgStk())
@@ -4721,15 +4750,6 @@ void Lowering::CheckCallArg(GenTree* arg)
     }
 }
 
-//------------------------------------------------------------------------
-// Lowering::CheckCall: check that a call is in an expected form after
-//                      lowering. Currently this amounts to checking its
-//                      arguments, but could be expanded to verify more
-//                      properties in the future.
-//
-// Arguments:
-//   call - the call to check.
-//
 void Lowering::CheckCall(GenTreeCall* call)
 {
     if (call->gtCallThisArg != nullptr)
@@ -4748,15 +4768,7 @@ void Lowering::CheckCall(GenTreeCall* call)
     }
 }
 
-//------------------------------------------------------------------------
-// Lowering::CheckNode: check that an LIR node is in an expected form
-//                      after lowering.
-//
-// Arguments:
-//   compiler - the compiler context.
-//   node - the node to check.
-//
-void Lowering::CheckNode(Compiler* compiler, GenTree* node)
+void Lowering::CheckNode(GenTree* node)
 {
     switch (node->OperGet())
     {
@@ -4768,28 +4780,22 @@ void Lowering::CheckNode(Compiler* compiler, GenTree* node)
         case GT_HWINTRINSIC:
             assert(!node->TypeIs(TYP_SIMD12));
             break;
-#endif // FEATURE_SIMD
+#endif
 
         case GT_LCL_VAR:
         case GT_STORE_LCL_VAR:
         {
-            LclVarDsc* lcl = compiler->lvaGetDesc(node->AsLclVar());
-#if defined(FEATURE_SIMD) && defined(TARGET_64BIT)
-            if (node->TypeIs(TYP_SIMD12))
-            {
-                assert(lcl->IsDependentPromotedField(compiler) || (lcl->lvSize() == 12));
-            }
-#endif // FEATURE_SIMD && TARGET_64BIT
-            if (lcl->lvPromoted)
-            {
-                assert(lcl->lvDoNotEnregister || lcl->lvIsMultiRegRet);
-            }
+            LclVarDsc* lcl = comp->lvaGetDesc(node->AsLclVar());
+#ifdef FEATURE_SIMD
+            assert(!node->TypeIs(TYP_SIMD12) || !CanWidenSimd12ToSimd16(lcl));
+#endif
+            assert(!lcl->IsPromoted() || lcl->lvDoNotEnregister || lcl->lvIsMultiRegRet);
         }
         break;
 
         case GT_LCL_VAR_ADDR:
         case GT_LCL_FLD_ADDR:
-            assert(compiler->lvaGetDesc(node->AsLclVarCommon())->IsAddressExposed());
+            assert(comp->lvaGetDesc(node->AsLclVarCommon())->IsAddressExposed());
             break;
 
         case GT_PHI:
@@ -4799,7 +4805,7 @@ void Lowering::CheckNode(Compiler* compiler, GenTree* node)
 
         case GT_LCL_FLD:
         case GT_STORE_LCL_FLD:
-            assert(compiler->lvaGetDesc(node->AsLclFld())->lvDoNotEnregister);
+            assert(comp->lvaGetDesc(node->AsLclFld())->lvDoNotEnregister);
             break;
 
         default:
@@ -4807,27 +4813,19 @@ void Lowering::CheckNode(Compiler* compiler, GenTree* node)
     }
 }
 
-//------------------------------------------------------------------------
-// Lowering::CheckBlock: check that the contents of an LIR block are in an
-//                       expected form after lowering.
-//
-// Arguments:
-//   compiler - the compiler context.
-//   block    - the block to check.
-//
-bool Lowering::CheckBlock(Compiler* compiler, BasicBlock* block)
+bool Lowering::CheckBlock(BasicBlock* block)
 {
     assert(block->isEmpty() || block->IsLIR());
 
     for (GenTree* node : LIR::AsRange(block))
     {
-        CheckNode(compiler, node);
+        CheckNode(node);
     }
 
-    assert(LIR::AsRange(block).CheckLIR(compiler, true));
+    assert(LIR::AsRange(block).CheckLIR(comp, true));
     return true;
 }
-#endif
+#endif // DEBUG
 
 //------------------------------------------------------------------------
 // Lowering::LowerBlock: Lower all the nodes in a BasicBlock
@@ -4855,7 +4853,7 @@ void Lowering::LowerBlock(BasicBlock* block)
         node = LowerNode(node);
     }
 
-    assert(CheckBlock(comp, block));
+    assert(CheckBlock(block));
 }
 
 #if FEATURE_MULTIREG_RET
@@ -4934,19 +4932,21 @@ void Lowering::ContainCheckArrOffset(GenTreeArrOffs* node)
     }
 }
 
-//------------------------------------------------------------------------
-// ContainCheckLclHeap: determine whether the source of a GT_LCLHEAP node should be contained.
-//
-// Arguments:
-//    node - pointer to the node
-//
-void Lowering::ContainCheckLclHeap(GenTreeOp* node)
+void Lowering::LowerLclHeap(GenTreeUnOp* node)
 {
-    assert(node->OperIs(GT_LCLHEAP));
-    GenTree* size = node->AsOp()->gtOp1;
-    if (size->IsCnsIntOrI())
+    assert(node->OperIs(GT_LCLHEAP) && node->TypeIs(TYP_I_IMPL));
+
+    if (GenTreeIntCon* size = node->GetOp(0)->IsIntCon())
     {
-        MakeSrcContained(node, size);
+        if (size->GetValue() == 0)
+        {
+            node->ChangeToIntCon(0);
+            BlockRange().Remove(size);
+        }
+        else
+        {
+            size->SetContained();
+        }
     }
 }
 
@@ -5243,7 +5243,7 @@ void Lowering::LowerStoreIndir(GenTreeStoreInd* store)
 
     TryCreateAddrMode(store->GetAddr(), true);
 
-    if (comp->codeGen->gcInfo.GetWriteBarrierForm(store) == GCInfo::WBF_NoBarrier)
+    if (GCInfo::GetWriteBarrierForm(store) == GCInfo::WBF_NoBarrier)
     {
         LowerStoreIndirArch(store);
     }

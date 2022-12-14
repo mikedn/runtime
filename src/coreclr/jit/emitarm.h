@@ -68,22 +68,20 @@ void emitDispIns(instrDesc* id,
 /************************************************************************/
 
 private:
-instrDesc* emitNewInstrCallDir(
-    int argCnt, VARSET_VALARG_TP GCvars, regMaskTP gcrefRegs, regMaskTP byrefRegs, emitAttr retSize);
-
-instrDesc* emitNewInstrCallInd(
-    int argCnt, ssize_t disp, VARSET_VALARG_TP GCvars, regMaskTP gcrefRegs, regMaskTP byrefRegs, emitAttr retSize);
+instrDesc* emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle, emitAttr retSize);
 
 /************************************************************************/
 /*               Private helpers for instruction output                 */
 /************************************************************************/
 
-private:
+public:
+static bool validImmForInstr(instruction ins, target_ssize_t imm, insFlags flags = INS_FLAGS_DONT_CARE);
+static bool validDispForLdSt(target_ssize_t disp, var_types type);
+static bool validImmForBL(ssize_t addr, Compiler* compiler);
 static bool emitInsIsCompare(instruction ins);
 static bool emitInsIsLoad(instruction ins);
 static bool emitInsIsStore(instruction ins);
 static bool emitInsIsLoadOrStore(instruction ins);
-
 emitter::insFormat emitInsFormat(instruction ins);
 emitter::code_t emitInsCode(instruction ins, insFormat fmt);
 
@@ -92,6 +90,10 @@ static bool isModImmConst(int imm);
 static int encodeModImmConst(int imm);
 
 static int insUnscaleImm(instruction ins, int imm);
+
+void MovRegStackOffset(regNumber reg, int imm, int varNum, int varOffs);
+int OptimizeFrameAddress(int fpOffset, bool isFloatLoadStore, regNumber* baseReg);
+void Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum, int varOffs);
 
 /************************************************************************/
 /*           Public inline informational methods                        */
@@ -268,11 +270,9 @@ void emitIns_R_R_R_I(instruction ins,
 
 void emitIns_R_R_R_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, regNumber reg3, regNumber reg4);
 
-void emitIns_genStackOffset(regNumber r, int varx, int offs, bool isFloatUsage, regNumber* pBaseReg);
+void emitIns_S_R(instruction ins, emitAttr attr, regNumber ireg, int varNum, int varOffs);
 
-void emitIns_S_R(instruction ins, emitAttr attr, regNumber ireg, int varx, int offs);
-
-void emitIns_R_S(instruction ins, emitAttr attr, regNumber ireg, int varx, int offs, regNumber* pBaseReg = nullptr);
+void emitIns_R_S(instruction ins, emitAttr attr, regNumber ireg, int varNum, int varOffs);
 
 void emitIns_R_C(instruction ins, emitAttr attr, regNumber reg, CORINFO_FIELD_HANDLE fldHnd);
 
@@ -298,17 +298,12 @@ enum EmitCallType
     EC_INDIR_R     // Indirect call via register
 };
 
-void emitIns_Call(EmitCallType          callType,
-                  CORINFO_METHOD_HANDLE methHnd DEBUGARG(CORINFO_SIG_INFO* sigInfo),
-                  void*            addr,
-                  int              argSize,
-                  emitAttr         retSize,
-                  VARSET_VALARG_TP ptrVars,
-                  regMaskTP        gcrefRegs,
-                  regMaskTP        byrefRegs,
-                  IL_OFFSETX       ilOffset = BAD_IL_OFFSET,
-                  regNumber        ireg     = REG_NA,
-                  bool             isJump   = false);
+void emitIns_Call(EmitCallType          kind,
+                  CORINFO_METHOD_HANDLE methodHandle DEBUGARG(CORINFO_SIG_INFO* sigInfo),
+                  void*     addr,
+                  emitAttr  retRegAttr,
+                  regNumber reg    = REG_NA,
+                  bool      isJump = false);
 
 /*****************************************************************************
  *

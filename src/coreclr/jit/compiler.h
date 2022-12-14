@@ -67,7 +67,7 @@ struct InfoHdr;            // defined in GCInfo.h
 struct escapeMapping_t;    // defined in fgdiagnostic.cpp
 class emitter;             // defined in emit.h
 struct ShadowParamVarInfo; // defined in GSChecks.cpp
-struct InitVarDscInfo;     // defined in register_arg_convention.h
+struct ParamAllocInfo;     // defined in register_arg_convention.h
 class FgStack;             // defined in fgbasic.cpp
 class Instrumentor;        // defined in fgprofile.cpp
 class SpanningTreeVisitor; // defined in fgprofile.cpp
@@ -311,7 +311,7 @@ public:
     }
 };
 
-enum RefCountState
+enum RefCountState : uint8_t
 {
     RCS_INVALID, // not valid to get/set ref counts
     RCS_MORPH,   // morphing uses the 2 LclVarDsc ref count members for implicit by ref optimizations
@@ -322,10 +322,6 @@ class LclVarDsc
 {
 public:
     LclVarDsc()
-        : _lvArgReg(REG_STK)
-#if FEATURE_MULTIREG_ARGS
-        , _lvOtherArgReg(REG_STK)
-#endif
     {
         // It is expected that the memory allocated for LclVarDsc is already zeroed.
         assert(lvType == TYP_UNDEF);
@@ -334,15 +330,20 @@ public:
 
     var_types lvType;
 
-    unsigned char lvIsParam : 1;           // is this a parameter?
-    unsigned char lvIsRegArg : 1;          // is this an argument that was passed by register?
+    unsigned char lvIsParam : 1;  // is this a parameter?
+    unsigned char lvIsRegArg : 1; // is this an argument that was passed by register?
+#ifdef TARGET_ARM64
+    unsigned char m_paramRegCount : 3;
+#elif defined(TARGET_ARM)
+    unsigned char m_paramRegCount : 4;
+#endif
     unsigned char lvFramePointerBased : 1; // 0 = off of REG_SPBASE (e.g., ESP), 1 = off of REG_FPBASE (e.g., EBP)
 
     unsigned char lvOnFrame : 1;  // (part of) the variable lives on the frame
     unsigned char lvRegister : 1; // assigned to live in a register? For RyuJIT backend, this is only set if the
                                   // variable is in the same register for the entire function.
     unsigned char lvTracked : 1;  // is this a tracked variable?
-    unsigned char m_hasStackGCPtrLiveness : 1;
+    unsigned char m_hasGCLiveness : 1;
     unsigned char lvPinned : 1; // is this a pinned variable?
 
     unsigned char lvMustInit : 1;    // must be initialized
@@ -406,6 +407,38 @@ public:
         return m_layout;
 #else
         return nullptr;
+#endif
+    }
+
+#ifdef TARGET_ARM
+    bool IsPreSpilledRegParam(regMaskTP preSpillMask) const
+    {
+        return lvIsRegArg && (preSpillMask & genRegMask(GetParamReg()));
+    }
+#endif
+
+#ifdef FEATURE_HFA
+    void SetIsHfaParam()
+    {
+        m_isHfa = true;
+    }
+#endif
+
+    bool IsHfaParam() const
+    {
+#ifdef FEATURE_HFA
+        return m_isHfa;
+#else
+        return false;
+#endif
+    }
+
+    bool IsHfaRegParam() const
+    {
+#ifdef FEATURE_HFA
+        return lvIsRegArg && m_isHfa;
+#else
+        return false;
 #endif
     }
 
@@ -571,24 +604,6 @@ public:
 
     INDEBUG(char lvSingleDefDisqualifyReason = 'H';)
 
-    bool lvIsHfa() const
-    {
-#ifdef FEATURE_HFA
-        return m_isHfa;
-#else
-        return false;
-#endif
-    }
-
-    bool lvIsHfaRegArg() const
-    {
-#ifdef FEATURE_HFA
-        return lvIsRegArg && lvIsHfa();
-#else
-        return false;
-#endif
-    }
-
 private:
     regNumberSmall _lvRegNum; // Used to store the register this variable is in (or, the low register of a
                               // register pair). It is set during codegen any time the
@@ -596,14 +611,13 @@ private:
                               // to non-zero if the variable gets the same register assignment for its entire
                               // lifetime).
 
-    regNumberSmall _lvArgReg; // The (first) register in which this argument is passed.
+#ifdef UNIX_AMD64_ABI
+    regNumberSmall m_paramRegs[2]{REG_NA, REG_NA};
+#else
+    regNumberSmall m_paramRegs[1]{REG_NA};
+#endif
 
-#if FEATURE_MULTIREG_ARGS
-    regNumberSmall _lvOtherArgReg; // Used for the second part of the struct passed in a register.
-                                   // Note this is defined but not used by ARM32
-#endif                             // FEATURE_MULTIREG_ARGS
-
-    regNumberSmall _lvArgInitReg; // the register into which the argument is moved at entry
+    regNumberSmall m_paramInitialReg; // the register into which the argument is loaded at entry
 
 public:
     // The register number is stored in a small format (8 bits), but the getters return and the setters take
@@ -622,57 +636,130 @@ public:
         assert(_lvRegNum == reg);
     }
 
-    regNumber GetArgReg() const
+    regNumber GetParamReg() const
     {
-        return (regNumber)_lvArgReg;
+        return static_cast<regNumber>(m_paramRegs[0]);
     }
-
-    void SetArgReg(regNumber reg)
-    {
-        _lvArgReg = (regNumberSmall)reg;
-        assert(_lvArgReg == reg);
-    }
-
-#if FEATURE_MULTIREG_ARGS
-    regNumber GetOtherArgReg() const
-    {
-        return (regNumber)_lvOtherArgReg;
-    }
-
-    void SetOtherArgReg(regNumber reg)
-    {
-        _lvOtherArgReg = (regNumberSmall)reg;
-        assert(_lvOtherArgReg == reg);
-    }
-#endif
 
 #ifdef UNIX_AMD64_ABI
-    regNumber GetParamReg(unsigned index)
+    regNumber GetParamReg(unsigned index) const
     {
-        if (index == 0)
-        {
-            return GetArgReg();
-        }
-        else
-        {
-            assert(index == 1);
-            return GetOtherArgReg();
-        }
+        assert(index < _countof(m_paramRegs));
+
+        return static_cast<regNumber>(m_paramRegs[index]);
     }
 
     void SetParamReg(unsigned index, regNumber reg)
     {
-        if (index == 0)
-        {
-            return SetArgReg(reg);
-        }
-        else
-        {
-            assert(index == 1);
-            return SetOtherArgReg(reg);
-        }
+        assert(index < _countof(m_paramRegs));
+        assert(reg != REG_STK);
+
+        m_paramRegs[index] = static_cast<regNumberSmall>(reg);
     }
+
+    void SetParamRegs(regNumber reg0, regNumber reg1 = REG_NA)
+    {
+        assert(lvIsParam);
+        assert((reg0 != REG_STK) && (reg0 != REG_NA) && (reg1 != REG_STK));
+
+        lvIsRegArg = true;
+
+        m_paramRegs[0] = static_cast<regNumberSmall>(reg0);
+        m_paramRegs[1] = static_cast<regNumberSmall>(reg1);
+    }
+
+    void ClearParamRegs()
+    {
+        assert(lvIsParam);
+
+        lvIsRegArg      = false;
+        lvIsMultiRegArg = false;
+
+        m_paramRegs[0] = REG_NA;
+        m_paramRegs[1] = REG_NA;
+    }
+#elif defined(TARGET_XARCH)
+    regNumber GetParamReg(unsigned index) const
+    {
+        assert(index < _countof(m_paramRegs));
+
+        return static_cast<regNumber>(m_paramRegs[index]);
+    }
+
+    void SetParamRegs(regNumber reg)
+    {
+        assert(lvIsParam);
+        assert((reg != REG_STK) && (reg != REG_NA));
+
+        lvIsRegArg = true;
+
+        m_paramRegs[0] = static_cast<regNumberSmall>(reg);
+    }
+
+    void ClearParamRegs()
+    {
+        lvIsRegArg      = false;
+        lvIsMultiRegArg = false;
+
+        m_paramRegs[0] = REG_NA;
+    }
+#elif defined(TARGET_ARMARCH)
+    regNumber GetParamReg(unsigned index) const
+    {
+        assert(index < m_paramRegCount);
+
+        return static_cast<regNumber>(m_paramRegs[0] + index);
+    }
+
+    void SetParamRegs(regNumber reg0, unsigned regCount = 1)
+    {
+        assert((reg0 != REG_STK) && (reg0 != REG_NA));
+#ifdef TARGET_ARM64
+        assert(regCount <= MAX_ARG_REG_COUNT);
+#else
+        // TODO-MIKE-Cleanup: On ARM we count a DOUBLE reg as 2 FLOAT regs.
+        // Can this be avoided somehow? It complicates lvIsMultiRegArg because
+        // a HFA with a single DOUBLE element uses 2 regs but lvIsMultiRegArg
+        // is false for it.
+        assert(regCount <= MAX_ARG_REG_COUNT * 2);
 #endif
+
+        lvIsRegArg = true;
+
+        m_paramRegs[0]  = static_cast<regNumberSmall>(reg0);
+        m_paramRegCount = regCount;
+    }
+
+    void ClearParamRegs()
+    {
+        lvIsRegArg      = false;
+        lvIsMultiRegArg = false;
+
+        m_paramRegs[0]  = REG_NA;
+        m_paramRegCount = 0;
+    }
+#endif // TARGET_ARMARCH
+
+    unsigned GetParamRegCount() const
+    {
+#ifdef UNIX_AMD64_ABI
+        return !lvIsRegArg ? 0 : (1 + (m_paramRegs[1] != REG_NA));
+#elif defined(TARGET_XARCH)
+        return !lvIsRegArg ? 0 : 1;
+#elif defined(TARGET_ARMARCH)
+        return m_paramRegCount;
+#endif
+    }
+
+    regNumber GetParamInitialReg() const
+    {
+        return static_cast<regNumber>(m_paramInitialReg);
+    }
+
+    void SetParamInitialReg(regNumber reg)
+    {
+        m_paramInitialReg = static_cast<regNumberSmall>(reg);
+    }
 
     // Is this is a SIMD struct which is used for SIMD intrinsic?
     bool lvIsUsedInSIMDIntrinsic() const
@@ -684,26 +771,6 @@ public:
 #endif
     }
 
-    /////////////////////
-
-    regNumber GetArgInitReg() const
-    {
-        return (regNumber)_lvArgInitReg;
-    }
-
-    void SetArgInitReg(regNumber reg)
-    {
-        _lvArgInitReg = (regNumberSmall)reg;
-        assert(_lvArgInitReg == reg);
-    }
-
-    /////////////////////
-
-    bool lvIsRegCandidate() const
-    {
-        return IsRegCandidate();
-    }
-
     bool IsRegCandidate() const
     {
         return lvLRACandidate != 0;
@@ -711,7 +778,7 @@ public:
 
     bool lvIsInReg() const
     {
-        return lvIsRegCandidate() && (GetRegNum() != REG_STK);
+        return lvLRACandidate && (GetRegNum() != REG_STK);
     }
 
     regMaskTP lvRegMask() const
@@ -741,20 +808,26 @@ public:
         return lvTracked;
     }
 
-    bool HasStackGCPtrLiveness() const
-    {
-        return m_hasStackGCPtrLiveness;
-    }
-
-    void SetHasStackGCPtrLiveness()
-    {
-        m_hasStackGCPtrLiveness = true;
-    }
-
     unsigned GetLivenessBitIndex() const
     {
         assert(lvTracked);
         return lvVarIndex;
+    }
+
+    void SetHasGCLiveness()
+    {
+        assert(lvTracked && varTypeIsGC(lvType));
+        m_hasGCLiveness = true;
+    }
+
+    bool HasGCLiveness() const
+    {
+        return m_hasGCLiveness;
+    }
+
+    bool HasGCSlotLiveness() const
+    {
+        return m_hasGCLiveness && lvOnFrame;
     }
 
 private:
@@ -819,8 +892,6 @@ public:
 #endif // defined(TARGET_64BIT)
     }
 
-    unsigned lvSize() const;
-
     // TODO-MIKE-Cleanup: Maybe lvImpTypeInfo can be replaced with CORINFO_CLASS_HANDLE
     // since the rest of the bits in typeInfo aren't very useful, they can be recreated
     // from the local's type. Also:
@@ -844,6 +915,12 @@ public:
     Statement* lvDefStmt;   // Pointer to the statement with the single definition
 #endif
     var_types GetType() const
+    {
+        return lvType;
+    }
+
+    // [[deprecated]]
+    var_types TypeGet() const
     {
         return lvType;
     }
@@ -878,7 +955,7 @@ public:
         return lvExactSize;
     }
 
-    unsigned GetSize() const
+    unsigned GetTypeSize() const
     {
         switch (lvType)
         {
@@ -891,42 +968,21 @@ public:
         }
     }
 
-    var_types TypeGet() const
-    {
-        return (var_types)lvType;
-    }
-    bool lvStackAligned() const
-    {
-        assert(lvIsStructField);
-        return ((lvFldOffset % TARGET_POINTER_SIZE) == 0);
-    }
+    unsigned GetFrameSize() const;
+
     bool lvNormalizeOnLoad() const
     {
-        return varTypeIsSmall(TypeGet()) &&
+        return varTypeIsSmall(lvType) &&
                // lvIsStructField is treated the same as the aliased local, see fgMorphNormalizeLclVarStore.
                (lvIsParam || lvAddrExposed || lvIsStructField);
     }
 
     bool lvNormalizeOnStore() const
     {
-        return varTypeIsSmall(TypeGet()) &&
+        return varTypeIsSmall(lvType) &&
                // lvIsStructField is treated the same as the aliased local, see fgMorphNormalizeLclVarStore.
                !(lvIsParam || lvAddrExposed || lvIsStructField);
     }
-
-    bool IsFloatRegType() const
-    {
-        return varTypeUsesFloatReg(lvType) || lvIsHfaRegArg();
-    }
-
-    void SetIsHfa(bool isHfa)
-    {
-#ifdef FEATURE_HFA
-        m_isHfa = isHfa;
-#endif
-    }
-
-    var_types lvaArgType();
 
     // Returns true if this variable contains GC pointers (including being a GC pointer itself).
     bool HasGCPtr() const
@@ -987,118 +1043,6 @@ public:
 
     INDEBUG(const char* lvReason;)
 };
-
-/*
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                           TempsInfo                                       XX
-XX                                                                           XX
-XX  The temporary lclVars allocated by the compiler for code generation      XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
-/*****************************************************************************
- *
- *  The following keeps track of temporaries allocated in the stack frame
- *  during code-generation (after register allocation). These spill-temps are
- *  only used if we run out of registers while evaluating a tree.
- *
- *  These are different from the more common temps allocated by lvaGrabTemp().
- */
-
-class TempDsc
-{
-public:
-    TempDsc* tdNext;
-
-private:
-    int tdOffs;
-#ifdef DEBUG
-    static const int BAD_TEMP_OFFSET = 0xDDDDDDDD; // used as a sentinel "bad value" for tdOffs in DEBUG
-#endif                                             // DEBUG
-
-    int       tdNum;
-    BYTE      tdSize;
-    var_types tdType;
-
-public:
-    TempDsc(int _tdNum, unsigned _tdSize, var_types _tdType) : tdNum(_tdNum), tdSize((BYTE)_tdSize), tdType(_tdType)
-    {
-#ifdef DEBUG
-        // temps must have a negative number (so they have a different number from all local variables)
-        assert(tdNum < 0);
-        tdOffs = BAD_TEMP_OFFSET;
-#endif // DEBUG
-        if (tdNum != _tdNum)
-        {
-            IMPL_LIMITATION("too many spill temps");
-        }
-    }
-
-#ifdef DEBUG
-    bool tdLegalOffset() const
-    {
-        return tdOffs != BAD_TEMP_OFFSET;
-    }
-#endif // DEBUG
-
-    int tdTempOffs() const
-    {
-        assert(tdLegalOffset());
-        return tdOffs;
-    }
-    void tdSetTempOffs(int offs)
-    {
-        tdOffs = offs;
-        assert(tdLegalOffset());
-    }
-    void tdAdjustTempOffs(int offs)
-    {
-        tdOffs += offs;
-        assert(tdLegalOffset());
-    }
-
-    int tdTempNum() const
-    {
-        assert(tdNum < 0);
-        return tdNum;
-    }
-    unsigned tdTempSize() const
-    {
-        return tdSize;
-    }
-    var_types tdTempType() const
-    {
-        return tdType;
-    }
-
-    unsigned GetTempNum() const
-    {
-        return tdNum;
-    }
-
-    var_types GetType() const
-    {
-        return tdType;
-    }
-};
-
-// interface to hide linearscan implementation from rest of compiler
-class LinearScanInterface
-{
-public:
-    virtual void doLinearScan()                                = 0;
-    virtual void recordVarLocationsAtStartOfBB(BasicBlock* bb) = 0;
-#if TRACK_LSRA_STATS
-    virtual void dumpLsraStatsCsv(FILE* file)     = 0;
-    virtual void dumpLsraStatsSummary(FILE* file) = 0;
-#endif // TRACK_LSRA_STATS
-};
-
-LinearScanInterface* getLinearScanAllocator(Compiler* comp);
 
 // Information about arrays: their element type and size, and the offset of the first element.
 struct ArrayInfo
@@ -1483,7 +1427,6 @@ XX    o  Optimizer                                                           XX
 XX    o  RegAlloc                                                            XX
 XX    o  EEInterface                                                         XX
 XX    o  TempsInfo                                                           XX
-XX    o  RegSet                                                              XX
 XX    o  GCInfo                                                              XX
 XX    o  Instruction                                                         XX
 XX    o  ScopeInfo                                                           XX
@@ -1555,10 +1498,6 @@ struct CompiledMethodInfo
     // The following holds the class attributes for the method we're compiling.
     unsigned compClassAttr;
 
-#if FEATURE_FASTTAILCALL
-    unsigned compArgStackSize; // Incoming argument stack size in bytes
-#endif
-
     unsigned compRetBuffArg;  // position of hidden return param var (0, 1) (BAD_VAR_NUM means not present);
     unsigned compTypeCtxtArg; // position of hidden param for type context for generic code (CORINFO_CALLCONV_PARAMTYPE)
     unsigned compThisArg;     // position of implicit this pointer param (not to be confused with lvaArg0Var)
@@ -1580,7 +1519,6 @@ struct CompiledMethodInfo
 
     CorInfoCallConvExtension compCallConv; // The entry-point calling convention for this method.
     regNumber                virtualStubParamRegNum;
-    Target::ArgOrder         compArgOrder;
 
     bool compIsStatic : 1;           // Is the method static (no 'this' pointer)?
     bool compIsVarArgs : 1;          // Does the method have varargs parameters?
@@ -1652,7 +1590,8 @@ struct CompilerOptions
     int compJitSaveFpLrWithCalleeSavedRegisters;
 #endif
 
-    OptFlags     optFlags;
+    OptFlags     optFlags : 6;
+    bool         framePointerRequired : 1;
     codeOptimize compCodeOpt; // what type of code optimizations
 
 // optimize maximally and/or favor speed over size?
@@ -1756,6 +1695,16 @@ struct CompilerOptions
         return jitFlags->IsSet(JitFlags::JIT_FLAG_REVERSE_PINVOKE);
     }
 
+    bool IsFramePointerRequired() const
+    {
+        return framePointerRequired;
+    }
+
+    void SetFramePointerRequired()
+    {
+        framePointerRequired = true;
+    }
+
     bool compScopeInfo : 1; // Generate the LocalVar info ?
     bool compDbgCode : 1;   // Generate debugger-friendly code?
     bool compDbgInfo : 1;   // Gather debugging info?
@@ -1786,16 +1735,6 @@ struct CompilerOptions
 #endif
 #endif // DEBUG
 
-#ifdef UNIX_AMD64_ABI
-    // This flag  is indicating if there is a need to align the frame.
-    // On AMD64-Windows, if there are calls, 4 slots for the outgoing ars are allocated, except for
-    // FastTailCall. This slots makes the frame size non-zero, so alignment logic will be called.
-    // On AMD64-Unix, there are no such slots. There is a possibility to have calls in the method with frame size of
-    // 0. The frame alignment logic won't kick in. This flags takes care of the AMD64-Unix case by remembering that
-    // there are calls and making sure the frame alignment logic is executed.
-    bool compNeedToAlignFrame;
-#endif // UNIX_AMD64_ABI
-
     bool compProcedureSplitting : 1; // Separate cold code from hot code
 
     bool altJit : 1; // True if we are an altjit and are compiling this method
@@ -1812,7 +1751,6 @@ struct CompilerOptions
     bool dspInstrs : 1;                // Display the IL instructions intermixed with the native code output
     bool dmpHex;                       // Display raw bytes in hex of native code output
     bool disAsm;                       // Display native code as it is generated
-    bool disAsmSpilled;                // Display native code when any register spilling occurs
     bool disasmWithGC;                 // Display GC info interleaved with disassembly.
     bool disDiffable;                  // Makes the Disassembly code 'diff-able'
     bool disAddr;                      // Display process address next to each instruction in disassembly code
@@ -2926,7 +2864,6 @@ class Compiler
     friend class CodeGenInterface;
     friend class CodeGen;
     friend class LclVarDsc;
-    friend class TempDsc;
     friend class LIR;
     friend class ObjectAllocator;
     friend class LocalAddressVisitor;
@@ -3692,7 +3629,6 @@ public:
     int dmpLclName(unsigned lclNum);
     char* gtGetLclVarName(unsigned lclNum);
     void gtDispLclVar(unsigned lclNum, bool padForBiggestDisp = true);
-    void gtDispLclVarStructType(unsigned lclNum);
     void gtDispClassLayout(ClassLayout* layout, var_types type);
     void gtDispStmt(Statement* stmt, const char* msg = nullptr);
     void gtDispBlockStmts(BasicBlock* block);
@@ -3762,6 +3698,9 @@ public:
 
     BasicBlock* bbNewBasicBlock(BBjumpKinds jumpKind);
 
+    Phases      mostRecentlyActivePhase = PHASE_PRE_IMPORT;        // the most recently active phase
+    PhaseChecks activePhaseChecks       = PhaseChecks::CHECK_NONE; // the currently active phase checks
+
     /*
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -3777,21 +3716,23 @@ public:
     enum FrameLayoutState : uint8_t
     {
         NO_FRAME_LAYOUT,
-        INITIAL_FRAME_LAYOUT,
-        PRE_REGALLOC_FRAME_LAYOUT,
+#ifdef TARGET_ARMARCH
         REGALLOC_FRAME_LAYOUT,
-        TENTATIVE_FRAME_LAYOUT,
+#endif
         FINAL_FRAME_LAYOUT
     };
 
 public:
     RefCountState lvaRefCountState = RCS_INVALID; // Current local ref count state
-
-    bool lvaAddressExposedLocalsMarked = false;
+    bool          lvaEnregEHVars;
+    bool          lvaAddressExposedLocalsMarked = false;
 #if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
     bool lvaHasImplicitByRefParams;
 #endif
     bool lvaGenericsContextInUse = false;
+    // The highest frame layout state that we've completed. During frame
+    // layout calculations, this is the level we are currently computing.
+    FrameLayoutState lvaDoneFrameLayout = NO_FRAME_LAYOUT;
 
     bool lvaLocalVarRefCounted() const
     {
@@ -3884,14 +3825,8 @@ public:
                                        // we will redirect all "ldarg(a) 0" and "starg 0" to this temp.
 
 #if FEATURE_FIXED_OUT_ARGS
-    unsigned            lvaOutgoingArgSpaceVar = BAD_VAR_NUM; // TYP_BLK local for fixed outgoing argument space
-    PhasedVar<unsigned> lvaOutgoingArgSpaceSize;              // size of fixed outgoing argument space
+    unsigned lvaOutgoingArgSpaceVar = BAD_VAR_NUM; // TYP_BLK local for fixed outgoing argument space
 #endif
-
-    static unsigned GetOutgoingArgByteSize(unsigned sizeWithoutPadding)
-    {
-        return roundUp(sizeWithoutPadding, TARGET_POINTER_SIZE);
-    }
 
     // Variable representing the return address. The helper-based tailcall
     // mechanism passes the address of the return address to a runtime helper
@@ -3917,10 +3852,6 @@ public:
     unsigned lvaShadowSPslotsVar = BAD_VAR_NUM; // TYP_BLK variable for all the shadow SP slots
 #endif
 
-    int lvaCachedGenericContextArgOffs;
-    int lvaCachedGenericContextArgOffset(); // For CORINFO_CALLCONV_PARAMTYPE and if generic context is passed as
-                                            // THIS pointer
-
 #ifdef JIT32_GCENCODER
     // variable which stores the value of ESP after the the last alloca/localloc
     unsigned lvaLocAllocSPvar = BAD_VAR_NUM;
@@ -3928,66 +3859,49 @@ public:
 
     unsigned lvaNewObjArrayArgs = BAD_VAR_NUM; // variable with arguments for new MD array helper
 
-    // TODO-Review: Prior to reg predict we reserve 24 bytes for Spill temps.
-    //              after the reg predict we will use a computed maxTmpSize
-    //              which is based upon the number of spill temps predicted by reg predict
-    //              All this is necessary because if we under-estimate the size of the spill
-    //              temps we could fail when encoding instructions that reference stack offsets for ARM.
-    //
-    // Pre codegen max spill temp size.
-    static const unsigned MAX_SPILL_TEMP_SIZE = 24;
-
-    //-------------------------------------------------------------------------
-
-    unsigned lvaGetMaxSpillTempSize();
-#ifdef TARGET_ARM
-    bool lvaIsPreSpilled(unsigned lclNum, regMaskTP preSpillMask);
-#endif // TARGET_ARM
+    unsigned lvaGetParamAllocSize(LclVarDsc* lcl);
+    static unsigned lvaGetParamAlignment(var_types type, bool isFloatHfa);
     void lvaAssignFrameOffsets(FrameLayoutState curState);
     void lvaFixVirtualFrameOffsets();
-    void lvaUpdateArgWithInitialReg(LclVarDsc* varDsc);
-    void lvaUpdateArgsWithInitialReg();
-    void lvaAssignVirtualFrameOffsetsToArgs();
-#ifdef UNIX_AMD64_ABI
-    int lvaAssignVirtualFrameOffsetToArg(unsigned lclNum, unsigned argSize, int argOffs, int* callerArgOffset);
-#else  // !UNIX_AMD64_ABI
-    int lvaAssignVirtualFrameOffsetToArg(unsigned lclNum, unsigned argSize, int argOffs);
-#endif // !UNIX_AMD64_ABI
-    void lvaAssignVirtualFrameOffsetsToLocals();
+#ifdef TARGET_ARMARCH
+    void lvaAssignParamsVirtualFrameOffsets();
+#endif
+    void lvaAssignLocalsVirtualFrameOffsets();
     int lvaAllocLocalAndSetVirtualOffset(unsigned lclNum, unsigned size, int stkOffs);
 #ifdef TARGET_AMD64
     // Returns true if compCalleeRegsPushed (including RBP if used as frame pointer) is even.
     bool lvaIsCalleeSavedIntRegCountEven();
 #endif
     void lvaAlignFrame();
-    void lvaAssignFrameOffsetsToPromotedStructs();
-    int lvaAllocateTemps(int stkOffs, bool mustDoubleAlign);
+    void lvaAssignPromotedFieldsVirtualFrameOffsets();
+    int lvaAllocateTemps(int stkOffs
+#ifndef TARGET_64BIT
+                         ,
+                         bool mustDoubleAlign
+#endif
+                         );
 
 #ifdef DEBUG
     void lvaDumpRegLocation(unsigned lclNum);
     void lvaDumpFrameLocation(unsigned lclNum);
-    void lvaDumpEntry(unsigned lclNum, FrameLayoutState curState, size_t refCntWtdWidth = 6);
-    void lvaTableDump(FrameLayoutState curState = NO_FRAME_LAYOUT); // NO_FRAME_LAYOUT means use the current frame
-                                                                    // layout state defined by lvaDoneFrameLayout
+    void lvaDumpEntry(unsigned lclNum, size_t refCntWtdWidth = 6);
+    void lvaTableDump();
 #endif
 
-// Limit frames size to 1GB. The maximum is 2GB in theory - make it intentionally smaller
-// to avoid bugs from borderline cases.
-#define MAX_FrameSize 0x3FFFFFFF
     void lvaIncrementFrameSize(unsigned size);
 
 #ifdef TARGET_ARMARCH
-    unsigned lvaFrameSize(FrameLayoutState curState);
+    bool     lvaHasLargeFrameOffset();
+    unsigned lvaEstimateFrameSize();
 #endif
 
+    // Returns the caller-SP-relative offset for the local variable "varNum."
+    int lvaGetCallerSPRelativeOffset(unsigned lclNum);
     // Returns the caller-SP-relative offset for the SP/FP relative offset determined by FP based.
     int lvaToCallerSPRelativeOffset(int offs, bool isFpBased, bool forRootFrame = true) const;
-
-    // Returns the caller-SP-relative offset for the local variable "varNum."
-    int lvaGetCallerSPRelativeOffset(unsigned varNum);
-
-    int lvaToInitialSPRelativeOffset(unsigned offset, bool isFpBased);
-    int lvaGetInitialSPRelativeOffset(unsigned varNum);
+#ifdef TARGET_AMD64
+    int lvaGetPSPSymInitialSPRelativeOffset();
+#endif
 
     // True if this is an OSR compilation and this local is potentially
     // located on the original method stack frame.
@@ -4002,18 +3916,18 @@ public:
     void lvaInitInline();
 
     void lvaInitParams(bool hasRetBufParam);
-    void lvaInitThisParam(InitVarDscInfo& paramInfo);
-    void lvaInitRetBufParam(InitVarDscInfo& paramInfo, bool useFixedRetBufReg);
-    void lvaInitGenericsContextParam(InitVarDscInfo& paramInfo);
-    void lvaInitVarargsHandleParam(InitVarDscInfo& paramInfo);
-    void lvaInitUserParams(InitVarDscInfo& paramInfo, bool skipFirstParam);
-    void lvaInitUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param);
-    void lvaAllocUserParam(InitVarDscInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param, LclVarDsc* lcl);
+    void lvaInitThisParam(ParamAllocInfo& paramInfo);
+    void lvaInitRetBufParam(ParamAllocInfo& paramInfo, bool useFixedRetBufReg);
+    void lvaInitGenericsContextParam(ParamAllocInfo& paramInfo);
+    void lvaInitVarargsHandleParam(ParamAllocInfo& paramInfo);
+    void lvaInitUserParams(ParamAllocInfo& paramInfo, bool skipFirstParam);
+    void lvaInitUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HANDLE param);
+    void lvaAllocUserParam(ParamAllocInfo& paramInfo, LclVarDsc* lcl);
 #ifdef TARGET_ARM
     void lvaAlignPreSpillParams(regMaskTP doubleAlignMask);
 #endif
 
-    void lvaInitVarDsc(LclVarDsc* varDsc, unsigned varNum, CorInfoType corInfoType, CORINFO_CLASS_HANDLE typeHnd);
+    void lvaInitVarDsc(LclVarDsc* lcl, CorInfoType corType, CORINFO_CLASS_HANDLE typeHnd);
 
     LclVarDsc* lvaGetDesc(unsigned lclNum)
     {
@@ -4045,8 +3959,6 @@ public:
         return lvaGetDesc(lvaTrackedIndexToLclNum(trackedIndex));
     }
 
-    unsigned lvaLclSize(unsigned varNum);
-
     bool lvaHaveManyLocals() const;
 
     unsigned lvaNewTemp(var_types type, bool shortLifetime DEBUGARG(const char* reason));
@@ -4068,21 +3980,13 @@ public:
     void lvaComputeRefCountsLIR();
     void lvaAddRef(LclVarDsc* lcl, BasicBlock::weight_t weight, bool propagate = true);
 
-    void lvaAllocOutgoingArgSpaceVar(); // Set up lvaOutgoingArgSpaceVar
-
 #ifdef DEBUG
     void lvaDispVarSet(VARSET_VALARG_TP set, VARSET_VALARG_TP allVars);
     void lvaDispVarSet(VARSET_VALARG_TP set);
 #endif
 
-#ifdef TARGET_ARM
-    int lvaFrameAddress(int varNum, bool mustBeFPBased, regNumber* pBaseReg, int addrModeOffset, bool isFloatUsage);
-#else
     int lvaFrameAddress(int varNum, bool* pFPbased);
-#endif
 
-    bool lvaIsParameter(unsigned varNum);
-    bool lvaIsRegArgument(unsigned varNum);
     bool lvaIsOriginalThisArg(unsigned varNum); // Is this varNum the original this argument?
 
     bool lvaIsImplicitByRefLocal(unsigned varNum)
@@ -4090,47 +3994,15 @@ public:
         return lvaGetDesc(varNum)->IsImplicitByRefParam();
     }
 
-    bool lvaIsMultiRegStructParam(LclVarDsc* lcl);
-
-    void lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsafeBuffer);
     void lvaSetStruct(unsigned lclNum, CORINFO_CLASS_HANDLE classHandle, bool checkUnsafeBuffer);
+    void lvaSetStruct(unsigned lclNum, ClassLayout* layout, bool checkUnsafeBuffer);
+    void lvaSetStruct(LclVarDsc* lcl, ClassLayout* layout, bool checkUnsafeBuffer);
 
     // If the local is TYP_REF, set or update the associated class information.
     void lvaSetClass(unsigned varNum, CORINFO_CLASS_HANDLE clsHnd, bool isExact = false);
     void lvaSetClass(unsigned varNum, GenTree* tree, CORINFO_CLASS_HANDLE stackHandle = nullptr);
     void lvaUpdateClass(unsigned varNum, CORINFO_CLASS_HANDLE clsHnd, bool isExact = false);
     void lvaUpdateClass(unsigned varNum, GenTree* tree, CORINFO_CLASS_HANDLE stackHandle = nullptr);
-
-    bool lvaIsGCTracked(const LclVarDsc* varDsc);
-
-#if defined(FEATURE_SIMD)
-    bool lvaMapSimd12ToSimd16(const LclVarDsc* varDsc)
-    {
-        assert(varDsc->TypeIs(TYP_SIMD12));
-        assert(varDsc->GetSize() == 12);
-#if defined(TARGET_64BIT) && !defined(OSX_ARM64_ABI)
-        assert(varDsc->lvSize() == 16);
-#endif
-
-        // We make local variable SIMD12 types 16 bytes instead of just 12.
-        // lvSize() will return 16 bytes for SIMD12, even for fields.
-        // However, we can't do that mapping if the var is a dependently promoted struct field.
-        // Such a field must remain its exact size within its parent struct unless it is a single
-        // field *and* it is the only field in a struct of 16 bytes.
-        if (varDsc->lvSize() != 16)
-        {
-            return false;
-        }
-
-        if (varDsc->IsDependentPromotedField(this))
-        {
-            LclVarDsc* parentLcl = lvaGetDesc(varDsc->GetPromotedFieldParentLclNum());
-            return (parentLcl->GetPromotedFieldCount() == 1) && (parentLcl->lvSize() == 16);
-        }
-
-        return true;
-    }
-#endif // defined(FEATURE_SIMD)
 
     unsigned lvaGSSecurityCookie = BAD_VAR_NUM; // LclVar number
     bool     lvaTempsHaveLargerOffsetThanVars();
@@ -4276,18 +4148,10 @@ private:
     var_types mangleVarArgsType(var_types type);
 #endif
 
-#if FEATURE_VARARG
-    regNumber getCallArgIntRegister(regNumber floatReg);
-    regNumber getCallArgFloatRegister(regNumber intReg);
-#endif // FEATURE_VARARG
-
-#if defined(DEBUG)
-    static unsigned jitTotalMethodCompiled;
-#endif
-
 #ifdef DEBUG
-    static LONG jitNestingLevel;
-#endif // DEBUG
+    static unsigned jitTotalMethodCompiled;
+    static LONG     jitNestingLevel;
+#endif
 
     static GenTreeLclVar* impIsAddressInLocal(GenTree* tree);
     static GenTreeLclVarCommon* impIsLocalAddrExpr(GenTree* node);
@@ -4516,6 +4380,10 @@ public:
 
     bool fgGlobalMorph = false; // indicates if we are during the global morphing phase
                                 // since fgMorphTree can be called from several places
+
+    bool fgLoopCallMarked       = false; // The following check for loops that don't execute calls
+    bool fgHasLoops             = false; // True if this method has any loops, set in fgComputeReachability
+    bool fgLocalVarLivenessDone = false; // Note that this one is used outside of debug.
 
 #ifdef DEBUG
     bool jitFallbackCompile; // Are we doing a fallback compile? That is, have we executed a NO_WAY assert,
@@ -4748,7 +4616,7 @@ public:
     void fgResetForSsa();
 
     // Returns "true" if this is a special variable that is never zero initialized in the prolog.
-    inline bool fgVarIsNeverZeroInitializedInProlog(unsigned varNum);
+    bool lvaIsNeverZeroInitializedInProlog(unsigned lclNum);
 
     // Returns "true" if the variable needs explicit zero initialization.
     inline bool fgVarNeedsExplicitZeroInit(unsigned varNum, bool bbInALoop, bool bbIsReturn);
@@ -5340,10 +5208,9 @@ protected:
 
 public:
     const char*                            fgPgoFailReason              = nullptr;
-    bool                                   fgPgoDisabled                = false;
-    ICorJitInfo::PgoSource                 fgPgoSource                  = ICorJitInfo::PgoSource::Unknown;
     ICorJitInfo::PgoInstrumentationSchema* fgPgoSchema                  = nullptr;
     BYTE*                                  fgPgoData                    = nullptr;
+    ICorJitInfo::PgoSource                 fgPgoSource                  = ICorJitInfo::PgoSource::Unknown;
     UINT32                                 fgPgoSchemaCount             = 0;
     HRESULT                                fgPgoQueryResult             = E_FAIL;
     UINT32                                 fgNumProfileRuns             = 0;
@@ -5418,34 +5285,6 @@ private:
     void fgCheckTreeSeq(GenTree* tree, bool isLIR = false);
     void fgSetStmtSeq(Statement* stmt);
     void fgSetBlockOrder(BasicBlock* block);
-
-    //------------------------- Morphing --------------------------------------
-
-    unsigned fgPtrArgCntMax = 0;
-
-public:
-    //------------------------------------------------------------------------
-    // fgGetPtrArgCntMax: Return the maximum number of pointer-sized stack arguments that calls inside this method
-    // can push on the stack. This value is calculated during morph.
-    //
-    // Return Value:
-    //    Returns fgPtrArgCntMax, that is a private field.
-    //
-    unsigned fgGetPtrArgCntMax() const
-    {
-        return fgPtrArgCntMax;
-    }
-
-    //------------------------------------------------------------------------
-    // fgSetPtrArgCntMax: Set the maximum number of pointer-sized stack arguments that calls inside this method
-    // can push on the stack. This function is used during StackLevelSetter to fix incorrect morph calculations.
-    //
-    void fgSetPtrArgCntMax(unsigned argCntMax)
-    {
-        fgPtrArgCntMax = argCntMax;
-    }
-
-    bool compCanEncodePtrArgCntMax();
 
 private:
 #ifndef TARGET_X86
@@ -5604,9 +5443,9 @@ public:
         unsigned        acdData;
         SpecialCodeKind acdKind; // what kind of a special block is this?
 #if !FEATURE_FIXED_OUT_ARGS
-        bool     acdStkLvlInit; // has acdStkLvl value been already set?
-        unsigned acdStkLvl;     // stack level in stack slots.
-#endif                          // !FEATURE_FIXED_OUT_ARGS
+        bool     acdStkLvlInit = false; // has acdStkLvl value been already set?
+        unsigned acdStkLvl     = 0;     // stack level in stack slots.
+#endif
     };
 
 private:
@@ -6373,10 +6212,6 @@ protected:
     */
 
 public:
-    regNumber raUpdateRegStateForArg(RegState* regState, LclVarDsc* argDsc);
-
-    void raMarkStkVars();
-
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
 #if defined(TARGET_AMD64)
     static bool varTypeNeedsPartialCalleeSave(var_types type)
@@ -6398,7 +6233,7 @@ public:
 #endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
 
 protected:
-    bool rpMustCreateEBPFrame(INDEBUG(const char** wbReason));
+    bool rpMustCreateEBPFrame();
 
 private:
     bool lvaIsX86VarargsStackParam(unsigned lclNum);
@@ -6471,8 +6306,6 @@ public:
     var_types eeGetArgType(CORINFO_ARG_LIST_HANDLE list, CORINFO_SIG_INFO* sig, bool* isPinned);
     CORINFO_CLASS_HANDLE eeGetArgClass(CORINFO_SIG_INFO* sig, CORINFO_ARG_LIST_HANDLE list);
     CORINFO_CLASS_HANDLE eeGetClassFromContext(CORINFO_CONTEXT_HANDLE context);
-    unsigned eeGetParamAllocSize(CORINFO_ARG_LIST_HANDLE param, CORINFO_SIG_INFO* sig);
-    static unsigned eeGetArgAlignment(var_types type, bool isFloatHfa);
 
     // VOM info, method sigs
 
@@ -6668,37 +6501,7 @@ public:
         return codeGen->GetEmitter();
     }
 
-    bool isFramePointerUsed() const
-    {
-        return codeGen->isFramePointerUsed();
-    }
-
-    bool GetInterruptible()
-    {
-        return codeGen->GetInterruptible();
-    }
-    void SetInterruptible(bool value)
-    {
-        codeGen->SetInterruptible(value);
-    }
-
-#ifdef TARGET_ARMARCH
-
-    bool GetHasTailCalls()
-    {
-        return codeGen->GetHasTailCalls();
-    }
-    void SetHasTailCalls(bool value)
-    {
-        codeGen->SetHasTailCalls(value);
-    }
-#endif // TARGET_ARMARCH
-
 #if DOUBLE_ALIGN
-    const bool genDoubleAlign()
-    {
-        return codeGen->doDoubleAlign();
-    }
     DWORD getCanDoubleAlign();
     bool shouldDoubleAlign(unsigned             refCntStk,
                            unsigned             refCntReg,
@@ -6706,15 +6509,6 @@ public:
                            unsigned             refCntStkParam,
                            BasicBlock::weight_t refCntWtdStkDbl);
 #endif // DOUBLE_ALIGN
-
-    bool IsFullPtrRegMapRequired()
-    {
-        return codeGen->IsFullPtrRegMapRequired();
-    }
-    void SetFullPtrRegMapRequired(bool value)
-    {
-        codeGen->SetFullPtrRegMapRequired(value);
-    }
 
 // Things that MAY belong either in CodeGen or CodeGenContext
 
@@ -6944,8 +6738,6 @@ private:
 #endif // FEATURE_SIMD
 
 private:
-    bool lvaIsSimdTypedLocalAligned(unsigned varNum);
-
 #ifdef DEBUG
     // Answer the question: Is a particular ISA supported?
     // Use this api when asking the question so that future
@@ -7056,16 +6848,10 @@ public:
 
     bool fgNoStructPromotion       = false; // Set to true to turn off struct promotion for this method.
     bool optLoopsMarked            = false;
-    bool fgLoopCallMarked          = false; // The following check for loops that don't execute calls
-    bool fgHasLoops                = false; // True if this method has any loops, set in fgComputeReachability
-    bool fgLocalVarLivenessDone    = false; // Note that this one is used outside of debug.
     bool ssaForm                   = false;
     bool csePhase                  = false; // True when we are executing the CSE phase
-    bool compLSRADone              = false;
     bool compRationalIRForm        = false;
     bool compUsesThrowHelper       = false; // There is a call to a THROW_HELPER for the compiled method.
-    bool compGeneratingProlog      = false;
-    bool compGeneratingEpilog      = false;
     bool compNeedsGSSecurityCookie = false; // There is an unsafe buffer (or localloc) on the stack.
                                             // Insert cookie on frame and code to check the cookie, like VC++ -GS.
     bool compGSReorderStackLayout = false;  // There is an unsafe buffer on the stack, reorder locals and make local
@@ -7078,15 +6864,6 @@ public:
     {
         compNeedsGSSecurityCookie = true;
     }
-
-    // The highest frame layout state that we've completed. During frame
-    // layout calculations, this is the level we are currently computing.
-    FrameLayoutState lvaDoneFrameLayout = NO_FRAME_LAYOUT;
-
-    bool lvaEnregEHVars;
-
-    Phases      mostRecentlyActivePhase = PHASE_PRE_IMPORT;        // the most recently active phase
-    PhaseChecks activePhaseChecks       = PhaseChecks::CHECK_NONE; // the currently active phase checks
 
     CompilerOptions opts;
 
@@ -7344,26 +7121,6 @@ public:
 
 #endif // !TARGET_X86
 
-    //-------------------------------------------------------------------------
-    //  The following keeps track of how many bytes of local frame space we've
-    //  grabbed so far in the current function, and how many argument bytes we
-    //  need to pop when we return.
-    //
-
-    unsigned compLclFrameSize; // secObject+lclBlk+locals+temps
-
-    // Count of callee-saved regs we pushed in the prolog.
-    // Does not include EBP for isFramePointerUsed() and double-aligned frames.
-    // In case of Amd64 this doesn't include float regs saved on stack.
-    unsigned compCalleeRegsPushed;
-
-#if defined(TARGET_XARCH)
-    // Mask of callee saved float regs on stack.
-    regMaskTP compCalleeFPRegsSavedMask;
-#endif
-
-    unsigned compArgSize; // total size of arguments in bytes (including register args (lvIsRegArg))
-
     unsigned compMapILargNum(unsigned ilArgNum);
     unsigned compMapILvarNum(unsigned ilVarNum);
     unsigned compMap2ILvarNum(unsigned varNum) const;
@@ -7497,9 +7254,6 @@ protected:
     void compSetProcessor();
     void compInitDebuggingInfo();
     void compSetOptimizationLevel(const ILStats& ilStats);
-#ifdef TARGET_ARMARCH
-    bool compRsvdRegCheck(FrameLayoutState curState);
-#endif
 
     // Clear annotations produced during optimizations; to be used between iterations when repeating opts.
     void ResetOptAnnotations();

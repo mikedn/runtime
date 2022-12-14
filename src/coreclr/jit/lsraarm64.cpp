@@ -628,7 +628,7 @@ int LinearScan::BuildNode(GenTree* tree)
         case GT_STOREIND:
             assert(dstCount == 0);
 
-            if (compiler->codeGen->gcInfo.GetWriteBarrierForm(tree->AsStoreInd()) != GCInfo::WBF_NoBarrier)
+            if (GCInfo::GetWriteBarrierForm(tree->AsStoreInd()) != GCInfo::WBF_NoBarrier)
             {
                 srcCount = BuildGCWriteBarrier(tree->AsStoreInd());
             }

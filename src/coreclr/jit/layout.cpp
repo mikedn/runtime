@@ -1037,12 +1037,12 @@ bool ClassLayout::AreCompatible(const ClassLayout* layout1, const ClassLayout* l
 
 #ifdef TARGET_X86
 
-// Check if the given struct type contains only one pointer-sized integer value type.
+// Check if the given struct type contains only one INT field.
 bool Compiler::isTrivialPointerSizedStruct(ClassLayout* layout) const
 {
     assert(layout->IsValueClass());
 
-    if (layout->GetSize() != TARGET_POINTER_SIZE)
+    if (layout->GetSize() != REGSIZE_BYTES)
     {
         return false;
     }
@@ -1054,10 +1054,10 @@ bool Compiler::isTrivialPointerSizedStruct(ClassLayout* layout) const
     {
         CORINFO_FIELD_HANDLE fldHnd = info.compCompHnd->getFieldInClass(clsHnd, 0);
 
-        type = JITtype2varType(info.compCompHnd->getFieldType(fldHnd, &clsHnd));
+        type = CorTypeToVarType(info.compCompHnd->getFieldType(fldHnd, &clsHnd));
     }
 
-    return varTypeIsI(type) && !varTypeIsGC(type);
+    return type == TYP_INT;
 }
 #endif // TARGET_X86
 

@@ -613,7 +613,6 @@ void Compiler::inlMain()
     info.compProfilerCallback = false;
     info.compPublishStubParam = false;
     info.compCallConv         = CorInfoCallConvExtension::Managed;
-    info.compArgOrder         = Target::g_tgtArgOrder;
     info.compMatchedVM        = inliner->info.compMatchedVM;
 
     // Set the context for token lookup.
@@ -1267,7 +1266,7 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
 
     if ((argsSig.callConv & CORINFO_CALLCONV_PARAMTYPE) != 0)
     {
-#if USER_ARGS_COME_LAST
+#ifndef TARGET_X86
         typeCtxtArgNum = argNum;
 #else
         typeCtxtArgNum = inlineInfo->ilArgCount;

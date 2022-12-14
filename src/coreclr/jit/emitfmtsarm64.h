@@ -12,7 +12,7 @@
 
 #undef DEFINE_ID_OPS
 
-enum ID_OPS
+enum ID_OPS : uint8_t
 {
     ID_OP_NONE, // no additional arguments
     ID_OP_SCNS, // small const  operand (21-bits or less, no reloc)

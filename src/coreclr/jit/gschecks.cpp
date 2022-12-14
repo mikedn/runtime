@@ -356,7 +356,7 @@ bool Compiler::gsFindVulnerableParams()
 
 static bool MayNeedShadowCopy(LclVarDsc* lcl)
 {
-#if defined(TARGET_AMD64)
+#ifdef TARGET_AMD64
     // GS cookie logic to create shadow slots, create trees to copy reg args to shadow
     // slots and update all trees to refer to shadow slots is done immediately after
     // fgMorph().  Lsra could potentially mark a param as DoNotEnregister after JIT determines
@@ -381,9 +381,9 @@ static bool MayNeedShadowCopy(LclVarDsc* lcl)
     // Possible solution to address case (b)
     //   - Whenver a parameter passed in an argument register needs to be spilled by LSRA, we
     //     create a new spill temp if the method needs GS cookie check.
-    return lcl->lvIsParam;
-#else // !defined(TARGET_AMD64)
-    return lcl->lvIsParam && !lcl->lvIsRegArg;
+    return lcl->IsParam();
+#else
+    return lcl->IsParam() && !lcl->IsRegParam();
 #endif
 }
 
@@ -429,9 +429,6 @@ void Compiler::gsParamsToShadows()
 
             shadowLcl->lvIsMultiRegArg = lcl->lvIsMultiRegArg;
             shadowLcl->lvIsMultiRegRet = lcl->lvIsMultiRegRet;
-#ifdef FEATURE_SIMD
-            shadowLcl->lvUsedInSIMDIntrinsic = lcl->lvUsedInSIMDIntrinsic;
-#endif
         }
         else if (type == TYP_BLK)
         {

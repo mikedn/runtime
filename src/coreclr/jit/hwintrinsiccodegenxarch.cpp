@@ -937,14 +937,13 @@ void CodeGen::genVectorGetElement(GenTreeHWIntrinsic* node)
         {
             bool isEBPbased;
             int  frameOffset = compiler->lvaFrameAddress(src->AsLclVarCommon()->GetLclNum(), &isEBPbased);
+
 #if !FEATURE_FIXED_OUT_ARGS
             if (!isEBPbased)
             {
                 // Adjust the offset by the amount currently pushed on the CPU stack
                 frameOffset += genStackLevel;
             }
-#else
-            assert(genStackLevel == 0);
 #endif
 
             baseReg  = isEBPbased ? REG_EBP : REG_ESP;

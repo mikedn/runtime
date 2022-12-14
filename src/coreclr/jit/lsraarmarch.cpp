@@ -204,7 +204,7 @@ int LinearScan::BuildCall(GenTreeCall* call)
 #ifdef TARGET_ARM
                 if (use.GetNode()->TypeIs(TYP_LONG))
                 {
-                    BuildUse(use.GetNode(), genRegMask(genRegArgNext(use.GetNode()->GetRegNum())), 1);
+                    BuildUse(use.GetNode(), genRegMask(REG_NEXT(use.GetNode()->GetRegNum())), 1);
                     srcCount++;
                     regIndex++;
                 }
@@ -240,7 +240,7 @@ int LinearScan::BuildCall(GenTreeCall* call)
             assert(argNode->IsMultiRegNode());
 
             BuildUse(argNode, genRegMask(argNode->GetRegNum()), 0);
-            BuildUse(argNode, genRegMask(genRegArgNext(argNode->GetRegNum())), 1);
+            BuildUse(argNode, genRegMask(REG_NEXT(argNode->GetRegNum())), 1);
             srcCount += 2;
             continue;
         }

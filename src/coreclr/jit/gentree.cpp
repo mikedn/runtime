@@ -2109,16 +2109,16 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                     costSz = 4 + 4;
                     costEx = 1 + 1;
 
-                    if (!codeGen->validImmForInstr(INS_mov, (target_ssize_t)hiVal) &&
-                        !codeGen->validImmForInstr(INS_mvn, (target_ssize_t)hiVal))
+                    if (!emitter::validImmForInstr(INS_mov, (target_ssize_t)hiVal) &&
+                        !emitter::validImmForInstr(INS_mvn, (target_ssize_t)hiVal))
                     {
                         // Needs extra instruction: movw/movt
                         costSz += 4;
                         costEx += 1;
                     }
 
-                    if (!codeGen->validImmForInstr(INS_mov, (target_ssize_t)loVal) &&
-                        !codeGen->validImmForInstr(INS_mvn, (target_ssize_t)loVal))
+                    if (!emitter::validImmForInstr(INS_mov, (target_ssize_t)loVal) &&
+                        !emitter::validImmForInstr(INS_mvn, (target_ssize_t)loVal))
                     {
                         // Needs extra instruction: movw/movt
                         costSz += 4;
@@ -2144,13 +2144,13 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                     costSz = 8;
                     costEx = 2;
                 }
-                else if (codeGen->validImmForInstr(INS_add, conVal))
+                else if (emitter::validImmForInstr(INS_add, conVal))
                 {
                     // Typically included with parent oper
                     costSz = 2;
                     costEx = 1;
                 }
-                else if (codeGen->validImmForInstr(INS_mov, conVal) || codeGen->validImmForInstr(INS_mvn, conVal))
+                else if (emitter::validImmForInstr(INS_mov, conVal) || emitter::validImmForInstr(INS_mvn, conVal))
                 {
                     // Uses mov or mvn
                     costSz = 4;
@@ -5327,13 +5327,8 @@ GenTree* Compiler::gtCloneExpr(
                 break;
 
             case GT_LEA:
-            {
-                GenTreeAddrMode* addrModeOp = tree->AsAddrMode();
-                copy                        = new (this, GT_LEA)
-                    GenTreeAddrMode(addrModeOp->TypeGet(), addrModeOp->GetBase(), addrModeOp->GetIndex(),
-                                    addrModeOp->GetScale(), static_cast<unsigned>(addrModeOp->GetOffset()));
-            }
-            break;
+                copy = new (this, GT_LEA) GenTreeAddrMode(tree->AsAddrMode());
+                break;
 
             case GT_COPY:
             case GT_RELOAD:
@@ -7363,37 +7358,6 @@ void Compiler::gtDispLclVar(unsigned lclNum, bool padForBiggestDisp)
     {
         printf("%*c", LONGEST_COMMON_LCL_VAR_DISPLAY_LENGTH - charsPrinted, ' ');
     }
-}
-
-//------------------------------------------------------------------------
-// gtDispLclVarStructType: Print size and type information about a struct or lclBlk local variable.
-//
-// Arguments:
-//   lclNum - The local var id.
-//
-void Compiler::gtDispLclVarStructType(unsigned lclNum)
-{
-    LclVarDsc* varDsc = lvaGetDesc(lclNum);
-    var_types  type   = varDsc->TypeGet();
-    if (type == TYP_STRUCT)
-    {
-        ClassLayout* layout = varDsc->GetLayout();
-        assert(layout != nullptr);
-        gtDispClassLayout(layout, type);
-    }
-#if FEATURE_FIXED_OUT_ARGS
-    else if (lclNum == lvaOutgoingArgSpaceVar)
-    {
-        if (lvaOutgoingArgSpaceSize.HasFinalValue())
-        {
-            printf("<%u> ", lvaOutgoingArgSpaceSize.GetValue());
-        }
-        else
-        {
-            printf("<na> ");
-        }
-    }
-#endif // FEATURE_FIXED_OUT_ARGS
 }
 
 //------------------------------------------------------------------------
@@ -11934,7 +11898,7 @@ bool GenTree::IsPartialLclFld(Compiler* comp)
         return true;
     }
 
-    unsigned lclSize = comp->lvaGetDesc(AsLclFld())->GetSize();
+    unsigned lclSize = comp->lvaGetDesc(AsLclFld())->GetTypeSize();
     unsigned lclFldSize;
 
     if (gtType == TYP_STRUCT)

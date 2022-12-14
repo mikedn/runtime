@@ -4258,14 +4258,16 @@ public:
     // (HasRetBufArg == false).
     bool TreatAsHasRetBufArg() const;
 
+#ifdef TARGET_ARM64
     bool HasFixedRetBufArg() const
     {
-#if defined(TARGET_WINDOWS) && !defined(TARGET_ARM)
-        return hasFixedRetBuffReg() && HasRetBufArg() && !callConvIsInstanceMethodCallConv(GetUnmanagedCallConv());
-#else
-        return hasFixedRetBuffReg() && HasRetBufArg();
+        return HasRetBufArg()
+#ifdef TARGET_WINDOWS
+               && !callConvIsInstanceMethodCallConv(GetUnmanagedCallConv())
 #endif
+            ;
     }
+#endif
 
     bool HasMultiRegRetVal() const
     {
@@ -4321,7 +4323,7 @@ public:
         return false;
     }
 #else
-    bool IsFastTailCall() const
+    bool    IsFastTailCall() const
     {
 #if FEATURE_FASTTAILCALL
         return IsTailCall();
@@ -5977,7 +5979,7 @@ struct GenTreeAddrMode : public GenTreeOp
 {
 private:
     unsigned m_scale;
-    ssize_t  m_offset;
+    int      m_offset;
 
 public:
     // Address is Base + Index*Scale + Offset.
@@ -5997,16 +5999,23 @@ public:
     //      3. If Scale==1, then we should have "Base" instead of "Index*Scale", and "Base + Offset" instead of
     //         "Index*Scale + Offset".
 
-    GenTreeAddrMode(GenTree* base, ssize_t offset)
+    GenTreeAddrMode(GenTree* base, int32_t offset)
         : GenTreeOp(GT_LEA, varTypeAddrAdd(base->GetType()), base, nullptr), m_scale(0), m_offset(offset)
     {
         assert(base != nullptr);
     }
 
-    GenTreeAddrMode(var_types type, GenTree* base, GenTree* index, unsigned scale, ssize_t offset)
+    GenTreeAddrMode(var_types type, GenTree* base, GenTree* index, unsigned scale, int32_t offset)
         : GenTreeOp(GT_LEA, type, base, index), m_scale(scale), m_offset(offset)
     {
         assert((base != nullptr) || (index != nullptr));
+    }
+
+    GenTreeAddrMode(const GenTreeAddrMode* copyFrom)
+        : GenTreeOp(GT_LEA, copyFrom->GetType(), copyFrom->GetBase(), copyFrom->GetIndex())
+        , m_scale(copyFrom->m_scale)
+        , m_offset(copyFrom->m_offset)
+    {
     }
 
     bool HasBase() const
@@ -6049,12 +6058,12 @@ public:
         m_scale = scale;
     }
 
-    int GetOffset() const
+    int32_t GetOffset() const
     {
-        return static_cast<int>(m_offset);
+        return m_offset;
     }
 
-    void SetOffset(int offset)
+    void SetOffset(int32_t offset)
     {
         m_offset = offset;
     }
@@ -6840,14 +6849,12 @@ public:
     }
 #endif
 
+#if FEATURE_FASTTAILCALL
     bool PutInIncomingArgArea() const
     {
-#if FEATURE_FASTTAILCALL
         return m_putInIncomingArgArea;
-#else
-        return false;
-#endif
     }
+#endif
 
     unsigned GetSlotNum() const
     {

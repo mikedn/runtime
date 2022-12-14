@@ -16,7 +16,7 @@
 
 #undef  DEFINE_ID_OPS
 
-enum    ID_OPS
+enum ID_OPS : uint8_t
 {
     ID_OP_NONE,                             // no additional arguments
     ID_OP_SCNS,                             // small const  operand (21-bits or less, no reloc)
@@ -26,7 +26,6 @@ enum    ID_OPS
     ID_OP_AMD,                              // addrmode with dsp
     ID_OP_AMD_CNS,                          // addrmode with dsp + constant
     ID_OP_JMP,                              // local jump
-    ID_OP_LBL,                              // label operand
     ID_OP_CALL,                             // direct method call
     ID_OP_SPEC,                             // special handling required
 };
@@ -80,7 +79,6 @@ IF_DEF(NONE,        IS_NONE,                    NONE)     // no operands
 
 IF_DEF(LABEL,       IS_NONE,                    JMP )     // label
 IF_DEF(RWR_LABEL,   IS_R1_WR,                   JMP )     // write label to register
-IF_DEF(SWR_LABEL,   IS_SF_WR,                   LBL )     // write label to stack
 
 IF_DEF(METHOD,      IS_NONE,                    CALL)     // method
 IF_DEF(METHPTR,     IS_NONE,                    CALL)     // method ptr (glbl)

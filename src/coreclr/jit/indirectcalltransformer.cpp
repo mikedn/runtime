@@ -446,7 +446,7 @@ private:
         //
         void AddHiddenArgument(GenTreeCall* fatCall, GenTree* hiddenArgument)
         {
-#if USER_ARGS_COME_LAST
+#ifndef TARGET_X86
             if (fatCall->HasRetBufArg())
             {
                 GenTreeCall::Use* retBufArg = fatCall->gtCallArgs;

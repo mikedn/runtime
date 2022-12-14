@@ -31,15 +31,9 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "hwintrinsic.h"
 #endif
 
-//------------------------------------------------------------------------
-// IsCallTargetInRange: Can a call target address be encoded in-place?
-//
-// Return Value:
-//    True if the addr fits into the range.
-//
 bool Lowering::IsCallTargetInRange(void* addr)
 {
-    return comp->codeGen->validImmForBL((ssize_t)addr);
+    return emitter::validImmForBL(reinterpret_cast<ssize_t>(addr), comp);
 }
 
 //------------------------------------------------------------------------
@@ -616,7 +610,7 @@ bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
         assert(varTypeIsFloating(node->GetSimdBaseType()));
         assert(castOp == nullptr);
 
-        return comp->GetEmitter()->emitIns_valid_imm_for_fmov(dcon->GetValue());
+        return emitter::emitIns_valid_imm_for_fmov(dcon->GetValue());
     }
 
     return false;
@@ -1370,7 +1364,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 
                         const double dataValue = intrin.op3->AsDblCon()->GetValue();
 
-                        if (comp->GetEmitter()->emitIns_valid_imm_for_fmov(dataValue))
+                        if (emitter::emitIns_valid_imm_for_fmov(dataValue))
                         {
                             MakeSrcContained(node, intrin.op3);
                         }

@@ -98,7 +98,7 @@ int LinearScan::BuildLclHeap(GenTree* tree)
     // a temporary register for doing the probe. Note also that if the outgoing argument space is
     // large enough that it can't be directly encoded in SUB/ADD instructions, we also need a temp
     // register to load the large sized constant into a register.
-    if (compiler->lvaOutgoingArgSpaceSize > 0)
+    if (compiler->codeGen->outgoingArgSpaceSize > 0)
     {
         internalIntCount = 1;
     }
@@ -623,7 +623,7 @@ int LinearScan::BuildNode(GenTree* tree)
         case GT_STOREIND:
             assert(dstCount == 0);
 
-            if (compiler->codeGen->gcInfo.GetWriteBarrierForm(tree->AsStoreInd()) != GCInfo::WBF_NoBarrier)
+            if (GCInfo::GetWriteBarrierForm(tree->AsStoreInd()) != GCInfo::WBF_NoBarrier)
             {
                 srcCount = BuildGCWriteBarrier(tree->AsStoreInd());
             }
@@ -681,12 +681,14 @@ int LinearScan::BuildNode(GenTree* tree)
                 srcCount = 0;
             }
 
-            regNumber argReg  = tree->GetRegNum();
+            regNumber argReg  = tree->GetRegNum(0);
             regMaskTP argMask = argReg == REG_NA ? RBM_NONE : genRegMask(argReg);
 
             if (tree->TypeIs(TYP_LONG))
             {
-                assert(genRegArgNext(argReg) == REG_NEXT(argReg));
+                // TODO-MIKE-Cleanup: This should probably use tree->GetRegNum(1) instead of REG_NEXT
+                // to be on the safe side. REG_NEXT happens to work because such BITCAST nodes are
+                // used only as call args so the registers are consecutive.
                 regMaskTP argMaskNext = argReg == REG_NA ? RBM_NONE : genRegMask(REG_NEXT(argReg));
 
                 BuildDef(tree, TYP_INT, argMask, 0);

@@ -5,24 +5,11 @@
 /*       Overall emitter control (including startup and shutdown)       */
 /************************************************************************/
 
-static void emitInit();
-static void emitDone();
-
-void emitBegFN(bool hasFramePtr
-#if defined(DEBUG)
-               ,
-               bool checkAlign
-#endif
-               ,
-               unsigned maxTmpSize);
-
-void emitEndFN();
+void emitBegFN();
 
 void emitComputeCodeSizes();
 
-unsigned emitEndCodeGen(Compiler* comp,
-                        bool      contTrkPtrLcls,
-                        bool      fullyInt,
+unsigned emitEndCodeGen(bool      fullyInt,
                         bool      fullPtrMap,
                         unsigned  xcptnsCount,
                         unsigned* prologSize,
@@ -45,12 +32,7 @@ unsigned emitGetPrologOffsetEstimate();
 void     emitMarkPrologEnd();
 void     emitEndProlog();
 
-void emitCreatePlaceholderIG(insGroupPlaceholderType igType,
-                             BasicBlock*             igBB,
-                             VARSET_VALARG_TP        GCvars,
-                             regMaskTP               gcrefRegs,
-                             regMaskTP               byrefRegs,
-                             bool                    last);
+void emitCreatePlaceholderIG(insGroupPlaceholderType kind, BasicBlock* block);
 
 void emitGeneratePrologEpilog();
 void emitStartPrologEpilogGeneration();

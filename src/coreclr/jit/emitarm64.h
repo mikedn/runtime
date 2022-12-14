@@ -61,20 +61,7 @@ void emitDispIns(instrDesc* id,
 /************************************************************************/
 
 private:
-instrDesc* emitNewInstrCallDir(int              argCnt,
-                               VARSET_VALARG_TP GCvars,
-                               regMaskTP        gcrefRegs,
-                               regMaskTP        byrefRegs,
-                               emitAttr         retSize,
-                               emitAttr         secondRetSize);
-
-instrDesc* emitNewInstrCallInd(int              argCnt,
-                               ssize_t          disp,
-                               VARSET_VALARG_TP GCvars,
-                               regMaskTP        gcrefRegs,
-                               regMaskTP        byrefRegs,
-                               emitAttr         retSize,
-                               emitAttr         secondRetSize);
+instrDesc* emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle, emitAttr retSize, emitAttr secondRetSize);
 
 /************************************************************************/
 /*               Private helpers for instruction output                 */
@@ -91,6 +78,10 @@ static bool emitInsIsVectorNarrow(instruction ins);
 static bool emitInsIsVectorWide(instruction ins);
 emitAttr emitInsTargetRegSize(instrDesc* id);
 emitAttr emitInsLoadStoreSize(instrDesc* id);
+
+void Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum, int varOffs);
+void Ins_R_R_S(
+    instruction ins, emitAttr attr1, emitAttr attr2, regNumber reg1, regNumber reg2, int varNum, int varOffs);
 
 emitter::insFormat emitInsFormat(instruction ins);
 emitter::code_t emitInsCode(instruction ins, insFormat fmt);
@@ -503,6 +494,8 @@ static bool emitIns_valid_imm_for_alu(INT64 imm, emitAttr size);
 // true if this 'imm' can be encoded as the offset in a ldr/str instruction
 static bool emitIns_valid_imm_for_ldst_offset(INT64 imm, emitAttr size);
 
+static bool validImmForBL(ssize_t addr, Compiler* compiler);
+
 // true if 'imm' can use the left shifted by 12 bits encoding
 static bool canEncodeWithShiftImmBy12(INT64 imm);
 
@@ -749,11 +742,6 @@ void emitIns_Mov(
 
 void emitIns_R_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, insOpts opt = INS_OPTS_NONE);
 
-void emitIns_R_R(instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, insFlags flags)
-{
-    emitIns_R_R(ins, attr, reg1, reg2);
-}
-
 void emitIns_R_I_I(
     instruction ins, emitAttr attr, regNumber reg1, ssize_t imm1, ssize_t imm2, insOpts opt = INS_OPTS_NONE);
 
@@ -835,18 +823,13 @@ enum EmitCallType
     EC_INDIR_R     // Indirect call via register
 };
 
-void emitIns_Call(EmitCallType          callType,
-                  CORINFO_METHOD_HANDLE methHnd DEBUGARG(CORINFO_SIG_INFO* sigInfo),
-                  void*            addr,
-                  ssize_t          argSize,
-                  emitAttr         retSize,
-                  emitAttr         secondRetSize,
-                  VARSET_VALARG_TP ptrVars,
-                  regMaskTP        gcrefRegs,
-                  regMaskTP        byrefRegs,
-                  IL_OFFSETX       ilOffset = BAD_IL_OFFSET,
-                  regNumber        ireg     = REG_NA,
-                  bool             isJump   = false);
+void emitIns_Call(EmitCallType          kind,
+                  CORINFO_METHOD_HANDLE methodHandle DEBUGARG(CORINFO_SIG_INFO* sigInfo),
+                  void*     addr,
+                  emitAttr  retRegAttr,
+                  emitAttr  retReg2Attr,
+                  regNumber reg    = REG_NA,
+                  bool      isJump = false);
 
 BYTE* emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i);
 unsigned emitOutputCall(insGroup* ig, BYTE* dst, instrDesc* i, code_t code);

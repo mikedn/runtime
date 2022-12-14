@@ -14,8 +14,6 @@
 #include "gcinfoencoder.h"
 #endif
 
-/*****************************************************************************/
-
 #ifndef JIT32_GCENCODER
 // Shash typedefs
 struct RegSlotIdKey
@@ -71,21 +69,44 @@ typedef JitHashTable<RegSlotIdKey, RegSlotIdKey, GcSlotId>     RegSlotMap;
 typedef JitHashTable<StackSlotIdKey, StackSlotIdKey, GcSlotId> StackSlotMap;
 #endif
 
-typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, VARSET_TP*> NodeToVarsetPtrMap;
-
 class GCInfo
 {
     friend class CodeGenInterface;
     friend class CodeGen;
 
-private:
-    Compiler* compiler;
-    RegSet*   regSet;
+    Compiler* const compiler;
+    regMaskTP       liveLclRegs;
 
 public:
-    GCInfo(Compiler* theCompiler);
+    GCInfo(Compiler* compiler) : compiler(compiler)
+    {
+    }
 
-    void gcResetForBB();
+    regMaskTP GetLiveLclRegs() const
+    {
+        return liveLclRegs;
+    }
+
+    void SetLiveLclRegs(regMaskTP regs);
+
+    void AddLiveLclRegs(regMaskTP regs)
+    {
+        SetLiveLclRegs(liveLclRegs | regs);
+    }
+
+    void RemoveLiveLclRegs(regMaskTP regs)
+    {
+        SetLiveLclRegs(liveLclRegs & ~regs);
+    }
+
+    void ClearLiveLclRegs()
+    {
+        liveLclRegs = RBM_NONE;
+    }
+
+    void BeginPrologCodeGen();
+    void BeginBlockCodeGen(BasicBlock* block);
+    void BeginMethodEpilogCodeGen();
 
     void gcMarkRegSetGCref(regMaskTP regMask DEBUGARG(bool forceOutput = false));
     void gcMarkRegSetByref(regMaskTP regMask DEBUGARG(bool forceOutput = false));
@@ -105,8 +126,8 @@ public:
     //  values.
     //
 
-    regMaskTP gcRegGCrefSetCur; // current regs holding GCrefs
-    regMaskTP gcRegByrefSetCur; // current regs holding Byrefs
+    regMaskTP gcRegGCrefSetCur = RBM_NONE; // current regs holding GCrefs
+    regMaskTP gcRegByrefSetCur = RBM_NONE; // current regs holding Byrefs
 
     VARSET_TP gcVarPtrSetCur; // current stack locals holding GC pointers
 
@@ -116,18 +137,34 @@ public:
     //  hold pointers.
     //
 
-    struct varPtrDsc
+    struct FrameLifetime
     {
-        varPtrDsc* vpdNext;
+        FrameLifetime* vpdNext = nullptr;
 
-        unsigned vpdVarNum; // which variable is this about?
+        unsigned frameOffset;
 
         unsigned vpdBegOfs; // the offset where life starts
         unsigned vpdEndOfs; // the offset where life starts
+
+        FrameLifetime(unsigned frameOffset, unsigned beginCodeOffset)
+            : frameOffset(frameOffset)
+            , vpdBegOfs(beginCodeOffset)
+#ifdef DEBUG
+            , vpdEndOfs(0)
+#endif
+        {
+        }
+
+        FrameLifetime(unsigned frameOffset, unsigned beginCodeOffset, unsigned endCodeOffset)
+            : frameOffset(frameOffset), vpdBegOfs(beginCodeOffset), vpdEndOfs(endCodeOffset)
+        {
+        }
     };
 
-    varPtrDsc* gcVarPtrList;
-    varPtrDsc* gcVarPtrLast;
+    typedef FrameLifetime varPtrDsc;
+
+    FrameLifetime* gcVarPtrList = nullptr;
+    FrameLifetime* gcVarPtrLast = nullptr;
 
     void gcVarPtrSetInit();
 
@@ -189,9 +226,18 @@ public:
 #endif
     };
 
-    regPtrDsc* gcRegPtrList;
-    regPtrDsc* gcRegPtrLast;
-    unsigned   gcPtrArgCnt;
+    // The following table determines the order in which callee-saved registers
+    // are encoded in GC information at call sites (perhaps among other things).
+    // In any case, they establish a mapping from ordinal callee-save reg "indices" to
+    // register numbers and corresponding bitmaps.
+    static const regMaskTP raRbmCalleeSaveOrder[];
+
+    // This method takes a "compact" bitset of the callee-saved registers, and "expands" it to a full register mask.
+    static regMaskSmall RegMaskFromCalleeSavedMask(unsigned short calleeSaveMask);
+
+    regPtrDsc* gcRegPtrList = nullptr;
+    regPtrDsc* gcRegPtrLast = nullptr;
+    unsigned   gcPtrArgCnt  = 0;
 
 #ifndef JIT32_GCENCODER
     enum MakeRegPtrMode
@@ -249,14 +295,16 @@ public:
 
     struct CallDsc
     {
-        CallDsc* cdNext;
-        void*    cdBlock; // the code block of the call
-        unsigned cdOffs;  // the offset     of the call
+        CallDsc*     cdNext;
+        regMaskSmall cdGCrefRegs;
+        regMaskSmall cdByrefRegs;
+        unsigned     cdOffs;
 #ifndef JIT32_GCENCODER
-        unsigned short cdCallInstrSize; // the size       of the call instruction.
+        uint16_t cdCallInstrSize;
 #endif
 
-        unsigned short cdArgCnt;
+#if !FEATURE_FIXED_OUT_ARGS
+        uint16_t cdArgCnt;
 
         union {
             struct // used if cdArgCnt == 0
@@ -267,13 +315,11 @@ public:
 
             unsigned* cdArgTable; // used if cdArgCnt != 0
         };
-
-        regMaskSmall cdGCrefRegs;
-        regMaskSmall cdByrefRegs;
+#endif // !FEATURE_FIXED_OUT_ARGS
     };
 
-    CallDsc* gcCallDescList;
-    CallDsc* gcCallDescLast;
+    CallDsc* gcCallDescList = nullptr;
+    CallDsc* gcCallDescLast = nullptr;
 
 //-------------------------------------------------------------------------
 
@@ -284,8 +330,8 @@ public:
 
     size_t gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, unsigned codeSize, size_t* pArgTabOffset);
 #else
-    RegSlotMap*   m_regSlotMap;
-    StackSlotMap* m_stackSlotMap;
+    RegSlotMap*   m_regSlotMap   = nullptr;
+    StackSlotMap* m_stackSlotMap = nullptr;
     // This method has two modes.  In the "assign slots" mode, it figures out what registers and stack
     // locations are used to contain GC references, and whether those locations contain byrefs or pinning
     // references, building up mappings from tuples of <reg/offset X byref/pinning> to the corresponding
@@ -302,8 +348,6 @@ public:
     size_t gcPtrTableSize(const InfoHdr& header, unsigned codeSize, size_t* pArgTabOffset);
     BYTE* gcPtrTableSave(BYTE* destPtr, const InfoHdr& header, unsigned codeSize, size_t* pArgTabOffset);
 #endif
-    void gcRegPtrSetInit();
-    /*****************************************************************************/
 
     // This enumeration yields the result of the analysis below, whether a store
     // requires a write barrier:
@@ -315,11 +359,8 @@ public:
         WBF_BarrierUnchecked, // An unchecked barrier is required.
     };
 
-    WriteBarrierForm GetWriteBarrierForm(GenTreeStoreInd* store);
-
-    // Returns a WriteBarrierForm decision based on the form of "tgtAddr", which is assumed to be the
-    // argument of a GT_IND LHS.
-    WriteBarrierForm gcWriteBarrierFormFromTargetAddress(GenTree* tgtAddr);
+    static WriteBarrierForm GetWriteBarrierForm(GenTreeStoreInd* store);
+    static WriteBarrierForm GetWriteBarrierFormFromAddress(GenTree* addr);
 
     //-------------------------------------------------------------------------
     //
@@ -329,17 +370,18 @@ public:
 
 #ifdef JIT32_GCENCODER
 private:
-    BYTE* gcEpilogTable;
+    BYTE* gcEpilogTable = nullptr;
 
     unsigned gcEpilogPrevOffset;
 
-    size_t gcInfoBlockHdrSave(BYTE*    dest,
-                              int      mask,
-                              unsigned methodSize,
-                              unsigned prologSize,
-                              unsigned epilogSize,
-                              InfoHdr* header,
-                              int*     s_cached);
+    size_t gcInfoBlockHdrSave(BYTE*     dest,
+                              int       mask,
+                              unsigned  methodSize,
+                              unsigned  prologSize,
+                              unsigned  epilogSize,
+                              regMaskTP savedRegs,
+                              InfoHdr*  header,
+                              int*      s_cached);
 
 public:
     static void gcInitEncoderLookupTable();
@@ -381,8 +423,23 @@ private:
 #endif // DUMP_GC_TABLES
 
 public:
-    // This method updates the appropriate reg masks when a variable is moved.
-    void gcUpdateForRegVarMove(regMaskTP srcMask, regMaskTP dstMask, LclVarDsc* varDsc);
+    void AddFrameLifetime(varPtrDsc* lifetime)
+    {
+        if (gcVarPtrLast == nullptr)
+        {
+            assert(gcVarPtrList == nullptr);
+
+            gcVarPtrList = lifetime;
+        }
+        else
+        {
+            assert(gcVarPtrList != nullptr);
+
+            gcVarPtrLast->vpdNext = lifetime;
+        }
+
+        gcVarPtrLast = lifetime;
+    }
 
 private:
     ReturnKind getReturnKind();

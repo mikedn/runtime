@@ -264,13 +264,6 @@ class Target
 public:
     static const char* g_tgtCPUName;
     static const char* g_tgtPlatformName;
-
-    enum ArgOrder : uint8_t
-    {
-        ARG_ORDER_R2L,
-        ARG_ORDER_L2R
-    };
-    static const enum ArgOrder g_tgtArgOrder;
 };
 
 #if defined(DEBUG) || defined(LATE_DISASM) || DUMP_GC_TABLES
@@ -336,108 +329,30 @@ inline bool genIsValidDoubleReg(regNumber reg)
 #endif // TARGET_ARM
 
 //-------------------------------------------------------------------------------------------
-// hasFixedRetBuffReg:
-//     Returns true if our target architecture uses a fixed return buffer register
-//
-inline bool hasFixedRetBuffReg()
-{
-#ifdef TARGET_ARM64
-    return true;
-#else
-    return false;
-#endif
-}
-
-//-------------------------------------------------------------------------------------------
-// theFixedRetBuffReg:
-//     Returns the regNumber to use for the fixed return buffer
-//
-inline regNumber theFixedRetBuffReg()
-{
-    assert(hasFixedRetBuffReg()); // This predicate should be checked before calling this method
-#ifdef TARGET_ARM64
-    return REG_ARG_RET_BUFF;
-#else
-    return REG_NA;
-#endif
-}
-
-//-------------------------------------------------------------------------------------------
-// theFixedRetBuffMask:
-//     Returns the regNumber to use for the fixed return buffer
-//
-inline regMaskTP theFixedRetBuffMask()
-{
-    assert(hasFixedRetBuffReg()); // This predicate should be checked before calling this method
-#ifdef TARGET_ARM64
-    return RBM_ARG_RET_BUFF;
-#else
-    return 0;
-#endif
-}
-
-//-------------------------------------------------------------------------------------------
-// theFixedRetBuffArgNum:
-//     Returns the argNum to use for the fixed return buffer
-//
-inline unsigned theFixedRetBuffArgNum()
-{
-    assert(hasFixedRetBuffReg()); // This predicate should be checked before calling this method
-#ifdef TARGET_ARM64
-    return RET_BUFF_ARGNUM;
-#else
-    return BAD_VAR_NUM;
-#endif
-}
-
-//-------------------------------------------------------------------------------------------
 // fullIntArgRegMask:
 //     Returns the full mask of all possible integer registers
 //     Note this includes the fixed return buffer register on Arm64
 //
 inline regMaskTP fullIntArgRegMask()
 {
-    if (hasFixedRetBuffReg())
-    {
-        return RBM_ARG_REGS | theFixedRetBuffMask();
-    }
-    else
-    {
-        return RBM_ARG_REGS;
-    }
+#ifdef TARGET_ARM64
+    return RBM_ARG_REGS | RBM_ARG_RET_BUFF;
+#else
+    return RBM_ARG_REGS;
+#endif
 }
 
-//-------------------------------------------------------------------------------------------
-// isValidIntArgReg:
-//     Returns true if the register is a valid integer argument register
-//     Note this method also returns true on Arm64 when 'reg' is the RetBuff register
-//
+// Returns true if the register is a valid integer argument register
+// Note this method also returns true on Arm64 when 'reg' is the RetBuff register
 inline bool isValidIntArgReg(regNumber reg)
 {
     return (genRegMask(reg) & fullIntArgRegMask()) != 0;
 }
 
-//-------------------------------------------------------------------------------------------
-// genRegArgNext:
-//     Given a register that is an integer or floating point argument register
-//     returns the next argument register
-//
-regNumber genRegArgNext(regNumber argReg);
-
-//-------------------------------------------------------------------------------------------
-// isValidFloatArgReg:
-//     Returns true if the register is a valid floating-point argument register
-//
+// Returns true if the register is a valid floating-point argument register
 inline bool isValidFloatArgReg(regNumber reg)
 {
-    if (reg == REG_NA)
-    {
-        return false;
-    }
-    else
-    {
-        return (reg >= FIRST_FP_ARGREG) && (reg <= LAST_FP_ARGREG);
-    }
+    return (reg >= FIRST_FP_ARGREG) && (reg <= LAST_FP_ARGREG);
 }
 
 /*****************************************************************************
@@ -562,66 +477,51 @@ inline regMaskTP genRegMask(regNumber regNum, var_types type)
 #endif
 }
 
-/*****************************************************************************
- *
- *  These arrays list the callee-saved register numbers (and bitmaps, respectively) for
- *  the current architecture.
- */
-extern const regNumber raRegCalleeSaveOrder[CNT_CALLEE_SAVED];
-extern const regMaskTP raRbmCalleeSaveOrder[CNT_CALLEE_SAVED];
-
-// This method takes a "compact" bitset of the callee-saved registers, and "expands" it to a full register mask.
-regMaskSmall genRegMaskFromCalleeSavedMask(unsigned short);
-
-/*****************************************************************************
- *
- *  Assumes that "reg" is of the given "type". Return the next unused reg number after "reg"
- *  of this type, else REG_NA if there are no more.
- */
-
-inline regNumber regNextOfType(regNumber reg, var_types type)
-{
-    regNumber regReturn;
-
-#ifdef TARGET_ARM
-    if (type == TYP_DOUBLE)
-    {
-        // Skip odd FP registers for double-precision types
-        assert(floatRegCanHoldType(reg, type));
-        regReturn = regNumber(reg + 2);
-    }
-    else
-    {
-        regReturn = REG_NEXT(reg);
-    }
-#else // TARGET_ARM
-    regReturn = REG_NEXT(reg);
-#endif
-
-    if (varTypeUsesFloatReg(type))
-    {
-        if (regReturn > REG_FP_LAST)
-        {
-            regReturn = REG_NA;
-        }
-    }
-    else
-    {
-        if (regReturn > REG_INT_LAST)
-        {
-            regReturn = REG_NA;
-        }
-    }
-
-    return regReturn;
-}
-
 // If the WINDOWS_AMD64_ABI is defined make sure that TARGET_AMD64 is also defined.
 #if defined(WINDOWS_AMD64_ABI)
 #if !defined(TARGET_AMD64)
 #error When WINDOWS_AMD64_ABI is defined you must define TARGET_AMD64 defined as well.
 #endif
 #endif
+
+#ifdef WINDOWS_AMD64_ABI
+// For varargs calls on win-x64 we need to pass floating point register arguments in 2 registers:
+// the XMM reg that's normally used to pass a floating point arg and the GPR that's normally used
+// to pass an integer argument at the same position.
+inline regNumber MapVarargsParamFloatRegToIntReg(regNumber floatReg)
+{
+    switch (floatReg)
+    {
+        case REG_XMM0:
+            return REG_RCX;
+        case REG_XMM1:
+            return REG_RDX;
+        case REG_XMM2:
+            return REG_R8;
+        case REG_XMM3:
+            return REG_R9;
+        default:
+            unreached();
+    }
+}
+
+inline regNumber MapVarargsParamIntRegToFloatReg(regNumber intReg)
+{
+    switch (intReg)
+    {
+        case REG_RCX:
+            return REG_XMM0;
+        case REG_RDX:
+            return REG_XMM1;
+        case REG_R8:
+            return REG_XMM2;
+        case REG_R9:
+            return REG_XMM3;
+        default:
+            unreached();
+    }
+}
+#endif // WINDOWS_AMD64_ABI
 
 /*****************************************************************************/
 // Some sanity checks on some of the register masks

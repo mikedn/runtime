@@ -10,30 +10,54 @@
 #include "jitgcinfo.h"
 #include "treelifeupdater.h"
 
-#if defined(TARGET_AMD64) || defined(TARGET_ARM64) || defined(TARGET_ARM)
-#define FOREACH_REGISTER_FILE(file)                                                                                    \
-    for ((file) = &(this->intRegState); (file) != NULL;                                                                \
-         (file) = ((file) == &(this->intRegState)) ? &(this->floatRegState) : NULL)
-#else
-#define FOREACH_REGISTER_FILE(file) (file) = &(this->intRegState);
-#endif
-
 class CodeGen final : public CodeGenInterface
 {
     friend class emitter;
     friend class DisAssembler;
     friend class CodeGenLivenessUpdater;
 
+    //  The following holds information about instr offsets in terms of generated code.
+    struct IPmappingDsc
+    {
+        IPmappingDsc* ipmdNext;      // next line# record
+        emitLocation  ipmdNativeLoc; // the emitter location of the native code corresponding to the IL offset
+        IL_OFFSETX    ipmdILoffsx;   // the instr offset
+        bool          ipmdIsLabel;   // Can this code be a branch label?
+    };
+
+    class LinearScan* m_lsra           = nullptr;
+    IPmappingDsc*     genIPmappingList = nullptr;
+    IPmappingDsc*     genIPmappingLast = nullptr;
+
     CodeGenLivenessUpdater m_liveness;
+#ifdef TARGET_ARMARCH
+    // Registers reserved for special purposes, that cannot be allocated by LSRA.
+    regMaskTP reservedRegs = RBM_NONE;
+#endif
 
 public:
+    GCInfo gcInfo;
+
     CodeGen(Compiler* compiler);
 
     virtual void genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize);
 
+    void genAllocateRegisters();
     void genGenerateMachineCode();
     void genEmitMachineCode();
     void genEmitUnwindDebugGCandEH();
+
+#ifdef TARGET_XARCH
+#ifdef TARGET_AMD64
+    // There are no reloc hints on x86
+    unsigned short genAddrRelocTypeHint(size_t addr);
+#endif
+    bool genDataIndirAddrCanBeEncodedAsPCRelOffset(size_t addr);
+    bool genCodeIndirAddrCanBeEncodedAsPCRelOffset(size_t addr);
+    bool genCodeIndirAddrCanBeEncodedAsZeroRelOffset(size_t addr);
+    bool genCodeIndirAddrNeedsReloc(size_t addr);
+    bool genCodeAddrNeedsReloc(size_t addr);
+#endif
 
     virtual VARSET_VALARG_TP GetLiveSet() const
     {
@@ -77,18 +101,7 @@ private:
     }
 #endif // defined(TARGET_XARCH)
 
-    void genPrepForCompiler();
-
     void genMarkLabelsForCodegen();
-
-    inline RegState* regStateForType(var_types t)
-    {
-        return varTypeUsesFloatReg(t) ? &floatRegState : &intRegState;
-    }
-    inline RegState* regStateForReg(regNumber reg)
-    {
-        return genIsValidFloatReg(reg) ? &floatRegState : &intRegState;
-    }
 
     regNumber genFramePointerReg()
     {
@@ -109,58 +122,31 @@ private:
     void genCodeForLockAdd(GenTreeOp* node);
 #endif
 
-#ifdef REG_OPT_RSVD
+#ifdef TARGET_ARMARCH
     // On some targets such as the ARM we may need to have an extra reserved register
-    //  that is used when addressing stack based locals and stack based temps.
-    //  This method returns the regNumber that should be used when an extra register
-    //  is needed to access the stack based locals and stack based temps.
-    //
+    // that is used when addressing stack based locals and stack based temps.
+    // This method returns the regNumber that should be used when an extra register
+    // is needed to access the stack based locals and stack based temps.
     regNumber rsGetRsvdReg()
     {
         // We should have already added this register to the mask
-        //  of reserved registers in regSet.rdMaskResvd
-        noway_assert((regSet.rsMaskResvd & RBM_OPT_RSVD) != 0);
+        // of reserved registers in regSet.rdMaskResvd
+        noway_assert((reservedRegs & RBM_OPT_RSVD) != 0);
 
         return REG_OPT_RSVD;
     }
-#endif // REG_OPT_RSVD
+#endif // TARGET_ARMARCH
 
     //-------------------------------------------------------------------------
 
     bool     genUseBlockInit;  // true if we plan to block-initialize the local stack frame
     unsigned genInitStkLclCnt; // The count of local variables that we need to zero init
 
-    void SubtractStackLevel(unsigned adjustment)
-    {
-        assert(genStackLevel >= adjustment);
-        unsigned newStackLevel = genStackLevel - adjustment;
-        if (genStackLevel != newStackLevel)
-        {
-            JITDUMP("Adjusting stack level from %d to %d\n", genStackLevel, newStackLevel);
-        }
-        genStackLevel = newStackLevel;
-    }
-
-    void AddStackLevel(unsigned adjustment)
-    {
-        unsigned newStackLevel = genStackLevel + adjustment;
-        if (genStackLevel != newStackLevel)
-        {
-            JITDUMP("Adjusting stack level from %d to %d\n", genStackLevel, newStackLevel);
-        }
-        genStackLevel = newStackLevel;
-    }
-
-    void SetStackLevel(unsigned newStackLevel)
-    {
-        if (genStackLevel != newStackLevel)
-        {
-            JITDUMP("Setting stack level from %d to %d\n", genStackLevel, newStackLevel);
-        }
-        genStackLevel = newStackLevel;
-    }
-
-    //-------------------------------------------------------------------------
+#if !FEATURE_FIXED_OUT_ARGS
+    void SubtractStackLevel(unsigned adjustment);
+    void AddStackLevel(unsigned adjustment);
+    void SetStackLevel(unsigned newStackLevel);
+#endif
 
     void genReportEH();
 
@@ -200,16 +186,23 @@ protected:
     unsigned genOffsetOfMDArrayDimensionSize(var_types elemType, unsigned rank, unsigned dimension);
 
     void genInitialize();
-
-    void genInitializeRegisterState();
-
+    void UpdateLclBlockLiveInRegs(BasicBlock* block);
     void genCodeForBBlist();
 
 public:
     void SpillRegCandidateLclVar(GenTreeLclVar* node);
 
 protected:
+#ifdef TARGET_X86
+    void genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize = EA_UNKNOWN, regNumber callTarget = REG_NA)
+    {
+        genEmitHelperCall(helper, 0, retSize, callTarget);
+    }
+
     void genEmitHelperCall(CorInfoHelpFunc helper, int argSize, emitAttr retSize, regNumber callTarget = REG_NA);
+#else
+    void genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize = EA_UNKNOWN, regNumber callTarget = REG_NA);
+#endif
 
     void genGCWriteBarrier(GenTreeStoreInd* store, GCInfo::WriteBarrierForm wbf);
 
@@ -222,9 +215,9 @@ protected:
     void genDefineTempLabel(BasicBlock* label);
     void genDefineInlineTempLabel(BasicBlock* label);
 
-    void genAdjustSP(target_ssize_t delta);
-
+#if !FEATURE_FIXED_OUT_ARGS
     void genAdjustStackLevel(BasicBlock* block);
+#endif
 
     void genExitCode(BasicBlock* block);
 
@@ -245,13 +238,47 @@ protected:
     // Prolog functions and data (there are a few exceptions for more generally used things)
     //
 
-    void genEstablishFramePointer(int delta, bool reportUnwindData);
-    void genFnPrologCalleeRegArgs(regNumber xtraReg, bool* pXtraRegClobbered, RegState* regState);
-    void genEnregisterIncomingStackArgs();
-    void genCheckUseBlockInit();
-#if defined(UNIX_AMD64_ABI) && defined(FEATURE_SIMD)
-    void genClearStackVec3ArgUpperBits();
-#endif // UNIX_AMD64_ABI && FEATURE_SIMD
+    void PrologEstablishFramePointer(int delta, bool reportUnwindData);
+
+    struct ParamRegInfo
+    {
+        unsigned lclNum;
+        // index into the param registers table of the register that will be copied to this register.
+        // That is, for paramRegs[x].trashBy = y, argument register number 'y' will be copied to
+        // argument register number 'x'. Only used when circular = true.
+        unsigned trashBy;
+
+        uint8_t   regIndex;
+        bool      stackArg;  // true if the argument gets homed to the stack
+        bool      writeThru; // true if the argument gets homed to both stack and register
+        bool      processed; // true after we've processed the argument (and it is in its final location)
+        bool      circular;  // true if this register participates in a circular dependency loop.
+        var_types type;
+    };
+
+    void genPrologMoveParamRegs(
+        unsigned regCount, regMaskTP regLiveIn, bool isFloat, regNumber tempReg, bool* tempRegClobbered);
+    regMaskTP genPrologBuildParamRegsTable(
+        ParamRegInfo* paramRegs, unsigned paramRegCount, regMaskTP liveParamRegs, bool isFloat, regNumber tempReg);
+    void genPrologMarkParamRegsCircularDependencies(ParamRegInfo* paramRegs,
+                                                    unsigned      paramRegCount,
+                                                    regMaskTP     liveParamRegs);
+    regMaskTP genPrologSpillParamRegs(ParamRegInfo* paramRegs, unsigned paramRegCount, regMaskTP liveParamRegs);
+    void genPrologMoveParamRegs(ParamRegInfo* paramRegs,
+                                unsigned      paramRegCount,
+                                regMaskTP     liveParamRegs,
+                                bool          isFloat,
+                                regNumber     tempReg,
+                                bool*         tempRegClobbered);
+    void genPrologEnregisterIncomingStackParams();
+    void MarkStackLocals();
+    void CheckUseBlockInit();
+    void MarkGCTrackedSlots(int&       minBlockInitOffset,
+                            int&       maxBlockInitOffset,
+                            regMaskTP& initRegs ARM_ARG(regMaskTP& initDblRegs));
+#ifdef UNIX_AMD64_ABI
+    void PrologClearVector3StackParamUpperBits();
+#endif
 
 #if defined(TARGET_ARM64)
     bool genInstrWithConstant(instruction ins,
@@ -312,19 +339,19 @@ protected:
     void genSaveCalleeSavedRegistersHelp(regMaskTP regsToSaveMask, int lowestCalleeSavedOffset, int spDelta);
     void genRestoreCalleeSavedRegistersHelp(regMaskTP regsToRestoreMask, int lowestCalleeSavedOffset, int spDelta);
 
-    void genPushCalleeSavedRegisters(regNumber initReg, bool* pInitRegZeroed);
+    void PrologPushCalleeSavedRegisters(regNumber initReg, bool* pInitRegZeroed);
 #else
-    void genPushCalleeSavedRegisters();
+    void PrologPushCalleeSavedRegisters();
 #endif
 
-    void genAllocLclFrame(unsigned frameSize, regNumber initReg, bool* pInitRegZeroed, regMaskTP maskArgRegsLiveIn);
+    void PrologAllocLclFrame(unsigned frameSize, regNumber initReg, bool* pInitRegZeroed, regMaskTP maskArgRegsLiveIn);
 
     void genPoisonFrame(regMaskTP bbRegLiveIn);
 
 #if defined(TARGET_ARM)
 
     bool genInstrWithConstant(
-        instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, ssize_t imm, insFlags flags, regNumber tmpReg);
+        instruction ins, emitAttr attr, regNumber reg1, regNumber reg2, ssize_t imm, regNumber tmpReg);
 
     bool genStackPointerAdjustment(ssize_t spAdjustment, regNumber tmpReg);
 
@@ -396,27 +423,27 @@ protected:
 #if defined(TARGET_XARCH)
 
     // Save/Restore callee saved float regs to stack
-    void genPreserveCalleeSavedFltRegs(unsigned lclFrameSize);
+    void PrologPreserveCalleeSavedFloatRegs(unsigned lclFrameSize);
     void genRestoreCalleeSavedFltRegs(unsigned lclFrameSize);
     // Generate VZeroupper instruction to avoid AVX/SSE transition penalty
     void genVzeroupperIfNeeded(bool check256bitOnly = true);
 
 #endif // TARGET_XARCH
 
-    void genZeroInitFltRegs(const regMaskTP& initFltRegs, const regMaskTP& initDblRegs, const regNumber& initReg);
+    regNumber PrologChooseInitReg(regMaskTP initRegs);
+    void PrologBlockInitLocals(int untrackedLo, int untrackedHi, regNumber initReg, bool* initRegZeroed);
+    void PrologZeroInitUntrackedLocals(regNumber initReg, bool* initRegZeroed);
+    void PrologInitOsrLocals();
+    void PrologZeroRegs(regMaskTP initRegs, regNumber initReg ARM_ARG(regMaskTP doubleRegs));
 
-    regNumber genGetZeroReg(regNumber initReg, bool* pInitRegZeroed);
+    void PrologReportGenericContextArg(regNumber initReg, bool* pInitRegZeroed);
 
-    void genZeroInitFrame(int untrLclHi, int untrLclLo, regNumber initReg, bool* pInitRegZeroed);
-
-    void genReportGenericContextArg(regNumber initReg, bool* pInitRegZeroed);
-
-    void genSetGSSecurityCookie(regNumber initReg, bool* pInitRegZeroed);
+    void PrologSetGSSecurityCookie(regNumber initReg, bool* pInitRegZeroed);
 
     void genFinalizeFrame();
 
 #ifdef PROFILING_SUPPORTED
-    void genProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed);
+    void PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed);
     void genProfilingLeaveCallback(CorInfoHelpFunc helper);
 #endif // PROFILING_SUPPORTED
 
@@ -438,23 +465,26 @@ protected:
     // Common or driving functions
     //
 
-    void genReserveProlog(BasicBlock* block); // currently unused
     void genReserveEpilog(BasicBlock* block);
     void genFnProlog();
     void genFnEpilog(BasicBlock* block);
+    void UpdateParamsWithInitialReg();
+    void PrologMoveParams(regNumber initReg, bool* initRegZeroed);
+#ifdef TARGET_X86
+    void PrologInitVarargsStackParamsBaseOffset();
+#endif
 
-#if defined(FEATURE_EH_FUNCLETS)
-
+#ifdef FEATURE_EH_FUNCLETS
     void genReserveFuncletProlog(BasicBlock* block);
     void genReserveFuncletEpilog(BasicBlock* block);
     void genFuncletProlog(BasicBlock* block);
     void genFuncletEpilog();
     void genCaptureFuncletPrologEpilogInfo();
 
-    void genSetPSPSym(regNumber initReg, bool* pInitRegZeroed);
+    void PrologSetPSPSym(regNumber initReg, bool* pInitRegZeroed);
 
     void genUpdateCurrentFunclet(BasicBlock* block);
-#if defined(TARGET_ARM)
+#ifdef TARGET_ARM
     void genInsertNopForUnwinder(BasicBlock* block);
 #endif
 
@@ -485,22 +515,10 @@ protected:
     void genAmd64EmitterUnitTests();
 #endif
 
-#ifdef TARGET_ARM64
-    virtual void SetSaveFpLrWithAllCalleeSavedRegisters(bool value);
-    virtual bool IsSaveFpLrWithAllCalleeSavedRegisters() const;
-    bool         genSaveFpLrWithAllCalleeSavedRegisters = false;
-#endif // TARGET_ARM64
-
-    //-------------------------------------------------------------------------
-    //
-    // End prolog/epilog generation
-    //
-    //-------------------------------------------------------------------------
-
-    void      genSinglePush();
-    void      genSinglePop();
-    regMaskTP genPushRegs(regMaskTP regs, regMaskTP* byrefRegs, regMaskTP* noRefRegs);
-    void genPopRegs(regMaskTP regs, regMaskTP byrefRegs, regMaskTP noRefRegs);
+#ifdef TARGET_X86
+    var_types PushTempReg(regNumber reg);
+    void PopTempReg(regNumber reg, var_types type);
+#endif
 
 /*
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -810,7 +828,13 @@ protected:
     unsigned           genTrnslLocalVarCount = 0;
 #endif
 
-    void genSetRegToConst(regNumber targetReg, var_types targetType, GenTree* tree);
+#ifdef TARGET_XARCH
+    void GenIntCon(GenTreeIntCon* node, regNumber reg, var_types type);
+    void GenDblCon(GenTreeDblCon* node, regNumber reg, var_types type);
+#else
+    void GenIntCon(GenTreeIntCon* node);
+    void GenDblCon(GenTreeDblCon* node);
+#endif
     void genCodeForTreeNode(GenTree* treeNode);
     void genCodeForBinary(GenTreeOp* treeNode);
     void GenFloatNegate(GenTreeUnOp* node);
@@ -947,17 +971,14 @@ protected:
     void genCkfinite(GenTree* treeNode);
     void genCodeForCompare(GenTreeOp* tree);
     void genIntrinsic(GenTreeIntrinsic* node);
-    void genPutArgStk(GenTreePutArgStk* treeNode);
     void genPutArgReg(GenTreeUnOp* putArg);
+    void genPutArgStk(GenTreePutArgStk* treeNode);
+#if FEATURE_FASTTAILCALL
+    unsigned GetFirstStackParamLclNum();
+#endif
 #if FEATURE_ARG_SPLIT
     void genPutArgSplit(GenTreePutArgSplit* treeNode);
-#endif // FEATURE_ARG_SPLIT
-
-#if defined(TARGET_XARCH)
-    unsigned getBaseVarForPutArgStk(GenTree* treeNode);
-#endif // TARGET_XARCH
-
-    unsigned getFirstArgWithStackSlot();
+#endif
 
     void genCompareFloat(GenTree* treeNode);
     void genCompareInt(GenTree* treeNode);
@@ -1063,10 +1084,11 @@ protected:
     void genUpdateLife(GenTreeLclVarCommon* tree);
     void genUpdateRegLife(const LclVarDsc* varDsc, bool isBorn, bool isDying DEBUGARG(GenTree* tree));
     regMaskTP genGetRegMask(const LclVarDsc* varDsc);
-    regMaskTP genGetRegMask(GenTree* tree);
 
-    // Do liveness update for register produced by the current node in codegen after
-    // code has been emitted for it.
+    void SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex);
+    X86_ONLY(void SpillST0(GenTree* node);)
+    void UnspillNodeReg(GenTree* node, regNumber reg, unsigned regIndex);
+    X86_ONLY(void UnspillST0(GenTree* node);)
     void genProduceReg(GenTree* node);
     void DefReg(GenTree* node);
     void DefLclVarReg(GenTreeLclVar* lclVar);
@@ -1110,10 +1132,6 @@ protected:
     void genConsumeHWIntrinsicOperands(GenTreeHWIntrinsic* tree);
 #endif
     void genEmitGSCookieCheck(bool pushReg);
-    void genSetRegToIcon(regNumber reg,
-                         ssize_t   val,
-                         var_types type = TYP_INT,
-                         insFlags flags = INS_FLAGS_DONT_CARE DEBUGARG(GenTreeFlags gtFlags = GTF_EMPTY));
     void genCodeForShift(GenTreeOp* shift);
 
 #if defined(TARGET_X86) || defined(TARGET_ARM)
@@ -1202,19 +1220,12 @@ protected:
     void genPreAdjustStackForPutArgStk(unsigned argSize);
     void genPushReg(var_types type, regNumber srcReg);
     void genPutArgStkFieldList(GenTreePutArgStk* putArgStk);
-#endif // TARGET_X86
-
-    void genPutStructArgStk(GenTreePutArgStk* treeNode
-#ifndef TARGET_X86
-                            ,
-                            unsigned outArgLclNum,
-                            unsigned outArgLclOffs
-#ifdef TARGET_ARMARCH
-                            ,
-                            unsigned outArgLclSize
+    void genPutStructArgStk(GenTreePutArgStk* putArgStk);
+#else
+    void genPutStructArgStk(GenTreePutArgStk* putArgStk,
+                            unsigned          outArgLclNum,
+                            unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize));
 #endif
-#endif
-                            );
 
     void GenDynBlk(GenTreeDynBlk* store);
     void GenStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout);
@@ -1240,7 +1251,14 @@ protected:
     instruction genGetInsForOper(genTreeOps oper);
     bool genEmitOptimizedGCWriteBarrier(GCInfo::WriteBarrierForm writeBarrierForm, GenTree* addr, GenTree* data);
     void genCallInstruction(GenTreeCall* call);
-    void genJmpMethod(GenTree* jmp);
+    void GenJmp(GenTree* jmp);
+    void GenJmpEpilog(BasicBlock* block
+#ifdef TARGET_ARMARCH
+                      ,
+                      CORINFO_METHOD_HANDLE       methHnd,
+                      const CORINFO_CONST_LOOKUP& addrInfo
+#endif
+                      );
     BasicBlock* genCallFinally(BasicBlock* block);
     void genCodeForJumpTrue(GenTreeOp* jtrue);
 #ifdef TARGET_ARM64
@@ -1309,24 +1327,20 @@ public:
                   regNumber dstReg,
                   regNumber srcReg,
                   bool      canSkip,
-                  emitAttr  size  = EA_UNKNOWN,
-                  insFlags  flags = INS_FLAGS_DONT_CARE);
+                  emitAttr size = EA_UNKNOWN ARM_ARG(insFlags flags = INS_FLAGS_DONT_CARE));
 
     void inst_Mov_Extend(var_types srcType,
                          bool      srcInReg,
                          regNumber dstReg,
                          regNumber srcReg,
                          bool      canSkip,
-                         emitAttr  size  = EA_UNKNOWN,
-                         insFlags  flags = INS_FLAGS_DONT_CARE);
+                         emitAttr size = EA_UNKNOWN ARM_ARG(insFlags flags = INS_FLAGS_DONT_CARE));
 
     void inst_RV_RV(instruction ins, regNumber reg1, regNumber reg2, var_types type, emitAttr size = EA_UNKNOWN);
     void inst_RV_RV_RV(instruction ins, regNumber reg1, regNumber reg2, regNumber reg3, emitAttr size);
     void inst_IV(instruction ins, cnsval_ssize_t val);
     void inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size);
 
-    // The following method is used by xarch emitter for handling contained tree temps.
-    TempDsc* getSpillTempDsc(GenTree* node);
     bool IsLocalMemoryOperand(GenTree* op, unsigned* lclNum, unsigned* lclOffs);
 
 #ifdef TARGET_XARCH
@@ -1422,22 +1436,18 @@ public:
     void inst_R_AM(instruction ins, emitAttr size, regNumber reg, const GenAddrMode& addrMode, unsigned offset = 0);
     void inst_AM_R(instruction ins, emitAttr size, regNumber reg, const GenAddrMode& addrMode, unsigned offset = 0);
 
-#ifdef TARGET_ARM
-    bool arm_Valid_Imm_For_Add(target_ssize_t imm, insFlags flag);
-    bool arm_Valid_Imm_For_Add_SP(target_ssize_t imm);
-#endif
-
     bool isMoveIns(instruction ins);
     instruction ins_Move_Extend(var_types srcType, bool srcInReg);
 
+    instruction ins_Load(var_types srcType, bool aligned = false);
+    instruction ins_Store(var_types dstType, bool aligned = false);
+    instruction ins_StoreFromSrc(regNumber srcReg, var_types dstType, bool aligned = false);
     instruction ins_Copy(var_types dstType);
     instruction ins_Copy(regNumber srcReg, var_types dstType);
 #ifdef TARGET_XARCH
     instruction ins_FloatCompare(var_types type);
     instruction ins_FloatSqrt(var_types type);
 #endif
-
-    void instGen_Return(unsigned stkArgSize);
 
     enum BarrierKind
     {
@@ -1447,12 +1457,10 @@ public:
 
     void instGen_MemoryBarrier(BarrierKind barrierKind = BARRIER_FULL);
 
-    void instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg, insFlags flags = INS_FLAGS_DONT_CARE);
-
+    void instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg);
     void instGen_Set_Reg_To_Imm(emitAttr  size,
                                 regNumber reg,
-                                ssize_t   imm,
-                                insFlags flags = INS_FLAGS_DONT_CARE DEBUGARG(size_t targetHandle = 0)
+                                ssize_t imm DEBUGARG(size_t targetHandle = 0)
                                     DEBUGARG(GenTreeFlags gtFlags = GTF_EMPTY));
 
 #ifdef TARGET_XARCH
@@ -1505,29 +1513,10 @@ public:
     void inst_SETCC(GenCondition condition, var_types type, regNumber dstReg);
 
     INDEBUG(bool IsValidSourceType(var_types instrType, var_types sourceType);)
+
+    bool IsSimdLocalAligned(unsigned lclNum);
+
+    INDEBUG(void DumpDisasmHeader() const;)
 };
-
-inline void DoPhase(CodeGen* codeGen, Phases phaseId, void (CodeGen::*action)())
-{
-    class CodeGenPhase final : public Phase<CodeGenPhase>
-    {
-        CodeGen* codeGen;
-        void (CodeGen::*action)();
-
-    public:
-        CodeGenPhase(CodeGen* codeGen, Phases phase, void (CodeGen::*action)())
-            : Phase(codeGen->GetCompiler(), phase), codeGen(codeGen), action(action)
-        {
-        }
-
-        PhaseStatus DoPhase()
-        {
-            (codeGen->*action)();
-            return PhaseStatus::MODIFIED_EVERYTHING;
-        }
-    } phase(codeGen, phaseId, action);
-
-    phase.Run();
-}
 
 #endif // CODEGEN_H
