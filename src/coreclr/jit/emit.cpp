@@ -20,9 +20,9 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "emit.h"
 #include "codegen.h"
 
-emitter::emitter(Compiler* compiler, CodeGen* codeGen, GCInfo& gcInfo, ICorJitInfo* jitInfo)
+emitter::emitter(Compiler* compiler, CodeGen* codeGen, ICorJitInfo* jitInfo)
     : emitComp(compiler)
-    , gcInfo(&gcInfo)
+    , gcInfo(compiler)
     , codeGen(codeGen)
     , emitCmpHandle(jitInfo)
 #ifdef DEBUG
@@ -2839,10 +2839,9 @@ void emitter::emitDispGCVarDelta()
 void emitter::emitDispRegPtrListDelta()
 {
     // Dump any deltas in regPtrDsc's for outgoing args; these aren't captured in the other sets.
-    if (debugPrevRegPtrDsc != codeGen->gcInfo.gcRegPtrLast)
+    if (debugPrevRegPtrDsc != gcInfo.gcRegPtrLast)
     {
-        for (regPtrDsc* dsc = (debugPrevRegPtrDsc == nullptr) ? codeGen->gcInfo.gcRegPtrList
-                                                              : debugPrevRegPtrDsc->rpdNext;
+        for (regPtrDsc* dsc      = (debugPrevRegPtrDsc == nullptr) ? gcInfo.gcRegPtrList : debugPrevRegPtrDsc->rpdNext;
              dsc != nullptr; dsc = dsc->rpdNext)
         {
             // The non-arg regPtrDscs are reflected in the register sets debugPrevGCrefRegs/emitThisGCrefRegs
@@ -2878,7 +2877,7 @@ void emitter::emitDispRegPtrListDelta()
             }
             printf("\n");
         }
-        debugPrevRegPtrDsc = codeGen->gcInfo.gcRegPtrLast;
+        debugPrevRegPtrDsc = gcInfo.gcRegPtrLast;
     }
 }
 
@@ -6491,7 +6490,7 @@ void emitter::emitGCvarLiveSet(int slotOffs, GCtype gcType, unsigned codeOffs, u
     // The "global" live GC variable mask is no longer up-to-date.
     emitThisGCrefVset = false;
 
-    codeGen->gcInfo.AddFrameLifetime(lifetime);
+    gcInfo.AddFrameLifetime(lifetime);
 
     INDEBUG(debugGCSlotChanges.Push(lifetime));
 }
@@ -6618,7 +6617,7 @@ void emitter::emitRecordGCCallPop(BYTE* addr, unsigned callInstrSize)
         }
     }
 
-    regPtrDsc* regPtrNext        = codeGen->gcInfo.gcRegPtrAllocDsc();
+    regPtrDsc* regPtrNext        = gcInfo.gcRegPtrAllocDsc();
     regPtrNext->rpdOffs          = emitCurCodeOffs(addr);
     regPtrNext->rpdPtrArg        = 0;
     regPtrNext->rpdCallInstrSize = static_cast<uint8_t>(callInstrSize);
@@ -6707,16 +6706,16 @@ void emitter::emitRecordGCcall(BYTE* codePos, unsigned callInstrSize)
 #endif
 
     // Append the call descriptor to the list */
-    if (codeGen->gcInfo.gcCallDescLast == nullptr)
+    if (gcInfo.gcCallDescLast == nullptr)
     {
-        assert(codeGen->gcInfo.gcCallDescList == nullptr);
-        codeGen->gcInfo.gcCallDescList = codeGen->gcInfo.gcCallDescLast = call;
+        assert(gcInfo.gcCallDescList == nullptr);
+        gcInfo.gcCallDescList = gcInfo.gcCallDescLast = call;
     }
     else
     {
-        assert(codeGen->gcInfo.gcCallDescList != nullptr);
-        codeGen->gcInfo.gcCallDescLast->cdNext = call;
-        codeGen->gcInfo.gcCallDescLast         = call;
+        assert(gcInfo.gcCallDescList != nullptr);
+        gcInfo.gcCallDescLast->cdNext = call;
+        gcInfo.gcCallDescLast         = call;
     }
 
 #if !FEATURE_FIXED_OUT_ARGS
@@ -6861,7 +6860,7 @@ void emitter::emitGCregLiveSet(GCtype gcType, regMaskTP regMask, BYTE* addr, boo
 
     /* Allocate a new regptr entry and fill it in */
 
-    regPtrNext            = codeGen->gcInfo.gcRegPtrAllocDsc();
+    regPtrNext            = gcInfo.gcRegPtrAllocDsc();
     regPtrNext->rpdGCtype = gcType;
 
     regPtrNext->rpdOffs            = emitCurCodeOffs(addr);
@@ -6891,7 +6890,7 @@ void emitter::emitGCregDeadSet(GCtype gcType, regMaskTP regMask, BYTE* addr)
 
     /* Allocate a new regptr entry and fill it in */
 
-    regPtrNext            = codeGen->gcInfo.gcRegPtrAllocDsc();
+    regPtrNext            = gcInfo.gcRegPtrAllocDsc();
     regPtrNext->rpdGCtype = gcType;
 
     regPtrNext->rpdOffs            = emitCurCodeOffs(addr);
@@ -7246,7 +7245,7 @@ void emitter::emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsi
 
         // Append an "arg push" entry to track a GC written to the outgoing argument space.
 
-        regPtrDsc* regPtrNext  = gcInfo->gcRegPtrAllocDsc();
+        regPtrDsc* regPtrNext  = gcInfo.gcRegPtrAllocDsc();
         regPtrNext->rpdGCtype  = gcType;
         regPtrNext->rpdOffs    = emitCurCodeOffs(addr);
         regPtrNext->rpdArg     = true;
@@ -7583,7 +7582,7 @@ void emitter::emitStackPushLargeStk(BYTE* addr, GCtype gcType, unsigned count)
                 /* Append an "arg push" entry if this is a GC ref or
                    FPO method. Allocate a new ptr arg entry and fill it in */
 
-                regPtrDsc* regPtrNext = codeGen->gcInfo.gcRegPtrAllocDsc();
+                regPtrDsc* regPtrNext = gcInfo.gcRegPtrAllocDsc();
                 regPtrNext->rpdGCtype = gcType;
 
                 regPtrNext->rpdOffs = emitCurCodeOffs(addr);
@@ -7704,7 +7703,7 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSi
 
     /* Allocate a new ptr arg entry and fill it in */
 
-    regPtrDsc* regPtrNext = codeGen->gcInfo.gcRegPtrAllocDsc();
+    regPtrDsc* regPtrNext = gcInfo.gcRegPtrAllocDsc();
     regPtrNext->rpdGCtype = GCT_GCREF; // Pops need a non-0 value (??)
 
     regPtrNext->rpdOffs = emitCurCodeOffs(addr);
@@ -7790,7 +7789,7 @@ void emitter::emitStackKillArgs(BYTE* addr, unsigned count, unsigned callInstrSi
     {
         /* Allocate a new ptr arg entry and fill it in */
 
-        regPtrDsc* regPtrNext = codeGen->gcInfo.gcRegPtrAllocDsc();
+        regPtrDsc* regPtrNext = gcInfo.gcRegPtrAllocDsc();
         regPtrNext->rpdGCtype = GCT_GCREF; // Kills need a non-0 value (??)
 
         regPtrNext->rpdOffs = emitCurCodeOffs(addr);

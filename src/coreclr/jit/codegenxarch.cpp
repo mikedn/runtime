@@ -3362,7 +3362,6 @@ void CodeGen::GenStructStoreUnrollCopyWB(GenTree* store, ClassLayout* layout)
         }
     }
 
-    // Clear the gcInfo for RSI and RDI.
     // While we normally update GC info prior to the last instruction that uses them,
     // these actually live into the helper call.
     liveness.RemoveGCRegs(RBM_RSI);

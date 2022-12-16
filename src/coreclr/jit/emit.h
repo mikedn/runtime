@@ -380,12 +380,12 @@ class emitter
     friend class CodeGenLivenessUpdater;
 
     Compiler*    emitComp;
-    GCInfo*      gcInfo;
+    GCInfo       gcInfo;
     CodeGen*     codeGen;
     ICorJitInfo* emitCmpHandle;
 
 public:
-    emitter(Compiler* compiler, CodeGen* codeGen, GCInfo& gcInfo, ICorJitInfo* jitInfo);
+    emitter(Compiler* compiler, CodeGen* codeGen, ICorJitInfo* jitInfo);
 
 #include "emitpub.h"
 

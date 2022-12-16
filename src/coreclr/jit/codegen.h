@@ -36,8 +36,6 @@ class CodeGen final : public CodeGenInterface
 #endif
 
 public:
-    GCInfo gcInfo;
-
     CodeGen(Compiler* compiler);
 
     virtual void genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize);

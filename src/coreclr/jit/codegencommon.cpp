@@ -39,9 +39,9 @@ CodeGenInterface::CodeGenInterface(Compiler* compiler) : compiler(compiler), spi
 {
 }
 
-CodeGen::CodeGen(Compiler* compiler) : CodeGenInterface(compiler), liveness(compiler), gcInfo(compiler)
+CodeGen::CodeGen(Compiler* compiler) : CodeGenInterface(compiler), liveness(compiler)
 {
-    m_cgEmitter = new (compiler->getAllocator()) emitter(compiler, this, gcInfo, compiler->info.compCompHnd);
+    m_cgEmitter = new (compiler->getAllocator()) emitter(compiler, this, compiler->info.compCompHnd);
 
 #ifdef LATE_DISASM
     getDisAssembler().disInit(compiler);
@@ -1318,9 +1318,9 @@ void CodeGen::genEmitUnwindDebugGCandEH()
 
 #ifdef JIT32_GCENCODER
     INDEBUG(void* infoPtr =)
-    gcInfo.CreateAndStoreGCInfo(this, codeSize, prologSize, epilogSize DEBUGARG(codePtr));
+    GetEmitter()->gcInfo.CreateAndStoreGCInfo(this, codeSize, prologSize, epilogSize DEBUGARG(codePtr));
 #else
-    gcInfo.CreateAndStoreGCInfo(codeSize, prologSize DEBUGARG(codePtr));
+    GetEmitter()->gcInfo.CreateAndStoreGCInfo(codeSize, prologSize DEBUGARG(codePtr));
 #endif
 
 #ifdef DEBUG
