@@ -1,12 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-//  Garbage-collector information
-//  Keeps track of which variables hold pointers.
-//  Generates the GC-tables
-
-#ifndef _JITGCINFO_H_
-#define _JITGCINFO_H_
+#pragma once
 
 #include "gcinfotypes.h"
 #ifndef JIT32_GCENCODER
@@ -394,72 +389,3 @@ public:
 private:
     ReturnKind getReturnKind();
 };
-
-inline unsigned char encodeUnsigned(BYTE* dest, unsigned value)
-{
-    unsigned char size = 1;
-    unsigned      tmp  = value;
-    while (tmp > 0x7F)
-    {
-        tmp >>= 7;
-        assert(size < 6); // Invariant.
-        size++;
-    }
-    if (dest)
-    {
-        // write the bytes starting at the end of dest in LSB to MSB order
-        BYTE* p    = dest + size;
-        BYTE  cont = 0; // The last byte has no continuation flag
-        while (value > 0x7F)
-        {
-            *--p = cont | (value & 0x7f);
-            value >>= 7;
-            cont = 0x80; // Non last bytes have a continuation flag
-        }
-        *--p = cont | (BYTE)value; // Now write the first byte
-        assert(p == dest);
-    }
-    return size;
-}
-
-inline unsigned char encodeUDelta(BYTE* dest, unsigned value, unsigned lastValue)
-{
-    assert(value >= lastValue);
-    return encodeUnsigned(dest, value - lastValue);
-}
-
-inline unsigned char encodeSigned(BYTE* dest, int val)
-{
-    unsigned char size  = 1;
-    unsigned      value = val;
-    BYTE          neg   = 0;
-    if (val < 0)
-    {
-        value = -val;
-        neg   = 0x40;
-    }
-    unsigned tmp = value;
-    while (tmp > 0x3F)
-    {
-        tmp >>= 7;
-        assert(size < 16); // Definitely sufficient for unsigned.  Fits in an unsigned char, certainly.
-        size++;
-    }
-    if (dest)
-    {
-        // write the bytes starting at the end of dest in LSB to MSB order
-        BYTE* p    = dest + size;
-        BYTE  cont = 0; // The last byte has no continuation flag
-        while (value > 0x3F)
-        {
-            *--p = cont | (value & 0x7f);
-            value >>= 7;
-            cont = 0x80; // Non last bytes have a continuation flag
-        }
-        *--p = neg | cont | (BYTE)value; // Now write the first byte
-        assert(p == dest);
-    }
-    return size;
-}
-
-#endif // _JITGCINFO_H_

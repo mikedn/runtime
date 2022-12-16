@@ -359,6 +359,303 @@ void GCInfo::gcDumpVarPtrDsc(varPtrDsc* desc)
 
 #ifdef JIT32_GCENCODER
 
+unsigned char encodeUnsigned(BYTE* dest, unsigned value)
+{
+    unsigned char size = 1;
+    unsigned      tmp  = value;
+    while (tmp > 0x7F)
+    {
+        tmp >>= 7;
+        assert(size < 6); // Invariant.
+        size++;
+    }
+    if (dest)
+    {
+        // write the bytes starting at the end of dest in LSB to MSB order
+        BYTE* p    = dest + size;
+        BYTE  cont = 0; // The last byte has no continuation flag
+        while (value > 0x7F)
+        {
+            *--p = cont | (value & 0x7f);
+            value >>= 7;
+            cont = 0x80; // Non last bytes have a continuation flag
+        }
+        *--p = cont | (BYTE)value; // Now write the first byte
+        assert(p == dest);
+    }
+    return size;
+}
+
+unsigned char encodeUDelta(BYTE* dest, unsigned value, unsigned lastValue)
+{
+    assert(value >= lastValue);
+    return encodeUnsigned(dest, value - lastValue);
+}
+
+unsigned char encodeSigned(BYTE* dest, int val)
+{
+    unsigned char size  = 1;
+    unsigned      value = val;
+    BYTE          neg   = 0;
+    if (val < 0)
+    {
+        value = -val;
+        neg   = 0x40;
+    }
+    unsigned tmp = value;
+    while (tmp > 0x3F)
+    {
+        tmp >>= 7;
+        assert(size < 16); // Definitely sufficient for unsigned.  Fits in an unsigned char, certainly.
+        size++;
+    }
+    if (dest)
+    {
+        // write the bytes starting at the end of dest in LSB to MSB order
+        BYTE* p    = dest + size;
+        BYTE  cont = 0; // The last byte has no continuation flag
+        while (value > 0x3F)
+        {
+            *--p = cont | (value & 0x7f);
+            value >>= 7;
+            cont = 0x80; // Non last bytes have a continuation flag
+        }
+        *--p = neg | cont | (BYTE)value; // Now write the first byte
+        assert(p == dest);
+    }
+    return size;
+}
+
+/*****************************************************************************
+ *
+ *  Compute the various counts that get stored in the info block header.
+ */
+
+void GCInfo::gcCountForHeader(UNALIGNED unsigned int* pUntrackedCount, UNALIGNED unsigned int* pVarPtrTableSize)
+{
+    unsigned   varNum;
+    LclVarDsc* varDsc;
+
+    bool         keepThisAlive  = false; // did we track "this" in a synchronized method?
+    unsigned int untrackedCount = 0;
+
+    // Count the untracked locals and non-enregistered args.
+
+    for (varNum = 0, varDsc = compiler->lvaTable; varNum < compiler->lvaCount; varNum++, varDsc++)
+    {
+        if (varDsc->IsDependentPromotedField(compiler))
+        {
+            // A dependent promoted struct field must be reported through its parent local.
+            continue;
+        }
+
+        if (varTypeIsGC(varDsc->TypeGet()))
+        {
+            if (!gcIsUntrackedLocalOrNonEnregisteredArg(varNum, &keepThisAlive))
+            {
+                continue;
+            }
+
+#ifdef DEBUG
+            if (compiler->verbose)
+            {
+                int offs = varDsc->GetStackOffset();
+
+                printf("GCINFO: untrckd %s lcl at [%s", varTypeGCstring(varDsc->TypeGet()),
+                       compiler->GetEmitter()->emitGetFrameReg());
+
+                if (offs < 0)
+                {
+                    printf("-%02XH", -offs);
+                }
+                else if (offs > 0)
+                {
+                    printf("+%02XH", +offs);
+                }
+
+                printf("]\n");
+            }
+#endif
+
+            untrackedCount++;
+        }
+        else if ((varDsc->TypeGet() == TYP_STRUCT) && varDsc->lvOnFrame)
+        {
+            untrackedCount += varDsc->GetLayout()->GetGCPtrCount();
+        }
+    }
+
+    // Also count spill temps that hold pointers.
+
+    for (SpillTemp& temp : compiler->codeGen->spillTemps)
+    {
+        if (!varTypeIsGC(temp.GetType()))
+        {
+            continue;
+        }
+
+#ifdef DEBUG
+        if (compiler->verbose)
+        {
+            int offs = temp.GetOffset();
+
+            printf("GCINFO: untrck %s Temp at [%s", varTypeGCstring(varDsc->TypeGet()),
+                   compiler->GetEmitter()->emitGetFrameReg());
+
+            if (offs < 0)
+            {
+                printf("-%02XH", -offs);
+            }
+            else if (offs > 0)
+            {
+                printf("+%02XH", +offs);
+            }
+
+            printf("]\n");
+        }
+#endif
+
+        untrackedCount++;
+    }
+
+#ifdef DEBUG
+    if (compiler->verbose)
+    {
+        printf("GCINFO: untrckVars = %u\n", untrackedCount);
+    }
+#endif
+
+    *pUntrackedCount = untrackedCount;
+
+    // Count the number of entries in the table of non-register pointer variable lifetimes.
+
+    unsigned int varPtrTableSize = 0;
+
+    if (keepThisAlive)
+    {
+        varPtrTableSize++;
+    }
+
+    if (gcVarPtrList != nullptr)
+    {
+        // We'll use a delta encoding for the lifetime offsets.
+
+        for (varPtrDsc* varTmp = gcVarPtrList; varTmp != nullptr; varTmp = varTmp->vpdNext)
+        {
+            // Special case: skip any 0-length lifetimes.
+
+            if (varTmp->vpdBegOfs == varTmp->vpdEndOfs)
+            {
+                continue;
+            }
+
+            varPtrTableSize++;
+        }
+    }
+
+#ifdef DEBUG
+    if (compiler->verbose)
+    {
+        printf("GCINFO: trackdLcls = %u\n", varPtrTableSize);
+    }
+#endif
+
+    *pVarPtrTableSize = varPtrTableSize;
+}
+
+//------------------------------------------------------------------------
+// gcIsUntrackedLocalOrNonEnregisteredArg: Check if this varNum with GC type
+// corresponds to an untracked local or argument that was not fully enregistered.
+//
+//
+// Arguments:
+//   varNum - the variable number to check;
+//   pKeepThisAlive - if !FEATURE_EH_FUNCLETS and the argument != nullptr remember
+//   if `this` should be kept alive and considered tracked.
+//
+// Return value:
+//   true if it an untracked pointer value.
+//
+bool GCInfo::gcIsUntrackedLocalOrNonEnregisteredArg(unsigned varNum, bool* pKeepThisAlive)
+{
+    LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
+
+    assert(!varDsc->IsDependentPromotedField(compiler));
+    assert(varTypeIsGC(varDsc->GetType()));
+
+    if (!varDsc->IsParam())
+    {
+        // If is pinned, it must be an untracked local.
+        assert(!varDsc->lvPinned || !varDsc->lvTracked);
+
+        if (varDsc->lvTracked || !varDsc->lvOnFrame)
+        {
+            return false;
+        }
+    }
+    else
+    {
+        // Stack-passed arguments which are not enregistered are always reported in this "untracked stack pointers"
+        // section of the GC info even if lvTracked==true.
+
+        // Has this argument been fully enregistered?
+        if (!varDsc->lvOnFrame)
+        {
+            // If a CEE_JMP has been used, then we need to report all the arguments even if they are enregistered, since
+            // we will be using this value in JMP call.  Note that this is subtle as we require that argument offsets
+            // are always fixed up properly even if lvRegister is set .
+            if (!compiler->compJmpOpUsed)
+            {
+                return false;
+            }
+        }
+        else if (varDsc->IsRegParam() && varDsc->HasLiveness())
+        {
+            // If this register-passed arg is tracked, then it has been allocated space near the other pointer variables
+            // and we have accurate life-time info. It will be reported with gcVarPtrList in the "tracked-pointer"
+            // section.
+            return false;
+        }
+    }
+
+#if !defined(FEATURE_EH_FUNCLETS)
+    if (compiler->lvaIsOriginalThisArg(varNum) && compiler->lvaKeepAliveAndReportThis())
+    {
+        // "this" is in the untracked variable area, but encoding of untracked variables does not support reporting
+        // "this". So report it as a tracked variable with a liveness extending over the entire method.
+        //
+        // TODO-x86-Cleanup: the semantic here is not clear, it would be useful to check different cases and
+        // add a description where "this" is saved and how it is tracked in each of them:
+        // 1) when FEATURE_EH_FUNCLETS defined (x86 Linux);
+        // 2) when FEATURE_EH_FUNCLETS not defined, lvaKeepAliveAndReportThis == true, compJmpOpUsed == true;
+        // 3) when there is regPtrDsc for "this", but keepThisAlive == true;
+        // etc.
+
+        if (pKeepThisAlive != nullptr)
+        {
+            *pKeepThisAlive = true;
+        }
+        return false;
+    }
+#endif // !FEATURE_EH_FUNCLETS
+    return true;
+}
+
+/*****************************************************************************
+ *
+ *  Shutdown the 'pointer value' register tracking logic and save the necessary
+ *  info (which will be used at runtime to locate all pointers) at the specified
+ *  address. The number of bytes written to 'destPtr' must be identical to that
+ *  returned from gcPtrTableSize().
+ */
+
+BYTE* GCInfo::gcPtrTableSave(BYTE* destPtr, const InfoHdr& header, unsigned codeSize, size_t* pArgTabOffset)
+{
+    /* Write the tables to the info block */
+
+    return destPtr + gcMakeRegPtrTable(destPtr, -1, header, codeSize, pArgTabOffset);
+}
+
 #include "emit.h"
 
 /*****************************************************************************/
@@ -1755,6 +2052,28 @@ size_t GCInfo::gcInfoBlockHdrSave(BYTE*     dest,
 #endif // DISPLAY_SIZES
 
     return size;
+}
+
+/*****************************************************************************
+ *
+ *  Helper passed to genEmitter.emitGenEpilogLst() to generate
+ *  the table of epilogs.
+ */
+
+/* static */ size_t GCInfo::gcRecordEpilog(void* pCallBackData, unsigned offset)
+{
+    GCInfo* gcInfo = (GCInfo*)pCallBackData;
+
+    assert(gcInfo);
+
+    size_t result = encodeUDelta(gcInfo->gcEpilogTable, offset, gcInfo->gcEpilogPrevOffset);
+
+    if (gcInfo->gcEpilogTable)
+        gcInfo->gcEpilogTable += result;
+
+    gcInfo->gcEpilogPrevOffset = offset;
+
+    return result;
 }
 
 /*****************************************************************************
