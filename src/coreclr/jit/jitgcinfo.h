@@ -9,62 +9,8 @@
 #define _JITGCINFO_H_
 
 #include "gcinfotypes.h"
-
 #ifndef JIT32_GCENCODER
 #include "gcinfoencoder.h"
-#endif
-
-#ifndef JIT32_GCENCODER
-// Shash typedefs
-struct RegSlotIdKey
-{
-    unsigned short m_regNum;
-    unsigned short m_flags;
-
-    RegSlotIdKey()
-    {
-    }
-
-    RegSlotIdKey(unsigned short regNum, unsigned short flags) : m_regNum(regNum), m_flags(flags)
-    {
-    }
-
-    static unsigned GetHashCode(RegSlotIdKey rsk)
-    {
-        return (rsk.m_flags << (8 * sizeof(unsigned short))) + rsk.m_regNum;
-    }
-
-    static bool Equals(RegSlotIdKey rsk1, RegSlotIdKey rsk2)
-    {
-        return rsk1.m_regNum == rsk2.m_regNum && rsk1.m_flags == rsk2.m_flags;
-    }
-};
-
-struct StackSlotIdKey
-{
-    int            m_offset;
-    bool           m_fpRel;
-    unsigned short m_flags;
-
-    StackSlotIdKey()
-    {
-    }
-
-    StackSlotIdKey(int offset, bool fpRel, unsigned short flags) : m_offset(offset), m_fpRel(fpRel), m_flags(flags)
-    {
-    }
-
-    static unsigned GetHashCode(StackSlotIdKey ssk)
-    {
-        return (ssk.m_flags << (8 * sizeof(unsigned short))) ^ (unsigned)ssk.m_offset ^ (ssk.m_fpRel ? 0x1000000 : 0);
-    }
-
-    static bool Equals(StackSlotIdKey ssk1, StackSlotIdKey ssk2)
-    {
-        return ssk1.m_offset == ssk2.m_offset && ssk1.m_fpRel == ssk2.m_fpRel && ssk1.m_flags == ssk2.m_flags;
-    }
-};
-
 #endif
 
 class GCInfo
@@ -283,6 +229,56 @@ public:
 
     size_t gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, unsigned codeSize, size_t* pArgTabOffset);
 #else
+    struct RegSlotIdKey
+    {
+        uint16_t m_regNum;
+        uint16_t m_flags;
+
+        RegSlotIdKey()
+        {
+        }
+
+        RegSlotIdKey(unsigned short regNum, unsigned short flags) : m_regNum(regNum), m_flags(flags)
+        {
+        }
+
+        static unsigned GetHashCode(RegSlotIdKey rsk)
+        {
+            return (rsk.m_flags << (8 * sizeof(unsigned short))) + rsk.m_regNum;
+        }
+
+        static bool Equals(RegSlotIdKey rsk1, RegSlotIdKey rsk2)
+        {
+            return rsk1.m_regNum == rsk2.m_regNum && rsk1.m_flags == rsk2.m_flags;
+        }
+    };
+
+    struct StackSlotIdKey
+    {
+        int            m_offset;
+        bool           m_fpRel;
+        unsigned short m_flags;
+
+        StackSlotIdKey()
+        {
+        }
+
+        StackSlotIdKey(int offset, bool fpRel, unsigned short flags) : m_offset(offset), m_fpRel(fpRel), m_flags(flags)
+        {
+        }
+
+        static unsigned GetHashCode(StackSlotIdKey ssk)
+        {
+            return (ssk.m_flags << (8 * sizeof(unsigned short))) ^ (unsigned)ssk.m_offset ^
+                   (ssk.m_fpRel ? 0x1000000 : 0);
+        }
+
+        static bool Equals(StackSlotIdKey ssk1, StackSlotIdKey ssk2)
+        {
+            return ssk1.m_offset == ssk2.m_offset && ssk1.m_fpRel == ssk2.m_fpRel && ssk1.m_flags == ssk2.m_flags;
+        }
+    };
+
     JitHashTable<RegSlotIdKey, RegSlotIdKey, GcSlotId>     m_regSlotMap;
     JitHashTable<StackSlotIdKey, StackSlotIdKey, GcSlotId> m_stackSlotMap;
 
