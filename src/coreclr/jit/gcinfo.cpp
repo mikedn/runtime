@@ -431,7 +431,6 @@ regMaskSmall GCInfo::RegMaskFromCalleeSavedMask(unsigned short calleeSaveMask)
     return res;
 }
 
-#ifdef TARGET_XARCH
 #ifdef JIT32_GCENCODER
 
 void* CodeGen::genCreateAndStoreGCInfo(unsigned codeSize,
@@ -582,59 +581,6 @@ void CodeGen::genCreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize DEB
     IAllocator*    allowZeroAlloc = new (compiler, CMK_GC) CompIAllocator(compiler->getAllocatorGC());
     GcInfoEncoder* gcInfoEncoder  = new (compiler, CMK_GC)
         GcInfoEncoder(compiler->info.compCompHnd, compiler->info.compMethodInfo, allowZeroAlloc, NOMEM);
-    assert(gcInfoEncoder);
-
-    gcInfo.gcInfoBlockHdrSave(gcInfoEncoder, codeSize, prologSize);
-
-    unsigned callCnt = 0;
-    gcInfo.gcMakeRegPtrTable(gcInfoEncoder, codeSize, prologSize, GCInfo::MAKE_REG_PTR_MODE_ASSIGN_SLOTS, &callCnt);
-    gcInfoEncoder->FinalizeSlotIds();
-    gcInfo.gcMakeRegPtrTable(gcInfoEncoder, codeSize, prologSize, GCInfo::MAKE_REG_PTR_MODE_DO_WORK, &callCnt);
-
-    if (compiler->opts.compDbgEnC)
-    {
-        // what we have to preserve is called the "frame header" (see comments in VM\eetwain.cpp)
-        // which is:
-        //  -return address
-        //  -saved off RBP
-        //  -saved 'this' pointer and bool for synchronized methods
-
-        // 4 slots for RBP + return address + RSI + RDI
-        int preservedAreaSize = 4 * REGSIZE_BYTES;
-
-        if ((compiler->info.compFlags & CORINFO_FLG_SYNCH) != 0)
-        {
-            if ((compiler->info.compFlags & CORINFO_FLG_STATIC) == 0)
-            {
-                preservedAreaSize += REGSIZE_BYTES;
-            }
-
-            // bool in synchronized methods that tracks whether the lock has been taken (takes 4 bytes on stack)
-            preservedAreaSize += 4;
-        }
-
-        gcInfoEncoder->SetSizeOfEditAndContinuePreservedArea(preservedAreaSize);
-    }
-
-    if (compiler->opts.IsReversePInvoke())
-    {
-        LclVarDsc* reversePInvokeFrameLcl = compiler->lvaGetDesc(compiler->lvaReversePInvokeFrameVar);
-        gcInfoEncoder->SetReversePInvokeFrameSlot(reversePInvokeFrameLcl->GetStackOffset());
-    }
-
-    gcInfoEncoder->Build();
-    gcInfoEncoder->Emit();
-}
-
-#endif
-
-#else
-
-void CodeGen::genCreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize DEBUGARG(void* codePtr))
-{
-    IAllocator*    allowZeroAlloc = new (compiler, CMK_GC) CompIAllocator(compiler->getAllocatorGC());
-    GcInfoEncoder* gcInfoEncoder  = new (compiler, CMK_GC)
-        GcInfoEncoder(compiler->info.compCompHnd, compiler->info.compMethodInfo, allowZeroAlloc, NOMEM);
     assert(gcInfoEncoder != nullptr);
 
     gcInfo.gcInfoBlockHdrSave(gcInfoEncoder, codeSize, prologSize);
@@ -644,7 +590,7 @@ void CodeGen::genCreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize DEB
     gcInfoEncoder->FinalizeSlotIds();
     gcInfo.gcMakeRegPtrTable(gcInfoEncoder, codeSize, prologSize, GCInfo::MAKE_REG_PTR_MODE_DO_WORK, &callCnt);
 
-#ifdef TARGET_ARM64
+#if defined(TARGET_ARM64) || defined(TARGET_AMD64)
     if (compiler->opts.compDbgEnC)
     {
         // what we have to preserve is called the "frame header" (see comments in VM\eetwain.cpp)
@@ -663,12 +609,17 @@ void CodeGen::genCreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize DEB
                 preservedAreaSize += REGSIZE_BYTES;
             }
 
-            preservedAreaSize += 1; // bool for synchronized methods
+#ifdef TARGET_ARM64
+            // bool for synchronized methods
+            preservedAreaSize += 1;
+#else
+            preservedAreaSize += 4;
+#endif
         }
 
         gcInfoEncoder->SetSizeOfEditAndContinuePreservedArea(preservedAreaSize);
     }
-#endif // TARGET_ARM64
+#endif
 
     if (compiler->opts.IsReversePInvoke())
     {
