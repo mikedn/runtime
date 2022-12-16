@@ -432,28 +432,11 @@ regMaskSmall GCInfo::RegMaskFromCalleeSavedMask(unsigned short calleeSaveMask)
 }
 
 #ifdef TARGET_XARCH
-/*****************************************************************************
- *
- *  Create and record GC Info for the function.
- */
-#ifndef JIT32_GCENCODER
-void
-#else  // !JIT32_GCENCODER
-void*
-#endif // !JIT32_GCENCODER
-CodeGen::genCreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize, unsigned epilogSize DEBUGARG(void* codePtr))
-{
 #ifdef JIT32_GCENCODER
-    return genCreateAndStoreGCInfoJIT32(codeSize, prologSize, epilogSize DEBUGARG(codePtr));
-#else  // !JIT32_GCENCODER
-    genCreateAndStoreGCInfoX64(codeSize, prologSize DEBUGARG(codePtr));
-#endif // !JIT32_GCENCODER
-}
 
-#ifdef JIT32_GCENCODER
-void* CodeGen::genCreateAndStoreGCInfoJIT32(unsigned codeSize,
-                                            unsigned prologSize,
-                                            unsigned epilogSize DEBUGARG(void* codePtr))
+void* CodeGen::genCreateAndStoreGCInfo(unsigned codeSize,
+                                       unsigned prologSize,
+                                       unsigned epilogSize DEBUGARG(void* codePtr))
 {
     BYTE    headerBuf[64];
     InfoHdr header;
@@ -592,24 +575,20 @@ void* CodeGen::genCreateAndStoreGCInfoJIT32(unsigned codeSize,
     return infoPtr;
 }
 
-#else  // !JIT32_GCENCODER
-void CodeGen::genCreateAndStoreGCInfoX64(unsigned codeSize, unsigned prologSize DEBUGARG(void* codePtr))
+#else
+
+void CodeGen::genCreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize DEBUGARG(void* codePtr))
 {
     IAllocator*    allowZeroAlloc = new (compiler, CMK_GC) CompIAllocator(compiler->getAllocatorGC());
     GcInfoEncoder* gcInfoEncoder  = new (compiler, CMK_GC)
         GcInfoEncoder(compiler->info.compCompHnd, compiler->info.compMethodInfo, allowZeroAlloc, NOMEM);
     assert(gcInfoEncoder);
 
-    // Follow the code pattern of the x86 gc info encoder (genCreateAndStoreGCInfoJIT32).
     gcInfo.gcInfoBlockHdrSave(gcInfoEncoder, codeSize, prologSize);
 
-    // We keep the call count for the second call to gcMakeRegPtrTable() below.
     unsigned callCnt = 0;
-    // First we figure out the encoder ID's for the stack slots and registers.
     gcInfo.gcMakeRegPtrTable(gcInfoEncoder, codeSize, prologSize, GCInfo::MAKE_REG_PTR_MODE_ASSIGN_SLOTS, &callCnt);
-    // Now we've requested all the slots we'll need; "finalize" these (make more compact shift structures for them).
     gcInfoEncoder->FinalizeSlotIds();
-    // Now we can actually use those slot ID's to declare live ranges.
     gcInfo.gcMakeRegPtrTable(gcInfoEncoder, codeSize, prologSize, GCInfo::MAKE_REG_PTR_MODE_DO_WORK, &callCnt);
 
     if (compiler->opts.compDbgEnC)
@@ -623,9 +602,9 @@ void CodeGen::genCreateAndStoreGCInfoX64(unsigned codeSize, unsigned prologSize 
         // 4 slots for RBP + return address + RSI + RDI
         int preservedAreaSize = 4 * REGSIZE_BYTES;
 
-        if (compiler->info.compFlags & CORINFO_FLG_SYNCH)
+        if ((compiler->info.compFlags & CORINFO_FLG_SYNCH) != 0)
         {
-            if (!(compiler->info.compFlags & CORINFO_FLG_STATIC))
+            if ((compiler->info.compFlags & CORINFO_FLG_STATIC) == 0)
             {
                 preservedAreaSize += REGSIZE_BYTES;
             }
@@ -634,8 +613,6 @@ void CodeGen::genCreateAndStoreGCInfoX64(unsigned codeSize, unsigned prologSize 
             preservedAreaSize += 4;
         }
 
-        // Used to signal both that the method is compiled for EnC, and also the size of the block at the top of the
-        // frame
         gcInfoEncoder->SetSizeOfEditAndContinuePreservedArea(preservedAreaSize);
     }
 
@@ -646,44 +623,28 @@ void CodeGen::genCreateAndStoreGCInfoX64(unsigned codeSize, unsigned prologSize 
     }
 
     gcInfoEncoder->Build();
-
-    // GC Encoder automatically puts the GC info in the right spot using ICorJitInfo::allocGCInfo(size_t)
-    // let's save the values anyway for debugging purposes
     gcInfoEncoder->Emit();
 }
-#endif // !JIT32_GCENCODER
+
+#endif
 
 #else
 
-//------------------------------------------------------------------------
-// genCreateAndStoreGCInfo: Create and record GC Info for the function.
-//
-void CodeGen::genCreateAndStoreGCInfo(unsigned codeSize,
-                                      unsigned prologSize,
-                                      unsigned epilogSize DEBUGARG(void* codePtr))
+void CodeGen::genCreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize DEBUGARG(void* codePtr))
 {
     IAllocator*    allowZeroAlloc = new (compiler, CMK_GC) CompIAllocator(compiler->getAllocatorGC());
     GcInfoEncoder* gcInfoEncoder  = new (compiler, CMK_GC)
         GcInfoEncoder(compiler->info.compCompHnd, compiler->info.compMethodInfo, allowZeroAlloc, NOMEM);
     assert(gcInfoEncoder != nullptr);
 
-    // Follow the code pattern of the x86 gc info encoder (genCreateAndStoreGCInfoJIT32).
     gcInfo.gcInfoBlockHdrSave(gcInfoEncoder, codeSize, prologSize);
 
-    // We keep the call count for the second call to gcMakeRegPtrTable() below.
     unsigned callCnt = 0;
-
-    // First we figure out the encoder ID's for the stack slots and registers.
     gcInfo.gcMakeRegPtrTable(gcInfoEncoder, codeSize, prologSize, GCInfo::MAKE_REG_PTR_MODE_ASSIGN_SLOTS, &callCnt);
-
-    // Now we've requested all the slots we'll need; "finalize" these (make more compact data structures for them).
     gcInfoEncoder->FinalizeSlotIds();
-
-    // Now we can actually use those slot ID's to declare live ranges.
     gcInfo.gcMakeRegPtrTable(gcInfoEncoder, codeSize, prologSize, GCInfo::MAKE_REG_PTR_MODE_DO_WORK, &callCnt);
 
 #ifdef TARGET_ARM64
-
     if (compiler->opts.compDbgEnC)
     {
         // what we have to preserve is called the "frame header" (see comments in VM\eetwain.cpp)
@@ -695,19 +656,18 @@ void CodeGen::genCreateAndStoreGCInfo(unsigned codeSize,
         // 4 slots for RBP + return address + RSI + RDI
         int preservedAreaSize = 4 * REGSIZE_BYTES;
 
-        if (compiler->info.compFlags & CORINFO_FLG_SYNCH)
+        if ((compiler->info.compFlags & CORINFO_FLG_SYNCH) != 0)
         {
-            if (!(compiler->info.compFlags & CORINFO_FLG_STATIC))
+            if ((compiler->info.compFlags & CORINFO_FLG_STATIC) == 0)
+            {
                 preservedAreaSize += REGSIZE_BYTES;
+            }
 
             preservedAreaSize += 1; // bool for synchronized methods
         }
 
-        // Used to signal both that the method is compiled for EnC, and also the attr of the block at the top of the
-        // frame
         gcInfoEncoder->SetSizeOfEditAndContinuePreservedArea(preservedAreaSize);
     }
-
 #endif // TARGET_ARM64
 
     if (compiler->opts.IsReversePInvoke())
@@ -717,9 +677,6 @@ void CodeGen::genCreateAndStoreGCInfo(unsigned codeSize,
     }
 
     gcInfoEncoder->Build();
-
-    // GC Encoder automatically puts the GC info in the right spot using ICorJitInfo::allocGCInfo(size_t)
-    // let's save the values anyway for debugging purposes
     gcInfoEncoder->Emit();
 }
 

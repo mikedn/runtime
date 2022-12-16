@@ -159,13 +159,9 @@ private:
 
 #ifdef JIT32_GCENCODER
     void* genCreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize, unsigned epilogSize DEBUGARG(void* codePtr));
-    void* genCreateAndStoreGCInfoJIT32(unsigned codeSize,
-                                       unsigned prologSize,
-                                       unsigned epilogSize DEBUGARG(void* codePtr));
-#else  // !JIT32_GCENCODER
-    void genCreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize, unsigned epilogSize DEBUGARG(void* codePtr));
-    void genCreateAndStoreGCInfoX64(unsigned codeSize, unsigned prologSize DEBUGARG(void* codePtr));
-#endif // !JIT32_GCENCODER
+#else
+    void genCreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize DEBUGARG(void* codePtr));
+#endif
 
     /**************************************************************************
      *                          PROTECTED

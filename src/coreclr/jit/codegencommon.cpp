@@ -1317,12 +1317,11 @@ void CodeGen::genEmitUnwindDebugGCandEH()
     genReportEH();
 
 #ifdef JIT32_GCENCODER
-#ifdef DEBUG
-    void* infoPtr =
-#endif // DEBUG
+    INDEBUG(void* infoPtr =)
+    genCreateAndStoreGCInfo(codeSize, prologSize, epilogSize DEBUGARG(codePtr));
+#else
+    genCreateAndStoreGCInfo(codeSize, prologSize DEBUGARG(codePtr));
 #endif
-        // Create and store the GC info for this method.
-        genCreateAndStoreGCInfo(codeSize, prologSize, epilogSize DEBUGARG(codePtr));
 
 #ifdef DEBUG
     FILE* dmpf = jitstdout;
