@@ -3928,8 +3928,6 @@ void GCInfo::gcFindPtrsInFrame(const void* infoBlock, const void* codeBlock, uns
 
 #else // !JIT32_GCENCODER
 
-#include "gcinfoencoder.h"
-
 #if defined(DEBUG) || DUMP_GC_TABLES
 
 // This is a copy of GcStackSlotBaseNames from gcinfotypes.h so we can compile in to non-DEBUG builds.

@@ -21,7 +21,6 @@
 #define _CODEGEN_INTERFACE_H_
 
 #include "regset.h"
-#include "jitgcinfo.h"
 #include "emit.h"
 
 class LclVarDsc;

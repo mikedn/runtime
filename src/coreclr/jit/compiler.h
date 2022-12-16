@@ -47,7 +47,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 #include "codegeninterface.h"
 #include "regset.h"
-#include "jitgcinfo.h"
 
 #if DUMP_GC_TABLES && defined(JIT32_GCENCODER)
 #include "gcdump.h"

@@ -5,9 +5,8 @@
 #define CODEGEN_H
 
 #include "codegeninterface.h"
-#include "compiler.h" // temporary??
+#include "compiler.h"
 #include "regset.h"
-#include "jitgcinfo.h"
 #include "treelifeupdater.h"
 
 class CodeGen final : public CodeGenInterface

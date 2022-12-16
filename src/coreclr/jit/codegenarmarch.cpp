@@ -18,7 +18,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 #include "codegen.h"
 #include "lower.h"
-#include "gcinfo.h"
 #include "emit.h"
 
 //------------------------------------------------------------------------

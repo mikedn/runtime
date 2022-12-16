@@ -15,18 +15,8 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 // identical, and which should probably be moved here.
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
 #include "codegen.h"
-
-#include "gcinfo.h"
 #include "emit.h"
-
-#ifndef JIT32_GCENCODER
-#include "gcinfoencoder.h"
-#endif
-
 #include "patchpointinfo.h"
 #include "lsra.h"
 

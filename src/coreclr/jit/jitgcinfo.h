@@ -19,9 +19,9 @@ public:
     GCInfo(Compiler* compiler);
 
 #ifdef JIT32_GCENCODER
-    void* CreateAndStoreGCInfo(CodeGen* codeGen,
-                               unsigned codeSize,
-                               unsigned prologSize,
+    void* CreateAndStoreGCInfo(class CodeGen* codeGen,
+                               unsigned       codeSize,
+                               unsigned       prologSize,
                                unsigned epilogSize DEBUGARG(void* codePtr));
 #else
     void CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize DEBUGARG(void* codePtr));

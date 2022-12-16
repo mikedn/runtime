@@ -6,11 +6,6 @@
 #define _EMIT_H_
 
 #include "instr.h"
-
-#ifndef _GCINFO_H_
-#include "gcinfo.h"
-#endif
-
 #include "jitgcinfo.h"
 
 #if 0

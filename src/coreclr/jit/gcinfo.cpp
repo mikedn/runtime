@@ -2,12 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
-#include "gcinfo.h"
-#include "emit.h"
 #include "jitgcinfo.h"
-#ifdef TARGET_AMD64
-#include "gcinfoencoder.h" //this includes a LOT of other files too
-#endif
 #include "codegen.h"
 
 #if MEASURE_PTRTAB_SIZE

@@ -17,7 +17,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #ifdef TARGET_ARM
 #include "codegen.h"
 #include "lower.h"
-#include "gcinfo.h"
 #include "emit.h"
 
 //------------------------------------------------------------------------

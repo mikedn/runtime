@@ -19,8 +19,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "emit.h"
 #include "codegen.h"
 #include "lower.h"
-#include "gcinfo.h"
-#include "gcinfoencoder.h"
 #include "patchpointinfo.h"
 
 //---------------------------------------------------------------------
