@@ -1318,9 +1318,9 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
             emitNxtIG(false);
         }
 
-        VARSET_TP GCvars    = codeGen->gcInfo.gcVarPtrSetCur;
-        regMaskTP gcrefRegs = codeGen->gcInfo.gcRegGCrefSetCur;
-        regMaskTP byrefRegs = codeGen->gcInfo.gcRegByrefSetCur;
+        VARSET_TP GCvars    = codeGen->liveness.GetGCLiveSet();
+        regMaskTP gcrefRegs = codeGen->liveness.GetGCRegs(TYP_REF);
+        regMaskTP byrefRegs = codeGen->liveness.GetGCRegs(TYP_BYREF);
 
         // Currently, no registers are live on entry to the prolog, except maybe
         // the exception object. There might be some live stack vars, but they
@@ -2009,9 +2009,9 @@ void* emitter::emitAddLabel(bool isFinallyTarget DEBUG_ARG(BasicBlock* block))
     }
 #endif
 
-    VARSET_TP GCvars    = codeGen->gcInfo.gcVarPtrSetCur;
-    regMaskTP gcrefRegs = codeGen->gcInfo.gcRegGCrefSetCur;
-    regMaskTP byrefRegs = codeGen->gcInfo.gcRegByrefSetCur;
+    VARSET_TP GCvars    = codeGen->liveness.GetGCLiveSet();
+    regMaskTP gcrefRegs = codeGen->liveness.GetGCRegs(TYP_REF);
+    regMaskTP byrefRegs = codeGen->liveness.GetGCRegs(TYP_BYREF);
 
     VarSetOps::Assign(emitComp, emitInitGCrefVars, GCvars);
     emitInitGCrefRegs = gcrefRegs;
@@ -2645,9 +2645,9 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
 #endif
                                               )
 {
-    VARSET_VALARG_TP GCvars    = codeGen->gcInfo.gcVarPtrSetCur;
-    regMaskTP        gcrefRegs = codeGen->gcInfo.gcRegGCrefSetCur;
-    regMaskTP        byrefRegs = codeGen->gcInfo.gcRegByrefSetCur;
+    VARSET_VALARG_TP GCvars    = codeGen->liveness.GetGCLiveSet();
+    regMaskTP        gcrefRegs = codeGen->liveness.GetGCRegs(TYP_REF);
+    regMaskTP        byrefRegs = codeGen->liveness.GetGCRegs(TYP_BYREF);
 
     regMaskTP savedSet = emitGetGCRegsSavedOrModified(methodHandle);
     gcrefRegs &= savedSet;

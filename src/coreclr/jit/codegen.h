@@ -29,7 +29,7 @@ class CodeGen final : public CodeGenInterface
     IPmappingDsc*     genIPmappingList = nullptr;
     IPmappingDsc*     genIPmappingLast = nullptr;
 
-    CodeGenLivenessUpdater m_liveness;
+    CodeGenLivenessUpdater liveness;
 #ifdef TARGET_ARMARCH
     // Registers reserved for special purposes, that cannot be allocated by LSRA.
     regMaskTP reservedRegs = RBM_NONE;
@@ -61,7 +61,7 @@ public:
 
     virtual VARSET_VALARG_TP GetLiveSet() const
     {
-        return m_liveness.GetLiveSet();
+        return liveness.GetLiveSet();
     }
 
 private:
@@ -1122,7 +1122,6 @@ protected:
     void CopyReg(GenTreeCopyOrReload* copy);
     void CopyRegs(GenTreeCopyOrReload* copy);
     regNumber CopyReg(GenTreeCopyOrReload* copy, unsigned regIndex);
-    void genTransferRegGCState(regNumber dst, regNumber src);
     void genConsumeAddress(GenTree* addr);
     void ConsumeStructStore(GenTree* store, ClassLayout* layout, regNumber dstReg, regNumber srcReg, regNumber sizeReg);
     void ConsumeDynBlk(GenTreeDynBlk* store, regNumber dstReg, regNumber srcReg, regNumber sizeReg);

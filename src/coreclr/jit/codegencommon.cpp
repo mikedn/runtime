@@ -39,7 +39,7 @@ CodeGenInterface::CodeGenInterface(Compiler* compiler) : compiler(compiler), spi
 {
 }
 
-CodeGen::CodeGen(Compiler* compiler) : CodeGenInterface(compiler), m_liveness(compiler), gcInfo(compiler)
+CodeGen::CodeGen(Compiler* compiler) : CodeGenInterface(compiler), liveness(compiler), gcInfo(compiler)
 {
     m_cgEmitter = new (compiler->getAllocator()) emitter(compiler, this, gcInfo, compiler->info.compCompHnd);
 
@@ -203,7 +203,7 @@ void CodeGen::genMarkLabelsForCodegen()
 
 void CodeGen::genUpdateLife(GenTreeLclVarCommon* node)
 {
-    m_liveness.UpdateLife(this, node);
+    liveness.UpdateLife(this, node);
 }
 
 // Return the register mask for the given register variable
@@ -240,16 +240,16 @@ void CodeGen::genUpdateRegLife(const LclVarDsc* varDsc, bool isBorn, bool isDyin
     {
         // We'd like to be able to assert the following, however if we are walking
         // through a qmark/colon tree, we may encounter multiple last-use nodes.
-        // assert((gcInfo.GetLiveLclRegs() & regMask) == regMask);
-        gcInfo.RemoveLiveLclRegs(regMask);
+        // assert((liveness.GetLiveLclRegs() & regMask) == regMask);
+        liveness.RemoveLiveLclRegs(regMask);
     }
     else
     {
         // If this is going live, the register must not have a variable in it, except
         // in the case of an exception or "spill at single-def" variable, which may be already treated
         // as live in the register.
-        assert(varDsc->IsAlwaysAliveInMemory() || ((gcInfo.GetLiveLclRegs() & regMask) == RBM_NONE));
-        gcInfo.AddLiveLclRegs(regMask);
+        assert(varDsc->IsAlwaysAliveInMemory() || ((liveness.GetLiveLclRegs() & regMask) == RBM_NONE));
+        liveness.AddLiveLclRegs(regMask);
     }
 }
 
@@ -697,11 +697,11 @@ void CodeGen::genExitCode(BasicBlock* block)
             {
                 noway_assert(varDsc->IsParam());
 
-                gcInfo.gcMarkRegPtrVal(varDsc->GetParamReg(), varDsc->GetType());
+                liveness.SetGCRegType(varDsc->GetParamReg(), varDsc->GetType());
             }
 
-            GetEmitter()->emitThisGCrefRegs = GetEmitter()->emitInitGCrefRegs = gcInfo.gcRegGCrefSetCur;
-            GetEmitter()->emitThisByrefRegs = GetEmitter()->emitInitByrefRegs = gcInfo.gcRegByrefSetCur;
+            GetEmitter()->emitThisGCrefRegs = GetEmitter()->emitInitGCrefRegs = liveness.GetGCRegs(TYP_REF);
+            GetEmitter()->emitThisByrefRegs = GetEmitter()->emitInitByrefRegs = liveness.GetGCRegs(TYP_BYREF);
         }
     }
 
@@ -4280,7 +4280,7 @@ void CodeGen::genFnProlog()
     compiler->funSetCurrentFunc(0);
     GetEmitter()->emitBegProlog();
     compiler->unwindBegProlog();
-    gcInfo.BeginPrologCodeGen();
+    liveness.BeginPrologCodeGen();
 
     // Do this so we can put the prolog instruction group ahead of other instruction groups.
     genIPmappingAddToFront(static_cast<IL_OFFSETX>(ICorDebugInfo::PROLOG));
@@ -5825,7 +5825,7 @@ void CodeGen::genReturn(GenTree* ret)
     // TODO-AMD64-Unix: If the profiler hook is implemented on *nix, make sure for 2 register returned structs
     //                  the RAX and RDX needs to be kept alive. Make the necessary changes in lowerxarch.cpp
     //                  in the handling of the GT_RETURN statement.
-    //                  Such structs containing GC pointers need to be handled by calling gcInfo.gcMarkRegSetNpt
+    //                  Such structs containing GC pointers need to be handled by calling liveness.RemoveGCRegs
     //                  for the return registers containing GC refs.
     //
     // Reason for not materializing Leave callback as a GT_PROF_HOOK node after GT_RETURN:
@@ -5848,7 +5848,7 @@ void CodeGen::genReturn(GenTree* ret)
         {
             if (varTypeIsGC(retDesc.GetRegType(i)))
             {
-                gcInfo.gcMarkRegPtrVal(retDesc.GetRegNum(i), retDesc.GetRegType(i));
+                liveness.SetGCRegType(retDesc.GetRegNum(i), retDesc.GetRegType(i));
             }
         }
 
@@ -5858,7 +5858,7 @@ void CodeGen::genReturn(GenTree* ret)
         {
             if (varTypeIsGC(retDesc.GetRegType(i)))
             {
-                gcInfo.gcMarkRegSetNpt(genRegMask(retDesc.GetRegNum(i)));
+                liveness.RemoveGCRegs(genRegMask(retDesc.GetRegNum(i)));
             }
         }
     }
@@ -5991,7 +5991,7 @@ void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
 
             if (!store->IsLastUse(i))
             {
-                gcInfo.gcMarkRegPtrVal(fieldReg, fieldType);
+                liveness.SetGCRegType(fieldReg, fieldType);
             }
         }
         else
@@ -6008,7 +6008,7 @@ void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
         fieldLcl->SetRegNum(fieldReg);
     }
 
-    m_liveness.UpdateLifeMultiReg(this, store);
+    liveness.UpdateLifeMultiReg(this, store);
 }
 
 #if defined(DEBUG) && defined(TARGET_XARCH)

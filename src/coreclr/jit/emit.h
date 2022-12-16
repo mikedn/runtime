@@ -377,6 +377,7 @@ class emitter
     friend class CodeGen;
     friend class CodeGenInterface;
     friend class GCInfo;
+    friend class CodeGenLivenessUpdater;
 
     Compiler*    emitComp;
     GCInfo*      gcInfo;
@@ -1802,8 +1803,8 @@ private:
 
     // emitThis* variables are used during emission, to track GC updates
     // on a per-instruction basis. During code generation, per-instruction
-    // tracking is done with variables gcVarPtrSetCur, gcRegGCrefSetCur,
-    // and gcRegByrefSetCur. However, these are also used for a slightly
+    // tracking is done with variables liveGCLcl, liveGCRefRegs,
+    // and liveGCByRefRegs. However, these are also used for a slightly
     // different purpose during code generation: to try to minimize the
     // amount of GC data stored to an IG, by only storing deltas from what
     // we expect to see at an IG boundary. Also, only emitThisGCrefVars is

@@ -14,6 +14,10 @@ class CodeGenLivenessUpdater
     VARSET_TP currentLife;
     VARSET_TP varDeltaSet;
     VARSET_TP varStackGCPtrDeltaSet;
+    VARSET_TP liveGCLcl;
+    regMaskTP liveLclRegs     = RBM_NONE;
+    regMaskTP liveGCRefRegs   = RBM_NONE;
+    regMaskTP liveGCByRefRegs = RBM_NONE;
 #ifdef DEBUG
     VARSET_TP scratchSet1;
     VARSET_TP scratchSet2;
@@ -21,7 +25,15 @@ class CodeGenLivenessUpdater
 #endif
 
     void UpdateLifePromoted(class CodeGen* codeGen, GenTreeLclVarCommon* lclNode);
-    INDEBUG(void DumpDiff(class CodeGen* codeGen);)
+
+    void AddGCRefRegs(regMaskTP regMask DEBUGARG(bool forceOutput = false));
+    void AddGCByRefRegs(regMaskTP regMask DEBUGARG(bool forceOutput = false));
+
+#ifdef DEBUG
+    void DumpDiff(class CodeGen* codeGen);
+    void DumpGCRefRegsDiff(regMaskTP gcRegGCrefSetNew DEBUGARG(bool forceOutput = false));
+    void DumpGCByRefRegsDiff(regMaskTP gcRegByrefSetNew DEBUGARG(bool forceOutput = false));
+#endif
 
 public:
     CodeGenLivenessUpdater(Compiler* compiler) : compiler(compiler)
@@ -29,11 +41,10 @@ public:
     }
 
     void Begin();
-
-    void BeginBlock()
-    {
-        currentNode = nullptr;
-    }
+    void BeginBlock();
+    void BeginBlockCodeGen(BasicBlock* block);
+    void BeginPrologCodeGen();
+    void BeginMethodEpilogCodeGen();
 
     void ChangeLife(class CodeGen* codeGen, VARSET_VALARG_TP newLife);
     void UpdateLife(class CodeGen* codeGen, GenTreeLclVarCommon* lclNode);
@@ -42,5 +53,66 @@ public:
     VARSET_VALARG_TP GetLiveSet() const
     {
         return currentLife;
+    }
+
+    VARSET_TP& GetGCLiveSet()
+    {
+        return liveGCLcl;
+    }
+
+    regMaskTP GetLiveLclRegs() const
+    {
+        return liveLclRegs;
+    }
+
+    void SetLiveLclRegs(regMaskTP regs);
+
+    void AddLiveLclRegs(regMaskTP regs)
+    {
+        SetLiveLclRegs(liveLclRegs | regs);
+    }
+
+    void RemoveLiveLclRegs(regMaskTP regs)
+    {
+        SetLiveLclRegs(liveLclRegs & ~regs);
+    }
+
+    void RemoveGCRegs(regMaskTP regMask DEBUGARG(bool forceOutput = false));
+    void SetGCRegType(regNumber reg, var_types type);
+    void TransferGCRegType(regNumber dst, regNumber src);
+
+    void SetGCRegs(var_types type, regMaskTP regs)
+    {
+        switch (type)
+        {
+            case TYP_REF:
+                liveGCRefRegs = regs;
+                break;
+            case TYP_BYREF:
+                liveGCByRefRegs = regs;
+                break;
+            default:
+                assert(!"Bad GC reg type");
+                break;
+        }
+    }
+
+    regMaskTP GetGCRegs(var_types type) const
+    {
+        switch (type)
+        {
+            case TYP_REF:
+                return liveGCRefRegs;
+            case TYP_BYREF:
+                return liveGCByRefRegs;
+            default:
+                assert(!"Bad GC reg type");
+                return RBM_NONE;
+        }
+    }
+
+    regMaskTP GetGCRegs() const
+    {
+        return liveGCRefRegs | liveGCByRefRegs;
     }
 };

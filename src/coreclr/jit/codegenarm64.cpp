@@ -1086,7 +1086,7 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
 
     ScopedSetVariable<bool> _setGeneratingProlog(&generatingProlog, true);
 
-    gcInfo.BeginPrologCodeGen();
+    liveness.BeginPrologCodeGen();
 
     compiler->unwindBegProlog();
 
@@ -2573,7 +2573,7 @@ void CodeGen::genLockedInstructions(GenTreeOp* treeNode)
         noway_assert(exResultReg != storeDataReg);
         noway_assert(exResultReg != addrReg);
 
-        // TODO-MIKE-Review: This is dubious, gcInfo stuff doesn't really matter until we reach a call...
+        // TODO-MIKE-Review: This is dubious, GC liveness doesn't really matter until we reach a call...
 
         // NOTE: `genConsumeAddress` marks the consumed register as not a GC pointer, as it assumes that the input
         // registers
@@ -2581,7 +2581,7 @@ void CodeGen::genLockedInstructions(GenTreeOp* treeNode)
         // registers are multiply-used. As such, we need to mark the addr register as containing a GC pointer until
         // we are finished generating the code for this node.
 
-        gcInfo.gcMarkRegPtrVal(addrReg, addr->TypeGet());
+        liveness.SetGCRegType(addrReg, addr->GetType());
 
         // Emit code like this:
         //   retry:
@@ -2628,7 +2628,7 @@ void CodeGen::genLockedInstructions(GenTreeOp* treeNode)
 
         instGen_MemoryBarrier();
 
-        gcInfo.gcMarkRegSetNpt(genRegMask(addrReg));
+        liveness.RemoveGCRegs(genRegMask(addrReg));
     }
 
     if (treeNode->GetRegNum() != REG_NA)
@@ -2693,7 +2693,7 @@ void CodeGen::genCodeForCmpXchg(GenTreeCmpXchg* treeNode)
         noway_assert(exResultReg != dataReg);
         noway_assert(exResultReg != addrReg);
 
-        // TODO-MIKE-Review: This is dubious, gcInfo stuff doesn't really matter until we reach a call...
+        // TODO-MIKE-Review: This is dubious, GC liveness stuff doesn't really matter until we reach a call...
 
         // NOTE: `genConsumeAddress` marks the consumed register as not a GC pointer, as it assumes that the input
         // registers
@@ -2701,7 +2701,7 @@ void CodeGen::genCodeForCmpXchg(GenTreeCmpXchg* treeNode)
         // registers are multiply-used. As such, we need to mark the addr register as containing a GC pointer until
         // we are finished generating the code for this node.
 
-        gcInfo.gcMarkRegPtrVal(addrReg, addr->TypeGet());
+        liveness.SetGCRegType(addrReg, addr->TypeGet());
 
         // TODO-ARM64-CQ Use ARMv8.1 atomics if available
         // https://github.com/dotnet/runtime/issues/8225
@@ -2751,7 +2751,7 @@ void CodeGen::genCodeForCmpXchg(GenTreeCmpXchg* treeNode)
 
         instGen_MemoryBarrier();
 
-        gcInfo.gcMarkRegSetNpt(genRegMask(addrReg));
+        liveness.RemoveGCRegs(genRegMask(addrReg));
     }
 
     genProduceReg(treeNode);
@@ -3009,15 +3009,12 @@ void CodeGen::genCodeForSwap(GenTreeOp* tree)
     NYI("register swap");
     // inst_RV_RV(INS_xchg, oldOp1Reg, oldOp2Reg, TYP_I_IMPL, size);
 
-    // Update the gcInfo.
     // Manually remove these regs for the gc sets (mostly to avoid confusing duplicative dump output)
-    gcInfo.gcRegByrefSetCur &= ~(oldOp1RegMask | oldOp2RegMask);
-    gcInfo.gcRegGCrefSetCur &= ~(oldOp1RegMask | oldOp2RegMask);
+    liveness.SetGCRegs(TYP_BYREF, liveness.GetGCRegs(TYP_BYREF) & ~(oldOp1RegMask | oldOp2RegMask));
+    liveness.SetGCRegs(TYP_REF, liveness.GetGCRegs(TYP_REF) & ~(oldOp1RegMask | oldOp2RegMask));
 
-    // gcMarkRegPtrVal will do the appropriate thing for non-gc types.
-    // It will also dump the updates.
-    gcInfo.gcMarkRegPtrVal(oldOp2Reg, type1);
-    gcInfo.gcMarkRegPtrVal(oldOp1Reg, type2);
+    liveness.SetGCRegType(oldOp2Reg, type1);
+    liveness.SetGCRegType(oldOp1Reg, type2);
 }
 
 //------------------------------------------------------------------------
@@ -3617,13 +3614,13 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
                                reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd));
     }
 
-    gcInfo.gcMarkRegSetNpt(RBM_PROFILER_LEAVE_ARG_FUNC_ID);
+    liveness.RemoveGCRegs(RBM_PROFILER_LEAVE_ARG_FUNC_ID);
 
     int callerSPOffset = compiler->lvaToCallerSPRelativeOffset(0, isFramePointerUsed());
     genInstrWithConstant(INS_add, EA_PTRSIZE, REG_PROFILER_LEAVE_ARG_CALLER_SP, genFramePointerReg(),
                          (ssize_t)(-callerSPOffset), REG_PROFILER_LEAVE_ARG_CALLER_SP);
 
-    gcInfo.gcMarkRegSetNpt(RBM_PROFILER_LEAVE_ARG_CALLER_SP);
+    liveness.RemoveGCRegs(RBM_PROFILER_LEAVE_ARG_CALLER_SP);
 
     genEmitHelperCall(helper);
 }
@@ -9910,7 +9907,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
 
     ScopedSetVariable<bool> _setGeneratingEpilog(&generatingEpilog, true);
 
-    gcInfo.BeginMethodEpilogCodeGen();
+    liveness.BeginMethodEpilogCodeGen();
 
     bool     jmpEpilog = ((block->bbFlags & BBF_HAS_JMP) != 0);
     GenTree* lastNode  = block->lastNode();

@@ -75,61 +75,11 @@ class GCInfo
     friend class CodeGen;
 
     Compiler* const compiler;
-    regMaskTP       liveLclRegs;
 
 public:
     GCInfo(Compiler* compiler) : compiler(compiler)
     {
     }
-
-    regMaskTP GetLiveLclRegs() const
-    {
-        return liveLclRegs;
-    }
-
-    void SetLiveLclRegs(regMaskTP regs);
-
-    void AddLiveLclRegs(regMaskTP regs)
-    {
-        SetLiveLclRegs(liveLclRegs | regs);
-    }
-
-    void RemoveLiveLclRegs(regMaskTP regs)
-    {
-        SetLiveLclRegs(liveLclRegs & ~regs);
-    }
-
-    void ClearLiveLclRegs()
-    {
-        liveLclRegs = RBM_NONE;
-    }
-
-    void BeginPrologCodeGen();
-    void BeginBlockCodeGen(BasicBlock* block);
-    void BeginMethodEpilogCodeGen();
-
-    void gcMarkRegSetGCref(regMaskTP regMask DEBUGARG(bool forceOutput = false));
-    void gcMarkRegSetByref(regMaskTP regMask DEBUGARG(bool forceOutput = false));
-    void gcMarkRegSetNpt(regMaskTP regMask DEBUGARG(bool forceOutput = false));
-    void gcMarkRegPtrVal(regNumber reg, var_types type);
-
-#ifdef DEBUG
-    void gcDspGCrefSetChanges(regMaskTP gcRegGCrefSetNew DEBUGARG(bool forceOutput = false));
-    void gcDspByrefSetChanges(regMaskTP gcRegByrefSetNew DEBUGARG(bool forceOutput = false));
-#endif // DEBUG
-
-    /*****************************************************************************/
-
-    //-------------------------------------------------------------------------
-    //
-    //  The following keeps track of which registers currently hold pointer
-    //  values.
-    //
-
-    regMaskTP gcRegGCrefSetCur = RBM_NONE; // current regs holding GCrefs
-    regMaskTP gcRegByrefSetCur = RBM_NONE; // current regs holding Byrefs
-
-    VARSET_TP gcVarPtrSetCur; // current stack locals holding GC pointers
 
     //-------------------------------------------------------------------------
     //
@@ -165,8 +115,6 @@ public:
 
     FrameLifetime* gcVarPtrList = nullptr;
     FrameLifetime* gcVarPtrLast = nullptr;
-
-    void gcVarPtrSetInit();
 
     /*****************************************************************************/
 

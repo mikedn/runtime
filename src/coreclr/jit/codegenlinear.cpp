@@ -18,17 +18,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "codegen.h"
 #include "lsra.h"
 
-//------------------------------------------------------------------------
-// genInitialize: Initialize Scopes, registers, gcInfo and current liveness variables structures
-// used in the generation of blocks' code before.
-//
-// Assumptions:
-//    -The pointer logic in "gcInfo" for pointers on registers and variable is cleaned.
-//    -If there is local var info siScopes scope logic in codegen is initialized in "siInit()"
-//
-// Notes:
-//    This method is intended to be called when code generation for blocks happens, and before the list of blocks is
-//    iterated.
 void CodeGen::genInitialize()
 {
     // Initialize the line# tracking logic
@@ -43,15 +32,13 @@ void CodeGen::genInitialize()
 
     genPendingCallLabel = nullptr;
 
-    gcInfo.gcVarPtrSetInit();
-
 #if !FEATURE_FIXED_OUT_ARGS
     // We initialize the stack level before first "BasicBlock" code is generated in case we need to report stack
     // variable needs home and so its stack offset.
     SetStackLevel(0);
 #endif
 
-    m_liveness.Begin();
+    liveness.Begin();
 }
 
 void CodeGen::UpdateLclBlockLiveInRegs(BasicBlock* block)
@@ -189,21 +176,19 @@ void CodeGen::genCodeForBBlist()
 
         // Figure out which registers hold variables on entry to this block
 
-        gcInfo.ClearLiveLclRegs();
-        gcInfo.gcRegGCrefSetCur = RBM_NONE;
-        gcInfo.gcRegByrefSetCur = RBM_NONE;
+        liveness.BeginBlock();
 
         UpdateLclBlockLiveInRegs(block);
 
         // Updating variable liveness after last instruction of previous block was emitted
         // and before first of the current block is emitted
-        m_liveness.ChangeLife(this, block->bbLiveIn);
+        liveness.ChangeLife(this, block->bbLiveIn);
 
         // Even if liveness didn't change, we need to update the registers containing GC references.
         // genUpdateLife will update the registers live due to liveness changes. But what about registers that didn't
         // change? We cleared them out above. Maybe we should just not clear them out, but update the ones that change
         // here. That would require handling the changes in recordVarLocationsAtStartOfBB().
-        gcInfo.BeginBlockCodeGen(block);
+        liveness.BeginBlockCodeGen(block);
 
 #if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
         genInsertNopForUnwinder(block);
@@ -300,13 +285,11 @@ void CodeGen::genCodeForBBlist()
         }
 #endif // FEATURE_EH_FUNCLETS
 
-        m_liveness.BeginBlock();
-
         // Emit poisoning into scratch BB that comes right after prolog.
         // We cannot emit this code in the prolog as it might make the prolog too large.
         if (compiler->compShouldPoisonFrame() && compiler->fgBBisScratch(block))
         {
-            genPoisonFrame(gcInfo.GetLiveLclRegs());
+            genPoisonFrame(liveness.GetLiveLclRegs());
         }
 
 #ifdef DEBUG
@@ -363,8 +346,8 @@ void CodeGen::genCodeForBBlist()
 #ifdef DEBUG
         /* Make sure we didn't bungle pointer register tracking */
 
-        regMaskTP ptrRegs       = gcInfo.gcRegGCrefSetCur | gcInfo.gcRegByrefSetCur;
-        regMaskTP liveLclRegs   = gcInfo.GetLiveLclRegs();
+        regMaskTP ptrRegs       = liveness.GetGCRegs();
+        regMaskTP liveLclRegs   = liveness.GetLiveLclRegs();
         regMaskTP nonVarPtrRegs = ptrRegs & ~liveLclRegs;
 
         // If return is a GC-type, clear it.  Note that if a common
@@ -383,9 +366,9 @@ void CodeGen::genCodeForBBlist()
         if (nonVarPtrRegs != RBM_NONE)
         {
             printf("Regset after " FMT_BB " gcr", block->bbNum);
-            emitter::emitDispRegSet(gcInfo.gcRegGCrefSetCur & ~liveLclRegs);
+            emitter::emitDispRegSet(liveness.GetGCRegs(TYP_REF) & ~liveLclRegs);
             printf(", byr");
-            emitter::emitDispRegSet(gcInfo.gcRegByrefSetCur & ~liveLclRegs);
+            emitter::emitDispRegSet(liveness.GetGCRegs(TYP_BYREF) & ~liveLclRegs);
             printf(", regVars");
             emitter::emitDispRegSet(liveLclRegs);
             printf("\n");
@@ -432,7 +415,7 @@ void CodeGen::genCodeForBBlist()
 #ifdef USING_VARIABLE_LIVE_RANGE
         if (compiler->opts.compDbgInfo && isLastBlockProcessed)
         {
-            varLiveKeeper->siEndAllVariableLiveRange(m_liveness.GetLiveSet());
+            varLiveKeeper->siEndAllVariableLiveRange(liveness.GetLiveSet());
         }
 #endif // USING_VARIABLE_LIVE_RANGE
 
@@ -464,9 +447,9 @@ void CodeGen::genCodeForBBlist()
         // it up to date for vars that are not register candidates
         // (it would be nice to have a xor set function)
 
-        VARSET_TP mismatchLiveVars(VarSetOps::Diff(compiler, block->bbLiveOut, m_liveness.GetLiveSet()));
+        VARSET_TP mismatchLiveVars(VarSetOps::Diff(compiler, block->bbLiveOut, liveness.GetLiveSet()));
         VarSetOps::UnionD(compiler, mismatchLiveVars,
-                          VarSetOps::Diff(compiler, m_liveness.GetLiveSet(), block->bbLiveOut));
+                          VarSetOps::Diff(compiler, liveness.GetLiveSet(), block->bbLiveOut));
         VarSetOps::Iter mismatchLiveVarIter(compiler, mismatchLiveVars);
         unsigned        mismatchLiveVarIndex  = 0;
         bool            foundMismatchedRegVar = false;
@@ -703,7 +686,7 @@ void CodeGen::genCodeForBBlist()
 
     // There could be variables alive at this point. For example see lvaKeepAliveAndReportThis.
     // This call is for cleaning the GC refs
-    m_liveness.ChangeLife(this, VarSetOps::MakeEmpty(compiler));
+    liveness.ChangeLife(this, VarSetOps::MakeEmpty(compiler));
 
 #ifdef DEBUG
     if (compiler->verbose)
@@ -763,11 +746,11 @@ void CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
 
         // Remove the live var from the register.
         genUpdateRegLife(lcl, /*isBorn*/ false, /*isDying*/ true DEBUGARG(lclVar));
-        gcInfo.gcMarkRegSetNpt(lcl->lvRegMask());
+        liveness.RemoveGCRegs(lcl->lvRegMask());
 
         if (lcl->HasGCSlotLiveness())
         {
-            if (!VarSetOps::IsMember(compiler, gcInfo.gcVarPtrSetCur, lcl->GetLivenessBitIndex()))
+            if (!VarSetOps::IsMember(compiler, liveness.GetGCLiveSet(), lcl->GetLivenessBitIndex()))
             {
                 JITDUMP("GC pointer V%02u becoming live on stack\n", lclNum);
             }
@@ -776,7 +759,7 @@ void CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
                 JITDUMP("GC pointer V%02u continuing live on stack\n", lclNum);
             }
 
-            VarSetOps::AddElemD(compiler, gcInfo.gcVarPtrSetCur, lcl->GetLivenessBitIndex());
+            VarSetOps::AddElemD(compiler, liveness.GetGCLiveSet(), lcl->GetLivenessBitIndex());
         }
     }
 
@@ -903,7 +886,7 @@ regNumber CodeGen::UseReg(GenTree* node)
         genUpdateLife(node->AsLclVarCommon());
     }
 
-    gcInfo.gcMarkRegSetNpt(genRegMask(node->GetRegNum()));
+    liveness.RemoveGCRegs(genRegMask(node->GetRegNum()));
 
     genCheckConsumeNode(node);
 
@@ -944,11 +927,11 @@ regNumber CodeGen::UseRegCandidateLclVar(GenTreeLclVar* node)
     if (lcl->GetRegNum() == REG_STK)
     {
         // We have loaded this into a register only temporarily
-        gcInfo.gcMarkRegSetNpt(genRegMask(node->GetRegNum()));
+        liveness.RemoveGCRegs(genRegMask(node->GetRegNum()));
     }
     else if (node->IsLastUse(0))
     {
-        gcInfo.gcMarkRegSetNpt(genRegMask(lcl->GetRegNum()));
+        liveness.RemoveGCRegs(genRegMask(lcl->GetRegNum()));
     }
 
     genCheckConsumeNode(node);
@@ -977,11 +960,11 @@ void CodeGen::CopyReg(GenTreeCopyOrReload* copy)
     if (src->OperIs(GT_LCL_VAR))
     {
         // If it is a last use, the local will be killed by UseReg, as usual, and DefReg will
-        // appropriately set the gcInfo for the copied value.
+        // appropriately set the GC liveness for the copied value.
         // If not, there are two cases we need to handle:
         // - If this is a TEMPORARY copy (indicated by the GTF_VAR_DEATH flag) the variable
         //   will remain live in its original register.
-        //   DefReg will appropriately set the gcInfo for the copied value,
+        //   DefReg will appropriately set the GC liveness for the copied value,
         //   and UseReg will reset it.
         // - Otherwise, we need to update register info for the lclVar.
 
@@ -993,7 +976,7 @@ void CodeGen::CopyReg(GenTreeCopyOrReload* copy)
             if (lcl->GetRegNum() != REG_STK)
             {
                 genUpdateRegLife(lcl, /*isBorn*/ false, /*isDying*/ true DEBUGARG(src));
-                gcInfo.gcMarkRegSetNpt(genRegMask(src->GetRegNum()));
+                liveness.RemoveGCRegs(genRegMask(src->GetRegNum()));
                 lcl->SetRegNum(copy->GetRegNum());
 #ifdef USING_VARIABLE_LIVE_RANGE
                 varLiveKeeper->siUpdateVariableLiveRange(lcl, src->AsLclVar()->GetLclNum());
@@ -1003,7 +986,7 @@ void CodeGen::CopyReg(GenTreeCopyOrReload* copy)
         }
     }
 
-    gcInfo.gcMarkRegPtrVal(dstReg, dstType);
+    liveness.SetGCRegType(dstReg, dstType);
 }
 
 // Reload the value into a register, if needed
@@ -1081,7 +1064,7 @@ void CodeGen::UnspillRegCandidateLclVar(GenTreeLclVar* node)
     // due to issues with LSRA resolution moves.
     // So, just force it for now. This probably indicates a condition that creates a GC hole!
     //
-    // Extra note: I think we really want to call something like gcInfo.gcUpdateForRegVarMove,
+    // Extra note: I think we really want to call something like liveness.gcUpdateForRegVarMove,
     // because the variable is not really going live or dead, but that method is somewhat poorly
     // factored because it, in turn, updates rsMaskVars which is part of RegSet not GCInfo.
     // TODO-Cleanup: This code exists in other CodeGen*.cpp files, and should be moved to CodeGenCommon.cpp.
@@ -1105,21 +1088,21 @@ void CodeGen::UnspillRegCandidateLclVar(GenTreeLclVar* node)
         if (!lcl->IsAlwaysAliveInMemory())
         {
 #ifdef DEBUG
-            if (VarSetOps::IsMember(compiler, gcInfo.gcVarPtrSetCur, lcl->GetLivenessBitIndex()))
+            if (VarSetOps::IsMember(compiler, liveness.GetGCLiveSet(), lcl->GetLivenessBitIndex()))
             {
-                JITDUMP("Removing V%02u from gcVarPtrSetCur\n", lclNum);
+                JITDUMP("Removing V%02u from liveGCLcl\n", lclNum);
             }
 #endif
 
-            VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, lcl->GetLivenessBitIndex());
+            VarSetOps::RemoveElemD(compiler, liveness.GetGCLiveSet(), lcl->GetLivenessBitIndex());
         }
 
         JITDUMP("V%02u in reg %s is becoming live at [%06u]\n", lclNum, getRegName(lcl->GetRegNum()), node->GetID());
 
-        gcInfo.AddLiveLclRegs(genGetRegMask(lcl));
+        liveness.AddLiveLclRegs(genGetRegMask(lcl));
     }
 
-    gcInfo.gcMarkRegPtrVal(dstReg, regType);
+    liveness.SetGCRegType(dstReg, regType);
 }
 
 regNumber CodeGen::UseReg(GenTree* node, unsigned regIndex)
@@ -1147,7 +1130,7 @@ regNumber CodeGen::UseReg(GenTree* node, unsigned regIndex)
     // Seems unnecessary and confusing, it's likely enough to kill
     // only the specific register we're dealing with now. Oh well,
     // the whole GC info tracking is a bunch of crap to begin with.
-    gcInfo.gcMarkRegSetNpt(node->gtGetRegMask());
+    liveness.RemoveGCRegs(node->gtGetRegMask());
 
     return reg;
 }
@@ -1185,7 +1168,7 @@ regNumber CodeGen::CopyReg(GenTreeCopyOrReload* copy, unsigned regIndex)
     var_types type = src->GetMultiRegType(compiler, regIndex);
     inst_Mov(type, dstReg, srcReg, /* canSkip */ false);
 
-    gcInfo.gcMarkRegPtrVal(dstReg, type);
+    liveness.SetGCRegType(dstReg, type);
 
     return dstReg;
 }
@@ -1239,7 +1222,7 @@ void CodeGen::UseRegs(GenTree* node)
 
     UnspillRegsIfNeeded(node);
 
-    gcInfo.gcMarkRegSetNpt(node->gtGetRegMask());
+    liveness.RemoveGCRegs(node->gtGetRegMask());
 
     genCheckConsumeNode(node);
 }
@@ -1614,7 +1597,7 @@ void CodeGen::SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex)
     node->SetRegSpill(regIndex, false);
     node->SetRegSpilled(regIndex, true);
 
-    gcInfo.gcMarkRegSetNpt(genRegMask(reg));
+    liveness.RemoveGCRegs(genRegMask(reg));
 }
 
 #ifdef TARGET_X86
@@ -1650,7 +1633,7 @@ void CodeGen::UnspillNodeReg(GenTree* node, regNumber reg, unsigned regIndex)
 
     GetEmitter()->emitIns_R_S(ins, attr, reg, temp->GetNum(), 0);
 
-    gcInfo.gcMarkRegPtrVal(reg, regType);
+    liveness.SetGCRegType(reg, regType);
 }
 
 #ifdef TARGET_X86
@@ -1694,7 +1677,7 @@ void CodeGen::DefReg(GenTree* node)
     // likely always have a reg...
     else if (node->GetRegNum() != REG_NA)
     {
-        gcInfo.gcMarkRegPtrVal(node->GetRegNum(), node->GetType());
+        liveness.SetGCRegType(node->GetRegNum(), node->GetType());
     }
 }
 
@@ -1731,7 +1714,7 @@ void CodeGen::DefLclVarReg(GenTreeLclVar* lclVar)
 
     if ((lclVar->GetRegNum() != REG_NA) && (!lcl->IsRegCandidate() || !lclVar->IsLastUse(0)))
     {
-        gcInfo.gcMarkRegPtrVal(lclVar->GetRegNum(), lclVar->GetType());
+        liveness.SetGCRegType(lclVar->GetRegNum(), lclVar->GetType());
     }
 }
 
@@ -1781,7 +1764,7 @@ void CodeGen::DefPutArgSplitRegs(GenTreePutArgSplit* arg)
         // The spill check is also dubious, it should probably done for each reg,
         // it's not an all or nothing case. But then it's unlikely that these regs
         // ever need spilling.
-        gcInfo.gcMarkRegPtrVal(arg->GetRegNum(), arg->GetType());
+        liveness.SetGCRegType(arg->GetRegNum(), arg->GetType());
     }
 }
 #endif // FEATURE_ARG_SPLIT
@@ -1824,12 +1807,12 @@ void CodeGen::DefCallRegs(GenTreeCall* call)
         {
             for (unsigned i = 0; i < call->GetRegCount(); ++i)
             {
-                gcInfo.gcMarkRegPtrVal(call->GetRegNum(i), call->GetRegType(i));
+                liveness.SetGCRegType(call->GetRegNum(i), call->GetRegType(i));
             }
         }
         else
         {
-            gcInfo.gcMarkRegPtrVal(call->GetRegNum(), call->GetType());
+            liveness.SetGCRegType(call->GetRegNum(), call->GetType());
         }
     }
 }
@@ -1851,29 +1834,9 @@ void CodeGen::DefLongRegs(GenTree* node)
         SpillNodeReg(node, TYP_INT, 1);
     }
 
-    gcInfo.gcMarkRegSetNpt(genRegMask(node->GetRegNum(0)) | genRegMask(node->GetRegNum(1)));
+    liveness.RemoveGCRegs(genRegMask(node->GetRegNum(0)) | genRegMask(node->GetRegNum(1)));
 }
 #endif // TARGET_64BIT
-
-// transfer gc/byref status of src reg to dst reg
-void CodeGen::genTransferRegGCState(regNumber dst, regNumber src)
-{
-    regMaskTP srcMask = genRegMask(src);
-    regMaskTP dstMask = genRegMask(dst);
-
-    if (gcInfo.gcRegGCrefSetCur & srcMask)
-    {
-        gcInfo.gcMarkRegSetGCref(dstMask);
-    }
-    else if (gcInfo.gcRegByrefSetCur & srcMask)
-    {
-        gcInfo.gcMarkRegSetByref(dstMask);
-    }
-    else
-    {
-        gcInfo.gcMarkRegSetNpt(dstMask);
-    }
-}
 
 //------------------------------------------------------------------------
 // genCodeForCast: Generates the code for GT_CAST.
