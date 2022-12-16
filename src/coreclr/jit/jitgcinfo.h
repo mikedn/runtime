@@ -81,6 +81,15 @@ public:
     {
     }
 
+#ifdef JIT32_GCENCODER
+    void* CreateAndStoreGCInfo(CodeGen* codeGen,
+                               unsigned codeSize,
+                               unsigned prologSize,
+                               unsigned epilogSize DEBUGARG(void* codePtr));
+#else
+    void CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize DEBUGARG(void* codePtr));
+#endif
+
     //-------------------------------------------------------------------------
     //
     //  The following keeps track of the lifetimes of non-register variables that

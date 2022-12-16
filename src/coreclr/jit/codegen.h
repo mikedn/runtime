@@ -150,19 +150,6 @@ private:
 
     void genReportEH();
 
-    // Allocates storage for the GC info, writes the GC info into that storage, records the address of the
-    // GC info of the method with the EE, and returns a pointer to the "info" portion (just post-header) of
-    // the GC info.  Requires "codeSize" to be the size of the generated code, "prologSize" and "epilogSize"
-    // to be the sizes of the prolog and epilog, respectively.  In DEBUG, makes a check involving the
-    // "codePtr", assumed to be a pointer to the start of the generated code.
-    CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef JIT32_GCENCODER
-    void* genCreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize, unsigned epilogSize DEBUGARG(void* codePtr));
-#else
-    void genCreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize DEBUGARG(void* codePtr));
-#endif
-
     /**************************************************************************
      *                          PROTECTED
      *************************************************************************/

@@ -1318,9 +1318,9 @@ void CodeGen::genEmitUnwindDebugGCandEH()
 
 #ifdef JIT32_GCENCODER
     INDEBUG(void* infoPtr =)
-    genCreateAndStoreGCInfo(codeSize, prologSize, epilogSize DEBUGARG(codePtr));
+    gcInfo.CreateAndStoreGCInfo(this, codeSize, prologSize, epilogSize DEBUGARG(codePtr));
 #else
-    genCreateAndStoreGCInfo(codeSize, prologSize DEBUGARG(codePtr));
+    gcInfo.CreateAndStoreGCInfo(codeSize, prologSize DEBUGARG(codePtr));
 #endif
 
 #ifdef DEBUG

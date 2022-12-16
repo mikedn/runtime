@@ -433,9 +433,10 @@ regMaskSmall GCInfo::RegMaskFromCalleeSavedMask(unsigned short calleeSaveMask)
 
 #ifdef JIT32_GCENCODER
 
-void* CodeGen::genCreateAndStoreGCInfo(unsigned codeSize,
-                                       unsigned prologSize,
-                                       unsigned epilogSize DEBUGARG(void* codePtr))
+void* GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen,
+                                   unsigned codeSize,
+                                   unsigned prologSize,
+                                   unsigned epilogSize DEBUGARG(void* codePtr))
 {
     BYTE    headerBuf[64];
     InfoHdr header;
@@ -446,39 +447,39 @@ void* CodeGen::genCreateAndStoreGCInfo(unsigned codeSize,
     // We should do this before gcInfoBlockHdrSave since varPtrTableSize must be finalized before it
     if (compiler->ehAnyFunclets())
     {
-        gcInfo.gcMarkFilterVarsPinned();
+        gcMarkFilterVarsPinned();
     }
 #endif
 
 #ifdef DEBUG
     size_t headerSize =
 #endif
-        compInfoBlkSize = gcInfo.gcInfoBlockHdrSave(headerBuf, 0, codeSize, prologSize, epilogSize,
-                                                    calleeSavedModifiedRegs, &header, &s_cached);
+        codeGen->compInfoBlkSize = gcInfoBlockHdrSave(headerBuf, 0, codeSize, prologSize, epilogSize,
+                                                      codeGen->calleeSavedModifiedRegs, &header, &s_cached);
 
     size_t argTabOffset = 0;
-    size_t ptrMapSize   = gcInfo.gcPtrTableSize(header, codeSize, &argTabOffset);
+    size_t ptrMapSize   = gcPtrTableSize(header, codeSize, &argTabOffset);
 
 #if DISPLAY_SIZES
 
-    if (GetInterruptible())
+    if (codeGen->GetInterruptible())
     {
-        gcHeaderISize += compInfoBlkSize;
+        gcHeaderISize += codeGen->compInfoBlkSize;
         gcPtrMapISize += ptrMapSize;
     }
     else
     {
-        gcHeaderNSize += compInfoBlkSize;
+        gcHeaderNSize += codeGen->compInfoBlkSize;
         gcPtrMapNSize += ptrMapSize;
     }
 
 #endif // DISPLAY_SIZES
 
-    compInfoBlkSize += ptrMapSize;
+    codeGen->compInfoBlkSize += ptrMapSize;
 
     /* Allocate the info block for the method */
 
-    BYTE* infoBlkAddr = (BYTE*)compiler->info.compCompHnd->allocGCInfo(compInfoBlkSize);
+    BYTE* infoBlkAddr = (BYTE*)compiler->info.compCompHnd->allocGCInfo(codeGen->compInfoBlkSize);
 
 #if 0 // VERBOSE_SIZES
     // TODO-X86-Cleanup: 'dataSize', below, is not defined
@@ -504,11 +505,11 @@ void* CodeGen::genCreateAndStoreGCInfo(unsigned codeSize,
 
     /* Create the method info block: header followed by GC tracking tables */
 
-    infoBlkAddr += gcInfo.gcInfoBlockHdrSave(infoBlkAddr, -1, codeSize, prologSize, epilogSize, calleeSavedModifiedRegs,
-                                             &header, &s_cached);
+    infoBlkAddr += gcInfoBlockHdrSave(infoBlkAddr, -1, codeSize, prologSize, epilogSize,
+                                      codeGen->calleeSavedModifiedRegs, &header, &s_cached);
 
     assert(infoBlkAddr == (BYTE*)infoPtr + headerSize);
-    infoBlkAddr = gcInfo.gcPtrTableSave(infoBlkAddr, header, codeSize, &argTabOffset);
+    infoBlkAddr = gcPtrTableSave(infoBlkAddr, header, codeSize, &argTabOffset);
     assert(infoBlkAddr == (BYTE*)infoPtr + headerSize + ptrMapSize);
 
 #ifdef DEBUG
@@ -553,14 +554,14 @@ void* CodeGen::genCreateAndStoreGCInfo(unsigned codeSize,
         InfoHdr     dumpHeader;
 
         printf("GC Info for method %s\n", compiler->info.compFullName);
-        printf("GC info size = %3u\n", compInfoBlkSize);
+        printf("GC info size = %3u\n", codeGen->compInfoBlkSize);
 
-        size = gcInfo.gcInfoBlockHdrDump(base, &dumpHeader, &methodSize);
+        size = gcInfoBlockHdrDump(base, &dumpHeader, &methodSize);
         // printf("size of header encoding is %3u\n", size);
         printf("\n");
 
         base += size;
-        size = gcInfo.gcDumpPtrTable(base, dumpHeader, methodSize);
+        size = gcDumpPtrTable(base, dumpHeader, methodSize);
         // printf("size of pointer table is %3u\n", size);
         printf("\n");
         noway_assert(infoBlkAddr == (base + size));
@@ -569,26 +570,26 @@ void* CodeGen::genCreateAndStoreGCInfo(unsigned codeSize,
 
     /* Make sure we ended up generating the expected number of bytes */
 
-    noway_assert(infoBlkAddr == (BYTE*)infoPtr + compInfoBlkSize);
+    noway_assert(infoBlkAddr == (BYTE*)infoPtr + codeGen->compInfoBlkSize);
 
     return infoPtr;
 }
 
 #else
 
-void CodeGen::genCreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize DEBUGARG(void* codePtr))
+void GCInfo::CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize DEBUGARG(void* codePtr))
 {
     IAllocator*    allowZeroAlloc = new (compiler, CMK_GC) CompIAllocator(compiler->getAllocatorGC());
     GcInfoEncoder* gcInfoEncoder  = new (compiler, CMK_GC)
         GcInfoEncoder(compiler->info.compCompHnd, compiler->info.compMethodInfo, allowZeroAlloc, NOMEM);
     assert(gcInfoEncoder != nullptr);
 
-    gcInfo.gcInfoBlockHdrSave(gcInfoEncoder, codeSize, prologSize);
+    gcInfoBlockHdrSave(gcInfoEncoder, codeSize, prologSize);
 
     unsigned callCnt = 0;
-    gcInfo.gcMakeRegPtrTable(gcInfoEncoder, codeSize, prologSize, GCInfo::MAKE_REG_PTR_MODE_ASSIGN_SLOTS, &callCnt);
+    gcMakeRegPtrTable(gcInfoEncoder, codeSize, prologSize, GCInfo::MAKE_REG_PTR_MODE_ASSIGN_SLOTS, &callCnt);
     gcInfoEncoder->FinalizeSlotIds();
-    gcInfo.gcMakeRegPtrTable(gcInfoEncoder, codeSize, prologSize, GCInfo::MAKE_REG_PTR_MODE_DO_WORK, &callCnt);
+    gcMakeRegPtrTable(gcInfoEncoder, codeSize, prologSize, GCInfo::MAKE_REG_PTR_MODE_DO_WORK, &callCnt);
 
 #if defined(TARGET_ARM64) || defined(TARGET_AMD64)
     if (compiler->opts.compDbgEnC)
