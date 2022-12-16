@@ -7277,11 +7277,6 @@ public:
         return CompAllocator(compArenaAllocator, cmk);
     }
 
-    CompAllocator getAllocatorGC()
-    {
-        return getAllocator(CMK_GC);
-    }
-
     CompAllocator getAllocatorLoopHoist()
     {
         return getAllocator(CMK_LoopHoist);

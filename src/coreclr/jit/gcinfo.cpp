@@ -588,17 +588,14 @@ void* GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen,
 
 void GCInfo::CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize DEBUGARG(void* codePtr))
 {
-    IAllocator*    allowZeroAlloc = new (compiler, CMK_GC) CompIAllocator(compiler->getAllocatorGC());
-    GcInfoEncoder* gcInfoEncoder  = new (compiler, CMK_GC)
-        GcInfoEncoder(compiler->info.compCompHnd, compiler->info.compMethodInfo, allowZeroAlloc, NOMEM);
-    assert(gcInfoEncoder != nullptr);
+    CompIAllocator encoderAlloc(compiler->getAllocator(CMK_GC));
+    GcInfoEncoder  encoder(compiler->info.compCompHnd, compiler->info.compMethodInfo, &encoderAlloc, NOMEM);
 
-    gcInfoBlockHdrSave(gcInfoEncoder, codeSize, prologSize);
-
+    gcInfoBlockHdrSave(&encoder, codeSize, prologSize);
     unsigned callCnt = 0;
-    gcMakeRegPtrTable(gcInfoEncoder, codeSize, prologSize, MAKE_REG_PTR_MODE_ASSIGN_SLOTS, &callCnt);
-    gcInfoEncoder->FinalizeSlotIds();
-    gcMakeRegPtrTable(gcInfoEncoder, codeSize, prologSize, MAKE_REG_PTR_MODE_DO_WORK, &callCnt);
+    gcMakeRegPtrTable(&encoder, codeSize, prologSize, MAKE_REG_PTR_MODE_ASSIGN_SLOTS, &callCnt);
+    encoder.FinalizeSlotIds();
+    gcMakeRegPtrTable(&encoder, codeSize, prologSize, MAKE_REG_PTR_MODE_DO_WORK, &callCnt);
 
 #if defined(TARGET_ARM64) || defined(TARGET_AMD64)
     if (compiler->opts.compDbgEnC)
@@ -627,18 +624,18 @@ void GCInfo::CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize DEBUGAR
 #endif
         }
 
-        gcInfoEncoder->SetSizeOfEditAndContinuePreservedArea(preservedAreaSize);
+        encoder.SetSizeOfEditAndContinuePreservedArea(preservedAreaSize);
     }
 #endif
 
     if (compiler->opts.IsReversePInvoke())
     {
         LclVarDsc* reversePInvokeFrameLcl = compiler->lvaGetDesc(compiler->lvaReversePInvokeFrameVar);
-        gcInfoEncoder->SetReversePInvokeFrameSlot(reversePInvokeFrameLcl->GetStackOffset());
+        encoder.SetReversePInvokeFrameSlot(reversePInvokeFrameLcl->GetStackOffset());
     }
 
-    gcInfoEncoder->Build();
-    gcInfoEncoder->Emit();
+    encoder.Build();
+    encoder.Emit();
 }
 
 #endif
