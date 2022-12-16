@@ -3611,10 +3611,6 @@ void GCInfo::gcFindPtrsInFrame(const void* infoBlock, const void* codeBlock, uns
 
 #include "gcinfoencoder.h"
 
-// Do explicit instantiation.
-template class JitHashTable<RegSlotIdKey, RegSlotIdKey, GcSlotId>;
-template class JitHashTable<StackSlotIdKey, StackSlotIdKey, GcSlotId>;
-
 #if defined(DEBUG) || DUMP_GC_TABLES
 
 // This is a copy of GcStackSlotBaseNames from gcinfotypes.h so we can compile in to non-DEBUG builds.
@@ -4050,12 +4046,6 @@ void GCInfo::gcMakeRegPtrTable(
         (compiler->opts.MinOpts() && !compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) &&
          !JitConfig.JitMinOptsTrackGCrefs());
 
-    if (mode == MAKE_REG_PTR_MODE_ASSIGN_SLOTS)
-    {
-        m_regSlotMap   = new (compiler->getAllocator()) RegSlotMap(compiler->getAllocator());
-        m_stackSlotMap = new (compiler->getAllocator()) StackSlotMap(compiler->getAllocator());
-    }
-
     /**************************************************************************
      *
      *                      Untracked ptr variables
@@ -4158,11 +4148,11 @@ void GCInfo::gcMakeRegPtrTable(
                 GcSlotId       varSlotId;
                 if (mode == MAKE_REG_PTR_MODE_ASSIGN_SLOTS)
                 {
-                    if (!m_stackSlotMap->Lookup(sskey, &varSlotId))
+                    if (!m_stackSlotMap.Lookup(sskey, &varSlotId))
                     {
                         varSlotId =
                             gcInfoEncoderWithLog->GetStackSlotId(varDsc->GetStackOffset(), flags, stackSlotBase);
-                        m_stackSlotMap->Set(sskey, varSlotId);
+                        m_stackSlotMap.Set(sskey, varSlotId);
                     }
                 }
             }
@@ -4206,10 +4196,10 @@ void GCInfo::gcMakeRegPtrTable(
                 GcSlotId       varSlotId;
                 if (mode == MAKE_REG_PTR_MODE_ASSIGN_SLOTS)
                 {
-                    if (!m_stackSlotMap->Lookup(sskey, &varSlotId))
+                    if (!m_stackSlotMap.Lookup(sskey, &varSlotId))
                     {
                         varSlotId = gcInfoEncoderWithLog->GetStackSlotId(offset, flags, stackSlotBase);
-                        m_stackSlotMap->Set(sskey, varSlotId);
+                        m_stackSlotMap.Set(sskey, varSlotId);
                     }
                 }
             }
@@ -4243,10 +4233,10 @@ void GCInfo::gcMakeRegPtrTable(
             }
             StackSlotIdKey sskey(offset, (stackSlotBase == GC_FRAMEREG_REL), flags);
             GcSlotId       varSlotId;
-            if (!m_stackSlotMap->Lookup(sskey, &varSlotId))
+            if (!m_stackSlotMap.Lookup(sskey, &varSlotId))
             {
                 varSlotId = gcInfoEncoderWithLog->GetStackSlotId(offset, flags, stackSlotBase);
-                m_stackSlotMap->Set(sskey, varSlotId);
+                m_stackSlotMap.Set(sskey, varSlotId);
             }
         }
 
@@ -4609,15 +4599,15 @@ void GCInfo::gcInfoRecordGCRegStateChange(GcInfoEncoder* gcInfoEncoder,
         GcSlotId     regSlotId;
         if (mode == MAKE_REG_PTR_MODE_ASSIGN_SLOTS)
         {
-            if (!m_regSlotMap->Lookup(rskey, &regSlotId))
+            if (!m_regSlotMap.Lookup(rskey, &regSlotId))
             {
                 regSlotId = gcInfoEncoderWithLog->GetRegisterSlotId(regNum, regFlags);
-                m_regSlotMap->Set(rskey, regSlotId);
+                m_regSlotMap.Set(rskey, regSlotId);
             }
         }
         else
         {
-            bool b = m_regSlotMap->Lookup(rskey, &regSlotId);
+            bool b = m_regSlotMap.Lookup(rskey, &regSlotId);
             assert(b); // Should have been added in the first pass.
             gcInfoEncoderWithLog->SetSlotState(instrOffset, regSlotId, newState);
         }
@@ -4709,15 +4699,15 @@ void GCInfo::gcMakeVarPtrTable(GcInfoEncoder* gcInfoEncoder, MakeRegPtrMode mode
         GcSlotId       varSlotId;
         if (mode == MAKE_REG_PTR_MODE_ASSIGN_SLOTS)
         {
-            if (!m_stackSlotMap->Lookup(sskey, &varSlotId))
+            if (!m_stackSlotMap.Lookup(sskey, &varSlotId))
             {
                 varSlotId = gcInfoEncoderWithLog->GetStackSlotId(varOffs, flags, stackSlotBase);
-                m_stackSlotMap->Set(sskey, varSlotId);
+                m_stackSlotMap.Set(sskey, varSlotId);
             }
         }
         else
         {
-            bool b = m_stackSlotMap->Lookup(sskey, &varSlotId);
+            bool b = m_stackSlotMap.Lookup(sskey, &varSlotId);
             assert(b); // Should have been added in the first pass.
             // Live from the beginning to the end.
             gcInfoEncoderWithLog->SetSlotState(begOffs, varSlotId, GC_SLOT_LIVE);
@@ -4744,15 +4734,15 @@ void GCInfo::gcInfoRecordGCStackArgLive(GcInfoEncoder* gcInfoEncoder, MakeRegPtr
     GcSlotId varSlotId;
     if (mode == MAKE_REG_PTR_MODE_ASSIGN_SLOTS)
     {
-        if (!m_stackSlotMap->Lookup(sskey, &varSlotId))
+        if (!m_stackSlotMap.Lookup(sskey, &varSlotId))
         {
             varSlotId = gcInfoEncoderWithLog->GetStackSlotId(sskey.m_offset, (GcSlotFlags)sskey.m_flags, GC_SP_REL);
-            m_stackSlotMap->Set(sskey, varSlotId);
+            m_stackSlotMap.Set(sskey, varSlotId);
         }
     }
     else
     {
-        bool b = m_stackSlotMap->Lookup(sskey, &varSlotId);
+        bool b = m_stackSlotMap.Lookup(sskey, &varSlotId);
         assert(b); // Should have been added in the first pass.
         // Live until the call.
         gcInfoEncoderWithLog->SetSlotState(genStackPtr->rpdOffs, varSlotId, GC_SLOT_LIVE);
@@ -4790,7 +4780,7 @@ void GCInfo::gcInfoRecordGCStackArgsDead(GcInfoEncoder* gcInfoEncoder,
         StackSlotIdKey sskey(genRegPtrTemp->rpdPtrArg, false,
                              genRegPtrTemp->rpdGCtypeGet() == GCT_BYREF ? GC_SLOT_INTERIOR : GC_SLOT_BASE);
         GcSlotId varSlotId;
-        bool     b = m_stackSlotMap->Lookup(sskey, &varSlotId);
+        bool     b = m_stackSlotMap.Lookup(sskey, &varSlotId);
         assert(b); // Should have been added in the first pass.
         // Live until the call.
         gcInfoEncoderWithLog->SetSlotState(instrOffset, varSlotId, GC_SLOT_DEAD);

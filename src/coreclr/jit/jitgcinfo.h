@@ -65,8 +65,6 @@ struct StackSlotIdKey
     }
 };
 
-typedef JitHashTable<RegSlotIdKey, RegSlotIdKey, GcSlotId>     RegSlotMap;
-typedef JitHashTable<StackSlotIdKey, StackSlotIdKey, GcSlotId> StackSlotMap;
 #endif
 
 class GCInfo
@@ -77,9 +75,7 @@ class GCInfo
     Compiler* const compiler;
 
 public:
-    GCInfo(Compiler* compiler) : compiler(compiler)
-    {
-    }
+    GCInfo(Compiler* compiler);
 
 #ifdef JIT32_GCENCODER
     void* CreateAndStoreGCInfo(CodeGen* codeGen,
@@ -287,8 +283,9 @@ public:
 
     size_t gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, unsigned codeSize, size_t* pArgTabOffset);
 #else
-    RegSlotMap*   m_regSlotMap   = nullptr;
-    StackSlotMap* m_stackSlotMap = nullptr;
+    JitHashTable<RegSlotIdKey, RegSlotIdKey, GcSlotId>     m_regSlotMap;
+    JitHashTable<StackSlotIdKey, StackSlotIdKey, GcSlotId> m_stackSlotMap;
+
     // This method has two modes.  In the "assign slots" mode, it figures out what registers and stack
     // locations are used to contain GC references, and whether those locations contain byrefs or pinning
     // references, building up mappings from tuples of <reg/offset X byref/pinning> to the corresponding

@@ -15,6 +15,15 @@ size_t GCInfo::s_gcRegPtrDscSize   = 0;
 size_t GCInfo::s_gcTotalPtrTabSize = 0;
 #endif
 
+GCInfo::GCInfo(Compiler* compiler)
+    : compiler(compiler)
+#ifndef JIT32_GCENCODER
+    , m_regSlotMap(compiler->getAllocator(CMK_GC))
+    , m_stackSlotMap(compiler->getAllocator(CMK_GC))
+#endif
+{
+}
+
 GCInfo::WriteBarrierForm GCInfo::GetWriteBarrierForm(GenTreeStoreInd* store)
 {
     if (!store->TypeIs(TYP_REF))
@@ -587,9 +596,9 @@ void GCInfo::CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize DEBUGAR
     gcInfoBlockHdrSave(gcInfoEncoder, codeSize, prologSize);
 
     unsigned callCnt = 0;
-    gcMakeRegPtrTable(gcInfoEncoder, codeSize, prologSize, GCInfo::MAKE_REG_PTR_MODE_ASSIGN_SLOTS, &callCnt);
+    gcMakeRegPtrTable(gcInfoEncoder, codeSize, prologSize, MAKE_REG_PTR_MODE_ASSIGN_SLOTS, &callCnt);
     gcInfoEncoder->FinalizeSlotIds();
-    gcMakeRegPtrTable(gcInfoEncoder, codeSize, prologSize, GCInfo::MAKE_REG_PTR_MODE_DO_WORK, &callCnt);
+    gcMakeRegPtrTable(gcInfoEncoder, codeSize, prologSize, MAKE_REG_PTR_MODE_DO_WORK, &callCnt);
 
 #if defined(TARGET_ARM64) || defined(TARGET_AMD64)
     if (compiler->opts.compDbgEnC)
