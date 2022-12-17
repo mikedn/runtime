@@ -10621,24 +10621,24 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
                 {
                     // Kill the GC-info about the GC registers
 
-                    if (needsGC(gc1))
+                    if (gc1 != GCT_NONE)
                     {
                         emitGCregDeadUpd(reg1, dst);
                     }
 
-                    if (needsGC(gc2))
+                    if (gc2 != GCT_NONE)
                     {
                         emitGCregDeadUpd(reg2, dst);
                     }
 
                     // Now, swap the info
 
-                    if (needsGC(gc1))
+                    if (gc1 != GCT_NONE)
                     {
                         emitGCregLiveUpd(gc1, reg2, dst);
                     }
 
-                    if (needsGC(gc2))
+                    if (gc2 != GCT_NONE)
                     {
                         emitGCregLiveUpd(gc2, reg1, dst);
                     }

@@ -6624,6 +6624,7 @@ void emitter::emitRecordGCCallPop(BYTE* addr, unsigned callInstrSize)
     regPtrNext->rpdArg           = true;
     regPtrNext->rpdArgType       = GCInfo::rpdARG_POP;
     regPtrNext->rpdGCtype        = GCT_GCREF;
+    regPtrNext->rpdIsThis        = false;
     regPtrNext->rpdCall          = true;
     regPtrNext->rpdCallGCrefRegs = static_cast<uint16_t>(gcrefRegs);
     regPtrNext->rpdCallByrefRegs = static_cast<uint16_t>(byrefRegs);
@@ -6749,9 +6750,9 @@ void emitter::emitRecordGCcall(BYTE* codePos, unsigned callInstrSize)
 
         for (unsigned i = 0; i < stkLvl; i++)
         {
-            GCtype gcType = (GCtype)u2.emitArgTrackTab[stkLvl - i - 1];
+            GCtype gcType = static_cast<GCtype>(u2.emitArgTrackTab[stkLvl - i - 1]);
 
-            if (needsGC(gcType))
+            if (gcType != GCT_NONE)
             {
                 call->cdArgTable[gcArgs] = i * TARGET_POINTER_SIZE;
 
@@ -6788,7 +6789,7 @@ void emitter::emitUpdateLiveGCregs(GCtype gcType, regMaskTP regs, BYTE* addr)
     regMaskTP dead;
     regMaskTP chg;
 
-    assert(needsGC(gcType));
+    assert(gcType != GCT_NONE);
 
     regMaskTP& emitThisXXrefRegs = (gcType == GCT_GCREF) ? emitThisGCrefRegs : emitThisByrefRegs;
     regMaskTP& emitThisYYrefRegs = (gcType == GCT_GCREF) ? emitThisByrefRegs : emitThisGCrefRegs;
@@ -6840,65 +6841,39 @@ void emitter::emitUpdateLiveGCregs(GCtype gcType, regMaskTP regs, BYTE* addr)
     assert((emitThisGCrefRegs & emitThisByrefRegs) == 0);
 }
 
-/*****************************************************************************
- *
- *  Record the fact that the given register now contains a live GC ref.
- */
-
 void emitter::emitGCregLiveSet(GCtype gcType, regMaskTP regMask, BYTE* addr, bool isThis)
 {
     assert(emitIssuing);
-    assert(needsGC(gcType));
-
-    regPtrDsc* regPtrNext;
-
-    assert(!isThis || emitComp->lvaKeepAliveAndReportThis());
-    // assert(emitFullyInt || isThis);
     assert(emitFullGCinfo);
-
+    assert(gcType != GCT_NONE);
     assert(((emitThisGCrefRegs | emitThisByrefRegs) & regMask) == 0);
+    assert(!isThis || emitComp->lvaKeepAliveAndReportThis());
 
-    /* Allocate a new regptr entry and fill it in */
-
-    regPtrNext            = gcInfo.gcRegPtrAllocDsc();
-    regPtrNext->rpdGCtype = gcType;
-
+    regPtrDsc* regPtrNext          = gcInfo.gcRegPtrAllocDsc();
+    regPtrNext->rpdGCtype          = gcType;
     regPtrNext->rpdOffs            = emitCurCodeOffs(addr);
     regPtrNext->rpdArg             = false;
     regPtrNext->rpdCall            = false;
     regPtrNext->rpdIsThis          = isThis;
-    regPtrNext->rpdCompiler.rpdAdd = (regMaskSmall)regMask;
+    regPtrNext->rpdCompiler.rpdAdd = static_cast<regMaskSmall>(regMask);
     regPtrNext->rpdCompiler.rpdDel = 0;
 }
-
-/*****************************************************************************
- *
- *  Record the fact that the given register no longer contains a live GC ref.
- */
 
 void emitter::emitGCregDeadSet(GCtype gcType, regMaskTP regMask, BYTE* addr)
 {
     assert(emitIssuing);
-    assert(needsGC(gcType));
-
-    regPtrDsc* regPtrNext;
-
-    // assert(emitFullyInt);
     assert(emitFullGCinfo);
-
+    assert(gcType != GCT_NONE);
     assert(((emitThisGCrefRegs | emitThisByrefRegs) & regMask) != 0);
 
-    /* Allocate a new regptr entry and fill it in */
-
-    regPtrNext            = gcInfo.gcRegPtrAllocDsc();
-    regPtrNext->rpdGCtype = gcType;
-
+    regPtrDsc* regPtrNext          = gcInfo.gcRegPtrAllocDsc();
+    regPtrNext->rpdGCtype          = gcType;
     regPtrNext->rpdOffs            = emitCurCodeOffs(addr);
     regPtrNext->rpdCall            = false;
     regPtrNext->rpdIsThis          = false;
     regPtrNext->rpdArg             = false;
     regPtrNext->rpdCompiler.rpdAdd = 0;
-    regPtrNext->rpdCompiler.rpdDel = (regMaskSmall)regMask;
+    regPtrNext->rpdCompiler.rpdDel = static_cast<regMaskSmall>(regMask);
 }
 
 /*****************************************************************************
@@ -7104,7 +7079,7 @@ void emitter::emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr)
         return;
     }
 
-    assert(needsGC(gcType));
+    assert(gcType != GCT_NONE);
 
     regMaskTP regMask = genRegMask(reg);
 
@@ -7242,8 +7217,6 @@ void emitter::emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsi
     if (emitFullGCinfo)
     {
         noway_assert(FitsIn<uint16_t>(offs));
-
-        // Append an "arg push" entry to track a GC written to the outgoing argument space.
 
         regPtrDsc* regPtrNext  = gcInfo.gcRegPtrAllocDsc();
         regPtrNext->rpdGCtype  = gcType;
@@ -7465,17 +7438,13 @@ BYTE* emitter::emitGetInsRelocValue(instrDesc* id)
 // Record a push of a single dword on the stack.
 void emitter::emitStackPush(BYTE* addr, GCtype gcType)
 {
-#ifdef DEBUG
-    assert(IsValidGCtype(gcType));
-#endif
-
     if (emitSimpleStkUsed)
     {
         assert(!emitFullGCinfo); // Simple stk not used for emitFullGCinfo
         assert(emitCurStackLvl / sizeof(int) < MAX_SIMPLE_STK_DEPTH);
 
         u1.emitSimpleStkMask <<= 1;
-        u1.emitSimpleStkMask |= (unsigned)needsGC(gcType);
+        u1.emitSimpleStkMask |= (gcType != GCT_NONE);
 
         u1.emitSimpleByrefStkMask <<= 1;
         u1.emitSimpleByrefStkMask |= (gcType == GCT_BYREF);
@@ -7559,48 +7528,39 @@ void emitter::emitStackPop(BYTE* addr, bool isCall, unsigned callInstrSize, unsi
 // Record a push of a single word on the stack for a full pointer map.
 void emitter::emitStackPushLargeStk(BYTE* addr, GCtype gcType, unsigned count)
 {
-    S_UINT32 level(emitCurStackLvl / sizeof(int));
-
-    assert(IsValidGCtype(gcType));
-    assert(count);
+    assert(count != 0);
     assert(!emitSimpleStkUsed);
+
+    S_UINT32 level(emitCurStackLvl / sizeof(int));
 
     do
     {
-        /* Push an entry for this argument on the tracking stack */
-
-        // printf("Pushed [%d] at lvl %2u [max=%u]\n", isGCref, emitArgTrackTop - emitArgTrackTab, emitMaxStackDepth);
-
         assert(level.IsOverflow() || u2.emitArgTrackTop == u2.emitArgTrackTab + level.Value());
         *u2.emitArgTrackTop++ = (BYTE)gcType;
         assert(u2.emitArgTrackTop <= u2.emitArgTrackTab + emitMaxStackDepth);
 
-        if (emitFullArgInfo || needsGC(gcType))
+        if (emitFullArgInfo || (gcType != GCT_NONE))
         {
             if (emitFullGCinfo)
             {
-                /* Append an "arg push" entry if this is a GC ref or
-                   FPO method. Allocate a new ptr arg entry and fill it in */
-
-                regPtrDsc* regPtrNext = gcInfo.gcRegPtrAllocDsc();
-                regPtrNext->rpdGCtype = gcType;
-
-                regPtrNext->rpdOffs = emitCurCodeOffs(addr);
-                regPtrNext->rpdArg  = true;
-                regPtrNext->rpdCall = false;
                 if (level.IsOverflow() || !FitsIn<unsigned short>(level.Value()))
                 {
                     IMPL_LIMITATION("Too many/too big arguments to encode GC information");
                 }
-                regPtrNext->rpdPtrArg  = (unsigned short)level.Value();
-                regPtrNext->rpdArgType = (unsigned short)GCInfo::rpdARG_PUSH;
+
+                regPtrDsc* regPtrNext  = gcInfo.gcRegPtrAllocDsc();
+                regPtrNext->rpdGCtype  = gcType;
+                regPtrNext->rpdOffs    = emitCurCodeOffs(addr);
+                regPtrNext->rpdArg     = true;
+                regPtrNext->rpdCall    = false;
+                regPtrNext->rpdPtrArg  = static_cast<uint16_t>(level.Value());
+                regPtrNext->rpdArgType = GCInfo::rpdARG_PUSH;
                 regPtrNext->rpdIsThis  = false;
             }
 
-            /* This is an "interesting" argument push */
-
             u2.emitGcArgTrackCnt++;
         }
+
         level += 1;
         assert(!level.IsOverflow());
     } while (--count);
@@ -7624,15 +7584,9 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSi
     {
         assert(u2.emitArgTrackTop > u2.emitArgTrackTab);
 
-        GCtype gcType = (GCtype)(*--u2.emitArgTrackTop);
+        GCtype gcType = static_cast<GCtype>(*--u2.emitArgTrackTop);
 
-        assert(IsValidGCtype(gcType));
-
-        // printf("Popped [%d] at lvl %u\n", GCtypeStr(gcType), emitArgTrackTop - emitArgTrackTab);
-
-        // This is an "interesting" argument
-
-        if (emitFullArgInfo || needsGC(gcType))
+        if (emitFullArgInfo || (gcType != GCT_NONE))
         {
             argRecCnt += 1;
         }
@@ -7679,10 +7633,8 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSi
 
     if (argRecCnt.Value() == 0)
     {
-        /*
-            Or do we have a partially interruptible EBP-less frame, and any
-            of EDI,ESI,EBX,EBP are live, or is there an outer/pending call?
-         */
+        // Or do we have a partially interruptible EBP-less frame, and any
+        // of EDI,ESI,EBX,EBP are live, or is there an outer/pending call?
         CLANG_FORMAT_COMMENT_ANCHOR;
 
 #if !FPO_INTERRUPTIBLE
@@ -7692,8 +7644,7 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSi
     }
 #endif // JIT32_GCENCODER
 
-    /* Only calls may pop more than one value */
-    // More detail:
+    // Only calls may pop more than one value.
     // _cdecl calls accomplish this popping via a post-call-instruction SP adjustment.
     // The "rpdCall" field below should be interpreted as "the instruction accomplishes
     // call-related popping, even if it's not itself a call".  Therefore, we don't just
@@ -7701,13 +7652,17 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSi
     // we use the OR of "isCall" or the "pops more than one value."
     bool isCallRelatedPop = (argRecCnt.Value() > 1);
 
-    /* Allocate a new ptr arg entry and fill it in */
+    regPtrDsc* regPtrNext        = gcInfo.gcRegPtrAllocDsc();
+    regPtrNext->rpdGCtype        = GCT_GCREF;
+    regPtrNext->rpdOffs          = emitCurCodeOffs(addr);
+    regPtrNext->rpdCall          = isCall || isCallRelatedPop;
+    regPtrNext->rpdCallGCrefRegs = gcrefRegs;
+    regPtrNext->rpdCallByrefRegs = byrefRegs;
+    regPtrNext->rpdIsThis        = false;
+    regPtrNext->rpdArg           = true;
+    regPtrNext->rpdArgType       = GCInfo::rpdARG_POP;
+    regPtrNext->rpdPtrArg        = argRecCnt.Value();
 
-    regPtrDsc* regPtrNext = gcInfo.gcRegPtrAllocDsc();
-    regPtrNext->rpdGCtype = GCT_GCREF; // Pops need a non-0 value (??)
-
-    regPtrNext->rpdOffs = emitCurCodeOffs(addr);
-    regPtrNext->rpdCall = (isCall || isCallRelatedPop);
 #ifndef JIT32_GCENCODER
     if (regPtrNext->rpdCall)
     {
@@ -7715,11 +7670,6 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSi
         regPtrNext->rpdCallInstrSize = callInstrSize;
     }
 #endif
-    regPtrNext->rpdCallGCrefRegs = gcrefRegs;
-    regPtrNext->rpdCallByrefRegs = byrefRegs;
-    regPtrNext->rpdArg           = true;
-    regPtrNext->rpdArgType       = GCInfo::rpdARG_POP;
-    regPtrNext->rpdPtrArg        = argRecCnt.Value();
 }
 
 // For caller-pop arguments, we report the arguments as pending arguments.
@@ -7755,13 +7705,10 @@ void emitter::emitStackKillArgs(BYTE* addr, unsigned count, unsigned callInstrSi
 
         --argTrackTop;
 
-        GCtype gcType = (GCtype)(*argTrackTop);
-        assert(IsValidGCtype(gcType));
+        GCtype gcType = static_cast<GCtype>(*argTrackTop);
 
-        if (needsGC(gcType))
+        if (gcType != GCT_NONE)
         {
-            // printf("Killed %s at lvl %u\n", GCtypeStr(gcType), argTrackTop - emitArgTrackTab);
-
             *argTrackTop = GCT_NONE;
             gcCnt += 1;
         }
@@ -7781,21 +7728,18 @@ void emitter::emitStackKillArgs(BYTE* addr, unsigned count, unsigned callInstrSi
         return;
     }
 
-    /* Right after the call, the arguments are still sitting on the
-       stack, but they are effectively dead. For fully-interruptible
-       methods, we need to report that */
+    // Right after the call, the arguments are still sitting on the
+    // stack, but they are effectively dead. For fully-interruptible
+    // methods, we need to report that.
 
-    if (gcCnt.Value())
+    if (gcCnt.Value() != 0)
     {
-        /* Allocate a new ptr arg entry and fill it in */
-
-        regPtrDsc* regPtrNext = gcInfo.gcRegPtrAllocDsc();
-        regPtrNext->rpdGCtype = GCT_GCREF; // Kills need a non-0 value (??)
-
-        regPtrNext->rpdOffs = emitCurCodeOffs(addr);
-
-        regPtrNext->rpdArg     = TRUE;
-        regPtrNext->rpdArgType = (unsigned short)GCInfo::rpdARG_KILL;
+        regPtrDsc* regPtrNext  = gcInfo.gcRegPtrAllocDsc();
+        regPtrNext->rpdGCtype  = GCT_GCREF;
+        regPtrNext->rpdOffs    = emitCurCodeOffs(addr);
+        regPtrNext->rpdIsThis  = false;
+        regPtrNext->rpdArg     = true;
+        regPtrNext->rpdArgType = GCInfo::rpdARG_KILL;
         regPtrNext->rpdPtrArg  = gcCnt.Value();
     }
 

@@ -44,33 +44,7 @@ struct insGroup;
 
 typedef void (*emitSplitCallbackType)(void* context, emitLocation* emitLoc);
 
-/*****************************************************************************/
-
-//-----------------------------------------------------------------------------
-
-inline bool needsGC(GCtype gcType)
-{
-    if (gcType == GCT_NONE)
-    {
-        return false;
-    }
-    else
-    {
-        assert(gcType == GCT_GCREF || gcType == GCT_BYREF);
-        return true;
-    }
-}
-
-//-----------------------------------------------------------------------------
-
 #ifdef DEBUG
-
-inline bool IsValidGCtype(GCtype gcType)
-{
-    return (gcType == GCT_NONE || gcType == GCT_GCREF || gcType == GCT_BYREF);
-}
-
-// Get a string name to represent the GC type
 
 inline const char* GCtypeStr(GCtype gcType)
 {

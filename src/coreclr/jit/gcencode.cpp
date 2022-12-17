@@ -2225,7 +2225,7 @@ void PendingArgsStack::pasPush(GCtype gcType)
         pasBottomMask <<= 1;
         pasByrefBottomMask <<= 1;
 
-        if (needsGC(gcType))
+        if (gcType != GCT_NONE)
         {
             pasBottomMask |= 1;
 
@@ -2260,11 +2260,16 @@ void PendingArgsStack::pasPop(unsigned count)
 
         GCtype topArg = (GCtype)pasTopArray[topIndex];
 
-        if (needsGC(topArg))
+        if (topArg != GCT_NONE)
+        {
             pasPtrsInTopArray--;
+        }
     }
+
     if (count == 0)
+    {
         return;
+    }
 
     /* Now un-shift the mask */
 
@@ -2299,7 +2304,7 @@ void PendingArgsStack::pasKill(unsigned gcCount)
 
         GCtype curArg = (GCtype)pasTopArray[curIndex];
 
-        if (needsGC(curArg))
+        if (curArg != GCT_NONE)
         {
             pasTopArray[curIndex] = GCT_NONE;
             pasPtrsInTopArray--;
@@ -2380,13 +2385,17 @@ unsigned PendingArgsStack::pasEnumGCoffs(unsigned iter, unsigned* offs)
     for (/**/; i > BITS_IN_pasMask; i--)
     {
         GCtype curArg = (GCtype)pasTopArray[i - BITS_IN_pasMask - 1];
-        if (needsGC(curArg))
+
+        if (curArg != GCT_NONE)
         {
             unsigned offset;
 
             offset = (pasDepth - i) * TARGET_POINTER_SIZE;
+
             if (curArg == GCT_BYREF)
+            {
                 offset |= byref_OFFSET_FLAG;
+            }
 
             *offs = offset;
             return i - 1;

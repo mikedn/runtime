@@ -123,36 +123,23 @@ GCInfo::WriteBarrierForm GCInfo::GetWriteBarrierFormFromAddress(GenTree* addr)
     return GCInfo::WBF_BarrierUnknown;
 }
 
-/*****************************************************************************
- *
- *  Allocate a new pointer register set / pointer argument entry and append
- *  it to the list.
- */
-
 GCInfo::regPtrDsc* GCInfo::gcRegPtrAllocDsc()
 {
-    regPtrDsc* regPtrNext;
-
     assert(compiler->codeGen->IsFullPtrRegMapRequired());
 
-    /* Allocate a new entry and initialize it */
+    regPtrDsc* regPtrNext = new (compiler, CMK_GC) regPtrDsc;
+    regPtrNext->rpdNext   = nullptr;
 
-    regPtrNext = new (compiler, CMK_GC) regPtrDsc;
-
-    regPtrNext->rpdIsThis = false;
-
-    regPtrNext->rpdOffs = 0;
-    regPtrNext->rpdNext = nullptr;
-
-    // Append the entry to the end of the list.
     if (gcRegPtrLast == nullptr)
     {
         assert(gcRegPtrList == nullptr);
+
         gcRegPtrList = gcRegPtrLast = regPtrNext;
     }
     else
     {
         assert(gcRegPtrList != nullptr);
+
         gcRegPtrLast->rpdNext = regPtrNext;
         gcRegPtrLast          = regPtrNext;
     }
