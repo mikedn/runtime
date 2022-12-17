@@ -246,7 +246,7 @@ struct insGroup
 #define IGF_PROPAGATE_MASK (IGF_EPILOG)
 #endif // !FEATURE_EH_FUNCLETS
 
-    // Try to do better packing based on how large regMaskSmall is (8, 16, or 64 bits).
+    // Try to do better packing based on how large regMaskSmall is.
     CLANG_FORMAT_COMMENT_ANCHOR;
 #if REGMASK_BITS <= 32
 

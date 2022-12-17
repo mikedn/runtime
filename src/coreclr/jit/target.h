@@ -151,25 +151,17 @@ enum _regMask_enum : unsigned
 // be lost.
 
 #ifdef TARGET_ARMARCH
-typedef unsigned __int64 regMaskTP;
+typedef uint64_t regMaskTP;
 #else
-typedef unsigned       regMaskTP;
+typedef unsigned regMaskTP;
 #endif
 
-#if REGMASK_BITS == 8
-typedef unsigned char regMaskSmall;
-#define REG_MASK_INT_FMT "%02X"
-#define REG_MASK_ALL_FMT "%02X"
-#elif REGMASK_BITS == 16
-typedef unsigned short regMaskSmall;
-#define REG_MASK_INT_FMT "%04X"
-#define REG_MASK_ALL_FMT "%04X"
-#elif REGMASK_BITS == 32
+#if REGMASK_BITS <= 32
 typedef unsigned regMaskSmall;
 #define REG_MASK_INT_FMT "%08X"
 #define REG_MASK_ALL_FMT "%08X"
 #else
-typedef unsigned __int64 regMaskSmall;
+typedef uint64_t regMaskSmall;
 #define REG_MASK_INT_FMT "%04llX"
 #define REG_MASK_ALL_FMT "%016llX"
 #endif

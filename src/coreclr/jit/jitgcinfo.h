@@ -131,7 +131,6 @@ public:
 
     regPtrDsc* gcRegPtrList = nullptr;
     regPtrDsc* gcRegPtrLast = nullptr;
-    unsigned   gcPtrArgCnt  = 0;
 
 #ifndef JIT32_GCENCODER
     enum MakeRegPtrMode
