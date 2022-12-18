@@ -6585,51 +6585,6 @@ void emitter::emitUpdateLiveGCvars(VARSET_VALARG_TP vars, BYTE* addr)
     emitThisGCrefVset = true;
 }
 
-#if FEATURE_FIXED_OUT_ARGS
-
-void emitter::emitRecordGCCallPop(BYTE* addr, unsigned callInstrLength)
-{
-    assert(emitIssuing);
-    assert((0 < callInstrLength) && (callInstrLength <= 16));
-
-    if (!emitFullGCinfo && (!codeGen->IsFullPtrRegMapRequired() || codeGen->GetInterruptible()))
-    {
-        return;
-    }
-
-    unsigned gcrefRegs = 0;
-    unsigned byrefRegs = 0;
-
-    for (unsigned i = 0; i < CNT_CALLEE_SAVED; i++)
-    {
-        regMaskTP calleeSaved = GCInfo::raRbmCalleeSaveOrder[i];
-
-        if ((emitThisGCrefRegs & calleeSaved) != RBM_NONE)
-        {
-            gcrefRegs |= (1 << i);
-        }
-
-        if ((emitThisByrefRegs & calleeSaved) != RBM_NONE)
-        {
-            byrefRegs |= (1 << i);
-        }
-    }
-
-    GCRegArgChange* change  = gcInfo.AddRegArgChange();
-    change->codeOffs        = emitCurCodeOffs(addr);
-    change->argOffset       = 0;
-    change->kind            = GCInfo::RegArgChangeKind::Pop;
-    change->gcType          = GCT_GCREF;
-    change->isArg           = true;
-    change->isCall          = true;
-    change->isThis          = false;
-    change->callRefRegs     = gcrefRegs;
-    change->callByrefRegs   = byrefRegs;
-    change->callInstrLength = callInstrLength;
-}
-
-#endif // FEATURE_FIXED_OUT_ARGS
-
 // Record a call location for GC purposes (we know that this is a method that
 // will not be fully interruptible).
 void emitter::emitRecordGCcall(BYTE* codePos, unsigned callInstrSize)
@@ -7206,6 +7161,7 @@ void emitter::emitGCregDeadUpd(regNumber reg, BYTE* addr)
 }
 
 #if FEATURE_FIXED_OUT_ARGS
+
 void emitter::emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum))
 {
     assert(abs(offs) % REGSIZE_BYTES == 0);
@@ -7226,6 +7182,48 @@ void emitter::emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsi
         change->isThis         = false;
     }
 }
+
+void emitter::emitRecordGCCallPop(BYTE* addr, unsigned callInstrLength)
+{
+    assert(emitIssuing);
+    assert((0 < callInstrLength) && (callInstrLength <= 16));
+
+    if (!emitFullGCinfo && (!codeGen->IsFullPtrRegMapRequired() || codeGen->GetInterruptible()))
+    {
+        return;
+    }
+
+    unsigned gcrefRegs = 0;
+    unsigned byrefRegs = 0;
+
+    for (unsigned i = 0; i < CNT_CALLEE_SAVED; i++)
+    {
+        regMaskTP calleeSaved = GCInfo::raRbmCalleeSaveOrder[i];
+
+        if ((emitThisGCrefRegs & calleeSaved) != RBM_NONE)
+        {
+            gcrefRegs |= (1 << i);
+        }
+
+        if ((emitThisByrefRegs & calleeSaved) != RBM_NONE)
+        {
+            byrefRegs |= (1 << i);
+        }
+    }
+
+    GCRegArgChange* change  = gcInfo.AddRegArgChange();
+    change->codeOffs        = emitCurCodeOffs(addr);
+    change->argOffset       = 0;
+    change->kind            = GCInfo::RegArgChangeKind::Pop;
+    change->gcType          = GCT_GCREF;
+    change->isArg           = true;
+    change->isCall          = true;
+    change->isThis          = false;
+    change->callRefRegs     = gcrefRegs;
+    change->callByrefRegs   = byrefRegs;
+    change->callInstrLength = callInstrLength;
+}
+
 #endif // FEATURE_FIXED_OUT_ARGS
 
 void emitter::emitGCvarLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum))
