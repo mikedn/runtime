@@ -7168,19 +7168,21 @@ void emitter::emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsi
     assert(gcType != GCT_NONE);
     assert(lclNum == emitComp->lvaOutgoingArgSpaceVar);
 
-    if (emitFullGCinfo)
+    if (!emitFullGCinfo)
     {
-        noway_assert(FitsIn<uint16_t>(offs));
-
-        GCRegArgChange* change = gcInfo.AddRegArgChange();
-        change->codeOffs       = emitCurCodeOffs(addr);
-        change->argOffset      = static_cast<uint16_t>(offs);
-        change->kind           = GCInfo::RegArgChangeKind::Push;
-        change->gcType         = gcType;
-        change->isArg          = true;
-        change->isCall         = false;
-        change->isThis         = false;
+        return;
     }
+
+    noway_assert(FitsIn<uint16_t>(offs));
+
+    GCRegArgChange* change = gcInfo.AddRegArgChange();
+    change->codeOffs       = emitCurCodeOffs(addr);
+    change->argOffset      = static_cast<uint16_t>(offs);
+    change->kind           = GCInfo::RegArgChangeKind::Push;
+    change->gcType         = gcType;
+    change->isArg          = true;
+    change->isCall         = false;
+    change->isThis         = false;
 }
 
 void emitter::emitRecordGCCallPop(BYTE* addr, unsigned callInstrLength)
@@ -7188,7 +7190,7 @@ void emitter::emitRecordGCCallPop(BYTE* addr, unsigned callInstrLength)
     assert(emitIssuing);
     assert((0 < callInstrLength) && (callInstrLength <= 16));
 
-    if (!emitFullGCinfo && (!codeGen->IsFullPtrRegMapRequired() || codeGen->GetInterruptible()))
+    if (!emitFullGCinfo)
     {
         return;
     }
@@ -7512,7 +7514,7 @@ void emitter::emitStackPop(BYTE* addr, bool isCall, unsigned callInstrSize, unsi
         // recorded (when we're doing the ptr reg map for a non-fully-interruptible method).
         if (emitFullGCinfo
 #ifndef JIT32_GCENCODER
-            || (codeGen->IsFullPtrRegMapRequired() && !codeGen->GetInterruptible() && isCall)
+            || (emitFullGCinfo && !emitFullyInt && isCall)
 #endif
                 )
         {
