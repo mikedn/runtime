@@ -160,41 +160,35 @@ public:
 
     RegArgChange* AddRegArgChange();
 
-    /*****************************************************************************/
-
-    //-------------------------------------------------------------------------
-    //
-    //  If we're not generating fully interruptible code, we create a simple
-    //  linked list of call descriptors.
-    //
-
-    struct CallDsc
+    struct CallSite
     {
-        CallDsc*     cdNext;
-        regMaskSmall cdGCrefRegs;
-        regMaskSmall cdByrefRegs;
-        unsigned     cdOffs;
+        CallSite*    next = nullptr;
+        regMaskSmall refRegs;
+        regMaskSmall byrefRegs;
+        unsigned     codeOffs;
 #ifndef JIT32_GCENCODER
-        uint16_t cdCallInstrSize;
+        uint16_t callInstrLength;
 #endif
 
 #if !FEATURE_FIXED_OUT_ARGS
-        uint16_t cdArgCnt;
+        uint16_t argCount;
 
         union {
-            struct // used if cdArgCnt == 0
+            struct // if argCount == 0
             {
-                unsigned cdArgMask;      // ptr arg bitfield
-                unsigned cdByrefArgMask; // byref qualifier for cdArgMask
-            } u1;
+                unsigned argMask;
+                unsigned byrefArgMask;
+            };
 
-            unsigned* cdArgTable; // used if cdArgCnt != 0
+            unsigned* argTable; // if argCount != 0
         };
-#endif // !FEATURE_FIXED_OUT_ARGS
+#endif
     };
 
-    CallDsc* gcCallDescList = nullptr;
-    CallDsc* gcCallDescLast = nullptr;
+    CallSite* AddCallSite(unsigned codeOffs, regMaskTP refRegs, regMaskTP byrefRegs);
+
+    CallSite* gcCallDescList = nullptr;
+    CallSite* gcCallDescLast = nullptr;
 
 //-------------------------------------------------------------------------
 

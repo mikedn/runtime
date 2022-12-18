@@ -6587,50 +6587,47 @@ void emitter::emitUpdateLiveGCvars(VARSET_VALARG_TP vars, BYTE* addr)
 
 // Record a call location for GC purposes (we know that this is a method that
 // will not be fully interruptible).
-void emitter::emitRecordGCcall(BYTE* codePos, unsigned callInstrSize)
+void emitter::emitRecordGCcall(BYTE* codePos, unsigned callInstrLength)
 {
     assert(emitIssuing);
     assert(!emitFullGCinfo);
 
-    unsigned offs = emitCurCodeOffs(codePos);
-    callDsc* call;
-
 #ifdef JIT32_GCENCODER
-    unsigned regs = (emitThisGCrefRegs | emitThisByrefRegs) & ~RBM_INTRET;
+    regMaskTP regs = (emitThisGCrefRegs | emitThisByrefRegs) & ~RBM_INTRET;
 
-    // The JIT32 GCInfo encoder allows us to (as the comment previously here said):
-    // "Bail if this is a totally boring call", but the GCInfoEncoder/Decoder interface
-    // requires a definition for every call site, so we skip these "early outs" when we're
-    // using the general encoder.
-    if (regs == 0)
+    if (regs == RBM_NONE)
     {
         if (emitCurStackLvl == 0)
         {
             return;
         }
 
-        /* Nope, only interesting calls get recorded */
-
         if (emitSimpleStkUsed)
         {
-            if (!u1.emitSimpleStkMask)
+            if (u1.emitSimpleStkMask == 0)
+            {
                 return;
+            }
         }
         else
         {
             if (u2.emitGcArgTrackCnt == 0)
+            {
                 return;
+            }
         }
     }
 #endif // JIT32_GCENCODER
+
+    unsigned codeOffs = emitCurCodeOffs(codePos);
 
 #ifdef DEBUG
     if (EMIT_GC_VERBOSE)
     {
 #if FEATURE_FIXED_OUT_ARGS
-        printf("; Call at %04X GCvars ", offs - callInstrSize);
+        printf("; Call at %04X GCvars ", codeOffs - callInstrLength);
 #else
-        printf("; Call at %04X [stk=%u], GCvars ", offs - callInstrSize, emitCurStackLvl);
+        printf("; Call at %04X [stk=%u], GCvars ", codeOffs - callInstrLength, emitCurStackLvl);
 #endif
         emitDispVarSet();
         printf(", gcrefRegs");
@@ -6642,84 +6639,57 @@ void emitter::emitRecordGCcall(BYTE* codePos, unsigned callInstrSize)
     }
 #endif
 
-    /* Allocate a 'call site' descriptor and start filling it in */
+    GCCallSite* call = gcInfo.AddCallSite(codeOffs, emitThisGCrefRegs, emitThisByrefRegs);
 
-    call = new (emitComp, CMK_GC) callDsc;
-
-    call->cdOffs = offs;
 #ifndef JIT32_GCENCODER
-    call->cdCallInstrSize = static_cast<uint16_t>(callInstrSize);
+    call->callInstrLength = static_cast<uint16_t>(callInstrLength);
 #endif
-    call->cdNext = nullptr;
-
-    call->cdGCrefRegs = (regMaskSmall)emitThisGCrefRegs;
-    call->cdByrefRegs = (regMaskSmall)emitThisByrefRegs;
 
 #if !FEATURE_FIXED_OUT_ARGS
     noway_assert(FitsIn<uint16_t>(emitCurStackLvl / 4));
-#endif
-
-    // Append the call descriptor to the list */
-    if (gcInfo.gcCallDescLast == nullptr)
-    {
-        assert(gcInfo.gcCallDescList == nullptr);
-        gcInfo.gcCallDescList = gcInfo.gcCallDescLast = call;
-    }
-    else
-    {
-        assert(gcInfo.gcCallDescList != nullptr);
-        gcInfo.gcCallDescLast->cdNext = call;
-        gcInfo.gcCallDescLast         = call;
-    }
-
-#if !FEATURE_FIXED_OUT_ARGS
-    /* Record the current "pending" argument list */
 
     if (emitSimpleStkUsed)
     {
-        /* The biggest call is less than MAX_SIMPLE_STK_DEPTH. So use
-           small format */
+        call->argCount     = 0;
+        call->argMask      = u1.emitSimpleStkMask;
+        call->byrefArgMask = u1.emitSimpleByrefStkMask;
 
-        call->u1.cdArgMask      = u1.emitSimpleStkMask;
-        call->u1.cdByrefArgMask = u1.emitSimpleByrefStkMask;
-        call->cdArgCnt          = 0;
+        return;
     }
-    else
+
+    call->argCount = u2.emitGcArgTrackCnt;
+
+    if (call->argCount == 0)
     {
-        /* The current call has too many arguments, so we need to report the
-           offsets of each individual GC arg. */
+        call->argMask      = RBM_NONE;
+        call->byrefArgMask = RBM_NONE;
 
-        call->cdArgCnt = u2.emitGcArgTrackCnt;
-        if (call->cdArgCnt == 0)
-        {
-            call->u1.cdArgMask = call->u1.cdByrefArgMask = 0;
-            return;
-        }
-
-        call->cdArgTable = new (emitComp, CMK_GC) unsigned[u2.emitGcArgTrackCnt];
-
-        unsigned gcArgs = 0;
-        unsigned stkLvl = emitCurStackLvl / sizeof(int);
-
-        for (unsigned i = 0; i < stkLvl; i++)
-        {
-            GCtype gcType = static_cast<GCtype>(u2.emitArgTrackTab[stkLvl - i - 1]);
-
-            if (gcType != GCT_NONE)
-            {
-                call->cdArgTable[gcArgs] = i * TARGET_POINTER_SIZE;
-
-                if (gcType == GCT_BYREF)
-                {
-                    call->cdArgTable[gcArgs] |= byref_OFFSET_FLAG;
-                }
-
-                gcArgs++;
-            }
-        }
-
-        assert(u2.emitGcArgTrackCnt == gcArgs);
+        return;
     }
+
+    call->argTable = new (emitComp, CMK_GC) unsigned[u2.emitGcArgTrackCnt];
+
+    unsigned gcArgs = 0;
+    unsigned stkLvl = emitCurStackLvl / sizeof(int);
+
+    for (unsigned i = 0; i < stkLvl; i++)
+    {
+        GCtype gcType = static_cast<GCtype>(u2.emitArgTrackTab[stkLvl - i - 1]);
+
+        if (gcType != GCT_NONE)
+        {
+            call->argTable[gcArgs] = i * TARGET_POINTER_SIZE;
+
+            if (gcType == GCT_BYREF)
+            {
+                call->argTable[gcArgs] |= byref_OFFSET_FLAG;
+            }
+
+            gcArgs++;
+        }
+    }
+
+    assert(u2.emitGcArgTrackCnt == gcArgs);
 #endif //! FEATURE_FIXED_OUT_ARGS
 }
 

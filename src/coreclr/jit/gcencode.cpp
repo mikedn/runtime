@@ -3228,20 +3228,20 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
             }
         }
 
-        CallDsc* call;
+        CallSite* call;
 
         assert(!compiler->codeGen->IsFullPtrRegMapRequired());
 
         /* Walk the list of pointer register/argument entries */
 
-        for (call = gcCallDescList; call; call = call->cdNext)
+        for (call = gcCallDescList; call; call = call->next)
         {
             BYTE*    base = dest;
             unsigned nextOffset;
 
             /* Figure out the code offset of this entry */
 
-            nextOffset = call->cdOffs;
+            nextOffset = call->codeOffs;
 
             /* Compute the distance from the previous call */
 
@@ -3258,22 +3258,22 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
             unsigned gcrefRegMask = 0;
             unsigned byrefRegMask = 0;
 
-            gcrefRegMask |= gceEncodeCalleeSavedRegs(call->cdGCrefRegs);
-            byrefRegMask |= gceEncodeCalleeSavedRegs(call->cdByrefRegs);
+            gcrefRegMask |= gceEncodeCalleeSavedRegs(call->refRegs);
+            byrefRegMask |= gceEncodeCalleeSavedRegs(call->byrefRegs);
 
             assert((gcrefRegMask & byrefRegMask) == 0);
 
             unsigned regMask = gcrefRegMask | byrefRegMask;
 
-            bool byref = (byrefRegMask | call->u1.cdByrefArgMask) != 0;
+            bool byref = (byrefRegMask | call->byrefArgMask) != 0;
 
             /* Check for the really large argument offset case */
             /* The very rare Huge encodings */
 
-            if (call->cdArgCnt)
+            if (call->argCount != 0)
             {
                 unsigned argNum;
-                DWORD    argCnt    = call->cdArgCnt;
+                DWORD    argCnt    = call->argCount;
                 DWORD    argBytes  = 0;
                 BYTE*    pArgBytes = DUMMY_INIT(NULL);
 
@@ -3293,7 +3293,7 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
                 for (argNum = 0; argNum < argCnt; argNum++)
                 {
                     unsigned eltSize;
-                    eltSize = encodeUnsigned(dest, call->cdArgTable[argNum]);
+                    eltSize = encodeUnsigned(dest, call->argTable[argNum]);
                     argBytes += eltSize;
                     if (mask)
                         dest += eltSize;
@@ -3311,34 +3311,34 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
             }
 
             /* Check if we can use a tiny encoding */
-            else if ((codeDelta < 16) && (codeDelta != 0) && (call->u1.cdArgMask == 0) && !byref)
+            else if ((codeDelta < 16) && (codeDelta != 0) && (call->argMask == 0) && !byref)
             {
                 *dest++ = (regMask << 4) | (BYTE)codeDelta;
             }
 
             /* Check if we can use the small encoding */
-            else if ((codeDelta < 0x79) && (call->u1.cdArgMask <= 0x1F) && !byref)
+            else if ((codeDelta < 0x79) && (call->argMask <= 0x1F) && !byref)
             {
                 *dest++ = 0x80 | (BYTE)codeDelta;
-                *dest++ = call->u1.cdArgMask | (regMask << 5);
+                *dest++ = call->argMask | (regMask << 5);
             }
 
             /* Check if we can use the medium encoding */
-            else if (codeDelta <= 0x01FF && call->u1.cdArgMask <= 0x0FFF && !byref)
+            else if (codeDelta <= 0x01FF && call->argMask <= 0x0FFF && !byref)
             {
                 *dest++ = 0xFD;
-                *dest++ = call->u1.cdArgMask;
-                *dest++ = ((call->u1.cdArgMask >> 4) & 0xF0) | ((BYTE)codeDelta & 0x0F);
+                *dest++ = call->argMask;
+                *dest++ = ((call->argMask >> 4) & 0xF0) | ((BYTE)codeDelta & 0x0F);
                 *dest++ = (regMask << 5) | (BYTE)((codeDelta >> 4) & 0x1F);
             }
 
             /* Check if we can use the medium encoding with byrefs */
-            else if (codeDelta <= 0x0FF && call->u1.cdArgMask <= 0x01F)
+            else if (codeDelta <= 0x0FF && call->argMask <= 0x01F)
             {
                 *dest++ = 0xF9;
                 *dest++ = (BYTE)codeDelta;
-                *dest++ = (regMask << 5) | call->u1.cdArgMask;
-                *dest++ = (byrefRegMask << 5) | call->u1.cdByrefArgMask;
+                *dest++ = (regMask << 5) | call->argMask;
+                *dest++ = (byrefRegMask << 5) | call->byrefArgMask;
             }
 
             /* We'll use the large encoding */
@@ -3348,7 +3348,7 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
                 *dest++       = (byrefRegMask << 4) | regMask;
                 *(DWORD*)dest = codeDelta;
                 dest += sizeof(DWORD);
-                *(DWORD*)dest = call->u1.cdArgMask;
+                *(DWORD*)dest = call->argMask;
                 dest += sizeof(DWORD);
             }
 
@@ -3359,9 +3359,9 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
                 *dest++       = (byrefRegMask << 4) | regMask;
                 *(DWORD*)dest = codeDelta;
                 dest += sizeof(DWORD);
-                *(DWORD*)dest = call->u1.cdArgMask;
+                *(DWORD*)dest = call->argMask;
                 dest += sizeof(DWORD);
-                *(DWORD*)dest = call->u1.cdByrefArgMask;
+                *(DWORD*)dest = call->byrefArgMask;
                 dest += sizeof(DWORD);
             }
 
@@ -4735,7 +4735,7 @@ void GCInfo::gcMakeRegPtrTable(
                 }
                 else
                 {
-                    for (CallDsc* call = gcCallDescList; call != nullptr; call = call->cdNext)
+                    for (CallSite* call = gcCallDescList; call != nullptr; call = call->next)
                     {
                         numCallSites++;
                     }
@@ -4746,22 +4746,22 @@ void GCInfo::gcMakeRegPtrTable(
         }
 
         // Now consider every call.
-        for (CallDsc* call = gcCallDescList; call != nullptr; call = call->cdNext)
+        for (CallSite* call = gcCallDescList; call != nullptr; call = call->next)
         {
             // Figure out the code offset of this entry.
-            unsigned nextOffset = call->cdOffs;
+            unsigned nextOffset = call->codeOffs;
 
-            regMaskSmall gcrefRegMask = call->cdGCrefRegs & RBM_CALLEE_SAVED;
-            regMaskSmall byrefRegMask = call->cdByrefRegs & RBM_CALLEE_SAVED;
+            regMaskSmall gcrefRegMask = call->refRegs & RBM_CALLEE_SAVED;
+            regMaskSmall byrefRegMask = call->byrefRegs & RBM_CALLEE_SAVED;
 
             assert((gcrefRegMask & byrefRegMask) == 0);
 
             regMaskSmall regMask = gcrefRegMask | byrefRegMask;
 
-            assert(call->cdOffs >= call->cdCallInstrSize);
+            assert(call->codeOffs >= call->callInstrLength);
             // call->cdOffs is actually the offset of the instruction *following* the call, so subtract
             // the call instruction size to get the offset of the actual call instruction...
-            unsigned callOffset = nextOffset - call->cdCallInstrSize;
+            unsigned callOffset = nextOffset - call->callInstrLength;
 
             if (noTrackedGCSlots && regMask == 0)
             {
@@ -4773,7 +4773,7 @@ void GCInfo::gcMakeRegPtrTable(
                 if (mode == MAKE_REG_PTR_MODE_DO_WORK)
                 {
                     pCallSites[callSiteNum]     = callOffset;
-                    pCallSiteSizes[callSiteNum] = call->cdCallInstrSize;
+                    pCallSiteSizes[callSiteNum] = call->callInstrLength;
                 }
                 callSiteNum++;
 

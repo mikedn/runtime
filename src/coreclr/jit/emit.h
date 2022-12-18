@@ -365,7 +365,7 @@ protected:
 
     typedef GCInfo::FrameLifetime GCFrameLifetime;
     typedef GCInfo::RegArgChange  GCRegArgChange;
-    typedef GCInfo::CallDsc       callDsc;
+    typedef GCInfo::CallSite      GCCallSite;
 
     void* emitGetMem(size_t sz);
 
@@ -2060,7 +2060,7 @@ public:
     void emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSize, unsigned count);
 #endif // !FEATURE_FIXED_OUT_ARGS
     void emitRecordGCCallPop(BYTE* addr, unsigned callInstrLength);
-    void emitRecordGCcall(BYTE* codePos, unsigned callInstrSize);
+    void emitRecordGCcall(BYTE* codePos, unsigned callInstrLength);
 
     /* Liveness of stack variables, and registers */
 

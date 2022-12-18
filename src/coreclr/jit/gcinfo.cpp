@@ -165,6 +165,31 @@ regMaskSmall GCInfo::RegMaskFromCalleeSavedMask(unsigned short calleeSaveMask)
     return res;
 }
 
+GCInfo::CallSite* GCInfo::AddCallSite(unsigned codeOffs, regMaskTP refRegs, regMaskTP byrefRegs)
+{
+    CallSite* call = new (compiler, CMK_GC) CallSite;
+
+    if (gcCallDescLast == nullptr)
+    {
+        assert(gcCallDescList == nullptr);
+
+        gcCallDescList = gcCallDescLast = call;
+    }
+    else
+    {
+        assert(gcCallDescList != nullptr);
+
+        gcCallDescLast->next = call;
+        gcCallDescLast       = call;
+    }
+
+    call->refRegs   = static_cast<regMaskSmall>(refRegs);
+    call->byrefRegs = static_cast<regMaskSmall>(byrefRegs);
+    call->codeOffs  = codeOffs;
+
+    return call;
+}
+
 #ifdef JIT32_GCENCODER
 
 void* GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen,
