@@ -123,32 +123,31 @@ GCInfo::WriteBarrierForm GCInfo::GetWriteBarrierFormFromAddress(GenTree* addr)
     return GCInfo::WBF_BarrierUnknown;
 }
 
-GCInfo::regPtrDsc* GCInfo::gcRegPtrAllocDsc()
+GCInfo::RegArgChange* GCInfo::AddRegArgChange()
 {
     assert(compiler->codeGen->IsFullPtrRegMapRequired());
 
-    regPtrDsc* regPtrNext = new (compiler, CMK_GC) regPtrDsc;
-    regPtrNext->rpdNext   = nullptr;
+    RegArgChange* change = new (compiler, CMK_GC) RegArgChange;
 
     if (gcRegPtrLast == nullptr)
     {
         assert(gcRegPtrList == nullptr);
 
-        gcRegPtrList = gcRegPtrLast = regPtrNext;
+        gcRegPtrList = gcRegPtrLast = change;
     }
     else
     {
         assert(gcRegPtrList != nullptr);
 
-        gcRegPtrLast->rpdNext = regPtrNext;
-        gcRegPtrLast          = regPtrNext;
+        gcRegPtrLast->next = change;
+        gcRegPtrLast       = change;
     }
 
 #if MEASURE_PTRTAB_SIZE
-    s_gcRegPtrDscSize += sizeof(*regPtrNext);
+    s_gcRegPtrDscSize += sizeof(*change);
 #endif
 
-    return regPtrNext;
+    return change;
 }
 
 const regMaskTP GCInfo::raRbmCalleeSaveOrder[]{RBM_CALLEE_SAVED_ORDER};

@@ -2829,56 +2829,55 @@ void emitter::emitDispGCVarDelta()
     }
 }
 
-//------------------------------------------------------------------------
-// emitDispRegPtrListDelta: Print a delta for regPtrDsc GC transitions
-//
-// Notes:
-//    Uses the debug-only variable 'debugPrevRegPtrDsc' to print deltas from the last time this was
-//    called.
-//
 void emitter::emitDispRegPtrListDelta()
 {
-    // Dump any deltas in regPtrDsc's for outgoing args; these aren't captured in the other sets.
-    if (debugPrevRegPtrDsc != gcInfo.gcRegPtrLast)
+    // Dump any deltas for outgoing args; these aren't captured in the other sets.
+    if (debugPrevRegPtrDsc == gcInfo.gcRegPtrLast)
     {
-        for (regPtrDsc* dsc      = (debugPrevRegPtrDsc == nullptr) ? gcInfo.gcRegPtrList : debugPrevRegPtrDsc->rpdNext;
-             dsc != nullptr; dsc = dsc->rpdNext)
-        {
-            // The non-arg regPtrDscs are reflected in the register sets debugPrevGCrefRegs/emitThisGCrefRegs
-            // and debugPrevByrefRegs/emitThisByrefRegs, and dumped using those sets.
-            if (!dsc->rpdArg)
-            {
-                continue;
-            }
-            emitDispGCDeltaTitle(GCtypeStr((GCtype)dsc->rpdGCtype));
-            switch (dsc->rpdArgType)
-            {
-                case GCInfo::rpdARG_PUSH:
-#if FEATURE_FIXED_OUT_ARGS
-                    // For FEATURE_FIXED_OUT_ARGS, we report a write to the outgoing arg area
-                    // as a 'rpdARG_PUSH' even though it doesn't actually push. Note that
-                    // we also have 'rpdARG_POP's even though we don't actually pop, and
-                    // we can have those even if there's no stack arg.
-                    printf(" arg write");
-                    break;
-#else
-                    printf(" arg push %u", dsc->rpdPtrArg);
-                    break;
-#endif
-                case GCInfo::rpdARG_POP:
-                    printf(" arg pop %u", dsc->rpdPtrArg);
-                    break;
-                case GCInfo::rpdARG_KILL:
-                    printf(" arg kill %u", dsc->rpdPtrArg);
-                    break;
-                default:
-                    printf(" arg ??? %u", dsc->rpdPtrArg);
-                    break;
-            }
-            printf("\n");
-        }
-        debugPrevRegPtrDsc = gcInfo.gcRegPtrLast;
+        return;
     }
+
+    for (GCRegArgChange* dsc = (debugPrevRegPtrDsc == nullptr) ? gcInfo.gcRegPtrList : debugPrevRegPtrDsc->next;
+         dsc != nullptr; dsc = dsc->next)
+    {
+        // The non-arg regPtrDscs are reflected in the register sets debugPrevGCrefRegs/emitThisGCrefRegs
+        // and debugPrevByrefRegs/emitThisByrefRegs, and dumped using those sets.
+        if (!dsc->isArg)
+        {
+            continue;
+        }
+
+        emitDispGCDeltaTitle(GCtypeStr(dsc->gcType));
+
+        switch (dsc->kind)
+        {
+            case GCInfo::RegArgChangeKind::Push:
+#if FEATURE_FIXED_OUT_ARGS
+                // For FEATURE_FIXED_OUT_ARGS, we report a write to the outgoing arg area
+                // as a 'Push' even though it doesn't actually push. Note that we also
+                // have 'Pop's even though we don't actually pop, and we can have those
+                // even if there's no stack arg.
+                printf(" arg store");
+                break;
+#else
+                printf(" arg push %u", dsc->argOffset);
+                break;
+#endif
+            case GCInfo::RegArgChangeKind::Pop:
+                printf(" arg pop %u", dsc->argOffset);
+                break;
+            case GCInfo::RegArgChangeKind::Kill:
+                printf(" arg kill %u", dsc->argOffset);
+                break;
+            default:
+                printf(" arg ??? %u", dsc->argOffset);
+                break;
+        }
+
+        printf("\n");
+    }
+
+    debugPrevRegPtrDsc = gcInfo.gcRegPtrLast;
 }
 
 //------------------------------------------------------------------------
@@ -5187,9 +5186,8 @@ unsigned emitter::emitEndCodeGen(bool      fullyInt,
                 }
                 else
                 {
-                    // If emitFullGCinfo==false, then we don't use any
-                    // regPtrDsc's and so explictly note the location
-                    // of "this" in GCEncode.cpp
+                    // If emitFullGCinfo==false, then we don't record any GC reg/arg changes
+                    // and so explictly note the location of "this" in GCEncode.cpp
                 }
             }
         }
@@ -6589,10 +6587,10 @@ void emitter::emitUpdateLiveGCvars(VARSET_VALARG_TP vars, BYTE* addr)
 
 #if FEATURE_FIXED_OUT_ARGS
 
-void emitter::emitRecordGCCallPop(BYTE* addr, unsigned callInstrSize)
+void emitter::emitRecordGCCallPop(BYTE* addr, unsigned callInstrLength)
 {
     assert(emitIssuing);
-    assert((0 < callInstrSize) && (callInstrSize <= UINT8_MAX));
+    assert((0 < callInstrLength) && (callInstrLength <= 16));
 
     if (!emitFullGCinfo && (!codeGen->IsFullPtrRegMapRequired() || codeGen->GetInterruptible()))
     {
@@ -6617,17 +6615,17 @@ void emitter::emitRecordGCCallPop(BYTE* addr, unsigned callInstrSize)
         }
     }
 
-    regPtrDsc* regPtrNext        = gcInfo.gcRegPtrAllocDsc();
-    regPtrNext->rpdOffs          = emitCurCodeOffs(addr);
-    regPtrNext->rpdPtrArg        = 0;
-    regPtrNext->rpdCallInstrSize = static_cast<uint8_t>(callInstrSize);
-    regPtrNext->rpdArg           = true;
-    regPtrNext->rpdArgType       = GCInfo::rpdARG_POP;
-    regPtrNext->rpdGCtype        = GCT_GCREF;
-    regPtrNext->rpdIsThis        = false;
-    regPtrNext->rpdCall          = true;
-    regPtrNext->rpdCallGCrefRegs = static_cast<uint16_t>(gcrefRegs);
-    regPtrNext->rpdCallByrefRegs = static_cast<uint16_t>(byrefRegs);
+    GCRegArgChange* change  = gcInfo.AddRegArgChange();
+    change->codeOffs        = emitCurCodeOffs(addr);
+    change->argOffset       = 0;
+    change->kind            = GCInfo::RegArgChangeKind::Pop;
+    change->gcType          = GCT_GCREF;
+    change->isArg           = true;
+    change->isCall          = true;
+    change->isThis          = false;
+    change->callRefRegs     = gcrefRegs;
+    change->callByrefRegs   = byrefRegs;
+    change->callInstrLength = callInstrLength;
 }
 
 #endif // FEATURE_FIXED_OUT_ARGS
@@ -6849,14 +6847,14 @@ void emitter::emitGCregLiveSet(GCtype gcType, regMaskTP regMask, BYTE* addr, boo
     assert(((emitThisGCrefRegs | emitThisByrefRegs) & regMask) == 0);
     assert(!isThis || emitComp->lvaKeepAliveAndReportThis());
 
-    regPtrDsc* regPtrNext          = gcInfo.gcRegPtrAllocDsc();
-    regPtrNext->rpdGCtype          = gcType;
-    regPtrNext->rpdOffs            = emitCurCodeOffs(addr);
-    regPtrNext->rpdArg             = false;
-    regPtrNext->rpdCall            = false;
-    regPtrNext->rpdIsThis          = isThis;
-    regPtrNext->rpdCompiler.rpdAdd = static_cast<regMaskSmall>(regMask);
-    regPtrNext->rpdCompiler.rpdDel = 0;
+    GCRegArgChange* change = gcInfo.AddRegArgChange();
+    change->codeOffs       = emitCurCodeOffs(addr);
+    change->gcType         = gcType;
+    change->isArg          = false;
+    change->isCall         = false;
+    change->isThis         = isThis;
+    change->addRegs        = static_cast<regMaskSmall>(regMask);
+    change->removeRegs     = RBM_NONE;
 }
 
 void emitter::emitGCregDeadSet(GCtype gcType, regMaskTP regMask, BYTE* addr)
@@ -6866,14 +6864,14 @@ void emitter::emitGCregDeadSet(GCtype gcType, regMaskTP regMask, BYTE* addr)
     assert(gcType != GCT_NONE);
     assert(((emitThisGCrefRegs | emitThisByrefRegs) & regMask) != 0);
 
-    regPtrDsc* regPtrNext          = gcInfo.gcRegPtrAllocDsc();
-    regPtrNext->rpdGCtype          = gcType;
-    regPtrNext->rpdOffs            = emitCurCodeOffs(addr);
-    regPtrNext->rpdCall            = false;
-    regPtrNext->rpdIsThis          = false;
-    regPtrNext->rpdArg             = false;
-    regPtrNext->rpdCompiler.rpdAdd = 0;
-    regPtrNext->rpdCompiler.rpdDel = static_cast<regMaskSmall>(regMask);
+    GCRegArgChange* change = gcInfo.AddRegArgChange();
+    change->codeOffs       = emitCurCodeOffs(addr);
+    change->gcType         = gcType;
+    change->isArg          = false;
+    change->isCall         = false;
+    change->isThis         = false;
+    change->addRegs        = RBM_NONE;
+    change->removeRegs     = static_cast<regMaskSmall>(regMask);
 }
 
 /*****************************************************************************
@@ -7218,14 +7216,14 @@ void emitter::emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsi
     {
         noway_assert(FitsIn<uint16_t>(offs));
 
-        regPtrDsc* regPtrNext  = gcInfo.gcRegPtrAllocDsc();
-        regPtrNext->rpdGCtype  = gcType;
-        regPtrNext->rpdOffs    = emitCurCodeOffs(addr);
-        regPtrNext->rpdArg     = true;
-        regPtrNext->rpdCall    = false;
-        regPtrNext->rpdPtrArg  = static_cast<uint16_t>(offs);
-        regPtrNext->rpdArgType = GCInfo::rpdARG_PUSH;
-        regPtrNext->rpdIsThis  = false;
+        GCRegArgChange* change = gcInfo.AddRegArgChange();
+        change->codeOffs       = emitCurCodeOffs(addr);
+        change->argOffset      = static_cast<uint16_t>(offs);
+        change->kind           = GCInfo::RegArgChangeKind::Push;
+        change->gcType         = gcType;
+        change->isArg          = true;
+        change->isCall         = false;
+        change->isThis         = false;
     }
 }
 #endif // FEATURE_FIXED_OUT_ARGS
@@ -7543,19 +7541,19 @@ void emitter::emitStackPushLargeStk(BYTE* addr, GCtype gcType, unsigned count)
         {
             if (emitFullGCinfo)
             {
-                if (level.IsOverflow() || !FitsIn<unsigned short>(level.Value()))
+                if (level.IsOverflow() || !FitsIn<uint16_t>(level.Value()))
                 {
                     IMPL_LIMITATION("Too many/too big arguments to encode GC information");
                 }
 
-                regPtrDsc* regPtrNext  = gcInfo.gcRegPtrAllocDsc();
-                regPtrNext->rpdGCtype  = gcType;
-                regPtrNext->rpdOffs    = emitCurCodeOffs(addr);
-                regPtrNext->rpdArg     = true;
-                regPtrNext->rpdCall    = false;
-                regPtrNext->rpdPtrArg  = static_cast<uint16_t>(level.Value());
-                regPtrNext->rpdArgType = GCInfo::rpdARG_PUSH;
-                regPtrNext->rpdIsThis  = false;
+                GCRegArgChange* change = gcInfo.AddRegArgChange();
+                change->codeOffs       = emitCurCodeOffs(addr);
+                change->argOffset      = static_cast<uint16_t>(level.Value());
+                change->kind           = GCInfo::RegArgChangeKind::Push;
+                change->gcType         = gcType;
+                change->isArg          = true;
+                change->isCall         = false;
+                change->isThis         = false;
             }
 
             u2.emitGcArgTrackCnt++;
@@ -7652,22 +7650,22 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSi
     // we use the OR of "isCall" or the "pops more than one value."
     bool isCallRelatedPop = (argRecCnt.Value() > 1);
 
-    regPtrDsc* regPtrNext        = gcInfo.gcRegPtrAllocDsc();
-    regPtrNext->rpdGCtype        = GCT_GCREF;
-    regPtrNext->rpdOffs          = emitCurCodeOffs(addr);
-    regPtrNext->rpdCall          = isCall || isCallRelatedPop;
-    regPtrNext->rpdCallGCrefRegs = gcrefRegs;
-    regPtrNext->rpdCallByrefRegs = byrefRegs;
-    regPtrNext->rpdIsThis        = false;
-    regPtrNext->rpdArg           = true;
-    regPtrNext->rpdArgType       = GCInfo::rpdARG_POP;
-    regPtrNext->rpdPtrArg        = argRecCnt.Value();
+    GCRegArgChange* change = gcInfo.AddRegArgChange();
+    change->codeOffs       = emitCurCodeOffs(addr);
+    change->argOffset      = argRecCnt.Value();
+    change->kind           = GCInfo::RegArgChangeKind::Pop;
+    change->gcType         = GCT_GCREF;
+    change->isArg          = true;
+    change->isCall         = isCall || isCallRelatedPop;
+    change->isThis         = false;
+    change->callRefRegs    = gcrefRegs;
+    change->callByrefRegs  = byrefRegs;
 
 #ifndef JIT32_GCENCODER
-    if (regPtrNext->rpdCall)
+    if (change->isCall)
     {
         assert(isCall || callInstrSize == 0);
-        regPtrNext->rpdCallInstrSize = callInstrSize;
+        change->callInstrLength = callInstrSize;
     }
 #endif
 }
@@ -7734,13 +7732,13 @@ void emitter::emitStackKillArgs(BYTE* addr, unsigned count, unsigned callInstrSi
 
     if (gcCnt.Value() != 0)
     {
-        regPtrDsc* regPtrNext  = gcInfo.gcRegPtrAllocDsc();
-        regPtrNext->rpdGCtype  = GCT_GCREF;
-        regPtrNext->rpdOffs    = emitCurCodeOffs(addr);
-        regPtrNext->rpdIsThis  = false;
-        regPtrNext->rpdArg     = true;
-        regPtrNext->rpdArgType = GCInfo::rpdARG_KILL;
-        regPtrNext->rpdPtrArg  = gcCnt.Value();
+        GCRegArgChange* change = gcInfo.AddRegArgChange();
+        change->codeOffs       = emitCurCodeOffs(addr);
+        change->argOffset      = gcCnt.Value();
+        change->kind           = GCInfo::RegArgChangeKind::Kill;
+        change->gcType         = GCT_GCREF;
+        change->isArg          = true;
+        change->isThis         = false;
     }
 
     // Now that ptr args have been marked as non-ptrs, we need to

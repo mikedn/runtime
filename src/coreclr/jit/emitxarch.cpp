@@ -10530,10 +10530,8 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
                     }
                     else
                     {
-                        /* If emitFullGCinfo==false, the we don't use any
-                           regPtrDsc's and so explictly note the location
-                           of "this" in GCEncode.cpp
-                         */
+                        // If emitFullGCinfo==false, then we don't record any GC reg/arg changes
+                        // and so explictly note the location of "this" in GCEncode.cpp
                     }
                 }
 

@@ -628,7 +628,7 @@ bool GCInfo::gcIsUntrackedLocalOrNonEnregisteredArg(unsigned varNum, bool* pKeep
         // add a description where "this" is saved and how it is tracked in each of them:
         // 1) when FEATURE_EH_FUNCLETS defined (x86 Linux);
         // 2) when FEATURE_EH_FUNCLETS not defined, lvaKeepAliveAndReportThis == true, compJmpOpUsed == true;
-        // 3) when there is regPtrDsc for "this", but keepThisAlive == true;
+        // 3) when there is RegArgChange for "this", but keepThisAlive == true;
         // etc.
 
         if (pKeepThisAlive != nullptr)
@@ -2120,14 +2120,18 @@ unsigned gceEncodeCalleeSavedRegs(unsigned regs)
  * interruptible encoding. Check only for pushes and registers
  */
 
-inline BYTE* gceByrefPrefixI(GCInfo::regPtrDsc* rpd, BYTE* dest)
+inline BYTE* gceByrefPrefixI(GCInfo::RegArgChange* rpd, BYTE* dest)
 {
     // For registers, we don't need a prefix if it is going dead.
-    assert(rpd->rpdArg || rpd->rpdCompiler.rpdDel == 0);
+    assert(rpd->isArg || (rpd->removeRegs == RBM_NONE));
 
-    if (!rpd->rpdArg || rpd->rpdArgType == GCInfo::rpdARG_PUSH)
-        if (rpd->rpdGCtypeGet() == GCT_BYREF)
+    if (!rpd->isArg || (rpd->kind == GCInfo::RegArgChangeKind::Push))
+    {
+        if (rpd->gcType == GCT_BYREF)
+        {
             *dest++ = 0xBF;
+        }
+    }
 
     return dest;
 }
@@ -2764,18 +2768,18 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
 
         unsigned ptrRegs = 0;
 
-        regPtrDsc* genRegPtrTemp;
+        RegArgChange* genRegPtrTemp;
 
         /* Walk the list of pointer register/argument entries */
 
-        for (genRegPtrTemp = gcRegPtrList; genRegPtrTemp; genRegPtrTemp = genRegPtrTemp->rpdNext)
+        for (genRegPtrTemp = gcRegPtrList; genRegPtrTemp; genRegPtrTemp = genRegPtrTemp->next)
         {
             BYTE* base = dest;
 
             unsigned nextOffset;
             DWORD    codeDelta;
 
-            nextOffset = genRegPtrTemp->rpdOffs;
+            nextOffset = genRegPtrTemp->codeOffs;
 
             /*
                 Encoding table for methods that are fully interruptible
@@ -2858,9 +2862,9 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
 
             /* Is this a pointer argument or register entry? */
 
-            if (genRegPtrTemp->rpdArg)
+            if (genRegPtrTemp->isArg)
             {
-                if (genRegPtrTemp->rpdArgTypeGet() == rpdARG_KILL)
+                if (genRegPtrTemp->kind == RegArgChangeKind::Kill)
                 {
                     if (codeDelta)
                     {
@@ -2881,16 +2885,16 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
                        sitting on the stack */
 
                     *dest++ = 0xFD;
-                    assert(genRegPtrTemp->rpdPtrArg != 0);
-                    dest += encodeUnsigned(dest, genRegPtrTemp->rpdPtrArg);
+                    assert(genRegPtrTemp->argOffset != 0);
+                    dest += encodeUnsigned(dest, genRegPtrTemp->argOffset);
                 }
-                else if (genRegPtrTemp->rpdPtrArg < 6 && genRegPtrTemp->rpdGCtypeGet())
+                else if ((genRegPtrTemp->argOffset < 6) && (genRegPtrTemp->gcType != GCT_NONE))
                 {
                     /* Is the argument offset/count smaller than 6 ? */
 
                     dest = gceByrefPrefixI(genRegPtrTemp, dest);
 
-                    if (genRegPtrTemp->rpdArgTypeGet() == rpdARG_PUSH || (genRegPtrTemp->rpdPtrArg != 0))
+                    if ((genRegPtrTemp->kind == RegArgChangeKind::Push) || (genRegPtrTemp->argOffset != 0))
                     {
                         /*
                           Use the small encoding:
@@ -2899,9 +2903,9 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
                             ptr arg pop  11CCCDDD [CCC != 110] && [CCC != 111]
                          */
 
-                        bool isPop = genRegPtrTemp->rpdArgTypeGet() == rpdARG_POP;
+                        bool isPop = genRegPtrTemp->kind == RegArgChangeKind::Pop;
 
-                        *dest++ = 0x80 | (BYTE)codeDelta | genRegPtrTemp->rpdPtrArg << 3 | isPop << 6;
+                        *dest++ = 0x80 | (BYTE)codeDelta | genRegPtrTemp->argOffset << 3 | isPop << 6;
 
                         /* Remember the new 'last' offset */
 
@@ -2912,7 +2916,7 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
                         assert(!"Check this");
                     }
                 }
-                else if (genRegPtrTemp->rpdGCtypeGet() == GCT_NONE)
+                else if (genRegPtrTemp->gcType == GCT_NONE)
                 {
                     /*
                         Use the small encoding:
@@ -2953,12 +2957,12 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
                             large ptr arg pop   11111100 [0xFC]
                      */
 
-                    bool isPop = genRegPtrTemp->rpdArgTypeGet() == rpdARG_POP;
+                    bool isPop = genRegPtrTemp->kind == RegArgChangeKind::Pop;
 
                     dest = gceByrefPrefixI(genRegPtrTemp, dest);
 
                     *dest++ = 0xF8 | (isPop << 2);
-                    dest += encodeUnsigned(dest, genRegPtrTemp->rpdPtrArg);
+                    dest += encodeUnsigned(dest, genRegPtrTemp->argOffset);
 
                     /* Remember the new 'last' offset */
 
@@ -2971,7 +2975,7 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
 
                 /* Record any registers that are becoming dead */
 
-                regMask = genRegPtrTemp->rpdCompiler.rpdDel & ptrRegs;
+                regMask = genRegPtrTemp->removeRegs & ptrRegs;
 
                 while (regMask) // EAX,ECX,EDX,EBX,---,EBP,ESI,EDI
                 {
@@ -3020,7 +3024,7 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
 
                 /* Record any registers that are becoming live */
 
-                regMask = genRegPtrTemp->rpdCompiler.rpdAdd & ~ptrRegs;
+                regMask = genRegPtrTemp->addRegs & ~ptrRegs;
 
                 while (regMask) // EAX,ECX,EDX,EBX,---,EBP,ESI,EDI
                 {
@@ -3049,7 +3053,7 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
 
                     dest = gceByrefPrefixI(genRegPtrTemp, dest);
 
-                    if (!keepThisAlive && genRegPtrTemp->rpdIsThis)
+                    if (!keepThisAlive && genRegPtrTemp->isThis)
                     {
                         // Mark with 'this' pointer prefix
                         *dest++ = 0xBC;
@@ -3209,7 +3213,7 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
         */
 
         /* If "this" is enregistered, note it. We do this explicitly here as
-           IsFullPtrRegMapRequired()==false, and so we don't have any regPtrDsc's. */
+           IsFullPtrRegMapRequired()==false, and so we don't have any RegArgChange's. */
 
         if (compiler->lvaKeepAliveAndReportThis() && compiler->lvaTable[compiler->info.compThisArg].lvRegister)
         {
@@ -3384,13 +3388,13 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
 
 #ifdef TARGET_X86
 
-        regPtrDsc*       genRegPtrTemp;
+        RegArgChange*    genRegPtrTemp;
         regNumber        thisRegNum = regNumber(0);
         PendingArgsStack pasStk(compiler->GetEmitter()->emitMaxStackDepth, compiler);
 
         /* Walk the list of pointer register/argument entries */
 
-        for (genRegPtrTemp = gcRegPtrList; genRegPtrTemp; genRegPtrTemp = genRegPtrTemp->rpdNext)
+        for (genRegPtrTemp = gcRegPtrList; genRegPtrTemp; genRegPtrTemp = genRegPtrTemp->next)
         {
 
             /*
@@ -3475,7 +3479,7 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
             unsigned nextOffset;
             DWORD    codeDelta;
 
-            nextOffset = genRegPtrTemp->rpdOffs;
+            nextOffset = genRegPtrTemp->codeOffs;
 
             /* Compute the distance from the previous call */
 
@@ -3488,9 +3492,9 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
             unsigned origCodeDelta = codeDelta;
 #endif
 
-            if (!keepThisAlive && genRegPtrTemp->rpdIsThis)
+            if (!keepThisAlive && genRegPtrTemp->isThis)
             {
-                unsigned tmpMask = genRegPtrTemp->rpdCompiler.rpdAdd;
+                unsigned tmpMask = genRegPtrTemp->addRegs;
 
                 /* tmpMask must have exactly one bit set */
 
@@ -3523,15 +3527,15 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
 
             /* Is this a stack pointer change or call? */
 
-            if (genRegPtrTemp->rpdArg)
+            if (genRegPtrTemp->isArg)
             {
-                if (genRegPtrTemp->rpdArgTypeGet() == rpdARG_KILL)
+                if (genRegPtrTemp->kind == RegArgChangeKind::Kill)
                 {
                     // kill 'rpdPtrArg' number of pointer variables in pasStk
-                    pasStk.pasKill(genRegPtrTemp->rpdPtrArg);
+                    pasStk.pasKill(genRegPtrTemp->argOffset);
                 }
                 /* Is this a call site? */
-                else if (genRegPtrTemp->rpdCall)
+                else if (genRegPtrTemp->isCall)
                 {
                     /* This is a true call site */
 
@@ -3539,11 +3543,11 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
 
                     lastOffset = nextOffset;
 
-                    callArgCnt = genRegPtrTemp->rpdPtrArg;
+                    callArgCnt = genRegPtrTemp->argOffset;
 
-                    unsigned gcrefRegMask = genRegPtrTemp->rpdCallGCrefRegs;
+                    unsigned gcrefRegMask = genRegPtrTemp->callRefRegs;
 
-                    byrefRegMask = genRegPtrTemp->rpdCallByrefRegs;
+                    byrefRegMask = genRegPtrTemp->callByrefRegs;
 
                     assert((gcrefRegMask & byrefRegMask) == 0);
 
@@ -3775,11 +3779,11 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
 
                     lastOffset = nextOffset;
 
-                    if (genRegPtrTemp->rpdArgTypeGet() == rpdARG_POP)
+                    if (genRegPtrTemp->kind == RegArgChangeKind::Pop)
                     {
                         /* This must be a gcArgPopSingle */
 
-                        assert(genRegPtrTemp->rpdPtrArg == 1);
+                        assert(genRegPtrTemp->argOffset == 1);
 
                         if (codeDelta >= 16)
                         {
@@ -3819,7 +3823,7 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
                         *dest++ = (BYTE)codeDelta;
 
                         /* adjust argMask for this push */
-                        pasStk.pasPush(genRegPtrTemp->rpdGCtypeGet());
+                        pasStk.pasPush(genRegPtrTemp->gcType);
                     }
                 }
             }
@@ -4600,31 +4604,31 @@ void GCInfo::gcMakeRegPtrTable(
     {
         assert(compiler->codeGen->IsFullPtrRegMapRequired());
 
-        regMaskSmall ptrRegs          = 0;
-        regPtrDsc*   regStackArgFirst = nullptr;
+        regMaskSmall  ptrRegs          = 0;
+        RegArgChange* regStackArgFirst = nullptr;
 
         // Walk the list of pointer register/argument entries.
 
-        for (regPtrDsc* genRegPtrTemp = gcRegPtrList; genRegPtrTemp != nullptr; genRegPtrTemp = genRegPtrTemp->rpdNext)
+        for (RegArgChange* genRegPtrTemp = gcRegPtrList; genRegPtrTemp != nullptr; genRegPtrTemp = genRegPtrTemp->next)
         {
-            if (genRegPtrTemp->rpdArg)
+            if (genRegPtrTemp->isArg)
             {
-                if (genRegPtrTemp->rpdArgTypeGet() == rpdARG_KILL)
+                if (genRegPtrTemp->kind == RegArgChangeKind::Kill)
                 {
                     // Kill all arguments for a call
                     if ((mode == MAKE_REG_PTR_MODE_DO_WORK) && (regStackArgFirst != nullptr))
                     {
                         // Record any outgoing arguments as becoming dead
-                        gcInfoRecordGCStackArgsDead(gcInfoEncoder, genRegPtrTemp->rpdOffs, regStackArgFirst,
+                        gcInfoRecordGCStackArgsDead(gcInfoEncoder, genRegPtrTemp->codeOffs, regStackArgFirst,
                                                     genRegPtrTemp);
                     }
                     regStackArgFirst = nullptr;
                 }
-                else if (genRegPtrTemp->rpdGCtypeGet() != GCT_NONE)
+                else if (genRegPtrTemp->gcType != GCT_NONE)
                 {
-                    if (genRegPtrTemp->rpdArgTypeGet() == rpdARG_PUSH || (genRegPtrTemp->rpdPtrArg != 0))
+                    if ((genRegPtrTemp->kind == RegArgChangeKind::Push) || (genRegPtrTemp->argOffset != 0))
                     {
-                        bool isPop = genRegPtrTemp->rpdArgTypeGet() == rpdARG_POP;
+                        bool isPop = genRegPtrTemp->kind == RegArgChangeKind::Pop;
                         assert(!isPop);
                         gcInfoRecordGCStackArgLive(gcInfoEncoder, mode, genRegPtrTemp);
                         if (regStackArgFirst == nullptr)
@@ -4637,15 +4641,15 @@ void GCInfo::gcMakeRegPtrTable(
                         // We know it's a POP.  Sometimes we'll record a POP for a call, just to make sure
                         // the call site is recorded.
                         // This is just the negation of the condition:
-                        assert(genRegPtrTemp->rpdArgTypeGet() == rpdARG_POP && genRegPtrTemp->rpdPtrArg == 0);
+                        assert((genRegPtrTemp->kind == RegArgChangeKind::Pop) && (genRegPtrTemp->argOffset == 0));
                         // This asserts that we only get here when we're recording a call site.
-                        assert(genRegPtrTemp->rpdArg && genRegPtrTemp->rpdIsCallInstr());
+                        assert(genRegPtrTemp->isArg && genRegPtrTemp->IsCallInstr());
 
                         // Kill all arguments for a call
                         if ((mode == MAKE_REG_PTR_MODE_DO_WORK) && (regStackArgFirst != nullptr))
                         {
                             // Record any outgoing arguments as becoming dead
-                            gcInfoRecordGCStackArgsDead(gcInfoEncoder, genRegPtrTemp->rpdOffs, regStackArgFirst,
+                            gcInfoRecordGCStackArgsDead(gcInfoEncoder, genRegPtrTemp->codeOffs, regStackArgFirst,
                                                         genRegPtrTemp);
                         }
                         regStackArgFirst = nullptr;
@@ -4656,25 +4660,25 @@ void GCInfo::gcMakeRegPtrTable(
             {
                 // Record any registers that are becoming dead.
 
-                regMaskSmall regMask   = genRegPtrTemp->rpdCompiler.rpdDel & ptrRegs;
+                regMaskSmall regMask   = genRegPtrTemp->removeRegs & ptrRegs;
                 regMaskSmall byRefMask = 0;
-                if (genRegPtrTemp->rpdGCtypeGet() == GCT_BYREF)
+                if (genRegPtrTemp->gcType == GCT_BYREF)
                 {
                     byRefMask = regMask;
                 }
-                gcInfoRecordGCRegStateChange(gcInfoEncoder, mode, genRegPtrTemp->rpdOffs, regMask, GC_SLOT_DEAD,
+                gcInfoRecordGCRegStateChange(gcInfoEncoder, mode, genRegPtrTemp->codeOffs, regMask, GC_SLOT_DEAD,
                                              byRefMask, &ptrRegs);
 
                 // Record any registers that are becoming live.
-                regMask   = genRegPtrTemp->rpdCompiler.rpdAdd & ~ptrRegs;
+                regMask   = genRegPtrTemp->addRegs & ~ptrRegs;
                 byRefMask = 0;
                 // As far as I (DLD, 2010) can tell, there's one GCtype for the entire genRegPtrTemp, so if
                 // it says byref then all the registers in "regMask" contain byrefs.
-                if (genRegPtrTemp->rpdGCtypeGet() == GCT_BYREF)
+                if (genRegPtrTemp->gcType == GCT_BYREF)
                 {
                     byRefMask = regMask;
                 }
-                gcInfoRecordGCRegStateChange(gcInfoEncoder, mode, genRegPtrTemp->rpdOffs, regMask, GC_SLOT_LIVE,
+                gcInfoRecordGCRegStateChange(gcInfoEncoder, mode, genRegPtrTemp->codeOffs, regMask, GC_SLOT_LIVE,
                                              byRefMask, &ptrRegs);
             }
         }
@@ -4807,10 +4811,10 @@ void GCInfo::gcMakeRegPtrTable(
 
         if (mode == MAKE_REG_PTR_MODE_DO_WORK)
         {
-            for (regPtrDsc* genRegPtrTemp = gcRegPtrList; genRegPtrTemp != nullptr;
-                 genRegPtrTemp            = genRegPtrTemp->rpdNext)
+            for (RegArgChange* genRegPtrTemp = gcRegPtrList; genRegPtrTemp != nullptr;
+                 genRegPtrTemp               = genRegPtrTemp->next)
             {
-                if (genRegPtrTemp->rpdArg && genRegPtrTemp->rpdIsCallInstr())
+                if (genRegPtrTemp->isArg && genRegPtrTemp->IsCallInstr())
                 {
                     numCallSites++;
                 }
@@ -4823,32 +4827,31 @@ void GCInfo::gcMakeRegPtrTable(
             }
         }
 
-        for (regPtrDsc* genRegPtrTemp = gcRegPtrList; genRegPtrTemp != nullptr; genRegPtrTemp = genRegPtrTemp->rpdNext)
+        for (RegArgChange* genRegPtrTemp = gcRegPtrList; genRegPtrTemp != nullptr; genRegPtrTemp = genRegPtrTemp->next)
         {
-            if (genRegPtrTemp->rpdArg)
+            if (genRegPtrTemp->isArg)
             {
                 // Is this a call site?
-                if (genRegPtrTemp->rpdIsCallInstr())
+                if (genRegPtrTemp->IsCallInstr())
                 {
                     // This is a true call site.
-
-                    regMaskSmall gcrefRegMask = GCInfo::RegMaskFromCalleeSavedMask(genRegPtrTemp->rpdCallGCrefRegs);
-                    regMaskSmall byrefRegMask = GCInfo::RegMaskFromCalleeSavedMask(genRegPtrTemp->rpdCallByrefRegs);
+                    regMaskSmall gcrefRegMask = GCInfo::RegMaskFromCalleeSavedMask(genRegPtrTemp->callRefRegs);
+                    regMaskSmall byrefRegMask = GCInfo::RegMaskFromCalleeSavedMask(genRegPtrTemp->callByrefRegs);
 
                     assert((gcrefRegMask & byrefRegMask) == 0);
 
                     regMaskSmall regMask = gcrefRegMask | byrefRegMask;
 
-                    // The "rpdOffs" is (apparently) the offset of the following instruction already.
+                    // The "codeOffs" is (apparently) the offset of the following instruction already.
                     // GcInfoEncoder wants the call instruction, so subtract the width of the call instruction.
-                    assert(genRegPtrTemp->rpdOffs >= genRegPtrTemp->rpdCallInstrSize);
-                    unsigned callOffset = genRegPtrTemp->rpdOffs - genRegPtrTemp->rpdCallInstrSize;
+                    assert(genRegPtrTemp->codeOffs >= genRegPtrTemp->callInstrLength);
+                    unsigned callOffset = genRegPtrTemp->codeOffs - genRegPtrTemp->callInstrLength;
 
                     // Tell the GCInfo encoder about these registers.  We say that the registers become live
                     // before the call instruction, and dead after.
                     gcInfoRecordGCRegStateChange(gcInfoEncoder, mode, callOffset, regMask, GC_SLOT_LIVE, byrefRegMask,
                                                  nullptr);
-                    gcInfoRecordGCRegStateChange(gcInfoEncoder, mode, genRegPtrTemp->rpdOffs, regMask, GC_SLOT_DEAD,
+                    gcInfoRecordGCRegStateChange(gcInfoEncoder, mode, genRegPtrTemp->codeOffs, regMask, GC_SLOT_DEAD,
                                                  byrefRegMask, nullptr);
 
                     // Also remember the call site.
@@ -4856,7 +4859,7 @@ void GCInfo::gcMakeRegPtrTable(
                     {
                         assert(pCallSites != nullptr && pCallSiteSizes != nullptr);
                         pCallSites[callSiteNum]     = callOffset;
-                        pCallSiteSizes[callSiteNum] = genRegPtrTemp->rpdCallInstrSize;
+                        pCallSiteSizes[callSiteNum] = genRegPtrTemp->callInstrLength;
                         callSiteNum++;
                     }
                 }
@@ -4864,8 +4867,8 @@ void GCInfo::gcMakeRegPtrTable(
                 {
                     // These are reporting outgoing stack arguments, but we don't need to report anything
                     // for partially interruptible
-                    assert(genRegPtrTemp->rpdGCtypeGet() != GCT_NONE);
-                    assert(genRegPtrTemp->rpdArgTypeGet() == rpdARG_PUSH);
+                    assert(genRegPtrTemp->gcType != GCT_NONE);
+                    assert(genRegPtrTemp->kind == RegArgChangeKind::Push);
                 }
             }
         }
@@ -5042,21 +5045,21 @@ void GCInfo::gcMakeVarPtrTable(GcInfoEncoder* gcInfoEncoder, MakeRegPtrMode mode
     }
 }
 
-void GCInfo::gcInfoRecordGCStackArgLive(GcInfoEncoder* gcInfoEncoder, MakeRegPtrMode mode, regPtrDsc* genStackPtr)
+void GCInfo::gcInfoRecordGCStackArgLive(GcInfoEncoder* gcInfoEncoder, MakeRegPtrMode mode, RegArgChange* genStackPtr)
 {
     // On non-x86 platforms, don't have pointer argument push/pop/kill declarations.
     // But we use the same mechanism to record writes into the outgoing argument space...
-    assert(genStackPtr->rpdGCtypeGet() != GCT_NONE);
-    assert(genStackPtr->rpdArg);
-    assert(genStackPtr->rpdArgTypeGet() == rpdARG_PUSH);
+    assert(genStackPtr->gcType != GCT_NONE);
+    assert(genStackPtr->isArg);
+    assert(genStackPtr->kind == RegArgChangeKind::Push);
 
     // We only need to report these when we're doing fuly-interruptible
     assert(compiler->codeGen->GetInterruptible());
 
     GCENCODER_WITH_LOGGING(gcInfoEncoderWithLog, gcInfoEncoder);
 
-    StackSlotIdKey sskey(genStackPtr->rpdPtrArg, false,
-                         GcSlotFlags(genStackPtr->rpdGCtypeGet() == GCT_BYREF ? GC_SLOT_INTERIOR : GC_SLOT_BASE));
+    StackSlotIdKey sskey(genStackPtr->argOffset, false,
+                         GcSlotFlags(genStackPtr->gcType == GCT_BYREF ? GC_SLOT_INTERIOR : GC_SLOT_BASE));
     GcSlotId varSlotId;
     if (mode == MAKE_REG_PTR_MODE_ASSIGN_SLOTS)
     {
@@ -5071,14 +5074,14 @@ void GCInfo::gcInfoRecordGCStackArgLive(GcInfoEncoder* gcInfoEncoder, MakeRegPtr
         bool b = m_stackSlotMap.Lookup(sskey, &varSlotId);
         assert(b); // Should have been added in the first pass.
         // Live until the call.
-        gcInfoEncoderWithLog->SetSlotState(genStackPtr->rpdOffs, varSlotId, GC_SLOT_LIVE);
+        gcInfoEncoderWithLog->SetSlotState(genStackPtr->codeOffs, varSlotId, GC_SLOT_LIVE);
     }
 }
 
 void GCInfo::gcInfoRecordGCStackArgsDead(GcInfoEncoder* gcInfoEncoder,
                                          unsigned       instrOffset,
-                                         regPtrDsc*     genStackPtrFirst,
-                                         regPtrDsc*     genStackPtrLast)
+                                         RegArgChange*  genStackPtrFirst,
+                                         RegArgChange*  genStackPtrLast)
 {
     // After a call all of the outgoing arguments are marked as dead.
     // The calling loop keeps track of the first argument pushed for this call
@@ -5092,19 +5095,19 @@ void GCInfo::gcInfoRecordGCStackArgsDead(GcInfoEncoder* gcInfoEncoder,
 
     GCENCODER_WITH_LOGGING(gcInfoEncoderWithLog, gcInfoEncoder);
 
-    for (regPtrDsc* genRegPtrTemp = genStackPtrFirst; genRegPtrTemp != genStackPtrLast;
-         genRegPtrTemp            = genRegPtrTemp->rpdNext)
+    for (RegArgChange* genRegPtrTemp = genStackPtrFirst; genRegPtrTemp != genStackPtrLast;
+         genRegPtrTemp               = genRegPtrTemp->next)
     {
-        if (!genRegPtrTemp->rpdArg)
+        if (!genRegPtrTemp->isArg)
         {
             continue;
         }
 
-        assert(genRegPtrTemp->rpdGCtypeGet() != GCT_NONE);
-        assert(genRegPtrTemp->rpdArgTypeGet() == rpdARG_PUSH);
+        assert(genRegPtrTemp->gcType != GCT_NONE);
+        assert(genRegPtrTemp->kind == RegArgChangeKind::Push);
 
-        StackSlotIdKey sskey(genRegPtrTemp->rpdPtrArg, false,
-                             genRegPtrTemp->rpdGCtypeGet() == GCT_BYREF ? GC_SLOT_INTERIOR : GC_SLOT_BASE);
+        StackSlotIdKey sskey(genRegPtrTemp->argOffset, false,
+                             genRegPtrTemp->gcType == GCT_BYREF ? GC_SLOT_INTERIOR : GC_SLOT_BASE);
         GcSlotId varSlotId;
         bool     b = m_stackSlotMap.Lookup(sskey, &varSlotId);
         assert(b); // Should have been added in the first pass.

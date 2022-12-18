@@ -364,7 +364,7 @@ protected:
     /************************************************************************/
 
     typedef GCInfo::FrameLifetime GCFrameLifetime;
-    typedef GCInfo::regPtrDsc     regPtrDsc;
+    typedef GCInfo::RegArgChange  GCRegArgChange;
     typedef GCInfo::CallDsc       callDsc;
 
     void* emitGetMem(size_t sz);
@@ -1468,9 +1468,10 @@ protected:
     // what the state was at the last time it was output (instruction or label).
     ArrayStack<GCFrameLifetime*> debugGCSlotChanges;
 
-    regPtrDsc* debugPrevRegPtrDsc = nullptr;
-    regMaskTP  debugPrevGCrefRegs = RBM_NONE;
-    regMaskTP  debugPrevByrefRegs = RBM_NONE;
+    GCRegArgChange* debugPrevRegPtrDsc = nullptr;
+    regMaskTP       debugPrevGCrefRegs = RBM_NONE;
+    regMaskTP       debugPrevByrefRegs = RBM_NONE;
+
     void emitDispGCDeltaTitle(const char* title);
     void emitDispGCRegDelta(const char* title, regMaskTP prevRegs, regMaskTP curRegs);
     void emitDispGCVarDelta();
@@ -2058,7 +2059,7 @@ public:
     void emitStackPop(BYTE* addr, bool isCall, unsigned callInstrSize, unsigned count);
     void emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSize, unsigned count);
 #endif // !FEATURE_FIXED_OUT_ARGS
-    void emitRecordGCCallPop(BYTE* addr, unsigned callInstrSize);
+    void emitRecordGCCallPop(BYTE* addr, unsigned callInstrLength);
     void emitRecordGCcall(BYTE* codePos, unsigned callInstrSize);
 
     /* Liveness of stack variables, and registers */

@@ -62,60 +62,43 @@ public:
     FrameLifetime* gcVarPtrList = nullptr;
     FrameLifetime* gcVarPtrLast = nullptr;
 
-    /*****************************************************************************/
-
-    //  'pointer value' register tracking and argument pushes/pops tracking.
-
-    enum rpdArgType_t
+    enum class RegArgChangeKind : unsigned
     {
-        rpdARG_POP,
-        rpdARG_PUSH,
-        rpdARG_KILL
+        Pop,
+        Push,
+        Kill
     };
 
-    struct regPtrDsc
+    struct RegArgChange
     {
-        regPtrDsc* rpdNext; // next entry in the list
-        unsigned   rpdOffs; // the offset of the instruction
+        RegArgChange* next = nullptr;
+        unsigned      codeOffs;
 
-        union // 2-16 byte union (depending on architecture)
-        {
-            struct // 2-16 byte structure (depending on architecture)
+        union {
+            struct
             {
-                regMaskSmall rpdAdd; // regptr bitset being added
-                regMaskSmall rpdDel; // regptr bitset being removed
-            } rpdCompiler;
+                regMaskSmall addRegs;
+                regMaskSmall removeRegs;
+            };
 
-            unsigned short rpdPtrArg; // arg offset or popped arg count
+            uint16_t argOffset;
         };
 
+        RegArgChangeKind kind : 2;
+        GCtype           gcType : 2;
+        unsigned         isArg : 1;
+        unsigned         isCall : 1;
+        unsigned         isThis : 1;
+        unsigned         callRefRegs : CNT_CALLEE_SAVED;
+        unsigned         callByrefRegs : CNT_CALLEE_SAVED;
 #ifndef JIT32_GCENCODER
-        unsigned char rpdCallInstrSize; // Length of the call instruction.
+        unsigned callInstrLength : 4;
 #endif
 
-        unsigned short rpdArg : 1;     // is this an argument descriptor?
-        unsigned short rpdArgType : 2; // is this an argument push,pop, or kill?
-        rpdArgType_t   rpdArgTypeGet()
-        {
-            return (rpdArgType_t)rpdArgType;
-        }
-
-        unsigned short rpdGCtype : 2; // is this a pointer, after all?
-        GCtype         rpdGCtypeGet()
-        {
-            return (GCtype)rpdGCtype;
-        }
-
-        unsigned short rpdIsThis : 1;                       // is it the 'this' pointer
-        unsigned short rpdCall : 1;                         // is this a true call site?
-        unsigned short : 1;                                 // Padding bit, so next two start on a byte boundary
-        unsigned short rpdCallGCrefRegs : CNT_CALLEE_SAVED; // Callee-saved registers containing GC pointers.
-        unsigned short rpdCallByrefRegs : CNT_CALLEE_SAVED; // Callee-saved registers containing byrefs.
-
 #ifndef JIT32_GCENCODER
-        bool rpdIsCallInstr()
+        bool IsCallInstr() const
         {
-            return rpdCall && rpdCallInstrSize != 0;
+            return isCall && (callInstrLength != 0);
         }
 #endif
     };
@@ -129,8 +112,8 @@ public:
     // This method takes a "compact" bitset of the callee-saved registers, and "expands" it to a full register mask.
     static regMaskSmall RegMaskFromCalleeSavedMask(unsigned short calleeSaveMask);
 
-    regPtrDsc* gcRegPtrList = nullptr;
-    regPtrDsc* gcRegPtrLast = nullptr;
+    RegArgChange* gcRegPtrList = nullptr;
+    RegArgChange* gcRegPtrLast = nullptr;
 
 #ifndef JIT32_GCENCODER
     enum MakeRegPtrMode
@@ -159,15 +142,14 @@ public:
                                       regMaskSmall   byRefMask,
                                       regMaskSmall*  pPtrRegs);
 
-    // regPtrDsc is also used to encode writes to the outgoing argument space (as if they were pushes)
-    void gcInfoRecordGCStackArgLive(GcInfoEncoder* gcInfoEncoder, MakeRegPtrMode mode, regPtrDsc* genStackPtr);
+    void gcInfoRecordGCStackArgLive(GcInfoEncoder* gcInfoEncoder, MakeRegPtrMode mode, RegArgChange* genStackPtr);
 
     // Walk all the pushes between genStackPtrFirst (inclusive) and genStackPtrLast (exclusive)
     // and mark them as going dead at instrOffset
     void gcInfoRecordGCStackArgsDead(GcInfoEncoder* gcInfoEncoder,
                                      unsigned       instrOffset,
-                                     regPtrDsc*     genStackPtrFirst,
-                                     regPtrDsc*     genStackPtrLast);
+                                     RegArgChange*  genStackPtrFirst,
+                                     RegArgChange*  genStackPtrLast);
 
 #endif
 
@@ -176,7 +158,7 @@ public:
     static size_t s_gcTotalPtrTabSize;
 #endif
 
-    regPtrDsc* gcRegPtrAllocDsc();
+    RegArgChange* AddRegArgChange();
 
     /*****************************************************************************/
 
