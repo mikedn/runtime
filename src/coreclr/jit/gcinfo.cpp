@@ -123,6 +123,36 @@ GCInfo::WriteBarrierForm GCInfo::GetWriteBarrierFormFromAddress(GenTree* addr)
     return GCInfo::WBF_BarrierUnknown;
 }
 
+GCInfo::StackSlotLifetime* GCInfo::BeginStackSlotLifetime(int slotOffs, unsigned codeOffs)
+{
+    StackSlotLifetime* lifetime = new (compiler, CMK_GC) StackSlotLifetime(slotOffs, codeOffs);
+
+    if (gcVarPtrLast == nullptr)
+    {
+        assert(gcVarPtrList == nullptr);
+
+        gcVarPtrList = lifetime;
+    }
+    else
+    {
+        assert(gcVarPtrList != nullptr);
+
+        gcVarPtrLast->next = lifetime;
+    }
+
+    gcVarPtrLast = lifetime;
+
+    return lifetime;
+}
+
+void GCInfo::EndStackSlotLifetime(StackSlotLifetime* lifetime DEBUGARG(int slotOffs), unsigned codeOffs)
+{
+    assert(lifetime->endCodeOffs == 0);
+    assert(static_cast<int>(lifetime->slotOffset & ~OFFSET_MASK) == slotOffs);
+
+    lifetime->endCodeOffs = codeOffs;
+}
+
 GCInfo::RegArgChange* GCInfo::AddRegArgChange()
 {
     assert(compiler->codeGen->IsFullPtrRegMapRequired());

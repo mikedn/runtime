@@ -2814,13 +2814,13 @@ void emitter::emitDispGCVarDelta()
 
         while (!debugGCSlotChanges.Empty())
         {
-            GCFrameLifetime* lifetime = debugGCSlotChanges.Pop();
-            int              offset   = lifetime->frameOffset & ~OFFSET_MASK;
+            GCStackSlotLifetime* lifetime = debugGCSlotChanges.Pop();
+            int                  offset   = lifetime->slotOffset & ~OFFSET_MASK;
 
 #ifdef TARGET_ARMARCH
-            printf(" %c[%s,#%d]", lifetime->vpdEndOfs == 0 ? '+' : '-', emitGetFrameReg(), offset);
+            printf(" %c[%s,#%d]", lifetime->endCodeOffs == 0 ? '+' : '-', emitGetFrameReg(), offset);
 #else
-            printf(" %c[%s%c%02XH]", lifetime->vpdEndOfs == 0 ? '+' : '-', emitGetFrameReg(), offset < 0 ? '-' : '+',
+            printf(" %c[%s%c%02XH]", lifetime->endCodeOffs == 0 ? '+' : '-', emitGetFrameReg(), offset < 0 ? '-' : '+',
                    abs(offset));
 #endif
         }
@@ -5208,7 +5208,7 @@ unsigned emitter::emitEndCodeGen(bool      fullyInt,
         // present, instead of lvaTrackedCount.
 
         size_t siz          = emitGCrFrameOffsCnt * sizeof(*emitGCrFrameLiveTab);
-        emitGCrFrameLiveTab = (GCFrameLifetime**)emitGetMem(roundUp(siz));
+        emitGCrFrameLiveTab = static_cast<GCStackSlotLifetime**>(emitGetMem(roundUp(siz)));
         memset(emitGCrFrameLiveTab, 0, siz);
 
 #if defined(JIT32_GCENCODER) && !defined(FEATURE_EH_FUNCLETS)
@@ -6482,15 +6482,12 @@ void emitter::emitGCvarLiveSet(int slotOffs, GCtype gcType, unsigned codeOffs, u
         slotOffs |= byref_OFFSET_FLAG;
     }
 
-    GCFrameLifetime* lifetime = new (emitComp, CMK_GC) GCFrameLifetime(slotOffs, codeOffs);
+    GCStackSlotLifetime* lifetime = gcInfo.BeginStackSlotLifetime(slotOffs, codeOffs);
+    emitGCrFrameLiveTab[index]    = lifetime;
+    INDEBUG(debugGCSlotChanges.Push(lifetime));
 
-    emitGCrFrameLiveTab[index] = lifetime;
     // The "global" live GC variable mask is no longer up-to-date.
     emitThisGCrefVset = false;
-
-    gcInfo.AddFrameLifetime(lifetime);
-
-    INDEBUG(debugGCSlotChanges.Push(lifetime));
 }
 
 // Record the fact that the given variable no longer contains a live GC ref.
@@ -6501,18 +6498,13 @@ void emitter::emitGCvarDeadSet(int slotOffs, unsigned codeOffs, unsigned index)
     assert(index < emitGCrFrameOffsCnt);
     assert(emitGCrFrameLiveTab[index] != nullptr);
 
-    GCFrameLifetime* lifetime = emitGCrFrameLiveTab[index];
-
-    assert(static_cast<int>(lifetime->frameOffset & ~OFFSET_MASK) == slotOffs);
-    assert(lifetime->vpdEndOfs == 0);
-
-    lifetime->vpdEndOfs = codeOffs;
-
+    GCStackSlotLifetime* lifetime = emitGCrFrameLiveTab[index];
+    gcInfo.EndStackSlotLifetime(lifetime DEBUGARG(slotOffs), codeOffs);
     emitGCrFrameLiveTab[index] = nullptr;
+    INDEBUG(debugGCSlotChanges.Push(lifetime));
+
     // The "global" live GC variable mask is no longer up-to-date.
     emitThisGCrefVset = false;
-
-    INDEBUG(debugGCSlotChanges.Push(lifetime));
 }
 
 // Record a new set of live GC ref variables.

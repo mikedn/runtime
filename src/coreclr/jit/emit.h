@@ -363,9 +363,9 @@ protected:
     /*                        Miscellaneous stuff                           */
     /************************************************************************/
 
-    typedef GCInfo::FrameLifetime GCFrameLifetime;
-    typedef GCInfo::RegArgChange  GCRegArgChange;
-    typedef GCInfo::CallSite      GCCallSite;
+    typedef GCInfo::StackSlotLifetime GCStackSlotLifetime;
+    typedef GCInfo::RegArgChange      GCRegArgChange;
+    typedef GCInfo::CallSite          GCCallSite;
 
     void* emitGetMem(size_t sz);
 
@@ -1466,7 +1466,7 @@ protected:
     // GC Info changes are not readily available at each instruction.
     // We use debug-only sets to track the per-instruction state, and to remember
     // what the state was at the last time it was output (instruction or label).
-    ArrayStack<GCFrameLifetime*> debugGCSlotChanges;
+    ArrayStack<GCStackSlotLifetime*> debugGCSlotChanges;
 
     GCRegArgChange* debugPrevRegPtrDsc = nullptr;
     regMaskTP       debugPrevGCrefRegs = RBM_NONE;
@@ -1971,10 +1971,10 @@ private:
     /*        The following keeps track of stack-based GC values            */
     /************************************************************************/
 
-    unsigned          emitGCrFrameOffsCnt = 0;       // Number of       tracked stack ptr vars
-    int               emitGCrFrameOffsMin = 0;       // Min offset of a tracked stack ptr var
-    int               emitGCrFrameOffsMax = 0;       // Max offset of a tracked stack ptr var
-    GCFrameLifetime** emitGCrFrameLiveTab = nullptr; // Cache of currently live varPtrs (stkOffs -> varPtrDsc)
+    unsigned              emitGCrFrameOffsCnt = 0;       // Number of       tracked stack ptr vars
+    int                   emitGCrFrameOffsMin = 0;       // Min offset of a tracked stack ptr var
+    int                   emitGCrFrameOffsMax = 0;       // Max offset of a tracked stack ptr var
+    GCStackSlotLifetime** emitGCrFrameLiveTab = nullptr; // Cache of currently live varPtrs (stkOffs -> varPtrDsc)
 
 #if defined(JIT32_GCENCODER) && !defined(FEATURE_EH_FUNCLETS)
     int emitSyncThisObjOffs = INT_MIN; // what is the offset of "this" for synchronized methods?
