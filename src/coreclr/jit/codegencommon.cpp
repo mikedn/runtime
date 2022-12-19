@@ -196,8 +196,6 @@ void CodeGen::genUpdateLife(GenTreeLclVarCommon* node)
     liveness.UpdateLife(this, node);
 }
 
-// Return the register mask for the given register variable
-// inline
 regMaskTP CodeGen::genGetRegMask(const LclVarDsc* varDsc)
 {
     regMaskTP regMask = RBM_NONE;
@@ -213,34 +211,6 @@ regMaskTP CodeGen::genGetRegMask(const LclVarDsc* varDsc)
         regMask = genRegMask(varDsc->GetRegNum());
     }
     return regMask;
-}
-
-// The given lclVar is either going live (being born) or dying.
-// It might be both going live and dying (that is, it is a dead store) under MinOpts.
-// Update regSet.GetMaskVars() accordingly.
-// inline
-void CodeGen::genUpdateRegLife(const LclVarDsc* varDsc, bool isBorn, bool isDying DEBUGARG(GenTree* tree))
-{
-    regMaskTP regMask = genGetRegMask(varDsc);
-
-    JITDUMP("V%02u in reg %s is becoming %s at [%06u]\n", (varDsc - compiler->lvaTable),
-            getRegName(varDsc->GetRegNum()), isDying ? "dead" : "live", tree == nullptr ? 0 : tree->GetID());
-
-    if (isDying)
-    {
-        // We'd like to be able to assert the following, however if we are walking
-        // through a qmark/colon tree, we may encounter multiple last-use nodes.
-        // assert((liveness.GetLiveLclRegs() & regMask) == regMask);
-        liveness.RemoveLiveLclRegs(regMask);
-    }
-    else
-    {
-        // If this is going live, the register must not have a variable in it, except
-        // in the case of an exception or "spill at single-def" variable, which may be already treated
-        // as live in the register.
-        assert(varDsc->IsAlwaysAliveInMemory() || ((liveness.GetLiveLclRegs() & regMask) == RBM_NONE));
-        liveness.AddLiveLclRegs(regMask);
-    }
 }
 
 //----------------------------------------------------------------------

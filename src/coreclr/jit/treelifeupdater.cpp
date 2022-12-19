@@ -49,7 +49,7 @@ void CodeGenLivenessUpdater::ChangeLife(CodeGen* codeGen, VARSET_VALARG_TP newLi
 
         if (isInReg)
         {
-            // TODO-Cleanup: Move the code from compUpdateLifeVar to genUpdateRegLife
+            // TODO-Cleanup: Move the code from compUpdateLifeVar to UpdateLiveLclRegs
             // that updates the gc sets
             regMaskTP regMask = lcl->lvRegMask();
 
@@ -62,7 +62,7 @@ void CodeGenLivenessUpdater::ChangeLife(CodeGen* codeGen, VARSET_VALARG_TP newLi
                 liveGCByRefRegs &= ~regMask;
             }
 
-            codeGen->genUpdateRegLife(lcl, false /*isBorn*/, true /*isDying*/ DEBUGARG(nullptr));
+            UpdateLiveLclRegs(lcl, false /*isBorn*/, true /*isDying*/ DEBUGARG(nullptr));
         }
 
         if (isInMemory && (isGCRef || isByRef) && lcl->HasGCSlotLiveness())
@@ -94,7 +94,7 @@ void CodeGenLivenessUpdater::ChangeLife(CodeGen* codeGen, VARSET_VALARG_TP newLi
                 VarSetOps::RemoveElemD(compiler, liveGCLcl, e.Current());
             }
 
-            codeGen->genUpdateRegLife(lcl, true /*isBorn*/, false /*isDying*/ DEBUGARG(nullptr));
+            UpdateLiveLclRegs(lcl, true /*isBorn*/, false /*isDying*/ DEBUGARG(nullptr));
 
             regMaskTP regMask = lcl->lvRegMask();
 
@@ -170,7 +170,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
 
         if (isInReg)
         {
-            codeGen->genUpdateRegLife(lcl, isBorn, isDying DEBUGARG(lclNode));
+            UpdateLiveLclRegs(lcl, isBorn, isDying DEBUGARG(lclNode));
         }
 
         DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet1, currentLife);)
@@ -266,7 +266,7 @@ void CodeGenLivenessUpdater::UpdateLifeMultiReg(CodeGen* codeGen, GenTreeLclVar*
 
         if (isInReg)
         {
-            codeGen->genUpdateRegLife(fieldLcl, true, isFieldDying DEBUGARG(lclNode));
+            UpdateLiveLclRegs(fieldLcl, true, isFieldDying DEBUGARG(lclNode));
         }
 
         if (isFieldDying)
@@ -484,6 +484,32 @@ void CodeGenLivenessUpdater::BeginMethodEpilogCodeGen()
         printf("\n");
     }
 #endif
+}
+
+void CodeGenLivenessUpdater::UpdateLiveLclRegs(const LclVarDsc* lcl, bool isBorn, bool isDying DEBUGARG(GenTree* node))
+{
+    regMaskTP regs = CodeGen::genGetRegMask(lcl);
+
+    JITDUMP("V%02u in reg %s is becoming %s at [%06u]\n", (lcl - compiler->lvaTable), getRegName(lcl->GetRegNum()),
+            isDying ? "dead" : "live", node == nullptr ? 0 : node->GetID());
+
+    if (isDying)
+    {
+        // We'd like to be able to assert the following, however if we are walking
+        // through a qmark/colon tree, we may encounter multiple last-use nodes.
+        // assert((liveness.GetLiveLclRegs() & regMask) == regMask);
+
+        RemoveLiveLclRegs(regs);
+    }
+    else
+    {
+        // If this is going live, the register must not have a variable in it, except
+        // in the case of an exception or "spill at single-def" variable, which may be
+        // already treated as live in the register.
+        assert(lcl->IsAlwaysAliveInMemory() || ((liveLclRegs & regs) == RBM_NONE));
+
+        AddLiveLclRegs(regs);
+    }
 }
 
 void CodeGenLivenessUpdater::SetLiveLclRegs(regMaskTP regs)

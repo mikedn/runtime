@@ -745,7 +745,7 @@ void CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
         }
 
         // Remove the live var from the register.
-        genUpdateRegLife(lcl, /*isBorn*/ false, /*isDying*/ true DEBUGARG(lclVar));
+        liveness.UpdateLiveLclRegs(lcl, /*isBorn*/ false, /*isDying*/ true DEBUGARG(lclVar));
         liveness.RemoveGCRegs(lcl->lvRegMask());
 
         if (lcl->HasGCSlotLiveness())
@@ -975,13 +975,13 @@ void CodeGen::CopyReg(GenTreeCopyOrReload* copy)
             // If we didn't just spill it (in UseReg, above), then update the register info
             if (lcl->GetRegNum() != REG_STK)
             {
-                genUpdateRegLife(lcl, /*isBorn*/ false, /*isDying*/ true DEBUGARG(src));
+                liveness.UpdateLiveLclRegs(lcl, /*isBorn*/ false, /*isDying*/ true DEBUGARG(src));
                 liveness.RemoveGCRegs(genRegMask(src->GetRegNum()));
                 lcl->SetRegNum(copy->GetRegNum());
 #ifdef USING_VARIABLE_LIVE_RANGE
                 varLiveKeeper->siUpdateVariableLiveRange(lcl, src->AsLclVar()->GetLclNum());
 #endif
-                genUpdateRegLife(lcl, /*isBorn*/ true, /*isDying*/ false DEBUGARG(copy));
+                liveness.UpdateLiveLclRegs(lcl, /*isBorn*/ true, /*isDying*/ false DEBUGARG(copy));
             }
         }
     }
@@ -1058,7 +1058,7 @@ void CodeGen::UnspillRegCandidateLclVar(GenTreeLclVar* node)
     GetEmitter()->emitIns_R_S(ins, emitTypeSize(regType), dstReg, lclNum, 0);
 
     // TODO-Review: We would like to call:
-    //      genUpdateRegLife(varDsc, /*isBorn*/ true, /*isDying*/ false DEBUGARG(tree));
+    //      liveness.UpdateLiveLclRegs(varDsc, /*isBorn*/ true, /*isDying*/ false DEBUGARG(tree));
     // instead of the following code, but this ends up hitting this assert:
     //      assert((regSet.GetMaskVars() & regMask) == 0);
     // due to issues with LSRA resolution moves.

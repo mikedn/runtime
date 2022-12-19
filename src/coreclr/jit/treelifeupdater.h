@@ -26,6 +26,8 @@ class CodeGenLivenessUpdater
 
     void UpdateLifePromoted(class CodeGen* codeGen, GenTreeLclVarCommon* lclNode);
 
+    void SetLiveLclRegs(regMaskTP regs);
+
     void AddGCRefRegs(regMaskTP regMask DEBUGARG(bool forceOutput = false));
     void AddGCByRefRegs(regMaskTP regMask DEBUGARG(bool forceOutput = false));
 
@@ -65,7 +67,7 @@ public:
         return liveLclRegs;
     }
 
-    void SetLiveLclRegs(regMaskTP regs);
+    void UpdateLiveLclRegs(const LclVarDsc* lcl, bool isBorn, bool isDying DEBUGARG(GenTree* node));
 
     void AddLiveLclRegs(regMaskTP regs)
     {
