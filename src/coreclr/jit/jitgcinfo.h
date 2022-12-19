@@ -13,20 +13,7 @@ class GCInfo
     friend class CodeGenInterface;
     friend class CodeGen;
 
-    Compiler* const compiler;
-
 public:
-    GCInfo(Compiler* compiler);
-
-#ifdef JIT32_GCENCODER
-    void* CreateAndStoreGCInfo(class CodeGen* codeGen,
-                               unsigned       codeSize,
-                               unsigned       prologSize,
-                               unsigned epilogSize DEBUGARG(void* codePtr));
-#else
-    void CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize DEBUGARG(void* codePtr));
-#endif
-
     struct StackSlotLifetime
     {
         StackSlotLifetime* next = nullptr;
@@ -49,12 +36,6 @@ public:
         {
         }
     };
-
-    StackSlotLifetime* gcVarPtrList = nullptr;
-    StackSlotLifetime* gcVarPtrLast = nullptr;
-
-    StackSlotLifetime* BeginStackSlotLifetime(int slotOffs, unsigned codeOffs);
-    void EndStackSlotLifetime(StackSlotLifetime* lifetime DEBUGARG(int slotOffs), unsigned codeOffs);
 
     enum class RegArgChangeKind : unsigned
     {
@@ -97,63 +78,6 @@ public:
 #endif
     };
 
-    // The following table determines the order in which callee-saved registers
-    // are encoded in GC information at call sites (perhaps among other things).
-    // In any case, they establish a mapping from ordinal callee-save reg "indices" to
-    // register numbers and corresponding bitmaps.
-    static const regMaskTP raRbmCalleeSaveOrder[];
-
-    // This method takes a "compact" bitset of the callee-saved registers, and "expands" it to a full register mask.
-    static regMaskSmall RegMaskFromCalleeSavedMask(unsigned short calleeSaveMask);
-
-    RegArgChange* gcRegPtrList = nullptr;
-    RegArgChange* gcRegPtrLast = nullptr;
-
-#ifndef JIT32_GCENCODER
-    enum MakeRegPtrMode
-    {
-        MAKE_REG_PTR_MODE_ASSIGN_SLOTS,
-        MAKE_REG_PTR_MODE_DO_WORK
-    };
-
-    // This method has two modes.  In the "assign slots" mode, it figures out what stack locations are
-    // used to contain GC references, and whether those locations contain byrefs or pinning references,
-    // building up mappings from tuples of <offset X byref/pinning> to the corresponding slot id.
-    // In the "do work" mode, we use these slot ids to actually declare live ranges to the encoder.
-    void gcMakeVarPtrTable(GcInfoEncoder* gcInfoEncoder, MakeRegPtrMode mode);
-
-    // At instruction offset "instrOffset," the set of registers indicated by "regMask" is becoming live or dead,
-    // depending on whether "newState" is "GC_SLOT_DEAD" or "GC_SLOT_LIVE".  The subset of registers whose corresponding
-    // bits are set in "byRefMask" contain by-refs rather than regular GC pointers. "*pPtrRegs" is the set of
-    // registers currently known to contain pointers.  If "mode" is "ASSIGN_SLOTS", computes and records slot
-    // ids for the registers.  If "mode" is "DO_WORK", informs "gcInfoEncoder" about the state transition,
-    // using the previously assigned slot ids, and updates "*pPtrRegs" appropriately.
-    void gcInfoRecordGCRegStateChange(GcInfoEncoder* gcInfoEncoder,
-                                      MakeRegPtrMode mode,
-                                      unsigned       instrOffset,
-                                      regMaskSmall   regMask,
-                                      GcSlotState    newState,
-                                      regMaskSmall   byRefMask,
-                                      regMaskSmall*  pPtrRegs);
-
-    void gcInfoRecordGCStackArgLive(GcInfoEncoder* gcInfoEncoder, MakeRegPtrMode mode, RegArgChange* genStackPtr);
-
-    // Walk all the pushes between genStackPtrFirst (inclusive) and genStackPtrLast (exclusive)
-    // and mark them as going dead at instrOffset
-    void gcInfoRecordGCStackArgsDead(GcInfoEncoder* gcInfoEncoder,
-                                     unsigned       instrOffset,
-                                     RegArgChange*  genStackPtrFirst,
-                                     RegArgChange*  genStackPtrLast);
-
-#endif
-
-#if MEASURE_PTRTAB_SIZE
-    static size_t s_gcRegPtrDscSize;
-    static size_t s_gcTotalPtrTabSize;
-#endif
-
-    RegArgChange* AddRegArgChange();
-
     struct CallSite
     {
         CallSite*    next = nullptr;
@@ -179,20 +103,8 @@ public:
 #endif
     };
 
-    CallSite* AddCallSite(unsigned codeOffs, regMaskTP refRegs, regMaskTP byrefRegs);
-
-    CallSite* gcCallDescList = nullptr;
-    CallSite* gcCallDescLast = nullptr;
-
-//-------------------------------------------------------------------------
-
-#ifdef JIT32_GCENCODER
-    void gcCountForHeader(UNALIGNED unsigned int* pUntrackedCount, UNALIGNED unsigned int* pVarPtrTableSize);
-
-    bool gcIsUntrackedLocalOrNonEnregisteredArg(unsigned varNum, bool* pThisKeptAliveIsInUntracked = nullptr);
-
-    size_t gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, unsigned codeSize, size_t* pArgTabOffset);
-#else
+private:
+#ifndef JIT32_GCENCODER
     struct RegSlotIdKey
     {
         uint16_t m_regNum;
@@ -242,29 +154,25 @@ public:
             return ssk1.m_offset == ssk2.m_offset && ssk1.m_fpRel == ssk2.m_fpRel && ssk1.m_flags == ssk2.m_flags;
         }
     };
+#endif // !JIT32_GCENCODER
 
-    JitHashTable<RegSlotIdKey, RegSlotIdKey, GcSlotId>     m_regSlotMap;
-    JitHashTable<StackSlotIdKey, StackSlotIdKey, GcSlotId> m_stackSlotMap;
-
-    // This method has two modes.  In the "assign slots" mode, it figures out what registers and stack
-    // locations are used to contain GC references, and whether those locations contain byrefs or pinning
-    // references, building up mappings from tuples of <reg/offset X byref/pinning> to the corresponding
-    // slot id (in the two member fields declared above).  In the "do work" mode, we use these slot ids to
-    // actually declare live ranges to the encoder.
-    void gcMakeRegPtrTable(GcInfoEncoder* gcInfoEncoder,
-                           unsigned       codeSize,
-                           unsigned       prologSize,
-                           MakeRegPtrMode mode,
-                           unsigned*      callCntRef);
-#endif
+    Compiler* const    compiler;
+    StackSlotLifetime* firstStackSlotLifetime = nullptr;
+    StackSlotLifetime* lastStackSlotLifetime  = nullptr;
+    RegArgChange*      firstRegArgChange      = nullptr;
+    RegArgChange*      lastRegArgChange       = nullptr;
+    CallSite*          firstCallSite          = nullptr;
+    CallSite*          lastCallSite           = nullptr;
 
 #ifdef JIT32_GCENCODER
-    size_t gcPtrTableSize(const InfoHdr& header, unsigned codeSize, size_t* pArgTabOffset);
-    BYTE* gcPtrTableSave(BYTE* destPtr, const InfoHdr& header, unsigned codeSize, size_t* pArgTabOffset);
+    uint8_t* gcEpilogTable = nullptr;
+    unsigned gcEpilogPrevOffset;
+#else
+    JitHashTable<RegSlotIdKey, RegSlotIdKey, GcSlotId>     regSlotMap;
+    JitHashTable<StackSlotIdKey, StackSlotIdKey, GcSlotId> stackSlotMap;
 #endif
 
-    // This enumeration yields the result of the analysis below, whether a store
-    // requires a write barrier:
+public:
     enum WriteBarrierForm
     {
         WBF_NoBarrier,        // No barrier is required
@@ -276,66 +184,130 @@ public:
     static WriteBarrierForm GetWriteBarrierForm(GenTreeStoreInd* store);
     static WriteBarrierForm GetWriteBarrierFormFromAddress(GenTree* addr);
 
-    //-------------------------------------------------------------------------
-    //
-    //  These record the info about the procedure in the info-block
-    //
-    CLANG_FORMAT_COMMENT_ANCHOR;
+    // The following table determines the order in which callee-saved registers
+    // are encoded in GC information at call sites..
+    static const regMaskTP calleeSaveOrder[];
+
+    // This method takes a "compact" bitset of the callee-saved registers, and "expands" it to a full register mask.
+    static regMaskSmall RegMaskFromCalleeSavedMask(uint16_t calleeSaveMask);
+
+#if MEASURE_PTRTAB_SIZE
+    static size_t s_gcRegPtrDscSize;
+    static size_t s_gcTotalPtrTabSize;
+#endif
+
+    GCInfo(Compiler* compiler);
+
+    StackSlotLifetime* BeginStackSlotLifetime(int slotOffs, unsigned codeOffs);
+    void EndStackSlotLifetime(StackSlotLifetime* lifetime DEBUGARG(int slotOffs), unsigned codeOffs);
+
+    RegArgChange* AddRegArgChange();
+
+    RegArgChange* GetFirstRegArgChange() const
+    {
+        return firstRegArgChange;
+    }
+
+    RegArgChange* GetLastRegArgChange() const
+    {
+        return lastRegArgChange;
+    }
+
+    CallSite* AddCallSite(unsigned codeOffs, regMaskTP refRegs, regMaskTP byrefRegs);
 
 #ifdef JIT32_GCENCODER
-private:
-    BYTE* gcEpilogTable = nullptr;
+    static void InitEncoderLookupTable();
 
-    unsigned gcEpilogPrevOffset;
-
-    size_t gcInfoBlockHdrSave(BYTE*     dest,
-                              int       mask,
-                              unsigned  methodSize,
-                              unsigned  prologSize,
-                              unsigned  epilogSize,
-                              regMaskTP savedRegs,
-                              InfoHdr*  header,
-                              int*      s_cached);
-
-public:
-    static void gcInitEncoderLookupTable();
+    void* CreateAndStoreGCInfo(class CodeGen* codeGen,
+                               unsigned       codeSize,
+                               unsigned       prologSize,
+                               unsigned epilogSize DEBUGARG(void* codePtr));
 
 private:
-    static size_t gcRecordEpilog(void* pCallBackData, unsigned offset);
-#else // JIT32_GCENCODER
-    void gcInfoBlockHdrSave(GcInfoEncoder* gcInfoEncoder, unsigned methodSize, unsigned prologSize);
+    void CountForHeader(UNALIGNED unsigned int* pUntrackedCount, UNALIGNED unsigned int* pVarPtrTableSize);
+    bool IsUntrackedLocalOrNonEnregisteredArg(unsigned varNum, bool* pThisKeptAliveIsInUntracked = nullptr);
+    size_t MakeRegPtrTable(uint8_t* dest, int mask, const InfoHdr& header, unsigned codeSize, size_t* pArgTabOffset);
+    size_t PtrTableSize(const InfoHdr& header, unsigned codeSize, size_t* pArgTabOffset);
+    BYTE* PtrTableSave(uint8_t* destPtr, const InfoHdr& header, unsigned codeSize, size_t* pArgTabOffset);
+    size_t InfoBlockHdrSave(uint8_t*  dest,
+                            int       mask,
+                            unsigned  methodSize,
+                            unsigned  prologSize,
+                            unsigned  epilogSize,
+                            regMaskTP savedRegs,
+                            InfoHdr*  header,
+                            int*      s_cached);
 
-#endif // JIT32_GCENCODER
-
-#if !defined(JIT32_GCENCODER) || defined(FEATURE_EH_FUNCLETS)
-
-    // This method expands the tracked stack variables lifetimes so that any lifetimes within filters
-    // are reported as pinned.
-    void gcMarkFilterVarsPinned();
-
-    // Insert a varPtrDsc to gcVarPtrList that was generated by splitting lifetimes
-    void gcInsertVarPtrDscSplit(StackSlotLifetime* desc, StackSlotLifetime* begin);
-
-#ifdef DEBUG
-    void gcDumpVarPtrDsc(StackSlotLifetime* desc);
-#endif // DEBUG
-
-#endif // !defined(JIT32_GCENCODER) || defined(FEATURE_EH_FUNCLETS)
+    static size_t RecordEpilog(void* pCallBackData, unsigned offset);
 
 #if DUMP_GC_TABLES
+    size_t InfoBlockHdrDump(const uint8_t* table, InfoHdr* header, unsigned* methodSize);
+    size_t DumpPtrTable(const uint8_t* table, const InfoHdr& header, unsigned methodSize);
+#endif
 
-    void gcFindPtrsInFrame(const void* infoBlock, const void* codeBlock, unsigned offs);
-
-#ifdef JIT32_GCENCODER
-    size_t gcInfoBlockHdrDump(const BYTE* table,
-                              InfoHdr*    header,      /* OUT */
-                              unsigned*   methodSize); /* OUT */
-
-    size_t gcDumpPtrTable(const BYTE* table, const InfoHdr& header, unsigned methodSize);
-
-#endif // JIT32_GCENCODER
-#endif // DUMP_GC_TABLES
+#else
+    void CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize DEBUGARG(void* codePtr));
 
 private:
-    ReturnKind getReturnKind();
+    enum class MakeRegPtrMode
+    {
+        AssignSlots,
+        DoWork
+    };
+
+    // This method has two modes.  In the "assign slots" mode, it figures out what stack locations are
+    // used to contain GC references, and whether those locations contain byrefs or pinning references,
+    // building up mappings from tuples of <offset X byref/pinning> to the corresponding slot id.
+    // In the "do work" mode, we use these slot ids to actually declare live ranges to the encoder.
+    void MakeVarPtrTable(GcInfoEncoder* gcInfoEncoder, MakeRegPtrMode mode);
+
+    // At instruction offset "instrOffset," the set of registers indicated by "regMask" is becoming live or dead,
+    // depending on whether "newState" is "GC_SLOT_DEAD" or "GC_SLOT_LIVE".  The subset of registers whose corresponding
+    // bits are set in "byRefMask" contain by-refs rather than regular GC pointers. "*pPtrRegs" is the set of
+    // registers currently known to contain pointers.  If "mode" is "ASSIGN_SLOTS", computes and records slot
+    // ids for the registers.  If "mode" is "DO_WORK", informs "gcInfoEncoder" about the state transition,
+    // using the previously assigned slot ids, and updates "*pPtrRegs" appropriately.
+    void InfoRecordGCRegStateChange(GcInfoEncoder* gcInfoEncoder,
+                                    MakeRegPtrMode mode,
+                                    unsigned       instrOffset,
+                                    regMaskSmall   regMask,
+                                    GcSlotState    newState,
+                                    regMaskSmall   byRefMask,
+                                    regMaskSmall*  pPtrRegs);
+
+    void InfoRecordGCStackArgLive(GcInfoEncoder* gcInfoEncoder, MakeRegPtrMode mode, RegArgChange* genStackPtr);
+
+    // Walk all the pushes between genStackPtrFirst (inclusive) and genStackPtrLast (exclusive)
+    // and mark them as going dead at instrOffset
+    void InfoRecordGCStackArgsDead(GcInfoEncoder* gcInfoEncoder,
+                                   unsigned       instrOffset,
+                                   RegArgChange*  genStackPtrFirst,
+                                   RegArgChange*  genStackPtrLast);
+
+    // This method has two modes.  In the "assign slots" mode, it figures out what registers and stack
+    // locations are used to contain GC references, and whether those locations contain byrefs or pinning
+    // references, building up mappings from tuples of <reg/offset X byref/pinning> to the corresponding
+    // slot id (in the two member fields declared above).  In the "do work" mode, we use these slot ids to
+    // actually declare live ranges to the encoder.
+    void MakeRegPtrTable(GcInfoEncoder* gcInfoEncoder,
+                         unsigned       codeSize,
+                         unsigned       prologSize,
+                         MakeRegPtrMode mode,
+                         unsigned*      callCntRef);
+
+    void InfoBlockHdrSave(GcInfoEncoder* gcInfoEncoder, unsigned methodSize, unsigned prologSize);
+#endif
+
+#if !defined(JIT32_GCENCODER) || defined(FEATURE_EH_FUNCLETS)
+    // This method expands the tracked stack variables lifetimes so that any lifetimes within filters
+    // are reported as pinned.
+    void MarkFilterStackSlotsPinned();
+
+    // Insert a StackSlotLifetime that was generated by splitting lifetimes.
+    void InsertSplitStackSlotLifetime(StackSlotLifetime* desc, StackSlotLifetime* begin);
+
+    INDEBUG(void DumpStackSlotLifetime(StackSlotLifetime* desc) const;)
+#endif
+
+    ReturnKind GetReturnKind() const;
 };

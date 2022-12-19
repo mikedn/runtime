@@ -13,8 +13,8 @@ size_t GCInfo::s_gcTotalPtrTabSize = 0;
 GCInfo::GCInfo(Compiler* compiler)
     : compiler(compiler)
 #ifndef JIT32_GCENCODER
-    , m_regSlotMap(compiler->getAllocator(CMK_GC))
-    , m_stackSlotMap(compiler->getAllocator(CMK_GC))
+    , regSlotMap(compiler->getAllocator(CMK_GC))
+    , stackSlotMap(compiler->getAllocator(CMK_GC))
 #endif
 {
 }
@@ -127,20 +127,20 @@ GCInfo::StackSlotLifetime* GCInfo::BeginStackSlotLifetime(int slotOffs, unsigned
 {
     StackSlotLifetime* lifetime = new (compiler, CMK_GC) StackSlotLifetime(slotOffs, codeOffs);
 
-    if (gcVarPtrLast == nullptr)
+    if (lastStackSlotLifetime == nullptr)
     {
-        assert(gcVarPtrList == nullptr);
+        assert(firstStackSlotLifetime == nullptr);
 
-        gcVarPtrList = lifetime;
+        firstStackSlotLifetime = lifetime;
     }
     else
     {
-        assert(gcVarPtrList != nullptr);
+        assert(firstStackSlotLifetime != nullptr);
 
-        gcVarPtrLast->next = lifetime;
+        lastStackSlotLifetime->next = lifetime;
     }
 
-    gcVarPtrLast = lifetime;
+    lastStackSlotLifetime = lifetime;
 
     return lifetime;
 }
@@ -159,18 +159,18 @@ GCInfo::RegArgChange* GCInfo::AddRegArgChange()
 
     RegArgChange* change = new (compiler, CMK_GC) RegArgChange;
 
-    if (gcRegPtrLast == nullptr)
+    if (lastRegArgChange == nullptr)
     {
-        assert(gcRegPtrList == nullptr);
+        assert(firstRegArgChange == nullptr);
 
-        gcRegPtrList = gcRegPtrLast = change;
+        firstRegArgChange = lastRegArgChange = change;
     }
     else
     {
-        assert(gcRegPtrList != nullptr);
+        assert(firstRegArgChange != nullptr);
 
-        gcRegPtrLast->next = change;
-        gcRegPtrLast       = change;
+        lastRegArgChange->next = change;
+        lastRegArgChange       = change;
     }
 
 #if MEASURE_PTRTAB_SIZE
@@ -180,16 +180,16 @@ GCInfo::RegArgChange* GCInfo::AddRegArgChange()
     return change;
 }
 
-const regMaskTP GCInfo::raRbmCalleeSaveOrder[]{RBM_CALLEE_SAVED_ORDER};
+const regMaskTP GCInfo::calleeSaveOrder[]{RBM_CALLEE_SAVED_ORDER};
 
-regMaskSmall GCInfo::RegMaskFromCalleeSavedMask(unsigned short calleeSaveMask)
+regMaskSmall GCInfo::RegMaskFromCalleeSavedMask(uint16_t calleeSaveMask)
 {
     regMaskSmall res = 0;
     for (int i = 0; i < CNT_CALLEE_SAVED; i++)
     {
         if ((calleeSaveMask & ((regMaskTP)1 << i)) != 0)
         {
-            res |= raRbmCalleeSaveOrder[i];
+            res |= calleeSaveOrder[i];
         }
     }
     return res;
@@ -199,18 +199,18 @@ GCInfo::CallSite* GCInfo::AddCallSite(unsigned codeOffs, regMaskTP refRegs, regM
 {
     CallSite* call = new (compiler, CMK_GC) CallSite;
 
-    if (gcCallDescLast == nullptr)
+    if (lastCallSite == nullptr)
     {
-        assert(gcCallDescList == nullptr);
+        assert(firstCallSite == nullptr);
 
-        gcCallDescList = gcCallDescLast = call;
+        firstCallSite = lastCallSite = call;
     }
     else
     {
-        assert(gcCallDescList != nullptr);
+        assert(firstCallSite != nullptr);
 
-        gcCallDescLast->next = call;
-        gcCallDescLast       = call;
+        lastCallSite->next = call;
+        lastCallSite       = call;
     }
 
     call->refRegs   = static_cast<regMaskSmall>(refRegs);
@@ -233,21 +233,21 @@ void* GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen,
     int s_cached;
 
 #ifdef FEATURE_EH_FUNCLETS
-    // We should do this before gcInfoBlockHdrSave since varPtrTableSize must be finalized before it
+    // We should do this before InfoBlockHdrSave since varPtrTableSize must be finalized before it
     if (compiler->ehAnyFunclets())
     {
-        gcMarkFilterVarsPinned();
+        MarkFilterStackSlotsPinned();
     }
 #endif
 
 #ifdef DEBUG
     size_t headerSize =
 #endif
-        codeGen->compInfoBlkSize = gcInfoBlockHdrSave(headerBuf, 0, codeSize, prologSize, epilogSize,
-                                                      codeGen->calleeSavedModifiedRegs, &header, &s_cached);
+        codeGen->compInfoBlkSize = InfoBlockHdrSave(headerBuf, 0, codeSize, prologSize, epilogSize,
+                                                    codeGen->calleeSavedModifiedRegs, &header, &s_cached);
 
     size_t argTabOffset = 0;
-    size_t ptrMapSize   = gcPtrTableSize(header, codeSize, &argTabOffset);
+    size_t ptrMapSize   = PtrTableSize(header, codeSize, &argTabOffset);
 
 #if DISPLAY_SIZES
 
@@ -294,11 +294,11 @@ void* GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen,
 
     /* Create the method info block: header followed by GC tracking tables */
 
-    infoBlkAddr += gcInfoBlockHdrSave(infoBlkAddr, -1, codeSize, prologSize, epilogSize,
-                                      codeGen->calleeSavedModifiedRegs, &header, &s_cached);
+    infoBlkAddr += InfoBlockHdrSave(infoBlkAddr, -1, codeSize, prologSize, epilogSize, codeGen->calleeSavedModifiedRegs,
+                                    &header, &s_cached);
 
     assert(infoBlkAddr == (BYTE*)infoPtr + headerSize);
-    infoBlkAddr = gcPtrTableSave(infoBlkAddr, header, codeSize, &argTabOffset);
+    infoBlkAddr = PtrTableSave(infoBlkAddr, header, codeSize, &argTabOffset);
     assert(infoBlkAddr == (BYTE*)infoPtr + headerSize + ptrMapSize);
 
 #ifdef DEBUG
@@ -345,12 +345,12 @@ void* GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen,
         printf("GC Info for method %s\n", compiler->info.compFullName);
         printf("GC info size = %3u\n", codeGen->compInfoBlkSize);
 
-        size = gcInfoBlockHdrDump(base, &dumpHeader, &methodSize);
+        size = InfoBlockHdrDump(base, &dumpHeader, &methodSize);
         // printf("size of header encoding is %3u\n", size);
         printf("\n");
 
         base += size;
-        size = gcDumpPtrTable(base, dumpHeader, methodSize);
+        size = DumpPtrTable(base, dumpHeader, methodSize);
         // printf("size of pointer table is %3u\n", size);
         printf("\n");
         noway_assert(infoBlkAddr == (base + size));
@@ -371,11 +371,11 @@ void GCInfo::CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize DEBUGAR
     CompIAllocator encoderAlloc(compiler->getAllocator(CMK_GC));
     GcInfoEncoder  encoder(compiler->info.compCompHnd, compiler->info.compMethodInfo, &encoderAlloc, NOMEM);
 
-    gcInfoBlockHdrSave(&encoder, codeSize, prologSize);
+    InfoBlockHdrSave(&encoder, codeSize, prologSize);
     unsigned callCnt = 0;
-    gcMakeRegPtrTable(&encoder, codeSize, prologSize, MAKE_REG_PTR_MODE_ASSIGN_SLOTS, &callCnt);
+    MakeRegPtrTable(&encoder, codeSize, prologSize, MakeRegPtrMode::AssignSlots, &callCnt);
     encoder.FinalizeSlotIds();
-    gcMakeRegPtrTable(&encoder, codeSize, prologSize, MAKE_REG_PTR_MODE_DO_WORK, &callCnt);
+    MakeRegPtrTable(&encoder, codeSize, prologSize, MakeRegPtrMode::DoWork, &callCnt);
 
 #if defined(TARGET_ARM64) || defined(TARGET_AMD64)
     if (compiler->opts.compDbgEnC)

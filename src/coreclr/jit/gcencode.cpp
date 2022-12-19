@@ -36,7 +36,7 @@ ReturnKind varTypeToReturnKind(var_types type)
     }
 }
 
-ReturnKind GCInfo::getReturnKind()
+ReturnKind GCInfo::GetReturnKind() const
 {
 #ifdef TARGET_X86
     if (varTypeIsFloating(compiler->info.compRetType))
@@ -77,11 +77,10 @@ ReturnKind GCInfo::getReturnKind()
 
 #if !defined(JIT32_GCENCODER) || defined(FEATURE_EH_FUNCLETS)
 
-// gcMarkFilterVarsPinned - Walk all lifetimes and make it so that anything
-//     live in a filter is marked as pinned (often by splitting the lifetime
-//     so that *only* the filter region is pinned).  This should only be
-//     called once (after generating all lifetimes, but before slot ids are
-//     finalized.
+// Walk all lifetimes and make it so that anything live in a filter is marked
+// as pinned (often by splitting the lifetime so that *only* the filter region
+// is pinned). This should only be called once (after generating all lifetimes,
+// but before slot ids are finalized.
 //
 // DevDiv 376329 - The VM has to double report filters and their parent frame
 // because they occur during the 1st pass and the parent frame doesn't go dead
@@ -97,7 +96,7 @@ ReturnKind GCInfo::getReturnKind()
 // variables as pinned inside the filter.  Thus if they are double reported, it
 // won't be a problem since they won't be double relocated.
 //
-void GCInfo::gcMarkFilterVarsPinned()
+void GCInfo::MarkFilterStackSlotsPinned()
 {
     assert(compiler->ehAnyFunclets());
 
@@ -108,7 +107,7 @@ void GCInfo::gcMarkFilterVarsPinned()
             const UNATIVE_OFFSET filterBeg = compiler->ehCodeOffset(HBtab->ebdFilter);
             const UNATIVE_OFFSET filterEnd = compiler->ehCodeOffset(HBtab->ebdHndBeg);
 
-            for (StackSlotLifetime* varTmp = gcVarPtrList; varTmp != nullptr; varTmp = varTmp->next)
+            for (StackSlotLifetime* varTmp = firstStackSlotLifetime; varTmp != nullptr; varTmp = varTmp->next)
             {
                 // Get hold of the variable's flags.
                 const unsigned lowBits = varTmp->slotOffset & OFFSET_MASK;
@@ -132,8 +131,9 @@ void GCInfo::gcMarkFilterVarsPinned()
 #ifndef JIT32_GCENCODER
                 // Because there is no nesting within filters, nothing
                 // should be already pinned.
-                // For JIT32_GCENCODER, we should not do this check as gcVarPtrList are always sorted by vpdBegOfs
-                // which means that we could see some varPtrDsc that were already pinned by previous splitting.
+                // For JIT32_GCENCODER, we should not do this check as firstStackSlotLifetime are always sorted by
+                // beginCodeOffs which means that we could see some varPtrDsc that were already pinned by previous
+                // splitting.
                 assert((lowBits & pinned_OFFSET_FLAG) == 0);
 #endif // JIT32_GCENCODER
 
@@ -153,7 +153,7 @@ void GCInfo::gcMarkFilterVarsPinned()
                         if (compiler->verbose)
                         {
                             printf("Splitting lifetime for filter: [%04X, %04X).\nOld: ", filterBeg, filterEnd);
-                            gcDumpVarPtrDsc(varTmp);
+                            DumpStackSlotLifetime(varTmp);
                         }
 #endif // DEBUG
 
@@ -164,18 +164,18 @@ void GCInfo::gcMarkFilterVarsPinned()
 
                         varTmp->endCodeOffs = filterBeg;
 
-                        gcInsertVarPtrDscSplit(desc1, varTmp);
-                        gcInsertVarPtrDscSplit(desc2, varTmp);
+                        InsertSplitStackSlotLifetime(desc1, varTmp);
+                        InsertSplitStackSlotLifetime(desc2, varTmp);
 
 #ifdef DEBUG
                         if (compiler->verbose)
                         {
                             printf("New (1 of 3): ");
-                            gcDumpVarPtrDsc(varTmp);
+                            DumpStackSlotLifetime(varTmp);
                             printf("New (2 of 3): ");
-                            gcDumpVarPtrDsc(desc1);
+                            DumpStackSlotLifetime(desc1);
                             printf("New (3 of 3): ");
-                            gcDumpVarPtrDsc(desc2);
+                            DumpStackSlotLifetime(desc2);
                         }
 #endif // DEBUG
                     }
@@ -191,7 +191,7 @@ void GCInfo::gcMarkFilterVarsPinned()
                         if (compiler->verbose)
                         {
                             printf("Splitting lifetime for filter.\nOld: ");
-                            gcDumpVarPtrDsc(varTmp);
+                            DumpStackSlotLifetime(varTmp);
                         }
 #endif // DEBUG
 
@@ -199,15 +199,15 @@ void GCInfo::gcMarkFilterVarsPinned()
                             StackSlotLifetime(varTmp->slotOffset | pinned_OFFSET_FLAG, filterBeg, endOffs);
                         varTmp->endCodeOffs = filterBeg;
 
-                        gcInsertVarPtrDscSplit(desc, varTmp);
+                        InsertSplitStackSlotLifetime(desc, varTmp);
 
 #ifdef DEBUG
                         if (compiler->verbose)
                         {
                             printf("New (1 of 2): ");
-                            gcDumpVarPtrDsc(varTmp);
+                            DumpStackSlotLifetime(varTmp);
                             printf("New (2 of 2): ");
-                            gcDumpVarPtrDsc(desc);
+                            DumpStackSlotLifetime(desc);
                         }
 #endif // DEBUG
                     }
@@ -226,7 +226,7 @@ void GCInfo::gcMarkFilterVarsPinned()
                         if (compiler->verbose)
                         {
                             printf("Splitting lifetime for filter.\nOld: ");
-                            gcDumpVarPtrDsc(varTmp);
+                            DumpStackSlotLifetime(varTmp);
                         }
 #endif // DEBUG
 
@@ -240,21 +240,21 @@ void GCInfo::gcMarkFilterVarsPinned()
                             new (compiler, CMK_GC) FrameLifetime(varTmp->frameOffset, filterEnd, endOffs);
 
                         // Mark varTmp as pinned and generated use varPtrDsc(desc) as non-pinned
-                        // since gcInsertVarPtrDscSplit requires that varTmp->vpdBegOfs must
-                        // precede desc->vpdBegOfs.
+                        // since InsertSplitStackSlotLifetime requires that varTmp->beginCodeOffs
+                        // must precede desc->endCodeOffs.
                         varTmp->frameOffset |= pinned_OFFSET_FLAG;
                         varTmp->vpdEndOfs = filterEnd;
 #endif
 
-                        gcInsertVarPtrDscSplit(desc, varTmp);
+                        InsertSplitStackSlotLifetime(desc, varTmp);
 
 #ifdef DEBUG
                         if (compiler->verbose)
                         {
                             printf("New (1 of 2): ");
-                            gcDumpVarPtrDsc(desc);
+                            DumpStackSlotLifetime(desc);
                             printf("New (2 of 2): ");
-                            gcDumpVarPtrDsc(varTmp);
+                            DumpStackSlotLifetime(varTmp);
                         }
 #endif // DEBUG
                     }
@@ -267,7 +267,7 @@ void GCInfo::gcMarkFilterVarsPinned()
                         if (compiler->verbose)
                         {
                             printf("Pinning lifetime for filter.\nOld: ");
-                            gcDumpVarPtrDsc(varTmp);
+                            DumpStackSlotLifetime(varTmp);
                         }
 #endif // DEBUG
 
@@ -276,7 +276,7 @@ void GCInfo::gcMarkFilterVarsPinned()
                         if (compiler->verbose)
                         {
                             printf("New : ");
-                            gcDumpVarPtrDsc(varTmp);
+                            DumpStackSlotLifetime(varTmp);
                         }
 #endif // DEBUG
                     }
@@ -286,24 +286,25 @@ void GCInfo::gcMarkFilterVarsPinned()
     }     // Foreach EH
 }
 
-// gcInsertVarPtrDscSplit - Insert varPtrDsc that were created by splitting lifetimes
-//     From gcMarkFilterVarsPinned, we may have created one or two `varPtrDsc`s due to splitting lifetimes
-//     and these newly created `varPtrDsc`s should be inserted in gcVarPtrList.
-//     However the semantics of this call depend on the architecture.
+// Insert StackSlotLifetimes that were created by splitting lifetimes.
+// From MarkFilterStackSlotsPinned, we may have created one or two StackSlotLifetimes
+// due to splitting lifetimes and these newly created StackSlotLifetimes should be
+// inserted in firstStackSlotLifetime.
+// However the semantics of this call depend on the architecture.
 //
-//     x86-GCInfo requires gcVarPtrList to be sorted by vpdBegOfs.
-//     Every time inserting an entry we should keep the order of entries.
-//     So this function searches for a proper insertion point from "begin" then "desc" gets inserted.
+// x86-GCInfo requires the stack slot lifetime list to be sorted by beginCodeOffs.
+// Every time inserting an entry we should keep the order of entries.
+// So this function searches for a proper insertion point from "begin" then "desc" gets inserted.
 //
-//     For other architectures(ones that uses GCInfo{En|De}coder), we don't need any sort.
-//     So the argument "begin" is unused and "desc" will be inserted at the front of the list.
-
-void GCInfo::gcInsertVarPtrDscSplit(StackSlotLifetime* desc, StackSlotLifetime* begin)
+// For other architectures(ones that uses GCInfo{En|De}coder), we don't need any sort.
+// So the argument "begin" is unused and "desc" will be inserted at the front of the list.
+//
+void GCInfo::InsertSplitStackSlotLifetime(StackSlotLifetime* desc, StackSlotLifetime* begin)
 {
 #ifndef JIT32_GCENCODER
     (void)begin;
-    desc->next   = gcVarPtrList;
-    gcVarPtrList = desc;
+    desc->next             = firstStackSlotLifetime;
+    firstStackSlotLifetime = desc;
 #else  // JIT32_GCENCODER
     // "desc" and "begin" must not be null
     assert(desc != nullptr);
@@ -332,13 +333,13 @@ void GCInfo::gcInsertVarPtrDscSplit(StackSlotLifetime* desc, StackSlotLifetime* 
 
 #ifdef DEBUG
 
-void GCInfo::gcDumpVarPtrDsc(StackSlotLifetime* desc)
+void GCInfo::DumpStackSlotLifetime(StackSlotLifetime* lifetime) const
 {
-    const int    offs   = (desc->slotOffset & ~OFFSET_MASK);
-    const GCtype gcType = (desc->slotOffset & byref_OFFSET_FLAG) ? GCT_BYREF : GCT_GCREF;
-    const bool   isPin  = (desc->slotOffset & pinned_OFFSET_FLAG) != 0;
+    const int    offs   = (lifetime->slotOffset & ~OFFSET_MASK);
+    const GCtype gcType = (lifetime->slotOffset & byref_OFFSET_FLAG) ? GCT_BYREF : GCT_GCREF;
+    const bool   isPin  = (lifetime->slotOffset & pinned_OFFSET_FLAG) != 0;
 
-    printf("[%08X] %s%s var at [%s", dspPtr(desc), GCtypeStr(gcType), isPin ? "pinned-ptr" : "",
+    printf("[%08X] %s%s var at [%s", dspPtr(lifetime), GCtypeStr(gcType), isPin ? "pinned-ptr" : "",
            compiler->codeGen->isFramePointerUsed() ? STR_FPBASE : STR_SPBASE);
 
     if (offs < 0)
@@ -350,7 +351,7 @@ void GCInfo::gcDumpVarPtrDsc(StackSlotLifetime* desc)
         printf("+%02XH", +offs);
     }
 
-    printf("] live from %04X to %04X\n", desc->beginCodeOffs, desc->endCodeOffs);
+    printf("] live from %04X to %04X\n", lifetime->beginCodeOffs, lifetime->endCodeOffs);
 }
 
 #endif // DEBUG
@@ -431,7 +432,7 @@ unsigned char encodeSigned(BYTE* dest, int val)
  *  Compute the various counts that get stored in the info block header.
  */
 
-void GCInfo::gcCountForHeader(UNALIGNED unsigned int* pUntrackedCount, UNALIGNED unsigned int* pVarPtrTableSize)
+void GCInfo::CountForHeader(UNALIGNED unsigned int* pUntrackedCount, UNALIGNED unsigned int* pVarPtrTableSize)
 {
     unsigned   varNum;
     LclVarDsc* varDsc;
@@ -451,7 +452,7 @@ void GCInfo::gcCountForHeader(UNALIGNED unsigned int* pUntrackedCount, UNALIGNED
 
         if (varTypeIsGC(varDsc->TypeGet()))
         {
-            if (!gcIsUntrackedLocalOrNonEnregisteredArg(varNum, &keepThisAlive))
+            if (!IsUntrackedLocalOrNonEnregisteredArg(varNum, &keepThisAlive))
             {
                 continue;
             }
@@ -536,11 +537,11 @@ void GCInfo::gcCountForHeader(UNALIGNED unsigned int* pUntrackedCount, UNALIGNED
         varPtrTableSize++;
     }
 
-    if (gcVarPtrList != nullptr)
+    if (firstStackSlotLifetime != nullptr)
     {
         // We'll use a delta encoding for the lifetime offsets.
 
-        for (StackSlotLifetime* varTmp = gcVarPtrList; varTmp != nullptr; varTmp = varTmp->next)
+        for (StackSlotLifetime* varTmp = firstStackSlotLifetime; varTmp != nullptr; varTmp = varTmp->next)
         {
             // Special case: skip any 0-length lifetimes.
 
@@ -564,7 +565,7 @@ void GCInfo::gcCountForHeader(UNALIGNED unsigned int* pUntrackedCount, UNALIGNED
 }
 
 //------------------------------------------------------------------------
-// gcIsUntrackedLocalOrNonEnregisteredArg: Check if this varNum with GC type
+// IsUntrackedLocalOrNonEnregisteredArg: Check if this varNum with GC type
 // corresponds to an untracked local or argument that was not fully enregistered.
 //
 //
@@ -576,7 +577,7 @@ void GCInfo::gcCountForHeader(UNALIGNED unsigned int* pUntrackedCount, UNALIGNED
 // Return value:
 //   true if it an untracked pointer value.
 //
-bool GCInfo::gcIsUntrackedLocalOrNonEnregisteredArg(unsigned varNum, bool* pKeepThisAlive)
+bool GCInfo::IsUntrackedLocalOrNonEnregisteredArg(unsigned varNum, bool* pKeepThisAlive)
 {
     LclVarDsc* varDsc = compiler->lvaGetDesc(varNum);
 
@@ -612,8 +613,8 @@ bool GCInfo::gcIsUntrackedLocalOrNonEnregisteredArg(unsigned varNum, bool* pKeep
         else if (varDsc->IsRegParam() && varDsc->HasLiveness())
         {
             // If this register-passed arg is tracked, then it has been allocated space near the other pointer variables
-            // and we have accurate life-time info. It will be reported with gcVarPtrList in the "tracked-pointer"
-            // section.
+            // and we have accurate life-time info. It will be reported with firstStackSlotLifetime in the
+            // "tracked-pointer" section.
             return false;
         }
     }
@@ -646,14 +647,14 @@ bool GCInfo::gcIsUntrackedLocalOrNonEnregisteredArg(unsigned varNum, bool* pKeep
  *  Shutdown the 'pointer value' register tracking logic and save the necessary
  *  info (which will be used at runtime to locate all pointers) at the specified
  *  address. The number of bytes written to 'destPtr' must be identical to that
- *  returned from gcPtrTableSize().
+ *  returned from PtrTableSize().
  */
 
-BYTE* GCInfo::gcPtrTableSave(BYTE* destPtr, const InfoHdr& header, unsigned codeSize, size_t* pArgTabOffset)
+BYTE* GCInfo::PtrTableSave(BYTE* destPtr, const InfoHdr& header, unsigned codeSize, size_t* pArgTabOffset)
 {
     /* Write the tables to the info block */
 
-    return destPtr + gcMakeRegPtrTable(destPtr, -1, header, codeSize, pArgTabOffset);
+    return destPtr + MakeRegPtrTable(destPtr, -1, header, codeSize, pArgTabOffset);
 }
 
 #include "emit.h"
@@ -1504,10 +1505,9 @@ static int measureDistance(const InfoHdr& header, const InfoHdrSmall* p, int clo
     return distance;
 }
 
-// DllMain calls gcInitEncoderLookupTable to fill in this table
-/* extern */ int infoHdrLookup[IH_MAX_PROLOG_SIZE + 2];
+int infoHdrLookup[IH_MAX_PROLOG_SIZE + 2];
 
-/* static */ void GCInfo::gcInitEncoderLookupTable()
+void GCInfo::InitEncoderLookupTable()
 {
     const InfoHdrSmall* p  = &infoHdrShortcut[0];
     int                 lo = -1;
@@ -1743,16 +1743,16 @@ BYTE FASTCALL encodeHeaderFirst(const InfoHdr& header, InfoHdr* state, int* more
 // Write the initial part of the method info block. This is called twice;
 // first to compute the size needed for the info (mask=0), the second time
 // to actually generate the contents of the table (mask=-1,dest!=NULL).
-size_t GCInfo::gcInfoBlockHdrSave(BYTE*     dest,
-                                  int       mask,
-                                  unsigned  methodSize,
-                                  unsigned  prologSize,
-                                  unsigned  epilogSize,
-                                  regMaskTP savedRegs,
-                                  InfoHdr*  header,
-                                  int*      pCached)
+size_t GCInfo::InfoBlockHdrSave(BYTE*     dest,
+                                int       mask,
+                                unsigned  methodSize,
+                                unsigned  prologSize,
+                                unsigned  epilogSize,
+                                regMaskTP savedRegs,
+                                InfoHdr*  header,
+                                int*      pCached)
 {
-    JITDUMP("*************** In gcInfoBlockHdrSave()\n");
+    JITDUMP("*************** In InfoBlockHdrSave()\n");
 
     size_t size = 0;
 
@@ -1854,7 +1854,7 @@ size_t GCInfo::gcInfoBlockHdrSave(BYTE*     dest,
     header->genericsContextIsMethodDesc =
         header->genericsContext && (compiler->info.compMethodInfo->options & (CORINFO_GENERICS_CTXT_FROM_METHODDESC));
 
-    ReturnKind returnKind = getReturnKind();
+    ReturnKind returnKind = GetReturnKind();
     _ASSERTE(IsValidReturnKind(returnKind) && "Return Kind must be valid");
     _ASSERTE(!IsStructReturnKind(returnKind) && "Struct Return Kinds Unexpected for JIT32");
     _ASSERTE(((int)returnKind < (int)SET_RET_KIND_MAX) && "ReturnKind has no legal encoding");
@@ -1912,8 +1912,8 @@ size_t GCInfo::gcInfoBlockHdrSave(BYTE*     dest,
 
     if (mask == 0)
     {
-        gcCountForHeader((UNALIGNED unsigned int*)&header->untrackedCnt,
-                         (UNALIGNED unsigned int*)&header->varPtrTableSize);
+        CountForHeader((UNALIGNED unsigned int*)&header->untrackedCnt,
+                       (UNALIGNED unsigned int*)&header->varPtrTableSize);
     }
 
     //
@@ -2026,7 +2026,7 @@ size_t GCInfo::gcInfoBlockHdrSave(BYTE*     dest,
             gcEpilogTable      = mask ? dest : NULL;
             gcEpilogPrevOffset = 0;
 
-            size_t sz = compiler->GetEmitter()->emitGenEpilogLst(gcRecordEpilog, this);
+            size_t sz = compiler->GetEmitter()->emitGenEpilogLst(RecordEpilog, this);
 
             /* Add the size of the epilog table to the total size */
 
@@ -2060,7 +2060,7 @@ size_t GCInfo::gcInfoBlockHdrSave(BYTE*     dest,
  *  the table of epilogs.
  */
 
-/* static */ size_t GCInfo::gcRecordEpilog(void* pCallBackData, unsigned offset)
+/* static */ size_t GCInfo::RecordEpilog(void* pCallBackData, unsigned offset)
 {
     GCInfo* gcInfo = (GCInfo*)pCallBackData;
 
@@ -2081,7 +2081,7 @@ size_t GCInfo::gcInfoBlockHdrSave(BYTE*     dest,
  *  Return the size of the pointer tracking tables.
  */
 
-size_t GCInfo::gcPtrTableSize(const InfoHdr& header, unsigned codeSize, size_t* pArgTabOffset)
+size_t GCInfo::PtrTableSize(const InfoHdr& header, unsigned codeSize, size_t* pArgTabOffset)
 {
     BYTE temp[16 + 1];
 #ifdef DEBUG
@@ -2090,7 +2090,7 @@ size_t GCInfo::gcPtrTableSize(const InfoHdr& header, unsigned codeSize, size_t* 
 
     /* Compute the total size of the tables */
 
-    size_t size = gcMakeRegPtrTable(temp, 0, header, codeSize, pArgTabOffset);
+    size_t size = MakeRegPtrTable(temp, 0, header, codeSize, pArgTabOffset);
 
     assert(temp[16] == 0xAB); // Check that marker didnt get overwritten
 
@@ -2449,7 +2449,7 @@ unsigned PendingArgsStack::pasEnumGCoffs(unsigned iter, unsigned* offs)
 #pragma warning(push)
 #pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
 #endif
-size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, unsigned codeSize, size_t* pArgTabOffset)
+size_t GCInfo::MakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, unsigned codeSize, size_t* pArgTabOffset)
 {
     unsigned   varNum;
     LclVarDsc* varDsc;
@@ -2490,7 +2490,7 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
 #if DEBUG
     unsigned untrackedCount  = 0;
     unsigned varPtrTableSize = 0;
-    gcCountForHeader(&untrackedCount, &varPtrTableSize);
+    CountForHeader(&untrackedCount, &varPtrTableSize);
     assert(untrackedCount == header.untrackedCnt);
     assert(varPtrTableSize == header.varPtrTableSize);
 #endif // DEBUG
@@ -2511,7 +2511,7 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
 
             if (varTypeIsGC(varDsc->TypeGet()))
             {
-                if (!gcIsUntrackedLocalOrNonEnregisteredArg(varNum))
+                if (!IsUntrackedLocalOrNonEnregisteredArg(varNum))
                 {
                     continue;
                 }
@@ -2650,7 +2650,7 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
     if (!compiler->info.compIsStatic)
     {
         unsigned thisArgNum = compiler->info.compThisArg;
-        gcIsUntrackedLocalOrNonEnregisteredArg(thisArgNum, &keepThisAlive);
+        IsUntrackedLocalOrNonEnregisteredArg(thisArgNum, &keepThisAlive);
     }
 
     // First we check for the most common case - no lifetimes at all.
@@ -2688,7 +2688,7 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
 
         lastOffset = 0;
 
-        for (StackSlotLifetime* varTmp = gcVarPtrList; varTmp; varTmp = varTmp->next)
+        for (StackSlotLifetime* varTmp = firstStackSlotLifetime; varTmp; varTmp = varTmp->next)
         {
             unsigned varOffs;
             unsigned lowBits;
@@ -2772,7 +2772,7 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
 
         /* Walk the list of pointer register/argument entries */
 
-        for (genRegPtrTemp = gcRegPtrList; genRegPtrTemp; genRegPtrTemp = genRegPtrTemp->next)
+        for (genRegPtrTemp = firstRegArgChange; genRegPtrTemp; genRegPtrTemp = genRegPtrTemp->next)
         {
             BYTE* base = dest;
 
@@ -3234,7 +3234,7 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
 
         /* Walk the list of pointer register/argument entries */
 
-        for (call = gcCallDescList; call; call = call->next)
+        for (call = firstCallSite; call; call = call->next)
         {
             BYTE*    base = dest;
             unsigned nextOffset;
@@ -3394,7 +3394,7 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
 
         /* Walk the list of pointer register/argument entries */
 
-        for (genRegPtrTemp = gcRegPtrList; genRegPtrTemp; genRegPtrTemp = genRegPtrTemp->next)
+        for (genRegPtrTemp = firstRegArgChange; genRegPtrTemp; genRegPtrTemp = genRegPtrTemp->next)
         {
 
             /*
@@ -3902,7 +3902,7 @@ const bool verifyGCTables = false;
  *  Dump the info block header.
  */
 
-size_t GCInfo::gcInfoBlockHdrDump(const BYTE* table, InfoHdr* header, unsigned* methodSize)
+size_t GCInfo::InfoBlockHdrDump(const uint8_t* table, InfoHdr* header, unsigned* methodSize)
 {
     GCDump gcDump(GCINFO_VERSION);
 
@@ -3914,7 +3914,7 @@ size_t GCInfo::gcInfoBlockHdrDump(const BYTE* table, InfoHdr* header, unsigned* 
 
 /*****************************************************************************/
 
-size_t GCInfo::gcDumpPtrTable(const BYTE* table, const InfoHdr& header, unsigned methodSize)
+size_t GCInfo::DumpPtrTable(const uint8_t* table, const InfoHdr& header, unsigned methodSize)
 {
     printf("Pointer table:\n");
 
@@ -3922,19 +3922,6 @@ size_t GCInfo::gcDumpPtrTable(const BYTE* table, const InfoHdr& header, unsigned
     gcDump.gcPrintf = gcDump_logf; // use my printf (which logs to VM)
 
     return gcDump.DumpGCTable(table, header, methodSize, verifyGCTables);
-}
-
-/*****************************************************************************
- *
- *  Find all the live pointers in a stack frame.
- */
-
-void GCInfo::gcFindPtrsInFrame(const void* infoBlock, const void* codeBlock, unsigned offs)
-{
-    GCDump gcDump(GCINFO_VERSION);
-    gcDump.gcPrintf = gcDump_logf; // use my printf (which logs to VM)
-
-    gcDump.DumpPtrsInFrame((PTR_CBYTE)infoBlock, (const BYTE*)codeBlock, offs, verifyGCTables);
 }
 
 #endif // DUMP_GC_TABLES
@@ -4147,12 +4134,12 @@ public:
 
 #endif // !(defined(DEBUG) || DUMP_GC_TABLES)
 
-void GCInfo::gcInfoBlockHdrSave(GcInfoEncoder* gcInfoEncoder, unsigned methodSize, unsigned prologSize)
+void GCInfo::InfoBlockHdrSave(GcInfoEncoder* gcInfoEncoder, unsigned methodSize, unsigned prologSize)
 {
 #ifdef DEBUG
     if (compiler->verbose)
     {
-        printf("*************** In gcInfoBlockHdrSave()\n");
+        printf("*************** In InfoBlockHdrSave()\n");
     }
 #endif
 
@@ -4162,7 +4149,7 @@ void GCInfo::gcInfoBlockHdrSave(GcInfoEncoder* gcInfoEncoder, unsigned methodSiz
 
     gcInfoEncoderWithLog->SetCodeLength(methodSize);
 
-    gcInfoEncoderWithLog->SetReturnKind(getReturnKind());
+    gcInfoEncoderWithLog->SetReturnKind(GetReturnKind());
 
     if (compiler->codeGen->isFramePointerUsed())
     {
@@ -4367,7 +4354,7 @@ struct InterruptibleRangeReporter
     }
 };
 
-void GCInfo::gcMakeRegPtrTable(
+void GCInfo::MakeRegPtrTable(
     GcInfoEncoder* gcInfoEncoder, unsigned codeSize, unsigned prologSize, MakeRegPtrMode mode, unsigned* callCntRef)
 {
     GCENCODER_WITH_LOGGING(gcInfoEncoderWithLog, gcInfoEncoder);
@@ -4437,7 +4424,7 @@ void GCInfo::gcMakeRegPtrTable(
                         // it has been allocated space near the other
                         // pointer variables and we have accurate life-
                         // time info. It will be reported with
-                        // gcVarPtrList in the "tracked-pointer" section.
+                        // firstStackSlotLifetime in the "tracked-pointer" section.
                         continue;
                     }
                 }
@@ -4467,7 +4454,7 @@ void GCInfo::gcMakeRegPtrTable(
             if (noTrackedGCSlots)
             {
                 // No need to hash/lookup untracked GC refs; just grab a new Slot Id.
-                if (mode == MAKE_REG_PTR_MODE_ASSIGN_SLOTS)
+                if (mode == MakeRegPtrMode::AssignSlots)
                 {
                     gcInfoEncoderWithLog->GetStackSlotId(varDsc->GetStackOffset(), flags, stackSlotBase);
                 }
@@ -4476,13 +4463,13 @@ void GCInfo::gcMakeRegPtrTable(
             {
                 StackSlotIdKey sskey(varDsc->GetStackOffset(), (stackSlotBase == GC_FRAMEREG_REL), flags);
                 GcSlotId       varSlotId;
-                if (mode == MAKE_REG_PTR_MODE_ASSIGN_SLOTS)
+                if (mode == MakeRegPtrMode::AssignSlots)
                 {
-                    if (!m_stackSlotMap.Lookup(sskey, &varSlotId))
+                    if (!stackSlotMap.Lookup(sskey, &varSlotId))
                     {
                         varSlotId =
                             gcInfoEncoderWithLog->GetStackSlotId(varDsc->GetStackOffset(), flags, stackSlotBase);
-                        m_stackSlotMap.Set(sskey, varSlotId);
+                        stackSlotMap.Set(sskey, varSlotId);
                     }
                 }
             }
@@ -4524,19 +4511,19 @@ void GCInfo::gcMakeRegPtrTable(
                 }
                 StackSlotIdKey sskey(offset, (stackSlotBase == GC_FRAMEREG_REL), flags);
                 GcSlotId       varSlotId;
-                if (mode == MAKE_REG_PTR_MODE_ASSIGN_SLOTS)
+                if (mode == MakeRegPtrMode::AssignSlots)
                 {
-                    if (!m_stackSlotMap.Lookup(sskey, &varSlotId))
+                    if (!stackSlotMap.Lookup(sskey, &varSlotId))
                     {
                         varSlotId = gcInfoEncoderWithLog->GetStackSlotId(offset, flags, stackSlotBase);
-                        m_stackSlotMap.Set(sskey, varSlotId);
+                        stackSlotMap.Set(sskey, varSlotId);
                     }
                 }
             }
         }
     }
 
-    if (mode == MAKE_REG_PTR_MODE_ASSIGN_SLOTS)
+    if (mode == MakeRegPtrMode::AssignSlots)
     {
         // Count & write spill temps that hold pointers.
 
@@ -4563,10 +4550,10 @@ void GCInfo::gcMakeRegPtrTable(
             }
             StackSlotIdKey sskey(offset, (stackSlotBase == GC_FRAMEREG_REL), flags);
             GcSlotId       varSlotId;
-            if (!m_stackSlotMap.Lookup(sskey, &varSlotId))
+            if (!stackSlotMap.Lookup(sskey, &varSlotId))
             {
                 varSlotId = gcInfoEncoderWithLog->GetStackSlotId(offset, flags, stackSlotBase);
-                m_stackSlotMap.Set(sskey, varSlotId);
+                stackSlotMap.Set(sskey, varSlotId);
             }
         }
 
@@ -4591,7 +4578,7 @@ void GCInfo::gcMakeRegPtrTable(
     }
 
     // Generate the table of tracked stack pointer variable lifetimes.
-    gcMakeVarPtrTable(gcInfoEncoder, mode);
+    MakeVarPtrTable(gcInfoEncoder, mode);
 
     /**************************************************************************
      *
@@ -4609,18 +4596,19 @@ void GCInfo::gcMakeRegPtrTable(
 
         // Walk the list of pointer register/argument entries.
 
-        for (RegArgChange* genRegPtrTemp = gcRegPtrList; genRegPtrTemp != nullptr; genRegPtrTemp = genRegPtrTemp->next)
+        for (RegArgChange* genRegPtrTemp = firstRegArgChange; genRegPtrTemp != nullptr;
+             genRegPtrTemp               = genRegPtrTemp->next)
         {
             if (genRegPtrTemp->isArg)
             {
                 if (genRegPtrTemp->kind == RegArgChangeKind::Kill)
                 {
                     // Kill all arguments for a call
-                    if ((mode == MAKE_REG_PTR_MODE_DO_WORK) && (regStackArgFirst != nullptr))
+                    if ((mode == MakeRegPtrMode::DoWork) && (regStackArgFirst != nullptr))
                     {
                         // Record any outgoing arguments as becoming dead
-                        gcInfoRecordGCStackArgsDead(gcInfoEncoder, genRegPtrTemp->codeOffs, regStackArgFirst,
-                                                    genRegPtrTemp);
+                        InfoRecordGCStackArgsDead(gcInfoEncoder, genRegPtrTemp->codeOffs, regStackArgFirst,
+                                                  genRegPtrTemp);
                     }
                     regStackArgFirst = nullptr;
                 }
@@ -4630,7 +4618,7 @@ void GCInfo::gcMakeRegPtrTable(
                     {
                         bool isPop = genRegPtrTemp->kind == RegArgChangeKind::Pop;
                         assert(!isPop);
-                        gcInfoRecordGCStackArgLive(gcInfoEncoder, mode, genRegPtrTemp);
+                        InfoRecordGCStackArgLive(gcInfoEncoder, mode, genRegPtrTemp);
                         if (regStackArgFirst == nullptr)
                         {
                             regStackArgFirst = genRegPtrTemp;
@@ -4646,11 +4634,11 @@ void GCInfo::gcMakeRegPtrTable(
                         assert(genRegPtrTemp->isArg && genRegPtrTemp->IsCallInstr());
 
                         // Kill all arguments for a call
-                        if ((mode == MAKE_REG_PTR_MODE_DO_WORK) && (regStackArgFirst != nullptr))
+                        if ((mode == MakeRegPtrMode::DoWork) && (regStackArgFirst != nullptr))
                         {
                             // Record any outgoing arguments as becoming dead
-                            gcInfoRecordGCStackArgsDead(gcInfoEncoder, genRegPtrTemp->codeOffs, regStackArgFirst,
-                                                        genRegPtrTemp);
+                            InfoRecordGCStackArgsDead(gcInfoEncoder, genRegPtrTemp->codeOffs, regStackArgFirst,
+                                                      genRegPtrTemp);
                         }
                         regStackArgFirst = nullptr;
                     }
@@ -4666,8 +4654,8 @@ void GCInfo::gcMakeRegPtrTable(
                 {
                     byRefMask = regMask;
                 }
-                gcInfoRecordGCRegStateChange(gcInfoEncoder, mode, genRegPtrTemp->codeOffs, regMask, GC_SLOT_DEAD,
-                                             byRefMask, &ptrRegs);
+                InfoRecordGCRegStateChange(gcInfoEncoder, mode, genRegPtrTemp->codeOffs, regMask, GC_SLOT_DEAD,
+                                           byRefMask, &ptrRegs);
 
                 // Record any registers that are becoming live.
                 regMask   = genRegPtrTemp->addRegs & ~ptrRegs;
@@ -4678,13 +4666,13 @@ void GCInfo::gcMakeRegPtrTable(
                 {
                     byRefMask = regMask;
                 }
-                gcInfoRecordGCRegStateChange(gcInfoEncoder, mode, genRegPtrTemp->codeOffs, regMask, GC_SLOT_LIVE,
-                                             byRefMask, &ptrRegs);
+                InfoRecordGCRegStateChange(gcInfoEncoder, mode, genRegPtrTemp->codeOffs, regMask, GC_SLOT_LIVE,
+                                           byRefMask, &ptrRegs);
             }
         }
 
         // Now we can declare the entire method body fully interruptible.
-        if (mode == MAKE_REG_PTR_MODE_DO_WORK)
+        if (mode == MakeRegPtrMode::DoWork)
         {
             assert(prologSize <= codeSize);
 
@@ -4717,9 +4705,9 @@ void GCInfo::gcMakeRegPtrTable(
         BYTE*     pCallSiteSizes = nullptr;
         unsigned  callSiteNum    = 0;
 
-        if (mode == MAKE_REG_PTR_MODE_DO_WORK)
+        if (mode == MakeRegPtrMode::DoWork)
         {
-            if (gcCallDescList != nullptr)
+            if (firstCallSite != nullptr)
             {
                 if (noTrackedGCSlots)
                 {
@@ -4735,7 +4723,7 @@ void GCInfo::gcMakeRegPtrTable(
                 }
                 else
                 {
-                    for (CallSite* call = gcCallDescList; call != nullptr; call = call->next)
+                    for (CallSite* call = firstCallSite; call != nullptr; call = call->next)
                     {
                         numCallSites++;
                     }
@@ -4746,7 +4734,7 @@ void GCInfo::gcMakeRegPtrTable(
         }
 
         // Now consider every call.
-        for (CallSite* call = gcCallDescList; call != nullptr; call = call->next)
+        for (CallSite* call = firstCallSite; call != nullptr; call = call->next)
         {
             // Figure out the code offset of this entry.
             unsigned nextOffset = call->codeOffs;
@@ -4770,7 +4758,7 @@ void GCInfo::gcMakeRegPtrTable(
             else
             {
                 // Append an entry for the call if doing the real thing.
-                if (mode == MAKE_REG_PTR_MODE_DO_WORK)
+                if (mode == MakeRegPtrMode::DoWork)
                 {
                     pCallSites[callSiteNum]     = callOffset;
                     pCallSiteSizes[callSiteNum] = call->callInstrLength;
@@ -4778,20 +4766,20 @@ void GCInfo::gcMakeRegPtrTable(
                 callSiteNum++;
 
                 // Record that these registers are live before the call...
-                gcInfoRecordGCRegStateChange(gcInfoEncoder, mode, callOffset, regMask, GC_SLOT_LIVE, byrefRegMask,
-                                             nullptr);
+                InfoRecordGCRegStateChange(gcInfoEncoder, mode, callOffset, regMask, GC_SLOT_LIVE, byrefRegMask,
+                                           nullptr);
                 // ...and dead after.
-                gcInfoRecordGCRegStateChange(gcInfoEncoder, mode, nextOffset, regMask, GC_SLOT_DEAD, byrefRegMask,
-                                             nullptr);
+                InfoRecordGCRegStateChange(gcInfoEncoder, mode, nextOffset, regMask, GC_SLOT_DEAD, byrefRegMask,
+                                           nullptr);
             }
         }
         // Make sure we've recorded the expected number of calls
-        assert(mode != MAKE_REG_PTR_MODE_DO_WORK || numCallSites == callSiteNum);
+        assert(mode != MakeRegPtrMode::DoWork || numCallSites == callSiteNum);
         // Return the actual recorded call count to the caller
         *callCntRef = callSiteNum;
 
         // OK, define the call sites.
-        if (mode == MAKE_REG_PTR_MODE_DO_WORK)
+        if (mode == MakeRegPtrMode::DoWork)
         {
             gcInfoEncoderWithLog->DefineCallSites(pCallSites, pCallSiteSizes, numCallSites);
         }
@@ -4809,9 +4797,9 @@ void GCInfo::gcMakeRegPtrTable(
         BYTE*     pCallSiteSizes = nullptr;
         unsigned  callSiteNum    = 0;
 
-        if (mode == MAKE_REG_PTR_MODE_DO_WORK)
+        if (mode == MakeRegPtrMode::DoWork)
         {
-            for (RegArgChange* genRegPtrTemp = gcRegPtrList; genRegPtrTemp != nullptr;
+            for (RegArgChange* genRegPtrTemp = firstRegArgChange; genRegPtrTemp != nullptr;
                  genRegPtrTemp               = genRegPtrTemp->next)
             {
                 if (genRegPtrTemp->isArg && genRegPtrTemp->IsCallInstr())
@@ -4827,7 +4815,8 @@ void GCInfo::gcMakeRegPtrTable(
             }
         }
 
-        for (RegArgChange* genRegPtrTemp = gcRegPtrList; genRegPtrTemp != nullptr; genRegPtrTemp = genRegPtrTemp->next)
+        for (RegArgChange* genRegPtrTemp = firstRegArgChange; genRegPtrTemp != nullptr;
+             genRegPtrTemp               = genRegPtrTemp->next)
         {
             if (genRegPtrTemp->isArg)
             {
@@ -4849,13 +4838,13 @@ void GCInfo::gcMakeRegPtrTable(
 
                     // Tell the GCInfo encoder about these registers.  We say that the registers become live
                     // before the call instruction, and dead after.
-                    gcInfoRecordGCRegStateChange(gcInfoEncoder, mode, callOffset, regMask, GC_SLOT_LIVE, byrefRegMask,
-                                                 nullptr);
-                    gcInfoRecordGCRegStateChange(gcInfoEncoder, mode, genRegPtrTemp->codeOffs, regMask, GC_SLOT_DEAD,
-                                                 byrefRegMask, nullptr);
+                    InfoRecordGCRegStateChange(gcInfoEncoder, mode, callOffset, regMask, GC_SLOT_LIVE, byrefRegMask,
+                                               nullptr);
+                    InfoRecordGCRegStateChange(gcInfoEncoder, mode, genRegPtrTemp->codeOffs, regMask, GC_SLOT_DEAD,
+                                               byrefRegMask, nullptr);
 
                     // Also remember the call site.
-                    if (mode == MAKE_REG_PTR_MODE_DO_WORK)
+                    if (mode == MakeRegPtrMode::DoWork)
                     {
                         assert(pCallSites != nullptr && pCallSiteSizes != nullptr);
                         pCallSites[callSiteNum]     = callOffset;
@@ -4873,20 +4862,20 @@ void GCInfo::gcMakeRegPtrTable(
             }
         }
         // The routine is fully interruptible.
-        if (mode == MAKE_REG_PTR_MODE_DO_WORK)
+        if (mode == MakeRegPtrMode::DoWork)
         {
             gcInfoEncoderWithLog->DefineCallSites(pCallSites, pCallSiteSizes, numCallSites);
         }
     }
 }
 
-void GCInfo::gcInfoRecordGCRegStateChange(GcInfoEncoder* gcInfoEncoder,
-                                          MakeRegPtrMode mode,
-                                          unsigned       instrOffset,
-                                          regMaskSmall   regMask,
-                                          GcSlotState    newState,
-                                          regMaskSmall   byRefMask,
-                                          regMaskSmall*  pPtrRegs)
+void GCInfo::InfoRecordGCRegStateChange(GcInfoEncoder* gcInfoEncoder,
+                                        MakeRegPtrMode mode,
+                                        unsigned       instrOffset,
+                                        regMaskSmall   regMask,
+                                        GcSlotState    newState,
+                                        regMaskSmall   byRefMask,
+                                        regMaskSmall*  pPtrRegs)
 {
     // Precondition: byRefMask is a subset of regMask.
     assert((byRefMask & ~regMask) == 0);
@@ -4926,17 +4915,17 @@ void GCInfo::gcInfoRecordGCRegStateChange(GcInfoEncoder* gcInfoEncoder,
 
         RegSlotIdKey rskey(regNum, regFlags);
         GcSlotId     regSlotId;
-        if (mode == MAKE_REG_PTR_MODE_ASSIGN_SLOTS)
+        if (mode == MakeRegPtrMode::AssignSlots)
         {
-            if (!m_regSlotMap.Lookup(rskey, &regSlotId))
+            if (!regSlotMap.Lookup(rskey, &regSlotId))
             {
                 regSlotId = gcInfoEncoderWithLog->GetRegisterSlotId(regNum, regFlags);
-                m_regSlotMap.Set(rskey, regSlotId);
+                regSlotMap.Set(rskey, regSlotId);
             }
         }
         else
         {
-            bool b = m_regSlotMap.Lookup(rskey, &regSlotId);
+            bool b = regSlotMap.Lookup(rskey, &regSlotId);
             assert(b); // Should have been added in the first pass.
             gcInfoEncoderWithLog->SetSlotState(instrOffset, regSlotId, newState);
         }
@@ -4948,7 +4937,7 @@ void GCInfo::gcInfoRecordGCRegStateChange(GcInfoEncoder* gcInfoEncoder,
 
 /**************************************************************************
  *
- *  gcMakeVarPtrTable - Generate the table of tracked stack pointer
+ *  MakeVarPtrTable - Generate the table of tracked stack pointer
  *      variable lifetimes.
  *
  *  In the first pass we'll allocate slot Ids
@@ -4957,7 +4946,7 @@ void GCInfo::gcInfoRecordGCRegStateChange(GcInfoEncoder* gcInfoEncoder,
  **************************************************************************
  */
 
-void GCInfo::gcMakeVarPtrTable(GcInfoEncoder* gcInfoEncoder, MakeRegPtrMode mode)
+void GCInfo::MakeVarPtrTable(GcInfoEncoder* gcInfoEncoder, MakeRegPtrMode mode)
 {
     GCENCODER_WITH_LOGGING(gcInfoEncoderWithLog, gcInfoEncoder);
 
@@ -4966,13 +4955,13 @@ void GCInfo::gcMakeVarPtrTable(GcInfoEncoder* gcInfoEncoder, MakeRegPtrMode mode
     C_ASSERT((OFFSET_MASK + 1) <= sizeof(int));
 
 #ifdef DEBUG
-    if (mode == MAKE_REG_PTR_MODE_ASSIGN_SLOTS)
+    if (mode == MakeRegPtrMode::AssignSlots)
     {
         // Tracked variables can't be pinned, and the encoding takes
         // advantage of that by using the same bit for 'pinned' and 'this'
         // Since we don't track 'this', we should never see either flag here.
         // Check it now before we potentially add some pinned flags.
-        for (StackSlotLifetime* varTmp = gcVarPtrList; varTmp != nullptr; varTmp = varTmp->next)
+        for (StackSlotLifetime* varTmp = firstStackSlotLifetime; varTmp != nullptr; varTmp = varTmp->next)
         {
             const unsigned flags = varTmp->slotOffset & OFFSET_MASK;
             assert((flags & pinned_OFFSET_FLAG) == 0);
@@ -4982,12 +4971,12 @@ void GCInfo::gcMakeVarPtrTable(GcInfoEncoder* gcInfoEncoder, MakeRegPtrMode mode
 #endif // DEBUG
 
     // Only need to do this once, and only if we have EH.
-    if ((mode == MAKE_REG_PTR_MODE_ASSIGN_SLOTS) && compiler->ehAnyFunclets())
+    if ((mode == MakeRegPtrMode::AssignSlots) && compiler->ehAnyFunclets())
     {
-        gcMarkFilterVarsPinned();
+        MarkFilterStackSlotsPinned();
     }
 
-    for (StackSlotLifetime* varTmp = gcVarPtrList; varTmp != nullptr; varTmp = varTmp->next)
+    for (StackSlotLifetime* varTmp = firstStackSlotLifetime; varTmp != nullptr; varTmp = varTmp->next)
     {
         C_ASSERT((OFFSET_MASK + 1) <= sizeof(int));
 
@@ -5026,17 +5015,17 @@ void GCInfo::gcMakeVarPtrTable(GcInfoEncoder* gcInfoEncoder, MakeRegPtrMode mode
         }
         StackSlotIdKey sskey(varOffs, (stackSlotBase == GC_FRAMEREG_REL), flags);
         GcSlotId       varSlotId;
-        if (mode == MAKE_REG_PTR_MODE_ASSIGN_SLOTS)
+        if (mode == MakeRegPtrMode::AssignSlots)
         {
-            if (!m_stackSlotMap.Lookup(sskey, &varSlotId))
+            if (!stackSlotMap.Lookup(sskey, &varSlotId))
             {
                 varSlotId = gcInfoEncoderWithLog->GetStackSlotId(varOffs, flags, stackSlotBase);
-                m_stackSlotMap.Set(sskey, varSlotId);
+                stackSlotMap.Set(sskey, varSlotId);
             }
         }
         else
         {
-            bool b = m_stackSlotMap.Lookup(sskey, &varSlotId);
+            bool b = stackSlotMap.Lookup(sskey, &varSlotId);
             assert(b); // Should have been added in the first pass.
             // Live from the beginning to the end.
             gcInfoEncoderWithLog->SetSlotState(begOffs, varSlotId, GC_SLOT_LIVE);
@@ -5045,7 +5034,7 @@ void GCInfo::gcMakeVarPtrTable(GcInfoEncoder* gcInfoEncoder, MakeRegPtrMode mode
     }
 }
 
-void GCInfo::gcInfoRecordGCStackArgLive(GcInfoEncoder* gcInfoEncoder, MakeRegPtrMode mode, RegArgChange* genStackPtr)
+void GCInfo::InfoRecordGCStackArgLive(GcInfoEncoder* gcInfoEncoder, MakeRegPtrMode mode, RegArgChange* genStackPtr)
 {
     // On non-x86 platforms, don't have pointer argument push/pop/kill declarations.
     // But we use the same mechanism to record writes into the outgoing argument space...
@@ -5061,27 +5050,27 @@ void GCInfo::gcInfoRecordGCStackArgLive(GcInfoEncoder* gcInfoEncoder, MakeRegPtr
     StackSlotIdKey sskey(genStackPtr->argOffset, false,
                          GcSlotFlags(genStackPtr->gcType == GCT_BYREF ? GC_SLOT_INTERIOR : GC_SLOT_BASE));
     GcSlotId varSlotId;
-    if (mode == MAKE_REG_PTR_MODE_ASSIGN_SLOTS)
+    if (mode == MakeRegPtrMode::AssignSlots)
     {
-        if (!m_stackSlotMap.Lookup(sskey, &varSlotId))
+        if (!stackSlotMap.Lookup(sskey, &varSlotId))
         {
             varSlotId = gcInfoEncoderWithLog->GetStackSlotId(sskey.m_offset, (GcSlotFlags)sskey.m_flags, GC_SP_REL);
-            m_stackSlotMap.Set(sskey, varSlotId);
+            stackSlotMap.Set(sskey, varSlotId);
         }
     }
     else
     {
-        bool b = m_stackSlotMap.Lookup(sskey, &varSlotId);
+        bool b = stackSlotMap.Lookup(sskey, &varSlotId);
         assert(b); // Should have been added in the first pass.
         // Live until the call.
         gcInfoEncoderWithLog->SetSlotState(genStackPtr->codeOffs, varSlotId, GC_SLOT_LIVE);
     }
 }
 
-void GCInfo::gcInfoRecordGCStackArgsDead(GcInfoEncoder* gcInfoEncoder,
-                                         unsigned       instrOffset,
-                                         RegArgChange*  genStackPtrFirst,
-                                         RegArgChange*  genStackPtrLast)
+void GCInfo::InfoRecordGCStackArgsDead(GcInfoEncoder* gcInfoEncoder,
+                                       unsigned       instrOffset,
+                                       RegArgChange*  genStackPtrFirst,
+                                       RegArgChange*  genStackPtrLast)
 {
     // After a call all of the outgoing arguments are marked as dead.
     // The calling loop keeps track of the first argument pushed for this call
@@ -5109,7 +5098,7 @@ void GCInfo::gcInfoRecordGCStackArgsDead(GcInfoEncoder* gcInfoEncoder,
         StackSlotIdKey sskey(genRegPtrTemp->argOffset, false,
                              genRegPtrTemp->gcType == GCT_BYREF ? GC_SLOT_INTERIOR : GC_SLOT_BASE);
         GcSlotId varSlotId;
-        bool     b = m_stackSlotMap.Lookup(sskey, &varSlotId);
+        bool     b = stackSlotMap.Lookup(sskey, &varSlotId);
         assert(b); // Should have been added in the first pass.
         // Live until the call.
         gcInfoEncoderWithLog->SetSlotState(instrOffset, varSlotId, GC_SLOT_DEAD);

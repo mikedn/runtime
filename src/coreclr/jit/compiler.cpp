@@ -480,27 +480,16 @@ LONG Compiler::s_compMethodsCount = 0; // to produce unique label names
 const bool Compiler::Options::compNoPInvokeInlineCB = false;
 #endif
 
-/*****************************************************************************
- *
- *  One time initialization code
- */
-
-/* static */
 void Compiler::compStartup()
 {
 #if DISPLAY_SIZES
     grossVMsize = grossNCsize = totalNCsize = 0;
-#endif // DISPLAY_SIZES
-
-/* Initialize the table of tree node sizes */
-
-#ifdef JIT32_GCENCODER
-    // Initialize the GC encoder lookup table
-
-    GCInfo::gcInitEncoderLookupTable();
 #endif
 
-    // Static vars of ValueNumStore
+#ifdef JIT32_GCENCODER
+    GCInfo::InitEncoderLookupTable();
+#endif
+
     ValueNumStore::InitValueNumStoreStatics();
 
     compDisplayStaticSizes(jitstdout);

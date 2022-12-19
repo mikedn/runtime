@@ -2832,12 +2832,13 @@ void emitter::emitDispGCVarDelta()
 void emitter::emitDispRegPtrListDelta()
 {
     // Dump any deltas for outgoing args; these aren't captured in the other sets.
-    if (debugPrevRegPtrDsc == gcInfo.gcRegPtrLast)
+    if (debugPrevRegPtrDsc == gcInfo.GetLastRegArgChange())
     {
         return;
     }
 
-    for (GCRegArgChange* dsc = (debugPrevRegPtrDsc == nullptr) ? gcInfo.gcRegPtrList : debugPrevRegPtrDsc->next;
+    for (GCRegArgChange* dsc = (debugPrevRegPtrDsc == nullptr) ? gcInfo.GetFirstRegArgChange()
+                                                               : debugPrevRegPtrDsc->next;
          dsc != nullptr; dsc = dsc->next)
     {
         // The non-arg regPtrDscs are reflected in the register sets debugPrevGCrefRegs/emitThisGCrefRegs
@@ -2877,7 +2878,7 @@ void emitter::emitDispRegPtrListDelta()
         printf("\n");
     }
 
-    debugPrevRegPtrDsc = gcInfo.gcRegPtrLast;
+    debugPrevRegPtrDsc = gcInfo.GetLastRegArgChange();
 }
 
 //------------------------------------------------------------------------
@@ -7162,7 +7163,7 @@ void emitter::emitRecordGCCallPop(BYTE* addr, unsigned callInstrLength)
 
     for (unsigned i = 0; i < CNT_CALLEE_SAVED; i++)
     {
-        regMaskTP calleeSaved = GCInfo::raRbmCalleeSaveOrder[i];
+        regMaskTP calleeSaved = GCInfo::calleeSaveOrder[i];
 
         if ((emitThisGCrefRegs & calleeSaved) != RBM_NONE)
         {
@@ -7576,7 +7577,7 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSi
     // of callee-saved registers only).
     for (unsigned calleeSavedRegIdx = 0; calleeSavedRegIdx < CNT_CALLEE_SAVED; calleeSavedRegIdx++)
     {
-        regMaskTP calleeSavedRbm = GCInfo::raRbmCalleeSaveOrder[calleeSavedRegIdx];
+        regMaskTP calleeSavedRbm = GCInfo::calleeSaveOrder[calleeSavedRegIdx];
         if (emitThisGCrefRegs & calleeSavedRbm)
         {
             gcrefRegs |= (1 << calleeSavedRegIdx);
