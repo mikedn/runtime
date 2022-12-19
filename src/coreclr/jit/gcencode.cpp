@@ -432,7 +432,7 @@ unsigned char encodeSigned(BYTE* dest, int val)
  *  Compute the various counts that get stored in the info block header.
  */
 
-void GCInfo::CountForHeader(UNALIGNED unsigned int* pUntrackedCount, UNALIGNED unsigned int* pVarPtrTableSize)
+void GCInfo::CountForHeader(unsigned* pUntrackedCount, unsigned* pVarPtrTableSize)
 {
     unsigned   varNum;
     LclVarDsc* varDsc;
@@ -1912,8 +1912,13 @@ size_t GCInfo::InfoBlockHdrSave(BYTE*     dest,
 
     if (mask == 0)
     {
-        CountForHeader((UNALIGNED unsigned int*)&header->untrackedCnt,
-                       (UNALIGNED unsigned int*)&header->varPtrTableSize);
+        unsigned untrackedCount  = 0;
+        unsigned varPtrTableSize = 0;
+
+        CountForHeader(&untrackedCount, &varPtrTableSize);
+
+        header->untrackedCnt    = untrackedCount;
+        header->varPtrTableSize = varPtrTableSize;
     }
 
     //

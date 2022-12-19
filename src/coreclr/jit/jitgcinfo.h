@@ -224,7 +224,7 @@ public:
                                unsigned epilogSize DEBUGARG(void* codePtr));
 
 private:
-    void CountForHeader(UNALIGNED unsigned int* pUntrackedCount, UNALIGNED unsigned int* pVarPtrTableSize);
+    void CountForHeader(unsigned* pUntrackedCount, unsigned* pVarPtrTableSize);
     bool IsUntrackedLocalOrNonEnregisteredArg(unsigned varNum, bool* pThisKeptAliveIsInUntracked = nullptr);
     size_t MakeRegPtrTable(uint8_t* dest, int mask, const InfoHdr& header, unsigned codeSize, size_t* pArgTabOffset);
     size_t PtrTableSize(const InfoHdr& header, unsigned codeSize, size_t* pArgTabOffset);
