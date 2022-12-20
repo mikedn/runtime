@@ -4466,7 +4466,7 @@ void GCInfo::MakeRegPtrTable(
             }
             else
             {
-                StackSlotIdKey sskey(varDsc->GetStackOffset(), (stackSlotBase == GC_FRAMEREG_REL), flags);
+                StackSlotIdKey sskey(varDsc->GetStackOffset(), flags, stackSlotBase);
                 GcSlotId       varSlotId;
                 if (mode == MakeRegPtrMode::AssignSlots)
                 {
@@ -4514,7 +4514,7 @@ void GCInfo::MakeRegPtrTable(
                 {
                     stackSlotBase = GC_FRAMEREG_REL;
                 }
-                StackSlotIdKey sskey(offset, (stackSlotBase == GC_FRAMEREG_REL), flags);
+                StackSlotIdKey sskey(offset, flags, stackSlotBase);
                 GcSlotId       varSlotId;
                 if (mode == MakeRegPtrMode::AssignSlots)
                 {
@@ -4553,7 +4553,7 @@ void GCInfo::MakeRegPtrTable(
             {
                 stackSlotBase = GC_FRAMEREG_REL;
             }
-            StackSlotIdKey sskey(offset, (stackSlotBase == GC_FRAMEREG_REL), flags);
+            StackSlotIdKey sskey(offset, flags, stackSlotBase);
             GcSlotId       varSlotId;
             if (!stackSlotMap.Lookup(sskey, &varSlotId))
             {
@@ -5018,7 +5018,7 @@ void GCInfo::MakeVarPtrTable(GcInfoEncoder* gcInfoEncoder, MakeRegPtrMode mode)
         {
             stackSlotBase = GC_FRAMEREG_REL;
         }
-        StackSlotIdKey sskey(varOffs, (stackSlotBase == GC_FRAMEREG_REL), flags);
+        StackSlotIdKey sskey(varOffs, flags, stackSlotBase);
         GcSlotId       varSlotId;
         if (mode == MakeRegPtrMode::AssignSlots)
         {
@@ -5052,14 +5052,14 @@ void GCInfo::InfoRecordGCStackArgLive(GcInfoEncoder* gcInfoEncoder, MakeRegPtrMo
 
     GCENCODER_WITH_LOGGING(gcInfoEncoderWithLog, gcInfoEncoder);
 
-    StackSlotIdKey sskey(genStackPtr->argOffset, false,
-                         GcSlotFlags(genStackPtr->gcType == GCT_BYREF ? GC_SLOT_INTERIOR : GC_SLOT_BASE));
-    GcSlotId varSlotId;
+    GcSlotFlags    slotFlags = genStackPtr->gcType == GCT_BYREF ? GC_SLOT_INTERIOR : GC_SLOT_BASE;
+    StackSlotIdKey sskey(genStackPtr->argOffset, slotFlags, GC_SP_REL);
+    GcSlotId       varSlotId;
     if (mode == MakeRegPtrMode::AssignSlots)
     {
         if (!stackSlotMap.Lookup(sskey, &varSlotId))
         {
-            varSlotId = gcInfoEncoderWithLog->GetStackSlotId(sskey.m_offset, (GcSlotFlags)sskey.m_flags, GC_SP_REL);
+            varSlotId = gcInfoEncoderWithLog->GetStackSlotId(genStackPtr->argOffset, slotFlags, GC_SP_REL);
             stackSlotMap.Set(sskey, varSlotId);
         }
     }
@@ -5100,8 +5100,8 @@ void GCInfo::InfoRecordGCStackArgsDead(GcInfoEncoder* gcInfoEncoder,
         assert(genRegPtrTemp->gcType != GCT_NONE);
         assert(genRegPtrTemp->kind == RegArgChangeKind::Push);
 
-        StackSlotIdKey sskey(genRegPtrTemp->argOffset, false,
-                             genRegPtrTemp->gcType == GCT_BYREF ? GC_SLOT_INTERIOR : GC_SLOT_BASE);
+        StackSlotIdKey sskey(genRegPtrTemp->argOffset,
+                             genRegPtrTemp->gcType == GCT_BYREF ? GC_SLOT_INTERIOR : GC_SLOT_BASE, GC_SP_REL);
         GcSlotId varSlotId;
         bool     b = stackSlotMap.Lookup(sskey, &varSlotId);
         assert(b); // Should have been added in the first pass.

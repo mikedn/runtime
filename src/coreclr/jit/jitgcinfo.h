@@ -105,53 +105,54 @@ public:
 
 private:
 #ifndef JIT32_GCENCODER
-    struct RegSlotIdKey
+    class RegSlotIdKey
     {
-        uint16_t m_regNum;
-        uint16_t m_flags;
+        unsigned key;
 
+    public:
         RegSlotIdKey()
         {
         }
 
-        RegSlotIdKey(unsigned short regNum, unsigned short flags) : m_regNum(regNum), m_flags(flags)
+        RegSlotIdKey(regNumber regNum, GcSlotFlags flags)
+            : key(static_cast<unsigned>(regNum) | (static_cast<unsigned>(flags) << 16))
         {
         }
 
-        static unsigned GetHashCode(RegSlotIdKey rsk)
+        static unsigned GetHashCode(RegSlotIdKey k)
         {
-            return (rsk.m_flags << (8 * sizeof(unsigned short))) + rsk.m_regNum;
+            return k.key;
         }
 
-        static bool Equals(RegSlotIdKey rsk1, RegSlotIdKey rsk2)
+        static bool Equals(RegSlotIdKey x, RegSlotIdKey y)
         {
-            return rsk1.m_regNum == rsk2.m_regNum && rsk1.m_flags == rsk2.m_flags;
+            return x.key == y.key;
         }
     };
 
-    struct StackSlotIdKey
+    class StackSlotIdKey
     {
-        int            m_offset;
-        bool           m_fpRel;
-        unsigned short m_flags;
+        uint64_t key;
 
+    public:
         StackSlotIdKey()
         {
         }
 
-        StackSlotIdKey(int offset, bool fpRel, unsigned short flags) : m_offset(offset), m_fpRel(fpRel), m_flags(flags)
+        StackSlotIdKey(int offset, GcSlotFlags flags, GcStackSlotBase base)
+            : key(static_cast<unsigned>(offset) | (static_cast<uint64_t>(flags) << 32) |
+                  (static_cast<uint64_t>(base) << 48))
         {
         }
 
-        static unsigned GetHashCode(StackSlotIdKey ssk)
+        static unsigned GetHashCode(StackSlotIdKey k)
         {
-            return (ssk.m_flags << (8 * sizeof(unsigned short))) ^ (unsigned)ssk.m_offset ^
-                   (ssk.m_fpRel ? 0x1000000 : 0);
+            return static_cast<unsigned>((k.key >> 32) ^ k.key);
         }
 
-        static bool Equals(StackSlotIdKey ssk1, StackSlotIdKey ssk2)
+        static bool Equals(StackSlotIdKey x, StackSlotIdKey y)
         {
-            return ssk1.m_offset == ssk2.m_offset && ssk1.m_fpRel == ssk2.m_fpRel && ssk1.m_flags == ssk2.m_flags;
+            return x.key == y.key;
         }
     };
 #endif // !JIT32_GCENCODER
