@@ -5489,7 +5489,7 @@ void CodeGen::GenJmp(GenTree* jmp)
                 liveness.SetGCRegType(reg, type);
             }
 
-            if (lcl->HasLiveness())
+            if (lcl->HasGCSlotLiveness())
             {
                 VarSetOps::RemoveElemD(compiler, liveness.GetGCLiveSet(), lcl->GetLivenessBitIndex());
             }

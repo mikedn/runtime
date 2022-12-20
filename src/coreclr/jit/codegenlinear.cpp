@@ -1085,7 +1085,7 @@ void CodeGen::UnspillRegCandidateLclVar(GenTreeLclVar* node)
         }
 #endif
 
-        if (!lcl->IsAlwaysAliveInMemory())
+        if (!lcl->IsAlwaysAliveInMemory() && lcl->HasGCSlotLiveness())
         {
 #ifdef DEBUG
             if (VarSetOps::IsMember(compiler, liveness.GetGCLiveSet(), lcl->GetLivenessBitIndex()))
