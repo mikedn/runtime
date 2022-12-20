@@ -5489,10 +5489,7 @@ void CodeGen::GenJmp(GenTree* jmp)
                 liveness.SetGCRegType(reg, type);
             }
 
-            if (lcl->HasGCSlotLiveness())
-            {
-                VarSetOps::RemoveElemD(compiler, liveness.GetGCLiveSet(), lcl->GetLivenessBitIndex());
-            }
+            liveness.RemoveGCSlot(lcl);
 
             continue;
         }
@@ -5517,11 +5514,7 @@ void CodeGen::GenJmp(GenTree* jmp)
         GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, lclNum, 0);
         liveness.AddLiveLclRegs(genRegMask(reg));
         liveness.SetGCRegType(reg, type);
-
-        if (lcl->HasGCSlotLiveness())
-        {
-            VarSetOps::RemoveElemD(compiler, liveness.GetGCLiveSet(), lcl->GetLivenessBitIndex());
-        }
+        liveness.RemoveGCSlot(lcl);
     }
 
 #ifdef WINDOWS_AMD64_ABI

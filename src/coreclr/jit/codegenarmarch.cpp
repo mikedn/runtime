@@ -2880,11 +2880,7 @@ void CodeGen::GenJmp(GenTree* jmp)
             // in genCodeForBBList().
             liveness.AddLiveLclRegs(genRegMask(reg));
             liveness.SetGCRegType(reg, type);
-
-            if (lcl->HasGCSlotLiveness())
-            {
-                VarSetOps::RemoveElemD(compiler, liveness.GetGCLiveSet(), lcl->GetLivenessBitIndex());
-            }
+            liveness.RemoveGCSlot(lcl);
         }
     }
 

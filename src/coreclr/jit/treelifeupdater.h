@@ -62,6 +62,14 @@ public:
         return liveGCLcl;
     }
 
+    void RemoveGCSlot(LclVarDsc* lcl)
+    {
+        if (lcl->HasGCSlotLiveness())
+        {
+            VarSetOps::RemoveElemD(compiler, liveGCLcl, lcl->GetLivenessBitIndex());
+        }
+    }
+
     regMaskTP GetLiveLclRegs() const
     {
         return liveLclRegs;
