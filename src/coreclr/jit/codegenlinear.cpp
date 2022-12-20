@@ -746,20 +746,7 @@ void CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
 
         liveness.UpdateLiveLclRegs(lcl, /*isDying*/ true DEBUGARG(lclVar));
         liveness.RemoveGCRegs(lcl->lvRegMask());
-
-        if (lcl->HasGCSlotLiveness())
-        {
-            if (!VarSetOps::IsMember(compiler, liveness.GetGCLiveSet(), lcl->GetLivenessBitIndex()))
-            {
-                JITDUMP("GC pointer V%02u becoming live on stack\n", lclNum);
-            }
-            else
-            {
-                JITDUMP("GC pointer V%02u continuing live on stack\n", lclNum);
-            }
-
-            VarSetOps::AddElemD(compiler, liveness.GetGCLiveSet(), lcl->GetLivenessBitIndex());
-        }
+        liveness.SpillGCSlot(lcl);
     }
 
     lclVar->SetRegSpill(0, false);
@@ -1084,17 +1071,7 @@ void CodeGen::UnspillRegCandidateLclVar(GenTreeLclVar* node)
         }
 #endif
 
-        if (!lcl->IsAlwaysAliveInMemory() && lcl->HasGCSlotLiveness())
-        {
-#ifdef DEBUG
-            if (VarSetOps::IsMember(compiler, liveness.GetGCLiveSet(), lcl->GetLivenessBitIndex()))
-            {
-                JITDUMP("Removing V%02u from liveGCLcl\n", lclNum);
-            }
-#endif
-
-            VarSetOps::RemoveElemD(compiler, liveness.GetGCLiveSet(), lcl->GetLivenessBitIndex());
-        }
+        liveness.UnspillGCSlot(lcl);
 
         JITDUMP("V%02u in reg %s is becoming live at [%06u]\n", lclNum, getRegName(lcl->GetRegNum()), node->GetID());
 

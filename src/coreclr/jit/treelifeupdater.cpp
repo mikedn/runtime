@@ -486,6 +486,54 @@ void CodeGenLivenessUpdater::BeginMethodEpilogCodeGen()
 #endif
 }
 
+void CodeGenLivenessUpdater::SpillGCSlot(LclVarDsc* lcl)
+{
+    if (!lcl->HasGCSlotLiveness())
+    {
+        return;
+    }
+
+#ifdef DEBUG
+    if (!VarSetOps::IsMember(compiler, liveGCLcl, lcl->GetLivenessBitIndex()))
+    {
+        JITDUMP("GC pointer V%02u becoming live on stack\n", lcl - compiler->lvaTable);
+    }
+    else
+    {
+        JITDUMP("GC pointer V%02u continuing live on stack\n", lcl - compiler->lvaTable);
+    }
+#endif
+
+    VarSetOps::AddElemD(compiler, liveGCLcl, lcl->GetLivenessBitIndex());
+}
+
+void CodeGenLivenessUpdater::UnspillGCSlot(LclVarDsc* lcl)
+{
+    if (lcl->IsAlwaysAliveInMemory() || !lcl->HasGCSlotLiveness())
+    {
+        return;
+    }
+
+#ifdef DEBUG
+    if (VarSetOps::IsMember(compiler, liveGCLcl, lcl->GetLivenessBitIndex()))
+    {
+        JITDUMP("Removing V%02u from liveGCLcl\n", lcl - compiler->lvaTable);
+    }
+#endif
+
+    VarSetOps::RemoveElemD(compiler, liveGCLcl, lcl->GetLivenessBitIndex());
+}
+
+void CodeGenLivenessUpdater::RemoveGCSlot(LclVarDsc* lcl)
+{
+    if (!lcl->HasGCSlotLiveness())
+    {
+        return;
+    }
+
+    VarSetOps::RemoveElemD(compiler, liveGCLcl, lcl->GetLivenessBitIndex());
+}
+
 void CodeGenLivenessUpdater::UpdateLiveLclRegs(const LclVarDsc* lcl, bool isDying DEBUGARG(GenTree* node))
 {
     regMaskTP regs = CodeGen::genGetRegMask(lcl);

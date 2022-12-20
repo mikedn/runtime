@@ -57,18 +57,14 @@ public:
         return currentLife;
     }
 
-    VARSET_TP& GetGCLiveSet()
+    VARSET_VALARG_TP GetGCLiveSet() const
     {
         return liveGCLcl;
     }
 
-    void RemoveGCSlot(LclVarDsc* lcl)
-    {
-        if (lcl->HasGCSlotLiveness())
-        {
-            VarSetOps::RemoveElemD(compiler, liveGCLcl, lcl->GetLivenessBitIndex());
-        }
-    }
+    void SpillGCSlot(LclVarDsc* lcl);
+    void UnspillGCSlot(LclVarDsc* lcl);
+    void RemoveGCSlot(LclVarDsc* lcl);
 
     regMaskTP GetLiveLclRegs() const
     {
