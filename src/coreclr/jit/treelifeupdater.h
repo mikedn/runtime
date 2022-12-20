@@ -67,7 +67,7 @@ public:
         return liveLclRegs;
     }
 
-    void UpdateLiveLclRegs(const LclVarDsc* lcl, bool isBorn, bool isDying DEBUGARG(GenTree* node));
+    void UpdateLiveLclRegs(const LclVarDsc* lcl, bool isDying DEBUGARG(GenTree* node = nullptr));
 
     void AddLiveLclRegs(regMaskTP regs)
     {

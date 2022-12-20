@@ -62,7 +62,7 @@ void CodeGenLivenessUpdater::ChangeLife(CodeGen* codeGen, VARSET_VALARG_TP newLi
                 liveGCByRefRegs &= ~regMask;
             }
 
-            UpdateLiveLclRegs(lcl, false /*isBorn*/, true /*isDying*/ DEBUGARG(nullptr));
+            UpdateLiveLclRegs(lcl, /*isDying*/ true);
         }
 
         if (isInMemory && (isGCRef || isByRef) && lcl->HasGCSlotLiveness())
@@ -94,7 +94,7 @@ void CodeGenLivenessUpdater::ChangeLife(CodeGen* codeGen, VARSET_VALARG_TP newLi
                 VarSetOps::RemoveElemD(compiler, liveGCLcl, e.Current());
             }
 
-            UpdateLiveLclRegs(lcl, true /*isBorn*/, false /*isDying*/ DEBUGARG(nullptr));
+            UpdateLiveLclRegs(lcl, /*isDying*/ false);
 
             regMaskTP regMask = lcl->lvRegMask();
 
@@ -170,7 +170,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
 
         if (isInReg)
         {
-            UpdateLiveLclRegs(lcl, isBorn, isDying DEBUGARG(lclNode));
+            UpdateLiveLclRegs(lcl, isDying);
         }
 
         DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet1, currentLife);)
@@ -266,7 +266,7 @@ void CodeGenLivenessUpdater::UpdateLifeMultiReg(CodeGen* codeGen, GenTreeLclVar*
 
         if (isInReg)
         {
-            UpdateLiveLclRegs(fieldLcl, true, isFieldDying DEBUGARG(lclNode));
+            UpdateLiveLclRegs(fieldLcl, isFieldDying DEBUGARG(lclNode));
         }
 
         if (isFieldDying)
@@ -486,7 +486,7 @@ void CodeGenLivenessUpdater::BeginMethodEpilogCodeGen()
 #endif
 }
 
-void CodeGenLivenessUpdater::UpdateLiveLclRegs(const LclVarDsc* lcl, bool isBorn, bool isDying DEBUGARG(GenTree* node))
+void CodeGenLivenessUpdater::UpdateLiveLclRegs(const LclVarDsc* lcl, bool isDying DEBUGARG(GenTree* node))
 {
     regMaskTP regs = CodeGen::genGetRegMask(lcl);
 
