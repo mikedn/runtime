@@ -496,11 +496,11 @@ void CodeGenLivenessUpdater::SpillGCSlot(LclVarDsc* lcl)
 #ifdef DEBUG
     if (!VarSetOps::IsMember(compiler, liveGCLcl, lcl->GetLivenessBitIndex()))
     {
-        JITDUMP("GC pointer V%02u becoming live on stack\n", lcl - compiler->lvaTable);
+        JITDUMP("GC slot V%02u becoming live\n", lcl - compiler->lvaTable);
     }
     else
     {
-        JITDUMP("GC pointer V%02u continuing live on stack\n", lcl - compiler->lvaTable);
+        JITDUMP("GC slot V%02u continuing live\n", lcl - compiler->lvaTable);
     }
 #endif
 
@@ -509,19 +509,12 @@ void CodeGenLivenessUpdater::SpillGCSlot(LclVarDsc* lcl)
 
 void CodeGenLivenessUpdater::UnspillGCSlot(LclVarDsc* lcl)
 {
-    if (lcl->IsAlwaysAliveInMemory() || !lcl->HasGCSlotLiveness())
+    if (lcl->IsAlwaysAliveInMemory())
     {
         return;
     }
 
-#ifdef DEBUG
-    if (VarSetOps::IsMember(compiler, liveGCLcl, lcl->GetLivenessBitIndex()))
-    {
-        JITDUMP("Removing V%02u from liveGCLcl\n", lcl - compiler->lvaTable);
-    }
-#endif
-
-    VarSetOps::RemoveElemD(compiler, liveGCLcl, lcl->GetLivenessBitIndex());
+    RemoveGCSlot(lcl);
 }
 
 void CodeGenLivenessUpdater::RemoveGCSlot(LclVarDsc* lcl)
@@ -530,6 +523,13 @@ void CodeGenLivenessUpdater::RemoveGCSlot(LclVarDsc* lcl)
     {
         return;
     }
+
+#ifdef DEBUG
+    if (VarSetOps::IsMember(compiler, liveGCLcl, lcl->GetLivenessBitIndex()))
+    {
+        JITDUMP("GC slot V%02u becoming dead\n", lcl - compiler->lvaTable);
+    }
+#endif
 
     VarSetOps::RemoveElemD(compiler, liveGCLcl, lcl->GetLivenessBitIndex());
 }
