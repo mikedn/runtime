@@ -196,23 +196,6 @@ void CodeGen::genUpdateLife(GenTreeLclVarCommon* node)
     liveness.UpdateLife(this, node);
 }
 
-regMaskTP CodeGen::genGetRegMask(const LclVarDsc* varDsc)
-{
-    regMaskTP regMask = RBM_NONE;
-
-    assert(varDsc->lvIsInReg());
-
-    if (varTypeUsesFloatReg(varDsc->TypeGet()))
-    {
-        regMask = genRegMaskFloat(varDsc->GetRegNum(), varDsc->TypeGet());
-    }
-    else
-    {
-        regMask = genRegMask(varDsc->GetRegNum());
-    }
-    return regMask;
-}
-
 //----------------------------------------------------------------------
 // compHelperCallKillSet: Gets a register mask that represents the kill set for a helper call.
 // Not all JIT Helper calls follow the standard ABI on the target architecture.

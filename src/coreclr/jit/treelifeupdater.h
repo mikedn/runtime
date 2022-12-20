@@ -63,7 +63,7 @@ public:
     }
 
     void SpillGCSlot(LclVarDsc* lcl);
-    void UnspillGCSlot(LclVarDsc* lcl);
+    void UnspillGCSlot(LclVarDsc* lcl DEBUGARG(GenTreeLclVar* lclVar));
     void RemoveGCSlot(LclVarDsc* lcl);
 
     regMaskTP GetLiveLclRegs() const

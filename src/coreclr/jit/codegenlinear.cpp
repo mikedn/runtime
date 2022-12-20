@@ -745,7 +745,6 @@ void CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
         }
 
         liveness.UpdateLiveLclRegs(lcl, /*isDying*/ true DEBUGARG(lclVar));
-        liveness.RemoveGCRegs(lcl->lvRegMask());
         liveness.SpillGCSlot(lcl);
     }
 
@@ -1071,11 +1070,7 @@ void CodeGen::UnspillRegCandidateLclVar(GenTreeLclVar* node)
         }
 #endif
 
-        liveness.UnspillGCSlot(lcl);
-
-        JITDUMP("V%02u in reg %s is becoming live at [%06u]\n", lclNum, getRegName(lcl->GetRegNum()), node->GetID());
-
-        liveness.AddLiveLclRegs(genGetRegMask(lcl));
+        liveness.UnspillGCSlot(lcl DEBUGARG(node));
     }
 
     liveness.SetGCRegType(dstReg, regType);

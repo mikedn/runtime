@@ -1062,7 +1062,6 @@ protected:
 #endif // FEATURE_HW_INTRINSICS
 
     void genUpdateLife(GenTreeLclVarCommon* tree);
-    static regMaskTP genGetRegMask(const LclVarDsc* varDsc);
 
     void SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex);
     X86_ONLY(void SpillST0(GenTree* node);)
