@@ -24,6 +24,18 @@ void CodeGenLivenessUpdater::BeginBlock()
     liveGCByRefRegs = RBM_NONE;
 }
 
+static regMaskTP GetLclRegs(const LclVarDsc* lcl)
+{
+    assert(lcl->lvIsInReg());
+
+    if (varTypeUsesFloatReg(lcl->GetType()))
+    {
+        return genRegMaskFloat(lcl->GetRegNum(), lcl->GetType());
+    }
+
+    return genRegMask(lcl->GetRegNum());
+}
+
 void CodeGenLivenessUpdater::ChangeLife(CodeGen* codeGen, VARSET_VALARG_TP newLife)
 {
     DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live vars at start of block: ", currentLife, newLife);)
@@ -51,15 +63,15 @@ void CodeGenLivenessUpdater::ChangeLife(CodeGen* codeGen, VARSET_VALARG_TP newLi
         {
             // TODO-Cleanup: Move the code from compUpdateLifeVar to UpdateLiveLclRegs
             // that updates the gc sets
-            regMaskTP regMask = lcl->lvRegMask();
+            regMaskTP lclRegs = GetLclRegs(lcl);
 
             if (isGCRef)
             {
-                liveGCRefRegs &= ~regMask;
+                liveGCRefRegs &= ~lclRegs;
             }
             else if (isByRef)
             {
-                liveGCByRefRegs &= ~regMask;
+                liveGCByRefRegs &= ~lclRegs;
             }
 
             UpdateLiveLclRegs(lcl, /*isDying*/ true);
@@ -96,15 +108,15 @@ void CodeGenLivenessUpdater::ChangeLife(CodeGen* codeGen, VARSET_VALARG_TP newLi
 
             UpdateLiveLclRegs(lcl, /*isDying*/ false);
 
-            regMaskTP regMask = lcl->lvRegMask();
+            regMaskTP lclRegs = GetLclRegs(lcl);
 
             if (isGCRef)
             {
-                liveGCRefRegs |= regMask;
+                liveGCRefRegs |= lclRegs;
             }
             else if (isByRef)
             {
-                liveGCByRefRegs |= regMask;
+                liveGCByRefRegs |= lclRegs;
             }
         }
         else if (lcl->HasGCSlotLiveness())
@@ -383,15 +395,17 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(BasicBlock* block)
 
         if (varDsc->lvIsInReg())
         {
-            newLiveRegSet |= varDsc->lvRegMask();
+            regMaskTP lclRegs = GetLclRegs(varDsc);
+
+            newLiveRegSet |= lclRegs;
 
             if (varDsc->TypeIs(TYP_REF))
             {
-                newRegGCrefSet |= varDsc->lvRegMask();
+                newRegGCrefSet |= lclRegs;
             }
             else if (varDsc->TypeIs(TYP_BYREF))
             {
-                newRegByrefSet |= varDsc->lvRegMask();
+                newRegByrefSet |= lclRegs;
             }
 
             if (!varDsc->IsAlwaysAliveInMemory())
@@ -488,7 +502,7 @@ void CodeGenLivenessUpdater::BeginMethodEpilogCodeGen()
 
 void CodeGenLivenessUpdater::SpillGCSlot(LclVarDsc* lcl)
 {
-    RemoveGCRegs(lcl->lvRegMask());
+    RemoveGCRegs(GetLclRegs(lcl));
 
     if (!lcl->HasGCSlotLiveness())
     {
@@ -509,20 +523,6 @@ void CodeGenLivenessUpdater::SpillGCSlot(LclVarDsc* lcl)
     VarSetOps::AddElemD(compiler, liveGCLcl, lcl->GetLivenessBitIndex());
 }
 
-static regMaskTP GetRegMask(const LclVarDsc* lcl)
-{
-    assert(lcl->lvIsInReg());
-
-    if (varTypeUsesFloatReg(lcl->GetType()))
-    {
-        return genRegMaskFloat(lcl->GetRegNum(), lcl->GetType());
-    }
-    else
-    {
-        return genRegMask(lcl->GetRegNum());
-    }
-}
-
 void CodeGenLivenessUpdater::UnspillGCSlot(LclVarDsc* lcl DEBUGARG(GenTreeLclVar* lclVar))
 {
     if (!lcl->IsAlwaysAliveInMemory())
@@ -533,7 +533,7 @@ void CodeGenLivenessUpdater::UnspillGCSlot(LclVarDsc* lcl DEBUGARG(GenTreeLclVar
     JITDUMP("V%02u in reg %s is becoming live at [%06u]\n", lcl - compiler->lvaTable, getRegName(lcl->GetRegNum()),
             lclVar->GetID());
 
-    AddLiveLclRegs(GetRegMask(lcl));
+    AddLiveLclRegs(GetLclRegs(lcl));
 }
 
 void CodeGenLivenessUpdater::RemoveGCSlot(LclVarDsc* lcl)
@@ -555,7 +555,7 @@ void CodeGenLivenessUpdater::RemoveGCSlot(LclVarDsc* lcl)
 
 void CodeGenLivenessUpdater::UpdateLiveLclRegs(const LclVarDsc* lcl, bool isDying DEBUGARG(GenTree* node))
 {
-    regMaskTP regs = GetRegMask(lcl);
+    regMaskTP regs = GetLclRegs(lcl);
 
     JITDUMP("V%02u in reg %s is becoming %s at [%06u]\n", (lcl - compiler->lvaTable), getRegName(lcl->GetRegNum()),
             isDying ? "dead" : "live", node == nullptr ? 0 : node->GetID());

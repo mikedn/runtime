@@ -780,26 +780,6 @@ public:
         return lvLRACandidate && (GetRegNum() != REG_STK);
     }
 
-    regMaskTP lvRegMask() const
-    {
-        regMaskTP regMask = RBM_NONE;
-        if (varTypeUsesFloatReg(TypeGet()))
-        {
-            if (GetRegNum() != REG_STK)
-            {
-                regMask = genRegMaskFloat(GetRegNum(), TypeGet());
-            }
-        }
-        else
-        {
-            if (GetRegNum() != REG_STK)
-            {
-                regMask = genRegMask(GetRegNum());
-            }
-        }
-        return regMask;
-    }
-
     uint16_t lvVarIndex;
 
     bool HasLiveness() const
