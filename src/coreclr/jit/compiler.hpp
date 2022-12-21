@@ -488,25 +488,6 @@ inline var_types genActualType(var_types type)
     return varActualType(type);
 }
 
-#ifdef DEBUG
-
-inline const char* varTypeGCstring(var_types type)
-{
-    switch (type)
-    {
-        case TYP_REF:
-            return "gcr";
-        case TYP_BYREF:
-            return "byr";
-        default:
-            return "non";
-    }
-}
-
-#endif
-
-/*****************************************************************************/
-
 const char* varTypeName(var_types);
 
 /*****************************************************************************/

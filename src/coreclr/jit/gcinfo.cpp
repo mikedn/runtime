@@ -6,8 +6,8 @@
 #include "codegen.h"
 
 #if MEASURE_PTRTAB_SIZE
-size_t GCInfo::s_gcRegPtrDscSize   = 0;
-size_t GCInfo::s_gcTotalPtrTabSize = 0;
+size_t GCInfo::s_gcRegPtrDscSize;
+size_t GCInfo::s_gcTotalPtrTabSize;
 #endif
 
 GCInfo::GCInfo(Compiler* compiler)
@@ -127,16 +127,14 @@ GCInfo::StackSlotLifetime* GCInfo::BeginStackSlotLifetime(int slotOffs, unsigned
 {
     StackSlotLifetime* lifetime = new (compiler, CMK_GC) StackSlotLifetime(slotOffs, codeOffs);
 
-    if (lastStackSlotLifetime == nullptr)
+    if (firstStackSlotLifetime == nullptr)
     {
-        assert(firstStackSlotLifetime == nullptr);
+        assert(lastStackSlotLifetime == nullptr);
 
         firstStackSlotLifetime = lifetime;
     }
     else
     {
-        assert(firstStackSlotLifetime != nullptr);
-
         lastStackSlotLifetime->next = lifetime;
     }
 
@@ -159,19 +157,18 @@ GCInfo::RegArgChange* GCInfo::AddRegArgChange()
 
     RegArgChange* change = new (compiler, CMK_GC) RegArgChange;
 
-    if (lastRegArgChange == nullptr)
+    if (firstRegArgChange == nullptr)
     {
-        assert(firstRegArgChange == nullptr);
+        assert(lastRegArgChange == nullptr);
 
-        firstRegArgChange = lastRegArgChange = change;
+        firstRegArgChange = change;
     }
     else
     {
-        assert(firstRegArgChange != nullptr);
-
         lastRegArgChange->next = change;
-        lastRegArgChange       = change;
     }
+
+    lastRegArgChange = change;
 
 #if MEASURE_PTRTAB_SIZE
     s_gcRegPtrDscSize += sizeof(*change);
@@ -199,19 +196,18 @@ GCInfo::CallSite* GCInfo::AddCallSite(unsigned codeOffs, regMaskTP refRegs, regM
 {
     CallSite* call = new (compiler, CMK_GC) CallSite;
 
-    if (lastCallSite == nullptr)
+    if (firstCallSite == nullptr)
     {
-        assert(firstCallSite == nullptr);
+        assert(lastCallSite == nullptr);
 
-        firstCallSite = lastCallSite = call;
+        firstCallSite = call;
     }
     else
     {
-        assert(firstCallSite != nullptr);
-
         lastCallSite->next = call;
-        lastCallSite       = call;
     }
+
+    lastCallSite = call;
 
     call->refRegs   = static_cast<regMaskSmall>(refRegs);
     call->byrefRegs = static_cast<regMaskSmall>(byrefRegs);
@@ -371,11 +367,11 @@ void GCInfo::CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize DEBUGAR
     CompIAllocator encoderAlloc(compiler->getAllocator(CMK_GC));
     GcInfoEncoder  encoder(compiler->info.compCompHnd, compiler->info.compMethodInfo, &encoderAlloc, NOMEM);
 
-    InfoBlockHdrSave(&encoder, codeSize, prologSize);
-    unsigned callCnt = 0;
-    MakeRegPtrTable(&encoder, codeSize, prologSize, MakeRegPtrMode::AssignSlots, &callCnt);
+    InfoBlockHdrSave(encoder, codeSize, prologSize);
+    unsigned callSiteCount = 0;
+    MakeRegPtrTable(encoder, codeSize, prologSize, MakeRegPtrMode::AssignSlots, &callSiteCount);
     encoder.FinalizeSlotIds();
-    MakeRegPtrTable(&encoder, codeSize, prologSize, MakeRegPtrMode::DoWork, &callCnt);
+    MakeRegPtrTable(encoder, codeSize, prologSize, MakeRegPtrMode::DoWork, &callSiteCount);
 
 #if defined(TARGET_ARM64) || defined(TARGET_AMD64)
     if (compiler->opts.compDbgEnC)
