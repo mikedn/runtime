@@ -85,7 +85,7 @@ public:
         regMaskSmall byrefRegs;
         unsigned     codeOffs;
 #ifndef JIT32_GCENCODER
-        uint16_t callInstrLength;
+        uint8_t callInstrLength;
 #endif
 
 #if !FEATURE_FIXED_OUT_ARGS

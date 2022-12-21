@@ -6635,7 +6635,7 @@ void emitter::emitRecordGCcall(BYTE* codePos, unsigned callInstrLength)
     GCCallSite* call = gcInfo.AddCallSite(codeOffs, emitThisGCrefRegs, emitThisByrefRegs);
 
 #ifndef JIT32_GCENCODER
-    call->callInstrLength = static_cast<uint16_t>(callInstrLength);
+    call->callInstrLength = static_cast<uint8_t>(callInstrLength);
 #endif
 
 #if !FEATURE_FIXED_OUT_ARGS
@@ -7628,7 +7628,7 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSi
     if (change->isCall)
     {
         assert(isCall || callInstrSize == 0);
-        change->callInstrLength = callInstrSize;
+        change->callInstrLength = static_cast<uint8_t>(callInstrSize);
     }
 #endif
 }

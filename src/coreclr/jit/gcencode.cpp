@@ -13,13 +13,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-
-#pragma warning(disable : 4244) // loss of data int -> char ..
-
-#endif
-
 #include "gcinfotypes.h"
 #include "patchpointinfo.h"
 
@@ -756,6 +749,13 @@ static void regenLog(unsigned encoding, InfoHdr* header, InfoHdr* state)
 
     LeaveCriticalSection(&logFileLock);
 }
+#endif
+
+#ifdef _MSC_VER
+// TODO-MIKE-Cleanup: The following code has a ton of warnings caused by
+// implicit conversion from int to char/short, it might be nice to fix it
+// instead of disabling the warning.
+#pragma warning(disable : 4244)
 #endif
 
 /*****************************************************************************
