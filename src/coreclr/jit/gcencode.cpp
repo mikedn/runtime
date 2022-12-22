@@ -4,6 +4,7 @@
 #include "jitpch.h"
 #include "gcinfotypes.h"
 #include "patchpointinfo.h"
+#include "codegen.h"
 
 ReturnKind GCInfo::GetReturnKind() const
 {
@@ -271,6 +272,148 @@ void GCInfo::DumpStackSlotLifetime(const char* message, StackSlotLifetime* lifet
 #endif // !defined(JIT32_GCENCODER) || defined(FEATURE_EH_FUNCLETS)
 
 #ifdef JIT32_GCENCODER
+
+void* GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen,
+                                   unsigned codeSize,
+                                   unsigned prologSize,
+                                   unsigned epilogSize DEBUGARG(void* codePtr))
+{
+    BYTE    headerBuf[64];
+    InfoHdr header;
+
+    int s_cached;
+
+#ifdef FEATURE_EH_FUNCLETS
+    // We should do this before InfoBlockHdrSave since varPtrTableSize must be finalized before it
+    if (compiler->ehAnyFunclets())
+    {
+        MarkFilterStackSlotsPinned();
+    }
+#endif
+
+#ifdef DEBUG
+    size_t headerSize =
+#endif
+        codeGen->compInfoBlkSize = InfoBlockHdrSave(headerBuf, 0, codeSize, prologSize, epilogSize,
+                                                    codeGen->calleeSavedModifiedRegs, &header, &s_cached);
+
+    size_t argTabOffset = 0;
+    size_t ptrMapSize   = PtrTableSize(header, codeSize, &argTabOffset);
+
+#if DISPLAY_SIZES
+
+    if (codeGen->GetInterruptible())
+    {
+        gcHeaderISize += codeGen->compInfoBlkSize;
+        gcPtrMapISize += ptrMapSize;
+    }
+    else
+    {
+        gcHeaderNSize += codeGen->compInfoBlkSize;
+        gcPtrMapNSize += ptrMapSize;
+    }
+
+#endif // DISPLAY_SIZES
+
+    codeGen->compInfoBlkSize += ptrMapSize;
+
+    /* Allocate the info block for the method */
+
+    BYTE* infoBlkAddr = (BYTE*)compiler->info.compCompHnd->allocGCInfo(codeGen->compInfoBlkSize);
+
+#if 0 // VERBOSE_SIZES
+    // TODO-X86-Cleanup: 'dataSize', below, is not defined
+
+//  if  (compInfoBlkSize > codeSize && compInfoBlkSize > 100)
+    {
+        printf("[%7u VM, %7u+%7u/%7u x86 %03u/%03u%%] %s.%s\n",
+            compiler->info.compILCodeSize,
+            compInfoBlkSize,
+            codeSize + dataSize,
+            codeSize + dataSize - prologSize - epilogSize,
+            100 * (codeSize + dataSize) / compiler->info.compILCodeSize,
+            100 * (codeSize + dataSize + compInfoBlkSize) / compiler->info.compILCodeSize,
+            compiler->info.compClassName,
+            compiler->info.compMethodName);
+    }
+
+#endif
+
+    /* Fill in the info block and return it to the caller */
+
+    void* infoPtr = infoBlkAddr;
+
+    /* Create the method info block: header followed by GC tracking tables */
+
+    infoBlkAddr += InfoBlockHdrSave(infoBlkAddr, -1, codeSize, prologSize, epilogSize, codeGen->calleeSavedModifiedRegs,
+                                    &header, &s_cached);
+
+    assert(infoBlkAddr == (BYTE*)infoPtr + headerSize);
+    infoBlkAddr = PtrTableSave(infoBlkAddr, header, codeSize, &argTabOffset);
+    assert(infoBlkAddr == (BYTE*)infoPtr + headerSize + ptrMapSize);
+
+#ifdef DEBUG
+
+    if (0)
+    {
+        BYTE*  temp = (BYTE*)infoPtr;
+        size_t size = infoBlkAddr - temp;
+        BYTE*  ptab = temp + headerSize;
+
+        noway_assert(size == headerSize + ptrMapSize);
+
+        printf("Method info block - header [%zu bytes]:", headerSize);
+
+        for (unsigned i = 0; i < size; i++)
+        {
+            if (temp == ptab)
+            {
+                printf("\nMethod info block - ptrtab [%u bytes]:", ptrMapSize);
+                printf("\n    %04X: %*c", i & ~0xF, 3 * (i & 0xF), ' ');
+            }
+            else
+            {
+                if (!(i % 16))
+                    printf("\n    %04X: ", i);
+            }
+
+            printf("%02X ", *temp++);
+        }
+
+        printf("\n");
+    }
+
+#endif // DEBUG
+
+#if DUMP_GC_TABLES
+    if (compiler->opts.dspGCtbls)
+    {
+        const BYTE* base = (BYTE*)infoPtr;
+        size_t      size;
+        unsigned    methodSize;
+        InfoHdr     dumpHeader;
+
+        printf("GC Info for method %s\n", compiler->info.compFullName);
+        printf("GC info size = %3u\n", codeGen->compInfoBlkSize);
+
+        size = InfoBlockHdrDump(base, &dumpHeader, &methodSize);
+        // printf("size of header encoding is %3u\n", size);
+        printf("\n");
+
+        base += size;
+        size = DumpPtrTable(base, dumpHeader, methodSize);
+        // printf("size of pointer table is %3u\n", size);
+        printf("\n");
+        noway_assert(infoBlkAddr == (base + size));
+    }
+#endif // DUMP_GC_TABLES
+
+    /* Make sure we ended up generating the expected number of bytes */
+
+    noway_assert(infoBlkAddr == (BYTE*)infoPtr + codeGen->compInfoBlkSize);
+
+    return infoPtr;
+}
 
 static unsigned char encodeUnsigned(BYTE* dest, unsigned value)
 {
@@ -4565,5 +4708,57 @@ void GCInfo::InfoRecordGCStackArgsDead(GcInfoEncoder& encoder,
 }
 
 #undef LOGGING_GCENCODER
+
+void GCInfo::CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize DEBUGARG(void* codePtr))
+{
+    CompIAllocator encoderAlloc(compiler->getAllocator(CMK_GC));
+    GcInfoEncoder  encoder(compiler->info.compCompHnd, compiler->info.compMethodInfo, &encoderAlloc, NOMEM);
+
+    InfoBlockHdrSave(encoder, codeSize, prologSize);
+    unsigned callSiteCount = 0;
+    MakeRegPtrTable(encoder, codeSize, prologSize, MakeRegPtrMode::AssignSlots, &callSiteCount);
+    encoder.FinalizeSlotIds();
+    MakeRegPtrTable(encoder, codeSize, prologSize, MakeRegPtrMode::DoWork, &callSiteCount);
+
+#if defined(TARGET_ARM64) || defined(TARGET_AMD64)
+    if (compiler->opts.compDbgEnC)
+    {
+        // what we have to preserve is called the "frame header" (see comments in VM\eetwain.cpp)
+        // which is:
+        //  -return address
+        //  -saved off RBP
+        //  -saved 'this' pointer and bool for synchronized methods
+
+        // 4 slots for RBP + return address + RSI + RDI
+        int preservedAreaSize = 4 * REGSIZE_BYTES;
+
+        if ((compiler->info.compFlags & CORINFO_FLG_SYNCH) != 0)
+        {
+            if ((compiler->info.compFlags & CORINFO_FLG_STATIC) == 0)
+            {
+                preservedAreaSize += REGSIZE_BYTES;
+            }
+
+#ifdef TARGET_ARM64
+            // bool for synchronized methods
+            preservedAreaSize += 1;
+#else
+            preservedAreaSize += 4;
+#endif
+        }
+
+        encoder.SetSizeOfEditAndContinuePreservedArea(preservedAreaSize);
+    }
+#endif
+
+    if (compiler->opts.IsReversePInvoke())
+    {
+        LclVarDsc* reversePInvokeFrameLcl = compiler->lvaGetDesc(compiler->lvaReversePInvokeFrameVar);
+        encoder.SetReversePInvokeFrameSlot(reversePInvokeFrameLcl->GetStackOffset());
+    }
+
+    encoder.Build();
+    encoder.Emit();
+}
 
 #endif // !JIT32_GCENCODER
