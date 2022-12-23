@@ -7144,7 +7144,7 @@ void emitter::emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsi
     assert(gcType != GCT_NONE);
     assert(lclNum == emitComp->lvaOutgoingArgSpaceVar);
 
-    if (!emitFullGCinfo)
+    if (!emitFullyInt)
     {
         return;
     }

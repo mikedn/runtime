@@ -4402,17 +4402,7 @@ void GCInfo::AddPartiallyInterruptibleSlots(GCEncoder& encoder)
     {
         for (RegArgChange* change = firstRegArgChange; change != nullptr; change = change->next)
         {
-            assert(change->isArg);
-
-            if (!change->IsCallInstr())
-            {
-                // These are reporting outgoing stack arguments, but we don't need
-                // to report anything for partially interruptible.
-                assert(change->gcType != GCT_NONE);
-                assert(change->kind == RegArgChangeKind::Push);
-
-                continue;
-            }
+            assert(change->isArg && change->IsCallInstr() && (change->kind == RegArgChangeKind::Pop));
 
             regMaskSmall refRegs   = RegMaskFromCalleeSavedMask(change->callRefRegs);
             regMaskSmall byrefRegs = RegMaskFromCalleeSavedMask(change->callByrefRegs);
