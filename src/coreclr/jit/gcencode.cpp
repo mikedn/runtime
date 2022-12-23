@@ -4360,69 +4360,40 @@ void GCInfo::AddPartiallyInterruptibleSlots(GCEncoder& encoder)
         callSiteSizes = new (compiler, CMK_GC) uint8_t[encoder.callSiteCount];
     }
 
-    if (!compiler->codeGen->IsFullPtrRegMapRequired())
+    // TODO-MIKE-Review: Probably this should check if there are any tracked slots, instead of
+    // trying to deduce that from other conditions that imply that all slots are untracked.
+
+    const bool noTrackedGCSlots = !compiler->codeGen->IsFullPtrRegMapRequired() && compiler->opts.MinOpts() &&
+                                  !compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) &&
+                                  !JitConfig.JitMinOptsTrackGCrefs();
+
+    for (CallSite* call = firstCallSite; call != nullptr; call = call->next)
     {
-        // TODO-MIKE-Review: Probably this should check if there are any tracked slots, instead of
-        // trying to deduce that from other conditions that imply that all slots are untracked.
+        regMaskSmall refRegs   = call->refRegs & RBM_CALLEE_SAVED;
+        regMaskSmall byrefRegs = call->byrefRegs & RBM_CALLEE_SAVED;
 
-        const bool noTrackedGCSlots =
-            (compiler->opts.MinOpts() && !compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) &&
-             !JitConfig.JitMinOptsTrackGCrefs());
+        assert((refRegs & byrefRegs) == RBM_NONE);
 
-        for (CallSite* call = firstCallSite; call != nullptr; call = call->next)
+        regMaskSmall gcRegs = refRegs | byrefRegs;
+
+        if (noTrackedGCSlots && (gcRegs == RBM_NONE))
         {
-            regMaskSmall refRegs   = call->refRegs & RBM_CALLEE_SAVED;
-            regMaskSmall byrefRegs = call->byrefRegs & RBM_CALLEE_SAVED;
-
-            assert((refRegs & byrefRegs) == RBM_NONE);
-
-            regMaskSmall gcRegs = refRegs | byrefRegs;
-
-            if (noTrackedGCSlots && (gcRegs == RBM_NONE))
-            {
-                continue;
-            }
-
-            assert(call->codeOffs >= call->callInstrLength);
-            unsigned callOffset = call->codeOffs - call->callInstrLength;
-
-            if (callSites != nullptr)
-            {
-                callSites[callSiteIndex]     = callOffset;
-                callSiteSizes[callSiteIndex] = call->callInstrLength;
-            }
-
-            callSiteIndex++;
-
-            AddRegSlotChange(encoder, callOffset, GC_SLOT_LIVE, gcRegs, byrefRegs);
-            AddRegSlotChange(encoder, call->codeOffs, GC_SLOT_DEAD, gcRegs, byrefRegs);
+            continue;
         }
-    }
-    else
-    {
-        for (CallSite* call = firstCallSite; call != nullptr; call = call->next)
+
+        assert(call->codeOffs >= call->callInstrLength);
+        unsigned callOffset = call->codeOffs - call->callInstrLength;
+
+        if (callSites != nullptr)
         {
-            regMaskSmall refRegs   = call->refRegs & RBM_CALLEE_SAVED;
-            regMaskSmall byrefRegs = call->byrefRegs & RBM_CALLEE_SAVED;
-
-            assert((refRegs & byrefRegs) == RBM_NONE);
-
-            regMaskSmall gcRegs = refRegs | byrefRegs;
-
-            assert(call->codeOffs >= call->callInstrLength);
-            unsigned callOffset = call->codeOffs - call->callInstrLength;
-
-            if (callSites != nullptr)
-            {
-                callSites[callSiteIndex]     = callOffset;
-                callSiteSizes[callSiteIndex] = call->callInstrLength;
-            }
-
-            callSiteIndex++;
-
-            AddRegSlotChange(encoder, callOffset, GC_SLOT_LIVE, gcRegs, byrefRegs);
-            AddRegSlotChange(encoder, call->codeOffs, GC_SLOT_DEAD, gcRegs, byrefRegs);
+            callSites[callSiteIndex]     = callOffset;
+            callSiteSizes[callSiteIndex] = call->callInstrLength;
         }
+
+        callSiteIndex++;
+
+        AddRegSlotChange(encoder, callOffset, GC_SLOT_LIVE, gcRegs, byrefRegs);
+        AddRegSlotChange(encoder, call->codeOffs, GC_SLOT_DEAD, gcRegs, byrefRegs);
     }
 
     if (encoder.hasSlotIds)
