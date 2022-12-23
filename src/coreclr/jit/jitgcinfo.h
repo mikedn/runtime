@@ -4,9 +4,8 @@
 #pragma once
 
 #include "gcinfotypes.h"
-#ifndef JIT32_GCENCODER
-#include "gcinfoencoder.h"
-#endif
+
+class GCEncoder;
 
 class GCInfo
 {
@@ -104,59 +103,6 @@ public:
     };
 
 private:
-#ifndef JIT32_GCENCODER
-    class RegSlotIdKey
-    {
-        unsigned key;
-
-    public:
-        RegSlotIdKey()
-        {
-        }
-
-        RegSlotIdKey(regNumber regNum, GcSlotFlags flags)
-            : key(static_cast<unsigned>(regNum) | (static_cast<unsigned>(flags) << 16))
-        {
-        }
-
-        static unsigned GetHashCode(RegSlotIdKey k)
-        {
-            return k.key;
-        }
-
-        static bool Equals(RegSlotIdKey x, RegSlotIdKey y)
-        {
-            return x.key == y.key;
-        }
-    };
-
-    class StackSlotIdKey
-    {
-        uint64_t key;
-
-    public:
-        StackSlotIdKey()
-        {
-        }
-
-        StackSlotIdKey(int offset, GcSlotFlags flags, GcStackSlotBase base)
-            : key(static_cast<unsigned>(offset) | (static_cast<uint64_t>(flags) << 32) |
-                  (static_cast<uint64_t>(base) << 48))
-        {
-        }
-
-        static unsigned GetHashCode(StackSlotIdKey k)
-        {
-            return static_cast<unsigned>((k.key >> 32) ^ k.key);
-        }
-
-        static bool Equals(StackSlotIdKey x, StackSlotIdKey y)
-        {
-            return x.key == y.key;
-        }
-    };
-#endif // !JIT32_GCENCODER
-
     Compiler* const    compiler;
     StackSlotLifetime* firstStackSlotLifetime = nullptr;
     StackSlotLifetime* lastStackSlotLifetime  = nullptr;
@@ -168,9 +114,6 @@ private:
 #ifdef JIT32_GCENCODER
     uint8_t* gcEpilogTable = nullptr;
     unsigned gcEpilogPrevOffset;
-#else
-    JitHashTable<RegSlotIdKey, RegSlotIdKey, GcSlotId>     regSlotMap;
-    JitHashTable<StackSlotIdKey, StackSlotIdKey, GcSlotId> stackSlotMap;
 #endif
 
 public:
@@ -256,23 +199,23 @@ private:
         DoWork
     };
 
-    void MakeVarPtrTable(GcInfoEncoder& encoder, MakeRegPtrMode mode);
-    void InfoRecordGCRegStateChange(GcInfoEncoder& encoder,
+    void MakeVarPtrTable(GCEncoder& encoder, MakeRegPtrMode mode);
+    void InfoRecordGCRegStateChange(GCEncoder&     encoder,
                                     MakeRegPtrMode mode,
                                     unsigned       codeOffset,
                                     GcSlotState    slotState,
                                     regMaskSmall   regs,
                                     regMaskSmall   byrefRegs,
                                     regMaskSmall*  newRegs = nullptr);
-    void InfoRecordGCStackArgLive(GcInfoEncoder& encoder, MakeRegPtrMode mode, RegArgChange* argChange);
-    void InfoRecordGCStackArgsDead(GcInfoEncoder& encoder,
-                                   unsigned       codeOffset,
-                                   RegArgChange*  firstArgChange,
-                                   RegArgChange*  lastArgChange);
+    void InfoRecordGCStackArgLive(GCEncoder& encoder, MakeRegPtrMode mode, RegArgChange* argChange);
+    void InfoRecordGCStackArgsDead(GCEncoder&    encoder,
+                                   unsigned      codeOffset,
+                                   RegArgChange* firstArgChange,
+                                   RegArgChange* lastArgChange);
     void MakeRegPtrTable(
-        GcInfoEncoder& encoder, unsigned codeSize, unsigned prologSize, MakeRegPtrMode mode, unsigned* callCount);
+        GCEncoder& encoder, unsigned codeSize, unsigned prologSize, MakeRegPtrMode mode, unsigned* callCount);
 
-    void InfoBlockHdrSave(GcInfoEncoder& encoder, unsigned methodSize, unsigned prologSize);
+    void InfoBlockHdrSave(GCEncoder& encoder, unsigned methodSize, unsigned prologSize);
 #endif
 
 #if !defined(JIT32_GCENCODER) || defined(FEATURE_EH_FUNCLETS)

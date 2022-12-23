@@ -3,6 +3,9 @@
 
 #include "jitpch.h"
 #include "gcinfotypes.h"
+#ifndef JIT32_GCENCODER
+#include "gcinfoencoder.h"
+#endif
 #include "patchpointinfo.h"
 #include "codegen.h"
 
@@ -3764,16 +3767,60 @@ size_t GCInfo::DumpPtrTable(const uint8_t* table, const InfoHdr& header, unsigne
 
 #else // !JIT32_GCENCODER
 
-#if defined(DEBUG) || DUMP_GC_TABLES
-
-// Wrapper class with logging for GcInfoEncoder.
-class LoggingGcInfoEncoder
+class RegSlotIdKey
 {
+    unsigned key;
+
+public:
+    RegSlotIdKey(regNumber regNum, GcSlotFlags flags)
+        : key(static_cast<unsigned>(regNum) | (static_cast<unsigned>(flags) << 16))
+    {
+    }
+
+    static unsigned GetHashCode(RegSlotIdKey k)
+    {
+        return k.key;
+    }
+
+    static bool Equals(RegSlotIdKey x, RegSlotIdKey y)
+    {
+        return x.key == y.key;
+    }
+};
+
+class StackSlotIdKey
+{
+    uint64_t key;
+
+public:
+    StackSlotIdKey(int offset, GcSlotFlags flags, GcStackSlotBase base)
+        : key(static_cast<unsigned>(offset) | (static_cast<uint64_t>(flags) << 32) |
+              (static_cast<uint64_t>(base) << 48))
+    {
+    }
+
+    static unsigned GetHashCode(StackSlotIdKey k)
+    {
+        return static_cast<unsigned>((k.key >> 32) ^ k.key);
+    }
+
+    static bool Equals(StackSlotIdKey x, StackSlotIdKey y)
+    {
+        return x.key == y.key;
+    }
+};
+
+#if defined(DEBUG) || DUMP_GC_TABLES
+#define GC_ENCODER_LOGGING
+#endif
+
+class GCEncoder : public GcInfoEncoder
+{
+#ifdef GC_ENCODER_LOGGING
     static const char* const StackSlotBaseNames[];
     static const char* const SlotFlagsNames[];
 
-    GcInfoEncoder& encoder;
-    bool const     log;
+    bool const log;
 
     template <typename... T>
     void Log(const char* message, T... args) const
@@ -3783,16 +3830,26 @@ class LoggingGcInfoEncoder
             printf(message, args...);
         }
     }
+#endif
 
 public:
-    LoggingGcInfoEncoder(GcInfoEncoder& encoder, bool verbose)
-        : encoder(encoder), log(verbose INDEBUG(|| JitConfig.JitGCInfoLogging() != 0))
+    JitHashTable<RegSlotIdKey, RegSlotIdKey, GcSlotId>     regSlotMap;
+    JitHashTable<StackSlotIdKey, StackSlotIdKey, GcSlotId> stackSlotMap;
+
+    GCEncoder(Compiler* compiler, CompIAllocator* encoderAlloc)
+        : GcInfoEncoder(compiler->info.compCompHnd, compiler->info.compMethodInfo, encoderAlloc, NOMEM)
+#ifdef GC_ENCODER_LOGGING
+        , log(INDEBUG(compiler->verbose || compiler->opts.dspGCtbls) || (JitConfig.JitGCInfoLogging() != 0))
+#endif
+        , regSlotMap(compiler->getAllocator(CMK_GC))
+        , stackSlotMap(compiler->getAllocator(CMK_GC))
     {
     }
 
+#ifdef GC_ENCODER_LOGGING
     GcSlotId GetStackSlotId(INT32 spOffset, GcSlotFlags flags, GcStackSlotBase spBase)
     {
-        GcSlotId newSlotId = encoder.GetStackSlotId(spOffset, flags, spBase);
+        GcSlotId newSlotId = GcInfoEncoder::GetStackSlotId(spOffset, flags, spBase);
         Log("Stack slot id for offset %d (%s0x%x) (%s) %s= %d.\n", spOffset, spOffset < 0 ? "-" : "", abs(spOffset),
             StackSlotBaseNames[spBase], SlotFlagsNames[flags & 7], newSlotId);
         return newSlotId;
@@ -3800,21 +3857,21 @@ public:
 
     GcSlotId GetRegisterSlotId(UINT32 regNum, GcSlotFlags flags)
     {
-        GcSlotId newSlotId = encoder.GetRegisterSlotId(regNum, flags);
+        GcSlotId newSlotId = GcInfoEncoder::GetRegisterSlotId(regNum, flags);
         Log("Register slot id for reg %s %s= %d.\n", getRegName(regNum), SlotFlagsNames[flags & 7], newSlotId);
         return newSlotId;
     }
 
     void SetSlotState(UINT32 instructionOffset, GcSlotId slotId, GcSlotState slotState)
     {
-        encoder.SetSlotState(instructionOffset, slotId, slotState);
+        GcInfoEncoder::SetSlotState(instructionOffset, slotId, slotState);
         Log("Set state of slot %d at instr offset 0x%x to %s.\n", slotId, instructionOffset,
             (slotState == GC_SLOT_LIVE ? "Live" : "Dead"));
     }
 
     void DefineCallSites(UINT32* pCallSites, BYTE* pCallSiteSizes, UINT32 numCallSites)
     {
-        encoder.DefineCallSites(pCallSites, pCallSiteSizes, numCallSites);
+        GcInfoEncoder::DefineCallSites(pCallSites, pCallSiteSizes, numCallSites);
 
         Log("Defining %d call sites:\n", numCallSites);
         for (UINT32 k = 0; k < numCallSites; k++)
@@ -3825,50 +3882,50 @@ public:
 
     void DefineInterruptibleRange(UINT32 startInstructionOffset, UINT32 length)
     {
-        encoder.DefineInterruptibleRange(startInstructionOffset, length);
+        GcInfoEncoder::DefineInterruptibleRange(startInstructionOffset, length);
         Log("Defining interruptible range: [0x%x, 0x%x).\n", startInstructionOffset, startInstructionOffset + length);
     }
 
     void SetCodeLength(UINT32 length)
     {
-        encoder.SetCodeLength(length);
+        GcInfoEncoder::SetCodeLength(length);
         Log("Set code length to %d.\n", length);
     }
 
     void SetReturnKind(ReturnKind returnKind)
     {
-        encoder.SetReturnKind(returnKind);
+        GcInfoEncoder::SetReturnKind(returnKind);
         Log("Set ReturnKind to %s.\n", ReturnKindToString(returnKind));
     }
 
     void SetStackBaseRegister(UINT32 registerNumber)
     {
-        encoder.SetStackBaseRegister(registerNumber);
+        GcInfoEncoder::SetStackBaseRegister(registerNumber);
         Log("Set stack base register to %s.\n", getRegName(registerNumber));
     }
 
     void SetPrologSize(UINT32 prologSize)
     {
-        encoder.SetPrologSize(prologSize);
+        GcInfoEncoder::SetPrologSize(prologSize);
         Log("Set prolog size 0x%x.\n", prologSize);
     }
 
     void SetGSCookieStackSlot(INT32 spOffsetGSCookie, UINT32 validRangeStart, UINT32 validRangeEnd)
     {
-        encoder.SetGSCookieStackSlot(spOffsetGSCookie, validRangeStart, validRangeEnd);
+        GcInfoEncoder::SetGSCookieStackSlot(spOffsetGSCookie, validRangeStart, validRangeEnd);
         Log("Set GS Cookie stack slot to %d, valid from 0x%x to 0x%x.\n", spOffsetGSCookie, validRangeStart,
             validRangeEnd);
     }
 
     void SetPSPSymStackSlot(INT32 spOffsetPSPSym)
     {
-        encoder.SetPSPSymStackSlot(spOffsetPSPSym);
+        GcInfoEncoder::SetPSPSymStackSlot(spOffsetPSPSym);
         Log("Set PSPSym stack slot to %d.\n", spOffsetPSPSym);
     }
 
     void SetGenericsInstContextStackSlot(INT32 spOffsetGenericsContext, GENERIC_CONTEXTPARAM_TYPE type)
     {
-        encoder.SetGenericsInstContextStackSlot(spOffsetGenericsContext, type);
+        GcInfoEncoder::SetGenericsInstContextStackSlot(spOffsetGenericsContext, type);
         Log("Set generic instantiation context stack slot to %d, type is %s.\n", spOffsetGenericsContext,
             (type == GENERIC_CONTEXTPARAM_THIS
                  ? "THIS"
@@ -3877,20 +3934,20 @@ public:
 
     void SetSecurityObjectStackSlot(INT32 spOffset)
     {
-        encoder.SetSecurityObjectStackSlot(spOffset);
+        GcInfoEncoder::SetSecurityObjectStackSlot(spOffset);
         Log("Set security object stack slot to %d.\n", spOffset);
     }
 
     void SetIsVarArg()
     {
-        encoder.SetIsVarArg();
+        GcInfoEncoder::SetIsVarArg();
         Log("SetIsVarArg.\n");
     }
 
 #ifdef TARGET_AMD64
     void SetWantsReportOnlyLeaf()
     {
-        encoder.SetWantsReportOnlyLeaf();
+        GcInfoEncoder::SetWantsReportOnlyLeaf();
         Log("Set WantsReportOnlyLeaf.\n");
     }
 #endif
@@ -3898,58 +3955,47 @@ public:
 #ifdef TARGET_ARMARCH
     void SetHasTailCalls()
     {
-        encoder.SetHasTailCalls();
+        GcInfoEncoder::SetHasTailCalls();
         Log("Set HasTailCalls.\n");
     }
 #endif
 
     void SetSizeOfStackOutgoingAndScratchArea(UINT32 size)
     {
-        encoder.SetSizeOfStackOutgoingAndScratchArea(size);
+        GcInfoEncoder::SetSizeOfStackOutgoingAndScratchArea(size);
         Log("Set Outgoing stack arg area size to %d.\n", size);
     }
+#endif // GC_ENCODER_LOGGING
 };
 
-const char* const LoggingGcInfoEncoder::StackSlotBaseNames[]{"caller.sp", "sp", "frame"};
+#ifdef GC_ENCODER_LOGGING
+const char* const GCEncoder::StackSlotBaseNames[]{"caller.sp", "sp", "frame"};
 
-const char* const LoggingGcInfoEncoder::SlotFlagsNames[]{"",
-                                                         "(byref) ",
-                                                         "(pinned) ",
-                                                         "(byref, pinned) ",
-                                                         "(untracked) ",
-                                                         "(byref, untracked) ",
-                                                         "(pinned, untracked) ",
-                                                         "(byref, pinned, untracked) "};
+const char* const GCEncoder::SlotFlagsNames[]{"",
+                                              "(byref) ",
+                                              "(pinned) ",
+                                              "(byref, pinned) ",
+                                              "(untracked) ",
+                                              "(byref, untracked) ",
+                                              "(pinned, untracked) ",
+                                              "(byref, pinned, untracked) "};
+#endif // GC_ENCODER_LOGGING
 
-#define LOGGING_GCENCODER(logging, encoder)                                                                            \
-    LoggingGcInfoEncoder logging(encoder, INDEBUG(compiler->verbose ||) compiler->opts.dspGCtbls);
-
-using Encoder = LoggingGcInfoEncoder;
-
-#else // !(defined(DEBUG) || DUMP_GC_TABLES)
-
-#define LOGGING_GCENCODER(logging, encoder) GcInfoEncoder& logging = encoder;
-
-using Encoder = GcInfoEncoder;
-
-#endif // !(defined(DEBUG) || DUMP_GC_TABLES)
-
-void GCInfo::InfoBlockHdrSave(GcInfoEncoder& encoder, unsigned methodSize, unsigned prologSize)
+void GCInfo::InfoBlockHdrSave(GCEncoder& encoder, unsigned methodSize, unsigned prologSize)
 {
     JITDUMP("*************** In InfoBlockHdrSave()\n");
-    LOGGING_GCENCODER(loggingEncoder, encoder);
 
-    loggingEncoder.SetCodeLength(methodSize);
-    loggingEncoder.SetReturnKind(GetReturnKind());
+    encoder.SetCodeLength(methodSize);
+    encoder.SetReturnKind(GetReturnKind());
 
     if (compiler->codeGen->isFramePointerUsed())
     {
-        loggingEncoder.SetStackBaseRegister(REG_FPBASE);
+        encoder.SetStackBaseRegister(REG_FPBASE);
     }
 
     if (compiler->info.compIsVarArgs)
     {
-        loggingEncoder.SetIsVarArg();
+        encoder.SetIsVarArg();
     }
 
     if (compiler->lvaReportParamTypeArg())
@@ -3985,7 +4031,7 @@ void GCInfo::InfoBlockHdrSave(GcInfoEncoder& encoder, unsigned methodSize, unsig
         }
 #endif
 
-        loggingEncoder.SetGenericsInstContextStackSlot(offset, ctxtParamType);
+        encoder.SetGenericsInstContextStackSlot(offset, ctxtParamType);
     }
     else if (compiler->lvaKeepAliveAndReportThis())
     {
@@ -4019,7 +4065,7 @@ void GCInfo::InfoBlockHdrSave(GcInfoEncoder& encoder, unsigned methodSize, unsig
         }
 #endif
 
-        loggingEncoder.SetGenericsInstContextStackSlot(offset, GENERIC_CONTEXTPARAM_THIS);
+        encoder.SetGenericsInstContextStackSlot(offset, GENERIC_CONTEXTPARAM_THIS);
     }
 
     if (compiler->getNeedsGSSecurityCookie())
@@ -4032,20 +4078,20 @@ void GCInfo::InfoBlockHdrSave(GcInfoEncoder& encoder, unsigned methodSize, unsig
         // The code offset ranges assume that the GS Cookie slot is initialized in the prolog, and is valid
         // through the remainder of the method.  We will not query for the GS Cookie while we're in an epilog,
         // so the question of where in the epilog it becomes invalid is moot.
-        loggingEncoder.SetGSCookieStackSlot(offset, prologSize, methodSize);
+        encoder.SetGSCookieStackSlot(offset, prologSize, methodSize);
     }
     else if (compiler->lvaReportParamTypeArg() || compiler->lvaKeepAliveAndReportThis())
     {
-        loggingEncoder.SetPrologSize(prologSize);
+        encoder.SetPrologSize(prologSize);
     }
 
 #ifdef FEATURE_EH_FUNCLETS
     if (compiler->lvaPSPSym != BAD_VAR_NUM)
     {
 #ifdef TARGET_AMD64
-        loggingEncoder.SetPSPSymStackSlot(compiler->lvaGetPSPSymInitialSPRelativeOffset());
+        encoder.SetPSPSymStackSlot(compiler->lvaGetPSPSymInitialSPRelativeOffset());
 #else
-        loggingEncoder.SetPSPSymStackSlot(compiler->lvaGetCallerSPRelativeOffset(compiler->lvaPSPSym));
+        encoder.SetPSPSymStackSlot(compiler->lvaGetCallerSPRelativeOffset(compiler->lvaPSPSym));
 #endif
     }
 
@@ -4053,7 +4099,7 @@ void GCInfo::InfoBlockHdrSave(GcInfoEncoder& encoder, unsigned methodSize, unsig
     if (compiler->ehAnyFunclets())
     {
         // Set this to avoid double-reporting the parent frame (unlike JIT64)
-        loggingEncoder.SetWantsReportOnlyLeaf();
+        encoder.SetWantsReportOnlyLeaf();
     }
 #endif
 #endif // FEATURE_EH_FUNCLETS
@@ -4061,12 +4107,12 @@ void GCInfo::InfoBlockHdrSave(GcInfoEncoder& encoder, unsigned methodSize, unsig
 #ifdef TARGET_ARMARCH
     if (compiler->codeGen->GetHasTailCalls())
     {
-        loggingEncoder.SetHasTailCalls();
+        encoder.SetHasTailCalls();
     }
 #endif
 
 #if FEATURE_FIXED_OUT_ARGS
-    loggingEncoder.SetSizeOfStackOutgoingAndScratchArea(compiler->codeGen->outgoingArgSpaceSize);
+    encoder.SetSizeOfStackOutgoingAndScratchArea(compiler->codeGen->outgoingArgSpaceSize);
 #endif
 
 #if DISPLAY_SIZES
@@ -4076,10 +4122,10 @@ void GCInfo::InfoBlockHdrSave(GcInfoEncoder& encoder, unsigned methodSize, unsig
 
 struct InterruptibleRangeReporter
 {
-    unsigned prevStart;
-    Encoder& encoder;
+    unsigned   prevStart;
+    GCEncoder& encoder;
 
-    InterruptibleRangeReporter(unsigned prologSize, Encoder& encoder) : prevStart(prologSize), encoder(encoder)
+    InterruptibleRangeReporter(unsigned prologSize, GCEncoder& encoder) : prevStart(prologSize), encoder(encoder)
     {
     }
 
@@ -4109,10 +4155,8 @@ struct InterruptibleRangeReporter
 };
 
 void GCInfo::MakeRegPtrTable(
-    GcInfoEncoder& encoder, unsigned codeSize, unsigned prologSize, MakeRegPtrMode mode, unsigned* callCount)
+    GCEncoder& encoder, unsigned codeSize, unsigned prologSize, MakeRegPtrMode mode, unsigned* callCount)
 {
-    LOGGING_GCENCODER(loggingEncoder, encoder);
-
     const bool noTrackedGCSlots =
         (compiler->opts.MinOpts() && !compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) &&
          !JitConfig.JitMinOptsTrackGCrefs());
@@ -4179,16 +4223,16 @@ void GCInfo::MakeRegPtrTable(
                 // No need to hash/lookup untracked GC refs; just grab a new slot id.
                 if (mode == MakeRegPtrMode::AssignSlots)
                 {
-                    loggingEncoder.GetStackSlotId(slotOffset, slotFlags, slotBase);
+                    encoder.GetStackSlotId(slotOffset, slotFlags, slotBase);
                 }
             }
             else if (mode == MakeRegPtrMode::AssignSlots)
             {
                 StackSlotIdKey slotKey(lcl->GetStackOffset(), slotFlags, slotBase);
 
-                if (stackSlotMap.LookupPointer(slotKey) == nullptr)
+                if (encoder.stackSlotMap.LookupPointer(slotKey) == nullptr)
                 {
-                    stackSlotMap.Set(slotKey, loggingEncoder.GetStackSlotId(slotOffset, slotFlags, slotBase));
+                    encoder.stackSlotMap.Set(slotKey, encoder.GetStackSlotId(slotOffset, slotFlags, slotBase));
                 }
             }
         }
@@ -4224,9 +4268,9 @@ void GCInfo::MakeRegPtrTable(
 
                 StackSlotIdKey slotKey(slotOffset, slotFlags, slotBase);
 
-                if (stackSlotMap.LookupPointer(slotKey) == nullptr)
+                if (encoder.stackSlotMap.LookupPointer(slotKey) == nullptr)
                 {
-                    stackSlotMap.Set(slotKey, loggingEncoder.GetStackSlotId(slotOffset, slotFlags, slotBase));
+                    encoder.stackSlotMap.Set(slotKey, encoder.GetStackSlotId(slotOffset, slotFlags, slotBase));
                 }
             }
         }
@@ -4254,9 +4298,9 @@ void GCInfo::MakeRegPtrTable(
 
             StackSlotIdKey slotKey(slotOffset, slotFlags, slotBase);
 
-            if (stackSlotMap.LookupPointer(slotKey) == nullptr)
+            if (encoder.stackSlotMap.LookupPointer(slotKey) == nullptr)
             {
-                stackSlotMap.Set(slotKey, loggingEncoder.GetStackSlotId(slotOffset, slotFlags, slotBase));
+                encoder.stackSlotMap.Set(slotKey, encoder.GetStackSlotId(slotOffset, slotFlags, slotBase));
             }
         }
 
@@ -4275,7 +4319,7 @@ void GCInfo::MakeRegPtrTable(
 
             GcStackSlotBase slotBase = compiler->codeGen->isFramePointerUsed() ? GC_FRAMEREG_REL : GC_SP_REL;
 
-            loggingEncoder.GetStackSlotId(compiler->codeGen->cachedGenericContextArgOffset, slotFlags, slotBase);
+            encoder.GetStackSlotId(compiler->codeGen->cachedGenericContextArgOffset, slotFlags, slotBase);
         }
     }
 
@@ -4356,13 +4400,13 @@ void GCInfo::MakeRegPtrTable(
         {
             assert(prologSize <= codeSize);
 
-            InterruptibleRangeReporter reporter(prologSize, loggingEncoder);
+            InterruptibleRangeReporter reporter(prologSize, encoder);
             compiler->GetEmitter()->emitGenNoGCLst(reporter);
             prologSize = reporter.prevStart;
 
             if (prologSize < codeSize)
             {
-                loggingEncoder.DefineInterruptibleRange(prologSize, codeSize - prologSize);
+                encoder.DefineInterruptibleRange(prologSize, codeSize - prologSize);
             }
         }
 
@@ -4387,7 +4431,7 @@ void GCInfo::MakeRegPtrTable(
 
                     if (callSiteCount == 0)
                     {
-                        loggingEncoder.DefineCallSites(nullptr, nullptr, 0);
+                        encoder.DefineCallSites(nullptr, nullptr, 0);
 
                         return;
                     }
@@ -4443,7 +4487,7 @@ void GCInfo::MakeRegPtrTable(
 
         if (mode == MakeRegPtrMode::DoWork)
         {
-            loggingEncoder.DefineCallSites(callSites, callSiteSizes, callSiteCount);
+            encoder.DefineCallSites(callSites, callSiteSizes, callSiteCount);
         }
 
         return;
@@ -4514,11 +4558,11 @@ void GCInfo::MakeRegPtrTable(
 
     if (mode == MakeRegPtrMode::DoWork)
     {
-        loggingEncoder.DefineCallSites(callSites, callSiteSizes, callSiteCount);
+        encoder.DefineCallSites(callSites, callSiteSizes, callSiteCount);
     }
 }
 
-void GCInfo::InfoRecordGCRegStateChange(GcInfoEncoder& encoder,
+void GCInfo::InfoRecordGCRegStateChange(GCEncoder&     encoder,
                                         MakeRegPtrMode mode,
                                         unsigned       codeOffset,
                                         GcSlotState    slotState,
@@ -4540,8 +4584,6 @@ void GCInfo::InfoRecordGCRegStateChange(GcInfoEncoder& encoder,
         }
     }
 
-    LOGGING_GCENCODER(loggingEncoder, encoder);
-
     for (regMaskTP regMask; regs != RBM_NONE; regs &= ~regMask)
     {
         regMask = genFindLowestReg(regs);
@@ -4560,28 +4602,26 @@ void GCInfo::InfoRecordGCRegStateChange(GcInfoEncoder& encoder,
 
         RegSlotIdKey slotKey(reg, slotFlags);
         GcSlotId     slotId;
-        bool         found = regSlotMap.Lookup(slotKey, &slotId);
+        bool         found = encoder.regSlotMap.Lookup(slotKey, &slotId);
 
         if (mode == MakeRegPtrMode::AssignSlots)
         {
             if (!found)
             {
-                regSlotMap.Set(slotKey, loggingEncoder.GetRegisterSlotId(reg, slotFlags));
+                encoder.regSlotMap.Set(slotKey, encoder.GetRegisterSlotId(reg, slotFlags));
             }
         }
         else
         {
             assert(found);
 
-            loggingEncoder.SetSlotState(codeOffset, slotId, slotState);
+            encoder.SetSlotState(codeOffset, slotId, slotState);
         }
     }
 }
 
-void GCInfo::MakeVarPtrTable(GcInfoEncoder& encoder, MakeRegPtrMode mode)
+void GCInfo::MakeVarPtrTable(GCEncoder& encoder, MakeRegPtrMode mode)
 {
-    LOGGING_GCENCODER(loggingEncoder, encoder);
-
 #ifdef DEBUG
     if (mode == MakeRegPtrMode::AssignSlots)
     {
@@ -4633,61 +4673,57 @@ void GCInfo::MakeVarPtrTable(GcInfoEncoder& encoder, MakeRegPtrMode mode)
 
         StackSlotIdKey slotKey(slotOffs, slotFlags, slotBaseReg);
         GcSlotId       slotId;
-        bool           found = stackSlotMap.Lookup(slotKey, &slotId);
+        bool           found = encoder.stackSlotMap.Lookup(slotKey, &slotId);
 
         if (mode == MakeRegPtrMode::AssignSlots)
         {
             if (!found)
             {
-                stackSlotMap.Set(slotKey, loggingEncoder.GetStackSlotId(slotOffs, slotFlags, slotBaseReg));
+                encoder.stackSlotMap.Set(slotKey, encoder.GetStackSlotId(slotOffs, slotFlags, slotBaseReg));
             }
         }
         else
         {
             assert(found);
 
-            loggingEncoder.SetSlotState(beginCodeOffs, slotId, GC_SLOT_LIVE);
-            loggingEncoder.SetSlotState(endCodeOffs, slotId, GC_SLOT_DEAD);
+            encoder.SetSlotState(beginCodeOffs, slotId, GC_SLOT_LIVE);
+            encoder.SetSlotState(endCodeOffs, slotId, GC_SLOT_DEAD);
         }
     }
 }
 
-void GCInfo::InfoRecordGCStackArgLive(GcInfoEncoder& encoder, MakeRegPtrMode mode, RegArgChange* argChange)
+void GCInfo::InfoRecordGCStackArgLive(GCEncoder& encoder, MakeRegPtrMode mode, RegArgChange* argChange)
 {
     assert(argChange->gcType != GCT_NONE);
     assert(argChange->isArg);
     assert(argChange->kind == RegArgChangeKind::Push);
     assert(compiler->codeGen->GetInterruptible());
 
-    LOGGING_GCENCODER(loggingEncoder, encoder);
-
     GcSlotFlags    slotFlags = argChange->gcType == GCT_BYREF ? GC_SLOT_INTERIOR : GC_SLOT_BASE;
     StackSlotIdKey slotKey(argChange->argOffset, slotFlags, GC_SP_REL);
     GcSlotId       slotId;
-    bool           found = stackSlotMap.Lookup(slotKey, &slotId);
+    bool           found = encoder.stackSlotMap.Lookup(slotKey, &slotId);
 
     if (mode == MakeRegPtrMode::AssignSlots)
     {
         if (!found)
         {
-            stackSlotMap.Set(slotKey, loggingEncoder.GetStackSlotId(argChange->argOffset, slotFlags, GC_SP_REL));
+            encoder.stackSlotMap.Set(slotKey, encoder.GetStackSlotId(argChange->argOffset, slotFlags, GC_SP_REL));
         }
     }
     else
     {
         assert(found);
-        loggingEncoder.SetSlotState(argChange->codeOffs, slotId, GC_SLOT_LIVE);
+        encoder.SetSlotState(argChange->codeOffs, slotId, GC_SLOT_LIVE);
     }
 }
 
-void GCInfo::InfoRecordGCStackArgsDead(GcInfoEncoder& encoder,
-                                       unsigned       codeOffset,
-                                       RegArgChange*  firstArgChange,
-                                       RegArgChange*  lastArgChange)
+void GCInfo::InfoRecordGCStackArgsDead(GCEncoder&    encoder,
+                                       unsigned      codeOffset,
+                                       RegArgChange* firstArgChange,
+                                       RegArgChange* lastArgChange)
 {
     assert(compiler->codeGen->GetInterruptible());
-
-    LOGGING_GCENCODER(loggingEncoder, encoder);
 
     for (RegArgChange* change = firstArgChange; change != lastArgChange; change = change->next)
     {
@@ -4701,9 +4737,9 @@ void GCInfo::InfoRecordGCStackArgsDead(GcInfoEncoder& encoder,
 
         GcSlotFlags slotFlags = change->gcType == GCT_BYREF ? GC_SLOT_INTERIOR : GC_SLOT_BASE;
         GcSlotId    slotId;
-        bool        found = stackSlotMap.Lookup({change->argOffset, slotFlags, GC_SP_REL}, &slotId);
+        bool        found = encoder.stackSlotMap.Lookup({change->argOffset, slotFlags, GC_SP_REL}, &slotId);
         assert(found);
-        loggingEncoder.SetSlotState(codeOffset, slotId, GC_SLOT_DEAD);
+        encoder.SetSlotState(codeOffset, slotId, GC_SLOT_DEAD);
     }
 }
 
@@ -4712,7 +4748,7 @@ void GCInfo::InfoRecordGCStackArgsDead(GcInfoEncoder& encoder,
 void GCInfo::CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize DEBUGARG(void* codePtr))
 {
     CompIAllocator encoderAlloc(compiler->getAllocator(CMK_GC));
-    GcInfoEncoder  encoder(compiler->info.compCompHnd, compiler->info.compMethodInfo, &encoderAlloc, NOMEM);
+    GCEncoder      encoder(compiler, &encoderAlloc);
 
     InfoBlockHdrSave(encoder, codeSize, prologSize);
     unsigned callSiteCount = 0;

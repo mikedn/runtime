@@ -9,12 +9,7 @@ size_t GCInfo::s_gcRegPtrDscSize;
 size_t GCInfo::s_gcTotalPtrTabSize;
 #endif
 
-GCInfo::GCInfo(Compiler* compiler)
-    : compiler(compiler)
-#ifndef JIT32_GCENCODER
-    , regSlotMap(compiler->getAllocator(CMK_GC))
-    , stackSlotMap(compiler->getAllocator(CMK_GC))
-#endif
+GCInfo::GCInfo(Compiler* compiler) : compiler(compiler)
 {
 }
 
