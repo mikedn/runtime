@@ -53,8 +53,8 @@ public:
         RegArgChange* next = nullptr;
         unsigned      codeOffs;
 
-        RegArgChangeKind kind : 2;
-        GCtype           gcType : 2;
+        RegArgChangeKind kind : 8;
+        GCtype           gcType : 8;
 #ifdef JIT32_GCENCODER
         unsigned isThis : 1;
         unsigned isCall : 1;
