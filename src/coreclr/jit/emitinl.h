@@ -349,29 +349,16 @@ inline bool insIsCMOV(instruction ins)
 }
 #endif
 
-/*****************************************************************************
- *
- *  Call the specified function pointer for each insGroup in the current
- *  method that is marked IGF_NOGCINTERRUPT. Stops if the callback returns
- *  false. Returns the final result of the callback.
- */
 template <typename Callback>
-bool emitter::emitGenNoGCLst(Callback& cb)
+void emitter::EnumerateNoGCInsGroups(Callback callback)
 {
-    for (insGroup* ig = emitIGlist; ig; ig = ig->igNext)
+    for (insGroup* ig = emitIGlist; ig != nullptr; ig = ig->igNext)
     {
-        if (ig->igFlags & IGF_NOGCINTERRUPT)
+        if ((ig->igFlags & IGF_NOGCINTERRUPT) != 0)
         {
-            if (!cb(ig->igFuncIdx, ig->igOffs, ig->igSize))
-            {
-                return false;
-            }
+            callback(ig->igFuncIdx, ig->igOffs, ig->igSize);
         }
     }
-
-    return true;
 }
 
-/*****************************************************************************/
 #endif //_EMITINL_H_
-/*****************************************************************************/

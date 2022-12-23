@@ -25,7 +25,7 @@ unsigned emitEndCodeGen(bool      fullyInt,
 unsigned emitGetEpilogCnt();
 
 template <typename Callback>
-bool emitGenNoGCLst(Callback& cb);
+void EnumerateNoGCInsGroups(Callback callback);
 
 void     emitBegProlog();
 unsigned emitGetPrologOffsetEstimate();

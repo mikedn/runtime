@@ -4274,45 +4274,31 @@ void GCInfo::AddFullyInterruptibleRanges(GCEncoder& encoder, unsigned codeSize, 
     assert(compiler->codeGen->GetInterruptible());
     assert(prologSize <= codeSize);
 
-    struct InterruptibleRangeReporter
-    {
-        unsigned   prevStart;
-        GCEncoder& encoder;
+    unsigned prevOffset = prologSize;
 
-        InterruptibleRangeReporter(unsigned prologSize, GCEncoder& encoder) : prevStart(prologSize), encoder(encoder)
+    compiler->GetEmitter()->EnumerateNoGCInsGroups([&](unsigned funcletIndex, unsigned offset, unsigned size) {
+        if (offset < prevOffset)
         {
+            // We're still in the main method prolog, which has already had it's interruptible range reported.
+            assert(funcletIndex == 0);
+            assert(offset + size <= prevOffset);
         }
-
-        bool operator()(unsigned igFuncIdx, unsigned igOffs, unsigned igSize)
+        else
         {
-            if (igOffs < prevStart)
+            assert(offset >= prevOffset);
+
+            if (offset > prevOffset)
             {
-                // We're still in the main method prolog, which has already had it's interruptible range reported.
-
-                assert(igFuncIdx == 0);
-                assert(igOffs + igSize <= prevStart);
-
-                return true;
+                encoder.DefineInterruptibleRange(prevOffset, offset - prevOffset);
             }
 
-            assert(igOffs >= prevStart);
-
-            if (igOffs > prevStart)
-            {
-                encoder.DefineInterruptibleRange(prevStart, igOffs - prevStart);
-            }
-
-            prevStart = igOffs + igSize;
-
-            return true;
+            prevOffset = offset + size;
         }
-    } reporter(prologSize, encoder);
+    });
 
-    compiler->GetEmitter()->emitGenNoGCLst(reporter);
-
-    if (reporter.prevStart < codeSize)
+    if (prevOffset < codeSize)
     {
-        encoder.DefineInterruptibleRange(reporter.prevStart, codeSize - reporter.prevStart);
+        encoder.DefineInterruptibleRange(prevOffset, codeSize - prevOffset);
     }
 }
 
