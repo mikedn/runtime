@@ -4230,40 +4230,33 @@ void GCInfo::AddFullyInterruptibleSlots(GCEncoder& encoder)
     {
         if (change->isArg)
         {
-            if (change->kind == RegArgChangeKind::Kill)
+            if ((change->gcType != GCT_NONE) &&
+                ((change->kind == RegArgChangeKind::Push) ||
+                 ((change->argOffset != 0) && (change->kind != RegArgChangeKind::Kill))))
             {
-                if ((encoder.hasSlotIds) && (firstArgChange != nullptr))
-                {
-                    InfoRecordGCStackArgsDead(encoder, change->codeOffs, firstArgChange, change);
-                }
+                assert(change->kind != RegArgChangeKind::Pop);
 
-                firstArgChange = nullptr;
+                AddCallArgStackSlot(encoder, change);
+
+                if (firstArgChange == nullptr)
+                {
+                    firstArgChange = change;
+                }
             }
-            else if (change->gcType != GCT_NONE)
+            else
             {
-                if ((change->kind == RegArgChangeKind::Push) || (change->argOffset != 0))
-                {
-                    assert(change->kind != RegArgChangeKind::Pop);
-
-                    InfoRecordGCStackArgLive(encoder, change);
-
-                    if (firstArgChange == nullptr)
-                    {
-                        firstArgChange = change;
-                    }
-                }
-                else
+                if ((change->gcType != GCT_NONE) && (change->kind != RegArgChangeKind::Kill))
                 {
                     assert((change->kind == RegArgChangeKind::Pop) && (change->argOffset == 0));
                     assert(change->isArg && change->IsCallInstr());
-
-                    if (encoder.hasSlotIds && (firstArgChange != nullptr))
-                    {
-                        InfoRecordGCStackArgsDead(encoder, change->codeOffs, firstArgChange, change);
-                    }
-
-                    firstArgChange = nullptr;
                 }
+
+                if (encoder.hasSlotIds && (firstArgChange != nullptr))
+                {
+                    RemoveCallArgStackSlots(encoder, change->codeOffs, firstArgChange, change);
+                }
+
+                firstArgChange = nullptr;
             }
         }
         else
@@ -4560,7 +4553,7 @@ void GCInfo::AddTrackedStackSlots(GCEncoder& encoder)
     }
 }
 
-void GCInfo::InfoRecordGCStackArgLive(GCEncoder& encoder, RegArgChange* argChange)
+void GCInfo::AddCallArgStackSlot(GCEncoder& encoder, RegArgChange* argChange)
 {
     assert(argChange->gcType != GCT_NONE);
     assert(argChange->isArg);
@@ -4586,10 +4579,10 @@ void GCInfo::InfoRecordGCStackArgLive(GCEncoder& encoder, RegArgChange* argChang
     }
 }
 
-void GCInfo::InfoRecordGCStackArgsDead(GCEncoder&    encoder,
-                                       unsigned      codeOffset,
-                                       RegArgChange* firstArgChange,
-                                       RegArgChange* lastArgChange)
+void GCInfo::RemoveCallArgStackSlots(GCEncoder&    encoder,
+                                     unsigned      codeOffset,
+                                     RegArgChange* firstArgChange,
+                                     RegArgChange* lastArgChange)
 {
     assert(compiler->codeGen->GetInterruptible());
 

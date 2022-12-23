@@ -200,8 +200,8 @@ private:
                                     regMaskSmall  regs,
                                     regMaskSmall  byrefRegs,
                                     regMaskSmall* newRegs = nullptr);
-    void InfoRecordGCStackArgLive(GCEncoder& encoder, RegArgChange* argChange);
-    void InfoRecordGCStackArgsDead(GCEncoder&    encoder,
+    void AddCallArgStackSlot(GCEncoder& encoder, RegArgChange* argChange);
+    void RemoveCallArgStackSlots(GCEncoder&    encoder,
                                    unsigned      codeOffset,
                                    RegArgChange* firstArgChange,
                                    RegArgChange* lastArgChange);
