@@ -5177,19 +5177,10 @@ unsigned emitter::emitEndCodeGen(bool      fullyInt,
         {
             emitSyncThisObjReg = thisDsc->GetRegNum();
 
-            if ((emitSyncThisObjReg == REG_ARG_0) && ((codeGen->paramRegState.intRegLiveIn & RBM_ARG_0) != RBM_NONE))
+            if (emitFullGCinfo && (emitSyncThisObjReg == REG_ARG_0) &&
+                ((codeGen->paramRegState.intRegLiveIn & RBM_ARG_0) != RBM_NONE))
             {
-                if (emitFullGCinfo)
-                {
-                    emitGCregLiveSet(GCT_GCREF, RBM_ARG_0,
-                                     emitCodeBlock, // from offset 0
-                                     true);
-                }
-                else
-                {
-                    // If emitFullGCinfo==false, then we don't record any GC reg/arg changes
-                    // and so explictly note the location of "this" in GCEncode.cpp
-                }
+                emitGCregLiveSet(GCT_GCREF, RBM_ARG_0, emitCodeBlock, true);
             }
         }
     }
@@ -6764,7 +6755,11 @@ void emitter::emitGCregLiveSet(GCtype gcType, regMaskTP regMask, BYTE* addr)
 #endif
 {
     assert(emitIssuing);
-    assert(emitFullGCinfo);
+#ifdef JIT32_GCENCODER
+    assert(emitFullyInt || (isThis && emitFullGCinfo));
+#else
+    assert(emitFullyInt);
+#endif
     assert(gcType != GCT_NONE);
     assert(((emitThisGCrefRegs | emitThisByrefRegs) & regMask) == 0);
 #ifdef JIT32_GCENCODER
@@ -6786,7 +6781,7 @@ void emitter::emitGCregLiveSet(GCtype gcType, regMaskTP regMask, BYTE* addr)
 void emitter::emitGCregDeadSet(GCtype gcType, regMaskTP regMask, BYTE* addr)
 {
     assert(emitIssuing);
-    assert(emitFullGCinfo);
+    assert(emitFullyInt);
     assert(gcType != GCT_NONE);
     assert(((emitThisGCrefRegs | emitThisByrefRegs) & regMask) != 0);
 
@@ -7012,12 +7007,11 @@ void emitter::emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr)
     regMaskTP& emitThisXXrefRegs = (gcType == GCT_GCREF) ? emitThisGCrefRegs : emitThisByrefRegs;
     regMaskTP& emitThisYYrefRegs = (gcType == GCT_GCREF) ? emitThisByrefRegs : emitThisGCrefRegs;
 
-    if ((emitThisXXrefRegs & regMask) == 0)
+    if ((emitThisXXrefRegs & regMask) == RBM_NONE)
     {
-        // If the register was holding the other GC type, that type should
-        // go dead now
+        // If the register was holding the other GC type, that type should go dead now.
 
-        if (emitThisYYrefRegs & regMask)
+        if ((emitThisYYrefRegs & regMask) != RBM_NONE)
         {
             emitGCregDeadUpd(reg, addr);
         }
@@ -7030,12 +7024,12 @@ void emitter::emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr)
 
         bool isThis = (reg == emitSyncThisObjReg);
 
-        if (emitFullGCinfo)
+        if (emitFullyInt || (emitFullGCinfo && isThis))
         {
             emitGCregLiveSet(gcType, regMask, addr, isThis);
         }
 #else
-        if (emitFullGCinfo)
+        if (emitFullyInt)
         {
             emitGCregLiveSet(gcType, regMask, addr);
         }
@@ -7046,7 +7040,7 @@ void emitter::emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr)
 
     // The 2 GC reg masks can't be overlapping
 
-    assert((emitThisGCrefRegs & emitThisByrefRegs) == 0);
+    assert((emitThisGCrefRegs & emitThisByrefRegs) == RBM_NONE);
 }
 
 /*****************************************************************************
@@ -7078,7 +7072,7 @@ void emitter::emitGCregDeadUpdMask(regMaskTP regs, BYTE* addr)
     {
         assert((emitThisByrefRegs & gcrefRegs) == 0);
 
-        if (emitFullGCinfo)
+        if (emitFullyInt)
         {
             emitGCregDeadSet(GCT_GCREF, gcrefRegs, addr);
         }
@@ -7094,7 +7088,7 @@ void emitter::emitGCregDeadUpdMask(regMaskTP regs, BYTE* addr)
     {
         assert((emitThisGCrefRegs & byrefRegs) == 0);
 
-        if (emitFullGCinfo)
+        if (emitFullyInt)
         {
             emitGCregDeadSet(GCT_BYREF, byrefRegs, addr);
         }
@@ -7124,7 +7118,7 @@ void emitter::emitGCregDeadUpd(regNumber reg, BYTE* addr)
     {
         assert((emitThisByrefRegs & regMask) == 0);
 
-        if (emitFullGCinfo)
+        if (emitFullyInt)
         {
             emitGCregDeadSet(GCT_GCREF, regMask, addr);
         }
@@ -7133,7 +7127,7 @@ void emitter::emitGCregDeadUpd(regNumber reg, BYTE* addr)
     }
     else if ((emitThisByrefRegs & regMask) != 0)
     {
-        if (emitFullGCinfo)
+        if (emitFullyInt)
         {
             emitGCregDeadSet(GCT_BYREF, regMask, addr);
         }

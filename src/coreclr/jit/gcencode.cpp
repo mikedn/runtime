@@ -4402,10 +4402,7 @@ void GCInfo::AddPartiallyInterruptibleSlots(GCEncoder& encoder)
     {
         for (RegArgChange* change = firstRegArgChange; change != nullptr; change = change->next)
         {
-            if (!change->isArg)
-            {
-                continue;
-            }
+            assert(change->isArg);
 
             if (!change->IsCallInstr())
             {
