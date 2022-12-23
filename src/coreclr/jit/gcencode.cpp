@@ -4335,65 +4335,51 @@ void GCInfo::MakeRegPtrTable(
         return;
     }
 
-    if (compiler->codeGen->isFramePointerUsed())
+    unsigned  callSiteCount = *callCount;
+    unsigned  callSiteIndex = 0;
+    unsigned* callSites     = nullptr;
+    uint8_t*  callSiteSizes = nullptr;
+
+    if (mode == MakeRegPtrMode::DoWork)
     {
-        assert(!compiler->codeGen->IsFullPtrRegMapRequired());
+        if (callSiteCount == 0)
+        {
+            // TODO-MIKE-Cleanup: Old code called DefineCallSites for no reason,
+            // it has no effect but it produces GC info dump diffs.
+            encoder.DefineCallSites(nullptr, nullptr, 0);
+
+            return;
+        }
+
+        callSites     = new (compiler, CMK_GC) unsigned[callSiteCount];
+        callSiteSizes = new (compiler, CMK_GC) uint8_t[callSiteCount];
+    }
+
+    if (!compiler->codeGen->IsFullPtrRegMapRequired())
+    {
+        // TODO-MIKE-Review: Probably this should check if there are any tracked slots, instead of
+        // trying to deduce that from other conditions that imply that all slots are untracked.
 
         const bool noTrackedGCSlots =
             (compiler->opts.MinOpts() && !compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) &&
              !JitConfig.JitMinOptsTrackGCrefs());
-
-        unsigned  callSiteCount = 0;
-        unsigned* callSites     = nullptr;
-        uint8_t*  callSiteSizes = nullptr;
-
-        if (mode == MakeRegPtrMode::DoWork)
-        {
-            if (firstCallSite != nullptr)
-            {
-                if (noTrackedGCSlots)
-                {
-                    callSiteCount = *callCount;
-
-                    if (callSiteCount == 0)
-                    {
-                        encoder.DefineCallSites(nullptr, nullptr, 0);
-
-                        return;
-                    }
-                }
-                else
-                {
-                    for (CallSite* call = firstCallSite; call != nullptr; call = call->next)
-                    {
-                        callSiteCount++;
-                    }
-                }
-
-                callSites     = new (compiler, CMK_GC) unsigned[callSiteCount];
-                callSiteSizes = new (compiler, CMK_GC) uint8_t[callSiteCount];
-            }
-        }
-
-        unsigned callSiteIndex = 0;
 
         for (CallSite* call = firstCallSite; call != nullptr; call = call->next)
         {
             regMaskSmall refRegs   = call->refRegs & RBM_CALLEE_SAVED;
             regMaskSmall byrefRegs = call->byrefRegs & RBM_CALLEE_SAVED;
 
-            assert((refRegs & byrefRegs) == 0);
+            assert((refRegs & byrefRegs) == RBM_NONE);
 
             regMaskSmall gcRegs = refRegs | byrefRegs;
 
-            if (noTrackedGCSlots && (gcRegs == 0))
+            if (noTrackedGCSlots && (gcRegs == RBM_NONE))
             {
                 continue;
             }
 
-            unsigned nextOffset = call->codeOffs;
-            assert(nextOffset >= call->callInstrLength);
-            unsigned callOffset = nextOffset - call->callInstrLength;
+            assert(call->codeOffs >= call->callInstrLength);
+            unsigned callOffset = call->codeOffs - call->callInstrLength;
 
             if (mode == MakeRegPtrMode::DoWork)
             {
@@ -4404,87 +4390,59 @@ void GCInfo::MakeRegPtrTable(
             callSiteIndex++;
 
             InfoRecordGCRegStateChange(encoder, mode, callOffset, GC_SLOT_LIVE, gcRegs, byrefRegs);
-            InfoRecordGCRegStateChange(encoder, mode, nextOffset, GC_SLOT_DEAD, gcRegs, byrefRegs);
+            InfoRecordGCRegStateChange(encoder, mode, call->codeOffs, GC_SLOT_DEAD, gcRegs, byrefRegs);
         }
-
-        assert((mode != MakeRegPtrMode::DoWork) || (callSiteCount == callSiteIndex));
-
-        *callCount = callSiteIndex;
-
-        if (mode == MakeRegPtrMode::DoWork)
-        {
-            encoder.DefineCallSites(callSites, callSiteSizes, callSiteCount);
-        }
-
-        return;
     }
-
-    assert(compiler->codeGen->IsFullPtrRegMapRequired());
-
-    unsigned  callSiteCount = 0;
-    unsigned* callSites     = nullptr;
-    uint8_t*  callSiteSizes = nullptr;
-
-    if (mode == MakeRegPtrMode::DoWork)
+    else
     {
         for (RegArgChange* change = firstRegArgChange; change != nullptr; change = change->next)
         {
-            if (change->isArg && change->IsCallInstr())
+            if (!change->isArg)
             {
-                callSiteCount++;
+                continue;
             }
-        }
 
-        if (callSiteCount > 0)
-        {
-            callSites     = new (compiler, CMK_GC) unsigned[callSiteCount];
-            callSiteSizes = new (compiler, CMK_GC) uint8_t[callSiteCount];
-        }
-    }
+            if (!change->IsCallInstr())
+            {
+                // These are reporting outgoing stack arguments, but we don't need
+                // to report anything for partially interruptible.
+                assert(change->gcType != GCT_NONE);
+                assert(change->kind == RegArgChangeKind::Push);
 
-    unsigned callSiteIndex = 0;
+                continue;
+            }
 
-    for (RegArgChange* change = firstRegArgChange; change != nullptr; change = change->next)
-    {
-        if (!change->isArg)
-        {
-            continue;
-        }
+            regMaskSmall refRegs   = RegMaskFromCalleeSavedMask(change->callRefRegs);
+            regMaskSmall byrefRegs = RegMaskFromCalleeSavedMask(change->callByrefRegs);
 
-        if (!change->IsCallInstr())
-        {
-            // These are reporting outgoing stack arguments, but we don't need
-            // to report anything for partially interruptible.
-            assert(change->gcType != GCT_NONE);
-            assert(change->kind == RegArgChangeKind::Push);
+            assert((refRegs & byrefRegs) == RBM_NONE);
 
-            continue;
-        }
+            regMaskSmall gcRegs = refRegs | byrefRegs;
 
-        regMaskSmall refRegs   = RegMaskFromCalleeSavedMask(change->callRefRegs);
-        regMaskSmall byrefRegs = RegMaskFromCalleeSavedMask(change->callByrefRegs);
+            assert(change->codeOffs >= change->callInstrLength);
+            unsigned callOffset = change->codeOffs - change->callInstrLength;
 
-        assert((refRegs & byrefRegs) == 0);
+            if (mode == MakeRegPtrMode::DoWork)
+            {
+                callSites[callSiteIndex]     = callOffset;
+                callSiteSizes[callSiteIndex] = change->callInstrLength;
+            }
 
-        regMaskSmall gcRegs = refRegs | byrefRegs;
-
-        assert(change->codeOffs >= change->callInstrLength);
-        unsigned callOffset = change->codeOffs - change->callInstrLength;
-
-        InfoRecordGCRegStateChange(encoder, mode, callOffset, GC_SLOT_LIVE, gcRegs, byrefRegs);
-        InfoRecordGCRegStateChange(encoder, mode, change->codeOffs, GC_SLOT_DEAD, gcRegs, byrefRegs);
-
-        if (mode == MakeRegPtrMode::DoWork)
-        {
-            callSites[callSiteIndex]     = callOffset;
-            callSiteSizes[callSiteIndex] = change->callInstrLength;
             callSiteIndex++;
+
+            InfoRecordGCRegStateChange(encoder, mode, callOffset, GC_SLOT_LIVE, gcRegs, byrefRegs);
+            InfoRecordGCRegStateChange(encoder, mode, change->codeOffs, GC_SLOT_DEAD, gcRegs, byrefRegs);
         }
     }
 
     if (mode == MakeRegPtrMode::DoWork)
     {
+        assert(callSiteIndex == callSiteCount);
         encoder.DefineCallSites(callSites, callSiteSizes, callSiteCount);
+    }
+    else
+    {
+        *callCount = callSiteIndex;
     }
 }
 
