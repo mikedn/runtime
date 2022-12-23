@@ -4161,123 +4161,120 @@ void GCInfo::MakeRegPtrTable(
         (compiler->opts.MinOpts() && !compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) &&
          !JitConfig.JitMinOptsTrackGCrefs());
 
-    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
+    if (mode == MakeRegPtrMode::AssignSlots)
     {
-        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
-        if (lcl->IsDependentPromotedField(compiler))
+        for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
         {
-            continue;
-        }
+            LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
 
-        if (varTypeIsGC(lcl->GetType()))
-        {
-            if (!lcl->IsParam())
+            if (lcl->IsDependentPromotedField(compiler))
             {
-                // If is is pinned, it must be an untracked local.
-                assert(!lcl->lvPinned || !lcl->HasLiveness());
-
-                if (lcl->HasLiveness() || !lcl->lvOnFrame)
-                {
-                    continue;
-                }
-            }
-            // Stack-passed arguments which are not enregistered are always reported in this
-            // "untracked stack pointers" section of the GC info even if lvTracked is true.
-            else if (!lcl->lvOnFrame)
-            {
-                // If a CEE_JMP has been used, then we need to report all the arguments even if they
-                // are enregistered, since we will be using this value in a JMP call. Note that this
-                // is subtle as we require that argument offsets are always fixed up properly even if
-                // lvRegister is set.
-                if (!compiler->compJmpOpUsed)
-                {
-                    continue;
-                }
-            }
-            else if (lcl->IsRegParam() && lcl->HasLiveness())
-            {
-                // If this register-passed arg is tracked, then it has been allocated space near
-                // the other pointer variables and we have accurate lifetime info. It will be
-                // reported in the "tracked-pointer" section.
                 continue;
             }
 
-            GcSlotFlags slotFlags = GC_SLOT_UNTRACKED;
-
-            if (lcl->TypeIs(TYP_BYREF))
+            if (varTypeIsGC(lcl->GetType()))
             {
-                slotFlags = static_cast<GcSlotFlags>(slotFlags | GC_SLOT_INTERIOR);
-            }
-
-            if (lcl->lvPinned)
-            {
-                slotFlags = static_cast<GcSlotFlags>(slotFlags | GC_SLOT_PINNED);
-            }
-
-            int             slotOffset = lcl->GetStackOffset();
-            GcStackSlotBase slotBase   = lcl->lvFramePointerBased ? GC_FRAMEREG_REL : GC_SP_REL;
-
-            if (noTrackedGCSlots)
-            {
-                // No need to hash/lookup untracked GC refs; just grab a new slot id.
-                if (mode == MakeRegPtrMode::AssignSlots)
+                if (!lcl->IsParam())
                 {
-                    encoder.GetStackSlotId(slotOffset, slotFlags, slotBase);
+                    // If is is pinned, it must be an untracked local.
+                    assert(!lcl->lvPinned || !lcl->HasLiveness());
+
+                    if (lcl->HasLiveness() || !lcl->lvOnFrame)
+                    {
+                        continue;
+                    }
                 }
-            }
-            else if (mode == MakeRegPtrMode::AssignSlots)
-            {
-                StackSlotIdKey slotKey(lcl->GetStackOffset(), slotFlags, slotBase);
-
-                if (encoder.stackSlotMap.LookupPointer(slotKey) == nullptr)
+                // Stack-passed arguments which are not enregistered are always reported in this
+                // "untracked stack pointers" section of the GC info even if lvTracked is true.
+                else if (!lcl->lvOnFrame)
                 {
-                    encoder.stackSlotMap.Set(slotKey, encoder.GetStackSlotId(slotOffset, slotFlags, slotBase));
+                    // If a CEE_JMP has been used, then we need to report all the arguments even if they
+                    // are enregistered, since we will be using this value in a JMP call. Note that this
+                    // is subtle as we require that argument offsets are always fixed up properly even if
+                    // lvRegister is set.
+                    if (!compiler->compJmpOpUsed)
+                    {
+                        continue;
+                    }
                 }
-            }
-        }
-        else if (lcl->TypeIs(TYP_STRUCT) && lcl->lvOnFrame && lcl->HasGCPtr() && (mode == MakeRegPtrMode::AssignSlots))
-        {
-            GcStackSlotBase slotBase  = lcl->lvFramePointerBased ? GC_FRAMEREG_REL : GC_SP_REL;
-            int             lclOffset = lcl->GetStackOffset();
-
-#if DOUBLE_ALIGN
-            if (compiler->genDoubleAlign() && lcl->IsParam() && !lcl->IsRegParam())
-            {
-                lclOffset += compiler->codeGen->genTotalFrameSize();
-            }
-#endif
-
-            ClassLayout* layout = lcl->GetLayout();
-
-            for (unsigned i = 0, slots = layout->GetSlotCount(); i < slots; i++)
-            {
-                if (!layout->IsGCPtr(i))
+                else if (lcl->IsRegParam() && lcl->HasLiveness())
                 {
+                    // If this register-passed arg is tracked, then it has been allocated space near
+                    // the other pointer variables and we have accurate lifetime info. It will be
+                    // reported in the "tracked-pointer" section.
                     continue;
                 }
 
-                int slotOffset = lclOffset + i * TARGET_POINTER_SIZE;
-
                 GcSlotFlags slotFlags = GC_SLOT_UNTRACKED;
 
-                if (layout->GetGCPtrType(i) == TYP_BYREF)
+                if (lcl->TypeIs(TYP_BYREF))
                 {
                     slotFlags = static_cast<GcSlotFlags>(slotFlags | GC_SLOT_INTERIOR);
                 }
 
-                StackSlotIdKey slotKey(slotOffset, slotFlags, slotBase);
-
-                if (encoder.stackSlotMap.LookupPointer(slotKey) == nullptr)
+                if (lcl->lvPinned)
                 {
-                    encoder.stackSlotMap.Set(slotKey, encoder.GetStackSlotId(slotOffset, slotFlags, slotBase));
+                    slotFlags = static_cast<GcSlotFlags>(slotFlags | GC_SLOT_PINNED);
+                }
+
+                int             slotOffset = lcl->GetStackOffset();
+                GcStackSlotBase slotBase   = lcl->lvFramePointerBased ? GC_FRAMEREG_REL : GC_SP_REL;
+
+                if (noTrackedGCSlots)
+                {
+                    // No need to hash/lookup untracked GC refs; just grab a new slot id.
+                    encoder.GetStackSlotId(slotOffset, slotFlags, slotBase);
+                }
+                else
+                {
+                    StackSlotIdKey slotKey(lcl->GetStackOffset(), slotFlags, slotBase);
+
+                    if (encoder.stackSlotMap.LookupPointer(slotKey) == nullptr)
+                    {
+                        encoder.stackSlotMap.Set(slotKey, encoder.GetStackSlotId(slotOffset, slotFlags, slotBase));
+                    }
+                }
+            }
+            else if (lcl->TypeIs(TYP_STRUCT) && lcl->lvOnFrame && lcl->HasGCPtr())
+            {
+                GcStackSlotBase slotBase  = lcl->lvFramePointerBased ? GC_FRAMEREG_REL : GC_SP_REL;
+                int             lclOffset = lcl->GetStackOffset();
+
+#if DOUBLE_ALIGN
+                if (compiler->genDoubleAlign() && lcl->IsParam() && !lcl->IsRegParam())
+                {
+                    lclOffset += compiler->codeGen->genTotalFrameSize();
+                }
+#endif
+
+                ClassLayout* layout = lcl->GetLayout();
+
+                for (unsigned i = 0, slots = layout->GetSlotCount(); i < slots; i++)
+                {
+                    if (!layout->IsGCPtr(i))
+                    {
+                        continue;
+                    }
+
+                    int slotOffset = lclOffset + i * TARGET_POINTER_SIZE;
+
+                    GcSlotFlags slotFlags = GC_SLOT_UNTRACKED;
+
+                    if (layout->GetGCPtrType(i) == TYP_BYREF)
+                    {
+                        slotFlags = static_cast<GcSlotFlags>(slotFlags | GC_SLOT_INTERIOR);
+                    }
+
+                    StackSlotIdKey slotKey(slotOffset, slotFlags, slotBase);
+
+                    if (encoder.stackSlotMap.LookupPointer(slotKey) == nullptr)
+                    {
+                        encoder.stackSlotMap.Set(slotKey, encoder.GetStackSlotId(slotOffset, slotFlags, slotBase));
+                    }
                 }
             }
         }
-    }
 
-    if (mode == MakeRegPtrMode::AssignSlots)
-    {
         GcStackSlotBase slotBase = compiler->codeGen->isFramePointerUsed() ? GC_FRAMEREG_REL : GC_SP_REL;
 
         for (const SpillTemp& temp : compiler->codeGen->spillTemps)
