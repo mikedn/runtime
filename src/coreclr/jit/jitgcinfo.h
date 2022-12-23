@@ -194,17 +194,13 @@ private:
 
 private:
     void AddTrackedStackSlots(GCEncoder& encoder);
-    void InfoRecordGCRegStateChange(GCEncoder&    encoder,
-                                    unsigned      codeOffset,
-                                    GcSlotState   slotState,
-                                    regMaskSmall  regs,
-                                    regMaskSmall  byrefRegs,
-                                    regMaskSmall* newRegs = nullptr);
+    void AddRegSlotChange(
+        GCEncoder& encoder, unsigned codeOffset, GcSlotState slotState, regMaskSmall regs, regMaskSmall byrefRegs);
     void AddCallArgStackSlot(GCEncoder& encoder, RegArgChange* argChange);
     void RemoveCallArgStackSlots(GCEncoder&    encoder,
-                                   unsigned      codeOffset,
-                                   RegArgChange* firstArgChange,
-                                   RegArgChange* lastArgChange);
+                                 unsigned      codeOffset,
+                                 RegArgChange* firstArgChange,
+                                 RegArgChange* lastArgChange);
     void AddUntrackedStackSlots(GCEncoder& encoder);
     void AddFullyInterruptibleSlots(GCEncoder& encoder);
     void AddFullyInterruptibleRanges(GCEncoder& encoder, unsigned codeSize, unsigned prologSize);

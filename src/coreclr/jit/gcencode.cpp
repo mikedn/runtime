@@ -4261,25 +4261,15 @@ void GCInfo::AddFullyInterruptibleSlots(GCEncoder& encoder)
         }
         else
         {
-            regMaskSmall regMask   = change->removeRegs & gcRegs;
-            regMaskSmall byRefMask = 0;
+            regMaskSmall regs      = change->removeRegs & gcRegs;
+            regMaskSmall byrefRegs = change->gcType == GCT_BYREF ? regs : RBM_NONE;
+            AddRegSlotChange(encoder, change->codeOffs, GC_SLOT_DEAD, regs, byrefRegs);
+            gcRegs &= ~regs;
 
-            if (change->gcType == GCT_BYREF)
-            {
-                byRefMask = regMask;
-            }
-
-            InfoRecordGCRegStateChange(encoder, change->codeOffs, GC_SLOT_DEAD, regMask, byRefMask, &gcRegs);
-
-            regMask   = change->addRegs & ~gcRegs;
-            byRefMask = 0;
-
-            if (change->gcType == GCT_BYREF)
-            {
-                byRefMask = regMask;
-            }
-
-            InfoRecordGCRegStateChange(encoder, change->codeOffs, GC_SLOT_LIVE, regMask, byRefMask, &gcRegs);
+            regs      = change->addRegs & ~gcRegs;
+            byrefRegs = change->gcType == GCT_BYREF ? regs : RBM_NONE;
+            AddRegSlotChange(encoder, change->codeOffs, GC_SLOT_LIVE, regs, byrefRegs);
+            gcRegs |= regs;
         }
     }
 }
@@ -4388,8 +4378,8 @@ void GCInfo::AddPartiallyInterruptibleSlots(GCEncoder& encoder)
 
             callSiteIndex++;
 
-            InfoRecordGCRegStateChange(encoder, callOffset, GC_SLOT_LIVE, gcRegs, byrefRegs);
-            InfoRecordGCRegStateChange(encoder, call->codeOffs, GC_SLOT_DEAD, gcRegs, byrefRegs);
+            AddRegSlotChange(encoder, callOffset, GC_SLOT_LIVE, gcRegs, byrefRegs);
+            AddRegSlotChange(encoder, call->codeOffs, GC_SLOT_DEAD, gcRegs, byrefRegs);
         }
     }
     else
@@ -4429,8 +4419,8 @@ void GCInfo::AddPartiallyInterruptibleSlots(GCEncoder& encoder)
 
             callSiteIndex++;
 
-            InfoRecordGCRegStateChange(encoder, callOffset, GC_SLOT_LIVE, gcRegs, byrefRegs);
-            InfoRecordGCRegStateChange(encoder, change->codeOffs, GC_SLOT_DEAD, gcRegs, byrefRegs);
+            AddRegSlotChange(encoder, callOffset, GC_SLOT_LIVE, gcRegs, byrefRegs);
+            AddRegSlotChange(encoder, change->codeOffs, GC_SLOT_DEAD, gcRegs, byrefRegs);
         }
     }
 
@@ -4445,26 +4435,10 @@ void GCInfo::AddPartiallyInterruptibleSlots(GCEncoder& encoder)
     }
 }
 
-void GCInfo::InfoRecordGCRegStateChange(GCEncoder&    encoder,
-                                        unsigned      codeOffset,
-                                        GcSlotState   slotState,
-                                        regMaskSmall  regs,
-                                        regMaskSmall  byrefRegs,
-                                        regMaskSmall* newRegs)
+void GCInfo::AddRegSlotChange(
+    GCEncoder& encoder, unsigned codeOffset, GcSlotState slotState, regMaskSmall regs, regMaskSmall byrefRegs)
 {
     assert((byrefRegs & ~regs) == RBM_NONE);
-
-    if (newRegs != nullptr)
-    {
-        if (slotState == GC_SLOT_DEAD)
-        {
-            *newRegs &= ~regs;
-        }
-        else
-        {
-            *newRegs |= regs;
-        }
-    }
 
     for (regMaskTP regMask; regs != RBM_NONE; regs &= ~regMask)
     {
