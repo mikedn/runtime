@@ -7170,6 +7170,8 @@ void emitter::emitRecordGCCallPop(BYTE* addr, unsigned callInstrLength)
 
     if (!emitFullGCinfo)
     {
+        emitRecordGCcall(addr, callInstrLength);
+
         return;
     }
 

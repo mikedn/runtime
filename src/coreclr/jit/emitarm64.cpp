@@ -9712,13 +9712,8 @@ unsigned emitter::emitOutputCall(insGroup* ig, BYTE* dst, instrDesc* id, code_t 
     if (!id->idIsNoGC())
     {
         emitRecordGCCallPop(dst, callInstrSize);
-
-        // Do we need to record a call location for GC purposes?
-        if (!emitFullGCinfo)
-        {
-            emitRecordGCcall(dst, callInstrSize);
-        }
     }
+
     return callInstrSize;
 }
 

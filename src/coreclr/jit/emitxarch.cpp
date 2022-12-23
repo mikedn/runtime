@@ -11835,14 +11835,14 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 emitUpdateLiveGCregs(GCT_BYREF, byrefRegs, dst);
             }
 
-            if (recCall X86_ONLY(|| (args != 0)))
+#ifdef TARGET_X86
+            if (recCall || (args != 0))
             {
                 // For callee-pop, all arguments will be popped  after the call.
                 // For caller-pop, any GC arguments will go dead after the call.
 
                 assert(callInstrSize != 0);
 
-#ifdef TARGET_X86
                 if (args < 0)
                 {
                     emitStackKillArgs(dst, -args, callInstrSize);
@@ -11851,17 +11851,19 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 {
                     emitStackPop(dst, /*isCall*/ true, callInstrSize, args);
                 }
-#else
-                emitRecordGCCallPop(dst, callInstrSize);
-#endif
             }
 
-            // Do we need to record a call location for GC purposes?
             if (!emitFullGCinfo && recCall)
             {
                 assert(callInstrSize != 0);
                 emitRecordGCcall(dst, callInstrSize);
             }
+#else
+            if (recCall)
+            {
+                emitRecordGCCallPop(dst, callInstrSize);
+            }
+#endif
 
 #ifdef DEBUG
             if (ins == INS_call)

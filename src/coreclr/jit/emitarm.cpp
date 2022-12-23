@@ -6161,12 +6161,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             if (!id->idIsNoGC())
             {
                 emitRecordGCCallPop(dst, callInstrSize);
-
-                // Do we need to record a call location for GC purposes?
-                if (!emitFullGCinfo)
-                {
-                    emitRecordGCcall(dst, callInstrSize);
-                }
             }
 
             break;
