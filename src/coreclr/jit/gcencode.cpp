@@ -4505,27 +4505,6 @@ void GCInfo::InfoRecordGCRegStateChange(GCEncoder&     encoder,
 
 void GCInfo::AddTrackedStackSlots(GCEncoder& encoder, MakeRegPtrMode mode)
 {
-#ifdef DEBUG
-    if (mode == MakeRegPtrMode::AssignSlots)
-    {
-        // Tracked variables can't be pinned, and the encoding takes advantage of that by
-        // using the same bit for 'pinned' and 'this'. Since we don't track 'this', we should
-        // never see either flag here. Check it now before we potentially add some pinned flags.
-        for (StackSlotLifetime* lifetime = firstStackSlotLifetime; lifetime != nullptr; lifetime = lifetime->next)
-        {
-            const unsigned flags = lifetime->slotOffset & OFFSET_MASK;
-
-            assert((flags & pinned_OFFSET_FLAG) == 0);
-            assert((flags & this_OFFSET_FLAG) == 0);
-        }
-    }
-#endif
-
-    if ((mode == MakeRegPtrMode::AssignSlots) && compiler->ehAnyFunclets())
-    {
-        MarkFilterStackSlotsPinned();
-    }
-
     GcStackSlotBase slotBaseReg = compiler->codeGen->isFramePointerUsed() ? GC_FRAMEREG_REL : GC_SP_REL;
 
     for (StackSlotLifetime* lifetime = firstStackSlotLifetime; lifetime != nullptr; lifetime = lifetime->next)
@@ -4630,6 +4609,24 @@ void GCInfo::InfoRecordGCStackArgsDead(GCEncoder&    encoder,
 
 void GCInfo::CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize DEBUGARG(void* codePtr))
 {
+#ifdef DEBUG
+    // Tracked variables can't be pinned, and the encoding takes advantage of that by
+    // using the same bit for 'pinned' and 'this'. Since we don't track 'this', we should
+    // never see either flag here. Check it now before we potentially add some pinned flags.
+    for (StackSlotLifetime* lifetime = firstStackSlotLifetime; lifetime != nullptr; lifetime = lifetime->next)
+    {
+        const unsigned flags = lifetime->slotOffset & OFFSET_MASK;
+
+        assert((flags & pinned_OFFSET_FLAG) == 0);
+        assert((flags & this_OFFSET_FLAG) == 0);
+    }
+#endif
+
+    if (compiler->ehAnyFunclets())
+    {
+        MarkFilterStackSlotsPinned();
+    }
+
     CompIAllocator encoderAlloc(compiler->getAllocator(CMK_GC));
     GCEncoder      encoder(compiler, &encoderAlloc);
 
