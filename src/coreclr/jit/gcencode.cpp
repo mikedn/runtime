@@ -4157,54 +4157,19 @@ struct InterruptibleRangeReporter
 void GCInfo::MakeRegPtrTable(
     GCEncoder& encoder, unsigned codeSize, unsigned prologSize, MakeRegPtrMode mode, unsigned* callCount)
 {
-    const bool noTrackedGCSlots =
-        (compiler->opts.MinOpts() && !compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) &&
-         !JitConfig.JitMinOptsTrackGCrefs());
-
     if (mode == MakeRegPtrMode::AssignSlots)
     {
         for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
         {
             LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
 
-            if (lcl->IsDependentPromotedField(compiler))
+            if (lcl->IsDependentPromotedField(compiler) || !lcl->lvOnFrame || lcl->HasGCSlotLiveness())
             {
                 continue;
             }
 
             if (varTypeIsGC(lcl->GetType()))
             {
-                if (!lcl->IsParam())
-                {
-                    // If is is pinned, it must be an untracked local.
-                    assert(!lcl->lvPinned || !lcl->HasLiveness());
-
-                    if (lcl->HasLiveness() || !lcl->lvOnFrame)
-                    {
-                        continue;
-                    }
-                }
-                // Stack-passed arguments which are not enregistered are always reported in this
-                // "untracked stack pointers" section of the GC info even if lvTracked is true.
-                else if (!lcl->lvOnFrame)
-                {
-                    // If a CEE_JMP has been used, then we need to report all the arguments even if they
-                    // are enregistered, since we will be using this value in a JMP call. Note that this
-                    // is subtle as we require that argument offsets are always fixed up properly even if
-                    // lvRegister is set.
-                    if (!compiler->compJmpOpUsed)
-                    {
-                        continue;
-                    }
-                }
-                else if (lcl->IsRegParam() && lcl->HasLiveness())
-                {
-                    // If this register-passed arg is tracked, then it has been allocated space near
-                    // the other pointer variables and we have accurate lifetime info. It will be
-                    // reported in the "tracked-pointer" section.
-                    continue;
-                }
-
                 GcSlotFlags slotFlags = GC_SLOT_UNTRACKED;
 
                 if (lcl->TypeIs(TYP_BYREF))
@@ -4217,25 +4182,11 @@ void GCInfo::MakeRegPtrTable(
                     slotFlags = static_cast<GcSlotFlags>(slotFlags | GC_SLOT_PINNED);
                 }
 
-                int             slotOffset = lcl->GetStackOffset();
-                GcStackSlotBase slotBase   = lcl->lvFramePointerBased ? GC_FRAMEREG_REL : GC_SP_REL;
+                GcStackSlotBase slotBase = lcl->lvFramePointerBased ? GC_FRAMEREG_REL : GC_SP_REL;
 
-                if (noTrackedGCSlots)
-                {
-                    // No need to hash/lookup untracked GC refs; just grab a new slot id.
-                    encoder.GetStackSlotId(slotOffset, slotFlags, slotBase);
-                }
-                else
-                {
-                    StackSlotIdKey slotKey(lcl->GetStackOffset(), slotFlags, slotBase);
-
-                    if (encoder.stackSlotMap.LookupPointer(slotKey) == nullptr)
-                    {
-                        encoder.stackSlotMap.Set(slotKey, encoder.GetStackSlotId(slotOffset, slotFlags, slotBase));
-                    }
-                }
+                encoder.GetStackSlotId(lcl->GetStackOffset(), slotFlags, slotBase);
             }
-            else if (lcl->TypeIs(TYP_STRUCT) && lcl->lvOnFrame && lcl->HasGCPtr())
+            else if (lcl->TypeIs(TYP_STRUCT) && lcl->HasGCPtr())
             {
                 GcStackSlotBase slotBase  = lcl->lvFramePointerBased ? GC_FRAMEREG_REL : GC_SP_REL;
                 int             lclOffset = lcl->GetStackOffset();
@@ -4256,8 +4207,6 @@ void GCInfo::MakeRegPtrTable(
                         continue;
                     }
 
-                    int slotOffset = lclOffset + i * TARGET_POINTER_SIZE;
-
                     GcSlotFlags slotFlags = GC_SLOT_UNTRACKED;
 
                     if (layout->GetGCPtrType(i) == TYP_BYREF)
@@ -4265,12 +4214,7 @@ void GCInfo::MakeRegPtrTable(
                         slotFlags = static_cast<GcSlotFlags>(slotFlags | GC_SLOT_INTERIOR);
                     }
 
-                    StackSlotIdKey slotKey(slotOffset, slotFlags, slotBase);
-
-                    if (encoder.stackSlotMap.LookupPointer(slotKey) == nullptr)
-                    {
-                        encoder.stackSlotMap.Set(slotKey, encoder.GetStackSlotId(slotOffset, slotFlags, slotBase));
-                    }
+                    encoder.GetStackSlotId(lclOffset + i * TARGET_POINTER_SIZE, slotFlags, slotBase);
                 }
             }
         }
@@ -4284,8 +4228,6 @@ void GCInfo::MakeRegPtrTable(
                 continue;
             }
 
-            int slotOffset = temp.GetOffset();
-
             GcSlotFlags slotFlags = GC_SLOT_UNTRACKED;
 
             if (temp.GetType() == TYP_BYREF)
@@ -4293,30 +4235,15 @@ void GCInfo::MakeRegPtrTable(
                 slotFlags = static_cast<GcSlotFlags>(slotFlags | GC_SLOT_INTERIOR);
             }
 
-            StackSlotIdKey slotKey(slotOffset, slotFlags, slotBase);
-
-            if (encoder.stackSlotMap.LookupPointer(slotKey) == nullptr)
-            {
-                encoder.stackSlotMap.Set(slotKey, encoder.GetStackSlotId(slotOffset, slotFlags, slotBase));
-            }
+            encoder.GetStackSlotId(temp.GetOffset(), slotFlags, slotBase);
         }
 
         if (compiler->lvaKeepAliveAndReportThis())
         {
-            // We need to report the cached copy as an untracked pointer.
-
             assert(!compiler->lvaReportParamTypeArg());
+            assert(compiler->lvaGetDesc(compiler->info.compThisArg)->TypeIs(TYP_REF));
 
-            GcSlotFlags slotFlags = GC_SLOT_UNTRACKED;
-
-            if (compiler->lvaGetDesc(compiler->info.compThisArg)->TypeIs(TYP_BYREF))
-            {
-                slotFlags = static_cast<GcSlotFlags>(slotFlags | GC_SLOT_INTERIOR);
-            }
-
-            GcStackSlotBase slotBase = compiler->codeGen->isFramePointerUsed() ? GC_FRAMEREG_REL : GC_SP_REL;
-
-            encoder.GetStackSlotId(compiler->codeGen->cachedGenericContextArgOffset, slotFlags, slotBase);
+            encoder.GetStackSlotId(compiler->codeGen->cachedGenericContextArgOffset, GC_SLOT_UNTRACKED, slotBase);
         }
     }
 
@@ -4413,6 +4340,10 @@ void GCInfo::MakeRegPtrTable(
     if (compiler->codeGen->isFramePointerUsed())
     {
         assert(!compiler->codeGen->IsFullPtrRegMapRequired());
+
+        const bool noTrackedGCSlots =
+            (compiler->opts.MinOpts() && !compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) &&
+             !JitConfig.JitMinOptsTrackGCrefs());
 
         unsigned  callSiteCount = 0;
         unsigned* callSites     = nullptr;
