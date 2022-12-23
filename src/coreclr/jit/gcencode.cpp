@@ -2104,7 +2104,7 @@ static BYTE* gceByrefPrefixI(GCInfo::RegArgChange* change, BYTE* dest)
     // For registers, we don't need a prefix if it is going dead.
     assert((change->kind != GCInfo::RegArgChangeKind::RegChange) || (change->removeRegs == RBM_NONE));
 
-    if ((change->kind == GCInfo::RegArgChangeKind::RegChange) || (change->kind == GCInfo::RegArgChangeKind::Push))
+    if ((change->kind == GCInfo::RegArgChangeKind::RegChange) || (change->kind == GCInfo::RegArgChangeKind::PushArg))
     {
         if (change->gcType == GCT_BYREF)
         {
@@ -2747,7 +2747,7 @@ size_t GCInfo::MakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, unsi
 
             if (change->kind != RegArgChangeKind::RegChange)
             {
-                if (change->kind == RegArgChangeKind::Kill)
+                if (change->kind == RegArgChangeKind::KillArgs)
                 {
                     if (codeDelta)
                     {
@@ -2777,7 +2777,7 @@ size_t GCInfo::MakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, unsi
 
                     dest = gceByrefPrefixI(change, dest);
 
-                    if ((change->kind == RegArgChangeKind::Push) || (change->argOffset != 0))
+                    if ((change->kind == RegArgChangeKind::PushArg) || (change->argOffset != 0))
                     {
                         /*
                           Use the small encoding:
@@ -2786,7 +2786,7 @@ size_t GCInfo::MakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, unsi
                             ptr arg pop  11CCCDDD [CCC != 110] && [CCC != 111]
                          */
 
-                        bool isPop = change->kind == RegArgChangeKind::Pop;
+                        bool isPop = change->kind == RegArgChangeKind::PopArgs;
 
                         *dest++ = 0x80 | (BYTE)codeDelta | change->argOffset << 3 | isPop << 6;
 
@@ -2840,7 +2840,7 @@ size_t GCInfo::MakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, unsi
                             large ptr arg pop   11111100 [0xFC]
                      */
 
-                    bool isPop = change->kind == RegArgChangeKind::Pop;
+                    bool isPop = change->kind == RegArgChangeKind::PopArgs;
 
                     dest = gceByrefPrefixI(change, dest);
 
@@ -3385,7 +3385,7 @@ size_t GCInfo::MakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, unsi
 
             if (change->kind != RegArgChangeKind::RegChange)
             {
-                if (change->kind == RegArgChangeKind::Kill)
+                if (change->kind == RegArgChangeKind::KillArgs)
                 {
                     // kill 'rpdPtrArg' number of pointer variables in pasStk
                     pasStk.Kill(change->argOffset);
@@ -3634,7 +3634,7 @@ size_t GCInfo::MakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, unsi
 
                     lastOffset = nextOffset;
 
-                    if (change->kind == RegArgChangeKind::Pop)
+                    if (change->kind == RegArgChangeKind::PopArgs)
                     {
                         /* This must be a gcArgPopSingle */
 
@@ -4263,7 +4263,7 @@ void GCInfo::AddFullyInterruptibleSlots(GCEncoder& encoder)
 
     for (RegArgChange* change = firstRegArgChange; change != nullptr; change = change->next)
     {
-        if (change->kind == RegArgChangeKind::Push)
+        if (change->kind == RegArgChangeKind::StoreArg)
         {
             AddCallArgStackSlot(encoder, change);
 
@@ -4272,7 +4272,7 @@ void GCInfo::AddFullyInterruptibleSlots(GCEncoder& encoder)
                 firstArgChange = change;
             }
         }
-        else if (change->kind == RegArgChangeKind::Pop)
+        else if (change->kind == RegArgChangeKind::KillArgs)
         {
             if (encoder.hasSlotIds && (firstArgChange != nullptr))
             {
@@ -4497,7 +4497,7 @@ void GCInfo::AddTrackedStackSlots(GCEncoder& encoder)
 void GCInfo::AddCallArgStackSlot(GCEncoder& encoder, RegArgChange* argChange)
 {
     assert(argChange->gcType != GCT_NONE);
-    assert(argChange->kind == RegArgChangeKind::Push);
+    assert(argChange->kind == RegArgChangeKind::StoreArg);
     assert(compiler->codeGen->GetInterruptible());
 
     GcSlotFlags    slotFlags = argChange->gcType == GCT_BYREF ? GC_SLOT_INTERIOR : GC_SLOT_BASE;
@@ -4522,11 +4522,11 @@ void GCInfo::AddCallArgStackSlot(GCEncoder& encoder, RegArgChange* argChange)
 void GCInfo::RemoveCallArgStackSlots(GCEncoder&    encoder,
                                      unsigned      codeOffset,
                                      RegArgChange* firstArgChange,
-                                     RegArgChange* lastArgChange)
+                                     RegArgChange* killArgsChange)
 {
     assert(compiler->codeGen->GetInterruptible());
 
-    for (RegArgChange* change = firstArgChange; change != lastArgChange; change = change->next)
+    for (RegArgChange* change = firstArgChange; change != killArgsChange; change = change->next)
     {
         if (change->kind == RegArgChangeKind::RegChange)
         {
@@ -4534,7 +4534,7 @@ void GCInfo::RemoveCallArgStackSlots(GCEncoder&    encoder,
         }
 
         assert(change->gcType != GCT_NONE);
-        assert(change->kind == RegArgChangeKind::Push);
+        assert(change->kind == RegArgChangeKind::StoreArg);
 
         GcSlotFlags slotFlags = change->gcType == GCT_BYREF ? GC_SLOT_INTERIOR : GC_SLOT_BASE;
         GcSlotId    slotId;

@@ -39,9 +39,13 @@ public:
     enum class RegArgChangeKind : unsigned
     {
         RegChange,
-        Pop,
-        Push,
-        Kill
+#ifdef JIT32_GCENCODER
+        PushArg,
+        PopArgs,
+#else
+        StoreArg,
+#endif
+        KillArgs
     };
 
     struct RegArgChange
@@ -195,7 +199,7 @@ private:
     void RemoveCallArgStackSlots(GCEncoder&    encoder,
                                  unsigned      codeOffset,
                                  RegArgChange* firstArgChange,
-                                 RegArgChange* lastArgChange);
+                                 RegArgChange* killArgsChange);
     void AddUntrackedStackSlots(GCEncoder& encoder);
     void AddFullyInterruptibleSlots(GCEncoder& encoder);
     void AddFullyInterruptibleRanges(GCEncoder& encoder, unsigned codeSize, unsigned prologSize);
