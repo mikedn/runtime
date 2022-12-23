@@ -6770,12 +6770,12 @@ void emitter::emitGCregLiveSet(GCtype gcType, regMaskTP regMask, BYTE* addr)
     change->codeOffs       = emitCurCodeOffs(addr);
     change->gcType         = gcType;
     change->isArg          = false;
-    change->isCall         = false;
+    change->addRegs        = static_cast<regMaskSmall>(regMask);
+    change->removeRegs     = RBM_NONE;
 #ifdef JIT32_GCENCODER
+    change->isCall = false;
     change->isThis = isThis;
 #endif
-    change->addRegs    = static_cast<regMaskSmall>(regMask);
-    change->removeRegs = RBM_NONE;
 }
 
 void emitter::emitGCregDeadSet(GCtype gcType, regMaskTP regMask, BYTE* addr)
@@ -6789,8 +6789,8 @@ void emitter::emitGCregDeadSet(GCtype gcType, regMaskTP regMask, BYTE* addr)
     change->codeOffs       = emitCurCodeOffs(addr);
     change->gcType         = gcType;
     change->isArg          = false;
-    change->isCall         = false;
 #ifdef JIT32_GCENCODER
+    change->isCall = false;
     change->isThis = false;
 #endif
     change->addRegs    = RBM_NONE;
@@ -7157,8 +7157,8 @@ void emitter::emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsi
     change->kind           = GCInfo::RegArgChangeKind::Push;
     change->gcType         = gcType;
     change->isArg          = true;
-    change->isCall         = false;
 #ifdef JIT32_GCENCODER
+    change->isCall = false;
     change->isThis = false;
 #endif
 }
@@ -7213,8 +7213,8 @@ void emitter::emitRecordGCCallPop(BYTE* addr, unsigned callInstrLength)
     change->kind           = GCInfo::RegArgChangeKind::Pop;
     change->gcType         = GCT_GCREF;
     change->isArg          = true;
-    change->isCall         = true;
 #ifdef JIT32_GCENCODER
+    change->isCall        = true;
     change->isThis        = false;
     change->callRefRegs   = gcrefRegs;
     change->callByrefRegs = byrefRegs;
