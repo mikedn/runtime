@@ -3989,11 +3989,9 @@ const char* const GCEncoder::SlotFlagsNames[]{"",
                                               "(byref, pinned, untracked) "};
 #endif // GC_ENCODER_LOGGING
 
-void GCInfo::InfoBlockHdrSave(GCEncoder& encoder, unsigned methodSize, unsigned prologSize)
+void GCInfo::SetHeaderInfo(GCEncoder& encoder, unsigned codeSize, unsigned prologSize)
 {
-    JITDUMP("*************** In InfoBlockHdrSave()\n");
-
-    encoder.SetCodeLength(methodSize);
+    encoder.SetCodeLength(codeSize);
     encoder.SetReturnKind(GetReturnKind());
 
     if (compiler->codeGen->isFramePointerUsed())
@@ -4086,7 +4084,7 @@ void GCInfo::InfoBlockHdrSave(GCEncoder& encoder, unsigned methodSize, unsigned 
         // The code offset ranges assume that the GS Cookie slot is initialized in the prolog, and is valid
         // through the remainder of the method.  We will not query for the GS Cookie while we're in an epilog,
         // so the question of where in the epilog it becomes invalid is moot.
-        encoder.SetGSCookieStackSlot(offset, prologSize, methodSize);
+        encoder.SetGSCookieStackSlot(offset, prologSize, codeSize);
     }
     else if (compiler->lvaReportParamTypeArg() || compiler->lvaKeepAliveAndReportThis())
     {
@@ -4122,6 +4120,43 @@ void GCInfo::InfoBlockHdrSave(GCEncoder& encoder, unsigned methodSize, unsigned 
 #if FEATURE_FIXED_OUT_ARGS
     encoder.SetSizeOfStackOutgoingAndScratchArea(compiler->codeGen->outgoingArgSpaceSize);
 #endif
+
+#if defined(TARGET_ARM64) || defined(TARGET_AMD64)
+    if (compiler->opts.compDbgEnC)
+    {
+        // what we have to preserve is called the "frame header" (see comments in VM\eetwain.cpp)
+        // which is:
+        //  -return address
+        //  -saved off RBP
+        //  -saved 'this' pointer and bool for synchronized methods
+
+        // 4 slots for RBP + return address + RSI + RDI
+        int preservedAreaSize = 4 * REGSIZE_BYTES;
+
+        if ((compiler->info.compFlags & CORINFO_FLG_SYNCH) != 0)
+        {
+            if ((compiler->info.compFlags & CORINFO_FLG_STATIC) == 0)
+            {
+                preservedAreaSize += REGSIZE_BYTES;
+            }
+
+#ifdef TARGET_ARM64
+            // bool for synchronized methods
+            preservedAreaSize += 1;
+#else
+            preservedAreaSize += 4;
+#endif
+        }
+
+        encoder.SetSizeOfEditAndContinuePreservedArea(preservedAreaSize);
+    }
+#endif
+
+    if (compiler->opts.IsReversePInvoke())
+    {
+        LclVarDsc* reversePInvokeFrameLcl = compiler->lvaGetDesc(compiler->lvaReversePInvokeFrameVar);
+        encoder.SetReversePInvokeFrameSlot(reversePInvokeFrameLcl->GetStackOffset());
+    }
 
 #if DISPLAY_SIZES
     (compiler->codeGen->GetInterruptible() ? genMethodICnt : genMethodNCnt)++;
@@ -4582,7 +4617,7 @@ void GCInfo::CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize DEBUGAR
     CompIAllocator encoderAlloc(compiler->getAllocator(CMK_GC));
     GCEncoder      encoder(compiler, &encoderAlloc);
 
-    InfoBlockHdrSave(encoder, codeSize, prologSize);
+    SetHeaderInfo(encoder, codeSize, prologSize);
     AddUntrackedStackSlots(encoder);
     AddTrackedStackSlots(encoder);
 
@@ -4602,43 +4637,6 @@ void GCInfo::CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize DEBUGAR
 
         AddTrackedStackSlots(encoder);
         AddPartiallyInterruptibleSlots(encoder);
-    }
-
-#if defined(TARGET_ARM64) || defined(TARGET_AMD64)
-    if (compiler->opts.compDbgEnC)
-    {
-        // what we have to preserve is called the "frame header" (see comments in VM\eetwain.cpp)
-        // which is:
-        //  -return address
-        //  -saved off RBP
-        //  -saved 'this' pointer and bool for synchronized methods
-
-        // 4 slots for RBP + return address + RSI + RDI
-        int preservedAreaSize = 4 * REGSIZE_BYTES;
-
-        if ((compiler->info.compFlags & CORINFO_FLG_SYNCH) != 0)
-        {
-            if ((compiler->info.compFlags & CORINFO_FLG_STATIC) == 0)
-            {
-                preservedAreaSize += REGSIZE_BYTES;
-            }
-
-#ifdef TARGET_ARM64
-            // bool for synchronized methods
-            preservedAreaSize += 1;
-#else
-            preservedAreaSize += 4;
-#endif
-        }
-
-        encoder.SetSizeOfEditAndContinuePreservedArea(preservedAreaSize);
-    }
-#endif
-
-    if (compiler->opts.IsReversePInvoke())
-    {
-        LclVarDsc* reversePInvokeFrameLcl = compiler->lvaGetDesc(compiler->lvaReversePInvokeFrameVar);
-        encoder.SetReversePInvokeFrameSlot(reversePInvokeFrameLcl->GetStackOffset());
     }
 
     encoder.Build();

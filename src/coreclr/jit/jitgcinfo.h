@@ -193,6 +193,7 @@ private:
     void CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize DEBUGARG(void* codePtr));
 
 private:
+    void SetHeaderInfo(GCEncoder& encoder, unsigned codeSize, unsigned prologSize);
     void AddTrackedStackSlots(GCEncoder& encoder);
     void AddRegSlotChange(
         GCEncoder& encoder, unsigned codeOffset, GcSlotState slotState, regMaskSmall regs, regMaskSmall byrefRegs);
@@ -205,8 +206,6 @@ private:
     void AddFullyInterruptibleSlots(GCEncoder& encoder);
     void AddFullyInterruptibleRanges(GCEncoder& encoder, unsigned codeSize, unsigned prologSize);
     void AddPartiallyInterruptibleSlots(GCEncoder& encoder);
-
-    void InfoBlockHdrSave(GCEncoder& encoder, unsigned methodSize, unsigned prologSize);
 #endif
 
 #if !defined(JIT32_GCENCODER) || defined(FEATURE_EH_FUNCLETS)
