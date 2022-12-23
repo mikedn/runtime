@@ -4400,30 +4400,28 @@ void GCInfo::AddPartiallyInterruptibleSlots(GCEncoder& encoder)
     }
     else
     {
-        for (RegArgChange* change = firstRegArgChange; change != nullptr; change = change->next)
+        for (CallSite* call = firstCallSite; call != nullptr; call = call->next)
         {
-            assert(change->isArg && change->IsCallInstr() && (change->kind == RegArgChangeKind::Pop));
-
-            regMaskSmall refRegs   = RegMaskFromCalleeSavedMask(change->callRefRegs);
-            regMaskSmall byrefRegs = RegMaskFromCalleeSavedMask(change->callByrefRegs);
+            regMaskSmall refRegs   = call->refRegs & RBM_CALLEE_SAVED;
+            regMaskSmall byrefRegs = call->byrefRegs & RBM_CALLEE_SAVED;
 
             assert((refRegs & byrefRegs) == RBM_NONE);
 
             regMaskSmall gcRegs = refRegs | byrefRegs;
 
-            assert(change->codeOffs >= change->callInstrLength);
-            unsigned callOffset = change->codeOffs - change->callInstrLength;
+            assert(call->codeOffs >= call->callInstrLength);
+            unsigned callOffset = call->codeOffs - call->callInstrLength;
 
             if (callSites != nullptr)
             {
                 callSites[callSiteIndex]     = callOffset;
-                callSiteSizes[callSiteIndex] = change->callInstrLength;
+                callSiteSizes[callSiteIndex] = call->callInstrLength;
             }
 
             callSiteIndex++;
 
             AddRegSlotChange(encoder, callOffset, GC_SLOT_LIVE, gcRegs, byrefRegs);
-            AddRegSlotChange(encoder, change->codeOffs, GC_SLOT_DEAD, gcRegs, byrefRegs);
+            AddRegSlotChange(encoder, call->codeOffs, GC_SLOT_DEAD, gcRegs, byrefRegs);
         }
     }
 

@@ -7175,6 +7175,18 @@ void emitter::emitRecordGCCallPop(BYTE* addr, unsigned callInstrLength)
         return;
     }
 
+    unsigned codeOffs = emitCurCodeOffs(addr);
+
+#ifndef JIT32_GCENCODER
+    if (!emitFullyInt)
+    {
+        GCCallSite* callSite      = gcInfo.AddCallSite(codeOffs, emitThisGCrefRegs, emitThisByrefRegs);
+        callSite->callInstrLength = static_cast<uint8_t>(callInstrLength);
+
+        return;
+    }
+#endif
+
     unsigned gcrefRegs = 0;
     unsigned byrefRegs = 0;
 
@@ -7194,7 +7206,7 @@ void emitter::emitRecordGCCallPop(BYTE* addr, unsigned callInstrLength)
     }
 
     GCRegArgChange* change = gcInfo.AddRegArgChange();
-    change->codeOffs       = emitCurCodeOffs(addr);
+    change->codeOffs       = codeOffs;
     change->argOffset      = 0;
     change->kind           = GCInfo::RegArgChangeKind::Pop;
     change->gcType         = GCT_GCREF;
