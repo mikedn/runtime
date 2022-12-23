@@ -3835,6 +3835,8 @@ class GCEncoder : public GcInfoEncoder
 public:
     JitHashTable<RegSlotIdKey, RegSlotIdKey, GcSlotId>     regSlotMap;
     JitHashTable<StackSlotIdKey, StackSlotIdKey, GcSlotId> stackSlotMap;
+    unsigned callSiteCount = 0;
+    bool     hasSlotIds    = false;
 
     GCEncoder(Compiler* compiler, CompIAllocator* encoderAlloc)
         : GcInfoEncoder(compiler->info.compCompHnd, compiler->info.compMethodInfo, encoderAlloc, NOMEM)
@@ -3844,6 +3846,12 @@ public:
         , regSlotMap(compiler->getAllocator(CMK_GC))
         , stackSlotMap(compiler->getAllocator(CMK_GC))
     {
+    }
+
+    void FinalizeSlotIds()
+    {
+        GcInfoEncoder::FinalizeSlotIds();
+        hasSlotIds = true;
     }
 
 #ifdef GC_ENCODER_LOGGING
@@ -4210,7 +4218,7 @@ void GCInfo::AddUntrackedStackSlots(GCEncoder& encoder)
     }
 }
 
-void GCInfo::AddFullyInterruptibleSlots(GCEncoder& encoder, MakeRegPtrMode mode)
+void GCInfo::AddFullyInterruptibleSlots(GCEncoder& encoder)
 {
     assert(compiler->codeGen->GetInterruptible());
     assert(compiler->codeGen->IsFullPtrRegMapRequired());
@@ -4224,7 +4232,7 @@ void GCInfo::AddFullyInterruptibleSlots(GCEncoder& encoder, MakeRegPtrMode mode)
         {
             if (change->kind == RegArgChangeKind::Kill)
             {
-                if ((mode == MakeRegPtrMode::DoWork) && (firstArgChange != nullptr))
+                if ((encoder.hasSlotIds) && (firstArgChange != nullptr))
                 {
                     InfoRecordGCStackArgsDead(encoder, change->codeOffs, firstArgChange, change);
                 }
@@ -4237,7 +4245,7 @@ void GCInfo::AddFullyInterruptibleSlots(GCEncoder& encoder, MakeRegPtrMode mode)
                 {
                     assert(change->kind != RegArgChangeKind::Pop);
 
-                    InfoRecordGCStackArgLive(encoder, mode, change);
+                    InfoRecordGCStackArgLive(encoder, change);
 
                     if (firstArgChange == nullptr)
                     {
@@ -4249,7 +4257,7 @@ void GCInfo::AddFullyInterruptibleSlots(GCEncoder& encoder, MakeRegPtrMode mode)
                     assert((change->kind == RegArgChangeKind::Pop) && (change->argOffset == 0));
                     assert(change->isArg && change->IsCallInstr());
 
-                    if ((mode == MakeRegPtrMode::DoWork) && (firstArgChange != nullptr))
+                    if (encoder.hasSlotIds && (firstArgChange != nullptr))
                     {
                         InfoRecordGCStackArgsDead(encoder, change->codeOffs, firstArgChange, change);
                     }
@@ -4268,7 +4276,7 @@ void GCInfo::AddFullyInterruptibleSlots(GCEncoder& encoder, MakeRegPtrMode mode)
                 byRefMask = regMask;
             }
 
-            InfoRecordGCRegStateChange(encoder, mode, change->codeOffs, GC_SLOT_DEAD, regMask, byRefMask, &gcRegs);
+            InfoRecordGCRegStateChange(encoder, change->codeOffs, GC_SLOT_DEAD, regMask, byRefMask, &gcRegs);
 
             regMask   = change->addRegs & ~gcRegs;
             byRefMask = 0;
@@ -4278,7 +4286,7 @@ void GCInfo::AddFullyInterruptibleSlots(GCEncoder& encoder, MakeRegPtrMode mode)
                 byRefMask = regMask;
             }
 
-            InfoRecordGCRegStateChange(encoder, mode, change->codeOffs, GC_SLOT_LIVE, regMask, byRefMask, &gcRegs);
+            InfoRecordGCRegStateChange(encoder, change->codeOffs, GC_SLOT_LIVE, regMask, byRefMask, &gcRegs);
         }
     }
 }
@@ -4330,18 +4338,17 @@ void GCInfo::AddFullyInterruptibleRanges(GCEncoder& encoder, unsigned codeSize, 
     }
 }
 
-void GCInfo::AddPartiallyInterruptibleSlots(GCEncoder& encoder, MakeRegPtrMode mode, unsigned* callCount)
+void GCInfo::AddPartiallyInterruptibleSlots(GCEncoder& encoder)
 {
     assert(!compiler->codeGen->GetInterruptible());
 
-    unsigned  callSiteCount = *callCount;
     unsigned  callSiteIndex = 0;
     unsigned* callSites     = nullptr;
     uint8_t*  callSiteSizes = nullptr;
 
-    if (mode == MakeRegPtrMode::DoWork)
+    if (encoder.hasSlotIds)
     {
-        if (callSiteCount == 0)
+        if (encoder.callSiteCount == 0)
         {
             // TODO-MIKE-Cleanup: Old code called DefineCallSites for no reason,
             // it has no effect but it produces GC info dump diffs.
@@ -4350,8 +4357,8 @@ void GCInfo::AddPartiallyInterruptibleSlots(GCEncoder& encoder, MakeRegPtrMode m
             return;
         }
 
-        callSites     = new (compiler, CMK_GC) unsigned[callSiteCount];
-        callSiteSizes = new (compiler, CMK_GC) uint8_t[callSiteCount];
+        callSites     = new (compiler, CMK_GC) unsigned[encoder.callSiteCount];
+        callSiteSizes = new (compiler, CMK_GC) uint8_t[encoder.callSiteCount];
     }
 
     if (!compiler->codeGen->IsFullPtrRegMapRequired())
@@ -4380,7 +4387,7 @@ void GCInfo::AddPartiallyInterruptibleSlots(GCEncoder& encoder, MakeRegPtrMode m
             assert(call->codeOffs >= call->callInstrLength);
             unsigned callOffset = call->codeOffs - call->callInstrLength;
 
-            if (mode == MakeRegPtrMode::DoWork)
+            if (callSites != nullptr)
             {
                 callSites[callSiteIndex]     = callOffset;
                 callSiteSizes[callSiteIndex] = call->callInstrLength;
@@ -4388,8 +4395,8 @@ void GCInfo::AddPartiallyInterruptibleSlots(GCEncoder& encoder, MakeRegPtrMode m
 
             callSiteIndex++;
 
-            InfoRecordGCRegStateChange(encoder, mode, callOffset, GC_SLOT_LIVE, gcRegs, byrefRegs);
-            InfoRecordGCRegStateChange(encoder, mode, call->codeOffs, GC_SLOT_DEAD, gcRegs, byrefRegs);
+            InfoRecordGCRegStateChange(encoder, callOffset, GC_SLOT_LIVE, gcRegs, byrefRegs);
+            InfoRecordGCRegStateChange(encoder, call->codeOffs, GC_SLOT_DEAD, gcRegs, byrefRegs);
         }
     }
     else
@@ -4421,7 +4428,7 @@ void GCInfo::AddPartiallyInterruptibleSlots(GCEncoder& encoder, MakeRegPtrMode m
             assert(change->codeOffs >= change->callInstrLength);
             unsigned callOffset = change->codeOffs - change->callInstrLength;
 
-            if (mode == MakeRegPtrMode::DoWork)
+            if (callSites != nullptr)
             {
                 callSites[callSiteIndex]     = callOffset;
                 callSiteSizes[callSiteIndex] = change->callInstrLength;
@@ -4429,29 +4436,28 @@ void GCInfo::AddPartiallyInterruptibleSlots(GCEncoder& encoder, MakeRegPtrMode m
 
             callSiteIndex++;
 
-            InfoRecordGCRegStateChange(encoder, mode, callOffset, GC_SLOT_LIVE, gcRegs, byrefRegs);
-            InfoRecordGCRegStateChange(encoder, mode, change->codeOffs, GC_SLOT_DEAD, gcRegs, byrefRegs);
+            InfoRecordGCRegStateChange(encoder, callOffset, GC_SLOT_LIVE, gcRegs, byrefRegs);
+            InfoRecordGCRegStateChange(encoder, change->codeOffs, GC_SLOT_DEAD, gcRegs, byrefRegs);
         }
     }
 
-    if (mode == MakeRegPtrMode::DoWork)
+    if (encoder.hasSlotIds)
     {
-        assert(callSiteIndex == callSiteCount);
-        encoder.DefineCallSites(callSites, callSiteSizes, callSiteCount);
+        assert(callSiteIndex == encoder.callSiteCount);
+        encoder.DefineCallSites(callSites, callSiteSizes, callSiteIndex);
     }
     else
     {
-        *callCount = callSiteIndex;
+        encoder.callSiteCount = callSiteIndex;
     }
 }
 
-void GCInfo::InfoRecordGCRegStateChange(GCEncoder&     encoder,
-                                        MakeRegPtrMode mode,
-                                        unsigned       codeOffset,
-                                        GcSlotState    slotState,
-                                        regMaskSmall   regs,
-                                        regMaskSmall   byrefRegs,
-                                        regMaskSmall*  newRegs)
+void GCInfo::InfoRecordGCRegStateChange(GCEncoder&    encoder,
+                                        unsigned      codeOffset,
+                                        GcSlotState   slotState,
+                                        regMaskSmall  regs,
+                                        regMaskSmall  byrefRegs,
+                                        regMaskSmall* newRegs)
 {
     assert((byrefRegs & ~regs) == RBM_NONE);
 
@@ -4487,7 +4493,7 @@ void GCInfo::InfoRecordGCRegStateChange(GCEncoder&     encoder,
         GcSlotId     slotId;
         bool         found = encoder.regSlotMap.Lookup(slotKey, &slotId);
 
-        if (mode == MakeRegPtrMode::AssignSlots)
+        if (!encoder.hasSlotIds)
         {
             if (!found)
             {
@@ -4503,7 +4509,7 @@ void GCInfo::InfoRecordGCRegStateChange(GCEncoder&     encoder,
     }
 }
 
-void GCInfo::AddTrackedStackSlots(GCEncoder& encoder, MakeRegPtrMode mode)
+void GCInfo::AddTrackedStackSlots(GCEncoder& encoder)
 {
     GcStackSlotBase slotBaseReg = compiler->codeGen->isFramePointerUsed() ? GC_FRAMEREG_REL : GC_SP_REL;
 
@@ -4537,7 +4543,7 @@ void GCInfo::AddTrackedStackSlots(GCEncoder& encoder, MakeRegPtrMode mode)
         GcSlotId       slotId;
         bool           found = encoder.stackSlotMap.Lookup(slotKey, &slotId);
 
-        if (mode == MakeRegPtrMode::AssignSlots)
+        if (!encoder.hasSlotIds)
         {
             if (!found)
             {
@@ -4554,7 +4560,7 @@ void GCInfo::AddTrackedStackSlots(GCEncoder& encoder, MakeRegPtrMode mode)
     }
 }
 
-void GCInfo::InfoRecordGCStackArgLive(GCEncoder& encoder, MakeRegPtrMode mode, RegArgChange* argChange)
+void GCInfo::InfoRecordGCStackArgLive(GCEncoder& encoder, RegArgChange* argChange)
 {
     assert(argChange->gcType != GCT_NONE);
     assert(argChange->isArg);
@@ -4566,7 +4572,7 @@ void GCInfo::InfoRecordGCStackArgLive(GCEncoder& encoder, MakeRegPtrMode mode, R
     GcSlotId       slotId;
     bool           found = encoder.stackSlotMap.Lookup(slotKey, &slotId);
 
-    if (mode == MakeRegPtrMode::AssignSlots)
+    if (!encoder.hasSlotIds)
     {
         if (!found)
         {
@@ -4605,8 +4611,6 @@ void GCInfo::InfoRecordGCStackArgsDead(GCEncoder&    encoder,
     }
 }
 
-#undef LOGGING_GCENCODER
-
 void GCInfo::CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize DEBUGARG(void* codePtr))
 {
 #ifdef DEBUG
@@ -4632,25 +4636,24 @@ void GCInfo::CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize DEBUGAR
 
     InfoBlockHdrSave(encoder, codeSize, prologSize);
     AddUntrackedStackSlots(encoder);
-    AddTrackedStackSlots(encoder, MakeRegPtrMode::AssignSlots);
+    AddTrackedStackSlots(encoder);
 
     if (compiler->codeGen->GetInterruptible())
     {
-        AddFullyInterruptibleSlots(encoder, MakeRegPtrMode::AssignSlots);
+        AddFullyInterruptibleSlots(encoder);
         encoder.FinalizeSlotIds();
 
-        AddTrackedStackSlots(encoder, MakeRegPtrMode::DoWork);
-        AddFullyInterruptibleSlots(encoder, MakeRegPtrMode::DoWork);
+        AddTrackedStackSlots(encoder);
+        AddFullyInterruptibleSlots(encoder);
         AddFullyInterruptibleRanges(encoder, codeSize, prologSize);
     }
     else
     {
-        unsigned callSiteCount = 0;
-        AddPartiallyInterruptibleSlots(encoder, MakeRegPtrMode::AssignSlots, &callSiteCount);
+        AddPartiallyInterruptibleSlots(encoder);
         encoder.FinalizeSlotIds();
 
-        AddTrackedStackSlots(encoder, MakeRegPtrMode::DoWork);
-        AddPartiallyInterruptibleSlots(encoder, MakeRegPtrMode::DoWork, &callSiteCount);
+        AddTrackedStackSlots(encoder);
+        AddPartiallyInterruptibleSlots(encoder);
     }
 
 #if defined(TARGET_ARM64) || defined(TARGET_AMD64)

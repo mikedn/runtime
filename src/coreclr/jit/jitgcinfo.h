@@ -193,29 +193,22 @@ private:
     void CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize DEBUGARG(void* codePtr));
 
 private:
-    enum class MakeRegPtrMode
-    {
-        AssignSlots,
-        DoWork
-    };
-
-    void AddTrackedStackSlots(GCEncoder& encoder, MakeRegPtrMode mode);
-    void InfoRecordGCRegStateChange(GCEncoder&     encoder,
-                                    MakeRegPtrMode mode,
-                                    unsigned       codeOffset,
-                                    GcSlotState    slotState,
-                                    regMaskSmall   regs,
-                                    regMaskSmall   byrefRegs,
-                                    regMaskSmall*  newRegs = nullptr);
-    void InfoRecordGCStackArgLive(GCEncoder& encoder, MakeRegPtrMode mode, RegArgChange* argChange);
+    void AddTrackedStackSlots(GCEncoder& encoder);
+    void InfoRecordGCRegStateChange(GCEncoder&    encoder,
+                                    unsigned      codeOffset,
+                                    GcSlotState   slotState,
+                                    regMaskSmall  regs,
+                                    regMaskSmall  byrefRegs,
+                                    regMaskSmall* newRegs = nullptr);
+    void InfoRecordGCStackArgLive(GCEncoder& encoder, RegArgChange* argChange);
     void InfoRecordGCStackArgsDead(GCEncoder&    encoder,
                                    unsigned      codeOffset,
                                    RegArgChange* firstArgChange,
                                    RegArgChange* lastArgChange);
     void AddUntrackedStackSlots(GCEncoder& encoder);
-    void AddFullyInterruptibleSlots(GCEncoder& encoder, MakeRegPtrMode mode);
+    void AddFullyInterruptibleSlots(GCEncoder& encoder);
     void AddFullyInterruptibleRanges(GCEncoder& encoder, unsigned codeSize, unsigned prologSize);
-    void AddPartiallyInterruptibleSlots(GCEncoder& encoder, MakeRegPtrMode mode, unsigned* callCount);
+    void AddPartiallyInterruptibleSlots(GCEncoder& encoder);
 
     void InfoBlockHdrSave(GCEncoder& encoder, unsigned methodSize, unsigned prologSize);
 #endif
