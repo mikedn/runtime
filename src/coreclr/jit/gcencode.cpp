@@ -276,10 +276,7 @@ void GCInfo::DumpStackSlotLifetime(const char* message, StackSlotLifetime* lifet
 
 #ifdef JIT32_GCENCODER
 
-void* GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen,
-                                   unsigned codeSize,
-                                   unsigned prologSize,
-                                   unsigned epilogSize DEBUGARG(void* codePtr))
+void* GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen, unsigned codeSize, unsigned prologSize, unsigned epilogSize)
 {
     BYTE    headerBuf[64];
     InfoHdr header;
@@ -4544,7 +4541,7 @@ void GCInfo::RemoveCallArgStackSlots(GCEncoder&    encoder,
     }
 }
 
-void GCInfo::CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize DEBUGARG(void* codePtr))
+void GCInfo::CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize)
 {
 #ifdef DEBUG
     // Tracked variables can't be pinned, and the encoding takes advantage of that by

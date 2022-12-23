@@ -164,10 +164,7 @@ public:
 #ifdef JIT32_GCENCODER
     static void InitEncoderLookupTable();
 
-    void* CreateAndStoreGCInfo(class CodeGen* codeGen,
-                               unsigned       codeSize,
-                               unsigned       prologSize,
-                               unsigned epilogSize DEBUGARG(void* codePtr));
+    void* CreateAndStoreGCInfo(class CodeGen* codeGen, unsigned codeSize, unsigned prologSize, unsigned epilogSize);
 
 private:
     void CountForHeader(unsigned* pUntrackedCount, unsigned* pVarPtrTableSize);
@@ -192,7 +189,7 @@ private:
 #endif
 
 #else
-    void CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize DEBUGARG(void* codePtr));
+    void CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize);
 
 private:
     void SetHeaderInfo(GCEncoder& encoder, unsigned codeSize, unsigned prologSize);
