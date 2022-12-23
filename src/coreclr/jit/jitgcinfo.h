@@ -64,14 +64,11 @@ public:
         unsigned         isCall : 1;
 #ifdef JIT32_GCENCODER
         unsigned isThis : 1;
-#endif
         unsigned callRefRegs : CNT_CALLEE_SAVED;
         unsigned callByrefRegs : CNT_CALLEE_SAVED;
-#ifndef JIT32_GCENCODER
+#else
         unsigned callInstrLength : 4;
-#endif
 
-#ifndef JIT32_GCENCODER
         bool IsCallInstr() const
         {
             return isCall && (callInstrLength != 0);
@@ -130,9 +127,11 @@ public:
     static WriteBarrierForm GetWriteBarrierForm(GenTreeStoreInd* store);
     static WriteBarrierForm GetWriteBarrierFormFromAddress(GenTree* addr);
 
+#ifdef JIT32_GCENCODER
     // The following table determines the order in which callee-saved registers
     // are encoded in GC information at call sites..
     static const regMaskTP calleeSaveOrder[];
+#endif
 
     // This method takes a "compact" bitset of the callee-saved registers, and "expands" it to a full register mask.
     static regMaskSmall RegMaskFromCalleeSavedMask(uint16_t calleeSaveMask);

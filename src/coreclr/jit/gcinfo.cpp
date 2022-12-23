@@ -171,6 +171,7 @@ GCInfo::RegArgChange* GCInfo::AddRegArgChange()
     return change;
 }
 
+#ifdef JIT32_GCENCODER
 const regMaskTP GCInfo::calleeSaveOrder[]{RBM_CALLEE_SAVED_ORDER};
 
 regMaskSmall GCInfo::RegMaskFromCalleeSavedMask(uint16_t calleeSaveMask)
@@ -185,6 +186,7 @@ regMaskSmall GCInfo::RegMaskFromCalleeSavedMask(uint16_t calleeSaveMask)
     }
     return res;
 }
+#endif // JIT32_GCENCODER
 
 GCInfo::CallSite* GCInfo::AddCallSite(unsigned codeOffs, regMaskTP refRegs, regMaskTP byrefRegs)
 {

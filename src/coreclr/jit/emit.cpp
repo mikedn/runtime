@@ -7187,6 +7187,7 @@ void emitter::emitRecordGCCallPop(BYTE* addr, unsigned callInstrLength)
     }
 #endif
 
+#ifdef JIT32_GCENCODER
     unsigned gcrefRegs = 0;
     unsigned byrefRegs = 0;
 
@@ -7204,6 +7205,7 @@ void emitter::emitRecordGCCallPop(BYTE* addr, unsigned callInstrLength)
             byrefRegs |= (1 << i);
         }
     }
+#endif
 
     GCRegArgChange* change = gcInfo.AddRegArgChange();
     change->codeOffs       = codeOffs;
@@ -7213,10 +7215,10 @@ void emitter::emitRecordGCCallPop(BYTE* addr, unsigned callInstrLength)
     change->isArg          = true;
     change->isCall         = true;
 #ifdef JIT32_GCENCODER
-    change->isThis = false;
+    change->isThis        = false;
+    change->callRefRegs   = gcrefRegs;
+    change->callByrefRegs = byrefRegs;
 #endif
-    change->callRefRegs     = gcrefRegs;
-    change->callByrefRegs   = byrefRegs;
     change->callInstrLength = callInstrLength;
 }
 
