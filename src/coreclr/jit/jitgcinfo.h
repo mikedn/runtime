@@ -212,6 +212,7 @@ private:
                                    unsigned      codeOffset,
                                    RegArgChange* firstArgChange,
                                    RegArgChange* lastArgChange);
+    void AddUntrackedSlots(GCEncoder& encoder);
     void MakeRegPtrTable(
         GCEncoder& encoder, unsigned codeSize, unsigned prologSize, MakeRegPtrMode mode, unsigned* callCount);
 

@@ -4154,101 +4154,99 @@ struct InterruptibleRangeReporter
     }
 };
 
-void GCInfo::MakeRegPtrTable(
-    GCEncoder& encoder, unsigned codeSize, unsigned prologSize, MakeRegPtrMode mode, unsigned* callCount)
+void GCInfo::AddUntrackedSlots(GCEncoder& encoder)
 {
-    if (mode == MakeRegPtrMode::AssignSlots)
+    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
     {
-        for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
+        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
+
+        if (lcl->IsDependentPromotedField(compiler) || !lcl->lvOnFrame || lcl->HasGCSlotLiveness())
         {
-            LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
-            if (lcl->IsDependentPromotedField(compiler) || !lcl->lvOnFrame || lcl->HasGCSlotLiveness())
-            {
-                continue;
-            }
-
-            if (varTypeIsGC(lcl->GetType()))
-            {
-                GcSlotFlags slotFlags = GC_SLOT_UNTRACKED;
-
-                if (lcl->TypeIs(TYP_BYREF))
-                {
-                    slotFlags = static_cast<GcSlotFlags>(slotFlags | GC_SLOT_INTERIOR);
-                }
-
-                if (lcl->lvPinned)
-                {
-                    slotFlags = static_cast<GcSlotFlags>(slotFlags | GC_SLOT_PINNED);
-                }
-
-                GcStackSlotBase slotBase = lcl->lvFramePointerBased ? GC_FRAMEREG_REL : GC_SP_REL;
-
-                encoder.GetStackSlotId(lcl->GetStackOffset(), slotFlags, slotBase);
-            }
-            else if (lcl->TypeIs(TYP_STRUCT) && lcl->HasGCPtr())
-            {
-                GcStackSlotBase slotBase  = lcl->lvFramePointerBased ? GC_FRAMEREG_REL : GC_SP_REL;
-                int             lclOffset = lcl->GetStackOffset();
-
-#if DOUBLE_ALIGN
-                if (compiler->genDoubleAlign() && lcl->IsParam() && !lcl->IsRegParam())
-                {
-                    lclOffset += compiler->codeGen->genTotalFrameSize();
-                }
-#endif
-
-                ClassLayout* layout = lcl->GetLayout();
-
-                for (unsigned i = 0, slots = layout->GetSlotCount(); i < slots; i++)
-                {
-                    if (!layout->IsGCPtr(i))
-                    {
-                        continue;
-                    }
-
-                    GcSlotFlags slotFlags = GC_SLOT_UNTRACKED;
-
-                    if (layout->GetGCPtrType(i) == TYP_BYREF)
-                    {
-                        slotFlags = static_cast<GcSlotFlags>(slotFlags | GC_SLOT_INTERIOR);
-                    }
-
-                    encoder.GetStackSlotId(lclOffset + i * TARGET_POINTER_SIZE, slotFlags, slotBase);
-                }
-            }
+            continue;
         }
 
-        GcStackSlotBase slotBase = compiler->codeGen->isFramePointerUsed() ? GC_FRAMEREG_REL : GC_SP_REL;
-
-        for (const SpillTemp& temp : compiler->codeGen->spillTemps)
+        if (varTypeIsGC(lcl->GetType()))
         {
-            if (!varTypeIsGC(temp.GetType()))
-            {
-                continue;
-            }
-
             GcSlotFlags slotFlags = GC_SLOT_UNTRACKED;
 
-            if (temp.GetType() == TYP_BYREF)
+            if (lcl->TypeIs(TYP_BYREF))
             {
                 slotFlags = static_cast<GcSlotFlags>(slotFlags | GC_SLOT_INTERIOR);
             }
 
-            encoder.GetStackSlotId(temp.GetOffset(), slotFlags, slotBase);
+            if (lcl->lvPinned)
+            {
+                slotFlags = static_cast<GcSlotFlags>(slotFlags | GC_SLOT_PINNED);
+            }
+
+            GcStackSlotBase slotBase = lcl->lvFramePointerBased ? GC_FRAMEREG_REL : GC_SP_REL;
+
+            encoder.GetStackSlotId(lcl->GetStackOffset(), slotFlags, slotBase);
         }
-
-        if (compiler->lvaKeepAliveAndReportThis())
+        else if (lcl->TypeIs(TYP_STRUCT) && lcl->HasGCPtr())
         {
-            assert(!compiler->lvaReportParamTypeArg());
-            assert(compiler->lvaGetDesc(compiler->info.compThisArg)->TypeIs(TYP_REF));
+            GcStackSlotBase slotBase  = lcl->lvFramePointerBased ? GC_FRAMEREG_REL : GC_SP_REL;
+            int             lclOffset = lcl->GetStackOffset();
 
-            encoder.GetStackSlotId(compiler->codeGen->cachedGenericContextArgOffset, GC_SLOT_UNTRACKED, slotBase);
+#if DOUBLE_ALIGN
+            if (compiler->genDoubleAlign() && lcl->IsParam() && !lcl->IsRegParam())
+            {
+                lclOffset += compiler->codeGen->genTotalFrameSize();
+            }
+#endif
+
+            ClassLayout* layout = lcl->GetLayout();
+
+            for (unsigned i = 0, slots = layout->GetSlotCount(); i < slots; i++)
+            {
+                if (!layout->IsGCPtr(i))
+                {
+                    continue;
+                }
+
+                GcSlotFlags slotFlags = GC_SLOT_UNTRACKED;
+
+                if (layout->GetGCPtrType(i) == TYP_BYREF)
+                {
+                    slotFlags = static_cast<GcSlotFlags>(slotFlags | GC_SLOT_INTERIOR);
+                }
+
+                encoder.GetStackSlotId(lclOffset + i * TARGET_POINTER_SIZE, slotFlags, slotBase);
+            }
         }
     }
 
-    MakeVarPtrTable(encoder, mode);
+    GcStackSlotBase slotBase = compiler->codeGen->isFramePointerUsed() ? GC_FRAMEREG_REL : GC_SP_REL;
 
+    for (const SpillTemp& temp : compiler->codeGen->spillTemps)
+    {
+        if (!varTypeIsGC(temp.GetType()))
+        {
+            continue;
+        }
+
+        GcSlotFlags slotFlags = GC_SLOT_UNTRACKED;
+
+        if (temp.GetType() == TYP_BYREF)
+        {
+            slotFlags = static_cast<GcSlotFlags>(slotFlags | GC_SLOT_INTERIOR);
+        }
+
+        encoder.GetStackSlotId(temp.GetOffset(), slotFlags, slotBase);
+    }
+
+    if (compiler->lvaKeepAliveAndReportThis())
+    {
+        assert(!compiler->lvaReportParamTypeArg());
+        assert(compiler->lvaGetDesc(compiler->info.compThisArg)->TypeIs(TYP_REF));
+
+        encoder.GetStackSlotId(compiler->codeGen->cachedGenericContextArgOffset, GC_SLOT_UNTRACKED, slotBase);
+    }
+}
+
+void GCInfo::MakeRegPtrTable(
+    GCEncoder& encoder, unsigned codeSize, unsigned prologSize, MakeRegPtrMode mode, unsigned* callCount)
+{
     if (compiler->codeGen->GetInterruptible())
     {
         assert(compiler->codeGen->IsFullPtrRegMapRequired());
@@ -4679,9 +4677,12 @@ void GCInfo::CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize DEBUGAR
     GCEncoder      encoder(compiler, &encoderAlloc);
 
     InfoBlockHdrSave(encoder, codeSize, prologSize);
+    AddUntrackedSlots(encoder);
     unsigned callSiteCount = 0;
+    MakeVarPtrTable(encoder, MakeRegPtrMode::AssignSlots);
     MakeRegPtrTable(encoder, codeSize, prologSize, MakeRegPtrMode::AssignSlots, &callSiteCount);
     encoder.FinalizeSlotIds();
+    MakeVarPtrTable(encoder, MakeRegPtrMode::DoWork);
     MakeRegPtrTable(encoder, codeSize, prologSize, MakeRegPtrMode::DoWork, &callSiteCount);
 
 #if defined(TARGET_ARM64) || defined(TARGET_AMD64)
