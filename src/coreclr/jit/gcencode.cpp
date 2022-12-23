@@ -4120,41 +4120,7 @@ void GCInfo::InfoBlockHdrSave(GCEncoder& encoder, unsigned methodSize, unsigned 
 #endif
 }
 
-struct InterruptibleRangeReporter
-{
-    unsigned   prevStart;
-    GCEncoder& encoder;
-
-    InterruptibleRangeReporter(unsigned prologSize, GCEncoder& encoder) : prevStart(prologSize), encoder(encoder)
-    {
-    }
-
-    bool operator()(unsigned igFuncIdx, unsigned igOffs, unsigned igSize)
-    {
-        if (igOffs < prevStart)
-        {
-            // We're still in the main method prolog, which has already had it's interruptible range reported.
-
-            assert(igFuncIdx == 0);
-            assert(igOffs + igSize <= prevStart);
-
-            return true;
-        }
-
-        assert(igOffs >= prevStart);
-
-        if (igOffs > prevStart)
-        {
-            encoder.DefineInterruptibleRange(prevStart, igOffs - prevStart);
-        }
-
-        prevStart = igOffs + igSize;
-
-        return true;
-    }
-};
-
-void GCInfo::AddUntrackedSlots(GCEncoder& encoder)
+void GCInfo::AddUntrackedStackSlots(GCEncoder& encoder)
 {
     for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
     {
@@ -4244,22 +4210,45 @@ void GCInfo::AddUntrackedSlots(GCEncoder& encoder)
     }
 }
 
-void GCInfo::MakeRegPtrTable(
-    GCEncoder& encoder, unsigned codeSize, unsigned prologSize, MakeRegPtrMode mode, unsigned* callCount)
+void GCInfo::AddFullyInterruptibleSlots(GCEncoder& encoder, MakeRegPtrMode mode)
 {
-    if (compiler->codeGen->GetInterruptible())
+    assert(compiler->codeGen->GetInterruptible());
+    assert(compiler->codeGen->IsFullPtrRegMapRequired());
+
+    regMaskSmall  gcRegs         = RBM_NONE;
+    RegArgChange* firstArgChange = nullptr;
+
+    for (RegArgChange* change = firstRegArgChange; change != nullptr; change = change->next)
     {
-        assert(compiler->codeGen->IsFullPtrRegMapRequired());
-
-        regMaskSmall  gcRegs         = RBM_NONE;
-        RegArgChange* firstArgChange = nullptr;
-
-        for (RegArgChange* change = firstRegArgChange; change != nullptr; change = change->next)
+        if (change->isArg)
         {
-            if (change->isArg)
+            if (change->kind == RegArgChangeKind::Kill)
             {
-                if (change->kind == RegArgChangeKind::Kill)
+                if ((mode == MakeRegPtrMode::DoWork) && (firstArgChange != nullptr))
                 {
+                    InfoRecordGCStackArgsDead(encoder, change->codeOffs, firstArgChange, change);
+                }
+
+                firstArgChange = nullptr;
+            }
+            else if (change->gcType != GCT_NONE)
+            {
+                if ((change->kind == RegArgChangeKind::Push) || (change->argOffset != 0))
+                {
+                    assert(change->kind != RegArgChangeKind::Pop);
+
+                    InfoRecordGCStackArgLive(encoder, mode, change);
+
+                    if (firstArgChange == nullptr)
+                    {
+                        firstArgChange = change;
+                    }
+                }
+                else
+                {
+                    assert((change->kind == RegArgChangeKind::Pop) && (change->argOffset == 0));
+                    assert(change->isArg && change->IsCallInstr());
+
                     if ((mode == MakeRegPtrMode::DoWork) && (firstArgChange != nullptr))
                     {
                         InfoRecordGCStackArgsDead(encoder, change->codeOffs, firstArgChange, change);
@@ -4267,73 +4256,83 @@ void GCInfo::MakeRegPtrTable(
 
                     firstArgChange = nullptr;
                 }
-                else if (change->gcType != GCT_NONE)
-                {
-                    if ((change->kind == RegArgChangeKind::Push) || (change->argOffset != 0))
-                    {
-                        assert(change->kind != RegArgChangeKind::Pop);
-
-                        InfoRecordGCStackArgLive(encoder, mode, change);
-
-                        if (firstArgChange == nullptr)
-                        {
-                            firstArgChange = change;
-                        }
-                    }
-                    else
-                    {
-                        assert((change->kind == RegArgChangeKind::Pop) && (change->argOffset == 0));
-                        assert(change->isArg && change->IsCallInstr());
-
-                        if ((mode == MakeRegPtrMode::DoWork) && (firstArgChange != nullptr))
-                        {
-                            InfoRecordGCStackArgsDead(encoder, change->codeOffs, firstArgChange, change);
-                        }
-
-                        firstArgChange = nullptr;
-                    }
-                }
-            }
-            else
-            {
-                regMaskSmall regMask   = change->removeRegs & gcRegs;
-                regMaskSmall byRefMask = 0;
-
-                if (change->gcType == GCT_BYREF)
-                {
-                    byRefMask = regMask;
-                }
-
-                InfoRecordGCRegStateChange(encoder, mode, change->codeOffs, GC_SLOT_DEAD, regMask, byRefMask, &gcRegs);
-
-                regMask   = change->addRegs & ~gcRegs;
-                byRefMask = 0;
-
-                if (change->gcType == GCT_BYREF)
-                {
-                    byRefMask = regMask;
-                }
-
-                InfoRecordGCRegStateChange(encoder, mode, change->codeOffs, GC_SLOT_LIVE, regMask, byRefMask, &gcRegs);
             }
         }
-
-        if (mode == MakeRegPtrMode::DoWork)
+        else
         {
-            assert(prologSize <= codeSize);
+            regMaskSmall regMask   = change->removeRegs & gcRegs;
+            regMaskSmall byRefMask = 0;
 
-            InterruptibleRangeReporter reporter(prologSize, encoder);
-            compiler->GetEmitter()->emitGenNoGCLst(reporter);
-            prologSize = reporter.prevStart;
-
-            if (prologSize < codeSize)
+            if (change->gcType == GCT_BYREF)
             {
-                encoder.DefineInterruptibleRange(prologSize, codeSize - prologSize);
+                byRefMask = regMask;
             }
+
+            InfoRecordGCRegStateChange(encoder, mode, change->codeOffs, GC_SLOT_DEAD, regMask, byRefMask, &gcRegs);
+
+            regMask   = change->addRegs & ~gcRegs;
+            byRefMask = 0;
+
+            if (change->gcType == GCT_BYREF)
+            {
+                byRefMask = regMask;
+            }
+
+            InfoRecordGCRegStateChange(encoder, mode, change->codeOffs, GC_SLOT_LIVE, regMask, byRefMask, &gcRegs);
+        }
+    }
+}
+
+void GCInfo::AddFullyInterruptibleRanges(GCEncoder& encoder, unsigned codeSize, unsigned prologSize)
+{
+    assert(compiler->codeGen->GetInterruptible());
+    assert(prologSize <= codeSize);
+
+    struct InterruptibleRangeReporter
+    {
+        unsigned   prevStart;
+        GCEncoder& encoder;
+
+        InterruptibleRangeReporter(unsigned prologSize, GCEncoder& encoder) : prevStart(prologSize), encoder(encoder)
+        {
         }
 
-        return;
+        bool operator()(unsigned igFuncIdx, unsigned igOffs, unsigned igSize)
+        {
+            if (igOffs < prevStart)
+            {
+                // We're still in the main method prolog, which has already had it's interruptible range reported.
+
+                assert(igFuncIdx == 0);
+                assert(igOffs + igSize <= prevStart);
+
+                return true;
+            }
+
+            assert(igOffs >= prevStart);
+
+            if (igOffs > prevStart)
+            {
+                encoder.DefineInterruptibleRange(prevStart, igOffs - prevStart);
+            }
+
+            prevStart = igOffs + igSize;
+
+            return true;
+        }
+    } reporter(prologSize, encoder);
+
+    compiler->GetEmitter()->emitGenNoGCLst(reporter);
+
+    if (reporter.prevStart < codeSize)
+    {
+        encoder.DefineInterruptibleRange(reporter.prevStart, codeSize - reporter.prevStart);
     }
+}
+
+void GCInfo::AddPartiallyInterruptibleSlots(GCEncoder& encoder, MakeRegPtrMode mode, unsigned* callCount)
+{
+    assert(!compiler->codeGen->GetInterruptible());
 
     unsigned  callSiteCount = *callCount;
     unsigned  callSiteIndex = 0;
@@ -4504,7 +4503,7 @@ void GCInfo::InfoRecordGCRegStateChange(GCEncoder&     encoder,
     }
 }
 
-void GCInfo::MakeVarPtrTable(GCEncoder& encoder, MakeRegPtrMode mode)
+void GCInfo::AddTrackedStackSlots(GCEncoder& encoder, MakeRegPtrMode mode)
 {
 #ifdef DEBUG
     if (mode == MakeRegPtrMode::AssignSlots)
@@ -4635,13 +4634,27 @@ void GCInfo::CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize DEBUGAR
     GCEncoder      encoder(compiler, &encoderAlloc);
 
     InfoBlockHdrSave(encoder, codeSize, prologSize);
-    AddUntrackedSlots(encoder);
-    unsigned callSiteCount = 0;
-    MakeVarPtrTable(encoder, MakeRegPtrMode::AssignSlots);
-    MakeRegPtrTable(encoder, codeSize, prologSize, MakeRegPtrMode::AssignSlots, &callSiteCount);
-    encoder.FinalizeSlotIds();
-    MakeVarPtrTable(encoder, MakeRegPtrMode::DoWork);
-    MakeRegPtrTable(encoder, codeSize, prologSize, MakeRegPtrMode::DoWork, &callSiteCount);
+    AddUntrackedStackSlots(encoder);
+    AddTrackedStackSlots(encoder, MakeRegPtrMode::AssignSlots);
+
+    if (compiler->codeGen->GetInterruptible())
+    {
+        AddFullyInterruptibleSlots(encoder, MakeRegPtrMode::AssignSlots);
+        encoder.FinalizeSlotIds();
+
+        AddTrackedStackSlots(encoder, MakeRegPtrMode::DoWork);
+        AddFullyInterruptibleSlots(encoder, MakeRegPtrMode::DoWork);
+        AddFullyInterruptibleRanges(encoder, codeSize, prologSize);
+    }
+    else
+    {
+        unsigned callSiteCount = 0;
+        AddPartiallyInterruptibleSlots(encoder, MakeRegPtrMode::AssignSlots, &callSiteCount);
+        encoder.FinalizeSlotIds();
+
+        AddTrackedStackSlots(encoder, MakeRegPtrMode::DoWork);
+        AddPartiallyInterruptibleSlots(encoder, MakeRegPtrMode::DoWork, &callSiteCount);
+    }
 
 #if defined(TARGET_ARM64) || defined(TARGET_AMD64)
     if (compiler->opts.compDbgEnC)

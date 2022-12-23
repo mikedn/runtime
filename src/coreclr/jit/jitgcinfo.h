@@ -199,7 +199,7 @@ private:
         DoWork
     };
 
-    void MakeVarPtrTable(GCEncoder& encoder, MakeRegPtrMode mode);
+    void AddTrackedStackSlots(GCEncoder& encoder, MakeRegPtrMode mode);
     void InfoRecordGCRegStateChange(GCEncoder&     encoder,
                                     MakeRegPtrMode mode,
                                     unsigned       codeOffset,
@@ -212,9 +212,10 @@ private:
                                    unsigned      codeOffset,
                                    RegArgChange* firstArgChange,
                                    RegArgChange* lastArgChange);
-    void AddUntrackedSlots(GCEncoder& encoder);
-    void MakeRegPtrTable(
-        GCEncoder& encoder, unsigned codeSize, unsigned prologSize, MakeRegPtrMode mode, unsigned* callCount);
+    void AddUntrackedStackSlots(GCEncoder& encoder);
+    void AddFullyInterruptibleSlots(GCEncoder& encoder, MakeRegPtrMode mode);
+    void AddFullyInterruptibleRanges(GCEncoder& encoder, unsigned codeSize, unsigned prologSize);
+    void AddPartiallyInterruptibleSlots(GCEncoder& encoder, MakeRegPtrMode mode, unsigned* callCount);
 
     void InfoBlockHdrSave(GCEncoder& encoder, unsigned methodSize, unsigned prologSize);
 #endif
