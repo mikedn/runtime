@@ -4230,12 +4230,8 @@ void GCInfo::AddFullyInterruptibleSlots(GCEncoder& encoder)
     {
         if (change->isArg)
         {
-            if ((change->gcType != GCT_NONE) &&
-                ((change->kind == RegArgChangeKind::Push) ||
-                 ((change->argOffset != 0) && (change->kind != RegArgChangeKind::Kill))))
+            if (change->kind == RegArgChangeKind::Push)
             {
-                assert(change->kind != RegArgChangeKind::Pop);
-
                 AddCallArgStackSlot(encoder, change);
 
                 if (firstArgChange == nullptr)
@@ -4245,11 +4241,8 @@ void GCInfo::AddFullyInterruptibleSlots(GCEncoder& encoder)
             }
             else
             {
-                if ((change->gcType != GCT_NONE) && (change->kind != RegArgChangeKind::Kill))
-                {
-                    assert((change->kind == RegArgChangeKind::Pop) && (change->argOffset == 0));
-                    assert(change->isArg && change->IsCallInstr());
-                }
+                assert(change->kind == RegArgChangeKind::Pop);
+                assert(change->isArg && change->IsCallInstr());
 
                 if (encoder.hasSlotIds && (firstArgChange != nullptr))
                 {
@@ -4261,6 +4254,8 @@ void GCInfo::AddFullyInterruptibleSlots(GCEncoder& encoder)
         }
         else
         {
+            assert(change->gcType != GCT_NONE);
+
             regMaskSmall regs      = change->removeRegs & gcRegs;
             regMaskSmall byrefRegs = change->gcType == GCT_BYREF ? regs : RBM_NONE;
             AddRegSlotChange(encoder, change->codeOffs, GC_SLOT_DEAD, regs, byrefRegs);
