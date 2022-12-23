@@ -53,16 +53,6 @@ public:
         RegArgChange* next = nullptr;
         unsigned      codeOffs;
 
-        union {
-            struct
-            {
-                regMaskSmall addRegs;
-                regMaskSmall removeRegs;
-            };
-
-            uint16_t argOffset;
-        };
-
         RegArgChangeKind kind : 2;
         GCtype           gcType : 2;
 #ifdef JIT32_GCENCODER
@@ -71,6 +61,20 @@ public:
         unsigned callRefRegs : CNT_CALLEE_SAVED;
         unsigned callByrefRegs : CNT_CALLEE_SAVED;
 #endif
+
+        union {
+            struct
+            {
+                regMaskSmall addRegs;
+                regMaskSmall removeRegs;
+            };
+
+#ifdef JIT32_GCENCODER
+            uint16_t argOffset;
+#else
+            int argOffset;
+#endif
+        };
     };
 
     struct CallSite

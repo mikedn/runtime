@@ -7153,7 +7153,7 @@ void emitter::emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsi
 
     GCRegArgChange* change = gcInfo.AddRegArgChange();
     change->codeOffs       = emitCurCodeOffs(addr);
-    change->argOffset      = static_cast<uint16_t>(offs);
+    change->argOffset      = offs;
     change->kind           = GCInfo::RegArgChangeKind::StoreArg;
     change->gcType         = gcType;
 #ifdef JIT32_GCENCODER
