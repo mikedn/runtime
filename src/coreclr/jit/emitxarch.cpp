@@ -10515,8 +10515,8 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
                 break;
 
             case IF_RWR_RRD:
-
-                if (emitSyncThisObjReg != REG_NA && emitIGisInProlog(emitCurIG) && reg2 == (int)REG_ARG_0)
+#ifdef JIT32_GCENCODER
+                if ((emitSyncThisObjReg != REG_NA) && emitIGisInProlog(emitCurIG) && (reg2 == REG_ARG_0))
                 {
                     // We're relocating "this" in the prolog
                     assert(emitComp->lvaIsOriginalThisArg(0));
@@ -10528,12 +10528,8 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
                         emitGCregLiveSet(id->idGCref(), genRegMask(reg1), dst, true);
                         break;
                     }
-                    else
-                    {
-                        // If emitFullGCinfo==false, then we don't record any GC reg/arg changes
-                        // and so explictly note the location of "this" in GCEncode.cpp
-                    }
                 }
+#endif
 
                 emitGCregLiveUpd(id->idGCref(), reg1, dst);
                 break;

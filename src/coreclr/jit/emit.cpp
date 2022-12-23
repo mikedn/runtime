@@ -6757,22 +6757,30 @@ void emitter::emitUpdateLiveGCregs(GCtype gcType, regMaskTP regs, BYTE* addr)
     assert((emitThisGCrefRegs & emitThisByrefRegs) == 0);
 }
 
+#ifdef JIT32_GCENCODER
 void emitter::emitGCregLiveSet(GCtype gcType, regMaskTP regMask, BYTE* addr, bool isThis)
+#else
+void emitter::emitGCregLiveSet(GCtype gcType, regMaskTP regMask, BYTE* addr)
+#endif
 {
     assert(emitIssuing);
     assert(emitFullGCinfo);
     assert(gcType != GCT_NONE);
     assert(((emitThisGCrefRegs | emitThisByrefRegs) & regMask) == 0);
+#ifdef JIT32_GCENCODER
     assert(!isThis || emitComp->lvaKeepAliveAndReportThis());
+#endif
 
     GCRegArgChange* change = gcInfo.AddRegArgChange();
     change->codeOffs       = emitCurCodeOffs(addr);
     change->gcType         = gcType;
     change->isArg          = false;
     change->isCall         = false;
-    change->isThis         = isThis;
-    change->addRegs        = static_cast<regMaskSmall>(regMask);
-    change->removeRegs     = RBM_NONE;
+#ifdef JIT32_GCENCODER
+    change->isThis = isThis;
+#endif
+    change->addRegs    = static_cast<regMaskSmall>(regMask);
+    change->removeRegs = RBM_NONE;
 }
 
 void emitter::emitGCregDeadSet(GCtype gcType, regMaskTP regMask, BYTE* addr)
@@ -6787,9 +6795,11 @@ void emitter::emitGCregDeadSet(GCtype gcType, regMaskTP regMask, BYTE* addr)
     change->gcType         = gcType;
     change->isArg          = false;
     change->isCall         = false;
-    change->isThis         = false;
-    change->addRegs        = RBM_NONE;
-    change->removeRegs     = static_cast<regMaskSmall>(regMask);
+#ifdef JIT32_GCENCODER
+    change->isThis = false;
+#endif
+    change->addRegs    = RBM_NONE;
+    change->removeRegs = static_cast<regMaskSmall>(regMask);
 }
 
 /*****************************************************************************
@@ -7012,17 +7022,24 @@ void emitter::emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr)
             emitGCregDeadUpd(reg, addr);
         }
 
+#ifdef JIT32_GCENCODER
         // For synchronized methods, "this" is always alive and in the same register.
         // However, if we generate any code after the epilog block (where "this"
         // goes dead), "this" will come alive again. We need to notice that.
         // Note that we only expect isThis to be true at an insGroup boundary.
 
-        bool isThis = (reg == emitSyncThisObjReg) ? true : false;
+        bool isThis = (reg == emitSyncThisObjReg);
 
         if (emitFullGCinfo)
         {
             emitGCregLiveSet(gcType, regMask, addr, isThis);
         }
+#else
+        if (emitFullGCinfo)
+        {
+            emitGCregLiveSet(gcType, regMask, addr);
+        }
+#endif
 
         emitThisXXrefRegs |= regMask;
     }
@@ -7051,9 +7068,11 @@ void emitter::emitGCregDeadUpdMask(regMaskTP regs, BYTE* addr)
 
     regMaskTP gcrefRegs = emitThisGCrefRegs & regs;
 
+#ifdef JIT32_GCENCODER
     // "this" can never go dead in synchronized methods, except in the epilog
     // after the call to CORINFO_HELP_MON_EXIT.
-    assert(emitSyncThisObjReg == REG_NA || (genRegMask(emitSyncThisObjReg) & regs) == 0);
+    assert((emitSyncThisObjReg == REG_NA) || (genRegMask(emitSyncThisObjReg) & regs) == RBM_NONE);
+#endif
 
     if (gcrefRegs)
     {
@@ -7145,7 +7164,9 @@ void emitter::emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsi
     change->gcType         = gcType;
     change->isArg          = true;
     change->isCall         = false;
-    change->isThis         = false;
+#ifdef JIT32_GCENCODER
+    change->isThis = false;
+#endif
 }
 
 void emitter::emitRecordGCCallPop(BYTE* addr, unsigned callInstrLength)
@@ -7176,14 +7197,16 @@ void emitter::emitRecordGCCallPop(BYTE* addr, unsigned callInstrLength)
         }
     }
 
-    GCRegArgChange* change  = gcInfo.AddRegArgChange();
-    change->codeOffs        = emitCurCodeOffs(addr);
-    change->argOffset       = 0;
-    change->kind            = GCInfo::RegArgChangeKind::Pop;
-    change->gcType          = GCT_GCREF;
-    change->isArg           = true;
-    change->isCall          = true;
-    change->isThis          = false;
+    GCRegArgChange* change = gcInfo.AddRegArgChange();
+    change->codeOffs       = emitCurCodeOffs(addr);
+    change->argOffset      = 0;
+    change->kind           = GCInfo::RegArgChangeKind::Pop;
+    change->gcType         = GCT_GCREF;
+    change->isArg          = true;
+    change->isCall         = true;
+#ifdef JIT32_GCENCODER
+    change->isThis = false;
+#endif
     change->callRefRegs     = gcrefRegs;
     change->callByrefRegs   = byrefRegs;
     change->callInstrLength = callInstrLength;

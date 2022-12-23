@@ -62,9 +62,11 @@ public:
         GCtype           gcType : 2;
         unsigned         isArg : 1;
         unsigned         isCall : 1;
-        unsigned         isThis : 1;
-        unsigned         callRefRegs : CNT_CALLEE_SAVED;
-        unsigned         callByrefRegs : CNT_CALLEE_SAVED;
+#ifdef JIT32_GCENCODER
+        unsigned isThis : 1;
+#endif
+        unsigned callRefRegs : CNT_CALLEE_SAVED;
+        unsigned callByrefRegs : CNT_CALLEE_SAVED;
 #ifndef JIT32_GCENCODER
         unsigned callInstrLength : 4;
 #endif
