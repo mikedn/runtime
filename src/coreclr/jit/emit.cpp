@@ -2841,9 +2841,9 @@ void emitter::emitDispRegPtrListDelta()
                                                                : debugPrevRegPtrDsc->next;
          dsc != nullptr; dsc = dsc->next)
     {
-        // The non-arg regPtrDscs are reflected in the register sets debugPrevGCrefRegs/emitThisGCrefRegs
+        // Reg changes are reflected in the register sets debugPrevGCrefRegs/emitThisGCrefRegs
         // and debugPrevByrefRegs/emitThisByrefRegs, and dumped using those sets.
-        if (!dsc->isArg)
+        if (dsc->kind == GCInfo::RegArgChangeKind::RegChange)
         {
             continue;
         }
@@ -6768,8 +6768,8 @@ void emitter::emitGCregLiveSet(GCtype gcType, regMaskTP regMask, BYTE* addr)
 
     GCRegArgChange* change = gcInfo.AddRegArgChange();
     change->codeOffs       = emitCurCodeOffs(addr);
+    change->kind           = GCInfo::RegArgChangeKind::RegChange;
     change->gcType         = gcType;
-    change->isArg          = false;
     change->addRegs        = static_cast<regMaskSmall>(regMask);
     change->removeRegs     = RBM_NONE;
 #ifdef JIT32_GCENCODER
@@ -6787,14 +6787,14 @@ void emitter::emitGCregDeadSet(GCtype gcType, regMaskTP regMask, BYTE* addr)
 
     GCRegArgChange* change = gcInfo.AddRegArgChange();
     change->codeOffs       = emitCurCodeOffs(addr);
+    change->kind           = GCInfo::RegArgChangeKind::RegChange;
     change->gcType         = gcType;
-    change->isArg          = false;
+    change->addRegs        = RBM_NONE;
+    change->removeRegs     = static_cast<regMaskSmall>(regMask);
 #ifdef JIT32_GCENCODER
     change->isCall = false;
     change->isThis = false;
 #endif
-    change->addRegs    = RBM_NONE;
-    change->removeRegs = static_cast<regMaskSmall>(regMask);
 }
 
 /*****************************************************************************
@@ -7156,7 +7156,6 @@ void emitter::emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsi
     change->argOffset      = static_cast<uint16_t>(offs);
     change->kind           = GCInfo::RegArgChangeKind::Push;
     change->gcType         = gcType;
-    change->isArg          = true;
 #ifdef JIT32_GCENCODER
     change->isCall = false;
     change->isThis = false;
@@ -7212,7 +7211,6 @@ void emitter::emitRecordGCCallPop(BYTE* addr, unsigned callInstrLength)
     change->argOffset      = 0;
     change->kind           = GCInfo::RegArgChangeKind::Pop;
     change->gcType         = GCT_GCREF;
-    change->isArg          = true;
 #ifdef JIT32_GCENCODER
     change->isCall        = true;
     change->isThis        = false;
@@ -7546,7 +7544,6 @@ void emitter::emitStackPushLargeStk(BYTE* addr, GCtype gcType, unsigned count)
                 change->argOffset      = static_cast<uint16_t>(level.Value());
                 change->kind           = GCInfo::RegArgChangeKind::Push;
                 change->gcType         = gcType;
-                change->isArg          = true;
                 change->isCall         = false;
                 change->isThis         = false;
             }
@@ -7650,7 +7647,6 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSi
     change->argOffset      = argRecCnt.Value();
     change->kind           = GCInfo::RegArgChangeKind::Pop;
     change->gcType         = GCT_GCREF;
-    change->isArg          = true;
     change->isCall         = isCall || isCallRelatedPop;
     change->isThis         = false;
     change->callRefRegs    = gcrefRegs;
@@ -7732,7 +7728,6 @@ void emitter::emitStackKillArgs(BYTE* addr, unsigned count, unsigned callInstrSi
         change->argOffset      = gcCnt.Value();
         change->kind           = GCInfo::RegArgChangeKind::Kill;
         change->gcType         = GCT_GCREF;
-        change->isArg          = true;
         change->isThis         = false;
     }
 

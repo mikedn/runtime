@@ -38,6 +38,7 @@ public:
 
     enum class RegArgChangeKind : unsigned
     {
+        RegChange,
         Pop,
         Push,
         Kill
@@ -60,10 +61,9 @@ public:
 
         RegArgChangeKind kind : 2;
         GCtype           gcType : 2;
-        unsigned         isArg : 1;
 #ifdef JIT32_GCENCODER
-        unsigned isCall : 1;
         unsigned isThis : 1;
+        unsigned isCall : 1;
         unsigned callRefRegs : CNT_CALLEE_SAVED;
         unsigned callByrefRegs : CNT_CALLEE_SAVED;
 #endif
