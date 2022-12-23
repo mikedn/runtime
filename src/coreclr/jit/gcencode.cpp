@@ -4277,7 +4277,6 @@ void GCInfo::AddFullyInterruptibleSlots(GCEncoder& encoder)
             else
             {
                 assert(change->kind == RegArgChangeKind::Pop);
-                assert(change->isArg && change->IsCallInstr());
 
                 if (encoder.hasSlotIds && (firstArgChange != nullptr))
                 {

@@ -66,13 +66,6 @@ public:
         unsigned isThis : 1;
         unsigned callRefRegs : CNT_CALLEE_SAVED;
         unsigned callByrefRegs : CNT_CALLEE_SAVED;
-#else
-        unsigned callInstrLength : 4;
-
-        bool IsCallInstr() const
-        {
-            return isCall && (callInstrLength != 0);
-        }
 #endif
     };
 

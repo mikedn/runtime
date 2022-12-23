@@ -7219,7 +7219,6 @@ void emitter::emitRecordGCCallPop(BYTE* addr, unsigned callInstrLength)
     change->callRefRegs   = gcrefRegs;
     change->callByrefRegs = byrefRegs;
 #endif
-    change->callInstrLength = callInstrLength;
 }
 
 #endif // FEATURE_FIXED_OUT_ARGS
