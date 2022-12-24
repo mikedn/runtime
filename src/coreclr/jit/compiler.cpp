@@ -487,7 +487,7 @@ void Compiler::compStartup()
 #endif
 
 #ifdef JIT32_GCENCODER
-    GCInfo::InitEncoderLookupTable();
+    InitGCEncoderLookupTable();
 #endif
 
     ValueNumStore::InitValueNumStoreStatics();

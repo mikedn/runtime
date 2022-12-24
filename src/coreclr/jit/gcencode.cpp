@@ -276,7 +276,91 @@ void GCInfo::DumpStackSlotLifetime(const char* message, StackSlotLifetime* lifet
 
 #ifdef JIT32_GCENCODER
 
+class GCEncoder
+{
+    Compiler* compiler;
+    uint8_t*  gcEpilogTable = nullptr;
+    unsigned  gcEpilogPrevOffset;
+
+    using StackSlotLifetime = GCInfo::StackSlotLifetime;
+    using RegArgChangeKind  = GCInfo::RegArgChangeKind;
+    using RegArgChange      = GCInfo::RegArgChange;
+    using CallSite          = GCInfo::CallSite;
+
+public:
+    GCEncoder(Compiler* compiler) : compiler(compiler)
+    {
+    }
+
+    void* CreateAndStoreGCInfo(ReturnKind         returnKind,
+                               StackSlotLifetime* firstStackSlotLifetime,
+                               RegArgChange*      firstRegArgChange,
+                               CallSite*          firstCallSite,
+                               CodeGen*           codeGen,
+                               unsigned           codeSize,
+                               unsigned           prologSize,
+                               unsigned           epilogSize);
+
+private:
+    void CountForHeader(StackSlotLifetime* firstStackSlotLifetime,
+                        unsigned*          pUntrackedCount,
+                        unsigned*          pVarPtrTableSize);
+    bool IsUntrackedLocalOrNonEnregisteredArg(unsigned lclNum, bool* keepThisAlive = nullptr);
+    size_t MakeRegPtrTable(StackSlotLifetime* firstStackSlotLifetime,
+                           RegArgChange*      firstRegArgChange,
+                           CallSite*          firstCallSite,
+                           uint8_t*           dest,
+                           int                mask,
+                           const InfoHdr&     header,
+                           unsigned           codeSize,
+                           size_t*            pArgTabOffset);
+    size_t PtrTableSize(StackSlotLifetime* firstStackSlotLifetime,
+                        RegArgChange*      firstRegArgChange,
+                        CallSite*          firstCallSite,
+                        const InfoHdr&     header,
+                        unsigned           codeSize,
+                        size_t*            pArgTabOffset);
+    BYTE* PtrTableSave(StackSlotLifetime* firstStackSlotLifetime,
+                       RegArgChange*      firstRegArgChange,
+                       CallSite*          firstCallSite,
+                       uint8_t*           destPtr,
+                       const InfoHdr&     header,
+                       unsigned           codeSize,
+                       size_t*            pArgTabOffset);
+    size_t InfoBlockHdrSave(StackSlotLifetime* firstStackSlotLifetime,
+                            ReturnKind         returnKind,
+                            uint8_t*           dest,
+                            int                mask,
+                            unsigned           methodSize,
+                            unsigned           prologSize,
+                            unsigned           epilogSize,
+                            regMaskTP          savedRegs,
+                            InfoHdr*           header,
+                            int*               s_cached);
+
+    static size_t RecordEpilog(void* pCallBackData, unsigned offset);
+
+#if DUMP_GC_TABLES
+    size_t InfoBlockHdrDump(const uint8_t* table, InfoHdr* header, unsigned* methodSize);
+    size_t DumpPtrTable(const uint8_t* table, const InfoHdr& header, unsigned methodSize);
+#endif
+};
+
 void* GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen, unsigned codeSize, unsigned prologSize, unsigned epilogSize)
+{
+    GCEncoder encoder(codeGen->GetCompiler());
+    return encoder.CreateAndStoreGCInfo(GetReturnKind(), firstStackSlotLifetime, firstRegArgChange, firstCallSite,
+                                        codeGen, codeSize, prologSize, epilogSize);
+}
+
+void* GCEncoder::CreateAndStoreGCInfo(ReturnKind         returnKind,
+                                      StackSlotLifetime* firstStackSlotLifetime,
+                                      RegArgChange*      firstRegArgChange,
+                                      CallSite*          firstCallSite,
+                                      CodeGen*           codeGen,
+                                      unsigned           codeSize,
+                                      unsigned           prologSize,
+                                      unsigned           epilogSize)
 {
     BYTE    headerBuf[64];
     InfoHdr header;
@@ -294,11 +378,13 @@ void* GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen, unsigned codeSize, unsigned
 #ifdef DEBUG
     size_t headerSize =
 #endif
-        codeGen->compInfoBlkSize = InfoBlockHdrSave(headerBuf, 0, codeSize, prologSize, epilogSize,
-                                                    codeGen->calleeSavedModifiedRegs, &header, &s_cached);
+        codeGen->compInfoBlkSize =
+            InfoBlockHdrSave(firstStackSlotLifetime, returnKind, headerBuf, 0, codeSize, prologSize, epilogSize,
+                             codeGen->calleeSavedModifiedRegs, &header, &s_cached);
 
     size_t argTabOffset = 0;
-    size_t ptrMapSize   = PtrTableSize(header, codeSize, &argTabOffset);
+    size_t ptrMapSize =
+        PtrTableSize(firstStackSlotLifetime, firstRegArgChange, firstCallSite, header, codeSize, &argTabOffset);
 
 #if DISPLAY_SIZES
 
@@ -345,11 +431,12 @@ void* GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen, unsigned codeSize, unsigned
 
     /* Create the method info block: header followed by GC tracking tables */
 
-    infoBlkAddr += InfoBlockHdrSave(infoBlkAddr, -1, codeSize, prologSize, epilogSize, codeGen->calleeSavedModifiedRegs,
-                                    &header, &s_cached);
+    infoBlkAddr += InfoBlockHdrSave(firstStackSlotLifetime, returnKind, infoBlkAddr, -1, codeSize, prologSize,
+                                    epilogSize, codeGen->calleeSavedModifiedRegs, &header, &s_cached);
 
     assert(infoBlkAddr == (BYTE*)infoPtr + headerSize);
-    infoBlkAddr = PtrTableSave(infoBlkAddr, header, codeSize, &argTabOffset);
+    infoBlkAddr = PtrTableSave(firstStackSlotLifetime, firstRegArgChange, firstCallSite, infoBlkAddr, header, codeSize,
+                               &argTabOffset);
     assert(infoBlkAddr == (BYTE*)infoPtr + headerSize + ptrMapSize);
 
 #ifdef DEBUG
@@ -482,7 +569,9 @@ static unsigned char encodeSigned(BYTE* dest, int val)
     return size;
 }
 
-void GCInfo::CountForHeader(unsigned* pUntrackedCount, unsigned* pVarPtrTableSize)
+void GCEncoder::CountForHeader(StackSlotLifetime* firstStackSlotLifetime,
+                               unsigned*          pUntrackedCount,
+                               unsigned*          pVarPtrTableSize)
 {
     bool         keepThisAlive  = false; // did we track "this" in a synchronized method?
     unsigned int untrackedCount = 0;
@@ -579,7 +668,7 @@ void GCInfo::CountForHeader(unsigned* pUntrackedCount, unsigned* pVarPtrTableSiz
     *pVarPtrTableSize = stackSlotLifetimeCount;
 }
 
-bool GCInfo::IsUntrackedLocalOrNonEnregisteredArg(unsigned lclNum, bool* keepThisAlive)
+bool GCEncoder::IsUntrackedLocalOrNonEnregisteredArg(unsigned lclNum, bool* keepThisAlive)
 {
     LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
 
@@ -641,9 +730,16 @@ bool GCInfo::IsUntrackedLocalOrNonEnregisteredArg(unsigned lclNum, bool* keepThi
     return true;
 }
 
-BYTE* GCInfo::PtrTableSave(BYTE* destPtr, const InfoHdr& header, unsigned codeSize, size_t* argTabOffset)
+BYTE* GCEncoder::PtrTableSave(StackSlotLifetime* firstStackSlotLifetime,
+                              RegArgChange*      firstRegArgChange,
+                              CallSite*          firstCallSite,
+                              BYTE*              destPtr,
+                              const InfoHdr&     header,
+                              unsigned           codeSize,
+                              size_t*            argTabOffset)
 {
-    return destPtr + MakeRegPtrTable(destPtr, -1, header, codeSize, argTabOffset);
+    return destPtr + MakeRegPtrTable(firstStackSlotLifetime, firstRegArgChange, firstCallSite, destPtr, -1, header,
+                                     codeSize, argTabOffset);
 }
 
 // (see jit.h) #define REGEN_SHORTCUTS 0
@@ -1493,7 +1589,7 @@ static int MeasureDistance(const InfoHdr& header, const InfoHdrSmall* p, int clo
 
 static int InfoHdrLookup[IH_MAX_PROLOG_SIZE + 2];
 
-void GCInfo::InitEncoderLookupTable()
+void InitGCEncoderLookupTable()
 {
     const InfoHdrSmall* p  = &infoHdrShortcut[0];
     int                 lo = -1;
@@ -1729,14 +1825,16 @@ static BYTE EncodeHeaderFirst(const InfoHdr& header, InfoHdr* state, int* more, 
 // Write the initial part of the method info block. This is called twice;
 // first to compute the size needed for the info (mask=0), the second time
 // to actually generate the contents of the table (mask=-1,dest!=NULL).
-size_t GCInfo::InfoBlockHdrSave(BYTE*     dest,
-                                int       mask,
-                                unsigned  methodSize,
-                                unsigned  prologSize,
-                                unsigned  epilogSize,
-                                regMaskTP savedRegs,
-                                InfoHdr*  header,
-                                int*      pCached)
+size_t GCEncoder::InfoBlockHdrSave(StackSlotLifetime* firstStackSlotLifetime,
+                                   ReturnKind         returnKind,
+                                   BYTE*              dest,
+                                   int                mask,
+                                   unsigned           methodSize,
+                                   unsigned           prologSize,
+                                   unsigned           epilogSize,
+                                   regMaskTP          savedRegs,
+                                   InfoHdr*           header,
+                                   int*               pCached)
 {
     JITDUMP("*************** In InfoBlockHdrSave()\n");
 
@@ -1840,7 +1938,6 @@ size_t GCInfo::InfoBlockHdrSave(BYTE*     dest,
     header->genericsContextIsMethodDesc =
         header->genericsContext && (compiler->info.compMethodInfo->options & (CORINFO_GENERICS_CTXT_FROM_METHODDESC));
 
-    ReturnKind returnKind = GetReturnKind();
     _ASSERTE(IsValidReturnKind(returnKind) && "Return Kind must be valid");
     _ASSERTE(!IsStructReturnKind(returnKind) && "Struct Return Kinds Unexpected for JIT32");
     _ASSERTE(((int)returnKind < (int)SET_RET_KIND_MAX) && "ReturnKind has no legal encoding");
@@ -1901,7 +1998,7 @@ size_t GCInfo::InfoBlockHdrSave(BYTE*     dest,
         unsigned untrackedCount  = 0;
         unsigned varPtrTableSize = 0;
 
-        CountForHeader(&untrackedCount, &varPtrTableSize);
+        CountForHeader(firstStackSlotLifetime, &untrackedCount, &varPtrTableSize);
 
         header->untrackedCnt    = untrackedCount;
         header->varPtrTableSize = varPtrTableSize;
@@ -2046,9 +2143,9 @@ size_t GCInfo::InfoBlockHdrSave(BYTE*     dest,
 }
 
 // Helper passed to genEmitter.emitGenEpilogLst() to generate the table of epilogs.
-size_t GCInfo::RecordEpilog(void* pCallBackData, unsigned offset)
+size_t GCEncoder::RecordEpilog(void* pCallBackData, unsigned offset)
 {
-    GCInfo* gcInfo = (GCInfo*)pCallBackData;
+    GCEncoder* gcInfo = static_cast<GCEncoder*>(pCallBackData);
 
     assert(gcInfo);
 
@@ -2063,7 +2160,12 @@ size_t GCInfo::RecordEpilog(void* pCallBackData, unsigned offset)
 }
 
 // Return the size of the pointer tracking tables.
-size_t GCInfo::PtrTableSize(const InfoHdr& header, unsigned codeSize, size_t* pArgTabOffset)
+size_t GCEncoder::PtrTableSize(StackSlotLifetime* firstStackSlotLifetime,
+                               RegArgChange*      firstRegArgChange,
+                               CallSite*          firstCallSite,
+                               const InfoHdr&     header,
+                               unsigned           codeSize,
+                               size_t*            pArgTabOffset)
 {
     BYTE temp[16 + 1];
 #ifdef DEBUG
@@ -2072,7 +2174,8 @@ size_t GCInfo::PtrTableSize(const InfoHdr& header, unsigned codeSize, size_t* pA
 
     /* Compute the total size of the tables */
 
-    size_t size = MakeRegPtrTable(temp, 0, header, codeSize, pArgTabOffset);
+    size_t size = MakeRegPtrTable(firstStackSlotLifetime, firstRegArgChange, firstCallSite, temp, 0, header, codeSize,
+                                  pArgTabOffset);
 
     assert(temp[16] == 0xAB); // Check that marker didnt get overwritten
 
@@ -2375,7 +2478,14 @@ public:
 // 'mask' is 0, we don't actually store any data in 'dest' (except for one
 // entry, which is never more than 10 bytes), so this can be used to merely
 // compute the size of the table.
-size_t GCInfo::MakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, unsigned codeSize, size_t* pArgTabOffset)
+size_t GCEncoder::MakeRegPtrTable(StackSlotLifetime* firstStackSlotLifetime,
+                                  RegArgChange*      firstRegArgChange,
+                                  CallSite*          firstCallSite,
+                                  BYTE*              dest,
+                                  int                mask,
+                                  const InfoHdr&     header,
+                                  unsigned           codeSize,
+                                  size_t*            pArgTabOffset)
 {
     size_t   totalSize = 0;
     unsigned lastOffset;
@@ -2408,7 +2518,7 @@ size_t GCInfo::MakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, unsi
 #if DEBUG
     unsigned untrackedCount  = 0;
     unsigned varPtrTableSize = 0;
-    CountForHeader(&untrackedCount, &varPtrTableSize);
+    CountForHeader(firstStackSlotLifetime, &untrackedCount, &varPtrTableSize);
     assert(untrackedCount == header.untrackedCnt);
     assert(varPtrTableSize == header.varPtrTableSize);
 #endif
@@ -3744,7 +3854,7 @@ const bool verifyGCTables = true;
 const bool verifyGCTables = false;
 #endif
 
-size_t GCInfo::InfoBlockHdrDump(const uint8_t* table, InfoHdr* header, unsigned* methodSize)
+size_t GCEncoder::InfoBlockHdrDump(const uint8_t* table, InfoHdr* header, unsigned* methodSize)
 {
     GCDump gcDump(GCINFO_VERSION);
     gcDump.gcPrintf = gcDump_logf;
@@ -3752,7 +3862,7 @@ size_t GCInfo::InfoBlockHdrDump(const uint8_t* table, InfoHdr* header, unsigned*
     return gcDump.DumpInfoHdr(table, header, methodSize, verifyGCTables);
 }
 
-size_t GCInfo::DumpPtrTable(const uint8_t* table, const InfoHdr& header, unsigned methodSize)
+size_t GCEncoder::DumpPtrTable(const uint8_t* table, const InfoHdr& header, unsigned methodSize)
 {
     printf("Pointer table:\n");
     GCDump gcDump(GCINFO_VERSION);
