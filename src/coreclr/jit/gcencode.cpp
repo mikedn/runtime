@@ -108,7 +108,6 @@ public:
 private:
     unsigned GetUntrackedStackSlotCount();
     unsigned GetTrackedStackSlotLifetimeCount();
-    bool IsUntrackedLocalOrNonEnregisteredArg(unsigned lclNum);
     size_t MakeRegPtrTable(uint8_t* dest, int mask, size_t* pArgTabOffset);
     unsigned AddUntrackedStackSlots(uint8_t* dest, int mask);
     unsigned AddTrackedStackSlots(uint8_t* dest, int mask);
@@ -116,7 +115,7 @@ private:
     unsigned AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, int mask);
     unsigned AddPartiallyInterruptibleSlotsFramed(uint8_t* dest, int mask);
     size_t PtrTableSize(size_t* pArgTabOffset);
-    BYTE* PtrTableSave(uint8_t* destPtr, size_t* pArgTabOffset);
+    uint8_t* PtrTableSave(uint8_t* destPtr, size_t* pArgTabOffset);
     size_t InfoBlockHdrSave(uint8_t* dest, int mask, regMaskTP savedRegs, InfoHdr* header, int* s_cached);
 
 #if DUMP_GC_TABLES
@@ -326,18 +325,13 @@ unsigned GCEncoder::GetUntrackedStackSlotCount()
     {
         LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
 
-        if (lcl->IsDependentPromotedField(compiler))
+        if (lcl->IsDependentPromotedField(compiler) || !lcl->lvOnFrame || lcl->HasGCSlotLiveness())
         {
             continue;
         }
 
         if (varTypeIsGC(lcl->GetType()))
         {
-            if (!IsUntrackedLocalOrNonEnregisteredArg(lclNum))
-            {
-                continue;
-            }
-
 #ifndef FEATURE_EH_FUNCLETS
             if (compiler->lvaIsOriginalThisArg(lclNum) && compiler->lvaKeepAliveAndReportThis())
             {
@@ -377,7 +371,7 @@ unsigned GCEncoder::GetUntrackedStackSlotCount()
 
             untrackedCount++;
         }
-        else if (lcl->TypeIs(TYP_STRUCT) && lcl->lvOnFrame)
+        else if (lcl->TypeIs(TYP_STRUCT))
         {
             untrackedCount += lcl->GetLayout()->GetGCPtrCount();
         }
@@ -435,46 +429,6 @@ unsigned GCEncoder::GetTrackedStackSlotLifetimeCount()
     JITDUMP("GCINFO: trackdLcls = %u\n", stackSlotLifetimeCount);
 
     return stackSlotLifetimeCount;
-}
-
-bool GCEncoder::IsUntrackedLocalOrNonEnregisteredArg(unsigned lclNum)
-{
-    LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
-    assert(!lcl->IsDependentPromotedField(compiler));
-    assert(varTypeIsGC(lcl->GetType()));
-
-    if (!lcl->IsParam())
-    {
-        // If is pinned, it must be an untracked local.
-        assert(!lcl->lvPinned || !lcl->HasLiveness());
-
-        if (lcl->HasLiveness() || !lcl->lvOnFrame)
-        {
-            return false;
-        }
-    }
-    // Stack-passed arguments which are not enregistered are always reported in this "untracked stack pointers"
-    // section of the GC info even if lvTracked == true.
-    else if (!lcl->lvOnFrame)
-    {
-        // If a CEE_JMP has been used, then we need to report all the arguments even if they are enregistered, since
-        // we will be using this value in JMP call.  Note that this is subtle as we require that argument offsets
-        // are always fixed up properly even if lvRegister is set .
-        if (!compiler->compJmpOpUsed)
-        {
-            return false;
-        }
-    }
-    else if (lcl->IsRegParam() && lcl->HasLiveness())
-    {
-        // If this register-passed arg is tracked, then it has been allocated space near the other pointer
-        // variables and we have accurate life-time info. It will be reported with firstStackSlotLifetime
-        // in the "tracked-pointer" section.
-        return false;
-    }
-
-    return true;
 }
 
 BYTE* GCEncoder::PtrTableSave(uint8_t* destPtr, size_t* argTabOffset)
@@ -2346,18 +2300,13 @@ unsigned GCEncoder::AddUntrackedStackSlots(uint8_t* dest, const int mask)
     {
         LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
 
-        if (lcl->IsDependentPromotedField(compiler))
+        if (lcl->IsDependentPromotedField(compiler) || !lcl->lvOnFrame || lcl->HasGCSlotLiveness())
         {
             continue;
         }
 
         if (varTypeIsGC(lcl->GetType()))
         {
-            if (!IsUntrackedLocalOrNonEnregisteredArg(lclNum))
-            {
-                continue;
-            }
-
 #ifndef FEATURE_EH_FUNCLETS
             if (lclNum == trackedThisLclNum)
             {
@@ -2398,7 +2347,7 @@ unsigned GCEncoder::AddUntrackedStackSlots(uint8_t* dest, const int mask)
                 totalSize += size;
             }
         }
-        else if (lcl->TypeIs(TYP_STRUCT) && lcl->lvOnFrame && lcl->HasGCPtr())
+        else if (lcl->TypeIs(TYP_STRUCT) && lcl->HasGCPtr())
         {
             int lclOffset = lcl->GetStackOffset();
 
