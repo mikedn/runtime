@@ -78,6 +78,9 @@ class GCEncoder
     StackSlotLifetime* const firstStackSlotLifetime;
     RegArgChange* const      firstRegArgChange;
     CallSite* const          firstCallSite;
+    unsigned                 untrackedStackSlotCount;
+    unsigned                 trackedStackSlotLifetimeCount;
+    bool                     keepThisAlive = false;
 
 public:
     GCEncoder(CodeGen*           codeGen,
@@ -103,17 +106,17 @@ public:
     void* CreateAndStoreGCInfo();
 
 private:
-    unsigned GetUntrackedStackSlotCount(bool* keepThisAlive);
-    unsigned GetTrackedStackSlotLifetimeCount(bool keepThisAlive);
+    unsigned GetUntrackedStackSlotCount();
+    unsigned GetTrackedStackSlotLifetimeCount();
     bool IsUntrackedLocalOrNonEnregisteredArg(unsigned lclNum, bool* keepThisAlive = nullptr);
-    size_t MakeRegPtrTable(uint8_t* dest, int mask, const InfoHdr& header, size_t* pArgTabOffset);
+    size_t MakeRegPtrTable(uint8_t* dest, int mask, size_t* pArgTabOffset);
     unsigned AddUntrackedStackSlots(uint8_t* dest, int mask);
     unsigned AddTrackedStackSlots(uint8_t* dest, int mask);
-    unsigned AddFullyInterruptibleSlots(uint8_t* dest, int mask, bool keepThisAlive);
-    unsigned AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, int mask, bool keepThisAlive);
+    unsigned AddFullyInterruptibleSlots(uint8_t* dest, int mask);
+    unsigned AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, int mask);
     unsigned AddPartiallyInterruptibleSlotsFramed(uint8_t* dest, int mask);
-    size_t PtrTableSize(const InfoHdr& header, size_t* pArgTabOffset);
-    BYTE* PtrTableSave(uint8_t* destPtr, const InfoHdr& header, size_t* pArgTabOffset);
+    size_t PtrTableSize(size_t* pArgTabOffset);
+    BYTE* PtrTableSave(uint8_t* destPtr, size_t* pArgTabOffset);
     size_t InfoBlockHdrSave(uint8_t* dest, int mask, regMaskTP savedRegs, InfoHdr* header, int* s_cached);
 
 #if DUMP_GC_TABLES
@@ -138,6 +141,9 @@ void* GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen, unsigned codeSize, unsigned
 
 void* GCEncoder::CreateAndStoreGCInfo()
 {
+    untrackedStackSlotCount       = GetUntrackedStackSlotCount();
+    trackedStackSlotLifetimeCount = GetTrackedStackSlotLifetimeCount();
+
     BYTE    headerBuf[64];
     InfoHdr header;
 
@@ -146,7 +152,7 @@ void* GCEncoder::CreateAndStoreGCInfo()
     size_t headerSize = InfoBlockHdrSave(headerBuf, 0, codeGen->calleeSavedModifiedRegs, &header, &s_cached);
 
     size_t argTabOffset = 0;
-    size_t ptrMapSize   = PtrTableSize(header, &argTabOffset);
+    size_t ptrMapSize   = PtrTableSize(&argTabOffset);
 
 #if DISPLAY_SIZES
 
@@ -178,7 +184,7 @@ void* GCEncoder::CreateAndStoreGCInfo()
     infoBlkAddr += InfoBlockHdrSave(infoBlkAddr, -1, codeGen->calleeSavedModifiedRegs, &header, &s_cached);
 
     assert(infoBlkAddr == (BYTE*)infoPtr + headerSize);
-    infoBlkAddr = PtrTableSave(infoBlkAddr, header, &argTabOffset);
+    infoBlkAddr = PtrTableSave(infoBlkAddr, &argTabOffset);
     assert(infoBlkAddr == (BYTE*)infoPtr + headerSize + ptrMapSize);
 
 #ifdef DEBUG
@@ -312,7 +318,7 @@ static unsigned char encodeSigned(BYTE* dest, int val)
     return size;
 }
 
-unsigned GCEncoder::GetUntrackedStackSlotCount(bool* keepThisAlive)
+unsigned GCEncoder::GetUntrackedStackSlotCount()
 {
     unsigned int untrackedCount = 0;
 
@@ -327,7 +333,7 @@ unsigned GCEncoder::GetUntrackedStackSlotCount(bool* keepThisAlive)
 
         if (varTypeIsGC(lcl->GetType()))
         {
-            if (!IsUntrackedLocalOrNonEnregisteredArg(lclNum, keepThisAlive))
+            if (!IsUntrackedLocalOrNonEnregisteredArg(lclNum, &keepThisAlive))
             {
                 continue;
             }
@@ -385,7 +391,7 @@ unsigned GCEncoder::GetUntrackedStackSlotCount(bool* keepThisAlive)
     return untrackedCount;
 }
 
-unsigned GCEncoder::GetTrackedStackSlotLifetimeCount(bool keepThisAlive)
+unsigned GCEncoder::GetTrackedStackSlotLifetimeCount()
 {
     unsigned stackSlotLifetimeCount = 0;
 
@@ -471,9 +477,9 @@ bool GCEncoder::IsUntrackedLocalOrNonEnregisteredArg(unsigned lclNum, bool* keep
     return true;
 }
 
-BYTE* GCEncoder::PtrTableSave(BYTE* destPtr, const InfoHdr& header, size_t* argTabOffset)
+BYTE* GCEncoder::PtrTableSave(uint8_t* destPtr, size_t* argTabOffset)
 {
-    return destPtr + MakeRegPtrTable(destPtr, -1, header, argTabOffset);
+    return destPtr + MakeRegPtrTable(destPtr, -1, argTabOffset);
 }
 
 // (see jit.h) #define REGEN_SHORTCUTS 0
@@ -1721,12 +1727,8 @@ size_t GCEncoder::InfoBlockHdrSave(BYTE* dest, int mask, regMaskTP savedRegs, In
 
     if (mask == 0)
     {
-        bool     keepThisAlive   = false;
-        unsigned untrackedCount  = GetUntrackedStackSlotCount(&keepThisAlive);
-        unsigned varPtrTableSize = GetTrackedStackSlotLifetimeCount(keepThisAlive);
-
-        header->untrackedCnt    = untrackedCount;
-        header->varPtrTableSize = varPtrTableSize;
+        header->untrackedCnt    = untrackedStackSlotCount;
+        header->varPtrTableSize = trackedStackSlotLifetimeCount;
     }
 
     //
@@ -1879,7 +1881,7 @@ size_t GCEncoder::InfoBlockHdrSave(BYTE* dest, int mask, regMaskTP savedRegs, In
 }
 
 // Return the size of the pointer tracking tables.
-size_t GCEncoder::PtrTableSize(const InfoHdr& header, size_t* pArgTabOffset)
+size_t GCEncoder::PtrTableSize(size_t* pArgTabOffset)
 {
     BYTE temp[16 + 1];
 #ifdef DEBUG
@@ -1888,7 +1890,7 @@ size_t GCEncoder::PtrTableSize(const InfoHdr& header, size_t* pArgTabOffset)
 
     /* Compute the total size of the tables */
 
-    size_t size = MakeRegPtrTable(temp, 0, header, pArgTabOffset);
+    size_t size = MakeRegPtrTable(temp, 0, pArgTabOffset);
 
     assert(temp[16] == 0xAB); // Check that marker didnt get overwritten
 
@@ -2187,7 +2189,7 @@ public:
 // 'mask' is 0, we don't actually store any data in 'dest' (except for one
 // entry, which is never more than 10 bytes), so this can be used to merely
 // compute the size of the table.
-size_t GCEncoder::MakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, size_t* pArgTabOffset)
+size_t GCEncoder::MakeRegPtrTable(BYTE* dest, int mask, size_t* pArgTabOffset)
 {
     size_t totalSize = 0;
 
@@ -2197,7 +2199,7 @@ size_t GCEncoder::MakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, s
 
     /* Start computing the total size of the table */
 
-    bool emitArgTabOffset = (header.varPtrTableSize != 0 || header.untrackedCnt > SET_UNTRACKED_MAX);
+    bool emitArgTabOffset = (trackedStackSlotLifetimeCount != 0) || (untrackedStackSlotCount > SET_UNTRACKED_MAX);
     if (mask != 0 && emitArgTabOffset)
     {
         assert(*pArgTabOffset <= MAX_UNSIGNED_SIZE_T);
@@ -2216,7 +2218,7 @@ size_t GCEncoder::MakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, s
     totalSize += sizeof(short);
 #endif
 
-    if (header.untrackedCnt != 0)
+    if (untrackedStackSlotCount != 0)
     {
         unsigned slotSize = AddUntrackedStackSlots(dest, mask);
         totalSize += slotSize;
@@ -2240,17 +2242,9 @@ size_t GCEncoder::MakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, s
      **************************************************************************
      */
 
-    bool keepThisAlive = false;
-
-    if (!compiler->info.compIsStatic)
-    {
-        unsigned thisArgNum = compiler->info.compThisArg;
-        IsUntrackedLocalOrNonEnregisteredArg(thisArgNum, &keepThisAlive);
-    }
-
     // First we check for the most common case - no lifetimes at all.
 
-    if (header.varPtrTableSize != 0)
+    if (trackedStackSlotLifetimeCount != 0)
     {
 #ifndef FEATURE_EH_FUNCLETS
         if (keepThisAlive)
@@ -2304,7 +2298,7 @@ size_t GCEncoder::MakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, s
 
     if (compiler->codeGen->GetInterruptible())
     {
-        slotSize = AddFullyInterruptibleSlots(dest, mask, keepThisAlive);
+        slotSize = AddFullyInterruptibleSlots(dest, mask);
     }
     else if (compiler->codeGen->isFramePointerUsed())
     {
@@ -2312,7 +2306,7 @@ size_t GCEncoder::MakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, s
     }
     else
     {
-        slotSize = AddPartiallyInterruptibleSlotsFrameless(dest, mask, keepThisAlive);
+        slotSize = AddPartiallyInterruptibleSlotsFrameless(dest, mask);
     }
 
     totalSize += slotSize;
@@ -2359,7 +2353,7 @@ unsigned GCEncoder::AddUntrackedStackSlots(uint8_t* dest, const int mask)
 
         if (varTypeIsGC(lcl->GetType()))
         {
-            if (!IsUntrackedLocalOrNonEnregisteredArg(lclNum))
+            if (!IsUntrackedLocalOrNonEnregisteredArg(lclNum, nullptr))
             {
                 continue;
             }
@@ -2504,7 +2498,7 @@ unsigned GCEncoder::AddTrackedStackSlots(uint8_t* dest, const int mask)
     return totalSize;
 }
 
-unsigned GCEncoder::AddFullyInterruptibleSlots(uint8_t* dest, const int mask, const bool keepThisAlive)
+unsigned GCEncoder::AddFullyInterruptibleSlots(uint8_t* dest, const int mask)
 {
     assert(compiler->codeGen->GetInterruptible());
     assert(compiler->codeGen->IsFullPtrRegMapRequired());
@@ -3102,7 +3096,7 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFramed(uint8_t* dest, const in
     return totalSize;
 }
 
-unsigned GCEncoder::AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, const int mask, const bool keepThisAlive)
+unsigned GCEncoder::AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, const int mask)
 {
     assert(!compiler->codeGen->GetInterruptible());
     assert(compiler->codeGen->IsFullPtrRegMapRequired());
