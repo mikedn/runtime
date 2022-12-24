@@ -80,7 +80,7 @@ class GCEncoder
     CallSite* const          firstCallSite;
     unsigned                 untrackedStackSlotCount;
     unsigned                 trackedStackSlotLifetimeCount;
-    bool                     keepThisAlive = false;
+    unsigned                 trackedThisLclNum = BAD_VAR_NUM;
 
 public:
     GCEncoder(CodeGen*           codeGen,
@@ -108,7 +108,7 @@ public:
 private:
     unsigned GetUntrackedStackSlotCount();
     unsigned GetTrackedStackSlotLifetimeCount();
-    bool IsUntrackedLocalOrNonEnregisteredArg(unsigned lclNum, bool* keepThisAlive = nullptr);
+    bool IsUntrackedLocalOrNonEnregisteredArg(unsigned lclNum);
     size_t MakeRegPtrTable(uint8_t* dest, int mask, size_t* pArgTabOffset);
     unsigned AddUntrackedStackSlots(uint8_t* dest, int mask);
     unsigned AddTrackedStackSlots(uint8_t* dest, int mask);
@@ -333,10 +333,32 @@ unsigned GCEncoder::GetUntrackedStackSlotCount()
 
         if (varTypeIsGC(lcl->GetType()))
         {
-            if (!IsUntrackedLocalOrNonEnregisteredArg(lclNum, &keepThisAlive))
+            if (!IsUntrackedLocalOrNonEnregisteredArg(lclNum))
             {
                 continue;
             }
+
+#ifndef FEATURE_EH_FUNCLETS
+            if (compiler->lvaIsOriginalThisArg(lclNum) && compiler->lvaKeepAliveAndReportThis())
+            {
+                // "this" is untracked, but encoding of untracked variables does not support
+                // reporting "this". So report it as a tracked variable with a liveness extending
+                // over the entire method.
+                //
+                // TODO-x86-Cleanup: the semantic here is not clear, it would be useful to check
+                // different cases and add a description where "this" is saved and how it is
+                // tracked in each of them:
+                // 1) when FEATURE_EH_FUNCLETS defined (x86 Linux);
+                // 2) when FEATURE_EH_FUNCLETS not defined, lvaKeepAliveAndReportThis == true,
+                //    compJmpOpUsed == true;
+                // 3) when there is RegArgChange for "this", but keepThisAlive == true;
+                // etc.
+
+                trackedThisLclNum = lclNum;
+
+                continue;
+            }
+#endif
 
 #ifdef DEBUG
             if (compiler->verbose)
@@ -395,7 +417,7 @@ unsigned GCEncoder::GetTrackedStackSlotLifetimeCount()
 {
     unsigned stackSlotLifetimeCount = 0;
 
-    if (keepThisAlive)
+    if (trackedThisLclNum != BAD_VAR_NUM)
     {
         stackSlotLifetimeCount++;
     }
@@ -415,7 +437,7 @@ unsigned GCEncoder::GetTrackedStackSlotLifetimeCount()
     return stackSlotLifetimeCount;
 }
 
-bool GCEncoder::IsUntrackedLocalOrNonEnregisteredArg(unsigned lclNum, bool* keepThisAlive)
+bool GCEncoder::IsUntrackedLocalOrNonEnregisteredArg(unsigned lclNum)
 {
     LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
 
@@ -451,28 +473,6 @@ bool GCEncoder::IsUntrackedLocalOrNonEnregisteredArg(unsigned lclNum, bool* keep
         // in the "tracked-pointer" section.
         return false;
     }
-
-#ifndef FEATURE_EH_FUNCLETS
-    if (compiler->lvaIsOriginalThisArg(lclNum) && compiler->lvaKeepAliveAndReportThis())
-    {
-        // "this" is in the untracked variable area, but encoding of untracked variables does not support reporting
-        // "this". So report it as a tracked variable with a liveness extending over the entire method.
-        //
-        // TODO-x86-Cleanup: the semantic here is not clear, it would be useful to check different cases and
-        // add a description where "this" is saved and how it is tracked in each of them:
-        // 1) when FEATURE_EH_FUNCLETS defined (x86 Linux);
-        // 2) when FEATURE_EH_FUNCLETS not defined, lvaKeepAliveAndReportThis == true, compJmpOpUsed == true;
-        // 3) when there is RegArgChange for "this", but keepThisAlive == true;
-        // etc.
-
-        if (keepThisAlive != nullptr)
-        {
-            *keepThisAlive = true;
-        }
-
-        return false;
-    }
-#endif
 
     return true;
 }
@@ -2247,7 +2247,7 @@ size_t GCEncoder::MakeRegPtrTable(BYTE* dest, int mask, size_t* pArgTabOffset)
     if (trackedStackSlotLifetimeCount != 0)
     {
 #ifndef FEATURE_EH_FUNCLETS
-        if (keepThisAlive)
+        if (trackedThisLclNum != BAD_VAR_NUM)
         {
             // Encoding of untracked variables does not support reporting
             // "this". So report it as a tracked variable with a liveness
@@ -2353,10 +2353,17 @@ unsigned GCEncoder::AddUntrackedStackSlots(uint8_t* dest, const int mask)
 
         if (varTypeIsGC(lcl->GetType()))
         {
-            if (!IsUntrackedLocalOrNonEnregisteredArg(lclNum, nullptr))
+            if (!IsUntrackedLocalOrNonEnregisteredArg(lclNum))
             {
                 continue;
             }
+
+#ifndef FEATURE_EH_FUNCLETS
+            if (lclNum == trackedThisLclNum)
+            {
+                continue;
+            }
+#endif
 
             int offset = lcl->GetStackOffset();
 
@@ -2784,7 +2791,7 @@ unsigned GCEncoder::AddFullyInterruptibleSlots(uint8_t* dest, const int mask)
 
                 dest = gceByrefPrefixI(change, dest);
 
-                if (!keepThisAlive && change->isThis)
+                if ((trackedThisLclNum == BAD_VAR_NUM) && change->isThis)
                 {
                     // Mark with 'this' pointer prefix
                     *dest++ = 0xBC;
@@ -3199,7 +3206,7 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, const
         unsigned origCodeDelta = codeDelta;
 #endif
 
-        if (!keepThisAlive && change->isThis)
+        if ((trackedThisLclNum == BAD_VAR_NUM) && change->isThis)
         {
             unsigned tmpMask = change->addRegs;
 
