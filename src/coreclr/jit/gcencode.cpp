@@ -2200,29 +2200,6 @@ size_t GCEncoder::MakeRegPtrTable(BYTE* dest, int mask, size_t* pArgTabOffset)
 
     if (trackedStackSlotLifetimeCount != 0)
     {
-#ifndef FEATURE_EH_FUNCLETS
-        if (trackedThisLclNum != BAD_VAR_NUM)
-        {
-            // Encoding of untracked variables does not support reporting
-            // "this". So report it as a tracked variable with a liveness
-            // extending over the entire method.
-
-            assert(compiler->lvaGetDesc(compiler->info.compThisArg)->TypeIs(TYP_REF));
-
-            unsigned slotOffset = compiler->lvaGetDesc(compiler->info.compThisArg)->GetStackOffset();
-
-            slotOffset = abs(static_cast<int>(slotOffset));
-            slotOffset |= this_OFFSET_FLAG;
-
-            size_t sz = encodeUnsigned(mask ? dest : nullptr, slotOffset);
-            sz += encodeUDelta(mask ? (dest + sz) : nullptr, 0, 0);
-            sz += encodeUDelta(mask ? (dest + sz) : nullptr, codeSize, 0);
-
-            dest += (sz & mask);
-            totalSize += sz;
-        }
-#endif // !FEATURE_EH_FUNCLETS
-
         unsigned slotSize = AddTrackedStackSlots(dest, mask);
         totalSize += slotSize;
         dest += mask & slotSize;
@@ -2425,7 +2402,31 @@ unsigned GCEncoder::AddUntrackedStackSlots(uint8_t* dest, const int mask)
 
 unsigned GCEncoder::AddTrackedStackSlots(uint8_t* dest, const int mask)
 {
-    unsigned totalSize  = 0;
+    unsigned totalSize = 0;
+
+#ifndef FEATURE_EH_FUNCLETS
+    if (trackedThisLclNum != BAD_VAR_NUM)
+    {
+        // Encoding of untracked variables does not support reporting
+        // "this". So report it as a tracked variable with a liveness
+        // extending over the entire method.
+
+        assert(compiler->lvaGetDesc(trackedThisLclNum)->TypeIs(TYP_REF));
+
+        unsigned slotOffset = compiler->lvaGetDesc(trackedThisLclNum)->GetStackOffset();
+
+        slotOffset = abs(static_cast<int>(slotOffset));
+        slotOffset |= this_OFFSET_FLAG;
+
+        unsigned sz = encodeUnsigned(mask ? dest : nullptr, slotOffset);
+        sz += encodeUDelta(mask ? (dest + sz) : nullptr, 0, 0);
+        sz += encodeUDelta(mask ? (dest + sz) : nullptr, codeSize, 0);
+
+        dest += (sz & mask);
+        totalSize += sz;
+    }
+#endif // !FEATURE_EH_FUNCLETS
+
     unsigned lastOffset = 0;
 
     for (StackSlotLifetime* lifetime = firstStackSlotLifetime; lifetime != nullptr; lifetime = lifetime->next)
