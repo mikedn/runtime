@@ -106,6 +106,11 @@ private:
     void CountForHeader(unsigned* pUntrackedCount, unsigned* pVarPtrTableSize);
     bool IsUntrackedLocalOrNonEnregisteredArg(unsigned lclNum, bool* keepThisAlive = nullptr);
     size_t MakeRegPtrTable(uint8_t* dest, int mask, const InfoHdr& header, size_t* pArgTabOffset);
+    unsigned AddUntrackedStackSlots(uint8_t* dest, int mask);
+    unsigned AddTrackedStackSlots(uint8_t* dest, int mask);
+    unsigned AddFullyInterruptibleSlots(uint8_t* dest, int mask, bool keepThisAlive);
+    unsigned AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, int mask, bool keepThisAlive);
+    unsigned AddPartiallyInterruptibleSlotsFramed(uint8_t* dest, int mask);
     size_t PtrTableSize(const InfoHdr& header, size_t* pArgTabOffset);
     BYTE* PtrTableSave(uint8_t* destPtr, const InfoHdr& header, size_t* pArgTabOffset);
     size_t InfoBlockHdrSave(uint8_t* dest, int mask, regMaskTP savedRegs, InfoHdr* header, int* s_cached);
@@ -2178,18 +2183,13 @@ public:
     }
 };
 
-#ifdef _PREFAST_
-#pragma warning(push)
-#pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
-#endif
 // Generate the register pointer map, and return its total size in bytes. If
 // 'mask' is 0, we don't actually store any data in 'dest' (except for one
 // entry, which is never more than 10 bytes), so this can be used to merely
 // compute the size of the table.
 size_t GCEncoder::MakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, size_t* pArgTabOffset)
 {
-    size_t   totalSize = 0;
-    unsigned lastOffset;
+    size_t totalSize = 0;
 
     /* The mask should be all 0's or all 1's */
 
@@ -2226,129 +2226,9 @@ size_t GCEncoder::MakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, s
 
     if (header.untrackedCnt != 0)
     {
-        int lastoffset = 0;
-
-        for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
-        {
-            LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
-
-            if (lcl->IsDependentPromotedField(compiler))
-            {
-                continue;
-            }
-
-            if (varTypeIsGC(lcl->GetType()))
-            {
-                if (!IsUntrackedLocalOrNonEnregisteredArg(lclNum))
-                {
-                    continue;
-                }
-
-                int offset = lcl->GetStackOffset();
-
-#if DOUBLE_ALIGN
-                if (compiler->codeGen->doDoubleAlign() && lcl->IsParam() && !lcl->IsRegParam())
-                {
-                    offset += compiler->codeGen->genTotalFrameSize();
-                }
-#endif
-
-                if (lcl->TypeIs(TYP_BYREF))
-                {
-                    offset |= byref_OFFSET_FLAG;
-                }
-
-                if (lcl->lvPinned)
-                {
-                    offset |= pinned_OFFSET_FLAG;
-                }
-
-                int offsetDelta = lastoffset - offset;
-                lastoffset      = offset;
-
-                if (mask == 0)
-                {
-                    totalSize += encodeSigned(nullptr, offsetDelta);
-                }
-                else
-                {
-                    unsigned size = encodeSigned(dest, offsetDelta);
-                    dest += size;
-                    totalSize += size;
-                }
-            }
-            else if (lcl->TypeIs(TYP_STRUCT) && lcl->lvOnFrame && lcl->HasGCPtr())
-            {
-                int lclOffset = lcl->GetStackOffset();
-
-#if DOUBLE_ALIGN
-                if (compiler->codeGen->doDoubleAlign() && lcl->IsParam() && !lcl->IsRegParam())
-                {
-                    lclOffset += compiler->codeGen->genTotalFrameSize();
-                }
-#endif
-
-                ClassLayout* layout = lcl->GetLayout();
-
-                for (unsigned i = 0, slots = layout->GetSlotCount(); i < slots; i++)
-                {
-                    if (!layout->IsGCPtr(i))
-                    {
-                        continue;
-                    }
-
-                    unsigned slotOffset = lclOffset + i * TARGET_POINTER_SIZE;
-
-                    if (layout->GetGCPtrType(i) == TYP_BYREF)
-                    {
-                        slotOffset |= byref_OFFSET_FLAG;
-                    }
-
-                    int offsetDelta = lastoffset - slotOffset;
-                    lastoffset      = slotOffset;
-
-                    if (mask == 0)
-                    {
-                        totalSize += encodeSigned(nullptr, offsetDelta);
-                    }
-                    else
-                    {
-                        unsigned size = encodeSigned(dest, offsetDelta);
-                        dest += size;
-                        totalSize += size;
-                    }
-                }
-            }
-        }
-
-        for (SpillTemp& temp : compiler->codeGen->spillTemps)
-        {
-            if (!varTypeIsGC(temp.GetType()))
-            {
-                continue;
-            }
-
-            int offset = temp.GetOffset();
-
-            if (temp.GetType() == TYP_BYREF)
-            {
-                offset |= byref_OFFSET_FLAG;
-            }
-
-            int offsetDelta = lastoffset - offset;
-            lastoffset      = offset;
-
-            if (mask == 0)
-            {
-                totalSize += encodeSigned(nullptr, offsetDelta);
-            }
-            else
-            {
-                unsigned size = encodeSigned(dest, offsetDelta);
-                dest += size;
-                totalSize += size;
-            }
-        }
+        unsigned slotSize = AddUntrackedStackSlots(dest, mask);
+        totalSize += slotSize;
+        dest += mask & slotSize;
     }
 
 #if VERIFY_GC_TABLES
@@ -2403,30 +2283,9 @@ size_t GCEncoder::MakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, s
         }
 #endif // !FEATURE_EH_FUNCLETS
 
-        lastOffset = 0;
-
-        for (StackSlotLifetime* lifetime = firstStackSlotLifetime; lifetime != nullptr; lifetime = lifetime->next)
-        {
-            const unsigned begOffs = lifetime->beginCodeOffs;
-            const unsigned endOffs = lifetime->endCodeOffs;
-
-            if (endOffs == begOffs)
-            {
-                continue;
-            }
-
-            unsigned lowBits  = lifetime->slotOffset & OFFSET_MASK;
-            unsigned slotOffs = abs(static_cast<int>(lifetime->slotOffset & ~OFFSET_MASK));
-            slotOffs |= lowBits;
-
-            size_t sz = encodeUnsigned(mask ? dest : nullptr, slotOffs);
-            sz += encodeUDelta(mask ? (dest + sz) : nullptr, begOffs, lastOffset);
-            sz += encodeUDelta(mask ? (dest + sz) : nullptr, endOffs, begOffs);
-
-            dest += (sz & mask);
-            totalSize += sz;
-            lastOffset = begOffs;
-        }
+        unsigned slotSize = AddTrackedStackSlots(dest, mask);
+        totalSize += slotSize;
+        dest += mask & slotSize;
     }
 
     if (pArgTabOffset != nullptr)
@@ -2449,1062 +2308,23 @@ size_t GCEncoder::MakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, s
         totalSize += encodeUnsigned(NULL, static_cast<unsigned>(*pArgTabOffset));
     }
 
-    /**************************************************************************
-     *
-     * Prepare to generate the pointer register/argument map
-     *
-     **************************************************************************
-     */
-
-    lastOffset = 0;
+    unsigned slotSize;
 
     if (compiler->codeGen->GetInterruptible())
     {
-#ifdef TARGET_X86
-        assert(compiler->codeGen->IsFullPtrRegMapRequired());
-
-        unsigned ptrRegs = 0;
-
-        for (RegArgChange* change = firstRegArgChange; change != nullptr; change = change->next)
-        {
-            BYTE* base = dest;
-
-            unsigned nextOffset;
-            DWORD    codeDelta;
-
-            nextOffset = change->codeOffs;
-
-            /*
-                Encoding table for methods that are fully interruptible
-
-                The encoding used is as follows:
-
-                ptr reg dead    00RRRDDD    [RRR != 100]
-                ptr reg live    01RRRDDD    [RRR != 100]
-
-            non-ptr arg push    10110DDD                    [SSS == 110]
-                ptr arg push    10SSSDDD                    [SSS != 110] && [SSS != 111]
-                ptr arg pop     11CCCDDD    [CCC != 000] && [CCC != 110] && [CCC != 111]
-                little skip     11000DDD    [CCC == 000]
-                bigger skip     11110BBB                    [CCC == 110]
-
-                The values used in the above encodings are as follows:
-
-                  DDD                 code offset delta from previous entry (0-7)
-                  BBB                 bigger delta 000=8,001=16,010=24,...,111=64
-                  RRR                 register number (EAX=000,ECX=001,EDX=010,EBX=011,
-                                        EBP=101,ESI=110,EDI=111), ESP=100 is reserved
-                  SSS                 argument offset from base of stack. This is
-                                        redundant for frameless methods as we can
-                                        infer it from the previous pushes+pops. However,
-                                        for EBP-methods, we only report GC pushes, and
-                                        so we need SSS
-                  CCC                 argument count being popped (includes only ptrs for EBP methods)
-
-                The following are the 'large' versions:
-
-                  large delta skip        10111000 [0xB8] , encodeUnsigned(delta)
-
-                  large     ptr arg push  11111000 [0xF8] , encodeUnsigned(pushCount)
-                  large non-ptr arg push  11111001 [0xF9] , encodeUnsigned(pushCount)
-                  large     ptr arg pop   11111100 [0xFC] , encodeUnsigned(popCount)
-                  large         arg dead  11111101 [0xFD] , encodeUnsigned(popCount) for caller-pop args.
-                                                              Any GC args go dead after the call,
-                                                              but are still sitting on the stack
-
-                  this pointer prefix     10111100 [0xBC]   the next encoding is a ptr live
-                                                              or a ptr arg push
-                                                              and contains the this pointer
-
-                  interior or by-ref      10111111 [0xBF]   the next encoding is a ptr live
-                       pointer prefix                         or a ptr arg push
-                                                              and contains an interior
-                                                              or by-ref pointer
-
-
-                  The value 11111111 [0xFF] indicates the end of the table.
-            */
-
-            codeDelta = nextOffset - lastOffset;
-            assert((int)codeDelta >= 0);
-
-            // If the code delta is between 8 and (64+7),
-            // generate a 'bigger delta' encoding
-
-            if ((codeDelta >= 8) && (codeDelta <= (64 + 7)))
-            {
-                unsigned biggerDelta = ((codeDelta - 8) & 0x38) + 8;
-                *dest++              = 0xF0 | ((biggerDelta - 8) >> 3);
-                lastOffset += biggerDelta;
-                codeDelta &= 0x07;
-            }
-
-            // If the code delta is still bigger than 7,
-            // generate a 'large code delta' encoding
-
-            if (codeDelta > 7)
-            {
-                *dest++ = 0xB8;
-                dest += encodeUnsigned(dest, codeDelta);
-                codeDelta = 0;
-
-                /* Remember the new 'last' offset */
-
-                lastOffset = nextOffset;
-            }
-
-            if (change->kind != RegArgChangeKind::RegChange)
-            {
-                if (change->kind == RegArgChangeKind::KillArgs)
-                {
-                    if (codeDelta)
-                    {
-                        /*
-                            Use the small encoding:
-                            little delta skip       11000DDD    [0xC0]
-                         */
-
-                        assert((codeDelta & 0x7) == codeDelta);
-                        *dest++ = 0xC0 | (BYTE)codeDelta;
-
-                        /* Remember the new 'last' offset */
-
-                        lastOffset = nextOffset;
-                    }
-
-                    /* Caller-pop arguments are dead after call but are still
-                       sitting on the stack */
-
-                    *dest++ = 0xFD;
-                    assert(change->argOffset != 0);
-                    dest += encodeUnsigned(dest, change->argOffset);
-                }
-                else if ((change->argOffset < 6) && (change->gcType != GCT_NONE))
-                {
-                    /* Is the argument offset/count smaller than 6 ? */
-
-                    dest = gceByrefPrefixI(change, dest);
-
-                    if ((change->kind == RegArgChangeKind::PushArg) || (change->argOffset != 0))
-                    {
-                        /*
-                          Use the small encoding:
-
-                            ptr arg push 10SSSDDD [SSS != 110] && [SSS != 111]
-                            ptr arg pop  11CCCDDD [CCC != 110] && [CCC != 111]
-                         */
-
-                        bool isPop = change->kind == RegArgChangeKind::PopArgs;
-
-                        *dest++ = 0x80 | (BYTE)codeDelta | change->argOffset << 3 | isPop << 6;
-
-                        /* Remember the new 'last' offset */
-
-                        lastOffset = nextOffset;
-                    }
-                    else
-                    {
-                        assert(!"Check this");
-                    }
-                }
-                else if (change->gcType == GCT_NONE)
-                {
-                    /*
-                        Use the small encoding:
-`                        non-ptr arg push 10110DDD [0xB0] (push of sizeof(int))
-                     */
-
-                    assert((codeDelta & 0x7) == codeDelta);
-                    *dest++ = 0xB0 | (BYTE)codeDelta;
-#ifndef UNIX_X86_ABI
-                    assert(!compiler->codeGen->isFramePointerUsed());
-#endif
-
-                    /* Remember the new 'last' offset */
-
-                    lastOffset = nextOffset;
-                }
-                else
-                {
-                    /* Will have to use large encoding;
-                     *   first do the code delta
-                     */
-
-                    if (codeDelta)
-                    {
-                        /*
-                            Use the small encoding:
-                            little delta skip       11000DDD    [0xC0]
-                         */
-
-                        assert((codeDelta & 0x7) == codeDelta);
-                        *dest++ = 0xC0 | (BYTE)codeDelta;
-                    }
-
-                    /*
-                        Now append a large argument record:
-
-                            large ptr arg push  11111000 [0xF8]
-                            large ptr arg pop   11111100 [0xFC]
-                     */
-
-                    bool isPop = change->kind == RegArgChangeKind::PopArgs;
-
-                    dest = gceByrefPrefixI(change, dest);
-
-                    *dest++ = 0xF8 | (isPop << 2);
-                    dest += encodeUnsigned(dest, change->argOffset);
-
-                    /* Remember the new 'last' offset */
-
-                    lastOffset = nextOffset;
-                }
-            }
-            else
-            {
-                // Record any registers that are becoming dead.
-
-                unsigned regMask = change->removeRegs & ptrRegs;
-
-                while (regMask) // EAX,ECX,EDX,EBX,---,EBP,ESI,EDI
-                {
-                    unsigned  tmpMask;
-                    regNumber regNum;
-
-                    /* Get hold of the next register bit */
-
-                    tmpMask = genFindLowestReg(regMask);
-                    assert(tmpMask);
-
-                    /* Remember the new state of this register */
-
-                    ptrRegs &= ~tmpMask;
-
-                    /* Figure out which register the next bit corresponds to */
-
-                    regNum = genRegNumFromMask(tmpMask);
-                    assert(regNum <= 7);
-
-                    /* Reserve ESP, regNum==4 for future use */
-
-                    assert(regNum != 4);
-
-                    /*
-                        Generate a small encoding:
-
-                            ptr reg dead        00RRRDDD
-                     */
-
-                    assert((codeDelta & 0x7) == codeDelta);
-                    *dest++ = 0x00 | regNum << 3 | (BYTE)codeDelta;
-
-                    /* Turn the bit we've just generated off and continue */
-
-                    regMask -= tmpMask; // EAX,ECX,EDX,EBX,---,EBP,ESI,EDI
-
-                    /* Remember the new 'last' offset */
-
-                    lastOffset = nextOffset;
-
-                    /* Any entries that follow will be at the same offset */
-
-                    codeDelta = 0;
-                }
-
-                /* Record any registers that are becoming live */
-
-                regMask = change->addRegs & ~ptrRegs;
-
-                while (regMask) // EAX,ECX,EDX,EBX,---,EBP,ESI,EDI
-                {
-                    unsigned  tmpMask;
-                    regNumber regNum;
-
-                    /* Get hold of the next register bit */
-
-                    tmpMask = genFindLowestReg(regMask);
-                    assert(tmpMask);
-
-                    /* Remember the new state of this register */
-
-                    ptrRegs |= tmpMask;
-
-                    /* Figure out which register the next bit corresponds to */
-
-                    regNum = genRegNumFromMask(tmpMask);
-                    assert(regNum <= 7);
-
-                    /*
-                        Generate a small encoding:
-
-                            ptr reg live        01RRRDDD
-                     */
-
-                    dest = gceByrefPrefixI(change, dest);
-
-                    if (!keepThisAlive && change->isThis)
-                    {
-                        // Mark with 'this' pointer prefix
-                        *dest++ = 0xBC;
-                        // Can only have one bit set in regMask
-                        assert(regMask == tmpMask);
-                    }
-
-                    assert((codeDelta & 0x7) == codeDelta);
-                    *dest++ = 0x40 | (regNum << 3) | (BYTE)codeDelta;
-
-                    /* Turn the bit we've just generated off and continue */
-
-                    regMask -= tmpMask; // EAX,ECX,EDX,EBX,---,EBP,ESI,EDI
-
-                    /* Remember the new 'last' offset */
-
-                    lastOffset = nextOffset;
-
-                    /* Any entries that follow will be at the same offset */
-
-                    codeDelta = 0;
-                }
-            }
-
-            /* Keep track of the total amount of generated stuff */
-
-            totalSize += dest - base;
-
-            /* Go back to the buffer start if we're not generating a table */
-
-            if (!mask)
-                dest = base;
-        }
-#endif // TARGET_X86
+        slotSize = AddFullyInterruptibleSlots(dest, mask, keepThisAlive);
     }
-    else if (compiler->codeGen->isFramePointerUsed()) // GetInterruptible() is false
+    else if (compiler->codeGen->isFramePointerUsed())
     {
-#ifdef TARGET_X86
-        /*
-            Encoding table for methods with an EBP frame and
-                               that are not fully interruptible
-
-            The encoding used is as follows:
-
-            this pointer encodings:
-
-               01000000          this pointer in EBX
-               00100000          this pointer in ESI
-               00010000          this pointer in EDI
-
-            tiny encoding:
-
-               0bsdDDDD
-                                 requires code delta > 0 & delta < 16 (4-bits)
-                                 requires pushed argmask == 0
-
-                 where    DDDD   is code delta
-                             b   indicates that register EBX is a live pointer
-                             s   indicates that register ESI is a live pointer
-                             d   indicates that register EDI is a live pointer
-
-
-            small encoding:
-
-               1DDDDDDD bsdAAAAA
-
-                                 requires code delta     < 120 (7-bits)
-                                 requires pushed argmask <  64 (5-bits)
-
-                 where DDDDDDD   is code delta
-                         AAAAA   is the pushed args mask
-                             b   indicates that register EBX is a live pointer
-                             s   indicates that register ESI is a live pointer
-                             d   indicates that register EDI is a live pointer
-
-            medium encoding
-
-               0xFD aaaaaaaa AAAAdddd bseDDDDD
-
-                                 requires code delta     <  512  (9-bits)
-                                 requires pushed argmask < 2048 (12-bits)
-
-                 where    DDDDD  is the upper 5-bits of the code delta
-                           dddd  is the low   4-bits of the code delta
-                           AAAA  is the upper 4-bits of the pushed arg mask
-                       aaaaaaaa  is the low   8-bits of the pushed arg mask
-                              b  indicates that register EBX is a live pointer
-                              s  indicates that register ESI is a live pointer
-                              e  indicates that register EDI is a live pointer
-
-            medium encoding with interior pointers
-
-               0xF9 DDDDDDDD bsdAAAAAA iiiIIIII
-
-                                 requires code delta     < 256 (8-bits)
-                                 requires pushed argmask <  64 (5-bits)
-
-                 where  DDDDDDD  is the code delta
-                              b  indicates that register EBX is a live pointer
-                              s  indicates that register ESI is a live pointer
-                              d  indicates that register EDI is a live pointer
-                          AAAAA  is the pushed arg mask
-                            iii  indicates that EBX,EDI,ESI are interior pointers
-                          IIIII  indicates that bits in the arg mask are interior
-                                 pointers
-
-            large encoding
-
-               0xFE [0BSD0bsd][32-bit code delta][32-bit argMask]
-
-                              b  indicates that register EBX is a live pointer
-                              s  indicates that register ESI is a live pointer
-                              d  indicates that register EDI is a live pointer
-                              B  indicates that register EBX is an interior pointer
-                              S  indicates that register ESI is an interior pointer
-                              D  indicates that register EDI is an interior pointer
-                                 requires pushed  argmask < 32-bits
-
-            large encoding  with interior pointers
-
-               0xFA [0BSD0bsd][32-bit code delta][32-bit argMask][32-bit interior pointer mask]
-
-
-                              b  indicates that register EBX is a live pointer
-                              s  indicates that register ESI is a live pointer
-                              d  indicates that register EDI is a live pointer
-                              B  indicates that register EBX is an interior pointer
-                              S  indicates that register ESI is an interior pointer
-                              D  indicates that register EDI is an interior pointer
-                                 requires pushed  argmask < 32-bits
-                                 requires pushed iArgmask < 32-bits
-
-
-            huge encoding        This is the only encoding that supports
-                                 a pushed argmask which is greater than
-                                 32-bits.
-
-               0xFB [0BSD0bsd][32-bit code delta]
-                    [32-bit table count][32-bit table size]
-                    [pushed ptr offsets table...]
-
-                             b   indicates that register EBX is a live pointer
-                             s   indicates that register ESI is a live pointer
-                             d   indicates that register EDI is a live pointer
-                             B   indicates that register EBX is an interior pointer
-                             S   indicates that register ESI is an interior pointer
-                             D   indicates that register EDI is an interior pointer
-                             the list count is the number of entries in the list
-                             the list size gives the byte-length of the list
-                             the offsets in the list are variable-length
-        */
-
-        // If "this" is enregistered, note it. We do this explicitly here as
-        // IsFullPtrRegMapRequired()==false, and so we don't have any RegArgChange's.
-
-        if (compiler->lvaKeepAliveAndReportThis() && compiler->lvaTable[compiler->info.compThisArg].lvRegister)
-        {
-            unsigned thisRegMask   = genRegMask(compiler->lvaTable[compiler->info.compThisArg].GetRegNum());
-            unsigned thisPtrRegEnc = gceEncodeCalleeSavedRegs(thisRegMask) << 4;
-
-            if (thisPtrRegEnc)
-            {
-                totalSize += 1;
-                if (mask)
-                    *dest++ = thisPtrRegEnc;
-            }
-        }
-
-        assert(!compiler->codeGen->IsFullPtrRegMapRequired());
-
-        for (CallSite* call = firstCallSite; call != nullptr; call = call->next)
-        {
-            BYTE*    base = dest;
-            unsigned nextOffset;
-
-            nextOffset = call->codeOffs;
-
-            DWORD codeDelta = nextOffset - lastOffset;
-            assert((int)codeDelta >= 0);
-            lastOffset = nextOffset;
-
-            unsigned gcrefRegMask = 0;
-            unsigned byrefRegMask = 0;
-
-            gcrefRegMask |= gceEncodeCalleeSavedRegs(call->refRegs);
-            byrefRegMask |= gceEncodeCalleeSavedRegs(call->byrefRegs);
-
-            assert((gcrefRegMask & byrefRegMask) == 0);
-
-            unsigned regMask = gcrefRegMask | byrefRegMask;
-
-            bool byref = (byrefRegMask | call->byrefArgMask) != 0;
-
-            /* Check for the really large argument offset case */
-            /* The very rare Huge encodings */
-
-            if (call->argCount != 0)
-            {
-                unsigned argNum;
-                DWORD    argCnt    = call->argCount;
-                DWORD    argBytes  = 0;
-                BYTE*    pArgBytes = DUMMY_INIT(NULL);
-
-                if (mask != 0)
-                {
-                    *dest++       = 0xFB;
-                    *dest++       = (byrefRegMask << 4) | regMask;
-                    *(DWORD*)dest = codeDelta;
-                    dest += sizeof(DWORD);
-                    *(DWORD*)dest = argCnt;
-                    dest += sizeof(DWORD);
-                    // skip the byte-size for now. Just note where it will go
-                    pArgBytes = dest;
-                    dest += sizeof(DWORD);
-                }
-
-                for (argNum = 0; argNum < argCnt; argNum++)
-                {
-                    unsigned eltSize;
-                    eltSize = encodeUnsigned(dest, call->argTable[argNum]);
-                    argBytes += eltSize;
-                    if (mask)
-                        dest += eltSize;
-                }
-
-                if (mask == 0)
-                {
-                    dest = base + 1 + 1 + 3 * sizeof(DWORD) + argBytes;
-                }
-                else
-                {
-                    assert(dest == pArgBytes + sizeof(argBytes) + argBytes);
-                    *(DWORD*)pArgBytes = argBytes;
-                }
-            }
-
-            /* Check if we can use a tiny encoding */
-            else if ((codeDelta < 16) && (codeDelta != 0) && (call->argMask == 0) && !byref)
-            {
-                *dest++ = (regMask << 4) | (BYTE)codeDelta;
-            }
-
-            /* Check if we can use the small encoding */
-            else if ((codeDelta < 0x79) && (call->argMask <= 0x1F) && !byref)
-            {
-                *dest++ = 0x80 | (BYTE)codeDelta;
-                *dest++ = call->argMask | (regMask << 5);
-            }
-
-            /* Check if we can use the medium encoding */
-            else if (codeDelta <= 0x01FF && call->argMask <= 0x0FFF && !byref)
-            {
-                *dest++ = 0xFD;
-                *dest++ = call->argMask;
-                *dest++ = ((call->argMask >> 4) & 0xF0) | ((BYTE)codeDelta & 0x0F);
-                *dest++ = (regMask << 5) | (BYTE)((codeDelta >> 4) & 0x1F);
-            }
-
-            /* Check if we can use the medium encoding with byrefs */
-            else if (codeDelta <= 0x0FF && call->argMask <= 0x01F)
-            {
-                *dest++ = 0xF9;
-                *dest++ = (BYTE)codeDelta;
-                *dest++ = (regMask << 5) | call->argMask;
-                *dest++ = (byrefRegMask << 5) | call->byrefArgMask;
-            }
-
-            /* We'll use the large encoding */
-            else if (!byref)
-            {
-                *dest++       = 0xFE;
-                *dest++       = (byrefRegMask << 4) | regMask;
-                *(DWORD*)dest = codeDelta;
-                dest += sizeof(DWORD);
-                *(DWORD*)dest = call->argMask;
-                dest += sizeof(DWORD);
-            }
-
-            /* We'll use the large encoding with byrefs */
-            else
-            {
-                *dest++       = 0xFA;
-                *dest++       = (byrefRegMask << 4) | regMask;
-                *(DWORD*)dest = codeDelta;
-                dest += sizeof(DWORD);
-                *(DWORD*)dest = call->argMask;
-                dest += sizeof(DWORD);
-                *(DWORD*)dest = call->byrefArgMask;
-                dest += sizeof(DWORD);
-            }
-
-            /* Keep track of the total amount of generated stuff */
-
-            totalSize += dest - base;
-
-            /* Go back to the buffer start if we're not generating a table */
-
-            if (!mask)
-                dest = base;
-        }
-#endif // TARGET_X86
+        slotSize = AddPartiallyInterruptibleSlotsFramed(dest, mask);
     }
-    else // GetInterruptible() is false and we have an EBP-less frame
+    else
     {
-        assert(compiler->codeGen->IsFullPtrRegMapRequired());
-
-#ifdef TARGET_X86
-        regNumber        thisRegNum = regNumber(0);
-        PendingArgsStack pasStk(compiler->GetEmitter()->emitMaxStackDepth, compiler);
-
-        for (RegArgChange* change = firstRegArgChange; change != nullptr; change = change->next)
-        {
-            /*
-             *    Encoding table for methods without an EBP frame and
-             *     that are not fully interruptible
-             *
-             *               The encoding used is as follows:
-             *
-             *  push     000DDDDD                     ESP push one item with 5-bit delta
-             *  push     00100000 [pushCount]         ESP push multiple items
-             *  reserved 0010xxxx                     xxxx != 0000
-             *  reserved 0011xxxx
-             *  skip     01000000 [Delta]             Skip Delta, arbitrary sized delta
-             *  skip     0100DDDD                     Skip small Delta, for call (DDDD != 0)
-             *  pop      01CCDDDD                     ESP pop  CC items with 4-bit delta (CC != 00)
-             *  call     1PPPPPPP                     Call Pattern, P=[0..79]
-             *  call     1101pbsd DDCCCMMM            Call RegMask=pbsd,ArgCnt=CCC,
-             *                                        ArgMask=MMM Delta=commonDelta[DD]
-             *  call     1110pbsd [ArgCnt] [ArgMask]  Call ArgCnt,RegMask=pbsd,ArgMask
-             *  call     11111000 [PBSDpbsd][32-bit delta][32-bit ArgCnt]
-             *                    [32-bit PndCnt][32-bit PndSize][PndOffs...]
-             *  iptr     11110000 [IPtrMask]          Arbitrary Interior Pointer Mask
-             *  thisptr  111101RR                     This pointer is in Register RR
-             *                                        00=EDI,01=ESI,10=EBX,11=EBP
-             *  reserved 111100xx                     xx  != 00
-             *  reserved 111110xx                     xx  != 00
-             *  reserved 11111xxx                     xxx != 000 && xxx != 111(EOT)
-             *
-             *   The value 11111111 [0xFF] indicates the end of the table. (EOT)
-             *
-             *  An offset (at which stack-walking is performed) without an explicit encoding
-             *  is assumed to be a trivial call-site (no GC registers, stack empty before and
-             *  after) to avoid having to encode all trivial calls.
-             *
-             * Note on the encoding used for interior pointers
-             *
-             *   The iptr encoding must immediately precede a call encoding.  It is used
-             *   to transform a normal GC pointer addresses into an interior pointers for
-             *   GC purposes.  The mask supplied to the iptr encoding is read from the
-             *   least signicant bit to the most signicant bit. (i.e the lowest bit is
-             *   read first)
-             *
-             *   p   indicates that register EBP is a live pointer
-             *   b   indicates that register EBX is a live pointer
-             *   s   indicates that register ESI is a live pointer
-             *   d   indicates that register EDI is a live pointer
-             *   P   indicates that register EBP is an interior pointer
-             *   B   indicates that register EBX is an interior pointer
-             *   S   indicates that register ESI is an interior pointer
-             *   D   indicates that register EDI is an interior pointer
-             *
-             *   As an example the following sequence indicates that EDI.ESI and the
-             *   second pushed pointer in ArgMask are really interior pointers.  The
-             *   pointer in ESI in a normal pointer:
-             *
-             *   iptr 11110000 00010011           => read Interior Ptr, Interior Ptr,
-             *                                       Normal Ptr, Normal Ptr, Interior Ptr
-             *
-             *   call 11010011 DDCCC011 RRRR=1011 => read EDI is a GC-pointer,
-             *                                            ESI is a GC-pointer.
-             *                                            EBP is a GC-pointer
-             *                           MMM=0011 => read two GC-pointers arguments
-             *                                         on the stack (nested call)
-             *
-             *   Since the call instruction mentions 5 GC-pointers we list them in
-             *   the required order:  EDI, ESI, EBP, 1st-pushed pointer, 2nd-pushed pointer
-             *
-             *   And we apply the Interior Pointer mask mmmm=10011 to the five GC-pointers
-             *   we learn that EDI and ESI are interior GC-pointers and that
-             *   the second push arg is an interior GC-pointer.
-             */
-
-            BYTE* base = dest;
-
-            bool     usePopEncoding;
-            unsigned regMask;
-            unsigned argMask;
-            unsigned byrefRegMask;
-            unsigned byrefArgMask;
-            DWORD    callArgCnt;
-            DWORD    codeDelta;
-
-            unsigned nextOffset = change->codeOffs;
-
-            codeDelta = nextOffset - lastOffset;
-            assert((int)codeDelta >= 0);
-
-#if REGEN_CALLPAT
-            // Must initialize this flag to true when REGEN_CALLPAT is on
-            usePopEncoding         = true;
-            unsigned origCodeDelta = codeDelta;
-#endif
-
-            if (!keepThisAlive && change->isThis)
-            {
-                unsigned tmpMask = change->addRegs;
-
-                /* tmpMask must have exactly one bit set */
-
-                assert(tmpMask && ((tmpMask & (tmpMask - 1)) == 0));
-
-                thisRegNum = genRegNumFromMask(tmpMask);
-                switch (thisRegNum)
-                {
-                    case 0: // EAX
-                    case 1: // ECX
-                    case 2: // EDX
-                    case 4: // ESP
-                        break;
-                    case 7:             // EDI
-                        *dest++ = 0xF4; /* 11110100  This pointer is in EDI */
-                        break;
-                    case 6:             // ESI
-                        *dest++ = 0xF5; /* 11110100  This pointer is in ESI */
-                        break;
-                    case 3:             // EBX
-                        *dest++ = 0xF6; /* 11110100  This pointer is in EBX */
-                        break;
-                    case 5:             // EBP
-                        *dest++ = 0xF7; /* 11110100  This pointer is in EBP */
-                        break;
-                    default:
-                        break;
-                }
-            }
-
-            if (change->kind != RegArgChangeKind::RegChange)
-            {
-                if (change->kind == RegArgChangeKind::KillArgs)
-                {
-                    // kill 'rpdPtrArg' number of pointer variables in pasStk
-                    pasStk.Kill(change->argOffset);
-                }
-                else if (change->isCall)
-                {
-                    /* This is a true call site */
-
-                    /* Remember the new 'last' offset */
-
-                    lastOffset = nextOffset;
-
-                    callArgCnt = change->argOffset;
-
-                    unsigned gcrefRegMask = change->callRefRegs;
-
-                    byrefRegMask = change->callByrefRegs;
-
-                    assert((gcrefRegMask & byrefRegMask) == 0);
-
-                    regMask = gcrefRegMask | byrefRegMask;
-
-                    /* adjust argMask for this call-site */
-                    pasStk.Pop(callArgCnt);
-
-                    /* Do we have to use the fat encoding */
-
-                    if (pasStk.CurDepth() > BITS_IN_pasMask && pasStk.HasGCptrs())
-                    {
-                        /* use fat encoding:
-                         *   11111000 [PBSDpbsd][32-bit delta][32-bit ArgCnt]
-                         *            [32-bit PndCnt][32-bit PndSize][PndOffs...]
-                         */
-
-                        DWORD pndCount = pasStk.EnumGCoffsCount();
-                        DWORD pndSize  = 0;
-                        BYTE* pPndSize = DUMMY_INIT(NULL);
-
-                        if (mask)
-                        {
-                            *dest++       = 0xF8;
-                            *dest++       = (byrefRegMask << 4) | regMask;
-                            *(DWORD*)dest = codeDelta;
-                            dest += sizeof(DWORD);
-                            *(DWORD*)dest = callArgCnt;
-                            dest += sizeof(DWORD);
-                            *(DWORD*)dest = pndCount;
-                            dest += sizeof(DWORD);
-                            pPndSize = dest;
-                            dest += sizeof(DWORD); // Leave space for pndSize
-                        }
-
-                        unsigned offs, iter;
-
-                        for (iter = pasStk.EnumGCoffs(PendingArgsStack::pasENUM_START, &offs); pndCount;
-                             iter = pasStk.EnumGCoffs(iter, &offs), pndCount--)
-                        {
-                            unsigned eltSize = encodeUnsigned(dest, offs);
-
-                            pndSize += eltSize;
-                            if (mask)
-                                dest += eltSize;
-                        }
-                        assert(iter == PendingArgsStack::pasENUM_END);
-
-                        if (mask == 0)
-                        {
-                            dest = base + 2 + 4 * sizeof(DWORD) + pndSize;
-                        }
-                        else
-                        {
-                            assert(pPndSize + sizeof(pndSize) + pndSize == dest);
-                            *(DWORD*)pPndSize = pndSize;
-                        }
-
-                        goto NEXT_RPD;
-                    }
-
-                    argMask = byrefArgMask = 0;
-
-                    if (pasStk.HasGCptrs())
-                    {
-                        assert(pasStk.CurDepth() <= BITS_IN_pasMask);
-
-                        argMask      = pasStk.ArgMask();
-                        byrefArgMask = pasStk.ByrefArgMask();
-                    }
-
-                    /* Shouldn't be reporting trivial call-sites */
-
-                    assert(regMask || argMask || callArgCnt || pasStk.CurDepth());
-
-// Emit IPtrMask if needed
-
-#define CHK_NON_INTRPT_ESP_IPtrMask                                                                                    \
-                                                                                                                       \
-    if (byrefRegMask || byrefArgMask)                                                                                  \
-    {                                                                                                                  \
-        *dest++        = 0xF0;                                                                                         \
-        unsigned imask = (byrefArgMask << 4) | byrefRegMask;                                                           \
-        dest += encodeUnsigned(dest, imask);                                                                           \
+        slotSize = AddPartiallyInterruptibleSlotsFrameless(dest, mask, keepThisAlive);
     }
 
-                    /* When usePopEncoding is true:
-                     *  this is not an interesting call site
-                     *   because nothing is live here.
-                     */
-                    usePopEncoding = ((callArgCnt < 4) && (regMask == 0) && (argMask == 0));
-
-                    if (!usePopEncoding)
-                    {
-                        int pattern = LookupCallPattern(callArgCnt, regMask, argMask, codeDelta);
-                        if (pattern != -1)
-                        {
-                            if (pattern > 0xff)
-                            {
-                                codeDelta = pattern >> 8;
-                                pattern &= 0xff;
-                                if (codeDelta >= 16)
-                                {
-                                    /* use encoding: */
-                                    /*   skip 01000000 [Delta] */
-                                    *dest++ = 0x40;
-                                    dest += encodeUnsigned(dest, codeDelta);
-                                    codeDelta = 0;
-                                }
-                                else
-                                {
-                                    /* use encoding: */
-                                    /*   skip 0100DDDD  small delta=DDDD */
-                                    *dest++ = 0x40 | (BYTE)codeDelta;
-                                }
-                            }
-
-                            // Emit IPtrMask if needed
-                            CHK_NON_INTRPT_ESP_IPtrMask;
-
-                            assert((pattern >= 0) && (pattern < 80));
-                            *dest++ = 0x80 | pattern;
-                            goto NEXT_RPD;
-                        }
-
-                        /* See if we can use 2nd call encoding
-                         *     1101RRRR DDCCCMMM encoding */
-
-                        if ((callArgCnt <= 7) && (argMask <= 7))
-                        {
-                            unsigned inx; // callCommonDelta[] index
-                            unsigned maxCommonDelta = callCommonDelta[3];
-
-                            if (codeDelta > maxCommonDelta)
-                            {
-                                if (codeDelta > maxCommonDelta + 15)
-                                {
-                                    /* use encoding: */
-                                    /*   skip    01000000 [Delta] */
-                                    *dest++ = 0x40;
-                                    dest += encodeUnsigned(dest, codeDelta - maxCommonDelta);
-                                }
-                                else
-                                {
-                                    /* use encoding: */
-                                    /*   skip 0100DDDD  small delta=DDDD */
-                                    *dest++ = 0x40 | (BYTE)(codeDelta - maxCommonDelta);
-                                }
-
-                                codeDelta = maxCommonDelta;
-                                inx       = 3;
-                                goto EMIT_2ND_CALL_ENCODING;
-                            }
-
-                            for (inx = 0; inx < 4; inx++)
-                            {
-                                if (codeDelta == callCommonDelta[inx])
-                                {
-                                EMIT_2ND_CALL_ENCODING:
-                                    // Emit IPtrMask if needed
-                                    CHK_NON_INTRPT_ESP_IPtrMask;
-
-                                    *dest++ = 0xD0 | regMask;
-                                    *dest++ = (inx << 6) | (callArgCnt << 3) | argMask;
-                                    goto NEXT_RPD;
-                                }
-                            }
-
-                            unsigned minCommonDelta = callCommonDelta[0];
-
-                            if ((codeDelta > minCommonDelta) && (codeDelta < maxCommonDelta))
-                            {
-                                assert((minCommonDelta + 16) > maxCommonDelta);
-                                /* use encoding: */
-                                /*   skip 0100DDDD  small delta=DDDD */
-                                *dest++ = 0x40 | (BYTE)(codeDelta - minCommonDelta);
-
-                                codeDelta = minCommonDelta;
-                                inx       = 0;
-                                goto EMIT_2ND_CALL_ENCODING;
-                            }
-                        }
-                    }
-
-                    if (codeDelta >= 16)
-                    {
-                        unsigned i = (usePopEncoding ? 15 : 0);
-                        /* use encoding: */
-                        /*   skip    01000000 [Delta]  arbitrary sized delta */
-                        *dest++ = 0x40;
-                        dest += encodeUnsigned(dest, codeDelta - i);
-                        codeDelta = i;
-                    }
-
-                    if ((codeDelta > 0) || usePopEncoding)
-                    {
-                        if (usePopEncoding)
-                        {
-                            /* use encoding: */
-                            /*   pop 01CCDDDD  ESP pop CC items, 4-bit delta */
-                            if (callArgCnt || codeDelta)
-                                *dest++ = (BYTE)(0x40 | (callArgCnt << 4) | codeDelta);
-                            goto NEXT_RPD;
-                        }
-                        else
-                        {
-                            /* use encoding: */
-                            /*   skip 0100DDDD  small delta=DDDD */
-                            *dest++ = 0x40 | (BYTE)codeDelta;
-                        }
-                    }
-
-                    // Emit IPtrMask if needed
-                    CHK_NON_INTRPT_ESP_IPtrMask;
-
-                    /* use encoding:                                   */
-                    /*   call 1110RRRR [ArgCnt] [ArgMask]              */
-
-                    *dest++ = 0xE0 | regMask;
-                    dest += encodeUnsigned(dest, callArgCnt);
-
-                    dest += encodeUnsigned(dest, argMask);
-                }
-                else
-                {
-                    /* This is a push or a pop site */
-
-                    /* Remember the new 'last' offset */
-
-                    lastOffset = nextOffset;
-
-                    if (change->kind == RegArgChangeKind::PopArgs)
-                    {
-                        /* This must be a gcArgPopSingle */
-
-                        assert(change->argOffset == 1);
-
-                        if (codeDelta >= 16)
-                        {
-                            /* use encoding: */
-                            /*   skip    01000000 [Delta] */
-                            *dest++ = 0x40;
-                            dest += encodeUnsigned(dest, codeDelta - 15);
-                            codeDelta = 15;
-                        }
-
-                        /* use encoding: */
-                        /*   pop1    0101DDDD  ESP pop one item, 4-bit delta */
-
-                        *dest++ = 0x50 | (BYTE)codeDelta;
-
-                        /* adjust argMask for this pop */
-                        pasStk.Pop(1);
-                    }
-                    else
-                    {
-                        /* This is a push */
-
-                        if (codeDelta >= 32)
-                        {
-                            /* use encoding: */
-                            /*   skip    01000000 [Delta] */
-                            *dest++ = 0x40;
-                            dest += encodeUnsigned(dest, codeDelta - 31);
-                            codeDelta = 31;
-                        }
-
-                        assert(codeDelta < 32);
-
-                        /* use encoding: */
-                        /*   push    000DDDDD ESP push one item, 5-bit delta */
-
-                        *dest++ = (BYTE)codeDelta;
-
-                        /* adjust argMask for this push */
-
-                        pasStk.Push(change->gcType);
-                    }
-                }
-            }
-
-        /*  We ignore the register live/dead information, since the
-         *  rpdCallRegMask contains all the liveness information
-         *  that we need
-         */
-        NEXT_RPD:
-
-            totalSize += dest - base;
-
-            /* Go back to the buffer start if we're not generating a table */
-
-            if (!mask)
-                dest = base;
-
-#if REGEN_CALLPAT
-            if ((mask == -1) && (usePopEncoding == false) && ((dest - base) > 0))
-                regenLog(origCodeDelta, argMask, regMask, callArgCnt, byrefArgMask, byrefRegMask, base, (dest - base));
-#endif
-        }
-
-        /* Verify that we pop every arg that was pushed and that argMask is 0 */
-
-        assert(pasStk.CurDepth() == 0);
-
-#endif // TARGET_X86
-    }
+    totalSize += slotSize;
+    dest += mask & slotSize;
 
     /* Terminate the table with 0xFF */
 
@@ -3522,17 +2342,1236 @@ size_t GCEncoder::MakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, s
 #endif
 
 #if MEASURE_PTRTAB_SIZE
-
     if (mask)
+    {
         s_gcTotalPtrTabSize += totalSize;
-
+    }
 #endif
 
     return totalSize;
 }
-#ifdef _PREFAST_
-#pragma warning(pop)
+
+unsigned GCEncoder::AddUntrackedStackSlots(uint8_t* dest, const int mask)
+{
+    unsigned totalSize  = 0;
+    int      lastoffset = 0;
+
+    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
+    {
+        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
+
+        if (lcl->IsDependentPromotedField(compiler))
+        {
+            continue;
+        }
+
+        if (varTypeIsGC(lcl->GetType()))
+        {
+            if (!IsUntrackedLocalOrNonEnregisteredArg(lclNum))
+            {
+                continue;
+            }
+
+            int offset = lcl->GetStackOffset();
+
+#if DOUBLE_ALIGN
+            if (compiler->codeGen->doDoubleAlign() && lcl->IsParam() && !lcl->IsRegParam())
+            {
+                offset += compiler->codeGen->genTotalFrameSize();
+            }
 #endif
+
+            if (lcl->TypeIs(TYP_BYREF))
+            {
+                offset |= byref_OFFSET_FLAG;
+            }
+
+            if (lcl->lvPinned)
+            {
+                offset |= pinned_OFFSET_FLAG;
+            }
+
+            int offsetDelta = lastoffset - offset;
+            lastoffset      = offset;
+
+            if (mask == 0)
+            {
+                totalSize += encodeSigned(nullptr, offsetDelta);
+            }
+            else
+            {
+                unsigned size = encodeSigned(dest, offsetDelta);
+                dest += size;
+                totalSize += size;
+            }
+        }
+        else if (lcl->TypeIs(TYP_STRUCT) && lcl->lvOnFrame && lcl->HasGCPtr())
+        {
+            int lclOffset = lcl->GetStackOffset();
+
+#if DOUBLE_ALIGN
+            if (compiler->codeGen->doDoubleAlign() && lcl->IsParam() && !lcl->IsRegParam())
+            {
+                lclOffset += compiler->codeGen->genTotalFrameSize();
+            }
+#endif
+
+            ClassLayout* layout = lcl->GetLayout();
+
+            for (unsigned i = 0, slots = layout->GetSlotCount(); i < slots; i++)
+            {
+                if (!layout->IsGCPtr(i))
+                {
+                    continue;
+                }
+
+                unsigned slotOffset = lclOffset + i * TARGET_POINTER_SIZE;
+
+                if (layout->GetGCPtrType(i) == TYP_BYREF)
+                {
+                    slotOffset |= byref_OFFSET_FLAG;
+                }
+
+                int offsetDelta = lastoffset - slotOffset;
+                lastoffset      = slotOffset;
+
+                if (mask == 0)
+                {
+                    totalSize += encodeSigned(nullptr, offsetDelta);
+                }
+                else
+                {
+                    unsigned size = encodeSigned(dest, offsetDelta);
+                    dest += size;
+                    totalSize += size;
+                }
+            }
+        }
+    }
+
+    for (SpillTemp& temp : compiler->codeGen->spillTemps)
+    {
+        if (!varTypeIsGC(temp.GetType()))
+        {
+            continue;
+        }
+
+        int offset = temp.GetOffset();
+
+        if (temp.GetType() == TYP_BYREF)
+        {
+            offset |= byref_OFFSET_FLAG;
+        }
+
+        int offsetDelta = lastoffset - offset;
+        lastoffset      = offset;
+
+        if (mask == 0)
+        {
+            totalSize += encodeSigned(nullptr, offsetDelta);
+        }
+        else
+        {
+            unsigned size = encodeSigned(dest, offsetDelta);
+            dest += size;
+            totalSize += size;
+        }
+    }
+
+    return totalSize;
+}
+
+unsigned GCEncoder::AddTrackedStackSlots(uint8_t* dest, const int mask)
+{
+    unsigned totalSize  = 0;
+    unsigned lastOffset = 0;
+
+    for (StackSlotLifetime* lifetime = firstStackSlotLifetime; lifetime != nullptr; lifetime = lifetime->next)
+    {
+        const unsigned begOffs = lifetime->beginCodeOffs;
+        const unsigned endOffs = lifetime->endCodeOffs;
+
+        if (endOffs == begOffs)
+        {
+            continue;
+        }
+
+        unsigned lowBits  = lifetime->slotOffset & OFFSET_MASK;
+        unsigned slotOffs = abs(static_cast<int>(lifetime->slotOffset & ~OFFSET_MASK));
+        slotOffs |= lowBits;
+
+        unsigned sz = encodeUnsigned(mask ? dest : nullptr, slotOffs);
+        sz += encodeUDelta(mask ? (dest + sz) : nullptr, begOffs, lastOffset);
+        sz += encodeUDelta(mask ? (dest + sz) : nullptr, endOffs, begOffs);
+
+        dest += (sz & mask);
+        totalSize += sz;
+        lastOffset = begOffs;
+    }
+
+    return totalSize;
+}
+
+unsigned GCEncoder::AddFullyInterruptibleSlots(uint8_t* dest, const int mask, const bool keepThisAlive)
+{
+    assert(compiler->codeGen->GetInterruptible());
+    assert(compiler->codeGen->IsFullPtrRegMapRequired());
+
+    unsigned ptrRegs    = 0;
+    unsigned lastOffset = 0;
+    unsigned totalSize  = 0;
+
+    for (RegArgChange* change = firstRegArgChange; change != nullptr; change = change->next)
+    {
+        BYTE* base = dest;
+
+        unsigned nextOffset;
+        DWORD    codeDelta;
+
+        nextOffset = change->codeOffs;
+
+        /*
+            Encoding table for methods that are fully interruptible
+
+            The encoding used is as follows:
+
+            ptr reg dead    00RRRDDD    [RRR != 100]
+            ptr reg live    01RRRDDD    [RRR != 100]
+
+        non-ptr arg push    10110DDD                    [SSS == 110]
+            ptr arg push    10SSSDDD                    [SSS != 110] && [SSS != 111]
+            ptr arg pop     11CCCDDD    [CCC != 000] && [CCC != 110] && [CCC != 111]
+            little skip     11000DDD    [CCC == 000]
+            bigger skip     11110BBB                    [CCC == 110]
+
+            The values used in the above encodings are as follows:
+
+              DDD                 code offset delta from previous entry (0-7)
+              BBB                 bigger delta 000=8,001=16,010=24,...,111=64
+              RRR                 register number (EAX=000,ECX=001,EDX=010,EBX=011,
+                                    EBP=101,ESI=110,EDI=111), ESP=100 is reserved
+              SSS                 argument offset from base of stack. This is
+                                    redundant for frameless methods as we can
+                                    infer it from the previous pushes+pops. However,
+                                    for EBP-methods, we only report GC pushes, and
+                                    so we need SSS
+              CCC                 argument count being popped (includes only ptrs for EBP methods)
+
+            The following are the 'large' versions:
+
+              large delta skip        10111000 [0xB8] , encodeUnsigned(delta)
+
+              large     ptr arg push  11111000 [0xF8] , encodeUnsigned(pushCount)
+              large non-ptr arg push  11111001 [0xF9] , encodeUnsigned(pushCount)
+              large     ptr arg pop   11111100 [0xFC] , encodeUnsigned(popCount)
+              large         arg dead  11111101 [0xFD] , encodeUnsigned(popCount) for caller-pop args.
+                                                          Any GC args go dead after the call,
+                                                          but are still sitting on the stack
+
+              this pointer prefix     10111100 [0xBC]   the next encoding is a ptr live
+                                                          or a ptr arg push
+                                                          and contains the this pointer
+
+              interior or by-ref      10111111 [0xBF]   the next encoding is a ptr live
+                   pointer prefix                         or a ptr arg push
+                                                          and contains an interior
+                                                          or by-ref pointer
+
+
+              The value 11111111 [0xFF] indicates the end of the table.
+        */
+
+        codeDelta = nextOffset - lastOffset;
+        assert((int)codeDelta >= 0);
+
+        // If the code delta is between 8 and (64+7),
+        // generate a 'bigger delta' encoding
+
+        if ((codeDelta >= 8) && (codeDelta <= (64 + 7)))
+        {
+            unsigned biggerDelta = ((codeDelta - 8) & 0x38) + 8;
+            *dest++              = 0xF0 | ((biggerDelta - 8) >> 3);
+            lastOffset += biggerDelta;
+            codeDelta &= 0x07;
+        }
+
+        // If the code delta is still bigger than 7,
+        // generate a 'large code delta' encoding
+
+        if (codeDelta > 7)
+        {
+            *dest++ = 0xB8;
+            dest += encodeUnsigned(dest, codeDelta);
+            codeDelta = 0;
+
+            /* Remember the new 'last' offset */
+
+            lastOffset = nextOffset;
+        }
+
+        if (change->kind != RegArgChangeKind::RegChange)
+        {
+            if (change->kind == RegArgChangeKind::KillArgs)
+            {
+                if (codeDelta)
+                {
+                    /*
+                        Use the small encoding:
+                        little delta skip       11000DDD    [0xC0]
+                     */
+
+                    assert((codeDelta & 0x7) == codeDelta);
+                    *dest++ = 0xC0 | (BYTE)codeDelta;
+
+                    /* Remember the new 'last' offset */
+
+                    lastOffset = nextOffset;
+                }
+
+                /* Caller-pop arguments are dead after call but are still
+                   sitting on the stack */
+
+                *dest++ = 0xFD;
+                assert(change->argOffset != 0);
+                dest += encodeUnsigned(dest, change->argOffset);
+            }
+            else if ((change->argOffset < 6) && (change->gcType != GCT_NONE))
+            {
+                /* Is the argument offset/count smaller than 6 ? */
+
+                dest = gceByrefPrefixI(change, dest);
+
+                if ((change->kind == RegArgChangeKind::PushArg) || (change->argOffset != 0))
+                {
+                    /*
+                      Use the small encoding:
+
+                        ptr arg push 10SSSDDD [SSS != 110] && [SSS != 111]
+                        ptr arg pop  11CCCDDD [CCC != 110] && [CCC != 111]
+                     */
+
+                    bool isPop = change->kind == RegArgChangeKind::PopArgs;
+
+                    *dest++ = 0x80 | (BYTE)codeDelta | change->argOffset << 3 | isPop << 6;
+
+                    /* Remember the new 'last' offset */
+
+                    lastOffset = nextOffset;
+                }
+                else
+                {
+                    assert(!"Check this");
+                }
+            }
+            else if (change->gcType == GCT_NONE)
+            {
+                /*
+                    Use the small encoding:
+`                        non-ptr arg push 10110DDD [0xB0] (push of sizeof(int))
+                     */
+
+                assert((codeDelta & 0x7) == codeDelta);
+                *dest++ = 0xB0 | (BYTE)codeDelta;
+#ifndef UNIX_X86_ABI
+                assert(!compiler->codeGen->isFramePointerUsed());
+#endif
+
+                /* Remember the new 'last' offset */
+
+                lastOffset = nextOffset;
+            }
+            else
+            {
+                /* Will have to use large encoding;
+                 *   first do the code delta
+                 */
+
+                if (codeDelta)
+                {
+                    /*
+                        Use the small encoding:
+                        little delta skip       11000DDD    [0xC0]
+                     */
+
+                    assert((codeDelta & 0x7) == codeDelta);
+                    *dest++ = 0xC0 | (BYTE)codeDelta;
+                }
+
+                /*
+                    Now append a large argument record:
+
+                        large ptr arg push  11111000 [0xF8]
+                        large ptr arg pop   11111100 [0xFC]
+                 */
+
+                bool isPop = change->kind == RegArgChangeKind::PopArgs;
+
+                dest = gceByrefPrefixI(change, dest);
+
+                *dest++ = 0xF8 | (isPop << 2);
+                dest += encodeUnsigned(dest, change->argOffset);
+
+                /* Remember the new 'last' offset */
+
+                lastOffset = nextOffset;
+            }
+        }
+        else
+        {
+            // Record any registers that are becoming dead.
+
+            unsigned regMask = change->removeRegs & ptrRegs;
+
+            while (regMask) // EAX,ECX,EDX,EBX,---,EBP,ESI,EDI
+            {
+                unsigned  tmpMask;
+                regNumber regNum;
+
+                /* Get hold of the next register bit */
+
+                tmpMask = genFindLowestReg(regMask);
+                assert(tmpMask);
+
+                /* Remember the new state of this register */
+
+                ptrRegs &= ~tmpMask;
+
+                /* Figure out which register the next bit corresponds to */
+
+                regNum = genRegNumFromMask(tmpMask);
+                assert(regNum <= 7);
+
+                /* Reserve ESP, regNum==4 for future use */
+
+                assert(regNum != 4);
+
+                /*
+                    Generate a small encoding:
+
+                        ptr reg dead        00RRRDDD
+                 */
+
+                assert((codeDelta & 0x7) == codeDelta);
+                *dest++ = 0x00 | regNum << 3 | (BYTE)codeDelta;
+
+                /* Turn the bit we've just generated off and continue */
+
+                regMask -= tmpMask; // EAX,ECX,EDX,EBX,---,EBP,ESI,EDI
+
+                /* Remember the new 'last' offset */
+
+                lastOffset = nextOffset;
+
+                /* Any entries that follow will be at the same offset */
+
+                codeDelta = 0;
+            }
+
+            /* Record any registers that are becoming live */
+
+            regMask = change->addRegs & ~ptrRegs;
+
+            while (regMask) // EAX,ECX,EDX,EBX,---,EBP,ESI,EDI
+            {
+                unsigned  tmpMask;
+                regNumber regNum;
+
+                /* Get hold of the next register bit */
+
+                tmpMask = genFindLowestReg(regMask);
+                assert(tmpMask);
+
+                /* Remember the new state of this register */
+
+                ptrRegs |= tmpMask;
+
+                /* Figure out which register the next bit corresponds to */
+
+                regNum = genRegNumFromMask(tmpMask);
+                assert(regNum <= 7);
+
+                /*
+                    Generate a small encoding:
+
+                        ptr reg live        01RRRDDD
+                 */
+
+                dest = gceByrefPrefixI(change, dest);
+
+                if (!keepThisAlive && change->isThis)
+                {
+                    // Mark with 'this' pointer prefix
+                    *dest++ = 0xBC;
+                    // Can only have one bit set in regMask
+                    assert(regMask == tmpMask);
+                }
+
+                assert((codeDelta & 0x7) == codeDelta);
+                *dest++ = 0x40 | (regNum << 3) | (BYTE)codeDelta;
+
+                /* Turn the bit we've just generated off and continue */
+
+                regMask -= tmpMask; // EAX,ECX,EDX,EBX,---,EBP,ESI,EDI
+
+                /* Remember the new 'last' offset */
+
+                lastOffset = nextOffset;
+
+                /* Any entries that follow will be at the same offset */
+
+                codeDelta = 0;
+            }
+        }
+
+        /* Keep track of the total amount of generated stuff */
+
+        totalSize += dest - base;
+
+        /* Go back to the buffer start if we're not generating a table */
+
+        if (!mask)
+            dest = base;
+    }
+
+    return totalSize;
+}
+
+unsigned GCEncoder::AddPartiallyInterruptibleSlotsFramed(uint8_t* dest, const int mask)
+{
+    assert(!compiler->codeGen->GetInterruptible());
+    assert(!compiler->codeGen->IsFullPtrRegMapRequired());
+
+    /*
+        Encoding table for methods with an EBP frame and
+                           that are not fully interruptible
+
+        The encoding used is as follows:
+
+        this pointer encodings:
+
+           01000000          this pointer in EBX
+           00100000          this pointer in ESI
+           00010000          this pointer in EDI
+
+        tiny encoding:
+
+           0bsdDDDD
+                             requires code delta > 0 & delta < 16 (4-bits)
+                             requires pushed argmask == 0
+
+             where    DDDD   is code delta
+                         b   indicates that register EBX is a live pointer
+                         s   indicates that register ESI is a live pointer
+                         d   indicates that register EDI is a live pointer
+
+
+        small encoding:
+
+           1DDDDDDD bsdAAAAA
+
+                             requires code delta     < 120 (7-bits)
+                             requires pushed argmask <  64 (5-bits)
+
+             where DDDDDDD   is code delta
+                     AAAAA   is the pushed args mask
+                         b   indicates that register EBX is a live pointer
+                         s   indicates that register ESI is a live pointer
+                         d   indicates that register EDI is a live pointer
+
+        medium encoding
+
+           0xFD aaaaaaaa AAAAdddd bseDDDDD
+
+                             requires code delta     <  512  (9-bits)
+                             requires pushed argmask < 2048 (12-bits)
+
+             where    DDDDD  is the upper 5-bits of the code delta
+                       dddd  is the low   4-bits of the code delta
+                       AAAA  is the upper 4-bits of the pushed arg mask
+                   aaaaaaaa  is the low   8-bits of the pushed arg mask
+                          b  indicates that register EBX is a live pointer
+                          s  indicates that register ESI is a live pointer
+                          e  indicates that register EDI is a live pointer
+
+        medium encoding with interior pointers
+
+           0xF9 DDDDDDDD bsdAAAAAA iiiIIIII
+
+                             requires code delta     < 256 (8-bits)
+                             requires pushed argmask <  64 (5-bits)
+
+             where  DDDDDDD  is the code delta
+                          b  indicates that register EBX is a live pointer
+                          s  indicates that register ESI is a live pointer
+                          d  indicates that register EDI is a live pointer
+                      AAAAA  is the pushed arg mask
+                        iii  indicates that EBX,EDI,ESI are interior pointers
+                      IIIII  indicates that bits in the arg mask are interior
+                             pointers
+
+        large encoding
+
+           0xFE [0BSD0bsd][32-bit code delta][32-bit argMask]
+
+                          b  indicates that register EBX is a live pointer
+                          s  indicates that register ESI is a live pointer
+                          d  indicates that register EDI is a live pointer
+                          B  indicates that register EBX is an interior pointer
+                          S  indicates that register ESI is an interior pointer
+                          D  indicates that register EDI is an interior pointer
+                             requires pushed  argmask < 32-bits
+
+        large encoding  with interior pointers
+
+           0xFA [0BSD0bsd][32-bit code delta][32-bit argMask][32-bit interior pointer mask]
+
+
+                          b  indicates that register EBX is a live pointer
+                          s  indicates that register ESI is a live pointer
+                          d  indicates that register EDI is a live pointer
+                          B  indicates that register EBX is an interior pointer
+                          S  indicates that register ESI is an interior pointer
+                          D  indicates that register EDI is an interior pointer
+                             requires pushed  argmask < 32-bits
+                             requires pushed iArgmask < 32-bits
+
+
+        huge encoding        This is the only encoding that supports
+                             a pushed argmask which is greater than
+                             32-bits.
+
+           0xFB [0BSD0bsd][32-bit code delta]
+                [32-bit table count][32-bit table size]
+                [pushed ptr offsets table...]
+
+                         b   indicates that register EBX is a live pointer
+                         s   indicates that register ESI is a live pointer
+                         d   indicates that register EDI is a live pointer
+                         B   indicates that register EBX is an interior pointer
+                         S   indicates that register ESI is an interior pointer
+                         D   indicates that register EDI is an interior pointer
+                         the list count is the number of entries in the list
+                         the list size gives the byte-length of the list
+                         the offsets in the list are variable-length
+    */
+
+    // If "this" is enregistered, note it. We do this explicitly here as
+    // IsFullPtrRegMapRequired()==false, and so we don't have any RegArgChange's.
+
+    unsigned lastOffset = 0;
+    unsigned totalSize  = 0;
+
+    if (compiler->lvaKeepAliveAndReportThis() && compiler->lvaTable[compiler->info.compThisArg].lvRegister)
+    {
+        unsigned thisRegMask   = genRegMask(compiler->lvaTable[compiler->info.compThisArg].GetRegNum());
+        unsigned thisPtrRegEnc = gceEncodeCalleeSavedRegs(thisRegMask) << 4;
+
+        if (thisPtrRegEnc)
+        {
+            totalSize += 1;
+            if (mask)
+                *dest++ = thisPtrRegEnc;
+        }
+    }
+
+    assert(!compiler->codeGen->IsFullPtrRegMapRequired());
+
+    for (CallSite* call = firstCallSite; call != nullptr; call = call->next)
+    {
+        BYTE*    base = dest;
+        unsigned nextOffset;
+
+        nextOffset = call->codeOffs;
+
+        DWORD codeDelta = nextOffset - lastOffset;
+        assert((int)codeDelta >= 0);
+        lastOffset = nextOffset;
+
+        unsigned gcrefRegMask = 0;
+        unsigned byrefRegMask = 0;
+
+        gcrefRegMask |= gceEncodeCalleeSavedRegs(call->refRegs);
+        byrefRegMask |= gceEncodeCalleeSavedRegs(call->byrefRegs);
+
+        assert((gcrefRegMask & byrefRegMask) == 0);
+
+        unsigned regMask = gcrefRegMask | byrefRegMask;
+
+        bool byref = (byrefRegMask | call->byrefArgMask) != 0;
+
+        /* Check for the really large argument offset case */
+        /* The very rare Huge encodings */
+
+        if (call->argCount != 0)
+        {
+            unsigned argNum;
+            DWORD    argCnt    = call->argCount;
+            DWORD    argBytes  = 0;
+            BYTE*    pArgBytes = DUMMY_INIT(NULL);
+
+            if (mask != 0)
+            {
+                *dest++       = 0xFB;
+                *dest++       = (byrefRegMask << 4) | regMask;
+                *(DWORD*)dest = codeDelta;
+                dest += sizeof(DWORD);
+                *(DWORD*)dest = argCnt;
+                dest += sizeof(DWORD);
+                // skip the byte-size for now. Just note where it will go
+                pArgBytes = dest;
+                dest += sizeof(DWORD);
+            }
+
+            for (argNum = 0; argNum < argCnt; argNum++)
+            {
+                unsigned eltSize;
+                eltSize = encodeUnsigned(dest, call->argTable[argNum]);
+                argBytes += eltSize;
+                if (mask)
+                    dest += eltSize;
+            }
+
+            if (mask == 0)
+            {
+                dest = base + 1 + 1 + 3 * sizeof(DWORD) + argBytes;
+            }
+            else
+            {
+                assert(dest == pArgBytes + sizeof(argBytes) + argBytes);
+                *(DWORD*)pArgBytes = argBytes;
+            }
+        }
+
+        /* Check if we can use a tiny encoding */
+        else if ((codeDelta < 16) && (codeDelta != 0) && (call->argMask == 0) && !byref)
+        {
+            *dest++ = (regMask << 4) | (BYTE)codeDelta;
+        }
+
+        /* Check if we can use the small encoding */
+        else if ((codeDelta < 0x79) && (call->argMask <= 0x1F) && !byref)
+        {
+            *dest++ = 0x80 | (BYTE)codeDelta;
+            *dest++ = call->argMask | (regMask << 5);
+        }
+
+        /* Check if we can use the medium encoding */
+        else if (codeDelta <= 0x01FF && call->argMask <= 0x0FFF && !byref)
+        {
+            *dest++ = 0xFD;
+            *dest++ = call->argMask;
+            *dest++ = ((call->argMask >> 4) & 0xF0) | ((BYTE)codeDelta & 0x0F);
+            *dest++ = (regMask << 5) | (BYTE)((codeDelta >> 4) & 0x1F);
+        }
+
+        /* Check if we can use the medium encoding with byrefs */
+        else if (codeDelta <= 0x0FF && call->argMask <= 0x01F)
+        {
+            *dest++ = 0xF9;
+            *dest++ = (BYTE)codeDelta;
+            *dest++ = (regMask << 5) | call->argMask;
+            *dest++ = (byrefRegMask << 5) | call->byrefArgMask;
+        }
+
+        /* We'll use the large encoding */
+        else if (!byref)
+        {
+            *dest++       = 0xFE;
+            *dest++       = (byrefRegMask << 4) | regMask;
+            *(DWORD*)dest = codeDelta;
+            dest += sizeof(DWORD);
+            *(DWORD*)dest = call->argMask;
+            dest += sizeof(DWORD);
+        }
+
+        /* We'll use the large encoding with byrefs */
+        else
+        {
+            *dest++       = 0xFA;
+            *dest++       = (byrefRegMask << 4) | regMask;
+            *(DWORD*)dest = codeDelta;
+            dest += sizeof(DWORD);
+            *(DWORD*)dest = call->argMask;
+            dest += sizeof(DWORD);
+            *(DWORD*)dest = call->byrefArgMask;
+            dest += sizeof(DWORD);
+        }
+
+        /* Keep track of the total amount of generated stuff */
+
+        totalSize += dest - base;
+
+        /* Go back to the buffer start if we're not generating a table */
+
+        if (!mask)
+            dest = base;
+    }
+
+    return totalSize;
+}
+
+unsigned GCEncoder::AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, const int mask, const bool keepThisAlive)
+{
+    assert(!compiler->codeGen->GetInterruptible());
+    assert(compiler->codeGen->IsFullPtrRegMapRequired());
+
+    unsigned         lastOffset = 0;
+    unsigned         totalSize  = 0;
+    regNumber        thisRegNum = regNumber(0);
+    PendingArgsStack pasStk(compiler->GetEmitter()->emitMaxStackDepth, compiler);
+
+    for (RegArgChange* change = firstRegArgChange; change != nullptr; change = change->next)
+    {
+        /*
+         *    Encoding table for methods without an EBP frame and
+         *     that are not fully interruptible
+         *
+         *               The encoding used is as follows:
+         *
+         *  push     000DDDDD                     ESP push one item with 5-bit delta
+         *  push     00100000 [pushCount]         ESP push multiple items
+         *  reserved 0010xxxx                     xxxx != 0000
+         *  reserved 0011xxxx
+         *  skip     01000000 [Delta]             Skip Delta, arbitrary sized delta
+         *  skip     0100DDDD                     Skip small Delta, for call (DDDD != 0)
+         *  pop      01CCDDDD                     ESP pop  CC items with 4-bit delta (CC != 00)
+         *  call     1PPPPPPP                     Call Pattern, P=[0..79]
+         *  call     1101pbsd DDCCCMMM            Call RegMask=pbsd,ArgCnt=CCC,
+         *                                        ArgMask=MMM Delta=commonDelta[DD]
+         *  call     1110pbsd [ArgCnt] [ArgMask]  Call ArgCnt,RegMask=pbsd,ArgMask
+         *  call     11111000 [PBSDpbsd][32-bit delta][32-bit ArgCnt]
+         *                    [32-bit PndCnt][32-bit PndSize][PndOffs...]
+         *  iptr     11110000 [IPtrMask]          Arbitrary Interior Pointer Mask
+         *  thisptr  111101RR                     This pointer is in Register RR
+         *                                        00=EDI,01=ESI,10=EBX,11=EBP
+         *  reserved 111100xx                     xx  != 00
+         *  reserved 111110xx                     xx  != 00
+         *  reserved 11111xxx                     xxx != 000 && xxx != 111(EOT)
+         *
+         *   The value 11111111 [0xFF] indicates the end of the table. (EOT)
+         *
+         *  An offset (at which stack-walking is performed) without an explicit encoding
+         *  is assumed to be a trivial call-site (no GC registers, stack empty before and
+         *  after) to avoid having to encode all trivial calls.
+         *
+         * Note on the encoding used for interior pointers
+         *
+         *   The iptr encoding must immediately precede a call encoding.  It is used
+         *   to transform a normal GC pointer addresses into an interior pointers for
+         *   GC purposes.  The mask supplied to the iptr encoding is read from the
+         *   least signicant bit to the most signicant bit. (i.e the lowest bit is
+         *   read first)
+         *
+         *   p   indicates that register EBP is a live pointer
+         *   b   indicates that register EBX is a live pointer
+         *   s   indicates that register ESI is a live pointer
+         *   d   indicates that register EDI is a live pointer
+         *   P   indicates that register EBP is an interior pointer
+         *   B   indicates that register EBX is an interior pointer
+         *   S   indicates that register ESI is an interior pointer
+         *   D   indicates that register EDI is an interior pointer
+         *
+         *   As an example the following sequence indicates that EDI.ESI and the
+         *   second pushed pointer in ArgMask are really interior pointers.  The
+         *   pointer in ESI in a normal pointer:
+         *
+         *   iptr 11110000 00010011           => read Interior Ptr, Interior Ptr,
+         *                                       Normal Ptr, Normal Ptr, Interior Ptr
+         *
+         *   call 11010011 DDCCC011 RRRR=1011 => read EDI is a GC-pointer,
+         *                                            ESI is a GC-pointer.
+         *                                            EBP is a GC-pointer
+         *                           MMM=0011 => read two GC-pointers arguments
+         *                                         on the stack (nested call)
+         *
+         *   Since the call instruction mentions 5 GC-pointers we list them in
+         *   the required order:  EDI, ESI, EBP, 1st-pushed pointer, 2nd-pushed pointer
+         *
+         *   And we apply the Interior Pointer mask mmmm=10011 to the five GC-pointers
+         *   we learn that EDI and ESI are interior GC-pointers and that
+         *   the second push arg is an interior GC-pointer.
+         */
+
+        BYTE* base = dest;
+
+        bool     usePopEncoding;
+        unsigned regMask;
+        unsigned argMask;
+        unsigned byrefRegMask;
+        unsigned byrefArgMask;
+        DWORD    callArgCnt;
+        DWORD    codeDelta;
+
+        unsigned nextOffset = change->codeOffs;
+
+        codeDelta = nextOffset - lastOffset;
+        assert((int)codeDelta >= 0);
+
+#if REGEN_CALLPAT
+        // Must initialize this flag to true when REGEN_CALLPAT is on
+        usePopEncoding         = true;
+        unsigned origCodeDelta = codeDelta;
+#endif
+
+        if (!keepThisAlive && change->isThis)
+        {
+            unsigned tmpMask = change->addRegs;
+
+            /* tmpMask must have exactly one bit set */
+
+            assert(tmpMask && ((tmpMask & (tmpMask - 1)) == 0));
+
+            thisRegNum = genRegNumFromMask(tmpMask);
+            switch (thisRegNum)
+            {
+                case 0: // EAX
+                case 1: // ECX
+                case 2: // EDX
+                case 4: // ESP
+                    break;
+                case 7:             // EDI
+                    *dest++ = 0xF4; /* 11110100  This pointer is in EDI */
+                    break;
+                case 6:             // ESI
+                    *dest++ = 0xF5; /* 11110100  This pointer is in ESI */
+                    break;
+                case 3:             // EBX
+                    *dest++ = 0xF6; /* 11110100  This pointer is in EBX */
+                    break;
+                case 5:             // EBP
+                    *dest++ = 0xF7; /* 11110100  This pointer is in EBP */
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        if (change->kind != RegArgChangeKind::RegChange)
+        {
+            if (change->kind == RegArgChangeKind::KillArgs)
+            {
+                // kill 'rpdPtrArg' number of pointer variables in pasStk
+                pasStk.Kill(change->argOffset);
+            }
+            else if (change->isCall)
+            {
+                /* This is a true call site */
+
+                /* Remember the new 'last' offset */
+
+                lastOffset = nextOffset;
+
+                callArgCnt = change->argOffset;
+
+                unsigned gcrefRegMask = change->callRefRegs;
+
+                byrefRegMask = change->callByrefRegs;
+
+                assert((gcrefRegMask & byrefRegMask) == 0);
+
+                regMask = gcrefRegMask | byrefRegMask;
+
+                /* adjust argMask for this call-site */
+                pasStk.Pop(callArgCnt);
+
+                /* Do we have to use the fat encoding */
+
+                if (pasStk.CurDepth() > BITS_IN_pasMask && pasStk.HasGCptrs())
+                {
+                    /* use fat encoding:
+                     *   11111000 [PBSDpbsd][32-bit delta][32-bit ArgCnt]
+                     *            [32-bit PndCnt][32-bit PndSize][PndOffs...]
+                     */
+
+                    DWORD pndCount = pasStk.EnumGCoffsCount();
+                    DWORD pndSize  = 0;
+                    BYTE* pPndSize = DUMMY_INIT(NULL);
+
+                    if (mask)
+                    {
+                        *dest++       = 0xF8;
+                        *dest++       = (byrefRegMask << 4) | regMask;
+                        *(DWORD*)dest = codeDelta;
+                        dest += sizeof(DWORD);
+                        *(DWORD*)dest = callArgCnt;
+                        dest += sizeof(DWORD);
+                        *(DWORD*)dest = pndCount;
+                        dest += sizeof(DWORD);
+                        pPndSize = dest;
+                        dest += sizeof(DWORD); // Leave space for pndSize
+                    }
+
+                    unsigned offs, iter;
+
+                    for (iter = pasStk.EnumGCoffs(PendingArgsStack::pasENUM_START, &offs); pndCount;
+                         iter = pasStk.EnumGCoffs(iter, &offs), pndCount--)
+                    {
+                        unsigned eltSize = encodeUnsigned(dest, offs);
+
+                        pndSize += eltSize;
+                        if (mask)
+                            dest += eltSize;
+                    }
+                    assert(iter == PendingArgsStack::pasENUM_END);
+
+                    if (mask == 0)
+                    {
+                        dest = base + 2 + 4 * sizeof(DWORD) + pndSize;
+                    }
+                    else
+                    {
+                        assert(pPndSize + sizeof(pndSize) + pndSize == dest);
+                        *(DWORD*)pPndSize = pndSize;
+                    }
+
+                    goto NEXT_RPD;
+                }
+
+                argMask = byrefArgMask = 0;
+
+                if (pasStk.HasGCptrs())
+                {
+                    assert(pasStk.CurDepth() <= BITS_IN_pasMask);
+
+                    argMask      = pasStk.ArgMask();
+                    byrefArgMask = pasStk.ByrefArgMask();
+                }
+
+                /* Shouldn't be reporting trivial call-sites */
+
+                assert(regMask || argMask || callArgCnt || pasStk.CurDepth());
+
+// Emit IPtrMask if needed
+
+#define CHK_NON_INTRPT_ESP_IPtrMask                                                                                    \
+                                                                                                                       \
+    if (byrefRegMask || byrefArgMask)                                                                                  \
+    {                                                                                                                  \
+        *dest++        = 0xF0;                                                                                         \
+        unsigned imask = (byrefArgMask << 4) | byrefRegMask;                                                           \
+        dest += encodeUnsigned(dest, imask);                                                                           \
+    }
+
+                /* When usePopEncoding is true:
+                 *  this is not an interesting call site
+                 *   because nothing is live here.
+                 */
+                usePopEncoding = ((callArgCnt < 4) && (regMask == 0) && (argMask == 0));
+
+                if (!usePopEncoding)
+                {
+                    int pattern = LookupCallPattern(callArgCnt, regMask, argMask, codeDelta);
+                    if (pattern != -1)
+                    {
+                        if (pattern > 0xff)
+                        {
+                            codeDelta = pattern >> 8;
+                            pattern &= 0xff;
+                            if (codeDelta >= 16)
+                            {
+                                /* use encoding: */
+                                /*   skip 01000000 [Delta] */
+                                *dest++ = 0x40;
+                                dest += encodeUnsigned(dest, codeDelta);
+                                codeDelta = 0;
+                            }
+                            else
+                            {
+                                /* use encoding: */
+                                /*   skip 0100DDDD  small delta=DDDD */
+                                *dest++ = 0x40 | (BYTE)codeDelta;
+                            }
+                        }
+
+                        // Emit IPtrMask if needed
+                        CHK_NON_INTRPT_ESP_IPtrMask;
+
+                        assert((pattern >= 0) && (pattern < 80));
+                        *dest++ = 0x80 | pattern;
+                        goto NEXT_RPD;
+                    }
+
+                    /* See if we can use 2nd call encoding
+                     *     1101RRRR DDCCCMMM encoding */
+
+                    if ((callArgCnt <= 7) && (argMask <= 7))
+                    {
+                        unsigned inx; // callCommonDelta[] index
+                        unsigned maxCommonDelta = callCommonDelta[3];
+
+                        if (codeDelta > maxCommonDelta)
+                        {
+                            if (codeDelta > maxCommonDelta + 15)
+                            {
+                                /* use encoding: */
+                                /*   skip    01000000 [Delta] */
+                                *dest++ = 0x40;
+                                dest += encodeUnsigned(dest, codeDelta - maxCommonDelta);
+                            }
+                            else
+                            {
+                                /* use encoding: */
+                                /*   skip 0100DDDD  small delta=DDDD */
+                                *dest++ = 0x40 | (BYTE)(codeDelta - maxCommonDelta);
+                            }
+
+                            codeDelta = maxCommonDelta;
+                            inx       = 3;
+                            goto EMIT_2ND_CALL_ENCODING;
+                        }
+
+                        for (inx = 0; inx < 4; inx++)
+                        {
+                            if (codeDelta == callCommonDelta[inx])
+                            {
+                            EMIT_2ND_CALL_ENCODING:
+                                // Emit IPtrMask if needed
+                                CHK_NON_INTRPT_ESP_IPtrMask;
+
+                                *dest++ = 0xD0 | regMask;
+                                *dest++ = (inx << 6) | (callArgCnt << 3) | argMask;
+                                goto NEXT_RPD;
+                            }
+                        }
+
+                        unsigned minCommonDelta = callCommonDelta[0];
+
+                        if ((codeDelta > minCommonDelta) && (codeDelta < maxCommonDelta))
+                        {
+                            assert((minCommonDelta + 16) > maxCommonDelta);
+                            /* use encoding: */
+                            /*   skip 0100DDDD  small delta=DDDD */
+                            *dest++ = 0x40 | (BYTE)(codeDelta - minCommonDelta);
+
+                            codeDelta = minCommonDelta;
+                            inx       = 0;
+                            goto EMIT_2ND_CALL_ENCODING;
+                        }
+                    }
+                }
+
+                if (codeDelta >= 16)
+                {
+                    unsigned i = (usePopEncoding ? 15 : 0);
+                    /* use encoding: */
+                    /*   skip    01000000 [Delta]  arbitrary sized delta */
+                    *dest++ = 0x40;
+                    dest += encodeUnsigned(dest, codeDelta - i);
+                    codeDelta = i;
+                }
+
+                if ((codeDelta > 0) || usePopEncoding)
+                {
+                    if (usePopEncoding)
+                    {
+                        /* use encoding: */
+                        /*   pop 01CCDDDD  ESP pop CC items, 4-bit delta */
+                        if (callArgCnt || codeDelta)
+                            *dest++ = (BYTE)(0x40 | (callArgCnt << 4) | codeDelta);
+                        goto NEXT_RPD;
+                    }
+                    else
+                    {
+                        /* use encoding: */
+                        /*   skip 0100DDDD  small delta=DDDD */
+                        *dest++ = 0x40 | (BYTE)codeDelta;
+                    }
+                }
+
+                // Emit IPtrMask if needed
+                CHK_NON_INTRPT_ESP_IPtrMask;
+
+                /* use encoding:                                   */
+                /*   call 1110RRRR [ArgCnt] [ArgMask]              */
+
+                *dest++ = 0xE0 | regMask;
+                dest += encodeUnsigned(dest, callArgCnt);
+
+                dest += encodeUnsigned(dest, argMask);
+            }
+            else
+            {
+                /* This is a push or a pop site */
+
+                /* Remember the new 'last' offset */
+
+                lastOffset = nextOffset;
+
+                if (change->kind == RegArgChangeKind::PopArgs)
+                {
+                    /* This must be a gcArgPopSingle */
+
+                    assert(change->argOffset == 1);
+
+                    if (codeDelta >= 16)
+                    {
+                        /* use encoding: */
+                        /*   skip    01000000 [Delta] */
+                        *dest++ = 0x40;
+                        dest += encodeUnsigned(dest, codeDelta - 15);
+                        codeDelta = 15;
+                    }
+
+                    /* use encoding: */
+                    /*   pop1    0101DDDD  ESP pop one item, 4-bit delta */
+
+                    *dest++ = 0x50 | (BYTE)codeDelta;
+
+                    /* adjust argMask for this pop */
+                    pasStk.Pop(1);
+                }
+                else
+                {
+                    /* This is a push */
+
+                    if (codeDelta >= 32)
+                    {
+                        /* use encoding: */
+                        /*   skip    01000000 [Delta] */
+                        *dest++ = 0x40;
+                        dest += encodeUnsigned(dest, codeDelta - 31);
+                        codeDelta = 31;
+                    }
+
+                    assert(codeDelta < 32);
+
+                    /* use encoding: */
+                    /*   push    000DDDDD ESP push one item, 5-bit delta */
+
+                    *dest++ = (BYTE)codeDelta;
+
+                    /* adjust argMask for this push */
+
+                    pasStk.Push(change->gcType);
+                }
+            }
+        }
+
+    /*  We ignore the register live/dead information, since the
+     *  rpdCallRegMask contains all the liveness information
+     *  that we need
+     */
+    NEXT_RPD:
+
+        totalSize += dest - base;
+
+        /* Go back to the buffer start if we're not generating a table */
+
+        if (!mask)
+            dest = base;
+
+#if REGEN_CALLPAT
+        if ((mask == -1) && (usePopEncoding == false) && ((dest - base) > 0))
+            regenLog(origCodeDelta, argMask, regMask, callArgCnt, byrefArgMask, byrefRegMask, base, (dest - base));
+#endif
+    }
+
+    /* Verify that we pop every arg that was pushed and that argMask is 0 */
+
+    assert(pasStk.CurDepth() == 0);
+
+    return totalSize;
+}
 
 #if DUMP_GC_TABLES
 #include "gcdump.h"
