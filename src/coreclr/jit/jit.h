@@ -666,12 +666,6 @@ extern CorJitResult jitNativeCode(ICorJitInfo*         jitInfo,
                                   uint32_t*            nativeCodeSize,
                                   JitFlags*            jitFlags);
 
-// Constants for making sure size_t fit into smaller types.
-const size_t MAX_USHORT_SIZE_T   = static_cast<size_t>(static_cast<unsigned short>(-1));
-const size_t MAX_UNSIGNED_SIZE_T = static_cast<size_t>(static_cast<unsigned>(-1));
-
-/*****************************************************************************/
-
 class Compiler;
 
 class JitTls

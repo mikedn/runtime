@@ -1669,9 +1669,9 @@ size_t GCEncoder::InfoBlockHdrSave(BYTE* dest, int mask, regMaskTP savedRegs, In
 
     assert(compiler->codeGen->paramsStackSize % REGSIZE_BYTES == 0);
 
-    size_t argCount = compiler->codeGen->paramsStackSize / REGSIZE_BYTES;
-    assert(argCount <= MAX_USHORT_SIZE_T);
-    header->argCount = static_cast<unsigned short>(argCount);
+    unsigned argCount = compiler->codeGen->paramsStackSize / REGSIZE_BYTES;
+    assert(argCount <= UINT16_MAX);
+    header->argCount = static_cast<uint16_t>(argCount);
 
     header->frameSize = compiler->codeGen->lclFrameSize / 4;
     if (header->frameSize != compiler->codeGen->lclFrameSize / 4)
@@ -2156,7 +2156,7 @@ size_t GCEncoder::MakeRegPtrTable(BYTE* dest, int mask, size_t* pArgTabOffset)
     bool emitArgTabOffset = (trackedStackSlotLifetimeCount != 0) || (untrackedStackSlotCount > SET_UNTRACKED_MAX);
     if (mask != 0 && emitArgTabOffset)
     {
-        assert(*pArgTabOffset <= MAX_UNSIGNED_SIZE_T);
+        assert(*pArgTabOffset <= UINT32_MAX);
         unsigned sz = encodeUnsigned(dest, static_cast<unsigned>(*pArgTabOffset));
         dest += sz;
         totalSize += sz;
@@ -2221,8 +2221,8 @@ size_t GCEncoder::MakeRegPtrTable(BYTE* dest, int mask, size_t* pArgTabOffset)
 
     if (!mask && emitArgTabOffset)
     {
-        assert(*pArgTabOffset <= MAX_UNSIGNED_SIZE_T);
-        totalSize += encodeUnsigned(NULL, static_cast<unsigned>(*pArgTabOffset));
+        assert(*pArgTabOffset <= UINT32_MAX);
+        totalSize += encodeUnsigned(nullptr, static_cast<unsigned>(*pArgTabOffset));
     }
 
     unsigned slotSize;
