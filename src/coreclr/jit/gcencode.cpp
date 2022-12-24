@@ -9,23 +9,23 @@
 #include "patchpointinfo.h"
 #include "codegen.h"
 
-ReturnKind GCInfo::GetReturnKind() const
+static ReturnKind GetReturnKind(const CompiledMethodInfo& info)
 {
 #ifdef TARGET_X86
-    if (varTypeIsFloating(compiler->info.compRetType))
+    if (varTypeIsFloating(info.compRetType))
     {
         return RT_Float;
     }
 #endif
 
-    if (compiler->info.compRetBuffArg != BAD_VAR_NUM)
+    if (info.compRetBuffArg != BAD_VAR_NUM)
     {
         // The ABI may require to return the buffer address (a BYREF)
         // but the JIT doesn't use it.
         return RT_Scalar;
     }
 
-    const ReturnTypeDesc& retDesc = compiler->info.retDesc;
+    const ReturnTypeDesc& retDesc = info.retDesc;
 
     auto TypeToReturnKind = [](var_types type) {
         switch (type)
@@ -41,7 +41,7 @@ ReturnKind GCInfo::GetReturnKind() const
 
     if (retDesc.GetRegCount() == 1)
     {
-        return TypeToReturnKind(compiler->info.retDesc.GetRegType(0));
+        return TypeToReturnKind(info.retDesc.GetRegType(0));
     }
 
     if (retDesc.GetRegCount() == 2)
@@ -128,7 +128,7 @@ void* GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen, unsigned codeSize, unsigned
     }
 #endif
 
-    GCEncoder encoder(codeGen, codeSize, prologSize, epilogSize, GetReturnKind(), firstStackSlotLifetime,
+    GCEncoder encoder(codeGen, codeSize, prologSize, epilogSize, GetReturnKind(compiler->info), firstStackSlotLifetime,
                       firstRegArgChange, firstCallSite);
     return encoder.CreateAndStoreGCInfo();
 }
@@ -4422,7 +4422,7 @@ void GCInfo::CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize)
     CompIAllocator encoderAlloc(compiler->getAllocator(CMK_GC));
     GCEncoder      encoder(compiler, &encoderAlloc);
 
-    encoder.SetHeaderInfo(codeSize, prologSize, GetReturnKind());
+    encoder.SetHeaderInfo(codeSize, prologSize, GetReturnKind(compiler->info));
     encoder.AddUntrackedStackSlots();
     encoder.AddTrackedStackSlots(firstStackSlotLifetime);
 

@@ -168,8 +168,6 @@ private:
     void InsertSplitStackSlotLifetime(StackSlotLifetime* desc, StackSlotLifetime* begin);
     INDEBUG(void DumpStackSlotLifetime(const char* message, StackSlotLifetime* desc) const;)
 #endif
-
-    enum ReturnKind GetReturnKind() const;
 };
 
 #ifdef JIT32_GCENCODER
