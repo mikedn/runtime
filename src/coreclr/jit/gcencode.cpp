@@ -2777,12 +2777,6 @@ size_t GCEncoder::MakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, s
                 dest = base;
         }
 #endif // TARGET_X86
-
-        /* Terminate the table with 0xFF */
-
-        *dest = 0xFF;
-        dest -= mask;
-        totalSize++;
     }
     else if (compiler->codeGen->isFramePointerUsed()) // GetInterruptible() is false
     {
@@ -3050,12 +3044,6 @@ size_t GCEncoder::MakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, s
                 dest = base;
         }
 #endif // TARGET_X86
-
-        /* Terminate the table with 0xFF */
-
-        *dest = 0xFF;
-        dest -= mask;
-        totalSize++;
     }
     else // GetInterruptible() is false and we have an EBP-less frame
     {
@@ -3516,13 +3504,13 @@ size_t GCEncoder::MakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, s
         assert(pasStk.CurDepth() == 0);
 
 #endif // TARGET_X86
-
-        /* Terminate the table with 0xFF */
-
-        *dest = 0xFF;
-        dest -= mask;
-        totalSize++;
     }
+
+    /* Terminate the table with 0xFF */
+
+    *dest = 0xFF;
+    dest -= mask;
+    totalSize++;
 
 #if VERIFY_GC_TABLES
     if (mask)
