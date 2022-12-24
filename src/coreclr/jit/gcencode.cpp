@@ -103,7 +103,8 @@ public:
     void* CreateAndStoreGCInfo();
 
 private:
-    void CountForHeader(unsigned* pUntrackedCount, unsigned* pVarPtrTableSize);
+    unsigned GetUntrackedStackSlotCount(bool* keepThisAlive);
+    unsigned GetTrackedStackSlotLifetimeCount(bool keepThisAlive);
     bool IsUntrackedLocalOrNonEnregisteredArg(unsigned lclNum, bool* keepThisAlive = nullptr);
     size_t MakeRegPtrTable(uint8_t* dest, int mask, const InfoHdr& header, size_t* pArgTabOffset);
     unsigned AddUntrackedStackSlots(uint8_t* dest, int mask);
@@ -311,9 +312,8 @@ static unsigned char encodeSigned(BYTE* dest, int val)
     return size;
 }
 
-void GCEncoder::CountForHeader(unsigned* pUntrackedCount, unsigned* pVarPtrTableSize)
+unsigned GCEncoder::GetUntrackedStackSlotCount(bool* keepThisAlive)
 {
-    bool         keepThisAlive  = false; // did we track "this" in a synchronized method?
     unsigned int untrackedCount = 0;
 
     for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
@@ -327,7 +327,7 @@ void GCEncoder::CountForHeader(unsigned* pUntrackedCount, unsigned* pVarPtrTable
 
         if (varTypeIsGC(lcl->GetType()))
         {
-            if (!IsUntrackedLocalOrNonEnregisteredArg(lclNum, &keepThisAlive))
+            if (!IsUntrackedLocalOrNonEnregisteredArg(lclNum, keepThisAlive))
             {
                 continue;
             }
@@ -382,10 +382,11 @@ void GCEncoder::CountForHeader(unsigned* pUntrackedCount, unsigned* pVarPtrTable
 
     JITDUMP("GCINFO: untrckVars = %u\n", untrackedCount);
 
-    *pUntrackedCount = untrackedCount;
+    return untrackedCount;
+}
 
-    // Count the number of entries in the table of non-register pointer variable lifetimes.
-
+unsigned GCEncoder::GetTrackedStackSlotLifetimeCount(bool keepThisAlive)
+{
     unsigned stackSlotLifetimeCount = 0;
 
     if (keepThisAlive)
@@ -405,7 +406,7 @@ void GCEncoder::CountForHeader(unsigned* pUntrackedCount, unsigned* pVarPtrTable
 
     JITDUMP("GCINFO: trackdLcls = %u\n", stackSlotLifetimeCount);
 
-    *pVarPtrTableSize = stackSlotLifetimeCount;
+    return stackSlotLifetimeCount;
 }
 
 bool GCEncoder::IsUntrackedLocalOrNonEnregisteredArg(unsigned lclNum, bool* keepThisAlive)
@@ -1720,10 +1721,9 @@ size_t GCEncoder::InfoBlockHdrSave(BYTE* dest, int mask, regMaskTP savedRegs, In
 
     if (mask == 0)
     {
-        unsigned untrackedCount  = 0;
-        unsigned varPtrTableSize = 0;
-
-        CountForHeader(&untrackedCount, &varPtrTableSize);
+        bool     keepThisAlive   = false;
+        unsigned untrackedCount  = GetUntrackedStackSlotCount(&keepThisAlive);
+        unsigned varPtrTableSize = GetTrackedStackSlotLifetimeCount(keepThisAlive);
 
         header->untrackedCnt    = untrackedCount;
         header->varPtrTableSize = varPtrTableSize;
