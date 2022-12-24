@@ -140,10 +140,7 @@ void* GCEncoder::CreateAndStoreGCInfo()
 
     int s_cached;
 
-#ifdef DEBUG
-    size_t headerSize =
-#endif
-        codeGen->compInfoBlkSize = InfoBlockHdrSave(headerBuf, 0, codeGen->calleeSavedModifiedRegs, &header, &s_cached);
+    size_t headerSize = InfoBlockHdrSave(headerBuf, 0, codeGen->calleeSavedModifiedRegs, &header, &s_cached);
 
     size_t argTabOffset = 0;
     size_t ptrMapSize   = PtrTableSize(header, &argTabOffset);
@@ -152,40 +149,22 @@ void* GCEncoder::CreateAndStoreGCInfo()
 
     if (codeGen->GetInterruptible())
     {
-        gcHeaderISize += codeGen->compInfoBlkSize;
+        gcHeaderISize += headerSize;
         gcPtrMapISize += ptrMapSize;
     }
     else
     {
-        gcHeaderNSize += codeGen->compInfoBlkSize;
+        gcHeaderNSize += headerSize;
         gcPtrMapNSize += ptrMapSize;
     }
 
 #endif // DISPLAY_SIZES
 
-    codeGen->compInfoBlkSize += ptrMapSize;
+    size_t infoBlockSize = headerSize + ptrMapSize;
 
     /* Allocate the info block for the method */
 
-    BYTE* infoBlkAddr = (BYTE*)compiler->info.compCompHnd->allocGCInfo(codeGen->compInfoBlkSize);
-
-#if 0 // VERBOSE_SIZES
-    // TODO-X86-Cleanup: 'dataSize', below, is not defined
-
-//  if  (compInfoBlkSize > codeSize && compInfoBlkSize > 100)
-    {
-        printf("[%7u VM, %7u+%7u/%7u x86 %03u/%03u%%] %s.%s\n",
-            compiler->info.compILCodeSize,
-            compInfoBlkSize,
-            codeSize + dataSize,
-            codeSize + dataSize - prologSize - epilogSize,
-            100 * (codeSize + dataSize) / compiler->info.compILCodeSize,
-            100 * (codeSize + dataSize + compInfoBlkSize) / compiler->info.compILCodeSize,
-            compiler->info.compClassName,
-            compiler->info.compMethodName);
-    }
-
-#endif
+    BYTE* infoBlkAddr = (BYTE*)compiler->info.compCompHnd->allocGCInfo(infoBlockSize);
 
     /* Fill in the info block and return it to the caller */
 
@@ -241,7 +220,7 @@ void* GCEncoder::CreateAndStoreGCInfo()
         InfoHdr     dumpHeader;
 
         printf("GC Info for method %s\n", compiler->info.compFullName);
-        printf("GC info size = %3u\n", codeGen->compInfoBlkSize);
+        printf("GC info size = %3u\n", infoBlockSize);
 
         size = InfoBlockHdrDump(base, &dumpHeader, &methodSize);
         // printf("size of header encoding is %3u\n", size);
@@ -257,8 +236,9 @@ void* GCEncoder::CreateAndStoreGCInfo()
 
     /* Make sure we ended up generating the expected number of bytes */
 
-    noway_assert(infoBlkAddr == (BYTE*)infoPtr + codeGen->compInfoBlkSize);
+    noway_assert(infoBlkAddr == (BYTE*)infoPtr + infoBlockSize);
 
+    codeGen->compInfoBlkSize = infoBlockSize;
     return infoPtr;
 }
 
