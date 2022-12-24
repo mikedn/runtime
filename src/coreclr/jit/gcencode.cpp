@@ -2216,14 +2216,6 @@ size_t GCEncoder::MakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, s
     totalSize += sizeof(short);
 #endif
 
-#if DEBUG
-    unsigned untrackedCount  = 0;
-    unsigned varPtrTableSize = 0;
-    CountForHeader(&untrackedCount, &varPtrTableSize);
-    assert(untrackedCount == header.untrackedCnt);
-    assert(varPtrTableSize == header.varPtrTableSize);
-#endif
-
     if (header.untrackedCnt != 0)
     {
         unsigned slotSize = AddUntrackedStackSlots(dest, mask);
