@@ -7123,8 +7123,6 @@ void emitter::emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsi
         return;
     }
 
-    noway_assert(FitsIn<uint16_t>(offs));
-
     GCRegArgChange* change = gcInfo.AddRegArgChange();
     change->codeOffs       = emitCurCodeOffs(addr);
     change->argOffset      = offs;
