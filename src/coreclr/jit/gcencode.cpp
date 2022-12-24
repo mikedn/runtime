@@ -1658,7 +1658,8 @@ size_t GCEncoder::InfoBlockHdrSave(BYTE* dest, int mask, regMaskTP savedRegs, In
     header->editNcontinue   = compiler->opts.compDbgEnC;
     header->genericsContext = compiler->lvaReportParamTypeArg();
     header->genericsContextIsMethodDesc =
-        header->genericsContext && (compiler->info.compMethodInfo->options & (CORINFO_GENERICS_CTXT_FROM_METHODDESC));
+        (header->genericsContext != 0) &&
+        ((compiler->info.compMethodInfo->options & CORINFO_GENERICS_CTXT_FROM_METHODDESC) != 0);
 
     _ASSERTE(IsValidReturnKind(returnKind) && "Return Kind must be valid");
     _ASSERTE(!IsStructReturnKind(returnKind) && "Struct Return Kinds Unexpected for JIT32");
