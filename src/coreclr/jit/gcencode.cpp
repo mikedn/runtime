@@ -78,8 +78,6 @@ class GCEncoder
     StackSlotLifetime* const firstStackSlotLifetime;
     RegArgChange* const      firstRegArgChange;
     CallSite* const          firstCallSite;
-    uint8_t*                 gcEpilogTable = nullptr;
-    unsigned                 gcEpilogPrevOffset;
 
 public:
     GCEncoder(CodeGen*           codeGen,
@@ -111,7 +109,6 @@ private:
     size_t PtrTableSize(const InfoHdr& header, size_t* pArgTabOffset);
     BYTE* PtrTableSave(uint8_t* destPtr, const InfoHdr& header, size_t* pArgTabOffset);
     size_t InfoBlockHdrSave(uint8_t* dest, int mask, regMaskTP savedRegs, InfoHdr* header, int* s_cached);
-    static size_t RecordEpilog(void* pCallBackData, unsigned offset);
 
 #if DUMP_GC_TABLES
     size_t InfoBlockHdrDump(const uint8_t* table, InfoHdr* header, unsigned* methodSize);
@@ -1834,15 +1831,26 @@ size_t GCEncoder::InfoBlockHdrSave(BYTE* dest, int mask, regMaskTP savedRegs, In
 
             /* Simply write a sorted array of offsets using encodeUDelta */
 
-            gcEpilogTable      = mask ? dest : NULL;
-            gcEpilogPrevOffset = 0;
+            uint8_t* epilogTable      = mask ? dest : nullptr;
+            unsigned epilogPrevOffset = 0;
+            unsigned epilogTableSize  = 0;
 
-            size_t sz = compiler->GetEmitter()->emitGenEpilogLst(RecordEpilog, this);
+            compiler->GetEmitter()->EnumerateEpilogs([&](unsigned offset) {
+                unsigned encodedSize = encodeUDelta(epilogTable, offset, epilogPrevOffset);
+
+                epilogPrevOffset = offset;
+                epilogTableSize += encodedSize;
+
+                if (epilogTable != nullptr)
+                {
+                    epilogTable += encodedSize;
+                }
+            });
 
             /* Add the size of the epilog table to the total size */
 
-            size += sz;
-            dest += (sz & mask);
+            size += epilogTableSize;
+            dest += (epilogTableSize & mask);
         }
     }
 
@@ -1863,23 +1871,6 @@ size_t GCEncoder::InfoBlockHdrSave(BYTE* dest, int mask, regMaskTP savedRegs, In
 #endif // DISPLAY_SIZES
 
     return size;
-}
-
-// Helper passed to genEmitter.emitGenEpilogLst() to generate the table of epilogs.
-size_t GCEncoder::RecordEpilog(void* pCallBackData, unsigned offset)
-{
-    GCEncoder* gcInfo = static_cast<GCEncoder*>(pCallBackData);
-
-    assert(gcInfo);
-
-    size_t result = encodeUDelta(gcInfo->gcEpilogTable, offset, gcInfo->gcEpilogPrevOffset);
-
-    if (gcInfo->gcEpilogTable)
-        gcInfo->gcEpilogTable += result;
-
-    gcInfo->gcEpilogPrevOffset = offset;
-
-    return result;
 }
 
 // Return the size of the pointer tracking tables.

@@ -1539,7 +1539,8 @@ public:
 
     bool emitHasEpilogEnd();
 
-    size_t emitGenEpilogLst(size_t (*fp)(void*, unsigned), void* cp);
+    template <typename Callback>
+    void EnumerateEpilogs(Callback callback);
 
 #endif // JIT32_GCENCODER
 

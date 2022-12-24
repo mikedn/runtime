@@ -1002,33 +1002,6 @@ void emitter::emitDispInsOffs(unsigned offs, bool doffs)
 
 #endif // DEBUG
 
-#ifdef JIT32_GCENCODER
-
-/*****************************************************************************
- *
- *  Call the specified function pointer for each epilog block in the current
- *  method with the epilog's relative code offset. Returns the sum of the
- *  values returned by the callback.
- */
-
-size_t emitter::emitGenEpilogLst(size_t (*fp)(void*, unsigned), void* cp)
-{
-    EpilogList* el;
-    size_t      sz;
-
-    for (el = emitEpilogList, sz = 0; el != nullptr; el = el->elNext)
-    {
-        assert(el->elLoc.GetIG()->igFlags & IGF_EPILOG);
-
-        // The epilog starts at the location recorded in the epilog list.
-        sz += fp(cp, el->elLoc.CodeOffset(this));
-    }
-
-    return sz;
-}
-
-#endif // JIT32_GCENCODER
-
 /*****************************************************************************
  *
  *  The following series of methods allocates instruction descriptors.

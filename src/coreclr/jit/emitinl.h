@@ -349,6 +349,7 @@ inline bool insIsCMOV(instruction ins)
 }
 #endif
 
+#ifndef JIT32_GCENCODER
 template <typename Callback>
 void emitter::EnumerateNoGCInsGroups(Callback callback)
 {
@@ -360,5 +361,17 @@ void emitter::EnumerateNoGCInsGroups(Callback callback)
         }
     }
 }
+#else
+template <typename Callback>
+void emitter::EnumerateEpilogs(Callback callback)
+{
+    for (EpilogList* el = emitEpilogList; el != nullptr; el = el->elNext)
+    {
+        assert((el->elLoc.GetIG()->igFlags & IGF_EPILOG) != 0);
+
+        callback(el->elLoc.CodeOffset(this));
+    }
+}
+#endif // JIT32_GCENCODER
 
 #endif //_EMITINL_H_
