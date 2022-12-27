@@ -2083,7 +2083,9 @@ public:
 #else
     void emitGCregLiveSet(GCtype gcType, regMaskTP mask, BYTE* addr);
 #endif
-    void emitGCregDeadUpdMask(regMaskTP, BYTE* addr);
+#ifdef FEATURE_EH_FUNCLETS
+    void emitGCregDeadAll(BYTE* addr);
+#endif
     void emitGCregDeadUpd(regNumber reg, BYTE* addr);
     void emitGCregDeadSet(GCtype gcType, regMaskTP mask, BYTE* addr);
 

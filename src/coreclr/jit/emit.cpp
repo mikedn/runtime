@@ -7017,59 +7017,35 @@ void emitter::emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr)
     assert((emitThisGCrefRegs & emitThisByrefRegs) == RBM_NONE);
 }
 
-/*****************************************************************************
- *
- *  Record the fact that the given set of registers no longer contain live GC refs.
- */
-
-void emitter::emitGCregDeadUpdMask(regMaskTP regs, BYTE* addr)
+#ifdef FEATURE_EH_FUNCLETS
+void emitter::emitGCregDeadAll(BYTE* addr)
 {
     assert(emitIssuing);
 
-    // Don't track GC changes in epilogs
     if (emitIGisInEpilog(emitCurIG))
     {
         return;
     }
 
-    // First, handle the gcref regs going dead
+    assert((emitThisByrefRegs & emitThisGCrefRegs) == RBM_NONE);
 
-    regMaskTP gcrefRegs = emitThisGCrefRegs & regs;
-
-#ifdef JIT32_GCENCODER
-    // "this" can never go dead in synchronized methods, except in the epilog
-    // after the call to CORINFO_HELP_MON_EXIT.
-    assert((emitSyncThisObjReg == REG_NA) || (genRegMask(emitSyncThisObjReg) & regs) == RBM_NONE);
-#endif
-
-    if (gcrefRegs)
+    if (emitFullyInt)
     {
-        assert((emitThisByrefRegs & gcrefRegs) == 0);
-
-        if (emitFullyInt)
+        if (emitThisGCrefRegs != RBM_NONE)
         {
-            emitGCregDeadSet(GCT_GCREF, gcrefRegs, addr);
+            emitGCregDeadSet(GCT_GCREF, emitThisGCrefRegs, addr);
         }
 
-        emitThisGCrefRegs &= ~gcrefRegs;
-    }
-
-    // Second, handle the byref regs going dead
-
-    regMaskTP byrefRegs = emitThisByrefRegs & regs;
-
-    if (byrefRegs)
-    {
-        assert((emitThisGCrefRegs & byrefRegs) == 0);
-
-        if (emitFullyInt)
+        if (emitThisByrefRegs != RBM_NONE)
         {
-            emitGCregDeadSet(GCT_BYREF, byrefRegs, addr);
+            emitGCregDeadSet(GCT_BYREF, emitThisByrefRegs, addr);
         }
-
-        emitThisByrefRegs &= ~byrefRegs;
     }
+
+    emitThisGCrefRegs = RBM_NONE;
+    emitThisByrefRegs = RBM_NONE;
 }
+#endif // FEATURE_EH_FUNCLETS
 
 /*****************************************************************************
  *

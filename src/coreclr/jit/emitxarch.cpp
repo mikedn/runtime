@@ -11512,11 +11512,26 @@ BYTE* emitter::emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i)
         }
     }
 
-    // Local calls kill all registers
-    if (ins == INS_call && (emitThisGCrefRegs | emitThisByrefRegs))
+#ifdef FEATURE_EH_FUNCLETS
+    // Calls to "finally" handlers kill all registers.
+    // TODO-MIKE-Review: It's not entirely clear why is this needed. Such calls are
+    // always at the end of the block and the following block should have the correct
+    // CG reg liveness. Sometimes, a nop is inserted after such calls, but then it's
+    // inserted in a no-GC region so it shouldn't matter if some GC regs are killed
+    // later than they really are. In fact, we already kill "later", the regs that
+    // could possibly be live after the call are callee saved registers, and these
+    // are practically dead before the call.
+    // But the weirdest thing is that ARM64 doesn't appear to be doing this.
+    // It certainly doesn't call emitGCregDeadAll but perhaps it achieves the same
+    // effect by other means?
+    // Anyway, even if this code is useless removing it results in GC info diffs.
+    if ((ins == INS_call) && ((emitThisGCrefRegs | emitThisByrefRegs) != RBM_NONE))
     {
-        emitGCregDeadUpdMask(emitThisGCrefRegs | emitThisByrefRegs, dst);
+        emitGCregDeadAll(dst);
     }
+#else
+    assert(ins != INS_call);
+#endif
 
     return dst;
 }
