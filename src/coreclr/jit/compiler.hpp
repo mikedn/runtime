@@ -14,10 +14,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #ifndef _COMPILER_HPP_
 #define _COMPILER_HPP_
 
-#include "emit.h" // for emitter::emitAddLabel
-
 #include "bitvec.h"
-
 #include "compilerbitsettraits.hpp"
 
 /*

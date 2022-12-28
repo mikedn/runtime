@@ -410,7 +410,7 @@ void CodeGen::genLogLabel(BasicBlock* bb)
 void CodeGen::genDefineTempLabel(BasicBlock* label)
 {
     genLogLabel(label);
-    label->bbEmitCookie = GetEmitter()->emitAddLabel(false DEBUG_ARG(label));
+    label->bbEmitCookie = GetEmitter()->emitAddLabel(INDEBUG(label));
 }
 
 // genDefineInlineTempLabel: Define an inline label that does not affect the GC
@@ -853,7 +853,7 @@ void CodeGen::genInsertNopForUnwinder(BasicBlock* block)
         // block starts an EH region. If we pointed the existing bbEmitCookie here, then the NOP
         // would be executed, which we would prefer not to do.
 
-        block->bbUnwindNopEmitCookie = GetEmitter()->emitAddLabel(false DEBUG_ARG(block));
+        block->bbUnwindNopEmitCookie = GetEmitter()->emitAddLabel(INDEBUG(block));
 
         instGen(INS_nop);
     }

@@ -8719,8 +8719,6 @@ private:
     void AddNode(GenTree* node);
 };
 
-#include "compiler.hpp" // All the shared inline functions
+#include "compiler.hpp"
 
-/*****************************************************************************/
 #endif //_COMPILER_H_
-/*****************************************************************************/

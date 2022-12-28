@@ -1955,12 +1955,7 @@ bool emitter::emitNoGChelper(CORINFO_METHOD_HANDLE methHnd)
     return emitNoGChelper(helpFunc);
 }
 
-/*****************************************************************************
- *
- *  Mark the current spot as having a label.
- */
-
-void* emitter::emitAddLabel(bool isFinallyTarget DEBUG_ARG(BasicBlock* block))
+void* emitter::emitAddLabel(INDEBUG(BasicBlock* block))
 {
     /* Create a new IG if the current one is non-empty */
 
@@ -1973,13 +1968,6 @@ void* emitter::emitAddLabel(bool isFinallyTarget DEBUG_ARG(BasicBlock* block))
     {
         emitCurIG->igWeight    = getCurrentBlockWeight();
         emitCurIG->igPerfScore = 0.0;
-    }
-#endif
-
-#if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
-    if (isFinallyTarget)
-    {
-        emitCurIG->igFlags |= IGF_FINALLY_TARGET;
     }
 #endif
 
@@ -2886,12 +2874,6 @@ void emitter::emitDispIGflags(unsigned flags)
     {
         printf(", byref");
     }
-#if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
-    if (flags & IGF_FINALLY_TARGET)
-    {
-        printf(", ftarget");
-    }
-#endif // defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
     if (flags & IGF_FUNCLET_PROLOG)
     {
         printf(", funclet prolog");
@@ -5229,11 +5211,6 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
             NO_WAY("Too many instruction groups");
         }
 
-        // If this instruction group is returned to from a funclet implementing a finally,
-        // on architectures where it is necessary generate GC info for the current instruction as
-        // if it were the instruction following a call.
-        emitGenGCInfoIfFuncletRetTarget(ig, cp);
-
         instrDesc* id = (instrDesc*)ig->igData;
 
 #ifdef DEBUG
@@ -5667,29 +5644,6 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
     /* Return the amount of code we've generated */
 
     return actualCodeSize;
-}
-
-// See specification comment at the declaration.
-void emitter::emitGenGCInfoIfFuncletRetTarget(insGroup* ig, BYTE* cp)
-{
-#if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
-    // We only emit this GC information on targets where finally's are implemented via funclets,
-    // and the finally is invoked, during non-exceptional execution, via a branch with a predefined
-    // link register, rather than a "true call" for which we would already generate GC info.  Currently,
-    // this means precisely ARM.
-    if (ig->igFlags & IGF_FINALLY_TARGET)
-    {
-        // We don't actually have a call instruction in this case, so we don't have
-        // a real size for that instruction.  We'll use 1.
-        emitRecordGCCallPop(cp, /*callInstrSize*/ 1);
-
-        /* Do we need to record a call location for GC purposes? */
-        if (!emitFullGCinfo)
-        {
-            emitRecordGCcall(cp, /*callInstrSize*/ 1);
-        }
-    }
-#endif // defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
 }
 
 /*****************************************************************************
