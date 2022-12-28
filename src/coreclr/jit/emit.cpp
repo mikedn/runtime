@@ -4841,9 +4841,6 @@ void emitter::emitComputeCodeSizes()
 // emitEndCodeGen: called at end of code generation to create code, data, and gc info
 //
 // Arguments:
-//    fullInt - true if method has fully interruptible gc reporting
-//    fullPtrMap - true if gc reporting should use full register pointer map
-//    xcptnsCount - number of EH clauses to report for the method
 //    prologSize [OUT] - prolog size in bytes
 //    epilogSize [OUT] - epilog size in bytes (see notes)
 //    codeAddr [OUT] - address of the code buffer
@@ -4858,10 +4855,7 @@ void emitter::emitComputeCodeSizes()
 // Returns:
 //    size of the method code, in bytes
 //
-unsigned emitter::emitEndCodeGen(bool      fullyInt,
-                                 bool      fullPtrMap,
-                                 unsigned  xcptnsCount,
-                                 unsigned* prologSize,
+unsigned emitter::emitEndCodeGen(unsigned* prologSize,
                                  unsigned* epilogSize,
                                  void**    codeAddr,
                                  void**    coldCodeAddr,
@@ -4884,15 +4878,13 @@ unsigned emitter::emitEndCodeGen(bool      fullyInt,
 
     emitOffsAdj = 0;
 
-    /* Tell everyone whether we have fully interruptible code or not */
-
-    emitFullyInt   = fullyInt;
-    emitFullGCinfo = fullPtrMap;
+    emitFullyInt   = codeGen->GetInterruptible();
+    emitFullGCinfo = codeGen->GetInterruptible() || !codeGen->isFramePointerUsed();
 
 #ifndef UNIX_X86_ABI
     emitFullArgInfo = !codeGen->isFramePointerUsed();
 #else
-    emitFullArgInfo = fullPtrMap;
+    emitFullArgInfo = emitFullGCinfo;
 #endif
 
 #if EMITTER_STATS
@@ -5051,7 +5043,7 @@ unsigned emitter::emitEndCodeGen(bool      fullyInt,
     args.hotCodeSize  = emitTotalHotCodeSize + roDataAlignmentDelta + emitConsDsc.dsdOffs;
     args.coldCodeSize = emitTotalColdCodeSize;
     args.roDataSize   = 0;
-    args.xcptnsCount  = xcptnsCount;
+    args.xcptnsCount  = emitComp->compHndBBtabCount;
     args.flag         = allocMemFlag;
 
     emitCmpHandle->allocMem(&args);
@@ -5069,7 +5061,7 @@ unsigned emitter::emitEndCodeGen(bool      fullyInt,
     args.hotCodeSize  = emitTotalHotCodeSize;
     args.coldCodeSize = emitTotalColdCodeSize;
     args.roDataSize   = emitConsDsc.dsdOffs;
-    args.xcptnsCount  = xcptnsCount;
+    args.xcptnsCount  = emitComp->compHndBBtabCount;
     args.flag         = allocMemFlag;
 
     emitCmpHandle->allocMem(&args);

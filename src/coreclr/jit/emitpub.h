@@ -9,10 +9,7 @@ void emitBegFN();
 
 void emitComputeCodeSizes();
 
-unsigned emitEndCodeGen(bool      fullyInt,
-                        bool      fullPtrMap,
-                        unsigned  xcptnsCount,
-                        unsigned* prologSize,
+unsigned emitEndCodeGen(unsigned* prologSize,
                         unsigned* epilogSize,
                         void**    codeAddr,
                         void**    coldCodeAddr,
