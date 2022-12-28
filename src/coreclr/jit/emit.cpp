@@ -1996,7 +1996,10 @@ void* emitter::emitAddLabel(bool isFinallyTarget DEBUG_ARG(BasicBlock* block))
     emitThisByrefRegs = byrefRegs;
 
 #ifdef DEBUG
-    JITDUMP("Mapped " FMT_BB " to %s\n", block->bbNum, emitLabelString(emitCurIG));
+    if (block != nullptr)
+    {
+        JITDUMP("Mapped " FMT_BB " to %s\n", block->bbNum, emitLabelString(emitCurIG));
+    }
 
     if (EMIT_GC_VERBOSE)
     {
