@@ -173,6 +173,47 @@ GCInfo::RegArgChange* GCInfo::AddRegArgChange()
 }
 
 #ifdef JIT32_GCENCODER
+GCInfo::RegArgChange* GCInfo::AddLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs, bool isThis)
+#else
+GCInfo::RegArgChange* GCInfo::AddLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs)
+#endif
+{
+    assert(gcType != GCT_NONE);
+#ifdef JIT32_GCENCODER
+    assert(!isThis || compiler->lvaKeepAliveAndReportThis());
+#endif
+
+    RegArgChange* change = AddRegArgChange();
+    change->codeOffs     = codeOffs;
+    change->kind         = GCInfo::RegArgChangeKind::RegChange;
+    change->gcType       = gcType;
+    change->addRegs      = static_cast<regMaskSmall>(regs);
+    change->removeRegs   = RBM_NONE;
+#ifdef JIT32_GCENCODER
+    change->isCall = false;
+    change->isThis = isThis;
+#endif
+    return change;
+}
+
+GCInfo::RegArgChange* GCInfo::RemoveLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs)
+{
+    assert(gcType != GCT_NONE);
+
+    RegArgChange* change = AddRegArgChange();
+    change->codeOffs     = codeOffs;
+    change->kind         = GCInfo::RegArgChangeKind::RegChange;
+    change->gcType       = gcType;
+    change->addRegs      = RBM_NONE;
+    change->removeRegs   = static_cast<regMaskSmall>(regs);
+#ifdef JIT32_GCENCODER
+    change->isCall = false;
+    change->isThis = false;
+#endif
+    return change;
+}
+
+#ifdef JIT32_GCENCODER
 const regMaskTP GCInfo::calleeSaveOrder[]{RBM_CALLEE_SAVED_ORDER};
 
 regMaskSmall GCInfo::RegMaskFromCalleeSavedMask(uint16_t calleeSaveMask)

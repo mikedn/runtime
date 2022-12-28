@@ -6723,9 +6723,9 @@ void emitter::emitUpdateLiveGCregs(GCtype gcType, regMaskTP regs, BYTE* addr)
 }
 
 #ifdef JIT32_GCENCODER
-void emitter::emitGCregLiveSet(GCtype gcType, regMaskTP regMask, BYTE* addr, bool isThis)
+void emitter::emitGCregLiveSet(GCtype gcType, regMaskTP regs, BYTE* addr, bool isThis)
 #else
-void emitter::emitGCregLiveSet(GCtype gcType, regMaskTP regMask, BYTE* addr)
+void emitter::emitGCregLiveSet(GCtype gcType, regMaskTP regs, BYTE* addr)
 #endif
 {
     assert(emitIssuing);
@@ -6734,41 +6734,22 @@ void emitter::emitGCregLiveSet(GCtype gcType, regMaskTP regMask, BYTE* addr)
 #else
     assert(emitFullyInt);
 #endif
-    assert(gcType != GCT_NONE);
-    assert(((emitThisGCrefRegs | emitThisByrefRegs) & regMask) == 0);
-#ifdef JIT32_GCENCODER
-    assert(!isThis || emitComp->lvaKeepAliveAndReportThis());
-#endif
+    assert(((emitThisGCrefRegs | emitThisByrefRegs) & regs) == RBM_NONE);
 
-    GCRegArgChange* change = gcInfo.AddRegArgChange();
-    change->codeOffs       = emitCurCodeOffs(addr);
-    change->kind           = GCInfo::RegArgChangeKind::RegChange;
-    change->gcType         = gcType;
-    change->addRegs        = static_cast<regMaskSmall>(regMask);
-    change->removeRegs     = RBM_NONE;
 #ifdef JIT32_GCENCODER
-    change->isCall = false;
-    change->isThis = isThis;
+    gcInfo.AddLiveRegs(gcType, regs, emitCurCodeOffs(addr), isThis);
+#else
+    gcInfo.AddLiveRegs(gcType, regs, emitCurCodeOffs(addr));
 #endif
 }
 
-void emitter::emitGCregDeadSet(GCtype gcType, regMaskTP regMask, BYTE* addr)
+void emitter::emitGCregDeadSet(GCtype gcType, regMaskTP regs, BYTE* addr)
 {
     assert(emitIssuing);
     assert(emitFullyInt);
-    assert(gcType != GCT_NONE);
-    assert(((emitThisGCrefRegs | emitThisByrefRegs) & regMask) != 0);
+    assert(((emitThisGCrefRegs | emitThisByrefRegs) & regs) != RBM_NONE);
 
-    GCRegArgChange* change = gcInfo.AddRegArgChange();
-    change->codeOffs       = emitCurCodeOffs(addr);
-    change->kind           = GCInfo::RegArgChangeKind::RegChange;
-    change->gcType         = gcType;
-    change->addRegs        = RBM_NONE;
-    change->removeRegs     = static_cast<regMaskSmall>(regMask);
-#ifdef JIT32_GCENCODER
-    change->isCall = false;
-    change->isThis = false;
-#endif
+    gcInfo.RemoveLiveRegs(gcType, regs, emitCurCodeOffs(addr));
 }
 
 /*****************************************************************************

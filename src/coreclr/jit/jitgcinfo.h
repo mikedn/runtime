@@ -143,6 +143,12 @@ public:
     void EndStackSlotLifetime(StackSlotLifetime* lifetime DEBUGARG(int slotOffs), unsigned codeOffs);
 
     RegArgChange* AddRegArgChange();
+#ifdef JIT32_GCENCODER
+    RegArgChange* AddLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs, bool isThis);
+#else
+    RegArgChange* AddLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs);
+#endif
+    RegArgChange* RemoveLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs);
 
     RegArgChange* GetFirstRegArgChange() const
     {
