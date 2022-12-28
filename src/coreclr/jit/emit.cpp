@@ -7403,13 +7403,16 @@ void emitter::emitStackPop(BYTE* addr, bool isCall, unsigned callInstrSize, unsi
         {
             assert(!emitFullGCinfo); // Simple stk not used for emitFullGCinfo
 
-            unsigned cnt = count;
-
-            do
+            if (count >= MAX_SIMPLE_STK_DEPTH)
             {
-                u1.emitSimpleStkMask >>= 1;
-                u1.emitSimpleByrefStkMask >>= 1;
-            } while (--cnt);
+                u1.emitSimpleStkMask      = 0;
+                u1.emitSimpleByrefStkMask = 0;
+            }
+            else
+            {
+                u1.emitSimpleStkMask >>= count;
+                u1.emitSimpleByrefStkMask >>= count;
+            }
         }
         else
         {
@@ -7444,7 +7447,7 @@ void emitter::emitStackPushLargeStk(BYTE* addr, GCtype gcType, unsigned count)
 
     S_UINT32 level(emitCurStackLvl / sizeof(int));
 
-    do
+    for (unsigned i = 0; i < count; i++)
     {
         assert(level.IsOverflow() || u2.emitArgTrackTop == u2.emitArgTrackTab + level.Value());
         *u2.emitArgTrackTop++ = (BYTE)gcType;
@@ -7473,7 +7476,7 @@ void emitter::emitStackPushLargeStk(BYTE* addr, GCtype gcType, unsigned count)
 
         level += 1;
         assert(!level.IsOverflow());
-    } while (--count);
+    }
 }
 
 // Record a pop of the given number of words from the stack for a full ptr map.
