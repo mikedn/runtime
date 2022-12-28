@@ -268,18 +268,7 @@ private:
     bool m_cgHasTailCalls = false;
 #endif // TARGET_ARMARCH
 
-    //  The following will be set to true if we've determined that we need to
-    //  generate a full-blown pointer register map for the current method.
-    //  Currently it is equal to (GetInterruptible() || !isFramePointerUsed())
-    //  (i.e. We generate the full-blown map for EBP-less methods and
-    //        for fully interruptible methods)
-    //
 public:
-    bool IsFullPtrRegMapRequired() const
-    {
-        return m_cgInterruptible || !m_cgFramePointerUsed;
-    }
-
     /* These are the different addressing modes used to access a local var.
      * The JIT has to report the location of the locals back to the EE
      * for debugging purposes.

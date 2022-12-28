@@ -148,7 +148,11 @@ void GCInfo::EndStackSlotLifetime(StackSlotLifetime* lifetime DEBUGARG(int slotO
 
 GCInfo::RegArgChange* GCInfo::AddRegArgChange()
 {
-    assert(compiler->codeGen->IsFullPtrRegMapRequired());
+#ifdef JIT32_GCENCODER
+    assert(compiler->codeGen->GetInterruptible() || !compiler->codeGen->isFramePointerUsed());
+#else
+    assert(compiler->codeGen->GetInterruptible());
+#endif
 
     RegArgChange* change = new (compiler, CMK_GC) RegArgChange;
 

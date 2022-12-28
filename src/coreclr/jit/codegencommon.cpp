@@ -1124,9 +1124,9 @@ void CodeGen::genEmitMachineCode()
 
     compiler->unwindReserve();
 
-    codeSize =
-        GetEmitter()->emitEndCodeGen(GetInterruptible(), IsFullPtrRegMapRequired(), compiler->compHndBBtabCount,
-                                     &prologSize, &epilogSize, codePtr, &coldCodePtr, &consPtr DEBUGARG(&instrCount));
+    codeSize = GetEmitter()->emitEndCodeGen(GetInterruptible(), GetInterruptible() || !isFramePointerUsed(),
+                                            compiler->compHndBBtabCount, &prologSize, &epilogSize, codePtr,
+                                            &coldCodePtr, &consPtr DEBUGARG(&instrCount));
 
 #ifdef DEBUG
     assert(compiler->compCodeGenDone == false);

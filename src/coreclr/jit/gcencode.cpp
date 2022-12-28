@@ -2458,7 +2458,6 @@ unsigned GCEncoder::AddTrackedStackSlots(uint8_t* dest, const int mask)
 unsigned GCEncoder::AddFullyInterruptibleSlots(uint8_t* dest, const int mask)
 {
     assert(compiler->codeGen->GetInterruptible());
-    assert(compiler->codeGen->IsFullPtrRegMapRequired());
 
     unsigned ptrRegs    = 0;
     unsigned lastOffset = 0;
@@ -2782,7 +2781,7 @@ unsigned GCEncoder::AddFullyInterruptibleSlots(uint8_t* dest, const int mask)
 unsigned GCEncoder::AddPartiallyInterruptibleSlotsFramed(uint8_t* dest, const int mask)
 {
     assert(!compiler->codeGen->GetInterruptible());
-    assert(!compiler->codeGen->IsFullPtrRegMapRequired());
+    assert(compiler->codeGen->isFramePointerUsed());
 
     /*
         Encoding table for methods with an EBP frame and
@@ -2898,8 +2897,8 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFramed(uint8_t* dest, const in
                          the offsets in the list are variable-length
     */
 
-    // If "this" is enregistered, note it. We do this explicitly here as
-    // IsFullPtrRegMapRequired()==false, and so we don't have any RegArgChange's.
+    // If "this" is enregistered, note it. We do this explicitly here because we
+    // don't record any reg liveness changes in partially interruptible methods.
 
     unsigned lastOffset = 0;
     unsigned totalSize  = 0;
@@ -2916,8 +2915,6 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFramed(uint8_t* dest, const in
                 *dest++ = thisPtrRegEnc;
         }
     }
-
-    assert(!compiler->codeGen->IsFullPtrRegMapRequired());
 
     for (CallSite* call = firstCallSite; call != nullptr; call = call->next)
     {
@@ -3056,7 +3053,7 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFramed(uint8_t* dest, const in
 unsigned GCEncoder::AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, const int mask)
 {
     assert(!compiler->codeGen->GetInterruptible());
-    assert(compiler->codeGen->IsFullPtrRegMapRequired());
+    assert(!compiler->codeGen->isFramePointerUsed());
 
     unsigned         lastOffset = 0;
     unsigned         totalSize  = 0;
@@ -4057,7 +4054,6 @@ void GCEncoder::AddUntrackedStackSlots()
 void GCEncoder::AddFullyInterruptibleSlots(RegArgChange* firstRegArgChange)
 {
     assert(compiler->codeGen->GetInterruptible());
-    assert(compiler->codeGen->IsFullPtrRegMapRequired());
 
     regMaskSmall  gcRegs         = RBM_NONE;
     RegArgChange* firstArgChange = nullptr;
@@ -4159,7 +4155,7 @@ void GCEncoder::AddPartiallyInterruptibleSlots(CallSite* firstCallSite)
     // TODO-MIKE-Review: Probably this should check if there are any tracked slots, instead of
     // trying to deduce that from other conditions that imply that all slots are untracked.
 
-    const bool noTrackedGCSlots = !compiler->codeGen->IsFullPtrRegMapRequired() && compiler->opts.MinOpts() &&
+    const bool noTrackedGCSlots = compiler->codeGen->isFramePointerUsed() && compiler->opts.MinOpts() &&
                                   !compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) &&
                                   !JitConfig.JitMinOptsTrackGCrefs();
 
