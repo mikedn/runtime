@@ -6590,11 +6590,7 @@ void emitter::emitRecordGCCall(BYTE* codePos)
 }
 #endif // JIT32_GCENCODER
 
-/*****************************************************************************
- *
- *  Record a new set of live GC ref registers.
- */
-
+// Record a new set of live GC ref registers.
 void emitter::emitUpdateLiveGCregs(GCtype gcType, regMaskTP regs, BYTE* addr)
 {
     assert(emitIssuing);
@@ -6689,6 +6685,129 @@ void emitter::emitUpdateLiveGCregs(GCtype gcType, regMaskTP regs, BYTE* addr)
 
     assert((emitThisGCrefRegs & emitThisByrefRegs) == 0);
 }
+
+// Record the fact that the given register now contains a live GC ref.
+void emitter::emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr)
+{
+    assert(emitIssuing);
+    assert((emitThisByrefRegs & emitThisGCrefRegs) == RBM_NONE);
+
+    // Don't track GC changes in epilogs
+    if (emitIGisInEpilog(emitCurIG))
+    {
+        return;
+    }
+
+    assert(gcType != GCT_NONE);
+
+    regMaskTP& typeRegs  = (gcType == GCT_GCREF) ? emitThisGCrefRegs : emitThisByrefRegs;
+    regMaskTP& otherRegs = (gcType == GCT_GCREF) ? emitThisByrefRegs : emitThisGCrefRegs;
+    regMaskTP  regMask   = genRegMask(reg);
+
+    if ((typeRegs & regMask) == RBM_NONE)
+    {
+        // If the register was holding the other GC type, that type should go dead now.
+
+        if ((otherRegs & regMask) != RBM_NONE)
+        {
+            if (emitFullyInt)
+            {
+                emitGCregDeadSet(gcType == GCT_GCREF ? GCT_BYREF : GCT_GCREF, regMask, addr);
+            }
+
+            otherRegs &= ~regMask;
+        }
+
+#ifdef JIT32_GCENCODER
+        // For synchronized methods, "this" is always alive and in the same register.
+        // However, if we generate any code after the epilog block (where "this"
+        // goes dead), "this" will come alive again. We need to notice that.
+        // Note that we only expect isThis to be true at an insGroup boundary.
+
+        bool isThis = (reg == emitSyncThisObjReg);
+
+        if (emitFullyInt || (emitFullGCinfo && isThis))
+        {
+            emitGCregLiveSet(gcType, regMask, addr, isThis);
+        }
+#else
+        if (emitFullyInt)
+        {
+            emitGCregLiveSet(gcType, regMask, addr);
+        }
+#endif
+
+        typeRegs |= regMask;
+    }
+
+    // The 2 GC reg masks can't be overlapping
+
+    assert((emitThisGCrefRegs & emitThisByrefRegs) == RBM_NONE);
+}
+
+// Record the fact that the given register no longer contains a live GC ref.
+void emitter::emitGCregDeadUpd(regNumber reg, BYTE* addr)
+{
+    assert(emitIssuing);
+    assert((emitThisByrefRegs & emitThisGCrefRegs) == RBM_NONE);
+
+    // Don't track GC changes in epilogs
+    if (emitIGisInEpilog(emitCurIG))
+    {
+        return;
+    }
+
+    regMaskTP regMask = genRegMask(reg);
+
+    if (emitFullyInt)
+    {
+        if ((emitThisGCrefRegs & regMask) != RBM_NONE)
+        {
+            emitGCregDeadSet(GCT_GCREF, regMask, addr);
+            emitThisGCrefRegs &= ~regMask;
+        }
+        else if ((emitThisByrefRegs & regMask) != RBM_NONE)
+        {
+            emitGCregDeadSet(GCT_BYREF, regMask, addr);
+            emitThisByrefRegs &= ~regMask;
+        }
+    }
+    else
+    {
+        emitThisGCrefRegs &= ~regMask;
+        emitThisByrefRegs &= ~regMask;
+    }
+}
+
+#ifdef FEATURE_EH_FUNCLETS
+void emitter::emitGCregDeadAll(BYTE* addr)
+{
+    assert(emitIssuing);
+
+    if (emitIGisInEpilog(emitCurIG))
+    {
+        return;
+    }
+
+    assert((emitThisByrefRegs & emitThisGCrefRegs) == RBM_NONE);
+
+    if (emitFullyInt)
+    {
+        if (emitThisGCrefRegs != RBM_NONE)
+        {
+            emitGCregDeadSet(GCT_GCREF, emitThisGCrefRegs, addr);
+        }
+
+        if (emitThisByrefRegs != RBM_NONE)
+        {
+            emitGCregDeadSet(GCT_BYREF, emitThisByrefRegs, addr);
+        }
+    }
+
+    emitThisGCrefRegs = RBM_NONE;
+    emitThisByrefRegs = RBM_NONE;
+}
+#endif // FEATURE_EH_FUNCLETS
 
 #ifdef JIT32_GCENCODER
 void emitter::emitGCregLiveSet(GCtype gcType, regMaskTP regs, BYTE* addr, bool isThis)
@@ -6906,137 +7025,6 @@ UNATIVE_OFFSET emitter::emitCodeOffset(void* blockPtr, unsigned codePos)
     }
 
     return ig->igOffs + of;
-}
-
-/*****************************************************************************
- *
- *  Record the fact that the given register now contains a live GC ref.
- */
-
-void emitter::emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr)
-{
-    assert(emitIssuing);
-    assert((emitThisByrefRegs & emitThisGCrefRegs) == RBM_NONE);
-
-    // Don't track GC changes in epilogs
-    if (emitIGisInEpilog(emitCurIG))
-    {
-        return;
-    }
-
-    assert(gcType != GCT_NONE);
-
-    regMaskTP& typeRegs  = (gcType == GCT_GCREF) ? emitThisGCrefRegs : emitThisByrefRegs;
-    regMaskTP& otherRegs = (gcType == GCT_GCREF) ? emitThisByrefRegs : emitThisGCrefRegs;
-    regMaskTP  regMask   = genRegMask(reg);
-
-    if ((typeRegs & regMask) == RBM_NONE)
-    {
-        // If the register was holding the other GC type, that type should go dead now.
-
-        if ((otherRegs & regMask) != RBM_NONE)
-        {
-            if (emitFullyInt)
-            {
-                emitGCregDeadSet(gcType == GCT_GCREF ? GCT_BYREF : GCT_GCREF, regMask, addr);
-            }
-
-            otherRegs &= ~regMask;
-        }
-
-#ifdef JIT32_GCENCODER
-        // For synchronized methods, "this" is always alive and in the same register.
-        // However, if we generate any code after the epilog block (where "this"
-        // goes dead), "this" will come alive again. We need to notice that.
-        // Note that we only expect isThis to be true at an insGroup boundary.
-
-        bool isThis = (reg == emitSyncThisObjReg);
-
-        if (emitFullyInt || (emitFullGCinfo && isThis))
-        {
-            emitGCregLiveSet(gcType, regMask, addr, isThis);
-        }
-#else
-        if (emitFullyInt)
-        {
-            emitGCregLiveSet(gcType, regMask, addr);
-        }
-#endif
-
-        typeRegs |= regMask;
-    }
-
-    // The 2 GC reg masks can't be overlapping
-
-    assert((emitThisGCrefRegs & emitThisByrefRegs) == RBM_NONE);
-}
-
-#ifdef FEATURE_EH_FUNCLETS
-void emitter::emitGCregDeadAll(BYTE* addr)
-{
-    assert(emitIssuing);
-
-    if (emitIGisInEpilog(emitCurIG))
-    {
-        return;
-    }
-
-    assert((emitThisByrefRegs & emitThisGCrefRegs) == RBM_NONE);
-
-    if (emitFullyInt)
-    {
-        if (emitThisGCrefRegs != RBM_NONE)
-        {
-            emitGCregDeadSet(GCT_GCREF, emitThisGCrefRegs, addr);
-        }
-
-        if (emitThisByrefRegs != RBM_NONE)
-        {
-            emitGCregDeadSet(GCT_BYREF, emitThisByrefRegs, addr);
-        }
-    }
-
-    emitThisGCrefRegs = RBM_NONE;
-    emitThisByrefRegs = RBM_NONE;
-}
-#endif // FEATURE_EH_FUNCLETS
-
-/*****************************************************************************
- *
- *  Record the fact that the given register no longer contains a live GC ref.
- */
-
-void emitter::emitGCregDeadUpd(regNumber reg, BYTE* addr)
-{
-    assert(emitIssuing);
-    assert((emitThisByrefRegs & emitThisGCrefRegs) == RBM_NONE);
-
-    // Don't track GC changes in epilogs
-    if (emitIGisInEpilog(emitCurIG))
-    {
-        return;
-    }
-
-    regMaskTP regMask = genRegMask(reg);
-
-    if (emitFullyInt)
-    {
-        if ((emitThisGCrefRegs & regMask) != RBM_NONE)
-        {
-            emitGCregDeadSet(GCT_GCREF, regMask, addr);
-            emitThisGCrefRegs &= ~regMask;
-        }
-        else if ((emitThisByrefRegs & regMask) != RBM_NONE)
-        {
-            emitGCregDeadSet(GCT_BYREF, regMask, addr);
-            emitThisByrefRegs &= ~regMask;
-        }
-    }
-    else
-    {
-        emitThisGCrefRegs &= ~regMask;
-        emitThisByrefRegs &= ~regMask;
-    }
 }
 
 #if FEATURE_FIXED_OUT_ARGS
