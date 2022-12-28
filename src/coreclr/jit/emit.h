@@ -2019,9 +2019,8 @@ public:
     /*         The following logic keeps track of live GC ref values        */
     /************************************************************************/
 
-    bool emitFullArgInfo; // full arg info (including non-ptr arg)?
-    bool emitFullGCinfo;  // full GC pointer maps?
-    bool emitFullyInt;    // fully interruptible code?
+    bool emitFullGCinfo; // full GC pointer maps?
+    bool emitFullyInt;   // fully interruptible code?
 
     regMaskTP emitGetGCRegsSavedOrModified(CORINFO_METHOD_HANDLE methHnd);
 
@@ -2029,6 +2028,7 @@ public:
     regMaskTP emitGetGCRegsKilledByNoGCCall(CorInfoHelpFunc helper);
 
 #if !FEATURE_FIXED_OUT_ARGS
+    bool emitFullArgInfo;   // full arg info (including non-ptr arg)?
     bool emitSimpleStkUsed; // using the "simple" stack table?
 
     union {

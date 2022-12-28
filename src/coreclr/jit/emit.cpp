@@ -4881,12 +4881,6 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
     emitFullyInt   = codeGen->GetInterruptible();
     emitFullGCinfo = codeGen->GetInterruptible() || !codeGen->isFramePointerUsed();
 
-#ifndef UNIX_X86_ABI
-    emitFullArgInfo = !codeGen->isFramePointerUsed();
-#else
-    emitFullArgInfo = emitFullGCinfo;
-#endif
-
 #if EMITTER_STATS
     GCrefsTable.record(emitGCrFrameOffsCnt);
     emitSizeTable.record(static_cast<unsigned>(emitSizeMethod));
@@ -4894,6 +4888,11 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 #endif // EMITTER_STATS
 
 #if !FEATURE_FIXED_OUT_ARGS
+#ifdef UNIX_X86_ABI
+    emitFullArgInfo = !codeGen->isFramePointerUsed() || codeGen->GetInterruptible();
+#else
+    emitFullArgInfo = !codeGen->isFramePointerUsed();
+#endif
     emitSimpleStkUsed         = true;
     u1.emitSimpleStkMask      = 0;
     u1.emitSimpleByrefStkMask = 0;
