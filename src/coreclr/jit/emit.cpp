@@ -6491,14 +6491,12 @@ void emitter::emitUpdateLiveGCvars(VARSET_VALARG_TP vars, BYTE* addr)
     emitThisGCrefVset = true;
 }
 
-// Record a call location for GC purposes (we know that this is a method that
-// will not be fully interruptible).
-void emitter::emitRecordGCcall(BYTE* codePos, unsigned callInstrLength)
+#ifdef JIT32_GCENCODER
+void emitter::emitRecordGCCall(BYTE* codePos)
 {
     assert(emitIssuing);
     assert(!emitFullGCinfo);
 
-#ifdef JIT32_GCENCODER
     regMaskTP regs = (emitThisGCrefRegs | emitThisByrefRegs) & ~RBM_INTRET;
 
     if (regs == RBM_NONE)
@@ -6523,7 +6521,6 @@ void emitter::emitRecordGCcall(BYTE* codePos, unsigned callInstrLength)
             }
         }
     }
-#endif // JIT32_GCENCODER
 
     unsigned codeOffs = emitCurCodeOffs(codePos);
 
@@ -6531,9 +6528,9 @@ void emitter::emitRecordGCcall(BYTE* codePos, unsigned callInstrLength)
     if (EMIT_GC_VERBOSE)
     {
 #if FEATURE_FIXED_OUT_ARGS
-        printf("; Call at %04X GCvars ", codeOffs - callInstrLength);
+        printf("; Call at %04X GCvars ", codeOffs);
 #else
-        printf("; Call at %04X [stk=%u], GCvars ", codeOffs - callInstrLength, emitCurStackLvl);
+        printf("; Call at %04X [stk=%u], GCvars ", codeOffs, emitCurStackLvl);
 #endif
         emitDispVarSet();
         printf(", gcrefRegs");
@@ -6546,10 +6543,6 @@ void emitter::emitRecordGCcall(BYTE* codePos, unsigned callInstrLength)
 #endif
 
     GCCallSite* call = gcInfo.AddCallSite(codeOffs, emitThisGCrefRegs, emitThisByrefRegs);
-
-#ifndef JIT32_GCENCODER
-    call->callInstrLength = static_cast<uint8_t>(callInstrLength);
-#endif
 
 #if !FEATURE_FIXED_OUT_ARGS
     noway_assert(FitsIn<uint16_t>(emitCurStackLvl / 4));
@@ -6598,6 +6591,7 @@ void emitter::emitRecordGCcall(BYTE* codePos, unsigned callInstrLength)
     assert(u2.emitGcArgTrackCnt == gcArgs);
 #endif //! FEATURE_FIXED_OUT_ARGS
 }
+#endif // JIT32_GCENCODER
 
 /*****************************************************************************
  *
@@ -7034,63 +7028,40 @@ void emitter::emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsi
 #endif
 }
 
-void emitter::emitRecordGCCallPop(BYTE* addr, unsigned callInstrLength)
+#ifndef JIT32_GCENCODER
+void emitter::emitRecordGCCall(BYTE* addr, unsigned callInstrLength)
 {
     assert(emitIssuing);
-    assert((0 < callInstrLength) && (callInstrLength <= 16));
-
-    if (!emitFullGCinfo)
-    {
-        emitRecordGCcall(addr, callInstrLength);
-
-        return;
-    }
 
     unsigned codeOffs = emitCurCodeOffs(addr);
 
-#ifndef JIT32_GCENCODER
     if (!emitFullyInt)
     {
-        GCCallSite* callSite      = gcInfo.AddCallSite(codeOffs, emitThisGCrefRegs, emitThisByrefRegs);
-        callSite->callInstrLength = static_cast<uint8_t>(callInstrLength);
+#ifdef DEBUG
+        if (EMIT_GC_VERBOSE)
+        {
+            printf("; Call at %04X GCvars ", codeOffs - callInstrLength);
+            emitDispVarSet();
+            printf(", gcrefRegs");
+            emitDispRegSet(emitThisGCrefRegs);
+            printf(", byrefRegs");
+            emitDispRegSet(emitThisByrefRegs);
+            printf("\n");
+        }
+#endif
+
+        gcInfo.AddCallSite(codeOffs, callInstrLength, emitThisGCrefRegs, emitThisByrefRegs);
 
         return;
     }
-#endif
-
-#ifdef JIT32_GCENCODER
-    unsigned gcrefRegs = 0;
-    unsigned byrefRegs = 0;
-
-    for (unsigned i = 0; i < CNT_CALLEE_SAVED; i++)
-    {
-        regMaskTP calleeSaved = GCInfo::calleeSaveOrder[i];
-
-        if ((emitThisGCrefRegs & calleeSaved) != RBM_NONE)
-        {
-            gcrefRegs |= (1 << i);
-        }
-
-        if ((emitThisByrefRegs & calleeSaved) != RBM_NONE)
-        {
-            byrefRegs |= (1 << i);
-        }
-    }
-#endif
 
     GCRegArgChange* change = gcInfo.AddRegArgChange();
     change->codeOffs       = codeOffs;
     change->argOffset      = 0;
     change->kind           = GCInfo::RegArgChangeKind::KillArgs;
     change->gcType         = GCT_GCREF;
-#ifdef JIT32_GCENCODER
-    change->isCall        = true;
-    change->isThis        = false;
-    change->callRefRegs   = gcrefRegs;
-    change->callByrefRegs = byrefRegs;
-#endif
 }
-
+#endif // JIT32_GCENCODER
 #endif // FEATURE_FIXED_OUT_ARGS
 
 void emitter::emitGCvarLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum))

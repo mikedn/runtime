@@ -160,7 +160,12 @@ public:
         return lastRegArgChange;
     }
 
+
+#ifdef JIT32_GCENCODER
     CallSite* AddCallSite(unsigned codeOffs, regMaskTP refRegs, regMaskTP byrefRegs);
+#else
+    CallSite* AddCallSite(unsigned codeOffs, unsigned length, regMaskTP refRegs, regMaskTP byrefRegs);
+#endif
 
 #ifdef JIT32_GCENCODER
     void* CreateAndStoreGCInfo(class CodeGen* codeGen, unsigned codeSize, unsigned prologSize, unsigned epilogSize);

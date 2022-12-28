@@ -234,8 +234,16 @@ regMaskSmall GCInfo::RegMaskFromCalleeSavedMask(uint16_t calleeSaveMask)
 }
 #endif // JIT32_GCENCODER
 
+#ifdef JIT32_GCENCODER
 GCInfo::CallSite* GCInfo::AddCallSite(unsigned codeOffs, regMaskTP refRegs, regMaskTP byrefRegs)
+#else
+GCInfo::CallSite* GCInfo::AddCallSite(unsigned codeOffs, unsigned length, regMaskTP refRegs, regMaskTP byrefRegs)
+#endif
 {
+#ifndef JIT32_GCENCODER
+    assert((0 < length) && (length <= 16));
+#endif
+
     CallSite* call = new (compiler, CMK_GC) CallSite;
 
     if (firstCallSite == nullptr)
@@ -254,6 +262,9 @@ GCInfo::CallSite* GCInfo::AddCallSite(unsigned codeOffs, regMaskTP refRegs, regM
     call->refRegs   = static_cast<regMaskSmall>(refRegs);
     call->byrefRegs = static_cast<regMaskSmall>(byrefRegs);
     call->codeOffs  = codeOffs;
+#ifndef JIT32_GCENCODER
+    call->callInstrLength = static_cast<uint8_t>(length);
+#endif
 
     return call;
 }

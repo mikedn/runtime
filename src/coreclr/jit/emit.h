@@ -2052,8 +2052,11 @@ public:
     void emitStackPop(BYTE* addr, bool isCall, unsigned callInstrSize, unsigned count);
     void emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSize, unsigned count);
 #endif // !FEATURE_FIXED_OUT_ARGS
-    void emitRecordGCCallPop(BYTE* addr, unsigned callInstrLength);
-    void emitRecordGCcall(BYTE* codePos, unsigned callInstrLength);
+#ifdef JIT32_GCENCODER
+    void emitRecordGCCall(BYTE* addr);
+#else
+    void emitRecordGCCall(BYTE* addr, unsigned callInstrLength);
+#endif
 
     /* Liveness of stack variables, and registers */
 

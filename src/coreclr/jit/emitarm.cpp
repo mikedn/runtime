@@ -6160,7 +6160,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             // Some helper calls may be marked as not requiring GC info to be recorded.
             if (!id->idIsNoGC())
             {
-                emitRecordGCCallPop(dst, callInstrSize);
+                emitRecordGCCall(dst, callInstrSize);
             }
 
             break;

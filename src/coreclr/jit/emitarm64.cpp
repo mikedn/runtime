@@ -9711,7 +9711,7 @@ unsigned emitter::emitOutputCall(insGroup* ig, BYTE* dst, instrDesc* id, code_t 
     // Some helper calls may be marked as not requiring GC info to be recorded.
     if (!id->idIsNoGC())
     {
-        emitRecordGCCallPop(dst, callInstrSize);
+        emitRecordGCCall(dst, callInstrSize);
     }
 
     return callInstrSize;

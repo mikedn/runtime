@@ -11870,13 +11870,12 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
             if (!emitFullGCinfo && recCall)
             {
-                assert(callInstrSize != 0);
-                emitRecordGCcall(dst, callInstrSize);
+                emitRecordGCCall(dst);
             }
 #else
             if (recCall)
             {
-                emitRecordGCCallPop(dst, callInstrSize);
+                emitRecordGCCall(dst, callInstrSize);
             }
 #endif
 
