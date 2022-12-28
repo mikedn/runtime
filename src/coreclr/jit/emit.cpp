@@ -6598,14 +6598,13 @@ void emitter::emitRecordGCCall(BYTE* codePos)
 void emitter::emitUpdateLiveGCregs(GCtype gcType, regMaskTP regs, BYTE* addr)
 {
     assert(emitIssuing);
+    assert(gcType != GCT_NONE);
 
     // Don't track GC changes in epilogs
     if (emitIGisInEpilog(emitCurIG))
     {
         return;
     }
-
-    assert(gcType != GCT_NONE);
 
     regMaskTP& emitThisXXrefRegs = (gcType == GCT_GCREF) ? emitThisGCrefRegs : emitThisByrefRegs;
     regMaskTP& emitThisYYrefRegs = (gcType == GCT_GCREF) ? emitThisByrefRegs : emitThisGCrefRegs;
@@ -6632,22 +6631,56 @@ void emitter::emitUpdateLiveGCregs(GCtype gcType, regMaskTP regs, BYTE* addr)
 
         regMaskTP chg = (dead | life);
 
-        do
+        while (chg != RBM_NONE)
         {
             regMaskTP bit = genFindLowestBit(chg);
             regNumber reg = genRegNumFromMask(bit);
 
-            if (life & bit)
+            if ((life & bit) != RBM_NONE)
             {
-                emitGCregLiveUpd(gcType, reg, addr);
+                if ((emitThisYYrefRegs & bit) != RBM_NONE)
+                {
+                    if (emitFullyInt)
+                    {
+                        emitGCregDeadSet(gcType == GCT_GCREF ? GCT_BYREF : GCT_GCREF, bit, addr);
+                    }
+
+                    emitThisYYrefRegs &= ~bit;
+                }
+
+#ifdef JIT32_GCENCODER
+                // For synchronized methods, "this" is always alive and in the same register.
+                // However, if we generate any code after the epilog block (where "this"
+                // goes dead), "this" will come alive again. We need to notice that.
+                // Note that we only expect isThis to be true at an insGroup boundary.
+
+                bool isThis = (reg == emitSyncThisObjReg);
+
+                if (emitFullyInt || (emitFullGCinfo && isThis))
+                {
+                    emitGCregLiveSet(gcType, bit, addr, isThis);
+                }
+#else
+                if (emitFullyInt)
+                {
+                    emitGCregLiveSet(gcType, bit, addr);
+                }
+#endif
+
+                emitThisXXrefRegs |= bit;
             }
             else
             {
-                emitGCregDeadUpd(reg, addr);
+                if (emitFullyInt)
+                {
+                    emitGCregDeadSet(gcType, bit, addr);
+                }
+
+                emitThisXXrefRegs &= ~bit;
             }
 
-            chg -= bit;
-        } while (chg);
+            chg &= ~bit;
+        }
 
         assert(emitThisXXrefRegs == regs);
     }
@@ -6888,6 +6921,7 @@ UNATIVE_OFFSET emitter::emitCodeOffset(void* blockPtr, unsigned codePos)
 void emitter::emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr)
 {
     assert(emitIssuing);
+    assert((emitThisByrefRegs & emitThisGCrefRegs) == RBM_NONE);
 
     // Don't track GC changes in epilogs
     if (emitIGisInEpilog(emitCurIG))
@@ -6908,7 +6942,12 @@ void emitter::emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr)
 
         if ((emitThisYYrefRegs & regMask) != RBM_NONE)
         {
-            emitGCregDeadUpd(reg, addr);
+            if (emitFullyInt)
+            {
+                emitGCregDeadSet(gcType == GCT_GCREF ? GCT_BYREF : GCT_GCREF, regMask, addr);
+            }
+
+            emitThisYYrefRegs &= ~regMask;
         }
 
 #ifdef JIT32_GCENCODER
