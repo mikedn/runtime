@@ -6606,9 +6606,10 @@ void emitter::emitUpdateLiveGCregs(GCtype gcType, regMaskTP regs, BYTE* addr)
         return;
     }
 
-    regMaskTP& emitThisXXrefRegs = (gcType == GCT_GCREF) ? emitThisGCrefRegs : emitThisByrefRegs;
-    regMaskTP& emitThisYYrefRegs = (gcType == GCT_GCREF) ? emitThisByrefRegs : emitThisGCrefRegs;
-    assert(emitThisXXrefRegs != regs);
+    regMaskTP& typeRegs  = (gcType == GCT_GCREF) ? emitThisGCrefRegs : emitThisByrefRegs;
+    regMaskTP& otherRegs = (gcType == GCT_GCREF) ? emitThisByrefRegs : emitThisGCrefRegs;
+
+    assert(typeRegs != regs);
 
 #ifdef JIT32_GCENCODER
     // We need to report `this` even if the code is not fully interruptible.
@@ -6617,35 +6618,29 @@ void emitter::emitUpdateLiveGCregs(GCtype gcType, regMaskTP regs, BYTE* addr)
     if (emitFullyInt)
 #endif
     {
-        /* Figure out which GC registers are becoming live/dead at this point */
-
-        regMaskTP dead = (emitThisXXrefRegs & ~regs);
-        regMaskTP life = (~emitThisXXrefRegs & regs);
-
-        /* Can't simultaneously become live and dead at the same time */
+        regMaskTP dead = typeRegs & ~regs;
+        regMaskTP life = ~typeRegs & regs;
 
         assert((dead | life) != 0);
         assert((dead & life) == 0);
 
-        /* Compute the 'changing state' mask */
+        regMaskTP change = (dead | life);
 
-        regMaskTP chg = (dead | life);
-
-        while (chg != RBM_NONE)
+        while (change != RBM_NONE)
         {
-            regMaskTP bit = genFindLowestBit(chg);
-            regNumber reg = genRegNumFromMask(bit);
+            regMaskTP regMask = genFindLowestBit(change);
+            regNumber reg     = genRegNumFromMask(regMask);
 
-            if ((life & bit) != RBM_NONE)
+            if ((life & regMask) != RBM_NONE)
             {
-                if ((emitThisYYrefRegs & bit) != RBM_NONE)
+                if ((otherRegs & regMask) != RBM_NONE)
                 {
                     if (emitFullyInt)
                     {
-                        emitGCregDeadSet(gcType == GCT_GCREF ? GCT_BYREF : GCT_GCREF, bit, addr);
+                        emitGCregDeadSet(gcType == GCT_GCREF ? GCT_BYREF : GCT_GCREF, regMask, addr);
                     }
 
-                    emitThisYYrefRegs &= ~bit;
+                    otherRegs &= ~regMask;
                 }
 
 #ifdef JIT32_GCENCODER
@@ -6658,36 +6653,36 @@ void emitter::emitUpdateLiveGCregs(GCtype gcType, regMaskTP regs, BYTE* addr)
 
                 if (emitFullyInt || (emitFullGCinfo && isThis))
                 {
-                    emitGCregLiveSet(gcType, bit, addr, isThis);
+                    emitGCregLiveSet(gcType, regMask, addr, isThis);
                 }
 #else
                 if (emitFullyInt)
                 {
-                    emitGCregLiveSet(gcType, bit, addr);
+                    emitGCregLiveSet(gcType, regMask, addr);
                 }
 #endif
 
-                emitThisXXrefRegs |= bit;
+                typeRegs |= regMask;
             }
             else
             {
                 if (emitFullyInt)
                 {
-                    emitGCregDeadSet(gcType, bit, addr);
+                    emitGCregDeadSet(gcType, regMask, addr);
                 }
 
-                emitThisXXrefRegs &= ~bit;
+                typeRegs &= ~regMask;
             }
 
-            chg &= ~bit;
+            change &= ~regMask;
         }
 
-        assert(emitThisXXrefRegs == regs);
+        assert(typeRegs == regs);
     }
     else
     {
-        emitThisYYrefRegs &= ~regs; // Kill the regs from the other GC type (if live)
-        emitThisXXrefRegs = regs;   // Mark them as live in the requested GC type
+        typeRegs = regs;
+        otherRegs &= ~regs;
     }
 
     // The 2 GC reg masks can't be overlapping
@@ -6931,23 +6926,22 @@ void emitter::emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr)
 
     assert(gcType != GCT_NONE);
 
-    regMaskTP regMask = genRegMask(reg);
+    regMaskTP& typeRegs  = (gcType == GCT_GCREF) ? emitThisGCrefRegs : emitThisByrefRegs;
+    regMaskTP& otherRegs = (gcType == GCT_GCREF) ? emitThisByrefRegs : emitThisGCrefRegs;
+    regMaskTP  regMask   = genRegMask(reg);
 
-    regMaskTP& emitThisXXrefRegs = (gcType == GCT_GCREF) ? emitThisGCrefRegs : emitThisByrefRegs;
-    regMaskTP& emitThisYYrefRegs = (gcType == GCT_GCREF) ? emitThisByrefRegs : emitThisGCrefRegs;
-
-    if ((emitThisXXrefRegs & regMask) == RBM_NONE)
+    if ((typeRegs & regMask) == RBM_NONE)
     {
         // If the register was holding the other GC type, that type should go dead now.
 
-        if ((emitThisYYrefRegs & regMask) != RBM_NONE)
+        if ((otherRegs & regMask) != RBM_NONE)
         {
             if (emitFullyInt)
             {
                 emitGCregDeadSet(gcType == GCT_GCREF ? GCT_BYREF : GCT_GCREF, regMask, addr);
             }
 
-            emitThisYYrefRegs &= ~regMask;
+            otherRegs &= ~regMask;
         }
 
 #ifdef JIT32_GCENCODER
@@ -6969,7 +6963,7 @@ void emitter::emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr)
         }
 #endif
 
-        emitThisXXrefRegs |= regMask;
+        typeRegs |= regMask;
     }
 
     // The 2 GC reg masks can't be overlapping
