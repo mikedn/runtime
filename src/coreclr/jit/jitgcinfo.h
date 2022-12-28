@@ -72,7 +72,7 @@ public:
 #ifdef JIT32_GCENCODER
             uint16_t argOffset;
 #else
-            int argOffset;
+            int   argOffset;
 #endif
         };
     };
@@ -150,6 +150,16 @@ public:
 #endif
     RegArgChange* RemoveLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs);
 
+#ifdef JIT32_GCENCODER
+    RegArgChange* AddCallArgPush(unsigned codeOffs, unsigned stackLevel, GCtype gcType);
+    RegArgChange* AddCallArgsKill(unsigned codeOffs, unsigned argCount);
+    RegArgChange* AddCallArgsPop(
+        unsigned codeOffs, unsigned argCount, bool isCall, unsigned refRegs, unsigned byrefRegs);
+#else
+    RegArgChange* AddCallArgStore(unsigned codeOffs, int argOffs, GCtype gcType);
+    RegArgChange* AddCallArgsKill(unsigned codeOffs);
+#endif
+
     RegArgChange* GetFirstRegArgChange() const
     {
         return firstRegArgChange;
@@ -159,7 +169,6 @@ public:
     {
         return lastRegArgChange;
     }
-
 
 #ifdef JIT32_GCENCODER
     CallSite* AddCallSite(unsigned codeOffs, regMaskTP refRegs, regMaskTP byrefRegs);

@@ -7017,15 +7017,7 @@ void emitter::emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsi
         return;
     }
 
-    GCRegArgChange* change = gcInfo.AddRegArgChange();
-    change->codeOffs       = emitCurCodeOffs(addr);
-    change->argOffset      = offs;
-    change->kind           = GCInfo::RegArgChangeKind::StoreArg;
-    change->gcType         = gcType;
-#ifdef JIT32_GCENCODER
-    change->isCall = false;
-    change->isThis = false;
-#endif
+    gcInfo.AddCallArgStore(emitCurCodeOffs(addr), offs, gcType);
 }
 
 #ifndef JIT32_GCENCODER
@@ -7055,11 +7047,7 @@ void emitter::emitRecordGCCall(BYTE* addr, unsigned callInstrLength)
         return;
     }
 
-    GCRegArgChange* change = gcInfo.AddRegArgChange();
-    change->codeOffs       = codeOffs;
-    change->argOffset      = 0;
-    change->kind           = GCInfo::RegArgChangeKind::KillArgs;
-    change->gcType         = GCT_GCREF;
+    gcInfo.AddCallArgsKill(codeOffs);
 }
 #endif // JIT32_GCENCODER
 #endif // FEATURE_FIXED_OUT_ARGS
@@ -7377,13 +7365,7 @@ void emitter::emitStackPushLargeStk(BYTE* addr, GCtype gcType, unsigned count)
                     IMPL_LIMITATION("Too many/too big arguments to encode GC information");
                 }
 
-                GCRegArgChange* change = gcInfo.AddRegArgChange();
-                change->codeOffs       = emitCurCodeOffs(addr);
-                change->argOffset      = static_cast<uint16_t>(level.Value());
-                change->kind           = GCInfo::RegArgChangeKind::PushArg;
-                change->gcType         = gcType;
-                change->isCall         = false;
-                change->isThis         = false;
+                gcInfo.AddCallArgPush(emitCurCodeOffs(addr), level.Value(), gcType);
             }
 
             u2.emitGcArgTrackCnt++;
@@ -7448,9 +7430,6 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSi
         }
     }
 
-    // For the general encoder, we always have to record calls, so we don't take this early return.    /* Are there any
-    // args to pop at this call site?
-
     if (argRecCnt.Value() == 0)
     {
         // Or do we have a partially interruptible EBP-less frame, and any
@@ -7462,23 +7441,7 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSi
         }
     }
 
-    // Only calls may pop more than one value.
-    // _cdecl calls accomplish this popping via a post-call-instruction SP adjustment.
-    // The "rpdCall" field below should be interpreted as "the instruction accomplishes
-    // call-related popping, even if it's not itself a call".  Therefore, we don't just
-    // use the "isCall" input argument, which means that the instruction actually is a call --
-    // we use the OR of "isCall" or the "pops more than one value."
-    bool isCallRelatedPop = (argRecCnt.Value() > 1);
-
-    GCRegArgChange* change = gcInfo.AddRegArgChange();
-    change->codeOffs       = emitCurCodeOffs(addr);
-    change->argOffset      = argRecCnt.Value();
-    change->kind           = GCInfo::RegArgChangeKind::PopArgs;
-    change->gcType         = GCT_GCREF;
-    change->isCall         = isCall || isCallRelatedPop;
-    change->isThis         = false;
-    change->callRefRegs    = gcrefRegs;
-    change->callByrefRegs  = byrefRegs;
+    gcInfo.AddCallArgsPop(emitCurCodeOffs(addr), argRecCnt.Value(), isCall, gcrefRegs, byrefRegs);
 }
 
 // For caller-pop arguments, we report the arguments as pending arguments.
@@ -7543,12 +7506,7 @@ void emitter::emitStackKillArgs(BYTE* addr, unsigned count, unsigned callInstrSi
 
     if (gcCnt.Value() != 0)
     {
-        GCRegArgChange* change = gcInfo.AddRegArgChange();
-        change->codeOffs       = emitCurCodeOffs(addr);
-        change->argOffset      = gcCnt.Value();
-        change->kind           = GCInfo::RegArgChangeKind::KillArgs;
-        change->gcType         = GCT_GCREF;
-        change->isThis         = false;
+        gcInfo.AddCallArgsKill(emitCurCodeOffs(addr), gcCnt.Value());
     }
 
     // Now that ptr args have been marked as non-ptrs, we need to

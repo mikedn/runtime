@@ -218,6 +218,80 @@ GCInfo::RegArgChange* GCInfo::RemoveLiveRegs(GCtype gcType, regMaskTP regs, unsi
 }
 
 #ifdef JIT32_GCENCODER
+GCInfo::RegArgChange* GCInfo::AddCallArgPush(unsigned codeOffs, unsigned stackLevel, GCtype gcType)
+{
+    assert(stackLevel <= UINT16_MAX);
+
+    RegArgChange* change = AddRegArgChange();
+    change->codeOffs     = codeOffs;
+    change->argOffset    = static_cast<uint16_t>(stackLevel);
+    change->kind         = GCInfo::RegArgChangeKind::PushArg;
+    change->gcType       = gcType;
+    change->isCall       = false;
+    change->isThis       = false;
+    return change;
+}
+
+GCInfo::RegArgChange* GCInfo::AddCallArgsKill(unsigned codeOffs, unsigned argCount)
+{
+    assert(argCount <= UINT16_MAX);
+
+    RegArgChange* change = AddRegArgChange();
+    change->codeOffs     = codeOffs;
+    change->argOffset    = static_cast<uint16_t>(argCount);
+    change->kind         = GCInfo::RegArgChangeKind::KillArgs;
+    change->gcType       = GCT_GCREF;
+    change->isThis       = false;
+    return change;
+}
+
+GCInfo::RegArgChange* GCInfo::AddCallArgsPop(
+    unsigned codeOffs, unsigned argCount, bool isCall, unsigned refRegs, unsigned byrefRegs)
+{
+    assert(argCount <= UINT16_MAX);
+
+    // Only calls may pop more than one value.
+    // cdecl calls accomplish this popping via a post-call "ADD SP, imm" instruction,
+    // we treat that as "isCall" too.
+    isCall |= argCount > 1;
+
+    RegArgChange* change  = AddRegArgChange();
+    change->codeOffs      = codeOffs;
+    change->argOffset     = static_cast<uint16_t>(argCount);
+    change->kind          = GCInfo::RegArgChangeKind::PopArgs;
+    change->gcType        = GCT_GCREF;
+    change->isCall        = isCall;
+    change->isThis        = false;
+    change->callRefRegs   = refRegs;
+    change->callByrefRegs = byrefRegs;
+    return change;
+}
+#else
+GCInfo::RegArgChange* GCInfo::AddCallArgStore(unsigned codeOffs, int argOffs, GCtype gcType)
+{
+    assert(gcType != GCT_NONE);
+    assert(abs(argOffs) % REGSIZE_BYTES == 0);
+
+    RegArgChange* change = AddRegArgChange();
+    change->codeOffs     = codeOffs;
+    change->argOffset    = argOffs;
+    change->kind         = GCInfo::RegArgChangeKind::StoreArg;
+    change->gcType       = gcType;
+    return change;
+}
+
+GCInfo::RegArgChange* GCInfo::AddCallArgsKill(unsigned codeOffs)
+{
+    RegArgChange* change = AddRegArgChange();
+    change->codeOffs     = codeOffs;
+    change->argOffset    = 0;
+    change->kind         = GCInfo::RegArgChangeKind::KillArgs;
+    change->gcType       = GCT_GCREF;
+    return change;
+}
+#endif
+
+#ifdef JIT32_GCENCODER
 const regMaskTP GCInfo::calleeSaveOrder[]{RBM_CALLEE_SAVED_ORDER};
 
 regMaskSmall GCInfo::RegMaskFromCalleeSavedMask(uint16_t calleeSaveMask)
