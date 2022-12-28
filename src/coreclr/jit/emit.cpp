@@ -6657,10 +6657,6 @@ void emitter::emitUpdateLiveGCregs(GCtype gcType, regMaskTP regs, BYTE* addr)
         return;
     }
 
-    regMaskTP life;
-    regMaskTP dead;
-    regMaskTP chg;
-
     assert(gcType != GCT_NONE);
 
     regMaskTP& emitThisXXrefRegs = (gcType == GCT_GCREF) ? emitThisGCrefRegs : emitThisByrefRegs;
@@ -6671,8 +6667,8 @@ void emitter::emitUpdateLiveGCregs(GCtype gcType, regMaskTP regs, BYTE* addr)
     {
         /* Figure out which GC registers are becoming live/dead at this point */
 
-        dead = (emitThisXXrefRegs & ~regs);
-        life = (~emitThisXXrefRegs & regs);
+        regMaskTP dead = (emitThisXXrefRegs & ~regs);
+        regMaskTP life = (~emitThisXXrefRegs & regs);
 
         /* Can't simultaneously become live and dead at the same time */
 
@@ -6681,7 +6677,7 @@ void emitter::emitUpdateLiveGCregs(GCtype gcType, regMaskTP regs, BYTE* addr)
 
         /* Compute the 'changing state' mask */
 
-        chg = (dead | life);
+        regMaskTP chg = (dead | life);
 
         do
         {
@@ -7027,6 +7023,7 @@ void emitter::emitGCregDeadAll(BYTE* addr)
 void emitter::emitGCregDeadUpd(regNumber reg, BYTE* addr)
 {
     assert(emitIssuing);
+    assert((emitThisByrefRegs & emitThisGCrefRegs) == RBM_NONE);
 
     // Don't track GC changes in epilogs
     if (emitIGisInEpilog(emitCurIG))
@@ -7036,24 +7033,22 @@ void emitter::emitGCregDeadUpd(regNumber reg, BYTE* addr)
 
     regMaskTP regMask = genRegMask(reg);
 
-    if ((emitThisGCrefRegs & regMask) != 0)
+    if (emitFullyInt)
     {
-        assert((emitThisByrefRegs & regMask) == 0);
-
-        if (emitFullyInt)
+        if ((emitThisGCrefRegs & regMask) != RBM_NONE)
         {
             emitGCregDeadSet(GCT_GCREF, regMask, addr);
+            emitThisGCrefRegs &= ~regMask;
         }
-
-        emitThisGCrefRegs &= ~regMask;
-    }
-    else if ((emitThisByrefRegs & regMask) != 0)
-    {
-        if (emitFullyInt)
+        else if ((emitThisByrefRegs & regMask) != RBM_NONE)
         {
             emitGCregDeadSet(GCT_BYREF, regMask, addr);
+            emitThisByrefRegs &= ~regMask;
         }
-
+    }
+    else
+    {
+        emitThisGCrefRegs &= ~regMask;
         emitThisByrefRegs &= ~regMask;
     }
 }
