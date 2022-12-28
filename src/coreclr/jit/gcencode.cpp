@@ -3185,8 +3185,7 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, const
                     break;
             }
         }
-
-        if (change->kind != RegArgChangeKind::RegChange)
+        else if (change->kind != RegArgChangeKind::RegChange)
         {
             if (change->kind == RegArgChangeKind::KillArgs)
             {
