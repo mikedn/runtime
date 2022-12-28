@@ -4863,8 +4863,10 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 
     emitOffsAdj = 0;
 
-    emitFullyInt   = codeGen->GetInterruptible();
+    emitFullyInt = codeGen->GetInterruptible();
+#ifdef JIT32_GCENCODER
     emitFullGCinfo = codeGen->GetInterruptible() || !codeGen->isFramePointerUsed();
+#endif
 
 #if EMITTER_STATS
     GCrefsTable.record(emitGCrFrameOffsCnt);
@@ -6614,7 +6616,12 @@ void emitter::emitUpdateLiveGCregs(GCtype gcType, regMaskTP regs, BYTE* addr)
     regMaskTP& emitThisYYrefRegs = (gcType == GCT_GCREF) ? emitThisByrefRegs : emitThisGCrefRegs;
     assert(emitThisXXrefRegs != regs);
 
-    if (emitFullGCinfo)
+#ifdef JIT32_GCENCODER
+    // We need to report `this` even if the code is not fully interruptible.
+    if (emitFullyInt || (emitFullGCinfo && (emitSyncThisObjReg != REG_NA)))
+#else
+    if (emitFullyInt)
+#endif
     {
         /* Figure out which GC registers are becoming live/dead at this point */
 

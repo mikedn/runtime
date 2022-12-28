@@ -2009,14 +2009,16 @@ public:
     /*         The following logic keeps track of live GC ref values        */
     /************************************************************************/
 
-    bool emitFullGCinfo; // full GC pointer maps?
-    bool emitFullyInt;   // fully interruptible code?
+    bool emitFullyInt; // fully interruptible code?
 
     regMaskTP emitGetGCRegsSavedOrModified(CORINFO_METHOD_HANDLE methHnd);
 
     // Gets a register mask that represent the kill set for a NoGC helper call.
     regMaskTP emitGetGCRegsKilledByNoGCCall(CorInfoHelpFunc helper);
 
+#ifdef JIT32_GCENCODER
+    bool emitFullGCinfo; // full GC pointer maps?
+#endif
 #if !FEATURE_FIXED_OUT_ARGS
     bool emitFullArgInfo;   // full arg info (including non-ptr arg)?
     bool emitSimpleStkUsed; // using the "simple" stack table?
