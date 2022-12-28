@@ -7267,7 +7267,7 @@ BYTE* emitter::emitGetInsRelocValue(instrDesc* id)
 
 #endif // TARGET_ARM
 
-#if !FEATURE_FIXED_OUT_ARGS
+#ifdef JIT32_GCENCODER
 
 // Record a push of a single dword on the stack.
 void emitter::emitStackPush(BYTE* addr, GCtype gcType)
@@ -7317,7 +7317,6 @@ void emitter::emitStackPushN(BYTE* addr, unsigned count)
 void emitter::emitStackPop(BYTE* addr, bool isCall, unsigned callInstrSize, unsigned count)
 {
     assert(!isCall || callInstrSize > 0);
-#ifdef TARGET_X86
     assert(emitCurStackLvl / sizeof(int) >= count);
 
     if (count != 0)
@@ -7345,17 +7344,10 @@ void emitter::emitStackPop(BYTE* addr, bool isCall, unsigned callInstrSize, unsi
         emitCurStackLvl -= count * sizeof(int);
     }
     else
-#endif // TARGET_X86
     {
         assert(isCall);
 
-        // For the general encoder we do the call below always when it's a call, to ensure that the call is
-        // recorded (when we're doing the ptr reg map for a non-fully-interruptible method).
-        if (emitFullGCinfo
-#ifndef JIT32_GCENCODER
-            || (emitFullGCinfo && !emitFullyInt && isCall)
-#endif
-                )
+        if (emitFullGCinfo)
         {
             emitStackPopLargeStk(addr, isCall, callInstrSize, 0);
         }
@@ -7406,11 +7398,7 @@ void emitter::emitStackPushLargeStk(BYTE* addr, GCtype gcType, unsigned count)
 void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSize, unsigned count)
 {
     assert(emitIssuing);
-#ifdef JIT32_GCENCODER
-    // For the general encoder, we always need to record calls, so we make this call
-    // even when emitSimpleStkUsed is true.
     assert(!emitSimpleStkUsed);
-#endif
 
     S_UINT16 argRecCnt(0); // arg count for ESP, ptr-arg count for EBP
 
@@ -7435,13 +7423,10 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSi
     // We're about to pop the corresponding arg records
     u2.emitGcArgTrackCnt -= argRecCnt.Value();
 
-#ifdef JIT32_GCENCODER
-    // For the general encoder, we always have to record calls, so we don't take this early return.
     if (!emitFullGCinfo)
     {
         return;
     }
-#endif
 
     // Do we have any interesting (i.e., callee-saved) registers live here?
 
@@ -7463,7 +7448,6 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSi
         }
     }
 
-#ifdef JIT32_GCENCODER
     // For the general encoder, we always have to record calls, so we don't take this early return.    /* Are there any
     // args to pop at this call site?
 
@@ -7471,14 +7455,12 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSi
     {
         // Or do we have a partially interruptible EBP-less frame, and any
         // of EDI,ESI,EBX,EBP are live, or is there an outer/pending call?
-        CLANG_FORMAT_COMMENT_ANCHOR;
 
-#if !FPO_INTERRUPTIBLE
         if (emitFullyInt || (gcrefRegs == 0 && byrefRegs == 0 && u2.emitGcArgTrackCnt == 0))
-#endif
+        {
             return;
+        }
     }
-#endif // JIT32_GCENCODER
 
     // Only calls may pop more than one value.
     // _cdecl calls accomplish this popping via a post-call-instruction SP adjustment.
@@ -7497,14 +7479,6 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSi
     change->isThis         = false;
     change->callRefRegs    = gcrefRegs;
     change->callByrefRegs  = byrefRegs;
-
-#ifndef JIT32_GCENCODER
-    if (change->isCall)
-    {
-        assert(isCall || callInstrSize == 0);
-        change->callInstrLength = static_cast<uint8_t>(callInstrSize);
-    }
-#endif
 }
 
 // For caller-pop arguments, we report the arguments as pending arguments.
@@ -7583,7 +7557,7 @@ void emitter::emitStackKillArgs(BYTE* addr, unsigned count, unsigned callInstrSi
     emitStackPopLargeStk(addr, true, callInstrSize, 0);
 }
 
-#endif // !FEATURE_FIXED_OUT_ARGS
+#endif // JIT32_GCENCODER
 
 // A helper for recording a relocation with the EE.
 void emitter::emitRecordRelocation(void* location,            /* IN */
