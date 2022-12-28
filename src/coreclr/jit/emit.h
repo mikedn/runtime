@@ -2002,8 +2002,9 @@ public:
     /*    The following is used to distinguish helper vs non-helper calls   */
     /************************************************************************/
 
-    static bool emitNoGChelper(CorInfoHelpFunc helpFunc);
-    static bool emitNoGChelper(CORINFO_METHOD_HANDLE methHnd);
+    static bool IsNoGCHelper(CorInfoHelpFunc helpFunc);
+    static regMaskTP GetNoGCHelperCalleeKilledRegs(CorInfoHelpFunc helper);
+    static regMaskTP GetNoGCHelperCalleeSavedRegs(CorInfoHelpFunc helper);
 
     /************************************************************************/
     /*         The following logic keeps track of live GC ref values        */
@@ -2011,13 +2012,8 @@ public:
 
     bool emitFullyInt; // fully interruptible code?
 
-    regMaskTP emitGetGCRegsSavedOrModified(CORINFO_METHOD_HANDLE methHnd);
-
-    // Gets a register mask that represent the kill set for a NoGC helper call.
-    regMaskTP emitGetGCRegsKilledByNoGCCall(CorInfoHelpFunc helper);
-
 #ifdef JIT32_GCENCODER
-    bool emitFullGCinfo; // full GC pointer maps?
+    bool emitFullGCinfo;    // full GC pointer maps?
     bool emitFullArgInfo;   // full arg info (including non-ptr arg)?
     bool emitSimpleStkUsed; // using the "simple" stack table?
 

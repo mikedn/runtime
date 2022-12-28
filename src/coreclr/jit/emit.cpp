@@ -1894,7 +1894,7 @@ const emitAttr emitter::emitSizeDecode[emitter::OPSZ_COUNT] = {EA_1BYTE, EA_2BYT
 
 // Returns true if garbage collection won't happen within the helper call.
 // There is no need to record live pointers for such call sites.
-bool emitter::emitNoGChelper(CorInfoHelpFunc helpFunc)
+bool emitter::IsNoGCHelper(CorInfoHelpFunc helpFunc)
 {
     switch (helpFunc)
     {
@@ -1943,16 +1943,6 @@ bool emitter::emitNoGChelper(CorInfoHelpFunc helpFunc)
         default:
             return false;
     }
-}
-
-bool emitter::emitNoGChelper(CORINFO_METHOD_HANDLE methHnd)
-{
-    CorInfoHelpFunc helpFunc = Compiler::eeGetHelperNum(methHnd);
-    if (helpFunc == CORINFO_HELP_UNDEF)
-    {
-        return false;
-    }
-    return emitNoGChelper(helpFunc);
 }
 
 void* emitter::emitAddLabel(INDEBUG(BasicBlock* block))
@@ -2610,17 +2600,23 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
 #endif
                                               )
 {
-    VARSET_VALARG_TP GCvars    = codeGen->liveness.GetGCLiveSet();
-    regMaskTP        gcrefRegs = codeGen->liveness.GetGCRegs(TYP_REF);
-    regMaskTP        byrefRegs = codeGen->liveness.GetGCRegs(TYP_BYREF);
-
-    regMaskTP savedSet = emitGetGCRegsSavedOrModified(methodHandle);
-    gcrefRegs &= savedSet;
-    byrefRegs &= savedSet;
+    CorInfoHelpFunc  helper       = Compiler::eeGetHelperNum(methodHandle);
+    bool             isNoGCHelper = (helper != CORINFO_HELP_UNDEF) && IsNoGCHelper(helper);
+    regMaskTP        savedRegs    = isNoGCHelper ? GetNoGCHelperCalleeSavedRegs(helper) : RBM_CALLEE_SAVED;
+    VARSET_VALARG_TP GCvars       = codeGen->liveness.GetGCLiveSet();
+    regMaskTP        gcrefRegs    = codeGen->liveness.GetGCRegs(TYP_REF) & savedRegs;
+    regMaskTP        byrefRegs    = codeGen->liveness.GetGCRegs(TYP_BYREF) & savedRegs;
 
 #ifdef DEBUG
-    if (EMIT_GC_VERBOSE)
+    if (emitComp->verbose)
     {
+        if (isNoGCHelper)
+        {
+            printf("NoGC Call: saved regs");
+            emitDispRegSet(savedRegs);
+            printf("\n");
+        }
+
         printf("Call: GCvars ");
         dumpConvertedVarSet(emitComp, GCvars);
         printf(", gcrefRegs");
@@ -2688,11 +2684,11 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
 #endif
     }
 
+    id->idSetIsNoGC(isNoGCHelper);
+
     VarSetOps::Assign(emitComp, emitThisGCrefVars, GCvars);
     emitThisGCrefRegs = gcrefRegs;
     emitThisByrefRegs = byrefRegs;
-
-    id->idSetIsNoGC(emitNoGChelper(methodHandle));
 
     return id;
 }
@@ -7672,68 +7668,24 @@ const char* emitter::emitOffsetToLabel(unsigned offs)
 
 #endif // DEBUG
 
-//------------------------------------------------------------------------
-// emitGetGCRegsSavedOrModified: Returns the set of registers that keeps gcrefs and byrefs across the call.
-//
-// Notes: it returns union of two sets:
-//        1) registers that could contain GC/byRefs before the call and call doesn't touch them;
-//        2) registers that contain GC/byRefs before the call and call modifies them, but they still
-//           contain GC/byRefs.
-//
-// Arguments:
-//   methHnd - the method handler of the call.
-//
-// Return value:
-//   the saved set of registers.
-//
-regMaskTP emitter::emitGetGCRegsSavedOrModified(CORINFO_METHOD_HANDLE methHnd)
+regMaskTP emitter::GetNoGCHelperCalleeSavedRegs(CorInfoHelpFunc helper)
 {
-    // Is it a helper with a special saved set?
-    bool isNoGCHelper = emitNoGChelper(methHnd);
-    if (isNoGCHelper)
-    {
-        CorInfoHelpFunc helpFunc = Compiler::eeGetHelperNum(methHnd);
-
-        // Get the set of registers that this call kills and remove it from the saved set.
-        regMaskTP savedSet = RBM_ALLINT & ~emitGetGCRegsKilledByNoGCCall(helpFunc);
-
-#ifdef DEBUG
-        if (emitComp->verbose)
-        {
-            printf("NoGC Call: saved regs");
-            emitDispRegSet(savedSet);
-            printf("\n");
-        }
-#endif
-        return savedSet;
-    }
-    else
-    {
-        // This is the saved set of registers after a normal call.
-        return RBM_CALLEE_SAVED;
-    }
+    return RBM_ALLINT & ~GetNoGCHelperCalleeKilledRegs(helper);
 }
 
-//----------------------------------------------------------------------
-// emitGetGCRegsKilledByNoGCCall: Gets a register mask that represents the set of registers that no longer
-// contain GC or byref pointers, for "NO GC" helper calls. This is used by the emitter when determining
-// what registers to remove from the current live GC/byref sets (and thus what to report as dead in the
-// GC info). Note that for the CORINFO_HELP_ASSIGN_BYREF helper, in particular, the kill set reported by
-// compHelperCallKillSet() doesn't match this kill set. compHelperCallKillSet() reports the dst/src
-// address registers as killed for liveness purposes, since their values change. However, they still are
-// valid byref pointers after the call, so the dst/src address registers are NOT reported as killed here.
+// Gets the set of registers that are killed by a no-GC helper call. This is used when determining
+// what registers to remove from the current live GC/byref sets (and thus what to report as dead in
+// the GC info). Note that for the CORINFO_HELP_ASSIGN_BYREF helper, in particular, the kill set
+// reported by compHelperCallKillSet doesn't match this kill set. compHelperCallKillSet reports the
+// dst/src address registers as killed for liveness purposes, since their values change. However,
+// they still are valid byref pointers after the call, so the dst/src address registers are NOT
+// reported as killed here.
 //
 // Note: This list may not be complete and defaults to the default RBM_CALLEE_TRASH_NOGC registers.
 //
-// Arguments:
-//   helper - The helper being inquired about
-//
-// Return Value:
-//   Mask of GC register kills
-//
-regMaskTP emitter::emitGetGCRegsKilledByNoGCCall(CorInfoHelpFunc helper)
+regMaskTP emitter::GetNoGCHelperCalleeKilledRegs(CorInfoHelpFunc helper)
 {
-    assert(emitNoGChelper(helper));
+    assert(IsNoGCHelper(helper));
     regMaskTP result;
     switch (helper)
     {
@@ -7790,7 +7742,7 @@ regMaskTP emitter::emitGetGCRegsKilledByNoGCCall(CorInfoHelpFunc helper)
 
     // compHelperCallKillSet returns a superset of the registers which values are not guranteed to be the same
     // after the call, if a register loses its GC or byref it has to be in the compHelperCallKillSet set as well.
-    assert((result & emitComp->compHelperCallKillSet(helper)) == result);
+    assert((result & Compiler::compHelperCallKillSet(helper)) == result);
 
     return result;
 }

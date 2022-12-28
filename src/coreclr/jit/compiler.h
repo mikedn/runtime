@@ -6530,7 +6530,7 @@ public:
 
     // Gets a register mask that represent the kill set for a helper call since
     // not all JIT Helper calls follow the standard ABI on the target architecture.
-    regMaskTP compHelperCallKillSet(CorInfoHelpFunc helper);
+    static regMaskTP compHelperCallKillSet(CorInfoHelpFunc helper);
 
 /*
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
