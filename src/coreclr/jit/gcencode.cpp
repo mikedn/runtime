@@ -3057,7 +3057,6 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, const
 
     unsigned         lastOffset = 0;
     unsigned         totalSize  = 0;
-    regNumber        thisRegNum = regNumber(0);
     PendingArgsStack pasStk(compiler->GetEmitter()->emitMaxStackDepth, compiler);
 
     for (RegArgChange* change = firstRegArgChange; change != nullptr; change = change->next)
@@ -3134,18 +3133,11 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, const
 
         BYTE* base = dest;
 
-        bool     usePopEncoding;
-        unsigned regMask;
-        unsigned argMask;
-        unsigned byrefRegMask;
-        unsigned byrefArgMask;
-        DWORD    callArgCnt;
-        DWORD    codeDelta;
-
         unsigned nextOffset = change->codeOffs;
+        assert(nextOffset >= lastOffset);
+        unsigned codeDelta = nextOffset - lastOffset;
 
-        codeDelta = nextOffset - lastOffset;
-        assert((int)codeDelta >= 0);
+        bool usePopEncoding;
 
 #if REGEN_CALLPAT
         // Must initialize this flag to true when REGEN_CALLPAT is on
@@ -3153,16 +3145,12 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, const
         unsigned origCodeDelta = codeDelta;
 #endif
 
-        if ((trackedThisLclNum == BAD_VAR_NUM) && change->isThis)
+        if (change->kind == RegArgChangeKind::RegChange)
         {
-            unsigned tmpMask = change->addRegs;
+            assert((trackedThisLclNum == BAD_VAR_NUM) && change->isThis);
+            assert((change->addRegs != RBM_NONE) && genMaxOneBit(change->addRegs));
 
-            /* tmpMask must have exactly one bit set */
-
-            assert(tmpMask && ((tmpMask & (tmpMask - 1)) == 0));
-
-            thisRegNum = genRegNumFromMask(tmpMask);
-            switch (thisRegNum)
+            switch (genRegNumFromMask(change->addRegs))
             {
                 case 0: // EAX
                 case 1: // ECX
@@ -3185,30 +3173,71 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, const
                     break;
             }
         }
-        else if (change->kind != RegArgChangeKind::RegChange)
+        else if (change->kind == RegArgChangeKind::KillArgs)
         {
-            if (change->kind == RegArgChangeKind::KillArgs)
+            pasStk.Kill(change->argOffset);
+        }
+        else if (change->kind == RegArgChangeKind::PushArg)
+        {
+            assert(!change->isCall);
+
+            lastOffset = nextOffset;
+
+            if (codeDelta >= 32)
             {
-                // kill 'rpdPtrArg' number of pointer variables in pasStk
-                pasStk.Kill(change->argOffset);
+                /* use encoding: */
+                /*   skip    01000000 [Delta] */
+                *dest++ = 0x40;
+                dest += encodeUnsigned(dest, codeDelta - 31);
+                codeDelta = 31;
             }
-            else if (change->isCall)
+
+            assert(codeDelta < 32);
+
+            /* use encoding: */
+            /*   push    000DDDDD ESP push one item, 5-bit delta */
+
+            *dest++ = (BYTE)codeDelta;
+
+            /* adjust argMask for this push */
+
+            pasStk.Push(change->gcType);
+        }
+        else if (change->kind == RegArgChangeKind::PopArgs)
+        {
+            lastOffset = nextOffset;
+
+            if (!change->isCall)
             {
-                /* This is a true call site */
+                assert(change->argOffset == 1);
 
-                /* Remember the new 'last' offset */
+                if (codeDelta >= 16)
+                {
+                    /* use encoding: */
+                    /*   skip    01000000 [Delta] */
+                    *dest++ = 0x40;
+                    dest += encodeUnsigned(dest, codeDelta - 15);
+                    codeDelta = 15;
+                }
 
-                lastOffset = nextOffset;
+                /* use encoding: */
+                /*   pop1    0101DDDD  ESP pop one item, 4-bit delta */
 
-                callArgCnt = change->argOffset;
+                *dest++ = 0x50 | (BYTE)codeDelta;
 
+                /* adjust argMask for this pop */
+                pasStk.Pop(1);
+            }
+            else
+            {
+                unsigned callArgCnt   = change->argOffset;
                 unsigned gcrefRegMask = change->callRefRegs;
 
-                byrefRegMask = change->callByrefRegs;
+                unsigned byrefRegMask = change->callByrefRegs;
 
                 assert((gcrefRegMask & byrefRegMask) == 0);
 
-                regMask = gcrefRegMask | byrefRegMask;
+                unsigned regMask = gcrefRegMask | byrefRegMask;
 
                 /* adjust argMask for this call-site */
                 pasStk.Pop(callArgCnt);
@@ -3266,7 +3295,8 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, const
                     goto NEXT_RPD;
                 }
 
-                argMask = byrefArgMask = 0;
+                unsigned argMask      = 0;
+                unsigned byrefArgMask = 0;
 
                 if (pasStk.HasGCptrs())
                 {
@@ -3427,62 +3457,6 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, const
                 dest += encodeUnsigned(dest, callArgCnt);
 
                 dest += encodeUnsigned(dest, argMask);
-            }
-            else
-            {
-                /* This is a push or a pop site */
-
-                /* Remember the new 'last' offset */
-
-                lastOffset = nextOffset;
-
-                if (change->kind == RegArgChangeKind::PopArgs)
-                {
-                    /* This must be a gcArgPopSingle */
-
-                    assert(change->argOffset == 1);
-
-                    if (codeDelta >= 16)
-                    {
-                        /* use encoding: */
-                        /*   skip    01000000 [Delta] */
-                        *dest++ = 0x40;
-                        dest += encodeUnsigned(dest, codeDelta - 15);
-                        codeDelta = 15;
-                    }
-
-                    /* use encoding: */
-                    /*   pop1    0101DDDD  ESP pop one item, 4-bit delta */
-
-                    *dest++ = 0x50 | (BYTE)codeDelta;
-
-                    /* adjust argMask for this pop */
-                    pasStk.Pop(1);
-                }
-                else
-                {
-                    /* This is a push */
-
-                    if (codeDelta >= 32)
-                    {
-                        /* use encoding: */
-                        /*   skip    01000000 [Delta] */
-                        *dest++ = 0x40;
-                        dest += encodeUnsigned(dest, codeDelta - 31);
-                        codeDelta = 31;
-                    }
-
-                    assert(codeDelta < 32);
-
-                    /* use encoding: */
-                    /*   push    000DDDDD ESP push one item, 5-bit delta */
-
-                    *dest++ = (BYTE)codeDelta;
-
-                    /* adjust argMask for this push */
-
-                    pasStk.Push(change->gcType);
-                }
             }
         }
 
