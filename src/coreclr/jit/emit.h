@@ -2018,8 +2018,6 @@ public:
 
 #ifdef JIT32_GCENCODER
     bool emitFullGCinfo; // full GC pointer maps?
-#endif
-#if !FEATURE_FIXED_OUT_ARGS
     bool emitFullArgInfo;   // full arg info (including non-ptr arg)?
     bool emitSimpleStkUsed; // using the "simple" stack table?
 
@@ -2053,8 +2051,6 @@ public:
     void emitStackKillArgs(BYTE* addr, unsigned count, unsigned callInstrSize);
     void emitStackPop(BYTE* addr, bool isCall, unsigned callInstrSize, unsigned count);
     void emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSize, unsigned count);
-#endif // !FEATURE_FIXED_OUT_ARGS
-#ifdef JIT32_GCENCODER
     void emitRecordGCCall(BYTE* addr);
 #else
     void emitRecordGCCall(BYTE* addr, unsigned callInstrLength);

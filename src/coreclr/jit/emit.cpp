@@ -3155,11 +3155,9 @@ size_t emitter::emitIssue1Instr(insGroup* ig, instrDesc* id, BYTE** dp)
     ig->igPerfScore += insPerfScore;
 #endif // defined(DEBUG) || defined(LATE_DISASM)
 
-// If we're generating a full pointer map and the stack
-// is empty, there better not be any "pending" argument
-// push entries.
-
-#if !FEATURE_FIXED_OUT_ARGS
+#ifdef JIT32_GCENCODER
+    // If we're generating a full pointer map and the stack is empty,
+    // there better not be any "pending" argument push entries.
     assert(!emitFullGCinfo || (emitCurStackLvl != 0) || (u2.emitGcArgTrackCnt == 0));
 #endif
 
@@ -4860,41 +4858,38 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 
     emitCodeBlock = nullptr;
     emitConsBlock = nullptr;
-
-    emitOffsAdj = 0;
-
-    emitFullyInt = codeGen->GetInterruptible();
-#ifdef JIT32_GCENCODER
-    emitFullGCinfo = codeGen->GetInterruptible() || !codeGen->isFramePointerUsed();
-#endif
+    emitOffsAdj   = 0;
 
 #if EMITTER_STATS
     GCrefsTable.record(emitGCrFrameOffsCnt);
     emitSizeTable.record(static_cast<unsigned>(emitSizeMethod));
-    stkDepthTable.record(emitMaxStackDepth);
-#endif // EMITTER_STATS
+#endif
 
-#if !FEATURE_FIXED_OUT_ARGS
+    emitFullyInt = codeGen->GetInterruptible();
+
+#ifdef JIT32_GCENCODER
+    emitFullGCinfo = !codeGen->isFramePointerUsed() || codeGen->GetInterruptible();
 #ifdef UNIX_X86_ABI
     emitFullArgInfo = !codeGen->isFramePointerUsed() || codeGen->GetInterruptible();
 #else
     emitFullArgInfo = !codeGen->isFramePointerUsed();
 #endif
+
+#if EMITTER_STATS
+    stkDepthTable.record(emitMaxStackDepth);
+#endif
+
     emitSimpleStkUsed         = true;
     u1.emitSimpleStkMask      = 0;
     u1.emitSimpleByrefStkMask = 0;
-#endif
 
-#if !FEATURE_FIXED_OUT_ARGS
     // Convert max. stack depth from # of bytes to # of entries.
 
     unsigned maxStackDepthIn4ByteElements = emitMaxStackDepth / REGSIZE_BYTES;
     JITDUMP("Converting emitMaxStackDepth from bytes (%d) to elements (%d)\n", emitMaxStackDepth,
             maxStackDepthIn4ByteElements);
     emitMaxStackDepth = maxStackDepthIn4ByteElements;
-#endif
 
-#if !FEATURE_FIXED_OUT_ARGS
     if ((emitMaxStackDepth > MAX_SIMPLE_STK_DEPTH) || emitFullGCinfo)
     {
         emitSimpleStkUsed = false;
@@ -4911,7 +4906,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
         u2.emitArgTrackTop   = u2.emitArgTrackTab;
         u2.emitGcArgTrackCnt = 0;
     }
-#endif // !FEATURE_FIXED_OUT_ARGS
+#endif // JIT32_GCENCODER
 
     if (emitEpilogCnt == 0)
     {
