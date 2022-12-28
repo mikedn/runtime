@@ -930,8 +930,6 @@ void CodeGen::genAllocateRegisters()
 
 void CodeGen::genGenerateMachineCode()
 {
-    m_cgFullPtrRegMap = GetInterruptible() || !isFramePointerUsed();
-
 #ifdef DEBUG
     compiler->fgBBcountAtCodegen = compiler->fgBBcount;
     compiler->fgDebugCheckLinks();

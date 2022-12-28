@@ -277,13 +277,9 @@ private:
 public:
     bool IsFullPtrRegMapRequired() const
     {
-        return m_cgFullPtrRegMap;
+        return m_cgInterruptible || !m_cgFramePointerUsed;
     }
 
-protected:
-    bool m_cgFullPtrRegMap;
-
-public:
     /* These are the different addressing modes used to access a local var.
      * The JIT has to report the location of the locals back to the EE
      * for debugging purposes.
