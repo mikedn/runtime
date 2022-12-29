@@ -11860,11 +11860,11 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
                 if (args < 0)
                 {
-                    emitStackKillArgs(dst, -args, callInstrSize);
+                    emitStackKillArgs(dst, -args);
                 }
                 else
                 {
-                    emitStackPop(dst, /*isCall*/ true, callInstrSize, args);
+                    emitStackPop(dst, /*isCall*/ true, args);
                 }
             }
 
@@ -12674,7 +12674,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 break;
 
             case INS_pop:
-                emitStackPop(dst, false, /*callInstrSize*/ 0, 1);
+                emitStackPop(dst, false, 1);
                 break;
 
             case INS_sub:
@@ -12691,8 +12691,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 if (ins == INS_add && id->idInsFmt() == IF_RRW_CNS && id->idReg1() == REG_ESP)
                 {
                     assert((size_t)emitGetInsSC(id) < 0x00000000FFFFFFFFLL);
-                    emitStackPop(dst, /*isCall*/ false, /*callInstrSize*/ 0,
-                                 (unsigned)(emitGetInsSC(id) / TARGET_POINTER_SIZE));
+                    emitStackPop(dst, /*isCall*/ false, (unsigned)(emitGetInsSC(id) / TARGET_POINTER_SIZE));
                 }
                 break;
 

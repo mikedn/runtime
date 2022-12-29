@@ -7322,9 +7322,8 @@ void emitter::emitStackPushN(BYTE* addr, unsigned count)
 }
 
 // Record a pop of the given number of dwords from the stack.
-void emitter::emitStackPop(BYTE* addr, bool isCall, unsigned callInstrSize, unsigned count)
+void emitter::emitStackPop(BYTE* addr, bool isCall, unsigned count)
 {
-    assert(!isCall || callInstrSize > 0);
     assert(emitCurStackLvl / sizeof(int) >= count);
 
     if (count != 0)
@@ -7346,7 +7345,7 @@ void emitter::emitStackPop(BYTE* addr, bool isCall, unsigned callInstrSize, unsi
         }
         else
         {
-            emitStackPopLargeStk(addr, isCall, callInstrSize, count);
+            emitStackPopLargeStk(addr, isCall, count);
         }
 
         emitCurStackLvl -= count * sizeof(int);
@@ -7357,7 +7356,7 @@ void emitter::emitStackPop(BYTE* addr, bool isCall, unsigned callInstrSize, unsi
 
         if (emitFullGCinfo)
         {
-            emitStackPopLargeStk(addr, isCall, callInstrSize, 0);
+            emitStackPopLargeStk(addr, isCall, 0);
         }
     }
 }
@@ -7394,7 +7393,7 @@ void emitter::emitStackPushLargeStk(BYTE* addr, GCtype gcType, unsigned count)
 }
 
 // Record a pop of the given number of words from the stack for a full ptr map.
-void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSize, unsigned count)
+void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned count)
 {
     assert(emitIssuing);
     assert(!emitSimpleStkUsed);
@@ -7444,7 +7443,7 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSi
 
 // For caller-pop arguments, we report the arguments as pending arguments.
 // However, any GC arguments are now dead, so we need to report them as non-GC.
-void emitter::emitStackKillArgs(BYTE* addr, unsigned count, unsigned callInstrSize)
+void emitter::emitStackKillArgs(BYTE* addr, unsigned count)
 {
     assert(count > 0);
 
@@ -7508,7 +7507,7 @@ void emitter::emitStackKillArgs(BYTE* addr, unsigned count, unsigned callInstrSi
     // Now that ptr args have been marked as non-ptrs, we need to
     // record the call itself as one that has no arguments.
 
-    emitStackPopLargeStk(addr, true, callInstrSize, 0);
+    emitStackPopLargeStk(addr, true, 0);
 }
 
 #endif // JIT32_GCENCODER

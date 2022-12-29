@@ -2043,9 +2043,9 @@ public:
     void emitStackPush(BYTE* addr, GCtype gcType);
     void emitStackPushN(BYTE* addr, unsigned count);
     void emitStackPushLargeStk(BYTE* addr, GCtype gcType, unsigned count);
-    void emitStackKillArgs(BYTE* addr, unsigned count, unsigned callInstrSize);
-    void emitStackPop(BYTE* addr, bool isCall, unsigned callInstrSize, unsigned count);
-    void emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSize, unsigned count);
+    void emitStackKillArgs(BYTE* addr, unsigned count);
+    void emitStackPop(BYTE* addr, bool isCall, unsigned count);
+    void emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned count);
     void emitRecordGCCall(BYTE* addr);
 #else
     void emitRecordGCCall(BYTE* addr, unsigned callInstrLength);
