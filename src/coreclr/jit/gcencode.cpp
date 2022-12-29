@@ -2465,13 +2465,6 @@ unsigned GCEncoder::AddFullyInterruptibleSlots(uint8_t* dest, const int mask)
 
     for (RegArgChange* change = firstRegArgChange; change != nullptr; change = change->next)
     {
-        BYTE* base = dest;
-
-        unsigned nextOffset;
-        DWORD    codeDelta;
-
-        nextOffset = change->codeOffs;
-
         /*
             Encoding table for methods that are fully interruptible
 
@@ -2523,8 +2516,10 @@ unsigned GCEncoder::AddFullyInterruptibleSlots(uint8_t* dest, const int mask)
               The value 11111111 [0xFF] indicates the end of the table.
         */
 
-        codeDelta = nextOffset - lastOffset;
-        assert((int)codeDelta >= 0);
+        uint8_t* base       = dest;
+        unsigned nextOffset = change->codeOffs;
+        assert(nextOffset >= lastOffset);
+        unsigned codeDelta = nextOffset - lastOffset;
 
         // If the code delta is between 8 and (64+7),
         // generate a 'bigger delta' encoding
@@ -2577,83 +2572,51 @@ unsigned GCEncoder::AddFullyInterruptibleSlots(uint8_t* dest, const int mask)
                 assert(change->argOffset != 0);
                 dest += encodeUnsigned(dest, change->argOffset);
             }
-            else if ((change->argOffset < 6) && (change->gcType != GCT_NONE))
-            {
-                /* Is the argument offset/count smaller than 6 ? */
-
-                dest = gceByrefPrefixI(change, dest);
-
-                if ((change->kind == RegArgChangeKind::PushArg) || (change->argOffset != 0))
-                {
-                    /*
-                      Use the small encoding:
-
-                        ptr arg push 10SSSDDD [SSS != 110] && [SSS != 111]
-                        ptr arg pop  11CCCDDD [CCC != 110] && [CCC != 111]
-                     */
-
-                    bool isPop = change->kind == RegArgChangeKind::PopArgs;
-
-                    *dest++ = 0x80 | (BYTE)codeDelta | change->argOffset << 3 | isPop << 6;
-
-                    /* Remember the new 'last' offset */
-
-                    lastOffset = nextOffset;
-                }
-                else
-                {
-                    assert(!"Check this");
-                }
-            }
             else if (change->gcType == GCT_NONE)
             {
-                /*
-                    Use the small encoding:
-`                        non-ptr arg push 10110DDD [0xB0] (push of sizeof(int))
-                     */
-
+                assert(change->kind == RegArgChangeKind::PushArg);
                 assert((codeDelta & 0x7) == codeDelta);
-                *dest++ = 0xB0 | (BYTE)codeDelta;
 #ifndef UNIX_X86_ABI
                 assert(!compiler->codeGen->isFramePointerUsed());
 #endif
 
-                /* Remember the new 'last' offset */
+                // Encoding: non-ptr arg push 10110DDD [0xB0] (push of sizeof(int))
+                *dest++ = static_cast<uint8_t>(0xB0 | codeDelta);
+
+                lastOffset = nextOffset;
+            }
+            else if (change->argOffset < 6)
+            {
+                unsigned isPop = change->kind == RegArgChangeKind::PopArgs;
+
+                assert((change->argOffset != 0) || !isPop);
+
+                dest = gceByrefPrefixI(change, dest);
+                // Encoding: ptr arg push 10SSSDDD [SSS != 110] && [SSS != 111]
+                // Encoding: ptr arg pop  11CCCDDD [CCC != 110] && [CCC != 111]
+                *dest++ = static_cast<uint8_t>(0x80 | codeDelta | (change->argOffset << 3) | (isPop << 6));
 
                 lastOffset = nextOffset;
             }
             else
             {
-                /* Will have to use large encoding;
-                 *   first do the code delta
-                 */
-
-                if (codeDelta)
-                {
-                    /*
-                        Use the small encoding:
-                        little delta skip       11000DDD    [0xC0]
-                     */
-
-                    assert((codeDelta & 0x7) == codeDelta);
-                    *dest++ = 0xC0 | (BYTE)codeDelta;
-                }
-
-                /*
-                    Now append a large argument record:
-
-                        large ptr arg push  11111000 [0xF8]
-                        large ptr arg pop   11111100 [0xFC]
-                 */
-
                 bool isPop = change->kind == RegArgChangeKind::PopArgs;
 
-                dest = gceByrefPrefixI(change, dest);
+                assert((change->argOffset != 0) || !isPop);
 
+                if (codeDelta != 0)
+                {
+                    assert((codeDelta & 0x7) == codeDelta);
+
+                    // Encoding: little delta skip       11000DDD    [0xC0]
+                    *dest++ = static_cast<uint8_t>(0xC0 | codeDelta);
+                }
+
+                dest = gceByrefPrefixI(change, dest);
+                // Encoding: large ptr arg push  11111000 [0xF8]
+                // Encoding: large ptr arg pop   11111100 [0xFC]
                 *dest++ = 0xF8 | (isPop << 2);
                 dest += encodeUnsigned(dest, change->argOffset);
-
-                /* Remember the new 'last' offset */
 
                 lastOffset = nextOffset;
             }
