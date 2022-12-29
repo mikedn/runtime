@@ -2029,10 +2029,10 @@ public:
 
         struct // if emitSimpleStkUsed==false
         {
-            BYTE   emitArgTrackLcl[16]; // small local table to avoid malloc
-            BYTE*  emitArgTrackTab;     // base of the argument tracking stack
-            BYTE*  emitArgTrackTop;     // top  of the argument tracking stack
-            USHORT emitGcArgTrackCnt;   // count of pending arg records (stk-depth for frameless methods, gc ptrs on stk
+            uint8_t  emitArgTrackLcl[16]; // small local table to avoid malloc
+            uint8_t* emitArgTrackTab;     // base of the argument tracking stack
+            uint8_t* emitArgTrackTop;     // top  of the argument tracking stack
+            unsigned emitGcArgTrackCnt; // count of pending arg records (stk-depth for frameless methods, gc ptrs on stk
                                         // for framed methods)
         } u2;
     };

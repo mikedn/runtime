@@ -220,11 +220,9 @@ GCInfo::RegArgChange* GCInfo::RemoveLiveRegs(GCtype gcType, regMaskTP regs, unsi
 #ifdef JIT32_GCENCODER
 GCInfo::RegArgChange* GCInfo::AddCallArgPush(unsigned codeOffs, unsigned stackLevel, GCtype gcType)
 {
-    assert(stackLevel <= UINT16_MAX);
-
     RegArgChange* change = AddRegArgChange();
     change->codeOffs     = codeOffs;
-    change->argOffset    = static_cast<uint16_t>(stackLevel);
+    change->argOffset    = stackLevel;
     change->kind         = GCInfo::RegArgChangeKind::PushArg;
     change->gcType       = gcType;
     change->isCall       = false;
@@ -234,11 +232,9 @@ GCInfo::RegArgChange* GCInfo::AddCallArgPush(unsigned codeOffs, unsigned stackLe
 
 GCInfo::RegArgChange* GCInfo::AddCallArgsKill(unsigned codeOffs, unsigned argCount)
 {
-    assert(argCount <= UINT16_MAX);
-
     RegArgChange* change = AddRegArgChange();
     change->codeOffs     = codeOffs;
-    change->argOffset    = static_cast<uint16_t>(argCount);
+    change->argOffset    = argCount;
     change->kind         = GCInfo::RegArgChangeKind::KillArgs;
     change->gcType       = GCT_GCREF;
     change->isThis       = false;
@@ -248,8 +244,6 @@ GCInfo::RegArgChange* GCInfo::AddCallArgsKill(unsigned codeOffs, unsigned argCou
 GCInfo::RegArgChange* GCInfo::AddCallArgsPop(
     unsigned codeOffs, unsigned argCount, bool isCall, unsigned refRegs, unsigned byrefRegs)
 {
-    assert(argCount <= UINT16_MAX);
-
     // Only calls may pop more than one value.
     // cdecl calls accomplish this popping via a post-call "ADD SP, imm" instruction,
     // we treat that as "isCall" too.
@@ -257,7 +251,7 @@ GCInfo::RegArgChange* GCInfo::AddCallArgsPop(
 
     RegArgChange* change  = AddRegArgChange();
     change->codeOffs      = codeOffs;
-    change->argOffset     = static_cast<uint16_t>(argCount);
+    change->argOffset     = argCount;
     change->kind          = GCInfo::RegArgChangeKind::PopArgs;
     change->gcType        = GCT_GCREF;
     change->isCall        = isCall;

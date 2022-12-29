@@ -70,7 +70,7 @@ public:
             };
 
 #ifdef JIT32_GCENCODER
-            uint16_t argOffset;
+            unsigned argOffset;
 #else
             int   argOffset;
 #endif
@@ -83,12 +83,8 @@ public:
         regMaskSmall refRegs;
         regMaskSmall byrefRegs;
         unsigned     codeOffs;
-#ifndef JIT32_GCENCODER
-        uint8_t callInstrLength;
-#endif
-
-#if !FEATURE_FIXED_OUT_ARGS
-        uint16_t argCount;
+#ifdef JIT32_GCENCODER
+        unsigned argCount;
 
         union {
             struct // if argCount == 0
@@ -99,6 +95,8 @@ public:
 
             unsigned* argTable; // if argCount != 0
         };
+#else
+        uint8_t   callInstrLength;
 #endif
     };
 

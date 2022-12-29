@@ -7367,31 +7367,28 @@ void emitter::emitStackPushLargeStk(BYTE* addr, GCtype gcType, unsigned count)
     assert(count != 0);
     assert(!emitSimpleStkUsed);
 
-    S_UINT32 level(emitCurStackLvl / sizeof(int));
+    unsigned level = emitCurStackLvl / sizeof(int);
+
+    noway_assert(count <= UINT_MAX - level);
 
     for (unsigned i = 0; i < count; i++)
     {
-        assert(level.IsOverflow() || u2.emitArgTrackTop == u2.emitArgTrackTab + level.Value());
-        *u2.emitArgTrackTop++ = (BYTE)gcType;
+        assert(u2.emitArgTrackTop == u2.emitArgTrackTab + level);
         assert(u2.emitArgTrackTop <= u2.emitArgTrackTab + emitMaxStackDepth);
+
+        *u2.emitArgTrackTop++ = static_cast<uint8_t>(gcType);
 
         if (emitFullArgInfo || (gcType != GCT_NONE))
         {
             if (emitFullGCinfo)
             {
-                if (level.IsOverflow() || !FitsIn<uint16_t>(level.Value()))
-                {
-                    IMPL_LIMITATION("Too many/too big arguments to encode GC information");
-                }
-
-                gcInfo.AddCallArgPush(emitCurCodeOffs(addr), level.Value(), gcType);
+                gcInfo.AddCallArgPush(emitCurCodeOffs(addr), level, gcType);
             }
 
             u2.emitGcArgTrackCnt++;
         }
 
-        level += 1;
-        assert(!level.IsOverflow());
+        level++;
     }
 }
 
@@ -7401,7 +7398,7 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSi
     assert(emitIssuing);
     assert(!emitSimpleStkUsed);
 
-    S_UINT16 argRecCnt(0); // arg count for ESP, ptr-arg count for EBP
+    unsigned argRecCnt = 0; // arg count for ESP, ptr-arg count for EBP
 
     /* Count how many pointer records correspond to this "pop" */
 
@@ -7413,16 +7410,15 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSi
 
         if (emitFullArgInfo || (gcType != GCT_NONE))
         {
-            argRecCnt += 1;
+            argRecCnt++;
         }
     }
 
     assert(u2.emitArgTrackTop >= u2.emitArgTrackTab);
     assert(u2.emitArgTrackTop == u2.emitArgTrackTab + emitCurStackLvl / sizeof(int) - count);
-    noway_assert(!argRecCnt.IsOverflow());
 
     // We're about to pop the corresponding arg records
-    u2.emitGcArgTrackCnt -= argRecCnt.Value();
+    u2.emitGcArgTrackCnt -= argRecCnt;
 
     if (!emitFullGCinfo)
     {
@@ -7449,7 +7445,7 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSi
         }
     }
 
-    if (argRecCnt.Value() == 0)
+    if (argRecCnt == 0)
     {
         // Or do we have a partially interruptible EBP-less frame, and any
         // of EDI,ESI,EBX,EBP are live, or is there an outer/pending call?
@@ -7460,7 +7456,7 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSi
         }
     }
 
-    gcInfo.AddCallArgsPop(emitCurCodeOffs(addr), argRecCnt.Value(), isCall, gcrefRegs, byrefRegs);
+    gcInfo.AddCallArgsPop(emitCurCodeOffs(addr), argRecCnt, isCall, gcrefRegs, byrefRegs);
 }
 
 // For caller-pop arguments, we report the arguments as pending arguments.
@@ -7487,8 +7483,8 @@ void emitter::emitStackKillArgs(BYTE* addr, unsigned count, unsigned callInstrSi
         return;
     }
 
-    BYTE*    argTrackTop = u2.emitArgTrackTop;
-    S_UINT16 gcCnt(0);
+    uint8_t* argTrackTop = u2.emitArgTrackTop;
+    unsigned gcCnt       = 0;
 
     for (unsigned i = 0; i < count; i++)
     {
@@ -7501,17 +7497,15 @@ void emitter::emitStackKillArgs(BYTE* addr, unsigned count, unsigned callInstrSi
         if (gcType != GCT_NONE)
         {
             *argTrackTop = GCT_NONE;
-            gcCnt += 1;
+            gcCnt++;
         }
     }
-
-    noway_assert(!gcCnt.IsOverflow());
 
     /* We're about to kill the corresponding (pointer) arg records */
 
     if (!emitFullArgInfo)
     {
-        u2.emitGcArgTrackCnt -= gcCnt.Value();
+        u2.emitGcArgTrackCnt -= gcCnt;
     }
 
     if (!emitFullGCinfo)
@@ -7523,9 +7517,9 @@ void emitter::emitStackKillArgs(BYTE* addr, unsigned count, unsigned callInstrSi
     // stack, but they are effectively dead. For fully-interruptible
     // methods, we need to report that.
 
-    if (gcCnt.Value() != 0)
+    if (gcCnt != 0)
     {
-        gcInfo.AddCallArgsKill(emitCurCodeOffs(addr), gcCnt.Value());
+        gcInfo.AddCallArgsKill(emitCurCodeOffs(addr), gcCnt);
     }
 
     // Now that ptr args have been marked as non-ptrs, we need to

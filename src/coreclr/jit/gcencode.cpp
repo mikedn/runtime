@@ -2908,7 +2908,7 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFramed(uint8_t* dest, const in
         if (call->argCount != 0)
         {
             unsigned argNum;
-            DWORD    argCnt    = call->argCount;
+            unsigned argCnt    = call->argCount;
             DWORD    argBytes  = 0;
             BYTE*    pArgBytes = DUMMY_INIT(NULL);
 
