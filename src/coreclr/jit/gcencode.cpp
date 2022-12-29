@@ -2587,7 +2587,7 @@ unsigned GCEncoder::AddFullyInterruptibleSlots(uint8_t* dest, const int mask)
             }
             else if (change->argOffset < 6)
             {
-                unsigned isPop = change->kind == RegArgChangeKind::PopArgs;
+                unsigned isPop = (change->kind == RegArgChangeKind::PopArgs) || (change->kind == RegArgChangeKind::Pop);
 
                 assert((change->argOffset != 0) || !isPop);
 
@@ -2600,7 +2600,7 @@ unsigned GCEncoder::AddFullyInterruptibleSlots(uint8_t* dest, const int mask)
             }
             else
             {
-                bool isPop = change->kind == RegArgChangeKind::PopArgs;
+                unsigned isPop = (change->kind == RegArgChangeKind::PopArgs) || (change->kind == RegArgChangeKind::Pop);
 
                 assert((change->argOffset != 0) || !isPop);
 
@@ -3142,8 +3142,6 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, const
         }
         else if (change->kind == RegArgChangeKind::PushArg)
         {
-            assert(!change->isCall);
-
             lastOffset = nextOffset;
 
             if (codeDelta >= 32)
@@ -3166,112 +3164,114 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, const
 
             pasStk.Push(change->gcType);
         }
-        else if (change->kind == RegArgChangeKind::PopArgs)
+        else if (change->kind == RegArgChangeKind::Pop)
         {
             lastOffset = nextOffset;
 
-            if (!change->isCall)
+            assert(change->argOffset == 1);
+
+            if (codeDelta >= 16)
             {
-                assert(change->argOffset == 1);
-
-                if (codeDelta >= 16)
-                {
-                    /* use encoding: */
-                    /*   skip    01000000 [Delta] */
-                    *dest++ = 0x40;
-                    dest += encodeUnsigned(dest, codeDelta - 15);
-                    codeDelta = 15;
-                }
-
                 /* use encoding: */
-                /*   pop1    0101DDDD  ESP pop one item, 4-bit delta */
-
-                *dest++ = 0x50 | (BYTE)codeDelta;
-
-                /* adjust argMask for this pop */
-                pasStk.Pop(1);
+                /*   skip    01000000 [Delta] */
+                *dest++ = 0x40;
+                dest += encodeUnsigned(dest, codeDelta - 15);
+                codeDelta = 15;
             }
-            else
+
+            /* use encoding: */
+            /*   pop1    0101DDDD  ESP pop one item, 4-bit delta */
+
+            *dest++ = 0x50 | (BYTE)codeDelta;
+
+            /* adjust argMask for this pop */
+            pasStk.Pop(1);
+        }
+        else
+        {
+            assert(change->kind == RegArgChangeKind::PopArgs);
+
+            lastOffset = nextOffset;
+
+            unsigned callArgCnt   = change->argOffset;
+            unsigned gcrefRegMask = change->callRefRegs;
+
+            unsigned byrefRegMask = change->callByrefRegs;
+
+            assert((gcrefRegMask & byrefRegMask) == 0);
+
+            unsigned regMask = gcrefRegMask | byrefRegMask;
+
+            /* adjust argMask for this call-site */
+            pasStk.Pop(callArgCnt);
+
+            /* Do we have to use the fat encoding */
+
+            if (pasStk.CurDepth() > BITS_IN_pasMask && pasStk.HasGCptrs())
             {
-                unsigned callArgCnt   = change->argOffset;
-                unsigned gcrefRegMask = change->callRefRegs;
+                /* use fat encoding:
+                 *   11111000 [PBSDpbsd][32-bit delta][32-bit ArgCnt]
+                 *            [32-bit PndCnt][32-bit PndSize][PndOffs...]
+                 */
 
-                unsigned byrefRegMask = change->callByrefRegs;
+                DWORD pndCount = pasStk.EnumGCoffsCount();
+                DWORD pndSize  = 0;
+                BYTE* pPndSize = DUMMY_INIT(NULL);
 
-                assert((gcrefRegMask & byrefRegMask) == 0);
-
-                unsigned regMask = gcrefRegMask | byrefRegMask;
-
-                /* adjust argMask for this call-site */
-                pasStk.Pop(callArgCnt);
-
-                /* Do we have to use the fat encoding */
-
-                if (pasStk.CurDepth() > BITS_IN_pasMask && pasStk.HasGCptrs())
+                if (mask)
                 {
-                    /* use fat encoding:
-                     *   11111000 [PBSDpbsd][32-bit delta][32-bit ArgCnt]
-                     *            [32-bit PndCnt][32-bit PndSize][PndOffs...]
-                     */
+                    *dest++       = 0xF8;
+                    *dest++       = (byrefRegMask << 4) | regMask;
+                    *(DWORD*)dest = codeDelta;
+                    dest += sizeof(DWORD);
+                    *(DWORD*)dest = callArgCnt;
+                    dest += sizeof(DWORD);
+                    *(DWORD*)dest = pndCount;
+                    dest += sizeof(DWORD);
+                    pPndSize = dest;
+                    dest += sizeof(DWORD); // Leave space for pndSize
+                }
 
-                    DWORD pndCount = pasStk.EnumGCoffsCount();
-                    DWORD pndSize  = 0;
-                    BYTE* pPndSize = DUMMY_INIT(NULL);
+                unsigned offs, iter;
 
+                for (iter = pasStk.EnumGCoffs(PendingArgsStack::pasENUM_START, &offs); pndCount;
+                     iter = pasStk.EnumGCoffs(iter, &offs), pndCount--)
+                {
+                    unsigned eltSize = encodeUnsigned(dest, offs);
+
+                    pndSize += eltSize;
                     if (mask)
-                    {
-                        *dest++       = 0xF8;
-                        *dest++       = (byrefRegMask << 4) | regMask;
-                        *(DWORD*)dest = codeDelta;
-                        dest += sizeof(DWORD);
-                        *(DWORD*)dest = callArgCnt;
-                        dest += sizeof(DWORD);
-                        *(DWORD*)dest = pndCount;
-                        dest += sizeof(DWORD);
-                        pPndSize = dest;
-                        dest += sizeof(DWORD); // Leave space for pndSize
-                    }
-
-                    unsigned offs, iter;
-
-                    for (iter = pasStk.EnumGCoffs(PendingArgsStack::pasENUM_START, &offs); pndCount;
-                         iter = pasStk.EnumGCoffs(iter, &offs), pndCount--)
-                    {
-                        unsigned eltSize = encodeUnsigned(dest, offs);
-
-                        pndSize += eltSize;
-                        if (mask)
-                            dest += eltSize;
-                    }
-                    assert(iter == PendingArgsStack::pasENUM_END);
-
-                    if (mask == 0)
-                    {
-                        dest = base + 2 + 4 * sizeof(DWORD) + pndSize;
-                    }
-                    else
-                    {
-                        assert(pPndSize + sizeof(pndSize) + pndSize == dest);
-                        *(DWORD*)pPndSize = pndSize;
-                    }
-
-                    goto NEXT_RPD;
+                        dest += eltSize;
                 }
+                assert(iter == PendingArgsStack::pasENUM_END);
 
-                unsigned argMask      = 0;
-                unsigned byrefArgMask = 0;
-
-                if (pasStk.HasGCptrs())
+                if (mask == 0)
                 {
-                    assert(pasStk.CurDepth() <= BITS_IN_pasMask);
-
-                    argMask      = pasStk.ArgMask();
-                    byrefArgMask = pasStk.ByrefArgMask();
+                    dest = base + 2 + 4 * sizeof(DWORD) + pndSize;
+                }
+                else
+                {
+                    assert(pPndSize + sizeof(pndSize) + pndSize == dest);
+                    *(DWORD*)pPndSize = pndSize;
                 }
 
-                /* Shouldn't be reporting trivial call-sites */
+                goto NEXT_RPD;
+            }
 
-                assert(regMask || argMask || callArgCnt || pasStk.CurDepth());
+            unsigned argMask      = 0;
+            unsigned byrefArgMask = 0;
+
+            if (pasStk.HasGCptrs())
+            {
+                assert(pasStk.CurDepth() <= BITS_IN_pasMask);
+
+                argMask      = pasStk.ArgMask();
+                byrefArgMask = pasStk.ByrefArgMask();
+            }
+
+            /* Shouldn't be reporting trivial call-sites */
+
+            assert(regMask || argMask || callArgCnt || pasStk.CurDepth());
 
 // Emit IPtrMask if needed
 
@@ -3284,143 +3284,142 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, const
         dest += encodeUnsigned(dest, imask);                                                                           \
     }
 
-                /* When usePopEncoding is true:
-                 *  this is not an interesting call site
-                 *   because nothing is live here.
-                 */
-                usePopEncoding = ((callArgCnt < 4) && (regMask == 0) && (argMask == 0));
+            /* When usePopEncoding is true:
+             *  this is not an interesting call site
+             *   because nothing is live here.
+             */
+            usePopEncoding = ((callArgCnt < 4) && (regMask == 0) && (argMask == 0));
 
-                if (!usePopEncoding)
+            if (!usePopEncoding)
+            {
+                int pattern = LookupCallPattern(callArgCnt, regMask, argMask, codeDelta);
+                if (pattern != -1)
                 {
-                    int pattern = LookupCallPattern(callArgCnt, regMask, argMask, codeDelta);
-                    if (pattern != -1)
+                    if (pattern > 0xff)
                     {
-                        if (pattern > 0xff)
+                        codeDelta = pattern >> 8;
+                        pattern &= 0xff;
+                        if (codeDelta >= 16)
                         {
-                            codeDelta = pattern >> 8;
-                            pattern &= 0xff;
-                            if (codeDelta >= 16)
-                            {
-                                /* use encoding: */
-                                /*   skip 01000000 [Delta] */
-                                *dest++ = 0x40;
-                                dest += encodeUnsigned(dest, codeDelta);
-                                codeDelta = 0;
-                            }
-                            else
-                            {
-                                /* use encoding: */
-                                /*   skip 0100DDDD  small delta=DDDD */
-                                *dest++ = 0x40 | (BYTE)codeDelta;
-                            }
+                            /* use encoding: */
+                            /*   skip 01000000 [Delta] */
+                            *dest++ = 0x40;
+                            dest += encodeUnsigned(dest, codeDelta);
+                            codeDelta = 0;
                         }
-
-                        // Emit IPtrMask if needed
-                        CHK_NON_INTRPT_ESP_IPtrMask;
-
-                        assert((pattern >= 0) && (pattern < 80));
-                        *dest++ = 0x80 | pattern;
-                        goto NEXT_RPD;
-                    }
-
-                    /* See if we can use 2nd call encoding
-                     *     1101RRRR DDCCCMMM encoding */
-
-                    if ((callArgCnt <= 7) && (argMask <= 7))
-                    {
-                        unsigned inx; // callCommonDelta[] index
-                        unsigned maxCommonDelta = callCommonDelta[3];
-
-                        if (codeDelta > maxCommonDelta)
+                        else
                         {
-                            if (codeDelta > maxCommonDelta + 15)
-                            {
-                                /* use encoding: */
-                                /*   skip    01000000 [Delta] */
-                                *dest++ = 0x40;
-                                dest += encodeUnsigned(dest, codeDelta - maxCommonDelta);
-                            }
-                            else
-                            {
-                                /* use encoding: */
-                                /*   skip 0100DDDD  small delta=DDDD */
-                                *dest++ = 0x40 | (BYTE)(codeDelta - maxCommonDelta);
-                            }
-
-                            codeDelta = maxCommonDelta;
-                            inx       = 3;
-                            goto EMIT_2ND_CALL_ENCODING;
-                        }
-
-                        for (inx = 0; inx < 4; inx++)
-                        {
-                            if (codeDelta == callCommonDelta[inx])
-                            {
-                            EMIT_2ND_CALL_ENCODING:
-                                // Emit IPtrMask if needed
-                                CHK_NON_INTRPT_ESP_IPtrMask;
-
-                                *dest++ = 0xD0 | regMask;
-                                *dest++ = (inx << 6) | (callArgCnt << 3) | argMask;
-                                goto NEXT_RPD;
-                            }
-                        }
-
-                        unsigned minCommonDelta = callCommonDelta[0];
-
-                        if ((codeDelta > minCommonDelta) && (codeDelta < maxCommonDelta))
-                        {
-                            assert((minCommonDelta + 16) > maxCommonDelta);
                             /* use encoding: */
                             /*   skip 0100DDDD  small delta=DDDD */
-                            *dest++ = 0x40 | (BYTE)(codeDelta - minCommonDelta);
-
-                            codeDelta = minCommonDelta;
-                            inx       = 0;
-                            goto EMIT_2ND_CALL_ENCODING;
+                            *dest++ = 0x40 | (BYTE)codeDelta;
                         }
                     }
+
+                    // Emit IPtrMask if needed
+                    CHK_NON_INTRPT_ESP_IPtrMask;
+
+                    assert((pattern >= 0) && (pattern < 80));
+                    *dest++ = 0x80 | pattern;
+                    goto NEXT_RPD;
                 }
 
-                if (codeDelta >= 16)
-                {
-                    unsigned i = (usePopEncoding ? 15 : 0);
-                    /* use encoding: */
-                    /*   skip    01000000 [Delta]  arbitrary sized delta */
-                    *dest++ = 0x40;
-                    dest += encodeUnsigned(dest, codeDelta - i);
-                    codeDelta = i;
-                }
+                /* See if we can use 2nd call encoding
+                 *     1101RRRR DDCCCMMM encoding */
 
-                if ((codeDelta > 0) || usePopEncoding)
+                if ((callArgCnt <= 7) && (argMask <= 7))
                 {
-                    if (usePopEncoding)
+                    unsigned inx; // callCommonDelta[] index
+                    unsigned maxCommonDelta = callCommonDelta[3];
+
+                    if (codeDelta > maxCommonDelta)
                     {
-                        /* use encoding: */
-                        /*   pop 01CCDDDD  ESP pop CC items, 4-bit delta */
-                        if (callArgCnt || codeDelta)
-                            *dest++ = (BYTE)(0x40 | (callArgCnt << 4) | codeDelta);
-                        goto NEXT_RPD;
+                        if (codeDelta > maxCommonDelta + 15)
+                        {
+                            /* use encoding: */
+                            /*   skip    01000000 [Delta] */
+                            *dest++ = 0x40;
+                            dest += encodeUnsigned(dest, codeDelta - maxCommonDelta);
+                        }
+                        else
+                        {
+                            /* use encoding: */
+                            /*   skip 0100DDDD  small delta=DDDD */
+                            *dest++ = 0x40 | (BYTE)(codeDelta - maxCommonDelta);
+                        }
+
+                        codeDelta = maxCommonDelta;
+                        inx       = 3;
+                        goto EMIT_2ND_CALL_ENCODING;
                     }
-                    else
+
+                    for (inx = 0; inx < 4; inx++)
                     {
+                        if (codeDelta == callCommonDelta[inx])
+                        {
+                        EMIT_2ND_CALL_ENCODING:
+                            // Emit IPtrMask if needed
+                            CHK_NON_INTRPT_ESP_IPtrMask;
+
+                            *dest++ = 0xD0 | regMask;
+                            *dest++ = (inx << 6) | (callArgCnt << 3) | argMask;
+                            goto NEXT_RPD;
+                        }
+                    }
+
+                    unsigned minCommonDelta = callCommonDelta[0];
+
+                    if ((codeDelta > minCommonDelta) && (codeDelta < maxCommonDelta))
+                    {
+                        assert((minCommonDelta + 16) > maxCommonDelta);
                         /* use encoding: */
                         /*   skip 0100DDDD  small delta=DDDD */
-                        *dest++ = 0x40 | (BYTE)codeDelta;
+                        *dest++ = 0x40 | (BYTE)(codeDelta - minCommonDelta);
+
+                        codeDelta = minCommonDelta;
+                        inx       = 0;
+                        goto EMIT_2ND_CALL_ENCODING;
                     }
                 }
-
-                // Emit IPtrMask if needed
-                CHK_NON_INTRPT_ESP_IPtrMask;
-
-                /* use encoding:                                   */
-                /*   call 1110RRRR [ArgCnt] [ArgMask]              */
-
-                *dest++ = 0xE0 | regMask;
-                dest += encodeUnsigned(dest, callArgCnt);
-
-                dest += encodeUnsigned(dest, argMask);
             }
+
+            if (codeDelta >= 16)
+            {
+                unsigned i = (usePopEncoding ? 15 : 0);
+                /* use encoding: */
+                /*   skip    01000000 [Delta]  arbitrary sized delta */
+                *dest++ = 0x40;
+                dest += encodeUnsigned(dest, codeDelta - i);
+                codeDelta = i;
+            }
+
+            if ((codeDelta > 0) || usePopEncoding)
+            {
+                if (usePopEncoding)
+                {
+                    /* use encoding: */
+                    /*   pop 01CCDDDD  ESP pop CC items, 4-bit delta */
+                    if (callArgCnt || codeDelta)
+                        *dest++ = (BYTE)(0x40 | (callArgCnt << 4) | codeDelta);
+                    goto NEXT_RPD;
+                }
+                else
+                {
+                    /* use encoding: */
+                    /*   skip 0100DDDD  small delta=DDDD */
+                    *dest++ = 0x40 | (BYTE)codeDelta;
+                }
+            }
+
+            // Emit IPtrMask if needed
+            CHK_NON_INTRPT_ESP_IPtrMask;
+
+            /* use encoding:                                   */
+            /*   call 1110RRRR [ArgCnt] [ArgMask]              */
+
+            *dest++ = 0xE0 | regMask;
+            dest += encodeUnsigned(dest, callArgCnt);
+
+            dest += encodeUnsigned(dest, argMask);
         }
 
     /*  We ignore the register live/dead information, since the

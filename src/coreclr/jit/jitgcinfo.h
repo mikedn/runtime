@@ -42,6 +42,7 @@ public:
 #ifdef JIT32_GCENCODER
         PushArg,
         PopArgs,
+        Pop,
 #else
         StoreArg,
 #endif
@@ -57,7 +58,6 @@ public:
         GCtype           gcType : 8;
 #ifdef JIT32_GCENCODER
         unsigned isThis : 1;
-        unsigned isCall : 1;
         unsigned callRefRegs : CNT_CALLEE_SAVED;
         unsigned callByrefRegs : CNT_CALLEE_SAVED;
 #endif

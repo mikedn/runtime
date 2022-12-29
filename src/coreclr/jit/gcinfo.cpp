@@ -189,12 +189,11 @@ GCInfo::RegArgChange* GCInfo::AddLiveRegs(GCtype gcType, regMaskTP regs, unsigne
 
     RegArgChange* change = AddRegArgChange();
     change->codeOffs     = codeOffs;
-    change->kind         = GCInfo::RegArgChangeKind::RegChange;
+    change->kind         = RegArgChangeKind::RegChange;
     change->gcType       = gcType;
     change->addRegs      = static_cast<regMaskSmall>(regs);
     change->removeRegs   = RBM_NONE;
 #ifdef JIT32_GCENCODER
-    change->isCall = false;
     change->isThis = isThis;
 #endif
     return change;
@@ -206,12 +205,11 @@ GCInfo::RegArgChange* GCInfo::RemoveLiveRegs(GCtype gcType, regMaskTP regs, unsi
 
     RegArgChange* change = AddRegArgChange();
     change->codeOffs     = codeOffs;
-    change->kind         = GCInfo::RegArgChangeKind::RegChange;
+    change->kind         = RegArgChangeKind::RegChange;
     change->gcType       = gcType;
     change->addRegs      = RBM_NONE;
     change->removeRegs   = static_cast<regMaskSmall>(regs);
 #ifdef JIT32_GCENCODER
-    change->isCall = false;
     change->isThis = false;
 #endif
     return change;
@@ -223,9 +221,8 @@ GCInfo::RegArgChange* GCInfo::AddCallArgPush(unsigned codeOffs, unsigned stackLe
     RegArgChange* change = AddRegArgChange();
     change->codeOffs     = codeOffs;
     change->argOffset    = stackLevel;
-    change->kind         = GCInfo::RegArgChangeKind::PushArg;
+    change->kind         = RegArgChangeKind::PushArg;
     change->gcType       = gcType;
-    change->isCall       = false;
     change->isThis       = false;
     return change;
 }
@@ -235,7 +232,7 @@ GCInfo::RegArgChange* GCInfo::AddCallArgsKill(unsigned codeOffs, unsigned argCou
     RegArgChange* change = AddRegArgChange();
     change->codeOffs     = codeOffs;
     change->argOffset    = argCount;
-    change->kind         = GCInfo::RegArgChangeKind::KillArgs;
+    change->kind         = RegArgChangeKind::KillArgs;
     change->gcType       = GCT_GCREF;
     change->isThis       = false;
     return change;
@@ -275,9 +272,8 @@ GCInfo::RegArgChange* GCInfo::AddCallArgsPop(
     RegArgChange* change  = AddRegArgChange();
     change->codeOffs      = codeOffs;
     change->argOffset     = argCount;
-    change->kind          = GCInfo::RegArgChangeKind::PopArgs;
+    change->kind          = isCall ? RegArgChangeKind::PopArgs : RegArgChangeKind::Pop;
     change->gcType        = GCT_GCREF;
-    change->isCall        = isCall;
     change->isThis        = false;
     change->callRefRegs   = callRefRegs;
     change->callByrefRegs = callByrefRegs;
@@ -292,7 +288,7 @@ GCInfo::RegArgChange* GCInfo::AddCallArgStore(unsigned codeOffs, int argOffs, GC
     RegArgChange* change = AddRegArgChange();
     change->codeOffs     = codeOffs;
     change->argOffset    = argOffs;
-    change->kind         = GCInfo::RegArgChangeKind::StoreArg;
+    change->kind         = RegArgChangeKind::StoreArg;
     change->gcType       = gcType;
     return change;
 }
@@ -302,7 +298,7 @@ GCInfo::RegArgChange* GCInfo::AddCallArgsKill(unsigned codeOffs)
     RegArgChange* change = AddRegArgChange();
     change->codeOffs     = codeOffs;
     change->argOffset    = 0;
-    change->kind         = GCInfo::RegArgChangeKind::KillArgs;
+    change->kind         = RegArgChangeKind::KillArgs;
     change->gcType       = GCT_GCREF;
     return change;
 }
