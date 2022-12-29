@@ -7426,38 +7426,20 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSi
         return;
     }
 
-    // Do we have any interesting (i.e., callee-saved) registers live here?
-
-    unsigned gcrefRegs = 0;
-    unsigned byrefRegs = 0;
-
-    // We make a bitmask whose bits correspond to callee-saved register indices (in the sequence
-    // of callee-saved registers only).
-    for (unsigned calleeSavedRegIdx = 0; calleeSavedRegIdx < CNT_CALLEE_SAVED; calleeSavedRegIdx++)
-    {
-        regMaskTP calleeSavedRbm = GCInfo::calleeSaveOrder[calleeSavedRegIdx];
-        if (emitThisGCrefRegs & calleeSavedRbm)
-        {
-            gcrefRegs |= (1 << calleeSavedRegIdx);
-        }
-        if (emitThisByrefRegs & calleeSavedRbm)
-        {
-            byrefRegs |= (1 << calleeSavedRegIdx);
-        }
-    }
-
     if (argRecCnt == 0)
     {
-        // Or do we have a partially interruptible EBP-less frame, and any
-        // of EDI,ESI,EBX,EBP are live, or is there an outer/pending call?
+        if (emitFullyInt)
+        {
+            return;
+        }
 
-        if (emitFullyInt || (gcrefRegs == 0 && byrefRegs == 0 && u2.emitGcArgTrackCnt == 0))
+        if ((((emitThisGCrefRegs | emitThisByrefRegs) & RBM_CALLEE_SAVED) == RBM_NONE) && (u2.emitGcArgTrackCnt == 0))
         {
             return;
         }
     }
 
-    gcInfo.AddCallArgsPop(emitCurCodeOffs(addr), argRecCnt, isCall, gcrefRegs, byrefRegs);
+    gcInfo.AddCallArgsPop(emitCurCodeOffs(addr), argRecCnt, isCall, emitThisGCrefRegs, emitThisByrefRegs);
 }
 
 // For caller-pop arguments, we report the arguments as pending arguments.

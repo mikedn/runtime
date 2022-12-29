@@ -121,15 +121,6 @@ public:
     static WriteBarrierForm GetWriteBarrierForm(GenTreeStoreInd* store);
     static WriteBarrierForm GetWriteBarrierFormFromAddress(GenTree* addr);
 
-#ifdef JIT32_GCENCODER
-    // The following table determines the order in which callee-saved registers
-    // are encoded in GC information at call sites..
-    static const regMaskTP calleeSaveOrder[];
-#endif
-
-    // This method takes a "compact" bitset of the callee-saved registers, and "expands" it to a full register mask.
-    static regMaskSmall RegMaskFromCalleeSavedMask(uint16_t calleeSaveMask);
-
 #if MEASURE_PTRTAB_SIZE
     static size_t s_gcRegPtrDscSize;
     static size_t s_gcTotalPtrTabSize;
@@ -152,7 +143,7 @@ public:
     RegArgChange* AddCallArgPush(unsigned codeOffs, unsigned stackLevel, GCtype gcType);
     RegArgChange* AddCallArgsKill(unsigned codeOffs, unsigned argCount);
     RegArgChange* AddCallArgsPop(
-        unsigned codeOffs, unsigned argCount, bool isCall, unsigned refRegs, unsigned byrefRegs);
+        unsigned codeOffs, unsigned argCount, bool isCall, regMaskTP refRegs, regMaskTP byrefRegs);
 #else
     RegArgChange* AddCallArgStore(unsigned codeOffs, int argOffs, GCtype gcType);
     RegArgChange* AddCallArgsKill(unsigned codeOffs);

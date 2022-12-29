@@ -242,8 +242,31 @@ GCInfo::RegArgChange* GCInfo::AddCallArgsKill(unsigned codeOffs, unsigned argCou
 }
 
 GCInfo::RegArgChange* GCInfo::AddCallArgsPop(
-    unsigned codeOffs, unsigned argCount, bool isCall, unsigned refRegs, unsigned byrefRegs)
+    unsigned codeOffs, unsigned argCount, bool isCall, regMaskTP refRegs, regMaskTP byrefRegs)
 {
+    // We only care about callee-saved registers and there are only 4 of them on x86,
+    // we can save space in RegArgChange by "compressing" regMaskTP to just 4 bits.
+
+    unsigned callRefRegs   = 0;
+    unsigned callByrefRegs = 0;
+
+    static const regMaskTP calleeSaveOrder[]{RBM_CALLEE_SAVED_ORDER};
+
+    for (unsigned i = 0; i < _countof(calleeSaveOrder); i++)
+    {
+        regMaskTP reg = calleeSaveOrder[i];
+
+        if ((refRegs & reg) != RBM_NONE)
+        {
+            callRefRegs |= (1 << i);
+        }
+
+        if ((byrefRegs & reg) != RBM_NONE)
+        {
+            callByrefRegs |= (1 << i);
+        }
+    }
+
     // Only calls may pop more than one value.
     // cdecl calls accomplish this popping via a post-call "ADD SP, imm" instruction,
     // we treat that as "isCall" too.
@@ -256,8 +279,8 @@ GCInfo::RegArgChange* GCInfo::AddCallArgsPop(
     change->gcType        = GCT_GCREF;
     change->isCall        = isCall;
     change->isThis        = false;
-    change->callRefRegs   = refRegs;
-    change->callByrefRegs = byrefRegs;
+    change->callRefRegs   = callRefRegs;
+    change->callByrefRegs = callByrefRegs;
     return change;
 }
 #else
@@ -284,23 +307,6 @@ GCInfo::RegArgChange* GCInfo::AddCallArgsKill(unsigned codeOffs)
     return change;
 }
 #endif
-
-#ifdef JIT32_GCENCODER
-const regMaskTP GCInfo::calleeSaveOrder[]{RBM_CALLEE_SAVED_ORDER};
-
-regMaskSmall GCInfo::RegMaskFromCalleeSavedMask(uint16_t calleeSaveMask)
-{
-    regMaskSmall res = 0;
-    for (int i = 0; i < CNT_CALLEE_SAVED; i++)
-    {
-        if ((calleeSaveMask & ((regMaskTP)1 << i)) != 0)
-        {
-            res |= calleeSaveOrder[i];
-        }
-    }
-    return res;
-}
-#endif // JIT32_GCENCODER
 
 #ifdef JIT32_GCENCODER
 GCInfo::CallSite* GCInfo::AddCallSite(unsigned codeOffs, regMaskTP refRegs, regMaskTP byrefRegs)
