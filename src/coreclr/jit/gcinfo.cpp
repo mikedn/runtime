@@ -241,33 +241,36 @@ GCInfo::RegArgChange* GCInfo::AddCallArgsKill(unsigned codeOffs, unsigned argCou
 GCInfo::RegArgChange* GCInfo::AddCallArgsPop(
     unsigned codeOffs, unsigned argCount, bool isCall, regMaskTP refRegs, regMaskTP byrefRegs)
 {
+    // Only calls may pop more than one value.
+    // cdecl calls accomplish this popping via a post-call "ADD SP, imm" instruction,
+    // we treat that as "isCall" too.
+    isCall |= argCount > 1;
+
     // We only care about callee-saved registers and there are only 4 of them on x86,
     // we can save space in RegArgChange by "compressing" regMaskTP to just 4 bits.
 
     unsigned callRefRegs   = 0;
     unsigned callByrefRegs = 0;
 
-    static const regMaskTP calleeSaveOrder[]{RBM_CALLEE_SAVED_ORDER};
-
-    for (unsigned i = 0; i < _countof(calleeSaveOrder); i++)
+    if (isCall)
     {
-        regMaskTP reg = calleeSaveOrder[i];
+        static const regMaskTP calleeSaveOrder[]{RBM_CALLEE_SAVED_ORDER};
 
-        if ((refRegs & reg) != RBM_NONE)
+        for (unsigned i = 0; i < _countof(calleeSaveOrder); i++)
         {
-            callRefRegs |= (1 << i);
-        }
+            regMaskTP reg = calleeSaveOrder[i];
 
-        if ((byrefRegs & reg) != RBM_NONE)
-        {
-            callByrefRegs |= (1 << i);
+            if ((refRegs & reg) != RBM_NONE)
+            {
+                callRefRegs |= (1 << i);
+            }
+
+            if ((byrefRegs & reg) != RBM_NONE)
+            {
+                callByrefRegs |= (1 << i);
+            }
         }
     }
-
-    // Only calls may pop more than one value.
-    // cdecl calls accomplish this popping via a post-call "ADD SP, imm" instruction,
-    // we treat that as "isCall" too.
-    isCall |= argCount > 1;
 
     RegArgChange* change  = AddRegArgChange();
     change->codeOffs      = codeOffs;
