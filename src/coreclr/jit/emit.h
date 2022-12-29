@@ -2017,11 +2017,11 @@ public:
     bool emitFullArgInfo;   // full arg info (including non-ptr arg)?
     bool emitSimpleStkUsed; // using the "simple" stack table?
 
+    static constexpr unsigned MaxSimpleStackDepth = sizeof(unsigned) * CHAR_BIT;
+
     union {
         struct // if emitSimpleStkUsed==true
         {
-            static constexpr unsigned MaxDepth = sizeof(unsigned) * CHAR_BIT;
-
             unsigned emitSimpleStkMask;      // bit per pushed dword (if it fits. Lowest bit <==> last pushed arg)
             unsigned emitSimpleByrefStkMask; // byref qualifier for emitSimpleStkMask
         } u1;

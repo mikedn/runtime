@@ -4880,7 +4880,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
             maxStackDepthIn4ByteElements);
     emitMaxStackDepth = maxStackDepthIn4ByteElements;
 
-    if (!emitFullGCinfo && (emitMaxStackDepth <= u1.MaxDepth))
+    if (!emitFullGCinfo && (emitMaxStackDepth <= MaxSimpleStackDepth))
     {
         emitSimpleStkUsed = true;
 
@@ -7283,7 +7283,7 @@ void emitter::emitStackPush(BYTE* addr, GCtype gcType)
     if (emitSimpleStkUsed)
     {
         assert(!emitFullGCinfo); // Simple stk not used for emitFullGCinfo
-        assert(emitCurStackLvl / sizeof(int) < u1.MaxDepth);
+        assert(emitCurStackLvl / sizeof(int) < MaxSimpleStackDepth);
 
         u1.emitSimpleStkMask <<= 1;
         u1.emitSimpleStkMask |= (gcType != GCT_NONE);
@@ -7332,7 +7332,7 @@ void emitter::emitStackPop(BYTE* addr, bool isCall, unsigned count)
         {
             assert(!emitFullGCinfo); // Simple stk not used for emitFullGCinfo
 
-            if (count >= u1.MaxDepth)
+            if (count >= MaxSimpleStackDepth)
             {
                 u1.emitSimpleStkMask      = 0;
                 u1.emitSimpleByrefStkMask = 0;
