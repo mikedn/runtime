@@ -4299,7 +4299,7 @@ void GCInfo::CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize)
     encoder.AddUntrackedStackSlots();
     encoder.AddTrackedStackSlots(firstStackSlotLifetime);
 
-    if (compiler->codeGen->GetInterruptible())
+    if (isFullyInterruptible)
     {
         encoder.AddFullyInterruptibleSlots(firstRegArgChange);
         encoder.FinalizeSlotIds();

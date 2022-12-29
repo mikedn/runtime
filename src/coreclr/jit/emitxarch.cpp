@@ -10523,7 +10523,7 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
                     assert(emitComp->lvaTable[0].lvRegister);
                     assert(emitComp->lvaTable[0].GetRegNum() == reg1);
 
-                    if (emitFullGCinfo)
+                    if (gcInfo.ReportRegArgChanges())
                     {
                         emitGCregLiveSet(id->idGCref(), genRegMask(reg1), dst, true);
                         break;
@@ -11868,7 +11868,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 }
             }
 
-            if (!emitFullGCinfo && recCall)
+            if (recCall && gcInfo.ReportCallSites())
             {
                 emitRecordGCCall(dst);
             }

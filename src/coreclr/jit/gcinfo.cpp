@@ -14,6 +14,14 @@ GCInfo::GCInfo(Compiler* compiler) : compiler(compiler)
 {
 }
 
+void GCInfo::Init()
+{
+    isFullyInterruptible = compiler->codeGen->GetInterruptible();
+#ifdef JIT32_GCENCODER
+    isFramePointerUsed = compiler->codeGen->isFramePointerUsed();
+#endif
+}
+
 GCInfo::WriteBarrierForm GCInfo::GetWriteBarrierForm(GenTreeStoreInd* store)
 {
     if (!store->TypeIs(TYP_REF))
@@ -149,9 +157,9 @@ void GCInfo::EndStackSlotLifetime(StackSlotLifetime* lifetime DEBUGARG(int slotO
 GCInfo::RegArgChange* GCInfo::AddRegArgChange()
 {
 #ifdef JIT32_GCENCODER
-    assert(compiler->codeGen->GetInterruptible() || !compiler->codeGen->isFramePointerUsed());
+    assert(isFullyInterruptible || !isFramePointerUsed);
 #else
-    assert(compiler->codeGen->GetInterruptible());
+    assert(isFullyInterruptible);
 #endif
 
     RegArgChange* change = new (compiler, CMK_GC) RegArgChange;
@@ -184,7 +192,10 @@ GCInfo::RegArgChange* GCInfo::AddLiveRegs(GCtype gcType, regMaskTP regs, unsigne
 {
     assert(gcType != GCT_NONE);
 #ifdef JIT32_GCENCODER
+    assert(isFullyInterruptible || (isThis && ReportRegArgChanges()));
     assert(!isThis || compiler->lvaKeepAliveAndReportThis());
+#else
+    assert(isFullyInterruptible);
 #endif
 
     RegArgChange* change = AddRegArgChange();
@@ -202,6 +213,7 @@ GCInfo::RegArgChange* GCInfo::AddLiveRegs(GCtype gcType, regMaskTP regs, unsigne
 GCInfo::RegArgChange* GCInfo::RemoveLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs)
 {
     assert(gcType != GCT_NONE);
+    assert(isFullyInterruptible);
 
     RegArgChange* change = AddRegArgChange();
     change->codeOffs     = codeOffs;
@@ -313,7 +325,10 @@ GCInfo::CallSite* GCInfo::AddCallSite(unsigned codeOffs, regMaskTP refRegs, regM
 GCInfo::CallSite* GCInfo::AddCallSite(unsigned codeOffs, unsigned length, regMaskTP refRegs, regMaskTP byrefRegs)
 #endif
 {
-#ifndef JIT32_GCENCODER
+#ifdef JIT32_GCENCODER
+    assert(ReportCallSites());
+#else
+    assert(!isFullyInterruptible);
     assert((0 < length) && (length <= 16));
 #endif
 

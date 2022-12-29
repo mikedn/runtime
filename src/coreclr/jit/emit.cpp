@@ -3154,7 +3154,7 @@ size_t emitter::emitIssue1Instr(insGroup* ig, instrDesc* id, BYTE** dp)
 #ifdef JIT32_GCENCODER
     // If we're generating a full pointer map and the stack is empty,
     // there better not be any "pending" argument push entries.
-    assert(!emitFullGCinfo || (emitCurStackLvl != 0) || (u2.emitGcArgTrackCnt == 0));
+    assert(!gcInfo.ReportRegArgChanges() || (emitCurStackLvl != 0) || (u2.emitGcArgTrackCnt == 0));
 #endif
 
     /* Did the size of the instruction match our expectations? */
@@ -4861,16 +4861,9 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
     emitSizeTable.record(static_cast<unsigned>(emitSizeMethod));
 #endif
 
-    emitFullyInt = codeGen->GetInterruptible();
+    gcInfo.Init();
 
 #ifdef JIT32_GCENCODER
-    emitFullGCinfo = !codeGen->isFramePointerUsed() || codeGen->GetInterruptible();
-#ifdef UNIX_X86_ABI
-    emitFullArgInfo = !codeGen->isFramePointerUsed() || codeGen->GetInterruptible();
-#else
-    emitFullArgInfo = !codeGen->isFramePointerUsed();
-#endif
-
 #if EMITTER_STATS
     stkDepthTable.record(emitMaxStackDepth);
 #endif
@@ -4880,7 +4873,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
             maxStackDepthIn4ByteElements);
     emitMaxStackDepth = maxStackDepthIn4ByteElements;
 
-    if (!emitFullGCinfo && (emitMaxStackDepth <= MaxSimpleStackDepth))
+    if (gcInfo.ReportCallSites() && (emitMaxStackDepth <= MaxSimpleStackDepth))
     {
         emitSimpleStkUsed = true;
 
@@ -5117,11 +5110,16 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
         // prolog. However, as methods are not interruptible over the prolog,
         // we try to save space by avoiding that.
 
+        // TODO-MIKE-Cleanup: Can't we just pass emitSyncThisObjReg to the
+        // GC encoder and have it generate whatever info is needed, instead
+        // of special casing this all over the place? The encoder already
+        // handles this when only call sites are reported.
+
         if (thisDsc->lvRegister)
         {
             emitSyncThisObjReg = thisDsc->GetRegNum();
 
-            if (emitFullGCinfo && (emitSyncThisObjReg == REG_ARG_0) &&
+            if (gcInfo.ReportRegArgChanges() && (emitSyncThisObjReg == REG_ARG_0) &&
                 ((codeGen->paramRegState.intRegLiveIn & RBM_ARG_0) != RBM_NONE))
             {
                 emitGCregLiveSet(GCT_GCREF, RBM_ARG_0, emitCodeBlock, true);
@@ -6489,7 +6487,7 @@ void emitter::emitUpdateLiveGCvars(VARSET_VALARG_TP vars, BYTE* addr)
 void emitter::emitRecordGCCall(BYTE* codePos)
 {
     assert(emitIssuing);
-    assert(!emitFullGCinfo);
+    assert(gcInfo.ReportCallSites());
 
     regMaskTP regs = (emitThisGCrefRegs | emitThisByrefRegs) & ~RBM_INTRET;
 
@@ -6606,9 +6604,9 @@ void emitter::emitUpdateLiveGCregs(GCtype gcType, regMaskTP regs, BYTE* addr)
 
 #ifdef JIT32_GCENCODER
     // We need to report `this` even if the code is not fully interruptible.
-    if (emitFullyInt || (emitFullGCinfo && (emitSyncThisObjReg != REG_NA)))
+    if (gcInfo.IsFullyInterruptible() || (gcInfo.ReportRegArgChanges() && (emitSyncThisObjReg != REG_NA)))
 #else
-    if (emitFullyInt)
+    if (gcInfo.IsFullyInterruptible())
 #endif
     {
         regMaskTP dead = typeRegs & ~regs;
@@ -6628,7 +6626,7 @@ void emitter::emitUpdateLiveGCregs(GCtype gcType, regMaskTP regs, BYTE* addr)
             {
                 if ((otherRegs & regMask) != RBM_NONE)
                 {
-                    if (emitFullyInt)
+                    if (gcInfo.IsFullyInterruptible())
                     {
                         emitGCregDeadSet(gcType == GCT_GCREF ? GCT_BYREF : GCT_GCREF, regMask, addr);
                     }
@@ -6644,12 +6642,12 @@ void emitter::emitUpdateLiveGCregs(GCtype gcType, regMaskTP regs, BYTE* addr)
 
                 bool isThis = (reg == emitSyncThisObjReg);
 
-                if (emitFullyInt || (emitFullGCinfo && isThis))
+                if (gcInfo.IsFullyInterruptible() || (gcInfo.ReportRegArgChanges() && isThis))
                 {
                     emitGCregLiveSet(gcType, regMask, addr, isThis);
                 }
 #else
-                if (emitFullyInt)
+                if (gcInfo.IsFullyInterruptible())
                 {
                     emitGCregLiveSet(gcType, regMask, addr);
                 }
@@ -6659,7 +6657,7 @@ void emitter::emitUpdateLiveGCregs(GCtype gcType, regMaskTP regs, BYTE* addr)
             }
             else
             {
-                if (emitFullyInt)
+                if (gcInfo.IsFullyInterruptible())
                 {
                     emitGCregDeadSet(gcType, regMask, addr);
                 }
@@ -6707,7 +6705,7 @@ void emitter::emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr)
 
         if ((otherRegs & regMask) != RBM_NONE)
         {
-            if (emitFullyInt)
+            if (gcInfo.IsFullyInterruptible())
             {
                 emitGCregDeadSet(gcType == GCT_GCREF ? GCT_BYREF : GCT_GCREF, regMask, addr);
             }
@@ -6723,12 +6721,12 @@ void emitter::emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr)
 
         bool isThis = (reg == emitSyncThisObjReg);
 
-        if (emitFullyInt || (emitFullGCinfo && isThis))
+        if (gcInfo.IsFullyInterruptible() || (gcInfo.ReportRegArgChanges() && isThis))
         {
             emitGCregLiveSet(gcType, regMask, addr, isThis);
         }
 #else
-        if (emitFullyInt)
+        if (gcInfo.IsFullyInterruptible())
         {
             emitGCregLiveSet(gcType, regMask, addr);
         }
@@ -6756,7 +6754,7 @@ void emitter::emitGCregDeadUpd(regNumber reg, BYTE* addr)
 
     regMaskTP regMask = genRegMask(reg);
 
-    if (emitFullyInt)
+    if (gcInfo.IsFullyInterruptible())
     {
         if ((emitThisGCrefRegs & regMask) != RBM_NONE)
         {
@@ -6788,7 +6786,7 @@ void emitter::emitGCregDeadAll(BYTE* addr)
 
     assert((emitThisByrefRegs & emitThisGCrefRegs) == RBM_NONE);
 
-    if (emitFullyInt)
+    if (gcInfo.IsFullyInterruptible())
     {
         if (emitThisGCrefRegs != RBM_NONE)
         {
@@ -6813,11 +6811,6 @@ void emitter::emitGCregLiveSet(GCtype gcType, regMaskTP regs, BYTE* addr)
 #endif
 {
     assert(emitIssuing);
-#ifdef JIT32_GCENCODER
-    assert(emitFullyInt || (isThis && emitFullGCinfo));
-#else
-    assert(emitFullyInt);
-#endif
     assert(((emitThisGCrefRegs | emitThisByrefRegs) & regs) == RBM_NONE);
 
 #ifdef JIT32_GCENCODER
@@ -6830,7 +6823,6 @@ void emitter::emitGCregLiveSet(GCtype gcType, regMaskTP regs, BYTE* addr)
 void emitter::emitGCregDeadSet(GCtype gcType, regMaskTP regs, BYTE* addr)
 {
     assert(emitIssuing);
-    assert(emitFullyInt);
     assert(((emitThisGCrefRegs | emitThisByrefRegs) & regs) != RBM_NONE);
 
     gcInfo.RemoveLiveRegs(gcType, regs, emitCurCodeOffs(addr));
@@ -7032,7 +7024,7 @@ void emitter::emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsi
     assert(gcType != GCT_NONE);
     assert(lclNum == emitComp->lvaOutgoingArgSpaceVar);
 
-    if (!emitFullyInt)
+    if (!gcInfo.IsFullyInterruptible())
     {
         return;
     }
@@ -7047,7 +7039,7 @@ void emitter::emitRecordGCCall(BYTE* addr, unsigned callInstrLength)
 
     unsigned codeOffs = emitCurCodeOffs(addr);
 
-    if (!emitFullyInt)
+    if (!gcInfo.IsFullyInterruptible())
     {
 #ifdef DEBUG
         if (EMIT_GC_VERBOSE)
@@ -7282,7 +7274,7 @@ void emitter::emitStackPush(BYTE* addr, GCtype gcType)
 {
     if (emitSimpleStkUsed)
     {
-        assert(!emitFullGCinfo); // Simple stk not used for emitFullGCinfo
+        assert(gcInfo.ReportCallSites());
         assert(emitCurStackLvl / sizeof(int) < MaxSimpleStackDepth);
 
         u1.emitSimpleStkMask <<= 1;
@@ -7308,7 +7300,7 @@ void emitter::emitStackPushN(BYTE* addr, unsigned count)
 
     if (emitSimpleStkUsed)
     {
-        assert(!emitFullGCinfo); // Simple stk not used for emitFullGCinfo
+        assert(gcInfo.ReportCallSites());
 
         u1.emitSimpleStkMask <<= count;
         u1.emitSimpleByrefStkMask <<= count;
@@ -7330,7 +7322,7 @@ void emitter::emitStackPop(BYTE* addr, bool isCall, unsigned count)
     {
         if (emitSimpleStkUsed)
         {
-            assert(!emitFullGCinfo); // Simple stk not used for emitFullGCinfo
+            assert(gcInfo.ReportCallSites());
 
             if (count >= MaxSimpleStackDepth)
             {
@@ -7354,7 +7346,7 @@ void emitter::emitStackPop(BYTE* addr, bool isCall, unsigned count)
     {
         assert(isCall);
 
-        if (emitFullGCinfo)
+        if (gcInfo.ReportRegArgChanges())
         {
             emitStackPopLargeStk(addr, isCall, 0);
         }
@@ -7378,9 +7370,9 @@ void emitter::emitStackPushLargeStk(BYTE* addr, GCtype gcType, unsigned count)
 
         *u2.emitArgTrackTop++ = static_cast<uint8_t>(gcType);
 
-        if (emitFullArgInfo || (gcType != GCT_NONE))
+        if ((gcType != GCT_NONE) || gcInfo.ReportNonGCArgChanges())
         {
-            if (emitFullGCinfo)
+            if (gcInfo.ReportRegArgChanges())
             {
                 gcInfo.AddCallArgPush(emitCurCodeOffs(addr), level, gcType);
             }
@@ -7408,7 +7400,7 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned count)
 
         GCtype gcType = static_cast<GCtype>(*--u2.emitArgTrackTop);
 
-        if (emitFullArgInfo || (gcType != GCT_NONE))
+        if ((gcType != GCT_NONE) || gcInfo.ReportNonGCArgChanges())
         {
             argRecCnt++;
         }
@@ -7420,14 +7412,14 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned count)
     // We're about to pop the corresponding arg records
     u2.emitGcArgTrackCnt -= argRecCnt;
 
-    if (!emitFullGCinfo)
+    if (!gcInfo.ReportRegArgChanges())
     {
         return;
     }
 
     if (argRecCnt == 0)
     {
-        if (emitFullyInt)
+        if (gcInfo.IsFullyInterruptible())
         {
             return;
         }
@@ -7449,7 +7441,7 @@ void emitter::emitStackKillArgs(BYTE* addr, unsigned count)
 
     if (emitSimpleStkUsed)
     {
-        assert(!emitFullGCinfo); // Simple stk not used for emitFullGCInfo
+        assert(gcInfo.ReportCallSites());
 
         // We don't need to report this to the GC info, but we do need
         // to kill mark the ptrs on the stack as non-GC.
@@ -7485,12 +7477,12 @@ void emitter::emitStackKillArgs(BYTE* addr, unsigned count)
 
     /* We're about to kill the corresponding (pointer) arg records */
 
-    if (!emitFullArgInfo)
+    if (!gcInfo.ReportNonGCArgChanges())
     {
         u2.emitGcArgTrackCnt -= gcCnt;
     }
 
-    if (!emitFullGCinfo)
+    if (!gcInfo.ReportRegArgChanges())
     {
         return;
     }

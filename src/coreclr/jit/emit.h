@@ -2006,15 +2006,7 @@ public:
     static regMaskTP GetNoGCHelperCalleeKilledRegs(CorInfoHelpFunc helper);
     static regMaskTP GetNoGCHelperCalleeSavedRegs(CorInfoHelpFunc helper);
 
-    /************************************************************************/
-    /*         The following logic keeps track of live GC ref values        */
-    /************************************************************************/
-
-    bool emitFullyInt; // fully interruptible code?
-
 #ifdef JIT32_GCENCODER
-    bool emitFullGCinfo;    // full GC pointer maps?
-    bool emitFullArgInfo;   // full arg info (including non-ptr arg)?
     bool emitSimpleStkUsed; // using the "simple" stack table?
 
     static constexpr unsigned MaxSimpleStackDepth = sizeof(unsigned) * CHAR_BIT;

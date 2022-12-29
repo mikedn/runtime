@@ -108,6 +108,10 @@ private:
     RegArgChange*      lastRegArgChange       = nullptr;
     CallSite*          firstCallSite          = nullptr;
     CallSite*          lastCallSite           = nullptr;
+    bool               isFullyInterruptible   = false;
+#ifdef JIT32_GCENCODER
+    bool isFramePointerUsed = false;
+#endif
 
 public:
     enum WriteBarrierForm
@@ -127,6 +131,36 @@ public:
 #endif
 
     GCInfo(Compiler* compiler);
+
+    void Init();
+
+    bool IsFullyInterruptible() const
+    {
+        return isFullyInterruptible;
+    }
+
+#ifdef JIT32_GCENCODER
+    bool ReportCallSites() const
+    {
+        return !ReportRegArgChanges();
+    }
+
+    bool ReportRegArgChanges() const
+    {
+        return isFullyInterruptible || ReportNonGCArgChanges();
+    }
+
+    bool ReportNonGCArgChanges() const
+    {
+        return !isFramePointerUsed
+#ifdef UNIX_X86_ABI
+               // UNIX_X86_ABI uses GC info for unwinding so we need to report all arguments,
+               // even if the GC itself needs only the GC arguments in fully interruptible code.
+               || isFullyInterruptible
+#endif
+            ;
+    }
+#endif
 
     StackSlotLifetime* BeginStackSlotLifetime(int slotOffs, unsigned codeOffs);
     void EndStackSlotLifetime(StackSlotLifetime* lifetime DEBUGARG(int slotOffs), unsigned codeOffs);
