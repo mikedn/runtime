@@ -4875,28 +4875,29 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
     stkDepthTable.record(emitMaxStackDepth);
 #endif
 
-    emitSimpleStkUsed         = true;
-    u1.emitSimpleStkMask      = 0;
-    u1.emitSimpleByrefStkMask = 0;
-
-    // Convert max. stack depth from # of bytes to # of entries.
-
     unsigned maxStackDepthIn4ByteElements = emitMaxStackDepth / REGSIZE_BYTES;
     JITDUMP("Converting emitMaxStackDepth from bytes (%d) to elements (%d)\n", emitMaxStackDepth,
             maxStackDepthIn4ByteElements);
     emitMaxStackDepth = maxStackDepthIn4ByteElements;
 
-    if ((emitMaxStackDepth > MAX_SIMPLE_STK_DEPTH) || emitFullGCinfo)
+    if (!emitFullGCinfo && (emitMaxStackDepth <= u1.MaxDepth))
+    {
+        emitSimpleStkUsed = true;
+
+        u1.emitSimpleStkMask      = 0;
+        u1.emitSimpleByrefStkMask = 0;
+    }
+    else
     {
         emitSimpleStkUsed = false;
 
-        if (emitMaxStackDepth > sizeof(u2.emitArgTrackLcl))
+        if (emitMaxStackDepth <= sizeof(u2.emitArgTrackLcl))
         {
-            u2.emitArgTrackTab = (BYTE*)emitGetMem(roundUp(emitMaxStackDepth));
+            u2.emitArgTrackTab = u2.emitArgTrackLcl;
         }
         else
         {
-            u2.emitArgTrackTab = (BYTE*)u2.emitArgTrackLcl;
+            u2.emitArgTrackTab = emitComp->getAllocator(CMK_GC).allocate<uint8_t>(emitMaxStackDepth);
         }
 
         u2.emitArgTrackTop   = u2.emitArgTrackTab;
@@ -7282,7 +7283,7 @@ void emitter::emitStackPush(BYTE* addr, GCtype gcType)
     if (emitSimpleStkUsed)
     {
         assert(!emitFullGCinfo); // Simple stk not used for emitFullGCinfo
-        assert(emitCurStackLvl / sizeof(int) < MAX_SIMPLE_STK_DEPTH);
+        assert(emitCurStackLvl / sizeof(int) < u1.MaxDepth);
 
         u1.emitSimpleStkMask <<= 1;
         u1.emitSimpleStkMask |= (gcType != GCT_NONE);
@@ -7332,7 +7333,7 @@ void emitter::emitStackPop(BYTE* addr, bool isCall, unsigned callInstrSize, unsi
         {
             assert(!emitFullGCinfo); // Simple stk not used for emitFullGCinfo
 
-            if (count >= MAX_SIMPLE_STK_DEPTH)
+            if (count >= u1.MaxDepth)
             {
                 u1.emitSimpleStkMask      = 0;
                 u1.emitSimpleByrefStkMask = 0;

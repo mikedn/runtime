@@ -1886,8 +1886,8 @@ static BYTE* gceByrefPrefixI(GCInfo::RegArgChange* change, BYTE* dest)
 
 typedef unsigned pasMaskType;
 
-#define BITS_IN_pasMask (BITS_IN_BYTE * sizeof(pasMaskType))
-#define HIGHEST_pasMask_BIT (((pasMaskType)0x1) << (BITS_IN_pasMask - 1))
+static constexpr unsigned BITS_IN_pasMask     = sizeof(pasMaskType) * CHAR_BIT;
+static constexpr unsigned HIGHEST_pasMask_BIT = ((pasMaskType)0x1) << (BITS_IN_pasMask - 1);
 
 class PendingArgsStack
 {
