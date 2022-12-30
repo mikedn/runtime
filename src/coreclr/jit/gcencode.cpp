@@ -78,6 +78,7 @@ class GCEncoder
     StackSlotLifetime* const firstStackSlotLifetime;
     RegArgChange* const      firstRegArgChange;
     CallSite* const          firstCallSite;
+    bool const               isFullyInterruptible;
     unsigned                 untrackedStackSlotCount;
     unsigned                 trackedStackSlotLifetimeCount;
     unsigned                 trackedThisLclNum = BAD_VAR_NUM;
@@ -90,7 +91,8 @@ public:
               ReturnKind         returnKind,
               StackSlotLifetime* firstStackSlotLifetime,
               RegArgChange*      firstRegArgChange,
-              CallSite*          firstCallSite)
+              CallSite*          firstCallSite,
+              bool               isFullyInterruptible)
         : codeGen(codeGen)
         , compiler(codeGen->GetCompiler())
         , codeSize(codeSize)
@@ -100,6 +102,7 @@ public:
         , firstStackSlotLifetime(firstStackSlotLifetime)
         , firstRegArgChange(firstRegArgChange)
         , firstCallSite(firstCallSite)
+        , isFullyInterruptible(isFullyInterruptible)
     {
     }
 
@@ -134,7 +137,7 @@ void* GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen, unsigned codeSize, unsigned
 #endif
 
     GCEncoder encoder(codeGen, codeSize, prologSize, epilogSize, GetReturnKind(compiler->info), firstStackSlotLifetime,
-                      firstRegArgChange, firstCallSite);
+                      firstRegArgChange, firstCallSite, isFullyInterruptible);
     return encoder.CreateAndStoreGCInfo();
 }
 
@@ -154,8 +157,7 @@ void* GCEncoder::CreateAndStoreGCInfo()
     size_t ptrMapSize   = PtrTableSize(&argTabOffset);
 
 #if DISPLAY_SIZES
-
-    if (codeGen->GetInterruptible())
+    if (isFullyInterruptible)
     {
         gcHeaderISize += headerSize;
         gcPtrMapISize += ptrMapSize;
@@ -165,7 +167,6 @@ void* GCEncoder::CreateAndStoreGCInfo()
         gcHeaderNSize += headerSize;
         gcPtrMapNSize += ptrMapSize;
     }
-
 #endif // DISPLAY_SIZES
 
     size_t infoBlockSize = headerSize + ptrMapSize;
@@ -1585,7 +1586,7 @@ size_t GCEncoder::InfoBlockHdrSave(BYTE* dest, int mask, regMaskTP savedRegs, In
         header->ebxSaved = 1;
     }
 
-    header->interruptible = compiler->codeGen->GetInterruptible();
+    header->interruptible = isFullyInterruptible;
 
     if (!compiler->codeGen->isFramePointerUsed())
     {
@@ -1816,10 +1817,9 @@ size_t GCEncoder::InfoBlockHdrSave(BYTE* dest, int mask, regMaskTP savedRegs, In
     }
 
 #if DISPLAY_SIZES
-
     if (mask)
     {
-        if (compiler->codeGen->GetInterruptible())
+        if (isFullyInterruptible)
         {
             genMethodICnt++;
         }
@@ -1828,7 +1828,6 @@ size_t GCEncoder::InfoBlockHdrSave(BYTE* dest, int mask, regMaskTP savedRegs, In
             genMethodNCnt++;
         }
     }
-
 #endif // DISPLAY_SIZES
 
     return size;
@@ -2227,7 +2226,7 @@ size_t GCEncoder::MakeRegPtrTable(BYTE* dest, int mask, size_t* pArgTabOffset)
 
     unsigned slotSize;
 
-    if (compiler->codeGen->GetInterruptible())
+    if (isFullyInterruptible)
     {
         slotSize = AddFullyInterruptibleSlots(dest, mask);
     }
@@ -2457,7 +2456,7 @@ unsigned GCEncoder::AddTrackedStackSlots(uint8_t* dest, const int mask)
 
 unsigned GCEncoder::AddFullyInterruptibleSlots(uint8_t* dest, const int mask)
 {
-    assert(compiler->codeGen->GetInterruptible());
+    assert(isFullyInterruptible);
 
     unsigned ptrRegs    = 0;
     unsigned lastOffset = 0;
@@ -2743,7 +2742,7 @@ unsigned GCEncoder::AddFullyInterruptibleSlots(uint8_t* dest, const int mask)
 
 unsigned GCEncoder::AddPartiallyInterruptibleSlotsFramed(uint8_t* dest, const int mask)
 {
-    assert(!compiler->codeGen->GetInterruptible());
+    assert(!isFullyInterruptible);
     assert(compiler->codeGen->isFramePointerUsed());
 
     /*
@@ -3015,7 +3014,7 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFramed(uint8_t* dest, const in
 
 unsigned GCEncoder::AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, const int mask)
 {
-    assert(!compiler->codeGen->GetInterruptible());
+    assert(!isFullyInterruptible);
     assert(!compiler->codeGen->isFramePointerUsed());
 
     unsigned         lastOffset = 0;
@@ -3529,8 +3528,9 @@ class GCEncoder : private GcInfoEncoder
     Compiler* compiler;
     JitHashTable<RegSlotIdKey, RegSlotIdKey, GcSlotId>     regSlotMap;
     JitHashTable<StackSlotIdKey, StackSlotIdKey, GcSlotId> stackSlotMap;
-    unsigned callSiteCount = 0;
-    bool     hasSlotIds    = false;
+    unsigned   callSiteCount = 0;
+    bool       hasSlotIds    = false;
+    bool const isFullyInterruptible;
 
     using StackSlotLifetime = GCInfo::StackSlotLifetime;
     using RegArgChangeKind  = GCInfo::RegArgChangeKind;
@@ -3544,11 +3544,12 @@ class GCEncoder : private GcInfoEncoder
     bool const log;
 #endif
 public:
-    GCEncoder(Compiler* compiler, CompIAllocator* encoderAlloc)
+    GCEncoder(Compiler* compiler, CompIAllocator* encoderAlloc, bool isFullyInterruptible)
         : GcInfoEncoder(compiler->info.compCompHnd, compiler->info.compMethodInfo, encoderAlloc, NOMEM)
         , compiler(compiler)
         , regSlotMap(compiler->getAllocator(CMK_GC))
         , stackSlotMap(compiler->getAllocator(CMK_GC))
+        , isFullyInterruptible(isFullyInterruptible)
 #ifdef GC_ENCODER_LOGGING
         , log(INDEBUG(compiler->verbose || compiler->opts.dspGCtbls) || (JitConfig.JitGCInfoLogging() != 0))
 #endif
@@ -3892,7 +3893,7 @@ void GCEncoder::SetHeaderInfo(unsigned codeSize, unsigned prologSize, ReturnKind
     }
 
 #if DISPLAY_SIZES
-    (compiler->codeGen->GetInterruptible() ? genMethodICnt : genMethodNCnt)++;
+    (isFullyInterruptible ? genMethodICnt : genMethodNCnt)++;
 #endif
 }
 
@@ -3988,7 +3989,7 @@ void GCEncoder::AddUntrackedStackSlots()
 
 void GCEncoder::AddFullyInterruptibleSlots(RegArgChange* firstRegArgChange)
 {
-    assert(compiler->codeGen->GetInterruptible());
+    assert(isFullyInterruptible);
 
     regMaskSmall  gcRegs         = RBM_NONE;
     RegArgChange* firstArgChange = nullptr;
@@ -4033,7 +4034,7 @@ void GCEncoder::AddFullyInterruptibleSlots(RegArgChange* firstRegArgChange)
 
 void GCEncoder::AddFullyInterruptibleRanges(unsigned codeSize, unsigned prologSize)
 {
-    assert(compiler->codeGen->GetInterruptible());
+    assert(isFullyInterruptible);
     assert(prologSize <= codeSize);
 
     unsigned prevOffset = prologSize;
@@ -4066,7 +4067,7 @@ void GCEncoder::AddFullyInterruptibleRanges(unsigned codeSize, unsigned prologSi
 
 void GCEncoder::AddPartiallyInterruptibleSlots(CallSite* firstCallSite)
 {
-    assert(!compiler->codeGen->GetInterruptible());
+    assert(!isFullyInterruptible);
 
     unsigned  callSiteIndex = 0;
     unsigned* callSites     = nullptr;
@@ -4229,7 +4230,7 @@ void GCEncoder::AddCallArgStackSlot(RegArgChange* argChange)
 {
     assert(argChange->gcType != GCT_NONE);
     assert(argChange->kind == RegArgChangeKind::StoreArg);
-    assert(compiler->codeGen->GetInterruptible());
+    assert(isFullyInterruptible);
 
     GcSlotFlags    slotFlags = argChange->gcType == GCT_BYREF ? GC_SLOT_INTERIOR : GC_SLOT_BASE;
     StackSlotIdKey slotKey(argChange->argOffset, slotFlags, GC_SP_REL);
@@ -4252,7 +4253,7 @@ void GCEncoder::AddCallArgStackSlot(RegArgChange* argChange)
 
 void GCEncoder::RemoveCallArgStackSlots(unsigned codeOffset, RegArgChange* firstArgChange, RegArgChange* killArgsChange)
 {
-    assert(compiler->codeGen->GetInterruptible());
+    assert(isFullyInterruptible);
 
     for (RegArgChange* change = firstArgChange; change != killArgsChange; change = change->next)
     {
@@ -4293,7 +4294,7 @@ void GCInfo::CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize)
     }
 
     CompIAllocator encoderAlloc(compiler->getAllocator(CMK_GC));
-    GCEncoder      encoder(compiler, &encoderAlloc);
+    GCEncoder      encoder(compiler, &encoderAlloc, isFullyInterruptible);
 
     encoder.SetHeaderInfo(codeSize, prologSize, GetReturnKind(compiler->info));
     encoder.AddUntrackedStackSlots();
