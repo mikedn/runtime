@@ -1744,8 +1744,8 @@ private:
 
     instrDescJmp* emitCurIGjmpList = nullptr; // list of jumps   in current IG
 
-    // emitPrev* and emitInit* are only used during code generation, not during
-    // emission (issuing), to determine what GC values to store into an IG.
+    // These are only used during code generation, not during emission (issuing),
+    // to determine what GC values to store into an IG.
     // Note that only the Vars ones are actually used, apparently due to bugs
     // in that tracking. See emitSavIG(): the important use of ByrefRegs is commented
     // out, and GCrefRegs is always saved.
@@ -1758,26 +1758,15 @@ private:
     regMaskTP emitInitGCrefRegs = RBM_NONE;
     regMaskTP emitInitByrefRegs = RBM_NONE;
 
+    VARSET_TP emitThisGCrefVars;
+    regMaskTP emitThisGCrefRegs = RBM_NONE;
+    regMaskTP emitThisByrefRegs = RBM_NONE;
+
     // If this is set, we ignore comparing emitPrev* and emitInit* to determine
     // whether to save GC state (to save space in the IG), and always save it.
-
     bool emitForceStoreGCState = false;
 
-    // emitThis* variables are used during emission, to track GC updates
-    // on a per-instruction basis. During code generation, per-instruction
-    // tracking is done with variables liveGCLcl, liveGCRefRegs,
-    // and liveGCByRefRegs. However, these are also used for a slightly
-    // different purpose during code generation: to try to minimize the
-    // amount of GC data stored to an IG, by only storing deltas from what
-    // we expect to see at an IG boundary. Also, only emitThisGCrefVars is
-    // really the only one used; the others seem to be calculated, but not
-    // used due to bugs.
-
-    VARSET_TP emitThisGCrefVars;
-    regMaskTP emitThisGCrefRegs = RBM_NONE; // Current set of registers holding GC references
-    regMaskTP emitThisByrefRegs = RBM_NONE; // Current set of registers holding BYREF references
-
-    bool emitThisGCrefVset; // Is "emitThisGCrefVars" up to date?
+    bool emitThisGCrefVset; // Is "gcInfo.liveLcls" up to date?
 
     VARSET_TP emitEmptyGCrefVars = VarSetOps::UninitVal();
 
@@ -2072,8 +2061,6 @@ public:
     void emitGCvarLiveUpd(int slotOffs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum));
     void emitGCvarLiveSet(int slotOffs, GCtype gcType, unsigned codeOffs, unsigned index);
     void emitGCvarDeadSet(int slotOffs, unsigned codeOffs, unsigned index);
-
-    GCtype emitRegGCtype(regNumber reg);
 
     // We have a mixture of code emission methods, some of which return the size of the emitted instruction,
     // requiring the caller to add this to the current code pointer (dst += <call to emit code>), others of which

@@ -5981,24 +5981,6 @@ unsigned emitter::emitGetInsCIargs(instrDesc* id)
 
 #endif // TARGET_X86
 
-GCtype emitter::emitRegGCtype(regNumber reg)
-{
-    assert(emitIssuing);
-
-    if ((emitThisGCrefRegs & genRegMask(reg)) != 0)
-    {
-        return GCT_GCREF;
-    }
-    else if ((emitThisByrefRegs & genRegMask(reg)) != 0)
-    {
-        return GCT_BYREF;
-    }
-    else
-    {
-        return GCT_NONE;
-    }
-}
-
 #if !FEATURE_FIXED_OUT_ARGS
 
 //------------------------------------------------------------------------
@@ -10267,16 +10249,15 @@ BYTE* emitter::emitOutputR(BYTE* dst, instrDesc* id)
                 // However, we can see cases where a LCLHEAP generates a non-gcref value into a register,
                 // and the first instruction we generate after the LCLHEAP is an `inc` that is typed as
                 // byref. We'll properly create the byref gcinfo when this happens.
-                //     assert((emitThisGCrefRegs | emitThisByrefRegs) & regMask);
+                //     assert((gcInfo.GetAllLiveRegs() & regMask) != RBM_NONE);
                 assert(id->idGCref() == GCT_BYREF);
                 // Mark it as holding a GCT_BYREF
                 emitGCregLiveUpd(GCT_BYREF, id->idReg1(), dst);
             }
             else
             {
-                // Can't use RRW to trash a GC ref.  It's OK for unverifiable code
-                // to trash Byrefs.
-                assert((emitThisGCrefRegs & regMask) == 0);
+                // Can't use RRW to trash a GC ref.  It's OK for unverifiable code to trash Byrefs.
+                assert((gcInfo.GetLiveRegs(GCT_GCREF) & regMask) == RBM_NONE);
             }
         }
         break;
@@ -10583,8 +10564,8 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
 
                         // r1/r2 could have been a GCREF as GCREF + int=BYREF
                         //                               or BYREF+/-int=BYREF
-                        assert(((regMask & emitThisGCrefRegs) && (ins == INS_add)) ||
-                               ((regMask & emitThisByrefRegs) && (ins == INS_add || ins == INS_sub)));
+                        assert((((regMask & gcInfo.GetLiveRegs(GCT_GCREF) != RBM_NONE) && (ins == INS_add)) ||
+                               (((regMask & gcInfo.GetLiveRegs(GCT_BYREF) != RBM_NONE) && (ins == INS_add || ins == INS_sub)));
 #endif // DEBUG
 #endif // 0
 
@@ -10608,8 +10589,8 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
 
                 GCtype gc1, gc2;
 
-                gc1 = emitRegGCtype(reg1);
-                gc2 = emitRegGCtype(reg2);
+                gc1 = gcInfo.GetRegType(reg1);
+                gc2 = gcInfo.GetRegType(reg2);
 
                 if (gc1 != gc2)
                 {
@@ -11052,11 +11033,11 @@ DONE:
 
                 // The reg must currently be holding either a gcref or a byref
                 // GCT_GCREF+int = GCT_BYREF, and GCT_BYREF+/-int = GCT_BYREF
-                if (emitThisGCrefRegs & regMask)
+                if ((gcInfo.GetLiveRegs(GCT_GCREF) & regMask) != RBM_NONE)
                 {
                     assert(ins == INS_add);
                 }
-                if (emitThisByrefRegs & regMask)
+                if ((gcInfo.GetLiveRegs(GCT_BYREF) & regMask) != RBM_NONE)
                 {
                     assert(ins == INS_add || ins == INS_sub);
                 }
@@ -11525,7 +11506,7 @@ BYTE* emitter::emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i)
     // It certainly doesn't call emitGCregDeadAll but perhaps it achieves the same
     // effect by other means?
     // Anyway, even if this code is useless removing it results in GC info diffs.
-    if ((ins == INS_call) && ((emitThisGCrefRegs | emitThisByrefRegs) != RBM_NONE))
+    if ((ins == INS_call) && (gcInfo.GetAllLiveRegs() != RBM_NONE))
     {
         emitGCregDeadAll(dst);
     }
@@ -11840,12 +11821,12 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 #endif // UNIX_AMD64_ABI
 
             // If the GC register set has changed, report the new set
-            if (gcrefRegs != emitThisGCrefRegs)
+            if (gcrefRegs != gcInfo.GetLiveRegs(GCT_GCREF))
             {
                 emitUpdateLiveGCregs(GCT_GCREF, gcrefRegs, dst);
             }
 
-            if (byrefRegs != emitThisByrefRegs)
+            if (byrefRegs != gcInfo.GetLiveRegs(GCT_BYREF))
             {
                 emitUpdateLiveGCregs(GCT_BYREF, byrefRegs, dst);
             }
@@ -12748,15 +12729,13 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 #ifdef DEBUG
     if (emitComp->compDebugBreak)
     {
-        // set JitEmitPrintRefRegs=1 will print out emitThisGCrefRegs and emitThisByrefRegs
-        // at the beginning of this method.
         if (JitConfig.JitEmitPrintRefRegs() != 0)
         {
             printf("Before emitOutputInstr for id->idDebugOnlyInfo()->idNum=0x%02x\n", id->idDebugOnlyInfo()->idNum);
-            printf("  emitThisGCrefRegs");
-            emitDispRegSet(emitThisGCrefRegs);
-            printf("\n  emitThisByrefRegs");
-            emitDispRegSet(emitThisByrefRegs);
+            printf("  REF regs");
+            emitDispRegSet(gcInfo.GetLiveRegs(GCT_GCREF));
+            printf("\n  BYREF regs");
+            emitDispRegSet(gcInfo.GetLiveRegs(GCT_BYREF));
             printf("\n");
         }
 
@@ -12776,17 +12755,14 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
     {
         // INS_mulEAX has implicit target of Edx:Eax. Make sure
         // that we detected this cleared its GC-status.
-
-        assert(((RBM_EAX | RBM_EDX) & (emitThisGCrefRegs | emitThisByrefRegs)) == 0);
+        assert((gcInfo.GetAllLiveRegs() & (RBM_EAX | RBM_EDX)) == RBM_NONE);
     }
 
     if (instrIs3opImul(ins))
     {
         // The target of the 3-operand imul is implicitly encoded. Make sure
         // that we detected the implicit register and cleared its GC-status.
-
-        regMaskTP regMask = genRegMask(inst3opImulReg(ins));
-        assert((regMask & (emitThisGCrefRegs | emitThisByrefRegs)) == 0);
+        assert((gcInfo.GetAllLiveRegs() & genRegMask(inst3opImulReg(ins))) == RBM_NONE);
     }
 
     // Output any delta in GC info.

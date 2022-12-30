@@ -9698,12 +9698,12 @@ unsigned emitter::emitOutputCall(insGroup* ig, BYTE* dst, instrDesc* id, code_t 
     }
 
     // If the GC register set has changed, report the new set.
-    if (gcrefRegs != emitThisGCrefRegs)
+    if (gcrefRegs != gcInfo.GetLiveRegs(GCT_GCREF))
     {
         emitUpdateLiveGCregs(GCT_GCREF, gcrefRegs, dst);
     }
     // If the Byref register set has changed, report the new set.
-    if (byrefRegs != emitThisByrefRegs)
+    if (byrefRegs != gcInfo.GetLiveRegs(GCT_BYREF))
     {
         emitUpdateLiveGCregs(GCT_BYREF, byrefRegs, dst);
     }

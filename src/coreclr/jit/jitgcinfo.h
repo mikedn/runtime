@@ -108,6 +108,9 @@ private:
     RegArgChange*      lastRegArgChange       = nullptr;
     CallSite*          firstCallSite          = nullptr;
     CallSite*          lastCallSite           = nullptr;
+    VARSET_TP          liveLcls               = VarSetOps::UninitVal();
+    regMaskTP          liveRefRegs            = RBM_NONE;
+    regMaskTP          liveByrefRegs          = RBM_NONE;
     bool               isFullyInterruptible   = false;
 #ifdef JIT32_GCENCODER
     bool isFramePointerUsed = false;
@@ -162,6 +165,42 @@ public:
     }
 #endif
 
+    // TODO-MIKE-Cleanup: This should be const.
+    VARSET_TP& GetLiveLcls()
+    {
+        return liveLcls;
+    }
+
+    regMaskTP GetAllLiveRegs() const
+    {
+        return liveRefRegs | liveByrefRegs;
+    }
+
+    // TODO-MIKE-Cleanup: This should be const.
+    regMaskTP& GetLiveRegs(GCtype type)
+    {
+        assert(type != GCT_NONE);
+
+        return type == GCT_GCREF ? liveRefRegs : liveByrefRegs;
+    }
+
+    GCtype GetRegType(regNumber reg) const
+    {
+        regMaskTP mask = genRegMask(reg);
+
+        if ((liveRefRegs & mask) != RBM_NONE)
+        {
+            return GCT_GCREF;
+        }
+
+        if ((liveByrefRegs & mask) != RBM_NONE)
+        {
+            return GCT_BYREF;
+        }
+
+        return GCT_NONE;
+    }
+
     StackSlotLifetime* BeginStackSlotLifetime(int slotOffs, unsigned codeOffs);
     void EndStackSlotLifetime(StackSlotLifetime* lifetime DEBUGARG(int slotOffs), unsigned codeOffs);
 
@@ -176,8 +215,7 @@ public:
 #ifdef JIT32_GCENCODER
     RegArgChange* AddCallArgPush(unsigned codeOffs, unsigned stackLevel, GCtype gcType);
     RegArgChange* AddCallArgsKill(unsigned codeOffs, unsigned argCount);
-    RegArgChange* AddCallArgsPop(
-        unsigned codeOffs, unsigned argCount, bool isCall, regMaskTP refRegs, regMaskTP byrefRegs);
+    RegArgChange* AddCallArgsPop(unsigned codeOffs, unsigned argCount, bool isCall);
 #else
     RegArgChange* AddCallArgStore(unsigned codeOffs, int argOffs, GCtype gcType);
     RegArgChange* AddCallArgsKill(unsigned codeOffs);
@@ -194,9 +232,9 @@ public:
     }
 
 #ifdef JIT32_GCENCODER
-    CallSite* AddCallSite(unsigned codeOffs, regMaskTP refRegs, regMaskTP byrefRegs);
+    CallSite* AddCallSite(unsigned codeOffs);
 #else
-    CallSite* AddCallSite(unsigned codeOffs, unsigned length, regMaskTP refRegs, regMaskTP byrefRegs);
+    CallSite* AddCallSite(unsigned codeOffs, unsigned length);
 #endif
 
 #ifdef JIT32_GCENCODER

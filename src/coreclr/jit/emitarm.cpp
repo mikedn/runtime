@@ -6151,11 +6151,15 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 byrefRegs |= RBM_R0;
 
             // If the GC register set has changed, report the new set.
-            if (gcrefRegs != emitThisGCrefRegs)
+            if (gcrefRegs != gcInfo.GetLiveRegs(GCT_GCREF))
+            {
                 emitUpdateLiveGCregs(GCT_GCREF, gcrefRegs, dst);
+            }
 
-            if (byrefRegs != emitThisByrefRegs)
+            if (byrefRegs != gcInfo.GetLiveRegs(GCT_BYREF))
+            {
                 emitUpdateLiveGCregs(GCT_BYREF, byrefRegs, dst);
+            }
 
             // Some helper calls may be marked as not requiring GC info to be recorded.
             if (!id->idIsNoGC())
@@ -6251,15 +6255,13 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
     if (emitComp->compDebugBreak)
     {
-        // set JitEmitPrintRefRegs=1 will print out emitThisGCrefRegs and emitThisByrefRegs
-        // at the beginning of this method.
         if (JitConfig.JitEmitPrintRefRegs() != 0)
         {
             printf("Before emitOutputInstr for id->idDebugOnlyInfo()->idNum=0x%02x\n", id->idDebugOnlyInfo()->idNum);
-            printf("  emitThisGCrefRegs");
-            emitDispRegSet(emitThisGCrefRegs);
-            printf("\n  emitThisByrefRegs");
-            emitDispRegSet(emitThisByrefRegs);
+            printf("  REF regs");
+            emitDispRegSet(gcInfo.GetLiveRegs(GCT_GCREF));
+            printf("\n  BYREF regs");
+            emitDispRegSet(gcInfo.GetLiveRegs(GCT_BYREF));
             printf("\n");
         }
 

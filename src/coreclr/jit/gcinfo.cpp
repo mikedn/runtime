@@ -20,6 +20,8 @@ void GCInfo::Init()
 #ifdef JIT32_GCENCODER
     isFramePointerUsed = compiler->codeGen->isFramePointerUsed();
 #endif
+
+    liveLcls = VarSetOps::MakeEmpty(compiler);
 }
 
 GCInfo::WriteBarrierForm GCInfo::GetWriteBarrierForm(GenTreeStoreInd* store)
@@ -191,6 +193,7 @@ GCInfo::RegArgChange* GCInfo::AddLiveRegs(GCtype gcType, regMaskTP regs, unsigne
 #endif
 {
     assert(gcType != GCT_NONE);
+    assert((GetAllLiveRegs() & regs) == RBM_NONE);
 #ifdef JIT32_GCENCODER
     assert(isFullyInterruptible || (isThis && ReportRegArgChanges()));
     assert(!isThis || compiler->lvaKeepAliveAndReportThis());
@@ -213,6 +216,7 @@ GCInfo::RegArgChange* GCInfo::AddLiveRegs(GCtype gcType, regMaskTP regs, unsigne
 GCInfo::RegArgChange* GCInfo::RemoveLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs)
 {
     assert(gcType != GCT_NONE);
+    assert((GetAllLiveRegs() & regs) != RBM_NONE);
     assert(isFullyInterruptible);
 
     RegArgChange* change = AddRegArgChange();
@@ -250,8 +254,7 @@ GCInfo::RegArgChange* GCInfo::AddCallArgsKill(unsigned codeOffs, unsigned argCou
     return change;
 }
 
-GCInfo::RegArgChange* GCInfo::AddCallArgsPop(
-    unsigned codeOffs, unsigned argCount, bool isCall, regMaskTP refRegs, regMaskTP byrefRegs)
+GCInfo::RegArgChange* GCInfo::AddCallArgsPop(unsigned codeOffs, unsigned argCount, bool isCall)
 {
     // Only calls may pop more than one value.
     // cdecl calls accomplish this popping via a post-call "ADD SP, imm" instruction,
@@ -272,12 +275,12 @@ GCInfo::RegArgChange* GCInfo::AddCallArgsPop(
         {
             regMaskTP reg = calleeSaveOrder[i];
 
-            if ((refRegs & reg) != RBM_NONE)
+            if ((liveRefRegs & reg) != RBM_NONE)
             {
                 callRefRegs |= (1 << i);
             }
 
-            if ((byrefRegs & reg) != RBM_NONE)
+            if ((liveByrefRegs & reg) != RBM_NONE)
             {
                 callByrefRegs |= (1 << i);
             }
@@ -320,9 +323,9 @@ GCInfo::RegArgChange* GCInfo::AddCallArgsKill(unsigned codeOffs)
 #endif
 
 #ifdef JIT32_GCENCODER
-GCInfo::CallSite* GCInfo::AddCallSite(unsigned codeOffs, regMaskTP refRegs, regMaskTP byrefRegs)
+GCInfo::CallSite* GCInfo::AddCallSite(unsigned codeOffs)
 #else
-GCInfo::CallSite* GCInfo::AddCallSite(unsigned codeOffs, unsigned length, regMaskTP refRegs, regMaskTP byrefRegs)
+GCInfo::CallSite* GCInfo::AddCallSite(unsigned codeOffs, unsigned length)
 #endif
 {
 #ifdef JIT32_GCENCODER
@@ -347,8 +350,8 @@ GCInfo::CallSite* GCInfo::AddCallSite(unsigned codeOffs, unsigned length, regMas
 
     lastCallSite = call;
 
-    call->refRegs   = static_cast<regMaskSmall>(refRegs);
-    call->byrefRegs = static_cast<regMaskSmall>(byrefRegs);
+    call->refRegs   = static_cast<regMaskSmall>(liveRefRegs);
+    call->byrefRegs = static_cast<regMaskSmall>(liveByrefRegs);
     call->codeOffs  = codeOffs;
 #ifndef JIT32_GCENCODER
     call->callInstrLength = static_cast<uint8_t>(length);

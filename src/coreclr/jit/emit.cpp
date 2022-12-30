@@ -1314,9 +1314,9 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
         emitInitGCrefRegs = gcrefRegs;
         emitInitByrefRegs = byrefRegs;
 
-        VarSetOps::Assign(emitComp, emitThisGCrefVars, GCvars);
-        emitThisGCrefRegs = gcrefRegs;
-        emitThisByrefRegs = byrefRegs;
+        VarSetOps::Assign(emitComp, emitThisGCrefVars, emitInitGCrefVars);
+        emitThisGCrefRegs = emitInitGCrefRegs;
+        emitThisByrefRegs = emitInitByrefRegs;
 
         last = false;
     }
@@ -1625,10 +1625,13 @@ void emitter::emitBegPrologEpilog(insGroup* igPh)
     emitPrevGCrefRegs = igPh->igPhData->igPhPrevGCrefRegs;
     emitPrevByrefRegs = igPh->igPhData->igPhPrevByrefRegs;
 
-    VarSetOps::Assign(emitComp, emitThisGCrefVars, igPh->igPhData->igPhInitGCrefVars);
     VarSetOps::Assign(emitComp, emitInitGCrefVars, igPh->igPhData->igPhInitGCrefVars);
-    emitThisGCrefRegs = emitInitGCrefRegs = igPh->igPhData->igPhInitGCrefRegs;
-    emitThisByrefRegs = emitInitByrefRegs = igPh->igPhData->igPhInitByrefRegs;
+    emitInitGCrefRegs = igPh->igPhData->igPhInitGCrefRegs;
+    emitInitByrefRegs = igPh->igPhData->igPhInitByrefRegs;
+
+    VarSetOps::Assign(emitComp, emitThisGCrefVars, emitInitGCrefVars);
+    emitThisGCrefRegs = emitInitGCrefRegs;
+    emitThisByrefRegs = emitInitByrefRegs;
 
     igPh->igPhData = nullptr;
 
@@ -1969,9 +1972,9 @@ void* emitter::emitAddLabel(INDEBUG(BasicBlock* block))
     emitInitGCrefRegs = gcrefRegs;
     emitInitByrefRegs = byrefRegs;
 
-    VarSetOps::Assign(emitComp, emitThisGCrefVars, GCvars);
-    emitThisGCrefRegs = gcrefRegs;
-    emitThisByrefRegs = byrefRegs;
+    VarSetOps::Assign(emitComp, emitThisGCrefVars, emitInitGCrefVars);
+    emitThisGCrefRegs = emitInitGCrefRegs;
+    emitThisByrefRegs = emitInitByrefRegs;
 
 #ifdef DEBUG
     if (block != nullptr)
@@ -1983,9 +1986,9 @@ void* emitter::emitAddLabel(INDEBUG(BasicBlock* block))
     {
         printf("Label: IG%02u, GCvars ", emitCurIG->igNum);
         dumpConvertedVarSet(emitComp, GCvars);
-        printf(", gcrefRegs");
+        printf(", REF regs");
         emitDispRegSet(gcrefRegs);
-        printf(", byrefRegs");
+        printf(", BYREF regs");
         emitDispRegSet(byrefRegs);
         printf("\n");
     }
@@ -2619,9 +2622,9 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
 
         printf("Call: GCvars ");
         dumpConvertedVarSet(emitComp, GCvars);
-        printf(", gcrefRegs");
+        printf(", REF regs");
         emitDispRegSet(gcrefRegs);
-        printf(", byrefRegs");
+        printf(", BYREF regs");
         emitDispRegSet(byrefRegs);
         printf("\n");
     }
@@ -2802,8 +2805,8 @@ void emitter::emitDispRegPtrListDelta()
                                                                : debugPrevRegPtrDsc->next;
          dsc != nullptr; dsc = dsc->next)
     {
-        // Reg changes are reflected in the register sets debugPrevGCrefRegs/emitThisGCrefRegs
-        // and debugPrevByrefRegs/emitThisByrefRegs, and dumped using those sets.
+        // Reg changes are reflected in the register sets debugPrevGCrefRegs/liveRefRegs
+        // and debugPrevByrefRegs/liveByrefRegs, and dumped using those sets.
         if (dsc->kind == GCInfo::RegArgChangeKind::RegChange)
         {
             continue;
@@ -2847,10 +2850,10 @@ void emitter::emitDispRegPtrListDelta()
 //
 void emitter::emitDispGCInfoDelta()
 {
-    emitDispGCRegDelta("gcrRegs", debugPrevGCrefRegs, emitThisGCrefRegs);
-    emitDispGCRegDelta("byrRegs", debugPrevByrefRegs, emitThisByrefRegs);
-    debugPrevGCrefRegs = emitThisGCrefRegs;
-    debugPrevByrefRegs = emitThisByrefRegs;
+    emitDispGCRegDelta("REF regs", debugPrevGCrefRegs, gcInfo.GetLiveRegs(GCT_GCREF));
+    emitDispGCRegDelta("BYREF regs", debugPrevByrefRegs, gcInfo.GetLiveRegs(GCT_BYREF));
+    debugPrevGCrefRegs = gcInfo.GetLiveRegs(GCT_GCREF);
+    debugPrevByrefRegs = gcInfo.GetLiveRegs(GCT_BYREF);
     emitDispGCVarDelta();
     emitDispRegPtrListDelta();
 }
@@ -3015,14 +3018,14 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
 
         if (!(ig->igFlags & IGF_EXTEND))
         {
-            printf("%sgcrefRegs", separator);
+            printf("%sref-regs", separator);
             emitDispRegSet(ig->igGCregs);
             separator = ", ";
         }
 
         if (ig->igFlags & IGF_BYREF_REGS)
         {
-            printf("%sbyrefRegs", separator);
+            printf("%sbyref-regs", separator);
             emitDispRegSet(ig->igByrefRegs());
             separator = ", ";
         }
@@ -4835,6 +4838,8 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 
     gcInfo.Init();
 
+    emitThisGCrefVset = true;
+
 #ifdef JIT32_GCENCODER
 #if EMITTER_STATS
     stkDepthTable.record(emitMaxStackDepth);
@@ -5048,8 +5053,6 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
     VarSetOps::ClearD(emitComp, debugPrevGCRefVars);
     debugPrevRegPtrDsc = nullptr;
 #endif
-    emitThisGCrefRegs = emitThisByrefRegs = RBM_NONE;
-    emitThisGCrefVset                     = true;
 
 #ifdef DEBUG
 
@@ -5259,7 +5262,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
             }
             else if (!emitThisGCrefVset)
             {
-                emitUpdateLiveGCvars(emitThisGCrefVars, cp);
+                emitUpdateLiveGCvars(gcInfo.GetLiveLcls(), cp);
             }
 
             /* Update the set of live GC ref registers */
@@ -5267,7 +5270,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
             {
                 regMaskTP GCregs = ig->igGCregs;
 
-                if (GCregs != emitThisGCrefRegs)
+                if (GCregs != gcInfo.GetLiveRegs(GCT_GCREF))
                 {
                     emitUpdateLiveGCregs(GCT_GCREF, GCregs, cp);
                 }
@@ -5279,7 +5282,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
             {
                 unsigned byrefRegs = ig->igByrefRegs();
 
-                if (byrefRegs != emitThisByrefRegs)
+                if (byrefRegs != gcInfo.GetLiveRegs(GCT_BYREF))
                 {
                     emitUpdateLiveGCregs(GCT_BYREF, byrefRegs, cp);
                 }
@@ -5452,12 +5455,12 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
     }
 
     // No GC registers are live any more.
-    if (emitThisByrefRegs)
+    if (gcInfo.GetLiveRegs(GCT_BYREF) != RBM_NONE)
     {
         emitUpdateLiveGCregs(GCT_BYREF, RBM_NONE, cp);
     }
 
-    if (emitThisGCrefRegs)
+    if (gcInfo.GetLiveRegs(GCT_GCREF) != RBM_NONE)
     {
         emitUpdateLiveGCregs(GCT_GCREF, RBM_NONE, cp);
     }
@@ -6396,12 +6399,12 @@ void emitter::emitUpdateLiveGCvars(VARSET_VALARG_TP vars, BYTE* addr)
         return;
     }
 
-    if (emitThisGCrefVset && VarSetOps::Equal(emitComp, emitThisGCrefVars, vars))
+    if (emitThisGCrefVset && VarSetOps::Equal(emitComp, gcInfo.GetLiveLcls(), vars))
     {
         return;
     }
 
-    VarSetOps::Assign(emitComp, emitThisGCrefVars, vars);
+    VarSetOps::Assign(emitComp, gcInfo.GetLiveLcls(), vars);
 
     if (emitGCrFrameOffsCnt == 0)
     {
@@ -6461,7 +6464,7 @@ void emitter::emitRecordGCCall(BYTE* codePos)
     assert(emitIssuing);
     assert(gcInfo.ReportCallSites());
 
-    regMaskTP regs = (emitThisGCrefRegs | emitThisByrefRegs) & ~RBM_INTRET;
+    regMaskTP regs = gcInfo.GetAllLiveRegs() & ~RBM_INTRET;
 
     if (regs == RBM_NONE)
     {
@@ -6497,16 +6500,16 @@ void emitter::emitRecordGCCall(BYTE* codePos)
         printf("; Call at %04X [stk=%u], GCvars ", codeOffs, emitCurStackLvl);
 #endif
         emitDispVarSet();
-        printf(", gcrefRegs");
-        emitDispRegSet(emitThisGCrefRegs);
-        printf(", byrefRegs");
-        emitDispRegSet(emitThisByrefRegs);
+        printf(", REF regs");
+        emitDispRegSet(gcInfo.GetLiveRegs(GCT_GCREF));
+        printf(", BYREF regs");
+        emitDispRegSet(gcInfo.GetLiveRegs(GCT_BYREF));
 
         printf("\n");
     }
 #endif
 
-    GCCallSite* call = gcInfo.AddCallSite(codeOffs, emitThisGCrefRegs, emitThisByrefRegs);
+    GCCallSite* call = gcInfo.AddCallSite(codeOffs);
 
 #if !FEATURE_FIXED_OUT_ARGS
     noway_assert(FitsIn<uint16_t>(emitCurStackLvl / 4));
@@ -6569,8 +6572,8 @@ void emitter::emitUpdateLiveGCregs(GCtype gcType, regMaskTP regs, BYTE* addr)
         return;
     }
 
-    regMaskTP& typeRegs  = (gcType == GCT_GCREF) ? emitThisGCrefRegs : emitThisByrefRegs;
-    regMaskTP& otherRegs = (gcType == GCT_GCREF) ? emitThisByrefRegs : emitThisGCrefRegs;
+    regMaskTP& typeRegs  = (gcType == GCT_GCREF) ? gcInfo.GetLiveRegs(GCT_GCREF) : gcInfo.GetLiveRegs(GCT_BYREF);
+    regMaskTP& otherRegs = (gcType == GCT_GCREF) ? gcInfo.GetLiveRegs(GCT_BYREF) : gcInfo.GetLiveRegs(GCT_GCREF);
 
     assert(typeRegs != regs);
 
@@ -6650,14 +6653,14 @@ void emitter::emitUpdateLiveGCregs(GCtype gcType, regMaskTP regs, BYTE* addr)
 
     // The 2 GC reg masks can't be overlapping
 
-    assert((emitThisGCrefRegs & emitThisByrefRegs) == 0);
+    assert((gcInfo.GetLiveRegs(GCT_GCREF) & gcInfo.GetLiveRegs(GCT_BYREF)) == RBM_NONE);
 }
 
 // Record the fact that the given register now contains a live GC ref.
 void emitter::emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr)
 {
     assert(emitIssuing);
-    assert((emitThisByrefRegs & emitThisGCrefRegs) == RBM_NONE);
+    assert((gcInfo.GetLiveRegs(GCT_GCREF) & gcInfo.GetLiveRegs(GCT_BYREF)) == RBM_NONE);
 
     // Don't track GC changes in epilogs
     if (emitIGisInEpilog(emitCurIG))
@@ -6667,8 +6670,8 @@ void emitter::emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr)
 
     assert(gcType != GCT_NONE);
 
-    regMaskTP& typeRegs  = (gcType == GCT_GCREF) ? emitThisGCrefRegs : emitThisByrefRegs;
-    regMaskTP& otherRegs = (gcType == GCT_GCREF) ? emitThisByrefRegs : emitThisGCrefRegs;
+    regMaskTP& typeRegs  = (gcType == GCT_GCREF) ? gcInfo.GetLiveRegs(GCT_GCREF) : gcInfo.GetLiveRegs(GCT_BYREF);
+    regMaskTP& otherRegs = (gcType == GCT_GCREF) ? gcInfo.GetLiveRegs(GCT_BYREF) : gcInfo.GetLiveRegs(GCT_GCREF);
     regMaskTP  regMask   = genRegMask(reg);
 
     if ((typeRegs & regMask) == RBM_NONE)
@@ -6709,14 +6712,14 @@ void emitter::emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr)
 
     // The 2 GC reg masks can't be overlapping
 
-    assert((emitThisGCrefRegs & emitThisByrefRegs) == RBM_NONE);
+    assert((gcInfo.GetLiveRegs(GCT_GCREF) & gcInfo.GetLiveRegs(GCT_BYREF)) == RBM_NONE);
 }
 
 // Record the fact that the given register no longer contains a live GC ref.
 void emitter::emitGCregDeadUpd(regNumber reg, BYTE* addr)
 {
     assert(emitIssuing);
-    assert((emitThisByrefRegs & emitThisGCrefRegs) == RBM_NONE);
+    assert((gcInfo.GetLiveRegs(GCT_GCREF) & gcInfo.GetLiveRegs(GCT_BYREF)) == RBM_NONE);
 
     // Don't track GC changes in epilogs
     if (emitIGisInEpilog(emitCurIG))
@@ -6728,21 +6731,21 @@ void emitter::emitGCregDeadUpd(regNumber reg, BYTE* addr)
 
     if (gcInfo.IsFullyInterruptible())
     {
-        if ((emitThisGCrefRegs & regMask) != RBM_NONE)
+        if ((gcInfo.GetLiveRegs(GCT_GCREF) & regMask) != RBM_NONE)
         {
             emitGCregDeadSet(GCT_GCREF, regMask, addr);
-            emitThisGCrefRegs &= ~regMask;
+            gcInfo.GetLiveRegs(GCT_GCREF) &= ~regMask;
         }
-        else if ((emitThisByrefRegs & regMask) != RBM_NONE)
+        else if ((gcInfo.GetLiveRegs(GCT_BYREF) & regMask) != RBM_NONE)
         {
             emitGCregDeadSet(GCT_BYREF, regMask, addr);
-            emitThisByrefRegs &= ~regMask;
+            gcInfo.GetLiveRegs(GCT_BYREF) &= ~regMask;
         }
     }
     else
     {
-        emitThisGCrefRegs &= ~regMask;
-        emitThisByrefRegs &= ~regMask;
+        gcInfo.GetLiveRegs(GCT_GCREF) &= ~regMask;
+        gcInfo.GetLiveRegs(GCT_BYREF) &= ~regMask;
     }
 }
 
@@ -6756,23 +6759,23 @@ void emitter::emitGCregDeadAll(BYTE* addr)
         return;
     }
 
-    assert((emitThisByrefRegs & emitThisGCrefRegs) == RBM_NONE);
+    assert((gcInfo.GetLiveRegs(GCT_GCREF) & gcInfo.GetLiveRegs(GCT_BYREF)) == RBM_NONE);
 
     if (gcInfo.IsFullyInterruptible())
     {
-        if (emitThisGCrefRegs != RBM_NONE)
+        if (gcInfo.GetLiveRegs(GCT_GCREF) != RBM_NONE)
         {
-            emitGCregDeadSet(GCT_GCREF, emitThisGCrefRegs, addr);
+            emitGCregDeadSet(GCT_GCREF, gcInfo.GetLiveRegs(GCT_GCREF), addr);
         }
 
-        if (emitThisByrefRegs != RBM_NONE)
+        if (gcInfo.GetLiveRegs(GCT_BYREF) != RBM_NONE)
         {
-            emitGCregDeadSet(GCT_BYREF, emitThisByrefRegs, addr);
+            emitGCregDeadSet(GCT_BYREF, gcInfo.GetLiveRegs(GCT_BYREF), addr);
         }
     }
 
-    emitThisGCrefRegs = RBM_NONE;
-    emitThisByrefRegs = RBM_NONE;
+    gcInfo.GetLiveRegs(GCT_GCREF) = RBM_NONE;
+    gcInfo.GetLiveRegs(GCT_BYREF) = RBM_NONE;
 }
 #endif // FEATURE_EH_FUNCLETS
 
@@ -6783,7 +6786,6 @@ void emitter::emitGCregLiveSet(GCtype gcType, regMaskTP regs, BYTE* addr)
 #endif
 {
     assert(emitIssuing);
-    assert(((emitThisGCrefRegs | emitThisByrefRegs) & regs) == RBM_NONE);
 
 #ifdef JIT32_GCENCODER
     gcInfo.AddLiveRegs(gcType, regs, emitCurCodeOffs(addr), isThis);
@@ -6795,7 +6797,6 @@ void emitter::emitGCregLiveSet(GCtype gcType, regMaskTP regs, BYTE* addr)
 void emitter::emitGCregDeadSet(GCtype gcType, regMaskTP regs, BYTE* addr)
 {
     assert(emitIssuing);
-    assert(((emitThisGCrefRegs | emitThisByrefRegs) & regs) != RBM_NONE);
 
     gcInfo.RemoveLiveRegs(gcType, regs, emitCurCodeOffs(addr));
 }
@@ -7018,15 +7019,15 @@ void emitter::emitRecordGCCall(BYTE* addr, unsigned callInstrLength)
         {
             printf("; Call at %04X GCvars ", codeOffs - callInstrLength);
             emitDispVarSet();
-            printf(", gcrefRegs");
-            emitDispRegSet(emitThisGCrefRegs);
-            printf(", byrefRegs");
-            emitDispRegSet(emitThisByrefRegs);
+            printf(", REF regs");
+            emitDispRegSet(gcInfo.GetLiveRegs(GCT_GCREF));
+            printf(", BYREF regs");
+            emitDispRegSet(gcInfo.GetLiveRegs(GCT_BYREF));
             printf("\n");
         }
 #endif
 
-        gcInfo.AddCallSite(codeOffs, callInstrLength, emitThisGCrefRegs, emitThisByrefRegs);
+        gcInfo.AddCallSite(codeOffs, callInstrLength);
 
         return;
     }
@@ -7396,13 +7397,13 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned count)
             return;
         }
 
-        if ((((emitThisGCrefRegs | emitThisByrefRegs) & RBM_CALLEE_SAVED) == RBM_NONE) && (u2.emitGcArgTrackCnt == 0))
+        if (((gcInfo.GetAllLiveRegs() & RBM_CALLEE_SAVED) == RBM_NONE) && (u2.emitGcArgTrackCnt == 0))
         {
             return;
         }
     }
 
-    gcInfo.AddCallArgsPop(emitCurCodeOffs(addr), argRecCnt, isCall, emitThisGCrefRegs, emitThisByrefRegs);
+    gcInfo.AddCallArgsPop(emitCurCodeOffs(addr), argRecCnt, isCall);
 }
 
 // For caller-pop arguments, we report the arguments as pending arguments.
