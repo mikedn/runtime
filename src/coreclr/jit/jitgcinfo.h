@@ -213,10 +213,14 @@ public:
     RegArgChange* AddRegArgChange();
 #ifdef JIT32_GCENCODER
     RegArgChange* AddLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs, bool isThis);
+    void AddLiveReg(GCtype type, regNumber reg, unsigned codeOffs, bool isThis);
 #else
     RegArgChange* AddLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs);
+    void AddLiveReg(GCtype type, regNumber reg, unsigned codeOffs);
 #endif
     RegArgChange* RemoveLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs);
+    void RemoveLiveReg(regNumber reg, unsigned codeOffs);
+    void RemoveAllLiveRegs(unsigned codeOffs);
 
 #ifdef JIT32_GCENCODER
     RegArgChange* AddCallArgPush(unsigned codeOffs, unsigned stackLevel, GCtype gcType);

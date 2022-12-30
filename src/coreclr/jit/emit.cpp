@@ -6523,93 +6523,29 @@ void emitter::emitUpdateLiveGCregs(GCtype gcType, regMaskTP regs, BYTE* addr)
 void emitter::emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr)
 {
     assert(emitIssuing);
-    assert((gcInfo.GetLiveRegs(GCT_GCREF) & gcInfo.GetLiveRegs(GCT_BYREF)) == RBM_NONE);
 
-    // Don't track GC changes in epilogs
     if (emitIGisInEpilog(emitCurIG))
     {
         return;
     }
 
-    assert(gcType != GCT_NONE);
-
-    regMaskTP& typeRegs  = (gcType == GCT_GCREF) ? gcInfo.GetLiveRegs(GCT_GCREF) : gcInfo.GetLiveRegs(GCT_BYREF);
-    regMaskTP& otherRegs = (gcType == GCT_GCREF) ? gcInfo.GetLiveRegs(GCT_BYREF) : gcInfo.GetLiveRegs(GCT_GCREF);
-    regMaskTP  regMask   = genRegMask(reg);
-
-    if ((typeRegs & regMask) == RBM_NONE)
-    {
-        // If the register was holding the other GC type, that type should go dead now.
-
-        if ((otherRegs & regMask) != RBM_NONE)
-        {
-            if (gcInfo.IsFullyInterruptible())
-            {
-                emitGCregDeadSet(gcType == GCT_GCREF ? GCT_BYREF : GCT_GCREF, regMask, addr);
-            }
-
-            otherRegs &= ~regMask;
-        }
-
 #ifdef JIT32_GCENCODER
-        // For synchronized methods, "this" is always alive and in the same register.
-        // However, if we generate any code after the epilog block (where "this"
-        // goes dead), "this" will come alive again. We need to notice that.
-        // Note that we only expect isThis to be true at an insGroup boundary.
-
-        bool isThis = (reg == emitSyncThisObjReg);
-
-        if (gcInfo.IsFullyInterruptible() || (gcInfo.ReportRegArgChanges() && isThis))
-        {
-            emitGCregLiveSet(gcType, regMask, addr, isThis);
-        }
+    gcInfo.AddLiveReg(gcType, reg, emitCurCodeOffs(addr), reg == emitSyncThisObjReg);
 #else
-        if (gcInfo.IsFullyInterruptible())
-        {
-            emitGCregLiveSet(gcType, regMask, addr);
-        }
+    gcInfo.AddLiveReg(gcType, reg, emitCurCodeOffs(addr));
 #endif
-
-        typeRegs |= regMask;
-    }
-
-    // The 2 GC reg masks can't be overlapping
-
-    assert((gcInfo.GetLiveRegs(GCT_GCREF) & gcInfo.GetLiveRegs(GCT_BYREF)) == RBM_NONE);
 }
 
-// Record the fact that the given register no longer contains a live GC ref.
 void emitter::emitGCregDeadUpd(regNumber reg, BYTE* addr)
 {
     assert(emitIssuing);
-    assert((gcInfo.GetLiveRegs(GCT_GCREF) & gcInfo.GetLiveRegs(GCT_BYREF)) == RBM_NONE);
 
-    // Don't track GC changes in epilogs
     if (emitIGisInEpilog(emitCurIG))
     {
         return;
     }
 
-    regMaskTP regMask = genRegMask(reg);
-
-    if (gcInfo.IsFullyInterruptible())
-    {
-        if ((gcInfo.GetLiveRegs(GCT_GCREF) & regMask) != RBM_NONE)
-        {
-            emitGCregDeadSet(GCT_GCREF, regMask, addr);
-            gcInfo.GetLiveRegs(GCT_GCREF) &= ~regMask;
-        }
-        else if ((gcInfo.GetLiveRegs(GCT_BYREF) & regMask) != RBM_NONE)
-        {
-            emitGCregDeadSet(GCT_BYREF, regMask, addr);
-            gcInfo.GetLiveRegs(GCT_BYREF) &= ~regMask;
-        }
-    }
-    else
-    {
-        gcInfo.GetLiveRegs(GCT_GCREF) &= ~regMask;
-        gcInfo.GetLiveRegs(GCT_BYREF) &= ~regMask;
-    }
+    gcInfo.RemoveLiveReg(reg, emitCurCodeOffs(addr));
 }
 
 #ifdef FEATURE_EH_FUNCLETS
@@ -6622,23 +6558,7 @@ void emitter::emitGCregDeadAll(BYTE* addr)
         return;
     }
 
-    assert((gcInfo.GetLiveRegs(GCT_GCREF) & gcInfo.GetLiveRegs(GCT_BYREF)) == RBM_NONE);
-
-    if (gcInfo.IsFullyInterruptible())
-    {
-        if (gcInfo.GetLiveRegs(GCT_GCREF) != RBM_NONE)
-        {
-            emitGCregDeadSet(GCT_GCREF, gcInfo.GetLiveRegs(GCT_GCREF), addr);
-        }
-
-        if (gcInfo.GetLiveRegs(GCT_BYREF) != RBM_NONE)
-        {
-            emitGCregDeadSet(GCT_BYREF, gcInfo.GetLiveRegs(GCT_BYREF), addr);
-        }
-    }
-
-    gcInfo.GetLiveRegs(GCT_GCREF) = RBM_NONE;
-    gcInfo.GetLiveRegs(GCT_BYREF) = RBM_NONE;
+    gcInfo.RemoveAllLiveRegs(emitCurCodeOffs(addr));
 }
 #endif // FEATURE_EH_FUNCLETS
 
