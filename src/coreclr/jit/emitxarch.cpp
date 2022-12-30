@@ -10506,7 +10506,7 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
 
                     if (gcInfo.ReportRegArgChanges())
                     {
-                        emitGCregLiveSet(id->idGCref(), genRegMask(reg1), dst, true);
+                        gcInfo.AddLiveRegs(id->idGCref(), genRegMask(reg1), emitCurCodeOffs(dst), true);
                         break;
                     }
                 }

@@ -6438,28 +6438,6 @@ void emitter::emitGCregDeadAll(BYTE* addr)
 }
 #endif // FEATURE_EH_FUNCLETS
 
-#ifdef JIT32_GCENCODER
-void emitter::emitGCregLiveSet(GCtype gcType, regMaskTP regs, BYTE* addr, bool isThis)
-#else
-void emitter::emitGCregLiveSet(GCtype gcType, regMaskTP regs, BYTE* addr)
-#endif
-{
-    assert(emitIssuing);
-
-#ifdef JIT32_GCENCODER
-    gcInfo.AddLiveRegs(gcType, regs, emitCurCodeOffs(addr), isThis);
-#else
-    gcInfo.AddLiveRegs(gcType, regs, emitCurCodeOffs(addr));
-#endif
-}
-
-void emitter::emitGCregDeadSet(GCtype gcType, regMaskTP regs, BYTE* addr)
-{
-    assert(emitIssuing);
-
-    gcInfo.RemoveLiveRegs(gcType, regs, emitCurCodeOffs(addr));
-}
-
 /*****************************************************************************
  *
  *  Emit an 8-bit integer as code.

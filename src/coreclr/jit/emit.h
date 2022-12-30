@@ -2006,16 +2006,10 @@ public:
 #endif
 
     void emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr);
-#ifdef JIT32_GCENCODER
-    void emitGCregLiveSet(GCtype gcType, regMaskTP mask, BYTE* addr, bool isThis);
-#else
-    void emitGCregLiveSet(GCtype gcType, regMaskTP mask, BYTE* addr);
-#endif
+    void emitGCregDeadUpd(regNumber reg, BYTE* addr);
 #ifdef FEATURE_EH_FUNCLETS
     void emitGCregDeadAll(BYTE* addr);
 #endif
-    void emitGCregDeadUpd(regNumber reg, BYTE* addr);
-    void emitGCregDeadSet(GCtype gcType, regMaskTP mask, BYTE* addr);
 
 #if FEATURE_FIXED_OUT_ARGS
     void emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum));
