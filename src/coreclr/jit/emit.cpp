@@ -3093,34 +3093,6 @@ void emitter::emitDispIGlist(bool verbose)
     }
 }
 
-void emitter::emitDispGCinfo()
-{
-    printf("Emitter GC tracking info:");
-
-    printf("\n  emitPrevGCrefVars ");
-    dumpConvertedVarSet(emitComp, emitPrevGCrefVars);
-    printf("\n  emitPrevGCrefRegs");
-    emitDispRegSet(emitPrevGCrefRegs);
-    printf("\n  emitPrevByrefRegs");
-    emitDispRegSet(emitPrevByrefRegs);
-
-    printf("\n  emitInitGCrefVars ");
-    dumpConvertedVarSet(emitComp, emitInitGCrefVars);
-    printf("\n  emitInitGCrefRegs");
-    emitDispRegSet(emitInitGCrefRegs);
-    printf("\n  emitInitByrefRegs");
-    emitDispRegSet(emitInitByrefRegs);
-
-    printf("\n  emitThisGCrefVars ");
-    dumpConvertedVarSet(emitComp, emitThisGCrefVars);
-    printf("\n  emitThisGCrefRegs");
-    emitDispRegSet(emitThisGCrefRegs);
-    printf("\n  emitThisByrefRegs");
-    emitDispRegSet(emitThisByrefRegs);
-
-    printf("\n\n");
-}
-
 #endif // DEBUG
 
 /*****************************************************************************

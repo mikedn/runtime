@@ -1473,7 +1473,6 @@ protected:
     void emitDispIGflags(unsigned flags);
     void emitDispIG(insGroup* ig, insGroup* igPrev = nullptr, bool verbose = false);
     void emitDispIGlist(bool verbose = false);
-    void emitDispGCinfo();
     void emitDispClsVar(CORINFO_FIELD_HANDLE fldHnd, ssize_t offs, bool reloc = false);
 #ifdef TARGET_XARCH
     void emitDispFrameRef(instrDesc* id, bool asmfm);
