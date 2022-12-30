@@ -1939,7 +1939,7 @@ void* emitter::emitAddLabel(INDEBUG(BasicBlock* block))
         JITDUMP("Mapped " FMT_BB " to %s\n", block->bbNum, emitLabelString(emitCurIG));
     }
 
-    if (EMIT_GC_VERBOSE)
+    if (emitComp->verbose)
     {
         printf("Label: IG%02u, GCvars ", emitCurIG->igNum);
         dumpConvertedVarSet(emitComp, GCvars);
@@ -4811,61 +4811,24 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
     }
 #endif
 
-    // if (emitConsDsc.dsdOffs)
-    //     printf("Cons=%08X\n", consBlock);
-
-    /* Give the block addresses to the caller and other functions here */
-
     *codeAddr = emitCodeBlock = codeBlock;
     *coldCodeAddr = emitColdCodeBlock = coldCodeBlock;
     *consAddr = emitConsBlock = consBlock;
 
 #if !FEATURE_FIXED_OUT_ARGS
-    // Nothing has been pushed on the stack.
-
     emitCurStackLvl = 0;
 #endif
 
-    /* Assume no live GC ref variables on entry */
-
-    VarSetOps::ClearD(emitComp, emitThisGCrefVars); // This is initialized to Empty at the start of codegen.
-#if defined(DEBUG) && defined(JIT32_ENCODER)
-    VarSetOps::ClearD(emitComp, debugThisGCRefVars);
-    VarSetOps::ClearD(emitComp, debugPrevGCRefVars);
-    debugPrevRegPtrDsc = nullptr;
-#endif
-
 #ifdef DEBUG
-
     emitIssuing = true;
-
-    // We don't use these after this point
-
-    VarSetOps::AssignNoCopy(emitComp, emitPrevGCrefVars, VarSetOps::UninitVal());
-    emitPrevGCrefRegs = emitPrevByrefRegs = 0xBAADFEED;
-
-    VarSetOps::AssignNoCopy(emitComp, emitInitGCrefVars, VarSetOps::UninitVal());
-    emitInitGCrefRegs = emitInitByrefRegs = 0xBAADFEED;
-
+    *instrCount = 0;
 #endif
 
-#ifdef DEBUG
-    if (emitComp->verbose)
-    {
-        printf("\n***************************************************************************\n");
-        printf("Instructions as they come out of the scheduler\n\n");
-    }
-#endif
-
-    /* Issue all instruction groups in order */
     cp              = codeBlock;
     writeableOffset = codeBlockRW - codeBlock;
 
 #define DEFAULT_CODE_BUFFER_INIT 0xcc
 
-#ifdef DEBUG
-    *instrCount = 0;
-#endif
     for (insGroup* ig = emitIGlist; ig != nullptr; ig = ig->igNext)
     {
         assert(!(ig->igFlags & IGF_PLACEHOLDER)); // There better not be any placeholder groups left
@@ -5002,7 +4965,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
                 }
             }
 #ifdef DEBUG
-            if (EMIT_GC_VERBOSE || emitComp->opts.disasmWithGC)
+            if (emitComp->verbose || emitComp->opts.disasmWithGC)
             {
                 char header[64];
                 GetGCDeltaDumpHeader(header, _countof(header));
@@ -5294,17 +5257,6 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
     emitTotalCodeSize = actualCodeSize;
 
 #ifdef DEBUG
-
-    // Make sure these didn't change during the "issuing" phase
-
-    assert(VarSetOps::MayBeUninit(emitPrevGCrefVars));
-    assert(emitPrevGCrefRegs == 0xBAADFEED);
-    assert(emitPrevByrefRegs == 0xBAADFEED);
-
-    assert(VarSetOps::MayBeUninit(emitInitGCrefVars));
-    assert(emitInitGCrefRegs == 0xBAADFEED);
-    assert(emitInitByrefRegs == 0xBAADFEED);
-
     if (EMIT_INSTLIST_VERBOSE)
     {
         printf("\nLabels list after the end of codegen:\n\n");
@@ -5312,7 +5264,6 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
     }
 
     emitCheckIGoffsets();
-
 #endif // DEBUG
 
     // Assign the real prolog size
@@ -6101,24 +6052,6 @@ void emitter::emitRecordGCCall(BYTE* codePos)
 
     unsigned codeOffs = emitCurCodeOffs(codePos);
 
-#ifdef DEBUG
-    if (EMIT_GC_VERBOSE)
-    {
-#if FEATURE_FIXED_OUT_ARGS
-        printf("; Call at %04X GCvars ", codeOffs);
-#else
-        printf("; Call at %04X [stk=%u], GCvars ", codeOffs, emitCurStackLvl);
-#endif
-        gcInfo.DumpLiveTrackedStackSlots();
-        printf(", REF regs");
-        emitDispRegSet(gcInfo.GetLiveRegs(GCT_GCREF));
-        printf(", BYREF regs");
-        emitDispRegSet(gcInfo.GetLiveRegs(GCT_BYREF));
-
-        printf("\n");
-    }
-#endif
-
     GCInfo::CallSite* call = gcInfo.AddCallSite(codeOffs);
 
 #if !FEATURE_FIXED_OUT_ARGS
@@ -6416,12 +6349,10 @@ void emitter::emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsi
     assert(gcType != GCT_NONE);
     assert(lclNum == emitComp->lvaOutgoingArgSpaceVar);
 
-    if (!gcInfo.IsFullyInterruptible())
+    if (gcInfo.IsFullyInterruptible())
     {
-        return;
+        gcInfo.AddCallArgStore(emitCurCodeOffs(addr), offs, gcType);
     }
-
-    gcInfo.AddCallArgStore(emitCurCodeOffs(addr), offs, gcType);
 }
 
 #ifndef JIT32_GCENCODER
@@ -6431,27 +6362,14 @@ void emitter::emitRecordGCCall(BYTE* addr, unsigned callInstrLength)
 
     unsigned codeOffs = emitCurCodeOffs(addr);
 
-    if (!gcInfo.IsFullyInterruptible())
+    if (gcInfo.IsFullyInterruptible())
     {
-#ifdef DEBUG
-        if (EMIT_GC_VERBOSE)
-        {
-            printf("; Call at %04X GCvars ", codeOffs - callInstrLength);
-            gcInfo.DumpLiveTrackedStackSlots();
-            printf(", REF regs");
-            emitDispRegSet(gcInfo.GetLiveRegs(GCT_GCREF));
-            printf(", BYREF regs");
-            emitDispRegSet(gcInfo.GetLiveRegs(GCT_BYREF));
-            printf("\n");
-        }
-#endif
-
-        gcInfo.AddCallSite(codeOffs, callInstrLength);
-
-        return;
+        gcInfo.AddCallArgsKill(codeOffs);
     }
-
-    gcInfo.AddCallArgsKill(codeOffs);
+    else
+    {
+        gcInfo.AddCallSite(codeOffs, callInstrLength);
+    }
 }
 #endif // JIT32_GCENCODER
 #endif // FEATURE_FIXED_OUT_ARGS

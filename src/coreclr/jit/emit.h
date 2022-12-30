@@ -14,12 +14,6 @@
 #define EMITVERBOSE (emitComp->verbose)
 #endif
 
-#if 0
-#define EMIT_GC_VERBOSE 0
-#else
-#define EMIT_GC_VERBOSE (emitComp->verbose)
-#endif
-
 #if 1
 #define EMIT_INSTLIST_VERBOSE 0
 #else

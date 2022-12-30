@@ -11787,7 +11787,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             emitUpdateLiveGCvars(GCvars, *dp);
 
 #ifdef DEBUG
-            if (EMIT_GC_VERBOSE || emitComp->opts.disasmWithGC)
+            if (emitComp->verbose || emitComp->opts.disasmWithGC)
             {
                 char header[128];
                 GetGCDeltaDumpHeader(header, _countof(header));
@@ -12766,7 +12766,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         assert((gcInfo.GetAllLiveRegs() & genRegMask(inst3opImulReg(ins))) == RBM_NONE);
     }
 
-    if (EMIT_GC_VERBOSE || emitComp->opts.disasmWithGC)
+    if (emitComp->verbose || emitComp->opts.disasmWithGC)
     {
         char header[128];
         GetGCDeltaDumpHeader(header, _countof(header));

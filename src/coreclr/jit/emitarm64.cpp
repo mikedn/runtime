@@ -9657,7 +9657,7 @@ unsigned emitter::emitOutputCall(insGroup* ig, BYTE* dst, instrDesc* id, code_t 
     emitUpdateLiveGCvars(GCvars, dst);
 
 #ifdef DEBUG
-    if (EMIT_GC_VERBOSE || emitComp->opts.disasmWithGC)
+    if (emitComp->verbose || emitComp->opts.disasmWithGC)
     {
         char header[64];
         GetGCDeltaDumpHeader(header, _countof(header));
@@ -10955,7 +10955,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         }
     }
 
-    if (EMIT_GC_VERBOSE || emitComp->opts.disasmWithGC)
+    if (emitComp->verbose || emitComp->opts.disasmWithGC)
     {
         char header[64];
         GetGCDeltaDumpHeader(header, _countof(header));
