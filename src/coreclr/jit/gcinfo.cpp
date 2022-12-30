@@ -300,6 +300,93 @@ void GCInfo::AddLiveReg(GCtype type, regNumber reg, unsigned codeOffs)
     }
 }
 
+void GCInfo::SetLiveRegs(GCtype type, regMaskTP regs, unsigned codeOffs)
+{
+    assert((liveRefRegs & liveByrefRegs) == RBM_NONE);
+    assert(type != GCT_NONE);
+
+    regMaskTP& typeRegs  = (type == GCT_GCREF) ? liveRefRegs : liveByrefRegs;
+    regMaskTP& otherRegs = (type == GCT_GCREF) ? liveByrefRegs : liveRefRegs;
+
+    assert(typeRegs != regs);
+
+#ifdef JIT32_GCENCODER
+    // We need to report `this` even if the code is not fully interruptible.
+    if (isFullyInterruptible || (ReportRegArgChanges() && (syncThisReg != REG_NA)))
+#else
+    if (isFullyInterruptible)
+#endif
+    {
+        regMaskTP dead = typeRegs & ~regs;
+        regMaskTP life = ~typeRegs & regs;
+
+        assert((dead | life) != 0);
+        assert((dead & life) == 0);
+
+        regMaskTP change = (dead | life);
+
+        while (change != RBM_NONE)
+        {
+            regMaskTP regMask = genFindLowestBit(change);
+            regNumber reg     = genRegNumFromMask(regMask);
+
+            if ((life & regMask) != RBM_NONE)
+            {
+                if ((otherRegs & regMask) != RBM_NONE)
+                {
+                    if (isFullyInterruptible)
+                    {
+                        RemoveLiveRegs(type == GCT_GCREF ? GCT_BYREF : GCT_GCREF, regMask, codeOffs);
+                    }
+
+                    otherRegs &= ~regMask;
+                }
+
+#ifdef JIT32_GCENCODER
+                // For synchronized methods, "this" is always alive and in the same register.
+                // However, if we generate any code after the epilog block (where "this"
+                // goes dead), "this" will come alive again. We need to notice that.
+                // Note that we only expect isThis to be true at an insGroup boundary.
+
+                bool isThis = (reg == syncThisReg);
+
+                if (isFullyInterruptible || (ReportRegArgChanges() && isThis))
+                {
+                    AddLiveRegs(type, regMask, codeOffs, isThis);
+                }
+#else
+                if (isFullyInterruptible)
+                {
+                    AddLiveRegs(type, regMask, codeOffs);
+                }
+#endif
+
+                typeRegs |= regMask;
+            }
+            else
+            {
+                if (isFullyInterruptible)
+                {
+                    RemoveLiveRegs(type, regMask, codeOffs);
+                }
+
+                typeRegs &= ~regMask;
+            }
+
+            change &= ~regMask;
+        }
+
+        assert(typeRegs == regs);
+    }
+    else
+    {
+        typeRegs = regs;
+        otherRegs &= ~regs;
+    }
+
+    assert((liveRefRegs & liveByrefRegs) == RBM_NONE);
+}
+
 GCInfo::RegArgChange* GCInfo::RemoveLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs)
 {
     assert(gcType != GCT_NONE);

@@ -6388,103 +6388,18 @@ void emitter::emitRecordGCCall(BYTE* codePos)
 }
 #endif // JIT32_GCENCODER
 
-// Record a new set of live GC ref registers.
 void emitter::emitUpdateLiveGCregs(GCtype gcType, regMaskTP regs, BYTE* addr)
 {
     assert(emitIssuing);
-    assert(gcType != GCT_NONE);
 
-    // Don't track GC changes in epilogs
     if (emitIGisInEpilog(emitCurIG))
     {
         return;
     }
 
-    regMaskTP& typeRegs  = (gcType == GCT_GCREF) ? gcInfo.GetLiveRegs(GCT_GCREF) : gcInfo.GetLiveRegs(GCT_BYREF);
-    regMaskTP& otherRegs = (gcType == GCT_GCREF) ? gcInfo.GetLiveRegs(GCT_BYREF) : gcInfo.GetLiveRegs(GCT_GCREF);
-
-    assert(typeRegs != regs);
-
-#ifdef JIT32_GCENCODER
-    // We need to report `this` even if the code is not fully interruptible.
-    if (gcInfo.IsFullyInterruptible() || (gcInfo.ReportRegArgChanges() && (gcInfo.GetSyncThisReg() != REG_NA)))
-#else
-    if (gcInfo.IsFullyInterruptible())
-#endif
-    {
-        regMaskTP dead = typeRegs & ~regs;
-        regMaskTP life = ~typeRegs & regs;
-
-        assert((dead | life) != 0);
-        assert((dead & life) == 0);
-
-        regMaskTP change = (dead | life);
-
-        while (change != RBM_NONE)
-        {
-            regMaskTP regMask = genFindLowestBit(change);
-            regNumber reg     = genRegNumFromMask(regMask);
-
-            if ((life & regMask) != RBM_NONE)
-            {
-                if ((otherRegs & regMask) != RBM_NONE)
-                {
-                    if (gcInfo.IsFullyInterruptible())
-                    {
-                        emitGCregDeadSet(gcType == GCT_GCREF ? GCT_BYREF : GCT_GCREF, regMask, addr);
-                    }
-
-                    otherRegs &= ~regMask;
-                }
-
-#ifdef JIT32_GCENCODER
-                // For synchronized methods, "this" is always alive and in the same register.
-                // However, if we generate any code after the epilog block (where "this"
-                // goes dead), "this" will come alive again. We need to notice that.
-                // Note that we only expect isThis to be true at an insGroup boundary.
-
-                bool isThis = (reg == gcInfo.GetSyncThisReg());
-
-                if (gcInfo.IsFullyInterruptible() || (gcInfo.ReportRegArgChanges() && isThis))
-                {
-                    emitGCregLiveSet(gcType, regMask, addr, isThis);
-                }
-#else
-                if (gcInfo.IsFullyInterruptible())
-                {
-                    emitGCregLiveSet(gcType, regMask, addr);
-                }
-#endif
-
-                typeRegs |= regMask;
-            }
-            else
-            {
-                if (gcInfo.IsFullyInterruptible())
-                {
-                    emitGCregDeadSet(gcType, regMask, addr);
-                }
-
-                typeRegs &= ~regMask;
-            }
-
-            change &= ~regMask;
-        }
-
-        assert(typeRegs == regs);
-    }
-    else
-    {
-        typeRegs = regs;
-        otherRegs &= ~regs;
-    }
-
-    // The 2 GC reg masks can't be overlapping
-
-    assert((gcInfo.GetLiveRegs(GCT_GCREF) & gcInfo.GetLiveRegs(GCT_BYREF)) == RBM_NONE);
+    gcInfo.SetLiveRegs(gcType, regs, emitCurCodeOffs(addr));
 }
 
-// Record the fact that the given register now contains a live GC ref.
 void emitter::emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr)
 {
     assert(emitIssuing);

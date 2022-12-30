@@ -225,6 +225,7 @@ public:
     RegArgChange* AddLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs);
 #endif
     void AddLiveReg(GCtype type, regNumber reg, unsigned codeOffs);
+    void SetLiveRegs(GCtype type, regMaskTP regs, unsigned codeOffs);
     RegArgChange* RemoveLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs);
     void RemoveLiveReg(regNumber reg, unsigned codeOffs);
     void RemoveAllLiveRegs(unsigned codeOffs);
