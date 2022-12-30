@@ -22,13 +22,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "gcinfotypes.h"
 
 emitter::emitter(Compiler* compiler, CodeGen* codeGen, ICorJitInfo* jitInfo)
-    : emitComp(compiler)
-    , gcInfo(compiler)
-    , codeGen(codeGen)
-    , emitCmpHandle(jitInfo)
-#ifdef DEBUG
-    , debugGCSlotChanges(compiler->getAllocator(CMK_DebugOnly))
-#endif
+    : emitComp(compiler), gcInfo(compiler), codeGen(codeGen), emitCmpHandle(jitInfo)
 {
 }
 
@@ -2676,7 +2670,7 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
 #ifdef TARGET_X86
         id = emitNewInstrCns(retRegAttr, argSlotCount);
 #else
-        id                   = emitAllocInstr(retRegAttr);
+        id = emitAllocInstr(retRegAttr);
 #endif
 
         emitEncodeCallGCregs(gcrefRegs, id);
@@ -2707,161 +2701,32 @@ ID_OPS emitter::GetFormatOp(insFormat format)
     return ops[format];
 }
 
-//------------------------------------------------------------------------
+#ifdef DEBUG
+
+void emitter::GetGCDeltaDumpHeader(char* buffer, size_t count)
+{
 // Interleaved GC info dumping.
 // We'll attempt to line this up with the opcode, which indented differently for
 // diffable and non-diffable dumps.
 // This is approximate, and is better tuned for disassembly than for jitdumps.
 // See emitDispInsHex().
 #ifdef TARGET_AMD64
-const size_t basicIndent     = 7;
-const size_t hexEncodingSize = 21;
+    constexpr int basicIndent     = 7;
+    constexpr int hexEncodingSize = 21;
 #elif defined(TARGET_X86)
-const size_t basicIndent     = 7;
-const size_t hexEncodingSize = 13;
+    constexpr int basicIndent     = 7;
+    constexpr int hexEncodingSize = 13;
 #elif defined(TARGET_ARM64)
-const size_t basicIndent     = 12;
-const size_t hexEncodingSize = 19;
+    constexpr int basicIndent     = 12;
+    constexpr int hexEncodingSize = 14;
 #elif defined(TARGET_ARM)
-const size_t basicIndent     = 12;
-const size_t hexEncodingSize = 11;
+    constexpr int basicIndent     = 12;
+    constexpr int hexEncodingSize = 11;
 #endif
 
-#ifdef DEBUG
-//------------------------------------------------------------------------
-// emitDispGCDeltaTitle: Print an appropriately indented title for a GC info delta
-//
-// Arguments:
-//    title - The type of GC info delta we're printing
-//
-void emitter::emitDispGCDeltaTitle(const char* title)
-{
-    size_t indent = emitComp->opts.disDiffable ? basicIndent : basicIndent + hexEncodingSize;
-    printf("%.*s; %s", indent, "                             ", title);
+    int indent = emitComp->opts.disDiffable ? basicIndent : basicIndent + hexEncodingSize;
+    sprintf_s(buffer, count, "%.*s; ", indent, "                             ");
 }
-
-//------------------------------------------------------------------------
-// emitDispGCRegDelta: Print a delta for GC registers
-//
-// Arguments:
-//    title    - The type of GC info delta we're printing
-//    prevRegs - The live GC registers before the recent instruction.
-//    curRegs  - The live GC registers after the recent instruction.
-//
-void emitter::emitDispGCRegDelta(const char* title, regMaskTP prevRegs, regMaskTP curRegs)
-{
-    if (prevRegs != curRegs)
-    {
-        emitDispGCDeltaTitle(title);
-        regMaskTP sameRegs    = prevRegs & curRegs;
-        regMaskTP removedRegs = prevRegs - sameRegs;
-        regMaskTP addedRegs   = curRegs - sameRegs;
-        if (removedRegs != RBM_NONE)
-        {
-            printf(" -");
-            dspRegMask(removedRegs);
-        }
-        if (addedRegs != RBM_NONE)
-        {
-            printf(" +");
-            dspRegMask(addedRegs);
-        }
-        printf("\n");
-    }
-}
-
-void emitter::emitDispGCVarDelta()
-{
-    if (!debugGCSlotChanges.Empty())
-    {
-        emitDispGCDeltaTitle("GC slots:");
-
-        while (!debugGCSlotChanges.Empty())
-        {
-            GCStackSlotLifetime* lifetime = debugGCSlotChanges.Pop();
-            int                  offset   = lifetime->slotOffset & ~OFFSET_MASK;
-
-#ifdef TARGET_ARMARCH
-            printf(" %c[%s,#%d]", lifetime->endCodeOffs == 0 ? '+' : '-', emitGetFrameReg(), offset);
-#else
-            printf(" %c[%s%c%02XH]", lifetime->endCodeOffs == 0 ? '+' : '-', emitGetFrameReg(), offset < 0 ? '-' : '+',
-                   abs(offset));
-#endif
-        }
-
-        printf("\n");
-    }
-}
-
-void emitter::emitDispRegPtrListDelta()
-{
-    // Dump any deltas for outgoing args; these aren't captured in the other sets.
-    if (debugPrevRegPtrDsc == gcInfo.GetLastRegArgChange())
-    {
-        return;
-    }
-
-    for (GCRegArgChange* dsc = (debugPrevRegPtrDsc == nullptr) ? gcInfo.GetFirstRegArgChange()
-                                                               : debugPrevRegPtrDsc->next;
-         dsc != nullptr; dsc = dsc->next)
-    {
-        // Reg changes are reflected in the register sets debugPrevGCrefRegs/liveRefRegs
-        // and debugPrevByrefRegs/liveByrefRegs, and dumped using those sets.
-        if (dsc->kind == GCInfo::RegArgChangeKind::RegChange)
-        {
-            continue;
-        }
-
-        emitDispGCDeltaTitle(GCtypeStr(dsc->gcType));
-
-        switch (dsc->kind)
-        {
-#if FEATURE_FIXED_OUT_ARGS
-            case GCInfo::RegArgChangeKind::StoreArg:
-                printf(" arg store %d", dsc->argOffset);
-                break;
-            case GCInfo::RegArgChangeKind::KillArgs:
-                printf(" args kill");
-                break;
-#else
-            case GCInfo::RegArgChangeKind::PushArg:
-                printf(" arg push %u", dsc->argOffset);
-                break;
-            case GCInfo::RegArgChangeKind::PopArgs:
-                printf(" arg pop %u", dsc->argOffset);
-                break;
-            case GCInfo::RegArgChangeKind::KillArgs:
-                printf(" arg kill %u", dsc->argOffset);
-                break;
-#endif
-            default:
-                printf(" arg ???");
-                break;
-        }
-
-        printf("\n");
-    }
-
-    debugPrevRegPtrDsc = gcInfo.GetLastRegArgChange();
-}
-
-//------------------------------------------------------------------------
-// emitDispGCInfoDelta: Print a delta for GC info
-//
-void emitter::emitDispGCInfoDelta()
-{
-    emitDispGCRegDelta("REF regs", debugPrevGCrefRegs, gcInfo.GetLiveRegs(GCT_GCREF));
-    emitDispGCRegDelta("BYREF regs", debugPrevByrefRegs, gcInfo.GetLiveRegs(GCT_BYREF));
-    debugPrevGCrefRegs = gcInfo.GetLiveRegs(GCT_GCREF);
-    debugPrevByrefRegs = gcInfo.GetLiveRegs(GCT_BYREF);
-    emitDispGCVarDelta();
-    emitDispRegPtrListDelta();
-}
-
-/*****************************************************************************
- *
- *  Display the current instruction group list.
- */
 
 void emitter::emitDispIGflags(unsigned flags)
 {
@@ -3238,7 +3103,7 @@ void emitter::emitDispCommentForHandle(size_t handle, GenTreeFlags flag)
 #ifdef TARGET_XARCH
     const char* commentPrefix = "      ;";
 #else
-    const char* commentPrefix = "      //";
+    const char*   commentPrefix   = "      //";
 #endif
 
     flag &= GTF_ICON_HDL_MASK;
@@ -5290,9 +5155,11 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 #ifdef DEBUG
             if (EMIT_GC_VERBOSE || emitComp->opts.disasmWithGC)
             {
-                emitDispGCInfoDelta();
+                char header[64];
+                GetGCDeltaDumpHeader(header, _countof(header));
+                gcInfo.DumpDelta(header);
             }
-#endif // DEBUG
+#endif
         }
         else
         {
@@ -6363,9 +6230,7 @@ void emitter::emitGCvarLiveSet(int slotOffs, GCtype gcType, unsigned codeOffs, u
         slotOffs |= byref_OFFSET_FLAG;
     }
 
-    GCStackSlotLifetime* lifetime = gcInfo.BeginStackSlotLifetime(slotOffs, codeOffs);
-    emitGCrFrameLiveTab[index]    = lifetime;
-    INDEBUG(debugGCSlotChanges.Push(lifetime));
+    emitGCrFrameLiveTab[index] = gcInfo.BeginStackSlotLifetime(slotOffs, codeOffs);
 
     // The "global" live GC variable mask is no longer up-to-date.
     emitThisGCrefVset = false;
@@ -6379,10 +6244,8 @@ void emitter::emitGCvarDeadSet(int slotOffs, unsigned codeOffs, unsigned index)
     assert(index < emitGCrFrameOffsCnt);
     assert(emitGCrFrameLiveTab[index] != nullptr);
 
-    GCStackSlotLifetime* lifetime = emitGCrFrameLiveTab[index];
-    gcInfo.EndStackSlotLifetime(lifetime DEBUGARG(slotOffs), codeOffs);
+    gcInfo.EndStackSlotLifetime(emitGCrFrameLiveTab[index] DEBUGARG(slotOffs), codeOffs);
     emitGCrFrameLiveTab[index] = nullptr;
-    INDEBUG(debugGCSlotChanges.Push(lifetime));
 
     // The "global" live GC variable mask is no longer up-to-date.
     emitThisGCrefVset = false;

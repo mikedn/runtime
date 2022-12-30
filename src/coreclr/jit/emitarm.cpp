@@ -6137,12 +6137,13 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             emitUpdateLiveGCvars(GCvars, *dp);
 
 #ifdef DEBUG
-            // Output any delta in GC variable info, corresponding to the before-call GC var updates done above.
             if (EMIT_GC_VERBOSE || emitComp->opts.disasmWithGC)
             {
-                emitDispGCVarDelta();
+                char header[64];
+                GetGCDeltaDumpHeader(header, _countof(header));
+                gcInfo.DumpStackSlotLifetimeDelta(header);
             }
-#endif // DEBUG
+#endif
 
             // If the method returns a GC ref, mark R0 appropriately.
             if (id->idGCref() == GCT_GCREF)
@@ -6273,10 +6274,11 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         }
     }
 
-    // Output any delta in GC info.
     if (EMIT_GC_VERBOSE || emitComp->opts.disasmWithGC)
     {
-        emitDispGCInfoDelta();
+        char header[64];
+        GetGCDeltaDumpHeader(header, _countof(header));
+        gcInfo.DumpDelta(header);
     }
 #endif
 

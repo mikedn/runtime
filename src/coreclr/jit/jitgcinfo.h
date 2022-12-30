@@ -115,6 +115,12 @@ private:
 #ifdef JIT32_GCENCODER
     bool isFramePointerUsed = false;
 #endif
+#ifdef DEBUG
+    ArrayStack<StackSlotLifetime*> deltaStackSlotLifetime;
+    RegArgChange*                  deltaRegArgChangeBase = nullptr;
+    regMaskTP                      deltaRefRegsBase      = RBM_NONE;
+    regMaskTP                      deltaByrefRegsBase    = RBM_NONE;
+#endif
 
 public:
     enum WriteBarrierForm
@@ -216,31 +222,18 @@ public:
     RegArgChange* AddCallArgPush(unsigned codeOffs, unsigned stackLevel, GCtype gcType);
     RegArgChange* AddCallArgsKill(unsigned codeOffs, unsigned argCount);
     RegArgChange* AddCallArgsPop(unsigned codeOffs, unsigned argCount, bool isCall);
+    CallSite* AddCallSite(unsigned codeOffs);
+    void* CreateAndStoreGCInfo(class CodeGen* codeGen, unsigned codeSize, unsigned prologSize, unsigned epilogSize);
 #else
     RegArgChange* AddCallArgStore(unsigned codeOffs, int argOffs, GCtype gcType);
     RegArgChange* AddCallArgsKill(unsigned codeOffs);
-#endif
-
-    RegArgChange* GetFirstRegArgChange() const
-    {
-        return firstRegArgChange;
-    }
-
-    RegArgChange* GetLastRegArgChange() const
-    {
-        return lastRegArgChange;
-    }
-
-#ifdef JIT32_GCENCODER
-    CallSite* AddCallSite(unsigned codeOffs);
-#else
     CallSite* AddCallSite(unsigned codeOffs, unsigned length);
+    void CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize);
 #endif
 
-#ifdef JIT32_GCENCODER
-    void* CreateAndStoreGCInfo(class CodeGen* codeGen, unsigned codeSize, unsigned prologSize, unsigned epilogSize);
-#else
-    void CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize);
+#ifdef DEBUG
+    void DumpStackSlotLifetimeDelta(const char* header);
+    void DumpDelta(const char* header);
 #endif
 
 private:
@@ -248,6 +241,11 @@ private:
     void MarkFilterStackSlotsPinned();
     void InsertSplitStackSlotLifetime(StackSlotLifetime* desc, StackSlotLifetime* begin);
     INDEBUG(void DumpStackSlotLifetime(const char* message, StackSlotLifetime* desc) const;)
+#endif
+
+#ifdef DEBUG
+    void DumpRegDelta(const char* header, GCtype type, regMaskTP baseRegs, regMaskTP diffRegs);
+    void DumpArgDelta(const char* header);
 #endif
 };
 

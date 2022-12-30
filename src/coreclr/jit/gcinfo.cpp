@@ -10,7 +10,11 @@ size_t GCInfo::s_gcRegPtrDscSize;
 size_t GCInfo::s_gcTotalPtrTabSize;
 #endif
 
-GCInfo::GCInfo(Compiler* compiler) : compiler(compiler)
+GCInfo::GCInfo(Compiler* compiler)
+    : compiler(compiler)
+#ifdef DEBUG
+    , deltaStackSlotLifetime(compiler->getAllocator(CMK_DebugOnly))
+#endif
 {
 }
 
@@ -145,6 +149,8 @@ GCInfo::StackSlotLifetime* GCInfo::BeginStackSlotLifetime(int slotOffs, unsigned
 
     lastStackSlotLifetime = lifetime;
 
+    INDEBUG(deltaStackSlotLifetime.Push(lifetime));
+
     return lifetime;
 }
 
@@ -154,6 +160,8 @@ void GCInfo::EndStackSlotLifetime(StackSlotLifetime* lifetime DEBUGARG(int slotO
     assert(static_cast<int>(lifetime->slotOffset & ~OFFSET_MASK) == slotOffs);
 
     lifetime->endCodeOffs = codeOffs;
+
+    INDEBUG(deltaStackSlotLifetime.Push(lifetime));
 }
 
 GCInfo::RegArgChange* GCInfo::AddRegArgChange()
@@ -547,6 +555,8 @@ void GCInfo::InsertSplitStackSlotLifetime(StackSlotLifetime* newLifetime, StackS
 
 #ifdef DEBUG
 
+const char* GetGCTypeName(GCtype gcType);
+
 void GCInfo::DumpStackSlotLifetime(const char* message, StackSlotLifetime* lifetime) const
 {
     printf("%s", message);
@@ -555,7 +565,7 @@ void GCInfo::DumpStackSlotLifetime(const char* message, StackSlotLifetime* lifet
     const GCtype gcType = (lifetime->slotOffset & byref_OFFSET_FLAG) ? GCT_BYREF : GCT_GCREF;
     const bool   isPin  = (lifetime->slotOffset & pinned_OFFSET_FLAG) != 0;
 
-    printf("[%08X] %s%s var at [%s", dspPtr(lifetime), GCtypeStr(gcType), isPin ? "pinned-ptr" : "",
+    printf("[%08X] %s%s var at [%s", dspPtr(lifetime), GetGCTypeName(gcType), isPin ? "pinned-ptr" : "",
            compiler->codeGen->isFramePointerUsed() ? STR_FPBASE : STR_SPBASE);
 
     if (offs < 0)
@@ -573,3 +583,145 @@ void GCInfo::DumpStackSlotLifetime(const char* message, StackSlotLifetime* lifet
 #endif // DEBUG
 
 #endif // !defined(JIT32_GCENCODER) || defined(FEATURE_EH_FUNCLETS)
+
+#ifdef DEBUG
+
+const char* GetGCTypeName(GCtype gcType)
+{
+    switch (gcType)
+    {
+        case GCT_NONE:
+            return "non-gc";
+        case GCT_GCREF:
+            return "ref";
+        case GCT_BYREF:
+            return "byref";
+        default:
+            return "???";
+    }
+}
+
+void GCInfo::DumpRegDelta(const char* header, GCtype type, regMaskTP baseRegs, regMaskTP diffRegs)
+{
+    if (baseRegs == diffRegs)
+    {
+        return;
+    }
+
+    regMaskTP sameRegs    = baseRegs & diffRegs;
+    regMaskTP removedRegs = baseRegs & ~sameRegs;
+    regMaskTP addedRegs   = diffRegs & ~sameRegs;
+
+    if (removedRegs != RBM_NONE)
+    {
+        printf("%skill-%s-regs ", header, GetGCTypeName(type));
+        dspRegMask(removedRegs);
+    }
+
+    if (addedRegs != RBM_NONE)
+    {
+        printf("%sdef-%s-regs ", header, GetGCTypeName(type));
+        dspRegMask(addedRegs);
+    }
+
+    printf("\n");
+}
+
+void GCInfo::DumpArgDelta(const char* header)
+{
+    if (deltaRegArgChangeBase == lastRegArgChange)
+    {
+        return;
+    }
+
+    RegArgChange* base      = (deltaRegArgChangeBase == nullptr) ? firstRegArgChange : deltaRegArgChangeBase->next;
+    const char*   spRegName = getRegName(REG_SPBASE);
+
+    for (RegArgChange* change = base; change != nullptr; change = change->next)
+    {
+        // Reg changes are reflected in the register sets deltaRefRegsBase/liveRefRegs
+        // and deltaByrefRegsBase/liveByrefRegs, and dumped using those sets.
+        if (change->kind == RegArgChangeKind::RegChange)
+        {
+            continue;
+        }
+
+        printf("%s", header);
+
+        switch (change->kind)
+        {
+#if FEATURE_FIXED_OUT_ARGS
+            case RegArgChangeKind::StoreArg:
+#ifdef TARGET_ARMARCH
+                printf("def-%s-arg [%s,#%d]", GetGCTypeName(change->gcType), spRegName, change->argOffset);
+#else
+                printf("def-%s-arg [%s%c%02XH]", GetGCTypeName(change->gcType), spRegName,
+                       change->argOffset < 0 ? '-' : '+', abs(change->argOffset));
+#endif
+                break;
+            case RegArgChangeKind::KillArgs:
+                printf("kill-args");
+                break;
+#else
+            case RegArgChangeKind::PushArg:
+                printf("push-%s %u", GetGCTypeName(change->gcType), change->argOffset);
+                break;
+            case RegArgChangeKind::PopArgs:
+                printf("pop %u", change->argOffset);
+                break;
+            case RegArgChangeKind::Pop:
+                printf("pop");
+                break;
+            case RegArgChangeKind::KillArgs:
+                printf("kill-args %u", change->argOffset);
+                break;
+#endif
+            default:
+                printf("???");
+                break;
+        }
+
+        printf("\n");
+    }
+
+    deltaRegArgChangeBase = lastRegArgChange;
+}
+
+void GCInfo::DumpStackSlotLifetimeDelta(const char* header)
+{
+    if (deltaStackSlotLifetime.Empty())
+    {
+        return;
+    }
+
+    const char* frameRegName = getRegName(compiler->codeGen->isFramePointerUsed() ? REG_FPBASE : REG_SPBASE);
+
+    while (!deltaStackSlotLifetime.Empty())
+    {
+        StackSlotLifetime* lifetime = deltaStackSlotLifetime.Pop();
+
+        int         offset   = lifetime->slotOffset & ~OFFSET_MASK;
+        const char* delta    = lifetime->endCodeOffs == 0 ? "def" : "kill";
+        const char* typeName = GetGCTypeName((lifetime->slotOffset & byref_OFFSET_FLAG) != 0 ? GCT_BYREF : GCT_GCREF);
+
+#ifdef TARGET_ARMARCH
+        printf("%s%s-%s-slot [%s,#%d]", header, delta, typeName, frameRegName, offset);
+#else
+        printf("%s%s-%s-slot [%s%c%02XH]", header, delta, typeName, frameRegName, offset < 0 ? '-' : '+', abs(offset));
+#endif
+    }
+
+    printf("\n");
+}
+
+void GCInfo::DumpDelta(const char* header)
+{
+    DumpRegDelta(header, GCT_GCREF, deltaRefRegsBase, liveRefRegs);
+    deltaRefRegsBase = liveRefRegs;
+    DumpRegDelta(header, GCT_BYREF, deltaByrefRegsBase, liveByrefRegs);
+    deltaByrefRegsBase = liveByrefRegs;
+    DumpStackSlotLifetimeDelta(header);
+    DumpArgDelta(header);
+}
+
+#endif // DEBUG

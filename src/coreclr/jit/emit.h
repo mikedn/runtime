@@ -44,26 +44,6 @@ struct insGroup;
 
 typedef void (*emitSplitCallbackType)(void* context, emitLocation* emitLoc);
 
-#ifdef DEBUG
-
-inline const char* GCtypeStr(GCtype gcType)
-{
-    switch (gcType)
-    {
-        case GCT_NONE:
-            return "npt";
-        case GCT_GCREF:
-            return "gcr";
-        case GCT_BYREF:
-            return "byr";
-        default:
-            assert(!"Invalid GCtype");
-            return "err";
-    }
-}
-
-#endif // DEBUG
-
 /*****************************************************************************/
 
 #if DEBUG_EMIT
@@ -1455,21 +1435,7 @@ protected:
 #ifdef DEBUG
     static const char* emitRegName(regNumber reg, emitAttr size = EA_PTRSIZE);
 
-    // GC Info changes are not readily available at each instruction.
-    // We use debug-only sets to track the per-instruction state, and to remember
-    // what the state was at the last time it was output (instruction or label).
-    ArrayStack<GCStackSlotLifetime*> debugGCSlotChanges;
-
-    GCRegArgChange* debugPrevRegPtrDsc = nullptr;
-    regMaskTP       debugPrevGCrefRegs = RBM_NONE;
-    regMaskTP       debugPrevByrefRegs = RBM_NONE;
-
-    void emitDispGCDeltaTitle(const char* title);
-    void emitDispGCRegDelta(const char* title, regMaskTP prevRegs, regMaskTP curRegs);
-    void emitDispGCVarDelta();
-    void emitDispRegPtrListDelta();
-    void emitDispGCInfoDelta();
-
+    void GetGCDeltaDumpHeader(char* buffer, size_t count);
     void emitDispIGflags(unsigned flags);
     void emitDispIG(insGroup* ig, insGroup* igPrev = nullptr, bool verbose = false);
     void emitDispIGlist(bool verbose = false);
