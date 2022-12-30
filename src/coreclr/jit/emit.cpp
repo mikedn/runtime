@@ -4618,8 +4618,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
     emitSizeTable.record(static_cast<unsigned>(emitSizeMethod));
 #endif
 
-    gcInfo.Init();
-
+    gcInfo.Begin();
     emitThisGCrefVset = true;
 
 #ifdef JIT32_GCENCODER
@@ -5160,17 +5159,11 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
         emitOutputDataSec(&emitConsDsc, consBlock);
     }
 
-    unsigned endCodeOffs = emitCurCodeOffs(cp);
+    gcInfo.End(emitCurCodeOffs(cp));
+    emitThisGCrefVset = false;
 
-    // Make sure all GC ref variables are marked as dead.
-    for (unsigned i = 0; i < gcInfo.GetTrackedStackSlotCount(); i++)
-    {
-        if (gcInfo.GetTrackedStackSlotLifetime(i) != nullptr)
-        {
-            emitGCvarDeadSet(gcInfo.GetMinTrackedStackSlotOffset() + i * TARGET_POINTER_SIZE, endCodeOffs, i);
-        }
-    }
-
+    // TODO-MIKE-Cleanup: Move this to gcInfo.End.
+    // Does it work? emitIGisInEpilog checks if we're in epilog, are we?
     // No GC registers are live any more.
     if (gcInfo.GetLiveRegs(GCT_BYREF) != RBM_NONE)
     {
@@ -6059,38 +6052,19 @@ void emitter::emitDispDataSec(dataSecDsc* section)
 }
 #endif
 
-// Record the fact that the given variable now contains a live GC ref.
 void emitter::emitGCvarLiveSet(int slotOffs, GCtype gcType, unsigned codeOffs, unsigned index)
 {
     assert(emitIssuing);
-    assert(abs(slotOffs) % TARGET_POINTER_SIZE == 0);
-    assert(gcType != GCT_NONE);
-    assert(index < gcInfo.GetTrackedStackSlotCount());
-    assert(gcInfo.GetTrackedStackSlotLifetime(index) == nullptr);
 
-    if (gcType == GCT_BYREF)
-    {
-        slotOffs |= byref_OFFSET_FLAG;
-    }
-
-    gcInfo.SetTrackedStackSlotLifetime(index, gcInfo.BeginStackSlotLifetime(slotOffs, codeOffs));
-
-    // The "global" live GC variable mask is no longer up-to-date.
+    gcInfo.BeginStackSlotLifetime(gcType, index, codeOffs, slotOffs);
     emitThisGCrefVset = false;
 }
 
-// Record the fact that the given variable no longer contains a live GC ref.
 void emitter::emitGCvarDeadSet(int slotOffs, unsigned codeOffs, unsigned index)
 {
     assert(emitIssuing);
-    assert(abs(slotOffs) % TARGET_POINTER_SIZE == 0);
-    assert(index < gcInfo.GetTrackedStackSlotCount());
-    assert(gcInfo.GetTrackedStackSlotLifetime(index) != nullptr);
 
-    gcInfo.EndStackSlotLifetime(gcInfo.GetTrackedStackSlotLifetime(index) DEBUGARG(slotOffs), codeOffs);
-    gcInfo.SetTrackedStackSlotLifetime(index, nullptr);
-
-    // The "global" live GC variable mask is no longer up-to-date.
+    gcInfo.EndStackSlotLifetime(index, codeOffs DEBUGARG(slotOffs));
     emitThisGCrefVset = false;
 }
 
@@ -6112,7 +6086,7 @@ void emitter::emitUpdateLiveGCvars(VARSET_VALARG_TP vars, BYTE* addr)
 
     VarSetOps::Assign(emitComp, gcInfo.GetLiveLcls(), vars);
 
-    if (gcInfo.GetTrackedStackSlotCount() == 0)
+    if (!gcInfo.HasTrackedStackSlots())
     {
         emitThisGCrefVset = true;
 
@@ -6133,24 +6107,19 @@ void emitter::emitUpdateLiveGCvars(VARSET_VALARG_TP vars, BYTE* addr)
 
         assert(varTypeIsGC(lcl->GetType()));
 
-        int offs = lcl->GetStackOffset();
-
-        assert(abs(offs) % REGSIZE_BYTES == 0);
-        assert((gcInfo.GetMinTrackedStackSlotOffset() <= offs) && (offs < gcInfo.GetMaxTrackedStackSlotOffset()));
-
-        unsigned index = (offs - gcInfo.GetMinTrackedStackSlotOffset()) / TARGET_POINTER_SIZE;
-        assert(index < gcInfo.GetTrackedStackSlotCount());
+        int      offs  = lcl->GetStackOffset();
+        unsigned index = gcInfo.GetTrackedStackSlotIndex(offs);
 
         if (VarSetOps::IsMember(emitComp, vars, trackedLclIndex))
         {
-            if (gcInfo.GetTrackedStackSlotLifetime(index) == nullptr)
+            if (!gcInfo.IsLiveTrackedStackSlot(index))
             {
                 emitGCvarLiveSet(offs, lcl->TypeIs(TYP_BYREF) ? GCT_BYREF : GCT_GCREF, codeOffs, index);
             }
         }
         else
         {
-            if (gcInfo.GetTrackedStackSlotLifetime(index) != nullptr)
+            if (gcInfo.IsLiveTrackedStackSlot(index))
             {
                 emitGCvarDeadSet(offs, codeOffs, index);
             }
@@ -6211,7 +6180,7 @@ void emitter::emitRecordGCCall(BYTE* codePos)
     }
 #endif
 
-    GCCallSite* call = gcInfo.AddCallSite(codeOffs);
+    GCInfo::CallSite* call = gcInfo.AddCallSite(codeOffs);
 
 #if !FEATURE_FIXED_OUT_ARGS
     noway_assert(FitsIn<uint16_t>(emitCurStackLvl / 4));
@@ -6550,18 +6519,15 @@ void emitter::emitRecordGCCall(BYTE* addr, unsigned callInstrLength)
 
 void emitter::emitGCvarLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum))
 {
-    assert(abs(offs) % REGSIZE_BYTES == 0);
-    assert((gcInfo.GetMinTrackedStackSlotOffset() <= offs) && (offs < gcInfo.GetMaxTrackedStackSlotOffset()));
     assert(gcType != GCT_NONE);
     assert(emitComp->lvaGetDesc(lclNum)->HasGCSlotLiveness());
 #if FEATURE_FIXED_OUT_ARGS
     assert(lclNum != emitComp->lvaOutgoingArgSpaceVar);
 #endif
 
-    unsigned index = (offs - gcInfo.GetMinTrackedStackSlotOffset()) / TARGET_POINTER_SIZE;
-    assert(index < gcInfo.GetTrackedStackSlotCount());
+    unsigned index = gcInfo.GetTrackedStackSlotIndex(offs);
 
-    if (gcInfo.GetTrackedStackSlotLifetime(index) == nullptr)
+    if (!gcInfo.IsLiveTrackedStackSlot(index))
     {
         emitGCvarLiveSet(offs, gcType, emitCurCodeOffs(addr), index);
     }

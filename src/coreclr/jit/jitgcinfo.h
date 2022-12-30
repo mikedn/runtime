@@ -160,7 +160,8 @@ public:
         trackedStackSlotCount     = (maxOffset - minOffset) / TARGET_POINTER_SIZE;
     }
 
-    void Init();
+    void Begin();
+    void End(unsigned codeOffs);
 
     bool IsFullyInterruptible() const
     {
@@ -190,31 +191,23 @@ public:
     }
 #endif
 
-    unsigned GetTrackedStackSlotCount() const
+    bool HasTrackedStackSlots() const
     {
-        return trackedStackSlotCount;
+        return trackedStackSlotCount != 0;
     }
 
-    int GetMinTrackedStackSlotOffset() const
+    unsigned GetTrackedStackSlotIndex(int offset) const
     {
-        return minTrackedStackSlotOffset;
+        assert((minTrackedStackSlotOffset <= offset) && (offset < maxTrackedStackSlotOffset));
+        assert(abs(offset) % TARGET_POINTER_SIZE == 0);
+
+        return (offset - minTrackedStackSlotOffset) / TARGET_POINTER_SIZE;
     }
 
-    int GetMaxTrackedStackSlotOffset() const
-    {
-        return maxTrackedStackSlotOffset;
-    }
-
-    StackSlotLifetime* GetTrackedStackSlotLifetime(unsigned index) const
+    bool IsLiveTrackedStackSlot(unsigned index) const
     {
         assert(index < trackedStackSlotCount);
-        return liveTrackedStackSlots[index];
-    }
-
-    void SetTrackedStackSlotLifetime(unsigned index, StackSlotLifetime* lifetime) const
-    {
-        assert(index < trackedStackSlotCount);
-        liveTrackedStackSlots[index] = lifetime;
+        return liveTrackedStackSlots[index] != nullptr;
     }
 
     // TODO-MIKE-Cleanup: This should be const.
@@ -259,8 +252,8 @@ public:
     }
 #endif
 
-    StackSlotLifetime* BeginStackSlotLifetime(int slotOffs, unsigned codeOffs);
-    void EndStackSlotLifetime(StackSlotLifetime* lifetime DEBUGARG(int slotOffs), unsigned codeOffs);
+    void BeginStackSlotLifetime(GCtype type, unsigned index, unsigned codeOffs, int slotOffs);
+    void EndStackSlotLifetime(unsigned index, unsigned codeOffs DEBUGARG(int slotOffs));
 
     RegArgChange* AddRegArgChange();
 #ifdef JIT32_GCENCODER

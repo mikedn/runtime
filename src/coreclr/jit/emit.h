@@ -336,14 +336,6 @@ public:
 #include "emitpub.h"
 
 protected:
-    /************************************************************************/
-    /*                        Miscellaneous stuff                           */
-    /************************************************************************/
-
-    typedef GCInfo::StackSlotLifetime GCStackSlotLifetime;
-    typedef GCInfo::RegArgChange      GCRegArgChange;
-    typedef GCInfo::CallSite          GCCallSite;
-
     void* emitGetMem(size_t sz);
 
     enum opSize : unsigned

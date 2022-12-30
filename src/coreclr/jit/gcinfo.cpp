@@ -18,7 +18,7 @@ GCInfo::GCInfo(Compiler* compiler)
 {
 }
 
-void GCInfo::Init()
+void GCInfo::Begin()
 {
     liveLcls = VarSetOps::MakeEmpty(compiler);
 
@@ -81,6 +81,28 @@ void GCInfo::Init()
         }
 #endif
     }
+}
+
+void GCInfo::End(unsigned codeOffs)
+{
+#if defined(JIT32_GCENCODER) && !defined(FEATURE_EH_FUNCLETS)
+    // We can let the "this" slot go dead now.
+    int savedSyncThisStackSlotOffset = syncThisStackSlotOffset;
+    syncThisStackSlotOffset          = INT_MIN;
+#endif
+
+    for (unsigned i = 0; i < trackedStackSlotCount; i++)
+    {
+        if (liveTrackedStackSlots[i] != nullptr)
+        {
+            EndStackSlotLifetime(i, codeOffs DEBUGARG(minTrackedStackSlotOffset + i * TARGET_POINTER_SIZE));
+        }
+    }
+
+#if defined(JIT32_GCENCODER) && !defined(FEATURE_EH_FUNCLETS)
+    // Restore just in case we need it later.
+    syncThisStackSlotOffset = savedSyncThisStackSlotOffset;
+#endif
 }
 
 GCInfo::WriteBarrierForm GCInfo::GetWriteBarrierForm(GenTreeStoreInd* store)
@@ -187,8 +209,19 @@ GCInfo::WriteBarrierForm GCInfo::GetWriteBarrierFormFromAddress(GenTree* addr)
     return GCInfo::WBF_BarrierUnknown;
 }
 
-GCInfo::StackSlotLifetime* GCInfo::BeginStackSlotLifetime(int slotOffs, unsigned codeOffs)
+void GCInfo::BeginStackSlotLifetime(GCtype type, unsigned index, unsigned codeOffs, int slotOffs)
 {
+    assert(type != GCT_NONE);
+    assert(index < trackedStackSlotCount);
+    assert(liveTrackedStackSlots[index] == nullptr);
+    assert(abs(slotOffs) % TARGET_POINTER_SIZE == 0);
+    assert((minTrackedStackSlotOffset <= slotOffs) && (slotOffs < maxTrackedStackSlotOffset));
+
+    if (type == GCT_BYREF)
+    {
+        slotOffs |= byref_OFFSET_FLAG;
+    }
+
 #if defined(JIT32_GCENCODER) && !defined(FEATURE_EH_FUNCLETS)
     if (slotOffs == syncThisStackSlotOffset)
     {
@@ -209,23 +242,27 @@ GCInfo::StackSlotLifetime* GCInfo::BeginStackSlotLifetime(int slotOffs, unsigned
         lastStackSlotLifetime->next = lifetime;
     }
 
-    lastStackSlotLifetime = lifetime;
+    lastStackSlotLifetime        = lifetime;
+    liveTrackedStackSlots[index] = lifetime;
 
     INDEBUG(deltaStackSlotLifetime.Push(lifetime));
-
-    return lifetime;
 }
 
-void GCInfo::EndStackSlotLifetime(StackSlotLifetime* lifetime DEBUGARG(int slotOffs), unsigned codeOffs)
+void GCInfo::EndStackSlotLifetime(unsigned index, unsigned codeOffs DEBUGARG(int slotOffs))
 {
-    assert(lifetime->endCodeOffs == 0);
-    assert(static_cast<int>(lifetime->slotOffset & ~OFFSET_MASK) == slotOffs);
+    assert(index < trackedStackSlotCount);
 #if defined(JIT32_GCENCODER) && !defined(FEATURE_EH_FUNCLETS)
-// TODO-MIKE-Fix: This assert fails when we end all lifetimes at the end of the method.
-// assert(slotOffs != syncThisStackSlotOffset);
+    assert(slotOffs != syncThisStackSlotOffset);
 #endif
 
-    lifetime->endCodeOffs = codeOffs;
+    StackSlotLifetime* lifetime = liveTrackedStackSlots[index];
+
+    assert(lifetime->endCodeOffs == 0);
+    assert(codeOffs >= lifetime->beginCodeOffs);
+    assert(static_cast<int>(lifetime->slotOffset & ~OFFSET_MASK) == slotOffs);
+
+    lifetime->endCodeOffs        = codeOffs;
+    liveTrackedStackSlots[index] = nullptr;
 
     INDEBUG(deltaStackSlotLifetime.Push(lifetime));
 }
