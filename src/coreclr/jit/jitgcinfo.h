@@ -183,8 +183,7 @@ public:
         return liveRefRegs | liveByrefRegs;
     }
 
-    // TODO-MIKE-Cleanup: This should be const.
-    regMaskTP& GetLiveRegs(GCtype type)
+    regMaskTP GetLiveRegs(GCtype type) const
     {
         assert(type != GCT_NONE);
 
