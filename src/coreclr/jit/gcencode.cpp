@@ -1535,14 +1535,11 @@ size_t GCEncoder::InfoBlockHdrSave(BYTE* dest, int mask, regMaskTP savedRegs, In
     CLANG_FORMAT_COMMENT_ANCHOR;
 
 #ifdef DEBUG
-    if (compiler->verbose)
+    if (compiler->verbose && (mask != 0))
     {
-        if (mask)
-            printf("GCINFO: methodSize = %04X\n", codeSize);
-        if (mask)
-            printf("GCINFO: prologSize = %04X\n", prologSize);
-        if (mask)
-            printf("GCINFO: epilogSize = %04X\n", epilogSize);
+        printf("GCINFO: methodSize = %04X\n", codeSize);
+        printf("GCINFO: prologSize = %04X\n", prologSize);
+        printf("GCINFO: epilogSize = %04X\n", epilogSize);
     }
 #endif
 
@@ -1564,11 +1561,16 @@ size_t GCEncoder::InfoBlockHdrSave(BYTE* dest, int mask, regMaskTP savedRegs, In
 
     assert(FitsIn<unsigned char>(prologSize));
     header->prologSize = static_cast<unsigned char>(prologSize);
+
     assert(FitsIn<unsigned char>(epilogSize));
-    header->epilogSize  = static_cast<unsigned char>(epilogSize);
+    header->epilogSize = static_cast<unsigned char>(epilogSize);
+
     header->epilogCount = compiler->GetEmitter()->emitGetEpilogCnt();
     if (header->epilogCount != compiler->GetEmitter()->emitGetEpilogCnt())
+    {
         IMPL_LIMITATION("emitGetEpilogCnt() does not fit in InfoHdr::epilogCount");
+    }
+
     header->epilogAtEnd = compiler->GetEmitter()->emitHasEpilogEnd();
 
     if ((savedRegs & RBM_EDI) != RBM_NONE)
@@ -1669,16 +1671,12 @@ size_t GCEncoder::InfoBlockHdrSave(BYTE* dest, int mask, regMaskTP savedRegs, In
     }
 
     assert(compiler->codeGen->paramsStackSize % REGSIZE_BYTES == 0);
-
     unsigned argCount = compiler->codeGen->paramsStackSize / REGSIZE_BYTES;
     assert(argCount <= UINT16_MAX);
     header->argCount = static_cast<uint16_t>(argCount);
 
+    assert(compiler->codeGen->lclFrameSize % REGSIZE_BYTES == 0);
     header->frameSize = compiler->codeGen->lclFrameSize / 4;
-    if (header->frameSize != compiler->codeGen->lclFrameSize / 4)
-    {
-        IMPL_LIMITATION("compLclFrameSize does not fit in InfoHdr::frameSize");
-    }
 
     if (mask == 0)
     {
