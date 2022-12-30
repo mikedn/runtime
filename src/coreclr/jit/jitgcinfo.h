@@ -210,8 +210,7 @@ public:
         return liveTrackedStackSlots[index] != nullptr;
     }
 
-    // TODO-MIKE-Cleanup: This should be const.
-    VARSET_TP& GetLiveLcls()
+    VARSET_TP GetLiveLcls() const
     {
         return liveLcls;
     }
@@ -254,6 +253,7 @@ public:
 
     void BeginStackSlotLifetime(GCtype type, unsigned index, unsigned codeOffs, int slotOffs);
     void EndStackSlotLifetime(unsigned index, unsigned codeOffs DEBUGARG(int slotOffs));
+    void SetLiveStackSlots(VARSET_TP newLiveLcls, unsigned codeOffs);
 
     RegArgChange* AddRegArgChange();
 #ifdef JIT32_GCENCODER

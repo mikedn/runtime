@@ -6068,65 +6068,20 @@ void emitter::emitGCvarDeadSet(int slotOffs, unsigned codeOffs, unsigned index)
     emitThisGCrefVset = false;
 }
 
-// Record a new set of live GC ref variables.
 void emitter::emitUpdateLiveGCvars(VARSET_VALARG_TP vars, BYTE* addr)
 {
     assert(emitIssuing);
 
-    // Don't track GC changes in epilogs.
     if (emitIGisInEpilog(emitCurIG))
     {
         return;
     }
 
-    if (emitThisGCrefVset && VarSetOps::Equal(emitComp, gcInfo.GetLiveLcls(), vars))
+    if (!emitThisGCrefVset || !VarSetOps::Equal(emitComp, gcInfo.GetLiveLcls(), vars))
     {
-        return;
-    }
-
-    VarSetOps::Assign(emitComp, gcInfo.GetLiveLcls(), vars);
-
-    if (!gcInfo.HasTrackedStackSlots())
-    {
+        gcInfo.SetLiveStackSlots(vars, emitCurCodeOffs(addr));
         emitThisGCrefVset = true;
-
-        return;
     }
-
-    unsigned codeOffs = emitCurCodeOffs(addr);
-
-    for (unsigned trackedLclIndex = 0, count = emitComp->lvaTrackedCount; trackedLclIndex < count; trackedLclIndex++)
-    {
-        unsigned   lclNum = emitComp->lvaTrackedIndexToLclNum(trackedLclIndex);
-        LclVarDsc* lcl    = emitComp->lvaGetDesc(lclNum);
-
-        if (!lcl->HasGCSlotLiveness())
-        {
-            continue;
-        }
-
-        assert(varTypeIsGC(lcl->GetType()));
-
-        int      offs  = lcl->GetStackOffset();
-        unsigned index = gcInfo.GetTrackedStackSlotIndex(offs);
-
-        if (VarSetOps::IsMember(emitComp, vars, trackedLclIndex))
-        {
-            if (!gcInfo.IsLiveTrackedStackSlot(index))
-            {
-                emitGCvarLiveSet(offs, lcl->TypeIs(TYP_BYREF) ? GCT_BYREF : GCT_GCREF, codeOffs, index);
-            }
-        }
-        else
-        {
-            if (gcInfo.IsLiveTrackedStackSlot(index))
-            {
-                emitGCvarDeadSet(offs, codeOffs, index);
-            }
-        }
-    }
-
-    emitThisGCrefVset = true;
 }
 
 #ifdef JIT32_GCENCODER

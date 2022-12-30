@@ -267,6 +267,47 @@ void GCInfo::EndStackSlotLifetime(unsigned index, unsigned codeOffs DEBUGARG(int
     INDEBUG(deltaStackSlotLifetime.Push(lifetime));
 }
 
+void GCInfo::SetLiveStackSlots(VARSET_TP newLiveLcls, unsigned codeOffs)
+{
+    VarSetOps::Assign(compiler, liveLcls, newLiveLcls);
+
+    if (trackedStackSlotCount == 0)
+    {
+        return;
+    }
+
+    for (unsigned trackedLclIndex = 0, count = compiler->lvaTrackedCount; trackedLclIndex < count; trackedLclIndex++)
+    {
+        unsigned   lclNum = compiler->lvaTrackedIndexToLclNum(trackedLclIndex);
+        LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+
+        if (!lcl->HasGCSlotLiveness())
+        {
+            continue;
+        }
+
+        assert(varTypeIsGC(lcl->GetType()));
+
+        int      offs  = lcl->GetStackOffset();
+        unsigned index = GetTrackedStackSlotIndex(offs);
+
+        if (VarSetOps::IsMember(compiler, newLiveLcls, trackedLclIndex))
+        {
+            if (!IsLiveTrackedStackSlot(index))
+            {
+                BeginStackSlotLifetime(lcl->TypeIs(TYP_BYREF) ? GCT_BYREF : GCT_GCREF, index, codeOffs, offs);
+            }
+        }
+        else
+        {
+            if (IsLiveTrackedStackSlot(index))
+            {
+                EndStackSlotLifetime(index, codeOffs DEBUGARG(offs));
+            }
+        }
+    }
+}
+
 GCInfo::RegArgChange* GCInfo::AddRegArgChange()
 {
 #ifdef JIT32_GCENCODER
