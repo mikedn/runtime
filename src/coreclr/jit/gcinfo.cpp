@@ -278,8 +278,7 @@ void GCInfo::SetLiveStackSlots(VARSET_TP newLiveLcls, unsigned codeOffs)
 
     for (unsigned trackedLclIndex = 0, count = compiler->lvaTrackedCount; trackedLclIndex < count; trackedLclIndex++)
     {
-        unsigned   lclNum = compiler->lvaTrackedIndexToLclNum(trackedLclIndex);
-        LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+        LclVarDsc* lcl = compiler->lvaGetDescByTrackedIndex(trackedLclIndex);
 
         if (!lcl->HasGCSlotLiveness())
         {
@@ -288,22 +287,18 @@ void GCInfo::SetLiveStackSlots(VARSET_TP newLiveLcls, unsigned codeOffs)
 
         assert(varTypeIsGC(lcl->GetType()));
 
-        int      offs  = lcl->GetStackOffset();
-        unsigned index = GetTrackedStackSlotIndex(offs);
+        int      offs    = lcl->GetStackOffset();
+        unsigned index   = GetTrackedStackSlotIndex(offs);
+        bool     isLive  = VarSetOps::IsMember(compiler, newLiveLcls, trackedLclIndex);
+        bool     wasLive = IsLiveTrackedStackSlot(index);
 
-        if (VarSetOps::IsMember(compiler, newLiveLcls, trackedLclIndex))
+        if (!wasLive && isLive)
         {
-            if (!IsLiveTrackedStackSlot(index))
-            {
-                BeginStackSlotLifetime(lcl->TypeIs(TYP_BYREF) ? GCT_BYREF : GCT_GCREF, index, codeOffs, offs);
-            }
+            BeginStackSlotLifetime(lcl->TypeIs(TYP_BYREF) ? GCT_BYREF : GCT_GCREF, index, codeOffs, offs);
         }
-        else
+        else if (wasLive && !isLive)
         {
-            if (IsLiveTrackedStackSlot(index))
-            {
-                EndStackSlotLifetime(index, codeOffs DEBUGARG(offs));
-            }
+            EndStackSlotLifetime(index, codeOffs DEBUGARG(offs));
         }
     }
 }

@@ -6052,23 +6052,7 @@ void emitter::emitDispDataSec(dataSecDsc* section)
 }
 #endif
 
-void emitter::emitGCvarLiveSet(int slotOffs, GCtype gcType, unsigned codeOffs, unsigned index)
-{
-    assert(emitIssuing);
-
-    gcInfo.BeginStackSlotLifetime(gcType, index, codeOffs, slotOffs);
-    emitThisGCrefVset = false;
-}
-
-void emitter::emitGCvarDeadSet(int slotOffs, unsigned codeOffs, unsigned index)
-{
-    assert(emitIssuing);
-
-    gcInfo.EndStackSlotLifetime(index, codeOffs DEBUGARG(slotOffs));
-    emitThisGCrefVset = false;
-}
-
-void emitter::emitUpdateLiveGCvars(VARSET_VALARG_TP vars, BYTE* addr)
+void emitter::emitUpdateLiveGCvars(VARSET_TP vars, BYTE* addr)
 {
     assert(emitIssuing);
 
@@ -6474,6 +6458,7 @@ void emitter::emitRecordGCCall(BYTE* addr, unsigned callInstrLength)
 
 void emitter::emitGCvarLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum))
 {
+    assert(emitIssuing);
     assert(gcType != GCT_NONE);
     assert(emitComp->lvaGetDesc(lclNum)->HasGCSlotLiveness());
 #if FEATURE_FIXED_OUT_ARGS
@@ -6484,7 +6469,8 @@ void emitter::emitGCvarLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsi
 
     if (!gcInfo.IsLiveTrackedStackSlot(index))
     {
-        emitGCvarLiveSet(offs, gcType, emitCurCodeOffs(addr), index);
+        gcInfo.BeginStackSlotLifetime(gcType, index, emitCurCodeOffs(addr), offs);
+        emitThisGCrefVset = false;
     }
 }
 

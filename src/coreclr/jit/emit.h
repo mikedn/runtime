@@ -1972,7 +1972,7 @@ public:
 
     /* Liveness of stack variables, and registers */
 
-    void emitUpdateLiveGCvars(VARSET_VALARG_TP vars, BYTE* addr);
+    void emitUpdateLiveGCvars(VARSET_TP vars, BYTE* addr);
     void emitUpdateLiveGCregs(GCtype gcType, regMaskTP regs, BYTE* addr);
 
 #ifdef DEBUG
@@ -1991,8 +1991,6 @@ public:
     void emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum));
 #endif
     void emitGCvarLiveUpd(int slotOffs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum));
-    void emitGCvarLiveSet(int slotOffs, GCtype gcType, unsigned codeOffs, unsigned index);
-    void emitGCvarDeadSet(int slotOffs, unsigned codeOffs, unsigned index);
 
     // We have a mixture of code emission methods, some of which return the size of the emitted instruction,
     // requiring the caller to add this to the current code pointer (dst += <call to emit code>), others of which
