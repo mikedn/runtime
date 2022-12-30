@@ -115,7 +115,14 @@ private:
 #ifdef JIT32_GCENCODER
     bool      isFramePointerUsed = false;
     regNumber syncThisReg        = REG_NA;
+#ifndef FEATURE_EH_FUNCLETS
+    int syncThisStackSlotOffset = INT_MIN;
 #endif
+#endif
+    int                 minTrackedStackSlotOffset = 0;
+    int                 maxTrackedStackSlotOffset = 0;
+    unsigned            trackedStackSlotCount     = 0;
+    StackSlotLifetime** liveTrackedStackSlots     = nullptr;
 #ifdef DEBUG
     ArrayStack<StackSlotLifetime*> deltaStackSlotLifetime;
     RegArgChange*                  deltaRegArgChangeBase = nullptr;
@@ -141,6 +148,17 @@ public:
 #endif
 
     GCInfo(Compiler* compiler);
+
+    void SetTrackedStackSlotRange(int minOffset, int maxOffset)
+    {
+        assert(maxOffset > minOffset);
+        assert(minOffset % TARGET_POINTER_SIZE == 0);
+        assert(maxOffset % TARGET_POINTER_SIZE == 0);
+
+        minTrackedStackSlotOffset = minOffset;
+        maxTrackedStackSlotOffset = maxOffset;
+        trackedStackSlotCount     = (maxOffset - minOffset) / TARGET_POINTER_SIZE;
+    }
 
     void Init();
 
@@ -171,6 +189,33 @@ public:
             ;
     }
 #endif
+
+    unsigned GetTrackedStackSlotCount() const
+    {
+        return trackedStackSlotCount;
+    }
+
+    int GetMinTrackedStackSlotOffset() const
+    {
+        return minTrackedStackSlotOffset;
+    }
+
+    int GetMaxTrackedStackSlotOffset() const
+    {
+        return maxTrackedStackSlotOffset;
+    }
+
+    StackSlotLifetime* GetTrackedStackSlotLifetime(unsigned index) const
+    {
+        assert(index < trackedStackSlotCount);
+        return liveTrackedStackSlots[index];
+    }
+
+    void SetTrackedStackSlotLifetime(unsigned index, StackSlotLifetime* lifetime) const
+    {
+        assert(index < trackedStackSlotCount);
+        liveTrackedStackSlots[index] = lifetime;
+    }
 
     // TODO-MIKE-Cleanup: This should be const.
     VARSET_TP& GetLiveLcls()
@@ -245,6 +290,7 @@ public:
 #ifdef DEBUG
     void DumpStackSlotLifetimeDelta(const char* header);
     void DumpDelta(const char* header);
+    void DumpLiveTrackedStackSlots();
 #endif
 
 private:

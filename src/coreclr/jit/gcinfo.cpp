@@ -61,6 +61,26 @@ void GCInfo::Init()
         }
     }
 #endif // JIT32_GCENCODER
+
+    if (trackedStackSlotCount != 0)
+    {
+        liveTrackedStackSlots = compiler->getAllocator(CMK_GC).allocate<StackSlotLifetime*>(trackedStackSlotCount);
+        memset(liveTrackedStackSlots, 0, trackedStackSlotCount * sizeof(liveTrackedStackSlots[0]));
+
+#if defined(JIT32_GCENCODER) && !defined(FEATURE_EH_FUNCLETS)
+        if (compiler->lvaKeepAliveAndReportThis())
+        {
+            assert(compiler->lvaIsOriginalThisArg(0));
+
+            LclVarDsc* thisLcl = compiler->lvaGetDesc(0u);
+
+            if (thisLcl->HasGCSlotLiveness())
+            {
+                syncThisStackSlotOffset = thisLcl->GetStackOffset();
+            }
+        }
+#endif
+    }
 }
 
 GCInfo::WriteBarrierForm GCInfo::GetWriteBarrierForm(GenTreeStoreInd* store)
@@ -169,6 +189,13 @@ GCInfo::WriteBarrierForm GCInfo::GetWriteBarrierFormFromAddress(GenTree* addr)
 
 GCInfo::StackSlotLifetime* GCInfo::BeginStackSlotLifetime(int slotOffs, unsigned codeOffs)
 {
+#if defined(JIT32_GCENCODER) && !defined(FEATURE_EH_FUNCLETS)
+    if (slotOffs == syncThisStackSlotOffset)
+    {
+        slotOffs |= this_OFFSET_FLAG;
+    }
+#endif
+
     StackSlotLifetime* lifetime = new (compiler, CMK_GC) StackSlotLifetime(slotOffs, codeOffs);
 
     if (firstStackSlotLifetime == nullptr)
@@ -193,6 +220,10 @@ void GCInfo::EndStackSlotLifetime(StackSlotLifetime* lifetime DEBUGARG(int slotO
 {
     assert(lifetime->endCodeOffs == 0);
     assert(static_cast<int>(lifetime->slotOffset & ~OFFSET_MASK) == slotOffs);
+#if defined(JIT32_GCENCODER) && !defined(FEATURE_EH_FUNCLETS)
+// TODO-MIKE-Fix: This assert fails when we end all lifetimes at the end of the method.
+// assert(slotOffs != syncThisStackSlotOffset);
+#endif
 
     lifetime->endCodeOffs = codeOffs;
 
@@ -935,6 +966,31 @@ void GCInfo::DumpDelta(const char* header)
     deltaByrefRegsBase = liveByrefRegs;
     DumpStackSlotLifetimeDelta(header);
     DumpArgDelta(header);
+}
+
+void GCInfo::DumpLiveTrackedStackSlots()
+{
+    const char* frameRegName = getRegName(compiler->codeGen->isFramePointerUsed() ? REG_FPBASE : REG_SPBASE);
+    const char* separator    = "";
+
+    for (unsigned i = 0; i < trackedStackSlotCount; i++)
+    {
+        if (liveTrackedStackSlots[i] != nullptr)
+        {
+            int offset = minTrackedStackSlotOffset + i * TARGET_POINTER_SIZE;
+#ifdef TARGET_ARMARCH
+            printf("%s[%s,#%d]", separator, frameRegName, offset);
+#else
+            printf("%s[%s%c%02XH]", separator, frameRegName, offset < 0 ? '-' : '+', abs(offset));
+#endif
+            separator = " ";
+        }
+    }
+
+    if (separator == nullptr)
+    {
+        printf("none");
+    }
 }
 
 #endif // DEBUG

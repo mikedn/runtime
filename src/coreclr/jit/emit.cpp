@@ -1837,43 +1837,6 @@ void emitter::emitStartExitSeq()
 
 /*****************************************************************************
  *
- *  The code generator tells us the range of GC ref locals through this
- *  method. Needless to say, locals and temps should be allocated so that
- *  the size of the range is as small as possible.
- *
- * offsLo - The FP offset from which the GC pointer range starts.
- * offsHi - The FP offset at which the GC pointer region ends (exclusive).
- */
-
-void emitter::emitSetFrameRangeGCRs(int offsLo, int offsHi)
-{
-    assert(offsHi > offsLo);
-    assert(offsLo % REGSIZE_BYTES == 0);
-    assert(offsHi % REGSIZE_BYTES == 0);
-
-    //  A total of    47254 methods compiled.
-    //
-    //  GC ref frame variable counts:
-    //
-    //      <=         0 ===>  43175 count ( 91% of total)
-    //       1 ..      1 ===>   2367 count ( 96% of total)
-    //       2 ..      2 ===>    887 count ( 98% of total)
-    //       3 ..      5 ===>    579 count ( 99% of total)
-    //       6 ..     10 ===>    141 count ( 99% of total)
-    //      11 ..     20 ===>     40 count ( 99% of total)
-    //      21 ..     50 ===>     42 count ( 99% of total)
-    //      51 ..    128 ===>     15 count ( 99% of total)
-    //     129 ..    256 ===>      4 count ( 99% of total)
-    //     257 ..    512 ===>      4 count (100% of total)
-    //     513 ..   1024 ===>      0 count (100% of total)
-
-    emitGCrFrameOffsMin = offsLo;
-    emitGCrFrameOffsMax = offsHi;
-    emitGCrFrameOffsCnt = (offsHi - offsLo) / REGSIZE_BYTES;
-}
-
-/*****************************************************************************
- *
  *  A conversion table used to map an operand size value (in bytes) into its
  *  small encoding (0 through 3), and vice versa.
  */
@@ -2504,52 +2467,6 @@ void emitter::emitDispRegSetDiff(const char* name, regMaskTP from, regMaskTP to)
     printf("}\n");
 }
 
-/*****************************************************************************
- *
- *  Display the current GC ref variable set in a readable form.
- */
-
-void emitter::emitDispVarSet()
-{
-    unsigned vn;
-    int      of;
-    bool     sp = false;
-
-    for (vn = 0, of = emitGCrFrameOffsMin; vn < emitGCrFrameOffsCnt; vn += 1, of += TARGET_POINTER_SIZE)
-    {
-        if (emitGCrFrameLiveTab[vn])
-        {
-            if (sp)
-            {
-                printf(" ");
-            }
-            else
-            {
-                sp = true;
-            }
-
-            printf("[%s", emitGetFrameReg());
-
-            if (of < 0)
-            {
-                printf("-%02XH", -of);
-            }
-            else if (of > 0)
-            {
-                printf("+%02XH", +of);
-            }
-
-            printf("]");
-        }
-    }
-
-    if (!sp)
-    {
-        printf("none");
-    }
-}
-
-/*****************************************************************************/
 #endif // DEBUG
 
 #if MULTIREG_HAS_SECOND_GC_RET
@@ -4933,38 +4850,6 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 
 #endif
 
-    if (emitGCrFrameOffsCnt != 0)
-    {
-        // Allocate and clear emitGCrFrameLiveTab[]. This is the table
-        // mapping "stkOffs -> varPtrDsc". It holds a pointer to
-        // the liveness descriptor that was created when the
-        // variable became alive. When the variable becomes dead, the
-        // descriptor will be appended to the liveness descriptor list, and
-        // the entry in emitGCrFrameLiveTab[] will be made NULL.
-        //
-        // Note that if all GC refs are assigned consecutively,
-        // emitGCrFrameLiveTab[] can be only as big as the number of GC refs
-        // present, instead of lvaTrackedCount.
-
-        size_t siz          = emitGCrFrameOffsCnt * sizeof(*emitGCrFrameLiveTab);
-        emitGCrFrameLiveTab = static_cast<GCStackSlotLifetime**>(emitGetMem(roundUp(siz)));
-        memset(emitGCrFrameLiveTab, 0, siz);
-
-#if defined(JIT32_GCENCODER) && !defined(FEATURE_EH_FUNCLETS)
-        if (emitComp->lvaKeepAliveAndReportThis())
-        {
-            assert(emitComp->lvaIsOriginalThisArg(emitComp->info.compThisArg));
-
-            LclVarDsc* thisParam = emitComp->lvaGetDesc(emitComp->info.compThisArg);
-
-            if (thisParam->HasGCSlotLiveness())
-            {
-                emitSyncThisObjOffs = thisParam->GetStackOffset();
-            }
-        }
-#endif
-    }
-
 #ifdef DEBUG
     if (emitComp->verbose)
     {
@@ -5278,11 +5163,11 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
     unsigned endCodeOffs = emitCurCodeOffs(cp);
 
     // Make sure all GC ref variables are marked as dead.
-    for (unsigned i = 0; i < emitGCrFrameOffsCnt; i++)
+    for (unsigned i = 0; i < gcInfo.GetTrackedStackSlotCount(); i++)
     {
-        if (emitGCrFrameLiveTab[i] != nullptr)
+        if (gcInfo.GetTrackedStackSlotLifetime(i) != nullptr)
         {
-            emitGCvarDeadSet(emitGCrFrameOffsMin + i * REGSIZE_BYTES, endCodeOffs, i);
+            emitGCvarDeadSet(gcInfo.GetMinTrackedStackSlotOffset() + i * TARGET_POINTER_SIZE, endCodeOffs, i);
         }
     }
 
@@ -6178,24 +6063,17 @@ void emitter::emitDispDataSec(dataSecDsc* section)
 void emitter::emitGCvarLiveSet(int slotOffs, GCtype gcType, unsigned codeOffs, unsigned index)
 {
     assert(emitIssuing);
-    assert(abs(slotOffs) % REGSIZE_BYTES == 0);
+    assert(abs(slotOffs) % TARGET_POINTER_SIZE == 0);
     assert(gcType != GCT_NONE);
-    assert(index < emitGCrFrameOffsCnt);
-    assert(emitGCrFrameLiveTab[index] == nullptr);
-
-#if defined(JIT32_GCENCODER) && !defined(FEATURE_EH_FUNCLETS)
-    if (slotOffs == emitSyncThisObjOffs)
-    {
-        slotOffs |= this_OFFSET_FLAG;
-    }
-#endif
+    assert(index < gcInfo.GetTrackedStackSlotCount());
+    assert(gcInfo.GetTrackedStackSlotLifetime(index) == nullptr);
 
     if (gcType == GCT_BYREF)
     {
         slotOffs |= byref_OFFSET_FLAG;
     }
 
-    emitGCrFrameLiveTab[index] = gcInfo.BeginStackSlotLifetime(slotOffs, codeOffs);
+    gcInfo.SetTrackedStackSlotLifetime(index, gcInfo.BeginStackSlotLifetime(slotOffs, codeOffs));
 
     // The "global" live GC variable mask is no longer up-to-date.
     emitThisGCrefVset = false;
@@ -6205,12 +6083,12 @@ void emitter::emitGCvarLiveSet(int slotOffs, GCtype gcType, unsigned codeOffs, u
 void emitter::emitGCvarDeadSet(int slotOffs, unsigned codeOffs, unsigned index)
 {
     assert(emitIssuing);
-    assert(abs(slotOffs) % REGSIZE_BYTES == 0);
-    assert(index < emitGCrFrameOffsCnt);
-    assert(emitGCrFrameLiveTab[index] != nullptr);
+    assert(abs(slotOffs) % TARGET_POINTER_SIZE == 0);
+    assert(index < gcInfo.GetTrackedStackSlotCount());
+    assert(gcInfo.GetTrackedStackSlotLifetime(index) != nullptr);
 
-    gcInfo.EndStackSlotLifetime(emitGCrFrameLiveTab[index] DEBUGARG(slotOffs), codeOffs);
-    emitGCrFrameLiveTab[index] = nullptr;
+    gcInfo.EndStackSlotLifetime(gcInfo.GetTrackedStackSlotLifetime(index) DEBUGARG(slotOffs), codeOffs);
+    gcInfo.SetTrackedStackSlotLifetime(index, nullptr);
 
     // The "global" live GC variable mask is no longer up-to-date.
     emitThisGCrefVset = false;
@@ -6234,7 +6112,7 @@ void emitter::emitUpdateLiveGCvars(VARSET_VALARG_TP vars, BYTE* addr)
 
     VarSetOps::Assign(emitComp, gcInfo.GetLiveLcls(), vars);
 
-    if (emitGCrFrameOffsCnt == 0)
+    if (gcInfo.GetTrackedStackSlotCount() == 0)
     {
         emitThisGCrefVset = true;
 
@@ -6258,26 +6136,22 @@ void emitter::emitUpdateLiveGCvars(VARSET_VALARG_TP vars, BYTE* addr)
         int offs = lcl->GetStackOffset();
 
         assert(abs(offs) % REGSIZE_BYTES == 0);
-        assert((emitGCrFrameOffsMin <= offs) && (offs < emitGCrFrameOffsMax));
+        assert((gcInfo.GetMinTrackedStackSlotOffset() <= offs) && (offs < gcInfo.GetMaxTrackedStackSlotOffset()));
 
-        unsigned index = (offs - emitGCrFrameOffsMin) / REGSIZE_BYTES;
-        assert(index < emitGCrFrameOffsCnt);
+        unsigned index = (offs - gcInfo.GetMinTrackedStackSlotOffset()) / TARGET_POINTER_SIZE;
+        assert(index < gcInfo.GetTrackedStackSlotCount());
 
         if (VarSetOps::IsMember(emitComp, vars, trackedLclIndex))
         {
-            if (emitGCrFrameLiveTab[index] == nullptr)
+            if (gcInfo.GetTrackedStackSlotLifetime(index) == nullptr)
             {
                 emitGCvarLiveSet(offs, lcl->TypeIs(TYP_BYREF) ? GCT_BYREF : GCT_GCREF, codeOffs, index);
             }
         }
         else
         {
-            if (emitGCrFrameLiveTab[index] != nullptr)
+            if (gcInfo.GetTrackedStackSlotLifetime(index) != nullptr)
             {
-#if defined(JIT32_GCENCODER) && !defined(FEATURE_EH_FUNCLETS)
-                assert(!emitComp->lvaKeepAliveAndReportThis() || (offs != emitSyncThisObjOffs));
-#endif
-
                 emitGCvarDeadSet(offs, codeOffs, index);
             }
         }
@@ -6327,7 +6201,7 @@ void emitter::emitRecordGCCall(BYTE* codePos)
 #else
         printf("; Call at %04X [stk=%u], GCvars ", codeOffs, emitCurStackLvl);
 #endif
-        emitDispVarSet();
+        gcInfo.DumpLiveTrackedStackSlots();
         printf(", REF regs");
         emitDispRegSet(gcInfo.GetLiveRegs(GCT_GCREF));
         printf(", BYREF regs");
@@ -6655,7 +6529,7 @@ void emitter::emitRecordGCCall(BYTE* addr, unsigned callInstrLength)
         if (EMIT_GC_VERBOSE)
         {
             printf("; Call at %04X GCvars ", codeOffs - callInstrLength);
-            emitDispVarSet();
+            gcInfo.DumpLiveTrackedStackSlots();
             printf(", REF regs");
             emitDispRegSet(gcInfo.GetLiveRegs(GCT_GCREF));
             printf(", BYREF regs");
@@ -6677,17 +6551,17 @@ void emitter::emitRecordGCCall(BYTE* addr, unsigned callInstrLength)
 void emitter::emitGCvarLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum))
 {
     assert(abs(offs) % REGSIZE_BYTES == 0);
-    assert((emitGCrFrameOffsMin <= offs) && (offs < emitGCrFrameOffsMax));
+    assert((gcInfo.GetMinTrackedStackSlotOffset() <= offs) && (offs < gcInfo.GetMaxTrackedStackSlotOffset()));
     assert(gcType != GCT_NONE);
     assert(emitComp->lvaGetDesc(lclNum)->HasGCSlotLiveness());
 #if FEATURE_FIXED_OUT_ARGS
     assert(lclNum != emitComp->lvaOutgoingArgSpaceVar);
 #endif
 
-    unsigned index = (offs - emitGCrFrameOffsMin) / REGSIZE_BYTES;
-    assert(index < emitGCrFrameOffsCnt);
+    unsigned index = (offs - gcInfo.GetMinTrackedStackSlotOffset()) / TARGET_POINTER_SIZE;
+    assert(index < gcInfo.GetTrackedStackSlotCount());
 
-    if (emitGCrFrameLiveTab[index] == nullptr)
+    if (gcInfo.GetTrackedStackSlotLifetime(index) == nullptr)
     {
         emitGCvarLiveSet(offs, gcType, emitCurCodeOffs(addr), index);
     }

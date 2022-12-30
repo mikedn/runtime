@@ -3478,7 +3478,7 @@ void CodeGen::MarkGCTrackedSlots(int&       minBlockInitOffset,
                 abs(maxGCTrackedOffset));
 #endif
 
-        GetEmitter()->emitSetFrameRangeGCRs(minGCTrackedOffset, maxGCTrackedOffset + REGSIZE_BYTES);
+        GetEmitter()->gcInfo.SetTrackedStackSlotRange(minGCTrackedOffset, maxGCTrackedOffset + REGSIZE_BYTES);
     }
     else
     {
