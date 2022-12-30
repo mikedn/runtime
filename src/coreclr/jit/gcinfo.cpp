@@ -20,12 +20,47 @@ GCInfo::GCInfo(Compiler* compiler)
 
 void GCInfo::Init()
 {
+    liveLcls = VarSetOps::MakeEmpty(compiler);
+
     isFullyInterruptible = compiler->codeGen->GetInterruptible();
+
 #ifdef JIT32_GCENCODER
     isFramePointerUsed = compiler->codeGen->isFramePointerUsed();
-#endif
 
-    liveLcls = VarSetOps::MakeEmpty(compiler);
+    if (compiler->lvaKeepAliveAndReportThis())
+    {
+        assert(compiler->lvaIsOriginalThisArg(0));
+
+        // If "this" (which is passed in as a register argument in REG_ARG_0)
+        // is enregistered, we normally spot the "mov REG_ARG_0 -> thisReg"
+        // in the prolog and note the location of "this" at that point.
+        // However, if 'this' is enregistered into REG_ARG_0 itself, no code
+        // will be generated in the prolog, so we explicitly need to note
+        // the location of "this" here.
+        // NOTE that we can do this even if "this" is not enregistered in
+        // REG_ARG_0, and it will result in more accurate "this" info over the
+        // prolog. However, as methods are not interruptible over the prolog,
+        // we try to save space by avoiding that.
+
+        // TODO-MIKE-Cleanup: Can't we just pass syncThisReg to the encoder
+        // and have it generate whatever info is needed, instead of special
+        // casing this all over the place? The encoder already handles this
+        // when only call sites are reported.
+
+        LclVarDsc* thisLcl = compiler->lvaGetDesc(0u);
+
+        if (thisLcl->lvRegister)
+        {
+            syncThisReg = thisLcl->GetRegNum();
+
+            if (ReportRegArgChanges() && (syncThisReg == REG_ARG_0) &&
+                ((compiler->codeGen->paramRegState.intRegLiveIn & RBM_ARG_0) != RBM_NONE))
+            {
+                AddLiveRegs(GCT_GCREF, RBM_ARG_0, 0, true);
+            }
+        }
+    }
+#endif // JIT32_GCENCODER
 }
 
 GCInfo::WriteBarrierForm GCInfo::GetWriteBarrierForm(GenTreeStoreInd* store)
@@ -221,11 +256,7 @@ GCInfo::RegArgChange* GCInfo::AddLiveRegs(GCtype gcType, regMaskTP regs, unsigne
     return change;
 }
 
-#ifdef JIT32_GCENCODER
-void GCInfo::AddLiveReg(GCtype type, regNumber reg, unsigned codeOffs, bool isThis)
-#else
 void GCInfo::AddLiveReg(GCtype type, regNumber reg, unsigned codeOffs)
-#endif
 {
     assert((liveRefRegs & liveByrefRegs) == RBM_NONE);
     assert(type != GCT_NONE);
@@ -251,6 +282,8 @@ void GCInfo::AddLiveReg(GCtype type, regNumber reg, unsigned codeOffs)
         // However, if we generate any code after the epilog block (where "this"
         // goes dead), "this" will come alive again. We need to notice that.
         // Note that we only expect isThis to be true at an insGroup boundary.
+
+        bool isThis = reg == syncThisReg;
 
         if (isFullyInterruptible || (ReportRegArgChanges() && isThis))
         {

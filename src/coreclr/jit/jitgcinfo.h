@@ -113,7 +113,8 @@ private:
     regMaskTP          liveByrefRegs          = RBM_NONE;
     bool               isFullyInterruptible   = false;
 #ifdef JIT32_GCENCODER
-    bool isFramePointerUsed = false;
+    bool      isFramePointerUsed = false;
+    regNumber syncThisReg        = REG_NA;
 #endif
 #ifdef DEBUG
     ArrayStack<StackSlotLifetime*> deltaStackSlotLifetime;
@@ -207,17 +208,23 @@ public:
         return GCT_NONE;
     }
 
+#ifdef JIT32_GCENCODER
+    regNumber GetSyncThisReg() const
+    {
+        return syncThisReg;
+    }
+#endif
+
     StackSlotLifetime* BeginStackSlotLifetime(int slotOffs, unsigned codeOffs);
     void EndStackSlotLifetime(StackSlotLifetime* lifetime DEBUGARG(int slotOffs), unsigned codeOffs);
 
     RegArgChange* AddRegArgChange();
 #ifdef JIT32_GCENCODER
     RegArgChange* AddLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs, bool isThis);
-    void AddLiveReg(GCtype type, regNumber reg, unsigned codeOffs, bool isThis);
 #else
     RegArgChange* AddLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs);
-    void AddLiveReg(GCtype type, regNumber reg, unsigned codeOffs);
 #endif
+    void AddLiveReg(GCtype type, regNumber reg, unsigned codeOffs);
     RegArgChange* RemoveLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs);
     void RemoveLiveReg(regNumber reg, unsigned codeOffs);
     void RemoveAllLiveRegs(unsigned codeOffs);

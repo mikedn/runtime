@@ -10497,7 +10497,7 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
 
             case IF_RWR_RRD:
 #ifdef JIT32_GCENCODER
-                if ((emitSyncThisObjReg != REG_NA) && emitIGisInProlog(emitCurIG) && (reg2 == REG_ARG_0))
+                if ((gcInfo.GetSyncThisReg() != REG_NA) && emitIGisInProlog(emitCurIG) && (reg2 == REG_ARG_0))
                 {
                     // We're relocating "this" in the prolog
                     assert(emitComp->lvaIsOriginalThisArg(0));

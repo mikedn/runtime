@@ -4933,41 +4933,6 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 
 #endif
 
-#ifdef JIT32_GCENCODER
-    if (emitComp->lvaKeepAliveAndReportThis())
-    {
-        assert(emitComp->lvaIsOriginalThisArg(0));
-        LclVarDsc* thisDsc = &emitComp->lvaTable[0];
-
-        // If "this" (which is passed in as a register argument in REG_ARG_0)
-        // is enregistered, we normally spot the "mov REG_ARG_0 -> thisReg"
-        // in the prolog and note the location of "this" at that point.
-        // However, if 'this' is enregistered into REG_ARG_0 itself, no code
-        // will be generated in the prolog, so we explicitly need to note
-        // the location of "this" here.
-        // NOTE that we can do this even if "this" is not enregistered in
-        // REG_ARG_0, and it will result in more accurate "this" info over the
-        // prolog. However, as methods are not interruptible over the prolog,
-        // we try to save space by avoiding that.
-
-        // TODO-MIKE-Cleanup: Can't we just pass emitSyncThisObjReg to the
-        // GC encoder and have it generate whatever info is needed, instead
-        // of special casing this all over the place? The encoder already
-        // handles this when only call sites are reported.
-
-        if (thisDsc->lvRegister)
-        {
-            emitSyncThisObjReg = thisDsc->GetRegNum();
-
-            if (gcInfo.ReportRegArgChanges() && (emitSyncThisObjReg == REG_ARG_0) &&
-                ((codeGen->paramRegState.intRegLiveIn & RBM_ARG_0) != RBM_NONE))
-            {
-                emitGCregLiveSet(GCT_GCREF, RBM_ARG_0, emitCodeBlock, true);
-            }
-        }
-    }
-#endif // JIT32_GCENCODER
-
     if (emitGCrFrameOffsCnt != 0)
     {
         // Allocate and clear emitGCrFrameLiveTab[]. This is the table
@@ -6442,7 +6407,7 @@ void emitter::emitUpdateLiveGCregs(GCtype gcType, regMaskTP regs, BYTE* addr)
 
 #ifdef JIT32_GCENCODER
     // We need to report `this` even if the code is not fully interruptible.
-    if (gcInfo.IsFullyInterruptible() || (gcInfo.ReportRegArgChanges() && (emitSyncThisObjReg != REG_NA)))
+    if (gcInfo.IsFullyInterruptible() || (gcInfo.ReportRegArgChanges() && (gcInfo.GetSyncThisReg() != REG_NA)))
 #else
     if (gcInfo.IsFullyInterruptible())
 #endif
@@ -6478,7 +6443,7 @@ void emitter::emitUpdateLiveGCregs(GCtype gcType, regMaskTP regs, BYTE* addr)
                 // goes dead), "this" will come alive again. We need to notice that.
                 // Note that we only expect isThis to be true at an insGroup boundary.
 
-                bool isThis = (reg == emitSyncThisObjReg);
+                bool isThis = (reg == gcInfo.GetSyncThisReg());
 
                 if (gcInfo.IsFullyInterruptible() || (gcInfo.ReportRegArgChanges() && isThis))
                 {
@@ -6529,11 +6494,7 @@ void emitter::emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr)
         return;
     }
 
-#ifdef JIT32_GCENCODER
-    gcInfo.AddLiveReg(gcType, reg, emitCurCodeOffs(addr), reg == emitSyncThisObjReg);
-#else
     gcInfo.AddLiveReg(gcType, reg, emitCurCodeOffs(addr));
-#endif
 }
 
 void emitter::emitGCregDeadUpd(regNumber reg, BYTE* addr)

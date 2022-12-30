@@ -1736,10 +1736,6 @@ private:
 
     VARSET_TP emitEmptyGCrefVars = VarSetOps::UninitVal();
 
-#ifdef JIT32_GCENCODER
-    regNumber emitSyncThisObjReg = REG_NA; // where is "this" enregistered for synchronized methods?
-#endif
-
 #if MULTIREG_HAS_SECOND_GC_RET
     void emitSetSecondRetRegGCType(instrDescCGCA* id, emitAttr secondRetSize);
 #endif // MULTIREG_HAS_SECOND_GC_RET
