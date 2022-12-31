@@ -279,7 +279,7 @@ void GCInfo::EndStackSlotLifetime(unsigned index, unsigned codeOffs DEBUGARG(int
 
 void GCInfo::SetLiveStackSlots(VARSET_TP newLiveLcls, unsigned codeOffs)
 {
-    VarSetOps::Assign(compiler, liveLcls, newLiveLcls);
+    liveLcls = newLiveLcls;
 
     if (trackedStackSlotCount == 0)
     {
