@@ -359,9 +359,9 @@ GCInfo::RegArgChange* GCInfo::AddRegArgChange()
 }
 
 #ifdef JIT32_GCENCODER
-GCInfo::RegArgChange* GCInfo::AddLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs, bool isThis)
+void GCInfo::AddLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs, bool isThis)
 #else
-GCInfo::RegArgChange* GCInfo::AddLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs)
+void GCInfo::AddLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs)
 #endif
 {
     assert(gcType != GCT_NONE);
@@ -382,7 +382,6 @@ GCInfo::RegArgChange* GCInfo::AddLiveRegs(GCtype gcType, regMaskTP regs, unsigne
 #ifdef JIT32_GCENCODER
     change->isThis = isThis;
 #endif
-    return change;
 }
 
 void GCInfo::AddLiveReg(GCtype type, regNumber reg, unsigned codeOffs)
@@ -516,7 +515,7 @@ void GCInfo::SetLiveRegs(GCtype type, regMaskTP regs, unsigned codeOffs)
     assert((liveRefRegs & liveByrefRegs) == RBM_NONE);
 }
 
-GCInfo::RegArgChange* GCInfo::RemoveLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs)
+void GCInfo::RemoveLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs)
 {
     assert(gcType != GCT_NONE);
     assert((GetAllLiveRegs() & regs) != RBM_NONE);
@@ -531,7 +530,6 @@ GCInfo::RegArgChange* GCInfo::RemoveLiveRegs(GCtype gcType, regMaskTP regs, unsi
 #ifdef JIT32_GCENCODER
     change->isThis = false;
 #endif
-    return change;
 }
 
 void GCInfo::RemoveLiveReg(regNumber reg, unsigned codeOffs)
@@ -582,7 +580,7 @@ void GCInfo::RemoveAllLiveRegs(unsigned codeOffs)
 }
 
 #ifdef JIT32_GCENCODER
-GCInfo::RegArgChange* GCInfo::AddCallArgPush(unsigned codeOffs, unsigned stackLevel, GCtype gcType)
+void GCInfo::AddCallArgPush(unsigned codeOffs, unsigned stackLevel, GCtype gcType)
 {
     RegArgChange* change = AddRegArgChange();
     change->codeOffs     = codeOffs;
@@ -590,10 +588,9 @@ GCInfo::RegArgChange* GCInfo::AddCallArgPush(unsigned codeOffs, unsigned stackLe
     change->kind         = RegArgChangeKind::PushArg;
     change->gcType       = gcType;
     change->isThis       = false;
-    return change;
 }
 
-GCInfo::RegArgChange* GCInfo::AddCallArgsKill(unsigned codeOffs, unsigned argCount)
+void GCInfo::AddCallArgsKill(unsigned codeOffs, unsigned argCount)
 {
     RegArgChange* change = AddRegArgChange();
     change->codeOffs     = codeOffs;
@@ -601,10 +598,9 @@ GCInfo::RegArgChange* GCInfo::AddCallArgsKill(unsigned codeOffs, unsigned argCou
     change->kind         = RegArgChangeKind::KillArgs;
     change->gcType       = GCT_GCREF;
     change->isThis       = false;
-    return change;
 }
 
-GCInfo::RegArgChange* GCInfo::AddCallArgsPop(unsigned codeOffs, unsigned argCount, bool isCall)
+void GCInfo::AddCallArgsPop(unsigned codeOffs, unsigned argCount, bool isCall)
 {
     // Only calls may pop more than one value.
     // cdecl calls accomplish this popping via a post-call "ADD SP, imm" instruction,
@@ -645,10 +641,9 @@ GCInfo::RegArgChange* GCInfo::AddCallArgsPop(unsigned codeOffs, unsigned argCoun
     change->isThis        = false;
     change->callRefRegs   = callRefRegs;
     change->callByrefRegs = callByrefRegs;
-    return change;
 }
 #else
-GCInfo::RegArgChange* GCInfo::AddCallArgStore(unsigned codeOffs, int argOffs, GCtype gcType)
+void GCInfo::AddCallArgStore(unsigned codeOffs, int argOffs, GCtype gcType)
 {
     assert(gcType != GCT_NONE);
     assert(abs(argOffs) % REGSIZE_BYTES == 0);
@@ -658,24 +653,22 @@ GCInfo::RegArgChange* GCInfo::AddCallArgStore(unsigned codeOffs, int argOffs, GC
     change->argOffset    = argOffs;
     change->kind         = RegArgChangeKind::StoreArg;
     change->gcType       = gcType;
-    return change;
 }
 
-GCInfo::RegArgChange* GCInfo::AddCallArgsKill(unsigned codeOffs)
+void GCInfo::AddCallArgsKill(unsigned codeOffs)
 {
     RegArgChange* change = AddRegArgChange();
     change->codeOffs     = codeOffs;
     change->argOffset    = 0;
     change->kind         = RegArgChangeKind::KillArgs;
     change->gcType       = GCT_GCREF;
-    return change;
 }
 #endif
 
 #ifdef JIT32_GCENCODER
 GCInfo::CallSite* GCInfo::AddCallSite(unsigned codeOffs)
 #else
-GCInfo::CallSite* GCInfo::AddCallSite(unsigned codeOffs, unsigned length)
+void GCInfo::AddCallSite(unsigned codeOffs, unsigned length)
 #endif
 {
 #ifdef JIT32_GCENCODER
@@ -703,11 +696,11 @@ GCInfo::CallSite* GCInfo::AddCallSite(unsigned codeOffs, unsigned length)
     call->refRegs   = static_cast<regMaskSmall>(liveRefRegs);
     call->byrefRegs = static_cast<regMaskSmall>(liveByrefRegs);
     call->codeOffs  = codeOffs;
-#ifndef JIT32_GCENCODER
+#ifdef JIT32_GCENCODER
+    return call;
+#else
     call->callInstrLength = static_cast<uint8_t>(length);
 #endif
-
-    return call;
 }
 
 #if !defined(JIT32_GCENCODER) || defined(FEATURE_EH_FUNCLETS)

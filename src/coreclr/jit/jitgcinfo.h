@@ -72,7 +72,7 @@ public:
 #ifdef JIT32_GCENCODER
             unsigned argOffset;
 #else
-            int   argOffset;
+            int argOffset;
 #endif
         };
     };
@@ -96,7 +96,7 @@ public:
             unsigned* argTable; // if argCount != 0
         };
 #else
-        uint8_t   callInstrLength;
+        uint8_t callInstrLength;
 #endif
     };
 
@@ -257,28 +257,27 @@ public:
     void SetLiveStackSlots(VARSET_TP newLiveLcls, unsigned codeOffs);
     void UpdateStackSlotLifetimes(unsigned codeOffs);
 
-    RegArgChange* AddRegArgChange();
 #ifdef JIT32_GCENCODER
-    RegArgChange* AddLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs, bool isThis);
+    void AddLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs, bool isThis);
 #else
-    RegArgChange* AddLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs);
+    void AddLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs);
 #endif
     void AddLiveReg(GCtype type, regNumber reg, unsigned codeOffs);
     void SetLiveRegs(GCtype type, regMaskTP regs, unsigned codeOffs);
-    RegArgChange* RemoveLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs);
+    void RemoveLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs);
     void RemoveLiveReg(regNumber reg, unsigned codeOffs);
     void RemoveAllLiveRegs(unsigned codeOffs);
 
 #ifdef JIT32_GCENCODER
-    RegArgChange* AddCallArgPush(unsigned codeOffs, unsigned stackLevel, GCtype gcType);
-    RegArgChange* AddCallArgsKill(unsigned codeOffs, unsigned argCount);
-    RegArgChange* AddCallArgsPop(unsigned codeOffs, unsigned argCount, bool isCall);
+    void AddCallArgPush(unsigned codeOffs, unsigned stackLevel, GCtype gcType);
+    void AddCallArgsKill(unsigned codeOffs, unsigned argCount);
+    void AddCallArgsPop(unsigned codeOffs, unsigned argCount, bool isCall);
     CallSite* AddCallSite(unsigned codeOffs);
     void* CreateAndStoreGCInfo(class CodeGen* codeGen, unsigned codeSize, unsigned prologSize, unsigned epilogSize);
 #else
-    RegArgChange* AddCallArgStore(unsigned codeOffs, int argOffs, GCtype gcType);
-    RegArgChange* AddCallArgsKill(unsigned codeOffs);
-    CallSite* AddCallSite(unsigned codeOffs, unsigned length);
+    void AddCallArgStore(unsigned codeOffs, int argOffs, GCtype gcType);
+    void AddCallArgsKill(unsigned codeOffs);
+    void AddCallSite(unsigned codeOffs, unsigned length);
     void CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize);
 #endif
 
@@ -289,6 +288,8 @@ public:
 #endif
 
 private:
+    RegArgChange* AddRegArgChange();
+
 #if !defined(JIT32_GCENCODER) || defined(FEATURE_EH_FUNCLETS)
     void MarkFilterStackSlotsPinned();
     void InsertSplitStackSlotLifetime(StackSlotLifetime* desc, StackSlotLifetime* begin);
