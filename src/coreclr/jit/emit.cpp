@@ -465,82 +465,59 @@ void emitter::emitGenIG(insGroup* ig)
 
 insGroup* emitter::emitSavIG(bool emitAdd)
 {
-    insGroup* ig;
-    BYTE*     id;
-
-    size_t sz;
-    size_t gs;
-
     assert(emitCurIGfreeNext <= emitCurIGfreeEndp);
 
-    // Get hold of the IG descriptor
-
-    ig = emitCurIG;
-    assert(ig);
+    insGroup* ig = emitCurIG;
+    assert(ig != nullptr);
 
     // Compute how much code we've generated
 
-    sz = emitCurIGfreeNext - emitCurIGfreeBase;
+    size_t sz = emitCurIGfreeNext - emitCurIGfreeBase;
 
     // Compute the total size we need to allocate
 
-    gs = roundUp(sz);
+    size_t gs = roundUp(sz);
 
     // Do we need space for GC?
 
-    if (!(ig->igFlags & IGF_EXTEND))
+    if ((ig->igFlags & IGF_EXTEND) == 0)
     {
         // Is the initial set of live GC vars different from the previous one?
 
         if (emitForceStoreGCState || !VarSetOps::Equal(emitComp, emitPrevGCrefVars, emitInitGCrefVars))
         {
-            // Remember that we will have a new set of live GC variables
-
-            ig->igFlags |= IGF_GC_VARS;
-
 #if EMITTER_STATS
             emitTotalIGptrs++;
 #endif
-
-            // We'll allocate extra space to record the liveset
-
+            ig->igFlags |= IGF_GC_VARS;
             gs += sizeof(VARSET_TP);
         }
 
-        // Is the initial set of live Byref regs different from the previous one?
-
-        // Remember that we will have a new set of live GC variables
-
+        // TODO-MIKE-Review: We always allocate space for byref regs.
+        // Can we just put them in insGroup, together with igGCregs?
+        // It looks like there's unused padding so the insGroup size
+        // won't actually increase (in the "extend" case).
         ig->igFlags |= IGF_BYREF_REGS;
-
-        // We'll allocate extra space (DWORD aligned) to record the GC regs
-
         gs += sizeof(int);
     }
 
-    // Allocate space for the instructions and optional liveset
+    uint8_t* id = static_cast<BYTE*>(emitGetMem(gs));
 
-    id = (BYTE*)emitGetMem(gs);
-
-    // Do we need to store the byref regs
-
-    if (ig->igFlags & IGF_BYREF_REGS)
+    if ((ig->igFlags & IGF_BYREF_REGS) != 0)
     {
-        // Record the byref regs in front the of the instructions
-
-        *castto(id, unsigned*)++ = (unsigned)emitInitByrefRegs;
+        // TODO-MIKE-Review: This truncates regMaskTP to unsigned. This happens to
+        // work because no target has more than 32 integer registers and we do not
+        // care about float registers. But then emitInitByrefRegs should be unsigned
+        // in the first place. Or better, have specific type for set of integer regs.
+        *reinterpret_cast<unsigned*>(id) = static_cast<unsigned>(emitInitByrefRegs);
+        id += sizeof(unsigned);
     }
 
-    // Do we need to store the liveset?
-
-    if (ig->igFlags & IGF_GC_VARS)
+    if ((ig->igFlags & IGF_GC_VARS) != 0)
     {
-        // Record the liveset in front the of the instructions
-        VarSetOps::AssignNoCopy(emitComp, (*castto(id, VARSET_TP*)), VarSetOps::MakeEmpty(emitComp));
-        VarSetOps::Assign(emitComp, (*castto(id, VARSET_TP*)++), emitInitGCrefVars);
+        *reinterpret_cast<VARSET_TP*>(id) = VarSetOps::MakeCopy(emitComp, emitInitGCrefVars);
+        id += sizeof(VARSET_TP);
     }
-
-    // Record the collected instructions
 
     assert((ig->igFlags & IGF_PLACEHOLDER) == 0);
     ig->igData = id;
