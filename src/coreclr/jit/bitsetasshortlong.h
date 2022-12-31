@@ -403,14 +403,7 @@ public:
 
     static bool Equal(Env env, BitSetShortLongRep bs1, BitSetShortLongRep bs2)
     {
-        if (IsShort(env))
-        {
-            return (size_t)bs1 == (size_t)bs2;
-        }
-        else
-        {
-            return EqualLong(env, bs1, bs2);
-        }
+        return (bs1 == bs2) || (!IsShort(env) && EqualLong(env, bs1, bs2));
     }
 
 #ifdef DEBUG
