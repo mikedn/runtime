@@ -2597,31 +2597,6 @@ ID_OPS emitter::GetFormatOp(insFormat format)
 
 #ifdef DEBUG
 
-void emitter::GetGCDeltaDumpHeader(char* buffer, size_t count)
-{
-// Interleaved GC info dumping.
-// We'll attempt to line this up with the opcode, which indented differently for
-// diffable and non-diffable dumps.
-// This is approximate, and is better tuned for disassembly than for jitdumps.
-// See emitDispInsHex().
-#ifdef TARGET_AMD64
-    constexpr int basicIndent     = 7;
-    constexpr int hexEncodingSize = 21;
-#elif defined(TARGET_X86)
-    constexpr int basicIndent     = 7;
-    constexpr int hexEncodingSize = 13;
-#elif defined(TARGET_ARM64)
-    constexpr int basicIndent     = 12;
-    constexpr int hexEncodingSize = 14;
-#elif defined(TARGET_ARM)
-    constexpr int basicIndent     = 12;
-    constexpr int hexEncodingSize = 11;
-#endif
-
-    int indent = emitComp->opts.disDiffable ? basicIndent : basicIndent + hexEncodingSize;
-    sprintf_s(buffer, count, "%.*s; ", indent, "                             ");
-}
-
 void emitter::emitDispIGflags(unsigned flags)
 {
     if (flags & IGF_GC_VARS)
@@ -2997,7 +2972,7 @@ void emitter::emitDispCommentForHandle(size_t handle, GenTreeFlags flag)
 #ifdef TARGET_XARCH
     const char* commentPrefix = "      ;";
 #else
-    const char*   commentPrefix   = "      //";
+    const char* commentPrefix = "      //";
 #endif
 
     flag &= GTF_ICON_HDL_MASK;
@@ -5961,143 +5936,6 @@ void emitter::emitDispDataSec(dataSecDsc* section)
 }
 #endif
 
-void emitter::emitUpdateLiveGCvars(VARSET_TP vars, unsigned codeOffs, unsigned callInstrLength)
-{
-    assert(emitIssuing);
-    assert(!emitIGisInEpilog(emitCurIG));
-
-    // We update tracked stack slot GC info before the call as they cannot
-    // be used by the call (they'd need to be address exposed, thus untracked).
-    // Killing stack slots before the call helps with boundary conditions if
-    // the call is CORINFO_HELP_THROW.
-    // If we ever track aliased locals (which could be used by the call), we
-    // would have to keep the corresponding stack slots alive past the call.
-    gcInfo.SetLiveStackSlots(vars, codeOffs - callInstrLength);
-
-#ifdef DEBUG
-    if (emitComp->verbose || emitComp->opts.disasmWithGC)
-    {
-        char header[128];
-        GetGCDeltaDumpHeader(header, _countof(header));
-        gcInfo.DumpStackSlotLifetimeDelta(header);
-    }
-#endif
-}
-
-#ifdef JIT32_GCENCODER
-void emitter::emitRecordGCCall(unsigned codeOffs)
-{
-    assert(emitIssuing);
-    assert(gcInfo.ReportCallSites());
-
-    regMaskTP regs = gcInfo.GetAllLiveRegs() & ~RBM_INTRET;
-
-    if (regs == RBM_NONE)
-    {
-        if (emitCurStackLvl == 0)
-        {
-            return;
-        }
-
-        if (emitSimpleStkUsed)
-        {
-            if (u1.emitSimpleStkMask == 0)
-            {
-                return;
-            }
-        }
-        else
-        {
-            if (u2.emitGcArgTrackCnt == 0)
-            {
-                return;
-            }
-        }
-    }
-
-    GCInfo::CallSite* call = gcInfo.AddCallSite(codeOffs);
-
-#if !FEATURE_FIXED_OUT_ARGS
-    noway_assert(FitsIn<uint16_t>(emitCurStackLvl / 4));
-
-    if (emitSimpleStkUsed)
-    {
-        call->argCount     = 0;
-        call->argMask      = u1.emitSimpleStkMask;
-        call->byrefArgMask = u1.emitSimpleByrefStkMask;
-
-        return;
-    }
-
-    call->argCount = u2.emitGcArgTrackCnt;
-
-    if (call->argCount == 0)
-    {
-        call->argMask      = RBM_NONE;
-        call->byrefArgMask = RBM_NONE;
-
-        return;
-    }
-
-    call->argTable = new (emitComp, CMK_GC) unsigned[u2.emitGcArgTrackCnt];
-
-    unsigned gcArgs = 0;
-    unsigned stkLvl = emitCurStackLvl / sizeof(int);
-
-    for (unsigned i = 0; i < stkLvl; i++)
-    {
-        GCtype gcType = static_cast<GCtype>(u2.emitArgTrackTab[stkLvl - i - 1]);
-
-        if (gcType != GCT_NONE)
-        {
-            call->argTable[gcArgs] = i * TARGET_POINTER_SIZE;
-
-            if (gcType == GCT_BYREF)
-            {
-                call->argTable[gcArgs] |= byref_OFFSET_FLAG;
-            }
-
-            gcArgs++;
-        }
-    }
-
-    assert(u2.emitGcArgTrackCnt == gcArgs);
-#endif //! FEATURE_FIXED_OUT_ARGS
-}
-#endif // JIT32_GCENCODER
-
-void emitter::emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr)
-{
-    assert(emitIssuing);
-
-    if (!emitIGisInEpilog(emitCurIG))
-    {
-        gcInfo.AddLiveReg(gcType, reg, emitCurCodeOffs(addr));
-    }
-}
-
-void emitter::emitGCregDeadUpd(regNumber reg, BYTE* addr)
-{
-    assert(emitIssuing);
-
-    if (!emitIGisInEpilog(emitCurIG))
-    {
-        gcInfo.RemoveLiveReg(reg, emitCurCodeOffs(addr));
-    }
-}
-
-#ifdef FEATURE_EH_FUNCLETS
-void emitter::emitGCregDeadAll(BYTE* addr)
-{
-    assert(emitIssuing);
-
-    if (!emitIGisInEpilog(emitCurIG))
-    {
-        gcInfo.RemoveAllLiveRegs(emitCurCodeOffs(addr));
-    }
-}
-#endif // FEATURE_EH_FUNCLETS
-
 /*****************************************************************************
  *
  *  Emit an 8-bit integer as code.
@@ -6286,54 +6124,6 @@ UNATIVE_OFFSET emitter::emitCodeOffset(void* blockPtr, unsigned codePos)
     return ig->igOffs + of;
 }
 
-#if FEATURE_FIXED_OUT_ARGS
-
-void emitter::emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum))
-{
-    assert(abs(offs) % REGSIZE_BYTES == 0);
-    assert(gcType != GCT_NONE);
-    assert(lclNum == emitComp->lvaOutgoingArgSpaceVar);
-
-    if (gcInfo.IsFullyInterruptible())
-    {
-        gcInfo.AddCallArgStore(emitCurCodeOffs(addr), offs, gcType);
-    }
-}
-
-#ifndef JIT32_GCENCODER
-void emitter::emitRecordGCCall(unsigned codeOffs, unsigned callInstrLength)
-{
-    assert(emitIssuing);
-
-    if (gcInfo.IsFullyInterruptible())
-    {
-        gcInfo.AddCallArgsKill(codeOffs);
-    }
-    else
-    {
-        gcInfo.AddCallSite(codeOffs, callInstrLength);
-    }
-}
-#endif // JIT32_GCENCODER
-#endif // FEATURE_FIXED_OUT_ARGS
-
-void emitter::emitGCvarLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum))
-{
-    assert(emitIssuing);
-    assert(gcType != GCT_NONE);
-    assert(emitComp->lvaGetDesc(lclNum)->HasGCSlotLiveness());
-#if FEATURE_FIXED_OUT_ARGS
-    assert(lclNum != emitComp->lvaOutgoingArgSpaceVar);
-#endif
-
-    unsigned index = gcInfo.GetTrackedStackSlotIndex(offs);
-
-    if (!gcInfo.IsLiveTrackedStackSlot(index))
-    {
-        gcInfo.BeginStackSlotLifetime(gcType, index, emitCurCodeOffs(addr), offs);
-    }
-}
-
 /*****************************************************************************
  *
  *  Allocate a new IG and link it in to the global list after the current IG
@@ -6517,6 +6307,320 @@ BYTE* emitter::emitGetInsRelocValue(instrDesc* id)
 }
 
 #endif // TARGET_ARM
+
+// A helper for recording a relocation with the EE.
+void emitter::emitRecordRelocation(void* location,            /* IN */
+                                   void* target,              /* IN */
+                                   WORD  fRelocType,          /* IN */
+                                   WORD  slotNum /* = 0 */,   /* IN */
+                                   INT32 addlDelta /* = 0 */) /* IN */
+{
+    assert(slotNum == 0); // It is unused on all supported platforms.
+
+    // If we're an unmatched altjit, don't tell the VM anything. We still record the relocation for
+    // late disassembly; maybe we'll need it?
+    if (emitComp->info.compMatchedVM)
+    {
+        void* locationRW = (BYTE*)location + writeableOffset;
+        emitCmpHandle->recordRelocation(location, locationRW, target, fRelocType, slotNum, addlDelta);
+    }
+
+#ifdef LATE_DISASM
+    codeGen->getDisAssembler().disRecordRelocation((size_t)location, (size_t)target);
+#endif
+}
+
+#ifdef TARGET_ARM
+// A helper for handling a Thumb-Mov32 of position-independent (PC-relative) value
+//
+// This routine either records relocation for the location with the EE,
+// or creates a virtual relocation entry to perform offset fixup during
+// compilation without recording it with EE - depending on which of
+// absolute/relocative relocations mode are used for code section.
+void emitter::emitHandlePCRelativeMov32(void* location, /* IN */
+                                        void* target)   /* IN */
+{
+    if (emitComp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_RELATIVE_CODE_RELOCS))
+    {
+        emitRecordRelocation(location, target, IMAGE_REL_BASED_REL_THUMB_MOV32_PCREL);
+    }
+    else
+    {
+        emitRecordRelocation(location, target, IMAGE_REL_BASED_THUMB_MOV32);
+    }
+}
+#endif // TARGET_ARM
+
+// A helper for recording a call site with the EE.
+void emitter::emitRecordCallSite(ULONG                 instrOffset,  /* IN */
+                                 CORINFO_SIG_INFO*     callSig,      /* IN */
+                                 CORINFO_METHOD_HANDLE methodHandle) /* IN */
+{
+#ifdef DEBUG
+    // Since CORINFO_SIG_INFO is a heavyweight structure, in most cases we can
+    // lazily obtain it here using the given method handle (we only save the sig
+    // info when we explicitly need it, i.e. for CALLI calls, vararg calls, and
+    // tail calls).
+    CORINFO_SIG_INFO sigInfo;
+
+    if (callSig == nullptr)
+    {
+        assert(methodHandle != nullptr);
+
+        if (Compiler::eeGetHelperNum(methodHandle) == CORINFO_HELP_UNDEF)
+        {
+            emitComp->eeGetMethodSig(methodHandle, &sigInfo);
+            callSig = &sigInfo;
+        }
+    }
+
+    emitCmpHandle->recordCallSite(instrOffset, callSig, methodHandle);
+#endif // DEBUG
+}
+
+#ifdef DEBUG
+
+/*****************************************************************************
+ *  Given a code offset, return a string representing a label for that offset.
+ *  If the code offset is just after the end of the code of the function, the
+ *  label will be "END". If the code offset doesn't correspond to any known
+ *  offset, the label will be "UNKNOWN". The strings are returned from static
+ *  buffers. This function rotates amongst four such static buffers (there are
+ *  cases where this function is called four times to provide data for a single
+ *  printf()).
+ */
+
+const char* emitter::emitOffsetToLabel(unsigned offs)
+{
+    const size_t    TEMP_BUFFER_LEN = 40;
+    static unsigned curBuf          = 0;
+    static char     buf[4][TEMP_BUFFER_LEN];
+    char*           retbuf;
+
+    UNATIVE_OFFSET nextof = 0;
+
+    for (insGroup* ig = emitIGlist; ig != nullptr; ig = ig->igNext)
+    {
+        // There is an eventual unused space after the last actual hot block
+        // before the first allocated cold block.
+        assert((nextof == ig->igOffs) || (ig == emitFirstColdIG));
+
+        if (ig->igOffs == offs)
+        {
+            return emitLabelString(ig);
+        }
+        else if (ig->igOffs > offs)
+        {
+            // We went past the requested offset but didn't find it.
+            sprintf_s(buf[curBuf], TEMP_BUFFER_LEN, "UNKNOWN");
+            retbuf = buf[curBuf];
+            curBuf = (curBuf + 1) % 4;
+            return retbuf;
+        }
+
+        nextof = ig->igOffs + ig->igSize;
+    }
+
+    if (nextof == offs)
+    {
+        // It's a pseudo-label to the end.
+        sprintf_s(buf[curBuf], TEMP_BUFFER_LEN, "END");
+        retbuf = buf[curBuf];
+        curBuf = (curBuf + 1) % 4;
+        return retbuf;
+    }
+    else
+    {
+        sprintf_s(buf[curBuf], TEMP_BUFFER_LEN, "UNKNOWN");
+        retbuf = buf[curBuf];
+        curBuf = (curBuf + 1) % 4;
+        return retbuf;
+    }
+}
+
+#endif // DEBUG
+
+// Gets the set of registers that are killed by a no-GC helper call. This is used when determining
+// what registers to remove from the current live GC/byref sets (and thus what to report as dead in
+// the GC info). Note that for the CORINFO_HELP_ASSIGN_BYREF helper, in particular, the kill set
+// reported by compHelperCallKillSet doesn't match this kill set. compHelperCallKillSet reports the
+// dst/src address registers as killed for liveness purposes, since their values change. However,
+// they still are valid byref pointers after the call, so the dst/src address registers are NOT
+// reported as killed here.
+//
+// Note: This list may not be complete and defaults to the default RBM_CALLEE_TRASH_NOGC registers.
+//
+regMaskTP emitter::GetNoGCHelperCalleeKilledRegs(CorInfoHelpFunc helper)
+{
+    assert(IsNoGCHelper(helper));
+    regMaskTP result;
+    switch (helper)
+    {
+        case CORINFO_HELP_ASSIGN_BYREF:
+#if defined(TARGET_X86)
+            // This helper only trashes ECX.
+            result = RBM_ECX;
+            break;
+#elif defined(TARGET_AMD64)
+            // This uses and defs RDI and RSI.
+            result = RBM_CALLEE_TRASH_NOGC & ~(RBM_RDI | RBM_RSI);
+            break;
+#elif defined(TARGET_ARMARCH)
+            result = RBM_CALLEE_GCTRASH_WRITEBARRIER_BYREF;
+            break;
+#else
+            assert(!"unknown arch");
+#endif
+
+        case CORINFO_HELP_PROF_FCN_ENTER:
+            result = RBM_PROFILER_ENTER_TRASH;
+            break;
+
+        case CORINFO_HELP_PROF_FCN_LEAVE:
+#if defined(TARGET_ARM)
+            // profiler scratch remains gc live
+            result = RBM_PROFILER_LEAVE_TRASH & ~RBM_PROFILER_RET_SCRATCH;
+#else
+            result = RBM_PROFILER_LEAVE_TRASH;
+#endif
+            break;
+
+        case CORINFO_HELP_PROF_FCN_TAILCALL:
+            result = RBM_PROFILER_TAILCALL_TRASH;
+            break;
+
+#if defined(TARGET_ARMARCH)
+        case CORINFO_HELP_ASSIGN_REF:
+        case CORINFO_HELP_CHECKED_ASSIGN_REF:
+            result = RBM_CALLEE_GCTRASH_WRITEBARRIER;
+            break;
+#endif // defined(TARGET_ARMARCH)
+
+#if defined(TARGET_X86)
+        case CORINFO_HELP_INIT_PINVOKE_FRAME:
+            result = RBM_INIT_PINVOKE_FRAME_TRASH;
+            break;
+#endif // defined(TARGET_X86)
+
+        default:
+            result = RBM_CALLEE_TRASH_NOGC;
+            break;
+    }
+
+    // compHelperCallKillSet returns a superset of the registers which values are not guranteed to be the same
+    // after the call, if a register loses its GC or byref it has to be in the compHelperCallKillSet set as well.
+    assert((result & Compiler::compHelperCallKillSet(helper)) == result);
+
+    return result;
+}
+
+regMaskTP emitter::GetNoGCHelperCalleeSavedRegs(CorInfoHelpFunc helper)
+{
+    return RBM_ALLINT & ~GetNoGCHelperCalleeKilledRegs(helper);
+}
+
+void emitter::emitUpdateLiveGCvars(VARSET_TP vars, unsigned codeOffs, unsigned callInstrLength)
+{
+    assert(emitIssuing);
+    assert(!emitIGisInEpilog(emitCurIG));
+
+    // We update tracked stack slot GC info before the call as they cannot
+    // be used by the call (they'd need to be address exposed, thus untracked).
+    // Killing stack slots before the call helps with boundary conditions if
+    // the call is CORINFO_HELP_THROW.
+    // If we ever track aliased locals (which could be used by the call), we
+    // would have to keep the corresponding stack slots alive past the call.
+    gcInfo.SetLiveStackSlots(vars, codeOffs - callInstrLength);
+
+#ifdef DEBUG
+    if (emitComp->verbose || emitComp->opts.disasmWithGC)
+    {
+        char header[128];
+        GetGCDeltaDumpHeader(header, _countof(header));
+        gcInfo.DumpStackSlotLifetimeDelta(header);
+    }
+#endif
+}
+
+void emitter::emitGCvarLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum))
+{
+    assert(emitIssuing);
+    assert(gcType != GCT_NONE);
+    assert(emitComp->lvaGetDesc(lclNum)->HasGCSlotLiveness());
+#if FEATURE_FIXED_OUT_ARGS
+    assert(lclNum != emitComp->lvaOutgoingArgSpaceVar);
+#endif
+
+    unsigned index = gcInfo.GetTrackedStackSlotIndex(offs);
+
+    if (!gcInfo.IsLiveTrackedStackSlot(index))
+    {
+        gcInfo.BeginStackSlotLifetime(gcType, index, emitCurCodeOffs(addr), offs);
+    }
+}
+
+#if FEATURE_FIXED_OUT_ARGS
+
+void emitter::emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum))
+{
+    assert(abs(offs) % REGSIZE_BYTES == 0);
+    assert(gcType != GCT_NONE);
+    assert(lclNum == emitComp->lvaOutgoingArgSpaceVar);
+
+    if (gcInfo.IsFullyInterruptible())
+    {
+        gcInfo.AddCallArgStore(emitCurCodeOffs(addr), offs, gcType);
+    }
+}
+
+#ifndef JIT32_GCENCODER
+void emitter::emitRecordGCCall(unsigned codeOffs, unsigned callInstrLength)
+{
+    assert(emitIssuing);
+
+    if (gcInfo.IsFullyInterruptible())
+    {
+        gcInfo.AddCallArgsKill(codeOffs);
+    }
+    else
+    {
+        gcInfo.AddCallSite(codeOffs, callInstrLength);
+    }
+}
+#endif // JIT32_GCENCODER
+#endif // FEATURE_FIXED_OUT_ARGS
+
+void emitter::emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr)
+{
+    assert(emitIssuing);
+
+    if (!emitIGisInEpilog(emitCurIG))
+    {
+        gcInfo.AddLiveReg(gcType, reg, emitCurCodeOffs(addr));
+    }
+}
+
+void emitter::emitGCregDeadUpd(regNumber reg, BYTE* addr)
+{
+    assert(emitIssuing);
+
+    if (!emitIGisInEpilog(emitCurIG))
+    {
+        gcInfo.RemoveLiveReg(reg, emitCurCodeOffs(addr));
+    }
+}
+
+#ifdef FEATURE_EH_FUNCLETS
+void emitter::emitGCregDeadAll(BYTE* addr)
+{
+    assert(emitIssuing);
+
+    if (!emitIGisInEpilog(emitCurIG))
+    {
+        gcInfo.RemoveAllLiveRegs(emitCurCodeOffs(addr));
+    }
+}
+#endif // FEATURE_EH_FUNCLETS
 
 #ifdef JIT32_GCENCODER
 
@@ -6753,215 +6857,112 @@ void emitter::emitStackKillArgs(unsigned codeOffs, unsigned count)
     emitStackPopLargeStk(codeOffs, true, 0);
 }
 
+void emitter::emitRecordGCCall(unsigned codeOffs)
+{
+    assert(emitIssuing);
+    assert(gcInfo.ReportCallSites());
+
+    regMaskTP regs = gcInfo.GetAllLiveRegs() & ~RBM_INTRET;
+
+    if (regs == RBM_NONE)
+    {
+        if (emitCurStackLvl == 0)
+        {
+            return;
+        }
+
+        if (emitSimpleStkUsed)
+        {
+            if (u1.emitSimpleStkMask == 0)
+            {
+                return;
+            }
+        }
+        else
+        {
+            if (u2.emitGcArgTrackCnt == 0)
+            {
+                return;
+            }
+        }
+    }
+
+    GCInfo::CallSite* call = gcInfo.AddCallSite(codeOffs);
+
+#if !FEATURE_FIXED_OUT_ARGS
+    noway_assert(FitsIn<uint16_t>(emitCurStackLvl / 4));
+
+    if (emitSimpleStkUsed)
+    {
+        call->argCount     = 0;
+        call->argMask      = u1.emitSimpleStkMask;
+        call->byrefArgMask = u1.emitSimpleByrefStkMask;
+
+        return;
+    }
+
+    call->argCount = u2.emitGcArgTrackCnt;
+
+    if (call->argCount == 0)
+    {
+        call->argMask      = RBM_NONE;
+        call->byrefArgMask = RBM_NONE;
+
+        return;
+    }
+
+    call->argTable = new (emitComp, CMK_GC) unsigned[u2.emitGcArgTrackCnt];
+
+    unsigned gcArgs = 0;
+    unsigned stkLvl = emitCurStackLvl / sizeof(int);
+
+    for (unsigned i = 0; i < stkLvl; i++)
+    {
+        GCtype gcType = static_cast<GCtype>(u2.emitArgTrackTab[stkLvl - i - 1]);
+
+        if (gcType != GCT_NONE)
+        {
+            call->argTable[gcArgs] = i * TARGET_POINTER_SIZE;
+
+            if (gcType == GCT_BYREF)
+            {
+                call->argTable[gcArgs] |= byref_OFFSET_FLAG;
+            }
+
+            gcArgs++;
+        }
+    }
+
+    assert(u2.emitGcArgTrackCnt == gcArgs);
+#endif //! FEATURE_FIXED_OUT_ARGS
+}
 #endif // JIT32_GCENCODER
 
-// A helper for recording a relocation with the EE.
-void emitter::emitRecordRelocation(void* location,            /* IN */
-                                   void* target,              /* IN */
-                                   WORD  fRelocType,          /* IN */
-                                   WORD  slotNum /* = 0 */,   /* IN */
-                                   INT32 addlDelta /* = 0 */) /* IN */
+#ifdef DEBUG
+
+void emitter::GetGCDeltaDumpHeader(char* buffer, size_t count)
 {
-    assert(slotNum == 0); // It is unused on all supported platforms.
-
-    // If we're an unmatched altjit, don't tell the VM anything. We still record the relocation for
-    // late disassembly; maybe we'll need it?
-    if (emitComp->info.compMatchedVM)
-    {
-        void* locationRW = (BYTE*)location + writeableOffset;
-        emitCmpHandle->recordRelocation(location, locationRW, target, fRelocType, slotNum, addlDelta);
-    }
-
-#ifdef LATE_DISASM
-    codeGen->getDisAssembler().disRecordRelocation((size_t)location, (size_t)target);
+// Interleaved GC info dumping.
+// We'll attempt to line this up with the opcode, which indented differently for
+// diffable and non-diffable dumps.
+// This is approximate, and is better tuned for disassembly than for jitdumps.
+// See emitDispInsHex().
+#ifdef TARGET_AMD64
+    constexpr int basicIndent     = 7;
+    constexpr int hexEncodingSize = 21;
+#elif defined(TARGET_X86)
+    constexpr int basicIndent     = 7;
+    constexpr int hexEncodingSize = 13;
+#elif defined(TARGET_ARM64)
+    constexpr int basicIndent     = 12;
+    constexpr int hexEncodingSize = 14;
+#elif defined(TARGET_ARM)
+    constexpr int basicIndent     = 12;
+    constexpr int hexEncodingSize = 11;
 #endif
-}
 
-#ifdef TARGET_ARM
-// A helper for handling a Thumb-Mov32 of position-independent (PC-relative) value
-//
-// This routine either records relocation for the location with the EE,
-// or creates a virtual relocation entry to perform offset fixup during
-// compilation without recording it with EE - depending on which of
-// absolute/relocative relocations mode are used for code section.
-void emitter::emitHandlePCRelativeMov32(void* location, /* IN */
-                                        void* target)   /* IN */
-{
-    if (emitComp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_RELATIVE_CODE_RELOCS))
-    {
-        emitRecordRelocation(location, target, IMAGE_REL_BASED_REL_THUMB_MOV32_PCREL);
-    }
-    else
-    {
-        emitRecordRelocation(location, target, IMAGE_REL_BASED_THUMB_MOV32);
-    }
-}
-#endif // TARGET_ARM
-
-// A helper for recording a call site with the EE.
-void emitter::emitRecordCallSite(ULONG                 instrOffset,  /* IN */
-                                 CORINFO_SIG_INFO*     callSig,      /* IN */
-                                 CORINFO_METHOD_HANDLE methodHandle) /* IN */
-{
-#ifdef DEBUG
-    // Since CORINFO_SIG_INFO is a heavyweight structure, in most cases we can
-    // lazily obtain it here using the given method handle (we only save the sig
-    // info when we explicitly need it, i.e. for CALLI calls, vararg calls, and
-    // tail calls).
-    CORINFO_SIG_INFO sigInfo;
-
-    if (callSig == nullptr)
-    {
-        assert(methodHandle != nullptr);
-
-        if (Compiler::eeGetHelperNum(methodHandle) == CORINFO_HELP_UNDEF)
-        {
-            emitComp->eeGetMethodSig(methodHandle, &sigInfo);
-            callSig = &sigInfo;
-        }
-    }
-
-    emitCmpHandle->recordCallSite(instrOffset, callSig, methodHandle);
-#endif // DEBUG
-}
-
-#ifdef DEBUG
-
-/*****************************************************************************
- *  Given a code offset, return a string representing a label for that offset.
- *  If the code offset is just after the end of the code of the function, the
- *  label will be "END". If the code offset doesn't correspond to any known
- *  offset, the label will be "UNKNOWN". The strings are returned from static
- *  buffers. This function rotates amongst four such static buffers (there are
- *  cases where this function is called four times to provide data for a single
- *  printf()).
- */
-
-const char* emitter::emitOffsetToLabel(unsigned offs)
-{
-    const size_t    TEMP_BUFFER_LEN = 40;
-    static unsigned curBuf          = 0;
-    static char     buf[4][TEMP_BUFFER_LEN];
-    char*           retbuf;
-
-    UNATIVE_OFFSET nextof = 0;
-
-    for (insGroup* ig = emitIGlist; ig != nullptr; ig = ig->igNext)
-    {
-        // There is an eventual unused space after the last actual hot block
-        // before the first allocated cold block.
-        assert((nextof == ig->igOffs) || (ig == emitFirstColdIG));
-
-        if (ig->igOffs == offs)
-        {
-            return emitLabelString(ig);
-        }
-        else if (ig->igOffs > offs)
-        {
-            // We went past the requested offset but didn't find it.
-            sprintf_s(buf[curBuf], TEMP_BUFFER_LEN, "UNKNOWN");
-            retbuf = buf[curBuf];
-            curBuf = (curBuf + 1) % 4;
-            return retbuf;
-        }
-
-        nextof = ig->igOffs + ig->igSize;
-    }
-
-    if (nextof == offs)
-    {
-        // It's a pseudo-label to the end.
-        sprintf_s(buf[curBuf], TEMP_BUFFER_LEN, "END");
-        retbuf = buf[curBuf];
-        curBuf = (curBuf + 1) % 4;
-        return retbuf;
-    }
-    else
-    {
-        sprintf_s(buf[curBuf], TEMP_BUFFER_LEN, "UNKNOWN");
-        retbuf = buf[curBuf];
-        curBuf = (curBuf + 1) % 4;
-        return retbuf;
-    }
+    int indent = emitComp->opts.disDiffable ? basicIndent : basicIndent + hexEncodingSize;
+    sprintf_s(buffer, count, "%.*s; ", indent, "                             ");
 }
 
 #endif // DEBUG
-
-regMaskTP emitter::GetNoGCHelperCalleeSavedRegs(CorInfoHelpFunc helper)
-{
-    return RBM_ALLINT & ~GetNoGCHelperCalleeKilledRegs(helper);
-}
-
-// Gets the set of registers that are killed by a no-GC helper call. This is used when determining
-// what registers to remove from the current live GC/byref sets (and thus what to report as dead in
-// the GC info). Note that for the CORINFO_HELP_ASSIGN_BYREF helper, in particular, the kill set
-// reported by compHelperCallKillSet doesn't match this kill set. compHelperCallKillSet reports the
-// dst/src address registers as killed for liveness purposes, since their values change. However,
-// they still are valid byref pointers after the call, so the dst/src address registers are NOT
-// reported as killed here.
-//
-// Note: This list may not be complete and defaults to the default RBM_CALLEE_TRASH_NOGC registers.
-//
-regMaskTP emitter::GetNoGCHelperCalleeKilledRegs(CorInfoHelpFunc helper)
-{
-    assert(IsNoGCHelper(helper));
-    regMaskTP result;
-    switch (helper)
-    {
-        case CORINFO_HELP_ASSIGN_BYREF:
-#if defined(TARGET_X86)
-            // This helper only trashes ECX.
-            result = RBM_ECX;
-            break;
-#elif defined(TARGET_AMD64)
-            // This uses and defs RDI and RSI.
-            result = RBM_CALLEE_TRASH_NOGC & ~(RBM_RDI | RBM_RSI);
-            break;
-#elif defined(TARGET_ARMARCH)
-            result = RBM_CALLEE_GCTRASH_WRITEBARRIER_BYREF;
-            break;
-#else
-            assert(!"unknown arch");
-#endif
-
-        case CORINFO_HELP_PROF_FCN_ENTER:
-            result = RBM_PROFILER_ENTER_TRASH;
-            break;
-
-        case CORINFO_HELP_PROF_FCN_LEAVE:
-#if defined(TARGET_ARM)
-            // profiler scratch remains gc live
-            result = RBM_PROFILER_LEAVE_TRASH & ~RBM_PROFILER_RET_SCRATCH;
-#else
-            result = RBM_PROFILER_LEAVE_TRASH;
-#endif
-            break;
-
-        case CORINFO_HELP_PROF_FCN_TAILCALL:
-            result = RBM_PROFILER_TAILCALL_TRASH;
-            break;
-
-#if defined(TARGET_ARMARCH)
-        case CORINFO_HELP_ASSIGN_REF:
-        case CORINFO_HELP_CHECKED_ASSIGN_REF:
-            result = RBM_CALLEE_GCTRASH_WRITEBARRIER;
-            break;
-#endif // defined(TARGET_ARMARCH)
-
-#if defined(TARGET_X86)
-        case CORINFO_HELP_INIT_PINVOKE_FRAME:
-            result = RBM_INIT_PINVOKE_FRAME_TRASH;
-            break;
-#endif // defined(TARGET_X86)
-
-        default:
-            result = RBM_CALLEE_TRASH_NOGC;
-            break;
-    }
-
-    // compHelperCallKillSet returns a superset of the registers which values are not guranteed to be the same
-    // after the call, if a register loses its GC or byref it has to be in the compHelperCallKillSet set as well.
-    assert((result & Compiler::compHelperCallKillSet(helper)) == result);
-
-    return result;
-}
