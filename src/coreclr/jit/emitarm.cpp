@@ -5366,14 +5366,13 @@ emitter::instrDesc* emitter::emitNewInstrReloc(emitAttr attr, BYTE* addr)
 
 size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 {
-    BYTE*         dst           = *dp;
-    BYTE*         odst          = dst;
-    code_t        code          = 0;
-    size_t        sz            = 0;
-    instruction   ins           = id->idIns();
-    insFormat     fmt           = id->idInsFmt();
-    emitAttr      size          = id->idOpSize();
-    unsigned char callInstrSize = 0;
+    BYTE*       dst  = *dp;
+    BYTE*       odst = dst;
+    code_t      code = 0;
+    size_t      sz   = 0;
+    instruction ins  = id->idIns();
+    insFormat   fmt  = id->idInsFmt();
+    emitAttr    size = id->idOpSize();
 
 #ifdef DEBUG
     bool dspOffs = emitComp->opts.dspGCtbls || !emitComp->opts.disDiffable;
@@ -6052,8 +6051,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT1_M4(id->idReg3());
-            callInstrSize = SafeCvtAssert<unsigned char>(emitOutput_Thumb1Instr(dst, code));
-            dst += callInstrSize;
+            dst += emitOutput_Thumb1Instr(dst, code);
             goto DONE_CALL;
 
         case IF_T2_J3: // T2_J3   .....Siiiiiiiiii ..j.jiiiiiiiiii.      Call                imm24
@@ -6091,10 +6089,12 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
             if (id->idIsDspReloc())
             {
-                callInstrSize = SafeCvtAssert<unsigned char>(emitOutput_Thumb2Instr(dst, code));
-                dst += callInstrSize;
+                dst += emitOutput_Thumb2Instr(dst, code);
+
                 if (emitComp->info.compMatchedVM)
+                {
                     emitRecordRelocation((void*)(dst - 4), addr, IMAGE_REL_BASED_THUMB_BRANCH24);
+                }
             }
             else
             {
@@ -6122,44 +6122,44 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 disp = abs(disp);
                 assert((disp & 0x00fffffe) == disp);
 
-                callInstrSize = SafeCvtAssert<unsigned char>(emitOutput_Thumb2Instr(dst, code));
-                dst += callInstrSize;
+                dst += emitOutput_Thumb2Instr(dst, code);
             }
 
         DONE_CALL:
-
-            /* We update the GC info before the call as the variables cannot be
-               used by the call. Killing variables before the call helps with
-               boundary conditions if the call is CORINFO_HELP_THROW - see bug 50029.
-               If we ever track aliased variables (which could be used by the
-               call), we would have to keep them alive past the call. */
-
-            emitUpdateLiveGCvars(GCvars, *dp);
-
-            // If the method returns a GC ref, mark R0 appropriately.
+        {
             if (id->idGCref() == GCT_GCREF)
+            {
                 gcrefRegs |= RBM_R0;
+            }
             else if (id->idGCref() == GCT_BYREF)
+            {
                 byrefRegs |= RBM_R0;
-
-            // If the GC register set has changed, report the new set.
-            if (gcrefRegs != gcInfo.GetLiveRegs(GCT_GCREF))
-            {
-                emitUpdateLiveGCregs(GCT_GCREF, gcrefRegs, dst);
             }
 
-            if (byrefRegs != gcInfo.GetLiveRegs(GCT_BYREF))
+            unsigned callInstrLength = static_cast<unsigned>(dst - *dp);
+            unsigned codeOffs        = emitCurCodeOffs(dst);
+
+            if (!emitIGisInEpilog(emitCurIG))
             {
-                emitUpdateLiveGCregs(GCT_BYREF, byrefRegs, dst);
+                emitUpdateLiveGCvars(GCvars, codeOffs, callInstrLength);
+
+                if (gcrefRegs != gcInfo.GetLiveRegs(GCT_GCREF))
+                {
+                    gcInfo.SetLiveRegs(GCT_GCREF, gcrefRegs, codeOffs);
+                }
+
+                if (byrefRegs != gcInfo.GetLiveRegs(GCT_BYREF))
+                {
+                    gcInfo.SetLiveRegs(GCT_BYREF, byrefRegs, codeOffs);
+                }
             }
 
-            // Some helper calls may be marked as not requiring GC info to be recorded.
             if (!id->idIsNoGC())
             {
-                emitRecordGCCall(dst, callInstrSize);
+                emitRecordGCCall(codeOffs, callInstrLength);
             }
-
-            break;
+        }
+        break;
 
         /********************************************************************/
         /*                            oops                                  */

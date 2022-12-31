@@ -11534,10 +11534,9 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 {
     assert(emitIssuing);
 
-    BYTE*         dst           = *dp;
-    size_t        sz            = sizeof(instrDesc);
-    instruction   ins           = id->idIns();
-    unsigned char callInstrSize = 0;
+    BYTE*       dst = *dp;
+    size_t      sz  = sizeof(instrDesc);
+    instruction ins = id->idIns();
 
 #ifdef DEBUG
     bool dspOffs = emitComp->opts.dspGCtbls;
@@ -11774,19 +11773,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             }
 
         DONE_CALL:
-            // We update the variable (not register) GC info before the call as the variables cannot be
-            // used by the call. Killing variables before the call helps with
-            // boundary conditions if the call is CORINFO_HELP_THROW - see bug 50029.
-            // If we ever track aliased variables (which could be used by the
-            // call), we would have to keep them alive past the call.
-
-            callInstrSize = static_cast<unsigned char>(dst - *dp);
-
-            // Note the use of address `*dp`, the call instruction address, instead of `dst`, the post-call-instruction
-            // address.
-            emitUpdateLiveGCvars(GCvars, *dp);
-
-            // If the method returns a GC ref, mark EAX appropriately
+        {
             if (id->idGCref() == GCT_GCREF)
             {
                 gcrefRegs |= RBM_EAX;
@@ -11797,10 +11784,9 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             }
 
 #ifdef UNIX_AMD64_ABI
-            // If is a multi-register return method is called, mark RDX appropriately (for System V AMD64).
             if (id->idIsLargeCall())
             {
-                instrDescCGCA* idCall = (instrDescCGCA*)id;
+                instrDescCGCA* idCall = static_cast<instrDescCGCA*>(id);
                 if (idCall->idSecondGCref() == GCT_GCREF)
                 {
                     gcrefRegs |= RBM_RDX;
@@ -11810,17 +11796,24 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                     byrefRegs |= RBM_RDX;
                 }
             }
-#endif // UNIX_AMD64_ABI
+#endif
 
-            // If the GC register set has changed, report the new set
-            if (gcrefRegs != gcInfo.GetLiveRegs(GCT_GCREF))
-            {
-                emitUpdateLiveGCregs(GCT_GCREF, gcrefRegs, dst);
-            }
+            unsigned callInstrLength = static_cast<unsigned>(dst - *dp);
+            unsigned codeOffs        = emitCurCodeOffs(dst);
 
-            if (byrefRegs != gcInfo.GetLiveRegs(GCT_BYREF))
+            if (!emitIGisInEpilog(emitCurIG))
             {
-                emitUpdateLiveGCregs(GCT_BYREF, byrefRegs, dst);
+                emitUpdateLiveGCvars(GCvars, codeOffs, callInstrLength);
+
+                if (gcrefRegs != gcInfo.GetLiveRegs(GCT_GCREF))
+                {
+                    gcInfo.SetLiveRegs(GCT_GCREF, gcrefRegs, codeOffs);
+                }
+
+                if (byrefRegs != gcInfo.GetLiveRegs(GCT_BYREF))
+                {
+                    gcInfo.SetLiveRegs(GCT_BYREF, byrefRegs, codeOffs);
+                }
             }
 
 #ifdef TARGET_X86
@@ -11829,28 +11822,27 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 // For callee-pop, all arguments will be popped  after the call.
                 // For caller-pop, any GC arguments will go dead after the call.
 
-                assert(callInstrSize != 0);
-
                 if (args < 0)
                 {
-                    emitStackKillArgs(dst, -args);
+                    emitStackKillArgs(codeOffs, -args);
                 }
                 else
                 {
-                    emitStackPop(dst, /*isCall*/ true, args);
+                    emitStackPop(codeOffs, /*isCall*/ true, args);
                 }
             }
 
             if (recCall && gcInfo.ReportCallSites())
             {
-                emitRecordGCCall(dst);
+                emitRecordGCCall(codeOffs);
             }
 #else
             if (recCall)
             {
-                emitRecordGCCall(dst, callInstrSize);
+                emitRecordGCCall(codeOffs, callInstrLength);
             }
 #endif
+        }
 
 #ifdef DEBUG
             if (ins == INS_call)
@@ -12064,8 +12056,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_ARD:
         case IF_AWR:
         case IF_ARW:
-
-            dst = emitCodeWithInstructionSize(dst, emitOutputAM(dst, id, insCodeMR(ins)), &callInstrSize);
+            dst = emitOutputAM(dst, id, insCodeMR(ins));
 
             switch (ins)
             {
@@ -12243,7 +12234,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 break;
             }
 
-            dst = emitCodeWithInstructionSize(dst, emitOutputSV(dst, id, insCodeMR(ins)), &callInstrSize);
+            dst = emitOutputSV(dst, id, insCodeMR(ins));
 
             if (ins == INS_call)
             {
@@ -12647,7 +12638,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 break;
 
             case INS_pop:
-                emitStackPop(dst, false, 1);
+                emitStackPop(emitCurCodeOffs(dst), false, 1);
                 break;
 
             case INS_sub:
@@ -12655,7 +12646,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 if (ins == INS_sub && id->idInsFmt() == IF_RRW_CNS && id->idReg1() == REG_ESP)
                 {
                     assert((size_t)emitGetInsSC(id) < 0x00000000FFFFFFFFLL);
-                    emitStackPushN(dst, (unsigned)(emitGetInsSC(id) / TARGET_POINTER_SIZE));
+                    emitStackPushN(dst, static_cast<unsigned>(emitGetInsSC(id) / TARGET_POINTER_SIZE));
                 }
                 break;
 
@@ -12664,7 +12655,8 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 if (ins == INS_add && id->idInsFmt() == IF_RRW_CNS && id->idReg1() == REG_ESP)
                 {
                     assert((size_t)emitGetInsSC(id) < 0x00000000FFFFFFFFLL);
-                    emitStackPop(dst, /*isCall*/ false, (unsigned)(emitGetInsSC(id) / TARGET_POINTER_SIZE));
+                    emitStackPop(emitCurCodeOffs(dst), /*isCall*/ false,
+                                 static_cast<unsigned>(emitGetInsSC(id) / TARGET_POINTER_SIZE));
                 }
                 break;
 

@@ -5964,18 +5964,20 @@ void emitter::emitDispDataSec(dataSecDsc* section)
 }
 #endif
 
-void emitter::emitUpdateLiveGCvars(VARSET_TP vars, BYTE* addr)
+void emitter::emitUpdateLiveGCvars(VARSET_TP vars, unsigned codeOffs, unsigned callInstrLength)
 {
     assert(emitIssuing);
-
-    if (emitIGisInEpilog(emitCurIG))
-    {
-        return;
-    }
+    assert(!emitIGisInEpilog(emitCurIG));
 
     if (!emitThisGCrefVset || !VarSetOps::Equal(emitComp, gcInfo.GetLiveLcls(), vars))
     {
-        gcInfo.SetLiveStackSlots(vars, emitCurCodeOffs(addr));
+        // We update tracked stack slot GC info before the call as they cannot
+        // be used by the call (they'd need to be address exposed, thus untracked).
+        // Killing stack slots before the call helps with boundary conditions if
+        // the call is CORINFO_HELP_THROW.
+        // If we ever track aliased locals (which could be used by the call), we
+        // would have to keep the corresponding stack slots alive past the call.
+        gcInfo.SetLiveStackSlots(vars, codeOffs - callInstrLength);
         emitThisGCrefVset = true;
     }
 
@@ -5990,7 +5992,7 @@ void emitter::emitUpdateLiveGCvars(VARSET_TP vars, BYTE* addr)
 }
 
 #ifdef JIT32_GCENCODER
-void emitter::emitRecordGCCall(BYTE* codePos)
+void emitter::emitRecordGCCall(unsigned codeOffs)
 {
     assert(emitIssuing);
     assert(gcInfo.ReportCallSites());
@@ -6019,8 +6021,6 @@ void emitter::emitRecordGCCall(BYTE* codePos)
             }
         }
     }
-
-    unsigned codeOffs = emitCurCodeOffs(codePos);
 
     GCInfo::CallSite* call = gcInfo.AddCallSite(codeOffs);
 
@@ -6073,40 +6073,24 @@ void emitter::emitRecordGCCall(BYTE* codePos)
 }
 #endif // JIT32_GCENCODER
 
-void emitter::emitUpdateLiveGCregs(GCtype gcType, regMaskTP regs, BYTE* addr)
-{
-    assert(emitIssuing);
-
-    if (emitIGisInEpilog(emitCurIG))
-    {
-        return;
-    }
-
-    gcInfo.SetLiveRegs(gcType, regs, emitCurCodeOffs(addr));
-}
-
 void emitter::emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr)
 {
     assert(emitIssuing);
 
-    if (emitIGisInEpilog(emitCurIG))
+    if (!emitIGisInEpilog(emitCurIG))
     {
-        return;
+        gcInfo.AddLiveReg(gcType, reg, emitCurCodeOffs(addr));
     }
-
-    gcInfo.AddLiveReg(gcType, reg, emitCurCodeOffs(addr));
 }
 
 void emitter::emitGCregDeadUpd(regNumber reg, BYTE* addr)
 {
     assert(emitIssuing);
 
-    if (emitIGisInEpilog(emitCurIG))
+    if (!emitIGisInEpilog(emitCurIG))
     {
-        return;
+        gcInfo.RemoveLiveReg(reg, emitCurCodeOffs(addr));
     }
-
-    gcInfo.RemoveLiveReg(reg, emitCurCodeOffs(addr));
 }
 
 #ifdef FEATURE_EH_FUNCLETS
@@ -6114,12 +6098,10 @@ void emitter::emitGCregDeadAll(BYTE* addr)
 {
     assert(emitIssuing);
 
-    if (emitIGisInEpilog(emitCurIG))
+    if (!emitIGisInEpilog(emitCurIG))
     {
-        return;
+        gcInfo.RemoveAllLiveRegs(emitCurCodeOffs(addr));
     }
-
-    gcInfo.RemoveAllLiveRegs(emitCurCodeOffs(addr));
 }
 #endif // FEATURE_EH_FUNCLETS
 
@@ -6326,11 +6308,9 @@ void emitter::emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsi
 }
 
 #ifndef JIT32_GCENCODER
-void emitter::emitRecordGCCall(BYTE* addr, unsigned callInstrLength)
+void emitter::emitRecordGCCall(unsigned codeOffs, unsigned callInstrLength)
 {
     assert(emitIssuing);
-
-    unsigned codeOffs = emitCurCodeOffs(addr);
 
     if (gcInfo.IsFullyInterruptible())
     {
@@ -6593,7 +6573,7 @@ void emitter::emitStackPushN(BYTE* addr, unsigned count)
 }
 
 // Record a pop of the given number of dwords from the stack.
-void emitter::emitStackPop(BYTE* addr, bool isCall, unsigned count)
+void emitter::emitStackPop(unsigned codeOffs, bool isCall, unsigned count)
 {
     assert(emitCurStackLvl / sizeof(int) >= count);
 
@@ -6616,7 +6596,7 @@ void emitter::emitStackPop(BYTE* addr, bool isCall, unsigned count)
         }
         else
         {
-            emitStackPopLargeStk(addr, isCall, count);
+            emitStackPopLargeStk(codeOffs, isCall, count);
         }
 
         emitCurStackLvl -= count * sizeof(int);
@@ -6627,7 +6607,7 @@ void emitter::emitStackPop(BYTE* addr, bool isCall, unsigned count)
 
         if (gcInfo.ReportRegArgChanges())
         {
-            emitStackPopLargeStk(addr, isCall, 0);
+            emitStackPopLargeStk(codeOffs, isCall, 0);
         }
     }
 }
@@ -6664,7 +6644,7 @@ void emitter::emitStackPushLargeStk(BYTE* addr, GCtype gcType, unsigned count)
 }
 
 // Record a pop of the given number of words from the stack for a full ptr map.
-void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned count)
+void emitter::emitStackPopLargeStk(unsigned codeOffs, bool isCall, unsigned count)
 {
     assert(emitIssuing);
     assert(!emitSimpleStkUsed);
@@ -6709,12 +6689,12 @@ void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned count)
         }
     }
 
-    gcInfo.AddCallArgsPop(emitCurCodeOffs(addr), argRecCnt, isCall);
+    gcInfo.AddCallArgsPop(codeOffs, argRecCnt, isCall);
 }
 
 // For caller-pop arguments, we report the arguments as pending arguments.
 // However, any GC arguments are now dead, so we need to report them as non-GC.
-void emitter::emitStackKillArgs(BYTE* addr, unsigned count)
+void emitter::emitStackKillArgs(unsigned codeOffs, unsigned count)
 {
     assert(count > 0);
 
@@ -6772,13 +6752,13 @@ void emitter::emitStackKillArgs(BYTE* addr, unsigned count)
 
     if (gcCnt != 0)
     {
-        gcInfo.AddCallArgsKill(emitCurCodeOffs(addr), gcCnt);
+        gcInfo.AddCallArgsKill(codeOffs, gcCnt);
     }
 
     // Now that ptr args have been marked as non-ptrs, we need to
     // record the call itself as one that has no arguments.
 
-    emitStackPopLargeStk(addr, true, 0);
+    emitStackPopLargeStk(codeOffs, true, 0);
 }
 
 #endif // JIT32_GCENCODER

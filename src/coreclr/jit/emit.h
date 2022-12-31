@@ -1956,19 +1956,15 @@ public:
     void emitStackPush(BYTE* addr, GCtype gcType);
     void emitStackPushN(BYTE* addr, unsigned count);
     void emitStackPushLargeStk(BYTE* addr, GCtype gcType, unsigned count);
-    void emitStackKillArgs(BYTE* addr, unsigned count);
-    void emitStackPop(BYTE* addr, bool isCall, unsigned count);
-    void emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned count);
-    void emitRecordGCCall(BYTE* addr);
+    void emitStackKillArgs(unsigned codeOffs, unsigned count);
+    void emitStackPop(unsigned codeOffs, bool isCall, unsigned count);
+    void emitStackPopLargeStk(unsigned codeOffs, bool isCall, unsigned count);
+    void emitRecordGCCall(unsigned codeOffs);
 #else
-    void emitRecordGCCall(BYTE* addr, unsigned callInstrLength);
+    void emitRecordGCCall(unsigned codeOffs, unsigned callInstrLength);
 #endif
-
-    /* Liveness of stack variables, and registers */
-
-    void emitUpdateLiveGCvars(VARSET_TP vars, BYTE* addr);
-    void emitUpdateLiveGCregs(GCtype gcType, regMaskTP regs, BYTE* addr);
-
+    void emitUpdateLiveGCvars(VARSET_TP vars, unsigned codeOffs, unsigned callInstrLength);
+    
 #ifdef DEBUG
     const char* emitGetFrameReg();
     static void emitDispRegSet(regMaskTP regs);
@@ -1985,15 +1981,6 @@ public:
     void emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum));
 #endif
     void emitGCvarLiveUpd(int slotOffs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum));
-
-    // We have a mixture of code emission methods, some of which return the size of the emitted instruction,
-    // requiring the caller to add this to the current code pointer (dst += <call to emit code>), others of which
-    // return the updated code pointer (dst = <call to emit code>).  Sometimes we'd like to get the size of
-    // the generated instruction for the latter style.  This method accomplishes that --
-    // "emitCodeWithInstructionSize(dst, <call to emitCode>, &instrSize)" will do the call, and set
-    // "*instrSize" to the after-before code pointer difference.  Returns the result of the call.  (And
-    // asserts that the instruction size fits in an unsigned char.)
-    static BYTE* emitCodeWithInstructionSize(BYTE* codePtrBefore, BYTE* newCodePointer, unsigned char* instrSize);
 
     /************************************************************************/
     /*      The following logic keeps track of initialized data sections    */
@@ -2412,18 +2399,6 @@ inline emitter::instrDesc* emitter::emitNewInstrSC(emitAttr attr, cnsval_ssize_t
 inline bool IsCodeAligned(UNATIVE_OFFSET offset)
 {
     return ((offset & (CODE_ALIGN - 1)) == 0);
-}
-
-// Static:
-inline BYTE* emitter::emitCodeWithInstructionSize(BYTE* codePtrBefore, BYTE* newCodePointer, unsigned char* instrSize)
-{
-    // DLD: Perhaps this method should return the instruction size, and we should do dst += <that size>
-    // as is done in other cases?
-    assert(newCodePointer >= codePtrBefore);
-    ClrSafeInt<unsigned char> callInstrSizeSafe = ClrSafeInt<unsigned char>(newCodePointer - codePtrBefore);
-    assert(!callInstrSizeSafe.IsOverflow());
-    *instrSize = callInstrSizeSafe.Value();
-    return newCodePointer;
 }
 
 inline void emitter::emitNewIG()

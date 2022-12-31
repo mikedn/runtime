@@ -9617,20 +9617,13 @@ BYTE* emitter::emitOutputShortConstant(
 
     return dst;
 }
-/*****************************************************************************
- *
- *  Output a call instruction.
- */
 
 unsigned emitter::emitOutputCall(insGroup* ig, BYTE* dst, instrDesc* id, code_t code)
 {
-    const unsigned char callInstrSize = sizeof(code_t); // 4 bytes
-    regMaskTP           gcrefRegs;
-    regMaskTP           byrefRegs;
-
+    regMaskTP gcrefRegs;
+    regMaskTP byrefRegs;
     VARSET_TP GCvars = VarSetOps::UninitVal();
 
-    // Is this a "fat" call descriptor?
     if (id->idIsLargeCall())
     {
         instrDescCGCA* idCall = static_cast<instrDescCGCA*>(id);
@@ -9648,24 +9641,6 @@ unsigned emitter::emitOutputCall(insGroup* ig, BYTE* dst, instrDesc* id, code_t 
         GCvars    = emitEmptyGCrefVars;
     }
 
-    /* We update the GC info before the call as the variables cannot be
-        used by the call. Killing variables before the call helps with
-        boundary conditions if the call is CORINFO_HELP_THROW - see bug 50029.
-        If we ever track aliased variables (which could be used by the
-        call), we would have to keep them alive past the call. */
-
-    emitUpdateLiveGCvars(GCvars, dst);
-
-    // Now output the call instruction and update the 'dst' pointer
-    //
-    unsigned outputInstrSize = emitOutput_Instr(dst, code);
-    dst += outputInstrSize;
-
-    // All call instructions are 4-byte in size on ARM64
-    //
-    assert(outputInstrSize == callInstrSize);
-
-    // If the method returns a GC ref, mark INTRET (R0) appropriately.
     if (id->idGCref() == GCT_GCREF)
     {
         gcrefRegs |= RBM_INTRET;
@@ -9675,10 +9650,9 @@ unsigned emitter::emitOutputCall(insGroup* ig, BYTE* dst, instrDesc* id, code_t 
         byrefRegs |= RBM_INTRET;
     }
 
-    // If is a multi-register return method is called, mark INTRET_1 (X1) appropriately
     if (id->idIsLargeCall())
     {
-        instrDescCGCA* idCall = (instrDescCGCA*)id;
+        instrDescCGCA* idCall = static_cast<instrDescCGCA*>(id);
         if (idCall->idSecondGCref() == GCT_GCREF)
         {
             gcrefRegs |= RBM_INTRET_1;
@@ -9689,38 +9663,39 @@ unsigned emitter::emitOutputCall(insGroup* ig, BYTE* dst, instrDesc* id, code_t 
         }
     }
 
-    // If the GC register set has changed, report the new set.
-    if (gcrefRegs != gcInfo.GetLiveRegs(GCT_GCREF))
+    dst += emitOutput_Instr(dst, code);
+
+    unsigned codeOffs = emitCurCodeOffs(dst);
+
+    if (!emitIGisInEpilog(emitCurIG))
     {
-        emitUpdateLiveGCregs(GCT_GCREF, gcrefRegs, dst);
-    }
-    // If the Byref register set has changed, report the new set.
-    if (byrefRegs != gcInfo.GetLiveRegs(GCT_BYREF))
-    {
-        emitUpdateLiveGCregs(GCT_BYREF, byrefRegs, dst);
+        emitUpdateLiveGCvars(GCvars, codeOffs, 4);
+
+        if (gcrefRegs != gcInfo.GetLiveRegs(GCT_GCREF))
+        {
+            gcInfo.SetLiveRegs(GCT_GCREF, gcrefRegs, codeOffs);
+        }
+
+        if (byrefRegs != gcInfo.GetLiveRegs(GCT_BYREF))
+        {
+            gcInfo.SetLiveRegs(GCT_BYREF, byrefRegs, codeOffs);
+        }
     }
 
-    // Some helper calls may be marked as not requiring GC info to be recorded.
     if (!id->idIsNoGC())
     {
-        emitRecordGCCall(dst, callInstrSize);
+        emitRecordGCCall(codeOffs, 4);
     }
 
-    return callInstrSize;
+    return 4;
 }
-
-/*****************************************************************************
- *
- *  Emit a 32-bit Arm64 instruction
- */
 
 unsigned emitter::emitOutput_Instr(BYTE* dst, code_t code)
 {
-    assert(sizeof(code_t) == 4);
-    BYTE* dstRW       = dst + writeableOffset;
-    *((code_t*)dstRW) = code;
+    static_assert_no_msg(sizeof(code_t) == 4);
 
-    return sizeof(code_t);
+    *reinterpret_cast<code_t*>(dst + writeableOffset) = code;
+    return 4;
 }
 
 /*****************************************************************************
