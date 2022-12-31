@@ -11786,15 +11786,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             // address.
             emitUpdateLiveGCvars(GCvars, *dp);
 
-#ifdef DEBUG
-            if (emitComp->verbose || emitComp->opts.disasmWithGC)
-            {
-                char header[128];
-                GetGCDeltaDumpHeader(header, _countof(header));
-                gcInfo.DumpStackSlotLifetimeDelta(header);
-            }
-#endif
-
             // If the method returns a GC ref, mark EAX appropriately
             if (id->idGCref() == GCT_GCREF)
             {

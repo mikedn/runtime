@@ -5978,6 +5978,15 @@ void emitter::emitUpdateLiveGCvars(VARSET_TP vars, BYTE* addr)
         gcInfo.SetLiveStackSlots(vars, emitCurCodeOffs(addr));
         emitThisGCrefVset = true;
     }
+
+#ifdef DEBUG
+    if (emitComp->verbose || emitComp->opts.disasmWithGC)
+    {
+        char header[128];
+        GetGCDeltaDumpHeader(header, _countof(header));
+        gcInfo.DumpStackSlotLifetimeDelta(header);
+    }
+#endif
 }
 
 #ifdef JIT32_GCENCODER

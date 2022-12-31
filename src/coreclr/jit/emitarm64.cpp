@@ -9656,15 +9656,6 @@ unsigned emitter::emitOutputCall(insGroup* ig, BYTE* dst, instrDesc* id, code_t 
 
     emitUpdateLiveGCvars(GCvars, dst);
 
-#ifdef DEBUG
-    if (emitComp->verbose || emitComp->opts.disasmWithGC)
-    {
-        char header[64];
-        GetGCDeltaDumpHeader(header, _countof(header));
-        gcInfo.DumpStackSlotLifetimeDelta(header);
-    }
-#endif
-
     // Now output the call instruction and update the 'dst' pointer
     //
     unsigned outputInstrSize = emitOutput_Instr(dst, code);
