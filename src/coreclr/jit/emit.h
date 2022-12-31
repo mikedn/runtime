@@ -1718,8 +1718,6 @@ private:
     // whether to save GC state (to save space in the IG), and always save it.
     bool emitForceStoreGCState = false;
 
-    bool emitThisGCrefVset; // Is "gcInfo.liveLcls" up to date?
-
     VARSET_TP emitEmptyGCrefVars = VarSetOps::UninitVal();
 
 #if MULTIREG_HAS_SECOND_GC_RET

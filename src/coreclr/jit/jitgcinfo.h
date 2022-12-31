@@ -102,16 +102,17 @@ public:
 
 private:
     Compiler* const    compiler;
-    StackSlotLifetime* firstStackSlotLifetime = nullptr;
-    StackSlotLifetime* lastStackSlotLifetime  = nullptr;
-    RegArgChange*      firstRegArgChange      = nullptr;
-    RegArgChange*      lastRegArgChange       = nullptr;
-    CallSite*          firstCallSite          = nullptr;
-    CallSite*          lastCallSite           = nullptr;
-    VARSET_TP          liveLcls               = VarSetOps::UninitVal();
-    regMaskTP          liveRefRegs            = RBM_NONE;
-    regMaskTP          liveByrefRegs          = RBM_NONE;
-    bool               isFullyInterruptible   = false;
+    StackSlotLifetime* firstStackSlotLifetime          = nullptr;
+    StackSlotLifetime* lastStackSlotLifetime           = nullptr;
+    RegArgChange*      firstRegArgChange               = nullptr;
+    RegArgChange*      lastRegArgChange                = nullptr;
+    CallSite*          firstCallSite                   = nullptr;
+    CallSite*          lastCallSite                    = nullptr;
+    VARSET_TP          liveLcls                        = VarSetOps::UninitVal();
+    regMaskTP          liveRefRegs                     = RBM_NONE;
+    regMaskTP          liveByrefRegs                   = RBM_NONE;
+    bool               isFullyInterruptible            = false;
+    bool               stackSlotLifetimesMatchLiveLcls = true;
 #ifdef JIT32_GCENCODER
     bool      isFramePointerUsed = false;
     regNumber syncThisReg        = REG_NA;
@@ -254,6 +255,7 @@ public:
     void BeginStackSlotLifetime(GCtype type, unsigned index, unsigned codeOffs, int slotOffs);
     void EndStackSlotLifetime(unsigned index, unsigned codeOffs DEBUGARG(int slotOffs));
     void SetLiveStackSlots(VARSET_TP newLiveLcls, unsigned codeOffs);
+    void UpdateStackSlotLifetimes(unsigned codeOffs);
 
     RegArgChange* AddRegArgChange();
 #ifdef JIT32_GCENCODER

@@ -4596,7 +4596,6 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 #endif
 
     gcInfo.Begin();
-    emitThisGCrefVset = true;
 
 #ifdef JIT32_GCENCODER
 #if EMITTER_STATS
@@ -4914,18 +4913,16 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
         {
             if ((ig->igFlags & IGF_GC_VARS) != 0)
             {
-                VARSET_TP liveLcls = ig->igGCvars();
-
-                if (!emitThisGCrefVset || !VarSetOps::Equal(emitComp, gcInfo.GetLiveLcls(), liveLcls))
-                {
-                    gcInfo.SetLiveStackSlots(liveLcls, codeOffs);
-                    emitThisGCrefVset = true;
-                }
+                gcInfo.SetLiveStackSlots(ig->igGCvars(), codeOffs);
             }
-            else if (!emitThisGCrefVset)
+            else
             {
-                gcInfo.SetLiveStackSlots(gcInfo.GetLiveLcls(), codeOffs);
-                emitThisGCrefVset = true;
+                // If the group doesn't have a live locals set it means that it
+                // has the same live locals as the previous group - at the start.
+                // The previous group could have modified live locals so we need
+                // to update GC info to actually reflect the liveness state at
+                // the start of the previous group.
+                gcInfo.UpdateStackSlotLifetimes(codeOffs);
             }
 
             regMaskTP refRegs = ig->igGCregs;
@@ -5969,17 +5966,13 @@ void emitter::emitUpdateLiveGCvars(VARSET_TP vars, unsigned codeOffs, unsigned c
     assert(emitIssuing);
     assert(!emitIGisInEpilog(emitCurIG));
 
-    if (!emitThisGCrefVset || !VarSetOps::Equal(emitComp, gcInfo.GetLiveLcls(), vars))
-    {
-        // We update tracked stack slot GC info before the call as they cannot
-        // be used by the call (they'd need to be address exposed, thus untracked).
-        // Killing stack slots before the call helps with boundary conditions if
-        // the call is CORINFO_HELP_THROW.
-        // If we ever track aliased locals (which could be used by the call), we
-        // would have to keep the corresponding stack slots alive past the call.
-        gcInfo.SetLiveStackSlots(vars, codeOffs - callInstrLength);
-        emitThisGCrefVset = true;
-    }
+    // We update tracked stack slot GC info before the call as they cannot
+    // be used by the call (they'd need to be address exposed, thus untracked).
+    // Killing stack slots before the call helps with boundary conditions if
+    // the call is CORINFO_HELP_THROW.
+    // If we ever track aliased locals (which could be used by the call), we
+    // would have to keep the corresponding stack slots alive past the call.
+    gcInfo.SetLiveStackSlots(vars, codeOffs - callInstrLength);
 
 #ifdef DEBUG
     if (emitComp->verbose || emitComp->opts.disasmWithGC)
@@ -6338,7 +6331,6 @@ void emitter::emitGCvarLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsi
     if (!gcInfo.IsLiveTrackedStackSlot(index))
     {
         gcInfo.BeginStackSlotLifetime(gcType, index, emitCurCodeOffs(addr), offs);
-        emitThisGCrefVset = false;
     }
 }
 

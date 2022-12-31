@@ -252,8 +252,9 @@ void GCInfo::BeginStackSlotLifetime(GCtype type, unsigned index, unsigned codeOf
         lastStackSlotLifetime->next = lifetime;
     }
 
-    lastStackSlotLifetime        = lifetime;
-    liveTrackedStackSlots[index] = lifetime;
+    liveTrackedStackSlots[index]    = lifetime;
+    lastStackSlotLifetime           = lifetime;
+    stackSlotLifetimesMatchLiveLcls = false;
 
     INDEBUG(deltaStackSlotLifetime.Push(lifetime));
 }
@@ -271,17 +272,29 @@ void GCInfo::EndStackSlotLifetime(unsigned index, unsigned codeOffs DEBUGARG(int
     assert(codeOffs >= lifetime->beginCodeOffs);
     assert(static_cast<int>(lifetime->slotOffset & ~OFFSET_MASK) == slotOffs);
 
-    lifetime->endCodeOffs        = codeOffs;
-    liveTrackedStackSlots[index] = nullptr;
+    lifetime->endCodeOffs           = codeOffs;
+    liveTrackedStackSlots[index]    = nullptr;
+    stackSlotLifetimesMatchLiveLcls = false;
 
     INDEBUG(deltaStackSlotLifetime.Push(lifetime));
 }
 
 void GCInfo::SetLiveStackSlots(VARSET_TP newLiveLcls, unsigned codeOffs)
 {
-    liveLcls = newLiveLcls;
+    if (stackSlotLifetimesMatchLiveLcls && VarSetOps::Equal(compiler, liveLcls, newLiveLcls))
+    {
+        return;
+    }
 
-    if (trackedStackSlotCount == 0)
+    liveLcls                        = newLiveLcls;
+    stackSlotLifetimesMatchLiveLcls = false;
+
+    UpdateStackSlotLifetimes(codeOffs);
+}
+
+void GCInfo::UpdateStackSlotLifetimes(unsigned codeOffs)
+{
+    if (stackSlotLifetimesMatchLiveLcls || (trackedStackSlotCount == 0))
     {
         return;
     }
@@ -299,7 +312,7 @@ void GCInfo::SetLiveStackSlots(VARSET_TP newLiveLcls, unsigned codeOffs)
 
         int      offs    = lcl->GetStackOffset();
         unsigned index   = GetTrackedStackSlotIndex(offs);
-        bool     isLive  = VarSetOps::IsMember(compiler, newLiveLcls, trackedLclIndex);
+        bool     isLive  = VarSetOps::IsMember(compiler, liveLcls, trackedLclIndex);
         bool     wasLive = IsLiveTrackedStackSlot(index);
 
         if (!wasLive && isLive)
@@ -311,6 +324,8 @@ void GCInfo::SetLiveStackSlots(VARSET_TP newLiveLcls, unsigned codeOffs)
             EndStackSlotLifetime(index, codeOffs DEBUGARG(offs));
         }
     }
+
+    stackSlotLifetimesMatchLiveLcls = true;
 }
 
 GCInfo::RegArgChange* GCInfo::AddRegArgChange()
