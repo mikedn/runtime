@@ -4914,8 +4914,9 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
         emitOffsAdj = newOffsAdj;
         assert(emitOffsAdj >= 0);
 
-        ig->igOffs = emitCurCodeOffs(cp);
-        assert(IsCodeAligned(ig->igOffs));
+        const unsigned codeOffs = emitCurCodeOffs(cp);
+        assert(IsCodeAligned(codeOffs));
+        ig->igOffs = codeOffs;
 
 #if !FEATURE_FIXED_OUT_ARGS
         if (ig->igStkLvl != emitCurStackLvl)
@@ -4927,43 +4928,46 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
         }
 #endif
 
-        /* Update current GC information for IG's that do not extend the previous IG */
-
-        if (!(ig->igFlags & IGF_EXTEND))
+        if ((ig->igFlags & IGF_EXTEND) != 0)
         {
-            /* Is there a new set of live GC ref variables? */
-
-            if (ig->igFlags & IGF_GC_VARS)
+            assert((ig->igFlags & IGF_GC_VARS) == 0);
+            assert((ig->igFlags & IGF_BYREF_REGS) == 0);
+        }
+        else
+        {
+            if ((ig->igFlags & IGF_GC_VARS) != 0)
             {
-                emitUpdateLiveGCvars(ig->igGCvars(), cp);
+                VARSET_TP liveLcls = ig->igGCvars();
+
+                if (!emitThisGCrefVset || !VarSetOps::Equal(emitComp, gcInfo.GetLiveLcls(), liveLcls))
+                {
+                    gcInfo.SetLiveStackSlots(liveLcls, codeOffs);
+                    emitThisGCrefVset = true;
+                }
             }
             else if (!emitThisGCrefVset)
             {
-                emitUpdateLiveGCvars(gcInfo.GetLiveLcls(), cp);
+                gcInfo.SetLiveStackSlots(gcInfo.GetLiveLcls(), codeOffs);
+                emitThisGCrefVset = true;
             }
 
-            /* Update the set of live GC ref registers */
+            regMaskTP refRegs = ig->igGCregs;
 
+            if (gcInfo.GetLiveRegs(GCT_GCREF) != refRegs)
             {
-                regMaskTP GCregs = ig->igGCregs;
-
-                if (GCregs != gcInfo.GetLiveRegs(GCT_GCREF))
-                {
-                    emitUpdateLiveGCregs(GCT_GCREF, GCregs, cp);
-                }
+                gcInfo.SetLiveRegs(GCT_GCREF, refRegs, codeOffs);
             }
 
-            /* Is there a new set of live byref registers? */
-
-            if (ig->igFlags & IGF_BYREF_REGS)
+            if ((ig->igFlags & IGF_BYREF_REGS) != 0)
             {
                 unsigned byrefRegs = ig->igByrefRegs();
 
-                if (byrefRegs != gcInfo.GetLiveRegs(GCT_BYREF))
+                if (gcInfo.GetLiveRegs(GCT_BYREF) != byrefRegs)
                 {
-                    emitUpdateLiveGCregs(GCT_BYREF, byrefRegs, cp);
+                    gcInfo.SetLiveRegs(GCT_BYREF, byrefRegs, codeOffs);
                 }
             }
+
 #ifdef DEBUG
             if (emitComp->verbose || emitComp->opts.disasmWithGC)
             {
@@ -4972,12 +4976,6 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
                 gcInfo.DumpDelta(header);
             }
 #endif
-        }
-        else
-        {
-            // These are not set for "overflow" groups
-            assert(!(ig->igFlags & IGF_GC_VARS));
-            assert(!(ig->igFlags & IGF_BYREF_REGS));
         }
 
         /* Issue each instruction in order */
@@ -5123,20 +5121,6 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
     }
 
     gcInfo.End(emitCurCodeOffs(cp));
-    emitThisGCrefVset = false;
-
-    // TODO-MIKE-Cleanup: Move this to gcInfo.End.
-    // Does it work? emitIGisInEpilog checks if we're in epilog, are we?
-    // No GC registers are live any more.
-    if (gcInfo.GetLiveRegs(GCT_BYREF) != RBM_NONE)
-    {
-        emitUpdateLiveGCregs(GCT_BYREF, RBM_NONE, cp);
-    }
-
-    if (gcInfo.GetLiveRegs(GCT_GCREF) != RBM_NONE)
-    {
-        emitUpdateLiveGCregs(GCT_GCREF, RBM_NONE, cp);
-    }
 
     // Patch any forward jumps.
     if (emitFwdJumps)

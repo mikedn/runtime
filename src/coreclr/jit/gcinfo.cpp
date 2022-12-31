@@ -103,6 +103,16 @@ void GCInfo::End(unsigned codeOffs)
     // Restore just in case we need it later.
     syncThisStackSlotOffset = savedSyncThisStackSlotOffset;
 #endif
+
+    if (liveByrefRegs != RBM_NONE)
+    {
+        SetLiveRegs(GCT_BYREF, RBM_NONE, codeOffs);
+    }
+
+    if (liveRefRegs != RBM_NONE)
+    {
+        SetLiveRegs(GCT_GCREF, RBM_NONE, codeOffs);
+    }
 }
 
 GCInfo::WriteBarrierForm GCInfo::GetWriteBarrierForm(GenTreeStoreInd* store)
