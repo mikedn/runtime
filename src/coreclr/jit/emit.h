@@ -1625,24 +1625,8 @@ private:
 /*      The logic that creates and keeps track of instruction groups    */
 /************************************************************************/
 
-#ifdef TARGET_ARMARCH
-// The only place where this limited instruction group size is a problem is
-// in the prolog, where we only support a single instruction group. We should really fix that.
-// ARM32 and ARM64 both can require a bigger prolog instruction group. One scenario is where
-// a function uses all the incoming integer and single-precision floating-point arguments,
-// and must store them all to the frame on entry. If the frame is very large, we generate
-// ugly code like "movw r10, 0x488; add r10, sp; vstr s0, [r10]" for each store, which
-// eats up our insGroup buffer.
-#define SC_IG_BUFFER_SIZE (100 * sizeof(emitter::instrDesc) + 14 * SMALL_IDSC_SIZE)
-#else // !TARGET_ARMARCH
-#define SC_IG_BUFFER_SIZE (50 * sizeof(emitter::instrDesc) + 14 * SMALL_IDSC_SIZE)
-#endif // !TARGET_ARMARCH
-
-    size_t emitIGbuffSize = 0;
-
     insGroup* emitIGlist = nullptr; // first  instruction group
     insGroup* emitIGlast = nullptr; // last   instruction group
-    insGroup* emitIGthis;           // issued instruction group
 
     insGroup* emitPrologIG; // prolog instruction group
 
@@ -1962,7 +1946,7 @@ public:
     void emitRecordGCCall(unsigned codeOffs, unsigned callInstrLength);
 #endif
     void emitUpdateLiveGCvars(VARSET_TP vars, unsigned codeOffs, unsigned callInstrLength);
-    
+
 #ifdef DEBUG
     const char* emitGetFrameReg();
     static void emitDispRegSet(regMaskTP regs);
@@ -2170,17 +2154,6 @@ inline unsigned emitter::emitGetEpilogCnt()
 inline UNATIVE_OFFSET emitter::emitDataSize()
 {
     return emitConsDsc.dsdOffs;
-}
-
-/*****************************************************************************
- *
- *  Return a handle to the current position in the output stream. This can
- *  be later converted to an actual code offset in bytes.
- */
-
-inline void* emitter::emitCurBlock()
-{
-    return emitCurIG;
 }
 
 /*****************************************************************************

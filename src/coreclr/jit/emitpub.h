@@ -39,7 +39,6 @@ void emitFinishPrologEpilogGeneration();
 /*           Record a code position and later convert it to offset      */
 /************************************************************************/
 
-void*    emitCurBlock();
 unsigned emitCurOffset();
 
 UNATIVE_OFFSET emitCodeOffset(void* blockPtr, unsigned codeOffs);

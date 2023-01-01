@@ -1058,29 +1058,4 @@ void GCInfo::DumpDelta(const char* header)
     DumpArgDelta(header);
 }
 
-void GCInfo::DumpLiveTrackedStackSlots()
-{
-    const char* frameRegName = getRegName(compiler->codeGen->isFramePointerUsed() ? REG_FPBASE : REG_SPBASE);
-    const char* separator    = "";
-
-    for (unsigned i = 0; i < trackedStackSlotCount; i++)
-    {
-        if (liveTrackedStackSlots[i] != nullptr)
-        {
-            int offset = minTrackedStackSlotOffset + i * TARGET_POINTER_SIZE;
-#ifdef TARGET_ARMARCH
-            printf("%s[%s,#%d]", separator, frameRegName, offset);
-#else
-            printf("%s[%s%c%02XH]", separator, frameRegName, offset < 0 ? '-' : '+', abs(offset));
-#endif
-            separator = " ";
-        }
-    }
-
-    if (separator == nullptr)
-    {
-        printf("none");
-    }
-}
-
 #endif // DEBUG

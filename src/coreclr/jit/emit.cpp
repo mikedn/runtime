@@ -450,12 +450,24 @@ void emitter::emitGenIG(insGroup* ig)
 
     if (emitCurIGfreeBase == nullptr)
     {
-        emitIGbuffSize    = SC_IG_BUFFER_SIZE;
-        emitCurIGfreeBase = (BYTE*)emitGetMem(emitIGbuffSize);
+#ifdef TARGET_ARMARCH
+        // The only place where this limited instruction group size is a problem is the prolog,
+        // where we only support a single instruction group. We should really fix that.
+        // ARM32 and ARM64 both can require a bigger prolog instruction group. One scenario is
+        // where a function uses all the incoming integer and single-precision floating-point
+        // arguments, and must store them all to the frame on entry. If the frame is very large,
+        // we generate ugly code like "movw r10, 0x488; add r10, sp; vstr s0, [r10]" for each
+        // store, which eats up our insGroup buffer.
+        constexpr size_t IG_BUFFER_SIZE = 100 * sizeof(emitter::instrDesc) + 14 * SMALL_IDSC_SIZE;
+#else
+        constexpr size_t IG_BUFFER_SIZE = 50 * sizeof(emitter::instrDesc) + 14 * SMALL_IDSC_SIZE;
+#endif
+
+        emitCurIGfreeBase = static_cast<uint8_t*>(emitGetMem(IG_BUFFER_SIZE));
+        emitCurIGfreeEndp = emitCurIGfreeBase + IG_BUFFER_SIZE;
     }
 
     emitCurIGfreeNext = emitCurIGfreeBase;
-    emitCurIGfreeEndp = emitCurIGfreeBase + emitIGbuffSize;
 }
 
 /*****************************************************************************

@@ -211,11 +211,6 @@ public:
         return liveTrackedStackSlots[index] != nullptr;
     }
 
-    VARSET_TP GetLiveLcls() const
-    {
-        return liveLcls;
-    }
-
     regMaskTP GetAllLiveRegs() const
     {
         return liveRefRegs | liveByrefRegs;
@@ -284,7 +279,6 @@ public:
 #ifdef DEBUG
     void DumpStackSlotLifetimeDelta(const char* header);
     void DumpDelta(const char* header);
-    void DumpLiveTrackedStackSlots();
 #endif
 
 private:
