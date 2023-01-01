@@ -1270,6 +1270,8 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
 #ifdef FEATURE_EH_FUNCLETS
     if (igType == IGPT_FUNCLET_PROLOG)
     {
+        JITDUMP("Reserving funclet prolog IG for block " FMT_BB "\n", igBB->bbNum);
+
         if (emitCurIGnonEmpty())
         {
             emitNxtIG(false);
@@ -1304,12 +1306,14 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
         last = false;
     }
     else
+#endif // FEATURE_EH_FUNCLETS
     {
+#ifdef FEATURE_EH_FUNCLETS
         assert((igType == IGPT_EPILOG) || (igType == IGPT_FUNCLET_EPILOG));
 #else
-    assert(igType == IGPT_EPILOG);
-    {
+        assert(igType == IGPT_EPILOG);
 #endif
+        JITDUMP("Reserving %sepilog IG for block " FMT_BB "\n", igType != IGPT_EPILOG ? "funclet " : "", igBB->bbNum);
 
 #ifdef TARGET_AMD64
         emitOutputPreEpilogNOP();

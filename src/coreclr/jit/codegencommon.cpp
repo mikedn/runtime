@@ -650,7 +650,7 @@ void CodeGen::genExitCode(BasicBlock* block)
         }
     }
 
-    genReserveEpilog(block);
+    GetEmitter()->emitCreatePlaceholderIG(IGPT_EPILOG, block);
 }
 
 //------------------------------------------------------------------------
@@ -3897,31 +3897,6 @@ pop ebp
 ret
 
 *****************************************************************************/
-
-void CodeGen::genReserveEpilog(BasicBlock* block)
-{
-    JITDUMP("Reserving epilog IG for block " FMT_BB "\n", block->bbNum);
-
-    GetEmitter()->emitCreatePlaceholderIG(IGPT_EPILOG, block);
-}
-
-#ifdef FEATURE_EH_FUNCLETS
-
-void CodeGen::genReserveFuncletProlog(BasicBlock* block)
-{
-    JITDUMP("Reserving funclet prolog IG for block " FMT_BB "\n", block->bbNum);
-
-    GetEmitter()->emitCreatePlaceholderIG(IGPT_FUNCLET_PROLOG, block);
-}
-
-void CodeGen::genReserveFuncletEpilog(BasicBlock* block)
-{
-    JITDUMP("Reserving funclet epilog IG for block " FMT_BB "\n", block->bbNum);
-
-    GetEmitter()->emitCreatePlaceholderIG(IGPT_FUNCLET_EPILOG, block);
-}
-
-#endif // FEATURE_EH_FUNCLETS
 
 void CodeGen::UpdateParamsWithInitialReg()
 {

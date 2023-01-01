@@ -441,11 +441,6 @@ protected:
 
 #endif // !defined(TARGET_ARM64)
 
-    //
-    // Common or driving functions
-    //
-
-    void genReserveEpilog(BasicBlock* block);
     void genFnProlog();
     void genFnEpilog(BasicBlock* block);
     void UpdateParamsWithInitialReg();
@@ -455,8 +450,6 @@ protected:
 #endif
 
 #ifdef FEATURE_EH_FUNCLETS
-    void genReserveFuncletProlog(BasicBlock* block);
-    void genReserveFuncletEpilog(BasicBlock* block);
     void genFuncletProlog(BasicBlock* block);
     void genFuncletEpilog();
     void genCaptureFuncletPrologEpilogInfo();

@@ -278,12 +278,12 @@ void CodeGen::genCodeForBBlist()
             genIPmappingAdd((IL_OFFSETX)ICorDebugInfo::NO_MAPPING, true);
         }
 
-#if defined(FEATURE_EH_FUNCLETS)
-        if (block->bbFlags & BBF_FUNCLET_BEG)
+#ifdef FEATURE_EH_FUNCLETS
+        if ((block->bbFlags & BBF_FUNCLET_BEG) != 0)
         {
-            genReserveFuncletProlog(block);
+            GetEmitter()->emitCreatePlaceholderIG(IGPT_FUNCLET_PROLOG, block);
         }
-#endif // FEATURE_EH_FUNCLETS
+#endif
 
         // Emit poisoning into scratch BB that comes right after prolog.
         // We cannot emit this code in the prolog as it might make the prolog too large.
@@ -587,29 +587,23 @@ void CodeGen::genCodeForBBlist()
                 block = genCallFinally(block);
                 break;
 
-#if defined(FEATURE_EH_FUNCLETS)
-
+#ifdef FEATURE_EH_FUNCLETS
             case BBJ_EHCATCHRET:
                 genEHCatchRet(block);
                 FALLTHROUGH;
-
             case BBJ_EHFINALLYRET:
             case BBJ_EHFILTERRET:
-                genReserveFuncletEpilog(block);
+                GetEmitter()->emitCreatePlaceholderIG(IGPT_FUNCLET_EPILOG, block);
                 break;
-
-#else // !FEATURE_EH_FUNCLETS
-
+#else
             case BBJ_EHCATCHRET:
                 noway_assert(!"Unexpected BBJ_EHCATCHRET"); // not used on x86
                 break;
-
             case BBJ_EHFINALLYRET:
             case BBJ_EHFILTERRET:
                 genEHFinallyOrFilterRet(block);
                 break;
-
-#endif // !FEATURE_EH_FUNCLETS
+#endif
 
             case BBJ_NONE:
             case BBJ_SWITCH:
