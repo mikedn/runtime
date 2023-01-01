@@ -951,15 +951,15 @@ void GCInfo::DumpRegDelta(const char* header, GCtype type, regMaskTP baseRegs, r
     {
         printf("%skill-%s-regs ", header, GetGCTypeName(type));
         dspRegMask(removedRegs);
+        printf("\n");
     }
 
     if (addedRegs != RBM_NONE)
     {
         printf("%sdef-%s-regs ", header, GetGCTypeName(type));
         dspRegMask(addedRegs);
+        printf("\n");
     }
-
-    printf("\n");
 }
 
 void GCInfo::DumpArgDelta(const char* header)
@@ -1040,13 +1040,12 @@ void GCInfo::DumpStackSlotLifetimeDelta(const char* header)
         const char* typeName = GetGCTypeName((lifetime->slotOffset & byref_OFFSET_FLAG) != 0 ? GCT_BYREF : GCT_GCREF);
 
 #ifdef TARGET_ARMARCH
-        printf("%s%s-%s-slot [%s,#%d]", header, delta, typeName, frameRegName, offset);
+        printf("%s%s-%s-slot [%s,#%d]\n", header, delta, typeName, frameRegName, offset);
 #else
-        printf("%s%s-%s-slot [%s%c%02XH]", header, delta, typeName, frameRegName, offset < 0 ? '-' : '+', abs(offset));
+        printf("%s%s-%s-slot [%s%c%02XH]\n", header, delta, typeName, frameRegName, offset < 0 ? '-' : '+',
+               abs(offset));
 #endif
     }
-
-    printf("\n");
 }
 
 void GCInfo::DumpDelta(const char* header)
