@@ -5748,9 +5748,8 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount /* = 0 
     }
     else
     {
-        /* Only allow non-label jmps in prolog */
-        assert(emitPrologIG);
-        assert(emitPrologIG == emitCurIG);
+        // Only allow non-label jmps in prolog.
+        assert(emitIGisInProlog(emitCurIG));
         assert(instrCount != 0);
     }
 

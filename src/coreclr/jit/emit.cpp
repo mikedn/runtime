@@ -495,7 +495,7 @@ void emitter::emitGenIG(insGroup* ig)
 
 void emitter::emitExtendIG()
 {
-    assert(emitCurIG != emitPrologIG);
+    assert(!emitIGisInProlog(emitCurIG));
 
     emitFinishIG(true);
     emitNewIG();
@@ -690,7 +690,7 @@ void emitter::emitFinishIG(bool extend)
         if (last != nullptr)
         {
             // Append the jump(s) from this IG to the global list
-            bool prologJump = (ig == emitPrologIG);
+            bool prologJump = emitIGisInProlog(ig);
             if ((emitJumpList == nullptr) || prologJump)
             {
                 last->idjNext = emitJumpList;
@@ -816,10 +816,9 @@ void emitter::emitBegFN()
     emitCurIGfreeEndp = emitCurIGfreeBase + IG_BUFFER_SIZE;
 
     // Create the first IG, it will be used for the prolog.
-    emitIGlist   = emitAllocIG();
-    emitIGlast   = emitIGlist;
-    emitCurIG    = emitIGlist;
-    emitPrologIG = emitIGlist;
+    emitIGfirst = emitAllocIG();
+    emitIGlast  = emitIGfirst;
+    emitCurIG   = emitIGfirst;
 
     // Append another group, to start generating the method body
     emitNewIG();
@@ -1165,7 +1164,7 @@ void emitter::emitCheckIGoffsets()
 {
     size_t currentOffset = 0;
 
-    for (insGroup* tempIG = emitIGlist; tempIG != nullptr; tempIG = tempIG->igNext)
+    for (insGroup* tempIG = emitIGfirst; tempIG != nullptr; tempIG = tempIG->igNext)
     {
         if (tempIG->igOffs != currentOffset)
         {
@@ -1186,76 +1185,41 @@ void emitter::emitCheckIGoffsets()
 
 #endif // DEBUG
 
-/*****************************************************************************
- *
- *  Begin generating a method prolog.
- */
-
 void emitter::emitBegProlog()
 {
     assert(codeGen->generatingProlog);
 
 #if !FEATURE_FIXED_OUT_ARGS
     // Don't measure stack depth inside the prolog, it's misleading.
-
-    emitCntStackDepth = 0;
-
     assert(emitCurStackLvl == 0);
+    emitCntStackDepth = 0;
 #endif
 
     emitNoGCIG     = true;
     emitForceNewIG = false;
 
-    /* Switch to the pre-allocated prolog IG */
+    emitGenIG(GetProlog());
 
-    emitGenIG(emitPrologIG);
-
-    /* Nothing is live on entry to the prolog */
-
-    // These were initialized to Empty at the start of compilation.
     VarSetOps::ClearD(emitComp, emitInitGCrefVars);
     VarSetOps::ClearD(emitComp, emitPrevGCrefVars);
     emitInitGCrefRegs = RBM_NONE;
     emitInitByrefRegs = RBM_NONE;
 }
 
-/*****************************************************************************
- *
- *  Return the code offset of the current location in the prolog.
- */
-
 unsigned emitter::emitGetPrologOffsetEstimate()
 {
-    /* For now only allow a single prolog ins group */
-
-    assert(emitPrologIG);
-    assert(emitPrologIG == emitCurIG);
+    assert(emitIGisInProlog(emitCurIG));
 
     return emitCurIGsize;
 }
 
-/*****************************************************************************
- *
- *  Mark the code offset of the current location as the end of the prolog,
- *  so it can be used later to compute the actual size of the prolog.
- */
-
 void emitter::emitMarkPrologEnd()
 {
     assert(codeGen->generatingProlog);
-
-    /* For now only allow a single prolog ins group */
-
-    assert(emitPrologIG);
-    assert(emitPrologIG == emitCurIG);
+    assert(emitIGisInProlog(emitCurIG));
 
     emitPrologEndPos = emitCurOffset();
 }
-
-/*****************************************************************************
- *
- *  Finish generating a method prolog.
- */
 
 void emitter::emitEndProlog()
 {
@@ -1263,9 +1227,9 @@ void emitter::emitEndProlog()
 
     emitNoGCIG = false;
 
-    /* Save the prolog IG if non-empty or if only one block */
+    // Save the prolog IG if non-empty or if only one block.
 
-    if (emitCurIGnonEmpty() || emitCurIG == emitPrologIG)
+    if (emitCurIGnonEmpty() || emitIGisInProlog(emitCurIG))
     {
         emitFinishIG();
     }
@@ -1278,7 +1242,7 @@ void emitter::emitEndProlog()
 
 void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock* igBB)
 {
-    assert(emitCurIG != emitPrologIG);
+    assert(!emitIGisInProlog(emitCurIG));
 
     bool isLast;
 
@@ -1767,7 +1731,7 @@ bool emitter::IsNoGCHelper(CorInfoHelpFunc helpFunc)
 
 insGroup* emitter::emitAddLabel(INDEBUG(BasicBlock* block))
 {
-    assert(emitCurIG != emitPrologIG);
+    assert(!emitIGisInProlog(emitCurIG));
 
     if (emitCurIGnonEmpty())
     {
@@ -1924,8 +1888,8 @@ void emitter::emitSplit(emitLocation*         startLoc,
                         void*                 context,
                         emitSplitCallbackType callbackFunc)
 {
-    insGroup*      igStart = (startLoc == NULL) ? emitIGlist : startLoc->GetIG();
-    insGroup*      igEnd   = (endLoc == NULL) ? NULL : endLoc->GetIG();
+    insGroup*      igStart = (startLoc == nullptr) ? emitIGfirst : startLoc->GetIG();
+    insGroup*      igEnd   = (endLoc == nullptr) ? nullptr : endLoc->GetIG();
     insGroup*      igPrev;
     insGroup*      ig;
     insGroup*      igLastReported;
@@ -2898,10 +2862,7 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
         {
             printf(" <-- Current IG");
         }
-        if (ig == emitPrologIG)
-        {
-            printf(" <-- Prolog IG");
-        }
+
         printf("\n");
 
         if (verbose)
@@ -2932,10 +2893,7 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
 
 void emitter::emitDispIGlist(bool verbose)
 {
-    insGroup* ig;
-    insGroup* igPrev;
-
-    for (igPrev = nullptr, ig = emitIGlist; ig; igPrev = ig, ig = ig->igNext)
+    for (insGroup *ig = emitIGfirst, *igPrev = nullptr; ig != nullptr; igPrev = ig, ig = ig->igNext)
     {
         emitDispIG(ig, igPrev, verbose);
     }
@@ -3044,23 +3002,18 @@ size_t emitter::emitIssue1Instr(insGroup* ig, instrDesc* id, BYTE** dp)
 
 void emitter::emitRecomputeIGoffsets()
 {
-    UNATIVE_OFFSET offs;
-    insGroup*      ig;
+    UNATIVE_OFFSET offs = 0;
 
-    for (ig = emitIGlist, offs = 0; ig; ig = ig->igNext)
+    for (insGroup* ig = emitIGfirst; ig != nullptr; ig = ig->igNext)
     {
         ig->igOffs = offs;
         assert(IsCodeAligned(ig->igOffs));
         offs += ig->igSize;
     }
 
-    /* Set the total code size */
-
     emitTotalCodeSize = offs;
 
-#ifdef DEBUG
-    emitCheckIGoffsets();
-#endif
+    INDEBUG(emitCheckIGoffsets());
 }
 
 //----------------------------------------------------------------------------------------
@@ -3208,9 +3161,7 @@ void emitter::emitJumpDistBind()
     UNATIVE_OFFSET adjIG;
     UNATIVE_OFFSET adjLJ;
     insGroup*      lstIG;
-#ifdef DEBUG
-    insGroup* prologIG = emitPrologIG;
-#endif // DEBUG
+    INDEBUG(insGroup* prologIG = GetProlog());
 
     int jmp_iteration = 1;
 
@@ -4883,7 +4834,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 
 #define DEFAULT_CODE_BUFFER_INIT 0xcc
 
-    for (insGroup* ig = emitIGlist; ig != nullptr; ig = ig->igNext)
+    for (insGroup* ig = emitIGfirst; ig != nullptr; ig = ig->igNext)
     {
         assert((ig->igFlags & IGF_PLACEHOLDER) == 0);
 
@@ -5297,10 +5248,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
     emitCheckIGoffsets();
 #endif // DEBUG
 
-    // Assign the real prolog size
-    *prologSize = emitCodeOffset(emitPrologIG, emitPrologEndPos);
-
-    /* Return the amount of code we've generated */
+    *prologSize = emitCodeOffset(GetProlog(), emitPrologEndPos);
 
     return actualCodeSize;
 }
@@ -6334,7 +6282,7 @@ const char* emitter::emitOffsetToLabel(unsigned offs)
 
     UNATIVE_OFFSET nextof = 0;
 
-    for (insGroup* ig = emitIGlist; ig != nullptr; ig = ig->igNext)
+    for (insGroup* ig = emitIGfirst; ig != nullptr; ig = ig->igNext)
     {
         // There is an eventual unused space after the last actual hot block
         // before the first allocated cold block.

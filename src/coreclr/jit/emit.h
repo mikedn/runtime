@@ -349,19 +349,23 @@ private:
     static emitter::opSize emitEncodeSize(emitAttr size);
     static emitAttr emitDecodeSize(emitter::opSize ensz);
 
-    // Currently, we only allow one IG for the prolog
-    bool emitIGisInProlog(const insGroup* ig)
+    insGroup* GetProlog() const
     {
-        return ig == emitPrologIG;
+        return emitIGfirst;
     }
 
-    bool emitIGisInEpilog(const insGroup* ig)
+    bool emitIGisInProlog(const insGroup* ig) const
+    {
+        // Currently, we only allow one IG for the prolog
+        return ig == emitIGfirst;
+    }
+
+    bool emitIGisInEpilog(const insGroup* ig) const
     {
         return (ig != nullptr) && ((ig->igFlags & IGF_EPILOG) != 0);
     }
 
-#if defined(FEATURE_EH_FUNCLETS)
-
+#ifdef FEATURE_EH_FUNCLETS
     bool emitIGisInFuncletProlog(const insGroup* ig)
     {
         return (ig != nullptr) && ((ig->igFlags & IGF_FUNCLET_PROLOG) != 0);
@@ -371,8 +375,7 @@ private:
     {
         return (ig != nullptr) && ((ig->igFlags & IGF_FUNCLET_EPILOG) != 0);
     }
-
-#endif // FEATURE_EH_FUNCLETS
+#endif
 
     void emitRecomputeIGoffsets();
 
@@ -1604,10 +1607,8 @@ private:
     /*      The logic that creates and keeps track of instruction groups    */
     /************************************************************************/
 
-    insGroup* emitIGlist = nullptr; // first  instruction group
-    insGroup* emitIGlast = nullptr; // last   instruction group
-
-    insGroup* emitPrologIG; // prolog instruction group
+    insGroup* emitIGfirst = nullptr;
+    insGroup* emitIGlast  = nullptr;
 
     instrDescJmp* emitJumpList = nullptr; // list of local jumps in method
     instrDescJmp* emitJumpLast = nullptr; // last of local jumps in method
@@ -2323,7 +2324,7 @@ inline bool IsCodeAligned(UNATIVE_OFFSET offset)
 template <typename Callback>
 void emitter::EnumerateNoGCInsGroups(Callback callback)
 {
-    for (insGroup* ig = emitIGlist; ig != nullptr; ig = ig->igNext)
+    for (insGroup* ig = emitIGfirst; ig != nullptr; ig = ig->igNext)
     {
         if ((ig->igFlags & IGF_NOGCINTERRUPT) != 0)
         {
