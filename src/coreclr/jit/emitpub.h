@@ -10,16 +10,23 @@ void emitBegFN();
 void emitComputeCodeSizes();
 
 unsigned emitEndCodeGen(unsigned* prologSize,
+#ifdef JIT32_GCENCODER
                         unsigned* epilogSize,
-                        void**    codeAddr,
-                        void**    coldCodeAddr,
+#endif
+                        void** codeAddr,
+                        void** coldCodeAddr,
                         void** consAddr DEBUGARG(unsigned* instrCount));
 
 /************************************************************************/
 /*                      Method prolog and epilog                        */
 /************************************************************************/
 
-unsigned emitGetEpilogCnt();
+#ifdef JIT32_GCENCODER
+unsigned emitGetEpilogCnt()
+{
+    return emitEpilogCnt;
+}
+#endif
 
 template <typename Callback>
 void EnumerateNoGCInsGroups(Callback callback);

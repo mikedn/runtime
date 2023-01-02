@@ -166,7 +166,7 @@ struct insPlaceholderGroupData
 // This allows prologs and epilogs to be any number of IGs, but still be
 // automatically marked properly.
 #ifndef FEATURE_EH_FUNCLETS
-#define IGF_PROPAGATE_MASK (IGF_EPILOG)
+#define IGF_PROPAGATE_MASK IGF_EPILOG
 #elif defined(DEBUG)
 #define IGF_PROPAGATE_MASK (IGF_EPILOG | IGF_FUNCLET_PROLOG | IGF_FUNCLET_EPILOG)
 #else
@@ -211,21 +211,21 @@ struct insGroup
 
     VARSET_TP GetGCLcls() const
     {
-        assert((igFlags & (IGF_GC_VARS | IGF_EXTEND)) == IGF_GC_VARS);
+        assert((igFlags & (IGF_GC_VARS | IGF_EXTEND | IGF_PLACEHOLDER)) == IGF_GC_VARS);
 
         return *reinterpret_cast<VARSET_TP*>(igData - 2 * sizeof(uint32_t) - sizeof(VARSET_TP));
     }
 
     regMaskTP GetRefRegs() const
     {
-        assert((igFlags & IGF_EXTEND) == 0);
+        assert((igFlags & (IGF_EXTEND | IGF_PLACEHOLDER)) == 0);
 
         return static_cast<regMaskTP>(*reinterpret_cast<uint32_t*>(igData - sizeof(uint32_t)));
     }
 
     regMaskTP GetByrefRegs() const
     {
-        assert((igFlags & IGF_EXTEND) == 0);
+        assert((igFlags & (IGF_EXTEND | IGF_PLACEHOLDER)) == 0);
 
         return static_cast<regMaskTP>(*reinterpret_cast<uint32_t*>(igData - 2 * sizeof(uint32_t)));
     }
@@ -1388,21 +1388,24 @@ protected:
 
     unsigned emitPrologEndPos;
 
-    unsigned       emitEpilogCnt  = 0;
-    UNATIVE_OFFSET emitEpilogSize = 0;
-
 #ifdef TARGET_XARCH
-
     void           emitStartExitSeq(); // Mark the start of the "return" sequence
     emitLocation   emitExitSeqBegLoc;
     UNATIVE_OFFSET emitExitSeqSize = INT_MAX; // minimum size of any return sequence - the 'ret' after the epilog
-
-#endif // TARGET_XARCH
+#endif
 
     insGroup* emitPlaceholderList = nullptr; // per method placeholder list - head
     insGroup* emitPlaceholderLast = nullptr; // per method placeholder list - tail
 
+    void emitBegPrologEpilog(insGroup* igPh);
+    void emitEndPrologEpilog();
+
 #ifdef JIT32_GCENCODER
+    void emitBegFnEpilog(insGroup* igPh);
+    void emitEndFnEpilog();
+
+    unsigned       emitEpilogCnt  = 0;
+    UNATIVE_OFFSET emitEpilogSize = 0;
 
     // The x86 GC encoder needs to iterate over a list of epilogs to generate a table of
     // epilog offsets. Epilogs always start at the beginning of an IG, so save the first
@@ -1427,24 +1430,7 @@ public:
 
     template <typename Callback>
     void EnumerateEpilogs(Callback callback);
-
 #endif // JIT32_GCENCODER
-
-    void emitBegPrologEpilog(insGroup* igPh);
-    void emitEndPrologEpilog();
-
-    void emitBegFnEpilog(insGroup* igPh);
-    void emitEndFnEpilog();
-
-#if defined(FEATURE_EH_FUNCLETS)
-
-    void emitBegFuncletProlog(insGroup* igPh);
-    void emitEndFuncletProlog();
-
-    void emitBegFuncletEpilog(insGroup* igPh);
-    void emitEndFuncletEpilog();
-
-#endif // FEATURE_EH_FUNCLETS
 
     /************************************************************************/
     /*    Methods to record a code position and later convert to offset     */
@@ -1645,7 +1631,7 @@ private:
     static void emitEncodeCallGCregs(regMaskTP regs, instrDesc* id);
     static unsigned emitDecodeCallGCregs(instrDesc* id);
 
-    unsigned emitNxtIGnum;
+    unsigned emitNxtIGnum = 0;
 
 #ifdef PSEUDORANDOM_NOP_INSERTION
 
@@ -1664,25 +1650,21 @@ private:
 
 #endif // PSEUDORANDOM_NOP_INSERTION
 
-    insGroup* emitAllocAndLinkIG();
     insGroup* emitAllocIG();
-    void emitInitIG(insGroup* ig);
-    void emitInsertIGAfter(insGroup* insertAfterIG, insGroup* ig);
 
     void emitNewIG();
+    void emitGenIG(insGroup* ig);
+    void emitExtendIG();
+    void emitFinishIG(bool extend = false);
 
-#if !defined(JIT32_GCENCODER)
+#ifndef JIT32_GCENCODER
     void emitDisableGC();
     void emitEnableGC();
-#endif // !defined(JIT32_GCENCODER)
+#endif
 
-    void emitGenIG(insGroup* ig);
-    insGroup* emitSavIG(bool emitAdd = false);
-    void emitNxtIG(bool extend);
-
-    bool emitCurIGnonEmpty()
+    bool emitCurIGnonEmpty() const
     {
-        return (emitCurIG && emitCurIGfreeNext > emitCurIGfreeBase);
+        return (emitCurIG != nullptr) && (emitCurIGfreeNext > emitCurIGfreeBase);
     }
 
     instrDesc* emitLastIns = nullptr;
@@ -2067,21 +2049,6 @@ inline bool emitter::emitIsScnsInsDsc(instrDesc* id)
 
 /*****************************************************************************
  *
- *  Given an instruction, return its "update mode" (RD/WR/RW).
- */
-
-/*****************************************************************************
- *
- *  Return the number of epilog blocks generated so far.
- */
-
-inline unsigned emitter::emitGetEpilogCnt()
-{
-    return emitEpilogCnt;
-}
-
-/*****************************************************************************
- *
  *  Return the current size of the specified data section.
  */
 
@@ -2306,43 +2273,4 @@ inline bool IsCodeAligned(UNATIVE_OFFSET offset)
     return ((offset & (CODE_ALIGN - 1)) == 0);
 }
 
-inline void emitter::emitNewIG()
-{
-    emitGenIG(emitAllocAndLinkIG());
-}
-
-#if !defined(JIT32_GCENCODER)
-// Start a new instruction group that is not interruptable
-inline void emitter::emitDisableGC()
-{
-    emitNoGCIG = true;
-
-    if (emitCurIGnonEmpty())
-    {
-        emitNxtIG(true);
-    }
-    else
-    {
-        emitCurIG->igFlags |= IGF_NOGCINTERRUPT;
-    }
-}
-
-// Start a new instruction group that is interruptable
-inline void emitter::emitEnableGC()
-{
-    emitNoGCIG = false;
-
-    // The next time an instruction needs to be generated, force a new instruction group.
-    // It will be an emitAdd group in that case. Note that the next thing we see might be
-    // a label, which will force a non-emitAdd group.
-    //
-    // Note that we can't just create a new instruction group here, because we don't know
-    // if there are going to be any instructions added to it, and we don't support empty
-    // instruction groups.
-    emitForceNewIG = true;
-}
-#endif // !defined(JIT32_GCENCODER)
-
-/*****************************************************************************/
 #endif // _EMIT_H_
-/*****************************************************************************/

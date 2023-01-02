@@ -212,7 +212,9 @@ protected:
     //-------------------------------------------------------------------------
 
     unsigned prologSize;
+#ifdef JIT32_GCENCODER
     unsigned epilogSize;
+#endif
 
     //
     // Prolog functions and data (there are a few exceptions for more generally used things)

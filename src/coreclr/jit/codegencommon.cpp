@@ -1126,8 +1126,11 @@ void CodeGen::genEmitMachineCode()
 
     compiler->unwindReserve();
 
-    codeSize =
-        GetEmitter()->emitEndCodeGen(&prologSize, &epilogSize, codePtr, &coldCodePtr, &consPtr DEBUGARG(&instrCount));
+    codeSize = GetEmitter()->emitEndCodeGen(&prologSize,
+#ifdef JIT32_GCENCODER
+                                            &epilogSize,
+#endif
+                                            codePtr, &coldCodePtr, &consPtr DEBUGARG(&instrCount));
 
 #ifdef DEBUG
     assert(compiler->compCodeGenDone == false);
@@ -4684,39 +4687,15 @@ void CodeGen::genGeneratePrologsAndEpilogs()
     // This affects our code that determines which untracked locals need to be zero initialized.
     UpdateLclBlockLiveInRegs(compiler->fgFirstBB);
 
-    // Tell the emitter we're done with main code generation, and are going to start prolog and epilog generation.
-
     GetEmitter()->emitStartPrologEpilogGeneration();
-
     genFnProlog();
-
-    // Generate all the prologs and epilogs.
-    CLANG_FORMAT_COMMENT_ANCHOR;
-
-#if defined(FEATURE_EH_FUNCLETS)
-
+#ifdef FEATURE_EH_FUNCLETS
     // Capture the data we're going to use in the funclet prolog and epilog generation. This is
     // information computed during codegen, or during function prolog generation, like
     // frame offsets. It must run after main function prolog generation.
-
     genCaptureFuncletPrologEpilogInfo();
-
-#endif // FEATURE_EH_FUNCLETS
-
-    // Walk the list of prologs and epilogs and generate them.
-    // We maintain a list of prolog and epilog basic blocks in
-    // the insGroup structure in the emitter. This list was created
-    // during code generation by the genReserve*() functions.
-    //
-    // TODO: it seems like better design would be to create a list of prologs/epilogs
-    // in the code generator (not the emitter), and then walk that list. But we already
-    // have the insGroup list, which serves well, so we don't need the extra allocations
-    // for a prolog/epilog list in the code generator.
-
+#endif
     GetEmitter()->emitGeneratePrologEpilog();
-
-    // Tell the emitter we're done with all prolog and epilog generation.
-
     GetEmitter()->emitFinishPrologEpilogGeneration();
 
 #ifdef DEBUG

@@ -420,11 +420,63 @@ void* emitter::emitGetMem(size_t sz)
     return emitComp->getAllocator(CMK_InstDesc).allocate<char>(sz);
 }
 
+insGroup* emitter::emitAllocIG()
+{
+    assert(IsCodeAligned(emitCurCodeOffset));
+
+    insGroup* ig  = static_cast<insGroup*>(emitGetMem(sizeof(insGroup)));
+    ig->igNext    = nullptr;
+    ig->igData    = nullptr;
+    ig->igNum     = ++emitNxtIGnum;
+    ig->igOffs    = emitCurCodeOffset;
+    ig->igFuncIdx = emitComp->compCurrFuncIdx;
+    ig->igSize    = 0;
+    ig->igFlags   = 0;
+    ig->igInsCnt  = 0;
+#if FEATURE_LOOP_ALIGN
+    ig->igLoopBackEdge = nullptr;
+#endif
+
+#if defined(DEBUG) || defined(LATE_DISASM)
+    ig->igWeight    = getCurrentBlockWeight();
+    ig->igPerfScore = 0.0;
+#endif
+#ifdef DEBUG
+    ig->igSelf             = ig;
+    ig->lastGeneratedBlock = nullptr;
+    new (&ig->igBlocks) jitstd::list<BasicBlock*>(emitComp->getAllocator(CMK_LoopOpt));
+#endif
+
+#if EMITTER_STATS
+    emitTotalIGcnt += 1;
+    emitTotalIGsize += sizeof(insGroup);
+    emitSizeMethod += sizeof(insGroup);
+#endif
+
+    return ig;
+}
+
+void emitter::emitNewIG()
+{
+    assert(emitIGlast == emitCurIG);
+
+    insGroup* ig = emitAllocIG();
+    ig->igFlags |= emitIGlast->igFlags & IGF_PROPAGATE_MASK;
+
+    emitIGlast->igNext = ig;
+    emitIGlast         = ig;
+    emitForceNewIG     = false;
+
+    emitGenIG(ig);
+}
+
 void emitter::emitGenIG(insGroup* ig)
 {
-    /* Set the "current IG" value */
-
-    emitCurIG = ig;
+    assert((ig->igFlags & IGF_PLACEHOLDER) == 0);
+    assert(emitCurIGjmpList == nullptr);
+#if FEATURE_LOOP_ALIGN
+    assert(emitCurIGAlignList == nullptr);
+#endif
 
 #if !FEATURE_FIXED_OUT_ARGS
     ig->igStkLvl = emitCurStackLvl;
@@ -435,147 +487,78 @@ void emitter::emitGenIG(insGroup* ig)
         ig->igFlags |= IGF_NOGCINTERRUPT;
     }
 
-    /* Prepare to issue instructions */
-
-    emitCurIGinsCnt = 0;
-    emitCurIGsize   = 0;
-
-    assert(emitCurIGjmpList == nullptr);
-
-#if FEATURE_LOOP_ALIGN
-    assert(emitCurIGAlignList == nullptr);
-#endif
-
-    /* Allocate the temp instruction buffer if we haven't done so */
-
-    if (emitCurIGfreeBase == nullptr)
-    {
-#ifdef TARGET_ARMARCH
-        // The only place where this limited instruction group size is a problem is the prolog,
-        // where we only support a single instruction group. We should really fix that.
-        // ARM32 and ARM64 both can require a bigger prolog instruction group. One scenario is
-        // where a function uses all the incoming integer and single-precision floating-point
-        // arguments, and must store them all to the frame on entry. If the frame is very large,
-        // we generate ugly code like "movw r10, 0x488; add r10, sp; vstr s0, [r10]" for each
-        // store, which eats up our insGroup buffer.
-        constexpr size_t IG_BUFFER_SIZE = 100 * sizeof(emitter::instrDesc) + 14 * SMALL_IDSC_SIZE;
-#else
-        constexpr size_t IG_BUFFER_SIZE = 50 * sizeof(emitter::instrDesc) + 14 * SMALL_IDSC_SIZE;
-#endif
-
-        emitCurIGfreeBase = static_cast<uint8_t*>(emitGetMem(IG_BUFFER_SIZE));
-        emitCurIGfreeEndp = emitCurIGfreeBase + IG_BUFFER_SIZE;
-    }
-
+    emitCurIG         = ig;
+    emitCurIGinsCnt   = 0;
+    emitCurIGsize     = 0;
     emitCurIGfreeNext = emitCurIGfreeBase;
 }
 
-/*****************************************************************************
- *
- *  Finish and save the current IG.
- */
+void emitter::emitExtendIG()
+{
+    assert(emitCurIG != emitPrologIG);
 
-insGroup* emitter::emitSavIG(bool emitAdd)
+    emitFinishIG(true);
+    emitNewIG();
+
+    emitCurIG->igFlags |= IGF_EXTEND;
+#if EMITTER_STATS
+    emitTotalIGExtend++;
+#endif
+}
+
+void emitter::emitFinishIG(bool extend)
 {
     assert(emitCurIGfreeNext <= emitCurIGfreeEndp);
 
+    size_t instrSize = emitCurIGfreeNext - emitCurIGfreeBase;
+    size_t dataSize  = roundUp(instrSize);
+
     insGroup* ig = emitCurIG;
-    assert(ig != nullptr);
-
-    // Compute how much code we've generated
-
-    size_t sz = emitCurIGfreeNext - emitCurIGfreeBase;
-
-    // Compute the total size we need to allocate
-
-    size_t gs = roundUp(sz);
-
-    // Do we need space for GC?
+    assert((ig->igFlags & IGF_PLACEHOLDER) == 0);
 
     if ((ig->igFlags & IGF_EXTEND) == 0)
     {
-        // Is the initial set of live GC vars different from the previous one?
-
         if (emitForceStoreGCState || !VarSetOps::Equal(emitComp, emitPrevGCrefVars, emitInitGCrefVars))
         {
 #if EMITTER_STATS
             emitTotalIGptrs++;
 #endif
             ig->igFlags |= IGF_GC_VARS;
-            gs += sizeof(VARSET_TP);
+            dataSize += sizeof(VARSET_TP);
         }
 
-        gs += 2 * sizeof(uint32_t);
+        dataSize += 2 * sizeof(uint32_t);
     }
 
-    uint8_t* id = static_cast<BYTE*>(emitGetMem(gs));
+    uint8_t* data = static_cast<uint8_t*>(emitGetMem(dataSize));
 
     if ((ig->igFlags & IGF_EXTEND) == 0)
     {
         if ((ig->igFlags & IGF_GC_VARS) != 0)
         {
-            *reinterpret_cast<VARSET_TP*>(id) = VarSetOps::MakeCopy(emitComp, emitInitGCrefVars);
-            id += sizeof(VARSET_TP);
+            *reinterpret_cast<VARSET_TP*>(data) = VarSetOps::MakeCopy(emitComp, emitInitGCrefVars);
+            data += sizeof(VARSET_TP);
         }
 
         static_assert_no_msg(REG_INT_COUNT <= 32);
 
-        *reinterpret_cast<uint32_t*>(id) = static_cast<uint32_t>(emitInitByrefRegs);
-        id += sizeof(uint32_t);
+        *reinterpret_cast<uint32_t*>(data) = static_cast<uint32_t>(emitInitByrefRegs);
+        data += sizeof(uint32_t);
 
-        *reinterpret_cast<uint32_t*>(id) = static_cast<uint32_t>(emitInitGCrefRegs);
-        id += sizeof(uint32_t);
+        *reinterpret_cast<uint32_t*>(data) = static_cast<uint32_t>(emitInitGCrefRegs);
+        data += sizeof(uint32_t);
     }
 
-    assert((ig->igFlags & IGF_PLACEHOLDER) == 0);
-    ig->igData = id;
+    memcpy(data, emitCurIGfreeBase, instrSize);
 
-    memcpy(id, emitCurIGfreeBase, sz);
+    noway_assert(emitCurIGinsCnt < UINT8_MAX);
+    noway_assert(emitCurIGsize < UINT16_MAX);
 
-#ifdef DEBUG
-    if (false && emitComp->verbose) // this is not useful in normal dumps (hence it is normally under if (false))
-    {
-        // If there's an error during emission, we may want to connect the post-copy address
-        // of an instrDesc with the pre-copy address (the one that was originally created).  This
-        // printing enables that.
-        printf("copying instruction group from [0x%x..0x%x) to [0x%x..0x%x).\n", dspPtr(emitCurIGfreeBase),
-               dspPtr(emitCurIGfreeBase + sz), dspPtr(id), dspPtr(id + sz));
-    }
-#endif
-
-    // Record how many instructions and bytes of code this group contains
-
-    noway_assert(FitsIn<uint8_t>(emitCurIGinsCnt));
-    noway_assert(FitsIn<uint16_t>(emitCurIGsize));
-
+    ig->igData   = data;
     ig->igInsCnt = static_cast<uint8_t>(emitCurIGinsCnt);
     ig->igSize   = static_cast<uint16_t>(emitCurIGsize);
-    emitCurCodeOffset += emitCurIGsize;
-    assert(IsCodeAligned(emitCurCodeOffset));
 
-#if EMITTER_STATS
-    emitTotalIGicnt += emitCurIGinsCnt;
-    emitTotalIGsize += sz;
-    emitSizeMethod += sz;
-
-    if (emitIGisInProlog(ig))
-    {
-        emitCurPrologInsCnt += emitCurIGinsCnt;
-        emitCurPrologIGSize += sz;
-
-        // Keep track of the maximums.
-        if (emitCurPrologInsCnt > emitMaxPrologInsCnt)
-        {
-            emitMaxPrologInsCnt = emitCurPrologInsCnt;
-        }
-        if (emitCurPrologIGSize > emitMaxPrologIGSize)
-        {
-            emitMaxPrologIGSize = emitCurPrologIGSize;
-        }
-    }
-#endif
-
-    if (!emitAdd)
+    if (!extend)
     {
         // Update the previous recorded live GC ref sets, but not if if we are
         // starting an "overflow" buffer. Note that this is only used to
@@ -589,22 +572,15 @@ insGroup* emitter::emitSavIG(bool emitAdd)
         emitForceStoreGCState = false;
     }
 
-#ifdef DEBUG
-    if (emitComp->opts.dspCode)
+    if (instrSize != 0)
     {
-        printf("\n      %s:", emitLabelString(ig));
-        if (emitComp->verbose)
-        {
-            printf("        ; offs=%06XH, funclet=%02u, bbWeight=%s", ig->igOffs, ig->igFuncIdx,
-                   refCntWtd2str(ig->igWeight));
-        }
-        else
-        {
-            printf("        ; funclet=%02u", ig->igFuncIdx);
-        }
-        printf("\n");
+        uint8_t* lastInsData = reinterpret_cast<uint8_t*>(emitLastIns);
+        assert(emitCurIGfreeBase <= lastInsData && lastInsData < emitCurIGfreeNext);
+        emitLastIns = reinterpret_cast<instrDesc*>(data + (lastInsData - emitCurIGfreeBase));
     }
-#endif
+
+    emitCurCodeOffset += emitCurIGsize;
+    assert(IsCodeAligned(emitCurCodeOffset));
 
 #if FEATURE_LOOP_ALIGN
     // Did we have any align instructions in this group?
@@ -660,7 +636,6 @@ insGroup* emitter::emitSavIG(bool emitAdd)
     }
 
 #endif
-    // Did we have any jumps in this group?
 
     if (emitCurIGjmpList)
     {
@@ -734,22 +709,69 @@ insGroup* emitter::emitSavIG(bool emitAdd)
         }
     }
 
-    // Fix the last instruction field
-
-    if (sz != 0)
-    {
-        assert(emitLastIns != nullptr);
-        assert(emitCurIGfreeBase <= (BYTE*)emitLastIns);
-        assert((BYTE*)emitLastIns < emitCurIGfreeBase + sz);
-        emitLastIns = (instrDesc*)((BYTE*)id + ((BYTE*)emitLastIns - (BYTE*)emitCurIGfreeBase));
-    }
-
-    // Reset the buffer free pointers
-
     emitCurIGfreeNext = emitCurIGfreeBase;
 
-    return ig;
+#ifdef DEBUG
+    if (emitComp->opts.dspCode)
+    {
+        printf("\n      %s:", emitLabelString(ig));
+        if (emitComp->verbose)
+        {
+            printf("        ; offs=%06XH, funclet=%02u, bbWeight=%s", ig->igOffs, ig->igFuncIdx,
+                   refCntWtd2str(ig->igWeight));
+        }
+        else
+        {
+            printf("        ; funclet=%02u", ig->igFuncIdx);
+        }
+        printf("\n");
+    }
+#endif
+
+#if EMITTER_STATS
+    emitTotalIGicnt += emitCurIGinsCnt;
+    emitTotalIGsize += instrSize;
+    emitSizeMethod += instrSize;
+
+    if (emitIGisInProlog(ig))
+    {
+        emitCurPrologInsCnt += emitCurIGinsCnt;
+        emitCurPrologIGSize += instrSize;
+        emitMaxPrologInsCnt = Max(emitMaxPrologInsCnt, emitCurPrologInsCnt);
+        emitMaxPrologIGSize = Max(emitCurPrologIGSize, emitCurPrologIGSize);
+    }
+#endif
 }
+
+#ifndef JIT32_GCENCODER
+void emitter::emitDisableGC()
+{
+    emitNoGCIG = true;
+
+    if (emitCurIGnonEmpty())
+    {
+        emitExtendIG();
+    }
+    else
+    {
+        emitCurIG->igFlags |= IGF_NOGCINTERRUPT;
+    }
+}
+
+void emitter::emitEnableGC()
+{
+    emitNoGCIG = false;
+
+    // The next time an instruction needs to be generated, force a new instruction group.
+    // It will be an extend group in that case. Note that the next thing we see might be
+    // a label, which will force a non-extend group.
+    //
+    // Note that we can't just create a new instruction group here, because we don't know
+    // if there are going to be any instructions added to it, and we don't support empty
+    // instruction groups.
+    emitForceNewIG = true;
+}
+#endif // !JIT32_GCENCODER
 
 void emitter::emitBegFN()
 {
@@ -778,20 +800,28 @@ void emitter::emitBegFN()
     emitNextNop = emitNextRandomNop();
 #endif
 
+#ifdef TARGET_ARMARCH
+    // The only place where this limited instruction group size is a problem is the prolog,
+    // where we only support a single instruction group. We should really fix that.
+    // ARM32 and ARM64 both can require a bigger prolog instruction group. One scenario is
+    // where a function uses all the incoming integer and single-precision floating-point
+    // arguments, and must store them all to the frame on entry. If the frame is very large,
+    // we generate ugly code like "movw r10, 0x488; add r10, sp; vstr s0, [r10]" for each
+    // store, which eats up our insGroup buffer.
+    constexpr size_t IG_BUFFER_SIZE = 100 * sizeof(emitter::instrDesc) + 14 * SMALL_IDSC_SIZE;
+#else
+    constexpr size_t IG_BUFFER_SIZE = 50 * sizeof(emitter::instrDesc) + 14 * SMALL_IDSC_SIZE;
+#endif
+    emitCurIGfreeBase = static_cast<uint8_t*>(emitGetMem(IG_BUFFER_SIZE));
+    emitCurIGfreeEndp = emitCurIGfreeBase + IG_BUFFER_SIZE;
+
     // Create the first IG, it will be used for the prolog.
-
-    emitNxtIGnum = 1;
-
-    insGroup* ig = emitAllocIG();
-    ig->igNext   = nullptr;
-
-    emitPrologIG = ig;
-    emitIGlist   = ig;
-    emitIGlast   = ig;
-    emitCurIG    = ig;
+    emitIGlist   = emitAllocIG();
+    emitIGlast   = emitIGlist;
+    emitCurIG    = emitIGlist;
+    emitPrologIG = emitIGlist;
 
     // Append another group, to start generating the method body
-
     emitNewIG();
 }
 
@@ -990,12 +1020,12 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz)
     // re-used. But generating additional groups would not work.
     if (emitComp->compStressCompile(Compiler::STRESS_EMITTER, 1) && emitCurIGinsCnt && !emitIGisInProlog(emitCurIG) &&
         !emitIGisInEpilog(emitCurIG)
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
         && !emitIGisInFuncletProlog(emitCurIG) && !emitIGisInFuncletEpilog(emitCurIG)
-#endif // FEATURE_EH_FUNCLETS
+#endif
             )
     {
-        emitNxtIG(true);
+        emitExtendIG();
     }
 #endif
 
@@ -1038,7 +1068,7 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz)
 
     if ((emitCurIGfreeNext + sz >= emitCurIGfreeEndp) || emitForceNewIG)
     {
-        emitNxtIG(true);
+        emitExtendIG();
     }
 
     /* Grab the space for the instruction */
@@ -1237,7 +1267,7 @@ void emitter::emitEndProlog()
 
     if (emitCurIGnonEmpty() || emitCurIG == emitPrologIG)
     {
-        emitSavIG();
+        emitFinishIG();
     }
 
 #if !FEATURE_FIXED_OUT_ARGS
@@ -1248,7 +1278,9 @@ void emitter::emitEndProlog()
 
 void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock* igBB)
 {
-    bool last;
+    assert(emitCurIG != emitPrologIG);
+
+    bool isLast;
 
 #ifdef FEATURE_EH_FUNCLETS
     if (igType == IGPT_FUNCLET_PROLOG)
@@ -1257,7 +1289,8 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
 
         if (emitCurIGnonEmpty())
         {
-            emitNxtIG(false);
+            emitFinishIG();
+            emitNewIG();
         }
 
         VARSET_TP GCvars    = codeGen->liveness.GetGCLiveSet();
@@ -1286,7 +1319,7 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
         emitThisGCrefRegs = emitInitGCrefRegs;
         emitThisByrefRegs = emitInitByrefRegs;
 
-        last = false;
+        isLast = false;
     }
     else
 #endif // FEATURE_EH_FUNCLETS
@@ -1304,10 +1337,17 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
 
         if (emitCurIGnonEmpty())
         {
-            emitNxtIG(true);
+            emitExtendIG();
         }
 
-        last = igBB->bbNext == nullptr;
+        isLast = igBB->bbNext == nullptr;
+
+        // We assume that the epilog is the end of any currently in progress no-GC region.
+        // If a block after the epilog needs to be no-GC, it needs to call emitDisableGC
+        // directly. This behavior is depended upon by the fast tailcall implementation,
+        // which disables GC at the beginning of argument setup, but assumes that after
+        // the epilog it will be re-enabled.
+        emitNoGCIG = false;
     }
 
     insPlaceholderGroupData* data = new (emitComp, CMK_InstDesc) insPlaceholderGroupData;
@@ -1339,82 +1379,62 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
     }
 #endif
 
-#if EMITTER_STATS
-    emitTotalPhIGcnt += 1;
-#endif
-
-    if (emitPlaceholderList)
+    if (emitPlaceholderLast == nullptr)
     {
-        emitPlaceholderLast->igPhData->igPhNext = igPh;
+        emitPlaceholderList = igPh;
     }
     else
     {
-        emitPlaceholderList = igPh;
+        emitPlaceholderLast->igPhData->igPhNext = igPh;
     }
 
     emitPlaceholderLast = igPh;
 
     // Give an estimated size of this placeholder IG and
     // increment emitCurCodeOffset since we are not calling emitNewIG()
-    //
     emitCurIGsize += MAX_PLACEHOLDER_IG_SIZE;
     emitCurCodeOffset += emitCurIGsize;
 
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
     // Add the appropriate IP mapping debugging record for this placeholder
     // group. genExitCode() adds the mapping for main function epilogs.
     if (emitComp->opts.compDbgInfo)
     {
         if (igType == IGPT_FUNCLET_PROLOG)
         {
-            codeGen->genIPmappingAdd((IL_OFFSETX)ICorDebugInfo::PROLOG, true);
+            codeGen->genIPmappingAdd(static_cast<IL_OFFSETX>(ICorDebugInfo::PROLOG), true);
         }
         else if (igType == IGPT_FUNCLET_EPILOG)
         {
-            codeGen->genIPmappingAdd((IL_OFFSETX)ICorDebugInfo::EPILOG, true);
+            codeGen->genIPmappingAdd(static_cast<IL_OFFSETX>(ICorDebugInfo::EPILOG), true);
         }
     }
 #endif // FEATURE_EH_FUNCLETS
 
-    /* Start a new IG if more code follows */
-
-    if (last)
+    if (isLast)
     {
         emitCurIG = nullptr;
     }
     else
     {
-        if (igType == IGPT_EPILOG
-#if defined(FEATURE_EH_FUNCLETS)
-            || igType == IGPT_FUNCLET_EPILOG
-#endif // FEATURE_EH_FUNCLETS
-            )
-        {
-            // If this was an epilog, then assume this is the end of any currently in progress
-            // no-GC region. If a block after the epilog needs to be no-GC, it needs to call
-            // emitter::emitDisableGC() directly. This behavior is depended upon by the fast
-            // tailcall implementation, which disables GC at the beginning of argument setup,
-            // but assumes that after the epilog it will be re-enabled.
-            emitNoGCIG = false;
-        }
-
         emitNewIG();
 
-        // We don't know what the GC ref state will be at the end of the placeholder
-        // group. So, force the next IG to store all the GC ref state variables;
-        // don't omit them because emitPrev* is the same as emitInit*, because emitPrev*
-        // will be inaccurate.
-        //
-        // There is no need to re-initialize the emitPrev* variables, as they won't be used
-        // with emitForceStoreGCState==true, and will be re-initialized just before
-        // emitForceStoreGCState is set to false;
-
-        emitForceStoreGCState = true;
-
-        /* The group after the placeholder group doesn't get the "propagate" flags */
-
+        // The group after the placeholder group doesn't get the "propagate" flags.
         emitCurIG->igFlags &= ~IGF_PROPAGATE_MASK;
+
+        // We don't know what the GC state will be at the end of the placeholder
+        // group. So, force the next IG to store all the GC ref state variables;
+        // don't omit them because prevGCrefVars is the same as initGCrefVars,
+        // because emitPrevGCrefVars will be inaccurate.
+        // There is no need to re-initialize emitPrevGCrefVars, as it won't be
+        // used when emitForceStoreGCState is false, and will be re-initialized
+        // just before emitForceStoreGCState is set to false;
+        emitForceStoreGCState = true;
     }
+
+#if EMITTER_STATS
+    emitTotalPhIGcnt += 1;
+#endif
 
 #ifdef DEBUG
     if (emitComp->verbose)
@@ -1425,21 +1445,16 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
 #endif
 }
 
-/*****************************************************************************
- *
- *  Generate all prologs and epilogs
- */
-
 void emitter::emitGeneratePrologEpilog()
 {
 #ifdef DEBUG
     unsigned prologCnt = 0;
     unsigned epilogCnt = 0;
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
     unsigned funcletPrologCnt = 0;
     unsigned funcletEpilogCnt = 0;
-#endif // FEATURE_EH_FUNCLETS
-#endif // DEBUG
+#endif
+#endif
 
     for (insGroup *ig = emitPlaceholderList, *next; ig != nullptr; ig = next)
     {
@@ -1454,24 +1469,31 @@ void emitter::emitGeneratePrologEpilog()
         if ((ig->igFlags & IGF_EPILOG) != 0)
         {
             INDEBUG(++epilogCnt);
+
+#ifdef JIT32_GCENCODER
             emitBegFnEpilog(ig);
+#endif
+            emitBegPrologEpilog(ig);
             codeGen->genFnEpilog(igPhBB);
+            emitEndPrologEpilog();
+#ifdef JIT32_GCENCODER
             emitEndFnEpilog();
+#endif
         }
 #ifdef FEATURE_EH_FUNCLETS
         else if ((ig->igFlags & IGF_FUNCLET_PROLOG) != 0)
         {
             INDEBUG(++funcletPrologCnt);
-            emitBegFuncletProlog(ig);
+            emitBegPrologEpilog(ig);
             codeGen->genFuncletProlog(igPhBB);
-            emitEndFuncletProlog();
+            emitEndPrologEpilog();
         }
         else if ((ig->igFlags & IGF_FUNCLET_EPILOG) != 0)
         {
             INDEBUG(++funcletEpilogCnt);
-            emitBegFuncletEpilog(ig);
+            emitBegPrologEpilog(ig);
             codeGen->genFuncletEpilog();
-            emitEndFuncletEpilog();
+            emitEndPrologEpilog();
         }
 #endif
     }
@@ -1480,19 +1502,16 @@ void emitter::emitGeneratePrologEpilog()
     if (emitComp->verbose)
     {
         printf("%d prologs, %d epilogs", prologCnt, epilogCnt);
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
         printf(", %d funclet prologs, %d funclet epilogs", funcletPrologCnt, funcletEpilogCnt);
-#endif // FEATURE_EH_FUNCLETS
+#endif
         printf("\n");
-
-// prolog/epilog code doesn't use this yet
-// noway_assert(prologCnt == 1);
-// noway_assert(epilogCnt == emitEpilogCnt); // Is this correct?
-#if defined(FEATURE_EH_FUNCLETS)
-        assert(funcletPrologCnt == emitComp->ehFuncletCount());
-#endif // FEATURE_EH_FUNCLETS
     }
-#endif // DEBUG
+#endif
+
+#ifdef FEATURE_EH_FUNCLETS
+    assert(funcletPrologCnt == emitComp->ehFuncletCount());
+#endif
 }
 
 /*****************************************************************************
@@ -1506,7 +1525,7 @@ void emitter::emitStartPrologEpilogGeneration()
 
     if (emitCurIGnonEmpty())
     {
-        emitSavIG();
+        emitFinishIG();
     }
     else
     {
@@ -1530,107 +1549,65 @@ void emitter::emitFinishPrologEpilogGeneration()
     emitCurIG = nullptr;
 }
 
-/*****************************************************************************
- *
- *  Common code for prolog / epilog beginning. Convert the placeholder group to actual code IG,
- *  and set it as the current group.
- */
-
 void emitter::emitBegPrologEpilog(insGroup* igPh)
 {
-    assert(igPh->igFlags & IGF_PLACEHOLDER);
-
-    /* Save the current IG if it's non-empty */
+    assert((igPh->igFlags & IGF_PLACEHOLDER) != 0);
 
     if (emitCurIGnonEmpty())
     {
-        emitSavIG();
+        emitFinishIG();
     }
 
-    /* Convert the placeholder group to a normal group.
-     * We need to be very careful to re-initialize the IG properly.
-     * It turns out, this means we only need to clear the placeholder bit
-     * and clear the igPhData field, and emitGenIG() will do the rest,
-     * since in the placeholder IG we didn't touch anything that is set by emitAllocIG().
-     */
+    insPlaceholderGroupData* data = igPh->igPhData;
 
     igPh->igFlags &= ~IGF_PLACEHOLDER;
+    igPh->igPhData = nullptr;
+
+    VarSetOps::Assign(emitComp, emitPrevGCrefVars, data->igPhPrevGCrefVars);
+    VarSetOps::Assign(emitComp, emitInitGCrefVars, data->igPhInitGCrefVars);
+    VarSetOps::Assign(emitComp, emitThisGCrefVars, emitInitGCrefVars);
+
+    emitInitGCrefRegs = data->igPhInitGCrefRegs;
+    emitThisGCrefRegs = emitInitGCrefRegs;
+
+    emitInitByrefRegs = data->igPhInitByrefRegs;
+    emitThisByrefRegs = emitInitByrefRegs;
+
     emitNoGCIG     = true;
     emitForceNewIG = false;
 
-    /* Set up the GC info that we stored in the placeholder */
+    emitComp->funSetCurrentFunc(igPh->igFuncIdx);
 
-    VarSetOps::Assign(emitComp, emitPrevGCrefVars, igPh->igPhData->igPhPrevGCrefVars);
-    VarSetOps::Assign(emitComp, emitInitGCrefVars, igPh->igPhData->igPhInitGCrefVars);
-    VarSetOps::Assign(emitComp, emitThisGCrefVars, emitInitGCrefVars);
-
-    emitInitGCrefRegs = igPh->igPhData->igPhInitGCrefRegs;
-    emitThisGCrefRegs = emitInitGCrefRegs;
-
-    emitInitByrefRegs = igPh->igPhData->igPhInitByrefRegs;
-    emitThisByrefRegs = emitInitByrefRegs;
-
-    igPh->igPhData = nullptr;
-
-    /* Create a non-placeholder group pointer that we'll now use */
-
-    insGroup* ig = igPh;
-
-    /* Set the current function using the function index we stored */
-
-    emitComp->funSetCurrentFunc(ig->igFuncIdx);
-
-    /* Set the new IG as the place to generate code */
-
-    emitGenIG(ig);
+    emitGenIG(igPh);
 
 #if !FEATURE_FIXED_OUT_ARGS
     // Don't measure stack depth inside the prolog / epilog, it's misleading.
-
-    emitCntStackDepth = 0;
-
     assert(emitCurStackLvl == 0);
+    emitCntStackDepth = 0;
 #endif
 }
-
-/*****************************************************************************
- *
- *  Common code for end of prolog / epilog
- */
 
 void emitter::emitEndPrologEpilog()
 {
     emitNoGCIG = false;
 
-    /* Save the IG if non-empty */
-
     if (emitCurIGnonEmpty())
     {
-        emitSavIG();
+        emitFinishIG();
     }
 
     assert(emitCurIGsize <= MAX_PLACEHOLDER_IG_SIZE);
 
 #if !FEATURE_FIXED_OUT_ARGS
-    // Reset the stack depth values.
-
     emitCurStackLvl   = 0;
-    emitCntStackDepth = sizeof(int);
+    emitCntStackDepth = TARGET_POINTER_SIZE;
 #endif
 }
 
-/*****************************************************************************
- *
- *  Begin generating a main function epilog.
- */
-
+#ifdef JIT32_GCENCODER
 void emitter::emitBegFnEpilog(insGroup* igPh)
 {
     emitEpilogCnt++;
-
-    emitBegPrologEpilog(igPh);
-
-#ifdef JIT32_GCENCODER
 
     EpilogList* el = new (emitComp, CMK_GC) EpilogList();
 
@@ -1644,20 +1621,10 @@ void emitter::emitBegFnEpilog(insGroup* igPh)
     }
 
     emitEpilogLast = el;
-
-#endif // JIT32_GCENCODER
 }
-
-/*****************************************************************************
- *
- *  Finish generating a funclet epilog.
- */
 
 void emitter::emitEndFnEpilog()
 {
-    emitEndPrologEpilog();
-
-#ifdef JIT32_GCENCODER
     assert(emitEpilogLast != nullptr);
 
     UNATIVE_OFFSET epilogBegCodeOffset          = emitEpilogLast->elLoc.CodeOffset(this);
@@ -1687,59 +1654,9 @@ void emitter::emitEndFnEpilog()
                );
         emitExitSeqSize = newSize;
     }
-#endif // JIT32_GCENCODER
 }
 
-#if defined(FEATURE_EH_FUNCLETS)
-
-/*****************************************************************************
- *
- *  Begin generating a funclet prolog.
- */
-
-void emitter::emitBegFuncletProlog(insGroup* igPh)
-{
-    emitBegPrologEpilog(igPh);
-}
-
-/*****************************************************************************
- *
- *  Finish generating a funclet prolog.
- */
-
-void emitter::emitEndFuncletProlog()
-{
-    emitEndPrologEpilog();
-}
-
-/*****************************************************************************
- *
- *  Begin generating a funclet epilog.
- */
-
-void emitter::emitBegFuncletEpilog(insGroup* igPh)
-{
-    emitBegPrologEpilog(igPh);
-}
-
-/*****************************************************************************
- *
- *  Finish generating a funclet epilog.
- */
-
-void emitter::emitEndFuncletEpilog()
-{
-    emitEndPrologEpilog();
-}
-
-#endif // FEATURE_EH_FUNCLETS
-
-#ifdef JIT32_GCENCODER
-
-//
-// emitter::emitStartEpilog:
-//   Mark the current position so that we can later compute the total epilog size.
-//
+// Mark the current position so that we can later compute the total epilog size.
 void emitter::emitStartEpilog()
 {
     assert(emitEpilogLast != nullptr);
@@ -1850,11 +1767,12 @@ bool emitter::IsNoGCHelper(CorInfoHelpFunc helpFunc)
 
 insGroup* emitter::emitAddLabel(INDEBUG(BasicBlock* block))
 {
-    /* Create a new IG if the current one is non-empty */
+    assert(emitCurIG != emitPrologIG);
 
     if (emitCurIGnonEmpty())
     {
-        emitNxtIG(false);
+        emitFinishIG();
+        emitNewIG();
     }
 #if defined(DEBUG) || defined(LATE_DISASM)
     else
@@ -1901,7 +1819,7 @@ insGroup* emitter::emitAddInlineLabel()
 {
     if (emitCurIGnonEmpty())
     {
-        emitNxtIG(true);
+        emitExtendIG();
     }
 
     return emitCurIG;
@@ -2940,7 +2858,7 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
             separator = ", ";
         }
 
-        if ((ig->igFlags & IGF_EXTEND) == 0)
+        if ((ig->igData != nullptr) && ((ig->igFlags & (IGF_EXTEND | IGF_PLACEHOLDER)) == 0))
         {
             if ((ig->igFlags & IGF_GC_VARS) != 0)
             {
@@ -4737,9 +4655,11 @@ void emitter::emitComputeCodeSizes()
 //    size of the method code, in bytes
 //
 unsigned emitter::emitEndCodeGen(unsigned* prologSize,
+#ifdef JIT32_GCENCODER
                                  unsigned* epilogSize,
-                                 void**    codeAddr,
-                                 void**    coldCodeAddr,
+#endif
+                                 void** codeAddr,
+                                 void** coldCodeAddr,
                                  void** consAddr DEBUGARG(unsigned* instrCount))
 {
     JITDUMP("*************** In emitEndCodeGen()\n");
@@ -4798,26 +4718,16 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
         u2.emitArgTrackTop   = u2.emitArgTrackTab;
         u2.emitGcArgTrackCnt = 0;
     }
-#endif // JIT32_GCENCODER
 
     if (emitEpilogCnt == 0)
     {
-        /* No epilogs, make sure the epilog size is set to 0 */
-
-        emitEpilogSize = 0;
-
-#ifdef TARGET_XARCH
+        // No epilogs, make sure the epilog size is set to 0.
+        emitEpilogSize  = 0;
         emitExitSeqSize = 0;
-#endif // TARGET_XARCH
     }
 
-    /* Return the size of the epilog to the caller */
-
-    *epilogSize = emitEpilogSize;
-
-#ifdef TARGET_XARCH
-    *epilogSize += emitExitSeqSize;
-#endif // TARGET_XARCH
+    *epilogSize = emitEpilogSize + emitExitSeqSize;
+#endif
 
 #ifdef DEBUG
     if (EMIT_INSTLIST_VERBOSE)
@@ -4975,9 +4885,8 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 
     for (insGroup* ig = emitIGlist; ig != nullptr; ig = ig->igNext)
     {
-        assert(!(ig->igFlags & IGF_PLACEHOLDER)); // There better not be any placeholder groups left
+        assert((ig->igFlags & IGF_PLACEHOLDER) == 0);
 
-        /* Is this the first cold block? */
         if (ig == emitFirstColdIG)
         {
             assert(emitCurCodeOffs(cp) == emitTotalHotCodeSize);
@@ -6311,168 +6220,6 @@ UNATIVE_OFFSET emitter::emitCodeOffset(void* blockPtr, unsigned codePos)
     }
 
     return ig->igOffs + of;
-}
-
-/*****************************************************************************
- *
- *  Allocate a new IG and link it in to the global list after the current IG
- */
-
-insGroup* emitter::emitAllocAndLinkIG()
-{
-    insGroup* ig = emitAllocIG();
-
-    assert(emitCurIG);
-
-    emitInsertIGAfter(emitCurIG, ig);
-
-    /* Propagate some IG flags from the current group to the new group */
-
-    ig->igFlags |= (emitCurIG->igFlags & IGF_PROPAGATE_MASK);
-
-    /* Set the new IG as the current IG */
-
-    emitCurIG = ig;
-
-    return ig;
-}
-
-/*****************************************************************************
- *
- *  Allocate an instruction group descriptor and assign it the next index.
- */
-
-insGroup* emitter::emitAllocIG()
-{
-    insGroup* ig;
-
-    /* Allocate a group descriptor */
-
-    size_t sz = sizeof(insGroup);
-    ig        = (insGroup*)emitGetMem(sz);
-
-#ifdef DEBUG
-    ig->igSelf = ig;
-#endif
-
-#if EMITTER_STATS
-    emitTotalIGcnt += 1;
-    emitTotalIGsize += sz;
-    emitSizeMethod += sz;
-#endif
-
-    /* Do basic initialization */
-
-    emitInitIG(ig);
-
-    return ig;
-}
-
-/*****************************************************************************
- *
- *  Initialize an instruction group
- */
-
-void emitter::emitInitIG(insGroup* ig)
-{
-    /* Assign the next available index to the instruction group */
-
-    ig->igNum = emitNxtIGnum;
-
-    emitNxtIGnum++;
-
-    /* Record the (estimated) code offset of the group */
-
-    ig->igOffs = emitCurCodeOffset;
-    assert(IsCodeAligned(ig->igOffs));
-
-    /* Set the current function index */
-
-    ig->igFuncIdx = emitComp->compCurrFuncIdx;
-
-    ig->igFlags = 0;
-
-#if defined(DEBUG) || defined(LATE_DISASM)
-    ig->igWeight    = getCurrentBlockWeight();
-    ig->igPerfScore = 0.0;
-#endif
-
-    /* Zero out some fields to avoid printing garbage in JitDumps. These
-       really only need to be set in DEBUG, but do it in all cases to make
-       sure we act the same in non-DEBUG builds.
-    */
-
-    ig->igSize   = 0;
-    ig->igInsCnt = 0;
-
-#if FEATURE_LOOP_ALIGN
-    ig->igLoopBackEdge = nullptr;
-#endif
-
-#ifdef DEBUG
-    ig->lastGeneratedBlock = nullptr;
-    // Explicitly call init, since IGs don't actually have a constructor.
-    ig->igBlocks.jitstd::list<BasicBlock*>::init(emitComp->getAllocator(CMK_LoopOpt));
-#endif
-}
-
-/*****************************************************************************
- *
- *  Insert instruction group 'ig' after 'igInsertAfterIG'
- */
-
-void emitter::emitInsertIGAfter(insGroup* insertAfterIG, insGroup* ig)
-{
-    assert(emitIGlist);
-    assert(emitIGlast);
-
-    ig->igNext            = insertAfterIG->igNext;
-    insertAfterIG->igNext = ig;
-
-    if (emitIGlast == insertAfterIG)
-    {
-        // If we are inserting at the end, then update the 'last' pointer
-        emitIGlast = ig;
-    }
-}
-
-/*****************************************************************************
- *
- *  Save the current IG and start a new one.
- */
-
-void emitter::emitNxtIG(bool extend)
-{
-    /* Right now we don't allow multi-IG prologs */
-
-    assert(emitCurIG != emitPrologIG);
-
-    /* First save the current group */
-
-    emitSavIG(extend);
-
-    /* Start generating the new group */
-
-    emitNewIG();
-
-    /* If this is an emitter added block, flag it */
-
-    if (extend)
-    {
-        emitCurIG->igFlags |= IGF_EXTEND;
-
-#if EMITTER_STATS
-        emitTotalIGExtend++;
-#endif // EMITTER_STATS
-    }
-
-    // We've created a new IG; no need to force another one.
-    emitForceNewIG = false;
-
-#ifdef DEBUG
-    // We haven't written any code into the IG yet, so clear our record of the last block written to the IG.
-    emitCurIG->lastGeneratedBlock = nullptr;
-#endif
 }
 
 cnsval_ssize_t emitter::emitGetInsSC(instrDesc* id)
