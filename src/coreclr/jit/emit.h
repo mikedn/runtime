@@ -131,7 +131,7 @@ private:
     unsigned  codePos; // the code position within the IG (see emitCurOffset())
 };
 
-enum insGroupPlaceholderType : uint8_t
+enum insGroupPlaceholderType
 {
     IGPT_EPILOG,
 #ifdef FEATURE_EH_FUNCLETS
@@ -142,15 +142,14 @@ enum insGroupPlaceholderType : uint8_t
 
 struct insPlaceholderGroupData
 {
-    insGroup*               igPhNext;
-    BasicBlock*             igPhBB;
-    VARSET_TP               igPhInitGCrefVars;
-    regMaskTP               igPhInitGCrefRegs;
-    regMaskTP               igPhInitByrefRegs;
-    VARSET_TP               igPhPrevGCrefVars;
-    regMaskTP               igPhPrevGCrefRegs;
-    regMaskTP               igPhPrevByrefRegs;
-    insGroupPlaceholderType igPhType;
+    insGroup*   igPhNext = nullptr;
+    BasicBlock* igPhBB;
+    VARSET_TP   igPhPrevGCrefVars;
+    VARSET_TP   igPhInitGCrefVars;
+    regMaskTP   igPhPrevGCrefRegs;
+    regMaskTP   igPhInitGCrefRegs;
+    regMaskTP   igPhPrevByrefRegs;
+    regMaskTP   igPhInitByrefRegs;
 };
 
 #define IGF_GC_VARS 0x0001        // new set of live GC ref variables

@@ -1314,51 +1314,27 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
         last = igBB->bbNext == nullptr;
     }
 
-    /* Convert the group to a placeholder group */
+    insPlaceholderGroupData* data = new (emitComp, CMK_InstDesc) insPlaceholderGroupData;
+
+    data->igPhBB            = igBB;
+    data->igPhPrevGCrefVars = VarSetOps::MakeCopy(emitComp, emitPrevGCrefVars);
+    data->igPhInitGCrefVars = VarSetOps::MakeCopy(emitComp, emitInitGCrefVars);
+    data->igPhPrevGCrefRegs = emitPrevGCrefRegs;
+    data->igPhInitGCrefRegs = emitInitGCrefRegs;
+    data->igPhPrevByrefRegs = emitPrevByrefRegs;
+    data->igPhInitByrefRegs = emitInitByrefRegs;
 
     insGroup* igPh = emitCurIG;
 
-    igPh->igFlags |= IGF_PLACEHOLDER;
-
-    /* Note that we might be re-using a previously created but empty IG. In this
-     * case, we need to make sure any re-used fields, such as igFuncIdx, are correct.
-     */
-
+    igPh->igPhData  = data;
     igPh->igFuncIdx = emitComp->compCurrFuncIdx;
-
-    /* Create a separate block of memory to store placeholder information.
-     * We could use unions to put some of this into the insGroup itself, but we don't
-     * want to grow the insGroup, and it's difficult to make sure the
-     * insGroup fields are getting set and used elsewhere.
-     */
-
-    igPh->igPhData = new (emitComp, CMK_InstDesc) insPlaceholderGroupData;
-
-    igPh->igPhData->igPhNext = nullptr;
-    igPh->igPhData->igPhType = igType;
-    igPh->igPhData->igPhBB   = igBB;
-
-    igPh->igPhData->igPhPrevGCrefVars = VarSetOps::MakeCopy(emitComp, emitPrevGCrefVars);
-    igPh->igPhData->igPhPrevGCrefRegs = emitPrevGCrefRegs;
-    igPh->igPhData->igPhPrevByrefRegs = emitPrevByrefRegs;
-
-    igPh->igPhData->igPhInitGCrefVars = VarSetOps::MakeCopy(emitComp, emitInitGCrefVars);
-    igPh->igPhData->igPhInitGCrefRegs = emitInitGCrefRegs;
-    igPh->igPhData->igPhInitByrefRegs = emitInitByrefRegs;
-
-#if EMITTER_STATS
-    emitTotalPhIGcnt += 1;
-#endif
-
-    // Mark function prologs and epilogs properly in the igFlags bits. These bits
-    // will get used and propagated when the placeholder is converted to a non-placeholder
-    // during prolog/epilog generation.
+    igPh->igFlags |= IGF_PLACEHOLDER;
 
     if (igType == IGPT_EPILOG)
     {
         igPh->igFlags |= IGF_EPILOG;
     }
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
     else if (igType == IGPT_FUNCLET_PROLOG)
     {
         igPh->igFlags |= IGF_FUNCLET_PROLOG;
@@ -1367,9 +1343,11 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
     {
         igPh->igFlags |= IGF_FUNCLET_EPILOG;
     }
-#endif // FEATURE_EH_FUNCLETS
+#endif
 
-    /* Link it into the placeholder list */
+#if EMITTER_STATS
+    emitTotalPhIGcnt += 1;
+#endif
 
     if (emitPlaceholderList)
     {
@@ -1470,45 +1448,39 @@ void emitter::emitGeneratePrologEpilog()
 #endif // FEATURE_EH_FUNCLETS
 #endif // DEBUG
 
-    insGroup* igPh;
-    insGroup* igPhNext;
-
-    // Generating the prolog/epilog is going to destroy the placeholder group,
-    // so save the "next" pointer before that happens.
-
-    for (igPh = emitPlaceholderList; igPh != nullptr; igPh = igPhNext)
+    for (insGroup *ig = emitPlaceholderList, *next; ig != nullptr; ig = next)
     {
-        assert(igPh->igFlags & IGF_PLACEHOLDER);
+        assert((ig->igFlags & IGF_PLACEHOLDER) != 0);
 
-        igPhNext = igPh->igPhData->igPhNext;
+        // Generating the prolog/epilog is going to destroy the placeholder group,
+        // so save the "next" pointer before that happens.
+        next = ig->igPhData->igPhNext;
 
-        BasicBlock* igPhBB = igPh->igPhData->igPhBB;
+        BasicBlock* igPhBB = ig->igPhData->igPhBB;
 
-        switch (igPh->igPhData->igPhType)
+        if ((ig->igFlags & IGF_EPILOG) != 0)
         {
-            case IGPT_EPILOG:
-                INDEBUG(++epilogCnt);
-                emitBegFnEpilog(igPh);
-                codeGen->genFnEpilog(igPhBB);
-                emitEndFnEpilog();
-                break;
-#ifdef FEATURE_EH_FUNCLETS
-            case IGPT_FUNCLET_PROLOG:
-                INDEBUG(++funcletPrologCnt);
-                emitBegFuncletProlog(igPh);
-                codeGen->genFuncletProlog(igPhBB);
-                emitEndFuncletProlog();
-                break;
-            case IGPT_FUNCLET_EPILOG:
-                INDEBUG(++funcletEpilogCnt);
-                emitBegFuncletEpilog(igPh);
-                codeGen->genFuncletEpilog();
-                emitEndFuncletEpilog();
-                break;
-#endif // FEATURE_EH_FUNCLETS
-            default:
-                unreached();
+            INDEBUG(++epilogCnt);
+            emitBegFnEpilog(ig);
+            codeGen->genFnEpilog(igPhBB);
+            emitEndFnEpilog();
         }
+#ifdef FEATURE_EH_FUNCLETS
+        else if ((ig->igFlags & IGF_FUNCLET_PROLOG) != 0)
+        {
+            INDEBUG(++funcletPrologCnt);
+            emitBegFuncletProlog(ig);
+            codeGen->genFuncletProlog(igPhBB);
+            emitEndFuncletProlog();
+        }
+        else if ((ig->igFlags & IGF_FUNCLET_EPILOG) != 0)
+        {
+            INDEBUG(++funcletEpilogCnt);
+            emitBegFuncletEpilog(ig);
+            codeGen->genFuncletEpilog();
+            emitEndFuncletEpilog();
+        }
+#endif
     }
 
 #ifdef DEBUG
@@ -2006,7 +1978,7 @@ bool emitter::emitIsFuncEnd(emitLocation* emitLoc, emitLocation* emitLocNextFrag
 #if defined(FEATURE_EH_FUNCLETS)
 
     // Is the next IG a placeholder group for a funclet prolog?
-    if ((ig->igNext->igFlags & IGF_PLACEHOLDER) && (ig->igNext->igPhData->igPhType == IGPT_FUNCLET_PROLOG))
+    if ((ig->igNext->igFlags & IGF_PLACEHOLDER) && ((ig->igNext->igFlags & IGF_FUNCLET_PROLOG) != 0))
     {
         return true;
     }
@@ -2654,73 +2626,71 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
         printf("func=%02u, ", ig->igFuncIdx);
     }
 
-    if (ig->igFlags & IGF_PLACEHOLDER)
+    if ((ig->igFlags & IGF_PLACEHOLDER) != 0)
     {
-        insGroup* igPh = ig;
+        const char* kind = "???";
 
-        const char* pszType;
-        switch (igPh->igPhData->igPhType)
+        if ((ig->igFlags & IGF_EPILOG) != 0)
         {
-            case IGPT_EPILOG:
-                pszType = "epilog";
-                break;
-#ifdef FEATURE_EH_FUNCLETS
-            case IGPT_FUNCLET_PROLOG:
-                pszType = "funclet prolog";
-                break;
-            case IGPT_FUNCLET_EPILOG:
-                pszType = "funclet epilog";
-                break;
-#endif
-            default:
-                pszType = "UNKNOWN";
-                break;
+            kind = "epilog";
         }
-        printf("%s placeholder, next placeholder=", pszType);
-        if (igPh->igPhData->igPhNext)
+#ifdef FEATURE_EH_FUNCLETS
+        else if ((ig->igFlags & IGF_FUNCLET_PROLOG) != 0)
         {
-            printf("IG%02u ", igPh->igPhData->igPhNext->igNum);
+            kind = "funclet prolog";
+        }
+        else if ((ig->igFlags & IGF_FUNCLET_PROLOG) != 0)
+        {
+            kind = "funclet epilog";
+        }
+#endif
+
+        printf("%s placeholder, next placeholder=", kind);
+
+        if (ig->igPhData->igPhNext)
+        {
+            printf("IG%02u ", ig->igPhData->igPhNext->igNum);
         }
         else
         {
             printf("<END>");
         }
 
-        if (igPh->igPhData->igPhBB != nullptr)
+        if (ig->igPhData->igPhBB != nullptr)
         {
-            printf(", %s", igPh->igPhData->igPhBB->dspToString());
+            printf(", %s", ig->igPhData->igPhBB->dspToString());
         }
 
-        emitDispIGflags(igPh->igFlags);
+        emitDispIGflags(ig->igFlags);
 
         if (ig == emitCurIG)
         {
             printf(" <-- Current IG");
         }
-        if (igPh == emitPlaceholderList)
+        if (ig == emitPlaceholderList)
         {
             printf(" <-- First placeholder");
         }
-        if (igPh == emitPlaceholderLast)
+        if (ig == emitPlaceholderLast)
         {
             printf(" <-- Last placeholder");
         }
         printf("\n");
 
         printf("%*s;   PrevGCVars ", strlen(buff), "");
-        dumpConvertedVarSet(emitComp, igPh->igPhData->igPhPrevGCrefVars);
+        dumpConvertedVarSet(emitComp, ig->igPhData->igPhPrevGCrefVars);
         printf(", PrevGCrefRegs");
-        emitDispRegSet(igPh->igPhData->igPhPrevGCrefRegs);
+        emitDispRegSet(ig->igPhData->igPhPrevGCrefRegs);
         printf(", PrevByrefRegs");
-        emitDispRegSet(igPh->igPhData->igPhPrevByrefRegs);
+        emitDispRegSet(ig->igPhData->igPhPrevByrefRegs);
         printf("\n");
 
         printf("%*s;   InitGCVars ", strlen(buff), "");
-        dumpConvertedVarSet(emitComp, igPh->igPhData->igPhInitGCrefVars);
+        dumpConvertedVarSet(emitComp, ig->igPhData->igPhInitGCrefVars);
         printf(", InitGCrefRegs");
-        emitDispRegSet(igPh->igPhData->igPhInitGCrefRegs);
+        emitDispRegSet(ig->igPhData->igPhInitGCrefRegs);
         printf(", InitByrefRegs");
-        emitDispRegSet(igPh->igPhData->igPhInitByrefRegs);
+        emitDispRegSet(ig->igPhData->igPhInitByrefRegs);
         printf("\n");
 
         assert((ig->igFlags & IGF_GC_VARS) == 0);
