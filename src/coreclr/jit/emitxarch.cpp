@@ -11,14 +11,8 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
 
-#if defined(TARGET_XARCH)
-
-/*****************************************************************************/
-/*****************************************************************************/
+#ifdef TARGET_XARCH
 
 #include "instr.h"
 #include "emit.h"
@@ -61,6 +55,68 @@ static bool IsShiftImm(instruction ins)
         default:
             return false;
     }
+}
+
+static bool insIsCMOV(instruction ins)
+{
+    return ((ins >= INS_cmovo) && (ins <= INS_cmovg));
+}
+
+static_assert_no_msg(INS_imul_AX - INS_imul_AX == REG_EAX);
+static_assert_no_msg(INS_imul_BX - INS_imul_AX == REG_EBX);
+static_assert_no_msg(INS_imul_CX - INS_imul_AX == REG_ECX);
+static_assert_no_msg(INS_imul_DX - INS_imul_AX == REG_EDX);
+static_assert_no_msg(INS_imul_BP - INS_imul_AX == REG_EBP);
+static_assert_no_msg(INS_imul_SI - INS_imul_AX == REG_ESI);
+static_assert_no_msg(INS_imul_DI - INS_imul_AX == REG_EDI);
+#ifdef TARGET_AMD64
+static_assert_no_msg(INS_imul_08 - INS_imul_AX == REG_R8);
+static_assert_no_msg(INS_imul_09 - INS_imul_AX == REG_R9);
+static_assert_no_msg(INS_imul_10 - INS_imul_AX == REG_R10);
+static_assert_no_msg(INS_imul_11 - INS_imul_AX == REG_R11);
+static_assert_no_msg(INS_imul_12 - INS_imul_AX == REG_R12);
+static_assert_no_msg(INS_imul_13 - INS_imul_AX == REG_R13);
+static_assert_no_msg(INS_imul_14 - INS_imul_AX == REG_R14);
+static_assert_no_msg(INS_imul_15 - INS_imul_AX == REG_R15);
+#endif
+
+bool emitter::instrIs3opImul(instruction ins)
+{
+#ifdef TARGET_X86
+    return (ins >= INS_imul_AX) && (ins <= INS_imul_DI);
+#else
+    return (ins >= INS_imul_AX) && (ins <= INS_imul_15);
+#endif
+}
+
+static bool instrIsExtendedReg3opImul(instruction ins)
+{
+#ifdef TARGET_X86
+    return false;
+#else
+    return (ins >= INS_imul_08) && (ins <= INS_imul_15);
+#endif
+}
+
+bool emitter::instrHasImplicitRegPairDest(instruction ins)
+{
+    return (ins == INS_mulEAX) || (ins == INS_imulEAX) || (ins == INS_div) || (ins == INS_idiv);
+}
+
+instruction emitter::inst3opImulForReg(regNumber reg)
+{
+    assert(genIsValidIntReg(reg));
+
+    instruction ins = instruction(reg + INS_imul_AX);
+    assert(instrIs3opImul(ins));
+    return ins;
+}
+
+static regNumber inst3opImulReg(instruction ins)
+{
+    regNumber reg = static_cast<regNumber>(ins - INS_imul_AX);
+    assert(genIsValidIntReg(reg));
+    return reg;
 }
 
 bool emitter::IsSSEInstruction(instruction ins)
@@ -14294,8 +14350,4 @@ emitter::insExecutionCharacteristics emitter::getInsExecutionCharacteristics(ins
 }
 
 #endif // defined(DEBUG) || defined(LATE_DISASM)
-
-/*****************************************************************************/
-/*****************************************************************************/
-
-#endif // defined(TARGET_XARCH)
+#endif // TARGET_XARCH

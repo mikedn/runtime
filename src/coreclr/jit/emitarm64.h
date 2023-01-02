@@ -892,4 +892,17 @@ inline bool emitIsLoadConstant(instrDesc* jmp)
             (jmp->idInsFmt() == IF_LARGELDC));
 }
 
+/************************************************************************/
+/*                   Interface for generating unwind information        */
+/************************************************************************/
+bool emitIsFuncEnd(emitLocation* emitLoc, emitLocation* emitLocNextFragment = NULL);
+
+void emitSplit(emitLocation*         startLoc,
+               emitLocation*         endLoc,
+               UNATIVE_OFFSET        maxSplitSize,
+               void*                 context,
+               emitSplitCallbackType callbackFunc);
+
+void emitUnwindNopPadding(emitLocation* locFrom, Compiler* comp);
+
 #endif // TARGET_ARM64

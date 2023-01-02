@@ -1,10 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-/*****************************************************************************/
 
-#ifndef _EMIT_H_
-#define _EMIT_H_
-
+#pragma once
 #include "instr.h"
 #include "jitgcinfo.h"
 
@@ -20,8 +17,6 @@
 #define EMIT_INSTLIST_VERBOSE (emitComp->verbose)
 #endif
 
-/*****************************************************************************/
-
 #ifdef DEBUG
 #define DEBUG_EMIT 1
 #else
@@ -32,23 +27,12 @@
 void emitterStats(FILE* fout);
 #endif
 
-class emitLocation;
-class emitter;
-struct insGroup;
-
-typedef void (*emitSplitCallbackType)(void* context, emitLocation* emitLoc);
-
-/*****************************************************************************/
-
 #if DEBUG_EMIT
 #define INTERESTING_JUMP_NUM -1 // set to 0 to see all jump info
-//#define INTERESTING_JUMP_NUM    0
 #endif
 
-/*****************************************************************************
- *
- *  Represent an emitter location.
- */
+class emitter;
+struct insGroup;
 
 class emitLocation
 {
@@ -130,6 +114,8 @@ private:
     insGroup* ig;      // the instruction group
     unsigned  codePos; // the code position within the IG (see emitCurOffset())
 };
+
+typedef void (*emitSplitCallbackType)(void* context, emitLocation* emitLoc);
 
 enum insGroupPlaceholderType
 {
@@ -270,9 +256,73 @@ class emitter
 public:
     emitter(Compiler* compiler, CodeGen* codeGen, ICorJitInfo* jitInfo);
 
-#include "emitpub.h"
+    /************************************************************************/
+    /*       Overall emitter control (including startup and shutdown)       */
+    /************************************************************************/
 
-protected:
+    void     emitBegFN();
+    void     emitComputeCodeSizes();
+    unsigned emitEndCodeGen(unsigned* prologSize,
+#ifdef JIT32_GCENCODER
+                            unsigned* epilogSize,
+#endif
+                            void** codeAddr,
+                            void** coldCodeAddr,
+                            void** consAddr DEBUGARG(unsigned* instrCount));
+
+    /************************************************************************/
+    /*                      Method prolog and epilog                        */
+    /************************************************************************/
+
+    void     emitBegProlog();
+    unsigned emitGetPrologOffsetEstimate();
+    void     emitMarkPrologEnd();
+    void     emitEndProlog();
+    void emitCreatePlaceholderIG(insGroupPlaceholderType kind, BasicBlock* block);
+    void emitGeneratePrologEpilog();
+    void emitStartPrologEpilogGeneration();
+    void emitFinishPrologEpilogGeneration();
+
+#ifdef JIT32_GCENCODER
+    unsigned emitGetEpilogCnt()
+    {
+        return emitEpilogCnt;
+    }
+#endif
+
+    template <typename Callback>
+    void EnumerateNoGCInsGroups(Callback callback);
+
+    /************************************************************************/
+    /*           Record a code position and later convert it to offset      */
+    /************************************************************************/
+
+    unsigned       emitCurOffset();
+    UNATIVE_OFFSET emitCodeOffset(void* blockPtr, unsigned codeOffs);
+    INDEBUG(const char* emitOffsetToLabel(unsigned offs);)
+
+    /************************************************************************/
+    /*                   Output target-independent instructions             */
+    /************************************************************************/
+
+    void emitIns_J(instruction ins, BasicBlock* dst, int instrCount = 0);
+
+    /************************************************************************/
+    /*                   Emit initialized data sections                     */
+    /************************************************************************/
+
+    static const UNATIVE_OFFSET INVALID_UNATIVE_OFFSET = (UNATIVE_OFFSET)-1;
+
+    UNATIVE_OFFSET emitDataGenBeg(unsigned size, unsigned alignment, var_types dataType);
+    UNATIVE_OFFSET emitBBTableDataGenBeg(unsigned numEntries, bool relativeAddr);
+    void emitDataGenData(unsigned offs, const void* data, UNATIVE_OFFSET size);
+    void emitDataGenData(unsigned offs, BasicBlock* label);
+    void           emitDataGenEnd();
+    UNATIVE_OFFSET emitDataGenFind(const void* cnsAddr, unsigned size, unsigned alignment, var_types dataType);
+    UNATIVE_OFFSET emitDataConst(const void* cnsAddr, unsigned cnsSize, unsigned cnsAlign, var_types dataType);
+    UNATIVE_OFFSET emitDataSize();
+
+private:
     void* emitGetMem(size_t sz);
 
     enum opSize : unsigned
@@ -2012,20 +2062,16 @@ public:
 
 #endif // EMITTER_STATS
 
-/*************************************************************************
- *
- *  Define any target-dependent emitter members.
- */
-
-#include "emitdef.h"
+#if defined(TARGET_XARCH)
+#include "emitxarch.h"
+#elif defined(TARGET_ARM)
+#include "emitarm.h"
+#elif defined(TARGET_ARM64)
+#include "emitarm64.h"
+#else
+#error Unsupported or unset target architecture
+#endif
 };
-
-/*****************************************************************************
- *
- *  Define any target-dependent inlines.
- */
-
-#include "emitinl.h"
 
 inline void emitter::instrDesc::checkSizes()
 {
@@ -2118,7 +2164,7 @@ insOpts emitSimdArrangementOpt(emitAttr size, var_types elementType);
  *  storage in instruction descriptors.
  */
 
-/* static */ inline emitter::opSize emitter::emitEncodeSize(emitAttr size)
+inline emitter::opSize emitter::emitEncodeSize(emitAttr size)
 {
     assert(size == EA_1BYTE || size == EA_2BYTE || size == EA_4BYTE || size == EA_8BYTE || size == EA_16BYTE ||
            size == EA_32BYTE);
@@ -2126,7 +2172,7 @@ insOpts emitSimdArrangementOpt(emitAttr size, var_types elementType);
     return emitSizeEncode[((int)size) - 1];
 }
 
-/* static */ inline emitAttr emitter::emitDecodeSize(emitter::opSize ensz)
+inline emitAttr emitter::emitDecodeSize(emitter::opSize ensz)
 {
     assert(((unsigned)ensz) < OPSZ_COUNT);
 
@@ -2273,4 +2319,27 @@ inline bool IsCodeAligned(UNATIVE_OFFSET offset)
     return ((offset & (CODE_ALIGN - 1)) == 0);
 }
 
-#endif // _EMIT_H_
+#ifndef JIT32_GCENCODER
+template <typename Callback>
+void emitter::EnumerateNoGCInsGroups(Callback callback)
+{
+    for (insGroup* ig = emitIGlist; ig != nullptr; ig = ig->igNext)
+    {
+        if ((ig->igFlags & IGF_NOGCINTERRUPT) != 0)
+        {
+            callback(ig->igFuncIdx, ig->igOffs, ig->igSize);
+        }
+    }
+}
+#else
+template <typename Callback>
+void emitter::EnumerateEpilogs(Callback callback)
+{
+    for (EpilogList* el = emitEpilogList; el != nullptr; el = el->elNext)
+    {
+        assert((el->elLoc.GetIG()->igFlags & IGF_EPILOG) != 0);
+
+        callback(el->elLoc.CodeOffset(this));
+    }
+}
+#endif // JIT32_GCENCODER
