@@ -505,23 +505,26 @@ insGroup* emitter::emitSavIG(bool emitAdd)
             gs += sizeof(VARSET_TP);
         }
 
-        gs += sizeof(uint32_t);
+        gs += 2 * sizeof(uint32_t);
     }
 
     uint8_t* id = static_cast<BYTE*>(emitGetMem(gs));
 
     if ((ig->igFlags & IGF_EXTEND) == 0)
     {
+        if ((ig->igFlags & IGF_GC_VARS) != 0)
+        {
+            *reinterpret_cast<VARSET_TP*>(id) = VarSetOps::MakeCopy(emitComp, emitInitGCrefVars);
+            id += sizeof(VARSET_TP);
+        }
+
         static_assert_no_msg(REG_INT_COUNT <= 32);
 
         *reinterpret_cast<uint32_t*>(id) = static_cast<uint32_t>(emitInitByrefRegs);
         id += sizeof(uint32_t);
-    }
 
-    if ((ig->igFlags & IGF_GC_VARS) != 0)
-    {
-        *reinterpret_cast<VARSET_TP*>(id) = VarSetOps::MakeCopy(emitComp, emitInitGCrefVars);
-        id += sizeof(VARSET_TP);
+        *reinterpret_cast<uint32_t*>(id) = static_cast<uint32_t>(emitInitGCrefRegs);
+        id += sizeof(uint32_t);
     }
 
     assert((ig->igFlags & IGF_PLACEHOLDER) == 0);
@@ -571,15 +574,6 @@ insGroup* emitter::emitSavIG(bool emitAdd)
         }
     }
 #endif
-
-    // Record the live GC register set - if and only if it is not an extension
-    // block, in which case the GC register sets are inherited from the previous
-    // block.
-
-    if (!(ig->igFlags & IGF_EXTEND))
-    {
-        ig->igGCregs = (regMaskSmall)emitInitGCrefRegs;
-    }
 
     if (!emitAdd)
     {
@@ -2757,7 +2751,7 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
         if ((ig->igFlags & IGF_EXTEND) == 0)
         {
             printf("%sref-regs", separator);
-            emitDispRegSet(ig->igGCregs);
+            emitDispRegSet(ig->GetRefRegs());
             separator = ", ";
             printf("%sbyref-regs", separator);
             emitDispRegSet(ig->igByrefRegs());
@@ -4899,7 +4893,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
                 gcInfo.UpdateStackSlotLifetimes(codeOffs);
             }
 
-            regMaskTP refRegs = ig->igGCregs;
+            regMaskTP refRegs = ig->GetRefRegs();
 
             if (gcInfo.GetLiveRegs(GCT_GCREF) != refRegs)
             {
@@ -6210,7 +6204,6 @@ void emitter::emitInitIG(insGroup* ig)
     */
 
     ig->igSize   = 0;
-    ig->igGCregs = RBM_NONE;
     ig->igInsCnt = 0;
 
 #if FEATURE_LOOP_ALIGN

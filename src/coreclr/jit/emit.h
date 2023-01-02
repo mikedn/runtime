@@ -227,13 +227,9 @@ struct insGroup
 
     unsigned igStkLvl; // stack level on entry
 
-    regMaskSmall  igGCregs; // set of registers with live GC refs
     unsigned char igInsCnt; // # of instructions  in this group
 
 #else // REGMASK_BITS
-
-    regMaskSmall igGCregs; // set of registers with live GC refs
-
     union {
         BYTE*                    igData;   // addr of instruction descriptors
         insPlaceholderGroupData* igPhData; // when igFlags & IGF_PLACEHOLDER
@@ -249,28 +245,23 @@ struct insGroup
 
     VARSET_VALRET_TP igGCvars() const
     {
-        assert(igFlags & IGF_GC_VARS);
+        assert((igFlags & (IGF_GC_VARS | IGF_EXTEND)) == IGF_GC_VARS);
 
-        BYTE* ptr = (BYTE*)igData;
-        ptr -= sizeof(VARSET_TP);
+        return *reinterpret_cast<VARSET_TP*>(igData - 2 * sizeof(uint32_t) - sizeof(VARSET_TP));
+    }
 
-        return *(VARSET_TP*)ptr;
+    regMaskTP GetRefRegs() const
+    {
+        assert((igFlags & IGF_EXTEND) == 0);
+
+        return static_cast<regMaskTP>(*reinterpret_cast<uint32_t*>(igData - sizeof(uint32_t)));
     }
 
     regMaskTP igByrefRegs() const
     {
         assert((igFlags & IGF_EXTEND) == 0);
 
-        BYTE* ptr = (BYTE*)igData;
-
-        if (igFlags & IGF_GC_VARS)
-        {
-            ptr -= sizeof(VARSET_TP);
-        }
-
-        ptr -= sizeof(uint32_t);
-
-        return static_cast<regMaskTP>(*reinterpret_cast<uint32_t*>(ptr));
+        return static_cast<regMaskTP>(*reinterpret_cast<uint32_t*>(igData - 2 * sizeof(uint32_t)));
     }
 
     bool isLoopAlign()
