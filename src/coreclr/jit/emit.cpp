@@ -505,24 +505,17 @@ insGroup* emitter::emitSavIG(bool emitAdd)
             gs += sizeof(VARSET_TP);
         }
 
-        // TODO-MIKE-Review: We always allocate space for byref regs.
-        // Can we just put them in insGroup, together with igGCregs?
-        // It looks like there's unused padding so the insGroup size
-        // won't actually increase (in the "extend" case).
-        ig->igFlags |= IGF_BYREF_REGS;
-        gs += sizeof(int);
+        gs += sizeof(uint32_t);
     }
 
     uint8_t* id = static_cast<BYTE*>(emitGetMem(gs));
 
-    if ((ig->igFlags & IGF_BYREF_REGS) != 0)
+    if ((ig->igFlags & IGF_EXTEND) == 0)
     {
-        // TODO-MIKE-Review: This truncates regMaskTP to unsigned. This happens to
-        // work because no target has more than 32 integer registers and we do not
-        // care about float registers. But then emitInitByrefRegs should be unsigned
-        // in the first place. Or better, have specific type for set of integer regs.
-        *reinterpret_cast<unsigned*>(id) = static_cast<unsigned>(emitInitByrefRegs);
-        id += sizeof(unsigned);
+        static_assert_no_msg(REG_INT_COUNT <= 32);
+
+        *reinterpret_cast<uint32_t*>(id) = static_cast<uint32_t>(emitInitByrefRegs);
+        id += sizeof(uint32_t);
     }
 
     if ((ig->igFlags & IGF_GC_VARS) != 0)
@@ -2619,10 +2612,6 @@ void emitter::emitDispIGflags(unsigned flags)
     {
         printf(", gcvars");
     }
-    if (flags & IGF_BYREF_REGS)
-    {
-        printf(", byref");
-    }
     if (flags & IGF_FUNCLET_PROLOG)
     {
         printf(", funclet prolog");
@@ -2740,8 +2729,7 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
         emitDispRegSet(igPh->igPhData->igPhInitByrefRegs);
         printf("\n");
 
-        assert(!(ig->igFlags & IGF_GC_VARS));
-        assert(!(ig->igFlags & IGF_BYREF_REGS));
+        assert((ig->igFlags & IGF_GC_VARS) == 0);
     }
     else
     {
@@ -2766,15 +2754,11 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
             separator = ", ";
         }
 
-        if (!(ig->igFlags & IGF_EXTEND))
+        if ((ig->igFlags & IGF_EXTEND) == 0)
         {
             printf("%sref-regs", separator);
             emitDispRegSet(ig->igGCregs);
             separator = ", ";
-        }
-
-        if (ig->igFlags & IGF_BYREF_REGS)
-        {
             printf("%sbyref-regs", separator);
             emitDispRegSet(ig->igByrefRegs());
             separator = ", ";
@@ -4898,7 +4882,6 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
         if ((ig->igFlags & IGF_EXTEND) != 0)
         {
             assert((ig->igFlags & IGF_GC_VARS) == 0);
-            assert((ig->igFlags & IGF_BYREF_REGS) == 0);
         }
         else
         {
@@ -4923,14 +4906,11 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
                 gcInfo.SetLiveRegs(GCT_GCREF, refRegs, codeOffs);
             }
 
-            if ((ig->igFlags & IGF_BYREF_REGS) != 0)
-            {
-                unsigned byrefRegs = ig->igByrefRegs();
+            regMaskTP byrefRegs = ig->igByrefRegs();
 
-                if (gcInfo.GetLiveRegs(GCT_BYREF) != byrefRegs)
-                {
-                    gcInfo.SetLiveRegs(GCT_BYREF, byrefRegs, codeOffs);
-                }
+            if (gcInfo.GetLiveRegs(GCT_BYREF) != byrefRegs)
+            {
+                gcInfo.SetLiveRegs(GCT_BYREF, byrefRegs, codeOffs);
             }
 
 #ifdef DEBUG

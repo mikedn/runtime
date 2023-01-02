@@ -192,7 +192,6 @@ struct insGroup
 #endif
 
 #define IGF_GC_VARS 0x0001        // new set of live GC ref variables
-#define IGF_BYREF_REGS 0x0002     // new set of live by-ref registers
 #define IGF_FUNCLET_PROLOG 0x0008 // this group belongs to a funclet prolog
 #define IGF_FUNCLET_EPILOG 0x0010 // this group belongs to a funclet epilog.
 #define IGF_EPILOG 0x0020         // this group belongs to a main function epilog
@@ -258,9 +257,9 @@ struct insGroup
         return *(VARSET_TP*)ptr;
     }
 
-    unsigned igByrefRegs() const
+    regMaskTP igByrefRegs() const
     {
-        assert(igFlags & IGF_BYREF_REGS);
+        assert((igFlags & IGF_EXTEND) == 0);
 
         BYTE* ptr = (BYTE*)igData;
 
@@ -269,9 +268,9 @@ struct insGroup
             ptr -= sizeof(VARSET_TP);
         }
 
-        ptr -= sizeof(unsigned);
+        ptr -= sizeof(uint32_t);
 
-        return *(unsigned*)ptr;
+        return static_cast<regMaskTP>(*reinterpret_cast<uint32_t*>(ptr));
     }
 
     bool isLoopAlign()
@@ -1621,9 +1620,9 @@ private:
     insFormat emitMapFmtAtoM(insFormat fmt);
     void PrologSpillParamRegsToShadowSlots();
 
-/************************************************************************/
-/*      The logic that creates and keeps track of instruction groups    */
-/************************************************************************/
+    /************************************************************************/
+    /*      The logic that creates and keeps track of instruction groups    */
+    /************************************************************************/
 
     insGroup* emitIGlist = nullptr; // first  instruction group
     insGroup* emitIGlast = nullptr; // last   instruction group
