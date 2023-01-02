@@ -131,10 +131,6 @@ private:
     unsigned  codePos; // the code position within the IG (see emitCurOffset())
 };
 
-/************************************************************************/
-/*          The following describes an instruction group                */
-/************************************************************************/
-
 enum insGroupPlaceholderType : uint8_t
 {
     IGPT_EPILOG,
@@ -143,13 +139,6 @@ enum insGroupPlaceholderType : uint8_t
     IGPT_FUNCLET_EPILOG,
 #endif
 };
-
-#if defined(_MSC_VER) && defined(TARGET_ARM)
-// ARM aligns structures that contain 64-bit ints or doubles on 64-bit boundaries. This causes unwanted
-// padding to be added to the end, so sizeof() is unnecessarily big.
-#pragma pack(push)
-#pragma pack(4)
-#endif // defined(_MSC_VER) && defined(TARGET_ARM)
 
 struct insPlaceholderGroupData
 {
@@ -162,88 +151,68 @@ struct insPlaceholderGroupData
     regMaskTP               igPhPrevGCrefRegs;
     regMaskTP               igPhPrevByrefRegs;
     insGroupPlaceholderType igPhType;
-}; // end of struct insPlaceholderGroupData
-
-struct insGroup
-{
-    insGroup* igNext;
-
-#ifdef DEBUG
-    insGroup* igSelf; // for consistency checking
-#endif
-#if defined(DEBUG) || defined(LATE_DISASM)
-    BasicBlock::weight_t igWeight;    // the block weight used for this insGroup
-    double               igPerfScore; // The PerfScore for this insGroup
-#endif
-
-#ifdef DEBUG
-    BasicBlock*               lastGeneratedBlock; // The last block that generated code into this insGroup.
-    jitstd::list<BasicBlock*> igBlocks;           // All the blocks that generated code into this insGroup.
-#endif
-
-    UNATIVE_OFFSET igNum;     // for ordering (and display) purposes
-    UNATIVE_OFFSET igOffs;    // offset of this group within method
-    unsigned int   igFuncIdx; // Which function/funclet does this belong to? (Index into Compiler::compFuncInfos array.)
-    unsigned short igFlags;   // see IGF_xxx below
-    unsigned short igSize;    // # of bytes of code in this group
-
-#if FEATURE_LOOP_ALIGN
-    insGroup* igLoopBackEdge; // "last" back-edge that branches back to an aligned loop head.
-#endif
+};
 
 #define IGF_GC_VARS 0x0001        // new set of live GC ref variables
-#define IGF_FUNCLET_PROLOG 0x0008 // this group belongs to a funclet prolog
-#define IGF_FUNCLET_EPILOG 0x0010 // this group belongs to a funclet epilog.
-#define IGF_EPILOG 0x0020         // this group belongs to a main function epilog
-#define IGF_NOGCINTERRUPT 0x0040  // this IG is is a no-interrupt region (prolog, epilog, etc.)
-#define IGF_UPD_ISZ 0x0080        // some instruction sizes updated
-#define IGF_PLACEHOLDER 0x0100    // this is a placeholder group, to be filled in later
-#define IGF_EXTEND 0x0200         // this block is conceptually an extension of the previous block
-                                  // and the emitter should continue to track GC info as if there was no new block.
-#define IGF_LOOP_ALIGN 0x0400     // this group contains alignment instruction(s) at the end; the next IG is the
-                                  // head of a loop that needs alignment.
+#define IGF_FUNCLET_PROLOG 0x0002 // this group belongs to a funclet prolog
+#define IGF_FUNCLET_EPILOG 0x0004 // this group belongs to a funclet epilog.
+#define IGF_EPILOG 0x0008         // this group belongs to a main function epilog
+#define IGF_NOGCINTERRUPT 0x0010  // this IG is is a no-interrupt region (prolog, epilog, etc.)
+#define IGF_UPD_ISZ 0x0020        // some instruction sizes updated
+#define IGF_PLACEHOLDER 0x0040    // this is a placeholder group, to be filled in later
+#define IGF_EXTEND 0x0080         // this block is conceptually an extension of the previous block and the
+                                  // emitter should continue to track GC info as if there was no new block.
+#define IGF_LOOP_ALIGN 0x0100     // this group contains alignment instruction(s) at the end; the next IG
+                                  // is the head of a loop that needs alignment.
 
 // Mask of IGF_* flags that should be propagated to new blocks when they are created.
 // This allows prologs and epilogs to be any number of IGs, but still be
 // automatically marked properly.
-#if defined(FEATURE_EH_FUNCLETS)
-#ifdef DEBUG
-#define IGF_PROPAGATE_MASK (IGF_EPILOG | IGF_FUNCLET_PROLOG | IGF_FUNCLET_EPILOG)
-#else // DEBUG
-#define IGF_PROPAGATE_MASK (IGF_EPILOG | IGF_FUNCLET_PROLOG)
-#endif // DEBUG
-#else  // !FEATURE_EH_FUNCLETS
+#ifndef FEATURE_EH_FUNCLETS
 #define IGF_PROPAGATE_MASK (IGF_EPILOG)
-#endif // !FEATURE_EH_FUNCLETS
+#elif defined(DEBUG)
+#define IGF_PROPAGATE_MASK (IGF_EPILOG | IGF_FUNCLET_PROLOG | IGF_FUNCLET_EPILOG)
+#else
+#define IGF_PROPAGATE_MASK (IGF_EPILOG | IGF_FUNCLET_PROLOG)
+#endif
 
-    // Try to do better packing based on how large regMaskSmall is.
-    CLANG_FORMAT_COMMENT_ANCHOR;
-#if REGMASK_BITS <= 32
+// For AMD64 the maximum prolog/epilog size supported on the OS is 256 bytes
+// Since it is incorrect for us to be jumping across funclet prolog/epilogs
+// we will use the following estimate as the maximum placeholder size.
+#define MAX_PLACEHOLDER_IG_SIZE 256
 
+struct insGroup
+{
+    insGroup* igNext;
+#if FEATURE_LOOP_ALIGN
+    insGroup* igLoopBackEdge; // "last" back-edge that branches back to an aligned loop head.
+#endif
     union {
-        BYTE*                    igData;   // addr of instruction descriptors
+        uint8_t*                 igData;   // addr of instruction descriptors
         insPlaceholderGroupData* igPhData; // when igFlags & IGF_PLACEHOLDER
     };
 
-    unsigned igStkLvl; // stack level on entry
-
-    unsigned char igInsCnt; // # of instructions  in this group
-
-#else // REGMASK_BITS
-    union {
-        BYTE*                    igData;   // addr of instruction descriptors
-        insPlaceholderGroupData* igPhData; // when igFlags & IGF_PLACEHOLDER
-    };
-
+    unsigned igNum;     // for ordering (and display) purposes
+    unsigned igOffs;    // offset of this group within method
+    unsigned igFuncIdx; // Which function/funclet does this belong to? (Index into Compiler::compFuncInfos array.)
 #if !FEATURE_FIXED_OUT_ARGS
     unsigned igStkLvl; // stack level on entry
 #endif
+    uint16_t igSize;   // # of bytes of code in this group
+    uint16_t igFlags;  // see IGF_xxx below
+    uint8_t  igInsCnt; // # of instructions  in this group
 
-    unsigned char igInsCnt; // # of instructions  in this group
+#if defined(DEBUG) || defined(LATE_DISASM)
+    BasicBlock::weight_t igWeight;    // the block weight used for this insGroup
+    double               igPerfScore; // The PerfScore for this insGroup
+#endif
+#ifdef DEBUG
+    insGroup*                 igSelf;             // for consistency checking
+    BasicBlock*               lastGeneratedBlock; // The last block that generated code into this insGroup.
+    jitstd::list<BasicBlock*> igBlocks;           // All the blocks that generated code into this insGroup.
+#endif
 
-#endif // REGMASK_BITS
-
-    VARSET_VALRET_TP igGCvars() const
+    VARSET_TP GetGCLcls() const
     {
         assert((igFlags & (IGF_GC_VARS | IGF_EXTEND)) == IGF_GC_VARS);
 
@@ -257,31 +226,18 @@ struct insGroup
         return static_cast<regMaskTP>(*reinterpret_cast<uint32_t*>(igData - sizeof(uint32_t)));
     }
 
-    regMaskTP igByrefRegs() const
+    regMaskTP GetByrefRegs() const
     {
         assert((igFlags & IGF_EXTEND) == 0);
 
         return static_cast<regMaskTP>(*reinterpret_cast<uint32_t*>(igData - 2 * sizeof(uint32_t)));
     }
 
-    bool isLoopAlign()
+    bool isLoopAlign() const
     {
         return (igFlags & IGF_LOOP_ALIGN) != 0;
     }
-
-}; // end of struct insGroup
-
-//  For AMD64 the maximum prolog/epilog size supported on the OS is 256 bytes
-//  Since it is incorrect for us to be jumping across funclet prolog/epilogs
-//  we will use the following estimate as the maximum placeholder size.
-//
-#define MAX_PLACEHOLDER_IG_SIZE 256
-
-#if defined(_MSC_VER) && defined(TARGET_ARM)
-#pragma pack(pop)
-#endif // defined(_MSC_VER) && defined(TARGET_ARM)
-
-/*****************************************************************************/
+};
 
 #define DEFINE_ID_OPS
 #include "emitfmts.h"

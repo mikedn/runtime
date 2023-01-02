@@ -545,11 +545,11 @@ insGroup* emitter::emitSavIG(bool emitAdd)
 
     // Record how many instructions and bytes of code this group contains
 
-    noway_assert((BYTE)emitCurIGinsCnt == emitCurIGinsCnt);
-    noway_assert((unsigned short)emitCurIGsize == emitCurIGsize);
+    noway_assert(FitsIn<uint8_t>(emitCurIGinsCnt));
+    noway_assert(FitsIn<uint16_t>(emitCurIGsize));
 
-    ig->igInsCnt = (BYTE)emitCurIGinsCnt;
-    ig->igSize   = (unsigned short)emitCurIGsize;
+    ig->igInsCnt = static_cast<uint8_t>(emitCurIGinsCnt);
+    ig->igSize   = static_cast<uint16_t>(emitCurIGsize);
     emitCurCodeOffset += emitCurIGsize;
     assert(IsCodeAligned(emitCurCodeOffset));
 
@@ -2741,20 +2741,20 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
             separator = ", ";
         }
 
-        if (ig->igFlags & IGF_GC_VARS)
-        {
-            printf("%sgcVars ", separator);
-            dumpConvertedVarSet(emitComp, ig->igGCvars());
-            separator = ", ";
-        }
-
         if ((ig->igFlags & IGF_EXTEND) == 0)
         {
+            if ((ig->igFlags & IGF_GC_VARS) != 0)
+            {
+                printf("%sgcVars ", separator);
+                dumpConvertedVarSet(emitComp, ig->GetGCLcls());
+                separator = ", ";
+            }
+
             printf("%sref-regs", separator);
             emitDispRegSet(ig->GetRefRegs());
             separator = ", ";
             printf("%sbyref-regs", separator);
-            emitDispRegSet(ig->igByrefRegs());
+            emitDispRegSet(ig->GetByrefRegs());
             separator = ", ";
         }
 
@@ -4881,7 +4881,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
         {
             if ((ig->igFlags & IGF_GC_VARS) != 0)
             {
-                gcInfo.SetLiveStackSlots(ig->igGCvars(), codeOffs);
+                gcInfo.SetLiveStackSlots(ig->GetGCLcls(), codeOffs);
             }
             else
             {
@@ -4900,7 +4900,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
                 gcInfo.SetLiveRegs(GCT_GCREF, refRegs, codeOffs);
             }
 
-            regMaskTP byrefRegs = ig->igByrefRegs();
+            regMaskTP byrefRegs = ig->GetByrefRegs();
 
             if (gcInfo.GetLiveRegs(GCT_BYREF) != byrefRegs)
             {
