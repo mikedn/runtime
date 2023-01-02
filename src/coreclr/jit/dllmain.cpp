@@ -2,20 +2,10 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
-#include "emit.h"
-#include "corexcep.h"
-
-#ifndef DLLEXPORT
-#define DLLEXPORT
-#endif // !DLLEXPORT
 
 extern void jitShutdown(bool processIsTerminating);
 
-/*****************************************************************************/
-extern "C" DLLEXPORT BOOL WINAPI DllMain(HANDLE hInstance, DWORD dwReason, LPVOID pvReserved)
+extern "C" BOOL WINAPI DllMain(HANDLE hInstance, DWORD dwReason, LPVOID pvReserved)
 {
     if (dwReason == DLL_PROCESS_ATTACH)
     {
