@@ -146,9 +146,7 @@ struct insPlaceholderGroupData
     BasicBlock* igPhBB;
     VARSET_TP   igPhPrevGCrefVars;
     VARSET_TP   igPhInitGCrefVars;
-    regMaskTP   igPhPrevGCrefRegs;
     regMaskTP   igPhInitGCrefRegs;
-    regMaskTP   igPhPrevByrefRegs;
     regMaskTP   igPhInitByrefRegs;
 };
 
@@ -1625,21 +1623,12 @@ private:
 
     instrDescJmp* emitCurIGjmpList = nullptr; // list of jumps   in current IG
 
-    // These are only used during code generation, not during emission (issuing),
-    // to determine what GC values to store into an IG.
-    // Note that only the Vars ones are actually used, apparently due to bugs
-    // in that tracking. See emitSavIG(): the important use of ByrefRegs is commented
-    // out, and GCrefRegs is always saved.
-
     VARSET_TP emitPrevGCrefVars;
-    regMaskTP emitPrevGCrefRegs = RBM_NONE;
-    regMaskTP emitPrevByrefRegs = RBM_NONE;
-
     VARSET_TP emitInitGCrefVars;
+    VARSET_TP emitThisGCrefVars;
+
     regMaskTP emitInitGCrefRegs = RBM_NONE;
     regMaskTP emitInitByrefRegs = RBM_NONE;
-
-    VARSET_TP emitThisGCrefVars;
     regMaskTP emitThisGCrefRegs = RBM_NONE;
     regMaskTP emitThisByrefRegs = RBM_NONE;
 

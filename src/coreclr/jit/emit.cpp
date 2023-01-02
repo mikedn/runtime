@@ -585,8 +585,6 @@ insGroup* emitter::emitSavIG(bool emitAdd)
         // emitter.
 
         VarSetOps::Assign(emitComp, emitPrevGCrefVars, emitThisGCrefVars);
-        emitPrevGCrefRegs = emitThisGCrefRegs;
-        emitPrevByrefRegs = emitThisByrefRegs;
 
         emitForceStoreGCState = false;
     }
@@ -1188,9 +1186,7 @@ void emitter::emitBegProlog()
     VarSetOps::ClearD(emitComp, emitInitGCrefVars);
     VarSetOps::ClearD(emitComp, emitPrevGCrefVars);
     emitInitGCrefRegs = RBM_NONE;
-    emitPrevGCrefRegs = RBM_NONE;
     emitInitByrefRegs = RBM_NONE;
-    emitPrevByrefRegs = RBM_NONE;
 }
 
 /*****************************************************************************
@@ -1319,9 +1315,7 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
     data->igPhBB            = igBB;
     data->igPhPrevGCrefVars = VarSetOps::MakeCopy(emitComp, emitPrevGCrefVars);
     data->igPhInitGCrefVars = VarSetOps::MakeCopy(emitComp, emitInitGCrefVars);
-    data->igPhPrevGCrefRegs = emitPrevGCrefRegs;
     data->igPhInitGCrefRegs = emitInitGCrefRegs;
-    data->igPhPrevByrefRegs = emitPrevByrefRegs;
     data->igPhInitByrefRegs = emitInitByrefRegs;
 
     insGroup* igPh = emitCurIG;
@@ -1409,8 +1403,7 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
         // We don't know what the GC ref state will be at the end of the placeholder
         // group. So, force the next IG to store all the GC ref state variables;
         // don't omit them because emitPrev* is the same as emitInit*, because emitPrev*
-        // will be inaccurate. (Note that, currently, GCrefRegs and ByrefRegs are always
-        // saved anyway.)
+        // will be inaccurate.
         //
         // There is no need to re-initialize the emitPrev* variables, as they won't be used
         // with emitForceStoreGCState==true, and will be re-initialized just before
@@ -1568,15 +1561,13 @@ void emitter::emitBegPrologEpilog(insGroup* igPh)
     /* Set up the GC info that we stored in the placeholder */
 
     VarSetOps::Assign(emitComp, emitPrevGCrefVars, igPh->igPhData->igPhPrevGCrefVars);
-    emitPrevGCrefRegs = igPh->igPhData->igPhPrevGCrefRegs;
-    emitPrevByrefRegs = igPh->igPhData->igPhPrevByrefRegs;
-
     VarSetOps::Assign(emitComp, emitInitGCrefVars, igPh->igPhData->igPhInitGCrefVars);
-    emitInitGCrefRegs = igPh->igPhData->igPhInitGCrefRegs;
-    emitInitByrefRegs = igPh->igPhData->igPhInitByrefRegs;
-
     VarSetOps::Assign(emitComp, emitThisGCrefVars, emitInitGCrefVars);
+
+    emitInitGCrefRegs = igPh->igPhData->igPhInitGCrefRegs;
     emitThisGCrefRegs = emitInitGCrefRegs;
+
+    emitInitByrefRegs = igPh->igPhData->igPhInitByrefRegs;
     emitThisByrefRegs = emitInitByrefRegs;
 
     igPh->igPhData = nullptr;
@@ -2921,10 +2912,6 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
 
         printf("%*s;   PrevGCVars ", strlen(buff), "");
         dumpConvertedVarSet(emitComp, ig->igPhData->igPhPrevGCrefVars);
-        printf(", PrevGCrefRegs");
-        emitDispRegSet(ig->igPhData->igPhPrevGCrefRegs);
-        printf(", PrevByrefRegs");
-        emitDispRegSet(ig->igPhData->igPhPrevByrefRegs);
         printf("\n");
 
         printf("%*s;   InitGCVars ", strlen(buff), "");
