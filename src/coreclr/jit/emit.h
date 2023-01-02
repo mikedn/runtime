@@ -1705,12 +1705,12 @@ private:
     // Terminates any in-progress instruction group, making the current IG a new empty one.
     // Mark this instruction group as having a label; return the the new instruction group.
     // Sets the emitter's record of the currently live GC variables and registers.
-    void* emitAddLabel(INDEBUG(BasicBlock* block = nullptr));
+    insGroup* emitAddLabel(INDEBUG(BasicBlock* block = nullptr));
 
     // Same as above, except the label is added and is conceptually "inline" in
     // the current block. Thus it extends the previous block and the emitter
     // continues to track GC info as if there was no label.
-    void* emitAddInlineLabel();
+    insGroup* emitAddInlineLabel();
 
 #ifdef DEBUG
     void emitPrintLabel(insGroup* ig);

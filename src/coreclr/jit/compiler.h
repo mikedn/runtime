@@ -7091,15 +7091,6 @@ public:
     unsigned  compHndBBtabCount      = 0;       // element count of used elements in EH data array
     unsigned  compHndBBtabAllocCount = 0;       // element count of allocated elements in EH data array
 
-#if defined(TARGET_X86)
-
-    //-------------------------------------------------------------------------
-    //  Tracking of region covered by the monitor in synchronized methods
-    void* syncStartEmitCookie; // the emitter cookie for first instruction after the call to MON_ENTER
-    void* syncEndEmitCookie;   // the emitter cookie for first instruction after the call to MON_EXIT
-
-#endif // !TARGET_X86
-
     unsigned compMapILargNum(unsigned ilArgNum);
     unsigned compMapILvarNum(unsigned ilVarNum);
     unsigned compMap2ILvarNum(unsigned varNum) const;

@@ -5400,15 +5400,13 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         {
             case CORINFO_HELP_MON_ENTER:
             case CORINFO_HELP_MON_ENTER_STATIC:
-                noway_assert(compiler->syncStartEmitCookie == nullptr);
-                compiler->syncStartEmitCookie = GetEmitter()->emitAddLabel();
-                noway_assert(compiler->syncStartEmitCookie != nullptr);
+                noway_assert(syncStartEmitCookie == nullptr);
+                syncStartEmitCookie = GetEmitter()->emitAddLabel();
                 break;
             case CORINFO_HELP_MON_EXIT:
             case CORINFO_HELP_MON_EXIT_STATIC:
-                noway_assert(compiler->syncEndEmitCookie == nullptr);
-                compiler->syncEndEmitCookie = GetEmitter()->emitAddLabel();
-                noway_assert(compiler->syncEndEmitCookie != nullptr);
+                noway_assert(syncEndEmitCookie == nullptr);
+                syncEndEmitCookie = GetEmitter()->emitAddLabel();
                 break;
             default:
                 break;

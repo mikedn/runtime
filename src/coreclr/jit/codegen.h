@@ -1487,6 +1487,12 @@ public:
     bool IsSimdLocalAligned(unsigned lclNum);
 
     INDEBUG(void DumpDisasmHeader() const;)
+
+#ifdef TARGET_X86
+    //  Tracking of region covered by the monitor in synchronized methods
+    insGroup* syncStartEmitCookie = nullptr;
+    insGroup* syncEndEmitCookie   = nullptr;
+#endif
 };
 
 #endif // CODEGEN_H

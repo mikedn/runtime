@@ -1857,7 +1857,7 @@ bool emitter::IsNoGCHelper(CorInfoHelpFunc helpFunc)
     }
 }
 
-void* emitter::emitAddLabel(INDEBUG(BasicBlock* block))
+insGroup* emitter::emitAddLabel(INDEBUG(BasicBlock* block))
 {
     /* Create a new IG if the current one is non-empty */
 
@@ -1906,7 +1906,7 @@ void* emitter::emitAddLabel(INDEBUG(BasicBlock* block))
     return emitCurIG;
 }
 
-void* emitter::emitAddInlineLabel()
+insGroup* emitter::emitAddInlineLabel()
 {
     if (emitCurIGnonEmpty())
     {
