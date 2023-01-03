@@ -1251,15 +1251,10 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
     {
         JITDUMP("Reserving funclet prolog IG for block " FMT_BB "\n", igBB->bbNum);
 
-        if (emitCurIGnonEmpty())
-        {
-            emitFinishIG();
-            emitNewIG();
-        }
-
-        VARSET_TP GCvars    = codeGen->liveness.GetGCLiveSet();
-        regMaskTP gcrefRegs = codeGen->liveness.GetGCRegs(TYP_REF);
-        regMaskTP byrefRegs = codeGen->liveness.GetGCRegs(TYP_BYREF);
+        // We should already have an empty group added by emitAddLabel
+        // for the first block in the funclet. We'll use that for the
+        // funclet prolog and create another one for the funclet body.
+        assert(!emitCurIGnonEmpty());
 
         // Currently, no registers are live on entry to the prolog, except maybe
         // the exception object. There might be some live stack vars, but they
@@ -1272,16 +1267,8 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
         // We might need to relax these asserts if the VM ever starts
         // restoring any registers, then we could have live-in reg vars.
 
-        noway_assert((gcrefRegs & RBM_EXCEPTION_OBJECT) == gcrefRegs);
-        noway_assert(byrefRegs == RBM_NONE);
-
-        VarSetOps::Assign(emitComp, emitInitGCrefVars, GCvars);
-        emitInitGCrefRegs = gcrefRegs;
-        emitInitByrefRegs = byrefRegs;
-
-        VarSetOps::Assign(emitComp, emitThisGCrefVars, emitInitGCrefVars);
-        emitThisGCrefRegs = emitInitGCrefRegs;
-        emitThisByrefRegs = emitInitByrefRegs;
+        noway_assert((emitInitGCrefRegs & RBM_EXCEPTION_OBJECT) == emitInitGCrefRegs);
+        noway_assert(emitInitByrefRegs == RBM_NONE);
 
         isLast = false;
     }
