@@ -280,8 +280,6 @@ public:
     void     emitEndProlog();
     void emitCreatePlaceholderIG(insGroupPlaceholderType kind, BasicBlock* block);
     void emitGeneratePrologEpilog();
-    void emitStartPrologEpilogGeneration();
-    void emitFinishPrologEpilogGeneration();
 
 #ifdef JIT32_GCENCODER
     unsigned emitGetEpilogCnt()

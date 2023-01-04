@@ -1189,6 +1189,15 @@ void emitter::emitBegProlog()
 {
     assert(codeGen->generatingProlog);
 
+    if (emitCurIGnonEmpty())
+    {
+        emitFinishIG();
+    }
+    else
+    {
+        assert(emitCurIG == nullptr);
+    }
+
 #if !FEATURE_FIXED_OUT_ARGS
     // Don't measure stack depth inside the prolog, it's misleading.
     assert(emitCurStackLvl == 0);
@@ -1227,12 +1236,7 @@ void emitter::emitEndProlog()
 
     emitNoGCIG = false;
 
-    // Save the prolog IG if non-empty or if only one block.
-
-    if (emitCurIGnonEmpty() || emitIGisInProlog(emitCurIG))
-    {
-        emitFinishIG();
-    }
+    emitFinishIG();
 
 #if !FEATURE_FIXED_OUT_ARGS
     emitCurStackLvl   = 0;
@@ -1449,6 +1453,9 @@ void emitter::emitGeneratePrologEpilog()
 #endif
     }
 
+    emitRecomputeIGoffsets();
+    emitCurIG = nullptr;
+
 #ifdef DEBUG
     if (emitComp->verbose)
     {
@@ -1465,49 +1472,10 @@ void emitter::emitGeneratePrologEpilog()
 #endif
 }
 
-/*****************************************************************************
- *
- *  Begin all prolog and epilog generation
- */
-
-void emitter::emitStartPrologEpilogGeneration()
-{
-    /* Save the current IG if it's non-empty */
-
-    if (emitCurIGnonEmpty())
-    {
-        emitFinishIG();
-    }
-    else
-    {
-        assert(emitCurIG == nullptr);
-    }
-}
-
-/*****************************************************************************
- *
- *  Finish all prolog and epilog generation
- */
-
-void emitter::emitFinishPrologEpilogGeneration()
-{
-    /* Update the offsets of all the blocks */
-
-    emitRecomputeIGoffsets();
-
-    /* We should not generate any more code after this */
-
-    emitCurIG = nullptr;
-}
-
 void emitter::emitBegPrologEpilog(insGroup* igPh)
 {
     assert((igPh->igFlags & IGF_PLACEHOLDER) != 0);
-
-    if (emitCurIGnonEmpty())
-    {
-        emitFinishIG();
-    }
+    assert(!emitCurIGnonEmpty());
 
     insPlaceholderGroupData* data = igPh->igPhData;
 
@@ -1542,10 +1510,8 @@ void emitter::emitEndPrologEpilog()
 {
     emitNoGCIG = false;
 
-    if (emitCurIGnonEmpty())
-    {
-        emitFinishIG();
-    }
+    assert(emitCurIGnonEmpty());
+    emitFinishIG();
 
     assert(emitCurIGsize <= MAX_PLACEHOLDER_IG_SIZE);
 

@@ -4687,7 +4687,6 @@ void CodeGen::genGeneratePrologsAndEpilogs()
     // This affects our code that determines which untracked locals need to be zero initialized.
     UpdateLclBlockLiveInRegs(compiler->fgFirstBB);
 
-    GetEmitter()->emitStartPrologEpilogGeneration();
     genFnProlog();
 #ifdef FEATURE_EH_FUNCLETS
     // Capture the data we're going to use in the funclet prolog and epilog generation. This is
@@ -4696,7 +4695,6 @@ void CodeGen::genGeneratePrologsAndEpilogs()
     genCaptureFuncletPrologEpilogInfo();
 #endif
     GetEmitter()->emitGeneratePrologEpilog();
-    GetEmitter()->emitFinishPrologEpilogGeneration();
 
 #ifdef DEBUG
     if (verbose)
