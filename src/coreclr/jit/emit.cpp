@@ -1211,8 +1211,9 @@ void emitter::emitBegProlog()
     emitCntStackDepth = 0;
 #endif
 
-    emitNoGCIG     = true;
-    emitForceNewIG = false;
+    emitNoGCIG            = true;
+    emitForceNewIG        = false;
+    emitForceStoreGCState = false;
 
     emitGenIG(GetProlog());
 
