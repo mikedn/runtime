@@ -9634,7 +9634,9 @@ void CodeGen::genFnEpilog(BasicBlock* block)
         inst_RV(INS_pop, REG_EBP, TYP_I_IMPL);
     }
 
-    GetEmitter()->emitStartExitSeq(); // Mark the start of the "return" sequence
+#ifdef JIT32_GCENCODER
+    GetEmitter()->emitStartExitSeq();
+#endif
 
     if (jmpEpilog)
     {

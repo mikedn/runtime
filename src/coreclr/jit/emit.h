@@ -1439,12 +1439,6 @@ private:
 
     unsigned emitPrologEndPos;
 
-#ifdef TARGET_XARCH
-    void           emitStartExitSeq(); // Mark the start of the "return" sequence
-    emitLocation   emitExitSeqBegLoc;
-    UNATIVE_OFFSET emitExitSeqSize = INT_MAX; // minimum size of any return sequence - the 'ret' after the epilog
-#endif
-
     insGroup* emitPlaceholderList = nullptr; // per method placeholder list - head
     insGroup* emitPlaceholderLast = nullptr; // per method placeholder list - tail
 
@@ -1452,12 +1446,6 @@ private:
     void emitEndPrologEpilog();
 
 #ifdef JIT32_GCENCODER
-    void emitBegFnEpilog(insGroup* igPh);
-    void emitEndFnEpilog();
-
-    unsigned       emitEpilogCnt  = 0;
-    UNATIVE_OFFSET emitEpilogSize = 0;
-
     // The x86 GC encoder needs to iterate over a list of epilogs to generate a table of
     // epilog offsets. Epilogs always start at the beginning of an IG, so save the first
     // IG of the epilog, and use it to find the epilog offset at the end of code generation.
@@ -1471,12 +1459,19 @@ private:
         }
     };
 
-    EpilogList* emitEpilogList = nullptr; // per method epilog list - head
-    EpilogList* emitEpilogLast = nullptr; // per method epilog list - tail
+    EpilogList*  emitEpilogList = nullptr; // per method epilog list - head
+    EpilogList*  emitEpilogLast = nullptr; // per method epilog list - tail
+    emitLocation emitExitSeqBegLoc;
+    unsigned     emitExitSeqSize = INT_MAX; // minimum size of any return sequence - the 'ret' after the epilog
+    unsigned     emitEpilogCnt   = 0;
+    unsigned     emitEpilogSize  = 0;
+
+    void emitBegFnEpilog(insGroup* igPh);
+    void emitStartExitSeq(); // Mark the start of the "return" sequence
+    void emitEndFnEpilog();
 
 public:
     void emitStartEpilog();
-
     bool emitHasEpilogEnd();
 
     template <typename Callback>

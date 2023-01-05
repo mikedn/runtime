@@ -1580,29 +1580,14 @@ void emitter::emitStartEpilog()
     emitEpilogLast->elLoc.CaptureLocation(this);
 }
 
-/*****************************************************************************
- *
- *  Return non-zero if the current method only has one epilog, which is
- *  at the very end of the method body.
- */
-
+// Return non-zero if the current method only has one epilog, which is
+// at the very end of the method body.
 bool emitter::emitHasEpilogEnd()
 {
-    if (emitEpilogCnt == 1 && (emitIGlast->igFlags & IGF_EPILOG)) // This wouldn't work for funclets
-        return true;
-    else
-        return false;
+    return (emitEpilogCnt == 1) && ((emitIGlast->igFlags & IGF_EPILOG) != 0); // This wouldn't work for funclets
 }
 
-#endif // JIT32_GCENCODER
-
-#ifdef TARGET_XARCH
-
-/*****************************************************************************
- *
- *  Mark the beginning of the epilog exit sequence by remembering our position.
- */
-
+// Mark the beginning of the epilog exit sequence by remembering our position.
 void emitter::emitStartExitSeq()
 {
     assert(codeGen->generatingEpilog);
@@ -1610,7 +1595,7 @@ void emitter::emitStartExitSeq()
     emitExitSeqBegLoc.CaptureLocation(this);
 }
 
-#endif // TARGET_XARCH
+#endif // JIT32_GCENCODER
 
 /*****************************************************************************
  *
