@@ -1388,7 +1388,6 @@ private:
 #ifdef TARGET_XARCH
     ssize_t emitGetInsCns(instrDesc* id);
     ssize_t emitGetInsDsp(instrDesc* id);
-    ssize_t emitGetInsAmd(instrDesc* id);
     ssize_t emitGetInsCIdisp(instrDesc* id);
 #endif
 
@@ -1428,9 +1427,6 @@ private:
     void emitDispInsAddr(BYTE* code);
     void emitDispInsOffs(unsigned offs, bool doffs);
     void emitDispInsHex(instrDesc* id, BYTE* code, size_t sz);
-
-#else // !DEBUG
-#define emitVarRefOffs 0
 #endif // !DEBUG
 
     /************************************************************************/
