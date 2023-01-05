@@ -517,12 +517,17 @@ void emitter::emitFinishIG(bool extend)
 
     if ((ig->igFlags & IGF_EXTEND) == 0)
     {
-        if (emitForceStoreGCState || !VarSetOps::Equal(emitComp, emitPrevGCrefVars, emitInitGCrefVars))
+        if ((ig->igFlags & (IGF_EPILOG | IGF_FUNCLET_EPILOG | IGF_FUNCLET_PROLOG)) != 0)
         {
-#if EMITTER_STATS
-            emitTotalIGptrs++;
-#endif
+            // We've already set IGF_GC_VARS for these (if needed).
+        }
+        else if (emitForceStoreGCState || !VarSetOps::Equal(emitComp, emitPrevGCrefVars, emitInitGCrefVars))
+        {
             ig->igFlags |= IGF_GC_VARS;
+        }
+
+        if ((ig->igFlags & IGF_GC_VARS) != 0)
+        {
             dataSize += sizeof(VARSET_TP);
         }
 
@@ -537,6 +542,9 @@ void emitter::emitFinishIG(bool extend)
         {
             *reinterpret_cast<VARSET_TP*>(data) = VarSetOps::MakeCopy(emitComp, emitInitGCrefVars);
             data += sizeof(VARSET_TP);
+#if EMITTER_STATS
+            emitTotalIGptrs++;
+#endif
         }
 
         static_assert_no_msg(REG_INT_COUNT <= 32);
@@ -1307,7 +1315,6 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
     insPlaceholderGroupData* data = new (emitComp, CMK_InstDesc) insPlaceholderGroupData;
 
     data->igPhBB            = igBB;
-    data->igPhPrevGCrefVars = VarSetOps::MakeCopy(emitComp, emitPrevGCrefVars);
     data->igPhInitGCrefVars = VarSetOps::MakeCopy(emitComp, emitInitGCrefVars);
     data->igPhInitGCrefRegs = emitInitGCrefRegs;
     data->igPhInitByrefRegs = emitInitByrefRegs;
@@ -1317,6 +1324,21 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
     igPh->igPhData  = data;
     igPh->igFuncIdx = emitComp->compCurrFuncIdx;
     igPh->igFlags |= IGF_PLACEHOLDER;
+
+    // TODO-MIKE-Cleanup: You'd think that epilogs and prologs aren't "extended" but
+    // apparently this sometimes happen. Removing this results in some (harmless) GC
+    // info diffs.
+    if ((igPh->igFlags & IGF_EXTEND) == 0)
+    {
+        if (!VarSetOps::Equal(emitComp, emitPrevGCrefVars, emitInitGCrefVars))
+        {
+            igPh->igFlags |= IGF_GC_VARS;
+        }
+        else
+        {
+            igPh->igFlags &= ~IGF_GC_VARS;
+        }
+    }
 
     if (igType == IGPT_EPILOG)
     {
@@ -1376,13 +1398,13 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
         // The group after the placeholder group doesn't get the "propagate" flags.
         emitCurIG->igFlags &= ~IGF_PROPAGATE_MASK;
 
-        // We don't know what the GC state will be at the end of the placeholder
-        // group. So, force the next IG to store all the GC ref state variables;
-        // don't omit them because prevGCrefVars is the same as initGCrefVars,
-        // because emitPrevGCrefVars will be inaccurate.
-        // There is no need to re-initialize emitPrevGCrefVars, as it won't be
-        // used when emitForceStoreGCState is false, and will be re-initialized
-        // just before emitForceStoreGCState is set to false;
+        // We don't know what the GC state will be at the end of the placeholder group.
+        // So, force the next IG to store all the GC ref state variables; don't omit
+        // them because prevGCrefVars is the same as initGCrefVars, because prevGCrefVars
+        // will be inaccurate.
+        // There is no need to re-initialize prevGCrefVars, as it won't be used when
+        // forceStoreGCState is false, and will be re-initialized just before
+        // forceStoreGCState is set to false;
         emitForceStoreGCState = true;
     }
 
@@ -1481,7 +1503,6 @@ void emitter::emitBegPrologEpilog(insGroup* igPh)
     igPh->igFlags &= ~IGF_PLACEHOLDER;
     igPh->igPhData = nullptr;
 
-    VarSetOps::Assign(emitComp, emitPrevGCrefVars, data->igPhPrevGCrefVars);
     VarSetOps::Assign(emitComp, emitInitGCrefVars, data->igPhInitGCrefVars);
     VarSetOps::Assign(emitComp, emitThisGCrefVars, emitInitGCrefVars);
 
@@ -2727,10 +2748,6 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
         {
             printf(" <-- Last placeholder");
         }
-        printf("\n");
-
-        printf("%*s;   PrevGCVars ", strlen(buff), "");
-        dumpConvertedVarSet(emitComp, ig->igPhData->igPhPrevGCrefVars);
         printf("\n");
 
         printf("%*s;   InitGCVars ", strlen(buff), "");

@@ -130,7 +130,6 @@ struct insPlaceholderGroupData
 {
     insGroup*   igPhNext = nullptr;
     BasicBlock* igPhBB;
-    VARSET_TP   igPhPrevGCrefVars;
     VARSET_TP   igPhInitGCrefVars;
     regMaskTP   igPhInitGCrefRegs;
     regMaskTP   igPhInitByrefRegs;
