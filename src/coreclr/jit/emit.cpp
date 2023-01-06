@@ -1508,10 +1508,7 @@ void emitter::emitBegPrologEpilog(insGroup* igPh)
     VarSetOps::Assign(emitComp, emitThisGCrefVars, emitInitGCrefVars);
 
     emitInitGCrefRegs = data->igPhInitGCrefRegs;
-    emitThisGCrefRegs = emitInitGCrefRegs;
-
     emitInitByrefRegs = data->igPhInitByrefRegs;
-    emitThisByrefRegs = emitInitByrefRegs;
 
     emitNoGCIG     = true;
     emitForceNewIG = false;
@@ -1714,8 +1711,6 @@ insGroup* emitter::emitAddLabel(INDEBUG(BasicBlock* block))
     emitInitByrefRegs = byrefRegs;
 
     VarSetOps::Assign(emitComp, emitThisGCrefVars, emitInitGCrefVars);
-    emitThisGCrefRegs = emitInitGCrefRegs;
-    emitThisByrefRegs = emitInitByrefRegs;
 
 #ifdef DEBUG
     if (block != nullptr)
@@ -2385,8 +2380,6 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
     id->idSetIsNoGC(isNoGCHelper);
 
     VarSetOps::Assign(emitComp, emitThisGCrefVars, GCvars);
-    emitThisGCrefRegs = gcrefRegs;
-    emitThisByrefRegs = byrefRegs;
 
     return id;
 }

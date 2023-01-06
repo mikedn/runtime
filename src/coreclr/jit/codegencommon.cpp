@@ -645,8 +645,6 @@ void CodeGen::genExitCode(BasicBlock* block)
 
             GetEmitter()->emitInitGCrefRegs = liveness.GetGCRegs(TYP_REF);
             GetEmitter()->emitInitByrefRegs = liveness.GetGCRegs(TYP_BYREF);
-            GetEmitter()->emitThisGCrefRegs = GetEmitter()->emitInitGCrefRegs;
-            GetEmitter()->emitThisByrefRegs = GetEmitter()->emitInitByrefRegs;
         }
     }
 

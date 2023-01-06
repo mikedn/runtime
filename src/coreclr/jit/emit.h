@@ -1654,8 +1654,6 @@ private:
 
     regMaskTP emitInitGCrefRegs = RBM_NONE;
     regMaskTP emitInitByrefRegs = RBM_NONE;
-    regMaskTP emitThisGCrefRegs = RBM_NONE;
-    regMaskTP emitThisByrefRegs = RBM_NONE;
 
     // If this is set, we ignore comparing emitPrev* and emitInit* to determine
     // whether to save GC state (to save space in the IG), and always save it.
