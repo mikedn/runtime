@@ -1651,19 +1651,14 @@ private:
     VARSET_TP emitPrevGCrefVars;
     VARSET_TP emitInitGCrefVars;
     VARSET_TP emitThisGCrefVars;
+    VARSET_TP emitEmptyGCrefVars = VarSetOps::UninitVal();
 
     regMaskTP emitInitGCrefRegs = RBM_NONE;
     regMaskTP emitInitByrefRegs = RBM_NONE;
 
-    // If this is set, we ignore comparing emitPrev* and emitInit* to determine
-    // whether to save GC state (to save space in the IG), and always save it.
-    bool emitForceStoreGCState = false;
-
-    VARSET_TP emitEmptyGCrefVars = VarSetOps::UninitVal();
-
 #if MULTIREG_HAS_SECOND_GC_RET
     void emitSetSecondRetRegGCType(instrDescCGCA* id, emitAttr secondRetSize);
-#endif // MULTIREG_HAS_SECOND_GC_RET
+#endif
 
     static void emitEncodeCallGCregs(regMaskTP regs, instrDesc* id);
     static unsigned emitDecodeCallGCregs(instrDesc* id);

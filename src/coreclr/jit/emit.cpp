@@ -519,9 +519,33 @@ void emitter::emitFinishIG(bool extend)
     {
         if ((ig->igFlags & (IGF_EPILOG | IGF_FUNCLET_EPILOG | IGF_FUNCLET_PROLOG)) != 0)
         {
-            // We've already set IGF_GC_VARS for these (if needed).
+            // TODO-MIKE-Cleanup: Old code tried to avoid storing the set of live GC locals
+            // when there were no changes but made a complete mess of it:
+            //   - It compared prevGCrefVars and initGCrefVars, with prevGCrefVars being
+            // initialized from thisGCrefVars at the end of a previous IG. But thisGCrefVars
+            // isn't fully updated during codegen, it only has changes from calls but not
+            // from local stores so it's not clear how using thisGCrefVars could ever be
+            // correct. It probably works by accident - it's missing stores but then "init"
+            // will have them since it's based on actual liveness, so it will be different
+            // and thus it is stored in IG.
+            //   - It was basically comparing thisGCrefVars and initGCrefVars so it means
+            // that it tried to avoid storing GC info when there were no changes between
+            // the end of the previous IG and the begin of the current one. But that's not
+            // what GC info update does in this case, it uses the previously reported live
+            // set - that's the begin of the previous IG, not the end. What gives?
+            //   - This throughput optimization has minimal effect, it saves little memory
+            // and CPU cycles, it actually seems to be a bit slower.
+            //   - To make things worse, epilogs are randomly "extended" because they forgot
+            // to set IGF_EXTEND on pre-existing, empty IGs. And epilog placeholders are
+            // created using initGCrefVars, when thisGCrefVars would probably make more sense
+            // What does the begin of an epilog has to do with the begin of the block which
+            // needs the epilog?!?
+            //
+            // In any case, this should all be removed since it's just not worth the risk
+            // of producing bad GC info. For now keep this for prologs and epilogs, removing
+            // results in (harmless) GC info diffs.
         }
-        else if (emitForceStoreGCState || !VarSetOps::Equal(emitComp, emitPrevGCrefVars, emitInitGCrefVars))
+        else
         {
             ig->igFlags |= IGF_GC_VARS;
         }
@@ -575,8 +599,6 @@ void emitter::emitFinishIG(bool extend)
         // emitter.
 
         VarSetOps::Assign(emitComp, emitPrevGCrefVars, emitThisGCrefVars);
-
-        emitForceStoreGCState = false;
     }
 
     if (instrSize != 0)
@@ -1211,9 +1233,8 @@ void emitter::emitBegProlog()
     emitCntStackDepth = 0;
 #endif
 
-    emitNoGCIG            = true;
-    emitForceNewIG        = false;
-    emitForceStoreGCState = false;
+    emitNoGCIG     = true;
+    emitForceNewIG = false;
 
     emitGenIG(GetProlog());
 
@@ -1326,9 +1347,6 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
     igPh->igFuncIdx = emitComp->compCurrFuncIdx;
     igPh->igFlags |= IGF_PLACEHOLDER;
 
-    // TODO-MIKE-Cleanup: You'd think that epilogs and prologs aren't "extended" but
-    // apparently this sometimes happen. Removing this results in some (harmless) GC
-    // info diffs.
     if ((igPh->igFlags & IGF_EXTEND) == 0)
     {
         if (!VarSetOps::Equal(emitComp, emitPrevGCrefVars, emitInitGCrefVars))
@@ -1398,15 +1416,6 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
 
         // The group after the placeholder group doesn't get the "propagate" flags.
         emitCurIG->igFlags &= ~IGF_PROPAGATE_MASK;
-
-        // We don't know what the GC state will be at the end of the placeholder group.
-        // So, force the next IG to store all the GC ref state variables; don't omit
-        // them because prevGCrefVars is the same as initGCrefVars, because prevGCrefVars
-        // will be inaccurate.
-        // There is no need to re-initialize prevGCrefVars, as it won't be used when
-        // forceStoreGCState is false, and will be re-initialized just before
-        // forceStoreGCState is set to false;
-        emitForceStoreGCState = true;
     }
 
 #if EMITTER_STATS
@@ -2751,8 +2760,6 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
         printf(", InitByrefRegs");
         emitDispRegSet(ig->igPhData->igPhInitByrefRegs);
         printf("\n");
-
-        assert((ig->igFlags & IGF_GC_VARS) == 0);
     }
     else
     {
@@ -4892,11 +4899,6 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
             }
             else
             {
-                // If the group doesn't have a live locals set it means that it
-                // has the same live locals as the previous group - at the start.
-                // The previous group could have modified live locals so we need
-                // to update GC info to actually reflect the liveness state at
-                // the start of the previous group.
                 gcInfo.UpdateStackSlotLifetimes(codeOffs);
             }
 
