@@ -11883,7 +11883,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 }
                 else
                 {
-                    emitStackPop(codeOffs, /*isCall*/ true, args);
+                    emitStackPopArgs(codeOffs, args);
                 }
             }
 
@@ -12675,43 +12675,40 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
     assert(sz == emitSizeOfInsDsc(id));
 
 #if !FEATURE_FIXED_OUT_ARGS
-    bool updateStackLevel = !emitIGisInProlog(ig) && !emitIGisInEpilog(ig);
-
+    if (!emitIGisInProlog(ig) && !emitIGisInEpilog(ig)
 #ifdef FEATURE_EH_FUNCLETS
-    updateStackLevel = updateStackLevel && !emitIGisInFuncletProlog(ig) && !emitIGisInFuncletEpilog(ig);
+        && !emitIGisInFuncletProlog(ig) && !emitIGisInFuncletEpilog(ig)
 #endif
-
-    // Make sure we keep the current stack level up to date
-    if (updateStackLevel)
+            )
     {
         switch (ins)
         {
+            case INS_push_hide:
+            case INS_pop_hide:
+                break;
             case INS_push:
-                // Please note: {INS_push_hide,IF_LABEL} is used to push the address of the
-                // finally block for calling it locally for an op_leave.
-                emitStackPush(dst, id->idGCref());
+                emitStackPush(emitCurCodeOffs(dst), id->idGCref());
                 break;
-
             case INS_pop:
-                emitStackPop(emitCurCodeOffs(dst), false, 1);
+                emitStackPop(emitCurCodeOffs(dst), 1);
                 break;
-
-            case INS_sub:
-                // Check for "sub ESP, icon"
-                if (ins == INS_sub && id->idInsFmt() == IF_RRW_CNS && id->idReg1() == REG_ESP)
-                {
-                    assert((size_t)emitGetInsSC(id) < 0x00000000FFFFFFFFLL);
-                    emitStackPushN(dst, static_cast<unsigned>(emitGetInsSC(id) / TARGET_POINTER_SIZE));
-                }
-                break;
-
             case INS_add:
-                // Check for "add ESP, icon"
-                if (ins == INS_add && id->idInsFmt() == IF_RRW_CNS && id->idReg1() == REG_ESP)
+            case INS_sub:
+                if ((id->idInsFmt() == IF_RRW_CNS) && (id->idReg1() == REG_ESP))
                 {
-                    assert((size_t)emitGetInsSC(id) < 0x00000000FFFFFFFFLL);
-                    emitStackPop(emitCurCodeOffs(dst), /*isCall*/ false,
-                                 static_cast<unsigned>(emitGetInsSC(id) / TARGET_POINTER_SIZE));
+                    size_t imm = static_cast<size_t>(emitGetInsSC(id));
+                    assert(imm < UINT_MAX);
+                    unsigned count    = static_cast<unsigned>(imm) / TARGET_POINTER_SIZE;
+                    unsigned codeOffs = emitCurCodeOffs(dst);
+
+                    if (ins == INS_add)
+                    {
+                        emitStackPop(codeOffs, count);
+                    }
+                    else
+                    {
+                        emitStackPushN(codeOffs, count);
+                    }
                 }
                 break;
 
@@ -12720,7 +12717,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         }
     }
 
-    assert((int)emitCurStackLvl >= 0);
+    assert(emitCurStackLvl <= INT32_MAX);
 #endif // !FEATURE_FIXED_OUT_ARGS
 
     // Only epilog "instructions" and some pseudo-instrs

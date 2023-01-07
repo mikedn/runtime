@@ -100,7 +100,6 @@ public:
 #endif
     };
 
-private:
     Compiler* const    compiler;
     StackSlotLifetime* firstStackSlotLifetime          = nullptr;
     StackSlotLifetime* lastStackSlotLifetime           = nullptr;
@@ -114,12 +113,32 @@ private:
     bool               isFullyInterruptible            = false;
     bool               stackSlotLifetimesMatchLiveLcls = true;
 #ifdef JIT32_GCENCODER
-    bool      isFramePointerUsed = false;
-    regNumber syncThisReg        = REG_NA;
+    bool isFramePointerUsed = false;
+    bool useArgsBitStack    = false;
+
+    static constexpr unsigned ArgsBitStackMaxDepth = sizeof(unsigned) * CHAR_BIT;
+
+    union {
+        struct
+        {
+            unsigned gcMask;
+            unsigned byrefMask;
+        } argsBitStack;
+
+        struct
+        {
+            unsigned reportCount;
+            unsigned maxCount;
+            uint8_t* types;
+            uint8_t  inlineStorage[16];
+        } argsStack;
+    };
+
+    regNumber syncThisReg = REG_NA;
 #ifndef FEATURE_EH_FUNCLETS
     int syncThisStackSlotOffset = INT_MIN;
 #endif
-#endif
+#endif // JIT32_GCENCODER
     int                 minTrackedStackSlotOffset = 0;
     int                 maxTrackedStackSlotOffset = 0;
     unsigned            trackedStackSlotCount     = 0;
@@ -161,7 +180,11 @@ public:
         trackedStackSlotCount     = (maxOffset - minOffset) / TARGET_POINTER_SIZE;
     }
 
-    void Begin();
+#ifdef JIT32_GCENCODER
+    void Begin(unsigned maxStackDepth);
+#else
+    void        Begin();
+#endif
     void End(unsigned codeOffs);
 
     bool IsFullyInterruptible() const
@@ -264,10 +287,13 @@ public:
     void RemoveAllLiveRegs(unsigned codeOffs);
 
 #ifdef JIT32_GCENCODER
-    void AddCallArgPush(unsigned codeOffs, unsigned stackLevel, GCtype gcType);
-    void AddCallArgsKill(unsigned codeOffs, unsigned argCount);
-    void AddCallArgsPop(unsigned codeOffs, unsigned argCount, bool isCall);
-    CallSite* AddCallSite(unsigned codeOffs);
+    void StackPush(GCtype type, unsigned stackLevel, unsigned codeOffs);
+    void StackPushMultiple(unsigned count, unsigned stackLevel, unsigned codeOffs);
+    void StackKill(unsigned count, unsigned stackLevel, unsigned codeOffs);
+    void StackPop(unsigned count, unsigned stackLevel, unsigned codeOffs, bool isCall);
+
+    void AddCallSite(unsigned stackLevel, unsigned codeOffs);
+
     void* CreateAndStoreGCInfo(class CodeGen* codeGen, unsigned codeSize, unsigned prologSize, unsigned epilogSize);
 #else
     void AddCallArgStore(unsigned codeOffs, int argOffs, GCtype gcType);
@@ -283,6 +309,12 @@ public:
 
 private:
     RegArgChange* AddRegArgChange();
+
+#ifdef JIT32_GCENCODER
+    void AddCallArgPush(GCtype type, unsigned stackLevel, unsigned codeOffs);
+    void AddCallArgsKill(unsigned count, unsigned codeOffs);
+    void AddCallArgsPop(unsigned count, unsigned codeOffs, bool isCall);
+#endif
 
 #if !defined(JIT32_GCENCODER) || defined(FEATURE_EH_FUNCLETS)
     void MarkFilterStackSlotsPinned();

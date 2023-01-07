@@ -18,11 +18,21 @@ GCInfo::GCInfo(Compiler* compiler)
 {
 }
 
+#ifdef JIT32_GCENCODER
+void GCInfo::Begin(unsigned maxStackDepth)
+#else
 void GCInfo::Begin()
+#endif
 {
     liveLcls = VarSetOps::MakeEmpty(compiler);
 
     isFullyInterruptible = compiler->codeGen->GetInterruptible();
+
+    if (trackedStackSlotCount != 0)
+    {
+        liveTrackedStackSlots = compiler->getAllocator(CMK_GC).allocate<StackSlotLifetime*>(trackedStackSlotCount);
+        memset(liveTrackedStackSlots, 0, trackedStackSlotCount * sizeof(liveTrackedStackSlots[0]));
+    }
 
 #ifdef JIT32_GCENCODER
     isFramePointerUsed = compiler->codeGen->isFramePointerUsed();
@@ -51,6 +61,8 @@ void GCInfo::Begin()
 
         if (thisLcl->lvRegister)
         {
+            assert(!thisLcl->HasGCSlotLiveness());
+
             syncThisReg = thisLcl->GetRegNum();
 
             if (ReportRegArgChanges() && (syncThisReg == REG_ARG_0) &&
@@ -59,28 +71,38 @@ void GCInfo::Begin()
                 AddLiveRegs(GCT_GCREF, RBM_ARG_0, 0, true);
             }
         }
-    }
-#endif // JIT32_GCENCODER
-
-    if (trackedStackSlotCount != 0)
-    {
-        liveTrackedStackSlots = compiler->getAllocator(CMK_GC).allocate<StackSlotLifetime*>(trackedStackSlotCount);
-        memset(liveTrackedStackSlots, 0, trackedStackSlotCount * sizeof(liveTrackedStackSlots[0]));
-
-#if defined(JIT32_GCENCODER) && !defined(FEATURE_EH_FUNCLETS)
-        if (compiler->lvaKeepAliveAndReportThis())
+#ifndef FEATURE_EH_FUNCLETS
+        else if (thisLcl->HasGCSlotLiveness())
         {
-            assert(compiler->lvaIsOriginalThisArg(0));
+            assert(trackedStackSlotCount != 0);
 
-            LclVarDsc* thisLcl = compiler->lvaGetDesc(0u);
-
-            if (thisLcl->HasGCSlotLiveness())
-            {
-                syncThisStackSlotOffset = thisLcl->GetStackOffset();
-            }
+            syncThisStackSlotOffset = thisLcl->GetStackOffset();
         }
 #endif
     }
+
+    if (ReportCallSites() && (maxStackDepth <= ArgsBitStackMaxDepth))
+    {
+        useArgsBitStack = true;
+
+        argsBitStack.gcMask    = 0;
+        argsBitStack.byrefMask = 0;
+    }
+    else
+    {
+        argsStack.reportCount = 0;
+        argsStack.maxCount    = maxStackDepth;
+
+        if (maxStackDepth <= _countof(argsStack.inlineStorage))
+        {
+            argsStack.types = argsStack.inlineStorage;
+        }
+        else
+        {
+            argsStack.types = compiler->getAllocator(CMK_GC).allocate<uint8_t>(maxStackDepth);
+        }
+    }
+#endif // JIT32_GCENCODER
 }
 
 void GCInfo::End(unsigned codeOffs)
@@ -580,32 +602,195 @@ void GCInfo::RemoveAllLiveRegs(unsigned codeOffs)
 }
 
 #ifdef JIT32_GCENCODER
-void GCInfo::AddCallArgPush(unsigned codeOffs, unsigned stackLevel, GCtype gcType)
+
+void GCInfo::StackPush(GCtype type, unsigned stackLevel, unsigned codeOffs)
+{
+    if (useArgsBitStack)
+    {
+        argsBitStack.gcMask    = (argsBitStack.gcMask << 1) | (type != GCT_NONE);
+        argsBitStack.byrefMask = (argsBitStack.byrefMask << 1) | (type == GCT_BYREF);
+
+        return;
+    }
+
+    noway_assert(stackLevel < argsStack.maxCount);
+
+    argsStack.types[stackLevel] = static_cast<uint8_t>(type);
+
+    if ((type != GCT_NONE) || ReportNonGCArgChanges())
+    {
+        argsStack.reportCount++;
+
+        if (ReportRegArgChanges())
+        {
+            AddCallArgPush(type, stackLevel, codeOffs);
+        }
+    }
+}
+
+void GCInfo::StackPushMultiple(unsigned count, unsigned stackLevel, unsigned codeOffs)
+{
+    assert(count != 0);
+
+    if (useArgsBitStack)
+    {
+        argsBitStack.gcMask <<= count;
+        argsBitStack.byrefMask <<= count;
+
+        return;
+    }
+
+    noway_assert((count <= argsStack.maxCount) && (stackLevel <= argsStack.maxCount - count));
+
+    for (unsigned i = 0; i < count; i++)
+    {
+        argsStack.types[stackLevel + i] = GCT_NONE;
+    }
+
+    if (ReportNonGCArgChanges())
+    {
+        argsStack.reportCount += count;
+
+        if (ReportRegArgChanges())
+        {
+            for (unsigned i = 0; i < count; i++)
+            {
+                AddCallArgPush(GCT_NONE, stackLevel + i, codeOffs);
+            }
+        }
+    }
+}
+
+void GCInfo::StackKill(unsigned count, unsigned stackLevel, unsigned codeOffs)
+{
+    assert((0 < count) && (count <= stackLevel));
+
+    if (useArgsBitStack)
+    {
+        argsBitStack.gcMask    = (count >= ArgsBitStackMaxDepth) ? 0 : (argsBitStack.gcMask & ~((1u << count) - 1u));
+        argsBitStack.byrefMask = (count >= ArgsBitStackMaxDepth) ? 0 : (argsBitStack.byrefMask & ~((1u << count) - 1u));
+
+        return;
+    }
+
+    unsigned gcCount = 0;
+
+    for (unsigned i = 0; i < count; i++)
+    {
+        GCtype type = static_cast<GCtype>(argsStack.types[stackLevel - i - 1]);
+
+        if (type != GCT_NONE)
+        {
+            argsStack.types[stackLevel - i - 1] = GCT_NONE;
+            gcCount++;
+        }
+    }
+
+    assert(gcCount <= argsStack.reportCount);
+
+    if (!ReportNonGCArgChanges())
+    {
+        argsStack.reportCount -= gcCount;
+    }
+
+    if (ReportRegArgChanges())
+    {
+        if (gcCount != 0)
+        {
+            AddCallArgsKill(gcCount, codeOffs);
+        }
+
+        AddCallArgsPop(0, codeOffs, true);
+    }
+}
+
+void GCInfo::StackPop(unsigned count, unsigned stackLevel, unsigned codeOffs, bool isCall)
+{
+    assert((count != 0) || isCall);
+    assert(count <= stackLevel);
+
+    if (useArgsBitStack)
+    {
+        argsBitStack.gcMask    = (count >= ArgsBitStackMaxDepth) ? 0 : (argsBitStack.gcMask >> count);
+        argsBitStack.byrefMask = (count >= ArgsBitStackMaxDepth) ? 0 : (argsBitStack.byrefMask >> count);
+
+        return;
+    }
+
+    if ((count == 0) && !ReportRegArgChanges())
+    {
+        return;
+    }
+
+    assert(stackLevel <= argsStack.maxCount);
+
+    unsigned reportCount = 0;
+
+    if (ReportNonGCArgChanges())
+    {
+        reportCount = count;
+    }
+    else
+    {
+        for (unsigned i = 0; i < count; i++)
+        {
+            if (static_cast<GCtype>(argsStack.types[stackLevel - i - 1]) != GCT_NONE)
+            {
+                reportCount++;
+            }
+        }
+    }
+
+    assert(reportCount <= argsStack.reportCount);
+    argsStack.reportCount -= reportCount;
+
+    if (ReportRegArgChanges())
+    {
+        AddCallArgsPop(reportCount, codeOffs, isCall);
+    }
+}
+
+void GCInfo::AddCallArgPush(GCtype type, unsigned stackLevel, unsigned codeOffs)
 {
     RegArgChange* change = AddRegArgChange();
     change->codeOffs     = codeOffs;
     change->argOffset    = stackLevel;
     change->kind         = RegArgChangeKind::PushArg;
-    change->gcType       = gcType;
+    change->gcType       = type;
     change->isThis       = false;
 }
 
-void GCInfo::AddCallArgsKill(unsigned codeOffs, unsigned argCount)
+void GCInfo::AddCallArgsKill(unsigned count, unsigned codeOffs)
 {
     RegArgChange* change = AddRegArgChange();
     change->codeOffs     = codeOffs;
-    change->argOffset    = argCount;
+    change->argOffset    = count;
     change->kind         = RegArgChangeKind::KillArgs;
     change->gcType       = GCT_GCREF;
     change->isThis       = false;
 }
 
-void GCInfo::AddCallArgsPop(unsigned codeOffs, unsigned argCount, bool isCall)
+void GCInfo::AddCallArgsPop(unsigned count, unsigned codeOffs, bool isCall)
 {
+    if (count == 0)
+    {
+        // We don't need to pop anything but may need to report GC registers, if any.
+
+        if (isFullyInterruptible)
+        {
+            return;
+        }
+
+        if (((GetAllLiveRegs() & RBM_CALLEE_SAVED) == RBM_NONE) && (argsStack.reportCount == 0))
+        {
+            return;
+        }
+    }
+
     // Only calls may pop more than one value.
     // cdecl calls accomplish this popping via a post-call "ADD SP, imm" instruction,
     // we treat that as "isCall" too.
-    isCall |= argCount > 1;
+    isCall |= count > 1;
 
     // We only care about callee-saved registers and there are only 4 of them on x86,
     // we can save space in RegArgChange by "compressing" regMaskTP to just 4 bits.
@@ -635,14 +820,92 @@ void GCInfo::AddCallArgsPop(unsigned codeOffs, unsigned argCount, bool isCall)
 
     RegArgChange* change  = AddRegArgChange();
     change->codeOffs      = codeOffs;
-    change->argOffset     = argCount;
+    change->argOffset     = count;
     change->kind          = isCall ? RegArgChangeKind::PopArgs : RegArgChangeKind::Pop;
     change->gcType        = GCT_GCREF;
     change->isThis        = false;
     change->callRefRegs   = callRefRegs;
     change->callByrefRegs = callByrefRegs;
 }
-#else
+
+void GCInfo::AddCallSite(unsigned stackLevel, unsigned codeOffs)
+{
+    assert(ReportCallSites());
+
+    regMaskTP regs = GetAllLiveRegs() & ~RBM_INTRET;
+
+    if ((regs == RBM_NONE) &&
+        ((stackLevel == 0) || (useArgsBitStack ? (argsBitStack.gcMask == 0) : (argsStack.reportCount == 0))))
+    {
+        return;
+    }
+
+    CallSite* call = new (compiler, CMK_GC) CallSite;
+
+    if (firstCallSite == nullptr)
+    {
+        assert(lastCallSite == nullptr);
+
+        firstCallSite = call;
+    }
+    else
+    {
+        lastCallSite->next = call;
+    }
+
+    lastCallSite = call;
+
+    call->refRegs   = static_cast<regMaskSmall>(liveRefRegs);
+    call->byrefRegs = static_cast<regMaskSmall>(liveByrefRegs);
+    call->codeOffs  = codeOffs;
+
+#if !FEATURE_FIXED_OUT_ARGS
+    if (useArgsBitStack)
+    {
+        call->argCount     = 0;
+        call->argMask      = argsBitStack.gcMask;
+        call->byrefArgMask = argsBitStack.byrefMask;
+
+        return;
+    }
+
+    if (argsStack.reportCount == 0)
+    {
+        call->argCount     = 0;
+        call->argMask      = RBM_NONE;
+        call->byrefArgMask = RBM_NONE;
+
+        return;
+    }
+
+    call->argCount = argsStack.reportCount;
+    call->argTable = new (compiler, CMK_GC) unsigned[argsStack.reportCount];
+
+    unsigned gcArgCount = 0;
+
+    for (unsigned i = 0; i < stackLevel; i++)
+    {
+        GCtype type = static_cast<GCtype>(argsStack.types[stackLevel - i - 1]);
+
+        if (type != GCT_NONE)
+        {
+            unsigned offset = i * TARGET_POINTER_SIZE;
+
+            if (type == GCT_BYREF)
+            {
+                offset |= byref_OFFSET_FLAG;
+            }
+
+            call->argTable[gcArgCount++] = offset;
+        }
+    }
+
+    assert(argsStack.reportCount == gcArgCount);
+#endif // !FEATURE_FIXED_OUT_ARGS
+}
+
+#else // !JIT32_GCENCODER
+
 void GCInfo::AddCallArgStore(unsigned codeOffs, int argOffs, GCtype gcType)
 {
     assert(gcType != GCT_NONE);
@@ -663,20 +926,11 @@ void GCInfo::AddCallArgsKill(unsigned codeOffs)
     change->kind         = RegArgChangeKind::KillArgs;
     change->gcType       = GCT_GCREF;
 }
-#endif
 
-#ifdef JIT32_GCENCODER
-GCInfo::CallSite* GCInfo::AddCallSite(unsigned codeOffs)
-#else
 void GCInfo::AddCallSite(unsigned codeOffs, unsigned length)
-#endif
 {
-#ifdef JIT32_GCENCODER
-    assert(ReportCallSites());
-#else
     assert(!isFullyInterruptible);
     assert((0 < length) && (length <= 16));
-#endif
 
     CallSite* call = new (compiler, CMK_GC) CallSite;
 
@@ -693,15 +947,13 @@ void GCInfo::AddCallSite(unsigned codeOffs, unsigned length)
 
     lastCallSite = call;
 
-    call->refRegs   = static_cast<regMaskSmall>(liveRefRegs);
-    call->byrefRegs = static_cast<regMaskSmall>(liveByrefRegs);
-    call->codeOffs  = codeOffs;
-#ifdef JIT32_GCENCODER
-    return call;
-#else
+    call->refRegs         = static_cast<regMaskSmall>(liveRefRegs);
+    call->byrefRegs       = static_cast<regMaskSmall>(liveByrefRegs);
+    call->codeOffs        = codeOffs;
     call->callInstrLength = static_cast<uint8_t>(length);
-#endif
 }
+
+#endif // !JIT32_GCENCODER
 
 #if !defined(JIT32_GCENCODER) || defined(FEATURE_EH_FUNCLETS)
 

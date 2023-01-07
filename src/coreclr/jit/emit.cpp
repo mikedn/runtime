@@ -2888,12 +2888,6 @@ size_t emitter::emitIssue1Instr(insGroup* ig, instrDesc* id, BYTE** dp)
     ig->igPerfScore += insPerfScore;
 #endif // defined(DEBUG) || defined(LATE_DISASM)
 
-#ifdef JIT32_GCENCODER
-    // If we're generating a full pointer map and the stack is empty,
-    // there better not be any "pending" argument push entries.
-    assert(!gcInfo.ReportRegArgChanges() || (emitCurStackLvl != 0) || (u2.emitGcArgTrackCnt == 0));
-#endif
-
     /* Did the size of the instruction match our expectations? */
 
     UNATIVE_OFFSET actualSize = (UNATIVE_OFFSET)(*dp - curInsAdr);
@@ -4593,41 +4587,18 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
     emitSizeTable.record(static_cast<unsigned>(emitSizeMethod));
 #endif
 
+#ifndef JIT32_GCENCODER
     gcInfo.Begin();
-
-#ifdef JIT32_GCENCODER
+#else
 #if EMITTER_STATS
     stkDepthTable.record(emitMaxStackDepth);
 #endif
-
     unsigned maxStackDepthIn4ByteElements = emitMaxStackDepth / REGSIZE_BYTES;
     JITDUMP("Converting emitMaxStackDepth from bytes (%d) to elements (%d)\n", emitMaxStackDepth,
             maxStackDepthIn4ByteElements);
     emitMaxStackDepth = maxStackDepthIn4ByteElements;
 
-    if (gcInfo.ReportCallSites() && (emitMaxStackDepth <= MaxSimpleStackDepth))
-    {
-        emitSimpleStkUsed = true;
-
-        u1.emitSimpleStkMask      = 0;
-        u1.emitSimpleByrefStkMask = 0;
-    }
-    else
-    {
-        emitSimpleStkUsed = false;
-
-        if (emitMaxStackDepth <= sizeof(u2.emitArgTrackLcl))
-        {
-            u2.emitArgTrackTab = u2.emitArgTrackLcl;
-        }
-        else
-        {
-            u2.emitArgTrackTab = emitComp->getAllocator(CMK_GC).allocate<uint8_t>(emitMaxStackDepth);
-        }
-
-        u2.emitArgTrackTop   = u2.emitArgTrackTab;
-        u2.emitGcArgTrackCnt = 0;
-    }
+    gcInfo.Begin(emitMaxStackDepth);
 
     if (emitEpilogCnt == 0)
     {
@@ -4637,7 +4608,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
     }
 
     *epilogSize = emitEpilogSize + emitExitSeqSize;
-#endif
+#endif // JIT32_GCENCODER
 
 #ifdef DEBUG
     if (EMIT_INSTLIST_VERBOSE)
@@ -4884,10 +4855,9 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 #if !FEATURE_FIXED_OUT_ARGS
         if (ig->igStkLvl != emitCurStackLvl)
         {
-            /* We are pushing stuff implicitly at this label */
-
-            assert((unsigned)ig->igStkLvl > (unsigned)emitCurStackLvl);
-            emitStackPushN(cp, (ig->igStkLvl - (unsigned)emitCurStackLvl) / sizeof(int));
+            // We are pushing stuff implicitly at this label.
+            assert(ig->igStkLvl > emitCurStackLvl);
+            emitStackPushN(emitCurCodeOffs(cp), (ig->igStkLvl - emitCurStackLvl) / TARGET_POINTER_SIZE);
         }
 #endif
 
@@ -6461,318 +6431,52 @@ void emitter::emitGCregDeadAll(BYTE* addr)
 
 #ifdef JIT32_GCENCODER
 
-// Record a push of a single dword on the stack.
-void emitter::emitStackPush(BYTE* addr, GCtype gcType)
-{
-    if (emitSimpleStkUsed)
-    {
-        assert(gcInfo.ReportCallSites());
-        assert(emitCurStackLvl / sizeof(int) < MaxSimpleStackDepth);
-
-        u1.emitSimpleStkMask <<= 1;
-        u1.emitSimpleStkMask |= (gcType != GCT_NONE);
-
-        u1.emitSimpleByrefStkMask <<= 1;
-        u1.emitSimpleByrefStkMask |= (gcType == GCT_BYREF);
-
-        assert((u1.emitSimpleStkMask & u1.emitSimpleByrefStkMask) == u1.emitSimpleByrefStkMask);
-    }
-    else
-    {
-        emitStackPushLargeStk(addr, gcType, 1);
-    }
-
-    emitCurStackLvl += sizeof(int);
-}
-
-// Record a push of a bunch of non-GC dwords on the stack.
-void emitter::emitStackPushN(BYTE* addr, unsigned count)
-{
-    assert(count);
-
-    if (emitSimpleStkUsed)
-    {
-        assert(gcInfo.ReportCallSites());
-
-        u1.emitSimpleStkMask <<= count;
-        u1.emitSimpleByrefStkMask <<= count;
-    }
-    else
-    {
-        emitStackPushLargeStk(addr, GCT_NONE, count);
-    }
-
-    emitCurStackLvl += count * sizeof(int);
-}
-
-// Record a pop of the given number of dwords from the stack.
-void emitter::emitStackPop(unsigned codeOffs, bool isCall, unsigned count)
-{
-    assert(emitCurStackLvl / sizeof(int) >= count);
-
-    if (count != 0)
-    {
-        if (emitSimpleStkUsed)
-        {
-            assert(gcInfo.ReportCallSites());
-
-            if (count >= MaxSimpleStackDepth)
-            {
-                u1.emitSimpleStkMask      = 0;
-                u1.emitSimpleByrefStkMask = 0;
-            }
-            else
-            {
-                u1.emitSimpleStkMask >>= count;
-                u1.emitSimpleByrefStkMask >>= count;
-            }
-        }
-        else
-        {
-            emitStackPopLargeStk(codeOffs, isCall, count);
-        }
-
-        emitCurStackLvl -= count * sizeof(int);
-    }
-    else
-    {
-        assert(isCall);
-
-        if (gcInfo.ReportRegArgChanges())
-        {
-            emitStackPopLargeStk(codeOffs, isCall, 0);
-        }
-    }
-}
-
-// Record a push of a single word on the stack for a full pointer map.
-void emitter::emitStackPushLargeStk(BYTE* addr, GCtype gcType, unsigned count)
-{
-    assert(count != 0);
-    assert(!emitSimpleStkUsed);
-
-    unsigned level = emitCurStackLvl / sizeof(int);
-
-    noway_assert(count <= UINT_MAX - level);
-
-    for (unsigned i = 0; i < count; i++)
-    {
-        assert(u2.emitArgTrackTop == u2.emitArgTrackTab + level);
-        assert(u2.emitArgTrackTop <= u2.emitArgTrackTab + emitMaxStackDepth);
-
-        *u2.emitArgTrackTop++ = static_cast<uint8_t>(gcType);
-
-        if ((gcType != GCT_NONE) || gcInfo.ReportNonGCArgChanges())
-        {
-            if (gcInfo.ReportRegArgChanges())
-            {
-                gcInfo.AddCallArgPush(emitCurCodeOffs(addr), level, gcType);
-            }
-
-            u2.emitGcArgTrackCnt++;
-        }
-
-        level++;
-    }
-}
-
-// Record a pop of the given number of words from the stack for a full ptr map.
-void emitter::emitStackPopLargeStk(unsigned codeOffs, bool isCall, unsigned count)
+void emitter::emitStackPush(unsigned codeOffs, GCtype type)
 {
     assert(emitIssuing);
-    assert(!emitSimpleStkUsed);
 
-    unsigned argRecCnt = 0; // arg count for ESP, ptr-arg count for EBP
-
-    /* Count how many pointer records correspond to this "pop" */
-
-    for (unsigned argStkCnt = count; argStkCnt != 0; argStkCnt--)
-    {
-        assert(u2.emitArgTrackTop > u2.emitArgTrackTab);
-
-        GCtype gcType = static_cast<GCtype>(*--u2.emitArgTrackTop);
-
-        if ((gcType != GCT_NONE) || gcInfo.ReportNonGCArgChanges())
-        {
-            argRecCnt++;
-        }
-    }
-
-    assert(u2.emitArgTrackTop >= u2.emitArgTrackTab);
-    assert(u2.emitArgTrackTop == u2.emitArgTrackTab + emitCurStackLvl / sizeof(int) - count);
-
-    // We're about to pop the corresponding arg records
-    u2.emitGcArgTrackCnt -= argRecCnt;
-
-    if (!gcInfo.ReportRegArgChanges())
-    {
-        return;
-    }
-
-    if (argRecCnt == 0)
-    {
-        if (gcInfo.IsFullyInterruptible())
-        {
-            return;
-        }
-
-        if (((gcInfo.GetAllLiveRegs() & RBM_CALLEE_SAVED) == RBM_NONE) && (u2.emitGcArgTrackCnt == 0))
-        {
-            return;
-        }
-    }
-
-    gcInfo.AddCallArgsPop(codeOffs, argRecCnt, isCall);
+    gcInfo.StackPush(type, emitCurStackLvl / TARGET_POINTER_SIZE, codeOffs);
+    emitCurStackLvl += TARGET_POINTER_SIZE;
 }
 
-// For caller-pop arguments, we report the arguments as pending arguments.
-// However, any GC arguments are now dead, so we need to report them as non-GC.
+void emitter::emitStackPushN(unsigned codeOffs, unsigned count)
+{
+    assert(emitIssuing);
+
+    gcInfo.StackPushMultiple(count, emitCurStackLvl / TARGET_POINTER_SIZE, codeOffs);
+    emitCurStackLvl += count * TARGET_POINTER_SIZE;
+}
+
+void emitter::emitStackPop(unsigned codeOffs, unsigned count)
+{
+    assert(emitIssuing);
+
+    gcInfo.StackPop(count, emitCurStackLvl / TARGET_POINTER_SIZE, codeOffs, false);
+    emitCurStackLvl -= count * TARGET_POINTER_SIZE;
+}
+
+void emitter::emitStackPopArgs(unsigned codeOffs, unsigned count)
+{
+    assert(emitIssuing);
+
+    gcInfo.StackPop(count, emitCurStackLvl / TARGET_POINTER_SIZE, codeOffs, true);
+    emitCurStackLvl -= count * TARGET_POINTER_SIZE;
+}
+
 void emitter::emitStackKillArgs(unsigned codeOffs, unsigned count)
 {
-    assert(count > 0);
+    assert(emitIssuing);
 
-    if (emitSimpleStkUsed)
-    {
-        assert(gcInfo.ReportCallSites());
-
-        // We don't need to report this to the GC info, but we do need
-        // to kill mark the ptrs on the stack as non-GC.
-
-        assert(emitCurStackLvl / sizeof(int) >= count);
-
-        for (unsigned lvl = 0; lvl < count; lvl++)
-        {
-            u1.emitSimpleStkMask &= ~(1 << lvl);
-            u1.emitSimpleByrefStkMask &= ~(1 << lvl);
-        }
-
-        return;
-    }
-
-    uint8_t* argTrackTop = u2.emitArgTrackTop;
-    unsigned gcCnt       = 0;
-
-    for (unsigned i = 0; i < count; i++)
-    {
-        assert(argTrackTop > u2.emitArgTrackTab);
-
-        --argTrackTop;
-
-        GCtype gcType = static_cast<GCtype>(*argTrackTop);
-
-        if (gcType != GCT_NONE)
-        {
-            *argTrackTop = GCT_NONE;
-            gcCnt++;
-        }
-    }
-
-    /* We're about to kill the corresponding (pointer) arg records */
-
-    if (!gcInfo.ReportNonGCArgChanges())
-    {
-        u2.emitGcArgTrackCnt -= gcCnt;
-    }
-
-    if (!gcInfo.ReportRegArgChanges())
-    {
-        return;
-    }
-
-    // Right after the call, the arguments are still sitting on the
-    // stack, but they are effectively dead. For fully-interruptible
-    // methods, we need to report that.
-
-    if (gcCnt != 0)
-    {
-        gcInfo.AddCallArgsKill(codeOffs, gcCnt);
-    }
-
-    // Now that ptr args have been marked as non-ptrs, we need to
-    // record the call itself as one that has no arguments.
-
-    emitStackPopLargeStk(codeOffs, true, 0);
+    gcInfo.StackKill(count, emitCurStackLvl / TARGET_POINTER_SIZE, codeOffs);
 }
 
 void emitter::emitRecordGCCall(unsigned codeOffs)
 {
     assert(emitIssuing);
-    assert(gcInfo.ReportCallSites());
 
-    regMaskTP regs = gcInfo.GetAllLiveRegs() & ~RBM_INTRET;
-
-    if (regs == RBM_NONE)
-    {
-        if (emitCurStackLvl == 0)
-        {
-            return;
-        }
-
-        if (emitSimpleStkUsed)
-        {
-            if (u1.emitSimpleStkMask == 0)
-            {
-                return;
-            }
-        }
-        else
-        {
-            if (u2.emitGcArgTrackCnt == 0)
-            {
-                return;
-            }
-        }
-    }
-
-    GCInfo::CallSite* call = gcInfo.AddCallSite(codeOffs);
-
-#if !FEATURE_FIXED_OUT_ARGS
-    noway_assert(FitsIn<uint16_t>(emitCurStackLvl / 4));
-
-    if (emitSimpleStkUsed)
-    {
-        call->argCount     = 0;
-        call->argMask      = u1.emitSimpleStkMask;
-        call->byrefArgMask = u1.emitSimpleByrefStkMask;
-
-        return;
-    }
-
-    call->argCount = u2.emitGcArgTrackCnt;
-
-    if (call->argCount == 0)
-    {
-        call->argMask      = RBM_NONE;
-        call->byrefArgMask = RBM_NONE;
-
-        return;
-    }
-
-    call->argTable = new (emitComp, CMK_GC) unsigned[u2.emitGcArgTrackCnt];
-
-    unsigned gcArgs = 0;
-    unsigned stkLvl = emitCurStackLvl / sizeof(int);
-
-    for (unsigned i = 0; i < stkLvl; i++)
-    {
-        GCtype gcType = static_cast<GCtype>(u2.emitArgTrackTab[stkLvl - i - 1]);
-
-        if (gcType != GCT_NONE)
-        {
-            call->argTable[gcArgs] = i * TARGET_POINTER_SIZE;
-
-            if (gcType == GCT_BYREF)
-            {
-                call->argTable[gcArgs] |= byref_OFFSET_FLAG;
-            }
-
-            gcArgs++;
-        }
-    }
-
-    assert(u2.emitGcArgTrackCnt == gcArgs);
-#endif //! FEATURE_FIXED_OUT_ARGS
+    gcInfo.AddCallSite(emitCurStackLvl / TARGET_POINTER_SIZE, codeOffs);
 }
+
 #endif // JIT32_GCENCODER
 
 #ifdef DEBUG

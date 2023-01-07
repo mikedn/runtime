@@ -1858,37 +1858,15 @@ public:
     static regMaskTP GetNoGCHelperCalleeSavedRegs(CorInfoHelpFunc helper);
 
 #ifdef JIT32_GCENCODER
-    bool emitSimpleStkUsed; // using the "simple" stack table?
-
-    static constexpr unsigned MaxSimpleStackDepth = sizeof(unsigned) * CHAR_BIT;
-
-    union {
-        struct // if emitSimpleStkUsed==true
-        {
-            unsigned emitSimpleStkMask;      // bit per pushed dword (if it fits. Lowest bit <==> last pushed arg)
-            unsigned emitSimpleByrefStkMask; // byref qualifier for emitSimpleStkMask
-        } u1;
-
-        struct // if emitSimpleStkUsed==false
-        {
-            uint8_t  emitArgTrackLcl[16]; // small local table to avoid malloc
-            uint8_t* emitArgTrackTab;     // base of the argument tracking stack
-            uint8_t* emitArgTrackTop;     // top  of the argument tracking stack
-            unsigned emitGcArgTrackCnt; // count of pending arg records (stk-depth for frameless methods, gc ptrs on stk
-                                        // for framed methods)
-        } u2;
-    };
-
     unsigned emitCntStackDepth;     // 0 in prolog/epilog, One DWORD elsewhere
     unsigned emitMaxStackDepth = 0; // actual computed max. stack depth
     unsigned emitCurStackLvl   = 0; // amount of bytes pushed on stack
 
-    void emitStackPush(BYTE* addr, GCtype gcType);
-    void emitStackPushN(BYTE* addr, unsigned count);
-    void emitStackPushLargeStk(BYTE* addr, GCtype gcType, unsigned count);
+    void emitStackPush(unsigned codeOffs, GCtype type);
+    void emitStackPushN(unsigned codeOffs, unsigned count);
+    void emitStackPop(unsigned codeOffs, unsigned count);
+    void emitStackPopArgs(unsigned codeOffs, unsigned count);
     void emitStackKillArgs(unsigned codeOffs, unsigned count);
-    void emitStackPop(unsigned codeOffs, bool isCall, unsigned count);
-    void emitStackPopLargeStk(unsigned codeOffs, bool isCall, unsigned count);
     void emitRecordGCCall(unsigned codeOffs);
 #else
     void emitRecordGCCall(unsigned codeOffs, unsigned callInstrLength);
