@@ -1244,7 +1244,6 @@ void emitter::emitBegProlog()
     emitGenIG(GetProlog());
 
     VarSetOps::ClearD(emitComp, emitInitGCrefVars);
-    VarSetOps::ClearD(emitComp, emitPrevGCrefVars);
     emitInitGCrefRegs = RBM_NONE;
     emitInitByrefRegs = RBM_NONE;
 }
