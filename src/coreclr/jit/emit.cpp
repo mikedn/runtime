@@ -515,6 +515,11 @@ void emitter::emitFinishIG(bool extend)
     insGroup* ig = emitCurIG;
     assert((ig->igFlags & IGF_PLACEHOLDER) == 0);
 
+    // TODO-MIKE-Cleanup: Prologs are like "extended" as far as GC info is concerned,
+    // there's nothing live at the start of a prolog (and they're not interruptible so
+    // it would not matter anyway). Trouble is, they can be empty so we end up trying
+    // to allocate 0 bytes - the memory allocator doesn't like that.
+
     if ((ig->igFlags & IGF_EXTEND) == 0)
     {
         if ((ig->igFlags & (IGF_EPILOG | IGF_FUNCLET_EPILOG | IGF_FUNCLET_PROLOG)) != 0)
@@ -545,7 +550,7 @@ void emitter::emitFinishIG(bool extend)
             // of producing bad GC info. For now keep this for prologs and epilogs, removing
             // results in (harmless) GC info diffs.
         }
-        else
+        else if (ig != GetProlog())
         {
             ig->igFlags |= IGF_GC_VARS;
         }
