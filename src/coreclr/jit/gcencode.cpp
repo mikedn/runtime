@@ -82,6 +82,7 @@ class GCEncoder
     unsigned                 untrackedStackSlotCount;
     unsigned                 trackedStackSlotLifetimeCount;
     unsigned                 trackedThisLclNum = BAD_VAR_NUM;
+    regNumber                syncThisReg;
 
 public:
     GCEncoder(CodeGen*           codeGen,
@@ -92,7 +93,8 @@ public:
               StackSlotLifetime* firstStackSlotLifetime,
               RegArgChange*      firstRegArgChange,
               CallSite*          firstCallSite,
-              bool               isFullyInterruptible)
+              bool               isFullyInterruptible,
+              regNumber          syncThisReg)
         : codeGen(codeGen)
         , compiler(codeGen->GetCompiler())
         , codeSize(codeSize)
@@ -103,6 +105,7 @@ public:
         , firstRegArgChange(firstRegArgChange)
         , firstCallSite(firstCallSite)
         , isFullyInterruptible(isFullyInterruptible)
+        , syncThisReg(syncThisReg)
     {
     }
 
@@ -137,7 +140,7 @@ void* GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen, unsigned codeSize, unsigned
 #endif
 
     GCEncoder encoder(codeGen, codeSize, prologSize, epilogSize, GetReturnKind(compiler->info), firstStackSlotLifetime,
-                      firstRegArgChange, firstCallSite, isFullyInterruptible);
+                      firstRegArgChange, firstCallSite, isFullyInterruptible, syncThisReg);
     return encoder.CreateAndStoreGCInfo();
 }
 
@@ -2863,12 +2866,12 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFramed(uint8_t* dest, const in
     unsigned lastOffset = 0;
     unsigned totalSize  = 0;
 
-    if (compiler->lvaKeepAliveAndReportThis() && compiler->lvaTable[compiler->info.compThisArg].lvRegister)
+    if (syncThisReg != REG_NA)
     {
-        unsigned thisRegMask   = genRegMask(compiler->lvaTable[compiler->info.compThisArg].GetRegNum());
-        unsigned thisPtrRegEnc = gceEncodeCalleeSavedRegs(thisRegMask) << 4;
+        unsigned thisPtrRegEnc = gceEncodeCalleeSavedRegs(genRegMask(syncThisReg)) << 4;
 
-        if (thisPtrRegEnc)
+        // TODO-MIKE-Review: Probably this should be an assert...
+        if (thisPtrRegEnc != 0)
         {
             totalSize += 1;
             if (mask)
