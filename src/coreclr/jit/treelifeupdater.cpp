@@ -391,24 +391,24 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(BasicBlock* block)
 
     for (VarSetOps::Enumerator en(compiler, block->bbLiveIn); en.MoveNext();)
     {
-        LclVarDsc* varDsc = compiler->lvaGetDescByTrackedIndex(en.Current());
+        LclVarDsc* lcl = compiler->lvaGetDescByTrackedIndex(en.Current());
 
-        if (varDsc->lvIsInReg())
+        if (lcl->lvIsInReg())
         {
-            regMaskTP lclRegs = GetLclRegs(varDsc);
+            regMaskTP lclRegs = GetLclRegs(lcl);
 
             newLiveRegSet |= lclRegs;
 
-            if (varDsc->TypeIs(TYP_REF))
+            if (lcl->TypeIs(TYP_REF))
             {
                 newRegGCrefSet |= lclRegs;
             }
-            else if (varDsc->TypeIs(TYP_BYREF))
+            else if (lcl->TypeIs(TYP_BYREF))
             {
                 newRegByrefSet |= lclRegs;
             }
 
-            if (!varDsc->IsAlwaysAliveInMemory())
+            if (!lcl->IsAlwaysAliveInMemory() && lcl->HasGCSlotLiveness())
             {
 #ifdef DEBUG
                 if (compiler->verbose && VarSetOps::IsMember(compiler, liveGCLcl, en.Current()))
@@ -421,7 +421,7 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(BasicBlock* block)
             }
         }
 
-        if ((!varDsc->lvIsInReg() || varDsc->IsAlwaysAliveInMemory()) && varDsc->HasGCSlotLiveness())
+        if ((!lcl->lvIsInReg() || lcl->IsAlwaysAliveInMemory()) && lcl->HasGCSlotLiveness())
         {
 #ifdef DEBUG
             if (compiler->verbose && !VarSetOps::IsMember(compiler, liveGCLcl, en.Current()))
