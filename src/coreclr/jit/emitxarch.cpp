@@ -10555,13 +10555,11 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
                 if ((gcInfo.GetSyncThisReg() != REG_NA) && emitIGisInProlog(emitCurIG) && (reg2 == REG_ARG_0))
                 {
                     // We're relocating "this" in the prolog
-                    assert(emitComp->lvaIsOriginalThisArg(0));
-                    assert(emitComp->lvaTable[0].lvRegister);
-                    assert(emitComp->lvaTable[0].GetRegNum() == reg1);
+                    assert(id->idGCref() == GCT_GCREF);
 
                     if (gcInfo.ReportRegArgChanges())
                     {
-                        gcInfo.AddLiveRegs(id->idGCref(), genRegMask(reg1), emitCurCodeOffs(dst), true);
+                        gcInfo.AddLiveThisReg(reg1, emitCurCodeOffs(dst));
                         break;
                     }
                 }

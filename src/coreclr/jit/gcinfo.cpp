@@ -406,6 +406,15 @@ void GCInfo::AddLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs)
 #endif
 }
 
+#ifdef JIT32_GCENCODER
+void GCInfo::AddLiveThisReg(regNumber reg, unsigned codeOffs)
+{
+    assert(reg == syncThisReg);
+
+    AddLiveRegs(GCT_GCREF, genRegMask(reg), codeOffs, true);
+}
+#endif
+
 void GCInfo::AddLiveReg(GCtype type, regNumber reg, unsigned codeOffs)
 {
     assert((liveRefRegs & liveByrefRegs) == RBM_NONE);

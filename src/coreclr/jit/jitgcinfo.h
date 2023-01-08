@@ -276,9 +276,7 @@ public:
     void UpdateStackSlotLifetimes(unsigned codeOffs);
 
 #ifdef JIT32_GCENCODER
-    void AddLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs, bool isThis);
-#else
-    void AddLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs);
+    void AddLiveThisReg(regNumber reg, unsigned codeOffs);
 #endif
     void AddLiveReg(GCtype type, regNumber reg, unsigned codeOffs);
     void SetLiveRegs(GCtype type, regMaskTP regs, unsigned codeOffs);
@@ -311,9 +309,12 @@ private:
     RegArgChange* AddRegArgChange();
 
 #ifdef JIT32_GCENCODER
+    void AddLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs, bool isThis);
     void AddCallArgPush(GCtype type, unsigned stackLevel, unsigned codeOffs);
     void AddCallArgsKill(unsigned count, unsigned codeOffs);
     void AddCallArgsPop(unsigned count, unsigned codeOffs, bool isCall);
+#else
+    void AddLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs);
 #endif
 
 #if !defined(JIT32_GCENCODER) || defined(FEATURE_EH_FUNCLETS)
