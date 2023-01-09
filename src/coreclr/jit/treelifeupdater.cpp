@@ -76,8 +76,7 @@ void CodeGenLivenessUpdater::ChangeLife(CodeGen* codeGen, VARSET_VALARG_TP newLi
 
     DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet1, liveGCLcl));
 
-    VarSetOps::Assign(compiler, varDeltaSet, currentLife);
-    VarSetOps::DiffD(compiler, varDeltaSet, newLife);
+    VarSetOps::SymmetricDiff(compiler, varDeltaSet, currentLife, newLife);
 
     for (VarSetOps::Enumerator e(compiler, varDeltaSet); e.MoveNext();)
     {
@@ -88,74 +87,68 @@ void CodeGenLivenessUpdater::ChangeLife(CodeGen* codeGen, VARSET_VALARG_TP newLi
         bool       isInReg    = lcl->lvIsInReg();
         bool       isInMemory = !isInReg || lcl->IsAlwaysAliveInMemory();
 
-        if (isInReg)
+        if (VarSetOps::IsMember(compiler, currentLife, e.Current()))
         {
-            // TODO-Cleanup: Move the code from compUpdateLifeVar to UpdateLiveLclRegs
-            // that updates the gc sets
-            regMaskTP lclRegs = GetLclRegs(lcl);
-
-            if (isGCRef)
+            if (isInReg)
             {
-                liveGCRefRegs &= ~lclRegs;
+                // TODO-Cleanup: Move the code from compUpdateLifeVar to UpdateLiveLclRegs
+                // that updates the gc sets
+                regMaskTP lclRegs = GetLclRegs(lcl);
+
+                if (isGCRef)
+                {
+                    liveGCRefRegs &= ~lclRegs;
+                }
+                else if (isByRef)
+                {
+                    liveGCByRefRegs &= ~lclRegs;
+                }
+
+                UpdateLiveLclRegs(lcl, /*isDying*/ true);
             }
-            else if (isByRef)
-            {
-                liveGCByRefRegs &= ~lclRegs;
-            }
 
-            UpdateLiveLclRegs(lcl, /*isDying*/ true);
-        }
-
-        if (isInMemory && (isGCRef || isByRef) && lcl->HasGCSlotLiveness())
-        {
-            VarSetOps::RemoveElemD(compiler, liveGCLcl, e.Current());
-        }
-
-#ifdef USING_VARIABLE_LIVE_RANGE
-        codeGen->getVariableLiveKeeper()->siEndVariableLiveRange(lclNum);
-#endif
-    }
-
-    VarSetOps::Assign(compiler, varDeltaSet, newLife);
-    VarSetOps::DiffD(compiler, varDeltaSet, currentLife);
-
-    for (VarSetOps::Enumerator e(compiler, varDeltaSet); e.MoveNext();)
-    {
-        unsigned   lclNum  = compiler->lvaTrackedIndexToLclNum(e.Current());
-        LclVarDsc* lcl     = compiler->lvaGetDesc(lclNum);
-        bool       isGCRef = lcl->TypeIs(TYP_REF);
-        bool       isByRef = lcl->TypeIs(TYP_BYREF);
-
-        if (lcl->lvIsInReg())
-        {
-            // If this variable is going live in a register, it is no longer live on the stack,
-            // unless it is an EH var, which always remains live on the stack.
-            if (!lcl->IsAlwaysAliveInMemory() && lcl->HasGCSlotLiveness())
+            if (isInMemory && (isGCRef || isByRef) && lcl->HasGCSlotLiveness())
             {
                 VarSetOps::RemoveElemD(compiler, liveGCLcl, e.Current());
             }
 
-            UpdateLiveLclRegs(lcl, /*isDying*/ false);
-
-            regMaskTP lclRegs = GetLclRegs(lcl);
-
-            if (isGCRef)
-            {
-                liveGCRefRegs |= lclRegs;
-            }
-            else if (isByRef)
-            {
-                liveGCByRefRegs |= lclRegs;
-            }
+#ifdef USING_VARIABLE_LIVE_RANGE
+            codeGen->getVariableLiveKeeper()->siEndVariableLiveRange(lclNum);
+#endif
         }
-        else if (lcl->HasGCSlotLiveness())
+        else
         {
-            VarSetOps::AddElemD(compiler, liveGCLcl, e.Current());
-        }
+            if (lcl->lvIsInReg())
+            {
+                // If this variable is going live in a register, it is no longer live on the stack,
+                // unless it is an EH var, which always remains live on the stack.
+                if (!lcl->IsAlwaysAliveInMemory() && lcl->HasGCSlotLiveness())
+                {
+                    VarSetOps::RemoveElemD(compiler, liveGCLcl, e.Current());
+                }
+
+                UpdateLiveLclRegs(lcl, /*isDying*/ false);
+
+                regMaskTP lclRegs = GetLclRegs(lcl);
+
+                if (isGCRef)
+                {
+                    liveGCRefRegs |= lclRegs;
+                }
+                else if (isByRef)
+                {
+                    liveGCByRefRegs |= lclRegs;
+                }
+            }
+            else if (lcl->HasGCSlotLiveness())
+            {
+                VarSetOps::AddElemD(compiler, liveGCLcl, e.Current());
+            }
 
 #ifdef USING_VARIABLE_LIVE_RANGE
-        codeGen->getVariableLiveKeeper()->siStartVariableLiveRange(lcl, lclNum);
+            codeGen->getVariableLiveKeeper()->siStartVariableLiveRange(lcl, lclNum);
 #endif
+        }
     }
 
     VarSetOps::Assign(compiler, currentLife, newLife);

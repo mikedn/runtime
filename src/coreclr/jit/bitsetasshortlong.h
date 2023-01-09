@@ -198,11 +198,24 @@ public:
             DiffDLong(env, bs1, bs2);
         }
     }
+
     static BitSetShortLongRep Diff(Env env, BitSetShortLongRep bs1, BitSetShortLongRep bs2)
     {
         BitSetShortLongRep res = MakeCopy(env, bs1);
         DiffD(env, res, bs2);
         return res;
+    }
+
+    static void SymmetricDiff(Env env, Set& r, ConstSet s1, ConstSet s2)
+    {
+        if (IsShort(env))
+        {
+            r = reinterpret_cast<Set>(reinterpret_cast<size_t>(s1) ^ reinterpret_cast<size_t>(s2));
+        }
+        else
+        {
+            SymmetricDiffLong(env, r, s1, s2);
+        }
     }
 
     static void RemoveElemD(Env env, BitSetShortLongRep& bs, unsigned i)
@@ -609,6 +622,16 @@ private:
         for (unsigned i = 0; i < len; i++)
         {
             bs1[i] &= ~bs2[i];
+        }
+    }
+
+    static void SymmetricDiffLong(Env env, Set r, ConstSet s1, ConstSet s2)
+    {
+        assert(!IsShort(env));
+
+        for (unsigned i = 0, len = BitSetTraits::GetArrSize(env, sizeof(size_t)); i < len; i++)
+        {
+            r[i] = s1[i] ^ s2[i];
         }
     }
 
