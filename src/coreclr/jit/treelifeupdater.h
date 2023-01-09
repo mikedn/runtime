@@ -42,6 +42,7 @@ public:
     }
 
     void Begin();
+    void End(CodeGen* codeGen);
     void BeginBlock();
     void BeginBlockCodeGen(BasicBlock* block);
     void BeginPrologCodeGen();

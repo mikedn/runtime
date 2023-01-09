@@ -678,9 +678,7 @@ void CodeGen::genCodeForBBlist()
 
     } //------------------ END-FOR each block of the method -------------------
 
-    // There could be variables alive at this point. For example see lvaKeepAliveAndReportThis.
-    // This call is for cleaning the GC refs
-    liveness.ChangeLife(this, VarSetOps::MakeEmpty(compiler));
+    liveness.End(this);
 
 #ifdef DEBUG
     if (compiler->verbose)
