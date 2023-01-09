@@ -175,38 +175,33 @@ void CodeGenLivenessUpdater::SetLife(CodeGen* codeGen, BasicBlock* block)
     {
         unsigned   lclNum = compiler->lvaTrackedIndexToLclNum(e.Current());
         LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+        bool       isBorn = VarSetOps::IsMember(compiler, newLife, e.Current());
 
-        if (VarSetOps::IsMember(compiler, currentLife, e.Current()))
+        if (lcl->HasGCSlotLiveness())
         {
-            if ((!lcl->lvIsInReg() || lcl->IsAlwaysAliveInMemory()) && lcl->HasGCSlotLiveness())
+            if (isBorn && !lcl->lvIsInReg())
             {
-                VarSetOps::RemoveElemD(compiler, liveGCLcl, e.Current());
+                VarSetOps::AddElemD(compiler, liveGCLcl, e.Current());
             }
-
-#ifdef USING_VARIABLE_LIVE_RANGE
-            codeGen->getVariableLiveKeeper()->siEndVariableLiveRange(lclNum);
-#endif
-        }
-        else
-        {
-            if (lcl->lvIsInReg())
+            else if (!isBorn || lcl->lvIsInReg())
             {
-                // If this variable is going live in a register, it is no longer live on the stack,
-                // unless it is an EH var, which always remains live on the stack.
-                if (!lcl->IsAlwaysAliveInMemory() && lcl->HasGCSlotLiveness())
+                if (isBorn ? !lcl->IsAlwaysAliveInMemory() : (!lcl->lvIsInReg() || lcl->IsAlwaysAliveInMemory()))
                 {
                     VarSetOps::RemoveElemD(compiler, liveGCLcl, e.Current());
                 }
             }
-            else if (lcl->HasGCSlotLiveness())
-            {
-                VarSetOps::AddElemD(compiler, liveGCLcl, e.Current());
-            }
+        }
 
 #ifdef USING_VARIABLE_LIVE_RANGE
+        if (isBorn)
+        {
             codeGen->getVariableLiveKeeper()->siStartVariableLiveRange(lcl, lclNum);
-#endif
         }
+        else
+        {
+            codeGen->getVariableLiveKeeper()->siEndVariableLiveRange(lclNum);
+        }
+#endif
     }
 
     VarSetOps::Assign(compiler, currentLife, newLife);
