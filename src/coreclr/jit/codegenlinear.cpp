@@ -174,10 +174,6 @@ void CodeGen::genCodeForBBlist()
 
         assert(LIR::AsRange(block).CheckLIR(compiler));
 
-        // Figure out which registers hold variables on entry to this block
-
-        liveness.BeginBlock();
-
         UpdateLclBlockLiveInRegs(block);
         liveness.BeginBlockCodeGen(this, block);
 

@@ -45,14 +45,6 @@ void CodeGenLivenessUpdater::End(CodeGen* codeGen)
 #endif
 }
 
-void CodeGenLivenessUpdater::BeginBlock()
-{
-    currentNode     = nullptr;
-    liveLclRegs     = RBM_NONE;
-    liveGCRefRegs   = RBM_NONE;
-    liveGCByRefRegs = RBM_NONE;
-}
-
 static regMaskTP GetLclRegs(const LclVarDsc* lcl)
 {
     assert(lcl->lvIsInReg());
@@ -67,6 +59,12 @@ static regMaskTP GetLclRegs(const LclVarDsc* lcl)
 
 void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* block)
 {
+    currentNode = nullptr;
+
+    liveLclRegs     = RBM_NONE;
+    liveGCRefRegs   = RBM_NONE;
+    liveGCByRefRegs = RBM_NONE;
+
     SetLife(codeGen, block);
 
     regMaskTP newLiveRegSet  = RBM_NONE;
