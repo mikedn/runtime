@@ -32,8 +32,6 @@ class CodeGenLivenessUpdater
     void AddGCRefRegs(regMaskTP regMask DEBUGARG(bool forceOutput = false));
     void AddGCByRefRegs(regMaskTP regMask DEBUGARG(bool forceOutput = false));
 
-    void SetLife(CodeGen* codeGen, BasicBlock* block);
-
 #ifdef DEBUG
     void DumpDiff(CodeGen* codeGen);
     void DumpGCRefRegsDiff(regMaskTP gcRegGCrefSetNew DEBUGARG(bool forceOutput = false));

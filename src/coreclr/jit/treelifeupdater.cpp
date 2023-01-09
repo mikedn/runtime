@@ -65,7 +65,57 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
     liveGCRefRegs   = RBM_NONE;
     liveGCByRefRegs = RBM_NONE;
 
-    SetLife(codeGen, block);
+    VARSET_TP newLife = block->bbLiveIn;
+
+    DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live vars at start of block: ", currentLife, newLife);)
+
+    if (!VarSetOps::Equal(compiler, currentLife, newLife))
+    {
+        DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet1, liveGCLcl));
+
+        VarSetOps::SymmetricDiff(compiler, varDeltaSet, currentLife, newLife);
+
+        for (VarSetOps::Enumerator e(compiler, varDeltaSet); e.MoveNext();)
+        {
+            unsigned   lclNum = compiler->lvaTrackedIndexToLclNum(e.Current());
+            LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+            bool       isBorn = VarSetOps::IsMember(compiler, newLife, e.Current());
+
+            if (lcl->HasGCSlotLiveness())
+            {
+                if (isBorn && !lcl->lvIsInReg())
+                {
+                    VarSetOps::AddElemD(compiler, liveGCLcl, e.Current());
+                }
+                else if (!isBorn || lcl->lvIsInReg())
+                {
+                    if (isBorn ? !lcl->IsAlwaysAliveInMemory() : (!lcl->lvIsInReg() || lcl->IsAlwaysAliveInMemory()))
+                    {
+                        VarSetOps::RemoveElemD(compiler, liveGCLcl, e.Current());
+                    }
+                }
+            }
+
+#ifdef USING_VARIABLE_LIVE_RANGE
+            if (isBorn)
+            {
+                codeGen->getVariableLiveKeeper()->siStartVariableLiveRange(lcl, lclNum);
+            }
+            else
+            {
+                codeGen->getVariableLiveKeeper()->siEndVariableLiveRange(lclNum);
+            }
+#endif
+        }
+
+        VarSetOps::Assign(compiler, currentLife, newLife);
+
+#ifdef USING_SCOPE_INFO
+        codeGen->siUpdate();
+#endif
+
+        DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("GC stack vars: ", scratchSet1, liveGCLcl);)
+    }
 
     regMaskTP newLclRegs     = RBM_NONE;
     regMaskTP newGCRefRegs   = RBM_NONE;
@@ -75,7 +125,7 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
     VARSET_TP addedGCVars   = VarSetOps::MakeEmpty(compiler);
 #endif
 
-    for (VarSetOps::Enumerator en(compiler, block->bbLiveIn); en.MoveNext();)
+    for (VarSetOps::Enumerator en(compiler, newLife); en.MoveNext();)
     {
         LclVarDsc* lcl = compiler->lvaGetDescByTrackedIndex(en.Current());
 
@@ -154,63 +204,6 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
             }
         }
     }
-}
-
-void CodeGenLivenessUpdater::SetLife(CodeGen* codeGen, BasicBlock* block)
-{
-    VARSET_TP newLife = block->bbLiveIn;
-
-    DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live vars at start of block: ", currentLife, newLife);)
-
-    if (VarSetOps::Equal(compiler, currentLife, newLife))
-    {
-        return;
-    }
-
-    DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet1, liveGCLcl));
-
-    VarSetOps::SymmetricDiff(compiler, varDeltaSet, currentLife, newLife);
-
-    for (VarSetOps::Enumerator e(compiler, varDeltaSet); e.MoveNext();)
-    {
-        unsigned   lclNum = compiler->lvaTrackedIndexToLclNum(e.Current());
-        LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
-        bool       isBorn = VarSetOps::IsMember(compiler, newLife, e.Current());
-
-        if (lcl->HasGCSlotLiveness())
-        {
-            if (isBorn && !lcl->lvIsInReg())
-            {
-                VarSetOps::AddElemD(compiler, liveGCLcl, e.Current());
-            }
-            else if (!isBorn || lcl->lvIsInReg())
-            {
-                if (isBorn ? !lcl->IsAlwaysAliveInMemory() : (!lcl->lvIsInReg() || lcl->IsAlwaysAliveInMemory()))
-                {
-                    VarSetOps::RemoveElemD(compiler, liveGCLcl, e.Current());
-                }
-            }
-        }
-
-#ifdef USING_VARIABLE_LIVE_RANGE
-        if (isBorn)
-        {
-            codeGen->getVariableLiveKeeper()->siStartVariableLiveRange(lcl, lclNum);
-        }
-        else
-        {
-            codeGen->getVariableLiveKeeper()->siEndVariableLiveRange(lclNum);
-        }
-#endif
-    }
-
-    VarSetOps::Assign(compiler, currentLife, newLife);
-
-#ifdef USING_SCOPE_INFO
-    codeGen->siUpdate();
-#endif
-
-    DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("GC stack vars: ", scratchSet1, liveGCLcl);)
 }
 
 void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* lclNode)
