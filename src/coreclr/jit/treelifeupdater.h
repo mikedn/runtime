@@ -5,6 +5,8 @@
 
 #include "compiler.h"
 
+class CodeGen;
+
 // Handles changes in variable liveness from a given node.
 // Keeps set of temporary VARSET_TP during its lifetime to avoid unnecessary memory allocations.
 class CodeGenLivenessUpdater
@@ -23,15 +25,17 @@ class CodeGenLivenessUpdater
     unsigned  epoch;
 #endif
 
-    void UpdateLifePromoted(class CodeGen* codeGen, GenTreeLclVarCommon* lclNode);
+    void UpdateLifePromoted(CodeGen* codeGen, GenTreeLclVarCommon* lclNode);
 
     void SetLiveLclRegs(regMaskTP regs);
 
     void AddGCRefRegs(regMaskTP regMask DEBUGARG(bool forceOutput = false));
     void AddGCByRefRegs(regMaskTP regMask DEBUGARG(bool forceOutput = false));
 
+    void SetLife(CodeGen* codeGen, BasicBlock* block);
+
 #ifdef DEBUG
-    void DumpDiff(class CodeGen* codeGen);
+    void DumpDiff(CodeGen* codeGen);
     void DumpGCRefRegsDiff(regMaskTP gcRegGCrefSetNew DEBUGARG(bool forceOutput = false));
     void DumpGCByRefRegsDiff(regMaskTP gcRegByrefSetNew DEBUGARG(bool forceOutput = false));
 #endif
@@ -44,13 +48,12 @@ public:
     void Begin();
     void End(CodeGen* codeGen);
     void BeginBlock();
-    void BeginBlockCodeGen(BasicBlock* block);
+    void BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* block);
     void BeginPrologCodeGen();
     void BeginMethodEpilogCodeGen();
 
-    void ChangeLife(class CodeGen* codeGen, VARSET_VALARG_TP newLife);
-    void UpdateLife(class CodeGen* codeGen, GenTreeLclVarCommon* lclNode);
-    void UpdateLifeMultiReg(class CodeGen* codeGen, GenTreeLclVar* lclNode);
+    void UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* lclNode);
+    void UpdateLifeMultiReg(CodeGen* codeGen, GenTreeLclVar* lclNode);
 
     VARSET_VALARG_TP GetLiveSet() const
     {

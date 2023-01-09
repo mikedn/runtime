@@ -179,16 +179,7 @@ void CodeGen::genCodeForBBlist()
         liveness.BeginBlock();
 
         UpdateLclBlockLiveInRegs(block);
-
-        // Updating variable liveness after last instruction of previous block was emitted
-        // and before first of the current block is emitted
-        liveness.ChangeLife(this, block->bbLiveIn);
-
-        // Even if liveness didn't change, we need to update the registers containing GC references.
-        // genUpdateLife will update the registers live due to liveness changes. But what about registers that didn't
-        // change? We cleared them out above. Maybe we should just not clear them out, but update the ones that change
-        // here. That would require handling the changes in recordVarLocationsAtStartOfBB().
-        liveness.BeginBlockCodeGen(block);
+        liveness.BeginBlockCodeGen(this, block);
 
 #if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
         genInsertNopForUnwinder(block);

@@ -65,8 +65,104 @@ static regMaskTP GetLclRegs(const LclVarDsc* lcl)
     return genRegMask(lcl->GetRegNum());
 }
 
-void CodeGenLivenessUpdater::ChangeLife(CodeGen* codeGen, VARSET_VALARG_TP newLife)
+void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* block)
 {
+    SetLife(codeGen, block);
+
+    regMaskTP newLiveRegSet  = RBM_NONE;
+    regMaskTP newRegGCrefSet = RBM_NONE;
+    regMaskTP newRegByrefSet = RBM_NONE;
+#ifdef DEBUG
+    VARSET_TP removedGCVars = VarSetOps::MakeEmpty(compiler);
+    VARSET_TP addedGCVars   = VarSetOps::MakeEmpty(compiler);
+#endif
+
+    for (VarSetOps::Enumerator en(compiler, block->bbLiveIn); en.MoveNext();)
+    {
+        LclVarDsc* lcl = compiler->lvaGetDescByTrackedIndex(en.Current());
+
+        if (lcl->lvIsInReg())
+        {
+            regMaskTP lclRegs = GetLclRegs(lcl);
+
+            newLiveRegSet |= lclRegs;
+
+            if (lcl->TypeIs(TYP_REF))
+            {
+                newRegGCrefSet |= lclRegs;
+            }
+            else if (lcl->TypeIs(TYP_BYREF))
+            {
+                newRegByrefSet |= lclRegs;
+            }
+
+            if (!lcl->IsAlwaysAliveInMemory() && lcl->HasGCSlotLiveness())
+            {
+#ifdef DEBUG
+                if (compiler->verbose && VarSetOps::IsMember(compiler, liveGCLcl, en.Current()))
+                {
+                    VarSetOps::AddElemD(compiler, removedGCVars, en.Current());
+                }
+#endif
+
+                VarSetOps::RemoveElemD(compiler, liveGCLcl, en.Current());
+            }
+        }
+
+        if ((!lcl->lvIsInReg() || lcl->IsAlwaysAliveInMemory()) && lcl->HasGCSlotLiveness())
+        {
+#ifdef DEBUG
+            if (compiler->verbose && !VarSetOps::IsMember(compiler, liveGCLcl, en.Current()))
+            {
+                VarSetOps::AddElemD(compiler, addedGCVars, en.Current());
+            }
+#endif
+
+            VarSetOps::AddElemD(compiler, liveGCLcl, en.Current());
+        }
+    }
+
+    SetLiveLclRegs(newLiveRegSet);
+
+#ifdef DEBUG
+    if (compiler->verbose)
+    {
+        if (!VarSetOps::IsEmpty(compiler, addedGCVars))
+        {
+            printf("Added GCVars: ");
+            dumpConvertedVarSet(compiler, addedGCVars);
+            printf("\n");
+        }
+
+        if (!VarSetOps::IsEmpty(compiler, removedGCVars))
+        {
+            printf("Removed GCVars: ");
+            dumpConvertedVarSet(compiler, removedGCVars);
+            printf("\n");
+        }
+    }
+#endif // DEBUG
+
+    AddGCRefRegs(newRegGCrefSet DEBUGARG(true));
+    AddGCByRefRegs(newRegByrefSet DEBUGARG(true));
+
+    if (handlerGetsXcptnObj(block->bbCatchTyp))
+    {
+        for (GenTree* node : LIR::AsRange(block))
+        {
+            if (node->OperIs(GT_CATCH_ARG))
+            {
+                AddGCRefRegs(RBM_EXCEPTION_OBJECT);
+                break;
+            }
+        }
+    }
+}
+
+void CodeGenLivenessUpdater::SetLife(CodeGen* codeGen, BasicBlock* block)
+{
+    VARSET_TP newLife = block->bbLiveIn;
+
     DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live vars at start of block: ", currentLife, newLife);)
 
     if (VarSetOps::Equal(compiler, currentLife, newLife))
@@ -399,98 +495,6 @@ void CodeGenLivenessUpdater::UpdateLifePromoted(CodeGen* codeGen, GenTreeLclVarC
     }
 
     DBEXEC(compiler->verbose, DumpDiff(codeGen);)
-}
-
-void CodeGenLivenessUpdater::BeginBlockCodeGen(BasicBlock* block)
-{
-    regMaskTP newLiveRegSet  = RBM_NONE;
-    regMaskTP newRegGCrefSet = RBM_NONE;
-    regMaskTP newRegByrefSet = RBM_NONE;
-#ifdef DEBUG
-    VARSET_TP removedGCVars = VarSetOps::MakeEmpty(compiler);
-    VARSET_TP addedGCVars   = VarSetOps::MakeEmpty(compiler);
-#endif
-
-    for (VarSetOps::Enumerator en(compiler, block->bbLiveIn); en.MoveNext();)
-    {
-        LclVarDsc* lcl = compiler->lvaGetDescByTrackedIndex(en.Current());
-
-        if (lcl->lvIsInReg())
-        {
-            regMaskTP lclRegs = GetLclRegs(lcl);
-
-            newLiveRegSet |= lclRegs;
-
-            if (lcl->TypeIs(TYP_REF))
-            {
-                newRegGCrefSet |= lclRegs;
-            }
-            else if (lcl->TypeIs(TYP_BYREF))
-            {
-                newRegByrefSet |= lclRegs;
-            }
-
-            if (!lcl->IsAlwaysAliveInMemory() && lcl->HasGCSlotLiveness())
-            {
-#ifdef DEBUG
-                if (compiler->verbose && VarSetOps::IsMember(compiler, liveGCLcl, en.Current()))
-                {
-                    VarSetOps::AddElemD(compiler, removedGCVars, en.Current());
-                }
-#endif
-
-                VarSetOps::RemoveElemD(compiler, liveGCLcl, en.Current());
-            }
-        }
-
-        if ((!lcl->lvIsInReg() || lcl->IsAlwaysAliveInMemory()) && lcl->HasGCSlotLiveness())
-        {
-#ifdef DEBUG
-            if (compiler->verbose && !VarSetOps::IsMember(compiler, liveGCLcl, en.Current()))
-            {
-                VarSetOps::AddElemD(compiler, addedGCVars, en.Current());
-            }
-#endif
-
-            VarSetOps::AddElemD(compiler, liveGCLcl, en.Current());
-        }
-    }
-
-    SetLiveLclRegs(newLiveRegSet);
-
-#ifdef DEBUG
-    if (compiler->verbose)
-    {
-        if (!VarSetOps::IsEmpty(compiler, addedGCVars))
-        {
-            printf("Added GCVars: ");
-            dumpConvertedVarSet(compiler, addedGCVars);
-            printf("\n");
-        }
-
-        if (!VarSetOps::IsEmpty(compiler, removedGCVars))
-        {
-            printf("Removed GCVars: ");
-            dumpConvertedVarSet(compiler, removedGCVars);
-            printf("\n");
-        }
-    }
-#endif // DEBUG
-
-    AddGCRefRegs(newRegGCrefSet DEBUGARG(true));
-    AddGCByRefRegs(newRegByrefSet DEBUGARG(true));
-
-    if (handlerGetsXcptnObj(block->bbCatchTyp))
-    {
-        for (GenTree* node : LIR::AsRange(block))
-        {
-            if (node->OperIs(GT_CATCH_ARG))
-            {
-                AddGCRefRegs(RBM_EXCEPTION_OBJECT);
-                break;
-            }
-        }
-    }
 }
 
 void CodeGenLivenessUpdater::BeginPrologCodeGen()
