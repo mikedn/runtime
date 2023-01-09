@@ -67,9 +67,9 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
 
     SetLife(codeGen, block);
 
-    regMaskTP newLiveRegSet  = RBM_NONE;
-    regMaskTP newRegGCrefSet = RBM_NONE;
-    regMaskTP newRegByrefSet = RBM_NONE;
+    regMaskTP newLclRegs     = RBM_NONE;
+    regMaskTP newGCRefRegs   = RBM_NONE;
+    regMaskTP newGCByrefRegs = RBM_NONE;
 #ifdef DEBUG
     VARSET_TP removedGCVars = VarSetOps::MakeEmpty(compiler);
     VARSET_TP addedGCVars   = VarSetOps::MakeEmpty(compiler);
@@ -83,15 +83,15 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
         {
             regMaskTP lclRegs = GetLclRegs(lcl);
 
-            newLiveRegSet |= lclRegs;
+            newLclRegs |= lclRegs;
 
             if (lcl->TypeIs(TYP_REF))
             {
-                newRegGCrefSet |= lclRegs;
+                newGCRefRegs |= lclRegs;
             }
             else if (lcl->TypeIs(TYP_BYREF))
             {
-                newRegByrefSet |= lclRegs;
+                newGCByrefRegs |= lclRegs;
             }
 
             if (!lcl->IsAlwaysAliveInMemory() && lcl->HasGCSlotLiveness())
@@ -120,7 +120,9 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
         }
     }
 
-    SetLiveLclRegs(newLiveRegSet);
+    liveLclRegs     = newLclRegs;
+    liveGCRefRegs   = newGCRefRegs;
+    liveGCByRefRegs = newGCByrefRegs;
 
 #ifdef DEBUG
     if (compiler->verbose)
@@ -140,9 +142,6 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
         }
     }
 #endif // DEBUG
-
-    AddGCRefRegs(newRegGCrefSet DEBUGARG(true));
-    AddGCByRefRegs(newRegByrefSet DEBUGARG(true));
 
     if (handlerGetsXcptnObj(block->bbCatchTyp))
     {
@@ -174,34 +173,12 @@ void CodeGenLivenessUpdater::SetLife(CodeGen* codeGen, BasicBlock* block)
 
     for (VarSetOps::Enumerator e(compiler, varDeltaSet); e.MoveNext();)
     {
-        unsigned   lclNum     = compiler->lvaTrackedIndexToLclNum(e.Current());
-        LclVarDsc* lcl        = compiler->lvaGetDesc(lclNum);
-        bool       isGCRef    = lcl->TypeIs(TYP_REF);
-        bool       isByRef    = lcl->TypeIs(TYP_BYREF);
-        bool       isInReg    = lcl->lvIsInReg();
-        bool       isInMemory = !isInReg || lcl->IsAlwaysAliveInMemory();
+        unsigned   lclNum = compiler->lvaTrackedIndexToLclNum(e.Current());
+        LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
 
         if (VarSetOps::IsMember(compiler, currentLife, e.Current()))
         {
-            if (isInReg)
-            {
-                // TODO-Cleanup: Move the code from compUpdateLifeVar to UpdateLiveLclRegs
-                // that updates the gc sets
-                regMaskTP lclRegs = GetLclRegs(lcl);
-
-                if (isGCRef)
-                {
-                    liveGCRefRegs &= ~lclRegs;
-                }
-                else if (isByRef)
-                {
-                    liveGCByRefRegs &= ~lclRegs;
-                }
-
-                UpdateLiveLclRegs(lcl, /*isDying*/ true);
-            }
-
-            if (isInMemory && (isGCRef || isByRef) && lcl->HasGCSlotLiveness())
+            if ((!lcl->lvIsInReg() || lcl->IsAlwaysAliveInMemory()) && lcl->HasGCSlotLiveness())
             {
                 VarSetOps::RemoveElemD(compiler, liveGCLcl, e.Current());
             }
@@ -219,19 +196,6 @@ void CodeGenLivenessUpdater::SetLife(CodeGen* codeGen, BasicBlock* block)
                 if (!lcl->IsAlwaysAliveInMemory() && lcl->HasGCSlotLiveness())
                 {
                     VarSetOps::RemoveElemD(compiler, liveGCLcl, e.Current());
-                }
-
-                UpdateLiveLclRegs(lcl, /*isDying*/ false);
-
-                regMaskTP lclRegs = GetLclRegs(lcl);
-
-                if (isGCRef)
-                {
-                    liveGCRefRegs |= lclRegs;
-                }
-                else if (isByRef)
-                {
-                    liveGCByRefRegs |= lclRegs;
                 }
             }
             else if (lcl->HasGCSlotLiveness())
