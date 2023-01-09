@@ -4,10 +4,9 @@
 
 void CodeGenLivenessUpdater::Begin()
 {
-    currentLife           = VarSetOps::MakeEmpty(compiler);
-    varDeltaSet           = VarSetOps::MakeEmpty(compiler);
-    varStackGCPtrDeltaSet = VarSetOps::MakeEmpty(compiler);
-    liveGCLcl             = VarSetOps::MakeEmpty(compiler);
+    currentLife = VarSetOps::MakeEmpty(compiler);
+    varDeltaSet = VarSetOps::MakeEmpty(compiler);
+    liveGCLcl   = VarSetOps::MakeEmpty(compiler);
 
 #ifdef DEBUG
     scratchSet1 = VarSetOps::MakeEmpty(compiler);

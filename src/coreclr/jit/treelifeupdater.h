@@ -13,7 +13,6 @@ class CodeGenLivenessUpdater
     GenTree*  currentNode;
     VARSET_TP currentLife;
     VARSET_TP varDeltaSet;
-    VARSET_TP varStackGCPtrDeltaSet;
     VARSET_TP liveGCLcl;
     regMaskTP liveLclRegs     = RBM_NONE;
     regMaskTP liveGCRefRegs   = RBM_NONE;
