@@ -61,10 +61,6 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
 {
     currentNode = nullptr;
 
-    liveLclRegs     = RBM_NONE;
-    liveGCRefRegs   = RBM_NONE;
-    liveGCByRefRegs = RBM_NONE;
-
     VARSET_TP newLife = block->bbLiveIn;
 
     DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live vars at start of block: ", currentLife, newLife);)
@@ -149,23 +145,31 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
         }
     }
 
-    liveLclRegs     = newLclRegs;
-    liveGCRefRegs   = newGCRefRegs;
-    liveGCByRefRegs = newGCByrefRegs;
-
     if (handlerGetsXcptnObj(block->bbCatchTyp))
     {
         for (GenTree* node : LIR::AsRange(block))
         {
             if (node->OperIs(GT_CATCH_ARG))
             {
-                AddGCRefRegs(RBM_EXCEPTION_OBJECT);
+                newGCRefRegs |= RBM_EXCEPTION_OBJECT;
                 break;
             }
         }
     }
 
-    DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("GC stack vars: ", scratchSet1, liveGCLcl);)
+#ifdef DEBUG
+    if (compiler->verbose)
+    {
+        compiler->dmpVarSetDiff("GC stack vars: ", scratchSet1, liveGCLcl);
+        emitter::emitDispRegSetDiff("Live regs: ", liveLclRegs, newLclRegs);
+        emitter::emitDispRegSetDiff("GC regs: ", liveGCRefRegs, newGCRefRegs);
+        emitter::emitDispRegSetDiff("Byref regs: ", liveGCByRefRegs, newGCByrefRegs);
+    }
+#endif
+
+    liveLclRegs     = newLclRegs;
+    liveGCRefRegs   = newGCRefRegs;
+    liveGCByRefRegs = newGCByrefRegs;
 }
 
 void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* lclNode)
@@ -212,7 +216,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
 
         if (isInReg)
         {
-            UpdateLiveLclRegs(lcl, isDying);
+            UpdateLiveLclRegs(lcl, isDying DEBUGARG(lclNode));
         }
 
         DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet1, currentLife);)
