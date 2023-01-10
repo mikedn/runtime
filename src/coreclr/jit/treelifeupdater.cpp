@@ -29,17 +29,6 @@ void CodeGenLivenessUpdater::End(CodeGen* codeGen)
     VarSetOps::ClearD(compiler, currentLife);
     VarSetOps::ClearD(compiler, liveGCLcl);
 
-#ifdef USING_VARIABLE_LIVE_RANGE
-    // TODO-MIKE-Review: This might be dead code, it looks like siEndAllVariableLiveRange
-    // has already been called and as a result siEndVariableLiveRange does nothing.
-    for (VarSetOps::Enumerator e(compiler, currentLife); e.MoveNext();)
-    {
-        unsigned lclNum = compiler->lvaTrackedIndexToLclNum(e.Current());
-
-        codeGen->getVariableLiveKeeper()->siEndVariableLiveRange(lclNum);
-    }
-#endif
-
 #ifdef USING_SCOPE_INFO
     codeGen->siUpdate();
 #endif
