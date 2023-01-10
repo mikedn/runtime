@@ -74,33 +74,24 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
         {
             unsigned   lclNum = compiler->lvaTrackedIndexToLclNum(e.Current());
             LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
-            bool       isBorn = VarSetOps::IsMember(compiler, newLife, e.Current());
 
-            if (lcl->HasGCSlotLiveness())
+            if (VarSetOps::IsMember(compiler, currentLife, e.Current()))
             {
-                if (isBorn && !lcl->lvIsInReg())
+                if (lcl->HasGCSlotLiveness())
                 {
-                    VarSetOps::AddElemD(compiler, liveGCLcl, e.Current());
+                    VarSetOps::RemoveElemD(compiler, liveGCLcl, e.Current());
                 }
-                else if (!isBorn || lcl->lvIsInReg())
-                {
-                    if (isBorn ? !lcl->IsAlwaysAliveInMemory() : (!lcl->lvIsInReg() || lcl->IsAlwaysAliveInMemory()))
-                    {
-                        VarSetOps::RemoveElemD(compiler, liveGCLcl, e.Current());
-                    }
-                }
-            }
 
 #ifdef USING_VARIABLE_LIVE_RANGE
-            if (isBorn)
-            {
-                codeGen->getVariableLiveKeeper()->siStartVariableLiveRange(lcl, lclNum);
+                codeGen->getVariableLiveKeeper()->siEndVariableLiveRange(lclNum);
+#endif
             }
             else
             {
-                codeGen->getVariableLiveKeeper()->siEndVariableLiveRange(lclNum);
-            }
+#ifdef USING_VARIABLE_LIVE_RANGE
+                codeGen->getVariableLiveKeeper()->siStartVariableLiveRange(lcl, lclNum);
 #endif
+            }
         }
 
         VarSetOps::Assign(compiler, currentLife, newLife);
@@ -132,16 +123,18 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
             {
                 newGCByrefRegs |= lclRegs;
             }
+        }
 
-            if (!lcl->IsAlwaysAliveInMemory() && lcl->HasGCSlotLiveness())
+        if (lcl->HasGCSlotLiveness())
+        {
+            if (lcl->lvIsInReg() && !lcl->IsAlwaysAliveInMemory())
             {
                 VarSetOps::RemoveElemD(compiler, liveGCLcl, en.Current());
             }
-        }
-
-        if ((!lcl->lvIsInReg() || lcl->IsAlwaysAliveInMemory()) && lcl->HasGCSlotLiveness())
-        {
-            VarSetOps::AddElemD(compiler, liveGCLcl, en.Current());
+            else
+            {
+                VarSetOps::AddElemD(compiler, liveGCLcl, en.Current());
+            }
         }
     }
 
