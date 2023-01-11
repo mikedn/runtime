@@ -836,9 +836,7 @@ void GCInfo::AddCallArgsKill(unsigned codeOffs)
 
     RegArgChange* change = AddRegArgChange();
     change->codeOffs     = codeOffs;
-    change->argOffset    = 0;
     change->kind         = RegArgChangeKind::KillArgs;
-    change->gcType       = GCT_GCREF;
 }
 
 void GCInfo::AddCallSite(unsigned codeOffs, unsigned length)
