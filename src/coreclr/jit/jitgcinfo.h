@@ -58,7 +58,6 @@ public:
         RegArgChangeKind kind : 8;
         GCtype           gcType : 8;
 #ifdef JIT32_GCENCODER
-        unsigned isThis : 1;
         unsigned callRefRegs : CNT_CALLEE_SAVED;
         unsigned callByrefRegs : CNT_CALLEE_SAVED;
 #endif
@@ -309,13 +308,12 @@ public:
 private:
     RegArgChange* AddRegArgChange();
 
+    void AddLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs);
+
 #ifdef JIT32_GCENCODER
-    void AddLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs, bool isThis);
     void AddCallArgPush(GCtype type, unsigned stackLevel, unsigned codeOffs);
     void AddCallArgsKill(unsigned count, unsigned codeOffs);
     void AddCallArgsPop(unsigned count, unsigned codeOffs, bool isCall);
-#else
-    void AddLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs);
 #endif
 
 #if !defined(JIT32_GCENCODER) || defined(FEATURE_EH_FUNCLETS)

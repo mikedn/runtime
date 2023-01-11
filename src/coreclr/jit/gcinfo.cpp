@@ -68,7 +68,7 @@ void GCInfo::Begin()
             if (ReportRegArgChanges() && (syncThisReg == REG_ARG_0) &&
                 ((compiler->codeGen->paramRegState.intRegLiveIn & RBM_ARG_0) != RBM_NONE))
             {
-                AddLiveRegs(GCT_GCREF, RBM_ARG_0, 0, true);
+                AddLiveRegs(GCT_GCREF, RBM_ARG_0, 0);
             }
         }
 #ifndef FEATURE_EH_FUNCLETS
@@ -276,17 +276,12 @@ GCInfo::RegArgChange* GCInfo::AddRegArgChange()
     return change;
 }
 
-#ifdef JIT32_GCENCODER
-void GCInfo::AddLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs, bool isThis)
-#else
 void GCInfo::AddLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs)
-#endif
 {
     assert(gcType != GCT_NONE);
     assert((GetAllLiveRegs() & regs) == RBM_NONE);
 #ifdef JIT32_GCENCODER
-    assert(isFullyInterruptible || (isThis && ReportRegArgChanges()));
-    assert(!isThis || compiler->lvaKeepAliveAndReportThis());
+    assert(isFullyInterruptible || ((regs == genRegMask(syncThisReg)) && ReportRegArgChanges()));
 #else
     assert(isFullyInterruptible);
 #endif
@@ -296,9 +291,6 @@ void GCInfo::AddLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs)
     change->kind         = RegArgChangeKind::AddRegs;
     change->gcType       = gcType;
     change->regs         = static_cast<regMaskSmall>(regs);
-#ifdef JIT32_GCENCODER
-    change->isThis = isThis;
-#endif
 }
 
 void GCInfo::RemoveLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs)
@@ -312,9 +304,6 @@ void GCInfo::RemoveLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs)
     change->kind         = RegArgChangeKind::RemoveRegs;
     change->gcType       = gcType;
     change->regs         = static_cast<regMaskSmall>(regs);
-#ifdef JIT32_GCENCODER
-    change->isThis = false;
-#endif
 }
 
 #ifdef JIT32_GCENCODER
@@ -322,7 +311,7 @@ void GCInfo::AddLiveThisReg(regNumber reg, unsigned codeOffs)
 {
     assert(reg == syncThisReg);
 
-    AddLiveRegs(GCT_GCREF, genRegMask(reg), codeOffs, true);
+    AddLiveRegs(GCT_GCREF, genRegMask(reg), codeOffs);
 }
 #endif
 
@@ -347,24 +336,17 @@ void GCInfo::AddLiveReg(GCtype type, regNumber reg, unsigned codeOffs)
             otherRegs &= ~regMask;
         }
 
+        if (isFullyInterruptible
 #ifdef JIT32_GCENCODER
-        // For synchronized methods, "this" is always alive and in the same register.
-        // However, if we generate any code after the epilog block (where "this"
-        // goes dead), "this" will come alive again. We need to notice that.
-        // Note that we only expect isThis to be true at an insGroup boundary.
-
-        bool isThis = reg == syncThisReg;
-
-        if (isFullyInterruptible || (ReportRegArgChanges() && isThis))
-        {
-            AddLiveRegs(type, regMask, codeOffs, isThis);
-        }
-#else
-        if (isFullyInterruptible)
+            // For synchronized methods, "this" is always alive and in the same register.
+            // However, if we generate any code after the epilog block (where "this"
+            // goes dead), "this" will come alive again. We need to notice that.
+            || (ReportRegArgChanges() && (reg == syncThisReg))
+#endif
+                )
         {
             AddLiveRegs(type, regMask, codeOffs);
         }
-#endif
 
         typeRegs |= regMask;
     }
@@ -412,24 +394,18 @@ void GCInfo::SetLiveRegs(GCtype type, regMaskTP regs, unsigned codeOffs)
                     otherRegs &= ~regMask;
                 }
 
+                if (isFullyInterruptible
 #ifdef JIT32_GCENCODER
-                // For synchronized methods, "this" is always alive and in the same register.
-                // However, if we generate any code after the epilog block (where "this"
-                // goes dead), "this" will come alive again. We need to notice that.
-                // Note that we only expect isThis to be true at an insGroup boundary.
-
-                bool isThis = (reg == syncThisReg);
-
-                if (isFullyInterruptible || (ReportRegArgChanges() && isThis))
-                {
-                    AddLiveRegs(type, regMask, codeOffs, isThis);
-                }
-#else
-                if (isFullyInterruptible)
+                    // For synchronized methods, "this" is always alive and in the same register.
+                    // However, if we generate any code after the epilog block (where "this"
+                    // goes dead), "this" will come alive again. We need to notice that.
+                    // Note that we only expect isThis to be true at an insGroup boundary.
+                    || (ReportRegArgChanges() && (reg == syncThisReg))
+#endif
+                        )
                 {
                     AddLiveRegs(type, regMask, codeOffs);
                 }
-#endif
 
                 typeRegs |= regMask;
             }
@@ -660,7 +636,6 @@ void GCInfo::AddCallArgPush(GCtype type, unsigned stackLevel, unsigned codeOffs)
     change->argOffset    = stackLevel;
     change->kind         = RegArgChangeKind::PushArg;
     change->gcType       = type;
-    change->isThis       = false;
 }
 
 void GCInfo::AddCallArgsKill(unsigned count, unsigned codeOffs)
@@ -670,7 +645,6 @@ void GCInfo::AddCallArgsKill(unsigned count, unsigned codeOffs)
     change->argOffset    = count;
     change->kind         = RegArgChangeKind::KillArgs;
     change->gcType       = GCT_GCREF;
-    change->isThis       = false;
 }
 
 void GCInfo::AddCallArgsPop(unsigned count, unsigned codeOffs, bool isCall)
@@ -726,7 +700,6 @@ void GCInfo::AddCallArgsPop(unsigned count, unsigned codeOffs, bool isCall)
     change->argOffset     = count;
     change->kind          = isCall ? RegArgChangeKind::PopArgs : RegArgChangeKind::Pop;
     change->gcType        = GCT_GCREF;
-    change->isThis        = false;
     change->callRefRegs   = callRefRegs;
     change->callByrefRegs = callByrefRegs;
 }

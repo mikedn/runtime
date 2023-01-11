@@ -2707,7 +2707,7 @@ unsigned GCEncoder::AddFullyInterruptibleSlots(uint8_t* dest, const int mask)
 
                 dest = gceByrefPrefixI(change, dest);
 
-                if ((trackedThisLclNum == BAD_VAR_NUM) && change->isThis)
+                if (regNum == syncThisReg)
                 {
                     // Mark with 'this' pointer prefix
                     *dest++ = 0xBC;
@@ -3114,8 +3114,8 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, const
 
         if (change->kind == RegArgChangeKind::AddRegs)
         {
-            assert((trackedThisLclNum == BAD_VAR_NUM) && change->isThis);
-            assert((change->regs != RBM_NONE) && genMaxOneBit(change->regs));
+            assert((trackedThisLclNum == BAD_VAR_NUM) && (syncThisReg != REG_NA));
+            assert(change->regs == genRegMask(syncThisReg));
 
             switch (genRegNumFromMask(change->regs))
             {
