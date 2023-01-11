@@ -293,12 +293,27 @@ void GCInfo::AddLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs)
 
     RegArgChange* change = AddRegArgChange();
     change->codeOffs     = codeOffs;
-    change->kind         = RegArgChangeKind::RegChange;
+    change->kind         = RegArgChangeKind::AddRegs;
     change->gcType       = gcType;
-    change->addRegs      = static_cast<regMaskSmall>(regs);
-    change->removeRegs   = RBM_NONE;
+    change->regs         = static_cast<regMaskSmall>(regs);
 #ifdef JIT32_GCENCODER
     change->isThis = isThis;
+#endif
+}
+
+void GCInfo::RemoveLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs)
+{
+    assert(gcType != GCT_NONE);
+    assert((GetAllLiveRegs() & regs) != RBM_NONE);
+    assert(isFullyInterruptible);
+
+    RegArgChange* change = AddRegArgChange();
+    change->codeOffs     = codeOffs;
+    change->kind         = RegArgChangeKind::RemoveRegs;
+    change->gcType       = gcType;
+    change->regs         = static_cast<regMaskSmall>(regs);
+#ifdef JIT32_GCENCODER
+    change->isThis = false;
 #endif
 }
 
@@ -440,23 +455,6 @@ void GCInfo::SetLiveRegs(GCtype type, regMaskTP regs, unsigned codeOffs)
     }
 
     assert((liveRefRegs & liveByrefRegs) == RBM_NONE);
-}
-
-void GCInfo::RemoveLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs)
-{
-    assert(gcType != GCT_NONE);
-    assert((GetAllLiveRegs() & regs) != RBM_NONE);
-    assert(isFullyInterruptible);
-
-    RegArgChange* change = AddRegArgChange();
-    change->codeOffs     = codeOffs;
-    change->kind         = RegArgChangeKind::RegChange;
-    change->gcType       = gcType;
-    change->addRegs      = RBM_NONE;
-    change->removeRegs   = static_cast<regMaskSmall>(regs);
-#ifdef JIT32_GCENCODER
-    change->isThis = false;
-#endif
 }
 
 void GCInfo::RemoveLiveReg(regNumber reg, unsigned codeOffs)
@@ -1140,7 +1138,7 @@ void GCInfo::DumpArgDelta(const char* header)
     {
         // Reg changes are reflected in the register sets deltaRefRegsBase/liveRefRegs
         // and deltaByrefRegsBase/liveByrefRegs, and dumped using those sets.
-        if (change->kind == RegArgChangeKind::RegChange)
+        if ((change->kind == RegArgChangeKind::AddRegs) || (change->kind == RegArgChangeKind::RemoveRegs))
         {
             continue;
         }

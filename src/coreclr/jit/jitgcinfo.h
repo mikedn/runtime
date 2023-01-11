@@ -38,7 +38,8 @@ public:
 
     enum class RegArgChangeKind : unsigned
     {
-        RegChange,
+        AddRegs,
+        RemoveRegs,
 #ifdef JIT32_GCENCODER
         PushArg,
         PopArgs,
@@ -63,12 +64,7 @@ public:
 #endif
 
         union {
-            struct
-            {
-                regMaskSmall addRegs;
-                regMaskSmall removeRegs;
-            };
-
+            regMaskSmall regs;
 #ifdef JIT32_GCENCODER
             unsigned argOffset;
 #else

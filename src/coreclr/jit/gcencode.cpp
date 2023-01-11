@@ -1871,9 +1871,9 @@ static unsigned gceEncodeCalleeSavedRegs(unsigned regs)
 static BYTE* gceByrefPrefixI(GCInfo::RegArgChange* change, BYTE* dest)
 {
     // For registers, we don't need a prefix if it is going dead.
-    assert((change->kind != GCInfo::RegArgChangeKind::RegChange) || (change->removeRegs == RBM_NONE));
+    assert((change->kind != GCInfo::RegArgChangeKind::RemoveRegs) || (change->regs == RBM_NONE));
 
-    if ((change->kind == GCInfo::RegArgChangeKind::RegChange) || (change->kind == GCInfo::RegArgChangeKind::PushArg))
+    if ((change->kind == GCInfo::RegArgChangeKind::AddRegs) || (change->kind == GCInfo::RegArgChangeKind::PushArg))
     {
         if (change->gcType == GCT_BYREF)
         {
@@ -2546,7 +2546,7 @@ unsigned GCEncoder::AddFullyInterruptibleSlots(uint8_t* dest, const int mask)
             lastOffset = nextOffset;
         }
 
-        if (change->kind != RegArgChangeKind::RegChange)
+        if ((change->kind != RegArgChangeKind::AddRegs) && (change->kind != RegArgChangeKind::RemoveRegs))
         {
             if (change->kind == RegArgChangeKind::KillArgs)
             {
@@ -2621,11 +2621,11 @@ unsigned GCEncoder::AddFullyInterruptibleSlots(uint8_t* dest, const int mask)
                 lastOffset = nextOffset;
             }
         }
-        else
+        else if (change->kind == RegArgChangeKind::RemoveRegs)
         {
             // Record any registers that are becoming dead.
 
-            unsigned regMask = change->removeRegs & ptrRegs;
+            unsigned regMask = change->regs & ptrRegs;
 
             while (regMask) // EAX,ECX,EDX,EBX,---,EBP,ESI,EDI
             {
@@ -2671,10 +2671,14 @@ unsigned GCEncoder::AddFullyInterruptibleSlots(uint8_t* dest, const int mask)
 
                 codeDelta = 0;
             }
+        }
+        else
+        {
+            assert(change->kind == RegArgChangeKind::AddRegs);
 
             /* Record any registers that are becoming live */
 
-            regMask = change->addRegs & ~ptrRegs;
+            unsigned regMask = change->regs & ~ptrRegs;
 
             while (regMask) // EAX,ECX,EDX,EBX,---,EBP,ESI,EDI
             {
@@ -3108,12 +3112,12 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, const
         unsigned origCodeDelta = codeDelta;
 #endif
 
-        if (change->kind == RegArgChangeKind::RegChange)
+        if (change->kind == RegArgChangeKind::AddRegs)
         {
             assert((trackedThisLclNum == BAD_VAR_NUM) && change->isThis);
-            assert((change->addRegs != RBM_NONE) && genMaxOneBit(change->addRegs));
+            assert((change->regs != RBM_NONE) && genMaxOneBit(change->regs));
 
-            switch (genRegNumFromMask(change->addRegs))
+            switch (genRegNumFromMask(change->regs))
             {
                 case 0: // EAX
                 case 1: // ECX
@@ -4015,20 +4019,24 @@ void GCEncoder::AddFullyInterruptibleSlots(RegArgChange* firstRegArgChange)
 
             firstArgChange = nullptr;
         }
-        else
+        else if (change->kind == RegArgChangeKind::AddRegs)
         {
-            assert(change->kind == RegArgChangeKind::RegChange);
             assert(change->gcType != GCT_NONE);
 
-            regMaskSmall regs      = change->removeRegs & gcRegs;
+            regMaskSmall regs      = change->regs & ~gcRegs;
+            regMaskSmall byrefRegs = change->gcType == GCT_BYREF ? regs : RBM_NONE;
+            AddRegSlotChange(change->codeOffs, GC_SLOT_LIVE, regs, byrefRegs);
+            gcRegs |= regs;
+        }
+        else
+        {
+            assert(change->kind == RegArgChangeKind::RemoveRegs);
+            assert(change->gcType != GCT_NONE);
+
+            regMaskSmall regs      = change->regs & gcRegs;
             regMaskSmall byrefRegs = change->gcType == GCT_BYREF ? regs : RBM_NONE;
             AddRegSlotChange(change->codeOffs, GC_SLOT_DEAD, regs, byrefRegs);
             gcRegs &= ~regs;
-
-            regs      = change->addRegs & ~gcRegs;
-            byrefRegs = change->gcType == GCT_BYREF ? regs : RBM_NONE;
-            AddRegSlotChange(change->codeOffs, GC_SLOT_LIVE, regs, byrefRegs);
-            gcRegs |= regs;
         }
     }
 }
@@ -4258,7 +4266,7 @@ void GCEncoder::RemoveCallArgStackSlots(unsigned codeOffset, RegArgChange* first
 
     for (RegArgChange* change = firstArgChange; change != killArgsChange; change = change->next)
     {
-        if (change->kind == RegArgChangeKind::RegChange)
+        if ((change->kind == RegArgChangeKind::AddRegs) || (change->kind == RegArgChangeKind::RemoveRegs))
         {
             continue;
         }
