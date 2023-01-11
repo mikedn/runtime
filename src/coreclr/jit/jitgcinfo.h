@@ -161,6 +161,9 @@ public:
 
     static WriteBarrierForm GetWriteBarrierForm(GenTreeStoreInd* store);
     static WriteBarrierForm GetWriteBarrierFormFromAddress(GenTree* addr);
+    static bool IsNoGCHelper(CorInfoHelpFunc helper);
+    static regMaskTP GetNoGCHelperCalleeKilledRegs(CorInfoHelpFunc helper);
+    static regMaskTP GetNoGCHelperCalleeSavedRegs(CorInfoHelpFunc helper);
 
 #if MEASURE_PTRTAB_SIZE
     static size_t s_gcRegPtrDscSize;

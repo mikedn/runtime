@@ -1853,10 +1853,6 @@ public:
     /*    The following is used to distinguish helper vs non-helper calls   */
     /************************************************************************/
 
-    static bool IsNoGCHelper(CorInfoHelpFunc helpFunc);
-    static regMaskTP GetNoGCHelperCalleeKilledRegs(CorInfoHelpFunc helper);
-    static regMaskTP GetNoGCHelperCalleeSavedRegs(CorInfoHelpFunc helper);
-
 #ifdef JIT32_GCENCODER
     unsigned emitCntStackDepth;     // 0 in prolog/epilog, One DWORD elsewhere
     unsigned emitMaxStackDepth = 0; // actual computed max. stack depth

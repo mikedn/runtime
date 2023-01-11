@@ -137,110 +137,6 @@ void GCInfo::End(unsigned codeOffs)
     }
 }
 
-GCInfo::WriteBarrierForm GCInfo::GetWriteBarrierForm(GenTreeStoreInd* store)
-{
-    if (!store->TypeIs(TYP_REF))
-    {
-        // Only object references need write barriers.
-        // A managed pointer cannot be stored in the managed heap so we'll
-        // treat it as any other value that doesn't require a write barrier.
-        return WBF_NoBarrier;
-    }
-
-    if (store->GetValue()->OperIsConst())
-    {
-        // Constant values (normally null since there aren't any other
-        // TYP_REF constants) cannot represent GC heap objects so no
-        // write barrier is needed.
-        return WBF_NoBarrier;
-    }
-
-    if ((store->gtFlags & GTF_IND_TGT_NOT_HEAP) != 0)
-    {
-        // This indirection is not from to the heap.
-        // This case occurs for stack-allocated objects.
-        return WBF_NoBarrier;
-    }
-
-    WriteBarrierForm form = GetWriteBarrierFormFromAddress(store->GetAddr());
-
-    if (form == WBF_BarrierUnknown)
-    {
-        // If we can't figure out where the address is then use TGT_HEAP to
-        // select between checked and unchecked barriers.
-
-        form = ((store->gtFlags & GTF_IND_TGT_HEAP) != 0) ? WBF_BarrierUnchecked : WBF_BarrierChecked;
-    }
-
-    return form;
-}
-
-GCInfo::WriteBarrierForm GCInfo::GetWriteBarrierFormFromAddress(GenTree* addr)
-{
-    if (addr->IsIntegralConst(0))
-    {
-        // If the address is null it doesn't need a write barrier. Other constants
-        // typically need write barriers, usually they're GC statics.
-        return GCInfo::WBF_NoBarrier;
-    }
-
-    if (!addr->TypeIs(TYP_BYREF))
-    {
-        // Normally object references should be stored to the GC heap via managed pointers.
-        //
-        // If it is an unmanaged pointer then it's not tracked so its value may very well
-        // be bogus. If it's an object reference then it means that we're trying to store
-        // an object reference into the method table pointer field of an object...
-        //
-        // There's also the special case of GC statics - in some cases the static address
-        // is an unmanaged pointer (a constant) but a write barrier is still required.
-        //
-        // To keep things simple and safe just emit a checked barrier in all cases.
-
-        return GCInfo::WBF_BarrierChecked;
-    }
-
-    for (addr = addr->gtSkipReloadOrCopy(); addr->OperIs(GT_ADD, GT_LEA); addr = addr->gtSkipReloadOrCopy())
-    {
-        GenTree* op1 = addr->AsOp()->gtOp1;
-        GenTree* op2 = addr->AsOp()->gtOp2;
-
-        if ((op1 != nullptr) && op1->TypeIs(TYP_BYREF, TYP_REF))
-        {
-            assert((op2 == nullptr) || !op2->TypeIs(TYP_BYREF, TYP_REF));
-
-            addr = op1;
-        }
-        else if ((op2 != nullptr) && op2->TypeIs(TYP_BYREF, TYP_REF))
-        {
-            addr = op2;
-        }
-        else
-        {
-            // At least one operand has to be a GC pointer, otherwise it means that
-            // we're dealing with unmanaged pointers pointing into the GC heap...
-            return GCInfo::WBF_BarrierUnknown;
-        }
-    }
-
-    if (addr->TypeIs(TYP_REF))
-    {
-        // If we found an object reference then this should be a store the GC heap,
-        // unless we're dealing with weird code that converts an unmanaged pointer
-        // to TYP_REF...
-
-        return GCInfo::WBF_BarrierUnchecked;
-    }
-
-    if (addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
-    {
-        // No need for a GC barrier when writing to a local variable.
-        return GCInfo::WBF_NoBarrier;
-    }
-
-    return GCInfo::WBF_BarrierUnknown;
-}
-
 void GCInfo::BeginStackSlotLifetime(GCtype type, unsigned index, unsigned codeOffs, int slotOffs)
 {
     assert(type != GCT_NONE);
@@ -1320,3 +1216,237 @@ void GCInfo::DumpDelta(const char* header)
 }
 
 #endif // DEBUG
+
+GCInfo::WriteBarrierForm GCInfo::GetWriteBarrierForm(GenTreeStoreInd* store)
+{
+    if (!store->TypeIs(TYP_REF))
+    {
+        // Only object references need write barriers.
+        // A managed pointer cannot be stored in the managed heap so we'll
+        // treat it as any other value that doesn't require a write barrier.
+        return WBF_NoBarrier;
+    }
+
+    if (store->GetValue()->OperIsConst())
+    {
+        // Constant values (normally null since there aren't any other
+        // TYP_REF constants) cannot represent GC heap objects so no
+        // write barrier is needed.
+        return WBF_NoBarrier;
+    }
+
+    if ((store->gtFlags & GTF_IND_TGT_NOT_HEAP) != 0)
+    {
+        // This indirection is not from to the heap.
+        // This case occurs for stack-allocated objects.
+        return WBF_NoBarrier;
+    }
+
+    WriteBarrierForm form = GetWriteBarrierFormFromAddress(store->GetAddr());
+
+    if (form == WBF_BarrierUnknown)
+    {
+        // If we can't figure out where the address is then use TGT_HEAP to
+        // select between checked and unchecked barriers.
+
+        form = ((store->gtFlags & GTF_IND_TGT_HEAP) != 0) ? WBF_BarrierUnchecked : WBF_BarrierChecked;
+    }
+
+    return form;
+}
+
+GCInfo::WriteBarrierForm GCInfo::GetWriteBarrierFormFromAddress(GenTree* addr)
+{
+    if (addr->IsIntegralConst(0))
+    {
+        // If the address is null it doesn't need a write barrier. Other constants
+        // typically need write barriers, usually they're GC statics.
+        return WBF_NoBarrier;
+    }
+
+    if (!addr->TypeIs(TYP_BYREF))
+    {
+        // Normally object references should be stored to the GC heap via managed pointers.
+        //
+        // If it is an unmanaged pointer then it's not tracked so its value may very well
+        // be bogus. If it's an object reference then it means that we're trying to store
+        // an object reference into the method table pointer field of an object...
+        //
+        // There's also the special case of GC statics - in some cases the static address
+        // is an unmanaged pointer (a constant) but a write barrier is still required.
+        //
+        // To keep things simple and safe just emit a checked barrier in all cases.
+
+        return WBF_BarrierChecked;
+    }
+
+    for (addr = addr->gtSkipReloadOrCopy(); addr->OperIs(GT_ADD, GT_LEA); addr = addr->gtSkipReloadOrCopy())
+    {
+        GenTree* op1 = addr->AsOp()->gtOp1;
+        GenTree* op2 = addr->AsOp()->gtOp2;
+
+        if ((op1 != nullptr) && op1->TypeIs(TYP_BYREF, TYP_REF))
+        {
+            assert((op2 == nullptr) || !op2->TypeIs(TYP_BYREF, TYP_REF));
+
+            addr = op1;
+        }
+        else if ((op2 != nullptr) && op2->TypeIs(TYP_BYREF, TYP_REF))
+        {
+            addr = op2;
+        }
+        else
+        {
+            // At least one operand has to be a GC pointer, otherwise it means that
+            // we're dealing with unmanaged pointers pointing into the GC heap...
+            return WBF_BarrierUnknown;
+        }
+    }
+
+    if (addr->TypeIs(TYP_REF))
+    {
+        // If we found an object reference then this should be a store the GC heap,
+        // unless we're dealing with weird code that converts an unmanaged pointer
+        // to TYP_REF...
+
+        return WBF_BarrierUnchecked;
+    }
+
+    if (addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+    {
+        // No need for a GC barrier when writing to a local variable.
+        return WBF_NoBarrier;
+    }
+
+    return WBF_BarrierUnknown;
+}
+
+// Returns true if garbage collection won't happen within the helper call.
+// There is no need to record live pointers for such call sites.
+bool GCInfo::IsNoGCHelper(CorInfoHelpFunc helper)
+{
+    switch (helper)
+    {
+        case CORINFO_HELP_UNDEF:
+            return false;
+
+        case CORINFO_HELP_PROF_FCN_LEAVE:
+        case CORINFO_HELP_PROF_FCN_ENTER:
+        case CORINFO_HELP_PROF_FCN_TAILCALL:
+        case CORINFO_HELP_LLSH:
+        case CORINFO_HELP_LRSH:
+        case CORINFO_HELP_LRSZ:
+
+//  case CORINFO_HELP_LMUL:
+//  case CORINFO_HELP_LDIV:
+//  case CORINFO_HELP_LMOD:
+//  case CORINFO_HELP_ULDIV:
+//  case CORINFO_HELP_ULMOD:
+
+#ifdef TARGET_X86
+        case CORINFO_HELP_ASSIGN_REF_EAX:
+        case CORINFO_HELP_ASSIGN_REF_ECX:
+        case CORINFO_HELP_ASSIGN_REF_EBX:
+        case CORINFO_HELP_ASSIGN_REF_EBP:
+        case CORINFO_HELP_ASSIGN_REF_ESI:
+        case CORINFO_HELP_ASSIGN_REF_EDI:
+
+        case CORINFO_HELP_CHECKED_ASSIGN_REF_EAX:
+        case CORINFO_HELP_CHECKED_ASSIGN_REF_ECX:
+        case CORINFO_HELP_CHECKED_ASSIGN_REF_EBX:
+        case CORINFO_HELP_CHECKED_ASSIGN_REF_EBP:
+        case CORINFO_HELP_CHECKED_ASSIGN_REF_ESI:
+        case CORINFO_HELP_CHECKED_ASSIGN_REF_EDI:
+#endif
+
+        case CORINFO_HELP_ASSIGN_REF:
+        case CORINFO_HELP_CHECKED_ASSIGN_REF:
+        case CORINFO_HELP_ASSIGN_BYREF:
+
+        case CORINFO_HELP_GETSHARED_GCSTATIC_BASE_NOCTOR:
+        case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_NOCTOR:
+
+        case CORINFO_HELP_INIT_PINVOKE_FRAME:
+            return true;
+
+        default:
+            return false;
+    }
+}
+
+// Gets the set of registers that are killed by a no-GC helper call. This is used when determining
+// what registers to remove from the current live GC/byref sets (and thus what to report as dead in
+// the GC info). Note that for the CORINFO_HELP_ASSIGN_BYREF helper, in particular, the kill set
+// reported by compHelperCallKillSet doesn't match this kill set. compHelperCallKillSet reports the
+// dst/src address registers as killed for liveness purposes, since their values change. However,
+// they still are valid byref pointers after the call, so the dst/src address registers are NOT
+// reported as killed here.
+//
+// Note: This list may not be complete and defaults to the default RBM_CALLEE_TRASH_NOGC registers.
+//
+regMaskTP GCInfo::GetNoGCHelperCalleeKilledRegs(CorInfoHelpFunc helper)
+{
+    assert(GCInfo::IsNoGCHelper(helper));
+
+    regMaskTP result;
+
+    switch (helper)
+    {
+        case CORINFO_HELP_PROF_FCN_ENTER:
+            result = RBM_PROFILER_ENTER_TRASH;
+            break;
+
+        case CORINFO_HELP_PROF_FCN_LEAVE:
+#ifdef TARGET_ARM
+            // profiler scratch remains gc live
+            result = RBM_PROFILER_LEAVE_TRASH & ~RBM_PROFILER_RET_SCRATCH;
+#else
+            result = RBM_PROFILER_LEAVE_TRASH;
+#endif
+            break;
+
+        case CORINFO_HELP_PROF_FCN_TAILCALL:
+            result = RBM_PROFILER_TAILCALL_TRASH;
+            break;
+
+        case CORINFO_HELP_ASSIGN_BYREF:
+#if defined(TARGET_X86)
+            result = RBM_ECX;
+#elif defined(TARGET_AMD64)
+            result = RBM_CALLEE_TRASH_NOGC & ~(RBM_RDI | RBM_RSI);
+#elif defined(TARGET_ARMARCH)
+            result = RBM_CALLEE_GCTRASH_WRITEBARRIER_BYREF;
+#else
+#error Unknown target
+#endif
+            break;
+
+#ifdef TARGET_ARMARCH
+        case CORINFO_HELP_ASSIGN_REF:
+        case CORINFO_HELP_CHECKED_ASSIGN_REF:
+            result = RBM_CALLEE_GCTRASH_WRITEBARRIER;
+            break;
+#endif
+
+#ifdef TARGET_X86
+        case CORINFO_HELP_INIT_PINVOKE_FRAME:
+            result = RBM_INIT_PINVOKE_FRAME_TRASH;
+            break;
+#endif
+
+        default:
+            result = RBM_CALLEE_TRASH_NOGC;
+            break;
+    }
+
+    // compHelperCallKillSet returns a superset of the registers which values are not guranteed to be the same
+    // after the call, if a register loses its GC or byref it has to be in the compHelperCallKillSet set as well.
+    assert((result & Compiler::compHelperCallKillSet(helper)) == result);
+
+    return result;
+}
+
+regMaskTP GCInfo::GetNoGCHelperCalleeSavedRegs(CorInfoHelpFunc helper)
+{
+    return RBM_ALLINT & ~GetNoGCHelperCalleeKilledRegs(helper);
+}

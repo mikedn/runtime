@@ -1645,59 +1645,6 @@ const emitter::opSize emitter::emitSizeEncode[] = {
 const emitAttr emitter::emitSizeDecode[emitter::OPSZ_COUNT] = {EA_1BYTE, EA_2BYTE,  EA_4BYTE,
                                                                EA_8BYTE, EA_16BYTE, EA_32BYTE};
 
-// Returns true if garbage collection won't happen within the helper call.
-// There is no need to record live pointers for such call sites.
-bool emitter::IsNoGCHelper(CorInfoHelpFunc helpFunc)
-{
-    switch (helpFunc)
-    {
-        case CORINFO_HELP_UNDEF:
-            return false;
-
-        case CORINFO_HELP_PROF_FCN_LEAVE:
-        case CORINFO_HELP_PROF_FCN_ENTER:
-        case CORINFO_HELP_PROF_FCN_TAILCALL:
-        case CORINFO_HELP_LLSH:
-        case CORINFO_HELP_LRSH:
-        case CORINFO_HELP_LRSZ:
-
-//  case CORINFO_HELP_LMUL:
-//  case CORINFO_HELP_LDIV:
-//  case CORINFO_HELP_LMOD:
-//  case CORINFO_HELP_ULDIV:
-//  case CORINFO_HELP_ULMOD:
-
-#ifdef TARGET_X86
-        case CORINFO_HELP_ASSIGN_REF_EAX:
-        case CORINFO_HELP_ASSIGN_REF_ECX:
-        case CORINFO_HELP_ASSIGN_REF_EBX:
-        case CORINFO_HELP_ASSIGN_REF_EBP:
-        case CORINFO_HELP_ASSIGN_REF_ESI:
-        case CORINFO_HELP_ASSIGN_REF_EDI:
-
-        case CORINFO_HELP_CHECKED_ASSIGN_REF_EAX:
-        case CORINFO_HELP_CHECKED_ASSIGN_REF_ECX:
-        case CORINFO_HELP_CHECKED_ASSIGN_REF_EBX:
-        case CORINFO_HELP_CHECKED_ASSIGN_REF_EBP:
-        case CORINFO_HELP_CHECKED_ASSIGN_REF_ESI:
-        case CORINFO_HELP_CHECKED_ASSIGN_REF_EDI:
-#endif
-
-        case CORINFO_HELP_ASSIGN_REF:
-        case CORINFO_HELP_CHECKED_ASSIGN_REF:
-        case CORINFO_HELP_ASSIGN_BYREF:
-
-        case CORINFO_HELP_GETSHARED_GCSTATIC_BASE_NOCTOR:
-        case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_NOCTOR:
-
-        case CORINFO_HELP_INIT_PINVOKE_FRAME:
-            return true;
-
-        default:
-            return false;
-    }
-}
-
 insGroup* emitter::emitAddLabel(INDEBUG(BasicBlock* block))
 {
     assert(!emitIGisInProlog(emitCurIG));
@@ -2307,8 +2254,8 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
                                               )
 {
     CorInfoHelpFunc  helper       = Compiler::eeGetHelperNum(methodHandle);
-    bool             isNoGCHelper = (helper != CORINFO_HELP_UNDEF) && IsNoGCHelper(helper);
-    regMaskTP        savedRegs    = isNoGCHelper ? GetNoGCHelperCalleeSavedRegs(helper) : RBM_CALLEE_SAVED;
+    bool             isNoGCHelper = (helper != CORINFO_HELP_UNDEF) && GCInfo::IsNoGCHelper(helper);
+    regMaskTP        savedRegs    = isNoGCHelper ? GCInfo::GetNoGCHelperCalleeSavedRegs(helper) : RBM_CALLEE_SAVED;
     VARSET_VALARG_TP GCvars       = codeGen->liveness.GetGCLiveSet();
     regMaskTP        gcrefRegs    = codeGen->liveness.GetGCRegs(TYP_REF) & savedRegs;
     regMaskTP        byrefRegs    = codeGen->liveness.GetGCRegs(TYP_BYREF) & savedRegs;
@@ -6246,85 +6193,6 @@ const char* emitter::emitOffsetToLabel(unsigned offs)
 }
 
 #endif // DEBUG
-
-// Gets the set of registers that are killed by a no-GC helper call. This is used when determining
-// what registers to remove from the current live GC/byref sets (and thus what to report as dead in
-// the GC info). Note that for the CORINFO_HELP_ASSIGN_BYREF helper, in particular, the kill set
-// reported by compHelperCallKillSet doesn't match this kill set. compHelperCallKillSet reports the
-// dst/src address registers as killed for liveness purposes, since their values change. However,
-// they still are valid byref pointers after the call, so the dst/src address registers are NOT
-// reported as killed here.
-//
-// Note: This list may not be complete and defaults to the default RBM_CALLEE_TRASH_NOGC registers.
-//
-regMaskTP emitter::GetNoGCHelperCalleeKilledRegs(CorInfoHelpFunc helper)
-{
-    assert(IsNoGCHelper(helper));
-    regMaskTP result;
-    switch (helper)
-    {
-        case CORINFO_HELP_ASSIGN_BYREF:
-#if defined(TARGET_X86)
-            // This helper only trashes ECX.
-            result = RBM_ECX;
-            break;
-#elif defined(TARGET_AMD64)
-            // This uses and defs RDI and RSI.
-            result = RBM_CALLEE_TRASH_NOGC & ~(RBM_RDI | RBM_RSI);
-            break;
-#elif defined(TARGET_ARMARCH)
-            result = RBM_CALLEE_GCTRASH_WRITEBARRIER_BYREF;
-            break;
-#else
-            assert(!"unknown arch");
-#endif
-
-        case CORINFO_HELP_PROF_FCN_ENTER:
-            result = RBM_PROFILER_ENTER_TRASH;
-            break;
-
-        case CORINFO_HELP_PROF_FCN_LEAVE:
-#if defined(TARGET_ARM)
-            // profiler scratch remains gc live
-            result = RBM_PROFILER_LEAVE_TRASH & ~RBM_PROFILER_RET_SCRATCH;
-#else
-            result = RBM_PROFILER_LEAVE_TRASH;
-#endif
-            break;
-
-        case CORINFO_HELP_PROF_FCN_TAILCALL:
-            result = RBM_PROFILER_TAILCALL_TRASH;
-            break;
-
-#if defined(TARGET_ARMARCH)
-        case CORINFO_HELP_ASSIGN_REF:
-        case CORINFO_HELP_CHECKED_ASSIGN_REF:
-            result = RBM_CALLEE_GCTRASH_WRITEBARRIER;
-            break;
-#endif // defined(TARGET_ARMARCH)
-
-#if defined(TARGET_X86)
-        case CORINFO_HELP_INIT_PINVOKE_FRAME:
-            result = RBM_INIT_PINVOKE_FRAME_TRASH;
-            break;
-#endif // defined(TARGET_X86)
-
-        default:
-            result = RBM_CALLEE_TRASH_NOGC;
-            break;
-    }
-
-    // compHelperCallKillSet returns a superset of the registers which values are not guranteed to be the same
-    // after the call, if a register loses its GC or byref it has to be in the compHelperCallKillSet set as well.
-    assert((result & Compiler::compHelperCallKillSet(helper)) == result);
-
-    return result;
-}
-
-regMaskTP emitter::GetNoGCHelperCalleeSavedRegs(CorInfoHelpFunc helper)
-{
-    return RBM_ALLINT & ~GetNoGCHelperCalleeKilledRegs(helper);
-}
 
 void emitter::emitUpdateLiveGCvars(VARSET_TP vars, unsigned codeOffs, unsigned callInstrLength)
 {
