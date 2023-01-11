@@ -10559,7 +10559,7 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
 
                     if (gcInfo.ReportRegArgChanges())
                     {
-                        gcInfo.AddLiveThisReg(reg1, emitCurCodeOffs(dst));
+                        gcInfo.AddLiveRegs(GCT_GCREF, genRegMask(reg1), emitCurCodeOffs(dst));
                         break;
                     }
                 }

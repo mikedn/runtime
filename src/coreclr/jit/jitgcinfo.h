@@ -275,12 +275,11 @@ public:
     void SetLiveStackSlots(VARSET_TP newLiveLcls, unsigned codeOffs);
     void UpdateStackSlotLifetimes(unsigned codeOffs);
 
-#ifdef JIT32_GCENCODER
-    void AddLiveThisReg(regNumber reg, unsigned codeOffs);
-#endif
+    void AddLiveRegs(GCtype type, regMaskTP regs, unsigned codeOffs);
+    void RemoveLiveRegs(GCtype type, regMaskTP regs, unsigned codeOffs);
+
     void AddLiveReg(GCtype type, regNumber reg, unsigned codeOffs);
     void SetLiveRegs(GCtype type, regMaskTP regs, unsigned codeOffs);
-    void RemoveLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs);
     void RemoveLiveReg(regNumber reg, unsigned codeOffs);
     void RemoveAllLiveRegs(unsigned codeOffs);
 
@@ -307,8 +306,6 @@ public:
 
 private:
     RegArgChange* AddRegArgChange();
-
-    void AddLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs);
 
 #ifdef JIT32_GCENCODER
     void AddCallArgPush(GCtype type, unsigned stackLevel, unsigned codeOffs);

@@ -276,9 +276,9 @@ GCInfo::RegArgChange* GCInfo::AddRegArgChange()
     return change;
 }
 
-void GCInfo::AddLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs)
+void GCInfo::AddLiveRegs(GCtype type, regMaskTP regs, unsigned codeOffs)
 {
-    assert(gcType != GCT_NONE);
+    assert(type != GCT_NONE);
     assert((GetAllLiveRegs() & regs) == RBM_NONE);
 #ifdef JIT32_GCENCODER
     assert(isFullyInterruptible || ((regs == genRegMask(syncThisReg)) && ReportRegArgChanges()));
@@ -289,31 +289,22 @@ void GCInfo::AddLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs)
     RegArgChange* change = AddRegArgChange();
     change->codeOffs     = codeOffs;
     change->kind         = RegArgChangeKind::AddRegs;
-    change->gcType       = gcType;
+    change->gcType       = type;
     change->regs         = static_cast<regMaskSmall>(regs);
 }
 
-void GCInfo::RemoveLiveRegs(GCtype gcType, regMaskTP regs, unsigned codeOffs)
+void GCInfo::RemoveLiveRegs(GCtype type, regMaskTP regs, unsigned codeOffs)
 {
-    assert(gcType != GCT_NONE);
+    assert(type != GCT_NONE);
     assert((GetAllLiveRegs() & regs) != RBM_NONE);
     assert(isFullyInterruptible);
 
     RegArgChange* change = AddRegArgChange();
     change->codeOffs     = codeOffs;
     change->kind         = RegArgChangeKind::RemoveRegs;
-    change->gcType       = gcType;
+    change->gcType       = type;
     change->regs         = static_cast<regMaskSmall>(regs);
 }
-
-#ifdef JIT32_GCENCODER
-void GCInfo::AddLiveThisReg(regNumber reg, unsigned codeOffs)
-{
-    assert(reg == syncThisReg);
-
-    AddLiveRegs(GCT_GCREF, genRegMask(reg), codeOffs);
-}
-#endif
 
 void GCInfo::AddLiveReg(GCtype type, regNumber reg, unsigned codeOffs)
 {
