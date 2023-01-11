@@ -4008,7 +4008,7 @@ void GCEncoder::AddFullyInterruptibleSlots(RegArgChange* firstRegArgChange)
         }
         else if (change->kind == RegArgChangeKind::KillArgs)
         {
-            if (hasSlotIds && (firstArgChange != nullptr))
+            if (hasSlotIds)
             {
                 RemoveCallArgStackSlots(change->codeOffs, firstArgChange, change);
             }

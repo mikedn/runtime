@@ -821,10 +821,19 @@ void GCInfo::AddCallArgStore(unsigned codeOffs, int argOffs, GCtype gcType)
     change->argOffset    = argOffs;
     change->kind         = RegArgChangeKind::StoreArg;
     change->gcType       = gcType;
+
+    hasArgStores = true;
 }
 
 void GCInfo::AddCallArgsKill(unsigned codeOffs)
 {
+    if (!hasArgStores)
+    {
+        return;
+    }
+
+    hasArgStores = false;
+
     RegArgChange* change = AddRegArgChange();
     change->codeOffs     = codeOffs;
     change->argOffset    = 0;

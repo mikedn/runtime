@@ -112,9 +112,11 @@ public:
     regMaskTP          liveByrefRegs                   = RBM_NONE;
     bool               isFullyInterruptible            = false;
     bool               stackSlotLifetimesMatchLiveLcls = true;
-#ifdef JIT32_GCENCODER
-    bool isFramePointerUsed = false;
-    bool useArgsBitStack    = false;
+#ifndef JIT32_GCENCODER
+    bool hasArgStores = false;
+#else
+    bool        isFramePointerUsed = false;
+    bool        useArgsBitStack    = false;
 
     static constexpr unsigned ArgsBitStackMaxDepth = sizeof(unsigned) * CHAR_BIT;
 
@@ -134,9 +136,9 @@ public:
         } argsStack;
     };
 
-    regNumber syncThisReg = REG_NA;
+    regNumber syncThisReg             = REG_NA;
 #ifndef FEATURE_EH_FUNCLETS
-    int syncThisStackSlotOffset = INT_MIN;
+    int       syncThisStackSlotOffset = INT_MIN;
 #endif
 #endif // JIT32_GCENCODER
     int                 minTrackedStackSlotOffset = 0;
@@ -186,7 +188,7 @@ public:
 #ifdef JIT32_GCENCODER
     void Begin(unsigned maxStackDepth);
 #else
-    void        Begin();
+    void      Begin();
 #endif
     void End(unsigned codeOffs);
 
