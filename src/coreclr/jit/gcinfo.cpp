@@ -1327,21 +1327,20 @@ bool GCInfo::IsNoGCHelper(CorInfoHelpFunc helper)
 {
     switch (helper)
     {
-        case CORINFO_HELP_UNDEF:
-            return false;
-
         case CORINFO_HELP_PROF_FCN_LEAVE:
         case CORINFO_HELP_PROF_FCN_ENTER:
         case CORINFO_HELP_PROF_FCN_TAILCALL:
+
+#ifndef TARGET_64BIT
+        // case CORINFO_HELP_LMUL:
+        // case CORINFO_HELP_LDIV:
+        // case CORINFO_HELP_LMOD:
+        // case CORINFO_HELP_ULDIV:
+        // case CORINFO_HELP_ULMOD:
         case CORINFO_HELP_LLSH:
         case CORINFO_HELP_LRSH:
         case CORINFO_HELP_LRSZ:
-
-//  case CORINFO_HELP_LMUL:
-//  case CORINFO_HELP_LDIV:
-//  case CORINFO_HELP_LMOD:
-//  case CORINFO_HELP_ULDIV:
-//  case CORINFO_HELP_ULMOD:
+#endif
 
 #ifdef TARGET_X86
         case CORINFO_HELP_ASSIGN_REF_EAX:
