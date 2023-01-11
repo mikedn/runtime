@@ -547,6 +547,77 @@ public:
         }
     };
 
+    template <typename Op>
+    class OpEnumerator
+    {
+        using WordType = size_t;
+
+        const WordType* s1;
+        const WordType* s2;
+        WordType        word;
+        unsigned        lastWordIndex;
+        unsigned        wordIndex = 0;
+        unsigned        bitIndex  = 0;
+        Op              op;
+
+    public:
+        OpEnumerator(const WordType* s1, const WordType* s2, unsigned size, Op op) : s1(s1), s2(s2), op(op)
+        {
+            if (size <= 1)
+            {
+                word          = op(reinterpret_cast<WordType>(s1), reinterpret_cast<WordType>(s2));
+                lastWordIndex = 0;
+            }
+            else
+            {
+                word          = op(s1[0], s2[0]);
+                lastWordIndex = size - 1;
+            }
+        }
+
+        bool MoveNext()
+        {
+            while (word == 0)
+            {
+                if (wordIndex == lastWordIndex)
+                {
+                    return false;
+                }
+
+                wordIndex++;
+                word = op(s1[wordIndex], s2[wordIndex]);
+            }
+
+            DWORD nextBit;
+#ifdef HOST_64BIT
+            static_assert_no_msg(sizeof(WordType) == 8);
+            if (!BitScanForward64(&nextBit, word))
+#else
+            static_assert_no_msg(sizeof(WordType) == 4);
+            if (!BitScanForward(&nextBit, word))
+#endif
+            {
+                return false;
+            }
+
+            bitIndex = wordIndex * sizeof(WordType) * CHAR_BIT + nextBit;
+            word &= ~(WordType(1) << nextBit);
+
+            return true;
+        }
+
+        unsigned Current() const
+        {
+            return bitIndex;
+        }
+    };
+
+    template <typename Op>
+    static OpEnumerator<Op> EnumOp(Env env, Op op, ConstSet s1, ConstSet s2)
+    {
+        return {s1, s2, BitSetTraits::GetArrSize(env, sizeof(size_t)), op};
+    }
+
 private:
     static void AssignLong(Env env, Set lhs, ConstSet rhs)
     {

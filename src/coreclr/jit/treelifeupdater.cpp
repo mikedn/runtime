@@ -5,7 +5,6 @@
 void CodeGenLivenessUpdater::Begin()
 {
     currentLife = VarSetOps::MakeEmpty(compiler);
-    varDeltaSet = VarSetOps::MakeEmpty(compiler);
     liveGCLcl   = VarSetOps::MakeEmpty(compiler);
 
 #ifdef DEBUG
@@ -57,9 +56,9 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
 
     if (!VarSetOps::Equal(compiler, currentLife, newLife))
     {
-        VarSetOps::SymmetricDiff(compiler, varDeltaSet, currentLife, newLife);
+        auto SymmetricDiff = [](size_t x, size_t y) { return x ^ y; };
 
-        for (VarSetOps::Enumerator e(compiler, varDeltaSet); e.MoveNext();)
+        for (auto e = VarSetOps::EnumOp(compiler, SymmetricDiff, currentLife, newLife); e.MoveNext();)
         {
             unsigned   lclNum = compiler->lvaTrackedIndexToLclNum(e.Current());
             LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
