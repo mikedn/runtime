@@ -327,14 +327,7 @@ void GCInfo::AddLiveReg(GCtype type, regNumber reg, unsigned codeOffs)
             otherRegs &= ~regMask;
         }
 
-        if (isFullyInterruptible
-#ifdef JIT32_GCENCODER
-            // For synchronized methods, "this" is always alive and in the same register.
-            // However, if we generate any code after the epilog block (where "this"
-            // goes dead), "this" will come alive again. We need to notice that.
-            || (ReportRegArgChanges() && (reg == syncThisReg))
-#endif
-                )
+        if (isFullyInterruptible)
         {
             AddLiveRegs(type, regMask, codeOffs);
         }
@@ -353,12 +346,7 @@ void GCInfo::SetLiveRegs(GCtype type, regMaskTP regs, unsigned codeOffs)
 
     assert(typeRegs != regs);
 
-#ifdef JIT32_GCENCODER
-    // We need to report `this` even if the code is not fully interruptible.
-    if (isFullyInterruptible || (ReportRegArgChanges() && (syncThisReg != REG_NA)))
-#else
     if (isFullyInterruptible)
-#endif
     {
         regMaskTP dead = typeRegs & ~regs;
         regMaskTP life = ~typeRegs & regs;
@@ -377,36 +365,16 @@ void GCInfo::SetLiveRegs(GCtype type, regMaskTP regs, unsigned codeOffs)
             {
                 if ((otherRegs & regMask) != RBM_NONE)
                 {
-                    if (isFullyInterruptible)
-                    {
-                        RemoveLiveRegs(type == GCT_GCREF ? GCT_BYREF : GCT_GCREF, regMask, codeOffs);
-                    }
-
+                    RemoveLiveRegs(type == GCT_GCREF ? GCT_BYREF : GCT_GCREF, regMask, codeOffs);
                     otherRegs &= ~regMask;
                 }
 
-                if (isFullyInterruptible
-#ifdef JIT32_GCENCODER
-                    // For synchronized methods, "this" is always alive and in the same register.
-                    // However, if we generate any code after the epilog block (where "this"
-                    // goes dead), "this" will come alive again. We need to notice that.
-                    // Note that we only expect isThis to be true at an insGroup boundary.
-                    || (ReportRegArgChanges() && (reg == syncThisReg))
-#endif
-                        )
-                {
-                    AddLiveRegs(type, regMask, codeOffs);
-                }
-
+                AddLiveRegs(type, regMask, codeOffs);
                 typeRegs |= regMask;
             }
             else
             {
-                if (isFullyInterruptible)
-                {
-                    RemoveLiveRegs(type, regMask, codeOffs);
-                }
-
+                RemoveLiveRegs(type, regMask, codeOffs);
                 typeRegs &= ~regMask;
             }
 

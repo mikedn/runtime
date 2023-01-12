@@ -3126,15 +3126,21 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, const
                     break;
                 case 7:             // EDI
                     *dest++ = 0xF4; /* 11110100  This pointer is in EDI */
+                    // TODO-MIKE-Cleanup: Remove workaround for GC info diffs,
+                    // old code managed to report `this` twice.
+                    *dest++ = 0xF4;
                     break;
                 case 6:             // ESI
                     *dest++ = 0xF5; /* 11110100  This pointer is in ESI */
+                    *dest++ = 0xF5;
                     break;
                 case 3:             // EBX
                     *dest++ = 0xF6; /* 11110100  This pointer is in EBX */
+                    *dest++ = 0xF6;
                     break;
                 case 5:             // EBP
                     *dest++ = 0xF7; /* 11110100  This pointer is in EBP */
+                    *dest++ = 0xF7;
                     break;
                 default:
                     break;
