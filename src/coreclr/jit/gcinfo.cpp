@@ -41,22 +41,6 @@ void GCInfo::Begin()
     {
         assert(compiler->lvaIsOriginalThisArg(0));
 
-        // If "this" (which is passed in as a register argument in REG_ARG_0)
-        // is enregistered, we normally spot the "mov REG_ARG_0 -> thisReg"
-        // in the prolog and note the location of "this" at that point.
-        // However, if 'this' is enregistered into REG_ARG_0 itself, no code
-        // will be generated in the prolog, so we explicitly need to note
-        // the location of "this" here.
-        // NOTE that we can do this even if "this" is not enregistered in
-        // REG_ARG_0, and it will result in more accurate "this" info over the
-        // prolog. However, as methods are not interruptible over the prolog,
-        // we try to save space by avoiding that.
-
-        // TODO-MIKE-Cleanup: Can't we just pass syncThisReg to the encoder
-        // and have it generate whatever info is needed, instead of special
-        // casing this all over the place? The encoder already handles this
-        // when only call sites are reported.
-
         LclVarDsc* thisLcl = compiler->lvaGetDesc(0u);
 
         if (thisLcl->lvRegister)
@@ -64,12 +48,6 @@ void GCInfo::Begin()
             assert(!thisLcl->HasGCSlotLiveness());
 
             syncThisReg = thisLcl->GetRegNum();
-
-            if (ReportRegArgChanges() && (syncThisReg == REG_ARG_0) &&
-                ((compiler->codeGen->paramRegState.intRegLiveIn & RBM_ARG_0) != RBM_NONE))
-            {
-                AddLiveRegs(GCT_GCREF, RBM_ARG_0, 0);
-            }
         }
 #ifndef FEATURE_EH_FUNCLETS
         else if (thisLcl->HasGCSlotLiveness())

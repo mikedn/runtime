@@ -3123,6 +3123,21 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, const
                 case 1: // ECX
                 case 2: // EDX
                 case 4: // ESP
+                    // TODO-MIKE-Review: Should there be an assert/unreached here?
+                    //
+                    // It looks like if `this` has to be reported then it has to be
+                    // in a callee-saved register. But we don't require this in LSRA
+                    // so we can end up with `this` in the original reg param, ECX.
+                    //
+                    // Thing is, most scenarios that require `this` reporting involve
+                    // calls and then `this` can only be in a callee-saved register,
+                    // otherwise it would be spilled.
+                    //
+                    // But there are cases where lvaKeepAliveAndReportThis returns
+                    // true and there are no calls in the method and `this` happily
+                    // ends up in ECX due to the lack of LSRA restrictions. Which one
+                    // is wrong - lvaKeepAliveAndReportThis or LSRA?
+                    // AddPartiallyInterruptibleSlotsFramed has the same issue.
                     break;
                 case 7:             // EDI
                     *dest++ = 0xF4; /* 11110100  This pointer is in EDI */
