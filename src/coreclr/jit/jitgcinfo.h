@@ -321,7 +321,7 @@ private:
 
 #ifdef DEBUG
     void DumpRegDelta(const char* header, GCtype type, regMaskTP baseRegs, regMaskTP diffRegs);
-    void DumpArgDelta(const char* header);
+    void DumpRegArgChangeDelta(const char* header);
 #endif
 };
 

@@ -1010,53 +1010,39 @@ const char* GetGCTypeName(GCtype gcType)
 
 void GCInfo::DumpRegDelta(const char* header, GCtype type, regMaskTP baseRegs, regMaskTP diffRegs)
 {
-    if (baseRegs == diffRegs)
+    if (baseRegs != diffRegs)
     {
-        return;
-    }
-
-    regMaskTP sameRegs    = baseRegs & diffRegs;
-    regMaskTP removedRegs = baseRegs & ~sameRegs;
-    regMaskTP addedRegs   = diffRegs & ~sameRegs;
-
-    if (removedRegs != RBM_NONE)
-    {
-        printf("%skill-%s-regs ", header, GetGCTypeName(type));
-        dspRegMask(removedRegs);
-        printf("\n");
-    }
-
-    if (addedRegs != RBM_NONE)
-    {
-        printf("%sdef-%s-regs ", header, GetGCTypeName(type));
-        dspRegMask(addedRegs);
-        printf("\n");
+        printf("%s%s-regs ", header, GetGCTypeName(type));
+        emitter::emitDispRegSetDiff("", baseRegs, diffRegs);
     }
 }
 
-void GCInfo::DumpArgDelta(const char* header)
+void GCInfo::DumpRegArgChangeDelta(const char* header)
 {
     if (deltaRegArgChangeBase == lastRegArgChange)
     {
         return;
     }
 
-    RegArgChange* base      = (deltaRegArgChangeBase == nullptr) ? firstRegArgChange : deltaRegArgChangeBase->next;
-    const char*   spRegName = getRegName(REG_SPBASE);
+    RegArgChange* base = (deltaRegArgChangeBase == nullptr) ? firstRegArgChange : deltaRegArgChangeBase->next;
+#if FEATURE_FIXED_OUT_ARGS
+    const char* spRegName = getRegName(REG_SPBASE);
+#endif
 
     for (RegArgChange* change = base; change != nullptr; change = change->next)
     {
-        // Reg changes are reflected in the register sets deltaRefRegsBase/liveRefRegs
-        // and deltaByrefRegsBase/liveByrefRegs, and dumped using those sets.
-        if ((change->kind == RegArgChangeKind::AddRegs) || (change->kind == RegArgChangeKind::RemoveRegs))
-        {
-            continue;
-        }
-
         printf("%s", header);
 
         switch (change->kind)
         {
+            case RegArgChangeKind::AddRegs:
+                printf("def-%s-regs ", GetGCTypeName(change->gcType));
+                dspRegMask(change->regs);
+                break;
+            case RegArgChangeKind::RemoveRegs:
+                printf("kill-%s-regs ", GetGCTypeName(change->gcType));
+                dspRegMask(change->regs);
+                break;
 #if FEATURE_FIXED_OUT_ARGS
             case RegArgChangeKind::StoreArg:
 #ifdef TARGET_ARMARCH
@@ -1122,12 +1108,16 @@ void GCInfo::DumpStackSlotLifetimeDelta(const char* header)
 
 void GCInfo::DumpDelta(const char* header)
 {
-    DumpRegDelta(header, GCT_GCREF, deltaRefRegsBase, liveRefRegs);
-    deltaRefRegsBase = liveRefRegs;
-    DumpRegDelta(header, GCT_BYREF, deltaByrefRegsBase, liveByrefRegs);
-    deltaByrefRegsBase = liveByrefRegs;
+    if (!isFullyInterruptible)
+    {
+        DumpRegDelta(header, GCT_GCREF, deltaRefRegsBase, liveRefRegs);
+        deltaRefRegsBase = liveRefRegs;
+        DumpRegDelta(header, GCT_BYREF, deltaByrefRegsBase, liveByrefRegs);
+        deltaByrefRegsBase = liveByrefRegs;
+    }
+
     DumpStackSlotLifetimeDelta(header);
-    DumpArgDelta(header);
+    DumpRegArgChangeDelta(header);
 }
 
 #endif // DEBUG
