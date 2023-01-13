@@ -10847,13 +10847,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             assert(!"JitBreakEmitOutputInstr reached");
         }
     }
-
-    if (emitComp->verbose || emitComp->opts.disasmWithGC)
-    {
-        char header[64];
-        GetGCDeltaDumpHeader(header, _countof(header));
-        gcInfo.DumpDelta(header);
-    }
 #endif
 
     /* All instructions are expected to generate code */

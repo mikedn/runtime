@@ -12616,13 +12616,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         // that we detected the implicit register and cleared its GC-status.
         assert((gcInfo.GetAllLiveRegs() & genRegMask(inst3opImulReg(ins))) == RBM_NONE);
     }
-
-    if (emitComp->verbose || emitComp->opts.disasmWithGC)
-    {
-        char header[128];
-        GetGCDeltaDumpHeader(header, _countof(header));
-        gcInfo.DumpDelta(header);
-    }
 #endif
 
     return sz;

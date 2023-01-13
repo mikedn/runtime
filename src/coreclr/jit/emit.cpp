@@ -4827,7 +4827,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 #ifdef DEBUG
             if (emitComp->verbose || emitComp->opts.disasmWithGC)
             {
-                char header[64];
+                char header[128];
                 GetGCDeltaDumpHeader(header, _countof(header));
                 gcInfo.DumpDelta(header);
             }
@@ -4848,6 +4848,13 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
             castto(id, BYTE*) += emitIssue1Instr(ig, id, &cp);
 
 #ifdef DEBUG
+            if (emitComp->verbose || emitComp->opts.disasmWithGC)
+            {
+                char header[128];
+                GetGCDeltaDumpHeader(header, _countof(header));
+                gcInfo.DumpDelta(header);
+            }
+
             // Print the alignment boundary
             if ((emitComp->opts.disAsm || emitComp->verbose) && (emitComp->opts.disAddr || emitComp->opts.disAlignment))
             {
@@ -6273,7 +6280,7 @@ size_t emitter::emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* call
         gcInfo.SetLiveStackSlots(gcLcls, callOffs);
 
 #ifdef DEBUG
-        // And we have dump the delta here, so it appears before the call instruction
+        // And we have to dump the delta here, so it appears before the call instruction
         // in disassembly, instead of appearing after like all other GC info deltas.
         if (emitComp->verbose || emitComp->opts.disasmWithGC)
         {
