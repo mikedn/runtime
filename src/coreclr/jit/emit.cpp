@@ -6181,29 +6181,6 @@ const char* emitter::emitOffsetToLabel(unsigned offs)
 
 #endif // DEBUG
 
-void emitter::emitUpdateLiveGCvars(VARSET_TP vars, unsigned codeOffs, unsigned callInstrLength)
-{
-    assert(emitIssuing);
-    assert(!emitIGisInEpilog(emitCurIG));
-
-    // We update tracked stack slot GC info before the call as they cannot
-    // be used by the call (they'd need to be address exposed, thus untracked).
-    // Killing stack slots before the call helps with boundary conditions if
-    // the call is CORINFO_HELP_THROW.
-    // If we ever track aliased locals (which could be used by the call), we
-    // would have to keep the corresponding stack slots alive past the call.
-    gcInfo.SetLiveStackSlots(vars, codeOffs - callInstrLength);
-
-#ifdef DEBUG
-    if (emitComp->verbose || emitComp->opts.disasmWithGC)
-    {
-        char header[128];
-        GetGCDeltaDumpHeader(header, _countof(header));
-        gcInfo.DumpStackSlotLifetimeDelta(header);
-    }
-#endif
-}
-
 void emitter::emitGCvarLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum))
 {
     assert(emitIssuing);
@@ -6282,21 +6259,38 @@ size_t emitter::emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* call
         sz = sizeof(instrDesc);
     }
 
-    unsigned codeOffs        = emitCurCodeOffs(callEndAddr);
-    unsigned callInstrLength = static_cast<unsigned>(callEndAddr - callAddr);
+    unsigned callOffs    = emitCurCodeOffs(callAddr);
+    unsigned callEndOffs = callOffs + static_cast<unsigned>(callEndAddr - callAddr);
 
     if (!emitIGisInEpilog(emitCurIG))
     {
-        emitUpdateLiveGCvars(gcLcls, codeOffs, callInstrLength);
+        // We update tracked stack slot GC info before the call as they cannot
+        // be used by the call (they'd need to be address exposed, thus untracked).
+        // Killing stack slots before the call helps with boundary conditions if
+        // the call is CORINFO_HELP_THROW.
+        // If we ever track aliased locals (which could be used by the call), we
+        // would have to keep the corresponding stack slots alive past the call.
+        gcInfo.SetLiveStackSlots(gcLcls, callOffs);
+
+#ifdef DEBUG
+        // And we have dump the delta here, so it appears before the call instruction
+        // in disassembly, instead of appearing after like all other GC info deltas.
+        if (emitComp->verbose || emitComp->opts.disasmWithGC)
+        {
+            char header[128];
+            GetGCDeltaDumpHeader(header, _countof(header));
+            gcInfo.DumpStackSlotLifetimeDelta(header);
+        }
+#endif
 
         if (refRegs != gcInfo.GetLiveRegs(GCT_GCREF))
         {
-            gcInfo.SetLiveRegs(GCT_GCREF, refRegs, codeOffs);
+            gcInfo.SetLiveRegs(GCT_GCREF, refRegs, callEndOffs);
         }
 
         if (byrefRegs != gcInfo.GetLiveRegs(GCT_BYREF))
         {
-            gcInfo.SetLiveRegs(GCT_BYREF, byrefRegs, codeOffs);
+            gcInfo.SetLiveRegs(GCT_BYREF, byrefRegs, callEndOffs);
         }
     }
 
@@ -6310,28 +6304,28 @@ size_t emitter::emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* call
 
         if (argCount < 0)
         {
-            emitStackKillArgs(codeOffs, -argCount);
+            emitStackKillArgs(callEndOffs, -argCount);
         }
         else
         {
-            emitStackPopArgs(codeOffs, argCount);
+            emitStackPopArgs(callEndOffs, argCount);
         }
     }
 
     if (!isNoGC && gcInfo.ReportCallSites())
     {
-        gcInfo.AddCallSite(emitCurStackLvl / TARGET_POINTER_SIZE, codeOffs);
+        gcInfo.AddCallSite(emitCurStackLvl / TARGET_POINTER_SIZE, callEndOffs);
     }
 #else
     if (!id->idIsNoGC())
     {
         if (gcInfo.IsFullyInterruptible())
         {
-            gcInfo.AddCallArgsKill(codeOffs);
+            gcInfo.AddCallArgsKill(callEndOffs);
         }
         else
         {
-            gcInfo.AddCallSite(codeOffs, callInstrLength);
+            gcInfo.AddCallSite(callOffs, callEndOffs);
         }
     }
 #endif

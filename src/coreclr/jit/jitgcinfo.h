@@ -91,7 +91,7 @@ public:
             unsigned* argTable; // if argCount != 0
         };
 #else
-        uint8_t callInstrLength;
+        uint8_t codeLength;
 #endif
     };
 
@@ -295,7 +295,7 @@ public:
 #else
     void AddCallArgStore(unsigned codeOffs, int argOffs, GCtype gcType);
     void AddCallArgsKill(unsigned codeOffs);
-    void AddCallSite(unsigned codeOffs, unsigned length);
+    void AddCallSite(unsigned callOffs, unsigned callEndOffs);
     void CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize);
 #endif
 

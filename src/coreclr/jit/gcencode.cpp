@@ -4139,13 +4139,13 @@ void GCEncoder::AddPartiallyInterruptibleSlots(CallSite* firstCallSite)
             continue;
         }
 
-        assert(call->codeOffs >= call->callInstrLength);
-        unsigned callOffset = call->codeOffs - call->callInstrLength;
+        assert(call->codeOffs >= call->codeLength);
+        unsigned callOffset = call->codeOffs - call->codeLength;
 
         if (callSites != nullptr)
         {
             callSites[callSiteIndex]     = callOffset;
-            callSiteSizes[callSiteIndex] = call->callInstrLength;
+            callSiteSizes[callSiteIndex] = call->codeLength;
         }
 
         callSiteIndex++;

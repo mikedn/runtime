@@ -1838,7 +1838,6 @@ public:
     void emitStackKillArgs(unsigned codeOffs, unsigned count);
 #endif
     size_t emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* callEndAddr);
-    void emitUpdateLiveGCvars(VARSET_TP vars, unsigned codeOffs, unsigned callInstrLength);
 
 #ifdef DEBUG
     const char* emitGetFrameReg();
