@@ -332,6 +332,21 @@ void GCInfo::SetLiveRegs(GCtype type, regMaskTP regs, unsigned codeOffs)
         assert((dead | life) != 0);
         assert((dead & life) == 0);
 
+        // TODO-MIKE-Cleanup: This is messed up. RegArgChange always supported
+        // a register set but this code always generates one RegArgChange per
+        // register. It would be pretty easy to fix this but that results in
+        // GC info diffs because the order changes. For now just handle what
+        // appears to be the most common case - killing a bunch of regs after
+        // calls - and avoid the cases that do generate GC info diffs.
+        // The GC info dumps used for diffing are actually dumb because they
+        // are sensitive to ordering, and ordering doesn't matter here.
+        if ((dead != RBM_NONE) && (life == RBM_NONE))
+        {
+            RemoveLiveRegs(type, dead, codeOffs);
+            typeRegs &= ~dead;
+            dead = RBM_NONE;
+        }
+
         regMaskTP change = (dead | life);
 
         while (change != RBM_NONE)
