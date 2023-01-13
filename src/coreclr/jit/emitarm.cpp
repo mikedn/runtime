@@ -5380,16 +5380,10 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
     assert(REG_NA == (int)REG_NA);
 
-    VARSET_TP GCvars = VarSetOps::UninitVal();
-
-    /* What instruction format have we got? */
-
     switch (fmt)
     {
-        int       imm;
-        BYTE*     addr;
-        regMaskTP gcrefRegs;
-        regMaskTP byrefRegs;
+        int   imm;
+        BYTE* addr;
 
         case IF_T1_A: // T1_A    ................
             sz   = SMALL_IDSC_SIZE;
@@ -6027,56 +6021,13 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             break;
 
         case IF_T1_D2: // T1_D2   .........mmmm...                                R3*
-
-            /* Is this a "fat" call descriptor? */
-
-            if (id->idIsLargeCall())
-            {
-                instrDescCGCA* idCall = static_cast<instrDescCGCA*>(id);
-
-                gcrefRegs = idCall->idcGcrefRegs;
-                byrefRegs = idCall->idcByrefRegs;
-                GCvars    = idCall->idcGCvars;
-                sz        = sizeof(instrDescCGCA);
-            }
-            else
-            {
-                assert(!id->idIsLargeCns());
-
-                gcrefRegs = emitDecodeCallGCregs(id);
-                byrefRegs = RBM_NONE;
-                GCvars    = emitEmptyGCrefVars;
-                sz        = sizeof(instrDesc);
-            }
-
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT1_M4(id->idReg3());
             dst += emitOutput_Thumb1Instr(dst, code);
-            goto DONE_CALL;
+            sz = emitRecordGCCall(id, *dp, dst);
+            break;
 
         case IF_T2_J3: // T2_J3   .....Siiiiiiiiii ..j.jiiiiiiiiii.      Call                imm24
-
-            /* Is this a "fat" call descriptor? */
-
-            if (id->idIsLargeCall())
-            {
-                instrDescCGCA* idCall = static_cast<instrDescCGCA*>(id);
-
-                gcrefRegs = idCall->idcGcrefRegs;
-                byrefRegs = idCall->idcByrefRegs;
-                GCvars    = idCall->idcGCvars;
-                sz        = sizeof(instrDescCGCA);
-            }
-            else
-            {
-                assert(!id->idIsLargeCns());
-
-                gcrefRegs = emitDecodeCallGCregs(id);
-                byrefRegs = RBM_NONE;
-                GCvars    = emitEmptyGCrefVars;
-                sz        = sizeof(instrDesc);
-            }
-
             if (id->idAddr()->iiaAddr == NULL) /* a recursive call */
             {
                 addr = emitCodeBlock;
@@ -6125,41 +6076,8 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 dst += emitOutput_Thumb2Instr(dst, code);
             }
 
-        DONE_CALL:
-        {
-            if (id->idGCref() == GCT_GCREF)
-            {
-                gcrefRegs |= RBM_R0;
-            }
-            else if (id->idGCref() == GCT_BYREF)
-            {
-                byrefRegs |= RBM_R0;
-            }
-
-            unsigned callInstrLength = static_cast<unsigned>(dst - *dp);
-            unsigned codeOffs        = emitCurCodeOffs(dst);
-
-            if (!emitIGisInEpilog(emitCurIG))
-            {
-                emitUpdateLiveGCvars(GCvars, codeOffs, callInstrLength);
-
-                if (gcrefRegs != gcInfo.GetLiveRegs(GCT_GCREF))
-                {
-                    gcInfo.SetLiveRegs(GCT_GCREF, gcrefRegs, codeOffs);
-                }
-
-                if (byrefRegs != gcInfo.GetLiveRegs(GCT_BYREF))
-                {
-                    gcInfo.SetLiveRegs(GCT_BYREF, byrefRegs, codeOffs);
-                }
-            }
-
-            if (!id->idIsNoGC())
-            {
-                emitRecordGCCall(codeOffs, callInstrLength);
-            }
-        }
-        break;
+            sz = emitRecordGCCall(id, *dp, dst);
+            break;
 
         /********************************************************************/
         /*                            oops                                  */

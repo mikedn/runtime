@@ -832,7 +832,6 @@ void emitIns_Call(EmitCallType          kind,
                   bool      isJump = false);
 
 BYTE* emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i);
-unsigned emitOutputCall(insGroup* ig, BYTE* dst, instrDesc* i, code_t code);
 BYTE* emitOutputLoadLabel(BYTE* dst, BYTE* srcAddr, BYTE* dstAddr, instrDescJmp* id);
 BYTE* emitOutputShortBranch(BYTE* dst, instruction ins, insFormat fmt, ssize_t distVal, instrDescJmp* id);
 BYTE* emitOutputShortAddress(BYTE* dst, instruction ins, insFormat fmt, ssize_t distVal, regNumber reg);

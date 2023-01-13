@@ -9618,78 +9618,6 @@ BYTE* emitter::emitOutputShortConstant(
     return dst;
 }
 
-unsigned emitter::emitOutputCall(insGroup* ig, BYTE* dst, instrDesc* id, code_t code)
-{
-    regMaskTP gcrefRegs;
-    regMaskTP byrefRegs;
-    VARSET_TP GCvars = VarSetOps::UninitVal();
-
-    if (id->idIsLargeCall())
-    {
-        instrDescCGCA* idCall = static_cast<instrDescCGCA*>(id);
-
-        gcrefRegs = idCall->idcGcrefRegs;
-        byrefRegs = idCall->idcByrefRegs;
-        GCvars    = idCall->idcGCvars;
-    }
-    else
-    {
-        assert(!id->idIsLargeCns());
-
-        gcrefRegs = emitDecodeCallGCregs(id);
-        byrefRegs = RBM_NONE;
-        GCvars    = emitEmptyGCrefVars;
-    }
-
-    if (id->idGCref() == GCT_GCREF)
-    {
-        gcrefRegs |= RBM_INTRET;
-    }
-    else if (id->idGCref() == GCT_BYREF)
-    {
-        byrefRegs |= RBM_INTRET;
-    }
-
-    if (id->idIsLargeCall())
-    {
-        instrDescCGCA* idCall = static_cast<instrDescCGCA*>(id);
-        if (idCall->idSecondGCref() == GCT_GCREF)
-        {
-            gcrefRegs |= RBM_INTRET_1;
-        }
-        else if (idCall->idSecondGCref() == GCT_BYREF)
-        {
-            byrefRegs |= RBM_INTRET_1;
-        }
-    }
-
-    dst += emitOutput_Instr(dst, code);
-
-    unsigned codeOffs = emitCurCodeOffs(dst);
-
-    if (!emitIGisInEpilog(emitCurIG))
-    {
-        emitUpdateLiveGCvars(GCvars, codeOffs, 4);
-
-        if (gcrefRegs != gcInfo.GetLiveRegs(GCT_GCREF))
-        {
-            gcInfo.SetLiveRegs(GCT_GCREF, gcrefRegs, codeOffs);
-        }
-
-        if (byrefRegs != gcInfo.GetLiveRegs(GCT_BYREF))
-        {
-            gcInfo.SetLiveRegs(GCT_BYREF, byrefRegs, codeOffs);
-        }
-    }
-
-    if (!id->idIsNoGC())
-    {
-        emitRecordGCCall(codeOffs, 4);
-    }
-
-    return 4;
-}
-
 unsigned emitter::emitOutput_Instr(BYTE* dst, code_t code)
 {
     static_assert_no_msg(sizeof(code_t) == 4);
@@ -9749,9 +9677,9 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             break;
 
         case IF_BI_0C: // BI_0C   ......iiiiiiiiii iiiiiiiiiiiiiiii               simm26:00
+            sz   = emitRecordGCCall(id, dst, dst + 4);
             code = emitInsCode(ins, fmt);
-            sz   = id->idIsLargeCall() ? sizeof(instrDescCGCA) : sizeof(instrDesc);
-            dst += emitOutputCall(ig, dst, id, code);
+            dst += emitOutput_Instr(dst, code);
             // Always call RecordRelocation so that we wire in a JumpStub when we don't reach
             emitRecordRelocation(odst, id->idAddr()->iiaAddr, IMAGE_REL_ARM64_BRANCH26);
             break;
@@ -9784,11 +9712,10 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_BR_1B: // BR_1B   ................ ......nnnnn.....         Rn
             assert(insOptsNone(id->idInsOpt()));
             assert((ins == INS_br_tail) || (ins == INS_blr));
+            sz   = emitRecordGCCall(id, dst, dst + 4);
             code = emitInsCode(ins, fmt);
             code |= insEncodeReg_Rn(id->idReg3()); // nnnnn
-
-            sz = id->idIsLargeCall() ? sizeof(instrDescCGCA) : sizeof(instrDesc);
-            dst += emitOutputCall(ig, dst, id, code);
+            dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_LS_1A: // LS_1A   XX...V..iiiiiiii iiiiiiiiiiittttt      Rt    PC imm(1MB)

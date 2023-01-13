@@ -6248,22 +6248,120 @@ void emitter::emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsi
     }
 }
 
-#ifndef JIT32_GCENCODER
-void emitter::emitRecordGCCall(unsigned codeOffs, unsigned callInstrLength)
+#endif // FEATURE_FIXED_OUT_ARGS
+
+size_t emitter::emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* callEndAddr)
 {
     assert(emitIssuing);
 
-    if (gcInfo.IsFullyInterruptible())
+    regMaskTP refRegs;
+    regMaskTP byrefRegs;
+    VARSET_TP gcLcls;
+    X86_ONLY(int argCount;)
+    size_t sz;
+
+    if (id->idIsLargeCall())
     {
-        gcInfo.AddCallArgsKill(codeOffs);
+        instrDescCGCA* idCall = static_cast<instrDescCGCA*>(id);
+
+        refRegs   = idCall->idcGcrefRegs;
+        byrefRegs = idCall->idcByrefRegs;
+        gcLcls    = idCall->idcGCvars;
+        X86_ONLY(argCount = idCall->idcArgCnt);
+
+#if MULTIREG_HAS_SECOND_GC_RET
+        if (idCall->idSecondGCref() == GCT_GCREF)
+        {
+            refRegs |= RBM_INTRET_1;
+        }
+        else if (idCall->idSecondGCref() == GCT_BYREF)
+        {
+            byrefRegs |= RBM_INTRET_1;
+        }
+#endif
+
+        sz = sizeof(instrDescCGCA);
     }
     else
     {
-        gcInfo.AddCallSite(codeOffs, callInstrLength);
+        assert(!id->idIsLargeCns());
+#ifdef TARGET_XARCH
+        assert(!id->idIsLargeDsp());
+#endif
+
+        refRegs   = emitDecodeCallGCregs(id);
+        byrefRegs = RBM_NONE;
+        gcLcls    = emitEmptyGCrefVars;
+        X86_ONLY(argCount = static_cast<int>(emitGetInsCns(id)));
+
+        sz = sizeof(instrDesc);
     }
+
+    unsigned codeOffs        = emitCurCodeOffs(callEndAddr);
+    unsigned callInstrLength = static_cast<unsigned>(callEndAddr - callAddr);
+
+    if (!emitIGisInEpilog(emitCurIG))
+    {
+        if (id->idGCref() == GCT_GCREF)
+        {
+            refRegs |= RBM_INTRET;
+        }
+        else if (id->idGCref() == GCT_BYREF)
+        {
+            byrefRegs |= RBM_INTRET;
+        }
+
+        emitUpdateLiveGCvars(gcLcls, codeOffs, callInstrLength);
+
+        if (refRegs != gcInfo.GetLiveRegs(GCT_GCREF))
+        {
+            gcInfo.SetLiveRegs(GCT_GCREF, refRegs, codeOffs);
+        }
+
+        if (byrefRegs != gcInfo.GetLiveRegs(GCT_BYREF))
+        {
+            gcInfo.SetLiveRegs(GCT_BYREF, byrefRegs, codeOffs);
+        }
+    }
+
+#ifdef JIT32_GCENCODER
+    bool isNoGC = id->idIsNoGC();
+
+    if (!isNoGC || (argCount != 0))
+    {
+        // For callee-pop, all arguments will be popped after the call.
+        // For caller-pop, any GC arguments will go dead after the call.
+
+        if (argCount < 0)
+        {
+            emitStackKillArgs(codeOffs, -argCount);
+        }
+        else
+        {
+            emitStackPopArgs(codeOffs, argCount);
+        }
+    }
+
+    if (!isNoGC && gcInfo.ReportCallSites())
+    {
+        gcInfo.AddCallSite(emitCurStackLvl / TARGET_POINTER_SIZE, codeOffs);
+    }
+#else
+    if (!id->idIsNoGC())
+    {
+        if (gcInfo.IsFullyInterruptible())
+        {
+            gcInfo.AddCallArgsKill(codeOffs);
+        }
+        else
+        {
+            gcInfo.AddCallSite(codeOffs, callInstrLength);
+        }
+    }
+#endif
+
+    return sz;
 }
-#endif // JIT32_GCENCODER
-#endif // FEATURE_FIXED_OUT_ARGS
 
 void emitter::emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr)
 {
@@ -6336,13 +6434,6 @@ void emitter::emitStackKillArgs(unsigned codeOffs, unsigned count)
     assert(emitIssuing);
 
     gcInfo.StackKill(count, emitCurStackLvl / TARGET_POINTER_SIZE, codeOffs);
-}
-
-void emitter::emitRecordGCCall(unsigned codeOffs)
-{
-    assert(emitIssuing);
-
-    gcInfo.AddCallSite(emitCurStackLvl / TARGET_POINTER_SIZE, codeOffs);
 }
 
 #endif // JIT32_GCENCODER

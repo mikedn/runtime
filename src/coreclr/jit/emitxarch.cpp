@@ -5996,46 +5996,6 @@ ssize_t emitter::emitGetInsAmdAny(instrDesc* id)
     return id->idAddr()->iiaAddrMode.amDisp;
 }
 
-#ifdef TARGET_X86
-
-int emitter::emitGetInsCDinfo(instrDesc* id)
-{
-    if (id->idIsLargeCall())
-    {
-        return ((instrDescCGCA*)id)->idcArgCnt;
-    }
-    else
-    {
-        assert(!id->idIsLargeDsp());
-        assert(!id->idIsLargeCns());
-        ssize_t cns = emitGetInsCns(id);
-
-        // We only encode 32-bit ints, so this is safe
-        noway_assert((int)cns == cns);
-
-        return (int)cns;
-    }
-}
-
-unsigned emitter::emitGetInsCIargs(instrDesc* id)
-{
-    if (id->idIsLargeCall())
-    {
-        return ((instrDescCGCA*)id)->idcArgCnt;
-    }
-    else
-    {
-        assert(id->idIsLargeDsp() == false);
-        assert(id->idIsLargeCns() == false);
-
-        ssize_t cns = emitGetInsCns(id);
-        assert((unsigned)cns == (size_t)cns);
-        return (unsigned)cns;
-    }
-}
-
-#endif // TARGET_X86
-
 #if !FEATURE_FIXED_OUT_ARGS
 
 //------------------------------------------------------------------------
@@ -11602,21 +11562,13 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
     assert(ins != INS_imul || size >= EA_4BYTE);                  // Has no 'w' bit
     assert(instrIs3opImul(id->idIns()) == 0 || size >= EA_4BYTE); // Has no 'w' bit
 
-    VARSET_TP GCvars = VarSetOps::UninitVal();
-
     // What instruction format have we got?
     switch (id->idInsFmt())
     {
         code_t   code;
         unsigned regcode;
-        X86_ONLY(int args);
-        CnsVal cnsVal;
-
-        BYTE* addr;
-        bool  recCall;
-
-        regMaskTP gcrefRegs;
-        regMaskTP byrefRegs;
+        CnsVal   cnsVal;
+        BYTE*    addr;
 
         /********************************************************************/
         /*                        No operands                               */
@@ -11720,43 +11672,9 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
         case IF_METHOD:
         case IF_METHPTR:
-            // Assume we'll be recording this call
-            recCall = true;
-
-            // Get hold of the argument count and field Handle
-            X86_ONLY(args = emitGetInsCDinfo(id));
-
-            // Is this a "fat" call descriptor?
-            if (id->idIsLargeCall())
-            {
-                instrDescCGCA* idCall = static_cast<instrDescCGCA*>(id);
-
-                gcrefRegs = idCall->idcGcrefRegs;
-                byrefRegs = idCall->idcByrefRegs;
-                GCvars    = idCall->idcGCvars;
-                sz        = sizeof(instrDescCGCA);
-            }
-            else
-            {
-                assert(!id->idIsLargeDsp());
-                assert(!id->idIsLargeCns());
-
-                gcrefRegs = emitDecodeCallGCregs(id);
-                byrefRegs = RBM_NONE;
-                GCvars    = emitEmptyGCrefVars;
-                sz        = sizeof(instrDesc);
-            }
-
-            addr = (BYTE*)id->idAddr()->iiaAddr;
+            addr = id->idAddr()->iiaAddr;
             assert(addr != nullptr);
 
-            // Some helpers don't get recorded in GC tables
-            if (id->idIsNoGC())
-            {
-                recCall = false;
-            }
-
-            // What kind of a call do we have here?
             if (id->idInsFmt() == IF_METHPTR)
             {
                 // This is call indirect via a method pointer
@@ -11795,107 +11713,38 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 #endif // TARGET_AMD64
                     dst += emitOutputLong(dst, static_cast<int>(reinterpret_cast<intptr_t>(addr)));
                 }
-                goto DONE_CALL;
             }
+            else
+            {
+                // This is call direct where we know the target, thus we can
+                // use a direct call; the target to jump to is in iiaAddr.
+                assert(id->idInsFmt() == IF_METHOD);
 
-            // Else
-            // This is call direct where we know the target, thus we can
-            // use a direct call; the target to jump to is in iiaAddr.
-            assert(id->idInsFmt() == IF_METHOD);
+                // Output the call opcode followed by the target distance
+                dst += (ins == INS_l_jmp) ? emitOutputByte(dst, insCode(ins)) : emitOutputByte(dst, insCodeMI(ins));
 
-            // Output the call opcode followed by the target distance
-            dst += (ins == INS_l_jmp) ? emitOutputByte(dst, insCode(ins)) : emitOutputByte(dst, insCodeMI(ins));
-
-            ssize_t offset;
+                ssize_t offset;
 #ifdef TARGET_AMD64
-            // All REL32 on Amd64 go through recordRelocation.  Here we will output zero to advance dst.
-            offset = 0;
-            assert(id->idIsDspReloc());
+                // All REL32 on Amd64 go through recordRelocation.  Here we will output zero to advance dst.
+                offset = 0;
+                assert(id->idIsDspReloc());
 #else
-            // Calculate PC relative displacement.
-            // Although you think we should be using sizeof(void*), the x86 and x64 instruction set
-            // only allow a 32-bit offset, so we correctly use sizeof(INT32)
-            offset = addr - (dst + sizeof(INT32));
+                // Calculate PC relative displacement.
+                // Although you think we should be using sizeof(void*), the x86 and x64 instruction set
+                // only allow a 32-bit offset, so we correctly use sizeof(INT32)
+                offset = addr - (dst + sizeof(INT32));
 #endif
 
-            dst += emitOutputLong(dst, offset);
+                dst += emitOutputLong(dst, offset);
 
-            if (id->idIsDspReloc())
-            {
-                emitRecordRelocation((void*)(dst - sizeof(INT32)), addr, IMAGE_REL_BASED_REL32);
+                if (id->idIsDspReloc())
+                {
+                    emitRecordRelocation((void*)(dst - sizeof(INT32)), addr, IMAGE_REL_BASED_REL32);
+                }
             }
 
         DONE_CALL:
-        {
-            if (id->idGCref() == GCT_GCREF)
-            {
-                gcrefRegs |= RBM_EAX;
-            }
-            else if (id->idGCref() == GCT_BYREF)
-            {
-                byrefRegs |= RBM_EAX;
-            }
-
-#ifdef UNIX_AMD64_ABI
-            if (id->idIsLargeCall())
-            {
-                instrDescCGCA* idCall = static_cast<instrDescCGCA*>(id);
-                if (idCall->idSecondGCref() == GCT_GCREF)
-                {
-                    gcrefRegs |= RBM_RDX;
-                }
-                else if (idCall->idSecondGCref() == GCT_BYREF)
-                {
-                    byrefRegs |= RBM_RDX;
-                }
-            }
-#endif
-
-            unsigned callInstrLength = static_cast<unsigned>(dst - *dp);
-            unsigned codeOffs        = emitCurCodeOffs(dst);
-
-            if (!emitIGisInEpilog(emitCurIG))
-            {
-                emitUpdateLiveGCvars(GCvars, codeOffs, callInstrLength);
-
-                if (gcrefRegs != gcInfo.GetLiveRegs(GCT_GCREF))
-                {
-                    gcInfo.SetLiveRegs(GCT_GCREF, gcrefRegs, codeOffs);
-                }
-
-                if (byrefRegs != gcInfo.GetLiveRegs(GCT_BYREF))
-                {
-                    gcInfo.SetLiveRegs(GCT_BYREF, byrefRegs, codeOffs);
-                }
-            }
-
-#ifdef TARGET_X86
-            if (recCall || (args != 0))
-            {
-                // For callee-pop, all arguments will be popped  after the call.
-                // For caller-pop, any GC arguments will go dead after the call.
-
-                if (args < 0)
-                {
-                    emitStackKillArgs(codeOffs, -args);
-                }
-                else
-                {
-                    emitStackPopArgs(codeOffs, args);
-                }
-            }
-
-            if (recCall && gcInfo.ReportCallSites())
-            {
-                emitRecordGCCall(codeOffs);
-            }
-#else
-            if (recCall)
-            {
-                emitRecordGCCall(codeOffs, callInstrLength);
-            }
-#endif
-        }
+            sz = emitRecordGCCall(id, *dp, dst);
 
 #ifdef DEBUG
             if (ins == INS_call)
@@ -12111,43 +11960,12 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_ARW:
             dst = emitOutputAM(dst, id, insCodeMR(ins));
 
-            switch (ins)
+            if (ins == INS_call)
             {
-                case INS_call:
-
-                IND_CALL:
-                    // Get hold of the argument count and method handle
-                    X86_ONLY(args = emitGetInsCIargs(id));
-
-                    // Is this a "fat" call descriptor?
-                    if (id->idIsLargeCall())
-                    {
-                        instrDescCGCA* idCall = static_cast<instrDescCGCA*>(id);
-
-                        gcrefRegs = idCall->idcGcrefRegs;
-                        byrefRegs = idCall->idcByrefRegs;
-                        GCvars    = idCall->idcGCvars;
-                        sz        = sizeof(instrDescCGCA);
-                    }
-                    else
-                    {
-                        assert(!id->idIsLargeDsp());
-                        assert(!id->idIsLargeCns());
-
-                        gcrefRegs = emitDecodeCallGCregs(id);
-                        byrefRegs = RBM_NONE;
-                        GCvars    = emitEmptyGCrefVars;
-                        sz        = sizeof(instrDesc);
-                    }
-
-                    recCall = true;
-
-                    goto DONE_CALL;
-
-                default:
-                    sz = emitSizeOfInsDsc(id);
-                    break;
+                goto DONE_CALL;
             }
+
+            sz = emitSizeOfInsDsc(id);
             break;
 
         case IF_RRW_ARD_CNS:
@@ -12291,7 +12109,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
             if (ins == INS_call)
             {
-                goto IND_CALL;
+                goto DONE_CALL;
             }
 
             break;

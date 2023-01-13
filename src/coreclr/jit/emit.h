@@ -1326,7 +1326,7 @@ private:
         regMaskTP idcGcrefRegs; // ... gcref registers
         regMaskTP idcByrefRegs; // ... byref registers
 #ifdef TARGET_X86
-        unsigned idcArgCnt; // ... lots of args or (<0 ==> caller pops args)
+        int idcArgCnt; // ... lots of args or (<0 ==> caller pops args)
 #endif
 
 #if MULTIREG_HAS_SECOND_GC_RET
@@ -1388,11 +1388,6 @@ private:
     ssize_t emitGetInsCns(instrDesc* id);
     ssize_t emitGetInsDsp(instrDesc* id);
     ssize_t emitGetInsCIdisp(instrDesc* id);
-#endif
-
-#ifdef TARGET_X86
-    unsigned emitGetInsCIargs(instrDesc* id);
-    int emitGetInsCDinfo(instrDesc* id);
 #endif
 
     cnsval_ssize_t emitGetInsSC(instrDesc* id);
@@ -1849,9 +1844,9 @@ public:
     bool emitInsMayWriteMultipleRegs(instrDesc* id);
 #endif // TARGET_ARMARCH
 
-    /************************************************************************/
-    /*    The following is used to distinguish helper vs non-helper calls   */
-    /************************************************************************/
+/************************************************************************/
+/*    The following is used to distinguish helper vs non-helper calls   */
+/************************************************************************/
 
 #ifdef JIT32_GCENCODER
     unsigned emitCntStackDepth;     // 0 in prolog/epilog, One DWORD elsewhere
@@ -1863,10 +1858,8 @@ public:
     void emitStackPop(unsigned codeOffs, unsigned count);
     void emitStackPopArgs(unsigned codeOffs, unsigned count);
     void emitStackKillArgs(unsigned codeOffs, unsigned count);
-    void emitRecordGCCall(unsigned codeOffs);
-#else
-    void emitRecordGCCall(unsigned codeOffs, unsigned callInstrLength);
 #endif
+    size_t emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* callEndAddr);
     void emitUpdateLiveGCvars(VARSET_TP vars, unsigned codeOffs, unsigned callInstrLength);
 
 #ifdef DEBUG
