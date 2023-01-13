@@ -2208,35 +2208,6 @@ void emitter::emitDispRegSetDiff(const char* name, regMaskTP from, regMaskTP to)
 
 #endif // DEBUG
 
-#if MULTIREG_HAS_SECOND_GC_RET
-//------------------------------------------------------------------------
-// emitSetSecondRetRegGCType: Sets the GC type of the second return register for instrDescCGCA struct.
-//
-// Arguments:
-//    id            - The large call instr descriptor to set the second GC return register type on.
-//    secondRetSize - The EA_SIZE for second return register type.
-//
-// Return Value:
-//    None
-//
-
-void emitter::emitSetSecondRetRegGCType(instrDescCGCA* id, emitAttr secondRetSize)
-{
-    if (EA_IS_GCREF(secondRetSize))
-    {
-        id->idSecondGCref(GCT_GCREF);
-    }
-    else if (EA_IS_BYREF(secondRetSize))
-    {
-        id->idSecondGCref(GCT_BYREF);
-    }
-    else
-    {
-        id->idSecondGCref(GCT_NONE);
-    }
-}
-#endif // MULTIREG_HAS_SECOND_GC_RET
-
 emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle,
                                               emitAttr              retRegAttr
 #if MULTIREG_HAS_SECOND_GC_RET
@@ -2256,8 +2227,8 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
     CorInfoHelpFunc  helper       = Compiler::eeGetHelperNum(methodHandle);
     bool             isNoGCHelper = (helper != CORINFO_HELP_UNDEF) && GCInfo::IsNoGCHelper(helper);
     regMaskTP        savedRegs    = isNoGCHelper ? GCInfo::GetNoGCHelperCalleeSavedRegs(helper) : RBM_CALLEE_SAVED;
-    VARSET_VALARG_TP GCvars       = codeGen->liveness.GetGCLiveSet();
-    regMaskTP        gcrefRegs    = codeGen->liveness.GetGCRegs(TYP_REF) & savedRegs;
+    VARSET_VALARG_TP gcLcls       = codeGen->liveness.GetGCLiveSet();
+    regMaskTP        refRegs      = codeGen->liveness.GetGCRegs(TYP_REF) & savedRegs;
     regMaskTP        byrefRegs    = codeGen->liveness.GetGCRegs(TYP_BYREF) & savedRegs;
 
 #ifdef DEBUG
@@ -2270,11 +2241,11 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
             printf("\n");
         }
 
-        printf("Call: GCvars ");
-        dumpConvertedVarSet(emitComp, GCvars);
-        printf(", REF regs");
-        emitDispRegSet(gcrefRegs);
-        printf(", BYREF regs");
+        printf("Call: gc-lcls ");
+        dumpConvertedVarSet(emitComp, gcLcls);
+        printf(", ref-regs");
+        emitDispRegSet(refRegs);
+        printf(", byref-regs");
         emitDispRegSet(byrefRegs);
         printf("\n");
     }
@@ -2287,7 +2258,7 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
 
     instrDesc* id;
 
-    if (!VarSetOps::IsEmpty(emitComp, GCvars) || ((gcrefRegs & RBM_CALLEE_TRASH) != RBM_NONE) || (byrefRegs != RBM_NONE)
+    if (!VarSetOps::IsEmpty(emitComp, gcLcls) || ((refRegs & RBM_CALLEE_TRASH) != RBM_NONE) || (byrefRegs != RBM_NONE)
 #if MULTIREG_HAS_SECOND_GC_RET
         || EA_IS_GCREF_OR_BYREF(retReg2Attr)
 #endif
@@ -2299,10 +2270,30 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
 #endif
             )
     {
+        if (EA_IS_GCREF(retRegAttr))
+        {
+            refRegs |= RBM_INTRET;
+        }
+        else if (EA_IS_BYREF(retRegAttr))
+        {
+            byrefRegs |= RBM_INTRET;
+        }
+
+#if MULTIREG_HAS_SECOND_GC_RET
+        if (EA_IS_GCREF(retReg2Attr))
+        {
+            refRegs |= RBM_INTRET_1;
+        }
+        else if (EA_IS_BYREF(retReg2Attr))
+        {
+            byrefRegs |= RBM_INTRET_1;
+        }
+#endif
+
         instrDescCGCA* idc = emitAllocInstrCGCA(retRegAttr);
         idc->idSetIsLargeCall();
-        idc->idcGCvars    = VarSetOps::MakeCopy(emitComp, GCvars);
-        idc->idcGcrefRegs = gcrefRegs;
+        idc->idcGCvars    = VarSetOps::MakeCopy(emitComp, gcLcls);
+        idc->idcGcrefRegs = refRegs;
         idc->idcByrefRegs = byrefRegs;
 #ifdef TARGET_XARCH
         idc->idcDisp = disp;
@@ -2310,10 +2301,6 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
 #ifdef TARGET_X86
         idc->idcArgCnt = argSlotCount;
 #endif
-#if MULTIREG_HAS_SECOND_GC_RET
-        emitSetSecondRetRegGCType(idc, retReg2Attr);
-#endif
-
         id = idc;
     }
     else
@@ -2329,7 +2316,7 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
         id = emitAllocInstr(retRegAttr);
 #endif
 
-        emitEncodeCallGCregs(gcrefRegs, id);
+        emitEncodeCallGCregs(refRegs, id);
 
 #ifdef TARGET_XARCH
         id->idAddr()->iiaAddrMode.amDisp = disp;
@@ -2339,7 +2326,7 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
 
     id->idSetIsNoGC(isNoGCHelper);
 
-    VarSetOps::Assign(emitComp, emitThisGCrefVars, GCvars);
+    VarSetOps::Assign(emitComp, emitThisGCrefVars, gcLcls);
 
     return id;
 }
@@ -6269,17 +6256,6 @@ size_t emitter::emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* call
         gcLcls    = idCall->idcGCvars;
         X86_ONLY(argCount = idCall->idcArgCnt);
 
-#if MULTIREG_HAS_SECOND_GC_RET
-        if (idCall->idSecondGCref() == GCT_GCREF)
-        {
-            refRegs |= RBM_INTRET_1;
-        }
-        else if (idCall->idSecondGCref() == GCT_BYREF)
-        {
-            byrefRegs |= RBM_INTRET_1;
-        }
-#endif
-
         sz = sizeof(instrDescCGCA);
     }
     else
@@ -6294,14 +6270,6 @@ size_t emitter::emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* call
         gcLcls    = emitEmptyGCrefVars;
         X86_ONLY(argCount = static_cast<int>(emitGetInsCns(id)));
 
-        sz = sizeof(instrDesc);
-    }
-
-    unsigned codeOffs        = emitCurCodeOffs(callEndAddr);
-    unsigned callInstrLength = static_cast<unsigned>(callEndAddr - callAddr);
-
-    if (!emitIGisInEpilog(emitCurIG))
-    {
         if (id->idGCref() == GCT_GCREF)
         {
             refRegs |= RBM_INTRET;
@@ -6311,6 +6279,14 @@ size_t emitter::emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* call
             byrefRegs |= RBM_INTRET;
         }
 
+        sz = sizeof(instrDesc);
+    }
+
+    unsigned codeOffs        = emitCurCodeOffs(callEndAddr);
+    unsigned callInstrLength = static_cast<unsigned>(callEndAddr - callAddr);
+
+    if (!emitIGisInEpilog(emitCurIG))
+    {
         emitUpdateLiveGCvars(gcLcls, codeOffs, callInstrLength);
 
         if (refRegs != gcInfo.GetLiveRegs(GCT_GCREF))

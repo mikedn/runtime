@@ -1328,28 +1328,10 @@ private:
 #ifdef TARGET_X86
         int idcArgCnt; // ... lots of args or (<0 ==> caller pops args)
 #endif
-
 #if MULTIREG_HAS_SECOND_GC_RET
-        // This method handle the GC-ness of the second register in a 2 register returned struct on System V.
-        GCtype idSecondGCref() const
-        {
-            return (GCtype)_idcSecondRetRegGCType;
-        }
-        void idSecondGCref(GCtype gctype)
-        {
-            _idcSecondRetRegGCType = gctype;
-        }
-
-    private:
-        // This member stores the GC-ness of the second register in a 2 register returned struct on System V.
-        // It is added to the call struct since it is not needed by the base instrDesc struct, which keeps GC-ness
-        // of the first register for the instCall nodes.
-        // The base instrDesc is very carefully kept to be no more than 128 bytes. There is no more space to add members
-        // for keeping GC-ness of the second return registers. It will also bloat the base struct unnecessarily
-        // since the GC-ness of the second register is only needed for call instructions.
-        // The base struct's member keeping the GC-ness of the first return register is _idGCref.
-        GCtype _idcSecondRetRegGCType : 2; // ... GC type for the second return register.
-#endif                                     // MULTIREG_HAS_SECOND_GC_RET
+        // TODO-MIKE-Cleanup: Remove this...
+        int workaroundToAvoidDiffInducingStupidInsGroupSizeChanges;
+#endif
     };
 
 #ifdef TARGET_ARM
@@ -1650,10 +1632,6 @@ private:
 
     regMaskTP emitInitGCrefRegs = RBM_NONE;
     regMaskTP emitInitByrefRegs = RBM_NONE;
-
-#if MULTIREG_HAS_SECOND_GC_RET
-    void emitSetSecondRetRegGCType(instrDescCGCA* id, emitAttr secondRetSize);
-#endif
 
     static void emitEncodeCallGCregs(regMaskTP regs, instrDesc* id);
     static unsigned emitDecodeCallGCregs(instrDesc* id);
