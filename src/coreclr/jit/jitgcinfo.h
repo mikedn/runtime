@@ -143,6 +143,7 @@ public:
 #ifdef DEBUG
     ArrayStack<StackSlotLifetime*> deltaStackSlotLifetime;
     RegArgChange*                  deltaRegArgChangeBase = nullptr;
+    CallSite*                      deltaCallSiteBase     = nullptr;
     regMaskTP                      deltaRefRegsBase      = RBM_NONE;
     regMaskTP                      deltaByrefRegsBase    = RBM_NONE;
 #endif
@@ -322,6 +323,7 @@ private:
 #ifdef DEBUG
     void DumpRegDelta(const char* header, GCtype type, regMaskTP baseRegs, regMaskTP diffRegs);
     void DumpRegArgChangeDelta(const char* header);
+    void DumpCallSiteDelta(const char* header);
 #endif
 };
 

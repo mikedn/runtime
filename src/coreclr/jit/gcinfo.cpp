@@ -1080,6 +1080,104 @@ void GCInfo::DumpRegArgChangeDelta(const char* header)
     deltaRegArgChangeBase = lastRegArgChange;
 }
 
+void GCInfo::DumpCallSiteDelta(const char* header)
+{
+    if (deltaCallSiteBase == lastCallSite)
+    {
+        return;
+    }
+
+    CallSite* base = (deltaCallSiteBase == nullptr) ? firstCallSite : deltaCallSiteBase->next;
+
+    for (CallSite* call = base; call != nullptr; call = call->next)
+    {
+        printf("%scall-site", header);
+
+        if (call->refRegs != RBM_NONE)
+        {
+            printf(" ref-regs ");
+            dspRegMask(call->refRegs);
+        }
+
+        if (call->byrefRegs != RBM_NONE)
+        {
+            printf(" byref-regs ");
+            dspRegMask(call->byrefRegs);
+        }
+
+#ifdef JIT32_GCENCODER
+        if ((call->argCount != 0) || (call->argMask != 0))
+        {
+            unsigned  count   = call->argCount;
+            unsigned* offsets = call->argTable;
+            unsigned  bitOffsets[sizeof(call->argMask) * CHAR_BIT];
+
+            if (count == 0)
+            {
+                for (unsigned i = 0, j = 0; i < _countof(bitOffsets); i++)
+                {
+                    if ((call->argMask & (1 << i)) != 0)
+                    {
+                        bitOffsets[count] = i * TARGET_POINTER_SIZE;
+
+                        if ((call->byrefArgMask & (1 << i)) != 0)
+                        {
+                            bitOffsets[count] |= byref_OFFSET_FLAG;
+                        }
+
+                        count++;
+                    }
+                }
+
+                offsets = bitOffsets;
+            }
+
+            unsigned refCount   = 0;
+            unsigned byrefCount = 0;
+
+            for (unsigned i = 0; i < count; i++)
+            {
+                (((offsets[i] & byref_OFFSET_FLAG) != 0) ? byrefCount : refCount)++;
+            }
+
+            if (refCount != 0)
+            {
+                printf(" ref-args {");
+
+                for (unsigned i = 0; i < count; i++)
+                {
+                    if ((offsets[i] & byref_OFFSET_FLAG) == 0)
+                    {
+                        printf(" %u", offsets[i]);
+                    }
+                }
+
+                printf(" }");
+            }
+
+            if (byrefCount != 0)
+            {
+                printf(" byref-args {");
+
+                for (unsigned i = 0; i < count; i++)
+                {
+                    if ((offsets[i] & byref_OFFSET_FLAG) != 0)
+                    {
+                        printf(" %u", offsets[i] & ~byref_OFFSET_FLAG);
+                    }
+                }
+
+                printf(" }");
+            }
+        }
+#endif
+
+        printf("\n");
+    }
+
+    deltaCallSiteBase = lastCallSite;
+}
+
 void GCInfo::DumpStackSlotLifetimeDelta(const char* header)
 {
     if (deltaStackSlotLifetime.Empty())
@@ -1118,6 +1216,7 @@ void GCInfo::DumpDelta(const char* header)
 
     DumpStackSlotLifetimeDelta(header);
     DumpRegArgChangeDelta(header);
+    DumpCallSiteDelta(header);
 }
 
 #endif // DEBUG
