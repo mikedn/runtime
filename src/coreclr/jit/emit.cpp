@@ -1052,11 +1052,7 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz)
     // the prolog/epilog placeholder groups ARE generated in order, and are
     // re-used. But generating additional groups would not work.
     if (emitComp->compStressCompile(Compiler::STRESS_EMITTER, 1) && emitCurIGinsCnt && !emitIGisInProlog(emitCurIG) &&
-        !emitIGisInEpilog(emitCurIG)
-#ifdef FEATURE_EH_FUNCLETS
-        && !emitIGisInFuncletProlog(emitCurIG) && !emitIGisInFuncletEpilog(emitCurIG)
-#endif
-            )
+        !emitCurIG->IsEpilog() && !emitCurIG->IsFuncletPrologOrEpilog())
     {
         emitExtendIG();
     }
@@ -1068,8 +1064,7 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz)
     //     When nopSize is odd we misalign emitCurIGsize
     //
     if (!emitComp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) && !emitInInstrumentation &&
-        !emitIGisInProlog(emitCurIG) && // don't do this in prolog or epilog
-        !emitIGisInEpilog(emitCurIG) &&
+        !emitIGisInProlog(emitCurIG) && !emitCurIG->IsEpilog() &&
         emitRandomNops // sometimes we turn off where exact codegen is needed (pinvoke inline)
         )
     {
@@ -6269,7 +6264,7 @@ size_t emitter::emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* call
     unsigned callOffs    = emitCurCodeOffs(callAddr);
     unsigned callEndOffs = callOffs + static_cast<unsigned>(callEndAddr - callAddr);
 
-    if (!emitIGisInEpilog(emitCurIG))
+    if (!emitCurIG->IsEpilog())
     {
         // We update tracked stack slot GC info before the call as they cannot
         // be used by the call (they'd need to be address exposed, thus untracked).
@@ -6344,7 +6339,7 @@ void emitter::emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr)
 {
     assert(emitIssuing);
 
-    if (!emitIGisInEpilog(emitCurIG))
+    if (!emitCurIG->IsEpilog())
     {
         gcInfo.AddLiveReg(gcType, reg, emitCurCodeOffs(addr));
     }
@@ -6354,7 +6349,7 @@ void emitter::emitGCregDeadUpd(regNumber reg, BYTE* addr)
 {
     assert(emitIssuing);
 
-    if (!emitIGisInEpilog(emitCurIG))
+    if (!emitCurIG->IsEpilog())
     {
         gcInfo.RemoveLiveReg(reg, emitCurCodeOffs(addr));
     }
@@ -6365,7 +6360,7 @@ void emitter::emitGCregDeadAll(BYTE* addr)
 {
     assert(emitIssuing);
 
-    if (!emitIGisInEpilog(emitCurIG))
+    if (!emitCurIG->IsEpilog())
     {
         gcInfo.RemoveAllLiveRegs(emitCurCodeOffs(addr));
     }

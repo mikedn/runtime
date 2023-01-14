@@ -219,6 +219,20 @@ struct insGroup
     {
         return (igFlags & IGF_LOOP_ALIGN) != 0;
     }
+
+    bool IsEpilog() const
+    {
+        return (igFlags & IGF_EPILOG) != 0;
+    }
+
+    bool IsFuncletPrologOrEpilog() const
+    {
+#ifdef FEATURE_EH_FUNCLETS
+        return (igFlags & (IGF_FUNCLET_PROLOG | IGF_FUNCLET_EPILOG)) != 0;
+#else
+        return false;
+#endif
+    }
 };
 
 #define DEFINE_ID_OPS
@@ -356,23 +370,6 @@ private:
         // Currently, we only allow one IG for the prolog
         return ig == emitIGfirst;
     }
-
-    bool emitIGisInEpilog(const insGroup* ig) const
-    {
-        return (ig != nullptr) && ((ig->igFlags & IGF_EPILOG) != 0);
-    }
-
-#ifdef FEATURE_EH_FUNCLETS
-    bool emitIGisInFuncletProlog(const insGroup* ig)
-    {
-        return (ig != nullptr) && ((ig->igFlags & IGF_FUNCLET_PROLOG) != 0);
-    }
-
-    bool emitIGisInFuncletEpilog(const insGroup* ig)
-    {
-        return (ig != nullptr) && ((ig->igFlags & IGF_FUNCLET_EPILOG) != 0);
-    }
-#endif
 
     void emitRecomputeIGoffsets();
 

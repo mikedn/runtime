@@ -13021,7 +13021,7 @@ emitter::insExecutionCharacteristics emitter::getInsExecutionCharacteristics(ins
             {
                 // ldp, ldpsw, ldnp
                 result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-                if (emitIGisInEpilog(emitCurIG) && (ins == INS_ldp))
+                if (emitCurIG->IsEpilog() && (ins == INS_ldp))
                 {
                     // Reduce latency for ldp instructions in the epilog
                     //

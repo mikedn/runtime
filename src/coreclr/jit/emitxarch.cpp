@@ -12477,11 +12477,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
     assert(sz == emitSizeOfInsDsc(id));
 
 #if !FEATURE_FIXED_OUT_ARGS
-    if (!emitIGisInProlog(ig) && !emitIGisInEpilog(ig)
-#ifdef FEATURE_EH_FUNCLETS
-        && !emitIGisInFuncletProlog(ig) && !emitIGisInFuncletEpilog(ig)
-#endif
-            )
+    if (!emitIGisInProlog(ig) && !ig->IsEpilog() && !ig->IsFuncletPrologOrEpilog())
     {
         switch (ins)
         {
