@@ -258,11 +258,7 @@ void GCInfo::AddLiveRegs(GCtype type, regMaskTP regs, unsigned codeOffs)
 {
     assert(type != GCT_NONE);
     assert((GetAllLiveRegs() & regs) == RBM_NONE);
-#ifdef JIT32_GCENCODER
-    assert(isFullyInterruptible || ((regs == genRegMask(syncThisReg)) && ReportRegArgChanges()));
-#else
     assert(isFullyInterruptible);
-#endif
 
     RegArgChange* change = AddRegArgChange();
     change->codeOffs     = codeOffs;

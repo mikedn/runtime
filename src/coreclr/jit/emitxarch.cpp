@@ -10511,20 +10511,6 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
                 break;
 
             case IF_RWR_RRD:
-#ifdef JIT32_GCENCODER
-                if ((gcInfo.GetSyncThisReg() != REG_NA) && emitIGisInProlog(emitCurIG) && (reg2 == REG_ARG_0))
-                {
-                    // We're relocating "this" in the prolog
-                    assert(id->idGCref() == GCT_GCREF);
-
-                    if (gcInfo.ReportRegArgChanges())
-                    {
-                        gcInfo.AddLiveRegs(GCT_GCREF, genRegMask(reg1), emitCurCodeOffs(dst));
-                        break;
-                    }
-                }
-#endif
-
                 emitGCregLiveUpd(id->idGCref(), reg1, dst);
                 break;
 

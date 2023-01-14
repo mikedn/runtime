@@ -3026,6 +3026,59 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, const
     unsigned         totalSize  = 0;
     PendingArgsStack pasStk(compiler->GetEmitter()->emitMaxStackDepth, compiler);
 
+    if (syncThisReg != REG_NA)
+    {
+        assert(trackedThisLclNum == BAD_VAR_NUM);
+
+        switch (syncThisReg)
+        {
+            case 0: // EAX
+            case 1: // ECX
+            case 2: // EDX
+            case 4: // ESP
+                // TODO-MIKE-Review: Should there be an assert/unreached here?
+                //
+                // It looks like if `this` has to be reported then it has to be
+                // in a callee-saved register. But we don't require this in LSRA
+                // so we can end up with `this` in the original reg param, ECX.
+                //
+                // Thing is, most scenarios that require `this` reporting involve
+                // calls and then `this` can only be in a callee-saved register,
+                // otherwise it would be spilled.
+                //
+                // But there are cases where lvaKeepAliveAndReportThis returns
+                // true and there are no calls in the method and `this` happily
+                // ends up in ECX due to the lack of LSRA restrictions. Which one
+                // is wrong - lvaKeepAliveAndReportThis or LSRA?
+                // AddPartiallyInterruptibleSlotsFramed has the same issue.
+                break;
+            case 7:             // EDI
+                *dest++ = 0xF4; /* 11110100  This pointer is in EDI */
+                // TODO-MIKE-Cleanup: Remove workaround for GC info diffs,
+                // old code managed to report `this` twice.
+                *dest++ = 0xF4;
+                totalSize += 2;
+                break;
+            case 6:             // ESI
+                *dest++ = 0xF5; /* 11110100  This pointer is in ESI */
+                *dest++ = 0xF5;
+                totalSize += 2;
+                break;
+            case 3:             // EBX
+                *dest++ = 0xF6; /* 11110100  This pointer is in EBX */
+                *dest++ = 0xF6;
+                totalSize += 2;
+                break;
+            case 5:             // EBP
+                *dest++ = 0xF7; /* 11110100  This pointer is in EBP */
+                *dest++ = 0xF7;
+                totalSize += 2;
+                break;
+            default:
+                break;
+        }
+    }
+
     for (RegArgChange* change = firstRegArgChange; change != nullptr; change = change->next)
     {
         /*
@@ -3112,56 +3165,7 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, const
         unsigned origCodeDelta = codeDelta;
 #endif
 
-        if (change->kind == RegArgChangeKind::AddRegs)
-        {
-            assert((trackedThisLclNum == BAD_VAR_NUM) && (syncThisReg != REG_NA));
-            assert(change->regs == genRegMask(syncThisReg));
-
-            switch (genRegNumFromMask(change->regs))
-            {
-                case 0: // EAX
-                case 1: // ECX
-                case 2: // EDX
-                case 4: // ESP
-                    // TODO-MIKE-Review: Should there be an assert/unreached here?
-                    //
-                    // It looks like if `this` has to be reported then it has to be
-                    // in a callee-saved register. But we don't require this in LSRA
-                    // so we can end up with `this` in the original reg param, ECX.
-                    //
-                    // Thing is, most scenarios that require `this` reporting involve
-                    // calls and then `this` can only be in a callee-saved register,
-                    // otherwise it would be spilled.
-                    //
-                    // But there are cases where lvaKeepAliveAndReportThis returns
-                    // true and there are no calls in the method and `this` happily
-                    // ends up in ECX due to the lack of LSRA restrictions. Which one
-                    // is wrong - lvaKeepAliveAndReportThis or LSRA?
-                    // AddPartiallyInterruptibleSlotsFramed has the same issue.
-                    break;
-                case 7:             // EDI
-                    *dest++ = 0xF4; /* 11110100  This pointer is in EDI */
-                    // TODO-MIKE-Cleanup: Remove workaround for GC info diffs,
-                    // old code managed to report `this` twice.
-                    *dest++ = 0xF4;
-                    break;
-                case 6:             // ESI
-                    *dest++ = 0xF5; /* 11110100  This pointer is in ESI */
-                    *dest++ = 0xF5;
-                    break;
-                case 3:             // EBX
-                    *dest++ = 0xF6; /* 11110100  This pointer is in EBX */
-                    *dest++ = 0xF6;
-                    break;
-                case 5:             // EBP
-                    *dest++ = 0xF7; /* 11110100  This pointer is in EBP */
-                    *dest++ = 0xF7;
-                    break;
-                default:
-                    break;
-            }
-        }
-        else if (change->kind == RegArgChangeKind::KillArgs)
+        if (change->kind == RegArgChangeKind::KillArgs)
         {
             pasStk.Kill(change->argOffset);
         }
