@@ -4142,19 +4142,21 @@ void GCEncoder::AddPartiallyInterruptibleSlots(CallSite* firstCallSite)
             continue;
         }
 
-        assert(call->codeOffs >= call->codeLength);
-        unsigned callOffset = call->codeOffs - call->codeLength;
+        unsigned callOffs    = call->codeOffs;
+        unsigned callEndOffs = call->codeEndOffs;
+
+        assert(callEndOffs - callOffs <= UINT8_MAX);
 
         if (callSites != nullptr)
         {
-            callSites[callSiteIndex]     = callOffset;
-            callSiteSizes[callSiteIndex] = call->codeLength;
+            callSites[callSiteIndex]     = callOffs;
+            callSiteSizes[callSiteIndex] = static_cast<uint8_t>(callEndOffs - callOffs);
         }
 
         callSiteIndex++;
 
-        AddRegSlotChange(callOffset, GC_SLOT_LIVE, gcRegs, byrefRegs);
-        AddRegSlotChange(call->codeOffs, GC_SLOT_DEAD, gcRegs, byrefRegs);
+        AddRegSlotChange(callOffs, GC_SLOT_LIVE, gcRegs, byrefRegs);
+        AddRegSlotChange(callEndOffs, GC_SLOT_DEAD, gcRegs, byrefRegs);
     }
 
     if (hasSlotIds)

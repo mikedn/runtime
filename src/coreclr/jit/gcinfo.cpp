@@ -761,7 +761,6 @@ void GCInfo::AddCallArgsKill(unsigned codeOffs)
 void GCInfo::AddCallSite(unsigned callOffs, unsigned callEndOffs)
 {
     assert(!isFullyInterruptible);
-    assert((callEndOffs > callOffs) && (callEndOffs - callOffs <= UINT8_MAX));
 
     CallSite* call = new (compiler, CMK_GC) CallSite;
 
@@ -778,10 +777,10 @@ void GCInfo::AddCallSite(unsigned callOffs, unsigned callEndOffs)
 
     lastCallSite = call;
 
-    call->refRegs    = static_cast<RegSet>(liveRefRegs);
-    call->byrefRegs  = static_cast<RegSet>(liveByrefRegs);
-    call->codeOffs   = callEndOffs;
-    call->codeLength = static_cast<uint8_t>(callEndOffs - callOffs);
+    call->refRegs     = static_cast<RegSet>(liveRefRegs);
+    call->byrefRegs   = static_cast<RegSet>(liveByrefRegs);
+    call->codeOffs    = callOffs;
+    call->codeEndOffs = callEndOffs;
 }
 
 #endif // !JIT32_GCENCODER

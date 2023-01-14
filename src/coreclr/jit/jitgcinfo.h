@@ -97,7 +97,7 @@ public:
             unsigned* argTable; // if argCount != 0
         };
 #else
-        uint8_t codeLength;
+        unsigned codeEndOffs;
 #endif
     };
 
