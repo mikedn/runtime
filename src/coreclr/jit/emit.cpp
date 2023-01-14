@@ -517,6 +517,7 @@ void emitter::emitFinishIG(bool extend)
 
     if (((ig->igFlags & IGF_EXTEND) == 0) && (ig != GetProlog()))
     {
+#ifndef JIT32_GCENCODER
         if ((ig->igFlags & (IGF_EPILOG | IGF_FUNCLET_EPILOG | IGF_FUNCLET_PROLOG)) != 0)
         {
             // TODO-MIKE-Cleanup: Old code tried to avoid storing the set of live GC locals
@@ -545,7 +546,9 @@ void emitter::emitFinishIG(bool extend)
             // of producing bad GC info. For now keep this for prologs and epilogs, removing
             // results in (harmless) GC info diffs.
         }
-        else if (ig != GetProlog())
+        else
+#endif
+            if (ig != GetProlog())
         {
             ig->igFlags |= IGF_GC_VARS;
         }
@@ -590,6 +593,7 @@ void emitter::emitFinishIG(bool extend)
     ig->igInsCnt = static_cast<uint8_t>(emitCurIGinsCnt);
     ig->igSize   = static_cast<uint16_t>(emitCurIGsize);
 
+#ifndef JIT32_GCENCODER
     if (!extend)
     {
         // Update the previous recorded live GC ref sets, but not if if we are
@@ -601,6 +605,7 @@ void emitter::emitFinishIG(bool extend)
 
         VarSetOps::Assign(emitComp, emitPrevGCrefVars, emitThisGCrefVars);
     }
+#endif
 
     if (instrSize != 0)
     {
@@ -805,7 +810,9 @@ void emitter::emitEnableGC()
 
 void emitter::emitBegFN()
 {
+#ifndef JIT32_GCENCODER
     emitPrevGCrefVars = VarSetOps::MakeEmpty(emitComp);
+#endif
     emitInitGCrefVars = VarSetOps::MakeEmpty(emitComp);
     emitThisGCrefVars = VarSetOps::MakeEmpty(emitComp);
 #ifdef DEBUG
@@ -1342,6 +1349,7 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
     igPh->igFuncIdx = emitComp->compCurrFuncIdx;
     igPh->igFlags |= IGF_PLACEHOLDER;
 
+#ifndef JIT32_GCENCODER
     if ((igPh->igFlags & IGF_EXTEND) == 0)
     {
         if (!VarSetOps::Equal(emitComp, emitPrevGCrefVars, emitInitGCrefVars))
@@ -1353,6 +1361,7 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
             igPh->igFlags &= ~IGF_GC_VARS;
         }
     }
+#endif
 
     if (igType == IGPT_EPILOG)
     {

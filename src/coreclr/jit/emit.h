@@ -1622,7 +1622,9 @@ private:
 
     instrDescJmp* emitCurIGjmpList = nullptr; // list of jumps   in current IG
 
+#ifndef JIT32_GCENCODER
     VARSET_TP emitPrevGCrefVars;
+#endif
     VARSET_TP emitInitGCrefVars;
     VARSET_TP emitThisGCrefVars;
     VARSET_TP emitEmptyGCrefVars = VarSetOps::UninitVal();
