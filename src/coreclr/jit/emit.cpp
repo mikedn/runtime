@@ -515,12 +515,7 @@ void emitter::emitFinishIG(bool extend)
     insGroup* ig = emitCurIG;
     assert((ig->igFlags & IGF_PLACEHOLDER) == 0);
 
-    // TODO-MIKE-Cleanup: Prologs are like "extended" as far as GC info is concerned,
-    // there's nothing live at the start of a prolog (and they're not interruptible so
-    // it would not matter anyway). Trouble is, they can be empty so we end up trying
-    // to allocate 0 bytes - the memory allocator doesn't like that.
-
-    if ((ig->igFlags & IGF_EXTEND) == 0)
+    if (((ig->igFlags & IGF_EXTEND) == 0) && (ig != GetProlog()))
     {
         if ((ig->igFlags & (IGF_EPILOG | IGF_FUNCLET_EPILOG | IGF_FUNCLET_PROLOG)) != 0)
         {
@@ -563,9 +558,10 @@ void emitter::emitFinishIG(bool extend)
         dataSize += 2 * sizeof(uint32_t);
     }
 
-    uint8_t* data = static_cast<uint8_t*>(emitGetMem(dataSize));
+    // TODO-MIKE-Cleanup: Prologs can be empty, the memory allocator doesn't like 0 sized allocations.
+    uint8_t* data = static_cast<uint8_t*>(emitGetMem(dataSize == 0 ? sizeof(void*) : dataSize));
 
-    if ((ig->igFlags & IGF_EXTEND) == 0)
+    if (((ig->igFlags & IGF_EXTEND) == 0) && (ig != GetProlog()))
     {
         if ((ig->igFlags & IGF_GC_VARS) != 0)
         {
@@ -2710,7 +2706,7 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
             separator = ", ";
         }
 
-        if ((ig->igData != nullptr) && ((ig->igFlags & (IGF_EXTEND | IGF_PLACEHOLDER)) == 0))
+        if ((ig->igData != nullptr) && ((ig->igFlags & (IGF_EXTEND | IGF_PLACEHOLDER)) == 0) && (ig != GetProlog()))
         {
             if ((ig->igFlags & IGF_GC_VARS) != 0)
             {
@@ -4790,7 +4786,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
         }
 #endif
 
-        if ((ig->igFlags & IGF_EXTEND) != 0)
+        if (((ig->igFlags & IGF_EXTEND) != 0) || (ig == GetProlog()))
         {
             assert((ig->igFlags & IGF_GC_VARS) == 0);
         }
