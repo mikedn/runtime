@@ -50,6 +50,12 @@ public:
         KillArgs
     };
 
+    // GC only cares about integer registers and currently all targets have at most
+    // 32 integer registers, we can get away with using uint32_t instead of uint64_t
+    // on ARM and ARM64.
+    static_assert_no_msg(REG_INT_LAST < 32);
+    using RegSet = uint32_t;
+
     struct RegArgChange
     {
         RegArgChange* next = nullptr;
@@ -63,7 +69,7 @@ public:
 #endif
 
         union {
-            regMaskSmall regs;
+            RegSet regs;
 #ifdef JIT32_GCENCODER
             unsigned argOffset;
 #else
@@ -74,10 +80,10 @@ public:
 
     struct CallSite
     {
-        CallSite*    next = nullptr;
-        regMaskSmall refRegs;
-        regMaskSmall byrefRegs;
-        unsigned     codeOffs;
+        CallSite* next = nullptr;
+        RegSet    refRegs;
+        RegSet    byrefRegs;
+        unsigned  codeOffs;
 #ifdef JIT32_GCENCODER
         unsigned argCount;
 

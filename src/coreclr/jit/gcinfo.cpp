@@ -264,7 +264,7 @@ void GCInfo::AddLiveRegs(GCtype type, regMaskTP regs, unsigned codeOffs)
     change->codeOffs     = codeOffs;
     change->kind         = RegArgChangeKind::AddRegs;
     change->gcType       = type;
-    change->regs         = static_cast<regMaskSmall>(regs);
+    change->regs         = static_cast<RegSet>(regs);
 }
 
 void GCInfo::RemoveLiveRegs(GCtype type, regMaskTP regs, unsigned codeOffs)
@@ -277,7 +277,7 @@ void GCInfo::RemoveLiveRegs(GCtype type, regMaskTP regs, unsigned codeOffs)
     change->codeOffs     = codeOffs;
     change->kind         = RegArgChangeKind::RemoveRegs;
     change->gcType       = type;
-    change->regs         = static_cast<regMaskSmall>(regs);
+    change->regs         = static_cast<RegSet>(regs);
 }
 
 void GCInfo::AddLiveReg(GCtype type, regNumber reg, unsigned codeOffs)
@@ -347,7 +347,7 @@ void GCInfo::SetLiveRegs(GCtype type, regMaskTP regs, unsigned codeOffs)
 
         while (change != RBM_NONE)
         {
-            regMaskTP regMask = genFindLowestBit(change);
+            regMaskTP regMask = genFindLowestReg(change);
             regNumber reg     = genRegNumFromMask(regMask);
 
             if ((life & regMask) != RBM_NONE)
@@ -679,8 +679,8 @@ void GCInfo::AddCallSite(unsigned stackLevel, unsigned codeOffs)
 
     lastCallSite = call;
 
-    call->refRegs   = static_cast<regMaskSmall>(liveRefRegs);
-    call->byrefRegs = static_cast<regMaskSmall>(liveByrefRegs);
+    call->refRegs   = static_cast<RegSet>(liveRefRegs);
+    call->byrefRegs = static_cast<RegSet>(liveByrefRegs);
     call->codeOffs  = codeOffs;
 
 #if !FEATURE_FIXED_OUT_ARGS
@@ -778,8 +778,8 @@ void GCInfo::AddCallSite(unsigned callOffs, unsigned callEndOffs)
 
     lastCallSite = call;
 
-    call->refRegs    = static_cast<regMaskSmall>(liveRefRegs);
-    call->byrefRegs  = static_cast<regMaskSmall>(liveByrefRegs);
+    call->refRegs    = static_cast<RegSet>(liveRefRegs);
+    call->byrefRegs  = static_cast<RegSet>(liveByrefRegs);
     call->codeOffs   = callEndOffs;
     call->codeLength = static_cast<uint8_t>(callEndOffs - callOffs);
 }
