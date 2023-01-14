@@ -3022,20 +3022,29 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, const
     assert(!isFullyInterruptible);
     assert(!compiler->codeGen->isFramePointerUsed());
 
-    unsigned         lastOffset = 0;
-    unsigned         totalSize  = 0;
-    PendingArgsStack pasStk(compiler->GetEmitter()->emitMaxStackDepth, compiler);
+    unsigned totalSize = 0;
 
     if (syncThisReg != REG_NA)
     {
         assert(trackedThisLclNum == BAD_VAR_NUM);
 
+        uint8_t regEncoding;
+
         switch (syncThisReg)
         {
-            case 0: // EAX
-            case 1: // ECX
-            case 2: // EDX
-            case 4: // ESP
+            case REG_EDI:
+                regEncoding = 0;
+                break;
+            case REG_ESI:
+                regEncoding = 1;
+                break;
+            case REG_EBX:
+                regEncoding = 2;
+                break;
+            case REG_EBP:
+                regEncoding = 3;
+                break;
+            default:
                 // TODO-MIKE-Review: Should there be an assert/unreached here?
                 //
                 // It looks like if `this` has to be reported then it has to be
@@ -3051,33 +3060,22 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, const
                 // ends up in ECX due to the lack of LSRA restrictions. Which one
                 // is wrong - lvaKeepAliveAndReportThis or LSRA?
                 // AddPartiallyInterruptibleSlotsFramed has the same issue.
-                break;
-            case 7:             // EDI
-                *dest++ = 0xF4; /* 11110100  This pointer is in EDI */
-                // TODO-MIKE-Cleanup: Remove workaround for GC info diffs,
-                // old code managed to report `this` twice.
-                *dest++ = 0xF4;
-                totalSize += 2;
-                break;
-            case 6:             // ESI
-                *dest++ = 0xF5; /* 11110100  This pointer is in ESI */
-                *dest++ = 0xF5;
-                totalSize += 2;
-                break;
-            case 3:             // EBX
-                *dest++ = 0xF6; /* 11110100  This pointer is in EBX */
-                *dest++ = 0xF6;
-                totalSize += 2;
-                break;
-            case 5:             // EBP
-                *dest++ = 0xF7; /* 11110100  This pointer is in EBP */
-                *dest++ = 0xF7;
-                totalSize += 2;
-                break;
-            default:
+                regEncoding = 4;
                 break;
         }
+
+        if (regEncoding < 4)
+        {
+            *dest++ = 0xF4 | regEncoding;
+            // TODO-MIKE-Cleanup: Remove workaround for GC info diffs,
+            // old code managed to report `this` twice.
+            *dest++ = 0xF4 | regEncoding;
+            totalSize += 2;
+        }
     }
+
+    unsigned         lastOffset = 0;
+    PendingArgsStack pasStk(compiler->GetEmitter()->emitMaxStackDepth, compiler);
 
     for (RegArgChange* change = firstRegArgChange; change != nullptr; change = change->next)
     {
