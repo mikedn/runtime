@@ -59,6 +59,7 @@ public:
         bool operator!=(const iterator& it);
         T& operator*();
         T* operator&();
+        T* operator->() const;
         operator T*();
 
     private:
@@ -85,6 +86,7 @@ public:
         bool operator!=(const const_iterator& it) const;
         const T& operator*() const;
         const T* operator&() const;
+        const T* operator->() const;
         operator const T*() const;
 
     private:
@@ -208,6 +210,9 @@ public:
 
     void pop_back();
     void push_back(const T& value);
+
+    template <typename... Args>
+    void emplace_back(Args&&... args);
 
     reverse_iterator rbegin();
     const_reverse_iterator rbegin() const;
@@ -623,6 +628,15 @@ void vector<T, Allocator>::push_back(const T& value)
 }
 
 template <typename T, typename Allocator>
+template <typename... Args>
+void vector<T, Allocator>::emplace_back(Args&&... args)
+{
+    ensure_capacity(m_nSize + 1);
+    new (m_pArray + m_nSize) T(std::forward<Args>(args)...);
+    ++m_nSize;
+}
+
+template <typename T, typename Allocator>
 typename vector<T, Allocator>::reverse_iterator vector<T, Allocator>::rbegin()
 {
     return reverse_iterator(m_pArray + m_nSize - 1);
@@ -953,6 +967,12 @@ T* vector<T, Allocator>::iterator::operator&()
 }
 
 template <typename T, typename Allocator>
+T* vector<T, Allocator>::iterator::operator->() const
+{
+    return m_pElem;
+}
+
+template <typename T, typename Allocator>
 vector<T, Allocator>::iterator::operator T*()
 {
     return m_pElem;
@@ -1049,6 +1069,12 @@ template <typename T, typename Allocator>
 const T* vector<T, Allocator>::const_iterator::operator&() const
 {
     return &m_pElem;
+}
+
+template <typename T, typename Allocator>
+const T* vector<T, Allocator>::const_iterator::operator->() const
+{
+    return m_pElem;
 }
 
 template <typename T, typename Allocator>

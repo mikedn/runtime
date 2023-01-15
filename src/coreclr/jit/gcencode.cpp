@@ -8,6 +8,7 @@
 #endif
 #include "patchpointinfo.h"
 #include "codegen.h"
+#include "jitstd/algorithm.h"
 
 static ReturnKind GetReturnKind(const CompiledMethodInfo& info)
 {
@@ -3570,8 +3571,70 @@ class GCEncoder : private GcInfoEncoder
     static const char* const StackSlotBaseNames[];
     static const char* const SlotFlagsNames[];
 
-    bool const log;
-#endif
+    struct StackSlotLog
+    {
+        int             offset;
+        GcStackSlotBase base : 8;
+        GcSlotFlags     flags : 8;
+        GcSlotState     state : 8;
+        unsigned        codeOffs;
+
+        StackSlotLog(const GcSlotDesc& desc, GcSlotState state, UINT32 codeOffs)
+            : offset(desc.Slot.Stack.SpOffset)
+            , base(desc.Slot.Stack.Base)
+            , flags(desc.Flags)
+            , state(state)
+            , codeOffs(codeOffs)
+        {
+            assert(!desc.IsRegister());
+        }
+
+        bool SlotEquals(const StackSlotLog& other) const
+        {
+            return (offset == other.offset) && (base == other.base);
+        }
+    };
+
+    struct RegSlotLog
+    {
+        regNumber   regNum;
+        GcSlotFlags flags : 8;
+        GcSlotState state : 8;
+        unsigned    codeOffs;
+
+        RegSlotLog(const GcSlotDesc& desc, GcSlotState state, UINT32 codeOffs)
+            : regNum(static_cast<regNumber>(desc.Slot.RegisterNumber))
+            , flags(desc.Flags)
+            , state(state)
+            , codeOffs(codeOffs)
+        {
+            assert(desc.IsRegister());
+        }
+
+        bool SlotEquals(const RegSlotLog& other) const
+        {
+            return regNum == other.regNum;
+        }
+    };
+
+    struct InterruptibleRange
+    {
+        unsigned start;
+        unsigned end;
+
+        InterruptibleRange(unsigned start, unsigned end) : start(start), end(end)
+        {
+        }
+    };
+
+    bool const                         log;
+    bool const                         diffableLog = true;
+    jitstd::vector<StackSlotLog>       stackSlotLog;
+    jitstd::vector<RegSlotLog>         regSlotLog;
+    jitstd::vector<InterruptibleRange> interruptibleRanges;
+    unsigned                           codeSize;
+#endif // GC_ENCODER_LOGGING
+
 public:
     GCEncoder(Compiler* compiler, CompIAllocator* encoderAlloc, bool isFullyInterruptible)
         : GcInfoEncoder(compiler->info.compCompHnd, compiler->info.compMethodInfo, encoderAlloc, NOMEM)
@@ -3581,6 +3644,9 @@ public:
         , isFullyInterruptible(isFullyInterruptible)
 #ifdef GC_ENCODER_LOGGING
         , log(INDEBUG(compiler->verbose || compiler->opts.dspGCtbls) || (JitConfig.JitGCInfoLogging() != 0))
+        , stackSlotLog(compiler->getAllocator(CMK_DebugOnly))
+        , regSlotLog(compiler->getAllocator(CMK_DebugOnly))
+        , interruptibleRanges(compiler->getAllocator(CMK_DebugOnly))
 #endif
     {
     }
@@ -3603,6 +3669,14 @@ public:
 
     void Store()
     {
+#ifdef GC_ENCODER_LOGGING
+        if (log && diffableLog)
+        {
+            DumpRegSlotLog();
+            DumpStackSlotLog();
+        }
+#endif
+
         Build();
         Emit();
     }
@@ -3621,46 +3695,96 @@ private:
     GcSlotId GetStackSlotId(INT32 spOffset, GcSlotFlags flags, GcStackSlotBase spBase)
     {
         GcSlotId newSlotId = GcInfoEncoder::GetStackSlotId(spOffset, flags, spBase);
-        Log("Stack slot id for offset %d (%s0x%x) (%s) %s= %d.\n", spOffset, spOffset < 0 ? "-" : "", abs(spOffset),
-            StackSlotBaseNames[spBase], SlotFlagsNames[flags & 7], newSlotId);
+
+        if (!diffableLog)
+        {
+            Log("Stack slot id for offset %d (%s0x%x) (%s) %s = %d.\n", spOffset, spOffset < 0 ? "-" : "",
+                abs(spOffset), StackSlotBaseNames[spBase], SlotFlagsNames[flags & 7], newSlotId);
+        }
+
         return newSlotId;
     }
 
     GcSlotId GetRegisterSlotId(UINT32 regNum, GcSlotFlags flags)
     {
         GcSlotId newSlotId = GcInfoEncoder::GetRegisterSlotId(regNum, flags);
-        Log("Register slot id for reg %s %s= %d.\n", getRegName(regNum), SlotFlagsNames[flags & 7], newSlotId);
+
+        if (!diffableLog)
+        {
+            Log("Register slot id for reg %s %s = %d.\n", getRegName(regNum), SlotFlagsNames[flags & 7], newSlotId);
+        }
+
         return newSlotId;
     }
 
     void SetSlotState(UINT32 instructionOffset, GcSlotId slotId, GcSlotState slotState)
     {
         GcInfoEncoder::SetSlotState(instructionOffset, slotId, slotState);
-        Log("Set state of slot %d at instr offset 0x%x to %s.\n", slotId, instructionOffset,
-            (slotState == GC_SLOT_LIVE ? "Live" : "Dead"));
+
+        if (!diffableLog)
+        {
+            Log("Set state of slot %d at instr offset 0x%x to %s.\n", slotId, instructionOffset,
+                (slotState == GC_SLOT_LIVE ? "Live" : "Dead"));
+        }
+        else
+        {
+            const GcSlotDesc& desc = GetSlotDesc(slotId);
+
+            if (desc.IsRegister())
+            {
+                regSlotLog.emplace_back(desc, slotState, instructionOffset);
+            }
+            else
+            {
+                stackSlotLog.emplace_back(desc, slotState, instructionOffset);
+            }
+        }
     }
 
     void DefineCallSites(UINT32* pCallSites, BYTE* pCallSiteSizes, UINT32 numCallSites)
     {
         GcInfoEncoder::DefineCallSites(pCallSites, pCallSiteSizes, numCallSites);
 
-        Log("Defining %d call sites:\n", numCallSites);
+        if (!diffableLog || (numCallSites != 0))
+        {
+            Log("Defining %u call sites:\n", numCallSites);
+        }
+
         for (UINT32 k = 0; k < numCallSites; k++)
         {
-            Log("    Offset 0x%x, size %d.\n", pCallSites[k], pCallSiteSizes[k]);
+            if (!diffableLog)
+            {
+                Log("    Offset 0x%x, size %d.\n", pCallSites[k], pCallSiteSizes[k]);
+            }
+            else
+            {
+                Log("    %06X..%06X\n", pCallSites[k], pCallSites[k] + pCallSiteSizes[k]);
+            }
         }
     }
 
     void DefineInterruptibleRange(UINT32 startInstructionOffset, UINT32 length)
     {
         GcInfoEncoder::DefineInterruptibleRange(startInstructionOffset, length);
-        Log("Defining interruptible range: [0x%x, 0x%x).\n", startInstructionOffset, startInstructionOffset + length);
+
+        if (!diffableLog)
+        {
+            Log("Defining interruptible range: [0x%x, 0x%x).\n", startInstructionOffset,
+                startInstructionOffset + length);
+        }
+        else
+        {
+            Log("    %06X..%06X\n", startInstructionOffset, startInstructionOffset + length);
+
+            interruptibleRanges.emplace_back(startInstructionOffset, startInstructionOffset + length);
+        }
     }
 
     void SetCodeLength(UINT32 length)
     {
         GcInfoEncoder::SetCodeLength(length);
         Log("Set code length to %d.\n", length);
+        codeSize = length;
     }
 
     void SetReturnKind(ReturnKind returnKind)
@@ -3736,20 +3860,204 @@ private:
         GcInfoEncoder::SetSizeOfStackOutgoingAndScratchArea(size);
         Log("Set Outgoing stack arg area size to %d.\n", size);
     }
+
+    template <typename Slot>
+    void DumpSlotRange(const jitstd::vector<Slot>& log, size_t i)
+    {
+        const Slot& live = log[i];
+
+        // TODO-MIKE-Review: For dump purposes the slot flags are ignored, so that
+        // we see a single slot for ref, byref and pinned. This complicates sorting,
+        // a range can end at offset x and then a new range can start at the same
+        // offset x (e.g. ref 2..6 byref 6..12) so we sort the 2 entries for x such
+        // that the dead entry comes before the live one.
+        //
+        // But it looks like we can also have empty ranges (e.g. ref 6..6) and the
+        // dead-live order is wrong, it should be the other way around. So we look
+        // for a dead entry that follows the live entry AND has higher code offset.
+        // This avoids dealing with empty ranges where the dead entry occurs before
+        // the live entry.
+        //
+        // Perhaps we can avoid creating empty ranges in the first place?
+        // It seems that they appear in partially interruptible code, when a call
+        // follows another call.
+        //
+        // Also, it would make more sense to simply force stable sorting instead
+        // of sorting by slot state, the original order should be correct. And it
+        // is, for live-dead pairs. But then the pairs can be out of order, due to
+        // MarkFilterStackSlotsPinned which simply inserts new pairs at the start
+        // of the list.
+
+        unsigned liveCodeOffs = live.codeOffs;
+        unsigned deadCodeOffs = live.codeOffs;
+
+        for (size_t j = i + 1; (j < log.size()) && log[j].SlotEquals(live); j++)
+        {
+            const Slot& dead = log[j];
+
+            if ((dead.state == GC_SLOT_DEAD) && (dead.codeOffs > live.codeOffs))
+            {
+                deadCodeOffs = dead.codeOffs;
+                break;
+            }
+        }
+
+        if (liveCodeOffs == deadCodeOffs)
+        {
+            return;
+        }
+
+        if (!interruptibleRanges.empty())
+        {
+            // Adjust offsets so that they don't fall within non-interruptible ranges.
+            // It doesn't matter where inside such a range a slot goes dead or live and
+            // emitter's handling of epilogs (and funclet prologs) is kind of messed up
+            // and results in slots changing state either at the start or the end of an
+            // epilog, depending on whatever side of the bed the emitter wakes up.
+
+            auto& ranges = interruptibleRanges;
+
+            auto liveLess      = [](const InterruptibleRange& range, unsigned offs) { return range.end < offs; };
+            auto     liveBound = jitstd::lower_bound(ranges.begin(), ranges.end(), liveCodeOffs, liveLess);
+            unsigned liveMin   = liveBound != ranges.end() ? liveBound->start : codeSize;
+
+            auto deadLess      = [](const InterruptibleRange& range, unsigned offs) { return range.start < offs; };
+            auto     deadBound = jitstd::lower_bound(ranges.begin(), ranges.end(), deadCodeOffs, deadLess);
+            unsigned deadMax   = deadBound != ranges.begin() ? (deadBound - 1)->end : 0;
+
+            // If a slot becomes live inside a non-interruptible range then make it live
+            // at the end of the range.
+            liveCodeOffs = Max(liveCodeOffs, liveMin);
+            // If a slot becomes dead inside a non-interruptible range then make it dead
+            // at the start of the range.
+            deadCodeOffs = Min(deadCodeOffs, deadMax);
+
+            if (deadCodeOffs <= liveCodeOffs)
+            {
+                // The range was entirely within a non-interruptible range.
+                return;
+            }
+        }
+
+        printf("    %06X..%06X %s\n", liveCodeOffs, deadCodeOffs, SlotFlagsNames[live.flags & 7]);
+    }
+
+    void DumpRegSlotLog()
+    {
+        jitstd::sort(regSlotLog.begin(), regSlotLog.end(), [](const RegSlotLog& x, const RegSlotLog& y) {
+            if (x.regNum != y.regNum)
+                return x.regNum < y.regNum;
+            if (x.codeOffs != y.codeOffs)
+                return x.codeOffs < y.codeOffs;
+            return x.state < y.state;
+        });
+
+        regNumber prevRegNum = REG_NA;
+
+        for (size_t i = 0; i < regSlotLog.size(); i++)
+        {
+            const RegSlotLog& slot = regSlotLog[i];
+
+            if (slot.state == GC_SLOT_LIVE)
+            {
+                if (slot.regNum != prevRegNum)
+                {
+                    printf("Defining %s slot live ranges:\n", getRegName(slot.regNum));
+                    prevRegNum = slot.regNum;
+                }
+
+                DumpSlotRange(regSlotLog, i);
+            }
+        }
+    }
+
+    void DumpStackSlotLog()
+    {
+        for (unsigned i = 0; i < GetSlotCount(); i++)
+        {
+            const GcSlotDesc& slot = GetSlotDesc(i);
+
+            if (slot.IsUntracked())
+            {
+                stackSlotLog.emplace_back(slot, GC_SLOT_LIVE, 0);
+                stackSlotLog.emplace_back(slot, GC_SLOT_DEAD, UINT_MAX);
+            }
+        }
+
+        jitstd::sort(stackSlotLog.begin(), stackSlotLog.end(), [](const StackSlotLog& x, const StackSlotLog& y) {
+            if (x.base != y.base)
+                return x.base > y.base;
+            if (x.offset != y.offset)
+                return x.offset > y.offset;
+            if (x.codeOffs != y.codeOffs)
+                return x.codeOffs < y.codeOffs;
+            return x.state < y.state;
+        });
+
+        GcStackSlotBase prevBase   = static_cast<GcStackSlotBase>(INT_MIN);
+        int             prevOffset = INT_MIN;
+
+        for (size_t i = 0; i < stackSlotLog.size(); i++)
+        {
+            const StackSlotLog& slot = stackSlotLog[i];
+
+            if (slot.state != GC_SLOT_LIVE)
+            {
+                continue;
+            }
+
+            if ((slot.base != prevBase) || (slot.offset != prevOffset))
+            {
+                const char* baseName;
+
+                switch (slot.base)
+                {
+                    case GC_FRAMEREG_REL:
+                        baseName = getRegName(REG_FPBASE);
+                        break;
+                    case GC_SP_REL:
+                        baseName = getRegName(REG_SPBASE);
+                        break;
+                    default:
+                        baseName = "???";
+                        break;
+                }
+
+#ifdef TARGET_ARMARCH
+                printf("Defining [%s,#%d] slot live ranges:\n", baseName, slot.offset);
+#else
+                printf("Defining [%s%c%x] slot live ranges:\n", baseName, slot.offset < 0 ? '-' : '+',
+                       abs(slot.offset));
+#endif
+
+                prevOffset = slot.offset;
+                prevBase   = slot.base;
+            }
+
+            if ((slot.flags & GC_SLOT_UNTRACKED) == 0)
+            {
+                DumpSlotRange(stackSlotLog, i);
+            }
+            else
+            {
+                printf("    untracked\n");
+            }
+        }
+    }
 #endif // GC_ENCODER_LOGGING
 };
 
 #ifdef GC_ENCODER_LOGGING
 const char* const GCEncoder::StackSlotBaseNames[]{"caller.sp", "sp", "frame"};
 
-const char* const GCEncoder::SlotFlagsNames[]{"",
-                                              "(byref) ",
-                                              "(pinned) ",
-                                              "(byref, pinned) ",
-                                              "(untracked) ",
-                                              "(byref, untracked) ",
-                                              "(pinned, untracked) ",
-                                              "(byref, pinned, untracked) "};
+const char* const GCEncoder::SlotFlagsNames[]{"(ref)",
+                                              "(byref)",
+                                              "(ref, pinned)",
+                                              "(byref, pinned)",
+                                              "(ref, untracked)",
+                                              "(byref, untracked)",
+                                              "(ref, pinned, untracked)",
+                                              "(byref, pinned, untracked)"};
 #endif // GC_ENCODER_LOGGING
 
 void GCEncoder::SetHeaderInfo(unsigned codeSize, unsigned prologSize, ReturnKind returnKind)
@@ -4071,6 +4379,10 @@ void GCEncoder::AddFullyInterruptibleRanges(unsigned codeSize, unsigned prologSi
     assert(prologSize <= codeSize);
 
     unsigned prevOffset = prologSize;
+
+#ifdef GC_ENCODER_LOGGING
+    Log("Defining interruptible ranges:\n");
+#endif
 
     compiler->GetEmitter()->EnumerateNoGCInsGroups([&](unsigned funcletIndex, unsigned offset, unsigned size) {
         if (offset < prevOffset)
