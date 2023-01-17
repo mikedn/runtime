@@ -135,7 +135,6 @@ struct insPlaceholderGroupData
     regMaskTP   igPhInitByrefRegs;
 };
 
-#define IGF_GC_VARS 0x0001        // new set of live GC ref variables
 #define IGF_FUNCLET_PROLOG 0x0002 // this group belongs to a funclet prolog
 #define IGF_FUNCLET_EPILOG 0x0004 // this group belongs to a funclet epilog.
 #define IGF_EPILOG 0x0008         // this group belongs to a main function epilog
@@ -196,7 +195,7 @@ struct insGroup
 
     VARSET_TP GetGCLcls() const
     {
-        assert((igFlags & (IGF_GC_VARS | IGF_EXTEND | IGF_PLACEHOLDER)) == IGF_GC_VARS);
+        assert((igFlags & (IGF_EXTEND | IGF_PLACEHOLDER)) == 0);
 
         return *reinterpret_cast<VARSET_TP*>(igData - 2 * sizeof(uint32_t) - sizeof(VARSET_TP));
     }
@@ -1622,9 +1621,6 @@ private:
 
     instrDescJmp* emitCurIGjmpList = nullptr; // list of jumps   in current IG
 
-#ifndef JIT32_GCENCODER
-    VARSET_TP emitPrevGCrefVars;
-#endif
     VARSET_TP emitInitGCrefVars;
     VARSET_TP emitThisGCrefVars;
     VARSET_TP emitEmptyGCrefVars = VarSetOps::UninitVal();

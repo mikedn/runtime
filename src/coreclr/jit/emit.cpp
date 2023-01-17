@@ -517,48 +517,7 @@ void emitter::emitFinishIG(bool extend)
 
     if (((ig->igFlags & IGF_EXTEND) == 0) && (ig != GetProlog()))
     {
-#ifndef JIT32_GCENCODER
-        if ((ig->igFlags & (IGF_EPILOG | IGF_FUNCLET_EPILOG | IGF_FUNCLET_PROLOG)) != 0)
-        {
-            // TODO-MIKE-Cleanup: Old code tried to avoid storing the set of live GC locals
-            // when there were no changes but made a complete mess of it:
-            //   - It compared prevGCrefVars and initGCrefVars, with prevGCrefVars being
-            // initialized from thisGCrefVars at the end of a previous IG. But thisGCrefVars
-            // isn't fully updated during codegen, it only has changes from calls but not
-            // from local stores so it's not clear how using thisGCrefVars could ever be
-            // correct. It probably works by accident - it's missing stores but then "init"
-            // will have them since it's based on actual liveness, so it will be different
-            // and thus it is stored in IG.
-            //   - It was basically comparing thisGCrefVars and initGCrefVars so it means
-            // that it tried to avoid storing GC info when there were no changes between
-            // the end of the previous IG and the begin of the current one. But that's not
-            // what GC info update does in this case, it uses the previously reported live
-            // set - that's the begin of the previous IG, not the end. What gives?
-            //   - This throughput optimization has minimal effect, it saves little memory
-            // and CPU cycles, it actually seems to be a bit slower.
-            //   - To make things worse, epilogs are randomly "extended" because they forgot
-            // to set IGF_EXTEND on pre-existing, empty IGs. And epilog placeholders are
-            // created using initGCrefVars, when thisGCrefVars would probably make more sense
-            // What does the begin of an epilog has to do with the begin of the block which
-            // needs the epilog?!?
-            //
-            // In any case, this should all be removed since it's just not worth the risk
-            // of producing bad GC info. For now keep this for prologs and epilogs, removing
-            // results in (harmless) GC info diffs.
-        }
-        else
-#endif
-            if (ig != GetProlog())
-        {
-            ig->igFlags |= IGF_GC_VARS;
-        }
-
-        if ((ig->igFlags & IGF_GC_VARS) != 0)
-        {
-            dataSize += sizeof(VARSET_TP);
-        }
-
-        dataSize += 2 * sizeof(uint32_t);
+        dataSize += sizeof(VARSET_TP) + 2 * sizeof(uint32_t);
     }
 
     // TODO-MIKE-Cleanup: Prologs can be empty, the memory allocator doesn't like 0 sized allocations.
@@ -566,14 +525,11 @@ void emitter::emitFinishIG(bool extend)
 
     if (((ig->igFlags & IGF_EXTEND) == 0) && (ig != GetProlog()))
     {
-        if ((ig->igFlags & IGF_GC_VARS) != 0)
-        {
-            *reinterpret_cast<VARSET_TP*>(data) = VarSetOps::MakeCopy(emitComp, emitInitGCrefVars);
-            data += sizeof(VARSET_TP);
+        *reinterpret_cast<VARSET_TP*>(data) = VarSetOps::MakeCopy(emitComp, emitInitGCrefVars);
+        data += sizeof(VARSET_TP);
 #if EMITTER_STATS
-            emitTotalIGptrs++;
+        emitTotalIGptrs++;
 #endif
-        }
 
         static_assert_no_msg(REG_INT_COUNT <= 32);
 
@@ -592,20 +548,6 @@ void emitter::emitFinishIG(bool extend)
     ig->igData   = data;
     ig->igInsCnt = static_cast<uint8_t>(emitCurIGinsCnt);
     ig->igSize   = static_cast<uint16_t>(emitCurIGsize);
-
-#ifndef JIT32_GCENCODER
-    if (!extend)
-    {
-        // Update the previous recorded live GC ref sets, but not if if we are
-        // starting an "overflow" buffer. Note that this is only used to
-        // determine whether we need to store or not store the GC ref sets for
-        // the next IG, which is dependent on exactly what the state of the
-        // emitter GC ref sets will be when the next IG is processed in the
-        // emitter.
-
-        VarSetOps::Assign(emitComp, emitPrevGCrefVars, emitThisGCrefVars);
-    }
-#endif
 
     if (instrSize != 0)
     {
@@ -810,9 +752,6 @@ void emitter::emitEnableGC()
 
 void emitter::emitBegFN()
 {
-#ifndef JIT32_GCENCODER
-    emitPrevGCrefVars = VarSetOps::MakeEmpty(emitComp);
-#endif
     emitInitGCrefVars = VarSetOps::MakeEmpty(emitComp);
     emitThisGCrefVars = VarSetOps::MakeEmpty(emitComp);
 #ifdef DEBUG
@@ -1348,20 +1287,6 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
     igPh->igPhData  = data;
     igPh->igFuncIdx = emitComp->compCurrFuncIdx;
     igPh->igFlags |= IGF_PLACEHOLDER;
-
-#ifndef JIT32_GCENCODER
-    if ((igPh->igFlags & IGF_EXTEND) == 0)
-    {
-        if (!VarSetOps::Equal(emitComp, emitPrevGCrefVars, emitInitGCrefVars))
-        {
-            igPh->igFlags |= IGF_GC_VARS;
-        }
-        else
-        {
-            igPh->igFlags &= ~IGF_GC_VARS;
-        }
-    }
-#endif
 
     if (igType == IGPT_EPILOG)
     {
@@ -2588,10 +2513,6 @@ ID_OPS emitter::GetFormatOp(insFormat format)
 
 void emitter::emitDispIGflags(unsigned flags)
 {
-    if (flags & IGF_GC_VARS)
-    {
-        printf(", gcvars");
-    }
     if (flags & IGF_FUNCLET_PROLOG)
     {
         printf(", funclet prolog");
@@ -2717,13 +2638,9 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
 
         if ((ig->igData != nullptr) && ((ig->igFlags & (IGF_EXTEND | IGF_PLACEHOLDER)) == 0) && (ig != GetProlog()))
         {
-            if ((ig->igFlags & IGF_GC_VARS) != 0)
-            {
-                printf("%sgcVars ", separator);
-                dumpConvertedVarSet(emitComp, ig->GetGCLcls());
-                separator = ", ";
-            }
-
+            printf("%sgcVars ", separator);
+            dumpConvertedVarSet(emitComp, ig->GetGCLcls());
+            separator = ", ";
             printf("%sref-regs", separator);
             emitDispRegSet(ig->GetRefRegs());
             separator = ", ";
@@ -4795,20 +4712,9 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
         }
 #endif
 
-        if (((ig->igFlags & IGF_EXTEND) != 0) || (ig == GetProlog()))
+        if (((ig->igFlags & IGF_EXTEND) == 0) && (ig != GetProlog()))
         {
-            assert((ig->igFlags & IGF_GC_VARS) == 0);
-        }
-        else
-        {
-            if ((ig->igFlags & IGF_GC_VARS) != 0)
-            {
-                gcInfo.SetLiveStackSlots(ig->GetGCLcls(), codeOffs);
-            }
-            else
-            {
-                gcInfo.UpdateStackSlotLifetimes(codeOffs);
-            }
+            gcInfo.SetLiveStackSlots(ig->GetGCLcls(), codeOffs);
 
             regMaskTP refRegs = ig->GetRefRegs();
 
