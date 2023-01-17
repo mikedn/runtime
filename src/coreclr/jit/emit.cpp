@@ -1264,6 +1264,10 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
         {
             emitExtendIG();
         }
+        else
+        {
+            emitCurIG->igFlags |= IGF_EXTEND;
+        }
 
         isLast = igBB->bbNext == nullptr;
 
