@@ -4420,10 +4420,6 @@ void GCEncoder::AddPartiallyInterruptibleSlots(CallSite* firstCallSite)
     {
         if (callSiteCount == 0)
         {
-            // TODO-MIKE-Cleanup: Old code called DefineCallSites for no reason,
-            // it has no effect but it produces GC info dump diffs.
-            DefineCallSites(nullptr, nullptr, 0);
-
             return;
         }
 
