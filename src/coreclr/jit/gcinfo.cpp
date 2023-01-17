@@ -824,6 +824,11 @@ void GCInfo::MarkFilterStackSlotsPinned()
 
         for (StackSlotLifetime* lifetime = firstStackSlotLifetime; lifetime != nullptr; lifetime = lifetime->next)
         {
+            if ((lifetime->slotOffset & pinned_OFFSET_FLAG) != 0)
+            {
+                continue;
+            }
+
             const unsigned slotBegin = lifetime->beginCodeOffs;
             const unsigned slotEnd   = lifetime->endCodeOffs;
 
@@ -831,14 +836,6 @@ void GCInfo::MarkFilterStackSlotsPinned()
             {
                 continue;
             }
-
-#ifndef JIT32_GCENCODER
-            // Because there is no nesting within filters, nothing should be already pinned.
-            // For JIT32_GCENCODER, we should not do this check as slot lifetimes are sorted
-            // sorted by beginCodeOffs, which means that we could see some lifetimes that
-            // were already pinned by previous splitting.
-            assert((lifetime->slotOffset & pinned_OFFSET_FLAG) == 0);
-#endif
 
             if ((filterBegin <= slotBegin) && (slotEnd <= filterEnd))
             {
@@ -876,23 +873,8 @@ void GCInfo::MarkFilterStackSlotsPinned()
 
             if (slotBegin >= filterBegin)
             {
-#ifndef JIT32_GCENCODER
-                // The lifetime starts inside the filter and ends somewhere after it, so
-                // we create a new lifetime for the part inside the filter and adjust the
-                // start of the original lifetime to be the end of the filter.
-
-                StackSlotLifetime* filterLifetime = new (alloc) StackSlotLifetime(slotOffset, slotBegin, filterEnd);
-
-                filterLifetime->slotOffset |= pinned_OFFSET_FLAG;
-                lifetime->beginCodeOffs = filterEnd;
-
-                InsertSplitStackSlotLifetime(filterLifetime, lifetime);
-
-                DBEXEC(compiler->verbose, DumpStackSlotLifetime("New (1 of 2): ", filterLifetime));
-                DBEXEC(compiler->verbose, DumpStackSlotLifetime("New (2 of 2): ", lifetime));
-#else
-                // JIT32_GCENCODER requires lifetime to be sorted so we need to do it the other
-                // way around.
+                // The lifetime starts inside the filter and ends somewhere after it, pin
+                // it and create a new lifetime for the range that's outside the filter.
 
                 StackSlotLifetime* postFilterLifetime = new (alloc) StackSlotLifetime(slotOffset, filterEnd, slotEnd);
 
@@ -903,14 +885,13 @@ void GCInfo::MarkFilterStackSlotsPinned()
 
                 DBEXEC(compiler->verbose, DumpStackSlotLifetime("New (1 of 2): ", lifetime));
                 DBEXEC(compiler->verbose, DumpStackSlotLifetime("New (2 of 2): ", postFilterLifetime));
-#endif
 
                 continue;
             }
 
             assert((slotBegin < filterBegin) && (slotEnd > filterEnd));
 
-            // The lifetime is starts before AND ends after the filter, so we need
+            // The lifetime starts before AND ends after the filter, so we need
             // to create 2 new lifetimes:
             //     (1) a pinned one for the filter
             //     (2) a regular one for after the filter
@@ -932,42 +913,26 @@ void GCInfo::MarkFilterStackSlotsPinned()
     }
 }
 
-// Insert StackSlotLifetimes that were created by splitting lifetimes.
-// From MarkFilterStackSlotsPinned, we may have created one or two StackSlotLifetimes
-// due to splitting lifetimes and these newly created StackSlotLifetimes should be
-// inserted in firstStackSlotLifetime.
-// However the semantics of this call depend on the architecture.
-//
-// x86-GCInfo requires the stack slot lifetime list to be sorted by beginCodeOffs.
-// Every time inserting an entry we should keep the order of entries.
-// So this function searches for a proper insertion point from "begin" then "newLifetime"
-// gets inserted.
-//
-// For other architectures(ones that uses GCInfo{En|De}coder), we don't need any sort.
-// So the argument "begin" is unused and "desc" will be inserted at the front of the list.
-//
 void GCInfo::InsertSplitStackSlotLifetime(StackSlotLifetime* newLifetime, StackSlotLifetime* after)
 {
-#ifndef JIT32_GCENCODER
-    (void)after;
-
-    newLifetime->next      = firstStackSlotLifetime;
-    firstStackSlotLifetime = newLifetime;
-#else
     assert(newLifetime->beginCodeOffs >= after->beginCodeOffs);
 
+#ifdef JIT32_GCENCODER
+    // JIT32_GCENCODER requires the stack slot lifetime list to be sorted by beginCodeOffs.
+    // Even if the newLifetime beginCodeOffs is greater than after's beginCodeOffs, there
+    // could be other lifetimes between after and newLifetime that we need skip.
+
     StackSlotLifetime* next = after->next;
-    StackSlotLifetime* prev = after;
 
     while ((next != nullptr) && (next->beginCodeOffs < newLifetime->beginCodeOffs))
     {
-        prev = next;
-        next = next->next;
+        after = next;
+        next  = next->next;
     }
-
-    newLifetime->next = prev->next;
-    prev->next        = newLifetime;
 #endif // JIT32_GCENCODER
+
+    newLifetime->next = after->next;
+    after->next       = newLifetime;
 }
 
 #ifdef DEBUG
