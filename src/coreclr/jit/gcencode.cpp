@@ -3909,37 +3909,35 @@ private:
 
         if (!interruptibleRanges.empty())
         {
-            // Adjust offsets so that they don't fall within non-interruptible ranges.
-            // It doesn't matter where inside such a range a slot goes dead or live and
-            // emitter's handling of epilogs (and funclet prologs) is kind of messed up
-            // and results in slots changing state either at the start or the end of an
-            // epilog, depending on whatever side of the bed the emitter wakes up.
+            DumpInterruptibleSlotRanges(liveCodeOffs, deadCodeOffs, SlotFlagsNames[live.flags & 7]);
+        }
+        else
+        {
+            printf("    %06X..%06X %s\n", liveCodeOffs, deadCodeOffs, SlotFlagsNames[live.flags & 7]);
+        }
+    }
 
-            auto& ranges = interruptibleRanges;
+    void DumpInterruptibleSlotRanges(unsigned live, unsigned dead, const char* type)
+    {
+        // Dump only portions of a slot's live range that are within interruptible ranges.
+        // It doesn't matter what is reported inside a non-interruptible range and the
+        // emitter's handling of epilogs (and funclet prologs) was kind of messed up and
+        // results in slots changing state either at the start or the end of an epilog,
+        // depending on whatever side of the bed the emitter woke up.
 
-            auto liveLess      = [](const InterruptibleRange& range, unsigned offs) { return range.end < offs; };
-            auto     liveBound = jitstd::lower_bound(ranges.begin(), ranges.end(), liveCodeOffs, liveLess);
-            unsigned liveMin   = liveBound != ranges.end() ? liveBound->start : codeSize;
+        auto& ranges = interruptibleRanges;
+        auto  range  = upper_bound(ranges.begin(), ranges.end(), live,
+                                 [](unsigned offs, const InterruptibleRange& range) { return offs < range.end; });
 
-            auto deadLess      = [](const InterruptibleRange& range, unsigned offs) { return range.start < offs; };
-            auto     deadBound = jitstd::lower_bound(ranges.begin(), ranges.end(), deadCodeOffs, deadLess);
-            unsigned deadMax   = deadBound != ranges.begin() ? (deadBound - 1)->end : 0;
+        if ((range != ranges.end()) && (dead > range->start))
+        {
+            printf("    %06X..%06X %s\n", Max(live, range->start), Min(dead, range->end), type);
 
-            // If a slot becomes live inside a non-interruptible range then make it live
-            // at the end of the range.
-            liveCodeOffs = Max(liveCodeOffs, liveMin);
-            // If a slot becomes dead inside a non-interruptible range then make it dead
-            // at the start of the range.
-            deadCodeOffs = Min(deadCodeOffs, deadMax);
-
-            if (deadCodeOffs <= liveCodeOffs)
+            while ((++range != ranges.end()) && (dead > range->start))
             {
-                // The range was entirely within a non-interruptible range.
-                return;
+                printf("    %06X..%06X %s\n", range->start, Min(dead, range->end), type);
             }
         }
-
-        printf("    %06X..%06X %s\n", liveCodeOffs, deadCodeOffs, SlotFlagsNames[live.flags & 7]);
     }
 
     void DumpRegSlotLog()
