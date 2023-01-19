@@ -753,7 +753,6 @@ void emitter::emitEnableGC()
 void emitter::emitBegFN()
 {
     emitInitGCrefVars = VarSetOps::MakeEmpty(emitComp);
-    emitThisGCrefVars = VarSetOps::MakeEmpty(emitComp);
 #ifdef DEBUG
     emitChkAlign =
         (emitComp->compCodeOpt() != SMALL_CODE) && !emitComp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT);
@@ -1447,8 +1446,6 @@ void emitter::emitBegPrologEpilog(insGroup* igPh)
     igPh->igPhData = nullptr;
 
     VarSetOps::Assign(emitComp, emitInitGCrefVars, data->igPhInitGCrefVars);
-    VarSetOps::Assign(emitComp, emitThisGCrefVars, emitInitGCrefVars);
-
     emitInitGCrefRegs = data->igPhInitGCrefRegs;
     emitInitByrefRegs = data->igPhInitByrefRegs;
 
@@ -1598,8 +1595,6 @@ insGroup* emitter::emitAddLabel(INDEBUG(BasicBlock* block))
     VarSetOps::Assign(emitComp, emitInitGCrefVars, GCvars);
     emitInitGCrefRegs = gcrefRegs;
     emitInitByrefRegs = byrefRegs;
-
-    VarSetOps::Assign(emitComp, emitThisGCrefVars, emitInitGCrefVars);
 
 #ifdef DEBUG
     if (block != nullptr)
@@ -2254,8 +2249,6 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
     }
 
     id->idSetIsNoGC(isNoGCHelper);
-
-    VarSetOps::Assign(emitComp, emitThisGCrefVars, gcLcls);
 
     return id;
 }

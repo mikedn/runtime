@@ -1621,12 +1621,10 @@ private:
 
     instrDescJmp* emitCurIGjmpList = nullptr; // list of jumps   in current IG
 
-    VARSET_TP emitInitGCrefVars;
-    VARSET_TP emitThisGCrefVars;
     VARSET_TP emitEmptyGCrefVars = VarSetOps::UninitVal();
-
-    regMaskTP emitInitGCrefRegs = RBM_NONE;
-    regMaskTP emitInitByrefRegs = RBM_NONE;
+    VARSET_TP emitInitGCrefVars  = VarSetOps::UninitVal();
+    regMaskTP emitInitGCrefRegs  = RBM_NONE;
+    regMaskTP emitInitByrefRegs  = RBM_NONE;
 
     static void emitEncodeCallGCregs(regMaskTP regs, instrDesc* id);
     static unsigned emitDecodeCallGCregs(instrDesc* id);
