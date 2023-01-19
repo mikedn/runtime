@@ -183,6 +183,10 @@ struct insGroup
     uint16_t igFlags;  // see IGF_xxx below
     uint8_t  igInsCnt; // # of instructions  in this group
 
+    VARSET_TP gcLcls;
+    uint32_t  refRegs;
+    uint32_t  byrefRegs;
+
 #if defined(DEBUG) || defined(LATE_DISASM)
     BasicBlock::weight_t igWeight;    // the block weight used for this insGroup
     double               igPerfScore; // The PerfScore for this insGroup
@@ -197,21 +201,21 @@ struct insGroup
     {
         assert((igFlags & (IGF_EXTEND | IGF_PLACEHOLDER)) == 0);
 
-        return *reinterpret_cast<VARSET_TP*>(igData - 2 * sizeof(uint32_t) - sizeof(VARSET_TP));
+        return gcLcls;
     }
 
     regMaskTP GetRefRegs() const
     {
         assert((igFlags & (IGF_EXTEND | IGF_PLACEHOLDER)) == 0);
 
-        return static_cast<regMaskTP>(*reinterpret_cast<uint32_t*>(igData - sizeof(uint32_t)));
+        return refRegs;
     }
 
     regMaskTP GetByrefRegs() const
     {
         assert((igFlags & (IGF_EXTEND | IGF_PLACEHOLDER)) == 0);
 
-        return static_cast<regMaskTP>(*reinterpret_cast<uint32_t*>(igData - 2 * sizeof(uint32_t)));
+        return byrefRegs;
     }
 
     bool isLoopAlign() const

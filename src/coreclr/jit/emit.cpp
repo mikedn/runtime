@@ -517,34 +517,23 @@ void emitter::emitFinishIG(bool extend)
 
     if (((ig->igFlags & IGF_EXTEND) == 0) && (ig != GetProlog()))
     {
-        dataSize += sizeof(VARSET_TP) + 2 * sizeof(uint32_t);
-    }
-
-    // TODO-MIKE-Cleanup: Prologs can be empty, the memory allocator doesn't like 0 sized allocations.
-    uint8_t* data = static_cast<uint8_t*>(emitGetMem(dataSize == 0 ? sizeof(void*) : dataSize));
-
-    if (((ig->igFlags & IGF_EXTEND) == 0) && (ig != GetProlog()))
-    {
-        *reinterpret_cast<VARSET_TP*>(data) = VarSetOps::MakeCopy(emitComp, emitInitGCrefVars);
-        data += sizeof(VARSET_TP);
+        ig->gcLcls = VarSetOps::MakeCopy(emitComp, emitInitGCrefVars);
 #if EMITTER_STATS
         emitTotalIGptrs++;
 #endif
 
         static_assert_no_msg(REG_INT_COUNT <= 32);
 
-        *reinterpret_cast<uint32_t*>(data) = static_cast<uint32_t>(emitInitByrefRegs);
-        data += sizeof(uint32_t);
-
-        *reinterpret_cast<uint32_t*>(data) = static_cast<uint32_t>(emitInitGCrefRegs);
-        data += sizeof(uint32_t);
+        ig->refRegs   = static_cast<uint32_t>(emitInitGCrefRegs);
+        ig->byrefRegs = static_cast<uint32_t>(emitInitByrefRegs);
     }
-
-    memcpy(data, emitCurIGfreeBase, instrSize);
 
     noway_assert(emitCurIGinsCnt < UINT8_MAX);
     noway_assert(emitCurIGsize < UINT16_MAX);
 
+    // TODO-MIKE-Cleanup: Prologs can be empty, the memory allocator doesn't like 0 sized allocations.
+    uint8_t* data = static_cast<uint8_t*>(emitGetMem(dataSize == 0 ? sizeof(void*) : dataSize));
+    memcpy(data, emitCurIGfreeBase, instrSize);
     ig->igData   = data;
     ig->igInsCnt = static_cast<uint8_t>(emitCurIGinsCnt);
     ig->igSize   = static_cast<uint16_t>(emitCurIGsize);
