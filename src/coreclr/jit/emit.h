@@ -1616,9 +1616,9 @@ private:
 
     insGroup* emitFirstColdIG = nullptr; // first cold instruction group
 
-    void emitSetFirstColdIGCookie(void* bbEmitCookie)
+    void emitSetFirstColdIGCookie(insGroup* ig)
     {
-        emitFirstColdIG = (insGroup*)bbEmitCookie;
+        emitFirstColdIG = ig;
     }
 
     int emitOffsAdj; // current code offset adjustment

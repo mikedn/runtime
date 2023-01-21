@@ -187,65 +187,50 @@ void CodeGen::genCodeForBBlist()
 
         genLogLabel(block);
 
-        // Tell everyone which basic block we're working on
-
         compiler->compCurBB = block;
 
-        block->bbEmitCookie = nullptr;
-
-        // If this block is a jump target or it requires a label then set 'needLabel' to true,
-        //
         bool needLabel = (block->bbFlags & BBF_HAS_LABEL) != 0;
 
-        if (block == compiler->fgFirstColdBlock)
+        if (!needLabel)
         {
-#ifdef DEBUG
-            if (compiler->verbose)
+            if (block == compiler->fgFirstColdBlock)
             {
-                printf("\nThis is the start of the cold region of the method\n");
+                noway_assert(!block->bbPrev->bbFallsThrough());
+
+                needLabel = true;
+            }
+            else if ((block->bbPrev != nullptr) && (block->bbPrev->bbJumpKind == BBJ_COND) &&
+                     (block->bbWeight != block->bbPrev->bbWeight))
+            {
+                JITDUMP("Adding label due to BB weight difference: BBJ_COND " FMT_BB " with weight " FMT_WT
+                        " different from " FMT_BB " with weight " FMT_WT "\n",
+                        block->bbPrev->bbNum, block->bbPrev->bbWeight, block->bbNum, block->bbWeight);
+
+                needLabel = true;
+            }
+#if FEATURE_LOOP_ALIGN
+            else
+            {
+                assert(!GetEmitter()->emitEndsWithAlignInstr());
             }
 #endif
-            // We should never have a block that falls through into the Cold section
-            noway_assert(!block->bbPrev->bbFallsThrough());
-
-            needLabel = true;
         }
-
-        // We also want to start a new Instruction group by calling emitAddLabel below,
-        // when we need accurate bbWeights for this block in the emitter.  We force this
-        // whenever our previous block was a BBJ_COND and it has a different weight than us.
-        //
-        // Note: We need to have set compCurBB before calling emitAddLabel
-        //
-        if ((block->bbPrev != nullptr) && (block->bbPrev->bbJumpKind == BBJ_COND) &&
-            (block->bbWeight != block->bbPrev->bbWeight))
-        {
-            JITDUMP("Adding label due to BB weight difference: BBJ_COND " FMT_BB " with weight " FMT_WT
-                    " different from " FMT_BB " with weight " FMT_WT "\n",
-                    block->bbPrev->bbNum, block->bbPrev->bbWeight, block->bbNum, block->bbWeight);
-            needLabel = true;
-        }
-
-#if FEATURE_LOOP_ALIGN
-        if (GetEmitter()->emitEndsWithAlignInstr())
-        {
-            // we had better be planning on starting a new IG
-            assert(needLabel);
-        }
-#endif
 
         if (needLabel)
         {
-            // Mark a label and update the current set of live GC refs
+            insGroup* ig = GetEmitter()->emitAddLabel(INDEBUG(block));
 
-            block->bbEmitCookie = GetEmitter()->emitAddLabel(INDEBUG(block));
+            if (block == compiler->fgFirstColdBlock)
+            {
+                JITDUMP("\nThis is the start of the cold region of the method\n");
+                GetEmitter()->emitSetFirstColdIGCookie(ig);
+            }
+
+            block->bbEmitCookie = ig;
         }
-
-        if (block == compiler->fgFirstColdBlock)
+        else
         {
-            // We require the block that starts the Cold section to have a label
-            noway_assert(block->bbEmitCookie);
-            GetEmitter()->emitSetFirstColdIGCookie(block->bbEmitCookie);
+            block->bbEmitCookie = nullptr;
         }
 
 #if !FEATURE_FIXED_OUT_ARGS
