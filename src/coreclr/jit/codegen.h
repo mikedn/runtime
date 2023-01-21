@@ -1103,7 +1103,6 @@ protected:
 #ifdef FEATURE_HW_INTRINSICS
     void genConsumeHWIntrinsicOperands(GenTreeHWIntrinsic* tree);
 #endif
-    void genEmitGSCookieCheck(bool pushReg);
     void genCodeForShift(GenTreeOp* shift);
 
 #if defined(TARGET_X86) || defined(TARGET_ARM)
@@ -1113,7 +1112,10 @@ protected:
 #ifdef TARGET_XARCH
     void GenStoreIndRMWShift(GenTree* addr, GenTreeOp* shift, GenTree* shiftBy);
     void genCodeForBT(GenTreeOp* bt);
-#endif // TARGET_XARCH
+    void genEmitGSCookieCheck(bool tailCallEpilog);
+#else
+    void genEmitGSCookieCheck();
+#endif
 
     void genCodeForCast(GenTreeCast* cast);
     void genCodeForLclAddr(GenTreeLclVarCommon* tree);

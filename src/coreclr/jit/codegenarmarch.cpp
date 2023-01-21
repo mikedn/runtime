@@ -584,22 +584,9 @@ void CodeGen::PrologSetGSSecurityCookie(regNumber initReg, bool* pInitRegZeroed)
     *pInitRegZeroed = false;
 }
 
-void CodeGen::genEmitGSCookieCheck(bool pushReg)
+void CodeGen::genEmitGSCookieCheck()
 {
     noway_assert(compiler->gsGlobalSecurityCookieAddr || compiler->gsGlobalSecurityCookieVal);
-
-    if (!pushReg)
-    {
-        // Return registers that contain GC references must be reported
-        // as live while the GC cookie is checked.
-
-        ReturnTypeDesc& retDesc = compiler->info.retDesc;
-
-        for (unsigned i = 0; i < retDesc.GetRegCount(); ++i)
-        {
-            liveness.SetGCRegType(retDesc.GetRegNum(i), retDesc.GetRegType(i));
-        }
-    }
 
     // We need two temporary registers, to load the GS cookie values and compare them. We can't use
     // any argument registers if 'pushReg' is true (meaning we have a JMP call). They should be

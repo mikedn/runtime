@@ -619,10 +619,28 @@ void CodeGen::genExitCode(BasicBlock* block)
     // For non-optimized debuggable code, there is only one epilog.
     genIPmappingAdd((IL_OFFSETX)ICorDebugInfo::EPILOG, true);
 
-    bool jmpEpilog = ((block->bbFlags & BBF_HAS_JMP) != 0);
     if (compiler->getNeedsGSSecurityCookie())
     {
+        bool jmpEpilog = ((block->bbFlags & BBF_HAS_JMP) != 0);
+
+        if (!jmpEpilog)
+        {
+            // Return registers that contain GC references must be reported
+            // as live while the GC cookie is checked.
+
+            ReturnTypeDesc& retDesc = compiler->info.retDesc;
+
+            for (unsigned i = 0; i < retDesc.GetRegCount(); ++i)
+            {
+                liveness.SetGCRegType(retDesc.GetRegNum(i), retDesc.GetRegType(i));
+            }
+        }
+
+#ifdef TARGET_XARCH
         genEmitGSCookieCheck(jmpEpilog);
+#else
+        genEmitGSCookieCheck();
+#endif
 
         if (jmpEpilog)
         {

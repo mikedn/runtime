@@ -78,19 +78,6 @@ void CodeGen::genEmitGSCookieCheck(bool tailCallEpilog)
 {
     noway_assert(compiler->gsGlobalSecurityCookieAddr || compiler->gsGlobalSecurityCookieVal);
 
-    if (!tailCallEpilog && !varTypeUsesFloatReg(compiler->info.GetRetSigType()))
-    {
-        // Return registers that contain GC references must be reported
-        // as live while the GC cookie is checked.
-
-        ReturnTypeDesc& retDesc = compiler->info.retDesc;
-
-        for (unsigned i = 0; i < retDesc.GetRegCount(); ++i)
-        {
-            liveness.SetGCRegType(retDesc.GetRegNum(i), retDesc.GetRegType(i));
-        }
-    }
-
     regNumber regGSCheck;
 
     if (!tailCallEpilog)
