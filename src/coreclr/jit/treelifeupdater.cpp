@@ -401,13 +401,13 @@ void CodeGenLivenessUpdater::BeginPrologCodeGen()
     VarSetOps::ClearD(compiler, liveGCLcl);
 }
 
-void CodeGenLivenessUpdater::BeginMethodEpilogCodeGen()
+void CodeGenLivenessUpdater::BeginMethodEpilogCodeGen(insGroup* epilog)
 {
-    emitter* emitter = compiler->codeGen->GetEmitter();
-
-    VarSetOps::Assign(compiler, liveGCLcl, emitter->emitInitGCrefVars);
-    liveGCRefRegs   = emitter->emitInitGCrefRegs;
-    liveGCByRefRegs = emitter->emitInitByrefRegs;
+    // TODO-MIKE-Review: Probably this could be just ClearD, no GC locals
+    // need to be live inside the epilog since it isn't interruptible.
+    VarSetOps::Assign(compiler, liveGCLcl, epilog->gcLcls);
+    liveGCRefRegs   = epilog->refRegs;
+    liveGCByRefRegs = epilog->byrefRegs;
 
 #ifdef DEBUG
     if (compiler->verbose)

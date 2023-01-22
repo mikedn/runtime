@@ -1373,6 +1373,7 @@ void emitter::emitGeneratePrologEpilog()
             emitBegFnEpilog(ig);
 #endif
             emitBegPrologEpilog(ig);
+            codeGen->liveness.BeginMethodEpilogCodeGen(ig);
             codeGen->genFnEpilog(igPhBB);
             emitEndPrologEpilog();
 #ifdef JIT32_GCENCODER

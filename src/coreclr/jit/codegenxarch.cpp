@@ -9404,8 +9404,6 @@ void CodeGen::genFnEpilog(BasicBlock* block)
 
     ScopedSetVariable<bool> _setGeneratingEpilog(&generatingEpilog, true);
 
-    liveness.BeginMethodEpilogCodeGen();
-
     bool jmpEpilog = ((block->bbFlags & BBF_HAS_JMP) != 0);
 
     // Restore float registers that were saved to stack before SP is modified.

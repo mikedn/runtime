@@ -9905,8 +9905,6 @@ void CodeGen::genFnEpilog(BasicBlock* block)
 
     ScopedSetVariable<bool> _setGeneratingEpilog(&generatingEpilog, true);
 
-    liveness.BeginMethodEpilogCodeGen();
-
     bool     jmpEpilog = ((block->bbFlags & BBF_HAS_JMP) != 0);
     GenTree* lastNode  = block->lastNode();
 
