@@ -1167,10 +1167,6 @@ void emitter::emitBegProlog()
     emitForceNewIG = false;
 
     emitGenIG(GetProlog());
-
-    VarSetOps::ClearD(emitComp, emitInitGCrefVars);
-    emitInitGCrefRegs = RBM_NONE;
-    emitInitByrefRegs = RBM_NONE;
 }
 
 unsigned emitter::emitGetPrologOffsetEstimate()
