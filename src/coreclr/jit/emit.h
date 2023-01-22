@@ -130,9 +130,10 @@ struct insPlaceholderGroupData
 {
     insGroup*   igPhNext = nullptr;
     BasicBlock* igPhBB;
-    VARSET_TP   igPhInitGCrefVars;
-    regMaskTP   igPhInitGCrefRegs;
-    regMaskTP   igPhInitByrefRegs;
+
+    insPlaceholderGroupData(BasicBlock* block) : igPhBB(block)
+    {
+    }
 };
 
 #define IGF_FUNCLET_PROLOG 0x0002 // this group belongs to a funclet prolog

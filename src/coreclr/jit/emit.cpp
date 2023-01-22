@@ -1263,16 +1263,12 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
         emitNoGCIG = false;
     }
 
-    insPlaceholderGroupData* data = new (emitComp, CMK_InstDesc) insPlaceholderGroupData;
-
-    data->igPhBB            = igBB;
-    data->igPhInitGCrefVars = VarSetOps::MakeCopy(emitComp, emitInitGCrefVars);
-    data->igPhInitGCrefRegs = emitInitGCrefRegs;
-    data->igPhInitByrefRegs = emitInitByrefRegs;
-
     insGroup* igPh = emitCurIG;
 
-    igPh->igPhData  = data;
+    igPh->gcLcls    = VarSetOps::MakeCopy(emitComp, emitInitGCrefVars);
+    igPh->refRegs   = static_cast<uint32_t>(emitInitGCrefRegs);
+    igPh->byrefRegs = static_cast<uint32_t>(emitInitByrefRegs);
+    igPh->igPhData  = new (emitComp, CMK_InstDesc) insPlaceholderGroupData(igBB);
     igPh->igFuncIdx = emitComp->compCurrFuncIdx;
     igPh->igFlags |= IGF_PLACEHOLDER;
 
@@ -1425,14 +1421,12 @@ void emitter::emitBegPrologEpilog(insGroup* igPh)
     assert((igPh->igFlags & IGF_PLACEHOLDER) != 0);
     assert(!emitCurIGnonEmpty());
 
-    insPlaceholderGroupData* data = igPh->igPhData;
-
     igPh->igFlags &= ~IGF_PLACEHOLDER;
     igPh->igPhData = nullptr;
 
-    VarSetOps::Assign(emitComp, emitInitGCrefVars, data->igPhInitGCrefVars);
-    emitInitGCrefRegs = data->igPhInitGCrefRegs;
-    emitInitByrefRegs = data->igPhInitByrefRegs;
+    VarSetOps::Assign(emitComp, emitInitGCrefVars, igPh->gcLcls);
+    emitInitGCrefRegs = igPh->refRegs;
+    emitInitByrefRegs = igPh->byrefRegs;
 
     emitNoGCIG     = true;
     emitForceNewIG = false;
@@ -2595,11 +2589,11 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
         printf("\n");
 
         printf("%*s;   InitGCVars ", strlen(buff), "");
-        dumpConvertedVarSet(emitComp, ig->igPhData->igPhInitGCrefVars);
+        dumpConvertedVarSet(emitComp, ig->gcLcls);
         printf(", InitGCrefRegs");
-        emitDispRegSet(ig->igPhData->igPhInitGCrefRegs);
+        emitDispRegSet(ig->refRegs);
         printf(", InitByrefRegs");
-        emitDispRegSet(ig->igPhData->igPhInitByrefRegs);
+        emitDispRegSet(ig->byrefRegs);
         printf("\n");
     }
     else
