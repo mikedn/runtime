@@ -628,29 +628,6 @@ void CodeGen::genExitCode(BasicBlock* block)
 #else
         genEmitGSCookieCheck();
 #endif
-
-        if (jmpEpilog)
-        {
-            // Dev10 642944 -
-            // The GS cookie check created a temp label that has no live
-            // incoming GC registers, we need to fix that
-
-            unsigned   varNum;
-            LclVarDsc* varDsc;
-
-            /* Figure out which register parameters hold pointers */
-
-            for (varNum = 0, varDsc = compiler->lvaTable; varNum < compiler->lvaCount && varDsc->IsRegParam();
-                 varNum++, varDsc++)
-            {
-                noway_assert(varDsc->IsParam());
-
-                liveness.SetGCRegType(varDsc->GetParamReg(), varDsc->GetType());
-            }
-
-            GetEmitter()->emitInitGCrefRegs = liveness.GetGCRegs(TYP_REF);
-            GetEmitter()->emitInitByrefRegs = liveness.GetGCRegs(TYP_BYREF);
-        }
     }
 
     GetEmitter()->emitCreatePlaceholderIG(IGPT_EPILOG, block);
