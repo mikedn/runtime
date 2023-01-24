@@ -623,19 +623,6 @@ void CodeGen::genExitCode(BasicBlock* block)
     {
         bool jmpEpilog = ((block->bbFlags & BBF_HAS_JMP) != 0);
 
-        if (!jmpEpilog)
-        {
-            // Return registers that contain GC references must be reported
-            // as live while the GC cookie is checked.
-
-            ReturnTypeDesc& retDesc = compiler->info.retDesc;
-
-            for (unsigned i = 0; i < retDesc.GetRegCount(); ++i)
-            {
-                liveness.SetGCRegType(retDesc.GetRegNum(i), retDesc.GetRegType(i));
-            }
-        }
-
 #ifdef TARGET_XARCH
         genEmitGSCookieCheck(jmpEpilog);
 #else
@@ -5729,14 +5716,23 @@ void CodeGen::genReturn(GenTree* ret)
         inst_Mov(retType, retReg, srcReg, /* canSkip */ true, emitTypeSize(retType));
     }
 
+    // Usually the epilog code follow right after the return code and since epilogs
+    // aren't interruptuble we don't need to report GC pointers in return registers.
+    // But there are all sorts of special cases that need extra code inserted after
+    // the RETURN code (GS checks, SP checks, profiler calls, EH NOPs) and such code
+    // is interruptible and may have calls and temp labels.
+
+    const ReturnTypeDesc& retDesc = compiler->info.retDesc;
+
+    for (unsigned i = 0; i < retDesc.GetRegCount(); ++i)
+    {
+        if (varTypeIsGC(retDesc.GetRegType(i)))
+        {
+            liveness.SetGCRegType(retDesc.GetRegNum(i), retDesc.GetRegType(i));
+        }
+    }
+
 #ifdef PROFILING_SUPPORTED
-    // !! Note !!
-    // TODO-AMD64-Unix: If the profiler hook is implemented on *nix, make sure for 2 register returned structs
-    //                  the RAX and RDX needs to be kept alive. Make the necessary changes in lowerxarch.cpp
-    //                  in the handling of the GT_RETURN statement.
-    //                  Such structs containing GC pointers need to be handled by calling liveness.RemoveGCRegs
-    //                  for the return registers containing GC refs.
-    //
     // Reason for not materializing Leave callback as a GT_PROF_HOOK node after GT_RETURN:
     // In flowgraph and other places assert that the last node of a block marked as
     // BBJ_RETURN is either a GT_RETURN or GT_JMP or a tail call.  It would be nice to
@@ -5747,20 +5743,6 @@ void CodeGen::genReturn(GenTree* ret)
     // so we just look for that block to trigger insertion of the profile hook.
     if ((compiler->compCurBB == compiler->genReturnBB) && compiler->compIsProfilerHookNeeded())
     {
-        // Since we are invalidating the assumption that we would slip into the epilog
-        // right after the "return", we need to preserve the return reg's GC state
-        // across the call until actual method return.
-
-        const ReturnTypeDesc& retDesc = compiler->info.retDesc;
-
-        for (unsigned i = 0; i < retDesc.GetRegCount(); ++i)
-        {
-            if (varTypeIsGC(retDesc.GetRegType(i)))
-            {
-                liveness.SetGCRegType(retDesc.GetRegNum(i), retDesc.GetRegType(i));
-            }
-        }
-
         genProfilingLeaveCallback(CORINFO_HELP_PROF_FCN_LEAVE);
     }
 #endif // PROFILING_SUPPORTED
