@@ -5762,14 +5762,6 @@ void CodeGen::genReturn(GenTree* ret)
         }
 
         genProfilingLeaveCallback(CORINFO_HELP_PROF_FCN_LEAVE);
-
-        for (unsigned i = 0; i < retDesc.GetRegCount(); ++i)
-        {
-            if (varTypeIsGC(retDesc.GetRegType(i)))
-            {
-                liveness.RemoveGCRegs(genRegMask(retDesc.GetRegNum(i)));
-            }
-        }
     }
 #endif // PROFILING_SUPPORTED
 
