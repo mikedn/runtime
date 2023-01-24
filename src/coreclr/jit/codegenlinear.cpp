@@ -316,37 +316,38 @@ void CodeGen::genCodeForBBlist()
         assert(spillTemps.GetDefCount() == 0);
 
 #ifdef DEBUG
-        /* Make sure we didn't bungle pointer register tracking */
-
-        regMaskTP ptrRegs       = liveness.GetGCRegs();
-        regMaskTP liveLclRegs   = liveness.GetLiveLclRegs();
-        regMaskTP nonVarPtrRegs = ptrRegs & ~liveLclRegs;
-
-        // If return is a GC-type, clear it.  Note that if a common
-        // epilog is generated (genReturnBB) it has a void return
-        // even though we might return a ref.  We can't use the compRetType
-        // as the determiner because something we are tracking as a byref
-        // might be used as a return value of a int function (which is legal)
-        GenTree* blockLastNode = block->lastNode();
-        if ((blockLastNode != nullptr) && (blockLastNode->gtOper == GT_RETURN) &&
-            (varTypeIsGC(compiler->info.compRetType) ||
-             (blockLastNode->AsOp()->gtOp1 != nullptr && varTypeIsGC(blockLastNode->AsOp()->gtOp1->TypeGet()))))
         {
-            nonVarPtrRegs &= ~RBM_INTRET;
-        }
+            regMaskTP gcRegs       = liveness.GetGCRegs();
+            regMaskTP lclRegs      = liveness.GetLiveLclRegs();
+            regMaskTP nonLclGCRegs = gcRegs & ~lclRegs;
 
-        if (nonVarPtrRegs != RBM_NONE)
-        {
-            printf("Regset after " FMT_BB " gcr", block->bbNum);
-            emitter::emitDispRegSet(liveness.GetGCRegs(TYP_REF) & ~liveLclRegs);
-            printf(", byr");
-            emitter::emitDispRegSet(liveness.GetGCRegs(TYP_BYREF) & ~liveLclRegs);
-            printf(", regVars");
-            emitter::emitDispRegSet(liveLclRegs);
-            printf("\n");
-        }
+            // Remove return registers.
+            if ((block->lastNode() != nullptr) && block->lastNode()->OperIs(GT_RETURN))
+            {
+                const ReturnTypeDesc& retDesc = compiler->info.retDesc;
 
-        noway_assert(nonVarPtrRegs == RBM_NONE);
+                for (unsigned i = 0; i < retDesc.GetRegCount(); ++i)
+                {
+                    if (varTypeIsGC(retDesc.GetRegType(i)))
+                    {
+                        nonLclGCRegs &= ~genRegMask(retDesc.GetRegNum(i));
+                    }
+                }
+            }
+
+            if (nonLclGCRegs != RBM_NONE)
+            {
+                printf("Regs after " FMT_BB " ref-regs", block->bbNum);
+                emitter::emitDispRegSet(liveness.GetGCRegs(TYP_REF) & ~lclRegs);
+                printf(", byref-regs");
+                emitter::emitDispRegSet(liveness.GetGCRegs(TYP_BYREF) & ~lclRegs);
+                printf(", lcl-regs");
+                emitter::emitDispRegSet(lclRegs);
+                printf("\n");
+            }
+
+            noway_assert(nonLclGCRegs == RBM_NONE);
+        }
 #endif // DEBUG
 
 #if defined(DEBUG)
