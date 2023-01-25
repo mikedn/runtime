@@ -515,19 +515,6 @@ void emitter::emitFinishIG(bool extend)
     insGroup* ig = emitCurIG;
     assert((ig->igFlags & IGF_PLACEHOLDER) == 0);
 
-    if (((ig->igFlags & IGF_EXTEND) == 0) && (ig != GetProlog()))
-    {
-        ig->gcLcls = VarSetOps::MakeCopy(emitComp, emitInitGCrefVars);
-#if EMITTER_STATS
-        emitTotalIGptrs++;
-#endif
-
-        static_assert_no_msg(REG_INT_COUNT <= 32);
-
-        ig->refRegs   = static_cast<uint32_t>(emitInitGCrefRegs);
-        ig->byrefRegs = static_cast<uint32_t>(emitInitByrefRegs);
-    }
-
     noway_assert(emitCurIGinsCnt < UINT8_MAX);
     noway_assert(emitCurIGsize < UINT16_MAX);
 
@@ -741,7 +728,6 @@ void emitter::emitEnableGC()
 
 void emitter::emitBegFN()
 {
-    emitInitGCrefVars = VarSetOps::MakeEmpty(emitComp);
 #ifdef DEBUG
     emitChkAlign =
         (emitComp->compCodeOpt() != SMALL_CODE) && !emitComp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT);
@@ -1225,8 +1211,8 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
         // We might need to relax these asserts if the VM ever starts
         // restoring any registers, then we could have live-in reg vars.
 
-        noway_assert((emitInitGCrefRegs & RBM_EXCEPTION_OBJECT) == emitInitGCrefRegs);
-        noway_assert(emitInitByrefRegs == RBM_NONE);
+        noway_assert((emitCurIG->refRegs & RBM_EXCEPTION_OBJECT) == emitCurIG->refRegs);
+        noway_assert(emitCurIG->byrefRegs == RBM_NONE);
 
         isLast = false;
     }
@@ -1265,9 +1251,6 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
 
     insGroup* igPh = emitCurIG;
 
-    igPh->gcLcls    = VarSetOps::MakeCopy(emitComp, emitInitGCrefVars);
-    igPh->refRegs   = static_cast<uint32_t>(emitInitGCrefRegs);
-    igPh->byrefRegs = static_cast<uint32_t>(emitInitByrefRegs);
     igPh->igPhData  = new (emitComp, CMK_InstDesc) insPlaceholderGroupData(igBB);
     igPh->igFuncIdx = emitComp->compCurrFuncIdx;
     igPh->igFlags |= IGF_PLACEHOLDER;
@@ -1329,6 +1312,23 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
 
         // The group after the placeholder group doesn't get the "propagate" flags.
         emitCurIG->igFlags &= ~IGF_PROPAGATE_MASK;
+
+#ifdef FEATURE_EH_FUNCLETS
+        if (igType == IGPT_FUNCLET_PROLOG)
+        {
+            // The funclet prolog and the funclet entry block will have the same GC info.
+            // Nothing is really live in the prolog, since it's not interruptible, but if
+            // we kill everything at the start of the prolog we may end up creating new
+            // live ranges for whatever GC locals happen to be live before the funclet and
+            // inside the funclet so may as well pretend that whatever is live at entry
+            // is also live inside prolog.
+            // The locals bitset is never modified so we can make a shallow copy here.
+
+            emitCurIG->gcLcls    = igPh->gcLcls;
+            emitCurIG->refRegs   = igPh->refRegs;
+            emitCurIG->byrefRegs = igPh->byrefRegs;
+        }
+#endif
     }
 
 #if EMITTER_STATS
@@ -1425,10 +1425,6 @@ void emitter::emitBegPrologEpilog(insGroup* igPh)
 
     igPh->igFlags &= ~IGF_PLACEHOLDER;
     igPh->igPhData = nullptr;
-
-    VarSetOps::Assign(emitComp, emitInitGCrefVars, igPh->gcLcls);
-    emitInitGCrefRegs = igPh->refRegs;
-    emitInitByrefRegs = igPh->byrefRegs;
 
     emitNoGCIG     = true;
     emitForceNewIG = false;
@@ -1569,13 +1565,9 @@ insGroup* emitter::emitAddLabel(INDEBUG(BasicBlock* block))
     }
 #endif
 
-    VARSET_TP GCvars    = codeGen->liveness.GetGCLiveSet();
-    regMaskTP gcrefRegs = codeGen->liveness.GetGCRegs(TYP_REF);
-    regMaskTP byrefRegs = codeGen->liveness.GetGCRegs(TYP_BYREF);
-
-    VarSetOps::Assign(emitComp, emitInitGCrefVars, GCvars);
-    emitInitGCrefRegs = gcrefRegs;
-    emitInitByrefRegs = byrefRegs;
+    emitCurIG->gcLcls    = VarSetOps::MakeCopy(emitComp, codeGen->liveness.GetGCLiveSet());
+    emitCurIG->refRegs   = codeGen->liveness.GetGCRegs(TYP_REF);
+    emitCurIG->byrefRegs = codeGen->liveness.GetGCRegs(TYP_BYREF);
 
 #ifdef DEBUG
     if (block != nullptr)
@@ -1585,12 +1577,12 @@ insGroup* emitter::emitAddLabel(INDEBUG(BasicBlock* block))
 
     if (emitComp->verbose)
     {
-        printf("Label: IG%02u, GCvars ", emitCurIG->igNum);
-        dumpConvertedVarSet(emitComp, GCvars);
-        printf(", REF regs");
-        emitDispRegSet(gcrefRegs);
-        printf(", BYREF regs");
-        emitDispRegSet(byrefRegs);
+        printf("Label: IG%02u, gc-lcls ", emitCurIG->igNum);
+        dumpConvertedVarSet(emitComp, emitCurIG->gcLcls);
+        printf(", ref-regs");
+        emitDispRegSet(emitCurIG->refRegs);
+        printf(", byref-regs");
+        emitDispRegSet(emitCurIG->byrefRegs);
         printf("\n");
     }
 #endif
