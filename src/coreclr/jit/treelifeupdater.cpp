@@ -394,33 +394,15 @@ void CodeGenLivenessUpdater::UpdateLifePromoted(CodeGen* codeGen, GenTreeLclVarC
     DBEXEC(compiler->verbose, DumpDiff(codeGen);)
 }
 
-void CodeGenLivenessUpdater::BeginPrologCodeGen()
+void CodeGenLivenessUpdater::BeginPrologEpilogCodeGen()
 {
+    // No stack locals are live inside prologs/epilogs, they can't be accessed anyway.
+    // Param and return registers may be live but since prologs and epilogs are not
+    // interruptible we can ignore them for GC purposes.
+
+    VarSetOps::ClearD(compiler, liveGCLcl);
     liveGCRefRegs   = RBM_NONE;
     liveGCByRefRegs = RBM_NONE;
-    VarSetOps::ClearD(compiler, liveGCLcl);
-}
-
-void CodeGenLivenessUpdater::BeginMethodEpilogCodeGen(insGroup* epilog)
-{
-    // TODO-MIKE-Review: Probably this could be just ClearD, no GC locals
-    // need to be live inside the epilog since it isn't interruptible.
-    VarSetOps::Assign(compiler, liveGCLcl, epilog->gcLcls);
-    liveGCRefRegs   = epilog->refRegs;
-    liveGCByRefRegs = epilog->byrefRegs;
-
-#ifdef DEBUG
-    if (compiler->verbose)
-    {
-        printf("liveGCLcl ");
-        dumpConvertedVarSet(compiler, liveGCLcl);
-        printf(", liveGCRefRegs");
-        emitter::emitDispRegSet(liveGCRefRegs);
-        printf(", liveGCByRefRegs");
-        emitter::emitDispRegSet(liveGCByRefRegs);
-        printf("\n");
-    }
-#endif
 }
 
 void CodeGenLivenessUpdater::SpillGCSlot(LclVarDsc* lcl)

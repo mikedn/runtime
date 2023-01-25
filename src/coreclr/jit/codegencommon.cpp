@@ -4179,7 +4179,7 @@ void CodeGen::genFnProlog()
     compiler->funSetCurrentFunc(0);
     GetEmitter()->emitBegProlog();
     compiler->unwindBegProlog();
-    liveness.BeginPrologCodeGen();
+    liveness.BeginPrologEpilogCodeGen();
 
     // Do this so we can put the prolog instruction group ahead of other instruction groups.
     genIPmappingAddToFront(static_cast<IL_OFFSETX>(ICorDebugInfo::PROLOG));

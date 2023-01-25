@@ -45,8 +45,7 @@ public:
     void Begin();
     void End(CodeGen* codeGen);
     void BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* block);
-    void BeginPrologCodeGen();
-    void BeginMethodEpilogCodeGen(insGroup* epilog);
+    void BeginPrologEpilogCodeGen();
 
     void UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* lclNode);
     void UpdateLifeMultiReg(CodeGen* codeGen, GenTreeLclVar* lclNode);

@@ -2524,8 +2524,6 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
 
     ScopedSetVariable<bool> _setGeneratingProlog(&generatingProlog, true);
 
-    liveness.BeginPrologCodeGen();
-
     compiler->unwindBegProlog();
 
     regMaskTP maskPushRegsFloat = genFuncletInfo.fiSaveRegs & RBM_ALLFLOAT;

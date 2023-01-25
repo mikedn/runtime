@@ -1363,6 +1363,8 @@ void emitter::emitGeneratePrologEpilog()
         // so save the "next" pointer before that happens.
         next = ig->igPhData->igPhNext;
 
+        codeGen->liveness.BeginPrologEpilogCodeGen();
+
         BasicBlock* igPhBB = ig->igPhData->igPhBB;
 
         if ((ig->igFlags & IGF_EPILOG) != 0)
@@ -1373,7 +1375,6 @@ void emitter::emitGeneratePrologEpilog()
             emitBegFnEpilog(ig);
 #endif
             emitBegPrologEpilog(ig);
-            codeGen->liveness.BeginMethodEpilogCodeGen(ig);
             codeGen->genFnEpilog(igPhBB);
             emitEndPrologEpilog();
 #ifdef JIT32_GCENCODER

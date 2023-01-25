@@ -9232,8 +9232,6 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
 
     ScopedSetVariable<bool> _setGeneratingProlog(&generatingProlog, true);
 
-    liveness.BeginPrologCodeGen();
-
     compiler->unwindBegProlog();
 
     // We need to push ebp, since it's callee-saved.
