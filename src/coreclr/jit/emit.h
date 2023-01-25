@@ -202,21 +202,21 @@ struct insGroup
 
     VARSET_TP GetGCLcls() const
     {
-        assert((igFlags & (IGF_EXTEND | IGF_PLACEHOLDER)) == 0);
+        assert((igFlags & IGF_EXTEND) == 0);
 
         return gcLcls;
     }
 
     regMaskTP GetRefRegs() const
     {
-        assert((igFlags & (IGF_EXTEND | IGF_PLACEHOLDER)) == 0);
+        assert((igFlags & IGF_EXTEND) == 0);
 
         return refRegs;
     }
 
     regMaskTP GetByrefRegs() const
     {
-        assert((igFlags & (IGF_EXTEND | IGF_PLACEHOLDER)) == 0);
+        assert((igFlags & IGF_EXTEND) == 0);
 
         return byrefRegs;
     }
