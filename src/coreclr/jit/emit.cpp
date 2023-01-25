@@ -432,6 +432,9 @@ insGroup* emitter::emitAllocIG()
     ig->igSize    = 0;
     ig->igFlags   = 0;
     ig->igInsCnt  = 0;
+    ig->gcLcls    = VarSetOps::UninitVal();
+    ig->refRegs   = RBM_NONE;
+    ig->byrefRegs = RBM_NONE;
 #if FEATURE_LOOP_ALIGN
     ig->igLoopBackEdge = nullptr;
 #endif
@@ -2481,193 +2484,152 @@ ID_OPS emitter::GetFormatOp(insFormat format)
 
 #ifdef DEBUG
 
-void emitter::emitDispIGflags(unsigned flags)
-{
-    if (flags & IGF_FUNCLET_PROLOG)
-    {
-        printf(", funclet prolog");
-    }
-    if (flags & IGF_FUNCLET_EPILOG)
-    {
-        printf(", funclet epilog");
-    }
-    if (flags & IGF_EPILOG)
-    {
-        printf(", epilog");
-    }
-    if (flags & IGF_NOGCINTERRUPT)
-    {
-        printf(", nogc");
-    }
-    if (flags & IGF_UPD_ISZ)
-    {
-        printf(", isz");
-    }
-    if (flags & IGF_EXTEND)
-    {
-        printf(", extend");
-    }
-    if (flags & IGF_LOOP_ALIGN)
-    {
-        printf(", align");
-    }
-}
-
 void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
 {
-    const int TEMP_BUFFER_LEN = 40;
-    char      buff[TEMP_BUFFER_LEN];
+    char buff[40];
+    sprintf_s(buff, _countof(buff), "%s: ", emitLabelString(ig));
+    printf("%s", buff);
 
-    sprintf_s(buff, TEMP_BUFFER_LEN, "%s:        ", emitLabelString(ig));
-    printf("%s; ", buff);
+    char     separator = ';';
+    unsigned flags     = ig->igFlags;
 
-    // We dump less information when we're only interleaving GC info with a disassembly listing,
-    // than we do in the jitdump case. (Note that the verbose argument to this method is
-    // distinct from the verbose on Compiler.)
-    bool jitdump = emitComp->verbose;
-
-    if (jitdump && ((igPrev == nullptr) || (igPrev->igFuncIdx != ig->igFuncIdx)))
+    if (emitComp->verbose)
     {
-        printf("func=%02u, ", ig->igFuncIdx);
+        printf("%c func %u, offs %06XH, size %04XH", separator, ig->igFuncIdx, ig->igOffs, ig->igSize);
+        separator = ',';
+
+        if ((flags & IGF_UPD_ISZ) != 0)
+        {
+            printf("%c update-size", separator);
+            separator = ',';
+        }
+    }
+
+    if (ig == GetProlog())
+    {
+        printf("%c prolog", separator);
+        separator = ',';
+    }
+    else if (flags & IGF_EPILOG)
+    {
+        printf("%c epilog", separator);
+        separator = ',';
+    }
+#ifdef FEATURE_EH_FUNCLETS
+    else if (flags & IGF_FUNCLET_PROLOG)
+    {
+        printf("%c funclet-prolog", separator);
+        separator = ',';
+    }
+    else if (flags & IGF_FUNCLET_EPILOG)
+    {
+        printf("%c funclet-epilog", separator);
+        separator = ',';
+    }
+#endif
+
+    if (flags & IGF_PLACEHOLDER)
+    {
+        printf("%c placeholder " FMT_BB, separator, ig->igPhData->igPhBB->bbNum);
+        separator = ',';
+    }
+
+    if (flags & IGF_EXTEND)
+    {
+        printf("%c extend", separator);
+        separator = ',';
+    }
+
+    if (flags & IGF_NOGCINTERRUPT)
+    {
+        printf("%c nogc", separator);
+        separator = ',';
+    }
+
+    if (flags & IGF_LOOP_ALIGN)
+    {
+        printf("%c align", separator);
+        separator = ',';
+    }
+
+    if (ig == emitCurIG)
+    {
+        printf("%c current", separator);
+        separator = ',';
+    }
+
+    if ((ig != GetProlog()) && ((ig->igFlags & IGF_EXTEND) == 0))
+    {
+        if (ig->gcLcls != VarSetOps::UninitVal())
+        {
+            printf("%c gc-lcls ", separator);
+            dumpConvertedVarSet(emitComp, ig->gcLcls);
+            separator = ',';
+        }
+
+        if (ig->refRegs != RBM_NONE)
+        {
+            printf("%c ref-regs", separator);
+            emitDispRegSet(ig->refRegs);
+            separator = ',';
+        }
+
+        if (ig->byrefRegs != RBM_NONE)
+        {
+            printf("%c byref-regs", separator);
+            emitDispRegSet(ig->byrefRegs);
+            separator = ',';
+        }
     }
 
     if ((ig->igFlags & IGF_PLACEHOLDER) != 0)
     {
-        const char* kind = "???";
-
-        if ((ig->igFlags & IGF_EPILOG) != 0)
-        {
-            kind = "epilog";
-        }
-#ifdef FEATURE_EH_FUNCLETS
-        else if ((ig->igFlags & IGF_FUNCLET_PROLOG) != 0)
-        {
-            kind = "funclet prolog";
-        }
-        else if ((ig->igFlags & IGF_FUNCLET_PROLOG) != 0)
-        {
-            kind = "funclet epilog";
-        }
-#endif
-
-        printf("%s placeholder, next placeholder=", kind);
-
-        if (ig->igPhData->igPhNext)
-        {
-            printf("IG%02u ", ig->igPhData->igPhNext->igNum);
-        }
-        else
-        {
-            printf("<END>");
-        }
-
-        if (ig->igPhData->igPhBB != nullptr)
-        {
-            printf(", %s", ig->igPhData->igPhBB->dspToString());
-        }
-
-        emitDispIGflags(ig->igFlags);
-
-        if (ig == emitCurIG)
-        {
-            printf(" <-- Current IG");
-        }
-        if (ig == emitPlaceholderList)
-        {
-            printf(" <-- First placeholder");
-        }
-        if (ig == emitPlaceholderLast)
-        {
-            printf(" <-- Last placeholder");
-        }
         printf("\n");
 
-        printf("%*s;   InitGCVars ", strlen(buff), "");
-        dumpConvertedVarSet(emitComp, ig->gcLcls);
-        printf(", InitGCrefRegs");
-        emitDispRegSet(ig->refRegs);
-        printf(", InitByrefRegs");
-        emitDispRegSet(ig->byrefRegs);
-        printf("\n");
+        return;
     }
-    else
+
+    if (emitComp->compCodeGenDone)
     {
-        const char* separator = "";
-
-        if (jitdump)
-        {
-            printf("%soffs=%06XH, size=%04XH", separator, ig->igOffs, ig->igSize);
-            separator = ", ";
-        }
-
-        if (emitComp->compCodeGenDone)
-        {
-            printf("%sbbWeight=%s PerfScore %.2f", separator, refCntWtd2str(ig->igWeight), ig->igPerfScore);
-            separator = ", ";
-        }
-
-        if ((ig->igData != nullptr) && ((ig->igFlags & (IGF_EXTEND | IGF_PLACEHOLDER)) == 0) && (ig != GetProlog()))
-        {
-            printf("%sgcVars ", separator);
-            dumpConvertedVarSet(emitComp, ig->GetGCLcls());
-            separator = ", ";
-            printf("%sref-regs", separator);
-            emitDispRegSet(ig->GetRefRegs());
-            separator = ", ";
-            printf("%sbyref-regs", separator);
-            emitDispRegSet(ig->GetByrefRegs());
-            separator = ", ";
-        }
+        printf("%c weight %s, perf-score %.2f", separator, refCntWtd2str(ig->igWeight), ig->igPerfScore);
+        separator = ',';
+    }
 
 #if FEATURE_LOOP_ALIGN
-        if (ig->igLoopBackEdge != nullptr)
+    if (ig->igLoopBackEdge != nullptr)
+    {
+        printf("%c loop IG%02u", separator, ig->igLoopBackEdge->igNum);
+        separator = ',';
+    }
+#endif
+
+    if (emitComp->verbose)
+    {
+        for (auto block : ig->igBlocks)
         {
-            printf("%sloop=IG%02u", separator, ig->igLoopBackEdge->igNum);
-            separator = ", ";
+            printf("%c " FMT_BB, separator, block->bbNum);
+            separator = ',';
         }
-#endif // FEATURE_LOOP_ALIGN
+    }
 
-        if (jitdump && !ig->igBlocks.empty())
+    printf("\n");
+
+    if (verbose && (ig->igInsCnt != 0))
+    {
+        printf("\n");
+
+        uint8_t* ins = ig->igData;
+        unsigned ofs = ig->igOffs;
+
+        for (unsigned i = 0; i < ig->igInsCnt; i++)
         {
-            for (auto block : ig->igBlocks)
-            {
-                printf("%s%s", separator, block->dspToString());
-                separator = ", ";
-            }
-        }
-
-        emitDispIGflags(ig->igFlags);
-
-        if (ig == emitCurIG)
-        {
-            printf(" <-- Current IG");
+            instrDesc* id = reinterpret_cast<instrDesc*>(ins);
+            emitDispIns(id, false, true, false, ofs, nullptr, 0, ig);
+            ins += emitSizeOfInsDsc(id);
+            ofs += id->idCodeSize();
         }
 
         printf("\n");
-
-        if (verbose)
-        {
-            BYTE*          ins = ig->igData;
-            UNATIVE_OFFSET ofs = ig->igOffs;
-            unsigned       cnt = ig->igInsCnt;
-
-            if (cnt)
-            {
-                printf("\n");
-
-                do
-                {
-                    instrDesc* id = (instrDesc*)ins;
-
-                    emitDispIns(id, false, true, false, ofs, nullptr, 0, ig);
-
-                    ins += emitSizeOfInsDsc(id);
-                    ofs += id->idCodeSize();
-                } while (--cnt);
-
-                printf("\n");
-            }
-        }
     }
 }
 
@@ -4620,7 +4582,7 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
             if (emitComp->verbose || emitComp->opts.disasmWithGC)
             {
                 printf("\n");
-                emitDispIG(ig); // Display the flags, IG data, etc.
+                emitDispIG(ig, nullptr, false);
             }
             else
             {

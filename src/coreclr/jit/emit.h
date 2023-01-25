@@ -184,6 +184,8 @@ struct insGroup
     uint16_t igFlags;  // see IGF_xxx below
     uint8_t  igInsCnt; // # of instructions  in this group
 
+    static_assert_no_msg(REG_INT_COUNT <= 32);
+
     VARSET_TP gcLcls;
     uint32_t  refRegs;
     uint32_t  byrefRegs;
@@ -1392,8 +1394,7 @@ private:
     static const char* emitRegName(regNumber reg, emitAttr size = EA_PTRSIZE);
 
     void GetGCDeltaDumpHeader(char* buffer, size_t count);
-    void emitDispIGflags(unsigned flags);
-    void emitDispIG(insGroup* ig, insGroup* igPrev = nullptr, bool verbose = false);
+    void emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose);
     void emitDispIGlist(bool verbose = false);
     void emitDispClsVar(CORINFO_FIELD_HANDLE fldHnd, ssize_t offs, bool reloc = false);
 #ifdef TARGET_XARCH
