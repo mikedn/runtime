@@ -1569,8 +1569,8 @@ insGroup* emitter::emitAddLabel(INDEBUG(BasicBlock* block))
 #endif
 
     emitCurIG->gcLcls    = VarSetOps::MakeCopy(emitComp, codeGen->liveness.GetGCLiveSet());
-    emitCurIG->refRegs   = codeGen->liveness.GetGCRegs(TYP_REF);
-    emitCurIG->byrefRegs = codeGen->liveness.GetGCRegs(TYP_BYREF);
+    emitCurIG->refRegs   = static_cast<uint32_t>(codeGen->liveness.GetGCRegs(TYP_REF));
+    emitCurIG->byrefRegs = static_cast<uint32_t>(codeGen->liveness.GetGCRegs(TYP_BYREF));
 
 #ifdef DEBUG
     if (block != nullptr)
