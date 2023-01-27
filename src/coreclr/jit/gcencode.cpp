@@ -3068,10 +3068,7 @@ unsigned GCEncoder::AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, const
         if (regEncoding < 4)
         {
             *dest++ = 0xF4 | regEncoding;
-            // TODO-MIKE-Cleanup: Remove workaround for GC info diffs,
-            // old code managed to report `this` twice.
-            *dest++ = 0xF4 | regEncoding;
-            totalSize += 2;
+            totalSize++;
         }
     }
 
