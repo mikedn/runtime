@@ -2370,10 +2370,6 @@ void Compiler::fgAddInternal()
         fgNewStmtNearEnd(genReturnBB, tree);
 
         JITDUMP("\nSynchronized method - Add exit expression [%06u]\n", tree->GetID());
-
-        // Reset cookies used to track start and end of the protected region in synchronized methods
-        syncStartEmitCookie = NULL;
-        syncEndEmitCookie   = NULL;
     }
 
 #endif // !FEATURE_EH_FUNCLETS

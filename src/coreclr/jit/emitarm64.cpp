@@ -9617,123 +9617,13 @@ BYTE* emitter::emitOutputShortConstant(
 
     return dst;
 }
-/*****************************************************************************
- *
- *  Output a call instruction.
- */
-
-unsigned emitter::emitOutputCall(insGroup* ig, BYTE* dst, instrDesc* id, code_t code)
-{
-    const unsigned char callInstrSize = sizeof(code_t); // 4 bytes
-    regMaskTP           gcrefRegs;
-    regMaskTP           byrefRegs;
-
-    VARSET_TP GCvars = VarSetOps::UninitVal();
-
-    // Is this a "fat" call descriptor?
-    if (id->idIsLargeCall())
-    {
-        instrDescCGCA* idCall = static_cast<instrDescCGCA*>(id);
-
-        gcrefRegs = idCall->idcGcrefRegs;
-        byrefRegs = idCall->idcByrefRegs;
-        GCvars    = idCall->idcGCvars;
-    }
-    else
-    {
-        assert(!id->idIsLargeCns());
-
-        gcrefRegs = emitDecodeCallGCregs(id);
-        byrefRegs = RBM_NONE;
-        GCvars    = emitEmptyGCrefVars;
-    }
-
-    /* We update the GC info before the call as the variables cannot be
-        used by the call. Killing variables before the call helps with
-        boundary conditions if the call is CORINFO_HELP_THROW - see bug 50029.
-        If we ever track aliased variables (which could be used by the
-        call), we would have to keep them alive past the call. */
-
-    emitUpdateLiveGCvars(GCvars, dst);
-
-#ifdef DEBUG
-    // Output any delta in GC variable info, corresponding to the before-call GC var updates done above.
-    if (EMIT_GC_VERBOSE || emitComp->opts.disasmWithGC)
-    {
-        emitDispGCVarDelta();
-    }
-#endif // DEBUG
-
-    // Now output the call instruction and update the 'dst' pointer
-    //
-    unsigned outputInstrSize = emitOutput_Instr(dst, code);
-    dst += outputInstrSize;
-
-    // All call instructions are 4-byte in size on ARM64
-    //
-    assert(outputInstrSize == callInstrSize);
-
-    // If the method returns a GC ref, mark INTRET (R0) appropriately.
-    if (id->idGCref() == GCT_GCREF)
-    {
-        gcrefRegs |= RBM_INTRET;
-    }
-    else if (id->idGCref() == GCT_BYREF)
-    {
-        byrefRegs |= RBM_INTRET;
-    }
-
-    // If is a multi-register return method is called, mark INTRET_1 (X1) appropriately
-    if (id->idIsLargeCall())
-    {
-        instrDescCGCA* idCall = (instrDescCGCA*)id;
-        if (idCall->idSecondGCref() == GCT_GCREF)
-        {
-            gcrefRegs |= RBM_INTRET_1;
-        }
-        else if (idCall->idSecondGCref() == GCT_BYREF)
-        {
-            byrefRegs |= RBM_INTRET_1;
-        }
-    }
-
-    // If the GC register set has changed, report the new set.
-    if (gcrefRegs != emitThisGCrefRegs)
-    {
-        emitUpdateLiveGCregs(GCT_GCREF, gcrefRegs, dst);
-    }
-    // If the Byref register set has changed, report the new set.
-    if (byrefRegs != emitThisByrefRegs)
-    {
-        emitUpdateLiveGCregs(GCT_BYREF, byrefRegs, dst);
-    }
-
-    // Some helper calls may be marked as not requiring GC info to be recorded.
-    if (!id->idIsNoGC())
-    {
-        emitRecordGCCallPop(dst, callInstrSize);
-
-        // Do we need to record a call location for GC purposes?
-        if (!emitFullGCinfo)
-        {
-            emitRecordGCcall(dst, callInstrSize);
-        }
-    }
-    return callInstrSize;
-}
-
-/*****************************************************************************
- *
- *  Emit a 32-bit Arm64 instruction
- */
 
 unsigned emitter::emitOutput_Instr(BYTE* dst, code_t code)
 {
-    assert(sizeof(code_t) == 4);
-    BYTE* dstRW       = dst + writeableOffset;
-    *((code_t*)dstRW) = code;
+    static_assert_no_msg(sizeof(code_t) == 4);
 
-    return sizeof(code_t);
+    *reinterpret_cast<code_t*>(dst + writeableOffset) = code;
+    return 4;
 }
 
 /*****************************************************************************
@@ -9787,9 +9677,9 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             break;
 
         case IF_BI_0C: // BI_0C   ......iiiiiiiiii iiiiiiiiiiiiiiii               simm26:00
+            sz   = emitRecordGCCall(id, dst, dst + 4);
             code = emitInsCode(ins, fmt);
-            sz   = id->idIsLargeCall() ? sizeof(instrDescCGCA) : sizeof(instrDesc);
-            dst += emitOutputCall(ig, dst, id, code);
+            dst += emitOutput_Instr(dst, code);
             // Always call RecordRelocation so that we wire in a JumpStub when we don't reach
             emitRecordRelocation(odst, id->idAddr()->iiaAddr, IMAGE_REL_ARM64_BRANCH26);
             break;
@@ -9822,11 +9712,10 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_BR_1B: // BR_1B   ................ ......nnnnn.....         Rn
             assert(insOptsNone(id->idInsOpt()));
             assert((ins == INS_br_tail) || (ins == INS_blr));
+            sz   = emitRecordGCCall(id, dst, dst + 4);
             code = emitInsCode(ins, fmt);
             code |= insEncodeReg_Rn(id->idReg3()); // nnnnn
-
-            sz = id->idIsLargeCall() ? sizeof(instrDescCGCA) : sizeof(instrDesc);
-            dst += emitOutputCall(ig, dst, id, code);
+            dst += emitOutput_Instr(dst, code);
             break;
 
         case IF_LS_1A: // LS_1A   XX...V..iiiiiiii iiiiiiiiiiittttt      Rt    PC imm(1MB)
@@ -10957,12 +10846,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         {
             assert(!"JitBreakEmitOutputInstr reached");
         }
-    }
-
-    // Output any delta in GC info.
-    if (EMIT_GC_VERBOSE || emitComp->opts.disasmWithGC)
-    {
-        emitDispGCInfoDelta();
     }
 #endif
 
@@ -13138,7 +13021,7 @@ emitter::insExecutionCharacteristics emitter::getInsExecutionCharacteristics(ins
             {
                 // ldp, ldpsw, ldnp
                 result.insThroughput = PERFSCORE_THROUGHPUT_1C;
-                if (emitIGisInEpilog(emitCurIG) && (ins == INS_ldp))
+                if (emitCurIG->IsEpilog() && (ins == INS_ldp))
                 {
                     // Reduce latency for ldp instructions in the epilog
                     //

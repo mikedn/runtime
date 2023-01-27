@@ -385,6 +385,17 @@ public:
     GcSlotId GetRegisterSlotId( UINT32 regNum, GcSlotFlags flags );
     GcSlotId GetStackSlotId( INT32 spOffset, GcSlotFlags flags, GcStackSlotBase spBase = GC_CALLER_SP_REL );
 
+    GcSlotDesc& GetSlotDesc(GcSlotId slotId) const
+    {
+        _ASSERTE(slotId < m_NumSlots);
+        return m_SlotTable[slotId];
+    }
+
+    UINT32 GetSlotCount() const
+    {
+        return m_NumSlots;
+    }
+
     //
     // After a FinalizeSlotIds is called, no more slot definitions can be made.
     // FinalizeSlotIds must be called once and only once before calling Build()

@@ -15,19 +15,13 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #pragma hdrstop
 #endif
 
-#include "hostallocator.h"
 #include "instr.h"
 #include "emit.h"
 #include "codegen.h"
+#include "gcinfotypes.h"
 
-emitter::emitter(Compiler* compiler, CodeGen* codeGen, GCInfo& gcInfo, ICorJitInfo* jitInfo)
-    : emitComp(compiler)
-    , gcInfo(&gcInfo)
-    , codeGen(codeGen)
-    , emitCmpHandle(jitInfo)
-#ifdef DEBUG
-    , debugGCSlotChanges(compiler->getAllocator(CMK_DebugOnly))
-#endif
+emitter::emitter(Compiler* compiler, CodeGen* codeGen, ICorJitInfo* jitInfo)
+    : emitComp(compiler), gcInfo(compiler), codeGen(codeGen), emitCmpHandle(jitInfo)
 {
 }
 
@@ -425,11 +419,66 @@ void* emitter::emitGetMem(size_t sz)
     return emitComp->getAllocator(CMK_InstDesc).allocate<char>(sz);
 }
 
+insGroup* emitter::emitAllocIG()
+{
+    assert(IsCodeAligned(emitCurCodeOffset));
+
+    insGroup* ig  = static_cast<insGroup*>(emitGetMem(sizeof(insGroup)));
+    ig->igNext    = nullptr;
+    ig->igData    = nullptr;
+    ig->igNum     = ++emitNxtIGnum;
+    ig->igOffs    = emitCurCodeOffset;
+    ig->igFuncIdx = emitComp->compCurrFuncIdx;
+    ig->igSize    = 0;
+    ig->igFlags   = 0;
+    ig->igInsCnt  = 0;
+    ig->gcLcls    = VarSetOps::UninitVal();
+    ig->refRegs   = RBM_NONE;
+    ig->byrefRegs = RBM_NONE;
+#if FEATURE_LOOP_ALIGN
+    ig->igLoopBackEdge = nullptr;
+#endif
+
+#if defined(DEBUG) || defined(LATE_DISASM)
+    ig->igWeight    = getCurrentBlockWeight();
+    ig->igPerfScore = 0.0;
+#endif
+#ifdef DEBUG
+    ig->igSelf             = ig;
+    ig->lastGeneratedBlock = nullptr;
+    new (&ig->igBlocks) jitstd::list<BasicBlock*>(emitComp->getAllocator(CMK_LoopOpt));
+#endif
+
+#if EMITTER_STATS
+    emitTotalIGcnt += 1;
+    emitTotalIGsize += sizeof(insGroup);
+    emitSizeMethod += sizeof(insGroup);
+#endif
+
+    return ig;
+}
+
+void emitter::emitNewIG()
+{
+    assert(emitIGlast == emitCurIG);
+
+    insGroup* ig = emitAllocIG();
+    ig->igFlags |= emitIGlast->igFlags & IGF_PROPAGATE_MASK;
+
+    emitIGlast->igNext = ig;
+    emitIGlast         = ig;
+    emitForceNewIG     = false;
+
+    emitGenIG(ig);
+}
+
 void emitter::emitGenIG(insGroup* ig)
 {
-    /* Set the "current IG" value */
-
-    emitCurIG = ig;
+    assert((ig->igFlags & IGF_PLACEHOLDER) == 0);
+    assert(emitCurIGjmpList == nullptr);
+#if FEATURE_LOOP_ALIGN
+    assert(emitCurIGAlignList == nullptr);
+#endif
 
 #if !FEATURE_FIXED_OUT_ARGS
     ig->igStkLvl = emitCurStackLvl;
@@ -440,202 +489,54 @@ void emitter::emitGenIG(insGroup* ig)
         ig->igFlags |= IGF_NOGCINTERRUPT;
     }
 
-    /* Prepare to issue instructions */
-
-    emitCurIGinsCnt = 0;
-    emitCurIGsize   = 0;
-
-    assert(emitCurIGjmpList == nullptr);
-
-#if FEATURE_LOOP_ALIGN
-    assert(emitCurIGAlignList == nullptr);
-#endif
-
-    /* Allocate the temp instruction buffer if we haven't done so */
-
-    if (emitCurIGfreeBase == nullptr)
-    {
-        emitIGbuffSize    = SC_IG_BUFFER_SIZE;
-        emitCurIGfreeBase = (BYTE*)emitGetMem(emitIGbuffSize);
-    }
-
+    emitCurIG         = ig;
+    emitCurIGinsCnt   = 0;
+    emitCurIGsize     = 0;
     emitCurIGfreeNext = emitCurIGfreeBase;
-    emitCurIGfreeEndp = emitCurIGfreeBase + emitIGbuffSize;
 }
 
-/*****************************************************************************
- *
- *  Finish and save the current IG.
- */
-
-insGroup* emitter::emitSavIG(bool emitAdd)
+void emitter::emitExtendIG()
 {
-    insGroup* ig;
-    BYTE*     id;
+    assert(!emitIGisInProlog(emitCurIG));
 
-    size_t sz;
-    size_t gs;
+    emitFinishIG(true);
+    emitNewIG();
 
+    emitCurIG->igFlags |= IGF_EXTEND;
+#if EMITTER_STATS
+    emitTotalIGExtend++;
+#endif
+}
+
+void emitter::emitFinishIG(bool extend)
+{
     assert(emitCurIGfreeNext <= emitCurIGfreeEndp);
 
-    // Get hold of the IG descriptor
+    size_t instrSize = emitCurIGfreeNext - emitCurIGfreeBase;
+    size_t dataSize  = roundUp(instrSize);
 
-    ig = emitCurIG;
-    assert(ig);
-
-    // Compute how much code we've generated
-
-    sz = emitCurIGfreeNext - emitCurIGfreeBase;
-
-    // Compute the total size we need to allocate
-
-    gs = roundUp(sz);
-
-    // Do we need space for GC?
-
-    if (!(ig->igFlags & IGF_EXTEND))
-    {
-        // Is the initial set of live GC vars different from the previous one?
-
-        if (emitForceStoreGCState || !VarSetOps::Equal(emitComp, emitPrevGCrefVars, emitInitGCrefVars))
-        {
-            // Remember that we will have a new set of live GC variables
-
-            ig->igFlags |= IGF_GC_VARS;
-
-#if EMITTER_STATS
-            emitTotalIGptrs++;
-#endif
-
-            // We'll allocate extra space to record the liveset
-
-            gs += sizeof(VARSET_TP);
-        }
-
-        // Is the initial set of live Byref regs different from the previous one?
-
-        // Remember that we will have a new set of live GC variables
-
-        ig->igFlags |= IGF_BYREF_REGS;
-
-        // We'll allocate extra space (DWORD aligned) to record the GC regs
-
-        gs += sizeof(int);
-    }
-
-    // Allocate space for the instructions and optional liveset
-
-    id = (BYTE*)emitGetMem(gs);
-
-    // Do we need to store the byref regs
-
-    if (ig->igFlags & IGF_BYREF_REGS)
-    {
-        // Record the byref regs in front the of the instructions
-
-        *castto(id, unsigned*)++ = (unsigned)emitInitByrefRegs;
-    }
-
-    // Do we need to store the liveset?
-
-    if (ig->igFlags & IGF_GC_VARS)
-    {
-        // Record the liveset in front the of the instructions
-        VarSetOps::AssignNoCopy(emitComp, (*castto(id, VARSET_TP*)), VarSetOps::MakeEmpty(emitComp));
-        VarSetOps::Assign(emitComp, (*castto(id, VARSET_TP*)++), emitInitGCrefVars);
-    }
-
-    // Record the collected instructions
-
+    insGroup* ig = emitCurIG;
     assert((ig->igFlags & IGF_PLACEHOLDER) == 0);
-    ig->igData = id;
 
-    memcpy(id, emitCurIGfreeBase, sz);
+    noway_assert(emitCurIGinsCnt < UINT8_MAX);
+    noway_assert(emitCurIGsize < UINT16_MAX);
 
-#ifdef DEBUG
-    if (false && emitComp->verbose) // this is not useful in normal dumps (hence it is normally under if (false))
+    // TODO-MIKE-Cleanup: Prologs can be empty, the memory allocator doesn't like 0 sized allocations.
+    uint8_t* data = static_cast<uint8_t*>(emitGetMem(dataSize == 0 ? sizeof(void*) : dataSize));
+    memcpy(data, emitCurIGfreeBase, instrSize);
+    ig->igData   = data;
+    ig->igInsCnt = static_cast<uint8_t>(emitCurIGinsCnt);
+    ig->igSize   = static_cast<uint16_t>(emitCurIGsize);
+
+    if (instrSize != 0)
     {
-        // If there's an error during emission, we may want to connect the post-copy address
-        // of an instrDesc with the pre-copy address (the one that was originally created).  This
-        // printing enables that.
-        printf("copying instruction group from [0x%x..0x%x) to [0x%x..0x%x).\n", dspPtr(emitCurIGfreeBase),
-               dspPtr(emitCurIGfreeBase + sz), dspPtr(id), dspPtr(id + sz));
+        uint8_t* lastInsData = reinterpret_cast<uint8_t*>(emitLastIns);
+        assert(emitCurIGfreeBase <= lastInsData && lastInsData < emitCurIGfreeNext);
+        emitLastIns = reinterpret_cast<instrDesc*>(data + (lastInsData - emitCurIGfreeBase));
     }
-#endif
 
-    // Record how many instructions and bytes of code this group contains
-
-    noway_assert((BYTE)emitCurIGinsCnt == emitCurIGinsCnt);
-    noway_assert((unsigned short)emitCurIGsize == emitCurIGsize);
-
-    ig->igInsCnt = (BYTE)emitCurIGinsCnt;
-    ig->igSize   = (unsigned short)emitCurIGsize;
     emitCurCodeOffset += emitCurIGsize;
     assert(IsCodeAligned(emitCurCodeOffset));
-
-#if EMITTER_STATS
-    emitTotalIGicnt += emitCurIGinsCnt;
-    emitTotalIGsize += sz;
-    emitSizeMethod += sz;
-
-    if (emitIGisInProlog(ig))
-    {
-        emitCurPrologInsCnt += emitCurIGinsCnt;
-        emitCurPrologIGSize += sz;
-
-        // Keep track of the maximums.
-        if (emitCurPrologInsCnt > emitMaxPrologInsCnt)
-        {
-            emitMaxPrologInsCnt = emitCurPrologInsCnt;
-        }
-        if (emitCurPrologIGSize > emitMaxPrologIGSize)
-        {
-            emitMaxPrologIGSize = emitCurPrologIGSize;
-        }
-    }
-#endif
-
-    // Record the live GC register set - if and only if it is not an extension
-    // block, in which case the GC register sets are inherited from the previous
-    // block.
-
-    if (!(ig->igFlags & IGF_EXTEND))
-    {
-        ig->igGCregs = (regMaskSmall)emitInitGCrefRegs;
-    }
-
-    if (!emitAdd)
-    {
-        // Update the previous recorded live GC ref sets, but not if if we are
-        // starting an "overflow" buffer. Note that this is only used to
-        // determine whether we need to store or not store the GC ref sets for
-        // the next IG, which is dependent on exactly what the state of the
-        // emitter GC ref sets will be when the next IG is processed in the
-        // emitter.
-
-        VarSetOps::Assign(emitComp, emitPrevGCrefVars, emitThisGCrefVars);
-        emitPrevGCrefRegs = emitThisGCrefRegs;
-        emitPrevByrefRegs = emitThisByrefRegs;
-
-        emitForceStoreGCState = false;
-    }
-
-#ifdef DEBUG
-    if (emitComp->opts.dspCode)
-    {
-        printf("\n      %s:", emitLabelString(ig));
-        if (emitComp->verbose)
-        {
-            printf("        ; offs=%06XH, funclet=%02u, bbWeight=%s", ig->igOffs, ig->igFuncIdx,
-                   refCntWtd2str(ig->igWeight));
-        }
-        else
-        {
-            printf("        ; funclet=%02u", ig->igFuncIdx);
-        }
-        printf("\n");
-    }
-#endif
 
 #if FEATURE_LOOP_ALIGN
     // Did we have any align instructions in this group?
@@ -691,7 +592,6 @@ insGroup* emitter::emitSavIG(bool emitAdd)
     }
 
 #endif
-    // Did we have any jumps in this group?
 
     if (emitCurIGjmpList)
     {
@@ -746,7 +646,7 @@ insGroup* emitter::emitSavIG(bool emitAdd)
         if (last != nullptr)
         {
             // Append the jump(s) from this IG to the global list
-            bool prologJump = (ig == emitPrologIG);
+            bool prologJump = emitIGisInProlog(ig);
             if ((emitJumpList == nullptr) || prologJump)
             {
                 last->idjNext = emitJumpList;
@@ -765,28 +665,72 @@ insGroup* emitter::emitSavIG(bool emitAdd)
         }
     }
 
-    // Fix the last instruction field
-
-    if (sz != 0)
-    {
-        assert(emitLastIns != nullptr);
-        assert(emitCurIGfreeBase <= (BYTE*)emitLastIns);
-        assert((BYTE*)emitLastIns < emitCurIGfreeBase + sz);
-        emitLastIns = (instrDesc*)((BYTE*)id + ((BYTE*)emitLastIns - (BYTE*)emitCurIGfreeBase));
-    }
-
-    // Reset the buffer free pointers
-
     emitCurIGfreeNext = emitCurIGfreeBase;
 
-    return ig;
+#ifdef DEBUG
+    if (emitComp->opts.dspCode)
+    {
+        printf("\n      %s:", emitLabelString(ig));
+        if (emitComp->verbose)
+        {
+            printf("        ; offs=%06XH, funclet=%02u, bbWeight=%s", ig->igOffs, ig->igFuncIdx,
+                   refCntWtd2str(ig->igWeight));
+        }
+        else
+        {
+            printf("        ; funclet=%02u", ig->igFuncIdx);
+        }
+        printf("\n");
+    }
+#endif
+
+#if EMITTER_STATS
+    emitTotalIGicnt += emitCurIGinsCnt;
+    emitTotalIGsize += instrSize;
+    emitSizeMethod += instrSize;
+
+    if (emitIGisInProlog(ig))
+    {
+        emitCurPrologInsCnt += emitCurIGinsCnt;
+        emitCurPrologIGSize += instrSize;
+        emitMaxPrologInsCnt = Max(emitMaxPrologInsCnt, emitCurPrologInsCnt);
+        emitMaxPrologIGSize = Max(emitCurPrologIGSize, emitCurPrologIGSize);
+    }
+#endif
 }
+
+#ifndef JIT32_GCENCODER
+void emitter::emitDisableGC()
+{
+    emitNoGCIG = true;
+
+    if (emitCurIGnonEmpty())
+    {
+        emitExtendIG();
+    }
+    else
+    {
+        emitCurIG->igFlags |= IGF_NOGCINTERRUPT;
+    }
+}
+
+void emitter::emitEnableGC()
+{
+    emitNoGCIG = false;
+
+    // The next time an instruction needs to be generated, force a new instruction group.
+    // It will be an extend group in that case. Note that the next thing we see might be
+    // a label, which will force a non-extend group.
+    //
+    // Note that we can't just create a new instruction group here, because we don't know
+    // if there are going to be any instructions added to it, and we don't support empty
+    // instruction groups.
+    emitForceNewIG = true;
+}
+#endif // !JIT32_GCENCODER
 
 void emitter::emitBegFN()
 {
-    emitPrevGCrefVars = VarSetOps::MakeEmpty(emitComp);
-    emitInitGCrefVars = VarSetOps::MakeEmpty(emitComp);
-    emitThisGCrefVars = VarSetOps::MakeEmpty(emitComp);
 #ifdef DEBUG
     emitChkAlign =
         (emitComp->compCodeOpt() != SMALL_CODE) && !emitComp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT);
@@ -809,20 +753,27 @@ void emitter::emitBegFN()
     emitNextNop = emitNextRandomNop();
 #endif
 
+#ifdef TARGET_ARMARCH
+    // The only place where this limited instruction group size is a problem is the prolog,
+    // where we only support a single instruction group. We should really fix that.
+    // ARM32 and ARM64 both can require a bigger prolog instruction group. One scenario is
+    // where a function uses all the incoming integer and single-precision floating-point
+    // arguments, and must store them all to the frame on entry. If the frame is very large,
+    // we generate ugly code like "movw r10, 0x488; add r10, sp; vstr s0, [r10]" for each
+    // store, which eats up our insGroup buffer.
+    constexpr size_t IG_BUFFER_SIZE = 100 * sizeof(emitter::instrDesc) + 14 * SMALL_IDSC_SIZE;
+#else
+    constexpr size_t IG_BUFFER_SIZE = 50 * sizeof(emitter::instrDesc) + 14 * SMALL_IDSC_SIZE;
+#endif
+    emitCurIGfreeBase = static_cast<uint8_t*>(emitGetMem(IG_BUFFER_SIZE));
+    emitCurIGfreeEndp = emitCurIGfreeBase + IG_BUFFER_SIZE;
+
     // Create the first IG, it will be used for the prolog.
-
-    emitNxtIGnum = 1;
-
-    insGroup* ig = emitAllocIG();
-    ig->igNext   = nullptr;
-
-    emitPrologIG = ig;
-    emitIGlist   = ig;
-    emitIGlast   = ig;
-    emitCurIG    = ig;
+    emitIGfirst = emitAllocIG();
+    emitIGlast  = emitIGfirst;
+    emitCurIG   = emitIGfirst;
 
     // Append another group, to start generating the method body
-
     emitNewIG();
 }
 
@@ -1001,33 +952,6 @@ void emitter::emitDispInsOffs(unsigned offs, bool doffs)
 
 #endif // DEBUG
 
-#ifdef JIT32_GCENCODER
-
-/*****************************************************************************
- *
- *  Call the specified function pointer for each epilog block in the current
- *  method with the epilog's relative code offset. Returns the sum of the
- *  values returned by the callback.
- */
-
-size_t emitter::emitGenEpilogLst(size_t (*fp)(void*, unsigned), void* cp)
-{
-    EpilogList* el;
-    size_t      sz;
-
-    for (el = emitEpilogList, sz = 0; el != nullptr; el = el->elNext)
-    {
-        assert(el->elLoc.GetIG()->igFlags & IGF_EPILOG);
-
-        // The epilog starts at the location recorded in the epilog list.
-        sz += fp(cp, el->elLoc.CodeOffset(this));
-    }
-
-    return sz;
-}
-
-#endif // JIT32_GCENCODER
-
 /*****************************************************************************
  *
  *  The following series of methods allocates instruction descriptors.
@@ -1047,13 +971,9 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz)
     // the prolog/epilog placeholder groups ARE generated in order, and are
     // re-used. But generating additional groups would not work.
     if (emitComp->compStressCompile(Compiler::STRESS_EMITTER, 1) && emitCurIGinsCnt && !emitIGisInProlog(emitCurIG) &&
-        !emitIGisInEpilog(emitCurIG)
-#if defined(FEATURE_EH_FUNCLETS)
-        && !emitIGisInFuncletProlog(emitCurIG) && !emitIGisInFuncletEpilog(emitCurIG)
-#endif // FEATURE_EH_FUNCLETS
-            )
+        !emitCurIG->IsEpilog() && !emitCurIG->IsFuncletPrologOrEpilog())
     {
-        emitNxtIG(true);
+        emitExtendIG();
     }
 #endif
 
@@ -1063,8 +983,7 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz)
     //     When nopSize is odd we misalign emitCurIGsize
     //
     if (!emitComp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) && !emitInInstrumentation &&
-        !emitIGisInProlog(emitCurIG) && // don't do this in prolog or epilog
-        !emitIGisInEpilog(emitCurIG) &&
+        !emitIGisInProlog(emitCurIG) && !emitCurIG->IsEpilog() &&
         emitRandomNops // sometimes we turn off where exact codegen is needed (pinvoke inline)
         )
     {
@@ -1096,7 +1015,7 @@ void* emitter::emitAllocAnyInstr(unsigned sz, emitAttr opsz)
 
     if ((emitCurIGfreeNext + sz >= emitCurIGfreeEndp) || emitForceNewIG)
     {
-        emitNxtIG(true);
+        emitExtendIG();
     }
 
     /* Grab the space for the instruction */
@@ -1193,7 +1112,7 @@ void emitter::emitCheckIGoffsets()
 {
     size_t currentOffset = 0;
 
-    for (insGroup* tempIG = emitIGlist; tempIG != nullptr; tempIG = tempIG->igNext)
+    for (insGroup* tempIG = emitIGfirst; tempIG != nullptr; tempIG = tempIG->igNext)
     {
         if (tempIG->igOffs != currentOffset)
         {
@@ -1214,78 +1133,45 @@ void emitter::emitCheckIGoffsets()
 
 #endif // DEBUG
 
-/*****************************************************************************
- *
- *  Begin generating a method prolog.
- */
-
 void emitter::emitBegProlog()
 {
     assert(codeGen->generatingProlog);
 
+    if (emitCurIGnonEmpty())
+    {
+        emitFinishIG();
+    }
+    else
+    {
+        assert(emitCurIG == nullptr);
+    }
+
 #if !FEATURE_FIXED_OUT_ARGS
     // Don't measure stack depth inside the prolog, it's misleading.
-
-    emitCntStackDepth = 0;
-
     assert(emitCurStackLvl == 0);
+    emitCntStackDepth = 0;
 #endif
 
     emitNoGCIG     = true;
     emitForceNewIG = false;
 
-    /* Switch to the pre-allocated prolog IG */
-
-    emitGenIG(emitPrologIG);
-
-    /* Nothing is live on entry to the prolog */
-
-    // These were initialized to Empty at the start of compilation.
-    VarSetOps::ClearD(emitComp, emitInitGCrefVars);
-    VarSetOps::ClearD(emitComp, emitPrevGCrefVars);
-    emitInitGCrefRegs = RBM_NONE;
-    emitPrevGCrefRegs = RBM_NONE;
-    emitInitByrefRegs = RBM_NONE;
-    emitPrevByrefRegs = RBM_NONE;
+    emitGenIG(GetProlog());
 }
-
-/*****************************************************************************
- *
- *  Return the code offset of the current location in the prolog.
- */
 
 unsigned emitter::emitGetPrologOffsetEstimate()
 {
-    /* For now only allow a single prolog ins group */
-
-    assert(emitPrologIG);
-    assert(emitPrologIG == emitCurIG);
+    assert(emitIGisInProlog(emitCurIG));
 
     return emitCurIGsize;
 }
 
-/*****************************************************************************
- *
- *  Mark the code offset of the current location as the end of the prolog,
- *  so it can be used later to compute the actual size of the prolog.
- */
-
 void emitter::emitMarkPrologEnd()
 {
     assert(codeGen->generatingProlog);
-
-    /* For now only allow a single prolog ins group */
-
-    assert(emitPrologIG);
-    assert(emitPrologIG == emitCurIG);
+    assert(emitIGisInProlog(emitCurIG));
 
     emitPrologEndPos = emitCurOffset();
 }
-
-/*****************************************************************************
- *
- *  Finish generating a method prolog.
- */
 
 void emitter::emitEndProlog()
 {
@@ -1293,12 +1179,7 @@ void emitter::emitEndProlog()
 
     emitNoGCIG = false;
 
-    /* Save the prolog IG if non-empty or if only one block */
-
-    if (emitCurIGnonEmpty() || emitCurIG == emitPrologIG)
-    {
-        emitSavIG();
-    }
+    emitFinishIG();
 
 #if !FEATURE_FIXED_OUT_ARGS
     emitCurStackLvl   = 0;
@@ -1308,19 +1189,19 @@ void emitter::emitEndProlog()
 
 void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock* igBB)
 {
-    bool last;
+    assert(!emitIGisInProlog(emitCurIG));
+
+    bool isLast;
 
 #ifdef FEATURE_EH_FUNCLETS
     if (igType == IGPT_FUNCLET_PROLOG)
     {
-        if (emitCurIGnonEmpty())
-        {
-            emitNxtIG(false);
-        }
+        JITDUMP("Reserving funclet prolog IG for block " FMT_BB "\n", igBB->bbNum);
 
-        VARSET_TP GCvars    = codeGen->gcInfo.gcVarPtrSetCur;
-        regMaskTP gcrefRegs = codeGen->gcInfo.gcRegGCrefSetCur;
-        regMaskTP byrefRegs = codeGen->gcInfo.gcRegByrefSetCur;
+        // We should already have an empty group added by emitAddLabel
+        // for the first block in the funclet. We'll use that for the
+        // funclet prolog and create another one for the funclet body.
+        assert(!emitCurIGnonEmpty());
 
         // Currently, no registers are live on entry to the prolog, except maybe
         // the exception object. There might be some live stack vars, but they
@@ -1333,26 +1214,20 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
         // We might need to relax these asserts if the VM ever starts
         // restoring any registers, then we could have live-in reg vars.
 
-        noway_assert((gcrefRegs & RBM_EXCEPTION_OBJECT) == gcrefRegs);
-        noway_assert(byrefRegs == RBM_NONE);
+        noway_assert((emitCurIG->refRegs & RBM_EXCEPTION_OBJECT) == emitCurIG->refRegs);
+        noway_assert(emitCurIG->byrefRegs == RBM_NONE);
 
-        VarSetOps::Assign(emitComp, emitInitGCrefVars, GCvars);
-        emitInitGCrefRegs = gcrefRegs;
-        emitInitByrefRegs = byrefRegs;
-
-        VarSetOps::Assign(emitComp, emitThisGCrefVars, GCvars);
-        emitThisGCrefRegs = gcrefRegs;
-        emitThisByrefRegs = byrefRegs;
-
-        last = false;
+        isLast = false;
     }
     else
+#endif // FEATURE_EH_FUNCLETS
     {
+#ifdef FEATURE_EH_FUNCLETS
         assert((igType == IGPT_EPILOG) || (igType == IGPT_FUNCLET_EPILOG));
 #else
-    assert(igType == IGPT_EPILOG);
-    {
+        assert(igType == IGPT_EPILOG);
 #endif
+        JITDUMP("Reserving %sepilog IG for block " FMT_BB "\n", igType != IGPT_EPILOG ? "funclet " : "", igBB->bbNum);
 
 #ifdef TARGET_AMD64
         emitOutputPreEpilogNOP();
@@ -1360,57 +1235,34 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
 
         if (emitCurIGnonEmpty())
         {
-            emitNxtIG(true);
+            emitExtendIG();
+        }
+        else
+        {
+            emitCurIG->igFlags |= IGF_EXTEND;
         }
 
-        last = igBB->bbNext == nullptr;
-    }
+        isLast = igBB->bbNext == nullptr;
 
-    /* Convert the group to a placeholder group */
+        // We assume that the epilog is the end of any currently in progress no-GC region.
+        // If a block after the epilog needs to be no-GC, it needs to call emitDisableGC
+        // directly. This behavior is depended upon by the fast tailcall implementation,
+        // which disables GC at the beginning of argument setup, but assumes that after
+        // the epilog it will be re-enabled.
+        emitNoGCIG = false;
+    }
 
     insGroup* igPh = emitCurIG;
 
-    igPh->igFlags |= IGF_PLACEHOLDER;
-
-    /* Note that we might be re-using a previously created but empty IG. In this
-     * case, we need to make sure any re-used fields, such as igFuncIdx, are correct.
-     */
-
+    igPh->igPhData  = new (emitComp, CMK_InstDesc) insPlaceholderGroupData(igBB);
     igPh->igFuncIdx = emitComp->compCurrFuncIdx;
-
-    /* Create a separate block of memory to store placeholder information.
-     * We could use unions to put some of this into the insGroup itself, but we don't
-     * want to grow the insGroup, and it's difficult to make sure the
-     * insGroup fields are getting set and used elsewhere.
-     */
-
-    igPh->igPhData = new (emitComp, CMK_InstDesc) insPlaceholderGroupData;
-
-    igPh->igPhData->igPhNext = nullptr;
-    igPh->igPhData->igPhType = igType;
-    igPh->igPhData->igPhBB   = igBB;
-
-    igPh->igPhData->igPhPrevGCrefVars = VarSetOps::MakeCopy(emitComp, emitPrevGCrefVars);
-    igPh->igPhData->igPhPrevGCrefRegs = emitPrevGCrefRegs;
-    igPh->igPhData->igPhPrevByrefRegs = emitPrevByrefRegs;
-
-    igPh->igPhData->igPhInitGCrefVars = VarSetOps::MakeCopy(emitComp, emitInitGCrefVars);
-    igPh->igPhData->igPhInitGCrefRegs = emitInitGCrefRegs;
-    igPh->igPhData->igPhInitByrefRegs = emitInitByrefRegs;
-
-#if EMITTER_STATS
-    emitTotalPhIGcnt += 1;
-#endif
-
-    // Mark function prologs and epilogs properly in the igFlags bits. These bits
-    // will get used and propagated when the placeholder is converted to a non-placeholder
-    // during prolog/epilog generation.
+    igPh->igFlags |= IGF_PLACEHOLDER;
 
     if (igType == IGPT_EPILOG)
     {
         igPh->igFlags |= IGF_EPILOG;
     }
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
     else if (igType == IGPT_FUNCLET_PROLOG)
     {
         igPh->igFlags |= IGF_FUNCLET_PROLOG;
@@ -1419,83 +1271,72 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
     {
         igPh->igFlags |= IGF_FUNCLET_EPILOG;
     }
-#endif // FEATURE_EH_FUNCLETS
+#endif
 
-    /* Link it into the placeholder list */
-
-    if (emitPlaceholderList)
+    if (emitPlaceholderLast == nullptr)
     {
-        emitPlaceholderLast->igPhData->igPhNext = igPh;
+        emitPlaceholderList = igPh;
     }
     else
     {
-        emitPlaceholderList = igPh;
+        emitPlaceholderLast->igPhData->igPhNext = igPh;
     }
 
     emitPlaceholderLast = igPh;
 
     // Give an estimated size of this placeholder IG and
     // increment emitCurCodeOffset since we are not calling emitNewIG()
-    //
     emitCurIGsize += MAX_PLACEHOLDER_IG_SIZE;
     emitCurCodeOffset += emitCurIGsize;
 
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
     // Add the appropriate IP mapping debugging record for this placeholder
     // group. genExitCode() adds the mapping for main function epilogs.
     if (emitComp->opts.compDbgInfo)
     {
         if (igType == IGPT_FUNCLET_PROLOG)
         {
-            codeGen->genIPmappingAdd((IL_OFFSETX)ICorDebugInfo::PROLOG, true);
+            codeGen->genIPmappingAdd(static_cast<IL_OFFSETX>(ICorDebugInfo::PROLOG), true);
         }
         else if (igType == IGPT_FUNCLET_EPILOG)
         {
-            codeGen->genIPmappingAdd((IL_OFFSETX)ICorDebugInfo::EPILOG, true);
+            codeGen->genIPmappingAdd(static_cast<IL_OFFSETX>(ICorDebugInfo::EPILOG), true);
         }
     }
 #endif // FEATURE_EH_FUNCLETS
 
-    /* Start a new IG if more code follows */
-
-    if (last)
+    if (isLast)
     {
         emitCurIG = nullptr;
     }
     else
     {
-        if (igType == IGPT_EPILOG
-#if defined(FEATURE_EH_FUNCLETS)
-            || igType == IGPT_FUNCLET_EPILOG
-#endif // FEATURE_EH_FUNCLETS
-            )
-        {
-            // If this was an epilog, then assume this is the end of any currently in progress
-            // no-GC region. If a block after the epilog needs to be no-GC, it needs to call
-            // emitter::emitDisableGC() directly. This behavior is depended upon by the fast
-            // tailcall implementation, which disables GC at the beginning of argument setup,
-            // but assumes that after the epilog it will be re-enabled.
-            emitNoGCIG = false;
-        }
-
         emitNewIG();
 
-        // We don't know what the GC ref state will be at the end of the placeholder
-        // group. So, force the next IG to store all the GC ref state variables;
-        // don't omit them because emitPrev* is the same as emitInit*, because emitPrev*
-        // will be inaccurate. (Note that, currently, GCrefRegs and ByrefRegs are always
-        // saved anyway.)
-        //
-        // There is no need to re-initialize the emitPrev* variables, as they won't be used
-        // with emitForceStoreGCState==true, and will be re-initialized just before
-        // emitForceStoreGCState is set to false;
-
-        emitForceStoreGCState = true;
-
-        /* The group after the placeholder group doesn't get the "propagate" flags */
-
+        // The group after the placeholder group doesn't get the "propagate" flags.
         emitCurIG->igFlags &= ~IGF_PROPAGATE_MASK;
+
+#ifdef FEATURE_EH_FUNCLETS
+        if (igType == IGPT_FUNCLET_PROLOG)
+        {
+            // The funclet prolog and the funclet entry block will have the same GC info.
+            // Nothing is really live in the prolog, since it's not interruptible, but if
+            // we kill everything at the start of the prolog we may end up creating new
+            // live ranges for whatever GC locals happen to be live before the funclet and
+            // inside the funclet so may as well pretend that whatever is live at entry
+            // is also live inside prolog.
+            // The locals bitset is never modified so we can make a shallow copy here.
+
+            emitCurIG->gcLcls    = igPh->gcLcls;
+            emitCurIG->refRegs   = igPh->refRegs;
+            emitCurIG->byrefRegs = igPh->byrefRegs;
+        }
+#endif
     }
+
+#if EMITTER_STATS
+    emitTotalPhIGcnt += 1;
+#endif
 
 #ifdef DEBUG
     if (emitComp->verbose)
@@ -1506,217 +1347,121 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
 #endif
 }
 
-/*****************************************************************************
- *
- *  Generate all prologs and epilogs
- */
-
 void emitter::emitGeneratePrologEpilog()
 {
 #ifdef DEBUG
     unsigned prologCnt = 0;
     unsigned epilogCnt = 0;
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
     unsigned funcletPrologCnt = 0;
     unsigned funcletEpilogCnt = 0;
-#endif // FEATURE_EH_FUNCLETS
-#endif // DEBUG
+#endif
+#endif
 
-    insGroup* igPh;
-    insGroup* igPhNext;
-
-    // Generating the prolog/epilog is going to destroy the placeholder group,
-    // so save the "next" pointer before that happens.
-
-    for (igPh = emitPlaceholderList; igPh != nullptr; igPh = igPhNext)
+    for (insGroup *ig = emitPlaceholderList, *next; ig != nullptr; ig = next)
     {
-        assert(igPh->igFlags & IGF_PLACEHOLDER);
+        assert((ig->igFlags & IGF_PLACEHOLDER) != 0);
 
-        igPhNext = igPh->igPhData->igPhNext;
+        // Generating the prolog/epilog is going to destroy the placeholder group,
+        // so save the "next" pointer before that happens.
+        next = ig->igPhData->igPhNext;
 
-        BasicBlock* igPhBB = igPh->igPhData->igPhBB;
+        codeGen->liveness.BeginPrologEpilogCodeGen();
 
-        switch (igPh->igPhData->igPhType)
+        BasicBlock* igPhBB = ig->igPhData->igPhBB;
+
+        if ((ig->igFlags & IGF_EPILOG) != 0)
         {
-            case IGPT_EPILOG:
-                INDEBUG(++epilogCnt);
-                emitBegFnEpilog(igPh);
-                codeGen->genFnEpilog(igPhBB);
-                emitEndFnEpilog();
-                break;
-#ifdef FEATURE_EH_FUNCLETS
-            case IGPT_FUNCLET_PROLOG:
-                INDEBUG(++funcletPrologCnt);
-                emitBegFuncletProlog(igPh);
-                codeGen->genFuncletProlog(igPhBB);
-                emitEndFuncletProlog();
-                break;
-            case IGPT_FUNCLET_EPILOG:
-                INDEBUG(++funcletEpilogCnt);
-                emitBegFuncletEpilog(igPh);
-                codeGen->genFuncletEpilog();
-                emitEndFuncletEpilog();
-                break;
-#endif // FEATURE_EH_FUNCLETS
-            default:
-                unreached();
+            INDEBUG(++epilogCnt);
+
+#ifdef JIT32_GCENCODER
+            emitBegFnEpilog(ig);
+#endif
+            emitBegPrologEpilog(ig);
+            codeGen->genFnEpilog(igPhBB);
+            emitEndPrologEpilog();
+#ifdef JIT32_GCENCODER
+            emitEndFnEpilog();
+#endif
         }
+#ifdef FEATURE_EH_FUNCLETS
+        else if ((ig->igFlags & IGF_FUNCLET_PROLOG) != 0)
+        {
+            INDEBUG(++funcletPrologCnt);
+            emitBegPrologEpilog(ig);
+            codeGen->genFuncletProlog(igPhBB);
+            emitEndPrologEpilog();
+        }
+        else if ((ig->igFlags & IGF_FUNCLET_EPILOG) != 0)
+        {
+            INDEBUG(++funcletEpilogCnt);
+            emitBegPrologEpilog(ig);
+            codeGen->genFuncletEpilog();
+            emitEndPrologEpilog();
+        }
+#endif
     }
+
+    emitRecomputeIGoffsets();
+    emitCurIG = nullptr;
 
 #ifdef DEBUG
     if (emitComp->verbose)
     {
         printf("%d prologs, %d epilogs", prologCnt, epilogCnt);
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
         printf(", %d funclet prologs, %d funclet epilogs", funcletPrologCnt, funcletEpilogCnt);
-#endif // FEATURE_EH_FUNCLETS
+#endif
         printf("\n");
-
-// prolog/epilog code doesn't use this yet
-// noway_assert(prologCnt == 1);
-// noway_assert(epilogCnt == emitEpilogCnt); // Is this correct?
-#if defined(FEATURE_EH_FUNCLETS)
-        assert(funcletPrologCnt == emitComp->ehFuncletCount());
-#endif // FEATURE_EH_FUNCLETS
     }
-#endif // DEBUG
-}
+#endif
 
-/*****************************************************************************
- *
- *  Begin all prolog and epilog generation
- */
-
-void emitter::emitStartPrologEpilogGeneration()
-{
-    /* Save the current IG if it's non-empty */
-
-    if (emitCurIGnonEmpty())
-    {
-        emitSavIG();
-    }
-    else
-    {
-        assert(emitCurIG == nullptr);
-    }
-}
-
-/*****************************************************************************
- *
- *  Finish all prolog and epilog generation
- */
-
-void emitter::emitFinishPrologEpilogGeneration()
-{
-    /* Update the offsets of all the blocks */
-
-    emitRecomputeIGoffsets();
-
-    /* We should not generate any more code after this */
-
-    emitCurIG = nullptr;
-}
-
-/*****************************************************************************
- *
- *  Common code for prolog / epilog beginning. Convert the placeholder group to actual code IG,
- *  and set it as the current group.
- */
-
-void emitter::emitBegPrologEpilog(insGroup* igPh)
-{
-    assert(igPh->igFlags & IGF_PLACEHOLDER);
-
-    /* Save the current IG if it's non-empty */
-
-    if (emitCurIGnonEmpty())
-    {
-        emitSavIG();
-    }
-
-    /* Convert the placeholder group to a normal group.
-     * We need to be very careful to re-initialize the IG properly.
-     * It turns out, this means we only need to clear the placeholder bit
-     * and clear the igPhData field, and emitGenIG() will do the rest,
-     * since in the placeholder IG we didn't touch anything that is set by emitAllocIG().
-     */
-
-    igPh->igFlags &= ~IGF_PLACEHOLDER;
-    emitNoGCIG     = true;
-    emitForceNewIG = false;
-
-    /* Set up the GC info that we stored in the placeholder */
-
-    VarSetOps::Assign(emitComp, emitPrevGCrefVars, igPh->igPhData->igPhPrevGCrefVars);
-    emitPrevGCrefRegs = igPh->igPhData->igPhPrevGCrefRegs;
-    emitPrevByrefRegs = igPh->igPhData->igPhPrevByrefRegs;
-
-    VarSetOps::Assign(emitComp, emitThisGCrefVars, igPh->igPhData->igPhInitGCrefVars);
-    VarSetOps::Assign(emitComp, emitInitGCrefVars, igPh->igPhData->igPhInitGCrefVars);
-    emitThisGCrefRegs = emitInitGCrefRegs = igPh->igPhData->igPhInitGCrefRegs;
-    emitThisByrefRegs = emitInitByrefRegs = igPh->igPhData->igPhInitByrefRegs;
-
-    igPh->igPhData = nullptr;
-
-    /* Create a non-placeholder group pointer that we'll now use */
-
-    insGroup* ig = igPh;
-
-    /* Set the current function using the function index we stored */
-
-    emitComp->funSetCurrentFunc(ig->igFuncIdx);
-
-    /* Set the new IG as the place to generate code */
-
-    emitGenIG(ig);
-
-#if !FEATURE_FIXED_OUT_ARGS
-    // Don't measure stack depth inside the prolog / epilog, it's misleading.
-
-    emitCntStackDepth = 0;
-
-    assert(emitCurStackLvl == 0);
+#ifdef FEATURE_EH_FUNCLETS
+    assert(funcletPrologCnt == emitComp->ehFuncletCount());
 #endif
 }
 
-/*****************************************************************************
- *
- *  Common code for end of prolog / epilog
- */
+void emitter::emitBegPrologEpilog(insGroup* igPh)
+{
+    assert((igPh->igFlags & IGF_PLACEHOLDER) != 0);
+    assert(!emitCurIGnonEmpty());
+
+    igPh->igFlags &= ~IGF_PLACEHOLDER;
+    igPh->igPhData = nullptr;
+
+    emitNoGCIG     = true;
+    emitForceNewIG = false;
+
+    emitComp->funSetCurrentFunc(igPh->igFuncIdx);
+
+    emitGenIG(igPh);
+
+#if !FEATURE_FIXED_OUT_ARGS
+    // Don't measure stack depth inside the prolog / epilog, it's misleading.
+    assert(emitCurStackLvl == 0);
+    emitCntStackDepth = 0;
+#endif
+}
 
 void emitter::emitEndPrologEpilog()
 {
     emitNoGCIG = false;
 
-    /* Save the IG if non-empty */
-
-    if (emitCurIGnonEmpty())
-    {
-        emitSavIG();
-    }
+    assert(emitCurIGnonEmpty());
+    emitFinishIG();
 
     assert(emitCurIGsize <= MAX_PLACEHOLDER_IG_SIZE);
 
 #if !FEATURE_FIXED_OUT_ARGS
-    // Reset the stack depth values.
-
     emitCurStackLvl   = 0;
-    emitCntStackDepth = sizeof(int);
+    emitCntStackDepth = TARGET_POINTER_SIZE;
 #endif
 }
 
-/*****************************************************************************
- *
- *  Begin generating a main function epilog.
- */
-
+#ifdef JIT32_GCENCODER
 void emitter::emitBegFnEpilog(insGroup* igPh)
 {
     emitEpilogCnt++;
-
-    emitBegPrologEpilog(igPh);
-
-#ifdef JIT32_GCENCODER
 
     EpilogList* el = new (emitComp, CMK_GC) EpilogList();
 
@@ -1730,20 +1475,10 @@ void emitter::emitBegFnEpilog(insGroup* igPh)
     }
 
     emitEpilogLast = el;
-
-#endif // JIT32_GCENCODER
 }
-
-/*****************************************************************************
- *
- *  Finish generating a funclet epilog.
- */
 
 void emitter::emitEndFnEpilog()
 {
-    emitEndPrologEpilog();
-
-#ifdef JIT32_GCENCODER
     assert(emitEpilogLast != nullptr);
 
     UNATIVE_OFFSET epilogBegCodeOffset          = emitEpilogLast->elLoc.CodeOffset(this);
@@ -1773,88 +1508,23 @@ void emitter::emitEndFnEpilog()
                );
         emitExitSeqSize = newSize;
     }
-#endif // JIT32_GCENCODER
 }
 
-#if defined(FEATURE_EH_FUNCLETS)
-
-/*****************************************************************************
- *
- *  Begin generating a funclet prolog.
- */
-
-void emitter::emitBegFuncletProlog(insGroup* igPh)
-{
-    emitBegPrologEpilog(igPh);
-}
-
-/*****************************************************************************
- *
- *  Finish generating a funclet prolog.
- */
-
-void emitter::emitEndFuncletProlog()
-{
-    emitEndPrologEpilog();
-}
-
-/*****************************************************************************
- *
- *  Begin generating a funclet epilog.
- */
-
-void emitter::emitBegFuncletEpilog(insGroup* igPh)
-{
-    emitBegPrologEpilog(igPh);
-}
-
-/*****************************************************************************
- *
- *  Finish generating a funclet epilog.
- */
-
-void emitter::emitEndFuncletEpilog()
-{
-    emitEndPrologEpilog();
-}
-
-#endif // FEATURE_EH_FUNCLETS
-
-#ifdef JIT32_GCENCODER
-
-//
-// emitter::emitStartEpilog:
-//   Mark the current position so that we can later compute the total epilog size.
-//
+// Mark the current position so that we can later compute the total epilog size.
 void emitter::emitStartEpilog()
 {
     assert(emitEpilogLast != nullptr);
     emitEpilogLast->elLoc.CaptureLocation(this);
 }
 
-/*****************************************************************************
- *
- *  Return non-zero if the current method only has one epilog, which is
- *  at the very end of the method body.
- */
-
+// Return non-zero if the current method only has one epilog, which is
+// at the very end of the method body.
 bool emitter::emitHasEpilogEnd()
 {
-    if (emitEpilogCnt == 1 && (emitIGlast->igFlags & IGF_EPILOG)) // This wouldn't work for funclets
-        return true;
-    else
-        return false;
+    return (emitEpilogCnt == 1) && ((emitIGlast->igFlags & IGF_EPILOG) != 0); // This wouldn't work for funclets
 }
 
-#endif // JIT32_GCENCODER
-
-#ifdef TARGET_XARCH
-
-/*****************************************************************************
- *
- *  Mark the beginning of the epilog exit sequence by remembering our position.
- */
-
+// Mark the beginning of the epilog exit sequence by remembering our position.
 void emitter::emitStartExitSeq()
 {
     assert(codeGen->generatingEpilog);
@@ -1862,44 +1532,7 @@ void emitter::emitStartExitSeq()
     emitExitSeqBegLoc.CaptureLocation(this);
 }
 
-#endif // TARGET_XARCH
-
-/*****************************************************************************
- *
- *  The code generator tells us the range of GC ref locals through this
- *  method. Needless to say, locals and temps should be allocated so that
- *  the size of the range is as small as possible.
- *
- * offsLo - The FP offset from which the GC pointer range starts.
- * offsHi - The FP offset at which the GC pointer region ends (exclusive).
- */
-
-void emitter::emitSetFrameRangeGCRs(int offsLo, int offsHi)
-{
-    assert(offsHi > offsLo);
-    assert(offsLo % REGSIZE_BYTES == 0);
-    assert(offsHi % REGSIZE_BYTES == 0);
-
-    //  A total of    47254 methods compiled.
-    //
-    //  GC ref frame variable counts:
-    //
-    //      <=         0 ===>  43175 count ( 91% of total)
-    //       1 ..      1 ===>   2367 count ( 96% of total)
-    //       2 ..      2 ===>    887 count ( 98% of total)
-    //       3 ..      5 ===>    579 count ( 99% of total)
-    //       6 ..     10 ===>    141 count ( 99% of total)
-    //      11 ..     20 ===>     40 count ( 99% of total)
-    //      21 ..     50 ===>     42 count ( 99% of total)
-    //      51 ..    128 ===>     15 count ( 99% of total)
-    //     129 ..    256 ===>      4 count ( 99% of total)
-    //     257 ..    512 ===>      4 count (100% of total)
-    //     513 ..   1024 ===>      0 count (100% of total)
-
-    emitGCrFrameOffsMin = offsLo;
-    emitGCrFrameOffsMax = offsHi;
-    emitGCrFrameOffsCnt = (offsHi - offsLo) / REGSIZE_BYTES;
-}
+#endif // JIT32_GCENCODER
 
 /*****************************************************************************
  *
@@ -1918,81 +1551,14 @@ const emitter::opSize emitter::emitSizeEncode[] = {
 const emitAttr emitter::emitSizeDecode[emitter::OPSZ_COUNT] = {EA_1BYTE, EA_2BYTE,  EA_4BYTE,
                                                                EA_8BYTE, EA_16BYTE, EA_32BYTE};
 
-// Returns true if garbage collection won't happen within the helper call.
-// There is no need to record live pointers for such call sites.
-bool emitter::emitNoGChelper(CorInfoHelpFunc helpFunc)
+insGroup* emitter::emitAddLabel(INDEBUG(BasicBlock* block))
 {
-    switch (helpFunc)
-    {
-        case CORINFO_HELP_UNDEF:
-            return false;
-
-        case CORINFO_HELP_PROF_FCN_LEAVE:
-        case CORINFO_HELP_PROF_FCN_ENTER:
-        case CORINFO_HELP_PROF_FCN_TAILCALL:
-        case CORINFO_HELP_LLSH:
-        case CORINFO_HELP_LRSH:
-        case CORINFO_HELP_LRSZ:
-
-//  case CORINFO_HELP_LMUL:
-//  case CORINFO_HELP_LDIV:
-//  case CORINFO_HELP_LMOD:
-//  case CORINFO_HELP_ULDIV:
-//  case CORINFO_HELP_ULMOD:
-
-#ifdef TARGET_X86
-        case CORINFO_HELP_ASSIGN_REF_EAX:
-        case CORINFO_HELP_ASSIGN_REF_ECX:
-        case CORINFO_HELP_ASSIGN_REF_EBX:
-        case CORINFO_HELP_ASSIGN_REF_EBP:
-        case CORINFO_HELP_ASSIGN_REF_ESI:
-        case CORINFO_HELP_ASSIGN_REF_EDI:
-
-        case CORINFO_HELP_CHECKED_ASSIGN_REF_EAX:
-        case CORINFO_HELP_CHECKED_ASSIGN_REF_ECX:
-        case CORINFO_HELP_CHECKED_ASSIGN_REF_EBX:
-        case CORINFO_HELP_CHECKED_ASSIGN_REF_EBP:
-        case CORINFO_HELP_CHECKED_ASSIGN_REF_ESI:
-        case CORINFO_HELP_CHECKED_ASSIGN_REF_EDI:
-#endif
-
-        case CORINFO_HELP_ASSIGN_REF:
-        case CORINFO_HELP_CHECKED_ASSIGN_REF:
-        case CORINFO_HELP_ASSIGN_BYREF:
-
-        case CORINFO_HELP_GETSHARED_GCSTATIC_BASE_NOCTOR:
-        case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_NOCTOR:
-
-        case CORINFO_HELP_INIT_PINVOKE_FRAME:
-            return true;
-
-        default:
-            return false;
-    }
-}
-
-bool emitter::emitNoGChelper(CORINFO_METHOD_HANDLE methHnd)
-{
-    CorInfoHelpFunc helpFunc = Compiler::eeGetHelperNum(methHnd);
-    if (helpFunc == CORINFO_HELP_UNDEF)
-    {
-        return false;
-    }
-    return emitNoGChelper(helpFunc);
-}
-
-/*****************************************************************************
- *
- *  Mark the current spot as having a label.
- */
-
-void* emitter::emitAddLabel(bool isFinallyTarget DEBUG_ARG(BasicBlock* block))
-{
-    /* Create a new IG if the current one is non-empty */
+    assert(!emitIGisInProlog(emitCurIG));
 
     if (emitCurIGnonEmpty())
     {
-        emitNxtIG(false);
+        emitFinishIG();
+        emitNewIG();
     }
 #if defined(DEBUG) || defined(LATE_DISASM)
     else
@@ -2002,36 +1568,24 @@ void* emitter::emitAddLabel(bool isFinallyTarget DEBUG_ARG(BasicBlock* block))
     }
 #endif
 
-#if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
-    if (isFinallyTarget)
-    {
-        emitCurIG->igFlags |= IGF_FINALLY_TARGET;
-    }
-#endif
-
-    VARSET_TP GCvars    = codeGen->gcInfo.gcVarPtrSetCur;
-    regMaskTP gcrefRegs = codeGen->gcInfo.gcRegGCrefSetCur;
-    regMaskTP byrefRegs = codeGen->gcInfo.gcRegByrefSetCur;
-
-    VarSetOps::Assign(emitComp, emitInitGCrefVars, GCvars);
-    emitInitGCrefRegs = gcrefRegs;
-    emitInitByrefRegs = byrefRegs;
-
-    VarSetOps::Assign(emitComp, emitThisGCrefVars, GCvars);
-    emitThisGCrefRegs = gcrefRegs;
-    emitThisByrefRegs = byrefRegs;
+    emitCurIG->gcLcls    = VarSetOps::MakeCopy(emitComp, codeGen->liveness.GetGCLiveSet());
+    emitCurIG->refRegs   = static_cast<uint32_t>(codeGen->liveness.GetGCRegs(TYP_REF));
+    emitCurIG->byrefRegs = static_cast<uint32_t>(codeGen->liveness.GetGCRegs(TYP_BYREF));
 
 #ifdef DEBUG
-    JITDUMP("Mapped " FMT_BB " to %s\n", block->bbNum, emitLabelString(emitCurIG));
-
-    if (EMIT_GC_VERBOSE)
+    if (block != nullptr)
     {
-        printf("Label: IG%02u, GCvars ", emitCurIG->igNum);
-        dumpConvertedVarSet(emitComp, GCvars);
-        printf(", gcrefRegs");
-        emitDispRegSet(gcrefRegs);
-        printf(", byrefRegs");
-        emitDispRegSet(byrefRegs);
+        JITDUMP("Mapped " FMT_BB " to %s\n", block->bbNum, emitLabelString(emitCurIG));
+    }
+
+    if (emitComp->verbose)
+    {
+        printf("Label: IG%02u, gc-lcls ", emitCurIG->igNum);
+        dumpConvertedVarSet(emitComp, emitCurIG->gcLcls);
+        printf(", ref-regs");
+        emitDispRegSet(emitCurIG->refRegs);
+        printf(", byref-regs");
+        emitDispRegSet(emitCurIG->byrefRegs);
         printf("\n");
     }
 #endif
@@ -2039,11 +1593,11 @@ void* emitter::emitAddLabel(bool isFinallyTarget DEBUG_ARG(BasicBlock* block))
     return emitCurIG;
 }
 
-void* emitter::emitAddInlineLabel()
+insGroup* emitter::emitAddInlineLabel()
 {
     if (emitCurIGnonEmpty())
     {
-        emitNxtIG(true);
+        emitExtendIG();
     }
 
     return emitCurIG;
@@ -2111,7 +1665,7 @@ bool emitter::emitIsFuncEnd(emitLocation* emitLoc, emitLocation* emitLocNextFrag
 #if defined(FEATURE_EH_FUNCLETS)
 
     // Is the next IG a placeholder group for a funclet prolog?
-    if ((ig->igNext->igFlags & IGF_PLACEHOLDER) && (ig->igNext->igPhData->igPhType == IGPT_FUNCLET_PROLOG))
+    if ((ig->igNext->igFlags & IGF_PLACEHOLDER) && ((ig->igNext->igFlags & IGF_FUNCLET_PROLOG) != 0))
     {
         return true;
     }
@@ -2148,8 +1702,8 @@ void emitter::emitSplit(emitLocation*         startLoc,
                         void*                 context,
                         emitSplitCallbackType callbackFunc)
 {
-    insGroup*      igStart = (startLoc == NULL) ? emitIGlist : startLoc->GetIG();
-    insGroup*      igEnd   = (endLoc == NULL) ? NULL : endLoc->GetIG();
+    insGroup*      igStart = (startLoc == nullptr) ? emitIGfirst : startLoc->GetIG();
+    insGroup*      igEnd   = (endLoc == nullptr) ? nullptr : endLoc->GetIG();
     insGroup*      igPrev;
     insGroup*      ig;
     insGroup*      igLastReported;
@@ -2552,82 +2106,7 @@ void emitter::emitDispRegSetDiff(const char* name, regMaskTP from, regMaskTP to)
     printf("}\n");
 }
 
-/*****************************************************************************
- *
- *  Display the current GC ref variable set in a readable form.
- */
-
-void emitter::emitDispVarSet()
-{
-    unsigned vn;
-    int      of;
-    bool     sp = false;
-
-    for (vn = 0, of = emitGCrFrameOffsMin; vn < emitGCrFrameOffsCnt; vn += 1, of += TARGET_POINTER_SIZE)
-    {
-        if (emitGCrFrameLiveTab[vn])
-        {
-            if (sp)
-            {
-                printf(" ");
-            }
-            else
-            {
-                sp = true;
-            }
-
-            printf("[%s", emitGetFrameReg());
-
-            if (of < 0)
-            {
-                printf("-%02XH", -of);
-            }
-            else if (of > 0)
-            {
-                printf("+%02XH", +of);
-            }
-
-            printf("]");
-        }
-    }
-
-    if (!sp)
-    {
-        printf("none");
-    }
-}
-
-/*****************************************************************************/
 #endif // DEBUG
-
-#if MULTIREG_HAS_SECOND_GC_RET
-//------------------------------------------------------------------------
-// emitSetSecondRetRegGCType: Sets the GC type of the second return register for instrDescCGCA struct.
-//
-// Arguments:
-//    id            - The large call instr descriptor to set the second GC return register type on.
-//    secondRetSize - The EA_SIZE for second return register type.
-//
-// Return Value:
-//    None
-//
-
-void emitter::emitSetSecondRetRegGCType(instrDescCGCA* id, emitAttr secondRetSize)
-{
-    if (EA_IS_GCREF(secondRetSize))
-    {
-        id->idSecondGCref(GCT_GCREF);
-    }
-    else if (EA_IS_BYREF(secondRetSize))
-    {
-        id->idSecondGCref(GCT_BYREF);
-    }
-    else
-    {
-        id->idSecondGCref(GCT_NONE);
-    }
-}
-#endif // MULTIREG_HAS_SECOND_GC_RET
 
 emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle,
                                               emitAttr              retRegAttr
@@ -2645,22 +2124,28 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
 #endif
                                               )
 {
-    VARSET_VALARG_TP GCvars    = codeGen->gcInfo.gcVarPtrSetCur;
-    regMaskTP        gcrefRegs = codeGen->gcInfo.gcRegGCrefSetCur;
-    regMaskTP        byrefRegs = codeGen->gcInfo.gcRegByrefSetCur;
-
-    regMaskTP savedSet = emitGetGCRegsSavedOrModified(methodHandle);
-    gcrefRegs &= savedSet;
-    byrefRegs &= savedSet;
+    CorInfoHelpFunc  helper       = Compiler::eeGetHelperNum(methodHandle);
+    bool             isNoGCHelper = (helper != CORINFO_HELP_UNDEF) && GCInfo::IsNoGCHelper(helper);
+    regMaskTP        savedRegs    = isNoGCHelper ? GCInfo::GetNoGCHelperCalleeSavedRegs(helper) : RBM_CALLEE_SAVED;
+    VARSET_VALARG_TP gcLcls       = codeGen->liveness.GetGCLiveSet();
+    regMaskTP        refRegs      = codeGen->liveness.GetGCRegs(TYP_REF) & savedRegs;
+    regMaskTP        byrefRegs    = codeGen->liveness.GetGCRegs(TYP_BYREF) & savedRegs;
 
 #ifdef DEBUG
-    if (EMIT_GC_VERBOSE)
+    if (emitComp->verbose)
     {
-        printf("Call: GCvars ");
-        dumpConvertedVarSet(emitComp, GCvars);
-        printf(", gcrefRegs");
-        emitDispRegSet(gcrefRegs);
-        printf(", byrefRegs");
+        if (isNoGCHelper)
+        {
+            printf("NoGC Call: saved regs");
+            emitDispRegSet(savedRegs);
+            printf("\n");
+        }
+
+        printf("Call: gc-lcls ");
+        dumpConvertedVarSet(emitComp, gcLcls);
+        printf(", ref-regs");
+        emitDispRegSet(refRegs);
+        printf(", byref-regs");
         emitDispRegSet(byrefRegs);
         printf("\n");
     }
@@ -2673,7 +2158,7 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
 
     instrDesc* id;
 
-    if (!VarSetOps::IsEmpty(emitComp, GCvars) || ((gcrefRegs & RBM_CALLEE_TRASH) != RBM_NONE) || (byrefRegs != RBM_NONE)
+    if (!VarSetOps::IsEmpty(emitComp, gcLcls) || ((refRegs & RBM_CALLEE_TRASH) != RBM_NONE) || (byrefRegs != RBM_NONE)
 #if MULTIREG_HAS_SECOND_GC_RET
         || EA_IS_GCREF_OR_BYREF(retReg2Attr)
 #endif
@@ -2685,10 +2170,30 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
 #endif
             )
     {
+        if (EA_IS_GCREF(retRegAttr))
+        {
+            refRegs |= RBM_INTRET;
+        }
+        else if (EA_IS_BYREF(retRegAttr))
+        {
+            byrefRegs |= RBM_INTRET;
+        }
+
+#if MULTIREG_HAS_SECOND_GC_RET
+        if (EA_IS_GCREF(retReg2Attr))
+        {
+            refRegs |= RBM_INTRET_1;
+        }
+        else if (EA_IS_BYREF(retReg2Attr))
+        {
+            byrefRegs |= RBM_INTRET_1;
+        }
+#endif
+
         instrDescCGCA* idc = emitAllocInstrCGCA(retRegAttr);
         idc->idSetIsLargeCall();
-        idc->idcGCvars    = VarSetOps::MakeCopy(emitComp, GCvars);
-        idc->idcGcrefRegs = gcrefRegs;
+        idc->idcGCvars    = VarSetOps::MakeCopy(emitComp, gcLcls);
+        idc->idcGcrefRegs = refRegs;
         idc->idcByrefRegs = byrefRegs;
 #ifdef TARGET_XARCH
         idc->idcDisp = disp;
@@ -2696,10 +2201,6 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
 #ifdef TARGET_X86
         idc->idcArgCnt = argSlotCount;
 #endif
-#if MULTIREG_HAS_SECOND_GC_RET
-        emitSetSecondRetRegGCType(idc, retReg2Attr);
-#endif
-
         id = idc;
     }
     else
@@ -2712,10 +2213,10 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
 #ifdef TARGET_X86
         id = emitNewInstrCns(retRegAttr, argSlotCount);
 #else
-        id                   = emitAllocInstr(retRegAttr);
+        id = emitAllocInstr(retRegAttr);
 #endif
 
-        emitEncodeCallGCregs(gcrefRegs, id);
+        emitEncodeCallGCregs(refRegs, id);
 
 #ifdef TARGET_XARCH
         id->idAddr()->iiaAddrMode.amDisp = disp;
@@ -2723,13 +2224,251 @@ emitter::instrDesc* emitter::emitNewInstrCall(CORINFO_METHOD_HANDLE methodHandle
 #endif
     }
 
-    VarSetOps::Assign(emitComp, emitThisGCrefVars, GCvars);
-    emitThisGCrefRegs = gcrefRegs;
-    emitThisByrefRegs = byrefRegs;
-
-    id->idSetIsNoGC(emitNoGChelper(methodHandle));
+    id->idSetIsNoGC(isNoGCHelper);
 
     return id;
+}
+
+void emitter::emitEncodeCallGCregs(regMaskTP regmask, instrDesc* id)
+{
+    assert((regmask & RBM_CALLEE_TRASH) == 0);
+
+    unsigned encodeMask;
+
+#ifdef TARGET_X86
+    assert(REGNUM_BITS >= 3);
+    encodeMask = 0;
+
+    if ((regmask & RBM_ESI) != RBM_NONE)
+        encodeMask |= 0x01;
+    if ((regmask & RBM_EDI) != RBM_NONE)
+        encodeMask |= 0x02;
+    if ((regmask & RBM_EBX) != RBM_NONE)
+        encodeMask |= 0x04;
+
+    id->idReg1((regNumber)encodeMask); // Save in idReg1
+
+#elif defined(TARGET_AMD64)
+    assert(REGNUM_BITS >= 4);
+    encodeMask = 0;
+
+    if ((regmask & RBM_RSI) != RBM_NONE)
+    {
+        encodeMask |= 0x01;
+    }
+    if ((regmask & RBM_RDI) != RBM_NONE)
+    {
+        encodeMask |= 0x02;
+    }
+    if ((regmask & RBM_RBX) != RBM_NONE)
+    {
+        encodeMask |= 0x04;
+    }
+    if ((regmask & RBM_RBP) != RBM_NONE)
+    {
+        encodeMask |= 0x08;
+    }
+
+    id->idReg1((regNumber)encodeMask); // Save in idReg1
+
+    encodeMask = 0;
+
+    if ((regmask & RBM_R12) != RBM_NONE)
+    {
+        encodeMask |= 0x01;
+    }
+    if ((regmask & RBM_R13) != RBM_NONE)
+    {
+        encodeMask |= 0x02;
+    }
+    if ((regmask & RBM_R14) != RBM_NONE)
+    {
+        encodeMask |= 0x04;
+    }
+    if ((regmask & RBM_R15) != RBM_NONE)
+    {
+        encodeMask |= 0x08;
+    }
+
+    id->idReg2((regNumber)encodeMask); // Save in idReg2
+
+#elif defined(TARGET_ARM)
+    assert(REGNUM_BITS >= 4);
+    encodeMask = 0;
+
+    if ((regmask & RBM_R4) != RBM_NONE)
+        encodeMask |= 0x01;
+    if ((regmask & RBM_R5) != RBM_NONE)
+        encodeMask |= 0x02;
+    if ((regmask & RBM_R6) != RBM_NONE)
+        encodeMask |= 0x04;
+    if ((regmask & RBM_R7) != RBM_NONE)
+        encodeMask |= 0x08;
+
+    id->idReg1((regNumber)encodeMask); // Save in idReg1
+
+    encodeMask = 0;
+
+    if ((regmask & RBM_R8) != RBM_NONE)
+        encodeMask |= 0x01;
+    if ((regmask & RBM_R9) != RBM_NONE)
+        encodeMask |= 0x02;
+    if ((regmask & RBM_R10) != RBM_NONE)
+        encodeMask |= 0x04;
+    if ((regmask & RBM_R11) != RBM_NONE)
+        encodeMask |= 0x08;
+
+    id->idReg2((regNumber)encodeMask); // Save in idReg2
+
+#elif defined(TARGET_ARM64)
+    assert(REGNUM_BITS >= 5);
+    encodeMask = 0;
+
+    if ((regmask & RBM_R19) != RBM_NONE)
+        encodeMask |= 0x01;
+    if ((regmask & RBM_R20) != RBM_NONE)
+        encodeMask |= 0x02;
+    if ((regmask & RBM_R21) != RBM_NONE)
+        encodeMask |= 0x04;
+    if ((regmask & RBM_R22) != RBM_NONE)
+        encodeMask |= 0x08;
+    if ((regmask & RBM_R23) != RBM_NONE)
+        encodeMask |= 0x10;
+
+    id->idReg1((regNumber)encodeMask); // Save in idReg1
+
+    encodeMask = 0;
+
+    if ((regmask & RBM_R24) != RBM_NONE)
+        encodeMask |= 0x01;
+    if ((regmask & RBM_R25) != RBM_NONE)
+        encodeMask |= 0x02;
+    if ((regmask & RBM_R26) != RBM_NONE)
+        encodeMask |= 0x04;
+    if ((regmask & RBM_R27) != RBM_NONE)
+        encodeMask |= 0x08;
+    if ((regmask & RBM_R28) != RBM_NONE)
+        encodeMask |= 0x10;
+
+    id->idReg2((regNumber)encodeMask); // Save in idReg2
+
+#else
+    NYI("unknown target");
+#endif
+}
+
+unsigned emitter::emitDecodeCallGCregs(instrDesc* id)
+{
+    unsigned regmask = 0;
+    unsigned encodeMask;
+
+#ifdef TARGET_X86
+    assert(REGNUM_BITS >= 3);
+    encodeMask = id->idReg1();
+
+    if ((encodeMask & 0x01) != 0)
+        regmask |= RBM_ESI;
+    if ((encodeMask & 0x02) != 0)
+        regmask |= RBM_EDI;
+    if ((encodeMask & 0x04) != 0)
+        regmask |= RBM_EBX;
+#elif defined(TARGET_AMD64)
+    assert(REGNUM_BITS >= 4);
+    encodeMask = id->idReg1();
+
+    if ((encodeMask & 0x01) != 0)
+    {
+        regmask |= RBM_RSI;
+    }
+    if ((encodeMask & 0x02) != 0)
+    {
+        regmask |= RBM_RDI;
+    }
+    if ((encodeMask & 0x04) != 0)
+    {
+        regmask |= RBM_RBX;
+    }
+    if ((encodeMask & 0x08) != 0)
+    {
+        regmask |= RBM_RBP;
+    }
+
+    encodeMask = id->idReg2();
+
+    if ((encodeMask & 0x01) != 0)
+    {
+        regmask |= RBM_R12;
+    }
+    if ((encodeMask & 0x02) != 0)
+    {
+        regmask |= RBM_R13;
+    }
+    if ((encodeMask & 0x04) != 0)
+    {
+        regmask |= RBM_R14;
+    }
+    if ((encodeMask & 0x08) != 0)
+    {
+        regmask |= RBM_R15;
+    }
+
+#elif defined(TARGET_ARM)
+    assert(REGNUM_BITS >= 4);
+    encodeMask = id->idReg1();
+
+    if ((encodeMask & 0x01) != 0)
+        regmask |= RBM_R4;
+    if ((encodeMask & 0x02) != 0)
+        regmask |= RBM_R5;
+    if ((encodeMask & 0x04) != 0)
+        regmask |= RBM_R6;
+    if ((encodeMask & 0x08) != 0)
+        regmask |= RBM_R7;
+
+    encodeMask = id->idReg2();
+
+    if ((encodeMask & 0x01) != 0)
+        regmask |= RBM_R8;
+    if ((encodeMask & 0x02) != 0)
+        regmask |= RBM_R9;
+    if ((encodeMask & 0x04) != 0)
+        regmask |= RBM_R10;
+    if ((encodeMask & 0x08) != 0)
+        regmask |= RBM_R11;
+
+#elif defined(TARGET_ARM64)
+    assert(REGNUM_BITS >= 5);
+    encodeMask = id->idReg1();
+
+    if ((encodeMask & 0x01) != 0)
+        regmask |= RBM_R19;
+    if ((encodeMask & 0x02) != 0)
+        regmask |= RBM_R20;
+    if ((encodeMask & 0x04) != 0)
+        regmask |= RBM_R21;
+    if ((encodeMask & 0x08) != 0)
+        regmask |= RBM_R22;
+    if ((encodeMask & 0x10) != 0)
+        regmask |= RBM_R23;
+
+    encodeMask = id->idReg2();
+
+    if ((encodeMask & 0x01) != 0)
+        regmask |= RBM_R24;
+    if ((encodeMask & 0x02) != 0)
+        regmask |= RBM_R25;
+    if ((encodeMask & 0x04) != 0)
+        regmask |= RBM_R26;
+    if ((encodeMask & 0x08) != 0)
+        regmask |= RBM_R27;
+    if ((encodeMask & 0x10) != 0)
+        regmask |= RBM_R28;
+
+#else
+    NYI("unknown target");
+#endif
+
+    return regmask;
 }
 
 ID_OPS emitter::GetFormatOp(insFormat format)
@@ -2743,428 +2482,163 @@ ID_OPS emitter::GetFormatOp(insFormat format)
     return ops[format];
 }
 
-//------------------------------------------------------------------------
-// Interleaved GC info dumping.
-// We'll attempt to line this up with the opcode, which indented differently for
-// diffable and non-diffable dumps.
-// This is approximate, and is better tuned for disassembly than for jitdumps.
-// See emitDispInsHex().
-#ifdef TARGET_AMD64
-const size_t basicIndent     = 7;
-const size_t hexEncodingSize = 21;
-#elif defined(TARGET_X86)
-const size_t basicIndent     = 7;
-const size_t hexEncodingSize = 13;
-#elif defined(TARGET_ARM64)
-const size_t basicIndent     = 12;
-const size_t hexEncodingSize = 19;
-#elif defined(TARGET_ARM)
-const size_t basicIndent     = 12;
-const size_t hexEncodingSize = 11;
-#endif
-
 #ifdef DEBUG
-//------------------------------------------------------------------------
-// emitDispGCDeltaTitle: Print an appropriately indented title for a GC info delta
-//
-// Arguments:
-//    title - The type of GC info delta we're printing
-//
-void emitter::emitDispGCDeltaTitle(const char* title)
-{
-    size_t indent = emitComp->opts.disDiffable ? basicIndent : basicIndent + hexEncodingSize;
-    printf("%.*s; %s", indent, "                             ", title);
-}
-
-//------------------------------------------------------------------------
-// emitDispGCRegDelta: Print a delta for GC registers
-//
-// Arguments:
-//    title    - The type of GC info delta we're printing
-//    prevRegs - The live GC registers before the recent instruction.
-//    curRegs  - The live GC registers after the recent instruction.
-//
-void emitter::emitDispGCRegDelta(const char* title, regMaskTP prevRegs, regMaskTP curRegs)
-{
-    if (prevRegs != curRegs)
-    {
-        emitDispGCDeltaTitle(title);
-        regMaskTP sameRegs    = prevRegs & curRegs;
-        regMaskTP removedRegs = prevRegs - sameRegs;
-        regMaskTP addedRegs   = curRegs - sameRegs;
-        if (removedRegs != RBM_NONE)
-        {
-            printf(" -");
-            dspRegMask(removedRegs);
-        }
-        if (addedRegs != RBM_NONE)
-        {
-            printf(" +");
-            dspRegMask(addedRegs);
-        }
-        printf("\n");
-    }
-}
-
-void emitter::emitDispGCVarDelta()
-{
-    if (!debugGCSlotChanges.Empty())
-    {
-        emitDispGCDeltaTitle("GC slots:");
-
-        while (!debugGCSlotChanges.Empty())
-        {
-            GCFrameLifetime* lifetime = debugGCSlotChanges.Pop();
-            int              offset   = lifetime->frameOffset & ~OFFSET_MASK;
-
-#ifdef TARGET_ARMARCH
-            printf(" %c[%s,#%d]", lifetime->vpdEndOfs == 0 ? '+' : '-', emitGetFrameReg(), offset);
-#else
-            printf(" %c[%s%c%02XH]", lifetime->vpdEndOfs == 0 ? '+' : '-', emitGetFrameReg(), offset < 0 ? '-' : '+',
-                   abs(offset));
-#endif
-        }
-
-        printf("\n");
-    }
-}
-
-//------------------------------------------------------------------------
-// emitDispRegPtrListDelta: Print a delta for regPtrDsc GC transitions
-//
-// Notes:
-//    Uses the debug-only variable 'debugPrevRegPtrDsc' to print deltas from the last time this was
-//    called.
-//
-void emitter::emitDispRegPtrListDelta()
-{
-    // Dump any deltas in regPtrDsc's for outgoing args; these aren't captured in the other sets.
-    if (debugPrevRegPtrDsc != codeGen->gcInfo.gcRegPtrLast)
-    {
-        for (regPtrDsc* dsc = (debugPrevRegPtrDsc == nullptr) ? codeGen->gcInfo.gcRegPtrList
-                                                              : debugPrevRegPtrDsc->rpdNext;
-             dsc != nullptr; dsc = dsc->rpdNext)
-        {
-            // The non-arg regPtrDscs are reflected in the register sets debugPrevGCrefRegs/emitThisGCrefRegs
-            // and debugPrevByrefRegs/emitThisByrefRegs, and dumped using those sets.
-            if (!dsc->rpdArg)
-            {
-                continue;
-            }
-            emitDispGCDeltaTitle(GCtypeStr((GCtype)dsc->rpdGCtype));
-            switch (dsc->rpdArgType)
-            {
-                case GCInfo::rpdARG_PUSH:
-#if FEATURE_FIXED_OUT_ARGS
-                    // For FEATURE_FIXED_OUT_ARGS, we report a write to the outgoing arg area
-                    // as a 'rpdARG_PUSH' even though it doesn't actually push. Note that
-                    // we also have 'rpdARG_POP's even though we don't actually pop, and
-                    // we can have those even if there's no stack arg.
-                    printf(" arg write");
-                    break;
-#else
-                    printf(" arg push %u", dsc->rpdPtrArg);
-                    break;
-#endif
-                case GCInfo::rpdARG_POP:
-                    printf(" arg pop %u", dsc->rpdPtrArg);
-                    break;
-                case GCInfo::rpdARG_KILL:
-                    printf(" arg kill %u", dsc->rpdPtrArg);
-                    break;
-                default:
-                    printf(" arg ??? %u", dsc->rpdPtrArg);
-                    break;
-            }
-            printf("\n");
-        }
-        debugPrevRegPtrDsc = codeGen->gcInfo.gcRegPtrLast;
-    }
-}
-
-//------------------------------------------------------------------------
-// emitDispGCInfoDelta: Print a delta for GC info
-//
-void emitter::emitDispGCInfoDelta()
-{
-    emitDispGCRegDelta("gcrRegs", debugPrevGCrefRegs, emitThisGCrefRegs);
-    emitDispGCRegDelta("byrRegs", debugPrevByrefRegs, emitThisByrefRegs);
-    debugPrevGCrefRegs = emitThisGCrefRegs;
-    debugPrevByrefRegs = emitThisByrefRegs;
-    emitDispGCVarDelta();
-    emitDispRegPtrListDelta();
-}
-
-/*****************************************************************************
- *
- *  Display the current instruction group list.
- */
-
-void emitter::emitDispIGflags(unsigned flags)
-{
-    if (flags & IGF_GC_VARS)
-    {
-        printf(", gcvars");
-    }
-    if (flags & IGF_BYREF_REGS)
-    {
-        printf(", byref");
-    }
-#if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
-    if (flags & IGF_FINALLY_TARGET)
-    {
-        printf(", ftarget");
-    }
-#endif // defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
-    if (flags & IGF_FUNCLET_PROLOG)
-    {
-        printf(", funclet prolog");
-    }
-    if (flags & IGF_FUNCLET_EPILOG)
-    {
-        printf(", funclet epilog");
-    }
-    if (flags & IGF_EPILOG)
-    {
-        printf(", epilog");
-    }
-    if (flags & IGF_NOGCINTERRUPT)
-    {
-        printf(", nogc");
-    }
-    if (flags & IGF_UPD_ISZ)
-    {
-        printf(", isz");
-    }
-    if (flags & IGF_EXTEND)
-    {
-        printf(", extend");
-    }
-    if (flags & IGF_LOOP_ALIGN)
-    {
-        printf(", align");
-    }
-}
 
 void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
 {
-    const int TEMP_BUFFER_LEN = 40;
-    char      buff[TEMP_BUFFER_LEN];
+    char buff[40];
+    sprintf_s(buff, _countof(buff), "%s: ", emitLabelString(ig));
+    printf("%s", buff);
 
-    sprintf_s(buff, TEMP_BUFFER_LEN, "%s:        ", emitLabelString(ig));
-    printf("%s; ", buff);
+    char     separator = ';';
+    unsigned flags     = ig->igFlags;
 
-    // We dump less information when we're only interleaving GC info with a disassembly listing,
-    // than we do in the jitdump case. (Note that the verbose argument to this method is
-    // distinct from the verbose on Compiler.)
-    bool jitdump = emitComp->verbose;
-
-    if (jitdump && ((igPrev == nullptr) || (igPrev->igFuncIdx != ig->igFuncIdx)))
+    if (emitComp->verbose)
     {
-        printf("func=%02u, ", ig->igFuncIdx);
+        printf("%c func %u, offs %06XH, size %04XH", separator, ig->igFuncIdx, ig->igOffs, ig->igSize);
+        separator = ',';
+
+        if ((flags & IGF_UPD_ISZ) != 0)
+        {
+            printf("%c update-size", separator);
+            separator = ',';
+        }
     }
 
-    if (ig->igFlags & IGF_PLACEHOLDER)
+    if (ig == GetProlog())
     {
-        insGroup* igPh = ig;
-
-        const char* pszType;
-        switch (igPh->igPhData->igPhType)
-        {
-            case IGPT_EPILOG:
-                pszType = "epilog";
-                break;
+        printf("%c prolog", separator);
+        separator = ',';
+    }
+    else if (flags & IGF_EPILOG)
+    {
+        printf("%c epilog", separator);
+        separator = ',';
+    }
 #ifdef FEATURE_EH_FUNCLETS
-            case IGPT_FUNCLET_PROLOG:
-                pszType = "funclet prolog";
-                break;
-            case IGPT_FUNCLET_EPILOG:
-                pszType = "funclet epilog";
-                break;
-#endif
-            default:
-                pszType = "UNKNOWN";
-                break;
-        }
-        printf("%s placeholder, next placeholder=", pszType);
-        if (igPh->igPhData->igPhNext)
-        {
-            printf("IG%02u ", igPh->igPhData->igPhNext->igNum);
-        }
-        else
-        {
-            printf("<END>");
-        }
-
-        if (igPh->igPhData->igPhBB != nullptr)
-        {
-            printf(", %s", igPh->igPhData->igPhBB->dspToString());
-        }
-
-        emitDispIGflags(igPh->igFlags);
-
-        if (ig == emitCurIG)
-        {
-            printf(" <-- Current IG");
-        }
-        if (igPh == emitPlaceholderList)
-        {
-            printf(" <-- First placeholder");
-        }
-        if (igPh == emitPlaceholderLast)
-        {
-            printf(" <-- Last placeholder");
-        }
-        printf("\n");
-
-        printf("%*s;   PrevGCVars ", strlen(buff), "");
-        dumpConvertedVarSet(emitComp, igPh->igPhData->igPhPrevGCrefVars);
-        printf(", PrevGCrefRegs");
-        emitDispRegSet(igPh->igPhData->igPhPrevGCrefRegs);
-        printf(", PrevByrefRegs");
-        emitDispRegSet(igPh->igPhData->igPhPrevByrefRegs);
-        printf("\n");
-
-        printf("%*s;   InitGCVars ", strlen(buff), "");
-        dumpConvertedVarSet(emitComp, igPh->igPhData->igPhInitGCrefVars);
-        printf(", InitGCrefRegs");
-        emitDispRegSet(igPh->igPhData->igPhInitGCrefRegs);
-        printf(", InitByrefRegs");
-        emitDispRegSet(igPh->igPhData->igPhInitByrefRegs);
-        printf("\n");
-
-        assert(!(ig->igFlags & IGF_GC_VARS));
-        assert(!(ig->igFlags & IGF_BYREF_REGS));
-    }
-    else
+    else if (flags & IGF_FUNCLET_PROLOG)
     {
-        const char* separator = "";
+        printf("%c funclet-prolog", separator);
+        separator = ',';
+    }
+    else if (flags & IGF_FUNCLET_EPILOG)
+    {
+        printf("%c funclet-epilog", separator);
+        separator = ',';
+    }
+#endif
 
-        if (jitdump)
+    if (flags & IGF_PLACEHOLDER)
+    {
+        printf("%c placeholder " FMT_BB, separator, ig->igPhData->igPhBB->bbNum);
+        separator = ',';
+    }
+
+    if (flags & IGF_EXTEND)
+    {
+        printf("%c extend", separator);
+        separator = ',';
+    }
+
+    if (flags & IGF_NOGCINTERRUPT)
+    {
+        printf("%c nogc", separator);
+        separator = ',';
+    }
+
+    if (flags & IGF_LOOP_ALIGN)
+    {
+        printf("%c align", separator);
+        separator = ',';
+    }
+
+    if (ig == emitCurIG)
+    {
+        printf("%c current", separator);
+        separator = ',';
+    }
+
+    if ((ig != GetProlog()) && ((ig->igFlags & IGF_EXTEND) == 0))
+    {
+        if (ig->gcLcls != VarSetOps::UninitVal())
         {
-            printf("%soffs=%06XH, size=%04XH", separator, ig->igOffs, ig->igSize);
-            separator = ", ";
+            printf("%c gc-lcls ", separator);
+            dumpConvertedVarSet(emitComp, ig->gcLcls);
+            separator = ',';
         }
 
-        if (emitComp->compCodeGenDone)
+        if (ig->refRegs != RBM_NONE)
         {
-            printf("%sbbWeight=%s PerfScore %.2f", separator, refCntWtd2str(ig->igWeight), ig->igPerfScore);
-            separator = ", ";
+            printf("%c ref-regs", separator);
+            emitDispRegSet(ig->refRegs);
+            separator = ',';
         }
 
-        if (ig->igFlags & IGF_GC_VARS)
+        if (ig->byrefRegs != RBM_NONE)
         {
-            printf("%sgcVars ", separator);
-            dumpConvertedVarSet(emitComp, ig->igGCvars());
-            separator = ", ";
+            printf("%c byref-regs", separator);
+            emitDispRegSet(ig->byrefRegs);
+            separator = ',';
         }
+    }
 
-        if (!(ig->igFlags & IGF_EXTEND))
-        {
-            printf("%sgcrefRegs", separator);
-            emitDispRegSet(ig->igGCregs);
-            separator = ", ";
-        }
+    if ((ig->igFlags & IGF_PLACEHOLDER) != 0)
+    {
+        printf("\n");
 
-        if (ig->igFlags & IGF_BYREF_REGS)
-        {
-            printf("%sbyrefRegs", separator);
-            emitDispRegSet(ig->igByrefRegs());
-            separator = ", ";
-        }
+        return;
+    }
+
+    if (emitComp->compCodeGenDone)
+    {
+        printf("%c weight %s, perf-score %.2f", separator, refCntWtd2str(ig->igWeight), ig->igPerfScore);
+        separator = ',';
+    }
 
 #if FEATURE_LOOP_ALIGN
-        if (ig->igLoopBackEdge != nullptr)
-        {
-            printf("%sloop=IG%02u", separator, ig->igLoopBackEdge->igNum);
-            separator = ", ";
-        }
-#endif // FEATURE_LOOP_ALIGN
+    if (ig->igLoopBackEdge != nullptr)
+    {
+        printf("%c loop IG%02u", separator, ig->igLoopBackEdge->igNum);
+        separator = ',';
+    }
+#endif
 
-        if (jitdump && !ig->igBlocks.empty())
+    if (emitComp->verbose)
+    {
+        for (auto block : ig->igBlocks)
         {
-            for (auto block : ig->igBlocks)
-            {
-                printf("%s%s", separator, block->dspToString());
-                separator = ", ";
-            }
+            printf("%c " FMT_BB, separator, block->bbNum);
+            separator = ',';
         }
+    }
 
-        emitDispIGflags(ig->igFlags);
+    printf("\n");
 
-        if (ig == emitCurIG)
-        {
-            printf(" <-- Current IG");
-        }
-        if (ig == emitPrologIG)
-        {
-            printf(" <-- Prolog IG");
-        }
+    if (verbose && (ig->igInsCnt != 0))
+    {
         printf("\n");
 
-        if (verbose)
+        uint8_t* ins = ig->igData;
+        unsigned ofs = ig->igOffs;
+
+        for (unsigned i = 0; i < ig->igInsCnt; i++)
         {
-            BYTE*          ins = ig->igData;
-            UNATIVE_OFFSET ofs = ig->igOffs;
-            unsigned       cnt = ig->igInsCnt;
-
-            if (cnt)
-            {
-                printf("\n");
-
-                do
-                {
-                    instrDesc* id = (instrDesc*)ins;
-
-                    emitDispIns(id, false, true, false, ofs, nullptr, 0, ig);
-
-                    ins += emitSizeOfInsDsc(id);
-                    ofs += id->idCodeSize();
-                } while (--cnt);
-
-                printf("\n");
-            }
+            instrDesc* id = reinterpret_cast<instrDesc*>(ins);
+            emitDispIns(id, false, true, false, ofs, nullptr, 0, ig);
+            ins += emitSizeOfInsDsc(id);
+            ofs += id->idCodeSize();
         }
+
+        printf("\n");
     }
 }
 
 void emitter::emitDispIGlist(bool verbose)
 {
-    insGroup* ig;
-    insGroup* igPrev;
-
-    for (igPrev = nullptr, ig = emitIGlist; ig; igPrev = ig, ig = ig->igNext)
+    for (insGroup *ig = emitIGfirst, *igPrev = nullptr; ig != nullptr; igPrev = ig, ig = ig->igNext)
     {
         emitDispIG(ig, igPrev, verbose);
     }
-}
-
-void emitter::emitDispGCinfo()
-{
-    printf("Emitter GC tracking info:");
-
-    printf("\n  emitPrevGCrefVars ");
-    dumpConvertedVarSet(emitComp, emitPrevGCrefVars);
-    printf("\n  emitPrevGCrefRegs");
-    emitDispRegSet(emitPrevGCrefRegs);
-    printf("\n  emitPrevByrefRegs");
-    emitDispRegSet(emitPrevByrefRegs);
-
-    printf("\n  emitInitGCrefVars ");
-    dumpConvertedVarSet(emitComp, emitInitGCrefVars);
-    printf("\n  emitInitGCrefRegs");
-    emitDispRegSet(emitInitGCrefRegs);
-    printf("\n  emitInitByrefRegs");
-    emitDispRegSet(emitInitByrefRegs);
-
-    printf("\n  emitThisGCrefVars ");
-    dumpConvertedVarSet(emitComp, emitThisGCrefVars);
-    printf("\n  emitThisGCrefRegs");
-    emitDispRegSet(emitThisGCrefRegs);
-    printf("\n  emitThisByrefRegs");
-    emitDispRegSet(emitThisByrefRegs);
-
-    printf("\n\n");
 }
 
 #endif // DEBUG
@@ -3196,14 +2670,6 @@ size_t emitter::emitIssue1Instr(insGroup* ig, instrDesc* id, BYTE** dp)
     emitComp->info.compPerfScore += insPerfScore;
     ig->igPerfScore += insPerfScore;
 #endif // defined(DEBUG) || defined(LATE_DISASM)
-
-// If we're generating a full pointer map and the stack
-// is empty, there better not be any "pending" argument
-// push entries.
-
-#if !FEATURE_FIXED_OUT_ARGS
-    assert(!emitFullGCinfo || (emitCurStackLvl != 0) || (u2.emitGcArgTrackCnt == 0));
-#endif
 
     /* Did the size of the instruction match our expectations? */
 
@@ -3272,23 +2738,18 @@ size_t emitter::emitIssue1Instr(insGroup* ig, instrDesc* id, BYTE** dp)
 
 void emitter::emitRecomputeIGoffsets()
 {
-    UNATIVE_OFFSET offs;
-    insGroup*      ig;
+    UNATIVE_OFFSET offs = 0;
 
-    for (ig = emitIGlist, offs = 0; ig; ig = ig->igNext)
+    for (insGroup* ig = emitIGfirst; ig != nullptr; ig = ig->igNext)
     {
         ig->igOffs = offs;
         assert(IsCodeAligned(ig->igOffs));
         offs += ig->igSize;
     }
 
-    /* Set the total code size */
-
     emitTotalCodeSize = offs;
 
-#ifdef DEBUG
-    emitCheckIGoffsets();
-#endif
+    INDEBUG(emitCheckIGoffsets());
 }
 
 //----------------------------------------------------------------------------------------
@@ -3436,9 +2897,7 @@ void emitter::emitJumpDistBind()
     UNATIVE_OFFSET adjIG;
     UNATIVE_OFFSET adjLJ;
     insGroup*      lstIG;
-#ifdef DEBUG
-    insGroup* prologIG = emitPrologIG;
-#endif // DEBUG
+    INDEBUG(insGroup* prologIG = GetProlog());
 
     int jmp_iteration = 1;
 
@@ -4868,9 +4327,6 @@ void emitter::emitComputeCodeSizes()
 // emitEndCodeGen: called at end of code generation to create code, data, and gc info
 //
 // Arguments:
-//    fullInt - true if method has fully interruptible gc reporting
-//    fullPtrMap - true if gc reporting should use full register pointer map
-//    xcptnsCount - number of EH clauses to report for the method
 //    prologSize [OUT] - prolog size in bytes
 //    epilogSize [OUT] - epilog size in bytes (see notes)
 //    codeAddr [OUT] - address of the code buffer
@@ -4885,13 +4341,12 @@ void emitter::emitComputeCodeSizes()
 // Returns:
 //    size of the method code, in bytes
 //
-unsigned emitter::emitEndCodeGen(bool      fullyInt,
-                                 bool      fullPtrMap,
-                                 unsigned  xcptnsCount,
-                                 unsigned* prologSize,
+unsigned emitter::emitEndCodeGen(unsigned* prologSize,
+#ifdef JIT32_GCENCODER
                                  unsigned* epilogSize,
-                                 void**    codeAddr,
-                                 void**    coldCodeAddr,
+#endif
+                                 void** codeAddr,
+                                 void** coldCodeAddr,
                                  void** consAddr DEBUGARG(unsigned* instrCount))
 {
     JITDUMP("*************** In emitEndCodeGen()\n");
@@ -4908,78 +4363,35 @@ unsigned emitter::emitEndCodeGen(bool      fullyInt,
 
     emitCodeBlock = nullptr;
     emitConsBlock = nullptr;
-
-    emitOffsAdj = 0;
-
-    /* Tell everyone whether we have fully interruptible code or not */
-
-    emitFullyInt   = fullyInt;
-    emitFullGCinfo = fullPtrMap;
-
-#ifndef UNIX_X86_ABI
-    emitFullArgInfo = !codeGen->isFramePointerUsed();
-#else
-    emitFullArgInfo = fullPtrMap;
-#endif
+    emitOffsAdj   = 0;
 
 #if EMITTER_STATS
     GCrefsTable.record(emitGCrFrameOffsCnt);
     emitSizeTable.record(static_cast<unsigned>(emitSizeMethod));
-    stkDepthTable.record(emitMaxStackDepth);
-#endif // EMITTER_STATS
-
-#if !FEATURE_FIXED_OUT_ARGS
-    emitSimpleStkUsed         = true;
-    u1.emitSimpleStkMask      = 0;
-    u1.emitSimpleByrefStkMask = 0;
 #endif
 
-#if !FEATURE_FIXED_OUT_ARGS
-    // Convert max. stack depth from # of bytes to # of entries.
-
+#ifndef JIT32_GCENCODER
+    gcInfo.Begin();
+#else
+#if EMITTER_STATS
+    stkDepthTable.record(emitMaxStackDepth);
+#endif
     unsigned maxStackDepthIn4ByteElements = emitMaxStackDepth / REGSIZE_BYTES;
     JITDUMP("Converting emitMaxStackDepth from bytes (%d) to elements (%d)\n", emitMaxStackDepth,
             maxStackDepthIn4ByteElements);
     emitMaxStackDepth = maxStackDepthIn4ByteElements;
-#endif
 
-#if !FEATURE_FIXED_OUT_ARGS
-    if ((emitMaxStackDepth > MAX_SIMPLE_STK_DEPTH) || emitFullGCinfo)
-    {
-        emitSimpleStkUsed = false;
-
-        if (emitMaxStackDepth > sizeof(u2.emitArgTrackLcl))
-        {
-            u2.emitArgTrackTab = (BYTE*)emitGetMem(roundUp(emitMaxStackDepth));
-        }
-        else
-        {
-            u2.emitArgTrackTab = (BYTE*)u2.emitArgTrackLcl;
-        }
-
-        u2.emitArgTrackTop   = u2.emitArgTrackTab;
-        u2.emitGcArgTrackCnt = 0;
-    }
-#endif // !FEATURE_FIXED_OUT_ARGS
+    gcInfo.Begin(emitMaxStackDepth);
 
     if (emitEpilogCnt == 0)
     {
-        /* No epilogs, make sure the epilog size is set to 0 */
-
-        emitEpilogSize = 0;
-
-#ifdef TARGET_XARCH
+        // No epilogs, make sure the epilog size is set to 0.
+        emitEpilogSize  = 0;
         emitExitSeqSize = 0;
-#endif // TARGET_XARCH
     }
 
-    /* Return the size of the epilog to the caller */
-
-    *epilogSize = emitEpilogSize;
-
-#ifdef TARGET_XARCH
-    *epilogSize += emitExitSeqSize;
-#endif // TARGET_XARCH
+    *epilogSize = emitEpilogSize + emitExitSeqSize;
+#endif // JIT32_GCENCODER
 
 #ifdef DEBUG
     if (EMIT_INSTLIST_VERBOSE)
@@ -5078,7 +4490,7 @@ unsigned emitter::emitEndCodeGen(bool      fullyInt,
     args.hotCodeSize  = emitTotalHotCodeSize + roDataAlignmentDelta + emitConsDsc.dsdOffs;
     args.coldCodeSize = emitTotalColdCodeSize;
     args.roDataSize   = 0;
-    args.xcptnsCount  = xcptnsCount;
+    args.xcptnsCount  = emitComp->compHndBBtabCount;
     args.flag         = allocMemFlag;
 
     emitCmpHandle->allocMem(&args);
@@ -5096,7 +4508,7 @@ unsigned emitter::emitEndCodeGen(bool      fullyInt,
     args.hotCodeSize  = emitTotalHotCodeSize;
     args.coldCodeSize = emitTotalColdCodeSize;
     args.roDataSize   = emitConsDsc.dsdOffs;
-    args.xcptnsCount  = xcptnsCount;
+    args.xcptnsCount  = emitComp->compHndBBtabCount;
     args.flag         = allocMemFlag;
 
     emitCmpHandle->allocMem(&args);
@@ -5117,140 +4529,28 @@ unsigned emitter::emitEndCodeGen(bool      fullyInt,
     }
 #endif
 
-    // if (emitConsDsc.dsdOffs)
-    //     printf("Cons=%08X\n", consBlock);
-
-    /* Give the block addresses to the caller and other functions here */
-
     *codeAddr = emitCodeBlock = codeBlock;
     *coldCodeAddr = emitColdCodeBlock = coldCodeBlock;
     *consAddr = emitConsBlock = consBlock;
 
 #if !FEATURE_FIXED_OUT_ARGS
-    // Nothing has been pushed on the stack.
-
     emitCurStackLvl = 0;
 #endif
 
-    /* Assume no live GC ref variables on entry */
-
-    VarSetOps::ClearD(emitComp, emitThisGCrefVars); // This is initialized to Empty at the start of codegen.
-#if defined(DEBUG) && defined(JIT32_ENCODER)
-    VarSetOps::ClearD(emitComp, debugThisGCRefVars);
-    VarSetOps::ClearD(emitComp, debugPrevGCRefVars);
-    debugPrevRegPtrDsc = nullptr;
-#endif
-    emitThisGCrefRegs = emitThisByrefRegs = RBM_NONE;
-    emitThisGCrefVset                     = true;
-
 #ifdef DEBUG
-
     emitIssuing = true;
-
-    // We don't use these after this point
-
-    VarSetOps::AssignNoCopy(emitComp, emitPrevGCrefVars, VarSetOps::UninitVal());
-    emitPrevGCrefRegs = emitPrevByrefRegs = 0xBAADFEED;
-
-    VarSetOps::AssignNoCopy(emitComp, emitInitGCrefVars, VarSetOps::UninitVal());
-    emitInitGCrefRegs = emitInitByrefRegs = 0xBAADFEED;
-
+    *instrCount = 0;
 #endif
 
-#ifdef JIT32_GCENCODER
-    if (emitComp->lvaKeepAliveAndReportThis())
-    {
-        assert(emitComp->lvaIsOriginalThisArg(0));
-        LclVarDsc* thisDsc = &emitComp->lvaTable[0];
-
-        // If "this" (which is passed in as a register argument in REG_ARG_0)
-        // is enregistered, we normally spot the "mov REG_ARG_0 -> thisReg"
-        // in the prolog and note the location of "this" at that point.
-        // However, if 'this' is enregistered into REG_ARG_0 itself, no code
-        // will be generated in the prolog, so we explicitly need to note
-        // the location of "this" here.
-        // NOTE that we can do this even if "this" is not enregistered in
-        // REG_ARG_0, and it will result in more accurate "this" info over the
-        // prolog. However, as methods are not interruptible over the prolog,
-        // we try to save space by avoiding that.
-
-        if (thisDsc->lvRegister)
-        {
-            emitSyncThisObjReg = thisDsc->GetRegNum();
-
-            if ((emitSyncThisObjReg == REG_ARG_0) && ((codeGen->paramRegState.intRegLiveIn & RBM_ARG_0) != RBM_NONE))
-            {
-                if (emitFullGCinfo)
-                {
-                    emitGCregLiveSet(GCT_GCREF, RBM_ARG_0,
-                                     emitCodeBlock, // from offset 0
-                                     true);
-                }
-                else
-                {
-                    // If emitFullGCinfo==false, then we don't use any
-                    // regPtrDsc's and so explictly note the location
-                    // of "this" in GCEncode.cpp
-                }
-            }
-        }
-    }
-#endif // JIT32_GCENCODER
-
-    if (emitGCrFrameOffsCnt != 0)
-    {
-        // Allocate and clear emitGCrFrameLiveTab[]. This is the table
-        // mapping "stkOffs -> varPtrDsc". It holds a pointer to
-        // the liveness descriptor that was created when the
-        // variable became alive. When the variable becomes dead, the
-        // descriptor will be appended to the liveness descriptor list, and
-        // the entry in emitGCrFrameLiveTab[] will be made NULL.
-        //
-        // Note that if all GC refs are assigned consecutively,
-        // emitGCrFrameLiveTab[] can be only as big as the number of GC refs
-        // present, instead of lvaTrackedCount.
-
-        size_t siz          = emitGCrFrameOffsCnt * sizeof(*emitGCrFrameLiveTab);
-        emitGCrFrameLiveTab = (GCFrameLifetime**)emitGetMem(roundUp(siz));
-        memset(emitGCrFrameLiveTab, 0, siz);
-
-#if defined(JIT32_GCENCODER) && !defined(FEATURE_EH_FUNCLETS)
-        if (emitComp->lvaKeepAliveAndReportThis())
-        {
-            assert(emitComp->lvaIsOriginalThisArg(emitComp->info.compThisArg));
-
-            LclVarDsc* thisParam = emitComp->lvaGetDesc(emitComp->info.compThisArg);
-
-            if (thisParam->HasGCSlotLiveness())
-            {
-                emitSyncThisObjOffs = thisParam->GetStackOffset();
-            }
-        }
-#endif
-    }
-
-#ifdef DEBUG
-    if (emitComp->verbose)
-    {
-        printf("\n***************************************************************************\n");
-        printf("Instructions as they come out of the scheduler\n\n");
-    }
-#endif
-
-    /* Issue all instruction groups in order */
     cp              = codeBlock;
     writeableOffset = codeBlockRW - codeBlock;
 
 #define DEFAULT_CODE_BUFFER_INIT 0xcc
 
-#ifdef DEBUG
-    *instrCount = 0;
-#endif
-    for (insGroup* ig = emitIGlist; ig != nullptr; ig = ig->igNext)
+    for (insGroup* ig = emitIGfirst; ig != nullptr; ig = ig->igNext)
     {
-        assert(!(ig->igFlags & IGF_PLACEHOLDER)); // There better not be any placeholder groups left
+        assert((ig->igFlags & IGF_PLACEHOLDER) == 0);
 
-        /* Is this the first cold block? */
         if (ig == emitFirstColdIG)
         {
             assert(emitCurCodeOffs(cp) == emitTotalHotCodeSize);
@@ -5272,11 +4572,6 @@ unsigned emitter::emitEndCodeGen(bool      fullyInt,
             NO_WAY("Too many instruction groups");
         }
 
-        // If this instruction group is returned to from a funclet implementing a finally,
-        // on architectures where it is necessary generate GC info for the current instruction as
-        // if it were the instruction following a call.
-        emitGenGCInfoIfFuncletRetTarget(ig, cp);
-
         instrDesc* id = (instrDesc*)ig->igData;
 
 #ifdef DEBUG
@@ -5287,7 +4582,7 @@ unsigned emitter::emitEndCodeGen(bool      fullyInt,
             if (emitComp->verbose || emitComp->opts.disasmWithGC)
             {
                 printf("\n");
-                emitDispIG(ig); // Display the flags, IG data, etc.
+                emitDispIG(ig, nullptr, false);
             }
             else
             {
@@ -5336,68 +4631,45 @@ unsigned emitter::emitEndCodeGen(bool      fullyInt,
         emitOffsAdj = newOffsAdj;
         assert(emitOffsAdj >= 0);
 
-        ig->igOffs = emitCurCodeOffs(cp);
-        assert(IsCodeAligned(ig->igOffs));
+        const unsigned codeOffs = emitCurCodeOffs(cp);
+        assert(IsCodeAligned(codeOffs));
+        ig->igOffs = codeOffs;
 
 #if !FEATURE_FIXED_OUT_ARGS
         if (ig->igStkLvl != emitCurStackLvl)
         {
-            /* We are pushing stuff implicitly at this label */
-
-            assert((unsigned)ig->igStkLvl > (unsigned)emitCurStackLvl);
-            emitStackPushN(cp, (ig->igStkLvl - (unsigned)emitCurStackLvl) / sizeof(int));
+            // We are pushing stuff implicitly at this label.
+            assert(ig->igStkLvl > emitCurStackLvl);
+            emitStackPushN(emitCurCodeOffs(cp), (ig->igStkLvl - emitCurStackLvl) / TARGET_POINTER_SIZE);
         }
 #endif
 
-        /* Update current GC information for IG's that do not extend the previous IG */
-
-        if (!(ig->igFlags & IGF_EXTEND))
+        if (((ig->igFlags & IGF_EXTEND) == 0) && (ig != GetProlog()))
         {
-            /* Is there a new set of live GC ref variables? */
+            gcInfo.SetLiveStackSlots(ig->GetGCLcls(), codeOffs);
 
-            if (ig->igFlags & IGF_GC_VARS)
+            regMaskTP refRegs = ig->GetRefRegs();
+
+            if (gcInfo.GetLiveRegs(GCT_GCREF) != refRegs)
             {
-                emitUpdateLiveGCvars(ig->igGCvars(), cp);
-            }
-            else if (!emitThisGCrefVset)
-            {
-                emitUpdateLiveGCvars(emitThisGCrefVars, cp);
+                gcInfo.SetLiveRegs(GCT_GCREF, refRegs, codeOffs);
             }
 
-            /* Update the set of live GC ref registers */
+            regMaskTP byrefRegs = ig->GetByrefRegs();
 
+            if (gcInfo.GetLiveRegs(GCT_BYREF) != byrefRegs)
             {
-                regMaskTP GCregs = ig->igGCregs;
-
-                if (GCregs != emitThisGCrefRegs)
-                {
-                    emitUpdateLiveGCregs(GCT_GCREF, GCregs, cp);
-                }
+                gcInfo.SetLiveRegs(GCT_BYREF, byrefRegs, codeOffs);
             }
 
-            /* Is there a new set of live byref registers? */
-
-            if (ig->igFlags & IGF_BYREF_REGS)
-            {
-                unsigned byrefRegs = ig->igByrefRegs();
-
-                if (byrefRegs != emitThisByrefRegs)
-                {
-                    emitUpdateLiveGCregs(GCT_BYREF, byrefRegs, cp);
-                }
-            }
 #ifdef DEBUG
-            if (EMIT_GC_VERBOSE || emitComp->opts.disasmWithGC)
+            if (emitComp->verbose || emitComp->opts.disasmWithGC)
             {
-                emitDispGCInfoDelta();
+                char header[128];
+                GetGCDeltaDumpHeader(header, _countof(header));
+                gcInfo.DumpDelta(header);
             }
-#endif // DEBUG
-        }
-        else
-        {
-            // These are not set for "overflow" groups
-            assert(!(ig->igFlags & IGF_GC_VARS));
-            assert(!(ig->igFlags & IGF_BYREF_REGS));
+#endif
         }
 
         /* Issue each instruction in order */
@@ -5414,6 +4686,13 @@ unsigned emitter::emitEndCodeGen(bool      fullyInt,
             castto(id, BYTE*) += emitIssue1Instr(ig, id, &cp);
 
 #ifdef DEBUG
+            if (emitComp->verbose || emitComp->opts.disasmWithGC)
+            {
+                char header[128];
+                GetGCDeltaDumpHeader(header, _countof(header));
+                gcInfo.DumpDelta(header);
+            }
+
             // Print the alignment boundary
             if ((emitComp->opts.disAsm || emitComp->verbose) && (emitComp->opts.disAddr || emitComp->opts.disAlignment))
             {
@@ -5542,27 +4821,7 @@ unsigned emitter::emitEndCodeGen(bool      fullyInt,
         emitOutputDataSec(&emitConsDsc, consBlock);
     }
 
-    unsigned endCodeOffs = emitCurCodeOffs(cp);
-
-    // Make sure all GC ref variables are marked as dead.
-    for (unsigned i = 0; i < emitGCrFrameOffsCnt; i++)
-    {
-        if (emitGCrFrameLiveTab[i] != nullptr)
-        {
-            emitGCvarDeadSet(emitGCrFrameOffsMin + i * REGSIZE_BYTES, endCodeOffs, i);
-        }
-    }
-
-    // No GC registers are live any more.
-    if (emitThisByrefRegs)
-    {
-        emitUpdateLiveGCregs(GCT_BYREF, RBM_NONE, cp);
-    }
-
-    if (emitThisGCrefRegs)
-    {
-        emitUpdateLiveGCregs(GCT_GCREF, RBM_NONE, cp);
-    }
+    gcInfo.End(emitCurCodeOffs(cp));
 
     // Patch any forward jumps.
     if (emitFwdJumps)
@@ -5683,17 +4942,6 @@ unsigned emitter::emitEndCodeGen(bool      fullyInt,
     emitTotalCodeSize = actualCodeSize;
 
 #ifdef DEBUG
-
-    // Make sure these didn't change during the "issuing" phase
-
-    assert(VarSetOps::MayBeUninit(emitPrevGCrefVars));
-    assert(emitPrevGCrefRegs == 0xBAADFEED);
-    assert(emitPrevByrefRegs == 0xBAADFEED);
-
-    assert(VarSetOps::MayBeUninit(emitInitGCrefVars));
-    assert(emitInitGCrefRegs == 0xBAADFEED);
-    assert(emitInitByrefRegs == 0xBAADFEED);
-
     if (EMIT_INSTLIST_VERBOSE)
     {
         printf("\nLabels list after the end of codegen:\n\n");
@@ -5701,38 +4949,11 @@ unsigned emitter::emitEndCodeGen(bool      fullyInt,
     }
 
     emitCheckIGoffsets();
-
 #endif // DEBUG
 
-    // Assign the real prolog size
-    *prologSize = emitCodeOffset(emitPrologIG, emitPrologEndPos);
-
-    /* Return the amount of code we've generated */
+    *prologSize = emitCodeOffset(GetProlog(), emitPrologEndPos);
 
     return actualCodeSize;
-}
-
-// See specification comment at the declaration.
-void emitter::emitGenGCInfoIfFuncletRetTarget(insGroup* ig, BYTE* cp)
-{
-#if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
-    // We only emit this GC information on targets where finally's are implemented via funclets,
-    // and the finally is invoked, during non-exceptional execution, via a branch with a predefined
-    // link register, rather than a "true call" for which we would already generate GC info.  Currently,
-    // this means precisely ARM.
-    if (ig->igFlags & IGF_FINALLY_TARGET)
-    {
-        // We don't actually have a call instruction in this case, so we don't have
-        // a real size for that instruction.  We'll use 1.
-        emitRecordGCCallPop(cp, /*callInstrSize*/ 1);
-
-        /* Do we need to record a call location for GC purposes? */
-        if (!emitFullGCinfo)
-        {
-            emitRecordGCcall(cp, /*callInstrSize*/ 1);
-        }
-    }
-#endif // defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
 }
 
 /*****************************************************************************
@@ -6464,444 +5685,6 @@ void emitter::emitDispDataSec(dataSecDsc* section)
 }
 #endif
 
-// Record the fact that the given variable now contains a live GC ref.
-void emitter::emitGCvarLiveSet(int slotOffs, GCtype gcType, unsigned codeOffs, unsigned index)
-{
-    assert(emitIssuing);
-    assert(abs(slotOffs) % REGSIZE_BYTES == 0);
-    assert(gcType != GCT_NONE);
-    assert(index < emitGCrFrameOffsCnt);
-    assert(emitGCrFrameLiveTab[index] == nullptr);
-
-#if defined(JIT32_GCENCODER) && !defined(FEATURE_EH_FUNCLETS)
-    if (slotOffs == emitSyncThisObjOffs)
-    {
-        slotOffs |= this_OFFSET_FLAG;
-    }
-#endif
-
-    if (gcType == GCT_BYREF)
-    {
-        slotOffs |= byref_OFFSET_FLAG;
-    }
-
-    GCFrameLifetime* lifetime = new (emitComp, CMK_GC) GCFrameLifetime(slotOffs, codeOffs);
-
-    emitGCrFrameLiveTab[index] = lifetime;
-    // The "global" live GC variable mask is no longer up-to-date.
-    emitThisGCrefVset = false;
-
-    codeGen->gcInfo.AddFrameLifetime(lifetime);
-
-    INDEBUG(debugGCSlotChanges.Push(lifetime));
-}
-
-// Record the fact that the given variable no longer contains a live GC ref.
-void emitter::emitGCvarDeadSet(int slotOffs, unsigned codeOffs, unsigned index)
-{
-    assert(emitIssuing);
-    assert(abs(slotOffs) % REGSIZE_BYTES == 0);
-    assert(index < emitGCrFrameOffsCnt);
-    assert(emitGCrFrameLiveTab[index] != nullptr);
-
-    GCFrameLifetime* lifetime = emitGCrFrameLiveTab[index];
-
-    assert(static_cast<int>(lifetime->frameOffset & ~OFFSET_MASK) == slotOffs);
-    assert(lifetime->vpdEndOfs == 0);
-
-    lifetime->vpdEndOfs = codeOffs;
-
-    emitGCrFrameLiveTab[index] = nullptr;
-    // The "global" live GC variable mask is no longer up-to-date.
-    emitThisGCrefVset = false;
-
-    INDEBUG(debugGCSlotChanges.Push(lifetime));
-}
-
-// Record a new set of live GC ref variables.
-void emitter::emitUpdateLiveGCvars(VARSET_VALARG_TP vars, BYTE* addr)
-{
-    assert(emitIssuing);
-
-    // Don't track GC changes in epilogs.
-    if (emitIGisInEpilog(emitCurIG))
-    {
-        return;
-    }
-
-    if (emitThisGCrefVset && VarSetOps::Equal(emitComp, emitThisGCrefVars, vars))
-    {
-        return;
-    }
-
-    VarSetOps::Assign(emitComp, emitThisGCrefVars, vars);
-
-    if (emitGCrFrameOffsCnt == 0)
-    {
-        emitThisGCrefVset = true;
-
-        return;
-    }
-
-    unsigned codeOffs = emitCurCodeOffs(addr);
-
-    for (unsigned trackedLclIndex = 0, count = emitComp->lvaTrackedCount; trackedLclIndex < count; trackedLclIndex++)
-    {
-        unsigned   lclNum = emitComp->lvaTrackedIndexToLclNum(trackedLclIndex);
-        LclVarDsc* lcl    = emitComp->lvaGetDesc(lclNum);
-
-        if (!lcl->HasGCSlotLiveness())
-        {
-            continue;
-        }
-
-        assert(varTypeIsGC(lcl->GetType()));
-
-        int offs = lcl->GetStackOffset();
-
-        assert(abs(offs) % REGSIZE_BYTES == 0);
-        assert((emitGCrFrameOffsMin <= offs) && (offs < emitGCrFrameOffsMax));
-
-        unsigned index = (offs - emitGCrFrameOffsMin) / REGSIZE_BYTES;
-        assert(index < emitGCrFrameOffsCnt);
-
-        if (VarSetOps::IsMember(emitComp, vars, trackedLclIndex))
-        {
-            if (emitGCrFrameLiveTab[index] == nullptr)
-            {
-                emitGCvarLiveSet(offs, lcl->TypeIs(TYP_BYREF) ? GCT_BYREF : GCT_GCREF, codeOffs, index);
-            }
-        }
-        else
-        {
-            if (emitGCrFrameLiveTab[index] != nullptr)
-            {
-#if defined(JIT32_GCENCODER) && !defined(FEATURE_EH_FUNCLETS)
-                assert(!emitComp->lvaKeepAliveAndReportThis() || (offs != emitSyncThisObjOffs));
-#endif
-
-                emitGCvarDeadSet(offs, codeOffs, index);
-            }
-        }
-    }
-
-    emitThisGCrefVset = true;
-}
-
-#if FEATURE_FIXED_OUT_ARGS
-
-void emitter::emitRecordGCCallPop(BYTE* addr, unsigned callInstrSize)
-{
-    assert(emitIssuing);
-    assert((0 < callInstrSize) && (callInstrSize <= UINT8_MAX));
-
-    if (!emitFullGCinfo && (!codeGen->IsFullPtrRegMapRequired() || codeGen->GetInterruptible()))
-    {
-        return;
-    }
-
-    unsigned gcrefRegs = 0;
-    unsigned byrefRegs = 0;
-
-    for (unsigned i = 0; i < CNT_CALLEE_SAVED; i++)
-    {
-        regMaskTP calleeSaved = GCInfo::raRbmCalleeSaveOrder[i];
-
-        if ((emitThisGCrefRegs & calleeSaved) != RBM_NONE)
-        {
-            gcrefRegs |= (1 << i);
-        }
-
-        if ((emitThisByrefRegs & calleeSaved) != RBM_NONE)
-        {
-            byrefRegs |= (1 << i);
-        }
-    }
-
-    regPtrDsc* regPtrNext        = codeGen->gcInfo.gcRegPtrAllocDsc();
-    regPtrNext->rpdOffs          = emitCurCodeOffs(addr);
-    regPtrNext->rpdPtrArg        = 0;
-    regPtrNext->rpdCallInstrSize = static_cast<uint8_t>(callInstrSize);
-    regPtrNext->rpdArg           = true;
-    regPtrNext->rpdArgType       = GCInfo::rpdARG_POP;
-    regPtrNext->rpdGCtype        = GCT_GCREF;
-    regPtrNext->rpdCall          = true;
-    regPtrNext->rpdCallGCrefRegs = static_cast<uint16_t>(gcrefRegs);
-    regPtrNext->rpdCallByrefRegs = static_cast<uint16_t>(byrefRegs);
-}
-
-#endif // FEATURE_FIXED_OUT_ARGS
-
-// Record a call location for GC purposes (we know that this is a method that
-// will not be fully interruptible).
-void emitter::emitRecordGCcall(BYTE* codePos, unsigned callInstrSize)
-{
-    assert(emitIssuing);
-    assert(!emitFullGCinfo);
-
-    unsigned offs = emitCurCodeOffs(codePos);
-    callDsc* call;
-
-#ifdef JIT32_GCENCODER
-    unsigned regs = (emitThisGCrefRegs | emitThisByrefRegs) & ~RBM_INTRET;
-
-    // The JIT32 GCInfo encoder allows us to (as the comment previously here said):
-    // "Bail if this is a totally boring call", but the GCInfoEncoder/Decoder interface
-    // requires a definition for every call site, so we skip these "early outs" when we're
-    // using the general encoder.
-    if (regs == 0)
-    {
-        if (emitCurStackLvl == 0)
-        {
-            return;
-        }
-
-        /* Nope, only interesting calls get recorded */
-
-        if (emitSimpleStkUsed)
-        {
-            if (!u1.emitSimpleStkMask)
-                return;
-        }
-        else
-        {
-            if (u2.emitGcArgTrackCnt == 0)
-                return;
-        }
-    }
-#endif // JIT32_GCENCODER
-
-#ifdef DEBUG
-    if (EMIT_GC_VERBOSE)
-    {
-#if FEATURE_FIXED_OUT_ARGS
-        printf("; Call at %04X GCvars ", offs - callInstrSize);
-#else
-        printf("; Call at %04X [stk=%u], GCvars ", offs - callInstrSize, emitCurStackLvl);
-#endif
-        emitDispVarSet();
-        printf(", gcrefRegs");
-        emitDispRegSet(emitThisGCrefRegs);
-        printf(", byrefRegs");
-        emitDispRegSet(emitThisByrefRegs);
-
-        printf("\n");
-    }
-#endif
-
-    /* Allocate a 'call site' descriptor and start filling it in */
-
-    call = new (emitComp, CMK_GC) callDsc;
-
-    call->cdOffs = offs;
-#ifndef JIT32_GCENCODER
-    call->cdCallInstrSize = static_cast<uint16_t>(callInstrSize);
-#endif
-    call->cdNext = nullptr;
-
-    call->cdGCrefRegs = (regMaskSmall)emitThisGCrefRegs;
-    call->cdByrefRegs = (regMaskSmall)emitThisByrefRegs;
-
-#if !FEATURE_FIXED_OUT_ARGS
-    noway_assert(FitsIn<uint16_t>(emitCurStackLvl / 4));
-#endif
-
-    // Append the call descriptor to the list */
-    if (codeGen->gcInfo.gcCallDescLast == nullptr)
-    {
-        assert(codeGen->gcInfo.gcCallDescList == nullptr);
-        codeGen->gcInfo.gcCallDescList = codeGen->gcInfo.gcCallDescLast = call;
-    }
-    else
-    {
-        assert(codeGen->gcInfo.gcCallDescList != nullptr);
-        codeGen->gcInfo.gcCallDescLast->cdNext = call;
-        codeGen->gcInfo.gcCallDescLast         = call;
-    }
-
-#if !FEATURE_FIXED_OUT_ARGS
-    /* Record the current "pending" argument list */
-
-    if (emitSimpleStkUsed)
-    {
-        /* The biggest call is less than MAX_SIMPLE_STK_DEPTH. So use
-           small format */
-
-        call->u1.cdArgMask      = u1.emitSimpleStkMask;
-        call->u1.cdByrefArgMask = u1.emitSimpleByrefStkMask;
-        call->cdArgCnt          = 0;
-    }
-    else
-    {
-        /* The current call has too many arguments, so we need to report the
-           offsets of each individual GC arg. */
-
-        call->cdArgCnt = u2.emitGcArgTrackCnt;
-        if (call->cdArgCnt == 0)
-        {
-            call->u1.cdArgMask = call->u1.cdByrefArgMask = 0;
-            return;
-        }
-
-        call->cdArgTable = new (emitComp, CMK_GC) unsigned[u2.emitGcArgTrackCnt];
-
-        unsigned gcArgs = 0;
-        unsigned stkLvl = emitCurStackLvl / sizeof(int);
-
-        for (unsigned i = 0; i < stkLvl; i++)
-        {
-            GCtype gcType = (GCtype)u2.emitArgTrackTab[stkLvl - i - 1];
-
-            if (needsGC(gcType))
-            {
-                call->cdArgTable[gcArgs] = i * TARGET_POINTER_SIZE;
-
-                if (gcType == GCT_BYREF)
-                {
-                    call->cdArgTable[gcArgs] |= byref_OFFSET_FLAG;
-                }
-
-                gcArgs++;
-            }
-        }
-
-        assert(u2.emitGcArgTrackCnt == gcArgs);
-    }
-#endif //! FEATURE_FIXED_OUT_ARGS
-}
-
-/*****************************************************************************
- *
- *  Record a new set of live GC ref registers.
- */
-
-void emitter::emitUpdateLiveGCregs(GCtype gcType, regMaskTP regs, BYTE* addr)
-{
-    assert(emitIssuing);
-
-    // Don't track GC changes in epilogs
-    if (emitIGisInEpilog(emitCurIG))
-    {
-        return;
-    }
-
-    regMaskTP life;
-    regMaskTP dead;
-    regMaskTP chg;
-
-    assert(needsGC(gcType));
-
-    regMaskTP& emitThisXXrefRegs = (gcType == GCT_GCREF) ? emitThisGCrefRegs : emitThisByrefRegs;
-    regMaskTP& emitThisYYrefRegs = (gcType == GCT_GCREF) ? emitThisByrefRegs : emitThisGCrefRegs;
-    assert(emitThisXXrefRegs != regs);
-
-    if (emitFullGCinfo)
-    {
-        /* Figure out which GC registers are becoming live/dead at this point */
-
-        dead = (emitThisXXrefRegs & ~regs);
-        life = (~emitThisXXrefRegs & regs);
-
-        /* Can't simultaneously become live and dead at the same time */
-
-        assert((dead | life) != 0);
-        assert((dead & life) == 0);
-
-        /* Compute the 'changing state' mask */
-
-        chg = (dead | life);
-
-        do
-        {
-            regMaskTP bit = genFindLowestBit(chg);
-            regNumber reg = genRegNumFromMask(bit);
-
-            if (life & bit)
-            {
-                emitGCregLiveUpd(gcType, reg, addr);
-            }
-            else
-            {
-                emitGCregDeadUpd(reg, addr);
-            }
-
-            chg -= bit;
-        } while (chg);
-
-        assert(emitThisXXrefRegs == regs);
-    }
-    else
-    {
-        emitThisYYrefRegs &= ~regs; // Kill the regs from the other GC type (if live)
-        emitThisXXrefRegs = regs;   // Mark them as live in the requested GC type
-    }
-
-    // The 2 GC reg masks can't be overlapping
-
-    assert((emitThisGCrefRegs & emitThisByrefRegs) == 0);
-}
-
-/*****************************************************************************
- *
- *  Record the fact that the given register now contains a live GC ref.
- */
-
-void emitter::emitGCregLiveSet(GCtype gcType, regMaskTP regMask, BYTE* addr, bool isThis)
-{
-    assert(emitIssuing);
-    assert(needsGC(gcType));
-
-    regPtrDsc* regPtrNext;
-
-    assert(!isThis || emitComp->lvaKeepAliveAndReportThis());
-    // assert(emitFullyInt || isThis);
-    assert(emitFullGCinfo);
-
-    assert(((emitThisGCrefRegs | emitThisByrefRegs) & regMask) == 0);
-
-    /* Allocate a new regptr entry and fill it in */
-
-    regPtrNext            = codeGen->gcInfo.gcRegPtrAllocDsc();
-    regPtrNext->rpdGCtype = gcType;
-
-    regPtrNext->rpdOffs            = emitCurCodeOffs(addr);
-    regPtrNext->rpdArg             = false;
-    regPtrNext->rpdCall            = false;
-    regPtrNext->rpdIsThis          = isThis;
-    regPtrNext->rpdCompiler.rpdAdd = (regMaskSmall)regMask;
-    regPtrNext->rpdCompiler.rpdDel = 0;
-}
-
-/*****************************************************************************
- *
- *  Record the fact that the given register no longer contains a live GC ref.
- */
-
-void emitter::emitGCregDeadSet(GCtype gcType, regMaskTP regMask, BYTE* addr)
-{
-    assert(emitIssuing);
-    assert(needsGC(gcType));
-
-    regPtrDsc* regPtrNext;
-
-    // assert(emitFullyInt);
-    assert(emitFullGCinfo);
-
-    assert(((emitThisGCrefRegs | emitThisByrefRegs) & regMask) != 0);
-
-    /* Allocate a new regptr entry and fill it in */
-
-    regPtrNext            = codeGen->gcInfo.gcRegPtrAllocDsc();
-    regPtrNext->rpdGCtype = gcType;
-
-    regPtrNext->rpdOffs            = emitCurCodeOffs(addr);
-    regPtrNext->rpdCall            = false;
-    regPtrNext->rpdIsThis          = false;
-    regPtrNext->rpdArg             = false;
-    regPtrNext->rpdCompiler.rpdAdd = 0;
-    regPtrNext->rpdCompiler.rpdDel = (regMaskSmall)regMask;
-}
-
 /*****************************************************************************
  *
  *  Emit an 8-bit integer as code.
@@ -7090,356 +5873,6 @@ UNATIVE_OFFSET emitter::emitCodeOffset(void* blockPtr, unsigned codePos)
     return ig->igOffs + of;
 }
 
-/*****************************************************************************
- *
- *  Record the fact that the given register now contains a live GC ref.
- */
-
-void emitter::emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr)
-{
-    assert(emitIssuing);
-
-    // Don't track GC changes in epilogs
-    if (emitIGisInEpilog(emitCurIG))
-    {
-        return;
-    }
-
-    assert(needsGC(gcType));
-
-    regMaskTP regMask = genRegMask(reg);
-
-    regMaskTP& emitThisXXrefRegs = (gcType == GCT_GCREF) ? emitThisGCrefRegs : emitThisByrefRegs;
-    regMaskTP& emitThisYYrefRegs = (gcType == GCT_GCREF) ? emitThisByrefRegs : emitThisGCrefRegs;
-
-    if ((emitThisXXrefRegs & regMask) == 0)
-    {
-        // If the register was holding the other GC type, that type should
-        // go dead now
-
-        if (emitThisYYrefRegs & regMask)
-        {
-            emitGCregDeadUpd(reg, addr);
-        }
-
-        // For synchronized methods, "this" is always alive and in the same register.
-        // However, if we generate any code after the epilog block (where "this"
-        // goes dead), "this" will come alive again. We need to notice that.
-        // Note that we only expect isThis to be true at an insGroup boundary.
-
-        bool isThis = (reg == emitSyncThisObjReg) ? true : false;
-
-        if (emitFullGCinfo)
-        {
-            emitGCregLiveSet(gcType, regMask, addr, isThis);
-        }
-
-        emitThisXXrefRegs |= regMask;
-    }
-
-    // The 2 GC reg masks can't be overlapping
-
-    assert((emitThisGCrefRegs & emitThisByrefRegs) == 0);
-}
-
-/*****************************************************************************
- *
- *  Record the fact that the given set of registers no longer contain live GC refs.
- */
-
-void emitter::emitGCregDeadUpdMask(regMaskTP regs, BYTE* addr)
-{
-    assert(emitIssuing);
-
-    // Don't track GC changes in epilogs
-    if (emitIGisInEpilog(emitCurIG))
-    {
-        return;
-    }
-
-    // First, handle the gcref regs going dead
-
-    regMaskTP gcrefRegs = emitThisGCrefRegs & regs;
-
-    // "this" can never go dead in synchronized methods, except in the epilog
-    // after the call to CORINFO_HELP_MON_EXIT.
-    assert(emitSyncThisObjReg == REG_NA || (genRegMask(emitSyncThisObjReg) & regs) == 0);
-
-    if (gcrefRegs)
-    {
-        assert((emitThisByrefRegs & gcrefRegs) == 0);
-
-        if (emitFullGCinfo)
-        {
-            emitGCregDeadSet(GCT_GCREF, gcrefRegs, addr);
-        }
-
-        emitThisGCrefRegs &= ~gcrefRegs;
-    }
-
-    // Second, handle the byref regs going dead
-
-    regMaskTP byrefRegs = emitThisByrefRegs & regs;
-
-    if (byrefRegs)
-    {
-        assert((emitThisGCrefRegs & byrefRegs) == 0);
-
-        if (emitFullGCinfo)
-        {
-            emitGCregDeadSet(GCT_BYREF, byrefRegs, addr);
-        }
-
-        emitThisByrefRegs &= ~byrefRegs;
-    }
-}
-
-/*****************************************************************************
- *
- *  Record the fact that the given register no longer contains a live GC ref.
- */
-
-void emitter::emitGCregDeadUpd(regNumber reg, BYTE* addr)
-{
-    assert(emitIssuing);
-
-    // Don't track GC changes in epilogs
-    if (emitIGisInEpilog(emitCurIG))
-    {
-        return;
-    }
-
-    regMaskTP regMask = genRegMask(reg);
-
-    if ((emitThisGCrefRegs & regMask) != 0)
-    {
-        assert((emitThisByrefRegs & regMask) == 0);
-
-        if (emitFullGCinfo)
-        {
-            emitGCregDeadSet(GCT_GCREF, regMask, addr);
-        }
-
-        emitThisGCrefRegs &= ~regMask;
-    }
-    else if ((emitThisByrefRegs & regMask) != 0)
-    {
-        if (emitFullGCinfo)
-        {
-            emitGCregDeadSet(GCT_BYREF, regMask, addr);
-        }
-
-        emitThisByrefRegs &= ~regMask;
-    }
-}
-
-#if FEATURE_FIXED_OUT_ARGS
-void emitter::emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum))
-{
-    assert(abs(offs) % REGSIZE_BYTES == 0);
-    assert(gcType != GCT_NONE);
-    assert(lclNum == emitComp->lvaOutgoingArgSpaceVar);
-
-    if (emitFullGCinfo)
-    {
-        noway_assert(FitsIn<uint16_t>(offs));
-
-        // Append an "arg push" entry to track a GC written to the outgoing argument space.
-
-        regPtrDsc* regPtrNext  = gcInfo->gcRegPtrAllocDsc();
-        regPtrNext->rpdGCtype  = gcType;
-        regPtrNext->rpdOffs    = emitCurCodeOffs(addr);
-        regPtrNext->rpdArg     = true;
-        regPtrNext->rpdCall    = false;
-        regPtrNext->rpdPtrArg  = static_cast<uint16_t>(offs);
-        regPtrNext->rpdArgType = GCInfo::rpdARG_PUSH;
-        regPtrNext->rpdIsThis  = false;
-    }
-}
-#endif // FEATURE_FIXED_OUT_ARGS
-
-void emitter::emitGCvarLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum))
-{
-    assert(abs(offs) % REGSIZE_BYTES == 0);
-    assert((emitGCrFrameOffsMin <= offs) && (offs < emitGCrFrameOffsMax));
-    assert(gcType != GCT_NONE);
-    assert(emitComp->lvaGetDesc(lclNum)->HasGCSlotLiveness());
-#if FEATURE_FIXED_OUT_ARGS
-    assert(lclNum != emitComp->lvaOutgoingArgSpaceVar);
-#endif
-
-    unsigned index = (offs - emitGCrFrameOffsMin) / REGSIZE_BYTES;
-    assert(index < emitGCrFrameOffsCnt);
-
-    if (emitGCrFrameLiveTab[index] == nullptr)
-    {
-        emitGCvarLiveSet(offs, gcType, emitCurCodeOffs(addr), index);
-    }
-}
-
-/*****************************************************************************
- *
- *  Allocate a new IG and link it in to the global list after the current IG
- */
-
-insGroup* emitter::emitAllocAndLinkIG()
-{
-    insGroup* ig = emitAllocIG();
-
-    assert(emitCurIG);
-
-    emitInsertIGAfter(emitCurIG, ig);
-
-    /* Propagate some IG flags from the current group to the new group */
-
-    ig->igFlags |= (emitCurIG->igFlags & IGF_PROPAGATE_MASK);
-
-    /* Set the new IG as the current IG */
-
-    emitCurIG = ig;
-
-    return ig;
-}
-
-/*****************************************************************************
- *
- *  Allocate an instruction group descriptor and assign it the next index.
- */
-
-insGroup* emitter::emitAllocIG()
-{
-    insGroup* ig;
-
-    /* Allocate a group descriptor */
-
-    size_t sz = sizeof(insGroup);
-    ig        = (insGroup*)emitGetMem(sz);
-
-#ifdef DEBUG
-    ig->igSelf = ig;
-#endif
-
-#if EMITTER_STATS
-    emitTotalIGcnt += 1;
-    emitTotalIGsize += sz;
-    emitSizeMethod += sz;
-#endif
-
-    /* Do basic initialization */
-
-    emitInitIG(ig);
-
-    return ig;
-}
-
-/*****************************************************************************
- *
- *  Initialize an instruction group
- */
-
-void emitter::emitInitIG(insGroup* ig)
-{
-    /* Assign the next available index to the instruction group */
-
-    ig->igNum = emitNxtIGnum;
-
-    emitNxtIGnum++;
-
-    /* Record the (estimated) code offset of the group */
-
-    ig->igOffs = emitCurCodeOffset;
-    assert(IsCodeAligned(ig->igOffs));
-
-    /* Set the current function index */
-
-    ig->igFuncIdx = emitComp->compCurrFuncIdx;
-
-    ig->igFlags = 0;
-
-#if defined(DEBUG) || defined(LATE_DISASM)
-    ig->igWeight    = getCurrentBlockWeight();
-    ig->igPerfScore = 0.0;
-#endif
-
-    /* Zero out some fields to avoid printing garbage in JitDumps. These
-       really only need to be set in DEBUG, but do it in all cases to make
-       sure we act the same in non-DEBUG builds.
-    */
-
-    ig->igSize   = 0;
-    ig->igGCregs = RBM_NONE;
-    ig->igInsCnt = 0;
-
-#if FEATURE_LOOP_ALIGN
-    ig->igLoopBackEdge = nullptr;
-#endif
-
-#ifdef DEBUG
-    ig->lastGeneratedBlock = nullptr;
-    // Explicitly call init, since IGs don't actually have a constructor.
-    ig->igBlocks.jitstd::list<BasicBlock*>::init(emitComp->getAllocator(CMK_LoopOpt));
-#endif
-}
-
-/*****************************************************************************
- *
- *  Insert instruction group 'ig' after 'igInsertAfterIG'
- */
-
-void emitter::emitInsertIGAfter(insGroup* insertAfterIG, insGroup* ig)
-{
-    assert(emitIGlist);
-    assert(emitIGlast);
-
-    ig->igNext            = insertAfterIG->igNext;
-    insertAfterIG->igNext = ig;
-
-    if (emitIGlast == insertAfterIG)
-    {
-        // If we are inserting at the end, then update the 'last' pointer
-        emitIGlast = ig;
-    }
-}
-
-/*****************************************************************************
- *
- *  Save the current IG and start a new one.
- */
-
-void emitter::emitNxtIG(bool extend)
-{
-    /* Right now we don't allow multi-IG prologs */
-
-    assert(emitCurIG != emitPrologIG);
-
-    /* First save the current group */
-
-    emitSavIG(extend);
-
-    /* Start generating the new group */
-
-    emitNewIG();
-
-    /* If this is an emitter added block, flag it */
-
-    if (extend)
-    {
-        emitCurIG->igFlags |= IGF_EXTEND;
-
-#if EMITTER_STATS
-        emitTotalIGExtend++;
-#endif // EMITTER_STATS
-    }
-
-    // We've created a new IG; no need to force another one.
-    emitForceNewIG = false;
-
-#ifdef DEBUG
-    // We haven't written any code into the IG yet, so clear our record of the last block written to the IG.
-    emitCurIG->lastGeneratedBlock = nullptr;
-#endif
-}
-
 cnsval_ssize_t emitter::emitGetInsSC(instrDesc* id)
 {
     if (id->idIsLargeCns())
@@ -7460,353 +5893,6 @@ BYTE* emitter::emitGetInsRelocValue(instrDesc* id)
 }
 
 #endif // TARGET_ARM
-
-#if !FEATURE_FIXED_OUT_ARGS
-
-// Record a push of a single dword on the stack.
-void emitter::emitStackPush(BYTE* addr, GCtype gcType)
-{
-#ifdef DEBUG
-    assert(IsValidGCtype(gcType));
-#endif
-
-    if (emitSimpleStkUsed)
-    {
-        assert(!emitFullGCinfo); // Simple stk not used for emitFullGCinfo
-        assert(emitCurStackLvl / sizeof(int) < MAX_SIMPLE_STK_DEPTH);
-
-        u1.emitSimpleStkMask <<= 1;
-        u1.emitSimpleStkMask |= (unsigned)needsGC(gcType);
-
-        u1.emitSimpleByrefStkMask <<= 1;
-        u1.emitSimpleByrefStkMask |= (gcType == GCT_BYREF);
-
-        assert((u1.emitSimpleStkMask & u1.emitSimpleByrefStkMask) == u1.emitSimpleByrefStkMask);
-    }
-    else
-    {
-        emitStackPushLargeStk(addr, gcType, 1);
-    }
-
-    emitCurStackLvl += sizeof(int);
-}
-
-// Record a push of a bunch of non-GC dwords on the stack.
-void emitter::emitStackPushN(BYTE* addr, unsigned count)
-{
-    assert(count);
-
-    if (emitSimpleStkUsed)
-    {
-        assert(!emitFullGCinfo); // Simple stk not used for emitFullGCinfo
-
-        u1.emitSimpleStkMask <<= count;
-        u1.emitSimpleByrefStkMask <<= count;
-    }
-    else
-    {
-        emitStackPushLargeStk(addr, GCT_NONE, count);
-    }
-
-    emitCurStackLvl += count * sizeof(int);
-}
-
-// Record a pop of the given number of dwords from the stack.
-void emitter::emitStackPop(BYTE* addr, bool isCall, unsigned callInstrSize, unsigned count)
-{
-    assert(!isCall || callInstrSize > 0);
-#ifdef TARGET_X86
-    assert(emitCurStackLvl / sizeof(int) >= count);
-
-    if (count != 0)
-    {
-        if (emitSimpleStkUsed)
-        {
-            assert(!emitFullGCinfo); // Simple stk not used for emitFullGCinfo
-
-            unsigned cnt = count;
-
-            do
-            {
-                u1.emitSimpleStkMask >>= 1;
-                u1.emitSimpleByrefStkMask >>= 1;
-            } while (--cnt);
-        }
-        else
-        {
-            emitStackPopLargeStk(addr, isCall, callInstrSize, count);
-        }
-
-        emitCurStackLvl -= count * sizeof(int);
-    }
-    else
-#endif // TARGET_X86
-    {
-        assert(isCall);
-
-        // For the general encoder we do the call below always when it's a call, to ensure that the call is
-        // recorded (when we're doing the ptr reg map for a non-fully-interruptible method).
-        if (emitFullGCinfo
-#ifndef JIT32_GCENCODER
-            || (codeGen->IsFullPtrRegMapRequired() && !codeGen->GetInterruptible() && isCall)
-#endif
-                )
-        {
-            emitStackPopLargeStk(addr, isCall, callInstrSize, 0);
-        }
-    }
-}
-
-// Record a push of a single word on the stack for a full pointer map.
-void emitter::emitStackPushLargeStk(BYTE* addr, GCtype gcType, unsigned count)
-{
-    S_UINT32 level(emitCurStackLvl / sizeof(int));
-
-    assert(IsValidGCtype(gcType));
-    assert(count);
-    assert(!emitSimpleStkUsed);
-
-    do
-    {
-        /* Push an entry for this argument on the tracking stack */
-
-        // printf("Pushed [%d] at lvl %2u [max=%u]\n", isGCref, emitArgTrackTop - emitArgTrackTab, emitMaxStackDepth);
-
-        assert(level.IsOverflow() || u2.emitArgTrackTop == u2.emitArgTrackTab + level.Value());
-        *u2.emitArgTrackTop++ = (BYTE)gcType;
-        assert(u2.emitArgTrackTop <= u2.emitArgTrackTab + emitMaxStackDepth);
-
-        if (emitFullArgInfo || needsGC(gcType))
-        {
-            if (emitFullGCinfo)
-            {
-                /* Append an "arg push" entry if this is a GC ref or
-                   FPO method. Allocate a new ptr arg entry and fill it in */
-
-                regPtrDsc* regPtrNext = codeGen->gcInfo.gcRegPtrAllocDsc();
-                regPtrNext->rpdGCtype = gcType;
-
-                regPtrNext->rpdOffs = emitCurCodeOffs(addr);
-                regPtrNext->rpdArg  = true;
-                regPtrNext->rpdCall = false;
-                if (level.IsOverflow() || !FitsIn<unsigned short>(level.Value()))
-                {
-                    IMPL_LIMITATION("Too many/too big arguments to encode GC information");
-                }
-                regPtrNext->rpdPtrArg  = (unsigned short)level.Value();
-                regPtrNext->rpdArgType = (unsigned short)GCInfo::rpdARG_PUSH;
-                regPtrNext->rpdIsThis  = false;
-            }
-
-            /* This is an "interesting" argument push */
-
-            u2.emitGcArgTrackCnt++;
-        }
-        level += 1;
-        assert(!level.IsOverflow());
-    } while (--count);
-}
-
-// Record a pop of the given number of words from the stack for a full ptr map.
-void emitter::emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSize, unsigned count)
-{
-    assert(emitIssuing);
-#ifdef JIT32_GCENCODER
-    // For the general encoder, we always need to record calls, so we make this call
-    // even when emitSimpleStkUsed is true.
-    assert(!emitSimpleStkUsed);
-#endif
-
-    S_UINT16 argRecCnt(0); // arg count for ESP, ptr-arg count for EBP
-
-    /* Count how many pointer records correspond to this "pop" */
-
-    for (unsigned argStkCnt = count; argStkCnt != 0; argStkCnt--)
-    {
-        assert(u2.emitArgTrackTop > u2.emitArgTrackTab);
-
-        GCtype gcType = (GCtype)(*--u2.emitArgTrackTop);
-
-        assert(IsValidGCtype(gcType));
-
-        // printf("Popped [%d] at lvl %u\n", GCtypeStr(gcType), emitArgTrackTop - emitArgTrackTab);
-
-        // This is an "interesting" argument
-
-        if (emitFullArgInfo || needsGC(gcType))
-        {
-            argRecCnt += 1;
-        }
-    }
-
-    assert(u2.emitArgTrackTop >= u2.emitArgTrackTab);
-    assert(u2.emitArgTrackTop == u2.emitArgTrackTab + emitCurStackLvl / sizeof(int) - count);
-    noway_assert(!argRecCnt.IsOverflow());
-
-    // We're about to pop the corresponding arg records
-    u2.emitGcArgTrackCnt -= argRecCnt.Value();
-
-#ifdef JIT32_GCENCODER
-    // For the general encoder, we always have to record calls, so we don't take this early return.
-    if (!emitFullGCinfo)
-    {
-        return;
-    }
-#endif
-
-    // Do we have any interesting (i.e., callee-saved) registers live here?
-
-    unsigned gcrefRegs = 0;
-    unsigned byrefRegs = 0;
-
-    // We make a bitmask whose bits correspond to callee-saved register indices (in the sequence
-    // of callee-saved registers only).
-    for (unsigned calleeSavedRegIdx = 0; calleeSavedRegIdx < CNT_CALLEE_SAVED; calleeSavedRegIdx++)
-    {
-        regMaskTP calleeSavedRbm = GCInfo::raRbmCalleeSaveOrder[calleeSavedRegIdx];
-        if (emitThisGCrefRegs & calleeSavedRbm)
-        {
-            gcrefRegs |= (1 << calleeSavedRegIdx);
-        }
-        if (emitThisByrefRegs & calleeSavedRbm)
-        {
-            byrefRegs |= (1 << calleeSavedRegIdx);
-        }
-    }
-
-#ifdef JIT32_GCENCODER
-    // For the general encoder, we always have to record calls, so we don't take this early return.    /* Are there any
-    // args to pop at this call site?
-
-    if (argRecCnt.Value() == 0)
-    {
-        /*
-            Or do we have a partially interruptible EBP-less frame, and any
-            of EDI,ESI,EBX,EBP are live, or is there an outer/pending call?
-         */
-        CLANG_FORMAT_COMMENT_ANCHOR;
-
-#if !FPO_INTERRUPTIBLE
-        if (emitFullyInt || (gcrefRegs == 0 && byrefRegs == 0 && u2.emitGcArgTrackCnt == 0))
-#endif
-            return;
-    }
-#endif // JIT32_GCENCODER
-
-    /* Only calls may pop more than one value */
-    // More detail:
-    // _cdecl calls accomplish this popping via a post-call-instruction SP adjustment.
-    // The "rpdCall" field below should be interpreted as "the instruction accomplishes
-    // call-related popping, even if it's not itself a call".  Therefore, we don't just
-    // use the "isCall" input argument, which means that the instruction actually is a call --
-    // we use the OR of "isCall" or the "pops more than one value."
-    bool isCallRelatedPop = (argRecCnt.Value() > 1);
-
-    /* Allocate a new ptr arg entry and fill it in */
-
-    regPtrDsc* regPtrNext = codeGen->gcInfo.gcRegPtrAllocDsc();
-    regPtrNext->rpdGCtype = GCT_GCREF; // Pops need a non-0 value (??)
-
-    regPtrNext->rpdOffs = emitCurCodeOffs(addr);
-    regPtrNext->rpdCall = (isCall || isCallRelatedPop);
-#ifndef JIT32_GCENCODER
-    if (regPtrNext->rpdCall)
-    {
-        assert(isCall || callInstrSize == 0);
-        regPtrNext->rpdCallInstrSize = callInstrSize;
-    }
-#endif
-    regPtrNext->rpdCallGCrefRegs = gcrefRegs;
-    regPtrNext->rpdCallByrefRegs = byrefRegs;
-    regPtrNext->rpdArg           = true;
-    regPtrNext->rpdArgType       = GCInfo::rpdARG_POP;
-    regPtrNext->rpdPtrArg        = argRecCnt.Value();
-}
-
-// For caller-pop arguments, we report the arguments as pending arguments.
-// However, any GC arguments are now dead, so we need to report them as non-GC.
-void emitter::emitStackKillArgs(BYTE* addr, unsigned count, unsigned callInstrSize)
-{
-    assert(count > 0);
-
-    if (emitSimpleStkUsed)
-    {
-        assert(!emitFullGCinfo); // Simple stk not used for emitFullGCInfo
-
-        // We don't need to report this to the GC info, but we do need
-        // to kill mark the ptrs on the stack as non-GC.
-
-        assert(emitCurStackLvl / sizeof(int) >= count);
-
-        for (unsigned lvl = 0; lvl < count; lvl++)
-        {
-            u1.emitSimpleStkMask &= ~(1 << lvl);
-            u1.emitSimpleByrefStkMask &= ~(1 << lvl);
-        }
-
-        return;
-    }
-
-    BYTE*    argTrackTop = u2.emitArgTrackTop;
-    S_UINT16 gcCnt(0);
-
-    for (unsigned i = 0; i < count; i++)
-    {
-        assert(argTrackTop > u2.emitArgTrackTab);
-
-        --argTrackTop;
-
-        GCtype gcType = (GCtype)(*argTrackTop);
-        assert(IsValidGCtype(gcType));
-
-        if (needsGC(gcType))
-        {
-            // printf("Killed %s at lvl %u\n", GCtypeStr(gcType), argTrackTop - emitArgTrackTab);
-
-            *argTrackTop = GCT_NONE;
-            gcCnt += 1;
-        }
-    }
-
-    noway_assert(!gcCnt.IsOverflow());
-
-    /* We're about to kill the corresponding (pointer) arg records */
-
-    if (!emitFullArgInfo)
-    {
-        u2.emitGcArgTrackCnt -= gcCnt.Value();
-    }
-
-    if (!emitFullGCinfo)
-    {
-        return;
-    }
-
-    /* Right after the call, the arguments are still sitting on the
-       stack, but they are effectively dead. For fully-interruptible
-       methods, we need to report that */
-
-    if (gcCnt.Value())
-    {
-        /* Allocate a new ptr arg entry and fill it in */
-
-        regPtrDsc* regPtrNext = codeGen->gcInfo.gcRegPtrAllocDsc();
-        regPtrNext->rpdGCtype = GCT_GCREF; // Kills need a non-0 value (??)
-
-        regPtrNext->rpdOffs = emitCurCodeOffs(addr);
-
-        regPtrNext->rpdArg     = TRUE;
-        regPtrNext->rpdArgType = (unsigned short)GCInfo::rpdARG_KILL;
-        regPtrNext->rpdPtrArg  = gcCnt.Value();
-    }
-
-    // Now that ptr args have been marked as non-ptrs, we need to
-    // record the call itself as one that has no arguments.
-
-    emitStackPopLargeStk(addr, true, callInstrSize, 0);
-}
-
-#endif // !FEATURE_FIXED_OUT_ARGS
 
 // A helper for recording a relocation with the EE.
 void emitter::emitRecordRelocation(void* location,            /* IN */
@@ -7899,7 +5985,7 @@ const char* emitter::emitOffsetToLabel(unsigned offs)
 
     UNATIVE_OFFSET nextof = 0;
 
-    for (insGroup* ig = emitIGlist; ig != nullptr; ig = ig->igNext)
+    for (insGroup* ig = emitIGfirst; ig != nullptr; ig = ig->igNext)
     {
         // There is an eventual unused space after the last actual hot block
         // before the first allocated cold block.
@@ -7940,125 +6026,258 @@ const char* emitter::emitOffsetToLabel(unsigned offs)
 
 #endif // DEBUG
 
-//------------------------------------------------------------------------
-// emitGetGCRegsSavedOrModified: Returns the set of registers that keeps gcrefs and byrefs across the call.
-//
-// Notes: it returns union of two sets:
-//        1) registers that could contain GC/byRefs before the call and call doesn't touch them;
-//        2) registers that contain GC/byRefs before the call and call modifies them, but they still
-//           contain GC/byRefs.
-//
-// Arguments:
-//   methHnd - the method handler of the call.
-//
-// Return value:
-//   the saved set of registers.
-//
-regMaskTP emitter::emitGetGCRegsSavedOrModified(CORINFO_METHOD_HANDLE methHnd)
+void emitter::emitGCvarLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum))
 {
-    // Is it a helper with a special saved set?
-    bool isNoGCHelper = emitNoGChelper(methHnd);
-    if (isNoGCHelper)
-    {
-        CorInfoHelpFunc helpFunc = Compiler::eeGetHelperNum(methHnd);
-
-        // Get the set of registers that this call kills and remove it from the saved set.
-        regMaskTP savedSet = RBM_ALLINT & ~emitGetGCRegsKilledByNoGCCall(helpFunc);
-
-#ifdef DEBUG
-        if (emitComp->verbose)
-        {
-            printf("NoGC Call: saved regs");
-            emitDispRegSet(savedSet);
-            printf("\n");
-        }
+    assert(emitIssuing);
+    assert(gcType != GCT_NONE);
+    assert(emitComp->lvaGetDesc(lclNum)->HasGCSlotLiveness());
+#if FEATURE_FIXED_OUT_ARGS
+    assert(lclNum != emitComp->lvaOutgoingArgSpaceVar);
 #endif
-        return savedSet;
+
+    unsigned index = gcInfo.GetTrackedStackSlotIndex(offs);
+
+    if (!gcInfo.IsLiveTrackedStackSlot(index))
+    {
+        gcInfo.BeginStackSlotLifetime(gcType, index, emitCurCodeOffs(addr), offs);
+    }
+}
+
+#if FEATURE_FIXED_OUT_ARGS
+
+void emitter::emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum))
+{
+    assert(abs(offs) % REGSIZE_BYTES == 0);
+    assert(gcType != GCT_NONE);
+    assert(lclNum == emitComp->lvaOutgoingArgSpaceVar);
+
+    if (gcInfo.IsFullyInterruptible())
+    {
+        gcInfo.AddCallArgStore(emitCurCodeOffs(addr), offs, gcType);
+    }
+}
+
+#endif // FEATURE_FIXED_OUT_ARGS
+
+size_t emitter::emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* callEndAddr)
+{
+    assert(emitIssuing);
+
+    regMaskTP refRegs;
+    regMaskTP byrefRegs;
+    VARSET_TP gcLcls;
+    X86_ONLY(int argCount;)
+    size_t sz;
+
+    if (id->idIsLargeCall())
+    {
+        instrDescCGCA* idCall = static_cast<instrDescCGCA*>(id);
+
+        refRegs   = idCall->idcGcrefRegs;
+        byrefRegs = idCall->idcByrefRegs;
+        gcLcls    = idCall->idcGCvars;
+        X86_ONLY(argCount = idCall->idcArgCnt);
+
+        sz = sizeof(instrDescCGCA);
     }
     else
     {
-        // This is the saved set of registers after a normal call.
-        return RBM_CALLEE_SAVED;
-    }
-}
+        assert(!id->idIsLargeCns());
+#ifdef TARGET_XARCH
+        assert(!id->idIsLargeDsp());
+#endif
 
-//----------------------------------------------------------------------
-// emitGetGCRegsKilledByNoGCCall: Gets a register mask that represents the set of registers that no longer
-// contain GC or byref pointers, for "NO GC" helper calls. This is used by the emitter when determining
-// what registers to remove from the current live GC/byref sets (and thus what to report as dead in the
-// GC info). Note that for the CORINFO_HELP_ASSIGN_BYREF helper, in particular, the kill set reported by
-// compHelperCallKillSet() doesn't match this kill set. compHelperCallKillSet() reports the dst/src
-// address registers as killed for liveness purposes, since their values change. However, they still are
-// valid byref pointers after the call, so the dst/src address registers are NOT reported as killed here.
-//
-// Note: This list may not be complete and defaults to the default RBM_CALLEE_TRASH_NOGC registers.
-//
-// Arguments:
-//   helper - The helper being inquired about
-//
-// Return Value:
-//   Mask of GC register kills
-//
-regMaskTP emitter::emitGetGCRegsKilledByNoGCCall(CorInfoHelpFunc helper)
-{
-    assert(emitNoGChelper(helper));
-    regMaskTP result;
-    switch (helper)
+        refRegs   = emitDecodeCallGCregs(id);
+        byrefRegs = RBM_NONE;
+        gcLcls    = emitEmptyGCrefVars;
+        X86_ONLY(argCount = static_cast<int>(emitGetInsCns(id)));
+
+        if (id->idGCref() == GCT_GCREF)
+        {
+            refRegs |= RBM_INTRET;
+        }
+        else if (id->idGCref() == GCT_BYREF)
+        {
+            byrefRegs |= RBM_INTRET;
+        }
+
+        sz = sizeof(instrDesc);
+    }
+
+    unsigned callOffs    = emitCurCodeOffs(callAddr);
+    unsigned callEndOffs = callOffs + static_cast<unsigned>(callEndAddr - callAddr);
+
+    if (!emitCurIG->IsEpilog())
     {
-        case CORINFO_HELP_ASSIGN_BYREF:
-#if defined(TARGET_X86)
-            // This helper only trashes ECX.
-            result = RBM_ECX;
-            break;
-#elif defined(TARGET_AMD64)
-            // This uses and defs RDI and RSI.
-            result = RBM_CALLEE_TRASH_NOGC & ~(RBM_RDI | RBM_RSI);
-            break;
-#elif defined(TARGET_ARMARCH)
-            result = RBM_CALLEE_GCTRASH_WRITEBARRIER_BYREF;
-            break;
-#else
-            assert(!"unknown arch");
+        // We update tracked stack slot GC info before the call as they cannot
+        // be used by the call (they'd need to be address exposed, thus untracked).
+        // Killing stack slots before the call helps with boundary conditions if
+        // the call is CORINFO_HELP_THROW.
+        // If we ever track aliased locals (which could be used by the call), we
+        // would have to keep the corresponding stack slots alive past the call.
+        gcInfo.SetLiveStackSlots(gcLcls, callOffs);
+
+#ifdef DEBUG
+        // And we have to dump the delta here, so it appears before the call instruction
+        // in disassembly, instead of appearing after like all other GC info deltas.
+        if (emitComp->verbose || emitComp->opts.disasmWithGC)
+        {
+            char header[128];
+            GetGCDeltaDumpHeader(header, _countof(header));
+            gcInfo.DumpStackSlotLifetimeDelta(header);
+        }
 #endif
 
-        case CORINFO_HELP_PROF_FCN_ENTER:
-            result = RBM_PROFILER_ENTER_TRASH;
-            break;
+        if (refRegs != gcInfo.GetLiveRegs(GCT_GCREF))
+        {
+            gcInfo.SetLiveRegs(GCT_GCREF, refRegs, callEndOffs);
+        }
 
-        case CORINFO_HELP_PROF_FCN_LEAVE:
-#if defined(TARGET_ARM)
-            // profiler scratch remains gc live
-            result = RBM_PROFILER_LEAVE_TRASH & ~RBM_PROFILER_RET_SCRATCH;
-#else
-            result = RBM_PROFILER_LEAVE_TRASH;
-#endif
-            break;
-
-        case CORINFO_HELP_PROF_FCN_TAILCALL:
-            result = RBM_PROFILER_TAILCALL_TRASH;
-            break;
-
-#if defined(TARGET_ARMARCH)
-        case CORINFO_HELP_ASSIGN_REF:
-        case CORINFO_HELP_CHECKED_ASSIGN_REF:
-            result = RBM_CALLEE_GCTRASH_WRITEBARRIER;
-            break;
-#endif // defined(TARGET_ARMARCH)
-
-#if defined(TARGET_X86)
-        case CORINFO_HELP_INIT_PINVOKE_FRAME:
-            result = RBM_INIT_PINVOKE_FRAME_TRASH;
-            break;
-#endif // defined(TARGET_X86)
-
-        default:
-            result = RBM_CALLEE_TRASH_NOGC;
-            break;
+        if (byrefRegs != gcInfo.GetLiveRegs(GCT_BYREF))
+        {
+            gcInfo.SetLiveRegs(GCT_BYREF, byrefRegs, callEndOffs);
+        }
     }
 
-    // compHelperCallKillSet returns a superset of the registers which values are not guranteed to be the same
-    // after the call, if a register loses its GC or byref it has to be in the compHelperCallKillSet set as well.
-    assert((result & emitComp->compHelperCallKillSet(helper)) == result);
+#ifdef JIT32_GCENCODER
+    bool isNoGC = id->idIsNoGC();
 
-    return result;
+    if (!isNoGC || (argCount != 0))
+    {
+        // For callee-pop, all arguments will be popped after the call.
+        // For caller-pop, any GC arguments will go dead after the call.
+
+        if (argCount < 0)
+        {
+            emitStackKillArgs(callEndOffs, -argCount);
+        }
+        else
+        {
+            emitStackPopArgs(callEndOffs, argCount);
+        }
+    }
+
+    if (!isNoGC && gcInfo.ReportCallSites())
+    {
+        gcInfo.AddCallSite(emitCurStackLvl / TARGET_POINTER_SIZE, callEndOffs);
+    }
+#else
+    if (!id->idIsNoGC())
+    {
+        if (gcInfo.IsFullyInterruptible())
+        {
+            gcInfo.AddCallArgsKill(callEndOffs);
+        }
+        else
+        {
+            gcInfo.AddCallSite(callOffs, callEndOffs);
+        }
+    }
+#endif
+
+    return sz;
 }
+
+void emitter::emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr)
+{
+    assert(emitIssuing);
+
+    if (!emitCurIG->IsEpilog())
+    {
+        gcInfo.AddLiveReg(gcType, reg, emitCurCodeOffs(addr));
+    }
+}
+
+void emitter::emitGCregDeadUpd(regNumber reg, BYTE* addr)
+{
+    assert(emitIssuing);
+
+    if (!emitCurIG->IsEpilog())
+    {
+        gcInfo.RemoveLiveReg(reg, emitCurCodeOffs(addr));
+    }
+}
+
+#ifdef FEATURE_EH_FUNCLETS
+void emitter::emitGCregDeadAll(BYTE* addr)
+{
+    assert(emitIssuing);
+
+    if (!emitCurIG->IsEpilog())
+    {
+        gcInfo.RemoveAllLiveRegs(emitCurCodeOffs(addr));
+    }
+}
+#endif // FEATURE_EH_FUNCLETS
+
+#ifdef JIT32_GCENCODER
+
+void emitter::emitStackPush(unsigned codeOffs, GCtype type)
+{
+    assert(emitIssuing);
+
+    gcInfo.StackPush(type, emitCurStackLvl / TARGET_POINTER_SIZE, codeOffs);
+    emitCurStackLvl += TARGET_POINTER_SIZE;
+}
+
+void emitter::emitStackPushN(unsigned codeOffs, unsigned count)
+{
+    assert(emitIssuing);
+
+    gcInfo.StackPushMultiple(count, emitCurStackLvl / TARGET_POINTER_SIZE, codeOffs);
+    emitCurStackLvl += count * TARGET_POINTER_SIZE;
+}
+
+void emitter::emitStackPop(unsigned codeOffs, unsigned count)
+{
+    assert(emitIssuing);
+
+    gcInfo.StackPop(count, emitCurStackLvl / TARGET_POINTER_SIZE, codeOffs, false);
+    emitCurStackLvl -= count * TARGET_POINTER_SIZE;
+}
+
+void emitter::emitStackPopArgs(unsigned codeOffs, unsigned count)
+{
+    assert(emitIssuing);
+
+    gcInfo.StackPop(count, emitCurStackLvl / TARGET_POINTER_SIZE, codeOffs, true);
+    emitCurStackLvl -= count * TARGET_POINTER_SIZE;
+}
+
+void emitter::emitStackKillArgs(unsigned codeOffs, unsigned count)
+{
+    assert(emitIssuing);
+
+    gcInfo.StackKill(count, emitCurStackLvl / TARGET_POINTER_SIZE, codeOffs);
+}
+
+#endif // JIT32_GCENCODER
+
+#ifdef DEBUG
+
+void emitter::GetGCDeltaDumpHeader(char* buffer, size_t count)
+{
+// Interleaved GC info dumping.
+// We'll attempt to line this up with the opcode, which indented differently for
+// diffable and non-diffable dumps.
+// This is approximate, and is better tuned for disassembly than for jitdumps.
+// See emitDispInsHex().
+#ifdef TARGET_AMD64
+    constexpr int basicIndent     = 7;
+    constexpr int hexEncodingSize = 21;
+#elif defined(TARGET_X86)
+    constexpr int basicIndent     = 7;
+    constexpr int hexEncodingSize = 13;
+#elif defined(TARGET_ARM64)
+    constexpr int basicIndent     = 12;
+    constexpr int hexEncodingSize = 14;
+#elif defined(TARGET_ARM)
+    constexpr int basicIndent     = 12;
+    constexpr int hexEncodingSize = 11;
+#endif
+
+    int indent = emitComp->opts.disDiffable ? basicIndent : basicIndent + hexEncodingSize;
+    sprintf_s(buffer, count, "%.*s; ", indent, "                             ");
+}
+
+#endif // DEBUG

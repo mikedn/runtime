@@ -47,7 +47,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 #include "codegeninterface.h"
 #include "regset.h"
-#include "jitgcinfo.h"
 
 #if DUMP_GC_TABLES && defined(JIT32_GCENCODER)
 #include "gcdump.h"
@@ -779,26 +778,6 @@ public:
     bool lvIsInReg() const
     {
         return lvLRACandidate && (GetRegNum() != REG_STK);
-    }
-
-    regMaskTP lvRegMask() const
-    {
-        regMaskTP regMask = RBM_NONE;
-        if (varTypeUsesFloatReg(TypeGet()))
-        {
-            if (GetRegNum() != REG_STK)
-            {
-                regMask = genRegMaskFloat(GetRegNum(), TypeGet());
-            }
-        }
-        else
-        {
-            if (GetRegNum() != REG_STK)
-            {
-                regMask = genRegMask(GetRegNum());
-            }
-        }
-        return regMask;
     }
 
     uint16_t lvVarIndex;
@@ -6551,7 +6530,7 @@ public:
 
     // Gets a register mask that represent the kill set for a helper call since
     // not all JIT Helper calls follow the standard ABI on the target architecture.
-    regMaskTP compHelperCallKillSet(CorInfoHelpFunc helper);
+    static regMaskTP compHelperCallKillSet(CorInfoHelpFunc helper);
 
 /*
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -7112,15 +7091,6 @@ public:
     unsigned  compHndBBtabCount      = 0;       // element count of used elements in EH data array
     unsigned  compHndBBtabAllocCount = 0;       // element count of allocated elements in EH data array
 
-#if defined(TARGET_X86)
-
-    //-------------------------------------------------------------------------
-    //  Tracking of region covered by the monitor in synchronized methods
-    void* syncStartEmitCookie; // the emitter cookie for first instruction after the call to MON_ENTER
-    void* syncEndEmitCookie;   // the emitter cookie for first instruction after the call to MON_EXIT
-
-#endif // !TARGET_X86
-
     unsigned compMapILargNum(unsigned ilArgNum);
     unsigned compMapILvarNum(unsigned ilVarNum);
     unsigned compMap2ILvarNum(unsigned varNum) const;
@@ -7275,11 +7245,6 @@ public:
     CompAllocator getAllocator(CompMemKind cmk = CMK_Generic)
     {
         return CompAllocator(compArenaAllocator, cmk);
-    }
-
-    CompAllocator getAllocatorGC()
-    {
-        return getAllocator(CMK_GC);
     }
 
     CompAllocator getAllocatorLoopHoist()
@@ -8745,8 +8710,6 @@ private:
     void AddNode(GenTree* node);
 };
 
-#include "compiler.hpp" // All the shared inline functions
+#include "compiler.hpp"
 
-/*****************************************************************************/
 #endif //_COMPILER_H_
-/*****************************************************************************/

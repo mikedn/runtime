@@ -1,68 +1,54 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                          GCEncode                                         XX
-XX                                                                           XX
-XX   Logic to encode the JIT method header and GC pointer tables             XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-
-#pragma warning(disable : 4244) // loss of data int -> char ..
-
-#endif
-
 #include "gcinfotypes.h"
+#ifndef JIT32_GCENCODER
+#include "gcinfoencoder.h"
+#endif
 #include "patchpointinfo.h"
+#include "codegen.h"
+#include "jitstd/algorithm.h"
 
-ReturnKind varTypeToReturnKind(var_types type)
-{
-    switch (type)
-    {
-        case TYP_REF:
-            return RT_Object;
-        case TYP_BYREF:
-            return RT_ByRef;
-        default:
-            return RT_Scalar;
-    }
-}
-
-ReturnKind GCInfo::getReturnKind()
+static ReturnKind GetReturnKind(const CompiledMethodInfo& info)
 {
 #ifdef TARGET_X86
-    if (varTypeIsFloating(compiler->info.compRetType))
+    if (varTypeIsFloating(info.compRetType))
     {
         return RT_Float;
     }
 #endif
 
-    if (compiler->info.compRetBuffArg != BAD_VAR_NUM)
+    if (info.compRetBuffArg != BAD_VAR_NUM)
     {
         // The ABI may require to return the buffer address (a BYREF)
         // but the JIT doesn't use it.
         return RT_Scalar;
     }
 
-    const ReturnTypeDesc& retDesc = compiler->info.retDesc;
+    const ReturnTypeDesc& retDesc = info.retDesc;
+
+    auto TypeToReturnKind = [](var_types type) {
+        switch (type)
+        {
+            case TYP_REF:
+                return RT_Object;
+            case TYP_BYREF:
+                return RT_ByRef;
+            default:
+                return RT_Scalar;
+        }
+    };
 
     if (retDesc.GetRegCount() == 1)
     {
-        return varTypeToReturnKind(compiler->info.retDesc.GetRegType(0));
+        return TypeToReturnKind(info.retDesc.GetRegType(0));
     }
 
     if (retDesc.GetRegCount() == 2)
     {
-        ReturnKind r0 = varTypeToReturnKind(retDesc.GetRegType(0));
-        ReturnKind r1 = varTypeToReturnKind(retDesc.GetRegType(1));
+        ReturnKind r0 = TypeToReturnKind(retDesc.GetRegType(0));
+        ReturnKind r1 = TypeToReturnKind(retDesc.GetRegType(1));
 
         return GetStructReturnKind(r0, r1);
     }
@@ -75,296 +61,386 @@ ReturnKind GCInfo::getReturnKind()
     return RT_Scalar;
 }
 
-#if !defined(JIT32_GCENCODER) || defined(FEATURE_EH_FUNCLETS)
-
-// gcMarkFilterVarsPinned - Walk all lifetimes and make it so that anything
-//     live in a filter is marked as pinned (often by splitting the lifetime
-//     so that *only* the filter region is pinned).  This should only be
-//     called once (after generating all lifetimes, but before slot ids are
-//     finalized.
-//
-// DevDiv 376329 - The VM has to double report filters and their parent frame
-// because they occur during the 1st pass and the parent frame doesn't go dead
-// until we start unwinding in the 2nd pass.
-//
-// Untracked locals will only be reported in non-filter funclets and the
-// parent.
-// Registers can't be double reported by 2 frames since they're different.
-// That just leaves stack variables which might be double reported.
-//
-// Technically double reporting is only a problem when the GC has to relocate a
-// reference. So we avoid that problem by marking all live tracked stack
-// variables as pinned inside the filter.  Thus if they are double reported, it
-// won't be a problem since they won't be double relocated.
-//
-void GCInfo::gcMarkFilterVarsPinned()
-{
-    assert(compiler->ehAnyFunclets());
-
-    for (EHblkDsc* const HBtab : EHClauses(compiler))
-    {
-        if (HBtab->HasFilter())
-        {
-            const UNATIVE_OFFSET filterBeg = compiler->ehCodeOffset(HBtab->ebdFilter);
-            const UNATIVE_OFFSET filterEnd = compiler->ehCodeOffset(HBtab->ebdHndBeg);
-
-            for (varPtrDsc* varTmp = gcVarPtrList; varTmp != nullptr; varTmp = varTmp->vpdNext)
-            {
-                // Get hold of the variable's flags.
-                const unsigned lowBits = varTmp->frameOffset & OFFSET_MASK;
-
-                // Compute the actual lifetime offsets.
-                const unsigned begOffs = varTmp->vpdBegOfs;
-                const unsigned endOffs = varTmp->vpdEndOfs;
-
-                // Special case: skip any 0-length lifetimes.
-                if (endOffs == begOffs)
-                {
-                    continue;
-                }
-
-                // Skip lifetimes with no overlap with the filter
-                if ((endOffs <= filterBeg) || (begOffs >= filterEnd))
-                {
-                    continue;
-                }
-
-#ifndef JIT32_GCENCODER
-                // Because there is no nesting within filters, nothing
-                // should be already pinned.
-                // For JIT32_GCENCODER, we should not do this check as gcVarPtrList are always sorted by vpdBegOfs
-                // which means that we could see some varPtrDsc that were already pinned by previous splitting.
-                assert((lowBits & pinned_OFFSET_FLAG) == 0);
-#endif // JIT32_GCENCODER
-
-                if (begOffs < filterBeg)
-                {
-                    if (endOffs > filterEnd)
-                    {
-                        // The variable lifetime is starts before AND ends after
-                        // the filter, so we need to create 2 new lifetimes:
-                        //     (1) a pinned one for the filter
-                        //     (2) a regular one for after the filter
-                        // and then adjust the original lifetime to end before
-                        // the filter.
-                        CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef DEBUG
-                        if (compiler->verbose)
-                        {
-                            printf("Splitting lifetime for filter: [%04X, %04X).\nOld: ", filterBeg, filterEnd);
-                            gcDumpVarPtrDsc(varTmp);
-                        }
-#endif // DEBUG
-
-                        FrameLifetime* desc1 = new (compiler, CMK_GC)
-                            FrameLifetime(varTmp->frameOffset | pinned_OFFSET_FLAG, filterBeg, filterEnd);
-                        FrameLifetime* desc2 =
-                            new (compiler, CMK_GC) FrameLifetime(varTmp->frameOffset, filterEnd, endOffs);
-
-                        varTmp->vpdEndOfs = filterBeg;
-
-                        gcInsertVarPtrDscSplit(desc1, varTmp);
-                        gcInsertVarPtrDscSplit(desc2, varTmp);
-
-#ifdef DEBUG
-                        if (compiler->verbose)
-                        {
-                            printf("New (1 of 3): ");
-                            gcDumpVarPtrDsc(varTmp);
-                            printf("New (2 of 3): ");
-                            gcDumpVarPtrDsc(desc1);
-                            printf("New (3 of 3): ");
-                            gcDumpVarPtrDsc(desc2);
-                        }
-#endif // DEBUG
-                    }
-                    else
-                    {
-                        // The variable lifetime started before the filter and ends
-                        // somewhere inside it, so we only create 1 new lifetime,
-                        // and then adjust the original lifetime to end before
-                        // the filter.
-                        CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef DEBUG
-                        if (compiler->verbose)
-                        {
-                            printf("Splitting lifetime for filter.\nOld: ");
-                            gcDumpVarPtrDsc(varTmp);
-                        }
-#endif // DEBUG
-
-                        FrameLifetime* desc = new (compiler, CMK_GC)
-                            FrameLifetime(varTmp->frameOffset | pinned_OFFSET_FLAG, filterBeg, endOffs);
-                        varTmp->vpdEndOfs = filterBeg;
-
-                        gcInsertVarPtrDscSplit(desc, varTmp);
-
-#ifdef DEBUG
-                        if (compiler->verbose)
-                        {
-                            printf("New (1 of 2): ");
-                            gcDumpVarPtrDsc(varTmp);
-                            printf("New (2 of 2): ");
-                            gcDumpVarPtrDsc(desc);
-                        }
-#endif // DEBUG
-                    }
-                }
-                else
-                {
-                    if (endOffs > filterEnd)
-                    {
-                        // The variable lifetime starts inside the filter and
-                        // ends somewhere after it, so we create 1 new
-                        // lifetime for the part inside the filter and adjust
-                        // the start of the original lifetime to be the end
-                        // of the filter
-                        CLANG_FORMAT_COMMENT_ANCHOR;
-#ifdef DEBUG
-                        if (compiler->verbose)
-                        {
-                            printf("Splitting lifetime for filter.\nOld: ");
-                            gcDumpVarPtrDsc(varTmp);
-                        }
-#endif // DEBUG
-
-#ifndef JIT32_GCENCODER
-                        FrameLifetime* desc = new (compiler, CMK_GC)
-                            FrameLifetime(varTmp->frameOffset | pinned_OFFSET_FLAG, begOffs, filterEnd);
-
-                        varTmp->vpdBegOfs = filterEnd;
-#else
-                        FrameLifetime* desc =
-                            new (compiler, CMK_GC) FrameLifetime(varTmp->frameOffset, filterEnd, endOffs);
-
-                        // Mark varTmp as pinned and generated use varPtrDsc(desc) as non-pinned
-                        // since gcInsertVarPtrDscSplit requires that varTmp->vpdBegOfs must
-                        // precede desc->vpdBegOfs.
-                        varTmp->frameOffset |= pinned_OFFSET_FLAG;
-                        varTmp->vpdEndOfs = filterEnd;
-#endif
-
-                        gcInsertVarPtrDscSplit(desc, varTmp);
-
-#ifdef DEBUG
-                        if (compiler->verbose)
-                        {
-                            printf("New (1 of 2): ");
-                            gcDumpVarPtrDsc(desc);
-                            printf("New (2 of 2): ");
-                            gcDumpVarPtrDsc(varTmp);
-                        }
-#endif // DEBUG
-                    }
-                    else
-                    {
-                        // The variable lifetime is completely within the filter,
-                        // so just add the pinned flag.
-                        CLANG_FORMAT_COMMENT_ANCHOR;
-#ifdef DEBUG
-                        if (compiler->verbose)
-                        {
-                            printf("Pinning lifetime for filter.\nOld: ");
-                            gcDumpVarPtrDsc(varTmp);
-                        }
-#endif // DEBUG
-
-                        varTmp->frameOffset |= pinned_OFFSET_FLAG;
-#ifdef DEBUG
-                        if (compiler->verbose)
-                        {
-                            printf("New : ");
-                            gcDumpVarPtrDsc(varTmp);
-                        }
-#endif // DEBUG
-                    }
-                }
-            }
-        } // HasFilter
-    }     // Foreach EH
-}
-
-// gcInsertVarPtrDscSplit - Insert varPtrDsc that were created by splitting lifetimes
-//     From gcMarkFilterVarsPinned, we may have created one or two `varPtrDsc`s due to splitting lifetimes
-//     and these newly created `varPtrDsc`s should be inserted in gcVarPtrList.
-//     However the semantics of this call depend on the architecture.
-//
-//     x86-GCInfo requires gcVarPtrList to be sorted by vpdBegOfs.
-//     Every time inserting an entry we should keep the order of entries.
-//     So this function searches for a proper insertion point from "begin" then "desc" gets inserted.
-//
-//     For other architectures(ones that uses GCInfo{En|De}coder), we don't need any sort.
-//     So the argument "begin" is unused and "desc" will be inserted at the front of the list.
-
-void GCInfo::gcInsertVarPtrDscSplit(varPtrDsc* desc, varPtrDsc* begin)
-{
-#ifndef JIT32_GCENCODER
-    (void)begin;
-    desc->vpdNext = gcVarPtrList;
-    gcVarPtrList  = desc;
-#else  // JIT32_GCENCODER
-    // "desc" and "begin" must not be null
-    assert(desc != nullptr);
-    assert(begin != nullptr);
-
-    // The caller must guarantee that desc's BegOfs is equal or greater than begin's
-    // since we will search for insertion point from "begin"
-    assert(desc->vpdBegOfs >= begin->vpdBegOfs);
-
-    varPtrDsc* varTmp    = begin->vpdNext;
-    varPtrDsc* varInsert = begin;
-
-    while (varTmp != nullptr && varTmp->vpdBegOfs < desc->vpdBegOfs)
-    {
-        varInsert = varTmp;
-        varTmp    = varTmp->vpdNext;
-    }
-
-    // Insert point cannot be null
-    assert(varInsert != nullptr);
-
-    desc->vpdNext      = varInsert->vpdNext;
-    varInsert->vpdNext = desc;
-#endif // JIT32_GCENCODER
-}
-
-#ifdef DEBUG
-
-void GCInfo::gcDumpVarPtrDsc(varPtrDsc* desc)
-{
-    const int    offs   = (desc->frameOffset & ~OFFSET_MASK);
-    const GCtype gcType = (desc->frameOffset & byref_OFFSET_FLAG) ? GCT_BYREF : GCT_GCREF;
-    const bool   isPin  = (desc->frameOffset & pinned_OFFSET_FLAG) != 0;
-
-    printf("[%08X] %s%s var at [%s", dspPtr(desc), GCtypeStr(gcType), isPin ? "pinned-ptr" : "",
-           compiler->codeGen->isFramePointerUsed() ? STR_FPBASE : STR_SPBASE);
-
-    if (offs < 0)
-    {
-        printf("-%02XH", -offs);
-    }
-    else if (offs > 0)
-    {
-        printf("+%02XH", +offs);
-    }
-
-    printf("] live from %04X to %04X\n", desc->vpdBegOfs, desc->vpdEndOfs);
-}
-
-#endif // DEBUG
-
-#endif // !defined(JIT32_GCENCODER) || defined(FEATURE_EH_FUNCLETS)
-
 #ifdef JIT32_GCENCODER
 
-#include "emit.h"
+class GCEncoder
+{
+    using StackSlotLifetime = GCInfo::StackSlotLifetime;
+    using RegArgChangeKind  = GCInfo::RegArgChangeKind;
+    using RegArgChange      = GCInfo::RegArgChange;
+    using CallSite          = GCInfo::CallSite;
 
-/*****************************************************************************/
-/*****************************************************************************/
+    CodeGen* const           codeGen;
+    Compiler* const          compiler;
+    unsigned const           codeSize;
+    unsigned const           prologSize;
+    unsigned const           epilogSize;
+    ReturnKind const         returnKind;
+    StackSlotLifetime* const firstStackSlotLifetime;
+    RegArgChange* const      firstRegArgChange;
+    CallSite* const          firstCallSite;
+    bool const               isFullyInterruptible;
+    unsigned                 untrackedStackSlotCount;
+    unsigned                 trackedStackSlotLifetimeCount;
+    unsigned                 trackedThisLclNum = BAD_VAR_NUM;
+    regNumber                syncThisReg;
 
-/*****************************************************************************/
+public:
+    GCEncoder(CodeGen*           codeGen,
+              unsigned           codeSize,
+              unsigned           prologSize,
+              unsigned           epilogSize,
+              ReturnKind         returnKind,
+              StackSlotLifetime* firstStackSlotLifetime,
+              RegArgChange*      firstRegArgChange,
+              CallSite*          firstCallSite,
+              bool               isFullyInterruptible,
+              regNumber          syncThisReg)
+        : codeGen(codeGen)
+        , compiler(codeGen->GetCompiler())
+        , codeSize(codeSize)
+        , prologSize(prologSize)
+        , epilogSize(epilogSize)
+        , returnKind(returnKind)
+        , firstStackSlotLifetime(firstStackSlotLifetime)
+        , firstRegArgChange(firstRegArgChange)
+        , firstCallSite(firstCallSite)
+        , isFullyInterruptible(isFullyInterruptible)
+        , syncThisReg(syncThisReg)
+    {
+    }
+
+    void* CreateAndStoreGCInfo();
+
+private:
+    unsigned GetUntrackedStackSlotCount();
+    unsigned GetTrackedStackSlotLifetimeCount();
+    size_t MakeRegPtrTable(uint8_t* dest, int mask, size_t* pArgTabOffset);
+    unsigned AddUntrackedStackSlots(uint8_t* dest, int mask);
+    unsigned AddTrackedStackSlots(uint8_t* dest, int mask);
+    unsigned AddFullyInterruptibleSlots(uint8_t* dest, int mask);
+    unsigned AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, int mask);
+    unsigned AddPartiallyInterruptibleSlotsFramed(uint8_t* dest, int mask);
+    size_t PtrTableSize(size_t* pArgTabOffset);
+    uint8_t* PtrTableSave(uint8_t* destPtr, size_t* pArgTabOffset);
+    size_t InfoBlockHdrSave(uint8_t* dest, int mask, regMaskTP savedRegs, InfoHdr* header, int* s_cached);
+
+#if DUMP_GC_TABLES
+    size_t InfoBlockHdrDump(const uint8_t* table, InfoHdr* header, unsigned* methodSize);
+    size_t DumpPtrTable(const uint8_t* table, const InfoHdr& header, unsigned methodSize);
+#endif
+};
+
+void* GCInfo::CreateAndStoreGCInfo(CodeGen* codeGen, unsigned codeSize, unsigned prologSize, unsigned epilogSize)
+{
+#ifdef FEATURE_EH_FUNCLETS
+    if (compiler->ehAnyFunclets())
+    {
+        MarkFilterStackSlotsPinned();
+    }
+#endif
+
+    GCEncoder encoder(codeGen, codeSize, prologSize, epilogSize, GetReturnKind(compiler->info), firstStackSlotLifetime,
+                      firstRegArgChange, firstCallSite, isFullyInterruptible, syncThisReg);
+    return encoder.CreateAndStoreGCInfo();
+}
+
+void* GCEncoder::CreateAndStoreGCInfo()
+{
+    untrackedStackSlotCount       = GetUntrackedStackSlotCount();
+    trackedStackSlotLifetimeCount = GetTrackedStackSlotLifetimeCount();
+
+    BYTE    headerBuf[64];
+    InfoHdr header;
+
+    int s_cached;
+
+    size_t headerSize = InfoBlockHdrSave(headerBuf, 0, codeGen->calleeSavedModifiedRegs, &header, &s_cached);
+
+    size_t argTabOffset = 0;
+    size_t ptrMapSize   = PtrTableSize(&argTabOffset);
+
+#if DISPLAY_SIZES
+    if (isFullyInterruptible)
+    {
+        gcHeaderISize += headerSize;
+        gcPtrMapISize += ptrMapSize;
+    }
+    else
+    {
+        gcHeaderNSize += headerSize;
+        gcPtrMapNSize += ptrMapSize;
+    }
+#endif // DISPLAY_SIZES
+
+    size_t infoBlockSize = headerSize + ptrMapSize;
+
+    /* Allocate the info block for the method */
+
+    BYTE* infoBlkAddr = (BYTE*)compiler->info.compCompHnd->allocGCInfo(infoBlockSize);
+
+    /* Fill in the info block and return it to the caller */
+
+    void* infoPtr = infoBlkAddr;
+
+    /* Create the method info block: header followed by GC tracking tables */
+
+    infoBlkAddr += InfoBlockHdrSave(infoBlkAddr, -1, codeGen->calleeSavedModifiedRegs, &header, &s_cached);
+
+    assert(infoBlkAddr == (BYTE*)infoPtr + headerSize);
+    infoBlkAddr = PtrTableSave(infoBlkAddr, &argTabOffset);
+    assert(infoBlkAddr == (BYTE*)infoPtr + headerSize + ptrMapSize);
+
+#ifdef DEBUG
+
+    if (0)
+    {
+        BYTE*  temp = (BYTE*)infoPtr;
+        size_t size = infoBlkAddr - temp;
+        BYTE*  ptab = temp + headerSize;
+
+        noway_assert(size == headerSize + ptrMapSize);
+
+        printf("Method info block - header [%zu bytes]:", headerSize);
+
+        for (unsigned i = 0; i < size; i++)
+        {
+            if (temp == ptab)
+            {
+                printf("\nMethod info block - ptrtab [%u bytes]:", ptrMapSize);
+                printf("\n    %04X: %*c", i & ~0xF, 3 * (i & 0xF), ' ');
+            }
+            else
+            {
+                if (!(i % 16))
+                    printf("\n    %04X: ", i);
+            }
+
+            printf("%02X ", *temp++);
+        }
+
+        printf("\n");
+    }
+
+#endif // DEBUG
+
+#if DUMP_GC_TABLES
+    if (compiler->opts.dspGCtbls)
+    {
+        const BYTE* base = (BYTE*)infoPtr;
+        size_t      size;
+        unsigned    methodSize;
+        InfoHdr     dumpHeader;
+
+        printf("GC Info for method %s\n", compiler->info.compFullName);
+        printf("GC info size = %3u\n", infoBlockSize);
+
+        size = InfoBlockHdrDump(base, &dumpHeader, &methodSize);
+        // printf("size of header encoding is %3u\n", size);
+        printf("\n");
+
+        base += size;
+        size = DumpPtrTable(base, dumpHeader, methodSize);
+        // printf("size of pointer table is %3u\n", size);
+        printf("\n");
+        noway_assert(infoBlkAddr == (base + size));
+    }
+#endif // DUMP_GC_TABLES
+
+    /* Make sure we ended up generating the expected number of bytes */
+
+    noway_assert(infoBlkAddr == (BYTE*)infoPtr + infoBlockSize);
+
+    codeGen->compInfoBlkSize = infoBlockSize;
+    return infoPtr;
+}
+
+static unsigned char encodeUnsigned(BYTE* dest, unsigned value)
+{
+    unsigned char size = 1;
+    unsigned      tmp  = value;
+    while (tmp > 0x7F)
+    {
+        tmp >>= 7;
+        assert(size < 6); // Invariant.
+        size++;
+    }
+    if (dest)
+    {
+        // write the bytes starting at the end of dest in LSB to MSB order
+        BYTE* p    = dest + size;
+        BYTE  cont = 0; // The last byte has no continuation flag
+        while (value > 0x7F)
+        {
+            *--p = cont | (value & 0x7f);
+            value >>= 7;
+            cont = 0x80; // Non last bytes have a continuation flag
+        }
+        *--p = cont | (BYTE)value; // Now write the first byte
+        assert(p == dest);
+    }
+    return size;
+}
+
+static unsigned char encodeUDelta(BYTE* dest, unsigned value, unsigned lastValue)
+{
+    assert(value >= lastValue);
+    return encodeUnsigned(dest, value - lastValue);
+}
+
+static unsigned char encodeSigned(BYTE* dest, int val)
+{
+    unsigned char size  = 1;
+    unsigned      value = val;
+    BYTE          neg   = 0;
+    if (val < 0)
+    {
+        value = -val;
+        neg   = 0x40;
+    }
+    unsigned tmp = value;
+    while (tmp > 0x3F)
+    {
+        tmp >>= 7;
+        assert(size < 16); // Definitely sufficient for unsigned.  Fits in an unsigned char, certainly.
+        size++;
+    }
+    if (dest)
+    {
+        // write the bytes starting at the end of dest in LSB to MSB order
+        BYTE* p    = dest + size;
+        BYTE  cont = 0; // The last byte has no continuation flag
+        while (value > 0x3F)
+        {
+            *--p = cont | (value & 0x7f);
+            value >>= 7;
+            cont = 0x80; // Non last bytes have a continuation flag
+        }
+        *--p = neg | cont | (BYTE)value; // Now write the first byte
+        assert(p == dest);
+    }
+    return size;
+}
+
+unsigned GCEncoder::GetUntrackedStackSlotCount()
+{
+    unsigned int untrackedCount = 0;
+
+    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
+    {
+        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
+
+        if (lcl->IsDependentPromotedField(compiler) || !lcl->lvOnFrame || lcl->HasGCSlotLiveness())
+        {
+            continue;
+        }
+
+        if (varTypeIsGC(lcl->GetType()))
+        {
+#ifndef FEATURE_EH_FUNCLETS
+            if (compiler->lvaIsOriginalThisArg(lclNum) && compiler->lvaKeepAliveAndReportThis())
+            {
+                // "this" is untracked, but encoding of untracked variables does not support
+                // reporting "this". So report it as a tracked variable with a liveness extending
+                // over the entire method.
+                //
+                // TODO-x86-Cleanup: the semantic here is not clear, it would be useful to check
+                // different cases and add a description where "this" is saved and how it is
+                // tracked in each of them:
+                // 1) when FEATURE_EH_FUNCLETS defined (x86 Linux);
+                // 2) when FEATURE_EH_FUNCLETS not defined, lvaKeepAliveAndReportThis == true,
+                //    compJmpOpUsed == true;
+                // 3) when there is RegArgChange for "this", but keepThisAlive == true;
+                // etc.
+
+                trackedThisLclNum = lclNum;
+
+                continue;
+            }
+#endif
+
+#ifdef DEBUG
+            if (compiler->verbose)
+            {
+                printf("GCINFO: untracked %s slot at [%s", varTypeName(lcl->GetType()),
+                       compiler->GetEmitter()->emitGetFrameReg());
+
+                if (lcl->GetStackOffset() != 0)
+                {
+                    printf("%c%02XH", lcl->GetStackOffset() < 0 ? '-' : '+', abs(lcl->GetStackOffset()));
+                }
+
+                printf("]\n");
+            }
+#endif
+
+            untrackedCount++;
+        }
+        else if (lcl->TypeIs(TYP_STRUCT))
+        {
+            untrackedCount += lcl->GetLayout()->GetGCPtrCount();
+        }
+    }
+
+    for (SpillTemp& temp : compiler->codeGen->spillTemps)
+    {
+        if (!varTypeIsGC(temp.GetType()))
+        {
+            continue;
+        }
+
+#ifdef DEBUG
+        if (compiler->verbose)
+        {
+            printf("GCINFO: untracked %s slot at [%s", varTypeName(temp.GetType()),
+                   compiler->GetEmitter()->emitGetFrameReg());
+
+            if (temp.GetOffset() != 0)
+            {
+                printf("%c%02XH", temp.GetOffset() < 0 ? '-' : '+', abs(temp.GetOffset()));
+            }
+
+            printf("]\n");
+        }
+#endif
+
+        untrackedCount++;
+    }
+
+    JITDUMP("GCINFO: untrckVars = %u\n", untrackedCount);
+
+    return untrackedCount;
+}
+
+unsigned GCEncoder::GetTrackedStackSlotLifetimeCount()
+{
+    unsigned stackSlotLifetimeCount = 0;
+
+    if (trackedThisLclNum != BAD_VAR_NUM)
+    {
+        stackSlotLifetimeCount++;
+    }
+
+    for (StackSlotLifetime* lifetime = firstStackSlotLifetime; lifetime != nullptr; lifetime = lifetime->next)
+    {
+        if (lifetime->beginCodeOffs == lifetime->endCodeOffs)
+        {
+            continue;
+        }
+
+        stackSlotLifetimeCount++;
+    }
+
+    JITDUMP("GCINFO: trackdLcls = %u\n", stackSlotLifetimeCount);
+
+    return stackSlotLifetimeCount;
+}
+
+BYTE* GCEncoder::PtrTableSave(uint8_t* destPtr, size_t* argTabOffset)
+{
+    return destPtr + MakeRegPtrTable(destPtr, -1, argTabOffset);
+}
+
 // (see jit.h) #define REGEN_SHORTCUTS 0
 // To Regenerate the compressed info header shortcuts, define REGEN_SHORTCUTS
 // and use the following command line pipe/filter to give you the 128
@@ -460,20 +536,23 @@ static void regenLog(unsigned encoding, InfoHdr* header, InfoHdr* state)
 }
 #endif
 
-/*****************************************************************************
- *
- *  Given the four parameters return the index into the callPatternTable[]
- *  that is used to encoding these four items.  If an exact match cannot
- *  found then ignore the codeDelta and search the table again for a near
- *  match.
- *  Returns 0..79 for an exact match or
- *         (delta<<8) | (0..79) for a near match.
- *  A near match will be encoded using two bytes, the first byte will
- *  skip the adjustment delta that prevented an exact match and the
- *  rest of the delta plus the other three items are encoded in the
- *  second byte.
- */
-int FASTCALL lookupCallPattern(unsigned argCnt, unsigned regMask, unsigned argMask, unsigned codeDelta)
+#ifdef _MSC_VER
+// TODO-MIKE-Cleanup: The following code has a ton of warnings caused by
+// implicit conversion from int to char/short, it might be nice to fix it
+// instead of disabling the warning.
+#pragma warning(disable : 4244)
+#endif
+
+// Given the four parameters return the index into the callPatternTable[]
+// that is used to encoding these four items.  If an exact match cannot
+// found then ignore the codeDelta and search the table again for a near
+// match.
+// Returns 0..79 for an exact match or (delta<<8) | (0..79) for a near match.
+// A near match will be encoded using two bytes, the first byte will
+// skip the adjustment delta that prevented an exact match and the
+// rest of the delta plus the other three items are encoded in the
+// second byte.
+static int LookupCallPattern(unsigned argCnt, unsigned regMask, unsigned argMask, unsigned codeDelta)
 {
     if ((argCnt <= CP_MAX_ARG_CNT) && (argMask <= CP_MAX_ARG_MASK))
     {
@@ -516,7 +595,7 @@ int FASTCALL lookupCallPattern(unsigned argCnt, unsigned regMask, unsigned argMa
     return -1;
 }
 
-static bool initNeeded3(unsigned cur, unsigned tgt, unsigned max, unsigned* hint)
+static bool InitNeeded3(unsigned cur, unsigned tgt, unsigned max, unsigned* hint)
 {
     assert(cur != tgt);
 
@@ -540,7 +619,7 @@ static bool initNeeded3(unsigned cur, unsigned tgt, unsigned max, unsigned* hint
     return true;
 }
 
-static bool initNeeded4(unsigned cur, unsigned tgt, unsigned max, unsigned* hint)
+static bool InitNeeded4(unsigned cur, unsigned tgt, unsigned max, unsigned* hint)
 {
     assert(cur != tgt);
 
@@ -564,7 +643,7 @@ static bool initNeeded4(unsigned cur, unsigned tgt, unsigned max, unsigned* hint
     return true;
 }
 
-static int bigEncoding3(unsigned cur, unsigned tgt, unsigned max)
+static int BigEncoding3(unsigned cur, unsigned tgt, unsigned max)
 {
     assert(cur != tgt);
 
@@ -583,7 +662,7 @@ static int bigEncoding3(unsigned cur, unsigned tgt, unsigned max)
     return cnt;
 }
 
-static int bigEncoding4(unsigned cur, unsigned tgt, unsigned max)
+static int BigEncoding4(unsigned cur, unsigned tgt, unsigned max)
 {
     assert(cur != tgt);
 
@@ -602,7 +681,7 @@ static int bigEncoding4(unsigned cur, unsigned tgt, unsigned max)
     return cnt;
 }
 
-BYTE FASTCALL encodeHeaderNext(const InfoHdr& header, InfoHdr* state, BYTE& codeSet)
+static BYTE EncodeHeaderNext(const InfoHdr& header, InfoHdr* state, BYTE& codeSet)
 {
     BYTE encoding = 0xff;
     codeSet       = 1; // codeSet is 1 or 2, depending on whether the returned encoding
@@ -620,7 +699,7 @@ BYTE FASTCALL encodeHeaderNext(const InfoHdr& header, InfoHdr* state, BYTE& code
         else
         {
             unsigned hint;
-            if (initNeeded4(state->argCount, header.argCount, SET_ARGCOUNT_MAX, &hint))
+            if (InitNeeded4(state->argCount, header.argCount, SET_ARGCOUNT_MAX, &hint))
             {
                 assert(hint <= SET_ARGCOUNT_MAX);
                 state->argCount = hint;
@@ -650,7 +729,7 @@ BYTE FASTCALL encodeHeaderNext(const InfoHdr& header, InfoHdr* state, BYTE& code
         else
         {
             unsigned hint;
-            if (initNeeded4(state->frameSize, header.frameSize, SET_FRAMESIZE_MAX, &hint))
+            if (InitNeeded4(state->frameSize, header.frameSize, SET_FRAMESIZE_MAX, &hint))
             {
                 assert(hint <= SET_FRAMESIZE_MAX);
                 state->frameSize = hint;
@@ -730,7 +809,7 @@ BYTE FASTCALL encodeHeaderNext(const InfoHdr& header, InfoHdr* state, BYTE& code
         else
         {
             unsigned hint;
-            if (initNeeded3(state->epilogSize, header.epilogSize, SET_EPILOGSIZE_MAX, &hint))
+            if (InitNeeded3(state->epilogSize, header.epilogSize, SET_EPILOGSIZE_MAX, &hint))
             {
                 assert(hint <= SET_EPILOGSIZE_MAX);
                 state->epilogSize = hint;
@@ -761,7 +840,7 @@ BYTE FASTCALL encodeHeaderNext(const InfoHdr& header, InfoHdr* state, BYTE& code
         {
             unsigned hint;
             assert(SET_PROLOGSIZE_MAX > 15);
-            if (initNeeded3(state->prologSize, header.prologSize, 15, &hint))
+            if (InitNeeded3(state->prologSize, header.prologSize, 15, &hint))
             {
                 assert(hint <= 15);
                 state->prologSize = hint;
@@ -963,7 +1042,7 @@ DO_RETURN:
     return encoding;
 }
 
-static int measureDistance(const InfoHdr& header, const InfoHdrSmall* p, int closeness)
+static int MeasureDistance(const InfoHdr& header, const InfoHdrSmall* p, int closeness)
 {
     int distance = 0;
 
@@ -1007,7 +1086,7 @@ static int measureDistance(const InfoHdr& header, const InfoHdrSmall* p, int clo
         // We have one-byte encodings for 0..7
         if (header.frameSize > SET_FRAMESIZE_MAX)
         {
-            distance += bigEncoding4(p->frameSize, header.frameSize, SET_FRAMESIZE_MAX);
+            distance += BigEncoding4(p->frameSize, header.frameSize, SET_FRAMESIZE_MAX);
             if (distance >= closeness)
                 return distance;
         }
@@ -1022,7 +1101,7 @@ static int measureDistance(const InfoHdr& header, const InfoHdrSmall* p, int clo
         // We have one-byte encodings for 0..8
         if (header.argCount > SET_ARGCOUNT_MAX)
         {
-            distance += bigEncoding4(p->argCount, header.argCount, SET_ARGCOUNT_MAX);
+            distance += BigEncoding4(p->argCount, header.argCount, SET_ARGCOUNT_MAX);
             if (distance >= closeness)
                 return distance;
         }
@@ -1038,7 +1117,7 @@ static int measureDistance(const InfoHdr& header, const InfoHdrSmall* p, int clo
         if (header.prologSize > SET_PROLOGSIZE_MAX)
         {
             assert(SET_PROLOGSIZE_MAX > 15);
-            distance += bigEncoding3(p->prologSize, header.prologSize, 15);
+            distance += BigEncoding3(p->prologSize, header.prologSize, 15);
             if (distance >= closeness)
                 return distance;
         }
@@ -1052,7 +1131,7 @@ static int measureDistance(const InfoHdr& header, const InfoHdrSmall* p, int clo
         // We have one-byte encodings for 0..10
         if (header.epilogSize > SET_EPILOGSIZE_MAX)
         {
-            distance += bigEncoding3(p->epilogSize, header.epilogSize, SET_EPILOGSIZE_MAX);
+            distance += BigEncoding3(p->epilogSize, header.epilogSize, SET_EPILOGSIZE_MAX);
             if (distance >= closeness)
                 return distance;
         }
@@ -1207,10 +1286,9 @@ static int measureDistance(const InfoHdr& header, const InfoHdrSmall* p, int clo
     return distance;
 }
 
-// DllMain calls gcInitEncoderLookupTable to fill in this table
-/* extern */ int infoHdrLookup[IH_MAX_PROLOG_SIZE + 2];
+static int InfoHdrLookup[IH_MAX_PROLOG_SIZE + 2];
 
-/* static */ void GCInfo::gcInitEncoderLookupTable()
+void InitGCEncoderLookupTable()
 {
     const InfoHdrSmall* p  = &infoHdrShortcut[0];
     int                 lo = -1;
@@ -1232,7 +1310,7 @@ static int measureDistance(const InfoHdr& header, const InfoHdrSmall* p, int clo
             assert(hi <= IH_MAX_PROLOG_SIZE);
 
             while (lo < hi)
-                infoHdrLookup[++lo] = n;
+                InfoHdrLookup[++lo] = n;
 
             if (lo == IH_MAX_PROLOG_SIZE)
                 break;
@@ -1240,7 +1318,7 @@ static int measureDistance(const InfoHdr& header, const InfoHdrSmall* p, int clo
     }
 
     assert(lo == IH_MAX_PROLOG_SIZE);
-    assert(infoHdrLookup[IH_MAX_PROLOG_SIZE] < 128);
+    assert(InfoHdrLookup[IH_MAX_PROLOG_SIZE] < 128);
 
     while (p->prologSize == lo)
     {
@@ -1250,7 +1328,7 @@ static int measureDistance(const InfoHdr& header, const InfoHdrSmall* p, int clo
         p++;
     }
 
-    infoHdrLookup[++lo] = n;
+    InfoHdrLookup[++lo] = n;
 
 #ifdef DEBUG
     //
@@ -1282,9 +1360,9 @@ static int measureDistance(const InfoHdr& header, const InfoHdrSmall* p, int clo
 #endif
 }
 
-const int NO_CACHED_HEADER = -1;
+constexpr int NO_CACHED_HEADER = -1;
 
-BYTE FASTCALL encodeHeaderFirst(const InfoHdr& header, InfoHdr* state, int* more, int* pCached)
+static BYTE EncodeHeaderFirst(const InfoHdr& header, InfoHdr* state, int* more, int* pCached)
 {
     // First try the cached value for an exact match, if there is one
     //
@@ -1314,8 +1392,8 @@ BYTE FASTCALL encodeHeaderFirst(const InfoHdr& header, InfoHdr* state, int* more
 
     if (psz <= IH_MAX_PROLOG_SIZE)
     {
-        lo = infoHdrLookup[psz];
-        hi = infoHdrLookup[psz + 1];
+        lo = InfoHdrLookup[psz];
+        hi = InfoHdrLookup[psz + 1];
         p  = &infoHdrShortcut[lo];
         for (n = lo; n < hi; n++, p++)
         {
@@ -1365,7 +1443,7 @@ BYTE FASTCALL encodeHeaderFirst(const InfoHdr& header, InfoHdr* state, int* more
     if (*pCached != NO_CACHED_HEADER)
     {
         p            = &infoHdrShortcut[*pCached];
-        int distance = measureDistance(header, p, closeness);
+        int distance = MeasureDistance(header, p, closeness);
         assert(distance > 0);
         if (distance <= min_acceptable_distance)
         {
@@ -1388,7 +1466,7 @@ BYTE FASTCALL encodeHeaderFirst(const InfoHdr& header, InfoHdr* state, int* more
     {
         if (n == *pCached)
             continue; // already tried this one
-        int distance = measureDistance(header, p, closeness);
+        int distance = MeasureDistance(header, p, closeness);
         assert(distance > 0);
         if (distance <= min_acceptable_distance)
         {
@@ -1404,7 +1482,7 @@ BYTE FASTCALL encodeHeaderFirst(const InfoHdr& header, InfoHdr* state, int* more
         }
     }
 
-    int last = infoHdrLookup[IH_MAX_PROLOG_SIZE + 1];
+    int last = InfoHdrLookup[IH_MAX_PROLOG_SIZE + 1];
     assert(last <= 128);
 
     // Then try all the rest [0..last-1]
@@ -1415,7 +1493,7 @@ BYTE FASTCALL encodeHeaderFirst(const InfoHdr& header, InfoHdr* state, int* more
             continue; // already tried this one
         if ((n >= lo) && (n < hi))
             continue; // already tried these
-        int distance = measureDistance(header, p, closeness);
+        int distance = MeasureDistance(header, p, closeness);
         assert(distance > 0);
         if (distance <= min_acceptable_distance)
         {
@@ -1446,16 +1524,9 @@ BYTE FASTCALL encodeHeaderFirst(const InfoHdr& header, InfoHdr* state, int* more
 // Write the initial part of the method info block. This is called twice;
 // first to compute the size needed for the info (mask=0), the second time
 // to actually generate the contents of the table (mask=-1,dest!=NULL).
-size_t GCInfo::gcInfoBlockHdrSave(BYTE*     dest,
-                                  int       mask,
-                                  unsigned  methodSize,
-                                  unsigned  prologSize,
-                                  unsigned  epilogSize,
-                                  regMaskTP savedRegs,
-                                  InfoHdr*  header,
-                                  int*      pCached)
+size_t GCEncoder::InfoBlockHdrSave(BYTE* dest, int mask, regMaskTP savedRegs, InfoHdr* header, int* pCached)
 {
-    JITDUMP("*************** In gcInfoBlockHdrSave()\n");
+    JITDUMP("*************** In InfoBlockHdrSave()\n");
 
     size_t size = 0;
 
@@ -1468,18 +1539,15 @@ size_t GCInfo::gcInfoBlockHdrSave(BYTE*     dest,
     CLANG_FORMAT_COMMENT_ANCHOR;
 
 #ifdef DEBUG
-    if (compiler->verbose)
+    if (compiler->verbose && (mask != 0))
     {
-        if (mask)
-            printf("GCINFO: methodSize = %04X\n", methodSize);
-        if (mask)
-            printf("GCINFO: prologSize = %04X\n", prologSize);
-        if (mask)
-            printf("GCINFO: epilogSize = %04X\n", epilogSize);
+        printf("GCINFO: methodSize = %04X\n", codeSize);
+        printf("GCINFO: prologSize = %04X\n", prologSize);
+        printf("GCINFO: epilogSize = %04X\n", epilogSize);
     }
 #endif
 
-    size_t methSz = encodeUnsigned(dest, methodSize);
+    size_t methSz = encodeUnsigned(dest, codeSize);
     size += methSz;
     dest += methSz & mask;
 
@@ -1497,11 +1565,16 @@ size_t GCInfo::gcInfoBlockHdrSave(BYTE*     dest,
 
     assert(FitsIn<unsigned char>(prologSize));
     header->prologSize = static_cast<unsigned char>(prologSize);
+
     assert(FitsIn<unsigned char>(epilogSize));
-    header->epilogSize  = static_cast<unsigned char>(epilogSize);
+    header->epilogSize = static_cast<unsigned char>(epilogSize);
+
     header->epilogCount = compiler->GetEmitter()->emitGetEpilogCnt();
     if (header->epilogCount != compiler->GetEmitter()->emitGetEpilogCnt())
+    {
         IMPL_LIMITATION("emitGetEpilogCnt() does not fit in InfoHdr::epilogCount");
+    }
+
     header->epilogAtEnd = compiler->GetEmitter()->emitHasEpilogEnd();
 
     if ((savedRegs & RBM_EDI) != RBM_NONE)
@@ -1519,7 +1592,7 @@ size_t GCInfo::gcInfoBlockHdrSave(BYTE*     dest,
         header->ebxSaved = 1;
     }
 
-    header->interruptible = compiler->codeGen->GetInterruptible();
+    header->interruptible = isFullyInterruptible;
 
     if (!compiler->codeGen->isFramePointerUsed())
     {
@@ -1555,9 +1628,9 @@ size_t GCInfo::gcInfoBlockHdrSave(BYTE*     dest,
     header->editNcontinue   = compiler->opts.compDbgEnC;
     header->genericsContext = compiler->lvaReportParamTypeArg();
     header->genericsContextIsMethodDesc =
-        header->genericsContext && (compiler->info.compMethodInfo->options & (CORINFO_GENERICS_CTXT_FROM_METHODDESC));
+        (header->genericsContext != 0) &&
+        ((compiler->info.compMethodInfo->options & CORINFO_GENERICS_CTXT_FROM_METHODDESC) != 0);
 
-    ReturnKind returnKind = getReturnKind();
     _ASSERTE(IsValidReturnKind(returnKind) && "Return Kind must be valid");
     _ASSERTE(!IsStructReturnKind(returnKind) && "Struct Return Kinds Unexpected for JIT32");
     _ASSERTE(((int)returnKind < (int)SET_RET_KIND_MAX) && "ReturnKind has no legal encoding");
@@ -1578,12 +1651,12 @@ size_t GCInfo::gcInfoBlockHdrSave(BYTE*     dest,
     // JIT is responsible for synchronization on funclet-based EH model that x86/Linux uses.
     if (compiler->info.compFlags & CORINFO_FLG_SYNCH)
     {
-        assert(compiler->syncStartEmitCookie != NULL);
-        header->syncStartOffset = compiler->GetEmitter()->emitCodeOffset(compiler->syncStartEmitCookie, 0);
+        assert(codeGen->syncStartEmitCookie != NULL);
+        header->syncStartOffset = compiler->GetEmitter()->emitCodeOffset(codeGen->syncStartEmitCookie, 0);
         assert(header->syncStartOffset != INVALID_SYNC_OFFSET);
 
-        assert(compiler->syncEndEmitCookie != NULL);
-        header->syncEndOffset = compiler->GetEmitter()->emitCodeOffset(compiler->syncEndEmitCookie, 0);
+        assert(codeGen->syncEndEmitCookie != NULL);
+        header->syncEndOffset = compiler->GetEmitter()->emitCodeOffset(codeGen->syncEndEmitCookie, 0);
         assert(header->syncEndOffset != INVALID_SYNC_OFFSET);
 
         assert(header->syncStartOffset < header->syncEndOffset);
@@ -1602,21 +1675,17 @@ size_t GCInfo::gcInfoBlockHdrSave(BYTE*     dest,
     }
 
     assert(compiler->codeGen->paramsStackSize % REGSIZE_BYTES == 0);
+    unsigned argCount = compiler->codeGen->paramsStackSize / REGSIZE_BYTES;
+    assert(argCount <= UINT16_MAX);
+    header->argCount = static_cast<uint16_t>(argCount);
 
-    size_t argCount = compiler->codeGen->paramsStackSize / REGSIZE_BYTES;
-    assert(argCount <= MAX_USHORT_SIZE_T);
-    header->argCount = static_cast<unsigned short>(argCount);
-
+    assert(compiler->codeGen->lclFrameSize % REGSIZE_BYTES == 0);
     header->frameSize = compiler->codeGen->lclFrameSize / 4;
-    if (header->frameSize != compiler->codeGen->lclFrameSize / 4)
-    {
-        IMPL_LIMITATION("compLclFrameSize does not fit in InfoHdr::frameSize");
-    }
 
     if (mask == 0)
     {
-        gcCountForHeader((UNALIGNED unsigned int*)&header->untrackedCnt,
-                         (UNALIGNED unsigned int*)&header->varPtrTableSize);
+        header->untrackedCnt    = untrackedStackSlotCount;
+        header->varPtrTableSize = trackedStackSlotLifetimeCount;
     }
 
     //
@@ -1626,7 +1695,7 @@ size_t GCInfo::gcInfoBlockHdrSave(BYTE*     dest,
     //
     InfoHdr state;
     int     more           = 0;
-    BYTE    headerEncoding = encodeHeaderFirst(*header, &state, &more, pCached);
+    BYTE    headerEncoding = EncodeHeaderFirst(*header, &state, &more, pCached);
     ++size;
     if (mask)
     {
@@ -1639,7 +1708,7 @@ size_t GCInfo::gcInfoBlockHdrSave(BYTE*     dest,
         BYTE codeSet  = 1;
         while (encoding & MORE_BYTES_TO_FOLLOW)
         {
-            encoding = encodeHeaderNext(*header, &state, codeSet);
+            encoding = EncodeHeaderNext(*header, &state, codeSet);
 
 #if REGEN_SHORTCUTS
             regenLog(headerEncoding, header, &state);
@@ -1726,23 +1795,33 @@ size_t GCInfo::gcInfoBlockHdrSave(BYTE*     dest,
 
             /* Simply write a sorted array of offsets using encodeUDelta */
 
-            gcEpilogTable      = mask ? dest : NULL;
-            gcEpilogPrevOffset = 0;
+            uint8_t* epilogTable      = mask ? dest : nullptr;
+            unsigned epilogPrevOffset = 0;
+            unsigned epilogTableSize  = 0;
 
-            size_t sz = compiler->GetEmitter()->emitGenEpilogLst(gcRecordEpilog, this);
+            compiler->GetEmitter()->EnumerateEpilogs([&](unsigned offset) {
+                unsigned encodedSize = encodeUDelta(epilogTable, offset, epilogPrevOffset);
+
+                epilogPrevOffset = offset;
+                epilogTableSize += encodedSize;
+
+                if (epilogTable != nullptr)
+                {
+                    epilogTable += encodedSize;
+                }
+            });
 
             /* Add the size of the epilog table to the total size */
 
-            size += sz;
-            dest += (sz & mask);
+            size += epilogTableSize;
+            dest += (epilogTableSize & mask);
         }
     }
 
 #if DISPLAY_SIZES
-
     if (mask)
     {
-        if (compiler->codeGen->GetInterruptible())
+        if (isFullyInterruptible)
         {
             genMethodICnt++;
         }
@@ -1751,18 +1830,13 @@ size_t GCInfo::gcInfoBlockHdrSave(BYTE*     dest,
             genMethodNCnt++;
         }
     }
-
 #endif // DISPLAY_SIZES
 
     return size;
 }
 
-/*****************************************************************************
- *
- *  Return the size of the pointer tracking tables.
- */
-
-size_t GCInfo::gcPtrTableSize(const InfoHdr& header, unsigned codeSize, size_t* pArgTabOffset)
+// Return the size of the pointer tracking tables.
+size_t GCEncoder::PtrTableSize(size_t* pArgTabOffset)
 {
     BYTE temp[16 + 1];
 #ifdef DEBUG
@@ -1771,18 +1845,15 @@ size_t GCInfo::gcPtrTableSize(const InfoHdr& header, unsigned codeSize, size_t* 
 
     /* Compute the total size of the tables */
 
-    size_t size = gcMakeRegPtrTable(temp, 0, header, codeSize, pArgTabOffset);
+    size_t size = MakeRegPtrTable(temp, 0, pArgTabOffset);
 
     assert(temp[16] == 0xAB); // Check that marker didnt get overwritten
 
     return size;
 }
 
-/*****************************************************************************
- * Encode the callee-saved registers into 3 bits.
- */
-
-unsigned gceEncodeCalleeSavedRegs(unsigned regs)
+// Encode the callee-saved registers into 3 bits.
+static unsigned gceEncodeCalleeSavedRegs(unsigned regs)
 {
     unsigned encodedRegs = 0;
 
@@ -1796,334 +1867,286 @@ unsigned gceEncodeCalleeSavedRegs(unsigned regs)
     return encodedRegs;
 }
 
-/*****************************************************************************
- * Is the next entry for a byref pointer. If so, emit the prefix for the
- * interruptible encoding. Check only for pushes and registers
- */
-
-inline BYTE* gceByrefPrefixI(GCInfo::regPtrDsc* rpd, BYTE* dest)
+// Is the next entry for a byref pointer. If so, emit the prefix for the
+// interruptible encoding. Check only for pushes and registers
+static BYTE* gceByrefPrefixI(GCInfo::RegArgChange* change, BYTE* dest)
 {
     // For registers, we don't need a prefix if it is going dead.
-    assert(rpd->rpdArg || rpd->rpdCompiler.rpdDel == 0);
+    assert((change->kind != GCInfo::RegArgChangeKind::RemoveRegs) || (change->regs == RBM_NONE));
 
-    if (!rpd->rpdArg || rpd->rpdArgType == GCInfo::rpdARG_PUSH)
-        if (rpd->rpdGCtypeGet() == GCT_BYREF)
+    if ((change->kind == GCInfo::RegArgChangeKind::AddRegs) || (change->kind == GCInfo::RegArgChangeKind::PushArg))
+    {
+        if (change->gcType == GCT_BYREF)
+        {
             *dest++ = 0xBF;
+        }
+    }
 
     return dest;
 }
 
-/*****************************************************************************/
-
-/* These functions are needed to work around a VC5.0 compiler bug */
-/* DO NOT REMOVE, unless you are sure that the free build works   */
-static int zeroFN()
-{
-    return 0;
-}
-static int (*zeroFunc)() = zeroFN;
-
-/*****************************************************************************
- *  Modelling of the GC ptrs pushed on the stack
- */
-
 typedef unsigned pasMaskType;
-#define BITS_IN_pasMask (BITS_IN_BYTE * sizeof(pasMaskType))
-#define HIGHEST_pasMask_BIT (((pasMaskType)0x1) << (BITS_IN_pasMask - 1))
 
-//-----------------------------------------------------------------------------
+static constexpr unsigned BITS_IN_pasMask     = sizeof(pasMaskType) * CHAR_BIT;
+static constexpr unsigned HIGHEST_pasMask_BIT = ((pasMaskType)0x1) << (BITS_IN_pasMask - 1);
 
 class PendingArgsStack
 {
+    unsigned    pasMaxDepth;
+    unsigned    pasDepth           = 0;
+    pasMaskType pasBottomMask      = 0;       // The first 32 args
+    pasMaskType pasByrefBottomMask = 0;       // byref qualifier for pasBottomMask
+    BYTE*       pasTopArray        = nullptr; // More than 32 args are represented here
+    unsigned    pasPtrsInTopArray  = 0;       // How many GCptrs here
+
 public:
-    PendingArgsStack(unsigned maxDepth, Compiler* pComp);
+    PendingArgsStack(unsigned maxDepth, Compiler* pComp) : pasMaxDepth(maxDepth)
+    {
+        if (pasMaxDepth > BITS_IN_pasMask)
+        {
+            pasTopArray = pComp->getAllocator(CMK_Unknown).allocate<BYTE>(pasMaxDepth - BITS_IN_pasMask);
+        }
+    }
 
-    void pasPush(GCtype gcType);
-    void pasPop(unsigned count);
-    void pasKill(unsigned gcCount);
-
-    unsigned pasCurDepth()
+    unsigned CurDepth()
     {
         return pasDepth;
     }
-    pasMaskType pasArgMask()
+
+    pasMaskType ArgMask()
     {
         assert(pasDepth <= BITS_IN_pasMask);
         return pasBottomMask;
     }
-    pasMaskType pasByrefArgMask()
+
+    pasMaskType ByrefArgMask()
     {
         assert(pasDepth <= BITS_IN_pasMask);
         return pasByrefBottomMask;
     }
-    bool pasHasGCptrs();
 
-    // Use these in the case where there actually are more ptrs than pasArgMask
-    unsigned pasEnumGCoffsCount();
-#define pasENUM_START ((unsigned)-1)
-#define pasENUM_LAST ((unsigned)-2)
-#define pasENUM_END ((unsigned)-3)
-    unsigned pasEnumGCoffs(unsigned iter, unsigned* offs);
-
-protected:
-    unsigned pasMaxDepth;
-
-    unsigned pasDepth;
-
-    pasMaskType pasBottomMask;      // The first 32 args
-    pasMaskType pasByrefBottomMask; // byref qualifier for pasBottomMask
-
-    BYTE*    pasTopArray;       // More than 32 args are represented here
-    unsigned pasPtrsInTopArray; // How many GCptrs here
-};
-
-//-----------------------------------------------------------------------------
-
-PendingArgsStack::PendingArgsStack(unsigned maxDepth, Compiler* pComp)
-    : pasMaxDepth(maxDepth)
-    , pasDepth(0)
-    , pasBottomMask(0)
-    , pasByrefBottomMask(0)
-    , pasTopArray(NULL)
-    , pasPtrsInTopArray(0)
-{
-    /* Do we need an array as well as the mask ? */
-
-    if (pasMaxDepth > BITS_IN_pasMask)
-        pasTopArray = pComp->getAllocator(CMK_Unknown).allocate<BYTE>(pasMaxDepth - BITS_IN_pasMask);
-}
-
-//-----------------------------------------------------------------------------
-
-void PendingArgsStack::pasPush(GCtype gcType)
-{
-    assert(pasDepth < pasMaxDepth);
-
-    if (pasDepth < BITS_IN_pasMask)
+    void Push(GCtype gcType)
     {
-        /* Shift the mask */
+        assert(pasDepth < pasMaxDepth);
 
-        pasBottomMask <<= 1;
-        pasByrefBottomMask <<= 1;
-
-        if (needsGC(gcType))
+        if (pasDepth < BITS_IN_pasMask)
         {
-            pasBottomMask |= 1;
+            /* Shift the mask */
 
-            if (gcType == GCT_BYREF)
-                pasByrefBottomMask |= 1;
-        }
-    }
-    else
-    {
-        /* Push on array */
+            pasBottomMask <<= 1;
+            pasByrefBottomMask <<= 1;
 
-        pasTopArray[pasDepth - BITS_IN_pasMask] = (BYTE)gcType;
+            if (gcType != GCT_NONE)
+            {
+                pasBottomMask |= 1;
 
-        if (gcType)
-            pasPtrsInTopArray++;
-    }
-
-    pasDepth++;
-}
-
-//-----------------------------------------------------------------------------
-
-void PendingArgsStack::pasPop(unsigned count)
-{
-    assert(pasDepth >= count);
-
-    /* First pop from array (if applicable) */
-
-    for (/**/; (pasDepth > BITS_IN_pasMask) && count; pasDepth--, count--)
-    {
-        unsigned topIndex = pasDepth - BITS_IN_pasMask - 1;
-
-        GCtype topArg = (GCtype)pasTopArray[topIndex];
-
-        if (needsGC(topArg))
-            pasPtrsInTopArray--;
-    }
-    if (count == 0)
-        return;
-
-    /* Now un-shift the mask */
-
-    assert(pasPtrsInTopArray == 0);
-    assert(count <= BITS_IN_pasMask);
-
-    if (count == BITS_IN_pasMask) // (x>>32) is a nop on x86. So special-case it
-    {
-        pasBottomMask = pasByrefBottomMask = 0;
-        pasDepth                           = 0;
-    }
-    else
-    {
-        pasBottomMask >>= count;
-        pasByrefBottomMask >>= count;
-        pasDepth -= count;
-    }
-}
-
-//-----------------------------------------------------------------------------
-// Kill (but don't pop) the top 'gcCount' args
-
-void PendingArgsStack::pasKill(unsigned gcCount)
-{
-    assert(gcCount != 0);
-
-    /* First kill args in array (if any) */
-
-    for (unsigned curPos = pasDepth; (curPos > BITS_IN_pasMask) && gcCount; curPos--)
-    {
-        unsigned curIndex = curPos - BITS_IN_pasMask - 1;
-
-        GCtype curArg = (GCtype)pasTopArray[curIndex];
-
-        if (needsGC(curArg))
-        {
-            pasTopArray[curIndex] = GCT_NONE;
-            pasPtrsInTopArray--;
-            gcCount--;
-        }
-    }
-
-    /* Now kill bits from the mask */
-
-    assert(pasPtrsInTopArray == 0);
-    assert(gcCount <= BITS_IN_pasMask);
-
-    for (unsigned bitPos = 1; gcCount; bitPos <<= 1)
-    {
-        assert(pasBottomMask != 0);
-
-        if (pasBottomMask & bitPos)
-        {
-            pasBottomMask &= ~bitPos;
-            pasByrefBottomMask &= ~bitPos;
-            --gcCount;
+                if (gcType == GCT_BYREF)
+                    pasByrefBottomMask |= 1;
+            }
         }
         else
         {
-            assert(bitPos != HIGHEST_pasMask_BIT);
+            /* Push on array */
+
+            pasTopArray[pasDepth - BITS_IN_pasMask] = (BYTE)gcType;
+
+            if (gcType)
+                pasPtrsInTopArray++;
         }
-    }
-}
 
-//-----------------------------------------------------------------------------
-// Used for the case where there are more than BITS_IN_pasMask args on stack,
-// but none are any pointers. May avoid reporting anything to GCinfo
-
-bool PendingArgsStack::pasHasGCptrs()
-{
-    if (pasDepth <= BITS_IN_pasMask)
-        return pasBottomMask != 0;
-    else
-        return pasBottomMask != 0 || pasPtrsInTopArray != 0;
-}
-
-//-----------------------------------------------------------------------------
-//  Iterates over mask and array to return total count.
-//  Use only when you are going to emit a table of the offsets
-
-unsigned PendingArgsStack::pasEnumGCoffsCount()
-{
-    /* Should only be used in the worst case, when just the mask can't be used */
-
-    assert(pasDepth > BITS_IN_pasMask && pasHasGCptrs());
-
-    /* Count number of set bits in mask */
-
-    unsigned count = 0;
-
-    for (pasMaskType mask = 0x1, i = 0; i < BITS_IN_pasMask; mask <<= 1, i++)
-    {
-        if (mask & pasBottomMask)
-            count++;
+        pasDepth++;
     }
 
-    return count + pasPtrsInTopArray;
-}
-
-//-----------------------------------------------------------------------------
-//  Initalize enumeration by passing in iter=pasENUM_START.
-//  Continue by passing in the return value as the new value of iter
-//  End of enumeration when pasENUM_END is returned
-//  If return value != pasENUM_END, *offs is set to the offset for GCinfo
-
-unsigned PendingArgsStack::pasEnumGCoffs(unsigned iter, unsigned* offs)
-{
-    if (iter == pasENUM_LAST)
-        return pasENUM_END;
-
-    unsigned i = (iter == pasENUM_START) ? pasDepth : iter;
-
-    for (/**/; i > BITS_IN_pasMask; i--)
+    void Pop(unsigned count)
     {
-        GCtype curArg = (GCtype)pasTopArray[i - BITS_IN_pasMask - 1];
-        if (needsGC(curArg))
+        assert(pasDepth >= count);
+
+        /* First pop from array (if applicable) */
+
+        for (/**/; (pasDepth > BITS_IN_pasMask) && count; pasDepth--, count--)
         {
-            unsigned offset;
+            unsigned topIndex = pasDepth - BITS_IN_pasMask - 1;
 
-            offset = (pasDepth - i) * TARGET_POINTER_SIZE;
-            if (curArg == GCT_BYREF)
-                offset |= byref_OFFSET_FLAG;
+            GCtype topArg = (GCtype)pasTopArray[topIndex];
 
-            *offs = offset;
-            return i - 1;
+            if (topArg != GCT_NONE)
+            {
+                pasPtrsInTopArray--;
+            }
         }
-    }
 
-    if (!pasBottomMask)
-        return pasENUM_END;
-
-    // Have we already processed some of the bits in pasBottomMask ?
-
-    i = (iter == pasENUM_START || iter >= BITS_IN_pasMask) ? 0     // no
-                                                           : iter; // yes
-
-    for (pasMaskType mask = 0x1 << i; mask; i++, mask <<= 1)
-    {
-        if (mask & pasBottomMask)
+        if (count == 0)
         {
-            unsigned lvl = (pasDepth > BITS_IN_pasMask) ? (pasDepth - BITS_IN_pasMask) : 0; // How many in pasTopArray[]
-            lvl += i;
+            return;
+        }
 
-            unsigned offset;
-            offset = lvl * TARGET_POINTER_SIZE;
-            if (mask & pasByrefBottomMask)
-                offset |= byref_OFFSET_FLAG;
+        /* Now un-shift the mask */
 
-            *offs = offset;
+        assert(pasPtrsInTopArray == 0);
+        assert(count <= BITS_IN_pasMask);
 
-            unsigned remMask = -int(mask << 1);
-            return ((pasBottomMask & remMask) ? (i + 1) : pasENUM_LAST);
+        if (count == BITS_IN_pasMask) // (x>>32) is a nop on x86. So special-case it
+        {
+            pasBottomMask = pasByrefBottomMask = 0;
+            pasDepth                           = 0;
+        }
+        else
+        {
+            pasBottomMask >>= count;
+            pasByrefBottomMask >>= count;
+            pasDepth -= count;
         }
     }
 
-    assert(!"Shouldnt reach here");
-    return pasENUM_END;
-}
+    // Kill (but don't pop) the top 'gcCount' args
+    void Kill(unsigned gcCount)
+    {
+        assert(gcCount != 0);
 
-/*****************************************************************************
- *
- *  Generate the register pointer map, and return its total size in bytes. If
- *  'mask' is 0, we don't actually store any data in 'dest' (except for one
- *  entry, which is never more than 10 bytes), so this can be used to merely
- *  compute the size of the table.
- */
+        /* First kill args in array (if any) */
 
-#ifdef _PREFAST_
-#pragma warning(push)
-#pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
-#endif
-size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, unsigned codeSize, size_t* pArgTabOffset)
+        for (unsigned curPos = pasDepth; (curPos > BITS_IN_pasMask) && gcCount; curPos--)
+        {
+            unsigned curIndex = curPos - BITS_IN_pasMask - 1;
+
+            GCtype curArg = (GCtype)pasTopArray[curIndex];
+
+            if (curArg != GCT_NONE)
+            {
+                pasTopArray[curIndex] = GCT_NONE;
+                pasPtrsInTopArray--;
+                gcCount--;
+            }
+        }
+
+        /* Now kill bits from the mask */
+
+        assert(pasPtrsInTopArray == 0);
+        assert(gcCount <= BITS_IN_pasMask);
+
+        for (unsigned bitPos = 1; gcCount; bitPos <<= 1)
+        {
+            assert(pasBottomMask != 0);
+
+            if (pasBottomMask & bitPos)
+            {
+                pasBottomMask &= ~bitPos;
+                pasByrefBottomMask &= ~bitPos;
+                --gcCount;
+            }
+            else
+            {
+                assert(bitPos != HIGHEST_pasMask_BIT);
+            }
+        }
+    }
+
+    // Used for the case where there are more than BITS_IN_pasMask args on stack,
+    // but none are any pointers. May avoid reporting anything to GCinfo
+    bool HasGCptrs()
+    {
+        if (pasDepth <= BITS_IN_pasMask)
+            return pasBottomMask != 0;
+        else
+            return pasBottomMask != 0 || pasPtrsInTopArray != 0;
+    }
+
+    // Iterates over mask and array to return total count.
+    // Use only when you are going to emit a table of the offsets
+    unsigned EnumGCoffsCount()
+    {
+        /* Should only be used in the worst case, when just the mask can't be used */
+
+        assert(pasDepth > BITS_IN_pasMask && HasGCptrs());
+
+        /* Count number of set bits in mask */
+
+        unsigned count = 0;
+
+        for (pasMaskType mask = 0x1, i = 0; i < BITS_IN_pasMask; mask <<= 1, i++)
+        {
+            if (mask & pasBottomMask)
+                count++;
+        }
+
+        return count + pasPtrsInTopArray;
+    }
+
+    static constexpr unsigned pasENUM_START = UINT32_MAX;
+    static constexpr unsigned pasENUM_LAST  = UINT32_MAX - 1;
+    static constexpr unsigned pasENUM_END   = UINT32_MAX - 2;
+
+    // Initalize enumeration by passing in iter=pasENUM_START.
+    // Continue by passing in the return value as the new value of iter
+    // End of enumeration when pasENUM_END is returned
+    // If return value != pasENUM_END, *offs is set to the offset for GCinfo
+    unsigned EnumGCoffs(unsigned iter, unsigned* offs)
+    {
+        if (iter == pasENUM_LAST)
+            return pasENUM_END;
+
+        unsigned i = (iter == pasENUM_START) ? pasDepth : iter;
+
+        for (/**/; i > BITS_IN_pasMask; i--)
+        {
+            GCtype curArg = (GCtype)pasTopArray[i - BITS_IN_pasMask - 1];
+
+            if (curArg != GCT_NONE)
+            {
+                unsigned offset;
+
+                offset = (pasDepth - i) * TARGET_POINTER_SIZE;
+
+                if (curArg == GCT_BYREF)
+                {
+                    offset |= byref_OFFSET_FLAG;
+                }
+
+                *offs = offset;
+                return i - 1;
+            }
+        }
+
+        if (!pasBottomMask)
+            return pasENUM_END;
+
+        // Have we already processed some of the bits in pasBottomMask ?
+
+        i = (iter == pasENUM_START || iter >= BITS_IN_pasMask) ? 0     // no
+                                                               : iter; // yes
+
+        for (pasMaskType mask = 0x1 << i; mask; i++, mask <<= 1)
+        {
+            if (mask & pasBottomMask)
+            {
+                unsigned lvl =
+                    (pasDepth > BITS_IN_pasMask) ? (pasDepth - BITS_IN_pasMask) : 0; // How many in pasTopArray[]
+                lvl += i;
+
+                unsigned offset;
+                offset = lvl * TARGET_POINTER_SIZE;
+                if (mask & pasByrefBottomMask)
+                    offset |= byref_OFFSET_FLAG;
+
+                *offs = offset;
+
+                unsigned remMask = -int(mask << 1);
+                return ((pasBottomMask & remMask) ? (i + 1) : pasENUM_LAST);
+            }
+        }
+
+        assert(!"Shouldnt reach here");
+        return pasENUM_END;
+    }
+};
+
+// Generate the register pointer map, and return its total size in bytes. If
+// 'mask' is 0, we don't actually store any data in 'dest' (except for one
+// entry, which is never more than 10 bytes), so this can be used to merely
+// compute the size of the table.
+size_t GCEncoder::MakeRegPtrTable(BYTE* dest, int mask, size_t* pArgTabOffset)
 {
-    unsigned   varNum;
-    LclVarDsc* varDsc;
-
-    size_t   totalSize = 0;
-    unsigned lastOffset;
+    size_t totalSize = 0;
 
     /* The mask should be all 0's or all 1's */
 
@@ -2131,10 +2154,10 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
 
     /* Start computing the total size of the table */
 
-    bool emitArgTabOffset = (header.varPtrTableSize != 0 || header.untrackedCnt > SET_UNTRACKED_MAX);
+    bool emitArgTabOffset = (trackedStackSlotLifetimeCount != 0) || (untrackedStackSlotCount > SET_UNTRACKED_MAX);
     if (mask != 0 && emitArgTabOffset)
     {
-        assert(*pArgTabOffset <= MAX_UNSIGNED_SIZE_T);
+        assert(*pArgTabOffset <= UINT32_MAX);
         unsigned sz = encodeUnsigned(dest, static_cast<unsigned>(*pArgTabOffset));
         dest += sz;
         totalSize += sz;
@@ -2146,155 +2169,15 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
         *(short*)dest = (short)0xBEEF;
         dest += sizeof(short);
     }
+
     totalSize += sizeof(short);
 #endif
 
-/**************************************************************************
- *
- *                      Untracked ptr variables
- *
- **************************************************************************
- */
-#if DEBUG
-    unsigned untrackedCount  = 0;
-    unsigned varPtrTableSize = 0;
-    gcCountForHeader(&untrackedCount, &varPtrTableSize);
-    assert(untrackedCount == header.untrackedCnt);
-    assert(varPtrTableSize == header.varPtrTableSize);
-#endif // DEBUG
-
-    if (header.untrackedCnt != 0)
+    if (untrackedStackSlotCount != 0)
     {
-        // Write the table of untracked pointer variables.
-
-        int lastoffset = 0;
-
-        for (varNum = 0, varDsc = compiler->lvaTable; varNum < compiler->lvaCount; varNum++, varDsc++)
-        {
-            if (varDsc->IsDependentPromotedField(compiler))
-            {
-                // A dependent promoted struct field must be reported through its parent local.
-                continue;
-            }
-
-            if (varTypeIsGC(varDsc->TypeGet()))
-            {
-                if (!gcIsUntrackedLocalOrNonEnregisteredArg(varNum))
-                {
-                    continue;
-                }
-
-                int offset = varDsc->GetStackOffset();
-#if DOUBLE_ALIGN
-                // For genDoubleAlign(), locals are addressed relative to ESP and
-                // arguments are addressed relative to EBP.
-                if (compiler->codeGen->doDoubleAlign() && varDsc->IsParam() && !varDsc->IsRegParam())
-                {
-                    offset += compiler->codeGen->genTotalFrameSize();
-                }
-#endif
-
-                // The lower bits of the offset encode properties of the stk ptr
-
-                assert(~OFFSET_MASK % sizeof(offset) == 0);
-
-                if (varDsc->TypeGet() == TYP_BYREF)
-                {
-                    // Or in byref_OFFSET_FLAG for 'byref' pointer tracking
-                    offset |= byref_OFFSET_FLAG;
-                }
-
-                if (varDsc->lvPinned)
-                {
-                    // Or in pinned_OFFSET_FLAG for 'pinned' pointer tracking
-                    offset |= pinned_OFFSET_FLAG;
-                }
-
-                int encodedoffset = lastoffset - offset;
-                lastoffset        = offset;
-
-                if (mask == 0)
-                    totalSize += encodeSigned(NULL, encodedoffset);
-                else
-                {
-                    unsigned sz = encodeSigned(dest, encodedoffset);
-                    dest += sz;
-                    totalSize += sz;
-                }
-            }
-            else if ((varDsc->TypeGet() == TYP_STRUCT) && varDsc->lvOnFrame && varDsc->HasGCPtr())
-            {
-                ClassLayout* layout = varDsc->GetLayout();
-                unsigned     slots  = layout->GetSlotCount();
-
-                for (unsigned i = 0; i < slots; i++)
-                {
-                    if (!layout->IsGCPtr(i))
-                    {
-                        continue;
-                    }
-
-                    unsigned offset = varDsc->GetStackOffset() + i * TARGET_POINTER_SIZE;
-#if DOUBLE_ALIGN
-                    // For genDoubleAlign(), locals are addressed relative to ESP and
-                    // arguments are addressed relative to EBP.
-                    if (compiler->codeGen->doDoubleAlign() && varDsc->IsParam() && !varDsc->IsRegParam())
-                    {
-                        offset += compiler->codeGen->genTotalFrameSize();
-                    }
-#endif
-                    if (layout->GetGCPtrType(i) == TYP_BYREF)
-                    {
-                        offset |= byref_OFFSET_FLAG; // indicate it is a byref GC pointer
-                    }
-
-                    int encodedoffset = lastoffset - offset;
-                    lastoffset        = offset;
-
-                    if (mask == 0)
-                    {
-                        totalSize += encodeSigned(NULL, encodedoffset);
-                    }
-                    else
-                    {
-                        unsigned sz = encodeSigned(dest, encodedoffset);
-                        dest += sz;
-                        totalSize += sz;
-                    }
-                }
-            }
-        }
-
-        // Count & write spill temps that hold pointers.
-
-        for (SpillTemp& temp : compiler->codeGen->spillTemps)
-        {
-            if (!varTypeIsGC(temp.GetType()))
-            {
-                continue;
-            }
-
-            int offset = temp.GetOffset();
-
-            if (temp.GetType() == TYP_BYREF)
-            {
-                offset |= byref_OFFSET_FLAG;
-            }
-
-            int encodedoffset = lastoffset - offset;
-            lastoffset        = offset;
-
-            if (mask == 0)
-            {
-                totalSize += encodeSigned(nullptr, encodedoffset);
-            }
-            else
-            {
-                unsigned sz = encodeSigned(dest, encodedoffset);
-                dest += sz;
-                totalSize += sz;
-            }
-        }
+        unsigned slotSize = AddUntrackedStackSlots(dest, mask);
+        totalSize += slotSize;
+        dest += mask & slotSize;
     }
 
 #if VERIFY_GC_TABLES
@@ -2303,6 +2186,7 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
         *(short*)dest = (short)0xCAFE;
         dest += sizeof(short);
     }
+
     totalSize += sizeof(short);
 #endif
 
@@ -2313,97 +2197,19 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
      **************************************************************************
      */
 
-    bool keepThisAlive = false;
-
-    if (!compiler->info.compIsStatic)
-    {
-        unsigned thisArgNum = compiler->info.compThisArg;
-        gcIsUntrackedLocalOrNonEnregisteredArg(thisArgNum, &keepThisAlive);
-    }
-
     // First we check for the most common case - no lifetimes at all.
 
-    if (header.varPtrTableSize != 0)
+    if (trackedStackSlotLifetimeCount != 0)
     {
-#if !defined(FEATURE_EH_FUNCLETS)
-        if (keepThisAlive)
-        {
-            // Encoding of untracked variables does not support reporting
-            // "this". So report it as a tracked variable with a liveness
-            // extending over the entire method.
-
-            assert(compiler->lvaTable[compiler->info.compThisArg].TypeGet() == TYP_REF);
-
-            unsigned varOffs = compiler->lvaTable[compiler->info.compThisArg].GetStackOffset();
-
-            /* For negative stack offsets we must reset the low bits,
-                * take abs and then set them back */
-
-            varOffs = abs(static_cast<int>(varOffs));
-            varOffs |= this_OFFSET_FLAG;
-
-            size_t sz = 0;
-            sz        = encodeUnsigned(mask ? (dest + sz) : NULL, varOffs);
-            sz += encodeUDelta(mask ? (dest + sz) : NULL, 0, 0);
-            sz += encodeUDelta(mask ? (dest + sz) : NULL, codeSize, 0);
-
-            dest += (sz & mask);
-            totalSize += sz;
-        }
-#endif // !FEATURE_EH_FUNCLETS
-
-        /* We'll use a delta encoding for the lifetime offsets */
-
-        lastOffset = 0;
-
-        for (varPtrDsc* varTmp = gcVarPtrList; varTmp; varTmp = varTmp->vpdNext)
-        {
-            unsigned varOffs;
-            unsigned lowBits;
-
-            unsigned begOffs;
-            unsigned endOffs;
-
-            assert(~OFFSET_MASK % TARGET_POINTER_SIZE == 0);
-
-            /* Get hold of the variable's stack offset */
-
-            lowBits = varTmp->frameOffset & OFFSET_MASK;
-
-            /* For negative stack offsets we must reset the low bits,
-             * take abs and then set them back */
-
-            varOffs = abs(static_cast<int>(varTmp->frameOffset & ~OFFSET_MASK));
-            varOffs |= lowBits;
-
-            /* Compute the actual lifetime offsets */
-
-            begOffs = varTmp->vpdBegOfs;
-            endOffs = varTmp->vpdEndOfs;
-
-            /* Special case: skip any 0-length lifetimes */
-
-            if (endOffs == begOffs)
-                continue;
-
-            /* Are we counting or generating? */
-
-            size_t sz = 0;
-            sz        = encodeUnsigned(mask ? (dest + sz) : NULL, varOffs);
-            sz += encodeUDelta(mask ? (dest + sz) : NULL, begOffs, lastOffset);
-            sz += encodeUDelta(mask ? (dest + sz) : NULL, endOffs, begOffs);
-
-            dest += (sz & mask);
-            totalSize += sz;
-
-            /* The next entry will be relative to the one we just processed */
-
-            lastOffset = begOffs;
-        }
+        unsigned slotSize = AddTrackedStackSlots(dest, mask);
+        totalSize += slotSize;
+        dest += mask & slotSize;
     }
 
-    if (pArgTabOffset != NULL)
+    if (pArgTabOffset != nullptr)
+    {
         *pArgTabOffset = totalSize;
+    }
 
 #if VERIFY_GC_TABLES
     if (mask)
@@ -2416,880 +2222,1081 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
 
     if (!mask && emitArgTabOffset)
     {
-        assert(*pArgTabOffset <= MAX_UNSIGNED_SIZE_T);
-        totalSize += encodeUnsigned(NULL, static_cast<unsigned>(*pArgTabOffset));
+        assert(*pArgTabOffset <= UINT32_MAX);
+        totalSize += encodeUnsigned(nullptr, static_cast<unsigned>(*pArgTabOffset));
     }
 
-    /**************************************************************************
-     *
-     * Prepare to generate the pointer register/argument map
-     *
-     **************************************************************************
-     */
+    unsigned slotSize;
 
-    lastOffset = 0;
-
-    if (compiler->codeGen->GetInterruptible())
+    if (isFullyInterruptible)
     {
-#ifdef TARGET_X86
-        assert(compiler->codeGen->IsFullPtrRegMapRequired());
+        slotSize = AddFullyInterruptibleSlots(dest, mask);
+    }
+    else if (compiler->codeGen->isFramePointerUsed())
+    {
+        slotSize = AddPartiallyInterruptibleSlotsFramed(dest, mask);
+    }
+    else
+    {
+        slotSize = AddPartiallyInterruptibleSlotsFrameless(dest, mask);
+    }
 
-        unsigned ptrRegs = 0;
+    totalSize += slotSize;
+    dest += mask & slotSize;
 
-        regPtrDsc* genRegPtrTemp;
+    /* Terminate the table with 0xFF */
 
-        /* Walk the list of pointer register/argument entries */
+    *dest = 0xFF;
+    dest -= mask;
+    totalSize++;
 
-        for (genRegPtrTemp = gcRegPtrList; genRegPtrTemp; genRegPtrTemp = genRegPtrTemp->rpdNext)
-        {
-            BYTE* base = dest;
-
-            unsigned nextOffset;
-            DWORD    codeDelta;
-
-            nextOffset = genRegPtrTemp->rpdOffs;
-
-            /*
-                Encoding table for methods that are fully interruptible
-
-                The encoding used is as follows:
-
-                ptr reg dead    00RRRDDD    [RRR != 100]
-                ptr reg live    01RRRDDD    [RRR != 100]
-
-            non-ptr arg push    10110DDD                    [SSS == 110]
-                ptr arg push    10SSSDDD                    [SSS != 110] && [SSS != 111]
-                ptr arg pop     11CCCDDD    [CCC != 000] && [CCC != 110] && [CCC != 111]
-                little skip     11000DDD    [CCC == 000]
-                bigger skip     11110BBB                    [CCC == 110]
-
-                The values used in the above encodings are as follows:
-
-                  DDD                 code offset delta from previous entry (0-7)
-                  BBB                 bigger delta 000=8,001=16,010=24,...,111=64
-                  RRR                 register number (EAX=000,ECX=001,EDX=010,EBX=011,
-                                        EBP=101,ESI=110,EDI=111), ESP=100 is reserved
-                  SSS                 argument offset from base of stack. This is
-                                        redundant for frameless methods as we can
-                                        infer it from the previous pushes+pops. However,
-                                        for EBP-methods, we only report GC pushes, and
-                                        so we need SSS
-                  CCC                 argument count being popped (includes only ptrs for EBP methods)
-
-                The following are the 'large' versions:
-
-                  large delta skip        10111000 [0xB8] , encodeUnsigned(delta)
-
-                  large     ptr arg push  11111000 [0xF8] , encodeUnsigned(pushCount)
-                  large non-ptr arg push  11111001 [0xF9] , encodeUnsigned(pushCount)
-                  large     ptr arg pop   11111100 [0xFC] , encodeUnsigned(popCount)
-                  large         arg dead  11111101 [0xFD] , encodeUnsigned(popCount) for caller-pop args.
-                                                              Any GC args go dead after the call,
-                                                              but are still sitting on the stack
-
-                  this pointer prefix     10111100 [0xBC]   the next encoding is a ptr live
-                                                              or a ptr arg push
-                                                              and contains the this pointer
-
-                  interior or by-ref      10111111 [0xBF]   the next encoding is a ptr live
-                       pointer prefix                         or a ptr arg push
-                                                              and contains an interior
-                                                              or by-ref pointer
-
-
-                  The value 11111111 [0xFF] indicates the end of the table.
-            */
-
-            codeDelta = nextOffset - lastOffset;
-            assert((int)codeDelta >= 0);
-
-            // If the code delta is between 8 and (64+7),
-            // generate a 'bigger delta' encoding
-
-            if ((codeDelta >= 8) && (codeDelta <= (64 + 7)))
-            {
-                unsigned biggerDelta = ((codeDelta - 8) & 0x38) + 8;
-                *dest++              = 0xF0 | ((biggerDelta - 8) >> 3);
-                lastOffset += biggerDelta;
-                codeDelta &= 0x07;
-            }
-
-            // If the code delta is still bigger than 7,
-            // generate a 'large code delta' encoding
-
-            if (codeDelta > 7)
-            {
-                *dest++ = 0xB8;
-                dest += encodeUnsigned(dest, codeDelta);
-                codeDelta = 0;
-
-                /* Remember the new 'last' offset */
-
-                lastOffset = nextOffset;
-            }
-
-            /* Is this a pointer argument or register entry? */
-
-            if (genRegPtrTemp->rpdArg)
-            {
-                if (genRegPtrTemp->rpdArgTypeGet() == rpdARG_KILL)
-                {
-                    if (codeDelta)
-                    {
-                        /*
-                            Use the small encoding:
-                            little delta skip       11000DDD    [0xC0]
-                         */
-
-                        assert((codeDelta & 0x7) == codeDelta);
-                        *dest++ = 0xC0 | (BYTE)codeDelta;
-
-                        /* Remember the new 'last' offset */
-
-                        lastOffset = nextOffset;
-                    }
-
-                    /* Caller-pop arguments are dead after call but are still
-                       sitting on the stack */
-
-                    *dest++ = 0xFD;
-                    assert(genRegPtrTemp->rpdPtrArg != 0);
-                    dest += encodeUnsigned(dest, genRegPtrTemp->rpdPtrArg);
-                }
-                else if (genRegPtrTemp->rpdPtrArg < 6 && genRegPtrTemp->rpdGCtypeGet())
-                {
-                    /* Is the argument offset/count smaller than 6 ? */
-
-                    dest = gceByrefPrefixI(genRegPtrTemp, dest);
-
-                    if (genRegPtrTemp->rpdArgTypeGet() == rpdARG_PUSH || (genRegPtrTemp->rpdPtrArg != 0))
-                    {
-                        /*
-                          Use the small encoding:
-
-                            ptr arg push 10SSSDDD [SSS != 110] && [SSS != 111]
-                            ptr arg pop  11CCCDDD [CCC != 110] && [CCC != 111]
-                         */
-
-                        bool isPop = genRegPtrTemp->rpdArgTypeGet() == rpdARG_POP;
-
-                        *dest++ = 0x80 | (BYTE)codeDelta | genRegPtrTemp->rpdPtrArg << 3 | isPop << 6;
-
-                        /* Remember the new 'last' offset */
-
-                        lastOffset = nextOffset;
-                    }
-                    else
-                    {
-                        assert(!"Check this");
-                    }
-                }
-                else if (genRegPtrTemp->rpdGCtypeGet() == GCT_NONE)
-                {
-                    /*
-                        Use the small encoding:
-`                        non-ptr arg push 10110DDD [0xB0] (push of sizeof(int))
-                     */
-
-                    assert((codeDelta & 0x7) == codeDelta);
-                    *dest++ = 0xB0 | (BYTE)codeDelta;
-#ifndef UNIX_X86_ABI
-                    assert(!compiler->codeGen->isFramePointerUsed());
+#if VERIFY_GC_TABLES
+    if (mask)
+    {
+        *(short*)dest = (short)0xBEEB;
+        dest += sizeof(short);
+    }
+    totalSize += sizeof(short);
 #endif
 
-                    /* Remember the new 'last' offset */
+#if MEASURE_PTRTAB_SIZE
+    if (mask)
+    {
+        s_gcTotalPtrTabSize += totalSize;
+    }
+#endif
 
-                    lastOffset = nextOffset;
-                }
-                else
-                {
-                    /* Will have to use large encoding;
-                     *   first do the code delta
-                     */
+    return totalSize;
+}
 
-                    if (codeDelta)
-                    {
-                        /*
-                            Use the small encoding:
-                            little delta skip       11000DDD    [0xC0]
-                         */
+unsigned GCEncoder::AddUntrackedStackSlots(uint8_t* dest, const int mask)
+{
+    unsigned totalSize  = 0;
+    int      lastoffset = 0;
 
-                        assert((codeDelta & 0x7) == codeDelta);
-                        *dest++ = 0xC0 | (BYTE)codeDelta;
-                    }
+    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
+    {
+        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
 
-                    /*
-                        Now append a large argument record:
+        if (lcl->IsDependentPromotedField(compiler) || !lcl->lvOnFrame || lcl->HasGCSlotLiveness())
+        {
+            continue;
+        }
 
-                            large ptr arg push  11111000 [0xF8]
-                            large ptr arg pop   11111100 [0xFC]
-                     */
+        if (varTypeIsGC(lcl->GetType()))
+        {
+#ifndef FEATURE_EH_FUNCLETS
+            if (lclNum == trackedThisLclNum)
+            {
+                continue;
+            }
+#endif
 
-                    bool isPop = genRegPtrTemp->rpdArgTypeGet() == rpdARG_POP;
+            int offset = lcl->GetStackOffset();
 
-                    dest = gceByrefPrefixI(genRegPtrTemp, dest);
+#if DOUBLE_ALIGN
+            if (compiler->codeGen->doDoubleAlign() && lcl->IsParam() && !lcl->IsRegParam())
+            {
+                offset += compiler->codeGen->genTotalFrameSize();
+            }
+#endif
 
-                    *dest++ = 0xF8 | (isPop << 2);
-                    dest += encodeUnsigned(dest, genRegPtrTemp->rpdPtrArg);
+            if (lcl->TypeIs(TYP_BYREF))
+            {
+                offset |= byref_OFFSET_FLAG;
+            }
 
-                    /* Remember the new 'last' offset */
+            if (lcl->lvPinned)
+            {
+                offset |= pinned_OFFSET_FLAG;
+            }
 
-                    lastOffset = nextOffset;
-                }
+            int offsetDelta = lastoffset - offset;
+            lastoffset      = offset;
+
+            if (mask == 0)
+            {
+                totalSize += encodeSigned(nullptr, offsetDelta);
             }
             else
             {
-                unsigned regMask;
+                unsigned size = encodeSigned(dest, offsetDelta);
+                dest += size;
+                totalSize += size;
+            }
+        }
+        else if (lcl->TypeIs(TYP_STRUCT) && lcl->HasGCPtr())
+        {
+            int lclOffset = lcl->GetStackOffset();
 
-                /* Record any registers that are becoming dead */
+#if DOUBLE_ALIGN
+            if (compiler->codeGen->doDoubleAlign() && lcl->IsParam() && !lcl->IsRegParam())
+            {
+                lclOffset += compiler->codeGen->genTotalFrameSize();
+            }
+#endif
 
-                regMask = genRegPtrTemp->rpdCompiler.rpdDel & ptrRegs;
+            ClassLayout* layout = lcl->GetLayout();
 
-                while (regMask) // EAX,ECX,EDX,EBX,---,EBP,ESI,EDI
+            for (unsigned i = 0, slots = layout->GetSlotCount(); i < slots; i++)
+            {
+                if (!layout->IsGCPtr(i))
                 {
-                    unsigned  tmpMask;
-                    regNumber regNum;
-
-                    /* Get hold of the next register bit */
-
-                    tmpMask = genFindLowestReg(regMask);
-                    assert(tmpMask);
-
-                    /* Remember the new state of this register */
-
-                    ptrRegs &= ~tmpMask;
-
-                    /* Figure out which register the next bit corresponds to */
-
-                    regNum = genRegNumFromMask(tmpMask);
-                    assert(regNum <= 7);
-
-                    /* Reserve ESP, regNum==4 for future use */
-
-                    assert(regNum != 4);
-
-                    /*
-                        Generate a small encoding:
-
-                            ptr reg dead        00RRRDDD
-                     */
-
-                    assert((codeDelta & 0x7) == codeDelta);
-                    *dest++ = 0x00 | regNum << 3 | (BYTE)codeDelta;
-
-                    /* Turn the bit we've just generated off and continue */
-
-                    regMask -= tmpMask; // EAX,ECX,EDX,EBX,---,EBP,ESI,EDI
-
-                    /* Remember the new 'last' offset */
-
-                    lastOffset = nextOffset;
-
-                    /* Any entries that follow will be at the same offset */
-
-                    codeDelta = zeroFunc(); /* DO NOT REMOVE */
+                    continue;
                 }
 
-                /* Record any registers that are becoming live */
+                unsigned slotOffset = lclOffset + i * TARGET_POINTER_SIZE;
 
-                regMask = genRegPtrTemp->rpdCompiler.rpdAdd & ~ptrRegs;
-
-                while (regMask) // EAX,ECX,EDX,EBX,---,EBP,ESI,EDI
+                if (layout->GetGCPtrType(i) == TYP_BYREF)
                 {
-                    unsigned  tmpMask;
-                    regNumber regNum;
+                    slotOffset |= byref_OFFSET_FLAG;
+                }
 
-                    /* Get hold of the next register bit */
+                int offsetDelta = lastoffset - slotOffset;
+                lastoffset      = slotOffset;
 
-                    tmpMask = genFindLowestReg(regMask);
-                    assert(tmpMask);
-
-                    /* Remember the new state of this register */
-
-                    ptrRegs |= tmpMask;
-
-                    /* Figure out which register the next bit corresponds to */
-
-                    regNum = genRegNumFromMask(tmpMask);
-                    assert(regNum <= 7);
-
-                    /*
-                        Generate a small encoding:
-
-                            ptr reg live        01RRRDDD
-                     */
-
-                    dest = gceByrefPrefixI(genRegPtrTemp, dest);
-
-                    if (!keepThisAlive && genRegPtrTemp->rpdIsThis)
-                    {
-                        // Mark with 'this' pointer prefix
-                        *dest++ = 0xBC;
-                        // Can only have one bit set in regMask
-                        assert(regMask == tmpMask);
-                    }
-
-                    assert((codeDelta & 0x7) == codeDelta);
-                    *dest++ = 0x40 | (regNum << 3) | (BYTE)codeDelta;
-
-                    /* Turn the bit we've just generated off and continue */
-
-                    regMask -= tmpMask; // EAX,ECX,EDX,EBX,---,EBP,ESI,EDI
-
-                    /* Remember the new 'last' offset */
-
-                    lastOffset = nextOffset;
-
-                    /* Any entries that follow will be at the same offset */
-
-                    codeDelta = zeroFunc(); /* DO NOT REMOVE */
+                if (mask == 0)
+                {
+                    totalSize += encodeSigned(nullptr, offsetDelta);
+                }
+                else
+                {
+                    unsigned size = encodeSigned(dest, offsetDelta);
+                    dest += size;
+                    totalSize += size;
                 }
             }
-
-            /* Keep track of the total amount of generated stuff */
-
-            totalSize += dest - base;
-
-            /* Go back to the buffer start if we're not generating a table */
-
-            if (!mask)
-                dest = base;
         }
-#endif // TARGET_X86
-
-        /* Terminate the table with 0xFF */
-
-        *dest = 0xFF;
-        dest -= mask;
-        totalSize++;
     }
-    else if (compiler->codeGen->isFramePointerUsed()) // GetInterruptible() is false
+
+    for (SpillTemp& temp : compiler->codeGen->spillTemps)
     {
-#ifdef TARGET_X86
+        if (!varTypeIsGC(temp.GetType()))
+        {
+            continue;
+        }
+
+        int offset = temp.GetOffset();
+
+        if (temp.GetType() == TYP_BYREF)
+        {
+            offset |= byref_OFFSET_FLAG;
+        }
+
+        int offsetDelta = lastoffset - offset;
+        lastoffset      = offset;
+
+        if (mask == 0)
+        {
+            totalSize += encodeSigned(nullptr, offsetDelta);
+        }
+        else
+        {
+            unsigned size = encodeSigned(dest, offsetDelta);
+            dest += size;
+            totalSize += size;
+        }
+    }
+
+    return totalSize;
+}
+
+unsigned GCEncoder::AddTrackedStackSlots(uint8_t* dest, const int mask)
+{
+    unsigned totalSize = 0;
+
+#ifndef FEATURE_EH_FUNCLETS
+    if (trackedThisLclNum != BAD_VAR_NUM)
+    {
+        // Encoding of untracked variables does not support reporting
+        // "this". So report it as a tracked variable with a liveness
+        // extending over the entire method.
+
+        assert(compiler->lvaGetDesc(trackedThisLclNum)->TypeIs(TYP_REF));
+
+        unsigned slotOffset = compiler->lvaGetDesc(trackedThisLclNum)->GetStackOffset();
+
+        slotOffset = abs(static_cast<int>(slotOffset));
+        slotOffset |= this_OFFSET_FLAG;
+
+        unsigned sz = encodeUnsigned(mask ? dest : nullptr, slotOffset);
+        sz += encodeUDelta(mask ? (dest + sz) : nullptr, 0, 0);
+        sz += encodeUDelta(mask ? (dest + sz) : nullptr, codeSize, 0);
+
+        dest += (sz & mask);
+        totalSize += sz;
+    }
+#endif // !FEATURE_EH_FUNCLETS
+
+    unsigned lastOffset = 0;
+
+    for (StackSlotLifetime* lifetime = firstStackSlotLifetime; lifetime != nullptr; lifetime = lifetime->next)
+    {
+        const unsigned begOffs = lifetime->beginCodeOffs;
+        const unsigned endOffs = lifetime->endCodeOffs;
+
+        if (endOffs == begOffs)
+        {
+            continue;
+        }
+
+        unsigned lowBits  = lifetime->slotOffset & OFFSET_MASK;
+        unsigned slotOffs = abs(static_cast<int>(lifetime->slotOffset & ~OFFSET_MASK));
+        slotOffs |= lowBits;
+
+        unsigned sz = encodeUnsigned(mask ? dest : nullptr, slotOffs);
+        sz += encodeUDelta(mask ? (dest + sz) : nullptr, begOffs, lastOffset);
+        sz += encodeUDelta(mask ? (dest + sz) : nullptr, endOffs, begOffs);
+
+        dest += (sz & mask);
+        totalSize += sz;
+        lastOffset = begOffs;
+    }
+
+    return totalSize;
+}
+
+unsigned GCEncoder::AddFullyInterruptibleSlots(uint8_t* dest, const int mask)
+{
+    assert(isFullyInterruptible);
+
+    unsigned ptrRegs    = 0;
+    unsigned lastOffset = 0;
+    unsigned totalSize  = 0;
+
+    for (RegArgChange* change = firstRegArgChange; change != nullptr; change = change->next)
+    {
         /*
-            Encoding table for methods with an EBP frame and
-                               that are not fully interruptible
+            Encoding table for methods that are fully interruptible
 
             The encoding used is as follows:
 
-            this pointer encodings:
+            ptr reg dead    00RRRDDD    [RRR != 100]
+            ptr reg live    01RRRDDD    [RRR != 100]
 
-               01000000          this pointer in EBX
-               00100000          this pointer in ESI
-               00010000          this pointer in EDI
+        non-ptr arg push    10110DDD                    [SSS == 110]
+            ptr arg push    10SSSDDD                    [SSS != 110] && [SSS != 111]
+            ptr arg pop     11CCCDDD    [CCC != 000] && [CCC != 110] && [CCC != 111]
+            little skip     11000DDD    [CCC == 000]
+            bigger skip     11110BBB                    [CCC == 110]
 
-            tiny encoding:
+            The values used in the above encodings are as follows:
 
-               0bsdDDDD
-                                 requires code delta > 0 & delta < 16 (4-bits)
-                                 requires pushed argmask == 0
+              DDD                 code offset delta from previous entry (0-7)
+              BBB                 bigger delta 000=8,001=16,010=24,...,111=64
+              RRR                 register number (EAX=000,ECX=001,EDX=010,EBX=011,
+                                    EBP=101,ESI=110,EDI=111), ESP=100 is reserved
+              SSS                 argument offset from base of stack. This is
+                                    redundant for frameless methods as we can
+                                    infer it from the previous pushes+pops. However,
+                                    for EBP-methods, we only report GC pushes, and
+                                    so we need SSS
+              CCC                 argument count being popped (includes only ptrs for EBP methods)
 
-                 where    DDDD   is code delta
-                             b   indicates that register EBX is a live pointer
-                             s   indicates that register ESI is a live pointer
-                             d   indicates that register EDI is a live pointer
+            The following are the 'large' versions:
 
+              large delta skip        10111000 [0xB8] , encodeUnsigned(delta)
 
-            small encoding:
+              large     ptr arg push  11111000 [0xF8] , encodeUnsigned(pushCount)
+              large non-ptr arg push  11111001 [0xF9] , encodeUnsigned(pushCount)
+              large     ptr arg pop   11111100 [0xFC] , encodeUnsigned(popCount)
+              large         arg dead  11111101 [0xFD] , encodeUnsigned(popCount) for caller-pop args.
+                                                          Any GC args go dead after the call,
+                                                          but are still sitting on the stack
 
-               1DDDDDDD bsdAAAAA
+              this pointer prefix     10111100 [0xBC]   the next encoding is a ptr live
+                                                          or a ptr arg push
+                                                          and contains the this pointer
 
-                                 requires code delta     < 120 (7-bits)
-                                 requires pushed argmask <  64 (5-bits)
-
-                 where DDDDDDD   is code delta
-                         AAAAA   is the pushed args mask
-                             b   indicates that register EBX is a live pointer
-                             s   indicates that register ESI is a live pointer
-                             d   indicates that register EDI is a live pointer
-
-            medium encoding
-
-               0xFD aaaaaaaa AAAAdddd bseDDDDD
-
-                                 requires code delta     <  512  (9-bits)
-                                 requires pushed argmask < 2048 (12-bits)
-
-                 where    DDDDD  is the upper 5-bits of the code delta
-                           dddd  is the low   4-bits of the code delta
-                           AAAA  is the upper 4-bits of the pushed arg mask
-                       aaaaaaaa  is the low   8-bits of the pushed arg mask
-                              b  indicates that register EBX is a live pointer
-                              s  indicates that register ESI is a live pointer
-                              e  indicates that register EDI is a live pointer
-
-            medium encoding with interior pointers
-
-               0xF9 DDDDDDDD bsdAAAAAA iiiIIIII
-
-                                 requires code delta     < 256 (8-bits)
-                                 requires pushed argmask <  64 (5-bits)
-
-                 where  DDDDDDD  is the code delta
-                              b  indicates that register EBX is a live pointer
-                              s  indicates that register ESI is a live pointer
-                              d  indicates that register EDI is a live pointer
-                          AAAAA  is the pushed arg mask
-                            iii  indicates that EBX,EDI,ESI are interior pointers
-                          IIIII  indicates that bits in the arg mask are interior
-                                 pointers
-
-            large encoding
-
-               0xFE [0BSD0bsd][32-bit code delta][32-bit argMask]
-
-                              b  indicates that register EBX is a live pointer
-                              s  indicates that register ESI is a live pointer
-                              d  indicates that register EDI is a live pointer
-                              B  indicates that register EBX is an interior pointer
-                              S  indicates that register ESI is an interior pointer
-                              D  indicates that register EDI is an interior pointer
-                                 requires pushed  argmask < 32-bits
-
-            large encoding  with interior pointers
-
-               0xFA [0BSD0bsd][32-bit code delta][32-bit argMask][32-bit interior pointer mask]
+              interior or by-ref      10111111 [0xBF]   the next encoding is a ptr live
+                   pointer prefix                         or a ptr arg push
+                                                          and contains an interior
+                                                          or by-ref pointer
 
 
-                              b  indicates that register EBX is a live pointer
-                              s  indicates that register ESI is a live pointer
-                              d  indicates that register EDI is a live pointer
-                              B  indicates that register EBX is an interior pointer
-                              S  indicates that register ESI is an interior pointer
-                              D  indicates that register EDI is an interior pointer
-                                 requires pushed  argmask < 32-bits
-                                 requires pushed iArgmask < 32-bits
-
-
-            huge encoding        This is the only encoding that supports
-                                 a pushed argmask which is greater than
-                                 32-bits.
-
-               0xFB [0BSD0bsd][32-bit code delta]
-                    [32-bit table count][32-bit table size]
-                    [pushed ptr offsets table...]
-
-                             b   indicates that register EBX is a live pointer
-                             s   indicates that register ESI is a live pointer
-                             d   indicates that register EDI is a live pointer
-                             B   indicates that register EBX is an interior pointer
-                             S   indicates that register ESI is an interior pointer
-                             D   indicates that register EDI is an interior pointer
-                             the list count is the number of entries in the list
-                             the list size gives the byte-length of the list
-                             the offsets in the list are variable-length
+              The value 11111111 [0xFF] indicates the end of the table.
         */
 
-        /* If "this" is enregistered, note it. We do this explicitly here as
-           IsFullPtrRegMapRequired()==false, and so we don't have any regPtrDsc's. */
+        uint8_t* base       = dest;
+        unsigned nextOffset = change->codeOffs;
+        assert(nextOffset >= lastOffset);
+        unsigned codeDelta = nextOffset - lastOffset;
 
-        if (compiler->lvaKeepAliveAndReportThis() && compiler->lvaTable[compiler->info.compThisArg].lvRegister)
+        // If the code delta is between 8 and (64+7),
+        // generate a 'bigger delta' encoding
+
+        if ((codeDelta >= 8) && (codeDelta <= (64 + 7)))
         {
-            unsigned thisRegMask   = genRegMask(compiler->lvaTable[compiler->info.compThisArg].GetRegNum());
-            unsigned thisPtrRegEnc = gceEncodeCalleeSavedRegs(thisRegMask) << 4;
-
-            if (thisPtrRegEnc)
-            {
-                totalSize += 1;
-                if (mask)
-                    *dest++ = thisPtrRegEnc;
-            }
+            unsigned biggerDelta = ((codeDelta - 8) & 0x38) + 8;
+            *dest++              = 0xF0 | ((biggerDelta - 8) >> 3);
+            lastOffset += biggerDelta;
+            codeDelta &= 0x07;
         }
 
-        CallDsc* call;
+        // If the code delta is still bigger than 7,
+        // generate a 'large code delta' encoding
 
-        assert(!compiler->codeGen->IsFullPtrRegMapRequired());
-
-        /* Walk the list of pointer register/argument entries */
-
-        for (call = gcCallDescList; call; call = call->cdNext)
+        if (codeDelta > 7)
         {
-            BYTE*    base = dest;
-            unsigned nextOffset;
-
-            /* Figure out the code offset of this entry */
-
-            nextOffset = call->cdOffs;
-
-            /* Compute the distance from the previous call */
-
-            DWORD codeDelta = nextOffset - lastOffset;
-
-            assert((int)codeDelta >= 0);
+            *dest++ = 0xB8;
+            dest += encodeUnsigned(dest, codeDelta);
+            codeDelta = 0;
 
             /* Remember the new 'last' offset */
 
             lastOffset = nextOffset;
+        }
 
-            /* Compute the register mask */
+        if ((change->kind != RegArgChangeKind::AddRegs) && (change->kind != RegArgChangeKind::RemoveRegs))
+        {
+            if (change->kind == RegArgChangeKind::KillArgs)
+            {
+                if (codeDelta)
+                {
+                    /*
+                        Use the small encoding:
+                        little delta skip       11000DDD    [0xC0]
+                     */
 
-            unsigned gcrefRegMask = 0;
-            unsigned byrefRegMask = 0;
+                    assert((codeDelta & 0x7) == codeDelta);
+                    *dest++ = 0xC0 | (BYTE)codeDelta;
 
-            gcrefRegMask |= gceEncodeCalleeSavedRegs(call->cdGCrefRegs);
-            byrefRegMask |= gceEncodeCalleeSavedRegs(call->cdByrefRegs);
+                    /* Remember the new 'last' offset */
+
+                    lastOffset = nextOffset;
+                }
+
+                /* Caller-pop arguments are dead after call but are still
+                   sitting on the stack */
+
+                *dest++ = 0xFD;
+                assert(change->argOffset != 0);
+                dest += encodeUnsigned(dest, change->argOffset);
+            }
+            else if (change->gcType == GCT_NONE)
+            {
+                assert(change->kind == RegArgChangeKind::PushArg);
+                assert((codeDelta & 0x7) == codeDelta);
+#ifndef UNIX_X86_ABI
+                assert(!compiler->codeGen->isFramePointerUsed());
+#endif
+
+                // Encoding: non-ptr arg push 10110DDD [0xB0] (push of sizeof(int))
+                *dest++ = static_cast<uint8_t>(0xB0 | codeDelta);
+
+                lastOffset = nextOffset;
+            }
+            else if (change->argOffset < 6)
+            {
+                unsigned isPop = (change->kind == RegArgChangeKind::PopArgs) || (change->kind == RegArgChangeKind::Pop);
+
+                assert((change->argOffset != 0) || !isPop);
+
+                dest = gceByrefPrefixI(change, dest);
+                // Encoding: ptr arg push 10SSSDDD [SSS != 110] && [SSS != 111]
+                // Encoding: ptr arg pop  11CCCDDD [CCC != 110] && [CCC != 111]
+                *dest++ = static_cast<uint8_t>(0x80 | codeDelta | (change->argOffset << 3) | (isPop << 6));
+
+                lastOffset = nextOffset;
+            }
+            else
+            {
+                unsigned isPop = (change->kind == RegArgChangeKind::PopArgs) || (change->kind == RegArgChangeKind::Pop);
+
+                assert((change->argOffset != 0) || !isPop);
+
+                if (codeDelta != 0)
+                {
+                    assert((codeDelta & 0x7) == codeDelta);
+
+                    // Encoding: little delta skip       11000DDD    [0xC0]
+                    *dest++ = static_cast<uint8_t>(0xC0 | codeDelta);
+                }
+
+                dest = gceByrefPrefixI(change, dest);
+                // Encoding: large ptr arg push  11111000 [0xF8]
+                // Encoding: large ptr arg pop   11111100 [0xFC]
+                *dest++ = 0xF8 | (isPop << 2);
+                dest += encodeUnsigned(dest, change->argOffset);
+
+                lastOffset = nextOffset;
+            }
+        }
+        else if (change->kind == RegArgChangeKind::RemoveRegs)
+        {
+            // Record any registers that are becoming dead.
+
+            unsigned regMask = change->regs & ptrRegs;
+
+            while (regMask) // EAX,ECX,EDX,EBX,---,EBP,ESI,EDI
+            {
+                unsigned  tmpMask;
+                regNumber regNum;
+
+                /* Get hold of the next register bit */
+
+                tmpMask = genFindLowestReg(regMask);
+                assert(tmpMask);
+
+                /* Remember the new state of this register */
+
+                ptrRegs &= ~tmpMask;
+
+                /* Figure out which register the next bit corresponds to */
+
+                regNum = genRegNumFromMask(tmpMask);
+                assert(regNum <= 7);
+
+                /* Reserve ESP, regNum==4 for future use */
+
+                assert(regNum != 4);
+
+                /*
+                    Generate a small encoding:
+
+                        ptr reg dead        00RRRDDD
+                 */
+
+                assert((codeDelta & 0x7) == codeDelta);
+                *dest++ = 0x00 | regNum << 3 | (BYTE)codeDelta;
+
+                /* Turn the bit we've just generated off and continue */
+
+                regMask -= tmpMask; // EAX,ECX,EDX,EBX,---,EBP,ESI,EDI
+
+                /* Remember the new 'last' offset */
+
+                lastOffset = nextOffset;
+
+                /* Any entries that follow will be at the same offset */
+
+                codeDelta = 0;
+            }
+        }
+        else
+        {
+            assert(change->kind == RegArgChangeKind::AddRegs);
+
+            /* Record any registers that are becoming live */
+
+            unsigned regMask = change->regs & ~ptrRegs;
+
+            while (regMask) // EAX,ECX,EDX,EBX,---,EBP,ESI,EDI
+            {
+                unsigned  tmpMask;
+                regNumber regNum;
+
+                /* Get hold of the next register bit */
+
+                tmpMask = genFindLowestReg(regMask);
+                assert(tmpMask);
+
+                /* Remember the new state of this register */
+
+                ptrRegs |= tmpMask;
+
+                /* Figure out which register the next bit corresponds to */
+
+                regNum = genRegNumFromMask(tmpMask);
+                assert(regNum <= 7);
+
+                /*
+                    Generate a small encoding:
+
+                        ptr reg live        01RRRDDD
+                 */
+
+                dest = gceByrefPrefixI(change, dest);
+
+                if (regNum == syncThisReg)
+                {
+                    // Mark with 'this' pointer prefix
+                    *dest++ = 0xBC;
+                    // Can only have one bit set in regMask
+                    assert(regMask == tmpMask);
+                }
+
+                assert((codeDelta & 0x7) == codeDelta);
+                *dest++ = 0x40 | (regNum << 3) | (BYTE)codeDelta;
+
+                /* Turn the bit we've just generated off and continue */
+
+                regMask -= tmpMask; // EAX,ECX,EDX,EBX,---,EBP,ESI,EDI
+
+                /* Remember the new 'last' offset */
+
+                lastOffset = nextOffset;
+
+                /* Any entries that follow will be at the same offset */
+
+                codeDelta = 0;
+            }
+        }
+
+        /* Keep track of the total amount of generated stuff */
+
+        totalSize += dest - base;
+
+        /* Go back to the buffer start if we're not generating a table */
+
+        if (!mask)
+            dest = base;
+    }
+
+    return totalSize;
+}
+
+unsigned GCEncoder::AddPartiallyInterruptibleSlotsFramed(uint8_t* dest, const int mask)
+{
+    assert(!isFullyInterruptible);
+    assert(compiler->codeGen->isFramePointerUsed());
+
+    /*
+        Encoding table for methods with an EBP frame and
+                           that are not fully interruptible
+
+        The encoding used is as follows:
+
+        this pointer encodings:
+
+           01000000          this pointer in EBX
+           00100000          this pointer in ESI
+           00010000          this pointer in EDI
+
+        tiny encoding:
+
+           0bsdDDDD
+                             requires code delta > 0 & delta < 16 (4-bits)
+                             requires pushed argmask == 0
+
+             where    DDDD   is code delta
+                         b   indicates that register EBX is a live pointer
+                         s   indicates that register ESI is a live pointer
+                         d   indicates that register EDI is a live pointer
+
+
+        small encoding:
+
+           1DDDDDDD bsdAAAAA
+
+                             requires code delta     < 120 (7-bits)
+                             requires pushed argmask <  64 (5-bits)
+
+             where DDDDDDD   is code delta
+                     AAAAA   is the pushed args mask
+                         b   indicates that register EBX is a live pointer
+                         s   indicates that register ESI is a live pointer
+                         d   indicates that register EDI is a live pointer
+
+        medium encoding
+
+           0xFD aaaaaaaa AAAAdddd bseDDDDD
+
+                             requires code delta     <  512  (9-bits)
+                             requires pushed argmask < 2048 (12-bits)
+
+             where    DDDDD  is the upper 5-bits of the code delta
+                       dddd  is the low   4-bits of the code delta
+                       AAAA  is the upper 4-bits of the pushed arg mask
+                   aaaaaaaa  is the low   8-bits of the pushed arg mask
+                          b  indicates that register EBX is a live pointer
+                          s  indicates that register ESI is a live pointer
+                          e  indicates that register EDI is a live pointer
+
+        medium encoding with interior pointers
+
+           0xF9 DDDDDDDD bsdAAAAAA iiiIIIII
+
+                             requires code delta     < 256 (8-bits)
+                             requires pushed argmask <  64 (5-bits)
+
+             where  DDDDDDD  is the code delta
+                          b  indicates that register EBX is a live pointer
+                          s  indicates that register ESI is a live pointer
+                          d  indicates that register EDI is a live pointer
+                      AAAAA  is the pushed arg mask
+                        iii  indicates that EBX,EDI,ESI are interior pointers
+                      IIIII  indicates that bits in the arg mask are interior
+                             pointers
+
+        large encoding
+
+           0xFE [0BSD0bsd][32-bit code delta][32-bit argMask]
+
+                          b  indicates that register EBX is a live pointer
+                          s  indicates that register ESI is a live pointer
+                          d  indicates that register EDI is a live pointer
+                          B  indicates that register EBX is an interior pointer
+                          S  indicates that register ESI is an interior pointer
+                          D  indicates that register EDI is an interior pointer
+                             requires pushed  argmask < 32-bits
+
+        large encoding  with interior pointers
+
+           0xFA [0BSD0bsd][32-bit code delta][32-bit argMask][32-bit interior pointer mask]
+
+
+                          b  indicates that register EBX is a live pointer
+                          s  indicates that register ESI is a live pointer
+                          d  indicates that register EDI is a live pointer
+                          B  indicates that register EBX is an interior pointer
+                          S  indicates that register ESI is an interior pointer
+                          D  indicates that register EDI is an interior pointer
+                             requires pushed  argmask < 32-bits
+                             requires pushed iArgmask < 32-bits
+
+
+        huge encoding        This is the only encoding that supports
+                             a pushed argmask which is greater than
+                             32-bits.
+
+           0xFB [0BSD0bsd][32-bit code delta]
+                [32-bit table count][32-bit table size]
+                [pushed ptr offsets table...]
+
+                         b   indicates that register EBX is a live pointer
+                         s   indicates that register ESI is a live pointer
+                         d   indicates that register EDI is a live pointer
+                         B   indicates that register EBX is an interior pointer
+                         S   indicates that register ESI is an interior pointer
+                         D   indicates that register EDI is an interior pointer
+                         the list count is the number of entries in the list
+                         the list size gives the byte-length of the list
+                         the offsets in the list are variable-length
+    */
+
+    // If "this" is enregistered, note it. We do this explicitly here because we
+    // don't record any reg liveness changes in partially interruptible methods.
+
+    unsigned lastOffset = 0;
+    unsigned totalSize  = 0;
+
+    if (syncThisReg != REG_NA)
+    {
+        unsigned thisPtrRegEnc = gceEncodeCalleeSavedRegs(genRegMask(syncThisReg)) << 4;
+
+        // TODO-MIKE-Review: Probably this should be an assert...
+        if (thisPtrRegEnc != 0)
+        {
+            totalSize += 1;
+            if (mask)
+                *dest++ = thisPtrRegEnc;
+        }
+    }
+
+    for (CallSite* call = firstCallSite; call != nullptr; call = call->next)
+    {
+        BYTE*    base = dest;
+        unsigned nextOffset;
+
+        nextOffset = call->codeOffs;
+
+        DWORD codeDelta = nextOffset - lastOffset;
+        assert((int)codeDelta >= 0);
+        lastOffset = nextOffset;
+
+        unsigned gcrefRegMask = 0;
+        unsigned byrefRegMask = 0;
+
+        gcrefRegMask |= gceEncodeCalleeSavedRegs(call->refRegs);
+        byrefRegMask |= gceEncodeCalleeSavedRegs(call->byrefRegs);
+
+        assert((gcrefRegMask & byrefRegMask) == 0);
+
+        unsigned regMask = gcrefRegMask | byrefRegMask;
+
+        bool byref = (byrefRegMask | call->byrefArgMask) != 0;
+
+        /* Check for the really large argument offset case */
+        /* The very rare Huge encodings */
+
+        if (call->argCount != 0)
+        {
+            unsigned argNum;
+            unsigned argCnt    = call->argCount;
+            DWORD    argBytes  = 0;
+            BYTE*    pArgBytes = DUMMY_INIT(NULL);
+
+            if (mask != 0)
+            {
+                *dest++       = 0xFB;
+                *dest++       = (byrefRegMask << 4) | regMask;
+                *(DWORD*)dest = codeDelta;
+                dest += sizeof(DWORD);
+                *(DWORD*)dest = argCnt;
+                dest += sizeof(DWORD);
+                // skip the byte-size for now. Just note where it will go
+                pArgBytes = dest;
+                dest += sizeof(DWORD);
+            }
+
+            for (argNum = 0; argNum < argCnt; argNum++)
+            {
+                unsigned eltSize;
+                eltSize = encodeUnsigned(dest, call->argTable[argNum]);
+                argBytes += eltSize;
+                if (mask)
+                    dest += eltSize;
+            }
+
+            if (mask == 0)
+            {
+                dest = base + 1 + 1 + 3 * sizeof(DWORD) + argBytes;
+            }
+            else
+            {
+                assert(dest == pArgBytes + sizeof(argBytes) + argBytes);
+                *(DWORD*)pArgBytes = argBytes;
+            }
+        }
+
+        /* Check if we can use a tiny encoding */
+        else if ((codeDelta < 16) && (codeDelta != 0) && (call->argMask == 0) && !byref)
+        {
+            *dest++ = (regMask << 4) | (BYTE)codeDelta;
+        }
+
+        /* Check if we can use the small encoding */
+        else if ((codeDelta < 0x79) && (call->argMask <= 0x1F) && !byref)
+        {
+            *dest++ = 0x80 | (BYTE)codeDelta;
+            *dest++ = call->argMask | (regMask << 5);
+        }
+
+        /* Check if we can use the medium encoding */
+        else if (codeDelta <= 0x01FF && call->argMask <= 0x0FFF && !byref)
+        {
+            *dest++ = 0xFD;
+            *dest++ = call->argMask;
+            *dest++ = ((call->argMask >> 4) & 0xF0) | ((BYTE)codeDelta & 0x0F);
+            *dest++ = (regMask << 5) | (BYTE)((codeDelta >> 4) & 0x1F);
+        }
+
+        /* Check if we can use the medium encoding with byrefs */
+        else if (codeDelta <= 0x0FF && call->argMask <= 0x01F)
+        {
+            *dest++ = 0xF9;
+            *dest++ = (BYTE)codeDelta;
+            *dest++ = (regMask << 5) | call->argMask;
+            *dest++ = (byrefRegMask << 5) | call->byrefArgMask;
+        }
+
+        /* We'll use the large encoding */
+        else if (!byref)
+        {
+            *dest++       = 0xFE;
+            *dest++       = (byrefRegMask << 4) | regMask;
+            *(DWORD*)dest = codeDelta;
+            dest += sizeof(DWORD);
+            *(DWORD*)dest = call->argMask;
+            dest += sizeof(DWORD);
+        }
+
+        /* We'll use the large encoding with byrefs */
+        else
+        {
+            *dest++       = 0xFA;
+            *dest++       = (byrefRegMask << 4) | regMask;
+            *(DWORD*)dest = codeDelta;
+            dest += sizeof(DWORD);
+            *(DWORD*)dest = call->argMask;
+            dest += sizeof(DWORD);
+            *(DWORD*)dest = call->byrefArgMask;
+            dest += sizeof(DWORD);
+        }
+
+        /* Keep track of the total amount of generated stuff */
+
+        totalSize += dest - base;
+
+        /* Go back to the buffer start if we're not generating a table */
+
+        if (!mask)
+            dest = base;
+    }
+
+    return totalSize;
+}
+
+unsigned GCEncoder::AddPartiallyInterruptibleSlotsFrameless(uint8_t* dest, const int mask)
+{
+    assert(!isFullyInterruptible);
+    assert(!compiler->codeGen->isFramePointerUsed());
+
+    unsigned totalSize = 0;
+
+    if (syncThisReg != REG_NA)
+    {
+        assert(trackedThisLclNum == BAD_VAR_NUM);
+
+        uint8_t regEncoding;
+
+        switch (syncThisReg)
+        {
+            case REG_EDI:
+                regEncoding = 0;
+                break;
+            case REG_ESI:
+                regEncoding = 1;
+                break;
+            case REG_EBX:
+                regEncoding = 2;
+                break;
+            case REG_EBP:
+                regEncoding = 3;
+                break;
+            default:
+                // TODO-MIKE-Review: Should there be an assert/unreached here?
+                //
+                // It looks like if `this` has to be reported then it has to be
+                // in a callee-saved register. But we don't require this in LSRA
+                // so we can end up with `this` in the original reg param, ECX.
+                //
+                // Thing is, most scenarios that require `this` reporting involve
+                // calls and then `this` can only be in a callee-saved register,
+                // otherwise it would be spilled.
+                //
+                // But there are cases where lvaKeepAliveAndReportThis returns
+                // true and there are no calls in the method and `this` happily
+                // ends up in ECX due to the lack of LSRA restrictions. Which one
+                // is wrong - lvaKeepAliveAndReportThis or LSRA?
+                // AddPartiallyInterruptibleSlotsFramed has the same issue.
+                regEncoding = 4;
+                break;
+        }
+
+        if (regEncoding < 4)
+        {
+            *dest++ = 0xF4 | regEncoding;
+            totalSize++;
+        }
+    }
+
+    unsigned         lastOffset = 0;
+    PendingArgsStack pasStk(compiler->GetEmitter()->emitMaxStackDepth, compiler);
+
+    for (RegArgChange* change = firstRegArgChange; change != nullptr; change = change->next)
+    {
+        /*
+         *    Encoding table for methods without an EBP frame and
+         *     that are not fully interruptible
+         *
+         *               The encoding used is as follows:
+         *
+         *  push     000DDDDD                     ESP push one item with 5-bit delta
+         *  push     00100000 [pushCount]         ESP push multiple items
+         *  reserved 0010xxxx                     xxxx != 0000
+         *  reserved 0011xxxx
+         *  skip     01000000 [Delta]             Skip Delta, arbitrary sized delta
+         *  skip     0100DDDD                     Skip small Delta, for call (DDDD != 0)
+         *  pop      01CCDDDD                     ESP pop  CC items with 4-bit delta (CC != 00)
+         *  call     1PPPPPPP                     Call Pattern, P=[0..79]
+         *  call     1101pbsd DDCCCMMM            Call RegMask=pbsd,ArgCnt=CCC,
+         *                                        ArgMask=MMM Delta=commonDelta[DD]
+         *  call     1110pbsd [ArgCnt] [ArgMask]  Call ArgCnt,RegMask=pbsd,ArgMask
+         *  call     11111000 [PBSDpbsd][32-bit delta][32-bit ArgCnt]
+         *                    [32-bit PndCnt][32-bit PndSize][PndOffs...]
+         *  iptr     11110000 [IPtrMask]          Arbitrary Interior Pointer Mask
+         *  thisptr  111101RR                     This pointer is in Register RR
+         *                                        00=EDI,01=ESI,10=EBX,11=EBP
+         *  reserved 111100xx                     xx  != 00
+         *  reserved 111110xx                     xx  != 00
+         *  reserved 11111xxx                     xxx != 000 && xxx != 111(EOT)
+         *
+         *   The value 11111111 [0xFF] indicates the end of the table. (EOT)
+         *
+         *  An offset (at which stack-walking is performed) without an explicit encoding
+         *  is assumed to be a trivial call-site (no GC registers, stack empty before and
+         *  after) to avoid having to encode all trivial calls.
+         *
+         * Note on the encoding used for interior pointers
+         *
+         *   The iptr encoding must immediately precede a call encoding.  It is used
+         *   to transform a normal GC pointer addresses into an interior pointers for
+         *   GC purposes.  The mask supplied to the iptr encoding is read from the
+         *   least signicant bit to the most signicant bit. (i.e the lowest bit is
+         *   read first)
+         *
+         *   p   indicates that register EBP is a live pointer
+         *   b   indicates that register EBX is a live pointer
+         *   s   indicates that register ESI is a live pointer
+         *   d   indicates that register EDI is a live pointer
+         *   P   indicates that register EBP is an interior pointer
+         *   B   indicates that register EBX is an interior pointer
+         *   S   indicates that register ESI is an interior pointer
+         *   D   indicates that register EDI is an interior pointer
+         *
+         *   As an example the following sequence indicates that EDI.ESI and the
+         *   second pushed pointer in ArgMask are really interior pointers.  The
+         *   pointer in ESI in a normal pointer:
+         *
+         *   iptr 11110000 00010011           => read Interior Ptr, Interior Ptr,
+         *                                       Normal Ptr, Normal Ptr, Interior Ptr
+         *
+         *   call 11010011 DDCCC011 RRRR=1011 => read EDI is a GC-pointer,
+         *                                            ESI is a GC-pointer.
+         *                                            EBP is a GC-pointer
+         *                           MMM=0011 => read two GC-pointers arguments
+         *                                         on the stack (nested call)
+         *
+         *   Since the call instruction mentions 5 GC-pointers we list them in
+         *   the required order:  EDI, ESI, EBP, 1st-pushed pointer, 2nd-pushed pointer
+         *
+         *   And we apply the Interior Pointer mask mmmm=10011 to the five GC-pointers
+         *   we learn that EDI and ESI are interior GC-pointers and that
+         *   the second push arg is an interior GC-pointer.
+         */
+
+        BYTE* base = dest;
+
+        unsigned nextOffset = change->codeOffs;
+        assert(nextOffset >= lastOffset);
+        unsigned codeDelta = nextOffset - lastOffset;
+
+        bool usePopEncoding;
+
+#if REGEN_CALLPAT
+        // Must initialize this flag to true when REGEN_CALLPAT is on
+        usePopEncoding         = true;
+        unsigned origCodeDelta = codeDelta;
+#endif
+
+        if (change->kind == RegArgChangeKind::KillArgs)
+        {
+            pasStk.Kill(change->argOffset);
+        }
+        else if (change->kind == RegArgChangeKind::PushArg)
+        {
+            lastOffset = nextOffset;
+
+            if (codeDelta >= 32)
+            {
+                /* use encoding: */
+                /*   skip    01000000 [Delta] */
+                *dest++ = 0x40;
+                dest += encodeUnsigned(dest, codeDelta - 31);
+                codeDelta = 31;
+            }
+
+            assert(codeDelta < 32);
+
+            /* use encoding: */
+            /*   push    000DDDDD ESP push one item, 5-bit delta */
+
+            *dest++ = (BYTE)codeDelta;
+
+            /* adjust argMask for this push */
+
+            pasStk.Push(change->gcType);
+        }
+        else if (change->kind == RegArgChangeKind::Pop)
+        {
+            lastOffset = nextOffset;
+
+            assert(change->argOffset == 1);
+
+            if (codeDelta >= 16)
+            {
+                /* use encoding: */
+                /*   skip    01000000 [Delta] */
+                *dest++ = 0x40;
+                dest += encodeUnsigned(dest, codeDelta - 15);
+                codeDelta = 15;
+            }
+
+            /* use encoding: */
+            /*   pop1    0101DDDD  ESP pop one item, 4-bit delta */
+
+            *dest++ = 0x50 | (BYTE)codeDelta;
+
+            /* adjust argMask for this pop */
+            pasStk.Pop(1);
+        }
+        else
+        {
+            assert(change->kind == RegArgChangeKind::PopArgs);
+
+            lastOffset = nextOffset;
+
+            unsigned callArgCnt   = change->argOffset;
+            unsigned gcrefRegMask = change->callRefRegs;
+
+            unsigned byrefRegMask = change->callByrefRegs;
 
             assert((gcrefRegMask & byrefRegMask) == 0);
 
             unsigned regMask = gcrefRegMask | byrefRegMask;
 
-            bool byref = (byrefRegMask | call->u1.cdByrefArgMask) != 0;
+            /* adjust argMask for this call-site */
+            pasStk.Pop(callArgCnt);
 
-            /* Check for the really large argument offset case */
-            /* The very rare Huge encodings */
+            /* Do we have to use the fat encoding */
 
-            if (call->cdArgCnt)
+            if (pasStk.CurDepth() > BITS_IN_pasMask && pasStk.HasGCptrs())
             {
-                unsigned argNum;
-                DWORD    argCnt    = call->cdArgCnt;
-                DWORD    argBytes  = 0;
-                BYTE*    pArgBytes = DUMMY_INIT(NULL);
+                /* use fat encoding:
+                 *   11111000 [PBSDpbsd][32-bit delta][32-bit ArgCnt]
+                 *            [32-bit PndCnt][32-bit PndSize][PndOffs...]
+                 */
 
-                if (mask != 0)
+                DWORD pndCount = pasStk.EnumGCoffsCount();
+                DWORD pndSize  = 0;
+                BYTE* pPndSize = DUMMY_INIT(NULL);
+
+                if (mask)
                 {
-                    *dest++       = 0xFB;
+                    *dest++       = 0xF8;
                     *dest++       = (byrefRegMask << 4) | regMask;
                     *(DWORD*)dest = codeDelta;
                     dest += sizeof(DWORD);
-                    *(DWORD*)dest = argCnt;
+                    *(DWORD*)dest = callArgCnt;
                     dest += sizeof(DWORD);
-                    // skip the byte-size for now. Just note where it will go
-                    pArgBytes = dest;
+                    *(DWORD*)dest = pndCount;
                     dest += sizeof(DWORD);
+                    pPndSize = dest;
+                    dest += sizeof(DWORD); // Leave space for pndSize
                 }
 
-                for (argNum = 0; argNum < argCnt; argNum++)
+                unsigned offs, iter;
+
+                for (iter = pasStk.EnumGCoffs(PendingArgsStack::pasENUM_START, &offs); pndCount;
+                     iter = pasStk.EnumGCoffs(iter, &offs), pndCount--)
                 {
-                    unsigned eltSize;
-                    eltSize = encodeUnsigned(dest, call->cdArgTable[argNum]);
-                    argBytes += eltSize;
+                    unsigned eltSize = encodeUnsigned(dest, offs);
+
+                    pndSize += eltSize;
                     if (mask)
                         dest += eltSize;
                 }
+                assert(iter == PendingArgsStack::pasENUM_END);
 
                 if (mask == 0)
                 {
-                    dest = base + 1 + 1 + 3 * sizeof(DWORD) + argBytes;
+                    dest = base + 2 + 4 * sizeof(DWORD) + pndSize;
                 }
                 else
                 {
-                    assert(dest == pArgBytes + sizeof(argBytes) + argBytes);
-                    *(DWORD*)pArgBytes = argBytes;
+                    assert(pPndSize + sizeof(pndSize) + pndSize == dest);
+                    *(DWORD*)pPndSize = pndSize;
                 }
+
+                goto NEXT_RPD;
             }
 
-            /* Check if we can use a tiny encoding */
-            else if ((codeDelta < 16) && (codeDelta != 0) && (call->u1.cdArgMask == 0) && !byref)
+            unsigned argMask      = 0;
+            unsigned byrefArgMask = 0;
+
+            if (pasStk.HasGCptrs())
             {
-                *dest++ = (regMask << 4) | (BYTE)codeDelta;
+                assert(pasStk.CurDepth() <= BITS_IN_pasMask);
+
+                argMask      = pasStk.ArgMask();
+                byrefArgMask = pasStk.ByrefArgMask();
             }
 
-            /* Check if we can use the small encoding */
-            else if ((codeDelta < 0x79) && (call->u1.cdArgMask <= 0x1F) && !byref)
-            {
-                *dest++ = 0x80 | (BYTE)codeDelta;
-                *dest++ = call->u1.cdArgMask | (regMask << 5);
-            }
+            /* Shouldn't be reporting trivial call-sites */
 
-            /* Check if we can use the medium encoding */
-            else if (codeDelta <= 0x01FF && call->u1.cdArgMask <= 0x0FFF && !byref)
-            {
-                *dest++ = 0xFD;
-                *dest++ = call->u1.cdArgMask;
-                *dest++ = ((call->u1.cdArgMask >> 4) & 0xF0) | ((BYTE)codeDelta & 0x0F);
-                *dest++ = (regMask << 5) | (BYTE)((codeDelta >> 4) & 0x1F);
-            }
-
-            /* Check if we can use the medium encoding with byrefs */
-            else if (codeDelta <= 0x0FF && call->u1.cdArgMask <= 0x01F)
-            {
-                *dest++ = 0xF9;
-                *dest++ = (BYTE)codeDelta;
-                *dest++ = (regMask << 5) | call->u1.cdArgMask;
-                *dest++ = (byrefRegMask << 5) | call->u1.cdByrefArgMask;
-            }
-
-            /* We'll use the large encoding */
-            else if (!byref)
-            {
-                *dest++       = 0xFE;
-                *dest++       = (byrefRegMask << 4) | regMask;
-                *(DWORD*)dest = codeDelta;
-                dest += sizeof(DWORD);
-                *(DWORD*)dest = call->u1.cdArgMask;
-                dest += sizeof(DWORD);
-            }
-
-            /* We'll use the large encoding with byrefs */
-            else
-            {
-                *dest++       = 0xFA;
-                *dest++       = (byrefRegMask << 4) | regMask;
-                *(DWORD*)dest = codeDelta;
-                dest += sizeof(DWORD);
-                *(DWORD*)dest = call->u1.cdArgMask;
-                dest += sizeof(DWORD);
-                *(DWORD*)dest = call->u1.cdByrefArgMask;
-                dest += sizeof(DWORD);
-            }
-
-            /* Keep track of the total amount of generated stuff */
-
-            totalSize += dest - base;
-
-            /* Go back to the buffer start if we're not generating a table */
-
-            if (!mask)
-                dest = base;
-        }
-#endif // TARGET_X86
-
-        /* Terminate the table with 0xFF */
-
-        *dest = 0xFF;
-        dest -= mask;
-        totalSize++;
-    }
-    else // GetInterruptible() is false and we have an EBP-less frame
-    {
-        assert(compiler->codeGen->IsFullPtrRegMapRequired());
-
-#ifdef TARGET_X86
-
-        regPtrDsc*       genRegPtrTemp;
-        regNumber        thisRegNum = regNumber(0);
-        PendingArgsStack pasStk(compiler->GetEmitter()->emitMaxStackDepth, compiler);
-
-        /* Walk the list of pointer register/argument entries */
-
-        for (genRegPtrTemp = gcRegPtrList; genRegPtrTemp; genRegPtrTemp = genRegPtrTemp->rpdNext)
-        {
-
-            /*
-             *    Encoding table for methods without an EBP frame and
-             *     that are not fully interruptible
-             *
-             *               The encoding used is as follows:
-             *
-             *  push     000DDDDD                     ESP push one item with 5-bit delta
-             *  push     00100000 [pushCount]         ESP push multiple items
-             *  reserved 0010xxxx                     xxxx != 0000
-             *  reserved 0011xxxx
-             *  skip     01000000 [Delta]             Skip Delta, arbitrary sized delta
-             *  skip     0100DDDD                     Skip small Delta, for call (DDDD != 0)
-             *  pop      01CCDDDD                     ESP pop  CC items with 4-bit delta (CC != 00)
-             *  call     1PPPPPPP                     Call Pattern, P=[0..79]
-             *  call     1101pbsd DDCCCMMM            Call RegMask=pbsd,ArgCnt=CCC,
-             *                                        ArgMask=MMM Delta=commonDelta[DD]
-             *  call     1110pbsd [ArgCnt] [ArgMask]  Call ArgCnt,RegMask=pbsd,ArgMask
-             *  call     11111000 [PBSDpbsd][32-bit delta][32-bit ArgCnt]
-             *                    [32-bit PndCnt][32-bit PndSize][PndOffs...]
-             *  iptr     11110000 [IPtrMask]          Arbitrary Interior Pointer Mask
-             *  thisptr  111101RR                     This pointer is in Register RR
-             *                                        00=EDI,01=ESI,10=EBX,11=EBP
-             *  reserved 111100xx                     xx  != 00
-             *  reserved 111110xx                     xx  != 00
-             *  reserved 11111xxx                     xxx != 000 && xxx != 111(EOT)
-             *
-             *   The value 11111111 [0xFF] indicates the end of the table. (EOT)
-             *
-             *  An offset (at which stack-walking is performed) without an explicit encoding
-             *  is assumed to be a trivial call-site (no GC registers, stack empty before and
-             *  after) to avoid having to encode all trivial calls.
-             *
-             * Note on the encoding used for interior pointers
-             *
-             *   The iptr encoding must immediately precede a call encoding.  It is used
-             *   to transform a normal GC pointer addresses into an interior pointers for
-             *   GC purposes.  The mask supplied to the iptr encoding is read from the
-             *   least signicant bit to the most signicant bit. (i.e the lowest bit is
-             *   read first)
-             *
-             *   p   indicates that register EBP is a live pointer
-             *   b   indicates that register EBX is a live pointer
-             *   s   indicates that register ESI is a live pointer
-             *   d   indicates that register EDI is a live pointer
-             *   P   indicates that register EBP is an interior pointer
-             *   B   indicates that register EBX is an interior pointer
-             *   S   indicates that register ESI is an interior pointer
-             *   D   indicates that register EDI is an interior pointer
-             *
-             *   As an example the following sequence indicates that EDI.ESI and the
-             *   second pushed pointer in ArgMask are really interior pointers.  The
-             *   pointer in ESI in a normal pointer:
-             *
-             *   iptr 11110000 00010011           => read Interior Ptr, Interior Ptr,
-             *                                       Normal Ptr, Normal Ptr, Interior Ptr
-             *
-             *   call 11010011 DDCCC011 RRRR=1011 => read EDI is a GC-pointer,
-             *                                            ESI is a GC-pointer.
-             *                                            EBP is a GC-pointer
-             *                           MMM=0011 => read two GC-pointers arguments
-             *                                         on the stack (nested call)
-             *
-             *   Since the call instruction mentions 5 GC-pointers we list them in
-             *   the required order:  EDI, ESI, EBP, 1st-pushed pointer, 2nd-pushed pointer
-             *
-             *   And we apply the Interior Pointer mask mmmm=10011 to the five GC-pointers
-             *   we learn that EDI and ESI are interior GC-pointers and that
-             *   the second push arg is an interior GC-pointer.
-             */
-
-            BYTE* base = dest;
-
-            bool     usePopEncoding;
-            unsigned regMask;
-            unsigned argMask;
-            unsigned byrefRegMask;
-            unsigned byrefArgMask;
-            DWORD    callArgCnt;
-
-            unsigned nextOffset;
-            DWORD    codeDelta;
-
-            nextOffset = genRegPtrTemp->rpdOffs;
-
-            /* Compute the distance from the previous call */
-
-            codeDelta = nextOffset - lastOffset;
-            assert((int)codeDelta >= 0);
-
-#if REGEN_CALLPAT
-            // Must initialize this flag to true when REGEN_CALLPAT is on
-            usePopEncoding         = true;
-            unsigned origCodeDelta = codeDelta;
-#endif
-
-            if (!keepThisAlive && genRegPtrTemp->rpdIsThis)
-            {
-                unsigned tmpMask = genRegPtrTemp->rpdCompiler.rpdAdd;
-
-                /* tmpMask must have exactly one bit set */
-
-                assert(tmpMask && ((tmpMask & (tmpMask - 1)) == 0));
-
-                thisRegNum = genRegNumFromMask(tmpMask);
-                switch (thisRegNum)
-                {
-                    case 0: // EAX
-                    case 1: // ECX
-                    case 2: // EDX
-                    case 4: // ESP
-                        break;
-                    case 7:             // EDI
-                        *dest++ = 0xF4; /* 11110100  This pointer is in EDI */
-                        break;
-                    case 6:             // ESI
-                        *dest++ = 0xF5; /* 11110100  This pointer is in ESI */
-                        break;
-                    case 3:             // EBX
-                        *dest++ = 0xF6; /* 11110100  This pointer is in EBX */
-                        break;
-                    case 5:             // EBP
-                        *dest++ = 0xF7; /* 11110100  This pointer is in EBP */
-                        break;
-                    default:
-                        break;
-                }
-            }
-
-            /* Is this a stack pointer change or call? */
-
-            if (genRegPtrTemp->rpdArg)
-            {
-                if (genRegPtrTemp->rpdArgTypeGet() == rpdARG_KILL)
-                {
-                    // kill 'rpdPtrArg' number of pointer variables in pasStk
-                    pasStk.pasKill(genRegPtrTemp->rpdPtrArg);
-                }
-                /* Is this a call site? */
-                else if (genRegPtrTemp->rpdCall)
-                {
-                    /* This is a true call site */
-
-                    /* Remember the new 'last' offset */
-
-                    lastOffset = nextOffset;
-
-                    callArgCnt = genRegPtrTemp->rpdPtrArg;
-
-                    unsigned gcrefRegMask = genRegPtrTemp->rpdCallGCrefRegs;
-
-                    byrefRegMask = genRegPtrTemp->rpdCallByrefRegs;
-
-                    assert((gcrefRegMask & byrefRegMask) == 0);
-
-                    regMask = gcrefRegMask | byrefRegMask;
-
-                    /* adjust argMask for this call-site */
-                    pasStk.pasPop(callArgCnt);
-
-                    /* Do we have to use the fat encoding */
-
-                    if (pasStk.pasCurDepth() > BITS_IN_pasMask && pasStk.pasHasGCptrs())
-                    {
-                        /* use fat encoding:
-                         *   11111000 [PBSDpbsd][32-bit delta][32-bit ArgCnt]
-                         *            [32-bit PndCnt][32-bit PndSize][PndOffs...]
-                         */
-
-                        DWORD pndCount = pasStk.pasEnumGCoffsCount();
-                        DWORD pndSize  = 0;
-                        BYTE* pPndSize = DUMMY_INIT(NULL);
-
-                        if (mask)
-                        {
-                            *dest++       = 0xF8;
-                            *dest++       = (byrefRegMask << 4) | regMask;
-                            *(DWORD*)dest = codeDelta;
-                            dest += sizeof(DWORD);
-                            *(DWORD*)dest = callArgCnt;
-                            dest += sizeof(DWORD);
-                            *(DWORD*)dest = pndCount;
-                            dest += sizeof(DWORD);
-                            pPndSize = dest;
-                            dest += sizeof(DWORD); // Leave space for pndSize
-                        }
-
-                        unsigned offs, iter;
-
-                        for (iter = pasStk.pasEnumGCoffs(pasENUM_START, &offs); pndCount;
-                             iter = pasStk.pasEnumGCoffs(iter, &offs), pndCount--)
-                        {
-                            unsigned eltSize = encodeUnsigned(dest, offs);
-
-                            pndSize += eltSize;
-                            if (mask)
-                                dest += eltSize;
-                        }
-                        assert(iter == pasENUM_END);
-
-                        if (mask == 0)
-                        {
-                            dest = base + 2 + 4 * sizeof(DWORD) + pndSize;
-                        }
-                        else
-                        {
-                            assert(pPndSize + sizeof(pndSize) + pndSize == dest);
-                            *(DWORD*)pPndSize = pndSize;
-                        }
-
-                        goto NEXT_RPD;
-                    }
-
-                    argMask = byrefArgMask = 0;
-
-                    if (pasStk.pasHasGCptrs())
-                    {
-                        assert(pasStk.pasCurDepth() <= BITS_IN_pasMask);
-
-                        argMask      = pasStk.pasArgMask();
-                        byrefArgMask = pasStk.pasByrefArgMask();
-                    }
-
-                    /* Shouldn't be reporting trivial call-sites */
-
-                    assert(regMask || argMask || callArgCnt || pasStk.pasCurDepth());
+            assert(regMask || argMask || callArgCnt || pasStk.CurDepth());
 
 // Emit IPtrMask if needed
 
@@ -3302,123 +3309,28 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
         dest += encodeUnsigned(dest, imask);                                                                           \
     }
 
-                    /* When usePopEncoding is true:
-                     *  this is not an interesting call site
-                     *   because nothing is live here.
-                     */
-                    usePopEncoding = ((callArgCnt < 4) && (regMask == 0) && (argMask == 0));
+            /* When usePopEncoding is true:
+             *  this is not an interesting call site
+             *   because nothing is live here.
+             */
+            usePopEncoding = ((callArgCnt < 4) && (regMask == 0) && (argMask == 0));
 
-                    if (!usePopEncoding)
+            if (!usePopEncoding)
+            {
+                int pattern = LookupCallPattern(callArgCnt, regMask, argMask, codeDelta);
+                if (pattern != -1)
+                {
+                    if (pattern > 0xff)
                     {
-                        int pattern = lookupCallPattern(callArgCnt, regMask, argMask, codeDelta);
-                        if (pattern != -1)
-                        {
-                            if (pattern > 0xff)
-                            {
-                                codeDelta = pattern >> 8;
-                                pattern &= 0xff;
-                                if (codeDelta >= 16)
-                                {
-                                    /* use encoding: */
-                                    /*   skip 01000000 [Delta] */
-                                    *dest++ = 0x40;
-                                    dest += encodeUnsigned(dest, codeDelta);
-                                    codeDelta = 0;
-                                }
-                                else
-                                {
-                                    /* use encoding: */
-                                    /*   skip 0100DDDD  small delta=DDDD */
-                                    *dest++ = 0x40 | (BYTE)codeDelta;
-                                }
-                            }
-
-                            // Emit IPtrMask if needed
-                            CHK_NON_INTRPT_ESP_IPtrMask;
-
-                            assert((pattern >= 0) && (pattern < 80));
-                            *dest++ = 0x80 | pattern;
-                            goto NEXT_RPD;
-                        }
-
-                        /* See if we can use 2nd call encoding
-                         *     1101RRRR DDCCCMMM encoding */
-
-                        if ((callArgCnt <= 7) && (argMask <= 7))
-                        {
-                            unsigned inx; // callCommonDelta[] index
-                            unsigned maxCommonDelta = callCommonDelta[3];
-
-                            if (codeDelta > maxCommonDelta)
-                            {
-                                if (codeDelta > maxCommonDelta + 15)
-                                {
-                                    /* use encoding: */
-                                    /*   skip    01000000 [Delta] */
-                                    *dest++ = 0x40;
-                                    dest += encodeUnsigned(dest, codeDelta - maxCommonDelta);
-                                }
-                                else
-                                {
-                                    /* use encoding: */
-                                    /*   skip 0100DDDD  small delta=DDDD */
-                                    *dest++ = 0x40 | (BYTE)(codeDelta - maxCommonDelta);
-                                }
-
-                                codeDelta = maxCommonDelta;
-                                inx       = 3;
-                                goto EMIT_2ND_CALL_ENCODING;
-                            }
-
-                            for (inx = 0; inx < 4; inx++)
-                            {
-                                if (codeDelta == callCommonDelta[inx])
-                                {
-                                EMIT_2ND_CALL_ENCODING:
-                                    // Emit IPtrMask if needed
-                                    CHK_NON_INTRPT_ESP_IPtrMask;
-
-                                    *dest++ = 0xD0 | regMask;
-                                    *dest++ = (inx << 6) | (callArgCnt << 3) | argMask;
-                                    goto NEXT_RPD;
-                                }
-                            }
-
-                            unsigned minCommonDelta = callCommonDelta[0];
-
-                            if ((codeDelta > minCommonDelta) && (codeDelta < maxCommonDelta))
-                            {
-                                assert((minCommonDelta + 16) > maxCommonDelta);
-                                /* use encoding: */
-                                /*   skip 0100DDDD  small delta=DDDD */
-                                *dest++ = 0x40 | (BYTE)(codeDelta - minCommonDelta);
-
-                                codeDelta = minCommonDelta;
-                                inx       = 0;
-                                goto EMIT_2ND_CALL_ENCODING;
-                            }
-                        }
-                    }
-
-                    if (codeDelta >= 16)
-                    {
-                        unsigned i = (usePopEncoding ? 15 : 0);
-                        /* use encoding: */
-                        /*   skip    01000000 [Delta]  arbitrary sized delta */
-                        *dest++ = 0x40;
-                        dest += encodeUnsigned(dest, codeDelta - i);
-                        codeDelta = i;
-                    }
-
-                    if ((codeDelta > 0) || usePopEncoding)
-                    {
-                        if (usePopEncoding)
+                        codeDelta = pattern >> 8;
+                        pattern &= 0xff;
+                        if (codeDelta >= 16)
                         {
                             /* use encoding: */
-                            /*   pop 01CCDDDD  ESP pop CC items, 4-bit delta */
-                            if (callArgCnt || codeDelta)
-                                *dest++ = (BYTE)(0x40 | (callArgCnt << 4) | codeDelta);
-                            goto NEXT_RPD;
+                            /*   skip 01000000 [Delta] */
+                            *dest++ = 0x40;
+                            dest += encodeUnsigned(dest, codeDelta);
+                            codeDelta = 0;
                         }
                         else
                         {
@@ -3431,132 +3343,137 @@ size_t GCInfo::gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, un
                     // Emit IPtrMask if needed
                     CHK_NON_INTRPT_ESP_IPtrMask;
 
-                    /* use encoding:                                   */
-                    /*   call 1110RRRR [ArgCnt] [ArgMask]              */
-
-                    *dest++ = 0xE0 | regMask;
-                    dest += encodeUnsigned(dest, callArgCnt);
-
-                    dest += encodeUnsigned(dest, argMask);
+                    assert((pattern >= 0) && (pattern < 80));
+                    *dest++ = 0x80 | pattern;
+                    goto NEXT_RPD;
                 }
-                else
+
+                /* See if we can use 2nd call encoding
+                 *     1101RRRR DDCCCMMM encoding */
+
+                if ((callArgCnt <= 7) && (argMask <= 7))
                 {
-                    /* This is a push or a pop site */
+                    unsigned inx; // callCommonDelta[] index
+                    unsigned maxCommonDelta = callCommonDelta[3];
 
-                    /* Remember the new 'last' offset */
-
-                    lastOffset = nextOffset;
-
-                    if (genRegPtrTemp->rpdArgTypeGet() == rpdARG_POP)
+                    if (codeDelta > maxCommonDelta)
                     {
-                        /* This must be a gcArgPopSingle */
-
-                        assert(genRegPtrTemp->rpdPtrArg == 1);
-
-                        if (codeDelta >= 16)
+                        if (codeDelta > maxCommonDelta + 15)
                         {
                             /* use encoding: */
                             /*   skip    01000000 [Delta] */
                             *dest++ = 0x40;
-                            dest += encodeUnsigned(dest, codeDelta - 15);
-                            codeDelta = 15;
+                            dest += encodeUnsigned(dest, codeDelta - maxCommonDelta);
+                        }
+                        else
+                        {
+                            /* use encoding: */
+                            /*   skip 0100DDDD  small delta=DDDD */
+                            *dest++ = 0x40 | (BYTE)(codeDelta - maxCommonDelta);
                         }
 
-                        /* use encoding: */
-                        /*   pop1    0101DDDD  ESP pop one item, 4-bit delta */
-
-                        *dest++ = 0x50 | (BYTE)codeDelta;
-
-                        /* adjust argMask for this pop */
-                        pasStk.pasPop(1);
+                        codeDelta = maxCommonDelta;
+                        inx       = 3;
+                        goto EMIT_2ND_CALL_ENCODING;
                     }
-                    else
+
+                    for (inx = 0; inx < 4; inx++)
                     {
-                        /* This is a push */
-
-                        if (codeDelta >= 32)
+                        if (codeDelta == callCommonDelta[inx])
                         {
-                            /* use encoding: */
-                            /*   skip    01000000 [Delta] */
-                            *dest++ = 0x40;
-                            dest += encodeUnsigned(dest, codeDelta - 31);
-                            codeDelta = 31;
+                        EMIT_2ND_CALL_ENCODING:
+                            // Emit IPtrMask if needed
+                            CHK_NON_INTRPT_ESP_IPtrMask;
+
+                            *dest++ = 0xD0 | regMask;
+                            *dest++ = (inx << 6) | (callArgCnt << 3) | argMask;
+                            goto NEXT_RPD;
                         }
+                    }
 
-                        assert(codeDelta < 32);
+                    unsigned minCommonDelta = callCommonDelta[0];
 
+                    if ((codeDelta > minCommonDelta) && (codeDelta < maxCommonDelta))
+                    {
+                        assert((minCommonDelta + 16) > maxCommonDelta);
                         /* use encoding: */
-                        /*   push    000DDDDD ESP push one item, 5-bit delta */
+                        /*   skip 0100DDDD  small delta=DDDD */
+                        *dest++ = 0x40 | (BYTE)(codeDelta - minCommonDelta);
 
-                        *dest++ = (BYTE)codeDelta;
-
-                        /* adjust argMask for this push */
-                        pasStk.pasPush(genRegPtrTemp->rpdGCtypeGet());
+                        codeDelta = minCommonDelta;
+                        inx       = 0;
+                        goto EMIT_2ND_CALL_ENCODING;
                     }
                 }
             }
 
-        /*  We ignore the register live/dead information, since the
-         *  rpdCallRegMask contains all the liveness information
-         *  that we need
-         */
-        NEXT_RPD:
+            if (codeDelta >= 16)
+            {
+                unsigned i = (usePopEncoding ? 15 : 0);
+                /* use encoding: */
+                /*   skip    01000000 [Delta]  arbitrary sized delta */
+                *dest++ = 0x40;
+                dest += encodeUnsigned(dest, codeDelta - i);
+                codeDelta = i;
+            }
 
-            totalSize += dest - base;
+            if ((codeDelta > 0) || usePopEncoding)
+            {
+                if (usePopEncoding)
+                {
+                    /* use encoding: */
+                    /*   pop 01CCDDDD  ESP pop CC items, 4-bit delta */
+                    if (callArgCnt || codeDelta)
+                        *dest++ = (BYTE)(0x40 | (callArgCnt << 4) | codeDelta);
+                    goto NEXT_RPD;
+                }
+                else
+                {
+                    /* use encoding: */
+                    /*   skip 0100DDDD  small delta=DDDD */
+                    *dest++ = 0x40 | (BYTE)codeDelta;
+                }
+            }
 
-            /* Go back to the buffer start if we're not generating a table */
+            // Emit IPtrMask if needed
+            CHK_NON_INTRPT_ESP_IPtrMask;
 
-            if (!mask)
-                dest = base;
+            /* use encoding:                                   */
+            /*   call 1110RRRR [ArgCnt] [ArgMask]              */
 
-#if REGEN_CALLPAT
-            if ((mask == -1) && (usePopEncoding == false) && ((dest - base) > 0))
-                regenLog(origCodeDelta, argMask, regMask, callArgCnt, byrefArgMask, byrefRegMask, base, (dest - base));
-#endif
+            *dest++ = 0xE0 | regMask;
+            dest += encodeUnsigned(dest, callArgCnt);
+
+            dest += encodeUnsigned(dest, argMask);
         }
 
-        /* Verify that we pop every arg that was pushed and that argMask is 0 */
+    /*  We ignore the register live/dead information, since the
+     *  rpdCallRegMask contains all the liveness information
+     *  that we need
+     */
+    NEXT_RPD:
 
-        assert(pasStk.pasCurDepth() == 0);
+        totalSize += dest - base;
 
-#endif // TARGET_X86
+        /* Go back to the buffer start if we're not generating a table */
 
-        /* Terminate the table with 0xFF */
+        if (!mask)
+            dest = base;
 
-        *dest = 0xFF;
-        dest -= mask;
-        totalSize++;
+#if REGEN_CALLPAT
+        if ((mask == -1) && (usePopEncoding == false) && ((dest - base) > 0))
+            regenLog(origCodeDelta, argMask, regMask, callArgCnt, byrefArgMask, byrefRegMask, base, (dest - base));
+#endif
     }
 
-#if VERIFY_GC_TABLES
-    if (mask)
-    {
-        *(short*)dest = (short)0xBEEB;
-        dest += sizeof(short);
-    }
-    totalSize += sizeof(short);
-#endif
+    /* Verify that we pop every arg that was pushed and that argMask is 0 */
 
-#if MEASURE_PTRTAB_SIZE
-
-    if (mask)
-        s_gcTotalPtrTabSize += totalSize;
-
-#endif
+    assert(pasStk.CurDepth() == 0);
 
     return totalSize;
 }
-#ifdef _PREFAST_
-#pragma warning(pop)
-#endif
 
-/*****************************************************************************/
 #if DUMP_GC_TABLES
-/*****************************************************************************
- *
- *  Dump the contents of a GC pointer table.
- */
-
 #include "gcdump.h"
 
 #if VERIFY_GC_TABLES
@@ -3565,312 +3482,609 @@ const bool verifyGCTables = true;
 const bool verifyGCTables = false;
 #endif
 
-/*****************************************************************************
- *
- *  Dump the info block header.
- */
-
-size_t GCInfo::gcInfoBlockHdrDump(const BYTE* table, InfoHdr* header, unsigned* methodSize)
+size_t GCEncoder::InfoBlockHdrDump(const uint8_t* table, InfoHdr* header, unsigned* methodSize)
 {
     GCDump gcDump(GCINFO_VERSION);
-
-    gcDump.gcPrintf = gcDump_logf; // use my printf (which logs to VM)
+    gcDump.gcPrintf = gcDump_logf;
     printf("Method info block:\n");
-
     return gcDump.DumpInfoHdr(table, header, methodSize, verifyGCTables);
 }
 
-/*****************************************************************************/
-
-size_t GCInfo::gcDumpPtrTable(const BYTE* table, const InfoHdr& header, unsigned methodSize)
+size_t GCEncoder::DumpPtrTable(const uint8_t* table, const InfoHdr& header, unsigned methodSize)
 {
     printf("Pointer table:\n");
-
     GCDump gcDump(GCINFO_VERSION);
-    gcDump.gcPrintf = gcDump_logf; // use my printf (which logs to VM)
-
+    gcDump.gcPrintf = gcDump_logf;
     return gcDump.DumpGCTable(table, header, methodSize, verifyGCTables);
-}
-
-/*****************************************************************************
- *
- *  Find all the live pointers in a stack frame.
- */
-
-void GCInfo::gcFindPtrsInFrame(const void* infoBlock, const void* codeBlock, unsigned offs)
-{
-    GCDump gcDump(GCINFO_VERSION);
-    gcDump.gcPrintf = gcDump_logf; // use my printf (which logs to VM)
-
-    gcDump.DumpPtrsInFrame((PTR_CBYTE)infoBlock, (const BYTE*)codeBlock, offs, verifyGCTables);
 }
 
 #endif // DUMP_GC_TABLES
 
 #else // !JIT32_GCENCODER
 
-#include "gcinfoencoder.h"
-
-// Do explicit instantiation.
-template class JitHashTable<RegSlotIdKey, RegSlotIdKey, GcSlotId>;
-template class JitHashTable<StackSlotIdKey, StackSlotIdKey, GcSlotId>;
-
-#if defined(DEBUG) || DUMP_GC_TABLES
-
-// This is a copy of GcStackSlotBaseNames from gcinfotypes.h so we can compile in to non-DEBUG builds.
-const char* const JitGcStackSlotBaseNames[] = {"caller.sp", "sp", "frame"};
-
-static const char* const GcSlotFlagsNames[] = {"",
-                                               "(byref) ",
-                                               "(pinned) ",
-                                               "(byref, pinned) ",
-                                               "(untracked) ",
-                                               "(byref, untracked) ",
-                                               "(pinned, untracked) ",
-                                               "(byref, pinned, untracked) "};
-
-// I'm making a local wrapper class for GcInfoEncoder so that can add logging of my own (DLD).
-class GcInfoEncoderWithLogging
+class RegSlotIdKey
 {
-    GcInfoEncoder* m_gcInfoEncoder;
-    bool           m_doLogging;
+    unsigned key;
 
 public:
-    GcInfoEncoderWithLogging(GcInfoEncoder* gcInfoEncoder, bool verbose)
-        : m_gcInfoEncoder(gcInfoEncoder), m_doLogging(verbose INDEBUG(|| JitConfig.JitGCInfoLogging() != 0))
+    RegSlotIdKey(regNumber regNum, GcSlotFlags flags)
+        : key(static_cast<unsigned>(regNum) | (static_cast<unsigned>(flags) << 16))
     {
     }
 
-    GcSlotId GetStackSlotId(INT32 spOffset, GcSlotFlags flags, GcStackSlotBase spBase = GC_CALLER_SP_REL)
+    static unsigned GetHashCode(RegSlotIdKey k)
     {
-        GcSlotId newSlotId = m_gcInfoEncoder->GetStackSlotId(spOffset, flags, spBase);
-        if (m_doLogging)
+        return k.key;
+    }
+
+    static bool Equals(RegSlotIdKey x, RegSlotIdKey y)
+    {
+        return x.key == y.key;
+    }
+};
+
+class StackSlotIdKey
+{
+    uint64_t key;
+
+public:
+    StackSlotIdKey(int offset, GcSlotFlags flags, GcStackSlotBase base)
+        : key(static_cast<unsigned>(offset) | (static_cast<uint64_t>(flags) << 32) |
+              (static_cast<uint64_t>(base) << 48))
+    {
+    }
+
+    static unsigned GetHashCode(StackSlotIdKey k)
+    {
+        return static_cast<unsigned>((k.key >> 32) ^ k.key);
+    }
+
+    static bool Equals(StackSlotIdKey x, StackSlotIdKey y)
+    {
+        return x.key == y.key;
+    }
+};
+
+#if defined(DEBUG) || DUMP_GC_TABLES
+#define GC_ENCODER_LOGGING
+#endif
+
+class GCEncoder : private GcInfoEncoder
+{
+    Compiler* compiler;
+    JitHashTable<RegSlotIdKey, RegSlotIdKey, GcSlotId>     regSlotMap;
+    JitHashTable<StackSlotIdKey, StackSlotIdKey, GcSlotId> stackSlotMap;
+    unsigned   callSiteCount = 0;
+    bool       hasSlotIds    = false;
+    bool const isFullyInterruptible;
+
+    using StackSlotLifetime = GCInfo::StackSlotLifetime;
+    using RegArgChangeKind  = GCInfo::RegArgChangeKind;
+    using RegSet            = GCInfo::RegSet;
+    using RegArgChange      = GCInfo::RegArgChange;
+    using CallSite          = GCInfo::CallSite;
+
+#ifdef GC_ENCODER_LOGGING
+    static const char* const StackSlotBaseNames[];
+    static const char* const SlotFlagsNames[];
+
+    struct StackSlotLog
+    {
+        int             offset;
+        GcStackSlotBase base : 8;
+        GcSlotFlags     flags : 8;
+        GcSlotState     state : 8;
+        unsigned        codeOffs;
+
+        StackSlotLog(const GcSlotDesc& desc, GcSlotState state, UINT32 codeOffs)
+            : offset(desc.Slot.Stack.SpOffset)
+            , base(desc.Slot.Stack.Base)
+            , flags(desc.Flags)
+            , state(state)
+            , codeOffs(codeOffs)
         {
-            printf("Stack slot id for offset %d (%s0x%x) (%s) %s= %d.\n", spOffset, spOffset < 0 ? "-" : "",
-                   abs(spOffset), JitGcStackSlotBaseNames[spBase], GcSlotFlagsNames[flags & 7], newSlotId);
+            assert(!desc.IsRegister());
         }
+
+        bool SlotEquals(const StackSlotLog& other) const
+        {
+            return (offset == other.offset) && (base == other.base);
+        }
+    };
+
+    struct RegSlotLog
+    {
+        regNumber   regNum;
+        GcSlotFlags flags : 8;
+        GcSlotState state : 8;
+        unsigned    codeOffs;
+
+        RegSlotLog(const GcSlotDesc& desc, GcSlotState state, UINT32 codeOffs)
+            : regNum(static_cast<regNumber>(desc.Slot.RegisterNumber))
+            , flags(desc.Flags)
+            , state(state)
+            , codeOffs(codeOffs)
+        {
+            assert(desc.IsRegister());
+        }
+
+        bool SlotEquals(const RegSlotLog& other) const
+        {
+            return regNum == other.regNum;
+        }
+    };
+
+    struct InterruptibleRange
+    {
+        unsigned start;
+        unsigned end;
+
+        InterruptibleRange(unsigned start, unsigned end) : start(start), end(end)
+        {
+        }
+    };
+
+    bool const                         log;
+    bool const                         diffableLog = true;
+    jitstd::vector<StackSlotLog>       stackSlotLog;
+    jitstd::vector<RegSlotLog>         regSlotLog;
+    jitstd::vector<InterruptibleRange> interruptibleRanges;
+    unsigned                           codeSize;
+#endif // GC_ENCODER_LOGGING
+
+public:
+    GCEncoder(Compiler* compiler, CompIAllocator* encoderAlloc, bool isFullyInterruptible)
+        : GcInfoEncoder(compiler->info.compCompHnd, compiler->info.compMethodInfo, encoderAlloc, NOMEM)
+        , compiler(compiler)
+        , regSlotMap(compiler->getAllocator(CMK_GC))
+        , stackSlotMap(compiler->getAllocator(CMK_GC))
+        , isFullyInterruptible(isFullyInterruptible)
+#ifdef GC_ENCODER_LOGGING
+        , log(INDEBUG(compiler->verbose || compiler->opts.dspGCtbls) || (JitConfig.JitGCInfoLogging() != 0))
+        , stackSlotLog(compiler->getAllocator(CMK_DebugOnly))
+        , regSlotLog(compiler->getAllocator(CMK_DebugOnly))
+        , interruptibleRanges(compiler->getAllocator(CMK_DebugOnly))
+#endif
+    {
+    }
+
+    void SetHeaderInfo(unsigned codeSize, unsigned prologSize, ReturnKind returnKind);
+    void AddTrackedStackSlots(StackSlotLifetime* firstStackSlotLifetime);
+    void AddRegSlotChange(unsigned codeOffset, GcSlotState slotState, RegSet regs, RegSet byrefRegs);
+    void AddCallArgStackSlot(RegArgChange* argChange);
+    void RemoveCallArgStackSlots(unsigned codeOffset, RegArgChange* firstArgChange, RegArgChange* killArgsChange);
+    void AddUntrackedStackSlots();
+    void AddFullyInterruptibleSlots(RegArgChange* firstRegArgChange);
+    void AddFullyInterruptibleRanges(unsigned codeSize, unsigned prologSize);
+    void AddPartiallyInterruptibleSlots(CallSite* firstCallSite);
+
+    void FinalizeSlotIds()
+    {
+        GcInfoEncoder::FinalizeSlotIds();
+        hasSlotIds = true;
+    }
+
+    void Store()
+    {
+#ifdef GC_ENCODER_LOGGING
+        if (log && diffableLog)
+        {
+            DumpRegSlotLog();
+            DumpStackSlotLog();
+        }
+#endif
+
+        Build();
+        Emit();
+    }
+
+private:
+#ifdef GC_ENCODER_LOGGING
+    template <typename... T>
+    void Log(const char* message, T... args) const
+    {
+        if (log)
+        {
+            printf(message, args...);
+        }
+    }
+
+    GcSlotId GetStackSlotId(INT32 spOffset, GcSlotFlags flags, GcStackSlotBase spBase)
+    {
+        GcSlotId newSlotId = GcInfoEncoder::GetStackSlotId(spOffset, flags, spBase);
+
+        if (!diffableLog)
+        {
+            Log("Stack slot id for offset %d (%s0x%x) (%s) %s = %d.\n", spOffset, spOffset < 0 ? "-" : "",
+                abs(spOffset), StackSlotBaseNames[spBase], SlotFlagsNames[flags & 7], newSlotId);
+        }
+
         return newSlotId;
     }
 
     GcSlotId GetRegisterSlotId(UINT32 regNum, GcSlotFlags flags)
     {
-        GcSlotId newSlotId = m_gcInfoEncoder->GetRegisterSlotId(regNum, flags);
-        if (m_doLogging)
+        GcSlotId newSlotId = GcInfoEncoder::GetRegisterSlotId(regNum, flags);
+
+        if (!diffableLog)
         {
-            printf("Register slot id for reg %s %s= %d.\n", getRegName(regNum), GcSlotFlagsNames[flags & 7], newSlotId);
+            Log("Register slot id for reg %s %s = %d.\n", getRegName(regNum), SlotFlagsNames[flags & 7], newSlotId);
         }
+
         return newSlotId;
     }
 
     void SetSlotState(UINT32 instructionOffset, GcSlotId slotId, GcSlotState slotState)
     {
-        m_gcInfoEncoder->SetSlotState(instructionOffset, slotId, slotState);
-        if (m_doLogging)
+        GcInfoEncoder::SetSlotState(instructionOffset, slotId, slotState);
+
+        if (!diffableLog)
         {
-            printf("Set state of slot %d at instr offset 0x%x to %s.\n", slotId, instructionOffset,
-                   (slotState == GC_SLOT_LIVE ? "Live" : "Dead"));
+            Log("Set state of slot %d at instr offset 0x%x to %s.\n", slotId, instructionOffset,
+                (slotState == GC_SLOT_LIVE ? "Live" : "Dead"));
+        }
+        else
+        {
+            const GcSlotDesc& desc = GetSlotDesc(slotId);
+
+            if (desc.IsRegister())
+            {
+                regSlotLog.emplace_back(desc, slotState, instructionOffset);
+            }
+            else
+            {
+                stackSlotLog.emplace_back(desc, slotState, instructionOffset);
+            }
         }
     }
 
     void DefineCallSites(UINT32* pCallSites, BYTE* pCallSiteSizes, UINT32 numCallSites)
     {
-        m_gcInfoEncoder->DefineCallSites(pCallSites, pCallSiteSizes, numCallSites);
-        if (m_doLogging)
+        GcInfoEncoder::DefineCallSites(pCallSites, pCallSiteSizes, numCallSites);
+
+        if (!diffableLog || (numCallSites != 0))
         {
-            printf("Defining %d call sites:\n", numCallSites);
-            for (UINT32 k = 0; k < numCallSites; k++)
+            Log("Defining %u call sites:\n", numCallSites);
+        }
+
+        for (UINT32 k = 0; k < numCallSites; k++)
+        {
+            if (!diffableLog)
             {
-                printf("    Offset 0x%x, size %d.\n", pCallSites[k], pCallSiteSizes[k]);
+                Log("    Offset 0x%x, size %d.\n", pCallSites[k], pCallSiteSizes[k]);
+            }
+            else
+            {
+                Log("    %06X..%06X\n", pCallSites[k], pCallSites[k] + pCallSiteSizes[k]);
             }
         }
     }
 
     void DefineInterruptibleRange(UINT32 startInstructionOffset, UINT32 length)
     {
-        m_gcInfoEncoder->DefineInterruptibleRange(startInstructionOffset, length);
-        if (m_doLogging)
+        GcInfoEncoder::DefineInterruptibleRange(startInstructionOffset, length);
+
+        if (!diffableLog)
         {
-            printf("Defining interruptible range: [0x%x, 0x%x).\n", startInstructionOffset,
-                   startInstructionOffset + length);
+            Log("Defining interruptible range: [0x%x, 0x%x).\n", startInstructionOffset,
+                startInstructionOffset + length);
+        }
+        else
+        {
+            Log("    %06X..%06X\n", startInstructionOffset, startInstructionOffset + length);
+
+            interruptibleRanges.emplace_back(startInstructionOffset, startInstructionOffset + length);
         }
     }
 
     void SetCodeLength(UINT32 length)
     {
-        m_gcInfoEncoder->SetCodeLength(length);
-        if (m_doLogging)
-        {
-            printf("Set code length to %d.\n", length);
-        }
+        GcInfoEncoder::SetCodeLength(length);
+        Log("Set code length to %d.\n", length);
+        codeSize = length;
     }
 
     void SetReturnKind(ReturnKind returnKind)
     {
-        m_gcInfoEncoder->SetReturnKind(returnKind);
-        if (m_doLogging)
-        {
-            printf("Set ReturnKind to %s.\n", ReturnKindToString(returnKind));
-        }
+        GcInfoEncoder::SetReturnKind(returnKind);
+        Log("Set ReturnKind to %s.\n", ReturnKindToString(returnKind));
     }
 
     void SetStackBaseRegister(UINT32 registerNumber)
     {
-        m_gcInfoEncoder->SetStackBaseRegister(registerNumber);
-        if (m_doLogging)
-        {
-            printf("Set stack base register to %s.\n", getRegName(registerNumber));
-        }
+        GcInfoEncoder::SetStackBaseRegister(registerNumber);
+        Log("Set stack base register to %s.\n", getRegName(registerNumber));
     }
 
     void SetPrologSize(UINT32 prologSize)
     {
-        m_gcInfoEncoder->SetPrologSize(prologSize);
-        if (m_doLogging)
-        {
-            printf("Set prolog size 0x%x.\n", prologSize);
-        }
+        GcInfoEncoder::SetPrologSize(prologSize);
+        Log("Set prolog size 0x%x.\n", prologSize);
     }
 
     void SetGSCookieStackSlot(INT32 spOffsetGSCookie, UINT32 validRangeStart, UINT32 validRangeEnd)
     {
-        m_gcInfoEncoder->SetGSCookieStackSlot(spOffsetGSCookie, validRangeStart, validRangeEnd);
-        if (m_doLogging)
-        {
-            printf("Set GS Cookie stack slot to %d, valid from 0x%x to 0x%x.\n", spOffsetGSCookie, validRangeStart,
-                   validRangeEnd);
-        }
+        GcInfoEncoder::SetGSCookieStackSlot(spOffsetGSCookie, validRangeStart, validRangeEnd);
+        Log("Set GS Cookie stack slot to %d, valid from 0x%x to 0x%x.\n", spOffsetGSCookie, validRangeStart,
+            validRangeEnd);
     }
 
     void SetPSPSymStackSlot(INT32 spOffsetPSPSym)
     {
-        m_gcInfoEncoder->SetPSPSymStackSlot(spOffsetPSPSym);
-        if (m_doLogging)
-        {
-            printf("Set PSPSym stack slot to %d.\n", spOffsetPSPSym);
-        }
+        GcInfoEncoder::SetPSPSymStackSlot(spOffsetPSPSym);
+        Log("Set PSPSym stack slot to %d.\n", spOffsetPSPSym);
     }
 
     void SetGenericsInstContextStackSlot(INT32 spOffsetGenericsContext, GENERIC_CONTEXTPARAM_TYPE type)
     {
-        m_gcInfoEncoder->SetGenericsInstContextStackSlot(spOffsetGenericsContext, type);
-        if (m_doLogging)
-        {
-            printf("Set generic instantiation context stack slot to %d, type is %s.\n", spOffsetGenericsContext,
-                   (type == GENERIC_CONTEXTPARAM_THIS
-                        ? "THIS"
-                        : (type == GENERIC_CONTEXTPARAM_MT ? "MT"
-                                                           : (type == GENERIC_CONTEXTPARAM_MD ? "MD" : "UNKNOWN!"))));
-        }
+        GcInfoEncoder::SetGenericsInstContextStackSlot(spOffsetGenericsContext, type);
+        Log("Set generic instantiation context stack slot to %d, type is %s.\n", spOffsetGenericsContext,
+            (type == GENERIC_CONTEXTPARAM_THIS
+                 ? "THIS"
+                 : (type == GENERIC_CONTEXTPARAM_MT ? "MT" : (type == GENERIC_CONTEXTPARAM_MD ? "MD" : "UNKNOWN!"))));
     }
 
     void SetSecurityObjectStackSlot(INT32 spOffset)
     {
-        m_gcInfoEncoder->SetSecurityObjectStackSlot(spOffset);
-        if (m_doLogging)
-        {
-            printf("Set security object stack slot to %d.\n", spOffset);
-        }
+        GcInfoEncoder::SetSecurityObjectStackSlot(spOffset);
+        Log("Set security object stack slot to %d.\n", spOffset);
     }
 
     void SetIsVarArg()
     {
-        m_gcInfoEncoder->SetIsVarArg();
-        if (m_doLogging)
-        {
-            printf("SetIsVarArg.\n");
-        }
+        GcInfoEncoder::SetIsVarArg();
+        Log("SetIsVarArg.\n");
     }
 
 #ifdef TARGET_AMD64
     void SetWantsReportOnlyLeaf()
     {
-        m_gcInfoEncoder->SetWantsReportOnlyLeaf();
-        if (m_doLogging)
-        {
-            printf("Set WantsReportOnlyLeaf.\n");
-        }
-    }
-#elif defined(TARGET_ARMARCH)
-    void SetHasTailCalls()
-    {
-        m_gcInfoEncoder->SetHasTailCalls();
-        if (m_doLogging)
-        {
-            printf("Set HasTailCalls.\n");
-        }
-    }
-#endif // TARGET_AMD64
-
-    void SetSizeOfStackOutgoingAndScratchArea(UINT32 size)
-    {
-        m_gcInfoEncoder->SetSizeOfStackOutgoingAndScratchArea(size);
-        if (m_doLogging)
-        {
-            printf("Set Outgoing stack arg area size to %d.\n", size);
-        }
-    }
-};
-
-#define GCENCODER_WITH_LOGGING(withLog, realEncoder)                                                                   \
-    GcInfoEncoderWithLogging  withLog##Var(realEncoder, INDEBUG(compiler->verbose ||) compiler->opts.dspGCtbls);       \
-    GcInfoEncoderWithLogging* withLog = &withLog##Var;
-
-#else // !(defined(DEBUG) || DUMP_GC_TABLES)
-
-#define GCENCODER_WITH_LOGGING(withLog, realEncoder) GcInfoEncoder* withLog = realEncoder;
-
-#endif // !(defined(DEBUG) || DUMP_GC_TABLES)
-
-void GCInfo::gcInfoBlockHdrSave(GcInfoEncoder* gcInfoEncoder, unsigned methodSize, unsigned prologSize)
-{
-#ifdef DEBUG
-    if (compiler->verbose)
-    {
-        printf("*************** In gcInfoBlockHdrSave()\n");
+        GcInfoEncoder::SetWantsReportOnlyLeaf();
+        Log("Set WantsReportOnlyLeaf.\n");
     }
 #endif
 
-    GCENCODER_WITH_LOGGING(gcInfoEncoderWithLog, gcInfoEncoder);
+#ifdef TARGET_ARMARCH
+    void SetHasTailCalls()
+    {
+        GcInfoEncoder::SetHasTailCalls();
+        Log("Set HasTailCalls.\n");
+    }
+#endif
 
-    // Can't create tables if we've not saved code.
+    void SetSizeOfStackOutgoingAndScratchArea(UINT32 size)
+    {
+        GcInfoEncoder::SetSizeOfStackOutgoingAndScratchArea(size);
+        Log("Set Outgoing stack arg area size to %d.\n", size);
+    }
 
-    gcInfoEncoderWithLog->SetCodeLength(methodSize);
+    template <typename Slot>
+    void DumpSlotRange(const jitstd::vector<Slot>& log, size_t i)
+    {
+        const Slot& live = log[i];
 
-    gcInfoEncoderWithLog->SetReturnKind(getReturnKind());
+        // TODO-MIKE-Review: For dump purposes the slot flags are ignored, so that
+        // we see a single slot for ref, byref and pinned. This complicates sorting,
+        // a range can end at offset x and then a new range can start at the same
+        // offset x (e.g. ref 2..6 byref 6..12) so we sort the 2 entries for x such
+        // that the dead entry comes before the live one.
+        //
+        // But it looks like we can also have empty ranges (e.g. ref 6..6) and the
+        // dead-live order is wrong, it should be the other way around. So we look
+        // for a dead entry that follows the live entry AND has higher code offset.
+        // This avoids dealing with empty ranges where the dead entry occurs before
+        // the live entry.
+        //
+        // Perhaps we can avoid creating empty ranges in the first place?
+        // It seems that they appear in partially interruptible code, when a call
+        // follows another call.
+        //
+        // Also, it would make more sense to simply force stable sorting instead
+        // of sorting by slot state, the original order should be correct. And it
+        // is, for live-dead pairs. But then the pairs can be out of order, due to
+        // MarkFilterStackSlotsPinned which simply inserts new pairs at the start
+        // of the list.
+
+        unsigned liveCodeOffs = live.codeOffs;
+        unsigned deadCodeOffs = live.codeOffs;
+
+        for (size_t j = i + 1; (j < log.size()) && log[j].SlotEquals(live); j++)
+        {
+            const Slot& dead = log[j];
+
+            if ((dead.state == GC_SLOT_DEAD) && (dead.codeOffs > live.codeOffs))
+            {
+                deadCodeOffs = dead.codeOffs;
+                break;
+            }
+        }
+
+        if (liveCodeOffs == deadCodeOffs)
+        {
+            return;
+        }
+
+        if (!interruptibleRanges.empty())
+        {
+            DumpInterruptibleSlotRanges(liveCodeOffs, deadCodeOffs, SlotFlagsNames[live.flags & 7]);
+        }
+        else
+        {
+            printf("    %06X..%06X %s\n", liveCodeOffs, deadCodeOffs, SlotFlagsNames[live.flags & 7]);
+        }
+    }
+
+    void DumpInterruptibleSlotRanges(unsigned live, unsigned dead, const char* type)
+    {
+        // Dump only portions of a slot's live range that are within interruptible ranges.
+        // It doesn't matter what is reported inside a non-interruptible range and the
+        // emitter's handling of epilogs (and funclet prologs) was kind of messed up and
+        // results in slots changing state either at the start or the end of an epilog,
+        // depending on whatever side of the bed the emitter woke up.
+
+        auto& ranges = interruptibleRanges;
+        auto  range  = upper_bound(ranges.begin(), ranges.end(), live,
+                                 [](unsigned offs, const InterruptibleRange& range) { return offs < range.end; });
+
+        if ((range != ranges.end()) && (dead > range->start))
+        {
+            printf("    %06X..%06X %s\n", Max(live, range->start), Min(dead, range->end), type);
+
+            while ((++range != ranges.end()) && (dead > range->start))
+            {
+                printf("    %06X..%06X %s\n", range->start, Min(dead, range->end), type);
+            }
+        }
+    }
+
+    void DumpRegSlotLog()
+    {
+        jitstd::sort(regSlotLog.begin(), regSlotLog.end(), [](const RegSlotLog& x, const RegSlotLog& y) {
+            if (x.regNum != y.regNum)
+                return x.regNum < y.regNum;
+            if (x.codeOffs != y.codeOffs)
+                return x.codeOffs < y.codeOffs;
+            return x.state < y.state;
+        });
+
+        regNumber prevRegNum = REG_NA;
+
+        for (size_t i = 0; i < regSlotLog.size(); i++)
+        {
+            const RegSlotLog& slot = regSlotLog[i];
+
+            if (slot.state == GC_SLOT_LIVE)
+            {
+                if (slot.regNum != prevRegNum)
+                {
+                    printf("Defining %s slot live ranges:\n", getRegName(slot.regNum));
+                    prevRegNum = slot.regNum;
+                }
+
+                DumpSlotRange(regSlotLog, i);
+            }
+        }
+    }
+
+    void DumpStackSlotLog()
+    {
+        for (unsigned i = 0; i < GetSlotCount(); i++)
+        {
+            const GcSlotDesc& slot = GetSlotDesc(i);
+
+            if (slot.IsUntracked())
+            {
+                stackSlotLog.emplace_back(slot, GC_SLOT_LIVE, 0);
+                stackSlotLog.emplace_back(slot, GC_SLOT_DEAD, UINT_MAX);
+            }
+        }
+
+        jitstd::sort(stackSlotLog.begin(), stackSlotLog.end(), [](const StackSlotLog& x, const StackSlotLog& y) {
+            if (x.base != y.base)
+                return x.base > y.base;
+            if (x.offset != y.offset)
+                return x.offset > y.offset;
+            if (x.codeOffs != y.codeOffs)
+                return x.codeOffs < y.codeOffs;
+            return x.state < y.state;
+        });
+
+        GcStackSlotBase prevBase   = static_cast<GcStackSlotBase>(INT_MIN);
+        int             prevOffset = INT_MIN;
+
+        for (size_t i = 0; i < stackSlotLog.size(); i++)
+        {
+            const StackSlotLog& slot = stackSlotLog[i];
+
+            if (slot.state != GC_SLOT_LIVE)
+            {
+                continue;
+            }
+
+            if ((slot.base != prevBase) || (slot.offset != prevOffset))
+            {
+                const char* baseName;
+
+                switch (slot.base)
+                {
+                    case GC_FRAMEREG_REL:
+                        baseName = getRegName(REG_FPBASE);
+                        break;
+                    case GC_SP_REL:
+                        baseName = getRegName(REG_SPBASE);
+                        break;
+                    default:
+                        baseName = "???";
+                        break;
+                }
+
+#ifdef TARGET_ARMARCH
+                printf("Defining [%s,#%d] slot live ranges:\n", baseName, slot.offset);
+#else
+                printf("Defining [%s%c%x] slot live ranges:\n", baseName, slot.offset < 0 ? '-' : '+',
+                       abs(slot.offset));
+#endif
+
+                prevOffset = slot.offset;
+                prevBase   = slot.base;
+            }
+
+            if ((slot.flags & GC_SLOT_UNTRACKED) == 0)
+            {
+                DumpSlotRange(stackSlotLog, i);
+            }
+            else
+            {
+                printf("    untracked\n");
+            }
+        }
+    }
+#endif // GC_ENCODER_LOGGING
+};
+
+#ifdef GC_ENCODER_LOGGING
+const char* const GCEncoder::StackSlotBaseNames[]{"caller.sp", "sp", "frame"};
+
+const char* const GCEncoder::SlotFlagsNames[]{"(ref)",
+                                              "(byref)",
+                                              "(ref, pinned)",
+                                              "(byref, pinned)",
+                                              "(ref, untracked)",
+                                              "(byref, untracked)",
+                                              "(ref, pinned, untracked)",
+                                              "(byref, pinned, untracked)"};
+#endif // GC_ENCODER_LOGGING
+
+void GCEncoder::SetHeaderInfo(unsigned codeSize, unsigned prologSize, ReturnKind returnKind)
+{
+    SetCodeLength(codeSize);
+    SetReturnKind(returnKind);
 
     if (compiler->codeGen->isFramePointerUsed())
     {
-        gcInfoEncoderWithLog->SetStackBaseRegister(REG_FPBASE);
+        SetStackBaseRegister(REG_FPBASE);
     }
 
     if (compiler->info.compIsVarArgs)
     {
-        gcInfoEncoderWithLog->SetIsVarArg();
+        SetIsVarArg();
     }
-    // No equivalents.
-    // header->profCallbacks = compiler->info.compProfilerCallback;
-    // header->editNcontinue = compiler->opts.compDbgEnC;
-    //
+
     if (compiler->lvaReportParamTypeArg())
     {
-        // The predicate above is true only if there is an extra generic context parameter, not for
-        // the case where the generic context is provided by "this."
         assert(compiler->info.compTypeCtxtArg != BAD_VAR_NUM);
-        GENERIC_CONTEXTPARAM_TYPE ctxtParamType = GENERIC_CONTEXTPARAM_NONE;
-        switch (compiler->info.compMethodInfo->options & CORINFO_GENERICS_CTXT_MASK)
-        {
-            case CORINFO_GENERICS_CTXT_FROM_METHODDESC:
-                ctxtParamType = GENERIC_CONTEXTPARAM_MD;
-                break;
-            case CORINFO_GENERICS_CTXT_FROM_METHODTABLE:
-                ctxtParamType = GENERIC_CONTEXTPARAM_MT;
-                break;
 
-            case CORINFO_GENERICS_CTXT_FROM_THIS: // See comment above.
-            default:
-                // If we have a generic context parameter, then we should have
-                // one of the two options flags handled above.
-                assert(false);
+        GENERIC_CONTEXTPARAM_TYPE ctxtParamType;
+
+        if ((compiler->info.compMethodInfo->options & CORINFO_GENERICS_CTXT_FROM_METHODDESC) != 0)
+        {
+            ctxtParamType = GENERIC_CONTEXTPARAM_MD;
+        }
+        else
+        {
+            assert((compiler->info.compMethodInfo->options & CORINFO_GENERICS_CTXT_FROM_METHODTABLE) != 0);
+
+            ctxtParamType = GENERIC_CONTEXTPARAM_MT;
         }
 
         const int offset = compiler->lvaToCallerSPRelativeOffset(compiler->codeGen->cachedGenericContextArgOffset,
@@ -3880,28 +4094,25 @@ void GCInfo::gcInfoBlockHdrSave(GcInfoEncoder* gcInfoEncoder, unsigned methodSiz
         if (compiler->opts.IsOSR())
         {
             // Sanity check the offset vs saved patchpoint info.
-            //
             // PP info has FP relative offset, to get to caller SP we need to
             // subtract off 2 register slots (saved FP, saved RA).
-            //
+
             const PatchpointInfo* const ppInfo    = compiler->info.compPatchpointInfo;
             const int                   osrOffset = ppInfo->GenericContextArgOffset() - 2 * REGSIZE_BYTES;
             assert(offset == osrOffset);
         }
 #endif
 
-        gcInfoEncoderWithLog->SetGenericsInstContextStackSlot(offset, ctxtParamType);
+        SetGenericsInstContextStackSlot(offset, ctxtParamType);
     }
-    // As discussed above, handle the case where the generics context is obtained via
-    // the method table of "this".
     else if (compiler->lvaKeepAliveAndReportThis())
     {
         assert(compiler->info.compThisArg != BAD_VAR_NUM);
 
         // OSR can report the root method's frame slot, if that method reported context.
         // If not, the OSR frame will have saved the needed context.
-        //
         bool useRootFrameSlot = true;
+
         if (compiler->opts.IsOSR())
         {
             const PatchpointInfo* const ppInfo = compiler->info.compPatchpointInfo;
@@ -3917,889 +4128,535 @@ void GCInfo::gcInfoBlockHdrSave(GcInfoEncoder* gcInfoEncoder, unsigned methodSiz
         if (compiler->opts.IsOSR() && useRootFrameSlot)
         {
             // Sanity check the offset vs saved patchpoint info.
-            //
             // PP info has FP relative offset, to get to caller SP we need to
             // subtract off 2 register slots (saved FP, saved RA).
-            //
+
             const PatchpointInfo* const ppInfo    = compiler->info.compPatchpointInfo;
             const int                   osrOffset = ppInfo->KeptAliveThisOffset() - 2 * REGSIZE_BYTES;
             assert(offset == osrOffset);
         }
 #endif
 
-        gcInfoEncoderWithLog->SetGenericsInstContextStackSlot(offset, GENERIC_CONTEXTPARAM_THIS);
+        SetGenericsInstContextStackSlot(offset, GENERIC_CONTEXTPARAM_THIS);
     }
 
     if (compiler->getNeedsGSSecurityCookie())
     {
         assert(compiler->lvaGSSecurityCookie != BAD_VAR_NUM);
 
-        // The lv offset is FP-relative, and the using code expects caller-sp relative, so translate.
+        // The offset is FP-relative, and the using code expects caller-sp relative, so translate.
         const int offset = compiler->lvaGetCallerSPRelativeOffset(compiler->lvaGSSecurityCookie);
 
         // The code offset ranges assume that the GS Cookie slot is initialized in the prolog, and is valid
         // through the remainder of the method.  We will not query for the GS Cookie while we're in an epilog,
         // so the question of where in the epilog it becomes invalid is moot.
-        gcInfoEncoderWithLog->SetGSCookieStackSlot(offset, prologSize, methodSize);
+        SetGSCookieStackSlot(offset, prologSize, codeSize);
     }
     else if (compiler->lvaReportParamTypeArg() || compiler->lvaKeepAliveAndReportThis())
     {
-        gcInfoEncoderWithLog->SetPrologSize(prologSize);
+        SetPrologSize(prologSize);
     }
 
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
     if (compiler->lvaPSPSym != BAD_VAR_NUM)
     {
 #ifdef TARGET_AMD64
-        // The PSPSym is relative to InitialSP on X64 and CallerSP on other platforms.
-        gcInfoEncoderWithLog->SetPSPSymStackSlot(compiler->lvaGetPSPSymInitialSPRelativeOffset());
-#else  // !TARGET_AMD64
-        gcInfoEncoderWithLog->SetPSPSymStackSlot(compiler->lvaGetCallerSPRelativeOffset(compiler->lvaPSPSym));
-#endif // !TARGET_AMD64
+        SetPSPSymStackSlot(compiler->lvaGetPSPSymInitialSPRelativeOffset());
+#else
+        SetPSPSymStackSlot(compiler->lvaGetCallerSPRelativeOffset(compiler->lvaPSPSym));
+#endif
     }
 
 #ifdef TARGET_AMD64
     if (compiler->ehAnyFunclets())
     {
         // Set this to avoid double-reporting the parent frame (unlike JIT64)
-        gcInfoEncoderWithLog->SetWantsReportOnlyLeaf();
+        SetWantsReportOnlyLeaf();
     }
-#endif // TARGET_AMD64
-
+#endif
 #endif // FEATURE_EH_FUNCLETS
 
 #ifdef TARGET_ARMARCH
     if (compiler->codeGen->GetHasTailCalls())
     {
-        gcInfoEncoderWithLog->SetHasTailCalls();
+        SetHasTailCalls();
     }
-#endif // TARGET_ARMARCH
-
-#if FEATURE_FIXED_OUT_ARGS
-    // outgoing stack area size
-    gcInfoEncoderWithLog->SetSizeOfStackOutgoingAndScratchArea(compiler->codeGen->outgoingArgSpaceSize);
-#endif // FEATURE_FIXED_OUT_ARGS
-
-#if DISPLAY_SIZES
-
-    if (compiler->codeGen->GetInterruptible())
-    {
-        genMethodICnt++;
-    }
-    else
-    {
-        genMethodNCnt++;
-    }
-
-#endif // DISPLAY_SIZES
-}
-
-#if defined(DEBUG) || DUMP_GC_TABLES
-#define Encoder GcInfoEncoderWithLogging
-#else
-#define Encoder GcInfoEncoder
 #endif
 
-// Small helper class to handle the No-GC-Interrupt callbacks
-// when reporting interruptible ranges.
-//
-// Encoder should be either GcInfoEncoder or GcInfoEncoderWithLogging
-//
-struct InterruptibleRangeReporter
-{
-    unsigned prevStart;
-    Encoder* gcInfoEncoderWithLog;
+#if FEATURE_FIXED_OUT_ARGS
+    SetSizeOfStackOutgoingAndScratchArea(compiler->codeGen->outgoingArgSpaceSize);
+#endif
 
-    InterruptibleRangeReporter(unsigned _prevStart, Encoder* _gcInfo)
-        : prevStart(_prevStart), gcInfoEncoderWithLog(_gcInfo)
+#if defined(TARGET_ARM64) || defined(TARGET_AMD64)
+    if (compiler->opts.compDbgEnC)
     {
-    }
+        // what we have to preserve is called the "frame header" (see comments in VM\eetwain.cpp)
+        // which is:
+        //  -return address
+        //  -saved off RBP
+        //  -saved 'this' pointer and bool for synchronized methods
 
-    // This callback is called for each insGroup marked with
-    // IGF_NOGCINTERRUPT (currently just prologs and epilogs).
-    // Report everything between the previous region and the current
-    // region as interruptible.
+        // 4 slots for RBP + return address + RSI + RDI
+        int preservedAreaSize = 4 * REGSIZE_BYTES;
 
-    bool operator()(unsigned igFuncIdx, unsigned igOffs, unsigned igSize)
-    {
-        if (igOffs < prevStart)
+        if ((compiler->info.compFlags & CORINFO_FLG_SYNCH) != 0)
         {
-            // We're still in the main method prolog, which has already
-            // had it's interruptible range reported.
-            assert(igFuncIdx == 0);
-            assert(igOffs + igSize <= prevStart);
-            return true;
+            if ((compiler->info.compFlags & CORINFO_FLG_STATIC) == 0)
+            {
+                preservedAreaSize += REGSIZE_BYTES;
+            }
+
+#ifdef TARGET_ARM64
+            // bool for synchronized methods
+            preservedAreaSize += 1;
+#else
+            preservedAreaSize += 4;
+#endif
         }
 
-        assert(igOffs >= prevStart);
-        if (igOffs > prevStart)
-        {
-            gcInfoEncoderWithLog->DefineInterruptibleRange(prevStart, igOffs - prevStart);
-        }
-        prevStart = igOffs + igSize;
-        return true;
+        SetSizeOfEditAndContinuePreservedArea(preservedAreaSize);
     }
-};
+#endif
 
-void GCInfo::gcMakeRegPtrTable(
-    GcInfoEncoder* gcInfoEncoder, unsigned codeSize, unsigned prologSize, MakeRegPtrMode mode, unsigned* callCntRef)
+    if (compiler->opts.IsReversePInvoke())
+    {
+        LclVarDsc* reversePInvokeFrameLcl = compiler->lvaGetDesc(compiler->lvaReversePInvokeFrameVar);
+        SetReversePInvokeFrameSlot(reversePInvokeFrameLcl->GetStackOffset());
+    }
+
+#if DISPLAY_SIZES
+    (isFullyInterruptible ? genMethodICnt : genMethodNCnt)++;
+#endif
+}
+
+void GCEncoder::AddUntrackedStackSlots()
 {
-    GCENCODER_WITH_LOGGING(gcInfoEncoderWithLog, gcInfoEncoder);
-
-    const bool noTrackedGCSlots =
-        (compiler->opts.MinOpts() && !compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) &&
-         !JitConfig.JitMinOptsTrackGCrefs());
-
-    if (mode == MAKE_REG_PTR_MODE_ASSIGN_SLOTS)
+    for (unsigned lclNum = 0; lclNum < compiler->lvaCount; lclNum++)
     {
-        m_regSlotMap   = new (compiler->getAllocator()) RegSlotMap(compiler->getAllocator());
-        m_stackSlotMap = new (compiler->getAllocator()) StackSlotMap(compiler->getAllocator());
-    }
+        LclVarDsc* lcl = compiler->lvaGetDesc(lclNum);
 
-    /**************************************************************************
-     *
-     *                      Untracked ptr variables
-     *
-     **************************************************************************
-     */
-
-    /* Count&Write untracked locals and non-enregistered args */
-
-    unsigned   varNum;
-    LclVarDsc* varDsc;
-    for (varNum = 0, varDsc = compiler->lvaTable; varNum < compiler->lvaCount; varNum++, varDsc++)
-    {
-        if (varDsc->IsDependentPromotedField(compiler))
+        if (lcl->IsDependentPromotedField(compiler) || !lcl->lvOnFrame || lcl->HasGCSlotLiveness())
         {
-            // A dependent promoted struct field must be reported through its parent local.
             continue;
         }
 
-        if (varTypeIsGC(varDsc->TypeGet()))
+        if (varTypeIsGC(lcl->GetType()))
         {
-            // Do we have an argument or local variable?
-            if (!varDsc->IsParam())
+            GcSlotFlags slotFlags = GC_SLOT_UNTRACKED;
+
+            if (lcl->TypeIs(TYP_BYREF))
             {
-                // If is is pinned, it must be an untracked local.
-                assert(!varDsc->lvPinned || !varDsc->lvTracked);
-
-                if (varDsc->lvTracked || !varDsc->lvOnFrame)
-                {
-                    continue;
-                }
-            }
-            else
-            {
-                // Stack-passed arguments which are not enregistered
-                // are always reported in this "untracked stack
-                // pointers" section of the GC info even if lvTracked==true
-
-                // Has this argument been fully enregistered?
-                CLANG_FORMAT_COMMENT_ANCHOR;
-
-                if (!varDsc->lvOnFrame)
-                {
-                    // If a CEE_JMP has been used, then we need to report all the arguments
-                    // even if they are enregistered, since we will be using this value
-                    // in a JMP call.  Note that this is subtle as we require that
-                    // argument offsets are always fixed up properly even if lvRegister
-                    // is set.
-                    if (!compiler->compJmpOpUsed)
-                    {
-                        continue;
-                    }
-                }
-                else
-                {
-                    if (varDsc->IsRegParam() && varDsc->HasLiveness())
-                    {
-                        // If this register-passed arg is tracked, then
-                        // it has been allocated space near the other
-                        // pointer variables and we have accurate life-
-                        // time info. It will be reported with
-                        // gcVarPtrList in the "tracked-pointer" section.
-                        continue;
-                    }
-                }
+                slotFlags = static_cast<GcSlotFlags>(slotFlags | GC_SLOT_INTERIOR);
             }
 
-            // If we haven't continued to the next variable, we should report this as an untracked local.
-            CLANG_FORMAT_COMMENT_ANCHOR;
-
-            GcSlotFlags flags = GC_SLOT_UNTRACKED;
-
-            if (varDsc->TypeGet() == TYP_BYREF)
+            if (lcl->lvPinned)
             {
-                // Or in byref_OFFSET_FLAG for 'byref' pointer tracking
-                flags = (GcSlotFlags)(flags | GC_SLOT_INTERIOR);
+                slotFlags = static_cast<GcSlotFlags>(slotFlags | GC_SLOT_PINNED);
             }
 
-            if (varDsc->lvPinned)
-            {
-                // Or in pinned_OFFSET_FLAG for 'pinned' pointer tracking
-                flags = (GcSlotFlags)(flags | GC_SLOT_PINNED);
-            }
-            GcStackSlotBase stackSlotBase = GC_SP_REL;
-            if (varDsc->lvFramePointerBased)
-            {
-                stackSlotBase = GC_FRAMEREG_REL;
-            }
-            if (noTrackedGCSlots)
-            {
-                // No need to hash/lookup untracked GC refs; just grab a new Slot Id.
-                if (mode == MAKE_REG_PTR_MODE_ASSIGN_SLOTS)
-                {
-                    gcInfoEncoderWithLog->GetStackSlotId(varDsc->GetStackOffset(), flags, stackSlotBase);
-                }
-            }
-            else
-            {
-                StackSlotIdKey sskey(varDsc->GetStackOffset(), (stackSlotBase == GC_FRAMEREG_REL), flags);
-                GcSlotId       varSlotId;
-                if (mode == MAKE_REG_PTR_MODE_ASSIGN_SLOTS)
-                {
-                    if (!m_stackSlotMap->Lookup(sskey, &varSlotId))
-                    {
-                        varSlotId =
-                            gcInfoEncoderWithLog->GetStackSlotId(varDsc->GetStackOffset(), flags, stackSlotBase);
-                        m_stackSlotMap->Set(sskey, varSlotId);
-                    }
-                }
-            }
+            GcStackSlotBase slotBase = lcl->lvFramePointerBased ? GC_FRAMEREG_REL : GC_SP_REL;
+
+            GetStackSlotId(lcl->GetStackOffset(), slotFlags, slotBase);
         }
-
-        // If this is a TYP_STRUCT, handle its GC pointers.
-        // Note that the enregisterable struct types cannot have GC pointers in them.
-        if (varDsc->TypeIs(TYP_STRUCT) && varDsc->lvOnFrame && varDsc->HasGCPtr())
+        else if (lcl->TypeIs(TYP_STRUCT) && lcl->HasGCPtr())
         {
-            ClassLayout* layout = varDsc->GetLayout();
-            unsigned     slots  = layout->GetSlotCount();
+            GcStackSlotBase slotBase  = lcl->lvFramePointerBased ? GC_FRAMEREG_REL : GC_SP_REL;
+            int             lclOffset = lcl->GetStackOffset();
 
-            for (unsigned i = 0; i < slots; i++)
+#if DOUBLE_ALIGN
+            if (compiler->genDoubleAlign() && lcl->IsParam() && !lcl->IsRegParam())
+            {
+                lclOffset += compiler->codeGen->genTotalFrameSize();
+            }
+#endif
+
+            ClassLayout* layout = lcl->GetLayout();
+
+            for (unsigned i = 0, slots = layout->GetSlotCount(); i < slots; i++)
             {
                 if (!layout->IsGCPtr(i))
                 {
                     continue;
                 }
 
-                int offset = varDsc->GetStackOffset() + i * TARGET_POINTER_SIZE;
-#if DOUBLE_ALIGN
-                // For genDoubleAlign(), locals are addressed relative to ESP and
-                // arguments are addressed relative to EBP.
-                if (compiler->genDoubleAlign() && varDsc->IsParam() && !varDsc->IsRegParam())
-                {
-                    offset += compiler->codeGen->genTotalFrameSize();
-                }
-#endif
-                GcSlotFlags flags = GC_SLOT_UNTRACKED;
+                GcSlotFlags slotFlags = GC_SLOT_UNTRACKED;
+
                 if (layout->GetGCPtrType(i) == TYP_BYREF)
                 {
-                    flags = (GcSlotFlags)(flags | GC_SLOT_INTERIOR);
+                    slotFlags = static_cast<GcSlotFlags>(slotFlags | GC_SLOT_INTERIOR);
                 }
 
-                GcStackSlotBase stackSlotBase = GC_SP_REL;
-                if (varDsc->lvFramePointerBased)
-                {
-                    stackSlotBase = GC_FRAMEREG_REL;
-                }
-                StackSlotIdKey sskey(offset, (stackSlotBase == GC_FRAMEREG_REL), flags);
-                GcSlotId       varSlotId;
-                if (mode == MAKE_REG_PTR_MODE_ASSIGN_SLOTS)
-                {
-                    if (!m_stackSlotMap->Lookup(sskey, &varSlotId))
-                    {
-                        varSlotId = gcInfoEncoderWithLog->GetStackSlotId(offset, flags, stackSlotBase);
-                        m_stackSlotMap->Set(sskey, varSlotId);
-                    }
-                }
+                GetStackSlotId(lclOffset + i * TARGET_POINTER_SIZE, slotFlags, slotBase);
             }
         }
     }
 
-    if (mode == MAKE_REG_PTR_MODE_ASSIGN_SLOTS)
+    GcStackSlotBase slotBase = compiler->codeGen->isFramePointerUsed() ? GC_FRAMEREG_REL : GC_SP_REL;
+
+    for (const SpillTemp& temp : compiler->codeGen->spillTemps)
     {
-        // Count & write spill temps that hold pointers.
-
-        for (SpillTemp& temp : compiler->codeGen->spillTemps)
-        {
-            if (!varTypeIsGC(temp.GetType()))
-            {
-                continue;
-            }
-
-            int offset = temp.GetOffset();
-
-            GcSlotFlags flags = GC_SLOT_UNTRACKED;
-
-            if (temp.GetType() == TYP_BYREF)
-            {
-                flags = (GcSlotFlags)(flags | GC_SLOT_INTERIOR);
-            }
-
-            GcStackSlotBase stackSlotBase = GC_SP_REL;
-            if (compiler->codeGen->isFramePointerUsed())
-            {
-                stackSlotBase = GC_FRAMEREG_REL;
-            }
-            StackSlotIdKey sskey(offset, (stackSlotBase == GC_FRAMEREG_REL), flags);
-            GcSlotId       varSlotId;
-            if (!m_stackSlotMap->Lookup(sskey, &varSlotId))
-            {
-                varSlotId = gcInfoEncoderWithLog->GetStackSlotId(offset, flags, stackSlotBase);
-                m_stackSlotMap->Set(sskey, varSlotId);
-            }
-        }
-
-        if (compiler->lvaKeepAliveAndReportThis())
-        {
-            // We need to report the cached copy as an untracked pointer
-            assert(compiler->info.compThisArg != BAD_VAR_NUM);
-            assert(!compiler->lvaReportParamTypeArg());
-            GcSlotFlags flags = GC_SLOT_UNTRACKED;
-
-            if (compiler->lvaTable[compiler->info.compThisArg].TypeGet() == TYP_BYREF)
-            {
-                // Or in GC_SLOT_INTERIOR for 'byref' pointer tracking
-                flags = (GcSlotFlags)(flags | GC_SLOT_INTERIOR);
-            }
-
-            GcStackSlotBase stackSlotBase = compiler->codeGen->isFramePointerUsed() ? GC_FRAMEREG_REL : GC_SP_REL;
-
-            gcInfoEncoderWithLog->GetStackSlotId(compiler->codeGen->cachedGenericContextArgOffset, flags,
-                                                 stackSlotBase);
-        }
-    }
-
-    // Generate the table of tracked stack pointer variable lifetimes.
-    gcMakeVarPtrTable(gcInfoEncoder, mode);
-
-    /**************************************************************************
-     *
-     * Prepare to generate the pointer register/argument map
-     *
-     **************************************************************************
-     */
-
-    if (compiler->codeGen->GetInterruptible())
-    {
-        assert(compiler->codeGen->IsFullPtrRegMapRequired());
-
-        regMaskSmall ptrRegs          = 0;
-        regPtrDsc*   regStackArgFirst = nullptr;
-
-        // Walk the list of pointer register/argument entries.
-
-        for (regPtrDsc* genRegPtrTemp = gcRegPtrList; genRegPtrTemp != nullptr; genRegPtrTemp = genRegPtrTemp->rpdNext)
-        {
-            if (genRegPtrTemp->rpdArg)
-            {
-                if (genRegPtrTemp->rpdArgTypeGet() == rpdARG_KILL)
-                {
-                    // Kill all arguments for a call
-                    if ((mode == MAKE_REG_PTR_MODE_DO_WORK) && (regStackArgFirst != nullptr))
-                    {
-                        // Record any outgoing arguments as becoming dead
-                        gcInfoRecordGCStackArgsDead(gcInfoEncoder, genRegPtrTemp->rpdOffs, regStackArgFirst,
-                                                    genRegPtrTemp);
-                    }
-                    regStackArgFirst = nullptr;
-                }
-                else if (genRegPtrTemp->rpdGCtypeGet() != GCT_NONE)
-                {
-                    if (genRegPtrTemp->rpdArgTypeGet() == rpdARG_PUSH || (genRegPtrTemp->rpdPtrArg != 0))
-                    {
-                        bool isPop = genRegPtrTemp->rpdArgTypeGet() == rpdARG_POP;
-                        assert(!isPop);
-                        gcInfoRecordGCStackArgLive(gcInfoEncoder, mode, genRegPtrTemp);
-                        if (regStackArgFirst == nullptr)
-                        {
-                            regStackArgFirst = genRegPtrTemp;
-                        }
-                    }
-                    else
-                    {
-                        // We know it's a POP.  Sometimes we'll record a POP for a call, just to make sure
-                        // the call site is recorded.
-                        // This is just the negation of the condition:
-                        assert(genRegPtrTemp->rpdArgTypeGet() == rpdARG_POP && genRegPtrTemp->rpdPtrArg == 0);
-                        // This asserts that we only get here when we're recording a call site.
-                        assert(genRegPtrTemp->rpdArg && genRegPtrTemp->rpdIsCallInstr());
-
-                        // Kill all arguments for a call
-                        if ((mode == MAKE_REG_PTR_MODE_DO_WORK) && (regStackArgFirst != nullptr))
-                        {
-                            // Record any outgoing arguments as becoming dead
-                            gcInfoRecordGCStackArgsDead(gcInfoEncoder, genRegPtrTemp->rpdOffs, regStackArgFirst,
-                                                        genRegPtrTemp);
-                        }
-                        regStackArgFirst = nullptr;
-                    }
-                }
-            }
-            else
-            {
-                // Record any registers that are becoming dead.
-
-                regMaskSmall regMask   = genRegPtrTemp->rpdCompiler.rpdDel & ptrRegs;
-                regMaskSmall byRefMask = 0;
-                if (genRegPtrTemp->rpdGCtypeGet() == GCT_BYREF)
-                {
-                    byRefMask = regMask;
-                }
-                gcInfoRecordGCRegStateChange(gcInfoEncoder, mode, genRegPtrTemp->rpdOffs, regMask, GC_SLOT_DEAD,
-                                             byRefMask, &ptrRegs);
-
-                // Record any registers that are becoming live.
-                regMask   = genRegPtrTemp->rpdCompiler.rpdAdd & ~ptrRegs;
-                byRefMask = 0;
-                // As far as I (DLD, 2010) can tell, there's one GCtype for the entire genRegPtrTemp, so if
-                // it says byref then all the registers in "regMask" contain byrefs.
-                if (genRegPtrTemp->rpdGCtypeGet() == GCT_BYREF)
-                {
-                    byRefMask = regMask;
-                }
-                gcInfoRecordGCRegStateChange(gcInfoEncoder, mode, genRegPtrTemp->rpdOffs, regMask, GC_SLOT_LIVE,
-                                             byRefMask, &ptrRegs);
-            }
-        }
-
-        // Now we can declare the entire method body fully interruptible.
-        if (mode == MAKE_REG_PTR_MODE_DO_WORK)
-        {
-            assert(prologSize <= codeSize);
-
-            // Now exempt any other region marked as IGF_NOGCINTERRUPT
-            // Currently just prologs and epilogs.
-
-            InterruptibleRangeReporter reporter(prologSize, gcInfoEncoderWithLog);
-            compiler->GetEmitter()->emitGenNoGCLst(reporter);
-            prologSize = reporter.prevStart;
-
-            // Report any remainder
-            if (prologSize < codeSize)
-            {
-                gcInfoEncoderWithLog->DefineInterruptibleRange(prologSize, codeSize - prologSize);
-            }
-        }
-    }
-    else if (compiler->codeGen->isFramePointerUsed()) // GetInterruptible() is false, and we're using EBP as a frame
-                                                      // pointer.
-    {
-        assert(!compiler->codeGen->IsFullPtrRegMapRequired());
-
-        // Walk the list of pointer register/argument entries.
-
-        // First count them.
-        unsigned numCallSites = 0;
-
-        // Now we can allocate the information.
-        unsigned* pCallSites     = nullptr;
-        BYTE*     pCallSiteSizes = nullptr;
-        unsigned  callSiteNum    = 0;
-
-        if (mode == MAKE_REG_PTR_MODE_DO_WORK)
-        {
-            if (gcCallDescList != nullptr)
-            {
-                if (noTrackedGCSlots)
-                {
-                    // We have the call count from the previous run.
-                    numCallSites = *callCntRef;
-
-                    // If there are no calls, tell the world and bail.
-                    if (numCallSites == 0)
-                    {
-                        gcInfoEncoderWithLog->DefineCallSites(nullptr, nullptr, 0);
-                        return;
-                    }
-                }
-                else
-                {
-                    for (CallDsc* call = gcCallDescList; call != nullptr; call = call->cdNext)
-                    {
-                        numCallSites++;
-                    }
-                }
-                pCallSites     = new (compiler, CMK_GC) unsigned[numCallSites];
-                pCallSiteSizes = new (compiler, CMK_GC) BYTE[numCallSites];
-            }
-        }
-
-        // Now consider every call.
-        for (CallDsc* call = gcCallDescList; call != nullptr; call = call->cdNext)
-        {
-            // Figure out the code offset of this entry.
-            unsigned nextOffset = call->cdOffs;
-
-            regMaskSmall gcrefRegMask = call->cdGCrefRegs & RBM_CALLEE_SAVED;
-            regMaskSmall byrefRegMask = call->cdByrefRegs & RBM_CALLEE_SAVED;
-
-            assert((gcrefRegMask & byrefRegMask) == 0);
-
-            regMaskSmall regMask = gcrefRegMask | byrefRegMask;
-
-            assert(call->cdOffs >= call->cdCallInstrSize);
-            // call->cdOffs is actually the offset of the instruction *following* the call, so subtract
-            // the call instruction size to get the offset of the actual call instruction...
-            unsigned callOffset = nextOffset - call->cdCallInstrSize;
-
-            if (noTrackedGCSlots && regMask == 0)
-            {
-                // No live GC refs in regs at the call -> don't record the call.
-            }
-            else
-            {
-                // Append an entry for the call if doing the real thing.
-                if (mode == MAKE_REG_PTR_MODE_DO_WORK)
-                {
-                    pCallSites[callSiteNum]     = callOffset;
-                    pCallSiteSizes[callSiteNum] = call->cdCallInstrSize;
-                }
-                callSiteNum++;
-
-                // Record that these registers are live before the call...
-                gcInfoRecordGCRegStateChange(gcInfoEncoder, mode, callOffset, regMask, GC_SLOT_LIVE, byrefRegMask,
-                                             nullptr);
-                // ...and dead after.
-                gcInfoRecordGCRegStateChange(gcInfoEncoder, mode, nextOffset, regMask, GC_SLOT_DEAD, byrefRegMask,
-                                             nullptr);
-            }
-        }
-        // Make sure we've recorded the expected number of calls
-        assert(mode != MAKE_REG_PTR_MODE_DO_WORK || numCallSites == callSiteNum);
-        // Return the actual recorded call count to the caller
-        *callCntRef = callSiteNum;
-
-        // OK, define the call sites.
-        if (mode == MAKE_REG_PTR_MODE_DO_WORK)
-        {
-            gcInfoEncoderWithLog->DefineCallSites(pCallSites, pCallSiteSizes, numCallSites);
-        }
-    }
-    else // GetInterruptible() is false and we have an EBP-less frame
-    {
-        assert(compiler->codeGen->IsFullPtrRegMapRequired());
-
-        // Walk the list of pointer register/argument entries */
-        // First count them.
-        unsigned numCallSites = 0;
-
-        // Now we can allocate the information (if we're in the "DO_WORK" pass...)
-        unsigned* pCallSites     = nullptr;
-        BYTE*     pCallSiteSizes = nullptr;
-        unsigned  callSiteNum    = 0;
-
-        if (mode == MAKE_REG_PTR_MODE_DO_WORK)
-        {
-            for (regPtrDsc* genRegPtrTemp = gcRegPtrList; genRegPtrTemp != nullptr;
-                 genRegPtrTemp            = genRegPtrTemp->rpdNext)
-            {
-                if (genRegPtrTemp->rpdArg && genRegPtrTemp->rpdIsCallInstr())
-                {
-                    numCallSites++;
-                }
-            }
-
-            if (numCallSites > 0)
-            {
-                pCallSites     = new (compiler, CMK_GC) unsigned[numCallSites];
-                pCallSiteSizes = new (compiler, CMK_GC) BYTE[numCallSites];
-            }
-        }
-
-        for (regPtrDsc* genRegPtrTemp = gcRegPtrList; genRegPtrTemp != nullptr; genRegPtrTemp = genRegPtrTemp->rpdNext)
-        {
-            if (genRegPtrTemp->rpdArg)
-            {
-                // Is this a call site?
-                if (genRegPtrTemp->rpdIsCallInstr())
-                {
-                    // This is a true call site.
-
-                    regMaskSmall gcrefRegMask = GCInfo::RegMaskFromCalleeSavedMask(genRegPtrTemp->rpdCallGCrefRegs);
-                    regMaskSmall byrefRegMask = GCInfo::RegMaskFromCalleeSavedMask(genRegPtrTemp->rpdCallByrefRegs);
-
-                    assert((gcrefRegMask & byrefRegMask) == 0);
-
-                    regMaskSmall regMask = gcrefRegMask | byrefRegMask;
-
-                    // The "rpdOffs" is (apparently) the offset of the following instruction already.
-                    // GcInfoEncoder wants the call instruction, so subtract the width of the call instruction.
-                    assert(genRegPtrTemp->rpdOffs >= genRegPtrTemp->rpdCallInstrSize);
-                    unsigned callOffset = genRegPtrTemp->rpdOffs - genRegPtrTemp->rpdCallInstrSize;
-
-                    // Tell the GCInfo encoder about these registers.  We say that the registers become live
-                    // before the call instruction, and dead after.
-                    gcInfoRecordGCRegStateChange(gcInfoEncoder, mode, callOffset, regMask, GC_SLOT_LIVE, byrefRegMask,
-                                                 nullptr);
-                    gcInfoRecordGCRegStateChange(gcInfoEncoder, mode, genRegPtrTemp->rpdOffs, regMask, GC_SLOT_DEAD,
-                                                 byrefRegMask, nullptr);
-
-                    // Also remember the call site.
-                    if (mode == MAKE_REG_PTR_MODE_DO_WORK)
-                    {
-                        assert(pCallSites != nullptr && pCallSiteSizes != nullptr);
-                        pCallSites[callSiteNum]     = callOffset;
-                        pCallSiteSizes[callSiteNum] = genRegPtrTemp->rpdCallInstrSize;
-                        callSiteNum++;
-                    }
-                }
-                else
-                {
-                    // These are reporting outgoing stack arguments, but we don't need to report anything
-                    // for partially interruptible
-                    assert(genRegPtrTemp->rpdGCtypeGet() != GCT_NONE);
-                    assert(genRegPtrTemp->rpdArgTypeGet() == rpdARG_PUSH);
-                }
-            }
-        }
-        // The routine is fully interruptible.
-        if (mode == MAKE_REG_PTR_MODE_DO_WORK)
-        {
-            gcInfoEncoderWithLog->DefineCallSites(pCallSites, pCallSiteSizes, numCallSites);
-        }
-    }
-}
-
-void GCInfo::gcInfoRecordGCRegStateChange(GcInfoEncoder* gcInfoEncoder,
-                                          MakeRegPtrMode mode,
-                                          unsigned       instrOffset,
-                                          regMaskSmall   regMask,
-                                          GcSlotState    newState,
-                                          regMaskSmall   byRefMask,
-                                          regMaskSmall*  pPtrRegs)
-{
-    // Precondition: byRefMask is a subset of regMask.
-    assert((byRefMask & ~regMask) == 0);
-
-    GCENCODER_WITH_LOGGING(gcInfoEncoderWithLog, gcInfoEncoder);
-
-    while (regMask)
-    {
-        // Get hold of the next register bit.
-        regMaskTP tmpMask = genFindLowestReg(regMask);
-        assert(tmpMask);
-
-        // Remember the new state of this register.
-        if (pPtrRegs != nullptr)
-        {
-            if (newState == GC_SLOT_DEAD)
-            {
-                *pPtrRegs &= ~tmpMask;
-            }
-            else
-            {
-                *pPtrRegs |= tmpMask;
-            }
-        }
-
-        // Figure out which register the next bit corresponds to.
-        regNumber regNum = genRegNumFromMask(tmpMask);
-
-        /* Reserve SP future use */
-        assert(regNum != REG_SPBASE);
-
-        GcSlotFlags regFlags = GC_SLOT_BASE;
-        if ((tmpMask & byRefMask) != 0)
-        {
-            regFlags = (GcSlotFlags)(regFlags | GC_SLOT_INTERIOR);
-        }
-
-        RegSlotIdKey rskey(regNum, regFlags);
-        GcSlotId     regSlotId;
-        if (mode == MAKE_REG_PTR_MODE_ASSIGN_SLOTS)
-        {
-            if (!m_regSlotMap->Lookup(rskey, &regSlotId))
-            {
-                regSlotId = gcInfoEncoderWithLog->GetRegisterSlotId(regNum, regFlags);
-                m_regSlotMap->Set(rskey, regSlotId);
-            }
-        }
-        else
-        {
-            bool b = m_regSlotMap->Lookup(rskey, &regSlotId);
-            assert(b); // Should have been added in the first pass.
-            gcInfoEncoderWithLog->SetSlotState(instrOffset, regSlotId, newState);
-        }
-
-        // Turn the bit we've just generated off and continue.
-        regMask -= tmpMask; // EAX,ECX,EDX,EBX,---,EBP,ESI,EDI
-    }
-}
-
-/**************************************************************************
- *
- *  gcMakeVarPtrTable - Generate the table of tracked stack pointer
- *      variable lifetimes.
- *
- *  In the first pass we'll allocate slot Ids
- *  In the second pass we actually generate the lifetimes.
- *
- **************************************************************************
- */
-
-void GCInfo::gcMakeVarPtrTable(GcInfoEncoder* gcInfoEncoder, MakeRegPtrMode mode)
-{
-    GCENCODER_WITH_LOGGING(gcInfoEncoderWithLog, gcInfoEncoder);
-
-    // Make sure any flags we hide in the offset are in the bits guaranteed
-    // unused by alignment
-    C_ASSERT((OFFSET_MASK + 1) <= sizeof(int));
-
-#ifdef DEBUG
-    if (mode == MAKE_REG_PTR_MODE_ASSIGN_SLOTS)
-    {
-        // Tracked variables can't be pinned, and the encoding takes
-        // advantage of that by using the same bit for 'pinned' and 'this'
-        // Since we don't track 'this', we should never see either flag here.
-        // Check it now before we potentially add some pinned flags.
-        for (varPtrDsc* varTmp = gcVarPtrList; varTmp != nullptr; varTmp = varTmp->vpdNext)
-        {
-            const unsigned flags = varTmp->frameOffset & OFFSET_MASK;
-            assert((flags & pinned_OFFSET_FLAG) == 0);
-            assert((flags & this_OFFSET_FLAG) == 0);
-        }
-    }
-#endif // DEBUG
-
-    // Only need to do this once, and only if we have EH.
-    if ((mode == MAKE_REG_PTR_MODE_ASSIGN_SLOTS) && compiler->ehAnyFunclets())
-    {
-        gcMarkFilterVarsPinned();
-    }
-
-    for (varPtrDsc* varTmp = gcVarPtrList; varTmp != nullptr; varTmp = varTmp->vpdNext)
-    {
-        C_ASSERT((OFFSET_MASK + 1) <= sizeof(int));
-
-        // Get hold of the variable's stack offset.
-
-        unsigned lowBits = varTmp->frameOffset & OFFSET_MASK;
-
-        // For negative stack offsets we must reset the low bits
-        int varOffs = static_cast<int>(varTmp->frameOffset & ~OFFSET_MASK);
-
-        // Compute the actual lifetime offsets.
-        unsigned begOffs = varTmp->vpdBegOfs;
-        unsigned endOffs = varTmp->vpdEndOfs;
-
-        // Special case: skip any 0-length lifetimes.
-        if (endOffs == begOffs)
+        if (!varTypeIsGC(temp.GetType()))
         {
             continue;
         }
 
-        GcSlotFlags flags = GC_SLOT_BASE;
-        if ((lowBits & byref_OFFSET_FLAG) != 0)
+        GcSlotFlags slotFlags = GC_SLOT_UNTRACKED;
+
+        if (temp.GetType() == TYP_BYREF)
         {
-            flags = (GcSlotFlags)(flags | GC_SLOT_INTERIOR);
+            slotFlags = static_cast<GcSlotFlags>(slotFlags | GC_SLOT_INTERIOR);
         }
 
-        if ((lowBits & pinned_OFFSET_FLAG) != 0)
-        {
-            flags = (GcSlotFlags)(flags | GC_SLOT_PINNED);
-        }
+        GetStackSlotId(temp.GetOffset(), slotFlags, slotBase);
+    }
 
-        GcStackSlotBase stackSlotBase = GC_SP_REL;
-        if (compiler->codeGen->isFramePointerUsed())
+    if (compiler->lvaKeepAliveAndReportThis())
+    {
+        assert(!compiler->lvaReportParamTypeArg());
+        assert(compiler->lvaGetDesc(compiler->info.compThisArg)->TypeIs(TYP_REF));
+
+        GetStackSlotId(compiler->codeGen->cachedGenericContextArgOffset, GC_SLOT_UNTRACKED, slotBase);
+    }
+}
+
+void GCEncoder::AddFullyInterruptibleSlots(RegArgChange* firstRegArgChange)
+{
+    assert(isFullyInterruptible);
+
+    RegSet        gcRegs         = RBM_NONE;
+    RegArgChange* firstArgChange = nullptr;
+
+    for (RegArgChange* change = firstRegArgChange; change != nullptr; change = change->next)
+    {
+        if (change->kind == RegArgChangeKind::StoreArg)
         {
-            stackSlotBase = GC_FRAMEREG_REL;
-        }
-        StackSlotIdKey sskey(varOffs, (stackSlotBase == GC_FRAMEREG_REL), flags);
-        GcSlotId       varSlotId;
-        if (mode == MAKE_REG_PTR_MODE_ASSIGN_SLOTS)
-        {
-            if (!m_stackSlotMap->Lookup(sskey, &varSlotId))
+            AddCallArgStackSlot(change);
+
+            if (firstArgChange == nullptr)
             {
-                varSlotId = gcInfoEncoderWithLog->GetStackSlotId(varOffs, flags, stackSlotBase);
-                m_stackSlotMap->Set(sskey, varSlotId);
+                firstArgChange = change;
             }
+        }
+        else if (change->kind == RegArgChangeKind::KillArgs)
+        {
+            if (hasSlotIds)
+            {
+                RemoveCallArgStackSlots(change->codeOffs, firstArgChange, change);
+            }
+
+            firstArgChange = nullptr;
+        }
+        else if (change->kind == RegArgChangeKind::AddRegs)
+        {
+            assert(change->gcType != GCT_NONE);
+
+            RegSet regs      = change->regs & ~gcRegs;
+            RegSet byrefRegs = change->gcType == GCT_BYREF ? regs : RBM_NONE;
+            AddRegSlotChange(change->codeOffs, GC_SLOT_LIVE, regs, byrefRegs);
+            gcRegs |= regs;
         }
         else
         {
-            bool b = m_stackSlotMap->Lookup(sskey, &varSlotId);
-            assert(b); // Should have been added in the first pass.
-            // Live from the beginning to the end.
-            gcInfoEncoderWithLog->SetSlotState(begOffs, varSlotId, GC_SLOT_LIVE);
-            gcInfoEncoderWithLog->SetSlotState(endOffs, varSlotId, GC_SLOT_DEAD);
+            assert(change->kind == RegArgChangeKind::RemoveRegs);
+            assert(change->gcType != GCT_NONE);
+
+            RegSet regs      = change->regs & gcRegs;
+            RegSet byrefRegs = change->gcType == GCT_BYREF ? regs : RBM_NONE;
+            AddRegSlotChange(change->codeOffs, GC_SLOT_DEAD, regs, byrefRegs);
+            gcRegs &= ~regs;
         }
     }
 }
 
-void GCInfo::gcInfoRecordGCStackArgLive(GcInfoEncoder* gcInfoEncoder, MakeRegPtrMode mode, regPtrDsc* genStackPtr)
+void GCEncoder::AddFullyInterruptibleRanges(unsigned codeSize, unsigned prologSize)
 {
-    // On non-x86 platforms, don't have pointer argument push/pop/kill declarations.
-    // But we use the same mechanism to record writes into the outgoing argument space...
-    assert(genStackPtr->rpdGCtypeGet() != GCT_NONE);
-    assert(genStackPtr->rpdArg);
-    assert(genStackPtr->rpdArgTypeGet() == rpdARG_PUSH);
+    assert(isFullyInterruptible);
+    assert(prologSize <= codeSize);
 
-    // We only need to report these when we're doing fuly-interruptible
-    assert(compiler->codeGen->GetInterruptible());
+    unsigned prevOffset = prologSize;
 
-    GCENCODER_WITH_LOGGING(gcInfoEncoderWithLog, gcInfoEncoder);
+#ifdef GC_ENCODER_LOGGING
+    Log("Defining interruptible ranges:\n");
+#endif
 
-    StackSlotIdKey sskey(genStackPtr->rpdPtrArg, false,
-                         GcSlotFlags(genStackPtr->rpdGCtypeGet() == GCT_BYREF ? GC_SLOT_INTERIOR : GC_SLOT_BASE));
-    GcSlotId varSlotId;
-    if (mode == MAKE_REG_PTR_MODE_ASSIGN_SLOTS)
-    {
-        if (!m_stackSlotMap->Lookup(sskey, &varSlotId))
+    compiler->GetEmitter()->EnumerateNoGCInsGroups([&](unsigned funcletIndex, unsigned offset, unsigned size) {
+        if (offset < prevOffset)
         {
-            varSlotId = gcInfoEncoderWithLog->GetStackSlotId(sskey.m_offset, (GcSlotFlags)sskey.m_flags, GC_SP_REL);
-            m_stackSlotMap->Set(sskey, varSlotId);
+            // We're still in the main method prolog, which has already had it's interruptible range reported.
+            assert(funcletIndex == 0);
+            assert(offset + size <= prevOffset);
+        }
+        else
+        {
+            assert(offset >= prevOffset);
+
+            if (offset > prevOffset)
+            {
+                DefineInterruptibleRange(prevOffset, offset - prevOffset);
+            }
+
+            prevOffset = offset + size;
+        }
+    });
+
+    if (prevOffset < codeSize)
+    {
+        DefineInterruptibleRange(prevOffset, codeSize - prevOffset);
+    }
+}
+
+void GCEncoder::AddPartiallyInterruptibleSlots(CallSite* firstCallSite)
+{
+    assert(!isFullyInterruptible);
+
+    unsigned  callSiteIndex = 0;
+    unsigned* callSites     = nullptr;
+    uint8_t*  callSiteSizes = nullptr;
+
+    if (hasSlotIds)
+    {
+        if (callSiteCount == 0)
+        {
+            return;
+        }
+
+        callSites     = new (compiler, CMK_GC) unsigned[callSiteCount];
+        callSiteSizes = new (compiler, CMK_GC) uint8_t[callSiteCount];
+    }
+
+    // TODO-MIKE-Review: Probably this should check if there are any tracked slots, instead of
+    // trying to deduce that from other conditions that imply that all slots are untracked.
+
+    const bool noTrackedGCSlots = compiler->codeGen->isFramePointerUsed() && compiler->opts.MinOpts() &&
+                                  !compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) &&
+                                  !JitConfig.JitMinOptsTrackGCrefs();
+
+    for (CallSite* call = firstCallSite; call != nullptr; call = call->next)
+    {
+        RegSet refRegs   = call->refRegs & RBM_CALLEE_SAVED;
+        RegSet byrefRegs = call->byrefRegs & RBM_CALLEE_SAVED;
+
+        assert((refRegs & byrefRegs) == RBM_NONE);
+
+        RegSet gcRegs = refRegs | byrefRegs;
+
+        if (noTrackedGCSlots && (gcRegs == RBM_NONE))
+        {
+            continue;
+        }
+
+        unsigned callOffs    = call->codeOffs;
+        unsigned callEndOffs = call->codeEndOffs;
+
+        assert(callEndOffs - callOffs <= UINT8_MAX);
+
+        if (callSites != nullptr)
+        {
+            callSites[callSiteIndex]     = callOffs;
+            callSiteSizes[callSiteIndex] = static_cast<uint8_t>(callEndOffs - callOffs);
+        }
+
+        callSiteIndex++;
+
+        AddRegSlotChange(callOffs, GC_SLOT_LIVE, gcRegs, byrefRegs);
+        AddRegSlotChange(callEndOffs, GC_SLOT_DEAD, gcRegs, byrefRegs);
+    }
+
+    if (hasSlotIds)
+    {
+        assert(callSiteIndex == callSiteCount);
+        DefineCallSites(callSites, callSiteSizes, callSiteIndex);
+    }
+    else
+    {
+        callSiteCount = callSiteIndex;
+    }
+}
+
+void GCEncoder::AddRegSlotChange(unsigned codeOffset, GcSlotState slotState, RegSet regs, RegSet byrefRegs)
+{
+    assert((byrefRegs & ~regs) == RBM_NONE);
+
+    for (RegSet regMask; regs != RBM_NONE; regs &= ~regMask)
+    {
+        regMask = genFindLowestBit(regs);
+        assert(regMask != RBM_NONE);
+
+        regNumber reg = genRegNumFromMask(static_cast<regMaskTP>(regMask));
+
+        assert(reg != REG_SPBASE);
+
+        GcSlotFlags slotFlags = GC_SLOT_BASE;
+
+        if ((regMask & byrefRegs) != RBM_NONE)
+        {
+            slotFlags = static_cast<GcSlotFlags>(slotFlags | GC_SLOT_INTERIOR);
+        }
+
+        RegSlotIdKey slotKey(reg, slotFlags);
+        GcSlotId     slotId;
+        bool         found = regSlotMap.Lookup(slotKey, &slotId);
+
+        if (!hasSlotIds)
+        {
+            if (!found)
+            {
+                regSlotMap.Set(slotKey, GetRegisterSlotId(reg, slotFlags));
+            }
+        }
+        else
+        {
+            assert(found);
+
+            SetSlotState(codeOffset, slotId, slotState);
+        }
+    }
+}
+
+void GCEncoder::AddTrackedStackSlots(StackSlotLifetime* firstStackSlotLifetime)
+{
+    GcStackSlotBase slotBaseReg = compiler->codeGen->isFramePointerUsed() ? GC_FRAMEREG_REL : GC_SP_REL;
+
+    for (StackSlotLifetime* lifetime = firstStackSlotLifetime; lifetime != nullptr; lifetime = lifetime->next)
+    {
+        const unsigned beginCodeOffs = lifetime->beginCodeOffs;
+        const unsigned endCodeOffs   = lifetime->endCodeOffs;
+
+        if (beginCodeOffs == endCodeOffs)
+        {
+            continue;
+        }
+
+        int slotOffs = static_cast<int>(lifetime->slotOffset);
+
+        GcSlotFlags slotFlags = GC_SLOT_BASE;
+
+        if ((slotOffs & byref_OFFSET_FLAG) != 0)
+        {
+            slotFlags = static_cast<GcSlotFlags>(slotFlags | GC_SLOT_INTERIOR);
+        }
+
+        if ((slotOffs & pinned_OFFSET_FLAG) != 0)
+        {
+            slotFlags = static_cast<GcSlotFlags>(slotFlags | GC_SLOT_PINNED);
+        }
+
+        slotOffs &= ~OFFSET_MASK;
+
+        StackSlotIdKey slotKey(slotOffs, slotFlags, slotBaseReg);
+        GcSlotId       slotId;
+        bool           found = stackSlotMap.Lookup(slotKey, &slotId);
+
+        if (!hasSlotIds)
+        {
+            if (!found)
+            {
+                stackSlotMap.Set(slotKey, GetStackSlotId(slotOffs, slotFlags, slotBaseReg));
+            }
+        }
+        else
+        {
+            assert(found);
+
+            SetSlotState(beginCodeOffs, slotId, GC_SLOT_LIVE);
+            SetSlotState(endCodeOffs, slotId, GC_SLOT_DEAD);
+        }
+    }
+}
+
+void GCEncoder::AddCallArgStackSlot(RegArgChange* argChange)
+{
+    assert(argChange->gcType != GCT_NONE);
+    assert(argChange->kind == RegArgChangeKind::StoreArg);
+    assert(isFullyInterruptible);
+
+    GcSlotFlags    slotFlags = argChange->gcType == GCT_BYREF ? GC_SLOT_INTERIOR : GC_SLOT_BASE;
+    StackSlotIdKey slotKey(argChange->argOffset, slotFlags, GC_SP_REL);
+    GcSlotId       slotId;
+    bool           found = stackSlotMap.Lookup(slotKey, &slotId);
+
+    if (!hasSlotIds)
+    {
+        if (!found)
+        {
+            stackSlotMap.Set(slotKey, GetStackSlotId(argChange->argOffset, slotFlags, GC_SP_REL));
         }
     }
     else
     {
-        bool b = m_stackSlotMap->Lookup(sskey, &varSlotId);
-        assert(b); // Should have been added in the first pass.
-        // Live until the call.
-        gcInfoEncoderWithLog->SetSlotState(genStackPtr->rpdOffs, varSlotId, GC_SLOT_LIVE);
+        assert(found);
+        SetSlotState(argChange->codeOffs, slotId, GC_SLOT_LIVE);
     }
 }
 
-void GCInfo::gcInfoRecordGCStackArgsDead(GcInfoEncoder* gcInfoEncoder,
-                                         unsigned       instrOffset,
-                                         regPtrDsc*     genStackPtrFirst,
-                                         regPtrDsc*     genStackPtrLast)
+void GCEncoder::RemoveCallArgStackSlots(unsigned codeOffset, RegArgChange* firstArgChange, RegArgChange* killArgsChange)
 {
-    // After a call all of the outgoing arguments are marked as dead.
-    // The calling loop keeps track of the first argument pushed for this call
-    // and passes it in as genStackPtrFirst.
-    // genStackPtrLast is the call.
-    // Re-walk that list and mark all outgoing arguments that we're marked as live
-    // earlier, as going dead after the call.
+    assert(isFullyInterruptible);
 
-    // We only need to report these when we're doing fuly-interruptible
-    assert(compiler->codeGen->GetInterruptible());
-
-    GCENCODER_WITH_LOGGING(gcInfoEncoderWithLog, gcInfoEncoder);
-
-    for (regPtrDsc* genRegPtrTemp = genStackPtrFirst; genRegPtrTemp != genStackPtrLast;
-         genRegPtrTemp            = genRegPtrTemp->rpdNext)
+    for (RegArgChange* change = firstArgChange; change != killArgsChange; change = change->next)
     {
-        if (!genRegPtrTemp->rpdArg)
+        if ((change->kind == RegArgChangeKind::AddRegs) || (change->kind == RegArgChangeKind::RemoveRegs))
         {
             continue;
         }
 
-        assert(genRegPtrTemp->rpdGCtypeGet() != GCT_NONE);
-        assert(genRegPtrTemp->rpdArgTypeGet() == rpdARG_PUSH);
+        assert(change->gcType != GCT_NONE);
+        assert(change->kind == RegArgChangeKind::StoreArg);
 
-        StackSlotIdKey sskey(genRegPtrTemp->rpdPtrArg, false,
-                             genRegPtrTemp->rpdGCtypeGet() == GCT_BYREF ? GC_SLOT_INTERIOR : GC_SLOT_BASE);
-        GcSlotId varSlotId;
-        bool     b = m_stackSlotMap->Lookup(sskey, &varSlotId);
-        assert(b); // Should have been added in the first pass.
-        // Live until the call.
-        gcInfoEncoderWithLog->SetSlotState(instrOffset, varSlotId, GC_SLOT_DEAD);
+        GcSlotFlags slotFlags = change->gcType == GCT_BYREF ? GC_SLOT_INTERIOR : GC_SLOT_BASE;
+        GcSlotId    slotId;
+        bool        found = stackSlotMap.Lookup({change->argOffset, slotFlags, GC_SP_REL}, &slotId);
+        assert(found);
+        SetSlotState(codeOffset, slotId, GC_SLOT_DEAD);
     }
 }
 
-#undef GCENCODER_WITH_LOGGING
+void GCInfo::CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize)
+{
+#ifdef DEBUG
+    // Tracked variables can't be pinned, and the encoding takes advantage of that by
+    // using the same bit for 'pinned' and 'this'. Since we don't track 'this', we should
+    // never see either flag here. Check it now before we potentially add some pinned flags.
+    for (StackSlotLifetime* lifetime = firstStackSlotLifetime; lifetime != nullptr; lifetime = lifetime->next)
+    {
+        const unsigned flags = lifetime->slotOffset & OFFSET_MASK;
+
+        assert((flags & pinned_OFFSET_FLAG) == 0);
+        assert((flags & this_OFFSET_FLAG) == 0);
+    }
+#endif
+
+    if (compiler->ehAnyFunclets())
+    {
+        MarkFilterStackSlotsPinned();
+    }
+
+    CompIAllocator encoderAlloc(compiler->getAllocator(CMK_GC));
+    GCEncoder      encoder(compiler, &encoderAlloc, isFullyInterruptible);
+
+    encoder.SetHeaderInfo(codeSize, prologSize, GetReturnKind(compiler->info));
+    encoder.AddUntrackedStackSlots();
+    encoder.AddTrackedStackSlots(firstStackSlotLifetime);
+
+    if (isFullyInterruptible)
+    {
+        encoder.AddFullyInterruptibleSlots(firstRegArgChange);
+        encoder.FinalizeSlotIds();
+
+        encoder.AddTrackedStackSlots(firstStackSlotLifetime);
+        encoder.AddFullyInterruptibleSlots(firstRegArgChange);
+        encoder.AddFullyInterruptibleRanges(codeSize, prologSize);
+    }
+    else
+    {
+        encoder.AddPartiallyInterruptibleSlots(firstCallSite);
+        encoder.FinalizeSlotIds();
+
+        encoder.AddTrackedStackSlots(firstStackSlotLifetime);
+        encoder.AddPartiallyInterruptibleSlots(firstCallSite);
+    }
+
+    encoder.Store();
+}
 
 #endif // !JIT32_GCENCODER
-
-/*****************************************************************************/
-/*****************************************************************************/

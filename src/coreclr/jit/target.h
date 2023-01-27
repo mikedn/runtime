@@ -139,39 +139,10 @@ enum _regMask_enum : unsigned
 #error Unsupported target architecture
 #endif
 
-/*****************************************************************************/
-
-// TODO-Cleanup: The types defined below are mildly confusing: why are there both?
-// regMaskSmall is large enough to represent the entire set of registers.
-// If regMaskSmall is smaller than a "natural" integer type, regMaskTP is wider, based
-// on a belief by the original authors of the JIT that in some situations it is more
-// efficient to have the wider representation.  This belief should be tested, and if it
-// is false, then we should coalesce these two types into one (the Small width, probably).
-// In any case, we believe that is OK to freely cast between these types; no information will
-// be lost.
-
 #ifdef TARGET_ARMARCH
-typedef unsigned __int64 regMaskTP;
+typedef uint64_t regMaskTP;
 #else
-typedef unsigned       regMaskTP;
-#endif
-
-#if REGMASK_BITS == 8
-typedef unsigned char regMaskSmall;
-#define REG_MASK_INT_FMT "%02X"
-#define REG_MASK_ALL_FMT "%02X"
-#elif REGMASK_BITS == 16
-typedef unsigned short regMaskSmall;
-#define REG_MASK_INT_FMT "%04X"
-#define REG_MASK_ALL_FMT "%04X"
-#elif REGMASK_BITS == 32
-typedef unsigned regMaskSmall;
-#define REG_MASK_INT_FMT "%08X"
-#define REG_MASK_ALL_FMT "%08X"
-#else
-typedef unsigned __int64 regMaskSmall;
-#define REG_MASK_INT_FMT "%04llX"
-#define REG_MASK_ALL_FMT "%016llX"
+typedef uint32_t regMaskTP;
 #endif
 
 typedef _regNumber_enum regNumber;
@@ -393,7 +364,7 @@ inline bool floatRegCanHoldType(regNumber reg, var_types type)
  *  Map a register number to a register mask.
  */
 
-extern const regMaskSmall regMasks[REG_COUNT];
+extern const regMaskTP regMasks[REG_COUNT];
 
 inline regMaskTP genRegMask(regNumber reg)
 {

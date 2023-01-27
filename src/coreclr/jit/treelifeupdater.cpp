@@ -4,9 +4,8 @@
 
 void CodeGenLivenessUpdater::Begin()
 {
-    currentLife           = VarSetOps::MakeEmpty(compiler);
-    varDeltaSet           = VarSetOps::MakeEmpty(compiler);
-    varStackGCPtrDeltaSet = VarSetOps::MakeEmpty(compiler);
+    currentLife = VarSetOps::MakeEmpty(compiler);
+    liveGCLcl   = VarSetOps::MakeEmpty(compiler);
 
 #ifdef DEBUG
     scratchSet1 = VarSetOps::MakeEmpty(compiler);
@@ -15,106 +14,143 @@ void CodeGenLivenessUpdater::Begin()
 #endif
 }
 
-void CodeGenLivenessUpdater::ChangeLife(CodeGen* codeGen, VARSET_VALARG_TP newLife)
+void CodeGenLivenessUpdater::End(CodeGen* codeGen)
 {
-    DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live vars at start of block: ", currentLife, newLife);)
-
-    if (VarSetOps::Equal(compiler, currentLife, newLife))
+    if (VarSetOps::IsEmpty(compiler, currentLife))
     {
         return;
     }
 
-    DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet1, codeGen->gcInfo.gcVarPtrSetCur));
+    liveGCRefRegs   = RBM_NONE;
+    liveGCByRefRegs = RBM_NONE;
+    liveLclRegs     = RBM_NONE;
 
-    VarSetOps::Assign(compiler, varDeltaSet, currentLife);
-    VarSetOps::DiffD(compiler, varDeltaSet, newLife);
-
-    for (VarSetOps::Enumerator e(compiler, varDeltaSet); e.MoveNext();)
-    {
-        unsigned   lclNum     = compiler->lvaTrackedIndexToLclNum(e.Current());
-        LclVarDsc* lcl        = compiler->lvaGetDesc(lclNum);
-        bool       isGCRef    = lcl->TypeIs(TYP_REF);
-        bool       isByRef    = lcl->TypeIs(TYP_BYREF);
-        bool       isInReg    = lcl->lvIsInReg();
-        bool       isInMemory = !isInReg || lcl->IsAlwaysAliveInMemory();
-
-        if (isInReg)
-        {
-            // TODO-Cleanup: Move the code from compUpdateLifeVar to genUpdateRegLife
-            // that updates the gc sets
-            regMaskTP regMask = lcl->lvRegMask();
-
-            if (isGCRef)
-            {
-                codeGen->gcInfo.gcRegGCrefSetCur &= ~regMask;
-            }
-            else if (isByRef)
-            {
-                codeGen->gcInfo.gcRegByrefSetCur &= ~regMask;
-            }
-
-            codeGen->genUpdateRegLife(lcl, false /*isBorn*/, true /*isDying*/ DEBUGARG(nullptr));
-        }
-
-        if (isInMemory && (isGCRef || isByRef) && lcl->HasGCSlotLiveness())
-        {
-            VarSetOps::RemoveElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, e.Current());
-        }
-
-#ifdef USING_VARIABLE_LIVE_RANGE
-        codeGen->getVariableLiveKeeper()->siEndVariableLiveRange(lclNum);
-#endif
-    }
-
-    VarSetOps::Assign(compiler, varDeltaSet, newLife);
-    VarSetOps::DiffD(compiler, varDeltaSet, currentLife);
-
-    for (VarSetOps::Enumerator e(compiler, varDeltaSet); e.MoveNext();)
-    {
-        unsigned   lclNum  = compiler->lvaTrackedIndexToLclNum(e.Current());
-        LclVarDsc* lcl     = compiler->lvaGetDesc(lclNum);
-        bool       isGCRef = lcl->TypeIs(TYP_REF);
-        bool       isByRef = lcl->TypeIs(TYP_BYREF);
-
-        if (lcl->lvIsInReg())
-        {
-            // If this variable is going live in a register, it is no longer live on the stack,
-            // unless it is an EH var, which always remains live on the stack.
-            if (!lcl->IsAlwaysAliveInMemory() && lcl->HasGCSlotLiveness())
-            {
-                VarSetOps::RemoveElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, e.Current());
-            }
-
-            codeGen->genUpdateRegLife(lcl, true /*isBorn*/, false /*isDying*/ DEBUGARG(nullptr));
-
-            regMaskTP regMask = lcl->lvRegMask();
-
-            if (isGCRef)
-            {
-                codeGen->gcInfo.gcRegGCrefSetCur |= regMask;
-            }
-            else if (isByRef)
-            {
-                codeGen->gcInfo.gcRegByrefSetCur |= regMask;
-            }
-        }
-        else if (lcl->HasGCSlotLiveness())
-        {
-            VarSetOps::AddElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, e.Current());
-        }
-
-#ifdef USING_VARIABLE_LIVE_RANGE
-        codeGen->getVariableLiveKeeper()->siStartVariableLiveRange(lcl, lclNum);
-#endif
-    }
-
-    VarSetOps::Assign(compiler, currentLife, newLife);
+    VarSetOps::ClearD(compiler, currentLife);
+    VarSetOps::ClearD(compiler, liveGCLcl);
 
 #ifdef USING_SCOPE_INFO
     codeGen->siUpdate();
 #endif
+}
 
-    DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("GC stack vars: ", scratchSet1, codeGen->gcInfo.gcVarPtrSetCur);)
+static regMaskTP GetLclRegs(const LclVarDsc* lcl)
+{
+    assert(lcl->lvIsInReg());
+
+    if (varTypeUsesFloatReg(lcl->GetType()))
+    {
+        return genRegMaskFloat(lcl->GetRegNum(), lcl->GetType());
+    }
+
+    return genRegMask(lcl->GetRegNum());
+}
+
+void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* block)
+{
+    currentNode = nullptr;
+
+    VARSET_TP newLife = block->bbLiveIn;
+
+    DBEXEC(compiler->verbose, compiler->dmpVarSetDiff("Live vars at start of block: ", currentLife, newLife);)
+    DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet1, liveGCLcl));
+
+    if (!VarSetOps::Equal(compiler, currentLife, newLife))
+    {
+        auto SymmetricDiff = [](size_t x, size_t y) { return x ^ y; };
+
+        for (auto e = VarSetOps::EnumOp(compiler, SymmetricDiff, currentLife, newLife); e.MoveNext();)
+        {
+            unsigned   lclNum = compiler->lvaTrackedIndexToLclNum(e.Current());
+            LclVarDsc* lcl    = compiler->lvaGetDesc(lclNum);
+
+            if (VarSetOps::IsMember(compiler, currentLife, e.Current()))
+            {
+                if (lcl->HasGCSlotLiveness())
+                {
+                    VarSetOps::RemoveElemD(compiler, liveGCLcl, e.Current());
+                }
+
+#ifdef USING_VARIABLE_LIVE_RANGE
+                codeGen->getVariableLiveKeeper()->siEndVariableLiveRange(lclNum);
+#endif
+            }
+            else
+            {
+#ifdef USING_VARIABLE_LIVE_RANGE
+                codeGen->getVariableLiveKeeper()->siStartVariableLiveRange(lcl, lclNum);
+#endif
+            }
+        }
+
+        VarSetOps::Assign(compiler, currentLife, newLife);
+
+#ifdef USING_SCOPE_INFO
+        codeGen->siUpdate();
+#endif
+    }
+
+    regMaskTP newLclRegs     = RBM_NONE;
+    regMaskTP newGCRefRegs   = RBM_NONE;
+    regMaskTP newGCByrefRegs = RBM_NONE;
+
+    for (VarSetOps::Enumerator en(compiler, newLife); en.MoveNext();)
+    {
+        LclVarDsc* lcl = compiler->lvaGetDescByTrackedIndex(en.Current());
+
+        if (lcl->lvIsInReg())
+        {
+            regMaskTP lclRegs = GetLclRegs(lcl);
+
+            newLclRegs |= lclRegs;
+
+            if (lcl->TypeIs(TYP_REF))
+            {
+                newGCRefRegs |= lclRegs;
+            }
+            else if (lcl->TypeIs(TYP_BYREF))
+            {
+                newGCByrefRegs |= lclRegs;
+            }
+        }
+
+        if (lcl->HasGCSlotLiveness())
+        {
+            if (lcl->lvIsInReg() && !lcl->IsAlwaysAliveInMemory())
+            {
+                VarSetOps::RemoveElemD(compiler, liveGCLcl, en.Current());
+            }
+            else
+            {
+                VarSetOps::AddElemD(compiler, liveGCLcl, en.Current());
+            }
+        }
+    }
+
+    if (handlerGetsXcptnObj(block->bbCatchTyp))
+    {
+        for (GenTree* node : LIR::AsRange(block))
+        {
+            if (node->OperIs(GT_CATCH_ARG))
+            {
+                newGCRefRegs |= RBM_EXCEPTION_OBJECT;
+                break;
+            }
+        }
+    }
+
+#ifdef DEBUG
+    if (compiler->verbose)
+    {
+        compiler->dmpVarSetDiff("GC stack vars: ", scratchSet1, liveGCLcl);
+        emitter::emitDispRegSetDiff("Live regs: ", liveLclRegs, newLclRegs);
+        emitter::emitDispRegSetDiff("GC regs: ", liveGCRefRegs, newGCRefRegs);
+        emitter::emitDispRegSetDiff("Byref regs: ", liveGCByRefRegs, newGCByrefRegs);
+    }
+#endif
+
+    liveLclRegs     = newLclRegs;
+    liveGCRefRegs   = newGCRefRegs;
+    liveGCByRefRegs = newGCByrefRegs;
 }
 
 void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* lclNode)
@@ -149,7 +185,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
     if (isBorn || isDying)
     {
         DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet1, currentLife);)
-        DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet2, codeGen->gcInfo.gcVarPtrSetCur);)
+        DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet2, liveGCLcl);)
 
         if (isBorn && lcl->IsRegCandidate() && (lclNode->GetRegNum() != REG_NA))
         {
@@ -161,7 +197,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
 
         if (isInReg)
         {
-            codeGen->genUpdateRegLife(lcl, isBorn, isDying DEBUGARG(lclNode));
+            UpdateLiveLclRegs(lcl, isDying DEBUGARG(lclNode));
         }
 
         DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet1, currentLife);)
@@ -199,11 +235,11 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
             {
                 if (isBorn)
                 {
-                    VarSetOps::AddElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, lcl->GetLivenessBitIndex());
+                    VarSetOps::AddElemD(compiler, liveGCLcl, lcl->GetLivenessBitIndex());
                 }
                 else
                 {
-                    VarSetOps::RemoveElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, lcl->GetLivenessBitIndex());
+                    VarSetOps::RemoveElemD(compiler, liveGCLcl, lcl->GetLivenessBitIndex());
                 }
             }
 
@@ -229,8 +265,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
         // then it's not clear why would a last-use need spilling to begin with.
         codeGen->SpillRegCandidateLclVar(lclNode->AsLclVar());
 
-        if (lcl->HasGCSlotLiveness() &&
-            VarSetOps::TryAddElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, lcl->lvVarIndex))
+        if (lcl->HasGCSlotLiveness() && VarSetOps::TryAddElemD(compiler, liveGCLcl, lcl->lvVarIndex))
         {
             JITDUMP("GC pointer V%02u becoming live on stack\n", lclNode->GetLclNum());
         }
@@ -242,7 +277,7 @@ void CodeGenLivenessUpdater::UpdateLifeMultiReg(CodeGen* codeGen, GenTreeLclVar*
     assert(lclNode->OperIs(GT_STORE_LCL_VAR) && ((lclNode->gtFlags & GTF_VAR_USEASG) == 0));
 
     DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet1, currentLife);)
-    DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet2, codeGen->gcInfo.gcVarPtrSetCur);)
+    DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet2, liveGCLcl);)
 
     LclVarDsc* lcl = compiler->lvaGetDesc(lclNode);
 
@@ -258,7 +293,7 @@ void CodeGenLivenessUpdater::UpdateLifeMultiReg(CodeGen* codeGen, GenTreeLclVar*
 
         if (isInReg)
         {
-            codeGen->genUpdateRegLife(fieldLcl, true, isFieldDying DEBUGARG(lclNode));
+            UpdateLiveLclRegs(fieldLcl, isFieldDying DEBUGARG(lclNode));
         }
 
         if (isFieldDying)
@@ -275,7 +310,7 @@ void CodeGenLivenessUpdater::UpdateLifeMultiReg(CodeGen* codeGen, GenTreeLclVar*
             // TODO-MIKE-Review: Should we remove the local from the GC var set when the field is dying?
             // The "scalar" version of this code doesn't do it, it checks "isBorn" instead of "isDying".
 
-            VarSetOps::AddElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, fieldLcl->GetLivenessBitIndex());
+            VarSetOps::AddElemD(compiler, liveGCLcl, fieldLcl->GetLivenessBitIndex());
         }
     }
 
@@ -295,7 +330,7 @@ void CodeGenLivenessUpdater::UpdateLifePromoted(CodeGen* codeGen, GenTreeLclVarC
     }
 
     DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet1, currentLife);)
-    DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet2, codeGen->gcInfo.gcVarPtrSetCur);)
+    DBEXEC(compiler->verbose, VarSetOps::Assign(compiler, scratchSet2, liveGCLcl);)
 
     LclVarDsc* lcl = compiler->lvaGetDesc(lclNode);
 
@@ -347,16 +382,188 @@ void CodeGenLivenessUpdater::UpdateLifePromoted(CodeGen* codeGen, GenTreeLclVarC
 
             if (isBorn)
             {
-                VarSetOps::AddElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, fieldLcl->GetLivenessBitIndex());
+                VarSetOps::AddElemD(compiler, liveGCLcl, fieldLcl->GetLivenessBitIndex());
             }
             else
             {
-                VarSetOps::RemoveElemD(compiler, codeGen->gcInfo.gcVarPtrSetCur, fieldLcl->GetLivenessBitIndex());
+                VarSetOps::RemoveElemD(compiler, liveGCLcl, fieldLcl->GetLivenessBitIndex());
             }
         }
     }
 
     DBEXEC(compiler->verbose, DumpDiff(codeGen);)
+}
+
+void CodeGenLivenessUpdater::BeginPrologEpilogCodeGen()
+{
+    // No stack locals are live inside prologs/epilogs, they can't be accessed anyway.
+    // Param and return registers may be live but since prologs and epilogs are not
+    // interruptible we can ignore them for GC purposes.
+
+    VarSetOps::ClearD(compiler, liveGCLcl);
+    liveGCRefRegs   = RBM_NONE;
+    liveGCByRefRegs = RBM_NONE;
+}
+
+void CodeGenLivenessUpdater::SpillGCSlot(LclVarDsc* lcl)
+{
+    RemoveGCRegs(GetLclRegs(lcl));
+
+    if (!lcl->HasGCSlotLiveness())
+    {
+        return;
+    }
+
+#ifdef DEBUG
+    if (!VarSetOps::IsMember(compiler, liveGCLcl, lcl->GetLivenessBitIndex()))
+    {
+        JITDUMP("GC slot V%02u becoming live\n", lcl - compiler->lvaTable);
+    }
+    else
+    {
+        JITDUMP("GC slot V%02u continuing live\n", lcl - compiler->lvaTable);
+    }
+#endif
+
+    VarSetOps::AddElemD(compiler, liveGCLcl, lcl->GetLivenessBitIndex());
+}
+
+void CodeGenLivenessUpdater::UnspillGCSlot(LclVarDsc* lcl DEBUGARG(GenTreeLclVar* lclVar))
+{
+    if (!lcl->IsAlwaysAliveInMemory())
+    {
+        RemoveGCSlot(lcl);
+    }
+
+    JITDUMP("V%02u in reg %s is becoming live at [%06u]\n", lcl - compiler->lvaTable, getRegName(lcl->GetRegNum()),
+            lclVar->GetID());
+
+    AddLiveLclRegs(GetLclRegs(lcl));
+}
+
+void CodeGenLivenessUpdater::RemoveGCSlot(LclVarDsc* lcl)
+{
+    if (!lcl->HasGCSlotLiveness())
+    {
+        return;
+    }
+
+#ifdef DEBUG
+    if (VarSetOps::IsMember(compiler, liveGCLcl, lcl->GetLivenessBitIndex()))
+    {
+        JITDUMP("GC slot V%02u becoming dead\n", lcl - compiler->lvaTable);
+    }
+#endif
+
+    VarSetOps::RemoveElemD(compiler, liveGCLcl, lcl->GetLivenessBitIndex());
+}
+
+void CodeGenLivenessUpdater::UpdateLiveLclRegs(const LclVarDsc* lcl, bool isDying DEBUGARG(GenTree* node))
+{
+    regMaskTP regs = GetLclRegs(lcl);
+
+    JITDUMP("V%02u in reg %s is becoming %s at [%06u]\n", (lcl - compiler->lvaTable), getRegName(lcl->GetRegNum()),
+            isDying ? "dead" : "live", node == nullptr ? 0 : node->GetID());
+
+    if (isDying)
+    {
+        // We'd like to be able to assert the following, however if we are walking
+        // through a qmark/colon tree, we may encounter multiple last-use nodes.
+        // assert((liveness.GetLiveLclRegs() & regMask) == regMask);
+
+        RemoveLiveLclRegs(regs);
+    }
+    else
+    {
+        // If this is going live, the register must not have a variable in it, except
+        // in the case of an exception or "spill at single-def" variable, which may be
+        // already treated as live in the register.
+        assert(lcl->IsAlwaysAliveInMemory() || ((liveLclRegs & regs) == RBM_NONE));
+
+        AddLiveLclRegs(regs);
+    }
+}
+
+void CodeGenLivenessUpdater::SetLiveLclRegs(regMaskTP regs)
+{
+    DBEXEC(compiler->verbose, emitter::emitDispRegSetDiff("Live regs: ", liveLclRegs, regs);)
+
+    liveLclRegs = regs;
+}
+
+void CodeGenLivenessUpdater::AddGCRefRegs(regMaskTP regs DEBUGARG(bool forceOutput))
+{
+    assert((liveGCByRefRegs & regs) == RBM_NONE);
+
+    regMaskTP newRefRegs   = liveGCRefRegs | regs;
+    regMaskTP newByRefRegs = liveGCByRefRegs & ~regs;
+
+    INDEBUG(DumpGCRefRegsDiff(newRefRegs, forceOutput));
+    INDEBUG(DumpGCByRefRegsDiff(newByRefRegs));
+
+    liveGCRefRegs   = newRefRegs;
+    liveGCByRefRegs = newByRefRegs;
+}
+
+void CodeGenLivenessUpdater::AddGCByRefRegs(regMaskTP regs DEBUGARG(bool forceOutput))
+{
+    regMaskTP newRefRegs   = liveGCRefRegs & ~regs;
+    regMaskTP newByRefRegs = liveGCByRefRegs | regs;
+
+    INDEBUG(DumpGCRefRegsDiff(newRefRegs));
+    INDEBUG(DumpGCByRefRegsDiff(newByRefRegs, forceOutput));
+
+    liveGCRefRegs   = newRefRegs;
+    liveGCByRefRegs = newByRefRegs;
+}
+
+void CodeGenLivenessUpdater::RemoveGCRegs(regMaskTP regs DEBUGARG(bool forceOutput))
+{
+    regMaskTP newRefRegs   = liveGCRefRegs & ~(regs & ~liveLclRegs);
+    regMaskTP newByRefRegs = liveGCByRefRegs & ~(regs & ~liveLclRegs);
+
+    INDEBUG(DumpGCRefRegsDiff(newRefRegs, forceOutput));
+    INDEBUG(DumpGCByRefRegsDiff(newByRefRegs, forceOutput));
+
+    liveGCRefRegs   = newRefRegs;
+    liveGCByRefRegs = newByRefRegs;
+}
+
+void CodeGenLivenessUpdater::SetGCRegType(regNumber reg, var_types type)
+{
+    regMaskTP regs = genRegMask(reg);
+
+    switch (type)
+    {
+        case TYP_REF:
+            AddGCRefRegs(regs);
+            break;
+        case TYP_BYREF:
+            AddGCByRefRegs(regs);
+            break;
+        default:
+            RemoveGCRegs(regs);
+            break;
+    }
+}
+
+void CodeGenLivenessUpdater::TransferGCRegType(regNumber dst, regNumber src)
+{
+    regMaskTP srcMask = genRegMask(src);
+    regMaskTP dstMask = genRegMask(dst);
+
+    if ((GetGCRegs(TYP_REF) & srcMask) != RBM_NONE)
+    {
+        AddGCRefRegs(dstMask);
+    }
+    else if ((GetGCRegs(TYP_BYREF) & srcMask) != RBM_NONE)
+    {
+        AddGCByRefRegs(dstMask);
+    }
+    else
+    {
+        RemoveGCRegs(dstMask);
+    }
 }
 
 #ifdef DEBUG
@@ -367,9 +574,25 @@ void CodeGenLivenessUpdater::DumpDiff(CodeGen* codeGen)
         compiler->dmpVarSetDiff("Live vars: ", scratchSet1, currentLife);
     }
 
-    if (!VarSetOps::Equal(compiler, scratchSet2, codeGen->gcInfo.gcVarPtrSetCur))
+    if (!VarSetOps::Equal(compiler, scratchSet2, liveGCLcl))
     {
-        compiler->dmpVarSetDiff("GC stack vars: ", scratchSet2, codeGen->gcInfo.gcVarPtrSetCur);
+        compiler->dmpVarSetDiff("GC stack vars: ", scratchSet2, liveGCLcl);
     }
 }
-#endif
+
+void CodeGenLivenessUpdater::DumpGCRefRegsDiff(regMaskTP newRegs DEBUGARG(bool forceOutput))
+{
+    if (compiler->verbose && (forceOutput || (liveGCRefRegs != newRegs)))
+    {
+        emitter::emitDispRegSetDiff("GC regs: ", liveGCRefRegs, newRegs);
+    }
+}
+
+void CodeGenLivenessUpdater::DumpGCByRefRegsDiff(regMaskTP newRegs DEBUGARG(bool forceOutput))
+{
+    if (compiler->verbose && (forceOutput || (liveGCByRefRegs != newRegs)))
+    {
+        emitter::emitDispRegSetDiff("Byref regs: ", liveGCByRefRegs, newRegs);
+    }
+}
+#endif // DEBUG

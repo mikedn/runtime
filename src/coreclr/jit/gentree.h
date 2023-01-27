@@ -750,7 +750,7 @@ private:
 public:
     GenTreeFlags gtFlags = GTF_EMPTY;
     ValueNumPair gtVNPair;
-    regMaskSmall gtRsvdRegs; // set of fixed trashed  registers
+    regMaskTP    gtRsvdRegs;
     GenTree*     gtNext = nullptr;
     GenTree*     gtPrev = nullptr;
 #ifdef DEBUG

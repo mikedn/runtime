@@ -1,16 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-/*****************************************************************************/
 
-#ifndef _EMIT_H_
-#define _EMIT_H_
-
+#pragma once
 #include "instr.h"
-
-#ifndef _GCINFO_H_
-#include "gcinfo.h"
-#endif
-
 #include "jitgcinfo.h"
 
 #if 0
@@ -19,19 +11,11 @@
 #define EMITVERBOSE (emitComp->verbose)
 #endif
 
-#if 0
-#define EMIT_GC_VERBOSE 0
-#else
-#define EMIT_GC_VERBOSE (emitComp->verbose)
-#endif
-
 #if 1
 #define EMIT_INSTLIST_VERBOSE 0
 #else
 #define EMIT_INSTLIST_VERBOSE (emitComp->verbose)
 #endif
-
-/*****************************************************************************/
 
 #ifdef DEBUG
 #define DEBUG_EMIT 1
@@ -43,69 +27,12 @@
 void emitterStats(FILE* fout);
 #endif
 
-class emitLocation;
-class emitter;
-struct insGroup;
-
-typedef void (*emitSplitCallbackType)(void* context, emitLocation* emitLoc);
-
-/*****************************************************************************/
-
-//-----------------------------------------------------------------------------
-
-inline bool needsGC(GCtype gcType)
-{
-    if (gcType == GCT_NONE)
-    {
-        return false;
-    }
-    else
-    {
-        assert(gcType == GCT_GCREF || gcType == GCT_BYREF);
-        return true;
-    }
-}
-
-//-----------------------------------------------------------------------------
-
-#ifdef DEBUG
-
-inline bool IsValidGCtype(GCtype gcType)
-{
-    return (gcType == GCT_NONE || gcType == GCT_GCREF || gcType == GCT_BYREF);
-}
-
-// Get a string name to represent the GC type
-
-inline const char* GCtypeStr(GCtype gcType)
-{
-    switch (gcType)
-    {
-        case GCT_NONE:
-            return "npt";
-        case GCT_GCREF:
-            return "gcr";
-        case GCT_BYREF:
-            return "byr";
-        default:
-            assert(!"Invalid GCtype");
-            return "err";
-    }
-}
-
-#endif // DEBUG
-
-/*****************************************************************************/
-
 #if DEBUG_EMIT
 #define INTERESTING_JUMP_NUM -1 // set to 0 to see all jump info
-//#define INTERESTING_JUMP_NUM    0
 #endif
 
-/*****************************************************************************
- *
- *  Represent an emitter location.
- */
+class emitter;
+struct insGroup;
 
 class emitLocation
 {
@@ -188,11 +115,9 @@ private:
     unsigned  codePos; // the code position within the IG (see emitCurOffset())
 };
 
-/************************************************************************/
-/*          The following describes an instruction group                */
-/************************************************************************/
+typedef void (*emitSplitCallbackType)(void* context, emitLocation* emitLoc);
 
-enum insGroupPlaceholderType : uint8_t
+enum insGroupPlaceholderType
 {
     IGPT_EPILOG,
 #ifdef FEATURE_EH_FUNCLETS
@@ -201,157 +126,120 @@ enum insGroupPlaceholderType : uint8_t
 #endif
 };
 
-#if defined(_MSC_VER) && defined(TARGET_ARM)
-// ARM aligns structures that contain 64-bit ints or doubles on 64-bit boundaries. This causes unwanted
-// padding to be added to the end, so sizeof() is unnecessarily big.
-#pragma pack(push)
-#pragma pack(4)
-#endif // defined(_MSC_VER) && defined(TARGET_ARM)
-
 struct insPlaceholderGroupData
 {
-    insGroup*               igPhNext;
-    BasicBlock*             igPhBB;
-    VARSET_TP               igPhInitGCrefVars;
-    regMaskTP               igPhInitGCrefRegs;
-    regMaskTP               igPhInitByrefRegs;
-    VARSET_TP               igPhPrevGCrefVars;
-    regMaskTP               igPhPrevGCrefRegs;
-    regMaskTP               igPhPrevByrefRegs;
-    insGroupPlaceholderType igPhType;
-}; // end of struct insPlaceholderGroupData
+    insGroup*   igPhNext = nullptr;
+    BasicBlock* igPhBB;
 
-struct insGroup
-{
-    insGroup* igNext;
+    insPlaceholderGroupData(BasicBlock* block) : igPhBB(block)
+    {
+    }
+};
 
-#ifdef DEBUG
-    insGroup* igSelf; // for consistency checking
-#endif
-#if defined(DEBUG) || defined(LATE_DISASM)
-    BasicBlock::weight_t igWeight;    // the block weight used for this insGroup
-    double               igPerfScore; // The PerfScore for this insGroup
-#endif
-
-#ifdef DEBUG
-    BasicBlock*               lastGeneratedBlock; // The last block that generated code into this insGroup.
-    jitstd::list<BasicBlock*> igBlocks;           // All the blocks that generated code into this insGroup.
-#endif
-
-    UNATIVE_OFFSET igNum;     // for ordering (and display) purposes
-    UNATIVE_OFFSET igOffs;    // offset of this group within method
-    unsigned int   igFuncIdx; // Which function/funclet does this belong to? (Index into Compiler::compFuncInfos array.)
-    unsigned short igFlags;   // see IGF_xxx below
-    unsigned short igSize;    // # of bytes of code in this group
-
-#if FEATURE_LOOP_ALIGN
-    insGroup* igLoopBackEdge; // "last" back-edge that branches back to an aligned loop head.
-#endif
-
-#define IGF_GC_VARS 0x0001    // new set of live GC ref variables
-#define IGF_BYREF_REGS 0x0002 // new set of live by-ref registers
-#if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
-#define IGF_FINALLY_TARGET 0x0004 // this group is the start of a basic block that is returned to after a finally.
-#endif                            // defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
-#define IGF_FUNCLET_PROLOG 0x0008 // this group belongs to a funclet prolog
-#define IGF_FUNCLET_EPILOG 0x0010 // this group belongs to a funclet epilog.
-#define IGF_EPILOG 0x0020         // this group belongs to a main function epilog
-#define IGF_NOGCINTERRUPT 0x0040  // this IG is is a no-interrupt region (prolog, epilog, etc.)
-#define IGF_UPD_ISZ 0x0080        // some instruction sizes updated
-#define IGF_PLACEHOLDER 0x0100    // this is a placeholder group, to be filled in later
-#define IGF_EXTEND 0x0200         // this block is conceptually an extension of the previous block
-                                  // and the emitter should continue to track GC info as if there was no new block.
-#define IGF_LOOP_ALIGN 0x0400     // this group contains alignment instruction(s) at the end; the next IG is the
-                                  // head of a loop that needs alignment.
+#define IGF_FUNCLET_PROLOG 0x0002 // this group belongs to a funclet prolog
+#define IGF_FUNCLET_EPILOG 0x0004 // this group belongs to a funclet epilog.
+#define IGF_EPILOG 0x0008         // this group belongs to a main function epilog
+#define IGF_NOGCINTERRUPT 0x0010  // this IG is is a no-interrupt region (prolog, epilog, etc.)
+#define IGF_UPD_ISZ 0x0020        // some instruction sizes updated
+#define IGF_PLACEHOLDER 0x0040    // this is a placeholder group, to be filled in later
+#define IGF_EXTEND 0x0080         // this block is conceptually an extension of the previous block and the
+                                  // emitter should continue to track GC info as if there was no new block.
+#define IGF_LOOP_ALIGN 0x0100     // this group contains alignment instruction(s) at the end; the next IG
+                                  // is the head of a loop that needs alignment.
 
 // Mask of IGF_* flags that should be propagated to new blocks when they are created.
 // This allows prologs and epilogs to be any number of IGs, but still be
 // automatically marked properly.
-#if defined(FEATURE_EH_FUNCLETS)
-#ifdef DEBUG
+#ifndef FEATURE_EH_FUNCLETS
+#define IGF_PROPAGATE_MASK IGF_EPILOG
+#elif defined(DEBUG)
 #define IGF_PROPAGATE_MASK (IGF_EPILOG | IGF_FUNCLET_PROLOG | IGF_FUNCLET_EPILOG)
-#else // DEBUG
+#else
 #define IGF_PROPAGATE_MASK (IGF_EPILOG | IGF_FUNCLET_PROLOG)
-#endif // DEBUG
-#else  // !FEATURE_EH_FUNCLETS
-#define IGF_PROPAGATE_MASK (IGF_EPILOG)
-#endif // !FEATURE_EH_FUNCLETS
+#endif
 
-    // Try to do better packing based on how large regMaskSmall is (8, 16, or 64 bits).
-    CLANG_FORMAT_COMMENT_ANCHOR;
-#if REGMASK_BITS <= 32
+// For AMD64 the maximum prolog/epilog size supported on the OS is 256 bytes
+// Since it is incorrect for us to be jumping across funclet prolog/epilogs
+// we will use the following estimate as the maximum placeholder size.
+#define MAX_PLACEHOLDER_IG_SIZE 256
 
+struct insGroup
+{
+    insGroup* igNext;
+#if FEATURE_LOOP_ALIGN
+    insGroup* igLoopBackEdge; // "last" back-edge that branches back to an aligned loop head.
+#endif
     union {
-        BYTE*                    igData;   // addr of instruction descriptors
+        uint8_t*                 igData;   // addr of instruction descriptors
         insPlaceholderGroupData* igPhData; // when igFlags & IGF_PLACEHOLDER
     };
 
-    unsigned igStkLvl; // stack level on entry
-
-    regMaskSmall  igGCregs; // set of registers with live GC refs
-    unsigned char igInsCnt; // # of instructions  in this group
-
-#else // REGMASK_BITS
-
-    regMaskSmall igGCregs; // set of registers with live GC refs
-
-    union {
-        BYTE*                    igData;   // addr of instruction descriptors
-        insPlaceholderGroupData* igPhData; // when igFlags & IGF_PLACEHOLDER
-    };
-
+    unsigned igNum;     // for ordering (and display) purposes
+    unsigned igOffs;    // offset of this group within method
+    unsigned igFuncIdx; // Which function/funclet does this belong to? (Index into Compiler::compFuncInfos array.)
 #if !FEATURE_FIXED_OUT_ARGS
     unsigned igStkLvl; // stack level on entry
 #endif
+    uint16_t igSize;   // # of bytes of code in this group
+    uint16_t igFlags;  // see IGF_xxx below
+    uint8_t  igInsCnt; // # of instructions  in this group
 
-    unsigned char igInsCnt; // # of instructions  in this group
+    static_assert_no_msg(REG_INT_COUNT <= 32);
 
-#endif // REGMASK_BITS
+    VARSET_TP gcLcls;
+    uint32_t  refRegs;
+    uint32_t  byrefRegs;
 
-    VARSET_VALRET_TP igGCvars() const
+#if defined(DEBUG) || defined(LATE_DISASM)
+    BasicBlock::weight_t igWeight;    // the block weight used for this insGroup
+    double               igPerfScore; // The PerfScore for this insGroup
+#endif
+#ifdef DEBUG
+    insGroup*                 igSelf;             // for consistency checking
+    BasicBlock*               lastGeneratedBlock; // The last block that generated code into this insGroup.
+    jitstd::list<BasicBlock*> igBlocks;           // All the blocks that generated code into this insGroup.
+#endif
+
+    VARSET_TP GetGCLcls() const
     {
-        assert(igFlags & IGF_GC_VARS);
+        assert((igFlags & IGF_EXTEND) == 0);
 
-        BYTE* ptr = (BYTE*)igData;
-        ptr -= sizeof(VARSET_TP);
-
-        return *(VARSET_TP*)ptr;
+        return gcLcls;
     }
 
-    unsigned igByrefRegs() const
+    regMaskTP GetRefRegs() const
     {
-        assert(igFlags & IGF_BYREF_REGS);
+        assert((igFlags & IGF_EXTEND) == 0);
 
-        BYTE* ptr = (BYTE*)igData;
-
-        if (igFlags & IGF_GC_VARS)
-        {
-            ptr -= sizeof(VARSET_TP);
-        }
-
-        ptr -= sizeof(unsigned);
-
-        return *(unsigned*)ptr;
+        return refRegs;
     }
 
-    bool isLoopAlign()
+    regMaskTP GetByrefRegs() const
+    {
+        assert((igFlags & IGF_EXTEND) == 0);
+
+        return byrefRegs;
+    }
+
+    bool isLoopAlign() const
     {
         return (igFlags & IGF_LOOP_ALIGN) != 0;
     }
 
-}; // end of struct insGroup
+    bool IsEpilog() const
+    {
+        return (igFlags & IGF_EPILOG) != 0;
+    }
 
-//  For AMD64 the maximum prolog/epilog size supported on the OS is 256 bytes
-//  Since it is incorrect for us to be jumping across funclet prolog/epilogs
-//  we will use the following estimate as the maximum placeholder size.
-//
-#define MAX_PLACEHOLDER_IG_SIZE 256
-
-#if defined(_MSC_VER) && defined(TARGET_ARM)
-#pragma pack(pop)
-#endif // defined(_MSC_VER) && defined(TARGET_ARM)
-
-/*****************************************************************************/
+    bool IsFuncletPrologOrEpilog() const
+    {
+#ifdef FEATURE_EH_FUNCLETS
+        return (igFlags & (IGF_FUNCLET_PROLOG | IGF_FUNCLET_EPILOG)) != 0;
+#else
+        return false;
+#endif
+    }
+};
 
 #define DEFINE_ID_OPS
 #include "emitfmts.h"
@@ -377,26 +265,81 @@ class emitter
     friend class CodeGen;
     friend class CodeGenInterface;
     friend class GCInfo;
+    friend class CodeGenLivenessUpdater;
 
     Compiler*    emitComp;
-    GCInfo*      gcInfo;
+    GCInfo       gcInfo;
     CodeGen*     codeGen;
     ICorJitInfo* emitCmpHandle;
 
 public:
-    emitter(Compiler* compiler, CodeGen* codeGen, GCInfo& gcInfo, ICorJitInfo* jitInfo);
+    emitter(Compiler* compiler, CodeGen* codeGen, ICorJitInfo* jitInfo);
 
-#include "emitpub.h"
-
-protected:
     /************************************************************************/
-    /*                        Miscellaneous stuff                           */
+    /*       Overall emitter control (including startup and shutdown)       */
     /************************************************************************/
 
-    typedef GCInfo::FrameLifetime GCFrameLifetime;
-    typedef GCInfo::regPtrDsc     regPtrDsc;
-    typedef GCInfo::CallDsc       callDsc;
+    void     emitBegFN();
+    void     emitComputeCodeSizes();
+    unsigned emitEndCodeGen(unsigned* prologSize,
+#ifdef JIT32_GCENCODER
+                            unsigned* epilogSize,
+#endif
+                            void** codeAddr,
+                            void** coldCodeAddr,
+                            void** consAddr DEBUGARG(unsigned* instrCount));
 
+    /************************************************************************/
+    /*                      Method prolog and epilog                        */
+    /************************************************************************/
+
+    void     emitBegProlog();
+    unsigned emitGetPrologOffsetEstimate();
+    void     emitMarkPrologEnd();
+    void     emitEndProlog();
+    void emitCreatePlaceholderIG(insGroupPlaceholderType kind, BasicBlock* block);
+    void emitGeneratePrologEpilog();
+
+#ifdef JIT32_GCENCODER
+    unsigned emitGetEpilogCnt()
+    {
+        return emitEpilogCnt;
+    }
+#endif
+
+    template <typename Callback>
+    void EnumerateNoGCInsGroups(Callback callback);
+
+    /************************************************************************/
+    /*           Record a code position and later convert it to offset      */
+    /************************************************************************/
+
+    unsigned       emitCurOffset();
+    UNATIVE_OFFSET emitCodeOffset(void* blockPtr, unsigned codeOffs);
+    INDEBUG(const char* emitOffsetToLabel(unsigned offs);)
+
+    /************************************************************************/
+    /*                   Output target-independent instructions             */
+    /************************************************************************/
+
+    void emitIns_J(instruction ins, BasicBlock* dst, int instrCount = 0);
+
+    /************************************************************************/
+    /*                   Emit initialized data sections                     */
+    /************************************************************************/
+
+    static const UNATIVE_OFFSET INVALID_UNATIVE_OFFSET = (UNATIVE_OFFSET)-1;
+
+    UNATIVE_OFFSET emitDataGenBeg(unsigned size, unsigned alignment, var_types dataType);
+    UNATIVE_OFFSET emitBBTableDataGenBeg(unsigned numEntries, bool relativeAddr);
+    void emitDataGenData(unsigned offs, const void* data, UNATIVE_OFFSET size);
+    void emitDataGenData(unsigned offs, BasicBlock* label);
+    void           emitDataGenEnd();
+    UNATIVE_OFFSET emitDataGenFind(const void* cnsAddr, unsigned size, unsigned alignment, var_types dataType);
+    UNATIVE_OFFSET emitDataConst(const void* cnsAddr, unsigned cnsSize, unsigned cnsAlign, var_types dataType);
+    UNATIVE_OFFSET emitDataSize();
+
+private:
     void* emitGetMem(size_t sz);
 
     enum opSize : unsigned
@@ -423,35 +366,16 @@ protected:
     static emitter::opSize emitEncodeSize(emitAttr size);
     static emitAttr emitDecodeSize(emitter::opSize ensz);
 
-    // Currently, we only allow one IG for the prolog
-    bool emitIGisInProlog(const insGroup* ig)
+    insGroup* GetProlog() const
     {
-        return ig == emitPrologIG;
+        return emitIGfirst;
     }
 
-    bool emitIGisInEpilog(const insGroup* ig)
+    bool emitIGisInProlog(const insGroup* ig) const
     {
-        return (ig != nullptr) && ((ig->igFlags & IGF_EPILOG) != 0);
+        // Currently, we only allow one IG for the prolog
+        return ig == emitIGfirst;
     }
-
-#if defined(FEATURE_EH_FUNCLETS)
-
-    bool emitIGisInFuncletProlog(const insGroup* ig)
-    {
-        return (ig != nullptr) && ((ig->igFlags & IGF_FUNCLET_PROLOG) != 0);
-    }
-
-    bool emitIGisInFuncletEpilog(const insGroup* ig)
-    {
-        return (ig != nullptr) && ((ig->igFlags & IGF_FUNCLET_EPILOG) != 0);
-    }
-
-#endif // FEATURE_EH_FUNCLETS
-
-    // If "ig" corresponds to the start of a basic block that is the
-    // target of a funclet return, generate GC information for it's start
-    // address "cp", as if it were the return address of a call.
-    void emitGenGCInfoIfFuncletRetTarget(insGroup* ig, BYTE* cp);
 
     void emitRecomputeIGoffsets();
 
@@ -1405,30 +1329,12 @@ protected:
         regMaskTP idcGcrefRegs; // ... gcref registers
         regMaskTP idcByrefRegs; // ... byref registers
 #ifdef TARGET_X86
-        unsigned idcArgCnt; // ... lots of args or (<0 ==> caller pops args)
+        int idcArgCnt; // ... lots of args or (<0 ==> caller pops args)
 #endif
-
 #if MULTIREG_HAS_SECOND_GC_RET
-        // This method handle the GC-ness of the second register in a 2 register returned struct on System V.
-        GCtype idSecondGCref() const
-        {
-            return (GCtype)_idcSecondRetRegGCType;
-        }
-        void idSecondGCref(GCtype gctype)
-        {
-            _idcSecondRetRegGCType = gctype;
-        }
-
-    private:
-        // This member stores the GC-ness of the second register in a 2 register returned struct on System V.
-        // It is added to the call struct since it is not needed by the base instrDesc struct, which keeps GC-ness
-        // of the first register for the instCall nodes.
-        // The base instrDesc is very carefully kept to be no more than 128 bytes. There is no more space to add members
-        // for keeping GC-ness of the second return registers. It will also bloat the base struct unnecessarily
-        // since the GC-ness of the second register is only needed for call instructions.
-        // The base struct's member keeping the GC-ness of the first return register is _idGCref.
-        GCtype _idcSecondRetRegGCType : 2; // ... GC type for the second return register.
-#endif                                     // MULTIREG_HAS_SECOND_GC_RET
+        // TODO-MIKE-Cleanup: Remove this...
+        int workaroundToAvoidDiffInducingStupidInsGroupSizeChanges;
+#endif
     };
 
 #ifdef TARGET_ARM
@@ -1466,13 +1372,7 @@ protected:
 #ifdef TARGET_XARCH
     ssize_t emitGetInsCns(instrDesc* id);
     ssize_t emitGetInsDsp(instrDesc* id);
-    ssize_t emitGetInsAmd(instrDesc* id);
     ssize_t emitGetInsCIdisp(instrDesc* id);
-#endif
-
-#ifdef TARGET_X86
-    unsigned emitGetInsCIargs(instrDesc* id);
-    int emitGetInsCDinfo(instrDesc* id);
 #endif
 
     cnsval_ssize_t emitGetInsSC(instrDesc* id);
@@ -1493,24 +1393,9 @@ protected:
 #ifdef DEBUG
     static const char* emitRegName(regNumber reg, emitAttr size = EA_PTRSIZE);
 
-    // GC Info changes are not readily available at each instruction.
-    // We use debug-only sets to track the per-instruction state, and to remember
-    // what the state was at the last time it was output (instruction or label).
-    ArrayStack<GCFrameLifetime*> debugGCSlotChanges;
-
-    regPtrDsc* debugPrevRegPtrDsc = nullptr;
-    regMaskTP  debugPrevGCrefRegs = RBM_NONE;
-    regMaskTP  debugPrevByrefRegs = RBM_NONE;
-    void emitDispGCDeltaTitle(const char* title);
-    void emitDispGCRegDelta(const char* title, regMaskTP prevRegs, regMaskTP curRegs);
-    void emitDispGCVarDelta();
-    void emitDispRegPtrListDelta();
-    void emitDispGCInfoDelta();
-
-    void emitDispIGflags(unsigned flags);
-    void emitDispIG(insGroup* ig, insGroup* igPrev = nullptr, bool verbose = false);
+    void GetGCDeltaDumpHeader(char* buffer, size_t count);
+    void emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose);
     void emitDispIGlist(bool verbose = false);
-    void emitDispGCinfo();
     void emitDispClsVar(CORINFO_FIELD_HANDLE fldHnd, ssize_t offs, bool reloc = false);
 #ifdef TARGET_XARCH
     void emitDispFrameRef(instrDesc* id, bool asmfm);
@@ -1520,9 +1405,6 @@ protected:
     void emitDispInsAddr(BYTE* code);
     void emitDispInsOffs(unsigned offs, bool doffs);
     void emitDispInsHex(instrDesc* id, BYTE* code, size_t sz);
-
-#else // !DEBUG
-#define emitVarRefOffs 0
 #endif // !DEBUG
 
     /************************************************************************/
@@ -1531,22 +1413,13 @@ protected:
 
     unsigned emitPrologEndPos;
 
-    unsigned       emitEpilogCnt  = 0;
-    UNATIVE_OFFSET emitEpilogSize = 0;
-
-#ifdef TARGET_XARCH
-
-    void           emitStartExitSeq(); // Mark the start of the "return" sequence
-    emitLocation   emitExitSeqBegLoc;
-    UNATIVE_OFFSET emitExitSeqSize = INT_MAX; // minimum size of any return sequence - the 'ret' after the epilog
-
-#endif // TARGET_XARCH
-
     insGroup* emitPlaceholderList = nullptr; // per method placeholder list - head
     insGroup* emitPlaceholderLast = nullptr; // per method placeholder list - tail
 
-#ifdef JIT32_GCENCODER
+    void emitBegPrologEpilog(insGroup* igPh);
+    void emitEndPrologEpilog();
 
+#ifdef JIT32_GCENCODER
     // The x86 GC encoder needs to iterate over a list of epilogs to generate a table of
     // epilog offsets. Epilogs always start at the beginning of an IG, so save the first
     // IG of the epilog, and use it to find the epilog offset at the end of code generation.
@@ -1560,33 +1433,24 @@ protected:
         }
     };
 
-    EpilogList* emitEpilogList = nullptr; // per method epilog list - head
-    EpilogList* emitEpilogLast = nullptr; // per method epilog list - tail
+    EpilogList*  emitEpilogList = nullptr; // per method epilog list - head
+    EpilogList*  emitEpilogLast = nullptr; // per method epilog list - tail
+    emitLocation emitExitSeqBegLoc;
+    unsigned     emitExitSeqSize = INT_MAX; // minimum size of any return sequence - the 'ret' after the epilog
+    unsigned     emitEpilogCnt   = 0;
+    unsigned     emitEpilogSize  = 0;
+
+    void emitBegFnEpilog(insGroup* igPh);
+    void emitStartExitSeq(); // Mark the start of the "return" sequence
+    void emitEndFnEpilog();
 
 public:
     void emitStartEpilog();
-
     bool emitHasEpilogEnd();
 
-    size_t emitGenEpilogLst(size_t (*fp)(void*, unsigned), void* cp);
-
+    template <typename Callback>
+    void EnumerateEpilogs(Callback callback);
 #endif // JIT32_GCENCODER
-
-    void emitBegPrologEpilog(insGroup* igPh);
-    void emitEndPrologEpilog();
-
-    void emitBegFnEpilog(insGroup* igPh);
-    void emitEndFnEpilog();
-
-#if defined(FEATURE_EH_FUNCLETS)
-
-    void emitBegFuncletProlog(insGroup* igPh);
-    void emitEndFuncletProlog();
-
-    void emitBegFuncletEpilog(insGroup* igPh);
-    void emitEndFuncletEpilog();
-
-#endif // FEATURE_EH_FUNCLETS
 
     /************************************************************************/
     /*    Methods to record a code position and later convert to offset     */
@@ -1706,30 +1570,12 @@ private:
     insFormat emitMapFmtAtoM(insFormat fmt);
     void PrologSpillParamRegsToShadowSlots();
 
-/************************************************************************/
-/*      The logic that creates and keeps track of instruction groups    */
-/************************************************************************/
+    /************************************************************************/
+    /*      The logic that creates and keeps track of instruction groups    */
+    /************************************************************************/
 
-#ifdef TARGET_ARMARCH
-// The only place where this limited instruction group size is a problem is
-// in the prolog, where we only support a single instruction group. We should really fix that.
-// ARM32 and ARM64 both can require a bigger prolog instruction group. One scenario is where
-// a function uses all the incoming integer and single-precision floating-point arguments,
-// and must store them all to the frame on entry. If the frame is very large, we generate
-// ugly code like "movw r10, 0x488; add r10, sp; vstr s0, [r10]" for each store, which
-// eats up our insGroup buffer.
-#define SC_IG_BUFFER_SIZE (100 * sizeof(emitter::instrDesc) + 14 * SMALL_IDSC_SIZE)
-#else // !TARGET_ARMARCH
-#define SC_IG_BUFFER_SIZE (50 * sizeof(emitter::instrDesc) + 14 * SMALL_IDSC_SIZE)
-#endif // !TARGET_ARMARCH
-
-    size_t emitIGbuffSize = 0;
-
-    insGroup* emitIGlist = nullptr; // first  instruction group
-    insGroup* emitIGlast = nullptr; // last   instruction group
-    insGroup* emitIGthis;           // issued instruction group
-
-    insGroup* emitPrologIG; // prolog instruction group
+    insGroup* emitIGfirst = nullptr;
+    insGroup* emitIGlast  = nullptr;
 
     instrDescJmp* emitJumpList = nullptr; // list of local jumps in method
     instrDescJmp* emitJumpLast = nullptr; // last of local jumps in method
@@ -1772,62 +1618,21 @@ private:
 
     insGroup* emitFirstColdIG = nullptr; // first cold instruction group
 
-    void emitSetFirstColdIGCookie(void* bbEmitCookie)
+    void emitSetFirstColdIGCookie(insGroup* ig)
     {
-        emitFirstColdIG = (insGroup*)bbEmitCookie;
+        emitFirstColdIG = ig;
     }
 
     int emitOffsAdj; // current code offset adjustment
 
     instrDescJmp* emitCurIGjmpList = nullptr; // list of jumps   in current IG
 
-    // emitPrev* and emitInit* are only used during code generation, not during
-    // emission (issuing), to determine what GC values to store into an IG.
-    // Note that only the Vars ones are actually used, apparently due to bugs
-    // in that tracking. See emitSavIG(): the important use of ByrefRegs is commented
-    // out, and GCrefRegs is always saved.
-
-    VARSET_TP emitPrevGCrefVars;
-    regMaskTP emitPrevGCrefRegs = RBM_NONE;
-    regMaskTP emitPrevByrefRegs = RBM_NONE;
-
-    VARSET_TP emitInitGCrefVars;
-    regMaskTP emitInitGCrefRegs = RBM_NONE;
-    regMaskTP emitInitByrefRegs = RBM_NONE;
-
-    // If this is set, we ignore comparing emitPrev* and emitInit* to determine
-    // whether to save GC state (to save space in the IG), and always save it.
-
-    bool emitForceStoreGCState = false;
-
-    // emitThis* variables are used during emission, to track GC updates
-    // on a per-instruction basis. During code generation, per-instruction
-    // tracking is done with variables gcVarPtrSetCur, gcRegGCrefSetCur,
-    // and gcRegByrefSetCur. However, these are also used for a slightly
-    // different purpose during code generation: to try to minimize the
-    // amount of GC data stored to an IG, by only storing deltas from what
-    // we expect to see at an IG boundary. Also, only emitThisGCrefVars is
-    // really the only one used; the others seem to be calculated, but not
-    // used due to bugs.
-
-    VARSET_TP emitThisGCrefVars;
-    regMaskTP emitThisGCrefRegs = RBM_NONE; // Current set of registers holding GC references
-    regMaskTP emitThisByrefRegs = RBM_NONE; // Current set of registers holding BYREF references
-
-    bool emitThisGCrefVset; // Is "emitThisGCrefVars" up to date?
-
     VARSET_TP emitEmptyGCrefVars = VarSetOps::UninitVal();
-
-    regNumber emitSyncThisObjReg = REG_NA; // where is "this" enregistered for synchronized methods?
-
-#if MULTIREG_HAS_SECOND_GC_RET
-    void emitSetSecondRetRegGCType(instrDescCGCA* id, emitAttr secondRetSize);
-#endif // MULTIREG_HAS_SECOND_GC_RET
 
     static void emitEncodeCallGCregs(regMaskTP regs, instrDesc* id);
     static unsigned emitDecodeCallGCregs(instrDesc* id);
 
-    unsigned emitNxtIGnum;
+    unsigned emitNxtIGnum = 0;
 
 #ifdef PSEUDORANDOM_NOP_INSERTION
 
@@ -1846,25 +1651,21 @@ private:
 
 #endif // PSEUDORANDOM_NOP_INSERTION
 
-    insGroup* emitAllocAndLinkIG();
     insGroup* emitAllocIG();
-    void emitInitIG(insGroup* ig);
-    void emitInsertIGAfter(insGroup* insertAfterIG, insGroup* ig);
 
     void emitNewIG();
+    void emitGenIG(insGroup* ig);
+    void emitExtendIG();
+    void emitFinishIG(bool extend = false);
 
-#if !defined(JIT32_GCENCODER)
+#ifndef JIT32_GCENCODER
     void emitDisableGC();
     void emitEnableGC();
-#endif // !defined(JIT32_GCENCODER)
+#endif
 
-    void emitGenIG(insGroup* ig);
-    insGroup* emitSavIG(bool emitAdd = false);
-    void emitNxtIG(bool extend);
-
-    bool emitCurIGnonEmpty()
+    bool emitCurIGnonEmpty() const
     {
-        return (emitCurIG && emitCurIGfreeNext > emitCurIGfreeBase);
+        return (emitCurIG != nullptr) && (emitCurIGfreeNext > emitCurIGfreeBase);
     }
 
     instrDesc* emitLastIns = nullptr;
@@ -1875,15 +1676,13 @@ private:
 
     // Terminates any in-progress instruction group, making the current IG a new empty one.
     // Mark this instruction group as having a label; return the the new instruction group.
-    // Sets the emitter's record of the currently live GC variables
-    // and registers.  The "isFinallyTarget" parameter indicates that the current location is
-    // the start of a basic block that is returned to after a finally clause in non-exceptional execution.
-    void* emitAddLabel(bool isFinallyTarget = false DEBUG_ARG(BasicBlock* block = nullptr));
+    // Sets the emitter's record of the currently live GC variables and registers.
+    insGroup* emitAddLabel(INDEBUG(BasicBlock* block = nullptr));
 
     // Same as above, except the label is added and is conceptually "inline" in
     // the current block. Thus it extends the previous block and the emitter
     // continues to track GC info as if there was no label.
-    void* emitAddInlineLabel();
+    insGroup* emitAddInlineLabel();
 
 #ifdef DEBUG
     void emitPrintLabel(insGroup* ig);
@@ -1996,22 +1795,7 @@ private:
 
     size_t emitSizeOfInsDsc(instrDesc* id);
 
-    /************************************************************************/
-    /*        The following keeps track of stack-based GC values            */
-    /************************************************************************/
-
-    unsigned          emitGCrFrameOffsCnt = 0;       // Number of       tracked stack ptr vars
-    int               emitGCrFrameOffsMin = 0;       // Min offset of a tracked stack ptr var
-    int               emitGCrFrameOffsMax = 0;       // Max offset of a tracked stack ptr var
-    GCFrameLifetime** emitGCrFrameLiveTab = nullptr; // Cache of currently live varPtrs (stkOffs -> varPtrDsc)
-
-#if defined(JIT32_GCENCODER) && !defined(FEATURE_EH_FUNCLETS)
-    int emitSyncThisObjOffs = INT_MIN; // what is the offset of "this" for synchronized methods?
-#endif
-
 public:
-    void emitSetFrameRangeGCRs(int offsLo, int offsHi);
-
     static instruction emitJumpKindToIns(emitJumpKind jumpKind);
     static emitJumpKind emitInsToJumpKind(instruction ins);
     static emitJumpKind emitReverseJumpKind(emitJumpKind jumpKind);
@@ -2034,98 +1818,39 @@ public:
     bool emitInsMayWriteMultipleRegs(instrDesc* id);
 #endif // TARGET_ARMARCH
 
-    /************************************************************************/
-    /*    The following is used to distinguish helper vs non-helper calls   */
-    /************************************************************************/
+/************************************************************************/
+/*    The following is used to distinguish helper vs non-helper calls   */
+/************************************************************************/
 
-    static bool emitNoGChelper(CorInfoHelpFunc helpFunc);
-    static bool emitNoGChelper(CORINFO_METHOD_HANDLE methHnd);
-
-    /************************************************************************/
-    /*         The following logic keeps track of live GC ref values        */
-    /************************************************************************/
-
-    bool emitFullArgInfo; // full arg info (including non-ptr arg)?
-    bool emitFullGCinfo;  // full GC pointer maps?
-    bool emitFullyInt;    // fully interruptible code?
-
-    regMaskTP emitGetGCRegsSavedOrModified(CORINFO_METHOD_HANDLE methHnd);
-
-    // Gets a register mask that represent the kill set for a NoGC helper call.
-    regMaskTP emitGetGCRegsKilledByNoGCCall(CorInfoHelpFunc helper);
-
-#if !FEATURE_FIXED_OUT_ARGS
-    bool emitSimpleStkUsed; // using the "simple" stack table?
-
-    union {
-        struct // if emitSimpleStkUsed==true
-        {
-#define BITS_IN_BYTE (8)
-#define MAX_SIMPLE_STK_DEPTH (BITS_IN_BYTE * sizeof(unsigned))
-
-            unsigned emitSimpleStkMask;      // bit per pushed dword (if it fits. Lowest bit <==> last pushed arg)
-            unsigned emitSimpleByrefStkMask; // byref qualifier for emitSimpleStkMask
-        } u1;
-
-        struct // if emitSimpleStkUsed==false
-        {
-            BYTE   emitArgTrackLcl[16]; // small local table to avoid malloc
-            BYTE*  emitArgTrackTab;     // base of the argument tracking stack
-            BYTE*  emitArgTrackTop;     // top  of the argument tracking stack
-            USHORT emitGcArgTrackCnt;   // count of pending arg records (stk-depth for frameless methods, gc ptrs on stk
-                                        // for framed methods)
-        } u2;
-    };
-
+#ifdef JIT32_GCENCODER
     unsigned emitCntStackDepth;     // 0 in prolog/epilog, One DWORD elsewhere
     unsigned emitMaxStackDepth = 0; // actual computed max. stack depth
     unsigned emitCurStackLvl   = 0; // amount of bytes pushed on stack
 
-    void emitStackPush(BYTE* addr, GCtype gcType);
-    void emitStackPushN(BYTE* addr, unsigned count);
-    void emitStackPushLargeStk(BYTE* addr, GCtype gcType, unsigned count);
-    void emitStackKillArgs(BYTE* addr, unsigned count, unsigned callInstrSize);
-    void emitStackPop(BYTE* addr, bool isCall, unsigned callInstrSize, unsigned count);
-    void emitStackPopLargeStk(BYTE* addr, bool isCall, unsigned callInstrSize, unsigned count);
-#endif // !FEATURE_FIXED_OUT_ARGS
-    void emitRecordGCCallPop(BYTE* addr, unsigned callInstrSize);
-    void emitRecordGCcall(BYTE* codePos, unsigned callInstrSize);
-
-    /* Liveness of stack variables, and registers */
-
-    void emitUpdateLiveGCvars(VARSET_VALARG_TP vars, BYTE* addr);
-    void emitUpdateLiveGCregs(GCtype gcType, regMaskTP regs, BYTE* addr);
+    void emitStackPush(unsigned codeOffs, GCtype type);
+    void emitStackPushN(unsigned codeOffs, unsigned count);
+    void emitStackPop(unsigned codeOffs, unsigned count);
+    void emitStackPopArgs(unsigned codeOffs, unsigned count);
+    void emitStackKillArgs(unsigned codeOffs, unsigned count);
+#endif
+    size_t emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* callEndAddr);
 
 #ifdef DEBUG
     const char* emitGetFrameReg();
-    void        emitDispVarSet();
     static void emitDispRegSet(regMaskTP regs);
     static void emitDispRegSetDiff(const char* name, regMaskTP from, regMaskTP to);
 #endif
 
     void emitGCregLiveUpd(GCtype gcType, regNumber reg, BYTE* addr);
-    void emitGCregLiveSet(GCtype gcType, regMaskTP mask, BYTE* addr, bool isThis);
-    void emitGCregDeadUpdMask(regMaskTP, BYTE* addr);
     void emitGCregDeadUpd(regNumber reg, BYTE* addr);
-    void emitGCregDeadSet(GCtype gcType, regMaskTP mask, BYTE* addr);
+#ifdef FEATURE_EH_FUNCLETS
+    void emitGCregDeadAll(BYTE* addr);
+#endif
 
 #if FEATURE_FIXED_OUT_ARGS
     void emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum));
 #endif
     void emitGCvarLiveUpd(int slotOffs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum));
-    void emitGCvarLiveSet(int slotOffs, GCtype gcType, unsigned codeOffs, unsigned index);
-    void emitGCvarDeadSet(int slotOffs, unsigned codeOffs, unsigned index);
-
-    GCtype emitRegGCtype(regNumber reg);
-
-    // We have a mixture of code emission methods, some of which return the size of the emitted instruction,
-    // requiring the caller to add this to the current code pointer (dst += <call to emit code>), others of which
-    // return the updated code pointer (dst = <call to emit code>).  Sometimes we'd like to get the size of
-    // the generated instruction for the latter style.  This method accomplishes that --
-    // "emitCodeWithInstructionSize(dst, <call to emitCode>, &instrSize)" will do the call, and set
-    // "*instrSize" to the after-before code pointer difference.  Returns the result of the call.  (And
-    // asserts that the instruction size fits in an unsigned char.)
-    static BYTE* emitCodeWithInstructionSize(BYTE* codePtrBefore, BYTE* newCodePointer, unsigned char* instrSize);
 
     /************************************************************************/
     /*      The following logic keeps track of initialized data sections    */
@@ -2259,20 +1984,16 @@ public:
 
 #endif // EMITTER_STATS
 
-/*************************************************************************
- *
- *  Define any target-dependent emitter members.
- */
-
-#include "emitdef.h"
+#if defined(TARGET_XARCH)
+#include "emitxarch.h"
+#elif defined(TARGET_ARM)
+#include "emitarm.h"
+#elif defined(TARGET_ARM64)
+#include "emitarm64.h"
+#else
+#error Unsupported or unset target architecture
+#endif
 };
-
-/*****************************************************************************
- *
- *  Define any target-dependent inlines.
- */
-
-#include "emitinl.h"
 
 inline void emitter::instrDesc::checkSizes()
 {
@@ -2296,38 +2017,12 @@ inline bool emitter::emitIsScnsInsDsc(instrDesc* id)
 
 /*****************************************************************************
  *
- *  Given an instruction, return its "update mode" (RD/WR/RW).
- */
-
-/*****************************************************************************
- *
- *  Return the number of epilog blocks generated so far.
- */
-
-inline unsigned emitter::emitGetEpilogCnt()
-{
-    return emitEpilogCnt;
-}
-
-/*****************************************************************************
- *
  *  Return the current size of the specified data section.
  */
 
 inline UNATIVE_OFFSET emitter::emitDataSize()
 {
     return emitConsDsc.dsdOffs;
-}
-
-/*****************************************************************************
- *
- *  Return a handle to the current position in the output stream. This can
- *  be later converted to an actual code offset in bytes.
- */
-
-inline void* emitter::emitCurBlock()
-{
-    return emitCurIG;
 }
 
 /*****************************************************************************
@@ -2391,7 +2086,7 @@ insOpts emitSimdArrangementOpt(emitAttr size, var_types elementType);
  *  storage in instruction descriptors.
  */
 
-/* static */ inline emitter::opSize emitter::emitEncodeSize(emitAttr size)
+inline emitter::opSize emitter::emitEncodeSize(emitAttr size)
 {
     assert(size == EA_1BYTE || size == EA_2BYTE || size == EA_4BYTE || size == EA_8BYTE || size == EA_16BYTE ||
            size == EA_32BYTE);
@@ -2399,7 +2094,7 @@ insOpts emitSimdArrangementOpt(emitAttr size, var_types elementType);
     return emitSizeEncode[((int)size) - 1];
 }
 
-/* static */ inline emitAttr emitter::emitDecodeSize(emitter::opSize ensz)
+inline emitAttr emitter::emitDecodeSize(emitter::opSize ensz)
 {
     assert(((unsigned)ensz) < OPSZ_COUNT);
 
@@ -2546,55 +2241,27 @@ inline bool IsCodeAligned(UNATIVE_OFFSET offset)
     return ((offset & (CODE_ALIGN - 1)) == 0);
 }
 
-// Static:
-inline BYTE* emitter::emitCodeWithInstructionSize(BYTE* codePtrBefore, BYTE* newCodePointer, unsigned char* instrSize)
+#ifndef JIT32_GCENCODER
+template <typename Callback>
+void emitter::EnumerateNoGCInsGroups(Callback callback)
 {
-    // DLD: Perhaps this method should return the instruction size, and we should do dst += <that size>
-    // as is done in other cases?
-    assert(newCodePointer >= codePtrBefore);
-    ClrSafeInt<unsigned char> callInstrSizeSafe = ClrSafeInt<unsigned char>(newCodePointer - codePtrBefore);
-    assert(!callInstrSizeSafe.IsOverflow());
-    *instrSize = callInstrSizeSafe.Value();
-    return newCodePointer;
-}
-
-inline void emitter::emitNewIG()
-{
-    emitGenIG(emitAllocAndLinkIG());
-}
-
-#if !defined(JIT32_GCENCODER)
-// Start a new instruction group that is not interruptable
-inline void emitter::emitDisableGC()
-{
-    emitNoGCIG = true;
-
-    if (emitCurIGnonEmpty())
+    for (insGroup* ig = emitIGfirst; ig != nullptr; ig = ig->igNext)
     {
-        emitNxtIG(true);
-    }
-    else
-    {
-        emitCurIG->igFlags |= IGF_NOGCINTERRUPT;
+        if ((ig->igFlags & IGF_NOGCINTERRUPT) != 0)
+        {
+            callback(ig->igFuncIdx, ig->igOffs, ig->igSize);
+        }
     }
 }
-
-// Start a new instruction group that is interruptable
-inline void emitter::emitEnableGC()
+#else
+template <typename Callback>
+void emitter::EnumerateEpilogs(Callback callback)
 {
-    emitNoGCIG = false;
+    for (EpilogList* el = emitEpilogList; el != nullptr; el = el->elNext)
+    {
+        assert((el->elLoc.GetIG()->igFlags & IGF_EPILOG) != 0);
 
-    // The next time an instruction needs to be generated, force a new instruction group.
-    // It will be an emitAdd group in that case. Note that the next thing we see might be
-    // a label, which will force a non-emitAdd group.
-    //
-    // Note that we can't just create a new instruction group here, because we don't know
-    // if there are going to be any instructions added to it, and we don't support empty
-    // instruction groups.
-    emitForceNewIG = true;
+        callback(el->elLoc.CodeOffset(this));
+    }
 }
-#endif // !defined(JIT32_GCENCODER)
-
-/*****************************************************************************/
-#endif // _EMIT_H_
-/*****************************************************************************/
+#endif // JIT32_GCENCODER

@@ -3990,7 +3990,7 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
 #endif // JIT32_GCENCODER
 
     // For OSR methods, param type args are always reportable via the root method frame slot.
-    // (see gcInfoBlockHdrSave) and so do not need a new slot on the frame.
+    // (see GCInfo::SetHeaderInfo) and so do not need a new slot on the frame.
     //
     // OSR methods may also be able to use the root frame kept alive this, if the root
     // method needed to report this.

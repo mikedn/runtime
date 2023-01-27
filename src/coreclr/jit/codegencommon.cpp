@@ -15,18 +15,8 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 // identical, and which should probably be moved here.
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
 #include "codegen.h"
-
-#include "gcinfo.h"
 #include "emit.h"
-
-#ifndef JIT32_GCENCODER
-#include "gcinfoencoder.h"
-#endif
-
 #include "patchpointinfo.h"
 #include "lsra.h"
 
@@ -39,9 +29,9 @@ CodeGenInterface::CodeGenInterface(Compiler* compiler) : compiler(compiler), spi
 {
 }
 
-CodeGen::CodeGen(Compiler* compiler) : CodeGenInterface(compiler), m_liveness(compiler), gcInfo(compiler)
+CodeGen::CodeGen(Compiler* compiler) : CodeGenInterface(compiler), liveness(compiler)
 {
-    m_cgEmitter = new (compiler->getAllocator()) emitter(compiler, this, gcInfo, compiler->info.compCompHnd);
+    m_cgEmitter = new (compiler->getAllocator()) emitter(compiler, this, compiler->info.compCompHnd);
 
 #ifdef LATE_DISASM
     getDisAssembler().disInit(compiler);
@@ -203,54 +193,7 @@ void CodeGen::genMarkLabelsForCodegen()
 
 void CodeGen::genUpdateLife(GenTreeLclVarCommon* node)
 {
-    m_liveness.UpdateLife(this, node);
-}
-
-// Return the register mask for the given register variable
-// inline
-regMaskTP CodeGen::genGetRegMask(const LclVarDsc* varDsc)
-{
-    regMaskTP regMask = RBM_NONE;
-
-    assert(varDsc->lvIsInReg());
-
-    if (varTypeUsesFloatReg(varDsc->TypeGet()))
-    {
-        regMask = genRegMaskFloat(varDsc->GetRegNum(), varDsc->TypeGet());
-    }
-    else
-    {
-        regMask = genRegMask(varDsc->GetRegNum());
-    }
-    return regMask;
-}
-
-// The given lclVar is either going live (being born) or dying.
-// It might be both going live and dying (that is, it is a dead store) under MinOpts.
-// Update regSet.GetMaskVars() accordingly.
-// inline
-void CodeGen::genUpdateRegLife(const LclVarDsc* varDsc, bool isBorn, bool isDying DEBUGARG(GenTree* tree))
-{
-    regMaskTP regMask = genGetRegMask(varDsc);
-
-    JITDUMP("V%02u in reg %s is becoming %s at [%06u]\n", (varDsc - compiler->lvaTable),
-            getRegName(varDsc->GetRegNum()), isDying ? "dead" : "live", tree == nullptr ? 0 : tree->GetID());
-
-    if (isDying)
-    {
-        // We'd like to be able to assert the following, however if we are walking
-        // through a qmark/colon tree, we may encounter multiple last-use nodes.
-        // assert((gcInfo.GetLiveLclRegs() & regMask) == regMask);
-        gcInfo.RemoveLiveLclRegs(regMask);
-    }
-    else
-    {
-        // If this is going live, the register must not have a variable in it, except
-        // in the case of an exception or "spill at single-def" variable, which may be already treated
-        // as live in the register.
-        assert(varDsc->IsAlwaysAliveInMemory() || ((gcInfo.GetLiveLclRegs() & regMask) == RBM_NONE));
-        gcInfo.AddLiveLclRegs(regMask);
-    }
+    liveness.UpdateLife(this, node);
 }
 
 //----------------------------------------------------------------------
@@ -467,7 +410,7 @@ void CodeGen::genLogLabel(BasicBlock* bb)
 void CodeGen::genDefineTempLabel(BasicBlock* label)
 {
     genLogLabel(label);
-    label->bbEmitCookie = GetEmitter()->emitAddLabel(false DEBUG_ARG(label));
+    label->bbEmitCookie = GetEmitter()->emitAddLabel(INDEBUG(label));
 }
 
 // genDefineInlineTempLabel: Define an inline label that does not affect the GC
@@ -676,36 +619,18 @@ void CodeGen::genExitCode(BasicBlock* block)
     // For non-optimized debuggable code, there is only one epilog.
     genIPmappingAdd((IL_OFFSETX)ICorDebugInfo::EPILOG, true);
 
-    bool jmpEpilog = ((block->bbFlags & BBF_HAS_JMP) != 0);
     if (compiler->getNeedsGSSecurityCookie())
     {
+        bool jmpEpilog = ((block->bbFlags & BBF_HAS_JMP) != 0);
+
+#ifdef TARGET_XARCH
         genEmitGSCookieCheck(jmpEpilog);
-
-        if (jmpEpilog)
-        {
-            // Dev10 642944 -
-            // The GS cookie check created a temp label that has no live
-            // incoming GC registers, we need to fix that
-
-            unsigned   varNum;
-            LclVarDsc* varDsc;
-
-            /* Figure out which register parameters hold pointers */
-
-            for (varNum = 0, varDsc = compiler->lvaTable; varNum < compiler->lvaCount && varDsc->IsRegParam();
-                 varNum++, varDsc++)
-            {
-                noway_assert(varDsc->IsParam());
-
-                gcInfo.gcMarkRegPtrVal(varDsc->GetParamReg(), varDsc->GetType());
-            }
-
-            GetEmitter()->emitThisGCrefRegs = GetEmitter()->emitInitGCrefRegs = gcInfo.gcRegGCrefSetCur;
-            GetEmitter()->emitThisByrefRegs = GetEmitter()->emitInitByrefRegs = gcInfo.gcRegByrefSetCur;
-        }
+#else
+        genEmitGSCookieCheck();
+#endif
     }
 
-    genReserveEpilog(block);
+    GetEmitter()->emitCreatePlaceholderIG(IGPT_EPILOG, block);
 }
 
 //------------------------------------------------------------------------
@@ -910,7 +835,7 @@ void CodeGen::genInsertNopForUnwinder(BasicBlock* block)
         // block starts an EH region. If we pointed the existing bbEmitCookie here, then the NOP
         // would be executed, which we would prefer not to do.
 
-        block->bbUnwindNopEmitCookie = GetEmitter()->emitAddLabel(false DEBUG_ARG(block));
+        block->bbUnwindNopEmitCookie = GetEmitter()->emitAddLabel(INDEBUG(block));
 
         instGen(INS_nop);
     }
@@ -987,8 +912,6 @@ void CodeGen::genAllocateRegisters()
 
 void CodeGen::genGenerateMachineCode()
 {
-    m_cgFullPtrRegMap = GetInterruptible() || !isFramePointerUsed();
-
 #ifdef DEBUG
     compiler->fgBBcountAtCodegen = compiler->fgBBcount;
     compiler->fgDebugCheckLinks();
@@ -1183,9 +1106,11 @@ void CodeGen::genEmitMachineCode()
 
     compiler->unwindReserve();
 
-    codeSize =
-        GetEmitter()->emitEndCodeGen(GetInterruptible(), IsFullPtrRegMapRequired(), compiler->compHndBBtabCount,
-                                     &prologSize, &epilogSize, codePtr, &coldCodePtr, &consPtr DEBUGARG(&instrCount));
+    codeSize = GetEmitter()->emitEndCodeGen(&prologSize,
+#ifdef JIT32_GCENCODER
+                                            &epilogSize,
+#endif
+                                            codePtr, &coldCodePtr, &consPtr DEBUGARG(&instrCount));
 
 #ifdef DEBUG
     assert(compiler->compCodeGenDone == false);
@@ -1317,12 +1242,11 @@ void CodeGen::genEmitUnwindDebugGCandEH()
     genReportEH();
 
 #ifdef JIT32_GCENCODER
-#ifdef DEBUG
-    void* infoPtr =
-#endif // DEBUG
+    INDEBUG(void* infoPtr =)
+    GetEmitter()->gcInfo.CreateAndStoreGCInfo(this, codeSize, prologSize, epilogSize);
+#else
+    GetEmitter()->gcInfo.CreateAndStoreGCInfo(codeSize, prologSize);
 #endif
-        // Create and store the GC info for this method.
-        genCreateAndStoreGCInfo(codeSize, prologSize, epilogSize DEBUGARG(codePtr));
 
 #ifdef DEBUG
     FILE* dmpf = jitstdout;
@@ -3537,7 +3461,7 @@ void CodeGen::MarkGCTrackedSlots(int&       minBlockInitOffset,
                 abs(maxGCTrackedOffset));
 #endif
 
-        GetEmitter()->emitSetFrameRangeGCRs(minGCTrackedOffset, maxGCTrackedOffset + REGSIZE_BYTES);
+        GetEmitter()->gcInfo.SetTrackedStackSlotRange(minGCTrackedOffset, maxGCTrackedOffset + REGSIZE_BYTES);
     }
     else
     {
@@ -3957,31 +3881,6 @@ ret
 
 *****************************************************************************/
 
-void CodeGen::genReserveEpilog(BasicBlock* block)
-{
-    JITDUMP("Reserving epilog IG for block " FMT_BB "\n", block->bbNum);
-
-    GetEmitter()->emitCreatePlaceholderIG(IGPT_EPILOG, block);
-}
-
-#ifdef FEATURE_EH_FUNCLETS
-
-void CodeGen::genReserveFuncletProlog(BasicBlock* block)
-{
-    JITDUMP("Reserving funclet prolog IG for block " FMT_BB "\n", block->bbNum);
-
-    GetEmitter()->emitCreatePlaceholderIG(IGPT_FUNCLET_PROLOG, block);
-}
-
-void CodeGen::genReserveFuncletEpilog(BasicBlock* block)
-{
-    JITDUMP("Reserving funclet epilog IG for block " FMT_BB "\n", block->bbNum);
-
-    GetEmitter()->emitCreatePlaceholderIG(IGPT_FUNCLET_EPILOG, block);
-}
-
-#endif // FEATURE_EH_FUNCLETS
-
 void CodeGen::UpdateParamsWithInitialReg()
 {
     auto setParamReg = [](LclVarDsc* lcl) {
@@ -4280,7 +4179,7 @@ void CodeGen::genFnProlog()
     compiler->funSetCurrentFunc(0);
     GetEmitter()->emitBegProlog();
     compiler->unwindBegProlog();
-    gcInfo.BeginPrologCodeGen();
+    liveness.BeginPrologEpilogCodeGen();
 
     // Do this so we can put the prolog instruction group ahead of other instruction groups.
     genIPmappingAddToFront(static_cast<IL_OFFSETX>(ICorDebugInfo::PROLOG));
@@ -4768,40 +4667,14 @@ void CodeGen::genGeneratePrologsAndEpilogs()
     // This affects our code that determines which untracked locals need to be zero initialized.
     UpdateLclBlockLiveInRegs(compiler->fgFirstBB);
 
-    // Tell the emitter we're done with main code generation, and are going to start prolog and epilog generation.
-
-    GetEmitter()->emitStartPrologEpilogGeneration();
-
     genFnProlog();
-
-    // Generate all the prologs and epilogs.
-    CLANG_FORMAT_COMMENT_ANCHOR;
-
-#if defined(FEATURE_EH_FUNCLETS)
-
+#ifdef FEATURE_EH_FUNCLETS
     // Capture the data we're going to use in the funclet prolog and epilog generation. This is
     // information computed during codegen, or during function prolog generation, like
     // frame offsets. It must run after main function prolog generation.
-
     genCaptureFuncletPrologEpilogInfo();
-
-#endif // FEATURE_EH_FUNCLETS
-
-    // Walk the list of prologs and epilogs and generate them.
-    // We maintain a list of prolog and epilog basic blocks in
-    // the insGroup structure in the emitter. This list was created
-    // during code generation by the genReserve*() functions.
-    //
-    // TODO: it seems like better design would be to create a list of prologs/epilogs
-    // in the code generator (not the emitter), and then walk that list. But we already
-    // have the insGroup list, which serves well, so we don't need the extra allocations
-    // for a prolog/epilog list in the code generator.
-
+#endif
     GetEmitter()->emitGeneratePrologEpilog();
-
-    // Tell the emitter we're done with all prolog and epilog generation.
-
-    GetEmitter()->emitFinishPrologEpilogGeneration();
 
 #ifdef DEBUG
     if (verbose)
@@ -5820,14 +5693,23 @@ void CodeGen::genReturn(GenTree* ret)
         inst_Mov(retType, retReg, srcReg, /* canSkip */ true, emitTypeSize(retType));
     }
 
+    // Usually the epilog code follow right after the return code and since epilogs
+    // aren't interruptuble we don't need to report GC pointers in return registers.
+    // But there are all sorts of special cases that need extra code inserted after
+    // the RETURN code (GS checks, SP checks, profiler calls, EH NOPs) and such code
+    // is interruptible and may have calls and temp labels.
+
+    const ReturnTypeDesc& retDesc = compiler->info.retDesc;
+
+    for (unsigned i = 0; i < retDesc.GetRegCount(); ++i)
+    {
+        if (varTypeIsGC(retDesc.GetRegType(i)))
+        {
+            liveness.SetGCRegType(retDesc.GetRegNum(i), retDesc.GetRegType(i));
+        }
+    }
+
 #ifdef PROFILING_SUPPORTED
-    // !! Note !!
-    // TODO-AMD64-Unix: If the profiler hook is implemented on *nix, make sure for 2 register returned structs
-    //                  the RAX and RDX needs to be kept alive. Make the necessary changes in lowerxarch.cpp
-    //                  in the handling of the GT_RETURN statement.
-    //                  Such structs containing GC pointers need to be handled by calling gcInfo.gcMarkRegSetNpt
-    //                  for the return registers containing GC refs.
-    //
     // Reason for not materializing Leave callback as a GT_PROF_HOOK node after GT_RETURN:
     // In flowgraph and other places assert that the last node of a block marked as
     // BBJ_RETURN is either a GT_RETURN or GT_JMP or a tail call.  It would be nice to
@@ -5838,29 +5720,7 @@ void CodeGen::genReturn(GenTree* ret)
     // so we just look for that block to trigger insertion of the profile hook.
     if ((compiler->compCurBB == compiler->genReturnBB) && compiler->compIsProfilerHookNeeded())
     {
-        // Since we are invalidating the assumption that we would slip into the epilog
-        // right after the "return", we need to preserve the return reg's GC state
-        // across the call until actual method return.
-
-        const ReturnTypeDesc& retDesc = compiler->info.retDesc;
-
-        for (unsigned i = 0; i < retDesc.GetRegCount(); ++i)
-        {
-            if (varTypeIsGC(retDesc.GetRegType(i)))
-            {
-                gcInfo.gcMarkRegPtrVal(retDesc.GetRegNum(i), retDesc.GetRegType(i));
-            }
-        }
-
         genProfilingLeaveCallback(CORINFO_HELP_PROF_FCN_LEAVE);
-
-        for (unsigned i = 0; i < retDesc.GetRegCount(); ++i)
-        {
-            if (varTypeIsGC(retDesc.GetRegType(i)))
-            {
-                gcInfo.gcMarkRegSetNpt(genRegMask(retDesc.GetRegNum(i)));
-            }
-        }
     }
 #endif // PROFILING_SUPPORTED
 
@@ -5991,7 +5851,7 @@ void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
 
             if (!store->IsLastUse(i))
             {
-                gcInfo.gcMarkRegPtrVal(fieldReg, fieldType);
+                liveness.SetGCRegType(fieldReg, fieldType);
             }
         }
         else
@@ -6008,7 +5868,7 @@ void CodeGen::GenStoreLclVarMultiReg(GenTreeLclVar* store)
         fieldLcl->SetRegNum(fieldReg);
     }
 
-    m_liveness.UpdateLifeMultiReg(this, store);
+    liveness.UpdateLifeMultiReg(this, store);
 }
 
 #if defined(DEBUG) && defined(TARGET_XARCH)

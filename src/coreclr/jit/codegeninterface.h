@@ -21,7 +21,6 @@
 #define _CODEGEN_INTERFACE_H_
 
 #include "regset.h"
-#include "jitgcinfo.h"
 #include "emit.h"
 
 class LclVarDsc;
@@ -268,21 +267,6 @@ private:
 #ifdef TARGET_ARMARCH
     bool m_cgHasTailCalls = false;
 #endif // TARGET_ARMARCH
-
-    //  The following will be set to true if we've determined that we need to
-    //  generate a full-blown pointer register map for the current method.
-    //  Currently it is equal to (GetInterruptible() || !isFramePointerUsed())
-    //  (i.e. We generate the full-blown map for EBP-less methods and
-    //        for fully interruptible methods)
-    //
-public:
-    bool IsFullPtrRegMapRequired() const
-    {
-        return m_cgFullPtrRegMap;
-    }
-
-protected:
-    bool m_cgFullPtrRegMap;
 
 public:
     /* These are the different addressing modes used to access a local var.

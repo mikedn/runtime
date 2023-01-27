@@ -345,4 +345,18 @@ inline bool emitIsLoadLabel(instrDesc* jmp)
     return (jmp->idInsFmt() == IF_T2_M1) || (jmp->idInsFmt() == IF_T1_J3) || (jmp->idInsFmt() == IF_T2_N1);
 }
 
+/************************************************************************/
+/*                   Interface for generating unwind information        */
+/************************************************************************/
+bool emitIsFuncEnd(emitLocation* emitLoc, emitLocation* emitLocNextFragment = NULL);
+
+void emitSplit(emitLocation*         startLoc,
+               emitLocation*         endLoc,
+               UNATIVE_OFFSET        maxSplitSize,
+               void*                 context,
+               emitSplitCallbackType callbackFunc);
+
+void emitUnwindNopPadding(emitLocation* locFrom, Compiler* comp);
+unsigned emitGetInstructionSize(emitLocation* emitLoc);
+
 #endif // TARGET_ARM

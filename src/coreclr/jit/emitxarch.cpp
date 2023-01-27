@@ -11,14 +11,8 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
 
-#if defined(TARGET_XARCH)
-
-/*****************************************************************************/
-/*****************************************************************************/
+#ifdef TARGET_XARCH
 
 #include "instr.h"
 #include "emit.h"
@@ -61,6 +55,68 @@ static bool IsShiftImm(instruction ins)
         default:
             return false;
     }
+}
+
+static bool insIsCMOV(instruction ins)
+{
+    return ((ins >= INS_cmovo) && (ins <= INS_cmovg));
+}
+
+static_assert_no_msg(INS_imul_AX - INS_imul_AX == REG_EAX);
+static_assert_no_msg(INS_imul_BX - INS_imul_AX == REG_EBX);
+static_assert_no_msg(INS_imul_CX - INS_imul_AX == REG_ECX);
+static_assert_no_msg(INS_imul_DX - INS_imul_AX == REG_EDX);
+static_assert_no_msg(INS_imul_BP - INS_imul_AX == REG_EBP);
+static_assert_no_msg(INS_imul_SI - INS_imul_AX == REG_ESI);
+static_assert_no_msg(INS_imul_DI - INS_imul_AX == REG_EDI);
+#ifdef TARGET_AMD64
+static_assert_no_msg(INS_imul_08 - INS_imul_AX == REG_R8);
+static_assert_no_msg(INS_imul_09 - INS_imul_AX == REG_R9);
+static_assert_no_msg(INS_imul_10 - INS_imul_AX == REG_R10);
+static_assert_no_msg(INS_imul_11 - INS_imul_AX == REG_R11);
+static_assert_no_msg(INS_imul_12 - INS_imul_AX == REG_R12);
+static_assert_no_msg(INS_imul_13 - INS_imul_AX == REG_R13);
+static_assert_no_msg(INS_imul_14 - INS_imul_AX == REG_R14);
+static_assert_no_msg(INS_imul_15 - INS_imul_AX == REG_R15);
+#endif
+
+bool emitter::instrIs3opImul(instruction ins)
+{
+#ifdef TARGET_X86
+    return (ins >= INS_imul_AX) && (ins <= INS_imul_DI);
+#else
+    return (ins >= INS_imul_AX) && (ins <= INS_imul_15);
+#endif
+}
+
+static bool instrIsExtendedReg3opImul(instruction ins)
+{
+#ifdef TARGET_X86
+    return false;
+#else
+    return (ins >= INS_imul_08) && (ins <= INS_imul_15);
+#endif
+}
+
+bool emitter::instrHasImplicitRegPairDest(instruction ins)
+{
+    return (ins == INS_mulEAX) || (ins == INS_imulEAX) || (ins == INS_div) || (ins == INS_idiv);
+}
+
+instruction emitter::inst3opImulForReg(regNumber reg)
+{
+    assert(genIsValidIntReg(reg));
+
+    instruction ins = instruction(reg + INS_imul_AX);
+    assert(instrIs3opImul(ins));
+    return ins;
+}
+
+static regNumber inst3opImulReg(instruction ins)
+{
+    regNumber reg = static_cast<regNumber>(ins - INS_imul_AX);
+    assert(genIsValidIntReg(reg));
+    return reg;
 }
 
 bool emitter::IsSSEInstruction(instruction ins)
@@ -5692,9 +5748,8 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount /* = 0 
     }
     else
     {
-        /* Only allow non-label jmps in prolog */
-        assert(emitPrologIG);
-        assert(emitPrologIG == emitCurIG);
+        // Only allow non-label jmps in prolog.
+        assert(emitIGisInProlog(emitCurIG));
         assert(instrCount != 0);
     }
 
@@ -5939,64 +5994,6 @@ ssize_t emitter::emitGetInsAmdAny(instrDesc* id)
     }
 
     return id->idAddr()->iiaAddrMode.amDisp;
-}
-
-#ifdef TARGET_X86
-
-int emitter::emitGetInsCDinfo(instrDesc* id)
-{
-    if (id->idIsLargeCall())
-    {
-        return ((instrDescCGCA*)id)->idcArgCnt;
-    }
-    else
-    {
-        assert(!id->idIsLargeDsp());
-        assert(!id->idIsLargeCns());
-        ssize_t cns = emitGetInsCns(id);
-
-        // We only encode 32-bit ints, so this is safe
-        noway_assert((int)cns == cns);
-
-        return (int)cns;
-    }
-}
-
-unsigned emitter::emitGetInsCIargs(instrDesc* id)
-{
-    if (id->idIsLargeCall())
-    {
-        return ((instrDescCGCA*)id)->idcArgCnt;
-    }
-    else
-    {
-        assert(id->idIsLargeDsp() == false);
-        assert(id->idIsLargeCns() == false);
-
-        ssize_t cns = emitGetInsCns(id);
-        assert((unsigned)cns == (size_t)cns);
-        return (unsigned)cns;
-    }
-}
-
-#endif // TARGET_X86
-
-GCtype emitter::emitRegGCtype(regNumber reg)
-{
-    assert(emitIssuing);
-
-    if ((emitThisGCrefRegs & genRegMask(reg)) != 0)
-    {
-        return GCT_GCREF;
-    }
-    else if ((emitThisByrefRegs & genRegMask(reg)) != 0)
-    {
-        return GCT_BYREF;
-    }
-    else
-    {
-        return GCT_NONE;
-    }
 }
 
 #if !FEATURE_FIXED_OUT_ARGS
@@ -10267,16 +10264,15 @@ BYTE* emitter::emitOutputR(BYTE* dst, instrDesc* id)
                 // However, we can see cases where a LCLHEAP generates a non-gcref value into a register,
                 // and the first instruction we generate after the LCLHEAP is an `inc` that is typed as
                 // byref. We'll properly create the byref gcinfo when this happens.
-                //     assert((emitThisGCrefRegs | emitThisByrefRegs) & regMask);
+                //     assert((gcInfo.GetAllLiveRegs() & regMask) != RBM_NONE);
                 assert(id->idGCref() == GCT_BYREF);
                 // Mark it as holding a GCT_BYREF
                 emitGCregLiveUpd(GCT_BYREF, id->idReg1(), dst);
             }
             else
             {
-                // Can't use RRW to trash a GC ref.  It's OK for unverifiable code
-                // to trash Byrefs.
-                assert((emitThisGCrefRegs & regMask) == 0);
+                // Can't use RRW to trash a GC ref.  It's OK for unverifiable code to trash Byrefs.
+                assert((gcInfo.GetLiveRegs(GCT_GCREF) & regMask) == RBM_NONE);
             }
         }
         break;
@@ -10515,28 +10511,6 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
                 break;
 
             case IF_RWR_RRD:
-
-                if (emitSyncThisObjReg != REG_NA && emitIGisInProlog(emitCurIG) && reg2 == (int)REG_ARG_0)
-                {
-                    // We're relocating "this" in the prolog
-                    assert(emitComp->lvaIsOriginalThisArg(0));
-                    assert(emitComp->lvaTable[0].lvRegister);
-                    assert(emitComp->lvaTable[0].GetRegNum() == reg1);
-
-                    if (emitFullGCinfo)
-                    {
-                        emitGCregLiveSet(id->idGCref(), genRegMask(reg1), dst, true);
-                        break;
-                    }
-                    else
-                    {
-                        /* If emitFullGCinfo==false, the we don't use any
-                           regPtrDsc's and so explictly note the location
-                           of "this" in GCEncode.cpp
-                         */
-                    }
-                }
-
                 emitGCregLiveUpd(id->idGCref(), reg1, dst);
                 break;
 
@@ -10589,8 +10563,8 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
 
                         // r1/r2 could have been a GCREF as GCREF + int=BYREF
                         //                               or BYREF+/-int=BYREF
-                        assert(((regMask & emitThisGCrefRegs) && (ins == INS_add)) ||
-                               ((regMask & emitThisByrefRegs) && (ins == INS_add || ins == INS_sub)));
+                        assert((((regMask & gcInfo.GetLiveRegs(GCT_GCREF) != RBM_NONE) && (ins == INS_add)) ||
+                               (((regMask & gcInfo.GetLiveRegs(GCT_BYREF) != RBM_NONE) && (ins == INS_add || ins == INS_sub)));
 #endif // DEBUG
 #endif // 0
 
@@ -10614,31 +10588,31 @@ BYTE* emitter::emitOutputRR(BYTE* dst, instrDesc* id)
 
                 GCtype gc1, gc2;
 
-                gc1 = emitRegGCtype(reg1);
-                gc2 = emitRegGCtype(reg2);
+                gc1 = gcInfo.GetRegType(reg1);
+                gc2 = gcInfo.GetRegType(reg2);
 
                 if (gc1 != gc2)
                 {
                     // Kill the GC-info about the GC registers
 
-                    if (needsGC(gc1))
+                    if (gc1 != GCT_NONE)
                     {
                         emitGCregDeadUpd(reg1, dst);
                     }
 
-                    if (needsGC(gc2))
+                    if (gc2 != GCT_NONE)
                     {
                         emitGCregDeadUpd(reg2, dst);
                     }
 
                     // Now, swap the info
 
-                    if (needsGC(gc1))
+                    if (gc1 != GCT_NONE)
                     {
                         emitGCregLiveUpd(gc1, reg2, dst);
                     }
 
-                    if (needsGC(gc2))
+                    if (gc2 != GCT_NONE)
                     {
                         emitGCregLiveUpd(gc2, reg1, dst);
                     }
@@ -11058,11 +11032,11 @@ DONE:
 
                 // The reg must currently be holding either a gcref or a byref
                 // GCT_GCREF+int = GCT_BYREF, and GCT_BYREF+/-int = GCT_BYREF
-                if (emitThisGCrefRegs & regMask)
+                if ((gcInfo.GetLiveRegs(GCT_GCREF) & regMask) != RBM_NONE)
                 {
                     assert(ins == INS_add);
                 }
-                if (emitThisByrefRegs & regMask)
+                if ((gcInfo.GetLiveRegs(GCT_BYREF) & regMask) != RBM_NONE)
                 {
                     assert(ins == INS_add || ins == INS_sub);
                 }
@@ -11518,11 +11492,26 @@ BYTE* emitter::emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i)
         }
     }
 
-    // Local calls kill all registers
-    if (ins == INS_call && (emitThisGCrefRegs | emitThisByrefRegs))
+#ifdef FEATURE_EH_FUNCLETS
+    // Calls to "finally" handlers kill all registers.
+    // TODO-MIKE-Review: It's not entirely clear why is this needed. Such calls are
+    // always at the end of the block and the following block should have the correct
+    // CG reg liveness. Sometimes, a nop is inserted after such calls, but then it's
+    // inserted in a no-GC region so it shouldn't matter if some GC regs are killed
+    // later than they really are. In fact, we already kill "later", the regs that
+    // could possibly be live after the call are callee saved registers, and these
+    // are practically dead before the call.
+    // But the weirdest thing is that ARM64 doesn't appear to be doing this.
+    // It certainly doesn't call emitGCregDeadAll but perhaps it achieves the same
+    // effect by other means?
+    // Anyway, even if this code is useless removing it results in GC info diffs.
+    if ((ins == INS_call) && (gcInfo.GetAllLiveRegs() != RBM_NONE))
     {
-        emitGCregDeadUpdMask(emitThisGCrefRegs | emitThisByrefRegs, dst);
+        emitGCregDeadAll(dst);
     }
+#else
+    assert(ins != INS_call);
+#endif
 
     return dst;
 }
@@ -11544,10 +11533,9 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 {
     assert(emitIssuing);
 
-    BYTE*         dst           = *dp;
-    size_t        sz            = sizeof(instrDesc);
-    instruction   ins           = id->idIns();
-    unsigned char callInstrSize = 0;
+    BYTE*       dst = *dp;
+    size_t      sz  = sizeof(instrDesc);
+    instruction ins = id->idIns();
 
 #ifdef DEBUG
     bool dspOffs = emitComp->opts.dspGCtbls;
@@ -11560,21 +11548,13 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
     assert(ins != INS_imul || size >= EA_4BYTE);                  // Has no 'w' bit
     assert(instrIs3opImul(id->idIns()) == 0 || size >= EA_4BYTE); // Has no 'w' bit
 
-    VARSET_TP GCvars = VarSetOps::UninitVal();
-
     // What instruction format have we got?
     switch (id->idInsFmt())
     {
         code_t   code;
         unsigned regcode;
-        X86_ONLY(int args);
-        CnsVal cnsVal;
-
-        BYTE* addr;
-        bool  recCall;
-
-        regMaskTP gcrefRegs;
-        regMaskTP byrefRegs;
+        CnsVal   cnsVal;
+        BYTE*    addr;
 
         /********************************************************************/
         /*                        No operands                               */
@@ -11678,43 +11658,9 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
         case IF_METHOD:
         case IF_METHPTR:
-            // Assume we'll be recording this call
-            recCall = true;
-
-            // Get hold of the argument count and field Handle
-            X86_ONLY(args = emitGetInsCDinfo(id));
-
-            // Is this a "fat" call descriptor?
-            if (id->idIsLargeCall())
-            {
-                instrDescCGCA* idCall = static_cast<instrDescCGCA*>(id);
-
-                gcrefRegs = idCall->idcGcrefRegs;
-                byrefRegs = idCall->idcByrefRegs;
-                GCvars    = idCall->idcGCvars;
-                sz        = sizeof(instrDescCGCA);
-            }
-            else
-            {
-                assert(!id->idIsLargeDsp());
-                assert(!id->idIsLargeCns());
-
-                gcrefRegs = emitDecodeCallGCregs(id);
-                byrefRegs = RBM_NONE;
-                GCvars    = emitEmptyGCrefVars;
-                sz        = sizeof(instrDesc);
-            }
-
-            addr = (BYTE*)id->idAddr()->iiaAddr;
+            addr = id->idAddr()->iiaAddr;
             assert(addr != nullptr);
 
-            // Some helpers don't get recorded in GC tables
-            if (id->idIsNoGC())
-            {
-                recCall = false;
-            }
-
-            // What kind of a call do we have here?
             if (id->idInsFmt() == IF_METHPTR)
             {
                 // This is call indirect via a method pointer
@@ -11753,121 +11699,38 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 #endif // TARGET_AMD64
                     dst += emitOutputLong(dst, static_cast<int>(reinterpret_cast<intptr_t>(addr)));
                 }
-                goto DONE_CALL;
             }
+            else
+            {
+                // This is call direct where we know the target, thus we can
+                // use a direct call; the target to jump to is in iiaAddr.
+                assert(id->idInsFmt() == IF_METHOD);
 
-            // Else
-            // This is call direct where we know the target, thus we can
-            // use a direct call; the target to jump to is in iiaAddr.
-            assert(id->idInsFmt() == IF_METHOD);
+                // Output the call opcode followed by the target distance
+                dst += (ins == INS_l_jmp) ? emitOutputByte(dst, insCode(ins)) : emitOutputByte(dst, insCodeMI(ins));
 
-            // Output the call opcode followed by the target distance
-            dst += (ins == INS_l_jmp) ? emitOutputByte(dst, insCode(ins)) : emitOutputByte(dst, insCodeMI(ins));
-
-            ssize_t offset;
+                ssize_t offset;
 #ifdef TARGET_AMD64
-            // All REL32 on Amd64 go through recordRelocation.  Here we will output zero to advance dst.
-            offset = 0;
-            assert(id->idIsDspReloc());
+                // All REL32 on Amd64 go through recordRelocation.  Here we will output zero to advance dst.
+                offset = 0;
+                assert(id->idIsDspReloc());
 #else
-            // Calculate PC relative displacement.
-            // Although you think we should be using sizeof(void*), the x86 and x64 instruction set
-            // only allow a 32-bit offset, so we correctly use sizeof(INT32)
-            offset = addr - (dst + sizeof(INT32));
+                // Calculate PC relative displacement.
+                // Although you think we should be using sizeof(void*), the x86 and x64 instruction set
+                // only allow a 32-bit offset, so we correctly use sizeof(INT32)
+                offset = addr - (dst + sizeof(INT32));
 #endif
 
-            dst += emitOutputLong(dst, offset);
+                dst += emitOutputLong(dst, offset);
 
-            if (id->idIsDspReloc())
-            {
-                emitRecordRelocation((void*)(dst - sizeof(INT32)), addr, IMAGE_REL_BASED_REL32);
+                if (id->idIsDspReloc())
+                {
+                    emitRecordRelocation((void*)(dst - sizeof(INT32)), addr, IMAGE_REL_BASED_REL32);
+                }
             }
 
         DONE_CALL:
-            // We update the variable (not register) GC info before the call as the variables cannot be
-            // used by the call. Killing variables before the call helps with
-            // boundary conditions if the call is CORINFO_HELP_THROW - see bug 50029.
-            // If we ever track aliased variables (which could be used by the
-            // call), we would have to keep them alive past the call.
-
-            callInstrSize = static_cast<unsigned char>(dst - *dp);
-
-            // Note the use of address `*dp`, the call instruction address, instead of `dst`, the post-call-instruction
-            // address.
-            emitUpdateLiveGCvars(GCvars, *dp);
-
-#ifdef DEBUG
-            // Output any delta in GC variable info, corresponding to the before-call GC var updates done above.
-            if (EMIT_GC_VERBOSE || emitComp->opts.disasmWithGC)
-            {
-                emitDispGCVarDelta();
-            }
-#endif // DEBUG
-
-            // If the method returns a GC ref, mark EAX appropriately
-            if (id->idGCref() == GCT_GCREF)
-            {
-                gcrefRegs |= RBM_EAX;
-            }
-            else if (id->idGCref() == GCT_BYREF)
-            {
-                byrefRegs |= RBM_EAX;
-            }
-
-#ifdef UNIX_AMD64_ABI
-            // If is a multi-register return method is called, mark RDX appropriately (for System V AMD64).
-            if (id->idIsLargeCall())
-            {
-                instrDescCGCA* idCall = (instrDescCGCA*)id;
-                if (idCall->idSecondGCref() == GCT_GCREF)
-                {
-                    gcrefRegs |= RBM_RDX;
-                }
-                else if (idCall->idSecondGCref() == GCT_BYREF)
-                {
-                    byrefRegs |= RBM_RDX;
-                }
-            }
-#endif // UNIX_AMD64_ABI
-
-            // If the GC register set has changed, report the new set
-            if (gcrefRegs != emitThisGCrefRegs)
-            {
-                emitUpdateLiveGCregs(GCT_GCREF, gcrefRegs, dst);
-            }
-
-            if (byrefRegs != emitThisByrefRegs)
-            {
-                emitUpdateLiveGCregs(GCT_BYREF, byrefRegs, dst);
-            }
-
-            if (recCall X86_ONLY(|| (args != 0)))
-            {
-                // For callee-pop, all arguments will be popped  after the call.
-                // For caller-pop, any GC arguments will go dead after the call.
-
-                assert(callInstrSize != 0);
-
-#ifdef TARGET_X86
-                if (args < 0)
-                {
-                    emitStackKillArgs(dst, -args, callInstrSize);
-                }
-                else
-                {
-                    emitStackPop(dst, /*isCall*/ true, callInstrSize, args);
-                }
-#else
-                emitRecordGCCallPop(dst, callInstrSize);
-#endif
-            }
-
-            // Do we need to record a call location for GC purposes?
-            if (!emitFullGCinfo && recCall)
-            {
-                assert(callInstrSize != 0);
-                emitRecordGCcall(dst, callInstrSize);
-            }
+            sz = emitRecordGCCall(id, *dp, dst);
 
 #ifdef DEBUG
             if (ins == INS_call)
@@ -12081,46 +11944,14 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_ARD:
         case IF_AWR:
         case IF_ARW:
+            dst = emitOutputAM(dst, id, insCodeMR(ins));
 
-            dst = emitCodeWithInstructionSize(dst, emitOutputAM(dst, id, insCodeMR(ins)), &callInstrSize);
-
-            switch (ins)
+            if (ins == INS_call)
             {
-                case INS_call:
-
-                IND_CALL:
-                    // Get hold of the argument count and method handle
-                    X86_ONLY(args = emitGetInsCIargs(id));
-
-                    // Is this a "fat" call descriptor?
-                    if (id->idIsLargeCall())
-                    {
-                        instrDescCGCA* idCall = static_cast<instrDescCGCA*>(id);
-
-                        gcrefRegs = idCall->idcGcrefRegs;
-                        byrefRegs = idCall->idcByrefRegs;
-                        GCvars    = idCall->idcGCvars;
-                        sz        = sizeof(instrDescCGCA);
-                    }
-                    else
-                    {
-                        assert(!id->idIsLargeDsp());
-                        assert(!id->idIsLargeCns());
-
-                        gcrefRegs = emitDecodeCallGCregs(id);
-                        byrefRegs = RBM_NONE;
-                        GCvars    = emitEmptyGCrefVars;
-                        sz        = sizeof(instrDesc);
-                    }
-
-                    recCall = true;
-
-                    goto DONE_CALL;
-
-                default:
-                    sz = emitSizeOfInsDsc(id);
-                    break;
+                goto DONE_CALL;
             }
+
+            sz = emitSizeOfInsDsc(id);
             break;
 
         case IF_RRW_ARD_CNS:
@@ -12260,11 +12091,11 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 break;
             }
 
-            dst = emitCodeWithInstructionSize(dst, emitOutputSV(dst, id, insCodeMR(ins)), &callInstrSize);
+            dst = emitOutputSV(dst, id, insCodeMR(ins));
 
             if (ins == INS_call)
             {
-                goto IND_CALL;
+                goto DONE_CALL;
             }
 
             break;
@@ -12646,43 +12477,36 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
     assert(sz == emitSizeOfInsDsc(id));
 
 #if !FEATURE_FIXED_OUT_ARGS
-    bool updateStackLevel = !emitIGisInProlog(ig) && !emitIGisInEpilog(ig);
-
-#ifdef FEATURE_EH_FUNCLETS
-    updateStackLevel = updateStackLevel && !emitIGisInFuncletProlog(ig) && !emitIGisInFuncletEpilog(ig);
-#endif
-
-    // Make sure we keep the current stack level up to date
-    if (updateStackLevel)
+    if (!emitIGisInProlog(ig) && !ig->IsEpilog() && !ig->IsFuncletPrologOrEpilog())
     {
         switch (ins)
         {
+            case INS_push_hide:
+            case INS_pop_hide:
+                break;
             case INS_push:
-                // Please note: {INS_push_hide,IF_LABEL} is used to push the address of the
-                // finally block for calling it locally for an op_leave.
-                emitStackPush(dst, id->idGCref());
+                emitStackPush(emitCurCodeOffs(dst), id->idGCref());
                 break;
-
             case INS_pop:
-                emitStackPop(dst, false, /*callInstrSize*/ 0, 1);
+                emitStackPop(emitCurCodeOffs(dst), 1);
                 break;
-
-            case INS_sub:
-                // Check for "sub ESP, icon"
-                if (ins == INS_sub && id->idInsFmt() == IF_RRW_CNS && id->idReg1() == REG_ESP)
-                {
-                    assert((size_t)emitGetInsSC(id) < 0x00000000FFFFFFFFLL);
-                    emitStackPushN(dst, (unsigned)(emitGetInsSC(id) / TARGET_POINTER_SIZE));
-                }
-                break;
-
             case INS_add:
-                // Check for "add ESP, icon"
-                if (ins == INS_add && id->idInsFmt() == IF_RRW_CNS && id->idReg1() == REG_ESP)
+            case INS_sub:
+                if ((id->idInsFmt() == IF_RRW_CNS) && (id->idReg1() == REG_ESP))
                 {
-                    assert((size_t)emitGetInsSC(id) < 0x00000000FFFFFFFFLL);
-                    emitStackPop(dst, /*isCall*/ false, /*callInstrSize*/ 0,
-                                 (unsigned)(emitGetInsSC(id) / TARGET_POINTER_SIZE));
+                    size_t imm = static_cast<size_t>(emitGetInsSC(id));
+                    assert(imm < UINT_MAX);
+                    unsigned count    = static_cast<unsigned>(imm) / TARGET_POINTER_SIZE;
+                    unsigned codeOffs = emitCurCodeOffs(dst);
+
+                    if (ins == INS_add)
+                    {
+                        emitStackPop(codeOffs, count);
+                    }
+                    else
+                    {
+                        emitStackPushN(codeOffs, count);
+                    }
                 }
                 break;
 
@@ -12691,7 +12515,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         }
     }
 
-    assert((int)emitCurStackLvl >= 0);
+    assert(emitCurStackLvl <= INT32_MAX);
 #endif // !FEATURE_FIXED_OUT_ARGS
 
     // Only epilog "instructions" and some pseudo-instrs
@@ -12739,15 +12563,13 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 #ifdef DEBUG
     if (emitComp->compDebugBreak)
     {
-        // set JitEmitPrintRefRegs=1 will print out emitThisGCrefRegs and emitThisByrefRegs
-        // at the beginning of this method.
         if (JitConfig.JitEmitPrintRefRegs() != 0)
         {
             printf("Before emitOutputInstr for id->idDebugOnlyInfo()->idNum=0x%02x\n", id->idDebugOnlyInfo()->idNum);
-            printf("  emitThisGCrefRegs");
-            emitDispRegSet(emitThisGCrefRegs);
-            printf("\n  emitThisByrefRegs");
-            emitDispRegSet(emitThisByrefRegs);
+            printf("  REF regs");
+            emitDispRegSet(gcInfo.GetLiveRegs(GCT_GCREF));
+            printf("\n  BYREF regs");
+            emitDispRegSet(gcInfo.GetLiveRegs(GCT_BYREF));
             printf("\n");
         }
 
@@ -12767,23 +12589,14 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
     {
         // INS_mulEAX has implicit target of Edx:Eax. Make sure
         // that we detected this cleared its GC-status.
-
-        assert(((RBM_EAX | RBM_EDX) & (emitThisGCrefRegs | emitThisByrefRegs)) == 0);
+        assert((gcInfo.GetAllLiveRegs() & (RBM_EAX | RBM_EDX)) == RBM_NONE);
     }
 
     if (instrIs3opImul(ins))
     {
         // The target of the 3-operand imul is implicitly encoded. Make sure
         // that we detected the implicit register and cleared its GC-status.
-
-        regMaskTP regMask = genRegMask(inst3opImulReg(ins));
-        assert((regMask & (emitThisGCrefRegs | emitThisByrefRegs)) == 0);
-    }
-
-    // Output any delta in GC info.
-    if (EMIT_GC_VERBOSE || emitComp->opts.disasmWithGC)
-    {
-        emitDispGCInfoDelta();
+        assert((gcInfo.GetAllLiveRegs() & genRegMask(inst3opImulReg(ins))) == RBM_NONE);
     }
 #endif
 
@@ -14324,8 +14137,4 @@ emitter::insExecutionCharacteristics emitter::getInsExecutionCharacteristics(ins
 }
 
 #endif // defined(DEBUG) || defined(LATE_DISASM)
-
-/*****************************************************************************/
-/*****************************************************************************/
-
-#endif // defined(TARGET_XARCH)
+#endif // TARGET_XARCH

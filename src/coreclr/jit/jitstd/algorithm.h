@@ -198,4 +198,48 @@ void sort(RandomAccessIterator first, RandomAccessIterator last, Less less)
 #endif // DEBUG
     }
 }
+
+template<typename RandomAccessIterator, typename T, typename Less>
+RandomAccessIterator lower_bound(RandomAccessIterator first, RandomAccessIterator last, const T& value, Less less)
+{
+    for (auto count = last - first; count > 0;)
+    {
+        auto half = count / 2;
+        auto pivot = first + half;
+
+        if (less(*pivot, value))
+        {
+            first = ++pivot;
+            count -= half + 1;
+        }
+        else
+        {
+            count = half;
+        }
+    }
+
+    return first;
+}
+
+template<typename RandomAccessIterator, typename T, typename Less>
+RandomAccessIterator upper_bound(RandomAccessIterator first, RandomAccessIterator last, const T& value, Less less)
+{
+    for (auto count = last - first; count > 0;)
+    {
+        auto half = count / 2;
+        auto pivot = first + half;
+
+        if (less(value, *pivot))
+        {
+            count = half;
+        }
+        else
+        {
+            first = ++pivot;
+            count -= half + 1;
+        }
+    }
+
+    return first;
+}
 }

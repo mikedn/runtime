@@ -5366,14 +5366,13 @@ emitter::instrDesc* emitter::emitNewInstrReloc(emitAttr attr, BYTE* addr)
 
 size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 {
-    BYTE*         dst           = *dp;
-    BYTE*         odst          = dst;
-    code_t        code          = 0;
-    size_t        sz            = 0;
-    instruction   ins           = id->idIns();
-    insFormat     fmt           = id->idInsFmt();
-    emitAttr      size          = id->idOpSize();
-    unsigned char callInstrSize = 0;
+    BYTE*       dst  = *dp;
+    BYTE*       odst = dst;
+    code_t      code = 0;
+    size_t      sz   = 0;
+    instruction ins  = id->idIns();
+    insFormat   fmt  = id->idInsFmt();
+    emitAttr    size = id->idOpSize();
 
 #ifdef DEBUG
     bool dspOffs = emitComp->opts.dspGCtbls || !emitComp->opts.disDiffable;
@@ -5381,16 +5380,10 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
     assert(REG_NA == (int)REG_NA);
 
-    VARSET_TP GCvars = VarSetOps::UninitVal();
-
-    /* What instruction format have we got? */
-
     switch (fmt)
     {
-        int       imm;
-        BYTE*     addr;
-        regMaskTP gcrefRegs;
-        regMaskTP byrefRegs;
+        int   imm;
+        BYTE* addr;
 
         case IF_T1_A: // T1_A    ................
             sz   = SMALL_IDSC_SIZE;
@@ -6028,57 +6021,13 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
             break;
 
         case IF_T1_D2: // T1_D2   .........mmmm...                                R3*
-
-            /* Is this a "fat" call descriptor? */
-
-            if (id->idIsLargeCall())
-            {
-                instrDescCGCA* idCall = static_cast<instrDescCGCA*>(id);
-
-                gcrefRegs = idCall->idcGcrefRegs;
-                byrefRegs = idCall->idcByrefRegs;
-                GCvars    = idCall->idcGCvars;
-                sz        = sizeof(instrDescCGCA);
-            }
-            else
-            {
-                assert(!id->idIsLargeCns());
-
-                gcrefRegs = emitDecodeCallGCregs(id);
-                byrefRegs = RBM_NONE;
-                GCvars    = emitEmptyGCrefVars;
-                sz        = sizeof(instrDesc);
-            }
-
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT1_M4(id->idReg3());
-            callInstrSize = SafeCvtAssert<unsigned char>(emitOutput_Thumb1Instr(dst, code));
-            dst += callInstrSize;
-            goto DONE_CALL;
+            dst += emitOutput_Thumb1Instr(dst, code);
+            sz = emitRecordGCCall(id, *dp, dst);
+            break;
 
         case IF_T2_J3: // T2_J3   .....Siiiiiiiiii ..j.jiiiiiiiiii.      Call                imm24
-
-            /* Is this a "fat" call descriptor? */
-
-            if (id->idIsLargeCall())
-            {
-                instrDescCGCA* idCall = static_cast<instrDescCGCA*>(id);
-
-                gcrefRegs = idCall->idcGcrefRegs;
-                byrefRegs = idCall->idcByrefRegs;
-                GCvars    = idCall->idcGCvars;
-                sz        = sizeof(instrDescCGCA);
-            }
-            else
-            {
-                assert(!id->idIsLargeCns());
-
-                gcrefRegs = emitDecodeCallGCregs(id);
-                byrefRegs = RBM_NONE;
-                GCvars    = emitEmptyGCrefVars;
-                sz        = sizeof(instrDesc);
-            }
-
             if (id->idAddr()->iiaAddr == NULL) /* a recursive call */
             {
                 addr = emitCodeBlock;
@@ -6091,10 +6040,12 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
             if (id->idIsDspReloc())
             {
-                callInstrSize = SafeCvtAssert<unsigned char>(emitOutput_Thumb2Instr(dst, code));
-                dst += callInstrSize;
+                dst += emitOutput_Thumb2Instr(dst, code);
+
                 if (emitComp->info.compMatchedVM)
+                {
                     emitRecordRelocation((void*)(dst - 4), addr, IMAGE_REL_BASED_THUMB_BRANCH24);
+                }
             }
             else
             {
@@ -6122,53 +6073,10 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 disp = abs(disp);
                 assert((disp & 0x00fffffe) == disp);
 
-                callInstrSize = SafeCvtAssert<unsigned char>(emitOutput_Thumb2Instr(dst, code));
-                dst += callInstrSize;
+                dst += emitOutput_Thumb2Instr(dst, code);
             }
 
-        DONE_CALL:
-
-            /* We update the GC info before the call as the variables cannot be
-               used by the call. Killing variables before the call helps with
-               boundary conditions if the call is CORINFO_HELP_THROW - see bug 50029.
-               If we ever track aliased variables (which could be used by the
-               call), we would have to keep them alive past the call. */
-
-            emitUpdateLiveGCvars(GCvars, *dp);
-
-#ifdef DEBUG
-            // Output any delta in GC variable info, corresponding to the before-call GC var updates done above.
-            if (EMIT_GC_VERBOSE || emitComp->opts.disasmWithGC)
-            {
-                emitDispGCVarDelta();
-            }
-#endif // DEBUG
-
-            // If the method returns a GC ref, mark R0 appropriately.
-            if (id->idGCref() == GCT_GCREF)
-                gcrefRegs |= RBM_R0;
-            else if (id->idGCref() == GCT_BYREF)
-                byrefRegs |= RBM_R0;
-
-            // If the GC register set has changed, report the new set.
-            if (gcrefRegs != emitThisGCrefRegs)
-                emitUpdateLiveGCregs(GCT_GCREF, gcrefRegs, dst);
-
-            if (byrefRegs != emitThisByrefRegs)
-                emitUpdateLiveGCregs(GCT_BYREF, byrefRegs, dst);
-
-            // Some helper calls may be marked as not requiring GC info to be recorded.
-            if (!id->idIsNoGC())
-            {
-                emitRecordGCCallPop(dst, callInstrSize);
-
-                // Do we need to record a call location for GC purposes?
-                if (!emitFullGCinfo)
-                {
-                    emitRecordGCcall(dst, callInstrSize);
-                }
-            }
-
+            sz = emitRecordGCCall(id, *dp, dst);
             break;
 
         /********************************************************************/
@@ -6257,15 +6165,13 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
     if (emitComp->compDebugBreak)
     {
-        // set JitEmitPrintRefRegs=1 will print out emitThisGCrefRegs and emitThisByrefRegs
-        // at the beginning of this method.
         if (JitConfig.JitEmitPrintRefRegs() != 0)
         {
             printf("Before emitOutputInstr for id->idDebugOnlyInfo()->idNum=0x%02x\n", id->idDebugOnlyInfo()->idNum);
-            printf("  emitThisGCrefRegs");
-            emitDispRegSet(emitThisGCrefRegs);
-            printf("\n  emitThisByrefRegs");
-            emitDispRegSet(emitThisByrefRegs);
+            printf("  REF regs");
+            emitDispRegSet(gcInfo.GetLiveRegs(GCT_GCREF));
+            printf("\n  BYREF regs");
+            emitDispRegSet(gcInfo.GetLiveRegs(GCT_BYREF));
             printf("\n");
         }
 
@@ -6275,12 +6181,6 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         {
             assert(!"JitBreakEmitOutputInstr reached");
         }
-    }
-
-    // Output any delta in GC info.
-    if (EMIT_GC_VERBOSE || emitComp->opts.disasmWithGC)
-    {
-        emitDispGCInfoDelta();
     }
 #endif
 

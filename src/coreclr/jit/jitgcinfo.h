@@ -1,72 +1,10 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-//  Garbage-collector information
-//  Keeps track of which variables hold pointers.
-//  Generates the GC-tables
+#pragma once
 
-#ifndef _JITGCINFO_H_
-#define _JITGCINFO_H_
-
+#ifdef JIT32_GCENCODER
 #include "gcinfotypes.h"
-
-#ifndef JIT32_GCENCODER
-#include "gcinfoencoder.h"
-#endif
-
-#ifndef JIT32_GCENCODER
-// Shash typedefs
-struct RegSlotIdKey
-{
-    unsigned short m_regNum;
-    unsigned short m_flags;
-
-    RegSlotIdKey()
-    {
-    }
-
-    RegSlotIdKey(unsigned short regNum, unsigned short flags) : m_regNum(regNum), m_flags(flags)
-    {
-    }
-
-    static unsigned GetHashCode(RegSlotIdKey rsk)
-    {
-        return (rsk.m_flags << (8 * sizeof(unsigned short))) + rsk.m_regNum;
-    }
-
-    static bool Equals(RegSlotIdKey rsk1, RegSlotIdKey rsk2)
-    {
-        return rsk1.m_regNum == rsk2.m_regNum && rsk1.m_flags == rsk2.m_flags;
-    }
-};
-
-struct StackSlotIdKey
-{
-    int            m_offset;
-    bool           m_fpRel;
-    unsigned short m_flags;
-
-    StackSlotIdKey()
-    {
-    }
-
-    StackSlotIdKey(int offset, bool fpRel, unsigned short flags) : m_offset(offset), m_fpRel(fpRel), m_flags(flags)
-    {
-    }
-
-    static unsigned GetHashCode(StackSlotIdKey ssk)
-    {
-        return (ssk.m_flags << (8 * sizeof(unsigned short))) ^ (unsigned)ssk.m_offset ^ (ssk.m_fpRel ? 0x1000000 : 0);
-    }
-
-    static bool Equals(StackSlotIdKey ssk1, StackSlotIdKey ssk2)
-    {
-        return ssk1.m_offset == ssk2.m_offset && ssk1.m_fpRel == ssk2.m_fpRel && ssk1.m_flags == ssk2.m_flags;
-    }
-};
-
-typedef JitHashTable<RegSlotIdKey, RegSlotIdKey, GcSlotId>     RegSlotMap;
-typedef JitHashTable<StackSlotIdKey, StackSlotIdKey, GcSlotId> StackSlotMap;
 #endif
 
 class GCInfo
@@ -74,283 +12,149 @@ class GCInfo
     friend class CodeGenInterface;
     friend class CodeGen;
 
-    Compiler* const compiler;
-    regMaskTP       liveLclRegs;
-
 public:
-    GCInfo(Compiler* compiler) : compiler(compiler)
+    struct StackSlotLifetime
     {
-    }
+        StackSlotLifetime* next = nullptr;
 
-    regMaskTP GetLiveLclRegs() const
-    {
-        return liveLclRegs;
-    }
+        unsigned slotOffset;
+        unsigned beginCodeOffs;
+        unsigned endCodeOffs;
 
-    void SetLiveLclRegs(regMaskTP regs);
-
-    void AddLiveLclRegs(regMaskTP regs)
-    {
-        SetLiveLclRegs(liveLclRegs | regs);
-    }
-
-    void RemoveLiveLclRegs(regMaskTP regs)
-    {
-        SetLiveLclRegs(liveLclRegs & ~regs);
-    }
-
-    void ClearLiveLclRegs()
-    {
-        liveLclRegs = RBM_NONE;
-    }
-
-    void BeginPrologCodeGen();
-    void BeginBlockCodeGen(BasicBlock* block);
-    void BeginMethodEpilogCodeGen();
-
-    void gcMarkRegSetGCref(regMaskTP regMask DEBUGARG(bool forceOutput = false));
-    void gcMarkRegSetByref(regMaskTP regMask DEBUGARG(bool forceOutput = false));
-    void gcMarkRegSetNpt(regMaskTP regMask DEBUGARG(bool forceOutput = false));
-    void gcMarkRegPtrVal(regNumber reg, var_types type);
-
+        StackSlotLifetime(int slotOffset, unsigned beginCodeOffset)
+            : slotOffset(slotOffset)
+            , beginCodeOffs(beginCodeOffset)
 #ifdef DEBUG
-    void gcDspGCrefSetChanges(regMaskTP gcRegGCrefSetNew DEBUGARG(bool forceOutput = false));
-    void gcDspByrefSetChanges(regMaskTP gcRegByrefSetNew DEBUGARG(bool forceOutput = false));
-#endif // DEBUG
-
-    /*****************************************************************************/
-
-    //-------------------------------------------------------------------------
-    //
-    //  The following keeps track of which registers currently hold pointer
-    //  values.
-    //
-
-    regMaskTP gcRegGCrefSetCur = RBM_NONE; // current regs holding GCrefs
-    regMaskTP gcRegByrefSetCur = RBM_NONE; // current regs holding Byrefs
-
-    VARSET_TP gcVarPtrSetCur; // current stack locals holding GC pointers
-
-    //-------------------------------------------------------------------------
-    //
-    //  The following keeps track of the lifetimes of non-register variables that
-    //  hold pointers.
-    //
-
-    struct FrameLifetime
-    {
-        FrameLifetime* vpdNext = nullptr;
-
-        unsigned frameOffset;
-
-        unsigned vpdBegOfs; // the offset where life starts
-        unsigned vpdEndOfs; // the offset where life starts
-
-        FrameLifetime(unsigned frameOffset, unsigned beginCodeOffset)
-            : frameOffset(frameOffset)
-            , vpdBegOfs(beginCodeOffset)
-#ifdef DEBUG
-            , vpdEndOfs(0)
+            , endCodeOffs(0)
 #endif
         {
         }
 
-        FrameLifetime(unsigned frameOffset, unsigned beginCodeOffset, unsigned endCodeOffset)
-            : frameOffset(frameOffset), vpdBegOfs(beginCodeOffset), vpdEndOfs(endCodeOffset)
+        StackSlotLifetime(unsigned slotOffset, unsigned beginCodeOffset, unsigned endCodeOffset)
+            : slotOffset(slotOffset), beginCodeOffs(beginCodeOffset), endCodeOffs(endCodeOffset)
         {
         }
     };
 
-    typedef FrameLifetime varPtrDsc;
-
-    FrameLifetime* gcVarPtrList = nullptr;
-    FrameLifetime* gcVarPtrLast = nullptr;
-
-    void gcVarPtrSetInit();
-
-    /*****************************************************************************/
-
-    //  'pointer value' register tracking and argument pushes/pops tracking.
-
-    enum rpdArgType_t
+    enum class RegArgChangeKind : unsigned
     {
-        rpdARG_POP,
-        rpdARG_PUSH,
-        rpdARG_KILL
+        AddRegs,
+        RemoveRegs,
+#ifdef JIT32_GCENCODER
+        PushArg,
+        PopArgs,
+        Pop,
+#else
+        StoreArg,
+#endif
+        KillArgs
     };
 
-    struct regPtrDsc
+    // GC only cares about integer registers and currently all targets have at most
+    // 32 integer registers, we can get away with using uint32_t instead of uint64_t
+    // on ARM and ARM64.
+    static_assert_no_msg(REG_INT_LAST < 32);
+    using RegSet = uint32_t;
+
+    struct RegArgChange
     {
-        regPtrDsc* rpdNext; // next entry in the list
-        unsigned   rpdOffs; // the offset of the instruction
+        RegArgChange* next = nullptr;
+        unsigned      codeOffs;
 
-        union // 2-16 byte union (depending on architecture)
-        {
-            struct // 2-16 byte structure (depending on architecture)
-            {
-                regMaskSmall rpdAdd; // regptr bitset being added
-                regMaskSmall rpdDel; // regptr bitset being removed
-            } rpdCompiler;
-
-            unsigned short rpdPtrArg; // arg offset or popped arg count
-        };
-
-#ifndef JIT32_GCENCODER
-        unsigned char rpdCallInstrSize; // Length of the call instruction.
+        RegArgChangeKind kind : 8;
+        GCtype           gcType : 8;
+#ifdef JIT32_GCENCODER
+        unsigned callRefRegs : CNT_CALLEE_SAVED;
+        unsigned callByrefRegs : CNT_CALLEE_SAVED;
 #endif
-
-        unsigned short rpdArg : 1;     // is this an argument descriptor?
-        unsigned short rpdArgType : 2; // is this an argument push,pop, or kill?
-        rpdArgType_t   rpdArgTypeGet()
-        {
-            return (rpdArgType_t)rpdArgType;
-        }
-
-        unsigned short rpdGCtype : 2; // is this a pointer, after all?
-        GCtype         rpdGCtypeGet()
-        {
-            return (GCtype)rpdGCtype;
-        }
-
-        unsigned short rpdIsThis : 1;                       // is it the 'this' pointer
-        unsigned short rpdCall : 1;                         // is this a true call site?
-        unsigned short : 1;                                 // Padding bit, so next two start on a byte boundary
-        unsigned short rpdCallGCrefRegs : CNT_CALLEE_SAVED; // Callee-saved registers containing GC pointers.
-        unsigned short rpdCallByrefRegs : CNT_CALLEE_SAVED; // Callee-saved registers containing byrefs.
-
-#ifndef JIT32_GCENCODER
-        bool rpdIsCallInstr()
-        {
-            return rpdCall && rpdCallInstrSize != 0;
-        }
-#endif
-    };
-
-    // The following table determines the order in which callee-saved registers
-    // are encoded in GC information at call sites (perhaps among other things).
-    // In any case, they establish a mapping from ordinal callee-save reg "indices" to
-    // register numbers and corresponding bitmaps.
-    static const regMaskTP raRbmCalleeSaveOrder[];
-
-    // This method takes a "compact" bitset of the callee-saved registers, and "expands" it to a full register mask.
-    static regMaskSmall RegMaskFromCalleeSavedMask(unsigned short calleeSaveMask);
-
-    regPtrDsc* gcRegPtrList = nullptr;
-    regPtrDsc* gcRegPtrLast = nullptr;
-    unsigned   gcPtrArgCnt  = 0;
-
-#ifndef JIT32_GCENCODER
-    enum MakeRegPtrMode
-    {
-        MAKE_REG_PTR_MODE_ASSIGN_SLOTS,
-        MAKE_REG_PTR_MODE_DO_WORK
-    };
-
-    // This method has two modes.  In the "assign slots" mode, it figures out what stack locations are
-    // used to contain GC references, and whether those locations contain byrefs or pinning references,
-    // building up mappings from tuples of <offset X byref/pinning> to the corresponding slot id.
-    // In the "do work" mode, we use these slot ids to actually declare live ranges to the encoder.
-    void gcMakeVarPtrTable(GcInfoEncoder* gcInfoEncoder, MakeRegPtrMode mode);
-
-    // At instruction offset "instrOffset," the set of registers indicated by "regMask" is becoming live or dead,
-    // depending on whether "newState" is "GC_SLOT_DEAD" or "GC_SLOT_LIVE".  The subset of registers whose corresponding
-    // bits are set in "byRefMask" contain by-refs rather than regular GC pointers. "*pPtrRegs" is the set of
-    // registers currently known to contain pointers.  If "mode" is "ASSIGN_SLOTS", computes and records slot
-    // ids for the registers.  If "mode" is "DO_WORK", informs "gcInfoEncoder" about the state transition,
-    // using the previously assigned slot ids, and updates "*pPtrRegs" appropriately.
-    void gcInfoRecordGCRegStateChange(GcInfoEncoder* gcInfoEncoder,
-                                      MakeRegPtrMode mode,
-                                      unsigned       instrOffset,
-                                      regMaskSmall   regMask,
-                                      GcSlotState    newState,
-                                      regMaskSmall   byRefMask,
-                                      regMaskSmall*  pPtrRegs);
-
-    // regPtrDsc is also used to encode writes to the outgoing argument space (as if they were pushes)
-    void gcInfoRecordGCStackArgLive(GcInfoEncoder* gcInfoEncoder, MakeRegPtrMode mode, regPtrDsc* genStackPtr);
-
-    // Walk all the pushes between genStackPtrFirst (inclusive) and genStackPtrLast (exclusive)
-    // and mark them as going dead at instrOffset
-    void gcInfoRecordGCStackArgsDead(GcInfoEncoder* gcInfoEncoder,
-                                     unsigned       instrOffset,
-                                     regPtrDsc*     genStackPtrFirst,
-                                     regPtrDsc*     genStackPtrLast);
-
-#endif
-
-#if MEASURE_PTRTAB_SIZE
-    static size_t s_gcRegPtrDscSize;
-    static size_t s_gcTotalPtrTabSize;
-#endif
-
-    regPtrDsc* gcRegPtrAllocDsc();
-
-    /*****************************************************************************/
-
-    //-------------------------------------------------------------------------
-    //
-    //  If we're not generating fully interruptible code, we create a simple
-    //  linked list of call descriptors.
-    //
-
-    struct CallDsc
-    {
-        CallDsc*     cdNext;
-        regMaskSmall cdGCrefRegs;
-        regMaskSmall cdByrefRegs;
-        unsigned     cdOffs;
-#ifndef JIT32_GCENCODER
-        uint16_t cdCallInstrSize;
-#endif
-
-#if !FEATURE_FIXED_OUT_ARGS
-        uint16_t cdArgCnt;
 
         union {
-            struct // used if cdArgCnt == 0
-            {
-                unsigned cdArgMask;      // ptr arg bitfield
-                unsigned cdByrefArgMask; // byref qualifier for cdArgMask
-            } u1;
-
-            unsigned* cdArgTable; // used if cdArgCnt != 0
+            RegSet regs;
+#ifdef JIT32_GCENCODER
+            unsigned argOffset;
+#else
+            int argOffset;
+#endif
         };
-#endif // !FEATURE_FIXED_OUT_ARGS
     };
 
-    CallDsc* gcCallDescList = nullptr;
-    CallDsc* gcCallDescLast = nullptr;
-
-//-------------------------------------------------------------------------
-
+    struct CallSite
+    {
+        CallSite* next = nullptr;
+        RegSet    refRegs;
+        RegSet    byrefRegs;
+        unsigned  codeOffs;
 #ifdef JIT32_GCENCODER
-    void gcCountForHeader(UNALIGNED unsigned int* pUntrackedCount, UNALIGNED unsigned int* pVarPtrTableSize);
+        unsigned argCount;
 
-    bool gcIsUntrackedLocalOrNonEnregisteredArg(unsigned varNum, bool* pThisKeptAliveIsInUntracked = nullptr);
+        union {
+            struct // if argCount == 0
+            {
+                unsigned argMask;
+                unsigned byrefArgMask;
+            };
 
-    size_t gcMakeRegPtrTable(BYTE* dest, int mask, const InfoHdr& header, unsigned codeSize, size_t* pArgTabOffset);
+            unsigned* argTable; // if argCount != 0
+        };
 #else
-    RegSlotMap*   m_regSlotMap   = nullptr;
-    StackSlotMap* m_stackSlotMap = nullptr;
-    // This method has two modes.  In the "assign slots" mode, it figures out what registers and stack
-    // locations are used to contain GC references, and whether those locations contain byrefs or pinning
-    // references, building up mappings from tuples of <reg/offset X byref/pinning> to the corresponding
-    // slot id (in the two member fields declared above).  In the "do work" mode, we use these slot ids to
-    // actually declare live ranges to the encoder.
-    void gcMakeRegPtrTable(GcInfoEncoder* gcInfoEncoder,
-                           unsigned       codeSize,
-                           unsigned       prologSize,
-                           MakeRegPtrMode mode,
-                           unsigned*      callCntRef);
+        unsigned codeEndOffs;
+#endif
+    };
+
+    Compiler* const    compiler;
+    StackSlotLifetime* firstStackSlotLifetime          = nullptr;
+    StackSlotLifetime* lastStackSlotLifetime           = nullptr;
+    RegArgChange*      firstRegArgChange               = nullptr;
+    RegArgChange*      lastRegArgChange                = nullptr;
+    CallSite*          firstCallSite                   = nullptr;
+    CallSite*          lastCallSite                    = nullptr;
+    VARSET_TP          liveLcls                        = VarSetOps::UninitVal();
+    regMaskTP          liveRefRegs                     = RBM_NONE;
+    regMaskTP          liveByrefRegs                   = RBM_NONE;
+    bool               isFullyInterruptible            = false;
+    bool               stackSlotLifetimesMatchLiveLcls = true;
+#ifndef JIT32_GCENCODER
+    bool hasArgStores = false;
+#else
+    bool        isFramePointerUsed = false;
+    bool        useArgsBitStack    = false;
+
+    static constexpr unsigned ArgsBitStackMaxDepth = sizeof(unsigned) * CHAR_BIT;
+
+    union {
+        struct
+        {
+            unsigned gcMask;
+            unsigned byrefMask;
+        } argsBitStack;
+
+        struct
+        {
+            unsigned reportCount;
+            unsigned maxCount;
+            uint8_t* types;
+            uint8_t  inlineStorage[16];
+        } argsStack;
+    };
+
+    regNumber syncThisReg             = REG_NA;
+#ifndef FEATURE_EH_FUNCLETS
+    int       syncThisStackSlotOffset = INT_MIN;
+#endif
+#endif // JIT32_GCENCODER
+    int                 minTrackedStackSlotOffset = 0;
+    int                 maxTrackedStackSlotOffset = 0;
+    unsigned            trackedStackSlotCount     = 0;
+    StackSlotLifetime** liveTrackedStackSlots     = nullptr;
+#ifdef DEBUG
+    ArrayStack<StackSlotLifetime*> deltaStackSlotLifetime;
+    RegArgChange*                  deltaRegArgChangeBase = nullptr;
+    CallSite*                      deltaCallSiteBase     = nullptr;
+    regMaskTP                      deltaRefRegsBase      = RBM_NONE;
+    regMaskTP                      deltaByrefRegsBase    = RBM_NONE;
 #endif
 
-#ifdef JIT32_GCENCODER
-    size_t gcPtrTableSize(const InfoHdr& header, unsigned codeSize, size_t* pArgTabOffset);
-    BYTE* gcPtrTableSave(BYTE* destPtr, const InfoHdr& header, unsigned codeSize, size_t* pArgTabOffset);
-#endif
-
-    // This enumeration yields the result of the analysis below, whether a store
-    // requires a write barrier:
+public:
     enum WriteBarrierForm
     {
         WBF_NoBarrier,        // No barrier is required
@@ -361,155 +165,172 @@ public:
 
     static WriteBarrierForm GetWriteBarrierForm(GenTreeStoreInd* store);
     static WriteBarrierForm GetWriteBarrierFormFromAddress(GenTree* addr);
+    static bool IsNoGCHelper(CorInfoHelpFunc helper);
+    static regMaskTP GetNoGCHelperCalleeKilledRegs(CorInfoHelpFunc helper);
+    static regMaskTP GetNoGCHelperCalleeSavedRegs(CorInfoHelpFunc helper);
 
-    //-------------------------------------------------------------------------
-    //
-    //  These record the info about the procedure in the info-block
-    //
-    CLANG_FORMAT_COMMENT_ANCHOR;
+#if MEASURE_PTRTAB_SIZE
+    static size_t s_gcRegPtrDscSize;
+    static size_t s_gcTotalPtrTabSize;
+#endif
+
+    GCInfo(Compiler* compiler);
+
+    void SetTrackedStackSlotRange(int minOffset, int maxOffset)
+    {
+        assert(maxOffset > minOffset);
+        assert(minOffset % TARGET_POINTER_SIZE == 0);
+        assert(maxOffset % TARGET_POINTER_SIZE == 0);
+
+        minTrackedStackSlotOffset = minOffset;
+        maxTrackedStackSlotOffset = maxOffset;
+        trackedStackSlotCount     = (maxOffset - minOffset) / TARGET_POINTER_SIZE;
+    }
 
 #ifdef JIT32_GCENCODER
-private:
-    BYTE* gcEpilogTable = nullptr;
+    void Begin(unsigned maxStackDepth);
+#else
+    void      Begin();
+#endif
+    void End(unsigned codeOffs);
 
-    unsigned gcEpilogPrevOffset;
+    bool IsFullyInterruptible() const
+    {
+        return isFullyInterruptible;
+    }
 
-    size_t gcInfoBlockHdrSave(BYTE*     dest,
-                              int       mask,
-                              unsigned  methodSize,
-                              unsigned  prologSize,
-                              unsigned  epilogSize,
-                              regMaskTP savedRegs,
-                              InfoHdr*  header,
-                              int*      s_cached);
+#ifdef JIT32_GCENCODER
+    bool ReportCallSites() const
+    {
+        return !ReportRegArgChanges();
+    }
 
-public:
-    static void gcInitEncoderLookupTable();
+    bool ReportRegArgChanges() const
+    {
+        return isFullyInterruptible || ReportNonGCArgChanges();
+    }
 
-private:
-    static size_t gcRecordEpilog(void* pCallBackData, unsigned offset);
-#else // JIT32_GCENCODER
-    void gcInfoBlockHdrSave(GcInfoEncoder* gcInfoEncoder, unsigned methodSize, unsigned prologSize);
+    bool ReportNonGCArgChanges() const
+    {
+        return !isFramePointerUsed
+#ifdef UNIX_X86_ABI
+               // UNIX_X86_ABI uses GC info for unwinding so we need to report all arguments,
+               // even if the GC itself needs only the GC arguments in fully interruptible code.
+               || isFullyInterruptible
+#endif
+            ;
+    }
+#endif
 
-#endif // JIT32_GCENCODER
+    bool HasTrackedStackSlots() const
+    {
+        return trackedStackSlotCount != 0;
+    }
 
-#if !defined(JIT32_GCENCODER) || defined(FEATURE_EH_FUNCLETS)
+    unsigned GetTrackedStackSlotIndex(int offset) const
+    {
+        assert((minTrackedStackSlotOffset <= offset) && (offset < maxTrackedStackSlotOffset));
+        assert(abs(offset) % TARGET_POINTER_SIZE == 0);
 
-    // This method expands the tracked stack variables lifetimes so that any lifetimes within filters
-    // are reported as pinned.
-    void gcMarkFilterVarsPinned();
+        return (offset - minTrackedStackSlotOffset) / TARGET_POINTER_SIZE;
+    }
 
-    // Insert a varPtrDsc to gcVarPtrList that was generated by splitting lifetimes
-    void gcInsertVarPtrDscSplit(varPtrDsc* desc, varPtrDsc* begin);
+    bool IsLiveTrackedStackSlot(unsigned index) const
+    {
+        assert(index < trackedStackSlotCount);
+        return liveTrackedStackSlots[index] != nullptr;
+    }
+
+    regMaskTP GetAllLiveRegs() const
+    {
+        return liveRefRegs | liveByrefRegs;
+    }
+
+    regMaskTP GetLiveRegs(GCtype type) const
+    {
+        assert(type != GCT_NONE);
+
+        return type == GCT_GCREF ? liveRefRegs : liveByrefRegs;
+    }
+
+    GCtype GetRegType(regNumber reg) const
+    {
+        regMaskTP mask = genRegMask(reg);
+
+        if ((liveRefRegs & mask) != RBM_NONE)
+        {
+            return GCT_GCREF;
+        }
+
+        if ((liveByrefRegs & mask) != RBM_NONE)
+        {
+            return GCT_BYREF;
+        }
+
+        return GCT_NONE;
+    }
+
+#ifdef JIT32_GCENCODER
+    regNumber GetSyncThisReg() const
+    {
+        return syncThisReg;
+    }
+#endif
+
+    void BeginStackSlotLifetime(GCtype type, unsigned index, unsigned codeOffs, int slotOffs);
+    void EndStackSlotLifetime(unsigned index, unsigned codeOffs DEBUGARG(int slotOffs));
+    void SetLiveStackSlots(VARSET_TP newLiveLcls, unsigned codeOffs);
+
+    void AddLiveReg(GCtype type, regNumber reg, unsigned codeOffs);
+    void SetLiveRegs(GCtype type, regMaskTP regs, unsigned codeOffs);
+    void RemoveLiveReg(regNumber reg, unsigned codeOffs);
+    void RemoveAllLiveRegs(unsigned codeOffs);
+
+#ifdef JIT32_GCENCODER
+    void StackPush(GCtype type, unsigned stackLevel, unsigned codeOffs);
+    void StackPushMultiple(unsigned count, unsigned stackLevel, unsigned codeOffs);
+    void StackKill(unsigned count, unsigned stackLevel, unsigned codeOffs);
+    void StackPop(unsigned count, unsigned stackLevel, unsigned codeOffs, bool isCall);
+
+    void AddCallSite(unsigned stackLevel, unsigned codeOffs);
+
+    void* CreateAndStoreGCInfo(class CodeGen* codeGen, unsigned codeSize, unsigned prologSize, unsigned epilogSize);
+#else
+    void AddCallArgStore(unsigned codeOffs, int argOffs, GCtype gcType);
+    void AddCallArgsKill(unsigned codeOffs);
+    void AddCallSite(unsigned callOffs, unsigned callEndOffs);
+    void CreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize);
+#endif
 
 #ifdef DEBUG
-    void gcDumpVarPtrDsc(varPtrDsc* desc);
-#endif // DEBUG
-
-#endif // !defined(JIT32_GCENCODER) || defined(FEATURE_EH_FUNCLETS)
-
-#if DUMP_GC_TABLES
-
-    void gcFindPtrsInFrame(const void* infoBlock, const void* codeBlock, unsigned offs);
-
-#ifdef JIT32_GCENCODER
-    size_t gcInfoBlockHdrDump(const BYTE* table,
-                              InfoHdr*    header,      /* OUT */
-                              unsigned*   methodSize); /* OUT */
-
-    size_t gcDumpPtrTable(const BYTE* table, const InfoHdr& header, unsigned methodSize);
-
-#endif // JIT32_GCENCODER
-#endif // DUMP_GC_TABLES
-
-public:
-    void AddFrameLifetime(varPtrDsc* lifetime)
-    {
-        if (gcVarPtrLast == nullptr)
-        {
-            assert(gcVarPtrList == nullptr);
-
-            gcVarPtrList = lifetime;
-        }
-        else
-        {
-            assert(gcVarPtrList != nullptr);
-
-            gcVarPtrLast->vpdNext = lifetime;
-        }
-
-        gcVarPtrLast = lifetime;
-    }
+    void DumpStackSlotLifetimeDelta(const char* header);
+    void DumpDelta(const char* header);
+#endif
 
 private:
-    ReturnKind getReturnKind();
+    RegArgChange* AddRegArgChange();
+    void AddLiveRegs(GCtype type, regMaskTP regs, unsigned codeOffs);
+    void RemoveLiveRegs(GCtype type, regMaskTP regs, unsigned codeOffs);
+
+#ifdef JIT32_GCENCODER
+    void AddCallArgPush(GCtype type, unsigned stackLevel, unsigned codeOffs);
+    void AddCallArgsKill(unsigned count, unsigned codeOffs);
+    void AddCallArgsPop(unsigned count, unsigned codeOffs, bool isCall);
+#endif
+
+#if !defined(JIT32_GCENCODER) || defined(FEATURE_EH_FUNCLETS)
+    void MarkFilterStackSlotsPinned();
+    void InsertSplitStackSlotLifetime(StackSlotLifetime* desc, StackSlotLifetime* begin);
+    INDEBUG(void DumpStackSlotLifetime(const char* message, StackSlotLifetime* desc) const;)
+#endif
+
+#ifdef DEBUG
+    void DumpRegDelta(const char* header, GCtype type, regMaskTP baseRegs, regMaskTP diffRegs);
+    void DumpRegArgChangeDelta(const char* header);
+    void DumpCallSiteDelta(const char* header);
+#endif
 };
 
-inline unsigned char encodeUnsigned(BYTE* dest, unsigned value)
-{
-    unsigned char size = 1;
-    unsigned      tmp  = value;
-    while (tmp > 0x7F)
-    {
-        tmp >>= 7;
-        assert(size < 6); // Invariant.
-        size++;
-    }
-    if (dest)
-    {
-        // write the bytes starting at the end of dest in LSB to MSB order
-        BYTE* p    = dest + size;
-        BYTE  cont = 0; // The last byte has no continuation flag
-        while (value > 0x7F)
-        {
-            *--p = cont | (value & 0x7f);
-            value >>= 7;
-            cont = 0x80; // Non last bytes have a continuation flag
-        }
-        *--p = cont | (BYTE)value; // Now write the first byte
-        assert(p == dest);
-    }
-    return size;
-}
-
-inline unsigned char encodeUDelta(BYTE* dest, unsigned value, unsigned lastValue)
-{
-    assert(value >= lastValue);
-    return encodeUnsigned(dest, value - lastValue);
-}
-
-inline unsigned char encodeSigned(BYTE* dest, int val)
-{
-    unsigned char size  = 1;
-    unsigned      value = val;
-    BYTE          neg   = 0;
-    if (val < 0)
-    {
-        value = -val;
-        neg   = 0x40;
-    }
-    unsigned tmp = value;
-    while (tmp > 0x3F)
-    {
-        tmp >>= 7;
-        assert(size < 16); // Definitely sufficient for unsigned.  Fits in an unsigned char, certainly.
-        size++;
-    }
-    if (dest)
-    {
-        // write the bytes starting at the end of dest in LSB to MSB order
-        BYTE* p    = dest + size;
-        BYTE  cont = 0; // The last byte has no continuation flag
-        while (value > 0x3F)
-        {
-            *--p = cont | (value & 0x7f);
-            value >>= 7;
-            cont = 0x80; // Non last bytes have a continuation flag
-        }
-        *--p = neg | cont | (BYTE)value; // Now write the first byte
-        assert(p == dest);
-    }
-    return size;
-}
-
-#endif // _JITGCINFO_H_
+#ifdef JIT32_GCENCODER
+void InitGCEncoderLookupTable();
+#endif

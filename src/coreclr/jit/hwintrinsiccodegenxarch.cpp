@@ -20,8 +20,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "codegen.h"
 #include "sideeffects.h"
 #include "lower.h"
-#include "gcinfo.h"
-#include "gcinfoencoder.h"
 
 #if DEBUG
 static bool IsContainableHWIntrinsicOp(Compiler* compiler, GenTreeHWIntrinsic* node, GenTree* op)

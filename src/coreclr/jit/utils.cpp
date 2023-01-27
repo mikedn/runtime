@@ -165,7 +165,7 @@ void dspRegMask(regMaskTP regMask, size_t minSiz)
 {
     const char* sep = "";
 
-    printf("[");
+    printf("{");
 
     bool      inRegRange = false;
     regNumber regPrev    = REG_NA;
@@ -315,7 +315,7 @@ void dspRegMask(regMaskTP regMask, size_t minSiz)
         regPrev = regNum;
     }
 
-    printf("]");
+    printf("}");
 
     while ((int)minSiz > 0)
     {

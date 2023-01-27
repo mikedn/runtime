@@ -19,8 +19,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "emit.h"
 #include "codegen.h"
 #include "lower.h"
-#include "gcinfo.h"
-#include "gcinfoencoder.h"
 #include "patchpointinfo.h"
 
 //---------------------------------------------------------------------
@@ -79,19 +77,6 @@ void CodeGen::PrologSetGSSecurityCookie(regNumber initReg, bool* pInitRegZeroed)
 void CodeGen::genEmitGSCookieCheck(bool tailCallEpilog)
 {
     noway_assert(compiler->gsGlobalSecurityCookieAddr || compiler->gsGlobalSecurityCookieVal);
-
-    if (!tailCallEpilog && !varTypeUsesFloatReg(compiler->info.GetRetSigType()))
-    {
-        // Return registers that contain GC references must be reported
-        // as live while the GC cookie is checked.
-
-        ReturnTypeDesc& retDesc = compiler->info.retDesc;
-
-        for (unsigned i = 0; i < retDesc.GetRegCount(); ++i)
-        {
-            gcInfo.gcMarkRegPtrVal(retDesc.GetRegNum(i), retDesc.GetRegType(i));
-        }
-    }
 
     regNumber regGSCheck;
 
@@ -181,11 +166,11 @@ var_types CodeGen::PushTempReg(regNumber reg)
     regMaskTP regMask = genRegMask(reg);
     var_types type;
 
-    if ((gcInfo.gcRegGCrefSetCur & regMask) != RBM_NONE)
+    if ((liveness.GetGCRegs(TYP_REF) & regMask) != RBM_NONE)
     {
         type = TYP_REF;
     }
-    else if ((gcInfo.gcRegByrefSetCur & regMask) != RBM_NONE)
+    else if ((liveness.GetGCRegs(TYP_BYREF) & regMask) != RBM_NONE)
     {
         type = TYP_BYREF;
     }
@@ -196,7 +181,7 @@ var_types CodeGen::PushTempReg(regNumber reg)
 
     GetEmitter()->emitIns_R(INS_push, emitTypeSize(type), reg);
     AddStackLevel(REGSIZE_BYTES);
-    gcInfo.gcMarkRegSetNpt(regMask);
+    liveness.RemoveGCRegs(regMask);
 
     return type;
 }
@@ -210,7 +195,7 @@ void CodeGen::PopTempReg(regNumber reg, var_types type)
 
     if (varTypeIsGC(type))
     {
-        gcInfo.gcMarkRegPtrVal(reg, type);
+        liveness.SetGCRegType(reg, type);
     }
 }
 
@@ -931,7 +916,7 @@ void CodeGen::genCodeForDivMod(GenTreeOp* treeNode)
         emit->emitIns(INS_cdq, size);
     }
 
-    gcInfo.gcMarkRegSetNpt(RBM_RDX);
+    liveness.RemoveGCRegs(RBM_RDX);
 
     emitInsUnary((oper == GT_UMOD) || (oper == GT_UDIV) ? INS_div : INS_idiv, size, divisor);
 
@@ -1027,7 +1012,7 @@ void CodeGen::genCodeForBinary(GenTreeOp* node)
 
         inst_Mov(op1->GetType(), dstReg, op1reg, /* canSkip */ false);
 
-        gcInfo.gcMarkRegPtrVal(dstReg, op1->GetType());
+        liveness.SetGCRegType(dstReg, op1->GetType());
 
         dst = node;
         src = op2;
@@ -1551,7 +1536,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
         case GT_START_PREEMPTGC:
             // Kill callee saves GC registers, and create a label
             // so that information gets propagated to the emitter.
-            gcInfo.gcMarkRegSetNpt(RBM_INT_CALLEE_SAVED);
+            liveness.RemoveGCRegs(RBM_INT_CALLEE_SAVED);
             genDefineTempLabel(genCreateTempLabel());
             break;
 
@@ -1851,14 +1836,12 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             break;
 
         case GT_CATCH_ARG:
-
             noway_assert(handlerGetsXcptnObj(compiler->compCurBB->bbCatchTyp));
+            // Catch arguments get passed in a register. genCodeForBBlist()
+            // would have marked it as holding a GC object, but not used.
+            noway_assert((liveness.GetGCRegs(TYP_REF) & RBM_EXCEPTION_OBJECT) != RBM_NONE);
 
-            /* Catch arguments get passed in a register. genCodeForBBlist()
-               would have marked it as holding a GC object, but not used. */
-
-            noway_assert(gcInfo.gcRegGCrefSetCur & RBM_EXCEPTION_OBJECT);
-            genConsumeReg(treeNode);
+            UseReg(treeNode);
             break;
 
 #if !defined(FEATURE_EH_FUNCLETS)
@@ -1886,7 +1869,7 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
 #endif // !FEATURE_EH_FUNCLETS
 
         case GT_PINVOKE_PROLOG:
-            noway_assert(((gcInfo.gcRegGCrefSetCur | gcInfo.gcRegByrefSetCur) & ~fullIntArgRegMask()) == 0);
+            noway_assert((liveness.GetGCRegs() & ~fullIntArgRegMask()) == 0);
 
 #ifdef PSEUDORANDOM_NOP_INSERTION
             // the runtime side requires the codegen here to be consistent
@@ -3303,8 +3286,8 @@ void CodeGen::GenStructStoreUnrollCopyWB(GenTree* store, ClassLayout* layout)
         srcAddrType = src->AsIndir()->GetAddr()->GetType();
     }
 
-    gcInfo.gcMarkRegPtrVal(REG_RSI, srcAddrType);
-    gcInfo.gcMarkRegPtrVal(REG_RDI, dstAddrType);
+    liveness.SetGCRegType(REG_RSI, srcAddrType);
+    liveness.SetGCRegType(REG_RDI, dstAddrType);
 
     unsigned slotCount = layout->GetSlotCount();
 
@@ -3364,11 +3347,10 @@ void CodeGen::GenStructStoreUnrollCopyWB(GenTree* store, ClassLayout* layout)
         }
     }
 
-    // Clear the gcInfo for RSI and RDI.
     // While we normally update GC info prior to the last instruction that uses them,
     // these actually live into the helper call.
-    gcInfo.gcMarkRegSetNpt(RBM_RSI);
-    gcInfo.gcMarkRegSetNpt(RBM_RDI);
+    liveness.RemoveGCRegs(RBM_RSI);
+    liveness.RemoveGCRegs(RBM_RDI);
 }
 
 #ifdef UNIX_AMD64_ABI
@@ -3380,8 +3362,8 @@ void CodeGen::GenStructStoreUnrollRegsWB(GenTreeObj* store)
     assert(layout->GetSize() == 16);
     assert(store->GetValue()->GetMultiRegCount(compiler) == 2);
 
-    regMaskTP inGCrefRegSet = gcInfo.gcRegGCrefSetCur;
-    regMaskTP inByrefRegSet = gcInfo.gcRegByrefSetCur;
+    regMaskTP inGCrefRegSet = liveness.GetGCRegs(TYP_REF);
+    regMaskTP inByrefRegSet = liveness.GetGCRegs(TYP_BYREF);
 
     GenTree*  addr       = store->GetAddr();
     regNumber addrReg    = addr->isUsedFromReg() ? UseReg(addr) : UseReg(addr->AsAddrMode()->GetBase());
@@ -3391,8 +3373,8 @@ void CodeGen::GenStructStoreUnrollRegsWB(GenTreeObj* store)
     regNumber valReg1    = UseReg(val, 1);
     emitter*  emit       = GetEmitter();
 
-    regMaskTP outGCrefRegSet = gcInfo.gcRegGCrefSetCur;
-    regMaskTP outByrefRegSet = gcInfo.gcRegByrefSetCur;
+    regMaskTP outGCrefRegSet = liveness.GetGCRegs(TYP_REF);
+    regMaskTP outByrefRegSet = liveness.GetGCRegs(TYP_BYREF);
 
     if (layout->IsGCRef(0))
     {
@@ -3403,11 +3385,11 @@ void CodeGen::GenStructStoreUnrollRegsWB(GenTreeObj* store)
         emit->emitIns_R_AR(INS_lea, emitTypeSize(addr->GetType()), REG_ARG_0, addrReg, addrOffset);
         inst_Mov(TYP_REF, REG_ARG_1, valReg0, true);
 
-        gcInfo.gcRegGCrefSetCur = inGCrefRegSet | genRegMask(tempReg);
-        gcInfo.gcRegByrefSetCur = inByrefRegSet;
+        liveness.SetGCRegs(TYP_REF, inGCrefRegSet | genRegMask(tempReg));
+        liveness.SetGCRegs(TYP_BYREF, inByrefRegSet);
         genEmitHelperCall(CORINFO_HELP_CHECKED_ASSIGN_REF, EA_PTRSIZE);
-        gcInfo.gcRegGCrefSetCur = outGCrefRegSet;
-        gcInfo.gcRegByrefSetCur = outByrefRegSet;
+        liveness.SetGCRegs(TYP_REF, outGCrefRegSet);
+        liveness.SetGCRegs(TYP_BYREF, outByrefRegSet);
     }
     else
     {
@@ -3711,7 +3693,7 @@ void CodeGen::genCodeForPhysReg(GenTreePhysReg* tree)
     regNumber targetReg  = tree->GetRegNum();
 
     inst_Mov(targetType, targetReg, tree->gtSrcReg, /* canSkip */ true);
-    genTransferRegGCState(targetReg, tree->gtSrcReg);
+    liveness.TransferGCRegType(targetReg, tree->gtSrcReg);
 
     genProduceReg(tree);
 }
@@ -4526,14 +4508,14 @@ void CodeGen::genCodeForIndexAddr(GenTreeIndexAddr* node)
     regNumber       indexReg = UseReg(index);
     const regNumber dstReg   = node->GetRegNum();
 
-    // TODO-MIKE-Review: This is dubious, gcInfo stuff doesn't really matter until we reach a call...
+    // TODO-MIKE-Review: This is dubious, GC liveness doesn't really matter until we reach a call...
 
     // NOTE: UseReg marks the consumed register as not a GC pointer, as it assumes that the input registers
     // die at the first instruction generated by the node. This is not the case for `INDEX_ADDR`, however, as the
     // base register is multiply-used. As such, we need to mark the base register as containing a GC pointer until
     // we are finished generating the code for this node.
 
-    gcInfo.gcMarkRegPtrVal(baseReg, base->GetType());
+    liveness.SetGCRegType(baseReg, base->GetType());
     assert(varTypeIsIntegral(index->GetType()));
 
     regNumber tmpReg = REG_NA;
@@ -4601,7 +4583,7 @@ void CodeGen::genCodeForIndexAddr(GenTreeIndexAddr* node)
                                 node->GetDataOffs());
 
     // TODO-MIKE-Review: Hrm, what if baseReg is a local variable reg?!
-    gcInfo.gcMarkRegSetNpt(genRegMask(baseReg));
+    liveness.RemoveGCRegs(genRegMask(baseReg));
 
     DefReg(node);
 }
@@ -4840,15 +4822,12 @@ void CodeGen::genCodeForSwap(GenTreeOp* tree)
     }
     inst_RV_RV(INS_xchg, oldOp1Reg, oldOp2Reg, TYP_I_IMPL, size);
 
-    // Update the gcInfo.
     // Manually remove these regs for the gc sets (mostly to avoid confusing duplicative dump output)
-    gcInfo.gcRegByrefSetCur &= ~(oldOp1RegMask | oldOp2RegMask);
-    gcInfo.gcRegGCrefSetCur &= ~(oldOp1RegMask | oldOp2RegMask);
+    liveness.SetGCRegs(TYP_BYREF, liveness.GetGCRegs(TYP_BYREF) & ~(oldOp1RegMask | oldOp2RegMask));
+    liveness.SetGCRegs(TYP_REF, liveness.GetGCRegs(TYP_REF) & ~(oldOp1RegMask | oldOp2RegMask));
 
-    // gcMarkRegPtrVal will do the appropriate thing for non-gc types.
-    // It will also dump the updates.
-    gcInfo.gcMarkRegPtrVal(oldOp2Reg, type1);
-    gcInfo.gcMarkRegPtrVal(oldOp1Reg, type2);
+    liveness.SetGCRegType(oldOp2Reg, type1);
+    liveness.SetGCRegType(oldOp1Reg, type2);
 }
 
 //------------------------------------------------------------------------
@@ -5287,10 +5266,10 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     // TODO-XArch-Bug?: As a matter of fact shouldn't we be killing all of callee trashed regs here?
     // For now we will assert that other than arg regs gc ref/byref set doesn't contain any other
     // registers from RBM_CALLEE_TRASH.
-    assert((gcInfo.gcRegGCrefSetCur & (RBM_CALLEE_TRASH & ~RBM_ARG_REGS)) == 0);
-    assert((gcInfo.gcRegByrefSetCur & (RBM_CALLEE_TRASH & ~RBM_ARG_REGS)) == 0);
-    gcInfo.gcRegGCrefSetCur &= ~RBM_ARG_REGS;
-    gcInfo.gcRegByrefSetCur &= ~RBM_ARG_REGS;
+    assert((liveness.GetGCRegs(TYP_REF) & (RBM_CALLEE_TRASH & ~RBM_ARG_REGS)) == RBM_NONE);
+    assert((liveness.GetGCRegs(TYP_BYREF) & (RBM_CALLEE_TRASH & ~RBM_ARG_REGS)) == RBM_NONE);
+    liveness.SetGCRegs(TYP_REF, liveness.GetGCRegs(TYP_REF) & ~RBM_ARG_REGS);
+    liveness.SetGCRegs(TYP_BYREF, liveness.GetGCRegs(TYP_BYREF) & ~RBM_ARG_REGS);
 
     var_types returnType = call->TypeGet();
     if (returnType != TYP_VOID)
@@ -5369,7 +5348,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
     // However, for minopts or debuggable code, we keep it live to support managed return shift debugging.
     if ((call->gtNext == nullptr) && compiler->opts.OptimizationEnabled())
     {
-        gcInfo.gcMarkRegSetNpt(RBM_INTRET);
+        liveness.RemoveGCRegs(RBM_INTRET);
     }
 
 #if defined(DEBUG) && defined(TARGET_X86)
@@ -5408,15 +5387,13 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
         {
             case CORINFO_HELP_MON_ENTER:
             case CORINFO_HELP_MON_ENTER_STATIC:
-                noway_assert(compiler->syncStartEmitCookie == nullptr);
-                compiler->syncStartEmitCookie = GetEmitter()->emitAddLabel();
-                noway_assert(compiler->syncStartEmitCookie != nullptr);
+                noway_assert(syncStartEmitCookie == nullptr);
+                syncStartEmitCookie = GetEmitter()->emitAddLabel();
                 break;
             case CORINFO_HELP_MON_EXIT:
             case CORINFO_HELP_MON_EXIT_STATIC:
-                noway_assert(compiler->syncEndEmitCookie == nullptr);
-                compiler->syncEndEmitCookie = GetEmitter()->emitAddLabel();
-                noway_assert(compiler->syncEndEmitCookie != nullptr);
+                noway_assert(syncEndEmitCookie == nullptr);
+                syncEndEmitCookie = GetEmitter()->emitAddLabel();
                 break;
             default:
                 break;
@@ -5484,8 +5461,8 @@ void CodeGen::GenJmp(GenTree* jmp)
             regNumber reg  = lcl->GetParamReg(0);
 
             GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, lclNum, 0);
-            gcInfo.AddLiveLclRegs(genRegMask(reg));
-            gcInfo.gcMarkRegPtrVal(reg, type);
+            liveness.AddLiveLclRegs(genRegMask(reg));
+            liveness.SetGCRegType(reg, type);
 
             if (lcl->GetLayout()->GetSysVAmd64AbiRegCount() > 1)
             {
@@ -5493,14 +5470,11 @@ void CodeGen::GenJmp(GenTree* jmp)
                 reg  = lcl->GetParamReg(1);
 
                 GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, lclNum, 8);
-                gcInfo.AddLiveLclRegs(genRegMask(reg));
-                gcInfo.gcMarkRegPtrVal(reg, type);
+                liveness.AddLiveLclRegs(genRegMask(reg));
+                liveness.SetGCRegType(reg, type);
             }
 
-            if (lcl->HasLiveness())
-            {
-                VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, lcl->GetLivenessBitIndex());
-            }
+            liveness.RemoveGCSlot(lcl);
 
             continue;
         }
@@ -5523,13 +5497,9 @@ void CodeGen::GenJmp(GenTree* jmp)
         assert(isValidIntArgReg(reg) || isValidFloatArgReg(reg));
 
         GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, lclNum, 0);
-        gcInfo.AddLiveLclRegs(genRegMask(reg));
-        gcInfo.gcMarkRegPtrVal(reg, type);
-
-        if (lcl->HasGCSlotLiveness())
-        {
-            VarSetOps::RemoveElemD(compiler, gcInfo.gcVarPtrSetCur, lcl->GetLivenessBitIndex());
-        }
+        liveness.AddLiveLclRegs(genRegMask(reg));
+        liveness.SetGCRegType(reg, type);
+        liveness.RemoveGCSlot(lcl);
     }
 
 #ifdef WINDOWS_AMD64_ABI
@@ -7803,227 +7773,6 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk
 #endif // TARGET_AMD64
 }
 
-/*****************************************************************************
- *
- *  Create and record GC Info for the function.
- */
-#ifndef JIT32_GCENCODER
-void
-#else  // !JIT32_GCENCODER
-void*
-#endif // !JIT32_GCENCODER
-CodeGen::genCreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize, unsigned epilogSize DEBUGARG(void* codePtr))
-{
-#ifdef JIT32_GCENCODER
-    return genCreateAndStoreGCInfoJIT32(codeSize, prologSize, epilogSize DEBUGARG(codePtr));
-#else  // !JIT32_GCENCODER
-    genCreateAndStoreGCInfoX64(codeSize, prologSize DEBUGARG(codePtr));
-#endif // !JIT32_GCENCODER
-}
-
-#ifdef JIT32_GCENCODER
-void* CodeGen::genCreateAndStoreGCInfoJIT32(unsigned codeSize,
-                                            unsigned prologSize,
-                                            unsigned epilogSize DEBUGARG(void* codePtr))
-{
-    BYTE    headerBuf[64];
-    InfoHdr header;
-
-    int s_cached;
-
-#ifdef FEATURE_EH_FUNCLETS
-    // We should do this before gcInfoBlockHdrSave since varPtrTableSize must be finalized before it
-    if (compiler->ehAnyFunclets())
-    {
-        gcInfo.gcMarkFilterVarsPinned();
-    }
-#endif
-
-#ifdef DEBUG
-    size_t headerSize =
-#endif
-        compInfoBlkSize = gcInfo.gcInfoBlockHdrSave(headerBuf, 0, codeSize, prologSize, epilogSize,
-                                                    calleeSavedModifiedRegs, &header, &s_cached);
-
-    size_t argTabOffset = 0;
-    size_t ptrMapSize   = gcInfo.gcPtrTableSize(header, codeSize, &argTabOffset);
-
-#if DISPLAY_SIZES
-
-    if (GetInterruptible())
-    {
-        gcHeaderISize += compInfoBlkSize;
-        gcPtrMapISize += ptrMapSize;
-    }
-    else
-    {
-        gcHeaderNSize += compInfoBlkSize;
-        gcPtrMapNSize += ptrMapSize;
-    }
-
-#endif // DISPLAY_SIZES
-
-    compInfoBlkSize += ptrMapSize;
-
-    /* Allocate the info block for the method */
-
-    BYTE* infoBlkAddr = (BYTE*)compiler->info.compCompHnd->allocGCInfo(compInfoBlkSize);
-
-#if 0 // VERBOSE_SIZES
-    // TODO-X86-Cleanup: 'dataSize', below, is not defined
-
-//  if  (compInfoBlkSize > codeSize && compInfoBlkSize > 100)
-    {
-        printf("[%7u VM, %7u+%7u/%7u x86 %03u/%03u%%] %s.%s\n",
-               compiler->info.compILCodeSize,
-               compInfoBlkSize,
-               codeSize + dataSize,
-               codeSize + dataSize - prologSize - epilogSize,
-               100 * (codeSize + dataSize) / compiler->info.compILCodeSize,
-               100 * (codeSize + dataSize + compInfoBlkSize) / compiler->info.compILCodeSize,
-               compiler->info.compClassName,
-               compiler->info.compMethodName);
-}
-
-#endif
-
-    /* Fill in the info block and return it to the caller */
-
-    void* infoPtr = infoBlkAddr;
-
-    /* Create the method info block: header followed by GC tracking tables */
-
-    infoBlkAddr += gcInfo.gcInfoBlockHdrSave(infoBlkAddr, -1, codeSize, prologSize, epilogSize, calleeSavedModifiedRegs,
-                                             &header, &s_cached);
-
-    assert(infoBlkAddr == (BYTE*)infoPtr + headerSize);
-    infoBlkAddr = gcInfo.gcPtrTableSave(infoBlkAddr, header, codeSize, &argTabOffset);
-    assert(infoBlkAddr == (BYTE*)infoPtr + headerSize + ptrMapSize);
-
-#ifdef DEBUG
-
-    if (0)
-    {
-        BYTE*  temp = (BYTE*)infoPtr;
-        size_t size = infoBlkAddr - temp;
-        BYTE*  ptab = temp + headerSize;
-
-        noway_assert(size == headerSize + ptrMapSize);
-
-        printf("Method info block - header [%zu bytes]:", headerSize);
-
-        for (unsigned i = 0; i < size; i++)
-        {
-            if (temp == ptab)
-            {
-                printf("\nMethod info block - ptrtab [%u bytes]:", ptrMapSize);
-                printf("\n    %04X: %*c", i & ~0xF, 3 * (i & 0xF), ' ');
-            }
-            else
-            {
-                if (!(i % 16))
-                    printf("\n    %04X: ", i);
-            }
-
-            printf("%02X ", *temp++);
-        }
-
-        printf("\n");
-    }
-
-#endif // DEBUG
-
-#if DUMP_GC_TABLES
-    if (compiler->opts.dspGCtbls)
-    {
-        const BYTE* base = (BYTE*)infoPtr;
-        size_t      size;
-        unsigned    methodSize;
-        InfoHdr     dumpHeader;
-
-        printf("GC Info for method %s\n", compiler->info.compFullName);
-        printf("GC info size = %3u\n", compInfoBlkSize);
-
-        size = gcInfo.gcInfoBlockHdrDump(base, &dumpHeader, &methodSize);
-        // printf("size of header encoding is %3u\n", size);
-        printf("\n");
-
-        base += size;
-        size = gcInfo.gcDumpPtrTable(base, dumpHeader, methodSize);
-        // printf("size of pointer table is %3u\n", size);
-        printf("\n");
-        noway_assert(infoBlkAddr == (base + size));
-    }
-#endif // DUMP_GC_TABLES
-
-    /* Make sure we ended up generating the expected number of bytes */
-
-    noway_assert(infoBlkAddr == (BYTE*)infoPtr + compInfoBlkSize);
-
-    return infoPtr;
-}
-
-#else  // !JIT32_GCENCODER
-void CodeGen::genCreateAndStoreGCInfoX64(unsigned codeSize, unsigned prologSize DEBUGARG(void* codePtr))
-{
-    IAllocator*    allowZeroAlloc = new (compiler, CMK_GC) CompIAllocator(compiler->getAllocatorGC());
-    GcInfoEncoder* gcInfoEncoder  = new (compiler, CMK_GC)
-        GcInfoEncoder(compiler->info.compCompHnd, compiler->info.compMethodInfo, allowZeroAlloc, NOMEM);
-    assert(gcInfoEncoder);
-
-    // Follow the code pattern of the x86 gc info encoder (genCreateAndStoreGCInfoJIT32).
-    gcInfo.gcInfoBlockHdrSave(gcInfoEncoder, codeSize, prologSize);
-
-    // We keep the call count for the second call to gcMakeRegPtrTable() below.
-    unsigned callCnt = 0;
-    // First we figure out the encoder ID's for the stack slots and registers.
-    gcInfo.gcMakeRegPtrTable(gcInfoEncoder, codeSize, prologSize, GCInfo::MAKE_REG_PTR_MODE_ASSIGN_SLOTS, &callCnt);
-    // Now we've requested all the slots we'll need; "finalize" these (make more compact shift structures for them).
-    gcInfoEncoder->FinalizeSlotIds();
-    // Now we can actually use those slot ID's to declare live ranges.
-    gcInfo.gcMakeRegPtrTable(gcInfoEncoder, codeSize, prologSize, GCInfo::MAKE_REG_PTR_MODE_DO_WORK, &callCnt);
-
-    if (compiler->opts.compDbgEnC)
-    {
-        // what we have to preserve is called the "frame header" (see comments in VM\eetwain.cpp)
-        // which is:
-        //  -return address
-        //  -saved off RBP
-        //  -saved 'this' pointer and bool for synchronized methods
-
-        // 4 slots for RBP + return address + RSI + RDI
-        int preservedAreaSize = 4 * REGSIZE_BYTES;
-
-        if (compiler->info.compFlags & CORINFO_FLG_SYNCH)
-        {
-            if (!(compiler->info.compFlags & CORINFO_FLG_STATIC))
-            {
-                preservedAreaSize += REGSIZE_BYTES;
-            }
-
-            // bool in synchronized methods that tracks whether the lock has been taken (takes 4 bytes on stack)
-            preservedAreaSize += 4;
-        }
-
-        // Used to signal both that the method is compiled for EnC, and also the size of the block at the top of the
-        // frame
-        gcInfoEncoder->SetSizeOfEditAndContinuePreservedArea(preservedAreaSize);
-    }
-
-    if (compiler->opts.IsReversePInvoke())
-    {
-        LclVarDsc* reversePInvokeFrameLcl = compiler->lvaGetDesc(compiler->lvaReversePInvokeFrameVar);
-        gcInfoEncoder->SetReversePInvokeFrameSlot(reversePInvokeFrameLcl->GetStackOffset());
-    }
-
-    gcInfoEncoder->Build();
-
-    // GC Encoder automatically puts the GC info in the right spot using ICorJitInfo::allocGCInfo(size_t)
-    // let's save the values anyway for debugging purposes
-    gcInfoEncoder->Emit();
-}
-#endif // !JIT32_GCENCODER
-
 #ifdef TARGET_X86
 void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, int argSize, emitAttr retSize, regNumber callTargetReg)
 #else
@@ -8073,7 +7822,7 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
                 // The call target must not overwrite any live variable, though it may not be in the
                 // kill set for the call.
                 regMaskTP callTargetMask = genRegMask(callTargetReg);
-                noway_assert((callTargetMask & gcInfo.GetLiveLclRegs()) == RBM_NONE);
+                noway_assert((callTargetMask & liveness.GetLiveLclRegs()) == RBM_NONE);
             }
 #endif
 
@@ -9483,8 +9232,6 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
 
     ScopedSetVariable<bool> _setGeneratingProlog(&generatingProlog, true);
 
-    gcInfo.BeginPrologCodeGen();
-
     compiler->unwindBegProlog();
 
     // We need to push ebp, since it's callee-saved.
@@ -9654,8 +9401,6 @@ void CodeGen::genFnEpilog(BasicBlock* block)
     noway_assert(!compiler->opts.MinOpts() || isFramePointerUsed()); // FPO not allowed with minOpts
 
     ScopedSetVariable<bool> _setGeneratingEpilog(&generatingEpilog, true);
-
-    gcInfo.BeginMethodEpilogCodeGen();
 
     bool jmpEpilog = ((block->bbFlags & BBF_HAS_JMP) != 0);
 
@@ -9872,7 +9617,9 @@ void CodeGen::genFnEpilog(BasicBlock* block)
         inst_RV(INS_pop, REG_EBP, TYP_I_IMPL);
     }
 
-    GetEmitter()->emitStartExitSeq(); // Mark the start of the "return" sequence
+#ifdef JIT32_GCENCODER
+    GetEmitter()->emitStartExitSeq();
+#endif
 
     if (jmpEpilog)
     {

@@ -832,7 +832,6 @@ void emitIns_Call(EmitCallType          kind,
                   bool      isJump = false);
 
 BYTE* emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i);
-unsigned emitOutputCall(insGroup* ig, BYTE* dst, instrDesc* i, code_t code);
 BYTE* emitOutputLoadLabel(BYTE* dst, BYTE* srcAddr, BYTE* dstAddr, instrDescJmp* id);
 BYTE* emitOutputShortBranch(BYTE* dst, instruction ins, insFormat fmt, ssize_t distVal, instrDescJmp* id);
 BYTE* emitOutputShortAddress(BYTE* dst, instruction ins, insFormat fmt, ssize_t distVal, regNumber reg);
@@ -891,5 +890,18 @@ inline bool emitIsLoadConstant(instrDesc* jmp)
     return ((jmp->idInsFmt() == IF_LS_1A) || // ldr
             (jmp->idInsFmt() == IF_LARGELDC));
 }
+
+/************************************************************************/
+/*                   Interface for generating unwind information        */
+/************************************************************************/
+bool emitIsFuncEnd(emitLocation* emitLoc, emitLocation* emitLocNextFragment = NULL);
+
+void emitSplit(emitLocation*         startLoc,
+               emitLocation*         endLoc,
+               UNATIVE_OFFSET        maxSplitSize,
+               void*                 context,
+               emitSplitCallbackType callbackFunc);
+
+void emitUnwindNopPadding(emitLocation* locFrom, Compiler* comp);
 
 #endif // TARGET_ARM64

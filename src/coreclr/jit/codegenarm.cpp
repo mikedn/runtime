@@ -17,7 +17,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #ifdef TARGET_ARM
 #include "codegen.h"
 #include "lower.h"
-#include "gcinfo.h"
 #include "emit.h"
 
 //------------------------------------------------------------------------
@@ -1444,7 +1443,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
         // Has a return value and r0 is in use. For emitting Leave profiler callout we would need r0 for passing
         // profiler handle. Therefore, r0 is moved to REG_PROFILER_RETURN_SCRATCH as per contract.
         GetEmitter()->emitIns_Mov(INS_mov, attr, REG_PROFILER_RET_SCRATCH, REG_R0, /* canSkip */ false);
-        genTransferRegGCState(REG_PROFILER_RET_SCRATCH, REG_R0);
+        liveness.TransferGCRegType(REG_PROFILER_RET_SCRATCH, REG_R0);
     }
 
     if (compiler->compProfilerMethHndIndirected)
@@ -1456,7 +1455,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
         instGen_Set_Reg_To_Imm(EA_PTRSIZE, REG_R0, (ssize_t)compiler->compProfilerMethHnd);
     }
 
-    gcInfo.gcMarkRegSetNpt(RBM_R0);
+    liveness.RemoveGCRegs(RBM_R0);
 
     genEmitHelperCall(helper);
 
@@ -1464,8 +1463,8 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
     if (r0InUse)
     {
         GetEmitter()->emitIns_Mov(INS_mov, attr, REG_R0, REG_PROFILER_RET_SCRATCH, /* canSkip */ false);
-        genTransferRegGCState(REG_R0, REG_PROFILER_RET_SCRATCH);
-        gcInfo.gcMarkRegSetNpt(RBM_PROFILER_RET_SCRATCH);
+        liveness.TransferGCRegType(REG_R0, REG_PROFILER_RET_SCRATCH);
+        liveness.RemoveGCRegs(RBM_PROFILER_RET_SCRATCH);
     }
 }
 
@@ -2525,8 +2524,6 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
 
     ScopedSetVariable<bool> _setGeneratingProlog(&generatingProlog, true);
 
-    gcInfo.BeginPrologCodeGen();
-
     compiler->unwindBegProlog();
 
     regMaskTP maskPushRegsFloat = genFuncletInfo.fiSaveRegs & RBM_ALLFLOAT;
@@ -2753,8 +2750,6 @@ void CodeGen::genFnEpilog(BasicBlock* block)
 #endif
 
     ScopedSetVariable<bool> _setGeneratingEpilog(&generatingEpilog, true);
-
-    gcInfo.BeginMethodEpilogCodeGen();
 
     bool     jmpEpilog = ((block->bbFlags & BBF_HAS_JMP) != 0);
     GenTree* lastNode  = block->lastNode();

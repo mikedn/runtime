@@ -22,7 +22,7 @@ const regNumber longShiftHelperArgRegs[] { REG_EAX, REG_EDX, REG_ECX };
 const regNumber initPInvokeFrameArgRegs[] { REG_PINVOKE_FRAME };
 // clang-format on
 
-const regMaskSmall regMasks[]{
+const regMaskTP regMasks[]{
 #define REGDEF(name, rnum, mask, sname) mask,
 #include "register.h"
 };

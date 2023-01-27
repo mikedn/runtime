@@ -5,9 +5,8 @@
 #define CODEGEN_H
 
 #include "codegeninterface.h"
-#include "compiler.h" // temporary??
+#include "compiler.h"
 #include "regset.h"
-#include "jitgcinfo.h"
 #include "treelifeupdater.h"
 
 class CodeGen final : public CodeGenInterface
@@ -29,15 +28,13 @@ class CodeGen final : public CodeGenInterface
     IPmappingDsc*     genIPmappingList = nullptr;
     IPmappingDsc*     genIPmappingLast = nullptr;
 
-    CodeGenLivenessUpdater m_liveness;
+    CodeGenLivenessUpdater liveness;
 #ifdef TARGET_ARMARCH
     // Registers reserved for special purposes, that cannot be allocated by LSRA.
     regMaskTP reservedRegs = RBM_NONE;
 #endif
 
 public:
-    GCInfo gcInfo;
-
     CodeGen(Compiler* compiler);
 
     virtual void genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize);
@@ -61,7 +58,7 @@ public:
 
     virtual VARSET_VALARG_TP GetLiveSet() const
     {
-        return m_liveness.GetLiveSet();
+        return liveness.GetLiveSet();
     }
 
 private:
@@ -150,23 +147,6 @@ private:
 
     void genReportEH();
 
-    // Allocates storage for the GC info, writes the GC info into that storage, records the address of the
-    // GC info of the method with the EE, and returns a pointer to the "info" portion (just post-header) of
-    // the GC info.  Requires "codeSize" to be the size of the generated code, "prologSize" and "epilogSize"
-    // to be the sizes of the prolog and epilog, respectively.  In DEBUG, makes a check involving the
-    // "codePtr", assumed to be a pointer to the start of the generated code.
-    CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef JIT32_GCENCODER
-    void* genCreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize, unsigned epilogSize DEBUGARG(void* codePtr));
-    void* genCreateAndStoreGCInfoJIT32(unsigned codeSize,
-                                       unsigned prologSize,
-                                       unsigned epilogSize DEBUGARG(void* codePtr));
-#else  // !JIT32_GCENCODER
-    void genCreateAndStoreGCInfo(unsigned codeSize, unsigned prologSize, unsigned epilogSize DEBUGARG(void* codePtr));
-    void genCreateAndStoreGCInfoX64(unsigned codeSize, unsigned prologSize DEBUGARG(void* codePtr));
-#endif // !JIT32_GCENCODER
-
     /**************************************************************************
      *                          PROTECTED
      *************************************************************************/
@@ -232,7 +212,9 @@ protected:
     //-------------------------------------------------------------------------
 
     unsigned prologSize;
+#ifdef JIT32_GCENCODER
     unsigned epilogSize;
+#endif
 
     //
     // Prolog functions and data (there are a few exceptions for more generally used things)
@@ -461,11 +443,6 @@ protected:
 
 #endif // !defined(TARGET_ARM64)
 
-    //
-    // Common or driving functions
-    //
-
-    void genReserveEpilog(BasicBlock* block);
     void genFnProlog();
     void genFnEpilog(BasicBlock* block);
     void UpdateParamsWithInitialReg();
@@ -475,8 +452,6 @@ protected:
 #endif
 
 #ifdef FEATURE_EH_FUNCLETS
-    void genReserveFuncletProlog(BasicBlock* block);
-    void genReserveFuncletEpilog(BasicBlock* block);
     void genFuncletProlog(BasicBlock* block);
     void genFuncletEpilog();
     void genCaptureFuncletPrologEpilogInfo();
@@ -1082,8 +1057,6 @@ protected:
 #endif // FEATURE_HW_INTRINSICS
 
     void genUpdateLife(GenTreeLclVarCommon* tree);
-    void genUpdateRegLife(const LclVarDsc* varDsc, bool isBorn, bool isDying DEBUGARG(GenTree* tree));
-    regMaskTP genGetRegMask(const LclVarDsc* varDsc);
 
     void SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex);
     X86_ONLY(void SpillST0(GenTree* node);)
@@ -1122,7 +1095,6 @@ protected:
     void CopyReg(GenTreeCopyOrReload* copy);
     void CopyRegs(GenTreeCopyOrReload* copy);
     regNumber CopyReg(GenTreeCopyOrReload* copy, unsigned regIndex);
-    void genTransferRegGCState(regNumber dst, regNumber src);
     void genConsumeAddress(GenTree* addr);
     void ConsumeStructStore(GenTree* store, ClassLayout* layout, regNumber dstReg, regNumber srcReg, regNumber sizeReg);
     void ConsumeDynBlk(GenTreeDynBlk* store, regNumber dstReg, regNumber srcReg, regNumber sizeReg);
@@ -1131,7 +1103,6 @@ protected:
 #ifdef FEATURE_HW_INTRINSICS
     void genConsumeHWIntrinsicOperands(GenTreeHWIntrinsic* tree);
 #endif
-    void genEmitGSCookieCheck(bool pushReg);
     void genCodeForShift(GenTreeOp* shift);
 
 #if defined(TARGET_X86) || defined(TARGET_ARM)
@@ -1141,7 +1112,10 @@ protected:
 #ifdef TARGET_XARCH
     void GenStoreIndRMWShift(GenTree* addr, GenTreeOp* shift, GenTree* shiftBy);
     void genCodeForBT(GenTreeOp* bt);
-#endif // TARGET_XARCH
+    void genEmitGSCookieCheck(bool tailCallEpilog);
+#else
+    void genEmitGSCookieCheck();
+#endif
 
     void genCodeForCast(GenTreeCast* cast);
     void genCodeForLclAddr(GenTreeLclVarCommon* tree);
@@ -1517,6 +1491,12 @@ public:
     bool IsSimdLocalAligned(unsigned lclNum);
 
     INDEBUG(void DumpDisasmHeader() const;)
+
+#ifdef TARGET_X86
+    //  Tracking of region covered by the monitor in synchronized methods
+    insGroup* syncStartEmitCookie = nullptr;
+    insGroup* syncEndEmitCookie   = nullptr;
+#endif
 };
 
 #endif // CODEGEN_H

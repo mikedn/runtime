@@ -48,7 +48,7 @@ PTR_CBYTE GCDump::DumpEncoding(PTR_CBYTE gcInfoBlock, size_t cDumpBytes)
              count > 0;
              count--, pCurPos++, cBytesLeft--)
         {
-            if  (cBytesLeft > 0)
+            if  (cBytesLeft > 0 && cBytesLeft <= cDumpBytes)
             {
                 if  (cBytesLeft > 1 && count == 1)
                     gcPrintf("...");
