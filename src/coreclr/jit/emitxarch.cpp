@@ -3091,16 +3091,20 @@ void emitter::SetInstrLclAddrMode(instrDesc* id, int varNum, int varOffs)
     id->idAddr()->lclOffset  = offset;
     id->idAddr()->isEbpBased = ebpBased;
 
-    if ((varNum >= 0) && (id->idGCref() != GCT_NONE) && (id->idInsFmt() == IF_SWR_RRD))
+    if ((id->idGCref() != GCT_NONE) && (id->idInsFmt() == IF_SWR_RRD))
     {
+        if (varNum < 0)
+        {
+            assert(varOffs == 0);
+            id->idAddr()->isTrackedGCSlotStore = codeGen->spillTemps.TrackGCSpillTemps();
+        }
 #if FEATURE_FIXED_OUT_ARGS
-        if (static_cast<unsigned>(varNum) == emitComp->lvaOutgoingArgSpaceVar)
+        else if (static_cast<unsigned>(varNum) == emitComp->lvaOutgoingArgSpaceVar)
         {
             id->idAddr()->isGCArgStore = true;
         }
-        else
 #endif
-            if ((varOffs == 0) && (emitComp->lvaGetDesc(static_cast<unsigned>(varNum))->HasGCSlotLiveness()))
+        else if ((varOffs == 0) && (emitComp->lvaGetDesc(static_cast<unsigned>(varNum))->HasGCSlotLiveness()))
         {
             id->idAddr()->isTrackedGCSlotStore = true;
         }
@@ -9513,17 +9517,17 @@ BYTE* emitter::emitOutputSV(BYTE* dst, instrDesc* id, code_t code, CnsVal* addc)
     {
         assert((id->idIns() == INS_mov) && (id->idInsFmt() == IF_SWR_RRD));
 
-        INDEBUG(unsigned lclNum = id->idDebugOnlyInfo()->varNum);
+        INDEBUG(int varNum = id->idDebugOnlyInfo()->varNum);
 
 #if FEATURE_FIXED_OUT_ARGS
         if (id->idAddr()->isGCArgStore)
         {
-            emitGCargLiveUpd(lclOffset, id->idGCref(), dst DEBUGARG(lclNum));
+            emitGCargLiveUpd(lclOffset, id->idGCref(), dst DEBUGARG(varNum));
         }
         else
 #endif
         {
-            emitGCvarLiveUpd(lclOffset, id->idGCref(), dst DEBUGARG(lclNum));
+            emitGCvarLiveUpd(lclOffset, id->idGCref(), dst DEBUGARG(varNum));
         }
 
         return dst;

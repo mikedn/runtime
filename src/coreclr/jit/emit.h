@@ -1848,9 +1848,9 @@ public:
 #endif
 
 #if FEATURE_FIXED_OUT_ARGS
-    void emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum));
+    void emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(int varNum));
 #endif
-    void emitGCvarLiveUpd(int slotOffs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum));
+    void emitGCvarLiveUpd(int slotOffs, GCtype gcType, BYTE* addr DEBUGARG(int varNum));
 
     /************************************************************************/
     /*      The following logic keeps track of initialized data sections    */

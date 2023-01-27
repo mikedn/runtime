@@ -6026,13 +6026,13 @@ const char* emitter::emitOffsetToLabel(unsigned offs)
 
 #endif // DEBUG
 
-void emitter::emitGCvarLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum))
+void emitter::emitGCvarLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(int varNum))
 {
     assert(emitIssuing);
     assert(gcType != GCT_NONE);
-    assert(emitComp->lvaGetDesc(lclNum)->HasGCSlotLiveness());
+    assert((varNum < 0) || (emitComp->lvaGetDesc(static_cast<unsigned>(varNum))->HasGCSlotLiveness()));
 #if FEATURE_FIXED_OUT_ARGS
-    assert(lclNum != emitComp->lvaOutgoingArgSpaceVar);
+    assert(static_cast<unsigned>(varNum) != emitComp->lvaOutgoingArgSpaceVar);
 #endif
 
     unsigned index = gcInfo.GetTrackedStackSlotIndex(offs);
@@ -6045,11 +6045,11 @@ void emitter::emitGCvarLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsi
 
 #if FEATURE_FIXED_OUT_ARGS
 
-void emitter::emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum))
+void emitter::emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(int varNum))
 {
     assert(abs(offs) % REGSIZE_BYTES == 0);
     assert(gcType != GCT_NONE);
-    assert(lclNum == emitComp->lvaOutgoingArgSpaceVar);
+    assert(static_cast<unsigned>(varNum) == emitComp->lvaOutgoingArgSpaceVar);
 
     if (gcInfo.IsFullyInterruptible())
     {

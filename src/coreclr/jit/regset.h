@@ -87,6 +87,8 @@ public:
     {
     }
 
+    bool TrackGCSpillTemps() const;
+
     static var_types GetTempType(var_types type);
     void PreAllocateTemps(const unsigned* typeSpillCounts);
     SpillTemp* FindTempByNum(int num) const;
