@@ -10869,7 +10869,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     assert((fieldInfo.fieldAccessor == CORINFO_FIELD_INSTANCE) ||
                            (fieldInfo.fieldAccessor == CORINFO_FIELD_INSTANCE_WITH_BASE));
 
-                    if (!varTypeGCtype(obj->GetType()) && tiObj.IsType(TI_STRUCT))
+                    if (!varTypeIsGC(obj->GetType()) && tiObj.IsType(TI_STRUCT))
                     {
                         // If the object is a struct, what we really want is
                         // for the field to operate on the address of the struct.
