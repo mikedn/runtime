@@ -257,6 +257,12 @@ void CodeGen::genCodeForBBlist()
         }
 #endif
 
+        // TODO-MIKE-Cleanup: We have to do this here rather than in emitAddLabel
+        // partly because emitCreatePlaceholderIG is stealing the insGroup create
+        // by emitAddLabel and partly due to temp labels, which aren't real basic
+        // blocks (and DO NOT kill spill temps).
+        GetEmitter()->emitCurIG->igFlags |= IGF_BASIC_BLOCK;
+
         // Emit poisoning into scratch BB that comes right after prolog.
         // We cannot emit this code in the prolog as it might make the prolog too large.
         if (compiler->compShouldPoisonFrame() && compiler->fgBBisScratch(block))

@@ -175,7 +175,7 @@ void GCInfo::EndStackSlotLifetime(unsigned index, unsigned codeOffs DEBUGARG(int
     INDEBUG(deltaStackSlotLifetime.Push(lifetime));
 }
 
-void GCInfo::SetLiveStackSlots(VARSET_TP newLiveLcls, unsigned codeOffs)
+void GCInfo::SetLiveLclStackSlots(VARSET_TP newLiveLcls, unsigned codeOffs)
 {
     if (trackedStackSlotCount == 0)
     {
@@ -215,6 +215,26 @@ void GCInfo::SetLiveStackSlots(VARSET_TP newLiveLcls, unsigned codeOffs)
 
     liveLcls                        = newLiveLcls;
     stackSlotLifetimesMatchLiveLcls = true;
+}
+
+void GCInfo::KillTrackedSpillTemps(unsigned codeOffs)
+{
+    assert(compiler->codeGen->spillTemps.TrackGCSpillTemps());
+
+    for (const SpillTemp& temp : compiler->codeGen->spillTemps)
+    {
+        if (!varTypeIsGC(temp.GetType()))
+        {
+            continue;
+        }
+
+        unsigned index = GetTrackedStackSlotIndex(temp.GetOffset());
+
+        if (IsLiveTrackedStackSlot(index))
+        {
+            EndStackSlotLifetime(index, codeOffs DEBUGARG(temp.GetOffset()));
+        }
+    }
 }
 
 GCInfo::RegArgChange* GCInfo::AddRegArgChange()
