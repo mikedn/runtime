@@ -4027,7 +4027,7 @@ private:
 #ifdef TARGET_ARMARCH
                 printf("Defining [%s,#%d] slot live ranges:\n", baseName, slot.offset);
 #else
-                printf("Defining [%s%c%x] slot live ranges:\n", baseName, slot.offset < 0 ? '-' : '+',
+                printf("Defining [%s%c%02XH] slot live ranges:\n", baseName, slot.offset < 0 ? '-' : '+',
                        abs(slot.offset));
 #endif
 
