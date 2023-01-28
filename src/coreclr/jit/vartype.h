@@ -186,7 +186,8 @@ inline unsigned varTypeGCtype(T vt)
 template <class T>
 inline bool varTypeIsGC(T vt)
 {
-    return (varTypeGCtype(vt) != 0);
+    var_types type = TypeGet(vt);
+    return (type == TYP_REF) || (type == TYP_BYREF);
 }
 
 template <class T>

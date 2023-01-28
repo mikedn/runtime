@@ -4,6 +4,11 @@
 #include "jitpch.h"
 #include "emit.h"
 
+bool SpillTempSet::TrackGCSpillTemps() const
+{
+    return !compiler->opts.MinOpts();
+}
+
 var_types SpillTempSet::GetTempType(var_types type)
 {
 #ifdef FEATURE_SIMD

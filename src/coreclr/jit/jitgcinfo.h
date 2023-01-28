@@ -279,7 +279,8 @@ public:
 
     void BeginStackSlotLifetime(GCtype type, unsigned index, unsigned codeOffs, int slotOffs);
     void EndStackSlotLifetime(unsigned index, unsigned codeOffs DEBUGARG(int slotOffs));
-    void SetLiveStackSlots(VARSET_TP newLiveLcls, unsigned codeOffs);
+    void SetLiveLclStackSlots(VARSET_TP newLiveLcls, unsigned codeOffs);
+    void KillTrackedSpillTemps(unsigned codeOffs);
 
     void AddLiveReg(GCtype type, regNumber reg, unsigned codeOffs);
     void SetLiveRegs(GCtype type, regMaskTP regs, unsigned codeOffs);

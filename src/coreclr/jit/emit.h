@@ -136,6 +136,7 @@ struct insPlaceholderGroupData
     }
 };
 
+#define IGF_BASIC_BLOCK 0x0001
 #define IGF_FUNCLET_PROLOG 0x0002 // this group belongs to a funclet prolog
 #define IGF_FUNCLET_EPILOG 0x0004 // this group belongs to a funclet epilog.
 #define IGF_EPILOG 0x0008         // this group belongs to a main function epilog
@@ -238,6 +239,11 @@ struct insGroup
 #else
         return false;
 #endif
+    }
+
+    bool IsBasicBlock() const
+    {
+        return (igFlags & IGF_BASIC_BLOCK) != 0;
     }
 };
 
@@ -1848,9 +1854,9 @@ public:
 #endif
 
 #if FEATURE_FIXED_OUT_ARGS
-    void emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum));
+    void emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(int varNum));
 #endif
-    void emitGCvarLiveUpd(int slotOffs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum));
+    void emitGCvarLiveUpd(int slotOffs, GCtype gcType, BYTE* addr DEBUGARG(int varNum));
 
     /************************************************************************/
     /*      The following logic keeps track of initialized data sections    */

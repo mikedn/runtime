@@ -3802,11 +3802,16 @@ void emitter::Ins_R_S(instruction ins, emitAttr attr, regNumber reg, int varNum,
     id->idReg2(baseReg);
     id->SetVarAddr(varNum, varOffs);
 
-    if ((varNum >= 0) && (ins == INS_str) && EA_IS_GCREF_OR_BYREF(attr))
+    if ((ins == INS_str) && EA_IS_GCREF_OR_BYREF(attr))
     {
         id->idAddr()->lclOffset = baseOffset;
 
-        if (static_cast<unsigned>(varNum) == emitComp->lvaOutgoingArgSpaceVar)
+        if (varNum < 0)
+        {
+            assert(varOffs == 0);
+            id->idAddr()->isTrackedGCSlotStore = codeGen->spillTemps.TrackGCSpillTemps();
+        }
+        else if (static_cast<unsigned>(varNum) == emitComp->lvaOutgoingArgSpaceVar)
         {
             id->idAddr()->isGCArgStore = true;
         }
@@ -6140,15 +6145,15 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
     {
         bool isArg = id->idAddr()->isGCArgStore;
         int  adr   = id->idAddr()->lclOffset;
-        INDEBUG(unsigned lclNum = id->idDebugOnlyInfo()->varNum);
+        INDEBUG(unsigned varNum = id->idDebugOnlyInfo()->varNum);
 
         if (isArg)
         {
-            emitGCargLiveUpd(adr, id->idGCref(), dst DEBUGARG(lclNum));
+            emitGCargLiveUpd(adr, id->idGCref(), dst DEBUGARG(varNum));
         }
         else
         {
-            emitGCvarLiveUpd(adr, id->idGCref(), dst DEBUGARG(lclNum));
+            emitGCvarLiveUpd(adr, id->idGCref(), dst DEBUGARG(varNum));
         }
     }
 

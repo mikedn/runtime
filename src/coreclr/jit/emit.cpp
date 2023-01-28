@@ -1240,6 +1240,9 @@ void emitter::emitCreatePlaceholderIG(insGroupPlaceholderType igType, BasicBlock
         else
         {
             emitCurIG->igFlags |= IGF_EXTEND;
+            // We may be "stealing" the insGroup created for an empty basic
+            // block, to avoid confusion remove the basic block flag.
+            emitCurIG->igFlags &= ~IGF_BASIC_BLOCK;
         }
 
         isLast = igBB->bbNext == nullptr;
@@ -2527,6 +2530,12 @@ void emitter::emitDispIG(insGroup* ig, insGroup* igPrev, bool verbose)
         separator = ',';
     }
 #endif
+
+    if ((flags & IGF_BASIC_BLOCK) != 0)
+    {
+        printf("%c block", separator);
+        separator = ',';
+    }
 
     if (flags & IGF_PLACEHOLDER)
     {
@@ -4646,7 +4655,16 @@ unsigned emitter::emitEndCodeGen(unsigned* prologSize,
 
         if (((ig->igFlags & IGF_EXTEND) == 0) && (ig != GetProlog()))
         {
-            gcInfo.SetLiveStackSlots(ig->GetGCLcls(), codeOffs);
+            gcInfo.SetLiveLclStackSlots(ig->GetGCLcls(), codeOffs);
+
+            if (ig->IsBasicBlock() && codeGen->spillTemps.TrackGCSpillTemps())
+            {
+                // This is an approximation, all spill temps are definitely dead at the start of a block
+                // but we don't always create an insGroup when we fall through from one block to the next.
+                // Still, it's better than just keeping spill temps alive until the end of the method and
+                // is consistent with the way GC locals are handled.
+                gcInfo.KillTrackedSpillTemps(codeOffs);
+            }
 
             regMaskTP refRegs = ig->GetRefRegs();
 
@@ -6026,13 +6044,13 @@ const char* emitter::emitOffsetToLabel(unsigned offs)
 
 #endif // DEBUG
 
-void emitter::emitGCvarLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum))
+void emitter::emitGCvarLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(int varNum))
 {
     assert(emitIssuing);
     assert(gcType != GCT_NONE);
-    assert(emitComp->lvaGetDesc(lclNum)->HasGCSlotLiveness());
+    assert((varNum < 0) || (emitComp->lvaGetDesc(static_cast<unsigned>(varNum))->HasGCSlotLiveness()));
 #if FEATURE_FIXED_OUT_ARGS
-    assert(lclNum != emitComp->lvaOutgoingArgSpaceVar);
+    assert(static_cast<unsigned>(varNum) != emitComp->lvaOutgoingArgSpaceVar);
 #endif
 
     unsigned index = gcInfo.GetTrackedStackSlotIndex(offs);
@@ -6045,11 +6063,11 @@ void emitter::emitGCvarLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsi
 
 #if FEATURE_FIXED_OUT_ARGS
 
-void emitter::emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(unsigned lclNum))
+void emitter::emitGCargLiveUpd(int offs, GCtype gcType, BYTE* addr DEBUGARG(int varNum))
 {
     assert(abs(offs) % REGSIZE_BYTES == 0);
     assert(gcType != GCT_NONE);
-    assert(lclNum == emitComp->lvaOutgoingArgSpaceVar);
+    assert(static_cast<unsigned>(varNum) == emitComp->lvaOutgoingArgSpaceVar);
 
     if (gcInfo.IsFullyInterruptible())
     {
@@ -6115,7 +6133,7 @@ size_t emitter::emitRecordGCCall(instrDesc* id, uint8_t* callAddr, uint8_t* call
         // the call is CORINFO_HELP_THROW.
         // If we ever track aliased locals (which could be used by the call), we
         // would have to keep the corresponding stack slots alive past the call.
-        gcInfo.SetLiveStackSlots(gcLcls, callOffs);
+        gcInfo.SetLiveLclStackSlots(gcLcls, callOffs);
 
 #ifdef DEBUG
         // And we have to dump the delta here, so it appears before the call instruction

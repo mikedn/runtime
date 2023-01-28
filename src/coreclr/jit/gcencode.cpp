@@ -382,29 +382,32 @@ unsigned GCEncoder::GetUntrackedStackSlotCount()
         }
     }
 
-    for (SpillTemp& temp : compiler->codeGen->spillTemps)
+    if (!compiler->codeGen->spillTemps.TrackGCSpillTemps())
     {
-        if (!varTypeIsGC(temp.GetType()))
+        for (SpillTemp& temp : compiler->codeGen->spillTemps)
         {
-            continue;
-        }
-
-#ifdef DEBUG
-        if (compiler->verbose)
-        {
-            printf("GCINFO: untracked %s slot at [%s", varTypeName(temp.GetType()),
-                   compiler->GetEmitter()->emitGetFrameReg());
-
-            if (temp.GetOffset() != 0)
+            if (!varTypeIsGC(temp.GetType()))
             {
-                printf("%c%02XH", temp.GetOffset() < 0 ? '-' : '+', abs(temp.GetOffset()));
+                continue;
             }
 
-            printf("]\n");
-        }
+#ifdef DEBUG
+            if (compiler->verbose)
+            {
+                printf("GCINFO: untracked %s slot at [%s", varTypeName(temp.GetType()),
+                       compiler->GetEmitter()->emitGetFrameReg());
+
+                if (temp.GetOffset() != 0)
+                {
+                    printf("%c%02XH", temp.GetOffset() < 0 ? '-' : '+', abs(temp.GetOffset()));
+                }
+
+                printf("]\n");
+            }
 #endif
 
-        untrackedCount++;
+            untrackedCount++;
+        }
     }
 
     JITDUMP("GCINFO: untrckVars = %u\n", untrackedCount);
@@ -2369,32 +2372,35 @@ unsigned GCEncoder::AddUntrackedStackSlots(uint8_t* dest, const int mask)
         }
     }
 
-    for (SpillTemp& temp : compiler->codeGen->spillTemps)
+    if (!compiler->codeGen->spillTemps.TrackGCSpillTemps())
     {
-        if (!varTypeIsGC(temp.GetType()))
+        for (SpillTemp& temp : compiler->codeGen->spillTemps)
         {
-            continue;
-        }
+            if (!varTypeIsGC(temp.GetType()))
+            {
+                continue;
+            }
 
-        int offset = temp.GetOffset();
+            int offset = temp.GetOffset();
 
-        if (temp.GetType() == TYP_BYREF)
-        {
-            offset |= byref_OFFSET_FLAG;
-        }
+            if (temp.GetType() == TYP_BYREF)
+            {
+                offset |= byref_OFFSET_FLAG;
+            }
 
-        int offsetDelta = lastoffset - offset;
-        lastoffset      = offset;
+            int offsetDelta = lastoffset - offset;
+            lastoffset      = offset;
 
-        if (mask == 0)
-        {
-            totalSize += encodeSigned(nullptr, offsetDelta);
-        }
-        else
-        {
-            unsigned size = encodeSigned(dest, offsetDelta);
-            dest += size;
-            totalSize += size;
+            if (mask == 0)
+            {
+                totalSize += encodeSigned(nullptr, offsetDelta);
+            }
+            else
+            {
+                unsigned size = encodeSigned(dest, offsetDelta);
+                dest += size;
+                totalSize += size;
+            }
         }
     }
 
@@ -4021,7 +4027,7 @@ private:
 #ifdef TARGET_ARMARCH
                 printf("Defining [%s,#%d] slot live ranges:\n", baseName, slot.offset);
 #else
-                printf("Defining [%s%c%x] slot live ranges:\n", baseName, slot.offset < 0 ? '-' : '+',
+                printf("Defining [%s%c%02XH] slot live ranges:\n", baseName, slot.offset < 0 ? '-' : '+',
                        abs(slot.offset));
 #endif
 
@@ -4293,21 +4299,24 @@ void GCEncoder::AddUntrackedStackSlots()
 
     GcStackSlotBase slotBase = compiler->codeGen->isFramePointerUsed() ? GC_FRAMEREG_REL : GC_SP_REL;
 
-    for (const SpillTemp& temp : compiler->codeGen->spillTemps)
+    if (!compiler->codeGen->spillTemps.TrackGCSpillTemps())
     {
-        if (!varTypeIsGC(temp.GetType()))
+        for (const SpillTemp& temp : compiler->codeGen->spillTemps)
         {
-            continue;
+            if (!varTypeIsGC(temp.GetType()))
+            {
+                continue;
+            }
+
+            GcSlotFlags slotFlags = GC_SLOT_UNTRACKED;
+
+            if (temp.GetType() == TYP_BYREF)
+            {
+                slotFlags = static_cast<GcSlotFlags>(slotFlags | GC_SLOT_INTERIOR);
+            }
+
+            GetStackSlotId(temp.GetOffset(), slotFlags, slotBase);
         }
-
-        GcSlotFlags slotFlags = GC_SLOT_UNTRACKED;
-
-        if (temp.GetType() == TYP_BYREF)
-        {
-            slotFlags = static_cast<GcSlotFlags>(slotFlags | GC_SLOT_INTERIOR);
-        }
-
-        GetStackSlotId(temp.GetOffset(), slotFlags, slotBase);
     }
 
     if (compiler->lvaKeepAliveAndReportThis())

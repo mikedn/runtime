@@ -3296,11 +3296,14 @@ void CodeGen::CheckUseBlockInit()
         }
     }
 
-    for (SpillTemp& temp : spillTemps)
+    if (!spillTemps.TrackGCSpillTemps())
     {
-        if (varTypeIsGC(temp.GetType()))
+        for (SpillTemp& temp : spillTemps)
         {
-            slotCount++;
+            if (varTypeIsGC(temp.GetType()))
+            {
+                slotCount++;
+            }
         }
     }
 
@@ -3428,6 +3431,9 @@ void CodeGen::MarkGCTrackedSlots(int&       minBlockInitOffset,
         }
     }
 
+    int minGCSpillTempOffset = INT_MAX;
+    int maxGCSpillTempOffset = INT_MIN;
+
     for (SpillTemp& temp : spillTemps)
     {
         if (!varTypeIsGC(temp.GetType()))
@@ -3437,8 +3443,19 @@ void CodeGen::MarkGCTrackedSlots(int&       minBlockInitOffset,
 
         int offset = temp.GetOffset();
 
-        minBlockInitOffset = Min(minBlockInitOffset, offset);
-        maxBlockInitOffset = Max(maxBlockInitOffset, offset + REGSIZE_BYTES);
+        minGCSpillTempOffset = Min(minGCSpillTempOffset, offset);
+        maxGCSpillTempOffset = Max(maxGCSpillTempOffset, offset + REGSIZE_BYTES);
+    }
+
+    if (spillTemps.TrackGCSpillTemps())
+    {
+        minGCTrackedOffset = Min(minGCTrackedOffset, minGCSpillTempOffset);
+        maxGCTrackedOffset = Max(maxGCTrackedOffset, maxGCSpillTempOffset);
+    }
+    else
+    {
+        minBlockInitOffset = Min(minBlockInitOffset, minGCSpillTempOffset);
+        maxBlockInitOffset = Max(maxBlockInitOffset, maxGCSpillTempOffset);
     }
 
     // TODO-Cleanup: Add suitable assert for the OSR case.
@@ -3553,14 +3570,17 @@ void CodeGen::PrologZeroInitUntrackedLocals(regNumber initReg, bool* initRegZero
         }
     }
 
-    for (SpillTemp& temp : spillTemps)
+    if (!spillTemps.TrackGCSpillTemps())
     {
-        if (!varTypeIsGC(temp.GetType()))
+        for (SpillTemp& temp : spillTemps)
         {
-            continue;
-        }
+            if (!varTypeIsGC(temp.GetType()))
+            {
+                continue;
+            }
 
-        GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, GetZeroReg(), temp.GetNum(), 0);
+            GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, GetZeroReg(), temp.GetNum(), 0);
+        }
     }
 }
 
