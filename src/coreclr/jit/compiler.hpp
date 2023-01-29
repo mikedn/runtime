@@ -787,9 +787,9 @@ inline GenTreeFieldAddr* Compiler::gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_H
 inline GenTreeFieldAddr* Compiler::gtNewFieldAddr(GenTree* addr, FieldSeqNode* fieldSeq, unsigned offset)
 {
     // If "addr" is the address of a local, note that a field of that struct local has been accessed.
-    if (addr->OperIs(GT_LCL_VAR_ADDR))
+    if (addr->OperIs(GT_LCL_ADDR))
     {
-        lvaGetDesc(addr->AsLclVar())->lvFieldAccessed = 1;
+        lvaGetDesc(addr->AsLclAddr())->lvFieldAccessed = 1;
     }
 
     var_types type = varTypeAddrAdd(addr->GetType());
@@ -814,12 +814,12 @@ inline GenTreeIndir* Compiler::gtNewFieldIndir(var_types type, GenTreeFieldAddr*
 
     GenTree* addr = fieldAddr->GetAddr();
 
-    if (addr->OperIs(GT_LCL_VAR_ADDR))
+    if (addr->OperIs(GT_LCL_ADDR))
     {
         indir->gtFlags |= GTF_IND_NONFAULTING;
 
-        unsigned   lclNum = addr->AsLclVar()->GetLclNum();
-        LclVarDsc* varDsc = lvaGetDesc(lclNum);
+        unsigned   lclNum = addr->AsLclAddr()->GetLclNum();
+        LclVarDsc* lcl    = lvaGetDesc(lclNum);
 
 #if defined(TARGET_AMD64) || defined(TARGET_ARM64) || defined(TARGET_X86)
         // Some arguments may end up being accessed via indirections:
@@ -834,11 +834,11 @@ inline GenTreeIndir* Compiler::gtNewFieldIndir(var_types type, GenTreeFieldAddr*
         // once, at the start of the method, to copy the arg value to a local.
         // However, GTF_GLOB_REF will be discarded during the actual promotion
         // so this may be a problem only between import and promote phases.
-        if (varDsc->IsParam()
+        if (lcl->IsParam()
 #ifdef TARGET_X86
-            && info.compIsVarArgs && !varDsc->IsRegParam() && (lclNum != lvaVarargsHandleArg)
+            && info.compIsVarArgs && !lcl->IsRegParam() && (lclNum != lvaVarargsHandleArg)
 #else
-            && varTypeIsStruct(varDsc->GetType())
+            && varTypeIsStruct(lcl->GetType())
 #endif
                 )
         {
@@ -1160,6 +1160,39 @@ inline GenTreeLclFld* GenTree::ChangeToLclFld(var_types type, unsigned lclNum, u
     lclFld->SetLayoutNum(0);
     lclFld->SetFieldSeq(fieldSeq == nullptr ? FieldSeqNode::NotAField() : fieldSeq);
     return lclFld;
+}
+
+inline GenTreeLclAddr* GenTree::ChangeToLclAddr(var_types type, unsigned lclNum)
+{
+    SetOper(GT_LCL_ADDR);
+
+    GenTreeLclAddr* addr = AsLclAddr();
+    addr->SetType(type);
+    addr->SetLclNum(lclNum);
+    addr->SetLclOffs(0);
+    addr->SetLayoutNum(0);
+    addr->SetFieldSeq(nullptr);
+    addr->SetSideEffects(GTF_NONE);
+    return addr;
+}
+
+inline GenTreeLclAddr* GenTree::ChangeToLclAddr(var_types     type,
+                                                unsigned      lclNum,
+                                                unsigned      offset,
+                                                FieldSeqNode* fieldSeq)
+{
+    assert(offset <= UINT16_MAX);
+    assert((fieldSeq == FieldSeqNode::NotAField()) || fieldSeq->IsField());
+
+    SetOperResetFlags(GT_LCL_ADDR);
+
+    GenTreeLclAddr* addr = AsLclAddr();
+    addr->SetType(type);
+    addr->SetLclNum(lclNum);
+    addr->SetLclOffs(offset);
+    addr->SetLayoutNum(0);
+    addr->SetFieldSeq(fieldSeq);
+    return addr;
 }
 
 inline GenTreeAddrMode* GenTree::ChangeToAddrMode(GenTree* base, GenTree* index, unsigned scale, int offset)
@@ -1911,7 +1944,7 @@ inline void Compiler::LoopDsc::VERIFY_lpIterTree() const
 
     const GenTree* lhs = lpIterTree->AsOp()->gtOp1;
     const GenTree* rhs = lpIterTree->AsOp()->gtOp2;
-    assert(lhs->OperGet() == GT_LCL_VAR);
+    assert(lhs->OperIs(GT_LCL_VAR));
 
     switch (rhs->gtOper)
     {
@@ -1924,9 +1957,9 @@ inline void Compiler::LoopDsc::VERIFY_lpIterTree() const
         default:
             assert(!"Unknown operator for loop increment");
     }
-    assert(rhs->AsOp()->gtOp1->OperGet() == GT_LCL_VAR);
-    assert(rhs->AsOp()->gtOp1->AsLclVarCommon()->GetLclNum() == lhs->AsLclVarCommon()->GetLclNum());
-    assert(rhs->AsOp()->gtOp2->OperGet() == GT_CNS_INT);
+    assert(rhs->AsOp()->gtOp1->OperIs(GT_LCL_VAR));
+    assert(rhs->AsOp()->gtOp1->AsLclVar()->GetLclNum() == lhs->AsLclVar()->GetLclNum());
+    assert(rhs->AsOp()->gtOp2->OperIs(GT_CNS_INT));
 #endif
 }
 
@@ -1935,7 +1968,7 @@ inline void Compiler::LoopDsc::VERIFY_lpIterTree() const
 inline unsigned Compiler::LoopDsc::lpIterVar() const
 {
     VERIFY_lpIterTree();
-    return lpIterTree->AsOp()->gtOp1->AsLclVarCommon()->GetLclNum();
+    return lpIterTree->AsOp()->gtOp1->AsLclVar()->GetLclNum();
 }
 
 //-----------------------------------------------------------------------------
@@ -2071,8 +2104,8 @@ inline unsigned Compiler::LoopDsc::lpVarLimit() const
     assert(lpFlags & LPFLG_VAR_LIMIT);
 
     GenTree* limit = lpLimit();
-    assert(limit->OperGet() == GT_LCL_VAR);
-    return limit->AsLclVarCommon()->GetLclNum();
+    assert(limit->OperIs(GT_LCL_VAR));
+    return limit->AsLclVar()->GetLclNum();
 }
 
 //-----------------------------------------------------------------------------
@@ -2430,8 +2463,7 @@ void GenTree::VisitOperands(TVisitor visitor)
         // Leaf nodes
         case GT_LCL_VAR:
         case GT_LCL_FLD:
-        case GT_LCL_VAR_ADDR:
-        case GT_LCL_FLD_ADDR:
+        case GT_LCL_ADDR:
         case GT_CATCH_ARG:
         case GT_LABEL:
         case GT_FTN_ADDR:

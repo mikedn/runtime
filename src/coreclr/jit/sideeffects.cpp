@@ -178,11 +178,11 @@ AliasSet::NodeInfo::NodeInfo(Compiler* compiler, GenTree* node)
     {
         // If the indirection targets a lclVar, we can be more precise with regards to aliasing by treating the
         // indirection as a lclVar access.
-        GenTree* address = node->AsIndir()->Addr();
-        if (address->OperIsLocalAddr())
+        GenTree* address = node->AsIndir()->GetAddr();
+        if (address->OperIs(GT_LCL_ADDR))
         {
             isLclVarAccess = true;
-            lclNum         = address->AsLclVarCommon()->GetLclNum();
+            lclNum         = address->AsLclAddr()->GetLclNum();
         }
         else
         {

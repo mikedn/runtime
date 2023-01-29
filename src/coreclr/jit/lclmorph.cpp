@@ -100,27 +100,6 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
             assert(m_fieldSeq == nullptr);
         }
 
-        //------------------------------------------------------------------------
-        // Address: Produce an address value from a GT_LCL_VAR_ADDR node.
-        //
-        // Arguments:
-        //    lclVar - a GT_LCL_VAR_ADDR node that defines the address
-        //
-        // Notes:
-        //   - (lclnum) => ADDRESS(lclNum, 0)
-        //
-        void Address(GenTreeLclVar* lclVar)
-        {
-            assert(lclVar->OperIs(GT_LCL_VAR_ADDR));
-            assert(!IsLocation() && !IsAddress());
-
-            m_lclNum  = lclVar->GetLclNum();
-            m_address = true;
-
-            assert(m_offset == 0);
-            assert(m_fieldSeq == nullptr);
-        }
-
         bool Cast(const Value& val, GenTreeCast* cast)
         {
             assert(!IsLocation() && !IsAddress());
@@ -208,22 +187,21 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
         }
 
         //------------------------------------------------------------------------
-        // Address: Produce an address value from a LCL_FLD_ADDR node.
+        // Address: Produce an address value from a LCL_ADDR node.
         //
         // Arguments:
-        //    lclFld - a GT_LCL_FLD_ADDR node that defines the address
+        //    lclAddr - a GT_LCL_ADDR node that defines the address
         //
         // Notes:
         //   - (lclnum, lclOffs) => ADDRESS(lclNum, offset)
         //
-        void Address(GenTreeLclFld* lclFld)
+        void Address(GenTreeLclAddr* lclAddr)
         {
-            assert(lclFld->OperIs(GT_LCL_FLD_ADDR));
             assert(!IsLocation() && !IsAddress());
 
-            m_lclNum   = lclFld->GetLclNum();
-            m_offset   = lclFld->GetLclOffs();
-            m_fieldSeq = lclFld->GetFieldSeq();
+            m_lclNum   = lclAddr->GetLclNum();
+            m_offset   = lclAddr->GetLclOffs();
+            m_fieldSeq = lclAddr->GetFieldSeq();
             m_address  = true;
         }
 
@@ -420,10 +398,16 @@ public:
         GenTree* node = *use;
 
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-        if ((m_compiler->lvaRefCountState == RCS_MORPH) &&
-            node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+        if (m_compiler->lvaRefCountState == RCS_MORPH)
         {
-            UpdateImplicitByRefParamRefCounts(node->AsLclVarCommon()->GetLclNum());
+            if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+            {
+                UpdateImplicitByRefParamRefCounts(node->AsLclVarCommon()->GetLclNum());
+            }
+            else if (node->OperIs(GT_LCL_ADDR))
+            {
+                UpdateImplicitByRefParamRefCounts(node->AsLclAddr()->GetLclNum());
+            }
         }
 #endif
 
@@ -447,22 +431,16 @@ public:
                 TopValue(0).Location(node->AsLclVar());
                 break;
 
-            case GT_LCL_VAR_ADDR:
+            case GT_LCL_ADDR:
                 assert(TopValue(0).Node() == node);
 
-                TopValue(0).Address(node->AsLclVar());
+                TopValue(0).Address(node->AsLclAddr());
                 break;
 
             case GT_LCL_FLD:
                 assert(TopValue(0).Node() == node);
 
                 TopValue(0).Location(node->AsLclFld());
-                break;
-
-            case GT_LCL_FLD_ADDR:
-                assert(TopValue(0).Node() == node);
-
-                TopValue(0).Address(node->AsLclFld());
                 break;
 
             case GT_CAST:
@@ -1099,7 +1077,7 @@ private:
     bool PromoteLclFld(GenTreeLclFld* node, LclVarDsc* lcl)
     {
         // The importer does not currently produce STRUCT LCL_FLDs.
-        assert(!node->TypeIs(TYP_STRUCT));
+        assert(node->OperIs(GT_LCL_FLD) && !node->TypeIs(TYP_STRUCT));
 
         unsigned fieldLclNum = FindPromotedField(lcl, node->GetLclOffs(), varTypeSize(node->GetType()));
 
@@ -1238,15 +1216,11 @@ private:
         }
         else if ((val.Offset() != 0) || ((val.FieldSeq() != nullptr) && (val.FieldSeq() != FieldSeqStore::NotAField())))
         {
-            addr->ChangeOper(GT_LCL_FLD_ADDR);
-            addr->AsLclFld()->SetLclNum(val.LclNum());
-            addr->AsLclFld()->SetLclOffs(val.Offset());
-            addr->AsLclFld()->SetFieldSeq(val.FieldSeq());
+            addr->ChangeToLclAddr(addr->GetType(), val.LclNum(), val.Offset(), val.FieldSeq());
         }
         else
         {
-            addr->ChangeOper(GT_LCL_VAR_ADDR);
-            addr->AsLclVar()->SetLclNum(val.LclNum());
+            addr->ChangeToLclAddr(addr->GetType(), val.LclNum());
         }
 
         // Local address nodes never have side effects (nor any other flags, at least at this point).
@@ -2070,7 +2044,7 @@ private:
 
     GenTree* RetypeStructLocal(GenTreeLclVarCommon* structLcl, var_types type)
     {
-        assert(structLcl->TypeIs(TYP_STRUCT));
+        assert(structLcl->OperIs(GT_LCL_VAR, GT_LCL_FLD) && structLcl->TypeIs(TYP_STRUCT));
         assert(type != TYP_STRUCT);
 
         ClassLayout* fieldLayout = nullptr;
@@ -2289,7 +2263,7 @@ private:
         // TODO-MIKE-Cleanup: The OBJ check is likely useless since the importer no
         // longer wraps struct args in OBJs.
 
-        if (((m_ancestors.Size() >= 3) && m_ancestors.Top(0)->OperIs(GT_LCL_VAR_ADDR) &&
+        if (((m_ancestors.Size() >= 3) && m_ancestors.Top(0)->OperIs(GT_LCL_ADDR) &&
              m_ancestors.Top(1)->OperIs(GT_OBJ) && m_ancestors.Top(2)->OperIs(GT_CALL)) ||
             ((m_ancestors.Size() >= 2) && m_ancestors.Top(0)->OperIs(GT_LCL_VAR) &&
              m_ancestors.Top(0)->TypeIs(TYP_STRUCT) && m_ancestors.Top(1)->OperIs(GT_CALL)))
@@ -2341,16 +2315,21 @@ void Compiler::lvaRecordSimdIntrinsicUse(GenTree* op)
 {
     if (op->OperIs(GT_OBJ, GT_IND))
     {
+        // TODO-MIKE-Review: See if this indir check is still necessary,
+        // such indirs should no longer be generated or should be very rare.
+        // And even if they're generated, we should probably check the types
+        // of the indir and the local variable too.
+
         GenTree* addr = op->AsIndir()->GetAddr();
 
-        if (addr->OperIs(GT_LCL_VAR_ADDR))
+        if (addr->OperIs(GT_LCL_ADDR) && (addr->AsLclAddr()->GetLclOffs() == 0))
         {
-            lvaRecordSimdIntrinsicUse(addr->AsLclVar());
+            lvaRecordSimdIntrinsicUse(addr->AsLclAddr()->GetLclNum());
         }
     }
     else if (op->OperIs(GT_LCL_VAR))
     {
-        lvaRecordSimdIntrinsicUse(op->AsLclVar());
+        lvaRecordSimdIntrinsicUse(op->AsLclVar()->GetLclNum());
     }
 }
 
@@ -3222,12 +3201,11 @@ public:
 
         switch (node->GetOper())
         {
-            case GT_LCL_VAR_ADDR:
-            case GT_LCL_FLD_ADDR:
+            case GT_LCL_ADDR:
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-                MorphImplicitByRefParamAddr(node->AsLclVarCommon());
+                MorphImplicitByRefParamAddr(node->AsLclAddr());
 #else
-                MorphVarargsStackParamAddr(node->AsLclVarCommon());
+                MorphVarargsStackParamAddr(node->AsLclAddr());
 #endif
                 return Compiler::WALK_SKIP_SUBTREES;
             case GT_LCL_VAR:
@@ -3244,11 +3222,9 @@ public:
     }
 
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-    void MorphImplicitByRefParamAddr(GenTreeLclVarCommon* lclAddrNode)
+    void MorphImplicitByRefParamAddr(GenTreeLclAddr* addr)
     {
-        assert(lclAddrNode->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR));
-
-        LclVarDsc* lcl = m_compiler->lvaGetDesc(lclAddrNode);
+        LclVarDsc* lcl = m_compiler->lvaGetDesc(addr);
 
         if (lcl->IsImplicitByRefParam())
         {
@@ -3262,16 +3238,16 @@ public:
             // lvFieldCnt remains set to the number of promoted fields.
             assert((lcl->lvFieldLclStart == 0) || (lcl->lvFieldCnt != 0));
 
-            if (lclAddrNode->OperIs(GT_LCL_FLD_ADDR))
-            {
-                unsigned      lclNum   = lclAddrNode->GetLclNum();
-                unsigned      lclOffs  = lclAddrNode->AsLclFld()->GetLclOffs();
-                FieldSeqNode* fieldSeq = lclAddrNode->AsLclFld()->GetFieldSeq();
+            unsigned      lclNum   = addr->GetLclNum();
+            unsigned      lclOffs  = addr->GetLclOffs();
+            FieldSeqNode* fieldSeq = addr->GetFieldSeq();
 
+            if ((lclOffs != 0) || (fieldSeq != nullptr))
+            {
                 // LocalAddressVisitor should not create unnecessary LCL_FLD_ADDR nodes.
                 assert((lclOffs != 0) || (fieldSeq != FieldSeqStore::NotAField()));
 
-                GenTree* add = lclAddrNode;
+                GenTree* add = addr;
                 add->ChangeOper(GT_ADD);
                 add->SetType(TYP_BYREF);
                 add->AsOp()->SetOp(0, m_compiler->gtNewLclvNode(lclNum, TYP_BYREF));
@@ -3280,9 +3256,10 @@ public:
             }
             else
             {
-                lclAddrNode->ChangeOper(GT_LCL_VAR);
-                lclAddrNode->SetType(TYP_BYREF);
-                lclAddrNode->gtFlags = GTF_EMPTY;
+                addr->ChangeOper(GT_LCL_VAR);
+                addr->SetType(TYP_BYREF);
+                addr->AsLclVar()->SetLclNum(lclNum);
+                addr->gtFlags = GTF_EMPTY;
             }
 
             INDEBUG(m_stmtModified = true;)
@@ -3299,14 +3276,14 @@ public:
             unsigned      lclOffs  = lcl->GetPromotedFieldOffset();
             FieldSeqNode* fieldSeq = lcl->GetPromotedFieldSeq();
 
-            if (lclAddrNode->OperIs(GT_LCL_FLD_ADDR))
+            if ((addr->GetLclOffs() != 0) || (addr->GetFieldSeq() != nullptr))
             {
-                lclOffs += lclAddrNode->AsLclFld()->GetLclOffs();
-                fieldSeq = m_compiler->GetFieldSeqStore()->Append(fieldSeq, lclAddrNode->AsLclFld()->GetFieldSeq());
+                lclOffs += addr->GetLclOffs();
+                fieldSeq = m_compiler->GetFieldSeqStore()->Append(fieldSeq, addr->GetFieldSeq());
             }
 
             // Change LCL_VAR|FLD_ADDR(paramPromotedField) into ADD(LCL_VAR<BYREF>(param), offset)
-            GenTree* add = lclAddrNode;
+            GenTree* add = addr;
             add->ChangeOper(GT_ADD);
             add->SetType(TYP_BYREF);
             add->AsOp()->SetOp(0, m_compiler->gtNewLclvNode(lclNum, TYP_BYREF));
@@ -3454,18 +3431,18 @@ public:
         }
     }
 #elif defined(TARGET_X86)
-    void MorphVarargsStackParamAddr(GenTreeLclVarCommon* lclNode)
+    void MorphVarargsStackParamAddr(GenTreeLclAddr* lclAddr)
     {
-        assert(lclNode->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR));
+        assert(lclAddr->OperIs(GT_LCL_ADDR));
 
-        if (!IsVarargsStackParam(lclNode))
+        if (!IsVarargsStackParam(lclAddr->GetLclNum()))
         {
             return;
         }
 
         GenTree* base   = m_compiler->gtNewLclvNode(m_compiler->lvaVarargsBaseOfStkArgs, TYP_I_IMPL);
-        GenTree* offset = GetVarargsStackParamOffset(lclNode);
-        GenTree* addr   = lclNode;
+        GenTree* offset = GetVarargsStackParamOffset(lclAddr->GetLclNum(), lclAddr->GetLclOffs());
+        GenTree* addr   = lclAddr;
 
         addr->ChangeOper(GT_ADD);
         addr->SetType(TYP_I_IMPL);
@@ -3479,13 +3456,13 @@ public:
     {
         assert(lclNode->OperIs(GT_LCL_VAR, GT_LCL_FLD));
 
-        if (!IsVarargsStackParam(lclNode))
+        if (!IsVarargsStackParam(lclNode->GetLclNum()))
         {
             return;
         }
 
         GenTree* base   = m_compiler->gtNewLclvNode(m_compiler->lvaVarargsBaseOfStkArgs, TYP_I_IMPL);
-        GenTree* offset = GetVarargsStackParamOffset(lclNode);
+        GenTree* offset = GetVarargsStackParamOffset(lclNode->GetLclNum(), lclNode->GetLclOffs());
         GenTree* addr   = m_compiler->gtNewOperNode(GT_ADD, TYP_I_IMPL, base, offset);
         GenTree* indir  = lclNode;
 
@@ -3508,16 +3485,15 @@ public:
         INDEBUG(m_stmtModified = true;)
     }
 
-    bool IsVarargsStackParam(GenTreeLclVarCommon* lclNode) const
+    bool IsVarargsStackParam(unsigned lclNum) const
     {
-        LclVarDsc* lcl = m_compiler->lvaGetDesc(lclNode);
-        return lcl->IsParam() && !lcl->IsRegParam() && (lclNode->GetLclNum() != m_compiler->lvaVarargsHandleArg);
+        LclVarDsc* lcl = m_compiler->lvaGetDesc(lclNum);
+        return lcl->IsParam() && !lcl->IsRegParam() && (lclNum != m_compiler->lvaVarargsHandleArg);
     }
 
-    GenTreeIntCon* GetVarargsStackParamOffset(GenTreeLclVarCommon* lclNode) const
+    GenTreeIntCon* GetVarargsStackParamOffset(unsigned lclNum, unsigned lclOffs) const
     {
-        int stkOffs = m_compiler->lvaGetDesc(lclNode)->GetStackOffset();
-        int lclOffs = lclNode->OperIs(GT_LCL_VAR, GT_LCL_VAR_ADDR) ? 0 : lclNode->AsLclFld()->GetLclOffs();
+        int stkOffs = m_compiler->lvaGetDesc(lclNum)->GetStackOffset();
         return m_compiler->gtNewIconNode(stkOffs + lclOffs - m_compiler->codeGen->paramsStackSize, TYP_INT);
     }
 #endif // !TARGET_X86

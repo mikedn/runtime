@@ -370,12 +370,12 @@ bool CodeGen::IsMemoryOperand(
         return false;
     }
 
-    if (loadAddr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+    if (loadAddr->OperIs(GT_LCL_ADDR))
     {
         assert(loadAddr->isContained());
 
-        *lclNum  = loadAddr->AsLclVarCommon()->GetLclNum();
-        *lclOffs = loadAddr->AsLclVarCommon()->GetLclOffs();
+        *lclNum  = loadAddr->AsLclAddr()->GetLclNum();
+        *lclOffs = loadAddr->AsLclAddr()->GetLclOffs();
         *addr    = nullptr;
         *field   = nullptr;
     }

@@ -2972,12 +2972,12 @@ void CodeGen::genCodeForSwap(GenTreeOp* tree)
     // However, the gc-ness may change.
     assert(IsRegCandidateLclVar(tree->gtOp1) && IsRegCandidateLclVar(tree->gtOp2));
 
-    GenTreeLclVarCommon* lcl1    = tree->gtOp1->AsLclVar();
-    LclVarDsc*           varDsc1 = compiler->lvaGetDesc(lcl1);
-    var_types            type1   = varDsc1->TypeGet();
-    GenTreeLclVarCommon* lcl2    = tree->gtOp2->AsLclVar();
-    LclVarDsc*           varDsc2 = compiler->lvaGetDesc(lcl2);
-    var_types            type2   = varDsc2->TypeGet();
+    GenTreeLclVar* lcl1    = tree->gtOp1->AsLclVar();
+    LclVarDsc*     varDsc1 = compiler->lvaGetDesc(lcl1);
+    var_types      type1   = varDsc1->TypeGet();
+    GenTreeLclVar* lcl2    = tree->gtOp2->AsLclVar();
+    LclVarDsc*     varDsc2 = compiler->lvaGetDesc(lcl2);
+    var_types      type2   = varDsc2->TypeGet();
 
     // We must have both int or both fp regs
     assert(!varTypeIsFloating(type1) || varTypeIsFloating(type2));
@@ -8674,11 +8674,11 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
         return;
     }
 
-    if (addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+    if (addr->OperIs(GT_LCL_ADDR))
     {
-        GenTreeLclVarCommon* lclNode = addr->AsLclVarCommon();
-        unsigned             lclNum  = lclNode->GetLclNum();
-        unsigned             offset  = lclNode->GetLclOffs();
+        GenTreeLclAddr* lclAddr = addr->AsLclAddr();
+        unsigned        lclNum  = lclAddr->GetLclNum();
+        unsigned        offset  = lclAddr->GetLclOffs();
 
         if (emitter::emitInsIsStore(ins))
         {

@@ -1118,7 +1118,7 @@ protected:
 #endif
 
     void genCodeForCast(GenTreeCast* cast);
-    void genCodeForLclAddr(GenTreeLclVarCommon* tree);
+    void GenLclAddr(GenTreeLclAddr* addr);
     void genCodeForIndexAddr(GenTreeIndexAddr* tree);
     void genCodeForIndir(GenTreeIndir* tree);
     void genCodeForNegNot(GenTreeUnOp* tree);

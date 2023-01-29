@@ -3305,7 +3305,7 @@ private:
 
             if (isLocalAddr)
             {
-                if (!addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+                if (!addr->OperIs(GT_LCL_ADDR))
                 {
                     ChangeToLocalAddress(addr, localAddr);
                 }
@@ -3732,17 +3732,13 @@ private:
 
             if ((offset == 0) && (fieldSeq == nullptr))
             {
-                node->ChangeOper(GT_LCL_VAR_ADDR);
+                node->ChangeToLclAddr(TYP_I_IMPL, lclNum);
             }
             else
             {
-                node->ChangeOper(GT_LCL_FLD_ADDR);
-                node->AsLclFld()->SetLclOffs(static_cast<unsigned>(offset));
-                node->AsLclFld()->SetFieldSeq(fieldSeq == nullptr ? FieldSeqNode::NotAField() : fieldSeq);
+                node->ChangeToLclAddr(TYP_I_IMPL, lclNum, static_cast<unsigned>(offset),
+                                      fieldSeq == nullptr ? FieldSeqNode::NotAField() : fieldSeq);
             }
-
-            node->AsLclVarCommon()->SetLclNum(lclNum);
-            node->SetType(TYP_I_IMPL);
 
             m_stmtMorphPending = true;
 

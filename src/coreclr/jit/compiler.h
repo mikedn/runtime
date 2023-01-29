@@ -2642,6 +2642,7 @@ struct Importer
     void lvaUpdateClass(unsigned lclNum, GenTree* tree, CORINFO_CLASS_HANDLE stackHandle = nullptr);
     LclVarDsc* lvaGetDesc(unsigned lclNum);
     LclVarDsc* lvaGetDesc(GenTreeLclVarCommon* lclNode);
+    LclVarDsc* lvaGetDesc(GenTreeLclAddr* lclAddr);
     bool lvaIsOriginalThisArg(unsigned lclNum);
     bool lvaHaveManyLocals();
     bool fgVarNeedsExplicitZeroInit(unsigned lclNum, bool blockIsInLoop, bool blockIsReturn);
@@ -2650,7 +2651,7 @@ struct Importer
     Statement* gtNewStmt(GenTree* expr = nullptr, IL_OFFSETX offset = BAD_IL_OFFSET);
 
     GenTreeLclVar* gtNewLclvNode(unsigned lclNum, var_types type);
-    GenTreeLclVar* gtNewLclVarAddrNode(unsigned lclNum, var_types type = TYP_I_IMPL);
+    GenTreeLclAddr* gtNewLclVarAddrNode(unsigned lclNum, var_types type = TYP_I_IMPL);
     GenTreeLclFld* gtNewLclFldNode(unsigned lclNum, var_types type, unsigned offset);
     GenTreeIntCon* gtNewIconNode(ssize_t value, var_types type = TYP_INT);
     GenTreeIntCon* gtNewIconNode(unsigned fieldOffset, FieldSeqNode* fieldSeq);
@@ -2781,8 +2782,8 @@ struct Importer
     void lvaRecordSimdIntrinsicDef(unsigned lclNum, GenTreeHWIntrinsic* src);
 #endif // FEATURE_HW_INTRINSICS
 
-    static GenTreeLclVar* impIsAddressInLocal(GenTree* tree);
-    static GenTreeLclVarCommon* impIsLocalAddrExpr(GenTree* node);
+    static GenTreeLclAddr* impIsAddressInLocal(GenTree* tree);
+    static GenTreeLclAddr* impIsLocalAddrExpr(GenTree* node);
     bool impHasLclRef(GenTree* tree, unsigned lclNum);
     bool impHasAddressTakenLocals(GenTree* tree);
 
@@ -3323,11 +3324,11 @@ public:
     GenTreeLclVar* gtNewLclvNode(unsigned lnum, var_types type);
     GenTreeLclVar* gtNewLclVarLargeNode(unsigned lnum, var_types type);
 
-    GenTreeLclVar* gtNewLclVarAddrNode(unsigned lclNum, var_types type = TYP_I_IMPL);
-    GenTreeLclFld* gtNewLclFldAddrNode(unsigned      lclNum,
-                                       unsigned      lclOffs,
-                                       FieldSeqNode* fieldSeq,
-                                       var_types     type = TYP_I_IMPL);
+    GenTreeLclAddr* gtNewLclVarAddrNode(unsigned lclNum, var_types type = TYP_I_IMPL);
+    GenTreeLclAddr* gtNewLclFldAddrNode(unsigned      lclNum,
+                                        unsigned      lclOffs,
+                                        FieldSeqNode* fieldSeq,
+                                        var_types     type = TYP_I_IMPL);
 
 #ifdef FEATURE_HW_INTRINSICS
     GenTreeHWIntrinsic* gtNewZeroSimdHWIntrinsicNode(ClassLayout* layout);
@@ -3920,6 +3921,12 @@ public:
         return &lvaTable[lclVar->GetLclNum()];
     }
 
+    LclVarDsc* lvaGetDesc(const GenTreeLclAddr* lclAddr)
+    {
+        assert(lclAddr->GetLclNum() < lvaCount);
+        return &lvaTable[lclAddr->GetLclNum()];
+    }
+
     LclSsaVarDsc* lvaGetSsaDesc(const GenTreeLclVarCommon* lclNode)
     {
         return lvaGetDesc(lclNode)->GetPerSsaData(lclNode->GetSsaNum());
@@ -4132,8 +4139,8 @@ private:
     static LONG     jitNestingLevel;
 #endif
 
-    static GenTreeLclVar* impIsAddressInLocal(GenTree* tree);
-    static GenTreeLclVarCommon* impIsLocalAddrExpr(GenTree* node);
+    static GenTreeLclAddr* impIsAddressInLocal(GenTree* tree);
+    static GenTreeLclAddr* impIsLocalAddrExpr(GenTree* node);
     bool impHasLclRef(GenTree* tree, unsigned lclNum);
     bool impHasAddressTakenLocals(GenTree* tree);
 
@@ -7969,8 +7976,7 @@ public:
             // Leaf lclVars
             case GT_LCL_VAR:
             case GT_LCL_FLD:
-            case GT_LCL_VAR_ADDR:
-            case GT_LCL_FLD_ADDR:
+            case GT_LCL_ADDR:
                 if (TVisitor::DoLclVarsOnly)
                 {
                     result = reinterpret_cast<TVisitor*>(this)->PreOrderVisit(use, user);

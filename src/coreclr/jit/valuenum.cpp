@@ -8006,13 +8006,12 @@ void Compiler::vnSummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySummar
             }
             break;
 
-        case GT_LCL_VAR_ADDR:
-        case GT_LCL_FLD_ADDR:
-            assert(lvaGetDesc(node->AsLclVarCommon())->IsAddressExposed());
+        case GT_LCL_ADDR:
+            assert(lvaGetDesc(node->AsLclAddr())->IsAddressExposed());
             // TODO-MIKE-CQ: If the local is a promoted field we should use the parent instead,
             // so that byref exposed loads don't unnecessarily produce different value numbers.
             node->SetLiberalVN(vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr,
-                                                  vnStore->VNForIntCon(node->AsLclVarCommon()->GetLclNum()),
+                                                  vnStore->VNForIntCon(node->AsLclAddr()->GetLclNum()),
                                                   vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr)));
             break;
 
@@ -8064,21 +8063,14 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             fgValueNumberTreeConst(tree);
             break;
 
-        case GT_LCL_VAR_ADDR:
-            assert(lvaGetDesc(tree->AsLclVar())->IsAddressExposed());
+        case GT_LCL_ADDR:
+            assert(lvaGetDesc(tree->AsLclAddr())->IsAddressExposed());
             // TODO-MIKE-CQ: If the local is a promoted field we should use the parent instead,
             // so that byref exposed loads don't unnecessarily produce different value numbers.
-            tree->gtVNPair.SetBoth(
-                vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(tree->AsLclVar()->GetLclNum()),
-                                   vnStore->VNZeroForType(TYP_I_IMPL), vnStore->VNForFieldSeq(nullptr)));
-            break;
-
-        case GT_LCL_FLD_ADDR:
-            assert(lvaGetDesc(tree->AsLclFld())->IsAddressExposed());
             tree->gtVNPair.SetBoth(vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr,
-                                                      vnStore->VNForIntCon(tree->AsLclFld()->GetLclNum()),
-                                                      vnStore->VNForUPtrSizeIntCon(tree->AsLclFld()->GetLclOffs()),
-                                                      vnStore->VNForFieldSeq(tree->AsLclFld()->GetFieldSeq())));
+                                                      vnStore->VNForIntCon(tree->AsLclAddr()->GetLclNum()),
+                                                      vnStore->VNForUPtrSizeIntCon(tree->AsLclAddr()->GetLclOffs()),
+                                                      vnStore->VNForFieldSeq(tree->AsLclAddr()->GetFieldSeq())));
             break;
 
         case GT_CLS_VAR_ADDR:

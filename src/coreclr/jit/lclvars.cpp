@@ -2465,10 +2465,9 @@ void Compiler::lvaComputeRefCountsHIR()
                 break;
 #endif
 
-                case GT_LCL_VAR_ADDR:
-                case GT_LCL_FLD_ADDR:
+                case GT_LCL_ADDR:
                 {
-                    LclVarDsc* lcl = m_compiler->lvaGetDesc(node->AsLclVarCommon());
+                    LclVarDsc* lcl = m_compiler->lvaGetDesc(node->AsLclAddr());
                     assert(lcl->IsAddressExposed());
 #if ASSERTION_PROP
                     DisqualifyAddCopy(lcl);
@@ -2629,10 +2628,9 @@ void Compiler::lvaComputeRefCountsLIR()
 
             switch (node->GetOper())
             {
-                case GT_LCL_VAR_ADDR:
-                case GT_LCL_FLD_ADDR:
+                case GT_LCL_ADDR:
                     refWeight = 0;
-                    lcl       = lvaGetDesc(node->AsLclVarCommon());
+                    lcl       = lvaGetDesc(node->AsLclAddr());
                     break;
 
                 case GT_LCL_VAR:

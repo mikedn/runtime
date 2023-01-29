@@ -1304,7 +1304,7 @@ GCInfo::WriteBarrierForm GCInfo::GetWriteBarrierFormFromAddress(GenTree* addr)
         return WBF_BarrierUnchecked;
     }
 
-    if (addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+    if (addr->OperIs(GT_LCL_ADDR))
     {
         // No need for a GC barrier when writing to a local variable.
         return WBF_NoBarrier;

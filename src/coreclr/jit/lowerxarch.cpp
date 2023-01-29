@@ -150,7 +150,7 @@ void Lowering::ContainStructStoreAddress(GenTree* store, unsigned size, GenTree*
 
     assert(size < INT32_MAX);
 
-    if (addr->OperIsLocalAddr())
+    if (addr->OperIs(GT_LCL_ADDR))
     {
         addr->SetContained();
         return;
@@ -289,9 +289,9 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
             // registers to be consumed atomically by the call.
             if (varTypeIsIntegralOrI(fieldNode))
             {
-                if (fieldNode->OperGet() == GT_LCL_VAR)
+                if (fieldNode->OperIs(GT_LCL_VAR))
                 {
-                    LclVarDsc* varDsc = &(comp->lvaTable[fieldNode->AsLclVarCommon()->GetLclNum()]);
+                    LclVarDsc* varDsc = comp->lvaGetDesc(fieldNode->AsLclVar());
                     if (!varDsc->lvDoNotEnregister)
                     {
                         fieldNode->SetRegOptional();
@@ -3310,10 +3310,10 @@ GenTree* Lowering::PreferredRegOptionalOperand(GenTree* tree)
     //
     // f) If neither of them are local vars (i.e. tree temps), prefer to
     // mark op1 as reg optional for the same reason as mentioned in (d) above.
-    if (op1->OperGet() == GT_LCL_VAR && op2->OperGet() == GT_LCL_VAR)
+    if (op1->OperIs(GT_LCL_VAR) && op2->OperIs(GT_LCL_VAR))
     {
-        LclVarDsc* v1 = comp->lvaTable + op1->AsLclVarCommon()->GetLclNum();
-        LclVarDsc* v2 = comp->lvaTable + op2->AsLclVarCommon()->GetLclNum();
+        LclVarDsc* v1 = comp->lvaGetDesc(op1->AsLclVar()->GetLclNum());
+        LclVarDsc* v2 = comp->lvaGetDesc(op2->AsLclVar()->GetLclNum());
 
         bool v1IsRegCandidate = !v1->lvDoNotEnregister;
         bool v2IsRegCandidate = !v2->lvDoNotEnregister;
@@ -3430,7 +3430,7 @@ void Lowering::ContainCheckIndir(GenTreeIndir* node)
     }
 #endif
 
-    if (addr->OperIs(GT_CLS_VAR_ADDR, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+    if (addr->OperIs(GT_CLS_VAR_ADDR, GT_LCL_ADDR))
     {
         addr->SetContained();
     }
@@ -4692,9 +4692,9 @@ void Lowering::ContainHWIntrinsicOperand(GenTreeHWIntrinsic* node, GenTree* op)
 //
 void Lowering::ContainCheckHWIntrinsicAddr(GenTreeHWIntrinsic* node, GenTree* addr)
 {
-    assert((addr->TypeGet() == TYP_I_IMPL) || (addr->TypeGet() == TYP_BYREF));
+    assert(addr->TypeIs(TYP_I_IMPL, TYP_BYREF));
     TryCreateAddrMode(addr, true);
-    if ((addr->OperIs(GT_CLS_VAR_ADDR, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR, GT_LEA) ||
+    if ((addr->OperIs(GT_CLS_VAR_ADDR, GT_LCL_ADDR, GT_LEA) ||
          (addr->IsIntCon() && addr->AsIntCon()->FitsInAddrBase(comp))) &&
         IsSafeToContainMem(node, addr))
     {

@@ -1528,10 +1528,8 @@ bool Compiler::optIsLoopClonable(unsigned loopInd)
         return false;
     }
 
-#ifdef DEBUG
-    GenTree* op1 = loop.lpIterator();
-    assert((op1->gtOper == GT_LCL_VAR) && (op1->AsLclVarCommon()->GetLclNum() == ivLclNum));
-#endif
+    INDEBUG(GenTree* op1 = loop.lpIterator());
+    assert(op1->OperIs(GT_LCL_VAR) && (op1->AsLclVar()->GetLclNum() == ivLclNum));
 
     // Otherwise, we're going to add those return blocks.
     fgReturnCount += loopRetCount;
@@ -2139,7 +2137,7 @@ bool Compiler::optExtractArrIndex(GenTree* tree, ArrIndex* result, unsigned lhsN
         return false;
     }
     GenTreeBoundsChk* arrBndsChk = before->AsBoundsChk();
-    if (arrBndsChk->gtIndex->gtOper != GT_LCL_VAR)
+    if (!arrBndsChk->gtIndex->OperIs(GT_LCL_VAR))
     {
         return false;
     }
@@ -2150,17 +2148,17 @@ bool Compiler::optExtractArrIndex(GenTree* tree, ArrIndex* result, unsigned lhsN
     {
         return false;
     }
-    if (arrBndsChk->gtArrLen->gtGetOp1()->gtOper != GT_LCL_VAR)
+    if (!arrBndsChk->gtArrLen->gtGetOp1()->OperIs(GT_LCL_VAR))
     {
         return false;
     }
-    unsigned arrLcl = arrBndsChk->gtArrLen->gtGetOp1()->AsLclVarCommon()->GetLclNum();
+    unsigned arrLcl = arrBndsChk->gtArrLen->gtGetOp1()->AsLclVar()->GetLclNum();
     if (lhsNum != BAD_VAR_NUM && arrLcl != lhsNum)
     {
         return false;
     }
 
-    unsigned indLcl = arrBndsChk->gtIndex->AsLclVarCommon()->GetLclNum();
+    unsigned indLcl = arrBndsChk->gtIndex->AsLclVar()->GetLclNum();
 
     if (lhsNum == BAD_VAR_NUM)
     {

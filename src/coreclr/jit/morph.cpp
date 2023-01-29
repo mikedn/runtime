@@ -1448,7 +1448,7 @@ void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
                 // The `this` arg also does not need a temp, if it's ever stored
                 // to the importer replaces it with a normal local.
 
-                if (!node->OperIsConst() && !node->OperIsLocalAddr() &&
+                if (!node->OperIsConst() && !node->OperIs(GT_LCL_ADDR) &&
                     !(node->OperIs(GT_LCL_VAR) && (node->AsLclVar()->GetLclNum() == compiler->info.compThisArg)))
                 {
                     prevArgInfo->SetTempNeeded();
@@ -5551,8 +5551,8 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
         }
     }
 
-    INDEBUG(GenTreeLclVarCommon* lclNode = addr->IsLocalAddrExpr();)
-    assert((lclNode == nullptr) || lvaGetDesc(lclNode)->IsAddressExposed());
+    INDEBUG(GenTreeLclAddr* lclAddr = addr->IsLocalAddrExpr();)
+    assert((lclAddr == nullptr) || lvaGetDesc(lclAddr)->IsAddressExposed());
 
     // null MAC means we encounter the FIELD_ADDR first. This is equivalent to a MAC_Addr
     // with zero offset.
@@ -6245,7 +6245,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call)
     {
         noway_assert(call->TypeGet() == TYP_VOID);
         GenTree* retValBuf = call->gtCallArgs->GetNode();
-        if (retValBuf->gtOper != GT_LCL_VAR || retValBuf->AsLclVarCommon()->GetLclNum() != info.compRetBuffArg)
+        if (!retValBuf->OperIs(GT_LCL_VAR) || (retValBuf->AsLclVar()->GetLclNum() != info.compRetBuffArg))
         {
             failTailCall("Need to copy return buffer");
             return nullptr;
@@ -10124,7 +10124,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
         case GT_IND:
         case GT_OBJ:
-            if (op1->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR) && !tree->AsIndir()->IsVolatile())
+            if (op1->OperIs(GT_LCL_ADDR) && !tree->AsIndir()->IsVolatile())
             {
                 ClassLayout* layout = tree->IsObj() ? tree->AsObj()->GetLayout() : nullptr;
 
@@ -10135,8 +10135,8 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
                 tree->ChangeOper(GT_LCL_FLD);
                 tree->SetSideEffects(GTF_GLOB_REF);
-                tree->AsLclFld()->SetLclNum(op1->AsLclVarCommon()->GetLclNum());
-                tree->AsLclFld()->SetLclOffs(op1->AsLclVarCommon()->GetLclOffs());
+                tree->AsLclFld()->SetLclNum(op1->AsLclAddr()->GetLclNum());
+                tree->AsLclFld()->SetLclOffs(op1->AsLclAddr()->GetLclOffs());
                 tree->AsLclFld()->SetLayout(layout, this);
 
                 return tree;

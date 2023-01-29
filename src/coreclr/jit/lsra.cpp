@@ -7235,14 +7235,11 @@ void LinearScan::handleOutgoingCriticalEdges(BasicBlock* block)
 
             if (op1->OperIs(GT_COPY))
             {
-                GenTree* srcOp1 = op1->gtGetOp1();
-                consumedRegs |= genRegMask(srcOp1->GetRegNum());
+                consumedRegs |= genRegMask(op1->gtGetOp1()->GetRegNum());
             }
-
-            if (op1->IsLocal())
+            else if (op1->IsLocal())
             {
-                GenTreeLclVarCommon* lcl = op1->AsLclVarCommon();
-                jcmpLocalVarDsc          = &compiler->lvaTable[lcl->GetLclNum()];
+                jcmpLocalVarDsc = compiler->lvaGetDesc(op1->AsLclVarCommon());
             }
         }
     }

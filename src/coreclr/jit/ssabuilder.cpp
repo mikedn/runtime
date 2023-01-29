@@ -488,8 +488,8 @@ static GenTree* GetPhiNode(BasicBlock* block, unsigned lclNum)
         GenTree* tree = stmt->GetRootNode();
 
         GenTree* phiLhs = tree->AsOp()->gtOp1;
-        assert(phiLhs->OperGet() == GT_LCL_VAR);
-        if (phiLhs->AsLclVarCommon()->GetLclNum() == lclNum)
+        assert(phiLhs->OperIs(GT_LCL_VAR));
+        if (phiLhs->AsLclVar()->GetLclNum() == lclNum)
         {
             return tree->AsOp()->gtOp2;
         }
@@ -773,7 +773,7 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
         {
             if (GenTreeIndir* indir = dst->IsIndir())
             {
-                if (GenTreeLclVarCommon* lclAddr = indir->GetAddr()->IsLocalAddrExpr())
+                if (GenTreeLclAddr* lclAddr = indir->GetAddr()->IsLocalAddrExpr())
                 {
                     assert(m_pCompiler->lvaGetDesc(lclAddr)->IsAddressExposed());
                 }

@@ -288,7 +288,7 @@ void Lowering::ContainStructStoreAddress(GenTree* store, unsigned size, GenTree*
                                                        (store->AsBlk()->GetKind() == StructStoreKind::UnrollInit ||
                                                         (store->AsBlk()->GetKind() == StructStoreKind::UnrollRegs)))));
 
-    if (addr->OperIsLocalAddr())
+    if (addr->OperIs(GT_LCL_ADDR))
     {
         addr->SetContained();
         return;
@@ -1036,9 +1036,9 @@ void Lowering::ContainCheckIndir(GenTreeIndir* indirNode)
         }
     }
 #ifdef TARGET_ARM64
-    else if (addr->OperIs(GT_CLS_VAR_ADDR, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+    else if (addr->OperIs(GT_CLS_VAR_ADDR, GT_LCL_ADDR))
 #else
-    else if (addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+    else if (addr->OperIs(GT_LCL_ADDR))
 #endif
     {
         addr->SetContained();

@@ -210,9 +210,8 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
             }
             break;
 
-        case GT_LCL_VAR_ADDR:
-        case GT_LCL_FLD_ADDR:
-            assert(lvaGetDesc(tree->AsLclVarCommon())->IsAddressExposed());
+        case GT_LCL_ADDR:
+            assert(lvaGetDesc(tree->AsLclAddr())->IsAddressExposed());
             break;
 
         case GT_IND:
@@ -235,7 +234,7 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
             {
                 GenTree* addr = tree->AsIndir()->GetAddr()->SkipComma();
 
-                if (GenTreeLclVarCommon* lclNode = addr->IsLocalAddrExpr())
+                if (GenTreeLclAddr* lclNode = addr->IsLocalAddrExpr())
                 {
                     assert(lvaGetDesc(lclNode)->IsAddressExposed());
                 }
@@ -322,7 +321,7 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
 
             if (GenTreeIndir* indir = tree->AsOp()->GetOp(0)->IsIndir())
             {
-                if (GenTreeLclVarCommon* lclNode = indir->GetAddr()->IsLocalAddrExpr())
+                if (GenTreeLclAddr* lclNode = indir->GetAddr()->IsLocalAddrExpr())
                 {
                     assert(lvaGetDesc(lclNode)->IsAddressExposed());
                 }
@@ -411,9 +410,9 @@ void Compiler::fgPerBlockLocalVarLivenessLIR()
                     fgMarkUseDef(state, node->AsLclVarCommon());
                 }
             }
-            else if (node->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+            else if (node->OperIs(GT_LCL_ADDR))
             {
-                assert(lvaGetDesc(node->AsLclVarCommon())->IsAddressExposed());
+                assert(lvaGetDesc(node->AsLclAddr())->IsAddressExposed());
             }
         }
 
@@ -1079,9 +1078,8 @@ void Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_VALARG_TP keepAliveVars,
                 break;
             }
 
-            case GT_LCL_VAR_ADDR:
-            case GT_LCL_FLD_ADDR:
-                assert(lvaGetDesc(node->AsLclVarCommon())->IsAddressExposed());
+            case GT_LCL_ADDR:
+                assert(lvaGetDesc(node->AsLclAddr())->IsAddressExposed());
                 FALLTHROUGH;
             case GT_LABEL:
             case GT_FTN_ADDR:

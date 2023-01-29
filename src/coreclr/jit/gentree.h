@@ -463,7 +463,7 @@ enum GenTreeFlags : unsigned int
     GTF_LIVENESS_MASK   = GTF_VAR_DEF | GTF_VAR_USEASG | GTF_VAR_DEATH_MASK,
 
     GTF_VAR_ITERATOR    = 0x00800000, // GT_LCL_VAR -- this is a iterator reference in the loop condition
-    GTF_VAR_CLONED      = 0x00400000, // GT_LCL_VAR -- this node has been cloned or is a clone
+    GTF_VAR_CLONED      = 0x00400000, // GT_LCL_VAR -- this node has been cloned (used by inlined to detect single use params)
     GTF_VAR_CONTEXT     = 0x00200000, // GT_LCL_VAR -- this node is part of a runtime lookup
 
     // For additional flags for GT_CALL node see GTF_CALL_M_*
@@ -1305,11 +1305,6 @@ public:
         return OperIsNonPhiLocal(gtOper) || (gtOper == GT_PHI_ARG);
     }
 
-    static bool OperIsLocalAddr(genTreeOps gtOper)
-    {
-        return (gtOper == GT_LCL_VAR_ADDR) || (gtOper == GT_LCL_FLD_ADDR);
-    }
-
     static bool OperIsNonPhiLocal(genTreeOps gtOper)
     {
         return (gtOper == GT_LCL_VAR) || (gtOper == GT_LCL_FLD) || (gtOper == GT_STORE_LCL_VAR) ||
@@ -1372,11 +1367,6 @@ public:
     bool OperIsLocal() const
     {
         return OperIsLocal(OperGet());
-    }
-
-    bool OperIsLocalAddr() const
-    {
-        return OperIsLocalAddr(OperGet());
     }
 
     bool OperIsNonPhiLocal() const
@@ -1807,6 +1797,8 @@ public:
     GenTreeDblCon* ChangeToDblCon(var_types type, double value);
     GenTreeFieldList* ChangeToFieldList();
     GenTreeLclFld* ChangeToLclFld(var_types type, unsigned lclNum, unsigned offset, FieldSeqNode* fieldSeq);
+    GenTreeLclAddr* ChangeToLclAddr(var_types type, unsigned lclNum);
+    GenTreeLclAddr* ChangeToLclAddr(var_types type, unsigned lclNum, unsigned offset, FieldSeqNode* fieldSeq);
     GenTreeAddrMode* ChangeToAddrMode(GenTree* base, GenTree* index, unsigned scale, int offset);
     // set gtOper and only keep GTF_COMMON_MASK flags
     void ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate = CLEAR_VN);
@@ -1847,7 +1839,7 @@ public:
     }
 
     bool IsPartialLclFld(Compiler* comp);
-    GenTreeLclVarCommon* IsLocalAddrExpr();
+    GenTreeLclAddr* IsLocalAddrExpr();
 
     // Determine if this tree represents an indirection for an implict byref parameter,
     // and if so return the tree for the parameter.
@@ -3309,7 +3301,7 @@ private:
     unsigned m_ssaNum; // The SSA number.
 
 protected:
-    GenTreeLclVarCommon(GenTreeLclVarCommon* copyFrom)
+    GenTreeLclVarCommon(const GenTreeLclVarCommon* copyFrom)
         : GenTreeUnOp(copyFrom->GetOper(), copyFrom->GetType())
         , m_lclNum(copyFrom->m_lclNum)
         , m_ssaNum(copyFrom->m_ssaNum)
@@ -3383,7 +3375,7 @@ struct GenTreeLclVar : public GenTreeLclVarCommon
     GenTreeLclVar(genTreeOps oper, var_types type, unsigned lclNum DEBUGARG(bool largeNode = false))
         : GenTreeLclVarCommon(oper, type, lclNum DEBUGARG(largeNode))
     {
-        assert(OperIsLocal(oper) || OperIsLocalAddr(oper));
+        assert((oper == GT_LCL_VAR) || (oper == GT_STORE_LCL_VAR));
     }
 
     GenTreeLclVar(var_types type, unsigned lclNum, GenTree* value DEBUGARG(bool largeNode = false))
@@ -3419,6 +3411,7 @@ public:
         , m_layoutNum(0)
         , m_fieldSeq(FieldSeqStore::NotAField())
     {
+        assert((oper == GT_LCL_FLD) || (oper == GT_STORE_LCL_FLD) || (oper == GT_LCL_ADDR));
         assert(lclOffs <= UINT16_MAX);
     }
 
@@ -3434,7 +3427,7 @@ public:
         SetOp(0, value);
     }
 
-    GenTreeLclFld(GenTreeLclFld* copyFrom)
+    GenTreeLclFld(const GenTreeLclFld* copyFrom)
         : GenTreeLclVarCommon(copyFrom)
         , m_lclOffs(copyFrom->m_lclOffs)
         , m_layoutNum(copyFrom->m_layoutNum)
@@ -3497,6 +3490,25 @@ public:
 
 #if DEBUGGABLE_GENTREE
     GenTreeLclFld() : GenTreeLclVarCommon()
+    {
+    }
+#endif
+};
+
+struct GenTreeLclAddr : GenTreeLclFld
+{
+    GenTreeLclAddr(var_types type, unsigned lclNum, unsigned lclOffs)
+        : GenTreeLclFld(GT_LCL_ADDR, type, lclNum, lclOffs)
+    {
+        SetFieldSeq(nullptr);
+    }
+
+    GenTreeLclAddr(const GenTreeLclAddr* copyFrom) : GenTreeLclFld(copyFrom)
+    {
+    }
+
+#if DEBUGGABLE_GENTREE
+    GenTreeLclAddr() : GenTreeLclFld()
     {
     }
 #endif

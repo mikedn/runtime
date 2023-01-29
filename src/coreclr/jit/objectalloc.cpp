@@ -173,16 +173,18 @@ void ObjectAllocator::MarkEscapingVarsAndBuildConnGraph()
 
             assert(tree == m_ancestors.Top());
 
-            unsigned lclNum  = tree->AsLclVarCommon()->GetLclNum();
+            unsigned lclNum  = BAD_VAR_NUM;
             bool     escapes = false;
 
             if (tree->OperIs(GT_LCL_VAR))
             {
+                lclNum  = tree->AsLclVar()->GetLclNum();
                 escapes = tree->TypeIs(TYP_REF, TYP_BYREF, TYP_I_IMPL) &&
                           m_allocator->CanLclVarEscapeViaParentStack(&m_ancestors, lclNum);
             }
-            else if (tree->OperIs(GT_LCL_VAR_ADDR))
+            else if (tree->OperIs(GT_LCL_ADDR))
             {
+                lclNum  = tree->AsLclAddr()->GetLclNum();
                 escapes = m_compiler->lvaGetDesc(lclNum)->TypeIs(TYP_REF, TYP_BYREF, TYP_I_IMPL);
             }
 

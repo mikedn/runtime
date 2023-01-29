@@ -382,9 +382,8 @@ GenTree* Lowering::LowerNode(GenTree* node)
             node->gtGetOp1()->SetRegOptional();
             break;
 
-        case GT_LCL_FLD_ADDR:
-        case GT_LCL_VAR_ADDR:
-            assert(comp->lvaGetDesc(node->AsLclVarCommon())->IsAddressExposed());
+        case GT_LCL_ADDR:
+            assert(comp->lvaGetDesc(node->AsLclAddr())->IsAddressExposed());
             break;
 
         default:
@@ -541,10 +540,10 @@ GenTree* Lowering::LowerSwitch(GenTreeUnOp* node)
     //   1. a statement containing 'asg' (for temp = indexExpression)
     //   2. and a statement with GT_SWITCH(temp)
 
-    assert(node->gtOper == GT_SWITCH);
+    assert(node->OperIs(GT_SWITCH));
     GenTree* temp = node->AsOp()->gtOp1;
-    assert(temp->gtOper == GT_LCL_VAR);
-    unsigned  tempLclNum  = temp->AsLclVarCommon()->GetLclNum();
+    assert(temp->OperIs(GT_LCL_VAR));
+    unsigned  tempLclNum  = temp->AsLclVar()->GetLclNum();
     var_types tempLclType = temp->TypeGet();
 
     BasicBlock* defaultBB   = jumpTab[jumpCnt - 1];
@@ -1645,7 +1644,7 @@ void Lowering::RehomeParamForFastTailCall(unsigned paramLclNum,
 
     for (GenTree* node = rangeStart; node != rangeEnd; node = node->gtNext)
     {
-        if (!node->OperIsLocal() && !node->OperIsLocalAddr())
+        if (!node->OperIsLocal() && !node->OperIs(GT_LCL_ADDR))
         {
             continue;
         }
@@ -4793,9 +4792,8 @@ void Lowering::CheckNode(GenTree* node)
         }
         break;
 
-        case GT_LCL_VAR_ADDR:
-        case GT_LCL_FLD_ADDR:
-            assert(comp->lvaGetDesc(node->AsLclVarCommon())->IsAddressExposed());
+        case GT_LCL_ADDR:
+            assert(comp->lvaGetDesc(node->AsLclAddr())->IsAddressExposed());
             break;
 
         case GT_PHI:
