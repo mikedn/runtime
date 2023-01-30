@@ -377,19 +377,18 @@ enum GenTreeFlags : unsigned
     // Common flags
                             
     GTF_REVERSE_OPS           = 0x00000020, // Second operand must be evaluated before the first operand
-    GTF_CONTAINED             = 0x00000040, // Node is contained (executed as part of its user)
-    GTF_NOREG_AT_USE          = 0x00000100, // Value is in memory at the point of use
-    GTF_SET_FLAGS             = 0x00000200, // Node must set the condition flags
-    GTF_USE_FLAGS             = 0x00000400, // Node uses the condition flags
-    GTF_MAKE_CSE              = 0x00000800, // Hoisted expression - try hard to CSE this expression
-    GTF_DONT_CSE              = 0x00001000, // Do not CSE this expression
-    GTF_BOOLEAN               = 0x00004000, // Value is known to be 0/1
-    GTF_UNSIGNED              = 0x00008000, // CAST - treat source operand as unsigned
+    GTF_MAKE_CSE              = 0x00000040, // Hoisted expression - try hard to CSE this expression
+    GTF_DONT_CSE              = 0x00000080, // Do not CSE this expression
+    GTF_BOOLEAN               = 0x00000100, // Value is known to be 0 or 1
+    GTF_UNSIGNED              = 0x00000200, // CAST - treat source operand as unsigned
                                             // ADD/SUB/MUL - unsigned overflow check (meaningless without GTF_OVERFLOW)
-    GTF_COMMON_MASK           = 0x0003FFFF, // Mask of all the flags above
-                              
-    GTF_REUSE_REG_VAL         = 0x00800000, // Destination register already contains the produced value so code
+    GTF_CONTAINED             = 0x00000400, // Node is contained (executed as part of its user)
+    GTF_NOREG_AT_USE          = 0x00000800, // Value is used from spilled temp without reloading into a register
+    GTF_REUSE_REG_VAL         = 0x00001000, // Destination register already contains the produced value so code
                                             // generation can be skipped. Only used with constants.
+    GTF_SET_FLAGS             = 0x00002000, // Generated instruction must set the condition flags
+    GTF_USE_FLAGS             = 0x00004000, // Generated instruction uses the condition flags
+    GTF_COMMON_MASK           = 0x0000FFFF, // Mask of all the flags above
 
     // LCL_VAR & co. specific flags
                               
