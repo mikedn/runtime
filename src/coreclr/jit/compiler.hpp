@@ -1011,17 +1011,6 @@ inline void GenTree::SetOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
 
     SetOperRaw(oper);
 
-#ifdef DEBUG
-    // Maintain the invariant that unary operators always have NULL gtOp2.
-    // If we ever start explicitly allocating GenTreeUnOp nodes, we wouldn't be
-    // able to do that (but if we did, we'd have to have a check in GetOp() -- perhaps
-    // a gtUnOp...)
-    if (OperKind(oper) == GTK_UNOP)
-    {
-        AsOp()->gtOp2 = nullptr;
-    }
-#endif // DEBUG
-
 #if DEBUGGABLE_GENTREE
     // Until we eliminate SetOper/ChangeOper, we also change the vtable of the node, so that
     // it shows up correctly in the debugger.
