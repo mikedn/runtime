@@ -676,7 +676,7 @@ inline GenTree* Compiler::gtNewIconEmbScpHndNode(CORINFO_MODULE_HANDLE scpHnd)
 
     assert((!embedScpHnd) != (!pEmbedScpHnd));
 
-    return gtNewIconEmbHndNode(embedScpHnd, pEmbedScpHnd, GTF_ICON_SCOPE_HDL, scpHnd);
+    return gtNewIconEmbHndNode(embedScpHnd, pEmbedScpHnd, GTF_ICON_MODULE_HDL, scpHnd);
 }
 
 //-----------------------------------------------------------------------------

@@ -7302,8 +7302,8 @@ const char* dmpGetHandleKindName(GenTreeFlags flags)
 {
     switch (flags & GTF_ICON_HDL_MASK)
     {
-        case GTF_ICON_SCOPE_HDL:
-            return "scope";
+        case GTF_ICON_MODULE_HDL:
+            return "module";
         case GTF_ICON_CLASS_HDL:
             return "class";
         case GTF_ICON_METHOD_HDL:

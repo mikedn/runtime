@@ -6005,9 +6005,9 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 switch (handleKind)
                 {
 
-                    case GTF_ICON_SCOPE_HDL:
+                    case GTF_ICON_MODULE_HDL:
 
-                        chars += printf("[ICON_SCOPE_HDL]");
+                        chars += printf("[ICON_MODULE_HDL]");
                         break;
 
                     case GTF_ICON_CLASS_HDL:
