@@ -1777,17 +1777,18 @@ public:
     bool IsNothingNode() const;
     void ChangeToNothingNode();
 
-    // Value number update action enumeration
     enum ValueNumberUpdate
     {
-        CLEAR_VN,   // Clear value number
-        PRESERVE_VN // Preserve value number
+        CLEAR_VN,
+        PRESERVE_VN
     };
 
-    void SetOper(genTreeOps oper, ValueNumberUpdate vnUpdate = CLEAR_VN); // set gtOper
-    void SetOperResetFlags(genTreeOps oper);                              // set gtOper and reset flags
-
-    void ChangeOperConst(genTreeOps oper); // ChangeOper(constOper)
+    void SetOperRaw(genTreeOps oper);
+    void SetOper(genTreeOps oper, ValueNumberUpdate vnUpdate = CLEAR_VN);
+    void SetOperResetFlags(genTreeOps oper);
+    void ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate = CLEAR_VN);
+    void ChangeOperUnchecked(genTreeOps oper);
+    void ChangeOperConst(genTreeOps oper);
     GenTreeIntCon* ChangeToIntCon(ssize_t value);
     GenTreeIntCon* ChangeToIntCon(var_types type, ssize_t value);
 #ifndef TARGET_64BIT
@@ -1800,10 +1801,6 @@ public:
     GenTreeLclAddr* ChangeToLclAddr(var_types type, unsigned lclNum);
     GenTreeLclAddr* ChangeToLclAddr(var_types type, unsigned lclNum, unsigned offset, FieldSeqNode* fieldSeq);
     GenTreeAddrMode* ChangeToAddrMode(GenTree* base, GenTree* index, unsigned scale, int offset);
-    // set gtOper and only keep GTF_COMMON_MASK flags
-    void ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate = CLEAR_VN);
-    void ChangeOperUnchecked(genTreeOps oper);
-    void SetOperRaw(genTreeOps oper);
 
     void ChangeType(var_types newType)
     {
@@ -1824,13 +1821,6 @@ public:
 #if NODEBASH_STATS
     static void RecordOperBashing(genTreeOps operOld, genTreeOps operNew);
     static void ReportOperBashing(FILE* fp);
-#else
-    static void RecordOperBashing(genTreeOps operOld, genTreeOps operNew)
-    { /* do nothing */
-    }
-    static void ReportOperBashing(FILE* fp)
-    { /* do nothing */
-    }
 #endif
 
     bool IsLocal() const

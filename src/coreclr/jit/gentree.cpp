@@ -271,7 +271,9 @@ void GenTree::ReplaceWith(GenTree* src, Compiler* comp)
     // The check is effective only if nodes have been already threaded.
     assert((src->gtPrev == nullptr) && (src->gtNext == nullptr));
 
-    RecordOperBashing(OperGet(), src->OperGet()); // nop unless NODEBASH_STATS is enabled
+#if NODEBASH_STATS
+    RecordOperBashing(gtOper, src->GetOper());
+#endif
 
     GenTree* prev = gtPrev;
     GenTree* next = gtNext;

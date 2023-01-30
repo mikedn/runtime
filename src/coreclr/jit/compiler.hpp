@@ -986,49 +986,6 @@ inline void Compiler::gtSetStmtInfo(Statement* stmt)
     gtSetEvalOrder(expr);
 }
 
-/*****************************************************************************/
-
-inline void GenTree::SetOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
-{
-    assert(((gtDebugFlags & GTF_DEBUG_NODE_SMALL) != 0) != ((gtDebugFlags & GTF_DEBUG_NODE_LARGE) != 0));
-
-    /* Make sure the node isn't too small for the new operator */
-
-    assert(GenTree::s_gtNodeSizes[gtOper] == TREE_NODE_SZ_SMALL ||
-           GenTree::s_gtNodeSizes[gtOper] == TREE_NODE_SZ_LARGE);
-
-    assert(GenTree::s_gtNodeSizes[oper] == TREE_NODE_SZ_SMALL || GenTree::s_gtNodeSizes[oper] == TREE_NODE_SZ_LARGE);
-    assert(GenTree::s_gtNodeSizes[oper] == TREE_NODE_SZ_SMALL || (gtDebugFlags & GTF_DEBUG_NODE_LARGE));
-
-#if defined(HOST_64BIT) && !defined(TARGET_64BIT)
-    if (gtOper == GT_CNS_LNG && oper == GT_CNS_INT)
-    {
-        // When casting from LONG to INT, we need to force cast of the value,
-        // if the host architecture represents INT and LONG with the same data size.
-        AsLngCon()->gtLconVal = (INT64)(INT32)AsLngCon()->gtLconVal;
-    }
-#endif // defined(HOST_64BIT) && !defined(TARGET_64BIT)
-
-    SetOperRaw(oper);
-
-#if DEBUGGABLE_GENTREE
-    // Until we eliminate SetOper/ChangeOper, we also change the vtable of the node, so that
-    // it shows up correctly in the debugger.
-    SetVtableForOper(oper);
-#endif // DEBUGGABLE_GENTREE
-
-    if (oper == GT_CNS_INT)
-    {
-        AsIntCon()->SetFieldSeq(FieldSeqStore::NotAField());
-    }
-
-    if (vnUpdate == CLEAR_VN)
-    {
-        // Clear the ValueNum field as well.
-        gtVNPair.SetBoth(ValueNumStore::NoVN);
-    }
-}
-
 inline GenTreeCast* Compiler::gtNewCastNode(var_types typ, GenTree* op1, bool fromUnsigned, var_types castType)
 {
     return new (this, GT_CAST) GenTreeCast(typ, op1, fromUnsigned, castType);
@@ -1043,10 +1000,45 @@ inline GenTreeIndir* Compiler::gtNewMethodTableLookup(GenTree* object)
 
 inline void GenTree::SetOperRaw(genTreeOps oper)
 {
-    // Please do not do anything here other than assign to gtOper (debug-only
-    // code is OK, but should be kept to a minimum).
-    RecordOperBashing(OperGet(), oper); // nop unless NODEBASH_STATS is enabled
+#if NODEBASH_STATS
+    RecordOperBashing(gtOper, oper);
+#endif
+
     gtOper = oper;
+}
+
+inline void GenTree::SetOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
+{
+    assert(((gtDebugFlags & GTF_DEBUG_NODE_SMALL) != 0) != ((gtDebugFlags & GTF_DEBUG_NODE_LARGE) != 0));
+    assert((s_gtNodeSizes[gtOper] == TREE_NODE_SZ_SMALL) || (s_gtNodeSizes[gtOper] == TREE_NODE_SZ_LARGE));
+    assert((s_gtNodeSizes[oper] == TREE_NODE_SZ_SMALL) || (s_gtNodeSizes[oper] == TREE_NODE_SZ_LARGE));
+    assert((s_gtNodeSizes[oper] == TREE_NODE_SZ_SMALL) || ((gtDebugFlags & GTF_DEBUG_NODE_LARGE) != 0));
+
+#if defined(HOST_64BIT) && !defined(TARGET_64BIT)
+    if ((gtOper == GT_CNS_LNG) && (oper == GT_CNS_INT))
+    {
+        // When converting from LONG to INT, we need to explicitly truncate the LONG value to INT,
+        // if the host architecture represents INT and LONG with the same type (int64_t).
+        AsLngCon()->SetValue(static_cast<int64_t>(static_cast<int32_t>(AsLngCon()->GetValue())));
+    }
+#endif
+
+    SetOperRaw(oper);
+
+#if DEBUGGABLE_GENTREE
+    // Change the vtable of the node, so that it shows up correctly in the debugger.
+    SetVtableForOper(oper);
+#endif
+
+    if (oper == GT_CNS_INT)
+    {
+        AsIntCon()->SetFieldSeq(FieldSeqStore::NotAField());
+    }
+
+    if (vnUpdate == CLEAR_VN)
+    {
+        gtVNPair.SetBoth(ValueNumStore::NoVN);
+    }
 }
 
 inline void GenTree::SetOperResetFlags(genTreeOps oper)
@@ -1055,14 +1047,65 @@ inline void GenTree::SetOperResetFlags(genTreeOps oper)
     gtFlags &= GTF_NODE_MASK;
 }
 
+inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
+{
+    assert(!OperIsConst(oper));  // use ChangeOperConst
+    assert(oper != GT_LCL_ADDR); // use ChangeToLclAddr
+
+    GenTreeFlags mask = GTF_COMMON_MASK;
+
+    if (OperIsIndirOrArrLength() && OperIsIndirOrArrLength(oper))
+    {
+        mask |= GTF_IND_NONFAULTING;
+    }
+
+    SetOper(oper, vnUpdate);
+
+    gtFlags &= mask;
+
+    switch (oper)
+    {
+        case GT_FIELD_LIST:
+            AsFieldList()->SetType(TYP_STRUCT);
+            AsFieldList()->ClearFields();
+            AsFieldList()->SetContained();
+            break;
+
+        case GT_LCL_FLD:
+        case GT_STORE_LCL_FLD:
+            AsLclFld()->SetLayoutNum(0);
+            AsLclFld()->SetLclOffs(0);
+            AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
+            break;
+
+        default:
+            break;
+    }
+}
+
+inline void GenTree::ChangeOperUnchecked(genTreeOps oper)
+{
+    GenTreeFlags mask = GTF_COMMON_MASK;
+
+    if (OperIsIndirOrArrLength() && OperIsIndirOrArrLength(oper))
+    {
+        mask |= GTF_IND_NONFAULTING;
+    }
+
+    SetOperRaw(oper); // Trust the caller and don't use SetOper()
+
+    gtFlags &= mask;
+}
+
 inline void GenTree::ChangeOperConst(genTreeOps oper)
 {
 #ifdef TARGET_64BIT
     assert(oper != GT_CNS_LNG); // We should never see a GT_CNS_LNG for a 64-bit target!
 #endif
-    assert(OperIsConst(oper)); // use ChangeOper() instead
+    assert(OperIsConst(oper)); // use ChangeOper/ChangeToIntCon/ChangeToLngCon/ChangeToDblCon
+
     SetOperResetFlags(oper);
-    // Some constant subtypes have additional fields that must be initialized.
+
     if (oper == GT_CNS_INT)
     {
         AsIntCon()->SetFieldSeq(FieldSeqStore::NotAField());
@@ -1194,50 +1237,6 @@ inline GenTreeAddrMode* GenTree::ChangeToAddrMode(GenTree* base, GenTree* index,
     addrMode->SetScale(scale);
     addrMode->SetOffset(offset);
     return addrMode;
-}
-
-inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
-{
-    assert(!OperIsConst(oper)); // use ChangeOperConst() instead
-
-    GenTreeFlags mask = GTF_COMMON_MASK;
-    if (this->OperIsIndirOrArrLength() && OperIsIndirOrArrLength(oper))
-    {
-        mask |= GTF_IND_NONFAULTING;
-    }
-    SetOper(oper, vnUpdate);
-    gtFlags &= mask;
-
-    // Do "oper"-specific initializations...
-    switch (oper)
-    {
-        case GT_FIELD_LIST:
-            AsFieldList()->SetType(TYP_STRUCT);
-            AsFieldList()->ClearFields();
-            AsFieldList()->SetContained();
-            break;
-
-        case GT_LCL_FLD:
-        case GT_STORE_LCL_FLD:
-            AsLclFld()->SetLayoutNum(0);
-            AsLclFld()->SetLclOffs(0);
-            AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
-            break;
-
-        default:
-            break;
-    }
-}
-
-inline void GenTree::ChangeOperUnchecked(genTreeOps oper)
-{
-    GenTreeFlags mask = GTF_COMMON_MASK;
-    if (this->OperIsIndirOrArrLength() && OperIsIndirOrArrLength(oper))
-    {
-        mask |= GTF_IND_NONFAULTING;
-    }
-    SetOperRaw(oper); // Trust the caller and don't use SetOper()
-    gtFlags &= mask;
 }
 
 /*****************************************************************************
