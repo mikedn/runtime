@@ -300,17 +300,12 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
 #endif // TARGET_ARM
 
 #ifdef TARGET_ARM64
-
         case GT_INC_SATURATE:
             genCodeForIncSaturate(treeNode);
             break;
 
         case GT_MULHI:
             genCodeForMulHi(treeNode->AsOp());
-            break;
-
-        case GT_SWAP:
-            genCodeForSwap(treeNode->AsOp());
             break;
 #endif // TARGET_ARM64
 

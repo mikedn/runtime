@@ -1128,8 +1128,10 @@ private:
 
     void insertMove(BasicBlock* block, GenTree* insertionPoint, unsigned lclNum, regNumber inReg, regNumber outReg);
 
+#ifdef TARGET_XARCH
     void insertSwap(
         BasicBlock* block, GenTree* insertionPoint, unsigned lclNum1, regNumber reg1, unsigned lclNum2, regNumber reg2);
+#endif
 
 private:
     Interval* newInterval(var_types regType);

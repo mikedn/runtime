@@ -277,7 +277,9 @@ GTNODE(PUTARG_STK       , GenTreePutArgStk   ,0,GTK_UNOP|GTK_NOVALUE)           
 GTNODE(PUTARG_SPLIT     , GenTreePutArgSplit ,0,GTK_UNOP)                        // operator that places outgoing arg in registers with stack (split struct in ARM32)
 #endif // FEATURE_ARG_SPLIT
 GTNODE(RETURNTRAP       , GenTreeOp          ,0,GTK_UNOP|GTK_NOVALUE)            // a conditional call to wait on gc
+#ifdef TARGET_XARCH
 GTNODE(SWAP             , GenTreeOp          ,0,GTK_BINOP|GTK_NOVALUE)           // op1 and op2 swap (registers)
+#endif
 GTNODE(IL_OFFSET        , GenTreeILOffset    ,0,GTK_LEAF|GTK_NOVALUE)            // marks an IL offset for debugging purposes
 
 GTNODE(INSTR            , GenTreeInstr       ,0,GTK_SPECIAL)

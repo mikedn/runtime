@@ -6849,6 +6849,7 @@ void LinearScan::insertMove(
     }
 }
 
+#ifdef TARGET_XARCH
 void LinearScan::insertSwap(
     BasicBlock* block, GenTree* insertionPoint, unsigned lclNum1, regNumber reg1, unsigned lclNum2, regNumber reg2)
 {
@@ -6911,6 +6912,7 @@ void LinearScan::insertSwap(
         }
     }
 }
+#endif // TARGET_XARCH
 
 //------------------------------------------------------------------------
 // getTempRegForResolution: Get a free register to use for resolution code.
@@ -6947,7 +6949,7 @@ regNumber LinearScan::getTempRegForResolution(BasicBlock* fromBlock, BasicBlock*
         freeRegs = allRegs(type);
     }
 #else  // !TARGET_ARM
-    regMaskTP freeRegs = allRegs(type);
+    regMaskTP freeRegs      = allRegs(type);
 #endif // !TARGET_ARM
 
 #ifdef DEBUG
@@ -7993,6 +7995,7 @@ void LinearScan::resolveEdge(BasicBlock*      fromBlock,
             {
                 regNumber tempReg = REG_NA;
                 bool      useSwap = false;
+
                 if (emitter::isFloatReg(targetReg))
                 {
 #ifdef TARGET_ARM
@@ -8002,22 +8005,20 @@ void LinearScan::resolveEdge(BasicBlock*      fromBlock,
                         tempReg = tempRegDbl;
                     }
                     else
-#endif // TARGET_ARM
+#endif
+                    {
                         tempReg = tempRegFlt;
+                    }
                 }
+                else
+                {
 #ifdef TARGET_XARCH
-                else
-                {
                     useSwap = true;
-                }
-#else // !TARGET_XARCH
-
-                else
-                {
+#else
                     tempReg = tempRegInt;
+#endif
                 }
 
-#endif // !TARGET_XARCH
                 if (useSwap || tempReg == REG_NA)
                 {
                     // First, we have to figure out the destination register for what's currently in fromReg,
@@ -8054,6 +8055,7 @@ void LinearScan::resolveEdge(BasicBlock*      fromBlock,
                     }
                     assert(otherTargetReg != REG_NA);
 
+#ifdef TARGET_XARCH
                     if (useSwap)
                     {
                         // Generate a "swap" of fromReg and targetReg
@@ -8065,6 +8067,7 @@ void LinearScan::resolveEdge(BasicBlock*      fromBlock,
                         INTRACK_STATS(updateLsraStat(STAT_RESOLUTION_MOV, block->bbNum));
                     }
                     else
+#endif // TARGET_XARCH
                     {
                         // Spill "targetReg" to the stack and add its eventual target (otherTargetReg)
                         // to "targetRegsFromStack", which will be handled below.
@@ -9788,8 +9791,10 @@ bool LinearScan::IsResolutionMove(GenTree* node)
         case GT_COPY:
             return node->IsUnusedValue();
 
+#ifdef TARGET_XARCH
         case GT_SWAP:
             return true;
+#endif
 
         default:
             return false;
@@ -10360,16 +10365,17 @@ void LinearScan::verifyResolutionMove(GenTree* resolutionMove, LsraLocation curr
     GenTree* dst = resolutionMove;
     assert(IsResolutionMove(dst));
 
-    if (dst->OperGet() == GT_SWAP)
+#ifdef TARGET_XARCH
+    if (dst->OperIs(GT_SWAP))
     {
-        GenTreeLclVarCommon* left          = dst->gtGetOp1()->AsLclVar();
-        GenTreeLclVarCommon* right         = dst->gtGetOp2()->AsLclVar();
-        regNumber            leftRegNum    = left->GetRegNum();
-        regNumber            rightRegNum   = right->GetRegNum();
-        LclVarDsc*           leftVarDsc    = compiler->lvaTable + left->GetLclNum();
-        LclVarDsc*           rightVarDsc   = compiler->lvaTable + right->GetLclNum();
-        Interval*            leftInterval  = getIntervalForLocalVar(leftVarDsc->lvVarIndex);
-        Interval*            rightInterval = getIntervalForLocalVar(rightVarDsc->lvVarIndex);
+        GenTreeLclVar* left          = dst->gtGetOp1()->AsLclVar();
+        GenTreeLclVar* right         = dst->gtGetOp2()->AsLclVar();
+        regNumber      leftRegNum    = left->GetRegNum();
+        regNumber      rightRegNum   = right->GetRegNum();
+        LclVarDsc*     leftVarDsc    = compiler->lvaGetDesc(left);
+        LclVarDsc*     rightVarDsc   = compiler->lvaGetDesc(right);
+        Interval*      leftInterval  = getIntervalForLocalVar(leftVarDsc->lvVarIndex);
+        Interval*      rightInterval = getIntervalForLocalVar(rightVarDsc->lvVarIndex);
         assert(leftInterval->physReg == leftRegNum && rightInterval->physReg == rightRegNum);
         leftInterval->physReg                  = rightRegNum;
         rightInterval->physReg                 = leftRegNum;
@@ -10392,6 +10398,8 @@ void LinearScan::verifyResolutionMove(GenTree* resolutionMove, LsraLocation curr
         }
         return;
     }
+#endif // TARGET_XARCH
+
     regNumber      dstRegNum = dst->GetRegNum();
     regNumber      srcRegNum;
     GenTreeLclVar* lcl;

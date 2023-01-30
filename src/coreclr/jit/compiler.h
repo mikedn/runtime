@@ -3480,8 +3480,6 @@ public:
     // before they have been set.)
     bool gtComplexityExceeds(GenTree* tree, unsigned limit);
 
-    bool gtCompareTree(GenTree* op1, GenTree* op2);
-
     static void gtReverseRelop(GenTreeOp* relop);
     GenTree* gtReverseCond(GenTree* tree);
 
