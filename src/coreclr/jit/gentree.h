@@ -414,8 +414,6 @@ enum GenTreeFlags : unsigned int
     GTF_MAKE_CSE    = 0x00000800, // Hoisted expression: try hard to make this into CSE (see optPerformHoistExpr)
     GTF_DONT_CSE    = 0x00001000, // Don't bother CSE'ing this expr
 
-    GTF_NODE_MASK   = 0,          // TODO-MIKE-Cleanup: This should probably be removed completely.
-
     GTF_BOOLEAN     = 0x00004000, // value is known to be 0/1
 
     GTF_UNSIGNED    = 0x00008000, // With GT_CAST:   the source operand is an unsigned type

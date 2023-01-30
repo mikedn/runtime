@@ -1044,7 +1044,7 @@ inline void GenTree::SetOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
 inline void GenTree::SetOperResetFlags(genTreeOps oper)
 {
     SetOper(oper);
-    gtFlags &= GTF_NODE_MASK;
+    gtFlags = GTF_NONE;
 }
 
 inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
@@ -2722,15 +2722,16 @@ inline void DEBUG_DESTROY_NODE(GenTree* tree)
 #ifdef DEBUG
     // Save gtOper in case we want to find out what this node was
     tree->gtOperSave = tree->gtOper;
+    tree->gtType     = TYP_UNDEF;
 
-    tree->gtType = TYP_UNDEF;
-    tree->gtFlags |= ~GTF_NODE_MASK;
     if (tree->OperIsSimple())
     {
-        tree->AsOp()->gtOp1 = tree->AsOp()->gtOp2 = nullptr;
+        tree->AsOp()->gtOp1 = nullptr;
+        tree->AsOp()->gtOp2 = nullptr;
     }
+
     // Must do this last, because the "AsOp()" check above will fail otherwise.
-    // Don't call SetOper, because GT_COUNT is not a valid value
+    // Don't call SetOper, because GT_COUNT is not a valid value.
     tree->gtOper = GT_COUNT;
 #endif
 }

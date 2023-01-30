@@ -5188,11 +5188,9 @@ void Compiler::fgMoveOpsLeft(GenTree* tree)
         noway_assert((new_op1->gtFlags &
                       ~(GTF_MAKE_CSE | GTF_DONT_CSE | // It is ok that new_op1->gtFlags contains GTF_DONT_CSE flag.
                         GTF_REVERSE_OPS |             // The reverse ops flag also can be set, it will be re-calculated
-                        GTF_NODE_MASK | GTF_ALL_EFFECT | GTF_UNSIGNED)) == 0);
+                        GTF_ALL_EFFECT | GTF_UNSIGNED)) == 0);
 
-        new_op1->gtFlags =
-            (new_op1->gtFlags & (GTF_NODE_MASK | GTF_DONT_CSE)) | // Make sure we propagate GTF_DONT_CSE flag.
-            (op1->gtFlags & GTF_ALL_EFFECT) | (ad1->gtFlags & GTF_ALL_EFFECT);
+        new_op1->gtFlags = (new_op1->gtFlags & GTF_DONT_CSE) | op1->GetSideEffects() | ad1->GetSideEffects();
 
         /* Retype new_op1 if it has not/become a GC ptr. */
 

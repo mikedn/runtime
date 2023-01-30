@@ -5105,10 +5105,8 @@ GenTree* Compiler::gtClone(GenTree* tree, bool complexOK)
             break;
     }
 
-    copy->gtFlags |= tree->gtFlags & ~GTF_NODE_MASK;
-#if defined(DEBUG)
-    copy->gtDebugFlags |= tree->gtDebugFlags & ~GTF_DEBUG_NODE_MASK;
-#endif // defined(DEBUG)
+    copy->gtFlags |= tree->gtFlags;
+    INDEBUG(copy->gtDebugFlags |= tree->gtDebugFlags & ~GTF_DEBUG_NODE_MASK);
 
     return copy;
 }
@@ -5391,20 +5389,16 @@ GenTree* Compiler::gtCloneExpr(
             copy->AsOp()->gtOp2 = gtCloneExpr(tree->AsOp()->gtOp2, addFlags, deepVarNum, deepVarVal);
         }
 
-        /* Flags */
         addFlags |= tree->gtFlags;
 
-        // GTF_NODE_MASK should not be propagated from 'tree' to 'copy'
-        INDEBUG(addFlags &= ~GTF_NODE_MASK;)
-
-        // Effects flags propagate upwards.
         if (copy->AsOp()->gtOp1 != nullptr)
         {
-            copy->gtFlags |= (copy->AsOp()->gtOp1->gtFlags & GTF_ALL_EFFECT);
+            copy->gtFlags |= copy->AsOp()->gtOp1->GetSideEffects();
         }
+
         if (copy->gtGetOp2IfPresent() != nullptr)
         {
-            copy->gtFlags |= (copy->gtGetOp2()->gtFlags & GTF_ALL_EFFECT);
+            copy->gtFlags |= copy->gtGetOp2()->GetSideEffects();
         }
 
         goto DONE;
@@ -5523,17 +5517,9 @@ DONE:
 
     copy->gtVNPair = tree->gtVNPair; // A cloned tree gets the orginal's Value number pair
 
-    /* Compute the flags for the copied node. Note that we can do this only
-       if we didnt gtFoldExpr(copy) */
-
     if (copy->gtOper == oper)
     {
-        addFlags |= tree->gtFlags;
-
-        // GTF_NODE_MASK should not be propagated from 'tree' to 'copy'
-        INDEBUG(addFlags &= ~GTF_NODE_MASK;)
-
-        copy->gtFlags |= addFlags;
+        copy->gtFlags |= addFlags | tree->gtFlags;
 
         // Update side effect flags since they may be different from the source side effect flags.
         // For example, we may have replaced some locals with constants and made indirections non-throwing.
