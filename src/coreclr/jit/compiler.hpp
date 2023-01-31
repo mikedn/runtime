@@ -1202,7 +1202,6 @@ inline GenTreeLclAddr* GenTree::ChangeToLclAddr(var_types type, unsigned lclNum)
     addr->SetType(type);
     addr->SetLclNum(lclNum);
     addr->SetLclOffs(0);
-    addr->SetLayoutNum(0);
     addr->SetFieldSeq(nullptr);
     addr->SetSideEffects(GTF_NONE);
     return addr;
@@ -1222,7 +1221,6 @@ inline GenTreeLclAddr* GenTree::ChangeToLclAddr(var_types     type,
     addr->SetType(type);
     addr->SetLclNum(lclNum);
     addr->SetLclOffs(offset);
-    addr->SetLayoutNum(0);
     addr->SetFieldSeq(fieldSeq);
     return addr;
 }

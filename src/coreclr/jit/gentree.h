@@ -3281,7 +3281,7 @@ public:
 #endif
 };
 
-// GenTreeLclVar - load/store/addr of local variable
+// GenTreeLclVar - load/store of local variable
 struct GenTreeLclVar : public GenTreeLclVarCommon
 {
     bool IsMultiReg() const
@@ -3325,7 +3325,7 @@ struct GenTreeLclVar : public GenTreeLclVarCommon
 #endif
 };
 
-// GenTreeLclFld - load/store/addr of local variable field
+// GenTreeLclFld - load/store of local variable field
 struct GenTreeLclFld : public GenTreeLclVarCommon
 {
 private:
@@ -3340,7 +3340,7 @@ public:
         , m_layoutNum(0)
         , m_fieldSeq(FieldSeqStore::NotAField())
     {
-        assert((oper == GT_LCL_FLD) || (oper == GT_STORE_LCL_FLD) || (oper == GT_LCL_ADDR));
+        assert((oper == GT_LCL_FLD) || (oper == GT_STORE_LCL_FLD));
         assert(lclOffs <= UINT16_MAX);
     }
 
@@ -3424,22 +3424,59 @@ public:
 #endif
 };
 
-struct GenTreeLclAddr : GenTreeLclFld
+struct GenTreeLclAddr : public GenTreeLclVarCommon
 {
+private:
+    uint16_t      m_lclOffs;
+    FieldSeqNode* m_fieldSeq;
+
+public:
     GenTreeLclAddr(var_types type, unsigned lclNum, unsigned lclOffs)
-        : GenTreeLclFld(GT_LCL_ADDR, type, lclNum, lclOffs)
+        : GenTreeLclVarCommon(GT_LCL_ADDR, type, lclNum), m_lclOffs(static_cast<uint16_t>(lclOffs)), m_fieldSeq(nullptr)
     {
-        SetFieldSeq(nullptr);
+        assert(lclOffs <= UINT16_MAX);
     }
 
-    GenTreeLclAddr(const GenTreeLclAddr* copyFrom) : GenTreeLclFld(copyFrom)
+    GenTreeLclAddr(const GenTreeLclAddr* copyFrom)
+        : GenTreeLclVarCommon(copyFrom), m_lclOffs(copyFrom->m_lclOffs), m_fieldSeq(copyFrom->m_fieldSeq)
     {
+    }
+
+    uint16_t GetLclOffs() const
+    {
+        return m_lclOffs;
+    }
+
+    void SetLclOffs(unsigned lclOffs)
+    {
+        assert(lclOffs <= UINT16_MAX);
+        m_lclOffs = static_cast<uint16_t>(lclOffs);
+    }
+
+    FieldSeqNode* GetFieldSeq() const
+    {
+        return m_fieldSeq;
+    }
+
+    bool HasFieldSeq() const
+    {
+        return (m_fieldSeq != nullptr) && (m_fieldSeq != FieldSeqNode::NotAField());
+    }
+
+    void SetFieldSeq(FieldSeqNode* fieldSeq)
+    {
+        assert((fieldSeq == nullptr) || !fieldSeq->IsArrayElement());
+        m_fieldSeq = fieldSeq;
+    }
+
+    static bool Equals(GenTreeLclAddr* a1, GenTreeLclAddr* a2)
+    {
+        assert((a1->GetOper() == a2->GetOper()) && (a1->GetType() == a2->GetType()));
+        return (a1->GetLclNum() == a2->GetLclNum()) && (a1->m_lclOffs == a2->m_lclOffs);
     }
 
 #if DEBUGGABLE_GENTREE
-    GenTreeLclAddr() : GenTreeLclFld()
-    {
-    }
+    GenTreeLclAddr() = default;
 #endif
 };
 
