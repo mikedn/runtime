@@ -2410,15 +2410,6 @@ void Lowering::LowerIndirectVirtualStubCall(GenTreeCall* call)
     GenTree* ind = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, call->gtCallAddr);
     BlockRange().InsertAfter(call->gtCallAddr, ind);
     call->gtCallAddr = ind;
-
-    // VM requires us to pass stub addr in VirtualStubParam.reg. For that reason
-    // we cannot mark such an addr as contained. Note that this is not an issue
-    // for indirect VSD calls since fgMorphArgs() is explicitly materializing
-    // hidden param as a non-standard argument.
-    // TODO-MIKE-Review: Hmm, so isn't this an indirect VSD call?!
-    ind->gtFlags |= GTF_IND_REQ_ADDR_IN_REG;
-
-    ContainCheckIndir(ind->AsIndir());
 }
 
 GenTree* Lowering::LowerDirectCall(GenTreeCall* call X86_ARG(GenTree* insertBefore))

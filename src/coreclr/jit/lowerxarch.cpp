@@ -3416,11 +3416,6 @@ void Lowering::ContainCheckIndir(GenTreeIndir* node)
         return;
     }
 
-    if ((node->gtFlags & GTF_IND_REQ_ADDR_IN_REG) != 0)
-    {
-        return;
-    }
-
     GenTree* addr = node->GetAddr();
 
 #ifdef FEATURE_SIMD
