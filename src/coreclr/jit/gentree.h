@@ -405,10 +405,6 @@ enum GenTreeFlags : unsigned
     GTF_VAR_CLONED            = 0x00400000, // Node has been cloned (used by inlined to detect single use params)
     GTF_VAR_CONTEXT           = 0x00200000, // Node is part of a runtime lookup tree (LCL_VAR)
                               
-    GTF_LIVENESS_MASK         = GTF_VAR_DEF |
-                                GTF_VAR_USEASG |
-                                GTF_VAR_FIELD_DEATH_MASK,
-
     // CALL specific flags
 
     GTF_CALL_UNMANAGED        = 0x80000000, // Call to unmanaged code
