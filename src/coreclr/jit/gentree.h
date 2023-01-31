@@ -1880,33 +1880,11 @@ public:
         gtFlags &= ~GTF_OVERFLOW;
     }
 
-    void SetAllEffectsFlags(GenTree* source)
-    {
-        SetAllEffectsFlags(source->gtFlags & GTF_ALL_EFFECT);
-    }
-
-    void SetAllEffectsFlags(GenTree* source, GenTree* otherSource)
-    {
-        SetAllEffectsFlags((source->gtFlags | otherSource->gtFlags) & GTF_ALL_EFFECT);
-    }
-
-    void SetAllEffectsFlags(GenTreeFlags sourceFlags)
-    {
-        assert((sourceFlags & ~GTF_ALL_EFFECT) == 0);
-
-        gtFlags &= ~GTF_ALL_EFFECT;
-        gtFlags |= sourceFlags;
-    }
-
-    inline bool IsCnsIntOrI() const;
-
-    inline bool IsIntegralConst() const;
-
-    inline bool IsIntCnsFitsInI32(); // Constant fits in INT32
-
-    inline bool IsCnsFltOrDbl() const;
-
-    inline bool IsCnsNonZeroFltOrDbl();
+    bool IsCnsIntOrI() const;
+    bool IsIntegralConst() const;
+    bool IsIntCnsFitsInI32();
+    bool IsCnsFltOrDbl() const;
+    bool IsCnsNonZeroFltOrDbl();
 
     bool IsIconHandle() const
     {
