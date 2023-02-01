@@ -795,10 +795,7 @@ void Compiler::inlPostInlineFailureCleanup(const InlineInfo* inlineInfo)
         {
             if (!argInfo.argNode->OperIs(GT_LCL_VAR))
             {
-                assert(argInfo.argNode->OperIs(GT_LCL_ADDR));
                 assert(argInfo.argNode->AsLclAddr()->GetLclNum() == argInfo.paramLclNum);
-                // Currently the importer doesn't generate local field addresses.
-                assert(argInfo.argNode->AsLclAddr()->GetLclOffs() == 0);
 
                 argInfo.argNode->SetOper(GT_LCL_VAR);
                 argInfo.argNode->AsLclVar()->SetLclNum(argInfo.paramLclNum);
