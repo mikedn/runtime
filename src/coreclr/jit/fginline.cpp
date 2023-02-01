@@ -1870,6 +1870,13 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
         if (argNode->OperIs(GT_LCL_VAR))
         {
             lclNum = argNode->AsLclVar()->GetLclNum();
+
+            // The arg node shouldn't have any flags. The importer may change it to LCL_ADDR
+            // and remove all flags. If inlining is aborted then we won't be able to restore
+            // the original flags. We could probably preserve them argInfo, but there doesn't
+            // seem to be any good reason to have any flags on such args anyway.
+            // We need to tolerate GTF_VAR_CLONED as this is added willy-nilly by CloneExpr.
+            assert((argNode->gtFlags & ~GTF_VAR_CLONED) == GTF_NONE);
         }
         else
         {

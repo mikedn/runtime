@@ -1196,14 +1196,22 @@ inline GenTreeLclFld* GenTree::ChangeToLclFld(var_types type, unsigned lclNum, u
 
 inline GenTreeLclAddr* GenTree::ChangeToLclAddr(var_types type, unsigned lclNum)
 {
+    // TODO-MIKE-Review: GTF_VAR_CLONED should not be needed on LCL_ADDR. Inlining
+    // needs it only on params that are neither struct nor address taken and there
+    // should be no need to ever take the address of such params. But if that does
+    // happen we'd be left with an inlinee param that's used but not initialized,
+    // can this be detected somehow? Maybe negate the flag, have the inliner set it
+    // and CloneExpr remove it, then we can check here if we're trying to take the
+    // address of such a param.
+
     SetOper(GT_LCL_ADDR);
+    gtFlags = GTF_NONE;
 
     GenTreeLclAddr* addr = AsLclAddr();
     addr->SetType(type);
     addr->SetLclNum(lclNum);
     addr->SetLclOffs(0);
     addr->SetFieldSeq(nullptr);
-    addr->SetSideEffects(GTF_NONE);
     return addr;
 }
 
@@ -1215,7 +1223,8 @@ inline GenTreeLclAddr* GenTree::ChangeToLclAddr(var_types     type,
     assert(offset <= UINT16_MAX);
     assert((fieldSeq == FieldSeqNode::NotAField()) || fieldSeq->IsField());
 
-    SetOperResetFlags(GT_LCL_ADDR);
+    SetOper(GT_LCL_ADDR);
+    gtFlags = GTF_NONE;
 
     GenTreeLclAddr* addr = AsLclAddr();
     addr->SetType(type);
