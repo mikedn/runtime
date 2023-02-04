@@ -2099,21 +2099,15 @@ private:
 
             if (fieldSeq->IsField())
             {
-                for (; fieldSeq != nullptr; fieldSeq = fieldSeq->GetNext())
-                {
-                    // TODO-MIKE-Cleanup: It may be good to set the layout on these FIELD_ADDRs
-                    // for the sake of consistency, though at this point nothing needs it.
-                    // gtNewFieldIndir always produces an IND for SIMD types, even though it may
-                    // be better to produce an OBJ with the correct layout.
-                    addr = m_compiler->gtNewFieldAddr(addr, fieldSeq->GetFieldHandle(), 0);
-                }
-
-                return m_compiler->gtNewFieldIndir(type, addr->AsFieldAddr());
+                // TODO-MIKE-Cleanup: It may be good to set the layout on these FIELD_ADDRs
+                // for the sake of consistency, though at this point nothing needs it.
+                structIndir->SetAddr(m_compiler->gtNewFieldAddr(addr, fieldSeq, 0));
             }
         }
 
         structIndir->SetOper(GT_IND);
         structIndir->SetType(type);
+
         return structIndir;
     }
 
