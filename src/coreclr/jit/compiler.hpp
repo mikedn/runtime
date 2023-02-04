@@ -798,70 +798,30 @@ inline GenTreeFieldAddr* Compiler::gtNewFieldAddr(GenTree* addr, FieldSeqNode* f
 
 inline GenTreeIndir* Compiler::gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldAddr)
 {
+    assert(type != TYP_STRUCT);
+
+    GenTreeIndir* indir = gtNewOperNode(GT_IND, type, fieldAddr)->AsIndir();
+    indir->gtFlags |= gtGetFieldIndirFlags(fieldAddr);
+    return indir;
+}
+
+inline GenTreeIndir* Compiler::gtNewFieldIndir(var_types type, unsigned layoutNum, GenTreeFieldAddr* fieldAddr)
+{
     GenTreeIndir* indir;
 
-    if (type != TYP_STRUCT)
+    if (type == TYP_STRUCT)
+    {
+        indir = gtNewObjNode(typGetLayoutByNum(layoutNum), fieldAddr);
+        // gtNewObjNode has other rules for adding GTF_GLOB_REF, remove it
+        // and add it back below according to the old field rules.
+        indir->gtFlags &= ~GTF_GLOB_REF;
+    }
+    else
     {
         indir = gtNewOperNode(GT_IND, type, fieldAddr)->AsIndir();
     }
-    else
-    {
-        indir = gtNewObjNode(typGetLayoutByNum(fieldAddr->GetLayoutNum()), fieldAddr);
-        // gtNewObjNode has other rules for adding GTF_GLOB_REF, remove it
-        // and add it back bellow according to the old field rules.
-        indir->gtFlags &= ~GTF_GLOB_REF;
-    }
 
-    GenTree* addr = fieldAddr->GetAddr();
-
-    if (addr->OperIs(GT_LCL_ADDR))
-    {
-        indir->gtFlags |= GTF_IND_NONFAULTING;
-
-        unsigned   lclNum = addr->AsLclAddr()->GetLclNum();
-        LclVarDsc* lcl    = lvaGetDesc(lclNum);
-
-#if defined(TARGET_AMD64) || defined(TARGET_ARM64) || defined(TARGET_X86)
-        // Some arguments may end up being accessed via indirections:
-        //   - implicit-by-ref struct arguments on win-x64 and arm64
-        //   - stack args of varargs methods on x86
-        // The resulting indirection trees are not recognized as local accesses
-        // by IsLocalAddrExpr & co. so it's probably safer to add GTF_GLOB_REF
-        // to such indirections. Though the arguments can't really alias global
-        // memory nor themselves so this might be overly conservative.
-        // This is definitely unnecessary for implicit-by-ref args that end up
-        // being promoted, in that case the indirect access will happen only
-        // once, at the start of the method, to copy the arg value to a local.
-        // However, GTF_GLOB_REF will be discarded during the actual promotion
-        // so this may be a problem only between import and promote phases.
-        if (lcl->IsParam()
-#ifdef TARGET_X86
-            && info.compIsVarArgs && !lcl->IsRegParam() && (lclNum != lvaVarargsHandleArg)
-#else
-            && varTypeIsStruct(lcl->GetType())
-#endif
-                )
-        {
-            indir->gtFlags |= GTF_GLOB_REF;
-        }
-#endif
-    }
-    else
-    {
-        if (GenTreeIndexAddr* index = addr->IsIndexAddr())
-        {
-            if ((index->gtFlags & GTF_INX_RNGCHK) != 0)
-            {
-                indir->gtFlags |= GTF_IND_NONFAULTING;
-            }
-        }
-        else if (fieldAddr->GetFieldSeq()->IsBoxedValueField())
-        {
-            indir->gtFlags |= GTF_IND_NONFAULTING;
-        }
-
-        indir->gtFlags |= GTF_GLOB_REF;
-    }
+    indir->gtFlags |= gtGetFieldIndirFlags(fieldAddr);
 
     return indir;
 }

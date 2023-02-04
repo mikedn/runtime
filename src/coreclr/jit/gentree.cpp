@@ -12673,6 +12673,73 @@ bool Compiler::gtIsStaticGCBaseHelperCall(GenTree* tree)
     return false;
 }
 
+GenTreeFlags Compiler::gtGetFieldIndirFlags(GenTreeFieldAddr* fieldAddr)
+{
+    GenTree*     addr  = fieldAddr->GetAddr();
+    GenTreeFlags flags = GTF_NONE;
+
+    if (addr->OperIs(GT_LCL_ADDR))
+    {
+        flags |= GTF_IND_NONFAULTING;
+
+        unsigned   lclNum = addr->AsLclAddr()->GetLclNum();
+        LclVarDsc* lcl    = lvaGetDesc(lclNum);
+
+#if defined(TARGET_AMD64) || defined(TARGET_ARM64) || defined(TARGET_X86)
+        // Some arguments may end up being accessed via indirections:
+        //   - implicit-by-ref struct arguments on win-x64 and arm64
+        //   - stack args of varargs methods on x86
+        // The resulting indirection trees are not recognized as local accesses
+        // by IsLocalAddrExpr & co. so it's probably safer to add GTF_GLOB_REF
+        // to such indirections. Though the arguments can't really alias global
+        // memory nor themselves so this might be overly conservative.
+        // This is definitely unnecessary for implicit-by-ref args that end up
+        // being promoted, in that case the indirect access will happen only
+        // once, at the start of the method, to copy the arg value to a local.
+        // However, GTF_GLOB_REF will be discarded during the actual promotion
+        // so this may be a problem only between import and promote phases.
+        //
+        // TODO-MIKE-Review: This is dubious. It may be that later some local
+        // load/stores are turned into indirections but during import they
+        // are normal local load/stores and those do not need GLOB_REF, even
+        // if they're address taken. IndirectParamMorphVisitor will later
+        // add GLOB_REF to the indirections it creates for these locals so
+        // there's no real need to do this here. But removing this now causes
+        // a few diffs - now the inliner can't forward substitute such args
+        // exactly because they have this bogus GLOB_REF.
+
+        if (lcl->IsParam()
+#ifdef TARGET_X86
+            && info.compIsVarArgs && !lcl->IsRegParam() && (lclNum != lvaVarargsHandleArg)
+#else
+            && varTypeIsStruct(lcl->GetType())
+#endif
+                )
+        {
+            flags |= GTF_GLOB_REF;
+        }
+#endif
+    }
+    else
+    {
+        if (GenTreeIndexAddr* index = addr->IsIndexAddr())
+        {
+            if ((index->gtFlags & GTF_INX_RNGCHK) != 0)
+            {
+                flags |= GTF_IND_NONFAULTING;
+            }
+        }
+        else if (fieldAddr->GetFieldSeq()->IsBoxedValueField())
+        {
+            flags |= GTF_IND_NONFAULTING;
+        }
+
+        flags |= GTF_GLOB_REF;
+    }
+
+    return flags;
+}
+
 FieldSeqNode FieldSeqNode::s_notAField(nullptr);
 
 int FieldSeqNode::BoxedValuePseudoFieldStruct;

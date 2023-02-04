@@ -10926,7 +10926,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                         }
                         else
                         {
-                            op1 = gtNewFieldIndir(lclTyp, addr);
+                            op1 = gtNewFieldIndir(lclTyp, addr->GetLayoutNum(), addr);
                         }
                     }
                 }
@@ -11024,7 +11024,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                         impInlineInfo->thisDereferencedFirst = true;
                     }
 
-                    op1 = gtNewFieldIndir(lclTyp, addr);
+                    op1 = gtNewFieldIndir(lclTyp, addr->GetLayoutNum(), addr);
                 }
 
                 // We have to spill GLOB_REFs for heap field stores since such fields may be
@@ -17654,6 +17654,11 @@ GenTreeFieldAddr* Importer::gtNewFieldAddr(GenTree* addr, FieldSeqNode* fieldSeq
 GenTreeIndir* Importer::gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldAddr)
 {
     return comp->gtNewFieldIndir(type, fieldAddr);
+}
+
+GenTreeIndir* Importer::gtNewFieldIndir(var_types type, unsigned layoutNum, GenTreeFieldAddr* fieldAddr)
+{
+    return comp->gtNewFieldIndir(type, layoutNum, fieldAddr);
 }
 
 GenTreeIndir* Importer::gtNewIndir(var_types type, GenTree* addr)
