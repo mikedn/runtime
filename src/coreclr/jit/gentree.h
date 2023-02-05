@@ -1266,11 +1266,6 @@ public:
         return (gtOper == GT_LCL_VAR) || (gtOper == GT_LCL_FLD) || (gtOper == GT_PHI_ARG);
     }
 
-    static bool OperIsLocalStore(genTreeOps gtOper)
-    {
-        return (gtOper == GT_STORE_LCL_VAR) || (gtOper == GT_STORE_LCL_FLD);
-    }
-
     bool IsConstInitVal() const
     {
         return OperIs(GT_CNS_INT) || (OperIs(GT_INIT_VAL) && gtGetOp1()->OperIs(GT_CNS_INT));
@@ -1312,11 +1307,6 @@ public:
 #else
         return TypeIs(TYP_LONG) && OperIs(GT_MUL_LONG, GT_BITCAST, GT_PUTARG_REG);
 #endif
-    }
-
-    bool OperIsLocalStore() const
-    {
-        return OperIsLocalStore(OperGet());
     }
 
     bool OperIsLocalRead() const
