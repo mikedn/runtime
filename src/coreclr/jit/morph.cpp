@@ -1953,7 +1953,12 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInf
 GenTree* Compiler::fgMakeMultiUse(GenTree** pOp)
 {
     GenTree* tree = *pOp;
-    if (tree->IsLocal())
+
+    // TODO-MIKE-Review: We could clone LCL_ADDR too but it looks like
+    // fgMakeMultiUse has very few uses and none them could reasonably
+    // have LCL_ADDRs involved.
+
+    if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
         return gtClone(tree);
     }
@@ -2132,7 +2137,10 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     else if (call->gtCallMoreFlags & GTF_CALL_M_WRAPPER_DELEGATE_INV)
     {
         GenTree* arg = call->gtCallThisArg->GetNode();
-        if (arg->OperIsLocal())
+
+        // TODO-MIKE-Review: This is probably one of those cases where allowing LCL_FLD
+        // is bad for CQ, especially on ARM where we don't have memory operands.
+        if (arg->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
             arg = gtClone(arg, true);
         }
@@ -8129,8 +8137,8 @@ GenTree* Compiler::fgExpandVirtualVtableCallTarget(GenTreeCall* call)
     GenTree*     thisPtr         = thisArgTabEntry->GetNode();
 
     // fgMorphArgs must enforce this invariant by creating a temp
-    //
-    assert(thisPtr->OperIsLocal());
+    // TODO-MIKE-Review: Allowing LCL_FLD (or DNER LCL_VAR) may be bad for CQ.
+    assert(thisPtr->OperIs(GT_LCL_VAR, GT_LCL_FLD));
 
     // Make a copy of the thisPtr by cloning
     //
@@ -11386,7 +11394,10 @@ DONE_MORPHING_CHILDREN:
                 {
                     if (con->GetValue() == 2.0)
                     {
-                        bool needsComma = !op1->OperIsLeaf() && !op1->IsLocal();
+                        // TODO-MIKE-Review: Allowing LCL_FLD (or DNER LCL_VAR) may result in poor CQ
+                        // if CSE doesn't pick it up. But then the question is why the crap is this
+                        // being done here instead of codegen to begin with...
+                        bool needsComma = !op1->OperIsLeaf() && !op1->OperIs(GT_LCL_VAR, GT_LCL_FLD);
                         // if op1 is not a leaf/local we have to introduce a temp via GT_COMMA.
                         // Unfortunately, it's not optHoistLoopCode-friendly yet so let's do it later.
                         if (!needsComma || (fgOrder == FGOrderLinear))
@@ -15311,8 +15322,8 @@ bool Compiler::fgCheckStmtAfterTailCall()
         }
         else
         {
-            noway_assert(callExpr->gtGetOp1()->OperIsLocal());
-            unsigned callResultLclNumber = callExpr->gtGetOp1()->AsLclVarCommon()->GetLclNum();
+            noway_assert(callExpr->gtGetOp1()->OperIs(GT_LCL_VAR));
+            unsigned callResultLclNumber = callExpr->gtGetOp1()->AsLclVar()->GetLclNum();
 
 #if FEATURE_TAILCALL_OPT_SHARED_RETURN
 
@@ -15332,7 +15343,7 @@ bool Compiler::fgCheckStmtAfterTailCall()
                 Statement* moveStmt = nextMorphStmt;
                 GenTree*   moveExpr = nextMorphStmt->GetRootNode();
                 GenTree*   moveDest = moveExpr->gtGetOp1();
-                noway_assert(moveDest->OperIsLocal());
+                noway_assert(moveDest->OperIs(GT_LCL_VAR));
 
                 // Tunnel through any casts on the source side.
                 GenTree* moveSource = moveExpr->gtGetOp2();
@@ -15341,14 +15352,12 @@ bool Compiler::fgCheckStmtAfterTailCall()
                     noway_assert(!moveSource->gtOverflow());
                     moveSource = moveSource->gtGetOp1();
                 }
-                noway_assert(moveSource->OperIsLocal());
+                noway_assert(moveSource->OperIs(GT_LCL_VAR));
 
                 // Verify we're just passing the value from one local to another
                 // along the chain.
-                const unsigned srcLclNum = moveSource->AsLclVarCommon()->GetLclNum();
-                noway_assert(srcLclNum == callResultLclNumber);
-                const unsigned dstLclNum = moveDest->AsLclVarCommon()->GetLclNum();
-                callResultLclNumber      = dstLclNum;
+                noway_assert(moveSource->AsLclVar()->GetLclNum() == callResultLclNumber);
+                callResultLclNumber = moveDest->AsLclVar()->GetLclNum();
 
                 nextMorphStmt = moveStmt->GetNextStmt();
             }
@@ -15366,7 +15375,8 @@ bool Compiler::fgCheckStmtAfterTailCall()
                     treeWithLcl = treeWithLcl->gtGetOp1();
                 }
 
-                noway_assert(callResultLclNumber == treeWithLcl->AsLclVarCommon()->GetLclNum());
+                noway_assert(treeWithLcl->OperIs(GT_LCL_VAR) &&
+                             (callResultLclNumber == treeWithLcl->AsLclVar()->GetLclNum()));
 
                 nextMorphStmt = retStmt->GetNextStmt();
             }

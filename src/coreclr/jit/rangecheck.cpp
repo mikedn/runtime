@@ -383,7 +383,7 @@ bool RangeCheck::IsMonotonicallyIncreasing(GenTree* expr, bool rejectNegativeCon
         }
     }
     // If the rhs expr is local, then try to find the def of the local.
-    else if (expr->IsLocal())
+    else if (expr->OperIs(GT_LCL_VAR, GT_PHI_ARG))
     {
         LclSsaVarDsc* ssaDef = GetSsaDefAsg(expr->AsLclVarCommon());
         return (ssaDef != nullptr) &&
@@ -774,7 +774,7 @@ void RangeCheck::MergeAssertion(BasicBlock* block, GenTree* op, Range* pRange DE
         }
     }
     // Get assertions from bbAssertionIn.
-    else if (op->IsLocal())
+    else if (op->OperIs(GT_LCL_VAR))
     {
         assertions = block->bbAssertionIn;
     }
@@ -1070,7 +1070,7 @@ bool RangeCheck::ComputeDoesOverflow(BasicBlock* block, GenTree* expr)
         overflows = ComputeDoesOverflow(block, expr->gtEffectiveVal());
     }
     // Check if the var def has rhs involving arithmetic that overflows.
-    else if (expr->IsLocal())
+    else if (expr->OperIs(GT_LCL_VAR, GT_PHI_ARG))
     {
         overflows = DoesVarDefOverflow(expr->AsLclVarCommon());
     }
@@ -1165,7 +1165,7 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr, bool monIncreas
                     : Limit(Limit::keUnknown);
     }
     // If local, find the definition from the def map and evaluate the range for rhs.
-    else if (expr->IsLocal())
+    else if (expr->OperIs(GT_LCL_VAR, GT_PHI_ARG))
     {
         range = ComputeRangeForLocalDef(block, expr->AsLclVarCommon(), monIncreasing DEBUGARG(indent + 1));
         MergeAssertion(block, expr, &range DEBUGARG(indent + 1));

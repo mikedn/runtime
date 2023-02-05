@@ -1261,11 +1261,6 @@ public:
                (gtOper == GT_GT) || (gtOper == GT_TEST_EQ) || (gtOper == GT_TEST_NE);
     }
 
-    static bool OperIsLocal(genTreeOps gtOper)
-    {
-        return OperIsNonPhiLocal(gtOper) || (gtOper == GT_PHI_ARG);
-    }
-
     static bool OperIsNonPhiLocal(genTreeOps gtOper)
     {
         return (gtOper == GT_LCL_VAR) || (gtOper == GT_LCL_FLD) || (gtOper == GT_STORE_LCL_VAR) ||
@@ -1323,11 +1318,6 @@ public:
 #else
         return TypeIs(TYP_LONG) && OperIs(GT_MUL_LONG, GT_BITCAST, GT_PUTARG_REG);
 #endif
-    }
-
-    bool OperIsLocal() const
-    {
-        return OperIsLocal(OperGet());
     }
 
     bool OperIsNonPhiLocal() const
@@ -1783,11 +1773,6 @@ public:
     static void RecordOperBashing(genTreeOps operOld, genTreeOps operNew);
     static void ReportOperBashing(FILE* fp);
 #endif
-
-    bool IsLocal() const
-    {
-        return OperIsLocal(OperGet());
-    }
 
     bool IsPartialLclFld(Compiler* comp);
     GenTreeLclAddr* IsLocalAddrExpr();

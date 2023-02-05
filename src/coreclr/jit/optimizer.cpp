@@ -5856,7 +5856,9 @@ void Compiler::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* blo
         {
             GenTree* tree = *use;
 
-            if (tree->OperIsLocal())
+            assert(!tree->OperIs(GT_PHI_ARG));
+
+            if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
             {
                 GenTreeLclVarCommon* lclVar = tree->AsLclVarCommon();
                 unsigned             lclNum = lclVar->GetLclNum();

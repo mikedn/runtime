@@ -2216,11 +2216,11 @@ bool Compiler::optReconstructArrIndex(GenTree* tree, ArrIndex* result, unsigned 
         GenTree* rhs = before->gtGetOp2();
 
         // "rhs" should contain an GT_INDEX
-        if (!lhs->IsLocal() || !optReconstructArrIndex(rhs, result, lhsNum))
+        if (!lhs->OperIs(GT_LCL_VAR) || !optReconstructArrIndex(rhs, result, lhsNum))
         {
             return false;
         }
-        unsigned lhsNum = lhs->AsLclVarCommon()->GetLclNum();
+        unsigned lhsNum = lhs->AsLclVar()->GetLclNum();
         GenTree* after  = tree->gtGetOp2();
         // Pass the "lhsNum", so we can verify if indeed it is used as the array base.
         return optExtractArrIndex(after, result, lhsNum);

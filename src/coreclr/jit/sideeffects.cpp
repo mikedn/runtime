@@ -193,7 +193,7 @@ AliasSet::NodeInfo::NodeInfo(Compiler* compiler, GenTree* node)
     {
         isMemoryAccess = true;
     }
-    else if (node->OperIsLocal())
+    else if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD))
     {
         isLclVarAccess = true;
         lclNum         = node->AsLclVarCommon()->GetLclNum();

@@ -1644,7 +1644,7 @@ void Lowering::RehomeParamForFastTailCall(unsigned paramLclNum,
 
     for (GenTree* node = rangeStart; node != rangeEnd; node = node->gtNext)
     {
-        if (!node->OperIsLocal() && !node->OperIs(GT_LCL_ADDR))
+        if (!node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_LCL_ADDR))
         {
             continue;
         }
@@ -4509,14 +4509,16 @@ GenTree* Lowering::LowerArrElem(GenTree* node)
     assert(arrElem->gtArrObj->TypeGet() == TYP_REF);
 
     // We need to have the array object in a lclVar.
-    if (!arrElem->gtArrObj->IsLocal())
+    // TODO-MIKE-Review: Allowing LCL_FLD (or DNER LCL_VAR) results in poor CQ,
+    // we really should have the array reference in a register.
+    if (!arrElem->gtArrObj->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
         LIR::Use arrObjUse(BlockRange(), &arrElem->gtArrObj, arrElem);
         ReplaceWithLclVar(arrObjUse);
     }
 
     GenTree* arrObjNode = arrElem->gtArrObj;
-    assert(arrObjNode->IsLocal());
+    assert(arrObjNode->OperIs(GT_LCL_VAR, GT_LCL_FLD));
 
     GenTree* insertionPoint = arrElem;
 

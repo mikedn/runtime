@@ -5859,7 +5859,8 @@ void LinearScan::insertCopyOrReload(BasicBlock* block, GenTree* tree, unsigned m
         if ((regType == TYP_STRUCT) && !tree->IsMultiRegNode())
         {
             assert(compiler->compEnregStructLocals());
-            assert(tree->IsLocal());
+            // TODO-MIKE-Review: This probably doesn't need LCL_FLD.
+            assert(tree->OperIs(GT_LCL_VAR, GT_LCL_FLD));
             const GenTreeLclVarCommon* lcl    = tree->AsLclVarCommon();
             const LclVarDsc*           varDsc = compiler->lvaGetDesc(lcl);
             // We create struct copies with a primitive type so we don't bother copy node with parsing structHndl.
@@ -7239,9 +7240,14 @@ void LinearScan::handleOutgoingCriticalEdges(BasicBlock* block)
             {
                 consumedRegs |= genRegMask(op1->gtGetOp1()->GetRegNum());
             }
-            else if (op1->IsLocal())
+            else if (op1->OperIs(GT_LCL_VAR))
             {
-                jcmpLocalVarDsc = compiler->lvaGetDesc(op1->AsLclVarCommon());
+                jcmpLocalVarDsc = compiler->lvaGetDesc(op1->AsLclVar());
+
+                if (!jcmpLocalVarDsc->IsRegCandidate())
+                {
+                    jcmpLocalVarDsc = nullptr;
+                }
             }
         }
     }
@@ -7321,7 +7327,7 @@ void LinearScan::handleOutgoingCriticalEdges(BasicBlock* block)
             }
 
 #ifdef TARGET_ARM64
-            if (jcmpLocalVarDsc && (jcmpLocalVarDsc->lvVarIndex == outResolutionSetVarIndex))
+            if ((jcmpLocalVarDsc != nullptr) && (jcmpLocalVarDsc->GetLivenessBitIndex() == outResolutionSetVarIndex))
             {
                 sameToReg = REG_NA;
             }
@@ -8857,10 +8863,10 @@ void LinearScan::lsraDispNode(GenTree* tree, LsraTupleDumpMode mode, bool hasDes
     printf("%c N%04u. ", spillChar, tree->gtSeqNum);
 
     LclVarDsc* varDsc = nullptr;
-    unsigned   varNum = UINT_MAX;
-    if (tree->IsLocal())
+    unsigned   varNum = BAD_VAR_NUM;
+    if (tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
     {
-        varNum = tree->AsLclVarCommon()->GetLclNum();
+        varNum = tree->AsLclVar()->GetLclNum();
         varDsc = compiler->lvaGetDesc(varNum);
         if (varDsc->IsRegCandidate())
         {
@@ -8876,33 +8882,26 @@ void LinearScan::lsraDispNode(GenTree* tree, LsraTupleDumpMode mode, bool hasDes
     {
         printf("%-15s  ", emptyDestOperand);
     }
-    if (varDsc != nullptr)
+    if ((varDsc != nullptr) && varDsc->IsRegCandidate())
     {
-        if (varDsc->IsRegCandidate())
+        if (mode == LSRA_DUMP_REFPOS)
         {
-            if (mode == LSRA_DUMP_REFPOS)
-            {
-                printf("  V%02u(L%d)", varNum, getIntervalForLocalVar(varDsc->lvVarIndex)->intervalIndex);
-            }
-            else
-            {
-                lsraGetOperandString(tree, mode, operandString, operandStringLength);
-                printf("  V%02u(%s)", varNum, operandString);
-                if (mode == LinearScan::LSRA_DUMP_POST && tree->IsAnyRegSpilled())
-                {
-                    printf("R");
-                }
-            }
+            printf(" V%02u(L%d) ", varNum, getIntervalForLocalVar(varDsc->GetLivenessBitIndex())->intervalIndex);
         }
         else
         {
-            printf("  V%02u MEM", varNum);
+            lsraGetOperandString(tree, mode, operandString, operandStringLength);
+            printf(" V%02u(%s) ", varNum, operandString);
+            if (mode == LinearScan::LSRA_DUMP_POST && tree->IsAnyRegSpilled())
+            {
+                printf("R ");
+            }
         }
     }
     else
     {
         compiler->gtDispNodeName(tree);
-        if (tree->OperKind() & GTK_LEAF)
+        if (tree->OperIsLeaf())
         {
             compiler->gtDispLeaf(tree, nullptr);
         }

@@ -122,9 +122,9 @@ void DecomposeLongs::DecomposeRangeHelper()
 GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
 {
     // Handle the case where we are implicitly using the lower half of a long lclVar.
-    if (tree->TypeIs(TYP_INT) && tree->OperIsLocal())
+    if (tree->TypeIs(TYP_INT) && tree->OperIs(GT_LCL_VAR))
     {
-        LclVarDsc* varDsc = m_compiler->lvaGetDesc(tree->AsLclVarCommon());
+        LclVarDsc* varDsc = m_compiler->lvaGetDesc(tree->AsLclVar());
         if (varTypeIsLong(varDsc->GetType()) && varDsc->IsPromoted())
         {
 #ifdef DEBUG
@@ -135,7 +135,7 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
                 m_compiler->gtDispTreeRange(Range(), tree);
             }
 #endif
-            tree->AsLclVarCommon()->SetLclNum(varDsc->GetPromotedFieldLclNum(0));
+            tree->AsLclVar()->SetLclNum(varDsc->GetPromotedFieldLclNum(0));
             return tree->gtNext;
         }
     }

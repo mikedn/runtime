@@ -2941,7 +2941,12 @@ bool Compiler::fgBlockEndFavorsTailDuplication(BasicBlock* block, unsigned lclNu
         {
             GenTree* const op1 = tree->AsOp()->gtOp1;
 
-            if (op1->IsLocal())
+            // TODO-MIKE-Review: Old code used the stupid IsLocal and might have allowed
+            // LCL_FLD by accident. We're probably really looking for an assignment to
+            // the variable that's used in the condition but if we allow LCL_FLD we don't
+            // know which field is assigned to and which field is used in the condition.
+            // This does not appear to be a correctness issue though.
+            if (op1->OperIs(GT_LCL_VAR, GT_LCL_FLD))
             {
                 const unsigned op1LclNum = op1->AsLclVarCommon()->GetLclNum();
 
@@ -3041,7 +3046,13 @@ bool Compiler::fgBlockIsGoodTailDuplicationCandidate(BasicBlock* target, unsigne
         op1 = op1->AsOp()->gtOp1;
     }
 
-    if (!op1->IsLocal() && !op1->OperIsConst())
+    // TODO-MIKE-Review: Old code used the stupid IsLocal and might have allowed
+    // LCL_FLD by accident. We'll later look for an assignment to the variable
+    // that's used in the condition but if we allow LCL_FLD we don't know which
+    // field is assigned to and which field is used in the condition. This does
+    // not appear to be a correctness issue though.
+
+    if (!op1->OperIs(GT_LCL_VAR, GT_LCL_FLD) && !op1->OperIsConst())
     {
         return false;
     }
@@ -3053,37 +3064,37 @@ bool Compiler::fgBlockIsGoodTailDuplicationCandidate(BasicBlock* target, unsigne
         op2 = op2->AsOp()->gtOp1;
     }
 
-    if (!op2->IsLocal() && !op2->OperIsConst())
+    if (!op2->OperIs(GT_LCL_VAR, GT_LCL_FLD) && !op2->OperIsConst())
     {
         return false;
     }
 
     // Tree must have one constant and one local, or be comparing
     // the same local to itself.
-    unsigned lcl1 = BAD_VAR_NUM;
-    unsigned lcl2 = BAD_VAR_NUM;
+    unsigned lclNum1 = BAD_VAR_NUM;
+    unsigned lclNum2 = BAD_VAR_NUM;
 
-    if (op1->IsLocal())
+    if (op1->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
-        lcl1 = op1->AsLclVarCommon()->GetLclNum();
-    }
-
-    if (op2->IsLocal())
-    {
-        lcl2 = op2->AsLclVarCommon()->GetLclNum();
+        lclNum1 = op1->AsLclVarCommon()->GetLclNum();
     }
 
-    if ((lcl1 != BAD_VAR_NUM) && op2->OperIsConst())
+    if (op2->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
-        *lclNum = lcl1;
+        lclNum2 = op2->AsLclVarCommon()->GetLclNum();
     }
-    else if ((lcl2 != BAD_VAR_NUM) && op1->OperIsConst())
+
+    if ((lclNum1 != BAD_VAR_NUM) && op2->OperIsConst())
     {
-        *lclNum = lcl2;
+        *lclNum = lclNum1;
     }
-    else if ((lcl1 != BAD_VAR_NUM) && (lcl1 == lcl2))
+    else if ((lclNum2 != BAD_VAR_NUM) && op1->OperIsConst())
     {
-        *lclNum = lcl1;
+        *lclNum = lclNum2;
+    }
+    else if ((lclNum1 != BAD_VAR_NUM) && (lclNum1 == lclNum2))
+    {
+        *lclNum = lclNum1;
     }
     else
     {

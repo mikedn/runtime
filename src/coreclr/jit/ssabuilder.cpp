@@ -96,11 +96,13 @@ void Compiler::fgResetForSsa()
             }
         }
 
-        for (Statement* const stmt : blk->Statements())
+        for (Statement* stmt : blk->Statements())
         {
-            for (GenTree* const tree : stmt->TreeList())
+            for (GenTree* tree : stmt->Nodes())
             {
-                if (tree->IsLocal())
+                assert(!tree->OperIs(GT_PHI_ARG));
+
+                if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
                 {
                     tree->AsLclVarCommon()->SetSsaNum(SsaConfig::RESERVED_SSA_NUM);
                 }
