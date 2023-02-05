@@ -3407,7 +3407,7 @@ bool Lowering::AreSourcesPossiblyModifiedLocals(GenTree* addr, GenTree* base, Ge
     SideEffectSet baseSideEffects;
     if (base != nullptr)
     {
-        if (base->OperIsLocalRead())
+        if (base->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
             baseSideEffects.AddNode(comp, base);
         }
@@ -3420,7 +3420,7 @@ bool Lowering::AreSourcesPossiblyModifiedLocals(GenTree* addr, GenTree* base, Ge
     SideEffectSet indexSideEffects;
     if (index != nullptr)
     {
-        if (index->OperIsLocalRead())
+        if (index->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
             indexSideEffects.AddNode(comp, index);
         }

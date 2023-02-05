@@ -252,7 +252,7 @@ void AliasSet::AddNode(Compiler* compiler, GenTree* node)
     // First, add all lclVar uses associated with the node to the set. This is necessary because the lclVar reads occur
     // at the position of the user, not at the position of the GenTreeLclVar node.
     node->VisitOperands([compiler, this](GenTree* operand) -> GenTree::VisitResult {
-        if (operand->OperIsLocalRead())
+        if (operand->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
             const unsigned lclNum = operand->AsLclVarCommon()->GetLclNum();
             if (compiler->lvaTable[lclNum].lvAddrExposed)
@@ -350,7 +350,7 @@ bool AliasSet::InterferesWith(const NodeInfo& other) const
         Compiler* compiler = other.TheCompiler();
         for (GenTree* operand : other.Node()->Operands())
         {
-            if (operand->OperIsLocalRead())
+            if (operand->OperIs(GT_LCL_VAR, GT_LCL_FLD))
             {
                 // If this set writes any addressable location and the node uses an address-exposed lclVar,
                 // the set interferes with the node.
