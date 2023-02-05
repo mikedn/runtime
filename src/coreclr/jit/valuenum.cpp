@@ -8338,7 +8338,7 @@ void Compiler::fgValueNumberTree(GenTree* tree)
         {
             printf("[%06u] ", tree->GetID());
             gtDispNodeName(tree);
-            if (tree->OperIsLeaf() || tree->OperIsLocalStore()) // local stores used to be leaves
+            if (tree->OperIsLeaf())
             {
                 gtDispLeaf(tree, nullptr);
             }

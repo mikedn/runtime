@@ -7532,16 +7532,12 @@ void Compiler::gtDispLeaf(GenTree* tree, IndentStack* indentStack)
         return;
     }
 
-    bool isLclFld = false;
-
-    switch (tree->gtOper)
+    switch (tree->GetOper())
     {
         case GT_LCL_FLD:
-        case GT_STORE_LCL_FLD:
         case GT_PHI_ARG:
         case GT_LCL_VAR:
         case GT_LCL_ADDR:
-        case GT_STORE_LCL_VAR:
             dmpLclVarCommon(tree->AsLclVarCommon(), indentStack);
             break;
 
@@ -7877,18 +7873,12 @@ void Compiler::gtDispTree(GenTree*     tree,
         return;
     }
 
-    /* Is tree a leaf node? */
-
-    if (tree->OperIsLeaf() || tree->OperIsLocalStore()) // local stores used to be leaves
+    if (tree->OperIsLeaf())
     {
         gtDispNode(tree, indentStack, msg, isLIR);
         gtDispLeaf(tree, indentStack);
         gtDispCommonEndLine(tree);
 
-        if (tree->OperIsLocalStore() && !topOnly)
-        {
-            gtDispChild(tree->AsOp()->gtOp1, indentStack, IINone);
-        }
         return;
     }
 
@@ -7931,6 +7921,11 @@ void Compiler::gtDispTree(GenTree*     tree,
 
     switch (tree->GetOper())
     {
+        case GT_STORE_LCL_VAR:
+        case GT_STORE_LCL_FLD:
+            dmpLclVarCommon(tree->AsLclVarCommon(), indentStack);
+            break;
+
         case GT_CAST:
         {
             var_types fromType = genActualType(tree->AsUnOp()->GetOp(0)->GetType());
