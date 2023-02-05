@@ -2851,18 +2851,14 @@ void Lowering::InsertReturnTrap(GenTree* before)
 //
 void Lowering::InsertSetGCState(GenTree* before, int state)
 {
-    // Thread.offsetOfGcState = 0/1
+    assert((state == 0) || (state == 1));
 
-    assert(state == 0 || state == 1);
+    const CORINFO_EE_INFO& info = *comp->eeGetEEInfo();
 
-    const CORINFO_EE_INFO* pInfo = comp->eeGetEEInfo();
-
-    GenTree* base = new (comp, GT_LCL_VAR) GenTreeLclVar(GT_LCL_VAR, TYP_I_IMPL, comp->lvaPInvokeFrameListVar);
-
-    GenTree* stateNode = new (comp, GT_CNS_INT) GenTreeIntCon(TYP_BYTE, state);
-    GenTree* addr      = new (comp, GT_LEA) GenTreeAddrMode(TYP_I_IMPL, base, nullptr, 1, pInfo->offsetOfGCState);
-
-    GenTreeStoreInd* store = new (comp, GT_STOREIND) GenTreeStoreInd(TYP_BYTE, addr, stateNode);
+    GenTreeLclVar*   base      = comp->gtNewLclvNode(comp->lvaPInvokeFrameListVar, TYP_I_IMPL);
+    GenTreeAddrMode* addr      = new (comp, GT_LEA) GenTreeAddrMode(TYP_I_IMPL, base, nullptr, 1, info.offsetOfGCState);
+    GenTreeIntCon*   stateNode = comp->gtNewIconNode(state);
+    GenTreeStoreInd* store     = new (comp, GT_STOREIND) GenTreeStoreInd(TYP_BYTE, addr, stateNode);
 
     BlockRange().InsertBefore(before, base, addr, stateNode, store);
 
@@ -2883,34 +2879,29 @@ void Lowering::InsertSetGCState(GenTree* before, int state)
 //
 void Lowering::InsertFrameLinkUpdate(LIR::Range& block, GenTree* before, FrameLinkAction action)
 {
-    const CORINFO_EE_INFO*                       pInfo         = comp->eeGetEEInfo();
-    const CORINFO_EE_INFO::InlinedCallFrameInfo& callFrameInfo = pInfo->inlinedCallFrameInfo;
+    const CORINFO_EE_INFO& info = *comp->eeGetEEInfo();
 
-    GenTree* TCB = new (comp, GT_LCL_VAR) GenTreeLclVar(GT_LCL_VAR, TYP_I_IMPL, comp->lvaPInvokeFrameListVar);
-
-    // Thread->m_pFrame
-    GenTree* addr = new (comp, GT_LEA) GenTreeAddrMode(TYP_I_IMPL, TCB, nullptr, 1, pInfo->offsetOfThreadFrame);
-
+    GenTree* tcb  = comp->gtNewLclvNode(comp->lvaPInvokeFrameListVar, TYP_I_IMPL);
+    GenTree* addr = new (comp, GT_LEA) GenTreeAddrMode(TYP_I_IMPL, tcb, nullptr, 1, info.offsetOfThreadFrame);
     GenTree* data = nullptr;
 
     if (action == PushFrame)
     {
-        // Thread->m_pFrame = &inlinedCallFrame;
-        data = comp->gtNewLclFldAddrNode(comp->lvaInlinedPInvokeFrameVar, callFrameInfo.offsetOfFrameVptr, nullptr);
+        data = comp->gtNewLclFldAddrNode(comp->lvaInlinedPInvokeFrameVar, info.inlinedCallFrameInfo.offsetOfFrameVptr,
+                                         FieldSeqStore::NotAField());
         comp->lvaSetAddressExposed(comp->lvaInlinedPInvokeFrameVar);
     }
     else
     {
         assert(action == PopFrame);
-        // Thread->m_pFrame = inlinedCallFrame.m_pNext;
 
-        data = new (comp, GT_LCL_FLD) GenTreeLclFld(GT_LCL_FLD, TYP_BYREF, comp->lvaInlinedPInvokeFrameVar,
-                                                    pInfo->inlinedCallFrameInfo.offsetOfFrameLink);
+        data = comp->gtNewLclFldNode(comp->lvaInlinedPInvokeFrameVar, TYP_BYREF,
+                                     info.inlinedCallFrameInfo.offsetOfFrameLink);
     }
 
     GenTreeStoreInd* store = new (comp, GT_STOREIND) GenTreeStoreInd(TYP_I_IMPL, addr, data);
 
-    block.InsertBefore(before, TCB, addr, data, store);
+    block.InsertBefore(before, tcb, addr, data, store);
     ContainCheckStoreIndir(store);
 }
 

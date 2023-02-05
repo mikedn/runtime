@@ -3255,10 +3255,9 @@ struct GenTreeLclVar : public GenTreeLclVarCommon
     unsigned GetMultiRegCount(Compiler* compiler) const;
     var_types GetMultiRegType(Compiler* compiler, unsigned regIndex);
 
-    GenTreeLclVar(genTreeOps oper, var_types type, unsigned lclNum DEBUGARG(bool largeNode = false))
-        : GenTreeLclVarCommon(oper, type, lclNum DEBUGARG(largeNode))
+    GenTreeLclVar(var_types type, unsigned lclNum DEBUGARG(bool largeNode = false))
+        : GenTreeLclVarCommon(GT_LCL_VAR, type, lclNum DEBUGARG(largeNode))
     {
-        assert((oper == GT_LCL_VAR) || (oper == GT_STORE_LCL_VAR));
     }
 
     GenTreeLclVar(var_types type, unsigned lclNum, GenTree* value DEBUGARG(bool largeNode = false))
@@ -3288,13 +3287,12 @@ private:
     FieldSeqNode* m_fieldSeq;  // This LclFld node represents some sequences of accesses.
 
 public:
-    GenTreeLclFld(genTreeOps oper, var_types type, unsigned lclNum, unsigned lclOffs)
-        : GenTreeLclVarCommon(oper, type, lclNum)
+    GenTreeLclFld(var_types type, unsigned lclNum, unsigned lclOffs)
+        : GenTreeLclVarCommon(GT_LCL_FLD, type, lclNum)
         , m_lclOffs(static_cast<uint16_t>(lclOffs))
         , m_layoutNum(0)
         , m_fieldSeq(FieldSeqStore::NotAField())
     {
-        assert((oper == GT_LCL_FLD) || (oper == GT_STORE_LCL_FLD));
         assert(lclOffs <= UINT16_MAX);
     }
 

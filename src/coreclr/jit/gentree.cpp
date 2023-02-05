@@ -4436,7 +4436,7 @@ GenTreeLclVar* Compiler::gtNewLclvNode(unsigned lnum, var_types type)
     }
 #endif
 
-    return new (this, GT_LCL_VAR) GenTreeLclVar(GT_LCL_VAR, type, lnum);
+    return new (this, GT_LCL_VAR) GenTreeLclVar(type, lnum);
 }
 
 GenTreeLclVar* Compiler::gtNewLclVarLargeNode(unsigned lnum, var_types type)
@@ -4459,7 +4459,7 @@ GenTreeLclVar* Compiler::gtNewLclVarLargeNode(unsigned lnum, var_types type)
     // This local variable node may later get transformed into a large node
     assert(GenTree::s_gtNodeSizes[LargeOpOpcode()] > GenTree::s_gtNodeSizes[GT_LCL_VAR]);
 
-    return new (this, LargeOpOpcode()) GenTreeLclVar(GT_LCL_VAR, type, lnum DEBUGARG(/*largeNode*/ true));
+    return new (this, LargeOpOpcode()) GenTreeLclVar(type, lnum DEBUGARG(/*largeNode*/ true));
 }
 
 GenTreeLclAddr* Compiler::gtNewLclVarAddrNode(unsigned lclNum, var_types type)
@@ -4476,7 +4476,7 @@ GenTreeLclAddr* Compiler::gtNewLclFldAddrNode(unsigned lclNum, unsigned lclOffs,
 
 GenTreeLclFld* Compiler::gtNewLclFldNode(unsigned lnum, var_types type, unsigned offset)
 {
-    return new (this, GT_LCL_FLD) GenTreeLclFld(GT_LCL_FLD, type, lnum, offset);
+    return new (this, GT_LCL_FLD) GenTreeLclFld(type, lnum, offset);
 }
 
 GenTreeRetExpr* Compiler::gtNewRetExpr(GenTreeCall* call)
