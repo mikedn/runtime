@@ -792,8 +792,7 @@ inline GenTreeFieldAddr* Compiler::gtNewFieldAddr(GenTree* addr, FieldSeqNode* f
         lvaGetDesc(addr->AsLclAddr())->lvFieldAccessed = 1;
     }
 
-    var_types type = varTypeAddrAdd(addr->GetType());
-    return new (this, GT_FIELD_ADDR) GenTreeFieldAddr(type, addr, fieldSeq, offset);
+    return new (this, GT_FIELD_ADDR) GenTreeFieldAddr(addr, fieldSeq, offset);
 }
 
 inline GenTreeIndir* Compiler::gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldAddr)

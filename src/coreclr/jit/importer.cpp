@@ -5659,14 +5659,14 @@ GenTree* Importer::impImportStaticFieldAddressHelper(OPCODE                    o
         fieldSeq = GetFieldSeqStore()->Append(fieldSeq, GetFieldSeqStore()->GetBoxedValuePseudoField());
     }
 
-    addr = new (comp, GT_FIELD_ADDR) GenTreeFieldAddr(addr->GetType(), addr, fieldSeq, fieldInfo.offset);
+    addr = new (comp, GT_FIELD_ADDR) GenTreeFieldAddr(addr, fieldSeq, fieldInfo.offset);
 
     if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP) != 0)
     {
         addr = gtNewOperNode(GT_IND, TYP_REF, addr);
         addr->gtFlags |= GTF_IND_NONFAULTING;
         fieldSeq = GetFieldSeqStore()->GetBoxedValuePseudoField();
-        addr     = new (comp, GT_FIELD_ADDR) GenTreeFieldAddr(TYP_BYREF, addr, fieldSeq, TARGET_POINTER_SIZE);
+        addr     = new (comp, GT_FIELD_ADDR) GenTreeFieldAddr(addr, fieldSeq, TARGET_POINTER_SIZE);
     }
 
     return addr;
@@ -6058,7 +6058,7 @@ GenTree* Importer::impImportStaticFieldAccess(OPCODE                    opcode,
 #endif
 
             fieldSeq = GetFieldSeqStore()->GetBoxedValuePseudoField();
-            addr     = new (comp, GT_FIELD_ADDR) GenTreeFieldAddr(TYP_BYREF, addr, fieldSeq, TARGET_POINTER_SIZE);
+            addr     = new (comp, GT_FIELD_ADDR) GenTreeFieldAddr(addr, fieldSeq, TARGET_POINTER_SIZE);
 
             if (layout != nullptr)
             {
@@ -6104,7 +6104,7 @@ GenTree* Importer::impImportStaticFieldAccess(OPCODE                    opcode,
         addr = indir;
 
         fieldSeq = GetFieldSeqStore()->GetBoxedValuePseudoField();
-        addr     = new (comp, GT_FIELD_ADDR) GenTreeFieldAddr(TYP_BYREF, addr, fieldSeq, TARGET_POINTER_SIZE);
+        addr     = new (comp, GT_FIELD_ADDR) GenTreeFieldAddr(addr, fieldSeq, TARGET_POINTER_SIZE);
 
         if (layout != nullptr)
         {

@@ -3558,8 +3558,8 @@ struct GenTreeFieldAddr : public GenTreeUnOp
 #endif
 
 public:
-    GenTreeFieldAddr(var_types type, GenTree* addr, FieldSeqNode* fieldSeq, unsigned offset)
-        : GenTreeUnOp(GT_FIELD_ADDR, type, addr)
+    GenTreeFieldAddr(GenTree* addr, FieldSeqNode* fieldSeq, unsigned offset)
+        : GenTreeUnOp(GT_FIELD_ADDR, varTypeAddrAdd(addr->GetType()), addr)
         , m_fieldSeq(fieldSeq)
         , m_offset(offset)
         , m_mayOverlap(false)

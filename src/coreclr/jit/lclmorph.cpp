@@ -2101,7 +2101,9 @@ private:
             {
                 // TODO-MIKE-Cleanup: It may be good to set the layout on these FIELD_ADDRs
                 // for the sake of consistency, though at this point nothing needs it.
-                structIndir->SetAddr(m_compiler->gtNewFieldAddr(addr, fieldSeq, 0));
+                // Also, if the original address is also a FIELD_ADDR we could simply extend
+                // its field sequence.
+                structIndir->SetAddr(new (m_compiler, GT_FIELD_ADDR) GenTreeFieldAddr(addr, fieldSeq, 0));
             }
         }
 
