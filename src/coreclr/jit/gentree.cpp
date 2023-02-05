@@ -4587,25 +4587,29 @@ GenTreeOp* Compiler::gtNewAssignNode(GenTree* dst, GenTree* src)
 {
     assert(!src->TypeIs(TYP_VOID));
 
-    dst->gtFlags |= GTF_DONT_CSE;
-
-    gtAssignSetVarDef(dst);
+    if (dst->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    {
+        gtAssignSetVarDef(dst->AsLclVarCommon());
+    }
+    else
+    {
+        dst->gtFlags |= GTF_DONT_CSE;
+    }
 
     GenTreeOp* asg = gtNewOperNode(GT_ASG, dst->GetType(), dst, src);
     asg->gtFlags |= GTF_ASG;
     return asg;
 }
 
-void Compiler::gtAssignSetVarDef(GenTree* dst)
+void Compiler::gtAssignSetVarDef(GenTreeLclVarCommon* dst)
 {
-    if (dst->OperIs(GT_LCL_VAR, GT_LCL_FLD))
-    {
-        dst->gtFlags |= GTF_VAR_DEF;
+    assert(dst->OperIs(GT_LCL_VAR, GT_LCL_FLD));
 
-        if (dst->IsPartialLclFld(this))
-        {
-            dst->gtFlags |= GTF_VAR_USEASG;
-        }
+    dst->gtFlags |= GTF_VAR_DEF | GTF_DONT_CSE;
+
+    if (dst->IsPartialLclFld(this))
+    {
+        dst->gtFlags |= GTF_VAR_USEASG;
     }
 }
 

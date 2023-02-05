@@ -10767,36 +10767,33 @@ DONE_MORPHING_CHILDREN:
     op1 = tree->AsOp()->gtOp1;
     op2 = tree->gtGetOp2IfPresent();
 
-    /*-------------------------------------------------------------------------
-     * Perform the required oper-specific postorder morphing
-     */
-
-    GenTree*      cns1;
-    GenTree*      cns2;
-    size_t        ival1, ival2;
-    GenTree*      effectiveOp1;
-    FieldSeqNode* fieldSeq = nullptr;
-
+    // Perform the required oper-specific postorder morphing
     switch (oper)
     {
-        case GT_ASG:
-            effectiveOp1 = op1->gtEffectiveVal();
+        GenTree* dst;
+        GenTree* cns1;
+        GenTree* cns2;
+        size_t   ival1, ival2;
 
-            if (effectiveOp1->OperIs(GT_IND, GT_OBJ, GT_BLK))
+        case GT_ASG:
+            dst = op1->SkipComma();
+
+            if (dst->OperIs(GT_LCL_VAR, GT_LCL_FLD))
             {
-                effectiveOp1->gtFlags |= GTF_IND_ASG_LHS;
+                gtAssignSetVarDef(dst->AsLclVarCommon());
             }
             else
             {
-                gtAssignSetVarDef(effectiveOp1);
+                assert(dst->OperIs(GT_IND, GT_OBJ, GT_BLK));
+                dst->gtFlags |= GTF_IND_ASG_LHS | GTF_DONT_CSE;
             }
 
             // If we are storing a small type, we might be able to omit a cast.
             // We may also omit a cast when storing to a "normalize on load"
             // local since we know that a load from that local has to cast anyway.
-            if (varTypeIsSmall(effectiveOp1->TypeGet()) &&
-                (effectiveOp1->OperIs(GT_IND, GT_LCL_FLD) ||
-                 (effectiveOp1->OperIs(GT_LCL_VAR) && lvaGetDesc(effectiveOp1->AsLclVar())->lvNormalizeOnLoad())))
+            if (varTypeIsSmall(dst->GetType()) &&
+                (dst->OperIs(GT_IND, GT_LCL_FLD) ||
+                 (dst->OperIs(GT_LCL_VAR) && lvaGetDesc(dst->AsLclVar())->lvNormalizeOnLoad())))
             {
                 if (op2->OperIs(GT_CAST) && varTypeIsIntegral(op2->AsCast()->CastOp()) && !op2->gtOverflow())
                 {
@@ -10806,18 +10803,11 @@ DONE_MORPHING_CHILDREN:
                     // castType is larger or the same as op1's type
                     // then we can discard the cast.
 
-                    if (varTypeIsSmall(castType) && (genTypeSize(castType) >= genTypeSize(effectiveOp1)))
+                    if (varTypeIsSmall(castType) && (genTypeSize(castType) >= genTypeSize(dst)))
                     {
                         tree->AsOp()->gtOp2 = op2 = op2->AsCast()->CastOp();
                     }
                 }
-            }
-
-            /* We can't CSE the LHS of an assignment */
-            /* We also must set in the pre-morphing phase, otherwise assertionProp doesn't see it */
-            if (op1->IsLocal() || (op1->TypeGet() != TYP_STRUCT))
-            {
-                op1->gtFlags |= GTF_DONT_CSE;
             }
 
             if (varTypeIsStruct(typ) && !op2->OperIs(GT_PHI))
