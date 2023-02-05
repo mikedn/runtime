@@ -5859,7 +5859,8 @@ void LinearScan::insertCopyOrReload(BasicBlock* block, GenTree* tree, unsigned m
         if ((regType == TYP_STRUCT) && !tree->IsMultiRegNode())
         {
             assert(compiler->compEnregStructLocals());
-            assert(tree->IsLocal());
+            // TODO-MIKE-Review: This probably doesn't need LCL_FLD.
+            assert(tree->OperIs(GT_LCL_VAR, GT_LCL_FLD));
             const GenTreeLclVarCommon* lcl    = tree->AsLclVarCommon();
             const LclVarDsc*           varDsc = compiler->lvaGetDesc(lcl);
             // We create struct copies with a primitive type so we don't bother copy node with parsing structHndl.
@@ -6849,6 +6850,7 @@ void LinearScan::insertMove(
     }
 }
 
+#ifdef TARGET_XARCH
 void LinearScan::insertSwap(
     BasicBlock* block, GenTree* insertionPoint, unsigned lclNum1, regNumber reg1, unsigned lclNum2, regNumber reg2)
 {
@@ -6911,6 +6913,7 @@ void LinearScan::insertSwap(
         }
     }
 }
+#endif // TARGET_XARCH
 
 //------------------------------------------------------------------------
 // getTempRegForResolution: Get a free register to use for resolution code.
@@ -6947,7 +6950,7 @@ regNumber LinearScan::getTempRegForResolution(BasicBlock* fromBlock, BasicBlock*
         freeRegs = allRegs(type);
     }
 #else  // !TARGET_ARM
-    regMaskTP freeRegs = allRegs(type);
+    regMaskTP freeRegs      = allRegs(type);
 #endif // !TARGET_ARM
 
 #ifdef DEBUG
@@ -7235,14 +7238,16 @@ void LinearScan::handleOutgoingCriticalEdges(BasicBlock* block)
 
             if (op1->OperIs(GT_COPY))
             {
-                GenTree* srcOp1 = op1->gtGetOp1();
-                consumedRegs |= genRegMask(srcOp1->GetRegNum());
+                consumedRegs |= genRegMask(op1->gtGetOp1()->GetRegNum());
             }
-
-            if (op1->IsLocal())
+            else if (op1->OperIs(GT_LCL_VAR))
             {
-                GenTreeLclVarCommon* lcl = op1->AsLclVarCommon();
-                jcmpLocalVarDsc          = &compiler->lvaTable[lcl->GetLclNum()];
+                jcmpLocalVarDsc = compiler->lvaGetDesc(op1->AsLclVar());
+
+                if (!jcmpLocalVarDsc->IsRegCandidate())
+                {
+                    jcmpLocalVarDsc = nullptr;
+                }
             }
         }
     }
@@ -7322,7 +7327,7 @@ void LinearScan::handleOutgoingCriticalEdges(BasicBlock* block)
             }
 
 #ifdef TARGET_ARM64
-            if (jcmpLocalVarDsc && (jcmpLocalVarDsc->lvVarIndex == outResolutionSetVarIndex))
+            if ((jcmpLocalVarDsc != nullptr) && (jcmpLocalVarDsc->GetLivenessBitIndex() == outResolutionSetVarIndex))
             {
                 sameToReg = REG_NA;
             }
@@ -7996,6 +8001,7 @@ void LinearScan::resolveEdge(BasicBlock*      fromBlock,
             {
                 regNumber tempReg = REG_NA;
                 bool      useSwap = false;
+
                 if (emitter::isFloatReg(targetReg))
                 {
 #ifdef TARGET_ARM
@@ -8005,22 +8011,20 @@ void LinearScan::resolveEdge(BasicBlock*      fromBlock,
                         tempReg = tempRegDbl;
                     }
                     else
-#endif // TARGET_ARM
+#endif
+                    {
                         tempReg = tempRegFlt;
+                    }
                 }
+                else
+                {
 #ifdef TARGET_XARCH
-                else
-                {
                     useSwap = true;
-                }
-#else // !TARGET_XARCH
-
-                else
-                {
+#else
                     tempReg = tempRegInt;
+#endif
                 }
 
-#endif // !TARGET_XARCH
                 if (useSwap || tempReg == REG_NA)
                 {
                     // First, we have to figure out the destination register for what's currently in fromReg,
@@ -8057,6 +8061,7 @@ void LinearScan::resolveEdge(BasicBlock*      fromBlock,
                     }
                     assert(otherTargetReg != REG_NA);
 
+#ifdef TARGET_XARCH
                     if (useSwap)
                     {
                         // Generate a "swap" of fromReg and targetReg
@@ -8068,6 +8073,7 @@ void LinearScan::resolveEdge(BasicBlock*      fromBlock,
                         INTRACK_STATS(updateLsraStat(STAT_RESOLUTION_MOV, block->bbNum));
                     }
                     else
+#endif // TARGET_XARCH
                     {
                         // Spill "targetReg" to the stack and add its eventual target (otherTargetReg)
                         // to "targetRegsFromStack", which will be handled below.
@@ -8857,10 +8863,10 @@ void LinearScan::lsraDispNode(GenTree* tree, LsraTupleDumpMode mode, bool hasDes
     printf("%c N%04u. ", spillChar, tree->gtSeqNum);
 
     LclVarDsc* varDsc = nullptr;
-    unsigned   varNum = UINT_MAX;
-    if (tree->IsLocal())
+    unsigned   varNum = BAD_VAR_NUM;
+    if (tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
     {
-        varNum = tree->AsLclVarCommon()->GetLclNum();
+        varNum = tree->AsLclVar()->GetLclNum();
         varDsc = compiler->lvaGetDesc(varNum);
         if (varDsc->IsRegCandidate())
         {
@@ -8876,33 +8882,26 @@ void LinearScan::lsraDispNode(GenTree* tree, LsraTupleDumpMode mode, bool hasDes
     {
         printf("%-15s  ", emptyDestOperand);
     }
-    if (varDsc != nullptr)
+    if ((varDsc != nullptr) && varDsc->IsRegCandidate())
     {
-        if (varDsc->IsRegCandidate())
+        if (mode == LSRA_DUMP_REFPOS)
         {
-            if (mode == LSRA_DUMP_REFPOS)
-            {
-                printf("  V%02u(L%d)", varNum, getIntervalForLocalVar(varDsc->lvVarIndex)->intervalIndex);
-            }
-            else
-            {
-                lsraGetOperandString(tree, mode, operandString, operandStringLength);
-                printf("  V%02u(%s)", varNum, operandString);
-                if (mode == LinearScan::LSRA_DUMP_POST && tree->IsAnyRegSpilled())
-                {
-                    printf("R");
-                }
-            }
+            printf(" V%02u(L%d) ", varNum, getIntervalForLocalVar(varDsc->GetLivenessBitIndex())->intervalIndex);
         }
         else
         {
-            printf("  V%02u MEM", varNum);
+            lsraGetOperandString(tree, mode, operandString, operandStringLength);
+            printf(" V%02u(%s) ", varNum, operandString);
+            if (mode == LinearScan::LSRA_DUMP_POST && tree->IsAnyRegSpilled())
+            {
+                printf("R ");
+            }
         }
     }
     else
     {
         compiler->gtDispNodeName(tree);
-        if (tree->OperKind() & GTK_LEAF)
+        if (tree->OperIsLeaf())
         {
             compiler->gtDispLeaf(tree, nullptr);
         }
@@ -9791,8 +9790,10 @@ bool LinearScan::IsResolutionMove(GenTree* node)
         case GT_COPY:
             return node->IsUnusedValue();
 
+#ifdef TARGET_XARCH
         case GT_SWAP:
             return true;
+#endif
 
         default:
             return false;
@@ -10363,16 +10364,17 @@ void LinearScan::verifyResolutionMove(GenTree* resolutionMove, LsraLocation curr
     GenTree* dst = resolutionMove;
     assert(IsResolutionMove(dst));
 
-    if (dst->OperGet() == GT_SWAP)
+#ifdef TARGET_XARCH
+    if (dst->OperIs(GT_SWAP))
     {
-        GenTreeLclVarCommon* left          = dst->gtGetOp1()->AsLclVar();
-        GenTreeLclVarCommon* right         = dst->gtGetOp2()->AsLclVar();
-        regNumber            leftRegNum    = left->GetRegNum();
-        regNumber            rightRegNum   = right->GetRegNum();
-        LclVarDsc*           leftVarDsc    = compiler->lvaTable + left->GetLclNum();
-        LclVarDsc*           rightVarDsc   = compiler->lvaTable + right->GetLclNum();
-        Interval*            leftInterval  = getIntervalForLocalVar(leftVarDsc->lvVarIndex);
-        Interval*            rightInterval = getIntervalForLocalVar(rightVarDsc->lvVarIndex);
+        GenTreeLclVar* left          = dst->gtGetOp1()->AsLclVar();
+        GenTreeLclVar* right         = dst->gtGetOp2()->AsLclVar();
+        regNumber      leftRegNum    = left->GetRegNum();
+        regNumber      rightRegNum   = right->GetRegNum();
+        LclVarDsc*     leftVarDsc    = compiler->lvaGetDesc(left);
+        LclVarDsc*     rightVarDsc   = compiler->lvaGetDesc(right);
+        Interval*      leftInterval  = getIntervalForLocalVar(leftVarDsc->lvVarIndex);
+        Interval*      rightInterval = getIntervalForLocalVar(rightVarDsc->lvVarIndex);
         assert(leftInterval->physReg == leftRegNum && rightInterval->physReg == rightRegNum);
         leftInterval->physReg                  = rightRegNum;
         rightInterval->physReg                 = leftRegNum;
@@ -10395,6 +10397,8 @@ void LinearScan::verifyResolutionMove(GenTree* resolutionMove, LsraLocation curr
         }
         return;
     }
+#endif // TARGET_XARCH
+
     regNumber      dstRegNum = dst->GetRegNum();
     regNumber      srcRegNum;
     GenTreeLclVar* lcl;

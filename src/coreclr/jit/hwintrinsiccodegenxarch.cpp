@@ -202,11 +202,11 @@ void CodeGen::genHWIntrinsic(GenTreeHWIntrinsic* node)
                         otherReg = op1Reg;
                     }
 
-                    if (addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+                    if (addr->OperIs(GT_LCL_ADDR))
                     {
                         GetEmitter()->emitIns_SIMD_R_R_S(ins, simdSize, targetReg, otherReg,
-                                                         addr->AsLclVarCommon()->GetLclNum(),
-                                                         addr->AsLclVarCommon()->GetLclOffs());
+                                                         addr->AsLclAddr()->GetLclNum(),
+                                                         addr->AsLclAddr()->GetLclOffs());
                     }
                     else
                     {

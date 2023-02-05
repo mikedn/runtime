@@ -24,8 +24,7 @@ GTNODE(STORE_LCL_FLD    , GenTreeLclFld      ,0,(GTK_UNOP|GTK_NOVALUE)) // store
 GTNODE(LCL_VAR          , GenTreeLclVar      ,0,GTK_LEAF)               // local variable
 GTNODE(LCL_FLD          , GenTreeLclFld      ,0,GTK_LEAF)               // field in a non-primitive variable
 GTNODE(PHI_ARG          , GenTreePhiArg      ,0,GTK_LEAF)               // phi(phiarg, phiarg, phiarg)
-GTNODE(LCL_VAR_ADDR     , GenTreeLclVar      ,0,GTK_LEAF)               // address of local variable
-GTNODE(LCL_FLD_ADDR     , GenTreeLclFld      ,0,GTK_LEAF)               // address of field in a non-primitive variable
+GTNODE(LCL_ADDR         , GenTreeLclAddr     ,0,GTK_LEAF)               // address of a local variable
 GTNODE(CATCH_ARG        , GenTree            ,0,GTK_LEAF)               // Exception object in a catch block
 GTNODE(LABEL            , GenTree            ,0,GTK_LEAF)               // Jump-target
 GTNODE(FTN_ADDR         , GenTreeFptrVal     ,0,GTK_LEAF)               // Address of a function
@@ -278,7 +277,9 @@ GTNODE(PUTARG_STK       , GenTreePutArgStk   ,0,GTK_UNOP|GTK_NOVALUE)           
 GTNODE(PUTARG_SPLIT     , GenTreePutArgSplit ,0,GTK_UNOP)                        // operator that places outgoing arg in registers with stack (split struct in ARM32)
 #endif // FEATURE_ARG_SPLIT
 GTNODE(RETURNTRAP       , GenTreeOp          ,0,GTK_UNOP|GTK_NOVALUE)            // a conditional call to wait on gc
+#ifdef TARGET_XARCH
 GTNODE(SWAP             , GenTreeOp          ,0,GTK_BINOP|GTK_NOVALUE)           // op1 and op2 swap (registers)
+#endif
 GTNODE(IL_OFFSET        , GenTreeILOffset    ,0,GTK_LEAF|GTK_NOVALUE)            // marks an IL offset for debugging purposes
 
 GTNODE(INSTR            , GenTreeInstr       ,0,GTK_SPECIAL)

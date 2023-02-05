@@ -2958,62 +2958,6 @@ void CodeGen::genCodeForStoreInd(GenTreeStoreInd* tree)
 }
 
 //------------------------------------------------------------------------
-// genCodeForSwap: Produce code for a GT_SWAP node.
-//
-// Arguments:
-//    tree - the GT_SWAP node
-//
-void CodeGen::genCodeForSwap(GenTreeOp* tree)
-{
-    assert(tree->OperIs(GT_SWAP));
-
-    // Swap is only supported for lclVar operands that are enregistered
-    // We do not consume or produce any registers.  Both operands remain enregistered.
-    // However, the gc-ness may change.
-    assert(IsRegCandidateLclVar(tree->gtOp1) && IsRegCandidateLclVar(tree->gtOp2));
-
-    GenTreeLclVarCommon* lcl1    = tree->gtOp1->AsLclVar();
-    LclVarDsc*           varDsc1 = compiler->lvaGetDesc(lcl1);
-    var_types            type1   = varDsc1->TypeGet();
-    GenTreeLclVarCommon* lcl2    = tree->gtOp2->AsLclVar();
-    LclVarDsc*           varDsc2 = compiler->lvaGetDesc(lcl2);
-    var_types            type2   = varDsc2->TypeGet();
-
-    // We must have both int or both fp regs
-    assert(!varTypeIsFloating(type1) || varTypeIsFloating(type2));
-
-    // FP swap is not yet implemented (and should have NYI'd in LSRA)
-    assert(!varTypeIsFloating(type1));
-
-    regNumber oldOp1Reg     = lcl1->GetRegNum();
-    regMaskTP oldOp1RegMask = genRegMask(oldOp1Reg);
-    regNumber oldOp2Reg     = lcl2->GetRegNum();
-    regMaskTP oldOp2RegMask = genRegMask(oldOp2Reg);
-
-    varDsc1->SetRegNum(oldOp2Reg);
-    varDsc2->SetRegNum(oldOp1Reg);
-
-    // Do the xchg
-    emitAttr size = EA_PTRSIZE;
-    if (varTypeGCtype(type1) != varTypeGCtype(type2))
-    {
-        // If the type specified to the emitter is a GC type, it will swap the GC-ness of the registers.
-        // Otherwise it will leave them alone, which is correct if they have the same GC-ness.
-        size = EA_GCREF;
-    }
-
-    NYI("register swap");
-    // inst_RV_RV(INS_xchg, oldOp1Reg, oldOp2Reg, TYP_I_IMPL, size);
-
-    // Manually remove these regs for the gc sets (mostly to avoid confusing duplicative dump output)
-    liveness.SetGCRegs(TYP_BYREF, liveness.GetGCRegs(TYP_BYREF) & ~(oldOp1RegMask | oldOp2RegMask));
-    liveness.SetGCRegs(TYP_REF, liveness.GetGCRegs(TYP_REF) & ~(oldOp1RegMask | oldOp2RegMask));
-
-    liveness.SetGCRegType(oldOp2Reg, type1);
-    liveness.SetGCRegType(oldOp1Reg, type2);
-}
-
-//------------------------------------------------------------------------
 // genIntToFloatCast: Generate code to cast an int/long to float/double
 //
 // Arguments:
@@ -8674,11 +8618,11 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
         return;
     }
 
-    if (addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+    if (addr->OperIs(GT_LCL_ADDR))
     {
-        GenTreeLclVarCommon* lclNode = addr->AsLclVarCommon();
-        unsigned             lclNum  = lclNode->GetLclNum();
-        unsigned             offset  = lclNode->GetLclOffs();
+        GenTreeLclAddr* lclAddr = addr->AsLclAddr();
+        unsigned        lclNum  = lclAddr->GetLclNum();
+        unsigned        offset  = lclAddr->GetLclOffs();
 
         if (emitter::emitInsIsStore(ins))
         {

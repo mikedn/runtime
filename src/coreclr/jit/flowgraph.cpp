@@ -786,7 +786,7 @@ bool Compiler::fgAddrCouldBeNull(GenTree* addr)
         return !addr->IsIconHandle();
     }
 
-    if (addr->OperIs(GT_CNS_STR, GT_FIELD_ADDR, GT_INDEX_ADDR, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR, GT_CLS_VAR_ADDR))
+    if (addr->OperIs(GT_CNS_STR, GT_FIELD_ADDR, GT_INDEX_ADDR, GT_LCL_ADDR, GT_CLS_VAR_ADDR))
     {
         return false;
     }

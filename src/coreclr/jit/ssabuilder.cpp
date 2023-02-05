@@ -96,11 +96,13 @@ void Compiler::fgResetForSsa()
             }
         }
 
-        for (Statement* const stmt : blk->Statements())
+        for (Statement* stmt : blk->Statements())
         {
-            for (GenTree* const tree : stmt->TreeList())
+            for (GenTree* tree : stmt->Nodes())
             {
-                if (tree->IsLocal())
+                assert(!tree->OperIs(GT_PHI_ARG));
+
+                if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
                 {
                     tree->AsLclVarCommon()->SetSsaNum(SsaConfig::RESERVED_SSA_NUM);
                 }
@@ -488,8 +490,8 @@ static GenTree* GetPhiNode(BasicBlock* block, unsigned lclNum)
         GenTree* tree = stmt->GetRootNode();
 
         GenTree* phiLhs = tree->AsOp()->gtOp1;
-        assert(phiLhs->OperGet() == GT_LCL_VAR);
-        if (phiLhs->AsLclVarCommon()->GetLclNum() == lclNum)
+        assert(phiLhs->OperIs(GT_LCL_VAR));
+        if (phiLhs->AsLclVar()->GetLclNum() == lclNum)
         {
             return tree->AsOp()->gtOp2;
         }
@@ -773,7 +775,7 @@ void SsaBuilder::RenameDef(GenTreeOp* asgNode, BasicBlock* block)
         {
             if (GenTreeIndir* indir = dst->IsIndir())
             {
-                if (GenTreeLclVarCommon* lclAddr = indir->GetAddr()->IsLocalAddrExpr())
+                if (GenTreeLclAddr* lclAddr = indir->GetAddr()->IsLocalAddrExpr())
                 {
                     assert(m_pCompiler->lvaGetDesc(lclAddr)->IsAddressExposed());
                 }

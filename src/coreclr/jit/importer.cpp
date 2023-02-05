@@ -776,9 +776,7 @@ void Compiler::impAssignCallWithRetBuf(GenTree* dest, GenTreeCall* call)
 
     if (dest->OperIs(GT_LCL_VAR))
     {
-        retBufAddr = dest;
-        retBufAddr->SetOper(GT_LCL_VAR_ADDR);
-        retBufAddr->SetType(TYP_I_IMPL);
+        retBufAddr = dest->ChangeToLclAddr(TYP_I_IMPL, dest->AsLclVar()->GetLclNum());
     }
     else
     {
@@ -866,9 +864,7 @@ GenTree* Importer::impAssignMkRefAny(GenTree* dest, GenTreeOp* mkRefAny, unsigne
 
     if (dest->OperIs(GT_LCL_VAR))
     {
-        destAddr = dest;
-        destAddr->SetOper(GT_LCL_VAR_ADDR);
-        destAddr->SetType(TYP_I_IMPL);
+        destAddr = dest->ChangeToLclAddr(TYP_I_IMPL, dest->AsLclVar()->GetLclNum());
     }
     else
     {
@@ -985,11 +981,15 @@ GenTree* Importer::impGetStructAddr(GenTree*             value,
 {
     assert(varTypeIsStruct(value->GetType()) || info.compCompHnd->isValueClass(structHnd));
 
-    if (value->OperIs(GT_LCL_VAR, GT_LCL_FLD))
+    if (value->OperIs(GT_LCL_VAR))
     {
-        value->SetOper(value->OperIs(GT_LCL_VAR) ? GT_LCL_VAR_ADDR : GT_LCL_FLD_ADDR);
-        value->SetType(TYP_BYREF);
-        return value;
+        return value->ChangeToLclAddr(TYP_BYREF, value->AsLclVar()->GetLclNum());
+    }
+
+    if (value->OperIs(GT_LCL_FLD))
+    {
+        return value->ChangeToLclAddr(TYP_BYREF, value->AsLclFld()->GetLclNum(), value->AsLclFld()->GetLclOffs(),
+                                      value->AsLclFld()->GetFieldSeq());
     }
 
     if (value->OperIs(GT_OBJ) && willDereference)
@@ -1582,7 +1582,7 @@ void Importer::impSpillLclReferences(unsigned lclNum)
         // used by indirections then those indirections need spilling. impHasLclRef does not
         // check for indirections so we have to spill any tree that contains these. At least
         // avoid spilling when the tree is just a local address node.
-        if (tree->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+        if (tree->OperIs(GT_LCL_ADDR))
         {
             continue;
         }
@@ -1625,10 +1625,10 @@ BasicBlock* Importer::impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_H
             GenTree* tree = stmt->GetRootNode();
             assert(tree != nullptr);
 
-            if ((tree->gtOper == GT_ASG) && (tree->AsOp()->gtOp1->gtOper == GT_LCL_VAR) &&
-                (tree->AsOp()->gtOp2->gtOper == GT_CATCH_ARG))
+            if (tree->OperIs(GT_ASG) && tree->AsOp()->gtOp1->OperIs(GT_LCL_VAR) &&
+                tree->AsOp()->gtOp2->OperIs(GT_CATCH_ARG))
             {
-                tree = gtNewLclvNode(tree->AsOp()->gtOp1->AsLclVarCommon()->GetLclNum(), TYP_REF);
+                tree = gtNewLclvNode(tree->AsOp()->gtOp1->AsLclVar()->GetLclNum(), TYP_REF);
 
                 assert(hndBlk->bbEntryState->HasCatchArg());
 
@@ -2180,9 +2180,9 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
     // that the target of the assignment is the array passed to InitializeArray.
     //
     GenTree* arrayAssignment = impLastStmt->GetRootNode();
-    if ((arrayAssignment->gtOper != GT_ASG) || (arrayAssignment->AsOp()->gtOp1->gtOper != GT_LCL_VAR) ||
-        (arrayLocalNode->gtOper != GT_LCL_VAR) || (arrayAssignment->AsOp()->gtOp1->AsLclVarCommon()->GetLclNum() !=
-                                                   arrayLocalNode->AsLclVarCommon()->GetLclNum()))
+    if (!arrayAssignment->OperIs(GT_ASG) || !arrayAssignment->AsOp()->gtOp1->OperIs(GT_LCL_VAR) ||
+        !arrayLocalNode->OperIs(GT_LCL_VAR) ||
+        (arrayAssignment->AsOp()->gtOp1->AsLclVar()->GetLclNum() != arrayLocalNode->AsLclVar()->GetLclNum()))
     {
         return nullptr;
     }
@@ -2311,7 +2311,8 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
 
             static bool IsArgsAddr(GenTree* tree, unsigned argLclNum)
             {
-                return tree->OperIs(GT_LCL_VAR_ADDR) && (tree->AsLclVar()->GetLclNum() == argLclNum);
+                return tree->OperIs(GT_LCL_ADDR) && (tree->AsLclAddr()->GetLclNum() == argLclNum) &&
+                       (tree->AsLclAddr()->GetLclOffs() == 0);
             }
 
             static bool IsComma(GenTree* tree)
@@ -2320,7 +2321,7 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
             }
         };
 
-        INDEBUG(const unsigned lvaNewObjArrayArgs = comp->lvaNewObjArrayArgs);
+        INDEBUG(const unsigned lvaNewObjArrayArgs = comp->lvaNewObjArrayArgs;)
         unsigned argIndex = 0;
         GenTree* comma;
 
@@ -2871,16 +2872,15 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
         // substitution.  The parameter byref will be assigned into the newly allocated object.
         case NI_CORINFO_INTRINSIC_ByReference_Ctor:
         {
-            assert(newobjThis->OperIs(GT_LCL_VAR_ADDR));
+            assert(newobjThis->AsLclAddr()->GetLclOffs() == 0);
 
             // Remove call to constructor and directly assign the byref passed
             // to the call to the first slot of the ByReference struct.
             op1                                    = impPopStack().val;
-            GenTree*             thisptr           = newobjThis;
             CORINFO_FIELD_HANDLE fldHnd            = info.compCompHnd->getFieldInClass(clsHnd, 0);
-            GenTree*             field             = gtNewFieldIndir(TYP_BYREF, gtNewFieldAddr(thisptr, fldHnd, 0));
+            GenTree*             field             = gtNewFieldIndir(TYP_BYREF, gtNewFieldAddr(newobjThis, fldHnd, 0));
             GenTree*             assign            = gtNewAssignNode(field, op1);
-            GenTree*             byReferenceStruct = gtCloneExpr(thisptr);
+            GenTree*             byReferenceStruct = gtCloneExpr(newobjThis);
             assert(byReferenceStruct != nullptr);
             byReferenceStruct->SetOper(GT_LCL_VAR);
             byReferenceStruct->SetType(TYP_STRUCT);
@@ -5659,14 +5659,14 @@ GenTree* Importer::impImportStaticFieldAddressHelper(OPCODE                    o
         fieldSeq = GetFieldSeqStore()->Append(fieldSeq, GetFieldSeqStore()->GetBoxedValuePseudoField());
     }
 
-    addr = new (comp, GT_FIELD_ADDR) GenTreeFieldAddr(addr->GetType(), addr, fieldSeq, fieldInfo.offset);
+    addr = new (comp, GT_FIELD_ADDR) GenTreeFieldAddr(addr, fieldSeq, fieldInfo.offset);
 
     if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP) != 0)
     {
         addr = gtNewOperNode(GT_IND, TYP_REF, addr);
         addr->gtFlags |= GTF_IND_NONFAULTING;
         fieldSeq = GetFieldSeqStore()->GetBoxedValuePseudoField();
-        addr     = new (comp, GT_FIELD_ADDR) GenTreeFieldAddr(TYP_BYREF, addr, fieldSeq, TARGET_POINTER_SIZE);
+        addr     = new (comp, GT_FIELD_ADDR) GenTreeFieldAddr(addr, fieldSeq, TARGET_POINTER_SIZE);
     }
 
     return addr;
@@ -6058,7 +6058,7 @@ GenTree* Importer::impImportStaticFieldAccess(OPCODE                    opcode,
 #endif
 
             fieldSeq = GetFieldSeqStore()->GetBoxedValuePseudoField();
-            addr     = new (comp, GT_FIELD_ADDR) GenTreeFieldAddr(TYP_BYREF, addr, fieldSeq, TARGET_POINTER_SIZE);
+            addr     = new (comp, GT_FIELD_ADDR) GenTreeFieldAddr(addr, fieldSeq, TARGET_POINTER_SIZE);
 
             if (layout != nullptr)
             {
@@ -6104,7 +6104,7 @@ GenTree* Importer::impImportStaticFieldAccess(OPCODE                    opcode,
         addr = indir;
 
         fieldSeq = GetFieldSeqStore()->GetBoxedValuePseudoField();
-        addr     = new (comp, GT_FIELD_ADDR) GenTreeFieldAddr(TYP_BYREF, addr, fieldSeq, TARGET_POINTER_SIZE);
+        addr     = new (comp, GT_FIELD_ADDR) GenTreeFieldAddr(addr, fieldSeq, TARGET_POINTER_SIZE);
 
         if (layout != nullptr)
         {
@@ -9534,10 +9534,11 @@ void Importer::impImportBlockCode(BasicBlock* block)
                         return;
                     }
 
+                    // TODO-MIKE-Cleanup: It would make more sense to have inlUseParamAddr instead
+                    // of getting a LCL_VAR and changing it to LCL_ADDR.
                     op1 = inlUseArg(impInlineInfo, lclNum);
                     noway_assert(op1->OperIs(GT_LCL_VAR));
-                    op1->SetOper(GT_LCL_VAR_ADDR);
-                    op1->SetType(TYP_BYREF);
+                    op1 = op1->ChangeToLclAddr(TYP_BYREF, op1->AsLclVar()->GetLclNum());
 
                     goto PUSH_ADRVAR;
                 }
@@ -9558,25 +9559,8 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 op1 = gtNewLclVarAddrNode(lclNum, TYP_BYREF);
 
             PUSH_ADRVAR:
-                assert(op1->OperIs(GT_LCL_VAR_ADDR));
-
-                // TODO-MIKE-Cleanup: This is weird, lvImpTypeInfo is pushed on the stack for what really
-                // is the address of the local. Only when verification was enabled the pushed typeInfo
-                // was transformed into a byref.
-                //
-                // In general we do not need typeInfo for non-struct values but LDFLD import code depends
-                // on this because of the "normed type" mess. LDFLD accepts pretty much all sorts of types
-                // as source - REF, I_IMPL, STRUCT - and the generated IR is different for STRUCT because
-                // in that case we really need the address of the struct value.
-                // But with the "normed type" thing we can end up with INT/LONG instead of STRUCT on the
-                // stack and then the LDFLD import code can no longer figure out if it needs the address.
-                // So it checks if lvImpTypeInfo contains a handle, set by lvaInitVarDsc and others.
-                //
-                // In addition to this being confusing, it also seems to be a small CQ issue because some
-                // other importer code sees that handle, thinks that the value is a struct and spills the
-                // stack even if there's no need for that.
-
-                impPushOnStack(op1, lvaGetDesc(op1->AsLclVar()->GetLclNum())->lvImpTypeInfo);
+                assert(op1->AsLclAddr()->GetLclOffs() == 0);
+                impPushOnStack(op1);
                 break;
 
             case CEE_ARGLIST:
@@ -10869,7 +10853,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     assert((fieldInfo.fieldAccessor == CORINFO_FIELD_INSTANCE) ||
                            (fieldInfo.fieldAccessor == CORINFO_FIELD_INSTANCE_WITH_BASE));
 
-                    if (!varTypeIsGC(obj->GetType()) && tiObj.IsType(TI_STRUCT))
+                    if (tiObj.IsType(TI_STRUCT))
                     {
                         // If the object is a struct, what we really want is
                         // for the field to operate on the address of the struct.
@@ -10925,7 +10909,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                         }
                         else
                         {
-                            op1 = gtNewFieldIndir(lclTyp, addr);
+                            op1 = gtNewFieldIndir(lclTyp, addr->GetLayoutNum(), addr);
                         }
                     }
                 }
@@ -11023,7 +11007,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                         impInlineInfo->thisDereferencedFirst = true;
                     }
 
-                    op1 = gtNewFieldIndir(lclTyp, addr);
+                    op1 = gtNewFieldIndir(lclTyp, addr->GetLayoutNum(), addr);
                 }
 
                 // We have to spill GLOB_REFs for heap field stores since such fields may be
@@ -12421,7 +12405,8 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
         return;
     }
 
-    GenTree* newObjThis;
+    GenTree* newObjThis = nullptr;
+    unsigned lclNum     = BAD_VAR_NUM;
 
     // At present this can only be String
     if ((classFlags & CORINFO_FLG_VAROBJSIZE) != 0)
@@ -12493,7 +12478,7 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
         }
 #endif // FEATURE_SIMD
 
-        unsigned lclNum = lvaGrabTemp(true DEBUGARG("newobj temp"));
+        lclNum = lvaGrabTemp(true DEBUGARG("newobj temp"));
 
         if (compIsForInlining())
         {
@@ -12571,7 +12556,7 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
             impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("finalizable newobj spill"));
         }
 
-        unsigned lclNum = lvaNewTemp(TYP_REF, true DEBUGARG("newobj temp"));
+        lclNum = lvaNewTemp(TYP_REF, true DEBUGARG("newobj temp"));
 
         if (compDonotInline())
         {
@@ -12671,8 +12656,6 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
 
     impMarkInlineCandidate(call, exactContextHnd, callInfo.exactContextNeedsRuntimeLookup, &callInfo);
     impSpillAllAppendTree(call);
-
-    unsigned lclNum = newObjThis->AsLclVar()->GetLclNum();
 
     if ((classFlags & CORINFO_FLG_VALUECLASS) != 0)
     {
@@ -13883,7 +13866,7 @@ void Importer::Import()
     }
 }
 
-GenTreeLclVar* Compiler::impIsAddressInLocal(GenTree* tree)
+GenTreeLclAddr* Compiler::impIsAddressInLocal(GenTree* tree)
 {
     if (!tree->TypeIs(TYP_BYREF, TYP_I_IMPL))
     {
@@ -13920,11 +13903,11 @@ GenTreeLclVar* Compiler::impIsAddressInLocal(GenTree* tree)
         }
     }
 
-    return tree->OperIs(GT_LCL_VAR_ADDR) ? tree->AsLclVar() : nullptr;
+    return tree->OperIs(GT_LCL_ADDR) ? tree->AsLclAddr() : nullptr;
 }
 
 // TODO-MIKE-Cleanup: This should be merged with impIsAddressInLocal
-GenTreeLclVarCommon* Compiler::impIsLocalAddrExpr(GenTree* node)
+GenTreeLclAddr* Compiler::impIsLocalAddrExpr(GenTree* node)
 {
     while (node->OperIs(GT_ADD))
     {
@@ -13944,7 +13927,7 @@ GenTreeLclVarCommon* Compiler::impIsLocalAddrExpr(GenTree* node)
         node = op1;
     }
 
-    return node->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR) ? node->AsLclVarCommon() : nullptr;
+    return node->OperIs(GT_LCL_ADDR) ? node->AsLclAddr() : nullptr;
 }
 
 //------------------------------------------------------------------------
@@ -16342,17 +16325,21 @@ void Importer::impImportInitObj(GenTree* dstAddr, ClassLayout* layout)
 {
     GenTree* dst = nullptr;
 
-    if (dstAddr->OperIs(GT_LCL_VAR_ADDR))
+    if (dstAddr->OperIs(GT_LCL_ADDR))
     {
-        LclVarDsc* lcl = lvaGetDesc(dstAddr->AsLclVar());
+        unsigned lclNum = dstAddr->AsLclAddr()->GetLclNum();
+        // Currently the importer doesn't generate local field addresses.
+        assert(dstAddr->AsLclAddr()->GetLclOffs() == 0);
+
+        LclVarDsc* lcl = lvaGetDesc(lclNum);
 
         if (varTypeIsStruct(lcl->GetType()) && (layout->GetSize() >= lcl->GetLayout()->GetSize()))
         {
             layout = lcl->GetLayout();
 
             dst = dstAddr;
-
             dst->SetOper(GT_LCL_VAR);
+            dst->AsLclVar()->SetLclNum(lclNum);
             dst->SetType(lcl->GetType());
         }
     }
@@ -16385,15 +16372,19 @@ void Importer::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayout* l
 {
     GenTree* dst = nullptr;
 
-    if (dstAddr->OperIs(GT_LCL_VAR_ADDR))
+    if (dstAddr->OperIs(GT_LCL_ADDR))
     {
-        LclVarDsc* lcl = lvaGetDesc(dstAddr->AsLclVar());
+        unsigned lclNum = dstAddr->AsLclAddr()->GetLclNum();
+        // Currently the importer doesn't generate local field addresses.
+        assert(dstAddr->AsLclAddr()->GetLclOffs() == 0);
+
+        LclVarDsc* lcl = lvaGetDesc(lclNum);
 
         if (varTypeIsStruct(lcl->GetType()) && !lcl->IsImplicitByRefParam() && (lcl->GetLayout() == layout))
         {
             dst = dstAddr;
-
             dst->SetOper(GT_LCL_VAR);
+            dst->AsLclVar()->SetLclNum(lclNum);
             dst->SetType(lcl->GetType());
         }
     }
@@ -16405,12 +16396,16 @@ void Importer::impImportCpObj(GenTree* dstAddr, GenTree* srcAddr, ClassLayout* l
 
     GenTree* src = nullptr;
 
-    if (srcAddr->OperIs(GT_LCL_VAR_ADDR))
+    if (srcAddr->OperIs(GT_LCL_ADDR))
     {
-        src = srcAddr;
+        unsigned lclNum = srcAddr->AsLclAddr()->GetLclNum();
+        // Currently the importer doesn't generate local field addresses.
+        assert(srcAddr->AsLclAddr()->GetLclOffs() == 0);
 
+        src = srcAddr;
         src->SetOper(GT_LCL_VAR);
-        src->SetType(lvaGetDesc(src->AsLclVar())->GetType());
+        src->AsLclVar()->SetLclNum(lclNum);
+        src->SetType(lvaGetDesc(lclNum)->GetType());
     }
     else
     {
@@ -16685,7 +16680,14 @@ bool Compiler::impHasLclRef(GenTree* tree, unsigned lclNum)
 
     if (tree->OperIsLeaf())
     {
-        if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+        // TODO-MIKE-Review: This is dubious, LCL_ADDR isn't really an "use"
+        // of a local variable. Though it depends on what exactly "use" means...
+        if (tree->OperIs(GT_LCL_ADDR))
+        {
+            return tree->AsLclAddr()->GetLclNum() == lclNum;
+        }
+
+        if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
             return tree->AsLclVarCommon()->GetLclNum() == lclNum;
         }
@@ -16797,7 +16799,21 @@ bool Compiler::impHasAddressTakenLocals(GenTree* tree)
     auto visitor = [](GenTree** use, fgWalkData* data) {
         GenTree* node = *use;
 
-        if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+        // TODO-MIKE-Review: This is dubious, what we really want is the equivalent
+        // of GLOB_REF for locals. A local address by itself isn't GLOB_REF but
+        // a treat it as such in case it is used by an indir. Maybe we can detect
+        // some obvious cases where no indir is present (field addresses likely).
+
+        if (node->OperIs(GT_LCL_ADDR))
+        {
+            LclVarDsc* lcl = data->compiler->lvaGetDesc(node->AsLclAddr());
+
+            if (lcl->lvHasLdAddrOp || lcl->IsAddressExposed())
+            {
+                return WALK_ABORT;
+            }
+        }
+        else if (node->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
             LclVarDsc* lcl = data->compiler->lvaGetDesc(node->AsLclVarCommon());
 
@@ -17458,6 +17474,11 @@ LclVarDsc* Importer::lvaGetDesc(GenTreeLclVarCommon* lclNode)
     return comp->lvaGetDesc(lclNode);
 }
 
+LclVarDsc* Importer::lvaGetDesc(GenTreeLclAddr* lclAddr)
+{
+    return comp->lvaGetDesc(lclAddr);
+}
+
 bool Importer::lvaIsOriginalThisArg(unsigned lclNum)
 {
     return comp->lvaIsOriginalThisArg(lclNum);
@@ -17488,7 +17509,7 @@ GenTreeLclVar* Importer::gtNewLclvNode(unsigned lclNum, var_types type)
     return comp->gtNewLclvNode(lclNum, type);
 }
 
-GenTreeLclVar* Importer::gtNewLclVarAddrNode(unsigned lclNum, var_types type)
+GenTreeLclAddr* Importer::gtNewLclVarAddrNode(unsigned lclNum, var_types type)
 {
     return comp->gtNewLclVarAddrNode(lclNum, type);
 }
@@ -17616,6 +17637,11 @@ GenTreeFieldAddr* Importer::gtNewFieldAddr(GenTree* addr, FieldSeqNode* fieldSeq
 GenTreeIndir* Importer::gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldAddr)
 {
     return comp->gtNewFieldIndir(type, fieldAddr);
+}
+
+GenTreeIndir* Importer::gtNewFieldIndir(var_types type, unsigned layoutNum, GenTreeFieldAddr* fieldAddr)
+{
+    return comp->gtNewFieldIndir(type, layoutNum, fieldAddr);
 }
 
 GenTreeIndir* Importer::gtNewIndir(var_types type, GenTree* addr)
@@ -17893,12 +17919,12 @@ void Importer::lvaRecordSimdIntrinsicDef(unsigned lclNum, GenTreeHWIntrinsic* sr
 
 #endif // FEATURE_HW_INTRINSICS
 
-GenTreeLclVar* Importer::impIsAddressInLocal(GenTree* tree)
+GenTreeLclAddr* Importer::impIsAddressInLocal(GenTree* tree)
 {
     return Compiler::impIsAddressInLocal(tree);
 }
 
-GenTreeLclVarCommon* Importer::impIsLocalAddrExpr(GenTree* node)
+GenTreeLclAddr* Importer::impIsLocalAddrExpr(GenTree* node)
 {
     return Compiler::impIsLocalAddrExpr(node);
 }

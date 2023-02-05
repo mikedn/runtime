@@ -202,9 +202,8 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
             FALLTHROUGH;
         case GT_IND:
         case GT_BLK:
-            // Clear the GTF_IND_ASG_LHS flag, which overlaps with GTF_IND_REQ_ADDR_IN_REG.
-            // Also remove side effects that may have been inherited from address.
-            node->gtFlags &= ~(GTF_IND_ASG_LHS | GTF_ASG);
+            // Remove side effects that may have been inherited from address.
+            node->gtFlags &= ~GTF_ASG;
 
             if ((node->gtFlags & GTF_IND_NONFAULTING) != 0)
             {

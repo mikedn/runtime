@@ -2299,10 +2299,7 @@ var_types LclVarDsc::GetRegisterType(const GenTreeLclVarCommon* tree) const
 #ifdef DEBUG
     if ((targetType != TYP_UNDEF) && tree->OperIs(GT_STORE_LCL_VAR) && lvNormalizeOnStore())
     {
-        const bool phiStore = (tree->gtGetOp1()->OperIsNonPhiLocal() == false);
-        // Ensure that the lclVar node is typed correctly,
-        // does not apply to phi-stores because they do not produce code in the merge block.
-        assert(phiStore || targetType == genActualType(lclVarType));
+        assert(targetType == varActualType(lclVarType));
     }
 #endif
     return targetType;
@@ -2465,10 +2462,9 @@ void Compiler::lvaComputeRefCountsHIR()
                 break;
 #endif
 
-                case GT_LCL_VAR_ADDR:
-                case GT_LCL_FLD_ADDR:
+                case GT_LCL_ADDR:
                 {
-                    LclVarDsc* lcl = m_compiler->lvaGetDesc(node->AsLclVarCommon());
+                    LclVarDsc* lcl = m_compiler->lvaGetDesc(node->AsLclAddr());
                     assert(lcl->IsAddressExposed());
 #if ASSERTION_PROP
                     DisqualifyAddCopy(lcl);
@@ -2629,10 +2625,9 @@ void Compiler::lvaComputeRefCountsLIR()
 
             switch (node->GetOper())
             {
-                case GT_LCL_VAR_ADDR:
-                case GT_LCL_FLD_ADDR:
+                case GT_LCL_ADDR:
                     refWeight = 0;
-                    lcl       = lvaGetDesc(node->AsLclVarCommon());
+                    lcl       = lvaGetDesc(node->AsLclAddr());
                     break;
 
                 case GT_LCL_VAR:

@@ -1635,11 +1635,11 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
         return;
     }
 
-    if (addr->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR))
+    if (addr->OperIs(GT_LCL_ADDR))
     {
-        GenTreeLclVarCommon* lclNode = addr->AsLclVarCommon();
-        unsigned             lclNum  = lclNode->GetLclNum();
-        unsigned             offset  = lclNode->GetLclOffs();
+        GenTreeLclAddr* lclAddr = addr->AsLclAddr();
+        unsigned        lclNum  = lclAddr->GetLclNum();
+        unsigned        offset  = lclAddr->GetLclOffs();
 
         if (emitter::emitInsIsStore(ins))
         {

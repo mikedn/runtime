@@ -382,9 +382,8 @@ GenTree* Lowering::LowerNode(GenTree* node)
             node->gtGetOp1()->SetRegOptional();
             break;
 
-        case GT_LCL_FLD_ADDR:
-        case GT_LCL_VAR_ADDR:
-            assert(comp->lvaGetDesc(node->AsLclVarCommon())->IsAddressExposed());
+        case GT_LCL_ADDR:
+            assert(comp->lvaGetDesc(node->AsLclAddr())->IsAddressExposed());
             break;
 
         default:
@@ -541,10 +540,10 @@ GenTree* Lowering::LowerSwitch(GenTreeUnOp* node)
     //   1. a statement containing 'asg' (for temp = indexExpression)
     //   2. and a statement with GT_SWITCH(temp)
 
-    assert(node->gtOper == GT_SWITCH);
+    assert(node->OperIs(GT_SWITCH));
     GenTree* temp = node->AsOp()->gtOp1;
-    assert(temp->gtOper == GT_LCL_VAR);
-    unsigned  tempLclNum  = temp->AsLclVarCommon()->GetLclNum();
+    assert(temp->OperIs(GT_LCL_VAR));
+    unsigned  tempLclNum  = temp->AsLclVar()->GetLclNum();
     var_types tempLclType = temp->TypeGet();
 
     BasicBlock* defaultBB   = jumpTab[jumpCnt - 1];
@@ -1645,7 +1644,7 @@ void Lowering::RehomeParamForFastTailCall(unsigned paramLclNum,
 
     for (GenTree* node = rangeStart; node != rangeEnd; node = node->gtNext)
     {
-        if (!node->OperIsLocal() && !node->OperIsLocalAddr())
+        if (!node->OperIs(GT_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_VAR, GT_STORE_LCL_FLD, GT_LCL_ADDR))
         {
             continue;
         }
@@ -2411,15 +2410,6 @@ void Lowering::LowerIndirectVirtualStubCall(GenTreeCall* call)
     GenTree* ind = comp->gtNewOperNode(GT_IND, TYP_I_IMPL, call->gtCallAddr);
     BlockRange().InsertAfter(call->gtCallAddr, ind);
     call->gtCallAddr = ind;
-
-    // VM requires us to pass stub addr in VirtualStubParam.reg. For that reason
-    // we cannot mark such an addr as contained. Note that this is not an issue
-    // for indirect VSD calls since fgMorphArgs() is explicitly materializing
-    // hidden param as a non-standard argument.
-    // TODO-MIKE-Review: Hmm, so isn't this an indirect VSD call?!
-    ind->gtFlags |= GTF_IND_REQ_ADDR_IN_REG;
-
-    ContainCheckIndir(ind->AsIndir());
 }
 
 GenTree* Lowering::LowerDirectCall(GenTreeCall* call X86_ARG(GenTree* insertBefore))
@@ -2861,18 +2851,14 @@ void Lowering::InsertReturnTrap(GenTree* before)
 //
 void Lowering::InsertSetGCState(GenTree* before, int state)
 {
-    // Thread.offsetOfGcState = 0/1
+    assert((state == 0) || (state == 1));
 
-    assert(state == 0 || state == 1);
+    const CORINFO_EE_INFO& info = *comp->eeGetEEInfo();
 
-    const CORINFO_EE_INFO* pInfo = comp->eeGetEEInfo();
-
-    GenTree* base = new (comp, GT_LCL_VAR) GenTreeLclVar(GT_LCL_VAR, TYP_I_IMPL, comp->lvaPInvokeFrameListVar);
-
-    GenTree* stateNode = new (comp, GT_CNS_INT) GenTreeIntCon(TYP_BYTE, state);
-    GenTree* addr      = new (comp, GT_LEA) GenTreeAddrMode(TYP_I_IMPL, base, nullptr, 1, pInfo->offsetOfGCState);
-
-    GenTreeStoreInd* store = new (comp, GT_STOREIND) GenTreeStoreInd(TYP_BYTE, addr, stateNode);
+    GenTreeLclVar*   base      = comp->gtNewLclvNode(comp->lvaPInvokeFrameListVar, TYP_I_IMPL);
+    GenTreeAddrMode* addr      = new (comp, GT_LEA) GenTreeAddrMode(TYP_I_IMPL, base, nullptr, 1, info.offsetOfGCState);
+    GenTreeIntCon*   stateNode = comp->gtNewIconNode(state);
+    GenTreeStoreInd* store     = new (comp, GT_STOREIND) GenTreeStoreInd(TYP_BYTE, addr, stateNode);
 
     BlockRange().InsertBefore(before, base, addr, stateNode, store);
 
@@ -2893,34 +2879,29 @@ void Lowering::InsertSetGCState(GenTree* before, int state)
 //
 void Lowering::InsertFrameLinkUpdate(LIR::Range& block, GenTree* before, FrameLinkAction action)
 {
-    const CORINFO_EE_INFO*                       pInfo         = comp->eeGetEEInfo();
-    const CORINFO_EE_INFO::InlinedCallFrameInfo& callFrameInfo = pInfo->inlinedCallFrameInfo;
+    const CORINFO_EE_INFO& info = *comp->eeGetEEInfo();
 
-    GenTree* TCB = new (comp, GT_LCL_VAR) GenTreeLclVar(GT_LCL_VAR, TYP_I_IMPL, comp->lvaPInvokeFrameListVar);
-
-    // Thread->m_pFrame
-    GenTree* addr = new (comp, GT_LEA) GenTreeAddrMode(TYP_I_IMPL, TCB, nullptr, 1, pInfo->offsetOfThreadFrame);
-
+    GenTree* tcb  = comp->gtNewLclvNode(comp->lvaPInvokeFrameListVar, TYP_I_IMPL);
+    GenTree* addr = new (comp, GT_LEA) GenTreeAddrMode(TYP_I_IMPL, tcb, nullptr, 1, info.offsetOfThreadFrame);
     GenTree* data = nullptr;
 
     if (action == PushFrame)
     {
-        // Thread->m_pFrame = &inlinedCallFrame;
-        data = comp->gtNewLclFldAddrNode(comp->lvaInlinedPInvokeFrameVar, callFrameInfo.offsetOfFrameVptr, nullptr);
+        data = comp->gtNewLclFldAddrNode(comp->lvaInlinedPInvokeFrameVar, info.inlinedCallFrameInfo.offsetOfFrameVptr,
+                                         FieldSeqStore::NotAField());
         comp->lvaSetAddressExposed(comp->lvaInlinedPInvokeFrameVar);
     }
     else
     {
         assert(action == PopFrame);
-        // Thread->m_pFrame = inlinedCallFrame.m_pNext;
 
-        data = new (comp, GT_LCL_FLD) GenTreeLclFld(GT_LCL_FLD, TYP_BYREF, comp->lvaInlinedPInvokeFrameVar,
-                                                    pInfo->inlinedCallFrameInfo.offsetOfFrameLink);
+        data = comp->gtNewLclFldNode(comp->lvaInlinedPInvokeFrameVar, TYP_BYREF,
+                                     info.inlinedCallFrameInfo.offsetOfFrameLink);
     }
 
     GenTreeStoreInd* store = new (comp, GT_STOREIND) GenTreeStoreInd(TYP_I_IMPL, addr, data);
 
-    block.InsertBefore(before, TCB, addr, data, store);
+    block.InsertBefore(before, tcb, addr, data, store);
     ContainCheckStoreIndir(store);
 }
 
@@ -3417,7 +3398,7 @@ bool Lowering::AreSourcesPossiblyModifiedLocals(GenTree* addr, GenTree* base, Ge
     SideEffectSet baseSideEffects;
     if (base != nullptr)
     {
-        if (base->OperIsLocalRead())
+        if (base->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
             baseSideEffects.AddNode(comp, base);
         }
@@ -3430,7 +3411,7 @@ bool Lowering::AreSourcesPossiblyModifiedLocals(GenTree* addr, GenTree* base, Ge
     SideEffectSet indexSideEffects;
     if (index != nullptr)
     {
-        if (index->OperIsLocalRead())
+        if (index->OperIs(GT_LCL_VAR, GT_LCL_FLD))
         {
             indexSideEffects.AddNode(comp, index);
         }
@@ -4519,14 +4500,16 @@ GenTree* Lowering::LowerArrElem(GenTree* node)
     assert(arrElem->gtArrObj->TypeGet() == TYP_REF);
 
     // We need to have the array object in a lclVar.
-    if (!arrElem->gtArrObj->IsLocal())
+    // TODO-MIKE-Review: Allowing LCL_FLD (or DNER LCL_VAR) results in poor CQ,
+    // we really should have the array reference in a register.
+    if (!arrElem->gtArrObj->OperIs(GT_LCL_VAR, GT_LCL_FLD))
     {
         LIR::Use arrObjUse(BlockRange(), &arrElem->gtArrObj, arrElem);
         ReplaceWithLclVar(arrObjUse);
     }
 
     GenTree* arrObjNode = arrElem->gtArrObj;
-    assert(arrObjNode->IsLocal());
+    assert(arrObjNode->OperIs(GT_LCL_VAR, GT_LCL_FLD));
 
     GenTree* insertionPoint = arrElem;
 
@@ -4793,9 +4776,8 @@ void Lowering::CheckNode(GenTree* node)
         }
         break;
 
-        case GT_LCL_VAR_ADDR:
-        case GT_LCL_FLD_ADDR:
-            assert(comp->lvaGetDesc(node->AsLclVarCommon())->IsAddressExposed());
+        case GT_LCL_ADDR:
+            assert(comp->lvaGetDesc(node->AsLclAddr())->IsAddressExposed());
             break;
 
         case GT_PHI:

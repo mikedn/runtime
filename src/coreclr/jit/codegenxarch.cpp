@@ -1641,9 +1641,8 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             genCodeForBitCast(treeNode->AsOp());
             break;
 
-        case GT_LCL_FLD_ADDR:
-        case GT_LCL_VAR_ADDR:
-            genCodeForLclAddr(treeNode->AsLclVarCommon());
+        case GT_LCL_ADDR:
+            GenLclAddr(treeNode->AsLclAddr());
             break;
 
         case GT_LCL_FLD:
@@ -2776,10 +2775,8 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
         }
         else
         {
-            assert(dstAddr->OperIsLocalAddr());
-
-            dstLclNum = dstAddr->AsLclVarCommon()->GetLclNum();
-            dstOffset = dstAddr->AsLclVarCommon()->GetLclOffs();
+            dstLclNum = dstAddr->AsLclAddr()->GetLclNum();
+            dstOffset = dstAddr->AsLclAddr()->GetLclOffs();
         }
 
         src = store->AsIndir()->GetValue();
@@ -2961,10 +2958,8 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
         }
         else
         {
-            assert(dstAddr->OperIsLocalAddr());
-
-            dstLclNum = dstAddr->AsLclVarCommon()->GetLclNum();
-            dstOffset = dstAddr->AsLclVarCommon()->GetLclOffs();
+            dstLclNum = dstAddr->AsLclAddr()->GetLclNum();
+            dstOffset = dstAddr->AsLclAddr()->GetLclOffs();
         }
 
         src = store->AsIndir()->GetValue();
@@ -3010,10 +3005,8 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
         }
         else
         {
-            assert(srcAddr->OperIsLocalAddr());
-
-            srcLclNum = srcAddr->AsLclVarCommon()->GetLclNum();
-            srcOffset = srcAddr->AsLclVarCommon()->GetLclOffs();
+            srcLclNum = srcAddr->AsLclAddr()->GetLclNum();
+            srcOffset = srcAddr->AsLclAddr()->GetLclOffs();
         }
     }
 
@@ -3143,10 +3136,8 @@ void CodeGen::GenStructStoreUnrollRegs(GenTree* store, ClassLayout* layout)
         }
         else
         {
-            assert(dstAddr->OperIsLocalAddr());
-
-            dstLclNum = dstAddr->AsLclVarCommon()->GetLclNum();
-            dstOffset = dstAddr->AsLclVarCommon()->GetLclOffs();
+            dstLclNum = dstAddr->AsLclAddr()->GetLclNum();
+            dstOffset = dstAddr->AsLclAddr()->GetLclOffs();
         }
 
         src = store->AsObj()->GetValue();

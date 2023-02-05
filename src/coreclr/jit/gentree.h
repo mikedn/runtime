@@ -355,243 +355,196 @@ class GenTreeOperandIterator;
 
 struct Statement;
 
-/*****************************************************************************/
-
-// Forward declarations of the subtypes
-#define GTSTRUCT_0(fn, en) struct GenTree##fn;
-#define GTSTRUCT_1(fn, en) struct GenTree##fn;
-#define GTSTRUCT_2(fn, en, en2) struct GenTree##fn;
-#define GTSTRUCT_3(fn, en, en2, en3) struct GenTree##fn;
-#define GTSTRUCT_4(fn, en, en2, en3, en4) struct GenTree##fn;
-#define GTSTRUCT_N(fn, ...) struct GenTree##fn;
-#define GTSTRUCT_2_SPECIAL(fn, en, en2) GTSTRUCT_2(fn, en, en2)
-#define GTSTRUCT_3_SPECIAL(fn, en, en2, en3) GTSTRUCT_3(fn, en, en2, en3)
-#include "gtstructs.h"
-
-/*****************************************************************************/
-
-// Don't format the GenTreeFlags declaration
 // clang-format off
-
-//------------------------------------------------------------------------
-// GenTreeFlags: a bitmask of flags for GenTree stored in gtFlags
-//
-enum GenTreeFlags : unsigned int
+enum GenTreeFlags : unsigned
 {
-    GTF_EMPTY         = 0,
+    GTF_EMPTY = 0,
 
-//---------------------------------------------------------------------
-//  The first set of flags can be used with a large set of nodes, and
-//  thus they must all have distinct values. That is, one can test any
-//  expression node for one of these flags.
-//---------------------------------------------------------------------
+    // Side effects (of tree in HIR, of node in LIR)
 
-    GTF_NONE          = 0,
-    GTF_ASG           = 0x00000001, // sub-expression contains an assignment
-    GTF_CALL          = 0x00000002, // sub-expression contains a  func. call
-    GTF_EXCEPT        = 0x00000004, // sub-expression might throw an exception
-    GTF_GLOB_REF      = 0x00000008, // sub-expression uses global variable(s)
-    GTF_ORDER_SIDEEFF = 0x00000010, // sub-expression has a re-ordering side effect
-
-// If you set these flags, make sure that code:gtExtractSideEffList knows how to find the tree,
-// otherwise the C# (run csc /o-) code:
-//     var v = side_eff_operation
-// with no use of `v` will drop your tree on the floor.
+    GTF_NONE                  = 0,
+    GTF_ASG                   = 0x00000001, // Tree contains an assignment, store or intrinsic with similar effect
+    GTF_CALL                  = 0x00000002, // Tree contains a call
+    GTF_EXCEPT                = 0x00000004, // Tree might throw an exception (OverflowException, NullReferenceException etc.)
+    GTF_GLOB_REF              = 0x00000008, // Tree loads/stores from/to aliased memory (GC heap, address exposed locals etc.)
+    GTF_ORDER_SIDEEFF         = 0x00000010, // Tree children cannot be reordered
 
     GTF_PERSISTENT_SIDE_EFFECTS = GTF_ASG | GTF_CALL,
     GTF_SIDE_EFFECT             = GTF_PERSISTENT_SIDE_EFFECTS | GTF_EXCEPT,
     GTF_GLOB_EFFECT             = GTF_SIDE_EFFECT | GTF_GLOB_REF,
     GTF_ALL_EFFECT              = GTF_GLOB_EFFECT | GTF_ORDER_SIDEEFF,
 
-    GTF_REVERSE_OPS = 0x00000020, // operand op2 should be evaluated before op1 (normally, op1 is evaluated first and op2 is evaluated second)
-    GTF_CONTAINED   = 0x00000040, // This node is contained (executed as part of its parent)
+    // Common flags
+                            
+    GTF_REVERSE_OPS           = 0x00000020, // Second operand must be evaluated before the first operand
+    GTF_MAKE_CSE              = 0x00000040, // Hoisted expression - try hard to CSE this expression
+    GTF_DONT_CSE              = 0x00000080, // Do not CSE this expression
+    GTF_BOOLEAN               = 0x00000100, // Value is known to be 0 or 1
+    GTF_UNSIGNED              = 0x00000200, // CAST - treat source operand as unsigned
+                                            // ADD/SUB/MUL - unsigned overflow check (meaningless without GTF_OVERFLOW)
+    GTF_CONTAINED             = 0x00000400, // Node is contained (executed as part of its user)
+    GTF_NOREG_AT_USE          = 0x00000800, // Value is used from spilled temp without reloading into a register
+    GTF_REUSE_REG_VAL         = 0x00001000, // Destination register already contains the produced value so code
+                                            // generation can be skipped. Only used with constants.
+    GTF_SET_FLAGS             = 0x00002000, // Generated instruction must set the condition flags
+    GTF_USE_FLAGS             = 0x00004000, // Generated instruction uses the condition flags
+    GTF_COMMON_MASK           = 0x0000FFFF, // Mask of all the flags above
 
-    GTF_NOREG_AT_USE = 0x00000100, // tree node is in memory at the point of use
+    // LCL_VAR & co. specific flags
+                              
+    GTF_VAR_DEF               = 0x80000000, // Definition of a local (LCL_VAR|FLD ASG LHS or STORE_LCL_VAR|FLD)
+    GTF_VAR_USEASG            = 0x40000000, // Partial definition of a local, a use of the previous definition is implied
+                                            // (LCL_FLD ASG LHS or STORE_LCL_FLD)
+    GTF_VAR_DEATH             = 0x04000000, // Last-use of a local (LCL_VAR|FLD or dead stores if they're not removed)
+    GTF_VAR_FIELD_DEATH0      = 0x04000000, // Last-use bits for up to 4 promoted fields
+    GTF_VAR_FIELD_DEATH_MASK  = 0x3C000000,
+    GTF_VAR_MULTIREG          = 0x02000000, // Struct or (on 32-bit platforms) LONG local store with a multireg source
+                                            // (CALLs and some LONG operations on 32 bit - MUL_LONG, BITCAST)
+                                            // returns its result in multiple registers such as a long multiply)
+    GTF_VAR_ITERATOR          = 0x00800000, // Loop induction local variable used in loop test (LCL_VAR)
+    GTF_VAR_CLONED            = 0x00400000, // Node has been cloned (used by inlined to detect single use params)
+    GTF_VAR_CONTEXT           = 0x00200000, // Node is part of a runtime lookup tree (LCL_VAR)
+                              
+    // CALL specific flags
 
-    GTF_SET_FLAGS   = 0x00000200, // This node must set the condition flags.
-    GTF_USE_FLAGS   = 0x00000400, // This node uses the condition flags.
+    GTF_CALL_UNMANAGED        = 0x80000000, // Call to unmanaged code
+    GTF_CALL_INLINE_CANDIDATE = 0x40000000, // Inline candidate
 
-    GTF_MAKE_CSE    = 0x00000800, // Hoisted expression: try hard to make this into CSE (see optPerformHoistExpr)
-    GTF_DONT_CSE    = 0x00001000, // Don't bother CSE'ing this expr
+    GTF_CALL_VIRT_KIND_MASK   = 0x30000000, // Mask of the below call kinds
+    GTF_CALL_NONVIRT          = 0x00000000, // Non virtual call
+    GTF_CALL_VIRT_STUB        = 0x10000000, // Stub-dispatch virtual call
+    GTF_CALL_VIRT_VTABLE      = 0x20000000, // Vtable-based virtual call
 
-    GTF_NODE_MASK   = 0,          // TODO-MIKE-Cleanup: This should probably be removed completely.
-
-    GTF_BOOLEAN     = 0x00004000, // value is known to be 0/1
-
-    GTF_UNSIGNED    = 0x00008000, // With GT_CAST:   the source operand is an unsigned type
-                                  // With operators: the specified node is an unsigned operator
-
-    GTF_COMMON_MASK = 0x0003FFFF, // mask of all the flags above
-
-    GTF_REUSE_REG_VAL = 0x00800000, // This is set by the register allocator on nodes whose value already exists in the
-                                    // register assigned to this node, so the code generator does not have to generate
-                                    // code to produce the value. It is currently used only on constant nodes.
-                                    // It CANNOT be set on var (GT_LCL*) nodes, or on indir (GT_IND or GT_STOREIND) nodes, since
-                                    // it is not needed for lclVars and is highly unlikely to be useful for indir nodes.
-
-//---------------------------------------------------------------------
-//  The following flags can be used only with a small set of nodes, and
-//  thus their values need not be distinct (other than within the set
-//  that goes with a particular node/nodes, of course). That is, one can
-//  only test for one of these flags if the 'gtOper' value is tested as
-//  well to make sure it's the right operator for the particular flag.
-//---------------------------------------------------------------------
-
-// NB: GTF_VAR_* and GTF_REG_* share the same namespace of flags.
-// These flags are also used by GT_LCL_FLD, and the last-use (DEATH) flags are also used by GenTreeCopyOrReload.
-
-    GTF_VAR_DEF             = 0x80000000, // GT_LCL_VAR -- this is a definition
-    GTF_VAR_USEASG          = 0x40000000, // GT_LCL_VAR -- this is a partial definition, a use of the previous definition is implied
-                                          // A partial definition usually occurs when a struct field is assigned to (s.f = ...) or
-                                          // when a scalar typed variable is assigned to via a narrow store (*((byte*)&i) = ...).
-
-// Last-use bits.
-// Note that a node marked GTF_VAR_MULTIREG can only be a pure definition of all the fields, or a pure use of all the fields,
-// so we don't need the equivalent of GTF_VAR_USEASG.
-
-    GTF_VAR_MULTIREG_DEATH0 = 0x04000000, // GT_LCL_VAR -- The last-use bit for a lclVar (the first register if it is multireg).
-    GTF_VAR_DEATH           = GTF_VAR_MULTIREG_DEATH0,
-    GTF_VAR_MULTIREG_DEATH1 = 0x08000000, // GT_LCL_VAR -- The last-use bit for the second register of a multireg lclVar.
-    GTF_VAR_MULTIREG_DEATH2 = 0x10000000, // GT_LCL_VAR -- The last-use bit for the third register of a multireg lclVar.
-    GTF_VAR_MULTIREG_DEATH3 = 0x20000000, // GT_LCL_VAR -- The last-use bit for the fourth register of a multireg lclVar.
-    GTF_VAR_DEATH_MASK      = GTF_VAR_MULTIREG_DEATH0 | GTF_VAR_MULTIREG_DEATH1 | GTF_VAR_MULTIREG_DEATH2 | GTF_VAR_MULTIREG_DEATH3,
-
-    GTF_VAR_MULTIREG        = 0x02000000, // This is a struct or (on 32-bit platforms) long variable that is used or defined
-                                          // to/from a multireg source or destination (e.g. a call arg or return, or an op
-                                          // that returns its result in multiple registers such as a long multiply).
-
-    GTF_LIVENESS_MASK   = GTF_VAR_DEF | GTF_VAR_USEASG | GTF_VAR_DEATH_MASK,
-
-    GTF_VAR_ITERATOR    = 0x00800000, // GT_LCL_VAR -- this is a iterator reference in the loop condition
-    GTF_VAR_CLONED      = 0x00400000, // GT_LCL_VAR -- this node has been cloned or is a clone
-    GTF_VAR_CONTEXT     = 0x00200000, // GT_LCL_VAR -- this node is part of a runtime lookup
-
-    // For additional flags for GT_CALL node see GTF_CALL_M_*
-
-    GTF_CALL_UNMANAGED          = 0x80000000, // GT_CALL -- direct call to unmanaged code
-    GTF_CALL_INLINE_CANDIDATE   = 0x40000000, // GT_CALL -- this call has been marked as an inline candidate
-
-    GTF_CALL_VIRT_KIND_MASK     = 0x30000000, // GT_CALL -- mask of the below call kinds
-    GTF_CALL_NONVIRT            = 0x00000000, // GT_CALL -- a non virtual call
-    GTF_CALL_VIRT_STUB          = 0x10000000, // GT_CALL -- a stub-dispatch virtual call
-    GTF_CALL_VIRT_VTABLE        = 0x20000000, // GT_CALL -- a  vtable-based virtual call
-
-    GTF_CALL_NULLCHECK          = 0x08000000, // GT_CALL -- must check instance pointer for null
+    GTF_CALL_NULLCHECK        = 0x08000000, // Null check `this`
 #ifdef TARGET_X86
-    GTF_CALL_POP_ARGS           = 0x04000000, // GT_CALL -- caller pop arguments?
+    GTF_CALL_POP_ARGS         = 0x04000000, // Caller pops arguments
 #endif
-    GTF_CALL_HOISTABLE          = 0x02000000, // GT_CALL -- call is hoistable
+    GTF_CALL_HOISTABLE        = 0x02000000, // Hoistable call (known helper calls)
 
-    GTF_MEMORYBARRIER_LOAD      = 0x40000000, // GT_MEMORYBARRIER -- Load barrier
+    // MEMORYBARRIER specific flags
 
-    GTF_INX_RNGCHK              = 0x80000000, // GT_INDEX_ADDR -- the array reference should be range-checked.
+    GTF_MEMORYBARRIER_LOAD    = 0x40000000, // Load barrier (instead of full barrier)
 
-    GTF_IND_TGT_NOT_HEAP        = 0x80000000, // GT_IND   -- the target is known not to be on the heap
-    GTF_IND_VOLATILE            = 0x40000000, // GT_IND   -- the load or store must use volatile sematics (this is a nop on X86)
-    GTF_IND_NONFAULTING         = 0x20000000, // Operations for which OperIsIndir() is true  -- An indir that cannot fault.
-                                              // Same as GTF_ARRLEN_NONFAULTING.
-    GTF_IND_TGT_HEAP            = 0x10000000, // GT_IND   -- the target is known to be on the heap
-    GTF_IND_ASG_LHS             = 0x04000000, // GT_IND   -- this GT_IND node is (the effective val) of the LHS of an
-                                              //             assignment; don't evaluate it independently.
-    GTF_IND_REQ_ADDR_IN_REG     = GTF_IND_ASG_LHS, // GT_IND  -- requires its addr operand to be evaluated
-                                              // into a register. This flag is useful in cases where it
-                                              // is required to generate register indirect addressing mode.
-                                              // One such case is virtual stub calls on xarch.  This is only
-                                              // valid in the backend, where GTF_IND_ASG_LHS is not necessary
-                                              // (all such indirections will be lowered to GT_STOREIND).
-    GTF_IND_UNALIGNED           = 0x02000000, // GT_IND   -- the load or store is unaligned (we assume worst case
-                                              //             alignment of 1 byte)
-    GTF_IND_INVARIANT           = 0x01000000, // GT_IND   -- the target is invariant (a prejit indirection)
-    GTF_IND_NONNULL             = 0x00400000, // GT_IND   -- the indirection never returns null (zero)
+    // INDEX_ADDR specific flags
 
-    GTF_IND_FLAGS = GTF_IND_VOLATILE | GTF_IND_NONFAULTING | GTF_IND_TGT_HEAP | GTF_IND_NONNULL | \
-                    GTF_IND_UNALIGNED | GTF_IND_INVARIANT | GTF_IND_TGT_NOT_HEAP,
+    GTF_INX_RNGCHK            = 0x80000000, // The array index must be range-checked
 
-    GTF_CLS_VAR_INITCLASS       = 0x20000000, // GT_CLS_VAR_ADDR
+    // ARR_BOUNDS_CHECK specific flags
 
-    GTF_ADDRMODE_NO_CSE         = 0x80000000, // ADD/MUL/LSH/COMMA -- Node is part of addressing mode, do not CSE.
-                                              // Unlike GTF_DONT_CSE this does not block constant propagation.
+    GTF_ARR_BOUND_INBND       = 0x80000000, // Index is known to be valid.
 
-    GTF_RELOP_NAN_UN            = 0x80000000, // GT_<relop> -- Is branch taken if ops are NaN?
-    GTF_RELOP_JMP_USED          = 0x40000000, // GT_<relop> -- result of compare used for jump or ?:
-    GTF_RELOP_ZTT               = 0x08000000, // GT_<relop> -- Loop test cloned for converting while-loops into do-while
-                                              //               with explicit "loop test" in the header block.
+    // ARR_LENGTH specific flags
 
-    GTF_JCMP_EQ                 = 0x80000000, // GTF_JCMP_EQ  -- Branch on equal rather than not equal
-    GTF_JCMP_TST                = 0x40000000, // GTF_JCMP_TST -- Use bit test instruction rather than compare against zero instruction
+    GTF_ARRLEN_NONFAULTING    = 0x20000000, // Array reference is known to be non-null (same as GT_IND_NONFAULTING).
 
-    GTF_RET_MERGED              = 0x80000000, // GT_RETURN -- This is a return generated during epilog merging.
+    // IND & co. specific flags
 
-    GTF_QMARK_CAST_INSTOF       = 0x80000000, // GT_QMARK -- Is this a top (not nested) level qmark created for
-                                              //             castclass or instanceof?
+    GTF_IND_TGT_NOT_HEAP      = 0x80000000, // Address is known to point outside the GC heap
+    GTF_IND_VOLATILE          = 0x40000000, // Volatile load/store
+    GTF_IND_NONFAULTING       = 0x20000000, // Address is known to be non-null
+    GTF_IND_TGT_HEAP          = 0x10000000, // Address is known to point inside the GC heap
+    GTF_IND_ASG_LHS           = 0x04000000, // Node is the LHS of an ASG node (HIR only)
+    GTF_IND_UNALIGNED         = 0x02000000, // Unaligned load/store (1 byte aligned)
+    GTF_IND_INVARIANT         = 0x01000000, // Load produces the same value throughout the method
+    GTF_IND_NONNULL           = 0x00400000, // Load always produces a non-null value
+    GTF_IND_FLAGS             = GTF_IND_TGT_NOT_HEAP |
+                                GTF_IND_VOLATILE |
+                                GTF_IND_NONFAULTING |
+                                GTF_IND_TGT_HEAP |
+                                GTF_IND_UNALIGNED |
+                                GTF_IND_INVARIANT |
+                                GTF_IND_NONNULL,
 
-    GTF_ICON_HDL_MASK           = 0xF0000000, // Bits used by handle types below
-    GTF_ICON_SCOPE_HDL          = 0x10000000, // GT_CNS_INT -- constant is a scope handle
-    GTF_ICON_CLASS_HDL          = 0x20000000, // GT_CNS_INT -- constant is a class handle
-    GTF_ICON_METHOD_HDL         = 0x30000000, // GT_CNS_INT -- constant is a method handle
-    GTF_ICON_FIELD_HDL          = 0x40000000, // GT_CNS_INT -- constant is a field handle
-    GTF_ICON_STATIC_HDL         = 0x50000000, // GT_CNS_INT -- constant is a handle to static data
-    GTF_ICON_STR_HDL            = 0x60000000, // GT_CNS_INT -- constant is a string handle
-    GTF_ICON_CONST_PTR          = 0x70000000, // GT_CNS_INT -- constant is a pointer to immutable data, (e.g. IAT_PPVALUE)
-    GTF_ICON_GLOBAL_PTR         = 0x80000000, // GT_CNS_INT -- constant is a pointer to mutable data (e.g. from the VM state)
-    GTF_ICON_VARG_HDL           = 0x90000000, // GT_CNS_INT -- constant is a var arg cookie handle
-    GTF_ICON_PINVKI_HDL         = 0xA0000000, // GT_CNS_INT -- constant is a pinvoke calli handle
-    GTF_ICON_TOKEN_HDL          = 0xB0000000, // GT_CNS_INT -- constant is a token handle (other than class, method or field)
+    // CNS_INT specific flags
+
+    GTF_ICON_HDL_MASK         = 0xF0000000, // Mask for flags below
+    GTF_ICON_MODULE_HDL       = 0x10000000, // Module handle
+    GTF_ICON_CLASS_HDL        = 0x20000000, // Class handle
+    GTF_ICON_METHOD_HDL       = 0x30000000, // Method handle
+    GTF_ICON_FIELD_HDL        = 0x40000000, // Field handle
+    GTF_ICON_STATIC_HDL       = 0x50000000, // Static field address
+    GTF_ICON_STR_HDL          = 0x60000000, // String handle
+    GTF_ICON_CONST_PTR        = 0x70000000, // Immutable data address, (e.g. IAT_PPVALUE)
+    GTF_ICON_GLOBAL_PTR       = 0x80000000, // Mutable data address (e.g. from the VM state)
+    GTF_ICON_VARG_HDL         = 0x90000000, // Vararg cookie handle
+    GTF_ICON_PINVKI_HDL       = 0xA0000000, // P/Invoke calli handle
+    GTF_ICON_TOKEN_HDL        = 0xB0000000, // Token handle (other than class, method or field)
 #ifdef WINDOWS_X86_ABI
-    GTF_ICON_TLS_HDL            = 0xC0000000, // GT_CNS_INT -- constant is a TLS ref with offset
+    GTF_ICON_TLS_HDL          = 0xC0000000, // TLS ref with offset
 #endif
-    GTF_ICON_FTN_ADDR           = 0xD0000000, // GT_CNS_INT -- constant is a function address
-    GTF_ICON_CIDMID_HDL         = 0xE0000000, // GT_CNS_INT -- constant is a class ID or a module ID
-    GTF_ICON_BBC_PTR            = 0xF0000000, // GT_CNS_INT -- constant is a basic block count pointer
+    GTF_ICON_FTN_ADDR         = 0xD0000000, // Method address
+    GTF_ICON_CIDMID_HDL       = 0xE0000000, // Class ID or module ID
+    GTF_ICON_BBC_PTR          = 0xF0000000, // Address of basic block instrumentation count
 
-    GTF_ICON_SIMD_COUNT         = 0x04000000, // GT_CNS_INT -- constant is Vector<T>.Count
+    GTF_ICON_SIMD_COUNT       = 0x04000000, // Vector<T>.Count
+    GTF_ICON_INITCLASS        = 0x02000000, // Address of a static field that requires initialization
+                                            // (same as GTF_CLS_VAR_INITCLASS)
 
-    GTF_ICON_INITCLASS          = 0x02000000, // GT_CNS_INT -- Constant is used to access a static that requires preceding
-                                              //               class/static init helper.  In some cases, the constant is
-                                              //               the address of the static field itself, and in other cases
-                                              //               there's an extra layer of indirection and it is the address
-                                              //               of the cell that the runtime will fill in with the address
-                                              //               of the static field; in both of those cases, the constant
-                                              //               is what gets flagged.
+    // CLS_VAR_ADDR specific flags
 
-    GTF_OVERFLOW                = 0x10000000, // Supported for: GT_ADD, GT_SUB, GT_MUL and GT_CAST.
-                                              // Requires an overflow check. Use gtOverflow(Ex)() to check this flag.
+    GTF_CLS_VAR_INITCLASS     = 0x20000000, // Address of a static field that requires initialization
 
-    GTF_DIV_BY_CNS_OPT          = 0x80000000, // GT_DIV -- Uses the division by constant optimization to compute this division
+    // RETURN specific flags
 
-    GTF_ARR_BOUND_INBND         = 0x80000000, // GT_ARR_BOUNDS_CHECK -- have proved this check is always in-bounds
+    GTF_RET_MERGED            = 0x80000000, // This is a return generated during epilog merging
 
-    GTF_ARRLEN_NONFAULTING      = 0x20000000, // GT_ARR_LENGTH  -- An array length operation that cannot fault. Same as GT_IND_NONFAULTING.
+    // QMARK specific flags
+
+    GTF_QMARK_CAST_INSTOF     = 0x80000000, // Top (not nested) level QMARK created for castclass or instanceof
+
+    // EQ, NE, LT, LE, GT, GE flags
+
+    GTF_RELOP_NAN_UN          = 0x80000000, // Unordered floating point compare
+    GTF_RELOP_JMP_USED        = 0x40000000, // Node is used by a JTRUE
+    GTF_RELOP_ZTT             = 0x08000000, // Loop test cloned for converting while-loops into do-while
+                                            // with explicit "loop test" in the header block.
+
+    // JCMP specific flags
+
+    GTF_JCMP_EQ               = 0x80000000, // CBZ/TBZ (rather than CBNZ/TBNZ)
+    GTF_JCMP_TST              = 0x40000000, // TBZ/TBNZ (rather than CBZ/CBNZ)
+
+    // Unary/Binary op specific flags
+
+    GTF_OVERFLOW              = 0x10000000, // ADD/SUB/MUL/CAST - overflow check
+    GTF_DIV_BY_CNS_OPT        = 0x80000000, // DIV - division by constant optimization
+    GTF_ADDRMODE_NO_CSE       = 0x80000000, // ADD/MUL/LSH/COMMA - address mode component, do not CSE
+                                            // (unlike GTF_DONT_CSE this does not block constant propagation)
 };
 
-inline constexpr GenTreeFlags operator ~(GenTreeFlags a)
+constexpr GenTreeFlags operator ~(GenTreeFlags a)
 {
-    return (GenTreeFlags)(~(unsigned int)a);
+    return static_cast<GenTreeFlags>(~static_cast<unsigned>(a));
 }
 
-inline constexpr GenTreeFlags operator |(GenTreeFlags a, GenTreeFlags b)
+constexpr GenTreeFlags operator |(GenTreeFlags a, GenTreeFlags b)
 {
-    return (GenTreeFlags)((unsigned int)a | (unsigned int)b);
+    return static_cast<GenTreeFlags>(static_cast<unsigned>(a) | static_cast<unsigned>(b));
 }
 
-inline constexpr GenTreeFlags operator &(GenTreeFlags a, GenTreeFlags b)
+constexpr GenTreeFlags operator &(GenTreeFlags a, GenTreeFlags b)
 {
-    return (GenTreeFlags)((unsigned int)a & (unsigned int)b);
+    return static_cast<GenTreeFlags>(static_cast<unsigned>(a) & static_cast<unsigned>(b));
+}
+
+constexpr GenTreeFlags operator ^(GenTreeFlags a, GenTreeFlags b)
+{
+    return static_cast<GenTreeFlags>(static_cast<unsigned>(a) ^ static_cast<unsigned>(b));
 }
 
 inline GenTreeFlags& operator |=(GenTreeFlags& a, GenTreeFlags b)
 {
-    return a = (GenTreeFlags)((unsigned int)a | (unsigned int)b);
+    return a = a | b;
 }
 
 inline GenTreeFlags& operator &=(GenTreeFlags& a, GenTreeFlags b)
 {
-    return a = (GenTreeFlags)((unsigned int)a & (unsigned int)b);
+    return a = a & b;
 }
 
 inline GenTreeFlags& operator ^=(GenTreeFlags& a, GenTreeFlags b)
 {
-    return a = (GenTreeFlags)((unsigned int)a ^ (unsigned int)b);
+    return a = a ^ b;
 }
 
 // Can any side-effects be observed externally, say by a caller method?
@@ -608,18 +561,15 @@ inline GenTreeFlags& operator ^=(GenTreeFlags& a, GenTreeFlags b)
 
 #if defined(DEBUG)
 
-//------------------------------------------------------------------------
-// GenTreeDebugFlags: a bitmask of debug-only flags for GenTree stored in gtDebugFlags
-//
-enum GenTreeDebugFlags : unsigned int
+enum GenTreeDebugFlags : unsigned 
 {
-    GTF_DEBUG_NONE              = 0x00000000, // No debug flags.
+    GTF_DEBUG_NONE              = 0x00000000, 
 
-    GTF_DEBUG_NODE_MORPHED      = 0x00000001, // the node has been morphed (in the global morphing phase)
+    GTF_DEBUG_NODE_MORPHED      = 0x00000001, // Node has been morphed (in the global morphing phase)
     GTF_DEBUG_NODE_SMALL        = 0x00000002,
     GTF_DEBUG_NODE_LARGE        = 0x00000004,
-    GTF_DEBUG_NODE_CG_PRODUCED  = 0x00000008, // genProduceReg has been called on this node
-    GTF_DEBUG_NODE_CG_CONSUMED  = 0x00000010, // genConsumeReg has been called on this node
+    GTF_DEBUG_NODE_CG_PRODUCED  = 0x00000008, // DefReg has been called on this node
+    GTF_DEBUG_NODE_CG_CONSUMED  = 0x00000010, // UseReg has been called on this node
     GTF_DEBUG_NODE_LSRA_ADDED   = 0x00000020, // This node was added by LSRA
 
     GTF_DEBUG_NODE_MASK         = 0x0000003F, // These flags are all node (rather than operation) properties.
@@ -707,6 +657,17 @@ constexpr unsigned GetCseIndex(CseInfo info)
 
 #define MAX_COST UCHAR_MAX
 #define IND_COST_EX 3 // execution cost for an indirection
+
+// Forward declarations of the subtypes
+#define GTSTRUCT_0(fn, en) struct GenTree##fn;
+#define GTSTRUCT_1(fn, en) struct GenTree##fn;
+#define GTSTRUCT_2(fn, en, en2) struct GenTree##fn;
+#define GTSTRUCT_3(fn, en, en2, en3) struct GenTree##fn;
+#define GTSTRUCT_4(fn, en, en2, en3, en4) struct GenTree##fn;
+#define GTSTRUCT_N(fn, ...) struct GenTree##fn;
+#define GTSTRUCT_2_SPECIAL(fn, en, en2) GTSTRUCT_2(fn, en, en2)
+#define GTSTRUCT_3_SPECIAL(fn, en, en2, en3) GTSTRUCT_3(fn, en, en2, en3)
+#include "gtstructs.h"
 
 struct GenTree
 {
@@ -1300,32 +1261,6 @@ public:
                (gtOper == GT_GT) || (gtOper == GT_TEST_EQ) || (gtOper == GT_TEST_NE);
     }
 
-    static bool OperIsLocal(genTreeOps gtOper)
-    {
-        return OperIsNonPhiLocal(gtOper) || (gtOper == GT_PHI_ARG);
-    }
-
-    static bool OperIsLocalAddr(genTreeOps gtOper)
-    {
-        return (gtOper == GT_LCL_VAR_ADDR) || (gtOper == GT_LCL_FLD_ADDR);
-    }
-
-    static bool OperIsNonPhiLocal(genTreeOps gtOper)
-    {
-        return (gtOper == GT_LCL_VAR) || (gtOper == GT_LCL_FLD) || (gtOper == GT_STORE_LCL_VAR) ||
-               (gtOper == GT_STORE_LCL_FLD);
-    }
-
-    static bool OperIsLocalRead(genTreeOps gtOper)
-    {
-        return (gtOper == GT_LCL_VAR) || (gtOper == GT_LCL_FLD) || (gtOper == GT_PHI_ARG);
-    }
-
-    static bool OperIsLocalStore(genTreeOps gtOper)
-    {
-        return (gtOper == GT_STORE_LCL_VAR) || (gtOper == GT_STORE_LCL_FLD);
-    }
-
     bool IsConstInitVal() const
     {
         return OperIs(GT_CNS_INT) || (OperIs(GT_INIT_VAL) && gtGetOp1()->OperIs(GT_CNS_INT));
@@ -1367,31 +1302,6 @@ public:
 #else
         return TypeIs(TYP_LONG) && OperIs(GT_MUL_LONG, GT_BITCAST, GT_PUTARG_REG);
 #endif
-    }
-
-    bool OperIsLocal() const
-    {
-        return OperIsLocal(OperGet());
-    }
-
-    bool OperIsLocalAddr() const
-    {
-        return OperIsLocalAddr(OperGet());
-    }
-
-    bool OperIsNonPhiLocal() const
-    {
-        return OperIsNonPhiLocal(OperGet());
-    }
-
-    bool OperIsLocalStore() const
-    {
-        return OperIsLocalStore(OperGet());
-    }
-
-    bool OperIsLocalRead() const
-    {
-        return OperIsLocalRead(OperGet());
     }
 
     bool OperIsCompare() const
@@ -1787,17 +1697,18 @@ public:
     bool IsNothingNode() const;
     void ChangeToNothingNode();
 
-    // Value number update action enumeration
     enum ValueNumberUpdate
     {
-        CLEAR_VN,   // Clear value number
-        PRESERVE_VN // Preserve value number
+        CLEAR_VN,
+        PRESERVE_VN
     };
 
-    void SetOper(genTreeOps oper, ValueNumberUpdate vnUpdate = CLEAR_VN); // set gtOper
-    void SetOperResetFlags(genTreeOps oper);                              // set gtOper and reset flags
-
-    void ChangeOperConst(genTreeOps oper); // ChangeOper(constOper)
+    void SetOperRaw(genTreeOps oper);
+    void SetOper(genTreeOps oper, ValueNumberUpdate vnUpdate = CLEAR_VN);
+    void SetOperResetFlags(genTreeOps oper);
+    void ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate = CLEAR_VN);
+    void ChangeOperUnchecked(genTreeOps oper);
+    void ChangeOperConst(genTreeOps oper);
     GenTreeIntCon* ChangeToIntCon(ssize_t value);
     GenTreeIntCon* ChangeToIntCon(var_types type, ssize_t value);
 #ifndef TARGET_64BIT
@@ -1807,11 +1718,9 @@ public:
     GenTreeDblCon* ChangeToDblCon(var_types type, double value);
     GenTreeFieldList* ChangeToFieldList();
     GenTreeLclFld* ChangeToLclFld(var_types type, unsigned lclNum, unsigned offset, FieldSeqNode* fieldSeq);
+    GenTreeLclAddr* ChangeToLclAddr(var_types type, unsigned lclNum);
+    GenTreeLclAddr* ChangeToLclAddr(var_types type, unsigned lclNum, unsigned offset, FieldSeqNode* fieldSeq);
     GenTreeAddrMode* ChangeToAddrMode(GenTree* base, GenTree* index, unsigned scale, int offset);
-    // set gtOper and only keep GTF_COMMON_MASK flags
-    void ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate = CLEAR_VN);
-    void ChangeOperUnchecked(genTreeOps oper);
-    void SetOperRaw(genTreeOps oper);
 
     void ChangeType(var_types newType)
     {
@@ -1832,22 +1741,10 @@ public:
 #if NODEBASH_STATS
     static void RecordOperBashing(genTreeOps operOld, genTreeOps operNew);
     static void ReportOperBashing(FILE* fp);
-#else
-    static void RecordOperBashing(genTreeOps operOld, genTreeOps operNew)
-    { /* do nothing */
-    }
-    static void ReportOperBashing(FILE* fp)
-    { /* do nothing */
-    }
 #endif
 
-    bool IsLocal() const
-    {
-        return OperIsLocal(OperGet());
-    }
-
     bool IsPartialLclFld(Compiler* comp);
-    GenTreeLclVarCommon* IsLocalAddrExpr();
+    GenTreeLclAddr* IsLocalAddrExpr();
 
     // Determine if this tree represents an indirection for an implict byref parameter,
     // and if so return the tree for the parameter.
@@ -1937,33 +1834,11 @@ public:
         gtFlags &= ~GTF_OVERFLOW;
     }
 
-    void SetAllEffectsFlags(GenTree* source)
-    {
-        SetAllEffectsFlags(source->gtFlags & GTF_ALL_EFFECT);
-    }
-
-    void SetAllEffectsFlags(GenTree* source, GenTree* otherSource)
-    {
-        SetAllEffectsFlags((source->gtFlags | otherSource->gtFlags) & GTF_ALL_EFFECT);
-    }
-
-    void SetAllEffectsFlags(GenTreeFlags sourceFlags)
-    {
-        assert((sourceFlags & ~GTF_ALL_EFFECT) == 0);
-
-        gtFlags &= ~GTF_ALL_EFFECT;
-        gtFlags |= sourceFlags;
-    }
-
-    inline bool IsCnsIntOrI() const;
-
-    inline bool IsIntegralConst() const;
-
-    inline bool IsIntCnsFitsInI32(); // Constant fits in INT32
-
-    inline bool IsCnsFltOrDbl() const;
-
-    inline bool IsCnsNonZeroFltOrDbl();
+    bool IsCnsIntOrI() const;
+    bool IsIntegralConst() const;
+    bool IsIntCnsFitsInI32();
+    bool IsCnsFltOrDbl() const;
+    bool IsCnsNonZeroFltOrDbl();
 
     bool IsIconHandle() const
     {
@@ -3309,7 +3184,7 @@ private:
     unsigned m_ssaNum; // The SSA number.
 
 protected:
-    GenTreeLclVarCommon(GenTreeLclVarCommon* copyFrom)
+    GenTreeLclVarCommon(const GenTreeLclVarCommon* copyFrom)
         : GenTreeUnOp(copyFrom->GetOper(), copyFrom->GetType())
         , m_lclNum(copyFrom->m_lclNum)
         , m_ssaNum(copyFrom->m_ssaNum)
@@ -3360,7 +3235,7 @@ public:
 #endif
 };
 
-// GenTreeLclVar - load/store/addr of local variable
+// GenTreeLclVar - load/store of local variable
 struct GenTreeLclVar : public GenTreeLclVarCommon
 {
     bool IsMultiReg() const
@@ -3380,10 +3255,9 @@ struct GenTreeLclVar : public GenTreeLclVarCommon
     unsigned GetMultiRegCount(Compiler* compiler) const;
     var_types GetMultiRegType(Compiler* compiler, unsigned regIndex);
 
-    GenTreeLclVar(genTreeOps oper, var_types type, unsigned lclNum DEBUGARG(bool largeNode = false))
-        : GenTreeLclVarCommon(oper, type, lclNum DEBUGARG(largeNode))
+    GenTreeLclVar(var_types type, unsigned lclNum DEBUGARG(bool largeNode = false))
+        : GenTreeLclVarCommon(GT_LCL_VAR, type, lclNum DEBUGARG(largeNode))
     {
-        assert(OperIsLocal(oper) || OperIsLocalAddr(oper));
     }
 
     GenTreeLclVar(var_types type, unsigned lclNum, GenTree* value DEBUGARG(bool largeNode = false))
@@ -3404,7 +3278,7 @@ struct GenTreeLclVar : public GenTreeLclVarCommon
 #endif
 };
 
-// GenTreeLclFld - load/store/addr of local variable field
+// GenTreeLclFld - load/store of local variable field
 struct GenTreeLclFld : public GenTreeLclVarCommon
 {
 private:
@@ -3413,8 +3287,8 @@ private:
     FieldSeqNode* m_fieldSeq;  // This LclFld node represents some sequences of accesses.
 
 public:
-    GenTreeLclFld(genTreeOps oper, var_types type, unsigned lclNum, unsigned lclOffs)
-        : GenTreeLclVarCommon(oper, type, lclNum)
+    GenTreeLclFld(var_types type, unsigned lclNum, unsigned lclOffs)
+        : GenTreeLclVarCommon(GT_LCL_FLD, type, lclNum)
         , m_lclOffs(static_cast<uint16_t>(lclOffs))
         , m_layoutNum(0)
         , m_fieldSeq(FieldSeqStore::NotAField())
@@ -3434,7 +3308,7 @@ public:
         SetOp(0, value);
     }
 
-    GenTreeLclFld(GenTreeLclFld* copyFrom)
+    GenTreeLclFld(const GenTreeLclFld* copyFrom)
         : GenTreeLclVarCommon(copyFrom)
         , m_lclOffs(copyFrom->m_lclOffs)
         , m_layoutNum(copyFrom->m_layoutNum)
@@ -3499,6 +3373,62 @@ public:
     GenTreeLclFld() : GenTreeLclVarCommon()
     {
     }
+#endif
+};
+
+struct GenTreeLclAddr : public GenTreeLclVarCommon
+{
+private:
+    uint16_t      m_lclOffs;
+    FieldSeqNode* m_fieldSeq;
+
+public:
+    GenTreeLclAddr(var_types type, unsigned lclNum, unsigned lclOffs)
+        : GenTreeLclVarCommon(GT_LCL_ADDR, type, lclNum), m_lclOffs(static_cast<uint16_t>(lclOffs)), m_fieldSeq(nullptr)
+    {
+        assert(lclOffs <= UINT16_MAX);
+    }
+
+    GenTreeLclAddr(const GenTreeLclAddr* copyFrom)
+        : GenTreeLclVarCommon(copyFrom), m_lclOffs(copyFrom->m_lclOffs), m_fieldSeq(copyFrom->m_fieldSeq)
+    {
+    }
+
+    uint16_t GetLclOffs() const
+    {
+        return m_lclOffs;
+    }
+
+    void SetLclOffs(unsigned lclOffs)
+    {
+        assert(lclOffs <= UINT16_MAX);
+        m_lclOffs = static_cast<uint16_t>(lclOffs);
+    }
+
+    FieldSeqNode* GetFieldSeq() const
+    {
+        return m_fieldSeq;
+    }
+
+    bool HasFieldSeq() const
+    {
+        return (m_fieldSeq != nullptr) && (m_fieldSeq != FieldSeqNode::NotAField());
+    }
+
+    void SetFieldSeq(FieldSeqNode* fieldSeq)
+    {
+        assert((fieldSeq == nullptr) || !fieldSeq->IsArrayElement());
+        m_fieldSeq = fieldSeq;
+    }
+
+    static bool Equals(GenTreeLclAddr* a1, GenTreeLclAddr* a2)
+    {
+        assert((a1->GetOper() == a2->GetOper()) && (a1->GetType() == a2->GetType()));
+        return (a1->GetLclNum() == a2->GetLclNum()) && (a1->m_lclOffs == a2->m_lclOffs);
+    }
+
+#if DEBUGGABLE_GENTREE
+    GenTreeLclAddr() = default;
 #endif
 };
 
@@ -3580,8 +3510,8 @@ struct GenTreeFieldAddr : public GenTreeUnOp
 #endif
 
 public:
-    GenTreeFieldAddr(var_types type, GenTree* addr, FieldSeqNode* fieldSeq, unsigned offset)
-        : GenTreeUnOp(GT_FIELD_ADDR, type, addr)
+    GenTreeFieldAddr(GenTree* addr, FieldSeqNode* fieldSeq, unsigned offset)
+        : GenTreeUnOp(GT_FIELD_ADDR, varTypeAddrAdd(addr->GetType()), addr)
         , m_fieldSeq(fieldSeq)
         , m_offset(offset)
         , m_mayOverlap(false)
@@ -7683,7 +7613,7 @@ inline var_types GenTree::GetMultiRegType(Compiler* compiler, unsigned regIndex)
 constexpr GenTreeFlags GetLastUseFlag(unsigned regIndex)
 {
     assert(regIndex < 4);
-    return static_cast<GenTreeFlags>(GTF_VAR_MULTIREG_DEATH0 << regIndex);
+    return static_cast<GenTreeFlags>(GTF_VAR_FIELD_DEATH0 << regIndex);
 }
 
 inline bool GenTree::IsLastUse(unsigned regIndex)
@@ -7697,7 +7627,7 @@ inline bool GenTree::HasLastUse()
 {
     assert(OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR, GT_LCL_FLD, GT_STORE_LCL_FLD, GT_COPY, GT_RELOAD));
 
-    return (gtFlags & (GTF_VAR_DEATH_MASK)) != 0;
+    return (gtFlags & GTF_VAR_FIELD_DEATH_MASK) != 0;
 }
 
 inline void GenTree::SetLastUse(unsigned regIndex, bool lastUse)

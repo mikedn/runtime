@@ -788,17 +788,17 @@ void Compiler::inlPostInlineFailureCleanup(const InlineInfo* inlineInfo)
         const InlArgInfo& argInfo = inlineInfo->ilArgInfo[i];
 
         // In some cases we use existing call arg nodes inside the inlinee body.
-        // The inlinee compiler may change these from LCL_VAR to LCL_VAR_ADDR,
+        // The inlinee compiler may change these from LCL_VAR to LCL_ADDR,
         // we need to revert this change if inlining failed.
 
         if (argInfo.argIsUnaliasedLclVar && !argInfo.paramIsAddressTaken && !argInfo.paramHasStores)
         {
             if (!argInfo.argNode->OperIs(GT_LCL_VAR))
             {
-                assert(argInfo.argNode->OperIs(GT_LCL_VAR_ADDR));
-                assert(argInfo.argNode->AsLclVar()->GetLclNum() == argInfo.paramLclNum);
+                assert(argInfo.argNode->AsLclAddr()->GetLclNum() == argInfo.paramLclNum);
 
                 argInfo.argNode->SetOper(GT_LCL_VAR);
+                argInfo.argNode->AsLclVar()->SetLclNum(argInfo.paramLclNum);
                 argInfo.argNode->SetType(argInfo.argType);
             }
         }
@@ -1056,9 +1056,12 @@ bool Compiler::inlImportReturn(Importer&            importer,
 
         GenTree* effectiveRetVal = retExpr->gtEffectiveVal();
 
-        if (retExpr->TypeIs(TYP_BYREF) && effectiveRetVal->OperIs(GT_LCL_VAR_ADDR))
+        if (retExpr->TypeIs(TYP_BYREF) && effectiveRetVal->OperIs(GT_LCL_ADDR))
         {
-            LclVarDsc* lcl = lvaGetDesc(effectiveRetVal->AsLclVar());
+            // Currently the importer doesn't generate local field addresses.
+            assert(effectiveRetVal->AsLclAddr()->GetLclOffs() == 0);
+
+            LclVarDsc* lcl = lvaGetDesc(effectiveRetVal->AsLclAddr());
 
             if (varTypeIsStruct(lcl->GetType()) && !lcl->GetLayout()->IsOpaqueVector())
             {
@@ -1076,7 +1079,7 @@ bool Compiler::inlImportReturn(Importer&            importer,
                     // optimizations, in particular, value numbering.
 
                     JITDUMP("\nSetting lvOverlappingFields on V%02u due to struct reinterpretation\n",
-                            effectiveRetVal->AsLclVar()->GetLclNum());
+                            effectiveRetVal->AsLclAddr()->GetLclNum());
 
                     lcl->lvOverlappingFields = true;
                 }
@@ -1448,7 +1451,7 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
                 return false;
             }
 
-            assert(argNode->OperIs(GT_LCL_VAR_ADDR, GT_LCL_FLD_ADDR));
+            assert(argNode->OperIs(GT_LCL_ADDR));
             argNode->SetType(TYP_I_IMPL);
 
             continue;
@@ -1503,12 +1506,12 @@ bool Compiler::inlAnalyzeInlineeArg(InlineInfo* inlineInfo, unsigned argNum)
             JITDUMP("is aliased local");
         }
     }
-    else if (GenTreeLclVar* lclVar = impIsAddressInLocal(argInfo.argNode))
+    else if (GenTreeLclAddr* lclAddr = impIsAddressInLocal(argInfo.argNode))
     {
         argInfo.argIsInvariant = true;
 
 #ifdef FEATURE_SIMD
-        if (varTypeIsSIMD(lvaGetDesc(lclVar)->GetType()))
+        if (varTypeIsSIMD(lvaGetDesc(lclAddr)->GetType()))
         {
             inlineInfo->hasSIMDTypeArgLocalOrReturn = true;
         }
@@ -1859,7 +1862,26 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
         //
         // Use the caller-supplied node if this is the first use.
 
-        unsigned lclNum = argNode->AsLclVar()->GetLclNum();
+        unsigned lclNum;
+
+        if (argNode->OperIs(GT_LCL_VAR))
+        {
+            lclNum = argNode->AsLclVar()->GetLclNum();
+
+            // The arg node shouldn't have any flags. The importer may change it to LCL_ADDR
+            // and remove all flags. If inlining is aborted then we won't be able to restore
+            // the original flags. We could probably preserve them argInfo, but there doesn't
+            // seem to be any good reason to have any flags on such args anyway.
+            // We need to tolerate GTF_VAR_CLONED as this is added willy-nilly by CloneExpr.
+            assert((argNode->gtFlags & ~GTF_VAR_CLONED) == GTF_NONE);
+        }
+        else
+        {
+            assert(argNode->OperIs(GT_LCL_ADDR));
+            assert(argNode->AsLclAddr()->GetLclNum() == argInfo.paramLclNum);
+
+            lclNum = argInfo.paramLclNum;
+        }
 
         // Use an equivalent copy if this is the second or subsequent
         // use, or if we need to retype.

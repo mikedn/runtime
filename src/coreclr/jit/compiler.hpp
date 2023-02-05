@@ -676,7 +676,7 @@ inline GenTree* Compiler::gtNewIconEmbScpHndNode(CORINFO_MODULE_HANDLE scpHnd)
 
     assert((!embedScpHnd) != (!pEmbedScpHnd));
 
-    return gtNewIconEmbHndNode(embedScpHnd, pEmbedScpHnd, GTF_ICON_SCOPE_HDL, scpHnd);
+    return gtNewIconEmbHndNode(embedScpHnd, pEmbedScpHnd, GTF_ICON_MODULE_HDL, scpHnd);
 }
 
 //-----------------------------------------------------------------------------
@@ -787,81 +787,40 @@ inline GenTreeFieldAddr* Compiler::gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_H
 inline GenTreeFieldAddr* Compiler::gtNewFieldAddr(GenTree* addr, FieldSeqNode* fieldSeq, unsigned offset)
 {
     // If "addr" is the address of a local, note that a field of that struct local has been accessed.
-    if (addr->OperIs(GT_LCL_VAR_ADDR))
+    if (addr->OperIs(GT_LCL_ADDR))
     {
-        lvaGetDesc(addr->AsLclVar())->lvFieldAccessed = 1;
+        lvaGetDesc(addr->AsLclAddr())->lvFieldAccessed = 1;
     }
 
-    var_types type = varTypeAddrAdd(addr->GetType());
-    return new (this, GT_FIELD_ADDR) GenTreeFieldAddr(type, addr, fieldSeq, offset);
+    return new (this, GT_FIELD_ADDR) GenTreeFieldAddr(addr, fieldSeq, offset);
 }
 
 inline GenTreeIndir* Compiler::gtNewFieldIndir(var_types type, GenTreeFieldAddr* fieldAddr)
 {
+    assert(type != TYP_STRUCT);
+
+    GenTreeIndir* indir = gtNewOperNode(GT_IND, type, fieldAddr)->AsIndir();
+    indir->gtFlags |= gtGetFieldIndirFlags(fieldAddr);
+    return indir;
+}
+
+inline GenTreeIndir* Compiler::gtNewFieldIndir(var_types type, unsigned layoutNum, GenTreeFieldAddr* fieldAddr)
+{
     GenTreeIndir* indir;
 
-    if (type != TYP_STRUCT)
+    if (type == TYP_STRUCT)
+    {
+        indir = gtNewObjNode(typGetLayoutByNum(layoutNum), fieldAddr);
+        // gtNewObjNode has other rules for adding GTF_GLOB_REF, remove it
+        // and add it back below according to the old field rules.
+        indir->gtFlags &= ~GTF_GLOB_REF;
+    }
+    else
     {
         indir = gtNewOperNode(GT_IND, type, fieldAddr)->AsIndir();
     }
-    else
-    {
-        indir = gtNewObjNode(typGetLayoutByNum(fieldAddr->GetLayoutNum()), fieldAddr);
-        // gtNewObjNode has other rules for adding GTF_GLOB_REF, remove it
-        // and add it back bellow according to the old field rules.
-        indir->gtFlags &= ~GTF_GLOB_REF;
-    }
 
-    GenTree* addr = fieldAddr->GetAddr();
-
-    if (addr->OperIs(GT_LCL_VAR_ADDR))
-    {
-        indir->gtFlags |= GTF_IND_NONFAULTING;
-
-        unsigned   lclNum = addr->AsLclVar()->GetLclNum();
-        LclVarDsc* varDsc = lvaGetDesc(lclNum);
-
-#if defined(TARGET_AMD64) || defined(TARGET_ARM64) || defined(TARGET_X86)
-        // Some arguments may end up being accessed via indirections:
-        //   - implicit-by-ref struct arguments on win-x64 and arm64
-        //   - stack args of varargs methods on x86
-        // The resulting indirection trees are not recognized as local accesses
-        // by IsLocalAddrExpr & co. so it's probably safer to add GTF_GLOB_REF
-        // to such indirections. Though the arguments can't really alias global
-        // memory nor themselves so this might be overly conservative.
-        // This is definitely unnecessary for implicit-by-ref args that end up
-        // being promoted, in that case the indirect access will happen only
-        // once, at the start of the method, to copy the arg value to a local.
-        // However, GTF_GLOB_REF will be discarded during the actual promotion
-        // so this may be a problem only between import and promote phases.
-        if (varDsc->IsParam()
-#ifdef TARGET_X86
-            && info.compIsVarArgs && !varDsc->IsRegParam() && (lclNum != lvaVarargsHandleArg)
-#else
-            && varTypeIsStruct(varDsc->GetType())
-#endif
-                )
-        {
-            indir->gtFlags |= GTF_GLOB_REF;
-        }
-#endif
-    }
-    else
-    {
-        if (GenTreeIndexAddr* index = addr->IsIndexAddr())
-        {
-            if ((index->gtFlags & GTF_INX_RNGCHK) != 0)
-            {
-                indir->gtFlags |= GTF_IND_NONFAULTING;
-            }
-        }
-        else if (fieldAddr->GetFieldSeq()->IsBoxedValueField())
-        {
-            indir->gtFlags |= GTF_IND_NONFAULTING;
-        }
-
-        indir->gtFlags |= GTF_GLOB_REF;
-    }
+    indir->gtFlags |= gtGetFieldIndirFlags(fieldAddr);
 
     return indir;
 }
@@ -986,60 +945,6 @@ inline void Compiler::gtSetStmtInfo(Statement* stmt)
     gtSetEvalOrder(expr);
 }
 
-/*****************************************************************************/
-
-inline void GenTree::SetOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
-{
-    assert(((gtDebugFlags & GTF_DEBUG_NODE_SMALL) != 0) != ((gtDebugFlags & GTF_DEBUG_NODE_LARGE) != 0));
-
-    /* Make sure the node isn't too small for the new operator */
-
-    assert(GenTree::s_gtNodeSizes[gtOper] == TREE_NODE_SZ_SMALL ||
-           GenTree::s_gtNodeSizes[gtOper] == TREE_NODE_SZ_LARGE);
-
-    assert(GenTree::s_gtNodeSizes[oper] == TREE_NODE_SZ_SMALL || GenTree::s_gtNodeSizes[oper] == TREE_NODE_SZ_LARGE);
-    assert(GenTree::s_gtNodeSizes[oper] == TREE_NODE_SZ_SMALL || (gtDebugFlags & GTF_DEBUG_NODE_LARGE));
-
-#if defined(HOST_64BIT) && !defined(TARGET_64BIT)
-    if (gtOper == GT_CNS_LNG && oper == GT_CNS_INT)
-    {
-        // When casting from LONG to INT, we need to force cast of the value,
-        // if the host architecture represents INT and LONG with the same data size.
-        AsLngCon()->gtLconVal = (INT64)(INT32)AsLngCon()->gtLconVal;
-    }
-#endif // defined(HOST_64BIT) && !defined(TARGET_64BIT)
-
-    SetOperRaw(oper);
-
-#ifdef DEBUG
-    // Maintain the invariant that unary operators always have NULL gtOp2.
-    // If we ever start explicitly allocating GenTreeUnOp nodes, we wouldn't be
-    // able to do that (but if we did, we'd have to have a check in GetOp() -- perhaps
-    // a gtUnOp...)
-    if (OperKind(oper) == GTK_UNOP)
-    {
-        AsOp()->gtOp2 = nullptr;
-    }
-#endif // DEBUG
-
-#if DEBUGGABLE_GENTREE
-    // Until we eliminate SetOper/ChangeOper, we also change the vtable of the node, so that
-    // it shows up correctly in the debugger.
-    SetVtableForOper(oper);
-#endif // DEBUGGABLE_GENTREE
-
-    if (oper == GT_CNS_INT)
-    {
-        AsIntCon()->SetFieldSeq(FieldSeqStore::NotAField());
-    }
-
-    if (vnUpdate == CLEAR_VN)
-    {
-        // Clear the ValueNum field as well.
-        gtVNPair.SetBoth(ValueNumStore::NoVN);
-    }
-}
-
 inline GenTreeCast* Compiler::gtNewCastNode(var_types typ, GenTree* op1, bool fromUnsigned, var_types castType)
 {
     return new (this, GT_CAST) GenTreeCast(typ, op1, fromUnsigned, castType);
@@ -1054,16 +959,101 @@ inline GenTreeIndir* Compiler::gtNewMethodTableLookup(GenTree* object)
 
 inline void GenTree::SetOperRaw(genTreeOps oper)
 {
-    // Please do not do anything here other than assign to gtOper (debug-only
-    // code is OK, but should be kept to a minimum).
-    RecordOperBashing(OperGet(), oper); // nop unless NODEBASH_STATS is enabled
+#if NODEBASH_STATS
+    RecordOperBashing(gtOper, oper);
+#endif
+
     gtOper = oper;
+}
+
+inline void GenTree::SetOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
+{
+    assert(((gtDebugFlags & GTF_DEBUG_NODE_SMALL) != 0) != ((gtDebugFlags & GTF_DEBUG_NODE_LARGE) != 0));
+    assert((s_gtNodeSizes[gtOper] == TREE_NODE_SZ_SMALL) || (s_gtNodeSizes[gtOper] == TREE_NODE_SZ_LARGE));
+    assert((s_gtNodeSizes[oper] == TREE_NODE_SZ_SMALL) || (s_gtNodeSizes[oper] == TREE_NODE_SZ_LARGE));
+    assert((s_gtNodeSizes[oper] == TREE_NODE_SZ_SMALL) || ((gtDebugFlags & GTF_DEBUG_NODE_LARGE) != 0));
+
+#if defined(HOST_64BIT) && !defined(TARGET_64BIT)
+    if ((gtOper == GT_CNS_LNG) && (oper == GT_CNS_INT))
+    {
+        // When converting from LONG to INT, we need to explicitly truncate the LONG value to INT,
+        // if the host architecture represents INT and LONG with the same type (int64_t).
+        AsLngCon()->SetValue(static_cast<int64_t>(static_cast<int32_t>(AsLngCon()->GetValue())));
+    }
+#endif
+
+    SetOperRaw(oper);
+
+#if DEBUGGABLE_GENTREE
+    // Change the vtable of the node, so that it shows up correctly in the debugger.
+    SetVtableForOper(oper);
+#endif
+
+    if (oper == GT_CNS_INT)
+    {
+        AsIntCon()->SetFieldSeq(FieldSeqStore::NotAField());
+    }
+
+    if (vnUpdate == CLEAR_VN)
+    {
+        gtVNPair.SetBoth(ValueNumStore::NoVN);
+    }
 }
 
 inline void GenTree::SetOperResetFlags(genTreeOps oper)
 {
     SetOper(oper);
-    gtFlags &= GTF_NODE_MASK;
+    gtFlags = GTF_NONE;
+}
+
+inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
+{
+    assert(!OperIsConst(oper));  // use ChangeOperConst
+    assert(oper != GT_LCL_ADDR); // use ChangeToLclAddr
+
+    GenTreeFlags mask = GTF_COMMON_MASK;
+
+    if (OperIsIndirOrArrLength() && OperIsIndirOrArrLength(oper))
+    {
+        mask |= GTF_IND_NONFAULTING;
+    }
+
+    SetOper(oper, vnUpdate);
+
+    gtFlags &= mask;
+
+    switch (oper)
+    {
+        case GT_FIELD_LIST:
+            AsFieldList()->SetType(TYP_STRUCT);
+            AsFieldList()->ClearFields();
+            AsFieldList()->SetContained();
+            break;
+
+        case GT_LCL_FLD:
+        case GT_STORE_LCL_FLD:
+            AsLclFld()->SetLayoutNum(0);
+            AsLclFld()->SetLclOffs(0);
+            AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
+            break;
+
+        default:
+            break;
+    }
+}
+
+inline void GenTree::ChangeOperUnchecked(genTreeOps oper)
+{
+    GenTreeFlags mask = GTF_COMMON_MASK;
+
+    if (OperIsIndirOrArrLength() && OperIsIndirOrArrLength(oper))
+    {
+        mask |= GTF_IND_NONFAULTING;
+    }
+
+    SetOperRaw(oper); // Trust the caller and don't use SetOper()
+
+    gtFlags &= mask;
 }
 
 inline void GenTree::ChangeOperConst(genTreeOps oper)
@@ -1071,9 +1061,10 @@ inline void GenTree::ChangeOperConst(genTreeOps oper)
 #ifdef TARGET_64BIT
     assert(oper != GT_CNS_LNG); // We should never see a GT_CNS_LNG for a 64-bit target!
 #endif
-    assert(OperIsConst(oper)); // use ChangeOper() instead
+    assert(OperIsConst(oper)); // use ChangeOper/ChangeToIntCon/ChangeToLngCon/ChangeToDblCon
+
     SetOperResetFlags(oper);
-    // Some constant subtypes have additional fields that must be initialized.
+
     if (oper == GT_CNS_INT)
     {
         AsIntCon()->SetFieldSeq(FieldSeqStore::NotAField());
@@ -1162,6 +1153,46 @@ inline GenTreeLclFld* GenTree::ChangeToLclFld(var_types type, unsigned lclNum, u
     return lclFld;
 }
 
+inline GenTreeLclAddr* GenTree::ChangeToLclAddr(var_types type, unsigned lclNum)
+{
+    // TODO-MIKE-Review: GTF_VAR_CLONED should not be needed on LCL_ADDR. Inlining
+    // needs it only on params that are neither struct nor address taken and there
+    // should be no need to ever take the address of such params. But if that does
+    // happen we'd be left with an inlinee param that's used but not initialized,
+    // can this be detected somehow? Maybe negate the flag, have the inliner set it
+    // and CloneExpr remove it, then we can check here if we're trying to take the
+    // address of such a param.
+
+    SetOper(GT_LCL_ADDR);
+    gtFlags = GTF_NONE;
+
+    GenTreeLclAddr* addr = AsLclAddr();
+    addr->SetType(type);
+    addr->SetLclNum(lclNum);
+    addr->SetLclOffs(0);
+    addr->SetFieldSeq(nullptr);
+    return addr;
+}
+
+inline GenTreeLclAddr* GenTree::ChangeToLclAddr(var_types     type,
+                                                unsigned      lclNum,
+                                                unsigned      offset,
+                                                FieldSeqNode* fieldSeq)
+{
+    assert(offset <= UINT16_MAX);
+    assert((fieldSeq == FieldSeqNode::NotAField()) || fieldSeq->IsField());
+
+    SetOper(GT_LCL_ADDR);
+    gtFlags = GTF_NONE;
+
+    GenTreeLclAddr* addr = AsLclAddr();
+    addr->SetType(type);
+    addr->SetLclNum(lclNum);
+    addr->SetLclOffs(offset);
+    addr->SetFieldSeq(fieldSeq);
+    return addr;
+}
+
 inline GenTreeAddrMode* GenTree::ChangeToAddrMode(GenTree* base, GenTree* index, unsigned scale, int offset)
 {
     SetOperResetFlags(GT_LEA);
@@ -1172,50 +1203,6 @@ inline GenTreeAddrMode* GenTree::ChangeToAddrMode(GenTree* base, GenTree* index,
     addrMode->SetScale(scale);
     addrMode->SetOffset(offset);
     return addrMode;
-}
-
-inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
-{
-    assert(!OperIsConst(oper)); // use ChangeOperConst() instead
-
-    GenTreeFlags mask = GTF_COMMON_MASK;
-    if (this->OperIsIndirOrArrLength() && OperIsIndirOrArrLength(oper))
-    {
-        mask |= GTF_IND_NONFAULTING;
-    }
-    SetOper(oper, vnUpdate);
-    gtFlags &= mask;
-
-    // Do "oper"-specific initializations...
-    switch (oper)
-    {
-        case GT_FIELD_LIST:
-            AsFieldList()->SetType(TYP_STRUCT);
-            AsFieldList()->ClearFields();
-            AsFieldList()->SetContained();
-            break;
-
-        case GT_LCL_FLD:
-        case GT_STORE_LCL_FLD:
-            AsLclFld()->SetLayoutNum(0);
-            AsLclFld()->SetLclOffs(0);
-            AsLclFld()->SetFieldSeq(FieldSeqStore::NotAField());
-            break;
-
-        default:
-            break;
-    }
-}
-
-inline void GenTree::ChangeOperUnchecked(genTreeOps oper)
-{
-    GenTreeFlags mask = GTF_COMMON_MASK;
-    if (this->OperIsIndirOrArrLength() && OperIsIndirOrArrLength(oper))
-    {
-        mask |= GTF_IND_NONFAULTING;
-    }
-    SetOperRaw(oper); // Trust the caller and don't use SetOper()
-    gtFlags &= mask;
 }
 
 /*****************************************************************************
@@ -1911,7 +1898,7 @@ inline void Compiler::LoopDsc::VERIFY_lpIterTree() const
 
     const GenTree* lhs = lpIterTree->AsOp()->gtOp1;
     const GenTree* rhs = lpIterTree->AsOp()->gtOp2;
-    assert(lhs->OperGet() == GT_LCL_VAR);
+    assert(lhs->OperIs(GT_LCL_VAR));
 
     switch (rhs->gtOper)
     {
@@ -1924,9 +1911,9 @@ inline void Compiler::LoopDsc::VERIFY_lpIterTree() const
         default:
             assert(!"Unknown operator for loop increment");
     }
-    assert(rhs->AsOp()->gtOp1->OperGet() == GT_LCL_VAR);
-    assert(rhs->AsOp()->gtOp1->AsLclVarCommon()->GetLclNum() == lhs->AsLclVarCommon()->GetLclNum());
-    assert(rhs->AsOp()->gtOp2->OperGet() == GT_CNS_INT);
+    assert(rhs->AsOp()->gtOp1->OperIs(GT_LCL_VAR));
+    assert(rhs->AsOp()->gtOp1->AsLclVar()->GetLclNum() == lhs->AsLclVar()->GetLclNum());
+    assert(rhs->AsOp()->gtOp2->OperIs(GT_CNS_INT));
 #endif
 }
 
@@ -1935,7 +1922,7 @@ inline void Compiler::LoopDsc::VERIFY_lpIterTree() const
 inline unsigned Compiler::LoopDsc::lpIterVar() const
 {
     VERIFY_lpIterTree();
-    return lpIterTree->AsOp()->gtOp1->AsLclVarCommon()->GetLclNum();
+    return lpIterTree->AsOp()->gtOp1->AsLclVar()->GetLclNum();
 }
 
 //-----------------------------------------------------------------------------
@@ -2071,8 +2058,8 @@ inline unsigned Compiler::LoopDsc::lpVarLimit() const
     assert(lpFlags & LPFLG_VAR_LIMIT);
 
     GenTree* limit = lpLimit();
-    assert(limit->OperGet() == GT_LCL_VAR);
-    return limit->AsLclVarCommon()->GetLclNum();
+    assert(limit->OperIs(GT_LCL_VAR));
+    return limit->AsLclVar()->GetLclNum();
 }
 
 //-----------------------------------------------------------------------------
@@ -2430,8 +2417,7 @@ void GenTree::VisitOperands(TVisitor visitor)
         // Leaf nodes
         case GT_LCL_VAR:
         case GT_LCL_FLD:
-        case GT_LCL_VAR_ADDR:
-        case GT_LCL_FLD_ADDR:
+        case GT_LCL_ADDR:
         case GT_CATCH_ARG:
         case GT_LABEL:
         case GT_FTN_ADDR:
@@ -2702,15 +2688,16 @@ inline void DEBUG_DESTROY_NODE(GenTree* tree)
 #ifdef DEBUG
     // Save gtOper in case we want to find out what this node was
     tree->gtOperSave = tree->gtOper;
+    tree->gtType     = TYP_UNDEF;
 
-    tree->gtType = TYP_UNDEF;
-    tree->gtFlags |= ~GTF_NODE_MASK;
     if (tree->OperIsSimple())
     {
-        tree->AsOp()->gtOp1 = tree->AsOp()->gtOp2 = nullptr;
+        tree->AsOp()->gtOp1 = nullptr;
+        tree->AsOp()->gtOp2 = nullptr;
     }
+
     // Must do this last, because the "AsOp()" check above will fail otherwise.
-    // Don't call SetOper, because GT_COUNT is not a valid value
+    // Don't call SetOper, because GT_COUNT is not a valid value.
     tree->gtOper = GT_COUNT;
 #endif
 }

@@ -5890,8 +5890,7 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                     chars += printf("[VAR_DEATH]");
                 }
                 FALLTHROUGH;
-            case GT_LCL_VAR_ADDR:
-            case GT_LCL_FLD_ADDR:
+            case GT_LCL_ADDR:
                 if (tree->gtFlags & GTF_VAR_CLONED)
                 {
                     chars += printf("[VAR_CLONED]");
@@ -6006,9 +6005,9 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 switch (handleKind)
                 {
 
-                    case GTF_ICON_SCOPE_HDL:
+                    case GTF_ICON_MODULE_HDL:
 
-                        chars += printf("[ICON_SCOPE_HDL]");
+                        chars += printf("[ICON_MODULE_HDL]");
                         break;
 
                     case GTF_ICON_CLASS_HDL:

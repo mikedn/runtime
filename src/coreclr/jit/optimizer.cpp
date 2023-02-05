@@ -614,22 +614,22 @@ bool Compiler::optPopulateInitInfo(unsigned loopInd, GenTree* init, unsigned ite
     GenTree* lhs = init->AsOp()->gtOp1;
     GenTree* rhs = init->AsOp()->gtOp2;
     // LHS has to be local and should equal iterVar.
-    if (lhs->gtOper != GT_LCL_VAR || lhs->AsLclVarCommon()->GetLclNum() != iterVar)
+    if (!lhs->OperIs(GT_LCL_VAR) || (lhs->AsLclVar()->GetLclNum() != iterVar))
     {
         return false;
     }
 
     // RHS can be constant or local var.
     // TODO-CQ: CLONE: Add arr length for descending loops.
-    if (rhs->gtOper == GT_CNS_INT && rhs->TypeGet() == TYP_INT)
+    if (rhs->OperIs(GT_CNS_INT) && rhs->TypeIs(TYP_INT))
     {
         optLoopTable[loopInd].lpFlags |= LPFLG_CONST_INIT;
-        optLoopTable[loopInd].lpConstInit = (int)rhs->AsIntCon()->gtIconVal;
+        optLoopTable[loopInd].lpConstInit = rhs->AsIntCon()->GetInt32Value();
     }
-    else if (rhs->gtOper == GT_LCL_VAR)
+    else if (rhs->OperIs(GT_LCL_VAR))
     {
         optLoopTable[loopInd].lpFlags |= LPFLG_VAR_INIT;
-        optLoopTable[loopInd].lpVarInit = rhs->AsLclVarCommon()->GetLclNum();
+        optLoopTable[loopInd].lpVarInit = rhs->AsLclVar()->GetLclNum();
     }
     else
     {
@@ -680,12 +680,12 @@ bool Compiler::optCheckIterInLoopTest(
     GenTree* limitOp;
 
     // Make sure op1 or op2 is the iterVar.
-    if (opr1->gtOper == GT_LCL_VAR && opr1->AsLclVarCommon()->GetLclNum() == iterVar)
+    if (opr1->OperIs(GT_LCL_VAR) && (opr1->AsLclVar()->GetLclNum() == iterVar))
     {
         iterOp  = opr1;
         limitOp = opr2;
     }
-    else if (opr2->gtOper == GT_LCL_VAR && opr2->AsLclVarCommon()->GetLclNum() == iterVar)
+    else if (opr2->OperIs(GT_LCL_VAR) && (opr2->AsLclVar()->GetLclNum() == iterVar))
     {
         iterOp  = opr2;
         limitOp = opr1;
@@ -704,7 +704,7 @@ bool Compiler::optCheckIterInLoopTest(
     iterOp->gtFlags |= GTF_VAR_ITERATOR;
 
     // Check what type of limit we have - constant, variable or arr-len.
-    if (limitOp->gtOper == GT_CNS_INT)
+    if (limitOp->OperIs(GT_CNS_INT))
     {
         optLoopTable[loopInd].lpFlags |= LPFLG_CONST_LIMIT;
         if ((limitOp->gtFlags & GTF_ICON_SIMD_COUNT) != 0)
@@ -712,8 +712,7 @@ bool Compiler::optCheckIterInLoopTest(
             optLoopTable[loopInd].lpFlags |= LPFLG_SIMD_LIMIT;
         }
     }
-    else if (limitOp->gtOper == GT_LCL_VAR &&
-             !optIsVarAssigned(from, to, nullptr, limitOp->AsLclVarCommon()->GetLclNum()))
+    else if (limitOp->OperIs(GT_LCL_VAR) && !optIsVarAssigned(from, to, nullptr, limitOp->AsLclVar()->GetLclNum()))
     {
         optLoopTable[loopInd].lpFlags |= LPFLG_VAR_LIMIT;
     }
@@ -848,8 +847,7 @@ bool Compiler::optIsLoopTestEvalIntoTemp(Statement* testStmt, Statement** newTes
     GenTree* opr2 = relop->AsOp()->gtOp2;
 
     // Make sure we have jtrue (vtmp != 0)
-    if ((relop->OperGet() == GT_NE) && (opr1->OperGet() == GT_LCL_VAR) && (opr2->OperGet() == GT_CNS_INT) &&
-        opr2->IsIntegralConst(0))
+    if (relop->OperIs(GT_NE) && opr1->OperIs(GT_LCL_VAR) && opr2->OperIs(GT_CNS_INT) && opr2->IsIntegralConst(0))
     {
         // Get the previous statement to get the def (rhs) of Vtmp to see
         // if the "test" is evaluated into Vtmp.
@@ -860,13 +858,13 @@ bool Compiler::optIsLoopTestEvalIntoTemp(Statement* testStmt, Statement** newTes
         }
 
         GenTree* tree = prevStmt->GetRootNode();
-        if (tree->OperGet() == GT_ASG)
+        if (tree->OperIs(GT_ASG))
         {
             GenTree* lhs = tree->AsOp()->gtOp1;
             GenTree* rhs = tree->AsOp()->gtOp2;
 
             // Return as the new test node.
-            if (lhs->gtOper == GT_LCL_VAR && lhs->AsLclVarCommon()->GetLclNum() == opr1->AsLclVarCommon()->GetLclNum())
+            if (lhs->OperIs(GT_LCL_VAR) && (lhs->AsLclVar()->GetLclNum() == opr1->AsLclVar()->GetLclNum()))
             {
                 if (rhs->OperIsCompare())
                 {
@@ -3644,13 +3642,13 @@ PhaseStatus Compiler::optUnrollLoops()
         // clang-format off
         if ((init->gtOper != GT_ASG) ||
             (init->AsOp()->gtOp1->gtOper != GT_LCL_VAR) ||
-            (init->AsOp()->gtOp1->AsLclVarCommon()->GetLclNum() != lvar) ||
+            (init->AsOp()->gtOp1->AsLclVar()->GetLclNum() != lvar) ||
             (init->AsOp()->gtOp2->gtOper != GT_CNS_INT) ||
             (init->AsOp()->gtOp2->AsIntCon()->gtIconVal != lbeg) ||
 
             !((incr->gtOper == GT_ADD) || (incr->gtOper == GT_SUB)) ||
             (incr->AsOp()->gtOp1->gtOper != GT_LCL_VAR) ||
-            (incr->AsOp()->gtOp1->AsLclVarCommon()->GetLclNum() != lvar) ||
+            (incr->AsOp()->gtOp1->AsLclVar()->GetLclNum() != lvar) ||
             (incr->AsOp()->gtOp2->gtOper != GT_CNS_INT) ||
             (incr->AsOp()->gtOp2->AsIntCon()->gtIconVal != iterInc) ||
 
@@ -4766,15 +4764,14 @@ Compiler::fgWalkResult Compiler::optIsVarAssgCB(GenTree** pTree, fgWalkData* dat
 
     if (tree->OperIs(GT_ASG))
     {
-        GenTree*   dest     = tree->AsOp()->gtOp1;
-        genTreeOps destOper = dest->OperGet();
+        GenTree* dest = tree->AsOp()->gtOp1;
 
         isVarAssgDsc* desc = (isVarAssgDsc*)data->pCallbackData;
         assert(desc && desc->ivaSelf == desc);
 
-        if (destOper == GT_LCL_VAR)
+        if (dest->OperIs(GT_LCL_VAR))
         {
-            unsigned tvar = dest->AsLclVarCommon()->GetLclNum();
+            unsigned tvar = dest->AsLclVar()->GetLclNum();
             if (tvar < lclMAX_ALLSET_TRACKED)
             {
                 AllVarSetOps::AddElemD(data->compiler, desc->ivaMaskVal, tvar);
@@ -4792,7 +4789,7 @@ Compiler::fgWalkResult Compiler::optIsVarAssgCB(GenTree** pTree, fgWalkData* dat
                 }
             }
         }
-        else if (destOper == GT_LCL_FLD)
+        else if (dest->OperIs(GT_LCL_FLD))
         {
             /* We can't track every field of every var. Moreover, indirections
                may access different parts of the var as different (but
@@ -4817,7 +4814,7 @@ Compiler::fgWalkResult Compiler::optIsVarAssgCB(GenTree** pTree, fgWalkData* dat
                 desc->ivaMaskInd = varRefKinds(desc->ivaMaskInd | refs);
             }
         }
-        else if (destOper == GT_IND)
+        else if (dest->OperIs(GT_IND))
         {
             if (dest->AsIndir()->GetAddr()->OperIs(GT_CLS_VAR_ADDR))
             {
@@ -4830,7 +4827,7 @@ Compiler::fgWalkResult Compiler::optIsVarAssgCB(GenTree** pTree, fgWalkData* dat
             }
         }
     }
-    else if (tree->gtOper == GT_CALL)
+    else if (tree->OperIs(GT_CALL))
     {
         isVarAssgDsc* desc = (isVarAssgDsc*)data->pCallbackData;
         assert(desc && desc->ivaSelf == desc);
@@ -5859,7 +5856,9 @@ void Compiler::optHoistLoopBlocks(unsigned loopNum, ArrayStack<BasicBlock*>* blo
         {
             GenTree* tree = *use;
 
-            if (tree->OperIsLocal())
+            assert(!tree->OperIs(GT_PHI_ARG));
+
+            if (tree->OperIs(GT_LCL_VAR, GT_LCL_FLD))
             {
                 GenTreeLclVarCommon* lclVar = tree->AsLclVarCommon();
                 unsigned             lclNum = lclVar->GetLclNum();
@@ -7525,18 +7524,13 @@ GenTree* OptBoolsDsc::optIsBoolComp(OptTestInfo* pOptTest)
     {
         pOptTest->isBool = true;
     }
-    else if ((opr1->gtOper == GT_CNS_INT) && (opr1->IsIntegralConst(0) || opr1->IsIntegralConst(1)))
+    else if (opr1->OperIs(GT_CNS_INT) && (opr1->IsIntegralConst(0) || opr1->IsIntegralConst(1)))
     {
         pOptTest->isBool = true;
     }
-    else if (opr1->gtOper == GT_LCL_VAR)
+    else if (opr1->OperIs(GT_LCL_VAR))
     {
-        // is it a boolean local variable?
-
-        unsigned lclNum = opr1->AsLclVarCommon()->GetLclNum();
-        noway_assert(lclNum < m_comp->lvaCount);
-
-        if (m_comp->lvaTable[lclNum].lvIsBoolean)
+        if (m_comp->lvaGetDesc(opr1->AsLclVar())->lvIsBoolean)
         {
             pOptTest->isBool = true;
         }
@@ -7780,10 +7774,23 @@ void Compiler::optRemoveRedundantZeroInits()
 
                 switch (tree->gtOper)
                 {
+                    case GT_LCL_ADDR:
+                    {
+                        unsigned  lclNum    = tree->AsLclAddr()->GetLclNum();
+                        unsigned* pRefCount = refCounts.LookupPointer(lclNum);
+                        if (pRefCount != nullptr)
+                        {
+                            *pRefCount = (*pRefCount) + 1;
+                        }
+                        else
+                        {
+                            refCounts.Set(lclNum, 1);
+                        }
+                        break;
+                    }
+
                     case GT_LCL_VAR:
                     case GT_LCL_FLD:
-                    case GT_LCL_VAR_ADDR:
-                    case GT_LCL_FLD_ADDR:
                     {
                         unsigned  lclNum    = tree->AsLclVarCommon()->GetLclNum();
                         unsigned* pRefCount = refCounts.LookupPointer(lclNum);
@@ -7796,7 +7803,7 @@ void Compiler::optRemoveRedundantZeroInits()
                             refCounts.Set(lclNum, 1);
                         }
 
-                        if (!tree->OperIs(GT_LCL_VAR, GT_LCL_FLD) || ((tree->gtFlags & GTF_VAR_DEF) == 0))
+                        if ((tree->gtFlags & GTF_VAR_DEF) == 0)
                         {
                             break;
                         }

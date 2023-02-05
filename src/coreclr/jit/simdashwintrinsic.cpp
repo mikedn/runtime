@@ -630,9 +630,9 @@ GenTree* Importer::impVector234Create(const HWIntrinsicSignature& sig, ClassLayo
 
         create = args[0];
 
-        if ((destAddr != nullptr) && destAddr->OperIs(GT_LCL_VAR_ADDR))
+        if ((destAddr != nullptr) && destAddr->OperIs(GT_LCL_ADDR) && (destAddr->AsLclAddr()->GetLclOffs() == 0))
         {
-            lvaRecordSimdIntrinsicUse(destAddr->AsLclVar());
+            lvaRecordSimdIntrinsicUse(destAddr->AsLclAddr()->GetLclNum());
         }
     }
     else if (areArgsZero)
@@ -758,16 +758,17 @@ GenTree* Importer::impPopStackAddrAsVector(var_types type)
         BADCODE("incompatible stack type");
     }
 
-    if (addr->OperIs(GT_LCL_VAR_ADDR))
+    if (addr->OperIs(GT_LCL_ADDR) && (lvaGetDesc(addr->AsLclAddr())->GetType() == type))
     {
-        LclVarDsc* lcl = lvaGetDesc(addr->AsLclVar());
+        unsigned lclNum = addr->AsLclAddr()->GetLclNum();
+        // Currently the importer doesn't generate local field addresses.
+        assert(addr->AsLclAddr()->GetLclOffs() == 0);
 
-        if (lcl->GetType() == type)
-        {
-            addr->SetOper(GT_LCL_VAR);
-            addr->SetType(type);
-            return addr;
-        }
+        addr->SetOper(GT_LCL_VAR);
+        addr->AsLclVar()->SetLclNum(lclNum);
+        addr->SetType(type);
+
+        return addr;
     }
 
     return gtNewOperNode(GT_IND, type, addr);
@@ -781,10 +782,15 @@ GenTree* Importer::impAssignSIMDAddr(GenTree* destAddr, GenTree* src)
 
     GenTree* dest;
 
-    if (destAddr->OperIs(GT_LCL_VAR_ADDR) && (lvaGetDesc(destAddr->AsLclVar())->GetType() == src->GetType()))
+    if (destAddr->OperIs(GT_LCL_ADDR) && (lvaGetDesc(destAddr->AsLclAddr())->GetType() == src->GetType()))
     {
+        unsigned lclNum = destAddr->AsLclAddr()->GetLclNum();
+        // Currently the importer doesn't generate local field addresses.
+        assert(destAddr->AsLclAddr()->GetLclOffs() == 0);
+
         dest = destAddr;
         dest->SetOper(GT_LCL_VAR);
+        dest->AsLclVar()->SetLclNum(lclNum);
         dest->SetType(src->GetType());
 
         if (GenTreeHWIntrinsic* hwi = src->IsHWIntrinsic())
@@ -2880,9 +2886,15 @@ bool SIMDCoalescingBuffer::AreContiguousMemoryLocations(GenTree* l1, GenTree* l2
                 continue;
             }
 
-            if (v1->OperIs(GT_LCL_VAR, GT_LCL_VAR_ADDR))
+            if (v1->OperIs(GT_LCL_VAR))
             {
                 return v1->AsLclVar()->GetLclNum() == v2->AsLclVar()->GetLclNum();
+            }
+
+            if (v1->OperIs(GT_LCL_ADDR))
+            {
+                return (v1->AsLclAddr()->GetLclNum() == v2->AsLclAddr()->GetLclNum()) &&
+                       (v1->AsLclAddr()->GetLclOffs() == v2->AsLclAddr()->GetLclOffs());
             }
 
             break;
@@ -2976,7 +2988,7 @@ void SIMDCoalescingBuffer::ChangeToSIMDMem(Compiler* compiler, GenTree* tree, va
             addr   = field->GetAddr();
             offset = field->GetOffset();
 
-            if (addr->OperIs(GT_LCL_VAR_ADDR))
+            if (addr->OperIs(GT_LCL_ADDR) && (addr->AsLclAddr()->GetLclOffs() == 0))
             {
                 // If this is the field of a local struct variable then set lvUsedInSIMDIntrinsic to prevent
                 // the local from being promoted. If it gets promoted then it will be dependent-promoted due
@@ -2985,7 +2997,7 @@ void SIMDCoalescingBuffer::ChangeToSIMDMem(Compiler* compiler, GenTree* tree, va
                 // TODO-MIKE-Cleanup: This is done only for SIMD locals but it really should be done for any
                 // struct local since the whole point is to block poor promotion.
 
-                LclVarDsc* lcl = compiler->lvaGetDesc(addr->AsLclVar());
+                LclVarDsc* lcl = compiler->lvaGetDesc(addr->AsLclAddr());
 
                 if (varTypeIsSIMD(lcl->GetType()))
                 {
@@ -3070,19 +3082,19 @@ unsigned SIMDCoalescingBuffer::IsSimdLocalField(GenTree* node, Compiler* compile
 
     GenTree* addr = node->AsFieldAddr()->GetAddr();
 
-    if (!addr->OperIs(GT_LCL_VAR_ADDR))
+    if (!addr->OperIs(GT_LCL_ADDR))
     {
         return BAD_VAR_NUM;
     }
 
-    GenTreeLclVar* lclVar = addr->AsLclVar();
+    GenTreeLclAddr* lclAddr = addr->AsLclAddr();
 
-    if (!varTypeIsSIMD(compiler->lvaGetDesc(lclVar)->GetType()))
+    if ((lclAddr->GetLclOffs() != 0) || !varTypeIsSIMD(compiler->lvaGetDesc(lclAddr)->GetType()))
     {
         return BAD_VAR_NUM;
     }
 
-    return lclVar->GetLclNum();
+    return lclAddr->GetLclNum();
 }
 
 // Recognize a NI_Vector128_GetElement or LCL_FLD that uses a SIMD local variable.
@@ -3204,9 +3216,9 @@ void SIMDCoalescingBuffer::Mark(Compiler* compiler, Statement* stmt)
         {
             GenTree* addr = field->GetAddr();
 
-            if (addr->OperIs(GT_LCL_VAR_ADDR))
+            if (addr->OperIs(GT_LCL_ADDR) && (addr->AsLclAddr()->GetLclOffs() == 0))
             {
-                compiler->lvaRecordSimdIntrinsicUse(addr->AsLclVar());
+                compiler->lvaRecordSimdIntrinsicUse(addr->AsLclAddr()->GetLclNum());
             }
         }
     }

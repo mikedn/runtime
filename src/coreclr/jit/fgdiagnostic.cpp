@@ -386,9 +386,9 @@ void Compiler::fgDumpTree(FILE* fgxFile, GenTree* const tree)
     {
         fprintf(fgxFile, "%g", tree->AsDblCon()->gtDconVal);
     }
-    else if (tree->IsLocal())
+    else if (tree->OperIs(GT_LCL_VAR))
     {
-        fprintf(fgxFile, "V%02u", tree->AsLclVarCommon()->GetLclNum());
+        fprintf(fgxFile, "V%02u", tree->AsLclVar()->GetLclNum());
     }
     else if (tree->OperIs(GT_ARR_LENGTH))
     {

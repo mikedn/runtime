@@ -1626,14 +1626,13 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree, LsraLocation currentLoc
 #ifdef TARGET_XARCH
         // On XArch we can have contained candidate lclVars if they are part of a RMW
         // address computation. In this case we need to check whether it is a last use.
-        if (tree->IsLocal() && ((tree->gtFlags & GTF_VAR_DEATH) != 0))
+        if (tree->OperIs(GT_LCL_VAR) && ((tree->gtFlags & GTF_VAR_DEATH) != 0))
         {
-            LclVarDsc* const varDsc = &compiler->lvaTable[tree->AsLclVarCommon()->GetLclNum()];
-            if (varDsc->IsRegCandidate())
+            LclVarDsc* lcl = compiler->lvaGetDesc(tree->AsLclVar());
+
+            if (lcl->IsRegCandidate())
             {
-                assert(varDsc->lvTracked);
-                unsigned varIndex = varDsc->lvVarIndex;
-                VarSetOps::RemoveElemD(compiler, currentLiveVars, varIndex);
+                VarSetOps::RemoveElemD(compiler, currentLiveVars, lcl->GetLivenessBitIndex());
             }
         }
 #else  // TARGET_XARCH
