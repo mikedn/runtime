@@ -2299,10 +2299,7 @@ var_types LclVarDsc::GetRegisterType(const GenTreeLclVarCommon* tree) const
 #ifdef DEBUG
     if ((targetType != TYP_UNDEF) && tree->OperIs(GT_STORE_LCL_VAR) && lvNormalizeOnStore())
     {
-        const bool phiStore = (tree->gtGetOp1()->OperIsNonPhiLocal() == false);
-        // Ensure that the lclVar node is typed correctly,
-        // does not apply to phi-stores because they do not produce code in the merge block.
-        assert(phiStore || targetType == genActualType(lclVarType));
+        assert(targetType == varActualType(lclVarType));
     }
 #endif
     return targetType;

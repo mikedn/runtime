@@ -1261,12 +1261,6 @@ public:
                (gtOper == GT_GT) || (gtOper == GT_TEST_EQ) || (gtOper == GT_TEST_NE);
     }
 
-    static bool OperIsNonPhiLocal(genTreeOps gtOper)
-    {
-        return (gtOper == GT_LCL_VAR) || (gtOper == GT_LCL_FLD) || (gtOper == GT_STORE_LCL_VAR) ||
-               (gtOper == GT_STORE_LCL_FLD);
-    }
-
     static bool OperIsLocalRead(genTreeOps gtOper)
     {
         return (gtOper == GT_LCL_VAR) || (gtOper == GT_LCL_FLD) || (gtOper == GT_PHI_ARG);
@@ -1318,11 +1312,6 @@ public:
 #else
         return TypeIs(TYP_LONG) && OperIs(GT_MUL_LONG, GT_BITCAST, GT_PUTARG_REG);
 #endif
-    }
-
-    bool OperIsNonPhiLocal() const
-    {
-        return OperIsNonPhiLocal(OperGet());
     }
 
     bool OperIsLocalStore() const
