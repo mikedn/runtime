@@ -356,6 +356,7 @@ public:
                                           // be on the stack (at least at those boundaries.)
 
     unsigned char lvInSsa : 1; // The variable is in SSA form (set by SsaBuilder)
+    unsigned char m_isSsa : 1; // The variable is in SSA form (set by SsaBuilder)
 
 #ifdef DEBUG
     // These further document the reasons for setting "lvDoNotEnregister".  (Note that "lvAddrExposed" is one of the
@@ -454,6 +455,11 @@ public:
     bool IsInSsa() const
     {
         return lvInSsa;
+    }
+
+    bool IsSsa() const
+    {
+        return m_isSsa;
     }
 
 #if OPT_BOOL_OPS
