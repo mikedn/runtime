@@ -3620,6 +3620,9 @@ public:
     void gtDispConst(GenTree* tree);
     void gtDispLeaf(GenTree* tree, IndentStack* indentStack);
     void dmpLclVarCommon(GenTreeLclVarCommon* node, IndentStack* indentStack);
+    void dmpSsaDefUse(GenTree* node, IndentStack* indentStack);
+    void dmpExtract(GenTreeExtract* extract, IndentStack* indentStack);
+    void dmpInsert(GenTreeInsert* insert, IndentStack* indentStack);
     void dmpVarSetDiff(const char* name, VARSET_VALARG_TP from, VARSET_VALARG_TP to);
     void gtDispNodeName(GenTree* tree);
     void dmpNodeRegs(GenTree* node);
@@ -6988,7 +6991,7 @@ private:
     class ClassLayoutTable* typGetClassLayoutTable();
 
 public:
-    bool typIsLayoutNum(unsigned layoutNum);
+    static bool typIsLayoutNum(unsigned layoutNum);
     INDEBUG(const char* typGetName(unsigned typeNum);)
     // Get the layout having the specified layout number.
     ClassLayout* typGetLayoutByNum(unsigned layoutNum);
@@ -7924,6 +7927,7 @@ public:
                 FALLTHROUGH;
 
             // Leaf nodes
+            case GT_SSA_USE:
             case GT_CATCH_ARG:
             case GT_LABEL:
             case GT_FTN_ADDR:
@@ -7980,6 +7984,7 @@ public:
                     break;
                 }
                 FALLTHROUGH;
+            case GT_SSA_DEF:
             case GT_NOT:
             case GT_NEG:
             case GT_FNEG:
@@ -7990,6 +7995,7 @@ public:
             case GT_ARR_LENGTH:
             case GT_CAST:
             case GT_BITCAST:
+            case GT_EXTRACT:
             case GT_CKFINITE:
             case GT_LCLHEAP:
             case GT_FIELD_ADDR:
@@ -8023,6 +8029,17 @@ public:
             // Special nodes
             case GT_PHI:
                 for (GenTreePhi::Use& use : node->AsPhi()->Uses())
+                {
+                    result = WalkTree(&use.NodeRef(), node);
+                    if (result == fgWalkResult::WALK_ABORT)
+                    {
+                        return result;
+                    }
+                }
+                break;
+
+            case GT_SSA_PHI:
+                for (GenTreeSsaPhi::Use& use : node->AsSsaPhi()->Uses())
                 {
                     result = WalkTree(&use.NodeRef(), node);
                     if (result == fgWalkResult::WALK_ABORT)

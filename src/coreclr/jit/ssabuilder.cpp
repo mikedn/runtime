@@ -1565,3 +1565,71 @@ bool SsaBuilder::IncludeInSsa(unsigned lclNum)
 
     return true;
 }
+
+void GenTreeSsaDef::AddUse(GenTreeSsaUse* use)
+{
+    use->m_def = this;
+
+    if (m_uses == nullptr)
+    {
+        use->m_nextUse = use;
+        use->m_prevUse = use;
+    }
+    else
+    {
+        GenTreeSsaUse* prev = m_uses;
+        GenTreeSsaUse* next = prev->m_nextUse;
+
+        prev->m_nextUse = use;
+        use->m_prevUse  = prev;
+        use->m_nextUse  = next;
+        next->m_prevUse = use;
+    }
+
+    m_uses = use;
+}
+
+void GenTreeSsaDef::RemoveUse(GenTreeSsaUse* use)
+{
+    assert(use->m_def == this);
+
+    GenTreeSsaUse* prev = use->m_prevUse;
+    GenTreeSsaUse* next = use->m_nextUse;
+
+    if (next == use)
+    {
+        m_uses = nullptr;
+        return;
+    }
+
+    prev->m_nextUse = next;
+    next->m_prevUse = prev;
+
+    if (use->m_def->m_uses == use)
+    {
+        use->m_def->m_uses = next;
+    }
+}
+
+bool GenTreeSsaPhi::Equals(GenTreeSsaPhi* phi1, GenTreeSsaPhi* phi2)
+{
+    if (phi1->GetType() != phi2->GetType())
+    {
+        return false;
+    }
+
+    UseIterator i1   = phi1->Uses().begin();
+    UseIterator end1 = phi1->Uses().end();
+    UseIterator i2   = phi2->Uses().begin();
+    UseIterator end2 = phi2->Uses().end();
+
+    for (; (i1 != end1) && (i2 != end2); ++i1, ++i2)
+    {
+        if (!Compare(i1->GetNode(), i2->GetNode()))
+        {
+            return false;
+        }
+    }
+
+    return (i1 == end1) && (i2 == end2);
+}

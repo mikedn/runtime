@@ -8189,6 +8189,14 @@ void Compiler::fgValueNumberTree(GenTree* tree)
             }
             break;
 
+        case GT_SSA_DEF:
+        case GT_SSA_USE:
+        case GT_SSA_PHI:
+        case GT_INSERT:
+        case GT_EXTRACT:
+            tree->SetVNP(ValueNumPair(vnStore->VNForExpr(tree->GetType())));
+            break;
+
         case GT_FTN_ADDR:
             // Use the value of the function pointer (actually, a method handle.)
             tree->gtVNPair.SetBoth(vnStore->VNForHandle(ssize_t(tree->AsFptrVal()->gtFptrMethod), GTF_ICON_METHOD_HDL));

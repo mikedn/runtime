@@ -3129,6 +3129,14 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                 }
                 break;
 
+            case GT_SSA_PHI:
+                for (GenTreeSsaPhi::Use& use : tree->AsSsaPhi()->Uses())
+                {
+                    fgDebugCheckFlags(use.GetNode());
+                    chkFlags |= (use.GetNode()->gtFlags & GTF_ALL_EFFECT);
+                }
+                break;
+
             case GT_FIELD_LIST:
                 for (GenTreeFieldList::Use& use : tree->AsFieldList()->Uses())
                 {

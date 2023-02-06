@@ -1268,6 +1268,9 @@ AGAIN:
         case GT_PHI:
             return GenTreePhi::Equals(op1->AsPhi(), op2->AsPhi());
 
+        case GT_SSA_PHI:
+            return GenTreeSsaPhi::Equals(op1->AsSsaPhi(), op2->AsSsaPhi());
+
         case GT_FIELD_LIST:
             return GenTreeFieldList::Equals(op1->AsFieldList(), op2->AsFieldList());
 
@@ -1576,6 +1579,13 @@ AGAIN:
 
         case GT_PHI:
             for (GenTreePhi::Use& use : tree->AsPhi()->Uses())
+            {
+                hash = genTreeHashAdd(hash, gtHashValue(use.GetNode()));
+            }
+            break;
+
+        case GT_SSA_PHI:
+            for (GenTreeSsaPhi::Use& use : tree->AsSsaPhi()->Uses())
             {
                 hash = genTreeHashAdd(hash, gtHashValue(use.GetNode()));
             }
@@ -2330,6 +2340,12 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             }
             break;
 
+            case GT_SSA_USE:
+                level  = 1;
+                costEx = 1;
+                costSz = 1;
+                break;
+
             case GT_LCL_VAR:
                 level = 1;
                 if (gtIsLikelyRegVar(tree))
@@ -2470,6 +2486,12 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                 case GT_SWITCH:
                     costEx = 10;
                     costSz = 5;
+                    break;
+
+                case GT_INSERT:
+                case GT_EXTRACT:
+                    costEx = 0;
+                    costSz = 0;
                     break;
 
                 case GT_CAST:
@@ -2846,6 +2868,11 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
                 costSz = op1->GetCostSz() + op2->GetCostSz();
 
                 goto DONE;
+
+            case GT_SSA_DEF:
+                costEx = 0;
+                costSz = 0;
+                break;
 
             case GT_ASG:
                 /* Assignments need a bit of special handling */
@@ -3330,6 +3357,21 @@ unsigned Compiler::gtSetEvalOrder(GenTree* tree)
             costSz = 0;
             break;
 
+        case GT_SSA_PHI:
+            for (GenTreeSsaPhi::Use& use : tree->AsSsaPhi()->Uses())
+            {
+                lvl2 = gtSetEvalOrder(use.GetNode());
+                // PHI args should always have cost 0 and level 0
+                assert(lvl2 == 0);
+                assert(use.GetNode()->GetCostEx() == 0);
+                assert(use.GetNode()->GetCostSz() == 0);
+            }
+
+            level  = 0;
+            costEx = 0;
+            costSz = 0;
+            break;
+
         case GT_FIELD_LIST:
             level  = 0;
             costEx = 0;
@@ -3610,7 +3652,7 @@ GenTreeRetExpr::GenTreeRetExpr(GenTreeCall* call)
 
 bool GenTree::OperRequiresAsgFlag()
 {
-    if (OperIs(GT_ASG) ||
+    if (OperIs(GT_ASG, GT_SSA_DEF) ||
         OperIs(GT_XADD, GT_XORR, GT_XAND, GT_XCHG, GT_LOCKADD, GT_CMPXCHG, GT_MEMORYBARRIER, GT_COPY_BLK, GT_INIT_BLK))
     {
         return true;
@@ -5222,6 +5264,10 @@ GenTree* Compiler::gtCloneExpr(
                 copy = new (this, GT_LCL_ADDR) GenTreeLclAddr(tree->AsLclAddr());
                 goto DONE;
 
+            case GT_SSA_USE:
+                copy = new (this, GT_SSA_USE) GenTreeSsaUse(tree->AsSsaUse()->GetDef());
+                goto DONE;
+
             case GT_CLS_VAR_ADDR:
                 copy = new (this, GT_CLS_VAR_ADDR) GenTreeClsVar(tree->AsClsVar());
                 goto DONE;
@@ -5320,6 +5366,16 @@ GenTree* Compiler::gtCloneExpr(
                                     gtCloneExpr(tree->AsArrIndex()->IndexExpr(), addFlags, deepVarNum, deepVarVal),
                                     tree->AsArrIndex()->gtCurrDim, tree->AsArrIndex()->gtArrRank,
                                     tree->AsArrIndex()->gtArrElemType);
+                break;
+
+            case GT_SSA_DEF:
+                copy = new (this, GT_SSA_DEF) GenTreeSsaDef(tree->AsSsaDef());
+                break;
+            case GT_EXTRACT:
+                copy = new (this, GT_EXTRACT) GenTreeExtract(tree->AsExtract());
+                break;
+            case GT_INSERT:
+                copy = new (this, GT_INSERT) GenTreeInsert(tree->AsInsert());
                 break;
 
             case GT_OBJ:
@@ -5464,6 +5520,20 @@ GenTree* Compiler::gtCloneExpr(
             {
                 *prevUse = new (this, CMK_ASTNode)
                     GenTreePhi::Use(gtCloneExpr(use.GetNode(), addFlags, deepVarNum, deepVarVal), *prevUse);
+                prevUse = &((*prevUse)->NextRef());
+            }
+        }
+        break;
+
+        case GT_SSA_PHI:
+        {
+            copy                         = new (this, GT_SSA_PHI) GenTreeSsaPhi(tree->GetType());
+            GenTreeSsaPhi::Use** prevUse = &copy->AsSsaPhi()->m_uses;
+            for (GenTreeSsaPhi::Use& use : tree->AsSsaPhi()->Uses())
+            {
+                *prevUse = new (this, CMK_ASTNode)
+                    GenTreeSsaPhi::Use(gtCloneExpr(use.GetNode(), addFlags, deepVarNum, deepVarVal)->AsSsaUse(),
+                                       *prevUse);
                 prevUse = &((*prevUse)->NextRef());
             }
         }
@@ -5919,6 +5989,7 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
     switch (m_node->OperGet())
     {
         // Leaf nodes
+        case GT_SSA_USE:
         case GT_LCL_VAR:
         case GT_LCL_FLD:
         case GT_LCL_ADDR:
@@ -5954,6 +6025,7 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
             return;
 
         // Standard unary operators
+        case GT_SSA_DEF:
         case GT_STORE_LCL_VAR:
         case GT_STORE_LCL_FLD:
         case GT_NOT:
@@ -5964,6 +6036,7 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
         case GT_ARR_LENGTH:
         case GT_CAST:
         case GT_BITCAST:
+        case GT_EXTRACT:
         case GT_CKFINITE:
         case GT_LCLHEAP:
         case GT_FIELD_ADDR:
@@ -6045,6 +6118,12 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
             m_statePtr = m_node->AsPhi()->gtUses;
             m_advance  = &GenTreeUseEdgeIterator::AdvancePhi;
             AdvancePhi();
+            return;
+
+        case GT_SSA_PHI:
+            m_statePtr = m_node->AsSsaPhi()->m_uses;
+            m_advance  = &GenTreeUseEdgeIterator::AdvanceSsaPhi;
+            AdvanceSsaPhi();
             return;
 
         case GT_ARR_BOUNDS_CHECK:
@@ -6228,6 +6307,22 @@ void GenTreeUseEdgeIterator::AdvancePhi()
         GenTreePhi::Use* currentUse = static_cast<GenTreePhi::Use*>(m_statePtr);
         m_edge                      = &currentUse->NodeRef();
         m_statePtr                  = currentUse->GetNext();
+    }
+}
+
+void GenTreeUseEdgeIterator::AdvanceSsaPhi()
+{
+    assert(m_state == 0);
+
+    if (m_statePtr == nullptr)
+    {
+        m_state = -1;
+    }
+    else
+    {
+        GenTreeSsaPhi::Use* currentUse = static_cast<GenTreeSsaPhi::Use*>(m_statePtr);
+        m_edge                         = &currentUse->NodeRef();
+        m_statePtr                     = currentUse->GetNext();
     }
 }
 
@@ -6940,6 +7035,7 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
     else
     {
         ClassLayout* layout = nullptr;
+        LclVarDsc*   lcl    = nullptr;
 
         if (tree->OperIs(GT_BLK, GT_OBJ, GT_STORE_BLK, GT_STORE_OBJ))
         {
@@ -6947,12 +7043,15 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
         }
         else if (tree->OperIs(GT_LCL_VAR, GT_STORE_LCL_VAR))
         {
-            LclVarDsc* varDsc = lvaGetDesc(tree->AsLclVar());
-
-            if (varTypeIsStruct(varDsc->GetType()))
-            {
-                layout = varDsc->GetLayout();
-            }
+            lcl = lvaGetDesc(tree->AsLclVar());
+        }
+        else if (GenTreeSsaDef* def = tree->IsSsaDef())
+        {
+            lcl = lvaGetDesc(def->GetLclNum());
+        }
+        else if (GenTreeSsaUse* use = tree->IsSsaUse())
+        {
+            lcl = lvaGetDesc(use->GetDef()->GetLclNum());
         }
         else if (GenTreeLclFld* lclFld = tree->IsLclFld())
         {
@@ -6965,6 +7064,11 @@ void Compiler::gtDispNode(GenTree* tree, IndentStack* indentStack, __in __in_z _
         else if (GenTreeRetExpr* retExpr = tree->IsRetExpr())
         {
             layout = retExpr->GetCall()->GetRetLayout();
+        }
+
+        if ((lcl != nullptr) && varTypeIsStruct(lcl->GetType()))
+        {
+            layout = lcl->GetLayout();
         }
 
         printf(" %s", varTypeName(tree->GetType()));
@@ -7562,6 +7666,10 @@ void Compiler::gtDispLeaf(GenTree* tree, IndentStack* indentStack)
             dmpLclVarCommon(tree->AsLclVarCommon(), indentStack);
             break;
 
+        case GT_SSA_USE:
+            dmpSsaDefUse(tree, indentStack);
+            break;
+
         case GT_JMP:
         {
             const char* methodName;
@@ -7795,6 +7903,78 @@ void Compiler::dmpLclVarCommon(GenTreeLclVarCommon* node, IndentStack* indentSta
     printf(" }");
 }
 
+void Compiler::dmpSsaDefUse(GenTree* node, IndentStack* indentStack)
+{
+    GenTreeSsaUse* use    = node->IsSsaUse();
+    GenTreeSsaDef* def    = use != nullptr ? use->GetDef() : node->IsSsaDef();
+    unsigned       lclNum = def->GetLclNum();
+    unsigned       ssaNum = def->GetSsaNum();
+    LclVarDsc*     lcl    = lvaGetDesc(lclNum);
+
+    printf(" V%02u ", lclNum);
+
+    int         nameLength = dmpLclName(lclNum);
+    const char* prefix     = nameLength > 0 ? " (" : "(";
+
+    printf("%s#%u", prefix, ssaNum);
+    prefix = ", ";
+
+    if ((use != nullptr) && (use->GetBlock() != nullptr))
+    {
+        printf("%s" FMT_BB, prefix, use->GetBlock()->bbNum);
+    }
+
+    if (lcl->lvDoNotEnregister)
+    {
+        printf("%sDNER", prefix);
+    }
+
+    if (lcl->IsPromotedField())
+    {
+        printf("%s%s V%02u@%u", prefix, lcl->IsDependentPromotedField(this) ? "P-DEP" : "P-INDEP",
+               lcl->GetPromotedFieldParentLclNum(), lcl->GetPromotedFieldOffset());
+
+        if (lcl->GetPromotedFieldSeq() != nullptr)
+        {
+            printf(" ");
+            dmpFieldSeqFields(lcl->GetPromotedFieldSeq());
+        }
+    }
+
+    if (prefix[0] == ',')
+    {
+        printf(")");
+    }
+}
+
+void Compiler::dmpExtract(GenTreeExtract* extract, IndentStack* indentStack)
+{
+    const FieldInfo& field = extract->GetField();
+
+    printf(" @%u ", field.GetOffset());
+
+    if (FieldSeqNode* fieldSeq = field.GetFieldSeq())
+    {
+        printf("(");
+        dmpFieldSeqFields(fieldSeq);
+        printf(")");
+    }
+}
+
+void Compiler::dmpInsert(GenTreeInsert* insert, IndentStack* indentStack)
+{
+    const FieldInfo& field = insert->GetField();
+
+    printf(" %s@%u ", varTypeName(field.GetType()), field.GetOffset());
+
+    if (FieldSeqNode* fieldSeq = field.GetFieldSeq())
+    {
+        printf("(");
+        dmpFieldSeqFields(fieldSeq);
+        printf(")");
+    }
+}
+
 const char* StructStoreKindName(StructStoreKind kind)
 {
     switch (kind)
@@ -7946,6 +8126,15 @@ void Compiler::gtDispTree(GenTree*     tree,
         case GT_STORE_LCL_VAR:
         case GT_STORE_LCL_FLD:
             dmpLclVarCommon(tree->AsLclVarCommon(), indentStack);
+            break;
+        case GT_SSA_DEF:
+            dmpSsaDefUse(tree, indentStack);
+            break;
+        case GT_EXTRACT:
+            dmpExtract(tree->AsExtract(), indentStack);
+            break;
+        case GT_INSERT:
+            dmpInsert(tree->AsInsert(), indentStack);
             break;
 
         case GT_CAST:
@@ -8172,6 +8361,18 @@ void Compiler::gtDispTree(GenTree*     tree,
                     char block[32];
                     sprintf_s(block, sizeof(block), "pred " FMT_BB, use.GetNode()->AsPhiArg()->gtPredBB->bbNum);
                     gtDispChild(use.GetNode(), indentStack, (use.GetNext() == nullptr) ? IIArcBottom : IIArc, block);
+                }
+            }
+            break;
+
+        case GT_SSA_PHI:
+            gtDispCommonEndLine(tree);
+
+            if (!topOnly)
+            {
+                for (GenTreeSsaPhi::Use& use : tree->AsSsaPhi()->Uses())
+                {
+                    gtDispChild(use.GetNode(), indentStack, (use.GetNext() == nullptr) ? IIArcBottom : IIArc);
                 }
             }
             break;
@@ -11833,6 +12034,11 @@ bool GenTree::IsPhiDefn()
 {
     return (OperIs(GT_ASG) && AsOp()->GetOp(1)->OperIs(GT_PHI)) ||
            (OperIs(GT_STORE_LCL_VAR) && AsLclVar()->GetOp(0)->OperIs(GT_PHI));
+}
+
+bool GenTree::IsSsaPhiDef() const
+{
+    return (gtOper == GT_SSA_DEF) && AsSsaDef()->GetValue()->OperIs(GT_SSA_PHI);
 }
 
 bool GenTree::IsPartialLclFld(Compiler* comp)

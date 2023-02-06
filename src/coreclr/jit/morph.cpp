@@ -13520,6 +13520,15 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
             }
             break;
 
+        case GT_SSA_PHI:
+            tree->gtFlags &= ~GTF_ALL_EFFECT;
+            for (GenTreeSsaPhi::Use& use : tree->AsSsaPhi()->Uses())
+            {
+                use.SetNode(use.GetNode());
+                tree->gtFlags |= use.GetNode()->gtFlags & GTF_ALL_EFFECT;
+            }
+            break;
+
         case GT_FIELD_LIST:
             tree->gtFlags &= ~GTF_ALL_EFFECT;
             for (GenTreeFieldList::Use& use : tree->AsFieldList()->Uses())

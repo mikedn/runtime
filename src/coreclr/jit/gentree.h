@@ -293,6 +293,8 @@ public:
     }
 };
 
+using FieldSeq = FieldSeqNode;
+
 // This class canonicalizes field sequences.
 class FieldSeqStore
 {
@@ -1862,6 +1864,7 @@ public:
 
     // Returns "true" iff "*this" is an assignment (GT_ASG) tree that defines an SSA name (lcl = phi(...));
     bool IsPhiDefn();
+    bool IsSsaPhiDef() const;
 
     // Returns "true" iff "*this" is a statement containing an assignment that defines an SSA name (lcl = phi(...));
 
@@ -2458,6 +2461,7 @@ class GenTreeUseEdgeIterator final
     void AdvanceArrElem();
     void AdvanceFieldList();
     void AdvancePhi();
+    void AdvanceSsaPhi();
 #ifdef FEATURE_HW_INTRINSICS
     void AdvanceHWIntrinsic();
     void AdvanceHWIntrinsicReverseOp();
@@ -3417,6 +3421,461 @@ public:
 
 #if DEBUGGABLE_GENTREE
     GenTreeLclAddr() = default;
+#endif
+};
+
+struct GenTreeSsaUse;
+
+class SsaUses;
+
+struct GenTreeSsaDef final : public GenTreeUnOp
+{
+    friend SsaUses;
+
+private:
+    unsigned       m_lclNum;
+    unsigned       m_ssaNum;
+    BasicBlock*    m_block;
+    GenTreeSsaUse* m_uses = nullptr;
+
+public:
+    GenTreeSsaDef(GenTree* value, BasicBlock* block, unsigned lclNum, unsigned ssaNum)
+        : GenTreeUnOp(GT_SSA_DEF, value->GetType(), value), m_lclNum(lclNum), m_ssaNum(ssaNum), m_block(block)
+    {
+    }
+
+    GenTreeSsaDef(const GenTreeSsaDef* copyFrom)
+        : GenTreeUnOp(GT_SSA_DEF, copyFrom->GetType(), copyFrom->gtOp1)
+        , m_lclNum(copyFrom->m_lclNum)
+        , m_ssaNum(copyFrom->m_ssaNum)
+        , m_block(nullptr)
+    {
+        // TODO-MIKE-Consider: Maybe this should just assert. SSA defs can't really
+        // be cloned, at least not with the simplistic CloneExpr mechanism. Existing
+        // code is unlikely to clone assignments to begin with.
+    }
+
+    unsigned GetLclNum() const
+    {
+        return m_lclNum;
+    }
+
+    void SetLclNum(unsigned lclNum)
+    {
+        assert(lclNum != BAD_VAR_NUM);
+
+        m_lclNum = lclNum;
+        m_ssaNum = NoSsaNum;
+    }
+
+    unsigned GetSsaNum() const
+    {
+        return m_ssaNum;
+    }
+
+    void SetSsaNum(unsigned ssaNum)
+    {
+        m_ssaNum = ssaNum;
+    }
+
+    GenTree* GetValue() const
+    {
+        return gtOp1;
+    }
+
+    void SetValue(GenTree* value)
+    {
+        gtOp1 = value;
+    }
+
+    BasicBlock* GetBlock() const
+    {
+        return m_block;
+    }
+
+    void SetBlock(BasicBlock* block)
+    {
+        m_block = block;
+    }
+
+    void AddUse(GenTreeSsaUse* use);
+    void RemoveUse(GenTreeSsaUse* use);
+    SsaUses Uses();
+
+    GenTreeSsaUse* GetUseList() const
+    {
+        return m_uses;
+    }
+
+#if DEBUGGABLE_GENTREE
+    GenTreeSsaDef() = default;
+#endif
+};
+
+struct GenTreeSsaUse final : public GenTree
+{
+    friend GenTreeSsaDef;
+    friend SsaUses;
+
+private:
+    // TODO-MIKE-Cleanup: SSA uses currently don't need the basic block but it could
+    // be useful to have it around. SSA PHI args need the predecessor block and we
+    // don't have more room for it so we just store it here, as if the PHI arg occurs
+    // in the predecessor. Depending on how you look at it that may actually be true,
+    // but it could be confusing.
+    BasicBlock* m_block;
+
+    GenTreeSsaDef* m_def     = nullptr;
+    GenTreeSsaUse* m_nextUse = nullptr;
+    GenTreeSsaUse* m_prevUse = nullptr;
+
+public:
+    GenTreeSsaUse(GenTreeSsaDef* def, BasicBlock* block) : GenTree(GT_SSA_USE, def->GetType()), m_block(block)
+    {
+        def->AddUse(this);
+    }
+
+    GenTreeSsaUse(const GenTreeSsaUse* copyFrom) : GenTree(GT_SSA_USE, copyFrom->GetType()), m_block(copyFrom->m_block)
+    {
+        copyFrom->m_def->AddUse(this);
+    }
+
+    GenTreeSsaDef* GetDef() const
+    {
+        return m_def;
+    }
+
+    BasicBlock* GetBlock() const
+    {
+        return m_block;
+    }
+
+    void SetBlock(BasicBlock* block)
+    {
+        m_block = block;
+    }
+
+    GenTreeSsaUse* GetNextUse() const
+    {
+        return m_nextUse;
+    }
+
+#if DEBUGGABLE_GENTREE
+    GenTreeSsaUse() = default;
+#endif
+};
+
+class SsaUses
+{
+    GenTreeSsaUse* m_uses;
+
+public:
+    SsaUses(GenTreeSsaUse* uses) : m_uses(uses)
+    {
+    }
+
+    class iterator
+    {
+        GenTreeSsaUse* m_use;
+
+    public:
+        iterator(GenTreeSsaUse* use) : m_use(use)
+        {
+        }
+
+        GenTreeSsaUse* operator*()
+        {
+            return m_use;
+        }
+
+        bool operator==(const iterator& other) const
+        {
+            return m_use == other.m_use;
+        }
+
+        bool operator!=(const iterator& other) const
+        {
+            return m_use != other.m_use;
+        }
+
+        void operator++()
+        {
+            m_use = m_use->m_nextUse;
+            if (m_use == m_use->m_def->m_uses)
+            {
+                m_use = nullptr;
+            }
+        }
+    };
+
+    iterator begin()
+    {
+        return iterator(m_uses);
+    }
+
+    iterator end()
+    {
+        return iterator(nullptr);
+    }
+};
+
+inline SsaUses GenTreeSsaDef::Uses()
+{
+    return SsaUses(m_uses);
+}
+
+struct GenTreeSsaPhi final : public GenTree
+{
+    class Use
+    {
+        GenTree* m_node;
+        Use*     m_next;
+
+    public:
+        Use(GenTreeSsaUse* node, Use* next = nullptr) : m_node(node), m_next(next)
+        {
+        }
+
+        GenTree*& NodeRef()
+        {
+            return m_node;
+        }
+
+        GenTreeSsaUse* GetNode() const
+        {
+            return m_node->AsSsaUse();
+        }
+
+        void SetNode(GenTreeSsaUse* node)
+        {
+            m_node = node;
+        }
+
+        Use*& NextRef()
+        {
+            return m_next;
+        }
+
+        Use* GetNext() const
+        {
+            return m_next;
+        }
+    };
+
+    class UseIterator
+    {
+        Use* m_use;
+
+    public:
+        UseIterator(Use* use) : m_use(use)
+        {
+        }
+
+        Use& operator*() const
+        {
+            return *m_use;
+        }
+
+        Use* operator->() const
+        {
+            return m_use;
+        }
+
+        UseIterator& operator++()
+        {
+            m_use = m_use->GetNext();
+            return *this;
+        }
+
+        bool operator==(const UseIterator& i) const
+        {
+            return m_use == i.m_use;
+        }
+
+        bool operator!=(const UseIterator& i) const
+        {
+            return m_use != i.m_use;
+        }
+    };
+
+    class UseList
+    {
+        Use* m_uses;
+
+    public:
+        UseList(Use* uses) : m_uses(uses)
+        {
+        }
+
+        UseIterator begin() const
+        {
+            return UseIterator(m_uses);
+        }
+
+        UseIterator end() const
+        {
+            return UseIterator(nullptr);
+        }
+    };
+
+    Use* m_uses;
+
+    GenTreeSsaPhi(var_types type) : GenTree(GT_SSA_PHI, type), m_uses(nullptr)
+    {
+    }
+
+    UseList Uses() const
+    {
+        return UseList(m_uses);
+    }
+
+    static bool Equals(GenTreeSsaPhi* phi1, GenTreeSsaPhi* phi2);
+
+#if DEBUGGABLE_GENTREE
+    GenTreeSsaPhi() = default;
+#endif
+};
+
+class FieldInfo
+{
+    // TODO-MIKE-Cleanup: For now these are 16 bit to be consistent with LCL_FLD,
+    // but EXTRACT/INSERT have enough space to make these 32 bit.
+    uint16_t  m_typeNum;
+    uint16_t  m_offset;
+    FieldSeq* m_fieldSeq;
+
+public:
+    FieldInfo(unsigned typeNum, unsigned offset, FieldSeq* fieldSeq)
+        : m_typeNum(static_cast<uint16_t>(typeNum)), m_offset(static_cast<uint16_t>(offset)), m_fieldSeq(fieldSeq)
+    {
+        assert(typeNum <= UINT16_MAX);
+        assert(offset <= UINT16_MAX);
+    }
+
+    FieldInfo(const FieldInfo& field) = default;
+
+    var_types GetType() const
+    {
+        return varTypeFromTypeNum(m_typeNum);
+    }
+
+    uint16_t GetTypeNum() const
+    {
+        return m_typeNum;
+    }
+
+    uint16_t GetLayoutNum() const
+    {
+        return m_typeNum < TYP_COUNT ? 0 : m_typeNum;
+    }
+
+    uint16_t GetOffset() const
+    {
+        return m_offset;
+    }
+
+    FieldSeqNode* GetFieldSeq() const
+    {
+        return m_fieldSeq;
+    }
+
+#if DEBUGGABLE_GENTREE
+    FieldInfo() = default;
+#endif
+};
+
+struct GenTreeInsert final : public GenTreeOp
+{
+private:
+    FieldInfo m_field;
+
+public:
+    GenTreeInsert(
+        GenTree* fieldValue, GenTree* structValue, unsigned fieldTypeNum, unsigned fieldOffset, FieldSeq* fieldSeq)
+        : GenTreeOp{GT_INSERT, structValue->GetType(), fieldValue, structValue}
+        , m_field{fieldTypeNum, fieldOffset, fieldSeq}
+    {
+    }
+
+    GenTreeInsert(const GenTreeInsert* copyFrom)
+        : GenTreeOp{GT_INSERT, copyFrom->GetType(), copyFrom->gtOp1, copyFrom->gtOp2}, m_field{copyFrom->m_field}
+    {
+    }
+
+    GenTree* GetFieldValue() const
+    {
+        return gtOp1;
+    }
+
+    void SetFieldValue(GenTree* value)
+    {
+        gtOp1 = value;
+    }
+
+    GenTree* GetStructValue() const
+    {
+        return gtOp2;
+    }
+
+    void SetStructValue(GenTree* value)
+    {
+        gtOp2 = value;
+    }
+
+    const FieldInfo& GetField() const
+    {
+        return m_field;
+    }
+
+    void SetField(unsigned typeNum, unsigned offset, FieldSeq* fieldSeq)
+    {
+        m_field = {typeNum, offset, fieldSeq};
+    }
+
+#if DEBUGGABLE_GENTREE
+    GenTreeInsert() = default;
+#endif
+};
+
+struct GenTreeExtract final : public GenTreeUnOp
+{
+private:
+    FieldInfo m_field;
+
+public:
+    GenTreeExtract(GenTree* structValue, unsigned fieldTypeNum, unsigned fieldOffset, FieldSeqNode* fieldSeq)
+        : GenTreeUnOp{GT_EXTRACT, varTypeFromTypeNum(fieldTypeNum), structValue}
+        , m_field{fieldTypeNum, fieldOffset, fieldSeq}
+    {
+    }
+
+    GenTreeExtract(const GenTreeExtract* copyFrom)
+        : GenTreeUnOp{GT_EXTRACT, copyFrom->GetType(), copyFrom->gtOp1}, m_field{copyFrom->m_field}
+    {
+    }
+
+    GenTree* GetStructValue() const
+    {
+        return gtOp1;
+    }
+
+    void SetStructValue(GenTree* value)
+    {
+        gtOp1 = value;
+    }
+
+    const FieldInfo& GetField() const
+    {
+        return m_field;
+    }
+
+    void SetField(unsigned typeNum, unsigned offset, FieldSeq* fieldSeq)
+    {
+        m_field = {typeNum, offset, fieldSeq};
+    }
+
+#if DEBUGGABLE_GENTREE
+    GenTreeExtract() = default;
 #endif
 };
 

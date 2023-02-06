@@ -2262,6 +2262,7 @@ void GenTree::VisitOperands(TVisitor visitor)
     switch (OperGet())
     {
         // Leaf nodes
+        case GT_SSA_USE:
         case GT_LCL_VAR:
         case GT_LCL_FLD:
         case GT_LCL_ADDR:
@@ -2306,6 +2307,7 @@ void GenTree::VisitOperands(TVisitor visitor)
             FALLTHROUGH;
 
         // Standard unary operators
+        case GT_SSA_DEF:
         case GT_STORE_LCL_VAR:
         case GT_STORE_LCL_FLD:
         case GT_NOT:
@@ -2318,6 +2320,7 @@ void GenTree::VisitOperands(TVisitor visitor)
         case GT_ARR_LENGTH:
         case GT_CAST:
         case GT_BITCAST:
+        case GT_EXTRACT:
         case GT_CKFINITE:
         case GT_LCLHEAP:
         case GT_FIELD_ADDR:
@@ -2349,6 +2352,16 @@ void GenTree::VisitOperands(TVisitor visitor)
         // Special nodes
         case GT_PHI:
             for (GenTreePhi::Use& use : AsPhi()->Uses())
+            {
+                if (visitor(use.NodeRef()) == VisitResult::Abort)
+                {
+                    break;
+                }
+            }
+            return;
+
+        case GT_SSA_PHI:
+            for (GenTreeSsaPhi::Use& use : AsSsaPhi()->Uses())
             {
                 if (visitor(use.NodeRef()) == VisitResult::Abort)
                 {
