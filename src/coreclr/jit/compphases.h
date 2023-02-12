@@ -88,7 +88,6 @@ CompPhaseNameMacro(PHASE_COMPUTE_EDGE_WEIGHTS2,  "Compute edge weights (2, false
 CompPhaseNameMacro(PHASE_INSERT_GC_POLLS,        "Insert GC Polls",                "GC-POLLS", false, -1, true)
 CompPhaseNameMacro(PHASE_DETERMINE_FIRST_COLD_BLOCK, "Determine first cold block", "COLD-BLK", false, -1, true)
 CompPhaseNameMacro(PHASE_RATIONALIZE,            "Rationalize IR",                 "RAT",      false, -1, false)
-CompPhaseNameMacro(PHASE_SIMPLE_LOWERING,        "Do 'simple' lowering",           "SMP-LWR",  false, -1, false)
 CompPhaseNameMacro(PHASE_LCLVARLIVENESS,         "Local var liveness",             "LIVENESS", false, -1, false)
 CompPhaseNameMacro(PHASE_LOWERING_DECOMP,        "Lowering decomposition",         "LWR-DEC",  false, -1, false)
 CompPhaseNameMacro(PHASE_LOWERING,               "Lowering",                       "LWR",      false, -1, true)

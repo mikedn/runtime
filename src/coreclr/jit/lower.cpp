@@ -4616,6 +4616,23 @@ PhaseStatus Lowering::DoPhase()
 #endif
 #endif // PROFILING_SUPPORTED
 
+    // TODO-MIKE-Cleanup: See if this can be done during the existing lowering traversal.
+    // It looks like we may end up inserting block in front of previously lowered blocks
+    // and miss lowering these new blocks. But then these blocks are trivial and don't
+    // really need any lowering (they contain only calls to helpers with no args).
+    for (BasicBlock* block : comp->Blocks())
+    {
+        comp->compCurBB = block;
+
+        for (GenTree* node : LIR::AsRange(block))
+        {
+            if (GenTreeBoundsChk* boundsChk = node->IsBoundsChk())
+            {
+                boundsChk->SetThrowBlock(comp->fgGetRngChkTarget(block, boundsChk->GetThrowKind()));
+            }
+        }
+    }
+
     // If we have any PInvoke calls, insert the one-time prolog code. We'll inserted the epilog code in the
     // appropriate spots later. NOTE: there is a minor optimization opportunity here, as we still create p/invoke
     // data structures and setup/teardown even if we've eliminated all p/invoke calls due to dead code elimination.

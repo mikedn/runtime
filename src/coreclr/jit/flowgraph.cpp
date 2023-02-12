@@ -2405,32 +2405,6 @@ void Compiler::fgFindOperOrder()
     }
 }
 
-void Compiler::fgSimpleLowering()
-{
-    for (BasicBlock* block : Blocks())
-    {
-        compCurBB = block;
-
-        for (GenTree* node : LIR::AsRange(block))
-        {
-            if (GenTreeBoundsChk* boundsChk = node->IsBoundsChk())
-            {
-                boundsChk->SetThrowBlock(fgGetRngChkTarget(block, boundsChk->GetThrowKind()));
-            }
-        }
-    }
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("\nAfter fgSimpleLowering()");
-        fgDispBasicBlocks();
-        fgDispHandlerTab();
-        printf("\n");
-    }
-#endif
-}
-
 /*****************************************************************************************************
  *
  *  Function to return the last basic block in the main part of the function. With funclets, it is

@@ -3116,8 +3116,6 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     Rationalizer rat(this);
     rat.Run();
 
-    DoPhase(this, PHASE_SIMPLE_LOWERING, &Compiler::fgSimpleLowering);
-
 #ifdef DEBUG
     fgDebugCheckBBlist();
     fgDebugCheckLinks();
