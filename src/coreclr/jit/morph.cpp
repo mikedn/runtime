@@ -11872,7 +11872,7 @@ DONE_MORPHING_CHILDREN:
 
             if ((tree->gtFlags & GTF_INX_RNGCHK) != 0)
             {
-                tree->AsIndexAddr()->SetThrowBlock(fgGetRngChkTarget(compCurBB, SCK_RNGCHK_FAIL));
+                tree->AsIndexAddr()->SetThrowBlock(fgAddCodeRef(compCurBB, bbThrowIndex(compCurBB), SCK_RNGCHK_FAIL));
                 tree->AddSideEffects(GTF_EXCEPT);
             }
             break;
@@ -13411,7 +13411,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 
                 if (opts.MinOpts())
                 {
-                    check->SetThrowBlock(fgGetRngChkTarget(compCurBB, check->GetThrowKind()));
+                    check->SetThrowBlock(fgAddCodeRef(compCurBB, bbThrowIndex(compCurBB), check->GetThrowKind()));
                 }
             }
         }
@@ -13437,7 +13437,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 
             if (fgGlobalMorph)
             {
-                fgGetRngChkTarget(compCurBB, SCK_RNGCHK_FAIL);
+                fgAddCodeRef(compCurBB, bbThrowIndex(compCurBB), SCK_RNGCHK_FAIL);
             }
             break;
 

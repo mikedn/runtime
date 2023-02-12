@@ -4622,13 +4622,14 @@ PhaseStatus Lowering::DoPhase()
     // really need any lowering (they contain only calls to helpers with no args).
     for (BasicBlock* block : comp->Blocks())
     {
-        comp->compCurBB = block;
+        comp->compCurBB     = block;
+        unsigned throwIndex = comp->bbThrowIndex(block);
 
         for (GenTree* node : LIR::AsRange(block))
         {
             if (GenTreeBoundsChk* boundsChk = node->IsBoundsChk())
             {
-                boundsChk->SetThrowBlock(comp->fgGetRngChkTarget(block, boundsChk->GetThrowKind()));
+                boundsChk->SetThrowBlock(comp->fgAddCodeRef(block, throwIndex, boundsChk->GetThrowKind()));
             }
         }
     }

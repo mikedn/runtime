@@ -5437,8 +5437,6 @@ private:
     AddCodeDsc* fgAddCodeList                  = nullptr;
     AddCodeDsc* fgExcptnTargetCache[SCK_COUNT] = {};
 
-    BasicBlock* fgGetRngChkTarget(BasicBlock* block, SpecialCodeKind kind);
-
     BasicBlock* fgAddCodeRef(BasicBlock* srcBlk, unsigned refData, SpecialCodeKind kind);
 
 public:

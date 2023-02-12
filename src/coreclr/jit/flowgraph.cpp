@@ -3105,38 +3105,6 @@ Compiler::AddCodeDsc* Compiler::fgFindExcptnTarget(SpecialCodeKind kind, unsigne
     return fgExcptnTargetCache[kind];
 }
 
-//------------------------------------------------------------------------
-// fgGetRngChkTarget: Create/find the appropriate throw block for a range check.
-//
-// Arguments:
-//   block - the block that contains the range check
-//   kind  - the kind of exception
-//
-// Return Value:
-//   The target throw helper block this check jumps to upon failure.
-//
-BasicBlock* Compiler::fgGetRngChkTarget(BasicBlock* block, SpecialCodeKind kind)
-{
-    if (!fgUseThrowHelperBlocks() || compIsForInlining())
-    {
-        return nullptr;
-    }
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*** Computing fgRngChkTarget for block " FMT_BB "\n", block->bbNum);
-        if (!block->IsLIR())
-        {
-            gtDispStmt(compCurStmt);
-        }
-    }
-#endif
-
-    // We attach the throw block to the containing try region (if any).
-    return fgAddCodeRef(block, bbThrowIndex(block), kind);
-}
-
 /*****************************************************************************
  *
  *  Figure out the order in which operators should be evaluated, along with
