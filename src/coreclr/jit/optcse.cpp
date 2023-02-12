@@ -690,6 +690,14 @@ public:
                         continue;
                     }
 
+                    // TODO-MIKE-Review: BBF_HAS_CALL is not set for INTRINSIC nodes
+                    // that may become calls during rationalization.
+
+                    if (node->OperIs(GT_CALL))
+                    {
+                        block->bbFlags |= BBF_HAS_CALL;
+                    }
+
                     // Don't allow non-SIMD struct CSEs under a return; we don't fully
                     // re-morph these if we introduce a CSE assignment, and so may create
                     // IR that lower is not yet prepared to handle.

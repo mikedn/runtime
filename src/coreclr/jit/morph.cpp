@@ -7994,13 +7994,6 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call)
         }
     }
 
-    // TODO-MIKE-Cleanup: Only CSE needs this.
-    // Move this to SsaBuilder, where BBF_HAS_NULLCHECK and other similar flags are set.
-    // Note that there is code below that can remove the call, but we're still setting
-    // this flag here. Also note that INTRINSIC nodes may become calls but we don't set
-    // this flag for those, that may affect CSE.
-    compCurBB->bbFlags |= BBF_HAS_CALL;
-
     fgMorphArgs(call);
     assert(call->OperIs(GT_CALL));
 
