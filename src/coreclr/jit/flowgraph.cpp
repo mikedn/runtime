@@ -2389,66 +2389,36 @@ void Compiler::fgAddInternal()
 #endif
 }
 
-/*****************************************************************************/
-/*****************************************************************************/
-
 void Compiler::fgFindOperOrder()
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In fgFindOperOrder()\n");
-    }
-#endif
+    JITDUMP("*************** In fgFindOperOrder()\n");
 
-    /* Walk the basic blocks and for each statement determine
-     * the evaluation order, cost, FP levels, etc... */
-
-    for (BasicBlock* const block : Blocks())
+    for (BasicBlock* block : Blocks())
     {
         compCurBB = block;
-        for (Statement* const stmt : block->Statements())
-        {
-            /* Recursively process the statement */
 
+        for (Statement* stmt : block->Statements())
+        {
             compCurStmt = stmt;
             gtSetStmtInfo(stmt);
         }
     }
 }
 
-//------------------------------------------------------------------------
-// fgSimpleLowering: do full walk of all IR, lowering selected operations
-//
-// Notes:
-//    Lowers GT_ARR_BOUNDS_CHECK
-//
 void Compiler::fgSimpleLowering()
 {
-    for (BasicBlock* const block : Blocks())
+    for (BasicBlock* block : Blocks())
     {
         compCurBB = block;
 
-        LIR::Range& range = LIR::AsRange(block);
-        for (GenTree* tree : range)
+        for (GenTree* node : LIR::AsRange(block))
         {
-            switch (tree->OperGet())
+            if (GenTreeBoundsChk* boundsChk = node->IsBoundsChk())
             {
-                case GT_ARR_BOUNDS_CHECK:
-#ifdef FEATURE_HW_INTRINSICS
-                case GT_HW_INTRINSIC_CHK:
-#endif
-                    tree->AsBoundsChk()->SetThrowBlock(fgGetRngChkTarget(block, tree->AsBoundsChk()->GetThrowKind()));
-                    break;
-
-                default:
-                {
-                    // No other operators need processing.
-                    break;
-                }
-            } // switch on oper
-        }     // foreach tree
-    }         // foreach BB
+                boundsChk->SetThrowBlock(fgGetRngChkTarget(block, boundsChk->GetThrowKind()));
+            }
+        }
+    }
 
 #ifdef DEBUG
     if (verbose)

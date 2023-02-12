@@ -3113,15 +3113,9 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     }
 #endif
 
-    // rationalize trees
-    Rationalizer rat(this); // PHASE_RATIONALIZE
+    Rationalizer rat(this);
     rat.Run();
 
-    // Here we do "simple lowering".  When the RyuJIT backend works for all
-    // platforms, this will be part of the more general lowering phase.  For now, though, we do a separate
-    // pass of "final lowering."  We must do this before (final) liveness analysis, because this creates
-    // range check throw blocks, in which the liveness must be correct.
-    //
     DoPhase(this, PHASE_SIMPLE_LOWERING, &Compiler::fgSimpleLowering);
 
 #ifdef DEBUG
