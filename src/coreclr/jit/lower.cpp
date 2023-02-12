@@ -1181,6 +1181,17 @@ void Lowering::LowerCallArgs(GenTreeCall* call)
 {
     CallInfo* info = call->GetInfo();
 
+    if (!call->IsFastTailCall())
+    {
+        unsigned callArgSize = info->GetNextSlotNum() * REGSIZE_BYTES;
+
+        if (callArgSize > outgoingArgAreaSize)
+        {
+            outgoingArgAreaSize = callArgSize;
+            JITDUMP("Increasing outgoingArgAreaSize to %u for call [%06u]\n", outgoingArgAreaSize, call->GetID());
+        }
+    }
+
     for (unsigned i = 0; i < info->GetArgCount(); i++)
     {
         JITDUMPTREE(info->GetArgInfo(i)->GetNode(), "lowering call arg %u (before):\n", i);
@@ -3142,7 +3153,7 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
 #endif
         GenTreeCall* pInvokeBegin = comp->gtNewHelperCallNode(CORINFO_HELP_JIT_PINVOKE_BEGIN, TYP_VOID, args);
         LIR::InsertHelperCallBefore(comp, BlockRange(), insertBefore, pInvokeBegin);
-        LowerNode(pInvokeBegin);
+        LowerCall(pInvokeBegin);
         return;
     }
 
@@ -4634,6 +4645,42 @@ PhaseStatus Lowering::DoPhase()
 
         LowerBlock(block);
     }
+
+#if FEATURE_FIXED_OUT_ARGS
+    // Finish computing the outgoing args area size
+    //
+    // Need to make sure the MIN_ARG_AREA_FOR_CALL space is added to the frame if:
+    // 1. there are calls to THROW_HEPLPER methods.
+    // 2. we are generating profiling Enter/Leave/TailCall hooks. This will ensure
+    //    that even methods without any calls will have outgoing arg area space allocated.
+    //
+    // An example for these two cases is Windows Amd64, where the ABI requires to have 4 slots for
+    // the outgoing arg space if the method makes any calls.
+    if (outgoingArgAreaSize < MIN_ARG_AREA_FOR_CALL)
+    {
+        if (comp->compUsesThrowHelper || comp->compIsProfilerHookNeeded())
+        {
+            outgoingArgAreaSize = MIN_ARG_AREA_FOR_CALL;
+            JITDUMP("Increasing outgoingArgAreaSize to %u for throw helper or profile hook", outgoingArgAreaSize);
+        }
+    }
+
+    // If a function has localloc, we will need to move the outgoing arg space when the
+    // localloc happens. When we do this, we need to maintain stack alignment. To avoid
+    // leaving alignment-related holes when doing this move, make sure the outgoing
+    // argument space size is a multiple of the stack alignment by aligning up to the next
+    // stack alignment boundary.
+    if (comp->compLocallocUsed)
+    {
+        outgoingArgAreaSize = roundUp(outgoingArgAreaSize, STACK_ALIGN);
+        JITDUMP("Increasing outgoingArgAreaSize to %u for localloc", outgoingArgAreaSize);
+    }
+
+    assert(outgoingArgAreaSize % REGSIZE_BYTES == 0);
+
+    comp->codeGen->outgoingArgSpaceSize.SetFinalValue(outgoingArgAreaSize);
+    comp->lvaGetDesc(comp->lvaOutgoingArgSpaceVar)->SetBlockType(outgoingArgAreaSize);
+#endif // FEATURE_FIXED_OUT_ARGS
 
 #ifdef DEBUG
     JITDUMP("Lower has completed modifying nodes.\n");

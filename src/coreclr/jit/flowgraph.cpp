@@ -2419,24 +2419,12 @@ void Compiler::fgFindOperOrder()
 
 //------------------------------------------------------------------------
 // fgSimpleLowering: do full walk of all IR, lowering selected operations
-// and computing lvaOutgoingArgumentAreaSize.
 //
 // Notes:
 //    Lowers GT_ARR_BOUNDS_CHECK
 //
-//    For target ABIs with fixed out args area, computes upper bound on
-//    the size of this area from the calls in the IR.
-//
-//    Outgoing arg area size is computed here because we want to run it
-//    after optimization (in case calls are removed) and need to look at
-//    all possible calls in the method.
-
 void Compiler::fgSimpleLowering()
 {
-#if FEATURE_FIXED_OUT_ARGS
-    unsigned outgoingArgSpaceSize = 0;
-#endif // FEATURE_FIXED_OUT_ARGS
-
     for (BasicBlock* const block : Blocks())
     {
         compCurBB = block;
@@ -2453,38 +2441,6 @@ void Compiler::fgSimpleLowering()
                     tree->AsBoundsChk()->SetThrowBlock(fgGetRngChkTarget(block, tree->AsBoundsChk()->GetThrowKind()));
                     break;
 
-#if FEATURE_FIXED_OUT_ARGS
-                case GT_CALL:
-                {
-                    GenTreeCall* call = tree->AsCall();
-                    // Fast tail calls use the caller-supplied scratch
-                    // space so have no impact on this method's outgoing arg size.
-                    if (!call->IsFastTailCall())
-                    {
-                        // Update outgoing arg size to handle this call
-                        const unsigned thisCallOutAreaSize =
-                            max(call->GetInfo()->GetNextSlotNum() * REGSIZE_BYTES, MIN_ARG_AREA_FOR_CALL);
-
-                        if (thisCallOutAreaSize > outgoingArgSpaceSize)
-                        {
-                            outgoingArgSpaceSize = thisCallOutAreaSize;
-                            JITDUMP("Bumping outgoingArgSpaceSize to %u for call [%06d]\n", outgoingArgSpaceSize,
-                                    dspTreeID(tree));
-                        }
-                        else
-                        {
-                            JITDUMP("outgoingArgSpaceSize %u sufficient for call [%06d], which needs %u\n",
-                                    outgoingArgSpaceSize, dspTreeID(tree), thisCallOutAreaSize);
-                        }
-                    }
-                    else
-                    {
-                        JITDUMP("outgoingArgSpaceSize not impacted by fast tail call [%06d]\n", dspTreeID(tree));
-                    }
-                    break;
-                }
-#endif // FEATURE_FIXED_OUT_ARGS
-
                 default:
                 {
                     // No other operators need processing.
@@ -2493,42 +2449,6 @@ void Compiler::fgSimpleLowering()
             } // switch on oper
         }     // foreach tree
     }         // foreach BB
-
-#if FEATURE_FIXED_OUT_ARGS
-    // Finish computing the outgoing args area size
-    //
-    // Need to make sure the MIN_ARG_AREA_FOR_CALL space is added to the frame if:
-    // 1. there are calls to THROW_HEPLPER methods.
-    // 2. we are generating profiling Enter/Leave/TailCall hooks. This will ensure
-    //    that even methods without any calls will have outgoing arg area space allocated.
-    //
-    // An example for these two cases is Windows Amd64, where the ABI requires to have 4 slots for
-    // the outgoing arg space if the method makes any calls.
-    if (outgoingArgSpaceSize < MIN_ARG_AREA_FOR_CALL)
-    {
-        if (compUsesThrowHelper || compIsProfilerHookNeeded())
-        {
-            outgoingArgSpaceSize = MIN_ARG_AREA_FOR_CALL;
-            JITDUMP("Bumping outgoingArgSpaceSize to %u for throw helper or profile hook", outgoingArgSpaceSize);
-        }
-    }
-
-    // If a function has localloc, we will need to move the outgoing arg space when the
-    // localloc happens. When we do this, we need to maintain stack alignment. To avoid
-    // leaving alignment-related holes when doing this move, make sure the outgoing
-    // argument space size is a multiple of the stack alignment by aligning up to the next
-    // stack alignment boundary.
-    if (compLocallocUsed)
-    {
-        outgoingArgSpaceSize = roundUp(outgoingArgSpaceSize, STACK_ALIGN);
-        JITDUMP("Bumping outgoingArgSpaceSize to %u for localloc", outgoingArgSpaceSize);
-    }
-
-    assert(outgoingArgSpaceSize % REGSIZE_BYTES == 0);
-
-    codeGen->outgoingArgSpaceSize.SetFinalValue(outgoingArgSpaceSize);
-    lvaGetDesc(lvaOutgoingArgSpaceVar)->SetBlockType(outgoingArgSpaceSize);
-#endif // FEATURE_FIXED_OUT_ARGS
 
 #ifdef DEBUG
     if (verbose)

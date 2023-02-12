@@ -24,6 +24,9 @@ class Lowering final : public Phase<Lowering>
     SideEffectSet m_scratchSideEffects; // SideEffectSet used for IsSafeToContainMem and isRMWIndirCandidate
     BasicBlock*   m_block;
     unsigned      vtableCallTemp = BAD_VAR_NUM; // local variable we use as a temp for vtable calls
+#if FEATURE_FIXED_OUT_ARGS
+    unsigned outgoingArgAreaSize = 0;
+#endif
 #ifdef FEATURE_HW_INTRINSICS
 #ifdef TARGET_ARM64
     unsigned m_simd8MemoryTemp = BAD_VAR_NUM;
