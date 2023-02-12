@@ -2923,8 +2923,6 @@ BasicBlock* Compiler::fgGetThrowHelperBlock(ThrowHelperKind kind, BasicBlock* th
 
 BasicBlock* Compiler::fgGetThrowHelperBlock(ThrowHelperKind kind, BasicBlock* throwBlock, unsigned throwIndex)
 {
-    assert(!throwBlock->isEmpty());
-
     // Record that the function will have a throw helper call so on win-x64 we allocate
     // the 4 outgoing arg slots on the stack frame even if there are no other calls.
     compUsesThrowHelper = true;
@@ -2940,6 +2938,13 @@ BasicBlock* Compiler::fgGetThrowHelperBlock(ThrowHelperKind kind, BasicBlock* th
     {
         return existing->block;
     }
+
+    // We can't assert before searching for an existing block, loop hoisting
+    // clones and morphs statement trees before adding them to the pre-header
+    // so the pre-header block may be empty when this is called. Since loop
+    // hoisting just clones existing node we can't reach this assert code,
+    // the throw helper block should already exist.
+    assert(!throwBlock->isEmpty());
 
     BasicBlock* helperBlock = fgNewBBinRegion(BBJ_THROW, throwBlock, /* runRarely */ true, /* insertAtEnd */ true);
     // There are no explicit jumps to this block so optimizations could remove it as dead.
